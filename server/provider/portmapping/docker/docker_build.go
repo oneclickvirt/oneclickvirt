@@ -184,7 +184,7 @@ func (d *DockerPortMapping) getSSHClient(providerInfo *provider.Provider) (*util
 		// 使用基础配置
 		authConfig = provider.ProviderAuthConfig{
 			SSH: &provider.SSHConfig{
-				Host:       strings.Split(providerInfo.Endpoint, ":")[0], // 从endpoint提取host
+				Host:       utils.ExtractHost(providerInfo.Endpoint),
 				Port:       providerInfo.SSHPort,
 				Username:   providerInfo.Username,
 				Password:   providerInfo.Password,

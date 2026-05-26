@@ -10,7 +10,7 @@ import (
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/images"
 	provider2 "oneclickvirt/service/provider"
-	"strings"
+	"oneclickvirt/utils"
 	"time"
 
 	"go.uber.org/zap"
@@ -134,7 +134,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 	}
 
 	// 解析endpoint获取主机
-	host := strings.Split(localEndpoint, ":")[0]
+	host := utils.ExtractHost(localEndpoint)
 
 	global.APP_LOG.Debug("开始检查Provider健康状态",
 		zap.Uint("providerId", localProviderID),

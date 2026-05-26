@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
+	"oneclickvirt/utils"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -124,9 +125,12 @@ func ResolveProviderSSHTarget(provider *providerModel.Provider) (*SSHAccessTarge
 	if provider.ConnectionType == "agent" {
 		target.UseAgentTunnel = true
 		target.Host = "127.0.0.1"
-		target.Port = 22
+		target.Port = provider.SSHPort
+		if target.Port == 0 {
+			target.Port = 22
+		}
 	} else {
-		target.Host = provider.Endpoint
+		target.Host = utils.ExtractHost(provider.Endpoint)
 		target.Port = provider.SSHPort
 		if target.Port == 0 {
 			target.Port = 22

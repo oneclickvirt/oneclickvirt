@@ -452,7 +452,7 @@ func (p *PodmanPortMapping) getSSHClient(providerInfo *provider.Provider) (*util
 	} else {
 		authConfig = provider.ProviderAuthConfig{
 			SSH: &provider.SSHConfig{
-				Host:       strings.Split(providerInfo.Endpoint, ":")[0],
+				Host:       utils.ExtractHost(providerInfo.Endpoint),
 				Port:       providerInfo.SSHPort,
 				Username:   providerInfo.Username,
 				Password:   providerInfo.Password,

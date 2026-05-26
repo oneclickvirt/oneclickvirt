@@ -781,6 +781,8 @@ export default {
   // Web Terminal
   webTerminal: "Web Terminal",
   webTerminalTip: "SSH mode executes commands via SSH; Agent mode sends commands via WebSocket.",
+  providerSftpUnavailableTitle: "SFTP unavailable",
+  providerSftpUnavailableTip: "This node does not have an SSH username and credential configured, so terminal access is available but SFTP is not.",
   execCommand: "Execute Command",
   execCommandPlaceholder: "Enter command to execute (press Enter to send)...",
   execRun: "Run",

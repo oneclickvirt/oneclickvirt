@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,60 +18,60 @@ import (
 // ParseEndpoint 解析endpoint获取host和port
 // 如果endpoint包含端口，提取主机和端口；否则使用默认端口
 func ParseEndpoint(endpoint string, defaultPort int) (string, int) {
-	host := endpoint
-	port := defaultPort
+	trimmed := strings.TrimSpace(endpoint)
+	if trimmed == "" {
+		return "", defaultPort
+	}
 
-	// 如果endpoint包含端口，提取主机和端口
-	if strings.Contains(host, ":") {
-		parts := strings.Split(host, ":")
-		host = parts[0]
-		if len(parts) > 1 {
-			if p, err := strconv.Atoi(parts[1]); err == nil {
-				port = p
+	if strings.Contains(trimmed, "://") {
+		if parsed, err := url.Parse(trimmed); err == nil {
+			host := strings.TrimSpace(parsed.Hostname())
+			if host != "" {
+				if portStr := parsed.Port(); portStr != "" {
+					if port, err := strconv.Atoi(portStr); err == nil {
+						return host, port
+					}
+				}
+				return host, defaultPort
 			}
 		}
 	}
 
-	return host, port
+	if host, portStr, err := net.SplitHostPort(trimmed); err == nil {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			return strings.Trim(host, "[]"), port
+		}
+		return strings.Trim(host, "[]"), defaultPort
+	}
+
+	unwrapped := strings.Trim(trimmed, "[]")
+	if ip := net.ParseIP(unwrapped); ip != nil {
+		return unwrapped, defaultPort
+	}
+
+	if strings.Count(trimmed, ":") == 1 {
+		host, portStr, ok := strings.Cut(trimmed, ":")
+		if ok {
+			if port, err := strconv.Atoi(portStr); err == nil {
+				return strings.Trim(host, "[]"), port
+			}
+		}
+	}
+
+	return unwrapped, defaultPort
 }
 
 // ExtractHost 从endpoint中提取主机地址（全局统一函数）
 func ExtractHost(endpoint string) string {
-	if strings.Contains(endpoint, "://") {
-		parts := strings.Split(endpoint, "://")
-		if len(parts) > 1 {
-			hostPort := parts[1]
-			if strings.Contains(hostPort, ":") {
-				hostParts := strings.Split(hostPort, ":")
-				return hostParts[0]
-			}
-			return hostPort
-		}
-	}
-
-	// 如果没有协议前缀，直接返回主机部分
-	if strings.Contains(endpoint, ":") {
-		parts := strings.Split(endpoint, ":")
-		return parts[0]
-	}
-
-	return endpoint
+	host, _ := ParseEndpoint(endpoint, 0)
+	return host
 }
 
 // ExtractIPFromEndpoint 从endpoint中提取纯IP地址（移除端口号）（全局统一函数）
 // 用于从 "192.168.1.1:22" 或 "192.168.1.1" 格式的endpoint中提取IP地址
 func ExtractIPFromEndpoint(endpoint string) string {
-	// 移除端口号部分，只保留IP
-	if colonIndex := strings.LastIndex(endpoint, ":"); colonIndex > 0 {
-		// 检查是否是IPv6地址
-		if strings.Count(endpoint, ":") > 1 && !strings.HasPrefix(endpoint, "[") {
-			// IPv6地址，返回原样
-			return endpoint
-		}
-		// IPv4地址，移除端口部分
-		return endpoint[:colonIndex]
-	}
-	return endpoint
+	host, _ := ParseEndpoint(endpoint, 0)
+	return host
 }
 
 // ValidatePortRange 验证端口范围的合法性（全局统一函数）

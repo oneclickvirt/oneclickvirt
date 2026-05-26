@@ -15,6 +15,8 @@
         :key="terminalKey"
         :provider-id="row.id"
         :provider-name="row.name"
+        :provider-username="row.username || ''"
+        :provider-auth-method="row.authMethod || ''"
       />
     </div>
     <template #footer>

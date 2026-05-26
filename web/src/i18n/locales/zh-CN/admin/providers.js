@@ -780,6 +780,8 @@ export default {
   // Web 终端
   webTerminal: "Web 终端",
   webTerminalTip: "SSH模式通过SSH连接执行命令，Agent模式通过WebSocket发送命令。",
+  providerSftpUnavailableTitle: "SFTP 不可用",
+  providerSftpUnavailableTip: "当前节点未配置 SSH 用户名和认证凭据，因此仅可使用终端，不能使用 SFTP。",
   execCommand: "执行命令",
   execCommandPlaceholder: "输入要执行的命令（回车发送）...",
   execRun: "执行",

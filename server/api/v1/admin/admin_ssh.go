@@ -52,7 +52,7 @@ var adminUpgrader = websocket.Upgrader{
 // @Failure 401 {object} common.Response "未授权"
 // @Failure 404 {object} common.Response "实例不存在"
 // @Failure 500 {object} common.Response "服务器错误"
-// @Router /v1/admin/instances/{id}/ssh [get]
+// @Router /api/v1/admin/instances/{id}/ssh [get]
 func AdminSSHWebSocket(c *gin.Context) {
 	// 获取实例ID
 	instanceID := c.Param("id")

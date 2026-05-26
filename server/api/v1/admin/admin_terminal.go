@@ -201,8 +201,13 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider, ctx cont
 		return
 	}
 
+	sshPort := p.SSHPort
+	if sshPort == 0 {
+		sshPort = 22
+	}
+
 	// SSH 隧道模式：通过 Agent WebSocket 隧道连接 Provider 的 SSH
-	tunnelConn, err := agentService.OpenTunnelConn(p.ID, "127.0.0.1", 22)
+	tunnelConn, err := agentService.OpenTunnelConn(p.ID, "127.0.0.1", sshPort)
 	if err != nil {
 		ws.WriteMessage(websocket.TextMessage, []byte("Agent 隧道建立失败: "+err.Error()+"\r\n"))
 		return
@@ -356,14 +361,16 @@ func handleSSHTerminal(ws *websocket.Conn, p *providerModel.Provider, ctx contex
 		sshPort = 22
 	}
 
+	sshHost := utils.ExtractHost(p.Endpoint)
+
 	var client *ssh.Client
 	var session *ssh.Session
 	var err error
 
 	if p.SSHKey != "" {
-		client, session, err = utils.CreateSSHConnectionWithKey(p.Endpoint, sshPort, p.Username, p.SSHKey)
+		client, session, err = utils.CreateSSHConnectionWithKey(sshHost, sshPort, p.Username, p.SSHKey)
 	} else {
-		client, session, err = utils.CreateSSHConnection(p.Endpoint, sshPort, p.Username, p.Password)
+		client, session, err = utils.CreateSSHConnection(sshHost, sshPort, p.Username, p.Password)
 	}
 	if err != nil {
 		ws.WriteMessage(websocket.TextMessage, []byte("SSH 连接失败: "+err.Error()+"\r\n"))

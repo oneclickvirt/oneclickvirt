@@ -1,5 +1,13 @@
 <template>
   <div class="admin-terminal-container">
+    <el-alert
+      v-if="!supportsSFTP"
+      :title="t('admin.providers.providerSftpUnavailableTitle')"
+      :description="t('admin.providers.providerSftpUnavailableTip')"
+      type="info"
+      :closable="false"
+      class="remote-connect-alert"
+    />
     <el-tabs v-model="activeView">
       <el-tab-pane
         label="Terminal"
@@ -11,6 +19,7 @@
         />
       </el-tab-pane>
       <el-tab-pane
+        v-if="supportsSFTP"
         label="SFTP"
         name="sftp"
       >
@@ -24,7 +33,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -36,7 +45,9 @@ const { t } = useI18n()
 
 const props = defineProps({
   providerId: { type: [Number, String], required: true },
-  providerName: { type: String, default: '' }
+  providerName: { type: String, default: '' },
+  providerUsername: { type: String, default: '' },
+  providerAuthMethod: { type: String, default: '' }
 })
 
 const emit = defineEmits(['close'])
@@ -48,6 +59,10 @@ let fitAddon = null
 let websocket = null
 let resizeObserver = null
 let isCleanedUp = false
+
+const supportsSFTP = computed(() => {
+  return Boolean(props.providerUsername && props.providerAuthMethod)
+})
 
 onMounted(() => nextTick(() => initTerminal()))
 
@@ -243,6 +258,12 @@ watch(activeView, (view) => {
     try { ws.close(1000, 'Switch to SFTP') } catch {}
   }
 })
+
+watch(supportsSFTP, (enabled) => {
+  if (!enabled && activeView.value === 'sftp') {
+    activeView.value = 'terminal'
+  }
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -253,6 +274,10 @@ watch(activeView, (view) => {
   padding: 10px;
   border-radius: 4px;
   overflow: hidden;
+}
+
+.remote-connect-alert {
+  margin-bottom: 10px;
 }
 
 :deep(.el-tabs) {

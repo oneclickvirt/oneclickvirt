@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -77,7 +78,7 @@ func (cs *CertService) autoConfigureLXD(provider *provider.Provider) error {
 	}
 
 	// 5. 构建API端点
-	endpoint := fmt.Sprintf("https://%s:8443", strings.Split(provider.Endpoint, ":")[0])
+	endpoint := fmt.Sprintf("https://%s", net.JoinHostPort(utils.ExtractHost(provider.Endpoint), "8443"))
 
 	// 6. 创建认证配置
 	configService := &ProviderConfigService{}
@@ -120,7 +121,7 @@ func (cs *CertService) autoConfigureIncus(provider *provider.Provider) error {
 	}
 
 	// 5. 构建API端点
-	endpoint := fmt.Sprintf("https://%s:8443", strings.Split(provider.Endpoint, ":")[0])
+	endpoint := fmt.Sprintf("https://%s", net.JoinHostPort(utils.ExtractHost(provider.Endpoint), "8443"))
 
 	// 6. 创建认证配置
 	configService := &ProviderConfigService{}
@@ -155,7 +156,7 @@ func (cs *CertService) autoConfigureProxmox(provider *provider.Provider) error {
 	}
 
 	// 3. 构建API端点
-	endpoint := fmt.Sprintf("https://%s:8006", strings.Split(provider.Endpoint, ":")[0])
+	endpoint := fmt.Sprintf("https://%s", net.JoinHostPort(utils.ExtractHost(provider.Endpoint), "8006"))
 
 	// 4. 创建认证配置
 	configService := &ProviderConfigService{}
@@ -196,7 +197,7 @@ func (cs *CertService) autoConfigureLXDWithStream(provider *provider.Provider, o
 	outputChan <- "✅ 私钥内容读取成功"
 
 	outputChan <- "第5步: 保存配置到数据库和文件"
-	endpoint := fmt.Sprintf("https://%s:8443", strings.Split(provider.Endpoint, ":")[0])
+	endpoint := fmt.Sprintf("https://%s", net.JoinHostPort(utils.ExtractHost(provider.Endpoint), "8443"))
 	configService := &ProviderConfigService{}
 	authConfig := configService.CreateAuthConfigFromCertInfo(provider, &CertInfo{
 		CertPath:        certInfo.CertPath,
@@ -246,7 +247,7 @@ func (cs *CertService) autoConfigureIncusWithStream(provider *provider.Provider,
 	outputChan <- "✅ 私钥内容读取成功"
 
 	outputChan <- "第5步: 保存配置到数据库和文件"
-	endpoint := fmt.Sprintf("https://%s:8443", strings.Split(provider.Endpoint, ":")[0])
+	endpoint := fmt.Sprintf("https://%s", net.JoinHostPort(utils.ExtractHost(provider.Endpoint), "8443"))
 	configService := &ProviderConfigService{}
 	authConfig := configService.CreateAuthConfigFromCertInfo(provider, &CertInfo{
 		CertPath:        certInfo.CertPath,
@@ -286,7 +287,7 @@ func (cs *CertService) autoConfigureProxmoxWithStream(provider *provider.Provide
 	outputChan <- fmt.Sprintf("✅ Token信息获取成功: %s", tokenInfo.TokenID)
 
 	outputChan <- "第4步: 保存配置到数据库和文件"
-	endpoint := fmt.Sprintf("https://%s:8006", strings.Split(provider.Endpoint, ":")[0])
+	endpoint := fmt.Sprintf("https://%s", net.JoinHostPort(utils.ExtractHost(provider.Endpoint), "8006"))
 	configService := &ProviderConfigService{}
 	authConfig := configService.CreateAuthConfigFromTokenInfo(provider, tokenInfo, endpoint)
 

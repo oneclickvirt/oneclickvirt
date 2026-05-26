@@ -355,8 +355,8 @@ func (p *Provider) GetTrafficStatsConfig() TrafficStatsPreset {
 	}
 }
 
-// GetAuthMethod 返回当前使用的认证方式
-// 返回 "password" 或 "sshKey"
+// GetAuthMethod 返回当前使用的认证方式。
+// 当节点未配置 SSH 凭据时返回空字符串。
 func (p *Provider) GetAuthMethod() string {
 	// SSH密钥优先
 	if p.SSHKey != "" {
@@ -365,8 +365,7 @@ func (p *Provider) GetAuthMethod() string {
 	if p.Password != "" {
 		return "password"
 	}
-	// 默认返回password（理论上不应该出现两者都为空的情况）
-	return "password"
+	return ""
 }
 
 // Instance 实例模型
@@ -632,7 +631,8 @@ type ProviderNodeConfig struct {
 }
 
 // ProviderResponse 用于返回给前端的Provider响应结构
-// 包含认证方式标识，但不包含敏感的密码和SSH密钥内容
+// 包含认证方式标识，但不包含敏感的密码和SSH密钥内容。
+// 当节点未配置 SSH 凭据时，AuthMethod 为空字符串。
 type ProviderResponse struct {
 	Provider
 	AuthMethod string `json:"authMethod"` // 当前使用的认证方式: "password" 或 "sshKey"

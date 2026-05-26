@@ -55,7 +55,7 @@ func getExecCommand(providerType constant.ProviderType, instanceName string) (st
 // @Failure 401 {object} common.Response "未授权"
 // @Failure 404 {object} common.Response "实例不存在"
 // @Failure 500 {object} common.Response "服务器错误"
-// @Router /v1/user/instances/{id}/exec [get]
+// @Router /api/v1/user/instances/{id}/exec [get]
 func ExecWebSocket(c *gin.Context) {
 	userIDInterface, exists := c.Get("user_id")
 	if !exists {

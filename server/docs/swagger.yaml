@@ -5831,6 +5831,43 @@ paths:
       summary: 管理员实例SFTP上传状态
       tags:
       - 管理员/实例
+  /api/v1/admin/instances/{id}/ssh:
+    get:
+      consumes:
+      - application/json
+      description: 管理员通过WebSocket建立到任意实例的SSH连接
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员WebSocket SSH连接
+      tags:
+      - 管理员/实例
   /api/v1/admin/logs/cleanup:
     post:
       consumes:
@@ -6379,6 +6416,58 @@ paths:
       summary: 管理员节点SFTP上传状态
       tags:
       - 管理员/Provider
+  /api/v1/admin/providers/{provider_id}/traffic/history:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定Provider的历史流量数据，支持5分钟到24小时的灵活时间范围
+      parameters:
+      - description: Provider ID
+        in: path
+        name: provider_id
+        required: true
+        type: integer
+      - default: 1h
+        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
+        in: query
+        name: period
+        type: string
+      - default: 0
+        description: 数据点间隔（分钟），0表示自动选择
+        in: query
+        name: interval
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/monitoring.ProviderTrafficHistory'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider流量历史
+      tags:
+      - 流量管理-管理员
   /api/v1/admin/storage/cleanup:
     post:
       consumes:
@@ -6628,6 +6717,43 @@ paths:
       summary: 获取用户流量排行榜
       tags:
       - 管理员流量
+  /api/v1/user/instances/{id}/exec:
+    get:
+      consumes:
+      - application/json
+      description: 通过WebSocket建立到容器的交互式终端连接(exec)
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: WebSocket Container Exec
+      tags:
+      - 用户/实例
   /api/v1/user/instances/{id}/sftp/download:
     get:
       description: 下载用户实例上的远程文件
@@ -6779,6 +6905,147 @@ paths:
       summary: 用户实例SFTP上传状态
       tags:
       - 用户/实例
+  /api/v1/user/instances/{id}/ssh:
+    get:
+      consumes:
+      - application/json
+      description: 通过WebSocket建立到实例的SSH连接
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: WebSocket SSH连接
+      tags:
+      - 用户/实例
+  /api/v1/user/instances/{instance_id}/traffic/history:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定实例的历史流量数据，支持5分钟到24小时的灵活时间范围
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instance_id
+        required: true
+        type: integer
+      - default: 1h
+        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
+        in: query
+        name: period
+        type: string
+      - default: 0
+        description: '数据点间隔（分钟），0表示自动选择，可选: 5, 15, 30, 60'
+        in: query
+        name: interval
+        type: integer
+      - default: false
+        description: 是否包含已归档数据（重置前的历史记录）
+        in: query
+        name: includeArchived
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/monitoring.InstanceTrafficHistory'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例流量历史
+      tags:
+      - 流量管理
+  /api/v1/user/traffic/history:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前用户的历史流量数据，支持5分钟到24小时的灵活时间范围
+      parameters:
+      - default: 1h
+        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
+        in: query
+        name: period
+        type: string
+      - default: 0
+        description: 数据点间隔（分钟），0表示自动选择
+        in: query
+        name: interval
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/monitoring.UserTrafficHistory'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取用户流量历史
+      tags:
+      - 流量管理
   /api/v1/user/traffic/instance/{instanceId}:
     get:
       consumes:
@@ -9196,43 +9463,6 @@ paths:
       summary: 取消用户任务
       tags:
       - 用户管理
-  /v1/admin/instances/{id}/ssh:
-    get:
-      consumes:
-      - application/json
-      description: 管理员通过WebSocket建立到任意实例的SSH连接
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "101":
-          description: Switching Protocols
-          schema:
-            type: string
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "404":
-          description: 实例不存在
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 服务器错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员WebSocket SSH连接
-      tags:
-      - 管理员/实例
   /v1/admin/providers/{id}/agent-secret:
     post:
       description: 为 agent 连接模式的 Provider 生成新的鉴权密钥（仅首次），后续调用只返回已有密钥。密钥一旦创建即写死，需删除Provider重建才能刷新。
@@ -9284,236 +9514,6 @@ paths:
       summary: 获取节点上已停止的容器列表（用于复制模式）
       tags:
       - admin/providers
-  /v1/admin/providers/{provider_id}/traffic/history:
-    get:
-      consumes:
-      - application/json
-      description: 获取指定Provider的历史流量数据，支持5分钟到24小时的灵活时间范围
-      parameters:
-      - description: Provider ID
-        in: path
-        name: provider_id
-        required: true
-        type: integer
-      - default: 1h
-        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
-        in: query
-        name: period
-        type: string
-      - default: 0
-        description: 数据点间隔（分钟），0表示自动选择
-        in: query
-        name: interval
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/monitoring.ProviderTrafficHistory'
-                  type: array
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取Provider流量历史
-      tags:
-      - 流量管理-管理员
-  /v1/user/instances/{id}/exec:
-    get:
-      consumes:
-      - application/json
-      description: 通过WebSocket建立到容器的交互式终端连接(exec)
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "101":
-          description: Switching Protocols
-          schema:
-            type: string
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "404":
-          description: 实例不存在
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 服务器错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: WebSocket Container Exec
-      tags:
-      - 用户/实例
-  /v1/user/instances/{id}/ssh:
-    get:
-      consumes:
-      - application/json
-      description: 通过WebSocket建立到实例的SSH连接
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "101":
-          description: Switching Protocols
-          schema:
-            type: string
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "404":
-          description: 实例不存在
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 服务器错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: WebSocket SSH连接
-      tags:
-      - 用户/实例
-  /v1/user/instances/{instance_id}/traffic/history:
-    get:
-      consumes:
-      - application/json
-      description: 获取指定实例的历史流量数据，支持5分钟到24小时的灵活时间范围
-      parameters:
-      - description: 实例ID
-        in: path
-        name: instance_id
-        required: true
-        type: integer
-      - default: 1h
-        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
-        in: query
-        name: period
-        type: string
-      - default: 0
-        description: '数据点间隔（分钟），0表示自动选择，可选: 5, 15, 30, 60'
-        in: query
-        name: interval
-        type: integer
-      - default: false
-        description: 是否包含已归档数据（重置前的历史记录）
-        in: query
-        name: includeArchived
-        type: boolean
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/monitoring.InstanceTrafficHistory'
-                  type: array
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取实例流量历史
-      tags:
-      - 流量管理
-  /v1/user/traffic/history:
-    get:
-      consumes:
-      - application/json
-      description: 获取当前用户的历史流量数据，支持5分钟到24小时的灵活时间范围
-      parameters:
-      - default: 1h
-        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
-        in: query
-        name: period
-        type: string
-      - default: 0
-        description: 数据点间隔（分钟），0表示自动选择
-        in: query
-        name: interval
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/monitoring.UserTrafficHistory'
-                  type: array
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取用户流量历史
-      tags:
-      - 流量管理
   /v1/ws/agent:
     get:
       description: Rust Agent 通过此端点主动连回控制端，支持内网穿透模式
