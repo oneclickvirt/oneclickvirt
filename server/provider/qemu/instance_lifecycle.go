@@ -119,8 +119,10 @@ func (p *QEMUProvider) RestartInstance(ctx context.Context, id string) error {
 func (p *QEMUProvider) DeleteInstance(ctx context.Context, id string) error {
 	maxAttempts := 3
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if !p.connected {
-			if err := p.Connect(ctx, p.config); err != nil {
+		if !p.connected || p.sshClient == nil {
+			// 使用 EnsureConnection 重连（SSH模式重建TCP连接，Agent模式重建WebSocket）
+			// 避免在 Agent 模式下错误调用 Connect（无直接 SSH 端点）
+			if err := p.EnsureConnection(); err != nil {
 				if attempt == maxAttempts {
 					return fmt.Errorf("重连失败: %w", err)
 				}

@@ -118,7 +118,13 @@ func (p *KubeVirtProvider) sshListInstances(ctx context.Context) ([]provider.Ins
 			Type:   "vm",
 			Status: status,
 			CPU:    fmt.Sprintf("%d", item.Spec.Template.Spec.Domain.CPU.Cores),
-			Memory: item.Spec.Template.Spec.Domain.Resources.Requests.Memory,
+		}
+		// 将 K8s 内存字符串（如 "512Mi", "1Gi"）转换为 MB 整数字符串，与其他 Provider 保持一致
+		rawMem := item.Spec.Template.Spec.Domain.Resources.Requests.Memory
+		if memMB := parseMemoryString(rawMem); memMB > 0 {
+			inst.Memory = fmt.Sprintf("%d", memMB)
+		} else {
+			inst.Memory = rawMem
 		}
 
 		instances = append(instances, inst)
@@ -143,11 +149,11 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 	if cpu <= 0 {
 		cpu = 1
 	}
-	memoryGB, _ := strconv.Atoi(config.Memory)
-	if memoryGB <= 0 {
-		memoryGB = 1
+	memoryMB := parseConfigMB(config.Memory)
+	if memoryMB <= 0 {
+		memoryMB = 512
 	}
-	diskGB, _ := strconv.Atoi(config.Disk)
+	diskGB := parseConfigGB(config.Disk)
 	if diskGB <= 0 {
 		diskGB = 10
 	}
@@ -303,7 +309,7 @@ spec:
           cores: %d
         resources:
           requests:
-            memory: "%dGi"
+            memory: "%dMi"
         devices:
           disks:
             - name: datavolumedisk
@@ -341,7 +347,7 @@ spec:
                 - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
                 - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true`,
 		config.Name, Namespace, config.Name, config.Name,
-		cpu, memoryGB,
+		cpu, memoryMB,
 		dvName, config.Name, password)
 
 	vmCmd := fmt.Sprintf("cat << 'VMEOF' | kubectl apply -f - 2>&1\n%s\nVMEOF", vmYAML)
@@ -422,7 +428,7 @@ spec:
 
 	// 写入vmlog（不写入密码）
 	logCmd := fmt.Sprintf("echo '%s %d %s %d %d %d %d %d %s' >> /root/vmlog",
-		utils.SanitizeShellArg(config.Name), sshPort, "***", cpu, memoryGB, diskGB, startPort, endPort, system)
+		utils.SanitizeShellArg(config.Name), sshPort, "***", cpu, memoryMB, diskGB, startPort, endPort, system)
 	p.sshClient.Execute(logCmd)
 
 	updateProgress(100, "KubeVirt虚拟机创建完成")
@@ -450,4 +456,45 @@ func mapKubeVirtStatus(status string) string {
 	default:
 		return "unknown"
 	}
+}
+
+// parseConfigMB 解析实例配置中的内存/磁盘字符串为MB数值
+// 支持格式: "512m", "512M", "512MB", "1g", "1G", "1GB", "512"（纯数字视为MB）
+func parseConfigMB(s string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	lower := strings.ToLower(s)
+	switch {
+	case strings.HasSuffix(lower, "mb"):
+		n, _ := strconv.Atoi(strings.TrimSuffix(lower, "mb"))
+		return n
+	case strings.HasSuffix(lower, "m"):
+		n, _ := strconv.Atoi(strings.TrimSuffix(lower, "m"))
+		return n
+	case strings.HasSuffix(lower, "gb"):
+		n, _ := strconv.Atoi(strings.TrimSuffix(lower, "gb"))
+		return n * 1024
+	case strings.HasSuffix(lower, "g"):
+		n, _ := strconv.Atoi(strings.TrimSuffix(lower, "g"))
+		return n * 1024
+	default:
+		n, _ := strconv.Atoi(s)
+		return n
+	}
+}
+
+// parseConfigGB 解析实例配置中的磁盘字符串为GB数值（向上取整）
+// 支持格式: "10240m", "10g", "10G", "10"（纯数字视为MB）
+func parseConfigGB(s string) int {
+	mb := parseConfigMB(s)
+	if mb <= 0 {
+		return 0
+	}
+	gb := (mb + 1023) / 1024
+	if gb < 1 {
+		gb = 1
+	}
+	return gb
 }

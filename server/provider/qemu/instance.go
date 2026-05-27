@@ -136,11 +136,11 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	if cpu <= 0 {
 		cpu = 1
 	}
-	memoryMB, _ := strconv.Atoi(config.Memory)
+	memoryMB := parseConfigMB(config.Memory)
 	if memoryMB <= 0 {
 		memoryMB = 512
 	}
-	diskGB, _ := strconv.Atoi(config.Disk)
+	diskGB := parseConfigGB(config.Disk)
 	if diskGB <= 0 {
 		diskGB = 10
 	}
@@ -253,11 +253,16 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	}
 	vmMAC := strings.TrimSpace(macOutput)
 
-	// 分配静态 IP（从 192.168.122.2 ~ 192.168.122.254 中找空闲的）
+	// 分配静态 IP（加锁保证并发安全，从 192.168.122.2 ~ 192.168.122.254 中找空闲的）
+	p.ipMu.Lock()
 	vmIP, err := p.allocateIP()
 	if err != nil {
+		p.ipMu.Unlock()
 		return fmt.Errorf("failed to allocate IP: %w", err)
 	}
+	// 立即写入 DHCP 预留，防止并发任务分配到相同IP
+	p.setupDHCPReservation(config.Name, vmMAC, vmIP)
+	p.ipMu.Unlock()
 
 	global.APP_LOG.Info("VM 网络配置",
 		zap.String("name", config.Name),
@@ -284,12 +289,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 		return fmt.Errorf("failed to create cloud-init ISO: %w", err)
 	}
 
-	updateProgress(50, "设置 DHCP 预留")
-
-	// 在 libvirt default 网络中设置 DHCP 固定 IP
-	p.setupDHCPReservation(config.Name, vmMAC, vmIP)
-
-	updateProgress(55, "配置端口转发")
+	updateProgress(50, "配置端口转发")
 
 	// 配置防火墙端口转发
 	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
@@ -411,6 +411,10 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	if !vmStarted {
 		return fmt.Errorf("VM '%s' did not start within 60 seconds", config.Name)
 	}
+
+	// cloud-init ISO 仅首次启动时需要，启动成功后分离并删除以节省磁盘空间
+	p.sshClient.Execute(fmt.Sprintf("virsh detach-disk '%s' sdb --persistent 2>/dev/null || true", config.Name))
+	p.sshClient.Execute(fmt.Sprintf("rm -f '%s' 2>/dev/null || true", ciISO))
 
 	updateProgress(95, "虚拟机创建完成")
 
@@ -646,4 +650,45 @@ func parseKiBValue(value string) (int64, error) {
 		return 0, fmt.Errorf("empty value")
 	}
 	return strconv.ParseInt(parts[0], 10, 64)
+}
+
+// parseConfigMB 解析实例配置中的内存/磁盘字符串为MB数值
+// 支持格式: "512m", "512M", "512MB", "1g", "1G", "1GB", "512"（纯数字视为MB）
+func parseConfigMB(s string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	lower := strings.ToLower(s)
+	switch {
+	case strings.HasSuffix(lower, "mb"):
+		n, _ := strconv.Atoi(strings.TrimSuffix(lower, "mb"))
+		return n
+	case strings.HasSuffix(lower, "m"):
+		n, _ := strconv.Atoi(strings.TrimSuffix(lower, "m"))
+		return n
+	case strings.HasSuffix(lower, "gb"):
+		n, _ := strconv.Atoi(strings.TrimSuffix(lower, "gb"))
+		return n * 1024
+	case strings.HasSuffix(lower, "g"):
+		n, _ := strconv.Atoi(strings.TrimSuffix(lower, "g"))
+		return n * 1024
+	default:
+		n, _ := strconv.Atoi(s)
+		return n
+	}
+}
+
+// parseConfigGB 解析实例配置中的磁盘字符串为GB数值（向上取整）
+// 支持格式: "10240m", "10g", "10G", "10" （纯数字视为MB）
+func parseConfigGB(s string) int {
+	mb := parseConfigMB(s)
+	if mb <= 0 {
+		return 0
+	}
+	gb := (mb + 1023) / 1024
+	if gb < 1 {
+		gb = 1
+	}
+	return gb
 }

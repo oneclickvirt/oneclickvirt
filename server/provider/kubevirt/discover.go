@@ -74,6 +74,9 @@ func (p *KubeVirtProvider) DiscoverInstances(ctx context.Context) ([]provider.Di
 	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, "")
 	fwMgr.DetectBackend(FWBackendFile)
 
+	// 一次性获取所有 Service，避免 N+1 问题（每个VM不再单独查询）
+	allSvcs := p.fetchAllServices()
+
 	var discovered []provider.DiscoveredInstance
 
 	for _, item := range vmList.Items {
@@ -104,8 +107,8 @@ func (p *KubeVirtProvider) DiscoverInstances(ctx context.Context) ([]provider.Di
 			}
 		}
 
-		// 获取端口映射 - 优先从NodePort Service发现，再补充防火墙DNAT规则
-		inst.PortMappings = p.discoverPortMappings(ctx, item.Metadata.Name)
+		// 获取端口映射 - 从预取的 Service 列表中过滤，再补充防火墙DNAT规则
+		inst.PortMappings = filterPortMappings(allSvcs, item.Metadata.Name)
 
 		// 补充通过防火墙发现的DNAT规则
 		fwRules := fwMgr.DiscoverDNATRules(item.Metadata.Name)
@@ -142,16 +145,26 @@ func (p *KubeVirtProvider) DiscoverInstances(ctx context.Context) ([]provider.Di
 	return discovered, nil
 }
 
-// discoverPortMappings 发现VM的端口映射（NodePort Service）
-func (p *KubeVirtProvider) discoverPortMappings(ctx context.Context, vmName string) []provider.DiscoveredPortMapping {
+// svcItem 内部用于保存解析后的 Service 条目
+type svcItem struct {
+	Name  string
+	Ports []struct {
+		Name       string `json:"name"`
+		NodePort   int    `json:"nodePort"`
+		TargetPort int    `json:"targetPort"`
+		Protocol   string `json:"protocol"`
+	}
+}
+
+// fetchAllServices 一次性获取命名空间内所有 Service 并解析，供 filterPortMappings 使用
+func (p *KubeVirtProvider) fetchAllServices() []svcItem {
 	output, err := p.sshClient.Execute(fmt.Sprintf(
-		"kubectl get svc -n %s -o json 2>/dev/null",
-		Namespace))
+		"kubectl get svc -n %s -o json 2>/dev/null", Namespace))
 	if err != nil {
 		return nil
 	}
 
-	var svcList struct {
+	var raw struct {
 		Items []struct {
 			Metadata struct {
 				Name string `json:"name"`
@@ -167,17 +180,27 @@ func (p *KubeVirtProvider) discoverPortMappings(ctx context.Context, vmName stri
 		} `json:"items"`
 	}
 
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &svcList); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &raw); err != nil {
 		return nil
 	}
 
+	result := make([]svcItem, 0, len(raw.Items))
+	for _, it := range raw.Items {
+		s := svcItem{Name: it.Metadata.Name}
+		s.Ports = it.Spec.Ports
+		result = append(result, s)
+	}
+	return result
+}
+
+// filterPortMappings 从预取的 Service 列表中过滤出属于 vmName 的端口映射
+func filterPortMappings(allSvcs []svcItem, vmName string) []provider.DiscoveredPortMapping {
 	var mappings []provider.DiscoveredPortMapping
-	for _, svc := range svcList.Items {
-		if !strings.HasPrefix(svc.Metadata.Name, vmName) {
+	for _, svc := range allSvcs {
+		if !strings.HasPrefix(svc.Name, vmName) {
 			continue
 		}
-
-		for _, port := range svc.Spec.Ports {
+		for _, port := range svc.Ports {
 			pm := provider.DiscoveredPortMapping{
 				HostPort:  port.NodePort,
 				GuestPort: port.TargetPort,
@@ -189,8 +212,12 @@ func (p *KubeVirtProvider) discoverPortMappings(ctx context.Context, vmName stri
 			mappings = append(mappings, pm)
 		}
 	}
-
 	return mappings
+}
+
+// discoverPortMappings 发现VM的端口映射（NodePort Service）- 保留供单VM查询使用
+func (p *KubeVirtProvider) discoverPortMappings(ctx context.Context, vmName string) []provider.DiscoveredPortMapping {
+	return filterPortMappings(p.fetchAllServices(), vmName)
 }
 
 // parseMemoryString 解析内存字符串 (如 "1Gi", "512Mi", "2048M")

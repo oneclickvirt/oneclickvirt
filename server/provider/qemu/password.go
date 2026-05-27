@@ -62,10 +62,11 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	// 方法2: 通过SSH连接到VM内部设置密码
 	vmIP := p.getVMIPAddress(ctx, instanceID)
 	if vmIP != "" {
-		// 尝试通过SSH连接到VM内部
+		// 通过SSH连接到VM内部修改密码（使用SSHPASS环境变量避免密码出现在进程列表中）
+		escapedPw := strings.ReplaceAll(password, "'", "'\\''")
 		chpasswdCmd := fmt.Sprintf(
-			"sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@%s 'echo \"root:%s\" | chpasswd' 2>/dev/null",
-			password, vmIP, password)
+			"SSHPASS='%s' sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@%s 'printf \"root:%%s\" \"%s\" | chpasswd' 2>/dev/null",
+			escapedPw, vmIP, escapedPw)
 		_, err := p.sshClient.Execute(chpasswdCmd)
 		if err == nil {
 			global.APP_LOG.Info("通过SSH设置密码成功",

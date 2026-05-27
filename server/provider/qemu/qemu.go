@@ -40,6 +40,7 @@ type QEMUProvider struct {
 	healthChecker    health.HealthChecker
 	version          string
 	mu               sync.RWMutex
+	ipMu             sync.Mutex // IP分配互斥锁，防止并发创建时分配到相同IP
 	imageImportGroup singleflight.Group
 }
 

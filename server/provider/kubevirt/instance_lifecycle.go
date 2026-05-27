@@ -114,8 +114,10 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 func (p *KubeVirtProvider) DeleteInstance(ctx context.Context, id string) error {
 	maxAttempts := 3
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if !p.connected {
-			if err := p.Connect(ctx, p.config); err != nil {
+		if !p.connected || p.sshClient == nil {
+			// 使用 EnsureConnection 重连（SSH模式重建TCP连接，Agent模式重建WebSocket）
+			// 避免在 Agent 模式下错误调用 Connect（无直接 SSH 端点）
+			if err := p.EnsureConnection(); err != nil {
 				if attempt == maxAttempts {
 					return fmt.Errorf("重连失败: %w", err)
 				}
@@ -157,8 +159,12 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc '%s-ssh' -n %s 2>/dev/null", id, Namespace))
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc '%s-ports' -n %s 2>/dev/null", id, Namespace))
 
-	// 4. 删除关联的PVC
+	// 4. 删除关联的 DataVolume 和 PVC
+	// DataVolume 名称为 {id}-dv（与创建时保持一致），删除 DataVolume 后 CDI 会同步删除其 PVC
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s-dv' -n %s --ignore-not-found=true 2>/dev/null", id, Namespace))
+	// 兼容旧版本/手动创建的 PVC：尝试删除多种命名格式
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc -n %s -l vm.kubevirt.io/name='%s' 2>/dev/null", Namespace, id))
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc '%s-dv' -n %s 2>/dev/null", id, Namespace))
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc '%s-disk' -n %s 2>/dev/null", id, Namespace))
 
 	// 5. 通过firewall.Manager清理防火墙规则（nft优先，iptables回退）

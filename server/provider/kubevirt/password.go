@@ -45,10 +45,11 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 	if err == nil {
 		sshPort := strings.TrimSpace(sshPortOutput)
 		if sshPort != "" {
-			// 通过SSH连接到VM并修改密码
+			// 通过SSH连接到VM并修改密码（使用SSHPASS环境变量避免密码出现在进程列表中）
+			escapedPw := strings.ReplaceAll(password, "'", "'\\''")
 			chpasswdCmd := fmt.Sprintf(
-				"sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p %s root@127.0.0.1 'echo \"root:%s\" | chpasswd' 2>/dev/null",
-				password, sshPort, password)
+				"SSHPASS='%s' sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p %s root@127.0.0.1 'printf \"root:%%s\" \"%s\" | chpasswd' 2>/dev/null",
+				escapedPw, sshPort, escapedPw)
 			_, err := p.sshClient.Execute(chpasswdCmd)
 			if err == nil {
 				global.APP_LOG.Info("通过SSH设置密码成功",
@@ -74,9 +75,10 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 		"kubectl get svc '%s-ssh' -n %s -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null", instanceID, Namespace)); err == nil {
 		sshPort := strings.TrimSpace(sshPortOutput)
 		if sshPort != "" {
+			escapedPw := strings.ReplaceAll(password, "'", "'\\''")
 			chpasswdCmd := fmt.Sprintf(
-				"sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p %s root@127.0.0.1 'echo \"root:%s\" | chpasswd' 2>/dev/null",
-				password, sshPort, password)
+				"SSHPASS='%s' sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p %s root@127.0.0.1 'printf \"root:%%s\" \"%s\" | chpasswd' 2>/dev/null",
+				escapedPw, sshPort, escapedPw)
 			_, err := p.sshClient.Execute(chpasswdCmd)
 			if err == nil {
 				return nil
