@@ -33,6 +33,31 @@ var (
 	recoveringAt = make(map[uint]time.Time) // ProviderID → 上次恢复时间
 )
 
+// ResolveControllerPortTarget resolves the effective target for controller-mode
+// port forwarding. Explicit hostnames are preserved; only empty or IP-style
+// InternalHost values are refreshed from the instance's current private IP.
+// The bool return indicates whether InternalHost should be persisted back.
+func ResolveControllerPortTarget(internalHost, privateIP string) (string, bool) {
+	internalHost = strings.TrimSpace(internalHost)
+	privateIP = strings.TrimSpace(privateIP)
+
+	if internalHost != "" {
+		if !looksLikeIP(internalHost) {
+			return internalHost, false
+		}
+		if privateIP != "" && privateIP != internalHost {
+			return privateIP, true
+		}
+		return internalHost, false
+	}
+
+	if privateIP != "" {
+		return privateIP, true
+	}
+
+	return "", false
+}
+
 // StartControllerPortForward 为一条 Port 记录启动控制端 TCP 监听转发。
 func StartControllerPortForward(portID uint, providerID uint, listenPort int, targetHost string, targetPort int) error {
 	ctrlListenerMu.Lock()
@@ -179,45 +204,28 @@ func RestartControllerPortForward(portID uint, providerID uint, listenPort int, 
 // 优先使用 port.InternalHost（用户指定），若为空或可能需要刷新，
 // 则从实例的当前 PrivateIP 获取并回写到数据库。
 func resolveTargetHost(port *providerModel.Port) string {
-	// 如果 InternalHost 已设置且不是明显的IP格式（可能是容器名），直接使用
-	if port.InternalHost != "" {
-		// 如果 InternalHost 看起来像容器名（非纯IP），保持不变
-		if !looksLikeIP(port.InternalHost) {
-			return port.InternalHost
-		}
-		// 如果是IP格式，检查实例当前IP是否已变更
-		var instance providerModel.Instance
-		if err := global.APP_DB.Select("private_ip").
-			Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
-			if instance.PrivateIP != "" && instance.PrivateIP != port.InternalHost {
-				// 实例IP已变更，更新 InternalHost
-				global.APP_LOG.Info("控制器端口转发目标IP已变更，自动更新",
-					zap.Uint("portID", port.ID),
-					zap.String("oldHost", port.InternalHost),
-					zap.String("newHost", instance.PrivateIP))
-				global.APP_DB.Model(&providerModel.Port{}).
-					Where("id = ?", port.ID).
-					Update("internal_host", instance.PrivateIP)
-				return instance.PrivateIP
-			}
-		}
-		return port.InternalHost
+	internalHost := strings.TrimSpace(port.InternalHost)
+	if internalHost != "" && !looksLikeIP(internalHost) {
+		return internalHost
 	}
 
-	// InternalHost 为空，从实例获取
 	var instance providerModel.Instance
 	if err := global.APP_DB.Select("private_ip").
 		Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
-		if instance.PrivateIP != "" {
-			// 回写 InternalHost
+		targetHost, shouldUpdate := ResolveControllerPortTarget(internalHost, instance.PrivateIP)
+		if shouldUpdate {
+			global.APP_LOG.Info("控制器端口转发目标IP已变更，自动更新",
+				zap.Uint("portID", port.ID),
+				zap.String("oldHost", internalHost),
+				zap.String("newHost", targetHost))
 			global.APP_DB.Model(&providerModel.Port{}).
 				Where("id = ?", port.ID).
-				Update("internal_host", instance.PrivateIP)
-			return instance.PrivateIP
+				Update("internal_host", targetHost)
 		}
+		return targetHost
 	}
 
-	return ""
+	return internalHost
 }
 
 // looksLikeIP 判断字符串是否看起来像IP地址（用于区分容器名和IP）。

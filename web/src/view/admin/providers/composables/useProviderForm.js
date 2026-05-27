@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createProvider, updateProvider } from '@/api/admin'
 import { countries, getCountriesByRegion } from '@/utils/countries'
+import { extractEndpointHost } from '@/utils/endpoint'
 import { useI18n } from 'vue-i18n'
 
 // 默认等级限制
@@ -220,11 +221,7 @@ export function useProviderForm(loadProviders) {
       addProviderForm.host = ''
       addProviderForm.port = 0
     } else {
-      let host = provider.endpoint
-      if (provider.endpoint?.includes(':')) {
-        host = provider.endpoint.split(':')[0]
-      }
-      addProviderForm.host = host
+      addProviderForm.host = extractEndpointHost(provider.endpoint)
       addProviderForm.port = provider.sshPort || 22
     }
     addProviderForm.portIP = provider.portIP || ''

@@ -29,25 +29,13 @@ var (
 	clientPool = sync.Map{} // providerID -> *Client
 )
 
-// GetClient returns a cached or new agent client for the given provider.
-func GetClient(providerID uint, host string, port int, token string) *Client {
-	// Always re-check agent mode from DB — connection_type can change after
-	// the client was first cached (e.g. provider reconfigured from SSH to agent).
-	isAgent := false
-	if global.APP_DB != nil {
-		var p providerModel.Provider
-		if err := global.APP_DB.Select("connection_type").Where("id = ?", providerID).First(&p).Error; err == nil {
-			isAgent = p.ConnectionType == "agent"
-		}
-	}
-
+func GetClientWithMode(providerID uint, host string, port int, token string, isAgentMode bool) *Client {
 	key := fmt.Sprintf("%d", providerID)
 	if v, ok := clientPool.Load(key); ok {
 		c := v.(*Client)
 		expected := fmt.Sprintf("http://%s:%d", host, port)
 		if c.baseURL == expected && c.token == token {
-			// Refresh isAgentMode in case provider's connection_type changed
-			c.isAgentMode = isAgent
+			c.isAgentMode = isAgentMode
 			return c
 		}
 	}
@@ -59,10 +47,24 @@ func GetClient(providerID uint, host string, port int, token string) *Client {
 			Timeout: 30 * time.Second,
 		},
 		providerID:  providerID,
-		isAgentMode: isAgent,
+		isAgentMode: isAgentMode,
 	}
 	clientPool.Store(key, c)
 	return c
+}
+
+// GetClient returns a cached or new agent client for the given provider.
+func GetClient(providerID uint, host string, port int, token string) *Client {
+	// Always re-check agent mode from DB — connection_type can change after
+	// the client was first cached (e.g. provider reconfigured from SSH to agent).
+	isAgent := false
+	if global.APP_DB != nil {
+		var p providerModel.Provider
+		if err := global.APP_DB.Select("connection_type").Where("id = ?", providerID).First(&p).Error; err == nil {
+			isAgent = p.ConnectionType == "agent"
+		}
+	}
+	return GetClientWithMode(providerID, host, port, token, isAgent)
 }
 
 // RemoveClient removes the cached client for a provider.

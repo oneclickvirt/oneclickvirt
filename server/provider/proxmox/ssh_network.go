@@ -280,11 +280,10 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 		return fmt.Errorf("instance not running")
 	}
 
-	// 通过provider名称查找provider记录
 	var providerRecord providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerRecord).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", p.config.ID).First(&providerRecord).Error; err != nil {
 		global.APP_LOG.Warn("查找provider记录失败，跳过pmacct初始化",
-			zap.String("provider_name", p.config.Name),
+			zap.Uint("provider_id", p.config.ID),
 			zap.Error(err))
 		return err
 	}
@@ -302,10 +301,10 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 	var instanceID uint
 	var instance providerModel.Instance
 
-	if err := global.APP_DB.Where("name = ? AND provider_id = ?", instanceName, providerRecord.ID).First(&instance).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND provider_id = ?", instanceName, p.config.ID).First(&instance).Error; err != nil {
 		global.APP_LOG.Warn("查找实例记录失败，跳过pmacct初始化",
 			zap.String("instance_name", instanceName),
-			zap.Uint("provider_id", providerRecord.ID),
+			zap.Uint("provider_id", p.config.ID),
 			zap.Error(err))
 		return err
 	}

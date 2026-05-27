@@ -40,8 +40,9 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 
 	// 获取Provider配置信息
 	var providerInfo providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", i.config.Name).First(&providerInfo).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", i.config.ID).First(&providerInfo).Error; err != nil {
 		global.APP_LOG.Warn("无法获取Provider配置，使用默认值",
+			zap.Uint("provider_id", i.config.ID),
 			zap.String("provider", i.config.Name),
 			zap.Error(err))
 	}

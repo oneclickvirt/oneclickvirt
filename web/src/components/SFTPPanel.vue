@@ -334,9 +334,9 @@ const handleFileChange = async (event) => {
         }
       }
     } catch (e) {
-      // Re-throw user-initiated cancellation so it aborts the whole upload
+      // Swallow user-initiated cancellation so closing the dialog feels like a cancel, not a failure.
       if (e instanceof Error && e.message === 'Upload canceled by user') {
-        throw e
+        return
       }
       uploadedBytes = 0
     }

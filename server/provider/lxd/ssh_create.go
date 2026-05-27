@@ -288,16 +288,15 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	// 查找实例ID用于pmacct初始化
 	var instanceID uint
 	var instance providerModel.Instance
-	// 通过provider名称查找provider记录
 	var providerRecord providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", l.config.Name).First(&providerRecord).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", l.config.ID).First(&providerRecord).Error; err != nil {
 		global.APP_LOG.Warn("查找provider记录失败，跳过pmacct初始化",
-			zap.String("provider_name", l.config.Name),
+			zap.Uint("provider_id", l.config.ID),
 			zap.Error(err))
-	} else if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err != nil {
+	} else if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, l.config.ID).First(&instance).Error; err != nil {
 		global.APP_LOG.Warn("查找实例记录失败，跳过pmacct初始化",
 			zap.String("instance_name", config.Name),
-			zap.Uint("provider_id", providerRecord.ID),
+			zap.Uint("provider_id", l.config.ID),
 			zap.Error(err))
 	} else {
 		instanceID = instance.ID

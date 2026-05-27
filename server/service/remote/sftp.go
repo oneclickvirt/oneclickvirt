@@ -41,6 +41,21 @@ func NormalizeRemotePath(raw string) string {
 	return normalized
 }
 
+func ResolveControllerTargetHost(port *providerModel.Port, instance *providerModel.Instance) string {
+	if port == nil || instance == nil {
+		return ""
+	}
+
+	targetHost, shouldUpdate := agentService.ResolveControllerPortTarget(port.InternalHost, instance.PrivateIP)
+	if shouldUpdate {
+		global.APP_DB.Model(&providerModel.Port{}).
+			Where("id = ?", port.ID).
+			Update("internal_host", targetHost)
+	}
+
+	return targetHost
+}
+
 func ResolveInstanceSSHTarget(instance *providerModel.Instance) (*SSHAccessTarget, error) {
 	if instance == nil {
 		return nil, fmt.Errorf("instance is nil")
@@ -62,10 +77,7 @@ func ResolveInstanceSSHTarget(instance *providerModel.Instance) (*SSHAccessTarge
 	if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instance.ID).First(&sshPortMapping).Error; err == nil {
 		if sshPortMapping.MappingType == "controller" {
 			target.UseAgentTunnel = true
-			target.Host = sshPortMapping.InternalHost
-			if target.Host == "" {
-				target.Host = instance.PrivateIP
-			}
+			target.Host = ResolveControllerTargetHost(&sshPortMapping, instance)
 			target.Port = sshPortMapping.GuestPort
 			if target.Port == 0 {
 				target.Port = 22

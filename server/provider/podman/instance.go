@@ -436,12 +436,9 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 	updateProgress(97, "获取实例内网IP...")
 	if privateIP, err := p.getContainerPrivateIP(config.Name); err == nil && privateIP != "" {
-		var providerRecord providerModel.Provider
 		var instance providerModel.Instance
-		if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerRecord).Error; err == nil {
-			if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err == nil {
-				global.APP_DB.Model(&instance).Update("private_ip", privateIP)
-			}
+		if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, p.config.ID).First(&instance).Error; err == nil {
+			global.APP_DB.Model(&instance).Update("private_ip", privateIP)
 		}
 	}
 

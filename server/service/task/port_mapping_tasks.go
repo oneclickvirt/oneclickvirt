@@ -229,22 +229,32 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	if port.MappingType == "controller" {
 		s.updateTaskProgress(task.ID, 70, "step.startingPortForward")
 
-		targetIP := currentPrivateIP
-		if targetIP == "" {
-			targetIP = instance.PrivateIP
+		targetHost, shouldPersist := agentSvc.ResolveControllerPortTarget(port.InternalHost, currentPrivateIP)
+		if targetHost == "" {
+			targetHost, shouldPersist = agentSvc.ResolveControllerPortTarget(port.InternalHost, instance.PrivateIP)
 		}
-		if targetIP == "" {
+		if targetHost == "" {
 			global.APP_DB.Model(&port).Update("status", "failed")
 			return fmt.Errorf("无法获取实例内网IP，无法启动控制端端口转发")
 		}
 
-		if err := agentSvc.StartControllerPortForward(port.ID, localProviderID, port.HostPort, targetIP, port.GuestPort); err != nil {
+		if shouldPersist {
+			if err := global.APP_DB.Model(&port).Update("internal_host", targetHost).Error; err != nil {
+				global.APP_LOG.Warn("更新控制端端口转发目标地址失败",
+					zap.Uint("portId", port.ID),
+					zap.String("targetHost", targetHost),
+					zap.Error(err))
+			}
+			port.InternalHost = targetHost
+		}
+
+		if err := agentSvc.StartControllerPortForward(port.ID, localProviderID, port.HostPort, targetHost, port.GuestPort); err != nil {
 			global.APP_LOG.Error("启动控制端端口转发失败",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("portId", port.ID),
 				zap.Int("hostPort", port.HostPort),
 				zap.Int("guestPort", port.GuestPort),
-				zap.String("targetIP", targetIP),
+				zap.String("targetHost", targetHost),
 				zap.Error(err))
 			global.APP_DB.Model(&port).Update("status", "failed")
 			return fmt.Errorf("启动控制端端口转发失败: %v", err)
@@ -254,7 +264,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 			zap.Uint("portId", port.ID),
 			zap.Int("hostPort", port.HostPort),
 			zap.Int("guestPort", port.GuestPort),
-			zap.String("targetIP", targetIP))
+			zap.String("targetHost", targetHost))
 
 		// 更新端口状态为active
 		if err := global.APP_DB.Model(&port).Updates(map[string]interface{}{

@@ -48,8 +48,9 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 
 	// 获取完整的Provider信息以支持新的NetworkType
 	var providerInfo providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerInfo).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", p.config.ID).First(&providerInfo).Error; err != nil {
 		global.APP_LOG.Warn("无法获取Provider配置，使用默认值",
+			zap.Uint("provider_id", p.config.ID),
 			zap.String("provider", p.config.Name),
 			zap.Error(err))
 	}
@@ -213,9 +214,10 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 func (p *ProxmoxProvider) getBandwidthFromProvider(ctx context.Context, userLevel int) (inSpeed, outSpeed int, err error) {
 	// 获取Provider信息
 	var providerInfo providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerInfo).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", p.config.ID).First(&providerInfo).Error; err != nil {
 		// 如果获取Provider失败，使用默认值
 		global.APP_LOG.Warn("无法获取Provider配置，使用默认带宽",
+			zap.Uint("provider_id", p.config.ID),
 			zap.String("provider", p.config.Name),
 			zap.Error(err))
 		return 300, 300, nil // 默认300Mbps
@@ -286,8 +288,9 @@ func (p *ProxmoxProvider) getUserLevelBandwidth(userLevel int) int {
 func (p *ProxmoxProvider) getNetworkConfigFromProvider(ctx context.Context) (enableIPv6 bool, ipv6PortMethod string, ipv4PortMethod string) {
 	// 获取Provider信息
 	var providerInfo providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerInfo).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", p.config.ID).First(&providerInfo).Error; err != nil {
 		global.APP_LOG.Warn("无法获取Provider配置，使用默认值",
+			zap.Uint("provider_id", p.config.ID),
 			zap.String("provider", p.config.Name),
 			zap.Error(err))
 		return false, "native", "iptables" // Proxmox默认值

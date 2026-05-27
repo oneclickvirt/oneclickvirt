@@ -195,7 +195,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 
 	// 获取存储盘配置 - 从数据库查询Provider记录
 	var providerRecord providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerRecord).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", p.config.ID).First(&providerRecord).Error; err != nil {
 		global.APP_LOG.Warn("获取Provider记录失败，使用默认存储", zap.Error(err))
 	}
 

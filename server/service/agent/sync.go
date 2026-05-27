@@ -81,7 +81,7 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	if port == 0 {
 		port = AgentPort
 	}
-	client := GetClient(providerID, host, port, config.AgentToken)
+	client := GetClientWithMode(providerID, host, port, config.AgentToken, p.ConnectionType == "agent")
 
 	// Batch fetch traffic info
 	infoMap, err := client.BatchGetInfo(agentIDs)

@@ -374,7 +374,7 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 
 	// 更新数据库中的密码记录，确保数据库与实际密码一致
 	err := global.APP_DB.Model(&providerModel.Instance{}).
-		Where("name = ?", config.Name).
+		Where("name = ? AND provider_id = ?", config.Name, p.config.ID).
 		Update("password", password).Error
 	if err != nil {
 		global.APP_LOG.Warn("更新数据库密码记录失败",

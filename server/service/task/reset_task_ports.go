@@ -84,10 +84,9 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 		for _, oldPort := range resetCtx.OldPortMappings {
 			var createdPort providerModel.Port
 			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-				// 对于控制端转发类型的端口映射，如果实例IP已变更，更新InternalHost
 				internalHost := oldPort.InternalHost
-				if oldPort.MappingType == "controller" && resetCtx.NewPrivateIP != "" {
-					internalHost = resetCtx.NewPrivateIP
+				if oldPort.MappingType == "controller" {
+					internalHost, _ = agentLifecycle.ResolveControllerPortTarget(oldPort.InternalHost, resetCtx.NewPrivateIP)
 				}
 				newPort := providerModel.Port{
 					InstanceID:    resetCtx.NewInstanceID,
@@ -141,10 +140,9 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 		for _, oldPort := range resetCtx.OldPortMappings {
 			var createdPort providerModel.Port
 			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-				// 对于控制端转发类型的端口映射，如果实例IP已变更，更新InternalHost
 				internalHost := oldPort.InternalHost
-				if oldPort.MappingType == "controller" && resetCtx.NewPrivateIP != "" {
-					internalHost = resetCtx.NewPrivateIP
+				if oldPort.MappingType == "controller" {
+					internalHost, _ = agentLifecycle.ResolveControllerPortTarget(oldPort.InternalHost, resetCtx.NewPrivateIP)
 				}
 				newPort := providerModel.Port{
 					InstanceID:    resetCtx.NewInstanceID,

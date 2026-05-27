@@ -46,7 +46,7 @@ func (s *MonitorService) getAgentClient(providerID uint, config *monitoringModel
 	if port == 0 {
 		port = AgentPort
 	}
-	return GetClient(providerID, host, port, config.AgentToken), nil
+	return GetClientWithMode(providerID, host, port, config.AgentToken, p.ConnectionType == "agent"), nil
 }
 
 // RegisterMonitor creates a monitor on the agent and saves the mapping in MySQL.
@@ -299,11 +299,40 @@ func (s *MonitorService) CleanupStaleMonitors(providerID uint, config *monitorin
 	if err := s.db.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
 		return err
 	}
+	if len(monitors) == 0 {
+		return nil
+	}
+
+	instanceIDs := make([]uint, 0, len(monitors))
+	seenInstanceIDs := make(map[uint]struct{}, len(monitors))
+	for _, monitor := range monitors {
+		if _, exists := seenInstanceIDs[monitor.InstanceID]; exists {
+			continue
+		}
+		seenInstanceIDs[monitor.InstanceID] = struct{}{}
+		instanceIDs = append(instanceIDs, monitor.InstanceID)
+	}
+
+	type instanceState struct {
+		ID     uint
+		Status string
+	}
+	var instances []instanceState
+	if err := s.db.Model(&providerModel.Instance{}).
+		Select("id", "status").
+		Where("id IN ?", instanceIDs).
+		Find(&instances).Error; err != nil {
+		return fmt.Errorf("list instance states: %w", err)
+	}
+
+	statusByInstanceID := make(map[uint]string, len(instances))
+	for _, instance := range instances {
+		statusByInstanceID[instance.ID] = instance.Status
+	}
 
 	for _, monitor := range monitors {
-		var instance providerModel.Instance
-		err := s.db.First(&instance, monitor.InstanceID).Error
-		if err == gorm.ErrRecordNotFound || (err == nil && instance.Status != "running" && instance.Status != "active") {
+		status, exists := statusByInstanceID[monitor.InstanceID]
+		if !exists || (status != "running" && status != "active") {
 			if err := s.DeregisterMonitor(monitor.InstanceID, config); err != nil {
 				if global.APP_LOG != nil {
 					global.APP_LOG.Warn("failed to deregister stale monitor",

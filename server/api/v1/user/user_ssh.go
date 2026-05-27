@@ -16,6 +16,7 @@ import (
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
+	remoteService "oneclickvirt/service/remote"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -104,11 +105,7 @@ func SSHWebSocket(c *gin.Context) {
 		if sshPortMapping.MappingType == "controller" {
 			// 控制端转发模式：通过 Agent WebSocket 隧道连接
 			useAgentTunnel = true
-			// 目标地址：优先使用 InternalHost，否则使用实例私有IP
-			sshHost = sshPortMapping.InternalHost
-			if sshHost == "" {
-				sshHost = instance.PrivateIP
-			}
+			sshHost = remoteService.ResolveControllerTargetHost(&sshPortMapping, &instance)
 			// 目标端口：使用 GuestPort（容器内部SSH端口，通常为22）
 			sshPort = sshPortMapping.GuestPort
 			if sshPort == 0 {

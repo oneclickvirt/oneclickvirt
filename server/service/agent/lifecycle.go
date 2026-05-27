@@ -242,8 +242,8 @@ func updateInstanceInterfaces(ctx context.Context, db *gorm.DB, instance *provid
 	}
 }
 
-// refreshControllerPortHosts 刷新实例的控制端端口转发的 InternalHost，
-// 并确保每个控制端端口的 TCP 监听器正在运行。
+// refreshControllerPortHosts 刷新实例控制端端口转发的 IP 型目标地址，
+// 保留显式配置的主机名，并确保每个控制端端口的 TCP 监听器正在运行。
 // 实例首次创建（IP 刚就绪）或重启（IP 可能变更）时调用。
 func refreshControllerPortHosts(db *gorm.DB, instanceID uint) {
 	var instance providerModel.Instance
@@ -266,13 +266,15 @@ func refreshControllerPortHosts(db *gorm.DB, instanceID uint) {
 	}
 
 	for _, port := range ports {
-		targetHost := instance.PrivateIP
+		targetHost, shouldUpdate := ResolveControllerPortTarget(port.InternalHost, instance.PrivateIP)
+		if targetHost == "" {
+			continue
+		}
 
-		// 如果 InternalHost 为空或是旧的IP，更新为当前IP
-		if port.InternalHost == "" || port.InternalHost != instance.PrivateIP {
+		if shouldUpdate {
 			if err := db.Model(&providerModel.Port{}).
 				Where("id = ?", port.ID).
-				Update("internal_host", instance.PrivateIP).Error; err != nil {
+				Update("internal_host", targetHost).Error; err != nil {
 				if global.APP_LOG != nil {
 					global.APP_LOG.Warn("更新控制端端口转发目标地址失败",
 						zap.Uint("port_id", port.ID), zap.Error(err))
@@ -280,7 +282,7 @@ func refreshControllerPortHosts(db *gorm.DB, instanceID uint) {
 			} else if global.APP_LOG != nil {
 				global.APP_LOG.Debug("已更新控制端端口转发目标地址",
 					zap.Uint("port_id", port.ID),
-					zap.String("new_host", instance.PrivateIP),
+					zap.String("new_host", targetHost),
 					zap.String("old_host", port.InternalHost))
 			}
 		}
@@ -303,7 +305,7 @@ func refreshControllerPortHosts(db *gorm.DB, instanceID uint) {
 					zap.Int("host_port", port.HostPort),
 					zap.String("target", targetHost))
 			}
-		} else if port.InternalHost != instance.PrivateIP {
+		} else if shouldUpdate {
 			// IP 已变更且监听器仍在运行，需要用新目标地址重启监听器
 			go func(p providerModel.Port, host string) {
 				StopControllerPortForward(p.ID)

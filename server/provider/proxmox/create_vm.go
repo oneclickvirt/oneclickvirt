@@ -14,6 +14,7 @@ import (
 
 	"go.uber.org/zap"
 )
+
 func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provider.InstanceConfig, updateProgress func(int, string)) error {
 	updateProgress(10, "准备虚拟机系统镜像...")
 
@@ -115,7 +116,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	// 将KVM可用性状态持久化到数据库（每次创建VM时更新，确保状态准确）
 	kvmAvailable := !p.kvmUnavailable
-	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("name = ?", p.config.Name).Update("pve_kvm_available", &kvmAvailable).Error; err != nil {
+	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", p.config.ID).Update("pve_kvm_available", &kvmAvailable).Error; err != nil {
 		global.APP_LOG.Warn("更新KVM可用性状态失败", zap.Error(err))
 	}
 
@@ -133,7 +134,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	// 获取存储盘配置 - 从数据库查询Provider记录
 	var providerRecord providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerRecord).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", p.config.ID).First(&providerRecord).Error; err != nil {
 		global.APP_LOG.Warn("获取Provider记录失败，使用默认存储", zap.Error(err))
 	}
 

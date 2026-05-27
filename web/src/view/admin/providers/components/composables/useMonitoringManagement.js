@@ -2,6 +2,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyToClipboard } from '@/utils/clipboard'
+import { formatEndpointHostForUrl } from '@/utils/endpoint'
 import {
   getMonitoringConfig,
   updateMonitoringConfig,
@@ -66,8 +67,8 @@ export function useMonitoringManagement(props, emit) {
     // Agent-mode providers connect via WebSocket tunnel, the agent HTTP port is not directly reachable
     if (isAgentProvider.value) return ''
     if (!props.provider) return ''
-    const host = props.provider.portIp || props.provider.endpoint || ''
-    const cleanHost = host.includes(':') && !host.startsWith('[') ? host.split(':')[0] : host
+    const cleanHost = formatEndpointHostForUrl(props.provider.portIP || props.provider.endpoint || '')
+    if (!cleanHost) return ''
     const port = config.agent_port || 23782
     return 'http://' + cleanHost + ':' + port + '/swagger-ui/'
   })

@@ -220,7 +220,7 @@ func ListAgentMonitors(c *gin.Context) {
 		port = 23782
 	}
 
-	client := agentService.GetClient(uint(providerID), host, port, config.AgentToken)
+	client := agentService.GetClientWithMode(uint(providerID), host, port, config.AgentToken, p.ConnectionType == "agent")
 	result, err := client.ListMonitors()
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -505,7 +505,7 @@ func ClearProviderMonitors(c *gin.Context) {
 				if port == 0 {
 					port = 23782
 				}
-				client := agentService.GetClient(uint(providerID), host, port, config.AgentToken)
+				client := agentService.GetClientWithMode(uint(providerID), host, port, config.AgentToken, p.ConnectionType == "agent")
 				// Call cleanup with empty max_update_time to remove all monitors
 				if _, cleanupErr := client.Cleanup("0s"); cleanupErr != nil {
 					global.APP_LOG.Warn("agent cleanup failed, proceeding with local cleanup",

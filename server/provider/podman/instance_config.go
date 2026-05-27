@@ -197,7 +197,7 @@ func (p *PodmanProvider) configureInstanceSSHPassword(ctx context.Context, confi
 		zap.String("instanceName", config.Name))
 
 	if dbErr := global.APP_DB.Model(&providerModel.Instance{}).
-		Where("name = ?", config.Name).
+		Where("name = ? AND provider_id = ?", config.Name, p.config.ID).
 		Update("password", password).Error; dbErr != nil {
 		global.APP_LOG.Warn("更新实例密码到数据库失败",
 			zap.String("instanceName", config.Name),
@@ -245,12 +245,12 @@ func (p *PodmanProvider) getContainerPrivateIP(containerName string) (string, er
 // initializePmacctMonitoring 初始化流量监控
 func (p *PodmanProvider) initializePmacctMonitoring(ctx context.Context, config provider.InstanceConfig) error {
 	var providerRecord providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerRecord).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", p.config.ID).First(&providerRecord).Error; err != nil {
 		return fmt.Errorf("查找provider记录失败: %w", err)
 	}
 
 	var instance providerModel.Instance
-	if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, p.config.ID).First(&instance).Error; err != nil {
 		return fmt.Errorf("查找实例记录失败: %w", err)
 	}
 

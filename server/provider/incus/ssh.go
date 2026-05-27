@@ -369,16 +369,15 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	// 查找实例ID用于pmacct初始化
 	var instanceID uint
 	var instance providerModel.Instance
-	// 通过provider名称查找provider记录
 	var providerRecord providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", i.config.Name).First(&providerRecord).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", i.config.ID).First(&providerRecord).Error; err != nil {
 		global.APP_LOG.Warn("查找provider记录失败，跳过pmacct初始化",
-			zap.String("provider_name", i.config.Name),
+			zap.Uint("provider_id", i.config.ID),
 			zap.Error(err))
-	} else if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err != nil {
+	} else if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, i.config.ID).First(&instance).Error; err != nil {
 		global.APP_LOG.Warn("查找实例记录失败，跳过pmacct初始化",
 			zap.String("instance_name", config.Name),
-			zap.Uint("provider_id", providerRecord.ID),
+			zap.Uint("provider_id", i.config.ID),
 			zap.Error(err))
 	} else {
 		instanceID = instance.ID

@@ -101,7 +101,7 @@
         <template #default="scope">
           {{ scope.row.connectionType === 'agent'
             ? (scope.row.agentRemoteIP || '-')
-            : (scope.row.endpoint ? scope.row.endpoint.split(':')[0] : '-') }}
+            : (scope.row.endpoint ? extractEndpointHost(scope.row.endpoint) : '-') }}
         </template>
       </el-table-column>
       <el-table-column
@@ -550,6 +550,7 @@ import {
   getStatusText,
   getFlagEmoji
 } from '../composables/useProviderUtils'
+import { extractEndpointHost } from '@/utils/endpoint'
 
 defineProps({
   loading: { type: Boolean, default: false },

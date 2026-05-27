@@ -60,7 +60,7 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 	if port == 0 {
 		port = AgentPort
 	}
-	client := GetClient(providerID, endpoint, port, config.AgentToken)
+	client := GetClientWithMode(providerID, endpoint, port, config.AgentToken, p.ConnectionType == "agent")
 
 	// Collect all metrics from agent first (HTTP calls without DB)
 	var pendingMetrics []monitoringModel.ResourceMetric

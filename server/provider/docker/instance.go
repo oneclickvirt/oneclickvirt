@@ -590,15 +590,12 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(97, "获取实例内网IP...")
 	if privateIP, err := d.getContainerPrivateIP(config.Name); err == nil && privateIP != "" {
 		// 更新数据库中的PrivateIP
-		var providerRecord providerModel.Provider
 		var instance providerModel.Instance
-		if err := global.APP_DB.Where("name = ?", d.config.Name).First(&providerRecord).Error; err == nil {
-			if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err == nil {
-				if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
-					global.APP_LOG.Debug("已更新Docker实例内网IP",
-						zap.String("instanceName", config.Name),
-						zap.String("privateIP", privateIP))
-				}
+		if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, d.config.ID).First(&instance).Error; err == nil {
+			if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
+				global.APP_LOG.Debug("已更新Docker实例内网IP",
+					zap.String("instanceName", config.Name),
+					zap.String("privateIP", privateIP))
 			}
 		}
 	} else {

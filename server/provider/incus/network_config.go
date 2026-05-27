@@ -103,9 +103,10 @@ func (i *IncusProvider) configureNetworkLimits(instanceName string, networkConfi
 func (i *IncusProvider) getBandwidthFromProvider(userLevel int) (inSpeed, outSpeed int, err error) {
 	// 获取Provider信息
 	var providerInfo providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", i.config.Name).First(&providerInfo).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", i.config.ID).First(&providerInfo).Error; err != nil {
 		// 如果获取Provider失败，使用默认值
 		global.APP_LOG.Warn("无法获取Provider配置，使用默认带宽",
+			zap.Uint("provider_id", i.config.ID),
 			zap.String("provider", i.config.Name),
 			zap.Error(err))
 		return 300, 300, nil // 默认300Mbps

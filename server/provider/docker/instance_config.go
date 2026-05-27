@@ -269,7 +269,7 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 
 	// 更新数据库中的密码记录，确保数据库与实际密码一致
 	if dbErr := global.APP_DB.Model(&providerModel.Instance{}).
-		Where("name = ?", config.Name).
+		Where("name = ? AND provider_id = ?", config.Name, d.config.ID).
 		Update("password", password).Error; dbErr != nil {
 		global.APP_LOG.Warn("更新实例密码到数据库失败",
 			zap.String("instanceName", config.Name),
@@ -324,9 +324,9 @@ func (d *DockerProvider) getContainerPrivateIP(containerName string) (string, er
 func (d *DockerProvider) initializePmacctMonitoring(ctx context.Context, config provider.InstanceConfig) error {
 	// 查找provider记录
 	var providerRecord providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", d.config.Name).First(&providerRecord).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", d.config.ID).First(&providerRecord).Error; err != nil {
 		global.APP_LOG.Error("查找provider记录失败，跳过pmacct初始化",
-			zap.String("provider_name", d.config.Name),
+			zap.Uint("provider_id", d.config.ID),
 			zap.Error(err))
 		return fmt.Errorf("查找provider记录失败: %w", err)
 	}
@@ -334,10 +334,10 @@ func (d *DockerProvider) initializePmacctMonitoring(ctx context.Context, config 
 	// 查找实例ID
 	var instanceID uint
 	var instance providerModel.Instance
-	if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, d.config.ID).First(&instance).Error; err != nil {
 		global.APP_LOG.Error("查找实例记录失败，跳过pmacct初始化",
 			zap.String("instance_name", config.Name),
-			zap.Uint("provider_id", providerRecord.ID),
+			zap.Uint("provider_id", d.config.ID),
 			zap.Error(err))
 		return fmt.Errorf("查找实例记录失败: %w", err)
 	}
