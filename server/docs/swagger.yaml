@@ -3451,6 +3451,29 @@ paths:
       summary: 管理员执行实例操作
       tags:
       - 管理员管理
+  /admin/instances/{id}/monitoring/resources:
+    get:
+      description: 获取指定实例的CPU/内存资源监控指标
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 查询时间范围小时数（默认24）
+        in: query
+        name: hours
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取实例资源监控数据
+      tags:
+      - 管理员/实例
   /admin/instances/{id}/password/{taskId}:
     get:
       consumes:
@@ -3574,6 +3597,194 @@ paths:
       summary: 管理员重置实例密码
       tags:
       - 管理员管理
+  /admin/instances/{id}/sftp/download:
+    get:
+      description: 下载管理员实例上的远程文件
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程文件路径
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: 管理员实例SFTP下载
+      tags:
+      - 管理员/实例
+  /admin/instances/{id}/sftp/list:
+    get:
+      description: 列出管理员实例远程目录文件
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程路径
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员实例SFTP目录列表
+      tags:
+      - 管理员/实例
+  /admin/instances/{id}/sftp/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 上传本地文件到管理员实例远程目录
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 上传文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员实例SFTP上传
+      tags:
+      - 管理员/实例
+  /admin/instances/{id}/sftp/upload/abort:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 清理实例指定 uploadId 对应临时分片文件，允许重传
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: formData
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: formData
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: formData
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员实例SFTP上传中断清理
+      tags:
+      - 管理员/实例
+  /admin/instances/{id}/sftp/upload/status:
+    get:
+      description: 查询实例分片上传进度，用于断点续传
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: query
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: query
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: query
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: query
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员实例SFTP上传状态
+      tags:
+      - 管理员/实例
+  /admin/instances/{id}/ssh:
+    get:
+      consumes:
+      - application/json
+      description: 管理员通过WebSocket建立到任意实例的SSH连接
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员WebSocket SSH连接
+      tags:
+      - 管理员/实例
   /admin/invite-codes:
     get:
       consumes:
@@ -3792,6 +4003,136 @@ paths:
       summary: 批量生成邀请码
       tags:
       - 邀请码管理
+  /admin/logs/cleanup:
+    post:
+      consumes:
+      - application/json
+      description: 根据配置的保留天数清理旧的日志文件
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 清理旧日志文件
+      tags:
+      - System
+  /admin/logs/files:
+    get:
+      consumes:
+      - application/json
+      description: 获取所有日志文件的信息，包括按日期分割的日志文件
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/log.LogFileInfo'
+                  type: array
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取日志文件列表
+      tags:
+      - System
+  /admin/logs/read:
+    get:
+      consumes:
+      - application/json
+      description: 读取指定日志文件的内容，支持指定返回行数
+      parameters:
+      - description: 日志文件名
+        in: query
+        name: filename
+        required: true
+        type: string
+      - description: 返回行数，默认100行
+        in: query
+        name: lines
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    type: string
+                  type: array
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 读取日志文件内容
+      tags:
+      - System
+  /admin/monitoring/audit-logs:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户操作审计日志
+      parameters:
+      - description: 用户ID
+        in: query
+        name: user_id
+        type: integer
+      - description: 操作类型
+        in: query
+        name: action
+        type: string
+      - description: 开始时间
+        in: query
+        name: start_time
+        type: string
+      - description: 结束时间
+        in: query
+        name: end_time
+        type: string
+      - default: 100
+        description: 返回条数
+        in: query
+        name: limit
+        type: integer
+      - default: 0
+        description: 偏移量
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    type: object
+                  type: array
+              type: object
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取操作审计日志
+      tags:
+      - 管理员管理
   /admin/monitoring/health:
     get:
       consumes:
@@ -3822,6 +4163,54 @@ paths:
       summary: 获取系统健康检查
       tags:
       - 系统监控
+  /admin/monitoring/logs:
+    get:
+      consumes:
+      - application/json
+      description: 获取系统运行日志
+      parameters:
+      - description: 日志级别
+        enum:
+        - info
+        - warn
+        - error
+        - debug
+        in: query
+        name: level
+        type: string
+      - default: 100
+        description: 返回条数
+        in: query
+        name: limit
+        type: integer
+      - default: 0
+        description: 偏移量
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    type: object
+                  type: array
+              type: object
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取系统日志
+      tags:
+      - 监控管理
   /admin/monitoring/metrics:
     get:
       consumes:
@@ -4625,6 +5014,225 @@ paths:
       summary: 删除单个IPv4地址
       tags:
       - 服务商管理
+  /admin/providers/{id}/monitoring/agent:
+    delete:
+      description: 从指定节点主机卸载监控Agent
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 卸载监控Agent
+      tags:
+      - 管理员/节点
+    post:
+      consumes:
+      - application/json
+      description: 将监控Agent部署到指定节点主机（耗时最長十分钟）
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 部署参数（version可选）
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/admin.DeployAgentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 部署监控Agent
+      tags:
+      - 管理员/节点
+  /admin/providers/{id}/monitoring/agent-monitors:
+    get:
+      description: 直接从 Agent读取监控器列表；Agent模式节点回读数据库缓存
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取Agent监控列表（实时）
+      tags:
+      - 管理员/节点
+  /admin/providers/{id}/monitoring/clear:
+    delete:
+      description: 清除指定节点下所有Agent监控记录及资源指标
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 清空节点监控器
+      tags:
+      - 管理员/节点
+  /admin/providers/{id}/monitoring/config:
+    get:
+      description: 获取指定节点的监控配置
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取监控配置
+      tags:
+      - 管理员/节点
+    put:
+      consumes:
+      - application/json
+      description: 更新指定节点的监控配置，如果Agent已安装则同步配置到远程Agent
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 监控配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.UpdateMonitoringConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 更新监控配置
+      tags:
+      - 管理员/节点
+  /admin/providers/{id}/monitoring/monitors:
+    get:
+      description: 获取指定节点下所有Agent监控记录，支持分页
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取节点监控列表（DB）
+      tags:
+      - 管理员/节点
+  /admin/providers/{id}/monitoring/resources:
+    get:
+      description: 获取节点下所有实例的最新资源使用汇总
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取节点资源汇总
+      tags:
+      - 管理员/节点
+  /admin/providers/{id}/monitoring/status:
+    get:
+      description: 检查指定节点的监控Agent运行状态、版本与监控数量
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取Agent状态
+      tags:
+      - 管理员/节点
+  /admin/providers/{id}/monitoring/sync:
+    post:
+      description: 确保所有运行中实例均有监控器，并清理失效的监控记录（最长5分钟）
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 同步节点监控器
+      tags:
+      - 管理员/节点
   /admin/providers/{id}/orphaned:
     get:
       consumes:
@@ -4663,6 +5271,157 @@ paths:
       summary: 获取未纳管实例
       tags:
       - Provider管理
+  /admin/providers/{id}/sftp/download:
+    get:
+      description: 下载管理员连接到节点宿主机上的远程文件
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程文件路径
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: 管理员节点SFTP下载
+      tags:
+      - 管理员/Provider
+  /admin/providers/{id}/sftp/list:
+    get:
+      description: 列出管理员连接到节点宿主机后的远程目录文件
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程路径
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员节点SFTP目录列表
+      tags:
+      - 管理员/Provider
+  /admin/providers/{id}/sftp/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 上传本地文件到管理员连接到节点宿主机上的远程目录
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 上传文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员节点SFTP上传
+      tags:
+      - 管理员/Provider
+  /admin/providers/{id}/sftp/upload/abort:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 清理节点宿主机指定 uploadId 对应临时分片文件，允许重传
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: formData
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: formData
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: formData
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员节点SFTP上传中断清理
+      tags:
+      - 管理员/Provider
+  /admin/providers/{id}/sftp/upload/status:
+    get:
+      description: 查询节点宿主机分片上传进度，用于断点续传
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: query
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: query
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: query
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: query
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员节点SFTP上传状态
+      tags:
+      - 管理员/Provider
   /admin/providers/{id}/sync-check:
     post:
       consumes:
@@ -4699,6 +5458,58 @@ paths:
       summary: 检查实例同步
       tags:
       - Provider管理
+  /admin/providers/{provider_id}/traffic/history:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定Provider的历史流量数据，支持5分钟到24小时的灵活时间范围
+      parameters:
+      - description: Provider ID
+        in: path
+        name: provider_id
+        required: true
+        type: integer
+      - default: 1h
+        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
+        in: query
+        name: period
+        type: string
+      - default: 0
+        description: 数据点间隔（分钟），0表示自动选择
+        in: query
+        name: interval
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/monitoring.ProviderTrafficHistory'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider流量历史
+      tags:
+      - 流量管理-管理员
   /admin/redemption-codes:
     get:
       consumes:
@@ -4811,6 +5622,63 @@ paths:
       summary: 导出兑换码
       tags:
       - 兑换码管理
+  /admin/storage/cleanup:
+    post:
+      consumes:
+      - application/json
+      description: 清理临时目录中的所有文件
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 清理临时文件
+      tags:
+      - System
+  /admin/storage/info:
+    get:
+      consumes:
+      - application/json
+      description: 获取存储目录结构和状态信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  additionalProperties: true
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取存储目录信息
+      tags:
+      - System
+  /admin/storage/init:
+    post:
+      consumes:
+      - application/json
+      description: 重新创建所有必要的存储目录
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 重新初始化存储目录
+      tags:
+      - System
   /admin/system-images:
     get:
       consumes:
@@ -5166,6 +6034,118 @@ paths:
       summary: 获取任务统计
       tags:
       - 管理员管理
+  /admin/traffic/batch-manage:
+    post:
+      consumes:
+      - application/json
+      description: 批量设置或解除用户的流量限制
+      parameters:
+      - description: 批量流量限制管理请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/traffic.BatchManageTrafficLimitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 批量管理流量限制
+      tags:
+      - 管理员流量
+  /admin/traffic/batch-sync:
+    post:
+      consumes:
+      - application/json
+      description: 批量触发用户流量数据同步
+      parameters:
+      - description: 批量同步流量请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/traffic.BatchSyncTrafficRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 批量同步用户流量
+      tags:
+      - 管理员流量
+  /admin/traffic/manage:
+    post:
+      consumes:
+      - application/json
+      description: 手动设置或解除用户/Provider的流量限制
+      parameters:
+      - description: 流量限制管理请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/traffic.ManageTrafficLimitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 管理流量限制
+      tags:
+      - 管理员流量
+  /admin/traffic/overview:
+    get:
+      consumes:
+      - application/json
+      description: 获取整个系统的流量使用情况概览
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取系统流量概览
+      tags:
+      - 管理员流量
+  /admin/traffic/provider/{providerId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定Provider的流量使用情况
+      parameters:
+      - description: Provider ID
+        in: path
+        name: providerId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取Provider流量统计
+      tags:
+      - 管理员流量
   /admin/traffic/sync/all:
     post:
       consumes:
@@ -5312,6 +6292,86 @@ paths:
       summary: 手动同步用户所有实例的流量数据
       tags:
       - 管理员-流量同步
+  /admin/traffic/user/{userId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定用户的流量使用情况
+      parameters:
+      - description: 用户ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取用户流量统计
+      tags:
+      - 管理员流量
+  /admin/traffic/user/{userId}/clear:
+    delete:
+      consumes:
+      - application/json
+      description: 删除指定用户的所有历史流量记录，用于重新计数
+      parameters:
+      - description: 用户ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 清空用户流量记录
+      tags:
+      - 管理员流量
+  /admin/traffic/users/rank:
+    get:
+      consumes:
+      - application/json
+      description: 获取系统中所有用户的流量使用排行榜，支持分页和搜索
+      parameters:
+      - description: 页码，默认1
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量，默认10
+        in: query
+        name: pageSize
+        type: integer
+      - description: 按用户名搜索
+        in: query
+        name: username
+        type: string
+      - description: 按昵称搜索
+        in: query
+        name: nickname
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取用户流量排行榜
+      tags:
+      - 管理员流量
   /admin/users:
     get:
       consumes:
@@ -5657,1496 +6717,6 @@ paths:
       summary: 管理员批量更新用户状态
       tags:
       - 管理员管理
-  /api/v1/admin/instances/{id}/monitoring/resources:
-    get:
-      description: 获取指定实例的CPU/内存资源监控指标
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 查询时间范围小时数（默认24）
-        in: query
-        name: hours
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 获取实例资源监控数据
-      tags:
-      - 管理员/实例
-  /api/v1/admin/instances/{id}/sftp/download:
-    get:
-      description: 下载管理员实例上的远程文件
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 远程文件路径
-        in: query
-        name: path
-        required: true
-        type: string
-      produces:
-      - application/octet-stream
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: file
-      summary: 管理员实例SFTP下载
-      tags:
-      - 管理员/实例
-  /api/v1/admin/instances/{id}/sftp/list:
-    get:
-      description: 列出管理员实例远程目录文件
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 远程路径
-        in: query
-        name: path
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员实例SFTP目录列表
-      tags:
-      - 管理员/实例
-  /api/v1/admin/instances/{id}/sftp/upload:
-    post:
-      consumes:
-      - multipart/form-data
-      description: 上传本地文件到管理员实例远程目录
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 远程目标目录
-        in: formData
-        name: targetDir
-        type: string
-      - description: 上传文件
-        in: formData
-        name: file
-        required: true
-        type: file
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员实例SFTP上传
-      tags:
-      - 管理员/实例
-  /api/v1/admin/instances/{id}/sftp/upload/abort:
-    post:
-      consumes:
-      - multipart/form-data
-      description: 清理实例指定 uploadId 对应临时分片文件，允许重传
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 上传ID
-        in: formData
-        name: uploadId
-        required: true
-        type: string
-      - description: 远程目标文件路径
-        in: formData
-        name: targetPath
-        type: string
-      - description: 远程目标目录
-        in: formData
-        name: targetDir
-        type: string
-      - description: 文件名
-        in: formData
-        name: filename
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员实例SFTP上传中断清理
-      tags:
-      - 管理员/实例
-  /api/v1/admin/instances/{id}/sftp/upload/status:
-    get:
-      description: 查询实例分片上传进度，用于断点续传
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 上传ID
-        in: query
-        name: uploadId
-        required: true
-        type: string
-      - description: 远程目标文件路径
-        in: query
-        name: targetPath
-        type: string
-      - description: 远程目标目录
-        in: query
-        name: targetDir
-        type: string
-      - description: 文件名
-        in: query
-        name: filename
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员实例SFTP上传状态
-      tags:
-      - 管理员/实例
-  /api/v1/admin/instances/{id}/ssh:
-    get:
-      consumes:
-      - application/json
-      description: 管理员通过WebSocket建立到任意实例的SSH连接
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "101":
-          description: Switching Protocols
-          schema:
-            type: string
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "404":
-          description: 实例不存在
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 服务器错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员WebSocket SSH连接
-      tags:
-      - 管理员/实例
-  /api/v1/admin/logs/cleanup:
-    post:
-      consumes:
-      - application/json
-      description: 根据配置的保留天数清理旧的日志文件
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: success
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 清理旧日志文件
-      tags:
-      - System
-  /api/v1/admin/logs/files:
-    get:
-      consumes:
-      - application/json
-      description: 获取所有日志文件的信息，包括按日期分割的日志文件
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: success
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/log.LogFileInfo'
-                  type: array
-              type: object
-      security:
-      - BearerAuth: []
-      summary: 获取日志文件列表
-      tags:
-      - System
-  /api/v1/admin/logs/read:
-    get:
-      consumes:
-      - application/json
-      description: 读取指定日志文件的内容，支持指定返回行数
-      parameters:
-      - description: 日志文件名
-        in: query
-        name: filename
-        required: true
-        type: string
-      - description: 返回行数，默认100行
-        in: query
-        name: lines
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: success
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    type: string
-                  type: array
-              type: object
-      security:
-      - BearerAuth: []
-      summary: 读取日志文件内容
-      tags:
-      - System
-  /api/v1/admin/monitoring/audit-logs:
-    get:
-      consumes:
-      - application/json
-      description: 获取用户操作审计日志
-      parameters:
-      - description: 用户ID
-        in: query
-        name: user_id
-        type: integer
-      - description: 操作类型
-        in: query
-        name: action
-        type: string
-      - description: 开始时间
-        in: query
-        name: start_time
-        type: string
-      - description: 结束时间
-        in: query
-        name: end_time
-        type: string
-      - default: 100
-        description: 返回条数
-        in: query
-        name: limit
-        type: integer
-      - default: 0
-        description: 偏移量
-        in: query
-        name: offset
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    type: object
-                  type: array
-              type: object
-        "500":
-          description: 获取失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取操作审计日志
-      tags:
-      - 管理员管理
-  /api/v1/admin/monitoring/logs:
-    get:
-      consumes:
-      - application/json
-      description: 获取系统运行日志
-      parameters:
-      - description: 日志级别
-        enum:
-        - info
-        - warn
-        - error
-        - debug
-        in: query
-        name: level
-        type: string
-      - default: 100
-        description: 返回条数
-        in: query
-        name: limit
-        type: integer
-      - default: 0
-        description: 偏移量
-        in: query
-        name: offset
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    type: object
-                  type: array
-              type: object
-        "500":
-          description: 获取失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取系统日志
-      tags:
-      - 监控管理
-  /api/v1/admin/providers/{id}/monitoring/agent:
-    delete:
-      description: 从指定节点主机卸载监控Agent
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 卸载监控Agent
-      tags:
-      - 管理员/节点
-    post:
-      consumes:
-      - application/json
-      description: 将监控Agent部署到指定节点主机（耗时最長十分钟）
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 部署参数（version可选）
-        in: body
-        name: body
-        schema:
-          $ref: '#/definitions/admin.DeployAgentRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 部署监控Agent
-      tags:
-      - 管理员/节点
-  /api/v1/admin/providers/{id}/monitoring/agent-monitors:
-    get:
-      description: 直接从 Agent读取监控器列表；Agent模式节点回读数据库缓存
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 页码
-        in: query
-        name: page
-        type: integer
-      - description: 每页条数
-        in: query
-        name: pageSize
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 获取Agent监控列表（实时）
-      tags:
-      - 管理员/节点
-  /api/v1/admin/providers/{id}/monitoring/clear:
-    delete:
-      description: 清除指定节点下所有Agent监控记录及资源指标
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 清空节点监控器
-      tags:
-      - 管理员/节点
-  /api/v1/admin/providers/{id}/monitoring/config:
-    get:
-      description: 获取指定节点的监控配置
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 获取监控配置
-      tags:
-      - 管理员/节点
-    put:
-      consumes:
-      - application/json
-      description: 更新指定节点的监控配置，如果Agent已安装则同步配置到远程Agent
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 监控配置
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/admin.UpdateMonitoringConfigRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 更新监控配置
-      tags:
-      - 管理员/节点
-  /api/v1/admin/providers/{id}/monitoring/monitors:
-    get:
-      description: 获取指定节点下所有Agent监控记录，支持分页
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 页码
-        in: query
-        name: page
-        type: integer
-      - description: 每页条数
-        in: query
-        name: pageSize
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 获取节点监控列表（DB）
-      tags:
-      - 管理员/节点
-  /api/v1/admin/providers/{id}/monitoring/resources:
-    get:
-      description: 获取节点下所有实例的最新资源使用汇总
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 获取节点资源汇总
-      tags:
-      - 管理员/节点
-  /api/v1/admin/providers/{id}/monitoring/status:
-    get:
-      description: 检查指定节点的监控Agent运行状态、版本与监控数量
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 获取Agent状态
-      tags:
-      - 管理员/节点
-  /api/v1/admin/providers/{id}/monitoring/sync:
-    post:
-      description: 确保所有运行中实例均有监控器，并清理失效的监控记录（最长5分钟）
-      parameters:
-      - description: 节点ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 同步节点监控器
-      tags:
-      - 管理员/节点
-  /api/v1/admin/providers/{id}/sftp/download:
-    get:
-      description: 下载管理员连接到节点宿主机上的远程文件
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 远程文件路径
-        in: query
-        name: path
-        required: true
-        type: string
-      produces:
-      - application/octet-stream
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: file
-      summary: 管理员节点SFTP下载
-      tags:
-      - 管理员/Provider
-  /api/v1/admin/providers/{id}/sftp/list:
-    get:
-      description: 列出管理员连接到节点宿主机后的远程目录文件
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 远程路径
-        in: query
-        name: path
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员节点SFTP目录列表
-      tags:
-      - 管理员/Provider
-  /api/v1/admin/providers/{id}/sftp/upload:
-    post:
-      consumes:
-      - multipart/form-data
-      description: 上传本地文件到管理员连接到节点宿主机上的远程目录
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 远程目标目录
-        in: formData
-        name: targetDir
-        type: string
-      - description: 上传文件
-        in: formData
-        name: file
-        required: true
-        type: file
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员节点SFTP上传
-      tags:
-      - 管理员/Provider
-  /api/v1/admin/providers/{id}/sftp/upload/abort:
-    post:
-      consumes:
-      - multipart/form-data
-      description: 清理节点宿主机指定 uploadId 对应临时分片文件，允许重传
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 上传ID
-        in: formData
-        name: uploadId
-        required: true
-        type: string
-      - description: 远程目标文件路径
-        in: formData
-        name: targetPath
-        type: string
-      - description: 远程目标目录
-        in: formData
-        name: targetDir
-        type: string
-      - description: 文件名
-        in: formData
-        name: filename
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员节点SFTP上传中断清理
-      tags:
-      - 管理员/Provider
-  /api/v1/admin/providers/{id}/sftp/upload/status:
-    get:
-      description: 查询节点宿主机分片上传进度，用于断点续传
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 上传ID
-        in: query
-        name: uploadId
-        required: true
-        type: string
-      - description: 远程目标文件路径
-        in: query
-        name: targetPath
-        type: string
-      - description: 远程目标目录
-        in: query
-        name: targetDir
-        type: string
-      - description: 文件名
-        in: query
-        name: filename
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 管理员节点SFTP上传状态
-      tags:
-      - 管理员/Provider
-  /api/v1/admin/providers/{provider_id}/traffic/history:
-    get:
-      consumes:
-      - application/json
-      description: 获取指定Provider的历史流量数据，支持5分钟到24小时的灵活时间范围
-      parameters:
-      - description: Provider ID
-        in: path
-        name: provider_id
-        required: true
-        type: integer
-      - default: 1h
-        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
-        in: query
-        name: period
-        type: string
-      - default: 0
-        description: 数据点间隔（分钟），0表示自动选择
-        in: query
-        name: interval
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/monitoring.ProviderTrafficHistory'
-                  type: array
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取Provider流量历史
-      tags:
-      - 流量管理-管理员
-  /api/v1/admin/storage/cleanup:
-    post:
-      consumes:
-      - application/json
-      description: 清理临时目录中的所有文件
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: success
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 清理临时文件
-      tags:
-      - System
-  /api/v1/admin/storage/info:
-    get:
-      consumes:
-      - application/json
-      description: 获取存储目录结构和状态信息
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: success
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  additionalProperties: true
-                  type: object
-              type: object
-      security:
-      - BearerAuth: []
-      summary: 获取存储目录信息
-      tags:
-      - System
-  /api/v1/admin/storage/init:
-    post:
-      consumes:
-      - application/json
-      description: 重新创建所有必要的存储目录
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: success
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 重新初始化存储目录
-      tags:
-      - System
-  /api/v1/admin/traffic/batch-manage:
-    post:
-      consumes:
-      - application/json
-      description: 批量设置或解除用户的流量限制
-      parameters:
-      - description: 批量流量限制管理请求
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/traffic.BatchManageTrafficLimitRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 批量管理流量限制
-      tags:
-      - 管理员流量
-  /api/v1/admin/traffic/batch-sync:
-    post:
-      consumes:
-      - application/json
-      description: 批量触发用户流量数据同步
-      parameters:
-      - description: 批量同步流量请求
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/traffic.BatchSyncTrafficRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 批量同步用户流量
-      tags:
-      - 管理员流量
-  /api/v1/admin/traffic/manage:
-    post:
-      consumes:
-      - application/json
-      description: 手动设置或解除用户/Provider的流量限制
-      parameters:
-      - description: 流量限制管理请求
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/traffic.ManageTrafficLimitRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 管理流量限制
-      tags:
-      - 管理员流量
-  /api/v1/admin/traffic/overview:
-    get:
-      consumes:
-      - application/json
-      description: 获取整个系统的流量使用情况概览
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 获取系统流量概览
-      tags:
-      - 管理员流量
-  /api/v1/admin/traffic/provider/{providerId}:
-    get:
-      consumes:
-      - application/json
-      description: 获取指定Provider的流量使用情况
-      parameters:
-      - description: Provider ID
-        in: path
-        name: providerId
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 获取Provider流量统计
-      tags:
-      - 管理员流量
-  /api/v1/admin/traffic/user/{userId}:
-    get:
-      consumes:
-      - application/json
-      description: 获取指定用户的流量使用情况
-      parameters:
-      - description: 用户ID
-        in: path
-        name: userId
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 获取用户流量统计
-      tags:
-      - 管理员流量
-  /api/v1/admin/traffic/user/{userId}/clear:
-    delete:
-      consumes:
-      - application/json
-      description: 删除指定用户的所有历史流量记录，用于重新计数
-      parameters:
-      - description: 用户ID
-        in: path
-        name: userId
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 清空用户流量记录
-      tags:
-      - 管理员流量
-  /api/v1/admin/traffic/users/rank:
-    get:
-      consumes:
-      - application/json
-      description: 获取系统中所有用户的流量使用排行榜，支持分页和搜索
-      parameters:
-      - description: 页码，默认1
-        in: query
-        name: page
-        type: integer
-      - description: 每页数量，默认10
-        in: query
-        name: pageSize
-        type: integer
-      - description: 按用户名搜索
-        in: query
-        name: username
-        type: string
-      - description: 按昵称搜索
-        in: query
-        name: nickname
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 获取用户流量排行榜
-      tags:
-      - 管理员流量
-  /api/v1/user/instances/{id}/exec:
-    get:
-      consumes:
-      - application/json
-      description: 通过WebSocket建立到容器的交互式终端连接(exec)
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "101":
-          description: Switching Protocols
-          schema:
-            type: string
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "404":
-          description: 实例不存在
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 服务器错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: WebSocket Container Exec
-      tags:
-      - 用户/实例
-  /api/v1/user/instances/{id}/sftp/download:
-    get:
-      description: 下载用户实例上的远程文件
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 远程文件路径
-        in: query
-        name: path
-        required: true
-        type: string
-      produces:
-      - application/octet-stream
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: file
-      summary: 用户实例SFTP下载
-      tags:
-      - 用户/实例
-  /api/v1/user/instances/{id}/sftp/list:
-    get:
-      description: 列出用户实例远程目录文件
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 远程路径
-        in: query
-        name: path
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 用户实例SFTP目录列表
-      tags:
-      - 用户/实例
-  /api/v1/user/instances/{id}/sftp/upload:
-    post:
-      consumes:
-      - multipart/form-data
-      description: 上传本地文件到用户实例远程目录
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 远程目标目录
-        in: formData
-        name: targetDir
-        type: string
-      - description: 上传文件
-        in: formData
-        name: file
-        required: true
-        type: file
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 用户实例SFTP上传
-      tags:
-      - 用户/实例
-  /api/v1/user/instances/{id}/sftp/upload/abort:
-    post:
-      consumes:
-      - multipart/form-data
-      description: 清理指定 uploadId 对应的临时分片文件，允许重传
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 上传ID
-        in: formData
-        name: uploadId
-        required: true
-        type: string
-      - description: 远程目标文件路径
-        in: formData
-        name: targetPath
-        type: string
-      - description: 远程目标目录
-        in: formData
-        name: targetDir
-        type: string
-      - description: 文件名
-        in: formData
-        name: filename
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 用户实例SFTP上传中断清理
-      tags:
-      - 用户/实例
-  /api/v1/user/instances/{id}/sftp/upload/status:
-    get:
-      description: 查询分片上传进度，用于断点续传
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 上传ID
-        in: query
-        name: uploadId
-        required: true
-        type: string
-      - description: 远程目标文件路径
-        in: query
-        name: targetPath
-        type: string
-      - description: 远程目标目录
-        in: query
-        name: targetDir
-        type: string
-      - description: 文件名
-        in: query
-        name: filename
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: 用户实例SFTP上传状态
-      tags:
-      - 用户/实例
-  /api/v1/user/instances/{id}/ssh:
-    get:
-      consumes:
-      - application/json
-      description: 通过WebSocket建立到实例的SSH连接
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "101":
-          description: Switching Protocols
-          schema:
-            type: string
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "404":
-          description: 实例不存在
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 服务器错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      summary: WebSocket SSH连接
-      tags:
-      - 用户/实例
-  /api/v1/user/instances/{instance_id}/traffic/history:
-    get:
-      consumes:
-      - application/json
-      description: 获取指定实例的历史流量数据，支持5分钟到24小时的灵活时间范围
-      parameters:
-      - description: 实例ID
-        in: path
-        name: instance_id
-        required: true
-        type: integer
-      - default: 1h
-        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
-        in: query
-        name: period
-        type: string
-      - default: 0
-        description: '数据点间隔（分钟），0表示自动选择，可选: 5, 15, 30, 60'
-        in: query
-        name: interval
-        type: integer
-      - default: false
-        description: 是否包含已归档数据（重置前的历史记录）
-        in: query
-        name: includeArchived
-        type: boolean
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/monitoring.InstanceTrafficHistory'
-                  type: array
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取实例流量历史
-      tags:
-      - 流量管理
-  /api/v1/user/traffic/history:
-    get:
-      consumes:
-      - application/json
-      description: 获取当前用户的历史流量数据，支持5分钟到24小时的灵活时间范围
-      parameters:
-      - default: 1h
-        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
-        in: query
-        name: period
-        type: string
-      - default: 0
-        description: 数据点间隔（分钟），0表示自动选择
-        in: query
-        name: interval
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/monitoring.UserTrafficHistory'
-                  type: array
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取用户流量历史
-      tags:
-      - 流量管理
-  /api/v1/user/traffic/instance/{instanceId}:
-    get:
-      consumes:
-      - application/json
-      description: 获取指定实例的详细流量统计信息
-      parameters:
-      - description: 实例ID
-        in: path
-        name: instanceId
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 获取实例流量详情
-      tags:
-      - 用户流量
-  /api/v1/user/traffic/instances:
-    get:
-      consumes:
-      - application/json
-      description: 获取用户所有实例的流量使用汇总信息
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 获取用户所有实例流量汇总
-      tags:
-      - 用户流量
-  /api/v1/user/traffic/limit-status:
-    get:
-      consumes:
-      - application/json
-      description: 获取用户的流量限制状态和受限实例信息
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 获取流量限制状态
-      tags:
-      - 用户流量
-  /api/v1/user/traffic/overview:
-    get:
-      consumes:
-      - application/json
-      description: 基于pmacct获取用户流量使用情况概览
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 获取用户流量概览
-      tags:
-      - 用户流量
-  /api/v1/user/traffic/pmacct/{instanceId}:
-    get:
-      consumes:
-      - application/json
-      description: 获取指定实例的原始pmacct统计数据
-      parameters:
-      - description: 实例ID
-        in: path
-        name: instanceId
-        required: true
-        type: integer
-      - description: 网络接口名称
-        in: query
-        name: interface
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - ApiKeyAuth: []
-      summary: 获取原始pmacct数据
-      tags:
-      - 用户流量
   /auth/captcha:
     get:
       consumes:
@@ -8657,6 +8227,43 @@ paths:
       summary: 获取用户实例详情
       tags:
       - 用户管理
+  /user/instances/{id}/exec:
+    get:
+      consumes:
+      - application/json
+      description: 通过WebSocket建立到容器的交互式终端连接(exec)
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: WebSocket Container Exec
+      tags:
+      - 用户/实例
   /user/instances/{id}/monitoring:
     get:
       consumes:
@@ -8835,6 +8442,194 @@ paths:
       summary: 用户重置实例密码
       tags:
       - 用户管理
+  /user/instances/{id}/sftp/download:
+    get:
+      description: 下载用户实例上的远程文件
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程文件路径
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: 用户实例SFTP下载
+      tags:
+      - 用户/实例
+  /user/instances/{id}/sftp/list:
+    get:
+      description: 列出用户实例远程目录文件
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程路径
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 用户实例SFTP目录列表
+      tags:
+      - 用户/实例
+  /user/instances/{id}/sftp/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 上传本地文件到用户实例远程目录
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 上传文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 用户实例SFTP上传
+      tags:
+      - 用户/实例
+  /user/instances/{id}/sftp/upload/abort:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 清理指定 uploadId 对应的临时分片文件，允许重传
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: formData
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: formData
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: formData
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 用户实例SFTP上传中断清理
+      tags:
+      - 用户/实例
+  /user/instances/{id}/sftp/upload/status:
+    get:
+      description: 查询分片上传进度，用于断点续传
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: query
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: query
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: query
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: query
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 用户实例SFTP上传状态
+      tags:
+      - 用户/实例
+  /user/instances/{id}/ssh:
+    get:
+      consumes:
+      - application/json
+      description: 通过WebSocket建立到实例的SSH连接
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: WebSocket SSH连接
+      tags:
+      - 用户/实例
   /user/instances/{instance_id}/pmacct/query:
     get:
       consumes:
@@ -8931,6 +8726,63 @@ paths:
       summary: 获取实例pmacct流量汇总
       tags:
       - 用户管理
+  /user/instances/{instance_id}/traffic/history:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定实例的历史流量数据，支持5分钟到24小时的灵活时间范围
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instance_id
+        required: true
+        type: integer
+      - default: 1h
+        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
+        in: query
+        name: period
+        type: string
+      - default: 0
+        description: '数据点间隔（分钟），0表示自动选择，可选: 5, 15, 30, 60'
+        in: query
+        name: interval
+        type: integer
+      - default: false
+        description: 是否包含已归档数据（重置前的历史记录）
+        in: query
+        name: includeArchived
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/monitoring.InstanceTrafficHistory'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例流量历史
+      tags:
+      - 流量管理
   /user/instances/action:
     post:
       consumes:
@@ -9463,6 +9315,154 @@ paths:
       summary: 取消用户任务
       tags:
       - 用户管理
+  /user/traffic/history:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前用户的历史流量数据，支持5分钟到24小时的灵活时间范围
+      parameters:
+      - default: 1h
+        description: '时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h'
+        in: query
+        name: period
+        type: string
+      - default: 0
+        description: 数据点间隔（分钟），0表示自动选择
+        in: query
+        name: interval
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/monitoring.UserTrafficHistory'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取用户流量历史
+      tags:
+      - 流量管理
+  /user/traffic/instance/{instanceId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定实例的详细流量统计信息
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instanceId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取实例流量详情
+      tags:
+      - 用户流量
+  /user/traffic/instances:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户所有实例的流量使用汇总信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取用户所有实例流量汇总
+      tags:
+      - 用户流量
+  /user/traffic/limit-status:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户的流量限制状态和受限实例信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取流量限制状态
+      tags:
+      - 用户流量
+  /user/traffic/overview:
+    get:
+      consumes:
+      - application/json
+      description: 基于pmacct获取用户流量使用情况概览
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取用户流量概览
+      tags:
+      - 用户流量
+  /user/traffic/pmacct/{instanceId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定实例的原始pmacct统计数据
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instanceId
+        required: true
+        type: integer
+      - description: 网络接口名称
+        in: query
+        name: interface
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取原始pmacct数据
+      tags:
+      - 用户流量
   /v1/admin/providers/{id}/agent-secret:
     post:
       description: 为 agent 连接模式的 Provider 生成新的鉴权密钥（仅首次），后续调用只返回已有密钥。密钥一旦创建即写死，需删除Provider重建才能刷新。

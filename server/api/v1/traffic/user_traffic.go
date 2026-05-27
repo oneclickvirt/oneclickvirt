@@ -25,7 +25,7 @@ type UserTrafficAPI struct{}
 // @Produce json
 // @Security ApiKeyAuth
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/traffic/overview [get]
+// @Router /user/traffic/overview [get]
 func (api *UserTrafficAPI) GetTrafficOverview(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
@@ -55,7 +55,7 @@ func (api *UserTrafficAPI) GetTrafficOverview(c *gin.Context) {
 // @Security ApiKeyAuth
 // @Param instanceId path int true "实例ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/traffic/instance/{instanceId} [get]
+// @Router /user/traffic/instance/{instanceId} [get]
 func (api *UserTrafficAPI) GetInstanceTrafficDetail(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
@@ -92,7 +92,7 @@ func (api *UserTrafficAPI) GetInstanceTrafficDetail(c *gin.Context) {
 // @Produce json
 // @Security ApiKeyAuth
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/traffic/instances [get]
+// @Router /user/traffic/instances [get]
 func (api *UserTrafficAPI) GetInstancesTrafficSummary(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
@@ -121,7 +121,7 @@ func (api *UserTrafficAPI) GetInstancesTrafficSummary(c *gin.Context) {
 // @Produce json
 // @Security ApiKeyAuth
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/traffic/limit-status [get]
+// @Router /user/traffic/limit-status [get]
 func (api *UserTrafficAPI) GetTrafficLimitStatus(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
@@ -152,7 +152,7 @@ func (api *UserTrafficAPI) GetTrafficLimitStatus(c *gin.Context) {
 // @Param instanceId path int true "实例ID"
 // @Param interface query string false "网络接口名称"
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/traffic/pmacct/{instanceId} [get]
+// @Router /user/traffic/pmacct/{instanceId} [get]
 func (api *UserTrafficAPI) GetPmacctData(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {

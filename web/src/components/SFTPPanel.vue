@@ -328,11 +328,16 @@ const handleFileChange = async (event) => {
             await api.uploadAbort(props.entityId, abortData)
             uploadedBytes = 0
           } else {
+            // User dismissed dialog (X button) — cancel the entire upload
             throw new Error('Upload canceled by user')
           }
         }
       }
-    } catch {
+    } catch (e) {
+      // Re-throw user-initiated cancellation so it aborts the whole upload
+      if (e instanceof Error && e.message === 'Upload canceled by user') {
+        throw e
+      }
       uploadedBytes = 0
     }
 

@@ -1129,6 +1129,41 @@
                 }
             }
         },
+        "/admin/instances/{id}/monitoring/resources": {
+            "get": {
+                "description": "获取指定实例的CPU/内存资源监控指标",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "获取实例资源监控数据",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "查询时间范围小时数（默认24）",
+                        "name": "hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/instances/{id}/password/{taskId}": {
             "get": {
                 "security": [
@@ -1327,6 +1362,289 @@
                     },
                     "500": {
                         "description": "创建任务失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/instances/{id}/sftp/download": {
+            "get": {
+                "description": "下载管理员实例上的远程文件",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP下载",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程文件路径",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/instances/{id}/sftp/list": {
+            "get": {
+                "description": "列出管理员实例远程目录文件",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP目录列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程路径",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/instances/{id}/sftp/upload": {
+            "post": {
+                "description": "上传本地文件到管理员实例远程目录",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP上传",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "上传文件",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/instances/{id}/sftp/upload/abort": {
+            "post": {
+                "description": "清理实例指定 uploadId 对应临时分片文件，允许重传",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP上传中断清理",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/instances/{id}/sftp/upload/status": {
+            "get": {
+                "description": "查询实例分片上传进度，用于断点续传",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP上传状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/instances/{id}/ssh": {
+            "get": {
+                "description": "管理员通过WebSocket建立到任意实例的SSH连接",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员WebSocket SSH连接",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "未授权",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -1690,6 +2008,224 @@
                 }
             }
         },
+        "/admin/logs/cleanup": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "根据配置的保留天数清理旧的日志文件",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "清理旧日志文件",
+                "responses": {
+                    "200": {
+                        "description": "success",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/logs/files": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取所有日志文件的信息，包括按日期分割的日志文件",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "获取日志文件列表",
+                "responses": {
+                    "200": {
+                        "description": "success",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/log.LogFileInfo"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/logs/read": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "读取指定日志文件的内容，支持指定返回行数",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "读取日志文件内容",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "日志文件名",
+                        "name": "filename",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "返回行数，默认100行",
+                        "name": "lines",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/monitoring/audit-logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取用户操作审计日志",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员管理"
+                ],
+                "summary": "获取操作审计日志",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "操作类型",
+                        "name": "action",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "开始时间",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "结束时间",
+                        "name": "end_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "返回条数",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "偏移量",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "获取失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/monitoring/health": {
             "get": {
                 "security": [
@@ -1735,6 +2271,83 @@
                     },
                     "500": {
                         "description": "检查失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/monitoring/logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取系统运行日志",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "监控管理"
+                ],
+                "summary": "获取系统日志",
+                "parameters": [
+                    {
+                        "enum": [
+                            "info",
+                            "warn",
+                            "error",
+                            "debug"
+                        ],
+                        "type": "string",
+                        "description": "日志级别",
+                        "name": "level",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "返回条数",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "偏移量",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "获取失败",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -3068,6 +3681,339 @@
                 }
             }
         },
+        "/admin/providers/{id}/monitoring/agent": {
+            "post": {
+                "description": "将监控Agent部署到指定节点主机（耗时最長十分钟）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "部署监控Agent",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "部署参数（version可选）",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/admin.DeployAgentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "从指定节点主机卸载监控Agent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "卸载监控Agent",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/monitoring/agent-monitors": {
+            "get": {
+                "description": "直接从 Agent读取监控器列表；Agent模式节点回读数据库缓存",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取Agent监控列表（实时）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页条数",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/monitoring/clear": {
+            "delete": {
+                "description": "清除指定节点下所有Agent监控记录及资源指标",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "清空节点监控器",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/monitoring/config": {
+            "get": {
+                "description": "获取指定节点的监控配置",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取监控配置",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "更新指定节点的监控配置，如果Agent已安装则同步配置到远程Agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "更新监控配置",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "监控配置",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.UpdateMonitoringConfigRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/monitoring/monitors": {
+            "get": {
+                "description": "获取指定节点下所有Agent监控记录，支持分页",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取节点监控列表（DB）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页条数",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/monitoring/resources": {
+            "get": {
+                "description": "获取节点下所有实例的最新资源使用汇总",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取节点资源汇总",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/monitoring/status": {
+            "get": {
+                "description": "检查指定节点的监控Agent运行状态、版本与监控数量",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取Agent状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/monitoring/sync": {
+            "post": {
+                "description": "确保所有运行中实例均有监控器，并清理失效的监控记录（最长5分钟）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "同步节点监控器",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/providers/{id}/orphaned": {
             "get": {
                 "security": [
@@ -3132,6 +4078,233 @@
                 }
             }
         },
+        "/admin/providers/{id}/sftp/download": {
+            "get": {
+                "description": "下载管理员连接到节点宿主机上的远程文件",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP下载",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程文件路径",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/sftp/list": {
+            "get": {
+                "description": "列出管理员连接到节点宿主机后的远程目录文件",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP目录列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程路径",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/sftp/upload": {
+            "post": {
+                "description": "上传本地文件到管理员连接到节点宿主机上的远程目录",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP上传",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "上传文件",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/sftp/upload/abort": {
+            "post": {
+                "description": "清理节点宿主机指定 uploadId 对应临时分片文件，允许重传",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP上传中断清理",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{id}/sftp/upload/status": {
+            "get": {
+                "description": "查询节点宿主机分片上传进度，用于断点续传",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP上传状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/providers/{id}/sync-check": {
             "post": {
                 "security": [
@@ -3186,6 +4359,90 @@
                     },
                     "500": {
                         "description": "服务器内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/providers/{provider_id}/traffic/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取指定Provider的历史流量数据，支持5分钟到24小时的灵活时间范围",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量管理-管理员"
+                ],
+                "summary": "获取Provider流量历史",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "provider_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "数据点间隔（分钟），0表示自动选择",
+                        "name": "interval",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/monitoring.ProviderTrafficHistory"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -3365,6 +4622,103 @@
                 "responses": {
                     "200": {
                         "description": "导出成功",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/storage/cleanup": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "清理临时目录中的所有文件",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "清理临时文件",
+                "responses": {
+                    "200": {
+                        "description": "success",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/storage/info": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取存储目录结构和状态信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "获取存储目录信息",
+                "responses": {
+                    "200": {
+                        "description": "success",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "additionalProperties": true
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/storage/init": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "重新创建所有必要的存储目录",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "重新初始化存储目录",
+                "responses": {
+                    "200": {
+                        "description": "success",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -3943,6 +5297,188 @@
                 }
             }
         },
+        "/admin/traffic/batch-manage": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "批量设置或解除用户的流量限制",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "批量管理流量限制",
+                "parameters": [
+                    {
+                        "description": "批量流量限制管理请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/traffic.BatchManageTrafficLimitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/traffic/batch-sync": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "批量触发用户流量数据同步",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "批量同步用户流量",
+                "parameters": [
+                    {
+                        "description": "批量同步流量请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/traffic.BatchSyncTrafficRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/traffic/manage": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "手动设置或解除用户/Provider的流量限制",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "管理流量限制",
+                "parameters": [
+                    {
+                        "description": "流量限制管理请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/traffic.ManageTrafficLimitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/traffic/overview": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "获取整个系统的流量使用情况概览",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "获取系统流量概览",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/traffic/provider/{providerId}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "获取指定Provider的流量使用情况",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "获取Provider流量统计",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "providerId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/traffic/sync/all": {
             "post": {
                 "security": [
@@ -4165,6 +5701,134 @@
                     },
                     "500": {
                         "description": "内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/traffic/user/{userId}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "获取指定用户的流量使用情况",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "获取用户流量统计",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户ID",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/traffic/user/{userId}/clear": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "删除指定用户的所有历史流量记录，用于重新计数",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "清空用户流量记录",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户ID",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/traffic/users/rank": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "获取系统中所有用户的流量使用排行榜，支持分页和搜索",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "获取用户流量排行榜",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "页码，默认1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页数量，默认10",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "按用户名搜索",
+                        "name": "username",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "按昵称搜索",
+                        "name": "nickname",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -4715,2341 +6379,6 @@
                     },
                     "500": {
                         "description": "更新失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/instances/{id}/monitoring/resources": {
-            "get": {
-                "description": "获取指定实例的CPU/内存资源监控指标",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/实例"
-                ],
-                "summary": "获取实例资源监控数据",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "查询时间范围小时数（默认24）",
-                        "name": "hours",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/instances/{id}/sftp/download": {
-            "get": {
-                "description": "下载管理员实例上的远程文件",
-                "produces": [
-                    "application/octet-stream"
-                ],
-                "tags": [
-                    "管理员/实例"
-                ],
-                "summary": "管理员实例SFTP下载",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程文件路径",
-                        "name": "path",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "file"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/instances/{id}/sftp/list": {
-            "get": {
-                "description": "列出管理员实例远程目录文件",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/实例"
-                ],
-                "summary": "管理员实例SFTP目录列表",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程路径",
-                        "name": "path",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/instances/{id}/sftp/upload": {
-            "post": {
-                "description": "上传本地文件到管理员实例远程目录",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/实例"
-                ],
-                "summary": "管理员实例SFTP上传",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标目录",
-                        "name": "targetDir",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "file",
-                        "description": "上传文件",
-                        "name": "file",
-                        "in": "formData",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/instances/{id}/sftp/upload/abort": {
-            "post": {
-                "description": "清理实例指定 uploadId 对应临时分片文件，允许重传",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/实例"
-                ],
-                "summary": "管理员实例SFTP上传中断清理",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "上传ID",
-                        "name": "uploadId",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标文件路径",
-                        "name": "targetPath",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标目录",
-                        "name": "targetDir",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "文件名",
-                        "name": "filename",
-                        "in": "formData"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/instances/{id}/sftp/upload/status": {
-            "get": {
-                "description": "查询实例分片上传进度，用于断点续传",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/实例"
-                ],
-                "summary": "管理员实例SFTP上传状态",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "上传ID",
-                        "name": "uploadId",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标文件路径",
-                        "name": "targetPath",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标目录",
-                        "name": "targetDir",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "文件名",
-                        "name": "filename",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/instances/{id}/ssh": {
-            "get": {
-                "description": "管理员通过WebSocket建立到任意实例的SSH连接",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/实例"
-                ],
-                "summary": "管理员WebSocket SSH连接",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "101": {
-                        "description": "Switching Protocols",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "未授权",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "404": {
-                        "description": "实例不存在",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "服务器错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/logs/cleanup": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "根据配置的保留天数清理旧的日志文件",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "System"
-                ],
-                "summary": "清理旧日志文件",
-                "responses": {
-                    "200": {
-                        "description": "success",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/logs/files": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取所有日志文件的信息，包括按日期分割的日志文件",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "System"
-                ],
-                "summary": "获取日志文件列表",
-                "responses": {
-                    "200": {
-                        "description": "success",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/log.LogFileInfo"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/logs/read": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "读取指定日志文件的内容，支持指定返回行数",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "System"
-                ],
-                "summary": "读取日志文件内容",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "日志文件名",
-                        "name": "filename",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "返回行数，默认100行",
-                        "name": "lines",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "success",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "string"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/monitoring/audit-logs": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取用户操作审计日志",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员管理"
-                ],
-                "summary": "获取操作审计日志",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "用户ID",
-                        "name": "user_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "操作类型",
-                        "name": "action",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "开始时间",
-                        "name": "start_time",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "结束时间",
-                        "name": "end_time",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 100,
-                        "description": "返回条数",
-                        "name": "limit",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 0,
-                        "description": "偏移量",
-                        "name": "offset",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "object"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "500": {
-                        "description": "获取失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/monitoring/logs": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取系统运行日志",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "监控管理"
-                ],
-                "summary": "获取系统日志",
-                "parameters": [
-                    {
-                        "enum": [
-                            "info",
-                            "warn",
-                            "error",
-                            "debug"
-                        ],
-                        "type": "string",
-                        "description": "日志级别",
-                        "name": "level",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 100,
-                        "description": "返回条数",
-                        "name": "limit",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 0,
-                        "description": "偏移量",
-                        "name": "offset",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "object"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "500": {
-                        "description": "获取失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/monitoring/agent": {
-            "post": {
-                "description": "将监控Agent部署到指定节点主机（耗时最長十分钟）",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "部署监控Agent",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "部署参数（version可选）",
-                        "name": "body",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/admin.DeployAgentRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "description": "从指定节点主机卸载监控Agent",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "卸载监控Agent",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/monitoring/agent-monitors": {
-            "get": {
-                "description": "直接从 Agent读取监控器列表；Agent模式节点回读数据库缓存",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "获取Agent监控列表（实时）",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "页码",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "每页条数",
-                        "name": "pageSize",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/monitoring/clear": {
-            "delete": {
-                "description": "清除指定节点下所有Agent监控记录及资源指标",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "清空节点监控器",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/monitoring/config": {
-            "get": {
-                "description": "获取指定节点的监控配置",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "获取监控配置",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "description": "更新指定节点的监控配置，如果Agent已安装则同步配置到远程Agent",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "更新监控配置",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "监控配置",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/admin.UpdateMonitoringConfigRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/monitoring/monitors": {
-            "get": {
-                "description": "获取指定节点下所有Agent监控记录，支持分页",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "获取节点监控列表（DB）",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "页码",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "每页条数",
-                        "name": "pageSize",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/monitoring/resources": {
-            "get": {
-                "description": "获取节点下所有实例的最新资源使用汇总",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "获取节点资源汇总",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/monitoring/status": {
-            "get": {
-                "description": "检查指定节点的监控Agent运行状态、版本与监控数量",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "获取Agent状态",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/monitoring/sync": {
-            "post": {
-                "description": "确保所有运行中实例均有监控器，并清理失效的监控记录（最长5分钟）",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/节点"
-                ],
-                "summary": "同步节点监控器",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "节点ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/sftp/download": {
-            "get": {
-                "description": "下载管理员连接到节点宿主机上的远程文件",
-                "produces": [
-                    "application/octet-stream"
-                ],
-                "tags": [
-                    "管理员/Provider"
-                ],
-                "summary": "管理员节点SFTP下载",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程文件路径",
-                        "name": "path",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "file"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/sftp/list": {
-            "get": {
-                "description": "列出管理员连接到节点宿主机后的远程目录文件",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/Provider"
-                ],
-                "summary": "管理员节点SFTP目录列表",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程路径",
-                        "name": "path",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/sftp/upload": {
-            "post": {
-                "description": "上传本地文件到管理员连接到节点宿主机上的远程目录",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/Provider"
-                ],
-                "summary": "管理员节点SFTP上传",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标目录",
-                        "name": "targetDir",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "file",
-                        "description": "上传文件",
-                        "name": "file",
-                        "in": "formData",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/sftp/upload/abort": {
-            "post": {
-                "description": "清理节点宿主机指定 uploadId 对应临时分片文件，允许重传",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/Provider"
-                ],
-                "summary": "管理员节点SFTP上传中断清理",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "上传ID",
-                        "name": "uploadId",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标文件路径",
-                        "name": "targetPath",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标目录",
-                        "name": "targetDir",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "文件名",
-                        "name": "filename",
-                        "in": "formData"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{id}/sftp/upload/status": {
-            "get": {
-                "description": "查询节点宿主机分片上传进度，用于断点续传",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员/Provider"
-                ],
-                "summary": "管理员节点SFTP上传状态",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "上传ID",
-                        "name": "uploadId",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标文件路径",
-                        "name": "targetPath",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标目录",
-                        "name": "targetDir",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "文件名",
-                        "name": "filename",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/providers/{provider_id}/traffic/history": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取指定Provider的历史流量数据，支持5分钟到24小时的灵活时间范围",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "流量管理-管理员"
-                ],
-                "summary": "获取Provider流量历史",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "provider_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "default": "1h",
-                        "description": "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h",
-                        "name": "period",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 0,
-                        "description": "数据点间隔（分钟），0表示自动选择",
-                        "name": "interval",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/monitoring.ProviderTrafficHistory"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/storage/cleanup": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "清理临时目录中的所有文件",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "System"
-                ],
-                "summary": "清理临时文件",
-                "responses": {
-                    "200": {
-                        "description": "success",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/storage/info": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取存储目录结构和状态信息",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "System"
-                ],
-                "summary": "获取存储目录信息",
-                "responses": {
-                    "200": {
-                        "description": "success",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object",
-                                            "additionalProperties": true
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/storage/init": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "重新创建所有必要的存储目录",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "System"
-                ],
-                "summary": "重新初始化存储目录",
-                "responses": {
-                    "200": {
-                        "description": "success",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/traffic/batch-manage": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "批量设置或解除用户的流量限制",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员流量"
-                ],
-                "summary": "批量管理流量限制",
-                "parameters": [
-                    {
-                        "description": "批量流量限制管理请求",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/traffic.BatchManageTrafficLimitRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/traffic/batch-sync": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "批量触发用户流量数据同步",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员流量"
-                ],
-                "summary": "批量同步用户流量",
-                "parameters": [
-                    {
-                        "description": "批量同步流量请求",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/traffic.BatchSyncTrafficRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/traffic/manage": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "手动设置或解除用户/Provider的流量限制",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员流量"
-                ],
-                "summary": "管理流量限制",
-                "parameters": [
-                    {
-                        "description": "流量限制管理请求",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/traffic.ManageTrafficLimitRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/traffic/overview": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "获取整个系统的流量使用情况概览",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员流量"
-                ],
-                "summary": "获取系统流量概览",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/traffic/provider/{providerId}": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "获取指定Provider的流量使用情况",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员流量"
-                ],
-                "summary": "获取Provider流量统计",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "providerId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/traffic/user/{userId}": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "获取指定用户的流量使用情况",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员流量"
-                ],
-                "summary": "获取用户流量统计",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "用户ID",
-                        "name": "userId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/traffic/user/{userId}/clear": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "删除指定用户的所有历史流量记录，用于重新计数",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员流量"
-                ],
-                "summary": "清空用户流量记录",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "用户ID",
-                        "name": "userId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/traffic/users/rank": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "获取系统中所有用户的流量使用排行榜，支持分页和搜索",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员流量"
-                ],
-                "summary": "获取用户流量排行榜",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "页码，默认1",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "每页数量，默认10",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "按用户名搜索",
-                        "name": "username",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "按昵称搜索",
-                        "name": "nickname",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/instances/{id}/exec": {
-            "get": {
-                "description": "通过WebSocket建立到容器的交互式终端连接(exec)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户/实例"
-                ],
-                "summary": "WebSocket Container Exec",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "101": {
-                        "description": "Switching Protocols",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "未授权",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "404": {
-                        "description": "实例不存在",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "服务器错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/instances/{id}/sftp/download": {
-            "get": {
-                "description": "下载用户实例上的远程文件",
-                "produces": [
-                    "application/octet-stream"
-                ],
-                "tags": [
-                    "用户/实例"
-                ],
-                "summary": "用户实例SFTP下载",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程文件路径",
-                        "name": "path",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "file"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/instances/{id}/sftp/list": {
-            "get": {
-                "description": "列出用户实例远程目录文件",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户/实例"
-                ],
-                "summary": "用户实例SFTP目录列表",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程路径",
-                        "name": "path",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/instances/{id}/sftp/upload": {
-            "post": {
-                "description": "上传本地文件到用户实例远程目录",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户/实例"
-                ],
-                "summary": "用户实例SFTP上传",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标目录",
-                        "name": "targetDir",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "file",
-                        "description": "上传文件",
-                        "name": "file",
-                        "in": "formData",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/instances/{id}/sftp/upload/abort": {
-            "post": {
-                "description": "清理指定 uploadId 对应的临时分片文件，允许重传",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户/实例"
-                ],
-                "summary": "用户实例SFTP上传中断清理",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "上传ID",
-                        "name": "uploadId",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标文件路径",
-                        "name": "targetPath",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标目录",
-                        "name": "targetDir",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "文件名",
-                        "name": "filename",
-                        "in": "formData"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/instances/{id}/sftp/upload/status": {
-            "get": {
-                "description": "查询分片上传进度，用于断点续传",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户/实例"
-                ],
-                "summary": "用户实例SFTP上传状态",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "上传ID",
-                        "name": "uploadId",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标文件路径",
-                        "name": "targetPath",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "远程目标目录",
-                        "name": "targetDir",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "文件名",
-                        "name": "filename",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/instances/{id}/ssh": {
-            "get": {
-                "description": "通过WebSocket建立到实例的SSH连接",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户/实例"
-                ],
-                "summary": "WebSocket SSH连接",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "101": {
-                        "description": "Switching Protocols",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "未授权",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "404": {
-                        "description": "实例不存在",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "服务器错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/instances/{instance_id}/traffic/history": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取指定实例的历史流量数据，支持5分钟到24小时的灵活时间范围",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "流量管理"
-                ],
-                "summary": "获取实例流量历史",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "instance_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "default": "1h",
-                        "description": "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h",
-                        "name": "period",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 0,
-                        "description": "数据点间隔（分钟），0表示自动选择，可选: 5, 15, 30, 60",
-                        "name": "interval",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "是否包含已归档数据（重置前的历史记录）",
-                        "name": "includeArchived",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/monitoring.InstanceTrafficHistory"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/traffic/history": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取当前用户的历史流量数据，支持5分钟到24小时的灵活时间范围",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "流量管理"
-                ],
-                "summary": "获取用户流量历史",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "default": "1h",
-                        "description": "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h",
-                        "name": "period",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 0,
-                        "description": "数据点间隔（分钟），0表示自动选择",
-                        "name": "interval",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/monitoring.UserTrafficHistory"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/traffic/instance/{instanceId}": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "获取指定实例的详细流量统计信息",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户流量"
-                ],
-                "summary": "获取实例流量详情",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "instanceId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/traffic/instances": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "获取用户所有实例的流量使用汇总信息",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户流量"
-                ],
-                "summary": "获取用户所有实例流量汇总",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/traffic/limit-status": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "获取用户的流量限制状态和受限实例信息",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户流量"
-                ],
-                "summary": "获取流量限制状态",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/traffic/overview": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "基于pmacct获取用户流量使用情况概览",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户流量"
-                ],
-                "summary": "获取用户流量概览",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/user/traffic/pmacct/{instanceId}": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "获取指定实例的原始pmacct统计数据",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户流量"
-                ],
-                "summary": "获取原始pmacct数据",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "instanceId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "网络接口名称",
-                        "name": "interface",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -9608,6 +8937,62 @@
                 }
             }
         },
+        "/user/instances/{id}/exec": {
+            "get": {
+                "description": "通过WebSocket建立到容器的交互式终端连接(exec)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "WebSocket Container Exec",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "未授权",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/user/instances/{id}/monitoring": {
             "get": {
                 "security": [
@@ -9898,6 +9283,289 @@
                 }
             }
         },
+        "/user/instances/{id}/sftp/download": {
+            "get": {
+                "description": "下载用户实例上的远程文件",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP下载",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程文件路径",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/instances/{id}/sftp/list": {
+            "get": {
+                "description": "列出用户实例远程目录文件",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP目录列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程路径",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/instances/{id}/sftp/upload": {
+            "post": {
+                "description": "上传本地文件到用户实例远程目录",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP上传",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "上传文件",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/instances/{id}/sftp/upload/abort": {
+            "post": {
+                "description": "清理指定 uploadId 对应的临时分片文件，允许重传",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP上传中断清理",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/instances/{id}/sftp/upload/status": {
+            "get": {
+                "description": "查询分片上传进度，用于断点续传",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP上传状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/instances/{id}/ssh": {
+            "get": {
+                "description": "通过WebSocket建立到实例的SSH连接",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "WebSocket SSH连接",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "未授权",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/user/instances/{instance_id}/pmacct/query": {
             "get": {
                 "security": [
@@ -10049,6 +9717,97 @@
                     },
                     "500": {
                         "description": "获取失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/instances/{instance_id}/traffic/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取指定实例的历史流量数据，支持5分钟到24小时的灵活时间范围",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量管理"
+                ],
+                "summary": "获取实例流量历史",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "instance_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "数据点间隔（分钟），0表示自动选择，可选: 5, 15, 30, 60",
+                        "name": "interval",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "是否包含已归档数据（重置前的历史记录）",
+                        "name": "includeArchived",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/monitoring.InstanceTrafficHistory"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -10859,6 +10618,247 @@
                     },
                     "500": {
                         "description": "操作失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/traffic/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取当前用户的历史流量数据，支持5分钟到24小时的灵活时间范围",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量管理"
+                ],
+                "summary": "获取用户流量历史",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "数据点间隔（分钟），0表示自动选择",
+                        "name": "interval",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/monitoring.UserTrafficHistory"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/traffic/instance/{instanceId}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "获取指定实例的详细流量统计信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户流量"
+                ],
+                "summary": "获取实例流量详情",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "instanceId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/traffic/instances": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "获取用户所有实例的流量使用汇总信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户流量"
+                ],
+                "summary": "获取用户所有实例流量汇总",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/traffic/limit-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "获取用户的流量限制状态和受限实例信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户流量"
+                ],
+                "summary": "获取流量限制状态",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/traffic/overview": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "基于pmacct获取用户流量使用情况概览",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户流量"
+                ],
+                "summary": "获取用户流量概览",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/traffic/pmacct/{instanceId}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "获取指定实例的原始pmacct统计数据",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户流量"
+                ],
+                "summary": "获取原始pmacct数据",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "instanceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "网络接口名称",
+                        "name": "interface",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }

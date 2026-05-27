@@ -108,7 +108,7 @@ func writeSFTPDownloadResponse(c *gin.Context, filePath string, reader io.Reader
 // @Param id path uint true "实例ID"
 // @Param path query string false "远程路径"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/instances/{id}/sftp/list [get]
+// @Router /admin/instances/{id}/sftp/list [get]
 func AdminInstanceSFTPList(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -147,7 +147,7 @@ func AdminInstanceSFTPList(c *gin.Context) {
 // @Param id path uint true "实例ID"
 // @Param path query string true "远程文件路径"
 // @Success 200 {file} binary
-// @Router /api/v1/admin/instances/{id}/sftp/download [get]
+// @Router /admin/instances/{id}/sftp/download [get]
 func AdminInstanceSFTPDownload(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -204,7 +204,7 @@ func AdminInstanceSFTPDownload(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param file formData file true "上传文件"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/instances/{id}/sftp/upload [post]
+// @Router /admin/instances/{id}/sftp/upload [post]
 func AdminInstanceSFTPUpload(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -228,7 +228,7 @@ func AdminInstanceSFTPUpload(c *gin.Context) {
 // @Param id path uint true "Provider ID"
 // @Param path query string false "远程路径"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/sftp/list [get]
+// @Router /admin/providers/{id}/sftp/list [get]
 func AdminProviderSFTPList(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {
@@ -267,7 +267,7 @@ func AdminProviderSFTPList(c *gin.Context) {
 // @Param id path uint true "Provider ID"
 // @Param path query string true "远程文件路径"
 // @Success 200 {file} binary
-// @Router /api/v1/admin/providers/{id}/sftp/download [get]
+// @Router /admin/providers/{id}/sftp/download [get]
 func AdminProviderSFTPDownload(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {
@@ -324,7 +324,7 @@ func AdminProviderSFTPDownload(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param file formData file true "上传文件"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/sftp/upload [post]
+// @Router /admin/providers/{id}/sftp/upload [post]
 func AdminProviderSFTPUpload(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {
@@ -351,7 +351,7 @@ func AdminProviderSFTPUpload(c *gin.Context) {
 // @Param targetDir query string false "远程目标目录"
 // @Param filename query string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/instances/{id}/sftp/upload/status [get]
+// @Router /admin/instances/{id}/sftp/upload/status [get]
 func AdminInstanceSFTPUploadStatus(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -377,7 +377,7 @@ func AdminInstanceSFTPUploadStatus(c *gin.Context) {
 // @Param targetDir query string false "远程目标目录"
 // @Param filename query string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/sftp/upload/status [get]
+// @Router /admin/providers/{id}/sftp/upload/status [get]
 func AdminProviderSFTPUploadStatus(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {
@@ -404,7 +404,7 @@ func AdminProviderSFTPUploadStatus(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param filename formData string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/instances/{id}/sftp/upload/abort [post]
+// @Router /admin/instances/{id}/sftp/upload/abort [post]
 func AdminInstanceSFTPUploadAbort(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -431,7 +431,7 @@ func AdminInstanceSFTPUploadAbort(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param filename formData string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/sftp/upload/abort [post]
+// @Router /admin/providers/{id}/sftp/upload/abort [post]
 func AdminProviderSFTPUploadAbort(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {

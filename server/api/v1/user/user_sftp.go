@@ -66,7 +66,7 @@ func getUserInstanceForSFTP(c *gin.Context) (*providerModel.Instance, error) {
 // @Param id path uint true "实例ID"
 // @Param path query string false "远程路径"
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/instances/{id}/sftp/list [get]
+// @Router /user/instances/{id}/sftp/list [get]
 func UserSFTPList(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
@@ -124,7 +124,7 @@ func UserSFTPList(c *gin.Context) {
 // @Param id path uint true "实例ID"
 // @Param path query string true "远程文件路径"
 // @Success 200 {file} binary
-// @Router /api/v1/user/instances/{id}/sftp/download [get]
+// @Router /user/instances/{id}/sftp/download [get]
 func UserSFTPDownload(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
@@ -186,7 +186,7 @@ func UserSFTPDownload(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param file formData file true "上传文件"
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/instances/{id}/sftp/upload [post]
+// @Router /user/instances/{id}/sftp/upload [post]
 func UserSFTPUpload(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
@@ -318,7 +318,7 @@ func UserSFTPUpload(c *gin.Context) {
 // @Param targetDir query string false "远程目标目录"
 // @Param filename query string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/instances/{id}/sftp/upload/status [get]
+// @Router /user/instances/{id}/sftp/upload/status [get]
 func UserSFTPUploadStatus(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
@@ -387,7 +387,7 @@ func UserSFTPUploadStatus(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param filename formData string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/instances/{id}/sftp/upload/abort [post]
+// @Router /user/instances/{id}/sftp/upload/abort [post]
 func UserSFTPUploadAbort(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {

@@ -26,7 +26,7 @@ import (
 // @Param page query int false "页码"
 // @Param pageSize query int false "每页条数"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/monitors [get]
+// @Router /admin/providers/{id}/monitoring/monitors [get]
 func GetProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -103,7 +103,7 @@ func GetProviderMonitors(c *gin.Context) {
 // @Produce json
 // @Param id path uint true "节点ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/sync [post]
+// @Router /admin/providers/{id}/monitoring/sync [post]
 func SyncProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -159,7 +159,7 @@ func SyncProviderMonitors(c *gin.Context) {
 // @Param page query int false "页码"
 // @Param pageSize query int false "每页条数"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/agent-monitors [get]
+// @Router /admin/providers/{id}/monitoring/agent-monitors [get]
 func ListAgentMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -397,7 +397,7 @@ func listAgentMonitorsFromDB(c *gin.Context, providerID uint, page, pageSize int
 // @Param id path uint true "实例ID"
 // @Param hours query int false "查询时间范围小时数（默认24）"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/instances/{id}/monitoring/resources [get]
+// @Router /admin/instances/{id}/monitoring/resources [get]
 func GetInstanceResources(c *gin.Context) {
 	instanceIDStr := c.Param("id")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
@@ -430,7 +430,7 @@ func GetInstanceResources(c *gin.Context) {
 // @Produce json
 // @Param id path uint true "节点ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/resources [get]
+// @Router /admin/providers/{id}/monitoring/resources [get]
 func GetProviderResourceSummary(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -457,7 +457,7 @@ func GetProviderResourceSummary(c *gin.Context) {
 // @Produce json
 // @Param id path uint true "节点ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/clear [delete]
+// @Router /admin/providers/{id}/monitoring/clear [delete]
 func ClearProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)

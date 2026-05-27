@@ -21,7 +21,7 @@ import (
 // @Produce json
 // @Param id path uint true "节点ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/config [get]
+// @Router /admin/providers/{id}/monitoring/config [get]
 func GetMonitoringConfig(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -59,7 +59,7 @@ type UpdateMonitoringConfigRequest struct {
 // @Param id path uint true "节点ID"
 // @Param body body UpdateMonitoringConfigRequest true "监控配置"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/config [put]
+// @Router /admin/providers/{id}/monitoring/config [put]
 func UpdateMonitoringConfig(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)

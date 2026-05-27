@@ -77,7 +77,7 @@ func (m *MonitoringApi) GetMetrics(c *gin.Context) {
 // @Param offset query int false "偏移量" default(0)
 // @Success 200 {object} common.Response{data=[]object} "获取成功"
 // @Failure 500 {object} common.Response "获取失败"
-// @Router /api/v1/admin/monitoring/logs [get]
+// @Router /admin/monitoring/logs [get]
 func GetSystemLogs(c *gin.Context) {
 	level := c.DefaultQuery("level", "info")
 	limit := c.DefaultQuery("limit", "100")
@@ -105,7 +105,7 @@ func GetSystemLogs(c *gin.Context) {
 // @Param offset query int false "偏移量" default(0)
 // @Success 200 {object} common.Response{data=[]object} "获取成功"
 // @Failure 500 {object} common.Response "获取失败"
-// @Router /api/v1/admin/monitoring/audit-logs [get]
+// @Router /admin/monitoring/audit-logs [get]
 func GetOperationLogs(c *gin.Context) {
 	userID := c.Query("user_id")
 	action := c.Query("action")

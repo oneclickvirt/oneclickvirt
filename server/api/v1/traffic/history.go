@@ -27,7 +27,7 @@ import (
 // @Failure 400 {object} common.Response
 // @Failure 401 {object} common.Response
 // @Failure 500 {object} common.Response
-// @Router /api/v1/user/instances/{instance_id}/traffic/history [get]
+// @Router /user/instances/{instance_id}/traffic/history [get]
 func (api *UserTrafficAPI) GetInstanceTrafficHistory(c *gin.Context) {
 	// 获取实例ID
 	instanceIDStr := c.Param("id")
@@ -126,7 +126,7 @@ func (api *UserTrafficAPI) GetInstanceTrafficHistory(c *gin.Context) {
 // @Failure 400 {object} common.Response
 // @Failure 401 {object} common.Response
 // @Failure 500 {object} common.Response
-// @Router /api/v1/admin/providers/{provider_id}/traffic/history [get]
+// @Router /admin/providers/{provider_id}/traffic/history [get]
 func GetProviderTrafficHistory(c *gin.Context) {
 	// 获取Provider ID
 	providerIDStr := c.Param("id")
@@ -192,7 +192,7 @@ func GetProviderTrafficHistory(c *gin.Context) {
 // @Failure 400 {object} common.Response
 // @Failure 401 {object} common.Response
 // @Failure 500 {object} common.Response
-// @Router /api/v1/user/traffic/history [get]
+// @Router /user/traffic/history [get]
 func (api *UserTrafficAPI) GetUserTrafficHistory(c *gin.Context) {
 	// 获取当前用户ID
 	userID, exists := c.Get("user_id")

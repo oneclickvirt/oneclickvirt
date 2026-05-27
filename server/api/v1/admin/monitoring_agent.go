@@ -32,7 +32,7 @@ type DeployAgentRequest struct {
 // @Param id path uint true "节点ID"
 // @Param body body DeployAgentRequest false "部署参数（version可选）"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/agent [post]
+// @Router /admin/providers/{id}/monitoring/agent [post]
 func DeployAgent(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -156,7 +156,7 @@ func DeployAgent(c *gin.Context) {
 // @Produce json
 // @Param id path uint true "节点ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/agent [delete]
+// @Router /admin/providers/{id}/monitoring/agent [delete]
 func UninstallAgent(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -208,7 +208,7 @@ func UninstallAgent(c *gin.Context) {
 // @Produce json
 // @Param id path uint true "节点ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/providers/{id}/monitoring/status [get]
+// @Router /admin/providers/{id}/monitoring/status [get]
 func GetAgentStatus(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)

@@ -21,7 +21,7 @@ type StorageApi struct{}
 // @Accept json
 // @Produce json
 // @Success 200 {object} common.Response{data=map[string]interface{}} "success"
-// @Router /api/v1/admin/storage/info [get]
+// @Router /admin/storage/info [get]
 func (s *StorageApi) GetStorageInfo(c *gin.Context) {
 	storageService := storage.GetStorageService()
 	info := storageService.GetStorageInfo()
@@ -36,7 +36,7 @@ func (s *StorageApi) GetStorageInfo(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Success 200 {object} common.Response "success"
-// @Router /api/v1/admin/storage/init [post]
+// @Router /admin/storage/init [post]
 func (s *StorageApi) InitializeStorage(c *gin.Context) {
 	storageService := storage.GetStorageService()
 	if err := storageService.InitializeStorage(); err != nil {
@@ -54,7 +54,7 @@ func (s *StorageApi) InitializeStorage(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Success 200 {object} common.Response "success"
-// @Router /api/v1/admin/storage/cleanup [post]
+// @Router /admin/storage/cleanup [post]
 func (s *StorageApi) CleanupTempFiles(c *gin.Context) {
 	storageService := storage.GetStorageService()
 	if err := storageService.CleanupTempFiles(); err != nil {
@@ -72,7 +72,7 @@ func (s *StorageApi) CleanupTempFiles(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Success 200 {object} common.Response{data=[]log.LogFileInfo} "success"
-// @Router /api/v1/admin/logs/files [get]
+// @Router /admin/logs/files [get]
 func (s *StorageApi) GetLogFiles(c *gin.Context) {
 	logRotationService := log.GetLogRotationService()
 	files, err := logRotationService.GetLogFiles()
@@ -93,7 +93,7 @@ func (s *StorageApi) GetLogFiles(c *gin.Context) {
 // @Param filename query string true "日志文件名"
 // @Param lines query int false "返回行数，默认100行"
 // @Success 200 {object} common.Response{data=[]string} "success"
-// @Router /api/v1/admin/logs/read [get]
+// @Router /admin/logs/read [get]
 func (s *StorageApi) ReadLogFile(c *gin.Context) {
 	filename := c.Query("filename")
 	if filename == "" {
@@ -129,7 +129,7 @@ func (s *StorageApi) ReadLogFile(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Success 200 {object} common.Response "success"
-// @Router /api/v1/admin/logs/cleanup [post]
+// @Router /admin/logs/cleanup [post]
 func (s *StorageApi) CleanupOldLogs(c *gin.Context) {
 	logRotationService := log.GetLogRotationService()
 	if err := logRotationService.CleanupOldLogs(); err != nil {

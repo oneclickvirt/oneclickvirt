@@ -38,7 +38,7 @@ func (api *AdminTrafficAPI) checkProviderOwnership(c *gin.Context, providerID ui
 // @Produce json
 // @Security ApiKeyAuth
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/traffic/overview [get]
+// @Router /admin/traffic/overview [get]
 func (api *AdminTrafficAPI) GetSystemTrafficOverview(c *gin.Context) {
 	trafficLimitService := traffic.NewLimitService()
 
@@ -62,7 +62,7 @@ func (api *AdminTrafficAPI) GetSystemTrafficOverview(c *gin.Context) {
 // @Security ApiKeyAuth
 // @Param providerId path int true "Provider ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/traffic/provider/{providerId} [get]
+// @Router /admin/traffic/provider/{providerId} [get]
 func (api *AdminTrafficAPI) GetProviderTrafficStats(c *gin.Context) {
 	providerIDStr := c.Param("providerId")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -101,7 +101,7 @@ func (api *AdminTrafficAPI) GetProviderTrafficStats(c *gin.Context) {
 // @Security ApiKeyAuth
 // @Param userId path int true "用户ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/traffic/user/{userId} [get]
+// @Router /admin/traffic/user/{userId} [get]
 func (api *AdminTrafficAPI) GetUserTrafficStats(c *gin.Context) {
 	userIDStr := c.Param("userId")
 	userID, err := strconv.ParseUint(userIDStr, 10, 32)
@@ -137,7 +137,7 @@ func (api *AdminTrafficAPI) GetUserTrafficStats(c *gin.Context) {
 // @Param username query string false "按用户名搜索"
 // @Param nickname query string false "按昵称搜索"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/traffic/users/rank [get]
+// @Router /admin/traffic/users/rank [get]
 func (api *AdminTrafficAPI) GetAllUsersTrafficRank(c *gin.Context) {
 	// 获取分页参数
 	pageStr := c.DefaultQuery("page", "1")
@@ -182,7 +182,7 @@ func (api *AdminTrafficAPI) GetAllUsersTrafficRank(c *gin.Context) {
 // @Security ApiKeyAuth
 // @Param request body ManageTrafficLimitRequest true "流量限制管理请求"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/traffic/manage [post]
+// @Router /admin/traffic/manage [post]
 func (api *AdminTrafficAPI) ManageTrafficLimits(c *gin.Context) {
 	var req ManageTrafficLimitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -258,7 +258,7 @@ type ManageTrafficLimitRequest struct {
 // @Security ApiKeyAuth
 // @Param request body BatchManageTrafficLimitRequest true "批量流量限制管理请求"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/traffic/batch-manage [post]
+// @Router /admin/traffic/batch-manage [post]
 func (api *AdminTrafficAPI) BatchManageTrafficLimits(c *gin.Context) {
 	var req BatchManageTrafficLimitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -315,7 +315,7 @@ func (api *AdminTrafficAPI) BatchManageTrafficLimits(c *gin.Context) {
 // @Security ApiKeyAuth
 // @Param request body BatchSyncTrafficRequest true "批量同步流量请求"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/traffic/batch-sync [post]
+// @Router /admin/traffic/batch-sync [post]
 func (api *AdminTrafficAPI) BatchSyncUserTraffic(c *gin.Context) {
 	var req BatchSyncTrafficRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -364,7 +364,7 @@ type BatchSyncTrafficRequest struct {
 // @Security ApiKeyAuth
 // @Param userId path int true "用户ID"
 // @Success 200 {object} common.Response
-// @Router /api/v1/admin/traffic/user/{userId}/clear [delete]
+// @Router /admin/traffic/user/{userId}/clear [delete]
 func (api *AdminTrafficAPI) ClearUserTrafficRecords(c *gin.Context) {
 	userIDStr := c.Param("userId")
 	userID, err := strconv.ParseUint(userIDStr, 10, 32)
