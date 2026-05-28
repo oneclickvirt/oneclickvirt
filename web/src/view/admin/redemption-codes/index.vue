@@ -638,7 +638,10 @@
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
 import useRedemptionCodes from './useRedemptionCodes'
+
+const { t } = useI18n()
 
 const {
   loading, tableData, total, currentPage, pageSize,
