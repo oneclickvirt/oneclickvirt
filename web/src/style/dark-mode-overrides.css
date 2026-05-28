@@ -300,17 +300,22 @@ html.dark .ssh-dialog-header {
   border-bottom-color: rgba(22, 163, 74, 0.2) !important;
 }
 
-html.dark .ssh-dialog-title {
+html.dark .ssh-dialog-title,
+html.dark .remote-title {
   color: #e2e8f0 !important;
 }
 
-html.dark .ssh-dialog-actions .el-button {
+html.dark .ssh-dialog-actions .el-button,
+html.dark .remote-actions .el-button,
+html.dark .view-buttons .el-button {
   background-color: #1e293b !important;
   color: #e2e8f0 !important;
   border-color: rgba(22, 163, 74, 0.3) !important;
 }
 
-html.dark .ssh-dialog-actions .el-button:hover {
+html.dark .ssh-dialog-actions .el-button:hover,
+html.dark .remote-actions .el-button:hover,
+html.dark .view-buttons .el-button:hover {
   background-color: #2d3f52 !important;
   border-color: rgba(22, 163, 74, 0.5) !important;
 }

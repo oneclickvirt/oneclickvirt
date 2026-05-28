@@ -1,9 +1,11 @@
 package user
 
 import (
+	"net"
 	"oneclickvirt/middleware"
 	"oneclickvirt/service/resources"
 	"strconv"
+	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -14,6 +16,41 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
+func getControllerAccessHost(c *gin.Context) string {
+	host := c.GetHeader("X-Forwarded-Host")
+	if host == "" {
+		host = c.Request.Host
+	}
+
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+
+	// X-Forwarded-Host may contain multiple values.
+	if comma := strings.Index(host, ","); comma > 0 {
+		host = strings.TrimSpace(host[:comma])
+	}
+
+	if strings.HasPrefix(host, "[") {
+		if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			return strings.Trim(parsedHost, "[]")
+		}
+		return strings.Trim(host, "[]")
+	}
+
+	if strings.Count(host, ":") == 1 {
+		if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			return parsedHost
+		}
+		if colonIdx := strings.LastIndex(host, ":"); colonIdx > 0 {
+			return host[:colonIdx]
+		}
+	}
+
+	return host
+}
 
 func getUserIDFromContext(c *gin.Context) (uint, error) {
 	return middleware.GetUserIDFromContext(c)
@@ -80,9 +117,21 @@ func GetInstancePorts(c *gin.Context) {
 		}
 	}
 
-	// 直接使用实例的PublicIP字段（agent+no_port_mapping模式下不显示）
+	requestHost := getControllerAccessHost(c)
+	hasControllerMapping := false
+	for _, port := range ports {
+		if port.MappingType == "controller" {
+			hasControllerMapping = true
+			break
+		}
+	}
+
+	// 默认使用实例公网IP；控制端转发场景显示主控访问地址，保证与前端访问路径一致。
 	publicIP := instance.PublicIP
-	if agentNoPortMapping {
+	if (agentNoPortMapping || hasControllerMapping) && requestHost != "" {
+		publicIP = requestHost
+	}
+	if (agentNoPortMapping || hasControllerMapping) && requestHost == "" {
 		publicIP = ""
 	}
 
@@ -156,7 +205,8 @@ func GetUserPortMappings(c *gin.Context) {
 	req.Page, req.PageSize = common.NormalizePagination(req.Page, req.PageSize, 20)
 
 	portMappingService := resources.PortMappingService{}
-	ports, total, err := portMappingService.GetUserPortMappings(userID, req.Page, req.PageSize, req.Keyword)
+	requestHost := getControllerAccessHost(c)
+	ports, total, err := portMappingService.GetUserPortMappings(userID, req.Page, req.PageSize, req.Keyword, requestHost)
 	if err != nil {
 		global.APP_LOG.Error("获取用户端口映射失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))

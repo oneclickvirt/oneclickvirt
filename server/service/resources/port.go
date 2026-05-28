@@ -536,7 +536,7 @@ func (s *PortMappingService) GetPortMappingsByInstanceID(instanceID uint) ([]pro
 }
 
 // GetUserPortMappings 获取用户的端口映射列表 - 简化显示格式
-func (s *PortMappingService) GetUserPortMappings(userID uint, page, limit int, keyword string) ([]map[string]interface{}, int64, error) {
+func (s *PortMappingService) GetUserPortMappings(userID uint, page, limit int, keyword, controllerHost string) ([]map[string]interface{}, int64, error) {
 	// 首先获取用户的所有实例
 	var instances []provider.Instance
 	instanceQuery := global.APP_DB.Where("user_id = ?", userID)
@@ -659,8 +659,12 @@ func (s *PortMappingService) GetUserPortMappings(userID uint, page, limit int, k
 		// 从预加载的map中获取Provider信息
 		if instance.ProviderID > 0 {
 			if providerInfo, ok := providerMap[instance.ProviderID]; ok {
-				// agent+no_port_mapping模式：不显示公网IP
-				if !(providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping") {
+				// agent+no_port_mapping模式：显示控制端访问地址，保持与前端访问路径一致。
+				if providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping" {
+					if controllerHost != "" {
+						instanceData["publicIP"] = controllerHost
+					}
+				} else {
 					// 优先使用PortIP，如果为空则使用Endpoint
 					endpoint := providerInfo.PortIP
 					if endpoint == "" {

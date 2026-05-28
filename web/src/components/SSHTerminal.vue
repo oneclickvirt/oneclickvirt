@@ -14,6 +14,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import { applyTerminalTheme } from '@/utils/terminalTheme'
 
 const { t } = useI18n()
 
@@ -47,6 +48,7 @@ let isConnecting = false
 let heartbeatInterval = null
 let reconnectTimeout = null
 let isIntentionallyClosed = false
+let themeObserver = null
 
 onMounted(() => {
   nextTick(() => {
@@ -64,27 +66,7 @@ const initTerminal = () => {
     cursorBlink: true,
     fontSize: 14,
     fontFamily: 'Monaco, Menlo, "Courier New", monospace',
-    theme: {
-      background: '#1e1e1e',
-      foreground: '#d4d4d4',
-      cursor: '#d4d4d4',
-      black: '#000000',
-      red: '#cd3131',
-      green: '#0dbc79',
-      yellow: '#e5e510',
-      blue: '#2472c8',
-      magenta: '#bc3fbc',
-      cyan: '#11a8cd',
-      white: '#e5e5e5',
-      brightBlack: '#666666',
-      brightRed: '#f14c4c',
-      brightGreen: '#23d18b',
-      brightYellow: '#f5f543',
-      brightBlue: '#3b8eea',
-      brightMagenta: '#d670d6',
-      brightCyan: '#29b8db',
-      brightWhite: '#e5e5e5'
-    },
+    theme: {},
     rows: 24,
     cols: 80,
     // vim/vi 需要的额外配置
@@ -97,6 +79,8 @@ const initTerminal = () => {
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
   terminal.open(terminalRef.value)
+  applyTerminalTheme(terminal)
+  startThemeSync()
   
   // 适应容器大小
   setTimeout(() => {
@@ -270,6 +254,7 @@ const stopHeartbeat = () => {
 const cleanup = () => {
   isIntentionallyClosed = true
   stopHeartbeat()
+  stopThemeSync()
   window.removeEventListener('resize', handleResize)
   
   if (websocket) {
@@ -287,6 +272,24 @@ const cleanup = () => {
   if (fitAddon) {
     try { fitAddon.dispose() } catch {}
     fitAddon = null
+  }
+}
+
+const startThemeSync = () => {
+  stopThemeSync()
+  themeObserver = new MutationObserver(() => {
+    applyTerminalTheme(terminal)
+  })
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class']
+  })
+}
+
+const stopThemeSync = () => {
+  if (themeObserver) {
+    themeObserver.disconnect()
+    themeObserver = null
   }
 }
 
@@ -321,7 +324,7 @@ defineExpose({
 .ssh-terminal-container {
   width: 100%;
   height: 100%;
-  background-color: #1e1e1e;
+  background-color: var(--terminal-bg);
   padding: 10px;
   border-radius: 4px;
   overflow: hidden;

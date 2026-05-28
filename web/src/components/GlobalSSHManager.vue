@@ -18,71 +18,23 @@
       >
         <template #header>
           <div class="ssh-dialog-header">
-            <span class="ssh-dialog-title">{{ t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName }) }}</span>
-            <div class="ssh-dialog-actions">
-              <el-button 
-                :icon="Minus"
-                size="small" 
-                :title="t('user.instanceDetail.sshMinimize')"
-                @click="minimizeConnection(conn.connectionKey)"
-              >
-                {{ t('user.instanceDetail.sshMinimize') }}
-              </el-button>
-              <el-button 
-                :icon="Refresh"
-                size="small" 
-                :title="t('user.instanceDetail.sshReconnect')"
-                @click="reconnectSSH(conn.connectionKey)"
-              >
-                {{ t('user.instanceDetail.sshReconnect') }}
-              </el-button>
-              <el-button 
-                v-if="conn.mode !== 'exec'"
-                :icon="FullScreen"
-                size="small" 
-                :title="t('user.instanceDetail.sshOpenInNewWindow')"
-                @click="openSSHInNewWindow(conn)"
-              >
-                {{ t('user.instanceDetail.sshNewWindow') }}
-              </el-button>
-            </div>
+            <RemoteTerminalToolbar
+              :title="t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName })"
+              :active-view="conn.activeView || 'terminal'"
+              :supports-sftp="conn.mode !== 'exec'"
+              :show-view-switch="conn.mode !== 'exec'"
+              :actions="getToolbarActions(conn)"
+              @update:active-view="(view) => setConnectionView(conn.connectionKey, view)"
+              @action="(action) => handleToolbarAction(action, conn)"
+            />
           </div>
         </template>
         <div class="ssh-dialog-content">
-          <el-tabs
-            v-if="conn.mode !== 'exec'"
-            :model-value="conn.activeView || 'terminal'"
-            @tab-change="(view) => setConnectionView(conn.connectionKey, view)"
+          <div
+            v-show="conn.mode === 'exec' || (conn.activeView || 'terminal') === 'terminal'"
+            class="terminal-panel"
           >
-            <el-tab-pane
-              label="Terminal"
-              name="terminal"
-              lazy
-            >
-              <SSHTerminal
-                :ref="el => setTerminalRef(conn.connectionKey, el)"
-                :instance-id="conn.instanceId"
-                :instance-name="conn.instanceName"
-                :is-admin="conn.isAdmin || false"
-                :mode="conn.mode || 'ssh'"
-                @close="() => closeConnection(conn.connectionKey)"
-                @error="(error) => handleSSHError(conn.connectionKey, error)"
-              />
-            </el-tab-pane>
-            <el-tab-pane
-              label="SFTP"
-              name="sftp"
-              lazy
-            >
-              <SFTPPanel
-                :entity-type="conn.isAdmin ? 'admin-instance' : 'user-instance'"
-                :entity-id="conn.instanceId"
-              />
-            </el-tab-pane>
-          </el-tabs>
-
-          <SSHTerminal
-            v-else
+            <SSHTerminal
             :ref="el => setTerminalRef(conn.connectionKey, el)"
             :instance-id="conn.instanceId"
             :instance-name="conn.instanceName"
@@ -90,7 +42,21 @@
             :mode="conn.mode || 'ssh'"
             @close="() => closeConnection(conn.connectionKey)"
             @error="(error) => handleSSHError(conn.connectionKey, error)"
-          />
+            />
+          </div>
+
+          <div
+            v-if="conn.mode !== 'exec'"
+            v-show="(conn.activeView || 'terminal') === 'sftp'"
+            class="sftp-panel"
+          >
+            <SFTPPanel
+              :ref="el => setSftpRef(conn.connectionKey, el)"
+              :entity-type="conn.isAdmin ? 'admin-instance' : 'user-instance'"
+              :entity-id="conn.instanceId"
+              :active="(conn.activeView || 'terminal') === 'sftp'"
+            />
+          </div>
         </div>
       </el-dialog>
     </div>
@@ -128,6 +94,7 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import SSHTerminal from '@/components/SSHTerminal.vue'
 import SFTPPanel from '@/components/SFTPPanel.vue'
+import RemoteTerminalToolbar from '@/components/RemoteTerminalToolbar.vue'
 
 const { t } = useI18n()
 
@@ -136,6 +103,7 @@ const router = useRouter()
 
 // 存储所有终端组件的引用
 const terminalRefs = ref({})
+const sftpRefs = ref({})
 
 const allConnections = computed(() => {
   return Object.entries(sshStore.connections).map(([connectionKey, conn]) => ({
@@ -149,6 +117,12 @@ const minimizedConnections = computed(() => sshStore.minimizedConnections)
 const setTerminalRef = (instanceId, el) => {
   if (el) {
     terminalRefs.value[instanceId] = el
+  }
+}
+
+const setSftpRef = (instanceId, el) => {
+  if (el) {
+    sftpRefs.value[instanceId] = el
   }
 }
 
@@ -171,15 +145,69 @@ const closeConnection = (instanceId) => {
     terminal.cleanup()
   }
   delete terminalRefs.value[instanceId]
+  delete sftpRefs.value[instanceId]
   sshStore.closeConnection(instanceId)
 }
 
-const reconnectSSH = (instanceId) => {
+const reconnectSSH = async (instanceId) => {
   const terminal = terminalRefs.value[instanceId]
+  const sftpPanel = sftpRefs.value[instanceId]
+
   if (terminal && terminal.reconnect) {
     terminal.reconnect()
   } else {
     ElMessage.warning(t('user.instanceDetail.sshTerminalNotReady'))
+    return
+  }
+
+  if (sftpPanel && sftpPanel.refreshNow) {
+    try {
+      await sftpPanel.refreshNow(true)
+    } catch (error) {
+      console.warn('SFTP refresh after reconnect failed:', error)
+    }
+  }
+}
+
+const getToolbarActions = (conn) => {
+  const actions = [
+    {
+      key: 'minimize',
+      label: t('user.instanceDetail.sshMinimize'),
+      title: t('user.instanceDetail.sshMinimize'),
+      icon: Minus
+    },
+    {
+      key: 'reconnect',
+      label: t('user.instanceDetail.sshReconnect'),
+      title: t('user.instanceDetail.sshReconnect'),
+      icon: Refresh
+    }
+  ]
+
+  if (conn.mode !== 'exec') {
+    actions.push({
+      key: 'newWindow',
+      label: t('user.instanceDetail.sshNewWindow'),
+      title: t('user.instanceDetail.sshOpenInNewWindow'),
+      icon: FullScreen
+    })
+  }
+
+  return actions
+}
+
+const handleToolbarAction = (action, conn) => {
+  if (action === 'minimize') {
+    minimizeConnection(conn.connectionKey)
+    return
+  }
+  if (action === 'reconnect') {
+    reconnectSSH(conn.connectionKey)
+    return
+  }
+  if (action === 'newWindow') {
+    openSSHInNewWindow(conn)
   }
 }
 
@@ -220,6 +248,15 @@ const openSSHInNewWindow = (conn) => {
   const sshDisconnectedMsg = escapeHtml(t('user.instanceDetail.sshDisconnected'))
   const sshReconnectingMsg = escapeHtml(t('user.instanceDetail.sshReconnecting'))
   const sshClosedNormallyMsg = escapeHtml(t('user.instanceDetail.sshClosedNormally'))
+  const isDarkTheme = document.documentElement.classList.contains('dark')
+  const popupTerminalBg = isDarkTheme ? '#0b1220' : '#f3f6fb'
+  const popupHeaderBg = isDarkTheme ? '#162032' : '#ffffff'
+  const popupHeaderText = isDarkTheme ? '#e2e8f0' : '#1f2937'
+  const popupHeaderBorder = isDarkTheme ? 'rgba(22, 163, 74, 0.2)' : '#e0e0e0'
+  const popupReconnectBg = '#16a34a'
+  const popupReconnectHover = '#15803d'
+  const popupCloseBg = isDarkTheme ? '#334155' : '#f56c6c'
+  const popupCloseHover = isDarkTheme ? '#475569' : '#f78989'
   
   // 创建新窗口HTML内容
   const htmlContent = `<!DOCTYPE html>
@@ -230,7 +267,7 @@ const openSSHInNewWindow = (conn) => {
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
-      background-color: #1e1e1e; 
+      background-color: ${popupTerminalBg}; 
       font-family: Arial, sans-serif;
       overflow: hidden;
       display: flex;
@@ -238,12 +275,12 @@ const openSSHInNewWindow = (conn) => {
       height: 100vh;
     }
     .header {
-      background-color: #ffffff;
-      color: #000000;
+      background-color: ${popupHeaderBg};
+      color: ${popupHeaderText};
       padding: 12px 20px;
       font-size: 14px;
       font-weight: 500;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid ${popupHeaderBorder};
       box-shadow: 0 1px 4px rgba(0,0,0,0.1);
       display: flex;
       justify-content: space-between;
@@ -266,18 +303,18 @@ const openSSHInNewWindow = (conn) => {
       transition: all 0.2s;
     }
     .btn-reconnect {
-      background-color: #16a34a;
+      background-color: ${popupReconnectBg};
       color: white;
     }
     .btn-reconnect:hover {
-      background-color: #15803d;
+      background-color: ${popupReconnectHover};
     }
     .btn-close {
-      background-color: #f56c6c;
+      background-color: ${popupCloseBg};
       color: white;
     }
     .btn-close:hover {
-      background-color: #f78989;
+      background-color: ${popupCloseHover};
     }
     .terminal-container {
       flex: 1;
@@ -316,9 +353,9 @@ const openSSHInNewWindow = (conn) => {
         fontSize: 14,
         fontFamily: 'Monaco, Menlo, "Courier New", monospace',
         theme: {
-          background: '#1e1e1e',
-          foreground: '#d4d4d4',
-          cursor: '#d4d4d4',
+          background: '${popupTerminalBg}',
+          foreground: '${isDarkTheme ? '#d4d4d4' : '#1f2937'}',
+          cursor: '${isDarkTheme ? '#d4d4d4' : '#16a34a'}',
           black: '#000000',
           red: '#cd3131',
           green: '#0dbc79',
@@ -495,41 +532,29 @@ const openSSHInNewWindow = (conn) => {
 }
 
 .ssh-dialog-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   padding: 12px 20px;
   background-color: #ffffff;
 }
 
-.ssh-dialog-title {
-  color: #000000;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.ssh-dialog-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.ssh-dialog-actions .el-button {
-  background-color: #ffffff;
-  color: #000000;
-  border: 1px solid #d0d0d0;
-  font-weight: 500;
-}
-
-.ssh-dialog-actions .el-button:hover {
-  background-color: #f5f5f5;
-  border-color: #b0b0b0;
-}
-
 .ssh-dialog-content {
   height: 600px;
-  background-color: #1e1e1e;
+  background-color: var(--terminal-bg);
   border-radius: 4px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-panel,
+.sftp-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.sftp-panel {
+  background-color: var(--el-bg-color-overlay);
+  padding: 10px;
+  overflow: auto;
 }
 
 .ssh-terminal-dialog :deep(.el-dialog__body) {

@@ -1,32 +1,12 @@
 <template>
   <div class="admin-terminal-container">
-    <div class="remote-view-toolbar">
-      <div class="view-buttons">
-        <el-button
-          size="small"
-          :type="activeView === 'terminal' ? 'primary' : 'default'"
-          @click="activeView = 'terminal'"
-        >
-          Terminal
-        </el-button>
-        <el-button
-          v-if="supportsSFTP"
-          size="small"
-          :type="activeView === 'sftp' ? 'primary' : 'default'"
-          @click="activeView = 'sftp'"
-        >
-          SFTP
-        </el-button>
-      </div>
-      <el-button
-        size="small"
-        class="reconnect-btn"
-        :loading="manualReconnecting"
-        @click="handleManualReconnect"
-      >
-        {{ t('admin.providers.reconnectNow') }}
-      </el-button>
-    </div>
+    <RemoteTerminalToolbar
+      :active-view="activeView"
+      :supports-sftp="supportsSFTP"
+      :actions="toolbarActions"
+      @update:active-view="setActiveView"
+      @action="handleToolbarAction"
+    />
 
     <el-alert
       v-if="!supportsSFTP"
@@ -55,7 +35,7 @@
         ref="sftpPanelRef"
         entity-type="admin-provider"
         :entity-id="providerId"
-        :active="true"
+        :active="activeView === 'sftp'"
       />
     </div>
   </div>
@@ -69,6 +49,9 @@ import '@xterm/xterm/css/xterm.css'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import SFTPPanel from '@/components/SFTPPanel.vue'
+import { Refresh } from '@element-plus/icons-vue'
+import RemoteTerminalToolbar from '@/components/RemoteTerminalToolbar.vue'
+import { applyTerminalTheme } from '@/utils/terminalTheme'
 
 const { t } = useI18n()
 
@@ -96,10 +79,21 @@ let heartbeatInterval = null
 let reconnectTimeout = null
 let dataDisposable = null
 let resizeDisposable = null
+let themeObserver = null
 
 const supportsSFTP = computed(() => {
   return Boolean(props.providerUsername && props.providerAuthMethod)
 })
+
+const toolbarActions = computed(() => ([
+  {
+    key: 'reconnect',
+    label: t('admin.providers.reconnectNow'),
+    title: t('admin.providers.reconnectNow'),
+    icon: Refresh,
+    loading: manualReconnecting.value
+  }
+]))
 
 onMounted(() => nextTick(() => initTerminal()))
 
@@ -113,27 +107,7 @@ const initTerminal = () => {
     cursorBlink: true,
     fontSize: 14,
     fontFamily: 'Monaco, Menlo, "Courier New", monospace',
-    theme: {
-      background: '#1e1e1e',
-      foreground: '#d4d4d4',
-      cursor: '#d4d4d4',
-      black: '#000000',
-      red: '#cd3131',
-      green: '#0dbc79',
-      yellow: '#e5e510',
-      blue: '#2472c8',
-      magenta: '#bc3fbc',
-      cyan: '#11a8cd',
-      white: '#e5e5e5',
-      brightBlack: '#666666',
-      brightRed: '#f14c4c',
-      brightGreen: '#23d18b',
-      brightYellow: '#f5f543',
-      brightBlue: '#3b8eea',
-      brightMagenta: '#d670d6',
-      brightCyan: '#29b8db',
-      brightWhite: '#e5e5e5'
-    },
+    theme: {},
     rows: 24,
     cols: 80,
     scrollback: 1000,
@@ -143,6 +117,8 @@ const initTerminal = () => {
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
   terminal.open(terminalRef.value)
+  applyTerminalTheme(terminal)
+  startThemeSync()
 
   // Auto-fit after render
   nextTick(() => {
@@ -343,12 +319,23 @@ const handleManualReconnect = async () => {
   }
 }
 
+const handleToolbarAction = (action) => {
+  if (action === 'reconnect') {
+    handleManualReconnect()
+  }
+}
+
+const setActiveView = (view) => {
+  activeView.value = view
+}
+
 const cleanup = () => {
   if (isCleanedUp) return
   isCleanedUp = true
   isIntentionallyClosed = true
   isConnecting = false
   stopHeartbeat()
+  stopThemeSync()
   if (reconnectTimeout) {
     clearTimeout(reconnectTimeout)
     reconnectTimeout = null
@@ -389,6 +376,24 @@ const cleanup = () => {
   }
 }
 
+const startThemeSync = () => {
+  stopThemeSync()
+  themeObserver = new MutationObserver(() => {
+    applyTerminalTheme(terminal)
+  })
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class']
+  })
+}
+
+const stopThemeSync = () => {
+  if (themeObserver) {
+    themeObserver.disconnect()
+    themeObserver = null
+  }
+}
+
 watch(activeView, (view) => {
   if (view !== 'terminal') {
     return
@@ -414,21 +419,6 @@ watch(supportsSFTP, (enabled) => {
   gap: 10px;
 }
 
-.remote-view-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.view-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.reconnect-btn {
-  margin-left: 10px;
-}
-
 .remote-connect-alert {
   margin-bottom: 0;
 }
@@ -440,7 +430,7 @@ watch(supportsSFTP, (enabled) => {
 }
 
 .terminal-panel {
-  background-color: #1e1e1e;
+  background-color: var(--terminal-bg);
   border-radius: 6px;
   overflow: hidden;
   padding: 10px;
