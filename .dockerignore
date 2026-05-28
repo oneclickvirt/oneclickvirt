@@ -1,0 +1,47 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Node
+web/node_modules
+web/dist
+
+# Go
+server/oneclickvirt
+server/agent/target
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+log/
+*.log
+
+# Test artifacts
+action_tests/report/
+test-report.md
+
+# Docker
+docker-compose.yaml
+.dockerignore
+
+# CI
+.github/
+
+# Docs
+*.md
+server/docs/
+
+# Deploy configs (not needed in build context)
+deploy/
+
+# Misc
+install.sh

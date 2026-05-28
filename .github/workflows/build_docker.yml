@@ -127,7 +127,7 @@ jobs:
           outputs: type=image,name=${{ env.DOCKER_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: |
             type=gha,scope=dockerhub-${{ matrix.variant }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=dockerhub-${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=dockerhub-${{ matrix.variant }}-${{ matrix.arch }}
       
       - name: Export Docker Hub digest
         if: steps.build-dockerhub.outcome == 'success'
@@ -246,7 +246,7 @@ jobs:
           outputs: type=image,name=${{ env.GHCR_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: |
             type=gha,scope=ghcr-${{ matrix.variant }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=ghcr-${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=ghcr-${{ matrix.variant }}-${{ matrix.arch }}
       
       - name: Export GHCR digest
         if: steps.build-ghcr.outcome == 'success'
