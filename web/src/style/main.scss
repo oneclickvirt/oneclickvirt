@@ -296,6 +296,31 @@ html, body {
   flex-wrap: wrap;
 }
 
+/* 表格固定右侧操作列兜底：允许换行，避免按钮被裁剪 */
+.el-table {
+  .el-table__cell.el-table-fixed-column--right .cell {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.5;
+  }
+
+  .el-table__cell.el-table-fixed-column--right .action-buttons,
+  .el-table__cell.el-table-fixed-column--right .table-action-buttons {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .el-table__cell.el-table-fixed-column--right .action-buttons .el-button,
+  .el-table__cell.el-table-fixed-column--right .table-action-buttons .el-button {
+    margin: 0 !important;
+  }
+}
+
 .table-action-link {
   color: var(--primary-color);
   cursor: pointer;

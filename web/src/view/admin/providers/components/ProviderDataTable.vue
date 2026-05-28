@@ -4,7 +4,6 @@
       v-loading="loading"
       :data="providers"
       style="width: 100%"
-      :row-style="{ height: '90px' }"
       @selection-change="$emit('selection-change', $event)"
     >
       <el-table-column
@@ -486,7 +485,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('common.actions')"
-        width="230"
+        width="260"
         fixed="right"
       >
         <template #default="scope">

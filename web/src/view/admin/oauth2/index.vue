@@ -46,7 +46,6 @@
         v-loading="loading"
         :data="providers"
         class="providers-table"
-        :row-style="{ height: '60px' }"
         :cell-style="{ padding: '12px 0' }"
         :header-cell-style="{ background: '#f5f7fa', padding: '14px 0', fontWeight: '600' }"
       >
@@ -108,7 +107,7 @@
         />
         <el-table-column
           :label="$t('common.actions')"
-          width="300"
+          width="340"
           fixed="right"
           align="center"
         >

@@ -295,7 +295,7 @@ onMounted(() => {
     }
   }
   
-  :deep(.el-table__cell) {
+  :deep(.el-table__cell:not(.el-table-fixed-column--right)) {
     .cell {
       overflow: hidden;
       text-overflow: ellipsis;

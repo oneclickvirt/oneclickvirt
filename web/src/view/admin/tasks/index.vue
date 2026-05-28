@@ -244,7 +244,6 @@
           v-loading="loading"
           :data="tasks"
           class="tasks-table"
-          :row-style="{ height: '60px' }"
           :cell-style="{ padding: '12px 0' }"
           :header-cell-style="{ background: '#f5f7fa', padding: '14px 0', fontWeight: '600' }"
           :default-sort="{prop: 'createdAt', order: 'descending'}"
@@ -791,7 +790,7 @@ const {
     }
   }
   
-  :deep(.el-table__cell) {
+  :deep(.el-table__cell:not(.el-table-fixed-column--right)) {
     .cell {
       overflow: hidden;
       text-overflow: ellipsis;
