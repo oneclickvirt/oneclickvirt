@@ -1,6 +1,7 @@
 # OneClickVirt Container (Without Database)
 
 FROM node:22-slim AS frontend-builder
+ARG GO_VERSION=1.24.5
 ARG TARGETARCH
 WORKDIR /app/web
 COPY web/package*.json ./
@@ -14,14 +15,16 @@ COPY web/ ./
 RUN npm run build
 
 
-FROM golang:1.24-alpine AS backend-builder
+FROM golang:${GO_VERSION}-alpine AS backend-builder
 ARG TARGETARCH
 ARG SERVER_VERSION=dev
 WORKDIR /app/server
+ENV GOTOOLCHAIN=local
 RUN apk add --no-cache git ca-certificates
 COPY server/ ./
 COPY install_agent.sh /app/install_agent.sh
 RUN mkdir -p assets/agent && cp /app/install_agent.sh assets/agent/install_agent.sh
+RUN go version
 RUN go mod download
 RUN sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${SERVER_VERSION}\"/" constant/version.go && \
     sed -i "s/const CompatibleAgentVersion = \".*\"/const CompatibleAgentVersion = \"${SERVER_VERSION}\"/" constant/version.go
