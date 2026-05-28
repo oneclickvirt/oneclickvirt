@@ -316,6 +316,11 @@ jobs:
         continue-on-error: true
         working-directory: /tmp/digests-dockerhub
         run: |
+          DIGEST_COUNT=$(ls -1 | wc -l)
+          if [ "$DIGEST_COUNT" -ne 2 ]; then
+            echo "Expected 2 platform digests (amd64 + arm64), found ${DIGEST_COUNT}. Skipping manifest to avoid partial multi-arch image."
+            exit 0
+          fi
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.DOCKER_IMAGE }}@sha256:%s ' *)
       
@@ -388,6 +393,11 @@ jobs:
         continue-on-error: true
         working-directory: /tmp/digests-ghcr
         run: |
+          DIGEST_COUNT=$(ls -1 | wc -l)
+          if [ "$DIGEST_COUNT" -ne 2 ]; then
+            echo "Expected 2 platform digests (amd64 + arm64), found ${DIGEST_COUNT}. Skipping manifest to avoid partial multi-arch image."
+            exit 0
+          fi
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
       
@@ -449,6 +459,11 @@ jobs:
         continue-on-error: true
         working-directory: /tmp/digests-dockerhub
         run: |
+          DIGEST_COUNT=$(ls -1 | wc -l)
+          if [ "$DIGEST_COUNT" -ne 2 ]; then
+            echo "Expected 2 platform digests (amd64 + arm64), found ${DIGEST_COUNT}. Skipping manifest to avoid partial multi-arch image."
+            exit 0
+          fi
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.DOCKER_IMAGE }}@sha256:%s ' *)
       
@@ -511,6 +526,11 @@ jobs:
         continue-on-error: true
         working-directory: /tmp/digests-ghcr
         run: |
+          DIGEST_COUNT=$(ls -1 | wc -l)
+          if [ "$DIGEST_COUNT" -ne 2 ]; then
+            echo "Expected 2 platform digests (amd64 + arm64), found ${DIGEST_COUNT}. Skipping manifest to avoid partial multi-arch image."
+            exit 0
+          fi
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
       
