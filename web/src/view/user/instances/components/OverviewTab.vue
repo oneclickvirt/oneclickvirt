@@ -194,6 +194,8 @@
 <script setup>
 import OsIcon from '@/components/OsIcon.vue'
 import { useInstanceFormatters } from '../composables/useInstanceFormatters'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 defineProps({
   instance: { type: Object, required: true },

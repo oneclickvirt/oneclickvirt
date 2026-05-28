@@ -82,6 +82,8 @@
 <script setup>
 import TrafficHistoryChart from '@/components/TrafficHistoryChart.vue'
 import { useInstanceFormatters } from '../composables/useInstanceFormatters'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 const props = defineProps({
   instance: { type: Object, required: true },

@@ -559,6 +559,8 @@
 import OsIcon from '@/components/OsIcon.vue'
 import { Refresh } from '@element-plus/icons-vue'
 import useApplyPage from './useApplyPage'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 const {
   loading, refreshing, providers, selectedProvider, providerCapabilities,

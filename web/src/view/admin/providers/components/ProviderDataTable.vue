@@ -551,6 +551,8 @@ import {
   getFlagEmoji
 } from '../composables/useProviderUtils'
 import { extractEndpointHost } from '@/utils/endpoint'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 defineProps({
   loading: { type: Boolean, default: false },

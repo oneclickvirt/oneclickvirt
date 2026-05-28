@@ -276,6 +276,8 @@ import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 import OsIcon from '@/components/OsIcon.vue'
 import { useUserInstances } from './composables/useUserInstances.js'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 const {
   loading,

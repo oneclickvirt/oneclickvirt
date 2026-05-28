@@ -29,6 +29,8 @@
 
 <script setup>
 import AdminProviderTerminal from '@/components/AdminProviderTerminal.vue'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 defineProps({
   visible: { type: Boolean, default: false },

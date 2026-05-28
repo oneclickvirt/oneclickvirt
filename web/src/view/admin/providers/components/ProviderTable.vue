@@ -48,6 +48,8 @@ import ProviderActionsDialog from './ProviderActionsDialog.vue'
 import ProviderPasteUrlDialog from './ProviderPasteUrlDialog.vue'
 import ProviderRemoteDialog from './ProviderRemoteDialog.vue'
 import useProviderTableActions from './useProviderTableActions'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 defineProps({
   loading: {

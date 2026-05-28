@@ -383,6 +383,8 @@
 <script setup>
 import InitProgressPanel from './components/InitProgressPanel.vue'
 import useInit from './useInit'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 const {
   adminFormRef, userFormRef, databaseFormRef,

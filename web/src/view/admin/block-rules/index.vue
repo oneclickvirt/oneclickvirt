@@ -406,6 +406,8 @@
 <script setup>
 import { Edit, Delete } from '@element-plus/icons-vue'
 import { useBlockRuleManagement } from './composables/useBlockRuleManagement.js'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 const {
   rules,
