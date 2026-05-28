@@ -241,8 +241,10 @@ const visibleSteps = computed(() => {
 })
 
 function translateKey(key) {
-  const i18nKey = `user.tasks.${key}`
-  if (te(i18nKey)) return t(i18nKey)
+  const userKey = `user.tasks.${key}`
+  const adminKey = `admin.tasks.${key}`
+  if (te(userKey)) return t(userKey)
+  if (te(adminKey)) return t(adminKey)
   return key
 }
 </script>

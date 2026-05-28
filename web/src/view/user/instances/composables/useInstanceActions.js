@@ -171,10 +171,6 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
       ElMessage.warning(t('user.instanceDetail.instanceNotRunning'))
       return
     }
-    if (!instance.value.password) {
-      ElMessage.warning(t('user.instanceDetail.noPassword'))
-      return
-    }
     // 只有在没有SSH映射且为no_port_mapping模式时才拒绝
     if (!instance.value.hasSshMapping && instance.value.networkType === 'no_port_mapping') {
       ElMessage.warning(t('user.instanceDetail.sshNoPortMapping'))

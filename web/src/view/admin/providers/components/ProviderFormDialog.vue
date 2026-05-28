@@ -224,13 +224,13 @@ const {
   margin-bottom: 20px;
 }
 
-.server-form {
+:deep(.server-form) {
   max-height: 500px;
   overflow-y: auto;
   padding-right: 10px;
 }
 
-.form-tip {
+:deep(.form-tip) {
   margin-top: 5px;
 }
 

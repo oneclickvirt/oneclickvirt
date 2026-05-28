@@ -310,7 +310,7 @@
               <el-button
                 size="small"
                 type="success"
-                :disabled="scope.row.status !== 'running' || !scope.row.password || (!scope.row.hasSshMapping && scope.row.networkType === 'no_port_mapping')"
+                :disabled="scope.row.status !== 'running' || (!scope.row.hasSshMapping && scope.row.networkType === 'no_port_mapping')"
                 :title="(!scope.row.hasSshMapping && scope.row.networkType === 'no_port_mapping') ? $t('admin.instances.sshNoPortMapping') : ''"
                 @click="openSSHTerminal(scope.row)"
               >

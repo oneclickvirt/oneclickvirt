@@ -17,80 +17,80 @@
 }
 
 /* 概览卡片样式 */
-.overview-card {
+.instance-detail :deep(.overview-card) {
   margin-bottom: 24px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.server-overview {
+.instance-detail :deep(.server-overview) {
   display: flex;
   gap: 40px;
   align-items: flex-start;
 }
 
-.server-basic-info {
+.instance-detail :deep(.server-basic-info) {
   flex: 1;
 }
 
-.server-header {
+.instance-detail :deep(.server-header) {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 20px;
 }
 
-.server-name-section {
+.instance-detail :deep(.server-name-section) {
   flex: 1;
 }
 
-.server-name {
+.instance-detail :deep(.server-name) {
   margin: 0 0 8px 0;
   font-size: 28px;
   font-weight: 600;
   color: var(--text-color-primary);
 }
 
-.server-meta {
+.instance-detail :deep(.server-meta) {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.server-provider {
+.instance-detail :deep(.server-provider) {
   color: var(--text-color-secondary);
   font-size: 14px;
 }
 
-.server-status {
+.instance-detail :deep(.server-status) {
   flex-shrink: 0;
 }
 
-.control-actions {
+.instance-detail :deep(.control-actions) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 16px;
 }
 
-.server-hardware {
+.instance-detail :deep(.server-hardware) {
   flex-shrink: 0;
   min-width: 250px;
 }
 
-.server-hardware h3 {
+.instance-detail :deep(.server-hardware h3) {
   margin: 0 0 16px 0;
   font-size: 18px;
   font-weight: 600;
   color: var(--text-color-primary);
 }
 
-.hardware-grid {
+.instance-detail :deep(.hardware-grid) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
 
-.hardware-item {
+.instance-detail :deep(.hardware-item) {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -99,12 +99,12 @@
   border-radius: 6px;
 }
 
-.hardware-item .label {
+.instance-detail :deep(.hardware-item .label) {
   color: var(--text-color-secondary);
   font-size: 14px;
 }
 
-.hardware-item .value {
+.instance-detail :deep(.hardware-item .value) {
   color: var(--text-color-primary);
   font-weight: 600;
   font-size: 14px;
@@ -129,29 +129,29 @@
   transform: translateZ(0);
 }
 
-/* 概览标签页内容 */
-.overview-content {
+/* 概览标签页内容（OverviewTab 为子组件，需使用 :deep） */
+.instance-detail :deep(.overview-content) {
   display: grid;
   gap: 32px;
 }
 
-.connection-section h3,
-.basic-info-section h3 {
+.instance-detail :deep(.connection-section h3),
+.instance-detail :deep(.basic-info-section h3) {
   margin: 0 0 20px 0;
   font-size: 18px;
   font-weight: 600;
   color: var(--text-color-primary);
 }
 
-.connection-grid,
-.info-grid {
+.instance-detail :deep(.connection-grid),
+.instance-detail :deep(.info-grid) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 16px;
 }
 
-.connection-item,
-.info-item {
+.instance-detail :deep(.connection-item),
+.instance-detail :deep(.info-item) {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -161,27 +161,27 @@
   border: 1px solid var(--border-color);
 }
 
-.connection-item .label,
-.info-item .label {
+.instance-detail :deep(.connection-item .label),
+.instance-detail :deep(.info-item .label) {
   color: var(--text-color-secondary);
   font-weight: 500;
   font-size: 14px;
 }
 
-.value-with-action {
+.instance-detail :deep(.value-with-action) {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.connection-item .value,
-.info-item .value {
+.instance-detail :deep(.connection-item .value),
+.instance-detail :deep(.info-item .value) {
   color: var(--text-color-primary);
   font-weight: 500;
   font-size: 14px;
 }
 
-.ip-value {
+.instance-detail :deep(.ip-value) {
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -190,12 +190,12 @@
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 
-/* 端口映射标签页 */
-.ports-content {
+/* 端口映射标签页（PortMappingsTab 为子组件，需使用 :deep） */
+.instance-detail :deep(.ports-content) {
   min-height: 400px;
 }
 
-.ports-header {
+.instance-detail :deep(.ports-header) {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -205,38 +205,38 @@
   border-radius: 8px;
 }
 
-.ports-summary {
+.instance-detail :deep(.ports-summary) {
   display: flex;
   gap: 32px;
 }
 
-.summary-item {
+.instance-detail :deep(.summary-item) {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.summary-item .label {
+.instance-detail :deep(.summary-item .label) {
   font-size: 14px;
   color: var(--text-color-secondary);
   font-weight: 500;
 }
 
-.summary-item .value {
+.instance-detail :deep(.summary-item .value) {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-color-primary);
 }
 
-.ports-table {
+.instance-detail :deep(.ports-table) {
   width: 100%;
 }
 
-.connection-commands {
+.instance-detail :deep(.connection-commands) {
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 
-.command-text {
+.instance-detail :deep(.command-text) {
   font-size: 12px;
   color: var(--text-color-primary);
   background: #f3f4f6;
@@ -254,96 +254,97 @@
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 
-.ssh-command, .port-access {
+.instance-detail :deep(.ssh-command),
+.instance-detail :deep(.port-access) {
   display: flex;
   align-items: center;
   margin-bottom: 4px;
 }
 
-.no-ports {
+.instance-detail :deep(.no-ports) {
   text-align: center;
   padding: 60px 20px;
   color: var(--text-color-secondary);
 }
 
-/* 统计标签页 */
-.stats-content {
+/* 统计标签页（StatisticsTab 为子组件，需使用 :deep） */
+.instance-detail :deep(.stats-content) {
   display: grid;
   gap: 12px;
 }
 
-.section-header {
+.instance-detail :deep(.section-header) {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
 }
 
-.section-header h3,
-.traffic-section h3 {
+.instance-detail :deep(.section-header h3),
+.instance-detail :deep(.traffic-section h3) {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
   color: var(--text-color-primary);
 }
 
-.section-actions {
+.instance-detail :deep(.section-actions) {
   display: flex;
   gap: 8px;
 }
 
-.monitoring-grid {
+.instance-detail :deep(.monitoring-grid) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 20px;
 }
 
-.monitor-item {
+.instance-detail :deep(.monitor-item) {
   text-align: center;
   padding: 20px;
   background: var(--neutral-bg);
   border-radius: 8px;
 }
 
-.monitor-label {
+.instance-detail :deep(.monitor-label) {
   color: var(--text-color-secondary);
   font-size: 14px;
   margin-bottom: 12px;
   font-weight: 500;
 }
 
-.monitor-value {
+.instance-detail :deep(.monitor-value) {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.traffic-usage {
+.instance-detail :deep(.traffic-usage) {
   padding: 20px;
   background: var(--neutral-bg);
   border-radius: 8px;
   margin-bottom: 0;
 }
 
-.usage-header {
+.instance-detail :deep(.usage-header) {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
 }
 
-.usage-label {
+.instance-detail :deep(.usage-label) {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-color-primary);
 }
 
-.usage-info {
+.instance-detail :deep(.usage-info) {
   font-size: 14px;
   color: var(--text-color-secondary);
 }
 
-.usage-details {
+.instance-detail :deep(.usage-details) {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -351,28 +352,28 @@
   font-size: 14px;
 }
 
-.limited-text {
+.instance-detail :deep(.limited-text) {
   color: #f56c6c !important;
   font-weight: 600;
 }
 
-.reset-info {
+.instance-detail :deep(.reset-info) {
   color: var(--text-color-secondary);
 }
 
-.traffic-breakdown h4 {
+.instance-detail :deep(.traffic-breakdown h4) {
   margin: 0 0 16px 0;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-color-primary);
 }
 
-.history-list {
+.instance-detail :deep(.history-list) {
   display: grid;
   gap: 8px;
 }
 
-.history-item {
+.instance-detail :deep(.history-item) {
   display: grid;
   grid-template-columns: 100px 120px 1fr;
   gap: 16px;
@@ -382,17 +383,17 @@
   font-size: 14px;
 }
 
-.history-item .month {
+.instance-detail :deep(.history-item .month) {
   color: var(--text-color-secondary);
   font-weight: 500;
 }
 
-.history-item .traffic {
+.instance-detail :deep(.history-item .traffic) {
   color: var(--text-color-primary);
   font-weight: 600;
 }
 
-.history-item .breakdown {
+.instance-detail :deep(.history-item .breakdown) {
   color: var(--text-color-secondary);
 }
 
@@ -402,62 +403,62 @@
     padding: 16px;
   }
   
-  .server-overview {
+  .instance-detail :deep(.server-overview) {
     flex-direction: column;
     gap: 24px;
   }
   
-  .server-header {
+  .instance-detail :deep(.server-header) {
     flex-direction: column;
     gap: 16px;
     align-items: flex-start;
   }
   
-  .connection-grid,
-  .info-grid {
+  .instance-detail :deep(.connection-grid),
+  .instance-detail :deep(.info-grid) {
     grid-template-columns: 1fr;
   }
   
-  .ports-header {
+  .instance-detail :deep(.ports-header) {
     flex-direction: column;
     gap: 16px;
     align-items: flex-start;
   }
   
-  .ports-summary {
+  .instance-detail :deep(.ports-summary) {
     flex-direction: column;
     gap: 12px;
   }
   
-  .monitoring-grid {
+  .instance-detail :deep(.monitoring-grid) {
     grid-template-columns: 1fr;
   }
   
-  .hardware-grid {
+  .instance-detail :deep(.hardware-grid) {
     grid-template-columns: 1fr;
   }
   
-  .history-item {
+  .instance-detail :deep(.history-item) {
     grid-template-columns: 1fr;
     gap: 8px;
   }
 
   /* 移动端IP地址显示 */
-  .ip-value {
+  .instance-detail :deep(.ip-value) {
     max-width: 150px;
   }
   
-  .command-text {
+  .instance-detail :deep(.command-text) {
     max-width: 200px;
   }
   
-  .connection-item {
+  .instance-detail :deep(.connection-item) {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
   }
   
-  .value-with-action {
+  .instance-detail :deep(.value-with-action) {
     width: 100%;
     justify-content: space-between;
   }

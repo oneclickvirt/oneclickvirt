@@ -151,7 +151,7 @@
           </el-button>
           <!-- Web SSH按钮 -->
           <el-button
-            v-if="instance.status === 'running' && instance.password"
+            v-if="instance.status === 'running'"
             type="primary"
             size="small"
             :disabled="!instance.hasSshMapping && instance.networkType === 'no_port_mapping'"

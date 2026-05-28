@@ -187,11 +187,15 @@ export function useTaskManagement() {
     if (colonIdx !== -1) {
       const key = m.substring(0, colonIdx)
       const param = m.substring(colonIdx + 1)
-      const i18nKey = `admin.tasks.${key}`
-      if (te(i18nKey)) return t(i18nKey, { n: parseInt(param) || param, name: param })
+      const adminKey = `admin.tasks.${key}`
+      const userKey = `user.tasks.${key}`
+      if (te(adminKey)) return t(adminKey, { n: parseInt(param) || param, name: param })
+      if (te(userKey)) return t(userKey, { n: parseInt(param) || param, name: param })
     } else {
-      const i18nKey = `admin.tasks.${m}`
-      if (te(i18nKey)) return t(i18nKey)
+      const adminKey = `admin.tasks.${m}`
+      const userKey = `user.tasks.${m}`
+      if (te(adminKey)) return t(adminKey)
+      if (te(userKey)) return t(userKey)
     }
     return m
   }
