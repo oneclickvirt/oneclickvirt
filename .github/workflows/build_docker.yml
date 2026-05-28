@@ -67,6 +67,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Validate Docker context prerequisites
+        run: |
+          if [ ! -d server/docs ]; then
+            echo "Missing server/docs directory; Go build imports oneclickvirt/docs"
+            exit 1
+          fi
+          if grep -Eq '^server/docs/?$' .dockerignore; then
+            echo "Invalid .dockerignore: server/docs is excluded but required for Go build"
+            exit 1
+          fi
+
       - name: Resolve Go version from go.mod
         id: go-version
         run: |
@@ -200,6 +211,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Validate Docker context prerequisites
+        run: |
+          if [ ! -d server/docs ]; then
+            echo "Missing server/docs directory; Go build imports oneclickvirt/docs"
+            exit 1
+          fi
+          if grep -Eq '^server/docs/?$' .dockerignore; then
+            echo "Invalid .dockerignore: server/docs is excluded but required for Go build"
+            exit 1
+          fi
 
       - name: Resolve Go version from go.mod
         id: go-version

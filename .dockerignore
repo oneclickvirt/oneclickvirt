@@ -38,7 +38,6 @@ docker-compose.yaml
 
 # Docs
 *.md
-server/docs/
 
 # Deploy configs (not needed in build context)
 deploy/
