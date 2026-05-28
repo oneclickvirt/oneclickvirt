@@ -1,5 +1,33 @@
 <template>
   <div class="admin-terminal-container">
+    <div class="remote-view-toolbar">
+      <div class="view-buttons">
+        <el-button
+          size="small"
+          :type="activeView === 'terminal' ? 'primary' : 'default'"
+          @click="activeView = 'terminal'"
+        >
+          Terminal
+        </el-button>
+        <el-button
+          v-if="supportsSFTP"
+          size="small"
+          :type="activeView === 'sftp' ? 'primary' : 'default'"
+          @click="activeView = 'sftp'"
+        >
+          SFTP
+        </el-button>
+      </div>
+      <el-button
+        size="small"
+        class="reconnect-btn"
+        :loading="manualReconnecting"
+        @click="handleManualReconnect"
+      >
+        {{ t('admin.providers.reconnectNow') }}
+      </el-button>
+    </div>
+
     <el-alert
       v-if="!supportsSFTP"
       :title="t('admin.providers.providerSftpUnavailableTitle')"
@@ -8,27 +36,28 @@
       :closable="false"
       class="remote-connect-alert"
     />
-    <el-tabs v-model="activeView">
-      <el-tab-pane
-        label="Terminal"
-        name="terminal"
-      >
+
+    <div
+      v-show="activeView === 'terminal'"
+      class="terminal-panel"
+    >
         <div
           ref="terminalRef"
           class="terminal"
         />
-      </el-tab-pane>
-      <el-tab-pane
-        v-if="supportsSFTP"
-        label="SFTP"
-        name="sftp"
-      >
-        <SFTPPanel
-          entity-type="admin-provider"
-          :entity-id="providerId"
-        />
-      </el-tab-pane>
-    </el-tabs>
+    </div>
+
+    <div
+      v-show="supportsSFTP && activeView === 'sftp'"
+      class="sftp-panel"
+    >
+      <SFTPPanel
+        ref="sftpPanelRef"
+        entity-type="admin-provider"
+        :entity-id="providerId"
+        :active="true"
+      />
+    </div>
   </div>
 </template>
 
@@ -53,12 +82,20 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const terminalRef = ref(null)
+const sftpPanelRef = ref(null)
 const activeView = ref('terminal')
+const manualReconnecting = ref(false)
 let terminal = null
 let fitAddon = null
 let websocket = null
 let resizeObserver = null
 let isCleanedUp = false
+let isConnecting = false
+let isIntentionallyClosed = false
+let heartbeatInterval = null
+let reconnectTimeout = null
+let dataDisposable = null
+let resizeDisposable = null
 
 const supportsSFTP = computed(() => {
   return Boolean(props.providerUsername && props.providerAuthMethod)
@@ -70,7 +107,7 @@ onBeforeUnmount(() => cleanup())
 
 const initTerminal = () => {
   if (isCleanedUp) return
-  if (activeView.value !== 'terminal') return
+  if (terminal) return
 
   terminal = new Terminal({
     cursorBlink: true,
@@ -118,12 +155,28 @@ const initTerminal = () => {
   })
   if (terminalRef.value) resizeObserver.observe(terminalRef.value)
 
+  dataDisposable = terminal.onData((data) => {
+    if (!isCleanedUp && websocket && websocket.readyState === WebSocket.OPEN) {
+      websocket.send(data)
+    }
+  })
+
+  resizeDisposable = terminal.onResize(({ cols, rows }) => {
+    if (!isCleanedUp && websocket && websocket.readyState === WebSocket.OPEN) {
+      websocket.send(JSON.stringify({ type: 'resize', cols, rows }))
+      try { fitAddon.fit() } catch {}
+    }
+  })
+
   connect()
 }
 
 const connect = () => {
   if (isCleanedUp) return
-  if (activeView.value !== 'terminal') return
+  if (isConnecting) return
+  if (websocket && (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING)) {
+    return
+  }
 
   const token = sessionStorage.getItem('token')
   if (!token) {
@@ -146,10 +199,13 @@ const connect = () => {
   if (terminal) terminal.write('\x1b[33mConnecting to ' + (props.providerName || 'provider') + '...\x1b[0m\r\n')
 
   try {
+    isConnecting = true
+    isIntentionallyClosed = false
     websocket = new WebSocket(wsUrl)
     websocket.binaryType = 'arraybuffer'
 
     websocket.onopen = () => {
+      isConnecting = false
       if (isCleanedUp) {
         try { websocket.close() } catch {}
         return
@@ -159,6 +215,7 @@ const connect = () => {
       // Send terminal size
       const dims = { cols: terminal.cols, rows: terminal.rows }
       websocket.send(JSON.stringify({ type: 'resize', ...dims }))
+      startHeartbeat()
     }
 
     websocket.onmessage = (event) => {
@@ -171,46 +228,120 @@ const connect = () => {
     }
 
     websocket.onclose = (event) => {
+      isConnecting = false
+      stopHeartbeat()
       if (isCleanedUp) return
-      if (terminal) {
-        if (event.wasClean) {
+      websocket = null
+
+      if (isIntentionallyClosed || event.code === 1000) {
+        if (terminal) {
           terminal.write('\r\n\x1b[32mConnection closed.\x1b[0m\r\n')
-        } else {
-          terminal.write('\r\n\x1b[31mConnection lost. Please close and reopen the terminal.\x1b[0m\r\n')
         }
+        return
       }
+
+      if (terminal) {
+        terminal.write('\r\n\x1b[33mConnection lost, retrying in 3s...\x1b[0m\r\n')
+      }
+      scheduleReconnect()
     }
 
-    websocket.onerror = () => {
+    websocket.onerror = (error) => {
+      isConnecting = false
       if (!isCleanedUp && terminal) {
         terminal.write('\x1b[31mConnection error.\x1b[0m\r\n')
       }
+      console.error('Provider terminal websocket error:', error)
     }
-
-    // Send input to server
-    terminal.onData((data) => {
-      if (!isCleanedUp && websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.send(data)
-      }
-    })
-
-    // Resize → send to server
-    terminal.onResize(({ cols, rows }) => {
-      if (!isCleanedUp && websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.send(JSON.stringify({ type: 'resize', cols, rows }))
-        try { fitAddon.fit() } catch {}
-      }
-    })
   } catch (err) {
+    isConnecting = false
     if (!isCleanedUp && terminal) {
       terminal.write('\x1b[31mFailed to create connection: ' + err.message + '\x1b[0m\r\n')
     }
+    scheduleReconnect()
+  }
+}
+
+const startHeartbeat = () => {
+  stopHeartbeat()
+  heartbeatInterval = setInterval(() => {
+    if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+      return
+    }
+    try {
+      websocket.send(JSON.stringify({ type: 'ping' }))
+    } catch (error) {
+      console.error('Provider terminal heartbeat failed:', error)
+    }
+  }, 30000)
+}
+
+const stopHeartbeat = () => {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval)
+    heartbeatInterval = null
+  }
+}
+
+const scheduleReconnect = () => {
+  if (isCleanedUp || isIntentionallyClosed || reconnectTimeout) {
+    return
+  }
+  reconnectTimeout = setTimeout(() => {
+    reconnectTimeout = null
+    connect()
+  }, 3000)
+}
+
+const reconnectTerminal = (reason = 'Manual reconnect') => {
+  isIntentionallyClosed = false
+  isConnecting = false
+  stopHeartbeat()
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
+  }
+  if (websocket) {
+    const ws = websocket
+    websocket = null
+    try { ws.close(1000, reason) } catch {}
+  }
+  connect()
+}
+
+const handleManualReconnect = async () => {
+  if (manualReconnecting.value) {
+    return
+  }
+
+  manualReconnecting.value = true
+  try {
+    if (activeView.value === 'terminal') {
+      reconnectTerminal('Manual reconnect from toolbar')
+    }
+
+    if (supportsSFTP.value && sftpPanelRef.value?.refreshNow) {
+      await sftpPanelRef.value.refreshNow(true)
+    }
+
+    ElMessage.success(t('admin.providers.reconnectTriggered'))
+  } catch (error) {
+    ElMessage.error(error?.message || t('admin.providers.reconnectFailed'))
+  } finally {
+    manualReconnecting.value = false
   }
 }
 
 const cleanup = () => {
   if (isCleanedUp) return
   isCleanedUp = true
+  isIntentionallyClosed = true
+  isConnecting = false
+  stopHeartbeat()
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
+  }
 
   // 断开 ResizeObserver 防止内存泄漏
   if (resizeObserver) {
@@ -223,6 +354,16 @@ const cleanup = () => {
     const ws = websocket
     websocket = null
     try { ws.close(1000, 'User closed terminal') } catch {}
+  }
+
+  if (dataDisposable) {
+    try { dataDisposable.dispose() } catch {}
+    dataDisposable = null
+  }
+
+  if (resizeDisposable) {
+    try { resizeDisposable.dispose() } catch {}
+    resizeDisposable = null
   }
 
   // 再清理终端
@@ -238,25 +379,12 @@ const cleanup = () => {
 }
 
 watch(activeView, (view) => {
-  if (view === 'terminal') {
-    if (isCleanedUp) return
-    if (!terminal) {
-      nextTick(() => initTerminal())
-    } else {
-      // terminal exists but websocket may have been closed when switching away
-      // re-connect if no active websocket
-      if (!websocket || websocket.readyState === WebSocket.CLOSED || websocket.readyState === WebSocket.CLOSING) {
-        nextTick(() => connect())
-      }
-    }
+  if (view !== 'terminal') {
     return
   }
-  // switching away from terminal: close websocket to free server resources
-  if (websocket) {
-    const ws = websocket
-    websocket = null
-    try { ws.close(1000, 'Switch to SFTP') } catch {}
-  }
+  nextTick(() => {
+    try { fitAddon?.fit() } catch {}
+  })
 })
 
 watch(supportsSFTP, (enabled) => {
@@ -270,27 +398,50 @@ watch(supportsSFTP, (enabled) => {
 .admin-terminal-container {
   width: 100%;
   height: 100%;
-  background-color: #1e1e1e;
-  padding: 10px;
-  border-radius: 4px;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.remote-view-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.view-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.reconnect-btn {
+  margin-left: 10px;
 }
 
 .remote-connect-alert {
-  margin-bottom: 10px;
+  margin-bottom: 0;
 }
 
-:deep(.el-tabs) {
-  height: 100%;
+.terminal-panel,
+.sftp-panel {
+  flex: 1;
+  min-height: 0;
 }
 
-:deep(.el-tabs__content) {
-  height: calc(100% - 40px);
+.terminal-panel {
+  background-color: #1e1e1e;
+  border-radius: 6px;
+  overflow: hidden;
+  padding: 10px;
 }
 
-:deep(.el-tab-pane) {
-  height: 100%;
+.sftp-panel {
+  background-color: var(--el-bg-color-overlay);
+  border-radius: 6px;
+  padding: 10px;
+  overflow: auto;
 }
+
 .terminal {
   width: 100%;
   height: 100%;

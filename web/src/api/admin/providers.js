@@ -9,6 +9,31 @@ export const getProviderList = (params) => {
   })
 }
 
+export const exportProvidersCSV = (ids = []) => {
+  const params = {}
+  if (Array.isArray(ids) && ids.length > 0) {
+    params.ids = ids.join(',')
+  }
+  return request({
+    url: '/v1/admin/providers/export-csv',
+    method: 'get',
+    params,
+    responseType: 'blob'
+  })
+}
+
+export const importProvidersCSV = (formData) => {
+  return request({
+    url: '/v1/admin/providers/import-csv',
+    method: 'post',
+    data: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    },
+    timeout: 120000
+  })
+}
+
 // 检查Provider名称是否已存在
 export const checkProviderNameExists = (name, excludeId = null) => {
   return request({

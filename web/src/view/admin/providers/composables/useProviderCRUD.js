@@ -7,7 +7,9 @@ import {
   freezeProvider,
   unfreezeProvider,
   setProviderExpiry,
-  checkProviderHealth
+  checkProviderHealth,
+  exportProvidersCSV,
+  importProvidersCSV
 } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
 
@@ -70,6 +72,98 @@ export function useProviderCRUD() {
 
   const handleSelectionChange = (selection) => {
     selectedProviders.value = selection
+  }
+
+  const getDownloadFileName = (response, fallbackName) => {
+    const header = response?.headers?.['content-disposition'] || ''
+    const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i)
+    if (utf8Match && utf8Match[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1])
+      } catch {
+        return utf8Match[1]
+      }
+    }
+    const plainMatch = header.match(/filename="?([^";]+)"?/i)
+    if (plainMatch && plainMatch[1]) {
+      return plainMatch[1]
+    }
+    return fallbackName
+  }
+
+  const handleExportCSV = async () => {
+    try {
+      const ids = selectedProviders.value.map(item => item.id)
+      const response = await exportProvidersCSV(ids)
+      const blob = response?.data instanceof Blob
+        ? response.data
+        : new Blob([response?.data || ''], { type: 'text/csv;charset=utf-8' })
+
+      const fileName = getDownloadFileName(response, 'providers.csv')
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+
+      ElMessage.success(t('admin.providers.exportCsvSuccess'))
+    } catch (error) {
+      const errorMsg =
+        error?.response?.data?.msg ||
+        error?.response?.data?.message ||
+        error?.message ||
+        t('admin.providers.exportCsvFailed')
+      ElMessage.error(errorMsg)
+    }
+  }
+
+  const handleImportCSV = async (file) => {
+    if (!file) {
+      ElMessage.warning(t('admin.providers.selectCsvFile'))
+      return
+    }
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      const res = await importProvidersCSV(formData)
+      const data = res?.data || {}
+      const created = Number(data.created || 0)
+      const updated = Number(data.updated || 0)
+      const skipped = Number(data.skipped || 0)
+      ElMessage.success(
+        t('admin.providers.importCsvResult', {
+          created,
+          updated,
+          skipped
+        })
+      )
+
+      const errors = Array.isArray(data.errors) ? data.errors : []
+      if (errors.length > 0) {
+        ElMessageBox.alert(
+          errors.join('<br>'),
+          t('admin.providers.importCsvErrorTitle'),
+          {
+            dangerouslyUseHTMLString: true,
+            type: 'warning'
+          }
+        )
+      }
+
+      await loadProviders()
+    } catch (error) {
+      const errorMsg =
+        error?.response?.data?.msg ||
+        error?.response?.data?.message ||
+        error?.message ||
+        t('admin.providers.importCsvFailed')
+      ElMessage.error(errorMsg)
+    }
   }
 
   const handleDeleteProvider = async (provider) => {
@@ -553,6 +647,8 @@ export function useProviderCRUD() {
     handleSetProviderExpiry,
     freezeServer,
     unfreezeServer,
-    checkHealth
+    checkHealth,
+    handleExportCSV,
+    handleImportCSV
   }
 }

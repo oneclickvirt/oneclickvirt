@@ -26,6 +26,7 @@ export function useProviderForm(props, emit) {
   // 连接测试状态
   const testingConnection = ref(false)
   const connectionTestResult = ref(null)
+  const submitting = ref(false)
 
   // Agent 密钥生成状态
   const generatingSecret = ref(false)
@@ -558,6 +559,11 @@ export function useProviderForm(props, emit) {
 
   // 提交表单
   const handleSubmit = async () => {
+    if (submitting.value || props.loading) {
+      return
+    }
+
+    submitting.value = true
     try {
       // 获取基本信息Tab中的表单引用并验证
       const basicFormRef = basicInfoTabRef.value?.formRef
@@ -606,12 +612,9 @@ export function useProviderForm(props, emit) {
       emit('submit', formData.value)
     } catch (error) {
       console.error('表单验证失败:', error)
-      // 表单验证失败，Element Plus 会自动显示错误信息
-      // 这里只需要提示用户检查表单
-      if (error && typeof error === 'object') {
-        // 验证失败，滚动到第一个错误字段
-        ElMessage.error(t('admin.providers.pleaseCheckRequiredFields'))
-      }
+      // 表单项会展示具体错误，避免额外泛化弹窗造成“成功后又报错”的误判。
+    } finally {
+      submitting.value = false
     }
   }
 

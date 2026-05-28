@@ -22,6 +22,25 @@
                 {{ $t('admin.providers.batchFreeze') }} ({{ selectedProviders.length }})
               </el-button>
             </template>
+            <el-button
+              :icon="Download"
+              @click="handleExportCSV"
+            >
+              {{ $t('admin.providers.exportCsv') }}
+            </el-button>
+            <el-button
+              :icon="Upload"
+              @click="triggerImportCSV"
+            >
+              {{ $t('admin.providers.importCsv') }}
+            </el-button>
+            <input
+              ref="importCsvInput"
+              type="file"
+              accept=".csv,text/csv"
+              style="display: none"
+              @change="handleImportCsvFileChange"
+            >
             <!-- 添加服务器按钮 -->
             <el-button
               type="primary"
@@ -127,7 +146,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { Search, Delete, Lock } from '@element-plus/icons-vue'
+import { Search, Delete, Lock, Upload, Download } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import SearchFilter from './components/SearchFilter.vue'
 import ConfigDialog from './components/ConfigDialog.vue'
@@ -149,8 +168,23 @@ const {
   loadProviders, handleSearch, handleReset,
   handleSizeChange, handleCurrentChange, handleSelectionChange,
   handleDeleteProvider, handleBatchDelete, handleBatchFreeze,
-  handleSetProviderExpiry, freezeServer, unfreezeServer, checkHealth
+  handleSetProviderExpiry, freezeServer, unfreezeServer, checkHealth,
+  handleExportCSV, handleImportCSV
 } = useProviderCRUD()
+
+const importCsvInput = ref(null)
+
+const triggerImportCSV = () => {
+  importCsvInput.value?.click()
+}
+
+const handleImportCsvFileChange = async (event) => {
+  const file = event.target?.files?.[0]
+  await handleImportCSV(file)
+  if (event.target) {
+    event.target.value = ''
+  }
+}
 
 const {
   showAddDialog, addProviderLoading, isEditing, addProviderForm,

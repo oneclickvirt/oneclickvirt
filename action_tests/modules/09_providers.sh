@@ -227,6 +227,150 @@ run_module_09() {
     test_api "Export provider configs" "POST" "/api/v1/admin/providers/export-configs" "200" \
         "{\"provider_ids\":[${PROVIDER_ID}]}" "$group"
 
+    # -- CSV import/export --
+    test_api "Export providers CSV (selected)" "GET" "/api/v1/admin/providers/export-csv?ids=${PROVIDER_ID}" "200" "" "$group"
+    test_api "Export providers CSV (empty template)" "GET" "/api/v1/admin/providers/export-csv?ids=999999999" "200" "" "$group"
+
+    local csv_template_tmp; csv_template_tmp=$(mktemp)
+    local csv_template_code
+    csv_template_code=$(curl -s --max-time 60 -o "$csv_template_tmp" -w "%{http_code}" \
+        -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/export-csv?ids=999999999" 2>/dev/null || echo "000")
+    if [[ "$csv_template_code" == "200" ]]; then
+        local csv_template_header; csv_template_header=$(head -n 1 "$csv_template_tmp" | tr -d '\r')
+        if [[ "$csv_template_header" == id,name,type,* ]]; then
+            log_success "Exported empty CSV template contains header row"
+        else
+            log_error "CSV template header mismatch: ${csv_template_header}"
+            rm -f "$csv_template_tmp"
+            chain_break "$group" "CSV template header mismatch"
+            return 1
+        fi
+    else
+        log_error "Export empty CSV template failed, HTTP ${csv_template_code}"
+        rm -f "$csv_template_tmp"
+        chain_break "$group" "CSV template export failed"
+        return 1
+    fi
+    rm -f "$csv_template_tmp"
+
+    local csv_import_name="ci-csv-import-${ENV_TYPE}-${RANDOM}"
+    local csv_import_file; csv_import_file=$(mktemp)
+    cat > "$csv_import_file" <<EOF
+id,name,type,endpoint,portIP,sshPort,username,password,sshKey,connectionType,status,architecture,container_enabled,vm_enabled,allowClaim,redeemCodeOnly,region,country,countryCode,city,executionRule,networkType,defaultPortCount,portRangeStart,portRangeEnd,maxTraffic,trafficCountMode,trafficMultiplier,enableTrafficControl,enableResourceMonitoring
+,${csv_import_name},${ENV_TYPE},,,,,,,agent,active,amd64,true,false,true,false,csv-region,,,,auto,no_port_mapping,10,10000,65535,1048576,both,1,false,false
+EOF
+
+    local csv_import_resp; csv_import_resp=$(curl -s --max-time 120 -w "\n%{http_code}" \
+        -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        -F "file=@${csv_import_file};type=text/csv" \
+        "${SERVER_URL}/api/v1/admin/providers/import-csv" 2>/dev/null || true)
+    local csv_import_code; csv_import_code=$(echo "$csv_import_resp" | tail -1)
+    local csv_import_body; csv_import_body=$(echo "$csv_import_resp" | sed '$d')
+    if [[ "$csv_import_code" != "200" ]]; then
+        log_error "Import providers CSV failed, expected 200 got ${csv_import_code}"
+        log_error "Import response: ${csv_import_body}"
+        rm -f "$csv_import_file"
+        chain_break "$group" "CSV import create failed"
+        return 1
+    fi
+    local csv_created; csv_created=$(echo "$csv_import_body" | jq -r '.data.created // 0' 2>/dev/null)
+    if [[ "$csv_created" == "0" ]]; then
+        log_error "CSV import create returned created=0: ${csv_import_body}"
+        rm -f "$csv_import_file"
+        chain_break "$group" "CSV import create did not create row"
+        return 1
+    fi
+
+    local csv_created_id
+    local csv_list_resp; csv_list_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers?page=1&pageSize=200&name=${csv_import_name}" 2>/dev/null || true)
+    csv_created_id=$(echo "$csv_list_resp" | jq -r '.data.list[]? | select(.name=="'"${csv_import_name}"'") | .id // .ID' 2>/dev/null | head -1)
+    if [[ -z "$csv_created_id" ]]; then
+        log_error "CSV-created provider not found by name: ${csv_import_name}"
+        rm -f "$csv_import_file"
+        chain_break "$group" "CSV import create verification failed"
+        return 1
+    fi
+
+    cat > "$csv_import_file" <<EOF
+id,name,type,endpoint,portIP,sshPort,username,password,sshKey,connectionType,status,architecture,container_enabled,vm_enabled,allowClaim,redeemCodeOnly,region,country,countryCode,city,executionRule,networkType,defaultPortCount,portRangeStart,portRangeEnd,maxTraffic,trafficCountMode,trafficMultiplier,enableTrafficControl,enableResourceMonitoring
+${csv_created_id},${csv_import_name},${ENV_TYPE},,,,,,,agent,active,amd64,true,false,true,false,csv-region-updated,,,,auto,no_port_mapping,10,10000,65535,1048576,both,1,false,false
+EOF
+
+    local csv_update_resp; csv_update_resp=$(curl -s --max-time 120 -w "\n%{http_code}" \
+        -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        -F "file=@${csv_import_file};type=text/csv" \
+        "${SERVER_URL}/api/v1/admin/providers/import-csv" 2>/dev/null || true)
+    local csv_update_code; csv_update_code=$(echo "$csv_update_resp" | tail -1)
+    local csv_update_body; csv_update_body=$(echo "$csv_update_resp" | sed '$d')
+    if [[ "$csv_update_code" != "200" ]]; then
+        log_error "Import providers CSV update failed, expected 200 got ${csv_update_code}"
+        log_error "Import update response: ${csv_update_body}"
+        rm -f "$csv_import_file"
+        chain_break "$group" "CSV import update failed"
+        return 1
+    fi
+
+    local csv_updated; csv_updated=$(echo "$csv_update_body" | jq -r '.data.updated // 0' 2>/dev/null)
+    if [[ "$csv_updated" == "0" ]]; then
+        log_error "CSV import update returned updated=0: ${csv_update_body}"
+        rm -f "$csv_import_file"
+        chain_break "$group" "CSV import update did not update row"
+        return 1
+    fi
+
+    local csv_detail_resp; csv_detail_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/${csv_created_id}" 2>/dev/null || true)
+    local csv_region; csv_region=$(echo "$csv_detail_resp" | jq -r '.data.region // empty' 2>/dev/null)
+    if [[ "$csv_region" != "csv-region-updated" ]]; then
+        log_error "CSV import update verification failed: expected region=csv-region-updated, got ${csv_region}"
+        rm -f "$csv_import_file"
+        chain_break "$group" "CSV import update verification failed"
+        return 1
+    fi
+
+    # Fallback matching by name: when id is empty, existing provider should be updated by name
+    cat > "$csv_import_file" <<EOF
+id,name,type,endpoint,portIP,sshPort,username,password,sshKey,connectionType,status,architecture,container_enabled,vm_enabled,allowClaim,redeemCodeOnly,region,country,countryCode,city,executionRule,networkType,defaultPortCount,portRangeStart,portRangeEnd,maxTraffic,trafficCountMode,trafficMultiplier,enableTrafficControl,enableResourceMonitoring
+,${csv_import_name},${ENV_TYPE},,,,,,,agent,active,amd64,true,false,true,false,csv-region-by-name,,,,auto,no_port_mapping,10,10000,65535,1048576,both,1,false,false
+EOF
+
+    local csv_name_update_resp; csv_name_update_resp=$(curl -s --max-time 120 -w "\n%{http_code}" \
+        -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        -F "file=@${csv_import_file};type=text/csv" \
+        "${SERVER_URL}/api/v1/admin/providers/import-csv" 2>/dev/null || true)
+    local csv_name_update_code; csv_name_update_code=$(echo "$csv_name_update_resp" | tail -1)
+    local csv_name_update_body; csv_name_update_body=$(echo "$csv_name_update_resp" | sed '$d')
+    if [[ "$csv_name_update_code" != "200" ]]; then
+        log_error "Import providers CSV by-name update failed, expected 200 got ${csv_name_update_code}"
+        log_error "Import by-name response: ${csv_name_update_body}"
+        rm -f "$csv_import_file"
+        chain_break "$group" "CSV import by-name update failed"
+        return 1
+    fi
+
+    local csv_name_updated; csv_name_updated=$(echo "$csv_name_update_body" | jq -r '.data.updated // 0' 2>/dev/null)
+    if [[ "$csv_name_updated" == "0" ]]; then
+        log_error "CSV import by-name update returned updated=0: ${csv_name_update_body}"
+        rm -f "$csv_import_file"
+        chain_break "$group" "CSV import by-name update did not update row"
+        return 1
+    fi
+
+    local csv_name_detail_resp; csv_name_detail_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/${csv_created_id}" 2>/dev/null || true)
+    local csv_name_region; csv_name_region=$(echo "$csv_name_detail_resp" | jq -r '.data.region // empty' 2>/dev/null)
+    if [[ "$csv_name_region" != "csv-region-by-name" ]]; then
+        log_error "CSV import by-name verification failed: expected region=csv-region-by-name, got ${csv_name_region}"
+        rm -f "$csv_import_file"
+        chain_break "$group" "CSV import by-name verification failed"
+        return 1
+    fi
+
+    rm -f "$csv_import_file"
+    test_api "Delete CSV imported provider" "DELETE" "/api/v1/admin/providers/${csv_created_id}" "200" "" "$group"
+
     # -- Provider API routes --
     test_api "Provider API list" "GET" "/api/v1/providers" "200" "" "$group"
     test_api "Provider API status" "GET" "/api/v1/providers/${PROVIDER_ID}/status" "200" "" "$group"

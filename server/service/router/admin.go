@@ -44,6 +44,8 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 
 		// Provider管理
 		NormalAdminGroup.GET("/providers", admin.GetProviderList)
+		NormalAdminGroup.GET("/providers/export-csv", admin.ExportProvidersCSV)
+		NormalAdminGroup.POST("/providers/import-csv", admin.ImportProvidersCSV)
 		NormalAdminGroup.POST("/providers", admin.CreateProvider)
 		NormalAdminGroup.GET("/providers/:id", admin.GetProviderDetail)
 		NormalAdminGroup.PUT("/providers/:id", admin.UpdateProvider)

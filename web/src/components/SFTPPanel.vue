@@ -102,7 +102,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   listUserInstanceSFTP,
@@ -131,6 +131,10 @@ const props = defineProps({
   entityId: {
     type: [Number, String],
     required: true
+  },
+  active: {
+    type: Boolean,
+    default: true
   }
 })
 
@@ -142,6 +146,8 @@ const uploadProgress = ref(0)
 const fileInputRef = ref(null)
 
 const CHUNK_SIZE = 8 * 1024 * 1024 // 8MB
+const KEEPALIVE_INTERVAL_MS = 45000
+let keepaliveTimer = null
 
 const getApi = () => {
   if (props.entityType === 'user-instance') {
@@ -204,7 +210,10 @@ const uploadChunkWithRetry = async (api, entityId, formData, maxRetries = 3) => 
   throw lastError
 }
 
-const refresh = async () => {
+const refresh = async (silent = false, retried = false) => {
+  if (loading.value) {
+    return
+  }
   loading.value = true
   try {
     const api = getApi()
@@ -214,9 +223,34 @@ const refresh = async () => {
     entries.value = data.entries || []
   } catch (error) {
     console.error('SFTP list failed:', error)
-    ElMessage.error(error?.message || 'List directory failed')
+    if (!retried) {
+      // Idle sessions may expire server-side; retry once to trigger a fresh backend session.
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      loading.value = false
+      return refresh(silent, true)
+    }
+    if (!silent) {
+      ElMessage.error(error?.message || 'List directory failed')
+    }
   } finally {
     loading.value = false
+  }
+}
+
+const startKeepalive = () => {
+  stopKeepalive()
+  keepaliveTimer = setInterval(() => {
+    if (!props.active || uploading.value || loading.value) {
+      return
+    }
+    refresh(true)
+  }, KEEPALIVE_INTERVAL_MS)
+}
+
+const stopKeepalive = () => {
+  if (keepaliveTimer) {
+    clearInterval(keepaliveTimer)
+    keepaliveTimer = null
   }
 }
 
@@ -407,8 +441,26 @@ watch(() => props.entityType, () => {
   refresh()
 })
 
+watch(() => props.active, (active) => {
+  if (active) {
+    startKeepalive()
+    refresh(true)
+  } else {
+    stopKeepalive()
+  }
+}, { immediate: true })
+
 onMounted(() => {
   refresh()
+  startKeepalive()
+})
+
+onBeforeUnmount(() => {
+  stopKeepalive()
+})
+
+defineExpose({
+  refreshNow: refresh
 })
 </script>
 
