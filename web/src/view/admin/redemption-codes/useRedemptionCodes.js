@@ -254,6 +254,10 @@ export default function useRedemptionCodes() {
 
   // ── 创建对话框逻辑 ─────────────────────────────────────────
   const openCreateDialog = () => {
+    if (allProviders.value.length === 0) {
+      ElMessage.warning(t('admin.redemptionCodes.noProvidersHint'))
+      return
+    }
     showCreateDialog.value = true
   }
 

@@ -106,6 +106,7 @@
       <el-table
         v-loading="loading"
         :data="tableData"
+        :empty-text="t('admin.redemptionCodes.emptyHint')"
         @selection-change="handleSelectionChange"
       >
         <el-table-column

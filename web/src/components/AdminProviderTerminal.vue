@@ -201,24 +201,31 @@ const connect = () => {
   try {
     isConnecting = true
     isIntentionallyClosed = false
-    websocket = new WebSocket(wsUrl)
-    websocket.binaryType = 'arraybuffer'
+    const ws = new WebSocket(wsUrl)
+    websocket = ws
+    ws.binaryType = 'arraybuffer'
 
-    websocket.onopen = () => {
+    ws.onopen = () => {
+      if (websocket !== ws) {
+        return
+      }
       isConnecting = false
       if (isCleanedUp) {
-        try { websocket.close() } catch {}
+        try { ws.close() } catch {}
         return
       }
       if (terminal) terminal.write('\x1b[32mConnected.\x1b[0m\r\n')
 
       // Send terminal size
       const dims = { cols: terminal.cols, rows: terminal.rows }
-      websocket.send(JSON.stringify({ type: 'resize', ...dims }))
+      ws.send(JSON.stringify({ type: 'resize', ...dims }))
       startHeartbeat()
     }
 
-    websocket.onmessage = (event) => {
+    ws.onmessage = (event) => {
+      if (websocket !== ws) {
+        return
+      }
       if (isCleanedUp || !terminal) return
       if (event.data instanceof ArrayBuffer) {
         terminal.write(new Uint8Array(event.data))
@@ -227,7 +234,10 @@ const connect = () => {
       }
     }
 
-    websocket.onclose = (event) => {
+    ws.onclose = (event) => {
+      if (websocket !== ws) {
+        return
+      }
       isConnecting = false
       stopHeartbeat()
       if (isCleanedUp) return
@@ -246,7 +256,10 @@ const connect = () => {
       scheduleReconnect()
     }
 
-    websocket.onerror = (error) => {
+    ws.onerror = (error) => {
+      if (websocket !== ws) {
+        return
+      }
       isConnecting = false
       if (!isCleanedUp && terminal) {
         terminal.write('\x1b[31mConnection error.\x1b[0m\r\n')
@@ -316,9 +329,7 @@ const handleManualReconnect = async () => {
 
   manualReconnecting.value = true
   try {
-    if (activeView.value === 'terminal') {
-      reconnectTerminal('Manual reconnect from toolbar')
-    }
+    reconnectTerminal('Manual reconnect from toolbar')
 
     if (supportsSFTP.value && sftpPanelRef.value?.refreshNow) {
       await sftpPanelRef.value.refreshNow(true)

@@ -1,5 +1,7 @@
 export default {
   title: '兑换码管理',
+  emptyHint: '暂无兑换码数据，可点击右上角“批量创建”生成',
+  noProvidersHint: '当前没有可用节点，请先到节点管理创建节点',
   batchCreate: '批量创建',
   batchDelete: '删除选中',
   export: '导出选中',

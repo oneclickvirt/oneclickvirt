@@ -1,5 +1,7 @@
 export default {
   title: 'Redemption Code Management',
+  emptyHint: 'No redemption codes yet. Click "Batch Create" to generate some.',
+  noProvidersHint: 'No providers available. Please create a provider first.',
   batchCreate: 'Batch Create',
   batchDelete: 'Delete Selected',
   export: 'Export Selected',
