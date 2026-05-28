@@ -46,6 +46,9 @@ run_module_13() {
 
     # -- no_port_mapping networkType: node-side mapping must be rejected --
     if [[ -n "$PROVIDER_ID" ]]; then
+        local expected_controller_host
+        expected_controller_host=$(echo "$SERVER_URL" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##; s#:[0-9]+$##')
+
         # Temporarily set networkType=no_port_mapping
         curl -s --max-time 30 -X PUT \
             -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" \
@@ -58,6 +61,38 @@ run_module_13() {
         # controller mode should still be accepted (or 400 if controller func not initialized)
         test_api "no_port_mapping allows controller mapping" "POST" "/api/v1/admin/port-mappings" "200|400|500" \
             "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group"
+
+        # user-side display should expose controller host in tunnel mode (when user can access the instance)
+        if [[ -n "$USER_TOKEN" && -n "$inst_for_pm" ]]; then
+            local user_ports_resp
+            user_ports_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${USER_TOKEN}" \
+                "${SERVER_URL}/api/v1/user/instances/${inst_for_pm}/ports" 2>/dev/null)
+            local user_ports_code
+            user_ports_code=$(echo "$user_ports_resp" | jq -r '.code // empty' 2>/dev/null)
+            if [[ "$user_ports_code" == "200" ]]; then
+                local user_public_ip
+                user_public_ip=$(echo "$user_ports_resp" | jq -r '.data.publicIP // empty' 2>/dev/null)
+                local has_controller
+                has_controller=$(echo "$user_ports_resp" | jq -r '[.data.list[]? | select(.mappingType == "controller")] | length' 2>/dev/null)
+                if [[ "$has_controller" =~ ^[0-9]+$ && "$has_controller" -gt 0 ]]; then
+                    if [[ -n "$user_public_ip" ]]; then
+                        if [[ -n "$expected_controller_host" && "$user_public_ip" == "$expected_controller_host" ]]; then
+                            log_success "Tunnel mode user publicIP matches controller host: ${user_public_ip}"
+                        elif [[ -n "$expected_controller_host" ]]; then
+                            log_warning "Tunnel mode user publicIP mismatch: got '${user_public_ip}', expected '${expected_controller_host}'"
+                        else
+                            log_success "Tunnel mode user publicIP is present: ${user_public_ip}"
+                        fi
+                    else
+                        log_warning "Tunnel mode user publicIP is empty but controller mapping exists"
+                    fi
+                else
+                    log_info "No controller mapping in user ports response; skip tunnel publicIP assertion"
+                fi
+            else
+                log_info "User instance ports not accessible in this env (code=${user_ports_code:-unknown}); skip tunnel publicIP assertion"
+            fi
+        fi
 
         # Restore networkType=nat_ipv4
         curl -s --max-time 30 -X PUT \

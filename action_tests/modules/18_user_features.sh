@@ -58,6 +58,27 @@ run_module_18() {
         test_api "User instance resources" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring/resources" "200|403|404" "" "$group" "$USER_TOKEN"
         test_api "User instance status" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring/status" "200|403|404" "" "$group" "$USER_TOKEN"
         test_api "User instance ports" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/ports" "200|403|404" "" "$group" "$USER_TOKEN"
+
+        # If controller-forwarded mappings are present, user-facing publicIP must be available for UI display.
+        local user_ports_detail
+        user_ports_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${USER_TOKEN}" \
+            "${SERVER_URL}/api/v1/user/instances/${TEST_INSTANCE_ID}/ports" 2>/dev/null)
+        local user_ports_code
+        user_ports_code=$(echo "$user_ports_detail" | jq -r '.code // empty' 2>/dev/null)
+        if [[ "$user_ports_code" == "200" ]]; then
+            local controller_count
+            controller_count=$(echo "$user_ports_detail" | jq -r '[.data.list[]? | select(.mappingType == "controller")] | length' 2>/dev/null)
+            if [[ "$controller_count" =~ ^[0-9]+$ && "$controller_count" -gt 0 ]]; then
+                local user_public_ip
+                user_public_ip=$(echo "$user_ports_detail" | jq -r '.data.publicIP // empty' 2>/dev/null)
+                if [[ -n "$user_public_ip" ]]; then
+                    log_success "Controller mapping display publicIP is present: ${user_public_ip}"
+                else
+                    log_warning "Controller mapping exists but user publicIP is empty"
+                fi
+            fi
+        fi
+
         test_api "User instance traffic" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "200|403|404" "" "$group" "$USER_TOKEN"
         test_api "User instance traffic hist" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/traffic/history" "200|403|404" "" "$group" "$USER_TOKEN"
 
