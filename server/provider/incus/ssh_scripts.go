@@ -13,6 +13,17 @@ import (
 	"go.uber.org/zap"
 )
 
+func isIncusConfigUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "unknown key") ||
+		strings.Contains(errMsg, "invalid config") ||
+		strings.Contains(errMsg, "not supported") ||
+		strings.Contains(errMsg, "cgroup controller is missing")
+}
+
 // configureInstanceSystem 配置实例系统
 func (i *IncusProvider) configureInstanceSystem(ctx context.Context, config provider.InstanceConfig) error {
 	global.APP_LOG.Debug("开始配置LXD实例系统",
@@ -30,29 +41,93 @@ func (i *IncusProvider) configureInstanceSystem(ctx context.Context, config prov
 
 // configureInstanceSecurity 配置实例安全设置
 func (i *IncusProvider) configureInstanceSecurity(ctx context.Context, config provider.InstanceConfig) error {
+	swapValue := "true"
+	if config.MemorySwap != nil && !*config.MemorySwap {
+		swapValue = "false"
+	}
+
 	if config.InstanceType == "vm" {
 		// 虚拟机安全配置
 		if err := i.setInstanceConfig(ctx, config.Name, "security.secureboot", "false"); err != nil {
 			global.APP_LOG.Warn("设置SecureBoot失败", zap.Error(err))
 		}
+
+		if err := i.setInstanceConfig(ctx, config.Name, "limits.cpu.priority", "0"); err != nil {
+			if isIncusConfigUnsupportedError(err) {
+				global.APP_LOG.Warn("设置CPU优先级失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				global.APP_LOG.Warn("设置CPU优先级失败", zap.Error(err))
+			}
+		}
+
+		swapEnabled := true
+		if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap", swapValue); err != nil {
+			if isIncusConfigUnsupportedError(err) {
+				swapEnabled = false
+				global.APP_LOG.Warn("设置内存交换失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				swapEnabled = false
+				global.APP_LOG.Warn("设置内存交换失败", zap.Error(err))
+			}
+		}
+
+		if swapEnabled && swapValue == "true" {
+			if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap.priority", "1"); err != nil {
+				if isIncusConfigUnsupportedError(err) {
+					global.APP_LOG.Warn("设置内存交换优先级失败，当前节点不支持该配置，已跳过", zap.Error(err))
+				} else {
+					global.APP_LOG.Warn("设置内存交换优先级失败", zap.Error(err))
+				}
+			}
+		}
 	} else {
+		nestingValue := "true"
+		if config.AllowNesting != nil && !*config.AllowNesting {
+			nestingValue = "false"
+		}
+
 		// 容器安全配置
-		if err := i.setInstanceConfig(ctx, config.Name, "security.nesting", "true"); err != nil {
-			global.APP_LOG.Warn("设置容器嵌套失败", zap.Error(err))
+		if err := i.setInstanceConfig(ctx, config.Name, "security.nesting", nestingValue); err != nil {
+			if isIncusConfigUnsupportedError(err) {
+				global.APP_LOG.Warn("设置容器嵌套失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				global.APP_LOG.Warn("设置容器嵌套失败", zap.Error(err))
+			}
 		}
 
 		// CPU优先级配置
 		if err := i.setInstanceConfig(ctx, config.Name, "limits.cpu.priority", "0"); err != nil {
-			global.APP_LOG.Warn("设置CPU优先级失败", zap.Error(err))
+			if isIncusConfigUnsupportedError(err) {
+				global.APP_LOG.Warn("设置CPU优先级失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				global.APP_LOG.Warn("设置CPU优先级失败", zap.Error(err))
+			}
 		}
 
 		// 内存交换配置
-		if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap", "true"); err != nil {
-			global.APP_LOG.Warn("设置内存交换失败", zap.Error(err))
+		swapEnabled := true
+		if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap", swapValue); err != nil {
+			if isIncusConfigUnsupportedError(err) {
+				swapEnabled = false
+				global.APP_LOG.Warn("设置内存交换失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				swapEnabled = false
+				global.APP_LOG.Warn("设置内存交换失败", zap.Error(err))
+			}
 		}
 
-		if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap.priority", "1"); err != nil {
-			global.APP_LOG.Warn("设置内存交换优先级失败", zap.Error(err))
+		if swapEnabled && swapValue == "true" {
+			if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap.priority", "1"); err != nil {
+				if isIncusConfigUnsupportedError(err) {
+					global.APP_LOG.Warn("设置内存交换优先级失败，当前节点不支持该配置，已跳过", zap.Error(err))
+				} else {
+					global.APP_LOG.Warn("设置内存交换优先级失败", zap.Error(err))
+				}
+			}
+		} else {
+			global.APP_LOG.Debug("已跳过内存交换优先级设置",
+				zap.String("instance", config.Name),
+				zap.String("reason", "swap not enabled"))
 		}
 	}
 
@@ -129,17 +204,29 @@ func (i *IncusProvider) setInstanceConfig(ctx context.Context, instanceName stri
 		return fmt.Errorf("执行规则不允许使用SSH")
 	}
 
-	// SSH方式设置配置
-	cmd := fmt.Sprintf("incus config set %s %s %s", shellSingleQuote(instanceName), shellSingleQuote(key), shellSingleQuote(value))
-	_, err := i.sshClient.Execute(cmd)
-	if err != nil {
-		return fmt.Errorf("SSH设置实例配置失败: %w", err)
+	// SSH方式设置配置（优先 key=value 新语法，兼容回退到旧语法）
+	cmdNew := fmt.Sprintf("incus config set %s %s=%s", shellSingleQuote(instanceName), shellSingleQuote(key), shellSingleQuote(value))
+	_, newErr := i.sshClient.Execute(cmdNew)
+	if newErr == nil {
+		global.APP_LOG.Debug("Incus SSH设置实例配置成功",
+			zap.String("instance", instanceName),
+			zap.String("key", key),
+			zap.String("value", value),
+			zap.String("syntax", "key=value"))
+		return nil
+	}
+
+	cmdLegacy := fmt.Sprintf("incus config set %s %s %s", shellSingleQuote(instanceName), shellSingleQuote(key), shellSingleQuote(value))
+	_, legacyErr := i.sshClient.Execute(cmdLegacy)
+	if legacyErr != nil {
+		return fmt.Errorf("SSH设置实例配置失败: new syntax error=%v, legacy syntax error=%w", newErr, legacyErr)
 	}
 
 	global.APP_LOG.Debug("Incus SSH设置实例配置成功",
 		zap.String("instance", instanceName),
 		zap.String("key", key),
-		zap.String("value", value))
+		zap.String("value", value),
+		zap.String("syntax", "legacy"))
 	return nil
 }
 
@@ -173,18 +260,31 @@ func (i *IncusProvider) setInstanceDeviceConfig(ctx context.Context, instanceNam
 		return fmt.Errorf("执行规则不允许使用SSH")
 	}
 
-	// SSH方式设置设备配置
-	cmd := fmt.Sprintf("incus config device set %s %s %s %s", shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(key), shellSingleQuote(value))
-	_, err := i.sshClient.Execute(cmd)
-	if err != nil {
-		return fmt.Errorf("SSH设置实例设备配置失败: %w", err)
+	// SSH方式设置设备配置（优先 key=value 新语法，兼容回退到旧语法）
+	cmdNew := fmt.Sprintf("incus config device set %s %s %s=%s", shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(key), shellSingleQuote(value))
+	_, newErr := i.sshClient.Execute(cmdNew)
+	if newErr == nil {
+		global.APP_LOG.Debug("Incus SSH设置实例设备配置成功",
+			zap.String("instance", instanceName),
+			zap.String("device", deviceName),
+			zap.String("key", key),
+			zap.String("value", value),
+			zap.String("syntax", "key=value"))
+		return nil
+	}
+
+	cmdLegacy := fmt.Sprintf("incus config device set %s %s %s %s", shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(key), shellSingleQuote(value))
+	_, legacyErr := i.sshClient.Execute(cmdLegacy)
+	if legacyErr != nil {
+		return fmt.Errorf("SSH设置实例设备配置失败: new syntax error=%v, legacy syntax error=%w", newErr, legacyErr)
 	}
 
 	global.APP_LOG.Debug("Incus SSH设置实例设备配置成功",
 		zap.String("instance", instanceName),
 		zap.String("device", deviceName),
 		zap.String("key", key),
-		zap.String("value", value))
+		zap.String("value", value),
+		zap.String("syntax", "legacy"))
 	return nil
 }
 

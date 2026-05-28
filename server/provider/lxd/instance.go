@@ -15,6 +15,17 @@ import (
 	"go.uber.org/zap"
 )
 
+func isLXDConfigUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "unknown key") ||
+		strings.Contains(errMsg, "invalid config") ||
+		strings.Contains(errMsg, "not supported") ||
+		strings.Contains(errMsg, "cgroup controller is missing")
+}
+
 // configureInstanceStorage 配置实例存储
 func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provider.InstanceConfig) error {
 	// 参考: https://github.com/oneclickvirt/lxd/blob/main/scripts/buildct.sh
@@ -30,14 +41,21 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 	if config.Disk != "" {
 		diskFormatted := convertDiskFormat(config.Disk)
 		// 注意：这里设置的是 limits.max 而不是 size（size已在创建时设置）
-		setMaxCmd := fmt.Sprintf("lxc config device set %s root limits.max %s", shellSingleQuote(config.Name), shellSingleQuote(diskFormatted))
+		setMaxCmd := fmt.Sprintf("lxc config device set %s root limits.max=%s", shellSingleQuote(config.Name), shellSingleQuote(diskFormatted))
 		if client == nil {
 			global.APP_LOG.Warn("SSH client不可用，跳过设置磁盘limits.max",
 				zap.String("instance", config.Name))
 		} else if _, err := client.Execute(setMaxCmd); err != nil {
-			global.APP_LOG.Warn("设置磁盘limits.max失败",
-				zap.String("command", setMaxCmd),
-				zap.Error(err))
+			legacyCmd := fmt.Sprintf("lxc config device set %s root limits.max %s", shellSingleQuote(config.Name), shellSingleQuote(diskFormatted))
+			if _, legacyErr := client.Execute(legacyCmd); legacyErr != nil {
+				global.APP_LOG.Warn("设置磁盘limits.max失败",
+					zap.String("command", legacyCmd),
+					zap.Error(legacyErr))
+			} else {
+				global.APP_LOG.Debug("已通过legacy语法设置磁盘limits.max限制",
+					zap.String("instance", config.Name),
+					zap.String("limits.max", diskFormatted))
+			}
 		} else {
 			global.APP_LOG.Debug("已设置磁盘limits.max限制",
 				zap.String("instance", config.Name),
@@ -134,29 +152,112 @@ func (l *LXDProvider) configureInstanceGPU(ctx context.Context, config provider.
 
 // configureInstanceSecurity 配置实例安全设置
 func (l *LXDProvider) configureInstanceSecurity(ctx context.Context, config provider.InstanceConfig) error {
+	swapValue := "true"
+	if config.MemorySwap != nil && !*config.MemorySwap {
+		swapValue = "false"
+	}
+
 	if config.InstanceType == "vm" {
 		// 虚拟机安全配置
 		if err := l.setInstanceConfig(ctx, config.Name, "security.secureboot", "false"); err != nil {
 			global.APP_LOG.Warn("设置SecureBoot失败", zap.Error(err))
 		}
+
+		if err := l.setInstanceConfig(ctx, config.Name, "limits.cpu.priority", "0"); err != nil {
+			if isLXDConfigUnsupportedError(err) {
+				global.APP_LOG.Warn("设置CPU优先级失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				global.APP_LOG.Warn("设置CPU优先级失败", zap.Error(err))
+			}
+		}
+
+		swapEnabled := true
+		if err := l.setInstanceConfig(ctx, config.Name, "limits.memory.swap", swapValue); err != nil {
+			if isLXDConfigUnsupportedError(err) {
+				swapEnabled = false
+				global.APP_LOG.Warn("设置内存交换失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				swapEnabled = false
+				global.APP_LOG.Warn("设置内存交换失败", zap.Error(err))
+			}
+		}
+
+		if swapEnabled && swapValue == "true" {
+			if err := l.setInstanceConfig(ctx, config.Name, "limits.memory.swap.priority", "1"); err != nil {
+				if isLXDConfigUnsupportedError(err) {
+					global.APP_LOG.Warn("设置内存交换优先级失败，当前节点不支持该配置，已跳过", zap.Error(err))
+				} else {
+					global.APP_LOG.Warn("设置内存交换优先级失败", zap.Error(err))
+				}
+			}
+		}
 	} else {
+		nestingValue := "true"
+		if config.AllowNesting != nil && !*config.AllowNesting {
+			nestingValue = "false"
+		}
+
 		// 容器安全配置
-		if err := l.setInstanceConfig(ctx, config.Name, "security.nesting", "true"); err != nil {
-			global.APP_LOG.Warn("设置容器嵌套失败", zap.Error(err))
+		if err := l.setInstanceConfig(ctx, config.Name, "security.nesting", nestingValue); err != nil {
+			if isLXDConfigUnsupportedError(err) {
+				global.APP_LOG.Warn("设置容器嵌套失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				global.APP_LOG.Warn("设置容器嵌套失败", zap.Error(err))
+			}
 		}
 
 		// CPU优先级配置
 		if err := l.setInstanceConfig(ctx, config.Name, "limits.cpu.priority", "0"); err != nil {
-			global.APP_LOG.Warn("设置CPU优先级失败", zap.Error(err))
+			if isLXDConfigUnsupportedError(err) {
+				global.APP_LOG.Warn("设置CPU优先级失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				global.APP_LOG.Warn("设置CPU优先级失败", zap.Error(err))
+			}
 		}
 
 		// 内存交换配置
-		if err := l.setInstanceConfig(ctx, config.Name, "limits.memory.swap", "true"); err != nil {
-			global.APP_LOG.Warn("设置内存交换失败", zap.Error(err))
+		swapEnabled := true
+		if err := l.setInstanceConfig(ctx, config.Name, "limits.memory.swap", swapValue); err != nil {
+			if isLXDConfigUnsupportedError(err) {
+				swapEnabled = false
+				global.APP_LOG.Warn("设置内存交换失败，当前节点不支持该配置，已跳过", zap.Error(err))
+			} else {
+				swapEnabled = false
+				global.APP_LOG.Warn("设置内存交换失败", zap.Error(err))
+			}
 		}
 
-		if err := l.setInstanceConfig(ctx, config.Name, "limits.memory.swap.priority", "1"); err != nil {
-			global.APP_LOG.Warn("设置内存交换优先级失败", zap.Error(err))
+		if swapEnabled && swapValue == "true" {
+			if err := l.setInstanceConfig(ctx, config.Name, "limits.memory.swap.priority", "1"); err != nil {
+				if isLXDConfigUnsupportedError(err) {
+					global.APP_LOG.Warn("设置内存交换优先级失败，当前节点不支持该配置，已跳过", zap.Error(err))
+				} else {
+					global.APP_LOG.Warn("设置内存交换优先级失败", zap.Error(err))
+				}
+			}
+		} else {
+			global.APP_LOG.Debug("已跳过内存交换优先级设置",
+				zap.String("instance", config.Name),
+				zap.String("reason", "swap not enabled"))
+		}
+
+		if config.CPUAllowance != nil && *config.CPUAllowance != "" && *config.CPUAllowance != "100%" {
+			if err := l.setInstanceConfig(ctx, config.Name, "limits.cpu.allowance", *config.CPUAllowance); err != nil {
+				global.APP_LOG.Warn("设置CPU配额限制失败", zap.Error(err))
+			}
+		} else {
+			if err := l.setInstanceConfig(ctx, config.Name, "limits.cpu.allowance", "50%"); err != nil {
+				global.APP_LOG.Debug("设置CPU配额限制(50%)失败，继续执行", zap.Error(err))
+			}
+			if err := l.setInstanceConfig(ctx, config.Name, "limits.cpu.allowance", "25ms/100ms"); err != nil {
+				global.APP_LOG.Debug("设置CPU配额限制(25ms/100ms)失败，继续执行", zap.Error(err))
+			}
+		}
+
+		if config.MaxProcesses != nil && *config.MaxProcesses > 0 {
+			if err := l.setInstanceConfig(ctx, config.Name, "limits.processes", fmt.Sprintf("%d", *config.MaxProcesses)); err != nil {
+				global.APP_LOG.Warn("设置最大进程数失败", zap.Error(err))
+			}
 		}
 	}
 
@@ -199,15 +300,29 @@ func (l *LXDProvider) setInstanceConfig(ctx context.Context, instanceName string
 	if client == nil {
 		return fmt.Errorf("SSH client不可用，无法设置实例配置")
 	}
+
+	// SSH方式设置配置（优先 key=value 新语法，兼容回退到旧语法）
+	cmdNew := fmt.Sprintf("lxc config set %s %s=%s", shellSingleQuote(instanceName), shellSingleQuote(key), shellSingleQuote(value))
+	_, newErr := client.Execute(cmdNew)
+	if newErr == nil {
+		global.APP_LOG.Debug("LXD SSH设置实例配置成功",
+			zap.String("instance", instanceName),
+			zap.String("key", key),
+			zap.String("value", value),
+			zap.String("syntax", "key=value"))
+		return nil
+	}
+
 	_, err := client.Execute(cmd)
 	if err != nil {
-		return fmt.Errorf("SSH设置实例配置失败: %w", err)
+		return fmt.Errorf("SSH设置实例配置失败: new syntax error=%v, legacy syntax error=%w", newErr, err)
 	}
 
 	global.APP_LOG.Debug("LXD SSH设置实例配置成功",
 		zap.String("instance", instanceName),
 		zap.String("key", key),
-		zap.String("value", value))
+		zap.String("value", value),
+		zap.String("syntax", "legacy"))
 	return nil
 }
 
@@ -249,16 +364,31 @@ func (l *LXDProvider) setInstanceDeviceConfig(ctx context.Context, instanceName 
 	if client == nil {
 		return fmt.Errorf("SSH client不可用，无法设置实例设备配置")
 	}
+
+	// SSH方式设置设备配置（优先 key=value 新语法，兼容回退到旧语法）
+	cmdNew := fmt.Sprintf("lxc config device set %s %s %s=%s", shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(key), shellSingleQuote(value))
+	_, newErr := client.Execute(cmdNew)
+	if newErr == nil {
+		global.APP_LOG.Debug("LXD SSH设置实例设备配置成功",
+			zap.String("instance", instanceName),
+			zap.String("device", deviceName),
+			zap.String("key", key),
+			zap.String("value", value),
+			zap.String("syntax", "key=value"))
+		return nil
+	}
+
 	_, err := client.Execute(cmd)
 	if err != nil {
-		return fmt.Errorf("SSH设置实例设备配置失败: %w", err)
+		return fmt.Errorf("SSH设置实例设备配置失败: new syntax error=%v, legacy syntax error=%w", newErr, err)
 	}
 
 	global.APP_LOG.Debug("LXD SSH设置实例设备配置成功",
 		zap.String("instance", instanceName),
 		zap.String("device", deviceName),
 		zap.String("key", key),
-		zap.String("value", value))
+		zap.String("value", value),
+		zap.String("syntax", "legacy"))
 	return nil
 }
 

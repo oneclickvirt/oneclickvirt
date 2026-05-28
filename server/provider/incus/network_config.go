@@ -199,10 +199,19 @@ func (i *IncusProvider) setIPAddressBinding(instanceName, instanceIP string) err
 		global.APP_LOG.Warn("未找到网络接口，默认使用eth0", zap.String("instanceName", instanceName))
 	}
 
-	// 尝试设置IP地址绑定
-	cmd = fmt.Sprintf("incus config device set %s %s ipv4.address %s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
+	// 尝试设置IP地址绑定（优先 key=value 新语法，失败回退 legacy）
+	cmd = fmt.Sprintf("incus config device set %s %s ipv4.address=%s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
 	_, err = i.sshClient.Execute(cmd)
 	if err != nil {
+		legacyCmd := fmt.Sprintf("incus config device set %s %s ipv4.address %s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
+		if _, legacyErr := i.sshClient.Execute(legacyCmd); legacyErr == nil {
+			global.APP_LOG.Debug("IP地址绑定通过legacy语法成功",
+				zap.String("instanceName", instanceName),
+				zap.String("interface", targetInterface),
+				zap.String("cleanIP", cleanIP))
+			return nil
+		}
+
 		global.APP_LOG.Debug("device set失败，尝试override方式",
 			zap.String("interface", targetInterface),
 			zap.Error(err))

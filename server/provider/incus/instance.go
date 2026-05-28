@@ -81,9 +81,7 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 	// 实例类型特定的配置
 	if config.InstanceType == "vm" {
 		// 虚拟机特定配置
-		configParams = append(configParams, "security.secureboot=false")
-		configParams = append(configParams, "limits.memory.swap=true")
-		configParams = append(configParams, "limits.cpu.priority=0")
+		// 虚拟机附加配置统一在后置配置阶段处理，避免初始化命令因节点能力差异失败
 	} else {
 		// 容器特定配置 - 应用容器特殊配置选项
 		// 1. 特权模式配置（Privileged）
@@ -95,48 +93,8 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 			}
 		}
 
-		// 2. 容器嵌套配置（Allow Nesting）
-		if config.AllowNesting != nil {
-			if *config.AllowNesting {
-				configParams = append(configParams, "security.nesting=true")
-			} else {
-				configParams = append(configParams, "security.nesting=false")
-			}
-		} else {
-			// 默认启用嵌套（保持原有行为）
-			configParams = append(configParams, "security.nesting=true")
-		}
-
-		// 3. CPU限制配置（CPU Allowance vs limits.cpu）
-		if config.CPUAllowance != nil && *config.CPUAllowance != "" && *config.CPUAllowance != "100%" {
-			configParams = append(configParams, fmt.Sprintf("limits.cpu.allowance=%s", *config.CPUAllowance))
-			configParams = append(configParams, "limits.cpu.priority=0")
-		} else {
-			configParams = append(configParams, "limits.cpu.priority=0")
-			configParams = append(configParams, "limits.cpu.allowance=50%")
-			configParams = append(configParams, "limits.cpu.allowance=25ms/100ms")
-		}
-
-		// 4. 内存交换配置（Memory Swap）
-		if config.MemorySwap != nil {
-			if *config.MemorySwap {
-				configParams = append(configParams, "limits.memory.swap=true")
-				configParams = append(configParams, "limits.memory.swap.priority=1")
-			} else {
-				configParams = append(configParams, "limits.memory.swap=false")
-			}
-		} else {
-			// 默认启用swap（保持原有行为）
-			configParams = append(configParams, "limits.memory.swap=true")
-			configParams = append(configParams, "limits.memory.swap.priority=1")
-		}
-
-		// 5. 最大进程数配置（Max Processes）
-		if config.MaxProcesses != nil && *config.MaxProcesses > 0 {
-			configParams = append(configParams, fmt.Sprintf("limits.processes=%d", *config.MaxProcesses))
-		}
-
-		// 磁盘IO限制将在实例创建后通过device命令设置
+		// 容器特有配置统一在后置配置阶段处理，避免初始化命令因节点能力差异失败
+		// CPU/内存swap、nesting、进程限制、磁盘IO均在实例创建后再设置（带回退）
 		if config.DiskIOLimit != nil && *config.DiskIOLimit != "" {
 			if config.Metadata == nil {
 				config.Metadata = make(map[string]string)

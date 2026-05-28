@@ -98,11 +98,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 				configParams = append(configParams, fmt.Sprintf("limits.memory=%s", memoryFormatted))
 			}
 
-			// 虚拟机通用配置
-			configParams = append(configParams, "security.secureboot=false")
-			configParams = append(configParams, "limits.memory.swap=true")
-			// 虚拟机CPU优先级配置
-			configParams = append(configParams, "limits.cpu.priority=0")
+			// 虚拟机附加配置统一在后置配置阶段处理，避免初始化命令因节点能力差异失败
 		} else {
 			// 容器创建命令格式
 			cmd = fmt.Sprintf("lxc init %s %s", shellSingleQuote(config.Image), shellSingleQuote(config.Name))
@@ -126,52 +122,8 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 				}
 			}
 
-			// 2. 容器嵌套配置（Allow Nesting）
-			if config.AllowNesting != nil {
-				if *config.AllowNesting {
-					configParams = append(configParams, "security.nesting=true")
-				} else {
-					configParams = append(configParams, "security.nesting=false")
-				}
-			} else {
-				// 默认启用嵌套（保持原有行为）
-				configParams = append(configParams, "security.nesting=true")
-			}
-
-			// 3. CPU限制配置（CPU Allowance vs limits.cpu）
-			// limits.cpu.allowance 与 limits.cpu 互斥，优先使用 allowance
-			if config.CPUAllowance != nil && *config.CPUAllowance != "" && *config.CPUAllowance != "100%" {
-				// CPU限制格式：20% 或 50%，100%等同于不限制
-				configParams = append(configParams, fmt.Sprintf("limits.cpu.allowance=%s", *config.CPUAllowance))
-				configParams = append(configParams, "limits.cpu.priority=0")
-			} else {
-				// 使用标准的CPU核心数限制（已在上面设置）
-				configParams = append(configParams, "limits.cpu.priority=0")
-				// 设置默认的CPU调度策略（参考官方脚本）
-				configParams = append(configParams, "limits.cpu.allowance=50%")
-				configParams = append(configParams, "limits.cpu.allowance=25ms/100ms")
-			}
-
-			// 4. 内存交换配置（Memory Swap）
-			if config.MemorySwap != nil {
-				if *config.MemorySwap {
-					configParams = append(configParams, "limits.memory.swap=true")
-					configParams = append(configParams, "limits.memory.swap.priority=1")
-				} else {
-					configParams = append(configParams, "limits.memory.swap=false")
-				}
-			} else {
-				// 默认启用swap（保持原有行为）
-				configParams = append(configParams, "limits.memory.swap=true")
-				configParams = append(configParams, "limits.memory.swap.priority=1")
-			}
-
-			// 5. 最大进程数配置（Max Processes）
-			if config.MaxProcesses != nil && *config.MaxProcesses > 0 {
-				configParams = append(configParams, fmt.Sprintf("limits.processes=%d", *config.MaxProcesses))
-			}
-
-			// LXCFS和磁盘IO在init阶段不设置，在实例启动后通过lxc config device命令设置
+			// 容器特有配置统一在后置配置阶段处理，避免初始化命令因节点能力差异失败
+			// LXCFS、CPU/内存swap、nesting、磁盘IO均在实例创建后再设置（带回退）
 		}
 
 		// 添加所有配置参数到命令
@@ -211,8 +163,12 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	if config.InstanceType != "vm" && config.DiskIOLimit != nil && *config.DiskIOLimit != "" {
 		// 解析格式："10MB"（带宽）或 "100iops"（IOPS）
 		limit := *config.DiskIOLimit
-		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read %s", shellSingleQuote(config.Name), shellSingleQuote(limit)))
-		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write %s", shellSingleQuote(config.Name), shellSingleQuote(limit)))
+		if _, readErr := l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read=%s", shellSingleQuote(config.Name), shellSingleQuote(limit))); readErr != nil {
+			_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read %s", shellSingleQuote(config.Name), shellSingleQuote(limit)))
+		}
+		if _, writeErr := l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write=%s", shellSingleQuote(config.Name), shellSingleQuote(limit))); writeErr != nil {
+			_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write %s", shellSingleQuote(config.Name), shellSingleQuote(limit)))
+		}
 		global.APP_LOG.Debug("已应用自定义磁盘IO限制", zap.String("limit", limit))
 	}
 
@@ -232,7 +188,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 	updateProgress(55, "启动实例...")
 	// 启动实例
-	_, err = l.sshClient.Execute(fmt.Sprintf("lxc start %s", shellSingleQuote(config.Name)))
+	err = l.sshStartInstance(ctx, config.Name)
 	if err != nil {
 		return fmt.Errorf("failed to start instance: %w", err)
 	}

@@ -15,6 +15,10 @@ import (
 
 func (i *IncusProvider) configureInstanceLimits(ctx context.Context, config provider.InstanceConfig) error {
 	var errors []string
+	swapValue := "true"
+	if config.MemorySwap != nil && !*config.MemorySwap {
+		swapValue = "false"
+	}
 
 	// 配置CPU优先级
 	if config.CPU != "" {
@@ -24,7 +28,7 @@ func (i *IncusProvider) configureInstanceLimits(ctx context.Context, config prov
 	}
 
 	// 配置内存交换
-	if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap", "true"); err != nil {
+	if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap", swapValue); err != nil {
 		errors = append(errors, fmt.Sprintf("设置内存交换失败: %v", err))
 	}
 
@@ -50,9 +54,24 @@ func (i *IncusProvider) configureInstanceLimits(ctx context.Context, config prov
 		cpuConfigs := []struct {
 			key   string
 			value string
-		}{
-			{"limits.cpu.allowance", "50%"},
-			{"limits.cpu.allowance", "25ms/100ms"},
+		}{}
+
+		if config.CPUAllowance != nil && *config.CPUAllowance != "" && *config.CPUAllowance != "100%" {
+			cpuConfigs = append(cpuConfigs, struct {
+				key   string
+				value string
+			}{"limits.cpu.allowance", *config.CPUAllowance})
+		} else {
+			cpuConfigs = append(cpuConfigs,
+				struct {
+					key   string
+					value string
+				}{"limits.cpu.allowance", "50%"},
+				struct {
+					key   string
+					value string
+				}{"limits.cpu.allowance", "25ms/100ms"},
+			)
 		}
 
 		for _, cpuConfig := range cpuConfigs {
@@ -61,6 +80,12 @@ func (i *IncusProvider) configureInstanceLimits(ctx context.Context, config prov
 					zap.String("key", cpuConfig.key),
 					zap.String("value", cpuConfig.value),
 					zap.Error(err))
+			}
+		}
+
+		if config.MaxProcesses != nil && *config.MaxProcesses > 0 {
+			if err := i.setInstanceConfig(ctx, config.Name, "limits.processes", fmt.Sprintf("%d", *config.MaxProcesses)); err != nil {
+				global.APP_LOG.Warn("设置最大进程数失败", zap.Error(err))
 			}
 		}
 	}
@@ -129,16 +154,41 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 		return nil
 	}
 
-	// 执行启动命令
-	_, err = i.sshClient.Execute(fmt.Sprintf("incus start %s", shellSingleQuote(id)))
-	if err != nil {
+	startCmd := fmt.Sprintf("incus start %s", shellSingleQuote(id))
+	var startErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		_, startErr = i.sshClient.Execute(startCmd)
+		if startErr == nil {
+			break
+		}
+
 		// 如果错误信息提示实例已在运行，则不视为错误
-		if strings.Contains(err.Error(), "already running") ||
-			strings.Contains(err.Error(), "The instance is already running") {
+		errMsg := startErr.Error()
+		if strings.Contains(errMsg, "already running") ||
+			strings.Contains(errMsg, "The instance is already running") {
 			global.APP_LOG.Debug("Incus 实例已在运行", zap.String("id", id))
 			return nil
 		}
-		return fmt.Errorf("failed to start instance: %w", err)
+
+		if attempt == 1 {
+			global.APP_LOG.Warn("Incus启动实例首次失败，准备重试",
+				zap.String("id", id),
+				zap.Error(startErr))
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	if startErr != nil {
+		diagCmd := fmt.Sprintf("incus info %s --show-log", shellSingleQuote(id))
+		diagOutput, diagErr := i.sshClient.Execute(diagCmd)
+		if diagErr != nil {
+			return fmt.Errorf("failed to start instance: %w; 获取实例诊断日志失败: %v", startErr, diagErr)
+		}
+		cleanDiag := strings.TrimSpace(diagOutput)
+		if cleanDiag == "" {
+			return fmt.Errorf("failed to start instance: %w", startErr)
+		}
+		return fmt.Errorf("failed to start instance: %w; diagnostics: %s", startErr, utils.TruncateString(cleanDiag, 1200))
 	}
 
 	global.APP_LOG.Debug("已发送启动命令，等待实例启动", zap.String("id", id))
