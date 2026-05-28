@@ -32,6 +32,11 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 	updateProgress(5, "开始创建LXD实例...")
 
+	// 预检：确保LXD CLI可用，避免后续命令以 127 失败且错误不明确
+	if _, err := l.sshClient.Execute("command -v lxc >/dev/null 2>&1"); err != nil {
+		return fmt.Errorf("LXD命令不可用，请确认provider节点已安装lxc并在PATH中: %w", err)
+	}
+
 	// 如果是虚拟机，先检查VM支持
 	if config.InstanceType == "vm" {
 		updateProgress(10, "检查虚拟机支持...")
@@ -55,7 +60,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		}
 		// 复制模式：跳过镜像下载，直接复制源容器
 		updateProgress(30, "复制源容器...")
-		copyCmd := fmt.Sprintf("lxc copy %s %s", config.CopySourceName, config.Name)
+		copyCmd := fmt.Sprintf("lxc copy %s %s", shellSingleQuote(config.CopySourceName), shellSingleQuote(config.Name))
 		global.APP_LOG.Debug("执行LXD容器复制命令", zap.String("command", copyCmd))
 		if _, err := l.sshClient.Execute(copyCmd); err != nil {
 			return fmt.Errorf("复制容器失败: %w", err)
@@ -81,7 +86,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 		if config.InstanceType == "vm" {
 			// 虚拟机创建命令格式：lxc init image_name vm_name --vm -c limits.cpu=X -c limits.memory=XMiB -d root,size=XGiB
-			cmd = fmt.Sprintf("lxc init %s %s --vm", config.Image, config.Name)
+			cmd = fmt.Sprintf("lxc init %s %s --vm", shellSingleQuote(config.Image), shellSingleQuote(config.Name))
 
 			// 资源配置参数
 			if config.CPU != "" {
@@ -100,7 +105,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 			configParams = append(configParams, "limits.cpu.priority=0")
 		} else {
 			// 容器创建命令格式
-			cmd = fmt.Sprintf("lxc init %s %s", config.Image, config.Name)
+			cmd = fmt.Sprintf("lxc init %s %s", shellSingleQuote(config.Image), shellSingleQuote(config.Name))
 
 			// 基础资源配置
 			if config.CPU != "" {
@@ -171,13 +176,13 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 		// 添加所有配置参数到命令
 		for _, param := range configParams {
-			cmd += fmt.Sprintf(" -c %s", param)
+			cmd += fmt.Sprintf(" -c %s", shellSingleQuote(param))
 		}
 
 		// 磁盘配置
 		if config.Disk != "" {
 			diskFormatted := convertDiskFormat(config.Disk)
-			cmd += fmt.Sprintf(" -d root,size=%s", diskFormatted)
+			cmd += fmt.Sprintf(" -d %s", shellSingleQuote("root,size="+diskFormatted))
 		}
 
 		// 创建实例
@@ -206,8 +211,8 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	if config.InstanceType != "vm" && config.DiskIOLimit != nil && *config.DiskIOLimit != "" {
 		// 解析格式："10MB"（带宽）或 "100iops"（IOPS）
 		limit := *config.DiskIOLimit
-		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read %s", config.Name, limit))
-		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write %s", config.Name, limit))
+		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read %s", shellSingleQuote(config.Name), shellSingleQuote(limit)))
+		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write %s", shellSingleQuote(config.Name), shellSingleQuote(limit)))
 		global.APP_LOG.Debug("已应用自定义磁盘IO限制", zap.String("limit", limit))
 	}
 
@@ -227,7 +232,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 	updateProgress(55, "启动实例...")
 	// 启动实例
-	_, err = l.sshClient.Execute(fmt.Sprintf("lxc start %s", config.Name))
+	_, err = l.sshClient.Execute(fmt.Sprintf("lxc start %s", shellSingleQuote(config.Name)))
 	if err != nil {
 		return fmt.Errorf("failed to start instance: %w", err)
 	}

@@ -20,7 +20,7 @@ func (i *IncusProvider) getInstanceType(instanceName string) (string, error) {
 	if client == nil {
 		return "", fmt.Errorf("SSH client不可用，无法获取实例类型")
 	}
-	cmd := fmt.Sprintf("incus info %s | grep \"Type:\" | awk '{print $2}'", instanceName)
+	cmd := fmt.Sprintf("incus info %s | grep \"Type:\" | awk '{print $2}'", shellSingleQuote(instanceName))
 	output, err := client.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取实例类型失败: %w", err)
@@ -73,7 +73,7 @@ func (i *IncusProvider) getVMInstanceIP(instanceName string) (string, error) {
 		interfaces := []string{"enp5s0", "eth0"}
 
 		for _, iface := range interfaces {
-			cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.%s.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", instanceName, iface)
+			cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.%s.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", shellSingleQuote(instanceName), iface)
 			i.mu.RLock()
 			client := i.sshClient
 			i.mu.RUnlock()
@@ -120,7 +120,7 @@ func (i *IncusProvider) getContainerInstanceIP(instanceName string) (string, err
 		time.Sleep(time.Duration(delay) * time.Second)
 
 		// 容器通常使用 eth0 接口
-		cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", instanceName)
+		cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
 		i.mu.RLock()
 		client := i.sshClient
 		i.mu.RUnlock()
@@ -161,7 +161,7 @@ func (i *IncusProvider) getInstanceIPGeneric(instanceName string) (string, error
 			zap.Int("maxRetries", maxRetries))
 
 		// 使用 incus list 简单格式获取IP
-		cmd := fmt.Sprintf("incus list %s -c 4 --format csv", instanceName)
+		cmd := fmt.Sprintf("incus list %s -c 4 --format csv", shellSingleQuote(instanceName))
 		i.mu.RLock()
 		client := i.sshClient
 		i.mu.RUnlock()

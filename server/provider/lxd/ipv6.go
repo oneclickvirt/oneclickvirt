@@ -40,21 +40,21 @@ func (l *LXDProvider) ConfigureIPv6(instanceName string, enable bool) error {
 // enableIPv6 启用IPv6网络
 func (l *LXDProvider) enableIPv6(instanceName string) error {
 	// 1. 设置IPv6网络设备配置
-	ipv6NetworkCmd := fmt.Sprintf("lxc config device override %s eth0 ipv6.address=auto", instanceName)
+	ipv6NetworkCmd := fmt.Sprintf("lxc config device override %s eth0 ipv6.address=auto", shellSingleQuote(instanceName))
 	_, err := l.sshClient.Execute(ipv6NetworkCmd)
 	if err != nil {
 		return fmt.Errorf("配置IPv6网络设备失败: %w", err)
 	}
 
 	// 2. 启用IPv6路由
-	routeCmd := fmt.Sprintf("lxc config device override %s eth0 ipv6.routes=true", instanceName)
+	routeCmd := fmt.Sprintf("lxc config device override %s eth0 ipv6.routes=true", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(routeCmd)
 	if err != nil {
 		return fmt.Errorf("配置IPv6路由失败: %w", err)
 	}
 
 	// 3. 在容器内启用IPv6
-	enableIPv6Cmd := fmt.Sprintf("lxc exec %s -- bash -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'", instanceName)
+	enableIPv6Cmd := fmt.Sprintf("lxc exec %s -- bash -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(enableIPv6Cmd)
 	if err != nil {
 		global.APP_LOG.Warn("在容器内启用IPv6失败",
@@ -64,7 +64,7 @@ func (l *LXDProvider) enableIPv6(instanceName string) error {
 	}
 
 	// 4. 重启网络接口
-	restartNetworkCmd := fmt.Sprintf("lxc exec %s -- bash -c 'ip addr flush dev eth0 && dhclient -6 eth0'", instanceName)
+	restartNetworkCmd := fmt.Sprintf("lxc exec %s -- bash -c 'ip addr flush dev eth0 && dhclient -6 eth0'", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(restartNetworkCmd)
 	if err != nil {
 		global.APP_LOG.Warn("重启网络接口失败",
@@ -82,7 +82,7 @@ func (l *LXDProvider) enableIPv6(instanceName string) error {
 // disableIPv6 禁用IPv6网络
 func (l *LXDProvider) disableIPv6(instanceName string) error {
 	// 1. 移除IPv6网络设备配置
-	removeIPv6NetworkCmd := fmt.Sprintf("lxc config device unset %s eth0 ipv6.address", instanceName)
+	removeIPv6NetworkCmd := fmt.Sprintf("lxc config device unset %s eth0 ipv6.address", shellSingleQuote(instanceName))
 	_, err := l.sshClient.Execute(removeIPv6NetworkCmd)
 	if err != nil {
 		global.APP_LOG.Warn("移除IPv6网络配置失败",
@@ -92,7 +92,7 @@ func (l *LXDProvider) disableIPv6(instanceName string) error {
 	}
 
 	// 2. 禁用IPv6路由
-	disableRouteCmd := fmt.Sprintf("lxc config device unset %s eth0 ipv6.routes", instanceName)
+	disableRouteCmd := fmt.Sprintf("lxc config device unset %s eth0 ipv6.routes", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(disableRouteCmd)
 	if err != nil {
 		global.APP_LOG.Warn("禁用IPv6路由失败",
@@ -102,7 +102,7 @@ func (l *LXDProvider) disableIPv6(instanceName string) error {
 	}
 
 	// 3. 在容器内禁用IPv6
-	disableIPv6Cmd := fmt.Sprintf("lxc exec %s -- bash -c 'echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6'", instanceName)
+	disableIPv6Cmd := fmt.Sprintf("lxc exec %s -- bash -c 'echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6'", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(disableIPv6Cmd)
 	if err != nil {
 		global.APP_LOG.Warn("在容器内禁用IPv6失败",
@@ -120,7 +120,7 @@ func (l *LXDProvider) disableIPv6(instanceName string) error {
 // GetInstanceIPv6 获取实例的内网IPv6地址
 func (l *LXDProvider) GetInstanceIPv6(instanceName string) (string, error) {
 	// 获取实例的内网IPv6地址
-	ipv6Cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", instanceName)
+	ipv6Cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
 	ipv6Output, err := l.sshClient.Execute(ipv6Cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取IPv6地址失败: %w", err)
@@ -137,7 +137,7 @@ func (l *LXDProvider) GetInstanceIPv6(instanceName string) (string, error) {
 // GetInstancePublicIPv6 获取实例的公网IPv6地址
 func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error) {
 	// 尝试从保存的IPv6文件中读取公网IPv6地址
-	publicIPv6Cmd := fmt.Sprintf("cat %s_v6 2>/dev/null | tail -1", instanceName)
+	publicIPv6Cmd := fmt.Sprintf("cat %s 2>/dev/null | tail -1", shellSingleQuote(instanceName+"_v6"))
 	publicIPv6Output, err := l.sshClient.Execute(publicIPv6Cmd)
 	if err == nil {
 		publicIPv6 := utils.CleanCommandOutput(publicIPv6Output)
@@ -150,7 +150,7 @@ func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error)
 	}
 
 	// 如果文件中没有，尝试从eth1网络设备获取
-	eth1Cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth1.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", instanceName)
+	eth1Cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth1.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
 	eth1Output, err := l.sshClient.Execute(eth1Cmd)
 	if err == nil {
 		eth1IPv6 := utils.CleanCommandOutput(eth1Output)
@@ -174,20 +174,20 @@ func (l *LXDProvider) ConfigureIPv6Profile(profileName string, enable bool) erro
 
 	if enable {
 		// 为profile启用IPv6
-		profileCmd := fmt.Sprintf("lxc profile device set %s eth0 ipv6.address auto", profileName)
+		profileCmd := fmt.Sprintf("lxc profile device set %s eth0 ipv6.address auto", shellSingleQuote(profileName))
 		_, err := l.sshClient.Execute(profileCmd)
 		if err != nil {
 			return fmt.Errorf("配置Profile IPv6失败: %w", err)
 		}
 
-		routeCmd := fmt.Sprintf("lxc profile device set %s eth0 ipv6.routes true", profileName)
+		routeCmd := fmt.Sprintf("lxc profile device set %s eth0 ipv6.routes true", shellSingleQuote(profileName))
 		_, err = l.sshClient.Execute(routeCmd)
 		if err != nil {
 			return fmt.Errorf("配置Profile IPv6路由失败: %w", err)
 		}
 	} else {
 		// 为profile禁用IPv6
-		unsetCmd := fmt.Sprintf("lxc profile device unset %s eth0 ipv6.address", profileName)
+		unsetCmd := fmt.Sprintf("lxc profile device unset %s eth0 ipv6.address", shellSingleQuote(profileName))
 		_, err := l.sshClient.Execute(unsetCmd)
 		if err != nil {
 			global.APP_LOG.Warn("移除Profile IPv6配置失败",
@@ -195,7 +195,7 @@ func (l *LXDProvider) ConfigureIPv6Profile(profileName string, enable bool) erro
 				zap.Error(err))
 		}
 
-		unsetRouteCmd := fmt.Sprintf("lxc profile device unset %s eth0 ipv6.routes", profileName)
+		unsetRouteCmd := fmt.Sprintf("lxc profile device unset %s eth0 ipv6.routes", shellSingleQuote(profileName))
 		_, err = l.sshClient.Execute(unsetRouteCmd)
 		if err != nil {
 			global.APP_LOG.Warn("移除Profile IPv6路由失败",
@@ -225,7 +225,6 @@ func (l *LXDProvider) isPrivateIPv6(address string) bool {
 		"::1",      // 回环地址
 		"::ffff:",  // IPv4映射地址
 		"2002:",    // 6to4
-		"2001:",    // Teredo (某些情况)
 		"fd42:",    // Docker等使用的私有地址
 	}
 
@@ -233,6 +232,11 @@ func (l *LXDProvider) isPrivateIPv6(address string) bool {
 		if strings.HasPrefix(address, prefix) {
 			return true
 		}
+	}
+
+	// Teredo 前缀是 2001:0000::/32，不能把所有 2001:* 都视为私有地址。
+	if strings.HasPrefix(address, "2001:0000:") || strings.HasPrefix(address, "2001:0:") {
+		return true
 	}
 	return false
 }
@@ -279,7 +283,7 @@ func (l *LXDProvider) checkIPv6(ctx context.Context) (string, error) {
 
 // getContainerIPv6 获取容器内网IPv6地址
 func (l *LXDProvider) getContainerIPv6(ctx context.Context, containerName string) (string, error) {
-	cmd := fmt.Sprintf("lxc list %s --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family==\"inet6\") | select(.scope==\"global\") | .address'", containerName)
+	cmd := fmt.Sprintf("lxc list %s --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family==\"inet6\") | select(.scope==\"global\") | .address'", shellSingleQuote(containerName))
 	output, err := l.sshClient.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取容器IPv6地址失败: %w", err)

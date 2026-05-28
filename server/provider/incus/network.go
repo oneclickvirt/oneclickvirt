@@ -298,7 +298,7 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 		zap.String("instanceName", config.Name))
 
 	// 检查实例是否仍在运行
-	statusCmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", config.Name)
+	statusCmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(config.Name))
 	output, err := i.sshClient.Execute(statusCmd)
 	if err != nil {
 		return fmt.Errorf("检查实例状态失败: %w", err)
@@ -311,7 +311,7 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 			zap.String("status", status))
 
 		// 尝试启动实例
-		startCmd := fmt.Sprintf("incus start %s", config.Name)
+		startCmd := fmt.Sprintf("incus start %s", shellSingleQuote(config.Name))
 		_, err := i.sshClient.Execute(startCmd)
 		if err != nil {
 			return fmt.Errorf("启动实例失败: %w", err)
@@ -322,7 +322,7 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 			zap.String("instanceName", config.Name))
 
 		// 判断实例类型
-		typeCmd := fmt.Sprintf("incus info %s | grep \"Type:\" | awk '{print $2}'", config.Name)
+		typeCmd := fmt.Sprintf("incus info %s | grep \"Type:\" | awk '{print $2}'", shellSingleQuote(config.Name))
 		typeOutput, err := i.sshClient.Execute(typeCmd)
 		instanceType := strings.TrimSpace(typeOutput)
 

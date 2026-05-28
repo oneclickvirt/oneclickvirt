@@ -367,7 +367,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		provider.SSHExecuteTimeout = 300 // 默认300秒执行超时
 	}
 	// 容器特殊配置默认值（仅 LXD/Incus 容器）
-	if provider.ContainerCPUAllowance == "" {
+	if (provider.Type == "lxd" || provider.Type == "incus") && provider.ContainerCPUAllowance == "" {
 		provider.ContainerCPUAllowance = "100%" // 默认100% CPU使用率
 	}
 	provider.NextAvailablePort = provider.PortRangeStart

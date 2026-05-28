@@ -123,14 +123,14 @@ func (i *IncusProvider) configureInstanceStorage(ctx context.Context, config pro
 
 func (i *IncusProvider) sshStartInstance(id string) error {
 	// 先检查实例状态，如果已经在运行则跳过启动
-	output, err := i.sshClient.Execute(fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", id))
+	output, err := i.sshClient.Execute(fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(id)))
 	if err == nil && strings.TrimSpace(output) == "RUNNING" {
 		global.APP_LOG.Debug("Incus 实例已在运行，跳过启动", zap.String("id", id))
 		return nil
 	}
 
 	// 执行启动命令
-	_, err = i.sshClient.Execute(fmt.Sprintf("incus start %s", id))
+	_, err = i.sshClient.Execute(fmt.Sprintf("incus start %s", shellSingleQuote(id)))
 	if err != nil {
 		// 如果错误信息提示实例已在运行，则不视为错误
 		if strings.Contains(err.Error(), "already running") ||
@@ -158,7 +158,7 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 		time.Sleep(checkInterval)
 
 		// 检查实例状态
-		statusOutput, err := i.sshClient.Execute(fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", id))
+		statusOutput, err := i.sshClient.Execute(fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(id)))
 		if err == nil {
 			status := strings.TrimSpace(statusOutput)
 			if status == "RUNNING" || status == "Running" {
@@ -178,7 +178,7 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 }
 
 func (i *IncusProvider) sshStopInstance(id string) error {
-	_, err := i.sshClient.Execute(fmt.Sprintf("incus stop %s", id))
+	_, err := i.sshClient.Execute(fmt.Sprintf("incus stop %s", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to stop instance: %w", err)
 	}
@@ -188,7 +188,7 @@ func (i *IncusProvider) sshStopInstance(id string) error {
 }
 
 func (i *IncusProvider) sshRestartInstance(id string) error {
-	_, err := i.sshClient.Execute(fmt.Sprintf("incus restart %s", id))
+	_, err := i.sshClient.Execute(fmt.Sprintf("incus restart %s", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to restart instance: %w", err)
 	}
@@ -208,7 +208,7 @@ func (i *IncusProvider) sshDeleteInstance(id string) error {
 		zap.String("host", utils.TruncateString(i.config.Host, 32)),
 		zap.String("instance_id", id))
 
-	output, err := i.sshClient.Execute(fmt.Sprintf("incus delete %s --force", id))
+	output, err := i.sshClient.Execute(fmt.Sprintf("incus delete %s --force", shellSingleQuote(id)))
 	if err != nil {
 		// 检查是否是实例不存在的错误
 		if strings.Contains(output, "Instance not found") || strings.Contains(output, "not found") {
@@ -254,7 +254,7 @@ func (i *IncusProvider) sshListImages() ([]provider.Image, error) {
 }
 
 func (i *IncusProvider) sshPullImage(image string) error {
-	_, err := i.sshClient.Execute(fmt.Sprintf("incus image copy images:%s local:", image))
+	_, err := i.sshClient.Execute(fmt.Sprintf("incus image copy %s local:", shellSingleQuote("images:"+image)))
 	if err != nil {
 		return fmt.Errorf("failed to pull image: %w", err)
 	}
@@ -264,7 +264,7 @@ func (i *IncusProvider) sshPullImage(image string) error {
 }
 
 func (i *IncusProvider) sshDeleteImage(id string) error {
-	_, err := i.sshClient.Execute(fmt.Sprintf("incus image delete %s", id))
+	_, err := i.sshClient.Execute(fmt.Sprintf("incus image delete %s", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to delete image: %w", err)
 	}
@@ -272,4 +272,3 @@ func (i *IncusProvider) sshDeleteImage(id string) error {
 	global.APP_LOG.Info("通过 SSH 成功删除 Incus 镜像", zap.String("id", id))
 	return nil
 }
-

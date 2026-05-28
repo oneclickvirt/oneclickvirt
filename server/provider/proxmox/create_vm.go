@@ -451,13 +451,13 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		password = utils.GenerateInstancePassword()
 	}
 
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --cipassword %s --ciuser root", vmid, password))
+	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --cipassword %s --ciuser root", vmid, shellSingleQuote(password)))
 	if err != nil {
 		global.APP_LOG.Warn("设置用户密码失败", zap.Int("vmid", vmid), zap.Error(err))
 	}
 
 	// 设置虚拟机名称，以便后续能够通过名称查找
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --name %s", vmid, config.Name))
+	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --name %s", vmid, shellSingleQuote(config.Name)))
 	if err != nil {
 		global.APP_LOG.Warn("设置虚拟机名称失败", zap.Int("vmid", vmid), zap.String("name", config.Name), zap.Error(err))
 	} else {

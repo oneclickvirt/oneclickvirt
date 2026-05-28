@@ -18,7 +18,7 @@ func (i *IncusProvider) stopInstanceForConfig(instanceName string) error {
 
 	// 等待一段时间确保实例已经获取到IP
 	time.Sleep(6 * time.Second)
-	_, err := i.sshClient.Execute(fmt.Sprintf("incus stop %s --timeout=30", instanceName))
+	_, err := i.sshClient.Execute(fmt.Sprintf("incus stop %s --timeout=30", shellSingleQuote(instanceName)))
 	if err != nil {
 		return fmt.Errorf("停止实例失败: %w", err)
 	}
@@ -27,7 +27,7 @@ func (i *IncusProvider) stopInstanceForConfig(instanceName string) error {
 	maxWait := 30
 	waited := 0
 	for waited < maxWait {
-		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", instanceName)
+		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
 		output, err := i.sshClient.Execute(cmd)
 		if err == nil && strings.TrimSpace(output) == "STOPPED" {
 			global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))
@@ -65,7 +65,7 @@ func (i *IncusProvider) configureNetworkLimits(instanceName string, networkConfi
 	}
 
 	// 找到主网络接口
-	cmd := fmt.Sprintf("incus config show %s | grep -A5 \"devices:\" | grep \"type: nic\" -B3 | grep \"^  \" | head -n1 | sed 's/://g'", instanceName)
+	cmd := fmt.Sprintf("incus config show %s | grep -A5 \"devices:\" | grep \"type: nic\" -B3 | grep \"^  \" | head -n1 | sed 's/://g'", shellSingleQuote(instanceName))
 	output, err := i.sshClient.Execute(cmd)
 	var targetInterface string
 	if err == nil && utils.CleanCommandOutput(output) != "" {
@@ -80,7 +80,7 @@ func (i *IncusProvider) configureNetworkLimits(instanceName string, networkConfi
 	maxSpeedMbit := fmt.Sprintf("%dMbit", speedLimit)
 
 	cmd = fmt.Sprintf("incus config device override %s %s limits.egress=%s limits.ingress=%s limits.max=%s",
-		instanceName, targetInterface, outSpeedMbit, inSpeedMbit, maxSpeedMbit)
+		shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(outSpeedMbit), shellSingleQuote(inSpeedMbit), shellSingleQuote(maxSpeedMbit))
 	_, err = i.sshClient.Execute(cmd)
 	if err != nil {
 		global.APP_LOG.Error("网络限速配置失败",
@@ -186,7 +186,7 @@ func (i *IncusProvider) setIPAddressBinding(instanceName, instanceIP string) err
 	}
 
 	// 获取网络接口名称
-	cmd := fmt.Sprintf("incus config show %s | grep -A5 \"devices:\" | grep \"type: nic\" -B3 | grep \"^  \" | head -n1 | sed 's/://g'", instanceName)
+	cmd := fmt.Sprintf("incus config show %s | grep -A5 \"devices:\" | grep \"type: nic\" -B3 | grep \"^  \" | head -n1 | sed 's/://g'", shellSingleQuote(instanceName))
 	output, err := i.sshClient.Execute(cmd)
 	var targetInterface string
 	if err == nil && utils.CleanCommandOutput(output) != "" {
@@ -200,7 +200,7 @@ func (i *IncusProvider) setIPAddressBinding(instanceName, instanceIP string) err
 	}
 
 	// 尝试设置IP地址绑定
-	cmd = fmt.Sprintf("incus config device set %s %s ipv4.address %s", instanceName, targetInterface, cleanIP)
+	cmd = fmt.Sprintf("incus config device set %s %s ipv4.address %s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
 	_, err = i.sshClient.Execute(cmd)
 	if err != nil {
 		global.APP_LOG.Debug("device set失败，尝试override方式",
@@ -208,7 +208,7 @@ func (i *IncusProvider) setIPAddressBinding(instanceName, instanceIP string) err
 			zap.Error(err))
 
 		// 尝试override方式
-		cmd = fmt.Sprintf("incus config device override %s %s ipv4.address=%s", instanceName, targetInterface, cleanIP)
+		cmd = fmt.Sprintf("incus config device override %s %s ipv4.address=%s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
 		_, err = i.sshClient.Execute(cmd)
 		if err != nil {
 			// 如果不是eth0，最后尝试eth0
@@ -217,7 +217,7 @@ func (i *IncusProvider) setIPAddressBinding(instanceName, instanceIP string) err
 					zap.String("interface", targetInterface),
 					zap.Error(err))
 
-				cmd = fmt.Sprintf("incus config device override %s eth0 ipv4.address=%s", instanceName, cleanIP)
+				cmd = fmt.Sprintf("incus config device override %s eth0 ipv4.address=%s", shellSingleQuote(instanceName), shellSingleQuote(cleanIP))
 				_, err = i.sshClient.Execute(cmd)
 				if err != nil {
 					global.APP_LOG.Warn("IP地址绑定失败，继续执行",

@@ -131,6 +131,14 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 	updateProgress(5, "开始创建QEMU虚拟机")
 
+	// 预检：确保 QEMU/libvirt 关键命令可用，避免后续命令以 127 失败且错误不明确
+	if _, err := p.sshClient.Execute("command -v virsh >/dev/null 2>&1"); err != nil {
+		return fmt.Errorf("virsh 命令不可用，请确认 provider 节点已安装 libvirt 并在 PATH 中: %w", err)
+	}
+	if _, err := p.sshClient.Execute("command -v qemu-img >/dev/null 2>&1"); err != nil {
+		return fmt.Errorf("qemu-img 命令不可用，请确认 provider 节点已安装 qemu-utils 并在 PATH 中: %w", err)
+	}
+
 	// 解析资源配置
 	cpu, _ := strconv.Atoi(config.CPU)
 	if cpu <= 0 {

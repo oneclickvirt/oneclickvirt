@@ -361,8 +361,8 @@ func (d *DockerProvider) DeleteInstance(ctx context.Context, id string) error {
 				zap.String("id", utils.TruncateString(id, 32)),
 				zap.Int("attempt", attempt))
 
-			// 尝试重连
-			if err := d.Connect(ctx, d.config); err != nil {
+			// 使用 EnsureConnection 重连（SSH 模式重建连接，Agent 模式复用执行器重连）
+			if err := d.EnsureConnection(); err != nil {
 				global.APP_LOG.Warn("Docker Provider重连失败",
 					zap.String("id", utils.TruncateString(id, 32)),
 					zap.Int("attempt", attempt),

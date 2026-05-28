@@ -2,6 +2,7 @@ package proxmox
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strconv"
 	"strings"
@@ -29,6 +30,21 @@ func (p *ProxmoxProvider) getDownloadURL(originalURL string, useCDN bool) string
 		return cdnURL
 	}
 	return originalURL
+}
+
+// shellSingleQuote 将任意字符串安全包裹为 shell 单引号字面量。
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+// buildProxmoxContainerChpasswdCommand 使用 base64 传递凭据，避免密码特殊字符导致命令解析错误。
+func buildProxmoxContainerChpasswdCommand(vmid, password string) string {
+	credB64 := base64.StdEncoding.EncodeToString([]byte("root:" + password))
+	return fmt.Sprintf(
+		"printf %s | base64 -d | pct exec %s -- chpasswd",
+		shellSingleQuote(credB64),
+		shellSingleQuote(vmid),
+	)
 }
 
 // convertMemoryFormat 转换内存格式为Proxmox VE支持的格式

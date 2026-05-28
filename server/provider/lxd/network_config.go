@@ -20,7 +20,7 @@ func (l *LXDProvider) stopInstanceForConfig(instanceName string) error {
 
 	// 停止实例
 	time.Sleep(6 * time.Second)
-	_, err := l.sshClient.Execute(fmt.Sprintf("lxc stop %s --timeout=30", instanceName))
+	_, err := l.sshClient.Execute(fmt.Sprintf("lxc stop %s --timeout=30", shellSingleQuote(instanceName)))
 	if err != nil {
 		return fmt.Errorf("停止实例失败: %w", err)
 	}
@@ -29,7 +29,7 @@ func (l *LXDProvider) stopInstanceForConfig(instanceName string) error {
 	maxWait := 30
 	waited := 0
 	for waited < maxWait {
-		cmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", instanceName)
+		cmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil && strings.TrimSpace(output) == "STOPPED" {
 			global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))
@@ -67,7 +67,7 @@ func (l *LXDProvider) configureNetworkLimits(instanceName string, networkConfig 
 	}
 
 	// 获取实例的网络接口列表
-	interfaceListCmd := fmt.Sprintf("lxc config device list %s", instanceName)
+	interfaceListCmd := fmt.Sprintf("lxc config device list %s", shellSingleQuote(instanceName))
 	output, err := l.sshClient.Execute(interfaceListCmd)
 
 	var targetInterface string
@@ -94,7 +94,7 @@ func (l *LXDProvider) configureNetworkLimits(instanceName string, networkConfig 
 
 	// 配置网络限速
 	egressCmd := fmt.Sprintf("lxc config device override %s %s limits.egress=%dMbit limits.ingress=%dMbit limits.max=%dMbit",
-		instanceName, targetInterface, networkConfig.OutSpeed, networkConfig.InSpeed, speedLimit)
+		shellSingleQuote(instanceName), shellSingleQuote(targetInterface), networkConfig.OutSpeed, networkConfig.InSpeed, speedLimit)
 
 	_, err = l.sshClient.Execute(egressCmd)
 	if err != nil {
@@ -105,7 +105,7 @@ func (l *LXDProvider) configureNetworkLimits(instanceName string, networkConfig 
 				zap.Error(err))
 
 			ethCmd := fmt.Sprintf("lxc config device override %s eth0 limits.egress=%dMbit limits.ingress=%dMbit limits.max=%dMbit",
-				instanceName, networkConfig.OutSpeed, networkConfig.InSpeed, speedLimit)
+				shellSingleQuote(instanceName), networkConfig.OutSpeed, networkConfig.InSpeed, speedLimit)
 
 			_, err = l.sshClient.Execute(ethCmd)
 			if err != nil {
@@ -144,7 +144,7 @@ func (l *LXDProvider) setIPAddressBinding(instanceName, instanceIP string) error
 		zap.String("cleanIP", cleanIP))
 
 	// 获取实例的网络接口列表，智能选择接口
-	interfaceListCmd := fmt.Sprintf("lxc config device list %s", instanceName)
+	interfaceListCmd := fmt.Sprintf("lxc config device list %s", shellSingleQuote(instanceName))
 	output, err := l.sshClient.Execute(interfaceListCmd)
 
 	var targetInterface string
@@ -170,7 +170,7 @@ func (l *LXDProvider) setIPAddressBinding(instanceName, instanceIP string) error
 	}
 
 	// 尝试设置IP地址绑定
-	cmd := fmt.Sprintf("lxc config device set %s %s ipv4.address %s", instanceName, targetInterface, cleanIP)
+	cmd := fmt.Sprintf("lxc config device set %s %s ipv4.address %s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
 	_, err = l.sshClient.Execute(cmd)
 	if err != nil {
 		global.APP_LOG.Debug("device set失败，尝试override方式",
@@ -178,7 +178,7 @@ func (l *LXDProvider) setIPAddressBinding(instanceName, instanceIP string) error
 			zap.Error(err))
 
 		// 尝试override方式
-		cmd = fmt.Sprintf("lxc config device override %s %s ipv4.address=%s", instanceName, targetInterface, cleanIP)
+		cmd = fmt.Sprintf("lxc config device override %s %s ipv4.address=%s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
 		_, err = l.sshClient.Execute(cmd)
 		if err != nil {
 			// 如果不是eth0，最后尝试eth0
@@ -187,7 +187,7 @@ func (l *LXDProvider) setIPAddressBinding(instanceName, instanceIP string) error
 					zap.String("interface", targetInterface),
 					zap.Error(err))
 
-				cmd = fmt.Sprintf("lxc config device override %s eth0 ipv4.address=%s", instanceName, cleanIP)
+				cmd = fmt.Sprintf("lxc config device override %s eth0 ipv4.address=%s", shellSingleQuote(instanceName), shellSingleQuote(cleanIP))
 				_, err = l.sshClient.Execute(cmd)
 				if err != nil {
 					global.APP_LOG.Warn("IP地址绑定失败，继续执行",
@@ -293,7 +293,7 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(ctx context.Context, config pr
 		zap.String("instanceName", config.Name))
 
 	// 检查实例是否仍在运行
-	statusCmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", config.Name)
+	statusCmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(config.Name))
 	output, err := l.sshClient.Execute(statusCmd)
 	if err != nil {
 		return fmt.Errorf("检查实例状态失败: %w", err)
@@ -306,7 +306,7 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(ctx context.Context, config pr
 			zap.String("status", status))
 
 		// 尝试启动实例
-		startCmd := fmt.Sprintf("lxc start %s", config.Name)
+		startCmd := fmt.Sprintf("lxc start %s", shellSingleQuote(config.Name))
 		_, err := l.sshClient.Execute(startCmd)
 		if err != nil {
 			return fmt.Errorf("启动实例失败: %w", err)
@@ -317,7 +317,7 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(ctx context.Context, config pr
 			zap.String("instanceName", config.Name))
 
 		// 判断实例类型
-		typeCmd := fmt.Sprintf("lxc info %s | grep \"Type:\" | awk '{print $2}'", config.Name)
+		typeCmd := fmt.Sprintf("lxc info %s | grep \"Type:\" | awk '{print $2}'", shellSingleQuote(config.Name))
 		typeOutput, err := l.sshClient.Execute(typeCmd)
 		instanceType := strings.TrimSpace(typeOutput)
 

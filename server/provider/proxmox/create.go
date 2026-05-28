@@ -37,6 +37,14 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 
 	updateProgress(10, "开始创建Proxmox实例...")
 
+	// 预检：确保 Proxmox 关键命令可用，避免后续命令以 127 失败且错误不明确
+	if _, err := p.sshClient.Execute("command -v qm >/dev/null 2>&1"); err != nil {
+		return fmt.Errorf("qm 命令不可用，请确认 provider 节点已安装 Proxmox VE 组件并在 PATH 中: %w", err)
+	}
+	if _, err := p.sshClient.Execute("command -v pct >/dev/null 2>&1"); err != nil {
+		return fmt.Errorf("pct 命令不可用，请确认 provider 节点已安装 Proxmox VE 组件并在 PATH 中: %w", err)
+	}
+
 	// 获取下一个可用的VMID
 	vmid, err := p.getNextVMID(ctx, config.InstanceType)
 	if err != nil {

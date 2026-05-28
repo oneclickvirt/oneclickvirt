@@ -301,7 +301,7 @@ func (c *ContainerdProvider) DeleteInstance(ctx context.Context, id string) erro
 			global.APP_LOG.Warn("Containerd Provider未连接，尝试重连",
 				zap.String("id", utils.TruncateString(id, 32)),
 				zap.Int("attempt", attempt))
-			if err := c.Connect(ctx, c.config); err != nil {
+			if err := c.EnsureConnection(); err != nil {
 				if attempt == maxReconnectAttempts {
 					return fmt.Errorf("重连失败，已达最大重试次数: %w", err)
 				}

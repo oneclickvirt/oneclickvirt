@@ -147,6 +147,11 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 
 	updateProgress(10, "开始创建Containerd实例...")
 
+	// 预检：确保 Containerd CLI 可用，避免后续命令以 127 失败且错误不明确
+	if _, err := c.sshClient.Execute(fmt.Sprintf("command -v %s >/dev/null 2>&1", cliName)); err != nil {
+		return fmt.Errorf("%s 命令不可用，请确认 provider 节点已安装并在 PATH 中: %w", cliName, err)
+	}
+
 	// 确保SSH脚本文件可用（非致命错误，SSH脚本仅用于后续密码配置）
 	updateProgress(15, "确保SSH脚本可用...")
 	if err := c.ensureSSHScriptsAvailable(c.config.Country); err != nil {
@@ -262,8 +267,8 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		} else if supportsDiskLimit {
 			diskSize := strings.ToLower(config.Disk)
 			var finalDiskSize string
-			if strings.HasSuffix(diskSize, "mb") {
-				mbValue := strings.TrimSuffix(diskSize, "mb")
+			if strings.HasSuffix(diskSize, "mb") || strings.HasSuffix(diskSize, "m") {
+				mbValue := strings.TrimSuffix(strings.TrimSuffix(diskSize, "mb"), "m")
 				if mb, err := strconv.Atoi(mbValue); err == nil {
 					gb := (mb + 1023) / 1024
 					if gb < 1 {

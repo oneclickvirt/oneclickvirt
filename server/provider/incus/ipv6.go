@@ -39,7 +39,6 @@ func (i *IncusProvider) isPrivateIPv6(address string) bool {
 		"::1",      // 回环地址
 		"::ffff:",  // IPv4映射地址
 		"2002:",    // 6to4
-		"2001:",    // Teredo (某些情况)
 		"fd42:",    // Docker等使用的私有地址
 	}
 
@@ -47,6 +46,11 @@ func (i *IncusProvider) isPrivateIPv6(address string) bool {
 		if strings.HasPrefix(address, prefix) {
 			return true
 		}
+	}
+
+	// Teredo 前缀是 2001:0000::/32，不能把所有 2001:* 都视为私有地址。
+	if strings.HasPrefix(address, "2001:0000:") || strings.HasPrefix(address, "2001:0:") {
+		return true
 	}
 	return false
 }
@@ -90,7 +94,7 @@ func (i *IncusProvider) checkIPv6(ctx context.Context) (string, error) {
 
 // getContainerIPv6 获取容器内网IPv6地址
 func (i *IncusProvider) getContainerIPv6(ctx context.Context, containerName string) (string, error) {
-	cmd := fmt.Sprintf("incus list %s --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family==\"inet6\") | select(.scope==\"global\") | .address'", containerName)
+	cmd := fmt.Sprintf("incus list %s --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family==\"inet6\") | select(.scope==\"global\") | .address'", shellSingleQuote(containerName))
 	output, err := i.sshClient.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取容器IPv6地址失败: %w", err)
@@ -121,7 +125,7 @@ func (i *IncusProvider) GetInstanceIPv4(ctx context.Context, instanceName string
 // GetInstancePublicIPv6 获取实例的公网IPv6地址
 func (i *IncusProvider) GetInstancePublicIPv6(ctx context.Context, instanceName string) (string, error) {
 	// 尝试从保存的IPv6文件中读取公网IPv6地址
-	publicIPv6Cmd := fmt.Sprintf("cat %s_v6 2>/dev/null | tail -1", instanceName)
+	publicIPv6Cmd := fmt.Sprintf("cat %s 2>/dev/null | tail -1", shellSingleQuote(instanceName+"_v6"))
 	publicIPv6Output, err := i.sshClient.Execute(publicIPv6Cmd)
 	if err == nil {
 		publicIPv6 := utils.CleanCommandOutput(publicIPv6Output)
@@ -134,7 +138,7 @@ func (i *IncusProvider) GetInstancePublicIPv6(ctx context.Context, instanceName 
 	}
 
 	// 如果文件中没有，尝试从eth1网络设备获取
-	eth1Cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.eth1.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", instanceName)
+	eth1Cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.eth1.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
 	eth1Output, err := i.sshClient.Execute(eth1Cmd)
 	if err == nil {
 		eth1IPv6 := utils.CleanCommandOutput(eth1Output)
@@ -153,7 +157,7 @@ func (i *IncusProvider) GetInstancePublicIPv6(ctx context.Context, instanceName 
 // GetVethInterfaceName 获取容器对应的宿主机veth接口名称（IPv4）
 // 通过 incus config show 获取 volatile.eth0.host_name
 func (i *IncusProvider) GetVethInterfaceName(ctx context.Context, instanceName string) (string, error) {
-	cmd := fmt.Sprintf("incus config show %s | grep 'volatile.eth0.host_name:' | awk '{print $2}'", instanceName)
+	cmd := fmt.Sprintf("incus config show %s | grep 'volatile.eth0.host_name:' | awk '{print $2}'", shellSingleQuote(instanceName))
 	output, err := i.sshClient.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取veth接口名称失败: %w", err)
@@ -174,7 +178,7 @@ func (i *IncusProvider) GetVethInterfaceName(ctx context.Context, instanceName s
 // GetVethInterfaceNameV6 获取容器对应的宿主机veth接口名称（IPv6）
 // 通过 incus config show 获取 volatile.eth1.host_name（如果存在）
 func (i *IncusProvider) GetVethInterfaceNameV6(ctx context.Context, instanceName string) (string, error) {
-	cmd := fmt.Sprintf("incus config show %s | grep 'volatile.eth1.host_name:' | awk '{print $2}'", instanceName)
+	cmd := fmt.Sprintf("incus config show %s | grep 'volatile.eth1.host_name:' | awk '{print $2}'", shellSingleQuote(instanceName))
 	output, err := i.sshClient.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取veth接口名称(IPv6)失败: %w", err)

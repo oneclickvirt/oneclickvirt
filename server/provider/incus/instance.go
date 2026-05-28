@@ -37,7 +37,7 @@ func (i *IncusProvider) validateInstanceConfig(config provider.InstanceConfig) e
 
 // instanceExists 检查实例是否已存在
 func (i *IncusProvider) instanceExists(name string) (bool, error) {
-	cmd := fmt.Sprintf("incus list %s --format csv", name)
+	cmd := fmt.Sprintf("incus list %s --format csv", shellSingleQuote(name))
 	output, err := i.sshClient.Execute(cmd)
 	if err != nil {
 		return false, fmt.Errorf("检查实例是否存在失败: %w", err)
@@ -60,9 +60,9 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 
 	// 根据实例类型构建基础命令
 	if config.InstanceType == "vm" {
-		cmd = fmt.Sprintf("incus init %s %s --vm", config.Image, config.Name)
+		cmd = fmt.Sprintf("incus init %s %s --vm", shellSingleQuote(config.Image), shellSingleQuote(config.Name))
 	} else {
-		cmd = fmt.Sprintf("incus init %s %s", config.Image, config.Name)
+		cmd = fmt.Sprintf("incus init %s %s", shellSingleQuote(config.Image), shellSingleQuote(config.Name))
 	}
 
 	// 基础配置参数
@@ -147,13 +147,13 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 
 	// 配置参数到命令
 	for _, param := range configParams {
-		cmd += fmt.Sprintf(" -c %s", param)
+		cmd += fmt.Sprintf(" -c %s", shellSingleQuote(param))
 	}
 
 	// 如果有磁盘大小配置
 	if config.Disk != "" {
 		diskFormatted := convertDiskFormat(config.Disk)
-		cmd += fmt.Sprintf(" -d root,size=%s", diskFormatted)
+		cmd += fmt.Sprintf(" -d %s", shellSingleQuote("root,size="+diskFormatted))
 	}
 
 	global.APP_LOG.Debug("构建的完整创建命令",
@@ -199,7 +199,7 @@ func (i *IncusProvider) executeCreateCommand(cmd string) error {
 // waitForInstanceState 等待实例达到指定状态
 func (i *IncusProvider) waitForInstanceState(name, expectedState string, timeoutSeconds int) error {
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 3 {
-		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", name)
+		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(name))
 		output, err := i.sshClient.Execute(cmd)
 		if err != nil {
 			global.APP_LOG.Debug("获取实例状态失败",
@@ -281,7 +281,7 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 	// 根据系统类型选择脚本
 	var scriptName string
 	// 检测系统类型（轻量级命令，直接执行即可）
-	output, err := i.sshClient.Execute(fmt.Sprintf("incus exec %s -- cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", config.Name))
+	output, err := i.sshClient.Execute(fmt.Sprintf("incus exec %s -- cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", shellSingleQuote(config.Name)))
 	if err == nil {
 		osType := strings.TrimSpace(strings.ToLower(output))
 		if osType == "alpine" || osType == "openwrt" {
@@ -303,7 +303,7 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 	} else {
 		time.Sleep(3 * time.Second)
 		// 复制脚本到实例（宿主机文件操作，直接执行即可）
-		copyCmd := fmt.Sprintf("incus file push %s %s/root/", scriptPath, config.Name)
+		copyCmd := fmt.Sprintf("incus file push %s %s/root/", shellSingleQuote(scriptPath), shellSingleQuote(config.Name))
 		_, err = i.sshClient.Execute(copyCmd)
 		if err != nil {
 			global.APP_LOG.Warn("复制SSH脚本到实例失败，仅设置密码", zap.Error(err))
@@ -313,7 +313,7 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 			sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
 				PrimaryCmd: fmt.Sprintf(
 					"incus exec %s -- chmod +x /root/%s && incus exec %s -- /root/%s %s",
-					config.Name, scriptName, config.Name, scriptName, password,
+					shellSingleQuote(config.Name), scriptName, shellSingleQuote(config.Name), scriptName, shellSingleQuote(password),
 				),
 				TimeoutSeconds: 60,
 				SuccessMarker:  "PASSWORD_OK",
@@ -331,8 +331,8 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 
 	// 使用临时脚本直接设置密码（含超时回退），确保 agent 模式下不因 WebSocket 超时失败
 	directPasswordScript := utils.BuildTempScript(utils.TempScriptConfig{
-		PrimaryCmd:     fmt.Sprintf("incus exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", config.Name, password),
-		FallbackCmd:    fmt.Sprintf("echo 'root:%s' | incus exec %s -- chpasswd", password, config.Name),
+		PrimaryCmd:     buildIncusChpasswdCommand(config.Name, password),
+		FallbackCmd:    buildIncusChpasswdCommand(config.Name, password),
 		TimeoutSeconds: 30,
 	})
 	_, err = i.sshClient.ExecuteViaTempScript(directPasswordScript, nil, 120*time.Second)
@@ -344,7 +344,7 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 	}
 
 	// 清理历史记录 - 非阻塞式，如果失败不影响整体流程
-	_, err = i.sshClient.Execute(fmt.Sprintf("incus exec %s -- bash -c 'history -c 2>/dev/null || true'", config.Name))
+	_, err = i.sshClient.Execute(fmt.Sprintf("incus exec %s -- bash -c 'history -c 2>/dev/null || true'", shellSingleQuote(config.Name)))
 	if err != nil {
 		global.APP_LOG.Warn("清理历史记录失败",
 			zap.String("instanceName", config.Name),
@@ -385,7 +385,7 @@ func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSec
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 5 {
 		// 每两轮循环（10秒）尝试启动实例，避免实例因故障停止导致一直干等待
 		if loopCount > 0 && loopCount%2 == 0 {
-			startCmd := fmt.Sprintf("incus start %s", instanceName)
+			startCmd := fmt.Sprintf("incus start %s", shellSingleQuote(instanceName))
 			startOutput, startErr := i.sshClient.Execute(startCmd)
 			// "already running" 不是错误，而是实例已在运行的正常状态
 			if startErr == nil || strings.Contains(startOutput, "already running") {
@@ -401,7 +401,7 @@ func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSec
 		}
 
 		// 尝试执行一个简单的命令来检测VM agent是否就绪
-		cmd := fmt.Sprintf("incus exec %s -- echo 'agent-ready' 2>/dev/null", instanceName)
+		cmd := fmt.Sprintf("incus exec %s -- echo 'agent-ready' 2>/dev/null", shellSingleQuote(instanceName))
 		output, err := i.sshClient.Execute(cmd)
 		if err == nil && strings.Contains(output, "agent-ready") {
 			global.APP_LOG.Debug("实例可执行命令",

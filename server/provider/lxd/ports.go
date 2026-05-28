@@ -206,7 +206,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		// 创建TCP区间映射
 		tcpDeviceName := fmt.Sprintf("tcp-range-%d-%d", startPort, endPort)
 		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
-			instanceName, tcpDeviceName, "tcp", hostIP, startPort, endPort, "tcp", instanceIP, startPort, endPort)
+			shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote("tcp"), shellSingleQuote(hostIP), startPort, endPort, shellSingleQuote("tcp"), shellSingleQuote(instanceIP), startPort, endPort)
 
 		global.APP_LOG.Debug("执行TCP端口区间映射命令",
 			zap.String("command", tcpProxyCmd))
@@ -219,7 +219,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		// 创建UDP区间映射
 		udpDeviceName := fmt.Sprintf("udp-range-%d-%d", startPort, endPort)
 		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
-			instanceName, udpDeviceName, "udp", hostIP, startPort, endPort, "udp", instanceIP, startPort, endPort)
+			shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote("udp"), shellSingleQuote(hostIP), startPort, endPort, shellSingleQuote("udp"), shellSingleQuote(instanceIP), startPort, endPort)
 
 		global.APP_LOG.Debug("执行UDP端口区间映射命令",
 			zap.String("command", udpProxyCmd))
@@ -227,7 +227,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		_, err = l.sshClient.Execute(udpProxyCmd)
 		if err != nil {
 			// 回滚：删除已创建的TCP区间设备
-			rollbackCmd := fmt.Sprintf("lxc config device remove %s %s", instanceName, tcpDeviceName)
+			rollbackCmd := fmt.Sprintf("lxc config device remove %s %s", shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName))
 			if _, rollbackErr := l.sshClient.Execute(rollbackCmd); rollbackErr != nil {
 				global.APP_LOG.Warn("回滚TCP区间proxy设备失败",
 					zap.String("instance", instanceName),
@@ -250,7 +250,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		// 创建LXD device proxy区间映射
 		// 格式：lxc config device add <instance> <device-name> proxy listen=tcp:<host-ip>:<start-port>-<end-port> connect=tcp:<guest-ip>:<start-port>-<end-port>
 		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
-			instanceName, deviceName, protocol, hostIP, startPort, endPort, protocol, instanceIP, startPort, endPort)
+			shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(protocol), shellSingleQuote(hostIP), startPort, endPort, shellSingleQuote(protocol), shellSingleQuote(instanceIP), startPort, endPort)
 
 		global.APP_LOG.Debug("执行LXD端口区间映射命令",
 			zap.String("command", proxyCmd))
@@ -307,7 +307,7 @@ func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, st
 	// 设置TCP端口范围映射 - 使用与buildct.sh脚本相同的格式
 	tcpDeviceName := "nattcp-ports"
 	tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=tcp:%s:%d-%d connect=tcp:0.0.0.0:%d-%d nat=true",
-		instanceName, tcpDeviceName, hostIP, startPort, endPort, startPort, endPort)
+		shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote(hostIP), startPort, endPort, startPort, endPort)
 
 	global.APP_LOG.Debug("执行TCP NAT端口范围映射命令",
 		zap.String("command", tcpProxyCmd))
@@ -320,7 +320,7 @@ func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, st
 	// 设置UDP端口范围映射 - 使用与buildct.sh脚本相同的格式
 	udpDeviceName := "natudp-ports"
 	udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=udp:%s:%d-%d connect=udp:0.0.0.0:%d-%d nat=true",
-		instanceName, udpDeviceName, hostIP, startPort, endPort, startPort, endPort)
+		shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote(hostIP), startPort, endPort, startPort, endPort)
 
 	global.APP_LOG.Debug("执行UDP NAT端口范围映射命令",
 		zap.String("command", udpProxyCmd))
@@ -328,7 +328,7 @@ func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, st
 	_, err = l.sshClient.Execute(udpProxyCmd)
 	if err != nil {
 		// 回滚：删除已创建的TCP设备
-		rollbackCmd := fmt.Sprintf("lxc config device remove %s %s", instanceName, tcpDeviceName)
+		rollbackCmd := fmt.Sprintf("lxc config device remove %s %s", shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName))
 		if _, rollbackErr := l.sshClient.Execute(rollbackCmd); rollbackErr != nil {
 			global.APP_LOG.Warn("回滚TCP NAT proxy设备失败",
 				zap.String("instance", instanceName),
@@ -426,7 +426,7 @@ func (l *LXDProvider) setupDeviceProxyMapping(instanceName string, hostPort, gue
 
 	// 创建proxy设备
 	proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%d connect=%s:%d",
-		instanceName, deviceName, protocol, hostPort, instanceIP, guestPort)
+		shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(protocol), hostPort, shellSingleQuote(instanceIP), guestPort)
 
 	_, err = l.sshClient.Execute(proxyCmd)
 	if err != nil {
@@ -473,7 +473,7 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 		// 创建TCP设备
 		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d", hostPort)
 		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
-			instanceName, tcpDeviceName, "tcp", hostIP, hostPort, "tcp", cleanInstanceIP, guestPort)
+			shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote("tcp"), shellSingleQuote(hostIP), hostPort, shellSingleQuote("tcp"), shellSingleQuote(cleanInstanceIP), guestPort)
 
 		global.APP_LOG.Debug("执行TCP端口映射命令",
 			zap.String("command", tcpProxyCmd))
@@ -486,7 +486,7 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 		// 创建UDP设备
 		udpDeviceName := fmt.Sprintf("proxy-udp-%d", hostPort)
 		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
-			instanceName, udpDeviceName, "udp", hostIP, hostPort, "udp", cleanInstanceIP, guestPort)
+			shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote("udp"), shellSingleQuote(hostIP), hostPort, shellSingleQuote("udp"), shellSingleQuote(cleanInstanceIP), guestPort)
 
 		global.APP_LOG.Debug("执行UDP端口映射命令",
 			zap.String("command", udpProxyCmd))
@@ -494,7 +494,7 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 		_, err = l.sshClient.Execute(udpProxyCmd)
 		if err != nil {
 			// 回滚：删除已创建的TCP设备
-			rollbackCmd := fmt.Sprintf("lxc config device remove %s %s", instanceName, tcpDeviceName)
+			rollbackCmd := fmt.Sprintf("lxc config device remove %s %s", shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName))
 			if _, rollbackErr := l.sshClient.Execute(rollbackCmd); rollbackErr != nil {
 				global.APP_LOG.Warn("回滚TCP proxy设备失败",
 					zap.String("instance", instanceName),
@@ -514,7 +514,7 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 
 		// 创建proxy设备 - 使用与buildct.sh脚本相同的格式
 		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
-			instanceName, deviceName, protocol, hostIP, hostPort, protocol, cleanInstanceIP, guestPort)
+			shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(protocol), shellSingleQuote(hostIP), hostPort, shellSingleQuote(protocol), shellSingleQuote(cleanInstanceIP), guestPort)
 
 		global.APP_LOG.Debug("执行端口映射命令",
 			zap.String("command", proxyCmd))
@@ -620,7 +620,7 @@ func (l *LXDProvider) removePortMapping(instanceName string, hostPort int, proto
 func (l *LXDProvider) removeDeviceProxyMapping(instanceName string, hostPort int, protocol string) error {
 	deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
 
-	removeCmd := fmt.Sprintf("lxc config device remove %s %s", instanceName, deviceName)
+	removeCmd := fmt.Sprintf("lxc config device remove %s %s", shellSingleQuote(instanceName), shellSingleQuote(deviceName))
 	_, err := l.sshClient.Execute(removeCmd)
 	if err != nil {
 		return fmt.Errorf("移除proxy设备失败: %w", err)

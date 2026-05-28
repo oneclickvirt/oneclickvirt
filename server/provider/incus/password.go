@@ -70,8 +70,11 @@ func (i *IncusProvider) generateRandomPassword() string {
 
 // sshSetInstancePassword 通过SSH设置实例密码
 func (i *IncusProvider) sshSetInstancePassword(instanceID, password string) error {
-	// 首先尝试简单的状态检查命令
-	simpleCheckCmd := fmt.Sprintf("incus list | grep %s", instanceID)
+	// 精确匹配实例名并读取状态，避免 grep 模式注入与误匹配
+	simpleCheckCmd := fmt.Sprintf(
+		"incus list --format csv -c n,s | awk -F, -v n=%s '$1==n {print $2}'",
+		shellSingleQuote(instanceID),
+	)
 	output, err := i.sshClient.Execute(simpleCheckCmd)
 	if err != nil {
 		global.APP_LOG.Error("检查Incus实例状态失败",
@@ -79,17 +82,18 @@ func (i *IncusProvider) sshSetInstancePassword(instanceID, password string) erro
 			zap.Error(err))
 		return fmt.Errorf("检查实例状态失败: %w", err)
 	}
+	status := strings.TrimSpace(output)
 	// 检查实例是否存在且运行
-	if !strings.Contains(output, instanceID) {
+	if status == "" {
 		return fmt.Errorf("实例 %s 不存在", instanceID)
 	}
-	if !strings.Contains(output, "RUNNING") {
+	if !strings.EqualFold(status, "RUNNING") {
 		return fmt.Errorf("实例 %s 未运行，无法设置密码", instanceID)
 	}
 	// 使用临时脚本设置密码（支持超时回退），避免 agent 模式下 WebSocket 连接中断
 	script := utils.BuildTempScript(utils.TempScriptConfig{
-		PrimaryCmd:     fmt.Sprintf("incus exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", instanceID, password),
-		FallbackCmd:    fmt.Sprintf("echo 'root:%s' | incus exec %s -- chpasswd", password, instanceID),
+		PrimaryCmd:     buildIncusChpasswdCommand(instanceID, password),
+		FallbackCmd:    buildIncusChpasswdCommand(instanceID, password),
 		TimeoutSeconds: 30,
 	})
 	_, err = i.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)

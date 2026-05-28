@@ -35,7 +35,7 @@ func (l *LXDProvider) restartVMForNetwork(instanceName string) error {
 	global.APP_LOG.Debug("重启虚拟机获取网络配置", zap.String("instanceName", instanceName))
 
 	// 尝试优雅重启，给虚拟机足够的超时时间
-	restartCmd := fmt.Sprintf("lxc restart %s --timeout=120", instanceName)
+	restartCmd := fmt.Sprintf("lxc restart %s --timeout=120", shellSingleQuote(instanceName))
 	_, err := l.sshClient.Execute(restartCmd)
 
 	if err != nil {
@@ -54,7 +54,7 @@ func (l *LXDProvider) restartVMForNetwork(instanceName string) error {
 // restartContainerForNetwork 重启容器以获取网络配置
 func (l *LXDProvider) restartContainerForNetwork(instanceName string) error {
 	global.APP_LOG.Debug("重启容器获取网络配置", zap.String("instanceName", instanceName))
-	restartCmd := fmt.Sprintf("lxc restart %s --timeout=60", instanceName)
+	restartCmd := fmt.Sprintf("lxc restart %s --timeout=60", shellSingleQuote(instanceName))
 	_, err := l.sshClient.Execute(restartCmd)
 
 	if err != nil {
@@ -75,7 +75,7 @@ func (l *LXDProvider) forceRestartVM(instanceName string) error {
 	global.APP_LOG.Debug("强制重启虚拟机", zap.String("instanceName", instanceName))
 
 	// 强制停止虚拟机
-	stopCmd := fmt.Sprintf("lxc stop %s --force --timeout=60", instanceName)
+	stopCmd := fmt.Sprintf("lxc stop %s --force --timeout=60", shellSingleQuote(instanceName))
 	_, err := l.sshClient.Execute(stopCmd)
 	if err != nil {
 		global.APP_LOG.Error("强制停止虚拟机失败",
@@ -88,7 +88,7 @@ func (l *LXDProvider) forceRestartVM(instanceName string) error {
 	time.Sleep(10 * time.Second)
 
 	// 启动虚拟机
-	startCmd := fmt.Sprintf("lxc start %s", instanceName)
+	startCmd := fmt.Sprintf("lxc start %s", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(startCmd)
 	if err != nil {
 		return fmt.Errorf("启动虚拟机失败: %w", err)
@@ -103,7 +103,7 @@ func (l *LXDProvider) forceRestartContainer(instanceName string) error {
 	global.APP_LOG.Debug("强制重启容器", zap.String("instanceName", instanceName))
 
 	// 强制停止容器
-	stopCmd := fmt.Sprintf("lxc stop %s --force --timeout=30", instanceName)
+	stopCmd := fmt.Sprintf("lxc stop %s --force --timeout=30", shellSingleQuote(instanceName))
 	_, err := l.sshClient.Execute(stopCmd)
 	if err != nil {
 		global.APP_LOG.Error("强制停止容器失败",
@@ -116,7 +116,7 @@ func (l *LXDProvider) forceRestartContainer(instanceName string) error {
 	time.Sleep(3 * time.Second)
 
 	// 启动容器
-	startCmd := fmt.Sprintf("lxc start %s", instanceName)
+	startCmd := fmt.Sprintf("lxc start %s", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(startCmd)
 	if err != nil {
 		return fmt.Errorf("启动容器失败: %w", err)

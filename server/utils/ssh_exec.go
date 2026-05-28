@@ -87,7 +87,7 @@ func (c *SSHClient) executeCommandWithCustomTimeout(command string, timeout time
 		return "", fmt.Errorf("failed to request PTY: %w", err)
 	}
 
-	envCommand := fmt.Sprintf("source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; %s", command)
+	envCommand := buildSSHEnvCommand(command)
 
 	done := make(chan struct{})
 	var output []byte
@@ -131,9 +131,8 @@ func (c *SSHClient) executeCommand(command string) (string, error) {
 		return "", fmt.Errorf("failed to request PTY: %w", err)
 	}
 
-	// 设置环境变量来确保PATH正确加载，避免使用bash -l -c的转义问题
-	// 这种方式更安全，不需要处理复杂的命令转义
-	envCommand := fmt.Sprintf("source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; %s", command)
+	// 加载完整系统环境，详见 buildSSHEnvCommand
+	envCommand := buildSSHEnvCommand(command)
 
 	// 创建一个通道来处理命令执行的超时
 	done := make(chan struct{})
@@ -330,10 +329,8 @@ func (c *SSHClient) executeCommandWithLogging(command string, logPrefix string) 
 		return "", fmt.Errorf("failed to request PTY: %w", err)
 	}
 
-	// 设置环境变量来确保PATH正确加载
-	envCommand := fmt.Sprintf("source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; %s", command)
-
-	// 记录执行前的信息
+	// 加载完整系统环境，详见 buildSSHEnvCommand
+	envCommand := buildSSHEnvCommand(command)
 	if global.APP_LOG != nil {
 		global.APP_LOG.Debug("SSH命令执行开始",
 			zap.String("log_prefix", logPrefix),
@@ -488,3 +485,27 @@ func shellEscape(s string) string {
 	return "'" + escaped + "'"
 }
 
+// buildSSHEnvCommand 构建 SSH 执行前的环境加载前缀。
+// 通过 PTY 分配的 bash login shell 会自然加载 /etc/profile 和 ~/.bashrc，
+// 但部分精简系统（容器、最小化安装）可能跳过这些步骤。
+// 此处显式加载所有常见系统级环境文件，并前置完整的标准 PATH 及扩展路径，
+// 保证通过软链接安装的命令（snap LXD、/opt 下工具、profile.d 扩展包等）
+// 在 SSH 路径下同样能被 command -v / which 发现。
+func buildSSHEnvCommand(command string) string {
+	// 加载顺序：系统级 → 用户级，最后无条件补全 PATH。
+	// /etc/environment：systemd/pam 环境变量生成器
+	// /etc/profile：系统级登录 shell 配置
+	// /etc/profile.d/*.sh：模块化 profile 扩展（RHEL/CentOS/部分 Debian 包）
+	// /etc/bash.bashrc：系统级 bashrc（Debian/Ubuntu）
+	// ~/.bashrc / ~/.bash_profile：用户级 bash 配置
+	return fmt.Sprintf(
+		"[ -f /etc/environment ] && source /etc/environment 2>/dev/null || true; "+
+			"[ -f /etc/profile ] && source /etc/profile 2>/dev/null || true; "+
+			"[ -d /etc/profile.d ] && for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && source \"$f\" 2>/dev/null || true; done; "+
+			"[ -f /etc/bash.bashrc ] && source /etc/bash.bashrc 2>/dev/null || true; "+
+			"source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; "+
+			"export PATH=$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/var/lib/snapd/snap/bin:/opt/bin; "+
+			"%s",
+		command,
+	)
+}

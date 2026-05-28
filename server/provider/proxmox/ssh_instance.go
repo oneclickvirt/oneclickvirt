@@ -204,8 +204,8 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 	case "container":
 		// LXC容器 - 使用临时脚本方式执行 pct exec，避免 agent 模式下 WebSocket 超时
 		script := utils.BuildTempScript(utils.TempScriptConfig{
-			PrimaryCmd:     fmt.Sprintf("pct exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", vmid, password),
-			FallbackCmd:    fmt.Sprintf("echo 'root:%s' | pct exec %s -- chpasswd", password, vmid),
+			PrimaryCmd:     buildProxmoxContainerChpasswdCommand(vmid, password),
+			FallbackCmd:    buildProxmoxContainerChpasswdCommand(vmid, password),
 			TimeoutSeconds: 30,
 		})
 		_, err = p.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)
@@ -223,7 +223,7 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 	case "vm":
 		// QEMU虚拟机 - 使用cloud-init设置密码
 		// 首先尝试通过cloud-init设置密码
-		setPasswordCmd := fmt.Sprintf("qm set %s --cipassword '%s'", vmid, password)
+		setPasswordCmd := fmt.Sprintf("qm set %s --cipassword %s", shellSingleQuote(vmid), shellSingleQuote(password))
 
 		// 执行设置命令
 		_, err := p.sshClient.Execute(setPasswordCmd)

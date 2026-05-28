@@ -36,7 +36,7 @@ func (i *IncusProvider) restartVMForNetwork(instanceName string) error {
 	global.APP_LOG.Debug("重启虚拟机获取网络配置", zap.String("instanceName", instanceName))
 
 	// 尝试优雅重启，给虚拟机足够的超时时间
-	restartCmd := fmt.Sprintf("incus restart %s --timeout=120", instanceName)
+	restartCmd := fmt.Sprintf("incus restart %s --timeout=120", shellSingleQuote(instanceName))
 	_, err := i.sshClient.Execute(restartCmd)
 
 	if err != nil {
@@ -57,7 +57,7 @@ func (i *IncusProvider) restartContainerForNetwork(instanceName string) error {
 	global.APP_LOG.Debug("重启容器获取网络配置", zap.String("instanceName", instanceName))
 
 	// 容器重启
-	restartCmd := fmt.Sprintf("incus restart %s --timeout=60", instanceName)
+	restartCmd := fmt.Sprintf("incus restart %s --timeout=60", shellSingleQuote(instanceName))
 	_, err := i.sshClient.Execute(restartCmd)
 
 	if err != nil {
@@ -78,7 +78,7 @@ func (i *IncusProvider) forceRestartVM(instanceName string) error {
 	global.APP_LOG.Debug("强制重启虚拟机", zap.String("instanceName", instanceName))
 
 	// 强制停止虚拟机
-	stopCmd := fmt.Sprintf("incus stop %s --force --timeout=60", instanceName)
+	stopCmd := fmt.Sprintf("incus stop %s --force --timeout=60", shellSingleQuote(instanceName))
 	_, err := i.sshClient.Execute(stopCmd)
 	if err != nil {
 		global.APP_LOG.Error("强制停止虚拟机失败",
@@ -91,7 +91,7 @@ func (i *IncusProvider) forceRestartVM(instanceName string) error {
 	time.Sleep(10 * time.Second)
 
 	// 启动虚拟机
-	startCmd := fmt.Sprintf("incus start %s", instanceName)
+	startCmd := fmt.Sprintf("incus start %s", shellSingleQuote(instanceName))
 	_, err = i.sshClient.Execute(startCmd)
 	if err != nil {
 		return fmt.Errorf("启动虚拟机失败: %w", err)
@@ -106,7 +106,7 @@ func (i *IncusProvider) forceRestartContainer(instanceName string) error {
 	global.APP_LOG.Debug("强制重启容器", zap.String("instanceName", instanceName))
 
 	// 强制停止容器
-	stopCmd := fmt.Sprintf("incus stop %s --force --timeout=30", instanceName)
+	stopCmd := fmt.Sprintf("incus stop %s --force --timeout=30", shellSingleQuote(instanceName))
 	_, err := i.sshClient.Execute(stopCmd)
 	if err != nil {
 		global.APP_LOG.Error("强制停止容器失败",
@@ -119,7 +119,7 @@ func (i *IncusProvider) forceRestartContainer(instanceName string) error {
 	time.Sleep(3 * time.Second)
 
 	// 启动容器
-	startCmd := fmt.Sprintf("incus start %s", instanceName)
+	startCmd := fmt.Sprintf("incus start %s", shellSingleQuote(instanceName))
 	_, err = i.sshClient.Execute(startCmd)
 	if err != nil {
 		return fmt.Errorf("启动容器失败: %w", err)
@@ -135,7 +135,7 @@ func (i *IncusProvider) waitForInstanceReady(instanceName string) error {
 	waited := 0
 
 	for waited < maxWait {
-		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", instanceName)
+		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
 		output, err := i.sshClient.Execute(cmd)
 		if err == nil && strings.TrimSpace(output) == "RUNNING" {
 			// 额外等待网络配置就绪

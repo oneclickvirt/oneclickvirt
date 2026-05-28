@@ -124,14 +124,20 @@ func wrapShellEnv(command string) string {
 	if trimmed == "" {
 		return trimmed
 	}
-	// Source /etc/profile first to pick up any site-specific PATH entries
-	// (e.g. conda, nix, custom tool installs).  Then unconditionally prepend
-	// all standard FHS directories so commands are always found regardless of
-	// what /etc/profile does or whether it even exists.
-	// Do NOT source ~/.bashrc / ~/.bash_profile — they are user-specific and
-	// may contain interactive prompts or blocking calls.
-	// ${PATH:+:$PATH} safely appends the inherited PATH without a leading colon.
-	return fmt.Sprintf(". /etc/profile >/dev/null 2>&1 || true; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin${PATH:+:$PATH}; %s", command)
+	// 加载所有常见的系统级环境配置，确保通过软链接安装的命令（snap LXD、
+	// /opt 下工具、profile.d 扩展包等）都能在 PATH 中找到。
+	// 加载顺序：/etc/environment → /etc/profile → /etc/profile.d/*.sh
+	// 然后无条件前置标准 FHS 目录及常见扩展路径，保证命令始终可发现。
+	// 不加载 ~/.bashrc / ~/.bash_profile（用户级，可能含交互式阻塞调用）。
+	// ${PATH:+:$PATH} 安全追加继承的 PATH，避免前导冒号。
+	return fmt.Sprintf(
+		"[ -f /etc/environment ] && . /etc/environment 2>/dev/null || true; "+
+			"[ -f /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true; "+
+			"[ -d /etc/profile.d ] && for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\" >/dev/null 2>&1 || true; done; "+
+			"export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/var/lib/snapd/snap/bin:/opt/bin${PATH:+:$PATH}; "+
+			"%s",
+		command,
+	)
 }
 
 // Execute runs a command on the remote agent with a default 300s timeout.

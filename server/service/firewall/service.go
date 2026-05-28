@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"oneclickvirt/global"
+	commonModel "oneclickvirt/model/common"
 	firewallModel "oneclickvirt/model/firewall"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
@@ -17,6 +19,38 @@ import (
 )
 
 type Service struct{}
+
+var allowedBlockRuleCategories = map[string]struct{}{
+	string(firewallModel.BlockRuleCategoryMining):    {},
+	string(firewallModel.BlockRuleCategoryBT):        {},
+	string(firewallModel.BlockRuleCategorySpeedtest): {},
+	string(firewallModel.BlockRuleCategoryCustom):    {},
+}
+
+func normalizeRuleStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		v := strings.TrimSpace(value)
+		if v == "" {
+			continue
+		}
+		if len(v) > 128 {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		result = append(result, v)
+	}
+	return result
+}
+
+func validateRuleCategory(category string) bool {
+	_, ok := allowedBlockRuleCategories[category]
+	return ok
+}
 
 // DefaultBlockRules returns the built-in rule templates.
 func DefaultBlockRules() []firewallModel.BlockRule {
@@ -113,14 +147,42 @@ func (s *Service) GetRule(id uint) (*firewallModel.BlockRule, error) {
 
 // CreateRule creates a new block rule.
 func (s *Service) CreateRule(req *firewallModel.CreateBlockRuleRequest) (*firewallModel.BlockRule, error) {
-	stringsJSON, err := json.Marshal(req.Strings)
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, commonModel.NewError(commonModel.CodeValidationError, "规则名称不能为空")
+	}
+	if len(name) > 64 {
+		return nil, commonModel.NewError(commonModel.CodeValidationError, "规则名称长度不能超过64")
+	}
+	category := strings.TrimSpace(req.Category)
+	if !validateRuleCategory(category) {
+		return nil, commonModel.NewError(commonModel.CodeValidationError, "无效的规则分类")
+	}
+	normalizedStrings := normalizeRuleStrings(req.Strings)
+	if len(normalizedStrings) == 0 {
+		return nil, commonModel.NewError(commonModel.CodeValidationError, "规则内容不能为空")
+	}
+
+	var existing firewallModel.BlockRule
+	if err := global.APP_DB.Where("name = ?", name).First(&existing).Error; err == nil {
+		return nil, commonModel.NewError(commonModel.CodeConflict, "规则名称已存在")
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	description := strings.TrimSpace(req.Description)
+	if len(description) > 512 {
+		return nil, commonModel.NewError(commonModel.CodeValidationError, "规则描述长度不能超过512")
+	}
+
+	stringsJSON, err := json.Marshal(normalizedStrings)
 	if err != nil {
 		return nil, fmt.Errorf("marshal strings: %w", err)
 	}
 	rule := &firewallModel.BlockRule{
-		Name:        req.Name,
-		Category:    req.Category,
-		Description: req.Description,
+		Name:        name,
+		Category:    category,
+		Description: description,
 		Strings:     string(stringsJSON),
 		Enabled:     req.Enabled,
 	}
@@ -137,13 +199,37 @@ func (s *Service) UpdateRule(id uint, req *firewallModel.UpdateBlockRuleRequest)
 		return nil, err
 	}
 	if req.Name != "" {
-		rule.Name = req.Name
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			return nil, commonModel.NewError(commonModel.CodeValidationError, "规则名称不能为空")
+		}
+		if len(name) > 64 {
+			return nil, commonModel.NewError(commonModel.CodeValidationError, "规则名称长度不能超过64")
+		}
+		var dupCount int64
+		if err := global.APP_DB.Model(&firewallModel.BlockRule{}).
+			Where("name = ? AND id <> ?", name, id).
+			Count(&dupCount).Error; err != nil {
+			return nil, err
+		}
+		if dupCount > 0 {
+			return nil, commonModel.NewError(commonModel.CodeConflict, "规则名称已存在")
+		}
+		rule.Name = name
 	}
 	if req.Description != "" {
-		rule.Description = req.Description
+		description := strings.TrimSpace(req.Description)
+		if len(description) > 512 {
+			return nil, commonModel.NewError(commonModel.CodeValidationError, "规则描述长度不能超过512")
+		}
+		rule.Description = description
 	}
 	if req.Strings != nil {
-		stringsJSON, err := json.Marshal(req.Strings)
+		normalizedStrings := normalizeRuleStrings(req.Strings)
+		if len(normalizedStrings) == 0 {
+			return nil, commonModel.NewError(commonModel.CodeValidationError, "规则内容不能为空")
+		}
+		stringsJSON, err := json.Marshal(normalizedStrings)
 		if err != nil {
 			return nil, fmt.Errorf("marshal strings: %w", err)
 		}

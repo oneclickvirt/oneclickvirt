@@ -37,7 +37,7 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 	if err == nil && strings.TrimSpace(output) == "found" {
 		ipv6NetworkName = "he-ipv6"
 		cmd := fmt.Sprintf("ip -6 addr show %s | grep -E \"%s/24|%s/48|%s/64|%s/80|%s/96|%s/112\" | grep global | awk '{print $2}'",
-			ipv6NetworkName, hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6)
+			shellSingleQuote(ipv6NetworkName), hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6)
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil {
 			ipNetworkGam = strings.TrimSpace(output)
@@ -52,7 +52,7 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		// 清理输出，移除所有空白字符和回车符
 		ipv6NetworkName = utils.CleanCommandOutput(output)
 
-		cmd = fmt.Sprintf("ip -6 addr show %s | grep global | awk '{print $2}' | head -n 1", ipv6NetworkName)
+		cmd = fmt.Sprintf("ip -6 addr show %s | grep global | awk '{print $2}' | head -n 1", shellSingleQuote(ipv6NetworkName))
 		output, err = l.sshClient.Execute(cmd)
 		if err == nil {
 			ipNetworkGam = strings.TrimSpace(output)
@@ -103,13 +103,13 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		zap.String("ipv6", containerIPv6))
 
 	// 停止容器
-	stopCmd := fmt.Sprintf("lxc stop %s", config.ContainerName)
+	stopCmd := fmt.Sprintf("lxc stop %s", shellSingleQuote(config.ContainerName))
 	l.sshClient.Execute(stopCmd)
 	time.Sleep(3 * time.Second)
 
 	// IPv6网络设备
 	deviceCmd := fmt.Sprintf("lxc config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s",
-		config.ContainerName, ipv6NetworkName, containerIPv6)
+		shellSingleQuote(config.ContainerName), shellSingleQuote(ipv6NetworkName), shellSingleQuote(containerIPv6))
 	_, err = l.sshClient.Execute(deviceCmd)
 	if err != nil {
 		return "", fmt.Errorf("添加IPv6网络设备失败: %w", err)
@@ -121,7 +121,7 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 	l.configureFirewallForIPv6(ctx, ipv6NetworkName)
 
 	// 启动容器
-	startCmd := fmt.Sprintf("lxc start %s", config.ContainerName)
+	startCmd := fmt.Sprintf("lxc start %s", shellSingleQuote(config.ContainerName))
 	_, err = l.sshClient.Execute(startCmd)
 	if err != nil {
 		return "", fmt.Errorf("启动容器失败: %w", err)
@@ -199,7 +199,7 @@ func (l *LXDProvider) configureFirewallForIPv6(ctx context.Context, interfaceNam
 	// 检查firewall-cmd是否可用
 	_, err := l.sshClient.Execute("command -v firewall-cmd")
 	if err == nil {
-		trustedCmd := fmt.Sprintf("firewall-cmd --permanent --zone=trusted --add-interface=%s", interfaceName)
+		trustedCmd := fmt.Sprintf("firewall-cmd --permanent --zone=trusted --add-interface=%s", shellSingleQuote(interfaceName))
 		l.sshClient.Execute(trustedCmd)
 		l.sshClient.Execute("firewall-cmd --reload")
 		return
@@ -208,8 +208,8 @@ func (l *LXDProvider) configureFirewallForIPv6(ctx context.Context, interfaceNam
 	// 检查ufw是否可用
 	_, err = l.sshClient.Execute("command -v ufw")
 	if err == nil {
-		allowInCmd := fmt.Sprintf("ufw allow in on %s", interfaceName)
-		allowOutCmd := fmt.Sprintf("ufw allow out on %s", interfaceName)
+		allowInCmd := fmt.Sprintf("ufw allow in on %s", shellSingleQuote(interfaceName))
+		allowOutCmd := fmt.Sprintf("ufw allow out on %s", shellSingleQuote(interfaceName))
 		l.sshClient.Execute(allowInCmd)
 		l.sshClient.Execute(allowOutCmd)
 		l.sshClient.Execute("ufw reload")

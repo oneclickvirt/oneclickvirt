@@ -260,7 +260,7 @@ func (i *IncusProvider) setupDeviceProxyMappingWithIP(instanceName string, hostP
 		// 创建TCP设备
 		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d", hostPort)
 		tcpCmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d connect=%s:0.0.0.0:%d nat=true",
-			instanceName, tcpDeviceName, "tcp", hostIP, hostPort, "tcp", guestPort)
+			shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote("tcp"), shellSingleQuote(hostIP), hostPort, shellSingleQuote("tcp"), guestPort)
 
 		_, err = i.sshClient.Execute(tcpCmd)
 		if err != nil {
@@ -270,7 +270,7 @@ func (i *IncusProvider) setupDeviceProxyMappingWithIP(instanceName string, hostP
 		// 创建UDP设备
 		udpDeviceName := fmt.Sprintf("proxy-udp-%d", hostPort)
 		udpCmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d connect=%s:0.0.0.0:%d nat=true",
-			instanceName, udpDeviceName, "udp", hostIP, hostPort, "udp", guestPort)
+			shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote("udp"), shellSingleQuote(hostIP), hostPort, shellSingleQuote("udp"), guestPort)
 
 		_, err = i.sshClient.Execute(udpCmd)
 		if err != nil {
@@ -287,7 +287,7 @@ func (i *IncusProvider) setupDeviceProxyMappingWithIP(instanceName string, hostP
 		// 单一协议
 		deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
 		cmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d connect=%s:0.0.0.0:%d nat=true",
-			instanceName, deviceName, strings.ToLower(protocol), hostIP, hostPort, strings.ToLower(protocol), guestPort)
+			shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(strings.ToLower(protocol)), shellSingleQuote(hostIP), hostPort, shellSingleQuote(strings.ToLower(protocol)), guestPort)
 
 		_, err = i.sshClient.Execute(cmd)
 		if err != nil {
@@ -458,7 +458,7 @@ func (i *IncusProvider) setupPortRangeMapping(instanceName string, startPort, en
 		// 创建TCP范围映射
 		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d-%d", startPort, endPort)
 		tcpCmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:0.0.0.0:%d-%d nat=true",
-			instanceName, tcpDeviceName, "tcp", hostIP, startPort, endPort, "tcp", startPort, endPort)
+			shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote("tcp"), shellSingleQuote(hostIP), startPort, endPort, shellSingleQuote("tcp"), startPort, endPort)
 
 		_, err = i.sshClient.Execute(tcpCmd)
 		if err != nil {
@@ -468,7 +468,7 @@ func (i *IncusProvider) setupPortRangeMapping(instanceName string, startPort, en
 		// 创建UDP范围映射
 		udpDeviceName := fmt.Sprintf("proxy-udp-%d-%d", startPort, endPort)
 		udpCmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:0.0.0.0:%d-%d nat=true",
-			instanceName, udpDeviceName, "udp", hostIP, startPort, endPort, "udp", startPort, endPort)
+			shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote("udp"), shellSingleQuote(hostIP), startPort, endPort, shellSingleQuote("udp"), startPort, endPort)
 
 		_, err = i.sshClient.Execute(udpCmd)
 		if err != nil {
@@ -485,7 +485,7 @@ func (i *IncusProvider) setupPortRangeMapping(instanceName string, startPort, en
 		// 单一协议
 		deviceName := fmt.Sprintf("proxy-%s-%d-%d", protocol, startPort, endPort)
 		cmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:0.0.0.0:%d-%d nat=true",
-			instanceName, deviceName, strings.ToLower(protocol), hostIP, startPort, endPort, strings.ToLower(protocol), startPort, endPort)
+			shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(strings.ToLower(protocol)), shellSingleQuote(hostIP), startPort, endPort, shellSingleQuote(strings.ToLower(protocol)), startPort, endPort)
 
 		_, err = i.sshClient.Execute(cmd)
 		if err != nil {
@@ -527,7 +527,7 @@ func (i *IncusProvider) removeDeviceProxyMapping(instanceName string, hostPort i
 	if protocol == "both" {
 		// 删除TCP设备
 		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d", hostPort)
-		tcpRemoveCmd := fmt.Sprintf("incus config device remove %s %s", instanceName, tcpDeviceName)
+		tcpRemoveCmd := fmt.Sprintf("incus config device remove %s %s", shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName))
 		_, err := i.sshClient.Execute(tcpRemoveCmd)
 		if err != nil {
 			global.APP_LOG.Warn("移除TCP proxy设备失败",
@@ -538,7 +538,7 @@ func (i *IncusProvider) removeDeviceProxyMapping(instanceName string, hostPort i
 
 		// 删除UDP设备
 		udpDeviceName := fmt.Sprintf("proxy-udp-%d", hostPort)
-		udpRemoveCmd := fmt.Sprintf("incus config device remove %s %s", instanceName, udpDeviceName)
+		udpRemoveCmd := fmt.Sprintf("incus config device remove %s %s", shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName))
 		_, err = i.sshClient.Execute(udpRemoveCmd)
 		if err != nil {
 			global.APP_LOG.Warn("移除UDP proxy设备失败",
@@ -553,7 +553,7 @@ func (i *IncusProvider) removeDeviceProxyMapping(instanceName string, hostPort i
 	} else {
 		// 单一协议
 		deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
-		removeCmd := fmt.Sprintf("incus config device remove %s %s", instanceName, deviceName)
+		removeCmd := fmt.Sprintf("incus config device remove %s %s", shellSingleQuote(instanceName), shellSingleQuote(deviceName))
 		_, err := i.sshClient.Execute(removeCmd)
 		if err != nil {
 			return fmt.Errorf("移除proxy设备失败: %w", err)

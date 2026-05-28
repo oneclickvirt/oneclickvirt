@@ -407,7 +407,14 @@ func (s *Service) validateProviderConcurrencyLimitInTx(tx *gorm.DB, providerID u
 		maxRunningTasks = 1 // 串行模式只允许1个运行中的任务
 	}
 
-	// pending任务可以排队，可无限制排队
+	// pending任务可以排队，可无限制排队；maxRunningTasks 由调度器根据节点容量动态控制，
+	// 此处不做硬拒绝，仅记录运行中任务数供调度参考。
+	if runningTaskCount >= int64(maxRunningTasks) {
+		global.APP_LOG.Warn("Provider运行中任务数已达上限，新任务将以pending状态排队",
+			zap.Uint("providerID", providerID),
+			zap.Int64("runningTasks", runningTaskCount),
+			zap.Int("maxRunningTasks", maxRunningTasks))
+	}
 
 	global.APP_LOG.Debug("事务内Provider并发验证通过",
 		zap.Uint("providerID", providerID),
@@ -450,7 +457,14 @@ func (s *Service) validateProviderConcurrencyLimit(providerID uint, maxConcurren
 		maxRunningTasks = 1 // 串行模式只允许1个运行中的任务
 	}
 
-	// pending任务可以排队，可无限制排队
+	// pending任务可以排队，可无限制排队；maxRunningTasks 由调度器根据节点容量动态控制，
+	// 此处不做硬拒绝，仅记录运行中任务数供调度参考。
+	if runningTaskCount >= int64(maxRunningTasks) {
+		global.APP_LOG.Warn("Provider运行中任务数已达上限，新任务将以pending状态排队",
+			zap.Uint("providerID", providerID),
+			zap.Int64("runningTasks", runningTaskCount),
+			zap.Int("maxRunningTasks", maxRunningTasks))
+	}
 
 	global.APP_LOG.Debug("Provider并发验证通过",
 		zap.Uint("providerID", providerID),

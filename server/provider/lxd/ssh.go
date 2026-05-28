@@ -219,7 +219,7 @@ func (l *LXDProvider) enrichInstancesWithIPAddresses(instances *[]provider.Insta
 }
 
 func (l *LXDProvider) instanceExists(name string) (bool, error) {
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc list %s --format csv", name))
+	output, err := l.sshClient.Execute(fmt.Sprintf("lxc list %s --format csv", shellSingleQuote(name)))
 	if err != nil {
 		return false, err
 	}
@@ -233,7 +233,7 @@ func (l *LXDProvider) validateCopyModeSource(config provider.InstanceConfig) err
 	if !utils.IsValidLXDInstanceName(config.CopySourceName) {
 		return fmt.Errorf("源容器名称格式无效: %s", config.CopySourceName)
 	}
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc list %s --format csv -c n,s,t", config.CopySourceName))
+	output, err := l.sshClient.Execute(fmt.Sprintf("lxc list %s --format csv -c n,s,t", shellSingleQuote(config.CopySourceName)))
 	if err != nil {
 		return fmt.Errorf("检查源容器失败: %w", err)
 	}
@@ -257,7 +257,7 @@ func (l *LXDProvider) validateCopyModeSource(config provider.InstanceConfig) err
 
 func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 	// 执行启动命令
-	_, err := l.sshClient.Execute(fmt.Sprintf("lxc start %s", id))
+	_, err := l.sshClient.Execute(fmt.Sprintf("lxc start %s", shellSingleQuote(id)))
 	if err != nil {
 		// 如果错误提示实例已在运行，不视为错误
 		if strings.Contains(err.Error(), "already running") ||
@@ -285,7 +285,7 @@ func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 		time.Sleep(checkInterval)
 
 		// 检查实例状态
-		statusOutput, err := l.sshClient.Execute(fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", id))
+		statusOutput, err := l.sshClient.Execute(fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(id)))
 		if err == nil {
 			status := strings.TrimSpace(statusOutput)
 			if status == "RUNNING" || status == "Running" {
@@ -305,7 +305,7 @@ func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 }
 
 func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {
-	_, err := l.sshClient.Execute(fmt.Sprintf("lxc stop %s", id))
+	_, err := l.sshClient.Execute(fmt.Sprintf("lxc stop %s", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to stop instance: %w", err)
 	}
@@ -315,7 +315,7 @@ func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {
 }
 
 func (l *LXDProvider) sshRestartInstance(ctx context.Context, id string) error {
-	_, err := l.sshClient.Execute(fmt.Sprintf("lxc restart %s", id))
+	_, err := l.sshClient.Execute(fmt.Sprintf("lxc restart %s", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to restart instance: %w", err)
 	}
@@ -325,7 +325,7 @@ func (l *LXDProvider) sshRestartInstance(ctx context.Context, id string) error {
 }
 
 func (l *LXDProvider) sshDeleteInstance(ctx context.Context, id string) error {
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc delete %s --force", id))
+	output, err := l.sshClient.Execute(fmt.Sprintf("lxc delete %s --force", shellSingleQuote(id)))
 	if err != nil {
 		// 检查是否是实例不存在的错误
 		if strings.Contains(output, "Instance not found") || strings.Contains(output, "not found") {
@@ -371,7 +371,7 @@ func (l *LXDProvider) sshListImages(ctx context.Context) ([]provider.Image, erro
 }
 
 func (l *LXDProvider) sshPullImage(ctx context.Context, image string) error {
-	_, err := l.sshClient.Execute(fmt.Sprintf("lxc image copy images:%s local:", image))
+	_, err := l.sshClient.Execute(fmt.Sprintf("lxc image copy %s local:", shellSingleQuote("images:"+image)))
 	if err != nil {
 		return fmt.Errorf("failed to pull image: %w", err)
 	}
@@ -381,7 +381,7 @@ func (l *LXDProvider) sshPullImage(ctx context.Context, image string) error {
 }
 
 func (l *LXDProvider) sshDeleteImage(ctx context.Context, id string) error {
-	_, err := l.sshClient.Execute(fmt.Sprintf("lxc image delete %s", id))
+	_, err := l.sshClient.Execute(fmt.Sprintf("lxc image delete %s", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to delete image: %w", err)
 	}
@@ -392,8 +392,11 @@ func (l *LXDProvider) sshDeleteImage(ctx context.Context, id string) error {
 
 // sshSetInstancePassword 通过SSH设置实例密码
 func (l *LXDProvider) sshSetInstancePassword(ctx context.Context, instanceID, password string) error {
-	// 首先尝试简单的状态检查命令
-	simpleCheckCmd := fmt.Sprintf("lxc list | grep %s", instanceID)
+	// 精确匹配实例名并读取状态，避免 grep 模式注入与误匹配
+	simpleCheckCmd := fmt.Sprintf(
+		"lxc list --format csv -c n,s | awk -F, -v n=%s '$1==n {print $2}'",
+		shellSingleQuote(instanceID),
+	)
 	output, err := l.sshClient.Execute(simpleCheckCmd)
 	if err != nil {
 		global.APP_LOG.Error("检查LXD实例状态失败",
@@ -402,19 +405,21 @@ func (l *LXDProvider) sshSetInstancePassword(ctx context.Context, instanceID, pa
 		return fmt.Errorf("检查实例状态失败: %w", err)
 	}
 
+	status := strings.TrimSpace(output)
+
 	// 检查实例是否存在且运行
-	if !strings.Contains(output, instanceID) {
+	if status == "" {
 		return fmt.Errorf("实例 %s 不存在", instanceID)
 	}
 
-	if !strings.Contains(output, "RUNNING") {
+	if !strings.EqualFold(status, "RUNNING") {
 		return fmt.Errorf("实例 %s 未运行，无法设置密码", instanceID)
 	}
 
 	// 使用临时脚本设置密码（支持超时回退），避免 agent 模式下 WebSocket 连接中断
 	script := utils.BuildTempScript(utils.TempScriptConfig{
-		PrimaryCmd:     fmt.Sprintf("lxc exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", instanceID, password),
-		FallbackCmd:    fmt.Sprintf("echo 'root:%s' | lxc exec %s -- chpasswd", password, instanceID),
+		PrimaryCmd:     buildLXDChpasswdCommand(instanceID, password),
+		FallbackCmd:    buildLXDChpasswdCommand(instanceID, password),
 		TimeoutSeconds: 30,
 	})
 	_, err = l.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)

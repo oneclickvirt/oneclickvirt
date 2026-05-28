@@ -168,6 +168,11 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 	updateProgress(10, "开始创建Docker实例...")
 
+	// 预检：确保容器运行时 CLI 可用，避免后续命令以 127 失败且错误不明确
+	if _, err := d.sshClient.Execute(fmt.Sprintf("command -v %s >/dev/null 2>&1", d.runtime.CLI)); err != nil {
+		return fmt.Errorf("%s 命令不可用，请确认 provider 节点已安装并在 PATH 中: %w", d.runtime.CLI, err)
+	}
+
 	global.APP_LOG.Debug("开始创建Docker实例",
 		zap.String("instance", config.Name),
 		zap.String("image", config.Image),
@@ -365,9 +370,9 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			diskSize := strings.ToLower(config.Disk)
 			var finalDiskSize string
 
-			if strings.HasSuffix(diskSize, "mb") {
+			if strings.HasSuffix(diskSize, "mb") || strings.HasSuffix(diskSize, "m") {
 				// 如果是MB单位，需要转换为GB（Docker storage-opt一般使用GB）
-				mbValue := strings.TrimSuffix(diskSize, "mb")
+				mbValue := strings.TrimSuffix(strings.TrimSuffix(diskSize, "mb"), "m")
 				if mb, err := strconv.Atoi(mbValue); err == nil {
 					// 转换MB到GB，向上取整
 					gb := (mb + 1023) / 1024 // 向上取整

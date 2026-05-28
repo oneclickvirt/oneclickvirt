@@ -94,17 +94,17 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 		if config.InstanceType == "vm" {
 			if strings.HasSuffix(imagePath, ".zip") {
 				extractDir := strings.TrimSuffix(imagePath, ".zip")
-				if _, err := l.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", imagePath, extractDir)); err != nil {
+				if _, err := l.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", shellSingleQuote(imagePath), shellSingleQuote(extractDir))); err != nil {
 					return nil, fmt.Errorf("解压LXD虚拟机镜像失败: %w", err)
 				}
 				var importCmd string
-				findCmd := fmt.Sprintf("find %s -name '*.img' -o -name '*.qcow2' -o -name '*.vmdk' | head -1", extractDir)
+				findCmd := fmt.Sprintf("find %s -name '*.img' -o -name '*.qcow2' -o -name '*.vmdk' | head -1", shellSingleQuote(extractDir))
 				vmImagePath, err := l.sshClient.Execute(findCmd)
 				if err != nil || strings.TrimSpace(vmImagePath) == "" {
-					findCmd = fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
+					findCmd = fmt.Sprintf("find %s -name '*.tar.xz' | head -1", shellSingleQuote(extractDir))
 					vmImagePath, err = l.sshClient.Execute(findCmd)
 					if err != nil || utils.CleanCommandOutput(vmImagePath) == "" {
-						l.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir))
+						l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 						return nil, fmt.Errorf("未找到解压后的LXD虚拟机镜像文件")
 					}
 				}
@@ -112,39 +112,39 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 				lxdTarPath := fmt.Sprintf("%s/lxd.tar.xz", extractDir)
 				diskPath := fmt.Sprintf("%s/disk.qcow2", extractDir)
 				if l.isRemoteFileValid(lxdTarPath) && l.isRemoteFileValid(diskPath) {
-					importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", lxdTarPath, diskPath, aliasKey)
+					importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(lxdTarPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
 				} else {
-					importCmd = fmt.Sprintf("lxc image import %s --alias %s --vm", vmImagePath, aliasKey)
+					importCmd = fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
 				}
 				_, importErr = l.sshClient.Execute(importCmd)
-				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir)) // 显式清理，避免 defer 被并发协程复用
+				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir))) // 显式清理，避免 defer 被并发协程复用
 			} else {
-				_, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s --vm", imagePath, aliasKey))
+				_, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
 			}
 		} else {
 			if strings.HasSuffix(imagePath, ".zip") {
 				extractDir := strings.TrimSuffix(imagePath, ".zip")
-				if _, err := l.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", imagePath, extractDir)); err != nil {
+				if _, err := l.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", shellSingleQuote(imagePath), shellSingleQuote(extractDir))); err != nil {
 					return nil, fmt.Errorf("解压LXD容器镜像失败: %w", err)
 				}
 				var importCmd string
 				lxdTarPath := fmt.Sprintf("%s/lxd.tar.xz", extractDir)
 				rootfsPath := fmt.Sprintf("%s/rootfs.squashfs", extractDir)
 				if l.isRemoteFileValid(lxdTarPath) && l.isRemoteFileValid(rootfsPath) {
-					importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", lxdTarPath, rootfsPath, aliasKey)
+					importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(lxdTarPath), shellSingleQuote(rootfsPath), shellSingleQuote(aliasKey))
 				} else {
-					findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
+					findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", shellSingleQuote(extractDir))
 					tarPath, err := l.sshClient.Execute(findCmd)
 					if err != nil || utils.CleanCommandOutput(tarPath) == "" {
-						l.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir))
+						l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 						return nil, fmt.Errorf("未找到解压后的LXD容器镜像文件")
 					}
-					importCmd = fmt.Sprintf("lxc image import %s --alias %s", utils.CleanCommandOutput(tarPath), aliasKey)
+					importCmd = fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(utils.CleanCommandOutput(tarPath)), shellSingleQuote(aliasKey))
 				}
 				_, importErr = l.sshClient.Execute(importCmd)
-				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir)) // 显式清理，避免 defer 被并发协程复用
+				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir))) // 显式清理，避免 defer 被并发协程复用
 			} else {
-				_, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s", imagePath, aliasKey))
+				_, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
 			}
 		}
 
@@ -240,7 +240,7 @@ func (l *LXDProvider) generateImageAlias(imageURL, imageName, architecture strin
 
 // imageExists 检查镜像是否已存在
 func (l *LXDProvider) imageExists(alias string) bool {
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc image list %s --format csv", alias))
+	output, err := l.sshClient.Execute(fmt.Sprintf("lxc image list %s --format csv", shellSingleQuote(alias)))
 	if err != nil {
 		return false
 	}
@@ -258,7 +258,7 @@ func (l *LXDProvider) downloadImageToRemote(imageURL, imageName, providerCountry
 	}
 
 	// 在远程服务器上创建下载目录
-	cmd := fmt.Sprintf("mkdir -p %s", downloadDir)
+	cmd := fmt.Sprintf("mkdir -p %s", shellSingleQuote(downloadDir))
 	_, err := l.sshClient.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("创建远程下载目录失败: %w", err)
@@ -348,14 +348,14 @@ func (l *LXDProvider) generateRemoteFileName(imageName, imageURL, architecture, 
 // isRemoteFileValid 检查远程文件是否有效
 func (l *LXDProvider) isRemoteFileValid(remotePath string) bool {
 	// 检查文件是否存在且大小大于0
-	cmd := fmt.Sprintf("test -f %s -a -s %s", remotePath, remotePath)
+	cmd := fmt.Sprintf("test -f %s -a -s %s", shellSingleQuote(remotePath), shellSingleQuote(remotePath))
 	_, err := l.sshClient.Execute(cmd)
 	return err == nil
 }
 
 // removeRemoteFile 删除远程文件
 func (l *LXDProvider) removeRemoteFile(remotePath string) error {
-	cmd := fmt.Sprintf("rm -f %s", remotePath)
+	cmd := fmt.Sprintf("rm -f %s", shellSingleQuote(remotePath))
 	_, err := l.sshClient.Execute(cmd)
 	return err
 }
@@ -368,8 +368,8 @@ func (l *LXDProvider) downloadFileToRemote(url, remotePath string) error {
 
 	// 下载文件，支持断点续传
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
-		tmpPath, url,
+		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
+		shellSingleQuote(tmpPath), shellSingleQuote(url),
 	)
 
 	global.APP_LOG.Debug("执行远程下载命令",
@@ -378,7 +378,7 @@ func (l *LXDProvider) downloadFileToRemote(url, remotePath string) error {
 	output, err := l.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
 	if err != nil {
 		// 清理临时文件
-		l.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+		l.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
@@ -389,7 +389,7 @@ func (l *LXDProvider) downloadFileToRemote(url, remotePath string) error {
 	}
 
 	// 移动文件到最终位置
-	mvCmd := fmt.Sprintf("mv %s %s", tmpPath, remotePath)
+	mvCmd := fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))
 	_, err = l.sshClient.Execute(mvCmd)
 	if err != nil {
 		global.APP_LOG.Error("移动文件失败",
@@ -459,7 +459,7 @@ func (l *LXDProvider) ensureSSHScriptsAvailable(providerCountry string) error {
 		}
 
 		// 设置执行权限
-		chmodCmd := fmt.Sprintf("chmod +x %s", scriptPath)
+		chmodCmd := fmt.Sprintf("chmod +x %s", shellSingleQuote(scriptPath))
 		if _, err := l.sshClient.Execute(chmodCmd); err != nil {
 			global.APP_LOG.Error("设置SSH脚本执行权限失败",
 				zap.String("script", script),
@@ -468,7 +468,7 @@ func (l *LXDProvider) ensureSSHScriptsAvailable(providerCountry string) error {
 		}
 
 		// 使用dos2unix处理脚本格式（如果可用）
-		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", scriptPath)
+		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", shellSingleQuote(scriptPath))
 		l.sshClient.Execute(dos2unixCmd)
 
 		global.APP_LOG.Debug("SSH脚本下载并设置完成",
@@ -486,7 +486,7 @@ func (l *LXDProvider) getSSHScriptDownloadURL(originalURL, providerCountry strin
 	if providerCountry == "CN" || providerCountry == "cn" {
 		if cdnURL := l.getSSHScriptCDNURL(originalURL); cdnURL != "" {
 			// 测试CDN可用性
-			testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
+			testCmd := fmt.Sprintf("curl -s -I --max-time 5 %s | head -n 1 | grep -q '200'", shellSingleQuote(cdnURL))
 			if _, err := l.sshClient.Execute(testCmd); err == nil {
 				global.APP_LOG.Debug("使用CDN下载SSH脚本",
 					zap.String("cdnURL", cdnURL))
@@ -507,7 +507,7 @@ func (l *LXDProvider) getSSHScriptCDNURL(originalURL string) string {
 	for _, endpoint := range cdnEndpoints {
 		cdnURL := endpoint + originalURL
 		// 测试CDN可用性
-		testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
+		testCmd := fmt.Sprintf("curl -s -I --max-time 5 %s | head -n 1 | grep -q '200'", shellSingleQuote(cdnURL))
 		if _, err := l.sshClient.Execute(testCmd); err == nil {
 			return cdnURL
 		}

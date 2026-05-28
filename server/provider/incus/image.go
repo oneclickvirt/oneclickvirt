@@ -94,17 +94,17 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 		if config.InstanceType == "vm" {
 			if strings.HasSuffix(imagePath, ".zip") {
 				extractDir := strings.TrimSuffix(imagePath, ".zip")
-				if _, err := i.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", imagePath, extractDir)); err != nil {
+				if _, err := i.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", shellSingleQuote(imagePath), shellSingleQuote(extractDir))); err != nil {
 					return nil, fmt.Errorf("解压Incus虚拟机镜像失败: %w", err)
 				}
 				var importCmd string
-				findCmd := fmt.Sprintf("find %s -name '*.img' -o -name '*.qcow2' -o -name '*.vmdk' | head -1", extractDir)
+				findCmd := fmt.Sprintf("find %s -name '*.img' -o -name '*.qcow2' -o -name '*.vmdk' | head -1", shellSingleQuote(extractDir))
 				vmImagePath, err := i.sshClient.Execute(findCmd)
 				if err != nil || strings.TrimSpace(vmImagePath) == "" {
-					findCmd = fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
+					findCmd = fmt.Sprintf("find %s -name '*.tar.xz' | head -1", shellSingleQuote(extractDir))
 					vmImagePath, err = i.sshClient.Execute(findCmd)
 					if err != nil || utils.CleanCommandOutput(vmImagePath) == "" {
-						i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir))
+						i.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 						return nil, fmt.Errorf("未找到解压后的Incus虚拟机镜像文件")
 					}
 				}
@@ -112,39 +112,39 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 				incusTarPath := fmt.Sprintf("%s/incus.tar.xz", extractDir)
 				diskPath := fmt.Sprintf("%s/disk.qcow2", extractDir)
 				if i.isRemoteFileValid(incusTarPath) && i.isRemoteFileValid(diskPath) {
-					importCmd = fmt.Sprintf("incus image import %s %s --alias %s", incusTarPath, diskPath, aliasKey)
+					importCmd = fmt.Sprintf("incus image import %s %s --alias %s", shellSingleQuote(incusTarPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
 				} else {
-					importCmd = fmt.Sprintf("incus image import %s --alias %s --vm", vmImagePath, aliasKey)
+					importCmd = fmt.Sprintf("incus image import %s --alias %s --vm", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
 				}
 				_, importErr = i.sshClient.Execute(importCmd)
-				i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir)) // 显式清理，避免 defer 被并发协程复用
+				i.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir))) // 显式清理，避免 defer 被并发协程复用
 			} else {
-				_, importErr = i.sshClient.Execute(fmt.Sprintf("incus image import %s --alias %s --vm", imagePath, aliasKey))
+				_, importErr = i.sshClient.Execute(fmt.Sprintf("incus image import %s --alias %s --vm", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
 			}
 		} else {
 			if strings.HasSuffix(imagePath, ".zip") {
 				extractDir := strings.TrimSuffix(imagePath, ".zip")
-				if _, err := i.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", imagePath, extractDir)); err != nil {
+				if _, err := i.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", shellSingleQuote(imagePath), shellSingleQuote(extractDir))); err != nil {
 					return nil, fmt.Errorf("解压Incus容器镜像失败: %w", err)
 				}
 				var importCmd string
 				incusTarPath := fmt.Sprintf("%s/incus.tar.xz", extractDir)
 				rootfsPath := fmt.Sprintf("%s/rootfs.squashfs", extractDir)
 				if i.isRemoteFileValid(incusTarPath) && i.isRemoteFileValid(rootfsPath) {
-					importCmd = fmt.Sprintf("incus image import %s %s --alias %s", incusTarPath, rootfsPath, aliasKey)
+					importCmd = fmt.Sprintf("incus image import %s %s --alias %s", shellSingleQuote(incusTarPath), shellSingleQuote(rootfsPath), shellSingleQuote(aliasKey))
 				} else {
-					findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
+					findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", shellSingleQuote(extractDir))
 					tarPath, err := i.sshClient.Execute(findCmd)
 					if err != nil || utils.CleanCommandOutput(tarPath) == "" {
-						i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir))
+						i.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 						return nil, fmt.Errorf("未找到解压后的Incus容器镜像文件")
 					}
-					importCmd = fmt.Sprintf("incus image import %s --alias %s", utils.CleanCommandOutput(tarPath), aliasKey)
+					importCmd = fmt.Sprintf("incus image import %s --alias %s", shellSingleQuote(utils.CleanCommandOutput(tarPath)), shellSingleQuote(aliasKey))
 				}
 				_, importErr = i.sshClient.Execute(importCmd)
-				i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir)) // 显式清理，避免 defer 被并发协程复用
+				i.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir))) // 显式清理，避免 defer 被并发协程复用
 			} else {
-				_, importErr = i.sshClient.Execute(fmt.Sprintf("incus image import %s --alias %s", imagePath, aliasKey))
+				_, importErr = i.sshClient.Execute(fmt.Sprintf("incus image import %s --alias %s", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
 			}
 		}
 
@@ -240,7 +240,7 @@ func (i *IncusProvider) generateImageAlias(imageURL, imageName, architecture str
 
 // imageExists 检查镜像是否已存在
 func (i *IncusProvider) imageExists(alias string) bool {
-	output, err := i.sshClient.Execute(fmt.Sprintf("incus image list %s --format csv", alias))
+	output, err := i.sshClient.Execute(fmt.Sprintf("incus image list %s --format csv", shellSingleQuote(alias)))
 	if err != nil {
 		return false
 	}
@@ -250,7 +250,7 @@ func (i *IncusProvider) imageExists(alias string) bool {
 // isRemoteFileValid 检查远程文件是否存在
 func (i *IncusProvider) isRemoteFileValid(remotePath string) bool {
 	// 检查文件是否存在且大小大于 0
-	output, err := i.sshClient.Execute(fmt.Sprintf("test -f %s -a -s %s && echo 'exists'", remotePath, remotePath))
+	output, err := i.sshClient.Execute(fmt.Sprintf("test -f %s -a -s %s && echo 'exists'", shellSingleQuote(remotePath), shellSingleQuote(remotePath)))
 	if err != nil || strings.TrimSpace(output) != "exists" {
 		return false
 	}
@@ -268,7 +268,7 @@ func (i *IncusProvider) downloadImageToRemote(imageURL, imageName, architecture,
 	}
 
 	// 在远程服务器上创建下载目录
-	cmd := fmt.Sprintf("mkdir -p %s", downloadDir)
+	cmd := fmt.Sprintf("mkdir -p %s", shellSingleQuote(downloadDir))
 	_, err := i.sshClient.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("创建远程下载目录失败: %w", err)
@@ -287,7 +287,7 @@ func (i *IncusProvider) downloadImageToRemote(imageURL, imageName, architecture,
 	}
 
 	// 如果文件存在但无效，先删除它
-	i.sshClient.Execute(fmt.Sprintf("test -f %s && rm -f %s || true", remotePath, remotePath))
+	i.sshClient.Execute(fmt.Sprintf("test -f %s && rm -f %s || true", shellSingleQuote(remotePath), shellSingleQuote(remotePath)))
 
 	// 确定下载URL，传递 useCDN 参数
 	downloadURL := i.getDownloadURL(imageURL, useCDN)
@@ -333,7 +333,7 @@ func (i *IncusProvider) generateRemoteFileName(imageName, imageURL, architecture
 
 // removeRemoteFile 删除远程文件
 func (i *IncusProvider) removeRemoteFile(remotePath string) error {
-	cmd := fmt.Sprintf("rm -f %s", remotePath)
+	cmd := fmt.Sprintf("rm -f %s", shellSingleQuote(remotePath))
 	_, err := i.sshClient.Execute(cmd)
 	return err
 }
@@ -345,8 +345,8 @@ func (i *IncusProvider) downloadFileToRemote(url, remotePath string) error {
 
 	// 下载文件，支持断点续传
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
-		tmpPath, url,
+		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
+		shellSingleQuote(tmpPath), shellSingleQuote(url),
 	)
 
 	global.APP_LOG.Debug("执行远程下载命令",
@@ -355,7 +355,7 @@ func (i *IncusProvider) downloadFileToRemote(url, remotePath string) error {
 	output, err := i.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
 	if err != nil {
 		// 清理临时文件
-		i.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+		i.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
@@ -366,7 +366,7 @@ func (i *IncusProvider) downloadFileToRemote(url, remotePath string) error {
 	}
 
 	// 移动文件到最终位置
-	mvCmd := fmt.Sprintf("mv %s %s", tmpPath, remotePath)
+	mvCmd := fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))
 	_, err = i.sshClient.Execute(mvCmd)
 	if err != nil {
 		global.APP_LOG.Error("移动文件失败",

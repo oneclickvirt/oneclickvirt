@@ -37,7 +37,7 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	if err == nil && strings.TrimSpace(output) == "found" {
 		ipv6NetworkName = "he-ipv6"
 		cmd := fmt.Sprintf("ip -6 addr show %s | grep -E \"%s/24|%s/48|%s/64|%s/80|%s/96|%s/112\" | grep global | awk '{print $2}'",
-			ipv6NetworkName, hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6)
+			shellSingleQuote(ipv6NetworkName), hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6)
 		output, err := i.sshClient.Execute(cmd)
 		if err == nil {
 			ipNetworkGam = strings.TrimSpace(output)
@@ -52,7 +52,7 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 		// 清理输出，移除所有空白字符和回车符
 		ipv6NetworkName = utils.CleanCommandOutput(output)
 
-		cmd = fmt.Sprintf("ip -6 addr show %s | grep global | awk '{print $2}' | head -n 1", ipv6NetworkName)
+		cmd = fmt.Sprintf("ip -6 addr show %s | grep global | awk '{print $2}' | head -n 1", shellSingleQuote(ipv6NetworkName))
 		output, err = i.sshClient.Execute(cmd)
 		if err == nil {
 			ipNetworkGam = strings.TrimSpace(output)
@@ -103,13 +103,13 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 		zap.String("ipv6", containerIPv6))
 
 	// 停止容器
-	stopCmd := fmt.Sprintf("incus stop %s", config.ContainerName)
+	stopCmd := fmt.Sprintf("incus stop %s", shellSingleQuote(config.ContainerName))
 	i.sshClient.Execute(stopCmd)
 	time.Sleep(3 * time.Second)
 
 	// IPv6网络设备
 	deviceCmd := fmt.Sprintf("incus config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s",
-		config.ContainerName, ipv6NetworkName, containerIPv6)
+		shellSingleQuote(config.ContainerName), shellSingleQuote(ipv6NetworkName), shellSingleQuote(containerIPv6))
 	_, err = i.sshClient.Execute(deviceCmd)
 	if err != nil {
 		return "", fmt.Errorf("添加IPv6网络设备失败: %w", err)
@@ -121,7 +121,7 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	i.configureFirewallForIPv6(ctx, ipv6NetworkName)
 
 	// 启动容器
-	startCmd := fmt.Sprintf("incus start %s", config.ContainerName)
+	startCmd := fmt.Sprintf("incus start %s", shellSingleQuote(config.ContainerName))
 	_, err = i.sshClient.Execute(startCmd)
 	if err != nil {
 		return "", fmt.Errorf("启动容器失败: %w", err)
@@ -198,12 +198,12 @@ func (i *IncusProvider) updateSysctl(ctx context.Context, sysctlConfig string) e
 func (i *IncusProvider) configureFirewallForIPv6(ctx context.Context, interfaceName string) {
 	// 检查防火墙类型并配置
 	if i.hasFirewalld() {
-		trustedCmd := fmt.Sprintf("firewall-cmd --permanent --zone=trusted --add-interface=%s", interfaceName)
+		trustedCmd := fmt.Sprintf("firewall-cmd --permanent --zone=trusted --add-interface=%s", shellSingleQuote(interfaceName))
 		i.sshClient.Execute(trustedCmd)
 		i.sshClient.Execute("firewall-cmd --reload")
 	} else if i.hasUfw() {
-		allowInCmd := fmt.Sprintf("ufw allow in on %s", interfaceName)
-		allowOutCmd := fmt.Sprintf("ufw allow out on %s", interfaceName)
+		allowInCmd := fmt.Sprintf("ufw allow in on %s", shellSingleQuote(interfaceName))
+		allowOutCmd := fmt.Sprintf("ufw allow out on %s", shellSingleQuote(interfaceName))
 		i.sshClient.Execute(allowInCmd)
 		i.sshClient.Execute(allowOutCmd)
 		i.sshClient.Execute("ufw reload")

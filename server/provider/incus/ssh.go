@@ -198,6 +198,11 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		hostname = utils.CleanCommandOutput(output)
 	}
 
+	// 预检：确保Incus CLI可用，避免后续命令以 127 失败且错误不明确
+	if _, err := i.sshClient.Execute("command -v incus >/dev/null 2>&1"); err != nil {
+		return fmt.Errorf("Incus命令不可用，请确认provider节点已安装incus并在PATH中: %w", err)
+	}
+
 	global.APP_LOG.Debug("开始在Incus节点上创建实例（使用SSH）",
 		zap.String("hostname", hostname),
 		zap.String("host", utils.TruncateString(i.config.Host, 32)),
@@ -242,7 +247,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		}
 		// 复制模式：跳过镜像下载，直接复制源容器
 		updateProgress(30, "复制源容器...")
-		copyCmd := fmt.Sprintf("incus copy %s %s", config.CopySourceName, config.Name)
+		copyCmd := fmt.Sprintf("incus copy %s %s", shellSingleQuote(config.CopySourceName), shellSingleQuote(config.Name))
 		global.APP_LOG.Debug("执行Incus容器复制命令", zap.String("command", copyCmd))
 		if _, err := i.sshClient.Execute(copyCmd); err != nil {
 			return fmt.Errorf("复制容器失败: %w", err)
@@ -297,7 +302,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	updateProgress(50, "启动实例...")
 	// 启动实例
 	time.Sleep(6 * time.Second)
-	_, err = i.sshClient.Execute(fmt.Sprintf("incus start %s", config.Name))
+	_, err = i.sshClient.Execute(fmt.Sprintf("incus start %s", shellSingleQuote(config.Name)))
 	if err != nil {
 		return fmt.Errorf("启动实例失败: %w", err)
 	}
@@ -485,7 +490,7 @@ func (i *IncusProvider) validateCopyModeSource(config provider.InstanceConfig) e
 	if !utils.IsValidLXDInstanceName(config.CopySourceName) {
 		return fmt.Errorf("源容器名称格式无效: %s", config.CopySourceName)
 	}
-	output, err := i.sshClient.Execute(fmt.Sprintf("incus list %s --format csv -c n,s,t", config.CopySourceName))
+	output, err := i.sshClient.Execute(fmt.Sprintf("incus list %s --format csv -c n,s,t", shellSingleQuote(config.CopySourceName)))
 	if err != nil {
 		return fmt.Errorf("检查源容器失败: %w", err)
 	}

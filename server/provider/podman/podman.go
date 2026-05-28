@@ -301,7 +301,7 @@ func (p *PodmanProvider) DeleteInstance(ctx context.Context, id string) error {
 			global.APP_LOG.Warn("Podman Provider未连接，尝试重连",
 				zap.String("id", utils.TruncateString(id, 32)),
 				zap.Int("attempt", attempt))
-			if err := p.Connect(ctx, p.config); err != nil {
+			if err := p.EnsureConnection(); err != nil {
 				if attempt == maxReconnectAttempts {
 					return fmt.Errorf("重连失败，已达最大重试次数: %w", err)
 				}

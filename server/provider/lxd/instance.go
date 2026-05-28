@@ -30,7 +30,7 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 	if config.Disk != "" {
 		diskFormatted := convertDiskFormat(config.Disk)
 		// 注意：这里设置的是 limits.max 而不是 size（size已在创建时设置）
-		setMaxCmd := fmt.Sprintf("lxc config device set %s root limits.max %s", config.Name, diskFormatted)
+		setMaxCmd := fmt.Sprintf("lxc config device set %s root limits.max %s", shellSingleQuote(config.Name), shellSingleQuote(diskFormatted))
 		if client == nil {
 			global.APP_LOG.Warn("SSH client不可用，跳过设置磁盘limits.max",
 				zap.String("instance", config.Name))
@@ -51,11 +51,11 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 	if config.InstanceType != "vm" {
 		if client != nil && config.CopyMode {
 			// 检查容器是否有显式root设备
-			checkCmd := fmt.Sprintf("lxc config device list %s", config.Name)
+			checkCmd := fmt.Sprintf("lxc config device list %s", shellSingleQuote(config.Name))
 			output, err := client.Execute(checkCmd)
 			if err != nil || !strings.Contains(output, "root") {
 				// root设备继承自profile，无法直接 device set；先 add 一个显式root设备
-				addRootCmd := fmt.Sprintf("lxc config device add %s root disk path=/ pool=default", config.Name)
+				addRootCmd := fmt.Sprintf("lxc config device add %s root disk path=/ pool=default", shellSingleQuote(config.Name))
 				if _, addErr := client.Execute(addRootCmd); addErr != nil {
 					global.APP_LOG.Warn("copy模式下添加显式root设备失败，跳过IO限制设置",
 						zap.String("instance", config.Name),
@@ -103,7 +103,7 @@ func (l *LXDProvider) configureInstanceGPU(ctx context.Context, config provider.
 	ids := strings.Split(config.GpuDeviceIds, ",")
 	if config.GpuDeviceIds == "" {
 		// 附加所有GPU（不指定ID）
-		cmd := fmt.Sprintf("lxc config device add %s gpu gpu", config.Name)
+		cmd := fmt.Sprintf("lxc config device add %s gpu gpu", shellSingleQuote(config.Name))
 		if _, err := l.sshClient.Execute(cmd); err != nil {
 			return fmt.Errorf("附加GPU设备失败: %w", err)
 		}
@@ -115,7 +115,7 @@ func (l *LXDProvider) configureInstanceGPU(ctx context.Context, config provider.
 				continue
 			}
 			deviceName := fmt.Sprintf("gpu%d", i)
-			cmd := fmt.Sprintf("lxc config device add %s %s gpu id=%s", config.Name, deviceName, id)
+			cmd := fmt.Sprintf("lxc config device add %s %s gpu id=%s", shellSingleQuote(config.Name), shellSingleQuote(deviceName), shellSingleQuote(id))
 			if _, err := l.sshClient.Execute(cmd); err != nil {
 				global.APP_LOG.Warn("附加GPU设备失败，跳过该设备",
 					zap.String("instance", config.Name),
@@ -192,7 +192,7 @@ func (l *LXDProvider) setInstanceConfig(ctx context.Context, instanceName string
 	}
 
 	// SSH方式设置配置
-	cmd := fmt.Sprintf("lxc config set %s %s %s", instanceName, key, value)
+	cmd := fmt.Sprintf("lxc config set %s %s %s", shellSingleQuote(instanceName), shellSingleQuote(key), shellSingleQuote(value))
 	l.mu.RLock()
 	client := l.sshClient
 	l.mu.RUnlock()
@@ -242,7 +242,7 @@ func (l *LXDProvider) setInstanceDeviceConfig(ctx context.Context, instanceName 
 	}
 
 	// SSH方式设置设备配置
-	cmd := fmt.Sprintf("lxc config device set %s %s %s %s", instanceName, deviceName, key, value)
+	cmd := fmt.Sprintf("lxc config device set %s %s %s %s", shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(key), shellSingleQuote(value))
 	l.mu.RLock()
 	client := l.sshClient
 	l.mu.RUnlock()
@@ -280,7 +280,7 @@ func (l *LXDProvider) waitForInstanceReady(ctx context.Context, instanceName str
 		}
 
 		// 检查实例状态
-		cmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", instanceName)
+		cmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
 		output, err := l.sshClient.Execute(cmd)
 		if err != nil {
 			global.APP_LOG.Debug("获取实例状态失败",
@@ -382,7 +382,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 	// 根据系统类型选择脚本
 	var scriptName string
 	// 检测系统类型（轻量级命令，直接执行即可）
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc exec %s -- cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", config.Name))
+	output, err := l.sshClient.Execute(fmt.Sprintf("lxc exec %s -- cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", shellSingleQuote(config.Name)))
 	if err == nil {
 		osType := strings.TrimSpace(strings.ToLower(output))
 		if osType == "alpine" || osType == "openwrt" {
@@ -404,7 +404,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 	} else {
 		time.Sleep(3 * time.Second)
 		// 复制脚本到实例（宿主机文件操作，直接执行即可）
-		copyCmd := fmt.Sprintf("lxc file push %s %s/root/", scriptPath, config.Name)
+		copyCmd := fmt.Sprintf("lxc file push %s %s/root/", shellSingleQuote(scriptPath), shellSingleQuote(config.Name))
 		_, err = l.sshClient.Execute(copyCmd)
 		if err != nil {
 			global.APP_LOG.Warn("复制SSH脚本到实例失败，仅设置密码", zap.Error(err))
@@ -413,7 +413,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 			sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
 				PrimaryCmd: fmt.Sprintf(
 					"lxc exec %s -- chmod +x /root/%s && lxc exec %s -- /root/%s %s",
-					config.Name, scriptName, config.Name, scriptName, password,
+					shellSingleQuote(config.Name), scriptName, shellSingleQuote(config.Name), scriptName, shellSingleQuote(password),
 				),
 				TimeoutSeconds: 60,
 				SuccessMarker:  "PASSWORD_OK",
@@ -431,8 +431,8 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 
 	// 使用临时脚本直接设置密码（含超时回退），确保 agent 模式下不因 WebSocket 超时失败
 	directPasswordScript := utils.BuildTempScript(utils.TempScriptConfig{
-		PrimaryCmd:     fmt.Sprintf("lxc exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", config.Name, password),
-		FallbackCmd:    fmt.Sprintf("echo 'root:%s' | lxc exec %s -- chpasswd", password, config.Name),
+		PrimaryCmd:     buildLXDChpasswdCommand(config.Name, password),
+		FallbackCmd:    buildLXDChpasswdCommand(config.Name, password),
 		TimeoutSeconds: 30,
 	})
 	_, err = l.sshClient.ExecuteViaTempScript(directPasswordScript, nil, 120*time.Second)
@@ -444,7 +444,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 	}
 
 	// 清理历史记录 - 非阻塞式，如果失败不影响整体流程
-	_, err = l.sshClient.Execute(fmt.Sprintf("lxc exec %s -- bash -c 'history -c 2>/dev/null || true'", config.Name))
+	_, err = l.sshClient.Execute(fmt.Sprintf("lxc exec %s -- bash -c 'history -c 2>/dev/null || true'", shellSingleQuote(config.Name)))
 	if err != nil {
 		global.APP_LOG.Warn("清理历史记录失败",
 			zap.String("instanceName", config.Name),
@@ -484,7 +484,7 @@ func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSecon
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 5 {
 		// 每两轮循环（10秒）尝试启动实例，避免实例因故障停止导致一直干等待
 		if loopCount > 0 && loopCount%2 == 0 {
-			startCmd := fmt.Sprintf("lxc start %s", instanceName)
+			startCmd := fmt.Sprintf("lxc start %s", shellSingleQuote(instanceName))
 			startOutput, startErr := l.sshClient.Execute(startCmd)
 			// "already running" 不是错误，而是实例已在运行的正常状态
 			if startErr == nil || strings.Contains(startOutput, "already running") {
@@ -500,7 +500,7 @@ func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSecon
 		}
 
 		// 尝试执行一个简单的命令来检测VM agent是否就绪
-		cmd := fmt.Sprintf("lxc exec %s -- echo 'agent-ready' 2>/dev/null", instanceName)
+		cmd := fmt.Sprintf("lxc exec %s -- echo 'agent-ready' 2>/dev/null", shellSingleQuote(instanceName))
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil && strings.Contains(output, "agent-ready") {
 			global.APP_LOG.Debug("实例可执行命令",

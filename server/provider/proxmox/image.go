@@ -125,14 +125,14 @@ func (p *ProxmoxProvider) extractImageName(imageURL string) string {
 // imageExists 检查镜像是否已存在
 func (p *ProxmoxProvider) imageExists(imageName string) bool {
 	// 检查ISO目录
-	checkCmd := fmt.Sprintf("ls /var/lib/vz/template/iso/ | grep -i %s", imageName)
+	checkCmd := fmt.Sprintf("ls /var/lib/vz/template/iso/ | grep -F -i -- %s", shellSingleQuote(imageName))
 	output, err := p.sshClient.Execute(checkCmd)
 	if err == nil && strings.TrimSpace(output) != "" {
 		return true
 	}
 
 	// 检查cache目录
-	checkCmd = fmt.Sprintf("ls /var/lib/vz/template/cache/ | grep -i %s", imageName)
+	checkCmd = fmt.Sprintf("ls /var/lib/vz/template/cache/ | grep -F -i -- %s", shellSingleQuote(imageName))
 	output, err = p.sshClient.Execute(checkCmd)
 	if err == nil && strings.TrimSpace(output) != "" {
 		return true
@@ -152,7 +152,7 @@ func (p *ProxmoxProvider) downloadImageToRemote(ctx context.Context, imageURL, i
 	}
 
 	// 确保目录存在
-	_, err := p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", targetDir))
+	_, err := p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", shellSingleQuote(targetDir)))
 	if err != nil {
 		return "", fmt.Errorf("创建目录失败: %w", err)
 	}
@@ -160,7 +160,7 @@ func (p *ProxmoxProvider) downloadImageToRemote(ctx context.Context, imageURL, i
 	remotePath := fmt.Sprintf("%s/%s", targetDir, imageName)
 
 	// 检查文件是否已存在
-	checkCmd := fmt.Sprintf("test -f %s && echo 'exists'", remotePath)
+	checkCmd := fmt.Sprintf("test -f %s && echo 'exists'", shellSingleQuote(remotePath))
 	output, _ := p.sshClient.Execute(checkCmd)
 	if strings.TrimSpace(output) == "exists" {
 		global.APP_LOG.Debug("镜像文件已存在", zap.String("path", remotePath))
@@ -185,8 +185,8 @@ func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 
 	// 下载文件，支持断点续传，优先使用wget，失败则使用curl
 	downloadCmds := []string{
-		fmt.Sprintf("wget --no-check-certificate -c --timeout=360 -O %s '%s'", tmpPath, url),
-		fmt.Sprintf("curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'", tmpPath, url),
+		fmt.Sprintf("wget --no-check-certificate -c --timeout=360 -O %s %s", shellSingleQuote(tmpPath), shellSingleQuote(url)),
+		fmt.Sprintf("curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s", shellSingleQuote(tmpPath), shellSingleQuote(url)),
 	}
 
 	var lastErr error
@@ -197,7 +197,7 @@ func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 		output, err := p.sshClient.ExecuteWithTimeout(cmd, 1*time.Hour)
 		if err == nil {
 			// 下载成功，移动文件到最终位置
-			mvCmd := fmt.Sprintf("mv %s %s", tmpPath, remotePath)
+			mvCmd := fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))
 			_, err = p.sshClient.Execute(mvCmd)
 			if err != nil {
 				global.APP_LOG.Error("移动文件失败",
@@ -219,7 +219,7 @@ func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 			zap.Error(err))
 
 		// 清理临时文件
-		p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 	}
 
 	return fmt.Errorf("所有下载方式都失败: %w", lastErr)
@@ -439,14 +439,14 @@ func (p *ProxmoxProvider) generateRemoteFileName(imageName, imageURL, architectu
 // isRemoteFileValid 检查远程文件是否存在且完整
 func (p *ProxmoxProvider) isRemoteFileValid(remotePath string) bool {
 	// 检查文件是否存在且大小大于0
-	cmd := fmt.Sprintf("test -f %s -a -s %s", remotePath, remotePath)
+	cmd := fmt.Sprintf("test -f %s -a -s %s", shellSingleQuote(remotePath), shellSingleQuote(remotePath))
 	_, err := p.sshClient.Execute(cmd)
 	return err == nil
 }
 
 // removeRemoteFile 删除远程文件
 func (p *ProxmoxProvider) removeRemoteFile(remotePath string) error {
-	_, err := p.sshClient.Execute(fmt.Sprintf("rm -f %s", remotePath))
+	_, err := p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(remotePath)))
 	return err
 }
 

@@ -27,7 +27,7 @@ func (i *IncusProvider) waitForVMNetworkReady(instanceName string) error {
 		time.Sleep(time.Duration(delay) * time.Second)
 
 		// 检查虚拟机状态
-		statusCmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", instanceName)
+		statusCmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
 		output, err := i.sshClient.Execute(statusCmd)
 		if err != nil {
 			global.APP_LOG.Warn("检查虚拟机状态失败",
@@ -80,7 +80,7 @@ func (i *IncusProvider) waitForContainerNetworkReady(instanceName string) error 
 		time.Sleep(time.Duration(delay) * time.Second)
 
 		// 检查容器状态
-		statusCmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", instanceName)
+		statusCmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
 		output, err := i.sshClient.Execute(statusCmd)
 		if err != nil {
 			global.APP_LOG.Warn("检查容器状态失败",

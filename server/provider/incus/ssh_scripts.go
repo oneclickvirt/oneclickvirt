@@ -72,7 +72,7 @@ func (i *IncusProvider) configureInstanceGPU(ctx context.Context, config provide
 
 	ids := strings.Split(config.GpuDeviceIds, ",")
 	if config.GpuDeviceIds == "" {
-		cmd := fmt.Sprintf("incus config device add %s gpu gpu", config.Name)
+		cmd := fmt.Sprintf("incus config device add %s gpu gpu", shellSingleQuote(config.Name))
 		if _, err := i.sshClient.Execute(cmd); err != nil {
 			return fmt.Errorf("附加GPU设备失败: %w", err)
 		}
@@ -84,7 +84,7 @@ func (i *IncusProvider) configureInstanceGPU(ctx context.Context, config provide
 				continue
 			}
 			deviceName := fmt.Sprintf("gpu%d", idx)
-			cmd := fmt.Sprintf("incus config device add %s %s gpu id=%s", config.Name, deviceName, id)
+			cmd := fmt.Sprintf("incus config device add %s %s gpu id=%s", shellSingleQuote(config.Name), shellSingleQuote(deviceName), shellSingleQuote(id))
 			if _, err := i.sshClient.Execute(cmd); err != nil {
 				global.APP_LOG.Warn("附加GPU设备失败，跳过该设备",
 					zap.String("instance", config.Name),
@@ -130,7 +130,7 @@ func (i *IncusProvider) setInstanceConfig(ctx context.Context, instanceName stri
 	}
 
 	// SSH方式设置配置
-	cmd := fmt.Sprintf("incus config set %s %s %s", instanceName, key, value)
+	cmd := fmt.Sprintf("incus config set %s %s %s", shellSingleQuote(instanceName), shellSingleQuote(key), shellSingleQuote(value))
 	_, err := i.sshClient.Execute(cmd)
 	if err != nil {
 		return fmt.Errorf("SSH设置实例配置失败: %w", err)
@@ -174,7 +174,7 @@ func (i *IncusProvider) setInstanceDeviceConfig(ctx context.Context, instanceNam
 	}
 
 	// SSH方式设置设备配置
-	cmd := fmt.Sprintf("incus config device set %s %s %s %s", instanceName, deviceName, key, value)
+	cmd := fmt.Sprintf("incus config device set %s %s %s %s", shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(key), shellSingleQuote(value))
 	_, err := i.sshClient.Execute(cmd)
 	if err != nil {
 		return fmt.Errorf("SSH设置实例设备配置失败: %w", err)
@@ -241,7 +241,7 @@ func (i *IncusProvider) ensureSSHScriptsAvailable(providerCountry string) error 
 		}
 
 		// 设置执行权限
-		chmodCmd := fmt.Sprintf("chmod +x %s", scriptPath)
+		chmodCmd := fmt.Sprintf("chmod +x %s", shellSingleQuote(scriptPath))
 		if _, err := i.sshClient.Execute(chmodCmd); err != nil {
 			global.APP_LOG.Error("设置SSH脚本执行权限失败",
 				zap.String("script", script),
@@ -250,7 +250,7 @@ func (i *IncusProvider) ensureSSHScriptsAvailable(providerCountry string) error 
 		}
 
 		// 使用dos2unix处理脚本格式（如果可用）
-		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", scriptPath)
+		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", shellSingleQuote(scriptPath))
 		i.sshClient.Execute(dos2unixCmd)
 
 		global.APP_LOG.Debug("SSH脚本下载并设置完成",
@@ -268,7 +268,7 @@ func (i *IncusProvider) getSSHScriptDownloadURL(originalURL, providerCountry str
 	if providerCountry == "CN" || providerCountry == "cn" {
 		if cdnURL := i.getSSHScriptCDNURL(originalURL); cdnURL != "" {
 			// 测试CDN可用性
-			testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
+			testCmd := fmt.Sprintf("curl -s -I --max-time 5 %s | head -n 1 | grep -q '200'", shellSingleQuote(cdnURL))
 			if _, err := i.sshClient.Execute(testCmd); err == nil {
 				global.APP_LOG.Debug("使用CDN下载SSH脚本",
 					zap.String("cdnURL", cdnURL))
@@ -289,7 +289,7 @@ func (i *IncusProvider) getSSHScriptCDNURL(originalURL string) string {
 	for _, endpoint := range cdnEndpoints {
 		cdnURL := endpoint + originalURL
 		// 测试CDN可用性
-		testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
+		testCmd := fmt.Sprintf("curl -s -I --max-time 5 %s | head -n 1 | grep -q '200'", shellSingleQuote(cdnURL))
 		if _, err := i.sshClient.Execute(testCmd); err == nil {
 			return cdnURL
 		}
