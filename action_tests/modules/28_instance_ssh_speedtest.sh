@@ -349,7 +349,14 @@ run_module_28() {
         log_info "Instance SSH connectivity skipped - SSH not available on this provider/environment"
         _record_result "Instance SSH connectivity" "SSH" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
             "SKIP" "ssh-not-available" "skipped" "All ${ssh_attempts} SSH attempts failed; SSH may not be supported by this provider" "$group"
-        # SSH is a hard prerequisite for the speedtest
+        # For container-based environments (e.g. Docker/Podman), SSH into the instance may
+        # not be reliably available (no known password, NAT port mapping).  Treat as a skip
+        # rather than a hard failure so the module doesn't block the rest of the suite.
+        if [[ "${ENV_TYPE:-}" == "docker" || "${ENV_TYPE:-}" == "podman" || "${ENV_TYPE:-}" == "containerd" ]]; then
+            log_info "Docker/container environment detected — treating SSH unavailability as skip (not fail)"
+            return 0
+        fi
+        # For VM-capable environments, SSH is expected to work — treat as failure.
         chain_break "$group" "SSH connectivity unavailable - cannot run speedtest"
         return 1
     fi

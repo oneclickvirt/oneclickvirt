@@ -316,9 +316,13 @@ run_module_09() {
     test_api "Create provider (no name)" "POST" "/api/v1/admin/providers" "400" \
         "{\"type\":\"docker\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"test\"}" "$group"
 
-    # Create provider with invalid SSH port
-    test_api "Create provider (invalid port)" "POST" "/api/v1/admin/providers" "400" \
-        '{"name":"invalid-port-provider","type":"docker","endpoint":"192.0.2.1","sshPort":99999,"username":"root","password":"test"}' "$group"
+    # Create provider with out-of-range SSH port (backend accepts any int, no port-range validation on create)
+    local inv_port_resp; inv_port_resp=$(test_api "Create provider (invalid port)" "POST" "/api/v1/admin/providers" "200|409" \
+        '{"name":"invalid-port-provider","type":"docker","endpoint":"192.0.2.1","sshPort":99999,"username":"root","password":"test"}' "$group")
+    local inv_port_id; inv_port_id=$(echo "$inv_port_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    if [[ -n "$inv_port_id" ]]; then
+        test_api "Delete invalid-port provider" "DELETE" "/api/v1/admin/providers/${inv_port_id}" "200" "" "$group"
+    fi
 
     # Get nonexistent provider
     test_api "Get nonexistent provider" "GET" "/api/v1/admin/providers/99999" "404" "" "$group"

@@ -14,14 +14,14 @@ run_module_14() {
     # -- List --
     test_api "Block rule list" "GET" "/api/v1/admin/block-rules?page=1&pageSize=10" "200" "" "$group"
 
-    # -- Create IP-based rule --
+    # -- Create custom IP-based rule (valid category: "custom") --
     local br1; br1=$(test_api "Create IP block rule" "POST" "/api/v1/admin/block-rules" "200" \
-        '{"name":"CI IP Block","category":"ip","strings":["192.168.100.0/24"],"enabled":true}' "$group")
+        '{"name":"CI IP Block","category":"custom","strings":["192.168.100.0/24"],"enabled":true}' "$group")
     local br1_id; br1_id=$(echo "$br1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
-    # -- Create port-based rule --
+    # -- Create custom port-based rule (valid category: "custom") --
     local br2; br2=$(test_api "Create port block rule" "POST" "/api/v1/admin/block-rules" "200" \
-        '{"name":"CI Port Block","category":"port","strings":["8080"],"enabled":true}' "$group")
+        '{"name":"CI Port Block","category":"custom","strings":["8080"],"enabled":true}' "$group")
     local br2_id; br2_id=$(echo "$br2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     # -- Create with missing fields --
