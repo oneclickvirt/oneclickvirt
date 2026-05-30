@@ -9,6 +9,24 @@ body:
       value: |
         请描述你的业务场景和期望效果，便于评估优先级。
 
+  - type: dropdown
+    id: provider_node_type
+    attributes:
+      label: 相关节点类型
+      description: 请选择该需求主要关联的节点/provider 类型
+      options:
+        - docker
+        - podman
+        - containerd
+        - incus
+        - lxd
+        - proxmox
+        - qemu
+        - kubevirt
+        - 不确定
+    validations:
+      required: true
+
   - type: textarea
     id: feature_summary
     attributes:

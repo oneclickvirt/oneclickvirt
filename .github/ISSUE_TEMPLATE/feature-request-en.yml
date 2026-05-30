@@ -9,6 +9,24 @@ body:
       value: |
         Describe your use case and expected outcome clearly.
 
+  - type: dropdown
+    id: provider_node_type
+    attributes:
+      label: Related Node Type
+      description: Select the node/provider type this feature request is related to
+      options:
+        - docker
+        - podman
+        - containerd
+        - incus
+        - lxd
+        - proxmox
+        - qemu
+        - kubevirt
+        - Not sure
+    validations:
+      required: true
+
   - type: textarea
     id: feature_summary
     attributes:

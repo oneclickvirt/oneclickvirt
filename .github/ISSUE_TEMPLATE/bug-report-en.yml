@@ -47,6 +47,40 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: provider_node_type
+    attributes:
+      label: Related Node Type
+      description: Select the node/provider type related to this issue
+      options:
+        - docker
+        - podman
+        - containerd
+        - incus
+        - lxd
+        - proxmox
+        - qemu
+        - kubevirt
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue_category
+    attributes:
+      label: Issue Type
+      description: Select the most relevant issue type for later filtering
+      options:
+        - Network issue
+        - Configuration issue
+        - User issue
+        - Interaction issue
+        - Initialization issue
+        - Display issue
+        - Unknown
+    validations:
+      required: true
+
   - type: textarea
     id: problem_description
     attributes:

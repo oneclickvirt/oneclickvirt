@@ -47,6 +47,40 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: provider_node_type
+    attributes:
+      label: 相关节点类型
+      description: 请选择与该问题相关的节点/provider 类型
+      options:
+        - docker
+        - podman
+        - containerd
+        - incus
+        - lxd
+        - proxmox
+        - qemu
+        - kubevirt
+        - 不确定
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue_category
+    attributes:
+      label: 问题类型
+      description: 请选择最接近的问题类型，便于后续筛选
+      options:
+        - 网络异常
+        - 配置异常
+        - 用户异常
+        - 交互异常
+        - 初始化异常
+        - 显示异常
+        - 未知
+    validations:
+      required: true
+
   - type: textarea
     id: problem_description
     attributes:
