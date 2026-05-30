@@ -1,0 +1,49 @@
+name: Feature Request (EN)
+description: Suggest a new feature in English
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe your use case and expected outcome clearly.
+
+  - type: textarea
+    id: feature_summary
+    attributes:
+      label: Feature Summary
+      description: What feature do you want?
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use Case
+      description: What problem does this solve for you?
+      placeholder: |
+        Current workflow:
+        Pain points:
+        Why existing behavior is not enough:
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution
+      description: How should this work?
+      placeholder: |
+        UI/API behavior:
+        Expected result:
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Optional
+    validations:
+      required: false

@@ -1,0 +1,49 @@
+name: 功能建议（中文）
+description: 使用中文提交功能需求
+title: "[需求] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请描述你的业务场景和期望效果，便于评估优先级。
+
+  - type: textarea
+    id: feature_summary
+    attributes:
+      label: 需求摘要
+      description: 你希望新增什么能力？
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: 使用场景
+      description: 当前遇到了什么问题？
+      placeholder: |
+        当前流程：
+        痛点：
+        现有能力为何不足：
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: 期望方案
+      description: 你期望如何实现？
+      placeholder: |
+        界面/API 行为：
+        预期结果：
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已考虑的替代方案
+      description: 可选
+    validations:
+      required: false

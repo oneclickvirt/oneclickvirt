@@ -1,0 +1,102 @@
+name: Bug Report (EN)
+description: Report a bug in English
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please provide complete details to help us reproduce and fix the issue quickly.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: Select the impact level
+      options:
+        - Critical - Controller crash or data loss risk
+        - High - Key features are unusable
+        - Medium - Partial feature issues
+        - Low - Minor issue or improvement
+    validations:
+      required: true
+
+  - type: dropdown
+    id: controller_install_method
+    attributes:
+      label: Controller Install Method
+      options:
+        - Prebuilt Binary - Frontend/Backend Separated
+        - Prebuilt Binary - All-in-One
+        - Docker - Prebuilt Image (latest/allinone/no-db)
+        - Docker - Compose Self-build
+        - Docker - Dockerfile Self-build
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: node_environment_install_mode
+    attributes:
+      label: Node Environment Install Mode
+      description: Select how the node environment was prepared
+      options:
+        - Installed via this organization's one-click script
+        - Self-installed
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem_description
+    attributes:
+      label: Problem Description
+      description: Include reproduction steps, expected behavior, and actual behavior
+      placeholder: |
+        1. Reproduction steps:
+        2. Expected behavior:
+        3. Actual behavior:
+    validations:
+      required: true
+
+  - type: textarea
+    id: controller_logs
+    attributes:
+      label: Controller Logs (Required)
+      description: Please include controller logs at error and warn levels
+      placeholder: |
+        Please include at least:
+        - Error logs during the issue reproduction window
+        - Warn logs during the issue reproduction window
+    validations:
+      required: true
+
+  - type: textarea
+    id: node_logs
+    attributes:
+      label: Node Logs (Optional)
+      description: Provide if available
+      placeholder: |
+        Node logs:
+    validations:
+      required: false
+
+  - type: textarea
+    id: browser_console_logs
+    attributes:
+      label: Browser Console Logs (Optional)
+      description: Provide if available
+      placeholder: |
+        Browser console logs:
+    validations:
+      required: false
+
+  - type: textarea
+    id: reverse_proxy_logs
+    attributes:
+      label: Reverse Proxy Logs (Optional)
+      description: If you use Nginx/OpenResty/Caddy/1Panel or other reverse proxy, provide relevant logs
+      placeholder: |
+        Reverse proxy logs:
+    validations:
+      required: false

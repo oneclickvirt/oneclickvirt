@@ -1,0 +1,102 @@
+name: 缺陷反馈（中文）
+description: 使用中文提交问题
+title: "[缺陷] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请尽量完整填写，便于快速复现和定位问题。
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 问题严重性
+      description: 请选择最符合影响范围的级别
+      options:
+        - 严重 - 主控崩溃或存在数据风险
+        - 高 - 核心功能无法正常使用
+        - 中 - 部分功能异常
+        - 低 - 轻微问题或优化建议
+    validations:
+      required: true
+
+  - type: dropdown
+    id: controller_install_method
+    attributes:
+      label: 主控安装方式
+      options:
+        - 预编译二进制 - 前后端分离部署
+        - 预编译二进制 - 一体化部署
+        - Docker安装 - 预构建镜像（latest/allinone/no-db）
+        - Docker安装 - DockerCompose自编译
+        - Docker安装 - Dockerfile自编译
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: node_environment_install_mode
+    attributes:
+      label: 节点环境安装模式
+      description: 请选择节点环境的部署方式
+      options:
+        - 通过本组织的一键脚本安装
+        - 自行安装
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem_description
+    attributes:
+      label: 具体问题描述
+      description: 请提供复现步骤、预期行为、实际行为
+      placeholder: |
+        1. 复现步骤：
+        2. 预期行为：
+        3. 实际行为：
+    validations:
+      required: true
+
+  - type: textarea
+    id: controller_logs
+    attributes:
+      label: 主控日志（必填）
+      description: 请粘贴主控日志中的 error 和 warn 级别内容
+      placeholder: |
+        请至少提供以下内容：
+        - 复现问题时间段内的 error 日志
+        - 复现问题时间段内的 warn 日志
+    validations:
+      required: true
+
+  - type: textarea
+    id: node_logs
+    attributes:
+      label: 节点日志（可选）
+      description: 如有请提供
+      placeholder: |
+        节点日志：
+    validations:
+      required: false
+
+  - type: textarea
+    id: browser_console_logs
+    attributes:
+      label: 浏览器控制台日志（可选）
+      description: 如有请提供
+      placeholder: |
+        浏览器控制台日志：
+    validations:
+      required: false
+
+  - type: textarea
+    id: reverse_proxy_logs
+    attributes:
+      label: 反代日志（可选）
+      description: 如使用 Nginx/OpenResty/Caddy/1Panel 等反代，请提供相关日志
+      placeholder: |
+        反代日志：
+    validations:
+      required: false
