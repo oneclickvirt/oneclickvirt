@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"oneclickvirt/utils"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,7 +36,7 @@ var adminUpgrader = websocket.Upgrader{
 		if frontendURL == "" {
 			return true
 		}
-		return strings.HasPrefix(origin, frontendURL)
+		return utils.OriginMatchesFrontend(origin, frontendURL)
 	},
 }
 

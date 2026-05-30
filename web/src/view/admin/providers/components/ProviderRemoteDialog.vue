@@ -17,6 +17,8 @@
         :provider-name="row.name"
         :provider-username="row.username || ''"
         :provider-auth-method="row.authMethod || ''"
+        :connection-type="row.connectionType || 'ssh'"
+        :agent-connected="(row.agentRuntimeStatus || row.agentStatus) === 'online'"
       />
     </div>
     <template #footer>

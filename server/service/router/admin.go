@@ -78,6 +78,12 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.POST("/providers/:id/sftp/upload", admin.AdminProviderSFTPUpload)
 		NormalAdminGroup.GET("/providers/:id/sftp/upload/status", admin.AdminProviderSFTPUploadStatus)
 		NormalAdminGroup.POST("/providers/:id/sftp/upload/abort", admin.AdminProviderSFTPUploadAbort)
+		// Agent FM（无需 SSH 凭据，仅 Agent 在线时可用）
+		NormalAdminGroup.GET("/providers/:id/fm/list", admin.AdminProviderFMList)
+		NormalAdminGroup.GET("/providers/:id/fm/download", admin.AdminProviderFMDownload)
+		NormalAdminGroup.POST("/providers/:id/fm/upload", admin.AdminProviderFMUpload)
+		NormalAdminGroup.DELETE("/providers/:id/fm/file", admin.AdminProviderFMDelete)
+		NormalAdminGroup.POST("/providers/:id/fm/mkdir", admin.AdminProviderFMMkdir)
 
 		// 配置导出
 		NormalAdminGroup.POST("/providers/export-configs", admin.ExportProviderConfigs)

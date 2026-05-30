@@ -128,5 +128,19 @@ export default {
   question: 'Prompt',
   unsavedChanges: 'Unsaved Changes',
   unsavedChangesConfirm: 'There are unsaved changes in the form. Are you sure you want to close?',
-  discardChanges: 'Discard Changes'
+  discardChanges: 'Discard Changes',
+  fileTransfer: 'File Transfer',
+  fileTransferTab: 'File Transfer',
+  agentFMNotAvailable: 'This node is offline, file transfer is unavailable',
+  agentFMUnavailableTitle: 'File Transfer Unavailable',
+  agentFMUnavailableTip: 'This node has no SSH credentials configured and the Agent is offline. File transfer is unavailable.',
+  agentFMUploadSuccess: 'File uploaded successfully',
+  agentFMUploadFailed: 'File upload failed',
+  agentFMDownloadFailed: 'File download failed',
+  agentFMListFailed: 'Failed to list directory',
+  agentFMDeleteSuccess: 'Deleted successfully',
+  agentFMDeleteFailed: 'Delete failed',
+  agentFMDeleteConfirm: 'Are you sure you want to delete {name}? This action cannot be undone.',
+  agentFMMkdirFailed: 'Failed to create directory',
+  agentFMFileSizeLimit: 'File too large (max 50 MB), please use another transfer method'
 }

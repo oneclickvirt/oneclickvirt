@@ -441,6 +441,36 @@ where
                         // Anti-DPI noise frame — silently discarded.
                         // Contains random-length payload from controller.
                     }
+                    "fm_list" => {
+                        let id = frame.id;
+                        let payload = frame.payload;
+                        let tx = ws_tx_hi.clone();
+                        tokio::spawn(async move { crate::fm::handle_fm_list(id, payload, tx).await; });
+                    }
+                    "fm_download" => {
+                        let id = frame.id;
+                        let payload = frame.payload;
+                        let tx = ws_tx_hi.clone();
+                        tokio::spawn(async move { crate::fm::handle_fm_download(id, payload, tx).await; });
+                    }
+                    "fm_upload" => {
+                        let id = frame.id;
+                        let payload = frame.payload;
+                        let tx = ws_tx_hi.clone();
+                        tokio::spawn(async move { crate::fm::handle_fm_upload(id, payload, tx).await; });
+                    }
+                    "fm_delete" => {
+                        let id = frame.id;
+                        let payload = frame.payload;
+                        let tx = ws_tx_hi.clone();
+                        tokio::spawn(async move { crate::fm::handle_fm_delete(id, payload, tx).await; });
+                    }
+                    "fm_mkdir" => {
+                        let id = frame.id;
+                        let payload = frame.payload;
+                        let tx = ws_tx_hi.clone();
+                        tokio::spawn(async move { crate::fm::handle_fm_mkdir(id, payload, tx).await; });
+                    }
                     other => {
                         info!(msg_type = %other, "received unhandled frame type");
                     }

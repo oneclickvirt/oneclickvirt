@@ -867,6 +867,7 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "axum-server",
+ "base64",
  "dotenvy",
  "futures-util",
  "http-body-util",

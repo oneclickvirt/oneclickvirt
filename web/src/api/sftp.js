@@ -1,4 +1,4 @@
-import { get, upload, download } from '@/utils/request'
+import { get, upload, download, del, post } from '@/utils/request'
 
 export const listUserInstanceSFTP = (instanceId, remotePath = '/') => {
   return get(`/v1/user/instances/${instanceId}/sftp/list`, { path: remotePath })
@@ -73,4 +73,26 @@ export const abortAdminProviderSFTPUpload = (providerId, formData) => {
   return upload(`/v1/admin/providers/${providerId}/sftp/upload/abort`, formData, {
     timeout: 0
   })
+}
+
+// ── Agent FM（无 SSH 凭据的 Agent 模式节点）──────────────────────────────────
+
+export const listAdminProviderFM = (providerId, remotePath = '/') => {
+  return get(`/v1/admin/providers/${providerId}/fm/list`, { path: remotePath })
+}
+
+export const downloadAdminProviderFM = (providerId, remotePath) => {
+  return download(`/v1/admin/providers/${providerId}/fm/download`, { path: remotePath })
+}
+
+export const uploadAdminProviderFM = (providerId, formData, config = {}) => {
+  return upload(`/v1/admin/providers/${providerId}/fm/upload`, formData, { timeout: 0, ...config })
+}
+
+export const deleteAdminProviderFM = (providerId, remotePath) => {
+  return del(`/v1/admin/providers/${providerId}/fm/file`, { params: { path: remotePath } })
+}
+
+export const mkdirAdminProviderFM = (providerId, dirPath) => {
+  return post(`/v1/admin/providers/${providerId}/fm/mkdir`, { path: dirPath })
 }

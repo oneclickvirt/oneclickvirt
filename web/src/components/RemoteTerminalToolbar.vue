@@ -24,7 +24,7 @@
           :type="activeView === 'sftp' ? 'primary' : 'default'"
           @click="emit('update:activeView', 'sftp')"
         >
-          SFTP
+          {{ t('common.fileTransferTab') }}
         </el-button>
       </div>
     </div>
@@ -49,6 +49,10 @@
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 defineProps({
   title: {
     type: String,

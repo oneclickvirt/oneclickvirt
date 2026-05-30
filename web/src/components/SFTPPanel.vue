@@ -104,6 +104,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import {
   listUserInstanceSFTP,
   downloadUserInstanceSFTP,
@@ -119,14 +120,17 @@ import {
   downloadAdminProviderSFTP,
   uploadAdminProviderSFTP,
   getAdminProviderSFTPUploadStatus,
-  abortAdminProviderSFTPUpload
+  abortAdminProviderSFTPUpload,
+  listAdminProviderFM,
+  downloadAdminProviderFM,
+  uploadAdminProviderFM
 } from '@/api/sftp'
 
 const props = defineProps({
   entityType: {
     type: String,
     required: true,
-    validator: (v) => ['user-instance', 'admin-instance', 'admin-provider'].includes(v)
+    validator: (v) => ['user-instance', 'admin-instance', 'admin-provider', 'agent-fm-provider'].includes(v)
   },
   entityId: {
     type: [Number, String],
@@ -138,6 +142,8 @@ const props = defineProps({
   }
 })
 
+const { t } = useI18n()
+
 const currentPath = ref('/')
 const entries = ref([])
 const loading = ref(false)
@@ -148,6 +154,75 @@ const fileInputRef = ref(null)
 const CHUNK_SIZE = 8 * 1024 * 1024 // 8MB
 const KEEPALIVE_INTERVAL_MS = 45000
 let keepaliveTimer = null
+
+const toPlainString = (value) => {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+  return String(value).trim()
+}
+
+const buildBackendErrorMessage = (payload) => {
+  if (!payload || typeof payload !== 'object') {
+    return ''
+  }
+
+  const message = toPlainString(payload.message || payload.msg || payload.error)
+  const details = toPlainString(payload.details || payload.detail)
+  const code = toPlainString(payload.code || payload.status)
+
+  const parts = []
+  if (message) parts.push(message)
+  if (details && details !== message) parts.push(details)
+  if (code && code !== '200') parts.push(`code=${code}`)
+
+  return parts.join(' | ')
+}
+
+const parseBlobErrorMessage = async (blob) => {
+  if (!blob || typeof blob.text !== 'function') {
+    return ''
+  }
+
+  try {
+    const text = (await blob.text()).trim()
+    if (!text) return ''
+    try {
+      return buildBackendErrorMessage(JSON.parse(text)) || text
+    } catch {
+      return text
+    }
+  } catch {
+    return ''
+  }
+}
+
+const getSFTPErrorMessage = async (error, fallback) => {
+  const fallbackMessage = fallback || 'Operation failed'
+  if (!error) return fallbackMessage
+
+  let message = ''
+  const responseData = error?.response?.data
+
+  if (responseData instanceof Blob) {
+    message = await parseBlobErrorMessage(responseData)
+  } else {
+    message = buildBackendErrorMessage(responseData)
+  }
+
+  if (!message) {
+    message = toPlainString(error?.message)
+  }
+
+  if (!message && error?.response?.status) {
+    message = `${fallbackMessage} (HTTP ${error.response.status})`
+  }
+
+  return message || fallbackMessage
+}
 
 const getApi = () => {
   if (props.entityType === 'user-instance') {
@@ -166,6 +241,17 @@ const getApi = () => {
       upload: uploadAdminInstanceSFTP,
       uploadStatus: getAdminInstanceSFTPUploadStatus,
       uploadAbort: abortAdminInstanceSFTPUpload
+    }
+  }
+  if (props.entityType === 'agent-fm-provider') {
+    // Agent FM: 单次上传，无分片，无断点续传
+    const noop = () => Promise.resolve({ data: { uploadedBytes: 0, completed: false } })
+    return {
+      list: listAdminProviderFM,
+      download: downloadAdminProviderFM,
+      upload: uploadAdminProviderFM,
+      uploadStatus: noop,
+      uploadAbort: () => Promise.resolve({})
     }
   }
   return {
@@ -230,7 +316,7 @@ const refresh = async (silent = false, retried = false) => {
       return refresh(silent, true)
     }
     if (!silent) {
-      ElMessage.error(error?.message || 'List directory failed')
+      ElMessage.error(await getSFTPErrorMessage(error, 'List directory failed'))
     }
   } finally {
     loading.value = false
@@ -298,7 +384,7 @@ const downloadEntry = async (entry) => {
     URL.revokeObjectURL(objectUrl)
   } catch (error) {
     console.error('SFTP download failed:', error)
-    ElMessage.error(error?.message || 'Download failed')
+    ElMessage.error(await getSFTPErrorMessage(error, 'Download failed'))
   }
 }
 
@@ -312,6 +398,33 @@ const openFilePicker = () => {
 const handleFileChange = async (event) => {
   const file = event?.target?.files?.[0]
   if (!file) {
+    return
+  }
+
+  // Agent FM: 单次整文件上传，无分片，50 MB 限制
+  if (props.entityType === 'agent-fm-provider') {
+    if (file.size > 50 * 1024 * 1024) {
+      ElMessage.error(t('common.agentFMFileSizeLimit'))
+      if (fileInputRef.value) fileInputRef.value.value = ''
+      return
+    }
+    uploading.value = true
+    uploadProgress.value = 0
+    try {
+      const api = getApi()
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('targetDir', currentPath.value || '/')
+      await api.upload(props.entityId, formData)
+      uploadProgress.value = 100
+      ElMessage.success(t('common.agentFMUploadSuccess'))
+      await refresh()
+    } catch (error) {
+      ElMessage.error(t('common.agentFMUploadFailed'))
+    } finally {
+      uploading.value = false
+      if (fileInputRef.value) fileInputRef.value.value = ''
+    }
     return
   }
 
@@ -405,7 +518,7 @@ const handleFileChange = async (event) => {
     await refresh()
   } catch (error) {
     console.error('SFTP upload failed:', error)
-    ElMessage.error(error?.message || 'Upload failed')
+    ElMessage.error(await getSFTPErrorMessage(error, 'Upload failed'))
   } finally {
     uploading.value = false
     uploadProgress.value = 0

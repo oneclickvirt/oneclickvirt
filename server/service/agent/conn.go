@@ -22,6 +22,7 @@ func newAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *Age
 		conn:          conn,
 		remoteAddr:    remoteAddr,
 		pending:       make(map[string]chan execResponsePayload),
+		fmPending:     make(map[string]chan fmRawResp),
 		shellSessions: make(map[string]*AgentShellSession),
 		noiseStop:     make(chan struct{}),
 		wsPingStop:    make(chan struct{}),
@@ -54,6 +55,15 @@ func (a *AgentConn) closeAllSessions() {
 	// 清理 pending exec 请求（避免内存泄漏；ExecuteWithTimeout 通过 doneCh 已被通知）
 	for id := range a.pending {
 		delete(a.pending, id)
+	}
+
+	// 清理 pending fm 请求
+	for id, ch := range a.fmPending {
+		select {
+		case ch <- fmRawResp{MsgType: msgTypeFMError, Payload: []byte(`{"message":"agent disconnected"}`)}:
+		default:
+		}
+		delete(a.fmPending, id)
 	}
 }
 

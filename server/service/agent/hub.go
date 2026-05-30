@@ -417,6 +417,17 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			}
 			ac.mu.Unlock()
 
+		case msgTypeFMListResp, msgTypeFMDownloadResp, msgTypeFMUploadResp,
+			msgTypeFMDeleteResp, msgTypeFMMkdirResp, msgTypeFMError:
+			ac.mu.Lock()
+			if ch, ok := ac.fmPending[msg.ID]; ok {
+				select {
+				case ch <- fmRawResp{MsgType: msg.Type, Payload: msg.Payload}:
+				default:
+				}
+			}
+			ac.mu.Unlock()
+
 		case msgTypeNoise:
 			// Anti-DPI noise frame — silently discarded.
 		}

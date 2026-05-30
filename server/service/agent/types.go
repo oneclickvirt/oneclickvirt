@@ -54,6 +54,19 @@ const (
 	msgTypeShellResize  = "shell_resize"
 	msgTypeShellClose   = "shell_close"
 	msgTypeNoise        = "nop" // anti-DPI noise frame (discarded silently)
+
+	// ── 文件管理器消息类型 ─────────────────────────────────────────────────────
+	msgTypeFMList         = "fm_list"
+	msgTypeFMListResp     = "fm_list_resp"
+	msgTypeFMDownload     = "fm_download"
+	msgTypeFMDownloadResp = "fm_download_resp"
+	msgTypeFMUpload       = "fm_upload"
+	msgTypeFMUploadResp   = "fm_upload_resp"
+	msgTypeFMDelete       = "fm_delete"
+	msgTypeFMDeleteResp   = "fm_delete_resp"
+	msgTypeFMMkdir        = "fm_mkdir"
+	msgTypeFMMkdirResp    = "fm_mkdir_resp"
+	msgTypeFMError        = "fm_error"
 )
 
 type wsMessage struct {
@@ -131,9 +144,69 @@ type AgentConn struct {
 	mu            sync.Mutex
 	writeMu       sync.Mutex
 	pending       map[string]chan execResponsePayload // reqID → response channel
+	fmPending     map[string]chan fmRawResp           // reqID → fm response channel
 	shellSessions map[string]*AgentShellSession
 	pingFailCount int           // 连续 ping 失败计数（用于检测连接僵死）
 	noiseStop     chan struct{} // 关闭时停止 noise 帧发送
 	wsPingStop    chan struct{} // 关闭时停止 WebSocket 协议层 ping
 	doneCh        chan struct{} // WS 断开时关闭，通知所有等待中的 exec/shell 操作立即返回
+}
+
+// ── FM 消息 Payload 类型 ─────────────────────────────────────────────────────
+
+// fmRawResp 是 FM 响应的原始信封（type + raw payload）
+type fmRawResp struct {
+	MsgType string
+	Payload json.RawMessage
+}
+
+type fmListPayload struct {
+	Path string `json:"path"`
+}
+
+// FMEntry 代表 FM 目录中的一个条目（导出供 API handler 使用）
+type FMEntry struct {
+	Name    string `json:"name"`
+	IsDir   bool   `json:"isDir"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"modTime"` // Unix 毫秒
+	Mode    string `json:"mode"`
+}
+
+type fmListRespPayload struct {
+	Path    string    `json:"path"`
+	Entries []FMEntry `json:"entries"`
+}
+
+type fmDownloadPayload struct {
+	Path string `json:"path"`
+}
+
+type fmDownloadRespPayload struct {
+	Data string `json:"data"` // base64 编码的文件内容
+	Size int64  `json:"size"`
+}
+
+type fmUploadPayload struct {
+	Path string `json:"path"`
+	Data string `json:"data"` // base64 编码
+	Size int64  `json:"size"`
+}
+
+type fmUploadRespPayload struct{}
+
+type fmDeletePayload struct {
+	Path string `json:"path"`
+}
+
+type fmDeleteRespPayload struct{}
+
+type fmMkdirPayload struct {
+	Path string `json:"path"`
+}
+
+type fmMkdirRespPayload struct{}
+
+type fmErrorPayload struct {
+	Message string `json:"message"`
 }

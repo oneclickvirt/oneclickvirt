@@ -2,16 +2,16 @@
   <div class="admin-terminal-container">
     <RemoteTerminalToolbar
       :active-view="activeView"
-      :supports-sftp="supportsSFTP"
+      :supports-sftp="supportsFileTransfer"
       :actions="toolbarActions"
       @update:active-view="setActiveView"
       @action="handleToolbarAction"
     />
 
     <el-alert
-      v-if="!supportsSFTP"
-      :title="t('admin.providers.providerSftpUnavailableTitle')"
-      :description="t('admin.providers.providerSftpUnavailableTip')"
+      v-if="!supportsFileTransfer"
+      :title="t(agentUnavailableAlertTitle)"
+      :description="t(agentUnavailableAlertDesc)"
       type="info"
       :closable="false"
       class="remote-connect-alert"
@@ -28,12 +28,12 @@
     </div>
 
     <div
-      v-show="supportsSFTP && activeView === 'sftp'"
+      v-show="supportsFileTransfer && activeView === 'sftp'"
       class="sftp-panel"
     >
       <SFTPPanel
         ref="sftpPanelRef"
-        entity-type="admin-provider"
+        :entity-type="fileTransferEntityType"
         :entity-id="providerId"
         :active="activeView === 'sftp'"
       />
@@ -59,7 +59,9 @@ const props = defineProps({
   providerId: { type: [Number, String], required: true },
   providerName: { type: String, default: '' },
   providerUsername: { type: String, default: '' },
-  providerAuthMethod: { type: String, default: '' }
+  providerAuthMethod: { type: String, default: '' },
+  connectionType: { type: String, default: 'ssh' },
+  agentConnected: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['close'])
@@ -81,8 +83,30 @@ let dataDisposable = null
 let resizeDisposable = null
 let themeObserver = null
 
-const supportsSFTP = computed(() => {
-  return Boolean(props.providerUsername && props.providerAuthMethod)
+// 有 SSH 凭据 → SFTP；Agent 模式且在线 → agent-fm
+const supportsFileTransfer = computed(() => {
+  if (props.providerUsername && props.providerAuthMethod) return true
+  return props.connectionType === 'agent' && props.agentConnected
+})
+
+const fileTransferMode = computed(() => {
+  if (props.providerUsername && props.providerAuthMethod) return 'sftp'
+  return 'agent-fm'
+})
+
+const fileTransferEntityType = computed(() => {
+  return fileTransferMode.value === 'sftp' ? 'admin-provider' : 'agent-fm-provider'
+})
+
+// Alert i18n keys based on connection type
+const agentUnavailableAlertTitle = computed(() => {
+  if (props.connectionType === 'agent') return 'common.agentFMUnavailableTitle'
+  return 'admin.providers.providerSftpUnavailableTitle'
+})
+
+const agentUnavailableAlertDesc = computed(() => {
+  if (props.connectionType === 'agent') return 'common.agentFMUnavailableTip'
+  return 'admin.providers.providerSftpUnavailableTip'
 })
 
 const toolbarActions = computed(() => ([

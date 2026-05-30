@@ -4,6 +4,7 @@ mod collector;
 mod db;
 mod docs;
 mod error;
+mod fm;
 mod handlers;
 mod ipt;
 mod models;

@@ -128,5 +128,19 @@ export default {
   question: '提示',
   unsavedChanges: '有未保存的更改',
   unsavedChangesConfirm: '当前表单有未保存的更改，确定要关闭吗？',
-  discardChanges: '放弃更改'
+  discardChanges: '放弃更改',
+  fileTransfer: '文件传输',
+  fileTransferTab: '文件传输',
+  agentFMNotAvailable: '此节点暂未在线，无法使用文件传输',
+  agentFMUnavailableTitle: '文件传输不可用',
+  agentFMUnavailableTip: '此节点未设置 SSH 凭据，且 Agent 当前未在线，无法进行文件传输。',
+  agentFMUploadSuccess: '文件上传成功',
+  agentFMUploadFailed: '文件上传失败',
+  agentFMDownloadFailed: '文件下载失败',
+  agentFMListFailed: '获取文件列表失败',
+  agentFMDeleteSuccess: '删除成功',
+  agentFMDeleteFailed: '删除失败',
+  agentFMDeleteConfirm: '确定要删除 {name} 吗？此操作不可撤销。',
+  agentFMMkdirFailed: '创建目录失败',
+  agentFMFileSizeLimit: '文件过大（最大 50 MB），请通过其他方式传输'
 }
