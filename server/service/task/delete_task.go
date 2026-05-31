@@ -210,15 +210,23 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			// 端口映射删除失败不阻止整个流程
 		}
 
-		// 2. 释放Provider资源
-		resourceService := &resources.ResourceService{}
-		if err := resourceService.ReleaseResourcesInTx(tx, instanceProviderID, instanceType,
-			instanceCPU, instanceMemory, instanceDisk); err != nil {
-			global.APP_LOG.Warn("释放Provider资源失败",
+		// 2. 释放Provider资源。创建失败的实例已在创建回滚路径释放过资源，
+		// 删除任务只负责清理残留远端/数据库记录，避免二次扣减节点计数。
+		if instance.Status != "failed" && instance.Status != "deleted" {
+			resourceService := &resources.ResourceService{}
+			if err := resourceService.ReleaseResourcesInTx(tx, instanceProviderID, instanceType,
+				instanceCPU, instanceMemory, instanceDisk); err != nil {
+				global.APP_LOG.Warn("释放Provider资源失败",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("instanceId", instanceID),
+					zap.Error(err))
+				// Provider资源释放失败不阻止整个流程
+			}
+		} else {
+			global.APP_LOG.Debug("跳过失败/已删除实例的Provider资源释放，避免重复回收",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instanceID),
-				zap.Error(err))
-			// Provider资源释放失败不阻止整个流程
+				zap.String("status", instance.Status))
 		}
 
 		// 3. 释放用户配额（根据实例状态决定释放哪种配额）

@@ -43,7 +43,9 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 		if err == nil && strings.Contains(strings.TrimSpace(statusOutput), "running") {
 			return nil
 		}
-		time.Sleep(2 * time.Second)
+		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
+			return fmt.Errorf("waiting for VM '%s' to start cancelled: %w", id, err)
+		}
 	}
 
 	return fmt.Errorf("VM '%s' did not reach running state within timeout", id)
@@ -71,7 +73,9 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 				return nil
 			}
 		}
-		time.Sleep(2 * time.Second)
+		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
+			return fmt.Errorf("waiting for VM '%s' to stop cancelled: %w", id, err)
+		}
 	}
 
 	output, err = p.sshClient.Execute(fmt.Sprintf("virsh destroy '%s' 2>&1", id))
@@ -108,7 +112,9 @@ func (p *QEMUProvider) RestartInstance(ctx context.Context, id string) error {
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)))
 		p.sshClient.Execute(fmt.Sprintf("virsh destroy '%s' 2>/dev/null", id))
-		time.Sleep(2 * time.Second)
+		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
+			return fmt.Errorf("waiting before fallback start cancelled: %w", err)
+		}
 		return p.StartInstance(ctx, id)
 	}
 
@@ -126,7 +132,9 @@ func (p *QEMUProvider) DeleteInstance(ctx context.Context, id string) error {
 				if attempt == maxAttempts {
 					return fmt.Errorf("重连失败: %w", err)
 				}
-				time.Sleep(time.Duration(attempt) * time.Second)
+				if sleepErr := sleepWithContext(ctx, time.Duration(attempt)*time.Second); sleepErr != nil {
+					return fmt.Errorf("等待重试删除QEMU虚拟机已取消: %w", sleepErr)
+				}
 				continue
 			}
 		}
@@ -140,7 +148,9 @@ func (p *QEMUProvider) DeleteInstance(ctx context.Context, id string) error {
 		if strings.Contains(errStr, "connection") || strings.Contains(errStr, "ssh") {
 			p.connected = false
 			if attempt < maxAttempts {
-				time.Sleep(time.Duration(attempt) * time.Second)
+				if sleepErr := sleepWithContext(ctx, time.Duration(attempt)*time.Second); sleepErr != nil {
+					return fmt.Errorf("等待重试删除QEMU虚拟机已取消: %w", sleepErr)
+				}
 				continue
 			}
 		}
@@ -194,6 +204,23 @@ func (p *QEMUProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	}
 
 	return fmt.Errorf("VM %s still exists after deletion", id)
+}
+
+func sleepWithContext(ctx context.Context, duration time.Duration) error {
+	if ctx == nil {
+		time.Sleep(duration)
+		return nil
+	}
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // removeDHCPReservation 删除 DHCP 预留

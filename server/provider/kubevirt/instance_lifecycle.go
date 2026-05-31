@@ -45,7 +45,9 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		if err == nil && strings.TrimSpace(statusOutput) == "Running" {
 			return nil
 		}
-		time.Sleep(3 * time.Second)
+		if err := sleepWithContext(ctx, 3*time.Second); err != nil {
+			return fmt.Errorf("waiting for VM '%s' to start cancelled: %w", id, err)
+		}
 	}
 
 	return fmt.Errorf("VM '%s' did not reach Running state within timeout", id)
@@ -72,7 +74,9 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 		if err == nil && strings.Contains(strings.ToLower(strings.TrimSpace(statusOutput)), "stopped") {
 			return nil
 		}
-		time.Sleep(3 * time.Second)
+		if err := sleepWithContext(ctx, 3*time.Second); err != nil {
+			return fmt.Errorf("waiting for VM '%s' to stop cancelled: %w", id, err)
+		}
 	}
 
 	return fmt.Errorf("VM '%s' did not reach Stopped state within timeout", id)
@@ -103,7 +107,9 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 		if stopErr := p.StopInstance(ctx, id); stopErr != nil {
 			return fmt.Errorf("failed to stop VM for restart: %w", stopErr)
 		}
-		time.Sleep(3 * time.Second)
+		if err := sleepWithContext(ctx, 3*time.Second); err != nil {
+			return fmt.Errorf("waiting before fallback start cancelled: %w", err)
+		}
 		return p.StartInstance(ctx, id)
 	}
 
@@ -121,7 +127,9 @@ func (p *KubeVirtProvider) DeleteInstance(ctx context.Context, id string) error 
 				if attempt == maxAttempts {
 					return fmt.Errorf("重连失败: %w", err)
 				}
-				time.Sleep(time.Duration(attempt) * time.Second)
+				if sleepErr := sleepWithContext(ctx, time.Duration(attempt)*time.Second); sleepErr != nil {
+					return fmt.Errorf("等待重试删除KubeVirt虚拟机已取消: %w", sleepErr)
+				}
 				continue
 			}
 		}
@@ -135,7 +143,9 @@ func (p *KubeVirtProvider) DeleteInstance(ctx context.Context, id string) error 
 		if strings.Contains(errStr, "connection") || strings.Contains(errStr, "ssh") {
 			p.connected = false
 			if attempt < maxAttempts {
-				time.Sleep(time.Duration(attempt) * time.Second)
+				if sleepErr := sleepWithContext(ctx, time.Duration(attempt)*time.Second); sleepErr != nil {
+					return fmt.Errorf("等待重试删除KubeVirt虚拟机已取消: %w", sleepErr)
+				}
 				continue
 			}
 		}
@@ -193,4 +203,21 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	}
 
 	return fmt.Errorf("VM %s still exists after deletion", id)
+}
+
+func sleepWithContext(ctx context.Context, duration time.Duration) error {
+	if ctx == nil {
+		time.Sleep(duration)
+		return nil
+	}
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

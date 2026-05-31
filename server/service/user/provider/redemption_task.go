@@ -235,6 +235,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 	}
 
 	dbService := database.GetDatabaseService()
+	cancelledDuringFinalize := false
 
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		// 检查任务是否已被管理员取消（防止竞争条件导致孤儿实例）
@@ -242,6 +243,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		if fetchErr := tx.Model(&adminModel.Task{}).Select("status").Where("id = ?", task.ID).Scan(&taskStatus).Error; fetchErr == nil && taskStatus == "cancelled" {
 			global.APP_LOG.Debug("兑换码实例任务已被管理员取消，跳过最终化并清理实例",
 				zap.Uint("taskId", task.ID))
+			cancelledDuringFinalize = true
 			go s.delayedDeleteFailedInstance(instance.ID)
 			return nil
 		}
@@ -267,12 +269,14 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			_ = resourceService.ReleaseResourcesInTx(tx, instance.ProviderID, instance.InstanceType,
 				instance.CPU, instance.Memory, instance.Disk)
 
-			// 更新任务为失败
-			if err := tx.Model(task).Updates(map[string]interface{}{
-				"status":        "failed",
-				"completed_at":  time.Now(),
-				"error_message": apiError.Error(),
-			}).Error; err != nil {
+			// 更新任务为失败；若管理员已强制取消，保留取消终态。
+			if err := tx.Model(&adminModel.Task{}).
+				Where("id = ? AND status NOT IN ?", task.ID, []string{"completed", "failed", "cancelled", "timeout"}).
+				Updates(map[string]interface{}{
+					"status":        "failed",
+					"completed_at":  time.Now(),
+					"error_message": apiError.Error(),
+				}).Error; err != nil {
 				return fmt.Errorf("更新任务状态失败: %v", err)
 			}
 
@@ -446,6 +450,11 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		return err
 	}
 
+	if cancelledDuringFinalize {
+		s.taskService.ReleaseTaskLocks(task.ID)
+		return nil
+	}
+
 	if apiError != nil {
 		if global.APP_TASK_LOCK_RELEASER != nil {
 			global.APP_TASK_LOCK_RELEASER.ReleaseTaskLocks(task.ID)
@@ -455,6 +464,9 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 
 	// 成功后的异步后处理（端口映射配置 + SSH 就绪检测 + 任务完成标记）
 	go func(taskCtx context.Context, instanceID uint, providerID uint, taskID uint) {
+		defer func() {
+			s.taskService.ReleaseTaskLocks(taskID)
+		}()
 		defer func() {
 			if r := recover(); r != nil {
 				global.APP_LOG.Error("兑换码实例后处理发生panic",

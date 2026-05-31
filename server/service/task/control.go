@@ -32,9 +32,21 @@ func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage strin
 	}
 
 	// CAS风格更新：WHERE status NOT IN (terminal states) 确保不覆盖已完成/取消/超时状态
-	// 这样即使forceKill和CompleteTask并发执行，也不会互相覆盖
+	// 这样即使forceKill和CompleteTask并发执行，也不会互相覆盖。
 	var rowsAffected int64
 	err := s.dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		if !success {
+			var currentTask adminModel.Task
+			if err := tx.Select("id", "status", "cancel_reason").
+				Where("id = ?", taskID).
+				First(&currentTask).Error; err == nil && currentTask.Status == "cancelling" {
+				updates["status"] = "cancelled"
+				delete(updates, "error_message")
+				if currentTask.CancelReason == "" && errorMessage != "" {
+					updates["cancel_reason"] = errorMessage
+				}
+			}
+		}
 		result := tx.Model(&adminModel.Task{}).
 			Where("id = ? AND status NOT IN (?)", taskID, []string{"completed", "failed", "cancelled", "timeout"}).
 			Updates(updates)
@@ -83,9 +95,9 @@ func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage strin
 	return nil
 }
 
-// ReleaseTaskLocks 空实现 - channel池架构无需显式释放锁
+// ReleaseTaskLocks releases the task context retained for cancellation.
 func (s *TaskService) ReleaseTaskLocks(taskID uint) {
-	// channel池架构自动处理并发控制，无需显式释放
+	s.contextManager.Delete(taskID)
 }
 
 // CancelTask 用户取消任务
@@ -105,7 +117,7 @@ func (s *TaskService) CancelTask(taskID uint, userID uint) error {
 		switch task.Status {
 		case "pending":
 			return s.cancelPendingTask(tx, taskID, "用户取消")
-		case "running":
+		case "processing", "running":
 			return s.cancelRunningTask(tx, taskID, "用户取消")
 		default:
 			return fmt.Errorf("任务状态[%s]不允许取消", task.Status)
@@ -180,7 +192,7 @@ func (s *TaskService) cancelPendingTask(tx *gorm.DB, taskID uint, reason string)
 func (s *TaskService) cancelRunningTask(tx *gorm.DB, taskID uint, reason string) error {
 	// 1. 更新状态为cancelling
 	result := tx.Model(&adminModel.Task{}).
-		Where("id = ? AND status = ?", taskID, "running").
+		Where("id = ? AND status IN ?", taskID, []string{"running", "processing"}).
 		Updates(map[string]interface{}{
 			"status":        "cancelling",
 			"cancel_reason": reason,

@@ -414,9 +414,28 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 			vmStarted = true
 			break
 		}
-		time.Sleep(2 * time.Second)
+		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
+			global.APP_LOG.Warn("QEMU虚拟机创建等待启动被取消，开始清理远端资源",
+				zap.String("name", utils.TruncateString(config.Name, 32)),
+				zap.Error(err))
+			updateProgress(90, "创建已取消，正在清理QEMU资源")
+			if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
+				global.APP_LOG.Error("QEMU虚拟机取消后清理失败",
+					zap.String("name", utils.TruncateString(config.Name, 32)),
+					zap.Error(cleanupErr))
+			}
+			return fmt.Errorf("waiting for QEMU VM start cancelled: %w", err)
+		}
 	}
 	if !vmStarted {
+		global.APP_LOG.Warn("QEMU虚拟机创建等待启动超时，开始清理远端资源",
+			zap.String("name", utils.TruncateString(config.Name, 32)))
+		updateProgress(90, "启动超时，正在清理QEMU资源")
+		if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
+			global.APP_LOG.Error("QEMU虚拟机启动超时后清理失败",
+				zap.String("name", utils.TruncateString(config.Name, 32)),
+				zap.Error(cleanupErr))
+		}
 		return fmt.Errorf("VM '%s' did not start within 60 seconds", config.Name)
 	}
 

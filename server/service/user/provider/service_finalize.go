@@ -231,8 +231,20 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		instanceUpdates, _ = s.gatherInstanceNetworkInfo(ctx, instance)
 	}
 
+	cancelledDuringFinalize := false
+
 	// 在事务中仅执行DB写入操作（短事务）
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		var taskStatus string
+		if fetchErr := tx.Model(&adminModel.Task{}).Select("status").Where("id = ?", task.ID).Scan(&taskStatus).Error; fetchErr == nil && taskStatus == "cancelled" {
+			global.APP_LOG.Debug("实例创建任务已被取消，跳过最终化并安排实例清理",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instance.ID))
+			cancelledDuringFinalize = true
+			go s.delayedDeleteFailedInstance(instance.ID)
+			return nil
+		}
+
 		if apiError != nil {
 			// Provider创建实例失败的处理
 			global.APP_LOG.Error("Provider创建实例失败，回滚实例创建", zap.Uint("taskId", task.ID), zap.Error(apiError))
@@ -268,12 +280,14 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 			// 资源预留已在创建时被原子化消费，无需额外释放
 
-			// 更新任务状态为失败
-			if err := tx.Model(task).Updates(map[string]interface{}{
-				"status":        "failed",
-				"completed_at":  time.Now(),
-				"error_message": apiError.Error(),
-			}).Error; err != nil {
+			// 更新任务状态为失败；若管理员已强制取消，保留取消终态。
+			if err := tx.Model(&adminModel.Task{}).
+				Where("id = ? AND status NOT IN ?", task.ID, []string{"completed", "failed", "cancelled", "timeout"}).
+				Updates(map[string]interface{}{
+					"status":        "failed",
+					"completed_at":  time.Now(),
+					"error_message": apiError.Error(),
+				}).Error; err != nil {
 				return fmt.Errorf("更新任务状态失败: %v", err)
 			}
 
@@ -317,6 +331,11 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		return err
 	}
 
+	if cancelledDuringFinalize {
+		s.taskService.ReleaseTaskLocks(task.ID)
+		return nil
+	}
+
 	// 如果任务在事务中已标记为失败，需要释放锁
 	if apiError != nil {
 		if global.APP_TASK_LOCK_RELEASER != nil {
@@ -327,6 +346,9 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 	// 如果Provider创建实例成功，执行后处理任务（同步完成关键任务后再标记完成）
 	if apiError == nil {
 		go func(taskCtx context.Context, instanceID uint, providerID uint, taskID uint) {
+			defer func() {
+				s.taskService.ReleaseTaskLocks(taskID)
+			}()
 			defer func() {
 				if r := recover(); r != nil {
 					global.APP_LOG.Error("实例创建后处理任务发生panic",

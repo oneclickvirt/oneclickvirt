@@ -10,6 +10,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	agentLifecycle "oneclickvirt/service/agent"
+	"oneclickvirt/service/interfaces"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
@@ -136,8 +137,9 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 
 	// 实例启动成功后，异步初始化流量监控和流量同步
 	s.wg.Add(1)
-	go func(instanceID uint, taskID uint) {
+	go func(taskCtx context.Context, instanceID uint, taskID uint) {
 		defer s.wg.Done()
+		defer s.contextManager.Delete(taskID)
 		defer func() {
 			if r := recover(); r != nil {
 				global.APP_LOG.Error("启动实例后处理任务发生panic",
@@ -151,24 +153,28 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		}()
 
 		// 使用服务级别的context和可取消的等待，避免goroutine泄漏
-		waitCtx, waitCancel := context.WithTimeout(s.ctx, 30*time.Second)
+		waitCtx, waitCancel := context.WithTimeout(taskCtx, 30*time.Second)
 
 		select {
 		case <-waitCtx.Done():
 			waitCancel()
 			// 检查是服务关闭还是正常超时
-			if s.ctx.Err() != nil {
+			if taskCtx.Err() != nil {
 				// 服务正在关闭
 				global.APP_LOG.Debug("启动实例后处理被服务关闭中断",
 					zap.Uint("instanceId", instanceID),
 					zap.Uint("taskId", taskID))
+				stateManager := GetTaskStateManager()
+				_ = stateManager.CompleteMainTask(taskID, false, "任务已取消", nil)
 				return
 			}
-		case <-s.ctx.Done():
+		case <-taskCtx.Done():
 			waitCancel()
 			global.APP_LOG.Debug("启动实例后处理被服务关闭中断",
 				zap.Uint("instanceId", instanceID),
 				zap.Uint("taskId", taskID))
+			stateManager := GetTaskStateManager()
+			_ = stateManager.CompleteMainTask(taskID, false, "任务已取消", nil)
 			return
 		}
 		// 正常超时，继续执行
@@ -184,7 +190,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		}
 
 		// 使用统一的流量监控管理器
-		pmacctCtx, pmacctCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		pmacctCtx, pmacctCancel := context.WithTimeout(taskCtx, 2*time.Minute)
 		defer pmacctCancel()
 		trafficMonitorManager := traffic_monitor.GetManager()
 		pmacctSuccess := true
@@ -205,7 +211,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		}
 
 		// Agent监控：无论是否启用流量监控，都尝试注册Agent监控以记录网络接口
-		agentCtx, agentCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		agentCtx, agentCancel := context.WithTimeout(taskCtx, 2*time.Minute)
 		agentLifecycle.OnInstanceStarted(agentCtx, global.APP_DB, instanceID)
 		agentCancel()
 
@@ -231,7 +237,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		global.APP_LOG.Debug("启动实例后处理任务完成",
 			zap.Uint("instanceId", instanceID),
 			zap.Bool("pmacctSuccess", pmacctSuccess))
-	}(instance.ID, task.ID)
+	}(ctx, instance.ID, task.ID)
 
 	global.APP_LOG.Info("用户实例启动操作成功",
 		zap.Uint("taskId", task.ID),
@@ -239,7 +245,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		zap.String("instanceName", instance.Name),
 		zap.Uint("userId", instance.UserID))
 
-	return nil
+	return interfaces.ErrAsyncCompletion
 }
 
 // executeStopInstanceTask 执行停止实例任务
@@ -478,8 +484,9 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 
 	// 实例重启成功后，异步重新初始化流量监控
 	s.wg.Add(1)
-	go func(instanceID uint, taskID uint) {
+	go func(taskCtx context.Context, instanceID uint, taskID uint) {
 		defer s.wg.Done()
+		defer s.contextManager.Delete(taskID)
 		defer func() {
 			if r := recover(); r != nil {
 				global.APP_LOG.Error("重启实例后处理任务发生panic",
@@ -493,24 +500,28 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		}()
 
 		// 使用服务级别的context和可取消的等待，避免goroutine泄漏
-		waitCtx, waitCancel := context.WithTimeout(s.ctx, 30*time.Second)
+		waitCtx, waitCancel := context.WithTimeout(taskCtx, 30*time.Second)
 
 		select {
 		case <-waitCtx.Done():
 			waitCancel()
 			// 检查是服务关闭还是正常超时
-			if s.ctx.Err() != nil {
+			if taskCtx.Err() != nil {
 				// 服务正在关闭
 				global.APP_LOG.Debug("重启实例后处理被服务关闭中断",
 					zap.Uint("instanceId", instanceID),
 					zap.Uint("taskId", taskID))
+				stateManager := GetTaskStateManager()
+				_ = stateManager.CompleteMainTask(taskID, false, "任务已取消", nil)
 				return
 			}
-		case <-s.ctx.Done():
+		case <-taskCtx.Done():
 			waitCancel()
 			global.APP_LOG.Debug("重启实例后处理被服务关闭中断",
 				zap.Uint("instanceId", instanceID),
 				zap.Uint("taskId", taskID))
+			stateManager := GetTaskStateManager()
+			_ = stateManager.CompleteMainTask(taskID, false, "任务已取消", nil)
 			return
 		}
 		// 正常超时，继续执行
@@ -526,7 +537,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		}
 
 		// 使用统一的流量监控管理器
-		pmacctCtx, pmacctCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		pmacctCtx, pmacctCancel := context.WithTimeout(taskCtx, 2*time.Minute)
 		defer pmacctCancel()
 		trafficMonitorManager := traffic_monitor.GetManager()
 		pmacctSuccess := true
@@ -547,7 +558,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		}
 
 		// Agent监控：重启后重新检测接口
-		agentCtx, agentCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		agentCtx, agentCancel := context.WithTimeout(taskCtx, 2*time.Minute)
 		agentLifecycle.OnInstanceStarted(agentCtx, global.APP_DB, instanceID)
 		agentCancel()
 
@@ -573,7 +584,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		global.APP_LOG.Debug("重启实例后处理任务完成",
 			zap.Uint("instanceId", instanceID),
 			zap.Bool("pmacctSuccess", pmacctSuccess))
-	}(instance.ID, task.ID)
+	}(ctx, instance.ID, task.ID)
 
 	global.APP_LOG.Info("用户实例重启操作成功",
 		zap.Uint("taskId", task.ID),
@@ -581,7 +592,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		zap.String("instanceName", instance.Name),
 		zap.Uint("userId", instance.UserID))
 
-	return nil
+	return interfaces.ErrAsyncCompletion
 }
 
 // executeResetPasswordTask 执行重置实例密码任务

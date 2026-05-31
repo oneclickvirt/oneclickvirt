@@ -37,6 +37,12 @@ func (tsa *taskServiceAdapter) GetStateManager() interfaces.TaskStateManagerInte
 	return globalTaskService.GetStateManager()
 }
 
+func (tsa *taskServiceAdapter) ReleaseTaskLocks(taskID uint) {
+	if globalTaskService != nil {
+		globalTaskService.ReleaseTaskLocks(taskID)
+	}
+}
+
 // 全局任务服务实例，在系统初始化时设置
 var globalTaskService interfaces.TaskServiceInterface
 

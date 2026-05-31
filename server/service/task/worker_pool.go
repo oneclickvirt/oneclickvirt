@@ -64,13 +64,14 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 		Error:   nil,
 		Data:    make(map[string]interface{}),
 	}
+	asyncCompletion := false
 
 	// 创建任务上下文
 	taskCtx, taskCancel := context.WithTimeout(pool.Ctx, time.Duration(task.TimeoutDuration)*time.Second)
-	defer taskCancel()
 
 	// 注册任务上下文
 	if err := pool.TaskService.contextManager.Add(task.ID, taskCtx, taskCancel); err != nil {
+		taskCancel()
 		global.APP_LOG.Error("注册任务上下文失败",
 			zap.Uint("taskID", task.ID),
 			zap.Error(err))
@@ -108,8 +109,10 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 					zap.Uint("taskId", task.ID))
 			}
 		}
-		// 确保panic时也清理context
-		pool.TaskService.contextManager.Delete(task.ID)
+		// 异步接管的任务需要保留 context，供取消/强制停止信号继续传递给后台后处理。
+		if !asyncCompletion {
+			pool.TaskService.contextManager.Delete(task.ID)
+		}
 	}()
 
 	// 更新任务状态为运行中 - 使用SELECT FOR UPDATE确保原子性
@@ -162,6 +165,7 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 	// 判断是否为"后台goroutine接管完成"哨兵信号
 	if errors.Is(taskError, interfaces.ErrAsyncCompletion) {
 		// 任务逻辑已启动后台goroutine负责标记任务完成，worker pool 无需调用 CompleteTask
+		asyncCompletion = true
 		result.Success = true
 		global.APP_LOG.Debug("任务移交后台goroutine处理，worker pool跳过CompleteTask",
 			zap.Uint("taskId", task.ID))

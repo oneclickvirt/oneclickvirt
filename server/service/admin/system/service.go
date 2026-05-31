@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/utils"
 
 	"gorm.io/gorm"
 )
@@ -108,8 +109,8 @@ func (s *Service) CreateAnnouncement(req admin.CreateAnnouncementRequest, create
 
 	announcement := system.Announcement{
 		Title:       req.Title,
-		Content:     req.Content,
-		ContentHTML: req.ContentHTML,
+		Content:     utils.SanitizeHTML(req.Content),
+		ContentHTML: utils.SanitizeHTML(req.ContentHTML),
 		Type:        announcementType,
 		Priority:    req.Priority,
 		IsSticky:    req.IsSticky,
@@ -137,10 +138,10 @@ func (s *Service) UpdateAnnouncement(req admin.UpdateAnnouncementRequest) error 
 		announcement.Title = req.Title
 	}
 	if req.Content != "" {
-		announcement.Content = req.Content
+		announcement.Content = utils.SanitizeHTML(req.Content)
 	}
 	if req.ContentHTML != "" {
-		announcement.ContentHTML = req.ContentHTML
+		announcement.ContentHTML = utils.SanitizeHTML(req.ContentHTML)
 	}
 	if req.Type != "" {
 		announcement.Type = req.Type
@@ -214,6 +215,10 @@ func (s *Service) GetActiveAnnouncements(announcementType string) ([]system.Anno
 
 	if err := query.Find(&announcements).Error; err != nil {
 		return nil, err
+	}
+	for i := range announcements {
+		announcements[i].Content = utils.SanitizeHTML(announcements[i].Content)
+		announcements[i].ContentHTML = utils.SanitizeHTML(announcements[i].ContentHTML)
 	}
 
 	return announcements, nil

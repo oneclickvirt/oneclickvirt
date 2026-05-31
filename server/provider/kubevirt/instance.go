@@ -278,7 +278,15 @@ spec:
 			}
 		}
 
-		time.Sleep(3 * time.Second)
+		if err := sleepWithContext(ctx, 3*time.Second); err != nil {
+			global.APP_LOG.Warn("KubeVirt DataVolume导入等待被取消，开始清理远端资源",
+				zap.String("name", utils.TruncateString(config.Name, 32)),
+				zap.String("datavolume", utils.TruncateString(dvName, 64)),
+				zap.Error(err))
+			updateProgress(45, "创建已取消，正在清理KubeVirt资源")
+			p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
+			return fmt.Errorf("waiting for DataVolume import cancelled: %w", err)
+		}
 	}
 	if !dvReady {
 		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
@@ -418,9 +426,28 @@ spec:
 			vmStarted = true
 			break
 		}
-		time.Sleep(3 * time.Second)
+		if err := sleepWithContext(ctx, 3*time.Second); err != nil {
+			global.APP_LOG.Warn("KubeVirt虚拟机创建等待启动被取消，开始清理远端资源",
+				zap.String("name", utils.TruncateString(config.Name, 32)),
+				zap.Error(err))
+			updateProgress(90, "创建已取消，正在清理KubeVirt资源")
+			if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
+				global.APP_LOG.Error("KubeVirt虚拟机取消后清理失败",
+					zap.String("name", utils.TruncateString(config.Name, 32)),
+					zap.Error(cleanupErr))
+			}
+			return fmt.Errorf("waiting for KubeVirt VM start cancelled: %w", err)
+		}
 	}
 	if !vmStarted {
+		global.APP_LOG.Warn("KubeVirt虚拟机创建等待启动超时，开始清理远端资源",
+			zap.String("name", utils.TruncateString(config.Name, 32)))
+		updateProgress(90, "启动超时，正在清理KubeVirt资源")
+		if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
+			global.APP_LOG.Error("KubeVirt虚拟机启动超时后清理失败",
+				zap.String("name", utils.TruncateString(config.Name, 32)),
+				zap.Error(cleanupErr))
+		}
 		return fmt.Errorf("VM '%s' did not reach Running state within 180 seconds", config.Name)
 	}
 

@@ -98,7 +98,9 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	// 这是最后的回退方案
 	if strings.Contains(status, "running") {
 		// 等待一段时间再次尝试guest-agent
-		time.Sleep(5 * time.Second)
+		if err := sleepWithContext(ctx, 5*time.Second); err != nil {
+			return fmt.Errorf("waiting before password retry cancelled: %w", err)
+		}
 		output, err := p.sshClient.Execute(fmt.Sprintf(
 			"virsh set-user-password '%s' root '%s' 2>&1", instanceID, password))
 		if err == nil && !strings.Contains(output, "error") {

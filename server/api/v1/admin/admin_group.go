@@ -1,10 +1,13 @@
 package admin
 
 import (
+	"strings"
+
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -61,7 +64,7 @@ func GetAdminGroupInfo(c *gin.Context) {
 
 	common.ResponseSuccess(c, AdminGroupInfoResponse{
 		GroupName:        groupName,
-		GroupDescription: provider.GroupDescription,
+		GroupDescription: utils.SanitizeHTML(provider.GroupDescription),
 	}, "获取成功")
 }
 
@@ -72,6 +75,12 @@ func UpdateAdminGroupInfo(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
+	req.GroupName = strings.TrimSpace(req.GroupName)
+	if utils.ContainsHTMLTags(req.GroupName) || utils.ContainsSQLInjectionPattern(req.GroupName) {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "分组名称包含非法内容"))
+		return
+	}
+	req.GroupDescription = utils.SanitizeHTML(req.GroupDescription)
 
 	ownerAdminID := middleware.GetOwnerAdminID(c)
 

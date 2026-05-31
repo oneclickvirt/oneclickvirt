@@ -8,4 +8,7 @@ type TaskServiceInterface interface {
 
 	// 状态管理器访问方法
 	GetStateManager() TaskStateManagerInterface
+
+	// ReleaseTaskLocks 释放任务执行上下文/锁资源。
+	ReleaseTaskLocks(taskID uint)
 }

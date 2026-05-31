@@ -70,7 +70,9 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 	}
 
 	// 方法3: 等待后重试
-	time.Sleep(5 * time.Second)
+	if err := sleepWithContext(ctx, 5*time.Second); err != nil {
+		return fmt.Errorf("waiting before password retry cancelled: %w", err)
+	}
 	if sshPortOutput, err := p.sshClient.Execute(fmt.Sprintf(
 		"kubectl get svc '%s-ssh' -n %s -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null", instanceID, Namespace)); err == nil {
 		sshPort := strings.TrimSpace(sshPortOutput)
