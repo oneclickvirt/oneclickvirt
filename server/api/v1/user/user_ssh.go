@@ -14,7 +14,6 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
-	agentService "oneclickvirt/service/agent"
 	remoteService "oneclickvirt/service/remote"
 
 	"github.com/gin-gonic/gin"
@@ -92,70 +91,17 @@ func SSHWebSocket(c *gin.Context) {
 		return
 	}
 
-	// 构建SSH连接地址和端口（基于实例信息）
-	var sshHost string
-	var sshPort int
-	var useAgentTunnel bool // 是否使用 Agent 隧道（控制端转发模式）
-
-	// 优先使用SSH端口映射（适用于容器等需要端口转发的场景）
-	var sshPortMapping providerModel.Port
-	if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instance.ID).First(&sshPortMapping).Error; err == nil {
-		// 检查是否为控制端转发模式（内网穿透）
-		if sshPortMapping.MappingType == "controller" {
-			// 控制端转发模式：通过 Agent WebSocket 隧道连接
-			useAgentTunnel = true
-			sshHost = remoteService.ResolveControllerTargetHost(&sshPortMapping, &instance)
-			// 目标端口：使用 GuestPort（容器内部SSH端口，通常为22）
-			sshPort = sshPortMapping.GuestPort
-			if sshPort == 0 {
-				sshPort = 22
-			}
-			global.APP_LOG.Debug("使用Agent隧道连接（控制端转发）",
-				zap.String("targetHost", sshHost),
-				zap.Int("targetPort", sshPort),
-				zap.Uint("providerID", instance.ProviderID))
-		} else {
-			// 节点侧映射：使用节点公网IP/私有IP + 公网端口
-			if instance.PublicIP != "" {
-				sshHost = instance.PublicIP
-			} else if instance.PrivateIP != "" {
-				sshHost = instance.PrivateIP
-			} else {
-				global.APP_LOG.Error("实例没有可用的IP地址")
-				common.ResponseWithError(c, common.NewError(common.CodeInternalError, "实例没有可用的IP地址"))
-				return
-			}
-			sshPort = sshPortMapping.HostPort
-			global.APP_LOG.Debug("使用SSH端口映射连接",
-				zap.String("host", sshHost),
-				zap.Int("hostPort", sshPortMapping.HostPort),
-				zap.Int("guestPort", sshPortMapping.GuestPort))
-		}
-	} else {
-		// 没有端口映射，直接使用实例的IP和SSH端口（适用于有独立公网IP的虚拟机）
-		if instance.PublicIP != "" {
-			sshHost = instance.PublicIP
-		} else if instance.PrivateIP != "" {
-			sshHost = instance.PrivateIP
-			// Agent 模式 provider 的私有IP从控制端不可直接路由，需要通过 Agent WS 隧道转发
-			var provider providerModel.Provider
-			if err := global.APP_DB.Select("connection_type").Where("id = ?", instance.ProviderID).First(&provider).Error; err == nil && provider.ConnectionType == "agent" {
-				useAgentTunnel = true
-			}
-		} else {
-			global.APP_LOG.Error("实例没有可用的IP地址")
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "实例没有可用的IP地址"))
-			return
-		}
-		sshPort = instance.SSHPort
-		if sshPort == 0 {
-			sshPort = 22
-		}
-		global.APP_LOG.Debug("直接使用实例IP和SSH端口连接",
-			zap.String("host", sshHost),
-			zap.Int("sshPort", sshPort),
-			zap.Bool("agentTunnel", useAgentTunnel))
+	target, err := remoteService.ResolveInstanceSSHTarget(&instance)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		return
 	}
+
+	global.APP_LOG.Debug("用户实例SSH目标已解析",
+		zap.String("host", target.Host),
+		zap.Int("port", target.Port),
+		zap.Bool("agentTunnel", target.UseAgentTunnel),
+		zap.Uint("providerID", target.ProviderID))
 
 	// 升级到WebSocket
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -168,32 +114,21 @@ func SSHWebSocket(c *gin.Context) {
 	var sshClient *ssh.Client
 	var session *ssh.Session
 
-	if useAgentTunnel {
-		// 控制端转发模式：通过 Agent WebSocket 隧道建立 SSH 连接
-		sshClient, session, err = createSSHOverAgentTunnel(
-			instance.ProviderID,
-			sshHost,
-			sshPort,
-			instance.Username,
-			instance.Password,
-			ws,
-		)
-	} else {
-		// 标准模式：直接 SSH 连接
-		sshClient, session, err = createSSHConnection(
-			sshHost,
-			sshPort,
-			instance.Username,
-			instance.Password,
-		)
+	sshClient, err = remoteService.OpenSSHClient(target)
+	if err == nil {
+		session, err = sshClient.NewSession()
 	}
 
 	if err != nil {
 		global.APP_LOG.Error("SSH连接失败",
-			zap.String("host", sshHost),
-			zap.Int("port", sshPort),
+			zap.String("host", target.Host),
+			zap.Int("port", target.Port),
+			zap.Bool("agentTunnel", target.UseAgentTunnel),
 			zap.Error(err))
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("SSH连接失败: %v\r\n", err)))
+		if sshClient != nil {
+			sshClient.Close()
+		}
 		return
 	}
 	// 安全兼顾：确保 SSH 资源在任何早期退出路径下都能被释放。
@@ -452,53 +387,4 @@ func SSHWebSocket(c *gin.Context) {
 		global.APP_LOG.Error("WebSocket SSH goroutine退出超时（连接已强制关闭）",
 			zap.String("instance", instanceID))
 	}
-}
-
-// createSSHConnection 创建SSH连接（使用全局函数）
-func createSSHConnection(host string, port int, username, password string) (*ssh.Client, *ssh.Session, error) {
-	return utils.CreateSSHConnection(host, port, username, password)
-}
-
-// createSSHOverAgentTunnel 通过 Agent WebSocket 隧道建立到目标实例的 SSH 连接。
-// 用于控制端转发（内网穿透）模式，流量路径：用户 → 控制端TCP监听 → Agent WebSocket → 节点内容器。
-func createSSHOverAgentTunnel(providerID uint, targetHost string, targetPort int, username, password string, ws *websocket.Conn) (*ssh.Client, *ssh.Session, error) {
-	// 通过 Agent 隧道建立到目标容器的 TCP 连接
-	tunnelConn, err := agentService.OpenTunnelConn(providerID, targetHost, targetPort)
-	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte("Agent 隧道建立失败: "+err.Error()+"\r\n"))
-		return nil, nil, fmt.Errorf("agent tunnel failed: %w", err)
-	}
-	// 注意：tunnelConn 由调用者通过 sshClient.Close() 间接关闭，不在此处 defer
-
-	// 构建 SSH 配置
-	sshConfig := &ssh.ClientConfig{
-		User:            username,
-		Auth:            []ssh.AuthMethod{ssh.Password(password)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         15 * time.Second,
-	}
-
-	// 在隧道连接上建立 SSH 客户端
-	sshConn, chans, reqs, err := ssh.NewClientConn(tunnelConn,
-		fmt.Sprintf("agent-instance-%d", providerID), sshConfig)
-	if err != nil {
-		tunnelConn.Close()
-		ws.WriteMessage(websocket.TextMessage, []byte("通过 Agent 隧道建立 SSH 连接失败: "+err.Error()+"\r\n"))
-		return nil, nil, fmt.Errorf("ssh over agent tunnel failed: %w", err)
-	}
-	client := ssh.NewClient(sshConn, chans, reqs)
-
-	session, err := client.NewSession()
-	if err != nil {
-		client.Close()
-		ws.WriteMessage(websocket.TextMessage, []byte("创建 SSH 会话失败: "+err.Error()+"\r\n"))
-		return nil, nil, fmt.Errorf("ssh session failed: %w", err)
-	}
-
-	global.APP_LOG.Debug("通过Agent隧道成功建立SSH连接",
-		zap.Uint("providerID", providerID),
-		zap.String("targetHost", targetHost),
-		zap.Int("targetPort", targetPort))
-
-	return client, session, nil
 }

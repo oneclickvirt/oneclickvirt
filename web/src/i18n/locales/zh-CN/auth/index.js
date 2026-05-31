@@ -1,5 +1,5 @@
 // Auth module exports
-import navbar from './navbar.js'
+import navbar from '../navbar.js'
 import login from './login.js'
 import adminLogin from './adminLogin.js'
 import register from './register.js'

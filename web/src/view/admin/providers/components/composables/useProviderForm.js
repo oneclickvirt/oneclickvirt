@@ -36,7 +36,7 @@ export function useProviderForm(props, emit) {
 
   const isAgentMode = computed(() => formData.value.connectionType === 'agent')
 
-  const hasAgentMappedNetworking = computed(() => Boolean(formData.value.host && formData.value.portIP))
+  const hasAgentMappedNetworking = computed(() => Boolean(formData.value.portIP))
 
   // 国家列表数据 - 使用 computed 从 props 获取，如果没有则使用本地获取
   const groupedCountries = computed(() => {

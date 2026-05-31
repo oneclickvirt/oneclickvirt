@@ -6,11 +6,13 @@ package admin
 
 import (
 	"fmt"
+	"io"
 	"net/url"
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
+	"oneclickvirt/service/remote"
 	"path"
 	"sort"
 	"strings"
@@ -56,10 +58,7 @@ func AdminProviderFMList(c *gin.Context) {
 		return
 	}
 
-	remotePath := c.DefaultQuery("path", "/")
-	if remotePath == "" {
-		remotePath = "/"
-	}
+	remotePath := remote.NormalizeRemotePath(c.DefaultQuery("path", "/"))
 
 	hub := agentService.GetHub()
 	actualPath, entries, err := hub.FMList(provider.ID, remotePath)
@@ -84,6 +83,9 @@ func AdminProviderFMList(c *gin.Context) {
 	}
 	result := make([]fmEntryWithPath, 0, len(entries))
 	for _, e := range entries {
+		if e.ModTime > 9999999999 {
+			e.ModTime = e.ModTime / 1000
+		}
 		result = append(result, fmEntryWithPath{
 			FMEntry: e,
 			Path:    path.Join(actualPath, e.Name),
@@ -109,8 +111,8 @@ func AdminProviderFMDownload(c *gin.Context) {
 		return
 	}
 
-	remotePath := c.Query("path")
-	if remotePath == "" {
+	remotePath := remote.NormalizeRemotePath(c.Query("path"))
+	if remotePath == "/" {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请指定文件路径"))
 		return
 	}
@@ -153,12 +155,10 @@ func AdminProviderFMUpload(c *gin.Context) {
 		return
 	}
 
-	targetDir := c.PostForm("targetDir")
-	if targetDir == "" {
-		targetDir = "/"
-	}
+	targetDir := remote.NormalizeRemotePath(c.PostForm("targetDir"))
 
-	if fileHeader.Size > 50*1024*1024 {
+	const maxAgentFMUploadBytes = 50 * 1024 * 1024
+	if fileHeader.Size > maxAgentFMUploadBytes {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "文件过大（最大 50 MB）"))
 		return
 	}
@@ -170,13 +170,22 @@ func AdminProviderFMUpload(c *gin.Context) {
 	}
 	defer f.Close()
 
-	buf := make([]byte, fileHeader.Size)
-	if _, err := f.Read(buf); err != nil {
+	buf, err := io.ReadAll(io.LimitReader(f, maxAgentFMUploadBytes+1))
+	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "读取文件内容失败"))
 		return
 	}
+	if len(buf) > maxAgentFMUploadBytes {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "文件过大（最大 50 MB）"))
+		return
+	}
 
-	remotePath := path.Join(targetDir, fileHeader.Filename)
+	filename := path.Base(fileHeader.Filename)
+	if filename == "." || filename == "/" || filename == "" {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的文件名"))
+		return
+	}
+	remotePath := path.Join(targetDir, filename)
 
 	hub := agentService.GetHub()
 	if err := hub.FMUpload(provider.ID, remotePath, buf); err != nil {
@@ -204,8 +213,8 @@ func AdminProviderFMDelete(c *gin.Context) {
 		return
 	}
 
-	remotePath := c.Query("path")
-	if remotePath == "" {
+	remotePath := remote.NormalizeRemotePath(c.Query("path"))
+	if remotePath == "/" {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请指定文件路径"))
 		return
 	}
@@ -241,6 +250,11 @@ func AdminProviderFMMkdir(c *gin.Context) {
 		Path string `json:"path" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请提供目录路径"))
+		return
+	}
+	req.Path = remote.NormalizeRemotePath(req.Path)
+	if req.Path == "/" {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请提供目录路径"))
 		return
 	}

@@ -285,10 +285,10 @@ function getTaskTypeTagType(taskType) {
 
 function getTaskStatusLabel(status) {
   const map = {
-    pending: t('admin.providers.taskPending'),
-    running: t('admin.providers.taskRunning'),
-    completed: t('admin.providers.taskCompleted'),
-    failed: t('admin.providers.taskFailed')
+    pending: t('admin.providers.trafficMonitorTaskStatusPending'),
+    running: t('admin.providers.trafficMonitorTaskStatusRunning'),
+    completed: t('admin.providers.trafficMonitorTaskStatusCompleted'),
+    failed: t('admin.providers.trafficMonitorTaskStatusFailed')
   }
   return map[status] || status
 }

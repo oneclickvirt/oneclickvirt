@@ -46,8 +46,7 @@
           </div>
 
           <div
-            v-if="conn.mode !== 'exec'"
-            v-show="(conn.activeView || 'terminal') === 'sftp'"
+            v-if="conn.mode !== 'exec' && (conn.activeView || 'terminal') === 'sftp'"
             class="sftp-panel"
           >
             <SFTPPanel
@@ -117,12 +116,16 @@ const minimizedConnections = computed(() => sshStore.minimizedConnections)
 const setTerminalRef = (instanceId, el) => {
   if (el) {
     terminalRefs.value[instanceId] = el
+  } else {
+    delete terminalRefs.value[instanceId]
   }
 }
 
 const setSftpRef = (instanceId, el) => {
   if (el) {
     sftpRefs.value[instanceId] = el
+  } else {
+    delete sftpRefs.value[instanceId]
   }
 }
 

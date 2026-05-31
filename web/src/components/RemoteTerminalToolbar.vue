@@ -16,7 +16,7 @@
           :type="activeView === 'terminal' ? 'primary' : 'default'"
           @click="emit('update:activeView', 'terminal')"
         >
-          Terminal
+          {{ t('common.terminalTab') }}
         </el-button>
         <el-button
           v-if="supportsSftp"

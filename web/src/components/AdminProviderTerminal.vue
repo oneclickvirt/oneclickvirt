@@ -28,7 +28,7 @@
     </div>
 
     <div
-      v-show="supportsFileTransfer && activeView === 'sftp'"
+      v-if="supportsFileTransfer && activeView === 'sftp'"
       class="sftp-panel"
     >
       <SFTPPanel
@@ -83,14 +83,18 @@ let dataDisposable = null
 let resizeDisposable = null
 let themeObserver = null
 
+const hasProviderSshCredentials = computed(() => {
+  return !!(props.providerUsername && props.providerAuthMethod)
+})
+
 // 有 SSH 凭据 → SFTP；Agent 模式且在线 → agent-fm
 const supportsFileTransfer = computed(() => {
-  if (props.providerUsername && props.providerAuthMethod) return true
+  if (hasProviderSshCredentials.value) return true
   return props.connectionType === 'agent' && props.agentConnected
 })
 
 const fileTransferMode = computed(() => {
-  if (props.providerUsername && props.providerAuthMethod) return 'sftp'
+  if (hasProviderSshCredentials.value) return 'sftp'
   return 'agent-fm'
 })
 
@@ -331,7 +335,7 @@ const handleManualReconnect = async () => {
   try {
     reconnectTerminal('Manual reconnect from toolbar')
 
-    if (supportsSFTP.value && sftpPanelRef.value?.refreshNow) {
+    if (supportsFileTransfer.value && activeView.value === 'sftp' && sftpPanelRef.value?.refreshNow) {
       await sftpPanelRef.value.refreshNow(true)
     }
 
@@ -350,6 +354,9 @@ const handleToolbarAction = (action) => {
 }
 
 const setActiveView = (view) => {
+  if (view === 'sftp' && !supportsFileTransfer.value) {
+    return
+  }
   activeView.value = view
 }
 
@@ -427,7 +434,7 @@ watch(activeView, (view) => {
   })
 })
 
-watch(supportsSFTP, (enabled) => {
+watch(supportsFileTransfer, (enabled) => {
   if (!enabled && activeView.value === 'sftp') {
     activeView.value = 'terminal'
   }

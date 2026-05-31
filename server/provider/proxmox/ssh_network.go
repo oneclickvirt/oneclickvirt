@@ -49,9 +49,7 @@ func (p *ProxmoxProvider) configureContainerNetwork(ctx context.Context, vmid in
 	}
 
 	// 检查是否包含IPv6
-	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" ||
-		networkConfig.NetworkType == "dedicated_ipv4_ipv6" ||
-		networkConfig.NetworkType == "ipv6_only"
+	hasIPv6 := hasProxmoxIPv6(networkConfig.NetworkType)
 
 	if hasIPv6 {
 		// 配置IPv6网络（会根据NetworkType自动处理IPv4+IPv6或纯IPv6）
@@ -105,9 +103,7 @@ func (p *ProxmoxProvider) configureVMNetwork(ctx context.Context, vmid int, conf
 	}
 
 	// 检查是否包含IPv6
-	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" ||
-		networkConfig.NetworkType == "dedicated_ipv4_ipv6" ||
-		networkConfig.NetworkType == "ipv6_only"
+	hasIPv6 := hasProxmoxIPv6(networkConfig.NetworkType)
 
 	if hasIPv6 {
 		// 配置IPv6网络（会根据NetworkType自动处理IPv4+IPv6或纯IPv6）
@@ -120,10 +116,10 @@ func (p *ProxmoxProvider) configureVMNetwork(ctx context.Context, vmid int, conf
 
 	// 如果没有IPv6或IPv6配置失败，配置IPv4-only网络
 	if !hasIPv6 {
-		user_ip := fmt.Sprintf("172.16.1.%d", vmid)
+		userIP := p.vmidToInternalIP(vmid)
 
 		// 配置云初始化网络
-		ipCmd := fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=172.16.1.1", vmid, user_ip)
+		ipCmd := fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, p.getInternalGateway())
 		_, err := p.sshClient.Execute(ipCmd)
 		if err != nil {
 			return fmt.Errorf("配置虚拟机IPv4网络失败: %w", err)
@@ -131,7 +127,7 @@ func (p *ProxmoxProvider) configureVMNetwork(ctx context.Context, vmid int, conf
 
 		// 配置端口转发（只在IPv4模式下需要）
 		if len(config.Ports) > 0 {
-			p.configurePortForwarding(ctx, vmid, user_ip, config.Ports)
+			p.configurePortForwarding(ctx, vmid, userIP, config.Ports)
 		}
 	}
 

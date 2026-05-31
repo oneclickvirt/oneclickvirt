@@ -3,22 +3,24 @@
     <div class="sftp-toolbar">
       <el-button
         size="small"
+        :disabled="loading || uploading"
         @click="goParent"
       >
-        Up
+        {{ t('common.parentDirectory') }}
       </el-button>
       <el-input
         v-model="currentPath"
         size="small"
         class="path-input"
-        @keyup.enter="refresh"
+        @keyup.enter="() => refresh()"
       />
       <el-button
         size="small"
         :loading="loading"
-        @click="refresh"
+        :disabled="uploading"
+        @click="() => refresh()"
       >
-        Refresh
+        {{ t('common.refresh') }}
       </el-button>
       <input
         ref="fileInputRef"
@@ -30,9 +32,10 @@
         size="small"
         type="primary"
         :loading="uploading"
+        :disabled="loading"
         @click="openFilePicker"
       >
-        Upload
+        {{ t('common.upload') }}
       </el-button>
     </div>
 
@@ -52,7 +55,7 @@
     >
       <el-table-column
         prop="name"
-        label="Name"
+        :label="t('common.name')"
         min-width="280"
       >
         <template #default="scope">
@@ -66,7 +69,7 @@
       </el-table-column>
       <el-table-column
         prop="size"
-        label="Size"
+        :label="t('common.size')"
         width="120"
       >
         <template #default="scope">
@@ -75,7 +78,7 @@
       </el-table-column>
       <el-table-column
         prop="modTime"
-        label="Modified"
+        :label="t('common.modifiedTime')"
         width="180"
       >
         <template #default="scope">
@@ -83,7 +86,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="Action"
+        :label="t('common.action')"
         width="140"
       >
         <template #default="scope">
@@ -93,7 +96,7 @@
             type="primary"
             @click="downloadEntry(scope.row)"
           >
-            Download
+            {{ t('common.download') }}
           </el-button>
         </template>
       </el-table-column>
@@ -102,7 +105,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import {
@@ -297,6 +300,9 @@ const uploadChunkWithRetry = async (api, entityId, formData, maxRetries = 3) => 
 }
 
 const refresh = async (silent = false, retried = false) => {
+  if (!props.active) {
+    return
+  }
   if (loading.value) {
     return
   }
@@ -316,7 +322,7 @@ const refresh = async (silent = false, retried = false) => {
       return refresh(silent, true)
     }
     if (!silent) {
-      ElMessage.error(await getSFTPErrorMessage(error, 'List directory failed'))
+      ElMessage.error(await getSFTPErrorMessage(error, t('common.sftpListFailed')))
     }
   } finally {
     loading.value = false
@@ -384,7 +390,7 @@ const downloadEntry = async (entry) => {
     URL.revokeObjectURL(objectUrl)
   } catch (error) {
     console.error('SFTP download failed:', error)
-    ElMessage.error(await getSFTPErrorMessage(error, 'Download failed'))
+    ElMessage.error(await getSFTPErrorMessage(error, t('common.sftpDownloadFailed')))
   }
 }
 
@@ -420,7 +426,7 @@ const handleFileChange = async (event) => {
       ElMessage.success(t('common.agentFMUploadSuccess'))
       await refresh()
     } catch (error) {
-      ElMessage.error(t('common.agentFMUploadFailed'))
+      ElMessage.error(await getSFTPErrorMessage(error, t('common.agentFMUploadFailed')))
     } finally {
       uploading.value = false
       if (fileInputRef.value) fileInputRef.value.value = ''
@@ -448,7 +454,7 @@ const handleFileChange = async (event) => {
       const completed = !!statusResp?.data?.completed
       if (completed || uploadedBytes >= file.size) {
         uploadProgress.value = 100
-        ElMessage.success('Upload already completed')
+        ElMessage.success(t('common.uploadAlreadyCompleted'))
         await refresh()
         return
       }
@@ -456,11 +462,11 @@ const handleFileChange = async (event) => {
       if (uploadedBytes > 0 && uploadedBytes < file.size) {
         try {
           await ElMessageBox.confirm(
-            'Detected incomplete upload data. Continue from breakpoint?',
-            'Resume Upload',
+            t('common.resumeUploadConfirm'),
+            t('common.resumeUploadTitle'),
             {
-              confirmButtonText: 'Resume',
-              cancelButtonText: 'Restart',
+              confirmButtonText: t('common.resume'),
+              cancelButtonText: t('common.restartUpload'),
               distinguishCancelAndClose: true,
               type: 'warning'
             }
@@ -493,7 +499,7 @@ const handleFileChange = async (event) => {
     if (startChunkIndex < 0) startChunkIndex = 0
     if (startChunkIndex > totalChunks - 1) startChunkIndex = totalChunks - 1
 
-    uploadProgress.value = Math.round((uploadedBytes / file.size) * 100)
+    uploadProgress.value = file.size > 0 ? Math.round((uploadedBytes / file.size) * 100) : 0
 
     for (let chunkIndex = startChunkIndex; chunkIndex < totalChunks; chunkIndex++) {
       const start = chunkIndex * CHUNK_SIZE
@@ -514,11 +520,11 @@ const handleFileChange = async (event) => {
       uploadProgress.value = Math.round(((chunkIndex + 1) / totalChunks) * 100)
     }
 
-    ElMessage.success('Upload succeeded')
+    ElMessage.success(t('common.uploadSucceeded'))
     await refresh()
   } catch (error) {
     console.error('SFTP upload failed:', error)
-    ElMessage.error(await getSFTPErrorMessage(error, 'Upload failed'))
+    ElMessage.error(await getSFTPErrorMessage(error, t('common.uploadFailed')))
   } finally {
     uploading.value = false
     uploadProgress.value = 0
@@ -557,16 +563,11 @@ watch(() => props.entityType, () => {
 watch(() => props.active, (active) => {
   if (active) {
     startKeepalive()
-    refresh(true)
+    refresh()
   } else {
     stopKeepalive()
   }
 }, { immediate: true })
-
-onMounted(() => {
-  refresh()
-  startKeepalive()
-})
 
 onBeforeUnmount(() => {
   stopKeepalive()

@@ -24,7 +24,7 @@ import (
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
-	"oneclickvirt/utils"
+	remoteService "oneclickvirt/service/remote"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -201,38 +201,12 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider, ctx cont
 		return
 	}
 
-	sshPort := p.SSHPort
-	if sshPort == 0 {
-		sshPort = 22
-	}
-
-	// SSH 隧道模式：通过 Agent WebSocket 隧道连接 Provider 的 SSH
-	tunnelConn, err := agentService.OpenTunnelConn(p.ID, "127.0.0.1", sshPort)
+	client, session, err := openProviderSSHSession(p)
 	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte("Agent 隧道建立失败: "+err.Error()+"\r\n"))
+		ws.WriteMessage(websocket.TextMessage, []byte("SSH 连接失败: "+err.Error()+"\r\n"))
 		return
 	}
-	defer tunnelConn.Close()
-
-	sshConfig, err := buildTerminalSSHConfig(p)
-	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte("SSH 配置无效: "+err.Error()+"\r\n"))
-		return
-	}
-
-	sshConn, chans, reqs, err := ssh.NewClientConn(tunnelConn, fmt.Sprintf("agent-provider-%d", p.ID), sshConfig)
-	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte("通过 Agent 隧道建立 SSH 连接失败: "+err.Error()+"\r\n"))
-		return
-	}
-	client := ssh.NewClient(sshConn, chans, reqs)
 	defer client.Close()
-
-	session, err := client.NewSession()
-	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte("创建 SSH 会话失败: "+err.Error()+"\r\n"))
-		return
-	}
 	defer session.Close()
 
 	handleSSHSessionTerminal(ws, session, ctx)
@@ -356,22 +330,7 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 // ── SSH 模式终端 ────────────────────────────────────────────────────────────
 
 func handleSSHTerminal(ws *websocket.Conn, p *providerModel.Provider, ctx context.Context) {
-	sshPort := p.SSHPort
-	if sshPort == 0 {
-		sshPort = 22
-	}
-
-	sshHost := utils.ExtractHost(p.Endpoint)
-
-	var client *ssh.Client
-	var session *ssh.Session
-	var err error
-
-	if p.SSHKey != "" {
-		client, session, err = utils.CreateSSHConnectionWithKey(sshHost, sshPort, p.Username, p.SSHKey)
-	} else {
-		client, session, err = utils.CreateSSHConnection(sshHost, sshPort, p.Username, p.Password)
-	}
+	client, session, err := openProviderSSHSession(p)
 	if err != nil {
 		ws.WriteMessage(websocket.TextMessage, []byte("SSH 连接失败: "+err.Error()+"\r\n"))
 		return
@@ -382,27 +341,21 @@ func handleSSHTerminal(ws *websocket.Conn, p *providerModel.Provider, ctx contex
 	handleSSHSessionTerminal(ws, session, ctx)
 }
 
-func buildTerminalSSHConfig(p *providerModel.Provider) (*ssh.ClientConfig, error) {
-	authMethods := make([]ssh.AuthMethod, 0, 2)
-	if p.SSHKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(p.SSHKey))
-		if err != nil {
-			return nil, err
-		}
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
+func openProviderSSHSession(p *providerModel.Provider) (*ssh.Client, *ssh.Session, error) {
+	target, err := remoteService.ResolveProviderSSHTarget(p)
+	if err != nil {
+		return nil, nil, err
 	}
-	if p.Password != "" {
-		authMethods = append(authMethods, ssh.Password(p.Password))
+	client, err := remoteService.OpenSSHClient(target)
+	if err != nil {
+		return nil, nil, err
 	}
-	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("missing SSH password or key")
+	session, err := client.NewSession()
+	if err != nil {
+		client.Close()
+		return nil, nil, fmt.Errorf("创建 SSH 会话失败: %w", err)
 	}
-	return &ssh.ClientConfig{
-		User:            p.Username,
-		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         30 * time.Second,
-	}, nil
+	return client, session, nil
 }
 
 func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session, parentCtx context.Context) {

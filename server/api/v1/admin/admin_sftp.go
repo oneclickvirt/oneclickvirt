@@ -58,7 +58,7 @@ func getAdminProviderForSFTP(c *gin.Context) (*providerModel.Provider, error) {
 	}
 
 	var provider providerModel.Provider
-	err := global.APP_DB.Select("id", "name", "connection_type", "endpoint", "ssh_port", "username", "password", "ssh_key").
+	err := global.APP_DB.Select("id", "name", "connection_type", "endpoint", "port_ip", "ssh_port", "username", "password", "ssh_key").
 		Where("id = ?", providerID).
 		First(&provider).Error
 	if err != nil {

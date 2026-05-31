@@ -145,41 +145,30 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	// 获取网络类型配置
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
-	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" ||
-		networkConfig.NetworkType == "dedicated_ipv4_ipv6" ||
-		networkConfig.NetworkType == "ipv6_only"
+	hasIPv6 := hasProxmoxIPv6(networkConfig.NetworkType)
 
 	// 根据NetworkType选择第二个网络桥接
 	// 仅在配置了IPv6时才添加第二个网络接口
 	var net1Bridge string
 	if hasIPv6 {
-		v6Bridge := p.getBridgeName("dedicated_v6")
-		if v6Bridge == "" {
-			// 第三方安装且未配置IPv6桥，跳过
-			global.APP_LOG.Warn("未配置独立IPv6网桥，将使用单网络接口",
+		ipv6Mode, err := p.resolveProxmoxIPv6ModeForCreate(ctx)
+		if err != nil {
+			if networkConfig.NetworkType == "ipv6_only" {
+				return fmt.Errorf("IPv6环境检查失败（ipv6_only模式要求IPv6环境）: %w", err)
+			}
+			global.APP_LOG.Warn("获取IPv6信息失败",
+				zap.Error(err),
 				zap.String("networkType", networkConfig.NetworkType))
 		} else {
-			// 检查是否真正配置了IPv6
-			ipv6Info, err := p.getIPv6Info(ctx)
-			if err != nil {
-				global.APP_LOG.Warn("获取IPv6信息失败",
-					zap.Error(err),
-					zap.String("networkType", networkConfig.NetworkType))
-			}
-			// 如果有appended addresses或基础IPv6配置，使用配置的IPv6桥
-			if ipv6Info != nil && (ipv6Info.HasAppendedAddresses ||
-				(ipv6Info.HostIPv6Address != "" && ipv6Info.IPv6Gateway != "")) {
-				net1Bridge = v6Bridge
-				global.APP_LOG.Debug("检测到IPv6环境，使用IPv6网桥",
-					zap.String("bridge", v6Bridge),
-					zap.Bool("hasAppendedAddresses", ipv6Info.HasAppendedAddresses),
-					zap.String("hostIPv6", ipv6Info.HostIPv6Address))
-			} else {
-				// 没有任何IPv6配置，使用单网络接口
-				net1Bridge = ""
-				global.APP_LOG.Warn("未检测到IPv6环境，将使用单网络接口",
-					zap.String("networkType", networkConfig.NetworkType))
-			}
+			net1Bridge = ipv6Mode.BridgeName
+		}
+		if net1Bridge != "" {
+			global.APP_LOG.Debug("检测到IPv6环境，使用IPv6网桥",
+				zap.String("bridge", net1Bridge),
+				zap.Bool("useNATMapping", ipv6Mode != nil && ipv6Mode.UseNATMapping))
+		} else {
+			global.APP_LOG.Warn("未检测到可用IPv6网桥，将使用单网络接口",
+				zap.String("networkType", networkConfig.NetworkType))
 		}
 	} else {
 		// 纯IPv4模式，只使用NAT网桥

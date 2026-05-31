@@ -21,6 +21,73 @@ type IPv6Info struct {
 	HasAppendedAddresses bool   // 是否存在额外的IPv6地址
 }
 
+type proxmoxIPv6Mode struct {
+	Info          *IPv6Info
+	BridgeName    string
+	UseNATMapping bool
+}
+
+func cleanIPv6Value(raw string) string {
+	value := utils.CleanCommandOutput(raw)
+	if idx := strings.Index(value, "/"); idx > 0 {
+		value = value[:idx]
+	}
+	return strings.TrimSpace(value)
+}
+
+func hasProxmoxIPv6(networkType string) bool {
+	return networkType == "nat_ipv4_ipv6" ||
+		networkType == "dedicated_ipv4_ipv6" ||
+		networkType == "ipv6_only"
+}
+
+func hasDirectProxmoxIPv6Info(info *IPv6Info) bool {
+	if info == nil {
+		return false
+	}
+	return strings.TrimSpace(info.HostIPv6Address) != "" &&
+		strings.TrimSpace(info.IPv6AddressPrefix) != ""
+}
+
+func (p *ProxmoxProvider) resolveProxmoxIPv6Mode(ctx context.Context) (*proxmoxIPv6Mode, error) {
+	info, err := p.getIPv6Info(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if info.HasAppendedAddresses {
+		bridgeName := p.getBridgeName("nat")
+		if strings.TrimSpace(bridgeName) == "" {
+			return nil, fmt.Errorf("IPv6 NAT 模式需要 NAT 网桥")
+		}
+		return &proxmoxIPv6Mode{
+			Info:          info,
+			BridgeName:    bridgeName,
+			UseNATMapping: true,
+		}, nil
+	}
+
+	bridgeName := p.getBridgeName("dedicated_v6")
+	if strings.TrimSpace(bridgeName) == "" {
+		return nil, fmt.Errorf("独立 IPv6 模式需要独立 IPv6 网桥")
+	}
+	if !hasDirectProxmoxIPv6Info(info) {
+		return nil, fmt.Errorf("独立 IPv6 模式缺少宿主机 IPv6 地址或地址前缀")
+	}
+	return &proxmoxIPv6Mode{
+		Info:          info,
+		BridgeName:    bridgeName,
+		UseNATMapping: false,
+	}, nil
+}
+
+func (p *ProxmoxProvider) resolveProxmoxIPv6ModeForCreate(ctx context.Context) (*proxmoxIPv6Mode, error) {
+	if err := p.checkIPv6Environment(ctx); err != nil {
+		return nil, err
+	}
+	return p.resolveProxmoxIPv6Mode(ctx)
+}
+
 // configureInstanceIPv6 配置实例IPv6网络
 func (p *ProxmoxProvider) configureInstanceIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, instanceType string) error {
 	// 解析网络配置
@@ -33,9 +100,7 @@ func (p *ProxmoxProvider) configureInstanceIPv6(ctx context.Context, vmid int, c
 		zap.String("networkType", networkConfig.NetworkType))
 
 	// 检查是否需要配置IPv6
-	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" ||
-		networkConfig.NetworkType == "dedicated_ipv4_ipv6" ||
-		networkConfig.NetworkType == "ipv6_only"
+	hasIPv6 := hasProxmoxIPv6(networkConfig.NetworkType)
 
 	if !hasIPv6 {
 		global.APP_LOG.Debug("网络类型不包含IPv6，跳过IPv6配置",
@@ -54,8 +119,9 @@ func (p *ProxmoxProvider) configureInstanceIPv6(ctx context.Context, vmid int, c
 		return nil
 	}
 
-	// 获取IPv6基础信息
-	ipv6Info, err := p.getIPv6Info(ctx)
+	// 获取IPv6基础信息，并按 oneclickvirt/pve 脚本约定选择模式：
+	// 有 pve_appended_content.txt → vmbr1/NAT IPv6；否则 → vmbr2/独立 IPv6。
+	ipv6Mode, err := p.resolveProxmoxIPv6Mode(ctx)
 	if err != nil {
 		if networkConfig.NetworkType == "ipv6_only" {
 			return fmt.Errorf("获取IPv6信息失败（ipv6_only模式要求IPv6信息）: %w", err)
@@ -68,13 +134,13 @@ func (p *ProxmoxProvider) configureInstanceIPv6(ctx context.Context, vmid int, c
 	switch networkConfig.NetworkType {
 	case "nat_ipv4_ipv6":
 		// NAT模式的IPv4+IPv6
-		return p.configureIPv6Network(ctx, vmid, config, instanceType, ipv6Info, false)
+		return p.configureIPv6Network(ctx, vmid, config, instanceType, ipv6Mode, false)
 	case "dedicated_ipv4_ipv6":
 		// 独立的IPv4+IPv6
-		return p.configureIPv6Network(ctx, vmid, config, instanceType, ipv6Info, false)
+		return p.configureIPv6Network(ctx, vmid, config, instanceType, ipv6Mode, false)
 	case "ipv6_only":
 		// 纯IPv6模式
-		return p.configureIPv6Network(ctx, vmid, config, instanceType, ipv6Info, true)
+		return p.configureIPv6Network(ctx, vmid, config, instanceType, ipv6Mode, true)
 	}
 
 	return nil
@@ -128,7 +194,7 @@ func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
 	if v6Bridge == "" {
 		return fmt.Errorf("没有配置单独IPv6网桥，无法开设带独立IPv6地址的服务")
 	}
-	checkVmbrCmd := fmt.Sprintf("grep -q '%s' /etc/network/interfaces", v6Bridge)
+	checkVmbrCmd := fmt.Sprintf("ip link show '%s' >/dev/null 2>&1 || grep -Rqs '^iface[[:space:]]\\+%s\\b\\|^auto[[:space:]]\\+%s\\b' /etc/network/interfaces /etc/network/interfaces.d 2>/dev/null", v6Bridge, v6Bridge, v6Bridge)
 	_, err = p.sshClient.Execute(checkVmbrCmd)
 	if err != nil {
 		return fmt.Errorf("没有%s网桥用于开设带独立IPv6地址的服务", v6Bridge)
@@ -159,7 +225,7 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_check_ipv6 ]"); err == nil {
 		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_check_ipv6")
 		if err == nil {
-			info.HostIPv6Address = utils.CleanCommandOutput(output)
+			info.HostIPv6Address = cleanIPv6Value(output)
 			// 生成IPv6地址前缀
 			if info.HostIPv6Address != "" {
 				parts := strings.Split(info.HostIPv6Address, ":")
@@ -182,7 +248,7 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_gateway ]"); err == nil {
 		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_gateway")
 		if err == nil {
-			info.IPv6Gateway = utils.CleanCommandOutput(output)
+			info.IPv6Gateway = cleanIPv6Value(output)
 		}
 	}
 
@@ -190,19 +256,18 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 }
 
 // configureIPv6Network 配置IPv6网络（合并NAT和直接映射逻辑）
-func (p *ProxmoxProvider) configureIPv6Network(ctx context.Context, vmid int, config provider.InstanceConfig, instanceType string, ipv6Info *IPv6Info, ipv6Only bool) error {
-	// 选择网桥和配置模式
-	var bridgeName string
-	var useNATMapping bool
-
-	if ipv6Info.HasAppendedAddresses {
-		// 有额外IPv6地址，使用NAT映射模式
-		bridgeName = p.getBridgeName("nat")
-		useNATMapping = true
-	} else {
-		// 使用直接分配模式
-		bridgeName = p.getBridgeName("dedicated_v6")
-		useNATMapping = false
+func (p *ProxmoxProvider) configureIPv6Network(ctx context.Context, vmid int, config provider.InstanceConfig, instanceType string, ipv6Mode *proxmoxIPv6Mode, ipv6Only bool) error {
+	if ipv6Mode == nil || ipv6Mode.Info == nil {
+		return fmt.Errorf("IPv6模式未解析")
+	}
+	bridgeName := ipv6Mode.BridgeName
+	useNATMapping := ipv6Mode.UseNATMapping
+	ipv6Info := ipv6Mode.Info
+	if strings.TrimSpace(bridgeName) == "" {
+		return fmt.Errorf("IPv6网桥未配置")
+	}
+	if !useNATMapping && !hasDirectProxmoxIPv6Info(ipv6Info) {
+		return fmt.Errorf("缺少宿主机IPv6地址或地址前缀，无法配置独立IPv6")
 	}
 
 	global.APP_LOG.Debug("配置IPv6网络",

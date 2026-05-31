@@ -249,22 +249,27 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	cpuFormatted := convertCPUFormat(config.CPU)
 	memoryFormatted := convertMemoryFormat(config.Memory)
 
-	// 获取IPv6配置信息
-	ipv6Info, err := p.getIPv6Info(ctx)
-	if err != nil {
-		global.APP_LOG.Warn("获取IPv6信息失败，使用默认网络配置", zap.Error(err))
-		ipv6Info = &IPv6Info{HasAppendedAddresses: false}
-	}
-
-	var net1Bridge string
-	if ipv6Info.HasAppendedAddresses {
-		net1Bridge = p.getBridgeName("nat")
-	} else {
-		net1Bridge = p.getBridgeName("dedicated_v6")
-	}
-
-	// 获取网络配置用于带宽限制
+	// 获取网络配置用于带宽限制与IPv6网卡判断
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+	hasIPv6 := hasProxmoxIPv6(networkConfig.NetworkType)
+	var net1Bridge string
+	if hasIPv6 {
+		ipv6Mode, err := p.resolveProxmoxIPv6ModeForCreate(ctx)
+		if err != nil {
+			if networkConfig.NetworkType == "ipv6_only" {
+				return fmt.Errorf("IPv6环境检查失败（ipv6_only模式要求IPv6环境）: %w", err)
+			}
+			global.APP_LOG.Warn("获取IPv6信息失败，将先创建单网卡虚拟机，后续网络配置会回退",
+				zap.Error(err),
+				zap.String("networkType", networkConfig.NetworkType))
+		} else {
+			net1Bridge = ipv6Mode.BridgeName
+		}
+		if net1Bridge == "" {
+			global.APP_LOG.Warn("未检测到可用IPv6网桥，将先创建单网卡虚拟机",
+				zap.String("networkType", networkConfig.NetworkType))
+		}
+	}
 
 	// 通过API创建虚拟机
 	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu", p.config.Host, p.node)
@@ -286,8 +291,6 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		net0Config = fmt.Sprintf("%s,rate=%d", net0Config, rateMBps)
 	}
 
-	net1Config := fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)
-
 	payload := map[string]interface{}{
 		"vmid":    vmid,
 		"name":    config.Name,
@@ -298,10 +301,12 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		"sockets": "1",
 		"cpu":     cpuType,
 		"net0":    net0Config,
-		"net1":    net1Config,
 		"ostype":  "l26",
 		"kvm":     fmt.Sprintf("%d", kvmFlag),
 		"memory":  memoryFormatted,
+	}
+	if net1Bridge != "" {
+		payload["net1"] = fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)
 	}
 
 	jsonData, err := json.Marshal(payload)

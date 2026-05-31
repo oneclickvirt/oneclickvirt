@@ -224,8 +224,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		provider.EnableTrafficControl = true
 		provider.EnableResourceMonitoring = true
 		provider.TrafficSyncMethod = "agent"
-		// agent 模式仅在显式提供接入地址时允许使用非 no_port_mapping 网络
-		if req.Endpoint == "" || req.PortIP == "" || req.NetworkType == "" {
+		// Agent 模式不保存 SSH endpoint；端口映射能力由 portIP 明确控制。
+		if req.PortIP == "" || req.NetworkType == "" {
 			provider.NetworkType = "no_port_mapping"
 		}
 	}

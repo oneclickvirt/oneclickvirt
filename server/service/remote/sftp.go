@@ -26,6 +26,16 @@ type SSHAccessTarget struct {
 	UseAgentTunnel bool
 }
 
+func providerPortHost(provider *providerModel.Provider) string {
+	if provider == nil {
+		return ""
+	}
+	if strings.TrimSpace(provider.PortIP) != "" {
+		return utils.ExtractHost(provider.PortIP)
+	}
+	return utils.ExtractHost(provider.Endpoint)
+}
+
 func NormalizeRemotePath(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -64,13 +74,21 @@ func ResolveInstanceSSHTarget(instance *providerModel.Instance) (*SSHAccessTarge
 		return nil, fmt.Errorf("实例缺少 SSH 用户名")
 	}
 	if strings.TrimSpace(instance.Password) == "" {
-		return nil, fmt.Errorf("实例缺少 SSH 密码，无法建立 SFTP 连接")
+		return nil, fmt.Errorf("实例缺少 SSH 密码，无法建立远程连接")
 	}
 
 	target := &SSHAccessTarget{
 		ProviderID: instance.ProviderID,
 		Username:   instance.Username,
 		Password:   instance.Password,
+	}
+
+	var provider providerModel.Provider
+	hasProvider := false
+	if err := global.APP_DB.Select("id", "connection_type", "endpoint", "port_ip").
+		Where("id = ?", instance.ProviderID).
+		First(&provider).Error; err == nil {
+		hasProvider = true
 	}
 
 	var sshPortMapping providerModel.Port
@@ -83,10 +101,15 @@ func ResolveInstanceSSHTarget(instance *providerModel.Instance) (*SSHAccessTarge
 				target.Port = 22
 			}
 		} else {
-			if instance.PublicIP != "" {
-				target.Host = instance.PublicIP
-			} else {
-				target.Host = instance.PrivateIP
+			if hasProvider {
+				target.Host = providerPortHost(&provider)
+			}
+			if strings.TrimSpace(target.Host) == "" {
+				if instance.PublicIP != "" {
+					target.Host = instance.PublicIP
+				} else {
+					target.Host = instance.PrivateIP
+				}
 			}
 			target.Port = sshPortMapping.HostPort
 		}
@@ -95,8 +118,7 @@ func ResolveInstanceSSHTarget(instance *providerModel.Instance) (*SSHAccessTarge
 			target.Host = instance.PublicIP
 		} else if instance.PrivateIP != "" {
 			target.Host = instance.PrivateIP
-			var provider providerModel.Provider
-			if dbErr := global.APP_DB.Select("connection_type").Where("id = ?", instance.ProviderID).First(&provider).Error; dbErr == nil && provider.ConnectionType == "agent" {
+			if hasProvider && provider.ConnectionType == "agent" {
 				target.UseAgentTunnel = true
 			}
 		}
@@ -142,7 +164,7 @@ func ResolveProviderSSHTarget(provider *providerModel.Provider) (*SSHAccessTarge
 			target.Port = 22
 		}
 	} else {
-		target.Host = utils.ExtractHost(provider.Endpoint)
+		target.Host = providerPortHost(provider)
 		target.Port = provider.SSHPort
 		if target.Port == 0 {
 			target.Port = 22
@@ -156,16 +178,16 @@ func ResolveProviderSSHTarget(provider *providerModel.Provider) (*SSHAccessTarge
 	return target, nil
 }
 
-func OpenSFTPClient(target *SSHAccessTarget) (*sftp.Client, func(), error) {
+func buildSSHClientConfig(target *SSHAccessTarget, timeout time.Duration) (*ssh.ClientConfig, error) {
 	if target == nil {
-		return nil, nil, fmt.Errorf("target is nil")
+		return nil, fmt.Errorf("target is nil")
 	}
 
 	authMethods := make([]ssh.AuthMethod, 0, 2)
 	if strings.TrimSpace(target.PrivateKey) != "" {
 		signer, err := ssh.ParsePrivateKey([]byte(target.PrivateKey))
 		if err != nil {
-			return nil, nil, fmt.Errorf("解析 SSH 私钥失败: %w", err)
+			return nil, fmt.Errorf("解析 SSH 私钥失败: %w", err)
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
@@ -173,36 +195,56 @@ func OpenSFTPClient(target *SSHAccessTarget) (*sftp.Client, func(), error) {
 		authMethods = append(authMethods, ssh.Password(target.Password))
 	}
 	if len(authMethods) == 0 {
-		return nil, nil, fmt.Errorf("缺少可用的 SSH 凭据")
+		return nil, fmt.Errorf("缺少可用的 SSH 凭据")
+	}
+	if timeout <= 0 {
+		timeout = 20 * time.Second
 	}
 
-	sshConfig := &ssh.ClientConfig{
+	return &ssh.ClientConfig{
 		User:            target.Username,
 		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         20 * time.Second,
+		Timeout:         timeout,
+	}, nil
+}
+
+func OpenSSHClient(target *SSHAccessTarget) (*ssh.Client, error) {
+	if target == nil {
+		return nil, fmt.Errorf("target is nil")
 	}
 
-	var sshClient *ssh.Client
+	sshConfig, err := buildSSHClientConfig(target, 20*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
 	if target.UseAgentTunnel {
 		tunnelConn, err := agentService.OpenTunnelConn(target.ProviderID, target.Host, target.Port)
 		if err != nil {
-			return nil, nil, fmt.Errorf("agent 隧道建立失败: %w", err)
+			return nil, fmt.Errorf("agent 隧道建立失败: %w", err)
 		}
 
-		sshConn, chans, reqs, err := ssh.NewClientConn(tunnelConn, fmt.Sprintf("agent-sftp-%d", target.ProviderID), sshConfig)
+		sshConn, chans, reqs, err := ssh.NewClientConn(tunnelConn, fmt.Sprintf("%s:%d", target.Host, target.Port), sshConfig)
 		if err != nil {
 			tunnelConn.Close()
-			return nil, nil, fmt.Errorf("通过 agent 隧道建立 SSH 连接失败: %w", err)
+			return nil, fmt.Errorf("通过 agent 隧道建立 SSH 连接失败: %w", err)
 		}
-		sshClient = ssh.NewClient(sshConn, chans, reqs)
-	} else {
-		address := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
-		client, err := ssh.Dial("tcp", address, sshConfig)
-		if err != nil {
-			return nil, nil, fmt.Errorf("建立 SSH 连接失败: %w", err)
-		}
-		sshClient = client
+		return ssh.NewClient(sshConn, chans, reqs), nil
+	}
+
+	address := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
+	client, err := ssh.Dial("tcp", address, sshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("建立 SSH 连接失败: %w", err)
+	}
+	return client, nil
+}
+
+func OpenSFTPClient(target *SSHAccessTarget) (*sftp.Client, func(), error) {
+	sshClient, err := OpenSSHClient(target)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	sftpClient, err := sftp.NewClient(sshClient)
