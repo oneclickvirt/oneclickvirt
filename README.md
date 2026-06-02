@@ -22,7 +22,7 @@ An extensible universal virtualization management platform that supports LXD, In
 
 The automated integration test report is available at: [oneclickvirt.github.io/oneclickvirt](https://oneclickvirt.github.io/oneclickvirt/)
 
-The report supports bilingual display (Chinese/English) and light/dark theme switching, covering 200+ API endpoint tests including functional, permission, boundary, and security tests. See [`action_tests/`](action_tests/) for details.
+The report supports bilingual display (Chinese/English), light/dark theme switching, Git ref/SHA/run metadata, and server log expansion for failed cases, covering 200+ API endpoint tests including functional, permission, boundary, and security tests. See [`action_tests/`](action_tests/) for details.
 
 ## Supported Virtualization Platforms
 

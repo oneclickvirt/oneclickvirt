@@ -16,9 +16,8 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 	var instances []providerModel.Instance
 	var total int64
 
-	// 获取可显示的状态：只显示稳定状态的实例
-	// 过渡状态(creating, resetting)和终止状态(deleting, deleted, failed)不应显示
-	displayableStatuses := constant.GetStableStatuses()
+	// 获取可显示的状态：隐藏删除/失败等终止状态，保留操作中过渡态，避免实例短暂从列表消失
+	displayableStatuses := constant.GetDisplayableStatuses()
 
 	query := global.APP_DB.Model(&providerModel.Instance{}).
 		Where("user_id = ? AND deleted_at IS NULL AND status IN (?)", userID, displayableStatuses)

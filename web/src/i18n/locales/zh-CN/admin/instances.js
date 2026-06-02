@@ -24,6 +24,7 @@ export default {
   statusStopping: "停止中",
   statusCreating: "创建中",
   statusRestarting: "重启中",
+  statusRebuilding: "重建中",
   statusResetting: "重置中",
   statusDeleting: "删除中",
   typeContainer: "容器",

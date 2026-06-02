@@ -69,6 +69,8 @@ func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage strin
 		return nil
 	}
 
+	s.invalidateTaskInstanceCaches(taskID)
+
 	// 若任务失败且无关联实例，释放预留资源
 	if !success {
 		var task adminModel.Task
@@ -283,6 +285,8 @@ func (s *TaskService) ForceStopTask(taskID uint, reason string) error {
 // handleCancelledTaskCleanup 处理被取消任务的清理工作
 // 无论任务在什么状态被取消，都需要恢复实例状态，避免状态锁死
 func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
+	defer s.invalidateTaskInstanceCaches(taskID)
+
 	var task adminModel.Task
 	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
 		global.APP_LOG.Error("获取被取消任务信息失败", zap.Uint("taskId", taskID), zap.Error(err))
@@ -333,8 +337,8 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 		}
 	}
 
-	// 处理重置任务的清理
-	if task.TaskType == "reset" && task.InstanceID != nil {
+	// 处理重置/重装任务的清理
+	if (task.TaskType == "reset" || task.TaskType == "rebuild") && task.InstanceID != nil {
 		global.APP_LOG.Debug("开始清理被取消的重置任务的资源",
 			zap.Uint("taskId", taskID),
 			zap.Uint("instanceId", *task.InstanceID))
@@ -355,8 +359,8 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 			return
 		}
 
-		// 恢复实例状态（如果是resetting状态）
-		if instance.Status == "resetting" {
+		// 恢复实例状态（如果是resetting/rebuilding状态）
+		if instance.Status == "resetting" || instance.Status == "rebuilding" {
 			// 尝试从任务数据中获取原始状态
 			originalStatus := "stopped"
 			if origStatus, ok := taskData["originalStatus"].(string); ok && origStatus != "" {

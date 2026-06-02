@@ -45,6 +45,14 @@ export const adminInstanceAction = (id, action) => {
   })
 }
 
+export const adminBatchInstanceAction = (instanceIds, action) => {
+  return instanceOperationRequest({
+    url: '/v1/admin/instances/batch-action',
+    method: 'post',
+    data: { instanceIds, action }
+  })
+}
+
 export const resetInstancePassword = (id) => {
   return request({
     url: `/v1/admin/instances/${id}/reset-password`,

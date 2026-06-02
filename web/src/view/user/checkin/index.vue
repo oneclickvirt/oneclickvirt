@@ -139,7 +139,11 @@
           prop="instanceId"
           :label="t('user.checkin.instanceName')"
           width="120"
-        />
+        >
+          <template #default="{ row }">
+            {{ formatInstanceName(row.instanceId) }}
+          </template>
+        </el-table-column>
         <el-table-column
           prop="method"
           :label="t('user.checkin.method')"
@@ -225,6 +229,11 @@ const activeWorker = ref(null)
 function formatDate(dateStr) {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString()
+}
+
+function formatInstanceName(instanceId) {
+  const inst = instances.value.find(item => item.id === instanceId)
+  return inst?.name || `#${instanceId}`
 }
 
 function resetChallenge() {
@@ -375,6 +384,7 @@ async function solvePow() {
 }
 
 async function doCheckin() {
+  if (!challengeData.value || !selectedInstanceId.value) return
   checkingIn.value = true
   try {
     const data = { instanceId: selectedInstanceId.value }

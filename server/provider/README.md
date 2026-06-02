@@ -38,6 +38,14 @@ provider/
 Provider 是所有虚拟化平台的统一抽象接口，定义了实例管理、镜像管理、连接管理、健康检查、实例发现等标准操作。
 在 `connection_type=agent` 时，控制端会注入基于 AgentHub 的 ShellExecutor，Provider 仍然通过统一接口执行命令，但底层由 WebSocket 代理到远端 Agent。
 
+实现或维护 Provider 时需要保持以下约束：
+
+- 所有后端必须实现同一套实例、镜像、连接、健康检查、密码管理和发现接口，新增能力应优先沉淀为接口或可选接口，而不是只在单个后端暴露。
+- Provider 实例不得跨 Provider ID 共享可变连接状态；需要复用 HTTP Transport 时必须通过 `TransportCleanupManager` 注册，Provider 删除或重载时按 Provider ID 清理。
+- Agent 模式由 `service/provider` 注入 ShellExecutor，避免 Provider 包反向依赖 Agent 服务；Provider 只感知统一的命令执行器。
+- 长耗时命令应接受 `context.Context` 并尊重取消信号，避免任务取消后继续操作错误节点或污染后续任务。
+- 错误信息需要包含 Provider 类型、实例名或操作阶段等上下文，但不得输出 token、密码、私钥、证书等敏感字段。
+
 ```go
 type Provider interface {
     // 基础信息

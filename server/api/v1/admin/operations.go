@@ -7,6 +7,7 @@ import (
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	operationService "oneclickvirt/service/admin/operation"
+	adminProviderService "oneclickvirt/service/admin/provider"
 	checkinService "oneclickvirt/service/checkin"
 	domainService "oneclickvirt/service/domain"
 	kycService "oneclickvirt/service/kyc"
@@ -155,6 +156,13 @@ func AdminGetCheckinConfig(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProviderService.CheckProviderOwnership(uint(providerID), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
+	}
 
 	svc := &checkinService.Service{}
 	config, err := svc.GetCheckinConfig(uint(providerID))
@@ -171,6 +179,13 @@ func AdminUpdateCheckinConfig(c *gin.Context) {
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
+	}
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProviderService.CheckProviderOwnership(uint(providerID), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
 	}
 
 	var req checkinService.UpdateCheckinConfigRequest

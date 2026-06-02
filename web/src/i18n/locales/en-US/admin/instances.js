@@ -24,6 +24,7 @@ export default {
   statusStopping: "Stopping",
   statusCreating: "Creating",
   statusRestarting: "Restarting",
+  statusRebuilding: "Rebuilding",
   statusResetting: "Resetting",
   statusDeleting: "Deleting",
   typeContainer: "Container",

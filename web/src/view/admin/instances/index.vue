@@ -88,6 +88,10 @@
             value="restarting"
           />
           <el-option
+            :label="$t('admin.instances.statusRebuilding')"
+            value="rebuilding"
+          />
+          <el-option
             :label="$t('admin.instances.statusResetting')"
             value="resetting"
           />
@@ -677,8 +681,7 @@ const {
   isExpired, isExpiringSoon, openSSHTerminal,
   handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,
   showTransferDialog, confirmTransfer, handleWindowResize,
-  searchUsers, searchingUsers, userOptions,
-  t
+  searchUsers, searchingUsers, userOptions
 } = useInstanceManagement()
 
 onMounted(() => {

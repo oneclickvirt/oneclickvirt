@@ -47,6 +47,8 @@
 
 - **双模式流量监控**：支持 nftables（nft）和 iptables（ipt）两种流量采集方式，通过环境变量切换
 - **资源采集**：支持 Docker/Podman/Containerd/LXD/Incus/Proxmox 六种虚拟化平台的实例资源监控
+- **双控制通道**：支持控制端直连 Agent HTTP API，也支持 Agent 主动连接控制端的反向 WebSocket 模式
+- **连接复用安全**：控制端按 Provider ID 缓存 Agent 客户端，节点重载或删除时会清理旧客户端与运行时连接，避免旧 token、旧 host 或旧 WebSocket 上下文误复用
 - **纯 Rust 反向代理**：内置基于 Hyper 的高性能 HTTP/HTTPS 反向代理服务器，支持：
   - 基于 Host 头的动态域名路由
   - HTTP 和 HTTPS 双协议支持
@@ -59,6 +61,15 @@
 - **内容过滤（Block Rules）**：基于 nftables 原生规则的出站流量内容过滤，支持挖矿、BT、测速等行为的阻断
 - **Swagger API 文档**：内置 Swagger UI，方便 API 探索和调试
 - **数据持久化**：SQLite 本地存储，支持重启恢复
+
+## 控制端集成模式
+
+| 模式 | 适用场景 | 说明 |
+|---|---|---|
+| HTTP API | 控制端可以直接访问 Provider 宿主机的 Agent 端口 | 控制端通过共享 HTTP client 调用 Agent API，并使用 `x-token` 鉴权。 |
+| 反向 WebSocket | Provider 位于 NAT/防火墙后或不开放 SSH/HTTP 端口 | Agent 使用 `agent_secret` 主动连接控制端，控制端通过 WebSocket 执行命令、文件管理、终端和资源同步。 |
+
+Agent 模式下，控制端会在 Provider 删除、重载或连接参数变化时刷新缓存客户端，并清理对应的 SSH/Transport/Agent 运行时资源。执行长命令时会优先使用 detached/polling 模式，避免单个长任务阻塞 WebSocket 控制通道。
 
 ## 系统要求
 

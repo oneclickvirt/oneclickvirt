@@ -2,13 +2,17 @@ package system
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
+	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
 
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/service/resources"
 
 	"go.uber.org/zap"
@@ -34,14 +38,23 @@ type AdminServiceInterface interface {
 }
 
 // RepairStuckInstances 确认卡住的实例状态
-// 主要确认 deleting/resetting 等中间状态超时的实例
+// 主要确认 deleting/resetting/starting 等中间状态超时的实例
 func (s *InstanceCleanupService) RepairStuckInstances() error {
-	// 确认超过30分钟仍在deleting状态的实例
+	// 确认超过30分钟仍在中间状态的实例
 	cutoffTime := time.Now().Add(-30 * time.Minute)
+	stuckStatuses := []string{
+		constant.InstanceStatusDeleting,
+		constant.InstanceStatusResetting,
+		constant.InstanceStatusCreating,
+		constant.InstanceStatusStarting,
+		constant.InstanceStatusStopping,
+		constant.InstanceStatusRestarting,
+		constant.InstanceStatusRebuilding,
+	}
 
 	var stuckInstances []providerModel.Instance
 	if err := global.APP_DB.Where("status IN (?) AND updated_at < ?",
-		[]string{"deleting", "resetting", "creating"}, cutoffTime).Find(&stuckInstances).Error; err != nil {
+		stuckStatuses, cutoffTime).Find(&stuckInstances).Error; err != nil {
 		global.APP_LOG.Error("查询卡住的实例失败", zap.Error(err))
 		return err
 	}
@@ -56,13 +69,17 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 	for _, instance := range stuckInstances {
 		var newStatus string
 		switch instance.Status {
-		case "deleting":
+		case constant.InstanceStatusDeleting:
 			// deleting状态超时，恢复为stopped
-			newStatus = "stopped"
-		case "resetting":
-			// resetting状态超时，恢复为stopped
-			newStatus = "stopped"
-		case "creating":
+			newStatus = constant.InstanceStatusStopped
+		case constant.InstanceStatusResetting, constant.InstanceStatusRebuilding:
+			// reset/rebuild状态超时，尽量恢复为任务记录的原始状态
+			newStatus = getLatestInstanceOriginalStatus(instance.ID, []string{"reset", "rebuild"}, constant.InstanceStatusStopped)
+		case constant.InstanceStatusStarting:
+			newStatus = constant.InstanceStatusStopped
+		case constant.InstanceStatusStopping, constant.InstanceStatusRestarting:
+			newStatus = constant.InstanceStatusRunning
+		case constant.InstanceStatusCreating:
 			// creating状态超时：需判断是否是重置操作中创建的实例
 			// 重置操作会将旧实例重命名为 "<name>_deleted_<timestamp>" 后软删除，再创建同名新实例
 			// 若存在对应的软删除旧实例，说明这是重置中途中断遗留的新实例，应恢复为stopped
@@ -72,15 +89,18 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 				Count(&deletedCount)
 			if deletedCount > 0 {
 				// 重置操作中断，新实例实际上已在Provider侧创建（或部分创建），恢复为stopped
-				newStatus = "stopped"
+				newStatus = constant.InstanceStatusStopped
 				global.APP_LOG.Debug("检测到重置操作遗留的creating实例，恢复为stopped",
 					zap.Uint("instanceId", instance.ID),
 					zap.String("instanceName", instance.Name),
 					zap.Int64("deletedPredecessors", deletedCount))
 			} else {
 				// 普通创建超时，标记为failed
-				newStatus = "failed"
+				newStatus = constant.InstanceStatusFailed
 			}
+		}
+		if newStatus == "" {
+			continue
 		}
 
 		if err := global.APP_DB.Model(&instance).Updates(map[string]interface{}{
@@ -94,6 +114,9 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 				zap.Error(err))
 			continue
 		}
+		cacheService := cache.GetUserCacheService()
+		cacheService.InvalidateUserCache(instance.UserID)
+		cacheService.InvalidateInstanceCache(instance.ID)
 
 		global.APP_LOG.Debug("成功确认卡住的实例",
 			zap.Uint("instanceId", instance.ID),
@@ -104,6 +127,24 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 	}
 
 	return nil
+}
+
+func getLatestInstanceOriginalStatus(instanceID uint, taskTypes []string, fallback string) string {
+	var task adminModel.Task
+	if err := global.APP_DB.Where("instance_id = ? AND task_type IN ?", instanceID, taskTypes).
+		Order("id DESC").
+		First(&task).Error; err != nil {
+		return fallback
+	}
+
+	var taskData map[string]interface{}
+	if err := json.Unmarshal([]byte(task.TaskData), &taskData); err != nil {
+		return fallback
+	}
+	if originalStatus, ok := taskData["originalStatus"].(string); ok && originalStatus != "" {
+		return originalStatus
+	}
+	return fallback
 }
 
 // CleanupOldFailedInstances 清理旧的失败实例（兜底机制）

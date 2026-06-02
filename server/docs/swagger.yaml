@@ -267,6 +267,45 @@ definitions:
     required:
     - userIds
     type: object
+  admin.BatchInstanceActionRequest:
+    properties:
+      action:
+        type: string
+      instanceIds:
+        items:
+          type: integer
+        minItems: 1
+        type: array
+    required:
+    - action
+    - instanceIds
+    type: object
+  admin.BatchInstanceActionResponse:
+    properties:
+      action:
+        type: string
+      failCount:
+        type: integer
+      results:
+        items:
+          $ref: '#/definitions/admin.BatchInstanceActionResult'
+        type: array
+      successCount:
+        type: integer
+      total:
+        type: integer
+    type: object
+  admin.BatchInstanceActionResult:
+    properties:
+      error:
+        type: string
+      instanceId:
+        type: integer
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
   admin.BatchUpdateStatusRequest:
     properties:
       ids:
@@ -2305,6 +2344,47 @@ definitions:
       speedMbps:
         type: integer
     type: object
+  user.BatchInstanceActionRequest:
+    properties:
+      action:
+        type: string
+      image:
+        type: string
+      instanceIds:
+        items:
+          type: integer
+        minItems: 1
+        type: array
+    required:
+    - action
+    - instanceIds
+    type: object
+  user.BatchInstanceActionResponse:
+    properties:
+      action:
+        type: string
+      failCount:
+        type: integer
+      results:
+        items:
+          $ref: '#/definitions/user.BatchInstanceActionResult'
+        type: array
+      successCount:
+        type: integer
+      total:
+        type: integer
+    type: object
+  user.BatchInstanceActionResult:
+    properties:
+      error:
+        type: string
+      instanceId:
+        type: integer
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
   user.CPUSpecResponse:
     properties:
       cores:
@@ -3785,6 +3865,43 @@ paths:
       summary: 管理员WebSocket SSH连接
       tags:
       - 管理员/实例
+  /admin/instances/batch-action:
+    post:
+      consumes:
+      - application/json
+      description: 管理员批量对实例执行启动、停止、重启、重置、删除等操作
+      parameters:
+      - description: 批量操作请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.BatchInstanceActionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 批量操作已处理
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.BatchInstanceActionResponse'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员批量执行实例操作
+      tags:
+      - 管理员管理
   /admin/invite-codes:
     get:
       consumes:
@@ -4820,6 +4937,134 @@ paths:
       summary: 发现Provider实例
       tags:
       - Provider管理
+  /admin/providers/{id}/fm/download:
+    get:
+      description: 通过 Agent 控制通道下载节点上的文件（Agent 模式专用）
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程文件路径
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: 管理员 Agent 节点文件下载
+      tags:
+      - 管理员/Provider
+  /admin/providers/{id}/fm/file:
+    delete:
+      description: 通过 Agent 控制通道删除节点上的文件或空目录（Agent 模式专用）
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程文件路径
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员 Agent 节点文件删除
+      tags:
+      - 管理员/Provider
+  /admin/providers/{id}/fm/list:
+    get:
+      description: 列出 Agent 节点指定路径下的文件和目录（Agent 模式专用）
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程路径
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员 Agent 节点文件列表
+      tags:
+      - 管理员/Provider
+  /admin/providers/{id}/fm/mkdir:
+    post:
+      consumes:
+      - application/json
+      description: 通过 Agent 控制通道在节点上创建目录（含父目录，Agent 模式专用）
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 路径
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员 Agent 节点创建目录
+      tags:
+      - 管理员/Provider
+  /admin/providers/{id}/fm/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 通过 Agent 控制通道上传文件到节点（Agent 模式专用，最大 50 MB）
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 上传文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员 Agent 节点文件上传
+      tags:
+      - 管理员/Provider
   /admin/providers/{id}/hardware-report:
     delete:
       parameters:
@@ -8817,6 +9062,43 @@ paths:
       security:
       - BearerAuth: []
       summary: 实例操作
+      tags:
+      - 用户管理
+  /user/instances/batch-action:
+    post:
+      consumes:
+      - application/json
+      description: 对当前用户的多个实例批量执行启动、停止、重启、重置、删除等操作
+      parameters:
+      - description: 批量实例操作请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/user.BatchInstanceActionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 批量操作已处理
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.BatchInstanceActionResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量实例操作
       tags:
       - 用户管理
   /user/limits:

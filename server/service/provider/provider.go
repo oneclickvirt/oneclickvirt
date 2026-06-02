@@ -19,6 +19,9 @@ import (
 // 返回一个基于 AgentHub WebSocket 连接的 ShellExecutor。
 var AgentExecutorFactory func(providerID uint) utils.ShellExecutor
 
+// AgentClientCleanupFunc 由 service/agent 包注入，用于Provider删除或重载时清理缓存客户端。
+var AgentClientCleanupFunc func(providerID uint)
+
 // AgentConnector 由支持 Agent 模式的 Provider 实现（如 DockerProvider）。
 // LoadProvider 在检测到 connection_type=agent 时通过该接口注入执行器。
 type AgentConnector interface {
@@ -328,17 +331,26 @@ func (ps *ProviderService) RemoveProvider(providerID uint) {
 
 		delete(ps.providers, providerID)
 
-		// 清理SSH连接池中的连接
-		if global.APP_SSH_POOL != nil {
-			// 使用类型断言获取具体类型并调用RemoveProvider
-			if pool, ok := global.APP_SSH_POOL.(interface{ RemoveProvider(uint) }); ok {
-				pool.RemoveProvider(providerID)
-			}
-		}
-
 		global.APP_LOG.Info("Provider已移除并清理资源",
 			zap.Uint("id", providerID),
 			zap.String("name", prov.GetName()))
+	}
+
+	cleanupProviderRuntimeResources(providerID)
+}
+
+func cleanupProviderRuntimeResources(providerID uint) {
+	// 清理SSH连接池中的连接
+	if global.APP_SSH_POOL != nil {
+		if pool, ok := global.APP_SSH_POOL.(interface{ RemoveProvider(uint) }); ok {
+			pool.RemoveProvider(providerID)
+		}
+	}
+
+	provider.GetTransportCleanupManager().CleanupProvider(providerID)
+
+	if AgentClientCleanupFunc != nil {
+		AgentClientCleanupFunc(providerID)
 	}
 }
 

@@ -19,6 +19,7 @@ export default {
   statusStarting: "Starting",
   statusStopping: "Stopping",
   statusRestarting: "Restarting",
+  statusRebuilding: "Rebuilding",
   statusResetting: "Resetting",
   statusUnavailable: "Unavailable",
   statusError: "Error",

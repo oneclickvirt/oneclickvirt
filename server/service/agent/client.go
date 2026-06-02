@@ -12,6 +12,7 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -37,14 +38,18 @@ func GetClientWithMode(providerID uint, host string, port int, token string, isA
 		if c.baseURL == expected && c.token == token && c.isAgentMode == isAgentMode {
 			return c
 		}
+		if global.APP_LOG != nil {
+			global.APP_LOG.Debug("Agent客户端配置变化，刷新缓存",
+				zap.Uint("providerID", providerID),
+				zap.String("baseURL", expected),
+				zap.Bool("agentMode", isAgentMode))
+		}
 	}
 
 	c := &Client{
-		baseURL: fmt.Sprintf("http://%s:%d", host, port),
-		token:   token,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		baseURL:     fmt.Sprintf("http://%s:%d", host, port),
+		token:       token,
+		httpClient:  utils.GetHTTPClientWithTimeout(30 * time.Second),
 		providerID:  providerID,
 		isAgentMode: isAgentMode,
 	}

@@ -53,6 +53,20 @@ func releaseInstanceActionLock(instanceID uint) {
 	instanceLocksMu.Unlock()
 }
 
+func (s *Service) ensureNoActiveInstanceTask(instanceID uint) error {
+	activeTypes := []string{"start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}
+	var existingTask adminModel.Task
+	err := global.APP_DB.Where("instance_id = ? AND task_type IN ? AND status IN ?", instanceID, activeTypes, []string{"pending", "running"}).
+		First(&existingTask).Error
+	if err == nil {
+		return fmt.Errorf("实例已有%s任务正在进行", existingTask.TaskType)
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	return err
+}
+
 // InstanceAction 执行实例操作
 func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionRequest) error {
 	// 对同一实例加锁，防止并发请求同时通过"已有任务"检查后各自创建任务（TOCTOU）
@@ -77,6 +91,9 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 		cacheService.InvalidateUserCache(userID)
 		cacheService.InvalidateInstanceCache(req.InstanceID)
 	}()
+	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
+		return err
+	}
 
 	switch req.Action {
 	case "start":
@@ -210,6 +227,58 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		return tx.Save(&instance).Error
 	})
+}
+
+func (s *Service) BatchInstanceAction(userID uint, req userModel.BatchInstanceActionRequest) userModel.BatchInstanceActionResponse {
+	response := userModel.BatchInstanceActionResponse{
+		Action:  req.Action,
+		Total:   len(req.InstanceIDs),
+		Results: make([]userModel.BatchInstanceActionResult, 0, len(req.InstanceIDs)),
+	}
+	seen := make(map[uint]struct{}, len(req.InstanceIDs))
+	for _, instanceID := range req.InstanceIDs {
+		if instanceID == 0 {
+			response.FailCount++
+			response.Results = append(response.Results, userModel.BatchInstanceActionResult{
+				InstanceID: instanceID,
+				Success:    false,
+				Error:      "无效的实例ID",
+			})
+			continue
+		}
+		if _, exists := seen[instanceID]; exists {
+			response.FailCount++
+			response.Results = append(response.Results, userModel.BatchInstanceActionResult{
+				InstanceID: instanceID,
+				Success:    false,
+				Error:      "实例ID重复",
+			})
+			continue
+		}
+		seen[instanceID] = struct{}{}
+
+		actionReq := userModel.InstanceActionRequest{
+			InstanceID: instanceID,
+			Action:     req.Action,
+			Image:      req.Image,
+		}
+		if err := s.InstanceAction(userID, actionReq); err != nil {
+			response.FailCount++
+			response.Results = append(response.Results, userModel.BatchInstanceActionResult{
+				InstanceID: instanceID,
+				Success:    false,
+				Error:      err.Error(),
+			})
+			continue
+		}
+		response.SuccessCount++
+		response.Results = append(response.Results, userModel.BatchInstanceActionResult{
+			InstanceID: instanceID,
+			Success:    true,
+			Message:    "操作已提交",
+		})
+	}
+	return response
 }
 
 // PerformInstanceAction 执行实例操作（兼容原方法名）

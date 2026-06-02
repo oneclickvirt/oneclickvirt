@@ -7,7 +7,13 @@ const (
 	InstanceStatusStopped = "stopped"
 	InstanceStatusError   = "error"
 
-	// Transitional states - 过渡状态（计入 pending_quota，不应在列表中显示为"使用中"）
+	// Operational transition states - 操作中过渡状态（仍计入 used_quota）
+	InstanceStatusStarting   = "starting"
+	InstanceStatusStopping   = "stopping"
+	InstanceStatusRestarting = "restarting"
+	InstanceStatusRebuilding = "rebuilding"
+
+	// Provisioning transition states - 创建/重置过渡状态（计入 pending_quota）
 	InstanceStatusCreating  = "creating"
 	InstanceStatusResetting = "resetting"
 
@@ -27,7 +33,17 @@ func GetStableStatuses() []string {
 	}
 }
 
-// GetTransitionalStatuses 返回所有过渡状态
+// GetOperationalTransitionStatuses 返回仍占用既有资源的操作中过渡状态
+func GetOperationalTransitionStatuses() []string {
+	return []string{
+		InstanceStatusStarting,
+		InstanceStatusStopping,
+		InstanceStatusRestarting,
+		InstanceStatusRebuilding,
+	}
+}
+
+// GetTransitionalStatuses 返回所有创建/重置过渡状态
 // 这些状态的实例应该计入 pending_quota
 func GetTransitionalStatuses() []string {
 	return []string{
@@ -47,10 +63,20 @@ func GetTerminalStatuses() []string {
 }
 
 // GetQuotaCountableStatuses 返回所有应该计入配额统计的状态
-// 用于防止双倍计数：排除过渡状态和终止状态
-// 只统计稳定状态的实例
+// 用于防止双倍计数：排除创建/重置待确认状态和终止状态
+// 统计稳定状态与 start/stop/restart/rebuild 这类仍占用既有资源的操作中状态
 func GetQuotaCountableStatuses() []string {
-	return GetStableStatuses()
+	statuses := GetStableStatuses()
+	statuses = append(statuses, GetOperationalTransitionStatuses()...)
+	return statuses
+}
+
+// GetDisplayableStatuses 返回用户列表中应显示的状态
+// 仅隐藏删除/失败等终止态，避免操作中的实例从列表中短暂消失
+func GetDisplayableStatuses() []string {
+	statuses := GetQuotaCountableStatuses()
+	statuses = append(statuses, GetTransitionalStatuses()...)
+	return statuses
 }
 
 // IsStableStatus 判断是否为稳定状态
@@ -66,6 +92,16 @@ func IsStableStatus(status string) bool {
 // IsTransitionalStatus 判断是否为过渡状态
 func IsTransitionalStatus(status string) bool {
 	for _, s := range GetTransitionalStatuses() {
+		if status == s {
+			return true
+		}
+	}
+	return false
+}
+
+// IsOperationalTransitionStatus 判断是否为仍占用既有资源的操作中过渡状态
+func IsOperationalTransitionStatus(status string) bool {
+	for _, s := range GetOperationalTransitionStatuses() {
 		if status == s {
 			return true
 		}

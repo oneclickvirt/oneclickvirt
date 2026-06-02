@@ -65,14 +65,14 @@ func (t *Task) BeforeCreate(tx *gorm.DB) error {
 // AuditLog 审计日志模型
 type AuditLog struct {
 	ID         uint           `json:"id" gorm:"primarykey"`
-	CreatedAt  time.Time      `json:"createdAt"`
+	CreatedAt  time.Time      `json:"createdAt" gorm:"index:idx_audit_created;index:idx_audit_user_created,priority:2"`
 	UpdatedAt  time.Time      `json:"updatedAt"`
-	DeletedAt  gorm.DeletedAt `json:"-" gorm:"index"` // 软删除字段
-	UserID     *uint          `json:"userId"`         // 改为可空，未登录用户可能没有UserID
+	DeletedAt  gorm.DeletedAt `json:"-" gorm:"index"`                                        // 软删除字段
+	UserID     *uint          `json:"userId" gorm:"index:idx_audit_user_created,priority:1"` // 改为可空，未登录用户可能没有UserID
 	Username   string         `json:"username" gorm:"size:64"`
-	Method     string         `json:"method" gorm:"size:16"`
-	Path       string         `json:"path" gorm:"size:255"`
-	StatusCode int            `json:"statusCode"`
+	Method     string         `json:"method" gorm:"size:16;index:idx_audit_method_path,priority:1"`
+	Path       string         `json:"path" gorm:"size:255;index:idx_audit_method_path,priority:2"`
+	StatusCode int            `json:"statusCode" gorm:"index"`
 	Latency    int64          `json:"latency"`
 	ClientIP   string         `json:"clientIP" gorm:"size:64"`
 	UserAgent  string         `json:"userAgent" gorm:"size:255"`

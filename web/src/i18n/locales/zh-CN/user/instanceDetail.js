@@ -87,6 +87,7 @@ export default {
   statusStarting: "启动中",
   statusStopping: "停止中",
   statusRestarting: "重启中",
+  statusRebuilding: "重建中",
   statusResetting: "重置中",
   statusProcessing: "处理中",
   statusUnavailable: "不可用",

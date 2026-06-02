@@ -24,6 +24,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/instances", admin.GetInstanceList)
 		NormalAdminGroup.GET("/instances/:id", admin.GetInstanceDetail)
 		NormalAdminGroup.POST("/instances", admin.CreateInstance)
+		NormalAdminGroup.POST("/instances/batch-action", admin.AdminBatchInstanceAction)
 		NormalAdminGroup.PUT("/instances/:id", admin.UpdateInstance)
 		NormalAdminGroup.DELETE("/instances/:id", admin.DeleteInstance)
 		NormalAdminGroup.POST("/instances/:id/action", admin.AdminInstanceAction)

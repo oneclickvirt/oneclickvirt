@@ -266,6 +266,7 @@ const handleSave = async () => {
     ElMessage.success(t('common.saveSuccess'))
   } catch (error) {
     console.error('Save checkin config failed:', error)
+    ElMessage.error(error?.message || t('common.saveFailed'))
   } finally {
     saving.value = false
   }

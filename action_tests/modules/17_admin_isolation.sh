@@ -19,6 +19,17 @@ run_module_17() {
 
     # -- Normal admin instance isolation --
     test_api "Normal admin instances" "GET" "/api/v1/admin/instances?page=1&pageSize=10" "200" "" "$group" "$NORMAL_ADMIN_TOKEN"
+    if [[ -n "${TEST_INSTANCE_ID:-}" ]]; then
+        test_api "Normal admin -> foreign instance detail (403)" "GET" "/api/v1/admin/instances/${TEST_INSTANCE_ID}" "403" \
+            "" "$group" "$NORMAL_ADMIN_TOKEN"
+        test_api "Normal admin -> foreign instance action blocked before validation (403)" "POST" "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "403" \
+            '{"action":"invalid_action_for_isolation"}' "$group" "$NORMAL_ADMIN_TOKEN"
+        test_api_json_value "Normal admin -> foreign batch action blocked before validation" "POST" "/api/v1/admin/instances/batch-action" "200" \
+            '.data.results[0].error | contains("无权")' "true" \
+            "{\"instanceIds\":[${TEST_INSTANCE_ID}],\"action\":\"invalid_action_for_isolation\"}" "$group" "$NORMAL_ADMIN_TOKEN" >/dev/null
+        test_api "Normal admin -> foreign password result (403)" "GET" "/api/v1/admin/instances/${TEST_INSTANCE_ID}/password/999999" "403" \
+            "" "$group" "$NORMAL_ADMIN_TOKEN"
+    fi
 
     # -- Super admin sees all providers --
     test_api "Super admin all providers" "GET" "/api/v1/admin/providers?page=1&pageSize=10" "200" "" "$group" "$ADMIN_TOKEN"

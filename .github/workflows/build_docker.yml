@@ -13,6 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   DOCKER_IMAGE: spiritlhl/oneclickvirt
   GHCR_IMAGE: ghcr.io/${{ github.repository }}
 

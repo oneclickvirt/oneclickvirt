@@ -61,6 +61,11 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 	return s.instance.InstanceAction(userID, req)
 }
 
+// BatchInstanceAction 批量执行实例操作
+func (s *Service) BatchInstanceAction(userID uint, req userModel.BatchInstanceActionRequest) userModel.BatchInstanceActionResponse {
+	return s.instance.BatchInstanceAction(userID, req)
+}
+
 // GetInstanceDetail 获取实例详情
 func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserInstanceDetailResponse, error) {
 	return s.instance.GetInstanceDetail(userID, instanceID)

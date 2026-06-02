@@ -9,6 +9,9 @@ on:
         type: string
         default: '01,02,03,04,05,06,07,08,17,20,21,25'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   arm-controller-test:
     name: "ARM64 Controller Tests"

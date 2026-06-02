@@ -53,6 +53,30 @@ RATE=0
 
 TS=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
+html_escape() {
+    printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
+}
+
+GIT_SHA_RAW="${GITHUB_SHA:-}"
+if [[ -z "$GIT_SHA_RAW" ]]; then
+    GIT_SHA_RAW=$(git rev-parse --short HEAD 2>/dev/null || true)
+fi
+if [[ ${#GIT_SHA_RAW} -gt 12 ]]; then
+    GIT_SHA_RAW="${GIT_SHA_RAW:0:12}"
+fi
+GIT_REF_RAW="${GITHUB_REF_NAME:-}"
+if [[ -z "$GIT_REF_RAW" ]]; then
+    GIT_REF_RAW=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+fi
+RUN_ID_RAW="${GITHUB_RUN_ID:-local}"
+RUN_ATTEMPT_RAW="${GITHUB_RUN_ATTEMPT:-1}"
+WORKFLOW_RAW="${GITHUB_WORKFLOW:-local}"
+GIT_SHA=$(html_escape "${GIT_SHA_RAW:-unknown}")
+GIT_REF=$(html_escape "${GIT_REF_RAW:-unknown}")
+RUN_ID=$(html_escape "$RUN_ID_RAW")
+RUN_ATTEMPT=$(html_escape "$RUN_ATTEMPT_RAW")
+WORKFLOW_NAME=$(html_escape "$WORKFLOW_RAW")
+
 # Read service logs if available
 SERVICE_LOGS=""
 if [[ -n "$SERVICE_LOG_FILE" && -f "$SERVICE_LOG_FILE" ]]; then
@@ -202,8 +226,8 @@ cat >> "$OUTPUT_HTML" << HEADER
 <header>
 <div class="header-left">
 <h1><span class="zh">OneClickVirt 集成测试报告</span><span class="en">OneClickVirt Integration Test Report</span></h1>
-<div class="version-info"><span>Server ${SERVER_VERSION}</span><span>Agent ${AGENT_VERSION}</span></div>
-<p class="meta"><span class="zh">环境: <strong>${ENV_NAME}</strong> | 生成时间: ${TS} | 快捷键: <kbd>/</kbd> 搜索 <kbd>1-4</kbd> 筛选 <kbd>T</kbd> 主题 <kbd>L</kbd> 语言</span><span class="en">Env: <strong>${ENV_NAME}</strong> | Generated: ${TS} | Keys: <kbd>/</kbd> search <kbd>1-4</kbd> filter <kbd>T</kbd> theme <kbd>L</kbd> lang</span></p>
+<div class="version-info"><span>Server ${SERVER_VERSION}</span><span>Agent ${AGENT_VERSION}</span><span>Ref ${GIT_REF}</span><span>SHA ${GIT_SHA}</span><span>Run ${RUN_ID}.${RUN_ATTEMPT}</span></div>
+<p class="meta"><span class="zh">环境: <strong>${ENV_NAME}</strong> | 工作流: ${WORKFLOW_NAME} | 生成时间: ${TS} | 快捷键: <kbd>/</kbd> 搜索 <kbd>1-4</kbd> 筛选 <kbd>T</kbd> 主题 <kbd>L</kbd> 语言</span><span class="en">Env: <strong>${ENV_NAME}</strong> | Workflow: ${WORKFLOW_NAME} | Generated: ${TS} | Keys: <kbd>/</kbd> search <kbd>1-4</kbd> filter <kbd>T</kbd> theme <kbd>L</kbd> lang</span></p>
 </div>
 <div class="header-btns">
 <button class="lang-toggle" onclick="toggleLang()" title="切换中英文 / Toggle Language">

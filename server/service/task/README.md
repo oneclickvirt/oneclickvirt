@@ -48,6 +48,24 @@ timeout   cancelling
 | `cancelling` | 任务取消中（等待执行线程响应） |
 | `timeout` | 任务执行超时 |
 
+### 实例状态与缓存
+
+任务系统会把长耗时实例操作映射到实例状态：
+
+- `start` -> `starting` -> `running`
+- `stop` -> `stopping` -> `stopped`
+- `restart` -> `restarting` -> `running`
+- `reset` -> `resetting` -> `running` 或失败恢复
+- `rebuild` -> `rebuilding`
+- `delete` -> `deleting` -> 软删除
+
+实例状态集合统一维护在 `server/constant/instance_status.go`。新增状态时必须同步确认：
+
+- 是否属于展示态，避免用户列表中实例短暂消失。
+- 是否仍占用既有资源并应计入 `used_quota`。
+- 是否属于创建/重置待确认状态并应计入 `pending_quota`。
+- 任务完成、失败或取消后是否会触发用户 dashboard/实例流量缓存失效。
+
 ## 并发控制
 
 ### 并发模式

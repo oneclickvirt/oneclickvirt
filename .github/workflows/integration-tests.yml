@@ -70,6 +70,9 @@ on:
           - all
         default: 'auto'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   integration-test:
     name: "Test: ${{ matrix.environment }}"

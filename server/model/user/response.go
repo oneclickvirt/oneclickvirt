@@ -131,6 +131,21 @@ type CreateInstanceTaskResponse struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+type BatchInstanceActionResult struct {
+	InstanceID uint   `json:"instanceId"`
+	Success    bool   `json:"success"`
+	Message    string `json:"message,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type BatchInstanceActionResponse struct {
+	Action       string                      `json:"action"`
+	Total        int                         `json:"total"`
+	SuccessCount int                         `json:"successCount"`
+	FailCount    int                         `json:"failCount"`
+	Results      []BatchInstanceActionResult `json:"results"`
+}
+
 // TaskResponse 通用任务响应（向后兼容）
 type TaskResponse = UserTaskResponse
 

@@ -3,7 +3,6 @@ package admin
 import (
 	"fmt"
 	"oneclickvirt/middleware"
-	adminProvider "oneclickvirt/service/admin/provider"
 	"oneclickvirt/service/provider"
 	"strconv"
 	"time"
@@ -99,7 +98,7 @@ func GetInstanceDetail(c *gin.Context) {
 	}
 
 	instanceService := instance.NewService(task.GetTaskService())
-	inst, err := instanceService.GetInstanceByID(uint(instanceID))
+	inst, err := instanceService.GetInstanceByID(uint(instanceID), middleware.GetOwnerAdminID(c))
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -116,19 +115,11 @@ func CreateInstance(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
-
-	// 如果通过provider_id传入，查找对应的provider名称
-	if req.Provider == "" && req.ProviderID > 0 {
-		providerService := adminProvider.NewService()
-		providerName, err := providerService.GetProviderNameByID(req.ProviderID)
-		if err != nil {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
-			return
-		}
-		req.Provider = providerName
+	if req.ProviderID == 0 && req.ProviderIDCamel > 0 {
+		req.ProviderID = req.ProviderIDCamel
 	}
 
-	if req.Provider == "" {
+	if req.Provider == "" && req.ProviderID == 0 {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "必须指定provider或provider_id"))
 		return
 	}
@@ -144,7 +135,7 @@ func CreateInstance(c *gin.Context) {
 		zap.String("admin_ip", c.ClientIP()))
 
 	instanceService := instance.NewService(task.GetTaskService())
-	instanceID, err := instanceService.CreateInstance(req)
+	instanceID, err := instanceService.CreateInstance(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("管理员创建实例失败",
 			zap.Error(err),
@@ -184,7 +175,7 @@ func UpdateInstance(c *gin.Context) {
 		zap.String("admin_ip", c.ClientIP()))
 
 	instanceService := instance.NewService(task.GetTaskService())
-	err = instanceService.UpdateInstance(req)
+	err = instanceService.UpdateInstance(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("管理员更新实例失败",
 			zap.Error(err),
@@ -218,7 +209,7 @@ func DeleteInstance(c *gin.Context) {
 		zap.String("admin_ip", c.ClientIP()))
 
 	instanceService := instance.NewService(task.GetTaskService())
-	err = instanceService.DeleteInstance(uint(instanceID))
+	err = instanceService.DeleteInstance(uint(instanceID), middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("管理员删除实例失败",
 			zap.Error(err),
@@ -331,7 +322,7 @@ func AdminInstanceAction(c *gin.Context) {
 		zap.String("admin_ip", c.ClientIP()))
 
 	instanceService := instance.NewService(task.GetTaskService())
-	err = instanceService.InstanceAction(uint(instanceID), req)
+	err = instanceService.InstanceAction(uint(instanceID), req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("管理员实例操作失败",
 			zap.Uint64("instanceId", instanceID),
@@ -346,6 +337,50 @@ func AdminInstanceAction(c *gin.Context) {
 		zap.String("action", req.Action))
 
 	common.ResponseSuccess(c, nil, "操作已提交")
+}
+
+// AdminBatchInstanceAction 管理员批量执行实例操作
+// @Summary 管理员批量执行实例操作
+// @Description 管理员批量对实例执行启动、停止、重启、重置、删除等操作
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body admin.BatchInstanceActionRequest true "批量操作请求参数"
+// @Success 200 {object} common.Response{data=admin.BatchInstanceActionResponse} "批量操作已处理"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 403 {object} common.Response "权限不足"
+// @Router /admin/instances/batch-action [post]
+func AdminBatchInstanceAction(c *gin.Context) {
+	var req admin.BatchInstanceActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误"))
+		return
+	}
+
+	validActions := map[string]bool{
+		"start":   true,
+		"stop":    true,
+		"restart": true,
+		"reset":   true,
+		"delete":  true,
+		"rebuild": true,
+	}
+	if !validActions[req.Action] {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的操作类型"))
+		return
+	}
+
+	instanceService := instance.NewService(task.GetTaskService())
+	result := instanceService.BatchInstanceAction(req, middleware.GetOwnerAdminID(c))
+	global.APP_LOG.Info("管理员批量实例操作已处理",
+		zap.String("action", req.Action),
+		zap.Int("total", result.Total),
+		zap.Int("success", result.SuccessCount),
+		zap.Int("failed", result.FailCount),
+		zap.String("admin_ip", c.ClientIP()))
+
+	common.ResponseSuccess(c, result, "批量操作已提交")
 }
 
 // ResetInstancePassword 管理员重置实例密码
@@ -380,7 +415,7 @@ func ResetInstancePassword(c *gin.Context) {
 		zap.String("admin_ip", c.ClientIP()))
 
 	adminInstanceService := instance.NewService(task.GetTaskService())
-	taskID, err := adminInstanceService.ResetInstancePassword(uint(instanceID))
+	taskID, err := adminInstanceService.ResetInstancePassword(uint(instanceID), middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("管理员创建重置实例密码任务失败",
 			zap.Uint64("instanceID", instanceID),
@@ -429,7 +464,7 @@ func GetInstanceNewPassword(c *gin.Context) {
 	}
 
 	adminInstanceService := instance.NewService(task.GetTaskService())
-	newPassword, resetTime, err := adminInstanceService.GetInstanceNewPassword(uint(instanceID), uint(taskID))
+	newPassword, resetTime, err := adminInstanceService.GetInstanceNewPassword(uint(instanceID), uint(taskID), middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("管理员获取实例新密码失败",
 			zap.Uint64("instanceID", instanceID),

@@ -187,6 +187,21 @@ type ResetInstancePasswordResponse struct {
 	TaskID uint `json:"taskId"` // 异步任务ID
 }
 
+type BatchInstanceActionResult struct {
+	InstanceID uint   `json:"instanceId"`
+	Success    bool   `json:"success"`
+	Message    string `json:"message,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type BatchInstanceActionResponse struct {
+	Action       string                      `json:"action"`
+	Total        int                         `json:"total"`
+	SuccessCount int                         `json:"successCount"`
+	FailCount    int                         `json:"failCount"`
+	Results      []BatchInstanceActionResult `json:"results"`
+}
+
 // GetInstancePasswordResponse 获取实例新密码响应
 type GetInstancePasswordResponse struct {
 	NewPassword string `json:"newPassword"`

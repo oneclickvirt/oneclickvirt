@@ -134,7 +134,7 @@ func AdminInstanceAction(c *gin.Context) {
 	}
 
 	instanceService := adminInstance.NewService(task.GetTaskService())
-	if err := instanceService.InstanceAction(uint(instanceID), adminReq); err != nil {
+	if err := instanceService.InstanceAction(uint(instanceID), adminReq, 0); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}

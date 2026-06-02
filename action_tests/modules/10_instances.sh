@@ -102,6 +102,10 @@ run_module_10() {
             # -- Invalid action --
             test_api "Invalid action" "POST" "/api/v1/admin/instances/${container_id}/action" "400" \
                 '{"action":"invalid_action"}' "$group"
+            test_api "Batch action invalid action" "POST" "/api/v1/admin/instances/batch-action" "400" \
+                "{\"instanceIds\":[${container_id}],\"action\":\"invalid_action\"}" "$group"
+            test_api "Batch action empty ids" "POST" "/api/v1/admin/instances/batch-action" "400" \
+                '{"instanceIds":[],"action":"start"}' "$group"
 
             # -- Reset password --
             local known_test_pw="NewContPass123!"

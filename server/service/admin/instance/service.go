@@ -17,6 +17,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/cache"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -34,12 +35,22 @@ func NewService(taskService interfaces.TaskServiceInterface) *Service {
 	}
 }
 
+func firstOwnerAdminID(ownerAdminID []uint) uint {
+	if len(ownerAdminID) == 0 {
+		return 0
+	}
+	return ownerAdminID[0]
+}
+
 // GetInstanceByID 根据ID获取实例详情
-func (s *Service) GetInstanceByID(instanceID uint) (*providerModel.Instance, error) {
+func (s *Service) GetInstanceByID(instanceID uint, ownerAdminID ...uint) (*providerModel.Instance, error) {
 	var instance providerModel.Instance
 
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		global.APP_LOG.Error("获取实例详情失败", zap.Error(err), zap.Uint("instanceID", instanceID))
+		return nil, err
+	}
+	if err := s.checkInstanceOwnerAdmin(&instance, firstOwnerAdminID(ownerAdminID)); err != nil {
 		return nil, err
 	}
 
@@ -274,8 +285,9 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 }
 
 // CreateInstance 创建实例，返回创建的实例ID
-func (s *Service) CreateInstance(req admin.CreateInstanceRequest) (uint, error) {
+func (s *Service) CreateInstance(req admin.CreateInstanceRequest, ownerAdminID ...uint) (uint, error) {
 	quotaService := resources.NewQuotaService()
+	ownerID := firstOwnerAdminID(ownerAdminID)
 
 	// 构建资源请求（用于事务内配额校验）
 	quotaReq := resources.ResourceRequest{
@@ -287,10 +299,11 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) (uint, error) 
 	}
 
 	// 检查提供商是否存在和冻结状态（这些是非并发敏感的快速读，无需放入创建事务）
-	var provider providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", req.Provider).First(&provider).Error; err != nil {
-		return 0, fmt.Errorf("提供商不存在: %s", req.Provider)
+	provider, err := s.resolveCreateProvider(req, ownerID)
+	if err != nil {
+		return 0, err
 	}
+	req.Provider = provider.Name
 
 	// 检查提供商是否冻结
 	if provider.IsFrozen {
@@ -331,7 +344,7 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) (uint, error) 
 	dbService := database.GetDatabaseService()
 
 	// 在单个事务中完成配额验证、实例创建和配额更新，确保原子性（解决 TOCTOU）
-	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	err = dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 仅当指定了用户ID时才进行配额验证（管理员创建不指定用户时跳过配额）
 		if req.UserID > 0 {
 			// 在事务内验证配额：通过 FOR UPDATE 锁定用户行，保证检查与写入之间无并发窗口
@@ -379,10 +392,50 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) (uint, error) 
 	return instance.ID, nil
 }
 
+func (s *Service) resolveCreateProvider(req admin.CreateInstanceRequest, ownerAdminID uint) (*providerModel.Provider, error) {
+	var provider providerModel.Provider
+	providerID := req.ProviderID
+	if providerID == 0 && req.ProviderIDCamel > 0 {
+		providerID = req.ProviderIDCamel
+	}
+	query := global.APP_DB.Model(&providerModel.Provider{})
+	if providerID > 0 {
+		query = query.Where("id = ?", providerID)
+	} else {
+		if req.Provider == "" {
+			return nil, errors.New("必须指定provider或provider_id")
+		}
+		query = query.Where("name = ?", req.Provider)
+	}
+	if ownerAdminID > 0 {
+		query = query.Where("owner_admin_id = ?", ownerAdminID)
+	}
+
+	if err := query.First(&provider).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if ownerAdminID > 0 {
+				return nil, errors.New("Provider不存在或无权操作该Provider")
+			}
+			if providerID > 0 {
+				return nil, fmt.Errorf("Provider不存在: %d", providerID)
+			}
+			return nil, fmt.Errorf("提供商不存在: %s", req.Provider)
+		}
+		return nil, fmt.Errorf("查询Provider失败: %v", err)
+	}
+	if providerID > 0 && req.Provider != "" && req.Provider != provider.Name {
+		return nil, errors.New("provider_id与provider名称不一致")
+	}
+	return &provider, nil
+}
+
 // UpdateInstance 更新实例
-func (s *Service) UpdateInstance(req admin.UpdateInstanceRequest) error {
+func (s *Service) UpdateInstance(req admin.UpdateInstanceRequest, ownerAdminID ...uint) error {
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, req.ID).Error; err != nil {
+		return err
+	}
+	if err := s.checkInstanceOwnerAdmin(&instance, firstOwnerAdminID(ownerAdminID)); err != nil {
 		return err
 	}
 
@@ -399,7 +452,14 @@ func (s *Service) UpdateInstance(req admin.UpdateInstanceRequest) error {
 }
 
 // DeleteInstance 删除实例 - 使用异步任务机制
-func (s *Service) DeleteInstance(instanceID uint) error {
+func (s *Service) DeleteInstance(instanceID uint, ownerAdminID ...uint) error {
+	lk := getAdminInstanceActionLock(instanceID)
+	lk.mu.Lock()
+	defer func() {
+		lk.mu.Unlock()
+		releaseAdminInstanceActionLock(instanceID)
+	}()
+
 	// 获取实例信息
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
@@ -408,16 +468,17 @@ func (s *Service) DeleteInstance(instanceID uint) error {
 		}
 		return fmt.Errorf("获取实例信息失败: %v", err)
 	}
+	if err := s.checkInstanceOwnerAdmin(&instance, firstOwnerAdminID(ownerAdminID)); err != nil {
+		return err
+	}
 
 	// 检查实例状态，避免重复删除
 	if instance.Status == "deleting" {
 		return fmt.Errorf("实例正在删除中")
 	}
 
-	// 检查是否已有进行中的删除任务
-	var existingTask adminModel.Task
-	if err := global.APP_DB.Where("instance_id = ? AND task_type = 'delete' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {
-		return fmt.Errorf("实例已有删除任务正在进行")
+	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
+		return err
 	}
 
 	// 创建管理员删除任务
@@ -457,8 +518,14 @@ func (s *Service) DeleteInstance(instanceID uint) error {
 }
 
 // InstanceAction 管理员执行实例操作
-func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionRequest) error {
-	// 获取实例信息
+func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionRequest, ownerAdminID uint) error {
+	lk := getAdminInstanceActionLock(instanceID)
+	lk.mu.Lock()
+	defer func() {
+		lk.mu.Unlock()
+		releaseAdminInstanceActionLock(instanceID)
+	}()
+
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -466,87 +533,183 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 		}
 		return fmt.Errorf("获取实例信息失败: %v", err)
 	}
+	if err := s.checkInstanceOwnerAdmin(&instance, ownerAdminID); err != nil {
+		return err
+	}
+	if err := validateAdminInstanceAction(instance.Status, req.Action); err != nil {
+		return err
+	}
+	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
+		return err
+	}
 
-	// 根据操作类型执行相应的操作
-	switch req.Action {
-	case "start", "stop", "restart", "reset", "rebuild":
-		// 创建异步任务
-		taskData := map[string]interface{}{
-			"instanceId": instanceID,
-			"providerId": instance.ProviderID,
-		}
+	taskData := map[string]interface{}{
+		"instanceId": instance.ID,
+		"providerId": instance.ProviderID,
+	}
+	if req.Action == "reset" || req.Action == "rebuild" {
+		taskData["originalStatus"] = instance.Status
+	}
+	if req.Action == "delete" {
+		taskData["adminOperation"] = true
+	}
 
-		// 如果是重置操作，在创建任务前就添加原始状态
-		if req.Action == "reset" {
-			taskData["originalStatus"] = instance.Status
-		}
+	taskDataJSON, err := json.Marshal(taskData)
+	if err != nil {
+		return fmt.Errorf("序列化任务数据失败: %v", err)
+	}
 
-		// 将taskData序列化为JSON字符串
-		taskDataJSON, err := json.Marshal(taskData)
-		if err != nil {
-			return fmt.Errorf("序列化任务数据失败: %v", err)
-		}
-
-		_, err = s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instanceID, req.Action, string(taskDataJSON), 1800)
-		if err != nil {
-			return fmt.Errorf("创建任务失败: %v", err)
-		}
-
-		// 更新实例状态
-		statusMap := map[string]string{
-			"start":   "starting",
-			"stop":    "stopping",
-			"restart": "restarting",
-			"reset":   "resetting",
-			"rebuild": "rebuilding",
-		}
-		if newStatus, exists := statusMap[req.Action]; exists {
-			instance.Status = newStatus
-			if err := global.APP_DB.Save(&instance).Error; err != nil {
-				return fmt.Errorf("更新实例状态失败: %v", err)
-			}
-		}
-
-	case "delete":
-		// 创建管理员删除任务（不允许用户取消）
-		taskData := map[string]interface{}{
-			"instanceId":     instanceID,
-			"providerId":     instance.ProviderID,
-			"adminOperation": true, // 标记为管理员操作
-		}
-
-		// 将taskData序列化为JSON字符串
-		taskDataJSON, err := json.Marshal(taskData)
-		if err != nil {
-			return fmt.Errorf("序列化任务数据失败: %v", err)
-		}
-
-		// 创建管理员删除任务，设置为不可被用户取消
-		task, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instanceID, "delete", string(taskDataJSON), 0)
-		if err != nil {
-			return fmt.Errorf("创建删除任务失败: %v", err)
-		}
-
-		// 标记任务为管理员操作，不允许用户取消
+	timeout := 1800
+	if req.Action == "delete" {
+		timeout = 0
+	}
+	task, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instance.ID, req.Action, string(taskDataJSON), timeout)
+	if err != nil {
+		return fmt.Errorf("创建任务失败: %v", err)
+	}
+	if req.Action == "delete" {
 		if err := global.APP_DB.Model(task).Update("is_force_stoppable", false).Error; err != nil {
 			return fmt.Errorf("更新任务权限失败: %v", err)
 		}
-
-		// 更新实例状态为删除中
-		instance.Status = "deleting"
-		if err := global.APP_DB.Save(&instance).Error; err != nil {
-			return fmt.Errorf("更新实例状态失败: %v", err)
-		}
-
-	default:
-		return errors.New("不支持的操作类型")
 	}
 
+	instance.Status = nextAdminInstanceStatus(req.Action)
+	if err := global.APP_DB.Model(&instance).Update("status", instance.Status).Error; err != nil {
+		return fmt.Errorf("更新实例状态失败: %v", err)
+	}
+
+	cacheService := cache.GetUserCacheService()
+	cacheService.InvalidateUserCache(instance.UserID)
+	cacheService.InvalidateInstanceCache(instance.ID)
 	return nil
 }
 
+func (s *Service) BatchInstanceAction(req admin.BatchInstanceActionRequest, ownerAdminID uint) admin.BatchInstanceActionResponse {
+	response := admin.BatchInstanceActionResponse{
+		Action:  req.Action,
+		Total:   len(req.InstanceIDs),
+		Results: make([]admin.BatchInstanceActionResult, 0, len(req.InstanceIDs)),
+	}
+	seen := make(map[uint]struct{}, len(req.InstanceIDs))
+	for _, instanceID := range req.InstanceIDs {
+		if instanceID == 0 {
+			response.FailCount++
+			response.Results = append(response.Results, admin.BatchInstanceActionResult{
+				InstanceID: instanceID,
+				Success:    false,
+				Error:      "无效的实例ID",
+			})
+			continue
+		}
+		if _, exists := seen[instanceID]; exists {
+			response.FailCount++
+			response.Results = append(response.Results, admin.BatchInstanceActionResult{
+				InstanceID: instanceID,
+				Success:    false,
+				Error:      "实例ID重复",
+			})
+			continue
+		}
+		seen[instanceID] = struct{}{}
+
+		if err := s.InstanceAction(instanceID, admin.InstanceActionRequest{Action: req.Action}, ownerAdminID); err != nil {
+			response.FailCount++
+			response.Results = append(response.Results, admin.BatchInstanceActionResult{
+				InstanceID: instanceID,
+				Success:    false,
+				Error:      err.Error(),
+			})
+			continue
+		}
+		response.SuccessCount++
+		response.Results = append(response.Results, admin.BatchInstanceActionResult{
+			InstanceID: instanceID,
+			Success:    true,
+			Message:    "操作已提交",
+		})
+	}
+	return response
+}
+
+func (s *Service) checkInstanceOwnerAdmin(instance *providerModel.Instance, ownerAdminID uint) error {
+	if ownerAdminID == 0 {
+		return nil
+	}
+	var count int64
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ? AND owner_admin_id = ?", instance.ProviderID, ownerAdminID).
+		Count(&count).Error; err != nil {
+		return fmt.Errorf("检查Provider归属失败: %v", err)
+	}
+	if count == 0 {
+		return errors.New("无权操作该实例")
+	}
+	return nil
+}
+
+func (s *Service) ensureNoActiveInstanceTask(instanceID uint) error {
+	activeTypes := []string{"start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}
+	var existingTask adminModel.Task
+	err := global.APP_DB.Where("instance_id = ? AND task_type IN ? AND status IN ?", instanceID, activeTypes, []string{"pending", "running"}).
+		First(&existingTask).Error
+	if err == nil {
+		return fmt.Errorf("实例已有%s任务正在进行", existingTask.TaskType)
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	return err
+}
+
+func validateAdminInstanceAction(status, action string) error {
+	switch action {
+	case "start":
+		if status != "stopped" {
+			return errors.New("实例状态不允许启动")
+		}
+	case "stop":
+		if status != "running" {
+			return errors.New("实例状态不允许停止")
+		}
+	case "restart":
+		if status != "running" {
+			return errors.New("实例状态不允许重启")
+		}
+	case "reset", "rebuild":
+		if status != "running" && status != "stopped" {
+			return errors.New("实例状态不允许重置")
+		}
+	case "delete":
+		if status == "deleting" || status == "deleted" {
+			return errors.New("实例正在删除中")
+		}
+	default:
+		return errors.New("不支持的操作类型")
+	}
+	return nil
+}
+
+func nextAdminInstanceStatus(action string) string {
+	statusMap := map[string]string{
+		"start":   "starting",
+		"stop":    "stopping",
+		"restart": "restarting",
+		"reset":   "resetting",
+		"rebuild": "rebuilding",
+		"delete":  "deleting",
+	}
+	return statusMap[action]
+}
+
 // ResetInstancePassword 管理员重置实例密码（异步任务）
-func (s *Service) ResetInstancePassword(instanceID uint) (uint, error) {
+func (s *Service) ResetInstancePassword(instanceID uint, ownerAdminID ...uint) (uint, error) {
+	lk := getAdminInstanceActionLock(instanceID)
+	lk.mu.Lock()
+	defer func() {
+		lk.mu.Unlock()
+		releaseAdminInstanceActionLock(instanceID)
+	}()
+
 	// 获取实例信息
 	var instance providerModel.Instance
 	if err := global.APP_DB.Where("id = ?", instanceID).First(&instance).Error; err != nil {
@@ -555,16 +718,17 @@ func (s *Service) ResetInstancePassword(instanceID uint) (uint, error) {
 		}
 		return 0, err
 	}
+	if err := s.checkInstanceOwnerAdmin(&instance, firstOwnerAdminID(ownerAdminID)); err != nil {
+		return 0, err
+	}
 
 	// 检查实例状态
 	if instance.Status != "running" {
 		return 0, errors.New("参数错误: 只有运行中的实例才能重置密码")
 	}
 
-	// 检查是否已有进行中的密码重置任务
-	var existingTask adminModel.Task
-	if err := global.APP_DB.Where("instance_id = ? AND task_type = 'reset-password' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {
-		return 0, errors.New("该实例已有进行中的密码重置任务，请稍后重试")
+	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
+		return 0, err
 	}
 
 	// 创建任务数据
@@ -597,13 +761,16 @@ func (s *Service) ResetInstancePassword(instanceID uint) (uint, error) {
 }
 
 // GetInstanceNewPassword 管理员获取实例重置后的新密码（通过任务ID）
-func (s *Service) GetInstanceNewPassword(instanceID uint, taskID uint) (string, int64, error) {
+func (s *Service) GetInstanceNewPassword(instanceID uint, taskID uint, ownerAdminID ...uint) (string, int64, error) {
 	// 获取实例信息
 	var instance providerModel.Instance
 	if err := global.APP_DB.Where("id = ?", instanceID).First(&instance).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", 0, errors.New("实例不存在")
 		}
+		return "", 0, err
+	}
+	if err := s.checkInstanceOwnerAdmin(&instance, firstOwnerAdminID(ownerAdminID)); err != nil {
 		return "", 0, err
 	}
 

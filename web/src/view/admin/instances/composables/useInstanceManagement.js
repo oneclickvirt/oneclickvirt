@@ -1,7 +1,7 @@
 import { ref, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { getAllInstances, adminInstanceAction, resetInstancePassword, getAdminInstanceNewPassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList } from '@/api/admin'
+import { getAllInstances, adminInstanceAction, adminBatchInstanceAction, resetInstancePassword, getAdminInstanceNewPassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList } from '@/api/admin'
 import { adminTransferInstance } from '@/api/features'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
@@ -160,7 +160,7 @@ export function useInstanceManagement() {
   }
 
   const getStatusType = (status) => {
-    const types = { running: 'success', stopped: 'info', error: 'danger', failed: 'danger', starting: 'warning', stopping: 'warning', creating: 'warning', restarting: 'warning', resetting: 'warning', deleting: 'danger' }
+    const types = { running: 'success', stopped: 'info', error: 'danger', failed: 'danger', starting: 'warning', stopping: 'warning', creating: 'warning', restarting: 'warning', rebuilding: 'warning', resetting: 'warning', deleting: 'danger' }
     return types[status] || 'info'
   }
 
@@ -168,7 +168,7 @@ export function useInstanceManagement() {
     const texts = {
       running: t('admin.instances.statusRunning'), stopped: t('admin.instances.statusStopped'), error: t('admin.instances.statusError'),
       failed: t('admin.instances.statusFailed'), starting: t('admin.instances.statusStarting'), stopping: t('admin.instances.statusStopping'),
-      creating: t('admin.instances.statusCreating'), restarting: t('admin.instances.statusRestarting'), resetting: t('admin.instances.statusResetting'), deleting: t('admin.instances.statusDeleting')
+      creating: t('admin.instances.statusCreating'), restarting: t('admin.instances.statusRestarting'), rebuilding: t('admin.instances.statusRebuilding'), resetting: t('admin.instances.statusResetting'), deleting: t('admin.instances.statusDeleting')
     }
     return texts[status] || status
   }
@@ -211,51 +211,80 @@ export function useInstanceManagement() {
 
   const handleSelectionChange = (selection) => { selectedInstances.value = selection }
 
-  const batchDeleteInstances = async () => {
-    if (selectedInstances.value.length === 0) { ElMessage.warning(t('admin.instances.selectDeleteWarning')); return }
-    try {
-      await ElMessageBox.confirm(t('admin.instances.batchDeleteConfirm', { count: selectedInstances.value.length }), t('admin.instances.batchDeleteTitle'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
-      let successCount = 0, failCount = 0
-      for (const instance of selectedInstances.value) {
-        try { await adminInstanceAction(instance.id, 'delete'); successCount++ } catch (error) { failCount++ }
-      }
-      if (failCount === 0) ElMessage.success(t('admin.instances.batchDeleteSuccess', { count: successCount }))
-      else if (successCount === 0) ElMessage.error(t('admin.instances.batchDeleteAllFailed'))
-      else ElMessage.warning(t('admin.instances.batchDeletePartialSuccess', { success: successCount, fail: failCount }))
-      await loadInstances()
-      selectedInstances.value = []
-    } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.instances.batchDeleteFailed')) }
+  const setBatchOptimisticStatus = (ids, status) => {
+    ids.forEach(id => {
+      const idx = instances.value.findIndex(item => item.id === id)
+      if (idx !== -1) instances.value[idx].status = status
+    })
   }
 
-  const batchStartInstances = async () => {
-    if (selectedInstances.value.length === 0) { ElMessage.warning(t('admin.instances.selectStartWarning')); return }
-    try {
-      let success = 0, fail = 0
-      selectedInstances.value.forEach(inst => { const idx = instances.value.findIndex(i => i.id === inst.id); if (idx !== -1) instances.value[idx].status = 'starting' })
-      for (const inst of selectedInstances.value) {
-        try { await adminInstanceAction(inst.id, 'start'); success++ } catch (e) { fail++; const idx = instances.value.findIndex(i => i.id === inst.id); if (idx !== -1) instances.value[idx].status = 'stopped' }
-      }
-      if (fail === 0) ElMessage.success(t('admin.instances.batchStartSuccess', { count: success }))
-      else ElMessage.warning(t('admin.instances.batchStartPartialSuccess', { success, fail }))
-      setTimeout(() => loadInstances(), 500)
-      selectedInstances.value = []
-    } catch (err) { ElMessage.error(t('admin.instances.batchStartFailed')); await loadInstances() }
+  const showBatchActionResult = (action, success, fail) => {
+    if (fail === 0) {
+      const key = action === 'delete' ? 'batchDeleteSuccess' : action === 'start' ? 'batchStartSuccess' : 'batchStopSuccess'
+      ElMessage.success(t(`admin.instances.${key}`, { count: success }))
+      return
+    }
+    if (success === 0) {
+      const key = action === 'delete' ? 'batchDeleteAllFailed' : action === 'start' ? 'batchStartAllFailed' : 'batchStopAllFailed'
+      ElMessage.error(t(`admin.instances.${key}`))
+      return
+    }
+    const key = action === 'delete' ? 'batchDeletePartialSuccess' : action === 'start' ? 'batchStartPartialSuccess' : 'batchStopPartialSuccess'
+    ElMessage.warning(t(`admin.instances.${key}`, { success, fail }))
   }
 
-  const batchStopInstances = async () => {
-    if (selectedInstances.value.length === 0) { ElMessage.warning(t('admin.instances.selectStopWarning')); return }
+  const runBatchInstanceAction = async (action, options) => {
+    const selected = [...selectedInstances.value]
+    if (selected.length === 0) { ElMessage.warning(t(options.emptyWarning)); return }
     try {
-      let success = 0, fail = 0
-      selectedInstances.value.forEach(inst => { const idx = instances.value.findIndex(i => i.id === inst.id); if (idx !== -1) instances.value[idx].status = 'stopping' })
-      for (const inst of selectedInstances.value) {
-        try { await adminInstanceAction(inst.id, 'stop'); success++ } catch (e) { fail++; const idx = instances.value.findIndex(i => i.id === inst.id); if (idx !== -1) instances.value[idx].status = 'running' }
+      if (options.confirmMessage) {
+        await ElMessageBox.confirm(
+          t(options.confirmMessage, { count: selected.length }),
+          t(options.confirmTitle),
+          { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: options.confirmType || 'warning' }
+        )
       }
-      if (fail === 0) ElMessage.success(t('admin.instances.batchStopSuccess', { count: success }))
-      else ElMessage.warning(t('admin.instances.batchStopPartialSuccess', { success, fail }))
-      setTimeout(() => loadInstances(), 500)
+      const ids = selected.map(item => item.id)
+      if (options.optimisticStatus) setBatchOptimisticStatus(ids, options.optimisticStatus)
+      const response = await adminBatchInstanceAction(ids, action)
+      const data = response.data || {}
+      showBatchActionResult(action, data.successCount || 0, data.failCount || 0)
       selectedInstances.value = []
-    } catch (err) { ElMessage.error(t('admin.instances.batchStopFailed')); await loadInstances() }
+      setTimeout(() => loadInstances(), action === 'delete' ? 1000 : 500)
+    } catch (error) {
+      if (error !== 'cancel') {
+        ElMessage.error(t(options.failedMessage))
+        await loadInstances()
+      }
+    }
   }
+
+  const batchDeleteInstances = () => runBatchInstanceAction('delete', {
+    emptyWarning: 'admin.instances.selectDeleteWarning',
+    confirmMessage: 'admin.instances.batchDeleteConfirm',
+    confirmTitle: 'admin.instances.batchDeleteTitle',
+    confirmType: 'warning',
+    optimisticStatus: 'deleting',
+    failedMessage: 'admin.instances.batchDeleteFailed'
+  })
+
+  const batchStartInstances = () => runBatchInstanceAction('start', {
+    emptyWarning: 'admin.instances.selectStartWarning',
+    confirmMessage: 'admin.instances.batchStartConfirm',
+    confirmTitle: 'admin.instances.batchStartTitle',
+    confirmType: 'warning',
+    optimisticStatus: 'starting',
+    failedMessage: 'admin.instances.batchStartFailed'
+  })
+
+  const batchStopInstances = () => runBatchInstanceAction('stop', {
+    emptyWarning: 'admin.instances.selectStopWarning',
+    confirmMessage: 'admin.instances.batchStopConfirm',
+    confirmTitle: 'admin.instances.batchStopTitle',
+    confirmType: 'warning',
+    optimisticStatus: 'stopping',
+    failedMessage: 'admin.instances.batchStopFailed'
+  })
 
   const handleSetInstanceExpiry = async (instance) => {
     try {

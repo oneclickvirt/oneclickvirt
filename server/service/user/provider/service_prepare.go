@@ -87,14 +87,8 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		// 生成实例名称
 		instanceName := s.generateInstanceName(provider.Name)
 
-		// 设置实例到期时间
-		// 默认与Provider的到期时间同步，但如果Provider没有到期时间则使用1年后
-		var expiredAt *time.Time
-		if provider.ExpiresAt != nil {
-			// 如果Provider有到期时间，使用Provider的到期时间
-			expiredAt = provider.ExpiresAt
-		}
-		// 如果Provider没有到期时间，实例也不设置到期时间（由管理员手动管理）
+		// 设置实例到期时间：节点到期优先；节点不过期且启用签到时，使用签到默认到期天数。
+		expiredAt := determineInitialInstanceExpiryInTx(tx, &provider)
 
 		// 创建实例记录
 		instance = providerModel.Instance{

@@ -18,6 +18,12 @@ type InstanceActionRequest struct {
 	Image      string `json:"image"`
 }
 
+type BatchInstanceActionRequest struct {
+	InstanceIDs []uint `json:"instanceIds" binding:"required,min=1,dive,required"`
+	Action      string `json:"action" binding:"required"`
+	Image       string `json:"image"`
+}
+
 type UserInstanceListRequest struct {
 	common.PageInfo
 	Name         string `json:"name" form:"name"`

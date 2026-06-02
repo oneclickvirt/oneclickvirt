@@ -21,6 +21,8 @@ run_module_24() {
             "" "$group" "$USER_TOKEN2"
         test_api "User2 -> user1 instance action (403/404)" "POST" "/api/v1/user/instances/action" "403|404|400" \
             '{"instance_id":"'"$TEST_INSTANCE_ID"'","action":"stop"}' "$group" "$USER_TOKEN2"
+        test_api_json_value "User2 -> user1 batch action blocked" "POST" "/api/v1/user/instances/batch-action" "200" \
+            '.data.successCount' "0" "{\"instanceIds\":[${TEST_INSTANCE_ID}],\"action\":\"stop\"}" "$group" "$USER_TOKEN2" >/dev/null
         test_api "User2 -> user1 instance password (403/404)" "PUT" "/api/v1/user/instances/${TEST_INSTANCE_ID}/reset-password" "403|404" \
             '{"password":"Hack123!@#"}' "$group" "$USER_TOKEN2"
         test_api "User2 -> user1 monitoring (403/404)" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring" "403|404" \

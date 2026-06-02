@@ -44,6 +44,7 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/user/instances/:id/sftp/upload/status", user.UserSFTPUploadStatus)
 		UserGroup.POST("/user/instances/:id/sftp/upload/abort", user.UserSFTPUploadAbort)
 		UserGroup.POST("/user/instances/action", user.InstanceAction)
+		UserGroup.POST("/user/instances/batch-action", user.BatchInstanceAction)
 
 		// 端口映射
 		UserGroup.GET("/user/port-mappings", user.GetUserPortMappings)

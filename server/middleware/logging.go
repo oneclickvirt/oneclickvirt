@@ -28,6 +28,8 @@ func LoggerMiddleware() gin.HandlerFunc {
 		start := time.Now()
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery
+		auditWriter := newAuditResponseWriter(c.Writer)
+		c.Writer = auditWriter
 
 		// 读取请求体（限制 1MB，防止内存暴增；读完后重置 Body 供后续 handler 使用）
 		const maxBodySize = 1 << 20 // 1 MB
@@ -39,6 +41,8 @@ func LoggerMiddleware() gin.HandlerFunc {
 
 		// 调用后续 handler/middleware
 		c.Next()
+
+		persistAuditLog(c, start, body, auditWriter.BodyString())
 
 		// 过滤静态资源等高频噪音路径，无需记录访问日志
 		if shouldSkipLogging(path) {

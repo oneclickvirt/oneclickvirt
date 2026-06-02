@@ -229,6 +229,54 @@ func InstanceAction(c *gin.Context) {
 	common.ResponseSuccess(c, nil, "操作成功")
 }
 
+// BatchInstanceAction 批量实例操作
+// @Summary 批量实例操作
+// @Description 对当前用户的多个实例批量执行启动、停止、重启、重置、删除等操作
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body user.BatchInstanceActionRequest true "批量实例操作请求参数"
+// @Success 200 {object} common.Response{data=user.BatchInstanceActionResponse} "批量操作已处理"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 401 {object} common.Response "用户未登录"
+// @Router /user/instances/batch-action [post]
+func BatchInstanceAction(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
+		return
+	}
+
+	var req user.BatchInstanceActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	validActions := map[string]bool{
+		"start":   true,
+		"stop":    true,
+		"restart": true,
+		"reset":   true,
+		"delete":  true,
+	}
+	if !validActions[req.Action] {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的操作类型"))
+		return
+	}
+
+	userServiceInstance := userService.NewService()
+	result := userServiceInstance.BatchInstanceAction(userID, req)
+	global.APP_LOG.Info("用户批量实例操作已处理",
+		zap.Uint("userID", userID),
+		zap.String("action", req.Action),
+		zap.Int("total", result.Total),
+		zap.Int("success", result.SuccessCount),
+		zap.Int("failed", result.FailCount))
+
+	common.ResponseSuccess(c, result, "批量操作已提交")
+}
+
 // UpdateProfile 更新个人信息
 // @Summary 更新个人信息
 // @Description 更新当前用户的个人资料信息

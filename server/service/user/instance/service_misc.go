@@ -64,6 +64,13 @@ func (s *Service) ResetInstancePassword(userID uint, instanceID uint) (uint, err
 		return 0, errors.New("无权限访问此实例")
 	}
 
+	lk := getInstanceActionLock(instanceID)
+	lk.mu.Lock()
+	defer func() {
+		lk.mu.Unlock()
+		releaseInstanceActionLock(instanceID)
+	}()
+
 	// 获取实例信息
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
@@ -73,6 +80,9 @@ func (s *Service) ResetInstancePassword(userID uint, instanceID uint) (uint, err
 	// 检查实例状态
 	if instance.Status != "running" {
 		return 0, errors.New("只有运行中的实例才能重置密码")
+	}
+	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
+		return 0, err
 	}
 
 	// 创建重置密码任务

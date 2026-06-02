@@ -13,6 +13,7 @@ import (
 type InstanceServiceInterface interface {
 	GetUserInstances(userID uint, req userModel.UserInstanceListRequest) ([]userModel.UserInstanceResponse, int64, error)
 	InstanceAction(userID uint, req userModel.InstanceActionRequest) error
+	BatchInstanceAction(userID uint, req userModel.BatchInstanceActionRequest) userModel.BatchInstanceActionResponse
 	GetInstanceDetail(userID, instanceID uint) (*userModel.UserInstanceDetailResponse, error)
 	GetInstanceMonitoring(userID, instanceID uint) (*userModel.InstanceMonitoringResponse, error)
 	PerformInstanceAction(userID uint, req userModel.InstanceActionRequest) error

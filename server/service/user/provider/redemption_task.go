@@ -150,10 +150,7 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 
 		instanceName := s.generateInstanceName(provider.Name)
 
-		var expiredAt *time.Time
-		if provider.ExpiresAt != nil {
-			expiredAt = provider.ExpiresAt
-		}
+		expiredAt := determineInitialInstanceExpiryInTx(tx, &provider)
 
 		// 实例归属系统用户（UserID = 0），兑换后再转移
 		cpuCores := 0

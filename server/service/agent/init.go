@@ -28,6 +28,7 @@ func init() {
 	providerService.AgentExecutorFactory = func(providerID uint) utils.ShellExecutor {
 		return NewAgentShellExecutor(providerID, GetHub())
 	}
+	providerService.AgentClientCleanupFunc = RemoveClient
 }
 
 // OnAgentConnected 是 Agent 成功连接并完成资源同步后的回调。

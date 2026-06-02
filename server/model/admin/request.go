@@ -338,16 +338,17 @@ type BatchDeleteInviteCodesRequest struct {
 }
 
 type CreateInstanceRequest struct {
-	Name         string `json:"name"`
-	Provider     string `json:"provider"`                                             // Provider名称（与ProviderID二选一）
-	ProviderID   uint   `json:"provider_id"`                                          // Provider ID（与Provider二选一）
-	Image        string `json:"image" binding:"required"`                             // 镜像名称
-	CPU          int    `json:"cpu" binding:"min=1"`                                  // CPU核心数
-	Memory       int64  `json:"memory" binding:"min=1"`                               // 内存大小(MB)
-	Disk         int64  `json:"disk" binding:"min=1"`                                 // 磁盘大小(GB)
-	InstanceType string `json:"instance_type" binding:"omitempty,oneof=container vm"` // 实例类型: container, vm
-	NetworkType  string `json:"network_type"`                                         // 网络类型
-	UserID       uint   `json:"userId"`                                               // 所有者用户ID
+	Name            string `json:"name"`
+	Provider        string `json:"provider"`                                             // Provider名称（与ProviderID二选一）
+	ProviderID      uint   `json:"provider_id"`                                          // Provider ID（与Provider二选一）
+	ProviderIDCamel uint   `json:"providerId"`                                           // 兼容前端camelCase字段
+	Image           string `json:"image" binding:"required"`                             // 镜像名称
+	CPU             int    `json:"cpu" binding:"min=1"`                                  // CPU核心数
+	Memory          int64  `json:"memory" binding:"min=1"`                               // 内存大小(MB)
+	Disk            int64  `json:"disk" binding:"min=1"`                                 // 磁盘大小(GB)
+	InstanceType    string `json:"instance_type" binding:"omitempty,oneof=container vm"` // 实例类型: container, vm
+	NetworkType     string `json:"network_type"`                                         // 网络类型
+	UserID          uint   `json:"userId"`                                               // 所有者用户ID
 }
 
 type UpdateInstanceRequest struct {
@@ -371,6 +372,11 @@ type InstanceListRequest struct {
 
 type InstanceActionRequest struct {
 	Action string `json:"action" binding:"required"`
+}
+
+type BatchInstanceActionRequest struct {
+	InstanceIDs []uint `json:"instanceIds" binding:"required,min=1,dive,required"`
+	Action      string `json:"action" binding:"required"`
 }
 
 // ResetInstancePasswordRequest 管理员重置实例密码请求
