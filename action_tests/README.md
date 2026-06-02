@@ -142,6 +142,8 @@ action_tests/
 从项目根目录执行：
 
 ```bash
+export noninteractive=true
+
 # 使用 Alice 平台（默认）
 export PLATFORM_ALICE_ENABLED=true
 export ALICE_CLIENT_ID="your_client_id"
@@ -150,6 +152,7 @@ export ALICE_PRIVATE_KEY="$(cat ~/.ssh/id_rsa)"
 bash action_tests/run_env_test.sh docker all container
 
 # 使用 LightNode 平台（Alice 失败时自动降级到 LightNode）
+export noninteractive=true
 export PLATFORM_ALICE_ENABLED=true
 export PLATFORM_LIGHTNODE_ENABLED=true
 export ALICE_CLIENT_ID="..."
@@ -157,12 +160,14 @@ export LIGHTNODE_TOKEN="your_token"
 bash action_tests/run_env_test.sh docker all container
 
 # 强制只使用某个平台
+export noninteractive=true
 export PLATFORM_ALICE_ENABLED=false
 export PLATFORM_VULTR_ENABLED=true
 export VULTR_API_KEY="your_api_key"
 bash action_tests/run_env_test.sh docker all container
 
 # 月付平台：保留实例不销毁，下次重装系统
+export noninteractive=true
 export PLATFORM_ALICE_ENABLED=false
 export PLATFORM_SKRIME_ENABLED=true
 export SKRIME_API_KEY="your_api_key"
@@ -170,6 +175,7 @@ export SKIP_INSTANCE_DELETE=true
 bash action_tests/run_env_test.sh docker all container
 
 # 仅运行部分模块（需要已启动的服务）
+export noninteractive=true
 export SERVER_URL="http://127.0.0.1:8888"
 export ADMIN_USER="admin"
 export ADMIN_PASS="Admin123!@#"

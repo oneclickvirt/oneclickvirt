@@ -658,11 +658,18 @@ func (p *ProxmoxProvider) ensureSSHBeforeFallback(apiErr error, operation string
 		return fmt.Errorf("API调用失败且不允许回退到SSH: %w", apiErr)
 	}
 
+	global.APP_LOG.Warn("Proxmox API失败，准备回退到SSH",
+		zap.String("operation", operation),
+		zap.Error(apiErr))
+
 	if err := p.EnsureConnection(); err != nil {
+		global.APP_LOG.Error("Proxmox回退SSH前连接检查失败",
+			zap.String("operation", operation),
+			zap.Error(err))
 		return fmt.Errorf("API失败且SSH连接不可用: API错误=%v, SSH错误=%v", apiErr, err)
 	}
 
-	global.APP_LOG.Debug(fmt.Sprintf("回退到SSH方式 - %s", operation))
+	global.APP_LOG.Info(fmt.Sprintf("Proxmox回退到SSH方式 - %s", operation))
 	return nil
 }
 

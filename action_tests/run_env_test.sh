@@ -12,6 +12,7 @@
 #   lxd/incus/proxmoxve             → container + vm
 #   kubevirt/qemu                   → vm only
 set -uo pipefail
+export noninteractive=true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMON_DIR="${SCRIPT_DIR}/common"

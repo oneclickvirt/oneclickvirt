@@ -465,10 +465,30 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	// 调用Provider创建实例（API或SSH，取决于Provider的ExecutionRule配置）
 	// 创建进度回调函数，与任务系统集成
 	progressCallback := func(percentage int, message string) {
+		if percentage < 0 {
+			percentage = 0
+		} else if percentage > 100 {
+			percentage = 100
+		}
+
 		// 将Provider内部进度（0-100）映射到任务进度（30-70）
 		// Provider进度占用40%的总进度空间
 		adjustedPercentage := 30 + (percentage * 40 / 100)
-		s.updateTaskProgress(task.ID, adjustedPercentage, message)
+
+		progressMessage := strings.TrimSpace(message)
+		if progressMessage == "" || !strings.HasPrefix(progressMessage, "step.") {
+			if progressMessage != "" {
+				global.APP_LOG.Debug("Provider创建进度消息已标准化",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("providerId", localProviderID),
+					zap.String("providerType", localProviderType),
+					zap.Int("providerProgress", percentage),
+					zap.String("rawMessage", progressMessage))
+			}
+			progressMessage = fmt.Sprintf("step.providerCreateProgress:%d", percentage)
+		}
+
+		s.updateTaskProgress(task.ID, adjustedPercentage, progressMessage)
 	}
 
 	global.APP_LOG.Debug("准备调用Provider创建实例方法",

@@ -412,13 +412,9 @@ func (i *IncusProvider) ListImages(ctx context.Context) ([]provider.Image, error
 			global.APP_LOG.Debug("Incus API调用成功 - 列出镜像")
 			return images, nil
 		}
-		global.APP_LOG.Warn("Incus API失败", zap.Error(err))
-
-		// 检查是否可以回退到SSH
-		if !i.shouldFallbackToSSH() {
-			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		if fallbackErr := i.ensureSSHBeforeFallback(err, "列出镜像"); fallbackErr != nil {
+			return nil, fallbackErr
 		}
-		global.APP_LOG.Debug("回退到SSH方式 - 列出镜像")
 	}
 
 	// 使用SSH方式
@@ -441,13 +437,9 @@ func (i *IncusProvider) PullImage(ctx context.Context, image string) error {
 			global.APP_LOG.Debug("Incus API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 50)))
 			return nil
 		} else {
-			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
-
-			// 检查是否可以回退到SSH
-			if !i.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := i.ensureSSHBeforeFallback(err, "拉取镜像"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH方式 - 拉取镜像", zap.String("image", utils.TruncateString(image, 50)))
 		}
 	}
 
@@ -471,13 +463,9 @@ func (i *IncusProvider) DeleteImage(ctx context.Context, id string) error {
 			global.APP_LOG.Debug("Incus API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
-			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
-
-			// 检查是否可以回退到SSH
-			if !i.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := i.ensureSSHBeforeFallback(err, "删除镜像"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH方式 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 

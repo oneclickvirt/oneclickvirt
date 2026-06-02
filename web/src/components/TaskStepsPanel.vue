@@ -15,7 +15,7 @@
         >⟳</span>
         <span v-else>⬜</span>
       </span>
-      <span class="step-name">{{ translateKey(step.key) }}</span>
+      <span class="step-name">{{ translateStep(step) }}</span>
     </div>
     <div
       v-if="visibleSteps.length === 0"
@@ -174,11 +174,26 @@ const TASK_STEP_SEQUENCES = {
   ]
 }
 
-// Extract the base step key, stripping ":param" suffix (e.g. "step.settingPasswordRetry:2" → "step.settingPasswordRetry")
-function parseLogKey(m) {
+// Extract the base step key and optional param.
+// Examples:
+// - "step.settingPasswordRetry:2" -> { key: "step.settingPasswordRetry", params: { n: 2, name: "2" } }
+// - "step.syncProviderPortMappings:node-a" -> { key: "step.syncProviderPortMappings", params: { n: "node-a", name: "node-a" } }
+function parseLogStep(m) {
   if (!m || !m.startsWith('step.')) return null
   const colonIdx = m.indexOf(':')
-  return colonIdx !== -1 ? m.substring(0, colonIdx) : m
+  if (colonIdx === -1) {
+    return { key: m, params: {} }
+  }
+  const key = m.substring(0, colonIdx)
+  const rawParam = m.substring(colonIdx + 1)
+  const numericParam = Number(rawParam)
+  return {
+    key,
+    params: {
+      n: Number.isFinite(numericParam) ? numericParam : rawParam,
+      name: rawParam
+    }
+  }
 }
 
 const parsedLogs = computed(() => {
@@ -190,10 +205,16 @@ const parsedLogs = computed(() => {
   }
 })
 
-// Ordered list of all logged base step keys (with duplicates preserved)
-const loggedKeys = computed(() =>
-  parsedLogs.value.map(log => parseLogKey(log.m)).filter(Boolean)
-)
+// Ordered list of all logged base step keys (with duplicates preserved).
+const loggedSteps = computed(() => parsedLogs.value.map(log => parseLogStep(log.m)).filter(Boolean))
+const loggedKeys = computed(() => loggedSteps.value.map(step => step.key))
+const latestLoggedStepByKey = computed(() => {
+  const map = new Map()
+  for (const step of loggedSteps.value) {
+    map.set(step.key, step)
+  }
+  return map
+})
 
 const canonicalSteps = computed(() => TASK_STEP_SEQUENCES[props.taskType] || [])
 
@@ -206,6 +227,7 @@ const visibleSteps = computed(() => {
   for (let i = 0; i < steps.length; i++) {
     const key = steps[i]
     const isLogged = logged.includes(key)
+    const loggedStep = latestLoggedStepByKey.value.get(key)
 
     if (isLogged) {
       // Determine if any canonical step AFTER this position was also logged
@@ -213,12 +235,12 @@ const visibleSteps = computed(() => {
       const hasLaterStep = laterSteps.some(k => logged.includes(k))
 
       if (hasLaterStep || status === 'completed') {
-        result.push({ key, status: 'success' })
+        result.push({ key, params: loggedStep?.params || {}, status: 'success' })
       } else if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
-        result.push({ key, status: 'failed' })
+        result.push({ key, params: loggedStep?.params || {}, status: 'failed' })
       } else {
         // Task is still running — this is the current step
-        result.push({ key, status: 'in_progress' })
+        result.push({ key, params: loggedStep?.params || {}, status: 'in_progress' })
       }
     } else {
       // This canonical step was not logged.
@@ -229,7 +251,7 @@ const visibleSteps = computed(() => {
 
       if (!hasLaterLoggedStep) {
         if (status === 'running' || status === 'processing' || status === 'pending') {
-          result.push({ key, status: 'pending' })
+          result.push({ key, params: {}, status: 'pending' })
         }
         // For completed/failed/cancelled tasks, don't show unlogged trailing steps
       }
@@ -240,11 +262,12 @@ const visibleSteps = computed(() => {
   return result
 })
 
-function translateKey(key) {
+function translateStep(step) {
+  const key = step.key
   const userKey = `user.tasks.${key}`
   const adminKey = `admin.tasks.${key}`
-  if (te(userKey)) return t(userKey)
-  if (te(adminKey)) return t(adminKey)
+  if (te(userKey)) return t(userKey, step.params || {})
+  if (te(adminKey)) return t(adminKey, step.params || {})
   return key
 }
 </script>

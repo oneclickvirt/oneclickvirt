@@ -29,7 +29,9 @@ func (p *ProxmoxProvider) DiscoverInstances(ctx context.Context) ([]provider.Dis
 				zap.Int("count", len(instances)))
 			return instances, nil
 		}
-		global.APP_LOG.Warn("Proxmox API发现实例失败，尝试SSH方式", zap.Error(err))
+		if fallbackErr := p.ensureSSHBeforeFallback(err, "发现实例"); fallbackErr != nil {
+			return nil, fallbackErr
+		}
 	}
 
 	// 回退到SSH方式

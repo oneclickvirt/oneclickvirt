@@ -35,6 +35,7 @@
 #                                                    (default: "true" if ADMIN_TOKEN not set)
 
 set -uo pipefail
+export noninteractive=true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMON_DIR="${SCRIPT_DIR}/common"

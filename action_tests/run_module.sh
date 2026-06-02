@@ -7,6 +7,7 @@
 #   bash run_module.sh 01,03,05
 #   bash run_module.sh all
 set -uo pipefail
+export noninteractive=true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"

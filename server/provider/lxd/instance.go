@@ -275,15 +275,9 @@ func (l *LXDProvider) setInstanceConfig(ctx context.Context, instanceName string
 				zap.String("value", value))
 			return nil
 		} else {
-			global.APP_LOG.Warn("LXD API设置实例配置失败", zap.Error(err))
-
-			// 检查是否可以回退到SSH
-			if !l.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := l.ensureSSHBeforeFallback(err, "设置实例配置"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH执行 - 设置实例配置",
-				zap.String("instance", instanceName),
-				zap.String("key", key))
 		}
 	}
 
@@ -338,16 +332,9 @@ func (l *LXDProvider) setInstanceDeviceConfig(ctx context.Context, instanceName 
 				zap.String("value", value))
 			return nil
 		} else {
-			global.APP_LOG.Warn("LXD API设置实例设备配置失败", zap.Error(err))
-
-			// 检查是否可以回退到SSH
-			if !l.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := l.ensureSSHBeforeFallback(err, "设置实例设备配置"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH执行 - 设置实例设备配置",
-				zap.String("instance", instanceName),
-				zap.String("device", deviceName),
-				zap.String("key", key))
 		}
 	}
 

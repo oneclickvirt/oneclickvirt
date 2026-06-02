@@ -333,6 +333,7 @@ jobs:
             export "${PLATFORM_VAR}=true"
           done
           export PLATFORM_PRIORITY_ORDER="${{ steps.resolve-platforms.outputs.platform_priority }}"
+          export noninteractive=true
           echo "Using validated cloud platforms: ${PLATFORM_PRIORITY_ORDER}"
 
           # Run with error capture - never fail silently

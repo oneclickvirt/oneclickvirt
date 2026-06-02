@@ -118,6 +118,7 @@ export default {
     cleaningOldData: "Cleaning old instance data",
     creatingNewInstance: "Creating new instance",
     callingProviderCreate: "Calling node to create instance",
+    providerCreateProgress: "Node creation progress {n}%",
     preparingCreate: "Preparing instance creation",
     dbPreprocessing: "Database preprocessing complete",
     providerCreateSuccess: "Provider instance created successfully",

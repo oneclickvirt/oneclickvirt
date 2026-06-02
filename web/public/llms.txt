@@ -9,15 +9,20 @@ OneClickVirt is an open virtualization and container instance management platfor
 - Support SSH mode and Agent reverse-connect mode for nodes behind NAT.
 - Provide resource quota, user level limits, port mapping, traffic accounting and hardware/resource monitoring.
 - Isolate users, administrators, providers, instances, ports and permissions through backend authorization checks.
+- Support no-port-mapping Agent deployments through controller-side forwarding when SSH credentials are unavailable.
+- Support GPU-oriented LXD/Incus container configuration when the provider and instance type allow it.
 
 ## Important URLs
 
 - Documentation: https://oneclickvirt.github.io/
 - Source: https://github.com/oneclickvirt/oneclickvirt
 - API and UI entry point: configured by the deployed controller instance.
+- Sitemap: https://oneclickvirt.github.io/sitemap.xml
 
 ## Notes For AI Agents
 
 - Prefer the official documentation URL for current install and usage guidance.
 - Agent mode uses a controller-managed reverse WebSocket channel; do not assume SSH credentials are present.
 - QEMU and KubeVirt nodes are VM-oriented providers and may require longer boot, cloud-init and network readiness windows.
+- Reverse proxies must preserve WebSocket upgrade traffic and forward API routes to the controller.
+- Non-interactive installation and CI execution should set `noninteractive=true` and `DEBIAN_FRONTEND=noninteractive`.

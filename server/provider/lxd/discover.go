@@ -31,13 +31,9 @@ func (l *LXDProvider) DiscoverInstances(ctx context.Context) ([]provider.Discove
 				zap.Int("count", len(instances)))
 			return instances, nil
 		}
-		global.APP_LOG.Warn("LXD API发现实例失败", zap.Error(err))
-
-		// 检查是否可以回退到SSH
-		if !l.shouldFallbackToSSH() {
-			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		if fallbackErr := l.ensureSSHBeforeFallback(err, "发现实例"); fallbackErr != nil {
+			return nil, fallbackErr
 		}
-		global.APP_LOG.Debug("回退到SSH执行 - 发现实例")
 	}
 
 	// 如果执行规则不允许使用SSH，则返回错误

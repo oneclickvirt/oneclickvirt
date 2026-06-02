@@ -522,7 +522,43 @@ watch(() => userStore.userType, () => {
   // 收缩状态样式
   &.is-collapse {
     width: var(--sidebar-width-collapsed);
-    
+
+    :deep(.el-menu) {
+      width: var(--sidebar-width-collapsed) !important;
+    }
+
+    :deep(.el-menu-item),
+    :deep(.el-sub-menu__title) {
+      justify-content: center;
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+    }
+
+    :deep(.el-menu-item .el-menu-tooltip__trigger),
+    :deep(.el-sub-menu__title .el-menu-tooltip__trigger) {
+      justify-content: center;
+    }
+
+    :deep(.menu-title),
+    :deep(.el-sub-menu__icon-arrow),
+    :deep(.el-menu-item > span:not(.el-icon)),
+    :deep(.el-sub-menu__title > span:not(.el-icon)) {
+      display: none !important;
+      width: 0 !important;
+      min-width: 0 !important;
+      overflow: hidden !important;
+    }
+
+    :deep(.menu-item) {
+      justify-content: center;
+      width: var(--sidebar-width-collapsed);
+    }
+
+    :deep(.menu-icon),
+    :deep(.el-icon) {
+      margin-right: 0 !important;
+    }
+
     .sidebar-logo {
       .collapse-btn {
         right: 50%;

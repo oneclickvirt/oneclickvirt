@@ -528,13 +528,9 @@ func (l *LXDProvider) ListImages(ctx context.Context) ([]provider.Image, error) 
 			global.APP_LOG.Debug("LXD API调用成功 - 获取镜像列表")
 			return images, nil
 		}
-		global.APP_LOG.Warn("LXD API失败", zap.Error(err))
-
-		// 检查是否可以回退到SSH
-		if !l.shouldFallbackToSSH() {
-			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		if fallbackErr := l.ensureSSHBeforeFallback(err, "获取镜像列表"); fallbackErr != nil {
+			return nil, fallbackErr
 		}
-		global.APP_LOG.Debug("回退到SSH执行 - 获取镜像列表")
 	}
 
 	// 如果执行规则不允许使用SSH，则返回错误
@@ -558,13 +554,9 @@ func (l *LXDProvider) PullImage(ctx context.Context, image string) error {
 			global.APP_LOG.Debug("LXD API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
 			return nil
 		} else {
-			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
-
-			// 检查是否可以回退到SSH
-			if !l.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := l.ensureSSHBeforeFallback(err, "拉取镜像"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH执行 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
 		}
 	}
 
@@ -589,13 +581,9 @@ func (l *LXDProvider) DeleteImage(ctx context.Context, id string) error {
 			global.APP_LOG.Debug("LXD API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
-			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
-
-			// 检查是否可以回退到SSH
-			if !l.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := l.ensureSSHBeforeFallback(err, "删除镜像"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH执行 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 

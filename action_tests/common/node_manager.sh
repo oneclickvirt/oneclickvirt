@@ -54,10 +54,11 @@ create_test_node() {
 install_env() {
     local id="$1" ip="$2" env="$3"
     log_section "Installing ${env} environment on worker node"
+    local noninteractive_prefix="export noninteractive=true; export DEBIAN_FRONTEND=noninteractive;"
     # Wait for cloud-init and other processes to release apt/dpkg locks
     # min_wait=120s (required wait), max_wait=300s (timeout), interval=10s
     wait_for_apt_lock "${ip}" 120 300 10
-    platform_exec_and_wait "${ip}" "export DEBIAN_FRONTEND=noninteractive && apt-get update -y && apt-get install -y curl wget sudo jq ipcalc lsof" 600
+    platform_exec_and_wait "${ip}" "${noninteractive_prefix} apt-get update -y && apt-get install -y curl wget sudo jq ipcalc lsof" 600
     local url="${ENV_INSTALL_SCRIPTS[$env]:-}"
     [[ -z "$url" ]] && { log_error "Unknown environment: ${env}"; return 1; }
     # Build non-interactive env var prefix per script type
@@ -90,34 +91,34 @@ install_env() {
     esac
     if [[ "$env" == "proxmoxve" ]]; then
         log_info "PVE install step 1/3: installing PVE kernel (reboot required)..."
-        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200 || true
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200 || true
         log_info "Rebooting worker to load PVE kernel..."
         platform_exec_and_wait "${ip}" "reboot" 10 || true
         sleep 25
         wait_for_ssh "${ip}" 300
         log_info "PVE install step 2/3: completing PVE configuration after reboot..."
-        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200
         log_info "PVE install step 3a/3: configuring backend bridge..."
-        platform_exec_and_wait "${ip}" "curl -sSL '${PVE_BUILD_BACKEND}' | bash" 600
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_BACKEND}' | bash" 600
         log_info "PVE install step 3b/3: building NAT IPv4 network..."
-        platform_exec_and_wait "${ip}" "curl -sSL '${PVE_BUILD_NAT}' | bash" 600
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_NAT}' | bash" 600
     elif [[ "$env" == "kubevirt" ]]; then
         # kubevirt needs K3s + KubeVirt + CDI, single-pass install (no reboot needed)
         # K3s + KubeVirt + CDI typically takes 60-120 minutes; use 7200s (2h) to be safe
         log_info "Installing KubeVirt environment (K3s + KubeVirt + CDI)..."
-        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 7200
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 7200
     elif [[ "$env" == "qemu" ]]; then
         # qemu needs libvirt + QEMU/KVM, single-pass install
         log_info "Installing QEMU/KVM environment..."
-        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
     else
-        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200 || true
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200 || true
         log_info "Rebooting worker to apply network/kernel settings..."
         platform_exec_and_wait "${ip}" "reboot" 10 || true
         log_info "Waiting for SSH after reboot (max 180s)..."
         wait_for_ssh "${ip}" 180
         log_info "Re-running ${env} install to complete post-reboot setup..."
-        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
     fi
 }
 
@@ -157,7 +158,7 @@ prepare_dirty_node() {
 deploy_master() {
     local id="$1" ip="$2" port="${3:-80}"
     log_section "Deploying master on ${ip} (port ${port})"
-    platform_exec_and_wait "${ip}" "curl -sSL https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/dockerinstall.sh | bash" 600
+    platform_exec_and_wait "${ip}" "export noninteractive=true; export DEBIAN_FRONTEND=noninteractive; curl -sSL https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/dockerinstall.sh | bash" 600
     platform_exec_and_wait "${ip}" "docker pull spiritlhl/oneclickvirt:latest && docker run -d --name oneclickvirt --restart=always -p ${port}:80 spiritlhl/oneclickvirt:latest" 300
 }
 

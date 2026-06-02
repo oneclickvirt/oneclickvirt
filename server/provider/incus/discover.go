@@ -31,12 +31,9 @@ func (i *IncusProvider) DiscoverInstances(ctx context.Context) ([]provider.Disco
 				zap.Int("count", len(instances)))
 			return instances, nil
 		}
-		global.APP_LOG.Warn("Incus API发现实例失败", zap.Error(err))
-
-		if !i.shouldFallbackToSSH() {
-			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		if fallbackErr := i.ensureSSHBeforeFallback(err, "发现实例"); fallbackErr != nil {
+			return nil, fallbackErr
 		}
-		global.APP_LOG.Debug("回退到SSH执行 - 发现实例")
 	}
 
 	if !i.shouldUseSSH() {

@@ -118,6 +118,7 @@ export default {
     cleaningOldData: "正在清理旧实例数据",
     creatingNewInstance: "正在创建新实例",
     callingProviderCreate: "正在调用节点创建实例",
+    providerCreateProgress: "节点创建进度 {n}%",
     preparingCreate: "正在准备实例创建",
     dbPreprocessing: "数据库预处理完成",
     providerCreateSuccess: "Provider创建实例成功",

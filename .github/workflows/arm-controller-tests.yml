@@ -210,6 +210,7 @@ jobs:
           chmod -R +x action_tests/report/  2>/dev/null || true
           mkdir -p action_tests/reports
 
+          export noninteractive=true
           MODULES_INPUT="${{ inputs.modules || '01,02,03,04,05,06,07,08,17,20,21,25' }}"
 
           set +e
