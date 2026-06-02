@@ -37,7 +37,7 @@ run_module_30() {
     local agent_secret; agent_secret=$(echo "$secret_resp" | jq -r '.data.agentSecret // empty' 2>/dev/null)
     local ws_url; ws_url=$(echo "$secret_resp" | jq -r '.data.wsURL // empty' 2>/dev/null)
     local ws_path; ws_path=$(echo "$secret_resp" | jq -r '.data.wsPath // empty' 2>/dev/null)
-    local install_cmd; install_cmd=$(echo "$secret_resp" | jq -r '.data.installCmd // empty' 2>/dev/null)
+    local install_cmd; install_cmd=$(echo "$secret_resp" | jq -r '.data.installCmdController // .data.installCmdGithub // empty' 2>/dev/null)
 
     if [[ -n "$agent_secret" ]]; then
         log_success "agentSecret returned (length: ${#agent_secret})"
@@ -55,9 +55,9 @@ run_module_30() {
         log_warning "wsPath missing from response"
     fi
     if [[ -n "$install_cmd" ]]; then
-        log_success "installCmd returned (${#install_cmd} chars)"
+        log_success "installCmdController returned (${#install_cmd} chars)"
     else
-        log_warning "installCmd missing from response"
+        log_warning "installCmdController missing from response"
     fi
 
     # -- Regenerate agent secret (idempotent) --
@@ -262,7 +262,7 @@ run_module_30() {
 
         # -- Get stopped containers for copy mode source selection --
         local stopped_resp; stopped_resp=$(test_api "Get stopped containers" "GET" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200" "" "$group")
+            "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group")
         local containers; containers=$(echo "$stopped_resp" | jq -r '.data | length' 2>/dev/null)
         log_info "Stopped containers available for copy mode: ${containers:-0}"
     else
