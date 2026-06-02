@@ -3,6 +3,9 @@ package portmapping
 import (
 	"context"
 	"fmt"
+
+	"oneclickvirt/global"
+	providerModel "oneclickvirt/model/provider"
 )
 
 // Manager 端口映射管理器
@@ -180,14 +183,41 @@ func (m *Manager) GetStats() map[string]interface{} {
 
 	// 统计每种Provider的使用情况和能力
 	providerStats := make(map[string]interface{})
+	usageCounts := m.getProviderUsageCounts()
 	for _, providerType := range m.GetSupportedProviders() {
 		capabilities := m.GetProviderCapabilities(providerType)
 		providerStats[providerType] = map[string]interface{}{
 			"capabilities": capabilities,
-			"usage_count":  0, // TODO: 从数据库统计, 暂时设为0
+			"usage_count":  usageCounts[providerType],
 		}
 	}
 	stats["provider_details"] = providerStats
 
 	return stats
+}
+
+func (m *Manager) getProviderUsageCounts() map[string]int64 {
+	counts := make(map[string]int64)
+	if global.APP_DB == nil {
+		return counts
+	}
+
+	type usageRow struct {
+		Type  string
+		Count int64
+	}
+
+	var rows []usageRow
+	if err := global.APP_DB.Model(&providerModel.Port{}).
+		Select("providers.type AS type, COUNT(ports.id) AS count").
+		Joins("JOIN providers ON providers.id = ports.provider_id").
+		Group("providers.type").
+		Scan(&rows).Error; err != nil {
+		return counts
+	}
+
+	for _, row := range rows {
+		counts[row.Type] = row.Count
+	}
+	return counts
 }

@@ -31,6 +31,14 @@ func GenerateProviderCert(c *gin.Context) {
 		return
 	}
 
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(providerID), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
+	}
+
 	providerService := adminProvider.NewService()
 	setupCommand, err := providerService.GenerateProviderCert(uint(providerID))
 	if err != nil {
@@ -50,6 +58,14 @@ func AutoConfigureProviderStream(c *gin.Context) {
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "无效的Provider ID"))
 		return
+	}
+
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(providerID), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
 	}
 
 	c.Header("Content-Type", "text/plain; charset=utf-8")
@@ -208,6 +224,14 @@ func GetProviderStatus(c *gin.Context) {
 		return
 	}
 
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(providerID), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
+	}
+
 	providerService := adminProvider.NewService()
 	status, err := providerService.GetProviderStatus(uint(providerID))
 	if err != nil {
@@ -228,10 +252,30 @@ func ExportProviderConfigs(c *gin.Context) {
 	}
 
 	configService := &provider.ProviderConfigService{}
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if len(req.ProviderIDs) > 0 {
+			for _, providerID := range req.ProviderIDs {
+				if err := adminProvider.CheckProviderOwnership(providerID, ownerAdminID); err != nil {
+					common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+					return
+				}
+			}
+		} else {
+			if err := global.APP_DB.Model(&providerModel.Provider{}).
+				Where("owner_admin_id = ?", ownerAdminID).
+				Pluck("id", &req.ProviderIDs).Error; err != nil {
+				common.ResponseWithError(c, common.NewError(common.CodeDatabaseError, "查询可导出Provider失败"))
+				return
+			}
+		}
+	}
 
 	exportDir := "exports"
 	var err error
-	if len(req.ProviderIDs) > 0 {
+	if ownerAdminID > 0 {
+		err = configService.ExportProviderConfigs(exportDir, req.ProviderIDs)
+	} else if len(req.ProviderIDs) > 0 {
 		err = configService.ExportProviderConfigs(exportDir, req.ProviderIDs)
 	} else {
 		err = configService.ExportAllConfigs(exportDir)

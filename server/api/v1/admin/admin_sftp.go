@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/url"
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
+	adminProvider "oneclickvirt/service/admin/provider"
 	"oneclickvirt/service/remote"
 	"os"
 	"path"
@@ -48,6 +50,12 @@ func getAdminInstanceForSFTP(c *gin.Context) (*providerModel.Instance, error) {
 	if instance.Status != "running" {
 		return nil, common.NewError(common.CodeValidationError, "实例未运行，无法建立SFTP连接")
 	}
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(instance.ProviderID, ownerAdminID); err != nil {
+			return nil, common.NewError(common.CodeForbidden, err.Error())
+		}
+	}
 	return &instance, nil
 }
 
@@ -66,6 +74,12 @@ func getAdminProviderForSFTP(c *gin.Context) (*providerModel.Provider, error) {
 			return nil, common.NewError(common.CodeNotFound, "Provider不存在")
 		}
 		return nil, err
+	}
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(provider.ID, ownerAdminID); err != nil {
+			return nil, common.NewError(common.CodeForbidden, err.Error())
+		}
 	}
 	return &provider, nil
 }

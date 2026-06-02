@@ -37,7 +37,7 @@ func (s *MonitorService) getAgentClient(providerID uint, config *monitoringModel
 	host := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
 		if p.ConnectionType == "agent" {
-			host = "127.0.0.1" // placeholder; actual calls go through WS fallback
+			host = "127.0.0.1" // loopback fallback; calls are routed through WS fallback
 		} else {
 			return nil, fmt.Errorf("provider %d has no endpoint", providerID)
 		}
@@ -61,8 +61,46 @@ func (s *MonitorService) RegisterMonitor(
 	// Check if already registered
 	var existing monitoringModel.AgentMonitor
 	if err := s.db.Where("instance_id = ?", instance.ID).First(&existing).Error; err == nil {
-		// Already registered, verify it's still valid
-		return &existing, nil
+		client, clientErr := s.getAgentClient(instance.ProviderID, config)
+		if clientErr != nil {
+			return &existing, nil
+		}
+		if _, infoErr := client.GetInfo(existing.AgentMonitorID); infoErr == nil {
+			updates := map[string]interface{}{}
+			if existing.ProviderID != instance.ProviderID {
+				updates["provider_id"] = instance.ProviderID
+			}
+			if existing.UserID != instance.UserID {
+				updates["user_id"] = instance.UserID
+			}
+			if existing.ProviderKind != providerInstance.GetType() {
+				updates["provider_kind"] = providerInstance.GetType()
+			}
+			if existing.InstanceName != instance.Name {
+				updates["instance_name"] = instance.Name
+			}
+			if !existing.IsEnabled {
+				updates["is_enabled"] = true
+			}
+			if len(updates) > 0 {
+				updates["last_sync_at"] = time.Now()
+				if err := s.db.Model(&existing).Updates(updates).Error; err != nil {
+					return nil, fmt.Errorf("refresh existing agent monitor mapping: %w", err)
+				}
+				if err := s.db.Where("id = ?", existing.ID).First(&existing).Error; err != nil {
+					return nil, fmt.Errorf("reload existing agent monitor mapping: %w", err)
+				}
+			}
+			return &existing, nil
+		} else if global.APP_LOG != nil {
+			global.APP_LOG.Warn("agent monitor mapping is stale, will recreate",
+				zap.Uint("instance_id", instance.ID),
+				zap.Int64("agent_monitor_id", existing.AgentMonitorID),
+				zap.Error(infoErr))
+		}
+		if err := s.db.Unscoped().Delete(&existing).Error; err != nil {
+			return nil, fmt.Errorf("remove stale agent monitor mapping: %w", err)
+		}
 	}
 
 	// Detect network interfaces for this instance
@@ -126,30 +164,36 @@ func (s *MonitorService) RegisterMonitor(
 
 // DeregisterMonitor removes the monitor from both the agent and MySQL.
 func (s *MonitorService) DeregisterMonitor(instanceID uint, config *monitoringModel.MonitoringConfig) error {
-	var monitor monitoringModel.AgentMonitor
-	if err := s.db.Where("instance_id = ?", instanceID).First(&monitor).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil // Already deregistered
-		}
-		return fmt.Errorf("find monitor for instance %d: %w", instanceID, err)
+	var monitors []monitoringModel.AgentMonitor
+	if err := s.db.Where("instance_id = ?", instanceID).Find(&monitors).Error; err != nil {
+		return fmt.Errorf("find monitors for instance %d: %w", instanceID, err)
+	}
+	if len(monitors) == 0 {
+		return nil
 	}
 
-	// Call agent to delete monitor
-	client, err := s.getAgentClient(monitor.ProviderID, config)
-	if err != nil {
-		return err
-	}
-	if _, err := client.DeleteMonitor(monitor.AgentMonitorID); err != nil {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Warn("agent delete monitor failed (will remove mapping anyway)",
-				zap.Uint("instance_id", instanceID),
-				zap.Int64("agent_monitor_id", monitor.AgentMonitorID),
-				zap.Error(err))
+	providerID := monitors[0].ProviderID
+	client, err := s.getAgentClient(providerID, config)
+	if err == nil {
+		for _, monitor := range monitors {
+			if _, err := client.DeleteMonitor(monitor.AgentMonitorID); err != nil {
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("agent delete monitor failed (will remove mapping anyway)",
+						zap.Uint("instance_id", instanceID),
+						zap.Int64("agent_monitor_id", monitor.AgentMonitorID),
+						zap.Error(err))
+				}
+			}
 		}
+	} else if global.APP_LOG != nil {
+		global.APP_LOG.Warn("agent client unavailable while deregistering monitor (will remove mapping anyway)",
+			zap.Uint("instance_id", instanceID),
+			zap.Uint("provider_id", providerID),
+			zap.Error(err))
 	}
 
 	// Remove from MySQL (hard delete)
-	if err := s.db.Unscoped().Delete(&monitor).Error; err != nil {
+	if err := s.db.Unscoped().Where("instance_id = ?", instanceID).Delete(&monitoringModel.AgentMonitor{}).Error; err != nil {
 		return fmt.Errorf("delete agent monitor mapping: %w", err)
 	}
 

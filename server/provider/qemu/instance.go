@@ -78,7 +78,7 @@ func (p *QEMUProvider) sshListInstances(ctx context.Context) ([]provider.Instanc
 
 // getInstanceInfo 获取单个VM详细信息
 func (p *QEMUProvider) getInstanceInfo(ctx context.Context, name string) (*provider.Instance, error) {
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh dominfo '%s' 2>/dev/null", name))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh dominfo %s 2>/dev/null", shellSingleQuote(name)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get VM info: %w", err)
 	}
@@ -179,11 +179,11 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	updateProgress(10, "确保镜像存在")
 
 	// 确保目录存在
-	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s %s", ImageDir, VMLogDir))
+	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s %s", shellSingleQuote(ImageDir), shellSingleQuote(VMLogDir)))
 
 	// 确保基础镜像存在，如果不存在则从 seed 数据库中的 URL 下载
 	baseImage := fmt.Sprintf("%s/%s.qcow2", ImageDir, system)
-	output, err := p.sshClient.Execute(fmt.Sprintf("test -f '%s' && test -s '%s' && echo 'ok'", baseImage, baseImage))
+	output, err := p.sshClient.Execute(fmt.Sprintf("test -f %s && test -s %s && echo 'ok'", shellSingleQuote(baseImage), shellSingleQuote(baseImage)))
 	if err != nil || strings.TrimSpace(output) != "ok" {
 		if config.ImageURL == "" {
 			return fmt.Errorf("base image not found and no image URL configured for %s", system)
@@ -204,8 +204,8 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 		tmpPath := baseImage + ".tmp"
 		downloadCmd := fmt.Sprintf(
-			"curl -4 -fL --connect-timeout 30 --max-time 900 -o '%s' '%s' 2>&1",
-			tmpPath, downloadURL)
+			"curl -4 -fL --connect-timeout 30 --max-time 900 -o %s %s 2>&1",
+			shellSingleQuote(tmpPath), shellSingleQuote(downloadURL))
 		dlOutput, dlErr := p.sshClient.ExecuteWithTimeout(downloadCmd, 20*time.Minute)
 		if dlErr != nil {
 			// CDN下载失败，回退到原始URL重试
@@ -213,26 +213,26 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 				global.APP_LOG.Warn("CDN下载失败，回退到原始URL",
 					zap.String("cdnURL", utils.TruncateString(downloadURL, 200)),
 					zap.String("output", utils.TruncateString(dlOutput, 200)))
-				p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", tmpPath))
+				p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 				downloadCmd = fmt.Sprintf(
-					"curl -4 -fL --connect-timeout 30 --max-time 900 -o '%s' '%s' 2>&1",
-					tmpPath, config.ImageURL)
+					"curl -4 -fL --connect-timeout 30 --max-time 900 -o %s %s 2>&1",
+					shellSingleQuote(tmpPath), shellSingleQuote(config.ImageURL))
 				dlOutput, dlErr = p.sshClient.ExecuteWithTimeout(downloadCmd, 20*time.Minute)
 			}
 			if dlErr != nil {
-				p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", tmpPath))
+				p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 				return fmt.Errorf("failed to download base image for %s: %s", system, utils.TruncateString(dlOutput, 200))
 			}
 		}
 
 		// 验证并移动文件
-		checkOutput, _ := p.sshClient.Execute(fmt.Sprintf("test -s '%s' && echo 'ok'", tmpPath))
+		checkOutput, _ := p.sshClient.Execute(fmt.Sprintf("test -s %s && echo 'ok'", shellSingleQuote(tmpPath)))
 		if strings.TrimSpace(checkOutput) != "ok" {
-			p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", tmpPath))
+			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 			return fmt.Errorf("downloaded image is empty for %s", system)
 		}
-		if _, mvErr := p.sshClient.Execute(fmt.Sprintf("mv '%s' '%s'", tmpPath, baseImage)); mvErr != nil {
-			p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", tmpPath))
+		if _, mvErr := p.sshClient.Execute(fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(baseImage))); mvErr != nil {
+			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 			return fmt.Errorf("failed to move downloaded image: %w", mvErr)
 		}
 		global.APP_LOG.Info("QEMU基础镜像下载成功",
@@ -280,8 +280,9 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	updateProgress(30, "创建 VM 磁盘")
 
 	// 创建差量磁盘
-	vmDisk := fmt.Sprintf("%s/vm-%s.qcow2", ImageDir, config.Name)
-	diskCmd := fmt.Sprintf("qemu-img create -f qcow2 -b '%s' -F qcow2 '%s' %dG 2>&1", baseImage, vmDisk, diskGB)
+	artifactName := qemuSafeFileComponent(config.Name)
+	vmDisk := fmt.Sprintf("%s/vm-%s.qcow2", ImageDir, artifactName)
+	diskCmd := fmt.Sprintf("qemu-img create -f qcow2 -b %s -F qcow2 %s %dG 2>&1", shellSingleQuote(baseImage), shellSingleQuote(vmDisk), diskGB)
 	output, err = p.sshClient.Execute(diskCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create VM disk: %s, %w", utils.TruncateString(output, 200), err)
@@ -293,7 +294,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	ciISO, err := p.createCloudInitISO(config.Name, password)
 	if err != nil {
 		// 清理磁盘
-		p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", vmDisk))
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(vmDisk)))
 		return fmt.Errorf("failed to create cloud-init ISO: %w", err)
 	}
 
@@ -303,17 +304,17 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
 	if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
 		// 清理磁盘和 cloud-init ISO
-		p.sshClient.Execute(fmt.Sprintf("rm -f '%s' '%s'", vmDisk, ciISO))
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s %s", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
 		return fmt.Errorf("防火墙后端检测失败: %w", err)
 	}
 	if err := fwMgr.InitTable(); err != nil {
-		p.sshClient.Execute(fmt.Sprintf("rm -f '%s' '%s'", vmDisk, ciISO))
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s %s", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
 		return fmt.Errorf("防火墙初始化失败: %w", err)
 	}
 	if sshPort > 0 {
 		if err := fwMgr.AddDNAT(config.Name, vmIP, sshPort, startPort, endPort); err != nil {
 			// 端口转发失败是致命错误 —— VM 创建后无法被外部访问
-			p.sshClient.Execute(fmt.Sprintf("rm -f '%s' '%s'", vmDisk, ciISO))
+			p.sshClient.Execute(fmt.Sprintf("rm -f %s %s", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
 			return fmt.Errorf("端口转发规则添加失败: %w", err)
 		}
 	}
@@ -333,15 +334,16 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 	// 构建 virt-install 命令
 	virtCmd := fmt.Sprintf(
-		`virt-install --name '%s' --memory %d --vcpus %d --virt-type %s --import `+
-			`--disk 'path=%s,format=qcow2,bus=virtio,cache=none' `+
-			`--disk 'path=%s,format=raw,bus=virtio,readonly=on' `+
-			`--network 'network=default,mac=%s,model=virtio' `+
-			`--os-variant '%s' `+
-			`--sysinfo 'type=smbios,system.serial=ds=nocloud' `+
-			`--graphics none --serial pty --console 'pty,target_type=serial' --noautoconsole 2>&1`,
-		config.Name, memoryMB, cpu, virtType,
-		vmDisk, ciISO, vmMAC, osVariant)
+		`virt-install --name %s --memory %d --vcpus %d --virt-type %s --import `+
+			`--disk %s --disk %s --network %s --os-variant %s --sysinfo %s `+
+			`--graphics none --serial pty --console %s --noautoconsole 2>&1`,
+		shellSingleQuote(config.Name), memoryMB, cpu, shellSingleQuote(virtType),
+		shellSingleQuote(fmt.Sprintf("path=%s,format=qcow2,bus=virtio,cache=none", vmDisk)),
+		shellSingleQuote(fmt.Sprintf("path=%s,format=raw,bus=virtio,readonly=on", ciISO)),
+		shellSingleQuote(fmt.Sprintf("network=default,mac=%s,model=virtio", vmMAC)),
+		shellSingleQuote(osVariant),
+		shellSingleQuote("type=smbios,system.serial=ds=nocloud"),
+		shellSingleQuote("pty,target_type=serial"))
 
 	output, err = p.sshClient.Execute(virtCmd)
 	virtRC := err
@@ -350,19 +352,20 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	if virtRC != nil {
 		global.APP_LOG.Warn("virt-install 失败，用通用 os-variant 重试",
 			zap.String("output", utils.TruncateString(output, 500)))
-		p.sshClient.Execute(fmt.Sprintf("virsh undefine '%s' --remove-all-storage 2>/dev/null || virsh undefine '%s' 2>/dev/null || true", config.Name, config.Name))
+		p.sshClient.Execute(fmt.Sprintf("virsh undefine %s --remove-all-storage 2>/dev/null || virsh undefine %s 2>/dev/null || true", shellSingleQuote(config.Name), shellSingleQuote(config.Name)))
 		// 重建磁盘
-		p.sshClient.Execute(fmt.Sprintf("test -f '%s' || qemu-img create -f qcow2 -b '%s' -F qcow2 '%s' %dG 2>/dev/null", vmDisk, baseImage, vmDisk, diskGB))
+		p.sshClient.Execute(fmt.Sprintf("test -f %s || qemu-img create -f qcow2 -b %s -F qcow2 %s %dG 2>/dev/null", shellSingleQuote(vmDisk), shellSingleQuote(baseImage), shellSingleQuote(vmDisk), diskGB))
 		retryCmd := fmt.Sprintf(
-			`virt-install --name '%s' --memory %d --vcpus %d --virt-type %s --import `+
-				`--disk 'path=%s,format=qcow2,bus=virtio,cache=none' `+
-				`--disk 'path=%s,format=raw,bus=virtio,readonly=on' `+
-				`--network 'network=default,mac=%s,model=virtio' `+
-				`--os-variant 'detect=on,require=off' `+
-				`--sysinfo 'type=smbios,system.serial=ds=nocloud' `+
-				`--graphics none --serial pty --console 'pty,target_type=serial' --noautoconsole 2>&1`,
-			config.Name, memoryMB, cpu, virtType,
-			vmDisk, ciISO, vmMAC)
+			`virt-install --name %s --memory %d --vcpus %d --virt-type %s --import `+
+				`--disk %s --disk %s --network %s --os-variant %s --sysinfo %s `+
+				`--graphics none --serial pty --console %s --noautoconsole 2>&1`,
+			shellSingleQuote(config.Name), memoryMB, cpu, shellSingleQuote(virtType),
+			shellSingleQuote(fmt.Sprintf("path=%s,format=qcow2,bus=virtio,cache=none", vmDisk)),
+			shellSingleQuote(fmt.Sprintf("path=%s,format=raw,bus=virtio,readonly=on", ciISO)),
+			shellSingleQuote(fmt.Sprintf("network=default,mac=%s,model=virtio", vmMAC)),
+			shellSingleQuote("detect=on,require=off"),
+			shellSingleQuote("type=smbios,system.serial=ds=nocloud"),
+			shellSingleQuote("pty,target_type=serial"))
 		output, err = p.sshClient.Execute(retryCmd)
 		virtRC = err
 	}
@@ -371,24 +374,25 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	if virtRC != nil && virtType == "kvm" {
 		global.APP_LOG.Warn("KVM 模式失败，降级到 TCG",
 			zap.String("output", utils.TruncateString(output, 500)))
-		p.sshClient.Execute(fmt.Sprintf("virsh undefine '%s' --remove-all-storage 2>/dev/null || virsh undefine '%s' 2>/dev/null || true", config.Name, config.Name))
-		p.sshClient.Execute(fmt.Sprintf("test -f '%s' || qemu-img create -f qcow2 -b '%s' -F qcow2 '%s' %dG 2>/dev/null", vmDisk, baseImage, vmDisk, diskGB))
+		p.sshClient.Execute(fmt.Sprintf("virsh undefine %s --remove-all-storage 2>/dev/null || virsh undefine %s 2>/dev/null || true", shellSingleQuote(config.Name), shellSingleQuote(config.Name)))
+		p.sshClient.Execute(fmt.Sprintf("test -f %s || qemu-img create -f qcow2 -b %s -F qcow2 %s %dG 2>/dev/null", shellSingleQuote(vmDisk), shellSingleQuote(baseImage), shellSingleQuote(vmDisk), diskGB))
 		tcgCmd := fmt.Sprintf(
-			`virt-install --name '%s' --memory %d --vcpus %d --virt-type qemu --import `+
-				`--disk 'path=%s,format=qcow2,bus=virtio,cache=none' `+
-				`--disk 'path=%s,format=raw,bus=virtio,readonly=on' `+
-				`--network 'network=default,mac=%s,model=virtio' `+
-				`--os-variant 'detect=on,require=off' `+
-				`--sysinfo 'type=smbios,system.serial=ds=nocloud' `+
-				`--graphics none --serial pty --console 'pty,target_type=serial' --noautoconsole 2>&1`,
-			config.Name, memoryMB, cpu,
-			vmDisk, ciISO, vmMAC)
+			`virt-install --name %s --memory %d --vcpus %d --virt-type qemu --import `+
+				`--disk %s --disk %s --network %s --os-variant %s --sysinfo %s `+
+				`--graphics none --serial pty --console %s --noautoconsole 2>&1`,
+			shellSingleQuote(config.Name), memoryMB, cpu,
+			shellSingleQuote(fmt.Sprintf("path=%s,format=qcow2,bus=virtio,cache=none", vmDisk)),
+			shellSingleQuote(fmt.Sprintf("path=%s,format=raw,bus=virtio,readonly=on", ciISO)),
+			shellSingleQuote(fmt.Sprintf("network=default,mac=%s,model=virtio", vmMAC)),
+			shellSingleQuote("detect=on,require=off"),
+			shellSingleQuote("type=smbios,system.serial=ds=nocloud"),
+			shellSingleQuote("pty,target_type=serial"))
 		output, err = p.sshClient.Execute(tcgCmd)
 		virtRC = err
 	}
 
 	// 清理临时文件
-	p.sshClient.Execute(fmt.Sprintf("rm -f /tmp/qemu-cloudinit-%s.yaml /tmp/qemu-cloudinit-%s-meta.yaml 2>/dev/null || true", config.Name, config.Name))
+	p.sshClient.Execute(fmt.Sprintf("rm -f %s %s 2>/dev/null || true", shellSingleQuote(qemuCloudInitUserDataPath(config.Name)), shellSingleQuote(qemuCloudInitMetaDataPath(config.Name))))
 
 	if virtRC != nil {
 		// 部署失败，清理
@@ -396,20 +400,20 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 			zap.String("name", config.Name),
 			zap.String("output", utils.TruncateString(output, 1000)),
 			zap.Error(virtRC))
-		p.sshClient.Execute(fmt.Sprintf("virsh undefine '%s' 2>/dev/null || true", config.Name))
-		p.sshClient.Execute(fmt.Sprintf("rm -f '%s' '%s' 2>/dev/null || true", vmDisk, ciISO))
+		p.sshClient.Execute(fmt.Sprintf("virsh undefine %s 2>/dev/null || true", shellSingleQuote(config.Name)))
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s %s 2>/dev/null || true", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
 		return fmt.Errorf("failed to create VM: %w", virtRC)
 	}
 
 	// 设置开机自启
-	p.sshClient.Execute(fmt.Sprintf("virsh autostart '%s' 2>/dev/null || true", config.Name))
+	p.sshClient.Execute(fmt.Sprintf("virsh autostart %s 2>/dev/null || true", shellSingleQuote(config.Name)))
 
 	updateProgress(80, "等待虚拟机启动")
 
 	// 等待VM启动
 	var vmStarted bool
 	for i := 0; i < 30; i++ {
-		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate '%s' 2>/dev/null", config.Name))
+		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(config.Name)))
 		if err == nil && strings.Contains(strings.TrimSpace(statusOutput), "running") {
 			vmStarted = true
 			break
@@ -440,14 +444,15 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	}
 
 	// cloud-init ISO 仅首次启动时需要，启动成功后分离并删除以节省磁盘空间
-	p.sshClient.Execute(fmt.Sprintf("virsh detach-disk '%s' sdb --persistent 2>/dev/null || true", config.Name))
-	p.sshClient.Execute(fmt.Sprintf("rm -f '%s' 2>/dev/null || true", ciISO))
+	p.sshClient.Execute(fmt.Sprintf("virsh detach-disk %s sdb --persistent 2>/dev/null || true", shellSingleQuote(config.Name)))
+	p.sshClient.Execute(fmt.Sprintf("rm -f %s 2>/dev/null || true", shellSingleQuote(ciISO)))
 
 	updateProgress(95, "虚拟机创建完成")
 
 	// 写入 vmlog（不写入密码）
-	logCmd := fmt.Sprintf("echo '%s %d %s %d %d %d %d %d %s %s' >> /root/vmlog",
-		utils.SanitizeShellArg(config.Name), sshPort, "***", cpu, memoryMB, diskGB, startPort, endPort, system, vmIP)
+	logLine := fmt.Sprintf("%s %d %s %d %d %d %d %d %s %s",
+		config.Name, sshPort, "***", cpu, memoryMB, diskGB, startPort, endPort, system, vmIP)
+	logCmd := fmt.Sprintf("printf '%%s\\n' %s >> /root/vmlog", shellSingleQuote(logLine))
 	p.sshClient.Execute(logCmd)
 
 	updateProgress(100, "QEMU虚拟机创建完成")
@@ -474,39 +479,47 @@ func (p *QEMUProvider) allocateIP() (string, error) {
 // setupDHCPReservation 在 libvirt default 网络中设置 DHCP 固定分配
 func (p *QEMUProvider) setupDHCPReservation(vmName, vmMAC, vmIP string) {
 	// 先删除旧记录
+	currentHostXML := fmt.Sprintf("<host mac='%s' name='%s' ip='%s' />", vmMAC, vmName, vmIP)
 	p.sshClient.Execute(fmt.Sprintf(
-		"virsh net-update default delete ip-dhcp-host \"<host mac='%s' name='%s' ip='%s' />\" --live --config 2>/dev/null || true",
-		vmMAC, vmName, vmIP))
+		"virsh net-update default delete ip-dhcp-host %s --live --config 2>/dev/null || true",
+		shellSingleQuote(currentHostXML)))
 
 	// 删除可能存在的同名旧记录
 	oldMAC, _ := p.sshClient.Execute(fmt.Sprintf(
-		"virsh net-dumpxml default 2>/dev/null | grep \"name='%s'\" | grep -oP \"mac='[^']+\" | cut -d\"'\" -f2", vmName))
+		"virsh net-dumpxml default 2>/dev/null | grep -F %s | grep -oP \"mac='[^']+\" | cut -d\"'\" -f2",
+		shellSingleQuote("name='"+vmName+"'")))
 	oldMAC = strings.TrimSpace(oldMAC)
 	if oldMAC != "" {
 		oldIP, _ := p.sshClient.Execute(fmt.Sprintf(
-			"virsh net-dumpxml default 2>/dev/null | grep \"name='%s'\" | grep -oP \"ip='[^']+\" | cut -d\"'\" -f2", vmName))
+			"virsh net-dumpxml default 2>/dev/null | grep -F %s | grep -oP \"ip='[^']+\" | cut -d\"'\" -f2",
+			shellSingleQuote("name='"+vmName+"'")))
 		oldIP = strings.TrimSpace(oldIP)
 		if oldIP != "" {
+			oldHostXML := fmt.Sprintf("<host mac='%s' name='%s' ip='%s' />", oldMAC, vmName, oldIP)
 			p.sshClient.Execute(fmt.Sprintf(
-				"virsh net-update default delete ip-dhcp-host \"<host mac='%s' name='%s' ip='%s' />\" --live --config 2>/dev/null || "+
-					"virsh net-update default delete ip-dhcp-host \"<host mac='%s' name='%s' ip='%s' />\" --config 2>/dev/null || true",
-				oldMAC, vmName, oldIP, oldMAC, vmName, oldIP))
+				"virsh net-update default delete ip-dhcp-host %s --live --config 2>/dev/null || "+
+					"virsh net-update default delete ip-dhcp-host %s --config 2>/dev/null || true",
+				shellSingleQuote(oldHostXML), shellSingleQuote(oldHostXML)))
 		}
 	}
 
 	// 添加新记录
 	p.sshClient.Execute(fmt.Sprintf(
-		"virsh net-update default add ip-dhcp-host \"<host mac='%s' name='%s' ip='%s' />\" --live --config 2>/dev/null || "+
-			"virsh net-update default add ip-dhcp-host \"<host mac='%s' name='%s' ip='%s' />\" --config 2>/dev/null || true",
-		vmMAC, vmName, vmIP, vmMAC, vmName, vmIP))
+		"virsh net-update default add ip-dhcp-host %s --live --config 2>/dev/null || "+
+			"virsh net-update default add ip-dhcp-host %s --config 2>/dev/null || true",
+		shellSingleQuote(currentHostXML), shellSingleQuote(currentHostXML)))
 }
 
 // createCloudInitISO 创建 cloud-init ISO
 func (p *QEMUProvider) createCloudInitISO(vmName, password string) (string, error) {
-	ciISO := fmt.Sprintf("%s/vm-%s-cloudinit.iso", ImageDir, vmName)
+	artifactName := qemuSafeFileComponent(vmName)
+	ciISO := fmt.Sprintf("%s/vm-%s-cloudinit.iso", ImageDir, artifactName)
+	userDataPath := qemuCloudInitUserDataPath(vmName)
+	metaDataPath := qemuCloudInitMetaDataPath(vmName)
+	userPassword := strings.ReplaceAll(strings.ReplaceAll(password, "\r", ""), "\n", "")
 
 	// 创建 user-data
-	userDataCmd := fmt.Sprintf(`cat > /tmp/qemu-cloudinit-%s.yaml << 'CIEOF'
+	userDataCmd := fmt.Sprintf(`cat > %s << 'CIEOF'
 #cloud-config
 hostname: %s
 locale: en_US.UTF-8
@@ -515,7 +528,7 @@ ssh_pwauth: true
 chpasswd:
   expire: false
   list:
-    - root:%s
+    - %s
 write_files:
   - path: /etc/ssh/sshd_config.d/99-qemu.conf
     content: |
@@ -524,7 +537,7 @@ write_files:
       PubkeyAuthentication yes
 runcmd:
   - systemctl enable --now serial-getty@ttyS0.service 2>/dev/null || true
-  - echo 'root:%s' | chpasswd
+  - printf 'root:%%s\n' %s | chpasswd
   - |
     if [ -f /etc/ssh/sshd_config ]; then
       sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -532,16 +545,16 @@ runcmd:
     fi
   - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
 final_message: "cloud-init done after $UPTIME seconds"
-CIEOF`, vmName, vmName, password, password)
+CIEOF`, shellSingleQuote(userDataPath), yamlDoubleQuote(qemuSafeFileComponent(vmName)), yamlDoubleQuote("root:"+userPassword), shellSingleQuote(userPassword))
 	if _, err := p.sshClient.Execute(userDataCmd); err != nil {
 		return "", fmt.Errorf("failed to create user-data: %w", err)
 	}
 
 	// 创建 meta-data
-	metaDataCmd := fmt.Sprintf(`cat > /tmp/qemu-cloudinit-%s-meta.yaml << 'METAEOF'
+	metaDataCmd := fmt.Sprintf(`cat > %s << 'METAEOF'
 instance-id: %s
 local-hostname: %s
-METAEOF`, vmName, vmName, vmName)
+METAEOF`, shellSingleQuote(metaDataPath), qemuSafeFileComponent(vmName), qemuSafeFileComponent(vmName))
 	if _, err := p.sshClient.Execute(metaDataCmd); err != nil {
 		return "", fmt.Errorf("failed to create meta-data: %w", err)
 	}
@@ -549,25 +562,25 @@ METAEOF`, vmName, vmName, vmName)
 	// 创建 ISO（优先 cloud-localds，回退到 genisoimage/mkisofs）
 	isoCmd := fmt.Sprintf(
 		`if command -v cloud-localds >/dev/null 2>&1; then
-  cloud-localds '%s' /tmp/qemu-cloudinit-%s.yaml /tmp/qemu-cloudinit-%s-meta.yaml
+  cloud-localds %s %s %s
 elif command -v genisoimage >/dev/null 2>&1; then
-  ci_dir=/tmp/qemu-ci-%s && mkdir -p "$ci_dir"
-  cp /tmp/qemu-cloudinit-%s.yaml "$ci_dir/user-data"
-  cp /tmp/qemu-cloudinit-%s-meta.yaml "$ci_dir/meta-data"
-  genisoimage -output '%s' -volid cidata -joliet -rock "$ci_dir" 2>/dev/null
+  ci_dir=%s && mkdir -p "$ci_dir"
+  cp %s "$ci_dir/user-data"
+  cp %s "$ci_dir/meta-data"
+  genisoimage -output %s -volid cidata -joliet -rock "$ci_dir" 2>/dev/null
   rm -rf "$ci_dir"
 elif command -v mkisofs >/dev/null 2>&1; then
-  ci_dir=/tmp/qemu-ci-%s && mkdir -p "$ci_dir"
-  cp /tmp/qemu-cloudinit-%s.yaml "$ci_dir/user-data"
-  cp /tmp/qemu-cloudinit-%s-meta.yaml "$ci_dir/meta-data"
-  mkisofs -output '%s' -volid cidata -joliet -rock "$ci_dir" 2>/dev/null
+  ci_dir=%s && mkdir -p "$ci_dir"
+  cp %s "$ci_dir/user-data"
+  cp %s "$ci_dir/meta-data"
+  mkisofs -output %s -volid cidata -joliet -rock "$ci_dir" 2>/dev/null
   rm -rf "$ci_dir"
 else
   echo "ERROR: no ISO creation tool found" >&2 && exit 1
 fi`,
-		ciISO, vmName, vmName,
-		vmName, vmName, vmName, ciISO,
-		vmName, vmName, vmName, ciISO)
+		shellSingleQuote(ciISO), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath),
+		shellSingleQuote("/tmp/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), shellSingleQuote(ciISO),
+		shellSingleQuote("/tmp/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), shellSingleQuote(ciISO))
 
 	output, err := p.sshClient.Execute(isoCmd)
 	if err != nil {
@@ -575,7 +588,7 @@ fi`,
 	}
 
 	// 验证 ISO 存在
-	checkOutput, err := p.sshClient.Execute(fmt.Sprintf("test -s '%s' && echo ok", ciISO))
+	checkOutput, err := p.sshClient.Execute(fmt.Sprintf("test -s %s && echo ok", shellSingleQuote(ciISO)))
 	if err != nil || strings.TrimSpace(checkOutput) != "ok" {
 		return "", fmt.Errorf("cloud-init ISO was not created: %s", ciISO)
 	}
@@ -622,7 +635,8 @@ func (p *QEMUProvider) getOSVariant(system string) string {
 func (p *QEMUProvider) getVMIPAddress(ctx context.Context, name string) string {
 	// 优先从 DHCP 预留获取
 	output, err := p.sshClient.Execute(fmt.Sprintf(
-		"virsh net-dumpxml default 2>/dev/null | grep \"name='%s'\" | grep -oP \"ip='[^']+\" | cut -d\"'\" -f2", name))
+		"virsh net-dumpxml default 2>/dev/null | grep -F %s | grep -oP \"ip='[^']+\" | cut -d\"'\" -f2",
+		shellSingleQuote("name='"+name+"'")))
 	if err == nil {
 		ip := strings.TrimSpace(output)
 		if ip != "" {
@@ -631,7 +645,7 @@ func (p *QEMUProvider) getVMIPAddress(ctx context.Context, name string) string {
 	}
 
 	// 尝试通过 virsh domifaddr 获取
-	output, err = p.sshClient.Execute(fmt.Sprintf("virsh domifaddr '%s' 2>/dev/null | grep -oP '192\\.168\\.122\\.\\d+'", name))
+	output, err = p.sshClient.Execute(fmt.Sprintf("virsh domifaddr %s 2>/dev/null | grep -oP '192\\.168\\.122\\.\\d+'", shellSingleQuote(name)))
 	if err == nil {
 		ip := strings.TrimSpace(output)
 		if ip != "" {
@@ -640,7 +654,7 @@ func (p *QEMUProvider) getVMIPAddress(ctx context.Context, name string) string {
 	}
 
 	// 从 vmlog 获取
-	output, err = p.sshClient.Execute(fmt.Sprintf("grep '^%s ' /root/vmlog 2>/dev/null | tail -1 | awk '{print $10}'", name))
+	output, err = p.sshClient.Execute(fmt.Sprintf("grep -F %s /root/vmlog 2>/dev/null | tail -1 | awk '{print $10}'", shellSingleQuote(name+" ")))
 	if err == nil {
 		ip := strings.TrimSpace(output)
 		if ip != "" && strings.HasPrefix(ip, "192.168.122.") {
@@ -649,6 +663,38 @@ func (p *QEMUProvider) getVMIPAddress(ctx context.Context, name string) string {
 	}
 
 	return ""
+}
+
+func qemuSafeFileComponent(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	out := strings.Trim(b.String(), ".")
+	if out == "" {
+		return "vm"
+	}
+	return out
+}
+
+func qemuCloudInitUserDataPath(vmName string) string {
+	return fmt.Sprintf("/tmp/qemu-cloudinit-%s.yaml", qemuSafeFileComponent(vmName))
+}
+
+func qemuCloudInitMetaDataPath(vmName string) string {
+	return fmt.Sprintf("/tmp/qemu-cloudinit-%s-meta.yaml", qemuSafeFileComponent(vmName))
+}
+
+func yamlDoubleQuote(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	return "\"" + s + "\""
 }
 
 // mapVirshStatus 将virsh状态映射到统一状态

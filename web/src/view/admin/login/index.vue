@@ -201,7 +201,6 @@ const handleLogin = async () => {
 
       if (result.success) {
         // 管理员登录成功，默认跳转到管理员视图
-        console.log('管理员登录成功，跳转到管理员界面')
         router.push('/admin/dashboard')
       } else {
         if (captchaEnabled.value) {

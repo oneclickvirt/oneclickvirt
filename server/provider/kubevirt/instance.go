@@ -184,8 +184,8 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 	updateProgress(10, "确保命名空间存在")
 
 	// 确保命名空间和目录存在
-	p.sshClient.Execute(fmt.Sprintf("kubectl create namespace %s 2>/dev/null || true", Namespace))
-	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", VMLogDir))
+	p.sshClient.Execute(fmt.Sprintf("kubectl create namespace %s 2>/dev/null || true", shellSingleQuote(Namespace)))
+	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", shellSingleQuote(VMLogDir)))
 
 	updateProgress(20, "解析镜像地址")
 
@@ -214,22 +214,23 @@ metadata:
   name: %s
   namespace: %s
   labels:
-    kubevirt.io/vm: "%s"
+    kubevirt.io/vm: %s
     app: kubevirt-vm
 spec:
   source:
     http:
-      url: "%s"
+      url: %s
   storage:
     accessModes:
       - ReadWriteOnce
     resources:
       requests:
         storage: %dGi
-    storageClassName: local-path`, dvName, Namespace, config.Name, resolvedURL, diskGB)
+    storageClassName: local-path`,
+		yamlDoubleQuote(dvName), yamlDoubleQuote(Namespace), yamlDoubleQuote(config.Name), yamlDoubleQuote(resolvedURL), diskGB)
 
 	// 先清理可能存在的同名 DataVolume
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
 
 	dvCmd := fmt.Sprintf("cat << 'DVEOF' | kubectl apply -f - 2>&1\n%s\nDVEOF", dvYAML)
 	output, err := p.sshClient.Execute(dvCmd)
@@ -248,7 +249,7 @@ spec:
 	maxWait := 600 // 30分钟 / 3秒间隔
 	for i := 0; i < maxWait; i++ {
 		phaseOutput, phaseErr := p.sshClient.Execute(fmt.Sprintf(
-			"kubectl get datavolume '%s' -n %s -o jsonpath='{.status.phase}' 2>/dev/null", dvName, Namespace))
+			"kubectl get datavolume %s -n %s -o jsonpath='{.status.phase}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
 		if phaseErr == nil {
 			phase := strings.TrimSpace(phaseOutput)
 			if phase == "Succeeded" {
@@ -258,8 +259,8 @@ spec:
 			if phase == "Failed" {
 				// 获取失败原因
 				msgOutput, _ := p.sshClient.Execute(fmt.Sprintf(
-					"kubectl get datavolume '%s' -n %s -o jsonpath='{.status.conditions[*].message}' 2>/dev/null", dvName, Namespace))
-				p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
+					"kubectl get datavolume %s -n %s -o jsonpath='{.status.conditions[*].message}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
+				p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
 				return fmt.Errorf("DataVolume import failed: %s", strings.TrimSpace(msgOutput))
 			}
 		}
@@ -271,7 +272,7 @@ spec:
 				pct = 50
 			}
 			progressOutput, _ := p.sshClient.Execute(fmt.Sprintf(
-				"kubectl get datavolume '%s' -n %s -o jsonpath='{.status.progress}' 2>/dev/null", dvName, Namespace))
+				"kubectl get datavolume %s -n %s -o jsonpath='{.status.progress}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
 			progress := strings.TrimSpace(progressOutput)
 			if progress != "" {
 				updateProgress(pct, fmt.Sprintf("镜像导入中 %s", progress))
@@ -284,12 +285,12 @@ spec:
 				zap.String("datavolume", utils.TruncateString(dvName, 64)),
 				zap.Error(err))
 			updateProgress(45, "创建已取消，正在清理KubeVirt资源")
-			p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
+			p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
 			return fmt.Errorf("waiting for DataVolume import cancelled: %w", err)
 		}
 	}
 	if !dvReady {
-		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
+		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
 		return fmt.Errorf("DataVolume import timed out for '%s' (30 minutes)", dvName)
 	}
 
@@ -302,14 +303,14 @@ metadata:
   name: %s
   namespace: %s
   labels:
-    kubevirt.io/vm: "%s"
+    kubevirt.io/vm: %s
     app: kubevirt-vm
 spec:
   running: true
   template:
     metadata:
       labels:
-        kubevirt.io/vm: "%s"
+        kubevirt.io/vm: %s
         app: kubevirt-vm
     spec:
       domain:
@@ -317,7 +318,7 @@ spec:
           cores: %d
         resources:
           requests:
-            memory: "%dMi"
+            memory: %s
         devices:
           disks:
             - name: datavolumedisk
@@ -349,14 +350,15 @@ spec:
               chpasswd:
                 expire: false
                 list:
-                  - root:%s
+                  - %s
               runcmd:
                 - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
                 - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
                 - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true`,
-		config.Name, Namespace, config.Name, config.Name,
-		cpu, memoryMB,
-		dvName, config.Name, password)
+		yamlDoubleQuote(config.Name), yamlDoubleQuote(Namespace), yamlDoubleQuote(config.Name), yamlDoubleQuote(config.Name),
+		cpu,
+		yamlDoubleQuote(fmt.Sprintf("%dMi", memoryMB)),
+		yamlDoubleQuote(dvName), yamlDoubleQuote(config.Name), yamlDoubleQuote("root:"+strings.ReplaceAll(strings.ReplaceAll(password, "\r", ""), "\n", "")))
 
 	vmCmd := fmt.Sprintf("cat << 'VMEOF' | kubectl apply -f - 2>&1\n%s\nVMEOF", vmYAML)
 	output, err = p.sshClient.Execute(vmCmd)
@@ -366,7 +368,7 @@ spec:
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
 		// 清理 DataVolume
-		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
+		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
 		return fmt.Errorf("failed to create VM: %w", err)
 	}
 
@@ -377,18 +379,18 @@ spec:
 		sshSvcYAML := fmt.Sprintf(`apiVersion: v1
 kind: Service
 metadata:
-  name: %s-ssh
+  name: %s
   namespace: %s
 spec:
   type: NodePort
   selector:
-    kubevirt.io/vm: "%s"
+    kubevirt.io/vm: %s
   ports:
     - name: ssh
       protocol: TCP
       port: 22
       targetPort: 22
-      nodePort: %d`, config.Name, Namespace, config.Name, sshPort)
+      nodePort: %d`, yamlDoubleQuote(config.Name+"-ssh"), yamlDoubleQuote(Namespace), yamlDoubleQuote(config.Name), sshPort)
 
 		sshSvcCmd := fmt.Sprintf("cat << 'SVCEOF' | kubectl apply -f - 2>&1\n%s\nSVCEOF", sshSvcYAML)
 		output, err = p.sshClient.Execute(sshSvcCmd)
@@ -421,7 +423,7 @@ spec:
 	var vmStarted bool
 	for i := 0; i < 60; i++ {
 		statusOutput, err := p.sshClient.Execute(fmt.Sprintf(
-			"kubectl get vmi '%s' -n %s -o jsonpath='{.status.phase}' 2>/dev/null", config.Name, Namespace))
+			"kubectl get vmi %s -n %s -o jsonpath='{.status.phase}' 2>/dev/null", shellSingleQuote(config.Name), shellSingleQuote(Namespace)))
 		if err == nil && strings.TrimSpace(statusOutput) == "Running" {
 			vmStarted = true
 			break
@@ -454,8 +456,9 @@ spec:
 	updateProgress(95, "虚拟机创建完成")
 
 	// 写入vmlog（不写入密码）
-	logCmd := fmt.Sprintf("echo '%s %d %s %d %d %d %d %d %s' >> /root/vmlog",
-		utils.SanitizeShellArg(config.Name), sshPort, "***", cpu, memoryMB, diskGB, startPort, endPort, system)
+	logLine := fmt.Sprintf("%s %d %s %d %d %d %d %d %s",
+		config.Name, sshPort, "***", cpu, memoryMB, diskGB, startPort, endPort, system)
+	logCmd := fmt.Sprintf("printf '%%s\\n' %s >> /root/vmlog", shellSingleQuote(logLine))
 	p.sshClient.Execute(logCmd)
 
 	updateProgress(100, "KubeVirt虚拟机创建完成")

@@ -370,7 +370,7 @@ func (p *PodmanProvider) GetInstance(ctx context.Context, id string) (*provider.
 		return nil, fmt.Errorf("not connected")
 	}
 
-	output, err := p.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}|{{.Created}}'", cliName, id), "PODMAN_INSPECT")
+	output, err := p.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}|{{.Created}}'", cliName, shellSingleQuote(id)), "PODMAN_INSPECT")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
@@ -410,7 +410,7 @@ func (p *PodmanProvider) GetInstance(ctx context.Context, id string) (*provider.
 }
 
 func (p *PodmanProvider) enrichInstanceWithNetworkInfo(instance *provider.Instance) {
-	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", cliName, instance.Name)
+	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", cliName, shellSingleQuote(instance.Name))
 	output, err := p.sshClient.Execute(cmd)
 	if err == nil {
 		ipAddress := strings.TrimSpace(output)
@@ -421,7 +421,7 @@ func (p *PodmanProvider) enrichInstanceWithNetworkInfo(instance *provider.Instan
 	}
 
 	vethCmd := fmt.Sprintf(`
-CONTAINER_NAME='%s'
+CONTAINER_NAME=%s
 CONTAINER_PID=$(%s inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
 if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
     exit 1
@@ -434,7 +434,7 @@ VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': '
 if [ -n "$VETH_NAME" ]; then
     echo "$VETH_NAME"
 fi
-`, instance.Name, cliName)
+`, shellSingleQuote(instance.Name), cliName)
 	vethOutput, err := p.sshClient.Execute(vethCmd)
 	if err == nil {
 		vethInterface := utils.CleanCommandOutput(vethOutput)
@@ -447,7 +447,7 @@ fi
 	}
 
 	if instance.PrivateIP == "" {
-		fallbackCmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, instance.Name)
+		fallbackCmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, shellSingleQuote(instance.Name))
 		fallbackOutput, fallbackErr := p.sshClient.Execute(fallbackCmd)
 		if fallbackErr == nil {
 			ipAddress := strings.TrimSpace(fallbackOutput)
@@ -458,10 +458,10 @@ fi
 		}
 	}
 
-	checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", cliName, instance.Name)
+	checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", cliName, shellSingleQuote(instance.Name))
 	networksOutput, err := p.sshClient.Execute(checkIPv6Cmd)
 	if err == nil && strings.Contains(networksOutput, ipv6Network) {
-		cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", cliName, instance.Name)
+		cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", cliName, shellSingleQuote(instance.Name))
 		output, err = p.sshClient.Execute(cmd)
 		if err == nil {
 			ipv6Address := strings.TrimSpace(output)
@@ -477,7 +477,7 @@ func (p *PodmanProvider) checkIPv6NetworkAvailable() bool {
 	if !p.connected || p.sshClient == nil {
 		return false
 	}
-	_, err := p.sshClient.Execute(fmt.Sprintf("%s network inspect %s", cliName, ipv6Network))
+	_, err := p.sshClient.Execute(fmt.Sprintf("%s network inspect %s", cliName, shellSingleQuote(ipv6Network)))
 	if err != nil {
 		return false
 	}

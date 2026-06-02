@@ -115,7 +115,6 @@ func (p *ProxmoxProvider) loadTokenFromConfig() error {
 			zap.String("tokenID", p.config.TokenID))
 		return nil
 	}
-	// TODO: 如果有其他扩展配置字段，可以在这里处理
 	return fmt.Errorf("no token configuration found")
 }
 

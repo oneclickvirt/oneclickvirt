@@ -171,6 +171,9 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	hostPort := req.HostPort
 
 	if mappingType == "controller" {
+		controllerPortAllocateMu.Lock()
+		defer controllerPortAllocateMu.Unlock()
+
 		// 控制端转发模式：使用控制端端口，不受节点端口范围限制
 		if hostPort == 0 {
 			// 自动分配控制端端口（10000-65535 范围，避免与已有控制端端口冲突）
@@ -389,8 +392,11 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		return fmt.Errorf("Provider不存在")
 	}
 
-	// 检查是否为独立IPv4模式或纯IPv6模式或无端口映射模式，如果是则跳过默认端口映射创建
-	if providerInfo.NetworkType == "dedicated_ipv4" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only" || providerInfo.NetworkType == "no_port_mapping" {
+	useControllerMapping := providerInfo.ConnectionType == "agent" && (providerInfo.PortIP == "" || providerInfo.NetworkType == "no_port_mapping")
+
+	// 检查是否为独立IPv4模式或纯IPv6模式，如果是则跳过默认端口映射创建。
+	// no_port_mapping 在 Agent 模式下可通过控制端转发创建默认端口；SSH 模式保持不创建节点侧映射。
+	if providerInfo.NetworkType == "dedicated_ipv4" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only" || (providerInfo.NetworkType == "no_port_mapping" && !useControllerMapping) {
 		global.APP_LOG.Debug("独立IP模式或纯IPv6模式或无端口映射模式，跳过默认端口映射创建",
 			zap.Uint("instanceID", instanceID),
 			zap.Uint("providerID", providerID),
@@ -414,23 +420,42 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		defaultPortCount = availablePortCount
 	}
 
+	if useControllerMapping {
+		controllerPortAllocateMu.Lock()
+		defer controllerPortAllocateMu.Unlock()
+	}
+
 	// 使用事务确保端口分配的原子性，防止并发创建时的端口冲突
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		var createdPorts []provider.Port
 
-		// 分配连续的端口区间，确保所有端口都可用（数据库+实际占用检测）
-		startPort, allocatedPorts, err := s.allocateConsecutivePortsInTx(tx, &providerInfo, defaultPortCount)
-		if err != nil {
-			return fmt.Errorf("分配连续端口区间失败: %v", err)
+		var startPort int
+		var allocatedPorts []int
+		var err error
+		if useControllerMapping {
+			startPort, err = s.allocateControllerPortInTx(tx, providerInfo.ID, 10000, 65535, defaultPortCount)
+			if err != nil {
+				return fmt.Errorf("分配控制端连续端口区间失败: %v", err)
+			}
+			allocatedPorts = make([]int, defaultPortCount)
+			for i := 0; i < defaultPortCount; i++ {
+				allocatedPorts[i] = startPort + i
+			}
+		} else {
+			// 分配连续的端口区间，确保所有端口都可用（数据库+实际占用检测）
+			startPort, allocatedPorts, err = s.allocateConsecutivePortsInTx(tx, &providerInfo, defaultPortCount)
+			if err != nil {
+				return fmt.Errorf("分配连续端口区间失败: %v", err)
+			}
 		}
 
 		// 第一个端口作为SSH端口
 		sshHostPort := allocatedPorts[0]
 
-		// 确定映射类型：agent模式且无PortIP时使用控制端转发
+		// 确定映射类型：agent模式且无PortIP/no_port_mapping时使用控制端转发
 		mappingType := "node"
 		internalHost := ""
-		if providerInfo.ConnectionType == "agent" && providerInfo.PortIP == "" {
+		if useControllerMapping {
 			// Agent模式且无PortIP -> 控制端隧道内穿映射
 			mappingType = "controller"
 			// 获取实例的私有IP作为隧道目标
@@ -498,13 +523,15 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 			createdPorts = append(createdPorts, portRecords...)
 		}
 
-		// 更新NextAvailablePort到下一个端口
-		nextPort := startPort + defaultPortCount
-		if nextPort > providerInfo.PortRangeEnd {
-			nextPort = providerInfo.PortRangeStart
-		}
-		if err := tx.Model(&provider.Provider{}).Where("id = ?", providerID).Update("next_available_port", nextPort).Error; err != nil {
-			global.APP_LOG.Warn("更新NextAvailablePort失败", zap.Error(err))
+		if !useControllerMapping {
+			// 更新NextAvailablePort到下一个端口；控制端端口不占用节点端口池。
+			nextPort := startPort + defaultPortCount
+			if nextPort > providerInfo.PortRangeEnd {
+				nextPort = providerInfo.PortRangeStart
+			}
+			if err := tx.Model(&provider.Provider{}).Where("id = ?", providerID).Update("next_available_port", nextPort).Error; err != nil {
+				global.APP_LOG.Warn("更新NextAvailablePort失败", zap.Error(err))
+			}
 		}
 
 		global.APP_LOG.Info("创建默认端口映射成功",
@@ -512,7 +539,8 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 			zap.Int("total_ports", len(createdPorts)),
 			zap.Int("ssh_port", sshHostPort),
 			zap.Int("start_port", startPort),
-			zap.Int("end_port", allocatedPorts[len(allocatedPorts)-1]))
+			zap.Int("end_port", allocatedPorts[len(allocatedPorts)-1]),
+			zap.String("mapping_type", mappingType))
 
 		return nil
 	})

@@ -3,6 +3,7 @@ package kubevirt
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,15 +42,19 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 	// 方法1: 通过 virtctl console/ssh 连接到VM内部
 	// 先获取VM的NodePort SSH端口
 	sshPortOutput, err := p.sshClient.Execute(fmt.Sprintf(
-		"kubectl get svc '%s-ssh' -n %s -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null", instanceID, Namespace))
+		"kubectl get svc %s -n %s -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null",
+		shellSingleQuote(instanceID+"-ssh"),
+		shellSingleQuote(Namespace)))
 	if err == nil {
 		sshPort := strings.TrimSpace(sshPortOutput)
-		if sshPort != "" {
-			// 通过SSH连接到VM并修改密码（使用SSHPASS环境变量避免密码出现在进程列表中）
-			escapedPw := strings.ReplaceAll(password, "'", "'\\''")
+		if _, parseErr := strconv.Atoi(sshPort); sshPort != "" && parseErr == nil {
+			remoteCmd := fmt.Sprintf("printf 'root:%%s' %s | chpasswd", shellSingleQuote(password))
 			chpasswdCmd := fmt.Sprintf(
-				"SSHPASS='%s' sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p %s root@127.0.0.1 'printf \"root:%%s\" \"%s\" | chpasswd' 2>/dev/null",
-				escapedPw, sshPort, escapedPw)
+				"SSHPASS=%s sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p %s %s %s 2>/dev/null",
+				shellSingleQuote(password),
+				shellSingleQuote(sshPort),
+				shellSingleQuote("root@127.0.0.1"),
+				shellSingleQuote(remoteCmd))
 			_, err := p.sshClient.Execute(chpasswdCmd)
 			if err == nil {
 				global.APP_LOG.Info("通过SSH设置密码成功",
@@ -60,9 +65,12 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 	}
 
 	// 方法2: 使用 virtctl ssh (如果可用)
+	remoteCmd := fmt.Sprintf("echo %s | chpasswd", shellSingleQuote("root:"+password))
 	output, err := p.sshClient.Execute(fmt.Sprintf(
-		"echo 'echo \"root:%s\" | chpasswd' | virtctl ssh --local-ssh=false -n %s root@'%s' 2>&1",
-		password, Namespace, instanceID))
+		"printf '%%s\\n' %s | virtctl ssh --local-ssh=false -n %s %s 2>&1",
+		shellSingleQuote(remoteCmd),
+		shellSingleQuote(Namespace),
+		shellSingleQuote("root@"+instanceID)))
 	if err == nil && !strings.Contains(output, "error") {
 		global.APP_LOG.Info("通过virtctl ssh设置密码成功",
 			zap.String("instance", utils.TruncateString(instanceID, 32)))
@@ -74,13 +82,18 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 		return fmt.Errorf("waiting before password retry cancelled: %w", err)
 	}
 	if sshPortOutput, err := p.sshClient.Execute(fmt.Sprintf(
-		"kubectl get svc '%s-ssh' -n %s -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null", instanceID, Namespace)); err == nil {
+		"kubectl get svc %s -n %s -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null",
+		shellSingleQuote(instanceID+"-ssh"),
+		shellSingleQuote(Namespace))); err == nil {
 		sshPort := strings.TrimSpace(sshPortOutput)
-		if sshPort != "" {
-			escapedPw := strings.ReplaceAll(password, "'", "'\\''")
+		if _, parseErr := strconv.Atoi(sshPort); sshPort != "" && parseErr == nil {
+			remoteCmd := fmt.Sprintf("printf 'root:%%s' %s | chpasswd", shellSingleQuote(password))
 			chpasswdCmd := fmt.Sprintf(
-				"SSHPASS='%s' sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p %s root@127.0.0.1 'printf \"root:%%s\" \"%s\" | chpasswd' 2>/dev/null",
-				escapedPw, sshPort, escapedPw)
+				"SSHPASS=%s sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p %s %s %s 2>/dev/null",
+				shellSingleQuote(password),
+				shellSingleQuote(sshPort),
+				shellSingleQuote("root@127.0.0.1"),
+				shellSingleQuote(remoteCmd))
 			_, err := p.sshClient.Execute(chpasswdCmd)
 			if err == nil {
 				return nil

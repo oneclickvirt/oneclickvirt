@@ -78,6 +78,7 @@ export default {
     initMonitoring: "Initializing monitoring service",
     initTrafficMonitor: "Initializing traffic monitor",
     syncTrafficData: "Syncing traffic data",
+    finalSyncTrafficData: "Syncing latest traffic data",
     stoppingInstance: "Stopping instance",
     verifyingStop: "Instance stopped, verifying status",
     restartingInstance: "Restarting instance",

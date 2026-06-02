@@ -12,7 +12,6 @@ import {
 } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { useUserStore } from '@/pinia/modules/user'
 
 export function useProviderDialogs(loadProviders) {
   const { t } = useI18n()
@@ -315,18 +314,6 @@ export function useProviderDialogs(loadProviders) {
     }
   }
 
-  // ── Debug ────────────────────────────────────────
-
-  const debugAuthStatus = () => {
-    const userStore = useUserStore()
-    console.log('Debug Auth Status:')
-    console.log('- UserStore token:', userStore.token ? 'exists' : 'not found')
-    console.log('- SessionStorage token:', sessionStorage.getItem('token') ? 'exists' : 'not found')
-    console.log('- User type:', userStore.userType)
-    console.log('- Is logged in:', userStore.isLoggedIn)
-    console.log('- Is admin:', userStore.isAdmin)
-  }
-
   return {
     configDialog,
     taskLogDialog,
@@ -347,7 +334,6 @@ export function useProviderDialogs(loadProviders) {
     executeTrafficMonitorOperation,
     viewTrafficMonitorTaskLog,
     viewRunningTrafficMonitorTask,
-    refreshTrafficMonitorTask,
-    debugAuthStatus
+    refreshTrafficMonitorTask
   }
 }

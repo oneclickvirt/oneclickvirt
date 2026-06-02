@@ -83,7 +83,7 @@ func (c *ContainerdProvider) checkLXCFS() (bool, []string, string, error) {
 
 // ensureContainerRunning 确保容器处于运行状态
 func (c *ContainerdProvider) ensureContainerRunning(containerName string) error {
-	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, containerName)
+	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(containerName))
 	output, err := c.sshClient.Execute(checkCmd)
 	if err != nil {
 		return fmt.Errorf("检查容器状态失败: %w", err)
@@ -95,7 +95,7 @@ func (c *ContainerdProvider) ensureContainerRunning(containerName string) error 
 	global.APP_LOG.Warn("容器未处于运行状态，尝试重启",
 		zap.String("containerName", containerName),
 		zap.String("status", status))
-	restartCmd := fmt.Sprintf("%s restart %s", cliName, containerName)
+	restartCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(containerName))
 	if _, restartErr := c.sshClient.Execute(restartCmd); restartErr != nil {
 		return fmt.Errorf("重启容器失败: %w", restartErr)
 	}
@@ -119,13 +119,15 @@ func (c *ContainerdProvider) setContainerPasswordWithRetry(containerName, passwo
 	maxRetries := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		for _, shell := range shells {
+			primaryInnerCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
+			fallbackInnerCmd := "chpasswd"
 			// 使用临时脚本方式执行 nerdctl exec 进入容器设置密码，
 			// 以避免 agent 模式下 WebSocket 连接超时或中断
 			script := utils.BuildTempScript(utils.TempScriptConfig{
-				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'echo \"root:%s\" | chpasswd'",
-					cliName, containerName, shell, password),
-				FallbackCmd: fmt.Sprintf("%s exec -i %s %s -c 'chpasswd' <<< 'root:%s'",
-					cliName, containerName, shell, password),
+				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c %s",
+					cliName, shellSingleQuote(containerName), shellSingleQuote(shell), shellSingleQuote(primaryInnerCmd)),
+				FallbackCmd: fmt.Sprintf("printf 'root:%%s\\n' %s | %s exec -i %s %s -c %s",
+					shellSingleQuote(password), cliName, shellSingleQuote(containerName), shellSingleQuote(shell), shellSingleQuote(fallbackInnerCmd)),
 				TimeoutSeconds: 30,
 			})
 			_, err := c.sshClient.ExecuteViaTempScript(script, nil, 60*time.Second)
@@ -152,7 +154,7 @@ func (c *ContainerdProvider) configureInstanceSSHPassword(ctx context.Context, c
 
 	shellType := "bash"
 	scriptName := "ssh_bash.sh"
-	output, err := c.sshClient.Execute(fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", cliName, config.Name))
+	output, err := c.sshClient.Execute(fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", cliName, shellSingleQuote(config.Name)))
 	if err == nil {
 		osType := utils.CleanCommandOutput(strings.ToLower(output))
 		if osType == "alpine" || osType == "openwrt" {
@@ -164,14 +166,15 @@ func (c *ContainerdProvider) configureInstanceSSHPassword(ctx context.Context, c
 	scriptPath := filepath.Join("/usr/local/bin", scriptName)
 	if c.isRemoteFileValid(scriptPath) {
 		time.Sleep(3 * time.Second)
-		copyCmd := fmt.Sprintf("%s cp %s %s:/root/", cliName, scriptPath, config.Name)
+		copyCmd := fmt.Sprintf("%s cp %s %s", cliName, shellSingleQuote(scriptPath), shellSingleQuote(config.Name+":/root/"))
 		_, copyErr := c.sshClient.Execute(copyCmd)
 		if copyErr == nil {
-			c.sshClient.Execute(fmt.Sprintf("%s exec %s %s -c 'chmod +x /root/%s'", cliName, config.Name, shellType, scriptName))
+			c.sshClient.Execute(fmt.Sprintf("%s exec %s %s -c %s", cliName, shellSingleQuote(config.Name), shellSingleQuote(shellType), shellSingleQuote("chmod +x /root/"+scriptName)))
 			// 使用临时脚本方式执行 SSH 配置脚本，避免 agent 模式下 WebSocket 超时
+			sshInnerCmd := fmt.Sprintf("interactionless=true %s /root/%s %s", shellType, scriptName, shellSingleQuote(password))
 			sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
-				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /root/%s %s'",
-					cliName, config.Name, shellType, shellType, scriptName, password),
+				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c %s",
+					cliName, shellSingleQuote(config.Name), shellSingleQuote(shellType), shellSingleQuote(sshInnerCmd)),
 				TimeoutSeconds: 60,
 			})
 			_, execErr := c.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
@@ -208,7 +211,7 @@ func (c *ContainerdProvider) configureInstanceSSHPassword(ctx context.Context, c
 
 // getContainerPrivateIP 获取容器的内网IP地址
 func (c *ContainerdProvider) getContainerPrivateIP(containerName string) (string, error) {
-	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", cliName, containerName)
+	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", cliName, shellSingleQuote(containerName))
 	output, err := c.sshClient.Execute(cmd)
 	if err == nil {
 		ipAddress := utils.CleanCommandOutput(output)
@@ -217,7 +220,7 @@ func (c *ContainerdProvider) getContainerPrivateIP(containerName string) (string
 		}
 	}
 
-	cmd = fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, containerName)
+	cmd = fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, shellSingleQuote(containerName))
 	output, err = c.sshClient.Execute(cmd)
 	if err == nil {
 		ipAddress := utils.CleanCommandOutput(output)
@@ -226,7 +229,7 @@ func (c *ContainerdProvider) getContainerPrivateIP(containerName string) (string
 		}
 	}
 
-	hostCmd := fmt.Sprintf("%s exec %s hostname -I 2>/dev/null", cliName, containerName)
+	hostCmd := fmt.Sprintf("%s exec %s hostname -I 2>/dev/null", cliName, shellSingleQuote(containerName))
 	hostOutput, hostErr := c.sshClient.Execute(hostCmd)
 	if hostErr == nil {
 		ips := strings.Fields(strings.TrimSpace(hostOutput))

@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/url"
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
+	adminProvider "oneclickvirt/service/admin/provider"
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/remote"
 	"path"
@@ -38,6 +40,12 @@ func getAgentProviderForFM(c *gin.Context) (*providerModel.Provider, error) {
 	}
 	if provider.ConnectionType != "agent" {
 		return nil, common.NewError(common.CodeValidationError, "仅 Agent 模式节点支持此接口")
+	}
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(provider.ID, ownerAdminID); err != nil {
+			return nil, common.NewError(common.CodeForbidden, err.Error())
+		}
 	}
 	return &provider, nil
 }

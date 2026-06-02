@@ -361,6 +361,14 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 			return fmt.Errorf("配置 %s 验证失败: %v", key, err)
 		}
 	}
+	if err := cm.validateQuotaDefaultLevelReference(flatConfig); err != nil {
+		cm.mu.Unlock()
+		return fmt.Errorf("配额配置验证失败: %v", err)
+	}
+	if err := cm.validateQuotaLevelsInUse(flatConfig); err != nil {
+		cm.mu.Unlock()
+		return fmt.Errorf("配额配置验证失败: %v", err)
+	}
 
 	// 先准备所有配置数据（事务外）
 	oldValues := make(map[string]interface{})

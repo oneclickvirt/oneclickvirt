@@ -19,7 +19,7 @@ func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCoun
 	downloadDir := d.runtime.ImageDir
 
 	// 在远程服务器上创建下载目录
-	cmd := fmt.Sprintf("mkdir -p %s", downloadDir)
+	cmd := fmt.Sprintf("mkdir -p %s", shellSingleQuote(downloadDir))
 	_, err := d.sshClient.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("创建远程下载目录失败: %w", err)
@@ -89,14 +89,14 @@ func (d *DockerProvider) generateRemoteFileName(imageName, imageURL, architectur
 // isRemoteFileValid 检查远程文件是否存在且完整
 func (d *DockerProvider) isRemoteFileValid(remotePath string) bool {
 	// 检查文件是否存在且大小大于0
-	cmd := fmt.Sprintf("test -f %s -a -s %s", remotePath, remotePath)
+	cmd := fmt.Sprintf("test -f %s -a -s %s", shellSingleQuote(remotePath), shellSingleQuote(remotePath))
 	_, err := d.sshClient.Execute(cmd)
 	return err == nil
 }
 
 // removeRemoteFile 删除远程文件
 func (d *DockerProvider) removeRemoteFile(remotePath string) error {
-	cmd := fmt.Sprintf("rm -f %s", remotePath)
+	cmd := fmt.Sprintf("rm -f %s", shellSingleQuote(remotePath))
 	_, err := d.sshClient.Execute(cmd)
 	return err
 }
@@ -108,8 +108,8 @@ func (d *DockerProvider) downloadFileToRemote(url, remotePath string) error {
 
 	// 下载文件，支持断点续传
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
-		tmpPath, url,
+		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
+		shellSingleQuote(tmpPath), shellSingleQuote(url),
 	)
 
 	global.APP_LOG.Debug("执行远程下载命令",
@@ -118,7 +118,7 @@ func (d *DockerProvider) downloadFileToRemote(url, remotePath string) error {
 	output, err := d.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
 	if err != nil {
 		// 清理临时文件
-		d.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+		d.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
@@ -129,7 +129,7 @@ func (d *DockerProvider) downloadFileToRemote(url, remotePath string) error {
 	}
 
 	// 移动文件到最终位置
-	mvCmd := fmt.Sprintf("mv %s %s", tmpPath, remotePath)
+	mvCmd := fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))
 	_, err = d.sshClient.Execute(mvCmd)
 	if err != nil {
 		global.APP_LOG.Error("移动文件失败",
@@ -199,7 +199,7 @@ func (d *DockerProvider) ensureSSHScriptsAvailable(providerCountry string) error
 		}
 
 		// 设置执行权限
-		chmodCmd := fmt.Sprintf("chmod +x %s", scriptPath)
+		chmodCmd := fmt.Sprintf("chmod +x %s", shellSingleQuote(scriptPath))
 		if _, err := d.sshClient.Execute(chmodCmd); err != nil {
 			global.APP_LOG.Error("设置SSH脚本执行权限失败",
 				zap.String("script", script),
@@ -208,7 +208,7 @@ func (d *DockerProvider) ensureSSHScriptsAvailable(providerCountry string) error
 		}
 
 		// 使用dos2unix处理脚本格式（如果可用）
-		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", scriptPath)
+		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", shellSingleQuote(scriptPath))
 		d.sshClient.Execute(dos2unixCmd)
 
 		global.APP_LOG.Debug("SSH脚本下载并设置完成",
@@ -226,7 +226,7 @@ func (d *DockerProvider) getSSHScriptDownloadURL(originalURL, providerCountry st
 	if providerCountry == "CN" || providerCountry == "cn" {
 		if cdnURL := d.getSSHScriptCDNURL(originalURL); cdnURL != "" {
 			// 测试CDN可用性
-			testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
+			testCmd := fmt.Sprintf("curl -s -I --max-time 5 %s | head -n 1 | grep -q '200'", shellSingleQuote(cdnURL))
 			if _, err := d.sshClient.Execute(testCmd); err == nil {
 				global.APP_LOG.Debug("使用CDN下载SSH脚本",
 					zap.String("cdnURL", cdnURL))
@@ -247,7 +247,7 @@ func (d *DockerProvider) getSSHScriptCDNURL(originalURL string) string {
 	for _, endpoint := range cdnEndpoints {
 		cdnURL := endpoint + originalURL
 		// 测试CDN可用性
-		testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
+		testCmd := fmt.Sprintf("curl -s -I --max-time 5 %s | head -n 1 | grep -q '200'", shellSingleQuote(cdnURL))
 		if _, err := d.sshClient.Execute(testCmd); err == nil {
 			return cdnURL
 		}

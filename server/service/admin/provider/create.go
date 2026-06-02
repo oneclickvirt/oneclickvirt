@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
@@ -45,6 +46,24 @@ func maskAuthMethod(password, sshKey string) string {
 		return "sshKey:***"
 	}
 	return "none"
+}
+
+func loadAdminGroupForProvider(ownerAdminID uint) (string, string) {
+	var setting providerModel.AdminGroupSetting
+	if err := global.APP_DB.Select("group_name, group_description").
+		Where("owner_admin_id = ?", ownerAdminID).
+		First(&setting).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			global.APP_LOG.Warn("读取管理员分组设置失败，将使用默认分组",
+				zap.Uint("ownerAdminID", ownerAdminID),
+				zap.Error(err))
+		}
+		return "测试", ""
+	}
+	if setting.GroupName == "" {
+		setting.GroupName = "测试"
+	}
+	return setting.GroupName, setting.GroupDescription
 }
 
 // CreateProvider 创建Provider
@@ -124,6 +143,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 			zap.String("name", utils.TruncateString(req.Name, 32)))
 		return nil, fmt.Errorf("SSH直连模式必须提供SSH密码或SSH密钥其中一种认证方式")
 	}
+
+	groupName, groupDescription := loadAdminGroupForProvider(ownerAdminID)
 
 	provider := providerModel.Provider{
 		Name:                  req.Name,
@@ -216,7 +237,9 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 			return "ssh"
 		}(),
 		// 普通管理员归属
-		OwnerAdminID: ownerAdminID,
+		OwnerAdminID:     ownerAdminID,
+		GroupName:        groupName,
+		GroupDescription: groupDescription,
 	}
 
 	// Agent 模式默认值：已部署 agent，开箱即用

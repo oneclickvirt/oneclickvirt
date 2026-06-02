@@ -20,6 +20,13 @@ import (
 // waitForInstanceSSHReady 智能等待实例SSH服务就绪
 // 通过轮询检查SSH端口是否可连接，而不是盲目等待固定时间
 func (s *Service) waitForInstanceSSHReady(ctx context.Context, instanceID, providerID, taskID uint, maxWaitTime time.Duration) error {
+	return s.waitForInstanceSSHReadyInRange(ctx, instanceID, providerID, taskID, maxWaitTime, 75, 79)
+}
+
+func (s *Service) waitForInstanceSSHReadyInRange(ctx context.Context, instanceID, providerID, taskID uint, maxWaitTime time.Duration, progressStart, progressEnd int) error {
+	if progressEnd < progressStart {
+		progressEnd = progressStart
+	}
 	// 获取实例信息
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
@@ -74,7 +81,7 @@ func (s *Service) waitForInstanceSSHReady(ctx context.Context, instanceID, provi
 			zap.Uint("instanceId", instanceID),
 			zap.String("instanceName", instance.Name),
 			zap.String("networkType", networkType))
-		s.updateTaskProgress(taskID, 79, "step.skipSSHDetection")
+		s.updateTaskProgress(taskID, progressEnd, "step.skipSSHDetection")
 		return nil
 	}
 
@@ -95,10 +102,6 @@ func (s *Service) waitForInstanceSSHReady(ctx context.Context, instanceID, provi
 	checkInterval := 5 * time.Second
 	startTime := time.Now()
 	attemptCount := 0
-
-	// 进度范围：75% - 79%，根据等待时间百分比更新
-	progressStart := 75
-	progressEnd := 79
 
 	for {
 		select {

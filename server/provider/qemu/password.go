@@ -39,7 +39,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 		zap.String("instance", utils.TruncateString(instanceID, 32)))
 
 	// 检查VM状态
-	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate '%s' 2>/dev/null", instanceID))
+	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(instanceID)))
 	if err != nil {
 		return fmt.Errorf("failed to check VM status: %w", err)
 	}
@@ -49,7 +49,9 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	// 方法1: 如果guest-agent可用，使用 virsh set-user-password
 	if strings.Contains(status, "running") {
 		output, err := p.sshClient.Execute(fmt.Sprintf(
-			"virsh set-user-password '%s' root '%s' 2>&1", instanceID, password))
+			"virsh set-user-password %s root %s 2>&1",
+			shellSingleQuote(instanceID),
+			shellSingleQuote(password)))
 		if err == nil && !strings.Contains(output, "error") {
 			global.APP_LOG.Info("通过guest-agent设置密码成功",
 				zap.String("instance", utils.TruncateString(instanceID, 32)))
@@ -62,11 +64,12 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	// 方法2: 通过SSH连接到VM内部设置密码
 	vmIP := p.getVMIPAddress(ctx, instanceID)
 	if vmIP != "" {
-		// 通过SSH连接到VM内部修改密码（使用SSHPASS环境变量避免密码出现在进程列表中）
-		escapedPw := strings.ReplaceAll(password, "'", "'\\''")
+		remoteCmd := fmt.Sprintf("printf 'root:%%s' %s | chpasswd", shellSingleQuote(password))
 		chpasswdCmd := fmt.Sprintf(
-			"SSHPASS='%s' sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@%s 'printf \"root:%%s\" \"%s\" | chpasswd' 2>/dev/null",
-			escapedPw, vmIP, escapedPw)
+			"SSHPASS=%s sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 %s %s 2>/dev/null",
+			shellSingleQuote(password),
+			shellSingleQuote("root@"+vmIP),
+			shellSingleQuote(remoteCmd))
 		_, err := p.sshClient.Execute(chpasswdCmd)
 		if err == nil {
 			global.APP_LOG.Info("通过SSH设置密码成功",
@@ -79,12 +82,15 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	if strings.Contains(status, "shut off") || strings.Contains(status, "shutoff") {
 		// 查找VM的磁盘文件
 		output, err := p.sshClient.Execute(fmt.Sprintf(
-			"virsh domblklist '%s' 2>/dev/null | grep -E '\\.(qcow2|img|raw)' | awk '{print $2}'", instanceID))
+			"virsh domblklist %s 2>/dev/null | grep -E '\\.(qcow2|img|raw)' | awk '{print $2}'",
+			shellSingleQuote(instanceID)))
 		if err == nil {
 			diskPath := strings.TrimSpace(output)
 			if diskPath != "" {
 				output, err := p.sshClient.Execute(fmt.Sprintf(
-					"virt-customize -a '%s' --root-password password:'%s' 2>&1", diskPath, password))
+					"virt-customize -a %s --root-password %s 2>&1",
+					shellSingleQuote(diskPath),
+					shellSingleQuote("password:"+password)))
 				if err == nil && !strings.Contains(output, "error") {
 					global.APP_LOG.Info("通过virt-customize设置密码成功",
 						zap.String("instance", utils.TruncateString(instanceID, 32)))
@@ -102,7 +108,9 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 			return fmt.Errorf("waiting before password retry cancelled: %w", err)
 		}
 		output, err := p.sshClient.Execute(fmt.Sprintf(
-			"virsh set-user-password '%s' root '%s' 2>&1", instanceID, password))
+			"virsh set-user-password %s root %s 2>&1",
+			shellSingleQuote(instanceID),
+			shellSingleQuote(password)))
 		if err == nil && !strings.Contains(output, "error") {
 			return nil
 		}

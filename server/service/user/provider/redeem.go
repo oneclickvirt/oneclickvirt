@@ -111,7 +111,7 @@ func (s *Service) RedeemCode(userID uint, code string) error {
 
 		global.APP_LOG.Info("用户成功兑换码",
 			zap.Uint("userID", userID),
-			zap.String("code", code),
+			zap.Uint("redemptionCodeID", redemptionCode.ID),
 			zap.Uint("instanceID", instanceID))
 
 		return nil

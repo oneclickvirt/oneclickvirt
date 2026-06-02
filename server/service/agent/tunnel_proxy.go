@@ -60,6 +60,17 @@ func ResolveControllerPortTarget(internalHost, privateIP string) (string, bool) 
 
 // StartControllerPortForward 为一条 Port 记录启动控制端 TCP 监听转发。
 func StartControllerPortForward(portID uint, providerID uint, listenPort int, targetHost string, targetPort int) error {
+	var port providerModel.Port
+	if err := global.APP_DB.Select("id", "provider_id", "host_port", "guest_port", "mapping_type", "status").
+		Where("id = ?", portID).
+		First(&port).Error; err != nil {
+		return fmt.Errorf("load controller port %d: %w", portID, err)
+	}
+	if port.ProviderID != providerID || port.HostPort != listenPort || port.GuestPort != targetPort ||
+		port.MappingType != "controller" || port.Status != "active" {
+		return fmt.Errorf("controller port %d metadata mismatch or inactive", portID)
+	}
+
 	ctrlListenerMu.Lock()
 	if _, exists := ctrlListeners[portID]; exists {
 		ctrlListenerMu.Unlock()

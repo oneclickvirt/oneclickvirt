@@ -17,7 +17,7 @@ import (
 func (p *PodmanProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture string, useCDN bool) (string, error) {
 	downloadDir := imageDir
 
-	if _, err := p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", downloadDir)); err != nil {
+	if _, err := p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", shellSingleQuote(downloadDir))); err != nil {
 		return "", fmt.Errorf("创建远程下载目录失败: %w", err)
 	}
 
@@ -66,14 +66,14 @@ func (p *PodmanProvider) generateRemoteFileName(imageName, imageURL, architectur
 
 // isRemoteFileValid 检查远程文件是否存在且完整
 func (p *PodmanProvider) isRemoteFileValid(remotePath string) bool {
-	cmd := fmt.Sprintf("test -f %s -a -s %s", remotePath, remotePath)
+	cmd := fmt.Sprintf("test -f %s -a -s %s", shellSingleQuote(remotePath), shellSingleQuote(remotePath))
 	_, err := p.sshClient.Execute(cmd)
 	return err == nil
 }
 
 // removeRemoteFile 删除远程文件
 func (p *PodmanProvider) removeRemoteFile(remotePath string) error {
-	_, err := p.sshClient.Execute(fmt.Sprintf("rm -f %s", remotePath))
+	_, err := p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(remotePath)))
 	return err
 }
 
@@ -81,13 +81,13 @@ func (p *PodmanProvider) removeRemoteFile(remotePath string) error {
 func (p *PodmanProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
-		tmpPath, url,
+		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
+		shellSingleQuote(tmpPath), shellSingleQuote(url),
 	)
 
 	output, err := p.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
 	if err != nil {
-		p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
 			zap.String("output", utils.TruncateString(output, 500)),
@@ -95,7 +95,7 @@ func (p *PodmanProvider) downloadFileToRemote(url, remotePath string) error {
 		return fmt.Errorf("远程下载失败: %w", err)
 	}
 
-	if _, err := p.sshClient.Execute(fmt.Sprintf("mv %s %s", tmpPath, remotePath)); err != nil {
+	if _, err := p.sshClient.Execute(fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))); err != nil {
 		return fmt.Errorf("移动文件失败: %w", err)
 	}
 
@@ -136,12 +136,12 @@ func (p *PodmanProvider) ensureSSHScriptsAvailable(providerCountry string) error
 			return fmt.Errorf("下载SSH脚本 %s 失败: %w", script, err)
 		}
 
-		chmodCmd := fmt.Sprintf("chmod +x %s", scriptPath)
+		chmodCmd := fmt.Sprintf("chmod +x %s", shellSingleQuote(scriptPath))
 		if _, err := p.sshClient.Execute(chmodCmd); err != nil {
 			return fmt.Errorf("设置SSH脚本 %s 执行权限失败: %w", script, err)
 		}
 
-		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", scriptPath)
+		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", shellSingleQuote(scriptPath))
 		p.sshClient.Execute(dos2unixCmd)
 	}
 
@@ -154,7 +154,7 @@ func (p *PodmanProvider) getSSHScriptDownloadURL(originalURL, providerCountry st
 		cdnEndpoints := utils.GetCDNEndpoints()
 		for _, endpoint := range cdnEndpoints {
 			cdnURL := endpoint + originalURL
-			testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
+			testCmd := fmt.Sprintf("curl -s -I --max-time 5 %s | head -n 1 | grep -q '200'", shellSingleQuote(cdnURL))
 			if _, err := p.sshClient.Execute(testCmd); err == nil {
 				return cdnURL
 			}

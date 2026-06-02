@@ -20,7 +20,7 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 	}
 
 	statusOutput, err := p.sshClient.Execute(fmt.Sprintf(
-		"kubectl get vm '%s' -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", id, Namespace))
+		"kubectl get vm %s -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	if err != nil {
 		return fmt.Errorf("failed to check VM status: %w", err)
 	}
@@ -30,7 +30,7 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		return nil
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl start '%s' -n %s 2>&1", id, Namespace))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl start %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	if err != nil {
 		global.APP_LOG.Error("KubeVirt虚拟机启动失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -41,7 +41,7 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 
 	for i := 0; i < 30; i++ {
 		statusOutput, err := p.sshClient.Execute(fmt.Sprintf(
-			"kubectl get vmi '%s' -n %s -o jsonpath='{.status.phase}' 2>/dev/null", id, Namespace))
+			"kubectl get vmi %s -n %s -o jsonpath='{.status.phase}' 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
 		if err == nil && strings.TrimSpace(statusOutput) == "Running" {
 			return nil
 		}
@@ -59,7 +59,7 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl stop '%s' -n %s 2>&1", id, Namespace))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl stop %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	if err != nil {
 		global.APP_LOG.Error("KubeVirt虚拟机停止失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -70,7 +70,7 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 
 	for i := 0; i < 20; i++ {
 		statusOutput, err := p.sshClient.Execute(fmt.Sprintf(
-			"kubectl get vm '%s' -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", id, Namespace))
+			"kubectl get vm %s -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
 		if err == nil && strings.Contains(strings.ToLower(strings.TrimSpace(statusOutput)), "stopped") {
 			return nil
 		}
@@ -89,7 +89,7 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 	}
 
 	statusOutput, err := p.sshClient.Execute(fmt.Sprintf(
-		"kubectl get vm '%s' -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", id, Namespace))
+		"kubectl get vm %s -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	if err != nil {
 		return fmt.Errorf("failed to check VM status: %w", err)
 	}
@@ -99,7 +99,7 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 		return p.StartInstance(ctx, id)
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl restart '%s' -n %s 2>&1", id, Namespace))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl restart %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	if err != nil {
 		global.APP_LOG.Warn("KubeVirt虚拟机restart失败，尝试stop+start",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -159,23 +159,23 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	global.APP_LOG.Info("开始删除KubeVirt虚拟机", zap.String("id", utils.TruncateString(id, 32)))
 
 	// 1. 停止VM
-	p.sshClient.Execute(fmt.Sprintf("virtctl stop '%s' -n %s 2>/dev/null", id, Namespace))
+	p.sshClient.Execute(fmt.Sprintf("virtctl stop %s -n %s 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	time.Sleep(2 * time.Second)
 
 	// 2. 删除VM资源
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete vm '%s' -n %s --grace-period=30 2>/dev/null", id, Namespace))
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete vm %s -n %s --grace-period=30 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
 
 	// 3. 删除关联的Service (NodePort)
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc '%s-ssh' -n %s 2>/dev/null", id, Namespace))
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc '%s-ports' -n %s 2>/dev/null", id, Namespace))
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc %s -n %s 2>/dev/null", shellSingleQuote(id+"-ssh"), shellSingleQuote(Namespace)))
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc %s -n %s 2>/dev/null", shellSingleQuote(id+"-ports"), shellSingleQuote(Namespace)))
 
 	// 4. 删除关联的 DataVolume 和 PVC
 	// DataVolume 名称为 {id}-dv（与创建时保持一致），删除 DataVolume 后 CDI 会同步删除其 PVC
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s-dv' -n %s --ignore-not-found=true 2>/dev/null", id, Namespace))
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s --ignore-not-found=true 2>/dev/null", shellSingleQuote(id+"-dv"), shellSingleQuote(Namespace)))
 	// 兼容旧版本/手动创建的 PVC：尝试删除多种命名格式
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc -n %s -l vm.kubevirt.io/name='%s' 2>/dev/null", Namespace, id))
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc '%s-dv' -n %s 2>/dev/null", id, Namespace))
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc '%s-disk' -n %s 2>/dev/null", id, Namespace))
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc -n %s -l %s 2>/dev/null", shellSingleQuote(Namespace), shellSingleQuote("vm.kubevirt.io/name="+id)))
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc %s -n %s 2>/dev/null", shellSingleQuote(id+"-dv"), shellSingleQuote(Namespace)))
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc %s -n %s 2>/dev/null", shellSingleQuote(id+"-disk"), shellSingleQuote(Namespace)))
 
 	// 5. 通过firewall.Manager清理防火墙规则（nft优先，iptables回退）
 	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, "")
@@ -189,14 +189,14 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	fwMgr.SaveRules()
 
 	// 6. 清理vmlog
-	p.sshClient.Execute(fmt.Sprintf("sed -i '/^%s /d' /root/vmlog 2>/dev/null", id))
+	p.sshClient.Execute(fmt.Sprintf("grep -Fv %s /root/vmlog > /root/vmlog.tmp 2>/dev/null && mv /root/vmlog.tmp /root/vmlog || true", shellSingleQuote(id+" ")))
 
 	// 等待删除完成
 	time.Sleep(3 * time.Second)
 
 	// 验证
 	output, err := p.sshClient.Execute(fmt.Sprintf(
-		"kubectl get vm '%s' -n %s 2>&1", id, Namespace))
+		"kubectl get vm %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	if err != nil || strings.Contains(output, "NotFound") || strings.Contains(output, "not found") {
 		global.APP_LOG.Info("KubeVirt虚拟机删除成功", zap.String("id", utils.TruncateString(id, 32)))
 		return nil

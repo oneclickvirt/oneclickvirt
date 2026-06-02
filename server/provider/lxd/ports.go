@@ -170,7 +170,26 @@ func (l *LXDProvider) setupPortRangeByProtocol(instanceName string, ports []prov
 	if isConsecutive && startHostPort == startGuestPort {
 		// 使用区间映射（内外端口相同且连续）
 		endPort := startHostPort + len(ports) - 1
-		return l.setupDeviceProxyRangeMapping(instanceName, startHostPort, endPort, protocol, instanceIP)
+		switch method {
+		case "device_proxy", "":
+			return l.setupDeviceProxyRangeMapping(instanceName, startHostPort, endPort, protocol, instanceIP)
+		case "iptables":
+			for _, port := range ports {
+				if err := l.setupPortMappingWithIP(instanceName, port.HostPort, port.GuestPort, protocol, method, instanceIP); err != nil {
+					return fmt.Errorf("设置端口 %d/%s 映射失败: %w", port.HostPort, protocol, err)
+				}
+			}
+			return nil
+		case "native":
+			global.APP_LOG.Debug("native模式跳过端口范围映射",
+				zap.String("instance", instanceName),
+				zap.Int("startPort", startHostPort),
+				zap.Int("endPort", endPort),
+				zap.String("protocol", protocol))
+			return nil
+		default:
+			return l.setupDeviceProxyRangeMapping(instanceName, startHostPort, endPort, protocol, instanceIP)
+		}
 	} else {
 		// 端口不连续或不是1:1映射，逐个设置
 		for _, port := range ports {
@@ -282,8 +301,12 @@ func (l *LXDProvider) setupNATPortRangeMappingWithIP(instanceName string, startP
 	case "device_proxy":
 		return l.setupNATPortRangeDeviceProxyWithIP(instanceName, startPort, endPort, instanceIP)
 	case "iptables":
-		// TODO: 需要支持iptables的端口范围映射
-		return fmt.Errorf("iptables方式的NAT端口范围映射暂未实现")
+		for port := startPort; port <= endPort; port++ {
+			if err := l.setupIptablesMappingWithIP(instanceName, port, port, "both", instanceIP); err != nil {
+				return fmt.Errorf("设置NAT端口 %d 映射失败: %w", port, err)
+			}
+		}
+		return nil
 	default:
 		// 默认使用device proxy方式
 		return l.setupNATPortRangeDeviceProxyWithIP(instanceName, startPort, endPort, instanceIP)

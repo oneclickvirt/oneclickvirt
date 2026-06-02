@@ -337,11 +337,9 @@ func (i *IncusProvider) ListInstances(ctx context.Context) ([]provider.Instance,
 		}
 		global.APP_LOG.Warn("Incus API失败", zap.Error(err))
 
-		// 检查是否可以回退到SSH
-		if !i.shouldFallbackToSSH() {
-			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		if fallbackErr := i.ensureSSHBeforeFallback(err, "列出实例"); fallbackErr != nil {
+			return nil, fallbackErr
 		}
-		global.APP_LOG.Debug("回退到SSH执行 - 列出实例")
 	}
 
 	// 如果执行规则不允许使用SSH，则返回错误
@@ -366,11 +364,9 @@ func (i *IncusProvider) CreateInstance(ctx context.Context, config provider.Inst
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
 
-			// 检查是否可以回退到SSH
-			if !i.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := i.ensureSSHBeforeFallback(err, "创建实例"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH执行 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 		}
 	}
 
@@ -396,11 +392,9 @@ func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config p
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
 
-			// 检查是否可以回退到SSH
-			if !i.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := i.ensureSSHBeforeFallback(err, "创建实例"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH方式 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 		}
 	}
 
@@ -425,11 +419,9 @@ func (i *IncusProvider) StartInstance(ctx context.Context, id string) error {
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
 
-			// 检查是否可以回退到SSH
-			if !i.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := i.ensureSSHBeforeFallback(err, "启动实例"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH方式 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -454,11 +446,9 @@ func (i *IncusProvider) StopInstance(ctx context.Context, id string) error {
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
 
-			// 检查是否可以回退到SSH
-			if !i.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := i.ensureSSHBeforeFallback(err, "停止实例"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH方式 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -483,11 +473,9 @@ func (i *IncusProvider) RestartInstance(ctx context.Context, id string) error {
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
 
-			// 检查是否可以回退到SSH
-			if !i.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := i.ensureSSHBeforeFallback(err, "重启实例"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH方式 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -512,11 +500,9 @@ func (i *IncusProvider) DeleteInstance(ctx context.Context, id string) error {
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
 
-			// 检查是否可以回退到SSH
-			if !i.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			if fallbackErr := i.ensureSSHBeforeFallback(err, "删除实例"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Debug("回退到SSH方式 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -584,12 +570,12 @@ func (i *IncusProvider) ExecuteSSHCommand(ctx context.Context, command string) (
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
-		zap.String("command", utils.TruncateString(command, 200)))
+		zap.String("command", utils.RedactSensitiveCommand(command, 200)))
 
 	output, err := client.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
-			zap.String("command", utils.TruncateString(command, 200)),
+			zap.String("command", utils.RedactSensitiveCommand(command, 200)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
 		return "", fmt.Errorf("SSH command execution failed: %w", err)
@@ -654,11 +640,18 @@ func (i *IncusProvider) ensureSSHBeforeFallback(apiErr error, operation string) 
 		return fmt.Errorf("API调用失败且不允许回退到SSH: %w", apiErr)
 	}
 
+	global.APP_LOG.Warn("Incus API失败，准备回退到SSH",
+		zap.String("operation", operation),
+		zap.Error(apiErr))
+
 	if err := i.EnsureConnection(); err != nil {
+		global.APP_LOG.Error("Incus回退SSH前连接检查失败",
+			zap.String("operation", operation),
+			zap.Error(err))
 		return fmt.Errorf("API失败且SSH连接不可用: API错误=%v, SSH错误=%v", apiErr, err)
 	}
 
-	global.APP_LOG.Debug(fmt.Sprintf("回退到SSH方式 - %s", operation))
+	global.APP_LOG.Info(fmt.Sprintf("Incus回退到SSH方式 - %s", operation))
 	return nil
 }
 

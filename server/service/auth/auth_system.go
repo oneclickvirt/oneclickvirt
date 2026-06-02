@@ -29,6 +29,16 @@ func GenerateRandomString(length int) string {
 	return string(b)
 }
 
+func highestConfiguredLevel() int {
+	maxLevel := 1
+	for level := range global.GetAppConfig().Quota.LevelLimits {
+		if level > maxLevel {
+			maxLevel = level
+		}
+	}
+	return maxLevel
+}
+
 // InitSystem 初始化系统
 func (s *AuthService) InitSystem(adminUsername, adminPassword, adminEmail string) error {
 	// 检查是否已经初始化
@@ -109,7 +119,7 @@ func (s *AuthService) InitSystemWithUsers(adminInfo UserInfo, userInfo *UserInfo
 		Password: string(adminPassword),
 		Email:    adminInfo.Email,
 		UserType: "admin",
-		Level:    5, // 管理员等级设置为5（最高等级）
+		Level:    highestConfiguredLevel(),
 		Status:   1,
 	}
 

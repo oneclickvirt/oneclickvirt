@@ -322,7 +322,6 @@ export default function useInit() {
 
   // 数据库类型变化处理
   const onDatabaseTypeChange = (type) => {
-    console.log(t('init.debug.dbTypeChanged'), type)
     // 根据数据库类型调整默认端口
     if (type === 'mysql' || type === 'mariadb') {
       databaseForm.port = '3306'
@@ -335,7 +334,6 @@ export default function useInit() {
       // 尝试从后端API获取推荐的数据库类型
       const response = await get('/v1/public/recommended-db-type')
       if (response && (response.code === 200) && response.data) {
-        console.log(t('init.debug.serverRecommendedDb'), response.data)
         return {
           type: response.data.recommendedType,
           reason: response.data.reason,

@@ -14,7 +14,7 @@ import (
 
 // sshStartInstance 启动实例
 func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) error {
-	statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, id))
+	statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to check container status: %w", err)
 	}
@@ -24,7 +24,7 @@ func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) er
 		return nil
 	}
 
-	startCmd := fmt.Sprintf("%s restart %s", cliName, id)
+	startCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(id))
 	output, err := c.sshClient.Execute(startCmd)
 	if err != nil {
 		global.APP_LOG.Error("Containerd实例启动失败",
@@ -43,7 +43,7 @@ func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) er
 			return fmt.Errorf("等待容器启动超时 (30秒)")
 		}
 		time.Sleep(checkInterval)
-		statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, id))
+		statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
 		if err == nil {
 			currentStatus := strings.ToLower(strings.TrimSpace(statusOutput))
 			if currentStatus == "running" {
@@ -56,7 +56,7 @@ func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) er
 
 // sshStopInstance 停止实例
 func (c *ContainerdProvider) sshStopInstance(ctx context.Context, id string) error {
-	stopCmd := fmt.Sprintf("%s stop %s", cliName, id)
+	stopCmd := fmt.Sprintf("%s stop %s", cliName, shellSingleQuote(id))
 	output, err := c.sshClient.Execute(stopCmd)
 	if err != nil {
 		global.APP_LOG.Error("Containerd实例停止失败",
@@ -69,7 +69,7 @@ func (c *ContainerdProvider) sshStopInstance(ctx context.Context, id string) err
 	maxRetries := 10
 	retryInterval := 1 * time.Second
 	for i := 0; i < maxRetries; i++ {
-		statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, id))
+		statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
 		if err != nil {
 			time.Sleep(retryInterval)
 			continue
@@ -85,7 +85,7 @@ func (c *ContainerdProvider) sshStopInstance(ctx context.Context, id string) err
 
 // sshRestartInstance 重启实例
 func (c *ContainerdProvider) sshRestartInstance(ctx context.Context, id string) error {
-	restartCmd := fmt.Sprintf("%s restart %s", cliName, id)
+	restartCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(id))
 	output, err := c.sshClient.Execute(restartCmd)
 	if err != nil {
 		global.APP_LOG.Error("Containerd实例重启失败",
@@ -102,7 +102,7 @@ func (c *ContainerdProvider) sshRestartInstance(ctx context.Context, id string) 
 func (c *ContainerdProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	global.APP_LOG.Debug("开始删除Containerd实例", zap.String("id", utils.TruncateString(id, 32)))
 
-	cleanupCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ --filter status=exited -q | xargs -r %s rm -f", cliName, id, cliName)
+	cleanupCmd := fmt.Sprintf("%s ps -a --filter %s --filter status=exited -q | xargs -r %s rm -f", cliName, containerNameFilter(id), cliName)
 	c.sshClient.Execute(cleanupCmd)
 
 	deleteStrategies := []struct {
@@ -112,21 +112,21 @@ func (c *ContainerdProvider) sshDeleteInstance(ctx context.Context, id string) e
 		{
 			name: "graceful_stop_and_remove",
 			commands: []string{
-				fmt.Sprintf("%s stop %s", cliName, id),
-				fmt.Sprintf("%s rm %s", cliName, id),
+				fmt.Sprintf("%s stop %s", cliName, shellSingleQuote(id)),
+				fmt.Sprintf("%s rm %s", cliName, shellSingleQuote(id)),
 			},
 		},
 		{
 			name: "force_remove",
 			commands: []string{
-				fmt.Sprintf("%s rm -f %s", cliName, id),
+				fmt.Sprintf("%s rm -f %s", cliName, shellSingleQuote(id)),
 			},
 		},
 		{
 			name: "kill_and_remove",
 			commands: []string{
-				fmt.Sprintf("%s kill %s", cliName, id),
-				fmt.Sprintf("%s rm %s", cliName, id),
+				fmt.Sprintf("%s kill %s", cliName, shellSingleQuote(id)),
+				fmt.Sprintf("%s rm %s", cliName, shellSingleQuote(id)),
 			},
 		},
 	}
@@ -175,7 +175,7 @@ func (c *ContainerdProvider) sshDeleteInstance(ctx context.Context, id string) e
 		}
 	}
 
-	finalCleanupCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ -q | xargs -r %s rm -f", cliName, id, cliName)
+	finalCleanupCmd := fmt.Sprintf("%s ps -a --filter %s -q | xargs -r %s rm -f", cliName, containerNameFilter(id), cliName)
 	c.sshClient.Execute(finalCleanupCmd)
 
 	if c.verifyContainerDeleted(ctx, id) {
@@ -204,7 +204,7 @@ func (c *ContainerdProvider) isAcceptableError(err error, output string) bool {
 
 // verifyContainerDeleted 验证容器是否真的被删除
 func (c *ContainerdProvider) verifyContainerDeleted(ctx context.Context, id string) bool {
-	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, id)
+	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id))
 	output, err := c.sshClient.Execute(checkCmd)
 	if err != nil {
 		outputStr := strings.ToLower(output)
@@ -219,13 +219,13 @@ func (c *ContainerdProvider) verifyContainerDeleted(ctx context.Context, id stri
 		return false
 	}
 
-	listByNameCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ --format '{{.Names}}:{{.Status}}'", cliName, id)
+	listByNameCmd := fmt.Sprintf("%s ps -a --filter %s --format '{{.Names}}:{{.Status}}'", cliName, containerNameFilter(id))
 	listByNameOutput, listByNameErr := c.sshClient.Execute(listByNameCmd)
 	if listByNameErr == nil && strings.TrimSpace(listByNameOutput) != "" {
 		return false
 	}
 
-	listCmd := fmt.Sprintf("%s ps -a --filter id=%s --format '{{.ID}}'", cliName, id)
+	listCmd := fmt.Sprintf("%s ps -a --filter %s --format '{{.ID}}'", cliName, shellSingleQuote("id="+id))
 	listOutput, listErr := c.sshClient.Execute(listCmd)
 	if listErr == nil && strings.TrimSpace(listOutput) != "" {
 		return false

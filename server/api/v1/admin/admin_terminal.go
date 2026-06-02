@@ -21,8 +21,10 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
+	adminProvider "oneclickvirt/service/admin/provider"
 	agentService "oneclickvirt/service/agent"
 	remoteService "oneclickvirt/service/remote"
 
@@ -96,6 +98,14 @@ func AdminProviderTerminal(c *gin.Context) {
 		return
 	}
 	providerID := uint(id)
+
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(providerID, ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
+	}
 
 	var dbProvider providerModel.Provider
 	if err := global.APP_DB.Where("id = ?", providerID).First(&dbProvider).Error; err != nil {

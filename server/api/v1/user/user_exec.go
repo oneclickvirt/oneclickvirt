@@ -184,7 +184,7 @@ func ExecWebSocket(c *gin.Context) {
 	// Start the exec command instead of shell
 	if err := session.Start(execCmd); err != nil {
 		global.APP_LOG.Error("启动exec命令失败",
-			zap.String("cmd", execCmd),
+			zap.String("cmd", utils.RedactSensitiveCommand(execCmd, 200)),
 			zap.Error(err))
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("exec启动失败: %v\r\n", err)))
 		return
@@ -192,7 +192,7 @@ func ExecWebSocket(c *gin.Context) {
 
 	global.APP_LOG.Info("容器exec会话已建立",
 		zap.String("instance", instanceID),
-		zap.String("cmd", execCmd))
+		zap.String("cmd", utils.RedactSensitiveCommand(execCmd, 200)))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()

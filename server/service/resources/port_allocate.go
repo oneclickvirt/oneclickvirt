@@ -5,12 +5,15 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+var controllerPortAllocateMu sync.Mutex
 
 // allocateConsecutivePortsInTx 在事务中分配连续的端口区间
 // 返回: 起始端口, 分配的端口列表, 错误
@@ -477,13 +480,21 @@ func (s *PortMappingService) optimizeNextAvailablePortInTx(tx *gorm.DB, provider
 // allocateControllerPort 在控制端分配可用端口（不受节点端口范围限制）
 // 查找 rangeStart-rangeEnd 范围内未被其他控制端转发占用的连续端口
 func (s *PortMappingService) allocateControllerPort(providerID uint, rangeStart, rangeEnd, portCount int) (int, error) {
+	return s.allocateControllerPortWithDB(global.APP_DB, providerID, rangeStart, rangeEnd, portCount)
+}
+
+func (s *PortMappingService) allocateControllerPortInTx(tx *gorm.DB, providerID uint, rangeStart, rangeEnd, portCount int) (int, error) {
+	return s.allocateControllerPortWithDB(tx, providerID, rangeStart, rangeEnd, portCount)
+}
+
+func (s *PortMappingService) allocateControllerPortWithDB(db *gorm.DB, providerID uint, rangeStart, rangeEnd, portCount int) (int, error) {
 	if portCount <= 0 {
 		return 0, fmt.Errorf("端口数量必须大于0")
 	}
 
 	// 获取所有控制端转发模式的已用端口
 	var usedPorts []int
-	if err := global.APP_DB.Model(&provider.Port{}).
+	if err := db.Model(&provider.Port{}).
 		Where("mapping_type = 'controller' AND status = 'active' AND host_port BETWEEN ? AND ?", rangeStart, rangeEnd).
 		Pluck("host_port", &usedPorts).Error; err != nil {
 		return 0, fmt.Errorf("查询控制端端口占用失败: %v", err)

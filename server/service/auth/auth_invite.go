@@ -31,7 +31,7 @@ func (s *AuthService) verifyInviteCode(code string) error {
 	if inviteCode.ExpiresAt != nil {
 		now := time.Now()
 		global.APP_LOG.Debug("verifyInviteCode邀请码过期时间检查",
-			zap.String("code", code),
+			zap.Uint("inviteCodeID", inviteCode.ID),
 			zap.Time("expiresAt", *inviteCode.ExpiresAt),
 			zap.Time("now", now),
 			zap.Bool("isExpired", inviteCode.ExpiresAt.Before(now)))
@@ -63,14 +63,14 @@ func (s *AuthService) useInviteCodeWithTx(db *gorm.DB, code string, ip string, u
 	if inviteCode.ExpiresAt != nil {
 		now := time.Now()
 		global.APP_LOG.Debug("useInviteCodeWithTx邀请码过期时间检查",
-			zap.String("code", code),
+			zap.Uint("inviteCodeID", inviteCode.ID),
 			zap.Time("expiresAt", *inviteCode.ExpiresAt),
 			zap.Time("now", now),
 			zap.Bool("isExpired", inviteCode.ExpiresAt.Before(now)))
 
 		if inviteCode.ExpiresAt.Before(now) {
 			global.APP_LOG.Warn("使用邀请码时检测到已过期",
-				zap.String("code", code),
+				zap.Uint("inviteCodeID", inviteCode.ID),
 				zap.Time("expiresAt", *inviteCode.ExpiresAt),
 				zap.Time("now", now))
 			return common.NewError(common.CodeInviteCodeExpired, "邀请码已过期")
@@ -126,14 +126,14 @@ func (s *AuthService) validateInviteCodeBeforeUse(code string) error {
 		now := time.Now()
 		// 添加详细日志帮助调试
 		global.APP_LOG.Debug("邀请码过期时间检查",
-			zap.String("code", code),
+			zap.Uint("inviteCodeID", inviteCode.ID),
 			zap.Time("expiresAt", *inviteCode.ExpiresAt),
 			zap.Time("now", now),
 			zap.Bool("isExpired", inviteCode.ExpiresAt.Before(now)))
 
 		if inviteCode.ExpiresAt.Before(now) {
 			global.APP_LOG.Warn("邀请码已过期",
-				zap.String("code", code),
+				zap.Uint("inviteCodeID", inviteCode.ID),
 				zap.Time("expiresAt", *inviteCode.ExpiresAt),
 				zap.Time("now", now))
 			return common.NewError(common.CodeInviteCodeExpired, "邀请码已过期")

@@ -363,6 +363,7 @@ export default {
   trafficLimit: "流量限制",
   trafficLimitDesc: "每月1号自动重置，超过限制后Provider将被限流",
   levelLimitsTip: "节点等级限制（实际限制 = min(全局限制, 节点限制)）",
+  addLevel: "添加等级",
   resetToDefault: "恢复默认值",
   level: "等级",
   maxInstances: "最大实例数",

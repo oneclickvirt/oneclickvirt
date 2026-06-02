@@ -151,8 +151,7 @@ func (s *AuthService) sendTelegramCode(telegram, code string) error {
 	// 在非生产环境下直接返回成功并记录验证码
 	if global.GetAppConfig().System.Env != "production" {
 		global.APP_LOG.Debug("非生产环境模拟发送Telegram验证码",
-			zap.String("telegram", telegram),
-			zap.String("code", code))
+			zap.String("telegram", telegram))
 		return nil
 	}
 
@@ -189,8 +188,7 @@ func (s *AuthService) sendQQCode(qq, code string) error {
 	// 在非生产环境下直接返回成功并记录验证码
 	if global.GetAppConfig().System.Env != "production" {
 		global.APP_LOG.Debug("非生产环境模拟发送QQ验证码",
-			zap.String("qq", qq),
-			zap.String("code", code))
+			zap.String("qq", qq))
 		return nil
 	}
 
@@ -214,24 +212,13 @@ func (s *AuthService) sendSMSCode(phone, code string) error {
 
 	// 在非生产环境下直接返回成功
 	if global.GetAppConfig().System.Env != "production" {
-		global.APP_LOG.Debug("非生产环境模拟验证码发送成功", zap.String("code", code))
+		global.APP_LOG.Debug("非生产环境模拟短信验证码发送成功", zap.String("phone", phone))
 		return nil
 	}
 
-	// 构造短信内容
-	message := fmt.Sprintf("验证码：%s，5分钟内有效，请勿泄露。", code)
-
-	// 这里应该调用短信服务商API
-	// 可以集成阿里云、腾讯云、华为云等短信服务
-	// 示例实现：
-	// smsClient := sms.NewClient(config.SMSAccessKey, config.SMSSecretKey)
-	// err := smsClient.SendSMS(phone, message, config.SMSVerificationTemplateID)
-	// return err
-
-	global.APP_LOG.Warn("短信验证码服务API集成待实现",
-		zap.String("message", message),
+	global.APP_LOG.Warn("短信验证码服务未配置",
 		zap.String("phone", phone))
-	return errors.New("短信验证码服务API集成待实现，请配置短信服务商")
+	return errors.New("短信验证码服务未配置，请使用邮箱、Telegram或QQ验证码")
 }
 
 func (s *AuthService) sendEmail(to, subject, body string) error {

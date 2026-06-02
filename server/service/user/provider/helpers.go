@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -46,6 +47,10 @@ func (s *Service) generatePassword() string {
 // extractHost 从endpoint中提取主机地址（使用全局工具函数）
 func (s *Service) extractHost(endpoint string) string {
 	return utils.ExtractHost(endpoint)
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 // getInstanceDetailsAfterCreation 创建后获取实例详情（使用全局Provider封装）

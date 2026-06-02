@@ -42,7 +42,7 @@ func getAgentClient(providerID uint) *agent.Client {
 	}
 	if host == "" {
 		if p.ConnectionType == "agent" {
-			host = "127.0.0.1" // placeholder; actual calls go through WS fallback
+			host = "127.0.0.1" // loopback fallback; calls are routed through WS fallback
 		} else {
 			return nil
 		}

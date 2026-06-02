@@ -34,8 +34,7 @@ func GetClientWithMode(providerID uint, host string, port int, token string, isA
 	if v, ok := clientPool.Load(key); ok {
 		c := v.(*Client)
 		expected := fmt.Sprintf("http://%s:%d", host, port)
-		if c.baseURL == expected && c.token == token {
-			c.isAgentMode = isAgentMode
+		if c.baseURL == expected && c.token == token && c.isAgentMode == isAgentMode {
 			return c
 		}
 	}
@@ -263,17 +262,18 @@ func (c *Client) doWSRequest(method, path string, body interface{}, result inter
 	// Use 127.0.0.1 explicitly to avoid IPv6 resolution issues
 	// (the agent binds to 127.0.0.1:23782, not [::1]:23782).
 	curlURL := fmt.Sprintf("http://127.0.0.1:%s%s", port, path)
-	curlCmd := fmt.Sprintf("curl -s -X %s '%s' -H 'Content-Type: application/json' -H 'x-token: %s'",
-		method, curlURL, c.token)
+	curlCmd := fmt.Sprintf("curl -s -X %s %s -H %s -H %s",
+		shellEscapeArg(method),
+		shellEscapeArg(curlURL),
+		shellEscapeArg("Content-Type: application/json"),
+		shellEscapeArg("x-token: "+c.token))
 
 	if body != nil {
 		bodyJSON, err := json.Marshal(body)
 		if err != nil {
 			return fmt.Errorf("marshal body for WS request: %w", err)
 		}
-		// Escape single quotes in JSON body for shell
-		escaped := strings.ReplaceAll(string(bodyJSON), "'", "'\\''")
-		curlCmd += fmt.Sprintf(" -d '%s'", escaped)
+		curlCmd += fmt.Sprintf(" -d %s", shellEscapeArg(string(bodyJSON)))
 	}
 
 	output, err := conn.ExecuteWithTimeout(curlCmd, 30*time.Second)

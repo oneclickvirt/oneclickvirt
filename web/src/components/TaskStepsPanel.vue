@@ -101,7 +101,7 @@ const TASK_STEP_SEQUENCES = {
     'step.updatingInstanceStatus',
     'step.reinitMonitoring',
     'step.reinitTrafficMonitor',
-    'step.syncTrafficData'
+    'step.finalSyncTrafficData'
   ],
   'reset-password': [
     'step.parseTaskData',

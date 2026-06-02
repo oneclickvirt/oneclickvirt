@@ -65,7 +65,7 @@ func (c *ContainerdProvider) enrichInstancesWithNetworkInfo(instances *[]provide
 			continue
 		}
 
-		cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", cliName, instance.Name)
+		cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", cliName, shellSingleQuote(instance.Name))
 		output, err := c.sshClient.Execute(cmd)
 		if err == nil {
 			ipAddress := utils.CleanCommandOutput(output)
@@ -76,7 +76,7 @@ func (c *ContainerdProvider) enrichInstancesWithNetworkInfo(instances *[]provide
 		}
 
 		vethCmd := fmt.Sprintf(`
-CONTAINER_NAME='%s'
+CONTAINER_NAME=%s
 CONTAINER_PID=$(%s inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
 if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
     exit 1
@@ -89,7 +89,7 @@ VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': '
 if [ -n "$VETH_NAME" ]; then
     echo "$VETH_NAME"
 fi
-`, instance.Name, cliName)
+`, shellSingleQuote(instance.Name), cliName)
 		vethOutput, err := c.sshClient.Execute(vethCmd)
 		if err == nil {
 			vethInterface := utils.CleanCommandOutput(vethOutput)
@@ -102,7 +102,7 @@ fi
 		}
 
 		if instance.PrivateIP == "" {
-			fallbackCmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, instance.Name)
+			fallbackCmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, shellSingleQuote(instance.Name))
 			fallbackOutput, fallbackErr := c.sshClient.Execute(fallbackCmd)
 			if fallbackErr == nil {
 				ipAddress := strings.TrimSpace(fallbackOutput)
@@ -113,10 +113,10 @@ fi
 			}
 		}
 
-		checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", cliName, instance.Name)
+		checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", cliName, shellSingleQuote(instance.Name))
 		networksOutput, err := c.sshClient.Execute(checkIPv6Cmd)
 		if err == nil && strings.Contains(networksOutput, ipv6Network) {
-			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", cliName, instance.Name)
+			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", cliName, shellSingleQuote(instance.Name))
 			output, err = c.sshClient.Execute(cmd)
 			if err == nil {
 				ipv6Address := strings.TrimSpace(output)
@@ -216,11 +216,11 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	}
 
 	updateProgress(70, "清理同名残留容器...")
-	cleanupCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ -q | xargs -r %s rm -f", cliName, config.Name, cliName)
+	cleanupCmd := fmt.Sprintf("%s ps -a --filter %s -q | xargs -r %s rm -f", cliName, containerNameFilter(config.Name), cliName)
 	c.sshClient.Execute(cleanupCmd)
 
 	updateProgress(72, "构建nerdctl run命令...")
-	cmd := fmt.Sprintf("%s run -d --name %s", cliName, config.Name)
+	cmd := fmt.Sprintf("%s run -d --name %s", cliName, shellSingleQuote(config.Name))
 
 	networkType := c.config.NetworkType
 	if config.Metadata != nil {
@@ -231,9 +231,9 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 
 	hasIPv6 := networkType == "nat_ipv4_ipv6" || networkType == "dedicated_ipv4_ipv6" || networkType == "ipv6_only"
 	if hasIPv6 && c.checkIPv6NetworkAvailable() {
-		cmd += fmt.Sprintf(" --network=%s", ipv6Network)
+		cmd += fmt.Sprintf(" --network=%s", shellSingleQuote(ipv6Network))
 	} else {
-		cmd += fmt.Sprintf(" --network=%s", ipv4Network)
+		cmd += fmt.Sprintf(" --network=%s", shellSingleQuote(ipv4Network))
 	}
 
 	if networkType == "dedicated_ipv4" || networkType == "dedicated_ipv4_ipv6" {
@@ -307,10 +307,10 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		if strings.HasPrefix(portMapping, "0.0.0.0:") {
 			if strings.HasSuffix(portMapping, "/both") {
 				baseMapping := strings.TrimSuffix(portMapping, "/both")
-				cmd += fmt.Sprintf(" -p %s/tcp", baseMapping)
-				cmd += fmt.Sprintf(" -p %s/udp", baseMapping)
+				cmd += fmt.Sprintf(" -p %s", shellSingleQuote(baseMapping+"/tcp"))
+				cmd += fmt.Sprintf(" -p %s", shellSingleQuote(baseMapping+"/udp"))
 			} else {
-				cmd += fmt.Sprintf(" -p %s", portMapping)
+				cmd += fmt.Sprintf(" -p %s", shellSingleQuote(portMapping))
 			}
 		} else if strings.Contains(portMapping, ":") {
 			protocol := ""
@@ -327,14 +327,14 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 				hostPort := portParts[len(portParts)-2]
 				guestPort := portParts[len(portParts)-1]
 				if protocol == "/both" {
-					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s/tcp", hostPort, guestPort)
-					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s/udp", hostPort, guestPort)
+					cmd += fmt.Sprintf(" -p %s", shellSingleQuote(fmt.Sprintf("0.0.0.0:%s:%s/tcp", hostPort, guestPort)))
+					cmd += fmt.Sprintf(" -p %s", shellSingleQuote(fmt.Sprintf("0.0.0.0:%s:%s/udp", hostPort, guestPort)))
 				} else {
-					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s%s", hostPort, guestPort, protocol)
+					cmd += fmt.Sprintf(" -p %s", shellSingleQuote(fmt.Sprintf("0.0.0.0:%s:%s%s", hostPort, guestPort, protocol)))
 				}
 			}
 		} else {
-			cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s", portMapping, portMapping)
+			cmd += fmt.Sprintf(" -p %s", shellSingleQuote(fmt.Sprintf("0.0.0.0:%s:%s", portMapping, portMapping)))
 		}
 	}
 
@@ -358,11 +358,11 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	cmd += " --cap-add=MKNOD"
 
 	for key, value := range config.Env {
-		cmd += fmt.Sprintf(" -e %s=%s", key, value)
+		cmd += fmt.Sprintf(" -e %s", shellSingleQuote(key+"="+value))
 	}
 
 	// --pull=never: 确保使用本地已加载的镜像，不尝试远程拉取
-	cmd += fmt.Sprintf(" --pull=never %s", imageNameWithPrefix)
+	cmd += fmt.Sprintf(" --pull=never %s", shellSingleQuote(imageNameWithPrefix))
 
 	updateProgress(95, "执行Containerd创建命令...")
 	global.APP_LOG.Debug("开始执行Containerd创建命令",
@@ -390,7 +390,7 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 			break
 		}
 		time.Sleep(checkInterval)
-		statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, config.Name))
+		statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(config.Name)))
 		if err == nil {
 			status := strings.ToLower(strings.TrimSpace(statusOutput))
 			if status == "running" {

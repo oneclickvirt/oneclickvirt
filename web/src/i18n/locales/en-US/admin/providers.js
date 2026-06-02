@@ -353,6 +353,7 @@ export default {
   trafficLimit: "Traffic Limit",
   trafficLimitDesc: "Automatically resets on the 1st of each month, Provider will be throttled after exceeding limit",
   levelLimitsTip: "Provider level limits (actual limit = min(global limit, provider limit))",
+  addLevel: "Add Level",
   resetToDefault: "Reset to Default",
   level: "Level",
   maxInstances: "Max Instances",

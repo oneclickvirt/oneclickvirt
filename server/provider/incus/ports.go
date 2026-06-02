@@ -393,14 +393,14 @@ func (i *IncusProvider) setupPortRangeMappingWithIP(instanceName string, ports [
 			endPort := portRange[len(portRange)-1]
 			if startPort.Protocol == "both" {
 				// 分别映射 tcp 和 udp
-				err := i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, "tcp")
+				err := i.setupPortRangeByMethodWithIP(instanceName, portRange, method, instanceIP, "tcp")
 				if err != nil {
 					global.APP_LOG.Warn("端口范围映射失败(tcp)",
 						zap.Int("startPort", startPort.HostPort),
 						zap.Int("endPort", endPort.HostPort),
 						zap.Error(err))
 				}
-				err = i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, "udp")
+				err = i.setupPortRangeByMethodWithIP(instanceName, portRange, method, instanceIP, "udp")
 				if err != nil {
 					global.APP_LOG.Warn("端口范围映射失败(udp)",
 						zap.Int("startPort", startPort.HostPort),
@@ -408,7 +408,7 @@ func (i *IncusProvider) setupPortRangeMappingWithIP(instanceName string, ports [
 						zap.Error(err))
 				}
 			} else {
-				err := i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, startPort.Protocol)
+				err := i.setupPortRangeByMethodWithIP(instanceName, portRange, method, instanceIP, startPort.Protocol)
 				if err != nil {
 					global.APP_LOG.Warn("端口范围映射失败",
 						zap.Int("startPort", startPort.HostPort),
@@ -420,6 +420,35 @@ func (i *IncusProvider) setupPortRangeMappingWithIP(instanceName string, ports [
 	}
 
 	return nil
+}
+
+func (i *IncusProvider) setupPortRangeByMethodWithIP(instanceName string, ports []providerModel.Port, method, instanceIP, protocol string) error {
+	if len(ports) == 0 {
+		return nil
+	}
+
+	startPort := ports[0].HostPort
+	endPort := ports[len(ports)-1].HostPort
+	switch method {
+	case "device_proxy", "":
+		return i.setupPortRangeMapping(instanceName, startPort, endPort, protocol)
+	case "iptables":
+		for _, port := range ports {
+			if err := i.setupPortMappingWithIP(instanceName, port.HostPort, port.GuestPort, protocol, method, instanceIP); err != nil {
+				return fmt.Errorf("设置端口 %d/%s 映射失败: %w", port.HostPort, protocol, err)
+			}
+		}
+		return nil
+	case "native":
+		global.APP_LOG.Debug("native模式跳过端口范围映射",
+			zap.String("instance", instanceName),
+			zap.Int("startPort", startPort),
+			zap.Int("endPort", endPort),
+			zap.String("protocol", protocol))
+		return nil
+	default:
+		return i.setupPortRangeMapping(instanceName, startPort, endPort, protocol)
+	}
 }
 
 // findPortRanges 查找连续的端口范围

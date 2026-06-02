@@ -205,15 +205,6 @@ const loadData = async () => {
       interval: selectedInterval.value
     }
     
-    console.log('Loading traffic history:', {
-      type: props.type,
-      resourceId: props.resourceId,
-      params,
-      userType: userStore.userType,
-      viewMode: userStore.viewMode,
-      hasToken: !!userStore.token
-    })
-    
     switch (props.type) {
       case 'instance':
         if (!props.resourceId) {
@@ -238,9 +229,6 @@ const loadData = async () => {
       default:
         throw new Error('Invalid type')
     }
-    
-    console.log('Traffic history response:', response)
-    
     if (response && (response.code === 200)) {
       loading.value = false
       // 存储数据供语言切换时使用
@@ -286,8 +274,6 @@ const generateZeroFilledData = () => {
 
 // 渲染图表
 const renderChart = (data) => {
-  console.log('TrafficHistoryChart - renderChart called with data:', data)
-  
   if (!chartRef.value) {
     console.warn('TrafficHistoryChart - chartRef is null')
     return
@@ -297,16 +283,12 @@ const renderChart = (data) => {
   if (!data || data.length === 0) {
     data = generateZeroFilledData()
   }
-  
-  console.log('TrafficHistoryChart - Data length:', data.length)
-  
   // 清除错误状态
   error.value = ''
   
   // 初始化或重新初始化图表实例
   // 如果图表实例已存在但DOM已销毁，需要重新初始化
   if (!chartInstance.value || chartInstance.value.isDisposed()) {
-    console.log('TrafficHistoryChart - Initializing chart instance')
     if (chartInstance.value) {
       chartInstance.value.dispose()
     }
@@ -335,14 +317,6 @@ const renderChart = (data) => {
     if (item.total_bytes !== undefined) return ((item.total_bytes || 0) / 1024 / 1024).toFixed(2)
     return '0.00'
   })
-  
-  console.log('TrafficHistoryChart - Processed data:', {
-    timeLabels,
-    trafficIn,
-    trafficOut,
-    totalUsed
-  })
-  
   // 配置图表选项
   const option = {
     tooltip: {
@@ -448,10 +422,7 @@ const renderChart = (data) => {
       }
     ]
   }
-  
-  console.log('TrafficHistoryChart - Setting chart options:', option)
   chartInstance.value.setOption(option)
-  console.log('TrafficHistoryChart - Chart rendered successfully')
 }
 
 // 窗口大小改变时重新渲染

@@ -102,7 +102,7 @@ func (s *Service) GetInviteCodeList(req admin.InviteCodeListRequest) ([]admin.In
 		if code.ExpiresAt != nil && code.ExpiresAt.Before(now) {
 			actualStatus = 0 // 已过期
 			global.APP_LOG.Debug("邀请码列表检测到过期码",
-				zap.String("code", code.Code),
+				zap.Uint("inviteCodeID", code.ID),
 				zap.Time("expiresAt", *code.ExpiresAt),
 				zap.Time("now", now))
 		}

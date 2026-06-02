@@ -97,6 +97,20 @@ func SanitizeUserInput(input string) string {
 	return TruncateString(input, MaxStringLength)
 }
 
+func RedactSensitiveCommand(command string, maxLen int) string {
+	lower := strings.ToLower(command)
+	sensitiveMarkers := []string{
+		"password", "passwd", "chpasswd", "cipassword",
+		"token", "secret", "authorization", "x-token",
+	}
+	for _, marker := range sensitiveMarkers {
+		if strings.Contains(lower, marker) {
+			return fmt.Sprintf("[redacted sensitive command; len=%d]", len(command))
+		}
+	}
+	return TruncateString(SanitizeUserInput(command), maxLen)
+}
+
 // htmlTagPattern matches HTML tags like <script>, <img ...>, </div>, etc.
 var htmlTagPattern = regexp.MustCompile(`<[a-zA-Z/][^>]*>`)
 

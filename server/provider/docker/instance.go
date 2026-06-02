@@ -68,7 +68,7 @@ func (d *DockerProvider) enrichInstancesWithNetworkInfo(instances *[]provider.In
 		}
 
 		// 1. 获取容器的内网IP地址
-		cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, instance.Name)
+		cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 		output, err := d.sshClient.Execute(cmd)
 		if err == nil {
 			ipAddress := utils.CleanCommandOutput(output)
@@ -83,7 +83,7 @@ func (d *DockerProvider) enrichInstancesWithNetworkInfo(instances *[]provider.In
 
 		// 2. 获取容器对应的宿主机veth接口
 		vethCmd := fmt.Sprintf(`
-CONTAINER_NAME='%s'
+CONTAINER_NAME=%s
 CONTAINER_PID=$(%s inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
 if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
     exit 1
@@ -96,7 +96,7 @@ VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': '
 if [ -n "$VETH_NAME" ]; then
     echo "$VETH_NAME"
 fi
-`, instance.Name, d.runtime.CLI)
+`, shellSingleQuote(instance.Name), d.runtime.CLI)
 
 		vethOutput, err := d.sshClient.Execute(vethCmd)
 		if err == nil {
@@ -114,7 +114,7 @@ fi
 
 		// 如果没有获取到PrivateIP，尝试使用旧方法获取
 		if instance.PrivateIP == "" {
-			cmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, instance.Name)
+			cmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 			output, err := d.sshClient.Execute(cmd)
 			if err == nil {
 				ipAddress := strings.TrimSpace(output)
@@ -129,11 +129,11 @@ fi
 		}
 
 		// 3. 检查容器是否连接到 IPv6 网络
-		checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", d.runtime.CLI, instance.Name)
+		checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 		networksOutput, err := d.sshClient.Execute(checkIPv6Cmd)
 		if err == nil && strings.Contains(networksOutput, d.runtime.IPv6Network) {
 			// 容器连接到了 IPv6 网络，获取IPv6地址
-			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", d.runtime.CLI, instance.Name)
+			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 			output, err = d.sshClient.Execute(cmd)
 			if err == nil {
 				ipv6Address := strings.TrimSpace(output)
@@ -274,7 +274,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(70, "清理同名残留容器...")
 	// 预先清理任何同名的残留容器（包括停止、失败或创建失败的容器）
 	// 这可以避免端口冲突和容器名称冲突
-	cleanupCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ -q | xargs -r %s rm -f", d.runtime.CLI, config.Name, d.runtime.CLI)
+	cleanupCmd := fmt.Sprintf("%s ps -a --filter %s -q | xargs -r %s rm -f", d.runtime.CLI, containerNameFilter(config.Name), d.runtime.CLI)
 	global.APP_LOG.Debug("创建前清理同名容器",
 		zap.String("instance", utils.TruncateString(config.Name, 32)),
 		zap.String("command", cleanupCmd))
@@ -293,7 +293,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 	updateProgress(72, "构建Docker run命令...")
 	// 构建 run 命令
-	cmd := fmt.Sprintf("%s run -d --name %s", d.runtime.CLI, config.Name)
+	cmd := fmt.Sprintf("%s run -d --name %s", d.runtime.CLI, shellSingleQuote(config.Name))
 
 	// 检查是否启用IPv6网络（支持标准的网络类型值）
 	networkType := d.config.NetworkType
@@ -309,7 +309,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 	hasIPv6 := networkType == "nat_ipv4_ipv6" || networkType == "dedicated_ipv4_ipv6" || networkType == "ipv6_only"
 	if hasIPv6 && d.checkIPv6NetworkAvailable() {
-		cmd += fmt.Sprintf(" --network=%s", d.runtime.IPv6Network)
+		cmd += fmt.Sprintf(" --network=%s", shellSingleQuote(d.runtime.IPv6Network))
 		global.APP_LOG.Debug("启用IPv6网络",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("provider", d.config.Name))
@@ -321,7 +321,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		}
 		// 如果运行时指定了 IPv4 网络（如 podman-net / containerd-net），显式指定
 		if d.runtime.IPv4Network != "" {
-			cmd += fmt.Sprintf(" --network=%s", d.runtime.IPv4Network)
+			cmd += fmt.Sprintf(" --network=%s", shellSingleQuote(d.runtime.IPv4Network))
 		}
 	}
 
@@ -428,10 +428,10 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			// 检查是否包含 /both 协议，Docker不支持both，需要拆分
 			if strings.HasSuffix(portMapping, "/both") {
 				baseMapping := strings.TrimSuffix(portMapping, "/both")
-				cmd += fmt.Sprintf(" -p %s/tcp", baseMapping)
-				cmd += fmt.Sprintf(" -p %s/udp", baseMapping)
+				cmd += fmt.Sprintf(" -p %s", shellSingleQuote(baseMapping+"/tcp"))
+				cmd += fmt.Sprintf(" -p %s", shellSingleQuote(baseMapping+"/udp"))
 			} else {
-				cmd += fmt.Sprintf(" -p %s", portMapping)
+				cmd += fmt.Sprintf(" -p %s", shellSingleQuote(portMapping))
 			}
 		} else if strings.Contains(portMapping, ":") {
 			// 如果端口映射中包含冒号但没有IPv4前缀，强制使用0.0.0.0绑定
@@ -454,15 +454,15 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 				// 如果协议是both，需要创建两个端口映射（tcp和udp）
 				if protocol == "/both" {
-					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s/tcp", hostPort, guestPort)
-					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s/udp", hostPort, guestPort)
+					cmd += fmt.Sprintf(" -p %s", shellSingleQuote(fmt.Sprintf("0.0.0.0:%s:%s/tcp", hostPort, guestPort)))
+					cmd += fmt.Sprintf(" -p %s", shellSingleQuote(fmt.Sprintf("0.0.0.0:%s:%s/udp", hostPort, guestPort)))
 				} else {
-					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s%s", hostPort, guestPort, protocol)
+					cmd += fmt.Sprintf(" -p %s", shellSingleQuote(fmt.Sprintf("0.0.0.0:%s:%s%s", hostPort, guestPort, protocol)))
 				}
 			}
 		} else {
 			// 如果是简单的端口映射格式（如"8080"），假设内外端口相同，添加IPv4前缀
-			cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s", portMapping, portMapping)
+			cmd += fmt.Sprintf(" -p %s", shellSingleQuote(fmt.Sprintf("0.0.0.0:%s:%s", portMapping, portMapping)))
 		}
 	}
 
@@ -497,10 +497,10 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	for key, value := range config.Env {
-		cmd += fmt.Sprintf(" -e %s=%s", key, value)
+		cmd += fmt.Sprintf(" -e %s", shellSingleQuote(key+"="+value))
 	}
 
-	cmd += fmt.Sprintf(" %s", imageNameWithPrefix)
+	cmd += fmt.Sprintf(" %s", shellSingleQuote(imageNameWithPrefix))
 
 	updateProgress(95, "执行Docker创建命令...")
 	global.APP_LOG.Debug("开始执行Docker创建命令",
@@ -557,7 +557,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		time.Sleep(checkInterval)
 
 		// 检查容器状态
-		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, config.Name))
+		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(config.Name)))
 		if err == nil {
 			status := strings.ToLower(strings.TrimSpace(statusOutput))
 			if status == "running" {
@@ -626,7 +626,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 func (d *DockerProvider) repairIptablesChains(containerName string) error {
 	// Remove the partially-created container first (if any)
 	if containerName != "" {
-		rmCmd := fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, containerName)
+		rmCmd := fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(containerName))
 		_, _ = d.sshClient.Execute(rmCmd)
 	}
 

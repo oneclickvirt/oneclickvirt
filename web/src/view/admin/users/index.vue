@@ -124,20 +124,12 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="1">
-                  {{ $t('admin.users.setToLevel', { level: 1 }) }}
-                </el-dropdown-item>
-                <el-dropdown-item command="2">
-                  {{ $t('admin.users.setToLevel', { level: 2 }) }}
-                </el-dropdown-item>
-                <el-dropdown-item command="3">
-                  {{ $t('admin.users.setToLevel', { level: 3 }) }}
-                </el-dropdown-item>
-                <el-dropdown-item command="4">
-                  {{ $t('admin.users.setToLevel', { level: 4 }) }}
-                </el-dropdown-item>
-                <el-dropdown-item command="5">
-                  {{ $t('admin.users.setToLevel', { level: 5 }) }}
+                <el-dropdown-item
+                  v-for="level in availableLevels"
+                  :key="level"
+                  :command="level"
+                >
+                  {{ $t('admin.users.setToLevel', { level }) }}
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -148,6 +140,7 @@
       <UsersTable
         :users="users"
         :loading="loading"
+        :available-levels="availableLevels"
         @selection-change="handleSelectionChange"
         @edit="editUser"
         @set-user-level="handleSetUserLevel"
@@ -177,6 +170,7 @@
       :is-editing="isEditing"
       :add-user-form="addUserForm"
       :add-user-rules="addUserRules"
+      :available-levels="availableLevels"
       :loading="addUserLoading"
       @update:visible="showAddDialog = $event"
       @cancel="cancelAddUser"
@@ -218,9 +212,9 @@ const {
   showResetPasswordDialog, resetPasswordForm, resetPasswordLoading, generatedPassword,
   showSetExpiryDialog, freezeLoading, freezeForm,
   searchUsername, searchStatus, searchUserType,
-  multipleSelection, currentPage, pageSize, total,
+  multipleSelection, currentPage, pageSize, total, availableLevels,
   addUserForm, addUserRules,
-  loadUsers, handleSearch, resetFilters,
+  loadUsers, loadLevelOptions, handleSearch, resetFilters,
   handleSelectionChange, handleBatchDelete, handleBatchEnable, handleBatchDisable,
   handleBatchLevelCommand, handleSetUserLevel,
   getLevelTagType, getUserTypeLabel, getUserTypeTagType,
@@ -235,6 +229,7 @@ const {
 } = useUserManagement()
 
 onMounted(() => {
+  loadLevelOptions()
   loadUsers()
 })
 </script>

@@ -501,8 +501,9 @@ func (s *Service) detectCopySourceResources(ctx context.Context, providerInstanc
 	if providerType == "incus" {
 		cli = "incus"
 	}
+	quotedSourceName := shellSingleQuote(sourceName)
 	cmd := fmt.Sprintf(`cpu="$(%s config get %s limits.cpu 2>/dev/null || true)"; memory="$(%s config get %s limits.memory 2>/dev/null || true)"; disk="$(%s config device get %s root size 2>/dev/null || true)"; if [ -z "$disk" ]; then disk="$(%s config device get %s root limits.max 2>/dev/null || true)"; fi; printf 'cpu=%%s\nmemory=%%s\ndisk=%%s\n' "$cpu" "$memory" "$disk"`,
-		cli, sourceName, cli, sourceName, cli, sourceName, cli, sourceName)
+		cli, quotedSourceName, cli, quotedSourceName, cli, quotedSourceName, cli, quotedSourceName)
 	output, err := providerInstance.ExecuteSSHCommand(ctx, cmd)
 	if err != nil {
 		return 0, 0, 0, err

@@ -304,7 +304,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 					} else {
 						global.APP_LOG.Debug("为导入实例自动生成ORI兑换码",
 							zap.Uint("instanceId", instance.ID),
-							zap.String("code", oriCode))
+							zap.Uint("redemptionCodeID", oriRedemptionCode.ID))
 					}
 				} else {
 					global.APP_LOG.Warn("无法为导入实例生成唯一ORI兑换码",

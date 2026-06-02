@@ -307,6 +307,15 @@ type Provider struct {
 	DiscoveryAutoAdjust  bool `json:"discoveryAutoAdjust" gorm:"default:true"` // 发现时是否自动调整配额
 }
 
+type AdminGroupSetting struct {
+	ID               uint      `json:"id" gorm:"primarykey"`
+	OwnerAdminID     uint      `json:"ownerAdminId" gorm:"uniqueIndex;default:0"`
+	GroupName        string    `json:"groupName" gorm:"size:64;not null"`
+	GroupDescription string    `json:"groupDescription" gorm:"type:text"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
 func (p *Provider) BeforeCreate(tx *gorm.DB) error {
 	p.UUID = uuid.New().String()
 

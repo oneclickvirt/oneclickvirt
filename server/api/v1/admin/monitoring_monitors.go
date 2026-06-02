@@ -498,7 +498,7 @@ func ClearProviderMonitors(c *gin.Context) {
 		).Scan(&p).Error; err == nil {
 			host := agentService.ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 			if host == "" && p.ConnectionType == "agent" {
-				host = "127.0.0.1" // placeholder; actual calls go through WS fallback
+				host = "127.0.0.1" // loopback fallback; calls are routed through WS fallback
 			}
 			if host != "" {
 				port := config.AgentPort

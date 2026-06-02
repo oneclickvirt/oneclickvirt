@@ -82,11 +82,10 @@ onMounted(async () => {
       throw new Error(t('oauth2Callback.noTokenError'))
     }
     
-    // 保存token到localStorage
-    localStorage.setItem('token', token)
+    userStore.setToken(token)
     
     // 获取完整的用户信息
-    await userStore.GetUserInfo()
+    await userStore.fetchUserInfo()
     
     // 显示成功消息
     ElMessage.success(t('oauth2Callback.welcomeBack', { username: username || t('oauth2Callback.user') }))
@@ -96,10 +95,10 @@ onMounted(async () => {
     // 延迟跳转，让用户看到成功提示
     setTimeout(() => {
       // 根据用户类型跳转到相应页面
-      if (userStore.userInfo.userType === 'admin') {
-        router.push('/admin')
+      if (userStore.userType === 'admin' || userStore.userType === 'normal_admin') {
+        router.push('/admin/dashboard')
       } else {
-        router.push('/user')
+        router.push('/user/dashboard')
       }
     }, 1000)
     

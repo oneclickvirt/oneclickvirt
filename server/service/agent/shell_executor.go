@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -188,7 +189,7 @@ func (a *AgentShellExecutor) ExecuteWithLogging(command string, logPrefix string
 	if global.APP_LOG != nil {
 		global.APP_LOG.Debug("Agent命令执行开始",
 			zap.String("log_prefix", logPrefix),
-			zap.String("command", command),
+			zap.String("command", utils.RedactSensitiveCommand(command, 200)),
 			zap.Uint("providerID", a.providerID))
 	}
 	output, err := a.Execute(command)

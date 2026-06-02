@@ -72,7 +72,7 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	host := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
 		if p.ConnectionType == "agent" {
-			host = "127.0.0.1" // placeholder; actual calls go through WS fallback
+			host = "127.0.0.1" // loopback fallback; calls are routed through WS fallback
 		} else {
 			return fmt.Errorf("provider %d has no endpoint", providerID)
 		}

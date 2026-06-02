@@ -17,7 +17,7 @@ import (
 func (c *ContainerdProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture string, useCDN bool) (string, error) {
 	downloadDir := imageDir
 
-	if _, err := c.sshClient.Execute(fmt.Sprintf("mkdir -p %s", downloadDir)); err != nil {
+	if _, err := c.sshClient.Execute(fmt.Sprintf("mkdir -p %s", shellSingleQuote(downloadDir))); err != nil {
 		return "", fmt.Errorf("创建远程下载目录失败: %w", err)
 	}
 
@@ -76,14 +76,14 @@ func (c *ContainerdProvider) generateRemoteFileName(imageName, imageURL, archite
 
 // isRemoteFileValid 检查远程文件是否存在且完整
 func (c *ContainerdProvider) isRemoteFileValid(remotePath string) bool {
-	cmd := fmt.Sprintf("test -f %s -a -s %s", remotePath, remotePath)
+	cmd := fmt.Sprintf("test -f %s -a -s %s", shellSingleQuote(remotePath), shellSingleQuote(remotePath))
 	_, err := c.sshClient.Execute(cmd)
 	return err == nil
 }
 
 // removeRemoteFile 删除远程文件
 func (c *ContainerdProvider) removeRemoteFile(remotePath string) error {
-	_, err := c.sshClient.Execute(fmt.Sprintf("rm -f %s", remotePath))
+	_, err := c.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(remotePath)))
 	return err
 }
 
@@ -91,13 +91,13 @@ func (c *ContainerdProvider) removeRemoteFile(remotePath string) error {
 func (c *ContainerdProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
-		tmpPath, url,
+		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
+		shellSingleQuote(tmpPath), shellSingleQuote(url),
 	)
 
 	output, err := c.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
 	if err != nil {
-		c.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+		c.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
 			zap.String("output", utils.TruncateString(output, 500)),
@@ -105,7 +105,7 @@ func (c *ContainerdProvider) downloadFileToRemote(url, remotePath string) error 
 		return fmt.Errorf("远程下载失败: %w", err)
 	}
 
-	if _, err := c.sshClient.Execute(fmt.Sprintf("mv %s %s", tmpPath, remotePath)); err != nil {
+	if _, err := c.sshClient.Execute(fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))); err != nil {
 		return fmt.Errorf("移动文件失败: %w", err)
 	}
 
@@ -146,12 +146,12 @@ func (c *ContainerdProvider) ensureSSHScriptsAvailable(providerCountry string) e
 			return fmt.Errorf("下载SSH脚本 %s 失败: %w", script, err)
 		}
 
-		chmodCmd := fmt.Sprintf("chmod +x %s", scriptPath)
+		chmodCmd := fmt.Sprintf("chmod +x %s", shellSingleQuote(scriptPath))
 		if _, err := c.sshClient.Execute(chmodCmd); err != nil {
 			return fmt.Errorf("设置SSH脚本 %s 执行权限失败: %w", script, err)
 		}
 
-		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", scriptPath)
+		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", shellSingleQuote(scriptPath))
 		c.sshClient.Execute(dos2unixCmd)
 	}
 
@@ -164,7 +164,7 @@ func (c *ContainerdProvider) getSSHScriptDownloadURL(originalURL, providerCountr
 		cdnEndpoints := utils.GetCDNEndpoints()
 		for _, endpoint := range cdnEndpoints {
 			cdnURL := endpoint + originalURL
-			testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
+			testCmd := fmt.Sprintf("curl -s -I --max-time 5 %s | head -n 1 | grep -q '200'", shellSingleQuote(cdnURL))
 			if _, err := c.sshClient.Execute(testCmd); err == nil {
 				return cdnURL
 			}

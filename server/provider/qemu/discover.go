@@ -49,7 +49,7 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 		}
 
 		// 获取dominfo
-		info, err := p.sshClient.Execute(fmt.Sprintf("virsh dominfo '%s' 2>/dev/null", name))
+		info, err := p.sshClient.Execute(fmt.Sprintf("virsh dominfo %s 2>/dev/null", shellSingleQuote(name)))
 		if err != nil {
 			continue
 		}
@@ -80,7 +80,7 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 
 		// 获取磁盘大小
 		diskOutput, err := p.sshClient.Execute(fmt.Sprintf(
-			"virsh domblkinfo '%s' $(virsh domblklist '%s' 2>/dev/null | awk 'NR>2 && $2!=\"\"{print $2; exit}') 2>/dev/null | grep 'Capacity' | awk '{print $2}'", name, name))
+			"virsh domblkinfo %s $(virsh domblklist %s 2>/dev/null | awk 'NR>2 && $2!=\"\"{print $2; exit}') 2>/dev/null | grep 'Capacity' | awk '{print $2}'", shellSingleQuote(name), shellSingleQuote(name)))
 		if err == nil {
 			if diskBytes, err := strconv.ParseInt(strings.TrimSpace(diskOutput), 10, 64); err == nil {
 				inst.Disk = diskBytes / (1024 * 1024)
@@ -111,7 +111,7 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 
 		// 获取操作系统信息
 		osOutput, err := p.sshClient.Execute(fmt.Sprintf(
-			"virsh dumpxml '%s' 2>/dev/null | grep -oP '<type[^>]*>\\K[^<]+'", name))
+			"virsh dumpxml %s 2>/dev/null | grep -oP '<type[^>]*>\\K[^<]+'", shellSingleQuote(name)))
 		if err == nil {
 			inst.OSType = strings.TrimSpace(osOutput)
 		}

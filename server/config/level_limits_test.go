@@ -136,6 +136,22 @@ func TestValidateLevelLimitsWithDefaults(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			name: "新增等级完整配置 - 应该通过验证",
+			input: map[string]interface{}{
+				"6": map[string]interface{}{
+					"max-instances": 30,
+					"max-traffic":   614400,
+					"max-resources": map[string]interface{}{
+						"cpu":       24,
+						"memory":    12288,
+						"disk":      200000,
+						"bandwidth": 2500,
+					},
+				},
+			},
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -314,6 +330,38 @@ func TestValidateLevelLimitsExpiryDays(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestValidateQuotaDefaultLevelReference(t *testing.T) {
+	cm := &ConfigManager{
+		configCache: map[string]interface{}{
+			"quota.default-level": 1,
+			"quota.level-limits": map[string]interface{}{
+				"1": map[string]interface{}{"max-instances": 1},
+				"2": map[string]interface{}{"max-instances": 3},
+			},
+		},
+	}
+
+	if err := cm.validateQuotaDefaultLevelReference(map[string]interface{}{
+		"quota.default-level": 2,
+	}); err != nil {
+		t.Fatalf("expected configured default level to pass: %v", err)
+	}
+
+	if err := cm.validateQuotaDefaultLevelReference(map[string]interface{}{
+		"quota.default-level": 3,
+	}); err == nil {
+		t.Fatalf("expected missing default level to fail")
+	}
+
+	if err := cm.validateQuotaDefaultLevelReference(map[string]interface{}{
+		"quota.level-limits": map[string]interface{}{
+			"2": map[string]interface{}{"max-instances": 3},
+		},
+	}); err == nil {
+		t.Fatalf("expected removing current default level to fail")
 	}
 }
 

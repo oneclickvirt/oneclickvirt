@@ -97,7 +97,7 @@ func (p *KubeVirtProvider) DiscoverInstances(ctx context.Context) ([]provider.Di
 			if vol.PersistentVolumeClaim != nil {
 				pvcName := vol.PersistentVolumeClaim.ClaimName
 				sizeOutput, err := p.sshClient.Execute(fmt.Sprintf(
-					"kubectl get pvc '%s' -n %s -o jsonpath='{.spec.resources.requests.storage}' 2>/dev/null", pvcName, Namespace))
+					"kubectl get pvc %s -n %s -o jsonpath='{.spec.resources.requests.storage}' 2>/dev/null", shellSingleQuote(pvcName), shellSingleQuote(Namespace)))
 				if err == nil {
 					if diskMB := parseStorageString(strings.TrimSpace(sizeOutput)); diskMB > 0 {
 						inst.Disk = diskMB

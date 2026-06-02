@@ -19,7 +19,7 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate '%s' 2>/dev/null", id))
+	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to check VM status: %w", err)
 	}
@@ -29,7 +29,7 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 		return nil
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh start '%s' 2>&1", id))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh start %s 2>&1", shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Error("QEMU虚拟机启动失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -39,7 +39,7 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 	}
 
 	for i := 0; i < 15; i++ {
-		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate '%s' 2>/dev/null", id))
+		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(id)))
 		if err == nil && strings.Contains(strings.TrimSpace(statusOutput), "running") {
 			return nil
 		}
@@ -57,7 +57,7 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh shutdown '%s' 2>&1", id))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh shutdown %s 2>&1", shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Warn("QEMU虚拟机优雅关机失败，尝试强制关闭",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -66,7 +66,7 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 	}
 
 	for i := 0; i < 15; i++ {
-		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate '%s' 2>/dev/null", id))
+		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(id)))
 		if err == nil {
 			status := strings.ToLower(strings.TrimSpace(statusOutput))
 			if strings.Contains(status, "shut off") || strings.Contains(status, "shutoff") {
@@ -78,7 +78,7 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 		}
 	}
 
-	output, err = p.sshClient.Execute(fmt.Sprintf("virsh destroy '%s' 2>&1", id))
+	output, err = p.sshClient.Execute(fmt.Sprintf("virsh destroy %s 2>&1", shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Error("QEMU虚拟机强制关闭失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -96,7 +96,7 @@ func (p *QEMUProvider) RestartInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate '%s' 2>/dev/null", id))
+	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to check VM status: %w", err)
 	}
@@ -106,12 +106,12 @@ func (p *QEMUProvider) RestartInstance(ctx context.Context, id string) error {
 		return p.StartInstance(ctx, id)
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh reboot '%s' 2>&1", id))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh reboot %s 2>&1", shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Warn("QEMU虚拟机reboot失败，尝试destroy+start",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)))
-		p.sshClient.Execute(fmt.Sprintf("virsh destroy '%s' 2>/dev/null", id))
+		p.sshClient.Execute(fmt.Sprintf("virsh destroy %s 2>/dev/null", shellSingleQuote(id)))
 		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
 			return fmt.Errorf("waiting before fallback start cancelled: %w", err)
 		}
@@ -164,7 +164,7 @@ func (p *QEMUProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	global.APP_LOG.Info("开始删除QEMU虚拟机", zap.String("id", utils.TruncateString(id, 32)))
 
 	// 1. 停止VM
-	p.sshClient.Execute(fmt.Sprintf("virsh destroy '%s' 2>/dev/null", id))
+	p.sshClient.Execute(fmt.Sprintf("virsh destroy %s 2>/dev/null", shellSingleQuote(id)))
 	time.Sleep(1 * time.Second)
 
 	// 2. 获取VM的内网IP（在undefine之前，因为之后信息丢失）
@@ -188,16 +188,19 @@ func (p *QEMUProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	p.removeDHCPReservation(id, vmIP)
 
 	// 5. 删除VM定义和磁盘
-	p.sshClient.Execute(fmt.Sprintf("virsh undefine '%s' --remove-all-storage 2>/dev/null || virsh undefine '%s' 2>/dev/null || true", id, id))
+	p.sshClient.Execute(fmt.Sprintf("virsh undefine %s --remove-all-storage 2>/dev/null || virsh undefine %s 2>/dev/null || true", shellSingleQuote(id), shellSingleQuote(id)))
 
 	// 6. 清除残留文件
-	p.sshClient.Execute(fmt.Sprintf("rm -f %s/vm-%s.qcow2 %s/vm-%s-cloudinit.iso 2>/dev/null", ImageDir, id, ImageDir, id))
+	artifactName := qemuSafeFileComponent(id)
+	p.sshClient.Execute(fmt.Sprintf("rm -f %s %s 2>/dev/null",
+		shellSingleQuote(fmt.Sprintf("%s/vm-%s.qcow2", ImageDir, artifactName)),
+		shellSingleQuote(fmt.Sprintf("%s/vm-%s-cloudinit.iso", ImageDir, artifactName))))
 
 	// 7. 清理 vmlog 记录
 	p.sshClient.Execute(fmt.Sprintf("grep -v '^%s ' /root/vmlog > /root/vmlog.tmp && mv /root/vmlog.tmp /root/vmlog 2>/dev/null || true", utils.SanitizeShellArg(id)))
 
 	// 验证删除
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh dominfo '%s' 2>&1", id))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh dominfo %s 2>&1", shellSingleQuote(id)))
 	if err != nil || strings.Contains(output, "Domain not found") || strings.Contains(output, "failed to get domain") {
 		global.APP_LOG.Info("QEMU虚拟机删除成功", zap.String("id", utils.TruncateString(id, 32)))
 		return nil
@@ -227,16 +230,19 @@ func sleepWithContext(ctx context.Context, duration time.Duration) error {
 func (p *QEMUProvider) removeDHCPReservation(vmName, vmIP string) {
 	// 从 libvirt 网络 XML 获取预留信息
 	dhcpMAC, _ := p.sshClient.Execute(fmt.Sprintf(
-		"virsh net-dumpxml default 2>/dev/null | grep \"name='%s'\" | grep -oP \"mac='[^']+\" | cut -d\"'\" -f2", vmName))
+		"virsh net-dumpxml default 2>/dev/null | grep -F %s | grep -oP \"mac='[^']+\" | cut -d\"'\" -f2",
+		shellSingleQuote("name='"+vmName+"'")))
 	dhcpMAC = strings.TrimSpace(dhcpMAC)
 	dhcpIP, _ := p.sshClient.Execute(fmt.Sprintf(
-		"virsh net-dumpxml default 2>/dev/null | grep \"name='%s'\" | grep -oP \"ip='[^']+\" | cut -d\"'\" -f2", vmName))
+		"virsh net-dumpxml default 2>/dev/null | grep -F %s | grep -oP \"ip='[^']+\" | cut -d\"'\" -f2",
+		shellSingleQuote("name='"+vmName+"'")))
 	dhcpIP = strings.TrimSpace(dhcpIP)
 
 	if dhcpMAC != "" && dhcpIP != "" {
+		hostXML := fmt.Sprintf("<host mac='%s' name='%s' ip='%s' />", dhcpMAC, vmName, dhcpIP)
 		p.sshClient.Execute(fmt.Sprintf(
-			"virsh net-update default delete ip-dhcp-host \"<host mac='%s' name='%s' ip='%s' />\" --live --config 2>/dev/null || "+
-				"virsh net-update default delete ip-dhcp-host \"<host mac='%s' name='%s' ip='%s' />\" --config 2>/dev/null || true",
-			dhcpMAC, vmName, dhcpIP, dhcpMAC, vmName, dhcpIP))
+			"virsh net-update default delete ip-dhcp-host %s --live --config 2>/dev/null || "+
+				"virsh net-update default delete ip-dhcp-host %s --config 2>/dev/null || true",
+			shellSingleQuote(hostXML), shellSingleQuote(hostXML)))
 	}
 }

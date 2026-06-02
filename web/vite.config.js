@@ -48,8 +48,7 @@ export default defineConfig(({ mode }) => {
       },
       terserOptions: {
         compress: {
-          // 暂时保留 console.log 用于调试 Docker 环境中的注册问题
-          drop_console: false,
+          drop_console: mode === 'production',
           drop_debugger: mode === 'production'
         }
       }

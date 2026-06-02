@@ -118,12 +118,9 @@ export const useUserStore = defineStore('user', {
         const response = await getUserInfo()
         if (response.code === 200) {
           const currentUserType = this.userType
-          console.log('获取用户信息成功，当前用户类型:', currentUserType)
-          console.log('API返回的数据结构:', response.data)
           
           // 从 response.data.user 中获取用户类型，如果不存在则使用当前类型
           const userType = response.data.user?.userType || response.data.userType || currentUserType
-          console.log('解析到的用户类型:', userType)
           
           // 合并用户信息，确保包含 userType
           const userData = {
@@ -133,7 +130,6 @@ export const useUserStore = defineStore('user', {
           }
           
           this.setUser(userData)
-          console.log('设置用户信息后的用户类型:', this.userType)
           
           return { success: true }
         } else {
@@ -169,7 +165,6 @@ export const useUserStore = defineStore('user', {
           // 检查用户状态是否发生变化
           const newUserType = response.data.user?.userType || response.data.userType || 'user'
           if (newUserType !== this.userType) {
-            console.log('用户权限发生变化:', this.userType, '->', newUserType)
             this.setUser({ ...response.data.user, userType: newUserType })
           }
           return true
@@ -218,7 +213,6 @@ export const useUserStore = defineStore('user', {
       
       this.viewMode = mode
       sessionStorage.setItem('viewMode', mode)
-      console.log('视图模式已切换为:', mode)
       return true
     },
 

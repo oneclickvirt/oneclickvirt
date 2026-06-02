@@ -39,7 +39,7 @@ func (p *QEMUProvider) DeleteImage(ctx context.Context, id string) error {
 func (p *QEMUProvider) sshListImages(ctx context.Context) ([]provider.Image, error) {
 	// 列出 /var/lib/libvirt/images/ 下的 qcow2 文件
 	output, err := p.sshClient.Execute(fmt.Sprintf(
-		"ls -lh %s/*.qcow2 2>/dev/null | awk '{print $5, $9}'", ImageDir))
+		"ls -lh %s/*.qcow2 2>/dev/null | awk '{print $5, $9}'", shellSingleQuote(ImageDir)))
 	if err != nil {
 		// 目录为空不算错误
 		return []provider.Image{}, nil
@@ -76,19 +76,12 @@ func (p *QEMUProvider) sshPullImage(ctx context.Context, imageURL string) error 
 		return fmt.Errorf("cannot extract filename from URL: %s", imageURL)
 	}
 
-	// Validate URL to prevent command injection
-	for _, ch := range []string{"'", "`", "$", "(", ")", ";", "|", "&", "\n", "\r"} {
-		if strings.Contains(imageURL, ch) {
-			return fmt.Errorf("image URL contains invalid character: %s", ch)
-		}
-	}
-
 	remotePath := fmt.Sprintf("%s/%s", ImageDir, fileName)
 
 	// 使用 singleflight 防止并发下载
 	_, err, _ := p.imageImportGroup.Do(remotePath, func() (interface{}, error) {
 		// 检查是否已存在
-		output, _ := p.sshClient.Execute(fmt.Sprintf("test -f '%s' && echo 'exists'", remotePath))
+		output, _ := p.sshClient.Execute(fmt.Sprintf("test -f %s && echo 'exists'", shellSingleQuote(remotePath)))
 		if strings.TrimSpace(output) == "exists" {
 			global.APP_LOG.Info("镜像已存在，跳过下载",
 				zap.String("path", remotePath))
@@ -96,28 +89,28 @@ func (p *QEMUProvider) sshPullImage(ctx context.Context, imageURL string) error 
 		}
 
 		// 确保目录存在
-		p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", ImageDir))
+		p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", shellSingleQuote(ImageDir)))
 
 		// 下载镜像（使用临时文件+mv模式）
 		tmpPath := remotePath + ".tmp"
-		downloadCmd := fmt.Sprintf("curl -L --connect-timeout 30 --max-time 360 -o '%s' '%s' 2>&1", tmpPath, imageURL)
+		downloadCmd := fmt.Sprintf("curl -L --connect-timeout 30 --max-time 360 -o %s %s 2>&1", shellSingleQuote(tmpPath), shellSingleQuote(imageURL))
 		output, err := p.sshClient.ExecuteWithTimeout(downloadCmd, 1*time.Hour)
 		if err != nil {
 			// 回退到wget
-			downloadCmd = fmt.Sprintf("wget --no-check-certificate --timeout=360 -O '%s' '%s' 2>&1", tmpPath, imageURL)
+			downloadCmd = fmt.Sprintf("wget --no-check-certificate --timeout=360 -O %s %s 2>&1", shellSingleQuote(tmpPath), shellSingleQuote(imageURL))
 			output, err = p.sshClient.ExecuteWithTimeout(downloadCmd, 1*time.Hour)
 			if err != nil {
 				global.APP_LOG.Error("镜像下载失败",
 					zap.String("url", utils.TruncateString(imageURL, 200)),
 					zap.String("output", utils.TruncateString(output, 500)),
 					zap.Error(err))
-				p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", tmpPath))
+				p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 				return nil, fmt.Errorf("failed to download image: %w", err)
 			}
 		}
 
 		// 原子移动
-		_, err = p.sshClient.Execute(fmt.Sprintf("mv '%s' '%s'", tmpPath, remotePath))
+		_, err = p.sshClient.Execute(fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath)))
 		if err != nil {
 			return nil, fmt.Errorf("failed to move image: %w", err)
 		}
@@ -137,7 +130,7 @@ func (p *QEMUProvider) sshDeleteImage(ctx context.Context, id string) error {
 		path = fmt.Sprintf("%s/%s", ImageDir, id)
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("rm -f '%s' 2>&1", path))
+	output, err := p.sshClient.Execute(fmt.Sprintf("rm -f %s 2>&1", shellSingleQuote(path)))
 	if err != nil {
 		return fmt.Errorf("failed to delete image: %s, %w", utils.TruncateString(output, 200), err)
 	}

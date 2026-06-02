@@ -2,10 +2,13 @@ package images
 
 import (
 	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,9 +180,10 @@ func (s *ImageDownloadService) performIntegrityCheck(filePath, imageURL string, 
 		return false
 	}
 
-	// 3. 如果URL包含校验和信息，进行校验
-	if s.checkChecksum(filePath, imageURL) {
-		global.APP_LOG.Debug("文件校验和验证通过", zap.String("filePath", filePath))
+	// 3. 如果URL包含校验和信息，必须通过校验
+	if !s.checkChecksum(filePath, imageURL) {
+		global.APP_LOG.Warn("文件校验和验证失败", zap.String("filePath", filePath))
+		return false
 	}
 
 	// 4. 检查是否为有效的压缩文件格式
@@ -249,11 +253,140 @@ func (s *ImageDownloadService) isValidImageFormat(header []byte) bool {
 	return false
 }
 
-// checkChecksum 检查文件校验和（如果URL中包含校验和信息）
+// checkChecksum 检查文件校验和。未提供校验和时返回 true，保持兼容；
+// 一旦 URL 查询、片段或同路径 .sha256 文件提供了校验和，则必须匹配。
 func (s *ImageDownloadService) checkChecksum(filePath, imageURL string) bool {
-	// TODO: 未来实现从URL或相关的.sha256文件中获取校验和并验证
-	// 目前先返回true，表示没有校验和要求或校验通过
+	algo, expected := s.extractChecksum(imageURL)
+	if expected == "" {
+		return true
+	}
+
+	actual, err := calculateChecksum(filePath, algo)
+	if err != nil {
+		global.APP_LOG.Warn("计算文件校验和失败",
+			zap.String("filePath", filePath),
+			zap.String("algo", algo),
+			zap.Error(err))
+		return false
+	}
+
+	if !strings.EqualFold(actual, expected) {
+		global.APP_LOG.Warn("文件校验和不匹配",
+			zap.String("filePath", filePath),
+			zap.String("algo", algo),
+			zap.String("expected", utils.TruncateString(expected, 16)),
+			zap.String("actual", utils.TruncateString(actual, 16)))
+		return false
+	}
 	return true
+}
+
+func (s *ImageDownloadService) extractChecksum(imageURL string) (string, string) {
+	parsed, err := url.Parse(imageURL)
+	if err == nil {
+		query := parsed.Query()
+		for _, key := range []string{"sha256", "sha256sum", "checksum"} {
+			if algo, value := normalizeChecksum(query.Get(key)); value != "" {
+				return algo, value
+			}
+		}
+		if algo, value := normalizeChecksum(query.Get("md5")); value != "" {
+			return algo, value
+		}
+		if parsed.Fragment != "" {
+			if algo, value := extractChecksumFromText(parsed.Fragment); value != "" {
+				return algo, value
+			}
+		}
+	}
+
+	if checksumText := fetchAdjacentSHA256(imageURL); checksumText != "" {
+		if algo, value := extractChecksumFromText(checksumText); value != "" {
+			return algo, value
+		}
+	}
+	return "", ""
+}
+
+func fetchAdjacentSHA256(imageURL string) string {
+	parsed, err := url.Parse(imageURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return ""
+	}
+
+	client := utils.GetHTTPClientWithTimeout(10 * time.Second)
+	resp, err := client.Get(imageURL + ".sha256")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func extractChecksumFromText(text string) (string, string) {
+	for _, token := range strings.FieldsFunc(text, func(r rune) bool {
+		return r == '&' || r == ';' || r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	}) {
+		if strings.Contains(token, "=") {
+			_, value, _ := strings.Cut(token, "=")
+			if algo, checksum := normalizeChecksum(value); checksum != "" {
+				return algo, checksum
+			}
+			continue
+		}
+		if algo, checksum := normalizeChecksum(token); checksum != "" {
+			return algo, checksum
+		}
+	}
+	return "", ""
+}
+
+func normalizeChecksum(value string) (string, string) {
+	value = strings.Trim(strings.TrimSpace(value), `"'`)
+	value = strings.TrimPrefix(strings.ToLower(value), "sha256:")
+	value = strings.TrimPrefix(value, "md5:")
+	if len(value) != 32 && len(value) != 64 {
+		return "", ""
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		return "", ""
+	}
+	if len(value) == 64 {
+		return "sha256", value
+	}
+	return "md5", value
+}
+
+func calculateChecksum(filePath, algo string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	switch algo {
+	case "sha256":
+		hash := sha256.New()
+		if _, err := io.Copy(hash, file); err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(hash.Sum(nil)), nil
+	case "md5":
+		hash := md5.New()
+		if _, err := io.Copy(hash, file); err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(hash.Sum(nil)), nil
+	default:
+		return "", fmt.Errorf("不支持的校验和算法: %s", algo)
+	}
 }
 
 // validateCompressedFile 验证压缩文件是否完整

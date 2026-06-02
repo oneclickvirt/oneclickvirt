@@ -331,8 +331,6 @@ const handleRegister = async () => {
         // 兼容不同的响应结构：result.data.data 或 result.data
         const responseData = result.data.data || result.data
         
-        console.log('注册成功，准备自动登录. result.success:', result.success, 'result.data:', result.data, 'responseData:', responseData)
-        
         // 检查是否有token和user数据
         const hasToken = responseData && (responseData.token || responseData.accessToken)
         const hasUser = responseData && responseData.user
@@ -353,8 +351,6 @@ const handleRegister = async () => {
           localStorage.setItem('token', token)
           sessionStorage.setItem('token', token)
           
-          console.log('自动登录成功，准备跳转到用户界面. Token:', token, 'User:', responseData.user)
-          
           // 获取用户信息确保完整性
           try {
             await userStore.fetchUserInfo()
@@ -364,7 +360,6 @@ const handleRegister = async () => {
           
           // 根据用户类型跳转到对应的dashboard
           const userType = responseData.user.userType || 'user'
-          console.log('准备跳转, userType:', userType)
           if (userType === 'admin') {
             router.push('/admin/dashboard')
           } else {

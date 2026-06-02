@@ -179,10 +179,7 @@ func syncQuotaConfig(cfg *config.Server, quotaConfig map[string]interface{}) {
 
 	if levelLimits, ok := quotaConfig["level-limits"].(map[string]interface{}); ok {
 		// 创建全新 map，不修改旧 map（copy-on-write 安全）
-		newMap := make(map[int]config.LevelLimitInfo, len(cfg.Quota.LevelLimits)+len(levelLimits))
-		for k, v := range cfg.Quota.LevelLimits {
-			newMap[k] = v
-		}
+		newMap := make(map[int]config.LevelLimitInfo, len(levelLimits))
 		for levelStr, limitData := range levelLimits {
 			if limitMap, ok := limitData.(map[string]interface{}); ok {
 				var level int

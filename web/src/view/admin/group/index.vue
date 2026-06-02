@@ -93,11 +93,9 @@ const onEditorInput = () => {
 }
 
 const onEditorPaste = (e) => {
-  // Allow HTML paste but sanitize
   e.preventDefault()
-  const html = e.clipboardData.getData('text/html')
   const text = e.clipboardData.getData('text/plain')
-  document.execCommand('insertHTML', false, html || text)
+  document.execCommand('insertText', false, text)
 }
 
 const handleSave = async () => {

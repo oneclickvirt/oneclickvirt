@@ -20,24 +20,47 @@ import (
 type AuthService struct{}
 
 func (s *AuthService) Login(req auth.LoginRequest) (*userModel.User, string, error) {
+	return s.LoginWithContext(req, "")
+}
+
+func (s *AuthService) LoginWithContext(req auth.LoginRequest, ip string) (*userModel.User, string, error) {
 	// 根据登录类型调用不同的登录逻辑
 	loginType := req.LoginType
 	if loginType == "" {
 		loginType = "username" // 默认使用用户名密码登录
 	}
 
+	identity := loginThrottleIdentity(req, loginType)
+	if err := globalLoginAttemptThrottle.Check(ip, identity); err != nil {
+		global.APP_LOG.Warn("登录失败次数过多",
+			zap.String("loginType", loginType),
+			zap.String("identity", utils.SanitizeUserInput(identity)),
+			zap.String("ip", ip))
+		return nil, "", err
+	}
+
+	var user *userModel.User
+	var token string
+	var err error
 	switch loginType {
 	case "username":
-		return s.loginWithPassword(req)
+		user, token, err = s.loginWithPassword(req)
 	case "email":
-		return s.loginWithEmailCode(req)
+		user, token, err = s.loginWithEmailCode(req)
 	case "telegram":
-		return s.loginWithTelegramCode(req)
+		user, token, err = s.loginWithTelegramCode(req)
 	case "qq":
-		return s.loginWithQQCode(req)
+		user, token, err = s.loginWithQQCode(req)
 	default:
 		return nil, "", common.NewError(common.CodeInvalidParam, "不支持的登录类型")
 	}
+
+	if err != nil {
+		globalLoginAttemptThrottle.RecordFailure(ip, identity)
+		return nil, "", err
+	}
+	globalLoginAttemptThrottle.ResetIdentity(ip, identity)
+	return user, token, nil
 }
 
 // loginWithPassword 用户名密码登录
@@ -252,22 +275,22 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 	authValidationService := AuthValidationService{}
 	if authValidationService.ShouldCheckCaptcha() {
 		global.APP_LOG.Debug("注册时检查验证码",
-			zap.String("username", req.Username),
+			zap.String("username", utils.SanitizeUserInput(req.Username)),
 			zap.String("captchaId", req.CaptchaId),
-			zap.String("captcha", req.Captcha),
+			zap.Bool("captchaProvided", req.Captcha != ""),
 			zap.Bool("shouldCheck", authValidationService.ShouldCheckCaptcha()),
 			zap.String("env", global.GetAppConfig().System.Env),
 			zap.Bool("captchaEnabled", global.GetAppConfig().Captcha.Enabled))
 		if req.CaptchaId == "" || req.Captcha == "" {
 			global.APP_LOG.Warn("注册验证码参数缺失",
-				zap.String("username", req.Username),
+				zap.String("username", utils.SanitizeUserInput(req.Username)),
 				zap.String("captchaId", req.CaptchaId),
-				zap.String("captcha", req.Captcha))
+				zap.Bool("captchaProvided", req.Captcha != ""))
 			return common.NewError(common.CodeCaptchaRequired, "请填写验证码")
 		}
 	} else {
 		global.APP_LOG.Debug("注册跳过验证码检查",
-			zap.String("username", req.Username),
+			zap.String("username", utils.SanitizeUserInput(req.Username)),
 			zap.String("env", global.GetAppConfig().System.Env),
 			zap.Bool("captchaEnabled", global.GetAppConfig().Captcha.Enabled))
 	}

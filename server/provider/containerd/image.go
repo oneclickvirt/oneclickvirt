@@ -44,7 +44,7 @@ func (c *ContainerdProvider) sshListImages(ctx context.Context) ([]provider.Imag
 
 // sshPullImage 拉取镜像
 func (c *ContainerdProvider) sshPullImage(ctx context.Context, image string) error {
-	pullCmd := fmt.Sprintf("%s pull %s", cliName, image)
+	pullCmd := fmt.Sprintf("%s pull %s", cliName, shellSingleQuote(image))
 	output, err := c.sshClient.Execute(pullCmd)
 	if err != nil {
 		global.APP_LOG.Error("Containerd镜像拉取失败",
@@ -59,7 +59,7 @@ func (c *ContainerdProvider) sshPullImage(ctx context.Context, image string) err
 
 // sshDeleteImage 删除镜像
 func (c *ContainerdProvider) sshDeleteImage(ctx context.Context, id string) error {
-	_, err := c.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, id))
+	_, err := c.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to delete image: %w", err)
 	}
@@ -71,7 +71,7 @@ func (c *ContainerdProvider) sshDeleteImage(ctx context.Context, id string) erro
 // nerdctl load 不支持 -i 参数，需使用 --input=<path> 或 stdin 重定向
 func (c *ContainerdProvider) loadImageToContainerd(imagePath, targetImageName string) error {
 	// 使用 nerdctl load --input=<path>，这是 nerdctl 正确的语法（不同于 docker/podman 的 -i）
-	loadCmd := fmt.Sprintf("%s load --input=%s", cliName, imagePath)
+	loadCmd := fmt.Sprintf("%s load --input=%s", cliName, shellSingleQuote(imagePath))
 	output, err := c.sshClient.Execute(loadCmd)
 	if err != nil {
 		global.APP_LOG.Error("Containerd镜像加载失败",
@@ -109,12 +109,12 @@ func (c *ContainerdProvider) loadImageToContainerd(imagePath, targetImageName st
 	// 如果加载的镜像名与目标名不同，进行打标操作
 	if loadedImageName != "" && loadedImageName != targetImageName {
 		// nerdctl 会自动添加 docker.io/ 前缀，这里需要同时处理带和不带前缀的情况
-		tagCmd := fmt.Sprintf("%s tag %s %s", cliName, loadedImageName, targetImageName)
+		tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(loadedImageName), shellSingleQuote(targetImageName))
 		_, err = c.sshClient.Execute(tagCmd)
 		if err != nil {
 			// 尝试不带 docker.io/ 前缀的名字来打标
 			shortName := strings.TrimPrefix(loadedImageName, "docker.io/")
-			tagCmd2 := fmt.Sprintf("%s tag %s %s", cliName, shortName, targetImageName)
+			tagCmd2 := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(shortName), shellSingleQuote(targetImageName))
 			_, err2 := c.sshClient.Execute(tagCmd2)
 			if err2 != nil {
 				return fmt.Errorf("failed to tag image from %s to %s: %w", loadedImageName, targetImageName, err)
@@ -131,7 +131,7 @@ func (c *ContainerdProvider) loadImageToContainerd(imagePath, targetImageName st
 
 // cleanupContainerdImage 清理Containerd镜像
 func (c *ContainerdProvider) cleanupContainerdImage(imageName string) {
-	c.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, imageName))
+	c.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(imageName)))
 	c.sshClient.Execute(fmt.Sprintf("%s image prune -f", cliName))
 }
 
@@ -154,7 +154,7 @@ func (c *ContainerdProvider) imageExists(imageName string) bool {
 		imageName,
 	}
 	for _, name := range checks {
-		output, err := c.sshClient.Execute(fmt.Sprintf("%s images --format '{{.Repository}}:{{.Tag}}' | grep -Fx '%s'", cliName, name))
+		output, err := c.sshClient.Execute(fmt.Sprintf("%s images --format '{{.Repository}}:{{.Tag}}' | grep -Fx %s", cliName, shellSingleQuote(name)))
 		if err == nil && strings.TrimSpace(output) != "" {
 			return true
 		}

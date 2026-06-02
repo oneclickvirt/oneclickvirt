@@ -219,14 +219,11 @@ func OAuth2Callback(c *gin.Context) {
                 var redirectURL = frontendURL + '?oauth2_token=' + encodeURIComponent(token) + 
                                   '&username=' + encodeURIComponent(username);
                 
-                console.log('OAuth2跳转到:', redirectURL);
-                
                 // 延迟跳转，让用户看到成功提示
                 setTimeout(function() {
                     window.location.href = redirectURL;
                 }, 500);
             } catch (err) {
-                console.error('OAuth2回调处理失败:', err);
                 alert('登录处理失败: ' + err.message);
             }
         })();

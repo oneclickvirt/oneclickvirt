@@ -44,7 +44,7 @@ func (p *PodmanProvider) sshListImages(ctx context.Context) ([]provider.Image, e
 
 // sshPullImage 拉取镜像
 func (p *PodmanProvider) sshPullImage(ctx context.Context, image string) error {
-	pullCmd := fmt.Sprintf("%s pull %s", cliName, image)
+	pullCmd := fmt.Sprintf("%s pull %s", cliName, shellSingleQuote(image))
 	output, err := p.sshClient.Execute(pullCmd)
 	if err != nil {
 		global.APP_LOG.Error("Podman镜像拉取失败",
@@ -59,7 +59,7 @@ func (p *PodmanProvider) sshPullImage(ctx context.Context, image string) error {
 
 // sshDeleteImage 删除镜像
 func (p *PodmanProvider) sshDeleteImage(ctx context.Context, id string) error {
-	_, err := p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, id))
+	_, err := p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to delete image: %w", err)
 	}
@@ -70,7 +70,7 @@ func (p *PodmanProvider) sshDeleteImage(ctx context.Context, id string) error {
 // loadImageToPodman 加载镜像到Podman
 // Podman 加载本地 tar 后镜像统一存储在 localhost/ 命名空间下
 func (p *PodmanProvider) loadImageToPodman(imagePath, targetImageName string) error {
-	loadCmd := fmt.Sprintf("%s load -i %s", cliName, imagePath)
+	loadCmd := fmt.Sprintf("%s load -i %s", cliName, shellSingleQuote(imagePath))
 	output, err := p.sshClient.Execute(loadCmd)
 	if err != nil {
 		global.APP_LOG.Error("Podman镜像加载失败",
@@ -96,7 +96,7 @@ func (p *PodmanProvider) loadImageToPodman(imagePath, targetImageName string) er
 	normalizedTarget := normalizePodmanImageName(targetImageName)
 
 	if loadedImageName != "" && loadedImageName != normalizedTarget {
-		tagCmd := fmt.Sprintf("%s tag %s %s", cliName, loadedImageName, normalizedTarget)
+		tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(loadedImageName), shellSingleQuote(normalizedTarget))
 		_, err = p.sshClient.Execute(tagCmd)
 		if err != nil {
 			return fmt.Errorf("failed to tag image from %s to %s: %w", loadedImageName, normalizedTarget, err)
@@ -112,10 +112,10 @@ func (p *PodmanProvider) loadImageToPodman(imagePath, targetImageName string) er
 // cleanupPodmanImage 清理Podman镜像
 func (p *PodmanProvider) cleanupPodmanImage(imageName string) {
 	normalized := normalizePodmanImageName(imageName)
-	p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, normalized))
+	p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(normalized)))
 	// 也清理不带前缀的名称
 	if normalized != imageName {
-		p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, imageName))
+		p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(imageName)))
 	}
 	p.sshClient.Execute(fmt.Sprintf("%s image prune -f", cliName))
 }
@@ -125,12 +125,12 @@ func (p *PodmanProvider) cleanupPodmanImage(imageName string) {
 func (p *PodmanProvider) imageExists(imageName string) bool {
 	normalized := normalizePodmanImageName(imageName)
 	// 使用 podman image exists 直接检查，避免 grep 匹配不一致
-	_, err := p.sshClient.Execute(fmt.Sprintf("%s image exists %s", cliName, normalized))
+	_, err := p.sshClient.Execute(fmt.Sprintf("%s image exists %s", cliName, shellSingleQuote(normalized)))
 	if err == nil {
 		return true
 	}
 	// 回退检查不带 localhost/ 前缀的名称
-	_, err = p.sshClient.Execute(fmt.Sprintf("%s image exists %s", cliName, imageName))
+	_, err = p.sshClient.Execute(fmt.Sprintf("%s image exists %s", cliName, shellSingleQuote(imageName)))
 	return err == nil
 }
 

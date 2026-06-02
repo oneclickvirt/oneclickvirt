@@ -1,11 +1,22 @@
 package containerd
 
 import (
+	"regexp"
+	"strings"
+
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func containerNameFilter(name string) string {
+	return shellSingleQuote("name=^" + regexp.QuoteMeta(name) + "$")
+}
 
 // getDownloadURL 确定下载URL
 func (c *ContainerdProvider) getDownloadURL(originalURL, providerCountry string, useCDN bool) string {

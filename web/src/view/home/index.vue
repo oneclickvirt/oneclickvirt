@@ -686,9 +686,7 @@ const fetchPublicStats = async () => {
 const checkInitStatus = async () => {
   try {
     const response = await checkSystemInit()
-    console.log(t('home.debug.checkingInit'), response)
     if (response && (response.code === 200) && response.data && response.data.needInit === true) {
-      console.log(t('home.debug.needInitRedirect'))
       router.push('/init')
     }
   } catch (error) {
@@ -704,11 +702,6 @@ const checkInitStatus = async () => {
 }
 
 onMounted(() => {
-  console.log('VITE_BASE_API:', import.meta.env.VITE_BASE_API)
-  console.log('VITE_BASE_PATH:', import.meta.env.VITE_BASE_PATH)
-  console.log('VITE_SERVER_PORT:', import.meta.env.VITE_SERVER_PORT)
-  console.log('All env vars:', import.meta.env)
-  
   // 首先检查初始化状态
   checkInitStatus()
   // 然后获取公告

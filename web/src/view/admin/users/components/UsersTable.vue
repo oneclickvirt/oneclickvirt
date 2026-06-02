@@ -126,20 +126,12 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item :command="1">
-                  {{ $t('admin.users.setToLevel', { level: 1 }) }}
-                </el-dropdown-item>
-                <el-dropdown-item :command="2">
-                  {{ $t('admin.users.setToLevel', { level: 2 }) }}
-                </el-dropdown-item>
-                <el-dropdown-item :command="3">
-                  {{ $t('admin.users.setToLevel', { level: 3 }) }}
-                </el-dropdown-item>
-                <el-dropdown-item :command="4">
-                  {{ $t('admin.users.setToLevel', { level: 4 }) }}
-                </el-dropdown-item>
-                <el-dropdown-item :command="5">
-                  {{ $t('admin.users.setToLevel', { level: 5 }) }}
+                <el-dropdown-item
+                  v-for="level in availableLevels"
+                  :key="level"
+                  :command="level"
+                >
+                  {{ $t('admin.users.setToLevel', { level }) }}
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -181,20 +173,17 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
+import { getLevelTagType } from '@/utils/levels'
 
 defineProps({
   users: { type: Array, default: () => [] },
-  loading: { type: Boolean, default: false }
+  loading: { type: Boolean, default: false },
+  availableLevels: { type: Array, default: () => [1, 2, 3, 4, 5] }
 })
 
 defineEmits(['selection-change', 'edit', 'set-user-level', 'set-expiry', 'toggle-status', 'reset-password', 'login-as'])
 
 const { t, locale } = useI18n()
-
-const getLevelTagType = (level) => {
-  const typeMap = { 1: '', 2: 'success', 3: 'info', 4: 'warning', 5: 'danger' }
-  return typeMap[level] || ''
-}
 
 const getUserTypeLabel = (userType) => {
   const labelMap = {

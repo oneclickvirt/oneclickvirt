@@ -148,24 +148,10 @@
               style="width: 100%"
             >
               <el-option
-                :label="$t('admin.users.levelTag', { level: 1 })"
-                :value="1"
-              />
-              <el-option
-                :label="$t('admin.users.levelTag', { level: 2 })"
-                :value="2"
-              />
-              <el-option
-                :label="$t('admin.users.levelTag', { level: 3 })"
-                :value="3"
-              />
-              <el-option
-                :label="$t('admin.users.levelTag', { level: 4 })"
-                :value="4"
-              />
-              <el-option
-                :label="$t('admin.users.levelTag', { level: 5 })"
-                :value="5"
+                v-for="level in availableLevels"
+                :key="level"
+                :label="$t('admin.users.levelTag', { level })"
+                :value="level"
               />
             </el-select>
           </el-form-item>
@@ -200,6 +186,7 @@ defineProps({
   isEditing: { type: Boolean, default: false },
   addUserForm: { type: Object, required: true },
   addUserRules: { type: Object, required: true },
+  availableLevels: { type: Array, default: () => [1, 2, 3, 4, 5] },
   loading: { type: Boolean, default: false }
 })
 

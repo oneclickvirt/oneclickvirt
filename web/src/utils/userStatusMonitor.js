@@ -28,8 +28,6 @@ class UserStatusMonitor {
     this.checkInterval = setInterval(() => {
       this.checkUserStatus()
     }, this.checkIntervalTime)
-
-    console.log('用户状态监控已启动')
   }
 
   /**
@@ -39,7 +37,6 @@ class UserStatusMonitor {
     if (this.checkInterval) {
       clearInterval(this.checkInterval)
       this.checkInterval = null
-      console.log('用户状态监控已停止')
     }
   }
 

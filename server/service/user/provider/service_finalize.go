@@ -279,6 +279,13 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 
 			// 资源预留已在创建时被原子化消费，无需额外释放
+			if err := tx.Model(&providerModel.ProviderIPv4Pool{}).
+				Where("instance_id = ?", instance.ID).
+				Updates(map[string]interface{}{"is_allocated": false, "instance_id": nil}).Error; err != nil {
+				global.APP_LOG.Warn("释放失败实例IPv4池地址失败",
+					zap.Uint("instanceId", instance.ID),
+					zap.Error(err))
+			}
 
 			// 更新任务状态为失败；若管理员已强制取消，保留取消终态。
 			if err := tx.Model(&adminModel.Task{}).
@@ -383,8 +390,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 			global.APP_LOG.Debug("开始执行实例创建后处理任务", zap.Uint("instanceId", instanceID))
 
-			// 更新进度到75% (等待实例SSH服务就绪)
-			s.updateTaskProgress(taskID, 75, "step.waitingSSHReady")
+			// 长耗时等待阶段单独占用 70-82%，避免 VM cloud-init/SSH 等待时进度条长期卡在小区间。
+			s.updateTaskProgress(taskID, 70, "step.waitingSSHReady")
 			// 根据Provider类型确定SSH等待时长：QEMU/KubeVirt虚拟机启动慢，需要更长等待
 			sshWaitTimeout := 120 * time.Second
 			var dbProviderForWait providerModel.Provider
@@ -403,7 +410,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 
 			// 智能等待实例SSH服务就绪，传入taskID以便更新进度
-			if err := s.waitForInstanceSSHReady(taskCtx, instanceID, providerID, taskID, sshWaitTimeout); err != nil {
+			if err := s.waitForInstanceSSHReadyInRange(taskCtx, instanceID, providerID, taskID, sshWaitTimeout, 70, 82); err != nil {
 				global.APP_LOG.Warn("等待实例SSH就绪超时",
 					zap.Uint("instanceId", instanceID),
 					zap.Error(err))
@@ -416,8 +423,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					zap.Error(err))
 			}
 
-			// 更新进度到80% (配置端口映射)
-			s.updateTaskProgress(taskID, 80, "step.configuringPortMappings")
+			// 更新进度到84% (配置端口映射)
+			s.updateTaskProgress(taskID, 84, "step.configuringPortMappings")
 			// 创建默认端口映射（对于非Docker或需要补充端口映射的情况）
 			portMappingService := &resources.PortMappingService{}
 
@@ -439,8 +446,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					zap.Int("existingPortCount", len(existingPorts)))
 			}
 
-			// 更新进度到85% (验证监控状态)
-			s.updateTaskProgress(taskID, 85, "step.verifyingMonitorStatus")
+			// 更新进度到87% (验证监控状态)
+			s.updateTaskProgress(taskID, 87, "step.verifyingMonitorStatus")
 			// 2. 验证pmacct监控状态（所有 Provider 在创建实例时已经初始化）
 			// Docker/Incus/LXD/Proxmox Provider 在实例创建流程中都已调用 InitializePmacctForInstance
 			// 后处理任务只需验证监控是否存在，避免重复初始化导致数据库约束冲突
@@ -513,7 +520,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 				// 密码设置成功后，验证SSH密码认证是否真正可用
 				if passwordSetSuccess {
-					s.updateTaskProgress(taskID, 92, "step.verifyingSSHPassword")
+					s.updateTaskProgress(taskID, 93, "step.verifyingSSHPassword")
 					var sshVerifyProvider providerModel.Provider
 					if err := global.APP_DB.First(&sshVerifyProvider, providerID).Error; err == nil {
 						verifyHost := sshVerifyProvider.PortIP

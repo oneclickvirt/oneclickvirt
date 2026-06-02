@@ -30,7 +30,7 @@
         style="width: 200px"
       >
         <el-option
-          v-for="level in 5"
+          v-for="level in levelKeys"
           :key="level"
           :label="$t('admin.config.levelN', { level })"
           :value="level"
@@ -39,13 +39,22 @@
     </el-form-item>
 
     <el-divider content-position="left">
-      {{ $t('admin.config.levelLimitsConfig') }}
+      <div class="divider-title">
+        <span>{{ $t('admin.config.levelLimitsConfig') }}</span>
+        <el-button
+          type="primary"
+          size="small"
+          @click="addLevel"
+        >
+          {{ $t('admin.config.addLevel') }}
+        </el-button>
+      </div>
     </el-divider>
 
     <!-- 等级限制配置 -->
     <el-row :gutter="15">
       <el-col
-        v-for="level in 5"
+        v-for="level in levelKeys"
         :key="level"
         :span="24"
         style="margin-bottom: 15px;"
@@ -58,13 +67,24 @@
           <template #header>
             <div class="level-header">
               <span class="level-title">{{ $t('admin.config.levelNLimits', { level }) }}</span>
-              <el-tag
-                v-if="config.quota.defaultLevel === level"
-                type="success"
-                size="small"
-              >
-                {{ $t('admin.config.defaultLevel') }}
-              </el-tag>
+              <div class="level-actions">
+                <el-tag
+                  v-if="config.quota.defaultLevel === level"
+                  type="success"
+                  size="small"
+                >
+                  {{ $t('admin.config.defaultLevel') }}
+                </el-tag>
+                <el-button
+                  size="small"
+                  type="danger"
+                  text
+                  :disabled="levelKeys.length <= 1 || config.quota.defaultLevel === level"
+                  @click="removeLevel(level)"
+                >
+                  {{ $t('common.delete') }}
+                </el-button>
+              </div>
             </div>
           </template>
           <el-row :gutter="20">
@@ -165,10 +185,32 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
+import { DEFAULT_QUOTA_LEVEL_LIMITS, buildDefaultLevelLimit, getSortedLevelKeys } from '@/utils/levels'
+
+const { t } = useI18n()
+
+const props = defineProps({
   config: { type: Object, required: true },
   loading: { type: Boolean, default: false }
 })
+
+const levelKeys = computed(() => getSortedLevelKeys(props.config.quota.levelLimits))
+
+const addLevel = () => {
+  const nextLevel = (levelKeys.value.at(-1) || 0) + 1
+  const previousLevel = levelKeys.value.at(-1)
+  props.config.quota.levelLimits[nextLevel] = buildDefaultLevelLimit(nextLevel, props.config.quota.levelLimits[previousLevel], DEFAULT_QUOTA_LEVEL_LIMITS)
+  ElMessage.success(t('admin.config.levelAdded', { level: nextLevel }))
+}
+
+const removeLevel = (level) => {
+  if (props.config.quota.defaultLevel === level || levelKeys.value.length <= 1) return
+  delete props.config.quota.levelLimits[level]
+  ElMessage.success(t('admin.config.levelRemoved', { level }))
+}
 </script>
 
 <style scoped>
@@ -189,6 +231,16 @@ defineProps({
 }
 .level-title {
   font-weight: 500;
+}
+.divider-title,
+.level-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.divider-title {
+  justify-content: space-between;
+  width: 100%;
 }
 .form-item-hint {
   font-size: 12px;

@@ -16,6 +16,8 @@ import {
 } from '@/api/admin'
 import { adminLoginAsUser } from '@/api/features'
 import { containsUnsafeUsernameContent } from '@/utils/validate'
+import { getAdminConfig } from '@/api/config'
+import { getSortedLevelKeys, getLevelTagType } from '@/utils/levels'
 
 export function useUserManagement() {
   const { t, locale } = useI18n()
@@ -68,6 +70,7 @@ export function useUserManagement() {
 
   // 批量选择相关
   const multipleSelection = ref([])
+  const availableLevels = ref([1, 2, 3, 4, 5])
 
   // 分页
   const currentPage = ref(1)
@@ -140,6 +143,21 @@ export function useUserManagement() {
       ElMessage.error(t('admin.users.loadUsersFailed'))
     } finally {
       loading.value = false
+    }
+  }
+
+  const loadLevelOptions = async () => {
+    try {
+      const response = await getAdminConfig()
+      const levels = getSortedLevelKeys(response.data?.quota?.levelLimits || {})
+      if (levels.length > 0) {
+        availableLevels.value = levels
+        if (!levels.includes(Number(addUserForm.level))) {
+          addUserForm.level = levels[0]
+        }
+      }
+    } catch (error) {
+      availableLevels.value = [1, 2, 3, 4, 5]
     }
   }
 
@@ -271,11 +289,6 @@ export function useUserManagement() {
   }
 
   // 格式化/标签辅助函数
-  const getLevelTagType = (level) => {
-    const typeMap = { 1: '', 2: 'success', 3: 'info', 4: 'warning', 5: 'danger' }
-    return typeMap[level] || ''
-  }
-
   const getUserTypeLabel = (userType) => {
     const labelMap = {
       'user': t('admin.users.normalUser'),
@@ -294,6 +307,7 @@ export function useUserManagement() {
   const handleAddUser = () => {
     isEditing.value = false
     cancelAddUser()
+    addUserForm.level = availableLevels.value[0] || 1
     showAddDialog.value = true
   }
 
@@ -328,7 +342,7 @@ export function useUserManagement() {
       email: '',
       phone: '',
       userType: 'user',
-      level: 1,
+      level: availableLevels.value[0] || 1,
       totalQuota: 0,
       status: 1
     })
@@ -525,10 +539,10 @@ export function useUserManagement() {
     showResetPasswordDialog, resetPasswordForm, resetPasswordLoading, generatedPassword,
     showSetExpiryDialog, freezeLoading, freezeForm,
     searchUsername, searchStatus, searchUserType,
-    multipleSelection, currentPage, pageSize, total,
+    multipleSelection, currentPage, pageSize, total, availableLevels,
     addUserForm, addUserRules,
     // Methods
-    loadUsers, handleSearch, resetFilters,
+    loadUsers, loadLevelOptions, handleSearch, resetFilters,
     handleSelectionChange, handleBatchDelete, handleBatchEnable, handleBatchDisable,
     handleBatchLevelCommand, handleSetUserLevel,
     getLevelTagType, getUserTypeLabel, getUserTypeTagType,

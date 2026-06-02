@@ -129,6 +129,9 @@ func (s *Service) CreateUser(req admin.CreateUserRequest) error {
 			zap.String("username", utils.TruncateString(req.Username, 32)))
 		return errors.New("密码不能为空")
 	}
+	if err := validateConfiguredUserLevel(req.Level); err != nil {
+		return common.NewError(common.CodeValidationError, err.Error())
+	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -253,6 +256,9 @@ func (s *Service) UpdateUser(req admin.UpdateUserRequest, currentUserID uint) er
 		user.QQ = req.QQ
 	}
 	if req.Level > 0 {
+		if err := validateConfiguredUserLevel(req.Level); err != nil {
+			return common.NewError(common.CodeValidationError, err.Error())
+		}
 		user.Level = req.Level
 	}
 	if req.TotalQuota >= 0 {

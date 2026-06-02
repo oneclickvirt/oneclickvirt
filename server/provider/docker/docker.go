@@ -462,7 +462,7 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 	}
 
 	// 使用简单的分隔符格式获取信息，避免table格式的解析问题
-	output, err := d.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}|{{.Created}}'", d.runtime.CLI, id), "DOCKER_INSPECT")
+	output, err := d.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}|{{.Created}}'", d.runtime.CLI, shellSingleQuote(id)), "DOCKER_INSPECT")
 	if err != nil {
 		global.APP_LOG.Debug("Docker inspect命令执行失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -521,7 +521,7 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 // enrichInstanceWithNetworkInfo 补充单个实例的网络信息
 func (d *DockerProvider) enrichInstanceWithNetworkInfo(instance *provider.Instance) {
 	// 1. 获取容器的内网IP地址
-	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, instance.Name)
+	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 	output, err := d.sshClient.Execute(cmd)
 	if err == nil {
 		ipAddress := strings.TrimSpace(output)
@@ -536,7 +536,7 @@ func (d *DockerProvider) enrichInstanceWithNetworkInfo(instance *provider.Instan
 
 	// 2. 获取容器对应的宿主机veth接口
 	vethCmd := fmt.Sprintf(`
-CONTAINER_NAME='%s'
+CONTAINER_NAME=%s
 CONTAINER_PID=$(%s inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
 if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
     exit 1
@@ -549,7 +549,7 @@ VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': '
 if [ -n "$VETH_NAME" ]; then
     echo "$VETH_NAME"
 fi
-`, instance.Name, d.runtime.CLI)
+`, shellSingleQuote(instance.Name), d.runtime.CLI)
 
 	vethOutput, err := d.sshClient.Execute(vethCmd)
 	if err == nil {
@@ -567,7 +567,7 @@ fi
 
 	// 如果没有获取到PrivateIP，尝试使用旧方法获取
 	if instance.PrivateIP == "" {
-		cmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, instance.Name)
+		cmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 		output, err := d.sshClient.Execute(cmd)
 		if err == nil {
 			ipAddress := strings.TrimSpace(output)
@@ -582,11 +582,11 @@ fi
 	}
 
 	// 3. 检查容器是否连接到 IPv6 网络，如果是则获取IPv6地址
-	checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", d.runtime.CLI, instance.Name)
+	checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 	networksOutput, err := d.sshClient.Execute(checkIPv6Cmd)
 	if err == nil && strings.Contains(networksOutput, d.runtime.IPv6Network) {
 		// 容器连接到了 IPv6 网络，获取IPv6地址
-		cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", d.runtime.CLI, instance.Name)
+		cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 		output, err = d.sshClient.Execute(cmd)
 		if err == nil {
 			ipv6Address := strings.TrimSpace(output)
@@ -607,7 +607,7 @@ func (d *DockerProvider) checkIPv6NetworkAvailable() bool {
 	}
 
 	// 检查 IPv6 网络是否存在
-	_, err := d.sshClient.Execute(fmt.Sprintf("%s network inspect %s", d.runtime.CLI, d.runtime.IPv6Network))
+	_, err := d.sshClient.Execute(fmt.Sprintf("%s network inspect %s", d.runtime.CLI, shellSingleQuote(d.runtime.IPv6Network)))
 	if err != nil {
 		global.APP_LOG.Debug("IPv6网络检查失败: 网络不存在",
 			zap.String("provider", d.config.Name),
@@ -655,12 +655,12 @@ func (d *DockerProvider) ExecuteSSHCommand(ctx context.Context, command string) 
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
-		zap.String("command", utils.TruncateString(command, 200)))
+		zap.String("command", utils.RedactSensitiveCommand(command, 200)))
 
 	output, err := d.sshClient.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
-			zap.String("command", utils.TruncateString(command, 200)),
+			zap.String("command", utils.RedactSensitiveCommand(command, 200)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
 		return "", fmt.Errorf("SSH command execution failed: %w", err)

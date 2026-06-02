@@ -54,8 +54,6 @@ export function setupRouterGuards(router) {
     const oauth2Username = urlParams.get('username')
     
     if (oauth2Token) {
-      console.log('从URL参数中检测到OAuth2 token，开始处理...')
-      
       // 保存token到sessionStorage（不使用localStorage避免XSS token泄露）
       sessionStorage.setItem('token', oauth2Token)
       userStore.setToken(oauth2Token)
@@ -70,20 +68,11 @@ export function setupRouterGuards(router) {
       
       // 获取用户信息
       try {
-        console.log('正在获取用户信息...')
         await userStore.fetchUserInfo()
-        
-        console.log('OAuth2登录成功，用户信息已加载:', {
-          user: userStore.user,
-          userType: userStore.userType,
-          viewMode: userStore.viewMode,
-          userInfo: userStore.userInfo
-        })
         
         // 根据用户类型和视图模式跳转到相应页面
         const userType = userStore.userType
         const viewMode = userStore.viewMode || userType
-        console.log('OAuth2登录完成，用户类型:', userType, '视图模式:', viewMode)
         
         // 只有管理员可以访问管理员界面，且只有管理员可以切换视图
         if ((userType === 'admin' || userType === 'normal_admin') && (viewMode === 'admin' || viewMode === 'normal_admin')) {
@@ -104,15 +93,6 @@ export function setupRouterGuards(router) {
         return
       }
     }
-    
-    console.log('路由守卫检查:', {
-      to: to.path,
-      from: from.path,
-      hasUserStoreToken: !!userStore.token,
-      hasLocalStorageToken: !!localStorage.getItem('token'),
-      hasUser: !!userStore.user,
-      userType: userStore.userType
-    })
     
     // OAuth2登录后token处理：如果sessionStorage有token但userStore没有，则同步
     if (!userStore.token && sessionStorage.getItem('token')) {
@@ -155,7 +135,6 @@ export function setupRouterGuards(router) {
     
     // 重新获取token（OAuth2同步后）
     const token = userStore.token || sessionStorage.getItem('token')
-    console.log('最终token检查:', !!token)
     
     // 检查系统初始化状态（使用缓存，避免每次导航都请求API）
     if (to.name !== 'SystemInit') {
@@ -183,7 +162,6 @@ export function setupRouterGuards(router) {
     
     if (to.meta.requiresAuth || !whiteList.includes(to.path)) {
       if (!token) {
-        console.log('需要认证但无token，跳转到首页')
         next('/home')
         return
       }
@@ -207,7 +185,6 @@ export function setupRouterGuards(router) {
           try {
             const isValid = await userStore.checkUserStatus()
             if (!isValid) {
-              console.log('用户状态验证失败，跳转到首页')
               next('/home')
               return
             }
@@ -222,7 +199,6 @@ export function setupRouterGuards(router) {
       
       // 严格检查：普通用户不能访问管理员路由（normal_admin可以）
       if (to.path.startsWith('/admin/') && userStore.userType !== 'admin' && userStore.userType !== 'normal_admin') {
-        console.log('普通用户尝试访问管理员页面，拒绝访问')
         ElMessage.warning(i18n.global.t('navbar.noPermission'))
         next('/user/dashboard')
         return
@@ -231,7 +207,6 @@ export function setupRouterGuards(router) {
       // 超级管理员专属页面：normal_admin 不能访问
       const superAdminOnlyPaths = ['/admin/users', '/admin/config', '/admin/performance', '/admin/logs', '/admin/oauth2-providers', '/admin/invite-codes', '/admin/announcements']
       if (userStore.userType === 'normal_admin' && superAdminOnlyPaths.some(p => to.path.startsWith(p))) {
-        console.log('普通管理员尝试访问超管专属页面，拒绝访问')
         ElMessage.warning(i18n.global.t('navbar.noPermission'))
         next('/admin/dashboard')
         return
@@ -244,7 +219,6 @@ export function setupRouterGuards(router) {
         const hasAccess = userRole === 'admin' || userRole === 'normal_admin' || to.meta.roles.includes(userRole)
         
         if (!hasAccess) {
-          console.log('用户角色不匹配，当前角色:', userRole, '需要角色:', to.meta.roles)
           // 根据用户类型跳转到相应的首页
           if (userRole === 'admin') {
             next('/admin/dashboard')

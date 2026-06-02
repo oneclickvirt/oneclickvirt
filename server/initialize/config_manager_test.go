@@ -34,6 +34,33 @@ func TestSyncQuotaConfigExpiryDays(t *testing.T) {
 	}
 }
 
+func TestSyncQuotaConfigReplacesLevelLimits(t *testing.T) {
+	cfg := &config.Server{
+		Quota: config.Quota{
+			LevelLimits: map[int]config.LevelLimitInfo{
+				1: {MaxInstances: 1},
+				2: {MaxInstances: 3},
+			},
+		},
+	}
+
+	syncQuotaConfig(cfg, map[string]interface{}{
+		"level-limits": map[string]interface{}{
+			"2": map[string]interface{}{
+				"max-instances": 4,
+				"max-traffic":   204800,
+			},
+		},
+	})
+
+	if _, ok := cfg.Quota.LevelLimits[1]; ok {
+		t.Fatalf("expected removed level 1 to be absent after full level-limits sync")
+	}
+	if got := cfg.Quota.LevelLimits[2].MaxInstances; got != 4 {
+		t.Fatalf("level 2 MaxInstances: want 4, got %d", got)
+	}
+}
+
 func TestGetDefaultConfigCaptchaDisabled(t *testing.T) {
 	cfg := getDefaultConfig()
 

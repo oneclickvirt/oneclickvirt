@@ -2,12 +2,22 @@ package podman
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func containerNameFilter(name string) string {
+	return shellSingleQuote("name=^" + regexp.QuoteMeta(name) + "$")
+}
 
 // getDownloadURL 确定下载URL
 func (p *PodmanProvider) getDownloadURL(originalURL, providerCountry string, useCDN bool) string {

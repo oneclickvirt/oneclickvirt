@@ -549,7 +549,7 @@ func (s *Service) applyBlockRulesToProvider(ctx context.Context, providerID uint
 	}
 	if host == "" {
 		if p.ConnectionType == "agent" {
-			host = "127.0.0.1" // placeholder; actual calls go through WS fallback in GetClient
+			host = "127.0.0.1" // loopback fallback; calls are routed through WS fallback in GetClient
 		} else {
 			return
 		}

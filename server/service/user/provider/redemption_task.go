@@ -269,6 +269,14 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			_ = resourceService.ReleaseResourcesInTx(tx, instance.ProviderID, instance.InstanceType,
 				instance.CPU, instance.Memory, instance.Disk)
 
+			if err := tx.Model(&providerModel.ProviderIPv4Pool{}).
+				Where("instance_id = ?", instance.ID).
+				Updates(map[string]interface{}{"is_allocated": false, "instance_id": nil}).Error; err != nil {
+				global.APP_LOG.Warn("释放失败兑换实例IPv4池地址失败",
+					zap.Uint("instanceId", instance.ID),
+					zap.Error(err))
+			}
+
 			// 更新任务为失败；若管理员已强制取消，保留取消终态。
 			if err := tx.Model(&adminModel.Task{}).
 				Where("id = ? AND status NOT IN ?", task.ID, []string{"completed", "failed", "cancelled", "timeout"}).
@@ -488,7 +496,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			return
 		}
 
-		s.updateTaskProgress(taskID, 75, "step.waitingSSHReady")
+		s.updateTaskProgress(taskID, 70, "step.waitingSSHReady")
 
 		// 根据Provider类型确定SSH等待时长
 		redeemSSHWait := 120 * time.Second
@@ -501,14 +509,14 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 				redeemSSHWait = 240 * time.Second
 			}
 		}
-		_ = s.waitForInstanceSSHReady(taskCtx, instanceID, providerID, taskID, redeemSSHWait)
+		_ = s.waitForInstanceSSHReadyInRange(taskCtx, instanceID, providerID, taskID, redeemSSHWait, 70, 82)
 		if err := s.ensureInstanceNetworkAddresses(taskCtx, instanceID, providerID); err != nil {
 			global.APP_LOG.Warn("兑换码实例网络地址补齐失败",
 				zap.Uint("instanceId", instanceID),
 				zap.Error(err))
 		}
 
-		s.updateTaskProgress(taskID, 80, "step.configuringPortMappings")
+		s.updateTaskProgress(taskID, 84, "step.configuringPortMappings")
 		portMappingService := &resources.PortMappingService{}
 		existingPorts, _ := portMappingService.GetInstancePortMappings(instanceID)
 		if len(existingPorts) == 0 {
@@ -526,7 +534,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 				zap.Int("existingPortCount", len(existingPorts)))
 		}
 
-		s.updateTaskProgress(taskID, 85, "step.verifyingMonitorStatus")
+		s.updateTaskProgress(taskID, 87, "step.verifyingMonitorStatus")
 
 		// 验证 pmacct 监控状态（与 finalizeInstanceCreation 保持一致）
 		pmacctInitSuccess := false
@@ -553,7 +561,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			}
 		}
 
-		s.updateTaskProgress(taskID, 90, "step.configuringAgentMonitor")
+		s.updateTaskProgress(taskID, 92, "step.configuringAgentMonitor")
 
 		// Agent监控：仅在 agent 监控模式下注册（与 finalizeInstanceCreation 保持一致）
 		var monConfig monitoringModel.MonitoringConfig

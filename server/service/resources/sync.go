@@ -3,6 +3,8 @@ package resources
 import (
 	"oneclickvirt/config"
 	"oneclickvirt/global"
+	"sort"
+	"strconv"
 
 	"go.uber.org/zap"
 )
@@ -128,28 +130,24 @@ func (s *QuotaSyncService) extractLevelLimits(configMap map[string]interface{}) 
 
 // parseLevelFromString 从字符串解析等级数字
 func (s *QuotaSyncService) parseLevelFromString(levelStr string) int {
-	switch levelStr {
-	case "1":
-		return 1
-	case "2":
-		return 2
-	case "3":
-		return 3
-	case "4":
-		return 4
-	case "5":
-		return 5
-	default:
+	level, err := strconv.Atoi(levelStr)
+	if err != nil || level < 1 || level > 99 {
 		return 0
 	}
+	return level
 }
 
 // detectLevelLimitChanges 检测等级限制变更
 func (s *QuotaSyncService) detectLevelLimitChanges(oldLimits, newLimits map[int]config.LevelLimitInfo) []LevelLimitChange {
 	var changes []LevelLimitChange
 
-	// 检查所有等级（1-5）
-	for level := 1; level <= 5; level++ {
+	levels := make([]int, 0, len(newLimits))
+	for level := range newLimits {
+		levels = append(levels, level)
+	}
+	sort.Ints(levels)
+
+	for _, level := range levels {
 		oldLimit, oldExists := oldLimits[level]
 		newLimit, newExists := newLimits[level]
 
@@ -305,14 +303,18 @@ func (s *QuotaSyncService) syncLevelUsers(level int, levelConfig *config.LevelLi
 func (s *QuotaSyncService) SyncAllUsersToCurrentConfig() error {
 	global.APP_LOG.Info("开始同步所有用户到当前等级配置")
 
-	for level := 1; level <= 5; level++ {
-		if levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]; exists {
-			if err := s.syncLevelUsers(level, &levelConfig); err != nil {
-				global.APP_LOG.Warn("同步等级用户失败",
-					zap.Int("level", level),
-					zap.Error(err))
-				continue
-			}
+	levels := make([]int, 0, len(global.GetAppConfig().Quota.LevelLimits))
+	for level := range global.GetAppConfig().Quota.LevelLimits {
+		levels = append(levels, level)
+	}
+	sort.Ints(levels)
+	for _, level := range levels {
+		levelConfig := global.GetAppConfig().Quota.LevelLimits[level]
+		if err := s.syncLevelUsers(level, &levelConfig); err != nil {
+			global.APP_LOG.Warn("同步等级用户失败",
+				zap.Int("level", level),
+				zap.Error(err))
+			continue
 		}
 	}
 

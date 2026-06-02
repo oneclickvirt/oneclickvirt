@@ -119,7 +119,7 @@ func (d *DockerProvider) checkLXCFS() (bool, []string, string, error) {
 
 // ensureContainerRunning 确保容器处于运行状态；若已退出则重启并等待
 func (d *DockerProvider) ensureContainerRunning(containerName string) error {
-	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, containerName)
+	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(containerName))
 	output, err := d.sshClient.Execute(checkCmd)
 	if err != nil {
 		return fmt.Errorf("检查容器状态失败: %w", err)
@@ -132,7 +132,7 @@ func (d *DockerProvider) ensureContainerRunning(containerName string) error {
 	global.APP_LOG.Warn("容器未处于运行状态，尝试重启",
 		zap.String("containerName", containerName),
 		zap.String("status", status))
-	restartCmd := fmt.Sprintf("%s restart %s", d.runtime.CLI, containerName)
+	restartCmd := fmt.Sprintf("%s restart %s", d.runtime.CLI, shellSingleQuote(containerName))
 	if _, restartErr := d.sshClient.Execute(restartCmd); restartErr != nil {
 		return fmt.Errorf("重启容器失败: %w", restartErr)
 	}
@@ -159,13 +159,15 @@ func (d *DockerProvider) setContainerPasswordWithRetry(containerName, password, 
 	maxRetries := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		for _, shell := range shells {
+			primaryInnerCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
+			fallbackInnerCmd := "chpasswd"
 			// 使用临时脚本方式执行 docker exec 进入容器设置密码，
 			// 以避免 agent 模式下 WebSocket 连接超时或中断
 			script := utils.BuildTempScript(utils.TempScriptConfig{
-				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'echo \"root:%s\" | chpasswd'",
-					d.runtime.CLI, containerName, shell, password),
-				FallbackCmd: fmt.Sprintf("%s exec -i %s %s -c 'chpasswd' <<< 'root:%s'",
-					d.runtime.CLI, containerName, shell, password),
+				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c %s",
+					d.runtime.CLI, shellSingleQuote(containerName), shellSingleQuote(shell), shellSingleQuote(primaryInnerCmd)),
+				FallbackCmd: fmt.Sprintf("printf 'root:%%s\\n' %s | %s exec -i %s %s -c %s",
+					shellSingleQuote(password), d.runtime.CLI, shellSingleQuote(containerName), shellSingleQuote(shell), shellSingleQuote(fallbackInnerCmd)),
 				TimeoutSeconds: 30,
 			})
 			_, err := d.sshClient.ExecuteViaTempScript(script, nil, 60*time.Second)
@@ -206,7 +208,7 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 	// 检测系统类型选择 shell 和脚本
 	shellType := "bash"
 	scriptName := "ssh_bash.sh"
-	output, err := d.sshClient.Execute(fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", d.runtime.CLI, config.Name))
+	output, err := d.sshClient.Execute(fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", d.runtime.CLI, shellSingleQuote(config.Name)))
 	if err == nil {
 		osType := utils.CleanCommandOutput(strings.ToLower(output))
 		if osType == "alpine" || osType == "openwrt" {
@@ -218,7 +220,7 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 	scriptPath := filepath.Join("/usr/local/bin", scriptName)
 	if d.isRemoteFileValid(scriptPath) {
 		time.Sleep(3 * time.Second)
-		copyCmd := fmt.Sprintf("%s cp %s %s:/root/", d.runtime.CLI, scriptPath, config.Name)
+		copyCmd := fmt.Sprintf("%s cp %s %s", d.runtime.CLI, shellSingleQuote(scriptPath), shellSingleQuote(config.Name+":/root/"))
 		_, copyErr := d.sshClient.Execute(copyCmd)
 		if copyErr != nil {
 			global.APP_LOG.Warn("复制SSH脚本到容器失败",
@@ -226,11 +228,12 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 				zap.String("scriptPath", scriptPath),
 				zap.Error(copyErr))
 		} else {
-			d.sshClient.Execute(fmt.Sprintf("%s exec %s %s -c 'chmod +x /root/%s'", d.runtime.CLI, config.Name, shellType, scriptName))
+			d.sshClient.Execute(fmt.Sprintf("%s exec %s %s -c %s", d.runtime.CLI, shellSingleQuote(config.Name), shellSingleQuote(shellType), shellSingleQuote("chmod +x /root/"+scriptName)))
 			// 使用临时脚本方式执行 SSH 配置脚本，避免 agent 模式下 WebSocket 超时
+			sshInnerCmd := fmt.Sprintf("interactionless=true %s /root/%s %s", shellType, scriptName, shellSingleQuote(password))
 			sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
-				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /root/%s %s'",
-					d.runtime.CLI, config.Name, shellType, shellType, scriptName, password),
+				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c %s",
+					d.runtime.CLI, shellSingleQuote(config.Name), shellSingleQuote(shellType), shellSingleQuote(sshInnerCmd)),
 				TimeoutSeconds: 60,
 			})
 			_, execErr := d.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
@@ -284,7 +287,7 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 
 // getContainerPrivateIP 获取容器的内网IP地址
 func (d *DockerProvider) getContainerPrivateIP(containerName string) (string, error) {
-	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, containerName)
+	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, shellSingleQuote(containerName))
 	output, err := d.sshClient.Execute(cmd)
 	if err == nil {
 		ipAddress := utils.CleanCommandOutput(output)
@@ -294,7 +297,7 @@ func (d *DockerProvider) getContainerPrivateIP(containerName string) (string, er
 	}
 
 	// 尝试使用默认网络字段
-	cmd = fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, containerName)
+	cmd = fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, shellSingleQuote(containerName))
 	output, err = d.sshClient.Execute(cmd)
 	if err == nil {
 		ipAddress := utils.CleanCommandOutput(output)
@@ -304,7 +307,7 @@ func (d *DockerProvider) getContainerPrivateIP(containerName string) (string, er
 	}
 
 	// 终极回退：直接在容器内执行 hostname -I（适用于 podman/containerd 等 inspect 格式差异）
-	hostCmd := fmt.Sprintf("%s exec %s hostname -I 2>/dev/null", d.runtime.CLI, containerName)
+	hostCmd := fmt.Sprintf("%s exec %s hostname -I 2>/dev/null", d.runtime.CLI, shellSingleQuote(containerName))
 	hostOutput, hostErr := d.sshClient.Execute(hostCmd)
 	if hostErr == nil {
 		// hostname -I 可能返回多个 IP，取第一个

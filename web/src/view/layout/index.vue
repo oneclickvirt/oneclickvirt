@@ -105,6 +105,7 @@ const toggleSidebarCollapse = (collapsed) => {
 
 // 提供收缩状态和移动端状态给子组件
 provide('toggleSidebarCollapse', toggleSidebarCollapse)
+provide('sidebarCollapsed', computed(() => isCollapse.value))
 provide('isMobile', computed(() => isMobile.value))
 provide('sidebarOpened', computed(() => sidebar.value.opened))
 provide('closeSidebar', closeSidebar)

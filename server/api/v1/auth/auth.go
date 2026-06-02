@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/auth"
 	"oneclickvirt/model/common"
+	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -33,10 +34,10 @@ func Login(c *gin.Context) {
 	}
 
 	authService := auth2.AuthService{}
-	user, token, err := authService.Login(req)
+	user, token, err := authService.LoginWithContext(req, c.ClientIP())
 	if err != nil {
 		global.APP_LOG.Warn("用户登录失败",
-			zap.String("username", req.Username),
+			zap.String("username", utils.SanitizeUserInput(req.Username)),
 			zap.String("error", err.Error()),
 			zap.String("ip", c.ClientIP()))
 
@@ -48,7 +49,7 @@ func Login(c *gin.Context) {
 	}
 
 	global.APP_LOG.Info("用户登录成功",
-		zap.String("username", req.Username),
+		zap.String("username", utils.SanitizeUserInput(req.Username)),
 		zap.Uint("user_id", user.ID),
 		zap.String("ip", c.ClientIP()))
 
@@ -125,19 +126,18 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// 添加调试日志
 	global.APP_LOG.Debug("收到注册请求",
-		zap.String("username", req.Username),
+		zap.String("username", utils.SanitizeUserInput(req.Username)),
 		zap.String("captchaId", req.CaptchaId),
-		zap.String("captcha", req.Captcha),
-		zap.String("inviteCode", req.InviteCode),
+		zap.Bool("captchaProvided", req.Captcha != ""),
+		zap.Bool("inviteCodeProvided", req.InviteCode != ""),
 		zap.String("registerType", req.RegisterType))
 
 	authService := auth2.AuthService{}
 	user, token, err := authService.RegisterAndLogin(req, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		global.APP_LOG.Warn("用户注册失败",
-			zap.String("username", req.Username),
+			zap.String("username", utils.SanitizeUserInput(req.Username)),
 			zap.String("error", err.Error()),
 			zap.String("ip", c.ClientIP()))
 
@@ -149,7 +149,7 @@ func Register(c *gin.Context) {
 	}
 
 	global.APP_LOG.Info("用户注册成功",
-		zap.String("username", req.Username),
+		zap.String("username", utils.SanitizeUserInput(req.Username)),
 		zap.Uint("user_id", user.ID),
 		zap.String("ip", c.ClientIP()))
 
@@ -253,7 +253,7 @@ func SendVerifyCode(c *gin.Context) {
 	if err := authService.SendVerifyCode(req.Type, req.Target, req.CaptchaId, req.Captcha); err != nil {
 		global.APP_LOG.Warn("发送验证码失败",
 			zap.String("type", req.Type),
-			zap.String("target", req.Target),
+			zap.String("target", utils.SanitizeUserInput(req.Target)),
 			zap.String("error", err.Error()),
 			zap.String("ip", c.ClientIP()))
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -262,7 +262,7 @@ func SendVerifyCode(c *gin.Context) {
 
 	global.APP_LOG.Info("验证码发送成功",
 		zap.String("type", req.Type),
-		zap.String("target", req.Target),
+		zap.String("target", utils.SanitizeUserInput(req.Target)),
 		zap.String("ip", c.ClientIP()))
 
 	common.ResponseSuccess(c, nil, "验证码已发送，请查收")

@@ -563,7 +563,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		agentCancel()
 
 		// 更新进度
-		s.updateTaskProgress(taskID, 95, "step.syncTrafficData")
+		s.updateTaskProgress(taskID, 95, "step.finalSyncTrafficData")
 
 		// 重启后同步流量数据（仅在流量统计启用且初始化成功时）
 		if pmacctSuccess && trafficEnabled {

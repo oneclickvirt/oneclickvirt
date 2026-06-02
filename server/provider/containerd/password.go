@@ -21,7 +21,7 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 	var containerStatus string
 	maxRetries := 3
 	for i := 0; i < maxRetries; i++ {
-		checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, instanceID)
+		checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(instanceID))
 		output, err := c.sshClient.Execute(checkCmd)
 		if err != nil {
 			if i < maxRetries-1 {
@@ -47,7 +47,7 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 	}
 
 	// 健康检查
-	healthCheckCmd := fmt.Sprintf("%s exec %s echo 'container_ready' 2>/dev/null", cliName, instanceID)
+	healthCheckCmd := fmt.Sprintf("%s exec %s echo 'container_ready' 2>/dev/null", cliName, shellSingleQuote(instanceID))
 	healthOutput, err := c.sshClient.Execute(healthCheckCmd)
 	if err != nil || !strings.Contains(healthOutput, "container_ready") {
 		time.Sleep(15 * time.Second)
@@ -58,7 +58,7 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 	}
 
 	// SSH就绪检查
-	sshReadinessCmd := fmt.Sprintf("%s exec %s sh -c 'command -v passwd >/dev/null 2>&1 && echo ssh_ready' 2>/dev/null", cliName, instanceID)
+	sshReadinessCmd := fmt.Sprintf("%s exec %s sh -c %s 2>/dev/null", cliName, shellSingleQuote(instanceID), shellSingleQuote("command -v passwd >/dev/null 2>&1 && echo ssh_ready"))
 	sshOutput, err := c.sshClient.Execute(sshReadinessCmd)
 	if err != nil || !strings.Contains(sshOutput, "ssh_ready") {
 		maxSSHRetries := 5
@@ -75,7 +75,7 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 	}
 
 	// 检测OS类型
-	osCmd := fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep -E '^ID=' | cut -d '=' -f 2 | tr -d '\"'", cliName, instanceID)
+	osCmd := fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep -E '^ID=' | cut -d '=' -f 2 | tr -d '\"'", cliName, shellSingleQuote(instanceID))
 	osOutput, err := c.sshClient.Execute(osCmd)
 	osType := utils.CleanCommandOutput(osOutput)
 	if err != nil || osType == "" {
@@ -92,25 +92,26 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 	}
 
 	hostScriptPath := fmt.Sprintf("/usr/local/bin/%s", scriptName)
-	checkHostScriptCmd := fmt.Sprintf("test -f %s && test -x %s", hostScriptPath, hostScriptPath)
+	checkHostScriptCmd := fmt.Sprintf("test -f %s && test -x %s", shellSingleQuote(hostScriptPath), shellSingleQuote(hostScriptPath))
 	_, hostScriptErr := c.sshClient.Execute(checkHostScriptCmd)
 
 	if hostScriptErr == nil {
-		checkScriptCmd := fmt.Sprintf("%s exec %s %s -c '[ -f /%s ]'", cliName, instanceID, shellType, scriptName)
+		checkScriptCmd := fmt.Sprintf("%s exec %s %s -c %s", cliName, shellSingleQuote(instanceID), shellSingleQuote(shellType), shellSingleQuote("[ -f /"+scriptName+" ]"))
 		_, err = c.sshClient.Execute(checkScriptCmd)
 		if err != nil {
-			copyCmd := fmt.Sprintf("%s cp \"%s\" \"%s:/%s\"", cliName, hostScriptPath, instanceID, scriptName)
+			copyCmd := fmt.Sprintf("%s cp %s %s", cliName, shellSingleQuote(hostScriptPath), shellSingleQuote(instanceID+":/"+scriptName))
 			_, err = c.sshClient.Execute(copyCmd)
 			if err == nil {
-				chmodCmd := fmt.Sprintf("%s exec %s %s -c 'chmod +x /%s'", cliName, instanceID, shellType, scriptName)
+				chmodCmd := fmt.Sprintf("%s exec %s %s -c %s", cliName, shellSingleQuote(instanceID), shellSingleQuote(shellType), shellSingleQuote("chmod +x /"+scriptName))
 				c.sshClient.Execute(chmodCmd)
 			}
 		}
 
 		// 使用临时脚本方式执行 SSH 配置脚本，避免 agent 模式下 WebSocket 超时
+		sshInnerCmd := fmt.Sprintf("interactionless=true %s /%s %s", shellType, scriptName, shellSingleQuote(password))
 		sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
-			PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /%s %s'",
-				cliName, instanceID, shellType, shellType, scriptName, password),
+			PrimaryCmd: fmt.Sprintf("%s exec %s %s -c %s",
+				cliName, shellSingleQuote(instanceID), shellSingleQuote(shellType), shellSingleQuote(sshInnerCmd)),
 			TimeoutSeconds: 60,
 		})
 		scriptOutput, scriptErr := c.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)

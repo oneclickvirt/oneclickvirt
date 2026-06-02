@@ -100,6 +100,7 @@ export default {
     initMonitoring: "正在初始化监控服务",
     initTrafficMonitor: "正在初始化流量监控",
     syncTrafficData: "正在同步流量数据",
+    finalSyncTrafficData: "正在同步最新流量数据",
     stoppingInstance: "正在停止实例",
     verifyingStop: "实例停止成功，正在验证状态",
     restartingInstance: "正在重启实例",

@@ -3,8 +3,10 @@ package agent
 // init.go — 包初始化、Agent 鉴权、启动/关闭辅助函数与通用工具。
 
 import (
+	cryptoRand "crypto/rand"
+	"encoding/base64"
 	"fmt"
-	"math/rand"
+	mathRand "math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -70,7 +72,10 @@ func IsInStartupGracePeriod() bool {
 
 // GenerateAgentSecret 生成并保存一个新的 AgentSecret 给指定 Provider。
 func GenerateAgentSecret(providerID uint) (string, error) {
-	secret := fmt.Sprintf("%s-%s", randomID(), randomID()) // ~44 字符随机串
+	secret, err := secureRandomID(32)
+	if err != nil {
+		return "", err
+	}
 	if err := global.APP_DB.Model(&providerModel.Provider{}).
 		Where("id = ?", providerID).
 		Update("agent_secret", secret).Error; err != nil {
@@ -135,7 +140,18 @@ func randomID() string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 22)
 	for i := range b {
-		b[i] = chars[rand.Intn(len(chars))]
+		b[i] = chars[mathRand.Intn(len(chars))]
 	}
 	return string(b)
+}
+
+func secureRandomID(byteLen int) (string, error) {
+	if byteLen <= 0 {
+		byteLen = 32
+	}
+	buf := make([]byte, byteLen)
+	if _, err := cryptoRand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate secure random id: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }

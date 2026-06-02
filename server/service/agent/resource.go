@@ -41,7 +41,7 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 	endpoint := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if endpoint == "" {
 		if p.ConnectionType == "agent" {
-			endpoint = "127.0.0.1" // placeholder; actual calls go through WS fallback
+			endpoint = "127.0.0.1" // loopback fallback; calls are routed through WS fallback
 		} else {
 			return fmt.Errorf("no endpoint for provider %d", providerID)
 		}

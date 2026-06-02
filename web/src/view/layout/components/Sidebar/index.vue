@@ -60,7 +60,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch, nextTick, inject } from 'vue'
+import { computed, onMounted, watch, nextTick, inject, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/pinia/modules/user'
@@ -75,17 +75,17 @@ const { t, locale } = useI18n()
 const userStore = useUserStore()
 const siteStore = useSiteStore()
 const featureStore = useFeatureStore()
-const isCollapse = ref(false)
 
 // 从父组件注入的状态和方法
 const toggleSidebarCollapse = inject('toggleSidebarCollapse', null)
+const sidebarCollapsed = inject('sidebarCollapsed', computed(() => false))
 const isMobile = inject('isMobile', ref(false))
 const closeSidebar = inject('closeSidebar', null)
+const isCollapse = computed(() => sidebarCollapsed.value)
 
 const toggleCollapse = () => {
-  isCollapse.value = !isCollapse.value
   if (toggleSidebarCollapse) {
-    toggleSidebarCollapse(isCollapse.value)
+    toggleSidebarCollapse(!isCollapse.value)
   }
 }
 
@@ -113,10 +113,9 @@ const userRoutes = computed(() => {
   const viewMode = userStore.currentViewMode || userStore.userType
   // normal_admin 也使用 admin 路由集，但会过滤掉超管专属项
   const effectiveMode = (viewMode === 'normal_admin' || viewMode === 'admin') ? 'admin' : viewMode
-  console.log('侧边栏计算用户路由，当前视图模式:', viewMode, '有效模式:', effectiveMode, '用户类型:', userStore.userType)
   
   // 强制依赖 locale，确保语言切换时重新计算
-  const currentLocale = locale.value
+  locale.value
   
   // 用户特定路由
   const userTypeRoutes = {
@@ -381,31 +380,21 @@ const userRoutes = computed(() => {
     return true
   })
   
-  console.log('当前语言:', currentLocale, '生成的用户路由数量:', filteredRoutes.length)
   return filteredRoutes
 })
 
 // 生命周期钩子，检查DOM渲染
 onMounted(() => {
-  console.log('侧边栏组件已挂载，组件ID:', Date.now())
-  console.log('当前用户类型:', userStore.userType)
-  console.log('用户登录状态:', userStore.isLoggedIn ? '已登录' : '未登录')
-  
   // 确保组件在DOM中
   nextTick(() => {
-    const el = document.querySelector('.sidebar-container')
-    console.log('侧边栏容器元素:', el)
-    if (el) {
-      console.log('侧边栏内部HTML:', el.innerHTML.substring(0, 100) + '...')
-    }
+    document.querySelector('.sidebar-container')
   })
 })
 
 // 监听用户类型变化
-watch(() => userStore.userType, (newType, oldType) => {
-  console.log('用户类型变化:', oldType, '->', newType)
+watch(() => userStore.userType, () => {
   nextTick(() => {
-    console.log('用户类型变化后，路由更新为:', userRoutes.value)
+    userRoutes.value
   })
 }, { immediate: true })
 </script>

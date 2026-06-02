@@ -260,12 +260,12 @@ func (p *QEMUProvider) ExecuteSSHCommand(ctx context.Context, command string) (s
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
-		zap.String("command", utils.TruncateString(command, 200)))
+		zap.String("command", utils.RedactSensitiveCommand(command, 200)))
 
 	output, err := client.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
-			zap.String("command", utils.TruncateString(command, 200)),
+			zap.String("command", utils.RedactSensitiveCommand(command, 200)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
 		return "", fmt.Errorf("SSH command execution failed: %w", err)

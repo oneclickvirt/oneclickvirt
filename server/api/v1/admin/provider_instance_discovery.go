@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	adminProvider "oneclickvirt/service/admin/provider"
 
@@ -29,6 +30,10 @@ func DiscoverProviderInstances(c *gin.Context) {
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -63,6 +68,10 @@ func ImportProviderInstances(c *gin.Context) {
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -118,6 +127,10 @@ func GetOrphanedInstances(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	providerService := adminProvider.NewService()
 	orphanedInstances, err := providerService.GetOrphanedInstances(context.Background(), uint(providerID))
@@ -154,6 +167,10 @@ func CheckInstanceSync(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	providerService := adminProvider.NewService()
 	report, err := providerService.CompareInstancesWithRemote(context.Background(), uint(providerID))
@@ -166,4 +183,15 @@ func CheckInstanceSync(c *gin.Context) {
 	}
 
 	common.ResponseSuccess(c, report, "检查完成")
+}
+
+func ensureProviderOwner(c *gin.Context, providerID uint) error {
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID == 0 {
+		return nil
+	}
+	if err := adminProvider.CheckProviderOwnership(providerID, ownerAdminID); err != nil {
+		return common.NewError(common.CodeForbidden, err.Error())
+	}
+	return nil
 }

@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 	auth2 "oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -17,6 +17,26 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+func highestConfiguredUserLevel() int {
+	maxLevel := 1
+	for level := range global.GetAppConfig().Quota.LevelLimits {
+		if level > maxLevel {
+			maxLevel = level
+		}
+	}
+	return maxLevel
+}
+
+func validateConfiguredUserLevel(level int) error {
+	if level < 1 || level > 99 {
+		return errors.New("用户等级必须在1-99之间")
+	}
+	if _, ok := global.GetAppConfig().Quota.LevelLimits[level]; !ok {
+		return fmt.Errorf("用户等级 %d 未配置资源限制", level)
+	}
+	return nil
+}
 
 // UpdateUserStatus 更新用户状态
 func (s *Service) UpdateUserStatus(userID uint, status int) error {
@@ -221,9 +241,8 @@ func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 		return errors.New("没有要更新的用户")
 	}
 
-	// 验证等级范围
-	if level < 1 || level > 99 {
-		return errors.New("用户等级必须在1-99之间")
+	if err := validateConfiguredUserLevel(level); err != nil {
+		return err
 	}
 
 	// 检查是否有管理员用户，管理员用户应该始终是最高等级
@@ -242,7 +261,7 @@ func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 		for i, user := range specialUsers {
 			specialUserIDs[i] = user.ID
 		}
-		if err := global.APP_DB.Model(&userModel.User{}).Where("id IN ?", specialUserIDs).Update("level", 5).Error; err != nil {
+		if err := global.APP_DB.Model(&userModel.User{}).Where("id IN ?", specialUserIDs).Update("level", highestConfiguredUserLevel()).Error; err != nil {
 			global.APP_LOG.Error("更新管理员用户等级失败",
 				zap.Uints("specialUserIDs", specialUserIDs),
 				zap.Error(err))
@@ -298,9 +317,8 @@ func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 
 // UpdateUserLevel 更新单个用户等级
 func (s *Service) UpdateUserLevel(userID uint, level int) error {
-	// 验证等级范围
-	if level < 1 || level > 99 {
-		return common.NewError(common.CodeValidationError, "用户等级必须在1-99之间")
+	if err := validateConfiguredUserLevel(level); err != nil {
+		return common.NewError(common.CodeValidationError, err.Error())
 	}
 
 	// 获取用户信息
@@ -314,7 +332,7 @@ func (s *Service) UpdateUserLevel(userID uint, level int) error {
 
 	// 管理员应该始终是最高等级
 	if user.UserType == "admin" {
-		level = 5
+		level = highestConfiguredUserLevel()
 	}
 
 	if err := global.APP_DB.Model(&user).Update("level", level).Error; err != nil {
@@ -336,4 +354,3 @@ func (s *Service) UpdateUserLevel(userID uint, level int) error {
 
 	return nil
 }
-

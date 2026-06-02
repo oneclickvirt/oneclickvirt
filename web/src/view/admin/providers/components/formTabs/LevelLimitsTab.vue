@@ -7,28 +7,48 @@
       >
         {{ $t('admin.providers.levelLimitsTip') }}
       </el-text>
-      <el-button
-        type="primary"
-        size="small"
-        @click="emit('reset-defaults')"
-      >
-        {{ $t('admin.providers.resetToDefault') }}
-      </el-button>
+      <div class="toolbar-actions">
+        <el-button
+          type="primary"
+          size="small"
+          @click="addLevel"
+        >
+          {{ $t('admin.providers.addLevel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          size="small"
+          @click="emit('reset-defaults')"
+        >
+          {{ $t('admin.providers.resetToDefault') }}
+        </el-button>
+      </div>
     </div>
 
     <!-- 等级配置循环 -->
     <div
-      v-for="level in 5"
+      v-for="level in levelKeys"
       :key="level"
       class="level-config-card"
     >
       <div class="level-header">
-        <el-tag
-          :type="getLevelTagType(level)"
-          size="large"
-        >
-          {{ $t('admin.providers.level') }} {{ level }}
-        </el-tag>
+        <div class="level-title-row">
+          <el-tag
+            :type="getLevelTagType(level)"
+            size="large"
+          >
+            {{ $t('admin.providers.level') }} {{ level }}
+          </el-tag>
+          <el-button
+            size="small"
+            type="danger"
+            text
+            :disabled="levelKeys.length <= 1"
+            @click="removeLevel(level)"
+          >
+            {{ $t('common.delete') }}
+          </el-button>
+        </div>
       </div>
 
       <el-form
@@ -120,10 +140,12 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { buildDefaultLevelLimit, getLevelTagType, getSortedLevelKeys } from '@/utils/levels'
 const { t } = useI18n()
 
-defineProps({
+const props = defineProps({
   modelValue: {
     type: Object,
     required: true
@@ -132,16 +154,17 @@ defineProps({
 
 const emit = defineEmits(['reset-defaults'])
 
-// 获取等级标签类型
-const getLevelTagType = (level) => {
-  const types = {
-    1: 'info',
-    2: 'success',
-    3: 'warning',
-    4: 'danger',
-    5: 'primary'
-  }
-  return types[level] || 'info'
+const levelKeys = computed(() => getSortedLevelKeys(props.modelValue.levelLimits))
+
+const addLevel = () => {
+  const nextLevel = (levelKeys.value.at(-1) || 0) + 1
+  const previousLevel = levelKeys.value.at(-1)
+  props.modelValue.levelLimits[nextLevel] = buildDefaultLevelLimit(nextLevel, props.modelValue.levelLimits[previousLevel])
+}
+
+const removeLevel = (level) => {
+  if (levelKeys.value.length <= 1) return
+  delete props.modelValue.levelLimits[level]
 }
 </script>
 
@@ -169,6 +192,17 @@ const getLevelTagType = (level) => {
 .level-header {
   margin-bottom: 15px;
   text-align: center;
+}
+
+.toolbar-actions,
+.level-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.level-title-row {
+  justify-content: center;
 }
 
 .level-form {

@@ -1,0 +1,23 @@
+# OneClickVirt
+
+OneClickVirt is an open virtualization and container instance management platform.
+
+## Core Capabilities
+
+- Manage Docker, Podman, Containerd, LXD, Incus, Proxmox, QEMU and KubeVirt nodes.
+- Create and import container or virtual machine instances.
+- Support SSH mode and Agent reverse-connect mode for nodes behind NAT.
+- Provide resource quota, user level limits, port mapping, traffic accounting and hardware/resource monitoring.
+- Isolate users, administrators, providers, instances, ports and permissions through backend authorization checks.
+
+## Important URLs
+
+- Documentation: https://oneclickvirt.github.io/
+- Source: https://github.com/oneclickvirt/oneclickvirt
+- API and UI entry point: configured by the deployed controller instance.
+
+## Notes For AI Agents
+
+- Prefer the official documentation URL for current install and usage guidance.
+- Agent mode uses a controller-managed reverse WebSocket channel; do not assume SSH credentials are present.
+- QEMU and KubeVirt nodes are VM-oriented providers and may require longer boot, cloud-init and network readiness windows.

@@ -5,67 +5,23 @@ import { createProvider, updateProvider } from '@/api/admin'
 import { countries, getCountriesByRegion } from '@/utils/countries'
 import { extractEndpointHost } from '@/utils/endpoint'
 import { useI18n } from 'vue-i18n'
-
-// 默认等级限制
-const DEFAULT_LEVEL_LIMITS = {
-  1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 100 }, maxTraffic: 102400 },
-  2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 200 }, maxTraffic: 204800 },
-  3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 40960, bandwidth: 500 }, maxTraffic: 307200 },
-  4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600 },
-  5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000 }
-}
+import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits, formatLevelLimitsForBackend as formatLevels, getLevelTagType } from '@/utils/levels'
 
 // 解析等级限制配置（后端 kebab-case → 前端 camelCase）
 export const parseLevelLimits = (levelLimitsStr) => {
-  if (!levelLimitsStr) return JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
+  if (!levelLimitsStr) return normalizeLevelLimits(DEFAULT_LEVEL_LIMITS)
   try {
     const parsed = typeof levelLimitsStr === 'string' ? JSON.parse(levelLimitsStr) : levelLimitsStr
-    const result = {}
-    for (let i = 1; i <= 5; i++) {
-      if (!parsed[i]) {
-        result[i] = JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS[i]))
-      } else {
-        const levelData = parsed[i]
-        const maxInstances = levelData.maxInstances ?? levelData['max-instances']
-        const maxTraffic = levelData.maxTraffic ?? levelData['max-traffic']
-        const maxResourcesData = levelData.maxResources ?? levelData['max-resources']
-        result[i] = {
-          maxInstances: maxInstances ?? DEFAULT_LEVEL_LIMITS[i].maxInstances,
-          maxTraffic: maxTraffic ?? DEFAULT_LEVEL_LIMITS[i].maxTraffic,
-          maxResources: {
-            cpu: maxResourcesData?.cpu ?? DEFAULT_LEVEL_LIMITS[i].maxResources.cpu,
-            memory: maxResourcesData?.memory ?? DEFAULT_LEVEL_LIMITS[i].maxResources.memory,
-            disk: maxResourcesData?.disk ?? DEFAULT_LEVEL_LIMITS[i].maxResources.disk,
-            bandwidth: maxResourcesData?.bandwidth ?? DEFAULT_LEVEL_LIMITS[i].maxResources.bandwidth
-          }
-        }
-      }
-    }
-    return result
+    return normalizeLevelLimits(parsed)
   } catch (e) {
     console.error('解析等级限制配置失败:', e)
-    return JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
+    return normalizeLevelLimits(DEFAULT_LEVEL_LIMITS)
   }
 }
 
 // 转换等级限制配置为后端格式（前端 camelCase → 后端 kebab-case）
 export const formatLevelLimitsForBackend = (levelLimits) => {
-  const result = {}
-  for (let i = 1; i <= 5; i++) {
-    if (levelLimits[i]) {
-      result[i] = {
-        'max-instances': levelLimits[i].maxInstances,
-        'max-traffic': levelLimits[i].maxTraffic,
-        'max-resources': {
-          cpu: levelLimits[i].maxResources.cpu,
-          memory: levelLimits[i].maxResources.memory,
-          disk: levelLimits[i].maxResources.disk,
-          bandwidth: levelLimits[i].maxResources.bandwidth
-        }
-      }
-    }
-  }
-  return result
+  return formatLevels(levelLimits)
 }
 
 const TB_TO_MB = 1048576
@@ -152,7 +108,7 @@ const buildDefaultForm = () => ({
   agentRemoteIP: '',
   agentControlLastSeen: null,
   agentExecLastSeen: null,
-  levelLimits: JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
+  levelLimits: normalizeLevelLimits(DEFAULT_LEVEL_LIMITS)
 })
 
 const hasAgentMappedNetworking = (formData) => Boolean(formData.portIP)
@@ -173,18 +129,13 @@ export function useProviderForm(loadProviders) {
 
   const groupedCountries = computed(() => getCountriesByRegion(locale.value?.startsWith('en') ? 'en' : 'zh'))
 
-  const getLevelTagType = (level) => {
-    const types = { 1: 'info', 2: 'success', 3: 'warning', 4: 'danger', 5: 'primary' }
-    return types[level] || 'info'
-  }
-
   const resetLevelLimitsToDefault = () => {
     ElMessageBox.confirm(
       t('admin.providers.restoreDefaultLimitsConfirm'),
       t('admin.providers.confirmOperation'),
       { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
     ).then(() => {
-      addProviderForm.levelLimits = JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
+      addProviderForm.levelLimits = normalizeLevelLimits(DEFAULT_LEVEL_LIMITS)
       ElMessage.success(t('admin.providers.levelLimitsRestored'))
     }).catch(() => {})
   }

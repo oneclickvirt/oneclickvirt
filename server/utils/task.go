@@ -48,6 +48,12 @@ func appendProgressLog(taskID uint, progress int, message string) {
 
 // UpdateTaskProgress 更新任务进度（全局统一函数）
 func UpdateTaskProgress(taskID uint, progress int, message string) {
+	if progress < 0 {
+		progress = 0
+	} else if progress > 100 {
+		progress = 100
+	}
+
 	updates := map[string]interface{}{
 		"progress": progress,
 	}
@@ -55,12 +61,18 @@ func UpdateTaskProgress(taskID uint, progress int, message string) {
 		updates["status_message"] = message
 	}
 
-	if err := global.APP_DB.Model(&adminModel.Task{}).Where("id = ?", taskID).Updates(updates).Error; err != nil {
+	result := global.APP_DB.Model(&adminModel.Task{}).Where("id = ? AND progress <= ?", taskID, progress).Updates(updates)
+	if result.Error != nil {
 		global.APP_LOG.Error("更新任务进度失败",
 			zap.Uint("taskId", taskID),
 			zap.Int("progress", progress),
 			zap.String("message", message),
-			zap.Error(err))
+			zap.Error(result.Error))
+	} else if result.RowsAffected == 0 {
+		global.APP_LOG.Debug("忽略倒退的任务进度更新",
+			zap.Uint("taskId", taskID),
+			zap.Int("incomingProgress", progress),
+			zap.String("message", message))
 	} else {
 		global.APP_LOG.Debug("任务进度更新成功",
 			zap.Uint("taskId", taskID),

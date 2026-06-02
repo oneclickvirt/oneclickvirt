@@ -249,8 +249,6 @@ const handleLogin = async () => {
         const userType = userStore.userType
         const viewMode = userStore.viewMode || userType
         
-        console.log('登录成功，用户类型:', userType, '视图模式:', viewMode)
-        
         // 只有管理员可以访问管理员界面
         if (userType === 'admin' && viewMode === 'admin') {
           router.push('/admin/dashboard')
