@@ -37,25 +37,27 @@ Options:
   --db-type TYPE          Database type: mysql (default) or mariadb
   --db-password PASS      Database root password (auto-generated if not set)
   --proxy TYPE            Reverse proxy: caddy, nginx, openresty (default: caddy)
-  --domain DOMAIN         Domain name (auto-detects https:// or http:// prefix for TLS)
+  --domain DOMAIN         Domain name or IP (e.g. panel.example.com, 1.2.3.4)
+                          Prefix with https:// to enable TLS, http:// to disable.
+                          If omitted in interactive mode, auto-detects public/private IP
+                          and prompts for choice (public IPv4 / localhost / private IPv4).
   --email EMAIL           Email for TLS certificate notifications
   --tls METHOD            TLS method: letsencrypt, zerossl, selfsigned, off
-                          Note: --domain with https:// prefix auto-enables TLS (letsencrypt)
-                                --domain with http:// prefix auto-disables TLS
+                          TLS requires a real domain name (not bare IP or localhost).
   --non-interactive       Run without prompts (requires --domain and --email when using TLS)
   --force                 Skip system resource checks (disk & memory)
   --version VERSION       Specific version to install (default: latest)
   --help                  Show this help
 
 Examples:
-  # Interactive mode (default, no arguments needed)
+  # Interactive mode — just press Enter at the domain prompt to pick an IP
   bash install_full.sh
 
-  # Non-interactive with auto TLS (https:// prefix detected)
+  # Non-interactive with a domain + TLS
   bash install_full.sh --non-interactive --domain https://panel.example.com --email admin@example.com
 
-  # Non-interactive without TLS (http:// prefix detected)
-  bash install_full.sh --non-interactive --domain http://192.168.1.100
+  # Non-interactive with a public IP (TLS disabled)
+  bash install_full.sh --non-interactive --domain http://1.2.3.4
 EOF
     exit 0
 }
@@ -221,6 +223,45 @@ detect_arch() {
         aarch64|arm64) echo "arm64" ;;
         *) log_error "Unsupported architecture: $(uname -m)"; exit 1 ;;
     esac
+}
+
+# ── IP detection ─────────────────────────────────────────────────────────────
+detect_public_ipv4() {
+    # Try multiple public-IP echo services, return first successful result
+    local svc
+    for svc in \
+        "https://ifconfig.me" \
+        "https://ipinfo.io/ip" \
+        "https://icanhazip.com" \
+        "https://api.ipify.org" \
+        "https://checkip.amazonaws.com"; do
+        local ip
+        ip=$(curl -4 -s --connect-timeout 5 --max-time 10 "$svc" 2>/dev/null | tr -d '[:space:]')
+        if [[ -n "$ip" && "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "$ip"
+            return 0
+        fi
+    done
+    return 1
+}
+
+detect_private_ipv4() {
+    # Return the first non-loopback private IPv4 address
+    local ip
+    if command -v hostname &>/dev/null; then
+        ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)' | head -1)
+    fi
+    if [[ -z "$ip" ]] && command -v ip &>/dev/null; then
+        ip=$(ip -4 addr show scope global 2>/dev/null | grep -oP 'inet \K[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | grep -v '^127\.' | head -1)
+    fi
+    if [[ -z "$ip" ]] && command -v ifconfig &>/dev/null; then
+        ip=$(ifconfig 2>/dev/null | grep -Eo 'inet (addr:)?[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | grep -v '^127\.' | head -1)
+    fi
+    if [[ -n "$ip" ]]; then
+        echo "$ip"
+        return 0
+    fi
+    return 1
 }
 
 detect_os() {
@@ -399,6 +440,11 @@ configure_database() {
                     CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
                     CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
                     GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'127.0.0.1';
+                    -- Security hardening
+                    DELETE FROM mysql.user WHERE User='';
+                    DROP DATABASE IF EXISTS test;
+                    DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+                    DELETE FROM mysql.user WHERE Host<>'localhost' AND Host<>'127.0.0.1' AND Host<>'::1';
                     FLUSH PRIVILEGES;
                 "
             else
@@ -408,6 +454,11 @@ configure_database() {
                     CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
                     CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
                     GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'127.0.0.1';
+                    -- Security hardening
+                    DELETE FROM mysql.user WHERE User='';
+                    DROP DATABASE IF EXISTS test;
+                    DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+                    DELETE FROM mysql.user WHERE Host<>'localhost' AND Host<>'127.0.0.1' AND Host<>'::1';
                     FLUSH PRIVILEGES;
                 " 2>/dev/null || {
                     log_error "Failed to configure MySQL. Is it running?"
@@ -424,6 +475,11 @@ configure_database() {
                     CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
                     CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
                     GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'127.0.0.1';
+                    -- Security hardening
+                    DELETE FROM mysql.user WHERE User='';
+                    DROP DATABASE IF EXISTS test;
+                    DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+                    DELETE FROM mysql.user WHERE Host<>'localhost' AND Host<>'127.0.0.1' AND Host<>'::1';
                     FLUSH PRIVILEGES;
                 "
             else
@@ -442,13 +498,42 @@ configure_database() {
         curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/deploy/my.cnf" -o "$MY_CNF" 2>/dev/null || true
     fi
 
+    # ── Enforce localhost-only binding ──────────────────────────────────────
+    # Ensure bind-address is set to 127.0.0.1 in the main server config,
+    # as a safety net in case the conf.d snippet was not applied.
+    _enforce_bind_address() {
+        local conf_file=""
+        # Find the main mysqld config file
+        for f in \
+            /etc/mysql/mysql.conf.d/mysqld.cnf \
+            /etc/mysql/my.cnf \
+            /etc/my.cnf \
+            /etc/mysql/mariadb.conf.d/50-server.cnf \
+            /etc/my.cnf.d/server.cnf; do
+            if [[ -f "$f" ]]; then conf_file="$f"; break; fi
+        done
+        if [[ -z "$conf_file" ]]; then
+            log_warning "Could not locate MySQL/MariaDB config file to enforce bind-address."
+            return 0
+        fi
+        # Only add if not already present
+        if grep -q '^\s*bind-address\s*=' "$conf_file" 2>/dev/null; then
+            sed -i 's/^\s*bind-address\s*=.*/bind-address = 127.0.0.1/' "$conf_file"
+        else
+            # Insert after [mysqld] section header
+            sed -i '/^\[mysqld\]/a bind-address = 127.0.0.1' "$conf_file"
+        fi
+        log_info "Database bind-address enforced to 127.0.0.1 (local access only)."
+    }
+    _enforce_bind_address
+
     # Enable and restart
     case "$OS" in
         alpine) rc-update add "$DB_TYPE" 2>/dev/null; rc-service "$DB_TYPE" restart 2>/dev/null ;;
         *) systemctl enable "$DB_TYPE" 2>/dev/null; systemctl restart "$DB_TYPE" 2>/dev/null ;;
     esac
 
-    log_success "Database configured: ${DB_NAME} / user=${DB_USER}"
+    log_success "Database configured: ${DB_NAME} / user=${DB_USER} (localhost only)"
 }
 
 # ---- Reverse proxy installation ----
@@ -782,18 +867,87 @@ main() {
         read -p "Reverse proxy [caddy/nginx/openresty] (default: ${PROXY}): " _px
         [[ -n "$_px" ]] && PROXY="$_px"
 
-        local domain_prompt="Domain name"
-        [[ -n "$DOMAIN" && "$DOMAIN" != "localhost" ]] && domain_prompt="Domain name [${DOMAIN}]"
-        domain_prompt="${domain_prompt} (e.g. panel.example.com or https://panel.example.com): "
+        local domain_prompt="Domain name or IP"
+        [[ -n "$DOMAIN" && "$DOMAIN" != "localhost" ]] && domain_prompt="Domain name or IP [${DOMAIN}]"
+        domain_prompt="${domain_prompt} (Enter to auto-detect, e.g. panel.example.com): "
         read -p "$domain_prompt" _dom
         if [[ -n "$_dom" ]]; then
             normalize_domain "$_dom"
-        elif [[ -z "$DOMAIN" || "$DOMAIN" == "localhost" ]]; then
-            DOMAIN="localhost"
+        else
+            # No domain entered — detect IPs and offer choices
+            echo ""
+            echo -e "  ${CYAN}No domain provided. Detecting IP addresses...${NC}"
+            local pub_ip="" priv_ip=""
+            pub_ip=$(detect_public_ipv4 2>/dev/null || true)
+            priv_ip=$(detect_private_ipv4 2>/dev/null || true)
+
+            echo ""
+            echo -e "  ${CYAN}Select an address to use:${NC}"
+            local opt_num=1
+            if [[ -n "$pub_ip" ]]; then
+                echo "  [${opt_num}] Public IPv4:  ${pub_ip}  (recommended for internet access)"
+                opt_num=$((opt_num + 1))
+            fi
+            echo "  [${opt_num}] Localhost:     127.0.0.1  (local access only)"
+            opt_num=$((opt_num + 1))
+            if [[ -n "$priv_ip" && "$priv_ip" != "$pub_ip" ]]; then
+                echo "  [${opt_num}] Private IPv4:  ${priv_ip}  (LAN access)"
+                opt_num=$((opt_num + 1))
+            fi
+            echo "  [${opt_num}] Enter a custom domain/IP manually"
+
+            local choice
+            read -p "  Your choice [1-${opt_num}] (default: 1): " choice
+            choice=${choice:-1}
+
+            # Recalculate option positions based on what was shown
+            local pos=1
+            if [[ -n "$pub_ip" ]]; then
+                if [[ "$choice" == "$pos" ]]; then
+                    DOMAIN="$pub_ip"
+                    DOMAIN_PROTO_DETECTED="http"
+                    log_info "Using public IPv4: ${DOMAIN}"
+                fi
+                pos=$((pos + 1))
+            fi
+            # localhost
+            if [[ -z "$DOMAIN" && "$choice" == "$pos" ]]; then
+                DOMAIN="localhost"
+                log_info "Using localhost (127.0.0.1)"
+            fi
+            pos=$((pos + 1))
+            # private IP
+            if [[ -n "$priv_ip" && "$priv_ip" != "$pub_ip" ]]; then
+                if [[ -z "$DOMAIN" && "$choice" == "$pos" ]]; then
+                    DOMAIN="$priv_ip"
+                    DOMAIN_PROTO_DETECTED="http"
+                    log_info "Using private IPv4: ${DOMAIN}"
+                fi
+                pos=$((pos + 1))
+            fi
+            # custom
+            if [[ -z "$DOMAIN" && "$choice" == "$pos" ]]; then
+                read -p "  Enter custom domain or IP: " _custom_dom
+                if [[ -n "$_custom_dom" ]]; then
+                    normalize_domain "$_custom_dom"
+                else
+                    DOMAIN="localhost"
+                    log_warning "No input — falling back to localhost"
+                fi
+            fi
+            DOMAIN="${DOMAIN:-localhost}"
         fi
         log_info "Domain set to: ${DOMAIN}"
 
-        if [[ "$DOMAIN" != "localhost" ]]; then
+        # Determine if DOMAIN is a real domain name (not localhost, not a bare IP)
+        local _is_bare_domain="true"
+        if [[ "$DOMAIN" == "localhost" ]]; then
+            _is_bare_domain="false"
+        elif [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            _is_bare_domain="false"
+        fi
+
+        if [[ "$_is_bare_domain" == "true" ]]; then
             # Auto-detect TLS from protocol prefix
             if [[ "$DOMAIN_PROTO_DETECTED" == "https" ]]; then
                 TLS_METHOD="letsencrypt"
@@ -816,15 +970,19 @@ main() {
             fi
         else
             TLS_METHOD="off"
-            log_warning "No domain set — TLS will be disabled."
+            if [[ "$DOMAIN" == "localhost" ]]; then
+                log_info "Using localhost — TLS disabled."
+            else
+                log_info "Using bare IP address — TLS disabled (certificates require a domain name)."
+            fi
         fi
     fi
 
     # Validate non-interactive mode requirements
     if [[ "$NONINTERACTIVE" == "true" ]]; then
         if [[ "$TLS_METHOD" != "off" && "$TLS_METHOD" != "selfsigned" ]]; then
-            if [[ -z "$DOMAIN" || "$DOMAIN" == "localhost" ]]; then
-                log_error "--domain is required for TLS in non-interactive mode."
+            if [[ -z "$DOMAIN" || "$DOMAIN" == "localhost" || "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                log_error "--domain must be a real domain name (not localhost or bare IP) for TLS in non-interactive mode."
                 exit 1
             fi
             if [[ -z "$EMAIL" ]]; then
