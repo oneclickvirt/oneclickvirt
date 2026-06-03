@@ -250,23 +250,30 @@ check_dependencies() {
 }
 
 get_memory_size() {
+    # Returns total memory (RAM + swap) in MB
     if [ -f /proc/meminfo ]; then
-        local mem_kb
+        local mem_kb swap_kb
         mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-        echo $((mem_kb / 1024)) # Convert to MB
+        swap_kb=$(grep SwapTotal /proc/meminfo | awk '{print $2}')
+        mem_kb=${mem_kb:-0}
+        swap_kb=${swap_kb:-0}
+        echo $(((mem_kb + swap_kb) / 1024)) # Convert to MB
         return 0
     fi
     if command -v free >/dev/null 2>&1; then
-        local mem_kb
-        mem_kb=$(free -m | awk '/^Mem:/ {print $2}')
-        echo "$mem_kb" # Already in MB
+        local mem_mb swap_mb
+        mem_mb=$(free -m | awk '/^Mem:/ {print $2}')
+        swap_mb=$(free -m | awk '/^Swap:/ {print $2}')
+        mem_mb=${mem_mb:-0}
+        swap_mb=${swap_mb:-0}
+        echo $((mem_mb + swap_mb)) # Already in MB
         return 0
     fi
     if command -v sysctl >/dev/null 2>&1; then
         local mem_bytes
         mem_bytes=$(sysctl -n hw.memsize 2>/dev/null || sysctl -n hw.physmem 2>/dev/null)
         if [ -n "$mem_bytes" ]; then
-            echo $((mem_bytes / 1024 / 1024)) # Convert to MB
+            echo $((mem_bytes / 1024 / 1024)) # Convert to MB (no swap info on macOS/BSD via sysctl)
             return 0
         fi
     fi
@@ -692,8 +699,8 @@ upgrade_server() {
 check_memory_warning() {
     local mem_size
     mem_size=$(get_memory_size)
-    if [ -n "$mem_size" ] && [ "$mem_size" -lt 1024 ]; then
-        log_warning "Warning: system memory is below 1 GB (${mem_size} MB)." "警告：系统内存低于 1GB (${mem_size}MB)。"
+    if [ -n "$mem_size" ] && [ "$mem_size" -lt 2048 ]; then
+        log_warning "Warning: system memory (RAM + swap) is below 2 GB (${mem_size} MB)." "警告：系统内存（含 swap）低于 2GB (${mem_size}MB)。"
         log_warning "This may affect runtime performance." "这可能会影响程序运行性能。"
         if [ "$noninteractive" != "true" ]; then
             reading "Continue with installation? (y/N): " "是否继续安装？(y/N): " confirm

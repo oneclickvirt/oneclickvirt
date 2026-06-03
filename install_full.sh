@@ -43,6 +43,7 @@ Options:
                           Note: --domain with https:// prefix auto-enables TLS (letsencrypt)
                                 --domain with http:// prefix auto-disables TLS
   --non-interactive       Run without prompts (requires --domain and --email when using TLS)
+  --force                 Skip system resource checks (disk & memory)
   --version VERSION       Specific version to install (default: latest)
   --help                  Show this help
 
@@ -67,6 +68,7 @@ DOMAIN=""
 EMAIL=""
 TLS_METHOD="letsencrypt"
 NONINTERACTIVE="false"
+FORCE_INSTALL="false"
 INSTALL_VERSION=""
 DOMAIN_PROTO_DETECTED=""
 TLS_EXPLICIT="false"
@@ -98,8 +100,9 @@ while [[ $# -gt 0 ]]; do
         --email)         EMAIL="$2"; shift 2 ;;
         --tls)           TLS_METHOD="$2"; TLS_EXPLICIT="true"; shift 2 ;;
         --non-interactive) NONINTERACTIVE="true"; shift ;;
-        --version)       INSTALL_VERSION="$2"; shift 2 ;;
-        --help)          usage ;;
+        --force)          FORCE_INSTALL="true"; shift ;;
+        --version)        INSTALL_VERSION="$2"; shift 2 ;;
+        --help)           usage ;;
         *) log_error "Unknown option: $1"; usage ;;
     esac
 done
@@ -142,29 +145,71 @@ check_root() {
 }
 
 check_system_resources() {
-    if [[ "${SKIP_RESOURCE_CHECK:-false}" == "true" ]]; then
-        log_warning "Skipping disk/memory resource checks because SKIP_RESOURCE_CHECK=true"
+    if [[ "${SKIP_RESOURCE_CHECK:-false}" == "true" || "${FORCE_INSTALL:-false}" == "true" ]]; then
+        log_warning "Skipping disk/memory resource checks (SKIP_RESOURCE_CHECK or --force)"
         return 0
     fi
 
-    local min_disk_kb=$((20 * 1024 * 1024))
+    local resource_warnings=()
+
+    # ── disk check ──────────────────────────────────────────────────────────
+    local min_disk_kb=$((10 * 1024 * 1024))
     local available_disk_kb
     available_disk_kb=$(df -Pk / 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$available_disk_kb" && "$available_disk_kb" -lt "$min_disk_kb" ]]; then
-        log_error "At least 20GB free disk space is required."
-        exit 1
+        local avail_gb=$((available_disk_kb / 1024 / 1024))
+        resource_warnings+=("$(printf 'Disk space: %d GB available, 10 GB recommended' "$avail_gb")")
     fi
 
-    local min_mem_kb=$((4 * 1024 * 1024))
-    local total_mem_kb=""
+    # ── memory check (MemTotal + SwapTotal) ──────────────────────────────────
+    local min_combined_kb=$((2 * 1024 * 1024))  # 2 GB combined (RAM + swap)
+    local memtotal_kb=0 swaptotal_kb=0
     if [[ -r /proc/meminfo ]]; then
-        total_mem_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+        memtotal_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+        swaptotal_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
     elif command -v free &>/dev/null; then
-        total_mem_kb=$(free -k | awk '/^Mem:/ {print $2}')
+        memtotal_kb=$(free -k | awk '/^Mem:/ {print $2}')
+        swaptotal_kb=$(free -k | awk '/^Swap:/ {print $2}')
     fi
-    if [[ -n "$total_mem_kb" && "$total_mem_kb" -lt "$min_mem_kb" ]]; then
-        log_error "At least 4GB memory is required."
-        exit 1
+    memtotal_kb=${memtotal_kb:-0}
+    swaptotal_kb=${swaptotal_kb:-0}
+    local combined_kb=$((memtotal_kb + swaptotal_kb))
+    local combined_gb=0
+    if [[ "$combined_kb" -gt 0 ]]; then
+        combined_gb=$(awk "BEGIN {printf \"%.1f\", $combined_kb / 1024 / 1024}")
+    fi
+    if [[ "$combined_kb" -gt 0 && "$combined_kb" -lt "$min_combined_kb" ]]; then
+        local ram_gb=0 swap_gb=0
+        ram_gb=$(awk "BEGIN {printf \"%.1f\", $memtotal_kb / 1024 / 1024}")
+        swap_gb=$(awk "BEGIN {printf \"%.1f\", $swaptotal_kb / 1024 / 1024}")
+        resource_warnings+=("$(printf 'Memory: %.1f GB RAM + %.1f GB swap = %.1f GB total, 2 GB recommended' "$ram_gb" "$swap_gb" "$combined_gb")")
+    fi
+
+    # ── handle warnings ─────────────────────────────────────────────────────
+    if [[ ${#resource_warnings[@]} -gt 0 ]]; then
+        log_warning "System resources below recommended levels:" "系统资源低于推荐配置:"
+        for w in "${resource_warnings[@]}"; do
+            log_warning "  - $w" "  - $w"
+        done
+        log_warning "Installation may fail or performance may be degraded." "安装可能失败或性能下降。"
+
+        if [[ "${NONINTERACTIVE:-false}" == "true" ]]; then
+            log_error "Resource checks failed. Re-run with --force to bypass, or set SKIP_RESOURCE_CHECK=true." "资源检查未通过。请使用 --force 跳过检查，或设置 SKIP_RESOURCE_CHECK=true。"
+            exit 1
+        fi
+
+        # Interactive: ask for confirmation
+        read -r -p "$(echo -e "${YELLOW}[WARN]${NC} Continue anyway? (y/N): ")" confirm
+        case "$confirm" in
+            [Yy]*)
+                log_warning "Continuing installation despite resource warnings..." "忽略资源警告，继续安装..."
+                ;;
+            *)
+                log_info "Installation cancelled by user." "用户取消安装。"
+                exit 0
+                ;;
+        esac
+        return 0
     fi
 
     log_success "System resource checks passed."
