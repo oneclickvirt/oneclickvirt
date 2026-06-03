@@ -744,7 +744,6 @@ export default {
   modeAgent: "Agent Entry",
   modeAgentDesc: "Run Agent on node to establish a reverse tunnel to controller. Suitable for nodes without a public IP",
   modeAgentTag: "NAT Traversal",
-  agentStatus: "Agent Status",
   agentStatusOnline: "Online",
   agentOnlineShort: "Agent Online",
   agentStatusOffline: "Offline",

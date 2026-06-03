@@ -113,8 +113,8 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 
 	// 阶段5: 设置密码
 	if err := s.resetTask_SetPassword(ctx, task, &resetCtx); err != nil {
-		// 密码设置失败不影响重置流程
-		global.APP_LOG.Warn("重置系统：密码设置失败，使用默认密码", zap.Error(err))
+		// 密码设置失败不影响重置流程，但不能记录固定默认口令。
+		global.APP_LOG.Warn("重置系统：密码设置失败，未记录新密码", zap.Error(err))
 	}
 
 	// 阶段6: 更新实例信息
@@ -584,12 +584,12 @@ func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminMode
 		return nil
 	}
 
-	// 所有重试失败，使用默认密码
-	global.APP_LOG.Warn("设置密码失败，使用默认密码",
+	// 所有重试失败时不写入固定默认口令，避免误导用户或暴露弱凭据。
+	global.APP_LOG.Warn("设置密码失败，未记录新密码",
 		zap.Error(lastErr))
-	resetCtx.NewPassword = "root"
+	resetCtx.NewPassword = ""
 
-	return nil
+	return lastErr
 }
 
 // resetTask_UpdateInstanceInfo 阶段6: 更新实例信息并确认配额
@@ -601,7 +601,9 @@ func (s *TaskService) resetTask_UpdateInstanceInfo(ctx context.Context, task *ad
 		updates := map[string]interface{}{
 			"status":   "running",
 			"username": "root",
-			"password": resetCtx.NewPassword,
+		}
+		if resetCtx.NewPassword != "" {
+			updates["password"] = resetCtx.NewPassword
 		}
 
 		if resetCtx.NewPrivateIP != "" {

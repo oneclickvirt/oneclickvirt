@@ -89,6 +89,21 @@ export function getCheckinRecords(params) {
   })
 }
 
+export function getCheckinStats() {
+  return request({
+    url: '/v1/user/checkin/stats',
+    method: 'get'
+  })
+}
+
+export function batchCheckin(data) {
+  return request({
+    url: '/v1/user/checkin/batch-checkin',
+    method: 'post',
+    data
+  })
+}
+
 // ============ 管理员域名管理 ============
 
 export function adminGetDomains() {

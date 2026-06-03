@@ -149,7 +149,8 @@ export default function useInit() {
       return
     }
     
-    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(value)) {
+    const specialChars = '!@#$%^&*()_+-=[]{};\':"\\|,.<>/?'
+    if (!Array.from(value).some(char => specialChars.includes(char))) {
       callback(new Error(t('init.validation.passwordSpecialChar')))
       return
     }
@@ -294,7 +295,7 @@ export default function useInit() {
             stopProgressPolling()
           }
         }
-      } catch (e) {
+      } catch {
         // 后端重启中，连接可能短暂中断，忽略并继续轮询
       }
     }, 1500)
@@ -345,7 +346,6 @@ export default function useInit() {
     }
     
     // 如果API调用失败，回退到客户端检测
-    const userAgent = navigator.userAgent.toLowerCase()
     const platform = navigator.platform.toLowerCase()
     
     // 简单的架构检测逻辑
@@ -371,15 +371,53 @@ export default function useInit() {
     }
   }
 
+  const secureRandomIndex = (max) => {
+    if (max <= 0) return 0
+    if (window.crypto?.getRandomValues) {
+      const value = new Uint32Array(1)
+      window.crypto.getRandomValues(value)
+      return value[0] % max
+    }
+    return Math.floor(Math.random() * max)
+  }
+
+  const generateSetupPassword = () => {
+    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    const lower = 'abcdefghijklmnopqrstuvwxyz'
+    const digits = '0123456789'
+    const special = '!@#$%^&*'
+    const all = upper + lower + digits + special
+    const chars = [
+      upper[secureRandomIndex(upper.length)],
+      lower[secureRandomIndex(lower.length)],
+      digits[secureRandomIndex(digits.length)],
+      special[secureRandomIndex(special.length)]
+    ]
+
+    while (chars.length < 16) {
+      chars.push(all[secureRandomIndex(all.length)])
+    }
+
+    for (let i = chars.length - 1; i > 0; i--) {
+      const j = secureRandomIndex(i + 1)
+      ;[chars[i], chars[j]] = [chars[j], chars[i]]
+    }
+
+    return chars.join('')
+  }
+
   const fillDefaultData = () => {
-    // 填入默认数据
+    const adminPassword = generateSetupPassword()
+    const userPassword = generateSetupPassword()
+
+    // 填入默认数据，密码每次随机生成
     initForm.admin.username = 'admin'
-    initForm.admin.password = 'Admin123!@#'
-    initForm.admin.confirmPassword = 'Admin123!@#'
+    initForm.admin.password = adminPassword
+    initForm.admin.confirmPassword = adminPassword
     initForm.admin.email = 'admin@spiritlhl.net'
     initForm.user.username = 'testuser'
-    initForm.user.password = 'TestUser123!@#'
-    initForm.user.confirmPassword = 'TestUser123!@#'
+    initForm.user.password = userPassword
+    initForm.user.confirmPassword = userPassword
     initForm.user.email = 'user@spiritlhl.net'
     initForm.user.enabled = false
     ElMessage.success(t('init.messages.defaultsFilled'))

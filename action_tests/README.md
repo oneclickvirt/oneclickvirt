@@ -190,6 +190,9 @@ bash action_tests/run_module.sh 01,03,09,23
 
 # 启用调试日志
 DEBUG=1 bash action_tests/run_env_test.sh docker all container
+
+# 仅生成静态审计报告（不访问真实服务）
+python3 action_tests/static_audit.py --root . --output-dir action_tests/reports
 ```
 
 ## 测试报告
@@ -203,6 +206,7 @@ DEBUG=1 bash action_tests/run_env_test.sh docker all container
 | JSON Lines | `reports/<env>-results.jsonl` | 机器可读的结构化测试结果 |
 | 日志 | `reports/full-output.log` | 完整控制台输出日志 |
 | 错误日志 | `reports/<env>-error-*.log` | 模块级的服务端错误日志 |
+| 静态审计 | `reports/static-audit.md` / `reports/static-audit.json` | API 路由覆盖、jq/pipe 风险、workflow 配置审计 |
 
 ### HTML 报告功能
 

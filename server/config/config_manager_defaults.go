@@ -187,7 +187,7 @@ func getDefaultConfigMap() map[string]interface{} {
 			"expire-time": 5,
 		},
 		"cors": map[string]interface{}{
-			"mode":      "allow-all",
+			"mode":      "whitelist",
 			"whitelist": []string{"http://localhost:8080", "http://127.0.0.1:8080"},
 		},
 		"system": map[string]interface{}{

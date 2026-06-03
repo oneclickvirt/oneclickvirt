@@ -186,6 +186,23 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'echo "Starting OneClickVirt..."' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'export MYSQL_DATABASE=${MYSQL_DATABASE:-oneclickvirt}' >> /start.sh && \
+    echo 'export MYSQL_PASSWORD_FILE=${MYSQL_PASSWORD_FILE:-/app/storage/mysql_root_password}' >> /start.sh && \
+    echo 'if [ -z "${MYSQL_ROOT_PASSWORD:-}" ]; then' >> /start.sh && \
+    echo '    if [ -r "$MYSQL_PASSWORD_FILE" ]; then' >> /start.sh && \
+    echo '        MYSQL_ROOT_PASSWORD=$(cat "$MYSQL_PASSWORD_FILE")' >> /start.sh && \
+    echo '    else' >> /start.sh && \
+    echo '        mkdir -p "$(dirname "$MYSQL_PASSWORD_FILE")"' >> /start.sh && \
+    echo '        MYSQL_ROOT_PASSWORD=$(tr -dc "A-Za-z0-9" < /dev/urandom | head -c 24)' >> /start.sh && \
+    echo '        printf "%s" "$MYSQL_ROOT_PASSWORD" > "$MYSQL_PASSWORD_FILE"' >> /start.sh && \
+    echo '        chmod 600 "$MYSQL_PASSWORD_FILE"' >> /start.sh && \
+    echo '        echo "Generated random MYSQL_ROOT_PASSWORD and saved it to $MYSQL_PASSWORD_FILE."' >> /start.sh && \
+    echo '    fi' >> /start.sh && \
+    echo '    export MYSQL_ROOT_PASSWORD' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
+    echo 'if printf "%s" "$MYSQL_ROOT_PASSWORD" | grep -q "'\''"; then' >> /start.sh && \
+    echo '    echo "MYSQL_ROOT_PASSWORD must not contain single quotes."' >> /start.sh && \
+    echo '    exit 1' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '# Update config.yaml with FRONTEND_URL if provided' >> /start.sh && \
     echo 'if [ ! -z "$FRONTEND_URL" ]; then' >> /start.sh && \
@@ -282,11 +299,11 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '    if [ "$DB_TYPE" = "mysql" ]; then' >> /start.sh && \
     echo '        mysql --socket=/var/run/mysqld/mysqld.sock <<SQLEND' >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
-    echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '';" >> /start.sh && \
+    echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '\${MYSQL_ROOT_PASSWORD}';" >> /start.sh && \
     echo "DROP USER IF EXISTS 'root'@'127.0.0.1';" >> /start.sh && \
     echo "DROP USER IF EXISTS 'root'@'%';" >> /start.sh && \
-    echo "CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '';" >> /start.sh && \
-    echo "CREATE USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY '';" >> /start.sh && \
+    echo "CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '\${MYSQL_ROOT_PASSWORD}';" >> /start.sh && \
+    echo "CREATE USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY '\${MYSQL_ROOT_PASSWORD}';" >> /start.sh && \
     echo "GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;" >> /start.sh && \
     echo "GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;" >> /start.sh && \
     echo "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;" >> /start.sh && \
@@ -296,11 +313,11 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '    else' >> /start.sh && \
     echo '        mysql --socket=/var/run/mysqld/mysqld.sock <<SQLEND' >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
-    echo "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('');" >> /start.sh && \
+    echo "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('\${MYSQL_ROOT_PASSWORD}');" >> /start.sh && \
     echo "GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;" >> /start.sh && \
-    echo "CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '';" >> /start.sh && \
+    echo "CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '\${MYSQL_ROOT_PASSWORD}';" >> /start.sh && \
     echo "GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;" >> /start.sh && \
-    echo "CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY '';" >> /start.sh && \
+    echo "CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY '\${MYSQL_ROOT_PASSWORD}';" >> /start.sh && \
     echo "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;" >> /start.sh && \
     echo "CREATE DATABASE IF NOT EXISTS \\\`\${MYSQL_DATABASE}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
@@ -362,7 +379,7 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'autorestart=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
     echo 'priority=2' >> /start.sh && \
-    echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306",DB_USER="root",DB_PASSWORD="",DB_NAME="oneclickvirt"' >> /start.sh && \
+    echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306",DB_USER="root",DB_PASSWORD="${MYSQL_ROOT_PASSWORD}",DB_NAME="${MYSQL_DATABASE}"' >> /start.sh && \
     echo 'startsecs=1' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:nginx]' >> /start.sh && \
@@ -377,7 +394,7 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'export DB_PORT="3306"' >> /start.sh && \
     echo 'export DB_NAME="$MYSQL_DATABASE"' >> /start.sh && \
     echo 'export DB_USER="root"' >> /start.sh && \
-    echo 'export DB_PASSWORD=""' >> /start.sh && \
+    echo 'export DB_PASSWORD="$MYSQL_ROOT_PASSWORD"' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'echo "Starting services..."' >> /start.sh && \
     echo 'exec supervisord -c /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \

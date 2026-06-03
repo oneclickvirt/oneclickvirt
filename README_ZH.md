@@ -95,7 +95,6 @@ docker run -d \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
-
   --restart unless-stopped \
   ghcr.io/oneclickvirt/oneclickvirt:latest
 ```
@@ -144,6 +143,10 @@ docker run -d \
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
 cd oneclickvirt
+cat > .env << 'EOF'
+MYSQL_ROOT_PASSWORD=change-this-root-password
+MYSQL_PASSWORD=change-this-app-password
+EOF
 docker-compose up -d --build || docker compose up -d --build
 ```
 
@@ -151,9 +154,10 @@ docker-compose up -d --build || docker compose up -d --build
 
 - 前端服务：`http://localhost:8888`
 - 后端 API：通过前端代理访问
-- MySQL 数据库：端口 3306，数据库名 `oneclickvirt`，无密码
+- MariaDB 数据库：端口 3306，数据库名 `oneclickvirt`
+- 数据库凭据：来自 `.env` 的 `MYSQL_ROOT_PASSWORD` 和 `MYSQL_PASSWORD`
 - 数据持久化：
-  - 数据库数据：`./data/mysql`
+  - 数据库数据：Docker volume `mysql_data`
   - 应用存储：`./data/app/`
 
 **初始化配置：**
@@ -162,8 +166,8 @@ docker-compose up -d --build || docker compose up -d --build
 - 数据库地址：`mysql`（容器名称，不是 127.0.0.1）
 - 数据库端口：`3306`
 - 数据库名称：`oneclickvirt`
-- 数据库用户：`root`
-- 数据库密码：留空（无密码）
+- 数据库用户：`oneclickvirt`
+- 数据库密码：使用 `.env` 中的 `MYSQL_PASSWORD`
 
 **自定义端口（可选）：**
 
@@ -197,7 +201,35 @@ rm -rf ./data
 
 </details>
 
-### 方式三：自己编译打包
+### 方式三：裸机全依赖安装
+
+<details>
+<summary>展开查看全量安装脚本</summary>
+
+`install_full.sh` 会在一个流程中安装数据库、反向代理、TLS 配置、前端、后端和系统服务，支持 MySQL/MariaDB 以及 Caddy/Nginx/OpenResty。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_full.sh -o install_full.sh
+bash install_full.sh --domain panel.example.com --email admin@example.com
+```
+
+非交互部署示例：
+
+```bash
+bash install_full.sh \
+  --non-interactive \
+  --domain panel.example.com \
+  --email admin@example.com \
+  --db-type mariadb \
+  --proxy caddy \
+  --tls letsencrypt
+```
+
+安装脚本默认要求至少 20 GB 可用磁盘和 4 GB 内存。生成的数据库密码会在安装摘要中输出，请在关闭终端前保存。
+
+</details>
+
+### 方式四：自己编译打包
 
 <details>
 <summary>展开查看编译步骤</summary>
@@ -251,7 +283,7 @@ docker run -d \
 
 </details>
 
-### 方式四：手动开发部署
+### 方式五：手动开发部署
 
 <details>
 <summary>展开查看开发部署步骤</summary>
@@ -295,13 +327,9 @@ go run main.go
 
 </details>
 
-## 默认账户
+## 初始账户
 
-系统初始化后会生成以下默认账户：
-
-* 管理员账户：`admin / Admin123!@#`
-
-> 提示：请在首次登录后立即修改默认密码，修改密码应该在用户管理界面点击对应用户进行修改。
+首次初始化时会根据初始化表单创建管理员账户。快捷填充会每次生成随机强密码，请在提交表单前保存生成的密码。
 
 ## 配置文件
 

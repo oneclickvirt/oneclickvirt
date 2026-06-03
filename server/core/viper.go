@@ -36,6 +36,7 @@ func Viper(path ...string) *viper.Viper {
 
 	// 先设置安全默认值，确保即使配置文件读取失败也有合理的基础值
 	setDefaults(v)
+	applyEnvOverrides(v)
 
 	if err := v.ReadInConfig(); err != nil {
 		// 读取失败降级为内存默认配置，不中断启动流程
@@ -77,7 +78,7 @@ func Viper(path ...string) *viper.Viper {
 		fallbackCfg.System.Addr = 8888
 		fallbackCfg.System.DbType = "mysql"
 		fallbackCfg.System.Env = "public"
-		fallbackCfg.Cors.Mode = "allow-all"
+		fallbackCfg.Cors.Mode = "whitelist"
 		global.SetAppConfig(fallbackCfg)
 	} else {
 		global.SetAppConfig(initCfg)
@@ -120,8 +121,24 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("zap.stacktrace-key", "stacktrace")
 	v.SetDefault("zap.log-in-console", true)
 
-	// CORS 默认值（缺失会导致白名单模式，非 localhost 请求返回 403）
-	v.SetDefault("cors.mode", "allow-all")
+	// CORS 默认值：白名单模式，生产环境避免通配 Origin。
+	v.SetDefault("cors.mode", "whitelist")
+}
+
+func applyEnvOverrides(v *viper.Viper) {
+	envToKey := map[string]string{
+		"DB_HOST":     "mysql.path",
+		"DB_PORT":     "mysql.port",
+		"DB_NAME":     "mysql.db-name",
+		"DB_USER":     "mysql.username",
+		"DB_PASSWORD": "mysql.password",
+		"DB_TYPE":     "system.db-type",
+	}
+	for envName, configKey := range envToKey {
+		if value, exists := os.LookupEnv(envName); exists {
+			v.Set(configKey, value)
+		}
+	}
 }
 
 // generateSecureJWTKey 生成一个随机 256 位十六进制字符串作为 JWT 签名密钒。

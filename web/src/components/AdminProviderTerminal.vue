@@ -123,6 +123,10 @@ const toolbarActions = computed(() => ([
   }
 ]))
 
+const ignoreNonCriticalTerminalError = (error) => {
+  void error
+}
+
 onMounted(() => nextTick(() => initTerminal()))
 
 onBeforeUnmount(() => cleanup())
@@ -150,12 +154,12 @@ const initTerminal = () => {
 
   // Auto-fit after render
   nextTick(() => {
-    try { fitAddon.fit() } catch {}
+    try { fitAddon.fit() } catch (error) { ignoreNonCriticalTerminalError(error) }
   })
 
   // Resize → fit
   resizeObserver = new ResizeObserver(() => {
-    try { fitAddon.fit() } catch {}
+    try { fitAddon.fit() } catch (error) { ignoreNonCriticalTerminalError(error) }
   })
   if (terminalRef.value) resizeObserver.observe(terminalRef.value)
 
@@ -168,7 +172,7 @@ const initTerminal = () => {
   resizeDisposable = terminal.onResize(({ cols, rows }) => {
     if (!isCleanedUp && websocket && websocket.readyState === WebSocket.OPEN) {
       websocket.send(JSON.stringify({ type: 'resize', cols, rows }))
-      try { fitAddon.fit() } catch {}
+      try { fitAddon.fit() } catch (error) { ignoreNonCriticalTerminalError(error) }
     }
   })
 
@@ -215,7 +219,7 @@ const connect = () => {
       }
       isConnecting = false
       if (isCleanedUp) {
-        try { ws.close() } catch {}
+        try { ws.close() } catch (error) { ignoreNonCriticalTerminalError(error) }
         return
       }
       if (terminal) terminal.write('\x1b[32mConnected.\x1b[0m\r\n')
@@ -321,7 +325,7 @@ const reconnectTerminal = (reason = 'Manual reconnect') => {
   if (websocket) {
     const ws = websocket
     websocket = null
-    try { ws.close(1000, reason) } catch {}
+    try { ws.close(1000, reason) } catch (error) { ignoreNonCriticalTerminalError(error) }
   }
   connect()
 }
@@ -382,27 +386,27 @@ const cleanup = () => {
   if (websocket) {
     const ws = websocket
     websocket = null
-    try { ws.close(1000, 'User closed terminal') } catch {}
+    try { ws.close(1000, 'User closed terminal') } catch (error) { ignoreNonCriticalTerminalError(error) }
   }
 
   if (dataDisposable) {
-    try { dataDisposable.dispose() } catch {}
+    try { dataDisposable.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
     dataDisposable = null
   }
 
   if (resizeDisposable) {
-    try { resizeDisposable.dispose() } catch {}
+    try { resizeDisposable.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
     resizeDisposable = null
   }
 
   // 再清理终端
   if (terminal) {
-    try { terminal.dispose() } catch {}
+    try { terminal.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
     terminal = null
   }
 
   if (fitAddon) {
-    try { fitAddon.dispose() } catch {}
+    try { fitAddon.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
     fitAddon = null
   }
 }
@@ -430,7 +434,7 @@ watch(activeView, (view) => {
     return
   }
   nextTick(() => {
-    try { fitAddon?.fit() } catch {}
+    try { fitAddon?.fit() } catch (error) { ignoreNonCriticalTerminalError(error) }
   })
 })
 

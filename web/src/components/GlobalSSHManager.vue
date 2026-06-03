@@ -342,8 +342,8 @@ const openSSHInNewWindow = (conn) => {
   <div class="terminal-container">
     <div id="terminal"></div>
   </div>
-  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"><\/script>
-  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"><\/script>
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></${'script'}>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></${'script'}>
   <script>
     (function() {
       let websocket = null;
@@ -501,7 +501,7 @@ const openSSHInNewWindow = (conn) => {
         }
       });
     })();
-  <\/script>
+  </${'script'}>
 </body>
 </html>`
   

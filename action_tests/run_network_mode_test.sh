@@ -146,6 +146,7 @@ _reinstall_worker() {
     install_env "$worker_id" "$WORKER_IP" "$env" || {
         log_warning "Environment re-installation had issues (continuing anyway)"
     }
+    verify_worker_runtime "$worker_id" "$WORKER_IP" "$env" || true
     return 0
 }
 
@@ -368,11 +369,11 @@ if [[ -z "$WORKER_IP" ]]; then
         log_error "Failed to create worker node"
         exit 1
     }
-    WORKER_ID=$(echo "$WORKER_INFO" | jq -r '.instance_id // empty')
-    WORKER_IP=$(echo "$WORKER_INFO" | jq -r '.ipv4 // empty')
-    NODE_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password // empty')
+    WORKER_ID=$(safe_jq "$WORKER_INFO" '.instance_id // empty' '')
+    WORKER_IP=$(safe_jq "$WORKER_INFO" '.ipv4 // empty' '')
+    NODE_PASSWORD=$(safe_jq "$WORKER_INFO" '.password // empty' '')
     WORKER_PASSWORD="$NODE_PASSWORD"
-    WORKER_PLATFORM=$(echo "$WORKER_INFO" | jq -r '.platform // empty')
+    WORKER_PLATFORM=$(safe_jq "$WORKER_INFO" '.platform // empty' '')
     CREATED_IDS="$WORKER_ID"
     export NODE_IP="$WORKER_IP"
     if [[ -n "$WORKER_PLATFORM" ]]; then
@@ -398,10 +399,10 @@ if ! wait_init_ready "$SERVER_URL" 180 5; then
 fi
 
 INIT_CHECK=$(curl -s --max-time 10 "${SERVER_URL}/api/v1/public/init/check" 2>/dev/null)
-NEED_INIT=$(echo "$INIT_CHECK" | jq -r '.data.needInit // true' 2>/dev/null)
+NEED_INIT=$(safe_jq "$INIT_CHECK" '.data.needInit // true' 'true')
 if [[ "$NEED_INIT" == "true" ]]; then
     INIT_RESP=$(init_system "$SERVER_URL" "${ADMIN_USER:-admin}" "${ADMIN_PASS:-Admin123!@#}")
-    [[ "$(echo "$INIT_RESP" | jq -r '.code // empty')" != "200" ]] && {
+    [[ "$(safe_jq "$INIT_RESP" '.code // empty' '')" != "200" ]] && {
         log_error "System init failed: ${INIT_RESP}"
         exit 1
     }
@@ -472,6 +473,7 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
         install_env "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || {
             log_warning "env install had issues, continuing"
         }
+        verify_worker_runtime "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || true
     else
         # Subsequent iterations: delete provider, reinstall OS, reinstall env
         log_section "Switching mapping method → reinstalling worker"
@@ -496,6 +498,7 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
             install_env "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || {
                 log_warning "env install had issues, continuing"
             }
+            verify_worker_runtime "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || true
         fi
     fi
 

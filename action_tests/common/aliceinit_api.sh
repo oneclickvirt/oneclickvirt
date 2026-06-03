@@ -224,7 +224,7 @@ alice_create_and_wait() {
     log_success "Instance creation requested, ID: ${id}"
     alice_wait_instance_ready "${id}" "${max}" || return 1
     # Return deploy response .data: ipv4 is a plain string, password is included
-    echo "${body}" | jq -c '.data'
+    echo "${body}" | jq -c '.data' 2>/dev/null || echo '{}'
 }
 
 alice_delete_and_confirm() {

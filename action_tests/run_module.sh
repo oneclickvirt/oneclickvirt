@@ -150,8 +150,8 @@ _restore_safe_state() {
         # Check instance state — if stuck in transitional state, wait for it to settle
         local _rs_resp; _rs_resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}" 2>/dev/null) || true
-        local _rs_code; _rs_code=$(echo "$_rs_resp" | jq -r '.code // empty' 2>/dev/null)
-        local _rs_status; _rs_status=$(echo "$_rs_resp" | jq -r '.data.status // empty' 2>/dev/null)
+        local _rs_code; _rs_code=$(safe_jq "$_rs_resp" '.code // empty' '')
+        local _rs_status; _rs_status=$(safe_jq "$_rs_resp" '.data.status // empty' '')
 
         if [[ "$_rs_code" == "200" ]]; then
             # If instance is in transitional state (creating/rebuilding/deleting/stopping/starting)
@@ -165,7 +165,7 @@ _restore_safe_state() {
                         _rs_waited=$((_rs_waited + 10))
                         _rs_resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                             "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}" 2>/dev/null) || true
-                        _rs_status=$(echo "$_rs_resp" | jq -r '.data.status // empty' 2>/dev/null)
+                        _rs_status=$(safe_jq "$_rs_resp" '.data.status // empty' '')
                         case "$_rs_status" in
                             running|stopped|failed|error|deleted) break ;;
                         esac

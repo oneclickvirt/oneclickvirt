@@ -23,6 +23,137 @@ log_debug()   {
     return 0
 }
 
+# -- Safe jq wrapper: validates JSON before parsing to prevent "parse error" crashes --
+# Usage: safe_jq "$body" ".data.token // empty" [default_value]
+# Legacy callers may pass "-r .field"; leading jq flags are stripped for compatibility.
+# Returns the jq result on success, or default_value (or empty string) on parse failure.
+safe_jq() {
+    local input="$1" expr="$2" default="${3:-}"
+    local jq_filter="$expr"
+    # Empty input: return default immediately
+    if [[ -z "$input" ]]; then
+        echo "$default"
+        return 1
+    fi
+    # Normalize old call sites that included jq output flags in the expression.
+    while [[ "$jq_filter" =~ ^-[A-Za-z]+[[:space:]]+(.+)$ ]]; do
+        jq_filter="${BASH_REMATCH[1]}"
+    done
+    # Validate that input is parseable JSON before passing to jq
+    if ! printf '%s' "$input" | jq empty 2>/dev/null; then
+        # Input is not valid JSON - could be HTML error page, binary, etc.
+        log_debug "safe_jq: input is not valid JSON (first 100 chars): ${input:0:100}"
+        echo "$default"
+        return 1
+    fi
+    # Safe to parse now
+    local result
+    result=$(printf '%s' "$input" | jq -r "$jq_filter" 2>/dev/null) || { echo "$default"; return 1; }
+    echo "$result"
+    return 0
+}
+
+# -- Sanitize response body for jq: strip non-JSON prefix (e.g., HTTP headers, warnings) --
+# Some APIs may prepend warnings or have mixed output; this extracts the JSON portion
+sanitize_json_body() {
+    local body="$1"
+    if printf '%s' "$body" | jq empty 2>/dev/null; then
+        printf '%s\n' "$body"
+        return 0
+    fi
+    # Try to find the first '{' or '[' and extract from there
+    local json_start
+    json_start=$(printf '%s' "$body" | grep -abo -m1 '[{\[]' | cut -d: -f1)
+    if [[ -n "$json_start" ]]; then
+        printf '%s' "$body" | tail -c +$((json_start + 1))
+    else
+        echo "$body"
+    fi
+}
+
+json_string() {
+    jq -cn --arg value "$1" '$value'
+}
+
+preflight_require_commands() {
+    local missing=()
+    local cmd
+    for cmd in "$@"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log_error "Missing required command(s): ${missing[*]}"
+        return 1
+    fi
+    log_success "Required commands available: $*"
+    return 0
+}
+
+preflight_check_runner_resources() {
+    local min_disk_gb="${1:-20}" min_memory_mb="${2:-4096}" path="${3:-.}"
+    local disk_gb="0" memory_mb="0"
+
+    disk_gb=$(df -Pk "$path" 2>/dev/null | awk 'NR==2 {print int($4/1024/1024)}')
+    if [[ -z "$disk_gb" || "$disk_gb" -lt "$min_disk_gb" ]]; then
+        log_error "Insufficient disk space: available=${disk_gb:-unknown}GB required>=${min_disk_gb}GB path=${path}"
+        return 1
+    fi
+
+    if [[ -r /proc/meminfo ]]; then
+        memory_mb=$(awk '/MemTotal:/ {print int($2/1024)}' /proc/meminfo)
+    elif command -v sysctl >/dev/null 2>&1; then
+        memory_mb=$(sysctl -n hw.memsize 2>/dev/null | awk '{print int($1/1024/1024)}')
+    fi
+    if [[ -z "$memory_mb" || "$memory_mb" -lt "$min_memory_mb" ]]; then
+        log_error "Insufficient memory: total=${memory_mb:-unknown}MB required>=${min_memory_mb}MB"
+        return 1
+    fi
+
+    log_success "Runner resources OK: disk=${disk_gb}GB memory=${memory_mb}MB"
+    return 0
+}
+
+preflight_check_port_available() {
+    local port="$1"
+    if command -v lsof >/dev/null 2>&1; then
+        if lsof -nP -iTCP:"$port" -sTCP:LISTEN -t >/dev/null 2>&1; then
+            log_error "Port ${port} is already in use"
+            return 1
+        fi
+    elif command -v ss >/dev/null 2>&1; then
+        if ss -ltn "( sport = :${port} )" 2>/dev/null | awk 'NR>1 {found=1} END {exit found ? 0 : 1}'; then
+            log_error "Port ${port} is already in use"
+            return 1
+        fi
+    fi
+    log_success "Port ${port} is available"
+    return 0
+}
+
+wait_for_mysql_ready() {
+    local timeout="${1:-60}" interval="${2:-5}" elapsed=0
+    local db_password="${DB_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
+    local mysql_args=(-h 127.0.0.1 -u root)
+    [[ -n "$db_password" ]] && mysql_args+=("-p${db_password}")
+    log_info "Waiting for MySQL TCP readiness..."
+    while [[ $elapsed -lt $timeout ]]; do
+        if command -v mysqladmin >/dev/null 2>&1 && mysqladmin "${mysql_args[@]}" ping --silent 2>/dev/null; then
+            log_success "MySQL ready after ${elapsed}s"
+            return 0
+        fi
+        if command -v mysql >/dev/null 2>&1 && mysql "${mysql_args[@]}" -e "SELECT 1;" >/dev/null 2>&1; then
+            log_success "MySQL ready after ${elapsed}s"
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    log_error "MySQL not ready after ${timeout}s"
+    return 1
+}
+
 # -- Counters --
 TOTAL_TESTS=0; PASSED_TESTS=0; FAILED_TESTS=0; SKIPPED_TESTS=0
 declare -A CHAIN_BROKEN
@@ -180,8 +311,11 @@ test_api_json_value() {
     fi
 
     local actual_value="__JQ_EVAL_ERROR__"
-    if actual_value=$(echo "$body" | jq -er "$jq_expr" 2>/dev/null); then
+    local sanitized; sanitized=$(sanitize_json_body "$body")
+    if actual_value=$(safe_jq "$sanitized" "$jq_expr" "__JQ_PARSE_ERROR__"); then
         :
+    elif [[ "$actual_value" == "__JQ_PARSE_ERROR__" ]]; then
+        log_warning "${name} - response body is not valid JSON, jq evaluation skipped"
     fi
 
     if [[ "$actual_value" != "$expected_value" ]]; then
@@ -366,7 +500,7 @@ wait_db_ready() {
     log_info "Waiting for system initialization to complete..."
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 "${url}/api/v1/public/init/check" 2>/dev/null) || true
-        local need_init; need_init=$(echo "$r" | jq -r '.data.needInit' 2>/dev/null)
+        local need_init; need_init=$(safe_jq "$r" '-r .data.needInit' 'unknown')
         if [[ "$need_init" == "false" ]]; then
             log_success "System initialization complete"
             return 0
@@ -387,7 +521,7 @@ wait_task_complete() {
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
             "${url}/api/v1/admin/tasks/${task_id}" 2>/dev/null) || true
-        local st; st=$(echo "$r" | jq -r '.data.status // empty' 2>/dev/null)
+        local st; st=$(safe_jq "$r" '-r .data.status // empty' '')
         
         case "$st" in
             completed) 
@@ -448,7 +582,7 @@ delete_instance_safe() {
     local del_resp; del_resp=$(curl -s --max-time 60 -X DELETE -H "Authorization: Bearer ${token}" \
         "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
     
-    local del_code; del_code=$(echo "$del_resp" | jq -r '.code // empty' 2>/dev/null)
+    local del_code; del_code=$(safe_jq "$del_resp" '-r .code // empty' '')
     
     # Already gone
     if [[ "$del_code" == "404" ]]; then
@@ -458,12 +592,12 @@ delete_instance_safe() {
     
     # Check if deletion request itself failed
     if [[ -n "$del_code" && "$del_code" != "200" ]]; then
-        local del_msg; del_msg=$(echo "$del_resp" | jq -r '.msg // .message // "unknown error"' 2>/dev/null)
+        local del_msg; del_msg=$(safe_jq "$del_resp" '-r .msg // .message // "unknown error"' 'unknown error')
         log_warning "Instance ${instance_id} deletion request returned: ${del_msg} (code: ${del_code})"
     fi
     
     # Check if deletion returns a task ID (async operation)
-    local del_task; del_task=$(echo "$del_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+    local del_task; del_task=$(safe_jq "$del_resp" '-r .data.task_id // empty' '')
     if [[ -n "$del_task" ]]; then
         log_debug "Waiting for deletion task ${del_task}..."
         wait_task_complete "$SERVER_URL" "$del_task" "$token" "$max_wait" 5 > /dev/null 2>&1 || {
@@ -476,7 +610,7 @@ delete_instance_safe() {
     while [[ $elapsed -lt $max_wait ]]; do
         local verify; verify=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
             "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
-        local verify_code; verify_code=$(echo "$verify" | jq -r '.code // empty' 2>/dev/null)
+        local verify_code; verify_code=$(safe_jq "$verify" '-r .code // empty' '')
         
         # Instance not found (404 or other non-200) means deleted
         if [[ "$verify_code" != "200" ]]; then
@@ -484,7 +618,7 @@ delete_instance_safe() {
             return 0
         fi
         
-        local inst_status; inst_status=$(echo "$verify" | jq -r '.data.status // empty' 2>/dev/null)
+        local inst_status; inst_status=$(safe_jq "$verify" '-r .data.status // empty' '')
         if [[ "$inst_status" == "deleted" || "$inst_status" == "failed" ]]; then
             log_debug "Instance ${instance_id} in terminal state: ${inst_status}"
             return 0
@@ -506,9 +640,9 @@ wait_init_ready() {
     log_info "Waiting for init endpoint to respond..."
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 "${url}/api/v1/public/init/check" 2>/dev/null) || true
-        local code; code=$(echo "$r" | jq -r '.code // empty' 2>/dev/null)
+        local code; code=$(safe_jq "$r" '-r .code // empty' '')
         if [[ "$code" == "200" ]]; then
-            local need_init; need_init=$(echo "$r" | jq -r '.data.needInit // true' 2>/dev/null)
+            local need_init; need_init=$(safe_jq "$r" '-r .data.needInit // true' 'true')
             log_success "Init endpoint ready (needInit=${need_init})"
             return 0
         fi
@@ -520,33 +654,51 @@ wait_init_ready() {
 }
 
 init_system() {
-    # All-in-one container: MySQL on 127.0.0.1:3306, root with empty password
+    # All-in-one container / CI: MySQL on 127.0.0.1:3306, root password from DB_PASSWORD when set.
     local url="$1" user="$2" pass="$3"
+    local db_password="${DB_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
+    local user_json pass_json admin_email_json test_user_json test_user_pass_json test_user_email_json db_password_json
+    user_json=$(json_string "$user")
+    pass_json=$(json_string "$pass")
+    admin_email_json=$(json_string "${user}@test.local")
+    test_user_json=$(json_string "$TEST_USER")
+    test_user_pass_json=$(json_string "$TEST_USER_PASS")
+    test_user_email_json=$(json_string "${TEST_USER}@test.local")
+    db_password_json=$(json_string "$db_password")
     local data
     printf -v data \
-        '{"admin":{"username":"%s","password":"%s","email":"%s@test.local"},"user":{"username":"%s","password":"%s","email":"%s@test.local","enabled":true},"database":{"type":"mysql","host":"127.0.0.1","port":"3306","database":"oneclickvirt","username":"root","password":""}}' \
-        "$user" "$pass" "$user" "$TEST_USER" "$TEST_USER_PASS" "$TEST_USER"
+        '{"admin":{"username":%s,"password":%s,"email":%s},"user":{"username":%s,"password":%s,"email":%s,"enabled":true},"database":{"type":"mysql","host":"127.0.0.1","port":"3306","database":"oneclickvirt","username":"root","password":%s}}' \
+        "$user_json" "$pass_json" "$admin_email_json" "$test_user_json" "$test_user_pass_json" "$test_user_email_json" "$db_password_json"
     local resp; resp=$(curl -s --max-time 60 -H "Content-Type: application/json" -X POST -d "$data" "${url}/api/v1/public/init" 2>/dev/null)
-    local init_code; init_code=$(echo "$resp" | jq -r '.code // empty' 2>/dev/null)
+    local init_code; init_code=$(safe_jq "$resp" '-r .code // empty' '')
     log_info "Init response code: ${init_code}"
     echo "$resp"
 }
 
 do_login() {
     local url="$1" user="$2" pass="$3"
+    local user_json pass_json data
+    user_json=$(json_string "$user")
+    pass_json=$(json_string "$pass")
+    printf -v data '{"username":%s,"password":%s}' "$user_json" "$pass_json"
     local r; r=$(curl -s --max-time 30 -H "Content-Type: application/json" -X POST \
-        -d "{\"username\":\"${user}\",\"password\":\"${pass}\"}" "${url}/api/v1/auth/login" 2>/dev/null)
-    echo "$r" | jq -r '.data.token // empty' 2>/dev/null
+        -d "$data" "${url}/api/v1/auth/login" 2>/dev/null)
+    safe_jq "$r" '-r .data.token // empty' ''
 }
 
 admin_login() {
     local url="$1" user="${2:-admin}" pass="${3:-Admin123!@#}"
+    local user_json pass_json data
+    user_json=$(json_string "$user")
+    pass_json=$(json_string "$pass")
+    printf -v data '{"username":%s,"password":%s}' "$user_json" "$pass_json"
     local raw; raw=$(curl -s --max-time 30 -H "Content-Type: application/json" -X POST \
-        -d "{\"username\":\"${user}\",\"password\":\"${pass}\"}" "${url}/api/v1/auth/login" 2>/dev/null)
+        -d "$data" "${url}/api/v1/auth/login" 2>/dev/null)
     log_debug "Login response for ${user}: ${raw}"
-    local token; token=$(echo "$raw" | jq -r '.data.token // empty' 2>/dev/null)
+    local token; token=$(safe_jq "$raw" '-r .data.token // empty' '')
     [[ -n "$token" ]] && { log_success "Login success: ${user}"; echo "$token"; return 0; }
-    log_error "Login failed: ${user} - $(echo "$raw" | jq -r '.msg // .message // .data // "no response"' 2>/dev/null)"
+    local login_err; login_err=$(safe_jq "$raw" '-r .msg // .message // .data // "no response"' 'no response')
+    log_error "Login failed: ${user} - ${login_err}"
     return 1
 }
 
@@ -659,8 +811,8 @@ generate_html_report() {
 
     # Fetch version info from the running server
     local ver_resp; ver_resp=$(curl -s --max-time 10 "${SERVER_URL}/api/v1/public/version" 2>/dev/null) || true
-    local server_ver; server_ver=$(echo "$ver_resp" | jq -r '.data.server_version // "unknown"' 2>/dev/null)
-    local agent_ver; agent_ver=$(echo "$ver_resp" | jq -r '.data.compatible_agent_version // "unknown"' 2>/dev/null)
+    local server_ver; server_ver=$(safe_jq "$ver_resp" '-r .data.server_version // "unknown"' 'unknown')
+    local agent_ver; agent_ver=$(safe_jq "$ver_resp" '-r .data.compatible_agent_version // "unknown"' 'unknown')
 
     # Fetch service error logs for inclusion in report
     fetch_full_service_logs "$service_log_file" || true
@@ -668,7 +820,9 @@ generate_html_report() {
     if [[ -f "$report_script" && -n "$RESULTS_FILE" ]]; then
         bash "$report_script" "$RESULTS_FILE" "$output_file" "$env_name" "$service_log_file" "$server_ver" "$agent_ver" || {
             log_warning "Report generator failed, creating fallback report"
-            echo "<html><body><h1>Report generation failed</h1><p>Results file: ${RESULTS_FILE}</p><pre>$(cat "$RESULTS_FILE" 2>/dev/null | head -100)</pre></body></html>" > "$output_file"
+            local fallback_results
+            fallback_results=$(head -100 "$RESULTS_FILE" 2>/dev/null || true)
+            echo "<html><body><h1>Report generation failed</h1><p>Results file: ${RESULTS_FILE}</p><pre>${fallback_results}</pre></body></html>" > "$output_file"
         }
     else
         log_warning "Report script or results file not found (script=${report_script}, results=${RESULTS_FILE})"
@@ -692,7 +846,7 @@ save_base_state() {
     # Save instances
     local inst_resp; inst_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/instances?page=1&pageSize=1000" 2>/dev/null) || true
-    SAVED_INSTANCE_IDS=$(echo "$inst_resp" | jq -r '.data.list[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    SAVED_INSTANCE_IDS=$(safe_jq "$inst_resp" '-r .data.list[]?.id // empty' '' | tr '\n' ',' | sed 's/,$//')
     log_debug "Saved instance IDs: ${SAVED_INSTANCE_IDS:-none}"
     
     # DO NOT save PROVIDER_ID here - it should persist across modules
@@ -701,13 +855,13 @@ save_base_state() {
     # Save provider list (to avoid deleting base provider)
     local prov_resp; prov_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/providers?page=1&pageSize=100" 2>/dev/null) || true
-    SAVED_PROVIDER_IDS=$(echo "$prov_resp" | jq -r '.data.list[]?.id // .data.items[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    SAVED_PROVIDER_IDS=$(safe_jq "$prov_resp" '-r .data.list[]?.id // .data.items[]?.id // empty' '' | tr '\n' ',' | sed 's/,$//')
     log_debug "Saved provider IDs: ${SAVED_PROVIDER_IDS:-none}"
     
     # Save user list (to avoid deleting base test users)
     local user_resp; user_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/users?page=1&pageSize=100" 2>/dev/null) || true
-    SAVED_USER_IDS=$(echo "$user_resp" | jq -r '.data.list[]?.id // .data.items[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    SAVED_USER_IDS=$(safe_jq "$user_resp" '-r .data.list[]?.id // .data.items[]?.id // empty' '' | tr '\n' ',' | sed 's/,$//')
     log_debug "Saved user IDs: ${SAVED_USER_IDS:-none}"
 }
 
@@ -717,14 +871,14 @@ restore_base_state() {
     # Delete any instances created during the module (exclude dirty node instances)
     local curr_resp; curr_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/instances?page=1&pageSize=1000" 2>/dev/null) || true
-    local curr_ids; curr_ids=$(echo "$curr_resp" | jq -r '.data.list[]?.id // empty' 2>/dev/null)
+    local curr_ids; curr_ids=$(safe_jq "$curr_resp" '-r .data.list[]?.id // empty' '')
     
     for id in $curr_ids; do
         if [[ -n "$id" ]] && ! echo ",$SAVED_INSTANCE_IDS," | grep -q ",${id},"; then
             # Get instance details to check if it's a pre-existing instance (dirty node)
             local inst_detail; inst_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                 "${SERVER_URL}/api/v1/admin/instances/${id}" 2>/dev/null) || true
-            local inst_name; inst_name=$(echo "$inst_detail" | jq -r '.data.name // empty' 2>/dev/null)
+            local inst_name; inst_name=$(safe_jq "$inst_detail" '-r .data.name // empty' '')
             
             # Skip deletion if it's a pre-existing instance (for discovery tests)
             if [[ "$inst_name" =~ pre.?existing|pre_existing|pre-existing ]]; then

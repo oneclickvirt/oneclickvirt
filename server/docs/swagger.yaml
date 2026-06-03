@@ -1007,6 +1007,91 @@ definitions:
     - target
     - type
     type: object
+  checkin.BatchCheckinItemResult:
+    properties:
+      instanceId:
+        type: integer
+      message:
+        type: string
+      newExpiry:
+        type: string
+      success:
+        type: boolean
+    type: object
+  checkin.BatchCheckinRequest:
+    properties:
+      challenge:
+        maxLength: 128
+        type: string
+      code:
+        maxLength: 128
+        type: string
+      instanceIds:
+        items:
+          type: integer
+        maxItems: 50
+        minItems: 1
+        type: array
+      nonce:
+        maxLength: 64
+        type: string
+      token:
+        maxLength: 512
+        type: string
+    required:
+    - instanceIds
+    type: object
+  checkin.BatchCheckinResult:
+    properties:
+      details:
+        items:
+          $ref: '#/definitions/checkin.BatchCheckinItemResult'
+        type: array
+      failed:
+        type: integer
+      success:
+        type: integer
+      total:
+        type: integer
+    type: object
+  checkin.CheckinStats:
+    properties:
+      currentStreak:
+        type: integer
+      lastCheckinDate:
+        type: string
+      longestStreak:
+        type: integer
+      thisMonthCheckins:
+        type: integer
+      totalCheckins:
+        type: integer
+      totalRenewalDays:
+        type: integer
+    type: object
+  checkin.DoCheckinRequest:
+    properties:
+      challenge:
+        description: PoW challenge
+        maxLength: 128
+        type: string
+      code:
+        description: 内置验证码
+        maxLength: 128
+        type: string
+      instanceId:
+        type: integer
+      nonce:
+        description: PoW nonce
+        maxLength: 64
+        type: string
+      token:
+        description: 第三方captcha token (turnstile/recaptcha/hcaptcha)
+        maxLength: 512
+        type: string
+    required:
+    - instanceId
+    type: object
   common.Response:
     properties:
       code:
@@ -8111,6 +8196,226 @@ paths:
       summary: 删除API Token
       tags:
       - API Token管理
+  /user/checkin:
+    post:
+      consumes:
+      - application/json
+      description: 为单个实例执行签到续期
+      parameters:
+      - description: 签到请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/checkin.DoCheckinRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 签到成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 用户签到续期
+      tags:
+      - 用户/签到续期
+  /user/checkin/batch:
+    post:
+      consumes:
+      - application/json
+      description: 为多个实例执行签到续期，最多 50 个实例
+      parameters:
+      - description: 批量签到请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/checkin.BatchCheckinRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 签到成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/checkin.BatchCheckinResult'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量签到续期
+      tags:
+      - 用户/签到续期
+  /user/checkin/batch-checkin:
+    post:
+      consumes:
+      - application/json
+      description: 为多个实例执行签到续期，最多 50 个实例
+      parameters:
+      - description: 批量签到请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/checkin.BatchCheckinRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 签到成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/checkin.BatchCheckinResult'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量签到续期
+      tags:
+      - 用户/签到续期
+  /user/checkin/code/{instance_id}:
+    post:
+      consumes:
+      - application/json
+      description: 为指定实例生成签到续期所需的验证码或 PoW challenge
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instance_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取签到验证挑战
+      tags:
+      - 用户/签到续期
+  /user/checkin/records:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前用户的签到续期记录，支持分页和筛选
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 开始日期 YYYY-MM-DD
+        in: query
+        name: startDate
+        type: string
+      - description: 结束日期 YYYY-MM-DD
+        in: query
+        name: endDate
+        type: string
+      - description: 实例ID
+        in: query
+        name: instanceId
+        type: integer
+      - description: 结果筛选
+        enum:
+        - all
+        - success
+        - failed
+        in: query
+        name: result
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取签到记录
+      tags:
+      - 用户/签到续期
+  /user/checkin/stats:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前用户签到次数、连续签到、最长连续签到和累计续期天数
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/checkin.CheckinStats'
+              type: object
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取签到统计
+      tags:
+      - 用户/签到续期
   /user/dashboard:
     get:
       consumes:

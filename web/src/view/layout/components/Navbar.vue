@@ -137,6 +137,7 @@ const logout = async () => {
     userStore.logout()
     router.push('/home')
   } catch (error) {
+    void error
   }
 }
 </script>

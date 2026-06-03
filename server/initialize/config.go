@@ -141,7 +141,7 @@ func getDefaultConfig() config.Server {
 			ExpireTime: 5,
 		},
 		Cors: config.CORS{
-			Mode:      "allow-all",
+			Mode:      "whitelist",
 			Whitelist: []string{"http://localhost:8080", "http://127.0.0.1:8080"},
 		},
 		Redis: config.Redis{

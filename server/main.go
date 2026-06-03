@@ -10,6 +10,7 @@ import (
 	systemAPI "oneclickvirt/api/v1/system"
 	"oneclickvirt/global"
 	"oneclickvirt/initialize"
+	"oneclickvirt/mcp"
 
 	_ "oneclickvirt/docs"
 	_ "oneclickvirt/provider/containerd"
@@ -45,6 +46,13 @@ import (
 // @name Authorization
 
 func main() {
+	// Check for MCP subcommand before full initialization
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		// MCP mode: lightweight init (no DB, no full server)
+		runMCP(os.Args[2:])
+		return
+	}
+
 	// 确保从正确的工作目录运行
 	ensureCorrectWorkingDirectory()
 
@@ -56,6 +64,52 @@ func main() {
 
 	// 启动服务器
 	runServer()
+}
+
+// runMCP 启动 MCP stdio 服务器（轻量模式，不需要数据库）
+func runMCP(args []string) {
+	// Parse token and API URL from args
+	apiURL := "http://localhost:8888"
+	apiToken := ""
+	if envURL := os.Getenv("ONE_CLICK_VIRT_API_URL"); envURL != "" {
+		apiURL = envURL
+	}
+	if envToken := os.Getenv("ONE_CLICK_VIRT_API_TOKEN"); envToken != "" {
+		apiToken = envToken
+	}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--api-url":
+			if i+1 < len(args) {
+				apiURL = args[i+1]
+				i++
+			}
+		case "--token":
+			if i+1 < len(args) {
+				apiToken = args[i+1]
+				i++
+			}
+		case "--help", "-h":
+			fmt.Println("OneClickVirt MCP Server")
+			fmt.Println("")
+			fmt.Println("Usage: oneclickvirt mcp [--api-url URL] [--token TOKEN]")
+			fmt.Println("")
+			fmt.Println("Starts a Model Context Protocol (MCP) server via stdin/stdout.")
+			fmt.Println("Environment: ONE_CLICK_VIRT_API_URL, ONE_CLICK_VIRT_API_TOKEN")
+			fmt.Println("Configure your AI assistant to use this for managing OneClickVirt.")
+			return
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "[MCP] Starting OneClickVirt MCP server\n")
+	fmt.Fprintf(os.Stderr, "[MCP] API URL: %s\n", apiURL)
+
+	server := mcp.NewMCPServer(apiURL, apiToken)
+	if err := server.RunStdio(); err != nil {
+		fmt.Fprintf(os.Stderr, "[MCP] Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // ensureCorrectWorkingDirectory 确认当前工作目录合法。

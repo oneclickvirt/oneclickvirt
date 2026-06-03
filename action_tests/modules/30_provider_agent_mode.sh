@@ -141,7 +141,7 @@ run_module_30() {
         if [[ -n "$switch_endpoint" ]]; then
             local providers_resp; providers_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                 "${SERVER_URL}/api/v1/admin/providers?page=1&pageSize=200" 2>/dev/null)
-            local endpoint_conflict; endpoint_conflict=$(echo "$providers_resp" | jq -r \
+            local endpoint_conflict; endpoint_conflict=$(echo "$providers_resp" | jq -r 2>/dev/null \
                 --arg endpoint "$switch_endpoint" \
                 --arg self_id "$agent_pid" \
                 --argjson ssh_port "$switch_port" \
@@ -150,7 +150,7 @@ run_module_30() {
                  if any((.data.list // .data.items // .data // [])[]?; ((.id // .ID | tostring) != $self_id) and (e == $endpoint) and (p == $ssh_port)) then "yes" else "no" end' 2>/dev/null)
             if [[ "$endpoint_conflict" == "yes" ]]; then
                 for candidate_port in 22022 22023 22024 22025 22026 22027 22028 22029; do
-                    local port_conflict; port_conflict=$(echo "$providers_resp" | jq -r \
+                    local port_conflict; port_conflict=$(echo "$providers_resp" | jq -r 2>/dev/null \
                         --arg endpoint "$switch_endpoint" \
                         --arg self_id "$agent_pid" \
                         --argjson ssh_port "$candidate_port" \

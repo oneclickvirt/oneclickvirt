@@ -55,7 +55,10 @@ cubepath_platform_create_instance() {
     local password="${CUBEPATH_ROOT_PASSWORD:-$(openssl rand -base64 24)}"
     local data="{\"plan\":\"${CUBEPATH_PLAN}\",\"location\":\"${CUBEPATH_LOCATION}\",\"os\":\"${os}\",\"password\":\"${password}\"}"
     if [[ -n "${CUBEPATH_SSH_PUBLIC_KEY:-}" ]]; then
-        data=$(echo "$data" | jq --arg key "${CUBEPATH_SSH_PUBLIC_KEY}" '. + {ssh_key: $key}')
+        data=$(echo "$data" | jq --arg key "${CUBEPATH_SSH_PUBLIC_KEY}" '. + {ssh_key: $key}' 2>/dev/null) || {
+            log_error "[cubepath] Failed to build create payload with SSH key"
+            return 1
+        }
     fi
     local resp; resp=$(cubepath_request "POST" "/servers" "$data")
     local body; body=$(cubepath_parse_body "${resp}")

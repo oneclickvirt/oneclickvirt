@@ -20,6 +20,7 @@ env:
 jobs:
   check-workflow-success:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Check trigger type and status
@@ -35,6 +36,7 @@ jobs:
 
   build-dockerhub:
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
     needs: check-workflow-success
     permissions:
       contents: read
@@ -180,6 +182,7 @@ jobs:
 
   build-ghcr:
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
     needs: check-workflow-success
     permissions:
       contents: read
@@ -326,6 +329,7 @@ jobs:
 
   merge-full-dockerhub:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: build-dockerhub
     if: ${{ needs.build-dockerhub.result == 'success' }}
     permissions:
@@ -399,6 +403,7 @@ jobs:
 
   merge-full-ghcr:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: build-ghcr
     if: ${{ needs.build-ghcr.result == 'success' }}
     permissions:
@@ -463,6 +468,7 @@ jobs:
 
   merge-no-db-dockerhub:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: build-dockerhub
     if: ${{ needs.build-dockerhub.result == 'success' }}
     permissions:
@@ -526,6 +532,7 @@ jobs:
 
   merge-no-db-ghcr:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: build-ghcr
     if: ${{ needs.build-ghcr.result == 'success' }}
     permissions:
@@ -590,6 +597,7 @@ jobs:
 
   update-docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [merge-full-dockerhub, merge-full-ghcr, merge-no-db-dockerhub, merge-no-db-ghcr]
     if: always()
     

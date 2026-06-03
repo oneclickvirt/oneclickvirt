@@ -72,6 +72,12 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  CI_DB_PASSWORD: "ci-db-${{ github.run_id }}-${{ github.run_attempt }}-Aa1!"
+  CI_ADMIN_PASSWORD: "ci-admin-${{ github.run_id }}-${{ github.run_attempt }}-Aa1!"
+
+concurrency:
+  group: integration-tests-${{ github.ref }}-${{ github.event.inputs.environment || 'default' }}-${{ github.event.inputs.modules || 'all' }}
+  cancel-in-progress: true
 
 jobs:
   integration-test:
@@ -100,7 +106,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq curl sshpass python3 python3-pip
+          sudo apt-get install -y jq curl sshpass python3 python3-pip mysql-client
           pip3 install --quiet paramiko
 
       - name: Validate bash syntax of test scripts
@@ -121,6 +127,17 @@ jobs:
             exit 1
           fi
           echo "All bash scripts passed syntax check."
+
+      - name: Run action test static audit
+        run: |
+          set -euo pipefail
+          mkdir -p action_tests/reports
+          python3 action_tests/static_audit.py --root . --output-dir action_tests/reports
+          {
+            echo "## Action Test Static Audit"
+            echo ""
+            sed -n '1,40p' action_tests/reports/static-audit.md
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Resolve usable cloud platforms
         id: resolve-platforms
@@ -206,16 +223,16 @@ jobs:
           sudo systemctl start mysql
           sleep 5
           # Ubuntu's mysql-server uses auth_socket for root; connect via sudo (no -u flag)
-          # Match Dockerfile: use mysql_native_password with empty password
+          # Use mysql_native_password with a CI-only generated credential for TCP access.
           if sudo mysql -e "SELECT 1" 2>/dev/null; then
             echo "auth_socket OK – configuring root with mysql_native_password"
-            sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY ''; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+            sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
           else
             echo "auth_socket failed – trying with password 'root'"
-            mysql -u root -proot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY ''; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+            mysql -u root -proot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
           fi
           # Verify TCP connectivity (what the Go server uses)
-          mysql -u root -h 127.0.0.1 -P 3306 -e "SELECT 1;" && echo "MySQL TCP OK"
+          mysql -u root -p"${CI_DB_PASSWORD}" -h 127.0.0.1 -P 3306 -e "SELECT 1;" && echo "MySQL TCP OK"
 
       - name: Validate platform and instance types
         id: validate
@@ -302,7 +319,9 @@ jobs:
           EXECUTION_RULE: ${{ inputs.execution_rule }}
           TEST_IMAGES: 'alpine,debian'
           ADMIN_USER: admin
-          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS != '' && secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
+          ADMIN_PASS: ${{ env.CI_ADMIN_PASSWORD }}
+          DB_USER: root
+          DB_PASSWORD: ${{ env.CI_DB_PASSWORD }}
           DEBUG: "1"
         run: |
           set -euo pipefail
@@ -345,11 +364,16 @@ jobs:
             "${{ matrix.environment }}" \
             "${{ inputs.modules }}" \
             "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee action_tests/reports/full-output.log
-          TEST_EXIT=${PIPESTATUS[0]}
+          PIPE_STATUSES=("${PIPESTATUS[@]}")
+          TEST_EXIT=${PIPE_STATUSES[0]:-0}
+          TEE_EXIT=${PIPE_STATUSES[1]:-0}
           set -e
           echo "test_exit=${TEST_EXIT}" >> "$GITHUB_OUTPUT"
+          if [[ "${TEE_EXIT}" != "0" ]]; then
+            echo "::warning::tee exited with ${TEE_EXIT}; continuing with captured harness exit ${TEST_EXIT}."
+          fi
 
-          # Ensure we always have SOME output for debugging
+          # Ensure tee didn't break the pipe
           if [[ ! -s action_tests/reports/full-output.log ]]; then
             echo "WARNING: Test produced no output. Check that required platform secrets are configured." > action_tests/reports/full-output.log
           fi
@@ -407,10 +431,21 @@ jobs:
             exit 1
           fi
 
-          total=$(cat "${result_files[@]}" | jq -s 'length')
-          passed=$(cat "${result_files[@]}" | jq -s '[.[] | select(.status == "PASS")] | length')
-          failed=$(cat "${result_files[@]}" | jq -s '[.[] | select(.status == "FAIL")] | length')
-          skipped=$(cat "${result_files[@]}" | jq -s '[.[] | select(.status == "SKIP")] | length')
+          # Safely aggregate results - handle empty/corrupt JSONL lines
+          total=0 passed=0 failed=0 skipped=0
+          for f in "${result_files[@]}"; do
+            while IFS= read -r line; do
+              [[ -z "$line" ]] && continue
+              status=$(echo "$line" | jq -r '.status // "UNKNOWN"' 2>/dev/null) || status="UNKNOWN"
+              total=$((total + 1))
+              case "$status" in
+                PASS) passed=$((passed + 1)) ;;
+                FAIL) failed=$((failed + 1)) ;;
+                SKIP) skipped=$((skipped + 1)) ;;
+                *) skipped=$((skipped + 1)) ;;
+              esac
+            done < "$f"
+          done
           executed=$((passed + failed))
 
           {
@@ -457,6 +492,7 @@ jobs:
             action_tests/reports/*.md
             action_tests/reports/*.log
             action_tests/reports/*.txt
+            action_tests/reports/*.json
             action_tests/reports/*.jsonl
           retention-days: 30
 

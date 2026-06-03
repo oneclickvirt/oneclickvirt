@@ -80,7 +80,7 @@ WORKFLOW_NAME=$(html_escape "$WORKFLOW_RAW")
 # Read service logs if available
 SERVICE_LOGS=""
 if [[ -n "$SERVICE_LOG_FILE" && -f "$SERVICE_LOG_FILE" ]]; then
-    SERVICE_LOGS=$(cat "$SERVICE_LOG_FILE" | head -2000 | sed 's/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
+    SERVICE_LOGS=$(head -2000 "$SERVICE_LOG_FILE" | sed 's/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
 fi
 
 # ── Collect history from sibling report files for comparison ──

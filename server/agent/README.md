@@ -341,7 +341,7 @@ Rust 反向代理服务器 (:80/:443)
 
 ```bash
 curl -X POST http://node-ip:23782/api/v1/domain-proxy \
-  -H "x-token: your-api-token" \
+  -H "$(printf 'x-token: %s' "$AGENT_API_TOKEN")" \
   -H "Content-Type: application/json" \
   -d '{
     "domain": "app.example.com",

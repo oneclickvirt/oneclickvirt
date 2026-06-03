@@ -8541,6 +8541,369 @@ const docTemplate = `{
                 }
             }
         },
+        "/user/checkin": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "为单个实例执行签到续期",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/签到续期"
+                ],
+                "summary": "用户签到续期",
+                "parameters": [
+                    {
+                        "description": "签到请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/checkin.DoCheckinRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "签到成功",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "认证失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/checkin/batch": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "为多个实例执行签到续期，最多 50 个实例",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/签到续期"
+                ],
+                "summary": "批量签到续期",
+                "parameters": [
+                    {
+                        "description": "批量签到请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/checkin.BatchCheckinRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "签到成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/checkin.BatchCheckinResult"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "认证失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/checkin/batch-checkin": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "为多个实例执行签到续期，最多 50 个实例",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/签到续期"
+                ],
+                "summary": "批量签到续期",
+                "parameters": [
+                    {
+                        "description": "批量签到请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/checkin.BatchCheckinRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "签到成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/checkin.BatchCheckinResult"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "认证失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/checkin/code/{instance_id}": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "为指定实例生成签到续期所需的验证码或 PoW challenge",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/签到续期"
+                ],
+                "summary": "获取签到验证挑战",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "instance_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "认证失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/checkin/records": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取当前用户的签到续期记录，支持分页和筛选",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/签到续期"
+                ],
+                "summary": "获取签到记录",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "每页数量",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "开始日期 YYYY-MM-DD",
+                        "name": "startDate",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "结束日期 YYYY-MM-DD",
+                        "name": "endDate",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "instanceId",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "all",
+                            "success",
+                            "failed"
+                        ],
+                        "type": "string",
+                        "description": "结果筛选",
+                        "name": "result",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "认证失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/checkin/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取当前用户签到次数、连续签到、最长连续签到和累计续期天数",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/签到续期"
+                ],
+                "summary": "获取签到统计",
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/checkin.CheckinStats"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "认证失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/user/dashboard": {
             "get": {
                 "security": [
@@ -12731,6 +13094,129 @@ const docTemplate = `{
                 "type": {
                     "description": "验证码类型: email, telegram, qq",
                     "type": "string"
+                }
+            }
+        },
+        "checkin.BatchCheckinItemResult": {
+            "type": "object",
+            "properties": {
+                "instanceId": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "newExpiry": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "checkin.BatchCheckinRequest": {
+            "type": "object",
+            "required": [
+                "instanceIds"
+            ],
+            "properties": {
+                "challenge": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "code": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "instanceIds": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "minItems": 1,
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "nonce": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "token": {
+                    "type": "string",
+                    "maxLength": 512
+                }
+            }
+        },
+        "checkin.BatchCheckinResult": {
+            "type": "object",
+            "properties": {
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/checkin.BatchCheckinItemResult"
+                    }
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "success": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "checkin.CheckinStats": {
+            "type": "object",
+            "properties": {
+                "currentStreak": {
+                    "type": "integer"
+                },
+                "lastCheckinDate": {
+                    "type": "string"
+                },
+                "longestStreak": {
+                    "type": "integer"
+                },
+                "thisMonthCheckins": {
+                    "type": "integer"
+                },
+                "totalCheckins": {
+                    "type": "integer"
+                },
+                "totalRenewalDays": {
+                    "type": "integer"
+                }
+            }
+        },
+        "checkin.DoCheckinRequest": {
+            "type": "object",
+            "required": [
+                "instanceId"
+            ],
+            "properties": {
+                "challenge": {
+                    "description": "PoW challenge",
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "code": {
+                    "description": "内置验证码",
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "instanceId": {
+                    "type": "integer"
+                },
+                "nonce": {
+                    "description": "PoW nonce",
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "token": {
+                    "description": "第三方captcha token (turnstile/recaptcha/hcaptcha)",
+                    "type": "string",
+                    "maxLength": 512
                 }
             }
         },

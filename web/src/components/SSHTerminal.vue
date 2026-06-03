@@ -50,6 +50,10 @@ let reconnectTimeout = null
 let isIntentionallyClosed = false
 let themeObserver = null
 
+const ignoreNonCriticalTerminalError = (error) => {
+  void error
+}
+
 onMounted(() => {
   nextTick(() => {
     initTerminal()
@@ -261,16 +265,16 @@ const cleanup = () => {
     const ws = websocket
     websocket = null
     // 使用 1000 (Normal Closure) 通知后端正常关闭
-    try { ws.close(1000, 'User closed terminal') } catch {}
+    try { ws.close(1000, 'User closed terminal') } catch (error) { ignoreNonCriticalTerminalError(error) }
   }
   
   if (terminal) {
-    try { terminal.dispose() } catch {}
+    try { terminal.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
     terminal = null
   }
   
   if (fitAddon) {
-    try { fitAddon.dispose() } catch {}
+    try { fitAddon.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
     fitAddon = null
   }
 }
@@ -300,7 +304,7 @@ const reconnect = () => {
   if (websocket) {
     const ws = websocket
     websocket = null
-    try { ws.close() } catch {}
+    try { ws.close() } catch (error) { ignoreNonCriticalTerminalError(error) }
   }
   
   // 清空终端内容并重新初始化

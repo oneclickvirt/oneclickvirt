@@ -35,6 +35,15 @@ run_module_22() {
                 '{"instanceId":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
         fi
 
+        local batch_code_resp; batch_code_resp=$(test_api "Generate batch checkin code" "POST" \
+            "/api/v1/user/checkin/code/${TEST_INSTANCE_ID}" "200|403|404" '' "$group" "$USER_TOKEN")
+        local batch_checkin_code; batch_checkin_code=$(echo "$batch_code_resp" | grep -o '"code":"[^"]*"' | head -1 | cut -d'"' -f4)
+        if [[ -n "$batch_checkin_code" ]]; then
+            test_api_json_value "Batch checkin single instance" "POST" "/api/v1/user/checkin/batch" "200" \
+                '.data.total' "1" \
+                '{"instanceIds":['"$TEST_INSTANCE_ID"'],"code":"'"$batch_checkin_code"'"}' "$group" "$USER_TOKEN" >/dev/null
+        fi
+
         # ---- Checkin with invalid code ----
         test_api "Checkin invalid code" "POST" "/api/v1/user/checkin" "400|403|404" \
             '{"code":"INVALID_CODE_XYZ","instanceId":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
@@ -50,6 +59,11 @@ run_module_22() {
 
     # ---- Get checkin records ----
     test_api "Checkin records" "GET" "/api/v1/user/checkin/records" "200" "" "$group" "$USER_TOKEN"
+    test_api "Checkin records success filter" "GET" "/api/v1/user/checkin/records?result=success&page=1&pageSize=5" "200" "" "$group" "$USER_TOKEN"
+    test_api_json_value "Checkin records failed filter returns empty set" "GET" "/api/v1/user/checkin/records?result=failed&page=1&pageSize=5" "200" \
+        '.data.total' "0" "" "$group" "$USER_TOKEN" >/dev/null
+    test_api "Checkin stats" "GET" "/api/v1/user/checkin/stats" "200" "" "$group" "$USER_TOKEN"
+    test_api "Batch checkin empty body" "POST" "/api/v1/user/checkin/batch-checkin" "400" '{}' "$group" "$USER_TOKEN"
 
     # ---- User2 checkin records (isolated) ----
     if [[ -n "$USER_TOKEN2" ]]; then

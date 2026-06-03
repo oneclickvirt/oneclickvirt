@@ -143,6 +143,10 @@ Use Docker Compose to deploy the complete development environment with one comma
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
 cd oneclickvirt
+cat > .env << 'EOF'
+MYSQL_ROOT_PASSWORD=change-this-root-password
+MYSQL_PASSWORD=change-this-app-password
+EOF
 docker-compose up -d --build || docker compose up -d --build
 ```
 
@@ -150,9 +154,10 @@ docker-compose up -d --build || docker compose up -d --build
 
 - Frontend service: `http://localhost:8888`
 - Backend API: Accessed via frontend proxy
-- MySQL Database: Port 3306, database name `oneclickvirt`, no password
+- MariaDB database: Port 3306, database name `oneclickvirt`
+- Database credentials: `MYSQL_ROOT_PASSWORD` and `MYSQL_PASSWORD` from `.env`
 - Data persistence:
-  - Database data: `./data/mysql`
+  - Database data: Docker volume `mysql_data`
   - Application storage: `./data/app/`
 
 **Initialization Configuration:**
@@ -161,8 +166,8 @@ When accessing for the first time, you will enter the initialization interface. 
 - Database Host: `mysql` (container name, not 127.0.0.1)
 - Database Port: `3306`
 - Database Name: `oneclickvirt`
-- Database User: `root`
-- Database Password: Leave empty (no password)
+- Database User: `oneclickvirt`
+- Database Password: Use the `MYSQL_PASSWORD` value from `.env`
 
 **Custom Port (Optional):**
 
@@ -196,7 +201,35 @@ rm -rf ./data
 
 </details>
 
-### Method 3: Build from Source
+### Method 3: Bare-metal Full Installer
+
+<details>
+<summary>View Full Installer</summary>
+
+`install_full.sh` installs the database, reverse proxy, TLS configuration, frontend, backend, and system service in one flow. It supports MySQL or MariaDB and Caddy, Nginx, or OpenResty.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_full.sh -o install_full.sh
+bash install_full.sh --domain panel.example.com --email admin@example.com
+```
+
+For non-interactive deployment:
+
+```bash
+bash install_full.sh \
+  --non-interactive \
+  --domain panel.example.com \
+  --email admin@example.com \
+  --db-type mariadb \
+  --proxy caddy \
+  --tls letsencrypt
+```
+
+The installer requires at least 20 GB free disk and 4 GB memory by default. It writes the generated database password to the final installation summary; save it before closing the terminal.
+
+</details>
+
+### Method 4: Build from Source
 
 <details>
 <summary>View Build Instructions</summary>
@@ -294,13 +327,9 @@ go run main.go
 
 </details>
 
-## Default Accounts
+## Initial Account
 
-After system initialization, the following default accounts will be generated:
-
-* Administrator account: `admin / Admin123!@#`
-
-> Tip: Please change the default passwords immediately after first login.
+The administrator account is created from the setup form during first initialization. The quick-fill action generates a random strong password each time; save the generated value before submitting the form.
 
 ## Configuration File
 

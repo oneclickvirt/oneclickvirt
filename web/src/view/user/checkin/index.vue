@@ -5,6 +5,53 @@
         <span>{{ t('user.checkin.title') }}</span>
       </template>
 
+      <div
+        v-loading="loadingStats"
+        class="checkin-stats"
+      >
+        <el-row :gutter="12">
+          <el-col
+            :xs="12"
+            :sm="6"
+          >
+            <el-statistic
+              :title="t('user.checkin.totalCheckins')"
+              :value="stats.totalCheckins"
+            />
+          </el-col>
+          <el-col
+            :xs="12"
+            :sm="6"
+          >
+            <el-statistic
+              :title="t('user.checkin.currentStreak')"
+              :value="stats.currentStreak"
+              :suffix="t('user.checkin.days')"
+            />
+          </el-col>
+          <el-col
+            :xs="12"
+            :sm="6"
+          >
+            <el-statistic
+              :title="t('user.checkin.longestStreak')"
+              :value="stats.longestStreak"
+              :suffix="t('user.checkin.days')"
+            />
+          </el-col>
+          <el-col
+            :xs="12"
+            :sm="6"
+          >
+            <el-statistic
+              :title="t('user.checkin.totalRenewalDays')"
+              :value="stats.totalRenewalDays"
+              :suffix="t('user.checkin.days')"
+            />
+          </el-col>
+        </el-row>
+      </div>
+
       <!-- 签到操作 -->
       <el-form
         label-width="120px"
@@ -203,7 +250,7 @@ import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { generateCheckinCode, doCheckin as doCheckinApi, getCheckinRecords } from '@/api/features'
+import { generateCheckinCode, doCheckin as doCheckinApi, getCheckinRecords, getCheckinStats } from '@/api/features'
 import { getUserInstances } from '@/api/user'
 
 const { t } = useI18n()
@@ -218,6 +265,15 @@ const powNonce = ref('')
 const powComputing = ref(false)
 const gettingChallenge = ref(false)
 const checkingIn = ref(false)
+const loadingStats = ref(false)
+const stats = ref({
+  totalCheckins: 0,
+  currentStreak: 0,
+  longestStreak: 0,
+  totalRenewalDays: 0,
+  thisMonthCheckins: 0,
+  lastCheckinDate: ''
+})
 const records = ref([])
 const loadingRecords = ref(false)
 const page = ref(1)
@@ -252,6 +308,23 @@ async function fetchInstances() {
       instances.value = res.data?.list || res.data || []
     }
   } catch { /* ignore */ }
+}
+
+async function fetchStats() {
+  loadingStats.value = true
+  try {
+    const res = await getCheckinStats()
+    if (res.code === 200) {
+      stats.value = {
+        ...stats.value,
+        ...(res.data || {})
+      }
+    }
+  } catch (e) {
+    console.error('获取签到统计失败:', e)
+  } finally {
+    loadingStats.value = false
+  }
 }
 
 async function getChallenge() {
@@ -403,6 +476,7 @@ async function doCheckin() {
       ElMessage.success(t('user.checkin.checkinSuccess'))
       resetChallenge()
       fetchRecords()
+      fetchStats()
     }
   } catch (e) {
     ElMessage.error(e?.message || t('user.checkin.checkinFailed'))
@@ -433,6 +507,7 @@ function handlePageChange(p) {
 
 onMounted(() => {
   fetchInstances()
+  fetchStats()
   fetchRecords()
 })
 
@@ -447,6 +522,7 @@ onUnmounted(() => {
 
 <style scoped>
 .checkin-container { padding: 20px; }
+.checkin-stats { margin-bottom: 24px; }
 .captcha-widget { min-height: 65px; }
 .captcha-loading { color: #909399; font-size: 14px; }
 .pow-computing { display: flex; align-items: center; }

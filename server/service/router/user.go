@@ -96,6 +96,9 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.POST("/user/checkin/code/:instance_id", user.GenerateCheckinCode)
 		UserGroup.POST("/user/checkin", user.DoCheckin)
 		UserGroup.GET("/user/checkin/records", user.GetCheckinRecords)
+		UserGroup.GET("/user/checkin/stats", user.GetCheckinStats)
+		UserGroup.POST("/user/checkin/batch", user.BatchCheckin)
+		UserGroup.POST("/user/checkin/batch-checkin", user.BatchCheckin)
 
 		// API Token管理
 		UserGroup.POST("/user/api-tokens", auth.CreateApiToken)

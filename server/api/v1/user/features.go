@@ -206,6 +206,17 @@ func QueryAlipayKYCResult(c *gin.Context) {
 // ============ 签到续期 ============
 
 // GenerateCheckinCode 获取签到验证挑战
+// @Summary 获取签到验证挑战
+// @Description 为指定实例生成签到续期所需的验证码或 PoW challenge
+// @Tags 用户/签到续期
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param instance_id path int true "实例ID"
+// @Success 200 {object} common.Response "获取成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 401 {object} common.Response "认证失败"
+// @Router /user/checkin/code/{instance_id} [post]
 func GenerateCheckinCode(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -229,6 +240,17 @@ func GenerateCheckinCode(c *gin.Context) {
 }
 
 // DoCheckin 用户签到
+// @Summary 用户签到续期
+// @Description 为单个实例执行签到续期
+// @Tags 用户/签到续期
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body checkin.DoCheckinRequest true "签到请求"
+// @Success 200 {object} common.Response "签到成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 401 {object} common.Response "认证失败"
+// @Router /user/checkin [post]
 func DoCheckin(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -251,6 +273,21 @@ func DoCheckin(c *gin.Context) {
 }
 
 // GetCheckinRecords 获取签到记录
+// @Summary 获取签到记录
+// @Description 获取当前用户的签到续期记录，支持分页和筛选
+// @Tags 用户/签到续期
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param page query int false "页码" default(1)
+// @Param pageSize query int false "每页数量" default(10)
+// @Param startDate query string false "开始日期 YYYY-MM-DD"
+// @Param endDate query string false "结束日期 YYYY-MM-DD"
+// @Param instanceId query int false "实例ID"
+// @Param result query string false "结果筛选" Enums(all,success,failed)
+// @Success 200 {object} common.Response{data=object} "获取成功"
+// @Failure 401 {object} common.Response "认证失败"
+// @Router /user/checkin/records [get]
 func GetCheckinRecords(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -261,9 +298,16 @@ func GetCheckinRecords(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
 	page, pageSize = common.NormalizePagination(page, pageSize, common.DefaultPageSize)
+	instanceID64, _ := strconv.ParseUint(c.DefaultQuery("instanceId", "0"), 10, 64)
+	filter := &checkinService.CheckinRecordsFilter{
+		StartDate:  c.Query("startDate"),
+		EndDate:    c.Query("endDate"),
+		InstanceID: uint(instanceID64),
+		Result:     c.DefaultQuery("result", "all"),
+	}
 
 	svc := &checkinService.Service{}
-	records, total, err := svc.GetCheckinRecords(userID, page, pageSize)
+	records, total, err := svc.GetCheckinRecordsFiltered(userID, page, pageSize, filter)
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -272,4 +316,65 @@ func GetCheckinRecords(c *gin.Context) {
 		"list":  records,
 		"total": total,
 	})
+}
+
+// GetCheckinStats 获取签到统计
+// @Summary 获取签到统计
+// @Description 获取当前用户签到次数、连续签到、最长连续签到和累计续期天数
+// @Tags 用户/签到续期
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=checkin.CheckinStats} "获取成功"
+// @Failure 401 {object} common.Response "认证失败"
+// @Router /user/checkin/stats [get]
+func GetCheckinStats(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
+		return
+	}
+
+	svc := &checkinService.Service{}
+	stats, err := svc.GetCheckinStats(userID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, stats)
+}
+
+// BatchCheckin 用户批量签到
+// @Summary 批量签到续期
+// @Description 为多个实例执行签到续期，最多 50 个实例
+// @Tags 用户/签到续期
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body checkin.BatchCheckinRequest true "批量签到请求"
+// @Success 200 {object} common.Response{data=checkin.BatchCheckinResult} "签到成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 401 {object} common.Response "认证失败"
+// @Router /user/checkin/batch [post]
+// @Router /user/checkin/batch-checkin [post]
+func BatchCheckin(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
+		return
+	}
+
+	var req checkinService.BatchCheckinRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+
+	svc := &checkinService.Service{}
+	result, err := svc.BatchCheckin(userID, &req)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, result)
 }

@@ -46,10 +46,15 @@ func SetupRouter() *gin.Engine {
 	corsMode := appConfig.Cors.Mode
 	corsWhitelist := appConfig.Cors.Whitelist
 
-	// 空值兜底：如果配置加载失败导致 corsMode 为空，默认使用 allow-all
-	// 避免因配置问题导致非 localhost 请求被 CORS 拦截返回 403
+	// 空值兜底：默认使用白名单模式；生产环境禁止通配放行。
 	if corsMode == "" {
-		corsMode = "allow-all"
+		corsMode = "whitelist"
+	}
+	if strings.EqualFold(appConfig.System.Env, "production") && corsMode == "allow-all" {
+		corsMode = "whitelist"
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("生产环境不允许 CORS allow-all，已降级为 whitelist")
+		}
 	}
 	if global.APP_LOG != nil {
 		global.APP_LOG.Info("CORS中间件配置",
@@ -58,6 +63,16 @@ func SetupRouter() *gin.Engine {
 			zap.Int("whitelistCount", len(corsWhitelist)))
 	}
 
+	allowedMethods := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	allowedHeaders := []string{
+		"Origin",
+		"Content-Type",
+		"Content-Length",
+		"Accept",
+		"Authorization",
+		"X-Requested-With",
+		middleware.RequestIDHeader,
+	}
 	var corsMiddleware gin.HandlerFunc
 	if corsMode == "allow-all" {
 		// allow-all 模式：反射实际 Origin，保留 Credentials 支持
@@ -65,8 +80,8 @@ func SetupRouter() *gin.Engine {
 			AllowOriginFunc: func(origin string) bool {
 				return true
 			},
-			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders:     []string{"*"},
+			AllowMethods:     allowedMethods,
+			AllowHeaders:     allowedHeaders,
 			ExposeHeaders:    []string{"Content-Length", "Authorization", middleware.RequestIDHeader},
 			AllowCredentials: true,
 		})
@@ -90,8 +105,8 @@ func SetupRouter() *gin.Engine {
 					strings.HasPrefix(origin, "http://127.0.0.1:") ||
 					strings.HasPrefix(origin, "https://127.0.0.1:")
 			},
-			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders:     []string{"*"},
+			AllowMethods:     allowedMethods,
+			AllowHeaders:     allowedHeaders,
 			ExposeHeaders:    []string{"Content-Length", "Authorization", middleware.RequestIDHeader},
 			AllowCredentials: true,
 		})
@@ -106,8 +121,12 @@ func SetupRouter() *gin.Engine {
 	// 健康检查——无需认证和数据库限制
 	Router.GET("/health", public.HealthCheck)
 
-	// Swagger文档路由
-	Router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// Swagger 文档：开发环境公开，生产环境仅管理员可访问。
+	if strings.EqualFold(appConfig.System.Env, "production") {
+		Router.GET("/swagger/*any", middleware.RequireNormalAdmin(), ginSwagger.WrapHandler(swaggerFiles.Handler))
+	} else {
+		Router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 
 	// API 路由组
 	ApiGroup := Router.Group("/api")

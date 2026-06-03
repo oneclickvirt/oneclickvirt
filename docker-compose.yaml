@@ -16,6 +16,13 @@ services:
       context: .
       dockerfile: deploy/server.dockerfile
     container_name: api
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: oneclickvirt
+      DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env before running docker compose}
+      DB_NAME: oneclickvirt
+      DB_TYPE: mariadb
     volumes:
       - ./data/app/:/app/storage
       - ./server/config.yaml:/app/config.yaml:rw
@@ -33,8 +40,10 @@ services:
     ports:
       - "3306:3306"
     environment:
-        MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
-        MYSQL_DATABASE: oneclickvirt
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env before running docker compose}
+      MYSQL_DATABASE: oneclickvirt
+      MYSQL_USER: oneclickvirt
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env before running docker compose}
     volumes:
       - mysql_data:/var/lib/mysql
       - ./deploy/my.cnf:/etc/mysql/conf.d/custom.cnf

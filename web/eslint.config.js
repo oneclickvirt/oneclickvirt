@@ -22,6 +22,7 @@ export default [
       'vue/multi-word-component-names': 'off',
       'vue/no-unused-vars': 'error',
       'vue/no-unused-components': 'warn',
+      'vue/no-mutating-props': ['error', { shallowOnly: true }],
       
       // JavaScript 规则
       'no-console': process.env.NODE_ENV === 'production' ? 'warn' : 'off',

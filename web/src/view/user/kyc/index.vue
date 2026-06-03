@@ -40,7 +40,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { getUserKYC, submitUserKYC, submitAlipayKYC, queryAlipayKYCResult } from '@/api/features'
+import { getUserKYC, queryAlipayKYCResult } from '@/api/features'
 import { useFeatureStore } from '@/pinia/modules/feature'
 
 const { t } = useI18n()
@@ -91,10 +91,10 @@ onMounted(() => fetchKYC())
 </script>
 
 <script>
-import { defineComponent, ref, h, resolveComponent } from 'vue'
-import { ElMessage } from 'element-plus'
-import { useI18n } from 'vue-i18n'
-import { submitUserKYC, submitAlipayKYC } from '@/api/features'
+import { defineComponent, ref as componentRef, h as vueH, resolveComponent as resolveVueComponent } from 'vue'
+import { ElMessage as ElementMessage } from 'element-plus'
+import { useI18n as useVueI18n } from 'vue-i18n'
+import { submitUserKYC as submitUserKYCRequest, submitAlipayKYC as submitAlipayKYCRequest } from '@/api/features'
 
 // 内联KYC表单组件
 const KycFormComponent = defineComponent({
@@ -104,31 +104,31 @@ const KycFormComponent = defineComponent({
   },
   emits: ['submitted'],
   setup(props, { emit }) {
-    const { t } = useI18n()
-    const submitting = ref(false)
-    const selectedMethod = ref(props.kycMethod === 'both' ? 'manual' : props.kycMethod)
-    const form = ref({ realName: '', idNumber: '' })
+    const { t } = useVueI18n()
+    const submitting = componentRef(false)
+    const selectedMethod = componentRef(props.kycMethod === 'both' ? 'manual' : props.kycMethod)
+    const form = componentRef({ realName: '', idNumber: '' })
 
     async function handleSubmit() {
       if (!form.value.realName || !form.value.idNumber) {
-        ElMessage.warning(t('user.kyc.fillAllFields'))
+        ElementMessage.warning(t('user.kyc.fillAllFields'))
         return
       }
       submitting.value = true
       try {
         if (selectedMethod.value === 'alipay') {
-          const res = await submitAlipayKYC(form.value)
+          const res = await submitAlipayKYCRequest(form.value)
           if (res.code === 200) {
-            ElMessage.success(t('user.kyc.alipayRedirectTip'))
+            ElementMessage.success(t('user.kyc.alipayRedirectTip'))
             if (res.data?.certifyUrl) {
               window.open(res.data.certifyUrl, '_blank')
             }
             emit('submitted')
           }
         } else {
-          const res = await submitUserKYC(form.value)
+          const res = await submitUserKYCRequest(form.value)
           if (res.code === 200) {
-            ElMessage.success(t('user.kyc.submitSuccess'))
+            ElementMessage.success(t('user.kyc.submitSuccess'))
             emit('submitted')
           }
         }
@@ -138,26 +138,26 @@ const KycFormComponent = defineComponent({
     }
 
     return () => {
-      const ElForm = resolveComponent('el-form')
-      const ElFormItem = resolveComponent('el-form-item')
-      const ElInput = resolveComponent('el-input')
-      const ElButton = resolveComponent('el-button')
-      const ElRadioGroup = resolveComponent('el-radio-group')
-      const ElRadio = resolveComponent('el-radio')
-      const ElAlert = resolveComponent('el-alert')
+      const ElForm = resolveVueComponent('el-form')
+      const ElFormItem = resolveVueComponent('el-form-item')
+      const ElInput = resolveVueComponent('el-input')
+      const ElButton = resolveVueComponent('el-button')
+      const ElRadioGroup = resolveVueComponent('el-radio-group')
+      const ElRadio = resolveVueComponent('el-radio')
+      const ElAlert = resolveVueComponent('el-alert')
 
       const children = []
 
       // Method selection if both methods enabled
       if (props.kycMethod === 'both') {
         children.push(
-          h(ElFormItem, { label: t('user.kyc.verifyMethod') }, () => [
-            h(ElRadioGroup, {
+          vueH(ElFormItem, { label: t('user.kyc.verifyMethod') }, () => [
+            vueH(ElRadioGroup, {
               modelValue: selectedMethod.value,
               'onUpdate:modelValue': v => { selectedMethod.value = v }
             }, () => [
-              h(ElRadio, { value: 'manual' }, () => t('user.kyc.methodManual')),
-              h(ElRadio, { value: 'alipay' }, () => t('user.kyc.methodAlipay'))
+              vueH(ElRadio, { value: 'manual' }, () => t('user.kyc.methodManual')),
+              vueH(ElRadio, { value: 'alipay' }, () => t('user.kyc.methodAlipay'))
             ])
           ])
         )
@@ -165,7 +165,7 @@ const KycFormComponent = defineComponent({
 
       if (selectedMethod.value === 'alipay') {
         children.push(
-          h(ElAlert, {
+          vueH(ElAlert, {
             type: 'info',
             title: t('user.kyc.alipayTip'),
             showIcon: true,
@@ -176,22 +176,22 @@ const KycFormComponent = defineComponent({
       }
 
       children.push(
-        h(ElFormItem, { label: t('user.kyc.realName'), prop: 'realName' }, () => [
-          h(ElInput, {
+        vueH(ElFormItem, { label: t('user.kyc.realName'), prop: 'realName' }, () => [
+          vueH(ElInput, {
             modelValue: form.value.realName,
             'onUpdate:modelValue': v => { form.value.realName = v },
             placeholder: t('user.kyc.realNamePlaceholder')
           })
         ]),
-        h(ElFormItem, { label: t('user.kyc.idNumber'), prop: 'idNumber' }, () => [
-          h(ElInput, {
+        vueH(ElFormItem, { label: t('user.kyc.idNumber'), prop: 'idNumber' }, () => [
+          vueH(ElInput, {
             modelValue: form.value.idNumber,
             'onUpdate:modelValue': v => { form.value.idNumber = v },
             placeholder: t('user.kyc.idNumberPlaceholder')
           })
         ]),
-        h(ElFormItem, {}, () => [
-          h(ElButton, {
+        vueH(ElFormItem, {}, () => [
+          vueH(ElButton, {
             type: 'primary',
             loading: submitting.value,
             onClick: handleSubmit
@@ -201,7 +201,7 @@ const KycFormComponent = defineComponent({
         ])
       )
 
-      return h(ElForm, { model: form.value, labelWidth: '120px' }, () => children)
+      return vueH(ElForm, { model: form.value, labelWidth: '120px' }, () => children)
     }
   }
 })

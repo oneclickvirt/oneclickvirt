@@ -20,6 +20,15 @@ const DANGEROUS_EXTS = [
   '.php', '.asp', '.jsp', '.py', '.rb', '.pl', '.cgi', '.htaccess'
 ]
 
+const ILLEGAL_FILENAME_CHARS = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*'])
+
+function hasIllegalFilenameChar(filename) {
+  return Array.from(filename).some((char) => {
+    const codePoint = char.codePointAt(0)
+    return codePoint <= 0x1f || ILLEGAL_FILENAME_CHARS.has(char)
+  })
+}
+
 /**
  * 验证文件大小
  * @param {File} file - 要验证的文件
@@ -58,8 +67,7 @@ export function validateFilename(filename) {
   }
 
   // 检查非法字符
-  const illegalChars = /[<>:"/\\|?*\x00-\x1f]/
-  if (illegalChars.test(filename)) {
+  if (hasIllegalFilenameChar(filename)) {
     result.valid = false
     result.errors.push(t('validation.fileNameIllegalChars'))
   }

@@ -18,6 +18,13 @@ declare -A ENV_INSTALL_SCRIPTS=(
 PVE_BUILD_BACKEND="https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/build_backend.sh"
 PVE_BUILD_NAT="https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/build_nat_network.sh"
 
+mysql_root_exec() {
+    local db_password="${DB_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
+    local args=(-u root -h 127.0.0.1)
+    [[ -n "$db_password" ]] && args+=("-p${db_password}")
+    mysql "${args[@]}" "$@"
+}
+
 create_test_node() {
     local env_type="$1" hours="${2:-8}"
     log_info "Creating test node: env=${env_type} hours=${hours}"
@@ -122,6 +129,49 @@ install_env() {
     fi
 }
 
+verify_worker_runtime() {
+    local _id="$1" ip="$2" env="$3"
+    local verify_cmd=""
+    case "$env" in
+        docker)
+            verify_cmd="command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1"
+            ;;
+        podman)
+            verify_cmd="command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1"
+            ;;
+        containerd)
+            verify_cmd="command -v ctr >/dev/null 2>&1 && systemctl is-active --quiet containerd"
+            ;;
+        lxd)
+            verify_cmd="command -v lxc >/dev/null 2>&1 && lxc info >/dev/null 2>&1"
+            ;;
+        incus)
+            verify_cmd="command -v incus >/dev/null 2>&1 && incus info >/dev/null 2>&1"
+            ;;
+        proxmoxve)
+            verify_cmd="command -v pvesh >/dev/null 2>&1 && command -v pct >/dev/null 2>&1 && command -v qm >/dev/null 2>&1"
+            ;;
+        qemu)
+            verify_cmd="command -v virsh >/dev/null 2>&1 && (systemctl is-active --quiet libvirtd || systemctl is-active --quiet virtqemud)"
+            ;;
+        kubevirt)
+            verify_cmd="command -v kubectl >/dev/null 2>&1 && kubectl get nodes >/dev/null 2>&1"
+            ;;
+        *)
+            log_warning "Unknown runtime '${env}', skipping runtime verification"
+            return 0
+            ;;
+    esac
+
+    log_info "Verifying ${env} runtime on worker..."
+    if platform_exec_and_wait "${ip}" "${verify_cmd}" 180 >/dev/null 2>&1; then
+        log_success "${env} runtime verified on worker"
+        return 0
+    fi
+    log_warning "${env} runtime verification failed or timed out"
+    return 1
+}
+
 # Pre-populate worker with dummy containers for discovery/import testing
 prepare_dirty_node() {
     local id="$1" ip="$2" env="$3"
@@ -196,6 +246,11 @@ deploy_master_local() {
     sed -i 's/^\( \{4\}email-smtp-port:\) "[0-9]*"/\1 587/' "$cfg"
     # Fix quoted integer map keys (e.g. level-limits: "1": → 1:)
     sed -i 's/^\( *\)"\([0-9]\+\)":/\1\2:/' "$cfg"
+    # Keep config.yaml aligned with the CI-created MySQL TCP credential.
+    local db_password="${DB_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
+    local db_password_escaped
+    db_password_escaped=$(printf '%s' "$db_password" | sed 's/[\/&]/\\&/g')
+    sed -i "/^mysql:/,/^[^[:space:]]/s|^\(    password:\).*|\1 \"${db_password_escaped}\"|" "$cfg"
     # Disable captcha (real repo default may be true; env=development bypasses checks but
     # setting it to false avoids any reload warnings in the log)
     sed -i 's/^\( \{4\}enabled:\) true/\1 false/' "$cfg"
@@ -213,6 +268,11 @@ deploy_master_local() {
     if ! go build -o /tmp/oneclickvirt-server . 2>/tmp/oneclickvirt-build.log; then
         log_error "Server build failed:"
         cat /tmp/oneclickvirt-build.log >&2 || true
+        cd - >/dev/null || true
+        return 1
+    fi
+    if [[ ! -x /tmp/oneclickvirt-server ]]; then
+        log_error "Server binary missing or not executable after build"
         cd - >/dev/null || true
         return 1
     fi
@@ -281,7 +341,7 @@ reset_master_server() {
 
     # 2. Reset MySQL database
     log_info "Resetting database (drop + recreate oneclickvirt)..."
-    if mysql -u root -h 127.0.0.1 \
+    if mysql_root_exec \
         -e "DROP DATABASE IF EXISTS oneclickvirt; CREATE DATABASE oneclickvirt CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null; then
         log_success "Database reset successful"
     else

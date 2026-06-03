@@ -66,50 +66,40 @@ export const useUserStore = defineStore('user', {
     },
 
     async userLogin(loginForm) {
-      try {
-        // 必需的字段
-        const loginData = {
-          ...loginForm,
-          loginType: 'username',
-          userType: 'user'
-        }
-        const response = await login(loginData)
-        if (response.code === 200) {
-          this.setToken(response.data.token)
-          // 使用服务器返回的实际用户类型，而不是硬编码
-          const userType = response.data.user?.userType || 'user'
-          this.setUser({ ...response.data.user, userType: userType })
-          return { success: true }
-        } else {
-          return { success: false, message: response.msg }
-        }
-      } catch (error) {
-        // 重新抛出错误，让上层错误处理器处理
-        throw error
+      // 必需的字段
+      const loginData = {
+        ...loginForm,
+        loginType: 'username',
+        userType: 'user'
+      }
+      const response = await login(loginData)
+      if (response.code === 200) {
+        this.setToken(response.data.token)
+        // 使用服务器返回的实际用户类型，而不是硬编码
+        const userType = response.data.user?.userType || 'user'
+        this.setUser({ ...response.data.user, userType: userType })
+        return { success: true }
+      } else {
+        return { success: false, message: response.msg }
       }
     },
 
     async adminLogin(loginForm) {
-      try {
-        // 必需的字段
-        const loginData = {
-          ...loginForm,
-          loginType: 'username',
-          userType: 'admin'
-        }
-        const response = await adminLogin(loginData)
-        if (response.code === 200) {
-          this.setToken(response.data.token)
-          // 使用服务器返回的实际用户类型，确保是admin
-          const userType = response.data.user?.userType || 'admin'
-          this.setUser({ ...response.data.user, userType: userType })
-          return { success: true }
-        } else {
-          return { success: false, message: response.msg }
-        }
-      } catch (error) {
-        // 重新抛出错误，让上层错误处理器处理
-        throw error
+      // 必需的字段
+      const loginData = {
+        ...loginForm,
+        loginType: 'username',
+        userType: 'admin'
+      }
+      const response = await adminLogin(loginData)
+      if (response.code === 200) {
+        this.setToken(response.data.token)
+        // 使用服务器返回的实际用户类型，确保是admin
+        const userType = response.data.user?.userType || 'admin'
+        this.setUser({ ...response.data.user, userType: userType })
+        return { success: true }
+      } else {
+        return { success: false, message: response.msg }
       }
     },
 

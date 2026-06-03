@@ -53,6 +53,11 @@ fi
 log_info "Enabled platforms: ${ENABLED_PLATFORMS}"
 log_info "Active platform will be selected automatically with fallback"
 
+preflight_require_commands jq curl go mysql || exit 75
+preflight_check_runner_resources 20 4096 "${SCRIPT_DIR}/.." || exit 75
+preflight_check_port_available "$MASTER_PORT" || exit 75
+wait_for_mysql_ready 90 3 || exit 75
+
 # -- Report & results init --
 report_init "${REPORT_DIR}/${ENV_TYPE}-report.md" "${ENV_TYPE}"
 init_results_file "${REPORT_DIR}/${ENV_TYPE}-results.jsonl"
@@ -127,11 +132,19 @@ if [[ -z "$WORKER_INFO" ]]; then
     log_error "Failed to create worker node (empty response)"
     exit 1
 fi
-WORKER_ID_VAL=$(echo "$WORKER_INFO" | jq -r '.instance_id')
-export WORKER_IP; WORKER_IP=$(echo "$WORKER_INFO" | jq -r '.ipv4')
-export NODE_PASSWORD; NODE_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password // empty')
+if ! printf '%s' "$WORKER_INFO" | jq empty 2>/dev/null; then
+    log_error "Failed to create worker node (invalid JSON response): ${WORKER_INFO:0:200}"
+    exit 75
+fi
+WORKER_ID_VAL=$(safe_jq "$WORKER_INFO" '.instance_id // empty' '')
+export WORKER_IP; WORKER_IP=$(safe_jq "$WORKER_INFO" '.ipv4 // empty' '')
+export NODE_PASSWORD; NODE_PASSWORD=$(safe_jq "$WORKER_INFO" '.password // empty' '')
 export WORKER_PASSWORD="$NODE_PASSWORD"
-export WORKER_PLATFORM; WORKER_PLATFORM=$(echo "$WORKER_INFO" | jq -r '.platform // empty')
+export WORKER_PLATFORM; WORKER_PLATFORM=$(safe_jq "$WORKER_INFO" '.platform // empty' '')
+if [[ -z "$WORKER_ID_VAL" || -z "$WORKER_IP" ]]; then
+    log_error "Worker node response missing required fields (instance_id/ipv4): ${WORKER_INFO:0:200}"
+    exit 75
+fi
 CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
 # create_test_node runs inside $() so ACTIVE_PLATFORM and PLATFORM_SSH_KEY_FILE are lost
@@ -152,6 +165,7 @@ log_section "Phase 3: Install ${ENV_TYPE} on worker node"
 install_env "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || {
     log_warning "Environment installation may have issues, continuing..."
 }
+verify_worker_runtime "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || true
 
 # =============================================================
 # Phase 4: Prepare dirty node for discovery tests
@@ -214,12 +228,12 @@ if ! wait_init_ready "$SERVER_URL" 180 5; then
 fi
 # Check whether initialization is still required
 INIT_CHECK=$(curl -s --max-time 10 "${SERVER_URL}/api/v1/public/init/check" 2>/dev/null)
-NEED_INIT=$(echo "$INIT_CHECK" | jq -r '.data.needInit // true' 2>/dev/null)
+NEED_INIT=$(safe_jq "$INIT_CHECK" '.data.needInit // true' 'true')
 log_info "Init check: needInit=${NEED_INIT}"
 if [[ "$NEED_INIT" == "true" ]]; then
     log_info "Initializing system..."
     INIT_RESP=$(init_system "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")
-    INIT_CODE=$(echo "$INIT_RESP" | jq -r '.code // empty' 2>/dev/null)
+    INIT_CODE=$(safe_jq "$INIT_RESP" '.code // empty' '')
     if [[ "$INIT_CODE" != "200" ]]; then
         log_error "System initialization failed (code=${INIT_CODE}): ${INIT_RESP}"
         fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
@@ -280,7 +294,7 @@ for _current_rule in ${EXECUTION_RULES_LIST}; do
     log_section "Running modules with EXECUTION_RULE=${_current_rule}"
 
     local_output_log="${REPORT_DIR}/${ENV_TYPE}-${_current_rule}-output.log"
-    bash "${SCRIPT_DIR}/run_module.sh" "$MODULES" "$SERVER_URL" 2>&1 | tee "${local_output_log}"
+    bash "${SCRIPT_DIR}/run_module.sh" "$MODULES" "$SERVER_URL" 2>&1 | tee "${local_output_log}" # PIPESTATUS handled below
     _run_exit=${PIPESTATUS[0]}
     [[ ${_run_exit} -ne 0 ]] && EXIT_CODE=${_run_exit}
 

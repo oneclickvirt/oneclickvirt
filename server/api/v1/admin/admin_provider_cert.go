@@ -71,7 +71,6 @@ func AutoConfigureProviderStream(c *gin.Context) {
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
 
 	outputChan := make(chan string, 100)
 	errorChan := make(chan error, 1)

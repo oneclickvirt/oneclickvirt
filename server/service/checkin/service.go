@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"math/big"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -239,6 +241,7 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 	dbService := database.GetDatabaseService()
 	var oldExpireAt *time.Time
 	var newExpireAt time.Time
+	appliedRenewalDays := config.RenewalDays
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		var lockedInstance struct {
 			ID           uint
@@ -268,7 +271,9 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 			}
 		}
 
-		newExpireAt = baseTime.Add(time.Duration(config.RenewalDays) * 24 * time.Hour)
+		renewalDays := config.RenewalDays + s.getStreakBonusForNextCheckin(userID)
+		appliedRenewalDays = renewalDays
+		newExpireAt = baseTime.Add(time.Duration(renewalDays) * 24 * time.Hour)
 		if config.MaxExpireDays > 0 {
 			maxExpireAt := now.Add(time.Duration(config.MaxExpireDays) * 24 * time.Hour)
 			if newExpireAt.After(maxExpireAt) {
@@ -296,7 +301,7 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 			InstanceID:  lockedInstance.ID,
 			ProviderID:  lockedInstance.ProviderID,
 			Method:      config.CheckinMethod,
-			RenewalDays: config.RenewalDays,
+			RenewalDays: renewalDays,
 			NewExpireAt: newExpireAt,
 			OldExpireAt: oldExpireAt,
 		}
@@ -313,7 +318,7 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 		zap.Uint("userID", userID),
 		zap.Uint("instanceID", instanceID),
 		zap.String("method", config.CheckinMethod),
-		zap.Int("renewalDays", config.RenewalDays))
+		zap.Int("renewalDays", appliedRenewalDays))
 
 	return nil
 }
@@ -563,4 +568,313 @@ type DoCheckinRequest struct {
 	Token      string `json:"token" binding:"omitempty,max=512"`     // 第三方captcha token (turnstile/recaptcha/hcaptcha)
 	Challenge  string `json:"challenge" binding:"omitempty,max=128"` // PoW challenge
 	Nonce      string `json:"nonce" binding:"omitempty,max=64"`      // PoW nonce
+}
+
+// BatchCheckinRequest 批量签到请求
+type BatchCheckinRequest struct {
+	InstanceIDs []uint `json:"instanceIds" binding:"required,min=1,max=50"`
+	Code        string `json:"code" binding:"omitempty,max=128"`
+	Token       string `json:"token" binding:"omitempty,max=512"`
+	Challenge   string `json:"challenge" binding:"omitempty,max=128"`
+	Nonce       string `json:"nonce" binding:"omitempty,max=64"`
+}
+
+// BatchCheckinResult 批量签到结果
+type BatchCheckinResult struct {
+	Total   int                      `json:"total"`
+	Success int                      `json:"success"`
+	Failed  int                      `json:"failed"`
+	Details []BatchCheckinItemResult `json:"details"`
+}
+
+type BatchCheckinItemResult struct {
+	InstanceID uint   `json:"instanceId"`
+	Success    bool   `json:"success"`
+	Message    string `json:"message,omitempty"`
+	NewExpiry  string `json:"newExpiry,omitempty"`
+}
+
+// CheckinStats 签到统计
+type CheckinStats struct {
+	TotalCheckins     int64  `json:"totalCheckins"`
+	CurrentStreak     int    `json:"currentStreak"`
+	LongestStreak     int    `json:"longestStreak"`
+	TotalRenewalDays  int    `json:"totalRenewalDays"`
+	ThisMonthCheckins int64  `json:"thisMonthCheckins"`
+	LastCheckinDate   string `json:"lastCheckinDate,omitempty"`
+}
+
+// CheckinRecordsFilter 签到记录筛选
+type CheckinRecordsFilter struct {
+	StartDate  string `json:"startDate"`  // YYYY-MM-DD
+	EndDate    string `json:"endDate"`    // YYYY-MM-DD
+	InstanceID uint   `json:"instanceId"` // 0 means all
+	Result     string `json:"result"`     // success, failed, all
+}
+
+// ---- Batch Checkin ----
+
+// BatchCheckin 批量签到续期
+func (s *Service) BatchCheckin(userID uint, req *BatchCheckinRequest) (*BatchCheckinResult, error) {
+	r := &BatchCheckinResult{
+		Total:   len(req.InstanceIDs),
+		Details: make([]BatchCheckinItemResult, 0, len(req.InstanceIDs)),
+	}
+	seen := make(map[uint]struct{}, len(req.InstanceIDs))
+	successPositions := make(map[uint][]int)
+	successIDs := make([]uint, 0, len(req.InstanceIDs))
+
+	for _, instanceID := range req.InstanceIDs {
+		if _, exists := seen[instanceID]; exists {
+			r.Failed++
+			r.Details = append(r.Details, BatchCheckinItemResult{
+				InstanceID: instanceID,
+				Success:    false,
+				Message:    "重复实例ID",
+			})
+			continue
+		}
+		seen[instanceID] = struct{}{}
+		singleReq := &DoCheckinRequest{
+			InstanceID: instanceID,
+			Code:       req.Code,
+			Token:      req.Token,
+			Challenge:  req.Challenge,
+			Nonce:      req.Nonce,
+		}
+		err := s.DoCheckin(userID, instanceID, singleReq)
+		if err != nil {
+			r.Failed++
+			r.Details = append(r.Details, BatchCheckinItemResult{
+				InstanceID: instanceID,
+				Success:    false,
+				Message:    err.Error(),
+			})
+		} else {
+			r.Success++
+			detailIndex := len(r.Details)
+			r.Details = append(r.Details, BatchCheckinItemResult{
+				InstanceID: instanceID,
+				Success:    true,
+			})
+			successPositions[instanceID] = append(successPositions[instanceID], detailIndex)
+			successIDs = append(successIDs, instanceID)
+		}
+	}
+	if len(successIDs) > 0 {
+		var instances []struct {
+			ID        uint
+			ExpiresAt *time.Time
+		}
+		global.APP_DB.Table("instances").
+			Select("id, expires_at").
+			Where("id IN ?", successIDs).
+			Find(&instances)
+		for _, inst := range instances {
+			if inst.ExpiresAt == nil {
+				continue
+			}
+			for _, position := range successPositions[inst.ID] {
+				r.Details[position].NewExpiry = inst.ExpiresAt.Format("2006-01-02 15:04:05")
+			}
+		}
+	}
+	return r, nil
+}
+
+// ---- Checkin Stats ----
+
+// GetCheckinStats 获取用户签到统计
+func (s *Service) GetCheckinStats(userID uint) (*CheckinStats, error) {
+	stats := &CheckinStats{}
+
+	// Total checkins
+	global.APP_DB.Model(&checkinModel.CheckinRecord{}).
+		Where("user_id = ?", userID).
+		Count(&stats.TotalCheckins)
+
+	// This month checkins
+	now := time.Now()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	global.APP_DB.Model(&checkinModel.CheckinRecord{}).
+		Where("user_id = ? AND created_at >= ?", userID, monthStart).
+		Count(&stats.ThisMonthCheckins)
+
+	// Total renewal days
+	var totalDays sql.NullInt64
+	global.APP_DB.Model(&checkinModel.CheckinRecord{}).
+		Where("user_id = ?", userID).
+		Select("COALESCE(SUM(renewal_days), 0)").
+		Scan(&totalDays)
+	if totalDays.Valid {
+		stats.TotalRenewalDays = int(totalDays.Int64)
+	}
+
+	// Last checkin date
+	var lastRecord checkinModel.CheckinRecord
+	err := global.APP_DB.Where("user_id = ?", userID).
+		Order("created_at DESC").
+		First(&lastRecord).Error
+	if err == nil {
+		stats.LastCheckinDate = lastRecord.CreatedAt.Format("2006-01-02")
+	}
+
+	// Calculate streaks
+	stats.CurrentStreak, stats.LongestStreak = s.calculateStreaks(userID)
+
+	return stats, nil
+}
+
+// calculateStreaks 计算连续签到天数和最长连续天数
+func (s *Service) calculateStreaks(userID uint) (current, longest int) {
+	var records []checkinModel.CheckinRecord
+	global.APP_DB.Where("user_id = ?", userID).
+		Order("created_at DESC").
+		Limit(365). // Look at last year
+		Find(&records)
+
+	if len(records) == 0 {
+		return 0, 0
+	}
+
+	// Group by date (one checkin per day counts)
+	checkedDays := make(map[string]bool)
+	for _, r := range records {
+		day := r.CreatedAt.Format("2006-01-02")
+		checkedDays[day] = true
+	}
+
+	// Sort dates
+	var dates []string
+	for d := range checkedDays {
+		dates = append(dates, d)
+	}
+	sort.Strings(dates)
+
+	if len(dates) == 0 {
+		return 0, 0
+	}
+
+	maxStreak := 1
+	run := 1
+	for i := 1; i < len(dates); i++ {
+		prev, _ := time.Parse("2006-01-02", dates[i-1])
+		curr, _ := time.Parse("2006-01-02", dates[i])
+		diff := curr.Sub(prev).Hours() / 24
+
+		if diff == 1 {
+			run++
+		} else {
+			if run > maxStreak {
+				maxStreak = run
+			}
+			run = 1
+		}
+	}
+	if run > maxStreak {
+		maxStreak = run
+	}
+
+	today := time.Now()
+	anchor := today.Format("2006-01-02")
+	if !checkedDays[anchor] {
+		anchor = today.AddDate(0, 0, -1).Format("2006-01-02")
+	}
+	currentStreak := 0
+	for checkedDays[anchor] {
+		currentStreak++
+		day, err := time.Parse("2006-01-02", anchor)
+		if err != nil {
+			break
+		}
+		anchor = day.AddDate(0, 0, -1).Format("2006-01-02")
+	}
+
+	return currentStreak, maxStreak
+}
+
+// ---- Continuous Checkin Rewards ----
+
+// GetStreakBonus 根据连续签到天数计算额外奖励天数
+// 连续3天: +1天, 连续7天: +2天, 连续14天: +3天, 连续30天: +5天
+func (s *Service) GetStreakBonus(userID uint) int {
+	streak, _ := s.calculateStreaks(userID)
+	return streakBonusDays(streak)
+}
+
+func (s *Service) getStreakBonusForNextCheckin(userID uint) int {
+	streak, _ := s.calculateStreaks(userID)
+	now := time.Now()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	var todayRecords int64
+	global.APP_DB.Model(&checkinModel.CheckinRecord{}).
+		Where("user_id = ? AND created_at >= ?", userID, dayStart).
+		Count(&todayRecords)
+	if todayRecords == 0 {
+		streak++
+	}
+	return streakBonusDays(streak)
+}
+
+func streakBonusDays(streak int) int {
+	switch {
+	case streak >= 30:
+		return 5
+	case streak >= 14:
+		return 3
+	case streak >= 7:
+		return 2
+	case streak >= 3:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// ---- GetCheckinRecords (enhanced with filter) ----
+
+// GetCheckinRecordsFiltered 获取筛选后的签到记录
+func (s *Service) GetCheckinRecordsFiltered(userID uint, page, pageSize int, filter *CheckinRecordsFilter) ([]checkinModel.CheckinRecord, int64, error) {
+	var records []checkinModel.CheckinRecord
+	var total int64
+
+	query := global.APP_DB.Model(&checkinModel.CheckinRecord{}).Where("user_id = ?", userID)
+
+	// Apply date range filter
+	if filter != nil && filter.StartDate != "" {
+		if startTime, err := time.Parse("2006-01-02", filter.StartDate); err == nil {
+			query = query.Where("created_at >= ?", startTime)
+		}
+	}
+	if filter != nil && filter.EndDate != "" {
+		if endTime, err := time.Parse("2006-01-02", filter.EndDate); err == nil {
+			query = query.Where("created_at <= ?", endTime.Add(24*time.Hour))
+		}
+	}
+
+	// Apply instance filter
+	if filter != nil && filter.InstanceID > 0 {
+		query = query.Where("instance_id = ?", filter.InstanceID)
+	}
+	if filter != nil {
+		switch strings.ToLower(filter.Result) {
+		case "", "all", "success":
+			// Successful checkins are the only persisted record type.
+		case "failed":
+			query = query.Where("id = ?", 0)
+		}
+	}
+
+	// Count total
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Fetch paginated results
+	err := query.Order("created_at DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&records).Error
+
+	return records, total, err
 }
