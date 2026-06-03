@@ -67,7 +67,7 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 		return fmt.Errorf("load controller port %d: %w", portID, err)
 	}
 	if port.ProviderID != providerID || port.HostPort != listenPort || port.GuestPort != targetPort ||
-		port.MappingType != "controller" || port.Status != "active" {
+		port.MappingType != "controller" || (port.Status != "active" && port.Status != "pending") {
 		return fmt.Errorf("controller port %d metadata mismatch or inactive", portID)
 	}
 

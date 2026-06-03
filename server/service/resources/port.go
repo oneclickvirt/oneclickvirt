@@ -299,16 +299,16 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 			targetHost = instance.PrivateIP // 使用实例私有IP
 		}
 		if targetHost == "" {
-			global.APP_DB.Delete(&port)
+			global.APP_DB.Unscoped().Delete(&port)
 			return 0, nil, fmt.Errorf("控制端转发模式需要指定目标地址（internalHost）或实例须有私有IP")
 		}
 		if ControllerPortForwardFunc == nil {
-			global.APP_DB.Delete(&port)
+			global.APP_DB.Unscoped().Delete(&port)
 			return 0, nil, fmt.Errorf("控制端转发功能未初始化")
 		}
 		if err := ControllerPortForwardFunc(port.ID, providerInfo.ID, hostPort, targetHost, req.GuestPort); err != nil {
-			// 回滚端口记录
-			global.APP_DB.Delete(&port)
+			// 回滚端口记录（硬删除，释放唯一索引槽位）
+			global.APP_DB.Unscoped().Delete(&port)
 			return 0, nil, fmt.Errorf("启动控制端端口转发失败: %v", err)
 		}
 		// 标记为 active（控制端模式不需要任务）

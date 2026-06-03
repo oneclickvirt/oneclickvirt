@@ -461,10 +461,10 @@ func (i *Instance) BeforeCreate(tx *gorm.DB) error {
 // Port 端口映射模型
 type Port struct {
 	// 基础字段
-	ID        uint           `json:"id" gorm:"primarykey"` // 端口映射主键ID
-	CreatedAt time.Time      `json:"createdAt"`            // 创建时间
-	UpdatedAt time.Time      `json:"updatedAt"`            // 更新时间
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`       // 软删除时间
+	ID        uint           `json:"id" gorm:"primarykey"`                                         // 端口映射主键ID
+	CreatedAt time.Time      `json:"createdAt"`                                                    // 创建时间
+	UpdatedAt time.Time      `json:"updatedAt"`                                                    // 更新时间
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:idx_provider_host_port,priority:3"` // 软删除时间（参与唯一索引避免软删除行占坑）
 
 	// 端口映射信息
 	// 为常用查询添加复合索引

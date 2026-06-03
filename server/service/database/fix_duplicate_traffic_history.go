@@ -78,9 +78,88 @@ func (ds *DatabaseService) FixDuplicateTrafficHistory() error {
 
 // FixAllDuplicateData 确认所有可能存在重复数据的表
 func (ds *DatabaseService) FixAllDuplicateData() error {
-	// 目前只有 instance_traffic_histories 表有此问题
-	// 如果将来有其他表也需要确认，可以在这里添加
-	return ds.FixDuplicateTrafficHistory()
+	// 修复流量历史表重复数据
+	if err := ds.FixDuplicateTrafficHistory(); err != nil {
+		return err
+	}
+	// 迁移 ports 表唯一索引：将 (provider_id, host_port) 升级为 (provider_id, host_port, deleted_at)
+	// 解决 GORM 软删除记录占用唯一索引槽位的问题
+	if err := ds.MigratePortsIndex(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MigratePortsIndex 将 ports 表的唯一索引从双列 (provider_id, host_port)
+// 迁移到三列 (provider_id, host_port, deleted_at)，使 GORM 软删除记录不再占用唯一索引槽位。
+// 幂等操作：若新索引已存在或旧索引不存在，均安全跳过。
+func (ds *DatabaseService) MigratePortsIndex() error {
+	db := ds.getDB()
+	if db == nil {
+		return fmt.Errorf("数据库连接不可用")
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("获取底层数据库连接失败: %w", err)
+	}
+
+	// 防御性检查：表不存在时跳过
+	if !db.Migrator().HasTable("ports") {
+		global.APP_LOG.Info("ports 表不存在，跳过索引迁移（全新数据库）")
+		return nil
+	}
+
+	// 检查 idx_provider_host_port 索引的列数
+	var columnCount int
+	checkSQL := `
+		SELECT COUNT(*) FROM information_schema.STATISTICS
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'ports'
+		  AND index_name = 'idx_provider_host_port'
+	`
+	row := sqlDB.QueryRow(checkSQL)
+	if err := row.Scan(&columnCount); err != nil {
+		return fmt.Errorf("检查 ports 索引失败: %w", err)
+	}
+
+	// 如果索引已经是 3 列（包含 deleted_at），说明已迁移，跳过
+	if columnCount == 3 {
+		global.APP_LOG.Info("ports 表索引已包含 deleted_at，无需迁移")
+		return nil
+	}
+
+	if columnCount == 2 {
+		global.APP_LOG.Info("发现旧的 ports 双列唯一索引，开始迁移到三列索引（含 deleted_at）")
+
+		// 步骤1：硬删除所有软删除记录（它们已被标记删除，不应继续占用端口槽位）
+		cleanResult, err := sqlDB.Exec("DELETE FROM ports WHERE deleted_at IS NOT NULL")
+		if err != nil {
+			global.APP_LOG.Warn("清理 ports 软删除记录失败", zap.Error(err))
+		} else if rows, _ := cleanResult.RowsAffected(); rows > 0 {
+			global.APP_LOG.Info("已清理 ports 软删除记录",
+				zap.Int64("count", rows))
+		}
+
+		// 步骤2：删除旧的 2 列唯一索引
+		if _, err := sqlDB.Exec("ALTER TABLE ports DROP INDEX `idx_provider_host_port`"); err != nil {
+			return fmt.Errorf("删除旧索引 idx_provider_host_port 失败: %w", err)
+		}
+		global.APP_LOG.Info("旧索引 idx_provider_host_port 已删除")
+
+		// 步骤3：创建新的 3 列唯一索引 (provider_id, host_port, deleted_at)
+		createSQL := "ALTER TABLE ports ADD UNIQUE INDEX `idx_provider_host_port` (`provider_id`, `host_port`, `deleted_at`)"
+		if _, err := sqlDB.Exec(createSQL); err != nil {
+			return fmt.Errorf("创建新索引 idx_provider_host_port 失败: %w", err)
+		}
+		global.APP_LOG.Info("新索引 idx_provider_host_port (provider_id, host_port, deleted_at) 已创建")
+
+		return nil
+	}
+
+	// 索引不存在（全新安装），AutoMigrate 会根据 struct tag 自动创建，无需处理
+	global.APP_LOG.Info("ports 表尚未创建 idx_provider_host_port 索引，将由 AutoMigrate 创建")
+	return nil
 }
 
 // MigrateSystemConfigIndex 将 system_configs 表的唯一索引从单列 idx_system_configs_key
