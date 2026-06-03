@@ -36,6 +36,13 @@ Usage: bash install_full.sh [OPTIONS]
 Options:
   --db-type TYPE          Database type: mysql (default) or mariadb
   --db-password PASS      Database root password (auto-generated if not set)
+  --external-db           Use an external database (skip local DB install)
+  --db-host HOST          External DB host (implies --external-db)
+  --db-port PORT          External DB port (default: 3306)
+  --db-name NAME          External DB name (default: oneclickvirt)
+  --db-user USER          External DB user (default: oneclickvirt)
+  --db-pass PASS          External DB password
+  --admin-email EMAIL     Admin email for auto-init (default: admin@oneclickvirt.local)
   --proxy TYPE            Reverse proxy: caddy, nginx, openresty (default: caddy)
   --domain DOMAIN         Domain name or IP (e.g. panel.example.com, 1.2.3.4)
                           Prefix with https:// to enable TLS, http:// to disable.
@@ -44,20 +51,27 @@ Options:
   --email EMAIL           Email for TLS certificate notifications
   --tls METHOD            TLS method: letsencrypt, zerossl, selfsigned, off
                           TLS requires a real domain name (not bare IP or localhost).
-  --non-interactive       Run without prompts (requires --domain and --email when using TLS)
+  --non-interactive       Run without prompts
   --force                 Skip system resource checks (disk & memory)
   --version VERSION       Specific version to install (default: latest)
   --help                  Show this help
 
 Examples:
-  # Interactive mode — just press Enter at the domain prompt to pick an IP
+  # Interactive mode — just press Enter at each prompt
   bash install_full.sh
 
-  # Non-interactive with a domain + TLS
+  # Non-interactive with local DB + domain + TLS
   bash install_full.sh --non-interactive --domain https://panel.example.com --email admin@example.com
 
-  # Non-interactive with a public IP (TLS disabled)
+  # Non-interactive with a public IP (TLS disabled, local DB)
   bash install_full.sh --non-interactive --domain http://1.2.3.4
+
+  # Use external database (separated deployment / 分离式部署)
+  bash install_full.sh --external-db --db-host 10.0.0.5 --db-name oneclickvirt --db-user ocv --db-pass mypass
+
+  # Non-interactive with external DB
+  bash install_full.sh --non-interactive --domain https://panel.example.com --email admin@example.com \\
+      --external-db --db-host 10.0.0.5 --db-port 3306 --db-name oneclickvirt --db-user ocv --db-pass mypass
 EOF
     exit 0
 }
@@ -74,6 +88,17 @@ FORCE_INSTALL="false"
 INSTALL_VERSION=""
 DOMAIN_PROTO_DETECTED=""
 TLS_EXPLICIT="false"
+# External database (separated deployment / 分离式部署)
+EXTERNAL_DB="false"
+DB_HOST=""
+DB_PORT="3306"
+DB_NAME_EXT="oneclickvirt"
+DB_USER_EXT="oneclickvirt"
+DB_PASS_EXT=""
+# Auto-init admin credentials
+ADMIN_USER="admin"
+ADMIN_PASS="Admin123!@#"
+ADMIN_EMAIL="admin@oneclickvirt.local"
 
 # Normalize domain: strip https:// or http:// prefix, auto-detect TLS preference
 # Returns via DOMAIN and DOMAIN_PROTO_DETECTED globals
@@ -103,6 +128,13 @@ while [[ $# -gt 0 ]]; do
         --tls)           TLS_METHOD="$2"; TLS_EXPLICIT="true"; shift 2 ;;
         --non-interactive) NONINTERACTIVE="true"; shift ;;
         --force)          FORCE_INSTALL="true"; shift ;;
+        --external-db)    EXTERNAL_DB="true"; shift ;;
+        --db-host)        DB_HOST="$2"; EXTERNAL_DB="true"; shift 2 ;;
+        --db-port)        DB_PORT="$2"; shift 2 ;;
+        --db-name)        DB_NAME_EXT="$2"; shift 2 ;;
+        --db-user)        DB_USER_EXT="$2"; shift 2 ;;
+        --db-pass)        DB_PASS_EXT="$2"; shift 2 ;;
+        --admin-email)    ADMIN_EMAIL="$2"; shift 2 ;;
         --version)        INSTALL_VERSION="$2"; shift 2 ;;
         --help)           usage ;;
         *) log_error "Unknown option: $1" "未知选项: $1"; usage ;;
@@ -371,6 +403,84 @@ wait_for_http_ready() {
     return 1
 }
 
+# wait_for_init_ready polls GET /api/v1/public/init/check until needInit=true
+wait_for_init_ready() {
+    local timeout="${1:-180}" interval="${2:-5}" elapsed=0
+    log_info "Waiting for system to be ready for initialization..." "正在等待系统就绪以进行初始化..."
+    while [[ $elapsed -lt $timeout ]]; do
+        local resp
+        resp=$(curl -fsS --max-time 5 "http://127.0.0.1:8888/api/v1/public/init/check" 2>/dev/null)
+        if echo "$resp" | grep -q '"needInit":true'; then
+            log_success "System ready for initialization after ${elapsed}s" "系统已在 ${elapsed}s 后就绪，可以初始化"
+            return 0
+        fi
+        # If already initialized, that's also fine
+        if echo "$resp" | grep -q '"needInit":false'; then
+            log_info "System appears already initialized, skipping auto-init." "系统似乎已初始化，跳过自动初始化。"
+            return 2
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    log_warning "Init check timed out after ${timeout}s. You may need to initialize manually." "初始化检查在 ${timeout}s 后超时，可能需要手动初始化。"
+    return 1
+}
+
+# auto_init_system sends POST /api/v1/public/init with default admin credentials
+auto_init_system() {
+    local _db_host _db_port _db_name _db_user _db_pass
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        _db_host="${DB_HOST:-127.0.0.1}"
+        _db_port="${DB_PORT:-3306}"
+        _db_name="${DB_NAME_EXT:-oneclickvirt}"
+        _db_user="${DB_USER_EXT:-oneclickvirt}"
+        _db_pass="${DB_PASS_EXT}"
+    else
+        _db_host="127.0.0.1"
+        _db_port="3306"
+        _db_name="oneclickvirt"
+        _db_user="oneclickvirt"
+        _db_pass="${DB_PASSWORD}"
+    fi
+
+    log_info "Auto-initializing system with default admin account..." "正在自动初始化系统（默认管理员账户）..."
+    local resp
+    resp=$(curl -fsS --max-time 30 -X POST "http://127.0.0.1:8888/api/v1/public/init" \
+        -H "Content-Type: application/json" \
+        -d "$(cat <<INIT_JSON
+{
+  "admin": {
+    "username": "${ADMIN_USER}",
+    "password": "${ADMIN_PASS}",
+    "email": "${ADMIN_EMAIL}"
+  },
+  "user": {
+    "enabled": false
+  },
+  "database": {
+    "type": "${DB_TYPE}",
+    "host": "${_db_host}",
+    "port": "${_db_port}",
+    "database": "${_db_name}",
+    "username": "${_db_user}",
+    "password": "${_db_pass}"
+  }
+}
+INIT_JSON
+)" 2>/dev/null)
+    if echo "$resp" | grep -q '"code":0'; then
+        log_success "System initialized successfully." "系统初始化成功。"
+        return 0
+    elif echo "$resp" | grep -q '已初始化'; then
+        log_info "System already initialized (no action needed)." "系统已初始化，无需操作。"
+        return 0
+    else
+        log_warning "Auto-init may have failed. Response: ${resp}" "自动初始化可能失败。响应: ${resp}"
+        log_warning "You can initialize manually via the web UI: ${_display_url:-http://127.0.0.1:8888}" "可通过 Web 界面手动初始化: ${_display_url:-http://127.0.0.1:8888}"
+        return 1
+    fi
+}
+
 # ---- Database installation ----
 install_mysql() {
     log_info "Installing MySQL 8.0..." "正在安装 MySQL 8.0..."
@@ -446,8 +556,8 @@ configure_database() {
             # Try auth_socket first (Ubuntu default), then password
             if mysql -e "SELECT 1" 2>/dev/null; then
                 mysql -e "
-                    ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_PASSWORD_SQL}';
-                    CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${DB_PASSWORD_SQL}';
+                    ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_PASSWORD_SQL}';
+                    CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
                     GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
                     CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
                     CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
@@ -501,7 +611,7 @@ configure_database() {
             ;;
     esac
 
-    # Apply optimization config from deploy/my.cnf
+    # Apply optimization config from deploy/my.cnf (includes bind-address=127.0.0.1)
     local MY_CNF="/etc/mysql/conf.d/oneclickvirt.cnf"
     if [[ -f "${SCRIPT_DIR}/deploy/my.cnf" ]]; then
         cp "${SCRIPT_DIR}/deploy/my.cnf" "$MY_CNF"
@@ -510,40 +620,27 @@ configure_database() {
         curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/deploy/my.cnf" -o "$MY_CNF" 2>/dev/null || true
     fi
 
-    # ── Enforce localhost-only binding ──────────────────────────────────────
-    # Ensure bind-address is set to 127.0.0.1 in the main server config,
-    # as a safety net in case the conf.d snippet was not applied.
-    _enforce_bind_address() {
-        local conf_file=""
-        # Find the main mysqld config file
-        for f in \
-            /etc/mysql/mysql.conf.d/mysqld.cnf \
-            /etc/mysql/my.cnf \
-            /etc/my.cnf \
-            /etc/mysql/mariadb.conf.d/50-server.cnf \
-            /etc/my.cnf.d/server.cnf; do
-            if [[ -f "$f" ]]; then conf_file="$f"; break; fi
-        done
-        if [[ -z "$conf_file" ]]; then
-            log_warning "Could not locate MySQL/MariaDB config file to enforce bind-address." "未找到 MySQL/MariaDB 配置文件，无法强制 bind-address。"
-            return 0
-        fi
-        # Only add if not already present
-        if grep -q '^\s*bind-address\s*=' "$conf_file" 2>/dev/null; then
-            sed -i 's/^\s*bind-address\s*=.*/bind-address = 127.0.0.1/' "$conf_file"
-        else
-            # Insert after [mysqld] section header
-            sed -i '/^\[mysqld\]/a bind-address = 127.0.0.1' "$conf_file"
-        fi
-        log_info "Database bind-address enforced to 127.0.0.1 (local access only)." "数据库 bind-address 已强制设为 127.0.0.1（仅本地访问）。"
-    }
-    _enforce_bind_address
-
-    # Enable and restart
+    # Reload (not restart) to pick up conf.d changes; restart only if needed
     case "$OS" in
-        alpine) rc-update add "$DB_TYPE" 2>/dev/null; rc-service "$DB_TYPE" restart 2>/dev/null ;;
-        *) systemctl enable "$DB_TYPE" 2>/dev/null; systemctl restart "$DB_TYPE" 2>/dev/null ;;
+        alpine) rc-service "$DB_TYPE" restart 2>/dev/null ;;
+        *)
+            systemctl enable "$DB_TYPE" 2>/dev/null
+            # Try reload first, fall back to restart
+            if systemctl is-active --quiet "$DB_TYPE" 2>/dev/null; then
+                systemctl reload "$DB_TYPE" 2>/dev/null || systemctl restart "$DB_TYPE" 2>/dev/null
+            else
+                systemctl restart "$DB_TYPE" 2>/dev/null
+            fi
+            ;;
     esac
+    # Verify MySQL is still running after reload/restart
+    sleep 2
+    if ! systemctl is-active --quiet "$DB_TYPE" 2>/dev/null; then
+        log_error "Database service failed after applying configuration." "数据库服务在应用配置后未能启动。"
+        log_error "Check: journalctl -u ${DB_TYPE} -n 30" "请检查: journalctl -u ${DB_TYPE} -n 30"
+        log_error "You may need to remove /etc/mysql/conf.d/oneclickvirt.cnf and restart." "可尝试删除 /etc/mysql/conf.d/oneclickvirt.cnf 后重启。"
+        return 1
+    fi
 
     log_success "Database configured: ${DB_NAME} / user=${DB_USER} (localhost only)" "数据库配置完成: ${DB_NAME} / 用户=${DB_USER}（仅本地）"
 }
@@ -790,7 +887,24 @@ install_application() {
     fi
 
     # Create config.yaml (password YAML-safe: wrap in quotes, escape special chars)
-    local _yaml_db_password; _yaml_db_password=$(printf '%s' "$DB_PASSWORD" | sed 's/"/\\"/g')
+    local _yaml_db_password
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        _yaml_db_password=$(printf '%s' "$DB_PASS_EXT" | sed 's/"/\\"/g')
+    else
+        _yaml_db_password=$(printf '%s' "$DB_PASSWORD" | sed 's/"/\\"/g')
+    fi
+    local _db_host _db_port _db_name _db_user
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        _db_host="${DB_HOST:-127.0.0.1}"
+        _db_port="${DB_PORT:-3306}"
+        _db_name="${DB_NAME_EXT:-oneclickvirt}"
+        _db_user="${DB_USER_EXT:-oneclickvirt}"
+    else
+        _db_host="127.0.0.1"
+        _db_port="3306"
+        _db_name="oneclickvirt"
+        _db_user="oneclickvirt"
+    fi
     cat > "${SERVER_DIR}/config.yaml" << CONFIG_EOF
 system:
   env: public
@@ -802,15 +916,33 @@ jwt:
   buffer-time: 1d
   issuer: oneclickvirt
 ${DB_TYPE}:
-  path: 127.0.0.1
-  port: "3306"
-  db-name: oneclickvirt
-  username: oneclickvirt
+  path: ${_db_host}
+  port: "${_db_port}"
+  db-name: ${_db_name}
+  username: ${_db_user}
   password: "${_yaml_db_password}"
 CONFIG_EOF
 
-    # Create systemd service
-    cat > /etc/systemd/system/oneclickvirt.service << SERV_EOF
+    # Create systemd service (no DB dependency for external DB)
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        cat > /etc/systemd/system/oneclickvirt.service << SERV_EOF
+[Unit]
+Description=OneClickVirt Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${SERVER_DIR}
+ExecStart=${SERVER_DIR}/server-allinone-linux-${ARCH}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+SERV_EOF
+    else
+        cat > /etc/systemd/system/oneclickvirt.service << SERV_EOF
 [Unit]
 Description=OneClickVirt Server
 After=network.target ${DB_TYPE}.service
@@ -827,6 +959,7 @@ LimitNOFILE=65536
 [Install]
 WantedBy=multi-user.target
 SERV_EOF
+    fi
 
     systemctl daemon-reload
     systemctl enable oneclickvirt
@@ -855,6 +988,14 @@ SERV_EOF
             log_warning "API health check timed out, but service may still be initializing." "API 健康检查超时，服务可能仍在初始化中。"
             log_warning "Check: journalctl -u oneclickvirt -f" "请检查: journalctl -u oneclickvirt -f"
         }
+        # Auto-initialize the system (only for local DB installs)
+        if [[ "$EXTERNAL_DB" != "true" ]]; then
+            if wait_for_init_ready 180 5; then
+                auto_init_system
+            fi
+        else
+            log_info "External DB mode — skipping auto-init (initialize manually via web UI)." "外部数据库模式 — 跳过自动初始化（请通过 Web 界面手动初始化）。"
+        fi
     else
         log_warning "Service did not start. Checking logs..." "服务未能启动，正在检查日志..."
         log_warning "Run: journalctl -u oneclickvirt -n 30" "请执行: journalctl -u oneclickvirt -n 30"
@@ -1009,6 +1150,28 @@ main() {
         fi
     fi
 
+    # ---- External database prompt (interactive only) ----
+    if [[ "$NONINTERACTIVE" != "true" && "$EXTERNAL_DB" != "true" ]]; then
+        echo ""
+        read -p "Install local database? [Y/n] (n = use external DB): " _local_db
+        if [[ "$_local_db" =~ ^[Nn] ]]; then
+            EXTERNAL_DB="true"
+            echo -e "  ${CYAN}External database configuration:${NC}"
+            read -p "  DB Host (default: 127.0.0.1): " _db_host
+            DB_HOST="${_db_host:-127.0.0.1}"
+            read -p "  DB Port (default: 3306): " _db_port
+            DB_PORT="${_db_port:-3306}"
+            read -p "  DB Name (default: oneclickvirt): " _db_name
+            DB_NAME_EXT="${_db_name:-oneclickvirt}"
+            read -p "  DB User (default: oneclickvirt): " _db_user
+            DB_USER_EXT="${_db_user:-oneclickvirt}"
+            read -p "  DB Password: " _db_pass
+            DB_PASS_EXT="${_db_pass}"
+            DB_PASSWORD="${_db_pass}"  # for display/summary
+            log_info "Using external database: ${DB_USER_EXT}@${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}" "使用外部数据库: ${DB_USER_EXT}@${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}"
+        fi
+    fi
+
     # Validate non-interactive mode requirements
     if [[ "$NONINTERACTIVE" == "true" ]]; then
         if [[ "$TLS_METHOD" != "off" && "$TLS_METHOD" != "selfsigned" ]]; then
@@ -1026,7 +1189,11 @@ main() {
 
     echo ""
     echo -e "${CYAN}--- Installation Summary ---${NC}"
-    echo "  Database:     ${DB_TYPE}"
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        echo "  Database:     EXTERNAL (${DB_HOST}:${DB_PORT}/${DB_NAME_EXT})"
+    else
+        echo "  Database:     ${DB_TYPE}"
+    fi
     echo "  Proxy:        ${PROXY}"
     echo "  Domain:       ${DOMAIN:-localhost}"
     echo "  TLS:          ${TLS_METHOD}"
@@ -1042,14 +1209,18 @@ main() {
     log_info "Starting installation..." "开始安装..."
 
     # 1. Database
-    case "$DB_TYPE" in
-        mysql) install_mysql ;;
-        mariadb) install_mariadb ;;
-    esac
-    if ! configure_database; then
-        log_error "Database configuration failed. Installation aborted." "数据库配置失败，安装中止。"
-        log_error "Check logs: journalctl -u ${DB_TYPE} -n 50" "请检查日志: journalctl -u ${DB_TYPE} -n 50"
-        exit 1
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        log_info "Skipping local database install (using external DB: ${DB_HOST}:${DB_PORT}/${DB_NAME_EXT})" "跳过本地数据库安装（使用外部数据库: ${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}）"
+    else
+        case "$DB_TYPE" in
+            mysql) install_mysql ;;
+            mariadb) install_mariadb ;;
+        esac
+        if ! configure_database; then
+            log_error "Database configuration failed. Installation aborted." "数据库配置失败，安装中止。"
+            log_error "Check logs: journalctl -u ${DB_TYPE} -n 50" "请检查日志: journalctl -u ${DB_TYPE} -n 50"
+            exit 1
+        fi
     fi
 
     # 2. Reverse proxy
@@ -1093,8 +1264,14 @@ main() {
     local _display_url="${_url_scheme}://${DOMAIN}"
 
     echo -e "  Database:     ${DB_TYPE} (database: oneclickvirt)"
-    echo -e "  DB Password:  ${DB_PASSWORD}"
-    echo -e "  DB User:      oneclickvirt (localhost only)"
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        echo -e "  DB Host:      ${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}"
+        echo -e "  DB User:      ${DB_USER_EXT}"
+        echo -e "  DB Password:  ${DB_PASS_EXT}"
+    else
+        echo -e "  DB Password:  ${DB_PASSWORD}"
+        echo -e "  DB User:      oneclickvirt (localhost only)"
+    fi
     echo -e "  Proxy:        ${PROXY}"
     echo -e "  URL:          ${_display_url}"
     echo ""
@@ -1103,25 +1280,52 @@ main() {
     echo -e "  Config Dir:   ${SERVER_DIR}"
     echo ""
     echo -e "${YELLOW}  IMPORTANT — First-Run Setup:${NC}"
-    echo -e "  - There is NO preset admin account. Visit the URL above to create one."
-    echo -e "  - URL: ${_display_url}"
-    echo -e "  - Follow the web setup wizard to set admin username, password, and email."
-    echo -e "  - Database is LOCALHOST-only (bind-address=127.0.0.1) — not exposed to internet."
+    echo -e "  - Admin account has been auto-created (if local DB was installed):"
+    echo -e "    Username:  ${ADMIN_USER}"
+    echo -e "    Password:  ${ADMIN_PASS}"
+    echo -e "  - Login at: ${_display_url}"
+    echo -e "  - CHANGE THE PASSWORD after first login!"
+    if [[ "$EXTERNAL_DB" != "true" ]]; then
+        echo -e "  - Database is LOCALHOST-only (bind-address=127.0.0.1) — not exposed to internet."
+    fi
     echo ""
-    echo -e "${YELLOW}  Database Credentials (auto-generated, for config.yaml):${NC}"
-    echo -e "  DB Name:      oneclickvirt"
-    echo -e "  DB User:      oneclickvirt"
-    echo -e "  DB Password:  ${DB_PASSWORD}"
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        echo -e "${YELLOW}  External Database Credentials:${NC}"
+        echo -e "  DB Host:      ${DB_HOST}:${DB_PORT}"
+        echo -e "  DB Name:      ${DB_NAME_EXT}"
+        echo -e "  DB User:      ${DB_USER_EXT}"
+        echo -e "  DB Password:  ${DB_PASS_EXT}"
+    else
+        echo -e "${YELLOW}  Database Credentials (auto-generated, for config.yaml):${NC}"
+        echo -e "  DB Name:      oneclickvirt"
+        echo -e "  DB User:      oneclickvirt"
+        echo -e "  DB Password:  ${DB_PASSWORD}"
+    fi
     echo ""
 
     # Save credentials
-    cat > "${INSTALL_DIR}/.credentials" << CRED
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        cat > "${INSTALL_DIR}/.credentials" << CRED
+Database: ${DB_TYPE} (EXTERNAL)
+DB Host: ${DB_HOST}:${DB_PORT}
+DB Name: ${DB_NAME_EXT}
+DB User: ${DB_USER_EXT}
+DB Password: ${DB_PASS_EXT}
+Admin Username: ${ADMIN_USER}
+Admin Password: ${ADMIN_PASS}
+URL: ${_display_url}
+CRED
+    else
+        cat > "${INSTALL_DIR}/.credentials" << CRED
 Database: ${DB_TYPE}
 Database Name: oneclickvirt
 Database User: oneclickvirt
 Database Password: ${DB_PASSWORD}
+Admin Username: ${ADMIN_USER}
+Admin Password: ${ADMIN_PASS}
 URL: ${_display_url}
 CRED
+    fi
     chmod 600 "${INSTALL_DIR}/.credentials"
     log_info "Credentials saved to ${INSTALL_DIR}/.credentials" "凭据已保存至 ${INSTALL_DIR}/.credentials"
 }
