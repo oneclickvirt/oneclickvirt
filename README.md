@@ -208,21 +208,29 @@ rm -rf ./data
 
 `install_full.sh` installs the database, reverse proxy, TLS configuration, frontend, backend, and system service in one flow. It supports MySQL or MariaDB and Caddy, Nginx, or OpenResty.
 
+The domain input auto-detects protocol prefixes: enter `https://panel.example.com` to auto-enable TLS, `http://panel.example.com` to auto-disable TLS, or a plain domain to be prompted interactively.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_full.sh -o install_full.sh
-bash install_full.sh --domain panel.example.com --email admin@example.com
+bash install_full.sh
 ```
 
 For non-interactive deployment:
 
 ```bash
+# HTTPS with auto TLS
 bash install_full.sh \
   --non-interactive \
-  --domain panel.example.com \
+  --domain https://panel.example.com \
   --email admin@example.com \
   --db-type mariadb \
-  --proxy caddy \
-  --tls letsencrypt
+  --proxy caddy
+
+# HTTP only, no TLS
+bash install_full.sh \
+  --non-interactive \
+  --domain http://192.168.1.100 \
+  --proxy caddy
 ```
 
 The installer requires at least 20 GB free disk and 4 GB memory by default. It writes the generated database password to the final installation summary; save it before closing the terminal.

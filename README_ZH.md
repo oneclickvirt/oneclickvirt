@@ -208,21 +208,29 @@ rm -rf ./data
 
 `install_full.sh` 会在一个流程中安装数据库、反向代理、TLS 配置、前端、后端和系统服务，支持 MySQL/MariaDB 以及 Caddy/Nginx/OpenResty。
 
+域名输入会自动识别协议前缀：输入 `https://panel.example.com` 自动启用 TLS，输入 `http://panel.example.com` 自动关闭 TLS，无前缀则交互询问。
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_full.sh -o install_full.sh
-bash install_full.sh --domain panel.example.com --email admin@example.com
+bash install_full.sh
 ```
 
 非交互部署示例：
 
 ```bash
+# HTTPS 自动启用 TLS
 bash install_full.sh \
   --non-interactive \
-  --domain panel.example.com \
+  --domain https://panel.example.com \
   --email admin@example.com \
   --db-type mariadb \
-  --proxy caddy \
-  --tls letsencrypt
+  --proxy caddy
+
+# HTTP 纯端口模式，不启用 TLS
+bash install_full.sh \
+  --non-interactive \
+  --domain http://192.168.1.100 \
+  --proxy caddy
 ```
 
 安装脚本默认要求至少 20 GB 可用磁盘和 4 GB 内存。生成的数据库密码会在安装摘要中输出，请在关闭终端前保存。
