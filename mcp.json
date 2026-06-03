@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "oneclickvirt": {
+      "command": "/opt/oneclickvirt/server/oneclickvirt",
+      "args": ["mcp"],
+      "env": {
+        "ONE_CLICK_VIRT_API_URL": "http://localhost:8888",
+        "ONE_CLICK_VIRT_API_TOKEN": "YOUR_API_TOKEN_HERE"
+      }
+    }
+  }
+}

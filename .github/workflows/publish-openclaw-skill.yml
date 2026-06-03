@@ -31,6 +31,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Check skill files are in sync with MCP source
+        run: |
+          python3 scripts/generate_skills.py
+          if ! git diff --quiet skills/SKILL.md skills/SKILL_ZH.md; then
+            echo "ERROR: skills/SKILL.md and skills/SKILL_ZH.md are out of sync with server/mcp/server.go"
+            echo "Run 'python3 scripts/generate_skills.py' locally and commit the changes."
+            git diff skills/SKILL.md skills/SKILL_ZH.md
+            exit 1
+          fi
+          echo "Skill files are in sync with MCP source."
+
       - name: Validate skill files
         run: |
           VERSION=""

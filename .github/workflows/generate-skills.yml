@@ -1,0 +1,54 @@
+name: Generate Skills
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'server/mcp/server.go'
+      - 'server/constant/version.go'
+      - 'scripts/generate_skills.py'
+      - '.github/workflows/generate-skills.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: generate-skills-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate skill files
+        run: python3 scripts/generate_skills.py
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet skills/SKILL.md skills/SKILL_ZH.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes to skill files."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Skill files changed, will auto-commit."
+          fi
+
+      - name: Commit and push changes
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add skills/SKILL.md skills/SKILL_ZH.md
+          git commit -m "chore: auto-generate skill files from MCP source"
+          git push
