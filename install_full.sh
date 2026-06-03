@@ -14,6 +14,23 @@ BASE_URL=""
 INSTALL_DIR="/opt/oneclickvirt"
 SERVER_DIR="${INSTALL_DIR}/server"
 WEB_DIR="${INSTALL_DIR}/web"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+OS="unknown"
+OS_VERSION=""
+OS_LIKE=""
+OS_FAMILY="unknown"
+KERNEL_NAME="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+PKG_MANAGER=""
+SERVICE_MANAGER="none"
+DB_SERVICE=""
+MYSQL_CNF_DIR="/etc/mysql/conf.d"
+NGINX_CONF_DIR="/etc/nginx/conf.d"
+CADDY_CONFIG_DIR="/etc/caddy"
+CADDY_LOG_DIR="/var/log/caddy"
+DOWNLOAD_RETRIES="${DOWNLOAD_RETRIES:-4}"
+DB_WAIT_TIMEOUT="${DB_WAIT_TIMEOUT:-180}"
+AUTO_DB_FALLBACK="${AUTO_DB_FALLBACK:-true}"
 
 # ---- Color helpers ----
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -26,6 +43,49 @@ log_error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; [[ -n "${2:-}" ]] && echo -
 
 sql_escape() {
     printf "%s" "$1" | sed "s/'/''/g"
+}
+
+json_escape() {
+    local s="$1"
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    s=${s//$'\n'/\\n}
+    s=${s//$'\r'/\\r}
+    s=${s//$'\t'/\\t}
+    printf "%s" "$s"
+}
+
+have_cmd() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+run_retry() {
+    local attempts="$1" delay="$2"; shift 2
+    local n=1 rc=0
+    while true; do
+        "$@" && return 0
+        rc=$?
+        if [[ "$n" -ge "$attempts" ]]; then
+            return "$rc"
+        fi
+        log_warning "Command failed (attempt ${n}/${attempts}), retrying in ${delay}s: $*" "命令执行失败（第 ${n}/${attempts} 次），${delay}s 后重试: $*"
+        sleep "$delay"
+        n=$((n + 1))
+        [[ "$delay" -lt 30 ]] && delay=$((delay * 2))
+    done
+}
+
+download_file() {
+    local url="$1" dest="$2"
+    run_retry "$DOWNLOAD_RETRIES" 3 curl -fL --connect-timeout 15 --max-time 180 "$url" -o "$dest"
+}
+
+version_major() {
+    printf "%s" "${1:-0}" | sed -E 's/^([0-9]+).*/\1/'
+}
+
+is_linux_kernel() {
+    [[ "$KERNEL_NAME" == "linux" ]]
 }
 
 # ---- Usage ----
@@ -54,6 +114,8 @@ Options:
   --non-interactive       Run without prompts
   --force                 Skip system resource checks (disk & memory)
   --version VERSION       Specific version to install (default: latest)
+  --db-wait-timeout SEC   Seconds to wait for local DB readiness (default: 180)
+  --no-db-fallback        Do not auto-fallback from MySQL to MariaDB-compatible backend
   --help                  Show this help
 
 Examples:
@@ -136,6 +198,8 @@ while [[ $# -gt 0 ]]; do
         --db-pass)        DB_PASS_EXT="$2"; shift 2 ;;
         --admin-email)    ADMIN_EMAIL="$2"; shift 2 ;;
         --version)        INSTALL_VERSION="$2"; shift 2 ;;
+        --db-wait-timeout) DB_WAIT_TIMEOUT="$2"; shift 2 ;;
+        --no-db-fallback) AUTO_DB_FALLBACK="false"; shift ;;
         --help)           usage ;;
         *) log_error "Unknown option: $1" "未知选项: $1"; usage ;;
     esac
@@ -284,7 +348,7 @@ detect_private_ipv4() {
         ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)' | head -1)
     fi
     if [[ -z "$ip" ]] && command -v ip &>/dev/null; then
-        ip=$(ip -4 addr show scope global 2>/dev/null | grep -oP 'inet \K[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | grep -v '^127\.' | head -1)
+        ip=$(ip -4 addr show scope global 2>/dev/null | awk '/inet / {split($2, a, "/"); if (a[1] !~ /^127[.]/) {print a[1]; exit}}')
     fi
     if [[ -z "$ip" ]] && command -v ifconfig &>/dev/null; then
         ip=$(ifconfig 2>/dev/null | grep -Eo 'inet (addr:)?[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | grep -v '^127\.' | head -1)
@@ -296,95 +360,382 @@ detect_private_ipv4() {
     return 1
 }
 
+detect_package_manager() {
+    if have_cmd apt-get; then PKG_MANAGER="apt"
+    elif have_cmd dnf; then PKG_MANAGER="dnf"
+    elif have_cmd yum; then PKG_MANAGER="yum"
+    elif have_cmd zypper; then PKG_MANAGER="zypper"
+    elif have_cmd pacman; then PKG_MANAGER="pacman"
+    elif have_cmd apk; then PKG_MANAGER="apk"
+    elif have_cmd pkg; then PKG_MANAGER="pkg"
+    elif have_cmd pkg_add; then PKG_MANAGER="pkg_add"
+    elif have_cmd pkgin; then PKG_MANAGER="pkgin"
+    elif have_cmd brew; then PKG_MANAGER="brew"
+    else PKG_MANAGER=""
+    fi
+}
+
+detect_service_manager() {
+    if have_cmd systemctl && { [[ -d /run/systemd/system ]] || systemctl is-system-running >/dev/null 2>&1; }; then
+        SERVICE_MANAGER="systemd"
+    elif have_cmd rc-service; then
+        SERVICE_MANAGER="openrc"
+    elif have_cmd rcctl; then
+        SERVICE_MANAGER="rcctl"
+    elif have_cmd service; then
+        case "$KERNEL_NAME" in
+            freebsd|dragonfly) SERVICE_MANAGER="freebsd-service" ;;
+            *) SERVICE_MANAGER="sysv-service" ;;
+        esac
+    else
+        SERVICE_MANAGER="none"
+    fi
+}
+
 detect_os() {
     if [[ -f /etc/os-release ]]; then
+        # shellcheck source=/dev/null
         . /etc/os-release
-        OS="$ID"
-        OS_VERSION="$VERSION_ID"
+        OS="${ID:-unknown}"
+        OS_VERSION="${VERSION_ID:-}"
+        OS_LIKE="${ID_LIKE:-}"
     elif [[ -f /etc/debian_version ]]; then
         OS="debian"
-        OS_VERSION="$(cat /etc/debian_version)"
+        OS_VERSION="$(cat /etc/debian_version 2>/dev/null || true)"
     elif [[ -f /etc/redhat-release ]]; then
-        OS="centos"
+        OS="rhel"
+        OS_VERSION="$(sed -nE 's/.* ([0-9]+([.][0-9]+)?).*/\1/p' /etc/redhat-release 2>/dev/null | head -1)"
     else
-        OS="unknown"
+        case "$KERNEL_NAME" in
+            freebsd) OS="freebsd" ;;
+            openbsd) OS="openbsd" ;;
+            netbsd) OS="netbsd" ;;
+            dragonfly) OS="dragonflybsd" ;;
+            darwin) OS="darwin" ;;
+            *) OS="unknown" ;;
+        esac
     fi
-    OS=$(echo "$OS" | tr '[:upper:]' '[:lower:]')
+    OS=$(printf "%s" "$OS" | tr '[:upper:]' '[:lower:]')
+    OS_LIKE=$(printf "%s" "$OS_LIKE" | tr '[:upper:]' '[:lower:]')
 
-    case "$OS" in
-        ubuntu|debian|raspbian)
-            PKG_UPDATE="apt-get update -qq"
-            PKG_INSTALL="apt-get install -y -qq"
-            ;;
-        centos|rhel|almalinux|rocky|fedora|amzn)
-            if command -v dnf &>/dev/null; then
-                PKG_UPDATE="dnf -y update"
-                PKG_INSTALL="dnf -y install"
-            else
-                PKG_UPDATE="yum -y update"
-                PKG_INSTALL="yum -y install"
-            fi
-            ;;
-        arch|manjaro)
-            PKG_UPDATE="pacman -Sy"
-            PKG_INSTALL="pacman -S --noconfirm"
-            ;;
-        alpine)
-            PKG_UPDATE="apk update"
-            PKG_INSTALL="apk add --no-cache"
-            ;;
+    case "$OS:$OS_LIKE" in
+        ubuntu:*|debian:*|raspbian:*|linuxmint:*|pop:*|*:debian*)
+            OS_FAMILY="debian" ;;
+        centos:*|rhel:*|almalinux:*|rocky:*|fedora:*|amzn:*|ol:*|opencloudos:*|*:rhel*|*:fedora*)
+            OS_FAMILY="rhel" ;;
+        opensuse*:|sles:*|suse:*|*:suse*)
+            OS_FAMILY="suse" ;;
+        arch:*|manjaro:*|endeavouros:*|*:arch*)
+            OS_FAMILY="arch" ;;
+        alpine:*)
+            OS_FAMILY="alpine" ;;
+        freebsd:*|openbsd:*|netbsd:*|dragonflybsd:*)
+            OS_FAMILY="bsd" ;;
+        darwin:*)
+            OS_FAMILY="darwin" ;;
         *)
-            log_warning "Unknown OS: $OS. Attempting apt-get..." "未知操作系统: $OS，尝试使用 apt-get..."
-            PKG_UPDATE="apt-get update -qq"
-            PKG_INSTALL="apt-get install -y -qq"
+            OS_FAMILY="unknown" ;;
+    esac
+
+    detect_package_manager
+    detect_service_manager
+
+    case "$OS_FAMILY" in
+        debian)
+            MYSQL_CNF_DIR="/etc/mysql/conf.d"
+            NGINX_CONF_DIR="/etc/nginx/sites-available"
+            ;;
+        rhel|suse|arch|alpine)
+            MYSQL_CNF_DIR="/etc/my.cnf.d"
+            NGINX_CONF_DIR="/etc/nginx/conf.d"
+            ;;
+        bsd)
+            MYSQL_CNF_DIR="/usr/local/etc/mysql/conf.d"
+            NGINX_CONF_DIR="/usr/local/etc/nginx/conf.d"
+            CADDY_CONFIG_DIR="/usr/local/etc/caddy"
+            CADDY_LOG_DIR="/var/log/caddy"
             ;;
     esac
-    log_success "Detected OS: $OS $OS_VERSION" "检测到操作系统: $OS $OS_VERSION"
+
+    if [[ -z "$PKG_MANAGER" ]]; then
+        log_error "Unable to detect a supported package manager." "无法识别受支持的包管理器。"
+        exit 1
+    fi
+
+    log_success "Detected OS: ${OS} ${OS_VERSION:-unknown} (${OS_FAMILY}, pkg=${PKG_MANAGER}, svc=${SERVICE_MANAGER})" \
+        "检测到操作系统: ${OS} ${OS_VERSION:-unknown}（${OS_FAMILY}, 包管理=${PKG_MANAGER}, 服务=${SERVICE_MANAGER}）"
+}
+
+pkg_update() {
+    case "$PKG_MANAGER" in
+        apt) DEBIAN_FRONTEND=noninteractive run_retry 3 3 apt-get update -qq ;;
+        dnf) run_retry 3 3 dnf -y makecache ;;
+        yum) run_retry 3 3 yum -y makecache ;;
+        zypper) run_retry 3 3 zypper --non-interactive refresh ;;
+        pacman) run_retry 3 3 pacman -Sy --noconfirm ;;
+        apk) run_retry 3 3 apk update ;;
+        pkg) run_retry 3 3 pkg update -f ;;
+        pkgin) run_retry 3 3 pkgin -y update ;;
+        pkg_add|brew) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+pkg_install() {
+    [[ "$#" -eq 0 ]] && return 0
+    case "$PKG_MANAGER" in
+        apt)
+            DEBIAN_FRONTEND=noninteractive run_retry 3 3 apt-get install -y -qq \
+                -o Dpkg::Options::="--force-confdef" \
+                -o Dpkg::Options::="--force-confold" "$@"
+            ;;
+        dnf) run_retry 3 3 dnf -y install "$@" ;;
+        yum) run_retry 3 3 yum -y install "$@" ;;
+        zypper) run_retry 3 3 zypper --non-interactive install -y "$@" ;;
+        pacman) run_retry 3 3 pacman -S --noconfirm --needed "$@" ;;
+        apk) run_retry 3 3 apk add --no-cache "$@" ;;
+        pkg) run_retry 3 3 pkg install -y "$@" ;;
+        pkg_add) run_retry 3 3 pkg_add -I "$@" ;;
+        pkgin) run_retry 3 3 pkgin -y install "$@" ;;
+        brew) run_retry 3 3 brew install "$@" ;;
+        *) log_error "Unsupported package manager: ${PKG_MANAGER}" "不支持的包管理器: ${PKG_MANAGER}"; return 1 ;;
+    esac
 }
 
 install_dependencies() {
     log_info "Installing base dependencies..." "正在安装基础依赖..."
-    $PKG_UPDATE
-    $PKG_INSTALL curl wget tar gzip unzip ca-certificates
+    pkg_update || log_warning "Package index update failed; continuing with install attempt." "包索引更新失败，将继续尝试安装。"
+    local deps=()
+    case "$PKG_MANAGER" in
+        apk) deps=(curl wget tar gzip unzip ca-certificates iproute2 procps) ;;
+        pacman) deps=(curl wget tar gzip unzip ca-certificates iproute2 procps-ng) ;;
+        pkg|pkg_add|pkgin) deps=(curl wget gtar gzip unzip ca_root_nss) ;;
+        brew) deps=(curl wget gnu-tar gzip unzip) ;;
+        *) deps=(curl wget tar gzip unzip ca-certificates) ;;
+    esac
+    pkg_install "${deps[@]}" || {
+        log_error "Failed to install base dependencies." "基础依赖安装失败。"
+        return 1
+    }
     log_success "Base dependencies installed." "基础依赖安装完成。"
 }
 
+service_exists() {
+    local name="$1"
+    case "$SERVICE_MANAGER" in
+        systemd)
+            systemctl list-unit-files "${name}.service" --no-legend 2>/dev/null | grep -q . || \
+                systemctl cat "$name" >/dev/null 2>&1
+            ;;
+        openrc)
+            rc-service -l 2>/dev/null | grep -qx "$name"
+            ;;
+        rcctl)
+            rcctl ls all 2>/dev/null | grep -qx "$name"
+            ;;
+        freebsd-service|sysv-service)
+            service -l 2>/dev/null | grep -qx "$name" || [[ -x "/etc/init.d/${name}" ]] || [[ -x "/usr/local/etc/rc.d/${name}" ]]
+            ;;
+        none)
+            return 1
+            ;;
+    esac
+}
+
+service_reset_failed() {
+    local name="$1"
+    [[ "$SERVICE_MANAGER" == "systemd" ]] && systemctl reset-failed "$name" >/dev/null 2>&1 || true
+}
+
+service_enable() {
+    local name="$1"
+    case "$SERVICE_MANAGER" in
+        systemd) systemctl enable "$name" >/dev/null 2>&1 ;;
+        openrc) rc-update add "$name" default >/dev/null 2>&1 ;;
+        rcctl) rcctl enable "$name" >/dev/null 2>&1 ;;
+        freebsd-service)
+            sysrc "${name}_enable=YES" >/dev/null 2>&1 || true
+            ;;
+        sysv-service|none) return 0 ;;
+    esac
+}
+
+service_start() {
+    local name="$1"
+    service_reset_failed "$name"
+    case "$SERVICE_MANAGER" in
+        systemd) systemctl start "$name" ;;
+        openrc) rc-service "$name" start ;;
+        rcctl) rcctl start "$name" ;;
+        freebsd-service|sysv-service) service "$name" start ;;
+        none) return 1 ;;
+    esac
+}
+
+service_restart() {
+    local name="$1"
+    service_reset_failed "$name"
+    case "$SERVICE_MANAGER" in
+        systemd) systemctl restart "$name" ;;
+        openrc) rc-service "$name" restart ;;
+        rcctl) rcctl restart "$name" ;;
+        freebsd-service|sysv-service) service "$name" restart ;;
+        none) return 1 ;;
+    esac
+}
+
+service_reload_or_restart() {
+    local name="$1"
+    service_reset_failed "$name"
+    case "$SERVICE_MANAGER" in
+        systemd) systemctl reload "$name" 2>/dev/null || systemctl restart "$name" ;;
+        openrc) rc-service "$name" reload 2>/dev/null || rc-service "$name" restart ;;
+        rcctl) rcctl reload "$name" 2>/dev/null || rcctl restart "$name" ;;
+        freebsd-service|sysv-service) service "$name" reload 2>/dev/null || service "$name" restart ;;
+        none) return 1 ;;
+    esac
+}
+
+service_is_active() {
+    local name="$1"
+    case "$SERVICE_MANAGER" in
+        systemd) systemctl is-active --quiet "$name" ;;
+        openrc) rc-service "$name" status >/dev/null 2>&1 ;;
+        rcctl) rcctl check "$name" >/dev/null 2>&1 ;;
+        freebsd-service|sysv-service) service "$name" status >/dev/null 2>&1 ;;
+        none) return 1 ;;
+    esac
+}
+
+service_hint() {
+    local name="$1"
+    case "$SERVICE_MANAGER" in
+        systemd) printf "systemctl status %s  or  journalctl -u %s -n 50" "$name" "$name" ;;
+        openrc) printf "rc-service %s status  or  tail -n 80 /var/log/mysql/*.err /var/log/mysqld*.log" "$name" ;;
+        rcctl) printf "rcctl check %s  or  tail -n 80 /var/log/mysql*.log" "$name" ;;
+        freebsd-service) printf "service %s status  or  tail -n 80 /var/db/mysql/*.err /var/log/mysql*.log" "$name" ;;
+        sysv-service) printf "service %s status  or  tail -n 80 /var/log/mysql/*.err /var/log/mysqld*.log" "$name" ;;
+        none) printf "no service manager detected; check process logs under %s" "$INSTALL_DIR" ;;
+    esac
+}
+
+db_service_candidates() {
+    case "$DB_TYPE" in
+        mariadb)
+            printf "%s\n" mariadb mysql mysql-server mysqld
+            ;;
+        mysql)
+            printf "%s\n" mysql mysqld mysql-server mariadb
+            ;;
+    esac
+}
+
+select_db_service() {
+    local candidate
+    DB_SERVICE=""
+    while IFS= read -r candidate; do
+        if service_exists "$candidate"; then
+            DB_SERVICE="$candidate"
+            break
+        fi
+    done < <(db_service_candidates)
+
+    if [[ -z "$DB_SERVICE" ]]; then
+        DB_SERVICE="$(db_service_candidates | head -1)"
+        log_warning "Could not verify database service name, using candidate: ${DB_SERVICE}" "无法确认数据库服务名，使用候选服务: ${DB_SERVICE}"
+    else
+        log_info "Database service selected: ${DB_SERVICE}" "已选择数据库服务: ${DB_SERVICE}"
+    fi
+}
+
+db_client() {
+    if [[ "$DB_TYPE" == "mariadb" ]] && have_cmd mariadb; then
+        printf "mariadb"
+    elif have_cmd mysql; then
+        printf "mysql"
+    elif have_cmd mariadb; then
+        printf "mariadb"
+    else
+        return 1
+    fi
+}
+
+db_admin_client() {
+    if [[ "$DB_TYPE" == "mariadb" ]] && have_cmd mariadb-admin; then
+        printf "mariadb-admin"
+    elif have_cmd mysqladmin; then
+        printf "mysqladmin"
+    elif have_cmd mariadb-admin; then
+        printf "mariadb-admin"
+    else
+        return 1
+    fi
+}
+
+db_ping() {
+    local admin
+    admin=$(db_admin_client 2>/dev/null || true)
+    if [[ -n "$admin" ]]; then
+        "$admin" ping --silent >/dev/null 2>&1 && return 0
+        "$admin" -u root ping --silent >/dev/null 2>&1 && return 0
+        if [[ -n "${DB_PASSWORD:-}" ]]; then
+            "$admin" -u root -p"${DB_PASSWORD}" ping --silent >/dev/null 2>&1 && return 0
+            "$admin" -h 127.0.0.1 -u root -p"${DB_PASSWORD}" ping --silent >/dev/null 2>&1 && return 0
+        fi
+    fi
+
+    local client
+    client=$(db_client 2>/dev/null || true)
+    if [[ -n "$client" ]]; then
+        "$client" -e "SELECT 1" >/dev/null 2>&1 && return 0
+        "$client" -u root -e "SELECT 1" >/dev/null 2>&1 && return 0
+        if [[ -n "${DB_PASSWORD:-}" ]]; then
+            "$client" -u root -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1 && return 0
+            "$client" -h 127.0.0.1 -u root -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1 && return 0
+        fi
+    fi
+    return 1
+}
+
+db_exec_root() {
+    local sql="$1" client
+    client=$(db_client 2>/dev/null || true)
+    [[ -z "$client" ]] && return 1
+
+    "$client" -e "$sql" >/dev/null 2>&1 && return 0
+    "$client" -u root -e "$sql" >/dev/null 2>&1 && return 0
+    if [[ -n "${DB_PASSWORD:-}" ]]; then
+        "$client" -u root -p"${DB_PASSWORD}" -e "$sql" >/dev/null 2>&1 && return 0
+        "$client" -h 127.0.0.1 -u root -p"${DB_PASSWORD}" -e "$sql" >/dev/null 2>&1 && return 0
+    fi
+    return 1
+}
+
+database_process_running() {
+    pgrep -x mysqld >/dev/null 2>&1 || pgrep -x mariadbd >/dev/null 2>&1 || pgrep -f '[m]ysqld_safe|[m]ariadbd-safe' >/dev/null 2>&1
+}
+
 wait_for_database_ready() {
-    local timeout="${1:-120}" interval="${2:-5}" elapsed=0
+    local timeout="${1:-120}" interval="${2:-5}" elapsed=0 last_start=999
     log_info "Waiting for database service to become ready..." "正在等待数据库服务就绪..."
     while [[ $elapsed -lt $timeout ]]; do
-        # Try multiple connection methods in order
-        if command -v mysql &>/dev/null; then
-            mysql -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
-            mysql -u root -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
-            mysql -h 127.0.0.1 -u root -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
+        if db_ping; then
+            log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"
+            return 0
         fi
-        if command -v mariadb &>/dev/null; then
-            mariadb -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
-            mariadb -u root -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
+
+        if ! database_process_running || [[ "$last_start" -ge 20 ]]; then
+            log_warning "Database is not ready, attempting to start ${DB_SERVICE:-$DB_TYPE}..." "数据库尚未就绪，正在尝试启动 ${DB_SERVICE:-$DB_TYPE}..."
+            [[ -n "$DB_SERVICE" ]] && service_start "$DB_SERVICE" >/dev/null 2>&1 || true
+            last_start=0
         fi
-        if command -v mysqladmin &>/dev/null; then
-            mysqladmin ping --silent 2>/dev/null && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
-            mysqladmin -u root ping --silent 2>/dev/null && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
-        fi
-        if command -v mariadb-admin &>/dev/null; then
-            mariadb-admin ping --silent 2>/dev/null && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
-            mariadb-admin -u root ping --silent 2>/dev/null && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
-        fi
-        # Check if mysqld/mariadbd process exists at all
-        if ! pgrep -x mysqld >/dev/null 2>&1 && ! pgrep -x mariadbd >/dev/null 2>&1; then
-            log_warning "Database process not running, attempting to start..." "数据库进程未运行，正在尝试启动..."
-            case "$OS" in
-                alpine) rc-service mariadb start 2>/dev/null || rc-service mysql start 2>/dev/null || true ;;
-                *) systemctl start "$DB_TYPE" 2>/dev/null || service "$DB_TYPE" start 2>/dev/null || true ;;
-            esac
-            sleep 3
-        fi
+
         sleep "$interval"
         elapsed=$((elapsed + interval))
+        last_start=$((last_start + interval))
     done
     log_error "Database did not become ready within ${timeout}s" "数据库在 ${timeout}s 内未就绪"
-    log_error "Check: systemctl status ${DB_TYPE}  or  journalctl -u ${DB_TYPE} -n 30" "请检查: systemctl status ${DB_TYPE}  或  journalctl -u ${DB_TYPE} -n 30"
+    log_error "Check: $(service_hint "${DB_SERVICE:-$DB_TYPE}")" "请检查: $(service_hint "${DB_SERVICE:-$DB_TYPE}")"
     return 1
 }
 
@@ -392,7 +743,7 @@ wait_for_http_ready() {
     local url="$1" timeout="${2:-120}" interval="${3:-5}" elapsed=0
     log_info "Waiting for OneClickVirt API health endpoint..." "正在等待 OneClickVirt API 健康端点..."
     while [[ $elapsed -lt $timeout ]]; do
-        if curl -fsS --max-time 5 "$url" >/dev/null 2>&1; then
+        if curl -fsS --connect-timeout 3 --max-time 8 "$url" >/dev/null 2>&1; then
             log_success "API health endpoint ready after ${elapsed}s" "API 健康端点在 ${elapsed}s 后就绪"
             return 0
         fi
@@ -409,7 +760,7 @@ wait_for_init_ready() {
     log_info "Waiting for system to be ready for initialization..." "正在等待系统就绪以进行初始化..."
     while [[ $elapsed -lt $timeout ]]; do
         local resp
-        resp=$(curl -fsS --max-time 5 "http://127.0.0.1:8888/api/v1/public/init/check" 2>/dev/null)
+        resp=$(curl -fsS --connect-timeout 3 --max-time 8 "http://127.0.0.1:8888/api/v1/public/init/check" 2>/dev/null || true)
         if echo "$resp" | grep -q '"needInit":true'; then
             log_success "System ready for initialization after ${elapsed}s" "系统已在 ${elapsed}s 后就绪，可以初始化"
             return 0
@@ -443,31 +794,52 @@ auto_init_system() {
         _db_pass="${DB_PASSWORD}"
     fi
 
-    log_info "Auto-initializing system with default admin account..." "正在自动初始化系统（默认管理员账户）..."
-    local resp
-    resp=$(curl -fsS --max-time 30 -X POST "http://127.0.0.1:8888/api/v1/public/init" \
-        -H "Content-Type: application/json" \
-        -d "$(cat <<INIT_JSON
+    local admin_user_json admin_pass_json admin_email_json db_type_json db_host_json db_port_json db_name_json db_user_json db_pass_json
+    admin_user_json=$(json_escape "$ADMIN_USER")
+    admin_pass_json=$(json_escape "$ADMIN_PASS")
+    admin_email_json=$(json_escape "$ADMIN_EMAIL")
+    db_type_json=$(json_escape "$DB_TYPE")
+    db_host_json=$(json_escape "$_db_host")
+    db_port_json=$(json_escape "$_db_port")
+    db_name_json=$(json_escape "$_db_name")
+    db_user_json=$(json_escape "$_db_user")
+    db_pass_json=$(json_escape "$_db_pass")
+
+    local payload
+    payload=$(cat <<INIT_JSON
 {
   "admin": {
-    "username": "${ADMIN_USER}",
-    "password": "${ADMIN_PASS}",
-    "email": "${ADMIN_EMAIL}"
+    "username": "${admin_user_json}",
+    "password": "${admin_pass_json}",
+    "email": "${admin_email_json}"
   },
   "user": {
     "enabled": false
   },
   "database": {
-    "type": "${DB_TYPE}",
-    "host": "${_db_host}",
-    "port": "${_db_port}",
-    "database": "${_db_name}",
-    "username": "${_db_user}",
-    "password": "${_db_pass}"
+    "type": "${db_type_json}",
+    "host": "${db_host_json}",
+    "port": "${db_port_json}",
+    "database": "${db_name_json}",
+    "username": "${db_user_json}",
+    "password": "${db_pass_json}"
   }
 }
 INIT_JSON
-)" 2>/dev/null)
+)
+
+    log_info "Auto-initializing system with default admin account..." "正在自动初始化系统（默认管理员账户）..."
+    local resp="" attempt
+    for attempt in 1 2 3 4 5; do
+        resp=$(curl -fsS --connect-timeout 5 --max-time 30 -X POST "http://127.0.0.1:8888/api/v1/public/init" \
+            -H "Content-Type: application/json" \
+            -d "$payload" 2>/dev/null || true)
+        if echo "$resp" | grep -q '"code":0\|已初始化'; then
+            break
+        fi
+        log_warning "Auto-init attempt ${attempt}/5 did not succeed, retrying..." "自动初始化第 ${attempt}/5 次未成功，准备重试..."
+        sleep $((attempt * 3))
+    done
     if echo "$resp" | grep -q '"code":0'; then
         log_success "System initialized successfully." "系统初始化成功。"
         return 0
@@ -482,25 +854,62 @@ INIT_JSON
 }
 
 # ---- Database installation ----
-install_mysql() {
-    log_info "Installing MySQL 8.0..." "正在安装 MySQL 8.0..."
+should_prefer_mariadb() {
+    [[ "$AUTO_DB_FALLBACK" != "true" || "$DB_TYPE" != "mysql" ]] && return 1
+    case "$OS_FAMILY" in
+        arch|alpine|bsd|suse) return 0 ;;
+    esac
     case "$OS" in
-        ubuntu|debian|raspbian)
-            $PKG_INSTALL mysql-server mysql-client
-            ;;
-        centos|rhel|almalinux|rocky|fedora)
-            $PKG_INSTALL mysql-server mysql
-            ;;
-        arch|manjaro)
-            $PKG_INSTALL mysql
-            ;;
-        alpine)
-            $PKG_INSTALL mysql mysql-client
-            ;;
-        *)
-            $PKG_INSTALL mysql-server mysql-client
+        debian|raspbian) return 0 ;;
+        ubuntu)
+            local major; major=$(version_major "$OS_VERSION")
+            [[ "${major:-0}" -ge 25 ]] && return 0
             ;;
     esac
+    return 1
+}
+
+prefer_mariadb_if_needed() {
+    if should_prefer_mariadb; then
+        log_warning "MySQL packages are often unavailable or unstable on ${OS} ${OS_VERSION:-unknown}; using MariaDB as the MySQL-compatible local backend." \
+            "${OS} ${OS_VERSION:-unknown} 上 MySQL 包常不可用或不稳定；将使用 MariaDB 作为 MySQL 兼容本地后端。"
+        DB_TYPE="mariadb"
+    fi
+}
+
+install_mysql() {
+    log_info "Installing MySQL 8.0..." "正在安装 MySQL 8.0..."
+    prefer_mariadb_if_needed
+    if [[ "$DB_TYPE" == "mariadb" ]]; then
+        install_mariadb
+        return
+    fi
+    case "$OS" in
+        ubuntu|debian|raspbian)
+            pkg_install mysql-server mysql-client || return 1
+            ;;
+        centos|rhel|almalinux|rocky|fedora)
+            pkg_install mysql-server mysql || return 1
+            ;;
+        amzn|ol|opencloudos)
+            if ! pkg_install mysql-server mysql; then
+                [[ "$AUTO_DB_FALLBACK" != "true" ]] && return 1
+                log_warning "MySQL package install failed; falling back to MariaDB." "MySQL 包安装失败，回退到 MariaDB。"
+                DB_TYPE="mariadb"
+                pkg_install mariadb-server mariadb || return 1
+            fi
+            ;;
+        *)
+            if [[ "$AUTO_DB_FALLBACK" == "true" ]]; then
+                log_warning "MySQL auto-install is not mapped for ${OS}; falling back to MariaDB." "未针对 ${OS} 映射 MySQL 自动安装，回退到 MariaDB。"
+                DB_TYPE="mariadb"
+                install_mariadb
+                return
+            fi
+            pkg_install mysql-server mysql-client || return 1
+            ;;
+    esac
+    select_db_service
     log_success "MySQL installed." "MySQL 安装完成。"
 }
 
@@ -508,152 +917,153 @@ install_mariadb() {
     log_info "Installing MariaDB..." "正在安装 MariaDB..."
     case "$OS" in
         ubuntu|debian|raspbian)
-            $PKG_INSTALL mariadb-server mariadb-client
+            pkg_install mariadb-server mariadb-client || return 1
             ;;
-        centos|rhel|almalinux|rocky|fedora)
-            $PKG_INSTALL mariadb-server mariadb
+        centos|rhel|almalinux|rocky|fedora|amzn|ol|opencloudos)
+            pkg_install mariadb-server mariadb || return 1
             ;;
         arch|manjaro)
-            $PKG_INSTALL mariadb
+            pkg_install mariadb || return 1
             ;;
         alpine)
-            $PKG_INSTALL mariadb mariadb-client
+            pkg_install mariadb mariadb-client || return 1
+            ;;
+        opensuse*|sles|suse)
+            pkg_install mariadb mariadb-client || return 1
+            ;;
+        freebsd|dragonflybsd)
+            pkg_install mariadb114-server mariadb114-client || \
+                pkg_install mariadb1011-server mariadb1011-client || \
+                pkg_install mariadb106-server mariadb106-client || \
+                pkg_install mariadb-server mariadb-client || return 1
+            ;;
+        openbsd|netbsd)
+            pkg_install mariadb-server mariadb-client || pkg_install mariadb || return 1
             ;;
         *)
-            $PKG_INSTALL mariadb-server mariadb-client
+            pkg_install mariadb-server mariadb-client || pkg_install mariadb || return 1
             ;;
     esac
+    select_db_service
     log_success "MariaDB installed." "MariaDB 安装完成。"
+}
+
+initialize_database_datadir() {
+    case "$OS_FAMILY:$DB_TYPE" in
+        arch:mariadb)
+            if [[ ! -d /var/lib/mysql/mysql ]] && have_cmd mariadb-install-db; then
+                log_info "Initializing MariaDB data directory..." "正在初始化 MariaDB 数据目录..."
+                mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql >/dev/null 2>&1 || true
+            fi
+            ;;
+        alpine:mariadb)
+            if [[ ! -d /var/lib/mysql/mysql ]]; then
+                log_info "Initializing MariaDB data directory..." "正在初始化 MariaDB 数据目录..."
+                /etc/init.d/mariadb setup >/dev/null 2>&1 || mysql_install_db --user=mysql --datadir=/var/lib/mysql >/dev/null 2>&1 || true
+            fi
+            ;;
+        bsd:mariadb|bsd:mysql)
+            # BSD rc scripts normally initialize on first start; keep this hook for package variants.
+            [[ -d /var/db/mysql/mysql ]] || service "${DB_SERVICE:-mysql-server}" initdb >/dev/null 2>&1 || true
+            ;;
+    esac
 }
 
 configure_database() {
     log_info "Configuring database..." "正在配置数据库..."
 
-    # Start database service
-    case "$OS" in
-        alpine)
-            rc-service mariadb start 2>/dev/null || rc-service mysql start 2>/dev/null || true
-            ;;
-        *)
-            systemctl start "$DB_TYPE" 2>/dev/null || service "$DB_TYPE" start 2>/dev/null || true
-            ;;
-    esac
-    sleep 3
-    wait_for_database_ready 60 3
-
-    # Generate random password if not provided
     if [[ -z "$DB_PASSWORD" ]]; then
-        DB_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 20)
+        DB_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 24)
     fi
 
-    # Secure the installation and create database
+    select_db_service
+    initialize_database_datadir
+    service_enable "$DB_SERVICE" || true
+    service_start "$DB_SERVICE" >/dev/null 2>&1 || true
+    sleep 3
+    wait_for_database_ready "$DB_WAIT_TIMEOUT" 5 || return 1
+
     local DB_NAME="oneclickvirt"
     local DB_USER="oneclickvirt"
     local DB_PASSWORD_SQL; DB_PASSWORD_SQL=$(sql_escape "$DB_PASSWORD")
 
-    case "$DB_TYPE" in
-        mysql)
-            # Try auth_socket first (Ubuntu default), then password
-            if mysql -e "SELECT 1" 2>/dev/null; then
-                mysql -e "
-                    ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_PASSWORD_SQL}';
-                    CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
-                    GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
-                    CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-                    CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
-                    GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'127.0.0.1';
-                    -- Security hardening
-                    DELETE FROM mysql.user WHERE User='';
-                    DROP DATABASE IF EXISTS test;
-                    DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
-                    DELETE FROM mysql.user WHERE Host<>'localhost' AND Host<>'127.0.0.1' AND Host<>'::1';
-                    FLUSH PRIVILEGES;
-                "
-            else
-                log_warning "MySQL not accessible via auth_socket, trying password..." "MySQL 无法通过 auth_socket 连接，尝试使用密码..."
-                # MariaDB-compatible syntax
-                mysql -u root -e "
-                    CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-                    CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
-                    GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'127.0.0.1';
-                    -- Security hardening
-                    DELETE FROM mysql.user WHERE User='';
-                    DROP DATABASE IF EXISTS test;
-                    DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
-                    DELETE FROM mysql.user WHERE Host<>'localhost' AND Host<>'127.0.0.1' AND Host<>'::1';
-                    FLUSH PRIVILEGES;
-                " 2>/dev/null || {
-                    log_error "Failed to configure MySQL. Is it running?" "MySQL 配置失败，请检查服务是否运行。"
-                    return 1
-                }
-            fi
-            ;;
-        mariadb)
-            if mariadb -e "SELECT 1" 2>/dev/null; then
-                mariadb -e "
-                    ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_PASSWORD_SQL}';
-                    CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
-                    GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
-                    CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-                    CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
-                    GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'127.0.0.1';
-                    -- Security hardening
-                    DELETE FROM mysql.user WHERE User='';
-                    DROP DATABASE IF EXISTS test;
-                    DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
-                    DELETE FROM mysql.user WHERE Host<>'localhost' AND Host<>'127.0.0.1' AND Host<>'::1';
-                    FLUSH PRIVILEGES;
-                "
-            else
-                log_error "MariaDB not accessible. Is it running?" "MariaDB 无法访问，请检查服务是否运行。"
-                return 1
-            fi
-            ;;
-    esac
+    local app_sql="
+        CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+        CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
+        CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD_SQL}';
+        GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'127.0.0.1';
+        GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';
+        FLUSH PRIVILEGES;
+    "
+    if ! db_exec_root "$app_sql"; then
+        log_error "Failed to create database/user. Check: $(service_hint "$DB_SERVICE")" "数据库/用户创建失败。请检查: $(service_hint "$DB_SERVICE")"
+        return 1
+    fi
 
-    # Apply optimization config from deploy/my.cnf (includes bind-address=127.0.0.1)
-    local MY_CNF="/etc/mysql/conf.d/oneclickvirt.cnf"
+    local root_sql="
+        ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_PASSWORD_SQL}';
+        CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
+        GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
+        FLUSH PRIVILEGES;
+    "
+    db_exec_root "$root_sql" || log_warning "Root password hardening was skipped; app database user is configured." "root 密码加固已跳过；应用数据库用户已配置。"
+
+    local hardening_sql="
+        DELETE FROM mysql.user WHERE User='';
+        DROP DATABASE IF EXISTS test;
+        DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+        FLUSH PRIVILEGES;
+    "
+    db_exec_root "$hardening_sql" || log_warning "Optional database cleanup was skipped due to server compatibility." "可选数据库清理因服务端兼容性差异已跳过。"
+
+    mkdir -p "$MYSQL_CNF_DIR"
+    local MY_CNF="${MYSQL_CNF_DIR}/oneclickvirt.cnf"
     if [[ -f "${SCRIPT_DIR}/deploy/my.cnf" ]]; then
         cp "${SCRIPT_DIR}/deploy/my.cnf" "$MY_CNF"
     else
-        # Download from GitHub
-        curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/deploy/my.cnf" -o "$MY_CNF" 2>/dev/null || true
+        download_file "https://raw.githubusercontent.com/${REPO}/main/deploy/my.cnf" "$MY_CNF" 2>/dev/null || true
     fi
 
-    # Reload (not restart) to pick up conf.d changes; restart only if needed
-    case "$OS" in
-        alpine) rc-service "$DB_TYPE" restart 2>/dev/null ;;
-        *)
-            systemctl enable "$DB_TYPE" 2>/dev/null
-            # Try reload first, fall back to restart
-            if systemctl is-active --quiet "$DB_TYPE" 2>/dev/null; then
-                systemctl reload "$DB_TYPE" 2>/dev/null || systemctl restart "$DB_TYPE" 2>/dev/null
-            else
-                systemctl restart "$DB_TYPE" 2>/dev/null
-            fi
-            ;;
-    esac
-    # Verify MySQL is still running after reload/restart
-    sleep 2
-    if ! systemctl is-active --quiet "$DB_TYPE" 2>/dev/null; then
-        log_warning "Database service failed after applying optimization config." "数据库服务在应用优化配置后未能启动。"
-        log_warning "Removing conf.d/oneclickvirt.cnf and retrying..." "正在移除 conf.d/oneclickvirt.cnf 并重试..."
-        rm -f "$MY_CNF"
-        case "$OS" in
-            alpine) rc-service "$DB_TYPE" restart 2>/dev/null ;;
-            *) systemctl restart "$DB_TYPE" 2>/dev/null ;;
-        esac
-        sleep 3
-        if systemctl is-active --quiet "$DB_TYPE" 2>/dev/null; then
-            log_warning "Database started successfully without optimization config (will use defaults)." "数据库已成功启动（将使用默认配置运行）。"
-            log_warning "Performance tuning was skipped. You can manually tune later." "性能优化已跳过，可稍后手动调优。"
-        else
-            log_error "Database service still failing. Check: journalctl -u ${DB_TYPE} -n 30" "数据库服务仍然失败。请检查: journalctl -u ${DB_TYPE} -n 30"
-            return 1
+    if [[ -s "$MY_CNF" ]]; then
+        service_reload_or_restart "$DB_SERVICE" >/dev/null 2>&1 || true
+        if ! wait_for_database_ready 60 5; then
+            log_warning "Database failed after applying optimization config." "数据库服务在应用优化配置后未能启动。"
+            log_warning "Removing ${MY_CNF} and retrying with defaults..." "正在移除 ${MY_CNF} 并使用默认配置重试..."
+            rm -f "$MY_CNF"
+            service_restart "$DB_SERVICE" >/dev/null 2>&1 || true
+            wait_for_database_ready 90 5 || {
+                log_error "Database service still failing. Check: $(service_hint "$DB_SERVICE")" "数据库服务仍然失败。请检查: $(service_hint "$DB_SERVICE")"
+                return 1
+            }
+            log_warning "Database started successfully without optimization config." "数据库已在不加载优化配置的情况下启动。"
         fi
+    else
+        log_warning "Database optimization config was not available; continuing with defaults." "数据库优化配置不可用，将使用默认配置继续。"
     fi
 
     log_success "Database configured: ${DB_NAME} / user=${DB_USER} (localhost only)" "数据库配置完成: ${DB_NAME} / 用户=${DB_USER}（仅本地）"
+}
+
+install_local_database() {
+    local requested_db="$DB_TYPE"
+    case "$DB_TYPE" in
+        mysql) install_mysql ;;
+        mariadb) install_mariadb ;;
+    esac
+
+    if configure_database; then
+        return 0
+    fi
+
+    if [[ "$AUTO_DB_FALLBACK" == "true" && "$requested_db" == "mysql" && "$DB_TYPE" != "mariadb" ]]; then
+        log_warning "MySQL did not become usable; retrying with MariaDB-compatible backend." "MySQL 未能可用，正在使用 MariaDB 兼容后端重试。"
+        DB_TYPE="mariadb"
+        install_mariadb || return 1
+        configure_database
+        return $?
+    fi
+
+    return 1
 }
 
 # ---- Reverse proxy installation ----
@@ -663,24 +1073,105 @@ install_caddy() {
         log_success "Caddy already installed." "Caddy 已安装。"
         return 0
     fi
-    curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=$(detect_arch)" -o /usr/local/bin/caddy
+    local caddy_os; caddy_os=$(release_os)
+    download_file "https://caddyserver.com/api/download?os=${caddy_os}&arch=$(detect_arch)" /usr/local/bin/caddy || {
+        log_error "Failed to download Caddy for ${caddy_os}/$(detect_arch)." "下载 ${caddy_os}/$(detect_arch) 的 Caddy 失败。"
+        return 1
+    }
     chmod +x /usr/local/bin/caddy
-    mkdir -p /etc/caddy /var/log/caddy
+    mkdir -p "$CADDY_CONFIG_DIR" "$CADDY_LOG_DIR" "$INSTALL_DIR"
 
-    # Create Caddy systemd service
-    cat > /etc/systemd/system/caddy.service << 'EOF'
+    case "$SERVICE_MANAGER" in
+        systemd)
+            cat > /etc/systemd/system/caddy.service << EOF
 [Unit]
 Description=Caddy Web Server
 After=network.target
 [Service]
-ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile
-ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile
+ExecStart=/usr/local/bin/caddy run --config ${CADDY_CONFIG_DIR}/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config ${CADDY_CONFIG_DIR}/Caddyfile
 Restart=on-failure
 LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl daemon-reload 2>/dev/null || true
+            systemctl daemon-reload 2>/dev/null || true
+            ;;
+        openrc)
+            cat > /etc/init.d/caddy << EOF
+#!/sbin/openrc-run
+name="Caddy Web Server"
+command="/usr/local/bin/caddy"
+command_args="run --config ${CADDY_CONFIG_DIR}/Caddyfile"
+command_background="yes"
+pidfile="/run/caddy.pid"
+depend() { need net; }
+EOF
+            chmod +x /etc/init.d/caddy
+            ;;
+        freebsd-service)
+            cat > /usr/local/etc/rc.d/caddy << EOF
+#!/bin/sh
+# PROVIDE: caddy
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+. /etc/rc.subr
+name="caddy"
+rcvar="caddy_enable"
+command="/usr/sbin/daemon"
+pidfile="/var/run/caddy.pid"
+command_args="-p \${pidfile} -f /usr/local/bin/caddy run --config ${CADDY_CONFIG_DIR}/Caddyfile"
+load_rc_config \$name
+: \${caddy_enable:=YES}
+run_rc_command "\$1"
+EOF
+            chmod +x /usr/local/etc/rc.d/caddy
+            ;;
+        sysv-service)
+            cat > /etc/init.d/caddy << EOF
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          caddy
+# Required-Start:    \$network
+# Required-Stop:     \$network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Caddy Web Server
+### END INIT INFO
+case "\$1" in
+  start)
+    nohup /usr/local/bin/caddy run --config "${CADDY_CONFIG_DIR}/Caddyfile" > "${CADDY_LOG_DIR}/caddy.log" 2>&1 &
+    echo \$! > /var/run/caddy.pid
+    ;;
+  stop)
+    [ -f /var/run/caddy.pid ] && kill "\$(cat /var/run/caddy.pid)" 2>/dev/null || true
+    ;;
+  restart)
+    "\$0" stop
+    sleep 1
+    "\$0" start
+    ;;
+  status)
+    [ -f /var/run/caddy.pid ] && kill -0 "\$(cat /var/run/caddy.pid)" 2>/dev/null
+    ;;
+  *) echo "Usage: \$0 {start|stop|restart|status}"; exit 1 ;;
+esac
+EOF
+            chmod +x /etc/init.d/caddy
+            ;;
+        rcctl|none)
+            cat > "${INSTALL_DIR}/start-caddy.sh" << EOF
+#!/bin/sh
+nohup /usr/local/bin/caddy run --config "${CADDY_CONFIG_DIR}/Caddyfile" > "${CADDY_LOG_DIR}/caddy.log" 2>&1 &
+echo \$! > "${INSTALL_DIR}/caddy.pid"
+EOF
+            chmod +x "${INSTALL_DIR}/start-caddy.sh"
+            ;;
+        *)
+            log_warning "Caddy service file not created for service manager ${SERVICE_MANAGER}; it can be started manually." \
+                "暂未为服务管理器 ${SERVICE_MANAGER} 创建 Caddy 服务文件，可手动启动。"
+            ;;
+    esac
     log_success "Caddy installed." "Caddy 安装完成。"
 }
 
@@ -699,7 +1190,8 @@ configure_caddy() {
             ;;
     esac
 
-    cat > /etc/caddy/Caddyfile << CADDY_EOF
+    mkdir -p "$CADDY_CONFIG_DIR" "$CADDY_LOG_DIR"
+    cat > "${CADDY_CONFIG_DIR}/Caddyfile" << CADDY_EOF
 # OneClickVirt Caddy Configuration
 # Generated by install_full.sh
 
@@ -738,52 +1230,91 @@ ${DOMAIN} {
     }
 
     log {
-        output file /var/log/caddy/access.log
+        output file ${CADDY_LOG_DIR}/access.log
         level INFO
     }
 }
 CADDY_EOF
-    log_success "Caddy configuration written to /etc/caddy/Caddyfile" "Caddy 配置已写入 /etc/caddy/Caddyfile"
+    log_success "Caddy configuration written to ${CADDY_CONFIG_DIR}/Caddyfile" "Caddy 配置已写入 ${CADDY_CONFIG_DIR}/Caddyfile"
 }
 
 install_nginx() {
     log_info "Installing Nginx..." "正在安装 Nginx..."
     case "$OS" in
-        ubuntu|debian|raspbian) $PKG_INSTALL nginx certbot python3-certbot-nginx ;;
-        centos|rhel|almalinux|rocky) $PKG_INSTALL nginx certbot python3-certbot-nginx ;;
-        fedora) $PKG_INSTALL nginx certbot python3-certbot-nginx ;;
-        arch|manjaro) $PKG_INSTALL nginx certbot certbot-nginx ;;
-        alpine) $PKG_INSTALL nginx certbot ;;
-        *) $PKG_INSTALL nginx certbot python3-certbot-nginx ;;
+        ubuntu|debian|raspbian) pkg_install nginx certbot python3-certbot-nginx || return 1 ;;
+        centos|rhel|almalinux|rocky|fedora|amzn|ol|opencloudos) pkg_install nginx certbot python3-certbot-nginx || return 1 ;;
+        arch|manjaro) pkg_install nginx certbot certbot-nginx || return 1 ;;
+        alpine) pkg_install nginx certbot || return 1 ;;
+        freebsd|openbsd|netbsd|dragonflybsd) pkg_install nginx py311-certbot || pkg_install nginx certbot || return 1 ;;
+        *) pkg_install nginx certbot python3-certbot-nginx || pkg_install nginx certbot || return 1 ;;
     esac
     log_success "Nginx installed." "Nginx 安装完成。"
 }
 
 configure_nginx() {
-    # Download default nginx config from repo or use local
-    local NGINX_CONF="/etc/nginx/sites-available/oneclickvirt"
-    mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-
-    if [[ -f "${SCRIPT_DIR}/deploy/default.conf" ]]; then
-        cp "${SCRIPT_DIR}/deploy/default.conf" "$NGINX_CONF"
+    local NGINX_CONF
+    if [[ "$OS_FAMILY" == "debian" ]]; then
+        mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+        NGINX_CONF="/etc/nginx/sites-available/oneclickvirt"
     else
-        curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/deploy/default.conf" -o "$NGINX_CONF" 2>/dev/null
+        mkdir -p "$NGINX_CONF_DIR"
+        NGINX_CONF="${NGINX_CONF_DIR}/oneclickvirt.conf"
     fi
 
-    # Customize for the domain
-    sed -i "s/server_name localhost/server_name ${DOMAIN}/g" "$NGINX_CONF"
-    sed -i "s|root /usr/share/nginx/html|root ${WEB_DIR}|g" "$NGINX_CONF"
+    cat > "$NGINX_CONF" << NGINX_EOF
+server {
+    listen 80;
+    server_name ${DOMAIN};
 
-    ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/oneclickvirt 2>/dev/null || true
-    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+    client_max_body_size 100m;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8888;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /swagger/ {
+        proxy_pass http://127.0.0.1:8888;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+    }
+
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8888;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_read_timeout 3600s;
+    }
+
+    location / {
+        root ${WEB_DIR};
+        index index.html;
+        try_files \$uri \$uri/ /index.html;
+    }
+}
+NGINX_EOF
+
+    if [[ "$OS_FAMILY" == "debian" ]]; then
+        ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/oneclickvirt 2>/dev/null || true
+        rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+    fi
 
     # TLS via certbot
     if [[ "$TLS_METHOD" == "letsencrypt" || "$TLS_METHOD" == "zerossl" ]]; then
         log_info "Obtaining TLS certificate via Certbot..." "正在通过 Certbot 获取 TLS 证书..."
-        if [[ -n "$EMAIL" ]]; then
+        if [[ -n "$EMAIL" && "$OS_FAMILY" != "bsd" ]]; then
             certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "$EMAIL" 2>/dev/null || {
                 log_warning "Certbot failed. You may need to run: certbot --nginx -d ${DOMAIN}" "Certbot 失败，可手动执行: certbot --nginx -d ${DOMAIN}"
             }
+        elif [[ "$OS_FAMILY" == "bsd" ]]; then
+            log_warning "Automatic nginx certbot integration is skipped on BSD; configure TLS manually or use Caddy." \
+                "BSD 上跳过 nginx/certbot 自动集成；请手动配置 TLS 或使用 Caddy。"
         fi
     fi
 
@@ -794,34 +1325,36 @@ install_openresty() {
     log_info "Installing OpenResty..." "正在安装 OpenResty..."
     case "$OS" in
         ubuntu|debian|raspbian)
-            $PKG_INSTALL --no-install-recommends wget gnupg ca-certificates
-            wget -qO - https://openresty.org/package/pubkey.gpg | apt-key add -
+            pkg_install wget gnupg ca-certificates || return 1
+            wget -qO - https://openresty.org/package/pubkey.gpg | apt-key add - || return 1
             echo "deb http://openresty.org/package/${OS} $(lsb_release -sc 2>/dev/null || echo 'focal') main" \
                 > /etc/apt/sources.list.d/openresty.list
-            apt-get update -qq
-            $PKG_INSTALL openresty
+            apt-get update -qq || true
+            pkg_install openresty || return 1
             ;;
         centos|rhel|almalinux|rocky)
-            $PKG_INSTALL yum-utils
-            yum-config-manager --add-repo https://openresty.org/package/${OS}/openresty.repo
-            $PKG_INSTALL openresty
+            pkg_install yum-utils || return 1
+            yum-config-manager --add-repo "https://openresty.org/package/${OS}/openresty.repo" || return 1
+            pkg_install openresty || return 1
             ;;
         fedora)
-            $PKG_INSTALL openresty
+            pkg_install openresty || { PROXY="nginx"; install_nginx || return 1; }
             ;;
         *)
-            log_warning "OpenResty auto-install not supported for ${OS}. Trying generic install..." "OpenResty 不支持在 ${OS} 上自动安装，尝试通用安装..."
-            $PKG_INSTALL nginx
+            log_warning "OpenResty auto-install not supported for ${OS}. Falling back to Nginx." "OpenResty 不支持在 ${OS} 上自动安装，回退到 Nginx。"
+            PROXY="nginx"
+            install_nginx || return 1
             ;;
     esac
     log_success "OpenResty installed." "OpenResty 安装完成。"
 }
 
 configure_openresty() {
-    # OpenResty is Nginx-compatible - reuse nginx config
+    if [[ "$PROXY" == "nginx" ]]; then
+        configure_nginx
+        return
+    fi
     configure_nginx
-    # Adjust paths for OpenResty
-    sed -i 's|/etc/nginx/|/usr/local/openresty/nginx/conf/|g' /usr/local/openresty/nginx/conf/nginx.conf 2>/dev/null || true
     log_success "OpenResty configured." "OpenResty 配置完成。"
 }
 
@@ -843,7 +1376,7 @@ configure_firewall() {
 
 # ---- Application installation ----
 get_latest_version() {
-    if [[ -n "$INSTALL_VERSION" ]]; then
+    if [[ -n "$INSTALL_VERSION" && "$INSTALL_VERSION" != "latest" ]]; then
         VERSION="$INSTALL_VERSION"
         BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
         log_info "Using specified version: $VERSION" "使用指定版本: $VERSION"
@@ -858,7 +1391,7 @@ get_latest_version() {
 
     for api in "${api_urls[@]}"; do
         local resp
-        resp=$(curl -sL --connect-timeout 10 --max-time 30 "${api}/repos/${REPO}/releases/latest" 2>/dev/null)
+        resp=$(curl -fsSL --connect-timeout 10 --max-time 30 "${api}/repos/${REPO}/releases/latest" 2>/dev/null || true)
         VERSION=$(echo "$resp" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
         if [[ -n "$VERSION" && "$VERSION" != "null" ]]; then
             BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
@@ -871,26 +1404,256 @@ get_latest_version() {
     return 1
 }
 
+release_os() {
+    case "$KERNEL_NAME" in
+        linux) printf "linux" ;;
+        freebsd) printf "freebsd" ;;
+        openbsd) printf "openbsd" ;;
+        netbsd) printf "netbsd" ;;
+        darwin) printf "darwin" ;;
+        *) printf "%s" "$KERNEL_NAME" ;;
+    esac
+}
+
+tar_cmd() {
+    if have_cmd tar; then
+        printf "tar"
+    elif have_cmd gtar; then
+        printf "gtar"
+    else
+        return 1
+    fi
+}
+
+install_oneclickvirt_service() {
+    local bin_path="$1"
+    mkdir -p "$INSTALL_DIR"
+    case "$SERVICE_MANAGER" in
+        systemd)
+            if [[ "$EXTERNAL_DB" == "true" ]]; then
+                cat > /etc/systemd/system/oneclickvirt.service << SERV_EOF
+[Unit]
+Description=OneClickVirt Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${SERVER_DIR}
+ExecStart=${bin_path}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+SERV_EOF
+            else
+                cat > /etc/systemd/system/oneclickvirt.service << SERV_EOF
+[Unit]
+Description=OneClickVirt Server
+After=network.target ${DB_SERVICE}.service
+Requires=${DB_SERVICE}.service
+
+[Service]
+Type=simple
+WorkingDirectory=${SERVER_DIR}
+ExecStart=${bin_path}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+SERV_EOF
+            fi
+            systemctl daemon-reload
+            service_enable oneclickvirt
+            ;;
+        openrc)
+            cat > /etc/init.d/oneclickvirt << SERV_EOF
+#!/sbin/openrc-run
+name="OneClickVirt Server"
+command="${bin_path}"
+command_background="yes"
+directory="${SERVER_DIR}"
+pidfile="/run/oneclickvirt.pid"
+output_log="${INSTALL_DIR}/oneclickvirt.log"
+error_log="${INSTALL_DIR}/oneclickvirt.err"
+depend() {
+    need net
+    after ${DB_SERVICE:-}
+}
+SERV_EOF
+            chmod +x /etc/init.d/oneclickvirt
+            service_enable oneclickvirt
+            ;;
+        freebsd-service)
+            cat > /usr/local/etc/rc.d/oneclickvirt << SERV_EOF
+#!/bin/sh
+# PROVIDE: oneclickvirt
+# REQUIRE: NETWORKING ${DB_SERVICE:-}
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="oneclickvirt"
+rcvar="oneclickvirt_enable"
+pidfile="/var/run/oneclickvirt.pid"
+command="/usr/sbin/daemon"
+command_args="-p \${pidfile} -f ${bin_path}"
+start_precmd="oneclickvirt_prestart"
+
+oneclickvirt_prestart() {
+    cd "${SERVER_DIR}" || return 1
+}
+
+load_rc_config \$name
+: \${oneclickvirt_enable:=YES}
+run_rc_command "\$1"
+SERV_EOF
+            chmod +x /usr/local/etc/rc.d/oneclickvirt
+            service_enable oneclickvirt
+            ;;
+        sysv-service)
+            cat > /etc/init.d/oneclickvirt << SERV_EOF
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          oneclickvirt
+# Required-Start:    \$network ${DB_SERVICE:-}
+# Required-Stop:     \$network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: OneClickVirt Server
+### END INIT INFO
+case "\$1" in
+  start)
+    cd "${SERVER_DIR}" || exit 1
+    nohup "${bin_path}" > "${INSTALL_DIR}/oneclickvirt.log" 2>&1 &
+    echo \$! > /var/run/oneclickvirt.pid
+    ;;
+  stop)
+    [ -f /var/run/oneclickvirt.pid ] && kill "\$(cat /var/run/oneclickvirt.pid)" 2>/dev/null || true
+    ;;
+  restart)
+    "\$0" stop
+    sleep 1
+    "\$0" start
+    ;;
+  status)
+    [ -f /var/run/oneclickvirt.pid ] && kill -0 "\$(cat /var/run/oneclickvirt.pid)" 2>/dev/null
+    ;;
+  *) echo "Usage: \$0 {start|stop|restart|status}"; exit 1 ;;
+esac
+SERV_EOF
+            chmod +x /etc/init.d/oneclickvirt
+            ;;
+        none|rcctl)
+            cat > "${INSTALL_DIR}/start-oneclickvirt.sh" << SERV_EOF
+#!/bin/sh
+cd "${SERVER_DIR}" || exit 1
+nohup "${bin_path}" > "${INSTALL_DIR}/oneclickvirt.log" 2>&1 &
+echo \$! > "${INSTALL_DIR}/oneclickvirt.pid"
+SERV_EOF
+            chmod +x "${INSTALL_DIR}/start-oneclickvirt.sh"
+            log_warning "No fully supported service manager detected; created ${INSTALL_DIR}/start-oneclickvirt.sh" \
+                "未检测到完整支持的服务管理器；已创建 ${INSTALL_DIR}/start-oneclickvirt.sh"
+            ;;
+    esac
+}
+
+start_oneclickvirt_service() {
+    case "$SERVICE_MANAGER" in
+        none|rcctl)
+            "${INSTALL_DIR}/start-oneclickvirt.sh"
+            ;;
+        *)
+            service_restart oneclickvirt || service_start oneclickvirt
+            ;;
+    esac
+}
+
+start_proxy_service() {
+    case "$PROXY" in
+        caddy)
+            if [[ "$SERVICE_MANAGER" == "none" || "$SERVICE_MANAGER" == "rcctl" ]]; then
+                [[ -x "${INSTALL_DIR}/start-caddy.sh" ]] && "${INSTALL_DIR}/start-caddy.sh" || true
+            else
+                service_enable caddy 2>/dev/null || true
+                service_restart caddy 2>/dev/null || service_start caddy 2>/dev/null || true
+            fi
+            ;;
+        nginx|openresty)
+            if [[ "$SERVICE_MANAGER" == "none" || "$SERVICE_MANAGER" == "rcctl" ]]; then
+                if have_cmd "$PROXY"; then
+                    "$PROXY" -t >/dev/null 2>&1 && "$PROXY" -s reload >/dev/null 2>&1 || "$PROXY" >/dev/null 2>&1 || true
+                elif have_cmd nginx; then
+                    nginx -t >/dev/null 2>&1 && nginx -s reload >/dev/null 2>&1 || nginx >/dev/null 2>&1 || true
+                fi
+            else
+                service_enable "$PROXY" 2>/dev/null || true
+                service_restart "$PROXY" 2>/dev/null || service_start "$PROXY" 2>/dev/null || true
+            fi
+            ;;
+    esac
+}
+
 install_application() {
     log_info "Installing OneClickVirt application..." "正在安装 OneClickVirt 应用..."
     local ARCH; ARCH=$(detect_arch)
+    local ASSET_OS; ASSET_OS=$(release_os)
+    local TAR_BIN; TAR_BIN=$(tar_cmd) || {
+        log_error "tar/gtar is required but was not found." "需要 tar/gtar，但未找到。"
+        return 1
+    }
 
     mkdir -p "$SERVER_DIR" "$WEB_DIR"
 
-    # Download server (all-in-one with embedded frontend)
-    local SERVER_FILE="server-allinone-linux-${ARCH}.tar.gz"
-    log_info "Downloading $SERVER_FILE..." "正在下载 $SERVER_FILE..."
-    curl -fsSL "${BASE_URL}/${SERVER_FILE}" -o "/tmp/${SERVER_FILE}" || {
-        log_error "Failed to download server binary." "下载服务器二进制文件失败。"
+    local candidates=(
+        "server-allinone-${ASSET_OS}-${ARCH}.tar.gz"
+    )
+    if [[ "$ASSET_OS" == "linux" ]]; then
+        candidates+=("server-linux-${ARCH}.tar.gz")
+    fi
+
+    local SERVER_FILE="" candidate
+    for candidate in "${candidates[@]}"; do
+        log_info "Downloading ${candidate}..." "正在下载 ${candidate}..."
+        if download_file "${BASE_URL}/${candidate}" "/tmp/${candidate}" 2>/dev/null; then
+            SERVER_FILE="$candidate"
+            break
+        fi
+        log_warning "Release asset not available or download failed: ${candidate}" "发布资产不可用或下载失败: ${candidate}"
+    done
+
+    if [[ -z "$SERVER_FILE" ]]; then
+        if [[ "$ASSET_OS" != "linux" ]]; then
+            log_error "No ${ASSET_OS}/${ARCH} release asset was found. Use a Linux host/container, Docker deployment, or build the server from source for this OS." \
+                "未找到 ${ASSET_OS}/${ARCH} 发布包。请使用 Linux 主机/容器、Docker 部署，或为该系统自行构建服务端。"
+        else
+            log_error "Failed to download server binary for ${ASSET_OS}/${ARCH}." "下载 ${ASSET_OS}/${ARCH} 服务端二进制失败。"
+        fi
         return 1
-    }
-    tar -xzf "/tmp/${SERVER_FILE}" -C "$SERVER_DIR"
-    chmod +x "$SERVER_DIR"/server-allinone-linux-*
+    fi
+
+    local extract_dir="/tmp/oneclickvirt-server-${VERSION:-unknown}-$$"
+    rm -rf "$extract_dir"
+    mkdir -p "$extract_dir"
+    "$TAR_BIN" -xzf "/tmp/${SERVER_FILE}" -C "$extract_dir"
+    local server_bin
+    server_bin=$(find "$extract_dir" -type f -name 'server-allinone-*' -print | head -1)
+    if [[ -z "$server_bin" ]]; then
+        log_error "Extracted archive did not contain server-allinone binary." "解压后的归档中未找到 server-allinone 二进制。"
+        return 1
+    fi
+    cp "$server_bin" "$SERVER_DIR/"
+    local SERVER_BIN
+    SERVER_BIN="${SERVER_DIR}/$(basename "$server_bin")"
+    chmod +x "$SERVER_BIN"
 
     # Download web dist
     local WEB_FILE="web-dist.zip"
     log_info "Downloading $WEB_FILE..." "正在下载 $WEB_FILE..."
-    curl -fsSL "${BASE_URL}/${WEB_FILE}" -o "/tmp/${WEB_FILE}" || {
+    download_file "${BASE_URL}/${WEB_FILE}" "/tmp/${WEB_FILE}" || {
         log_warning "Failed to download web-dist.zip (all-in-one server embeds frontend)" "下载 web-dist.zip 失败（all-in-one 服务器已内置前端）"
     }
     if [[ -f "/tmp/${WEB_FILE}" ]]; then
@@ -934,90 +1697,35 @@ ${DB_TYPE}:
   password: "${_yaml_db_password}"
 CONFIG_EOF
 
-    # Create systemd service (no DB dependency for external DB)
-    if [[ "$EXTERNAL_DB" == "true" ]]; then
-        cat > /etc/systemd/system/oneclickvirt.service << SERV_EOF
-[Unit]
-Description=OneClickVirt Server
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=${SERVER_DIR}
-ExecStart=${SERVER_DIR}/server-allinone-linux-${ARCH}
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-SERV_EOF
-    else
-        cat > /etc/systemd/system/oneclickvirt.service << SERV_EOF
-[Unit]
-Description=OneClickVirt Server
-After=network.target ${DB_TYPE}.service
-Requires=${DB_TYPE}.service
-
-[Service]
-Type=simple
-WorkingDirectory=${SERVER_DIR}
-ExecStart=${SERVER_DIR}/server-allinone-linux-${ARCH}
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-SERV_EOF
-    fi
-
-    systemctl daemon-reload
-    systemctl enable oneclickvirt
+    printf "%s\n" "${VERSION:-unknown}" > "${INSTALL_DIR}/VERSION"
+    printf "%s\n" "$SERVER_FILE" > "${INSTALL_DIR}/SERVER_ASSET"
+    install_oneclickvirt_service "$SERVER_BIN"
 
     # Start reverse proxy if configured
-    case "$PROXY" in
-        caddy)
-            systemctl enable caddy 2>/dev/null || true
-            systemctl restart caddy 2>/dev/null || true
-            ;;
-        nginx|openresty)
-            systemctl enable "$PROXY" 2>/dev/null || true
-            systemctl restart "$PROXY" 2>/dev/null || true
-            ;;
-    esac
+    start_proxy_service
 
     # Start the server
     log_info "Starting OneClickVirt service..." "正在启动 OneClickVirt 服务..."
-    systemctl restart oneclickvirt
+    start_oneclickvirt_service
     sleep 3
 
-    # Verify service is running
-    if systemctl is-active --quiet oneclickvirt 2>/dev/null; then
-        log_success "Service started, waiting for API health endpoint..." "服务已启动，正在等待 API 健康端点..."
-        wait_for_http_ready "http://127.0.0.1:8888/api/v1/health" 180 5 || {
-            log_warning "API health check timed out, but service may still be initializing." "API 健康检查超时，服务可能仍在初始化中。"
-            log_warning "Check: journalctl -u oneclickvirt -f" "请检查: journalctl -u oneclickvirt -f"
-        }
-        # Auto-initialize the system (only for local DB installs)
-        if [[ "$EXTERNAL_DB" != "true" ]]; then
-            if wait_for_init_ready 180 5; then
-                auto_init_system
-            fi
-        else
-            log_info "External DB mode — skipping auto-init (initialize manually via web UI)." "外部数据库模式 — 跳过自动初始化（请通过 Web 界面手动初始化）。"
+    log_success "Service start requested, waiting for API health endpoint..." "已请求启动服务，正在等待 API 健康端点..."
+    if ! wait_for_http_ready "http://127.0.0.1:8888/api/v1/health" 240 5; then
+        log_warning "API health check timed out, but service may still be initializing." "API 健康检查超时，服务可能仍在初始化中。"
+        log_warning "Check: $(service_hint oneclickvirt)" "请检查: $(service_hint oneclickvirt)"
+    fi
+
+    # Auto-initialize the system (only for local DB installs)
+    if [[ "$EXTERNAL_DB" != "true" ]]; then
+        if wait_for_init_ready 240 5; then
+            auto_init_system || true
         fi
     else
-        log_warning "Service did not start. Checking logs..." "服务未能启动，正在检查日志..."
-        log_warning "Run: journalctl -u oneclickvirt -n 30" "请执行: journalctl -u oneclickvirt -n 30"
-        if systemctl is-active --quiet "$DB_TYPE" 2>/dev/null; then
-            log_info "Database service is running." "数据库服务正在运行。"
-        else
-            log_error "Database service is NOT running. Check: journalctl -u ${DB_TYPE} -n 30" "数据库服务未运行，请检查: journalctl -u ${DB_TYPE} -n 30"
-        fi
+        log_info "External DB mode — skipping auto-init (initialize manually via web UI)." "外部数据库模式 — 跳过自动初始化（请通过 Web 界面手动初始化）。"
     fi
 
     # Cleanup
+    rm -rf "$extract_dir"
     rm -f /tmp/"${SERVER_FILE}" /tmp/"${WEB_FILE}"
 
     log_success "Application installed and started." "应用已安装并启动。"
@@ -1036,7 +1744,7 @@ main() {
     check_root
     detect_os
     check_system_resources
-    install_dependencies
+    install_dependencies || exit 1
 
     # ---- Interactive prompts (if not non-interactive) ----
     if [[ "$NONINTERACTIVE" != "true" ]]; then
@@ -1044,16 +1752,16 @@ main() {
         echo -e "${CYAN}--- Configuration ---${NC}"
         echo -e "  (Press Enter to accept defaults shown in brackets)"
 
-        read -p "Database type [mysql/mariadb] (default: ${DB_TYPE}): " _db
+        read -r -p "Database type [mysql/mariadb] (default: ${DB_TYPE}): " _db
         [[ -n "$_db" ]] && DB_TYPE="$_db"
 
-        read -p "Reverse proxy [caddy/nginx/openresty] (default: ${PROXY}): " _px
+        read -r -p "Reverse proxy [caddy/nginx/openresty] (default: ${PROXY}): " _px
         [[ -n "$_px" ]] && PROXY="$_px"
 
         local domain_prompt="Domain name or IP"
         [[ -n "$DOMAIN" && "$DOMAIN" != "localhost" ]] && domain_prompt="Domain name or IP [${DOMAIN}]"
         domain_prompt="${domain_prompt} (Enter to auto-detect, e.g. panel.example.com): "
-        read -p "$domain_prompt" _dom
+        read -r -p "$domain_prompt" _dom
         if [[ -n "$_dom" ]]; then
             normalize_domain "$_dom"
         else
@@ -1080,7 +1788,7 @@ main() {
             echo "  [${opt_num}] Enter a custom domain/IP manually"
 
             local choice
-            read -p "  Your choice [1-${opt_num}] (default: 1): " choice
+            read -r -p "  Your choice [1-${opt_num}] (default: 1): " choice
             choice=${choice:-1}
 
             # Recalculate option positions based on what was shown
@@ -1110,7 +1818,7 @@ main() {
             fi
             # custom
             if [[ -z "$DOMAIN" && "$choice" == "$pos" ]]; then
-                read -p "  Enter custom domain or IP: " _custom_dom
+                read -r -p "  Enter custom domain or IP: " _custom_dom
                 if [[ -n "$_custom_dom" ]]; then
                     normalize_domain "$_custom_dom"
                 else
@@ -1141,14 +1849,14 @@ main() {
             else
                 local tls_prompt="TLS method [letsencrypt/zerossl/selfsigned/off]"
                 [[ -n "$TLS_METHOD" ]] && tls_prompt="${tls_prompt} (default: ${TLS_METHOD})"
-                read -p "${tls_prompt}: " _tls
+                read -r -p "${tls_prompt}: " _tls
                 [[ -n "$_tls" ]] && TLS_METHOD="$_tls"
             fi
 
             if [[ "$TLS_METHOD" != "off" && "$TLS_METHOD" != "selfsigned" ]]; then
                 local email_prompt="Email for TLS certificate"
                 [[ -n "$EMAIL" ]] && email_prompt="${email_prompt} [${EMAIL}]"
-                read -p "${email_prompt}: " _em
+                read -r -p "${email_prompt}: " _em
                 [[ -n "$_em" ]] && EMAIL="$_em"
             fi
         else
@@ -1164,19 +1872,19 @@ main() {
     # ---- External database prompt (interactive only) ----
     if [[ "$NONINTERACTIVE" != "true" && "$EXTERNAL_DB" != "true" ]]; then
         echo ""
-        read -p "Install local database? [Y/n] (n = use external DB): " _local_db
+        read -r -p "Install local database? [Y/n] (n = use external DB): " _local_db
         if [[ "$_local_db" =~ ^[Nn] ]]; then
             EXTERNAL_DB="true"
             echo -e "  ${CYAN}External database configuration:${NC}"
-            read -p "  DB Host (default: 127.0.0.1): " _db_host
+            read -r -p "  DB Host (default: 127.0.0.1): " _db_host
             DB_HOST="${_db_host:-127.0.0.1}"
-            read -p "  DB Port (default: 3306): " _db_port
+            read -r -p "  DB Port (default: 3306): " _db_port
             DB_PORT="${_db_port:-3306}"
-            read -p "  DB Name (default: oneclickvirt): " _db_name
+            read -r -p "  DB Name (default: oneclickvirt): " _db_name
             DB_NAME_EXT="${_db_name:-oneclickvirt}"
-            read -p "  DB User (default: oneclickvirt): " _db_user
+            read -r -p "  DB User (default: oneclickvirt): " _db_user
             DB_USER_EXT="${_db_user:-oneclickvirt}"
-            read -p "  DB Password: " _db_pass
+            read -r -p "  DB Password: " _db_pass
             DB_PASS_EXT="${_db_pass}"
             DB_PASSWORD="${_db_pass}"  # for display/summary
             log_info "Using external database: ${DB_USER_EXT}@${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}" "使用外部数据库: ${DB_USER_EXT}@${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}"
@@ -1212,7 +1920,7 @@ main() {
     echo ""
 
     if [[ "$NONINTERACTIVE" != "true" ]]; then
-        read -p "Proceed with installation? [Y/n]: " _confirm
+        read -r -p "Proceed with installation? [Y/n]: " _confirm
         [[ "$_confirm" =~ ^[Nn] ]] && { log_info "Installation cancelled." "安装已取消。"; exit 0; }
     fi
 
@@ -1223,13 +1931,9 @@ main() {
     if [[ "$EXTERNAL_DB" == "true" ]]; then
         log_info "Skipping local database install (using external DB: ${DB_HOST}:${DB_PORT}/${DB_NAME_EXT})" "跳过本地数据库安装（使用外部数据库: ${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}）"
     else
-        case "$DB_TYPE" in
-            mysql) install_mysql ;;
-            mariadb) install_mariadb ;;
-        esac
-        if ! configure_database; then
+        if ! install_local_database; then
             log_error "Database configuration failed. Installation aborted." "数据库配置失败，安装中止。"
-            log_error "Check logs: journalctl -u ${DB_TYPE} -n 50" "请检查日志: journalctl -u ${DB_TYPE} -n 50"
+            log_error "Check logs: $(service_hint "${DB_SERVICE:-$DB_TYPE}")" "请检查日志: $(service_hint "${DB_SERVICE:-$DB_TYPE}")"
             exit 1
         fi
     fi
@@ -1237,16 +1941,16 @@ main() {
     # 2. Reverse proxy
     case "$PROXY" in
         caddy)
-            install_caddy
-            configure_caddy
+            install_caddy || exit 1
+            configure_caddy || exit 1
             ;;
         nginx)
-            install_nginx
-            configure_nginx
+            install_nginx || exit 1
+            configure_nginx || exit 1
             ;;
         openresty)
-            install_openresty
-            configure_openresty
+            install_openresty || exit 1
+            configure_openresty || exit 1
             ;;
     esac
 
@@ -1254,8 +1958,8 @@ main() {
     configure_firewall
 
     # 4. Application
-    get_latest_version
-    install_application
+    get_latest_version || exit 1
+    install_application || exit 1
 
     # ---- Done ----
     echo ""

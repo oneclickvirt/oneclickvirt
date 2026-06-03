@@ -206,7 +206,9 @@ rm -rf ./data
 <details>
 <summary>View Full Installer</summary>
 
-`install_full.sh` installs the database, reverse proxy, TLS configuration, frontend, backend, and system service in one flow. It supports MySQL or MariaDB and Caddy, Nginx, or OpenResty.
+`install_full.sh` installs the database, reverse proxy, TLS configuration, frontend, backend, and system service in one flow. It supports MySQL-compatible local databases (MySQL or MariaDB) and Caddy, Nginx, or OpenResty.
+
+The installer auto-detects common Linux and Unix-like targets, including Debian/Ubuntu, RHEL/CentOS/Rocky/Alma/Fedora/Amazon Linux, openSUSE/SLES, Arch/Manjaro, Alpine, and BSD package managers. It also detects systemd, OpenRC, rc.d/service, and no-init environments. On distributions where native MySQL packages are unavailable or unstable, the installer automatically falls back to MariaDB as the MySQL-compatible backend; use `--no-db-fallback` to disable this behavior. BSD installs require a matching release asset for the OS/architecture, otherwise use Docker/Linux or build the server from source.
 
 The domain input auto-detects protocol prefixes: enter `https://panel.example.com` to auto-enable TLS, `http://panel.example.com` to auto-disable TLS, or a plain domain to be prompted interactively.
 
@@ -231,6 +233,13 @@ bash install_full.sh \
   --non-interactive \
   --domain http://192.168.1.100 \
   --proxy caddy
+```
+
+Useful automation flags:
+
+```bash
+bash install_full.sh --version v1.2.3 --db-wait-timeout 300
+bash install_full.sh --db-type mysql --no-db-fallback
 ```
 
 The installer requires at least 20 GB free disk and 4 GB memory by default. It writes the generated database password to the final installation summary; save it before closing the terminal.

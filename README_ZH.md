@@ -206,7 +206,9 @@ rm -rf ./data
 <details>
 <summary>展开查看全量安装脚本</summary>
 
-`install_full.sh` 会在一个流程中安装数据库、反向代理、TLS 配置、前端、后端和系统服务，支持 MySQL/MariaDB 以及 Caddy/Nginx/OpenResty。
+`install_full.sh` 会在一个流程中安装数据库、反向代理、TLS 配置、前端、后端和系统服务，支持 MySQL 兼容本地数据库（MySQL 或 MariaDB）以及 Caddy/Nginx/OpenResty。
+
+安装器会自动识别常见 Linux 与类 Unix 目标，包括 Debian/Ubuntu、RHEL/CentOS/Rocky/Alma/Fedora/Amazon Linux、openSUSE/SLES、Arch/Manjaro、Alpine 和 BSD 包管理器；同时识别 systemd、OpenRC、rc.d/service 和无 init 环境。在原生 MySQL 包不可用或不稳定的发行版上，安装器会自动回退到 MariaDB 作为 MySQL 兼容后端；如需禁用该行为可使用 `--no-db-fallback`。BSD 安装需要存在对应 OS/架构的 release 二进制，否则请使用 Docker/Linux 或从源码构建服务端。
 
 域名输入会自动识别协议前缀：输入 `https://panel.example.com` 自动启用 TLS，输入 `http://panel.example.com` 自动关闭 TLS，无前缀则交互询问。
 
@@ -231,6 +233,13 @@ bash install_full.sh \
   --non-interactive \
   --domain http://192.168.1.100 \
   --proxy caddy
+```
+
+常用自动化参数：
+
+```bash
+bash install_full.sh --version v1.2.3 --db-wait-timeout 300
+bash install_full.sh --db-type mysql --no-db-fallback
 ```
 
 安装脚本默认要求至少 20 GB 可用磁盘和 4 GB 内存。生成的数据库密码会在安装摘要中输出，请在关闭终端前保存。
