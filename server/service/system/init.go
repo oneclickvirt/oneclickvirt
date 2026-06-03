@@ -284,22 +284,24 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 
 	// 对于MySQL和MariaDB，更新配置
 	if dbConfig.Type == "mysql" || dbConfig.Type == "mariadb" {
+		// 自动检测配置文件中使用的键名（mysql 或 mariadb）
+		mysqlKey := detectMysqlKey(&node)
 		mysqlUpdates := map[string]interface{}{
-			"mysql.path":           dbConfig.Host,
-			"mysql.port":           strconv.Itoa(dbConfig.Port),
-			"mysql.db-name":        dbConfig.Database,
-			"mysql.username":       dbConfig.Username,
-			"mysql.password":       dbConfig.Password,
-			"mysql.config":         "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27",
-			"mysql.prefix":         "",
-			"mysql.singular":       false,
-			"mysql.engine":         "InnoDB",
-			"mysql.max-idle-conns": 10,
-			"mysql.max-open-conns": 100,
-			"mysql.log-mode":       "error",
-			"mysql.log-zap":        false,
-			"mysql.max-lifetime":   3600,
-			"mysql.auto-create":    true,
+			mysqlKey + ".path":           dbConfig.Host,
+			mysqlKey + ".port":           strconv.Itoa(dbConfig.Port),
+			mysqlKey + ".db-name":        dbConfig.Database,
+			mysqlKey + ".username":       dbConfig.Username,
+			mysqlKey + ".password":       dbConfig.Password,
+			mysqlKey + ".config":         "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27",
+			mysqlKey + ".prefix":         "",
+			mysqlKey + ".singular":       false,
+			mysqlKey + ".engine":         "InnoDB",
+			mysqlKey + ".max-idle-conns": 10,
+			mysqlKey + ".max-open-conns": 100,
+			mysqlKey + ".log-mode":       "error",
+			mysqlKey + ".log-zap":        false,
+			mysqlKey + ".max-lifetime":   3600,
+			mysqlKey + ".auto-create":    true,
 		}
 
 		for key, value := range mysqlUpdates {
@@ -340,6 +342,28 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 	applyMysqlConfigToGlobal(dbConfig)
 
 	return nil
+}
+
+// detectMysqlKey 检测配置文件中 MySQL/MariaDB 配置使用的键名
+// 返回 "mysql" 或 "mariadb"，默认返回 "mysql"
+func detectMysqlKey(node *yaml.Node) string {
+	if node.Kind != yaml.DocumentNode || len(node.Content) == 0 {
+		return "mysql"
+	}
+	root := node.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return "mysql"
+	}
+	for i := 0; i < len(root.Content); i += 2 {
+		keyNode := root.Content[i]
+		if keyNode.Value == "mariadb" {
+			return "mariadb"
+		}
+		if keyNode.Value == "mysql" {
+			return "mysql"
+		}
+	}
+	return "mysql"
 }
 
 // updateYAMLNodeValue 更新YAML节点的值（辅助函数）
@@ -486,10 +510,15 @@ func (s *InitService) ReinitializeDatabase() error {
 		return fmt.Errorf("解析配置文件失败: %v", err)
 	}
 
-	// 获取 MySQL 配置
+	// 获取 MySQL 配置（兼容 mysql 和 mariadb 两种键名）
 	mysqlConfig, ok := c["mysql"].(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("MySQL配置不存在")
+		// 向后兼容：部分旧版 install_full.sh 可能写入 mariadb 键名
+		mysqlConfig, ok = c["mariadb"].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("MySQL配置不存在")
+		}
+		global.APP_LOG.Warn("配置文件使用 'mariadb' 键名，已自动兼容；建议将键名改为 'mysql' 以匹配规范")
 	}
 
 	// 提取配置信息

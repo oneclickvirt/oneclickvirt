@@ -1689,12 +1689,19 @@ jwt:
   expires-time: 7d
   buffer-time: 1d
   issuer: oneclickvirt
-${DB_TYPE}:
+mysql:
   path: ${_db_host}
   port: "${_db_port}"
   db-name: ${_db_name}
   username: ${_db_user}
   password: "${_yaml_db_password}"
+  config: charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27
+  max-idle-conns: "10"
+  max-open-conns: "100"
+  log-mode: error
+  log-zap: "false"
+  max-lifetime: "3600"
+  auto-create: "true"
 CONFIG_EOF
 
     printf "%s\n" "${VERSION:-unknown}" > "${INSTALL_DIR}/VERSION"
