@@ -1016,31 +1016,6 @@ configure_database() {
     "
     db_exec_root "$hardening_sql" || log_warning "Optional database cleanup was skipped due to server compatibility." "可选数据库清理因服务端兼容性差异已跳过。"
 
-    mkdir -p "$MYSQL_CNF_DIR"
-    local MY_CNF="${MYSQL_CNF_DIR}/oneclickvirt.cnf"
-    if [[ -f "${SCRIPT_DIR}/deploy/my.cnf" ]]; then
-        cp "${SCRIPT_DIR}/deploy/my.cnf" "$MY_CNF"
-    else
-        download_file "https://raw.githubusercontent.com/${REPO}/main/deploy/my.cnf" "$MY_CNF" 2>/dev/null || true
-    fi
-
-    if [[ -s "$MY_CNF" ]]; then
-        service_reload_or_restart "$DB_SERVICE" >/dev/null 2>&1 || true
-        if ! wait_for_database_ready 60 5; then
-            log_warning "Database failed after applying optimization config." "数据库服务在应用优化配置后未能启动。"
-            log_warning "Removing ${MY_CNF} and retrying with defaults..." "正在移除 ${MY_CNF} 并使用默认配置重试..."
-            rm -f "$MY_CNF"
-            service_restart "$DB_SERVICE" >/dev/null 2>&1 || true
-            wait_for_database_ready 90 5 || {
-                log_error "Database service still failing. Check: $(service_hint "$DB_SERVICE")" "数据库服务仍然失败。请检查: $(service_hint "$DB_SERVICE")"
-                return 1
-            }
-            log_warning "Database started successfully without optimization config." "数据库已在不加载优化配置的情况下启动。"
-        fi
-    else
-        log_warning "Database optimization config was not available; continuing with defaults." "数据库优化配置不可用，将使用默认配置继续。"
-    fi
-
     log_success "Database configured: ${DB_NAME} / user=${DB_USER} (localhost only)" "数据库配置完成: ${DB_NAME} / 用户=${DB_USER}（仅本地）"
 }
 
