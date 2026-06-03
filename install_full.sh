@@ -636,10 +636,21 @@ configure_database() {
     # Verify MySQL is still running after reload/restart
     sleep 2
     if ! systemctl is-active --quiet "$DB_TYPE" 2>/dev/null; then
-        log_error "Database service failed after applying configuration." "数据库服务在应用配置后未能启动。"
-        log_error "Check: journalctl -u ${DB_TYPE} -n 30" "请检查: journalctl -u ${DB_TYPE} -n 30"
-        log_error "You may need to remove /etc/mysql/conf.d/oneclickvirt.cnf and restart." "可尝试删除 /etc/mysql/conf.d/oneclickvirt.cnf 后重启。"
-        return 1
+        log_warning "Database service failed after applying optimization config." "数据库服务在应用优化配置后未能启动。"
+        log_warning "Removing conf.d/oneclickvirt.cnf and retrying..." "正在移除 conf.d/oneclickvirt.cnf 并重试..."
+        rm -f "$MY_CNF"
+        case "$OS" in
+            alpine) rc-service "$DB_TYPE" restart 2>/dev/null ;;
+            *) systemctl restart "$DB_TYPE" 2>/dev/null ;;
+        esac
+        sleep 3
+        if systemctl is-active --quiet "$DB_TYPE" 2>/dev/null; then
+            log_warning "Database started successfully without optimization config (will use defaults)." "数据库已成功启动（将使用默认配置运行）。"
+            log_warning "Performance tuning was skipped. You can manually tune later." "性能优化已跳过，可稍后手动调优。"
+        else
+            log_error "Database service still failing. Check: journalctl -u ${DB_TYPE} -n 30" "数据库服务仍然失败。请检查: journalctl -u ${DB_TYPE} -n 30"
+            return 1
+        fi
     fi
 
     log_success "Database configured: ${DB_NAME} / user=${DB_USER} (localhost only)" "数据库配置完成: ${DB_NAME} / 用户=${DB_USER}（仅本地）"
