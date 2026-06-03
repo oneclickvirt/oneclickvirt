@@ -88,7 +88,12 @@ service.interceptors.response.use(
       showMessage: false, // 不自动显示错误消息，让组件自己处理
       autoRedirect: false // 不自动重定向
     })
-    return Promise.reject(error)
+    const normalizedError = new Error(errorInfo.message)
+    normalizedError.code = errorInfo.code
+    normalizedError.details = errorInfo.details
+    normalizedError.response = error.response
+    normalizedError.originalError = error
+    return Promise.reject(normalizedError)
   }
 )
 

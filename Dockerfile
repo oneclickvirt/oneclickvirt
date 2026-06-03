@@ -137,10 +137,11 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location /api/ {' >> /etc/nginx/nginx.conf && \
     echo '            proxy_pass http://127.0.0.1:8888;' >> /etc/nginx/nginx.conf && \
-    echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Host $http_host;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header REMOTE-HOST $remote_addr;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Host $http_host;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-Proto $scheme;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-Port $server_port;' >> /etc/nginx/nginx.conf && \
     echo '            ' >> /etc/nginx/nginx.conf && \
@@ -166,9 +167,12 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location /swagger/ {' >> /etc/nginx/nginx.conf && \
     echo '            proxy_pass http://127.0.0.1:8888;' >> /etc/nginx/nginx.conf && \
-    echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Host $http_host;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Host $http_host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Proto $scheme;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Port $server_port;' >> /etc/nginx/nginx.conf && \
     echo '        }' >> /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location / {' >> /etc/nginx/nginx.conf && \
@@ -334,6 +338,22 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '    echo "Database already configured, skipping user configuration..."' >> /start.sh && \
     echo 'fi' >> /start.sh && \
     echo '' >> /start.sh && \
+    echo '# Create app wait script so the Go process never starts before DB is ready' >> /start.sh && \
+    echo "cat > /app/wait-and-start.sh <<'APPWAIT'" >> /start.sh && \
+    echo '#!/bin/bash' >> /start.sh && \
+    echo 'set -e' >> /start.sh && \
+    echo 'for i in {1..90}; do' >> /start.sh && \
+    echo '    if mysql -h 127.0.0.1 -u"${DB_USER:-root}" -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1; then' >> /start.sh && \
+    echo '        exec /app/main' >> /start.sh && \
+    echo '    fi' >> /start.sh && \
+    echo '    echo "Waiting for database... ($i/90)"' >> /start.sh && \
+    echo '    sleep 2' >> /start.sh && \
+    echo 'done' >> /start.sh && \
+    echo 'echo "Database not ready after wait, app start aborted."' >> /start.sh && \
+    echo 'exit 1' >> /start.sh && \
+    echo 'APPWAIT' >> /start.sh && \
+    echo 'chmod +x /app/wait-and-start.sh' >> /start.sh && \
+    echo '' >> /start.sh && \
     echo '# Create supervisor configuration dynamically' >> /start.sh && \
     echo 'echo "Creating supervisor configuration for $DB_TYPE..."' >> /start.sh && \
     echo 'cat > /etc/supervisor/conf.d/supervisord.conf <<SUPEREND' >> /start.sh && \
@@ -373,13 +393,13 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'startretries=3' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:app]' >> /start.sh && \
-    echo 'command=/bin/bash -c "sleep 12 && /app/main"' >> /start.sh && \
+    echo 'command=/bin/bash /app/wait-and-start.sh' >> /start.sh && \
     echo 'directory=/app' >> /start.sh && \
     echo 'autostart=true' >> /start.sh && \
     echo 'autorestart=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
     echo 'priority=2' >> /start.sh && \
-    echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306",DB_USER="root",DB_PASSWORD="${MYSQL_ROOT_PASSWORD}",DB_NAME="${MYSQL_DATABASE}"' >> /start.sh && \
+    echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306",DB_USER="root",DB_PASSWORD="${MYSQL_ROOT_PASSWORD}",DB_NAME="${MYSQL_DATABASE}",DB_TYPE="${DB_TYPE}"' >> /start.sh && \
     echo 'startsecs=1' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:nginx]' >> /start.sh && \
@@ -406,6 +426,6 @@ VOLUME ["/var/lib/mysql", "/app/storage"]
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget --quiet --tries=1 --spider http://localhost/api/v1/health || exit 1
+    CMD wget --quiet --tries=1 -O /dev/null http://127.0.0.1:8888/api/v1/health || exit 1
 
 CMD ["/start.sh"]

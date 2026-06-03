@@ -325,10 +325,10 @@
           </a>
         </div>
 
-        <!-- 即将支持（居中展示） -->
-        <div class="platforms-wip-row">
+        <!-- 虚拟化平台（居中展示） -->
+        <div class="platforms-extra-row">
           <a
-            class="platform-item platform-link platform-wip"
+            class="platform-item platform-link"
             href="https://github.com/oneclickvirt/qemu"
             target="_blank"
             rel="noopener noreferrer"
@@ -354,7 +354,7 @@
           </a>
 
           <a
-            class="platform-item platform-link platform-wip"
+            class="platform-item platform-link"
             href="https://github.com/oneclickvirt/kubevirt"
             target="_blank"
             rel="noopener noreferrer"

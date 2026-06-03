@@ -277,7 +277,7 @@
   margin-top: 60px;
 }
 
-.platforms-wip-row {
+.platforms-extra-row {
   display: flex;
   justify-content: center;
   gap: 32px;
@@ -285,7 +285,7 @@
   flex-wrap: wrap;
 }
 
-.platforms-wip-row .platform-item {
+.platforms-extra-row .platform-item {
   width: calc((100% - 32px) / 3);
   max-width: 340px;
 }
@@ -348,20 +348,6 @@
 .platform-link:hover .platform-link-hint {
   opacity: 1;
   color: #16a34a;
-}
-
-/* 未适配平台 */
-.platform-wip {
-  opacity: 0.45;
-  filter: grayscale(60%);
-  cursor: default;
-  pointer-events: auto;
-}
-
-.platform-wip:hover {
-  transform: none;
-  box-shadow: 0 8px 25px rgba(22, 163, 74, 0.08);
-  border-color: rgba(22, 163, 74, 0.1);
 }
 
 .platform-icon {
@@ -740,11 +726,11 @@
     gap: 24px;
   }
 
-  .platforms-wip-row {
+  .platforms-extra-row {
     gap: 24px;
   }
 
-  .platforms-wip-row .platform-item {
+  .platforms-extra-row .platform-item {
     width: calc(50% - 12px);
   }
 

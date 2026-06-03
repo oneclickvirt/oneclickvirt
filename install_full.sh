@@ -1251,16 +1251,22 @@ server {
     location /api/ {
         proxy_pass http://127.0.0.1:8888;
         proxy_http_version 1.1;
-        proxy_set_header Host \$host;
+        proxy_set_header Host \$http_host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header REMOTE-HOST \$remote_addr;
+        proxy_set_header X-Forwarded-Host \$http_host;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Port \$server_port;
     }
 
     location /swagger/ {
         proxy_pass http://127.0.0.1:8888;
         proxy_http_version 1.1;
-        proxy_set_header Host \$host;
+        proxy_set_header Host \$http_host;
+        proxy_set_header X-Forwarded-Host \$http_host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Port \$server_port;
     }
 
     location /ws/ {
@@ -1268,7 +1274,12 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
+        proxy_set_header Host \$http_host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host \$http_host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Port \$server_port;
         proxy_read_timeout 3600s;
     }
 

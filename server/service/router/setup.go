@@ -1,12 +1,14 @@
 package router
 
 import (
+	"net"
 	"net/http"
 	"oneclickvirt/api/v1/admin"
 	"oneclickvirt/api/v1/public"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	authModel "oneclickvirt/model/auth"
+	"oneclickvirt/utils"
 	"strings"
 
 	"github.com/gin-contrib/cors"
@@ -21,6 +23,159 @@ func isAPIPath(path string) bool {
 	return strings.HasPrefix(path, "/api/") ||
 		strings.HasPrefix(path, "/swagger/") ||
 		path == "/health"
+}
+
+func appendHeaderList(values []string, header string) []string {
+	for _, item := range strings.Split(header, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			values = append(values, item)
+		}
+	}
+	return values
+}
+
+func hostHasExplicitPort(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return true
+	}
+	lastColon := strings.LastIndex(host, ":")
+	return lastColon > -1 &&
+		lastColon == strings.Index(host, ":") &&
+		lastColon < len(host)-1
+}
+
+func joinHostPortCandidate(host, port string) string {
+	host = strings.TrimSpace(host)
+	port = strings.TrimSpace(port)
+	if host == "" || port == "" || hostHasExplicitPort(host) {
+		return ""
+	}
+	if strings.HasPrefix(host, "[") && strings.Contains(host, "]") {
+		host = strings.TrimPrefix(strings.Split(host, "]")[0], "[")
+	}
+	return net.JoinHostPort(host, port)
+}
+
+func appendForwardedPortHosts(hosts []string, ports []string) []string {
+	originalHosts := append([]string(nil), hosts...)
+	for _, host := range originalHosts {
+		for _, port := range ports {
+			if candidate := joinHostPortCandidate(host, port); candidate != "" {
+				hosts = append(hosts, candidate)
+			}
+		}
+	}
+	return hosts
+}
+
+func parseForwardedHeader(header string) (proto string, host string) {
+	if header == "" {
+		return "", ""
+	}
+	first := strings.Split(header, ",")[0]
+	for _, part := range strings.Split(first, ";") {
+		keyValue := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(keyValue) != 2 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(keyValue[0]))
+		value := strings.Trim(strings.TrimSpace(keyValue[1]), `"`)
+		switch key {
+		case "proto":
+			proto = value
+		case "host":
+			host = value
+		}
+	}
+	return proto, host
+}
+
+func corsRequestOriginCandidates(c *gin.Context) ([]string, []string) {
+	schemes := make([]string, 0, 4)
+	hosts := make([]string, 0, 4)
+	ports := make([]string, 0, 2)
+
+	schemes = appendHeaderList(schemes, c.GetHeader("X-Forwarded-Proto"))
+	if c.GetHeader("X-Forwarded-Ssl") == "on" {
+		schemes = append(schemes, "https")
+	}
+	if c.Request.URL.Scheme != "" {
+		schemes = append(schemes, c.Request.URL.Scheme)
+	}
+
+	hosts = appendHeaderList(hosts, c.GetHeader("X-Forwarded-Host"))
+	hosts = appendHeaderList(hosts, c.GetHeader("X-Original-Host"))
+	hosts = appendHeaderList(hosts, c.GetHeader("X-Host"))
+	ports = appendHeaderList(ports, c.GetHeader("X-Forwarded-Port"))
+	ports = appendHeaderList(ports, c.GetHeader("X-Original-Port"))
+	if c.Request.Host != "" {
+		hosts = append(hosts, c.Request.Host)
+	}
+
+	forwardedProto, forwardedHost := parseForwardedHeader(c.GetHeader("Forwarded"))
+	if forwardedProto != "" {
+		schemes = append(schemes, forwardedProto)
+	}
+	if forwardedHost != "" {
+		hosts = append(hosts, forwardedHost)
+	}
+	hosts = appendForwardedPortHosts(hosts, ports)
+
+	// Some proxies omit X-Forwarded-Proto. Same-host CORS is still safe because
+	// the host must match the request host/forwarded host exactly.
+	schemes = append(schemes, "http", "https")
+	return schemes, hosts
+}
+
+func corsOriginAllowed(c *gin.Context, origin string, frontendOrigin string, allowedOrigins map[string]struct{}) bool {
+	originNorm := utils.NormalizeOrigin(origin)
+	if originNorm == "" {
+		return false
+	}
+	if frontendOrigin != "" && originNorm == frontendOrigin {
+		return true
+	}
+	if _, ok := allowedOrigins[originNorm]; ok {
+		return true
+	}
+	// 开发环境默认允许 localhost 和 127.0.0.1
+	if utils.IsLoopbackOrigin(origin) {
+		return true
+	}
+	schemes, hosts := corsRequestOriginCandidates(c)
+	return utils.OriginMatchesAnyHost(origin, schemes, hosts)
+}
+
+func corsPreflightFallback(allowedMethods []string, allowedHeaders []string, isAllowed func(c *gin.Context, origin string) bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if c.Request.Method != http.MethodOptions ||
+			origin == "" ||
+			c.GetHeader("Access-Control-Request-Method") == "" {
+			c.Next()
+			return
+		}
+
+		if !isAllowed(c, origin) {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+
+		header := c.Writer.Header()
+		header.Add("Vary", "Origin")
+		header.Add("Vary", "Access-Control-Request-Method")
+		header.Add("Vary", "Access-Control-Request-Headers")
+		header.Set("Access-Control-Allow-Origin", origin)
+		header.Set("Access-Control-Allow-Credentials", "true")
+		header.Set("Access-Control-Allow-Methods", strings.Join(allowedMethods, ","))
+		header.Set("Access-Control-Allow-Headers", strings.Join(allowedHeaders, ","))
+		c.AbortWithStatus(http.StatusNoContent)
+	}
 }
 
 // SetupRouter 初始化并返回全局 Gin 路由器。
@@ -74,7 +229,12 @@ func SetupRouter() *gin.Engine {
 		middleware.RequestIDHeader,
 	}
 	var corsMiddleware gin.HandlerFunc
+	var preflightMiddleware gin.HandlerFunc
 	if corsMode == "allow-all" {
+		isAllowed := func(c *gin.Context, origin string) bool {
+			return true
+		}
+		preflightMiddleware = corsPreflightFallback(allowedMethods, allowedHeaders, isAllowed)
 		// allow-all 模式：反射实际 Origin，保留 Credentials 支持
 		corsMiddleware = cors.New(cors.Config{
 			AllowOriginFunc: func(origin string) bool {
@@ -86,31 +246,27 @@ func SetupRouter() *gin.Engine {
 			AllowCredentials: true,
 		})
 	} else {
-		// whitelist 模式：仅允许白名单及配置的前端地址
+		// whitelist 模式：允许显式白名单、配置的前端地址，以及与当前请求 Host 同源的公开访问地址。
 		allowedOrigins := make(map[string]struct{}, len(corsWhitelist)+1)
 		for _, o := range corsWhitelist {
-			allowedOrigins[o] = struct{}{}
+			if normalized := utils.NormalizeOrigin(o); normalized != "" {
+				allowedOrigins[normalized] = struct{}{}
+			}
 		}
+		frontendOrigin := utils.NormalizeOrigin(frontendURL)
+		isAllowed := func(c *gin.Context, origin string) bool {
+			return corsOriginAllowed(c, origin, frontendOrigin, allowedOrigins)
+		}
+		preflightMiddleware = corsPreflightFallback(allowedMethods, allowedHeaders, isAllowed)
 		corsMiddleware = cors.New(cors.Config{
-			AllowOriginFunc: func(origin string) bool {
-				if frontendURL != "" && origin == frontendURL {
-					return true
-				}
-				if _, ok := allowedOrigins[origin]; ok {
-					return true
-				}
-				// 开发环境默认允许 localhost 和 127.0.0.1
-				return strings.HasPrefix(origin, "http://localhost:") ||
-					strings.HasPrefix(origin, "https://localhost:") ||
-					strings.HasPrefix(origin, "http://127.0.0.1:") ||
-					strings.HasPrefix(origin, "https://127.0.0.1:")
-			},
-			AllowMethods:     allowedMethods,
-			AllowHeaders:     allowedHeaders,
-			ExposeHeaders:    []string{"Content-Length", "Authorization", middleware.RequestIDHeader},
-			AllowCredentials: true,
+			AllowOriginWithContextFunc: isAllowed,
+			AllowMethods:               allowedMethods,
+			AllowHeaders:               allowedHeaders,
+			ExposeHeaders:              []string{"Content-Length", "Authorization", middleware.RequestIDHeader},
+			AllowCredentials:           true,
 		})
 	}
+	Router.Use(preflightMiddleware)
 	Router.Use(corsMiddleware)
 	Router.Use(middleware.RateLimit())           // API限流防护（防滥用）
 	Router.Use(middleware.RequestIDMiddleware()) // 注入 X-Request-ID，必须在 Logger 前

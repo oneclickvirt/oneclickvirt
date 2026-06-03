@@ -48,12 +48,18 @@ export const errorHandler = {
     let details = ''
 
     // 处理后端返回的业务错误
-    if (error.response && error.response.data) {
+    if (error.response) {
       const { data } = error.response
-      code = data.code || data.status || error.response.status
-      // 优先使用后端返回的具体错误消息，仅在无具体消息时才使用通用码映射
-      message = data.message || data.msg || data.error || this.codeMap[code] || t('errors.requestFailed')
-      details = data.details || ''
+      if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+        code = data.code || data.status || error.response.status
+        // 优先使用后端返回的具体错误消息，仅在无具体消息时才使用通用码映射
+        message = data.message || data.msg || data.error || this.codeMap[code] || t('errors.requestFailed')
+        details = data.details || ''
+      } else {
+        // 响应体为空（如CORS拒绝或nginx层拦截），使用HTTP状态码映射
+        code = error.response.status
+        message = this.codeMap[code] || t('errors.requestFailed')
+      }
 
       // 特殊错误码处理
       if (autoRedirect) {
@@ -67,8 +73,9 @@ export const errorHandler = {
     } 
     // 处理请求配置错误
     else {
-      code = -2
-      message = t('errors.requestConfigError')
+      code = typeof error.code === 'number' ? error.code : -2
+      message = error.message || t('errors.requestConfigError')
+      details = error.details || ''
     }
 
     // 使用自定义消息（如果提供）

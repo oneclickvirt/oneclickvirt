@@ -89,10 +89,11 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location /api/ {' >> /etc/nginx/nginx.conf && \
     echo '            proxy_pass http://127.0.0.1:8888;' >> /etc/nginx/nginx.conf && \
-    echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Host $http_host;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header REMOTE-HOST $remote_addr;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Host $http_host;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-Proto $scheme;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-Port $server_port;' >> /etc/nginx/nginx.conf && \
     echo '            ' >> /etc/nginx/nginx.conf && \
@@ -118,9 +119,12 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location /swagger/ {' >> /etc/nginx/nginx.conf && \
     echo '            proxy_pass http://127.0.0.1:8888;' >> /etc/nginx/nginx.conf && \
-    echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Host $http_host;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Host $http_host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Proto $scheme;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Port $server_port;' >> /etc/nginx/nginx.conf && \
     echo '        }' >> /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location / {' >> /etc/nginx/nginx.conf && \
@@ -192,6 +196,6 @@ VOLUME ["/app/storage"]
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget --quiet --tries=1 --spider http://localhost/api/v1/health || exit 1
+    CMD wget --quiet --tries=1 -O /dev/null http://127.0.0.1:8888/api/v1/health || exit 1
 
 CMD ["/start.sh"]

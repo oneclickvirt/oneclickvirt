@@ -323,11 +323,11 @@ export function useProviderForm(props, emit) {
       formData.value.containerEnabled = true
       formData.value.vmEnabled = false
     } else if (['qemu', 'kubevirt'].includes(newType)) {
-      // VM 专用类型：仅支持虚拟机
+      // QEMU/KubeVirt：默认虚拟机，也可选择性开启容器
       formData.value.containerEnabled = false
       formData.value.vmEnabled = true
     }
-    // lxd/incus/proxmox: 两者都可选，不自动修改
+    // lxd/incus/proxmox/qemu/kubevirt: 两者都可选，不强制修改
   })
 
   // 监听对话框关闭，重置表单

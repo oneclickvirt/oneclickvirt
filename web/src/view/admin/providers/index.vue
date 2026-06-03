@@ -256,7 +256,7 @@ watch(() => addProviderForm.type, (newType) => {
     addProviderForm.ipv4PortMappingMethod = 'native'
     addProviderForm.ipv6PortMappingMethod = 'native'
   } else if (['qemu', 'kubevirt'].includes(newType)) {
-    // QEMU/KubeVirt只支持虚拟机，使用iptables端口映射
+    // QEMU/KubeVirt默认支持虚拟机，也可选择性开启容器，使用iptables端口映射
     addProviderForm.containerEnabled = false
     addProviderForm.vmEnabled = true
     addProviderForm.ipv4PortMappingMethod = 'iptables'

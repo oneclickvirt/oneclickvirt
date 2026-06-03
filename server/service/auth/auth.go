@@ -24,6 +24,10 @@ func (s *AuthService) Login(req auth.LoginRequest) (*userModel.User, string, err
 }
 
 func (s *AuthService) LoginWithContext(req auth.LoginRequest, ip string) (*userModel.User, string, error) {
+	if global.APP_DB == nil {
+		return nil, "", common.NewError(common.CodeDatabaseError, "数据库服务暂时不可用，请稍后重试")
+	}
+
 	// 根据登录类型调用不同的登录逻辑
 	loginType := req.LoginType
 	if loginType == "" {

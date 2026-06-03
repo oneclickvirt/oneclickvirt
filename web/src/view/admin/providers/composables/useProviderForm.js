@@ -191,9 +191,6 @@ export function useProviderForm(loadProviders) {
     if (['docker', 'podman', 'containerd'].includes(provider.type)) {
       addProviderForm.containerEnabled = true
       addProviderForm.vmEnabled = false
-    } else if (['qemu', 'kubevirt'].includes(provider.type)) {
-      addProviderForm.containerEnabled = false
-      addProviderForm.vmEnabled = true
     }
     addProviderForm.architecture = provider.architecture || 'amd64'
     addProviderForm.status = provider.status || 'active'
