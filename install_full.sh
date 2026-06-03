@@ -105,7 +105,7 @@ while [[ $# -gt 0 ]]; do
         --force)          FORCE_INSTALL="true"; shift ;;
         --version)        INSTALL_VERSION="$2"; shift 2 ;;
         --help)           usage ;;
-        *) log_error "Unknown option: $1"; usage ;;
+        *) log_error "Unknown option: $1" "未知选项: $1"; usage ;;
     esac
 done
 
@@ -113,10 +113,10 @@ done
 if [[ "$TLS_EXPLICIT" != "true" && -n "$DOMAIN_PROTO_DETECTED" ]]; then
     if [[ "$DOMAIN_PROTO_DETECTED" == "https" ]]; then
         TLS_METHOD="letsencrypt"
-        log_info "Detected https:// prefix — TLS enabled (${TLS_METHOD})"
+        log_info "Detected https:// prefix — TLS enabled (${TLS_METHOD})" "检测到 https:// 前缀 — TLS 已启用 (${TLS_METHOD})"
     elif [[ "$DOMAIN_PROTO_DETECTED" == "http" ]]; then
         TLS_METHOD="off"
-        log_info "Detected http:// prefix — TLS disabled"
+        log_info "Detected http:// prefix — TLS disabled" "检测到 http:// 前缀 — TLS 已禁用"
     fi
 fi
 
@@ -141,14 +141,14 @@ fi
 # ---- Prerequisites ----
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        log_error "This script must be run as root (use sudo)."
+        log_error "This script must be run as root (use sudo)." "此脚本必须以 root 身份运行（请使用 sudo）。"
         exit 1
     fi
 }
 
 check_system_resources() {
     if [[ "${SKIP_RESOURCE_CHECK:-false}" == "true" || "${FORCE_INSTALL:-false}" == "true" ]]; then
-        log_warning "Skipping disk/memory resource checks (SKIP_RESOURCE_CHECK or --force)"
+        log_warning "Skipping disk/memory resource checks (SKIP_RESOURCE_CHECK or --force)" "跳过磁盘/内存资源检查（SKIP_RESOURCE_CHECK 或 --force）"
         return 0
     fi
 
@@ -214,14 +214,14 @@ check_system_resources() {
         return 0
     fi
 
-    log_success "System resource checks passed."
+    log_success "System resource checks passed." "系统资源检查通过。"
 }
 
 detect_arch() {
     case $(uname -m) in
         x86_64|amd64) echo "amd64" ;;
         aarch64|arm64) echo "arm64" ;;
-        *) log_error "Unsupported architecture: $(uname -m)"; exit 1 ;;
+        *) log_error "Unsupported architecture: $(uname -m)" "不支持的架构: $(uname -m)"; exit 1 ;;
     esac
 }
 
@@ -302,66 +302,78 @@ detect_os() {
             PKG_INSTALL="apk add --no-cache"
             ;;
         *)
-            log_warning "Unknown OS: $OS. Attempting apt-get..."
+            log_warning "Unknown OS: $OS. Attempting apt-get..." "未知操作系统: $OS，尝试使用 apt-get..."
             PKG_UPDATE="apt-get update -qq"
             PKG_INSTALL="apt-get install -y -qq"
             ;;
     esac
-    log_success "Detected OS: $OS $OS_VERSION"
+    log_success "Detected OS: $OS $OS_VERSION" "检测到操作系统: $OS $OS_VERSION"
 }
 
 install_dependencies() {
-    log_info "Installing base dependencies..."
+    log_info "Installing base dependencies..." "正在安装基础依赖..."
     $PKG_UPDATE
     $PKG_INSTALL curl wget tar gzip unzip ca-certificates
-    log_success "Base dependencies installed."
+    log_success "Base dependencies installed." "基础依赖安装完成。"
 }
 
 wait_for_database_ready() {
-    local timeout="${1:-60}" interval="${2:-3}" elapsed=0
-    log_info "Waiting for database service to become ready..."
+    local timeout="${1:-120}" interval="${2:-5}" elapsed=0
+    log_info "Waiting for database service to become ready..." "正在等待数据库服务就绪..."
     while [[ $elapsed -lt $timeout ]]; do
-        if command -v mysql &>/dev/null && mysql -e "SELECT 1" >/dev/null 2>&1; then
-            log_success "Database ready after ${elapsed}s"
-            return 0
+        # Try multiple connection methods in order
+        if command -v mysql &>/dev/null; then
+            mysql -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
+            mysql -u root -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
+            mysql -h 127.0.0.1 -u root -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
         fi
-        if command -v mariadb &>/dev/null && mariadb -e "SELECT 1" >/dev/null 2>&1; then
-            log_success "Database ready after ${elapsed}s"
-            return 0
+        if command -v mariadb &>/dev/null; then
+            mariadb -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
+            mariadb -u root -e "SELECT 1" >/dev/null 2>&1 && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
         fi
-        if command -v mysqladmin &>/dev/null && mysqladmin ping --silent 2>/dev/null; then
-            log_success "Database ready after ${elapsed}s"
-            return 0
+        if command -v mysqladmin &>/dev/null; then
+            mysqladmin ping --silent 2>/dev/null && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
+            mysqladmin -u root ping --silent 2>/dev/null && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
         fi
-        if command -v mariadb-admin &>/dev/null && mariadb-admin ping --silent 2>/dev/null; then
-            log_success "Database ready after ${elapsed}s"
-            return 0
+        if command -v mariadb-admin &>/dev/null; then
+            mariadb-admin ping --silent 2>/dev/null && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
+            mariadb-admin -u root ping --silent 2>/dev/null && { log_success "Database ready after ${elapsed}s" "数据库已在 ${elapsed}s 后就绪"; return 0; }
+        fi
+        # Check if mysqld/mariadbd process exists at all
+        if ! pgrep -x mysqld >/dev/null 2>&1 && ! pgrep -x mariadbd >/dev/null 2>&1; then
+            log_warning "Database process not running, attempting to start..." "数据库进程未运行，正在尝试启动..."
+            case "$OS" in
+                alpine) rc-service mariadb start 2>/dev/null || rc-service mysql start 2>/dev/null || true ;;
+                *) systemctl start "$DB_TYPE" 2>/dev/null || service "$DB_TYPE" start 2>/dev/null || true ;;
+            esac
+            sleep 3
         fi
         sleep "$interval"
         elapsed=$((elapsed + interval))
     done
-    log_error "Database did not become ready within ${timeout}s"
+    log_error "Database did not become ready within ${timeout}s" "数据库在 ${timeout}s 内未就绪"
+    log_error "Check: systemctl status ${DB_TYPE}  or  journalctl -u ${DB_TYPE} -n 30" "请检查: systemctl status ${DB_TYPE}  或  journalctl -u ${DB_TYPE} -n 30"
     return 1
 }
 
 wait_for_http_ready() {
     local url="$1" timeout="${2:-120}" interval="${3:-5}" elapsed=0
-    log_info "Waiting for OneClickVirt API health endpoint..."
+    log_info "Waiting for OneClickVirt API health endpoint..." "正在等待 OneClickVirt API 健康端点..."
     while [[ $elapsed -lt $timeout ]]; do
         if curl -fsS --max-time 5 "$url" >/dev/null 2>&1; then
-            log_success "API health endpoint ready after ${elapsed}s"
+            log_success "API health endpoint ready after ${elapsed}s" "API 健康端点在 ${elapsed}s 后就绪"
             return 0
         fi
         sleep "$interval"
         elapsed=$((elapsed + interval))
     done
-    log_error "API health endpoint was not ready within ${timeout}s: ${url}"
+    log_error "API health endpoint was not ready within ${timeout}s: ${url}" "API 健康端点在 ${timeout}s 内未就绪: ${url}"
     return 1
 }
 
 # ---- Database installation ----
 install_mysql() {
-    log_info "Installing MySQL 8.0..."
+    log_info "Installing MySQL 8.0..." "正在安装 MySQL 8.0..."
     case "$OS" in
         ubuntu|debian|raspbian)
             $PKG_INSTALL mysql-server mysql-client
@@ -379,11 +391,11 @@ install_mysql() {
             $PKG_INSTALL mysql-server mysql-client
             ;;
     esac
-    log_success "MySQL installed."
+    log_success "MySQL installed." "MySQL 安装完成。"
 }
 
 install_mariadb() {
-    log_info "Installing MariaDB..."
+    log_info "Installing MariaDB..." "正在安装 MariaDB..."
     case "$OS" in
         ubuntu|debian|raspbian)
             $PKG_INSTALL mariadb-server mariadb-client
@@ -401,11 +413,11 @@ install_mariadb() {
             $PKG_INSTALL mariadb-server mariadb-client
             ;;
     esac
-    log_success "MariaDB installed."
+    log_success "MariaDB installed." "MariaDB 安装完成。"
 }
 
 configure_database() {
-    log_info "Configuring database..."
+    log_info "Configuring database..." "正在配置数据库..."
 
     # Start database service
     case "$OS" in
@@ -448,7 +460,7 @@ configure_database() {
                     FLUSH PRIVILEGES;
                 "
             else
-                log_warning "MySQL not accessible via auth_socket, trying password..."
+                log_warning "MySQL not accessible via auth_socket, trying password..." "MySQL 无法通过 auth_socket 连接，尝试使用密码..."
                 # MariaDB-compatible syntax
                 mysql -u root -e "
                     CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
@@ -461,7 +473,7 @@ configure_database() {
                     DELETE FROM mysql.user WHERE Host<>'localhost' AND Host<>'127.0.0.1' AND Host<>'::1';
                     FLUSH PRIVILEGES;
                 " 2>/dev/null || {
-                    log_error "Failed to configure MySQL. Is it running?"
+                    log_error "Failed to configure MySQL. Is it running?" "MySQL 配置失败，请检查服务是否运行。"
                     return 1
                 }
             fi
@@ -483,7 +495,7 @@ configure_database() {
                     FLUSH PRIVILEGES;
                 "
             else
-                log_error "MariaDB not accessible. Is it running?"
+                log_error "MariaDB not accessible. Is it running?" "MariaDB 无法访问，请检查服务是否运行。"
                 return 1
             fi
             ;;
@@ -513,7 +525,7 @@ configure_database() {
             if [[ -f "$f" ]]; then conf_file="$f"; break; fi
         done
         if [[ -z "$conf_file" ]]; then
-            log_warning "Could not locate MySQL/MariaDB config file to enforce bind-address."
+            log_warning "Could not locate MySQL/MariaDB config file to enforce bind-address." "未找到 MySQL/MariaDB 配置文件，无法强制 bind-address。"
             return 0
         fi
         # Only add if not already present
@@ -523,7 +535,7 @@ configure_database() {
             # Insert after [mysqld] section header
             sed -i '/^\[mysqld\]/a bind-address = 127.0.0.1' "$conf_file"
         fi
-        log_info "Database bind-address enforced to 127.0.0.1 (local access only)."
+        log_info "Database bind-address enforced to 127.0.0.1 (local access only)." "数据库 bind-address 已强制设为 127.0.0.1（仅本地访问）。"
     }
     _enforce_bind_address
 
@@ -533,14 +545,14 @@ configure_database() {
         *) systemctl enable "$DB_TYPE" 2>/dev/null; systemctl restart "$DB_TYPE" 2>/dev/null ;;
     esac
 
-    log_success "Database configured: ${DB_NAME} / user=${DB_USER} (localhost only)"
+    log_success "Database configured: ${DB_NAME} / user=${DB_USER} (localhost only)" "数据库配置完成: ${DB_NAME} / 用户=${DB_USER}（仅本地）"
 }
 
 # ---- Reverse proxy installation ----
 install_caddy() {
-    log_info "Installing Caddy..."
+    log_info "Installing Caddy..." "正在安装 Caddy..."
     if command -v caddy &>/dev/null; then
-        log_success "Caddy already installed."
+        log_success "Caddy already installed." "Caddy 已安装。"
         return 0
     fi
     curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=$(detect_arch)" -o /usr/local/bin/caddy
@@ -561,7 +573,7 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload 2>/dev/null || true
-    log_success "Caddy installed."
+    log_success "Caddy installed." "Caddy 安装完成。"
 }
 
 configure_caddy() {
@@ -623,11 +635,11 @@ ${DOMAIN} {
     }
 }
 CADDY_EOF
-    log_success "Caddy configuration written to /etc/caddy/Caddyfile"
+    log_success "Caddy configuration written to /etc/caddy/Caddyfile" "Caddy 配置已写入 /etc/caddy/Caddyfile"
 }
 
 install_nginx() {
-    log_info "Installing Nginx..."
+    log_info "Installing Nginx..." "正在安装 Nginx..."
     case "$OS" in
         ubuntu|debian|raspbian) $PKG_INSTALL nginx certbot python3-certbot-nginx ;;
         centos|rhel|almalinux|rocky) $PKG_INSTALL nginx certbot python3-certbot-nginx ;;
@@ -636,7 +648,7 @@ install_nginx() {
         alpine) $PKG_INSTALL nginx certbot ;;
         *) $PKG_INSTALL nginx certbot python3-certbot-nginx ;;
     esac
-    log_success "Nginx installed."
+    log_success "Nginx installed." "Nginx 安装完成。"
 }
 
 configure_nginx() {
@@ -659,19 +671,19 @@ configure_nginx() {
 
     # TLS via certbot
     if [[ "$TLS_METHOD" == "letsencrypt" || "$TLS_METHOD" == "zerossl" ]]; then
-        log_info "Obtaining TLS certificate via Certbot..."
+        log_info "Obtaining TLS certificate via Certbot..." "正在通过 Certbot 获取 TLS 证书..."
         if [[ -n "$EMAIL" ]]; then
             certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "$EMAIL" 2>/dev/null || {
-                log_warning "Certbot failed. You may need to run: certbot --nginx -d ${DOMAIN}"
+                log_warning "Certbot failed. You may need to run: certbot --nginx -d ${DOMAIN}" "Certbot 失败，可手动执行: certbot --nginx -d ${DOMAIN}"
             }
         fi
     fi
 
-    log_success "Nginx configuration written."
+    log_success "Nginx configuration written." "Nginx 配置已写入。"
 }
 
 install_openresty() {
-    log_info "Installing OpenResty..."
+    log_info "Installing OpenResty..." "正在安装 OpenResty..."
     case "$OS" in
         ubuntu|debian|raspbian)
             $PKG_INSTALL --no-install-recommends wget gnupg ca-certificates
@@ -690,11 +702,11 @@ install_openresty() {
             $PKG_INSTALL openresty
             ;;
         *)
-            log_warning "OpenResty auto-install not supported for ${OS}. Trying generic install..."
+            log_warning "OpenResty auto-install not supported for ${OS}. Trying generic install..." "OpenResty 不支持在 ${OS} 上自动安装，尝试通用安装..."
             $PKG_INSTALL nginx
             ;;
     esac
-    log_success "OpenResty installed."
+    log_success "OpenResty installed." "OpenResty 安装完成。"
 }
 
 configure_openresty() {
@@ -702,12 +714,12 @@ configure_openresty() {
     configure_nginx
     # Adjust paths for OpenResty
     sed -i 's|/etc/nginx/|/usr/local/openresty/nginx/conf/|g' /usr/local/openresty/nginx/conf/nginx.conf 2>/dev/null || true
-    log_success "OpenResty configured."
+    log_success "OpenResty configured." "OpenResty 配置完成。"
 }
 
 # ---- Firewall configuration ----
 configure_firewall() {
-    log_info "Configuring firewall..."
+    log_info "Configuring firewall..." "正在配置防火墙..."
     if command -v ufw &>/dev/null; then
         ufw allow 80/tcp 2>/dev/null || true
         ufw allow 443/tcp 2>/dev/null || true
@@ -718,7 +730,7 @@ configure_firewall() {
         firewall-cmd --permanent --add-service=https 2>/dev/null || true
         firewall-cmd --reload 2>/dev/null || true
     fi
-    log_success "Firewall configured (80, 443 open)."
+    log_success "Firewall configured (80, 443 open)." "防火墙已配置（80, 443 端口已开放）。"
 }
 
 # ---- Application installation ----
@@ -726,7 +738,7 @@ get_latest_version() {
     if [[ -n "$INSTALL_VERSION" ]]; then
         VERSION="$INSTALL_VERSION"
         BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
-        log_info "Using specified version: $VERSION"
+        log_info "Using specified version: $VERSION" "使用指定版本: $VERSION"
         return 0
     fi
 
@@ -742,26 +754,26 @@ get_latest_version() {
         VERSION=$(echo "$resp" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
         if [[ -n "$VERSION" && "$VERSION" != "null" ]]; then
             BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
-            log_success "Latest version: $VERSION"
+            log_success "Latest version: $VERSION" "最新版本: $VERSION"
             return 0
         fi
     done
 
-    log_error "Failed to fetch latest version."
+    log_error "Failed to fetch latest version." "获取最新版本失败。"
     return 1
 }
 
 install_application() {
-    log_info "Installing OneClickVirt application..."
+    log_info "Installing OneClickVirt application..." "正在安装 OneClickVirt 应用..."
     local ARCH; ARCH=$(detect_arch)
 
     mkdir -p "$SERVER_DIR" "$WEB_DIR"
 
     # Download server (all-in-one with embedded frontend)
     local SERVER_FILE="server-allinone-linux-${ARCH}.tar.gz"
-    log_info "Downloading $SERVER_FILE..."
+    log_info "Downloading $SERVER_FILE..." "正在下载 $SERVER_FILE..."
     curl -fsSL "${BASE_URL}/${SERVER_FILE}" -o "/tmp/${SERVER_FILE}" || {
-        log_error "Failed to download server binary."
+        log_error "Failed to download server binary." "下载服务器二进制文件失败。"
         return 1
     }
     tar -xzf "/tmp/${SERVER_FILE}" -C "$SERVER_DIR"
@@ -769,22 +781,23 @@ install_application() {
 
     # Download web dist
     local WEB_FILE="web-dist.zip"
-    log_info "Downloading $WEB_FILE..."
+    log_info "Downloading $WEB_FILE..." "正在下载 $WEB_FILE..."
     curl -fsSL "${BASE_URL}/${WEB_FILE}" -o "/tmp/${WEB_FILE}" || {
-        log_warning "Failed to download web-dist.zip (all-in-one server embeds frontend)"
+        log_warning "Failed to download web-dist.zip (all-in-one server embeds frontend)" "下载 web-dist.zip 失败（all-in-one 服务器已内置前端）"
     }
     if [[ -f "/tmp/${WEB_FILE}" ]]; then
         unzip -o "/tmp/${WEB_FILE}" -d "$WEB_DIR" 2>/dev/null || true
     fi
 
-    # Create config.yaml
+    # Create config.yaml (password YAML-safe: wrap in quotes, escape special chars)
+    local _yaml_db_password; _yaml_db_password=$(printf '%s' "$DB_PASSWORD" | sed 's/"/\\"/g')
     cat > "${SERVER_DIR}/config.yaml" << CONFIG_EOF
 system:
   env: public
   addr: 8888
   db-type: ${DB_TYPE}
 jwt:
-  signing-key: "$(head -c 32 /dev/urandom | base64)"
+  signing-key: "$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
   expires-time: 7d
   buffer-time: 1d
   issuer: oneclickvirt
@@ -793,7 +806,7 @@ ${DB_TYPE}:
   port: "3306"
   db-name: oneclickvirt
   username: oneclickvirt
-  password: "${DB_PASSWORD}"
+  password: "${_yaml_db_password}"
 CONFIG_EOF
 
     # Create systemd service
@@ -831,13 +844,31 @@ SERV_EOF
     esac
 
     # Start the server
+    log_info "Starting OneClickVirt service..." "正在启动 OneClickVirt 服务..."
     systemctl restart oneclickvirt
-    wait_for_http_ready "http://127.0.0.1:8888/api/v1/health" 120 5
+    sleep 3
+
+    # Verify service is running
+    if systemctl is-active --quiet oneclickvirt 2>/dev/null; then
+        log_success "Service started, waiting for API health endpoint..." "服务已启动，正在等待 API 健康端点..."
+        wait_for_http_ready "http://127.0.0.1:8888/api/v1/health" 180 5 || {
+            log_warning "API health check timed out, but service may still be initializing." "API 健康检查超时，服务可能仍在初始化中。"
+            log_warning "Check: journalctl -u oneclickvirt -f" "请检查: journalctl -u oneclickvirt -f"
+        }
+    else
+        log_warning "Service did not start. Checking logs..." "服务未能启动，正在检查日志..."
+        log_warning "Run: journalctl -u oneclickvirt -n 30" "请执行: journalctl -u oneclickvirt -n 30"
+        if systemctl is-active --quiet "$DB_TYPE" 2>/dev/null; then
+            log_info "Database service is running." "数据库服务正在运行。"
+        else
+            log_error "Database service is NOT running. Check: journalctl -u ${DB_TYPE} -n 30" "数据库服务未运行，请检查: journalctl -u ${DB_TYPE} -n 30"
+        fi
+    fi
 
     # Cleanup
     rm -f /tmp/"${SERVER_FILE}" /tmp/"${WEB_FILE}"
 
-    log_success "Application installed and started."
+    log_success "Application installed and started." "应用已安装并启动。"
 }
 
 # ---- Main ----
@@ -906,14 +937,14 @@ main() {
                 if [[ "$choice" == "$pos" ]]; then
                     DOMAIN="$pub_ip"
                     DOMAIN_PROTO_DETECTED="http"
-                    log_info "Using public IPv4: ${DOMAIN}"
+                    log_info "Using public IPv4: ${DOMAIN}" "使用公网 IPv4: ${DOMAIN}"
                 fi
                 pos=$((pos + 1))
             fi
             # localhost
             if [[ -z "$DOMAIN" && "$choice" == "$pos" ]]; then
                 DOMAIN="localhost"
-                log_info "Using localhost (127.0.0.1)"
+                log_info "Using localhost (127.0.0.1)" "使用本地回环地址 (127.0.0.1)"
             fi
             pos=$((pos + 1))
             # private IP
@@ -921,7 +952,7 @@ main() {
                 if [[ -z "$DOMAIN" && "$choice" == "$pos" ]]; then
                     DOMAIN="$priv_ip"
                     DOMAIN_PROTO_DETECTED="http"
-                    log_info "Using private IPv4: ${DOMAIN}"
+                    log_info "Using private IPv4: ${DOMAIN}" "使用内网 IPv4: ${DOMAIN}"
                 fi
                 pos=$((pos + 1))
             fi
@@ -932,12 +963,12 @@ main() {
                     normalize_domain "$_custom_dom"
                 else
                     DOMAIN="localhost"
-                    log_warning "No input — falling back to localhost"
+                    log_warning "No input — falling back to localhost" "未输入内容 — 回退到 localhost"
                 fi
             fi
             DOMAIN="${DOMAIN:-localhost}"
         fi
-        log_info "Domain set to: ${DOMAIN}"
+        log_info "Domain set to: ${DOMAIN}" "域名设置为: ${DOMAIN}"
 
         # Determine if DOMAIN is a real domain name (not localhost, not a bare IP)
         local _is_bare_domain="true"
@@ -951,10 +982,10 @@ main() {
             # Auto-detect TLS from protocol prefix
             if [[ "$DOMAIN_PROTO_DETECTED" == "https" ]]; then
                 TLS_METHOD="letsencrypt"
-                log_info "Detected https:// — TLS will use Let's Encrypt"
+                log_info "Detected https:// — TLS will use Let's Encrypt" "检测到 https:// — 将使用 Let's Encrypt 证书"
             elif [[ "$DOMAIN_PROTO_DETECTED" == "http" ]]; then
                 TLS_METHOD="off"
-                log_info "Detected http:// — TLS disabled"
+                log_info "Detected http:// — TLS disabled" "检测到 http:// — 已禁用 TLS"
             else
                 local tls_prompt="TLS method [letsencrypt/zerossl/selfsigned/off]"
                 [[ -n "$TLS_METHOD" ]] && tls_prompt="${tls_prompt} (default: ${TLS_METHOD})"
@@ -971,9 +1002,9 @@ main() {
         else
             TLS_METHOD="off"
             if [[ "$DOMAIN" == "localhost" ]]; then
-                log_info "Using localhost — TLS disabled."
+                log_info "Using localhost — TLS disabled." "使用本地回环地址 — 已禁用 TLS。"
             else
-                log_info "Using bare IP address — TLS disabled (certificates require a domain name)."
+                log_info "Using bare IP address — TLS disabled (certificates require a domain name)." "使用裸 IP 地址 — 已禁用 TLS（证书需要域名）。"
             fi
         fi
     fi
@@ -982,11 +1013,11 @@ main() {
     if [[ "$NONINTERACTIVE" == "true" ]]; then
         if [[ "$TLS_METHOD" != "off" && "$TLS_METHOD" != "selfsigned" ]]; then
             if [[ -z "$DOMAIN" || "$DOMAIN" == "localhost" || "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                log_error "--domain must be a real domain name (not localhost or bare IP) for TLS in non-interactive mode."
+                log_error "--domain must be a real domain name (not localhost or bare IP) for TLS in non-interactive mode." "非交互模式下 TLS 需要真实域名（不能是 localhost 或裸 IP）。"
                 exit 1
             fi
             if [[ -z "$EMAIL" ]]; then
-                log_error "--email is required for TLS in non-interactive mode."
+                log_error "--email is required for TLS in non-interactive mode." "非交互模式下 TLS 需要提供 --email。"
                 exit 1
             fi
         fi
@@ -1004,18 +1035,22 @@ main() {
 
     if [[ "$NONINTERACTIVE" != "true" ]]; then
         read -p "Proceed with installation? [Y/n]: " _confirm
-        [[ "$_confirm" =~ ^[Nn] ]] && { log_info "Installation cancelled."; exit 0; }
+        [[ "$_confirm" =~ ^[Nn] ]] && { log_info "Installation cancelled." "安装已取消。"; exit 0; }
     fi
 
     # ---- Install ----
-    log_info "Starting installation..."
+    log_info "Starting installation..." "开始安装..."
 
     # 1. Database
     case "$DB_TYPE" in
         mysql) install_mysql ;;
         mariadb) install_mariadb ;;
     esac
-    configure_database
+    if ! configure_database; then
+        log_error "Database configuration failed. Installation aborted." "数据库配置失败，安装中止。"
+        log_error "Check logs: journalctl -u ${DB_TYPE} -n 50" "请检查日志: journalctl -u ${DB_TYPE} -n 50"
+        exit 1
+    fi
 
     # 2. Reverse proxy
     case "$PROXY" in
@@ -1046,21 +1081,37 @@ main() {
     echo -e "${GREEN}  Installation Complete!${NC}"
     echo -e "${GREEN}============================================${NC}"
     echo ""
+    # Determine URL scheme
+    local _url_scheme="http"
+    local _is_bare="false"
+    if [[ "$DOMAIN" == "localhost" || "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        _is_bare="true"
+        _url_scheme="http"
+    elif [[ "$TLS_METHOD" != "off" ]]; then
+        _url_scheme="https"
+    fi
+    local _display_url="${_url_scheme}://${DOMAIN}"
+
     echo -e "  Database:     ${DB_TYPE} (database: oneclickvirt)"
     echo -e "  DB Password:  ${DB_PASSWORD}"
+    echo -e "  DB User:      oneclickvirt (localhost only)"
     echo -e "  Proxy:        ${PROXY}"
-    if [[ -n "$DOMAIN" && "$DOMAIN" != "localhost" ]]; then
-        echo -e "  URL:          https://${DOMAIN}"
-    else
-        echo -e "  URL:          http://$(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_IP')"
-    fi
+    echo -e "  URL:          ${_display_url}"
     echo ""
     echo -e "  Server Logs:  journalctl -u oneclickvirt -f"
     echo -e "  Proxy Logs:   journalctl -u ${PROXY} -f"
     echo -e "  Config Dir:   ${SERVER_DIR}"
     echo ""
-    echo -e "${YELLOW}  NOTE: Save the database password!${NC}"
-    echo -e "  ${DB_PASSWORD}"
+    echo -e "${YELLOW}  IMPORTANT — First-Run Setup:${NC}"
+    echo -e "  - There is NO preset admin account. Visit the URL above to create one."
+    echo -e "  - URL: ${_display_url}"
+    echo -e "  - Follow the web setup wizard to set admin username, password, and email."
+    echo -e "  - Database is LOCALHOST-only (bind-address=127.0.0.1) — not exposed to internet."
+    echo ""
+    echo -e "${YELLOW}  Database Credentials (auto-generated, for config.yaml):${NC}"
+    echo -e "  DB Name:      oneclickvirt"
+    echo -e "  DB User:      oneclickvirt"
+    echo -e "  DB Password:  ${DB_PASSWORD}"
     echo ""
 
     # Save credentials
@@ -1069,9 +1120,10 @@ Database: ${DB_TYPE}
 Database Name: oneclickvirt
 Database User: oneclickvirt
 Database Password: ${DB_PASSWORD}
+URL: ${_display_url}
 CRED
     chmod 600 "${INSTALL_DIR}/.credentials"
-    log_info "Credentials saved to ${INSTALL_DIR}/.credentials"
+    log_info "Credentials saved to ${INSTALL_DIR}/.credentials" "凭据已保存至 ${INSTALL_DIR}/.credentials"
 }
 
 main "$@"

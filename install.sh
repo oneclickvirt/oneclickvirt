@@ -696,48 +696,83 @@ upgrade_server() {
     fi
 }
 
-check_memory_warning() {
+check_system_resources() {
+    if [ "${FORCE_INSTALL:-false}" = "true" ]; then
+        log_warning "Skipping resource checks (FORCE_INSTALL=true)" "跳过资源检查（FORCE_INSTALL=true）"
+        return 0
+    fi
+
+    local resource_warnings=""
+
+    # ── disk check ──────────────────────────────────────────────────────────
+    local min_disk_kb=$((10 * 1024 * 1024))
+    local available_disk_kb
+    available_disk_kb=$(df -Pk / 2>/dev/null | awk 'NR==2 {print $4}')
+    if [ -n "$available_disk_kb" ] && [ "$available_disk_kb" -lt "$min_disk_kb" ]; then
+        local avail_gb=$((available_disk_kb / 1024 / 1024))
+        resource_warnings="${resource_warnings}  - Disk: ${avail_gb} GB available, 10 GB recommended\n"
+    fi
+
+    # ── memory check (RAM + swap) ──────────────────────────────────────────
     local mem_size
     mem_size=$(get_memory_size)
     if [ -n "$mem_size" ] && [ "$mem_size" -lt 2048 ]; then
-        log_warning "Warning: system memory (RAM + swap) is below 2 GB (${mem_size} MB)." "警告：系统内存（含 swap）低于 2GB (${mem_size}MB)。"
-        log_warning "This may affect runtime performance." "这可能会影响程序运行性能。"
-        if [ "$noninteractive" != "true" ]; then
-            reading "Continue with installation? (y/N): " "是否继续安装？(y/N): " confirm
-            case "$confirm" in
-                [Yy]*)
-                    log_info "Continuing installation..." "继续安装..."
-                    ;;
-                *)
-                    log_info "Installation cancelled." "安装已取消。"
-                    exit 0
-                    ;;
-            esac
+        resource_warnings="${resource_warnings}  - Memory (RAM+swap): ${mem_size} MB, 2048 MB recommended\n"
+    fi
+
+    # ── handle warnings ─────────────────────────────────────────────────────
+    if [ -n "$resource_warnings" ]; then
+        log_warning "System resources below recommended levels:" "系统资源低于推荐配置:"
+        printf "%b" "$resource_warnings" | while IFS= read -r line; do
+            [ -n "$line" ] && log_warning "$line" "$line"
+        done
+        log_warning "Installation may fail or performance may be degraded." "安装可能失败或性能下降。"
+
+        if [ "$noninteractive" = "true" ]; then
+            log_error "Resource checks failed. Re-run with FORCE_INSTALL=true to bypass." "资源检查未通过。请设置 FORCE_INSTALL=true 跳过检查。"
+            exit 1
         fi
+
+        reading "Continue anyway? (y/N): " "是否继续安装？(y/N): " confirm
+        case "$confirm" in
+            [Yy]*)
+                log_warning "Continuing despite resource warnings..." "忽略资源警告，继续安装..."
+                ;;
+            *)
+                log_info "Installation cancelled by user." "用户取消安装。"
+                exit 0
+                ;;
+        esac
+    else
+        log_success "System resource checks passed." "系统资源检查通过。"
     fi
 }
 
 show_info() {
-    log_success "OneClickVirt installation completed." "oneclickvirt 安装完成！"
+    log_success "OneClickVirt installation completed." "OneClickVirt 安装完成！"
     echo ""
     log_info "Installation summary:" "安装信息："
-    log_info "  Version: $VERSION" "  版本: $VERSION"
-    log_info "  System: $SYSTEM" "  系统: $SYSTEM"
-    log_info "  Architecture: $(detect_arch)" "  架构: $(detect_arch)"
-    log_info "  Install path: /opt/oneclickvirt" "  安装路径: /opt/oneclickvirt"
+    log_info "  Version:       $VERSION" "  版本:         $VERSION"
+    log_info "  System:        $SYSTEM" "  系统:         $SYSTEM"
+    log_info "  Architecture:  $(detect_arch)" "  架构:         $(detect_arch)"
+    log_info "  Install path:  /opt/oneclickvirt" "  安装路径:     /opt/oneclickvirt"
     if [ -n "$custom_web_path" ]; then
-        log_info "  Web path: $custom_web_path (custom)" "  Web 路径: $custom_web_path (自定义)"
+        log_info "  Web path:      $custom_web_path (custom)" "  Web 路径:     $custom_web_path (自定义)"
     else
-        log_info "  Web path: /opt/oneclickvirt/web (default)" "  Web 路径: /opt/oneclickvirt/web (默认)"
+        log_info "  Web path:      /opt/oneclickvirt/web (default)" "  Web 路径:     /opt/oneclickvirt/web (默认)"
     fi
     echo ""
     log_info "Quick usage:" "使用方法："
-    log_info "  Help: oneclickvirt --help" "  查看帮助: oneclickvirt --help"
-    log_info "  Start service: systemctl start oneclickvirt" "  启动服务: systemctl start oneclickvirt"
-    log_info "  Service status: systemctl status oneclickvirt" "  查看状态: systemctl status oneclickvirt"
-    log_info "  Full guide: /opt/oneclickvirt/server/readme.md" "  详细说明: /opt/oneclickvirt/server/readme.md"
+    log_info "  Start:         systemctl start oneclickvirt" "  启动:         systemctl start oneclickvirt"
+    log_info "  Status:        systemctl status oneclickvirt" "  状态:         systemctl status oneclickvirt"
+    log_info "  Logs:          journalctl -u oneclickvirt -f" "  日志:         journalctl -u oneclickvirt -f"
     echo ""
-    log_warning "Review and update the configuration before starting the service: /opt/oneclickvirt/server/config.yaml" "请在启动服务前检查并修改配置文件: /opt/oneclickvirt/server/config.yaml"
+    echo -e "${YELLOW}  IMPORTANT — First-Run Setup:${NC}"
+    echo -e "  - There is NO preset admin account."
+    echo -e "  - Start the service, then visit the web UI to create your admin account."
+    echo -e "  - Guide: /opt/oneclickvirt/server/readme.md"
+    echo ""
+    log_warning "Review config before starting: /opt/oneclickvirt/server/config.yaml" "启动前请检查配置文件: /opt/oneclickvirt/server/config.yaml"
 }
 
 env_check() {
@@ -750,62 +785,48 @@ env_check() {
     fi
     
     detect_system
-    check_memory_warning
+    check_system_resources
     check_dependencies
     check_cdn_file
-        log_success "Environment checks completed." "环境检查完成。"
+    log_success "Environment checks completed." "环境检查完成。"
 }
 
 show_help() {
-    cat <<"EOF"
-OneClickVirt installer
-OneClickVirt 安装脚本
+    cat <<EOF
+OneClickVirt installer / OneClickVirt 安装脚本
 
-Usage: $0 [option]
-用法: $0 [选项]
+Usage: bash install.sh [COMMAND]
+用法: bash install.sh [命令]
 
-Options:
-选项:
-    env                   Check and prepare the environment only
-    env                   仅检查和准备环境
-    install               Full installation (default)
-    install               完整安装（默认）
-    upgrade               Upgrade an existing installation
-    upgrade               升级已安装版本
-    help                  Show this help message
-    help                  显示此帮助信息
+Commands:
+命令:
+    install     Full installation (default)
+    install     完整安装（默认）
+    env         Check and prepare the environment only
+    env         仅检查和准备环境
+    upgrade     Upgrade an existing installation
+    upgrade     升级已安装版本
+    help        Show this help message
+    help        显示此帮助信息
 
 Environment variables:
 环境变量:
-    CN=true                    Force China mirrors
-    CN=true                    强制使用中国镜像
-    noninteractive=true        Non-interactive mode
-    noninteractive=true        非交互模式
-    WEB_PATH=/path             Custom web install path (default: /opt/oneclickvirt/web)
-    WEB_PATH=/path             自定义 Web 安装路径（默认: /opt/oneclickvirt/web）
-    INSTALL_VERSION=v1.0.0     Install a specific version (default: latest release)
-    INSTALL_VERSION=v1.0.0     指定安装版本（默认：自动获取最新版本）
+    CN=true                     Force China mirrors / 强制使用中国镜像
+    noninteractive=true         Non-interactive mode / 非交互模式
+    FORCE_INSTALL=true          Skip resource checks (disk & memory) / 跳过资源检查
+    WEB_PATH=/path              Custom web install path / 自定义 Web 安装路径
+    INSTALL_VERSION=v1.0.0      Install a specific version / 指定安装版本
 
-Examples:
-示例:
-    $0                                    # Install the latest version
-    $0                                    # 安装最新版本
-    $0 env                                # Environment checks only
-    $0 env                                # 仅进行环境检查
-    $0 upgrade                            # Upgrade to the latest version
-    $0 upgrade                            # 升级到最新版本
-    CN=true $0                            # Install using China mirrors
-    CN=true $0                            # 使用中国镜像安装
-    noninteractive=true $0                # Install without prompts
-    noninteractive=true $0                # 非交互安装
-    WEB_PATH=/var/www/html $0             # Install with a custom web path
-    WEB_PATH=/var/www/html $0             # 使用自定义 Web 路径安装
-    INSTALL_VERSION=v1.0.0 $0             # Install a specific version
-    INSTALL_VERSION=v1.0.0 $0             # 安装指定版本
-    INSTALL_VERSION=v1.0.0 $0 upgrade     # Upgrade to a specific version
-    INSTALL_VERSION=v1.0.0 $0 upgrade     # 升级到指定版本
-    WEB_PATH=/custom/path $0 upgrade      # Upgrade with a custom web path
-    WEB_PATH=/custom/path $0 upgrade      # 升级时指定自定义 Web 路径
+Examples / 示例:
+    bash install.sh                                      # Install latest / 安装最新版
+    bash install.sh env                                  # Environment check / 环境检查
+    bash install.sh upgrade                              # Upgrade / 升级
+    CN=true bash install.sh                              # Use CN mirrors / 使用中国镜像
+    noninteractive=true bash install.sh                  # Non-interactive / 非交互
+    FORCE_INSTALL=true bash install.sh                   # Skip resource check / 跳过资源检查
+    WEB_PATH=/var/www/html bash install.sh               # Custom web path / 自定义 Web 路径
+    INSTALL_VERSION=v1.0.0 bash install.sh               # Specific version / 指定版本
+    INSTALL_VERSION=v1.0.0 bash install.sh upgrade       # Upgrade to version / 升级到指定版本
 EOF
 }
 
