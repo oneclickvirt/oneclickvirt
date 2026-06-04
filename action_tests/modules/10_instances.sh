@@ -107,7 +107,7 @@ run_module_10() {
                 log_warning "Skipping stop/start/restart tests: instance not in 'running' state"
                 SKIPPED_TESTS=$((SKIPPED_TESTS + 3))
                 for op in "Stop container" "Start container" "Restart container"; do
-                    report_add_skip "$op" "POST" "/api/v1/admin/instances/${container_id}/action"
+                    report_add_skip "$op" "POST" "/api/v1/admin/instances/${container_id}/action" "instance not in running state"
                     _add_result_json "$op" "POST" "/api/v1/admin/instances/${container_id}/action" "SKIP" "" "instance not running" "" "$group"
                 done
             fi
