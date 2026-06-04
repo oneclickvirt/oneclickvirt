@@ -323,6 +323,7 @@ jobs:
           DB_USER: root
           DB_PASSWORD: ${{ env.CI_DB_PASSWORD }}
           DEBUG: "1"
+          SKIP_RESOURCE_CHECK: "true"
         run: |
           set -euo pipefail
 

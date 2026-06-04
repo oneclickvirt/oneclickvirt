@@ -92,6 +92,12 @@ preflight_require_commands() {
 }
 
 preflight_check_runner_resources() {
+    # Allow skipping resource checks in constrained environments (e.g., Docker CI runners)
+    if [[ "${SKIP_RESOURCE_CHECK:-false}" == "true" ]]; then
+        log_info "Resource check skipped (SKIP_RESOURCE_CHECK=true)"
+        return 0
+    fi
+
     local min_disk_gb="${1:-20}" min_memory_mb="${2:-4096}" path="${3:-.}"
     local disk_gb="0" memory_mb="0"
 
