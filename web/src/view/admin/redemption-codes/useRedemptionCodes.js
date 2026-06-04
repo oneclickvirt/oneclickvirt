@@ -142,6 +142,8 @@ export default function useRedemptionCodes() {
   const refreshStoppedContainers = async (providerId) => {
     if (!providerId) return
     stoppedContainersLoading.value = true
+    stoppedContainers.value = []
+    stoppedContainerOptions.value = []
     try {
       const r = await getStoppedContainers(providerId)
       const rawNames = (r.data && r.data.containers) || []
@@ -156,10 +158,8 @@ export default function useRedemptionCodes() {
         stoppedContainerOptions.value = rawNames.map(name => ({ name, label: name }))
       }
     } catch (e) {
-      const errMsg = e?.response?.data?.msg || e?.message || ''
-      if (errMsg) {
-        ElMessage.warning(t('admin.redemptionCodes.loadContainersFailed', { reason: errMsg }))
-      }
+      const errMsg = e?.response?.data?.msg || e?.message || e?.toString() || ''
+      ElMessage.warning(errMsg || t('admin.redemptionCodes.loadContainersFailed', { reason: t('common.unknownError') }))
       stoppedContainers.value = []
       stoppedContainerOptions.value = []
     } finally {
@@ -185,10 +185,7 @@ export default function useRedemptionCodes() {
       memorySpecs.value = []
       diskSpecs.value = []
       bandwidthSpecs.value = []
-      // 切到复制模式时刷新已停止容器列表（确保数据最新）
-      if (createForm.providerId && isLxdIncusProvider.value) {
-        refreshStoppedContainers(createForm.providerId)
-      }
+      // 容器列表刷新由 watch(isLxdIncusProvider && creationMode==='copy') 统一处理
       return
     }
     // 切回标准模式：恢复实例类型并重新加载镜像和规格
@@ -211,6 +208,17 @@ export default function useRedemptionCodes() {
       resetGpuSelection()
     }
   })
+
+  // 当源容器下拉变为可见时，自动刷新容器列表
+  // （覆盖所有进入复制模式的路径：手动切换、程序设置等）
+  watch(
+    () => isLxdIncusProvider.value && createForm.creationMode === 'copy',
+    (shouldShow) => {
+      if (shouldShow && createForm.providerId) {
+        refreshStoppedContainers(createForm.providerId)
+      }
+    }
+  )
 
   // ── 导出对话框 ─────────────────────────────────────────────
   const showExportDialog = ref(false)
@@ -391,7 +399,10 @@ export default function useRedemptionCodes() {
     // 如果是 lxd/incus 节点，加载已停止的容器列表和GPU列表
     const p = allProviders.value.find(p => p.id === providerId)
     if (p && (p.type === 'lxd' || p.type === 'incus')) {
-      createForm.creationMode = 'standard'
+      // 仅在当前模式无效时才重置为标准模式（避免覆盖用户已切换的模式）
+      if (createForm.creationMode !== 'standard' && createForm.creationMode !== 'copy') {
+        createForm.creationMode = 'standard'
+      }
       createForm.sourceContainer = ''
       refreshStoppedContainers(providerId)
       // 自动检测 GPU
@@ -409,7 +420,10 @@ export default function useRedemptionCodes() {
         gpuDetecting.value = false
       }
     } else {
-      createForm.creationMode = 'standard'
+      // 非 LXD/Incus 节点不支持复制模式，强制切回标准
+      if (createForm.creationMode !== 'standard') {
+        createForm.creationMode = 'standard'
+      }
       createForm.sourceContainer = ''
       stoppedContainers.value = []
       stoppedContainerOptions.value = []

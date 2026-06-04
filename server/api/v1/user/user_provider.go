@@ -199,10 +199,7 @@ func GetProviderGPUs(c *gin.Context) {
 	if err := global.APP_DB.Select("id, type, gpu_enabled, gpu_info").
 		Where("id = ? AND (type = ? OR type = ?)", uint(id), "lxd", "incus").
 		First(&provider).Error; err != nil {
-		common.ResponseSuccess(c, map[string]interface{}{
-			"gpus": []interface{}{},
-			"info": "Provider 不存在或非 lxd/incus 类型，不支持GPU直通",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider 不存在或非 lxd/incus 类型，不支持GPU直通"))
 		return
 	}
 

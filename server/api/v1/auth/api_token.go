@@ -122,7 +122,7 @@ func DeleteApiToken(c *gin.Context) {
 
 	service := auth2.ApiTokenService{}
 	if err := service.DeleteToken(authCtx.UserID, uint(tokenID)); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -185,7 +185,7 @@ func AdminDeleteApiToken(c *gin.Context) {
 
 	service := auth2.ApiTokenService{}
 	if err := service.AdminDeleteToken(uint(tokenID)); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
