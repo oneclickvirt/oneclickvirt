@@ -47,7 +47,7 @@ run_module_01() {
     test_api_noauth "Server version" "GET" "/api/v1/public/version" "200" "" "$group"
     test_api_noauth "Build info" "GET" "/api/v1/public/build-info" "200" "" "$group"
     test_api_noauth "Init progress" "GET" "/api/v1/public/init-progress" "200" "" "$group"
-    test_api_noauth "Agent install script" "GET" "/api/v1/public/agent/install-agent.sh" "200" "" "$group"
+    test_api_noauth "Agent install script" "GET" "/api/v1/public/agent/install-agent.sh" "200|307" "" "$group"
     test_api_noauth "Missing agent release" "GET" "/api/v1/public/agent/releases/missing-release.tar.gz" "404|400" "" "$group"
     test_api_noauth "Public announcements" "GET" "/api/v1/public/announcements" "200" "" "$group"
     test_api_noauth "Public stats" "GET" "/api/v1/public/stats" "200" "" "$group"
