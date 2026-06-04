@@ -142,8 +142,7 @@ export default function useRedemptionCodes() {
   const refreshStoppedContainers = async (providerId) => {
     if (!providerId) return
     stoppedContainersLoading.value = true
-    stoppedContainers.value = []
-    stoppedContainerOptions.value = []
+    // 不清空旧数据，保持上一次的结果直到新数据返回，避免下拉闪烁
     try {
       const r = await getStoppedContainers(providerId)
       const rawNames = (r.data && r.data.containers) || []
