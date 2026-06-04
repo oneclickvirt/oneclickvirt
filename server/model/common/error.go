@@ -160,7 +160,8 @@ func ClassifyError(err error) *AppError {
 	if strings.Contains(msg, "参数") || strings.Contains(msg, "无效") ||
 		strings.Contains(msg, "格式错误") || strings.Contains(msg, "不能为空") ||
 		strings.Contains(msg, "尚未完成") || strings.Contains(msg, "不支持") ||
-		strings.Contains(msg, "未启用") || strings.Contains(msg, "未配置") ||
+		strings.Contains(msg, "仅支持") || strings.Contains(msg, "未启用") ||
+		strings.Contains(msg, "未配置") ||
 		strings.Contains(msg, "超过") || strings.Contains(msg, "过长") ||
 		strings.Contains(msg, "已被冻结") || strings.Contains(msg, "已过期") ||
 		strings.Contains(msg, "无法") || strings.Contains(msg, "已达到") ||

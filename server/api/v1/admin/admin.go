@@ -301,21 +301,6 @@ func AdminInstanceAction(c *gin.Context) {
 		return
 	}
 
-	// 验证操作类型
-	validActions := map[string]bool{
-		"start":   true,
-		"stop":    true,
-		"restart": true,
-		"reset":   true,
-		"delete":  true,
-		"rebuild": true,
-	}
-
-	if !validActions[req.Action] {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的操作类型"))
-		return
-	}
-
 	global.APP_LOG.Info("管理员执行实例操作",
 		zap.Uint64("instanceId", instanceID),
 		zap.String("action", req.Action),
@@ -355,19 +340,6 @@ func AdminBatchInstanceAction(c *gin.Context) {
 	var req admin.BatchInstanceActionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误"))
-		return
-	}
-
-	validActions := map[string]bool{
-		"start":   true,
-		"stop":    true,
-		"restart": true,
-		"reset":   true,
-		"delete":  true,
-		"rebuild": true,
-	}
-	if !validActions[req.Action] {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的操作类型"))
 		return
 	}
 

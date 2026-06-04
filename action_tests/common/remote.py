@@ -43,7 +43,13 @@ def _make_client(host=None, port=None, user=None, password=None,
         # "encountered RSA key, expected OPENSSH key".
         pkey = None
         _kpass = pw.encode('utf-8') if pw else None
-        for key_class in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey):
+        # Build a list of supported key classes; DSSKey was removed in paramiko 3.x
+        _key_classes = [paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey]
+        try:
+            _key_classes.append(paramiko.DSSKey)
+        except AttributeError:
+            pass  # DSSKey not available in this paramiko version
+        for key_class in _key_classes:
             try:
                 pkey = key_class.from_private_key_file(kf, password=_kpass)
                 break

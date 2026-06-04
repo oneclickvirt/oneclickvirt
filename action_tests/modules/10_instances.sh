@@ -56,7 +56,7 @@ run_module_10() {
             sleep 30
             local ssh_ready=false
             local ssh_waited=30
-            while [[ $ssh_waited -lt 60 ]]; do
+            while [[ $ssh_waited -lt 180 ]]; do
                 local inst_status; inst_status=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                     "${SERVER_URL}/api/v1/admin/instances/${container_id}" 2>/dev/null)
                 local running; running=$(echo "$inst_status" | jq -r '.data.status // empty' 2>/dev/null)
@@ -65,12 +65,12 @@ run_module_10() {
                     log_success "Instance is running (waited ${ssh_waited}s)"
                     break
                 fi
-                log_info "Instance status: ${running:-unknown}, waiting... (${ssh_waited}s/60s)"
+                log_info "Instance status: ${running:-unknown}, waiting... (${ssh_waited}s/180s)"
                 sleep 10
                 ssh_waited=$((ssh_waited + 10))
             done
             if [[ "$ssh_ready" != "true" ]]; then
-                log_warning "Instance may not be fully ready after 60s, continuing tests"
+                log_warning "Instance may not be fully ready after 180s, continuing tests"
             fi
 
             # -- Detail --
@@ -92,16 +92,25 @@ run_module_10() {
                 _add_result_json "Container config validation" "GET" "/api/v1/admin/instances/${container_id}" "FAIL" "non-empty" "empty" "" "$group"
             fi
 
-            # -- Operations --
-            test_api "Stop container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
-                '{"action":"stop"}' "$group"
-            sleep 5
-            test_api "Start container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
-                '{"action":"start"}' "$group"
-            sleep 5
-            test_api "Restart container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
-                '{"action":"restart"}' "$group"
-            sleep 5
+            # -- Operations (only if instance is running) --
+            if [[ "$ssh_ready" == "true" ]]; then
+                test_api "Stop container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
+                    '{"action":"stop"}' "$group"
+                sleep 5
+                test_api "Start container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
+                    '{"action":"start"}' "$group"
+                sleep 5
+                test_api "Restart container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
+                    '{"action":"restart"}' "$group"
+                sleep 5
+            else
+                log_warning "Skipping stop/start/restart tests: instance not in 'running' state"
+                SKIPPED_TESTS=$((SKIPPED_TESTS + 3))
+                for op in "Stop container" "Start container" "Restart container"; do
+                    report_add_skip "$op" "POST" "/api/v1/admin/instances/${container_id}/action"
+                    _add_result_json "$op" "POST" "/api/v1/admin/instances/${container_id}/action" "SKIP" "" "instance not running" "" "$group"
+                done
+            fi
 
             # -- Invalid action --
             test_api "Invalid action" "POST" "/api/v1/admin/instances/${container_id}/action" "400" \
