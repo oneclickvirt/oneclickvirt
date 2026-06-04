@@ -234,7 +234,7 @@ _auto_configure_provider() {
         "${SERVER_URL}/api/v1/admin/providers/auto-configure" 2>/dev/null) || true
     local ac_task; ac_task=$(echo "$ac_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
     if [[ -n "$ac_task" ]]; then
-        wait_task_complete "$SERVER_URL" "$ac_task" "$ADMIN_TOKEN" 300 10 >/dev/null 2>&1 || true
+        wait_task_complete "$SERVER_URL" "$ac_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 >/dev/null 2>&1 || true
     fi
 }
 
@@ -248,6 +248,8 @@ _create_test_instance() {
     local image="debian:12"
     local memory=256 disk=5
     [[ "$inst_type" == "vm" ]] && { memory=512; disk=10; }
+
+    ensure_provider_health_ready "$provider_id" "$ADMIN_TOKEN" || return 1
 
     local resp; resp=$(curl -s -w "\n%{http_code}" --max-time 60 \
         -H "Authorization: Bearer ${ADMIN_TOKEN}" \
@@ -273,7 +275,7 @@ _create_test_instance() {
     # If task-based creation, wait for it and extract the real instance ID
     if [[ -n "$task_id" ]]; then
         log_info "Waiting for instance creation task ${task_id}..."
-        local task_resp; task_resp=$(wait_task_complete "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" 600 10)
+        local task_resp; task_resp=$(wait_task_complete "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10)
         local rc=$?
         if [[ $rc -ne 0 ]]; then
             log_error "Instance creation task ${task_id} failed"
@@ -288,6 +290,7 @@ _create_test_instance() {
         return 1
     fi
 
+    wait_instance_status "$inst_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "network-mode instance ${inst_id}" > /dev/null || true
     log_success "Instance created: ID=${inst_id}"
     echo "$inst_id"
 }
@@ -555,10 +558,7 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
     # -----------------------------------------------------------------------
     if [[ -n "$TEST_INSTANCE_ID" ]]; then
         log_info "Deleting test instance ${TEST_INSTANCE_ID}..."
-        curl -s --max-time 60 -X DELETE \
-            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-            "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}" >/dev/null 2>&1 || true
-        sleep 5
+        delete_instance_safe "$TEST_INSTANCE_ID" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" >/dev/null 2>&1 || true
     fi
 
 done  # end of mapping method loop

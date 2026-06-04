@@ -197,6 +197,12 @@ EXECUTION_RULE="${EXECUTION_RULE:-auto}"
 TEST_IMAGES="${TEST_IMAGES:-alpine,debian}"
 # Path to the server directory; set by deploy_master_local() in node_manager.sh
 MASTER_SERVER_DIR="${MASTER_SERVER_DIR:-}"
+# Instance tasks can legitimately run for several minutes on freshly prepared
+# virtualization nodes. Keep these defaults overridable for faster local runs.
+INSTANCE_TASK_MAX_WAIT="${INSTANCE_TASK_MAX_WAIT:-600}"
+INSTANCE_STATUS_MAX_WAIT="${INSTANCE_STATUS_MAX_WAIT:-600}"
+INSTANCE_HEALTH_SETTLE_SECONDS="${INSTANCE_HEALTH_SETTLE_SECONDS:-30}"
+INSTANCE_OPERATION_SETTLE_SECONDS="${INSTANCE_OPERATION_SETTLE_SECONDS:-3}"
 
 # -- JSON result collector for HTML report --
 declare -a TEST_RESULTS_JSON=()
@@ -588,6 +594,113 @@ wait_task_complete() {
     done
     log_error "Task ${task_id} timeout after ${max}s"
     return 1
+}
+
+ensure_provider_health_ready() {
+    local provider_id="$1" token="${2:-$ADMIN_TOKEN}" settle_seconds="${3:-$INSTANCE_HEALTH_SETTLE_SECONDS}"
+
+    if [[ -z "$provider_id" ]]; then
+        log_warning "Provider health precheck skipped: provider id is empty"
+        return 1
+    fi
+
+    log_info "Triggering provider ${provider_id} health check before instance operation..."
+    local resp; resp=$(curl -s -w "\n%{http_code}" --max-time 120 \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -X POST -d '{}' \
+        "${SERVER_URL}/api/v1/admin/providers/${provider_id}/health-check" 2>/dev/null) || true
+    local http_code; http_code=$(echo "$resp" | tail -1)
+    local body; body=$(echo "$resp" | sed '$d')
+    local api_code; api_code=$(safe_jq "$body" '-r .code // empty' '')
+
+    if [[ "$http_code" != "200" || "$api_code" != "200" ]]; then
+        log_warning "Provider ${provider_id} health precheck returned HTTP=${http_code:-unknown} code=${api_code:-unknown}"
+        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+        return 1
+    fi
+
+    log_info "Provider health check completed; waiting ${settle_seconds}s before creating/operating instances..."
+    sleep "$settle_seconds"
+    return 0
+}
+
+wait_instance_status() {
+    local instance_id="$1" expected="$2" max="${3:-$INSTANCE_STATUS_MAX_WAIT}" interval="${4:-10}" token="${5:-$ADMIN_TOKEN}" label="${6:-instance ${instance_id}}"
+    local elapsed=0 last_status="" first_dumped=false
+
+    log_info "Waiting for ${label} status '${expected}' (max ${max}s)..."
+    while [[ $elapsed -lt $max ]]; do
+        local resp; resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+            "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
+        local code; code=$(safe_jq "$resp" '-r .code // empty' '')
+        local status; status=$(safe_jq "$resp" '-r .data.status // empty' '')
+
+        if [[ "$expected" == *"deleted"* && "$code" != "200" && -n "$code" ]]; then
+            log_success "${label} deleted/gone (code=${code}, waited ${elapsed}s)"
+            echo "$resp"
+            return 0
+        fi
+
+        local ok=false
+        IFS='|' read -ra expected_statuses <<< "$expected"
+        local exp
+        for exp in "${expected_statuses[@]}"; do
+            if [[ "$status" == "$exp" ]]; then
+                ok=true
+                break
+            fi
+        done
+        if [[ "$ok" == "true" ]]; then
+            log_success "${label} status=${status} (waited ${elapsed}s)"
+            echo "$resp"
+            return 0
+        fi
+
+        if [[ "$first_dumped" == "false" ]]; then
+            first_dumped=true
+            log_debug "${label} initial detail: $(echo "$resp" | jq -c '.' 2>/dev/null | head -c 2000)"
+        fi
+
+        case "$status" in
+            failed|error|cancelled|timeout)
+                log_error "${label} reached terminal status=${status} before expected '${expected}'"
+                echo "$resp"
+                return 1
+                ;;
+        esac
+
+        if [[ "$status" != "$last_status" || $((elapsed % 30)) -eq 0 ]]; then
+            log_info "${label} status: ${status:-unknown}, waiting... (${elapsed}s/${max}s)"
+            last_status="$status"
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    local final_resp; final_resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+        "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
+    log_warning "${label} did not reach '${expected}' after ${max}s. Full detail:"
+    echo "$final_resp" | jq '.' 2>/dev/null || echo "$final_resp"
+    return 1
+}
+
+wait_instance_operation_settled() {
+    local instance_id="$1" response="$2" expected_status="${3:-}" label="${4:-instance operation}" token="${5:-$ADMIN_TOKEN}" max="${6:-$INSTANCE_TASK_MAX_WAIT}" interval="${7:-10}"
+    local task_id; task_id=$(safe_jq "$response" '-r .data.task_id // empty' '')
+
+    if [[ -n "$task_id" ]]; then
+        log_info "Waiting for ${label} task ${task_id}..."
+        wait_task_complete "$SERVER_URL" "$task_id" "$token" "$max" "$interval" > /dev/null || return 1
+    fi
+
+    if [[ "${INSTANCE_OPERATION_SETTLE_SECONDS:-0}" -gt 0 ]]; then
+        sleep "$INSTANCE_OPERATION_SETTLE_SECONDS"
+    fi
+
+    if [[ -n "$expected_status" ]]; then
+        wait_instance_status "$instance_id" "$expected_status" "$INSTANCE_STATUS_MAX_WAIT" "$interval" "$token" "$label" > /dev/null
+    fi
 }
 
 # Delete instance with proper async wait and polling

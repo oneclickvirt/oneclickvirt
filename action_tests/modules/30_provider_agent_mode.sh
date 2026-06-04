@@ -206,7 +206,7 @@ run_module_30() {
                     local sw_ac_task; sw_ac_task=$(echo "$sw_ac_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
                     if [[ -n "$sw_ac_task" ]]; then
                         log_info "Waiting switched-provider auto-config task: ${sw_ac_task}"
-                        wait_task_complete "$SERVER_URL" "$sw_ac_task" "$ADMIN_TOKEN" 300 10 > /dev/null 2>&1 || true
+                        wait_task_complete "$SERVER_URL" "$sw_ac_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || true
                     fi
                 else
                     test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200" \

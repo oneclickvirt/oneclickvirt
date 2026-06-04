@@ -49,6 +49,10 @@ run_module_29() {
     fi
 
     log_info "Found ${image_count} candidate images (arch=${provider_arch})"
+    ensure_provider_health_ready "$PROVIDER_ID" "$ADMIN_TOKEN" || {
+        chain_break "$group" "Provider health check failed before image creation tests"
+        return 1
+    }
 
     # -- Test each unique image (deduplicate by name) --
     local tested=0 passed=0 failed=0
@@ -119,7 +123,7 @@ run_module_29() {
         # Handle async task-based creation
         if [[ -n "$task_id" ]]; then
             log_info "Waiting for creation task: ${task_id}"
-            local task_result; task_result=$(wait_task_complete "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" 300 10) || true
+            local task_result; task_result=$(wait_task_complete "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || true
             if [[ -z "$inst_id" ]]; then
                 inst_id=$(echo "$task_result" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
             fi
@@ -144,23 +148,7 @@ run_module_29() {
         log_info "Created instance ${inst_id} with image ${img_name}"
 
         # -- Wait for instance to reach running state --
-        local img_waited=0
-        while [[ $img_waited -lt 120 ]]; do
-            local img_st; img_st=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-                "${SERVER_URL}/api/v1/admin/instances/${inst_id}" 2>/dev/null) || true
-            local img_status; img_status=$(echo "$img_st" | jq -r '.data.status // empty' 2>/dev/null)
-            if [[ "$img_status" == "running" ]]; then
-                log_success "Instance ${inst_id} is running (waited ${img_waited}s)"
-                break
-            fi
-            if [[ "$img_status" == "failed" || "$img_status" == "error" ]]; then
-                log_warning "Instance ${inst_id} in terminal state: ${img_status}"
-                break
-            fi
-            log_debug "Instance ${inst_id} status: ${img_status:-unknown} (${img_waited}s/120s)"
-            sleep 10
-            img_waited=$((img_waited + 10))
-        done
+        wait_instance_status "$inst_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "image-test instance ${inst_id}" > /dev/null || true
 
         # -- Verify instance exists and has expected state --
         local verify_resp; verify_resp=$(test_api "Verify ${test_label}" "GET" \
@@ -174,7 +162,7 @@ run_module_29() {
 
         # -- Delete instance --
         log_info "Deleting instance ${inst_id}..."
-        if delete_instance_safe "$inst_id" "$ADMIN_TOKEN" 180; then
+        if delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT"; then
             log_success "Deleted instance ${inst_id} (image: ${img_name})"
             _record_result "Delete ${test_label}" "DELETE" "/api/v1/admin/instances/${inst_id}" "PASS" "200" "200" "" "$group"
         else
@@ -197,7 +185,7 @@ run_module_29() {
             _record_result "Verify deleted ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" "FAIL" "404" "200" "Instance still exists" "$group"
             failed=$((failed + 1))
             # Force cleanup to prevent disk full
-            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" 120 2>/dev/null || true
+            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 2>/dev/null || true
         fi
     done
 

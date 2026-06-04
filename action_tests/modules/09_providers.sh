@@ -164,7 +164,7 @@ run_module_09() {
             "{\"providerId\":${PROVIDER_ID}}" "$group")
         local ac_task; ac_task=$(echo "$ac" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$ac_task" ]]; then
-            wait_task_complete "$SERVER_URL" "$ac_task" "$ADMIN_TOKEN" 300 10 || true
+            wait_task_complete "$SERVER_URL" "$ac_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 || true
         fi
     else
         log_info "Skipping auto-configure for ssh_only execution rule"

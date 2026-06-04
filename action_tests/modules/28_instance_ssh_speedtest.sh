@@ -98,7 +98,11 @@ _get_instance_ssh_info() {
 
 # Wait (with retries) until the instance reports "running" status
 _wait_instance_running() {
-    local instance_id="$1" max_wait="${2:-120}" interval=10 elapsed=0
+    local instance_id="$1" max_wait="${2:-$INSTANCE_STATUS_MAX_WAIT}" interval=10 elapsed=0
+    if declare -F wait_instance_status > /dev/null 2>&1; then
+        wait_instance_status "$instance_id" "running" "$max_wait" "$interval" "$ADMIN_TOKEN" "SSH test instance ${instance_id}" > /dev/null
+        return $?
+    fi
     log_info "Waiting up to ${max_wait}s for instance ${instance_id} to reach 'running' state..."
     while [[ $elapsed -lt $max_wait ]]; do
         local resp; resp=$(curl -s --max-time 10 \
@@ -224,6 +228,10 @@ run_module_28() {
 
     if [[ "$_m28_code" != "200" || -z "$_m28_status" ]]; then
         log_warning "TEST_INSTANCE_ID=${TEST_INSTANCE_ID} not found (code=${_m28_code}), recreating..."
+        ensure_provider_health_ready "$PROVIDER_ID" "$ADMIN_TOKEN" || {
+            chain_break "$group" "Provider health check failed before recreating SSH test instance"
+            return 1
+        }
         local _m28_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":256,\"disk\":5,\"network_type\":\"nat_ipv4\"}"
         local _m28_create; _m28_create=$(curl -s --max-time 60 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             -H "Content-Type: application/json" -X POST -d "$_m28_data" \
@@ -232,7 +240,7 @@ run_module_28() {
         local _m28_task; _m28_task=$(echo "$_m28_create" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$_m28_task" ]]; then
             log_info "Waiting for recreation task ${_m28_task}..."
-            local _m28_tr; _m28_tr=$(wait_task_complete "$SERVER_URL" "$_m28_task" "$ADMIN_TOKEN" 300 10) || true
+            local _m28_tr; _m28_tr=$(wait_task_complete "$SERVER_URL" "$_m28_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || true
             if [[ -z "$_m28_new_id" ]]; then
                 _m28_new_id=$(echo "$_m28_tr" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
             fi
@@ -247,15 +255,15 @@ run_module_28() {
     elif [[ "$_m28_status" != "running" ]]; then
         # Instance exists but not running — try to start it
         log_info "Instance ${TEST_INSTANCE_ID} status=${_m28_status}, attempting to start..."
-        curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        local _m28_start_resp; _m28_start_resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             -H "Content-Type: application/json" -X POST \
             -d '{"action":"start"}' \
-            "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" > /dev/null 2>&1 || true
-        sleep 10
+            "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" 2>/dev/null) || true
+        [[ -n "$_m28_start_resp" ]] && wait_instance_operation_settled "$TEST_INSTANCE_ID" "$_m28_start_resp" "running" "start SSH test instance ${TEST_INSTANCE_ID}" "$ADMIN_TOKEN" || true
     fi
 
     # -- Wait for instance to be running --
-    _wait_instance_running "$TEST_INSTANCE_ID" 180
+    _wait_instance_running "$TEST_INSTANCE_ID" "$INSTANCE_STATUS_MAX_WAIT"
 
     # -- Get SSH info from API --
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
@@ -310,7 +318,7 @@ run_module_28() {
             export TEST_INSTANCE_PASSWORD="$desired_pw"
         fi
         if [[ -n "$rp_task" ]]; then
-            wait_task_complete "$SERVER_URL" "$rp_task" "$ADMIN_TOKEN" 120 5 > /dev/null 2>&1 || true
+            wait_task_complete "$SERVER_URL" "$rp_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || true
             local pw_resp; pw_resp=$(curl -s --max-time 30 \
                 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                 "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}/password/${rp_task}" 2>/dev/null) || true

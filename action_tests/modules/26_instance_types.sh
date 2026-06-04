@@ -24,6 +24,11 @@ run_module_26() {
     test_api "Update type perms (both)" "PUT" "/api/v1/admin/instance-type-permissions" "200|400" \
         '{"minLevelForContainer":1,"minLevelForVM":1,"minLevelForDeleteContainer":1,"minLevelForDeleteVM":1,"minLevelForResetContainer":1,"minLevelForResetVM":1}' "$group" "$ADMIN_TOKEN"
 
+    ensure_provider_health_ready "$PROVIDER_ID" "$ADMIN_TOKEN" || {
+        chain_break "$group" "Provider health check failed before instance type creation tests"
+        return 1
+    }
+
     # ---- Container-specific tests ----
     if should_test_type "container" && env_supports_container; then
         log_info "Testing container-specific operations"
@@ -33,28 +38,24 @@ run_module_26() {
             '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_ct","instance_type":"container","image":"debian:12","cpu":1,"memory":512,"disk":5}' \
             "$group" "$ADMIN_TOKEN")
         local ct_task; ct_task=$(echo "$ct_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+        local ct_id; ct_id=$(echo "$ct_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
         if [[ -n "$ct_task" ]]; then
-            # Wait for container creation
-            local waited=0
-            while [[ $waited -lt 120 ]]; do
-                local status; status=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-                    "${SERVER_URL}/api/v1/admin/tasks/${ct_task}" | jq -r '.data.status // empty' 2>/dev/null)
-                [[ "$status" == "completed" || "$status" == "failed" ]] && break
-                sleep 5; waited=$((waited + 5))
-            done
+            local ct_task_resp; ct_task_resp=$(wait_task_complete "$SERVER_URL" "$ct_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || true
+            [[ -z "$ct_id" ]] && ct_id=$(echo "$ct_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+        fi
 
-            local ct_id; ct_id=$(echo "$ct_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-            if [[ -n "$ct_id" ]]; then
-                # Container-specific operations
-                test_api "Container monitoring" "GET" "/api/v1/admin/instances/${ct_id}/monitoring/resources" "200" \
-                    "" "$group" "$ADMIN_TOKEN"
-                test_api "Container port mappings" "GET" "/api/v1/admin/instances/${ct_id}/port-mappings" "200" \
-                    "" "$group" "$ADMIN_TOKEN"
+        if [[ -n "$ct_id" ]]; then
+            wait_instance_status "$ct_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "type-test container ${ct_id}" > /dev/null || true
+            # Container-specific operations
+            test_api "Container monitoring" "GET" "/api/v1/admin/instances/${ct_id}/monitoring/resources" "200" \
+                "" "$group" "$ADMIN_TOKEN"
+            test_api "Container port mappings" "GET" "/api/v1/admin/instances/${ct_id}/port-mappings" "200" \
+                "" "$group" "$ADMIN_TOKEN"
 
-                # Cleanup
-                test_api "Delete test container" "DELETE" "/api/v1/admin/instances/${ct_id}" "200" "" "$group" "$ADMIN_TOKEN"
-            fi
+            # Cleanup
+            local ct_delete_resp; ct_delete_resp=$(test_api "Delete test container" "DELETE" "/api/v1/admin/instances/${ct_id}" "200" "" "$group" "$ADMIN_TOKEN") || ct_delete_resp=""
+            [[ -n "$ct_delete_resp" ]] && wait_instance_operation_settled "$ct_id" "$ct_delete_resp" "deleted" "delete type-test container ${ct_id}" "$ADMIN_TOKEN" || true
         fi
 
         # Disable container permission and verify rejection
@@ -81,24 +82,21 @@ run_module_26() {
             '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_vm","instance_type":"vm","image":"debian-11","cpu":1,"memory":1024,"disk":10}' \
             "$group" "$ADMIN_TOKEN")
         local vm_task; vm_task=$(echo "$vm_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+        local vm_id; vm_id=$(echo "$vm_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
         if [[ -n "$vm_task" ]]; then
-            local waited=0
-            while [[ $waited -lt 180 ]]; do
-                local status; status=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-                    "${SERVER_URL}/api/v1/admin/tasks/${vm_task}" | jq -r '.data.status // empty' 2>/dev/null)
-                [[ "$status" == "completed" || "$status" == "failed" ]] && break
-                sleep 5; waited=$((waited + 5))
-            done
+            local vm_task_resp; vm_task_resp=$(wait_task_complete "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || true
+            [[ -z "$vm_id" ]] && vm_id=$(echo "$vm_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+        fi
 
-            local vm_id; vm_id=$(echo "$vm_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-            if [[ -n "$vm_id" ]]; then
-                test_api "VM monitoring" "GET" "/api/v1/admin/instances/${vm_id}/monitoring/resources" "200" \
-                    "" "$group" "$ADMIN_TOKEN"
+        if [[ -n "$vm_id" ]]; then
+            wait_instance_status "$vm_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "type-test VM ${vm_id}" > /dev/null || true
+            test_api "VM monitoring" "GET" "/api/v1/admin/instances/${vm_id}/monitoring/resources" "200" \
+                "" "$group" "$ADMIN_TOKEN"
 
-                # Cleanup
-                test_api "Delete test VM" "DELETE" "/api/v1/admin/instances/${vm_id}" "200" "" "$group" "$ADMIN_TOKEN"
-            fi
+            # Cleanup
+            local vm_delete_resp; vm_delete_resp=$(test_api "Delete test VM" "DELETE" "/api/v1/admin/instances/${vm_id}" "200" "" "$group" "$ADMIN_TOKEN") || vm_delete_resp=""
+            [[ -n "$vm_delete_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_delete_resp" "deleted" "delete type-test VM ${vm_id}" "$ADMIN_TOKEN" || true
         fi
 
         # Disable VM permission

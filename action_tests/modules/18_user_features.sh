@@ -87,7 +87,7 @@ run_module_18() {
             '{"password":"UserNewPass123!"}' "$group" "$USER_TOKEN")
         local urp_task; urp_task=$(echo "$urp" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$urp_task" ]]; then
-            sleep 5
+            wait_task_complete "$SERVER_URL" "$urp_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || true
             test_api "User get new password" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/password/${urp_task}" "200|403|404" "" "$group" "$USER_TOKEN"
         fi
 

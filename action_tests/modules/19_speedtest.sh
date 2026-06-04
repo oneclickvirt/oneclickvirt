@@ -27,6 +27,7 @@ run_module_19() {
     local action_resp; action_resp=$(test_api "Speedtest instance action" "POST" \
         "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "200|400|404|409|500" \
         '{"action":"restart"}' "$group" "$ADMIN_TOKEN")
+    wait_instance_operation_settled "$TEST_INSTANCE_ID" "$action_resp" "running" "speedtest restart ${TEST_INSTANCE_ID}" "$ADMIN_TOKEN" || true
 
     # -- Wait for traffic data to settle --
     sleep 5
