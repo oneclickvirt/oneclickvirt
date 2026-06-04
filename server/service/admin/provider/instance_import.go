@@ -216,6 +216,35 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				npuDeviceIDs = discovered.NpuDeviceIds
 			}
 
+			// 根据Provider的资源限制配置，决定导入的实例是否计入资源占用
+			// 对于不限制的资源类型，将对应值置零，避免影响资源使用量计算
+			importCPU := discovered.CPU
+			importMemory := discovered.Memory
+			importDisk := discovered.Disk
+			isContainer := discovered.InstanceType == "container"
+			if isContainer {
+				if !providerInfo.ContainerLimitCPU {
+					importCPU = 0
+				}
+				if !providerInfo.ContainerLimitMemory {
+					importMemory = 0
+				}
+				if !providerInfo.ContainerLimitDisk {
+					importDisk = 0
+				}
+			} else {
+				// VM instance
+				if !providerInfo.VMLimitCPU {
+					importCPU = 0
+				}
+				if !providerInfo.VMLimitMemory {
+					importMemory = 0
+				}
+				if !providerInfo.VMLimitDisk {
+					importDisk = 0
+				}
+			}
+
 			instance := providerModel.Instance{
 				UUID:         discovered.UUID,
 				Name:         discovered.Name,
@@ -224,9 +253,9 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				Status:       discovered.Status,
 				Image:        discovered.Image,
 				InstanceType: discovered.InstanceType,
-				CPU:          discovered.CPU,
-				Memory:       discovered.Memory,
-				Disk:         discovered.Disk,
+				CPU:          importCPU,
+				Memory:       importMemory,
+				Disk:         importDisk,
 				PrivateIP:    discovered.PrivateIP,
 				PublicIP:     discovered.PublicIP,
 				IPv6Address:  discovered.IPv6Address,
@@ -321,10 +350,10 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 						zap.Uint("instanceId", instance.ID))
 				}
 
-				// 累计资源占用
-				totalCPU += int64(discovered.CPU)
-				totalMemory += discovered.Memory
-				totalDisk += discovered.Disk
+				// 累计资源占用（仅计入限制的资源类型）
+				totalCPU += int64(importCPU)
+				totalMemory += importMemory
+				totalDisk += importDisk
 
 				// 标记端口为已占用
 				if discovered.SSHPort > 0 {

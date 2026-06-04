@@ -36,6 +36,8 @@ run_module_10() {
             log_warning "Container instance creation did not complete successfully; downstream container checks will be skipped"
             ir=""
         fi
+        # Debug: log full creation response
+        log_info "Create instance response: $(echo "$ir" | jq -c '.' 2>/dev/null | head -c 2000)"
         container_id=$(echo "$ir" | jq -r '.data.id // .data.ID // .data.task_id // empty' 2>/dev/null)
 
         # Handle task-based creation
@@ -43,6 +45,7 @@ run_module_10() {
         if [[ -n "$maybe_task" ]]; then
             log_info "Instance creation task: ${maybe_task}"
             local task_r; task_r=$(wait_task_complete "$SERVER_URL" "$maybe_task" "$ADMIN_TOKEN" 300 10)
+            log_info "Task complete response: $(echo "$task_r" | jq -c '.' 2>/dev/null | head -c 2000)"
             container_id=$(echo "$task_r" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
         fi
 
@@ -56,6 +59,7 @@ run_module_10() {
             sleep 30
             local ssh_ready=false
             local ssh_waited=30
+            local first_check_done=false
             while [[ $ssh_waited -lt 300 ]]; do
                 local inst_status; inst_status=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                     "${SERVER_URL}/api/v1/admin/instances/${container_id}" 2>/dev/null)
@@ -65,11 +69,21 @@ run_module_10() {
                     log_success "Instance is running (waited ${ssh_waited}s)"
                     break
                 fi
+                # On first non-running check, dump full response for diagnostics
+                if [[ "$first_check_done" != "true" ]]; then
+                    first_check_done=true
+                    log_info "Instance detail response: $(echo "$inst_status" | jq -c '.' 2>/dev/null | head -c 2000)"
+                fi
                 log_info "Instance status: ${running:-unknown}, waiting... (${ssh_waited}s/300s)"
                 sleep 10
                 ssh_waited=$((ssh_waited + 10))
             done
             if [[ "$ssh_ready" != "true" ]]; then
+                # Dump full response on timeout for debugging
+                local final_status; final_status=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                    "${SERVER_URL}/api/v1/admin/instances/${container_id}" 2>/dev/null)
+                log_warning "Instance still not running after 300s. Full detail:"
+                echo "$final_status" | jq '.' 2>/dev/null || echo "$final_status"
                 log_warning "Instance may not be fully ready after 300s, continuing tests"
             fi
 
@@ -173,6 +187,7 @@ run_module_10() {
             # -- Rebuild --
             local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200|400|500" \
                 '{"action":"rebuild","image":"debian:12"}' "$group")
+            log_info "Rebuild response: $(echo "$rb_resp" | jq -c '.' 2>/dev/null | head -c 2000)"
             local rb_task; rb_task=$(echo "$rb_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
             if [[ -n "$rb_task" ]]; then
                 log_info "Waiting for rebuild task ${rb_task}..."
@@ -182,6 +197,7 @@ run_module_10() {
             fi
             # Wait for instance to reach running state after rebuild
             local rb_waited=0
+            local rb_first_check=true
             while [[ $rb_waited -lt 300 ]]; do
                 local rb_st; rb_st=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                     "${SERVER_URL}/api/v1/admin/instances/${container_id}" 2>/dev/null)
@@ -189,6 +205,10 @@ run_module_10() {
                 if [[ "$rb_status" == "running" ]]; then
                     log_success "Instance ${container_id} running after rebuild (waited ${rb_waited}s)"
                     break
+                fi
+                if [[ "$rb_first_check" == "true" ]]; then
+                    rb_first_check=false
+                    log_info "Post-rebuild detail: $(echo "$rb_st" | jq -c '.' 2>/dev/null | head -c 2000)"
                 fi
                 log_debug "Post-rebuild status: ${rb_status:-unknown} (${rb_waited}s/300s)"
                 sleep 10
