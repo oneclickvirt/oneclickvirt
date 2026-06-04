@@ -91,47 +91,70 @@ is_linux_kernel() {
 # ---- Usage ----
 usage() {
     cat << 'EOF'
-Usage: bash install_full.sh [OPTIONS]
+Usage / 用法: bash install_full.sh [OPTIONS] / [选项]
 
-Options:
+Options / 选项:
   --db-type TYPE          Database type: mysql (default) or mariadb
+                          数据库类型: mysql（默认）或 mariadb
   --db-password PASS      Database root password (auto-generated if not set)
+                          数据库 root 密码（未设置则自动生成）
   --external-db           Use an external database (skip local DB install)
+                          使用外部数据库（跳过本地数据库安装）
   --db-host HOST          External DB host (implies --external-db)
+                          外部数据库主机（隐含 --external-db）
   --db-port PORT          External DB port (default: 3306)
+                          外部数据库端口（默认: 3306）
   --db-name NAME          External DB name (default: oneclickvirt)
+                          外部数据库名称（默认: oneclickvirt）
   --db-user USER          External DB user (default: oneclickvirt)
-  --db-pass PASS          External DB password
+                          外部数据库用户（默认: oneclickvirt）
+  --db-pass PASS          External DB password / 外部数据库密码
   --admin-email EMAIL     Admin email for auto-init (default: admin@oneclickvirt.local)
+                          管理员邮箱（默认: admin@oneclickvirt.local）
   --proxy TYPE            Reverse proxy: caddy, nginx, openresty (default: caddy)
+                          反向代理: caddy, nginx, openresty（默认: caddy）
   --domain DOMAIN         Domain name or IP (e.g. panel.example.com, 1.2.3.4)
+                          域名或 IP（如 panel.example.com, 1.2.3.4）
                           Prefix with https:// to enable TLS, http:// to disable.
+                          添加 https:// 前缀以启用 TLS，http:// 前缀以禁用。
                           If omitted in interactive mode, auto-detects public/private IP
+                          交互模式下如省略，将自动检测公网/内网 IP
                           and prompts for choice (public IPv4 / localhost / private IPv4).
+                          并提示选择（公网 IPv4 / 本地回环 / 内网 IPv4）。
   --email EMAIL           Email for TLS certificate notifications
+                          TLS 证书通知邮箱
   --tls METHOD            TLS method: letsencrypt, zerossl, selfsigned, off
+                          TLS 方式: letsencrypt, zerossl, selfsigned, off
                           TLS requires a real domain name (not bare IP or localhost).
-  --non-interactive       Run without prompts
+                          TLS 需要真实域名（不能是裸 IP 或 localhost）。
+  --non-interactive       Run without prompts / 非交互模式运行
   --force                 Skip system resource checks (disk & memory)
+                          跳过系统资源检查（磁盘和内存）
   --version VERSION       Specific version to install (default: latest)
+                          指定安装版本（默认: 最新）
   --db-wait-timeout SEC   Seconds to wait for local DB readiness (default: 180)
+                          等待本地数据库就绪的秒数（默认: 180）
   --no-db-fallback        Do not auto-fallback from MySQL to MariaDB-compatible backend
-  --help                  Show this help
+                          禁止 MySQL 自动回退到 MariaDB 兼容后端
+  --help                  Show this help / 显示此帮助
 
-Examples:
+Examples / 示例:
   # Interactive mode — just press Enter at each prompt
+  # 交互模式 — 每次提示按回车即可
   bash install_full.sh
 
   # Non-interactive with local DB + domain + TLS
+  # 非交互模式：本地数据库 + 域名 + TLS
   bash install_full.sh --non-interactive --domain https://panel.example.com --email admin@example.com
 
   # Non-interactive with a public IP (TLS disabled, local DB)
+  # 非交互模式：使用公网 IP（TLS 已禁用，本地数据库）
   bash install_full.sh --non-interactive --domain http://1.2.3.4
 
   # Use external database (separated deployment / 分离式部署)
   bash install_full.sh --external-db --db-host 10.0.0.5 --db-name oneclickvirt --db-user ocv --db-pass mypass
 
-  # Non-interactive with external DB
+  # Non-interactive with external DB / 非交互模式：外部数据库
   bash install_full.sh --non-interactive --domain https://panel.example.com --email admin@example.com \\
       --external-db --db-host 10.0.0.5 --db-port 3306 --db-name oneclickvirt --db-user ocv --db-pass mypass
 EOF
@@ -248,15 +271,16 @@ check_system_resources() {
         return 0
     fi
 
-    local resource_warnings=()
+    local has_disk_warning=false has_mem_warning=false
+    local avail_gb=0 ram_gb=0 swap_gb=0 combined_gb=0
 
     # ── disk check ──────────────────────────────────────────────────────────
     local min_disk_kb=$((10 * 1024 * 1024))
     local available_disk_kb
     available_disk_kb=$(df -Pk / 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$available_disk_kb" && "$available_disk_kb" -lt "$min_disk_kb" ]]; then
-        local avail_gb=$((available_disk_kb / 1024 / 1024))
-        resource_warnings+=("$(printf 'Disk space: %d GB available, 10 GB recommended' "$avail_gb")")
+        avail_gb=$((available_disk_kb / 1024 / 1024))
+        has_disk_warning=true
     fi
 
     # ── memory check (MemTotal + SwapTotal) ──────────────────────────────────
@@ -272,23 +296,24 @@ check_system_resources() {
     memtotal_kb=${memtotal_kb:-0}
     swaptotal_kb=${swaptotal_kb:-0}
     local combined_kb=$((memtotal_kb + swaptotal_kb))
-    local combined_gb=0
     if [[ "$combined_kb" -gt 0 ]]; then
         combined_gb=$(awk "BEGIN {printf \"%.1f\", $combined_kb / 1024 / 1024}")
     fi
     if [[ "$combined_kb" -gt 0 && "$combined_kb" -lt "$min_combined_kb" ]]; then
-        local ram_gb=0 swap_gb=0
         ram_gb=$(awk "BEGIN {printf \"%.1f\", $memtotal_kb / 1024 / 1024}")
         swap_gb=$(awk "BEGIN {printf \"%.1f\", $swaptotal_kb / 1024 / 1024}")
-        resource_warnings+=("$(printf 'Memory: %.1f GB RAM + %.1f GB swap = %.1f GB total, 2 GB recommended' "$ram_gb" "$swap_gb" "$combined_gb")")
+        has_mem_warning=true
     fi
 
     # ── handle warnings ─────────────────────────────────────────────────────
-    if [[ ${#resource_warnings[@]} -gt 0 ]]; then
+    if [[ "$has_disk_warning" == "true" || "$has_mem_warning" == "true" ]]; then
         log_warning "System resources below recommended levels:" "系统资源低于推荐配置:"
-        for w in "${resource_warnings[@]}"; do
-            log_warning "  - $w" "  - $w"
-        done
+        if [[ "$has_disk_warning" == "true" ]]; then
+            log_warning "  - Disk: ${avail_gb} GB available, 10 GB recommended" "  - 磁盘: ${avail_gb} GB 可用, 推荐 10 GB"
+        fi
+        if [[ "$has_mem_warning" == "true" ]]; then
+            log_warning "  - Memory: ${ram_gb} GB RAM + ${swap_gb} GB swap = ${combined_gb} GB total, 2 GB recommended" "  - 内存: ${ram_gb} GB RAM + ${swap_gb} GB swap = ${combined_gb} GB 总计, 推荐 2 GB"
+        fi
         log_warning "Installation may fail or performance may be degraded." "安装可能失败或性能下降。"
 
         if [[ "${NONINTERACTIVE:-false}" == "true" ]]; then
@@ -296,8 +321,8 @@ check_system_resources() {
             exit 1
         fi
 
-        # Interactive: ask for confirmation
-        read -r -p "$(echo -e "${YELLOW}[WARN]${NC} Continue anyway? (y/N): ")" confirm
+        # Interactive: ask for confirmation / 交互式：请求确认
+        read -r -p "$(echo -e "${YELLOW}[WARN]${NC} Continue anyway? / 是否继续安装? (y/N): ")" confirm
         case "$confirm" in
             [Yy]*)
                 log_warning "Continuing installation despite resource warnings..." "忽略资源警告，继续安装..."
@@ -1735,7 +1760,7 @@ main() {
 
     echo ""
     echo -e "${CYAN}============================================${NC}"
-    echo -e "${CYAN}  OneClickVirt Full Installation${NC}"
+    echo -e "${CYAN}  OneClickVirt Full Installation / OneClickVirt 完整安装${NC}"
     echo -e "${CYAN}============================================${NC}"
     echo ""
 
@@ -1747,46 +1772,46 @@ main() {
     # ---- Interactive prompts (if not non-interactive) ----
     if [[ "$NONINTERACTIVE" != "true" ]]; then
         echo ""
-        echo -e "${CYAN}--- Configuration ---${NC}"
-        echo -e "  (Press Enter to accept defaults shown in brackets)"
+        echo -e "${CYAN}--- Configuration / 配置 ---${NC}"
+        echo -e "  (Press Enter to accept defaults shown in brackets / 按回车接受括号中的默认值)"
 
-        read -r -p "Database type [mysql/mariadb] (default: ${DB_TYPE}): " _db
+        read -r -p "Database type / 数据库类型 [mysql/mariadb] (default/默认: ${DB_TYPE}): " _db
         [[ -n "$_db" ]] && DB_TYPE="$_db"
 
-        read -r -p "Reverse proxy [caddy/nginx/openresty] (default: ${PROXY}): " _px
+        read -r -p "Reverse proxy / 反向代理 [caddy/nginx/openresty] (default/默认: ${PROXY}): " _px
         [[ -n "$_px" ]] && PROXY="$_px"
 
-        local domain_prompt="Domain name or IP"
+        local domain_prompt="Domain name or IP / 域名或 IP"
         [[ -n "$DOMAIN" && "$DOMAIN" != "localhost" ]] && domain_prompt="Domain name or IP [${DOMAIN}]"
-        domain_prompt="${domain_prompt} (Enter to auto-detect, e.g. panel.example.com): "
+        domain_prompt="${domain_prompt} (Enter to auto-detect / 回车自动检测, e.g. panel.example.com): "
         read -r -p "$domain_prompt" _dom
         if [[ -n "$_dom" ]]; then
             normalize_domain "$_dom"
         else
             # No domain entered — detect IPs and offer choices
             echo ""
-            echo -e "  ${CYAN}No domain provided. Detecting IP addresses...${NC}"
+            echo -e "  ${CYAN}No domain provided. Detecting IP addresses... / 未提供域名，正在检测 IP 地址...${NC}"
             local pub_ip="" priv_ip=""
             pub_ip=$(detect_public_ipv4 2>/dev/null || true)
             priv_ip=$(detect_private_ipv4 2>/dev/null || true)
 
             echo ""
-            echo -e "  ${CYAN}Select an address to use:${NC}"
+            echo -e "  ${CYAN}Select an address to use / 请选择要使用的地址:${NC}"
             local opt_num=1
             if [[ -n "$pub_ip" ]]; then
-                echo "  [${opt_num}] Public IPv4:  ${pub_ip}  (recommended for internet access)"
+                echo "  [${opt_num}] Public IPv4 / 公网 IPv4:  ${pub_ip}  (recommended / 推荐用于公网访问)"
                 opt_num=$((opt_num + 1))
             fi
-            echo "  [${opt_num}] Localhost:     127.0.0.1  (local access only)"
+            echo "  [${opt_num}] Localhost / 本地回环:     127.0.0.1  (local access only / 仅本地访问)"
             opt_num=$((opt_num + 1))
             if [[ -n "$priv_ip" && "$priv_ip" != "$pub_ip" ]]; then
-                echo "  [${opt_num}] Private IPv4:  ${priv_ip}  (LAN access)"
+                echo "  [${opt_num}] Private IPv4 / 内网 IPv4:  ${priv_ip}  (LAN access / 局域网访问)"
                 opt_num=$((opt_num + 1))
             fi
-            echo "  [${opt_num}] Enter a custom domain/IP manually"
+            echo "  [${opt_num}] Enter a custom domain/IP manually / 手动输入自定义域名或 IP"
 
             local choice
-            read -r -p "  Your choice [1-${opt_num}] (default: 1): " choice
+            read -r -p "  Your choice / 请选择 [1-${opt_num}] (default/默认: 1): " choice
             choice=${choice:-1}
 
             # Recalculate option positions based on what was shown
@@ -1816,7 +1841,7 @@ main() {
             fi
             # custom
             if [[ -z "$DOMAIN" && "$choice" == "$pos" ]]; then
-                read -r -p "  Enter custom domain or IP: " _custom_dom
+                read -r -p "  Enter custom domain or IP / 请输入自定义域名或 IP: " _custom_dom
                 if [[ -n "$_custom_dom" ]]; then
                     normalize_domain "$_custom_dom"
                 else
@@ -1845,14 +1870,14 @@ main() {
                 TLS_METHOD="off"
                 log_info "Detected http:// — TLS disabled" "检测到 http:// — 已禁用 TLS"
             else
-                local tls_prompt="TLS method [letsencrypt/zerossl/selfsigned/off]"
-                [[ -n "$TLS_METHOD" ]] && tls_prompt="${tls_prompt} (default: ${TLS_METHOD})"
+                local tls_prompt="TLS method / TLS 方式 [letsencrypt/zerossl/selfsigned/off]"
+                [[ -n "$TLS_METHOD" ]] && tls_prompt="${tls_prompt} (default/默认: ${TLS_METHOD})"
                 read -r -p "${tls_prompt}: " _tls
                 [[ -n "$_tls" ]] && TLS_METHOD="$_tls"
             fi
 
             if [[ "$TLS_METHOD" != "off" && "$TLS_METHOD" != "selfsigned" ]]; then
-                local email_prompt="Email for TLS certificate"
+                local email_prompt="Email for TLS certificate / TLS 证书邮箱"
                 [[ -n "$EMAIL" ]] && email_prompt="${email_prompt} [${EMAIL}]"
                 read -r -p "${email_prompt}: " _em
                 [[ -n "$_em" ]] && EMAIL="$_em"
@@ -1870,19 +1895,19 @@ main() {
     # ---- External database prompt (interactive only) ----
     if [[ "$NONINTERACTIVE" != "true" && "$EXTERNAL_DB" != "true" ]]; then
         echo ""
-        read -r -p "Install local database? [Y/n] (n = use external DB): " _local_db
+        read -r -p "Install local database? / 是否安装本地数据库? [Y/n] (n = use external DB / n = 使用外部数据库): " _local_db
         if [[ "$_local_db" =~ ^[Nn] ]]; then
             EXTERNAL_DB="true"
-            echo -e "  ${CYAN}External database configuration:${NC}"
-            read -r -p "  DB Host (default: 127.0.0.1): " _db_host
+            echo -e "  ${CYAN}External database configuration / 外部数据库配置:${NC}"
+            read -r -p "  DB Host / 数据库主机 (default/默认: 127.0.0.1): " _db_host
             DB_HOST="${_db_host:-127.0.0.1}"
-            read -r -p "  DB Port (default: 3306): " _db_port
+            read -r -p "  DB Port / 数据库端口 (default/默认: 3306): " _db_port
             DB_PORT="${_db_port:-3306}"
-            read -r -p "  DB Name (default: oneclickvirt): " _db_name
+            read -r -p "  DB Name / 数据库名称 (default/默认: oneclickvirt): " _db_name
             DB_NAME_EXT="${_db_name:-oneclickvirt}"
-            read -r -p "  DB User (default: oneclickvirt): " _db_user
+            read -r -p "  DB User / 数据库用户 (default/默认: oneclickvirt): " _db_user
             DB_USER_EXT="${_db_user:-oneclickvirt}"
-            read -r -p "  DB Password: " _db_pass
+            read -r -p "  DB Password / 数据库密码: " _db_pass
             DB_PASS_EXT="${_db_pass}"
             DB_PASSWORD="${_db_pass}"  # for display/summary
             log_info "Using external database: ${DB_USER_EXT}@${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}" "使用外部数据库: ${DB_USER_EXT}@${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}"
@@ -1905,7 +1930,7 @@ main() {
     DOMAIN="${DOMAIN:-localhost}"
 
     echo ""
-    echo -e "${CYAN}--- Installation Summary ---${NC}"
+    echo -e "${CYAN}--- Installation Summary / 安装摘要 ---${NC}"
     if [[ "$EXTERNAL_DB" == "true" ]]; then
         echo "  Database:     EXTERNAL (${DB_HOST}:${DB_PORT}/${DB_NAME_EXT})"
     else
@@ -1918,7 +1943,7 @@ main() {
     echo ""
 
     if [[ "$NONINTERACTIVE" != "true" ]]; then
-        read -r -p "Proceed with installation? [Y/n]: " _confirm
+        read -r -p "Proceed with installation? / 是否继续安装? [Y/n]: " _confirm
         [[ "$_confirm" =~ ^[Nn] ]] && { log_info "Installation cancelled." "安装已取消。"; exit 0; }
     fi
 
@@ -1962,7 +1987,7 @@ main() {
     # ---- Done ----
     echo ""
     echo -e "${GREEN}============================================${NC}"
-    echo -e "${GREEN}  Installation Complete!${NC}"
+    echo -e "${GREEN}  Installation Complete! / 安装完成！${NC}"
     echo -e "${GREEN}============================================${NC}"
     echo ""
     # Determine URL scheme
@@ -1976,43 +2001,45 @@ main() {
     fi
     local _display_url="${_url_scheme}://${DOMAIN}"
 
-    echo -e "  Database:     ${DB_TYPE} (database: oneclickvirt)"
+    echo -e "  Database / 数据库:     ${DB_TYPE} (database: oneclickvirt)"
     if [[ "$EXTERNAL_DB" == "true" ]]; then
-        echo -e "  DB Host:      ${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}"
-        echo -e "  DB User:      ${DB_USER_EXT}"
-        echo -e "  DB Password:  ${DB_PASS_EXT}"
+        echo -e "  DB Host / 主机:      ${DB_HOST}:${DB_PORT}/${DB_NAME_EXT}"
+        echo -e "  DB User / 用户:      ${DB_USER_EXT}"
+        echo -e "  DB Password / 密码:  ${DB_PASS_EXT}"
     else
-        echo -e "  DB Password:  ${DB_PASSWORD}"
-        echo -e "  DB User:      oneclickvirt (localhost only)"
+        echo -e "  DB Password / 密码:  ${DB_PASSWORD}"
+        echo -e "  DB User / 用户:      oneclickvirt (localhost only / 仅本地)"
     fi
-    echo -e "  Proxy:        ${PROXY}"
+    echo -e "  Proxy / 代理:        ${PROXY}"
     echo -e "  URL:          ${_display_url}"
     echo ""
-    echo -e "  Server Logs:  journalctl -u oneclickvirt -f"
-    echo -e "  Proxy Logs:   journalctl -u ${PROXY} -f"
-    echo -e "  Config Dir:   ${SERVER_DIR}"
+    echo -e "  Server Logs / 服务日志:  journalctl -u oneclickvirt -f"
+    echo -e "  Proxy Logs / 代理日志:   journalctl -u ${PROXY} -f"
+    echo -e "  Config Dir / 配置目录:   ${SERVER_DIR}"
     echo ""
-    echo -e "${YELLOW}  IMPORTANT — First-Run Setup:${NC}"
+    echo -e "${YELLOW}  IMPORTANT — First-Run Setup / 重要 — 首次运行设置:${NC}"
     echo -e "  - Admin account has been auto-created (if local DB was installed):"
-    echo -e "    Username:  ${ADMIN_USER}"
-    echo -e "    Password:  ${ADMIN_PASS}"
-    echo -e "  - Login at: ${_display_url}"
-    echo -e "  - CHANGE THE PASSWORD after first login!"
+    echo -e "    管理员账户已自动创建（如安装了本地数据库）:"
+    echo -e "    Username / 用户名:  ${ADMIN_USER}"
+    echo -e "    Password / 密码:    ${ADMIN_PASS}"
+    echo -e "  - Login at / 登录地址: ${_display_url}"
+    echo -e "  - CHANGE THE PASSWORD after first login! / 首次登录后请修改密码！"
     if [[ "$EXTERNAL_DB" != "true" ]]; then
         echo -e "  - Database is LOCALHOST-only (bind-address=127.0.0.1) — not exposed to internet."
+        echo -e "    数据库仅限本地访问 (bind-address=127.0.0.1) — 未暴露到公网。"
     fi
     echo ""
     if [[ "$EXTERNAL_DB" == "true" ]]; then
-        echo -e "${YELLOW}  External Database Credentials:${NC}"
-        echo -e "  DB Host:      ${DB_HOST}:${DB_PORT}"
-        echo -e "  DB Name:      ${DB_NAME_EXT}"
-        echo -e "  DB User:      ${DB_USER_EXT}"
-        echo -e "  DB Password:  ${DB_PASS_EXT}"
+        echo -e "${YELLOW}  External Database Credentials / 外部数据库凭据:${NC}"
+        echo -e "  DB Host / 主机:      ${DB_HOST}:${DB_PORT}"
+        echo -e "  DB Name / 库名:      ${DB_NAME_EXT}"
+        echo -e "  DB User / 用户:      ${DB_USER_EXT}"
+        echo -e "  DB Password / 密码:  ${DB_PASS_EXT}"
     else
-        echo -e "${YELLOW}  Database Credentials (auto-generated, for config.yaml):${NC}"
-        echo -e "  DB Name:      oneclickvirt"
-        echo -e "  DB User:      oneclickvirt"
-        echo -e "  DB Password:  ${DB_PASSWORD}"
+        echo -e "${YELLOW}  Database Credentials / 数据库凭据 (auto-generated / 自动生成, for config.yaml):${NC}"
+        echo -e "  DB Name / 库名:      oneclickvirt"
+        echo -e "  DB User / 用户:      oneclickvirt"
+        echo -e "  DB Password / 密码:  ${DB_PASSWORD}"
     fi
     echo ""
 

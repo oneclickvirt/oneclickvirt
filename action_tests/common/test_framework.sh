@@ -251,14 +251,26 @@ test_api_retry() {
         local st=$TOTAL_TESTS sp=$PASSED_TESTS sf=$FAILED_TESTS ss=$SKIPPED_TESTS
         # Save RESULTS_FILE byte offset so we can undo the intermediate FAIL record on non-final retries
         local _results_before=0
+        local _results_len=${#TEST_RESULTS_JSON[@]}
         [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" ]] && _results_before=$(wc -c < "$RESULTS_FILE" 2>/dev/null || echo 0)
-        local result; result=$(test_api "$name" "$method" "$url" "$expected" "$data" "$group" "$token" 2>&1) && { echo "$result"; return 0; }
+        local _body_file
+        _body_file=$(mktemp)
+        if test_api "$name" "$method" "$url" "$expected" "$data" "$group" "$token" > "$_body_file"; then
+            cat "$_body_file"
+            rm -f "$_body_file"
+            return 0
+        fi
+        rm -f "$_body_file"
         if [[ $i -lt $retries ]]; then
             # Undo the FAIL record written to RESULTS_FILE so it is not counted as a permanent failure
             if [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" && $_results_before -ge 0 ]]; then
                 head -c "$_results_before" "$RESULTS_FILE" > "${RESULTS_FILE}.retry_tmp" 2>/dev/null && \
                     mv "${RESULTS_FILE}.retry_tmp" "$RESULTS_FILE" 2>/dev/null || true
             fi
+            while [[ ${#TEST_RESULTS_JSON[@]} -gt $_results_len ]]; do
+                local _last_idx=$((${#TEST_RESULTS_JSON[@]} - 1))
+                unset "TEST_RESULTS_JSON[$_last_idx]"
+            done
             TOTAL_TESTS=$st; PASSED_TESTS=$sp; FAILED_TESTS=$sf; SKIPPED_TESTS=$ss
         fi
     done

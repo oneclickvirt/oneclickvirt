@@ -702,30 +702,34 @@ check_system_resources() {
         return 0
     fi
 
-    local resource_warnings=""
+    local has_warning=false
 
     # ── disk check ──────────────────────────────────────────────────────────
     local min_disk_kb=$((10 * 1024 * 1024))
     local available_disk_kb
     available_disk_kb=$(df -Pk / 2>/dev/null | awk 'NR==2 {print $4}')
+    local avail_gb=0
     if [ -n "$available_disk_kb" ] && [ "$available_disk_kb" -lt "$min_disk_kb" ]; then
-        local avail_gb=$((available_disk_kb / 1024 / 1024))
-        resource_warnings="${resource_warnings}  - Disk: ${avail_gb} GB available, 10 GB recommended\n"
+        avail_gb=$((available_disk_kb / 1024 / 1024))
+        has_warning=true
     fi
 
     # ── memory check (RAM + swap) ──────────────────────────────────────────
     local mem_size
     mem_size=$(get_memory_size)
     if [ -n "$mem_size" ] && [ "$mem_size" -lt 2048 ]; then
-        resource_warnings="${resource_warnings}  - Memory (RAM+swap): ${mem_size} MB, 2048 MB recommended\n"
+        has_warning=true
     fi
 
     # ── handle warnings ─────────────────────────────────────────────────────
-    if [ -n "$resource_warnings" ]; then
+    if [ "$has_warning" = true ]; then
         log_warning "System resources below recommended levels:" "系统资源低于推荐配置:"
-        printf "%b" "$resource_warnings" | while IFS= read -r line; do
-            [ -n "$line" ] && log_warning "$line" "$line"
-        done
+        if [ -n "$available_disk_kb" ] && [ "$available_disk_kb" -lt "$min_disk_kb" ]; then
+            log_warning "  - Disk: ${avail_gb} GB available, 10 GB recommended" "  - 磁盘: ${avail_gb} GB 可用, 推荐 10 GB"
+        fi
+        if [ -n "$mem_size" ] && [ "$mem_size" -lt 2048 ]; then
+            log_warning "  - Memory (RAM+swap): ${mem_size} MB, 2048 MB recommended" "  - 内存 (RAM+swap): ${mem_size} MB, 推荐 2048 MB"
+        fi
         log_warning "Installation may fail or performance may be degraded." "安装可能失败或性能下降。"
 
         if [ "$noninteractive" = "true" ]; then
@@ -767,13 +771,14 @@ show_info() {
     log_info "  Status:        systemctl status oneclickvirt" "  状态:         systemctl status oneclickvirt"
     log_info "  Logs:          journalctl -u oneclickvirt -f" "  日志:         journalctl -u oneclickvirt -f"
     echo ""
-    echo -e "${YELLOW}  IMPORTANT — First-Run Setup:${NC}"
+    echo -e "${YELLOW}  IMPORTANT — First-Run Setup / 重要 — 首次运行设置:${NC}"
     echo -e "  - Default admin account (if auto-initialized by install_full.sh):"
-    echo -e "    Username:  admin"
-    echo -e "    Password:  Admin123!@#"
-    echo -e "  - CHANGE THE PASSWORD after first login!"
-    echo -e "  - Start the service, then visit the web UI to begin."
-    echo -e "  - Guide: /opt/oneclickvirt/server/readme.md"
+    echo -e "    默认管理员账户（如果由 install_full.sh 自动初始化）:"
+    echo -e "    Username / 用户名:  admin"
+    echo -e "    Password / 密码:    Admin123!@#"
+    echo -e "  - CHANGE THE PASSWORD after first login! / 首次登录后请修改密码！"
+    echo -e "  - Start the service, then visit the web UI to begin. / 启动服务后访问 Web 界面开始使用。"
+    echo -e "  - Guide / 使用说明: /opt/oneclickvirt/server/readme.md"
     echo ""
     log_warning "Review config before starting: /opt/oneclickvirt/server/config.yaml" "启动前请检查配置文件: /opt/oneclickvirt/server/config.yaml"
 }
@@ -876,6 +881,26 @@ main() {
         "upgrade")
             check_root
             env_check
+            # Handle custom web path (interactive prompt, skipped if non-interactive or WEB_PATH env is set)
+            # 处理自定义Web路径（交互式询问，非交互模式或已设置 WEB_PATH 环境变量时跳过）
+            if [ "$noninteractive" != "true" ] && [ -z "$custom_web_path" ]; then
+                reading "Use a custom web path? (y/N): " "是否使用自定义 Web 路径？(y/N): " use_custom
+                case "$use_custom" in
+                    [Yy]*)
+                        reading "Enter the web path (for example: /var/www/html): " "请输入 Web 路径（例如 /var/www/html）: " custom_web_path
+                        if [ -n "$custom_web_path" ]; then
+                            log_info "Custom web path selected: $custom_web_path" "将使用自定义 Web 路径: $custom_web_path"
+                        else
+                            log_warning "No path was provided; the default path will be used: /opt/oneclickvirt/web" "未输入路径，将使用默认路径: /opt/oneclickvirt/web"
+                        fi
+                        ;;
+                    *)
+                        log_info "Using default web path: /opt/oneclickvirt/web" "使用默认 Web 路径: /opt/oneclickvirt/web"
+                        ;;
+                esac
+            elif [ -n "$custom_web_path" ]; then
+                log_info "Detected WEB_PATH from environment: $custom_web_path" "检测到环境变量 WEB_PATH: $custom_web_path"
+            fi
             upgrade_server
             ;;
         "help"|"-h"|"--help")

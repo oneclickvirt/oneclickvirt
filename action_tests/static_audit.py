@@ -60,10 +60,13 @@ def iter_text_files(root: Path, *patterns: str) -> list[Path]:
 
 def normalize_path(path: str) -> str:
     path = path.strip()
+    path = path.split("?", 1)[0].split("#", 1)[0]
+    if path and not path.startswith("/"):
+        path = "/" + path
     path = re.sub(r"\$\{[^}]+\}", ":var", path)
     path = re.sub(r"\$[A-Za-z_][A-Za-z0-9_]*", ":var", path)
     path = re.sub(r":[A-Za-z_][A-Za-z0-9_]*", ":var", path)
-    path = re.sub(r"/[0-9]+(?=/|$)", "/:num", path)
+    path = re.sub(r"/[0-9]+(?=/|$)", "/:var", path)
     path = re.sub(r"//+", "/", path)
     if path.startswith("/api/v1/"):
         path = path[len("/api/v1") :]
@@ -93,6 +96,7 @@ def scan_test_paths(root: Path) -> tuple[list[Endpoint], set[str]]:
         for match in METHOD_PATH_RE.finditer(compact):
             line = 1 + sum(1 for start in line_starts if start <= match.start())
             endpoints.append(Endpoint(match.group(1), match.group(2), rel(path, root), line))
+            paths.add(match.group(2))
     return endpoints, paths
 
 
@@ -171,6 +175,30 @@ def audit_workflows(root: Path) -> list[Finding]:
     return findings
 
 
+def audit_retry_hygiene(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    create_instance_re = re.compile(
+        r"\btest_api\s+['\"][^'\"]*Create[^'\"]*['\"]\s+['\"]POST['\"]\s+['\"]"
+        r"/api/v1/admin/instances['\"]\s+['\"]([^'\"]+)['\"]"
+    )
+    for path in iter_text_files(root, "action_tests/**/*.sh"):
+        for idx, line in logical_lines(path.read_text(errors="ignore")):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "test_api_retry" in stripped:
+                continue
+            match = create_instance_re.search(stripped)
+            if match and match.group(1) in {"200", "200|201"}:
+                findings.append(
+                    Finding(
+                        rel(path, root),
+                        idx,
+                        "create-instance-without-retry",
+                        stripped,
+                    )
+                )
+    return findings
+
+
 def route_coverage(routes: list[Endpoint], tested_paths: set[str]) -> tuple[int, list[Endpoint]]:
     tested_norm = {normalize_path(path) for path in tested_paths}
     covered = 0
@@ -232,6 +260,12 @@ def main() -> int:
     parser.add_argument("--root", default=".", help="Repository root")
     parser.add_argument("--output-dir", default="action_tests/reports", help="Report output directory")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero on high-risk findings")
+    parser.add_argument(
+        "--min-route-coverage",
+        type=float,
+        default=0.0,
+        help="Minimum approximate route literal coverage percentage required in strict mode",
+    )
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
@@ -242,6 +276,7 @@ def main() -> int:
     test_endpoints, test_paths = scan_test_paths(root)
     jq_findings, pipe_findings = audit_shell(root)
     workflow_findings = audit_workflows(root)
+    retry_findings = audit_retry_hygiene(root)
     covered, uncovered = route_coverage(routes, test_paths)
 
     route_methods = Counter(item.method for item in routes)
@@ -259,6 +294,8 @@ def main() -> int:
         "High-risk jq lines": len(jq_findings),
         "Pipe risk lines": len(pipe_findings),
         "Workflow findings": len(workflow_findings),
+        "Retry hygiene findings": len(retry_findings),
+        "Minimum route literal coverage": f"{args.min_route_coverage}%" if args.min_route_coverage else "not enforced",
         "_route_methods": dict(route_methods),
         "_test_methods": dict(test_methods),
     }
@@ -267,6 +304,7 @@ def main() -> int:
         "Unguarded jq Findings": jq_findings,
         "Pipe Findings": pipe_findings,
         "Workflow Findings": workflow_findings,
+        "Retry Hygiene Findings": retry_findings,
     }
 
     serializable_summary = {k: v for k, v in summary.items() if not k.startswith("_")}
@@ -284,7 +322,14 @@ def main() -> int:
     print(f"Static audit written to {out_dir / 'static-audit.md'}")
     print(json.dumps(serializable_summary, ensure_ascii=False))
 
-    if args.strict and (jq_findings or workflow_findings):
+    coverage_failed = args.min_route_coverage > 0 and coverage_pct < args.min_route_coverage
+    if coverage_failed:
+        print(
+            f"ERROR: route literal coverage {coverage_pct}% is below required {args.min_route_coverage}%",
+            flush=True,
+        )
+
+    if args.strict and (jq_findings or pipe_findings or workflow_findings or retry_findings or coverage_failed):
         return 1
     return 0
 

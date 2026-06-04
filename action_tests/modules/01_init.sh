@@ -9,6 +9,7 @@ run_module_01() {
     # -- Health endpoints --
     test_api_noauth "Health check /health" "GET" "/health" "200" "" "$group"
     test_api_noauth "Health check /api/health" "GET" "/api/health" "200" "" "$group"
+    test_api_noauth "Health check /api/v1/health" "GET" "/api/v1/health" "200" "" "$group"
     test_api_noauth "Ping /api/ping" "GET" "/api/ping" "200" "" "$group"
 
     # -- Init status --
@@ -45,6 +46,9 @@ run_module_01() {
     # -- Public endpoints --
     test_api_noauth "Server version" "GET" "/api/v1/public/version" "200" "" "$group"
     test_api_noauth "Build info" "GET" "/api/v1/public/build-info" "200" "" "$group"
+    test_api_noauth "Init progress" "GET" "/api/v1/public/init-progress" "200" "" "$group"
+    test_api_noauth "Agent install script" "GET" "/api/v1/public/agent/install-agent.sh" "200" "" "$group"
+    test_api_noauth "Missing agent release" "GET" "/api/v1/public/agent/releases/missing-release.tar.gz" "404|400" "" "$group"
     test_api_noauth "Public announcements" "GET" "/api/v1/public/announcements" "200" "" "$group"
     test_api_noauth "Public stats" "GET" "/api/v1/public/stats" "200" "" "$group"
     test_api_json_value_noauth "Register config captcha disabled by default" "GET" "/api/v1/public/register-config" "200" '.data.captchaEnabled' "false" "" "$group"

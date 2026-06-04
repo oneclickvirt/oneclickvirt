@@ -132,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p action_tests/reports
-          python3 action_tests/static_audit.py --root . --output-dir action_tests/reports
+          python3 action_tests/static_audit.py --root . --output-dir action_tests/reports --strict --min-route-coverage 85
           {
             echo "## Action Test Static Audit"
             echo ""

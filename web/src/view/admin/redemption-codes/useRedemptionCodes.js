@@ -138,8 +138,42 @@ export default function useRedemptionCodes() {
     gpuChecked.value = false
   }
 
+  // 刷新已停止容器列表（切换模式或需要最新数据时调用）
+  const refreshStoppedContainers = async (providerId) => {
+    if (!providerId) return
+    stoppedContainersLoading.value = true
+    try {
+      const r = await getStoppedContainers(providerId)
+      const rawNames = (r.data && r.data.containers) || []
+      const rawDetails = (r.data && r.data.containerDetails) || []
+      stoppedContainers.value = rawNames
+      if (rawDetails.length > 0) {
+        stoppedContainerOptions.value = rawDetails.map(item => ({
+          name: item.name,
+          label: item.hasGpu ? `${item.name} [GPU${item.gpuDeviceIds ? `: ${item.gpuDeviceIds}` : ''}]` : item.name
+        }))
+      } else {
+        stoppedContainerOptions.value = rawNames.map(name => ({ name, label: name }))
+      }
+    } catch (e) {
+      const errMsg = e?.response?.data?.msg || e?.message || ''
+      if (errMsg) {
+        ElMessage.warning(t('admin.redemptionCodes.loadContainersFailed', { reason: errMsg }))
+      }
+      stoppedContainers.value = []
+      stoppedContainerOptions.value = []
+    } finally {
+      stoppedContainersLoading.value = false
+    }
+  }
+
+  // 保存切换复制模式前的实例类型，切回标准时恢复
+  let savedInstanceType = ''
+
   watch(() => createForm.creationMode, (mode) => {
     if (mode === 'copy') {
+      // 保存当前实例类型，以便切回标准模式时恢复
+      savedInstanceType = createForm.instanceType || 'container'
       createForm.instanceType = 'container'
       createForm.imageId = ''
       createForm.cpuId = ''
@@ -151,11 +185,24 @@ export default function useRedemptionCodes() {
       memorySpecs.value = []
       diskSpecs.value = []
       bandwidthSpecs.value = []
+      // 切到复制模式时刷新已停止容器列表（确保数据最新）
+      if (createForm.providerId && isLxdIncusProvider.value) {
+        refreshStoppedContainers(createForm.providerId)
+      }
       return
     }
+    // 切回标准模式：恢复实例类型并重新加载镜像和规格
     createForm.sourceContainer = ''
+    if (savedInstanceType && savedInstanceType !== 'container') {
+      createForm.instanceType = savedInstanceType
+    }
+    savedInstanceType = ''
     if (createForm.instanceType !== 'container') {
       resetGpuSelection()
+    }
+    // 重新加载镜像和规格数据
+    if (createForm.instanceType && createForm.providerId) {
+      onInstanceTypeChange(createForm.instanceType)
     }
   })
 
@@ -262,6 +309,7 @@ export default function useRedemptionCodes() {
   }
 
   const cancelCreate = () => {
+    savedInstanceType = ''
     showCreateDialog.value = false
     createFormRef.value?.resetFields()
     Object.assign(createForm, {
@@ -316,6 +364,7 @@ export default function useRedemptionCodes() {
 
   const onProviderChange = async (providerId) => {
     // Reset dependent fields
+    savedInstanceType = ''
     createForm.instanceType = ''
     createForm.imageId = ''
     createForm.cpuId = ''
@@ -344,33 +393,7 @@ export default function useRedemptionCodes() {
     if (p && (p.type === 'lxd' || p.type === 'incus')) {
       createForm.creationMode = 'standard'
       createForm.sourceContainer = ''
-      stoppedContainers.value = []
-      stoppedContainerOptions.value = []
-      stoppedContainersLoading.value = true
-      try {
-        const r = await getStoppedContainers(providerId)
-        const rawNames = (r.data && r.data.containers) || []
-        const rawDetails = (r.data && r.data.containerDetails) || []
-        stoppedContainers.value = rawNames
-        if (rawDetails.length > 0) {
-          stoppedContainerOptions.value = rawDetails.map(item => ({
-            name: item.name,
-            label: item.hasGpu ? `${item.name} [GPU${item.gpuDeviceIds ? `: ${item.gpuDeviceIds}` : ''}]` : item.name
-          }))
-        } else {
-          stoppedContainerOptions.value = rawNames.map(name => ({ name, label: name }))
-        }
-      } catch (e) {
-        // 区分网络/超时错误与真正的「无容器」
-        const errMsg = e?.response?.data?.msg || e?.message || ''
-        if (errMsg) {
-          ElMessage.warning(t('admin.redemptionCodes.loadContainersFailed', { reason: errMsg }))
-        }
-        stoppedContainers.value = []
-        stoppedContainerOptions.value = []
-      } finally {
-        stoppedContainersLoading.value = false
-      }
+      refreshStoppedContainers(providerId)
       // 自动检测 GPU
       gpuDetecting.value = true
       gpuChecked.value = true

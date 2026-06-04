@@ -104,8 +104,14 @@ run_module_29() {
             inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${img_name}\",\"cpu\":1,\"memory\":256,\"disk\":5,\"network_type\":\"nat_ipv4\"}"
         fi
 
-        local create_resp; create_resp=$(test_api "Create ${test_label}" "POST" "/api/v1/admin/instances" "200" \
-            "$inst_data" "$group")
+        local create_resp
+        local create_retries="${IMAGE_CREATE_RETRIES:-3}"
+        local create_retry_interval="${IMAGE_CREATE_RETRY_INTERVAL:-20}"
+        if ! create_resp=$(test_api_retry "Create ${test_label}" "POST" "/api/v1/admin/instances" "200" \
+            "$inst_data" "$create_retries" "$create_retry_interval" "$group"); then
+            failed=$((failed + 1))
+            continue
+        fi
 
         local inst_id; inst_id=$(echo "$create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         local task_id; task_id=$(echo "$create_resp" | jq -r '.data.task_id // empty' 2>/dev/null)

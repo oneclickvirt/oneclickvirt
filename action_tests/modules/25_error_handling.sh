@@ -82,6 +82,54 @@ run_module_25() {
     test_api "Nonexistent route" "GET" "/api/v1/nonexistent/route" "404" "" "$group" "$ADMIN_TOKEN"
     test_api "Nonexistent admin route" "GET" "/api/v1/admin/nonexistent" "404" "" "$group" "$ADMIN_TOKEN"
 
+    # ---- Existence and permission checks for interactive/file endpoints (no real browser/WebSocket) ----
+    test_api "Admin SSH websocket without upgrade" "GET" "/api/v1/admin/instances/99999/ssh" "400|404|426|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin instance SFTP list missing" "GET" "/api/v1/admin/instances/99999/sftp/list?path=/" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin instance SFTP download missing" "GET" "/api/v1/admin/instances/99999/sftp/download?path=/tmp/missing" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin instance SFTP upload missing" "POST" "/api/v1/admin/instances/99999/sftp/upload" "400|404|500" '{}' "$group" "$ADMIN_TOKEN"
+    test_api "Admin instance SFTP upload status missing" "GET" "/api/v1/admin/instances/99999/sftp/upload/status?uploadId=missing" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin instance SFTP upload abort missing" "POST" "/api/v1/admin/instances/99999/sftp/upload/abort" "400|404|500" '{"uploadId":"missing"}' "$group" "$ADMIN_TOKEN"
+
+    test_api "Admin provider terminal without upgrade" "GET" "/api/v1/admin/providers/99999/terminal" "400|404|426|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider SFTP list missing" "GET" "/api/v1/admin/providers/99999/sftp/list?path=/" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider SFTP download missing" "GET" "/api/v1/admin/providers/99999/sftp/download?path=/tmp/missing" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider SFTP upload missing" "POST" "/api/v1/admin/providers/99999/sftp/upload" "400|404|500" '{}' "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider SFTP upload status missing" "GET" "/api/v1/admin/providers/99999/sftp/upload/status?uploadId=missing" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider SFTP upload abort missing" "POST" "/api/v1/admin/providers/99999/sftp/upload/abort" "400|404|500" '{"uploadId":"missing"}' "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider FM list missing" "GET" "/api/v1/admin/providers/99999/fm/list?path=/" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider FM download missing" "GET" "/api/v1/admin/providers/99999/fm/download?path=/tmp/missing" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider FM upload missing" "POST" "/api/v1/admin/providers/99999/fm/upload" "400|404|500" '{}' "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider FM delete missing" "DELETE" "/api/v1/admin/providers/99999/fm/file?path=/tmp/missing" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin provider FM mkdir missing" "POST" "/api/v1/admin/providers/99999/fm/mkdir" "400|404|500" '{"path":"/tmp/missing"}' "$group" "$ADMIN_TOKEN"
+
+    test_api "Admin API token list" "GET" "/api/v1/admin/api-tokens?page=1&pageSize=10" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin API token delete missing" "DELETE" "/api/v1/admin/api-tokens/99999" "200|404" "" "$group" "$ADMIN_TOKEN"
+    test_api "Admin API token batch delete empty" "POST" "/api/v1/admin/api-tokens/batch-delete" "400" '{"ids":[]}' "$group" "$ADMIN_TOKEN"
+
+    test_api "Provider API connect empty" "POST" "/api/v1/providers/connect" "400|404|500" '{}' "$group" "$ADMIN_TOKEN"
+    test_api "Provider API start missing instance" "POST" "/api/v1/providers/99999/instances/missing/start" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Provider API stop missing instance" "POST" "/api/v1/providers/99999/instances/missing/stop" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Provider API pull image missing provider" "POST" "/api/v1/providers/99999/images/pull" "400|404|500" '{"image":"missing"}' "$group" "$ADMIN_TOKEN"
+    test_api "Provider API delete image missing provider" "DELETE" "/api/v1/providers/99999/images/missing" "400|404|500" "" "$group" "$ADMIN_TOKEN"
+
+    test_api "Agent websocket without upgrade" "GET" "/api/v1/ws/agent" "400|401|404|426" "" "$group" ""
+    test_api "Legacy agent websocket without upgrade" "GET" "/api/ws/agent" "400|401|404|426" "" "$group" ""
+
+    if [[ -n "${USER_TOKEN:-}" ]]; then
+        test_api "User SSH websocket missing" "GET" "/api/v1/user/instances/99999/ssh" "400|403|404|426|500" "" "$group" "$USER_TOKEN"
+        test_api "User exec websocket missing" "GET" "/api/v1/user/instances/99999/exec" "400|403|404|426|500" "" "$group" "$USER_TOKEN"
+        test_api "User SFTP list missing" "GET" "/api/v1/user/instances/99999/sftp/list?path=/" "400|403|404|500" "" "$group" "$USER_TOKEN"
+        test_api "User SFTP download missing" "GET" "/api/v1/user/instances/99999/sftp/download?path=/tmp/missing" "400|403|404|500" "" "$group" "$USER_TOKEN"
+        test_api "User SFTP upload missing" "POST" "/api/v1/user/instances/99999/sftp/upload" "400|403|404|500" '{}' "$group" "$USER_TOKEN"
+        test_api "User SFTP upload status missing" "GET" "/api/v1/user/instances/99999/sftp/upload/status?uploadId=missing" "400|403|404|500" "" "$group" "$USER_TOKEN"
+        test_api "User SFTP upload abort missing" "POST" "/api/v1/user/instances/99999/sftp/upload/abort" "400|403|404|500" '{"uploadId":"missing"}' "$group" "$USER_TOKEN"
+        test_api "User provider GPUs missing" "GET" "/api/v1/user/providers/99999/gpus" "400|403|404|500" "" "$group" "$USER_TOKEN"
+        test_api "User cancel task missing" "POST" "/api/v1/user/tasks/99999/cancel" "400|403|404|500" "" "$group" "$USER_TOKEN"
+        test_api "User API token list" "GET" "/api/v1/user/api-tokens" "200" "" "$group" "$USER_TOKEN"
+        test_api "User API token create boundary" "POST" "/api/v1/user/api-tokens" "200|400" '{"name":"ci-boundary-token","expiresInDays":1}' "$group" "$USER_TOKEN"
+        test_api "User API token delete missing" "DELETE" "/api/v1/user/api-tokens/99999" "200|404" "" "$group" "$USER_TOKEN"
+    fi
+
     # ---- Content-Type enforcement ----
     resp_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${SERVER_URL}/api/v1/auth/login" \
         -H "Content-Type: text/plain" -d '{"username":"admin","password":"test"}')

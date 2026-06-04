@@ -31,7 +31,11 @@ run_module_10() {
         log_info "Testing container instances..."
 
         local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":256,\"disk\":5,\"network_type\":\"nat_ipv4\"}"
-        local ir; ir=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200" "$inst_data" "$group")
+        local ir
+        if ! ir=$(test_api_retry "Create container instance" "POST" "/api/v1/admin/instances" "200" "$inst_data" 3 15 "$group"); then
+            log_warning "Container instance creation did not complete successfully; downstream container checks will be skipped"
+            ir=""
+        fi
         container_id=$(echo "$ir" | jq -r '.data.id // .data.ID // .data.task_id // empty' 2>/dev/null)
 
         # Handle task-based creation
@@ -192,7 +196,11 @@ run_module_10() {
         log_info "Testing VM instances..."
 
         local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":512,\"disk\":10,\"network_type\":\"nat_ipv4\"}"
-        local vr; vr=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200" "$vm_data" "$group")
+        local vr
+        if ! vr=$(test_api_retry "Create VM instance" "POST" "/api/v1/admin/instances" "200" "$vm_data" 3 20 "$group"); then
+            log_warning "VM instance creation did not complete successfully; downstream VM checks will be skipped"
+            vr=""
+        fi
         vm_id=$(echo "$vr" | jq -r '.data.id // .data.ID // .data.task_id // empty' 2>/dev/null)
 
         local vm_task; vm_task=$(echo "$vr" | jq -r '.data.task_id // empty' 2>/dev/null)
