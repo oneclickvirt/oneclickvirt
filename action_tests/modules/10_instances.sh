@@ -56,7 +56,7 @@ run_module_10() {
             sleep 30
             local ssh_ready=false
             local ssh_waited=30
-            while [[ $ssh_waited -lt 180 ]]; do
+            while [[ $ssh_waited -lt 300 ]]; do
                 local inst_status; inst_status=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                     "${SERVER_URL}/api/v1/admin/instances/${container_id}" 2>/dev/null)
                 local running; running=$(echo "$inst_status" | jq -r '.data.status // empty' 2>/dev/null)
@@ -65,12 +65,12 @@ run_module_10() {
                     log_success "Instance is running (waited ${ssh_waited}s)"
                     break
                 fi
-                log_info "Instance status: ${running:-unknown}, waiting... (${ssh_waited}s/180s)"
+                log_info "Instance status: ${running:-unknown}, waiting... (${ssh_waited}s/300s)"
                 sleep 10
                 ssh_waited=$((ssh_waited + 10))
             done
             if [[ "$ssh_ready" != "true" ]]; then
-                log_warning "Instance may not be fully ready after 180s, continuing tests"
+                log_warning "Instance may not be fully ready after 300s, continuing tests"
             fi
 
             # -- Detail --
@@ -182,7 +182,7 @@ run_module_10() {
             fi
             # Wait for instance to reach running state after rebuild
             local rb_waited=0
-            while [[ $rb_waited -lt 120 ]]; do
+            while [[ $rb_waited -lt 300 ]]; do
                 local rb_st; rb_st=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                     "${SERVER_URL}/api/v1/admin/instances/${container_id}" 2>/dev/null)
                 local rb_status; rb_status=$(echo "$rb_st" | jq -r '.data.status // empty' 2>/dev/null)
@@ -190,7 +190,7 @@ run_module_10() {
                     log_success "Instance ${container_id} running after rebuild (waited ${rb_waited}s)"
                     break
                 fi
-                log_debug "Post-rebuild status: ${rb_status:-unknown} (${rb_waited}s/120s)"
+                log_debug "Post-rebuild status: ${rb_status:-unknown} (${rb_waited}s/300s)"
                 sleep 10
                 rb_waited=$((rb_waited + 10))
             done

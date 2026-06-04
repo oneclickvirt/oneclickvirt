@@ -343,6 +343,20 @@ func AdminBatchInstanceAction(c *gin.Context) {
 		return
 	}
 
+	// Validate action type early for batch endpoints
+	validActions := map[string]bool{
+		"start":   true,
+		"stop":    true,
+		"restart": true,
+		"reset":   true,
+		"delete":  true,
+		"rebuild": true,
+	}
+	if !validActions[req.Action] {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的操作类型"))
+		return
+	}
+
 	instanceService := instance.NewService(task.GetTaskService())
 	result := instanceService.BatchInstanceAction(req, middleware.GetOwnerAdminID(c))
 	global.APP_LOG.Info("管理员批量实例操作已处理",
