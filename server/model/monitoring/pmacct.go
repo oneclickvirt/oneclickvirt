@@ -47,19 +47,19 @@ func (PmacctTrafficRecord) TableName() string {
 // PmacctMonitor pmacct监控配置
 type PmacctMonitor struct {
 	ID             uint      `json:"id" gorm:"primaryKey"`
-	InstanceID     uint      `json:"instance_id" gorm:"uniqueIndex;not null"` // 实例ID（唯一）
-	ProviderID     uint      `json:"provider_id" gorm:"index;not null"`       // Provider ID
-	ProviderType   string    `json:"provider_type" gorm:"size:50;not null"`   // Provider类型
-	MappedIP       string    `json:"mapped_ip" gorm:"size:64;not null"`       // 公网映射IPv4地址（用于显示）
-	MappedIPv6     string    `json:"mapped_ipv6" gorm:"size:128"`             // 公网映射IPv6地址（用于显示）
-	NetworkIfaceV4 string    `json:"network_iface_v4" gorm:"size:32"`         // IPv4流量监控的网络接口名称
-	NetworkIfaceV6 string    `json:"network_iface_v6" gorm:"size:32"`         // IPv6流量监控的网络接口名称
-	IsEnabled      bool      `json:"is_enabled" gorm:"default:true"`          // 是否启用监控
-	LastSync       time.Time `json:"last_sync"`                               // 最后同步时间
+	InstanceID     uint      `json:"instance_id" gorm:"uniqueIndex:idx_pmacct_monitor_instance_deleted,priority:1;not null"` // 实例ID（唯一）
+	ProviderID     uint      `json:"provider_id" gorm:"index;not null"`                                                      // Provider ID
+	ProviderType   string    `json:"provider_type" gorm:"size:50;not null"`                                                  // Provider类型
+	MappedIP       string    `json:"mapped_ip" gorm:"size:64;not null"`                                                      // 公网映射IPv4地址（用于显示）
+	MappedIPv6     string    `json:"mapped_ipv6" gorm:"size:128"`                                                            // 公网映射IPv6地址（用于显示）
+	NetworkIfaceV4 string    `json:"network_iface_v4" gorm:"size:32"`                                                        // IPv4流量监控的网络接口名称
+	NetworkIfaceV6 string    `json:"network_iface_v6" gorm:"size:32"`                                                        // IPv6流量监控的网络接口名称
+	IsEnabled      bool      `json:"is_enabled" gorm:"default:true"`                                                         // 是否启用监控
+	LastSync       time.Time `json:"last_sync"`                                                                              // 最后同步时间
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"deleted_at" gorm:"index" swaggerignore:"true"`
+	DeletedAt gorm.DeletedAt `json:"deleted_at" gorm:"index;uniqueIndex:idx_pmacct_monitor_instance_deleted,priority:2" swaggerignore:"true"`
 }
 
 // TableName 指定表名

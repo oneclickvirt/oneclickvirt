@@ -279,19 +279,18 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 			"instance_id":              fmt.Sprintf("%d", instance.ID),        // 实例ID，用于端口分配
 			"provider_id":              fmt.Sprintf("%d", localProviderID),    // Provider ID，用于端口区间分配
 		},
-		// 容器特殊配置选项（从Provider继承，仅用于LXD/Incus容器）
-		Privileged:   boolPtr(dbProvider.ContainerPrivileged),
-		AllowNesting: boolPtr(dbProvider.ContainerAllowNesting),
-		EnableLXCFS:  boolPtr(dbProvider.ContainerEnableLXCFS),
-		CPUAllowance: stringPtr(dbProvider.ContainerCPUAllowance),
-		MemorySwap:   boolPtr(dbProvider.ContainerMemorySwap),
-		MaxProcesses: intPtr(dbProvider.ContainerMaxProcesses),
-		DiskIOLimit:  stringPtr(dbProvider.ContainerDiskIOLimit),
 	}
 
-	// GPU 直通仅支持 LXD/Incus 的容器实例，其他 Provider 类型不支持
-	isLxdIncusProvider := localProviderType == "lxd" || localProviderType == "incus"
-	if isLxdIncusProvider && instance.InstanceType != "vm" {
+	// LXD/Incus 的容器实例才支持高级容器参数与 GPU 直通。
+	supportsLXDContainerOptions := utils.SupportsLXDContainerOptions(localProviderType, instance.InstanceType)
+	if supportsLXDContainerOptions {
+		instanceConfig.Privileged = boolPtr(dbProvider.ContainerPrivileged)
+		instanceConfig.AllowNesting = boolPtr(dbProvider.ContainerAllowNesting)
+		instanceConfig.EnableLXCFS = boolPtr(dbProvider.ContainerEnableLXCFS)
+		instanceConfig.CPUAllowance = stringPtr(dbProvider.ContainerCPUAllowance)
+		instanceConfig.MemorySwap = boolPtr(dbProvider.ContainerMemorySwap)
+		instanceConfig.MaxProcesses = intPtr(dbProvider.ContainerMaxProcesses)
+		instanceConfig.DiskIOLimit = stringPtr(dbProvider.ContainerDiskIOLimit)
 		// 优先使用任务请求中的GPU配置（用户主动选择），没有则回退到Provider默认配置
 		instanceConfig.GpuEnabled = dbProvider.GpuEnabled
 		instanceConfig.GpuDeviceIds = dbProvider.GpuDeviceIds
@@ -302,19 +301,19 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		instanceConfig.CopyMode = true
 		instanceConfig.CopySourceName = redemptionTaskReq.SourceContainer
 		// 复制模式下，GPU配置也从任务请求中获取（覆盖Provider默认值）
-		if isLxdIncusProvider {
+		if supportsLXDContainerOptions {
 			instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
 		}
 	} else if redemptionTaskJSONErr == nil && redemptionTaskReq.GpuEnabled {
 		// 标准模式下，如果兑换码任务请求中指定了GPU配置，覆盖Provider默认值
-		if isLxdIncusProvider && instance.InstanceType != "vm" {
+		if supportsLXDContainerOptions {
 			instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
 		}
 	} else if taskReq.GpuEnabled {
 		// 标准模式下（普通用户创建），如果任务请求中指定了GPU配置，覆盖Provider默认值
-		if isLxdIncusProvider && instance.InstanceType != "vm" {
+		if supportsLXDContainerOptions {
 			instanceConfig.GpuEnabled = taskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = taskReq.GpuDeviceIds
 		}
@@ -378,10 +377,10 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 			zap.Uint("taskId", task.ID),
 			zap.Uint("instanceId", instance.ID),
 			zap.Error(err))
-		// 对于容器类Provider（docker/podman/containerd），端口映射通过 -p 标志在容器创建时建立，
+		// 对于容器类Provider（docker/podman/containerd/orbstack），端口映射通过 -p 标志在容器创建时建立，
 		// 预分配失败意味着容器将无任何端口映射，继续创建会产生无法访问的僵尸实例，必须立即终止任务。
-		if localProviderType == "docker" || localProviderType == "podman" || localProviderType == "containerd" {
-			return fmt.Errorf("容器类Provider端口映射预分配失败（podman/containerd/docker 的端口映射在容器创建时绑定，无法事后追加），无法继续创建实例: %v", err)
+		if utils.IsDockerFamilyProvider(localProviderType) {
+			return fmt.Errorf("容器类Provider端口映射预分配失败（docker/podman/containerd/orbstack 的端口映射在容器创建时绑定，无法事后追加），无法继续创建实例: %v", err)
 		}
 	} else {
 		// 获取已分配的端口映射
@@ -392,9 +391,9 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				zap.Uint("instanceId", instance.ID),
 				zap.Error(err))
 		} else {
-			// 对于容器类Provider（docker/podman/containerd），将端口映射信息写入实例配置，
+			// 对于容器类Provider（docker/podman/containerd/orbstack），将端口映射信息写入实例配置，
 			// 作为 -p 参数传给容器运行时。LXD/Incus/Proxmox 通过其他机制管理端口，无需此步骤。
-			if localProviderType == "docker" || localProviderType == "podman" || localProviderType == "containerd" {
+			if utils.IsDockerFamilyProvider(localProviderType) {
 				// 将端口映射信息添加到实例配置中
 				var ports []string
 				for _, port := range portMappings {

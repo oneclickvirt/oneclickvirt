@@ -420,9 +420,13 @@ func validateImageURL(providerType, instanceType, url string) error {
 		if !strings.HasSuffix(url, ".zip") {
 			return fmt.Errorf("LXD/Incus镜像地址必须是zip文件")
 		}
-	case "docker":
+	case "docker", "orbstack":
 		if instanceType == "container" && !strings.HasSuffix(url, ".tar.gz") {
-			return fmt.Errorf("Docker容器镜像地址必须是.tar.gz文件")
+			return fmt.Errorf("Docker/Orbstack容器镜像地址必须是.tar.gz文件")
+		}
+	case "vmware":
+		if instanceType == "vm" && !strings.HasSuffix(url, ".vmx") && !strings.HasSuffix(url, ".zip") && !strings.HasSuffix(url, ".tar.gz") {
+			return fmt.Errorf("VMware虚拟机模板地址必须是.vmx、.zip或.tar.gz文件")
 		}
 	}
 	return nil

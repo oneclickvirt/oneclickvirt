@@ -11,13 +11,13 @@ type OAuth2Provider struct {
 	ID        uint           `json:"id" gorm:"primarykey"`
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:idx_oauth2_provider_name_deleted,priority:2"`
 
 	// 基础信息
-	Name         string `json:"name" gorm:"uniqueIndex;not null;size:64"` // 提供商名称（唯一标识，如 linuxdo, github, google）
-	DisplayName  string `json:"displayName" gorm:"not null;size:128"`     // 显示名称
-	ProviderType string `json:"providerType" gorm:"not null;size:32"`     // 提供商类型（preset:预设, generic:通用）
-	Enabled      bool   `json:"enabled" gorm:"default:false"`             // 是否启用
+	Name         string `json:"name" gorm:"uniqueIndex:idx_oauth2_provider_name_deleted,priority:1;not null;size:64"` // 提供商名称（唯一标识，如 linuxdo, github, google）
+	DisplayName  string `json:"displayName" gorm:"not null;size:128"`                                                 // 显示名称
+	ProviderType string `json:"providerType" gorm:"not null;size:32"`                                                 // 提供商类型（preset:预设, generic:通用）
+	Enabled      bool   `json:"enabled" gorm:"default:false"`                                                         // 是否启用
 
 	// OAuth2配置
 	ClientID     string `json:"clientId" gorm:"not null;size:255"`     // OAuth2客户端ID

@@ -16,6 +16,7 @@ import (
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -172,15 +173,15 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 
 	// 验证 GPU 直通配置（仅 LXD/Incus 容器实例支持）
 	if req.GpuEnabled {
-		isLxdIncusProvider := provider.Type == "lxd" || provider.Type == "incus"
-		isContainerTarget := systemImage.InstanceType == "container"
-		if !isLxdIncusProvider || !isContainerTarget {
+		if !utils.SupportsLXDContainerOptions(provider.Type, systemImage.InstanceType) {
 			return nil, fmt.Errorf("GPU 直通仅支持 LXD/Incus 的容器实例")
 		}
 		// 验证 GPU 设备 ID 格式
 		if err := validateGPUDeviceIDs(req.GpuDeviceIds); err != nil {
 			return nil, err
 		}
+	} else {
+		req.GpuDeviceIds = ""
 	}
 
 	global.APP_LOG.Debug("所有验证通过，开始创建实例",

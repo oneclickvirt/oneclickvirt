@@ -145,16 +145,24 @@ export default function useRedemptionCodes() {
     // 不清空旧数据，保持上一次的结果直到新数据返回，避免下拉闪烁
     try {
       const r = await getStoppedContainers(providerId)
-      const rawNames = (r.data && r.data.containers) || []
-      const rawDetails = (r.data && r.data.containerDetails) || []
+      const payload = r?.data?.data || r?.data || {}
+      const rawNames = Array.isArray(payload.containers) ? payload.containers : []
+      const rawDetails = Array.isArray(payload.containerDetails) ? payload.containerDetails : []
       stoppedContainers.value = rawNames
       if (rawDetails.length > 0) {
-        stoppedContainerOptions.value = rawDetails.map(item => ({
-          name: item.name,
-          label: item.hasGpu ? `${item.name} [GPU${item.gpuDeviceIds ? `: ${item.gpuDeviceIds}` : ''}]` : item.name
-        }))
+        stoppedContainerOptions.value = rawDetails
+          .filter(item => item && item.name)
+          .map(item => ({
+            name: item.name,
+            label: item.hasGpu ? `${item.name} [GPU${item.gpuDeviceIds ? `: ${item.gpuDeviceIds}` : ''}]` : item.name
+          }))
       } else {
-        stoppedContainerOptions.value = rawNames.map(name => ({ name, label: name }))
+        stoppedContainerOptions.value = rawNames
+          .filter(name => typeof name === 'string' && name.trim())
+          .map(name => ({ name, label: name }))
+      }
+      if (!stoppedContainerOptions.value.some(item => item.name === createForm.sourceContainer)) {
+        createForm.sourceContainer = ''
       }
     } catch (e) {
       const errMsg = e?.response?.data?.msg || e?.message || e?.toString() || ''
@@ -605,7 +613,7 @@ export default function useRedemptionCodes() {
     createForm, createRules,
     providerCaps, availableImages,
     cpuSpecs, memorySpecs, diskSpecs, bandwidthSpecs,
-    stoppedContainerOptions, stoppedContainersLoading,
+    stoppedContainers, stoppedContainerOptions, stoppedContainersLoading,
     isLxdIncusProvider, canConfigureGpuPassthrough,
     gpuDetecting, gpuChecked, detectedGpus, selectedGpuIndices,
     showExportDialog, exportedCodesText, exportResult, exportLoading, exportFields,

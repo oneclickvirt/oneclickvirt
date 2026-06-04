@@ -21,6 +21,7 @@ import (
 	_ "oneclickvirt/provider/podman"
 	_ "oneclickvirt/provider/proxmox"
 	_ "oneclickvirt/provider/qemu"
+	_ "oneclickvirt/provider/vmware"
 
 	"go.uber.org/zap"
 )

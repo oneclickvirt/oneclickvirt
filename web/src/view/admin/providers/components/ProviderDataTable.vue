@@ -154,7 +154,7 @@
       >
         <template #default="scope">
           <el-tag
-            v-if="scope.row.type === 'proxmox' && scope.row.storagePool"
+            v-if="scope.row.storagePool"
             size="small"
             type="warning"
           >

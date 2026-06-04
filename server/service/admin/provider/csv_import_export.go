@@ -22,11 +22,15 @@ var providerCSVHeaders = []string{
 	"username",
 	"password",
 	"sshKey",
+	"token",
+	"config",
+	"agentSecret",
 	"connectionType",
 	"status",
 	"architecture",
 	"container_enabled",
 	"vm_enabled",
+	"totalQuota",
 	"allowClaim",
 	"redeemCodeOnly",
 	"region",
@@ -34,15 +38,59 @@ var providerCSVHeaders = []string{
 	"countryCode",
 	"city",
 	"executionRule",
+	"storagePool",
+	"storagePoolPath",
 	"networkType",
 	"defaultPortCount",
 	"portRangeStart",
 	"portRangeEnd",
+	"defaultInboundBandwidth",
+	"defaultOutboundBandwidth",
+	"maxInboundBandwidth",
+	"maxOutboundBandwidth",
 	"maxTraffic",
 	"trafficCountMode",
 	"trafficMultiplier",
+	"trafficSyncMethod",
+	"trafficStatsMode",
+	"trafficCollectInterval",
+	"trafficCollectBatchSize",
+	"trafficLimitCheckInterval",
+	"trafficLimitCheckBatchSize",
+	"trafficAutoResetInterval",
+	"trafficAutoResetBatchSize",
 	"enableTrafficControl",
 	"enableResourceMonitoring",
+	"ipv4PortMappingMethod",
+	"ipv6PortMappingMethod",
+	"sshConnectTimeout",
+	"sshExecuteTimeout",
+	"containerLimitCpu",
+	"containerLimitMemory",
+	"containerLimitDisk",
+	"vmLimitCpu",
+	"vmLimitMemory",
+	"vmLimitDisk",
+	"containerPrivileged",
+	"containerAllowNesting",
+	"containerEnableLxcfs",
+	"containerCpuAllowance",
+	"containerMemorySwap",
+	"containerMaxProcesses",
+	"containerDiskIoLimit",
+	"gpuEnabled",
+	"gpuDeviceIds",
+	"maxContainerInstances",
+	"maxVMInstances",
+	"allowConcurrentTasks",
+	"maxConcurrentTasks",
+	"taskPollInterval",
+	"enableTaskPolling",
+	"nodeInstallType",
+	"bridgeNAT",
+	"bridgeDedicatedV4",
+	"bridgeDedicatedV6",
+	"natSubnet",
 }
 
 type ImportProvidersCSVResult struct {
@@ -136,12 +184,12 @@ func defaultCreateProviderRequest(name, providerType string) admin.CreateProvide
 	}
 
 	switch providerType {
-	case "docker", "podman", "containerd":
+	case "docker", "podman", "containerd", "orbstack":
 		req.ContainerEnabled = true
 		req.VirtualMachineEnabled = false
 		req.IPv4PortMappingMethod = "native"
 		req.IPv6PortMappingMethod = "native"
-	case "qemu", "kubevirt":
+	case "qemu", "kubevirt", "vmware":
 		req.ContainerEnabled = false
 		req.VirtualMachineEnabled = true
 		req.IPv4PortMappingMethod = "iptables"
@@ -372,7 +420,7 @@ func (s *Service) applyCSVToCreateReq(req *admin.CreateProviderRequest, values m
 		req.TrafficMultiplier = f
 	}
 
-	return nil
+	return applyExtendedCSVToCreateReq(req, values)
 }
 
 func (s *Service) applyCSVToUpdateReq(req *admin.UpdateProviderRequest, values map[string]string) error {
@@ -516,7 +564,7 @@ func (s *Service) applyCSVToUpdateReq(req *admin.UpdateProviderRequest, values m
 		req.TrafficMultiplier = f
 	}
 
-	return nil
+	return applyExtendedCSVToUpdateReq(req, values)
 }
 
 // ExportProvidersCSV 导出Provider CSV。即使没有数据，也返回只有表头的CSV模板。
@@ -548,13 +596,17 @@ func (s *Service) ExportProvidersCSV(ownerAdminID uint, providerIDs []uint) ([]b
 			p.PortIP,
 			strconv.Itoa(p.SSHPort),
 			p.Username,
-			"", // 安全起见：导出不带密码
-			"", // 安全起见：导出不带私钥
+			p.Password,
+			p.SSHKey,
+			p.Token,
+			p.Config,
+			p.AgentSecret,
 			p.ConnectionType,
 			p.Status,
 			p.Architecture,
 			strconv.FormatBool(p.ContainerEnabled),
 			strconv.FormatBool(p.VirtualMachineEnabled),
+			strconv.Itoa(p.TotalQuota),
 			strconv.FormatBool(p.AllowClaim),
 			strconv.FormatBool(p.RedeemCodeOnly),
 			p.Region,
@@ -562,15 +614,59 @@ func (s *Service) ExportProvidersCSV(ownerAdminID uint, providerIDs []uint) ([]b
 			p.CountryCode,
 			p.City,
 			p.ExecutionRule,
+			p.StoragePool,
+			p.StoragePoolPath,
 			p.NetworkType,
 			strconv.Itoa(p.DefaultPortCount),
 			strconv.Itoa(p.PortRangeStart),
 			strconv.Itoa(p.PortRangeEnd),
+			strconv.Itoa(p.DefaultInboundBandwidth),
+			strconv.Itoa(p.DefaultOutboundBandwidth),
+			strconv.Itoa(p.MaxInboundBandwidth),
+			strconv.Itoa(p.MaxOutboundBandwidth),
 			strconv.FormatInt(p.MaxTraffic, 10),
 			p.TrafficCountMode,
 			strconv.FormatFloat(p.TrafficMultiplier, 'f', -1, 64),
+			p.TrafficSyncMethod,
+			p.TrafficStatsMode,
+			strconv.Itoa(p.TrafficCollectInterval),
+			strconv.Itoa(p.TrafficCollectBatchSize),
+			strconv.Itoa(p.TrafficLimitCheckInterval),
+			strconv.Itoa(p.TrafficLimitCheckBatchSize),
+			strconv.Itoa(p.TrafficAutoResetInterval),
+			strconv.Itoa(p.TrafficAutoResetBatchSize),
 			strconv.FormatBool(p.EnableTrafficControl),
 			strconv.FormatBool(p.EnableResourceMonitoring),
+			p.IPv4PortMappingMethod,
+			p.IPv6PortMappingMethod,
+			strconv.Itoa(p.SSHConnectTimeout),
+			strconv.Itoa(p.SSHExecuteTimeout),
+			strconv.FormatBool(p.ContainerLimitCPU),
+			strconv.FormatBool(p.ContainerLimitMemory),
+			strconv.FormatBool(p.ContainerLimitDisk),
+			strconv.FormatBool(p.VMLimitCPU),
+			strconv.FormatBool(p.VMLimitMemory),
+			strconv.FormatBool(p.VMLimitDisk),
+			strconv.FormatBool(p.ContainerPrivileged),
+			strconv.FormatBool(p.ContainerAllowNesting),
+			strconv.FormatBool(p.ContainerEnableLXCFS),
+			p.ContainerCPUAllowance,
+			strconv.FormatBool(p.ContainerMemorySwap),
+			strconv.Itoa(p.ContainerMaxProcesses),
+			p.ContainerDiskIOLimit,
+			strconv.FormatBool(p.GpuEnabled),
+			p.GpuDeviceIds,
+			strconv.Itoa(p.MaxContainerInstances),
+			strconv.Itoa(p.MaxVMInstances),
+			strconv.FormatBool(p.AllowConcurrentTasks),
+			strconv.Itoa(p.MaxConcurrentTasks),
+			strconv.Itoa(p.TaskPollInterval),
+			strconv.FormatBool(p.EnableTaskPolling),
+			p.NodeInstallType,
+			p.BridgeNAT,
+			p.BridgeDedicatedV4,
+			p.BridgeDedicatedV6,
+			p.NATSubnet,
 		}
 		if err := writer.Write(row); err != nil {
 			return nil, err
@@ -735,6 +831,11 @@ func (s *Service) ImportProvidersCSV(ownerAdminID uint, csvBytes []byte) (*Impor
 				result.Errors = append(result.Errors, fmt.Sprintf("第%d行更新失败: %v", rowNum+1, err))
 				continue
 			}
+			if err := restoreCSVProviderPrivateFields(existing.ID, values); err != nil {
+				result.Skipped++
+				result.Errors = append(result.Errors, fmt.Sprintf("第%d行更新私有字段失败: %v", rowNum+1, err))
+				continue
+			}
 			if oldName != updateReq.Name {
 				delete(existingByName, oldName)
 			}
@@ -762,6 +863,11 @@ func (s *Service) ImportProvidersCSV(ownerAdminID uint, csvBytes []byte) (*Impor
 		if err != nil {
 			result.Skipped++
 			result.Errors = append(result.Errors, fmt.Sprintf("第%d行创建失败: %v", rowNum+1, err))
+			continue
+		}
+		if err := restoreCSVProviderPrivateFields(createdProvider.ID, values); err != nil {
+			result.Skipped++
+			result.Errors = append(result.Errors, fmt.Sprintf("第%d行创建后恢复私有字段失败: %v", rowNum+1, err))
 			continue
 		}
 		existingByID[createdProvider.ID] = *createdProvider

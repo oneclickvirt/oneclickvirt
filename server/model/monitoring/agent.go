@@ -12,8 +12,8 @@ type AgentMonitor struct {
 	ID         uint           `gorm:"primarykey" json:"id"`
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
-	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
-	InstanceID uint           `gorm:"uniqueIndex:uk_instance;not null" json:"instance_id"`
+	DeletedAt  gorm.DeletedAt `gorm:"index;uniqueIndex:uk_instance,priority:2" json:"-"`
+	InstanceID uint           `gorm:"uniqueIndex:uk_instance,priority:1;not null" json:"instance_id"`
 	ProviderID uint           `gorm:"index:idx_provider;not null" json:"provider_id"`
 	UserID     uint           `gorm:"index:idx_user;not null" json:"user_id"`
 	// AgentMonitorID is the ID returned by the agent's /api/v1/add endpoint.
@@ -60,8 +60,8 @@ type MonitoringConfig struct {
 	ID         uint           `gorm:"primarykey" json:"id"`
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
-	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
-	ProviderID uint           `gorm:"uniqueIndex:uk_provider;not null" json:"provider_id"`
+	DeletedAt  gorm.DeletedAt `gorm:"index;uniqueIndex:uk_provider,priority:2" json:"-"`
+	ProviderID uint           `gorm:"uniqueIndex:uk_provider,priority:1;not null" json:"provider_id"`
 	// MonitoringMode: "agent" (default, nft-based) or "pmacct" (legacy fallback)
 	MonitoringMode string `gorm:"size:16;not null;default:agent" json:"monitoring_mode"`
 	// TrafficCollectMethod: "nft" (default, nftables-based) or "ipt" (iptables-based).

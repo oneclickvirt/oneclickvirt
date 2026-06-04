@@ -36,7 +36,7 @@
           >
             <el-checkbox
               v-model="modelValue.containerEnabled"
-              :disabled="['docker', 'podman', 'containerd'].includes(modelValue.type)"
+              :disabled="isFixedSupportProvider"
               style="margin-right: 30px;"
             >
               <span style="font-size: 14px;">{{ $t('admin.providers.supportContainer') }}</span>
@@ -51,7 +51,7 @@
             </el-checkbox>
             <el-checkbox 
               v-model="modelValue.vmEnabled"
-              :disabled="['docker', 'podman', 'containerd'].includes(modelValue.type)"
+              :disabled="isFixedSupportProvider"
             >
               <span style="font-size: 14px;">{{ $t('admin.providers.supportVM') }}</span>
               <el-tooltip
@@ -72,7 +72,7 @@
               size="small"
               type="info"
             >
-              {{ ['docker', 'podman', 'containerd'].includes(modelValue.type) ? $t('admin.providers.dockerOnlyContainer') : $t('admin.providers.selectVirtualizationType') }}
+              {{ $t(supportTypeTip) }}
             </el-text>
           </div>
         </el-card>
@@ -362,9 +362,9 @@
       </el-card>
     </div>
 
-    <!-- ProxmoxVE存储配置 -->
+    <!-- 存储配置 -->
     <el-form-item
-      v-if="modelValue.type === 'proxmox'"
+      v-if="showStoragePool"
       :label="$t('admin.providers.storagePool')"
       prop="storagePool"
       style="margin-top: 20px;"
@@ -396,13 +396,35 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Monitor, Box, DocumentCopy, InfoFilled, Cpu, Memo, Coin, FolderOpened } from '@element-plus/icons-vue'
 
-defineProps({
+const props = defineProps({
   modelValue: {
     type: Object,
     required: true
   }
+})
+
+const containerOnlyTypes = ['docker', 'podman', 'containerd', 'orbstack']
+const vmOnlyTypes = ['qemu', 'kubevirt', 'vmware']
+
+const isFixedSupportProvider = computed(() => {
+  return containerOnlyTypes.includes(props.modelValue.type) || vmOnlyTypes.includes(props.modelValue.type)
+})
+
+const showStoragePool = computed(() => {
+  return ['proxmox', 'lxd', 'incus', 'qemu', 'kubevirt', 'vmware'].includes(props.modelValue.type)
+})
+
+const supportTypeTip = computed(() => {
+  if (containerOnlyTypes.includes(props.modelValue.type)) {
+    return 'admin.providers.dockerOnlyContainer'
+  }
+  if (vmOnlyTypes.includes(props.modelValue.type)) {
+    return 'admin.providers.qemuOnlyVM'
+  }
+  return 'admin.providers.selectVirtualizationType'
 })
 </script>
 

@@ -95,6 +95,8 @@ func (s *ImageDownloadService) getDownloadDir(providerType string) string {
 	switch providerType {
 	case "docker":
 		return filepath.Join(baseDir, "docker_ct_images")
+	case "orbstack":
+		return filepath.Join(baseDir, "orbstack_ct_images")
 	case "podman":
 		return filepath.Join(baseDir, "podman_ct_images")
 	case "containerd":

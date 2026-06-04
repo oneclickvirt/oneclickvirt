@@ -30,12 +30,21 @@
       >
         {{ t('home.footer.serverVersion') }} {{ serverVersion }}
       </span>
+      <a
+        v-if="updateAvailable && latestVersion"
+        :href="releaseUrl || 'https://github.com/oneclickvirt/oneclickvirt/releases'"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="footer-update-link"
+      >
+        {{ t('home.footer.latestVersion') }} {{ latestVersion }}
+      </a>
       <span
-        v-if="versionFetchFailed && !serverVersion"
+        v-if="versionFetchFailed"
         class="footer-divider"
       />
       <span
-        v-if="versionFetchFailed && !serverVersion"
+        v-if="versionFetchFailed"
         class="footer-version-error"
       >
         {{ t('home.footer.versionFetchFailed') }}
@@ -53,6 +62,9 @@ import { getServerVersion } from '@/api/public'
 const { t } = useI18n()
 const siteStore = useSiteStore()
 const serverVersion = ref('')
+const latestVersion = ref('')
+const releaseUrl = ref('')
+const updateAvailable = ref(false)
 const versionFetchFailed = ref(false)
 
 onMounted(async () => {
@@ -60,6 +72,10 @@ onMounted(async () => {
     const res = await getServerVersion()
     if (res && (res.code === 200) && res.data?.server_version) {
       serverVersion.value = res.data.server_version
+      latestVersion.value = res.data.latest_version || ''
+      releaseUrl.value = res.data.release_url || ''
+      updateAvailable.value = Boolean(res.data.update_available)
+      versionFetchFailed.value = res.data.version_check_status === 'failed'
     } else {
       versionFetchFailed.value = true
     }
@@ -123,6 +139,17 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--text-color-placeholder);
   font-family: monospace;
+}
+
+.footer-update-link {
+  font-size: 12px;
+  color: var(--el-color-success);
+  text-decoration: none;
+  font-family: monospace;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 .footer-version-error {

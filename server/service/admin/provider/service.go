@@ -205,8 +205,8 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 		runningTasksCount := taskCountMap[provider.ID]
 		usedTraffic := trafficUsageMap[provider.ID]
 
-		// Docker/Podman/Containerd 类型固定使用 native 端口映射方式
-		if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" {
+		// Docker/Podman/Containerd/Orbstack 类型固定使用 native 端口映射方式
+		if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" || provider.Type == "orbstack" {
 			provider.IPv4PortMappingMethod = "native"
 			provider.IPv6PortMappingMethod = "native"
 		}

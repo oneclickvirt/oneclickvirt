@@ -30,6 +30,10 @@
           value="docker"
         />
         <el-option
+          label="Orbstack"
+          value="orbstack"
+        />
+        <el-option
           label="Podman"
           value="podman"
         />
@@ -56,6 +60,10 @@
         <el-option
           label="KubeVirt"
           value="kubevirt"
+        />
+        <el-option
+          label="VMware"
+          value="vmware"
         />
       </el-select>
     </el-form-item>

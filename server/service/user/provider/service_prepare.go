@@ -13,6 +13,7 @@ import (
 	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -89,6 +90,11 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 
 		// 设置实例到期时间：节点到期优先；节点不过期且启用签到时，使用签到默认到期天数。
 		expiredAt := determineInitialInstanceExpiryInTx(tx, &provider)
+		gpuEnabled := taskReq.GpuEnabled && utils.SupportsLXDContainerOptions(provider.Type, systemImage.InstanceType)
+		gpuDeviceIDs := ""
+		if gpuEnabled {
+			gpuDeviceIDs = taskReq.GpuDeviceIds
+		}
 
 		// 创建实例记录
 		instance = providerModel.Instance{
@@ -106,12 +112,12 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 			OSType:             systemImage.OSType,
 			NetworkType:        provider.NetworkType, // 记录Provider的网络类型，用于reset时恢复IPv6配置
 			ExpiresAt:          expiredAt,
-			IsManualExpiry:     false,                // 默认非手动设置，跟随节点
-			MaxTraffic:         0,                    // 默认为0，表示继承用户等级限制，不单独限制实例
-			TrafficLimited:     false,                // 显式设置为false，确保不会因流量误判为超限
-			TrafficLimitReason: "",                   // 初始无限制原因
-			GpuEnabled:         taskReq.GpuEnabled,   // GPU直通配置
-			GpuDeviceIds:       taskReq.GpuDeviceIds, // GPU设备ID列表
+			IsManualExpiry:     false,        // 默认非手动设置，跟随节点
+			MaxTraffic:         0,            // 默认为0，表示继承用户等级限制，不单独限制实例
+			TrafficLimited:     false,        // 显式设置为false，确保不会因流量误判为超限
+			TrafficLimitReason: "",           // 初始无限制原因
+			GpuEnabled:         gpuEnabled,   // GPU直通配置
+			GpuDeviceIds:       gpuDeviceIDs, // GPU设备ID列表
 		}
 
 		// 创建实例

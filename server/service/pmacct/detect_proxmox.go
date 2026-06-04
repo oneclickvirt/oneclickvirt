@@ -314,8 +314,8 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 		zap.String("instance", instanceName),
 		zap.Bool("hasIPv6", hasIPv6))
 
-	// Docker/Podman/Containerd/LXD/Incus 容器: 优先检测veth接口
-	if providerType == "docker" || providerType == "podman" || providerType == "containerd" || providerType == "lxd" || providerType == "incus" {
+	// Docker/Podman/Containerd/Orbstack/LXD/Incus 容器: 优先检测veth接口
+	if utils.IsDockerFamilyProvider(providerType) || providerType == "lxd" || providerType == "incus" {
 		// 尝试检测veth接口
 		vethInterface, err := s.detectVethInterface(providerInstance, instanceName)
 		if err != nil {

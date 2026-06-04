@@ -19,8 +19,8 @@ type BlockRule struct {
 	ID          uint           `gorm:"primarykey" json:"id"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
-	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
-	Name        string         `gorm:"size:64;not null;uniqueIndex" json:"name"`
+	DeletedAt   gorm.DeletedAt `gorm:"index;uniqueIndex:idx_block_rule_name_deleted,priority:2" json:"-"`
+	Name        string         `gorm:"size:64;not null;uniqueIndex:idx_block_rule_name_deleted,priority:1" json:"name"`
 	Category    string         `gorm:"size:32;not null;index:idx_block_rule_category" json:"category"`
 	Description string         `gorm:"size:512" json:"description"`
 	Strings     string         `gorm:"type:text;not null" json:"strings"`

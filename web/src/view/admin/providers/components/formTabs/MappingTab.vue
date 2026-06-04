@@ -297,9 +297,9 @@
       </template>
     </template>
 
-    <!-- Docker/Podman/Containerd 端口映射方式（固定为 native，不可选择） -->
+    <!-- Docker/Podman/Containerd/Orbstack 端口映射方式（固定为 native，不可选择） -->
     <el-form-item
-      v-if="['docker', 'podman', 'containerd'].includes(modelValue.type)"
+      v-if="['docker', 'podman', 'containerd', 'orbstack'].includes(modelValue.type)"
       :label="$t('admin.providers.portMappingMethod')"
     >
       <el-input
@@ -309,7 +309,7 @@
       />
     </el-form-item>
     <div
-      v-if="['docker', 'podman', 'containerd'].includes(modelValue.type)"
+      v-if="['docker', 'podman', 'containerd', 'orbstack'].includes(modelValue.type)"
       class="form-tip"
       style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
     >
@@ -458,9 +458,9 @@
       </el-text>
     </div>
 
-    <!-- QEMU/KubeVirt 端口映射方式（固定为 iptables） -->
+    <!-- QEMU/KubeVirt/VMware 端口映射方式（固定为 iptables） -->
     <el-form-item
-      v-if="['qemu', 'kubevirt'].includes(modelValue.type)"
+      v-if="['qemu', 'kubevirt', 'vmware'].includes(modelValue.type)"
       :label="$t('admin.providers.portMappingMethod')"
     >
       <el-input
@@ -470,7 +470,7 @@
       />
     </el-form-item>
     <div
-      v-if="['qemu', 'kubevirt'].includes(modelValue.type)"
+      v-if="['qemu', 'kubevirt', 'vmware'].includes(modelValue.type)"
       class="form-tip"
       style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
     >
@@ -493,10 +493,10 @@
         <li><strong>{{ $t('admin.providers.natMapping') }}:</strong> {{ $t('admin.providers.natMappingDesc') }}</li>
         <li><strong>{{ $t('admin.providers.dedicatedMapping') }}:</strong> {{ $t('admin.providers.dedicatedMappingDesc') }}</li>
         <li><strong>{{ $t('admin.providers.ipv6Support') }}:</strong> {{ $t('admin.providers.ipv6SupportDesc') }}</li>
-        <li><strong>Docker:</strong> {{ $t('admin.providers.dockerMappingDesc') }}</li>
+        <li><strong>Docker/Orbstack:</strong> {{ $t('admin.providers.dockerMappingDesc') }}</li>
         <li><strong>LXD/Incus:</strong> {{ $t('admin.providers.lxdIncusMappingDesc') }}</li>
         <li><strong>Proxmox VE:</strong> {{ $t('admin.providers.proxmoxMappingDesc') }}</li>
-        <li><strong>QEMU/KubeVirt:</strong> {{ $t('admin.providers.qemuMappingDesc') }}</li>
+        <li><strong>QEMU/KubeVirt/VMware:</strong> {{ $t('admin.providers.qemuMappingDesc') }}</li>
       </ul>
     </el-alert>
 
@@ -674,10 +674,14 @@ const {
 watch(() => props.modelValue.type, (newType) => {
   if (!newType) return
 
-  if (['docker', 'podman', 'containerd'].includes(newType)) {
-    // Docker/Podman/Containerd: IPv4和IPv6都固定使用 native
+  if (['docker', 'podman', 'containerd', 'orbstack'].includes(newType)) {
+    // Docker/Podman/Containerd/Orbstack: IPv4和IPv6都固定使用 native
     props.modelValue.ipv4PortMappingMethod = 'native'
     props.modelValue.ipv6PortMappingMethod = 'native'
+  } else if (['qemu', 'kubevirt', 'vmware'].includes(newType)) {
+    // 本地虚拟化类型：IPv4和IPv6都固定使用 iptables
+    props.modelValue.ipv4PortMappingMethod = 'iptables'
+    props.modelValue.ipv6PortMappingMethod = 'iptables'
   } else if (newType === 'proxmox') {
     // Proxmox: 根据网络类型设置
     const isNATMode = props.modelValue.networkType === 'nat_ipv4' || props.modelValue.networkType === 'nat_ipv4_ipv6'

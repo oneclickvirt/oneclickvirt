@@ -440,22 +440,24 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 				"provider_id":              fmt.Sprintf("%d", resetCtx.Provider.ID),
 				"reset_from_instance_id":   fmt.Sprintf("%d", resetCtx.OldInstanceID),
 			},
-			Privileged:   boolPtr(resetCtx.Provider.ContainerPrivileged),
-			AllowNesting: boolPtr(resetCtx.Provider.ContainerAllowNesting),
-			EnableLXCFS:  boolPtr(resetCtx.Provider.ContainerEnableLXCFS),
-			CPUAllowance: stringPtr(resetCtx.Provider.ContainerCPUAllowance),
-			MemorySwap:   boolPtr(resetCtx.Provider.ContainerMemorySwap),
-			MaxProcesses: intPtr(resetCtx.Provider.ContainerMaxProcesses),
-			DiskIOLimit:  stringPtr(resetCtx.Provider.ContainerDiskIOLimit),
-			GpuEnabled:   resetCtx.Provider.GpuEnabled,
-			GpuDeviceIds: resetCtx.Provider.GpuDeviceIds,
 		},
 		SystemImageID: resetCtx.SystemImage.ID,
+	}
+	if utils.SupportsLXDContainerOptions(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) {
+		createReq.InstanceConfig.Privileged = boolPtr(resetCtx.Provider.ContainerPrivileged)
+		createReq.InstanceConfig.AllowNesting = boolPtr(resetCtx.Provider.ContainerAllowNesting)
+		createReq.InstanceConfig.EnableLXCFS = boolPtr(resetCtx.Provider.ContainerEnableLXCFS)
+		createReq.InstanceConfig.CPUAllowance = stringPtr(resetCtx.Provider.ContainerCPUAllowance)
+		createReq.InstanceConfig.MemorySwap = boolPtr(resetCtx.Provider.ContainerMemorySwap)
+		createReq.InstanceConfig.MaxProcesses = intPtr(resetCtx.Provider.ContainerMaxProcesses)
+		createReq.InstanceConfig.DiskIOLimit = stringPtr(resetCtx.Provider.ContainerDiskIOLimit)
+		createReq.InstanceConfig.GpuEnabled = resetCtx.Provider.GpuEnabled
+		createReq.InstanceConfig.GpuDeviceIds = resetCtx.Provider.GpuDeviceIds
 	}
 
 	// 容器类Provider（docker/podman/containerd）端口映射特殊处理
 	// 这些Provider通过 -p 标志在创建时绑定端口，需要将端口信息写入创建请求
-	if (resetCtx.Provider.Type == "docker" || resetCtx.Provider.Type == "podman" || resetCtx.Provider.Type == "containerd") && len(resetCtx.OldPortMappings) > 0 {
+	if utils.IsDockerFamilyProvider(resetCtx.Provider.Type) && len(resetCtx.OldPortMappings) > 0 {
 		var ports []string
 		for _, oldPort := range resetCtx.OldPortMappings {
 			if oldPort.Protocol == "both" {
@@ -515,7 +517,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	// 等待实例启动：QEMU/KubeVirt虚拟机启动慢，需要更长等待
 	instanceStartWait := 15 * time.Second
 	switch resetCtx.Provider.Type {
-	case "qemu", "kubevirt":
+	case "qemu", "kubevirt", "vmware":
 		instanceStartWait = 120 * time.Second
 	case "proxmox":
 		instanceStartWait = 60 * time.Second

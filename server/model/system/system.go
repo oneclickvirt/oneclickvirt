@@ -10,17 +10,17 @@ import (
 // InviteCode 邀请码模型
 type InviteCode struct {
 	ID          uint           `json:"id" gorm:"primarykey"`
-	Code        string         `json:"code" gorm:"size:32;not null;uniqueIndex"` // 邀请码
-	CreatorID   uint           `json:"creatorId" gorm:"not null;index"`          // 创建者ID
-	CreatorName string         `json:"creatorName" gorm:"size:50;not null"`      // 创建者名称
-	Description string         `json:"description" gorm:"size:255"`              // 描述
-	MaxUses     int            `json:"maxUses" gorm:"not null;default:1"`        // 最大使用次数，0表示无限制
-	UsedCount   int            `json:"usedCount" gorm:"not null;default:0"`      // 已使用次数
-	ExpiresAt   *time.Time     `json:"expiresAt" gorm:"index"`                   // 过期时间
-	Status      int            `json:"status" gorm:"not null;default:1;index"`   // 状态：0-禁用 1-启用
+	Code        string         `json:"code" gorm:"size:32;not null;uniqueIndex:idx_invite_code_deleted,priority:1"` // 邀请码
+	CreatorID   uint           `json:"creatorId" gorm:"not null;index"`                                             // 创建者ID
+	CreatorName string         `json:"creatorName" gorm:"size:50;not null"`                                         // 创建者名称
+	Description string         `json:"description" gorm:"size:255"`                                                 // 描述
+	MaxUses     int            `json:"maxUses" gorm:"not null;default:1"`                                           // 最大使用次数，0表示无限制
+	UsedCount   int            `json:"usedCount" gorm:"not null;default:0"`                                         // 已使用次数
+	ExpiresAt   *time.Time     `json:"expiresAt" gorm:"index"`                                                      // 过期时间
+	Status      int            `json:"status" gorm:"not null;default:1;index"`                                      // 状态：0-禁用 1-启用
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
-	DeletedAt   gorm.DeletedAt `json:"deletedAt" gorm:"index" swaggerignore:"true"`
+	DeletedAt   gorm.DeletedAt `json:"deletedAt" gorm:"index;uniqueIndex:idx_invite_code_deleted,priority:2" swaggerignore:"true"`
 }
 
 func (InviteCode) TableName() string {
@@ -42,11 +42,11 @@ type InviteCodeUsage struct {
 // SystemImage 系统镜像模型 - 用于管理各种操作系统镜像
 type SystemImage struct {
 	// 基础字段
-	ID        uint           `json:"id" gorm:"primarykey"`                     // 镜像主键ID
-	UUID      string         `json:"uuid" gorm:"uniqueIndex;not null;size:36"` // 镜像唯一标识符
-	CreatedAt time.Time      `json:"createdAt"`                                // 镜像记录创建时间
-	UpdatedAt time.Time      `json:"updatedAt"`                                // 镜像记录更新时间
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`                           // 软删除时间
+	ID        uint           `json:"id" gorm:"primarykey"`                                                              // 镜像主键ID
+	UUID      string         `json:"uuid" gorm:"uniqueIndex:idx_system_image_uuid_deleted,priority:1;not null;size:36"` // 镜像唯一标识符
+	CreatedAt time.Time      `json:"createdAt"`                                                                         // 镜像记录创建时间
+	UpdatedAt time.Time      `json:"updatedAt"`                                                                         // 镜像记录更新时间
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:idx_system_image_uuid_deleted,priority:2"`               // 软删除时间
 
 	// 基本信息
 	Name        string `json:"name" gorm:"not null;size:128"`        // 自定义镜像名称

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -93,16 +94,7 @@ func GenerateAgentSecret(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无法解析控制端主机地址"))
 		return
 	}
-	// nginx $host 不含端口，需从 X-Forwarded-Port 或 server config 补充端口
-	if !strings.Contains(host, ":") {
-		port := normalizeForwardedPort(c.GetHeader("X-Forwarded-Port"))
-		if port == "" {
-			port = fmt.Sprintf("%d", global.GetAppConfig().System.Addr)
-		}
-		if port != "" && port != "80" && port != "443" {
-			host = host + ":" + port
-		}
-	}
+	host = formatControllerURLHost(host, normalizeForwardedPort(c.GetHeader("X-Forwarded-Port")), global.GetAppConfig().System.Addr)
 	wsURL := fmt.Sprintf("%s://%s/api/v1/ws/agent", scheme, host)
 	httpScheme := "https"
 	if c.Request.TLS == nil {
@@ -181,21 +173,32 @@ func GetStoppedContainers(c *gin.Context) {
 		return
 	}
 
-	execCtx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
-	defer cancel()
-	providerInstance, err := provider.EnsureProviderConnected(execCtx, uint(id))
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider连接不可用: "+err.Error()))
-		return
-	}
-
 	// 根据 provider 类型选择命令
 	listCmd := "lxc list --format json 2>/dev/null"
 	if dbProvider.Type == "incus" {
 		listCmd = "incus list --format json 2>/dev/null"
 	}
 
-	output, err := providerInstance.ExecuteSSHCommand(execCtx, listCmd)
+	execCtx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+
+	var output string
+	if dbProvider.ConnectionType == "agent" {
+		if incompatible, minVersion := isAgentVersionIncompatible(dbProvider.AgentVersion); incompatible {
+			msg := fmt.Sprintf("Agent版本过低或不兼容（当前: %s，最低要求: %s），请先升级Agent后再获取容器列表", dbProvider.AgentVersion, minVersion)
+			common.ResponseWithError(c, common.NewError(common.CodeBadGateway, msg))
+			return
+		}
+		exec := agentService.NewAgentShellExecutor(dbProvider.ID, agentService.GetHub())
+		output, err = exec.ExecuteWithTimeout(listCmd, 60*time.Second)
+	} else {
+		providerInstance, connErr := provider.EnsureProviderConnected(execCtx, uint(id))
+		if connErr != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider连接不可用: "+connErr.Error()))
+			return
+		}
+		output, err = providerInstance.ExecuteSSHCommand(execCtx, listCmd)
+	}
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取容器列表失败: "+err.Error()))
 		return
@@ -481,6 +484,38 @@ func normalizeForwardedHost(value string) string {
 		value = value[:idx]
 	}
 	return strings.TrimSpace(value)
+}
+
+func formatControllerURLHost(host, forwardedPort string, defaultPort int) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	if parsedHost, parsedPort, err := net.SplitHostPort(host); err == nil {
+		parsedHost = strings.Trim(parsedHost, "[]")
+		if parsedPort == "80" || parsedPort == "443" {
+			return formatHostForURL(parsedHost)
+		}
+		return net.JoinHostPort(parsedHost, parsedPort)
+	}
+
+	unwrappedHost := strings.Trim(host, "[]")
+	port := forwardedPort
+	if port == "" && defaultPort > 0 {
+		port = fmt.Sprintf("%d", defaultPort)
+	}
+	if port == "" || port == "80" || port == "443" {
+		return formatHostForURL(unwrappedHost)
+	}
+	return net.JoinHostPort(unwrappedHost, port)
+}
+
+func formatHostForURL(host string) string {
+	host = strings.Trim(host, "[]")
+	if strings.Contains(host, ":") {
+		return "[" + host + "]"
+	}
+	return host
 }
 
 func normalizeForwardedPort(value string) string {

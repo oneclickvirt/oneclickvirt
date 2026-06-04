@@ -12,6 +12,16 @@ const service = axios.create({
   }
 })
 
+function createNormalizedError(errorInfo, response, originalError) {
+  const normalizedError = new Error(errorInfo.message)
+  normalizedError.code = errorInfo.code
+  normalizedError.status = response?.status
+  normalizedError.details = errorInfo.details
+  normalizedError.response = response
+  normalizedError.originalError = originalError
+  return normalizedError
+}
+
 function generateRequestId() {
   return 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
 }
@@ -63,7 +73,11 @@ service.interceptors.response.use(
           showMessage: false, // 不自动显示错误消息，让组件自己处理
           autoRedirect: false // 不自动重定向
         })
-        return Promise.reject(new Error(errorInfo.message))
+        return Promise.reject(createNormalizedError(errorInfo, {
+          ...response,
+          status: response.status === 200 ? res.code : (response.status || res.code),
+          data: res
+        }, response))
       }
     }
     
@@ -88,12 +102,7 @@ service.interceptors.response.use(
       showMessage: false, // 不自动显示错误消息，让组件自己处理
       autoRedirect: false // 不自动重定向
     })
-    const normalizedError = new Error(errorInfo.message)
-    normalizedError.code = errorInfo.code
-    normalizedError.details = errorInfo.details
-    normalizedError.response = error.response
-    normalizedError.originalError = error
-    return Promise.reject(normalizedError)
+    return Promise.reject(createNormalizedError(errorInfo, error.response, error))
   }
 )
 

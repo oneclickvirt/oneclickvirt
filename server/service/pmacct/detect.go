@@ -191,7 +191,7 @@ func (s *Service) detectVethInterface(providerInstance provider.Provider, instan
 	var detectCmd string
 	var runtimeCmd string
 	switch providerType {
-	case "docker":
+	case "docker", "orbstack":
 		runtimeCmd = "docker"
 	case "podman":
 		runtimeCmd = "podman"
@@ -203,8 +203,8 @@ func (s *Service) detectVethInterface(providerInstance provider.Provider, instan
 		return "", fmt.Errorf("unsupported provider type for veth detection: %s", providerType)
 	}
 
-	if providerType == "docker" || providerType == "podman" || providerType == "containerd" {
-		// Docker/Podman/Containerd 容器veth接口检测
+	if utils.IsDockerFamilyProvider(providerType) {
+		// Docker/Podman/Containerd/Orbstack 容器veth接口检测
 		detectCmd = fmt.Sprintf(`
 # 检测容器对应的veth接口
 CONTAINER_NAME='%s'

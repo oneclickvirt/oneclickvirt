@@ -40,6 +40,11 @@ func NewDockerPortMapping(config *portmapping.ManagerConfig) portmapping.PortMap
 	return NewContainerPortMapping("docker", "docker", config)
 }
 
+// NewOrbstackPortMapping 创建Orbstack端口映射Provider（复用docker CLI）。
+func NewOrbstackPortMapping(config *portmapping.ManagerConfig) portmapping.PortMappingProvider {
+	return NewContainerPortMapping("orbstack", "docker", config)
+}
+
 // containerNetworkName 返回非Docker运行时需要显式指定的IPv4网络名称
 func (d *DockerPortMapping) containerNetworkName() string {
 	switch d.GetProviderType() {
@@ -338,5 +343,8 @@ func (d *DockerPortMapping) getPublicIP(providerInfo *provider.Provider) string 
 func init() {
 	portmapping.RegisterProvider("docker", func(config *portmapping.ManagerConfig) portmapping.PortMappingProvider {
 		return NewDockerPortMapping(config)
+	})
+	portmapping.RegisterProvider("orbstack", func(config *portmapping.ManagerConfig) portmapping.PortMappingProvider {
+		return NewOrbstackPortMapping(config)
 	})
 }

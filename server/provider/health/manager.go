@@ -13,6 +13,7 @@ type ProviderType string
 
 const (
 	ProviderTypeDocker     ProviderType = "docker"
+	ProviderTypeOrbstack   ProviderType = "orbstack"
 	ProviderTypeLXD        ProviderType = "lxd"
 	ProviderTypeIncus      ProviderType = "incus"
 	ProviderTypeProxmox    ProviderType = "proxmox"
@@ -20,6 +21,7 @@ const (
 	ProviderTypeContainerd ProviderType = "containerd"
 	ProviderTypeQEMU       ProviderType = "qemu"
 	ProviderTypeKubeVirt   ProviderType = "kubevirt"
+	ProviderTypeVMware     ProviderType = "vmware"
 )
 
 // HealthManager 健康检查管理器
@@ -68,7 +70,7 @@ func (hm *HealthManager) CreateChecker(providerType ProviderType, config HealthC
 	var checkerTypeName string
 
 	switch providerType {
-	case ProviderTypeDocker, ProviderTypePodman, ProviderTypeContainerd:
+	case ProviderTypeDocker, ProviderTypePodman, ProviderTypeContainerd, ProviderTypeOrbstack:
 		if configCopy.APIScheme == "" {
 			configCopy.APIScheme = "http"
 		}
@@ -99,8 +101,8 @@ func (hm *HealthManager) CreateChecker(providerType ProviderType, config HealthC
 		checker = NewProxmoxHealthChecker(configCopy, hm.logger)
 		checkerTypeName = "ProxmoxHealthChecker"
 
-	case ProviderTypeQEMU, ProviderTypeKubeVirt:
-		// QEMU/KubeVirt 使用 SSH-only 健康检查（与Docker相同的基础SSH检查器）
+	case ProviderTypeQEMU, ProviderTypeKubeVirt, ProviderTypeVMware:
+		// QEMU/KubeVirt/VMware 使用 SSH-only 健康检查（与Docker相同的基础SSH检查器）
 		configCopy.APIEnabled = false
 		checker = NewDockerHealthChecker(configCopy, hm.logger)
 		checkerTypeName = "SSHHealthChecker"

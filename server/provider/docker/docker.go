@@ -19,7 +19,7 @@ import (
 
 // ContainerRuntimeConfig 容器运行时配置，用于参数化 docker/podman/containerd 之间的差异
 type ContainerRuntimeConfig struct {
-	ProviderType      string // "docker", "podman", "containerd"
+	ProviderType      string // "docker", "podman", "containerd", "orbstack"
 	CLI               string // "docker", "podman", "nerdctl"
 	IPv4Network       string // "" 表示使用默认 bridge, 否则为 "podman-net" / "containerd-net"
 	IPv4Subnet        string // IPv4子网，用于配置iptables路由规则（podman/containerd: "172.20.0.0/16"，docker留空）
@@ -44,6 +44,18 @@ var defaultDockerRuntime = ContainerRuntimeConfig{
 	ServiceCheckName:  "docker",
 }
 
+var orbstackRuntime = ContainerRuntimeConfig{
+	ProviderType:      "orbstack",
+	CLI:               "docker",
+	IPv4Network:       "",
+	IPv6Network:       "ipv6_net",
+	ImageDir:          "/usr/local/bin/orbstack_ct_images",
+	IPv6CheckFile:     "/usr/local/bin/orbstack_check_ipv6",
+	StorageDriverFile: "/usr/local/bin/orbstack_storage_driver",
+	ScriptRepo:        "oneclickvirt/docker",
+	ServiceCheckName:  "docker",
+}
+
 type DockerProvider struct {
 	config           provider.NodeConfig
 	runtime          ContainerRuntimeConfig
@@ -57,6 +69,10 @@ type DockerProvider struct {
 
 func NewDockerProvider() provider.Provider {
 	return NewContainerProvider(defaultDockerRuntime)
+}
+
+func NewOrbstackProvider() provider.Provider {
+	return NewContainerProvider(orbstackRuntime)
 }
 
 // NewContainerProvider 创建使用指定运行时配置的容器 Provider
@@ -673,4 +689,5 @@ func (d *DockerProvider) ExecuteSSHCommand(ctx context.Context, command string) 
 
 func init() {
 	provider.RegisterProvider("docker", NewDockerProvider)
+	provider.RegisterProvider("orbstack", NewOrbstackProvider)
 }

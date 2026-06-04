@@ -652,7 +652,7 @@ const {
   createForm, createRules,
   providerCaps, availableImages,
   cpuSpecs, memorySpecs, diskSpecs, bandwidthSpecs,
-  stoppedContainerOptions, stoppedContainersLoading,
+  stoppedContainers, stoppedContainerOptions, stoppedContainersLoading,
   isLxdIncusProvider, canConfigureGpuPassthrough,
   gpuDetecting, gpuChecked, detectedGpus, selectedGpuIndices,
   showExportDialog, exportedCodesText, exportResult, exportLoading, exportFields,

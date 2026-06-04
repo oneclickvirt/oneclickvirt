@@ -196,8 +196,8 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 				currentPrivateIP = instance.PrivateIP
 			}
 		}
-	case "docker":
-		// Docker通常不需要内网IP映射
+	case "docker", "orbstack":
+		// Docker/Orbstack通常不需要内网IP映射
 		currentPrivateIP = instance.PrivateIP
 	default:
 		currentPrivateIP = instance.PrivateIP

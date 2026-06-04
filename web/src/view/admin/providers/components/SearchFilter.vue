@@ -38,6 +38,10 @@
             value="docker"
           />
           <el-option
+            :label="$t('admin.providers.orbstack')"
+            value="orbstack"
+          />
+          <el-option
             :label="$t('admin.providers.podman')"
             value="podman"
           />
@@ -52,6 +56,10 @@
           <el-option
             :label="$t('admin.providers.kubevirt')"
             value="kubevirt"
+          />
+          <el-option
+            :label="$t('admin.providers.vmware')"
+            value="vmware"
           />
         </el-select>
       </el-col>

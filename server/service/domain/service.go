@@ -36,10 +36,7 @@ func getAgentClient(providerID uint) *agent.Client {
 	if config.AgentToken == "" {
 		return nil
 	}
-	host := p.Endpoint
-	if host == "" {
-		host = p.PortIP
-	}
+	host := agent.ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
 		if p.ConnectionType == "agent" {
 			host = "127.0.0.1" // loopback fallback; calls are routed through WS fallback
@@ -51,7 +48,7 @@ func getAgentClient(providerID uint) *agent.Client {
 	if port == 0 {
 		port = agent.AgentPort
 	}
-	return agent.GetClient(providerID, host, port, config.AgentToken)
+	return agent.GetClientWithMode(providerID, host, port, config.AgentToken, p.ConnectionType == "agent")
 }
 
 // GetUserDomains 获取用户域名列表

@@ -417,13 +417,15 @@ func (i *IptablesPortMapping) getTableName(providerInfo *provider.Provider) stri
 		return "qemu"
 	case "kubevirt":
 		return "kubevirt"
+	case "vmware":
+		return "vmware"
 	case "proxmox", "proxmoxve":
 		return "proxmox"
 	case "incus":
 		return "incus"
 	case "lxd":
 		return "lxd"
-	case "docker":
+	case "docker", "orbstack":
 		return "docker"
 	default:
 		return "portmap"
@@ -437,6 +439,8 @@ func (i *IptablesPortMapping) getMarkerFile(providerInfo *provider.Provider) str
 		return "/usr/local/bin/qemu_fw_backend"
 	case "kubevirt":
 		return "/usr/local/bin/kubevirt_fw_backend"
+	case "vmware":
+		return "/usr/local/bin/vmware_fw_backend"
 	case "proxmox", "proxmoxve":
 		return "/usr/local/bin/proxmox_fw_backend"
 	case "incus":

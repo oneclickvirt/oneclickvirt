@@ -85,7 +85,7 @@ type Provider struct {
 	// 基本信息
 	// name已有uniqueIndex，type添加索引
 	Name     string `json:"name" gorm:"uniqueIndex;not null;size:64"`    // Provider名称（唯一）
-	Type     string `json:"type" gorm:"not null;size:32;index:idx_type"` // Provider类型：docker, lxd, incus, proxmox
+	Type     string `json:"type" gorm:"not null;size:32;index:idx_type"` // Provider类型：docker, podman, containerd, orbstack, lxd, incus, proxmox, qemu, kubevirt, vmware
 	Endpoint string `json:"endpoint" gorm:"size:255"`                    // SSH连接端点地址
 	PortIP   string `json:"portIP" gorm:"size:255"`                      // 端口映射使用的公网IP（非必填，若为空则使用Endpoint）
 	SSHPort  int    `json:"sshPort" gorm:"default:22"`                   // SSH连接端口
@@ -380,11 +380,11 @@ func (p *Provider) GetAuthMethod() string {
 // Instance 实例模型
 type Instance struct {
 	// 基础字段
-	ID        uint           `json:"id" gorm:"primarykey"`                     // 实例主键ID
-	UUID      string         `json:"uuid" gorm:"uniqueIndex;not null;size:36"` // 实例唯一标识符
-	CreatedAt time.Time      `json:"createdAt"`                                // 实例创建时间
-	UpdatedAt time.Time      `json:"updatedAt"`                                // 实例信息更新时间
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index:idx_deleted_at"`            // 软删除时间
+	ID        uint           `json:"id" gorm:"primarykey"`                                                            // 实例主键ID
+	UUID      string         `json:"uuid" gorm:"uniqueIndex;not null;size:36"`                                        // 实例唯一标识符
+	CreatedAt time.Time      `json:"createdAt"`                                                                       // 实例创建时间
+	UpdatedAt time.Time      `json:"updatedAt"`                                                                       // 实例信息更新时间
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index:idx_deleted_at;uniqueIndex:idx_instance_name_provider,priority:3"` // 软删除时间（参与复合唯一，避免软删除实例名称占坑）
 
 	// 基本信息
 	// 添加覆盖索引，包含常用查询字段
@@ -505,14 +505,15 @@ type PendingDeletion struct {
 
 // HardwareTestReport 硬件测试报告模型（通过粘贴URL获取报告内容）
 type HardwareTestReport struct {
-	ID         uint           `json:"id" gorm:"primarykey"`
-	CreatedAt  time.Time      `json:"createdAt"`
-	UpdatedAt  time.Time      `json:"updatedAt"`
-	DeletedAt  gorm.DeletedAt `json:"-" gorm:"index"`
-	ProviderID uint           `json:"providerId" gorm:"uniqueIndex"`
-	PasteURL   string         `json:"pasteUrl" gorm:"size:512"`        // 粘贴板URL，如 https://paste.spiritlhl.net/#/show/xxx.txt
-	ReportText string         `json:"reportText" gorm:"type:longtext"` // 从粘贴板URL下载的报告内容
-	UpdatedBy  uint           `json:"updatedBy"`                       // 最后更新者
+	ID            uint           `json:"id" gorm:"primarykey"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+	DeletedAt     gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:idx_hardware_report_provider_deleted,priority:2"`
+	ProviderID    uint           `json:"providerId" gorm:"uniqueIndex:idx_hardware_report_provider_deleted,priority:1"`
+	PasteURL      string         `json:"pasteUrl" gorm:"size:512"`        // 粘贴板URL，如 https://paste.spiritlhl.net/#/show/xxx.txt
+	ReportText    string         `json:"reportText" gorm:"type:longtext"` // 从粘贴板URL下载的报告内容
+	VendorSummary string         `json:"vendorSummary" gorm:"type:text"`  // 从报告内容提取出的硬件厂商摘要
+	UpdatedBy     uint           `json:"updatedBy"`                       // 最后更新者
 }
 
 // 以下是业务层结构体（不是数据库模型）
@@ -598,7 +599,7 @@ type ProviderNodeConfig struct {
 	Country               string   `json:"country"`             // Provider所在国家，用于CDN选择
 	City                  string   `json:"city"`                // Provider所在城市（可选）
 	Architecture          string   `json:"architecture"`        // 架构类型，如amd64, arm64等
-	Type                  string   `json:"type"`                // docker, lxd, incus, proxmox
+	Type                  string   `json:"type"`                // docker, podman, containerd, orbstack, lxd, incus, proxmox, qemu, kubevirt, vmware
 	SupportedTypes        []string `json:"supported_types"`     // 支持的实例类型: container, vm, both
 	ContainerEnabled      bool     `json:"container_enabled"`   // 是否支持容器
 	VirtualMachineEnabled bool     `json:"vm_enabled"`          // 是否支持虚拟机
@@ -606,6 +607,8 @@ type ProviderNodeConfig struct {
 	SSHExecuteTimeout     int      `json:"ssh_execute_timeout"` // SSH命令执行超时时间（秒）
 	ExecutionRule         string   `json:"execution_rule"`      // 操作轮转规则：auto, api_only, ssh_only
 	NetworkType           string   `json:"networkType"`         // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	StoragePool           string   `json:"storagePool"`         // 存储池名称；VMware 等本地虚拟化类型可作为实例目录路径使用
+	StoragePoolPath       string   `json:"storagePoolPath"`     // 存储池实际挂载路径，优先级高于 StoragePool
 	// Proxmox 网桥配置（third_party 安装类型时生效）
 	NodeInstallType   string `json:"node_install_type"`   // 节点安装类型：script, third_party
 	BridgeNAT         string `json:"bridge_nat"`          // NAT网桥（替代vmbr1）

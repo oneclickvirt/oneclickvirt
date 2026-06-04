@@ -11,13 +11,13 @@ type KYCRecord struct {
 	ID        uint           `json:"id" gorm:"primarykey"`
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:idx_kyc_user_deleted,priority:2;uniqueIndex:idx_kyc_id_hash_deleted,priority:2"`
 	// 用户关联
-	UserID uint `json:"userId" gorm:"uniqueIndex;not null"` // 一个用户只有一条认证记录
+	UserID uint `json:"userId" gorm:"uniqueIndex:idx_kyc_user_deleted,priority:1;not null"` // 一个用户只有一条认证记录
 	// 认证信息(加密存储)
 	RealName     string `json:"realName" gorm:"size:128;not null"`
-	IDNumber     string `json:"-" gorm:"size:255;not null"`            // 身份证号(加密,不返回给前端)
-	IDNumberHash string `json:"-" gorm:"size:64;uniqueIndex;not null"` // 身份证号SHA256哈希(查重用)
+	IDNumber     string `json:"-" gorm:"size:255;not null"`                                               // 身份证号(加密,不返回给前端)
+	IDNumberHash string `json:"-" gorm:"size:64;uniqueIndex:idx_kyc_id_hash_deleted,priority:1;not null"` // 身份证号SHA256哈希(查重用)
 	// 认证方式
 	Method string `json:"method" gorm:"size:32;default:manual"` // 认证方式: manual(手动审核), alipay(支付宝人脸)
 	// 支付宝认证字段

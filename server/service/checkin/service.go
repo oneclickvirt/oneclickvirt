@@ -244,21 +244,25 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 	appliedRenewalDays := config.RenewalDays
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		var lockedInstance struct {
-			ID           uint
-			ProviderID   uint
-			ExpiresAt    *time.Time
-			IsFrozen     bool
-			FrozenReason string
+			ID             uint
+			ProviderID     uint
+			ExpiresAt      *time.Time
+			IsManualExpiry bool
+			IsFrozen       bool
+			FrozenReason   string
 		}
 		if err := tx.Table("instances").
 			Clauses(clause.Locking{Strength: "UPDATE"}).
-			Select("id, provider_id, expires_at, is_frozen, frozen_reason").
+			Select("id, provider_id, expires_at, is_manual_expiry, is_frozen, frozen_reason").
 			Where("id = ? AND user_id = ? AND status NOT IN ?", instanceID, userID, []string{"deleted", "deleting"}).
 			Take(&lockedInstance).Error; err != nil {
 			return fmt.Errorf("实例不存在或不属于您")
 		}
 		if lockedInstance.ProviderID != config.ProviderID {
 			return fmt.Errorf("签到配置与实例所属节点不匹配")
+		}
+		if lockedInstance.IsManualExpiry {
+			return fmt.Errorf("该实例由管理员手动设置了过期时间，签到续期不会覆盖手动设置")
 		}
 
 		now := time.Now()

@@ -230,7 +230,7 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 					updates["public_ipv6"] = publicIPv6
 				}
 			}
-		case "qemu", "kubevirt":
+		case "qemu", "kubevirt", "vmware":
 			if actualInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && actualInstance != nil {
 				if actualInstance.PrivateIP != "" {
 					updates["private_ip"] = actualInstance.PrivateIP
@@ -238,7 +238,7 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 					updates["private_ip"] = actualInstance.IP
 				}
 			}
-		case "docker", "podman", "containerd":
+		case "docker", "podman", "containerd", "orbstack":
 			// 容器类 Provider 在实例创建时已将 private_ip 写入数据库，
 			// 此处仅做幂等补齐，若已有则直接返回。
 			if instance.PrivateIP != "" {

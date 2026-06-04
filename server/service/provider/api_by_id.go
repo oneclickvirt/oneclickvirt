@@ -92,10 +92,10 @@ func (s *ProviderApiService) GetProviderStatusByID(providerIDStr string) (map[st
 		return nil, fmt.Errorf("Provider不存在")
 	}
 
-	// Docker/Podman/Containerd 类型固定使用 native 端口映射方式
+	// Docker/Podman/Containerd/Orbstack 类型固定使用 native 端口映射方式
 	ipv4Method := dbProvider.IPv4PortMappingMethod
 	ipv6Method := dbProvider.IPv6PortMappingMethod
-	if dbProvider.Type == "docker" || dbProvider.Type == "podman" || dbProvider.Type == "containerd" {
+	if dbProvider.Type == "docker" || dbProvider.Type == "podman" || dbProvider.Type == "containerd" || dbProvider.Type == "orbstack" {
 		ipv4Method = "native"
 		ipv6Method = "native"
 	}
@@ -169,10 +169,10 @@ func (s *ProviderApiService) GetProviderCapabilitiesByID(providerIDStr string) (
 		return nil, fmt.Errorf("Provider不存在")
 	}
 
-	// Docker/Podman/Containerd 类型固定使用 native 端口映射方式
+	// Docker/Podman/Containerd/Orbstack 类型固定使用 native 端口映射方式
 	ipv4Method := dbProvider.IPv4PortMappingMethod
 	ipv6Method := dbProvider.IPv6PortMappingMethod
-	if dbProvider.Type == "docker" || dbProvider.Type == "podman" || dbProvider.Type == "containerd" {
+	if dbProvider.Type == "docker" || dbProvider.Type == "podman" || dbProvider.Type == "containerd" || dbProvider.Type == "orbstack" {
 		ipv4Method = "native"
 		ipv6Method = "native"
 	}

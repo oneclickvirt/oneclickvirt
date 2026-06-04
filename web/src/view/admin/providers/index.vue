@@ -249,14 +249,14 @@ watch(() => addProviderForm.type, (newType) => {
   if (isEditing.value) {
     return
   }
-  if (['docker', 'podman', 'containerd'].includes(newType)) {
-    // Docker/Podman/Containerd只支持容器，使用原生端口映射
+  if (['docker', 'podman', 'containerd', 'orbstack'].includes(newType)) {
+    // Docker/Podman/Containerd/Orbstack只支持容器，使用原生端口映射
     addProviderForm.containerEnabled = true
     addProviderForm.vmEnabled = false
     addProviderForm.ipv4PortMappingMethod = 'native'
     addProviderForm.ipv6PortMappingMethod = 'native'
-  } else if (['qemu', 'kubevirt'].includes(newType)) {
-    // QEMU/KubeVirt默认支持虚拟机，也可选择性开启容器，使用iptables端口映射
+  } else if (['qemu', 'kubevirt', 'vmware'].includes(newType)) {
+    // 本地虚拟化类型仅支持虚拟机，使用iptables端口映射
     addProviderForm.containerEnabled = false
     addProviderForm.vmEnabled = true
     addProviderForm.ipv4PortMappingMethod = 'iptables'

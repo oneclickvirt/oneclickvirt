@@ -104,7 +104,7 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 			config.TokenID = token.GetTokenID()
 		}
 		config.ServiceChecks = []string{"pvestatd", "pvedaemon", "pveproxy"}
-	case "docker":
+	case "docker", "orbstack":
 		config.APIEnabled = false // docker默认不测API
 		config.APIPort = 2375
 		config.APIScheme = "http"
@@ -174,7 +174,7 @@ func (phc *ProviderHealthChecker) CheckProviderHealthFromConfig(ctx context.Cont
 		Timeout:       30 * time.Second,
 	}
 	switch providerType {
-	case "docker":
+	case "docker", "orbstack":
 		config.APIEnabled = false // docker默认不测API
 		config.APIPort = 2375
 		config.APIScheme = "http"
@@ -270,7 +270,7 @@ func (phc *ProviderHealthChecker) CheckAPIConnection(ctx context.Context, provid
 		Timeout:       30 * time.Second,
 	}
 	switch providerType {
-	case "docker":
+	case "docker", "orbstack":
 		config.APIScheme = "http"
 	case "lxd", "incus":
 		config.APIScheme = "https"

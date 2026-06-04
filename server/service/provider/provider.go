@@ -156,6 +156,8 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 		ContainerEnabled:      dbProvider.ContainerEnabled,
 		VirtualMachineEnabled: dbProvider.VirtualMachineEnabled,
 		NetworkType:           dbProvider.NetworkType,
+		StoragePool:           dbProvider.StoragePool,
+		StoragePoolPath:       dbProvider.StoragePoolPath,
 		// Proxmox 网桥配置
 		NodeInstallType:   dbProvider.NodeInstallType,
 		BridgeNAT:         dbProvider.BridgeNAT,

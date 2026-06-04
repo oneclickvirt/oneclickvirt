@@ -595,6 +595,15 @@
           <template v-if="serverVersion">
             <span class="footer-divider" />
             <span class="footer-version-tag">{{ t('home.footer.serverVersion') }} {{ serverVersion }}</span>
+            <a
+              v-if="updateAvailable && latestVersion"
+              :href="releaseUrl || 'https://github.com/oneclickvirt/oneclickvirt/releases'"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="footer-bottom-link footer-version-update"
+            >
+              {{ t('home.footer.latestVersion') }} {{ latestVersion }}
+            </a>
           </template>
         </div>
       </div>
@@ -626,6 +635,9 @@ const nodesCount = ref(null)
 const containersCount = ref(null)
 const vmsCount = ref(null)
 const serverVersion = ref('')
+const latestVersion = ref('')
+const releaseUrl = ref('')
+const updateAvailable = ref(false)
 
 const usersCountDisplay = computed(() => (usersCount.value === null ? '-' : usersCount.value))
 const nodesCountDisplay = computed(() => (nodesCount.value === null ? '-' : nodesCount.value))
@@ -712,6 +724,9 @@ onMounted(() => {
   getServerVersion().then(res => {
     if (res && (res.code === 200) && res.data?.server_version) {
       serverVersion.value = res.data.server_version
+      latestVersion.value = res.data.latest_version || ''
+      releaseUrl.value = res.data.release_url || ''
+      updateAvailable.value = Boolean(res.data.update_available)
     }
   }).catch(() => {})
 })

@@ -74,50 +74,32 @@ RUN mkdir -p /var/run/mysqld && \
     chmod 750 /app/storage && \
     chmod -R 750 /app/storage/*
 
-# Create database configuration based on architecture
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
-        echo 'datadir=/var/lib/mysql' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'socket=/var/run/mysqld/mysqld.sock' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'user=mysql' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'pid-file=/var/run/mysqld/mysqld.pid' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'bind-address=0.0.0.0' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'port=3306' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'character-set-server=utf8mb4' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'collation-server=utf8mb4_unicode_ci' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'authentication_policy=mysql_native_password' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'max_connections=200' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'skip-name-resolve' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_buffer_pool_size=256M' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_redo_log_capacity=67108864' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_force_recovery=0' >> /etc/mysql/conf.d/custom.cnf; \
-    else \
-        echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
-        echo 'datadir=/var/lib/mysql' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'socket=/var/run/mysqld/mysqld.sock' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'user=mysql' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'pid-file=/var/run/mysqld/mysqld.pid' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'bind-address=0.0.0.0' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'port=3306' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'character-set-server=utf8mb4' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'collation-server=utf8mb4_unicode_ci' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'max_connections=200' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'skip-name-resolve' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_buffer_pool_size=256M' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_log_file_size=64M' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_force_recovery=0' >> /etc/mysql/conf.d/custom.cnf; \
-    fi
+# Create a MySQL/MariaDB-compatible database configuration.
+RUN echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
+    echo 'datadir=/var/lib/mysql' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'socket=/var/run/mysqld/mysqld.sock' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'user=mysql' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'pid-file=/var/run/mysqld/mysqld.pid' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'bind-address=0.0.0.0' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'port=3306' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'character-set-server=utf8mb4' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'collation-server=utf8mb4_unicode_ci' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'max_connections=200' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'skip-name-resolve' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'innodb_buffer_pool_size=256M' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'innodb_log_file_size=64M' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'innodb_force_recovery=0' >> /etc/mysql/conf.d/custom.cnf
 
 RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo 'worker_processes auto;' >> /etc/nginx/nginx.conf && \
-    echo 'error_log /var/log/nginx/error.log;' >> /etc/nginx/nginx.conf && \
+    echo 'error_log /dev/stderr;' >> /etc/nginx/nginx.conf && \
     echo 'pid /run/nginx.pid;' >> /etc/nginx/nginx.conf && \
     echo 'events { worker_connections 1024; }' >> /etc/nginx/nginx.conf && \
     echo 'http {' >> /etc/nginx/nginx.conf && \
     echo '    include /etc/nginx/mime.types;' >> /etc/nginx/nginx.conf && \
     echo '    default_type application/octet-stream;' >> /etc/nginx/nginx.conf && \
+    echo '    access_log /dev/stdout;' >> /etc/nginx/nginx.conf && \
     echo '    sendfile on;' >> /etc/nginx/nginx.conf && \
     echo '    keepalive_timeout 65;' >> /etc/nginx/nginx.conf && \
     echo '    gzip on;' >> /etc/nginx/nginx.conf && \
@@ -370,6 +352,8 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '[supervisord]' >> /start.sh && \
     echo 'nodaemon=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
+    echo 'logfile=/dev/stdout' >> /start.sh && \
+    echo 'logfile_maxbytes=0' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:mysql]' >> /start.sh && \
     echo 'SUPEREND' >> /start.sh && \
@@ -385,10 +369,10 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'autorestart=true' >> /start.sh && \
     echo 'user=mysql' >> /start.sh && \
     echo 'priority=1' >> /start.sh && \
-    echo 'stdout_logfile=/var/log/supervisor/mysql.log' >> /start.sh && \
-    echo 'stderr_logfile=/var/log/supervisor/mysql_error.log' >> /start.sh && \
-    echo 'stdout_logfile_maxbytes=10MB' >> /start.sh && \
-    echo 'stderr_logfile_maxbytes=10MB' >> /start.sh && \
+    echo 'stdout_logfile=/dev/stdout' >> /start.sh && \
+    echo 'stderr_logfile=/dev/stderr' >> /start.sh && \
+    echo 'stdout_logfile_maxbytes=0' >> /start.sh && \
+    echo 'stderr_logfile_maxbytes=0' >> /start.sh && \
     echo 'startsecs=10' >> /start.sh && \
     echo 'startretries=3' >> /start.sh && \
     echo '' >> /start.sh && \
@@ -400,6 +384,10 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'user=root' >> /start.sh && \
     echo 'priority=2' >> /start.sh && \
     echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306",DB_USER="root",DB_PASSWORD="${MYSQL_ROOT_PASSWORD}",DB_NAME="${MYSQL_DATABASE}",DB_TYPE="${DB_TYPE}"' >> /start.sh && \
+    echo 'stdout_logfile=/dev/stdout' >> /start.sh && \
+    echo 'stderr_logfile=/dev/stderr' >> /start.sh && \
+    echo 'stdout_logfile_maxbytes=0' >> /start.sh && \
+    echo 'stderr_logfile_maxbytes=0' >> /start.sh && \
     echo 'startsecs=1' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:nginx]' >> /start.sh && \
@@ -408,6 +396,10 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'autorestart=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
     echo 'priority=3' >> /start.sh && \
+    echo 'stdout_logfile=/dev/stdout' >> /start.sh && \
+    echo 'stderr_logfile=/dev/stderr' >> /start.sh && \
+    echo 'stdout_logfile_maxbytes=0' >> /start.sh && \
+    echo 'stderr_logfile_maxbytes=0' >> /start.sh && \
     echo 'SUPEREND2' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'export DB_HOST="127.0.0.1"' >> /start.sh && \

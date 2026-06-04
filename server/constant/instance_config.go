@@ -24,11 +24,13 @@ const (
 	ProviderTypeDocker     ProviderType = "docker"
 	ProviderTypePodman     ProviderType = "podman"
 	ProviderTypeContainerd ProviderType = "containerd"
+	ProviderTypeOrbstack   ProviderType = "orbstack"
 	ProviderTypeLXD        ProviderType = "lxd"
 	ProviderTypeIncus      ProviderType = "incus"
 	ProviderTypeProxmox    ProviderType = "proxmox"
 	ProviderTypeQEMU       ProviderType = "qemu"
 	ProviderTypeKubeVirt   ProviderType = "kubevirt"
+	ProviderTypeVMware     ProviderType = "vmware"
 )
 
 // Architecture 架构类型

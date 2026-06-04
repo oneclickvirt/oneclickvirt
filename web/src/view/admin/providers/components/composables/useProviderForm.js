@@ -318,16 +318,16 @@ export function useProviderForm(props, emit) {
   // 监听 Provider 类型变化，自动设置虚拟化类型
   watch(() => formData.value.type, (newType) => {
     if (!newType) return
-    if (['docker', 'podman', 'containerd'].includes(newType)) {
+    if (['docker', 'podman', 'containerd', 'orbstack'].includes(newType)) {
       // 容器类型：仅支持容器
       formData.value.containerEnabled = true
       formData.value.vmEnabled = false
-    } else if (['qemu', 'kubevirt'].includes(newType)) {
-      // QEMU/KubeVirt：默认虚拟机，也可选择性开启容器
+    } else if (['qemu', 'kubevirt', 'vmware'].includes(newType)) {
+      // 本地虚拟化类型：仅支持虚拟机
       formData.value.containerEnabled = false
       formData.value.vmEnabled = true
     }
-    // lxd/incus/proxmox/qemu/kubevirt: 两者都可选，不强制修改
+    // lxd/incus/proxmox: 两者都可选，不强制修改
   })
 
   // 监听对话框关闭，重置表单

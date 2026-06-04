@@ -633,7 +633,7 @@ func (d *DockerProvider) repairIptablesChains(containerName string) error {
 	// Map provider type to systemd service name
 	serviceName := ""
 	switch d.runtime.ProviderType {
-	case "docker":
+	case "docker", "orbstack":
 		serviceName = "docker"
 	case "podman":
 		serviceName = "podman"

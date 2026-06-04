@@ -49,6 +49,13 @@ func GetProviderDescription(providerType string) map[string]interface{} {
 			"protocols":   []string{"tcp", "udp"},
 			"features":    []string{"native", "high-performance", "container-specific"},
 		},
+		"orbstack": {
+			"name":        "Orbstack",
+			"description": "Orbstack容器端口映射，复用docker CLI端口绑定",
+			"methods":     []string{"port-binding"},
+			"protocols":   []string{"tcp", "udp"},
+			"features":    []string{"native", "container-specific"},
+		},
 		"lxd": {
 			"name":        "LXD",
 			"description": "LXD原生端口映射，使用proxy device进行端口转发",
@@ -77,6 +84,13 @@ func GetProviderDescription(providerType string) map[string]interface{} {
 			"protocols":   []string{"tcp", "udp"},
 			"features":    []string{"universal", "flexible", "host-level", "high-performance"},
 		},
+		"vmware": {
+			"name":        "VMware",
+			"description": "VMware本地虚拟机端口映射，使用iptables NAT规则进行端口转发",
+			"methods":     []string{"iptables-nat"},
+			"protocols":   []string{"tcp", "udp"},
+			"features":    []string{"vm-specific", "host-level"},
+		},
 	}
 
 	if desc, exists := descriptions[providerType]; exists {
@@ -96,6 +110,15 @@ func GetProviderDescription(providerType string) map[string]interface{} {
 func GetProviderCapabilities(providerType string) map[string]bool {
 	capabilities := map[string]map[string]bool{
 		"docker": {
+			"auto_port_allocation": true,
+			"custom_port_range":    false,
+			"ipv6_support":         true,
+			"protocol_tcp":         true,
+			"protocol_udp":         true,
+			"hot_reload":           false,
+			"persistent":           true,
+		},
+		"orbstack": {
 			"auto_port_allocation": true,
 			"custom_port_range":    false,
 			"ipv6_support":         true,
@@ -132,6 +155,15 @@ func GetProviderCapabilities(providerType string) map[string]bool {
 			"persistent":           false,
 		},
 		"iptables": {
+			"auto_port_allocation": true,
+			"custom_port_range":    true,
+			"ipv6_support":         true,
+			"protocol_tcp":         true,
+			"protocol_udp":         true,
+			"hot_reload":           true,
+			"persistent":           false,
+		},
+		"vmware": {
 			"auto_port_allocation": true,
 			"custom_port_range":    true,
 			"ipv6_support":         true,

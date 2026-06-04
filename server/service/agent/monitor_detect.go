@@ -36,7 +36,7 @@ func (s *MonitorService) detectInstanceInterfaces(
 	var interfaces []string
 
 	switch providerType {
-	case "docker", "podman", "containerd":
+	case "docker", "podman", "containerd", "orbstack":
 		// Docker-family: a single veth handles both IPv4 and IPv6 traffic.
 		iface, err := s.detectVethInterface(providerInstance, instance.Name, providerType)
 		if err != nil {
@@ -122,11 +122,11 @@ func (s *MonitorService) detectInstanceInterfaces(
 	return interfaces, nil
 }
 
-// detectVethInterface detects the veth interface for a Docker/Podman/Containerd container.
+// detectVethInterface detects the veth interface for a Docker/Podman/Containerd/Orbstack container.
 func (s *MonitorService) detectVethInterface(providerInstance provider.Provider, instanceName, providerType string) (string, error) {
 	var runtimeCmd string
 	switch providerType {
-	case "docker":
+	case "docker", "orbstack":
 		runtimeCmd = "docker"
 	case "podman":
 		runtimeCmd = "podman"
@@ -463,7 +463,7 @@ func (s *MonitorService) detectBothInterfaces(
 			result.V6 = result.V4
 		}
 
-	case "docker", "podman", "containerd":
+	case "docker", "podman", "containerd", "orbstack":
 		iface, err := s.detectVethInterface(providerInstance, instance.Name, providerType)
 		if err != nil {
 			return nil, err

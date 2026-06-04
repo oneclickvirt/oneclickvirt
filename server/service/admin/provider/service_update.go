@@ -34,6 +34,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 	// 保存原始过期时间，用于后续对比是否发生变化
 	originalExpiresAt := provider.ExpiresAt
+	normalizedEndpoint, normalizedSSHPort := normalizeProviderEndpointAndPort(req.Endpoint, req.SSHPort)
 
 	// 1. 检查Provider名称是否与其他Provider重复（排除当前Provider）
 	if req.Name != provider.Name {
@@ -53,16 +54,12 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 
 	// 2. 检查SSH地址和端口组合是否与其他Provider重复（排除当前Provider）
-	if req.Endpoint != "" {
-		sshPort := req.SSHPort
-		if sshPort == 0 {
-			sshPort = 22 // 默认SSH端口
-		}
+	if normalizedEndpoint != "" {
 		// 只有当SSH地址或端口发生变化时才检查
-		if req.Endpoint != provider.Endpoint || sshPort != provider.SSHPort {
+		if normalizedEndpoint != provider.Endpoint || normalizedSSHPort != provider.SSHPort {
 			var existingEndpointCount int64
 			if err := global.APP_DB.Model(&providerModel.Provider{}).
-				Where("endpoint = ? AND ssh_port = ? AND id != ?", req.Endpoint, sshPort, req.ID).
+				Where("endpoint = ? AND ssh_port = ? AND id != ?", normalizedEndpoint, normalizedSSHPort, req.ID).
 				Count(&existingEndpointCount).Error; err != nil {
 				global.APP_LOG.Error("检查Provider SSH地址失败", zap.Error(err))
 				return fmt.Errorf("检查Provider SSH地址失败: %v", err)
@@ -70,9 +67,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			if existingEndpointCount > 0 {
 				global.APP_LOG.Warn("Provider更新失败：SSH地址和端口组合已存在",
 					zap.Uint("providerID", req.ID),
-					zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)),
-					zap.Int("sshPort", sshPort))
-				return fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", req.Endpoint, sshPort)
+					zap.String("endpoint", utils.TruncateString(normalizedEndpoint, 64)),
+					zap.Int("sshPort", normalizedSSHPort))
+				return fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", normalizedEndpoint, normalizedSSHPort)
 			}
 		}
 	}
@@ -110,16 +107,16 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		provider.Name = req.Name
 	}
 	if req.Type != "" {
-		provider.Type = req.Type
+		provider.Type = utils.NormalizeProviderType(req.Type)
 	}
-	if req.Endpoint != "" {
-		provider.Endpoint = req.Endpoint
+	if normalizedEndpoint != "" {
+		provider.Endpoint = normalizedEndpoint
 	}
 	if req.PortIP != "" {
 		provider.PortIP = req.PortIP
 	}
-	if req.SSHPort > 0 {
-		provider.SSHPort = req.SSHPort
+	if normalizedSSHPort > 0 {
+		provider.SSHPort = normalizedSSHPort
 	}
 	// Agent模式不使用SSH IP/端口：强制清空，确保不保留旧值
 	if req.ConnectionType == "agent" {
@@ -360,8 +357,8 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 
 	// 端口映射方式更新
-	// Docker/Podman/Containerd 类型固定使用 native，忽略前端传入的値
-	if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" {
+	// Docker/Podman/Containerd/Orbstack 类型固定使用 native，忽略前端传入的値
+	if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" || provider.Type == "orbstack" {
 		provider.IPv4PortMappingMethod = "native"
 		provider.IPv6PortMappingMethod = "native"
 	} else {
@@ -387,18 +384,34 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.VMLimitCPU = req.VMLimitCpu
 	provider.VMLimitMemory = req.VMLimitMemory
 	provider.VMLimitDisk = req.VMLimitDisk
-	// 容器特殊配置选项更新（仅 LXD/Incus 容器）
-	provider.ContainerPrivileged = req.ContainerPrivileged
-	provider.ContainerAllowNesting = req.ContainerAllowNesting
-	provider.ContainerEnableLXCFS = req.ContainerEnableLXCFS
-	if req.ContainerCPUAllowance != "" {
-		provider.ContainerCPUAllowance = req.ContainerCPUAllowance
+	// 容器特殊配置与 GPU 直通仅对 LXD/Incus 容器有效；类型切换时清理旧值。
+	if utils.IsLXDIncusProvider(provider.Type) {
+		provider.ContainerPrivileged = req.ContainerPrivileged
+		provider.ContainerAllowNesting = req.ContainerAllowNesting
+		provider.ContainerEnableLXCFS = req.ContainerEnableLXCFS
+		if req.ContainerCPUAllowance != "" {
+			provider.ContainerCPUAllowance = req.ContainerCPUAllowance
+		} else if provider.ContainerCPUAllowance == "" {
+			provider.ContainerCPUAllowance = "100%"
+		}
+		provider.ContainerMemorySwap = req.ContainerMemorySwap
+		provider.ContainerMaxProcesses = req.ContainerMaxProcesses
+		provider.ContainerDiskIOLimit = req.ContainerDiskIOLimit
+	} else {
+		provider.ContainerPrivileged = false
+		provider.ContainerAllowNesting = false
+		provider.ContainerEnableLXCFS = false
+		provider.ContainerCPUAllowance = ""
+		provider.ContainerMemorySwap = false
+		provider.ContainerMaxProcesses = 0
+		provider.ContainerDiskIOLimit = ""
 	}
-	provider.ContainerMemorySwap = req.ContainerMemorySwap
-	provider.ContainerMaxProcesses = req.ContainerMaxProcesses
-	provider.ContainerDiskIOLimit = req.ContainerDiskIOLimit
-	provider.GpuEnabled = req.GpuEnabled
-	provider.GpuDeviceIds = req.GpuDeviceIds
+	gpuEnabled, gpuDeviceIDs, err := normalizeProviderGPUConfig(provider.Type, req.GpuEnabled, req.GpuDeviceIds)
+	if err != nil {
+		return err
+	}
+	provider.GpuEnabled = gpuEnabled
+	provider.GpuDeviceIds = gpuDeviceIDs
 	// 实例发现与导入配置更新
 	if req.DiscoverMode != nil {
 		provider.PendingDiscovery = *req.DiscoverMode

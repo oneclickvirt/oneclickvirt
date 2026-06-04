@@ -18,7 +18,7 @@ func (phc *ProviderHealthChecker) DetectStoragePoolPath(client *ssh.Client, prov
 		return phc.detectLXDStoragePath(client, storagePoolName)
 	case "incus":
 		return phc.detectIncusStoragePath(client, storagePoolName)
-	case "docker":
+	case "docker", "orbstack":
 		return phc.detectDockerStoragePath(client)
 	case "podman", "containerd", "nerdctl":
 		// podman/containerd 的镜像存储通常在 /var/lib/containers 或 /var/lib/containerd
@@ -27,6 +27,8 @@ func (phc *ProviderHealthChecker) DetectStoragePoolPath(client *ssh.Client, prov
 		return "/var/lib/libvirt/images", nil
 	case "kubevirt":
 		return "/var/lib/libvirt/images", nil
+	case "vmware":
+		return "/var/lib/oneclickvirt/vmware", nil
 	default:
 		// 默认返回根目录
 		if phc.logger != nil {

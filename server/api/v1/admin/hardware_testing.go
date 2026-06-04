@@ -2,7 +2,6 @@ package admin
 
 import (
 	"strconv"
-	"strings"
 
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
@@ -37,12 +36,6 @@ func SaveHardwareReport(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请提供粘贴板URL"))
-		return
-	}
-
-	// 校验URL必须来自 paste.spiritlhl.net
-	if !strings.Contains(req.PasteURL, "paste.spiritlhl.net") {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "仅支持 paste.spiritlhl.net 的粘贴板URL"))
 		return
 	}
 

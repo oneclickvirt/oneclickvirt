@@ -9,21 +9,21 @@ import (
 
 type User struct {
 	// 基础字段
-	ID        uint           `json:"id" gorm:"primarykey"`                     // 用户主键ID
-	UUID      string         `json:"uuid" gorm:"uniqueIndex;not null;size:36"` // 用户唯一标识符
-	CreatedAt time.Time      `json:"createdAt"`                                // 用户创建时间
-	UpdatedAt time.Time      `json:"updatedAt"`                                // 用户信息更新时间
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`                           // 软删除时间
+	ID        uint           `json:"id" gorm:"primarykey"`                                            // 用户主键ID
+	UUID      string         `json:"uuid" gorm:"uniqueIndex;not null;size:36"`                        // 用户唯一标识符
+	CreatedAt time.Time      `json:"createdAt"`                                                       // 用户创建时间
+	UpdatedAt time.Time      `json:"updatedAt"`                                                       // 用户信息更新时间
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:idx_user_username_deleted,priority:2"` // 软删除时间
 
 	// 基本信息
-	// username已有uniqueIndex，无需额外索引
-	Username string `json:"username" gorm:"uniqueIndex;not null;size:64"` // 用户名（唯一，用于登录）
-	Password string `json:"-" gorm:"not null;size:128"`                   // 密码哈希（不返回给前端）
-	Nickname string `json:"nickname" gorm:"size:64"`                      // 用户昵称（显示名称）
-	Email    string `json:"email" gorm:"size:128;index:idx_email"`        // 邮箱地址
-	Phone    string `json:"phone" gorm:"size:32"`                         // 手机号码
-	Telegram string `json:"telegram" gorm:"size:64"`                      // Telegram用户名
-	QQ       string `json:"qq" gorm:"size:32"`                            // QQ号码
+	// username 与 deleted_at 组成唯一键，避免软删除用户占用用户名
+	Username string `json:"username" gorm:"uniqueIndex:idx_user_username_deleted,priority:1;not null;size:64"` // 用户名（唯一，用于登录）
+	Password string `json:"-" gorm:"not null;size:128"`                                                        // 密码哈希（不返回给前端）
+	Nickname string `json:"nickname" gorm:"size:64"`                                                           // 用户昵称（显示名称）
+	Email    string `json:"email" gorm:"size:128;index:idx_email"`                                             // 邮箱地址
+	Phone    string `json:"phone" gorm:"size:32"`                                                              // 手机号码
+	Telegram string `json:"telegram" gorm:"size:64"`                                                           // Telegram用户名
+	QQ       string `json:"qq" gorm:"size:32"`                                                                 // QQ号码
 
 	// 状态和权限
 	Status   int    `json:"status" gorm:"default:1;index:idx_status"` // 用户状态：0=禁用（不可登录），1=正常

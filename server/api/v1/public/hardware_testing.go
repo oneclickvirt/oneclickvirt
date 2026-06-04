@@ -30,9 +30,10 @@ func GetProviderHardwareReport(c *gin.Context) {
 	}
 
 	common.ResponseSuccess(c, gin.H{
-		"providerId": report.ProviderID,
-		"reportText": report.ReportText,
-		"pasteUrl":   report.PasteURL,
-		"updatedAt":  report.UpdatedAt,
+		"providerId":    report.ProviderID,
+		"reportText":    report.ReportText,
+		"pasteUrl":      report.PasteURL,
+		"vendorSummary": report.VendorSummary,
+		"updatedAt":     report.UpdatedAt,
 	})
 }

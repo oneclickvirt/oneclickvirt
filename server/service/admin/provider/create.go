@@ -86,24 +86,22 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		return nil, fmt.Errorf("Provider名称 '%s' 已存在，请使用其他名称", req.Name)
 	}
 
+	normalizedEndpoint, normalizedSSHPort := normalizeProviderEndpointAndPort(req.Endpoint, req.SSHPort)
+
 	// 2. 检查SSH地址和端口组合是否已存在（防止配置相同节点）
-	if req.Endpoint != "" {
-		sshPort := req.SSHPort
-		if sshPort == 0 {
-			sshPort = 22 // 默认SSH端口
-		}
+	if normalizedEndpoint != "" {
 		var existingEndpointCount int64
 		if err := global.APP_DB.Model(&providerModel.Provider{}).
-			Where("endpoint = ? AND ssh_port = ?", req.Endpoint, sshPort).
+			Where("endpoint = ? AND ssh_port = ?", normalizedEndpoint, normalizedSSHPort).
 			Count(&existingEndpointCount).Error; err != nil {
 			global.APP_LOG.Error("检查Provider SSH地址失败", zap.Error(err))
 			return nil, fmt.Errorf("检查Provider SSH地址失败: %v", err)
 		}
 		if existingEndpointCount > 0 {
 			global.APP_LOG.Warn("Provider创建失败：SSH地址和端口组合已存在",
-				zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)),
-				zap.Int("sshPort", sshPort))
-			return nil, fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", req.Endpoint, sshPort)
+				zap.String("endpoint", utils.TruncateString(normalizedEndpoint, 64)),
+				zap.Int("sshPort", normalizedSSHPort))
+			return nil, fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", normalizedEndpoint, normalizedSSHPort)
 		}
 	}
 
@@ -146,12 +144,35 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 
 	groupName, groupDescription := loadAdminGroupForProvider(ownerAdminID)
 
+	providerType := utils.NormalizeProviderType(req.Type)
+	containerOptionsSupported := utils.IsLXDIncusProvider(providerType)
+	containerPrivileged := false
+	containerAllowNesting := false
+	containerEnableLXCFS := false
+	containerCPUAllowance := ""
+	containerMemorySwap := false
+	containerMaxProcesses := 0
+	containerDiskIOLimit := ""
+	if containerOptionsSupported {
+		containerPrivileged = req.ContainerPrivileged
+		containerAllowNesting = req.ContainerAllowNesting
+		containerEnableLXCFS = req.ContainerEnableLXCFS
+		containerCPUAllowance = req.ContainerCPUAllowance
+		containerMemorySwap = req.ContainerMemorySwap
+		containerMaxProcesses = req.ContainerMaxProcesses
+		containerDiskIOLimit = req.ContainerDiskIOLimit
+	}
+	gpuEnabled, gpuDeviceIDs, err := normalizeProviderGPUConfig(providerType, req.GpuEnabled, req.GpuDeviceIds)
+	if err != nil {
+		return nil, err
+	}
+
 	provider := providerModel.Provider{
 		Name:                  req.Name,
-		Type:                  req.Type,
-		Endpoint:              req.Endpoint,
+		Type:                  providerType,
+		Endpoint:              normalizedEndpoint,
 		PortIP:                req.PortIP,
-		SSHPort:               req.SSHPort,
+		SSHPort:               normalizedSSHPort,
 		Username:              req.Username,
 		Password:              req.Password,
 		SSHKey:                req.SSHKey,
@@ -219,16 +240,16 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		VMLimitMemory: req.VMLimitMemory,
 		VMLimitDisk:   req.VMLimitDisk,
 		// 容器特殊配置选项（仅 LXD/Incus 容器）
-		ContainerPrivileged:   req.ContainerPrivileged,
-		ContainerAllowNesting: req.ContainerAllowNesting,
-		ContainerEnableLXCFS:  req.ContainerEnableLXCFS,
-		ContainerCPUAllowance: req.ContainerCPUAllowance,
-		ContainerMemorySwap:   req.ContainerMemorySwap,
-		ContainerMaxProcesses: req.ContainerMaxProcesses,
-		ContainerDiskIOLimit:  req.ContainerDiskIOLimit,
+		ContainerPrivileged:   containerPrivileged,
+		ContainerAllowNesting: containerAllowNesting,
+		ContainerEnableLXCFS:  containerEnableLXCFS,
+		ContainerCPUAllowance: containerCPUAllowance,
+		ContainerMemorySwap:   containerMemorySwap,
+		ContainerMaxProcesses: containerMaxProcesses,
+		ContainerDiskIOLimit:  containerDiskIOLimit,
 		// GPU直通配置
-		GpuEnabled:   req.GpuEnabled,
-		GpuDeviceIds: req.GpuDeviceIds,
+		GpuEnabled:   gpuEnabled,
+		GpuDeviceIds: gpuDeviceIDs,
 		// 内网穿透连接模式（默认 ssh）
 		ConnectionType: func() string {
 			if req.ConnectionType == "agent" {
@@ -370,8 +391,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		return nil, fmt.Errorf("流量采集间隔不能超过300秒（5分钟），当前值: %d秒", req.TrafficCollectInterval)
 	}
 	// 端口映射方式默认值
-	// Docker/Podman/Containerd 类型固定使用 native
-	if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" {
+	// Docker/Podman/Containerd/Orbstack 类型固定使用 native
+	if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" || provider.Type == "orbstack" {
 		provider.IPv4PortMappingMethod = "native"
 		provider.IPv6PortMappingMethod = "native"
 	} else {

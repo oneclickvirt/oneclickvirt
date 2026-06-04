@@ -54,6 +54,7 @@ export default {
     allRightsReserved: 'All rights reserved.',
     openSourceProject: '一键虚拟化旗下开源项目',
     serverVersion: '主控版本',
+    latestVersion: '最新版本',
     versionFetchFailed: '版本获取失败，后端可能已断连'
   },
   errors: {

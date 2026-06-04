@@ -27,7 +27,7 @@ func getExecCommand(providerType constant.ProviderType, instanceName string) (st
 	// Start in /root (fallback to /), then prefer bash when available, fall back to sh.
 	const cdWrapper = `sh -c 'cd /root 2>/dev/null || cd /; if command -v bash >/dev/null 2>&1; then exec bash; fi; exec sh'`
 	switch providerType {
-	case constant.ProviderTypeDocker:
+	case constant.ProviderTypeDocker, constant.ProviderTypeOrbstack:
 		return fmt.Sprintf("docker exec -it %s %s", instanceName, cdWrapper), nil
 	case constant.ProviderTypePodman:
 		return fmt.Sprintf("podman exec -it %s %s", instanceName, cdWrapper), nil

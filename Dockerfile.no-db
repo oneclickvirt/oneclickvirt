@@ -64,12 +64,13 @@ RUN chown -R www-data:www-data /var/www/html && \
 # Configure nginx
 RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo 'worker_processes auto;' >> /etc/nginx/nginx.conf && \
-    echo 'error_log /var/log/nginx/error.log;' >> /etc/nginx/nginx.conf && \
+    echo 'error_log /dev/stderr;' >> /etc/nginx/nginx.conf && \
     echo 'pid /run/nginx.pid;' >> /etc/nginx/nginx.conf && \
     echo 'events { worker_connections 1024; }' >> /etc/nginx/nginx.conf && \
     echo 'http {' >> /etc/nginx/nginx.conf && \
     echo '    include /etc/nginx/mime.types;' >> /etc/nginx/nginx.conf && \
     echo '    default_type application/octet-stream;' >> /etc/nginx/nginx.conf && \
+    echo '    access_log /dev/stdout;' >> /etc/nginx/nginx.conf && \
     echo '    sendfile on;' >> /etc/nginx/nginx.conf && \
     echo '    keepalive_timeout 65;' >> /etc/nginx/nginx.conf && \
     echo '    gzip on;' >> /etc/nginx/nginx.conf && \
@@ -162,6 +163,8 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '[supervisord]' >> /start.sh && \
     echo 'nodaemon=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
+    echo 'logfile=/dev/stdout' >> /start.sh && \
+    echo 'logfile_maxbytes=0' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:app]' >> /start.sh && \
     echo 'command=/app/main' >> /start.sh && \
@@ -170,10 +173,10 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'autorestart=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
     echo 'priority=1' >> /start.sh && \
-    echo 'stdout_logfile=/var/log/supervisor/app.log' >> /start.sh && \
-    echo 'stderr_logfile=/var/log/supervisor/app_error.log' >> /start.sh && \
-    echo 'stdout_logfile_maxbytes=10MB' >> /start.sh && \
-    echo 'stderr_logfile_maxbytes=10MB' >> /start.sh && \
+    echo 'stdout_logfile=/dev/stdout' >> /start.sh && \
+    echo 'stderr_logfile=/dev/stderr' >> /start.sh && \
+    echo 'stdout_logfile_maxbytes=0' >> /start.sh && \
+    echo 'stderr_logfile_maxbytes=0' >> /start.sh && \
     echo 'startsecs=5' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:nginx]' >> /start.sh && \
@@ -182,8 +185,10 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'autorestart=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
     echo 'priority=2' >> /start.sh && \
-    echo 'stdout_logfile=/var/log/supervisor/nginx.log' >> /start.sh && \
-    echo 'stderr_logfile=/var/log/supervisor/nginx_error.log' >> /start.sh && \
+    echo 'stdout_logfile=/dev/stdout' >> /start.sh && \
+    echo 'stderr_logfile=/dev/stderr' >> /start.sh && \
+    echo 'stdout_logfile_maxbytes=0' >> /start.sh && \
+    echo 'stderr_logfile_maxbytes=0' >> /start.sh && \
     echo 'SUPEREND' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'echo "Starting services..."' >> /start.sh && \

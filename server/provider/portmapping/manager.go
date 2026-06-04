@@ -115,7 +115,7 @@ func (m *Manager) GetSupportedProviders() []string {
 func (m *Manager) AutoSelectProvider(instanceType string) string {
 	// 根据实例类型自动选择最适合的端口映射Provider
 	switch instanceType {
-	case "docker":
+	case "docker", "orbstack":
 		return "docker"
 	case "lxd":
 		return "lxd"
@@ -148,10 +148,14 @@ func (m *Manager) GetProviderCapabilities(providerType string) map[string]interf
 
 	// 特定Provider的能力信息
 	switch providerType {
-	case "docker":
-		capabilities["description"] = "Docker原生端口映射，端口在容器创建时固定"
+	case "docker", "orbstack":
+		capabilities["description"] = "容器运行时原生端口映射，端口在容器创建时固定"
 		capabilities["methods"] = []string{"port-binding"}
 		capabilities["limitations"] = []string{"不支持运行时端口修改", "需要重新创建容器"}
+	case "vmware":
+		capabilities["description"] = "VMware本地虚拟机使用iptables端口转发"
+		capabilities["methods"] = []string{"iptables-nat"}
+		capabilities["limitations"] = []string{"需要root权限", "需要虚拟机内网地址可达"}
 	case "lxd":
 		capabilities["description"] = "LXD原生端口映射，支持动态调整"
 		capabilities["methods"] = []string{"proxy-device"}

@@ -12,6 +12,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -205,6 +206,15 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 
 			// 序列化原始数据
 			rawDataBytes, _ := json.Marshal(discovered.RawData)
+			supportsAccelerators := utils.SupportsLXDContainerOptions(providerInfo.Type, discovered.InstanceType)
+			gpuEnabled := discovered.GpuEnabled && supportsAccelerators
+			gpuDeviceIDs := ""
+			npuEnabled := discovered.NpuEnabled && supportsAccelerators
+			npuDeviceIDs := ""
+			if supportsAccelerators {
+				gpuDeviceIDs = discovered.GpuDeviceIds
+				npuDeviceIDs = discovered.NpuDeviceIds
+			}
 
 			instance := providerModel.Instance{
 				UUID:         discovered.UUID,
@@ -230,10 +240,10 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				PortConflictDetail: conflictDetail,
 				DiscoveredData:     string(rawDataBytes),
 				// GPU/NPU配置
-				GpuEnabled:   discovered.GpuEnabled,
-				GpuDeviceIds: discovered.GpuDeviceIds,
-				NpuEnabled:   discovered.NpuEnabled,
-				NpuDeviceIds: discovered.NpuDeviceIds,
+				GpuEnabled:   gpuEnabled,
+				GpuDeviceIds: gpuDeviceIDs,
+				NpuEnabled:   npuEnabled,
+				NpuDeviceIds: npuDeviceIDs,
 				NetworkType:  providerInfo.NetworkType, // 继承Provider的网络类型
 			}
 
@@ -294,8 +304,8 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 						InstanceID:   &instance.ID,
 						CreatedBy:    adminUserID,
 						Remark:       "节点导入自动生成",
-						GpuEnabled:   discovered.GpuEnabled,
-						GpuDeviceIds: discovered.GpuDeviceIds,
+						GpuEnabled:   gpuEnabled,
+						GpuDeviceIds: gpuDeviceIDs,
 					}
 					if createCodeErr := tx.Create(&oriRedemptionCode).Error; createCodeErr != nil {
 						global.APP_LOG.Warn("为导入实例创建ORI兑换码失败",

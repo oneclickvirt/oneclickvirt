@@ -54,6 +54,7 @@ export default {
     allRightsReserved: 'All rights reserved.',
     openSourceProject: 'Open Source Projects by OneClickVirt',
     serverVersion: 'Server',
+    latestVersion: 'Latest',
     versionFetchFailed: 'Version unavailable, backend may be disconnected'
   },
   errors: {

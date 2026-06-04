@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { useUserStore } from '@/pinia/modules/user'
 import i18n from '@/i18n'
+import { errorHandler } from './errorHandler'
 
 /**
  * 创建长时间请求的axios实例
@@ -58,7 +59,21 @@ export const createLongTimeoutRequest = (timeout = 60000, options = {}) => {
         if (res.code === 200) {
           return res
         } else {
-          return Promise.reject(new Error(res.msg || i18n.global.t('common.requestFailed')))
+          const errorInfo = errorHandler.handleApiError({
+            response: {
+              ...response,
+              status: response.status === 200 ? res.code : (response.status || res.code),
+              data: res
+            }
+          }, {
+            showMessage: false,
+            autoRedirect: false
+          })
+          return Promise.reject(createNormalizedError(errorInfo, {
+            ...response,
+            status: response.status === 200 ? res.code : (response.status || res.code),
+            data: res
+          }, response))
         }
       }
       
@@ -72,7 +87,11 @@ export const createLongTimeoutRequest = (timeout = 60000, options = {}) => {
         window.location.href = '/login'
         return Promise.reject(error)
       }
-      return Promise.reject(error)
+      const errorInfo = errorHandler.handleApiError(error, {
+        showMessage: false,
+        autoRedirect: false
+      })
+      return Promise.reject(createNormalizedError(errorInfo, error.response, error))
     }
   )
 
@@ -86,6 +105,16 @@ export const createLongTimeoutRequest = (timeout = 60000, options = {}) => {
  */
 function generateRequestId(prefix = 'req') {
   return prefix + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+}
+
+function createNormalizedError(errorInfo, response, originalError) {
+  const normalizedError = new Error(errorInfo.message || i18n.global.t('common.requestFailed'))
+  normalizedError.code = errorInfo.code
+  normalizedError.status = response?.status
+  normalizedError.details = errorInfo.details
+  normalizedError.response = response
+  normalizedError.originalError = originalError
+  return normalizedError
 }
 
 /**

@@ -22,6 +22,7 @@ import (
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	traffic "oneclickvirt/service/traffic"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -151,6 +152,11 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		instanceName := s.generateInstanceName(provider.Name)
 
 		expiredAt := determineInitialInstanceExpiryInTx(tx, &provider)
+		gpuEnabled := taskReq.GpuEnabled && utils.SupportsLXDContainerOptions(provider.Type, instanceType)
+		gpuDeviceIDs := ""
+		if gpuEnabled {
+			gpuDeviceIDs = taskReq.GpuDeviceIds
+		}
 
 		// 实例归属系统用户（UserID = 0），兑换后再转移
 		cpuCores := 0
@@ -181,8 +187,8 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 			MaxTraffic:         0,
 			TrafficLimited:     false,
 			TrafficLimitReason: "",
-			GpuEnabled:         taskReq.GpuEnabled,
-			GpuDeviceIds:       taskReq.GpuDeviceIds,
+			GpuEnabled:         gpuEnabled,
+			GpuDeviceIds:       gpuDeviceIDs,
 			NetworkType:        provider.NetworkType, // 继承Provider的网络类型
 		}
 		if err := tx.Create(&instance).Error; err != nil {
@@ -500,7 +506,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		var redeemProvider providerModel.Provider
 		if err := global.APP_DB.Select("type").Where("id = ?", providerID).First(&redeemProvider).Error; err == nil {
 			switch redeemProvider.Type {
-			case "qemu", "kubevirt":
+			case "qemu", "kubevirt", "vmware":
 				redeemSSHWait = 360 * time.Second
 			case "proxmox":
 				redeemSSHWait = 240 * time.Second

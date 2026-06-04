@@ -320,9 +320,9 @@ func (s *Service) CheckProviderNameExists(name string, excludeId *uint) (bool, e
 
 // CheckProviderEndpointExists 检查Provider SSH地址和端口组合是否已存在
 func (s *Service) CheckProviderEndpointExists(endpoint string, sshPort int, excludeId *uint) (bool, error) {
-	// 如果端口为0，使用默认值22
-	if sshPort == 0 {
-		sshPort = 22
+	endpoint, sshPort = normalizeProviderEndpointAndPort(endpoint, sshPort)
+	if endpoint == "" {
+		return false, nil
 	}
 
 	query := global.APP_DB.Model(&providerModel.Provider{}).

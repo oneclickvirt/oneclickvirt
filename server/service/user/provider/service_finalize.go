@@ -150,7 +150,7 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 				}
 			case "proxmox", "proxmoxve":
 				s.gatherProxmoxNetworkInfo(ctx, providerInstance, instance, &dbProvider, instanceUpdates)
-			case "qemu", "kubevirt":
+			case "qemu", "kubevirt", "vmware":
 				if vmInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && vmInstance != nil {
 					if vmInstance.PrivateIP != "" {
 						instanceUpdates["private_ip"] = vmInstance.PrivateIP
@@ -397,7 +397,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			var dbProviderForWait providerModel.Provider
 			if err := global.APP_DB.Select("type, pve_kvm_available").Where("id = ?", providerID).First(&dbProviderForWait).Error; err == nil {
 				switch dbProviderForWait.Type {
-				case "qemu", "kubevirt":
+				case "qemu", "kubevirt", "vmware":
 					sshWaitTimeout = 360 * time.Second // 6分钟等待VM cloud-init完成
 				case "proxmox":
 					// Proxmox使用QEMU软件模拟时启动更慢，需要更长等待
