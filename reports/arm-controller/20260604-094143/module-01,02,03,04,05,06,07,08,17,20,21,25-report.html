@@ -109,8 +109,8 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <header>
 <div class="header-left">
 <h1><span class="zh">OneClickVirt 集成测试报告</span><span class="en">OneClickVirt Integration Test Report</span></h1>
-<div class="version-info"><span>Server v20260602-130437 (unofficial)</span><span>Agent 0.2.0</span><span>Ref main</span><span>SHA 83ffebc94795</span><span>Run 26824939080.1</span></div>
-<p class="meta"><span class="zh">环境: <strong>Module-01,02,03,04,05,06,07,08,17,20,21,25</strong> | 工作流: ARM Controller Self-Tests | 生成时间: 2026-06-02 14:06:10 UTC | 快捷键: <kbd>/</kbd> 搜索 <kbd>1-4</kbd> 筛选 <kbd>T</kbd> 主题 <kbd>L</kbd> 语言</span><span class="en">Env: <strong>Module-01,02,03,04,05,06,07,08,17,20,21,25</strong> | Workflow: ARM Controller Self-Tests | Generated: 2026-06-02 14:06:10 UTC | Keys: <kbd>/</kbd> search <kbd>1-4</kbd> filter <kbd>T</kbd> theme <kbd>L</kbd> lang</span></p>
+<div class="version-info"><span>Server v20260604-085914 (unofficial)</span><span>Agent 0.2.0</span><span>Ref main</span><span>SHA 01be631651a8</span><span>Run 26943720007.1</span></div>
+<p class="meta"><span class="zh">环境: <strong>Module-01,02,03,04,05,06,07,08,17,20,21,25</strong> | 工作流: ARM Controller Self-Tests | 生成时间: 2026-06-04 09:41:30 UTC | 快捷键: <kbd>/</kbd> 搜索 <kbd>1-4</kbd> 筛选 <kbd>T</kbd> 主题 <kbd>L</kbd> 语言</span><span class="en">Env: <strong>Module-01,02,03,04,05,06,07,08,17,20,21,25</strong> | Workflow: ARM Controller Self-Tests | Generated: 2026-06-04 09:41:30 UTC | Keys: <kbd>/</kbd> search <kbd>1-4</kbd> filter <kbd>T</kbd> theme <kbd>L</kbd> lang</span></p>
 </div>
 <div class="header-btns">
 <button class="lang-toggle" onclick="toggleLang()" title="切换中英文 / Toggle Language">
@@ -123,8 +123,8 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 </header>
 
 <div class="dashboard">
-<div class="stat-card"><div class="value">284</div><div class="label"><span class="zh">总计</span><span class="en">Total</span></div></div>
-<div class="stat-card pass"><div class="value">284</div><div class="label"><span class="zh">通过</span><span class="en">Pass</span></div></div>
+<div class="stat-card"><div class="value">327</div><div class="label"><span class="zh">总计</span><span class="en">Total</span></div></div>
+<div class="stat-card pass"><div class="value">327</div><div class="label"><span class="zh">通过</span><span class="en">Pass</span></div></div>
 <div class="stat-card fail"><div class="value">0</div><div class="label"><span class="zh">失败</span><span class="en">Fail</span></div></div>
 <div class="stat-card skip"><div class="value">0</div><div class="label"><span class="zh">跳过</span><span class="en">Skip</span></div></div>
 <div class="stat-card rate"><div class="value">100%</div><div class="label"><span class="zh">通过率</span><span class="en">Rate</span></div></div>
@@ -133,8 +133,8 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <div class="toolbar">
 <input type="text" class="search-box" id="searchBox" placeholder="" />
 <select class="group-select" id="groupFilter" onchange="applyFilters()"><option value="all" class="i18n-all-modules"></option></select>
-<button class="filter-btn active" data-filter="all" onclick="setStatusFilter('all')"><span class="zh">全部</span><span class="en">All</span> <span class="count">284</span></button>
-<button class="filter-btn" data-filter="PASS" onclick="setStatusFilter('PASS')"><span class="zh">通过</span><span class="en">Pass</span> <span class="count">284</span></button>
+<button class="filter-btn active" data-filter="all" onclick="setStatusFilter('all')"><span class="zh">全部</span><span class="en">All</span> <span class="count">327</span></button>
+<button class="filter-btn" data-filter="PASS" onclick="setStatusFilter('PASS')"><span class="zh">通过</span><span class="en">Pass</span> <span class="count">327</span></button>
 <button class="filter-btn" data-filter="FAIL" onclick="setStatusFilter('FAIL')"><span class="zh">失败</span><span class="en">Fail</span> <span class="count">0</span></button>
 <button class="filter-btn" data-filter="SKIP" onclick="setStatusFilter('SKIP')"><span class="zh">跳过</span><span class="en">Skip</span> <span class="count">0</span></button>
 <button class="copy-btn" onclick="copySummary()"><span class="zh">复制摘要</span><span class="en">Copy Summary</span></button>
@@ -155,22 +155,22 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="global-captcha-baseline" data-name="Public register-config exposes captchaEnabled=false" data-url="/api/v1/public/register-config">
 <td><span class="badge pass">PASS</span></td>
 <td>Public register-config exposes captchaEnabled=false</td><td>GET</td><td><code>/api/v1/public/register-config</code></td>
-<td><span class="timestamp">2026-06-02T14:04:30</span></td>
+<td><span class="timestamp">2026-06-04T09:39:37</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="global-captcha-baseline" data-name="Admin config keeps captcha.enabled=false" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Admin config keeps captcha.enabled=false</td><td>GET</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:04:31</span></td>
+<td><span class="timestamp">2026-06-04T09:39:37</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="global-captcha-baseline" data-name="Admin login works without captcha by default" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Admin login works without captcha by default</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:31</span></td>
+<td><span class="timestamp">2026-06-04T09:39:38</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="global-captcha-baseline" data-name="Forgot password does not require captcha by default" data-url="/api/v1/auth/forgot-password">
 <td><span class="badge pass">PASS</span></td>
 <td>Forgot password does not require captcha by default</td><td>POST</td><td><code>/api/v1/auth/forgot-password</code></td>
-<td><span class="timestamp">2026-06-02T14:04:31</span></td>
+<td><span class="timestamp">2026-06-04T09:39:38</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="init">
@@ -178,7 +178,7 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <span>init</span>
 <div style="display:flex;align-items:center;gap:0.6rem">
 <div class="badge-group">
-<span class="mini-badge pass">17 pass</span>
+<span class="mini-badge pass">21 pass</span>
 </div>
 <span class="chevron">▼</span>
 </div>
@@ -189,87 +189,107 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Health check /health" data-url="/health">
 <td><span class="badge pass">PASS</span></td>
 <td>Health check /health</td><td>GET</td><td><code>/health</code></td>
-<td><span class="timestamp">2026-06-02T14:04:32</span></td>
+<td><span class="timestamp">2026-06-04T09:39:38</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Health check /api/health" data-url="/api/health">
 <td><span class="badge pass">PASS</span></td>
 <td>Health check /api/health</td><td>GET</td><td><code>/api/health</code></td>
-<td><span class="timestamp">2026-06-02T14:04:32</span></td>
+<td><span class="timestamp">2026-06-04T09:39:39</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="init" data-name="Health check /api/v1/health" data-url="/api/v1/health">
+<td><span class="badge pass">PASS</span></td>
+<td>Health check /api/v1/health</td><td>GET</td><td><code>/api/v1/health</code></td>
+<td><span class="timestamp">2026-06-04T09:39:39</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Ping /api/ping" data-url="/api/ping">
 <td><span class="badge pass">PASS</span></td>
 <td>Ping /api/ping</td><td>GET</td><td><code>/api/ping</code></td>
-<td><span class="timestamp">2026-06-02T14:04:32</span></td>
+<td><span class="timestamp">2026-06-04T09:39:39</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Init status check" data-url="/api/v1/public/init/check">
 <td><span class="badge pass">PASS</span></td>
 <td>Init status check</td><td>GET</td><td><code>/api/v1/public/init/check</code></td>
-<td><span class="timestamp">2026-06-02T14:04:33</span></td>
+<td><span class="timestamp">2026-06-04T09:39:39</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Recommended DB type" data-url="/api/v1/public/recommended-db-type">
 <td><span class="badge pass">PASS</span></td>
 <td>Recommended DB type</td><td>GET</td><td><code>/api/v1/public/recommended-db-type</code></td>
-<td><span class="timestamp">2026-06-02T14:04:33</span></td>
+<td><span class="timestamp">2026-06-04T09:39:40</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Test DB connection (invalid)" data-url="/api/v1/public/test-db-connection">
 <td><span class="badge pass">PASS</span></td>
 <td>Test DB connection (invalid)</td><td>POST</td><td><code>/api/v1/public/test-db-connection</code></td>
-<td><span class="timestamp">2026-06-02T14:04:33</span></td>
+<td><span class="timestamp">2026-06-04T09:39:40</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="System init (MySQL)" data-url="/api/v1/public/init">
 <td><span class="badge pass">PASS</span></td>
 <td>System init (MySQL)</td><td>POST</td><td><code>/api/v1/public/init</code></td>
-<td><span class="timestamp">2026-06-02T14:04:34</span></td>
+<td><span class="timestamp">2026-06-04T09:39:40</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Duplicate init (should fail)" data-url="/api/v1/public/init">
 <td><span class="badge pass">PASS</span></td>
 <td>Duplicate init (should fail)</td><td>POST</td><td><code>/api/v1/public/init</code></td>
-<td><span class="timestamp">2026-06-02T14:04:36</span></td>
+<td><span class="timestamp">2026-06-04T09:39:43</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Init missing username" data-url="/api/v1/public/init">
 <td><span class="badge pass">PASS</span></td>
 <td>Init missing username</td><td>POST</td><td><code>/api/v1/public/init</code></td>
-<td><span class="timestamp">2026-06-02T14:04:36</span></td>
+<td><span class="timestamp">2026-06-04T09:39:43</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Server version" data-url="/api/v1/public/version">
 <td><span class="badge pass">PASS</span></td>
 <td>Server version</td><td>GET</td><td><code>/api/v1/public/version</code></td>
-<td><span class="timestamp">2026-06-02T14:04:37</span></td>
+<td><span class="timestamp">2026-06-04T09:39:44</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Build info" data-url="/api/v1/public/build-info">
 <td><span class="badge pass">PASS</span></td>
 <td>Build info</td><td>GET</td><td><code>/api/v1/public/build-info</code></td>
-<td><span class="timestamp">2026-06-02T14:04:37</span></td>
+<td><span class="timestamp">2026-06-04T09:39:44</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="init" data-name="Init progress" data-url="/api/v1/public/init-progress">
+<td><span class="badge pass">PASS</span></td>
+<td>Init progress</td><td>GET</td><td><code>/api/v1/public/init-progress</code></td>
+<td><span class="timestamp">2026-06-04T09:39:44</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="init" data-name="Agent install script" data-url="/api/v1/public/agent/install-agent.sh">
+<td><span class="badge pass">PASS</span></td>
+<td>Agent install script</td><td>GET</td><td><code>/api/v1/public/agent/install-agent.sh</code></td>
+<td><span class="timestamp">2026-06-04T09:39:45</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="init" data-name="Missing agent release" data-url="/api/v1/public/agent/releases/missing-release.tar.gz">
+<td><span class="badge pass">PASS</span></td>
+<td>Missing agent release</td><td>GET</td><td><code>/api/v1/public/agent/releases/missing-release.tar.gz</code></td>
+<td><span class="timestamp">2026-06-04T09:39:45</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Public announcements" data-url="/api/v1/public/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Public announcements</td><td>GET</td><td><code>/api/v1/public/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:04:37</span></td>
+<td><span class="timestamp">2026-06-04T09:39:45</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Public stats" data-url="/api/v1/public/stats">
 <td><span class="badge pass">PASS</span></td>
 <td>Public stats</td><td>GET</td><td><code>/api/v1/public/stats</code></td>
-<td><span class="timestamp">2026-06-02T14:04:38</span></td>
+<td><span class="timestamp">2026-06-04T09:39:46</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Register config captcha disabled by default" data-url="/api/v1/public/register-config">
 <td><span class="badge pass">PASS</span></td>
 <td>Register config captcha disabled by default</td><td>GET</td><td><code>/api/v1/public/register-config</code></td>
-<td><span class="timestamp">2026-06-02T14:04:38</span></td>
+<td><span class="timestamp">2026-06-04T09:39:46</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="System config" data-url="/api/v1/public/system-config">
 <td><span class="badge pass">PASS</span></td>
 <td>System config</td><td>GET</td><td><code>/api/v1/public/system-config</code></td>
-<td><span class="timestamp">2026-06-02T14:04:38</span></td>
+<td><span class="timestamp">2026-06-04T09:39:46</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Available system images" data-url="/api/v1/public/system-images/available">
 <td><span class="badge pass">PASS</span></td>
 <td>Available system images</td><td>GET</td><td><code>/api/v1/public/system-images/available</code></td>
-<td><span class="timestamp">2026-06-02T14:04:39</span></td>
+<td><span class="timestamp">2026-06-04T09:39:47</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="init" data-name="Swagger docs" data-url="/swagger/index.html">
 <td><span class="badge pass">PASS</span></td>
 <td>Swagger docs</td><td>GET</td><td><code>/swagger/index.html</code></td>
-<td><span class="timestamp">2026-06-02T14:04:39</span></td>
+<td><span class="timestamp">2026-06-04T09:39:47</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="auth">
@@ -288,177 +308,177 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Get captcha" data-url="/api/v1/auth/captcha">
 <td><span class="badge pass">PASS</span></td>
 <td>Get captcha</td><td>GET</td><td><code>/api/v1/auth/captcha</code></td>
-<td><span class="timestamp">2026-06-02T14:04:40</span></td>
+<td><span class="timestamp">2026-06-04T09:39:48</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Register config captcha disabled by default" data-url="/api/v1/public/register-config">
 <td><span class="badge pass">PASS</span></td>
 <td>Register config captcha disabled by default</td><td>GET</td><td><code>/api/v1/public/register-config</code></td>
-<td><span class="timestamp">2026-06-02T14:04:40</span></td>
+<td><span class="timestamp">2026-06-04T09:39:48</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Admin login (valid)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Admin login (valid)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:41</span></td>
+<td><span class="timestamp">2026-06-04T09:39:48</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Admin login (wrong password)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Admin login (wrong password)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:41</span></td>
+<td><span class="timestamp">2026-06-04T09:39:49</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Login (empty body)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Login (empty body)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:41</span></td>
+<td><span class="timestamp">2026-06-04T09:39:49</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Login (missing password)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Login (missing password)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:42</span></td>
+<td><span class="timestamp">2026-06-04T09:39:49</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Login (missing username)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Login (missing username)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:42</span></td>
+<td><span class="timestamp">2026-06-04T09:39:50</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Login (nonexistent user)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Login (nonexistent user)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:42</span></td>
+<td><span class="timestamp">2026-06-04T09:39:50</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Register test user" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register test user</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:04:43</span></td>
+<td><span class="timestamp">2026-06-04T09:39:50</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Register duplicate user" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register duplicate user</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:04:43</span></td>
+<td><span class="timestamp">2026-06-04T09:39:51</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Register weak password" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register weak password</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:04:43</span></td>
+<td><span class="timestamp">2026-06-04T09:39:51</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Register test user 2" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register test user 2</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:04:44</span></td>
+<td><span class="timestamp">2026-06-04T09:39:51</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="User profile" data-url="/api/v1/user/profile">
 <td><span class="badge pass">PASS</span></td>
 <td>User profile</td><td>GET</td><td><code>/api/v1/user/profile</code></td>
-<td><span class="timestamp">2026-06-02T14:04:44</span></td>
+<td><span class="timestamp">2026-06-04T09:39:52</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Admin API without token" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Admin API without token</td><td>GET</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:04:44</span></td>
+<td><span class="timestamp">2026-06-04T09:39:52</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="User API without token" data-url="/api/v1/user/profile">
 <td><span class="badge pass">PASS</span></td>
 <td>User API without token</td><td>GET</td><td><code>/api/v1/user/profile</code></td>
-<td><span class="timestamp">2026-06-02T14:04:45</span></td>
+<td><span class="timestamp">2026-06-04T09:39:52</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Invalid token access" data-url="/api/v1/user/profile">
 <td><span class="badge pass">PASS</span></td>
 <td>Invalid token access</td><td>GET</td><td><code>/api/v1/user/profile</code></td>
-<td><span class="timestamp">2026-06-02T14:04:45</span></td>
+<td><span class="timestamp">2026-06-04T09:39:53</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="User logout" data-url="/api/v1/auth/logout">
 <td><span class="badge pass">PASS</span></td>
 <td>User logout</td><td>POST</td><td><code>/api/v1/auth/logout</code></td>
-<td><span class="timestamp">2026-06-02T14:04:45</span></td>
+<td><span class="timestamp">2026-06-04T09:39:53</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Forgot password" data-url="/api/v1/auth/forgot-password">
 <td><span class="badge pass">PASS</span></td>
 <td>Forgot password</td><td>POST</td><td><code>/api/v1/auth/forgot-password</code></td>
-<td><span class="timestamp">2026-06-02T14:04:46</span></td>
+<td><span class="timestamp">2026-06-04T09:39:53</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Forgot password (nonexistent email)" data-url="/api/v1/auth/forgot-password">
 <td><span class="badge pass">PASS</span></td>
 <td>Forgot password (nonexistent email)</td><td>POST</td><td><code>/api/v1/auth/forgot-password</code></td>
-<td><span class="timestamp">2026-06-02T14:04:46</span></td>
+<td><span class="timestamp">2026-06-04T09:39:54</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Reset password (invalid token)" data-url="/api/v1/auth/reset-password">
 <td><span class="badge pass">PASS</span></td>
 <td>Reset password (invalid token)</td><td>POST</td><td><code>/api/v1/auth/reset-password</code></td>
-<td><span class="timestamp">2026-06-02T14:04:46</span></td>
+<td><span class="timestamp">2026-06-04T09:39:54</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Login SQL injection" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Login SQL injection</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:47</span></td>
+<td><span class="timestamp">2026-06-04T09:39:54</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Register XSS username" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register XSS username</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:04:47</span></td>
+<td><span class="timestamp">2026-06-04T09:39:55</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Register long username" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register long username</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:04:47</span></td>
+<td><span class="timestamp">2026-06-04T09:39:55</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Register invalid email" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register invalid email</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:04:48</span></td>
+<td><span class="timestamp">2026-06-04T09:39:55</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Forgot password (empty)" data-url="/api/v1/auth/forgot-password">
 <td><span class="badge pass">PASS</span></td>
 <td>Forgot password (empty)</td><td>POST</td><td><code>/api/v1/auth/forgot-password</code></td>
-<td><span class="timestamp">2026-06-02T14:04:48</span></td>
+<td><span class="timestamp">2026-06-04T09:39:56</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Reset password (empty token)" data-url="/api/v1/auth/reset-password">
 <td><span class="badge pass">PASS</span></td>
 <td>Reset password (empty token)</td><td>POST</td><td><code>/api/v1/auth/reset-password</code></td>
-<td><span class="timestamp">2026-06-02T14:04:48</span></td>
+<td><span class="timestamp">2026-06-04T09:39:56</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Reset password (weak)" data-url="/api/v1/auth/reset-password">
 <td><span class="badge pass">PASS</span></td>
 <td>Reset password (weak)</td><td>POST</td><td><code>/api/v1/auth/reset-password</code></td>
-<td><span class="timestamp">2026-06-02T14:04:49</span></td>
+<td><span class="timestamp">2026-06-04T09:39:56</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Logout no token" data-url="/api/v1/auth/logout">
 <td><span class="badge pass">PASS</span></td>
 <td>Logout no token</td><td>POST</td><td><code>/api/v1/auth/logout</code></td>
-<td><span class="timestamp">2026-06-02T14:04:49</span></td>
+<td><span class="timestamp">2026-06-04T09:39:57</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Login without captcha (disabled)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Login without captcha (disabled)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:49</span></td>
+<td><span class="timestamp">2026-06-04T09:39:57</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Login (invalid loginType)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Login (invalid loginType)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:50</span></td>
+<td><span class="timestamp">2026-06-04T09:39:57</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Login (invalid userType)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Login (invalid userType)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:50</span></td>
+<td><span class="timestamp">2026-06-04T09:39:58</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Login (email type, no target)" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Login (email type, no target)</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:04:50</span></td>
+<td><span class="timestamp">2026-06-04T09:39:58</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Register without captcha" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register without captcha</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:04:51</span></td>
+<td><span class="timestamp">2026-06-04T09:39:58</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Send verify code (no type)" data-url="/api/v1/auth/send-verify-code">
 <td><span class="badge pass">PASS</span></td>
 <td>Send verify code (no type)</td><td>POST</td><td><code>/api/v1/auth/send-verify-code</code></td>
-<td><span class="timestamp">2026-06-02T14:04:51</span></td>
+<td><span class="timestamp">2026-06-04T09:39:59</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="auth" data-name="Send verify code (no target)" data-url="/api/v1/auth/send-verify-code">
 <td><span class="badge pass">PASS</span></td>
 <td>Send verify code (no target)</td><td>POST</td><td><code>/api/v1/auth/send-verify-code</code></td>
-<td><span class="timestamp">2026-06-02T14:04:52</span></td>
+<td><span class="timestamp">2026-06-04T09:39:59</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="users">
@@ -477,142 +497,142 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="users" data-name="User list" data-url="/api/v1/admin/users?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>User list</td><td>GET</td><td><code>/api/v1/admin/users?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:04:52</span></td>
+<td><span class="timestamp">2026-06-04T09:40:00</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Create user" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Create user</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:04:53</span></td>
+<td><span class="timestamp">2026-06-04T09:40:00</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Create duplicate user" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Create duplicate user</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:04:53</span></td>
+<td><span class="timestamp">2026-06-04T09:40:00</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Create user (no username)" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Create user (no username)</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:04:53</span></td>
+<td><span class="timestamp">2026-06-04T09:40:01</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Create batch user 1" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Create batch user 1</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:04:54</span></td>
+<td><span class="timestamp">2026-06-04T09:40:01</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Create batch user 2" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Create batch user 2</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:04:54</span></td>
+<td><span class="timestamp">2026-06-04T09:40:02</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Batch update level" data-url="/api/v1/admin/users/batch-level">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch update level</td><td>PUT</td><td><code>/api/v1/admin/users/batch-level</code></td>
-<td><span class="timestamp">2026-06-02T14:04:54</span></td>
+<td><span class="timestamp">2026-06-04T09:40:02</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Batch update status (disable)" data-url="/api/v1/admin/users/batch-status">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch update status (disable)</td><td>PUT</td><td><code>/api/v1/admin/users/batch-status</code></td>
-<td><span class="timestamp">2026-06-02T14:04:55</span></td>
+<td><span class="timestamp">2026-06-04T09:40:02</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Batch update status (enable)" data-url="/api/v1/admin/users/batch-status">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch update status (enable)</td><td>PUT</td><td><code>/api/v1/admin/users/batch-status</code></td>
-<td><span class="timestamp">2026-06-02T14:04:55</span></td>
+<td><span class="timestamp">2026-06-04T09:40:03</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Create normal admin" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Create normal admin</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:04:55</span></td>
+<td><span class="timestamp">2026-06-04T09:40:03</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Login as user" data-url="/api/v1/admin/users/2/login-as">
 <td><span class="badge pass">PASS</span></td>
 <td>Login as user</td><td>POST</td><td><code>/api/v1/admin/users/2/login-as</code></td>
-<td><span class="timestamp">2026-06-02T14:04:56</span></td>
+<td><span class="timestamp">2026-06-04T09:40:03</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="User quota info" data-url="/api/v1/admin/quota/users/2">
 <td><span class="badge pass">PASS</span></td>
 <td>User quota info</td><td>GET</td><td><code>/api/v1/admin/quota/users/2</code></td>
-<td><span class="timestamp">2026-06-02T14:04:56</span></td>
+<td><span class="timestamp">2026-06-04T09:40:04</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Get instance type permissions" data-url="/api/v1/admin/instance-type-permissions">
 <td><span class="badge pass">PASS</span></td>
 <td>Get instance type permissions</td><td>GET</td><td><code>/api/v1/admin/instance-type-permissions</code></td>
-<td><span class="timestamp">2026-06-02T14:04:56</span></td>
+<td><span class="timestamp">2026-06-04T09:40:04</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Update instance type permissions" data-url="/api/v1/admin/instance-type-permissions">
 <td><span class="badge pass">PASS</span></td>
 <td>Update instance type permissions</td><td>PUT</td><td><code>/api/v1/admin/instance-type-permissions</code></td>
-<td><span class="timestamp">2026-06-02T14:04:57</span></td>
+<td><span class="timestamp">2026-06-04T09:40:04</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Delete nonexistent user" data-url="/api/v1/admin/users/99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Delete nonexistent user</td><td>DELETE</td><td><code>/api/v1/admin/users/99999</code></td>
-<td><span class="timestamp">2026-06-02T14:04:57</span></td>
+<td><span class="timestamp">2026-06-04T09:40:05</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Batch delete users" data-url="/api/v1/admin/users/batch-delete">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch delete users</td><td>POST</td><td><code>/api/v1/admin/users/batch-delete</code></td>
-<td><span class="timestamp">2026-06-02T14:04:57</span></td>
+<td><span class="timestamp">2026-06-04T09:40:05</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Edit nonexistent user" data-url="/api/v1/admin/users/99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Edit nonexistent user</td><td>PUT</td><td><code>/api/v1/admin/users/99999</code></td>
-<td><span class="timestamp">2026-06-02T14:04:58</span></td>
+<td><span class="timestamp">2026-06-04T09:40:05</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Reset password nonexistent" data-url="/api/v1/admin/users/99999/reset-password">
 <td><span class="badge pass">PASS</span></td>
 <td>Reset password nonexistent</td><td>PUT</td><td><code>/api/v1/admin/users/99999/reset-password</code></td>
-<td><span class="timestamp">2026-06-02T14:04:58</span></td>
+<td><span class="timestamp">2026-06-04T09:40:06</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Change level nonexistent" data-url="/api/v1/admin/users/99999/level">
 <td><span class="badge pass">PASS</span></td>
 <td>Change level nonexistent</td><td>PUT</td><td><code>/api/v1/admin/users/99999/level</code></td>
-<td><span class="timestamp">2026-06-02T14:04:58</span></td>
+<td><span class="timestamp">2026-06-04T09:40:06</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Login-as nonexistent" data-url="/api/v1/admin/users/99999/login-as">
 <td><span class="badge pass">PASS</span></td>
 <td>Login-as nonexistent</td><td>POST</td><td><code>/api/v1/admin/users/99999/login-as</code></td>
-<td><span class="timestamp">2026-06-02T14:04:59</span></td>
+<td><span class="timestamp">2026-06-04T09:40:06</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Set expiry nonexistent" data-url="/api/v1/admin/users/set-expiry">
 <td><span class="badge pass">PASS</span></td>
 <td>Set expiry nonexistent</td><td>POST</td><td><code>/api/v1/admin/users/set-expiry</code></td>
-<td><span class="timestamp">2026-06-02T14:04:59</span></td>
+<td><span class="timestamp">2026-06-04T09:40:06</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Create user (weak password)" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Create user (weak password)</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:04:59</span></td>
+<td><span class="timestamp">2026-06-04T09:40:07</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Create user (XSS username)" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Create user (XSS username)</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:05:00</span></td>
+<td><span class="timestamp">2026-06-04T09:40:07</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Batch level (empty)" data-url="/api/v1/admin/users/batch-level">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch level (empty)</td><td>PUT</td><td><code>/api/v1/admin/users/batch-level</code></td>
-<td><span class="timestamp">2026-06-02T14:05:00</span></td>
+<td><span class="timestamp">2026-06-04T09:40:07</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Batch status (empty)" data-url="/api/v1/admin/users/batch-status">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch status (empty)</td><td>PUT</td><td><code>/api/v1/admin/users/batch-status</code></td>
-<td><span class="timestamp">2026-06-02T14:05:00</span></td>
+<td><span class="timestamp">2026-06-04T09:40:08</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="Batch delete (empty)" data-url="/api/v1/admin/users/batch-delete">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch delete (empty)</td><td>POST</td><td><code>/api/v1/admin/users/batch-delete</code></td>
-<td><span class="timestamp">2026-06-02T14:05:00</span></td>
+<td><span class="timestamp">2026-06-04T09:40:08</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="User -> user list (403)" data-url="/api/v1/admin/users?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> user list (403)</td><td>GET</td><td><code>/api/v1/admin/users?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:01</span></td>
+<td><span class="timestamp">2026-06-04T09:40:08</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="users" data-name="User -> create user (403)" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> create user (403)</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:05:01</span></td>
+<td><span class="timestamp">2026-06-04T09:40:09</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="invite_codes">
@@ -631,82 +651,82 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Invite code list" data-url="/api/v1/admin/invite-codes?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Invite code list</td><td>GET</td><td><code>/api/v1/admin/invite-codes?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:02</span></td>
+<td><span class="timestamp">2026-06-04T09:40:09</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Create invite code" data-url="/api/v1/admin/invite-codes">
 <td><span class="badge pass">PASS</span></td>
 <td>Create invite code</td><td>POST</td><td><code>/api/v1/admin/invite-codes</code></td>
-<td><span class="timestamp">2026-06-02T14:05:02</span></td>
+<td><span class="timestamp">2026-06-04T09:40:10</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Create duplicate code" data-url="/api/v1/admin/invite-codes">
 <td><span class="badge pass">PASS</span></td>
 <td>Create duplicate code</td><td>POST</td><td><code>/api/v1/admin/invite-codes</code></td>
-<td><span class="timestamp">2026-06-02T14:05:02</span></td>
+<td><span class="timestamp">2026-06-04T09:40:10</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Batch generate codes" data-url="/api/v1/admin/invite-codes/generate">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch generate codes</td><td>POST</td><td><code>/api/v1/admin/invite-codes/generate</code></td>
-<td><span class="timestamp">2026-06-02T14:05:03</span></td>
+<td><span class="timestamp">2026-06-04T09:40:10</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Generate codes (invalid count)" data-url="/api/v1/admin/invite-codes/generate">
 <td><span class="badge pass">PASS</span></td>
 <td>Generate codes (invalid count)</td><td>POST</td><td><code>/api/v1/admin/invite-codes/generate</code></td>
-<td><span class="timestamp">2026-06-02T14:05:03</span></td>
+<td><span class="timestamp">2026-06-04T09:40:11</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Export invite codes" data-url="/api/v1/admin/invite-codes/export">
 <td><span class="badge pass">PASS</span></td>
 <td>Export invite codes</td><td>GET</td><td><code>/api/v1/admin/invite-codes/export</code></td>
-<td><span class="timestamp">2026-06-02T14:05:03</span></td>
+<td><span class="timestamp">2026-06-04T09:40:11</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Register with invite code" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register with invite code</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:05:04</span></td>
+<td><span class="timestamp">2026-06-04T09:40:11</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Register with invalid code" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Register with invalid code</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:05:04</span></td>
+<td><span class="timestamp">2026-06-04T09:40:12</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Delete nonexistent code" data-url="/api/v1/admin/invite-codes/99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Delete nonexistent code</td><td>DELETE</td><td><code>/api/v1/admin/invite-codes/99999</code></td>
-<td><span class="timestamp">2026-06-02T14:05:04</span></td>
+<td><span class="timestamp">2026-06-04T09:40:12</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Batch delete codes" data-url="/api/v1/admin/invite-codes/batch-delete">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch delete codes</td><td>POST</td><td><code>/api/v1/admin/invite-codes/batch-delete</code></td>
-<td><span class="timestamp">2026-06-02T14:05:05</span></td>
+<td><span class="timestamp">2026-06-04T09:40:12</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Generate codes (negative count)" data-url="/api/v1/admin/invite-codes/generate">
 <td><span class="badge pass">PASS</span></td>
 <td>Generate codes (negative count)</td><td>POST</td><td><code>/api/v1/admin/invite-codes/generate</code></td>
-<td><span class="timestamp">2026-06-02T14:05:05</span></td>
+<td><span class="timestamp">2026-06-04T09:40:13</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Generate codes (excessive)" data-url="/api/v1/admin/invite-codes/generate">
 <td><span class="badge pass">PASS</span></td>
 <td>Generate codes (excessive)</td><td>POST</td><td><code>/api/v1/admin/invite-codes/generate</code></td>
-<td><span class="timestamp">2026-06-02T14:05:05</span></td>
+<td><span class="timestamp">2026-06-04T09:40:13</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Create empty code" data-url="/api/v1/admin/invite-codes">
 <td><span class="badge pass">PASS</span></td>
 <td>Create empty code</td><td>POST</td><td><code>/api/v1/admin/invite-codes</code></td>
-<td><span class="timestamp">2026-06-02T14:05:06</span></td>
+<td><span class="timestamp">2026-06-04T09:40:13</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="Batch delete empty" data-url="/api/v1/admin/invite-codes/batch-delete">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch delete empty</td><td>POST</td><td><code>/api/v1/admin/invite-codes/batch-delete</code></td>
-<td><span class="timestamp">2026-06-02T14:05:06</span></td>
+<td><span class="timestamp">2026-06-04T09:40:14</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="User -> invite list (403)" data-url="/api/v1/admin/invite-codes?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> invite list (403)</td><td>GET</td><td><code>/api/v1/admin/invite-codes?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:06</span></td>
+<td><span class="timestamp">2026-06-04T09:40:14</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="invite_codes" data-name="User -> create code (403)" data-url="/api/v1/admin/invite-codes">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> create code (403)</td><td>POST</td><td><code>/api/v1/admin/invite-codes</code></td>
-<td><span class="timestamp">2026-06-02T14:05:07</span></td>
+<td><span class="timestamp">2026-06-04T09:40:14</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="redemption">
@@ -725,67 +745,67 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Redemption code list" data-url="/api/v1/admin/redemption-codes?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Redemption code list</td><td>GET</td><td><code>/api/v1/admin/redemption-codes?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:07</span></td>
+<td><span class="timestamp">2026-06-04T09:40:15</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Batch create codes (standard)" data-url="/api/v1/admin/redemption-codes/batch-create">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch create codes (standard)</td><td>POST</td><td><code>/api/v1/admin/redemption-codes/batch-create</code></td>
-<td><span class="timestamp">2026-06-02T14:05:08</span></td>
+<td><span class="timestamp">2026-06-04T09:40:15</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Batch create codes (copy mode)" data-url="/api/v1/admin/redemption-codes/batch-create">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch create codes (copy mode)</td><td>POST</td><td><code>/api/v1/admin/redemption-codes/batch-create</code></td>
-<td><span class="timestamp">2026-06-02T14:05:08</span></td>
+<td><span class="timestamp">2026-06-04T09:40:16</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Copy mode no sourceContainer (400/404)" data-url="/api/v1/admin/redemption-codes/batch-create">
 <td><span class="badge pass">PASS</span></td>
 <td>Copy mode no sourceContainer (400/404)</td><td>POST</td><td><code>/api/v1/admin/redemption-codes/batch-create</code></td>
-<td><span class="timestamp">2026-06-02T14:05:08</span></td>
+<td><span class="timestamp">2026-06-04T09:40:16</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Create codes (zero count)" data-url="/api/v1/admin/redemption-codes/batch-create">
 <td><span class="badge pass">PASS</span></td>
 <td>Create codes (zero count)</td><td>POST</td><td><code>/api/v1/admin/redemption-codes/batch-create</code></td>
-<td><span class="timestamp">2026-06-02T14:05:09</span></td>
+<td><span class="timestamp">2026-06-04T09:40:16</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Export redemption codes" data-url="/api/v1/admin/redemption-codes/export">
 <td><span class="badge pass">PASS</span></td>
 <td>Export redemption codes</td><td>POST</td><td><code>/api/v1/admin/redemption-codes/export</code></td>
-<td><span class="timestamp">2026-06-02T14:05:09</span></td>
+<td><span class="timestamp">2026-06-04T09:40:17</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Redeem invalid code" data-url="/api/v1/user/redemption-codes/redeem">
 <td><span class="badge pass">PASS</span></td>
 <td>Redeem invalid code</td><td>POST</td><td><code>/api/v1/user/redemption-codes/redeem</code></td>
-<td><span class="timestamp">2026-06-02T14:05:09</span></td>
+<td><span class="timestamp">2026-06-04T09:40:17</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Redeem empty code" data-url="/api/v1/user/redemption-codes/redeem">
 <td><span class="badge pass">PASS</span></td>
 <td>Redeem empty code</td><td>POST</td><td><code>/api/v1/user/redemption-codes/redeem</code></td>
-<td><span class="timestamp">2026-06-02T14:05:10</span></td>
+<td><span class="timestamp">2026-06-04T09:40:17</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Create codes (negative count)" data-url="/api/v1/admin/redemption-codes/batch-create">
 <td><span class="badge pass">PASS</span></td>
 <td>Create codes (negative count)</td><td>POST</td><td><code>/api/v1/admin/redemption-codes/batch-create</code></td>
-<td><span class="timestamp">2026-06-02T14:05:10</span></td>
+<td><span class="timestamp">2026-06-04T09:40:18</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Redeem without auth" data-url="/api/v1/user/redemption-codes/redeem">
 <td><span class="badge pass">PASS</span></td>
 <td>Redeem without auth</td><td>POST</td><td><code>/api/v1/user/redemption-codes/redeem</code></td>
-<td><span class="timestamp">2026-06-02T14:05:10</span></td>
+<td><span class="timestamp">2026-06-04T09:40:18</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="Batch delete (empty)" data-url="/api/v1/admin/redemption-codes/batch-delete">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch delete (empty)</td><td>POST</td><td><code>/api/v1/admin/redemption-codes/batch-delete</code></td>
-<td><span class="timestamp">2026-06-02T14:05:11</span></td>
+<td><span class="timestamp">2026-06-04T09:40:18</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="User -> code list (403)" data-url="/api/v1/admin/redemption-codes?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> code list (403)</td><td>GET</td><td><code>/api/v1/admin/redemption-codes?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:11</span></td>
+<td><span class="timestamp">2026-06-04T09:40:19</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="redemption" data-name="User -> create code (403)" data-url="/api/v1/admin/redemption-codes/batch-create">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> create code (403)</td><td>POST</td><td><code>/api/v1/admin/redemption-codes/batch-create</code></td>
-<td><span class="timestamp">2026-06-02T14:05:11</span></td>
+<td><span class="timestamp">2026-06-04T09:40:19</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="announcements">
@@ -804,67 +824,67 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Announcement list" data-url="/api/v1/admin/announcements?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Announcement list</td><td>GET</td><td><code>/api/v1/admin/announcements?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:12</span></td>
+<td><span class="timestamp">2026-06-04T09:40:20</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Create announcement (info)" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Create announcement (info)</td><td>POST</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:05:12</span></td>
+<td><span class="timestamp">2026-06-04T09:40:20</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Create announcement (warning)" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Create announcement (warning)</td><td>POST</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:05:13</span></td>
+<td><span class="timestamp">2026-06-04T09:40:20</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Create announcement (inactive)" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Create announcement (inactive)</td><td>POST</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:05:13</span></td>
+<td><span class="timestamp">2026-06-04T09:40:21</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Create announcement (no title)" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Create announcement (no title)</td><td>POST</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:05:13</span></td>
+<td><span class="timestamp">2026-06-04T09:40:21</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Public announcements" data-url="/api/v1/public/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Public announcements</td><td>GET</td><td><code>/api/v1/public/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:05:14</span></td>
+<td><span class="timestamp">2026-06-04T09:40:21</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Delete nonexistent" data-url="/api/v1/admin/announcements/99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Delete nonexistent</td><td>DELETE</td><td><code>/api/v1/admin/announcements/99999</code></td>
-<td><span class="timestamp">2026-06-02T14:05:14</span></td>
+<td><span class="timestamp">2026-06-04T09:40:22</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Batch delete announcements" data-url="/api/v1/admin/announcements/batch-delete">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch delete announcements</td><td>POST</td><td><code>/api/v1/admin/announcements/batch-delete</code></td>
-<td><span class="timestamp">2026-06-02T14:05:14</span></td>
+<td><span class="timestamp">2026-06-04T09:40:22</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Edit nonexistent announcement" data-url="/api/v1/admin/announcements/99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Edit nonexistent announcement</td><td>PUT</td><td><code>/api/v1/admin/announcements/99999</code></td>
-<td><span class="timestamp">2026-06-02T14:05:15</span></td>
+<td><span class="timestamp">2026-06-04T09:40:22</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Create (empty content)" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Create (empty content)</td><td>POST</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:05:15</span></td>
+<td><span class="timestamp">2026-06-04T09:40:23</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Batch status (empty ids)" data-url="/api/v1/admin/announcements/batch-status">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch status (empty ids)</td><td>PUT</td><td><code>/api/v1/admin/announcements/batch-status</code></td>
-<td><span class="timestamp">2026-06-02T14:05:15</span></td>
+<td><span class="timestamp">2026-06-04T09:40:23</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="Batch delete (empty ids)" data-url="/api/v1/admin/announcements/batch-delete">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch delete (empty ids)</td><td>POST</td><td><code>/api/v1/admin/announcements/batch-delete</code></td>
-<td><span class="timestamp">2026-06-02T14:05:16</span></td>
+<td><span class="timestamp">2026-06-04T09:40:23</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="announcements" data-name="User -> create announcement (403)" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> create announcement (403)</td><td>POST</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:05:16</span></td>
+<td><span class="timestamp">2026-06-04T09:40:24</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="config">
@@ -883,187 +903,187 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Get unified config" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Get unified config</td><td>GET</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:17</span></td>
+<td><span class="timestamp">2026-06-04T09:40:24</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Update config (site name)" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Update config (site name)</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:17</span></td>
+<td><span class="timestamp">2026-06-04T09:40:25</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Verify config" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Verify config</td><td>GET</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:17</span></td>
+<td><span class="timestamp">2026-06-04T09:40:25</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Update level limits" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Update level limits</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:18</span></td>
+<td><span class="timestamp">2026-06-04T09:40:25</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Get config (alt route)" data-url="/api/v1/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Get config (alt route)</td><td>GET</td><td><code>/api/v1/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:18</span></td>
+<td><span class="timestamp">2026-06-04T09:40:26</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Update config (alt route)" data-url="/api/v1/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Update config (alt route)</td><td>PUT</td><td><code>/api/v1/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:18</span></td>
+<td><span class="timestamp">2026-06-04T09:40:26</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Public system config" data-url="/api/v1/public/system-config">
 <td><span class="badge pass">PASS</span></td>
 <td>Public system config</td><td>GET</td><td><code>/api/v1/public/system-config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:19</span></td>
+<td><span class="timestamp">2026-06-04T09:40:26</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Register config captcha disabled by default" data-url="/api/v1/public/register-config">
 <td><span class="badge pass">PASS</span></td>
 <td>Register config captcha disabled by default</td><td>GET</td><td><code>/api/v1/public/register-config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:19</span></td>
+<td><span class="timestamp">2026-06-04T09:40:27</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Admin dashboard" data-url="/api/v1/admin/dashboard">
 <td><span class="badge pass">PASS</span></td>
 <td>Admin dashboard</td><td>GET</td><td><code>/api/v1/admin/dashboard</code></td>
-<td><span class="timestamp">2026-06-02T14:05:19</span></td>
+<td><span class="timestamp">2026-06-04T09:40:27</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="System monitoring" data-url="/api/v1/admin/monitoring/system">
 <td><span class="badge pass">PASS</span></td>
 <td>System monitoring</td><td>GET</td><td><code>/api/v1/admin/monitoring/system</code></td>
-<td><span class="timestamp">2026-06-02T14:05:19</span></td>
+<td><span class="timestamp">2026-06-04T09:40:27</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Audit logs" data-url="/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Audit logs</td><td>GET</td><td><code>/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:20</span></td>
+<td><span class="timestamp">2026-06-04T09:40:28</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Performance metrics" data-url="/api/v1/admin/performance/metrics">
 <td><span class="badge pass">PASS</span></td>
 <td>Performance metrics</td><td>GET</td><td><code>/api/v1/admin/performance/metrics</code></td>
-<td><span class="timestamp">2026-06-02T14:05:20</span></td>
+<td><span class="timestamp">2026-06-04T09:40:28</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Performance history" data-url="/api/v1/admin/performance/history?hours=24">
 <td><span class="badge pass">PASS</span></td>
 <td>Performance history</td><td>GET</td><td><code>/api/v1/admin/performance/history?hours=24</code></td>
-<td><span class="timestamp">2026-06-02T14:05:20</span></td>
+<td><span class="timestamp">2026-06-04T09:40:28</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Log dates" data-url="/api/v1/admin/logs/dates">
 <td><span class="badge pass">PASS</span></td>
 <td>Log dates</td><td>GET</td><td><code>/api/v1/admin/logs/dates</code></td>
-<td><span class="timestamp">2026-06-02T14:05:21</span></td>
+<td><span class="timestamp">2026-06-04T09:40:29</span></td>
 <td>-</td></tr>
-<tr class="test-row" data-status="PASS" data-group="config" data-name="Log content" data-url="/api/v1/admin/logs/content?date=2026-06-02&file=info">
+<tr class="test-row" data-status="PASS" data-group="config" data-name="Log content" data-url="/api/v1/admin/logs/content?date=2026-06-04&file=info">
 <td><span class="badge pass">PASS</span></td>
-<td>Log content</td><td>GET</td><td><code>/api/v1/admin/logs/content?date=2026-06-02&file=info</code></td>
-<td><span class="timestamp">2026-06-02T14:05:21</span></td>
+<td>Log content</td><td>GET</td><td><code>/api/v1/admin/logs/content?date=2026-06-04&file=info</code></td>
+<td><span class="timestamp">2026-06-04T09:40:29</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Get group info" data-url="/api/v1/admin/group-info">
 <td><span class="badge pass">PASS</span></td>
 <td>Get group info</td><td>GET</td><td><code>/api/v1/admin/group-info</code></td>
-<td><span class="timestamp">2026-06-02T14:05:21</span></td>
+<td><span class="timestamp">2026-06-04T09:40:29</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Update group info" data-url="/api/v1/admin/group-info">
 <td><span class="badge pass">PASS</span></td>
 <td>Update group info</td><td>PUT</td><td><code>/api/v1/admin/group-info</code></td>
-<td><span class="timestamp">2026-06-02T14:05:22</span></td>
+<td><span class="timestamp">2026-06-04T09:40:30</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Update config (invalid level limit type)" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Update config (invalid level limit type)</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:22</span></td>
+<td><span class="timestamp">2026-06-04T09:40:30</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Update config (empty body)" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Update config (empty body)</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:22</span></td>
+<td><span class="timestamp">2026-06-04T09:40:30</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Admin config without token" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Admin config without token</td><td>GET</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:23</span></td>
+<td><span class="timestamp">2026-06-04T09:40:30</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Dashboard without token" data-url="/api/v1/admin/dashboard">
 <td><span class="badge pass">PASS</span></td>
 <td>Dashboard without token</td><td>GET</td><td><code>/api/v1/admin/dashboard</code></td>
-<td><span class="timestamp">2026-06-02T14:05:23</span></td>
+<td><span class="timestamp">2026-06-04T09:40:31</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Config (SQL injection)" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Config (SQL injection)</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:23</span></td>
+<td><span class="timestamp">2026-06-04T09:40:31</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Metrics without token" data-url="/api/v1/admin/performance/metrics">
 <td><span class="badge pass">PASS</span></td>
 <td>Metrics without token</td><td>GET</td><td><code>/api/v1/admin/performance/metrics</code></td>
-<td><span class="timestamp">2026-06-02T14:05:24</span></td>
+<td><span class="timestamp">2026-06-04T09:40:31</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Audit logs without token" data-url="/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Audit logs without token</td><td>GET</td><td><code>/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:24</span></td>
+<td><span class="timestamp">2026-06-04T09:40:32</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="User -> system config (403)" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> system config (403)</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:24</span></td>
+<td><span class="timestamp">2026-06-04T09:40:32</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="User -> dashboard (403)" data-url="/api/v1/admin/dashboard">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> dashboard (403)</td><td>GET</td><td><code>/api/v1/admin/dashboard</code></td>
-<td><span class="timestamp">2026-06-02T14:05:25</span></td>
+<td><span class="timestamp">2026-06-04T09:40:32</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="User -> audit logs (403)" data-url="/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> audit logs (403)</td><td>GET</td><td><code>/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:25</span></td>
+<td><span class="timestamp">2026-06-04T09:40:33</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Level limits (zero values)" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Level limits (zero values)</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:25</span></td>
+<td><span class="timestamp">2026-06-04T09:40:33</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Level limits (negative values)" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Level limits (negative values)</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:26</span></td>
+<td><span class="timestamp">2026-06-04T09:40:33</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Audit logs (page=0)" data-url="/api/v1/admin/monitoring/audit-logs?page=0&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Audit logs (page=0)</td><td>GET</td><td><code>/api/v1/admin/monitoring/audit-logs?page=0&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:26</span></td>
+<td><span class="timestamp">2026-06-04T09:40:34</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Audit logs (huge page)" data-url="/api/v1/admin/monitoring/audit-logs?page=1&pageSize=99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Audit logs (huge page)</td><td>GET</td><td><code>/api/v1/admin/monitoring/audit-logs?page=1&pageSize=99999</code></td>
-<td><span class="timestamp">2026-06-02T14:05:26</span></td>
+<td><span class="timestamp">2026-06-04T09:40:34</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Enable captcha" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Enable captcha</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:27</span></td>
+<td><span class="timestamp">2026-06-04T09:40:34</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Verify admin captcha enabled" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Verify admin captcha enabled</td><td>GET</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:27</span></td>
+<td><span class="timestamp">2026-06-04T09:40:35</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Verify public captcha enabled" data-url="/api/v1/public/register-config">
 <td><span class="badge pass">PASS</span></td>
 <td>Verify public captcha enabled</td><td>GET</td><td><code>/api/v1/public/register-config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:27</span></td>
+<td><span class="timestamp">2026-06-04T09:40:35</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Disable captcha" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Disable captcha</td><td>PUT</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:28</span></td>
+<td><span class="timestamp">2026-06-04T09:40:35</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Verify admin captcha disabled" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Verify admin captcha disabled</td><td>GET</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:28</span></td>
+<td><span class="timestamp">2026-06-04T09:40:36</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="config" data-name="Verify public captcha disabled" data-url="/api/v1/public/register-config">
 <td><span class="badge pass">PASS</span></td>
 <td>Verify public captcha disabled</td><td>GET</td><td><code>/api/v1/public/register-config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:28</span></td>
+<td><span class="timestamp">2026-06-04T09:40:36</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="images">
@@ -1082,107 +1102,107 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Image list" data-url="/api/v1/admin/system-images?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Image list</td><td>GET</td><td><code>/api/v1/admin/system-images?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:29</span></td>
+<td><span class="timestamp">2026-06-04T09:40:37</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Create image (debian)" data-url="/api/v1/admin/system-images">
 <td><span class="badge pass">PASS</span></td>
 <td>Create image (debian)</td><td>POST</td><td><code>/api/v1/admin/system-images</code></td>
-<td><span class="timestamp">2026-06-02T14:05:29</span></td>
+<td><span class="timestamp">2026-06-04T09:40:37</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Create image (ubuntu)" data-url="/api/v1/admin/system-images">
 <td><span class="badge pass">PASS</span></td>
 <td>Create image (ubuntu)</td><td>POST</td><td><code>/api/v1/admin/system-images</code></td>
-<td><span class="timestamp">2026-06-02T14:05:30</span></td>
+<td><span class="timestamp">2026-06-04T09:40:37</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Create image (alpine)" data-url="/api/v1/admin/system-images">
 <td><span class="badge pass">PASS</span></td>
 <td>Create image (alpine)</td><td>POST</td><td><code>/api/v1/admin/system-images</code></td>
-<td><span class="timestamp">2026-06-02T14:05:30</span></td>
+<td><span class="timestamp">2026-06-04T09:40:38</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Create VM image" data-url="/api/v1/admin/system-images">
 <td><span class="badge pass">PASS</span></td>
 <td>Create VM image</td><td>POST</td><td><code>/api/v1/admin/system-images</code></td>
-<td><span class="timestamp">2026-06-02T14:05:30</span></td>
+<td><span class="timestamp">2026-06-04T09:40:38</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Create image (no name)" data-url="/api/v1/admin/system-images">
 <td><span class="badge pass">PASS</span></td>
 <td>Create image (no name)</td><td>POST</td><td><code>/api/v1/admin/system-images</code></td>
-<td><span class="timestamp">2026-06-02T14:05:31</span></td>
+<td><span class="timestamp">2026-06-04T09:40:38</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Edit image" data-url="/api/v1/admin/system-images/480">
 <td><span class="badge pass">PASS</span></td>
 <td>Edit image</td><td>PUT</td><td><code>/api/v1/admin/system-images/480</code></td>
-<td><span class="timestamp">2026-06-02T14:05:31</span></td>
+<td><span class="timestamp">2026-06-04T09:40:39</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Batch deactivate images" data-url="/api/v1/admin/system-images/batch-status">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch deactivate images</td><td>PUT</td><td><code>/api/v1/admin/system-images/batch-status</code></td>
-<td><span class="timestamp">2026-06-02T14:05:31</span></td>
+<td><span class="timestamp">2026-06-04T09:40:39</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Batch activate images" data-url="/api/v1/admin/system-images/batch-status">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch activate images</td><td>PUT</td><td><code>/api/v1/admin/system-images/batch-status</code></td>
-<td><span class="timestamp">2026-06-02T14:05:31</span></td>
+<td><span class="timestamp">2026-06-04T09:40:39</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Public available images" data-url="/api/v1/public/system-images/available">
 <td><span class="badge pass">PASS</span></td>
 <td>Public available images</td><td>GET</td><td><code>/api/v1/public/system-images/available</code></td>
-<td><span class="timestamp">2026-06-02T14:05:32</span></td>
+<td><span class="timestamp">2026-06-04T09:40:40</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="User image list" data-url="/api/v1/user/images">
 <td><span class="badge pass">PASS</span></td>
 <td>User image list</td><td>GET</td><td><code>/api/v1/user/images</code></td>
-<td><span class="timestamp">2026-06-02T14:05:32</span></td>
+<td><span class="timestamp">2026-06-04T09:40:40</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="User filtered images" data-url="/api/v1/user/images/filtered?provider_type=docker">
 <td><span class="badge pass">PASS</span></td>
 <td>User filtered images</td><td>GET</td><td><code>/api/v1/user/images/filtered?provider_type=docker</code></td>
-<td><span class="timestamp">2026-06-02T14:05:32</span></td>
+<td><span class="timestamp">2026-06-04T09:40:40</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Delete image" data-url="/api/v1/admin/system-images/482">
 <td><span class="badge pass">PASS</span></td>
 <td>Delete image</td><td>DELETE</td><td><code>/api/v1/admin/system-images/482</code></td>
-<td><span class="timestamp">2026-06-02T14:05:33</span></td>
+<td><span class="timestamp">2026-06-04T09:40:41</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Delete nonexistent image" data-url="/api/v1/admin/system-images/99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Delete nonexistent image</td><td>DELETE</td><td><code>/api/v1/admin/system-images/99999</code></td>
-<td><span class="timestamp">2026-06-02T14:05:33</span></td>
+<td><span class="timestamp">2026-06-04T09:40:41</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Batch delete images" data-url="/api/v1/admin/system-images/batch-delete">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch delete images</td><td>POST</td><td><code>/api/v1/admin/system-images/batch-delete</code></td>
-<td><span class="timestamp">2026-06-02T14:05:33</span></td>
+<td><span class="timestamp">2026-06-04T09:40:41</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Edit nonexistent image" data-url="/api/v1/admin/system-images/99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Edit nonexistent image</td><td>PUT</td><td><code>/api/v1/admin/system-images/99999</code></td>
-<td><span class="timestamp">2026-06-02T14:05:34</span></td>
+<td><span class="timestamp">2026-06-04T09:40:42</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Create image (negative memory)" data-url="/api/v1/admin/system-images">
 <td><span class="badge pass">PASS</span></td>
 <td>Create image (negative memory)</td><td>POST</td><td><code>/api/v1/admin/system-images</code></td>
-<td><span class="timestamp">2026-06-02T14:05:34</span></td>
+<td><span class="timestamp">2026-06-04T09:40:42</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Batch status (empty ids)" data-url="/api/v1/admin/system-images/batch-status">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch status (empty ids)</td><td>PUT</td><td><code>/api/v1/admin/system-images/batch-status</code></td>
-<td><span class="timestamp">2026-06-02T14:05:34</span></td>
+<td><span class="timestamp">2026-06-04T09:40:42</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="Batch delete (empty)" data-url="/api/v1/admin/system-images/batch-delete">
 <td><span class="badge pass">PASS</span></td>
 <td>Batch delete (empty)</td><td>POST</td><td><code>/api/v1/admin/system-images/batch-delete</code></td>
-<td><span class="timestamp">2026-06-02T14:05:35</span></td>
+<td><span class="timestamp">2026-06-04T09:40:43</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="User -> create image (403)" data-url="/api/v1/admin/system-images">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> create image (403)</td><td>POST</td><td><code>/api/v1/admin/system-images</code></td>
-<td><span class="timestamp">2026-06-02T14:05:35</span></td>
+<td><span class="timestamp">2026-06-04T09:40:43</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="images" data-name="User -> delete image (403)" data-url="/api/v1/admin/system-images/1">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> delete image (403)</td><td>DELETE</td><td><code>/api/v1/admin/system-images/1</code></td>
-<td><span class="timestamp">2026-06-02T14:05:35</span></td>
+<td><span class="timestamp">2026-06-04T09:40:43</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="admin_isolation">
@@ -1201,122 +1221,122 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin dashboard" data-url="/api/v1/admin/dashboard">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin dashboard</td><td>GET</td><td><code>/api/v1/admin/dashboard</code></td>
-<td><span class="timestamp">2026-06-02T14:05:36</span></td>
+<td><span class="timestamp">2026-06-04T09:40:44</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin providers" data-url="/api/v1/admin/providers?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin providers</td><td>GET</td><td><code>/api/v1/admin/providers?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:36</span></td>
+<td><span class="timestamp">2026-06-04T09:40:44</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin instances" data-url="/api/v1/admin/instances?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin instances</td><td>GET</td><td><code>/api/v1/admin/instances?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:37</span></td>
+<td><span class="timestamp">2026-06-04T09:40:45</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Super admin all providers" data-url="/api/v1/admin/providers?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Super admin all providers</td><td>GET</td><td><code>/api/v1/admin/providers?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:37</span></td>
+<td><span class="timestamp">2026-06-04T09:40:45</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> users (403)" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> users (403)</td><td>GET</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:05:37</span></td>
+<td><span class="timestamp">2026-06-04T09:40:45</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> config (403)" data-url="/api/v1/admin/config">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> config (403)</td><td>GET</td><td><code>/api/v1/admin/config</code></td>
-<td><span class="timestamp">2026-06-02T14:05:38</span></td>
+<td><span class="timestamp">2026-06-04T09:40:46</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> system images (403)" data-url="/api/v1/admin/system-images">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> system images (403)</td><td>GET</td><td><code>/api/v1/admin/system-images</code></td>
-<td><span class="timestamp">2026-06-02T14:05:38</span></td>
+<td><span class="timestamp">2026-06-04T09:40:46</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> invite codes (403)" data-url="/api/v1/admin/invite-codes">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> invite codes (403)</td><td>GET</td><td><code>/api/v1/admin/invite-codes</code></td>
-<td><span class="timestamp">2026-06-02T14:05:38</span></td>
+<td><span class="timestamp">2026-06-04T09:40:46</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> announcements (403)" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> announcements (403)</td><td>GET</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:05:39</span></td>
+<td><span class="timestamp">2026-06-04T09:40:47</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> audit logs (403)" data-url="/api/v1/admin/monitoring/audit-logs">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> audit logs (403)</td><td>GET</td><td><code>/api/v1/admin/monitoring/audit-logs</code></td>
-<td><span class="timestamp">2026-06-02T14:05:39</span></td>
+<td><span class="timestamp">2026-06-04T09:40:47</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> performance (403)" data-url="/api/v1/admin/performance/metrics">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> performance (403)</td><td>GET</td><td><code>/api/v1/admin/performance/metrics</code></td>
-<td><span class="timestamp">2026-06-02T14:05:39</span></td>
+<td><span class="timestamp">2026-06-04T09:40:47</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> logs (403)" data-url="/api/v1/admin/logs/dates">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> logs (403)</td><td>GET</td><td><code>/api/v1/admin/logs/dates</code></td>
-<td><span class="timestamp">2026-06-02T14:05:40</span></td>
+<td><span class="timestamp">2026-06-04T09:40:47</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> redemption codes" data-url="/api/v1/admin/redemption-codes?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> redemption codes</td><td>GET</td><td><code>/api/v1/admin/redemption-codes?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:40</span></td>
+<td><span class="timestamp">2026-06-04T09:40:48</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> tasks" data-url="/api/v1/admin/tasks?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> tasks</td><td>GET</td><td><code>/api/v1/admin/tasks?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:40</span></td>
+<td><span class="timestamp">2026-06-04T09:40:48</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> group info" data-url="/api/v1/admin/group-info">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> group info</td><td>GET</td><td><code>/api/v1/admin/group-info</code></td>
-<td><span class="timestamp">2026-06-02T14:05:41</span></td>
+<td><span class="timestamp">2026-06-04T09:40:48</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> block rules" data-url="/api/v1/admin/block-rules?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> block rules</td><td>GET</td><td><code>/api/v1/admin/block-rules?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:41</span></td>
+<td><span class="timestamp">2026-06-04T09:40:49</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> port mappings" data-url="/api/v1/admin/port-mappings?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> port mappings</td><td>GET</td><td><code>/api/v1/admin/port-mappings?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:41</span></td>
+<td><span class="timestamp">2026-06-04T09:40:49</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> traffic overview" data-url="/api/v1/admin/traffic/overview">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> traffic overview</td><td>GET</td><td><code>/api/v1/admin/traffic/overview</code></td>
-<td><span class="timestamp">2026-06-02T14:05:42</span></td>
+<td><span class="timestamp">2026-06-04T09:40:49</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> KYC list" data-url="/api/v1/admin/kyc?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> KYC list</td><td>GET</td><td><code>/api/v1/admin/kyc?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:42</span></td>
+<td><span class="timestamp">2026-06-04T09:40:50</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> transfer (403)" data-url="/api/v1/admin/instances/transfer">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> transfer (403)</td><td>POST</td><td><code>/api/v1/admin/instances/transfer</code></td>
-<td><span class="timestamp">2026-06-02T14:05:42</span></td>
+<td><span class="timestamp">2026-06-04T09:40:50</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> login-as (403)" data-url="/api/v1/admin/users/1/login-as">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> login-as (403)</td><td>POST</td><td><code>/api/v1/admin/users/1/login-as</code></td>
-<td><span class="timestamp">2026-06-02T14:05:42</span></td>
+<td><span class="timestamp">2026-06-04T09:40:50</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Normal admin -> create user (403)" data-url="/api/v1/admin/users">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin -> create user (403)</td><td>POST</td><td><code>/api/v1/admin/users</code></td>
-<td><span class="timestamp">2026-06-02T14:05:43</span></td>
+<td><span class="timestamp">2026-06-04T09:40:51</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Super admin login-as user" data-url="/api/v1/admin/users/2/login-as">
 <td><span class="badge pass">PASS</span></td>
 <td>Super admin login-as user</td><td>POST</td><td><code>/api/v1/admin/users/2/login-as</code></td>
-<td><span class="timestamp">2026-06-02T14:05:43</span></td>
+<td><span class="timestamp">2026-06-04T09:40:51</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="admin_isolation" data-name="Login-as nonexistent user" data-url="/api/v1/admin/users/99999/login-as">
 <td><span class="badge pass">PASS</span></td>
 <td>Login-as nonexistent user</td><td>POST</td><td><code>/api/v1/admin/users/99999/login-as</code></td>
-<td><span class="timestamp">2026-06-02T14:05:43</span></td>
+<td><span class="timestamp">2026-06-04T09:40:51</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="oauth2">
@@ -1335,132 +1355,132 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="List OAuth2 presets" data-url="/api/v1/oauth2/presets">
 <td><span class="badge pass">PASS</span></td>
 <td>List OAuth2 presets</td><td>GET</td><td><code>/api/v1/oauth2/presets</code></td>
-<td><span class="timestamp">2026-06-02T14:05:44</span></td>
+<td><span class="timestamp">2026-06-04T09:40:52</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Get preset (github)" data-url="/api/v1/oauth2/presets/github">
 <td><span class="badge pass">PASS</span></td>
 <td>Get preset (github)</td><td>GET</td><td><code>/api/v1/oauth2/presets/github</code></td>
-<td><span class="timestamp">2026-06-02T14:05:44</span></td>
+<td><span class="timestamp">2026-06-04T09:40:52</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Get preset (linuxdo)" data-url="/api/v1/oauth2/presets/linuxdo">
 <td><span class="badge pass">PASS</span></td>
 <td>Get preset (linuxdo)</td><td>GET</td><td><code>/api/v1/oauth2/presets/linuxdo</code></td>
-<td><span class="timestamp">2026-06-02T14:05:45</span></td>
+<td><span class="timestamp">2026-06-04T09:40:53</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Get preset (idcflare)" data-url="/api/v1/oauth2/presets/idcflare">
 <td><span class="badge pass">PASS</span></td>
 <td>Get preset (idcflare)</td><td>GET</td><td><code>/api/v1/oauth2/presets/idcflare</code></td>
-<td><span class="timestamp">2026-06-02T14:05:45</span></td>
+<td><span class="timestamp">2026-06-04T09:40:53</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Get preset (generic)" data-url="/api/v1/oauth2/presets/generic">
 <td><span class="badge pass">PASS</span></td>
 <td>Get preset (generic)</td><td>GET</td><td><code>/api/v1/oauth2/presets/generic</code></td>
-<td><span class="timestamp">2026-06-02T14:05:45</span></td>
+<td><span class="timestamp">2026-06-04T09:40:53</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Get preset (qq)" data-url="/api/v1/oauth2/presets/qq">
 <td><span class="badge pass">PASS</span></td>
 <td>Get preset (qq)</td><td>GET</td><td><code>/api/v1/oauth2/presets/qq</code></td>
-<td><span class="timestamp">2026-06-02T14:05:46</span></td>
+<td><span class="timestamp">2026-06-04T09:40:54</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Get preset (telegram)" data-url="/api/v1/oauth2/presets/telegram">
 <td><span class="badge pass">PASS</span></td>
 <td>Get preset (telegram)</td><td>GET</td><td><code>/api/v1/oauth2/presets/telegram</code></td>
-<td><span class="timestamp">2026-06-02T14:05:46</span></td>
+<td><span class="timestamp">2026-06-04T09:40:54</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Get preset (nonexistent)" data-url="/api/v1/oauth2/presets/nonexistent_provider">
 <td><span class="badge pass">PASS</span></td>
 <td>Get preset (nonexistent)</td><td>GET</td><td><code>/api/v1/oauth2/presets/nonexistent_provider</code></td>
-<td><span class="timestamp">2026-06-02T14:05:46</span></td>
+<td><span class="timestamp">2026-06-04T09:40:54</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Create OAuth2 provider" data-url="/api/v1/oauth2/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>Create OAuth2 provider</td><td>POST</td><td><code>/api/v1/oauth2/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:05:47</span></td>
+<td><span class="timestamp">2026-06-04T09:40:55</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Create duplicate OAuth2" data-url="/api/v1/oauth2/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>Create duplicate OAuth2</td><td>POST</td><td><code>/api/v1/oauth2/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:05:47</span></td>
+<td><span class="timestamp">2026-06-04T09:40:55</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Create OAuth2 missing fields" data-url="/api/v1/oauth2/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>Create OAuth2 missing fields</td><td>POST</td><td><code>/api/v1/oauth2/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:05:47</span></td>
+<td><span class="timestamp">2026-06-04T09:40:55</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="List OAuth2 providers" data-url="/api/v1/oauth2/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>List OAuth2 providers</td><td>GET</td><td><code>/api/v1/oauth2/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:05:48</span></td>
+<td><span class="timestamp">2026-06-04T09:40:56</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Public OAuth2 providers" data-url="/api/v1/public/oauth2/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>Public OAuth2 providers</td><td>GET</td><td><code>/api/v1/public/oauth2/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:05:48</span></td>
+<td><span class="timestamp">2026-06-04T09:40:56</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Get OAuth2 provider" data-url="/api/v1/oauth2/providers/1">
 <td><span class="badge pass">PASS</span></td>
 <td>Get OAuth2 provider</td><td>GET</td><td><code>/api/v1/oauth2/providers/1</code></td>
-<td><span class="timestamp">2026-06-02T14:05:48</span></td>
+<td><span class="timestamp">2026-06-04T09:40:56</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Update OAuth2 provider" data-url="/api/v1/oauth2/providers/1">
 <td><span class="badge pass">PASS</span></td>
 <td>Update OAuth2 provider</td><td>PUT</td><td><code>/api/v1/oauth2/providers/1</code></td>
-<td><span class="timestamp">2026-06-02T14:05:49</span></td>
+<td><span class="timestamp">2026-06-04T09:40:57</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Reset OAuth2 count" data-url="/api/v1/oauth2/providers/1/reset-count">
 <td><span class="badge pass">PASS</span></td>
 <td>Reset OAuth2 count</td><td>POST</td><td><code>/api/v1/oauth2/providers/1/reset-count</code></td>
-<td><span class="timestamp">2026-06-02T14:05:49</span></td>
+<td><span class="timestamp">2026-06-04T09:40:57</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Delete OAuth2 provider" data-url="/api/v1/oauth2/providers/1">
 <td><span class="badge pass">PASS</span></td>
 <td>Delete OAuth2 provider</td><td>DELETE</td><td><code>/api/v1/oauth2/providers/1</code></td>
-<td><span class="timestamp">2026-06-02T14:05:49</span></td>
+<td><span class="timestamp">2026-06-04T09:40:57</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Get deleted OAuth2 (404)" data-url="/api/v1/oauth2/providers/1">
 <td><span class="badge pass">PASS</span></td>
 <td>Get deleted OAuth2 (404)</td><td>GET</td><td><code>/api/v1/oauth2/providers/1</code></td>
-<td><span class="timestamp">2026-06-02T14:05:50</span></td>
+<td><span class="timestamp">2026-06-04T09:40:58</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Delete nonexistent OAuth2" data-url="/api/v1/oauth2/providers/99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Delete nonexistent OAuth2</td><td>DELETE</td><td><code>/api/v1/oauth2/providers/99999</code></td>
-<td><span class="timestamp">2026-06-02T14:05:50</span></td>
+<td><span class="timestamp">2026-06-04T09:40:58</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="User -> OAuth2 create (401/403)" data-url="/api/v1/oauth2/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> OAuth2 create (401/403)</td><td>POST</td><td><code>/api/v1/oauth2/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:05:50</span></td>
+<td><span class="timestamp">2026-06-04T09:40:58</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="User -> OAuth2 list (401/403)" data-url="/api/v1/oauth2/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> OAuth2 list (401/403)</td><td>GET</td><td><code>/api/v1/oauth2/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:05:51</span></td>
+<td><span class="timestamp">2026-06-04T09:40:59</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="User -> OAuth2 delete (401/403)" data-url="/api/v1/oauth2/providers/1">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> OAuth2 delete (401/403)</td><td>DELETE</td><td><code>/api/v1/oauth2/providers/1</code></td>
-<td><span class="timestamp">2026-06-02T14:05:51</span></td>
+<td><span class="timestamp">2026-06-04T09:40:59</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Update nonexistent OAuth2" data-url="/api/v1/oauth2/providers/99999">
 <td><span class="badge pass">PASS</span></td>
 <td>Update nonexistent OAuth2</td><td>PUT</td><td><code>/api/v1/oauth2/providers/99999</code></td>
-<td><span class="timestamp">2026-06-02T14:05:51</span></td>
+<td><span class="timestamp">2026-06-04T09:40:59</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Reset count nonexistent" data-url="/api/v1/oauth2/providers/99999/reset-count">
 <td><span class="badge pass">PASS</span></td>
 <td>Reset count nonexistent</td><td>POST</td><td><code>/api/v1/oauth2/providers/99999/reset-count</code></td>
-<td><span class="timestamp">2026-06-02T14:05:52</span></td>
+<td><span class="timestamp">2026-06-04T09:40:59</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Create OAuth2 (invalid URL)" data-url="/api/v1/oauth2/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>Create OAuth2 (invalid URL)</td><td>POST</td><td><code>/api/v1/oauth2/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:05:52</span></td>
+<td><span class="timestamp">2026-06-04T09:41:00</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="oauth2" data-name="Create OAuth2 (XSS)" data-url="/api/v1/oauth2/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>Create OAuth2 (XSS)</td><td>POST</td><td><code>/api/v1/oauth2/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:05:52</span></td>
+<td><span class="timestamp">2026-06-04T09:41:00</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="kyc">
@@ -1479,92 +1499,92 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Get user KYC status" data-url="/api/v1/user/kyc">
 <td><span class="badge pass">PASS</span></td>
 <td>Get user KYC status</td><td>GET</td><td><code>/api/v1/user/kyc</code></td>
-<td><span class="timestamp">2026-06-02T14:05:53</span></td>
+<td><span class="timestamp">2026-06-04T09:41:01</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Submit KYC" data-url="/api/v1/user/kyc">
 <td><span class="badge pass">PASS</span></td>
 <td>Submit KYC</td><td>POST</td><td><code>/api/v1/user/kyc</code></td>
-<td><span class="timestamp">2026-06-02T14:05:53</span></td>
+<td><span class="timestamp">2026-06-04T09:41:01</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Submit duplicate KYC" data-url="/api/v1/user/kyc">
 <td><span class="badge pass">PASS</span></td>
 <td>Submit duplicate KYC</td><td>POST</td><td><code>/api/v1/user/kyc</code></td>
-<td><span class="timestamp">2026-06-02T14:05:54</span></td>
+<td><span class="timestamp">2026-06-04T09:41:02</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Submit KYC empty" data-url="/api/v1/user/kyc">
 <td><span class="badge pass">PASS</span></td>
 <td>Submit KYC empty</td><td>POST</td><td><code>/api/v1/user/kyc</code></td>
-<td><span class="timestamp">2026-06-02T14:05:54</span></td>
+<td><span class="timestamp">2026-06-04T09:41:02</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Admin KYC list" data-url="/api/v1/admin/kyc?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Admin KYC list</td><td>GET</td><td><code>/api/v1/admin/kyc?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:54</span></td>
+<td><span class="timestamp">2026-06-04T09:41:02</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Admin approve KYC" data-url="/api/v1/admin/kyc/1/review">
 <td><span class="badge pass">PASS</span></td>
 <td>Admin approve KYC</td><td>PUT</td><td><code>/api/v1/admin/kyc/1/review</code></td>
-<td><span class="timestamp">2026-06-02T14:05:55</span></td>
+<td><span class="timestamp">2026-06-04T09:41:03</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Re-review KYC" data-url="/api/v1/admin/kyc/1/review">
 <td><span class="badge pass">PASS</span></td>
 <td>Re-review KYC</td><td>PUT</td><td><code>/api/v1/admin/kyc/1/review</code></td>
-<td><span class="timestamp">2026-06-02T14:05:55</span></td>
+<td><span class="timestamp">2026-06-04T09:41:03</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Review nonexistent KYC" data-url="/api/v1/admin/kyc/99999/review">
 <td><span class="badge pass">PASS</span></td>
 <td>Review nonexistent KYC</td><td>PUT</td><td><code>/api/v1/admin/kyc/99999/review</code></td>
-<td><span class="timestamp">2026-06-02T14:05:55</span></td>
+<td><span class="timestamp">2026-06-04T09:41:03</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Submit Alipay KYC" data-url="/api/v1/user/kyc/alipay">
 <td><span class="badge pass">PASS</span></td>
 <td>Submit Alipay KYC</td><td>POST</td><td><code>/api/v1/user/kyc/alipay</code></td>
-<td><span class="timestamp">2026-06-02T14:05:55</span></td>
+<td><span class="timestamp">2026-06-04T09:41:03</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Query Alipay result" data-url="/api/v1/user/kyc/alipay/result">
 <td><span class="badge pass">PASS</span></td>
 <td>Query Alipay result</td><td>GET</td><td><code>/api/v1/user/kyc/alipay/result</code></td>
-<td><span class="timestamp">2026-06-02T14:05:56</span></td>
+<td><span class="timestamp">2026-06-04T09:41:04</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="KYC status after approval" data-url="/api/v1/user/kyc">
 <td><span class="badge pass">PASS</span></td>
 <td>KYC status after approval</td><td>GET</td><td><code>/api/v1/user/kyc</code></td>
-<td><span class="timestamp">2026-06-02T14:05:56</span></td>
+<td><span class="timestamp">2026-06-04T09:41:04</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="User2 own KYC status" data-url="/api/v1/user/kyc">
 <td><span class="badge pass">PASS</span></td>
 <td>User2 own KYC status</td><td>GET</td><td><code>/api/v1/user/kyc</code></td>
-<td><span class="timestamp">2026-06-02T14:05:56</span></td>
+<td><span class="timestamp">2026-06-04T09:41:04</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="Normal admin KYC list" data-url="/api/v1/admin/kyc?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Normal admin KYC list</td><td>GET</td><td><code>/api/v1/admin/kyc?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:57</span></td>
+<td><span class="timestamp">2026-06-04T09:41:05</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="KYC XSS realName" data-url="/api/v1/user/kyc">
 <td><span class="badge pass">PASS</span></td>
 <td>KYC XSS realName</td><td>POST</td><td><code>/api/v1/user/kyc</code></td>
-<td><span class="timestamp">2026-06-02T14:05:57</span></td>
+<td><span class="timestamp">2026-06-04T09:41:05</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="KYC long realName" data-url="/api/v1/user/kyc">
 <td><span class="badge pass">PASS</span></td>
 <td>KYC long realName</td><td>POST</td><td><code>/api/v1/user/kyc</code></td>
-<td><span class="timestamp">2026-06-02T14:05:57</span></td>
+<td><span class="timestamp">2026-06-04T09:41:05</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="User -> KYC admin list (403)" data-url="/api/v1/admin/kyc?page=1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> KYC admin list (403)</td><td>GET</td><td><code>/api/v1/admin/kyc?page=1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:05:58</span></td>
+<td><span class="timestamp">2026-06-04T09:41:06</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="User -> review KYC (403)" data-url="/api/v1/admin/kyc/1/review">
 <td><span class="badge pass">PASS</span></td>
 <td>User -> review KYC (403)</td><td>PUT</td><td><code>/api/v1/admin/kyc/1/review</code></td>
-<td><span class="timestamp">2026-06-02T14:05:58</span></td>
+<td><span class="timestamp">2026-06-04T09:41:06</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="kyc" data-name="KYC submit no auth" data-url="/api/v1/user/kyc">
 <td><span class="badge pass">PASS</span></td>
 <td>KYC submit no auth</td><td>POST</td><td><code>/api/v1/user/kyc</code></td>
-<td><span class="timestamp">2026-06-02T14:05:58</span></td>
+<td><span class="timestamp">2026-06-04T09:41:06</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="section" data-group="error_handling">
@@ -1572,7 +1592,7 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <span>error_handling</span>
 <div style="display:flex;align-items:center;gap:0.6rem">
 <div class="badge-group">
-<span class="mini-badge pass">32 pass</span>
+<span class="mini-badge pass">71 pass</span>
 </div>
 <span class="chevron">▼</span>
 </div>
@@ -1583,162 +1603,357 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="SQL injection login" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>SQL injection login</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:05:59</span></td>
+<td><span class="timestamp">2026-06-04T09:41:07</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="SQL injection register" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>SQL injection register</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:05:59</span></td>
+<td><span class="timestamp">2026-06-04T09:41:07</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="SQL injection provider name" data-url="/api/v1/admin/providers/check-name?name=test%27%20OR%201%3D1%20--">
 <td><span class="badge pass">PASS</span></td>
 <td>SQL injection provider name</td><td>GET</td><td><code>/api/v1/admin/providers/check-name?name=test%27%20OR%201%3D1%20--</code></td>
-<td><span class="timestamp">2026-06-02T14:06:00</span></td>
+<td><span class="timestamp">2026-06-04T09:41:08</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="XSS in username" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>XSS in username</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:06:00</span></td>
+<td><span class="timestamp">2026-06-04T09:41:08</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="XSS in announcement" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>XSS in announcement</td><td>POST</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:06:00</span></td>
+<td><span class="timestamp">2026-06-04T09:41:08</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Oversized username" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Oversized username</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:06:01</span></td>
+<td><span class="timestamp">2026-06-04T09:41:09</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Invalid JSON body" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Invalid JSON body</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:06:01</span></td>
+<td><span class="timestamp">2026-06-04T09:41:09</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Negative user ID" data-url="/api/v1/admin/users/-1">
 <td><span class="badge pass">PASS</span></td>
 <td>Negative user ID</td><td>GET</td><td><code>/api/v1/admin/users/-1</code></td>
-<td><span class="timestamp">2026-06-02T14:06:01</span></td>
+<td><span class="timestamp">2026-06-04T09:41:09</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Negative instance ID" data-url="/api/v1/admin/instances/-1">
 <td><span class="badge pass">PASS</span></td>
 <td>Negative instance ID</td><td>GET</td><td><code>/api/v1/admin/instances/-1</code></td>
-<td><span class="timestamp">2026-06-02T14:06:01</span></td>
+<td><span class="timestamp">2026-06-04T09:41:09</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Negative provider ID" data-url="/api/v1/admin/providers/-1">
 <td><span class="badge pass">PASS</span></td>
 <td>Negative provider ID</td><td>GET</td><td><code>/api/v1/admin/providers/-1</code></td>
-<td><span class="timestamp">2026-06-02T14:06:02</span></td>
+<td><span class="timestamp">2026-06-04T09:41:10</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Zero user ID" data-url="/api/v1/admin/users/0">
 <td><span class="badge pass">PASS</span></td>
 <td>Zero user ID</td><td>DELETE</td><td><code>/api/v1/admin/users/0</code></td>
-<td><span class="timestamp">2026-06-02T14:06:02</span></td>
+<td><span class="timestamp">2026-06-04T09:41:10</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Zero instance ID" data-url="/api/v1/admin/instances/0">
 <td><span class="badge pass">PASS</span></td>
 <td>Zero instance ID</td><td>DELETE</td><td><code>/api/v1/admin/instances/0</code></td>
-<td><span class="timestamp">2026-06-02T14:06:02</span></td>
+<td><span class="timestamp">2026-06-04T09:41:10</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="String user ID" data-url="/api/v1/admin/users/abc">
 <td><span class="badge pass">PASS</span></td>
 <td>String user ID</td><td>GET</td><td><code>/api/v1/admin/users/abc</code></td>
-<td><span class="timestamp">2026-06-02T14:06:03</span></td>
+<td><span class="timestamp">2026-06-04T09:41:11</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="String instance ID" data-url="/api/v1/admin/instances/abc">
 <td><span class="badge pass">PASS</span></td>
 <td>String instance ID</td><td>GET</td><td><code>/api/v1/admin/instances/abc</code></td>
-<td><span class="timestamp">2026-06-02T14:06:03</span></td>
+<td><span class="timestamp">2026-06-04T09:41:11</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Page 0" data-url="/api/v1/admin/users?page=0&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Page 0</td><td>GET</td><td><code>/api/v1/admin/users?page=0&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:06:03</span></td>
+<td><span class="timestamp">2026-06-04T09:41:11</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Negative page" data-url="/api/v1/admin/users?page=-1&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Negative page</td><td>GET</td><td><code>/api/v1/admin/users?page=-1&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:06:04</span></td>
+<td><span class="timestamp">2026-06-04T09:41:12</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Huge pageSize" data-url="/api/v1/admin/users?page=1&pageSize=999999">
 <td><span class="badge pass">PASS</span></td>
 <td>Huge pageSize</td><td>GET</td><td><code>/api/v1/admin/users?page=1&pageSize=999999</code></td>
-<td><span class="timestamp">2026-06-02T14:06:04</span></td>
+<td><span class="timestamp">2026-06-04T09:41:12</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Page very large" data-url="/api/v1/admin/users?page=999999&pageSize=10">
 <td><span class="badge pass">PASS</span></td>
 <td>Page very large</td><td>GET</td><td><code>/api/v1/admin/users?page=999999&pageSize=10</code></td>
-<td><span class="timestamp">2026-06-02T14:06:04</span></td>
+<td><span class="timestamp">2026-06-04T09:41:12</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Empty login" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Empty login</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:06:05</span></td>
+<td><span class="timestamp">2026-06-04T09:41:13</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Null password" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Null password</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:06:05</span></td>
+<td><span class="timestamp">2026-06-04T09:41:13</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Empty provider" data-url="/api/v1/admin/providers">
 <td><span class="badge pass">PASS</span></td>
 <td>Empty provider</td><td>POST</td><td><code>/api/v1/admin/providers</code></td>
-<td><span class="timestamp">2026-06-02T14:06:05</span></td>
+<td><span class="timestamp">2026-06-04T09:41:13</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Empty instance" data-url="/api/v1/admin/instances">
 <td><span class="badge pass">PASS</span></td>
 <td>Empty instance</td><td>POST</td><td><code>/api/v1/admin/instances</code></td>
-<td><span class="timestamp">2026-06-02T14:06:06</span></td>
+<td><span class="timestamp">2026-06-04T09:41:14</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Empty block rule" data-url="/api/v1/admin/block-rules">
 <td><span class="badge pass">PASS</span></td>
 <td>Empty block rule</td><td>POST</td><td><code>/api/v1/admin/block-rules</code></td>
-<td><span class="timestamp">2026-06-02T14:06:06</span></td>
+<td><span class="timestamp">2026-06-04T09:41:14</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="PATCH on login" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>PATCH on login</td><td>PATCH</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:06:06</span></td>
+<td><span class="timestamp">2026-06-04T09:41:14</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="DELETE on login" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>DELETE on login</td><td>DELETE</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:06:06</span></td>
+<td><span class="timestamp">2026-06-04T09:41:15</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Nonexistent route" data-url="/api/v1/nonexistent/route">
 <td><span class="badge pass">PASS</span></td>
 <td>Nonexistent route</td><td>GET</td><td><code>/api/v1/nonexistent/route</code></td>
-<td><span class="timestamp">2026-06-02T14:06:07</span></td>
+<td><span class="timestamp">2026-06-04T09:41:15</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Nonexistent admin route" data-url="/api/v1/admin/nonexistent">
 <td><span class="badge pass">PASS</span></td>
 <td>Nonexistent admin route</td><td>GET</td><td><code>/api/v1/admin/nonexistent</code></td>
-<td><span class="timestamp">2026-06-02T14:06:07</span></td>
+<td><span class="timestamp">2026-06-04T09:41:15</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin SSH websocket without upgrade" data-url="/api/v1/admin/instances/99999/ssh">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin SSH websocket without upgrade</td><td>GET</td><td><code>/api/v1/admin/instances/99999/ssh</code></td>
+<td><span class="timestamp">2026-06-04T09:41:16</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin instance SFTP list missing" data-url="/api/v1/admin/instances/99999/sftp/list?path=/">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin instance SFTP list missing</td><td>GET</td><td><code>/api/v1/admin/instances/99999/sftp/list?path=/</code></td>
+<td><span class="timestamp">2026-06-04T09:41:16</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin instance SFTP download missing" data-url="/api/v1/admin/instances/99999/sftp/download?path=/tmp/missing">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin instance SFTP download missing</td><td>GET</td><td><code>/api/v1/admin/instances/99999/sftp/download?path=/tmp/missing</code></td>
+<td><span class="timestamp">2026-06-04T09:41:16</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin instance SFTP upload missing" data-url="/api/v1/admin/instances/99999/sftp/upload">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin instance SFTP upload missing</td><td>POST</td><td><code>/api/v1/admin/instances/99999/sftp/upload</code></td>
+<td><span class="timestamp">2026-06-04T09:41:16</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin instance SFTP upload status missing" data-url="/api/v1/admin/instances/99999/sftp/upload/status?uploadId=missing">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin instance SFTP upload status missing</td><td>GET</td><td><code>/api/v1/admin/instances/99999/sftp/upload/status?uploadId=missing</code></td>
+<td><span class="timestamp">2026-06-04T09:41:17</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin instance SFTP upload abort missing" data-url="/api/v1/admin/instances/99999/sftp/upload/abort">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin instance SFTP upload abort missing</td><td>POST</td><td><code>/api/v1/admin/instances/99999/sftp/upload/abort</code></td>
+<td><span class="timestamp">2026-06-04T09:41:17</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider terminal without upgrade" data-url="/api/v1/admin/providers/99999/terminal">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider terminal without upgrade</td><td>GET</td><td><code>/api/v1/admin/providers/99999/terminal</code></td>
+<td><span class="timestamp">2026-06-04T09:41:17</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider SFTP list missing" data-url="/api/v1/admin/providers/99999/sftp/list?path=/">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider SFTP list missing</td><td>GET</td><td><code>/api/v1/admin/providers/99999/sftp/list?path=/</code></td>
+<td><span class="timestamp">2026-06-04T09:41:18</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider SFTP download missing" data-url="/api/v1/admin/providers/99999/sftp/download?path=/tmp/missing">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider SFTP download missing</td><td>GET</td><td><code>/api/v1/admin/providers/99999/sftp/download?path=/tmp/missing</code></td>
+<td><span class="timestamp">2026-06-04T09:41:18</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider SFTP upload missing" data-url="/api/v1/admin/providers/99999/sftp/upload">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider SFTP upload missing</td><td>POST</td><td><code>/api/v1/admin/providers/99999/sftp/upload</code></td>
+<td><span class="timestamp">2026-06-04T09:41:18</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider SFTP upload status missing" data-url="/api/v1/admin/providers/99999/sftp/upload/status?uploadId=missing">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider SFTP upload status missing</td><td>GET</td><td><code>/api/v1/admin/providers/99999/sftp/upload/status?uploadId=missing</code></td>
+<td><span class="timestamp">2026-06-04T09:41:19</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider SFTP upload abort missing" data-url="/api/v1/admin/providers/99999/sftp/upload/abort">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider SFTP upload abort missing</td><td>POST</td><td><code>/api/v1/admin/providers/99999/sftp/upload/abort</code></td>
+<td><span class="timestamp">2026-06-04T09:41:19</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider FM list missing" data-url="/api/v1/admin/providers/99999/fm/list?path=/">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider FM list missing</td><td>GET</td><td><code>/api/v1/admin/providers/99999/fm/list?path=/</code></td>
+<td><span class="timestamp">2026-06-04T09:41:19</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider FM download missing" data-url="/api/v1/admin/providers/99999/fm/download?path=/tmp/missing">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider FM download missing</td><td>GET</td><td><code>/api/v1/admin/providers/99999/fm/download?path=/tmp/missing</code></td>
+<td><span class="timestamp">2026-06-04T09:41:20</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider FM upload missing" data-url="/api/v1/admin/providers/99999/fm/upload">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider FM upload missing</td><td>POST</td><td><code>/api/v1/admin/providers/99999/fm/upload</code></td>
+<td><span class="timestamp">2026-06-04T09:41:20</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider FM delete missing" data-url="/api/v1/admin/providers/99999/fm/file?path=/tmp/missing">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider FM delete missing</td><td>DELETE</td><td><code>/api/v1/admin/providers/99999/fm/file?path=/tmp/missing</code></td>
+<td><span class="timestamp">2026-06-04T09:41:20</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin provider FM mkdir missing" data-url="/api/v1/admin/providers/99999/fm/mkdir">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin provider FM mkdir missing</td><td>POST</td><td><code>/api/v1/admin/providers/99999/fm/mkdir</code></td>
+<td><span class="timestamp">2026-06-04T09:41:21</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin API token list" data-url="/api/v1/admin/api-tokens?page=1&pageSize=10">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin API token list</td><td>GET</td><td><code>/api/v1/admin/api-tokens?page=1&pageSize=10</code></td>
+<td><span class="timestamp">2026-06-04T09:41:21</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin API token delete missing" data-url="/api/v1/admin/api-tokens/99999">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin API token delete missing</td><td>DELETE</td><td><code>/api/v1/admin/api-tokens/99999</code></td>
+<td><span class="timestamp">2026-06-04T09:41:21</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Admin API token batch delete empty" data-url="/api/v1/admin/api-tokens/batch-delete">
+<td><span class="badge pass">PASS</span></td>
+<td>Admin API token batch delete empty</td><td>POST</td><td><code>/api/v1/admin/api-tokens/batch-delete</code></td>
+<td><span class="timestamp">2026-06-04T09:41:22</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Provider API connect empty" data-url="/api/v1/providers/connect">
+<td><span class="badge pass">PASS</span></td>
+<td>Provider API connect empty</td><td>POST</td><td><code>/api/v1/providers/connect</code></td>
+<td><span class="timestamp">2026-06-04T09:41:22</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Provider API start missing instance" data-url="/api/v1/providers/99999/instances/missing/start">
+<td><span class="badge pass">PASS</span></td>
+<td>Provider API start missing instance</td><td>POST</td><td><code>/api/v1/providers/99999/instances/missing/start</code></td>
+<td><span class="timestamp">2026-06-04T09:41:22</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Provider API stop missing instance" data-url="/api/v1/providers/99999/instances/missing/stop">
+<td><span class="badge pass">PASS</span></td>
+<td>Provider API stop missing instance</td><td>POST</td><td><code>/api/v1/providers/99999/instances/missing/stop</code></td>
+<td><span class="timestamp">2026-06-04T09:41:23</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Provider API pull image missing provider" data-url="/api/v1/providers/99999/images/pull">
+<td><span class="badge pass">PASS</span></td>
+<td>Provider API pull image missing provider</td><td>POST</td><td><code>/api/v1/providers/99999/images/pull</code></td>
+<td><span class="timestamp">2026-06-04T09:41:23</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Provider API delete image missing provider" data-url="/api/v1/providers/99999/images/missing">
+<td><span class="badge pass">PASS</span></td>
+<td>Provider API delete image missing provider</td><td>DELETE</td><td><code>/api/v1/providers/99999/images/missing</code></td>
+<td><span class="timestamp">2026-06-04T09:41:23</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Agent websocket without upgrade" data-url="/api/v1/ws/agent">
+<td><span class="badge pass">PASS</span></td>
+<td>Agent websocket without upgrade</td><td>GET</td><td><code>/api/v1/ws/agent</code></td>
+<td><span class="timestamp">2026-06-04T09:41:24</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Legacy agent websocket without upgrade" data-url="/api/ws/agent">
+<td><span class="badge pass">PASS</span></td>
+<td>Legacy agent websocket without upgrade</td><td>GET</td><td><code>/api/ws/agent</code></td>
+<td><span class="timestamp">2026-06-04T09:41:24</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User SSH websocket missing" data-url="/api/v1/user/instances/99999/ssh">
+<td><span class="badge pass">PASS</span></td>
+<td>User SSH websocket missing</td><td>GET</td><td><code>/api/v1/user/instances/99999/ssh</code></td>
+<td><span class="timestamp">2026-06-04T09:41:24</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User exec websocket missing" data-url="/api/v1/user/instances/99999/exec">
+<td><span class="badge pass">PASS</span></td>
+<td>User exec websocket missing</td><td>GET</td><td><code>/api/v1/user/instances/99999/exec</code></td>
+<td><span class="timestamp">2026-06-04T09:41:24</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User SFTP list missing" data-url="/api/v1/user/instances/99999/sftp/list?path=/">
+<td><span class="badge pass">PASS</span></td>
+<td>User SFTP list missing</td><td>GET</td><td><code>/api/v1/user/instances/99999/sftp/list?path=/</code></td>
+<td><span class="timestamp">2026-06-04T09:41:25</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User SFTP download missing" data-url="/api/v1/user/instances/99999/sftp/download?path=/tmp/missing">
+<td><span class="badge pass">PASS</span></td>
+<td>User SFTP download missing</td><td>GET</td><td><code>/api/v1/user/instances/99999/sftp/download?path=/tmp/missing</code></td>
+<td><span class="timestamp">2026-06-04T09:41:25</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User SFTP upload missing" data-url="/api/v1/user/instances/99999/sftp/upload">
+<td><span class="badge pass">PASS</span></td>
+<td>User SFTP upload missing</td><td>POST</td><td><code>/api/v1/user/instances/99999/sftp/upload</code></td>
+<td><span class="timestamp">2026-06-04T09:41:25</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User SFTP upload status missing" data-url="/api/v1/user/instances/99999/sftp/upload/status?uploadId=missing">
+<td><span class="badge pass">PASS</span></td>
+<td>User SFTP upload status missing</td><td>GET</td><td><code>/api/v1/user/instances/99999/sftp/upload/status?uploadId=missing</code></td>
+<td><span class="timestamp">2026-06-04T09:41:26</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User SFTP upload abort missing" data-url="/api/v1/user/instances/99999/sftp/upload/abort">
+<td><span class="badge pass">PASS</span></td>
+<td>User SFTP upload abort missing</td><td>POST</td><td><code>/api/v1/user/instances/99999/sftp/upload/abort</code></td>
+<td><span class="timestamp">2026-06-04T09:41:26</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User provider GPUs missing" data-url="/api/v1/user/providers/99999/gpus">
+<td><span class="badge pass">PASS</span></td>
+<td>User provider GPUs missing</td><td>GET</td><td><code>/api/v1/user/providers/99999/gpus</code></td>
+<td><span class="timestamp">2026-06-04T09:41:26</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User cancel task missing" data-url="/api/v1/user/tasks/99999/cancel">
+<td><span class="badge pass">PASS</span></td>
+<td>User cancel task missing</td><td>POST</td><td><code>/api/v1/user/tasks/99999/cancel</code></td>
+<td><span class="timestamp">2026-06-04T09:41:27</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User API token list" data-url="/api/v1/user/api-tokens">
+<td><span class="badge pass">PASS</span></td>
+<td>User API token list</td><td>GET</td><td><code>/api/v1/user/api-tokens</code></td>
+<td><span class="timestamp">2026-06-04T09:41:27</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User API token create boundary" data-url="/api/v1/user/api-tokens">
+<td><span class="badge pass">PASS</span></td>
+<td>User API token create boundary</td><td>POST</td><td><code>/api/v1/user/api-tokens</code></td>
+<td><span class="timestamp">2026-06-04T09:41:27</span></td>
+<td>-</td></tr>
+<tr class="test-row" data-status="PASS" data-group="error_handling" data-name="User API token delete missing" data-url="/api/v1/user/api-tokens/99999">
+<td><span class="badge pass">PASS</span></td>
+<td>User API token delete missing</td><td>DELETE</td><td><code>/api/v1/user/api-tokens/99999</code></td>
+<td><span class="timestamp">2026-06-04T09:41:28</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Wrong Content-Type" data-url="/api/v1/auth/login">
 <td><span class="badge pass">PASS</span></td>
 <td>Wrong Content-Type</td><td>POST</td><td><code>/api/v1/auth/login</code></td>
-<td><span class="timestamp">2026-06-02T14:06:07</span></td>
+<td><span class="timestamp">2026-06-04T09:41:28</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Rapid duplicate create" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Rapid duplicate create</td><td>POST</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:06:08</span></td>
+<td><span class="timestamp">2026-06-04T09:41:28</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Unicode username" data-url="/api/v1/auth/register">
 <td><span class="badge pass">PASS</span></td>
 <td>Unicode username</td><td>POST</td><td><code>/api/v1/auth/register</code></td>
-<td><span class="timestamp">2026-06-02T14:06:08</span></td>
+<td><span class="timestamp">2026-06-04T09:41:28</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Emoji in announcement" data-url="/api/v1/admin/announcements">
 <td><span class="badge pass">PASS</span></td>
 <td>Emoji in announcement</td><td>POST</td><td><code>/api/v1/admin/announcements</code></td>
-<td><span class="timestamp">2026-06-02T14:06:08</span></td>
+<td><span class="timestamp">2026-06-04T09:41:29</span></td>
 <td>-</td></tr>
 <tr class="test-row" data-status="PASS" data-group="error_handling" data-name="Path traversal" data-url="/api/v1/admin/../../etc/passwd">
 <td><span class="badge pass">PASS</span></td>
 <td>Path traversal</td><td>GET</td><td><code>/api/v1/admin/../../etc/passwd</code></td>
-<td><span class="timestamp">2026-06-02T14:06:09</span></td>
+<td><span class="timestamp">2026-06-04T09:41:29</span></td>
 <td>-</td></tr>
 </table></div></div>
 <div class="log-section">
@@ -1762,7 +1977,7 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 </div>
 
 <script>
-const TOTAL_VAL='284',PASSED_VAL='284',FAILED_VAL='0',SKIPPED_VAL='0',RATE_VAL='100';
+const TOTAL_VAL='327',PASSED_VAL='327',FAILED_VAL='0',SKIPPED_VAL='0',RATE_VAL='100';
 const HISTORY_DATA=[];
 
 /* ── Theme toggle ── */
