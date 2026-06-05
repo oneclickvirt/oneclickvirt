@@ -15,6 +15,9 @@ definitions:
         type: string
       id:
         type: integer
+      instance_id:
+        description: 兼容旧脚本/接口字段
+        type: integer
       instanceId:
         type: integer
       instanceName:
@@ -94,6 +97,9 @@ definitions:
       errorMessage:
         type: string
       id:
+        type: integer
+      instance_id:
+        description: 兼容旧脚本/接口字段
         type: integer
       instanceId:
         type: integer
@@ -696,6 +702,19 @@ definitions:
     type: object
   admin.SyncPortMappingsTaskRequest:
     properties:
+      dryRun:
+        description: 仅生成预览，不创建同步任务
+        type: boolean
+      excludedPortIds:
+        description: 预览后取消勾选的端口ID
+        items:
+          type: integer
+        type: array
+      includedPortIds:
+        description: 预览后确认删除的端口ID；为空表示执行完整同步
+        items:
+          type: integer
+        type: array
       providerIds:
         description: 指定要同步的Provider IDs（为空则同步所有）
         items:

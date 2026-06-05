@@ -11678,6 +11678,10 @@ const docTemplate = `{
                 "instanceType": {
                     "type": "string"
                 },
+                "instance_id": {
+                    "description": "兼容旧脚本/接口字段",
+                    "type": "integer"
+                },
                 "isForceStoppable": {
                     "type": "boolean"
                 },
@@ -11794,6 +11798,10 @@ const docTemplate = `{
                 },
                 "instanceType": {
                     "type": "string"
+                },
+                "instance_id": {
+                    "description": "兼容旧脚本/接口字段",
+                    "type": "integer"
                 },
                 "isForceStoppable": {
                     "type": "boolean"
@@ -12657,6 +12665,24 @@ const docTemplate = `{
         "admin.SyncPortMappingsTaskRequest": {
             "type": "object",
             "properties": {
+                "dryRun": {
+                    "description": "仅生成预览，不创建同步任务",
+                    "type": "boolean"
+                },
+                "excludedPortIds": {
+                    "description": "预览后取消勾选的端口ID",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "includedPortIds": {
+                    "description": "预览后确认删除的端口ID；为空表示执行完整同步",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "providerIds": {
                     "description": "指定要同步的Provider IDs（为空则同步所有）",
                     "type": "array",
