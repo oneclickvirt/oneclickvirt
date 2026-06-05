@@ -332,6 +332,7 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest, ownerAdminID .
 		CPU:            req.CPU,
 		Memory:         req.Memory,
 		Disk:           req.Disk,
+		Bandwidth:      req.Bandwidth,
 		InstanceType:   req.InstanceType,
 		UserID:         req.UserID,
 		Status:         "creating",

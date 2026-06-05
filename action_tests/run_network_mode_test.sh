@@ -246,8 +246,7 @@ _create_test_instance() {
     log_info "Creating test instance (provider=${provider_id} type=${inst_type})..."
 
     local image="debian:12"
-    local memory=256 disk=5
-    [[ "$inst_type" == "vm" ]] && { memory=512; disk=10; }
+    local memory=512 disk=5 bandwidth=1000
 
     ensure_provider_health_ready "$provider_id" "$ADMIN_TOKEN" || return 1
 
@@ -257,7 +256,7 @@ _create_test_instance() {
         -X POST \
         -d "{\"provider_id\":${provider_id},\"instance_type\":\"${inst_type}\",\
 \"image\":\"${image}\",\"cpu\":1,\"memory\":${memory},\
-\"disk\":${disk},\"network_type\":\"nat_ipv4\"}" \
+\"disk\":${disk},\"bandwidth\":${bandwidth},\"network_type\":\"nat_ipv4\"}" \
         "${SERVER_URL}/api/v1/admin/instances" 2>/dev/null) || { log_error "Instance create request failed"; return 1; }
 
     local http_code; http_code=$(echo "$resp" | tail -1)

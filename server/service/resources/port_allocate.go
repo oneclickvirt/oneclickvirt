@@ -451,8 +451,8 @@ func (s *PortMappingService) allocateConsecutivePorts(providerID uint, rangeStar
 	return allocatedPort, nil
 }
 
-// optimizeNextAvailablePortInTx 在事务中Provider的NextAvailablePort以促进端口重用
-func (s *PortMappingService) optimizeNextAvailablePortInTx(tx *gorm.DB, providerID uint, releasedPorts []int) error {
+// OptimizeNextAvailablePortInTx 在事务中优化Provider的NextAvailablePort以促进端口重用
+func (s *PortMappingService) OptimizeNextAvailablePortInTx(tx *gorm.DB, providerID uint, releasedPorts []int) error {
 	// 获取Provider当前配置
 	var providerInfo provider.Provider
 	if err := tx.Where("id = ?", providerID).First(&providerInfo).Error; err != nil {

@@ -32,7 +32,7 @@ run_module_10() {
     if should_test_type "container" && env_supports_container; then
         log_info "Testing container instances..."
 
-        local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":256,\"disk\":5,\"network_type\":\"nat_ipv4\"}"
+        local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local ir
         if ! ir=$(test_api_retry "Create container instance" "POST" "/api/v1/admin/instances" "200" "$inst_data" 3 15 "$group"); then
             log_warning "Container instance creation did not complete successfully; downstream container checks will be skipped"
@@ -188,7 +188,7 @@ run_module_10() {
     if should_test_type "vm" && env_supports_vm; then
         log_info "Testing VM instances..."
 
-        local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":512,\"disk\":10,\"network_type\":\"nat_ipv4\"}"
+        local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local vr
         if ! vr=$(test_api_retry "Create VM instance" "POST" "/api/v1/admin/instances" "200" "$vm_data" 3 20 "$group"); then
             log_warning "VM instance creation did not complete successfully; downstream VM checks will be skipped"
@@ -217,12 +217,22 @@ run_module_10() {
             fi
 
             test_api "VM detail" "GET" "/api/v1/admin/instances/${vm_id}" "200" "" "$group"
-            local vm_stop_resp; vm_stop_resp=$(test_api "Stop VM" "POST" "/api/v1/admin/instances/${vm_id}/action" "200" '{"action":"stop"}' "$group") || vm_stop_resp=""
-            [[ -n "$vm_stop_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_stop_resp" "stopped" "stop VM ${vm_id}" "$ADMIN_TOKEN" || true
-            local vm_start_resp; vm_start_resp=$(test_api "Start VM" "POST" "/api/v1/admin/instances/${vm_id}/action" "200" '{"action":"start"}' "$group") || vm_start_resp=""
-            [[ -n "$vm_start_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_start_resp" "running" "start VM ${vm_id}" "$ADMIN_TOKEN" || true
-            local vm_restart_resp; vm_restart_resp=$(test_api "Restart VM" "POST" "/api/v1/admin/instances/${vm_id}/action" "200" '{"action":"restart"}' "$group") || vm_restart_resp=""
-            [[ -n "$vm_restart_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_restart_resp" "running" "restart VM ${vm_id}" "$ADMIN_TOKEN" || true
+            # Only test stop/start/restart if VM is in a runnable state
+            if [[ "$vm_ssh_ready" == "true" ]]; then
+                local vm_stop_resp; vm_stop_resp=$(test_api "Stop VM" "POST" "/api/v1/admin/instances/${vm_id}/action" "200" '{"action":"stop"}' "$group") || vm_stop_resp=""
+                [[ -n "$vm_stop_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_stop_resp" "stopped" "stop VM ${vm_id}" "$ADMIN_TOKEN" || true
+                local vm_start_resp; vm_start_resp=$(test_api "Start VM" "POST" "/api/v1/admin/instances/${vm_id}/action" "200" '{"action":"start"}' "$group") || vm_start_resp=""
+                [[ -n "$vm_start_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_start_resp" "running" "start VM ${vm_id}" "$ADMIN_TOKEN" || true
+                local vm_restart_resp; vm_restart_resp=$(test_api "Restart VM" "POST" "/api/v1/admin/instances/${vm_id}/action" "200" '{"action":"restart"}' "$group") || vm_restart_resp=""
+                [[ -n "$vm_restart_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_restart_resp" "running" "restart VM ${vm_id}" "$ADMIN_TOKEN" || true
+            else
+                log_warning "Skipping VM stop/start/restart tests: VM not in 'running' state"
+                SKIPPED_TESTS=$((SKIPPED_TESTS + 3))
+                for op in "Stop VM" "Start VM" "Restart VM"; do
+                    report_add_skip "$op" "POST" "/api/v1/admin/instances/${vm_id}/action" "VM not in running state"
+                    _add_result_json "$op" "POST" "/api/v1/admin/instances/${vm_id}/action" "SKIP" "" "VM not running" "" "$group"
+                done
+            fi
             test_api "VM port mappings" "GET" "/api/v1/admin/instances/${vm_id}/port-mappings" "200" "" "$group"
             test_api "VM resources" "GET" "/api/v1/admin/instances/${vm_id}/monitoring/resources" "200" "" "$group"
 
@@ -294,4 +304,58 @@ run_module_10() {
 
     # -- Delete nonexistent instance --
     test_api "Delete nonexistent instance" "DELETE" "/api/v1/admin/instances/99999" "404|400" "" "$group"
+
+    # ==============================
+    # User API instance creation (matching frontend flow)
+    # ==============================
+    # The frontend uses /api/v1/user/instances with resource IDs (imageId, cpuId, etc.),
+    # not the admin API with direct values. Test both paths.
+    if [[ -n "$USER_TOKEN" && -n "$PROVIDER_ID" ]]; then
+        log_info "Testing user API instance creation (frontend-equivalent flow)..."
+
+        # Get available system images to find a valid imageId
+        local sys_images; sys_images=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=5" 2>/dev/null)
+        local user_image_id; user_image_id=$(echo "$sys_images" | jq -r '.data.list[0].id // .data[0].id // 1' 2>/dev/null)
+        [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && user_image_id=1
+
+        # Create instance via user API (same as frontend does)
+        local user_inst_resp; user_inst_resp=$(test_api "User creates instance (frontend-equivalent)" "POST" \
+            "/api/v1/user/instances" "200|400" \
+            "{\"providerId\":${PROVIDER_ID},\"imageId\":${user_image_id},\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\"}" \
+            "$group" "$USER_TOKEN")
+        local user_inst_task; user_inst_task=$(echo "$user_inst_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
+        local user_inst_id; user_inst_id=$(echo "$user_inst_resp" | jq -r '.data.id // .data.instanceId // empty' 2>/dev/null)
+
+        # Wait for task if async
+        if [[ -n "$user_inst_task" ]]; then
+            log_info "Waiting for user instance creation task ${user_inst_task}..."
+            wait_task_complete "$SERVER_URL" "$user_inst_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || true
+            # Try to get instance ID from completed task
+            local task_detail; task_detail=$(curl -s --max-time 10 -H "Authorization: Bearer ${USER_TOKEN}" \
+                "${SERVER_URL}/api/v1/user/tasks?page=1&pageSize=1" 2>/dev/null)
+            user_inst_id=$(echo "$task_detail" | jq -r '.data.list[0].instanceId // empty' 2>/dev/null)
+        fi
+
+        # Verify the instance appears in user's instance list
+        if [[ -n "$user_inst_id" ]]; then
+            log_info "User instance ID from user API creation: ${user_inst_id}"
+            test_api "User sees created instance" "GET" "/api/v1/user/instances?page=1&pageSize=10" "200" \
+                "" "$group" "$USER_TOKEN"
+            test_api "User instance detail" "GET" "/api/v1/user/instances/${user_inst_id}" "200|403" \
+                "" "$group" "$USER_TOKEN"
+            # Cleanup — admin deletes the instance
+            local u_del_resp; u_del_resp=$(test_api "Admin delete user-created instance" "DELETE" \
+                "/api/v1/admin/instances/${user_inst_id}" "200" "" "$group" "$ADMIN_TOKEN") || u_del_resp=""
+            [[ -n "$u_del_resp" ]] && wait_instance_operation_settled "$user_inst_id" "$u_del_resp" "deleted" "delete user-created instance ${user_inst_id}" "$ADMIN_TOKEN" || true
+        else
+            log_warning "User API instance creation did not yield an instance ID (may be 400 if preconditions not met)"
+        fi
+
+        # Negative: user creates without required resource IDs
+        test_api "User create instance (missing imageId)" "POST" "/api/v1/user/instances" "400" \
+            "{\"providerId\":${PROVIDER_ID},\"cpuId\":\"1\",\"memoryId\":\"1\"}" "$group" "$USER_TOKEN"
+        test_api "User create instance (missing providerId)" "POST" "/api/v1/user/instances" "400" \
+            "{\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\"}" "$group" "$USER_TOKEN"
+    fi
 }

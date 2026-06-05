@@ -346,6 +346,7 @@ type CreateInstanceRequest struct {
 	CPU             int    `json:"cpu" binding:"min=1"`                                  // CPU核心数
 	Memory          int64  `json:"memory" binding:"min=1"`                               // 内存大小(MB)
 	Disk            int64  `json:"disk" binding:"min=1"`                                 // 磁盘大小(GB)
+	Bandwidth       int    `json:"bandwidth"`                                            // 网络带宽(Mbps)，默认使用Provider默认值
 	InstanceType    string `json:"instance_type" binding:"omitempty,oneof=container vm"` // 实例类型: container, vm
 	NetworkType     string `json:"network_type"`                                         // 网络类型
 	UserID          uint   `json:"userId"`                                               // 所有者用户ID

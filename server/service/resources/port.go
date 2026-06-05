@@ -393,11 +393,12 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		return fmt.Errorf("Provider不存在")
 	}
 
-	useControllerMapping := providerInfo.ConnectionType == "agent" && (providerInfo.PortIP == "" || providerInfo.NetworkType == "no_port_mapping")
+	useControllerMapping := providerInfo.ConnectionType == "agent" && providerInfo.PortIP == ""
 
-	// 检查是否为独立IPv4模式或纯IPv6模式，如果是则跳过默认端口映射创建。
-	// no_port_mapping 在 Agent 模式下可通过控制端转发创建默认端口；SSH 模式保持不创建节点侧映射。
-	if providerInfo.NetworkType == "dedicated_ipv4" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only" || (providerInfo.NetworkType == "no_port_mapping" && !useControllerMapping) {
+	// 检查是否为独立IPv4模式、纯IPv6模式或无端口映射模式，如果是则跳过默认端口映射创建。
+	// "无端口映射"语义上表示不自动创建任何端口映射，无论 SSH 还是 Agent 模式均不例外。
+	// Agent 模式下若需要控制端转发，应使用 nat_ipv4 / nat_ipv4_ipv6 等 NAT 网络类型。
+	if providerInfo.NetworkType == "dedicated_ipv4" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only" || providerInfo.NetworkType == "no_port_mapping" {
 		global.APP_LOG.Debug("独立IP模式或纯IPv6模式或无端口映射模式，跳过默认端口映射创建",
 			zap.Uint("instanceID", instanceID),
 			zap.Uint("providerID", providerID),

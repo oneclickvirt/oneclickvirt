@@ -55,7 +55,7 @@ func (s *PortMappingService) DeleteInstancePortMappingsInTx(tx *gorm.DB, instanc
 
 	// 为每个Provider更新NextAvailablePort以端口重用
 	for providerID, releasedPorts := range portsByProvider {
-		if err := s.optimizeNextAvailablePortInTx(tx, providerID, releasedPorts); err != nil {
+		if err := s.OptimizeNextAvailablePortInTx(tx, providerID, releasedPorts); err != nil {
 			global.APP_LOG.Warn("Provider端口重用失败", zap.Uint("providerId", providerID), zap.Error(err))
 			// 不阻止删除操作，只记录警告
 		}

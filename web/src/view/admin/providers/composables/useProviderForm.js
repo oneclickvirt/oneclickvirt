@@ -410,17 +410,22 @@ export function useProviderForm(loadProviders) {
         serverData.ipv6PortMappingMethod = formData.ipv6PortMappingMethod || 'device_proxy'
       }
 
-      // 认证方式处理
+      // 无端口映射能力的 agent 模式：清除端口映射方法
       if (isAgentMode && !agentCanUseMappedNetworking) {
         serverData.ipv4PortMappingMethod = ''
         serverData.ipv6PortMappingMethod = ''
-      } else if (isEditing.value) {
+      }
+
+      // 认证方式处理（独立于端口映射方法清除，避免被 if-else 误跳过）
+      if (isEditing.value) {
+        // 编辑模式：仅当用户主动填写了密码/密钥时才发送（空值表示"不修改"）
         if (formData.authMethod === 'password' && formData.password) {
           serverData.password = formData.password
         } else if (formData.authMethod === 'sshKey' && formData.sshKey) {
           serverData.sshKey = formData.sshKey
         }
       } else {
+        // 创建模式：密码/密钥必须提供（上方的校验已确保非 agent 模式必填）
         if (formData.authMethod === 'password') {
           serverData.password = formData.password
         } else if (formData.authMethod === 'sshKey') {

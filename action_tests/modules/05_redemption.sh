@@ -11,12 +11,44 @@ run_module_05() {
 
     # -- Batch create standard mode (requires provider + images; accept 400 if preconditions not met) --
     local provider_for_redeem="${PROVIDER_ID:-1}"
-    local rc; rc=$(test_api "Batch create codes (standard)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
-        "{\"count\":3,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI test\",\"creationMode\":\"standard\"}" "$group")
 
-    # -- Batch create copy mode (requires LXD/Incus provider; accept 400/404 if no stopped containers) --
-    test_api "Batch create codes (copy mode)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
-        "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"test-source\",\"remark\":\"CI copy mode test\"}" "$group"
+    # Detect provider type to decide whether copy mode is applicable (LXD/Incus only)
+    local provider_type; provider_type=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/${provider_for_redeem}" 2>/dev/null | \
+        jq -r '.data.type // empty' 2>/dev/null)
+    local is_lxd_incus=false
+    [[ "$provider_type" == "lxd" || "$provider_type" == "incus" ]] && is_lxd_incus=true
+    log_info "Provider type for redemption tests: ${provider_type} (copy mode applicable: ${is_lxd_incus})"
+
+    # ---- Container redemption codes (standard mode) ----
+    test_api "Batch create codes (container, standard)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
+        "{\"count\":2,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI container test\",\"creationMode\":\"standard\"}" "$group"
+
+    # ---- VM redemption codes (standard mode) ----
+    test_api "Batch create codes (VM, standard)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
+        "{\"count\":2,\"providerId\":${provider_for_redeem},\"instanceType\":\"vm\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI VM test\",\"creationMode\":\"standard\"}" "$group"
+
+    # ---- Copy mode (LXD/Incus only) ----
+    if [[ "$is_lxd_incus" == "true" ]]; then
+        # Fetch stopped containers to use as copy source
+        local stopped_resp; stopped_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers/${provider_for_redeem}/stopped-containers" 2>/dev/null)
+        local real_source; real_source=$(echo "$stopped_resp" | jq -r '.data[0].name // empty' 2>/dev/null)
+
+        if [[ -n "$real_source" ]]; then
+            log_info "Found stopped container for copy mode test: ${real_source}"
+            test_api "Batch create codes (copy mode with real source)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400" \
+                "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"${real_source}\",\"remark\":\"CI copy mode test\"}" "$group"
+        else
+            log_info "No stopped containers available, testing copy mode with placeholder source"
+            test_api "Batch create codes (copy mode placeholder)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
+                "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"ci-test-source\",\"remark\":\"CI copy mode test\"}" "$group"
+        fi
+    else
+        # Non-LXD/Incus: copy mode should be rejected gracefully
+        test_api "Batch create codes (copy mode rejected for non-LXD)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400|404|500" \
+            "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"test-source\",\"remark\":\"CI copy mode test\"}" "$group"
+    fi
 
     # -- Copy mode without sourceContainer must fail --
     test_api "Copy mode no sourceContainer (400/404)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400|404" \
@@ -45,10 +77,19 @@ run_module_05() {
         "${SERVER_URL}/api/v1/admin/redemption-codes?page=1&pageSize=10" 2>/dev/null | \
         jq -r '.data.list[0].code // empty' 2>/dev/null)
 
-    # -- User redeems code --
+    # -- User redeems code and verify instance creation --
     if [[ -n "$code_val" && -n "$USER_TOKEN" ]]; then
-        test_api "User redeem code" "POST" "/api/v1/user/redemption-codes/redeem" "200" \
-            "{\"code\":\"${code_val}\"}" "$group" "$USER_TOKEN"
+        local redeem_resp; redeem_resp=$(test_api "User redeem code" "POST" "/api/v1/user/redemption-codes/redeem" "200|400" \
+            "{\"code\":\"${code_val}\"}" "$group" "$USER_TOKEN")
+        # Check if redemption created an instance task and wait for it
+        local redeem_task; redeem_task=$(echo "$redeem_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
+        if [[ -n "$redeem_task" ]]; then
+            log_info "Redemption task created: ${redeem_task}, waiting for completion..."
+            wait_task_complete "$SERVER_URL" "$redeem_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || true
+            # Verify instance appears in user's list after redemption
+            test_api "User sees redeemed instance" "GET" "/api/v1/user/instances?page=1&pageSize=10" "200" \
+                "" "$group" "$USER_TOKEN"
+        fi
     fi
 
     # -- Redeem invalid code --

@@ -35,7 +35,7 @@ run_module_26() {
 
         # Create container instance
         local ct_resp; ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201|400" \
-            '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_ct","instance_type":"container","image":"debian:12","cpu":1,"memory":512,"disk":5}' \
+            '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_ct","instance_type":"container","image":"debian:12","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
             "$group" "$ADMIN_TOKEN")
         local ct_task; ct_task=$(echo "$ct_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
         local ct_id; ct_id=$(echo "$ct_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
@@ -64,7 +64,7 @@ run_module_26() {
 
         if [[ -n "$USER_TOKEN" ]]; then
             test_api "User create container (disabled)" "POST" "/api/v1/user/instances" "400|403" \
-                '{"provider_id":'"$PROVIDER_ID"',"type":"container","image":"debian:11","cpu":1,"memory":512,"disk":5}' \
+                '{"provider_id":'"$PROVIDER_ID"',"type":"container","image":"debian:11","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
                 "$group" "$USER_TOKEN"
         fi
 
@@ -79,7 +79,7 @@ run_module_26() {
 
         # Create VM instance
         local vm_resp; vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201|400" \
-            '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_vm","instance_type":"vm","image":"debian-11","cpu":1,"memory":1024,"disk":10}' \
+            '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_vm","instance_type":"vm","image":"debian-11","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
             "$group" "$ADMIN_TOKEN")
         local vm_task; vm_task=$(echo "$vm_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
         local vm_id; vm_id=$(echo "$vm_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
@@ -105,7 +105,7 @@ run_module_26() {
 
         if [[ -n "$USER_TOKEN" ]]; then
             test_api "User create VM (disabled)" "POST" "/api/v1/user/instances" "400|403" \
-                '{"provider_id":'"$PROVIDER_ID"',"type":"vm","image":"debian-11","cpu":1,"memory":1024,"disk":10}' \
+                '{"provider_id":'"$PROVIDER_ID"',"type":"vm","image":"debian-11","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
                 "$group" "$USER_TOKEN"
         fi
 
