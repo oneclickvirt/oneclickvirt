@@ -91,6 +91,23 @@ export function useProviderCRUD() {
     return fallbackName
   }
 
+  const requireTypedConfirmation = async ({ title, message, expected, confirmButtonText, type = 'warning' }) => {
+    await ElMessageBox.prompt(
+      `${message}<br><br>${t('admin.providers.typeToConfirm', { expected })}`,
+      title,
+      {
+        confirmButtonText: confirmButtonText || t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        inputPlaceholder: expected,
+        inputValidator: (value) =>
+          String(value || '').trim() === String(expected).trim() ||
+          t('admin.providers.confirmTextMismatch', { expected }),
+        type,
+        dangerouslyUseHTMLString: true
+      }
+    )
+  }
+
   const handleExportCSV = async () => {
     try {
       const ids = selectedProviders.value.map(item => item.id)
@@ -196,7 +213,7 @@ export function useProviderCRUD() {
       `
 
       // Show the choice dialog
-      const action = await ElMessageBox.confirm(fullMessage, t('common.warning'), {
+      await ElMessageBox.confirm(fullMessage, t('common.warning'), {
         confirmButtonText: t('admin.providers.deleteCascadeOption'),
         cancelButtonText: t('admin.providers.deleteForceOption'),
         distinguishCancelAndClose: true,
@@ -224,22 +241,16 @@ export function useProviderCRUD() {
 
   const performCascadeDelete = async (provider, instanceCount) => {
     try {
-      if (instanceCount > 0) {
-        // Second confirmation for cascade delete with instance count
-        await ElMessageBox.confirm(
-          t('admin.providers.cascadeDeleteConfirm', {
-            name: provider.name,
-            count: instanceCount
-          }),
-          t('admin.providers.cascadeDeleteTitle'),
-          {
-            confirmButtonText: t('common.confirm'),
-            cancelButtonText: t('common.cancel'),
-            type: 'warning',
-            dangerouslyUseHTMLString: true
-          }
-        )
-      }
+      await requireTypedConfirmation({
+        title: t('admin.providers.cascadeDeleteTitle'),
+        message: t('admin.providers.cascadeDeleteConfirm', {
+          name: provider.name,
+          count: instanceCount
+        }),
+        expected: provider.name,
+        confirmButtonText: t('admin.providers.deleteCascadeOption'),
+        type: 'warning'
+      })
 
       const loadingInstance = ElLoading.service({
         lock: true,
@@ -276,18 +287,13 @@ export function useProviderCRUD() {
 
   const performForceDelete = async (provider) => {
     try {
-      // Second confirmation specifically for force delete
-      await ElMessageBox.confirm(
-        t('admin.providers.forceDeleteConfirm', { name: provider.name }),
-        t('admin.providers.forceDeleteTitle'),
-        {
-          confirmButtonText: t('admin.providers.forceDeleteButton'),
-          cancelButtonText: t('common.cancel'),
-          type: 'error',
-          dangerouslyUseHTMLString: true,
-          distinguishCancelAndClose: true
-        }
-      )
+      await requireTypedConfirmation({
+        title: t('admin.providers.forceDeleteTitle'),
+        message: t('admin.providers.forceDeleteConfirm', { name: provider.name }),
+        expected: provider.name,
+        confirmButtonText: t('admin.providers.forceDeleteButton'),
+        type: 'error'
+      })
 
       const loadingInstance = ElLoading.service({
         lock: true,
@@ -351,7 +357,7 @@ export function useProviderCRUD() {
         </div>
       `
 
-      const action = await ElMessageBox.confirm(fullMessage, t('common.warning'), {
+      await ElMessageBox.confirm(fullMessage, t('common.warning'), {
         confirmButtonText: t('admin.providers.deleteCascadeOption'),
         cancelButtonText: t('admin.providers.deleteForceOption'),
         distinguishCancelAndClose: true,
@@ -360,24 +366,29 @@ export function useProviderCRUD() {
         cancelButtonClass: 'el-button--danger'
       })
 
-      // Cascade delete all
+      await requireTypedConfirmation({
+        title: t('admin.providers.cascadeDeleteTitle'),
+        message: t('admin.providers.batchCascadeDeleteConfirm', {
+          count: selectedProviders.value.length
+        }),
+        expected: t('admin.providers.batchCascadeConfirmText'),
+        confirmButtonText: t('admin.providers.deleteCascadeOption'),
+        type: 'warning'
+      })
       await executeBatchDelete(selectedProviders.value, false)
     } catch (error) {
       if (error === 'cancel') {
         // Force delete all - show force delete confirmation first
         try {
-          await ElMessageBox.confirm(
-            t('admin.providers.batchForceDeleteConfirm', {
+          await requireTypedConfirmation({
+            title: t('admin.providers.forceDeleteTitle'),
+            message: t('admin.providers.batchForceDeleteConfirm', {
               count: selectedProviders.value.length
             }),
-            t('admin.providers.forceDeleteTitle'),
-            {
-              confirmButtonText: t('admin.providers.forceDeleteButton'),
-              cancelButtonText: t('common.cancel'),
-              type: 'error',
-              dangerouslyUseHTMLString: true
-            }
-          )
+            expected: t('admin.providers.batchForceConfirmText'),
+            confirmButtonText: t('admin.providers.forceDeleteButton'),
+            type: 'error'
+          })
           await executeBatchDelete(selectedProviders.value, true)
         } catch (cancelError) {
           if (cancelError !== 'cancel') {

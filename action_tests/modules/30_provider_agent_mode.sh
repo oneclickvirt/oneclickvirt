@@ -2,7 +2,7 @@
 # Module 30: Provider Agent Mode & Advanced Features
 # Dependencies: 09_providers (PROVIDER_ID), ADMIN_TOKEN
 # Tests: agent secret generation, agent connectionType, GPU fields, detect-gpus,
-#        stopped containers (LXD/Incus), exec command
+#        source containers for copy mode, exec command
 
 run_module_30() {
     report_add_section "30 - Provider Agent Mode & Advanced Features"
@@ -260,16 +260,16 @@ run_module_30() {
         test_api "Detect GPUs (LXD/Incus)" "GET" \
             "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|400|500" "" "$group"
 
-        # -- Get stopped containers for copy mode source selection --
-        local stopped_resp; stopped_resp=$(test_api "Get stopped containers" "GET" \
+        # -- Get copyable source containers for copy mode source selection --
+        local stopped_resp; stopped_resp=$(test_api "Get copyable source containers" "GET" \
             "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group")
-        local containers; containers=$(echo "$stopped_resp" | jq -r '.data | length' 2>/dev/null)
-        log_info "Stopped containers available for copy mode: ${containers:-0}"
+        local containers; containers=$(echo "$stopped_resp" | jq -r '.data.containers | length' 2>/dev/null)
+        log_info "Source containers available for copy mode: ${containers:-0}"
     else
         # Non-LXD/Incus: endpoints should return graceful error
         test_api "Detect GPUs (non-LXD: expect 400/500)" "GET" \
             "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|400|500" "" "$group"
-        test_api "Stopped containers (non-LXD: expect 400/500)" "GET" \
+        test_api "Source containers (unsupported provider: expect 400/500)" "GET" \
             "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group"
     fi
 

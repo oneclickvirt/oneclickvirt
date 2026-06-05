@@ -11,12 +11,10 @@ import (
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
-	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/provider/incus"
 	lxd "oneclickvirt/provider/lxd"
-	agentLifecycle "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	providerService "oneclickvirt/service/provider"
@@ -152,7 +150,7 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		instanceName := s.generateInstanceName(provider.Name)
 
 		expiredAt := determineInitialInstanceExpiryInTx(tx, &provider)
-		gpuEnabled := taskReq.GpuEnabled && utils.SupportsLXDContainerOptions(provider.Type, instanceType)
+		gpuEnabled := taskReq.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, instanceType)
 		gpuDeviceIDs := ""
 		if gpuEnabled {
 			gpuDeviceIDs = taskReq.GpuDeviceIds
@@ -505,10 +503,10 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		redeemSSHWait := 120 * time.Second
 		var redeemProvider providerModel.Provider
 		if err := global.APP_DB.Select("type").Where("id = ?", providerID).First(&redeemProvider).Error; err == nil {
-			switch redeemProvider.Type {
-			case "qemu", "kubevirt", "vmware":
+			switch {
+			case utils.IsVMOnlyProvider(redeemProvider.Type):
 				redeemSSHWait = 360 * time.Second
-			case "proxmox":
+			case redeemProvider.Type == "proxmox":
 				redeemSSHWait = 240 * time.Second
 			}
 		}
@@ -538,59 +536,26 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		}
 
 		s.updateTaskProgress(taskID, 87, "step.verifyingMonitorStatus")
-
-		// 验证 pmacct 监控状态（与 finalizeInstanceCreation 保持一致）
-		pmacctInitSuccess := false
-		var trafficEnabled bool
-		var dbProv providerModel.Provider
-		if err := global.APP_DB.Where("id = ?", providerID).First(&dbProv).Error; err == nil {
-			trafficEnabled = dbProv.EnableTrafficControl
-		}
-		var existingMonitor monitoringModel.PmacctMonitor
-		if err := global.APP_DB.Where("instance_id = ?", instanceID).First(&existingMonitor).Error; err == nil {
-			global.APP_LOG.Info("pmacct监控已在实例创建时初始化",
-				zap.Uint("instanceId", instanceID),
-				zap.Uint("monitorId", existingMonitor.ID))
-			pmacctInitSuccess = true
-		} else {
-			if trafficEnabled {
-				global.APP_LOG.Warn("pmacct监控未找到（可能在实例创建时失败）",
-					zap.Uint("instanceId", instanceID),
-					zap.Error(err))
-			} else {
-				global.APP_LOG.Debug("Provider未启用流量统计，无pmacct监控记录",
-					zap.Uint("instanceId", instanceID),
-					zap.Uint("providerId", providerID))
-			}
-		}
-
+		monitoringStatus := s.ensurePostCreateMonitoring(taskCtx, instanceID, providerID, "兑换码实例创建")
 		s.updateTaskProgress(taskID, 92, "step.configuringAgentMonitor")
-
-		// Agent监控：仅在 agent 监控模式下注册（与 finalizeInstanceCreation 保持一致）
-		var monConfig monitoringModel.MonitoringConfig
-		useAgent := true // 默认使用 agent 模式
-		if err := global.APP_DB.Where("provider_id = ?", providerID).First(&monConfig).Error; err == nil {
-			useAgent = monConfig.MonitoringMode != "pmacct"
-		}
-		if useAgent {
-			agentCtx, agentCancel := context.WithTimeout(taskCtx, 2*time.Minute)
-			agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
-			agentCancel()
-		} else {
-			global.APP_LOG.Debug("Provider使用pmacct监控模式，跳过Agent注册",
+		if monitoringStatus.TrafficEnabled && !monitoringStatus.PmacctReady && !monitoringStatus.AgentMonitorReady {
+			global.APP_LOG.Debug("兑换码实例创建后未获得可用监控记录，后续调度或人工同步仍可补齐",
 				zap.Uint("instanceId", instanceID),
-				zap.Uint("providerId", providerID))
+				zap.Uint("providerId", providerID),
+				zap.String("trafficMethod", monitoringStatus.TrafficMethod))
 		}
 
 		s.updateTaskProgress(taskID, 98, "step.startingTrafficSync")
 
-		// 触发流量同步（仅在 pmacct 初始化成功时执行）
-		if pmacctInitSuccess {
+		if monitoringStatus.PmacctReady {
 			syncTrigger := traffic.NewSyncTriggerService()
 			syncTrigger.TriggerInstanceTrafficSync(instanceID, "兑换码实例创建后初始同步")
 			global.APP_LOG.Debug("兑换码实例流量同步已触发", zap.Uint("instanceId", instanceID))
-		} else if trafficEnabled {
-			global.APP_LOG.Debug("跳过流量同步触发（pmacct初始化失败）", zap.Uint("instanceId", instanceID))
+		} else if monitoringStatus.TrafficEnabled {
+			global.APP_LOG.Debug("跳过兑换码实例pmacct流量同步触发",
+				zap.Uint("instanceId", instanceID),
+				zap.Uint("providerId", providerID),
+				zap.String("trafficMethod", monitoringStatus.TrafficMethod))
 		}
 
 		s.updateTaskProgress(taskID, 99, "step.redemptionCreateCompleted")

@@ -398,6 +398,7 @@
 <script setup>
 import { computed } from 'vue'
 import { Monitor, Box, DocumentCopy, InfoFilled, Cpu, Memo, Coin, FolderOpened } from '@element-plus/icons-vue'
+import { CONTAINER_ONLY_PROVIDER_TYPES, STORAGE_POOL_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
 
 const props = defineProps({
   modelValue: {
@@ -406,15 +407,15 @@ const props = defineProps({
   }
 })
 
-const containerOnlyTypes = ['docker', 'podman', 'containerd', 'orbstack']
-const vmOnlyTypes = ['qemu', 'kubevirt', 'vmware']
+const containerOnlyTypes = CONTAINER_ONLY_PROVIDER_TYPES
+const vmOnlyTypes = VM_ONLY_PROVIDER_TYPES
 
 const isFixedSupportProvider = computed(() => {
   return containerOnlyTypes.includes(props.modelValue.type) || vmOnlyTypes.includes(props.modelValue.type)
 })
 
 const showStoragePool = computed(() => {
-  return ['proxmox', 'lxd', 'incus', 'qemu', 'kubevirt', 'vmware'].includes(props.modelValue.type)
+  return STORAGE_POOL_PROVIDER_TYPES.includes(props.modelValue.type)
 })
 
 const supportTypeTip = computed(() => {

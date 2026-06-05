@@ -558,7 +558,7 @@ wait_task_complete() {
                 echo "$r"
                 return 1
                 ;;
-            pending|running|queued) 
+            pending|running|processing|queued)
                 # Task is still in progress
                 log_debug "Task ${task_id} status: ${st}"
                 last_known_status="$st"
@@ -851,8 +851,8 @@ init_results_file() {
 _record_result() {
     local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8" error_logs="${9:-}"
     local ts; ts=$(_ts)
-    local safe_detail; safe_detail=$(echo "$detail" | head -c 2000 | tr '\000-\037' ' ' | sed 's/"/\\"/g')
-    local safe_logs; safe_logs=$(echo "$error_logs" | head -c 2000 | tr '\000-\037' ' ' | sed 's/"/\\"/g')
+    local safe_detail; safe_detail=$(printf '%s' "$detail" | tr '\000-\037' ' ' | sed 's/"/\\"/g')
+    local safe_logs; safe_logs=$(printf '%s' "$error_logs" | tr '\000-\037' ' ' | sed 's/"/\\"/g')
     local json="{\"name\":\"${name}\",\"method\":\"${method}\",\"url\":\"${url}\",\"status\":\"${status}\",\"expected\":\"${expected}\",\"actual\":\"${actual}\",\"detail\":\"${safe_detail}\",\"group\":\"${group}\",\"timestamp\":\"${ts}\",\"error_logs\":\"${safe_logs}\"}"
     [[ -n "$RESULTS_FILE" ]] && echo "$json" >> "$RESULTS_FILE"
     TEST_RESULTS_JSON+=("$json")
@@ -952,7 +952,7 @@ generate_html_report() {
         bash "$report_script" "$RESULTS_FILE" "$output_file" "$env_name" "$service_log_file" "$server_ver" "$agent_ver" || {
             log_warning "Report generator failed, creating fallback report"
             local fallback_results
-            fallback_results=$(head -100 "$RESULTS_FILE" 2>/dev/null || true)
+            fallback_results=$(cat "$RESULTS_FILE" 2>/dev/null || true)
             echo "<html><body><h1>Report generation failed</h1><p>Results file: ${RESULTS_FILE}</p><pre>${fallback_results}</pre></body></html>" > "$output_file"
         }
     else

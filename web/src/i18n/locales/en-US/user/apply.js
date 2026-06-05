@@ -112,7 +112,7 @@ export default {
   gpuEnabled: "Enable GPU Passthrough",
   gpuDeviceIds: "GPU Device IDs",
   gpuDeviceIdsPlaceholder: "Leave empty to attach all GPUs; use comma-separated IDs (e.g. 0,1)",
-  gpuDeviceIdsHint: "Only supported for LXD/Incus container instances. Leave empty to auto-attach all available GPUs on the node.",
+  gpuDeviceIdsHint: "Supported for LXD/Incus and Docker/Podman/Containerd/Orbstack container instances. Leave empty to try attaching all available GPUs on the node.",
   gpuSelectAll: "Select All",
   gpuDeselectAll: "Deselect All",
   loadLimitsFailed: "Failed to load user limits",

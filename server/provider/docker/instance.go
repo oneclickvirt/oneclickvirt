@@ -201,74 +201,91 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		zap.String("instance", config.Name),
 		zap.String("imageNameWithPrefix", imageNameWithPrefix))
 
-	// 首先检查镜像是否存在
-	imageExistsResult := d.imageExists(imageNameWithPrefix)
-	global.APP_LOG.Debug("imageExists调用完成",
-		zap.String("instance", config.Name),
-		zap.String("imageNameWithPrefix", imageNameWithPrefix),
-		zap.Bool("exists", imageExistsResult))
+	if config.CopyMode && config.CopySourceName != "" {
+		if !utils.IsValidContainerRuntimeName(config.CopySourceName) {
+			return fmt.Errorf("源容器名称格式无效: %s", config.CopySourceName)
+		}
+		updateProgress(25, "从源容器创建临时镜像...")
+		if _, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s >/dev/null 2>&1", d.runtime.CLI, shellSingleQuote(config.CopySourceName))); err != nil {
+			return fmt.Errorf("源容器 %s 不存在或不可访问: %w", config.CopySourceName, err)
+		}
+		copyImageName := "oneclickvirt_copy_" + strings.ToLower(strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(config.Name))
+		commitCmd := fmt.Sprintf("%s commit %s %s", d.runtime.CLI, shellSingleQuote(config.CopySourceName), shellSingleQuote(copyImageName))
+		if out, err := d.sshClient.ExecuteWithTimeout(commitCmd, 10*time.Minute); err != nil {
+			return fmt.Errorf("从源容器创建临时镜像失败: %w; output: %s", err, utils.TruncateString(out, 300))
+		}
+		imageNameWithPrefix = copyImageName
+		defer d.sshClient.Execute(fmt.Sprintf("%s rmi -f %s >/dev/null 2>&1 || true", d.runtime.CLI, shellSingleQuote(copyImageName)))
+	} else {
+		// 首先检查镜像是否存在
+		imageExistsResult := d.imageExists(imageNameWithPrefix)
+		global.APP_LOG.Debug("imageExists调用完成",
+			zap.String("instance", config.Name),
+			zap.String("imageNameWithPrefix", imageNameWithPrefix),
+			zap.Bool("exists", imageExistsResult))
 
-	if !imageExistsResult {
-		// 如果镜像不存在且有镜像URL，先在远程服务器下载镜像
-		if config.ImageURL != "" {
-			// 使用 singleflight 确保同一镜像只有一个协程执行下载+加载，
-			// 其余协程阻塞等待结果，避免并发下载和 docker load 冲突。
-			imageURL := config.ImageURL
-			imageName := config.Image
-			useCDN := config.UseCDN
-			_, sfErr, _ := d.imageImportGroup.Do(imageNameWithPrefix, func() (interface{}, error) {
-				// 等待期间镜像可能已由其他协程加载完毕，再次检查
-				if d.imageExists(imageNameWithPrefix) {
-					global.APP_LOG.Debug("Docker镜像已由并发协程完成加载，跳过",
-						zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)))
-					return nil, nil
-				}
+		if !imageExistsResult {
+			// 如果镜像不存在且有镜像URL，先在远程服务器下载镜像
+			if config.ImageURL != "" {
+				// 使用 singleflight 确保同一镜像只有一个协程执行下载+加载，
+				// 其余协程阻塞等待结果，避免并发下载和 docker load 冲突。
+				imageURL := config.ImageURL
+				imageName := config.Image
+				useCDN := config.UseCDN
+				_, sfErr, _ := d.imageImportGroup.Do(imageNameWithPrefix, func() (interface{}, error) {
+					// 等待期间镜像可能已由其他协程加载完毕，再次检查
+					if d.imageExists(imageNameWithPrefix) {
+						global.APP_LOG.Debug("Docker镜像已由并发协程完成加载，跳过",
+							zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)))
+						return nil, nil
+					}
 
-				updateProgress(30, "下载镜像到远程服务器...")
-				remotePath, err := d.downloadImageToRemote(imageURL, imageName, d.config.Country, d.config.Architecture, useCDN)
-				if err != nil {
-					return nil, fmt.Errorf("下载镜像失败: %w", err)
-				}
-
-				updateProgress(50, "加载镜像到Docker...")
-				if err := d.loadImageToDocker(remotePath, imageNameWithPrefix); err != nil {
-					global.APP_LOG.Warn("Docker镜像加载失败，尝试重新下载",
-						zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)),
-						zap.Error(err))
-
-					// 清理损坏的镜像文件和Docker镜像
-					d.cleanupRemoteImage(imageName, imageURL, d.config.Architecture)
-					d.cleanupDockerImage(imageNameWithPrefix)
-
-					updateProgress(40, "重新下载镜像...")
-					remotePath, err = d.downloadImageToRemote(imageURL, imageName, d.config.Country, d.config.Architecture, useCDN)
+					updateProgress(30, "下载镜像到远程服务器...")
+					remotePath, err := d.downloadImageToRemote(imageURL, imageName, d.config.Country, d.config.Architecture, useCDN)
 					if err != nil {
-						return nil, fmt.Errorf("重新下载镜像失败: %w", err)
+						return nil, fmt.Errorf("下载镜像失败: %w", err)
 					}
 
-					updateProgress(55, "重新加载镜像到Docker...")
+					updateProgress(50, "加载镜像到Docker...")
 					if err := d.loadImageToDocker(remotePath, imageNameWithPrefix); err != nil {
-						return nil, fmt.Errorf("重新加载镜像失败: %w", err)
-					}
-				}
+						global.APP_LOG.Warn("Docker镜像加载失败，尝试重新下载",
+							zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)),
+							zap.Error(err))
 
-				updateProgress(60, "清理临时文件...")
-				d.cleanupRemoteImage(imageName, imageURL, d.config.Architecture)
-				return nil, nil
-			})
-			if sfErr != nil {
-				return sfErr
+						// 清理损坏的镜像文件和Docker镜像
+						d.cleanupRemoteImage(imageName, imageURL, d.config.Architecture)
+						d.cleanupDockerImage(imageNameWithPrefix)
+
+						updateProgress(40, "重新下载镜像...")
+						remotePath, err = d.downloadImageToRemote(imageURL, imageName, d.config.Country, d.config.Architecture, useCDN)
+						if err != nil {
+							return nil, fmt.Errorf("重新下载镜像失败: %w", err)
+						}
+
+						updateProgress(55, "重新加载镜像到Docker...")
+						if err := d.loadImageToDocker(remotePath, imageNameWithPrefix); err != nil {
+							return nil, fmt.Errorf("重新加载镜像失败: %w", err)
+						}
+					}
+
+					updateProgress(60, "清理临时文件...")
+					d.cleanupRemoteImage(imageName, imageURL, d.config.Architecture)
+					return nil, nil
+				})
+				if sfErr != nil {
+					return sfErr
+				}
+			} else {
+				// 镜像不存在且没有URL，返回错误
+				global.APP_LOG.Error("Docker镜像不存在且没有下载URL",
+					zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)))
+				return fmt.Errorf("镜像 %s 不存在，且没有提供下载URL", imageNameWithPrefix)
 			}
 		} else {
-			// 镜像不存在且没有URL，返回错误
-			global.APP_LOG.Error("Docker镜像不存在且没有下载URL",
+			updateProgress(60, "Docker镜像已存在，跳过下载...")
+			global.APP_LOG.Debug("Docker镜像已存在，跳过下载",
 				zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)))
-			return fmt.Errorf("镜像 %s 不存在，且没有提供下载URL", imageNameWithPrefix)
 		}
-	} else {
-		updateProgress(60, "Docker镜像已存在，跳过下载...")
-		global.APP_LOG.Debug("Docker镜像已存在，跳过下载",
-			zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)))
 	}
 
 	updateProgress(70, "清理同名残留容器...")
@@ -489,6 +506,15 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(90, "配置容器能力和环境变量...")
+	gpuOptStr := ""
+	if config.GpuEnabled {
+		if strings.TrimSpace(config.GpuDeviceIds) != "" {
+			gpuOptStr = fmt.Sprintf(" --gpus %s", shellSingleQuote("device="+strings.TrimSpace(config.GpuDeviceIds)))
+		} else {
+			gpuOptStr = " --gpus all"
+		}
+		cmd += gpuOptStr
+	}
 	// 必要的能力
 	cmd += " --cap-add=MKNOD"
 	// Podman需要NET_ADMIN和NET_RAW才能正确配置iptables转发规则（Docker由daemon管理，不需要）
@@ -508,11 +534,22 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)),
 		zap.String("command", utils.TruncateString(cmd, 200)))
 
-	output, err := d.sshClient.Execute(cmd)
+	effectiveCmd := cmd
+	output, err := d.sshClient.Execute(effectiveCmd)
+	if err != nil && gpuOptStr != "" {
+		global.APP_LOG.Warn("Docker GPU参数创建失败，自动回退为无GPU创建",
+			zap.String("name", utils.TruncateString(config.Name, 32)),
+			zap.String("output", utils.TruncateString(output, 300)),
+			zap.Error(err))
+		_, _ = d.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(config.Name)))
+		cmdNoGPU := strings.Replace(cmd, gpuOptStr, "", 1)
+		effectiveCmd = cmdNoGPU
+		output, err = d.sshClient.Execute(effectiveCmd)
+	}
 	if err != nil {
 		global.APP_LOG.Error("Docker创建容器失败",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
-			zap.String("command", utils.TruncateString(cmd, 200)),
+			zap.String("command", utils.TruncateString(effectiveCmd, 200)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
 		if strings.Contains(output, "iptables") && (strings.Contains(output, "No chain") || strings.Contains(output, "no chain")) {
@@ -526,7 +563,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			// Retry container creation after repair
 			global.APP_LOG.Info("iptables确认完成，重试创建容器",
 				zap.String("name", utils.TruncateString(config.Name, 32)))
-			output, err = d.sshClient.Execute(cmd)
+			output, err = d.sshClient.Execute(effectiveCmd)
 			if err != nil {
 				global.APP_LOG.Error("iptables确认后创建容器仍然失败",
 					zap.String("name", utils.TruncateString(config.Name, 32)),

@@ -118,7 +118,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	}
 
 	// 手动添加端口支持：
-	// - LXD/Incus/Proxmox/QEMU/KubeVirt/VMware：支持节点侧映射（device_proxy/iptables）和控制端转发
+	// - LXD/Incus/Proxmox/QEMU/KubeVirt/VMware/VirtualBox/Multipass/Vagrant：支持节点侧映射（device_proxy/iptables）和控制端转发
 	// - Docker/Podman/Containerd/Orbstack：仅支持控制端转发（内网穿透），不支持节点侧映射
 	isContainerRuntime := utils.IsDockerFamilyProvider(providerInfo.Type)
 	isNodeSupported := providerInfo.Type == "lxd" || providerInfo.Type == "incus" || providerInfo.Type == "proxmox" || providerInfo.Type == "proxmoxve" || utils.IsVMOnlyProvider(providerInfo.Type)
@@ -129,7 +129,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 			return 0, nil, fmt.Errorf("Docker/Podman/Containerd/Orbstack 实例仅支持控制端端口转发模式（内网穿透），不支持节点侧端口映射")
 		}
 	} else if !isNodeSupported {
-		return 0, nil, fmt.Errorf("不支持的 Provider 类型，手动添加端口仅支持 LXD/Incus/Proxmox/QEMU/KubeVirt/Docker/Podman/Containerd")
+		return 0, nil, fmt.Errorf("不支持的 Provider 类型，手动添加端口仅支持 LXD/Incus/Proxmox/QEMU/KubeVirt/VMware/VirtualBox/Multipass/Vagrant/Docker/Podman/Containerd/Orbstack")
 	}
 
 	// 检查是否为独立IPv4模式或纯IPv6模式或无端口映射模式

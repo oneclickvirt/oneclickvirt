@@ -197,8 +197,11 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 	// Boolean字段：需要区分"未提供"和"提供false"，这里简化处理为直接赋值
 	// 如果需要更精确的控制，应使用指针类型
-	provider.ContainerEnabled = req.ContainerEnabled
-	provider.VirtualMachineEnabled = req.VirtualMachineEnabled
+	provider.ContainerEnabled, provider.VirtualMachineEnabled = normalizeProviderInstanceTypeCapabilities(
+		provider.Type,
+		req.ContainerEnabled,
+		req.VirtualMachineEnabled,
+	)
 	if req.TotalQuota > 0 {
 		provider.TotalQuota = req.TotalQuota
 	}

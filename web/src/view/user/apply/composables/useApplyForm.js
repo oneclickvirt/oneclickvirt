@@ -61,7 +61,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     diskId: '',
     bandwidthId: '',
     description: '',
-    // GPU 直通配置（仅 LXD/Incus 容器实例支持）
+    // GPU passthrough: native on LXD/Incus, best-effort on Docker-family providers.
     gpuEnabled: false,
     gpuDeviceIds: ''
   })

@@ -26,44 +26,10 @@
         :placeholder="$t('admin.providers.serverTypePlaceholder')"
       >
         <el-option
-          label="Docker"
-          value="docker"
-        />
-        <el-option
-          label="Orbstack"
-          value="orbstack"
-        />
-        <el-option
-          label="Podman"
-          value="podman"
-        />
-        <el-option
-          label="Containerd"
-          value="containerd"
-        />
-        <el-option
-          label="LXD"
-          value="lxd"
-        />
-        <el-option
-          label="Incus"
-          value="incus"
-        />
-        <el-option
-          label="Proxmox"
-          value="proxmox"
-        />
-        <el-option
-          label="QEMU/KVM"
-          value="qemu"
-        />
-        <el-option
-          label="KubeVirt"
-          value="kubevirt"
-        />
-        <el-option
-          label="VMware"
-          value="vmware"
+          v-for="option in PROVIDER_TYPE_OPTIONS"
+          :key="option.value"
+          :label="$t(option.labelKey)"
+          :value="option.value"
         />
       </el-select>
     </el-form-item>
@@ -308,6 +274,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { PROVIDER_TYPE_OPTIONS } from '@/utils/providerTypes'
 
 const props = defineProps({
   modelValue: {

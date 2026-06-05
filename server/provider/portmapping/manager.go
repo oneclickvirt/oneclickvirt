@@ -8,6 +8,15 @@ import (
 	providerModel "oneclickvirt/model/provider"
 )
 
+func canonicalProviderType(providerType string) string {
+	switch providerType {
+	case "pve", "proxmox", "proxmoxve", "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
+		return "iptables"
+	default:
+		return providerType
+	}
+}
+
 // Manager 端口映射管理器
 type Manager struct {
 	config    *ManagerConfig
@@ -31,6 +40,13 @@ func (m *Manager) RegisterProvider(providerType string, factory func(*ManagerCon
 func (m *Manager) GetProvider(providerType string) (PortMappingProvider, error) {
 	factory, exists := m.providers[providerType]
 	if !exists {
+		canonicalType := canonicalProviderType(providerType)
+		if canonicalType != providerType {
+			if mappedFactory, ok := m.providers[canonicalType]; ok {
+				return mappedFactory(m.config), nil
+			}
+			return GetProviderWithConfig(canonicalType, m.config)
+		}
 		// 尝试从全局注册表获取
 		return GetProviderWithConfig(providerType, m.config)
 	}
@@ -152,8 +168,8 @@ func (m *Manager) GetProviderCapabilities(providerType string) map[string]interf
 		capabilities["description"] = "容器运行时原生端口映射，端口在容器创建时固定"
 		capabilities["methods"] = []string{"port-binding"}
 		capabilities["limitations"] = []string{"不支持运行时端口修改", "需要重新创建容器"}
-	case "vmware":
-		capabilities["description"] = "VMware本地虚拟机使用iptables端口转发"
+	case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
+		capabilities["description"] = "本地虚拟机使用iptables端口转发"
 		capabilities["methods"] = []string{"iptables-nat"}
 		capabilities["limitations"] = []string{"需要root权限", "需要虚拟机内网地址可达"}
 	case "lxd":

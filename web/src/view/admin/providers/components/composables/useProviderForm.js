@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getCountriesByRegion, getCountryByName, getLocalizedRegion } from '@/utils/countries'
 import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI, getProviderDetail, checkProviderHealth as checkProviderHealthAPI } from '@/api/admin'
+import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
 
 export function useProviderForm(props, emit) {
   const { t, locale } = useI18n()
@@ -318,11 +319,11 @@ export function useProviderForm(props, emit) {
   // 监听 Provider 类型变化，自动设置虚拟化类型
   watch(() => formData.value.type, (newType) => {
     if (!newType) return
-    if (['docker', 'podman', 'containerd', 'orbstack'].includes(newType)) {
+    if (isContainerOnlyProvider(newType)) {
       // 容器类型：仅支持容器
       formData.value.containerEnabled = true
       formData.value.vmEnabled = false
-    } else if (['qemu', 'kubevirt', 'vmware'].includes(newType)) {
+    } else if (isVMOnlyProvider(newType)) {
       // 本地虚拟化类型：仅支持虚拟机
       formData.value.containerEnabled = false
       formData.value.vmEnabled = true

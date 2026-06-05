@@ -132,7 +132,7 @@ type CreateProviderRequest struct {
 	ContainerMemorySwap   bool   `json:"containerMemorySwap"`   // 是否允许使用swap
 	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数限制（0表示不限制）
 	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制（如"10MB"或"100iops"）
-	// GPU直通配置（仅 LXD/Incus 节点）
+	// GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）
 	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
 	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔的PCI ordinal ID，如"0,1"）
 
@@ -233,7 +233,7 @@ type UpdateProviderRequest struct {
 	ContainerMemorySwap   bool   `json:"containerMemorySwap"`   // 是否允许使用swap
 	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数限制（0表示不限制）
 	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制（如"10MB"或"100iops"）
-	// GPU直通配置（仅 LXD/Incus 节点）
+	// GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）
 	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
 	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔的PCI ordinal ID，如"0,1"）
 
@@ -350,6 +350,8 @@ type CreateInstanceRequest struct {
 	InstanceType    string `json:"instance_type" binding:"omitempty,oneof=container vm"` // 实例类型: container, vm
 	NetworkType     string `json:"network_type"`                                         // 网络类型
 	UserID          uint   `json:"userId"`                                               // 所有者用户ID
+	GpuEnabled      bool   `json:"gpuEnabled"`                                           // 是否启用GPU直通
+	GpuDeviceIds    string `json:"gpuDeviceIds"`                                         // GPU设备ID列表（逗号分隔）
 }
 
 type UpdateInstanceRequest struct {
@@ -532,7 +534,17 @@ type CreateInstanceTaskRequest struct {
 	BandwidthId string `json:"bandwidthId"`
 	Description string `json:"description"`
 	SessionId   string `json:"sessionId"` // 会话ID，用于新的资源预留机制
-	// GPU直通配置（仅 LXD/Incus 容器实例支持）
+	// 管理端直连创建模式：不依赖系统镜像表和规格ID，仍复用统一创建任务管线。
+	AdminDirect  bool   `json:"adminDirect,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Image        string `json:"image,omitempty"`
+	CPU          int    `json:"cpu,omitempty"`
+	Memory       int64  `json:"memory,omitempty"` // MB
+	Disk         int64  `json:"disk,omitempty"`   // GB
+	Bandwidth    int    `json:"bandwidth,omitempty"`
+	InstanceType string `json:"instanceType,omitempty"`
+	NetworkType  string `json:"networkType,omitempty"`
+	// GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）
 	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
 	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔），为空则附加所有GPU
 }
@@ -546,10 +558,10 @@ type CreateRedemptionInstanceTaskRequest struct {
 	MemoryId         string `json:"memoryId"`
 	DiskId           string `json:"diskId"`
 	BandwidthId      string `json:"bandwidthId"`
-	// 复制模式（仅 LXD/Incus）
+	// 复制模式（LXD/Incus 与 Docker/Podman/Containerd/Orbstack 容器节点）
 	CreationMode    string `json:"creationMode,omitempty"`    // "standard"（默认）或 "copy"
 	SourceContainer string `json:"sourceContainer,omitempty"` // 复制模式下的源容器名称
-	// GPU直通配置（仅 LXD/Incus 容器）
+	// GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）
 	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
 	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔）
 }
@@ -573,10 +585,10 @@ type BatchCreateRedemptionCodesRequest struct {
 	BandwidthId  string `json:"bandwidthId"`
 	Count        int    `json:"count" binding:"required,min=1,max=100"`
 	Remark       string `json:"remark"`
-	// 复制模式（仅 LXD/Incus 节点）
+	// 复制模式（LXD/Incus 与 Docker/Podman/Containerd/Orbstack 容器节点）
 	CreationMode    string `json:"creationMode"`    // "standard"（默认）或 "copy"
 	SourceContainer string `json:"sourceContainer"` // 复制模式下的源容器名称（仅 copy 模式）
-	// GPU直通配置（仅 LXD/Incus 容器）
+	// GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）
 	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
 	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔），为空则附加所有GPU
 }
@@ -635,7 +647,42 @@ type DeletePortMappingTaskRequest struct {
 
 // SyncPortMappingsTaskRequest 同步端口映射任务数据结构
 type SyncPortMappingsTaskRequest struct {
-	ProviderIDs []uint `json:"providerIds,omitempty"` // 指定要同步的Provider IDs（为空则同步所有）
+	ProviderIDs     []uint `json:"providerIds,omitempty"`     // 指定要同步的Provider IDs（为空则同步所有）
+	DryRun          bool   `json:"dryRun,omitempty"`          // 仅生成预览，不创建同步任务
+	IncludedPortIDs []uint `json:"includedPortIds,omitempty"` // 预览后确认删除的端口ID；为空表示执行完整同步
+	ExcludedPortIDs []uint `json:"excludedPortIds,omitempty"` // 预览后取消勾选的端口ID
+}
+
+type SyncPortMappingCandidate struct {
+	PortID       uint   `json:"portId"`
+	InstanceID   uint   `json:"instanceId"`
+	InstanceName string `json:"instanceName"`
+	ProviderID   uint   `json:"providerId"`
+	ProviderName string `json:"providerName"`
+	HostPort     int    `json:"hostPort"`
+	GuestPort    int    `json:"guestPort"`
+	Protocol     string `json:"protocol"`
+	PortType     string `json:"portType"`
+	IsSSH        bool   `json:"isSsh"`
+	IsAutomatic  bool   `json:"isAutomatic"`
+	MappingType  string `json:"mappingType"`
+	Reason       string `json:"reason"`
+}
+
+type SyncProviderPortMappingsPreview struct {
+	ProviderID     uint                       `json:"providerId"`
+	ProviderName   string                     `json:"providerName"`
+	Healthy        bool                       `json:"healthy"`
+	Error          string                     `json:"error,omitempty"`
+	Checked        int                        `json:"checked"`
+	CandidateCount int                        `json:"candidateCount"`
+	Candidates     []SyncPortMappingCandidate `json:"candidates"`
+}
+
+type SyncPortMappingsPreviewResponse struct {
+	ProviderCount  int                               `json:"providerCount"`
+	CandidateCount int                               `json:"candidateCount"`
+	Providers      []SyncProviderPortMappingsPreview `json:"providers"`
 }
 
 // CheckPortAvailabilityRequest 检查端口可用性请求

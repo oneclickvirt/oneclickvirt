@@ -3,10 +3,12 @@ package provider
 import (
 	"fmt"
 	"strings"
+
+	"oneclickvirt/utils"
 )
 
 func normalizeProviderGPUConfig(providerType string, enabled bool, deviceIDs string) (bool, string, error) {
-	if providerType != "lxd" && providerType != "incus" {
+	if !utils.SupportsContainerGPUProvider(providerType, "container") {
 		return false, "", nil
 	}
 	deviceIDs = strings.TrimSpace(deviceIDs)
@@ -33,4 +35,14 @@ func normalizeProviderGPUConfig(providerType string, enabled bool, deviceIDs str
 		normalized = append(normalized, id)
 	}
 	return true, strings.Join(normalized, ","), nil
+}
+
+func normalizeProviderInstanceTypeCapabilities(providerType string, containerEnabled, vmEnabled bool) (bool, bool) {
+	if utils.IsDockerFamilyProvider(providerType) {
+		return true, false
+	}
+	if utils.IsVMOnlyProvider(providerType) {
+		return false, true
+	}
+	return containerEnabled, vmEnabled
 }

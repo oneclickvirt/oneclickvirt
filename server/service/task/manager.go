@@ -68,6 +68,17 @@ func (s *TaskService) parseTaskDataForConfig(taskData string) (cpu int, memory i
 		return 0, 0, 0, 0, ""
 	}
 
+	if taskReq.AdminDirect {
+		cpu = taskReq.CPU
+		memory = int(taskReq.Memory)
+		if taskReq.Disk > 0 {
+			disk = int(taskReq.Disk * 1024)
+		}
+		bandwidth = taskReq.Bandwidth
+		instanceType = taskReq.InstanceType
+		return
+	}
+
 	// 解析规格ID获取实际配置
 	if cpuSpec, err := constant.GetCPUSpecByID(taskReq.CPUId); err == nil {
 		cpu = cpuSpec.Cores
@@ -549,6 +560,8 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest, ownerAd
 			StatusMessage:         task.StatusMessage,
 			UserID:                task.UserID,
 			ProviderID:            &providerID,
+			InstanceID:            task.InstanceID,
+			InstanceIDSnake:       task.InstanceID,
 			CanForceStop:          (task.Status == "processing" || task.Status == "running" || task.Status == "cancelling"),
 			IsForceStoppable:      task.IsForceStoppable,
 			RemainingTime:         remainingTime,
@@ -697,6 +710,8 @@ func (s *TaskService) GetTaskDetail(taskID uint) (*adminModel.AdminTaskDetailRes
 			StatusMessage:         task.StatusMessage,
 			UserID:                task.UserID,
 			ProviderID:            &providerID,
+			InstanceID:            task.InstanceID,
+			InstanceIDSnake:       task.InstanceID,
 			CanForceStop:          (task.Status == "processing" || task.Status == "running" || task.Status == "cancelling"),
 			IsForceStoppable:      task.IsForceStoppable,
 			RemainingTime:         remainingTime,

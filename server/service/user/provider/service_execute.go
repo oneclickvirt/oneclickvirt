@@ -45,6 +45,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	var redemptionTaskReq adminModel.CreateRedemptionInstanceTaskRequest
 	redemptionTaskJSONErr := json.Unmarshal([]byte(task.TaskData), &redemptionTaskReq)
 	isCopyMode := redemptionTaskJSONErr == nil && redemptionTaskReq.CreationMode == "copy" && redemptionTaskReq.SourceContainer != ""
+	directCreate := taskReq.AdminDirect
 
 	// 直接从数据库获取Provider配置（使用ProviderID而不是Name）
 	// 可用性口径：标准节点看 active/partial，agent 节点仅看在线状态
@@ -163,13 +164,17 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	userLevel := 0
 
 	if isCopyMode {
-		if localProviderType != "lxd" && localProviderType != "incus" {
-			return fmt.Errorf("复制模式仅支持 LXD/Incus 类型的节点")
+		if !utils.SupportsContainerCopyProvider(localProviderType) {
+			return fmt.Errorf("复制模式仅支持 LXD/Incus/Docker/Podman/Containerd/Orbstack 类型的节点")
 		}
 		if instance.InstanceType != "container" {
 			return fmt.Errorf("复制模式仅支持容器实例")
 		}
-		if !utils.IsValidLXDInstanceName(redemptionTaskReq.SourceContainer) {
+		if utils.IsDockerFamilyProvider(localProviderType) {
+			if !utils.IsValidContainerRuntimeName(redemptionTaskReq.SourceContainer) {
+				return fmt.Errorf("源容器名称格式无效")
+			}
+		} else if !utils.IsValidLXDInstanceName(redemptionTaskReq.SourceContainer) {
 			return fmt.Errorf("源容器名称格式无效")
 		}
 		imageName = "copy:" + redemptionTaskReq.SourceContainer
@@ -196,6 +201,21 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		instance.CPU = copyCPU
 		instance.Memory = copyMemory
 		instance.Disk = copyDisk
+	} else if directCreate {
+		imageName = taskReq.Image
+		cpuValue = fmt.Sprintf("%d", taskReq.CPU)
+		memoryValue = fmt.Sprintf("%dm", taskReq.Memory)
+		diskValue = fmt.Sprintf("%dG", taskReq.Disk)
+		bandwidthSpeedMbps = taskReq.Bandwidth
+		if task.UserID > 0 {
+			var user userModel.User
+			if err := global.APP_DB.First(&user, task.UserID).Error; err != nil {
+				err := fmt.Errorf("获取用户信息失败: %v", err)
+				global.APP_LOG.Error("获取用户信息失败", zap.Uint("taskId", task.ID), zap.Uint("userID", task.UserID), zap.Error(err))
+				return err
+			}
+			userLevel = user.Level
+		}
 	} else {
 		// 获取镜像名称
 		var systemImage systemModel.SystemImage
@@ -278,11 +298,13 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 			"network_type":             localProviderNetworkType,              // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
 			"instance_id":              fmt.Sprintf("%d", instance.ID),        // 实例ID，用于端口分配
 			"provider_id":              fmt.Sprintf("%d", localProviderID),    // Provider ID，用于端口区间分配
+			"password":                 instance.Password,                     // 供cloud-init或Provider脚本设置初始密码
 		},
 	}
 
-	// LXD/Incus 的容器实例才支持高级容器参数与 GPU 直通。
+	// LXD/Incus 的容器实例支持高级容器参数；Docker 家族 GPU 采用 best-effort 运行参数。
 	supportsLXDContainerOptions := utils.SupportsLXDContainerOptions(localProviderType, instance.InstanceType)
+	supportsContainerGPU := utils.SupportsContainerGPUProvider(localProviderType, instance.InstanceType)
 	if supportsLXDContainerOptions {
 		instanceConfig.Privileged = boolPtr(dbProvider.ContainerPrivileged)
 		instanceConfig.AllowNesting = boolPtr(dbProvider.ContainerAllowNesting)
@@ -291,29 +313,30 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		instanceConfig.MemorySwap = boolPtr(dbProvider.ContainerMemorySwap)
 		instanceConfig.MaxProcesses = intPtr(dbProvider.ContainerMaxProcesses)
 		instanceConfig.DiskIOLimit = stringPtr(dbProvider.ContainerDiskIOLimit)
-		// 优先使用任务请求中的GPU配置（用户主动选择），没有则回退到Provider默认配置
+	}
+	if supportsContainerGPU {
 		instanceConfig.GpuEnabled = dbProvider.GpuEnabled
 		instanceConfig.GpuDeviceIds = dbProvider.GpuDeviceIds
 	}
 
-	// 复制模式处理（仅 LXD/Incus，通过 CreateRedemptionInstanceTaskRequest 传入）
+	// 复制模式处理（CreateRedemptionInstanceTaskRequest 传入）
 	if isCopyMode {
 		instanceConfig.CopyMode = true
 		instanceConfig.CopySourceName = redemptionTaskReq.SourceContainer
 		// 复制模式下，GPU配置也从任务请求中获取（覆盖Provider默认值）
-		if supportsLXDContainerOptions {
+		if supportsContainerGPU {
 			instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
 		}
 	} else if redemptionTaskJSONErr == nil && redemptionTaskReq.GpuEnabled {
 		// 标准模式下，如果兑换码任务请求中指定了GPU配置，覆盖Provider默认值
-		if supportsLXDContainerOptions {
+		if supportsContainerGPU {
 			instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
 		}
 	} else if taskReq.GpuEnabled {
 		// 标准模式下（普通用户创建），如果任务请求中指定了GPU配置，覆盖Provider默认值
-		if supportsLXDContainerOptions {
+		if supportsContainerGPU {
 			instanceConfig.GpuEnabled = taskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = taskReq.GpuDeviceIds
 		}
@@ -416,8 +439,8 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 					zap.String("providerType", localProviderType),
 					zap.Int("portCount", len(ports)),
 					zap.Strings("ports", ports))
-			} else if localProviderType == "qemu" || localProviderType == "kubevirt" {
-				// QEMU/KubeVirt通过shell脚本的位置参数传递端口：[sshPort, startPort, endPort]
+			} else if utils.IsVMOnlyProvider(localProviderType) {
+				// VM-only providers may consume positional ports for host-side forwarding.
 				var sshPort, startPort, endPort int
 				for _, port := range portMappings {
 					if port.IsSSH {
@@ -516,6 +539,42 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 }
 
 func (s *Service) detectCopySourceResources(ctx context.Context, providerInstance provider.Provider, providerType, sourceName string) (int, int64, int64, error) {
+	if utils.IsDockerFamilyProvider(providerType) {
+		cli := "docker"
+		switch providerType {
+		case "podman":
+			cli = "podman"
+		case "containerd":
+			cli = "nerdctl"
+		case "orbstack":
+			cli = "docker"
+		}
+		quotedSourceName := shellSingleQuote(sourceName)
+		cmd := fmt.Sprintf(`nano="$(%s inspect %s --format '{{.HostConfig.NanoCpus}}' 2>/dev/null || true)"; cpuset="$(%s inspect %s --format '{{.HostConfig.CpusetCpus}}' 2>/dev/null || true)"; memory_bytes="$(%s inspect %s --format '{{.HostConfig.Memory}}' 2>/dev/null || true)"; disk="$(%s inspect %s --format '{{index .HostConfig.StorageOpt "size"}}' 2>/dev/null || true)"; cpu=""; if [ -n "$nano" ] && [ "$nano" != "<no value>" ] && [ "$nano" -gt 0 ] 2>/dev/null; then cpu=$(( (nano + 999999999) / 1000000000 )); else cpu="$cpuset"; fi; memory=""; if [ -n "$memory_bytes" ] && [ "$memory_bytes" != "<no value>" ] && [ "$memory_bytes" -gt 0 ] 2>/dev/null; then memory=$(( (memory_bytes + 1048575) / 1048576 ))m; fi; printf 'cpu=%%s\nmemory=%%s\ndisk=%%s\n' "$cpu" "$memory" "$disk"`,
+			cli, quotedSourceName, cli, quotedSourceName, cli, quotedSourceName, cli, quotedSourceName)
+		output, err := providerInstance.ExecuteSSHCommand(ctx, cmd)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		var cpu int
+		var memory, disk int64
+		for _, line := range strings.Split(output, "\n") {
+			key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+			if !ok {
+				continue
+			}
+			switch key {
+			case "cpu":
+				cpu = parseCopyCPUValue(value)
+			case "memory":
+				memory = parseCopySizeToMB(value)
+			case "disk":
+				disk = parseCopySizeToMB(value)
+			}
+		}
+		return cpu, memory, disk, nil
+	}
+
 	cli := "lxc"
 	if providerType == "incus" {
 		cli = "incus"

@@ -6,6 +6,7 @@ import {
   getOperatingSystemsByCategory, 
   getDisplayName 
 } from '@/utils/operating-systems'
+import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
 
 export function useSystemImageManagement() {
   const { t, locale } = useI18n()
@@ -146,8 +147,8 @@ export function useSystemImageManagement() {
   }
 
   const handleProviderTypeChange = () => {
-    if (['docker', 'podman', 'containerd'].includes(form.providerType) && form.instanceType === 'vm') form.instanceType = ''
-    if (['qemu', 'kubevirt'].includes(form.providerType) && form.instanceType === 'container') form.instanceType = ''
+    if (isContainerOnlyProvider(form.providerType) && form.instanceType === 'vm') form.instanceType = ''
+    if (isVMOnlyProvider(form.providerType) && form.instanceType === 'container') form.instanceType = ''
   }
 
   const handleInstanceTypeChange = () => {}
@@ -157,17 +158,45 @@ export function useSystemImageManagement() {
     if (!form.providerType || !form.instanceType) return ''
     if (form.providerType === 'proxmox' && form.instanceType === 'vm') return t('admin.systemImages.urlHintProxmoxVM')
     if (form.providerType === 'lxd' || form.providerType === 'incus') return t('admin.systemImages.urlHintLxdIncus')
-    if (['docker', 'podman', 'containerd'].includes(form.providerType) && form.instanceType === 'container') return t('admin.systemImages.urlHintContainerTarGz', { provider: form.providerType.charAt(0).toUpperCase() + form.providerType.slice(1) })
+    if (isContainerOnlyProvider(form.providerType) && form.instanceType === 'container') return t('admin.systemImages.urlHintContainerTarGz', { provider: form.providerType.charAt(0).toUpperCase() + form.providerType.slice(1) })
     return ''
   }
 
   const getProviderTypeName = (type) => {
-    const names = { proxmox: 'ProxmoxVE', lxd: 'LXD', incus: 'Incus', docker: 'Docker', podman: 'Podman', containerd: 'Containerd', qemu: 'QEMU/KVM', kubevirt: 'KubeVirt' }
+    const names = {
+      proxmox: 'ProxmoxVE',
+      lxd: 'LXD',
+      incus: 'Incus',
+      docker: 'Docker',
+      orbstack: 'Orbstack',
+      podman: 'Podman',
+      containerd: 'Containerd',
+      qemu: 'QEMU/KVM',
+      kubevirt: 'KubeVirt',
+      vmware: 'VMware',
+      virtualbox: 'VirtualBox',
+      multipass: 'Multipass',
+      vagrant: 'Vagrant'
+    }
     return names[type] || type
   }
 
   const getProviderTypeColor = (type) => {
-    const colors = { proxmox: 'primary', lxd: 'success', incus: 'warning', docker: 'info', podman: 'info', containerd: 'info', qemu: 'danger', kubevirt: 'danger' }
+    const colors = {
+      proxmox: 'primary',
+      lxd: 'success',
+      incus: 'warning',
+      docker: 'info',
+      orbstack: 'info',
+      podman: 'info',
+      containerd: 'info',
+      qemu: 'danger',
+      kubevirt: 'danger',
+      vmware: 'danger',
+      virtualbox: 'danger',
+      multipass: 'danger',
+      vagrant: 'danger'
+    }
     return colors[type] || ''
   }
 

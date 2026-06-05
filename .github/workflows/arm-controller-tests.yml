@@ -255,7 +255,7 @@ jobs:
           # 生成 HTML 报告兜底
           if ! ls action_tests/reports/*.html 1>/dev/null 2>&1; then
             echo "<html><body><h1>ARM64 Controller Test</h1>" \
-              "<p>Exit code: ${TEST_EXIT}</p><pre>$(tail -200 action_tests/reports/arm-controller-output.log)</pre>" \
+              "<p>Exit code: ${TEST_EXIT}</p><pre>$(cat action_tests/reports/arm-controller-output.log)</pre>" \
               "</body></html>" \
               > action_tests/reports/arm-controller-report.html
           fi

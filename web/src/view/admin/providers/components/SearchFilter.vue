@@ -22,44 +22,10 @@
           @change="handleSearch"
         >
           <el-option
-            :label="$t('admin.providers.proxmox')"
-            value="proxmox"
-          />
-          <el-option
-            :label="$t('admin.providers.lxd')"
-            value="lxd"
-          />
-          <el-option
-            :label="$t('admin.providers.incus')"
-            value="incus"
-          />
-          <el-option
-            :label="$t('admin.providers.docker')"
-            value="docker"
-          />
-          <el-option
-            :label="$t('admin.providers.orbstack')"
-            value="orbstack"
-          />
-          <el-option
-            :label="$t('admin.providers.podman')"
-            value="podman"
-          />
-          <el-option
-            :label="$t('admin.providers.containerd')"
-            value="containerd"
-          />
-          <el-option
-            :label="$t('admin.providers.qemu')"
-            value="qemu"
-          />
-          <el-option
-            :label="$t('admin.providers.kubevirt')"
-            value="kubevirt"
-          />
-          <el-option
-            :label="$t('admin.providers.vmware')"
-            value="vmware"
+            v-for="option in PROVIDER_TYPE_OPTIONS"
+            :key="option.value"
+            :label="$t(option.labelKey)"
+            :value="option.value"
           />
         </el-select>
       </el-col>
@@ -102,6 +68,7 @@
 <script setup>
 import { reactive, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
+import { PROVIDER_TYPE_OPTIONS } from '@/utils/providerTypes'
 
 const props = defineProps({
   searchForm: {

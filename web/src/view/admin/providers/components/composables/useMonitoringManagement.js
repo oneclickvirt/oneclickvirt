@@ -241,7 +241,21 @@ export function useMonitoringManagement(props, emit) {
   const handleClearMonitors = async () => {
     if (!props.provider) return
     try {
-      await ElMessageBox.confirm(t('admin.providers.clearMonitorsConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
+      const expected = props.provider.name || String(props.provider.id)
+      await ElMessageBox.prompt(
+        `${t('admin.providers.clearMonitorsConfirm')}<br><br>${t('admin.providers.typeToConfirm', { expected })}`,
+        t('common.confirm'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          inputPlaceholder: expected,
+          inputValidator: (value) =>
+            String(value || '').trim() === String(expected).trim() ||
+            t('admin.providers.confirmTextMismatch', { expected }),
+          type: 'warning',
+          dangerouslyUseHTMLString: true
+        }
+      )
       clearMonitorsLoading.value = true
       const res = await clearProviderMonitors(props.provider.id)
       if (res.code === 200) { ElMessage.success(t('admin.providers.clearMonitorsSuccess')); await loadMonitors() }

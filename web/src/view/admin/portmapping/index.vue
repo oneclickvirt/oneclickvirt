@@ -24,6 +24,7 @@
             >
               <el-button
                 type="warning"
+                :loading="syncPreviewLoading"
                 @click="handleSyncPortMappings"
               >
                 {{ $t('admin.portMapping.syncPortMappings') }}
@@ -357,6 +358,116 @@
       </div>
     </el-card>
 
+    <el-dialog
+      v-model="syncPreviewVisible"
+      :title="$t('admin.portMapping.syncPreviewTitle')"
+      width="920px"
+    >
+      <el-alert
+        v-if="unhealthySyncProviders.length > 0"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px;"
+      >
+        <template #title>
+          <span>{{ $t('admin.portMapping.syncPreviewProviderErrors', { count: unhealthySyncProviders.length }) }}</span>
+        </template>
+        <div class="sync-error-list">
+          <div
+            v-for="provider in unhealthySyncProviders"
+            :key="provider.providerId"
+          >
+            {{ provider.providerName }}: {{ provider.error }}
+          </div>
+        </div>
+      </el-alert>
+
+      <div class="sync-preview-toolbar">
+        <el-button
+          size="small"
+          @click="toggleAllSyncCandidates"
+        >
+          {{ allSyncSelected ? $t('admin.portMapping.syncUnselectAll') : $t('admin.portMapping.syncSelectAll') }}
+        </el-button>
+        <el-text type="info">
+          {{ $t('admin.portMapping.syncSelectedCount', { selected: selectedSyncPortIds.length, total: syncCandidates.length }) }}
+        </el-text>
+      </div>
+
+      <el-checkbox-group v-model="selectedSyncPortIds">
+        <el-table
+          :data="syncCandidates"
+          max-height="420"
+          border
+        >
+          <el-table-column
+            width="52"
+            align="center"
+          >
+            <template #default="{ row }">
+              <el-checkbox :label="row.portId" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="providerName"
+            :label="$t('admin.portMapping.provider')"
+            width="140"
+          />
+          <el-table-column
+            prop="instanceName"
+            :label="$t('admin.portMapping.instanceName')"
+            width="160"
+          />
+          <el-table-column
+            :label="$t('admin.portMapping.publicPort')"
+            width="130"
+          >
+            <template #default="{ row }">
+              {{ row.hostPort }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="guestPort"
+            :label="$t('admin.portMapping.internalPort')"
+            width="120"
+          />
+          <el-table-column
+            prop="protocol"
+            :label="$t('admin.portMapping.protocol')"
+            width="90"
+          />
+          <el-table-column
+            prop="portType"
+            :label="$t('admin.portMapping.portType')"
+            width="120"
+          />
+          <el-table-column
+            :label="$t('admin.portMapping.syncReason')"
+            min-width="180"
+          >
+            <template #default="{ row }">
+              {{ formatSyncReason(row.reason) }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-checkbox-group>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="syncPreviewVisible = false">{{ $t('common.cancel') }}</el-button>
+          <el-button
+            type="danger"
+            :loading="syncSubmitting"
+            :disabled="selectedSyncPortIds.length === 0"
+            @click="confirmSyncPortMappings"
+          >
+            {{ $t('admin.portMapping.syncExecuteSelected') }}
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+
     <!-- 手动添加端口对话框 -->
     <el-dialog
       v-model="addDialogVisible"
@@ -629,6 +740,8 @@ import { usePortMappingManagement } from './composables/usePortMappingManagement
 const {
   loading, portMappings, providers, instances, currentPage, pageSize, total,
   selectedPortMappings, searchForm,
+  syncPreviewVisible, syncPreviewLoading, syncSubmitting,
+  selectedSyncPortIds, syncCandidates, unhealthySyncProviders, allSyncSelected,
   addDialogVisible, addFormRef, addLoading, addForm, addRules,
   checkingPort, portCheckResult,
   supportedInstances, selectedInstanceProvider, portRangePreview, portMappingHint,
@@ -639,7 +752,7 @@ const {
   handleSelectionChange, handleSizeChange, handleCurrentChange,
   deletePortMappingHandler, batchDeleteDirect,
   formatTime, openAddDialog, onInstanceChange, submitAdd,
-  handleSyncPortMappings, filterInstances,
+  handleSyncPortMappings, confirmSyncPortMappings, toggleAllSyncCandidates, formatSyncReason, filterInstances,
   updatePortRange, checkPortAvailabilityDebounced, checkPortAvailability,
   cleanupAutoRefresh,
   t
@@ -710,6 +823,18 @@ const handleAddDialogClose = (done) => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.sync-preview-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.sync-error-list {
+  margin-top: 6px;
+  line-height: 1.6;
 }
 </style>
 

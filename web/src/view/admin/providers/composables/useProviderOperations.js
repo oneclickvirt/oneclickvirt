@@ -22,6 +22,23 @@ export function useProviderOperations() {
   const selectedProviders = ref([])
   const total = ref(0)
 
+  const requireTypedConfirmation = async ({ title, message, expected, confirmButtonText, type = 'warning' }) => {
+    await ElMessageBox.prompt(
+      `${message}<br><br>${t('admin.providers.typeToConfirm', { expected })}`,
+      title,
+      {
+        confirmButtonText: confirmButtonText || t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        inputPlaceholder: expected,
+        inputValidator: (value) =>
+          String(value || '').trim() === String(expected).trim() ||
+          t('admin.providers.confirmTextMismatch', { expected }),
+        type,
+        dangerouslyUseHTMLString: true
+      }
+    )
+  }
+
   // 加载Provider列表
   const loadProviders = async (params) => {
     loading.value = true
@@ -76,6 +93,14 @@ export function useProviderOperations() {
           type: 'warning'
         }
       )
+      const providerName = providers.value.find(p => p.id === id)?.name || String(id)
+      await requireTypedConfirmation({
+        title: t('admin.providers.cascadeDeleteTitle'),
+        message: t('admin.providers.singleDeleteConfirm'),
+        expected: providerName,
+        confirmButtonText: t('common.confirm'),
+        type: 'warning'
+      })
 
       await deleteProvider(id)
       ElMessage.success(t('admin.providers.serverDeleteSuccess'))
@@ -107,6 +132,13 @@ export function useProviderOperations() {
           dangerouslyUseHTMLString: true
         }
       )
+      await requireTypedConfirmation({
+        title: t('admin.providers.cascadeDeleteTitle'),
+        message: t('admin.providers.batchCascadeDeleteConfirm', { count: providers.length }),
+        expected: t('admin.providers.batchCascadeConfirmText'),
+        confirmButtonText: t('common.confirm'),
+        type: 'warning'
+      })
 
       const loadingInstance = ElLoading.service({
         lock: true,

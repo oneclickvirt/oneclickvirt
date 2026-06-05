@@ -299,7 +299,7 @@
 
     <!-- Docker/Podman/Containerd/Orbstack 端口映射方式（固定为 native，不可选择） -->
     <el-form-item
-      v-if="['docker', 'podman', 'containerd', 'orbstack'].includes(modelValue.type)"
+      v-if="CONTAINER_ONLY_PROVIDER_TYPES.includes(modelValue.type)"
       :label="$t('admin.providers.portMappingMethod')"
     >
       <el-input
@@ -309,7 +309,7 @@
       />
     </el-form-item>
     <div
-      v-if="['docker', 'podman', 'containerd', 'orbstack'].includes(modelValue.type)"
+      v-if="CONTAINER_ONLY_PROVIDER_TYPES.includes(modelValue.type)"
       class="form-tip"
       style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
     >
@@ -458,9 +458,9 @@
       </el-text>
     </div>
 
-    <!-- QEMU/KubeVirt/VMware 端口映射方式（固定为 iptables） -->
+    <!-- VM-only provider port mapping method (fixed to iptables) -->
     <el-form-item
-      v-if="['qemu', 'kubevirt', 'vmware'].includes(modelValue.type)"
+      v-if="VM_ONLY_PROVIDER_TYPES.includes(modelValue.type)"
       :label="$t('admin.providers.portMappingMethod')"
     >
       <el-input
@@ -470,7 +470,7 @@
       />
     </el-form-item>
     <div
-      v-if="['qemu', 'kubevirt', 'vmware'].includes(modelValue.type)"
+      v-if="VM_ONLY_PROVIDER_TYPES.includes(modelValue.type)"
       class="form-tip"
       style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
     >
@@ -496,7 +496,7 @@
         <li><strong>Docker/Orbstack:</strong> {{ $t('admin.providers.dockerMappingDesc') }}</li>
         <li><strong>LXD/Incus:</strong> {{ $t('admin.providers.lxdIncusMappingDesc') }}</li>
         <li><strong>Proxmox VE:</strong> {{ $t('admin.providers.proxmoxMappingDesc') }}</li>
-        <li><strong>QEMU/KubeVirt/VMware:</strong> {{ $t('admin.providers.qemuMappingDesc') }}</li>
+        <li><strong>QEMU/KubeVirt/VMware/VirtualBox/Multipass/Vagrant:</strong> {{ $t('admin.providers.qemuMappingDesc') }}</li>
       </ul>
     </el-alert>
 
@@ -648,6 +648,7 @@
 import { watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIPv4Pool } from './composables/useIPv4Pool'
+import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
 
 const props = defineProps({
   modelValue: {
@@ -674,11 +675,11 @@ const {
 watch(() => props.modelValue.type, (newType) => {
   if (!newType) return
 
-  if (['docker', 'podman', 'containerd', 'orbstack'].includes(newType)) {
+  if (CONTAINER_ONLY_PROVIDER_TYPES.includes(newType)) {
     // Docker/Podman/Containerd/Orbstack: IPv4和IPv6都固定使用 native
     props.modelValue.ipv4PortMappingMethod = 'native'
     props.modelValue.ipv6PortMappingMethod = 'native'
-  } else if (['qemu', 'kubevirt', 'vmware'].includes(newType)) {
+  } else if (VM_ONLY_PROVIDER_TYPES.includes(newType)) {
     // 本地虚拟化类型：IPv4和IPv6都固定使用 iptables
     props.modelValue.ipv4PortMappingMethod = 'iptables'
     props.modelValue.ipv6PortMappingMethod = 'iptables'

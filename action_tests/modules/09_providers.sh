@@ -405,8 +405,8 @@ EOF
     # -- detect-gpus: SSH-based GPU detection (may fail on non-LXD, accept 400/500) --
     test_api "Detect provider GPUs" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|400|500" "" "$group"
 
-    # -- stopped-containers: fetch stopped containers for copy mode (LXD/Incus only, accept 400/500 for other types) --
-    test_api "Get stopped containers" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group"
+    # -- stopped-containers: fetch copyable source containers for supported container runtimes --
+    test_api "Get copyable source containers" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group"
 
     # -- exec: run a command on provider via SSH --
     test_api "Exec command on provider" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|400|500" \

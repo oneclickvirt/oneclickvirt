@@ -166,6 +166,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	if err != nil {
 		return nil, err
 	}
+	containerEnabled, vmEnabled := normalizeProviderInstanceTypeCapabilities(providerType, req.ContainerEnabled, req.VirtualMachineEnabled)
 
 	provider := providerModel.Provider{
 		Name:                  req.Name,
@@ -183,8 +184,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		CountryCode:           req.CountryCode,
 		City:                  req.City,
 		Architecture:          req.Architecture,
-		ContainerEnabled:      req.ContainerEnabled,
-		VirtualMachineEnabled: req.VirtualMachineEnabled,
+		ContainerEnabled:      containerEnabled,
+		VirtualMachineEnabled: vmEnabled,
 		TotalQuota:            req.TotalQuota,
 		AllowClaim:            req.AllowClaim,
 		RedeemCodeOnly:        req.RedeemCodeOnly,

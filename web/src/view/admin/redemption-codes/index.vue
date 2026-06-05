@@ -259,7 +259,7 @@
             />
           </el-select>
         </el-form-item>
-        <!-- 创建模式（仅 lxd/incus 节点显示） -->
+        <!-- 创建模式（支持复制的容器节点显示） -->
         <el-form-item
           v-if="isLxdIncusProvider"
           :label="t('admin.redemptionCodes.creationMode')"
@@ -445,7 +445,7 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <!-- GPU 直通（仅 LXD/Incus 容器，含复制模式） -->
+        <!-- GPU 直通（支持容器 GPU 的节点，含复制模式） -->
         <el-form-item
           v-if="canConfigureGpuPassthrough"
           :label="t('admin.redemptionCodes.gpuPassthrough')"

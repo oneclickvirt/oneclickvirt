@@ -11606,14 +11606,14 @@ const docTemplate = `{
         },
         "/v1/admin/providers/{id}/stopped-containers": {
             "get": {
-                "description": "通过SSH连接到LXD/Incus节点，返回所有Stopped状态的容器名称列表",
+                "description": "通过SSH或Agent连接到LXD/Incus/Docker/Podman/Containerd/Orbstack节点，返回可作为复制源的容器名称列表",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "admin/providers"
                 ],
-                "summary": "获取节点上已停止的容器列表（用于复制模式）",
+                "summary": "获取节点上可用于复制模式的源容器列表",
                 "parameters": [
                     {
                         "type": "integer",
@@ -11942,7 +11942,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "creationMode": {
-                    "description": "复制模式（仅 LXD/Incus 节点）",
+                    "description": "复制模式（LXD/Incus 与 Docker/Podman/Containerd/Orbstack 容器节点）",
                     "type": "string"
                 },
                 "diskId": {
@@ -11953,7 +11953,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "gpuEnabled": {
-                    "description": "GPU直通配置（仅 LXD/Incus 容器）",
+                    "description": "GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）",
                     "type": "boolean"
                 },
                 "imageId": {
@@ -14168,7 +14168,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "copyMode": {
-                    "description": "复制模式（仅 LXD/Incus）",
+                    "description": "复制模式（LXD/Incus 与 Docker/Podman/Containerd/Orbstack 容器节点）",
                     "type": "boolean"
                 },
                 "copySourceName": {
@@ -14204,7 +14204,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "gpuEnabled": {
-                    "description": "GPU直通配置（仅 LXD/Incus）",
+                    "description": "GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）",
                     "type": "boolean"
                 },
                 "image": {
@@ -15240,7 +15240,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "gpuEnabled": {
-                    "description": "GPU直通配置（仅 LXD/Incus 容器实例支持）",
+                    "description": "GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）",
                     "type": "boolean"
                 },
                 "imageId": {

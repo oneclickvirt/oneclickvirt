@@ -284,113 +284,111 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 	return instanceResponses, total, nil
 }
 
-// CreateInstance 创建实例，返回创建的实例ID
-func (s *Service) CreateInstance(req admin.CreateInstanceRequest, ownerAdminID ...uint) (uint, error) {
-	quotaService := resources.NewQuotaService()
+// CreateInstance 创建实例，返回异步创建任务。
+func (s *Service) CreateInstance(req admin.CreateInstanceRequest, ownerAdminID ...uint) (*adminModel.Task, error) {
 	ownerID := firstOwnerAdminID(ownerAdminID)
-
-	// 构建资源请求（用于事务内配额校验）
-	quotaReq := resources.ResourceRequest{
-		UserID:       req.UserID,
-		CPU:          req.CPU,
-		Memory:       req.Memory,
-		Disk:         req.Disk,
-		InstanceType: req.InstanceType,
-	}
 
 	// 检查提供商是否存在和冻结状态（这些是非并发敏感的快速读，无需放入创建事务）
 	provider, err := s.resolveCreateProvider(req, ownerID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	req.Provider = provider.Name
+	if req.InstanceType == "" {
+		if utils.IsDockerFamilyProvider(provider.Type) || provider.Type == "lxd" || provider.Type == "incus" {
+			req.InstanceType = "container"
+		} else {
+			req.InstanceType = "vm"
+		}
+	}
+	if req.InstanceType != "container" && req.InstanceType != "vm" {
+		return nil, errors.New("实例类型必须为container或vm")
+	}
+	if req.Image == "" {
+		return nil, errors.New("镜像不能为空")
+	}
+	if req.CPU <= 0 {
+		return nil, errors.New("CPU必须大于0")
+	}
+	if req.Memory <= 0 {
+		return nil, errors.New("内存必须大于0")
+	}
+	if req.Disk <= 0 {
+		return nil, errors.New("磁盘必须大于0")
+	}
 
 	// 检查提供商是否冻结
 	if provider.IsFrozen {
-		return 0, fmt.Errorf("提供商 %s 已被冻结，无法创建实例", req.Provider)
+		return nil, fmt.Errorf("提供商 %s 已被冻结，无法创建实例", req.Provider)
 	}
 
 	// 检查提供商是否过期
 	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
-		return 0, fmt.Errorf("提供商 %s 已过期，无法创建实例", req.Provider)
+		return nil, fmt.Errorf("提供商 %s 已过期，无法创建实例", req.Provider)
+	}
+	providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
+		(provider.ConnectionType != "agent" && (provider.Status == "active" || provider.Status == "partial"))
+	if !providerAvailable {
+		return nil, fmt.Errorf("提供商 %s 当前不可用", req.Provider)
+	}
+	if req.InstanceType == "container" && !provider.ContainerEnabled {
+		return nil, fmt.Errorf("提供商 %s 不支持容器实例", req.Provider)
+	}
+	if req.InstanceType == "vm" && !provider.VirtualMachineEnabled {
+		return nil, fmt.Errorf("提供商 %s 不支持虚拟机实例", req.Provider)
+	}
+	if req.UserID > 0 {
+		quotaService := resources.NewQuotaService()
+		quotaResult, err := quotaService.ValidateAdminInstanceCreation(resources.ResourceRequest{
+			UserID:       req.UserID,
+			ProviderID:   provider.ID,
+			CPU:          req.CPU,
+			Memory:       req.Memory,
+			Disk:         req.Disk * 1024,
+			Bandwidth:    req.Bandwidth,
+			InstanceType: req.InstanceType,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("配额验证失败: %v", err)
+		}
+		if quotaResult != nil && !quotaResult.Allowed {
+			return nil, fmt.Errorf("无法为用户创建实例: %s", quotaResult.Reason)
+		}
+	}
+	networkType := req.NetworkType
+	if networkType == "" {
+		networkType = provider.NetworkType
+	}
+	if networkType == "" {
+		networkType = "nat_ipv4"
 	}
 
-	// 设置实例到期时间，与Provider的到期时间同步
-	var expiredAt time.Time
-	if provider.ExpiresAt != nil {
-		expiredAt = *provider.ExpiresAt
-	} else {
-		expiredAt = time.Now().AddDate(1, 0, 0)
+	taskReq := adminModel.CreateInstanceTaskRequest{
+		ProviderId:   provider.ID,
+		AdminDirect:  true,
+		Name:         req.Name,
+		Image:        req.Image,
+		CPU:          req.CPU,
+		Memory:       req.Memory,
+		Disk:         req.Disk,
+		Bandwidth:    req.Bandwidth,
+		InstanceType: req.InstanceType,
+		NetworkType:  networkType,
+		GpuEnabled:   req.GpuEnabled,
+		GpuDeviceIds: req.GpuDeviceIds,
 	}
-
-	// 创建实例
-	instance := providerModel.Instance{
-		Name:           utils.SanitizeShellArg(req.Name),
-		Provider:       req.Provider,
-		ProviderID:     provider.ID,
-		Image:          req.Image,
-		CPU:            req.CPU,
-		Memory:         req.Memory,
-		Disk:           req.Disk,
-		Bandwidth:      req.Bandwidth,
-		InstanceType:   req.InstanceType,
-		UserID:         req.UserID,
-		Status:         "creating",
-		ExpiresAt:      &expiredAt,
-		IsManualExpiry: false,
-		PublicIP:       provider.Endpoint,
-		NetworkType:    provider.NetworkType, // 继承Provider的网络类型
-	}
-
-	dbService := database.GetDatabaseService()
-
-	// 在单个事务中完成配额验证、实例创建和配额更新，确保原子性（解决 TOCTOU）
-	err = dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		// 仅当指定了用户ID时才进行配额验证（管理员创建不指定用户时跳过配额）
-		if req.UserID > 0 {
-			// 在事务内验证配额：通过 FOR UPDATE 锁定用户行，保证检查与写入之间无并发窗口
-			quotaResult, err := quotaService.ValidateInTransaction(tx, quotaReq)
-			if err != nil {
-				return fmt.Errorf("配额验证失败: %v", err)
-			}
-			if !quotaResult.Allowed {
-				return fmt.Errorf("无法为用户创建实例: %s", quotaResult.Reason)
-			}
-		}
-
-		// 创建实例
-		if err := tx.Create(&instance).Error; err != nil {
-			return fmt.Errorf("创建实例失败: %v", err)
-		}
-
-		// 仅当指定了用户ID时才更新用户配额
-		if req.UserID > 0 {
-			// 在同一事务中更新用户配额
-			resourceUsage := resources.ResourceUsage{
-				CPU:    req.CPU,
-				Memory: req.Memory,
-				Disk:   req.Disk,
-			}
-
-			if err := quotaService.UpdateUserQuotaAfterCreationWithTx(tx, req.UserID, resourceUsage); err != nil {
-				return fmt.Errorf("更新用户配额失败: %v", err)
-			}
-		}
-
-		// 创建默认端口映射
-		portMappingService := resources.PortMappingService{}
-		if err := portMappingService.CreateDefaultPortMappings(instance.ID, provider.ID); err != nil {
-			global.APP_LOG.Warn("创建默认端口映射失败",
-				zap.Uint("instance_id", instance.ID),
-				zap.Error(err))
-		}
-
-		return nil
-	})
+	taskData, err := json.Marshal(taskReq)
 	if err != nil {
-		return 0, err
+		return nil, fmt.Errorf("序列化创建任务失败: %w", err)
 	}
-	return instance.ID, nil
+	task, err := s.taskService.CreateTask(req.UserID, &provider.ID, nil, "create", string(taskData), 1800)
+	if err != nil {
+		return nil, err
+	}
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
+	return task, nil
 }
 
 func (s *Service) resolveCreateProvider(req admin.CreateInstanceRequest, ownerAdminID uint) (*providerModel.Provider, error) {

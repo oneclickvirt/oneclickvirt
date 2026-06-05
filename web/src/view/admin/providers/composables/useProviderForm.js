@@ -6,6 +6,7 @@ import { countries, getCountriesByRegion } from '@/utils/countries'
 import { extractEndpointHost } from '@/utils/endpoint'
 import { useI18n } from 'vue-i18n'
 import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits, formatLevelLimitsForBackend as formatLevels, getLevelTagType } from '@/utils/levels'
+import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
 
 // 解析等级限制配置（后端 kebab-case → 前端 camelCase）
 export const parseLevelLimits = (levelLimitsStr) => {
@@ -188,10 +189,10 @@ export function useProviderForm(loadProviders) {
     addProviderForm.containerEnabled = Boolean(provider.container_enabled)
     addProviderForm.vmEnabled = Boolean(provider.vm_enabled)
     // 强制修正：根据类型确保虚拟化类型正确
-    if (['docker', 'podman', 'containerd', 'orbstack'].includes(provider.type)) {
+    if (isContainerOnlyProvider(provider.type)) {
       addProviderForm.containerEnabled = true
       addProviderForm.vmEnabled = false
-    } else if (['qemu', 'kubevirt', 'vmware'].includes(provider.type)) {
+    } else if (isVMOnlyProvider(provider.type)) {
       addProviderForm.containerEnabled = false
       addProviderForm.vmEnabled = true
     }
@@ -266,10 +267,10 @@ export function useProviderForm(loadProviders) {
     addProviderForm.autoAdjustQuota = provider.discoveryAutoAdjust !== undefined ? provider.discoveryAutoAdjust : true
     addProviderForm.importedInstanceOwner = provider.discoveryOwnerName || provider.discoveryOwnerUserId ? 'admin' : ''
 
-    if (['docker', 'podman', 'containerd', 'orbstack'].includes(provider.type)) {
+    if (isContainerOnlyProvider(provider.type)) {
       addProviderForm.ipv4PortMappingMethod = 'native'
       addProviderForm.ipv6PortMappingMethod = 'native'
-    } else if (['qemu', 'kubevirt', 'vmware'].includes(provider.type)) {
+    } else if (isVMOnlyProvider(provider.type)) {
       addProviderForm.ipv4PortMappingMethod = provider.ipv4PortMappingMethod || 'iptables'
       addProviderForm.ipv6PortMappingMethod = provider.ipv6PortMappingMethod || 'iptables'
     } else if (provider.type === 'proxmox') {
@@ -392,10 +393,10 @@ export function useProviderForm(loadProviders) {
       }
 
       // 根据 Provider 类型设置端口映射方式
-      if (['docker', 'podman', 'containerd', 'orbstack'].includes(formData.type)) {
+      if (isContainerOnlyProvider(formData.type)) {
         serverData.ipv4PortMappingMethod = 'native'
         serverData.ipv6PortMappingMethod = 'native'
-      } else if (['qemu', 'kubevirt', 'vmware'].includes(formData.type)) {
+      } else if (isVMOnlyProvider(formData.type)) {
         serverData.ipv4PortMappingMethod = formData.ipv4PortMappingMethod || 'iptables'
         serverData.ipv6PortMappingMethod = formData.ipv6PortMappingMethod || 'iptables'
       } else if (formData.type === 'proxmox') {

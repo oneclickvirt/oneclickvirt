@@ -117,16 +117,16 @@ run_module_29() {
             continue
         fi
 
-        local inst_id; inst_id=$(echo "$create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         local task_id; task_id=$(echo "$create_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+        local inst_id=""
 
         # Handle async task-based creation
         if [[ -n "$task_id" ]]; then
             log_info "Waiting for creation task: ${task_id}"
             local task_result; task_result=$(wait_task_complete "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || true
-            if [[ -z "$inst_id" ]]; then
-                inst_id=$(echo "$task_result" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
-            fi
+            inst_id=$(echo "$task_result" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+        else
+            inst_id=$(echo "$create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         fi
 
         # Fallback: if no instance ID from response, find the most recently created instance with this image

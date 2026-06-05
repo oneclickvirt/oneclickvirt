@@ -164,56 +164,73 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	// Podman 加载本地 tar 后镜像统一存储在 localhost/ 命名空间下
 	imageNameWithPrefix := normalizePodmanImageName("oneclickvirt_" + config.Image)
 
-	imageExistsResult := p.imageExists(imageNameWithPrefix)
-	if !imageExistsResult {
-		if config.ImageURL != "" {
-			imageURL := config.ImageURL
-			imageName := config.Image
-			useCDN := config.UseCDN
-			_, sfErr, _ := p.imageImportGroup.Do(imageNameWithPrefix, func() (interface{}, error) {
-				if p.imageExists(imageNameWithPrefix) {
-					return nil, nil
-				}
+	if config.CopyMode && config.CopySourceName != "" {
+		if !utils.IsValidContainerRuntimeName(config.CopySourceName) {
+			return fmt.Errorf("源容器名称格式无效: %s", config.CopySourceName)
+		}
+		updateProgress(25, "从源容器创建临时镜像...")
+		if _, err := p.sshClient.Execute(fmt.Sprintf("%s inspect %s >/dev/null 2>&1", cliName, shellSingleQuote(config.CopySourceName))); err != nil {
+			return fmt.Errorf("源容器 %s 不存在或不可访问: %w", config.CopySourceName, err)
+		}
+		copyImageName := normalizePodmanImageName("oneclickvirt_copy_" + strings.ToLower(strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(config.Name)))
+		commitCmd := fmt.Sprintf("%s commit %s %s", cliName, shellSingleQuote(config.CopySourceName), shellSingleQuote(copyImageName))
+		if out, err := p.sshClient.ExecuteWithTimeout(commitCmd, 10*time.Minute); err != nil {
+			return fmt.Errorf("从源容器创建临时镜像失败: %w; output: %s", err, utils.TruncateString(out, 300))
+		}
+		imageNameWithPrefix = copyImageName
+		defer p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s >/dev/null 2>&1 || true", cliName, shellSingleQuote(copyImageName)))
+	} else {
+		imageExistsResult := p.imageExists(imageNameWithPrefix)
+		if !imageExistsResult {
+			if config.ImageURL != "" {
+				imageURL := config.ImageURL
+				imageName := config.Image
+				useCDN := config.UseCDN
+				_, sfErr, _ := p.imageImportGroup.Do(imageNameWithPrefix, func() (interface{}, error) {
+					if p.imageExists(imageNameWithPrefix) {
+						return nil, nil
+					}
 
-				updateProgress(30, "下载镜像到远程服务器...")
-				remotePath, err := p.downloadImageToRemote(imageURL, imageName, p.config.Country, p.config.Architecture, useCDN)
-				if err != nil {
-					return nil, fmt.Errorf("下载镜像失败: %w", err)
-				}
-
-				updateProgress(50, "加载镜像到Podman...")
-				if err := p.loadImageToPodman(remotePath, imageNameWithPrefix); err != nil {
-					global.APP_LOG.Warn("Podman镜像加载失败，尝试重新下载",
-						zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)),
-						zap.Error(err))
-
-					p.cleanupRemoteImage(imageName, imageURL, p.config.Architecture)
-					p.cleanupPodmanImage(imageNameWithPrefix)
-
-					updateProgress(40, "重新下载镜像...")
-					remotePath, err = p.downloadImageToRemote(imageURL, imageName, p.config.Country, p.config.Architecture, useCDN)
+					updateProgress(30, "下载镜像到远程服务器...")
+					remotePath, err := p.downloadImageToRemote(imageURL, imageName, p.config.Country, p.config.Architecture, useCDN)
 					if err != nil {
-						return nil, fmt.Errorf("重新下载镜像失败: %w", err)
+						return nil, fmt.Errorf("下载镜像失败: %w", err)
 					}
 
-					updateProgress(55, "重新加载镜像到Podman...")
+					updateProgress(50, "加载镜像到Podman...")
 					if err := p.loadImageToPodman(remotePath, imageNameWithPrefix); err != nil {
-						return nil, fmt.Errorf("重新加载镜像失败: %w", err)
-					}
-				}
+						global.APP_LOG.Warn("Podman镜像加载失败，尝试重新下载",
+							zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)),
+							zap.Error(err))
 
-				updateProgress(60, "清理临时文件...")
-				p.cleanupRemoteImage(imageName, imageURL, p.config.Architecture)
-				return nil, nil
-			})
-			if sfErr != nil {
-				return sfErr
+						p.cleanupRemoteImage(imageName, imageURL, p.config.Architecture)
+						p.cleanupPodmanImage(imageNameWithPrefix)
+
+						updateProgress(40, "重新下载镜像...")
+						remotePath, err = p.downloadImageToRemote(imageURL, imageName, p.config.Country, p.config.Architecture, useCDN)
+						if err != nil {
+							return nil, fmt.Errorf("重新下载镜像失败: %w", err)
+						}
+
+						updateProgress(55, "重新加载镜像到Podman...")
+						if err := p.loadImageToPodman(remotePath, imageNameWithPrefix); err != nil {
+							return nil, fmt.Errorf("重新加载镜像失败: %w", err)
+						}
+					}
+
+					updateProgress(60, "清理临时文件...")
+					p.cleanupRemoteImage(imageName, imageURL, p.config.Architecture)
+					return nil, nil
+				})
+				if sfErr != nil {
+					return sfErr
+				}
+			} else {
+				return fmt.Errorf("镜像 %s 不存在，且没有提供下载URL", imageNameWithPrefix)
 			}
 		} else {
-			return fmt.Errorf("镜像 %s 不存在，且没有提供下载URL", imageNameWithPrefix)
+			updateProgress(60, "Podman镜像已存在，跳过下载...")
 		}
-	} else {
-		updateProgress(60, "Podman镜像已存在，跳过下载...")
 	}
 
 	updateProgress(70, "清理同名残留容器...")
@@ -360,6 +377,15 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(90, "配置容器能力和环境变量...")
+	gpuOptStr := ""
+	if config.GpuEnabled {
+		if strings.TrimSpace(config.GpuDeviceIds) != "" {
+			gpuOptStr = fmt.Sprintf(" --gpus %s", shellSingleQuote("device="+strings.TrimSpace(config.GpuDeviceIds)))
+		} else {
+			gpuOptStr = " --gpus all"
+		}
+		cmd += gpuOptStr
+	}
 	// Podman需要这些能力才能正确配置iptables转发规则
 	cmd += " --cap-add=MKNOD --cap-add=NET_ADMIN --cap-add=NET_RAW"
 
@@ -373,7 +399,19 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	global.APP_LOG.Debug("开始执行Podman创建命令",
 		zap.String("name", utils.TruncateString(config.Name, 32)))
 
-	output, err := p.sshClient.Execute(cmd)
+	effectiveCmd := cmd
+	output, err := p.sshClient.Execute(effectiveCmd)
+	if err != nil {
+		if gpuOptStr != "" {
+			global.APP_LOG.Warn("Podman GPU参数创建失败，自动回退为无GPU创建",
+				zap.String("name", utils.TruncateString(config.Name, 32)),
+				zap.String("output", utils.TruncateString(output, 300)),
+				zap.Error(err))
+			_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(config.Name)))
+			effectiveCmd = strings.Replace(cmd, gpuOptStr, "", 1)
+			output, err = p.sshClient.Execute(effectiveCmd)
+		}
+	}
 	if err != nil {
 		// If storage-opt was added and Podman rejects it, retry without it and invalidate cache
 		if storageOptStr != "" && (strings.Contains(output, "unknown option size") || strings.Contains(output, "configure storage")) {
@@ -385,7 +423,7 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			// Invalidate stale storage driver cache
 			_, _ = p.sshClient.Execute(fmt.Sprintf("echo 'overlay' > %s", storageDriverFile))
 			// Retry without storage-opt
-			cmdRetry := strings.Replace(cmd, storageOptStr, "", 1)
+			cmdRetry := strings.Replace(effectiveCmd, storageOptStr, "", 1)
 			output, err = p.sshClient.Execute(cmdRetry)
 			if err != nil {
 				global.APP_LOG.Error("Podman创建容器失败(重试后)",

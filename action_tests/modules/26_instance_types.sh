@@ -38,11 +38,13 @@ run_module_26() {
             '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_ct","instance_type":"container","image":"debian:12","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
             "$group" "$ADMIN_TOKEN")
         local ct_task; ct_task=$(echo "$ct_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
-        local ct_id; ct_id=$(echo "$ct_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+        local ct_id=""
 
         if [[ -n "$ct_task" ]]; then
             local ct_task_resp; ct_task_resp=$(wait_task_complete "$SERVER_URL" "$ct_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || true
-            [[ -z "$ct_id" ]] && ct_id=$(echo "$ct_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+            ct_id=$(echo "$ct_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+        else
+            ct_id=$(echo "$ct_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         fi
 
         if [[ -n "$ct_id" ]]; then
@@ -82,11 +84,13 @@ run_module_26() {
             '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_vm","instance_type":"vm","image":"debian-11","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
             "$group" "$ADMIN_TOKEN")
         local vm_task; vm_task=$(echo "$vm_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
-        local vm_id; vm_id=$(echo "$vm_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+        local vm_id=""
 
         if [[ -n "$vm_task" ]]; then
             local vm_task_resp; vm_task_resp=$(wait_task_complete "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || true
-            [[ -z "$vm_id" ]] && vm_id=$(echo "$vm_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+            vm_id=$(echo "$vm_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+        else
+            vm_id=$(echo "$vm_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         fi
 
         if [[ -n "$vm_id" ]]; then

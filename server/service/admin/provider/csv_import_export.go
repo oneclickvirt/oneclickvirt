@@ -135,6 +135,24 @@ func parseCSVFloat64(raw string) (float64, error) {
 func normalizeCSVHeader(h string) string {
 	h = strings.TrimSpace(h)
 	h = strings.TrimPrefix(h, "\ufeff")
+	key := strings.ToLower(strings.NewReplacer("_", "", "-", "", " ", "").Replace(h))
+	aliases := map[string]string{
+		"sshpassword":           "password",
+		"sshprivatekey":         "sshKey",
+		"privatekey":            "sshKey",
+		"agentsecret":           "agentSecret",
+		"agenttoken":            "token",
+		"containertypeenabled":  "container_enabled",
+		"containerenabled":      "container_enabled",
+		"vmenabled":             "vm_enabled",
+		"virtualmachineenabled": "vm_enabled",
+	}
+	for _, canonical := range providerCSVHeaders {
+		aliases[strings.ToLower(strings.NewReplacer("_", "", "-", "", " ", "").Replace(canonical))] = canonical
+	}
+	if canonical, ok := aliases[key]; ok {
+		return canonical
+	}
 	return h
 }
 
@@ -189,7 +207,7 @@ func defaultCreateProviderRequest(name, providerType string) admin.CreateProvide
 		req.VirtualMachineEnabled = false
 		req.IPv4PortMappingMethod = "native"
 		req.IPv6PortMappingMethod = "native"
-	case "qemu", "kubevirt", "vmware":
+	case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
 		req.ContainerEnabled = false
 		req.VirtualMachineEnabled = true
 		req.IPv4PortMappingMethod = "iptables"

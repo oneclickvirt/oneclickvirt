@@ -31,6 +31,9 @@ const (
 	ProviderTypeQEMU       ProviderType = "qemu"
 	ProviderTypeKubeVirt   ProviderType = "kubevirt"
 	ProviderTypeVMware     ProviderType = "vmware"
+	ProviderTypeVirtualBox ProviderType = "virtualbox"
+	ProviderTypeMultipass  ProviderType = "multipass"
+	ProviderTypeVagrant    ProviderType = "vagrant"
 )
 
 // Architecture 架构类型

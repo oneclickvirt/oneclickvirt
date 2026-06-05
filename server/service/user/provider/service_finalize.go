@@ -9,17 +9,16 @@ import (
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
-	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 	"oneclickvirt/provider/incus"
 	"oneclickvirt/provider/lxd"
-	agentLifecycle "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -150,7 +149,7 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 				}
 			case "proxmox", "proxmoxve":
 				s.gatherProxmoxNetworkInfo(ctx, providerInstance, instance, &dbProvider, instanceUpdates)
-			case "qemu", "kubevirt", "vmware":
+			case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
 				if vmInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && vmInstance != nil {
 					if vmInstance.PrivateIP != "" {
 						instanceUpdates["private_ip"] = vmInstance.PrivateIP
@@ -316,13 +315,15 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			Disk:      instance.Disk,
 			Bandwidth: instance.Bandwidth,
 		}
-		// 实例创建成功，将待确认配额转为已使用配额
-		if err := quotaService.ConfirmPendingQuota(tx, task.UserID, resourceUsage); err != nil {
-			global.APP_LOG.Error("确认用户配额失败",
-				zap.Uint("taskId", task.ID),
-				zap.Uint("userId", task.UserID),
-				zap.Error(err))
-			return fmt.Errorf("确认用户配额失败: %v", err)
+		// 实例创建成功，将待确认配额转为已使用配额。管理端直连创建可没有用户归属，跳过用户配额确认。
+		if task.UserID > 0 {
+			if err := quotaService.ConfirmPendingQuota(tx, task.UserID, resourceUsage); err != nil {
+				global.APP_LOG.Error("确认用户配额失败",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("userId", task.UserID),
+					zap.Error(err))
+				return fmt.Errorf("确认用户配额失败: %v", err)
+			}
 		}
 		// 更新任务状态为处理中，等待后处理任务完成
 		if err := tx.Model(task).Updates(map[string]interface{}{
@@ -396,10 +397,10 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			sshWaitTimeout := 120 * time.Second
 			var dbProviderForWait providerModel.Provider
 			if err := global.APP_DB.Select("type, pve_kvm_available").Where("id = ?", providerID).First(&dbProviderForWait).Error; err == nil {
-				switch dbProviderForWait.Type {
-				case "qemu", "kubevirt", "vmware":
+				switch {
+				case utils.IsVMOnlyProvider(dbProviderForWait.Type):
 					sshWaitTimeout = 360 * time.Second // 6分钟等待VM cloud-init完成
-				case "proxmox":
+				case dbProviderForWait.Type == "proxmox":
 					// Proxmox使用QEMU软件模拟时启动更慢，需要更长等待
 					if dbProviderForWait.PveKvmAvailable != nil && !*dbProviderForWait.PveKvmAvailable {
 						sshWaitTimeout = 360 * time.Second // 6分钟：QEMU软件模拟
@@ -446,38 +447,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					zap.Int("existingPortCount", len(existingPorts)))
 			}
 
-			// 更新进度到87% (验证监控状态)
 			s.updateTaskProgress(taskID, 87, "step.verifyingMonitorStatus")
-			// 2. 验证pmacct监控状态（所有 Provider 在创建实例时已经初始化）
-			// Docker/Incus/LXD/Proxmox Provider 在实例创建流程中都已调用 InitializePmacctForInstance
-			// 后处理任务只需验证监控是否存在，避免重复初始化导致数据库约束冲突
-			pmacctInitSuccess := false
-			trafficEnabled := false
-
-			// 先检查Provider是否启用了流量统计
-			var dbProvider providerModel.Provider
-			if err := global.APP_DB.Where("id = ?", providerID).First(&dbProvider).Error; err == nil {
-				trafficEnabled = dbProvider.EnableTrafficControl
-			}
-
-			// 检查pmacct监控是否已存在
-			var existingMonitor monitoringModel.PmacctMonitor
-			if err := global.APP_DB.Where("instance_id = ?", instanceID).First(&existingMonitor).Error; err == nil {
-				global.APP_LOG.Debug("pmacct监控已在实例创建时初始化",
-					zap.Uint("instanceId", instanceID),
-					zap.Uint("monitorId", existingMonitor.ID))
-				pmacctInitSuccess = true
-			} else {
-				if trafficEnabled {
-					global.APP_LOG.Warn("pmacct监控未找到（可能在实例创建时失败）",
-						zap.Uint("instanceId", instanceID),
-						zap.Error(err))
-				} else {
-					global.APP_LOG.Debug("Provider未启用流量统计，无pmacct监控记录",
-						zap.Uint("instanceId", instanceID),
-						zap.Uint("providerId", providerID))
-				}
-			}
+			monitoringStatus := s.ensurePostCreateMonitoring(taskCtx, instanceID, providerID, "实例创建")
 
 			// 更新进度到90% (设置SSH密码)
 			s.updateTaskProgress(taskID, 90, "step.settingSSHPassword")
@@ -545,54 +516,26 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				}
 			}
 
-			// 更新进度到95% (配置网络监控)
 			s.updateTaskProgress(taskID, 95, "step.configuringNetworkMonitor")
-			// 4. pmacct监控已在初始化时完成配置，无需额外步骤
-			if !pmacctInitSuccess {
-				if trafficEnabled {
-					global.APP_LOG.Debug("跳过流量监控（pmacct初始化失败）",
-						zap.Uint("instanceId", instanceID))
-				} else {
-					global.APP_LOG.Debug("跳过流量监控（Provider未启用流量统计）",
-						zap.Uint("instanceId", instanceID),
-						zap.Uint("providerId", providerID))
-				}
-			}
-
-			// 4.5 Agent监控：仅在 agent 监控模式下注册
-			var monConfig monitoringModel.MonitoringConfig
-			useAgent := true // 默认使用 agent 模式
-			if err := global.APP_DB.Where("provider_id = ?", providerID).First(&monConfig).Error; err == nil {
-				useAgent = monConfig.MonitoringMode != "pmacct"
-			}
-			if useAgent {
-				agentCtx, agentCancel := context.WithTimeout(taskCtx, 2*time.Minute)
-				agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
-				agentCancel()
-			} else {
-				global.APP_LOG.Debug("Provider使用pmacct监控模式，跳过Agent注册",
+			if monitoringStatus.TrafficEnabled && !monitoringStatus.PmacctReady && !monitoringStatus.AgentMonitorReady {
+				global.APP_LOG.Debug("创建后未获得可用监控记录，后续调度或人工同步仍可补齐",
 					zap.Uint("instanceId", instanceID),
-					zap.Uint("providerId", providerID))
+					zap.Uint("providerId", providerID),
+					zap.String("trafficMethod", monitoringStatus.TrafficMethod))
 			}
 
-			// 更新进度到98%
 			s.updateTaskProgress(taskID, 98, "step.startingTrafficSync")
-			// 5. 触发流量同步（仅在pmacct初始化成功时执行）
-			if pmacctInitSuccess {
+			if monitoringStatus.PmacctReady {
 				syncTrigger := traffic.NewSyncTriggerService()
 				syncTrigger.TriggerInstanceTrafficSync(instanceID, "实例创建后初始同步")
 
 				global.APP_LOG.Debug("实例流量同步已触发",
 					zap.Uint("instanceId", instanceID))
-			} else {
-				if trafficEnabled {
-					global.APP_LOG.Debug("跳过流量同步触发（pmacct初始化失败）",
-						zap.Uint("instanceId", instanceID))
-				} else {
-					global.APP_LOG.Debug("跳过流量同步触发（Provider未启用流量统计）",
-						zap.Uint("instanceId", instanceID),
-						zap.Uint("providerId", providerID))
-				}
+			} else if monitoringStatus.TrafficEnabled {
+				global.APP_LOG.Debug("跳过pmacct流量同步触发",
+					zap.Uint("instanceId", instanceID),
+					zap.Uint("providerId", providerID),
+					zap.String("trafficMethod", monitoringStatus.TrafficMethod))
 			}
 
 			// 最终完成状态判断

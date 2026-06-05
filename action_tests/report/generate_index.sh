@@ -111,8 +111,8 @@ cat > "$OUTPUT_HTML" << 'HTMLHEAD'
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OneClickVirt 测试报告总览 / Test Reports</title>
 <style>
-:root{--pass:#22c55e;--fail:#ef4444;--skip:#eab308;--accent:#60a5fa;--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155;--hover:#283548;--text-muted:#94a3b8;--code-bg:#0f172a;--input-bg:#0f172a;--shadow:0 4px 24px rgba(0,0,0,.3)}
-[data-theme=light]{--bg:#f8fafc;--card:#fff;--text:#1e293b;--border:#e2e8f0;--hover:#f1f5f9;--text-muted:#64748b;--code-bg:#f1f5f9;--input-bg:#fff;--shadow:0 4px 24px rgba(0,0,0,.08)}
+:root{--pass:#22c55e;--fail:#ef4444;--skip:#eab308;--accent:#60a5fa;--bg:#f8fafc;--card:#fff;--text:#1e293b;--border:#e2e8f0;--hover:#f1f5f9;--text-muted:#64748b;--code-bg:#f1f5f9;--input-bg:#fff;--shadow:0 4px 24px rgba(0,0,0,.08)}
+[data-theme=dark]{--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155;--hover:#283548;--text-muted:#94a3b8;--code-bg:#0f172a;--input-bg:#0f172a;--shadow:0 4px 24px rgba(0,0,0,.3)}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;transition:background .3s,color .3s}
 .container{max-width:1200px;margin:0 auto;padding:1.5rem}
@@ -186,7 +186,7 @@ cat >> "$OUTPUT_HTML" << DYNBLOCK
     <p class="meta"><span class="zh">生成时间：</span><span class="en">Generated: </span>${GEN_TS}</p>
   </div>
   <div class="header-btns">
-    <button class="btn" onclick="toggleTheme()" id="theme-btn">🌙 <span class="zh">暗色</span><span class="en">Dark</span></button>
+    <button class="btn" onclick="toggleTheme()" id="theme-btn">☀️ <span class="zh">亮色</span><span class="en">Light</span></button>
     <button class="btn" onclick="toggleLang()">中文 / EN</button>
   </div>
 </header>
@@ -384,10 +384,10 @@ let lang = 'zh';
 function applyLang() { document.documentElement.dataset.lang = lang; }
 function toggleLang() { lang = lang === 'zh' ? 'en' : 'zh'; applyLang(); }
 
-let dark = true;
+let dark = false;
 function toggleTheme() {
   dark = !dark;
-  document.documentElement.dataset.theme = dark ? '' : 'light';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   const btn = document.getElementById('theme-btn');
   btn.innerHTML = dark
     ? '🌙 <span class="zh">暗色</span><span class="en">Dark</span>'

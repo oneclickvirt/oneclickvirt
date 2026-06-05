@@ -80,7 +80,7 @@ WORKFLOW_NAME=$(html_escape "$WORKFLOW_RAW")
 # Read service logs if available
 SERVICE_LOGS=""
 if [[ -n "$SERVICE_LOG_FILE" && -f "$SERVICE_LOG_FILE" ]]; then
-    SERVICE_LOGS=$(head -2000 "$SERVICE_LOG_FILE" | sed 's/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
+    SERVICE_LOGS=$(cat "$SERVICE_LOG_FILE" | sed 's/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
 fi
 
 # ── Collect history from sibling report files for comparison ──
@@ -121,15 +121,14 @@ cat > "$OUTPUT_HTML" << 'HTMLHEAD'
 /* ── Theme Variables ── */
 :root {
   --pass:#22c55e;--fail:#ef4444;--skip:#eab308;--accent:#60a5fa;
-  /* Dark theme (default) */
-  --bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155;--hover:#283548;
-  --text-muted:#94a3b8;--code-bg:#0f172a;--input-bg:#0f172a;
-  --shadow:0 4px 24px rgba(0,0,0,0.3);
-}
-[data-theme="light"] {
   --bg:#f8fafc;--card:#ffffff;--text:#1e293b;--border:#e2e8f0;--hover:#f1f5f9;
   --text-muted:#64748b;--code-bg:#f1f5f9;--input-bg:#ffffff;
   --shadow:0 4px 24px rgba(0,0,0,0.08);
+}
+[data-theme="dark"] {
+  --bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155;--hover:#283548;
+  --text-muted:#94a3b8;--code-bg:#0f172a;--input-bg:#0f172a;
+  --shadow:0 4px 24px rgba(0,0,0,0.3);
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;transition:background 0.3s,color 0.3s}
@@ -190,14 +189,14 @@ tr.test-row.hidden{display:none}
 .badge.skip{background:rgba(234,179,8,0.15);color:var(--skip)}
 .detail-toggle{cursor:pointer;color:var(--accent);font-size:0.78rem;text-decoration:none}
 .detail-toggle:hover{text-decoration:underline}
-.detail-panel{padding:0.8rem 1rem;background:var(--code-bg);font-family:'SF Mono',Consolas,'Liberation Mono',Menlo,monospace;font-size:0.78rem;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow:auto;border-top:1px solid var(--border);display:none;line-height:1.5}
+.detail-panel{padding:0.8rem 1rem;background:var(--code-bg);font-family:'SF Mono',Consolas,'Liberation Mono',Menlo,monospace;font-size:0.78rem;white-space:pre-wrap;word-break:break-all;overflow:visible;border-top:1px solid var(--border);display:none;line-height:1.5}
 .detail-panel.open{display:block}
 .detail-panel .err-line{color:var(--fail);font-weight:600}
 .detail-panel .warn-line{color:var(--skip)}
 .timestamp{color:var(--text-muted);font-size:0.75rem;font-family:monospace}
 .log-section{background:var(--card);border-radius:12px;margin-top:2rem;border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow)}
 .log-header{padding:0.8rem 1.2rem;background:var(--hover);font-weight:600;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
-.log-body{display:none;padding:1rem;font-family:monospace;font-size:0.78rem;white-space:pre-wrap;max-height:500px;overflow:auto;background:var(--code-bg);line-height:1.5}
+.log-body{display:none;padding:1rem;font-family:monospace;font-size:0.78rem;white-space:pre-wrap;overflow:visible;background:var(--code-bg);line-height:1.5}
 .log-body.open{display:block}
 .copy-btn{background:var(--input-bg);border:1px solid var(--border);color:var(--accent);padding:0.3rem 0.8rem;border-radius:6px;cursor:pointer;font-size:0.75rem;transition:all 0.2s}
 .copy-btn:hover{background:var(--hover);transform:translateY(-1px)}
@@ -234,7 +233,7 @@ cat >> "$OUTPUT_HTML" << HEADER
 <span id="langLabel">EN</span>
 </button>
 <button class="theme-toggle" onclick="toggleTheme()" title="切换亮色/暗色主题">
-<span id="themeIcon">🌙</span> <span id="themeLabel"><span class="zh">暗色</span><span class="en">Dark</span></span>
+<span id="themeIcon">☀️</span> <span id="themeLabel"><span class="zh">亮色</span><span class="en">Light</span></span>
 </button>
 </div>
 </header>
@@ -276,21 +275,12 @@ TOOLBAR
 current_group=""
 detail_idx=0
 
-# First pass: collect groups and their stats
-declare -A group_pass group_fail group_skip
-while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    grp=$(echo "$line" | jq -r '.group // "default"' 2>/dev/null)
-    [[ -z "$grp" || "$grp" == "null" ]] && grp="default"
-    status=$(echo "$line" | jq -r '.status // empty' 2>/dev/null)
-    if [[ "$status" == "PASS" ]]; then
-        group_pass[$grp]=$(( ${group_pass[$grp]:-0} + 1 ))
-    elif [[ "$status" == "FAIL" ]]; then
-        group_fail[$grp]=$(( ${group_fail[$grp]:-0} + 1 ))
-    elif [[ "$status" == "SKIP" ]]; then
-        group_skip[$grp]=$(( ${group_skip[$grp]:-0} + 1 ))
-    fi
-done < "$RESULTS_FILE"
+get_group_count() {
+    local group="$1" status="$2"
+    jq -sr --arg group "$group" --arg status "$status" '
+        [.[] | select((((.group // "default") | if . == "" or . == null then "default" else . end) == $group) and ((.status // "") == $status))] | length
+    ' "$RESULTS_FILE" 2>/dev/null || printf '0'
+}
 
 # Second pass: generate HTML
 current_group=""
@@ -315,9 +305,9 @@ while IFS= read -r line; do
             echo "</table></div></div>" >> "$OUTPUT_HTML"
         fi
         current_group="$grp"
-        local_pass=${group_pass[$grp]:-0}
-        local_fail=${group_fail[$grp]:-0}
-        local_skip=${group_skip[$grp]:-0}
+        local_pass=$(get_group_count "$grp" "PASS")
+        local_fail=$(get_group_count "$grp" "FAIL")
+        local_skip=$(get_group_count "$grp" "SKIP")
 
         local_has_fail=""
         [[ $local_fail -gt 0 ]] && local_has_fail=" style=\"border-color:rgba(239,68,68,0.3)\""
@@ -403,10 +393,13 @@ const TOTAL_VAL='__TOTAL__',PASSED_VAL='__PASSED__',FAILED_VAL='__FAILED__',SKIP
 const HISTORY_DATA=__HISTORY__;
 
 /* ── Theme toggle ── */
-function getTheme(){return localStorage.getItem('ocv-theme')||(window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark')}
+function getTheme(){return localStorage.getItem('ocv-theme')||'light'}
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme',t);
   document.getElementById('themeIcon').textContent=t==='dark'?'🌙':'☀️';
+  document.getElementById('themeLabel').innerHTML=t==='dark'
+    ? '<span class="zh">暗色</span><span class="en">Dark</span>'
+    : '<span class="zh">亮色</span><span class="en">Light</span>';
   localStorage.setItem('ocv-theme',t);
 }
 function toggleTheme(){applyTheme(getTheme()==='dark'?'light':'dark')}

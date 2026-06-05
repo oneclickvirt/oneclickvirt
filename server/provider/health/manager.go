@@ -22,6 +22,9 @@ const (
 	ProviderTypeQEMU       ProviderType = "qemu"
 	ProviderTypeKubeVirt   ProviderType = "kubevirt"
 	ProviderTypeVMware     ProviderType = "vmware"
+	ProviderTypeVirtualBox ProviderType = "virtualbox"
+	ProviderTypeMultipass  ProviderType = "multipass"
+	ProviderTypeVagrant    ProviderType = "vagrant"
 )
 
 // HealthManager 健康检查管理器
@@ -101,8 +104,8 @@ func (hm *HealthManager) CreateChecker(providerType ProviderType, config HealthC
 		checker = NewProxmoxHealthChecker(configCopy, hm.logger)
 		checkerTypeName = "ProxmoxHealthChecker"
 
-	case ProviderTypeQEMU, ProviderTypeKubeVirt, ProviderTypeVMware:
-		// QEMU/KubeVirt/VMware 使用 SSH-only 健康检查（与Docker相同的基础SSH检查器）
+	case ProviderTypeQEMU, ProviderTypeKubeVirt, ProviderTypeVMware, ProviderTypeVirtualBox, ProviderTypeMultipass, ProviderTypeVagrant:
+		// VM CLI providers use SSH-only health checks.
 		configCopy.APIEnabled = false
 		checker = NewDockerHealthChecker(configCopy, hm.logger)
 		checkerTypeName = "SSHHealthChecker"

@@ -68,7 +68,7 @@ func (s *PortMappingService) DeleteInstancePortMappingsInTx(tx *gorm.DB, instanc
 	return nil
 }
 
-// BatchDeletePortMappingWithTask 批量删除端口映射（通过任务系统异步执行，仅支持删除手动添加的端口）
+// BatchDeletePortMappingWithTask 批量删除端口映射（通过任务系统异步执行，仅支持删除手动/批量添加的端口）
 // 返回任务数据列表（由调用者创建和启动任务）
 func (s *PortMappingService) BatchDeletePortMappingWithTask(req admin.BatchDeletePortMappingRequest) ([]*admin.DeletePortMappingTaskRequest, error) {
 	// 获取所有要删除的端口
@@ -81,10 +81,10 @@ func (s *PortMappingService) BatchDeletePortMappingWithTask(req admin.BatchDelet
 		return nil, fmt.Errorf("未找到要删除的端口映射")
 	}
 
-	// 检查是否都是手动添加的端口
+	// 检查是否都是用户显式添加的端口
 	for _, port := range ports {
-		if port.PortType != "manual" {
-			return nil, fmt.Errorf("端口 %d 是区间映射端口，不能删除", port.ID)
+		if port.PortType != "manual" && port.PortType != "batch" {
+			return nil, fmt.Errorf("端口 %d 是自动或区间映射端口，不能批量删除", port.ID)
 		}
 	}
 

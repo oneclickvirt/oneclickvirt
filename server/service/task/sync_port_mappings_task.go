@@ -60,7 +60,15 @@ func (s *TaskService) executeSyncPortMappingsTask(ctx context.Context, task *adm
 	providerApiService := &provider2.ProviderApiService{}
 
 	// 同步Provider的端口映射
-	checked, cleaned, instances, ports, instanceNames, err := s.syncProviderPortMappings(ctx, &prov, providerApiService)
+	excludedPortIDs := make(map[uint]bool, len(taskReq.ExcludedPortIDs))
+	for _, id := range taskReq.ExcludedPortIDs {
+		excludedPortIDs[id] = true
+	}
+	includedPortIDs := make(map[uint]bool, len(taskReq.IncludedPortIDs))
+	for _, id := range taskReq.IncludedPortIDs {
+		includedPortIDs[id] = true
+	}
+	checked, cleaned, instances, ports, instanceNames, err := s.syncProviderPortMappings(ctx, &prov, providerApiService, includedPortIDs, excludedPortIDs)
 	if err != nil {
 		return fmt.Errorf("同步Provider端口映射失败: %v", err)
 	}
@@ -99,7 +107,7 @@ func (s *TaskService) executeSyncPortMappingsTask(ctx context.Context, task *adm
 
 // syncProviderPortMappings 同步单个Provider的端口映射
 // 返回：检查数量、清理数量、清理实例数、清理端口数、清理实例名称列表、错误
-func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *providerModel.Provider, providerApiService *provider2.ProviderApiService) (int, int, int, int, []string, error) {
+func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *providerModel.Provider, providerApiService *provider2.ProviderApiService, includedPortIDs map[uint]bool, excludedPortIDs map[uint]bool) (int, int, int, int, []string, error) {
 	// 1. 获取Provider实例，检查连接
 	provInstance, _, err := providerApiService.GetProviderByID(prov.ID)
 	if err != nil {
@@ -146,11 +154,13 @@ func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *provid
 		}
 	}
 
+	var cleanedCount, cleanedInstances, cleanedPorts int
+
 	// 4.1 清理无端口映射模式下的自动端口映射（这些映射本不应被创建）
 	// "无端口映射"语义上不应该存在任何自动端口映射记录。
 	// 仅清理自动生成的映射（IsAutomatic=true），保留用户手动添加的控制端转发映射。
 	if prov.NetworkType == "no_port_mapping" {
-		noPmCleanedPorts, noPmErr := s.cleanNoPortMappingAutoPorts(ctx, provInstance, prov)
+		noPmCleanedPorts, noPmErr := s.cleanNoPortMappingAutoPorts(ctx, provInstance, prov, includedPortIDs, excludedPortIDs)
 		if noPmErr != nil {
 			global.APP_LOG.Warn("清理无端口映射模式的自动端口映射失败",
 				zap.Uint("providerId", prov.ID),
@@ -159,6 +169,8 @@ func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *provid
 			global.APP_LOG.Info("已清理无端口映射模式下的自动端口映射",
 				zap.Uint("providerId", prov.ID),
 				zap.Int("cleanedPorts", noPmCleanedPorts))
+			cleanedCount += noPmCleanedPorts
+			cleanedPorts += noPmCleanedPorts
 		}
 	}
 
@@ -166,40 +178,97 @@ func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *provid
 		global.APP_LOG.Debug("Provider无孤立实例",
 			zap.Uint("providerId", prov.ID))
 		// 即使无孤立实例，也返回 no_port_mapping 清理的数量（如有）
-		return len(dbInstances), 0, 0, 0, nil, nil
+		return len(dbInstances), cleanedCount, cleanedInstances, cleanedPorts, nil, nil
 	}
 
 	global.APP_LOG.Info("发现孤立实例",
 		zap.Uint("providerId", prov.ID),
 		zap.Int("count", len(orphanedInstances)))
 
-	// 5. 批量清理孤立实例和端口映射（使用短事务）
-	var cleanedCount, cleanedInstances, cleanedPorts int
+	// 5. 批量清理孤立实例的自动端口映射（使用短事务）。手动端口不由同步任务删除。
 	var cleanedInstanceNames []string
 	dbService := database.GetDatabaseService()
 
 	for _, orphanInst := range orphanedInstances {
+		var syncPorts []providerModel.Port
+		if err := global.APP_DB.Where("instance_id = ? AND (is_automatic = ? OR port_type = ?)",
+			orphanInst.ID, true, "range_mapped").Find(&syncPorts).Error; err != nil {
+			global.APP_LOG.Warn("查询孤立实例自动端口映射失败，跳过",
+				zap.Uint("instanceId", orphanInst.ID),
+				zap.Error(err))
+			continue
+		}
+		filteredPorts := make([]providerModel.Port, 0, len(syncPorts))
+		for _, p := range syncPorts {
+			if !shouldDeleteSyncCandidate(p.ID, includedPortIDs, excludedPortIDs) {
+				continue
+			}
+			filteredPorts = append(filteredPorts, p)
+		}
+		if len(filteredPorts) == 0 {
+			global.APP_LOG.Debug("孤立实例没有可由同步任务删除的端口映射，保留实例记录",
+				zap.Uint("instanceId", orphanInst.ID),
+				zap.String("instanceName", orphanInst.Name))
+			continue
+		}
+
 		// 5.1 先尝试清理节点侧的实际端口映射规则（尽力而为，不因失败而阻止DB清理）
-		s.removeNodeSidePortMappingsBestEffort(ctx, provInstance, prov, &orphanInst)
+		s.removePortMappingsFromNode(ctx, provInstance, prov, &orphanInst, filteredPorts)
 
 		// 5.2 使用独立的短事务清理每个孤立实例的数据库记录
+		deletedPortsForInstance := 0
+		keptInstanceRecord := false
+		deletedInstanceRecord := false
 		err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-			// 获取该实例的端口映射数量
-			var portCount int64
-			if err := tx.Model(&providerModel.Port{}).
-				Where("instance_id = ?", orphanInst.ID).
-				Count(&portCount).Error; err != nil {
-				return err
+			portIDs := make([]uint, 0, len(filteredPorts))
+			releasedPorts := make([]int, 0, len(filteredPorts))
+			deletedSSHPort := false
+			for _, p := range filteredPorts {
+				portIDs = append(portIDs, p.ID)
+				releasedPorts = append(releasedPorts, p.HostPort)
+				if p.IsSSH {
+					deletedSSHPort = true
+				}
 			}
 
-			// 删除实例的端口映射
+			result := tx.Unscoped().Where("id IN ?", portIDs).Delete(&providerModel.Port{})
+			if result.Error != nil {
+				return fmt.Errorf("删除孤立实例自动端口映射失败: %w", result.Error)
+			}
+			deletedPorts := int(result.RowsAffected)
+			deletedPortsForInstance = deletedPorts
+
+			if deletedSSHPort {
+				if err := tx.Model(&providerModel.Instance{}).Where("id = ?", orphanInst.ID).
+					Update("ssh_port", 0).Error; err != nil {
+					global.APP_LOG.Warn("清除孤立实例SSH端口引用失败",
+						zap.Uint("instanceId", orphanInst.ID),
+						zap.Error(err))
+				}
+			}
+
 			portMappingService := resources.PortMappingService{}
-			if err := portMappingService.DeleteInstancePortMappingsInTx(tx, orphanInst.ID); err != nil {
-				global.APP_LOG.Warn("删除孤立实例端口映射失败",
+			if len(releasedPorts) > 0 {
+				if err := portMappingService.OptimizeNextAvailablePortInTx(tx, prov.ID, releasedPorts); err != nil {
+					global.APP_LOG.Warn("回收孤立实例端口失败",
+						zap.Uint("providerId", prov.ID),
+						zap.Error(err))
+				}
+			}
+
+			var remainingPorts int64
+			if err := tx.Model(&providerModel.Port{}).
+				Where("instance_id = ?", orphanInst.ID).
+				Count(&remainingPorts).Error; err != nil {
+				return err
+			}
+			if remainingPorts > 0 {
+				keptInstanceRecord = true
+				global.APP_LOG.Debug("孤立实例仍有手动端口映射，保留实例记录",
 					zap.Uint("instanceId", orphanInst.ID),
 					zap.String("instanceName", orphanInst.Name),
-					zap.Error(err))
-				// 不返回错误，继续清理实例
+					zap.Int64("remainingPorts", remainingPorts))
+				return nil
 			}
 
 			// 软删除实例记录
@@ -207,14 +276,12 @@ func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *provid
 				return fmt.Errorf("删除孤立实例记录失败: %v", err)
 			}
 
-			cleanedInstances++
-			cleanedPorts += int(portCount)
-			cleanedInstanceNames = append(cleanedInstanceNames, orphanInst.Name)
+			deletedInstanceRecord = true
 
 			global.APP_LOG.Debug("清理孤立实例成功",
 				zap.Uint("instanceId", orphanInst.ID),
 				zap.String("instanceName", orphanInst.Name),
-				zap.Int64("portCount", portCount))
+				zap.Int("portCount", deletedPorts))
 
 			return nil
 		})
@@ -227,11 +294,151 @@ func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *provid
 			// 继续处理下一个实例
 			continue
 		}
-
-		cleanedCount++
+		cleanedPorts += deletedPortsForInstance
+		if keptInstanceRecord {
+			cleanedCount++
+		}
+		if deletedInstanceRecord {
+			cleanedInstances++
+			cleanedInstanceNames = append(cleanedInstanceNames, orphanInst.Name)
+			cleanedCount++
+		}
 	}
 
 	return len(dbInstances), cleanedCount, cleanedInstances, cleanedPorts, cleanedInstanceNames, nil
+}
+
+// PreviewSyncPortMappings 生成端口映射同步预览，不修改数据库或节点侧规则。
+func (s *TaskService) PreviewSyncPortMappings(ctx context.Context, req *adminModel.SyncPortMappingsTaskRequest) (*adminModel.SyncPortMappingsPreviewResponse, error) {
+	var providers []providerModel.Provider
+	query := global.APP_DB.Where("status = ?", "active")
+	if len(req.ProviderIDs) > 0 {
+		query = query.Where("id IN ?", req.ProviderIDs)
+	}
+	if err := query.Find(&providers).Error; err != nil {
+		return nil, fmt.Errorf("查询Provider列表失败: %v", err)
+	}
+	if len(providers) == 0 {
+		return nil, fmt.Errorf("Provider不存在")
+	}
+
+	providerApiService := &provider2.ProviderApiService{}
+	response := &adminModel.SyncPortMappingsPreviewResponse{
+		ProviderCount: len(providers),
+		Providers:     make([]adminModel.SyncProviderPortMappingsPreview, 0, len(providers)),
+	}
+	for _, prov := range providers {
+		preview := s.previewProviderPortMappings(ctx, &prov, providerApiService)
+		response.CandidateCount += preview.CandidateCount
+		response.Providers = append(response.Providers, preview)
+	}
+	return response, nil
+}
+
+func (s *TaskService) previewProviderPortMappings(ctx context.Context, prov *providerModel.Provider, providerApiService *provider2.ProviderApiService) adminModel.SyncProviderPortMappingsPreview {
+	preview := adminModel.SyncProviderPortMappingsPreview{
+		ProviderID:   prov.ID,
+		ProviderName: prov.Name,
+		Candidates:   []adminModel.SyncPortMappingCandidate{},
+	}
+
+	provInstance, _, err := providerApiService.GetProviderByID(prov.ID)
+	if err != nil {
+		preview.Error = fmt.Sprintf("获取Provider实例失败: %v", err)
+		return preview
+	}
+	if err := provider2.CheckProviderConnection(provInstance); err != nil {
+		preview.Error = fmt.Sprintf("Provider连接失败: %v", err)
+		return preview
+	}
+	remoteInstances, err := provInstance.ListInstances(ctx)
+	if err != nil {
+		preview.Error = fmt.Sprintf("获取Provider实例列表失败: %v", err)
+		return preview
+	}
+	preview.Healthy = true
+
+	remoteInstanceMap := make(map[string]provider.Instance, len(remoteInstances))
+	for _, inst := range remoteInstances {
+		remoteInstanceMap[inst.Name] = inst
+	}
+
+	var dbInstances []providerModel.Instance
+	if err := global.APP_DB.Where("provider_id = ? AND status NOT IN ?", prov.ID,
+		[]string{"deleted", "deleting"}).Find(&dbInstances).Error; err != nil {
+		preview.Error = fmt.Sprintf("查询数据库实例失败: %v", err)
+		preview.Healthy = false
+		return preview
+	}
+	preview.Checked = len(dbInstances)
+
+	instanceMap := make(map[uint]providerModel.Instance, len(dbInstances))
+	for _, inst := range dbInstances {
+		instanceMap[inst.ID] = inst
+	}
+	seenPortIDs := make(map[uint]bool)
+	appendCandidate := func(p providerModel.Port, inst providerModel.Instance, reason string) {
+		if seenPortIDs[p.ID] {
+			return
+		}
+		seenPortIDs[p.ID] = true
+		preview.Candidates = append(preview.Candidates, adminModel.SyncPortMappingCandidate{
+			PortID:       p.ID,
+			InstanceID:   p.InstanceID,
+			InstanceName: inst.Name,
+			ProviderID:   prov.ID,
+			ProviderName: prov.Name,
+			HostPort:     p.HostPort,
+			GuestPort:    p.GuestPort,
+			Protocol:     p.Protocol,
+			PortType:     p.PortType,
+			IsSSH:        p.IsSSH,
+			IsAutomatic:  p.IsAutomatic,
+			MappingType:  p.MappingType,
+			Reason:       reason,
+		})
+	}
+
+	if prov.NetworkType == "no_port_mapping" {
+		var noMappingPorts []providerModel.Port
+		if err := global.APP_DB.Where("provider_id = ? AND (is_automatic = ? OR port_type = ?)",
+			prov.ID, true, "range_mapped").Find(&noMappingPorts).Error; err == nil {
+			for _, p := range noMappingPorts {
+				inst := instanceMap[p.InstanceID]
+				appendCandidate(p, inst, "no_port_mapping")
+			}
+		} else {
+			preview.Error = fmt.Sprintf("查询no_port_mapping候选失败: %v", err)
+			preview.Healthy = false
+			return preview
+		}
+	}
+
+	for _, dbInst := range dbInstances {
+		if _, exists := remoteInstanceMap[dbInst.Name]; exists {
+			continue
+		}
+		var orphanPorts []providerModel.Port
+		if err := global.APP_DB.Where("instance_id = ? AND (is_automatic = ? OR port_type = ?)",
+			dbInst.ID, true, "range_mapped").Find(&orphanPorts).Error; err != nil {
+			preview.Error = fmt.Sprintf("查询孤立实例候选失败: %v", err)
+			preview.Healthy = false
+			return preview
+		}
+		for _, p := range orphanPorts {
+			appendCandidate(p, dbInst, "orphan_instance")
+		}
+	}
+
+	preview.CandidateCount = len(preview.Candidates)
+	return preview
+}
+
+func shouldDeleteSyncCandidate(portID uint, includedPortIDs map[uint]bool, excludedPortIDs map[uint]bool) bool {
+	if len(includedPortIDs) > 0 && !includedPortIDs[portID] {
+		return false
+	}
+	return !excludedPortIDs[portID]
 }
 
 // cleanNoPortMappingAutoPorts 清理无端口映射模式下不应存在的自动端口映射记录。
@@ -239,7 +446,7 @@ func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *provid
 // 仅清理自动映射，保留用户手动添加的控制端转发端口（PortType="manual"）。
 // 同时清理节点侧的实际端口映射规则（iptables / device_proxy 等），确保与数据库状态一致。
 // 返回清理的端口数量。
-func (s *TaskService) cleanNoPortMappingAutoPorts(ctx context.Context, provInstance provider.Provider, prov *providerModel.Provider) (int, error) {
+func (s *TaskService) cleanNoPortMappingAutoPorts(ctx context.Context, provInstance provider.Provider, prov *providerModel.Provider, includedPortIDs map[uint]bool, excludedPortIDs map[uint]bool) (int, error) {
 	// 查找该Provider下所有自动端口映射（IsAutomatic=true 或 PortType="range_mapped"）
 	var autoPorts []providerModel.Port
 	if err := global.APP_DB.Where("provider_id = ? AND (is_automatic = ? OR port_type = ?)",
@@ -250,14 +457,24 @@ func (s *TaskService) cleanNoPortMappingAutoPorts(ctx context.Context, provInsta
 	if len(autoPorts) == 0 {
 		return 0, nil
 	}
+	filteredPorts := make([]providerModel.Port, 0, len(autoPorts))
+	for _, p := range autoPorts {
+		if !shouldDeleteSyncCandidate(p.ID, includedPortIDs, excludedPortIDs) {
+			continue
+		}
+		filteredPorts = append(filteredPorts, p)
+	}
+	if len(filteredPorts) == 0 {
+		return 0, nil
+	}
 
 	global.APP_LOG.Info("发现无端口映射模式下的自动端口映射，准备清理",
 		zap.Uint("providerId", prov.ID),
-		zap.Int("count", len(autoPorts)))
+		zap.Int("count", len(filteredPorts)))
 
 	// 预加载关联实例信息（用于节点侧清理）
 	instanceIDs := make(map[uint]bool)
-	for _, p := range autoPorts {
+	for _, p := range filteredPorts {
 		instanceIDs[p.InstanceID] = true
 	}
 	var instances []providerModel.Instance
@@ -276,7 +493,7 @@ func (s *TaskService) cleanNoPortMappingAutoPorts(ctx context.Context, provInsta
 
 	// 按实例分组，逐实例清理
 	portByInstance := make(map[uint][]providerModel.Port)
-	for _, p := range autoPorts {
+	for _, p := range filteredPorts {
 		portByInstance[p.InstanceID] = append(portByInstance[p.InstanceID], p)
 	}
 
@@ -299,19 +516,28 @@ func (s *TaskService) cleanNoPortMappingAutoPorts(ctx context.Context, provInsta
 		err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 			portMappingService := resources.PortMappingService{}
 			// 仅删除该实例的自动端口映射，不删除实例本身
-			result := tx.Unscoped().Where("instance_id = ? AND (is_automatic = ? OR port_type = ?)",
-				instanceID, true, "range_mapped").Delete(&providerModel.Port{})
+			portIDs := make([]uint, 0, len(ports))
+			deletedSSHPort := false
+			for _, p := range ports {
+				portIDs = append(portIDs, p.ID)
+				if p.IsSSH {
+					deletedSSHPort = true
+				}
+			}
+			result := tx.Unscoped().Where("id IN ?", portIDs).Delete(&providerModel.Port{})
 			if result.Error != nil {
 				return fmt.Errorf("删除自动端口映射失败: %w", result.Error)
 			}
 			totalCleaned += int(result.RowsAffected)
 
 			// 清除实例的 ssh_port 引用（如果已失效）
-			if err := tx.Model(&providerModel.Instance{}).Where("id = ?", instanceID).
-				Update("ssh_port", 0).Error; err != nil {
-				global.APP_LOG.Warn("清除实例SSH端口引用失败",
-					zap.Uint("instanceId", instanceID),
-					zap.Error(err))
+			if deletedSSHPort {
+				if err := tx.Model(&providerModel.Instance{}).Where("id = ?", instanceID).
+					Update("ssh_port", 0).Error; err != nil {
+					global.APP_LOG.Warn("清除实例SSH端口引用失败",
+						zap.Uint("instanceId", instanceID),
+						zap.Error(err))
+				}
 			}
 
 			// 回收已释放的端口（更新 next_available_port）
@@ -375,7 +601,7 @@ func (s *TaskService) removePortMappingsFromNode(ctx context.Context, provInstan
 
 	providerType := utils.NormalizeProviderType(prov.Type)
 	portMappingType := providerType
-	if portMappingType == "proxmox" || portMappingType == "proxmoxve" {
+	if portMappingType == "proxmox" || portMappingType == "proxmoxve" || utils.IsVMOnlyProvider(portMappingType) {
 		portMappingType = "iptables"
 	}
 

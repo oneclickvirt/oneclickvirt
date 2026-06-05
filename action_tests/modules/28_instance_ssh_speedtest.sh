@@ -237,14 +237,14 @@ run_module_28() {
         local _m28_create; _m28_create=$(curl -s --max-time 60 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             -H "Content-Type: application/json" -X POST -d "$_m28_data" \
             "${SERVER_URL}/api/v1/admin/instances" 2>/dev/null) || true
-        local _m28_new_id; _m28_new_id=$(echo "$_m28_create" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         local _m28_task; _m28_task=$(echo "$_m28_create" | jq -r '.data.task_id // empty' 2>/dev/null)
+        local _m28_new_id=""
         if [[ -n "$_m28_task" ]]; then
             log_info "Waiting for recreation task ${_m28_task}..."
             local _m28_tr; _m28_tr=$(wait_task_complete "$SERVER_URL" "$_m28_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || true
-            if [[ -z "$_m28_new_id" ]]; then
-                _m28_new_id=$(echo "$_m28_tr" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
-            fi
+            _m28_new_id=$(echo "$_m28_tr" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+        else
+            _m28_new_id=$(echo "$_m28_create" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         fi
         if [[ -n "$_m28_new_id" ]]; then
             export TEST_INSTANCE_ID="$_m28_new_id"

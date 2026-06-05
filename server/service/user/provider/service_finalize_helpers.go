@@ -230,7 +230,7 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 					updates["public_ipv6"] = publicIPv6
 				}
 			}
-		case "qemu", "kubevirt", "vmware":
+		case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
 			if actualInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && actualInstance != nil {
 				if actualInstance.PrivateIP != "" {
 					updates["private_ip"] = actualInstance.PrivateIP

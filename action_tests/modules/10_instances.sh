@@ -40,8 +40,6 @@ run_module_10() {
         fi
         # Debug: log full creation response
         log_info "Create instance response: $(echo "$ir" | jq -c '.' 2>/dev/null | head -c 2000)"
-        container_id=$(echo "$ir" | jq -r '.data.id // .data.ID // .data.task_id // empty' 2>/dev/null)
-
         # Handle task-based creation
         local maybe_task; maybe_task=$(echo "$ir" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$maybe_task" ]]; then
@@ -49,6 +47,8 @@ run_module_10() {
             local task_r; task_r=$(wait_task_complete "$SERVER_URL" "$maybe_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10)
             log_info "Task complete response: $(echo "$task_r" | jq -c '.' 2>/dev/null | head -c 2000)"
             container_id=$(echo "$task_r" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+        else
+            container_id=$(echo "$ir" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         fi
 
         if [[ -n "$container_id" ]]; then
@@ -194,12 +194,12 @@ run_module_10() {
             log_warning "VM instance creation did not complete successfully; downstream VM checks will be skipped"
             vr=""
         fi
-        vm_id=$(echo "$vr" | jq -r '.data.id // .data.ID // .data.task_id // empty' 2>/dev/null)
-
         local vm_task; vm_task=$(echo "$vr" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$vm_task" ]]; then
             local vm_tr; vm_tr=$(wait_task_complete "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 15)
             vm_id=$(echo "$vm_tr" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+        else
+            vm_id=$(echo "$vr" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         fi
 
         if [[ -n "$vm_id" ]]; then
@@ -325,7 +325,7 @@ run_module_10() {
             "{\"providerId\":${PROVIDER_ID},\"imageId\":${user_image_id},\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\"}" \
             "$group" "$USER_TOKEN")
         local user_inst_task; user_inst_task=$(echo "$user_inst_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
-        local user_inst_id; user_inst_id=$(echo "$user_inst_resp" | jq -r '.data.id // .data.instanceId // empty' 2>/dev/null)
+        local user_inst_id=""
 
         # Wait for task if async
         if [[ -n "$user_inst_task" ]]; then
@@ -335,6 +335,8 @@ run_module_10() {
             local task_detail; task_detail=$(curl -s --max-time 10 -H "Authorization: Bearer ${USER_TOKEN}" \
                 "${SERVER_URL}/api/v1/user/tasks?page=1&pageSize=1" 2>/dev/null)
             user_inst_id=$(echo "$task_detail" | jq -r '.data.list[0].instanceId // empty' 2>/dev/null)
+        else
+            user_inst_id=$(echo "$user_inst_resp" | jq -r '.data.id // .data.instanceId // empty' 2>/dev/null)
         fi
 
         # Verify the instance appears in user's instance list

@@ -572,11 +572,11 @@ type ProviderInstanceConfig struct {
 	MaxProcesses *int    `json:"maxProcesses,omitempty"` // 最大进程数
 	DiskIOLimit  *string `json:"diskIoLimit,omitempty"`  // 磁盘IO限制
 
-	// GPU直通配置（仅 LXD/Incus）
+	// GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）
 	GpuEnabled   bool   `json:"gpuEnabled,omitempty"`   // 是否启用GPU直通
 	GpuDeviceIds string `json:"gpuDeviceIds,omitempty"` // GPU设备ID列表（逗号分隔），为空则附加所有GPU
 
-	// 复制模式（仅 LXD/Incus）
+	// 复制模式（LXD/Incus 与 Docker/Podman/Containerd/Orbstack 容器节点）
 	CopyMode       bool   `json:"copyMode,omitempty"`       // 是否使用容器复制模式（lxc copy）代替 lxc launch
 	CopySourceName string `json:"copySourceName,omitempty"` // 复制模式下的源容器名称
 }
@@ -599,7 +599,7 @@ type ProviderNodeConfig struct {
 	Country               string   `json:"country"`             // Provider所在国家，用于CDN选择
 	City                  string   `json:"city"`                // Provider所在城市（可选）
 	Architecture          string   `json:"architecture"`        // 架构类型，如amd64, arm64等
-	Type                  string   `json:"type"`                // docker, podman, containerd, orbstack, lxd, incus, proxmox, qemu, kubevirt, vmware
+	Type                  string   `json:"type"`                // docker, podman, containerd, orbstack, lxd, incus, proxmox, qemu, kubevirt, vmware, virtualbox, multipass, vagrant
 	SupportedTypes        []string `json:"supported_types"`     // 支持的实例类型: container, vm, both
 	ContainerEnabled      bool     `json:"container_enabled"`   // 是否支持容器
 	VirtualMachineEnabled bool     `json:"vm_enabled"`          // 是否支持虚拟机
@@ -637,7 +637,7 @@ type ProviderNodeConfig struct {
 	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数
 	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制
 
-	// GPU直通配置（仅 LXD/Incus）
+	// GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）
 	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
 	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔），为空则附加所有GPU
 }

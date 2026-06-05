@@ -159,6 +159,7 @@ import ProviderModeSelectDialog from './components/ProviderModeSelectDialog.vue'
 import { useProviderCRUD } from './composables/useProviderCRUD'
 import { useProviderForm } from './composables/useProviderForm'
 import { useProviderDialogs } from './composables/useProviderDialogs'
+import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
 
 const { t } = useI18n()
 
@@ -249,13 +250,13 @@ watch(() => addProviderForm.type, (newType) => {
   if (isEditing.value) {
     return
   }
-  if (['docker', 'podman', 'containerd', 'orbstack'].includes(newType)) {
+  if (CONTAINER_ONLY_PROVIDER_TYPES.includes(newType)) {
     // Docker/Podman/Containerd/Orbstack只支持容器，使用原生端口映射
     addProviderForm.containerEnabled = true
     addProviderForm.vmEnabled = false
     addProviderForm.ipv4PortMappingMethod = 'native'
     addProviderForm.ipv6PortMappingMethod = 'native'
-  } else if (['qemu', 'kubevirt', 'vmware'].includes(newType)) {
+  } else if (VM_ONLY_PROVIDER_TYPES.includes(newType)) {
     // 本地虚拟化类型仅支持虚拟机，使用iptables端口映射
     addProviderForm.containerEnabled = false
     addProviderForm.vmEnabled = true

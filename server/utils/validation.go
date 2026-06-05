@@ -36,6 +36,15 @@ func IsValidLXDInstanceName(name string) bool {
 	return true
 }
 
+func IsValidContainerRuntimeName(name string) bool {
+	if name == "" || len(name) > 128 {
+		return false
+	}
+	pattern := `^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`
+	matched, err := regexp.MatchString(pattern, name)
+	return err == nil && matched
+}
+
 // IsNumeric 检查字符串是否为纯数字
 func IsNumeric(s string) bool {
 	_, err := strconv.Atoi(s)

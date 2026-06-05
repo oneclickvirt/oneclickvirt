@@ -54,7 +54,7 @@ NODE_HOURS="${NODE_HOURS:-8}"
 
 # ============================================================================
 # Port-mapping methods supported by each provider type.
-# Docker/Podman/Containerd: backend enforces "native" regardless of request.
+# Docker/Podman/Containerd/Orbstack: backend enforces "native" regardless of request.
 # LXD/Incus/ProxmoxVE: "device_proxy" (default) and "iptables" are supported.
 # KubeVirt/QEMU: "iptables" is the primary supported method.
 # ============================================================================
@@ -268,7 +268,7 @@ _create_test_instance() {
     fi
 
     local inst_id task_id
-    inst_id=$(echo "$body" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    inst_id=""
     task_id=$(echo "$body" | jq -r '.data.task_id // empty' 2>/dev/null)
 
     # If task-based creation, wait for it and extract the real instance ID
@@ -282,6 +282,8 @@ _create_test_instance() {
         fi
         local from_task; from_task=$(echo "$task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
         [[ -n "$from_task" ]] && inst_id="$from_task"
+    else
+        inst_id=$(echo "$body" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
     fi
 
     if [[ -z "$inst_id" || "$inst_id" == "null" ]]; then

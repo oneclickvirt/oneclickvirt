@@ -35,7 +35,6 @@ func applyExtendedCSVToCreateReq(req *admin.CreateProviderRequest, values map[st
 		key string
 		set func(string)
 	}{
-		{"token", func(v string) { req.Token = v }},
 		{"config", func(v string) { req.Config = v }},
 		{"storagePool", func(v string) { req.StoragePool = v }},
 		{"trafficSyncMethod", func(v string) { req.TrafficSyncMethod = v }},
@@ -53,6 +52,11 @@ func applyExtendedCSVToCreateReq(req *admin.CreateProviderRequest, values map[st
 	} {
 		if v := values[field.key]; v != "" {
 			field.set(v)
+		}
+	}
+	if req.ConnectionType != "agent" {
+		if v := values["token"]; v != "" {
+			req.Token = v
 		}
 	}
 
@@ -115,7 +119,6 @@ func applyExtendedCSVToUpdateReq(req *admin.UpdateProviderRequest, values map[st
 		key string
 		set func(string)
 	}{
-		{"token", func(v string) { req.Token = v }},
 		{"config", func(v string) { req.Config = v }},
 		{"storagePool", func(v string) { req.StoragePool = v }},
 		{"trafficSyncMethod", func(v string) { req.TrafficSyncMethod = v }},
@@ -133,6 +136,11 @@ func applyExtendedCSVToUpdateReq(req *admin.UpdateProviderRequest, values map[st
 	} {
 		if v := values[field.key]; v != "" {
 			field.set(v)
+		}
+	}
+	if req.ConnectionType != "agent" {
+		if v := values["token"]; v != "" {
+			req.Token = v
 		}
 	}
 
@@ -191,9 +199,15 @@ func applyExtendedCSVToUpdateReq(req *admin.UpdateProviderRequest, values map[st
 }
 
 func restoreCSVProviderPrivateFields(providerID uint, values map[string]string) error {
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("connection_type, agent_secret").Where("id = ?", providerID).First(&provider).Error; err != nil {
+		return err
+	}
 	updates := make(map[string]interface{})
 	if v := values["agentSecret"]; v != "" {
-		updates["agent_secret"] = v
+		if provider.ConnectionType != "agent" || provider.AgentSecret == "" {
+			updates["agent_secret"] = v
+		}
 	}
 	if v := values["storagePoolPath"]; v != "" {
 		updates["storage_pool_path"] = v

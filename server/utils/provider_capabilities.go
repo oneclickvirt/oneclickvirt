@@ -21,6 +21,15 @@ func SupportsLXDContainerOptions(providerType, instanceType string) bool {
 	return IsLXDIncusProvider(providerType) && NormalizeProviderType(instanceType) != "vm"
 }
 
+func SupportsContainerCopyProvider(providerType string) bool {
+	return IsLXDIncusProvider(providerType) || IsDockerFamilyProvider(providerType)
+}
+
+func SupportsContainerGPUProvider(providerType, instanceType string) bool {
+	return NormalizeProviderType(instanceType) != "vm" &&
+		(IsLXDIncusProvider(providerType) || IsDockerFamilyProvider(providerType))
+}
+
 func IsDockerFamilyProvider(providerType string) bool {
 	switch NormalizeProviderType(providerType) {
 	case "docker", "podman", "containerd", "orbstack":
@@ -32,7 +41,7 @@ func IsDockerFamilyProvider(providerType string) bool {
 
 func IsVMOnlyProvider(providerType string) bool {
 	switch NormalizeProviderType(providerType) {
-	case "qemu", "kubevirt", "vmware":
+	case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
 		return true
 	default:
 		return false

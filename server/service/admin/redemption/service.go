@@ -175,10 +175,10 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		return fmt.Errorf("节点不存在或不可用")
 	}
 
-	// 复制模式：仅 LXD/Incus 节点支持
+	// 复制模式：LXD/Incus 和 Docker 家族容器节点支持
 	if req.CreationMode == "copy" {
-		if provider.Type != "lxd" && provider.Type != "incus" {
-			return fmt.Errorf("复制模式仅支持 LXD/Incus 类型的节点")
+		if !utils.SupportsContainerCopyProvider(provider.Type) {
+			return fmt.Errorf("复制模式仅支持 LXD/Incus/Docker/Podman/Containerd/Orbstack 类型的节点")
 		}
 		req.InstanceType = "container"
 		req.ImageId = 0
@@ -189,7 +189,11 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		if req.SourceContainer == "" {
 			return fmt.Errorf("复制模式必须指定源容器名称")
 		}
-		if !utils.IsValidLXDInstanceName(req.SourceContainer) {
+		if utils.IsDockerFamilyProvider(provider.Type) {
+			if !utils.IsValidContainerRuntimeName(req.SourceContainer) {
+				return fmt.Errorf("源容器名称格式无效")
+			}
+		} else if !utils.IsValidLXDInstanceName(req.SourceContainer) {
 			return fmt.Errorf("源容器名称格式无效")
 		}
 	} else {
@@ -202,11 +206,10 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		req.SourceContainer = ""
 	}
 
-	// GPU 直通仅支持 LXD/Incus 容器实例或容器复制模式
-	isLxdIncusProvider := provider.Type == "lxd" || provider.Type == "incus"
+	// GPU 直通支持 LXD/Incus 原生设备配置，Docker 家族使用 best-effort run 参数
 	isContainerTarget := req.InstanceType == "container" || req.CreationMode == "copy"
-	if req.GpuEnabled && (!isLxdIncusProvider || !isContainerTarget) {
-		return fmt.Errorf("GPU 直通仅支持 LXD/Incus 的容器实例或容器复制模式")
+	if req.GpuEnabled && (!utils.SupportsContainerGPUProvider(provider.Type, "container") || !isContainerTarget) {
+		return fmt.Errorf("GPU 直通仅支持 LXD/Incus/Docker/Podman/Containerd/Orbstack 的容器实例或容器复制模式")
 	}
 	if !req.GpuEnabled {
 		req.GpuDeviceIds = ""

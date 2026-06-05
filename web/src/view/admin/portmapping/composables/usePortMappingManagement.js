@@ -24,6 +24,22 @@ export function usePortMappingManagement() {
   const total = ref(0)
   const selectedPortMappings = ref([])
   let autoRefreshTimer = null
+  const syncPreviewVisible = ref(false)
+  const syncPreviewLoading = ref(false)
+  const syncSubmitting = ref(false)
+  const syncPreview = ref({ providers: [], candidateCount: 0 })
+  const selectedSyncPortIds = ref([])
+
+  const syncCandidates = computed(() => {
+    const providersPreview = syncPreview.value.providers || []
+    return providersPreview.flatMap(provider => (provider.candidates || []).map(candidate => ({
+      ...candidate,
+      providerName: candidate.providerName || provider.providerName,
+      providerId: candidate.providerId || provider.providerId
+    })))
+  })
+  const unhealthySyncProviders = computed(() => (syncPreview.value.providers || []).filter(provider => !provider.healthy))
+  const allSyncSelected = computed(() => syncCandidates.value.length > 0 && selectedSyncPortIds.value.length === syncCandidates.value.length)
 
   const searchForm = reactive({ keyword: '', providerId: '', protocol: '', status: '' })
 
@@ -250,12 +266,12 @@ export function usePortMappingManagement() {
   }
 
   const onInstanceChange = () => {
-    // Docker/Podman/Containerd 实例自动切换为控制端转发模式
+    // Docker/Podman/Containerd/Orbstack 实例自动切换为控制端转发模式
     if (addForm.instanceId) {
       const instance = instances.value.find(i => i.id === addForm.instanceId)
       if (instance) {
         const providerType = getInstanceProviderType(instance)?.toLowerCase()
-        if (['docker', 'podman', 'containerd'].includes(providerType)) {
+        if (['docker', 'podman', 'containerd', 'orbstack'].includes(providerType)) {
           addForm.mappingType = 'controller'
         }
       }
@@ -269,15 +285,15 @@ export function usePortMappingManagement() {
       const instance = instances.value.find(i => i.id === addForm.instanceId)
       if (!instance) { ElMessage.error(t('admin.portMapping.instanceNotFound')); return }
       const providerType = getInstanceProviderType(instance)?.toLowerCase()
-      // Docker/Podman/Containerd 仅支持控制端转发模式
-      if (['docker', 'podman', 'containerd'].includes(providerType)) {
+      // Docker/Podman/Containerd/Orbstack 仅支持控制端转发模式
+      if (['docker', 'podman', 'containerd', 'orbstack'].includes(providerType)) {
         if (addForm.mappingType !== 'controller') {
           ElMessage.error(t('admin.portMapping.dockerOnlyController'))
           return
         }
       }
       // 验证支持的 Provider 类型
-      const supportedTypes = ['lxd', 'incus', 'proxmox', 'qemu', 'kubevirt', 'docker', 'podman', 'containerd']
+      const supportedTypes = ['lxd', 'incus', 'proxmox', 'qemu', 'kubevirt', 'vmware', 'virtualbox', 'multipass', 'vagrant', 'docker', 'podman', 'containerd', 'orbstack']
       if (!supportedTypes.includes(providerType)) { ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported')); return }
       addLoading.value = true
       const data = { instanceId: addForm.instanceId, guestPort: addForm.guestPort, hostPort: addForm.hostPort || 0, portCount: addForm.portCount || 1, protocol: addForm.protocol, description: addForm.description, mappingType: addForm.mappingType || 'node', internalHost: addForm.internalHost || '' }
@@ -291,12 +307,59 @@ export function usePortMappingManagement() {
   }
 
   const handleSyncPortMappings = async () => {
+    syncPreviewLoading.value = true
     try {
-      await ElMessageBox.confirm(t('admin.portMapping.syncConfirmMessage'), t('admin.portMapping.syncConfirmTitle'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
-      await syncPortMappings({})
-      ElMessage.success(t('admin.portMapping.syncTaskCreated'))
-      setTimeout(() => loadPortMappings(), 1000)
+      const response = await syncPortMappings({ dryRun: true })
+      const preview = response.data || { providers: [], candidateCount: 0 }
+      syncPreview.value = preview
+      selectedSyncPortIds.value = syncCandidates.value.map(item => item.portId)
+      if (!preview.candidateCount) {
+        const failedCount = (preview.providers || []).filter(provider => !provider.healthy).length
+        if (failedCount > 0) ElMessage.warning(t('admin.portMapping.syncPreviewNoCandidatesWithErrors', { count: failedCount }))
+        else ElMessage.success(t('admin.portMapping.syncPreviewNoCandidates'))
+        return
+      }
+      syncPreviewVisible.value = true
     } catch (error) { if (error !== 'cancel') ElMessage.error(error.message || t('admin.portMapping.syncFailed')) }
+    finally { syncPreviewLoading.value = false }
+  }
+
+  const toggleAllSyncCandidates = () => {
+    if (allSyncSelected.value) selectedSyncPortIds.value = []
+    else selectedSyncPortIds.value = syncCandidates.value.map(item => item.portId)
+  }
+
+  const confirmSyncPortMappings = async () => {
+    if (selectedSyncPortIds.value.length === 0) {
+      ElMessage.warning(t('admin.portMapping.syncSelectAtLeastOne'))
+      return
+    }
+    syncSubmitting.value = true
+    try {
+      await ElMessageBox.confirm(
+        t('admin.portMapping.syncExecuteConfirm', { count: selectedSyncPortIds.value.length }),
+        t('admin.portMapping.syncConfirmTitle'),
+        { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
+      )
+      const selectedSet = new Set(selectedSyncPortIds.value)
+      const selectedCandidates = syncCandidates.value.filter(item => selectedSet.has(item.portId))
+      const excludedPortIds = syncCandidates.value.filter(item => !selectedSet.has(item.portId)).map(item => item.portId)
+      const providerIds = [...new Set(selectedCandidates.map(item => item.providerId).filter(Boolean))]
+      await syncPortMappings({ providerIds, includedPortIds: selectedSyncPortIds.value, excludedPortIds })
+      ElMessage.success(t('admin.portMapping.syncTaskCreated'))
+      syncPreviewVisible.value = false
+      setTimeout(() => loadPortMappings(), 1000)
+    } catch (error) {
+      if (error !== 'cancel') ElMessage.error(error.message || t('admin.portMapping.syncFailed'))
+    } finally {
+      syncSubmitting.value = false
+    }
+  }
+
+  const formatSyncReason = (reason) => {
+    if (reason === 'no_port_mapping') return t('admin.portMapping.syncReasonNoPortMapping')
+    if (reason === 'orphan_instance') return t('admin.portMapping.syncReasonOrphanInstance')
+    return reason || '-'
   }
 
   const cleanupAutoRefresh = () => {
@@ -306,6 +369,8 @@ export function usePortMappingManagement() {
   return {
     loading, portMappings, providers, instances, currentPage, pageSize, total,
     selectedPortMappings, searchForm,
+    syncPreviewVisible, syncPreviewLoading, syncSubmitting, syncPreview,
+    selectedSyncPortIds, syncCandidates, unhealthySyncProviders, allSyncSelected,
     addDialogVisible, addFormRef, addLoading, addForm, addRules,
     checkingPort, portCheckResult,
     supportedInstances, selectedInstanceProvider, portRangePreview, portMappingHint,
@@ -316,7 +381,7 @@ export function usePortMappingManagement() {
     handleSelectionChange, handleSizeChange, handleCurrentChange,
     deletePortMappingHandler, batchDeleteDirect,
     formatTime, openAddDialog, onInstanceChange, submitAdd,
-    handleSyncPortMappings, filterInstances,
+    handleSyncPortMappings, confirmSyncPortMappings, toggleAllSyncCandidates, formatSyncReason, filterInstances,
     updatePortRange, checkPortAvailabilityDebounced,
     checkPortAvailability: checkPortAvailabilityFn,
     cleanupAutoRefresh,

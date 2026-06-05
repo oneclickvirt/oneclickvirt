@@ -17,6 +17,7 @@ import (
 	adminProvider "oneclickvirt/service/admin/provider"
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/provider"
+	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -140,8 +141,8 @@ func GenerateAgentSecret(c *gin.Context) {
 
 // GetStoppedContainers godoc
 //
-//	@Summary		获取节点上已停止的容器列表（用于复制模式）
-//	@Description	通过SSH连接到LXD/Incus节点，返回所有Stopped状态的容器名称列表
+//	@Summary		获取节点上可用于复制模式的源容器列表
+//	@Description	通过SSH或Agent连接到LXD/Incus/Docker/Podman/Containerd/Orbstack节点，返回可作为复制源的容器名称列表
 //	@Tags			admin/providers
 //	@Param			id	path	int	true	"Provider ID"
 //	@Produce		json
@@ -168,8 +169,8 @@ func GetStoppedContainers(c *gin.Context) {
 		return
 	}
 
-	if dbProvider.Type != "lxd" && dbProvider.Type != "incus" {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "仅 LXD/Incus 类型支持容器复制"))
+	if !utils.SupportsContainerCopyProvider(dbProvider.Type) {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "仅 LXD/Incus/Docker/Podman/Containerd/Orbstack 类型支持容器复制"))
 		return
 	}
 
@@ -177,6 +178,14 @@ func GetStoppedContainers(c *gin.Context) {
 	listCmd := "lxc list --format json 2>/dev/null"
 	if dbProvider.Type == "incus" {
 		listCmd = "incus list --format json 2>/dev/null"
+	} else if utils.IsDockerFamilyProvider(dbProvider.Type) {
+		cli := "docker"
+		if dbProvider.Type == "podman" {
+			cli = "podman"
+		} else if dbProvider.Type == "containerd" {
+			cli = "nerdctl"
+		}
+		listCmd = fmt.Sprintf("%s ps -a --format '{{.Names}}\t{{.Status}}' 2>/dev/null", cli)
 	}
 
 	execCtx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
@@ -247,36 +256,55 @@ func GetStoppedContainers(c *gin.Context) {
 		return hasGPU, strings.Join(ids, ",")
 	}
 
-	records := make([]containerRecord, 0)
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &records); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "解析容器列表失败: "+err.Error()))
-		return
-	}
-
 	stopped := make([]string, 0)
-	details := make([]containerDetail, 0, len(records))
-	for _, rec := range records {
-		status := strings.TrimSpace(rec.Status)
-		if !strings.EqualFold(status, "stopped") {
-			continue
+	details := make([]containerDetail, 0)
+	if utils.IsDockerFamilyProvider(dbProvider.Type) {
+		for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+			parts := strings.SplitN(strings.TrimSpace(line), "\t", 2)
+			if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+				continue
+			}
+			name := strings.TrimSpace(parts[0])
+			if !utils.IsValidContainerRuntimeName(name) {
+				continue
+			}
+			status := ""
+			if len(parts) > 1 {
+				status = strings.TrimSpace(parts[1])
+			}
+			stopped = append(stopped, name)
+			details = append(details, containerDetail{Name: name, Status: status})
 		}
-		hasGPU, gpuIDs := hasGPUDevices(rec.Devices)
-		if !hasGPU {
-			hasGPU, gpuIDs = hasGPUDevices(rec.ExpandedDevices)
+	} else {
+		records := make([]containerRecord, 0)
+		if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &records); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "解析容器列表失败: "+err.Error()))
+			return
 		}
-		stopped = append(stopped, rec.Name)
-		details = append(details, containerDetail{
-			Name:         rec.Name,
-			Status:       status,
-			HasGPU:       hasGPU,
-			GpuDeviceIDs: gpuIDs,
-		})
+		details = make([]containerDetail, 0, len(records))
+		for _, rec := range records {
+			status := strings.TrimSpace(rec.Status)
+			if !strings.EqualFold(status, "stopped") {
+				continue
+			}
+			hasGPU, gpuIDs := hasGPUDevices(rec.Devices)
+			if !hasGPU {
+				hasGPU, gpuIDs = hasGPUDevices(rec.ExpandedDevices)
+			}
+			stopped = append(stopped, rec.Name)
+			details = append(details, containerDetail{
+				Name:         rec.Name,
+				Status:       status,
+				HasGPU:       hasGPU,
+				GpuDeviceIDs: gpuIDs,
+			})
+		}
 	}
 
 	common.ResponseSuccess(c, map[string]interface{}{
 		"containers":       stopped,
 		"containerDetails": details,
-	}, "获取停止容器列表成功")
+	}, "获取源容器列表成功")
 }
 
 // ExecOnProvider godoc

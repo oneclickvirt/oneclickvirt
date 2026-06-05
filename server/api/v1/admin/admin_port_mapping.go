@@ -181,9 +181,12 @@ func GetPortMappingList(c *gin.Context) {
 			"instanceName": instanceName,
 			"providerId":   port.ProviderID,
 			"providerName": providerName,
-			"hostPort":     port.HostPort,  // 统一使用 hostPort
+			"hostPort":     port.HostPort, // 统一使用 hostPort
+			"hostPortEnd":  port.HostPortEnd,
 			"guestPort":    port.GuestPort, // 统一使用 guestPort
-			"publicIP":     publicIP,       // 仅IP地址，不含端口
+			"guestPortEnd": port.GuestPortEnd,
+			"portCount":    port.PortCount,
+			"publicIP":     publicIP, // 仅IP地址，不含端口
 			"protocol":     port.Protocol,
 			"status":       port.Status,
 			"description":  port.Description,
@@ -633,6 +636,18 @@ func SyncPortMappings(c *gin.Context) {
 
 	// 创建同步任务（为每个Provider创建独立任务）
 	taskService := task.GetTaskService()
+	if req.DryRun {
+		preview, err := taskService.PreviewSyncPortMappings(c.Request.Context(), &req)
+		if err != nil {
+			global.APP_LOG.Error("生成端口映射同步预览失败",
+				zap.Uint("userId", userID),
+				zap.Error(err))
+			common.ResponseWithError(c, common.ClassifyError(err))
+			return
+		}
+		common.ResponseSuccess(c, preview, "端口映射同步预览已生成")
+		return
+	}
 	tasks, err := taskService.CreateSyncPortMappingsTask(userID, &req)
 	if err != nil {
 		global.APP_LOG.Error("创建端口映射同步任务失败",

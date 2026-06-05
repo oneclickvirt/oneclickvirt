@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { useApplyProviders } from './composables/useApplyProviders'
 import { useApplyForm } from './composables/useApplyForm'
 import { getProviderHardwareReport } from '@/api/public'
+import { isContainerGPUProvider } from '@/utils/providerTypes'
 
 export default function useApplyPage() {
   const route = useRoute()
@@ -38,13 +39,12 @@ export default function useApplyPage() {
   // Provider group tabs
   const activeGroupTab = ref('')
 
-  // GPU 直通配置的条件：仅 LXD/Incus 节点 + 容器实例类型
+  // GPU passthrough is native on LXD/Incus and best-effort on Docker-family providers.
   const canConfigureGpuPassthrough = computed(() => {
     if (!selectedProvider.value) return false
     const providerType = selectedProvider.value.type
-    const isLxdIncus = providerType === 'lxd' || providerType === 'incus'
     const isContainer = configForm.type === 'container'
-    return isLxdIncus && isContainer
+    return isContainerGPUProvider(providerType) && isContainer
   })
 
   // When GPU enabled checkbox is toggled, load cached GPU info if not already loaded

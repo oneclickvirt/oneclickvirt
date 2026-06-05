@@ -35,35 +35,74 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 	// 初始化服务
 	dbService := database.GetDatabaseService()
 
-	// 验证各个规格ID
-	cpuSpec, err := constant.GetCPUSpecByID(taskReq.CPUId)
-	if err != nil {
-		return nil, fmt.Errorf("无效的CPU规格ID: %v", err)
-	}
-
-	memorySpec, err := constant.GetMemorySpecByID(taskReq.MemoryId)
-	if err != nil {
-		return nil, fmt.Errorf("无效的内存规格ID: %v", err)
-	}
-
-	diskSpec, err := constant.GetDiskSpecByID(taskReq.DiskId)
-	if err != nil {
-		return nil, fmt.Errorf("无效的磁盘规格ID: %v", err)
-	}
-
-	bandwidthSpec, err := constant.GetBandwidthSpecByID(taskReq.BandwidthId)
-	if err != nil {
-		return nil, fmt.Errorf("无效的带宽规格ID: %v", err)
+	directCreate := taskReq.AdminDirect
+	cpuCores := 0
+	memoryMB := int64(0)
+	diskMB := int64(0)
+	bandwidthSpeedMbps := 0
+	if directCreate {
+		if taskReq.ProviderId == 0 {
+			return nil, fmt.Errorf("缺少Provider ID")
+		}
+		if taskReq.Image == "" {
+			return nil, fmt.Errorf("镜像不能为空")
+		}
+		if taskReq.InstanceType != "container" && taskReq.InstanceType != "vm" {
+			return nil, fmt.Errorf("实例类型必须为container或vm")
+		}
+		if taskReq.CPU <= 0 {
+			return nil, fmt.Errorf("CPU必须大于0")
+		}
+		if taskReq.Memory <= 0 {
+			return nil, fmt.Errorf("内存必须大于0")
+		}
+		if taskReq.Disk <= 0 {
+			return nil, fmt.Errorf("磁盘必须大于0")
+		}
+		cpuCores = taskReq.CPU
+		memoryMB = taskReq.Memory
+		diskMB = taskReq.Disk * 1024
+		bandwidthSpeedMbps = taskReq.Bandwidth
+	} else {
+		// 验证各个规格ID
+		cpuSpec, err := constant.GetCPUSpecByID(taskReq.CPUId)
+		if err != nil {
+			return nil, fmt.Errorf("无效的CPU规格ID: %v", err)
+		}
+		memorySpec, err := constant.GetMemorySpecByID(taskReq.MemoryId)
+		if err != nil {
+			return nil, fmt.Errorf("无效的内存规格ID: %v", err)
+		}
+		diskSpec, err := constant.GetDiskSpecByID(taskReq.DiskId)
+		if err != nil {
+			return nil, fmt.Errorf("无效的磁盘规格ID: %v", err)
+		}
+		bandwidthSpec, err := constant.GetBandwidthSpecByID(taskReq.BandwidthId)
+		if err != nil {
+			return nil, fmt.Errorf("无效的带宽规格ID: %v", err)
+		}
+		cpuCores = cpuSpec.Cores
+		memoryMB = int64(memorySpec.SizeMB)
+		diskMB = int64(diskSpec.SizeMB)
+		bandwidthSpeedMbps = bandwidthSpec.SpeedMbps
 	}
 
 	var instance providerModel.Instance
 
 	// 在单个事务中完成所有数据库操作（不需要预留资源消费）
-	err = dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		// 重新验证镜像和服务器（防止状态变化）
-		var systemImage systemModel.SystemImage
-		if err := tx.Where("id = ? AND status = ?", taskReq.ImageId, "active").First(&systemImage).Error; err != nil {
-			return fmt.Errorf("镜像不存在或已禁用")
+		imageName := taskReq.Image
+		instanceType := taskReq.InstanceType
+		osType := ""
+		if !directCreate {
+			var systemImage systemModel.SystemImage
+			if err := tx.Where("id = ? AND status = ?", taskReq.ImageId, "active").First(&systemImage).Error; err != nil {
+				return fmt.Errorf("镜像不存在或已禁用")
+			}
+			imageName = systemImage.Name
+			instanceType = systemImage.InstanceType
+			osType = systemImage.OSType
 		}
 
 		var provider providerModel.Provider
@@ -87,13 +126,20 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 
 		// 生成实例名称
 		instanceName := s.generateInstanceName(provider.Name)
+		if directCreate && taskReq.Name != "" {
+			instanceName = utils.SanitizeShellArg(taskReq.Name)
+		}
 
 		// 设置实例到期时间：节点到期优先；节点不过期且启用签到时，使用签到默认到期天数。
 		expiredAt := determineInitialInstanceExpiryInTx(tx, &provider)
-		gpuEnabled := taskReq.GpuEnabled && utils.SupportsLXDContainerOptions(provider.Type, systemImage.InstanceType)
+		gpuEnabled := taskReq.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, instanceType)
 		gpuDeviceIDs := ""
 		if gpuEnabled {
 			gpuDeviceIDs = taskReq.GpuDeviceIds
+		}
+		networkType := provider.NetworkType
+		if directCreate && taskReq.NetworkType != "" {
+			networkType = taskReq.NetworkType
 		}
 
 		// 创建实例记录
@@ -101,16 +147,18 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 			Name:               instanceName,
 			Provider:           provider.Name,
 			ProviderID:         provider.ID,
-			Image:              systemImage.Name,
-			CPU:                cpuSpec.Cores,
-			Memory:             int64(memorySpec.SizeMB),
-			Disk:               int64(diskSpec.SizeMB),
-			Bandwidth:          bandwidthSpec.SpeedMbps,
-			InstanceType:       systemImage.InstanceType,
+			Image:              imageName,
+			CPU:                cpuCores,
+			Memory:             memoryMB,
+			Disk:               diskMB,
+			Bandwidth:          bandwidthSpeedMbps,
+			InstanceType:       instanceType,
 			UserID:             task.UserID,
 			Status:             "creating",
-			OSType:             systemImage.OSType,
-			NetworkType:        provider.NetworkType, // 记录Provider的网络类型，用于reset时恢复IPv6配置
+			Username:           "root",
+			Password:           s.generatePassword(),
+			OSType:             osType,
+			NetworkType:        networkType, // 记录Provider的网络类型，用于reset时恢复IPv6配置
 			ExpiresAt:          expiredAt,
 			IsManualExpiry:     false,        // 默认非手动设置，跟随节点
 			MaxTraffic:         0,            // 默认为0，表示继承用户等级限制，不单独限制实例
@@ -132,22 +180,25 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		}).Error; err != nil {
 			return fmt.Errorf("更新任务状态失败: %v", err)
 		}
+		task.InstanceID = &instance.ID
 
 		// 分配Provider资源（使用悲观锁）
 		resourceService := &resources.ResourceService{}
-		if err := resourceService.AllocateResourcesInTx(tx, provider.ID, systemImage.InstanceType,
-			cpuSpec.Cores, int64(memorySpec.SizeMB), int64(diskSpec.SizeMB)); err != nil {
+		if err := resourceService.AllocateResourcesInTx(tx, provider.ID, instanceType,
+			cpuCores, memoryMB, diskMB); err != nil {
 			return fmt.Errorf("分配Provider资源失败: %v", err)
 		}
 
 		// 消费预留资源（实例已创建成功）
-		reservationService := resources.GetResourceReservationService()
-		if err := reservationService.ConsumeReservationBySessionInTx(tx, taskReq.SessionId); err != nil {
-			global.APP_LOG.Error("消费预留资源失败，回滚事务",
-				zap.String("sessionId", taskReq.SessionId),
-				zap.Error(err))
-			// 消费失败必须返回错误，触发事务回滚，避免资源重复计算
-			return fmt.Errorf("消费预留资源失败: %v", err)
+		if taskReq.SessionId != "" {
+			reservationService := resources.GetResourceReservationService()
+			if err := reservationService.ConsumeReservationBySessionInTx(tx, taskReq.SessionId); err != nil {
+				global.APP_LOG.Error("消费预留资源失败，回滚事务",
+					zap.String("sessionId", taskReq.SessionId),
+					zap.Error(err))
+				// 消费失败必须返回错误，触发事务回滚，避免资源重复计算
+				return fmt.Errorf("消费预留资源失败: %v", err)
+			}
 		}
 
 		return nil

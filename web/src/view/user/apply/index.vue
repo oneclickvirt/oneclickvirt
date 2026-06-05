@@ -388,7 +388,7 @@
           </el-col>
         </el-row>
 
-        <!-- GPU 直通配置（仅 LXD/Incus 容器实例，使用后端缓存数据提供勾选） -->
+        <!-- GPU passthrough, using backend-cached device data. -->
         <el-form-item
           v-if="canConfigureGpuPassthrough"
           :label="t('user.apply.gpuPassthrough')"

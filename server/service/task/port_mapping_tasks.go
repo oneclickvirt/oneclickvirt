@@ -23,6 +23,14 @@ import (
 // CreateSyncPortMappingsTask 创建同步端口映射任务（为每个Provider创建独立任务）
 func (s *TaskService) CreateSyncPortMappingsTask(userID uint, req *adminModel.SyncPortMappingsTaskRequest) ([]*adminModel.Task, error) {
 	// 获取需要同步的Provider列表
+	if len(req.ProviderIDs) == 0 && len(req.IncludedPortIDs) > 0 {
+		if err := global.APP_DB.Model(&providerModel.Port{}).
+			Where("id IN ?", req.IncludedPortIDs).
+			Distinct("provider_id").
+			Pluck("provider_id", &req.ProviderIDs).Error; err != nil {
+			return nil, fmt.Errorf("查询待同步端口所属Provider失败: %v", err)
+		}
+	}
 	var providers []providerModel.Provider
 	query := global.APP_DB.Where("status = ?", "active")
 	if len(req.ProviderIDs) > 0 {
@@ -304,7 +312,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 
 	// 确定使用的 portmapping provider 类型
 	portMappingType := localProviderType
-	if portMappingType == "proxmox" || portMappingType == "proxmoxve" {
+	if portMappingType == "proxmox" || portMappingType == "proxmoxve" || utils.IsVMOnlyProvider(portMappingType) {
 		portMappingType = "iptables"
 	}
 
@@ -508,7 +516,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		})
 
 		portMappingType := localProviderType
-		if portMappingType == "proxmox" || portMappingType == "proxmoxve" {
+		if portMappingType == "proxmox" || portMappingType == "proxmoxve" || utils.IsVMOnlyProvider(portMappingType) {
 			portMappingType = "iptables"
 		}
 

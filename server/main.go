@@ -18,9 +18,12 @@ import (
 	_ "oneclickvirt/provider/incus"
 	_ "oneclickvirt/provider/kubevirt"
 	_ "oneclickvirt/provider/lxd"
+	_ "oneclickvirt/provider/multipass"
 	_ "oneclickvirt/provider/podman"
 	_ "oneclickvirt/provider/proxmox"
 	_ "oneclickvirt/provider/qemu"
+	_ "oneclickvirt/provider/vagrant"
+	_ "oneclickvirt/provider/virtualbox"
 	_ "oneclickvirt/provider/vmware"
 
 	"go.uber.org/zap"

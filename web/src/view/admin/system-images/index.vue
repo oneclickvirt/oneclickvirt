@@ -46,36 +46,10 @@
               style="width: 100%;"
             >
               <el-option
-                label="ProxmoxVE"
-                value="proxmox"
-              />
-              <el-option
-                label="LXD"
-                value="lxd"
-              />
-              <el-option
-                label="Incus"
-                value="incus"
-              />
-              <el-option
-                label="Docker"
-                value="docker"
-              />
-              <el-option
-                label="Podman"
-                value="podman"
-              />
-              <el-option
-                label="Containerd"
-                value="containerd"
-              />
-              <el-option
-                label="QEMU/KVM"
-                value="qemu"
-              />
-              <el-option
-                label="KubeVirt"
-                value="kubevirt"
+                v-for="option in PROVIDER_TYPE_OPTIONS"
+                :key="option.value"
+                :label="$t(option.labelKey)"
+                :value="option.value"
               />
             </el-select>
           </el-col>
@@ -389,36 +363,10 @@
                 @change="handleProviderTypeChange"
               >
                 <el-option
-                  label="ProxmoxVE"
-                  value="proxmox"
-                />
-                <el-option
-                  label="LXD"
-                  value="lxd"
-                />
-                <el-option
-                  label="Incus"
-                  value="incus"
-                />
-                <el-option
-                  label="Docker"
-                  value="docker"
-                />
-                <el-option
-                  label="Podman"
-                  value="podman"
-                />
-                <el-option
-                  label="Containerd"
-                  value="containerd"
-                />
-                <el-option
-                  label="QEMU/KVM"
-                  value="qemu"
-                />
-                <el-option
-                  label="KubeVirt"
-                  value="kubevirt"
+                  v-for="option in PROVIDER_TYPE_OPTIONS"
+                  :key="option.value"
+                  :label="$t(option.labelKey)"
+                  :value="option.value"
                 />
               </el-select>
             </el-form-item>
@@ -622,6 +570,7 @@ import { onMounted } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import OsIcon from '@/components/OsIcon.vue'
 import { useSystemImageManagement } from './composables/useSystemImageManagement'
+import { PROVIDER_TYPE_OPTIONS } from '@/utils/providerTypes'
 
 const {
   loading, submitting, dialogVisible, selectedRows, tableData,

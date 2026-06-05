@@ -16,6 +16,7 @@ import {
   getProviderCapabilities,
   getInstanceConfig
 } from '@/api/user'
+import { isContainerGPUProvider, isCopyCapableProvider } from '@/utils/providerTypes'
 
 export default function useRedemptionCodes() {
   const { t, locale } = useI18n()
@@ -87,14 +88,16 @@ export default function useRedemptionCodes() {
   const stoppedContainers = ref([])
   const stoppedContainerOptions = ref([])
   const stoppedContainersLoading = ref(false)
-  const isLxdIncusProvider = computed(() => {
+  const isCopyCapableSelectedProvider = computed(() => {
     if (!createForm.providerId) return false
     const p = allProviders.value.find(p => p.id === createForm.providerId)
-    return p && (p.type === 'lxd' || p.type === 'incus')
+    return p && isCopyCapableProvider(p.type)
   })
 
   const canConfigureGpuPassthrough = computed(() => {
-    if (!isLxdIncusProvider.value) return false
+    if (!createForm.providerId) return false
+    const p = allProviders.value.find(p => p.id === createForm.providerId)
+    if (!p || !isContainerGPUProvider(p.type)) return false
     return createForm.creationMode === 'copy' || createForm.instanceType === 'container'
   })
 
@@ -192,7 +195,7 @@ export default function useRedemptionCodes() {
       memorySpecs.value = []
       diskSpecs.value = []
       bandwidthSpecs.value = []
-      // 容器列表刷新由 watch(isLxdIncusProvider && creationMode==='copy') 统一处理
+      // 容器列表刷新由 copy-capable provider watcher 统一处理
       return
     }
     // 切回标准模式：恢复实例类型并重新加载镜像和规格
@@ -219,7 +222,7 @@ export default function useRedemptionCodes() {
   // 当源容器下拉变为可见时，自动刷新容器列表
   // （覆盖所有进入复制模式的路径：手动切换、程序设置等）
   watch(
-    () => isLxdIncusProvider.value && createForm.creationMode === 'copy',
+    () => isCopyCapableSelectedProvider.value && createForm.creationMode === 'copy',
     (shouldShow) => {
       if (shouldShow && createForm.providerId) {
         refreshStoppedContainers(createForm.providerId)
@@ -403,9 +406,9 @@ export default function useRedemptionCodes() {
       // ignore
     }
 
-    // 如果是 lxd/incus 节点，加载已停止的容器列表和GPU列表
+    // 如果是支持复制的容器节点，加载源容器列表和GPU列表
     const p = allProviders.value.find(p => p.id === providerId)
-    if (p && (p.type === 'lxd' || p.type === 'incus')) {
+    if (p && isCopyCapableProvider(p.type)) {
       // 仅在当前模式无效时才重置为标准模式（避免覆盖用户已切换的模式）
       if (createForm.creationMode !== 'standard' && createForm.creationMode !== 'copy') {
         createForm.creationMode = 'standard'
@@ -427,7 +430,7 @@ export default function useRedemptionCodes() {
         gpuDetecting.value = false
       }
     } else {
-      // 非 LXD/Incus 节点不支持复制模式，强制切回标准
+      // 不支持复制的节点强制切回标准
       if (createForm.creationMode !== 'standard') {
         createForm.creationMode = 'standard'
       }
@@ -614,7 +617,7 @@ export default function useRedemptionCodes() {
     providerCaps, availableImages,
     cpuSpecs, memorySpecs, diskSpecs, bandwidthSpecs,
     stoppedContainers, stoppedContainerOptions, stoppedContainersLoading,
-    isLxdIncusProvider, canConfigureGpuPassthrough,
+    isLxdIncusProvider: isCopyCapableSelectedProvider, canConfigureGpuPassthrough,
     gpuDetecting, gpuChecked, detectedGpus, selectedGpuIndices,
     showExportDialog, exportedCodesText, exportResult, exportLoading, exportFields,
     allExportFields,

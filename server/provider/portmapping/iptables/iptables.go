@@ -419,6 +419,12 @@ func (i *IptablesPortMapping) getTableName(providerInfo *provider.Provider) stri
 		return "kubevirt"
 	case "vmware":
 		return "vmware"
+	case "virtualbox":
+		return "virtualbox"
+	case "multipass":
+		return "multipass"
+	case "vagrant":
+		return "vagrant"
 	case "proxmox", "proxmoxve":
 		return "proxmox"
 	case "incus":
@@ -441,6 +447,12 @@ func (i *IptablesPortMapping) getMarkerFile(providerInfo *provider.Provider) str
 		return "/usr/local/bin/kubevirt_fw_backend"
 	case "vmware":
 		return "/usr/local/bin/vmware_fw_backend"
+	case "virtualbox":
+		return "/usr/local/bin/virtualbox_fw_backend"
+	case "multipass":
+		return "/usr/local/bin/multipass_fw_backend"
+	case "vagrant":
+		return "/usr/local/bin/vagrant_fw_backend"
 	case "proxmox", "proxmoxve":
 		return "/usr/local/bin/proxmox_fw_backend"
 	case "incus":

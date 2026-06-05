@@ -142,7 +142,7 @@ export const detectProviderGPUs = (providerId) => {
   })
 }
 
-// 获取节点上已停止的容器列表（用于复制模式）
+// 获取节点上可用于复制模式的源容器列表
 export const getStoppedContainers = (providerId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/stopped-containers`,

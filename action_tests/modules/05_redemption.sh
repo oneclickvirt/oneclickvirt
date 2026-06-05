@@ -12,13 +12,15 @@ run_module_05() {
     # -- Batch create standard mode (requires provider + images; accept 400 if preconditions not met) --
     local provider_for_redeem="${PROVIDER_ID:-1}"
 
-    # Detect provider type to decide whether copy mode is applicable (LXD/Incus only)
+    # Detect provider type to decide whether copy mode is applicable.
     local provider_type; provider_type=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/providers/${provider_for_redeem}" 2>/dev/null | \
         jq -r '.data.type // empty' 2>/dev/null)
-    local is_lxd_incus=false
-    [[ "$provider_type" == "lxd" || "$provider_type" == "incus" ]] && is_lxd_incus=true
-    log_info "Provider type for redemption tests: ${provider_type} (copy mode applicable: ${is_lxd_incus})"
+    local is_copy_capable=false
+    case "$provider_type" in
+        lxd|incus|docker|podman|containerd|orbstack) is_copy_capable=true ;;
+    esac
+    log_info "Provider type for redemption tests: ${provider_type} (copy mode applicable: ${is_copy_capable})"
 
     # ---- Container redemption codes (standard mode) ----
     test_api "Batch create codes (container, standard)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
@@ -28,25 +30,25 @@ run_module_05() {
     test_api "Batch create codes (VM, standard)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
         "{\"count\":2,\"providerId\":${provider_for_redeem},\"instanceType\":\"vm\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI VM test\",\"creationMode\":\"standard\"}" "$group"
 
-    # ---- Copy mode (LXD/Incus only) ----
-    if [[ "$is_lxd_incus" == "true" ]]; then
-        # Fetch stopped containers to use as copy source
-        local stopped_resp; stopped_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+    # ---- Copy mode (LXD/Incus and Docker-family providers) ----
+    if [[ "$is_copy_capable" == "true" ]]; then
+        # Fetch copyable source containers.
+        local source_resp; source_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/providers/${provider_for_redeem}/stopped-containers" 2>/dev/null)
-        local real_source; real_source=$(echo "$stopped_resp" | jq -r '.data[0].name // empty' 2>/dev/null)
+        local real_source; real_source=$(echo "$source_resp" | jq -r '.data.containerDetails[0].name // .data.containers[0] // empty' 2>/dev/null)
 
         if [[ -n "$real_source" ]]; then
-            log_info "Found stopped container for copy mode test: ${real_source}"
+            log_info "Found source container for copy mode test: ${real_source}"
             test_api "Batch create codes (copy mode with real source)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400" \
                 "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"${real_source}\",\"remark\":\"CI copy mode test\"}" "$group"
         else
-            log_info "No stopped containers available, testing copy mode with placeholder source"
+            log_info "No source containers available, testing copy mode with placeholder source"
             test_api "Batch create codes (copy mode placeholder)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
                 "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"ci-test-source\",\"remark\":\"CI copy mode test\"}" "$group"
         fi
     else
-        # Non-LXD/Incus: copy mode should be rejected gracefully
-        test_api "Batch create codes (copy mode rejected for non-LXD)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400|404|500" \
+        # Non-copy-capable providers should reject copy mode gracefully.
+        test_api "Batch create codes (copy mode rejected for provider)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400|404|500" \
             "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"test-source\",\"remark\":\"CI copy mode test\"}" "$group"
     fi
 

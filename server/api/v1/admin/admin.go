@@ -135,7 +135,7 @@ func CreateInstance(c *gin.Context) {
 		zap.String("admin_ip", c.ClientIP()))
 
 	instanceService := instance.NewService(task.GetTaskService())
-	instanceID, err := instanceService.CreateInstance(req, middleware.GetOwnerAdminID(c))
+	createTask, err := instanceService.CreateInstance(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("管理员创建实例失败",
 			zap.Error(err),
@@ -149,9 +149,14 @@ func CreateInstance(c *gin.Context) {
 	global.APP_LOG.Info("管理员创建实例成功",
 		zap.String("instance_name", utils.TruncateString(req.Name, 50)),
 		zap.String("provider", req.Provider),
+		zap.Uint("task_id", createTask.ID),
 		zap.String("admin_ip", c.ClientIP()))
 
-	common.ResponseSuccess(c, gin.H{"id": instanceID}, "创建实例成功")
+	common.ResponseSuccess(c, gin.H{
+		"id":      createTask.ID,
+		"taskId":  createTask.ID,
+		"task_id": createTask.ID,
+	}, "创建实例任务已创建")
 }
 
 func UpdateInstance(c *gin.Context) {

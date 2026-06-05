@@ -472,9 +472,8 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 		createReq.InstanceConfig.Ports = ports
 	}
 
-	// QEMU/KubeVirt端口映射特殊处理
-	// 这些Provider通过shell脚本的位置参数传递端口：[sshPort, startPort, endPort]
-	if (resetCtx.Provider.Type == "qemu" || resetCtx.Provider.Type == "kubevirt") && len(resetCtx.OldPortMappings) > 0 {
+	// VM-only providers may consume positional ports: [sshPort, startPort, endPort].
+	if utils.IsVMOnlyProvider(resetCtx.Provider.Type) && len(resetCtx.OldPortMappings) > 0 {
 		var sshPort, startPort, endPort int
 		for _, oldPort := range resetCtx.OldPortMappings {
 			if oldPort.IsSSH {
@@ -517,7 +516,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	// 等待实例启动：QEMU/KubeVirt虚拟机启动慢，需要更长等待
 	instanceStartWait := 15 * time.Second
 	switch resetCtx.Provider.Type {
-	case "qemu", "kubevirt", "vmware":
+	case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
 		instanceStartWait = 120 * time.Second
 	case "proxmox":
 		instanceStartWait = 60 * time.Second

@@ -9,7 +9,7 @@ export const getPortMappings = (params) => {
   })
 }
 
-// 创建端口映射（仅支持手动添加单个端口，仅支持 LXD/Incus/PVE）
+// 创建端口映射（手动添加单个端口或端口段；Docker 家族仅支持控制端转发）
 export const createPortMapping = (data) => {
   return request({
     url: '/v1/admin/port-mappings',

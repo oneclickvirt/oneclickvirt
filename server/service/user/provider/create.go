@@ -171,10 +171,10 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 		return nil, err
 	}
 
-	// 验证 GPU 直通配置（仅 LXD/Incus 容器实例支持）
+	// 验证 GPU 直通配置（LXD/Incus 原生设备配置，Docker 家族 best-effort）
 	if req.GpuEnabled {
-		if !utils.SupportsLXDContainerOptions(provider.Type, systemImage.InstanceType) {
-			return nil, fmt.Errorf("GPU 直通仅支持 LXD/Incus 的容器实例")
+		if !utils.SupportsContainerGPUProvider(provider.Type, systemImage.InstanceType) {
+			return nil, fmt.Errorf("GPU 直通仅支持 LXD/Incus/Docker/Podman/Containerd/Orbstack 的容器实例")
 		}
 		// 验证 GPU 设备 ID 格式
 		if err := validateGPUDeviceIDs(req.GpuDeviceIds); err != nil {

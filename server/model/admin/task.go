@@ -34,6 +34,7 @@ type AdminTaskResponse struct {
 	ProviderID       *uint      `json:"providerId"`
 	ProviderName     string     `json:"providerName"`
 	InstanceID       *uint      `json:"instanceId"`
+	InstanceIDSnake  *uint      `json:"instance_id,omitempty"` // 兼容旧脚本/接口字段
 	InstanceName     string     `json:"instanceName"`
 	InstanceType     string     `json:"instanceType"`
 	CanForceStop     bool       `json:"canForceStop"`

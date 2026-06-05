@@ -381,7 +381,7 @@ jobs:
 
           # Ensure report directory has at least a fallback file
           if ! ls action_tests/reports/*.html 1>/dev/null 2>&1; then
-            echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat action_tests/reports/full-output.log | tail -100)</pre></body></html>" > "action_tests/reports/${{ matrix.environment }}-report.html"
+            echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat action_tests/reports/full-output.log)</pre></body></html>" > "action_tests/reports/${{ matrix.environment }}-report.html"
           fi
 
           # Always exit 0 - test failures are captured in reports/artifacts, not as step failure
