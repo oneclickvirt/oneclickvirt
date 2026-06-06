@@ -15050,6 +15050,10 @@ const docTemplate = `{
                     "description": "总硬盘空间(MB)",
                     "type": "integer"
                 },
+                "gpuEnabled": {
+                    "description": "是否启用GPU直通",
+                    "type": "boolean"
+                },
                 "groupDescription": {
                     "description": "分组描述(HTML)",
                     "type": "string"
