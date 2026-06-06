@@ -240,6 +240,7 @@ type AvailableProviderResponse struct {
 	ContainerEnabled        bool    `json:"containerEnabled"`
 	VmEnabled               bool    `json:"vmEnabled"`
 	RedeemCodeOnly          bool    `json:"redeemCodeOnly"`   // 是否仅支持兑换码兑换
+	GpuEnabled              bool    `json:"gpuEnabled"`       // 是否启用GPU直通
 	GroupName               string  `json:"groupName"`        // 分组名称
 	GroupDescription        string  `json:"groupDescription"` // 分组描述(HTML)
 }

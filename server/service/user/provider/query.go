@@ -185,6 +185,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				ContainerEnabled:        provider.ContainerEnabled,
 				VmEnabled:               provider.VirtualMachineEnabled,
 				RedeemCodeOnly:          provider.RedeemCodeOnly,
+				GpuEnabled:              provider.GpuEnabled,
 				GroupName:               provider.GroupName,
 				GroupDescription:        provider.GroupDescription,
 			}

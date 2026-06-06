@@ -169,15 +169,22 @@ run_module_10() {
             local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200|400|500" \
                 '{"action":"rebuild","image":"debian:12"}' "$group")
             log_info "Rebuild response: $(echo "$rb_resp" | jq -c '.' 2>/dev/null | head -c 2000)"
-            local rb_task; rb_task=$(echo "$rb_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
-            if [[ -n "$rb_task" ]]; then
-                log_info "Waiting for rebuild task ${rb_task}..."
-                wait_task_complete "$SERVER_URL" "$rb_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || {
-                    log_warning "Rebuild task ${rb_task} did not complete within timeout"
-                }
+            # Only proceed with rebuild wait if the server returned 200 (success).
+            # A 400/500 means the rebuild was rejected or failed immediately; skip the wait.
+            local rb_code; rb_code=$(echo "$rb_resp" | jq -r '.code // empty' 2>/dev/null)
+            if [[ "$rb_code" == "200" ]]; then
+                local rb_task; rb_task=$(echo "$rb_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+                if [[ -n "$rb_task" ]]; then
+                    log_info "Waiting for rebuild task ${rb_task}..."
+                    wait_task_complete "$SERVER_URL" "$rb_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || {
+                        log_warning "Rebuild task ${rb_task} did not complete within timeout"
+                    }
+                fi
+                # Wait for instance to reach running state after rebuild
+                wait_instance_status "$container_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "container ${container_id} after rebuild" > /dev/null || true
+            else
+                log_info "Rebuild returned code=${rb_code}, skipping post-rebuild status wait"
             fi
-            # Wait for instance to reach running state after rebuild
-            wait_instance_status "$container_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "container ${container_id} after rebuild" > /dev/null || true
         fi
     fi
 

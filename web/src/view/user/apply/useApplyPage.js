@@ -47,10 +47,14 @@ export default function useApplyPage() {
     return isContainerGPUProvider(providerType) && isContainer
   })
 
-  // When GPU enabled checkbox is toggled, load cached GPU info if not already loaded
+  // When GPU enabled checkbox is toggled, load cached GPU info if not already loaded.
+  // Only applicable when provider is lxd/incus AND admin has enabled GPU on the node.
   const onGpuEnabledChange = (val) => {
     if (val && detectedGpus.value.length === 0 && selectedProvider.value) {
-      loadProviderGPUs(selectedProvider.value.id)
+      const pt = selectedProvider.value.type
+      if ((pt === 'lxd' || pt === 'incus') && selectedProvider.value.gpuEnabled) {
+        loadProviderGPUs(selectedProvider.value.id)
+      }
     }
   }
 
@@ -121,8 +125,12 @@ export default function useApplyPage() {
     selectedProvider.value = provider
     await loadProviderCapabilities(provider.id)
     await loadInstanceConfig(provider.id)
-    // Preload cached GPU info so the checkbox UI is ready immediately
-    loadProviderGPUs(provider.id)
+    // Only preload GPU info if the provider type supports native GPU passthrough
+    // AND the admin has explicitly enabled GPU on this node.
+    const pt = provider.type
+    if ((pt === 'lxd' || pt === 'incus') && provider.gpuEnabled) {
+      loadProviderGPUs(provider.id)
+    }
     if (!canCreateInstanceType(configForm.type)) {
       const capabilities = providerCapabilities.value[provider.id]
       if (capabilities?.supportedTypes?.length > 0) {

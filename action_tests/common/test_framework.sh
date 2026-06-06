@@ -921,6 +921,27 @@ report_add_skip() {
 
 report_finalize() {
     [[ -z "$REPORT_FILE" ]] && return
+
+    # When tests ran in a subprocess (e.g. run_env_test.sh → run_module.sh),
+    # the in-memory counters may be zero.  Fall back to counting from the JSONL
+    # results file which is always written to disk.
+    if [[ $TOTAL_TESTS -eq 0 && -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" ]]; then
+        local _jsonl_total=0 _jsonl_pass=0 _jsonl_fail=0 _jsonl_skip=0
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            local _st; _st=$(echo "$line" | jq -r '.status // empty' 2>/dev/null)
+            case "$_st" in
+                PASS) _jsonl_pass=$((_jsonl_pass + 1)); _jsonl_total=$((_jsonl_total + 1)) ;;
+                FAIL) _jsonl_fail=$((_jsonl_fail + 1)); _jsonl_total=$((_jsonl_total + 1)) ;;
+                SKIP) _jsonl_skip=$((_jsonl_skip + 1)); _jsonl_total=$((_jsonl_total + 1)) ;;
+            esac
+        done < "$RESULTS_FILE"
+        TOTAL_TESTS=$_jsonl_total
+        PASSED_TESTS=$_jsonl_pass
+        FAILED_TESTS=$_jsonl_fail
+        SKIPPED_TESTS=$_jsonl_skip
+    fi
+
     local rate=0
     [[ $TOTAL_TESTS -gt 0 ]] && rate=$(( PASSED_TESTS * 100 / TOTAL_TESTS ))
     sed -i.bak "s/| Total | _PENDING_ |/| Total | ${TOTAL_TESTS} |/" "$REPORT_FILE"
