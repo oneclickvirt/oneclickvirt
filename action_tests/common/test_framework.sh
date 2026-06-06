@@ -1017,6 +1017,12 @@ restore_base_state() {
                 continue
             fi
             
+            # Skip deletion if this is the TEST_INSTANCE_ID (needed by downstream modules)
+            if [[ -n "${TEST_INSTANCE_ID:-}" && "$id" == "$TEST_INSTANCE_ID" ]]; then
+                log_debug "Preserving TEST_INSTANCE_ID=${id} for downstream modules"
+                continue
+            fi
+            
             log_info "Cleaning up instance created during module: ${id}"
             delete_instance_safe "$id" "$ADMIN_TOKEN" 30 || log_warning "Failed to delete instance ${id}"
         fi

@@ -707,6 +707,10 @@ func parseCopySizeToMB(raw string) int64 {
 // populateImageURLFromSystemImage 从系统镜像表查找匹配记录，填充 ImageURL/UseCDN。
 // 用于 admin 直连创建（directCreate）场景：此时 ImageURL 未由用户传入，
 // 尝试按镜像名+provider类型+实例类型匹配系统镜像，若匹配成功则自动填充下载信息。
+// 匹配策略：
+//  1. 优先按 name 精确匹配
+//  2. 从镜像名提取 OS 名（如 debian:12 → debian）按 osType 匹配
+//  3. 从镜像名提取版本号（如 debian:12 → 12）辅助按 osVersion 前缀匹配
 func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool, imageName, providerType, instanceType string, taskID uint) {
 	// 如果已有 imageURL，不覆盖
 	if *imageURL != "" {
@@ -716,17 +720,50 @@ func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool
 		return
 	}
 
-	var sysImg systemModel.SystemImage
 	imageLower := strings.ToLower(imageName)
-	// 按 provider 类型、实例类型、镜像名模糊匹配，优先取启用状态的
-	err := global.APP_DB.Where("provider_type = ? AND instance_type = ? AND status = ?", providerType, instanceType, "active").
-		Where("LOWER(name) LIKE ? OR LOWER(os_type) LIKE ?", "%"+imageLower+"%", "%"+imageLower+"%").
-		Order("created_at DESC").
-		First(&sysImg).Error
+
+	// 从镜像名中提取 OS 名称和版本（如 "debian:12" → osName="debian", osVer="12"）
+	osName := imageLower
+	osVer := ""
+	if idx := strings.IndexAny(imageLower, ":/"); idx > 0 {
+		osName = imageLower[:idx]
+		osVer = strings.TrimLeft(imageLower[idx+1:], "vV") // trim "v" prefix from version
+	}
+
+	var sysImg systemModel.SystemImage
+	baseQuery := global.APP_DB.Where("provider_type = ? AND instance_type = ? AND status = ?", providerType, instanceType, "active")
+
+	// 策略 1: 按 name 精确匹配
+	err := baseQuery.Where("LOWER(name) = ?", imageLower).Order("created_at DESC").First(&sysImg).Error
+	if err != nil {
+		// 策略 2: 按 osType 精确 + osVersion 前缀匹配
+		if osVer != "" {
+			err = baseQuery.
+				Where("LOWER(os_type) = ? AND LOWER(os_version) LIKE ?", osName, osVer+"%").
+				Order("created_at DESC").
+				First(&sysImg).Error
+		}
+		if err != nil {
+			// 策略 3: 按 osType 精确（忽略版本）
+			err = baseQuery.
+				Where("LOWER(os_type) = ?", osName).
+				Order("created_at DESC").
+				First(&sysImg).Error
+		}
+		if err != nil {
+			// 策略 4: 模糊匹配（name 或 osType 包含镜像名片段）
+			err = baseQuery.
+				Where("LOWER(name) LIKE ? OR LOWER(os_type) LIKE ?", "%"+osName+"%", "%"+osName+"%").
+				Order("created_at DESC").
+				First(&sysImg).Error
+		}
+	}
 	if err != nil {
 		global.APP_LOG.Debug("未找到匹配的系统镜像用于填充 URL，将依赖 Provider 侧回退",
 			zap.Uint("taskId", taskID),
 			zap.String("imageName", imageName),
+			zap.String("osName", osName),
+			zap.String("osVer", osVer),
 			zap.String("providerType", providerType),
 			zap.String("instanceType", instanceType))
 		return
@@ -738,6 +775,7 @@ func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool
 		global.APP_LOG.Debug("从系统镜像表填充 ImageURL",
 			zap.Uint("taskId", taskID),
 			zap.String("imageName", sysImg.Name),
+			zap.String("osType", sysImg.OSType),
 			zap.String("imageURL", utils.TruncateString(sysImg.URL, 100)),
 			zap.Bool("useCDN", sysImg.UseCDN))
 	}

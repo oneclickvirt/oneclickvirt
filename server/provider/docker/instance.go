@@ -196,6 +196,8 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(20, "处理Docker镜像...")
 	// 为镜像名称添加前缀
 	imageNameWithPrefix := "oneclickvirt_" + config.Image
+	// 标记是否使用了 registry 回退拉取（原始镜像无持久进程，需附加 keep-alive 命令）
+	registryFallback := false
 
 	global.APP_LOG.Debug("准备检查镜像是否存在",
 		zap.String("instance", config.Name),
@@ -299,6 +301,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
 						zap.Error(tagErr))
 				}
+				registryFallback = true // 原始镜像无持久进程，后续 docker run 需附加 keep-alive
 				updateProgress(55, "原始镜像拉取并打标完成")
 			}
 		} else {
@@ -547,6 +550,14 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	cmd += fmt.Sprintf(" %s", shellSingleQuote(imageNameWithPrefix))
+
+	// 若使用 registry 回退拉取的原始镜像（无持久进程），追加 keep-alive 命令
+	// 防止容器因 CMD 退出而立即 stopped（例如 debian:12 的 bash 在无 TTY 时退出）
+	if registryFallback {
+		cmd += " sh -c 'trap : TERM INT; tail -f /dev/null & wait'"
+		global.APP_LOG.Debug("使用 registry 回退镜像，附加 keep-alive 命令",
+			zap.String("name", utils.TruncateString(config.Name, 32)))
+	}
 
 	updateProgress(95, "执行Docker创建命令...")
 	global.APP_LOG.Debug("开始执行Docker创建命令",

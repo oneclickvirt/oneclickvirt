@@ -23,11 +23,19 @@ run_module_19() {
     test_api "Start traffic monitor" "POST" "/api/v1/admin/providers/traffic-monitor" "200" \
         '{"providerId":'"$PROVIDER_ID"',"operation":"enable"}' "$group" "$ADMIN_TOKEN"
 
-    # -- Run speedtest via instance action (iperf/dd) --
-    local action_resp; action_resp=$(test_api "Speedtest instance action" "POST" \
-        "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "200|400|404|409|500" \
-        '{"action":"restart"}' "$group" "$ADMIN_TOKEN")
-    wait_instance_operation_settled "$TEST_INSTANCE_ID" "$action_resp" "running" "speedtest restart ${TEST_INSTANCE_ID}" "$ADMIN_TOKEN" || true
+    # -- Run speedtest via instance action (only if instance is in a runnable state) --
+    local inst_status; inst_status=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}" 2>/dev/null | jq -r '.data.status // empty' 2>/dev/null)
+    if [[ "$inst_status" == "running" || "$inst_status" == "stopped" ]]; then
+        local action_resp; action_resp=$(test_api "Speedtest instance action" "POST" \
+            "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "200|400|404|409|500" \
+            '{"action":"restart"}' "$group" "$ADMIN_TOKEN")
+        wait_instance_operation_settled "$TEST_INSTANCE_ID" "$action_resp" "running" "speedtest restart ${TEST_INSTANCE_ID}" "$ADMIN_TOKEN" || true
+    else
+        log_warning "Skipping speedtest: instance ${TEST_INSTANCE_ID} status=${inst_status:-gone}, not runnable"
+        SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
+        report_add_skip "Speedtest instance action" "POST" "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "instance not runnable"
+    fi
 
     # -- Wait for traffic data to settle --
     sleep 5

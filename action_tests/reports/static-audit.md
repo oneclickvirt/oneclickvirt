@@ -9,7 +9,7 @@
 | Approx. covered route literals | 282 |
 | Approx. route literal coverage | 96.58% |
 | Distinct test paths | 430 |
-| Test endpoint call sites | 929 |
+| Test endpoint call sites | 931 |
 | High-risk jq lines | 0 |
 | Pipe risk lines | 0 |
 | Workflow findings | 0 |
@@ -21,7 +21,7 @@
 | Method | Routes | Tests |
 |---|---:|---:|
 | GET | 150 | 409 |
-| POST | 97 | 364 |
+| POST | 97 | 366 |
 | PUT | 27 | 91 |
 | DELETE | 21 | 64 |
 | PATCH | 0 | 1 |

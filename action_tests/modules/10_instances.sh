@@ -315,11 +315,20 @@ run_module_10() {
 
         # Get available system images to find a valid imageId.
         # Prefer alpine (smallest, fastest download) for instance creation tests.
+        # Filter by provider type matching the current ENV_TYPE.
+        local img_provider_type="${ENV_TYPE:-docker}"
         local sys_images; sys_images=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=20" 2>/dev/null)
-        # Try alpine first (smallest image), then fall back to first available
-        local user_image_id; user_image_id=$(echo "$sys_images" | jq -r '.data.list[]? | select(.osType=="alpine" and .status=="active") | .id' 2>/dev/null | head -1)
-        [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && user_image_id=$(echo "$sys_images" | jq -r '.data.list[0].id // .data[0].id // empty' 2>/dev/null)
+        # Try alpine + matching providerType first, then any alpine, then first matching providerType
+        local user_image_id; user_image_id=$(echo "$sys_images" | jq -r --arg pt "$img_provider_type" \
+            '.data.list[]? | select(.osType=="alpine" and .status=="active" and .providerType==$pt) | .id' 2>/dev/null | head -1)
+        [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && \
+            user_image_id=$(echo "$sys_images" | jq -r '.data.list[]? | select(.osType=="alpine" and .status=="active") | .id' 2>/dev/null | head -1)
+        [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && \
+            user_image_id=$(echo "$sys_images" | jq -r --arg pt "$img_provider_type" \
+            '.data.list[]? | select(.status=="active" and .providerType==$pt) | .id' 2>/dev/null | head -1)
+        [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && \
+            user_image_id=$(echo "$sys_images" | jq -r '.data.list[0].id // .data[0].id // empty' 2>/dev/null)
         [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && user_image_id=1
         log_info "Using system image ID=${user_image_id} for user instance creation test"
 

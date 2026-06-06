@@ -77,9 +77,13 @@ run_module_08() {
         test_api "User filtered images" "GET" "/api/v1/user/images/filtered?provider_type=${ENV_TYPE}" "200|400" "" "$group" "$USER_TOKEN"
     fi
 
-    # -- Delete single --
-    if [[ -n "$iid3" ]]; then
-        test_api "Delete image" "DELETE" "/api/v1/admin/system-images/${iid3}" "200" "" "$group"
+    # -- Delete single image test (use a temporary image, keep alpine for downstream modules) --
+    # Create a temp image just for the single-delete test
+    local tmp_img; tmp_img=$(test_api "Create temp image for delete test" "POST" "/api/v1/admin/system-images" "200" \
+        "{\"name\":\"ci-temp-for-delete\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${base_url}/alpine/spiritlhl_alpine_${test_arch}.tar.gz\",\"description\":\"temp for delete test\",\"osType\":\"temp\",\"osVersion\":\"1\",\"minMemoryMB\":64,\"minDiskMB\":64}" "$group")
+    local tmp_iid; tmp_iid=$(echo "$tmp_img" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    if [[ -n "$tmp_iid" ]]; then
+        test_api "Delete image" "DELETE" "/api/v1/admin/system-images/${tmp_iid}" "200" "" "$group"
     fi
 
     # -- Delete nonexistent --

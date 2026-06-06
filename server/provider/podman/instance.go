@@ -163,6 +163,8 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(20, "处理Podman镜像...")
 	// Podman 加载本地 tar 后镜像统一存储在 localhost/ 命名空间下
 	imageNameWithPrefix := normalizePodmanImageName("oneclickvirt_" + config.Image)
+	// 标记是否使用了 registry 回退拉取（原始镜像无持久进程，需附加 keep-alive 命令）
+	registryFallback := false
 
 	if config.CopyMode && config.CopySourceName != "" {
 		if !utils.IsValidContainerRuntimeName(config.CopySourceName) {
@@ -247,6 +249,7 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
 						zap.Error(tagErr))
 				}
+				registryFallback = true
 				updateProgress(55, "原始镜像拉取并打标完成")
 			}
 		} else {
@@ -415,6 +418,13 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	cmd += fmt.Sprintf(" %s", shellSingleQuote(imageNameWithPrefix))
+
+	// 若使用 registry 回退拉取的原始镜像（无持久进程），追加 keep-alive 命令
+	if registryFallback {
+		cmd += " sh -c 'trap : TERM INT; tail -f /dev/null & wait'"
+		global.APP_LOG.Debug("使用 registry 回退镜像，附加 keep-alive 命令",
+			zap.String("name", utils.TruncateString(config.Name, 32)))
+	}
 
 	updateProgress(95, "执行Podman创建命令...")
 	global.APP_LOG.Debug("开始执行Podman创建命令",
