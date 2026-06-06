@@ -114,11 +114,21 @@ jobs:
         cache: 'npm'
         cache-dependency-path: web/package-lock.json
 
-    - name: Validate Swagger docs are up to date
+    - name: Regenerate Swagger docs and auto-commit if changed
       working-directory: ./server
       run: |
         go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --parseDependency --parseInternal
-        git diff --exit-code -- docs
+        if ! git diff --exit-code -- docs; then
+          echo "::warning::Swagger docs are out of date. Auto-committing updates..."
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add docs/
+          git commit -m "docs: auto-update swagger docs [skip ci]"
+          git push
+          echo "Swagger docs updated and pushed to repository."
+        else
+          echo "Swagger docs are up to date."
+        fi
 
     - name: Get current date
       id: date
