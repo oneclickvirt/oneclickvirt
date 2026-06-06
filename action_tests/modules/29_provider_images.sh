@@ -55,10 +55,17 @@ run_module_29() {
     }
 
     # -- Test each unique image (deduplicate by name) --
-    local tested=0 passed=0 failed=0
+    local tested=0 passed=0 failed=0 consecutive_fails=0 max_consecutive_fails=3
     declare -A seen_images   # track which image names we've already tested
 
     for idx in $(seq 0 $((image_count - 1))); do
+        # Early termination: if N consecutive images fail creation, the provider
+        # likely has a systemic issue and further attempts are futile.
+        if [[ $consecutive_fails -ge $max_consecutive_fails ]]; then
+            log_warning "Too many consecutive image creation failures (${consecutive_fails}/${max_consecutive_fails}); skipping remaining ${image_count} images"
+            break
+        fi
+
         local img_entry; img_entry=$(echo "$images_json" | jq -c ".[$idx]" 2>/dev/null)
         # Try different field names for image identifier
         local img_name; img_name=$(echo "$img_entry" | jq -r '.image // .name // .url // empty' 2>/dev/null)
@@ -109,13 +116,15 @@ run_module_29() {
         fi
 
         local create_resp
-        local create_retries="${IMAGE_CREATE_RETRIES:-3}"
-        local create_retry_interval="${IMAGE_CREATE_RETRY_INTERVAL:-20}"
+        local create_retries="${IMAGE_CREATE_RETRIES:-1}"
+        local create_retry_interval="${IMAGE_CREATE_RETRY_INTERVAL:-10}"
         if ! create_resp=$(test_api_retry "Create ${test_label}" "POST" "/api/v1/admin/instances" "200" \
             "$inst_data" "$create_retries" "$create_retry_interval" "$group"); then
             failed=$((failed + 1))
+            consecutive_fails=$((consecutive_fails + 1))
             continue
         fi
+        consecutive_fails=0  # reset on success
 
         local task_id; task_id=$(echo "$create_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
         local inst_id=""

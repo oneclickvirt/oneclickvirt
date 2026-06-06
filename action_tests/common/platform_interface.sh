@@ -149,8 +149,13 @@ try_create_with_fallback() {
         # --- Create a brand-new instance (no existing instances remain) ---
         # Reset per-attempt error tracker before the create call
         PLATFORM_LAST_ERROR=""
-        log_info "[${platform}] Creating new instance (env=${env_type} hours=${hours})..."
-        result=$(platform_dispatch "$platform" "create_instance" "$env_type" "$hours")
+        # Cap hours to platform-specific maximums to avoid API rejection
+        local capped_hours="$hours"
+        case "$platform" in
+            alice) [[ $capped_hours -gt 24 ]] && { log_info "[${platform}] Capping hours from ${hours} to 24 (platform maximum)"; capped_hours=24; } ;;
+        esac
+        log_info "[${platform}] Creating new instance (env=${env_type} hours=${capped_hours})..."
+        result=$(platform_dispatch "$platform" "create_instance" "$env_type" "$capped_hours")
         exit_code=$?
         if [[ $exit_code -eq 0 && -n "$result" ]]; then
             local cip cid

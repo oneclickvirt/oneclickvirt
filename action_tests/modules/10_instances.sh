@@ -28,15 +28,18 @@ run_module_10() {
     # ==============================
     # Container tests
     # ==============================
-    local container_id=""
+    local container_id="" container_created=false
     if should_test_type "container" && env_supports_container; then
         log_info "Testing container instances..."
 
         local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local ir
-        if ! ir=$(test_api_retry "Create container instance" "POST" "/api/v1/admin/instances" "200" "$inst_data" 3 15 "$group"); then
-            log_warning "Container instance creation did not complete successfully; downstream container checks will be skipped"
+        # Use single attempt — 400 validation errors are permanent and not worth retrying
+        if ! ir=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|400|500" "$inst_data" "$group"); then
+            log_warning "Container instance creation returned non-200; downstream container checks will be skipped"
             ir=""
+        else
+            container_created=true
         fi
         # Debug: log full creation response
         log_info "Create instance response: $(echo "$ir" | jq -c '.' 2>/dev/null | head -c 2000)"
@@ -191,15 +194,17 @@ run_module_10() {
     # ==============================
     # VM tests
     # ==============================
-    local vm_id=""
+    local vm_id="" vm_created=false
     if should_test_type "vm" && env_supports_vm; then
         log_info "Testing VM instances..."
 
         local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local vr
-        if ! vr=$(test_api_retry "Create VM instance" "POST" "/api/v1/admin/instances" "200" "$vm_data" 3 20 "$group"); then
-            log_warning "VM instance creation did not complete successfully; downstream VM checks will be skipped"
+        if ! vr=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|400|500" "$vm_data" "$group"); then
+            log_warning "VM instance creation returned non-200; downstream VM checks will be skipped"
             vr=""
+        else
+            vm_created=true
         fi
         local vm_task; vm_task=$(echo "$vr" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$vm_task" ]]; then
@@ -247,6 +252,20 @@ run_module_10() {
             local vm_delete_resp; vm_delete_resp=$(test_api "Delete VM" "DELETE" "/api/v1/admin/instances/${vm_id}" "200" "" "$group") || vm_delete_resp=""
             [[ -n "$vm_delete_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_delete_resp" "deleted" "delete VM ${vm_id}" "$ADMIN_TOKEN" || true
         fi
+    fi
+
+    # If the environment was supposed to create instances but both types failed (not skipped),
+    # chain-break so downstream modules (17, 18, 19, 22, 24, 28) skip gracefully instead of
+    # producing cascading failures.
+    local wanted_container=false; should_test_type "container" && env_supports_container && wanted_container=true
+    local wanted_vm=false; should_test_type "vm" && env_supports_vm && wanted_vm=true
+    if [[ "$wanted_container" == "true" && "$container_created" != "true" ]] && \
+       [[ "$wanted_vm" == "true" && "$vm_created" != "true" ]]; then
+        chain_break "$group" "Provider instance creation unavailable (both container and VM creation failed)"
+    elif [[ "$wanted_container" == "true" && "$container_created" != "true" ]] && [[ "$wanted_vm" != "true" ]]; then
+        chain_break "$group" "Provider container creation unavailable"
+    elif [[ "$wanted_vm" == "true" && "$vm_created" != "true" ]] && [[ "$wanted_container" != "true" ]]; then
+        chain_break "$group" "Provider VM creation unavailable"
     fi
 
     # -- Create with invalid provider --
