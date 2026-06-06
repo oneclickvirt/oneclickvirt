@@ -499,8 +499,8 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 
 		s.updateTaskProgress(taskID, 70, "step.waitingSSHReady")
 
-		// 根据Provider类型确定SSH等待时长
-		redeemSSHWait := 120 * time.Second
+		// 根据Provider类型确定SSH等待时长（容器30s，VM保留360s）
+		redeemSSHWait := 30 * time.Second
 		var redeemProvider providerModel.Provider
 		if err := global.APP_DB.Select("type").Where("id = ?", providerID).First(&redeemProvider).Error; err == nil {
 			switch {

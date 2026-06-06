@@ -11,9 +11,13 @@ import {
   getAllInstances,
   syncPortMappings
 } from '@/api/admin'
+import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
 
 export function usePortMappingManagement() {
   const { t } = useI18n()
+  const NODE_MAPPING_PROVIDER_TYPES = ['lxd', 'incus', 'proxmox', 'proxmoxve', ...VM_ONLY_PROVIDER_TYPES]
+  const CONTROLLER_ONLY_PROVIDER_TYPES = [...CONTAINER_ONLY_PROVIDER_TYPES]
+  const PORT_MAPPING_PROVIDER_TYPES = [...NODE_MAPPING_PROVIDER_TYPES, ...CONTROLLER_ONLY_PROVIDER_TYPES]
 
   const loading = ref(false)
   const portMappings = ref([])
@@ -72,12 +76,12 @@ export function usePortMappingManagement() {
     if (instance.providerType) return instance.providerType
     if (instance.provider) {
       const lower = String(instance.provider).toLowerCase()
-      if (['lxd', 'incus', 'proxmox', 'docker', 'qemu', 'kubevirt'].includes(lower)) return lower
+      if (PORT_MAPPING_PROVIDER_TYPES.includes(lower)) return lower
       return instance.provider
     }
     if (instance.providerName) {
       const lower = String(instance.providerName).toLowerCase()
-      if (['lxd', 'incus', 'proxmox', 'docker', 'qemu', 'kubevirt'].includes(lower)) return lower
+      if (PORT_MAPPING_PROVIDER_TYPES.includes(lower)) return lower
       return instance.providerName
     }
     return null
@@ -86,7 +90,7 @@ export function usePortMappingManagement() {
   const supportedInstances = computed(() => {
     return instances.value.filter(instance => {
       const type = getInstanceProviderType(instance)?.toLowerCase()
-      return type === 'lxd' || type === 'incus' || type === 'proxmox' || type === 'qemu' || type === 'kubevirt' || type === 'docker' || type === 'podman' || type === 'containerd'
+      return PORT_MAPPING_PROVIDER_TYPES.includes(type)
     })
   })
 
@@ -126,7 +130,7 @@ export function usePortMappingManagement() {
     const instance = instances.value.find(i => i.id === addForm.instanceId)
     if (!instance) return t('admin.portMapping.onlyLxdIncusProxmox')
     const providerType = getInstanceProviderType(instance)?.toLowerCase()
-    if (['docker', 'podman', 'containerd'].includes(providerType)) {
+    if (CONTROLLER_ONLY_PROVIDER_TYPES.includes(providerType)) {
       return t('admin.portMapping.dockerNotSupported')
     }
     return t('admin.portMapping.onlyLxdIncusProxmox')
@@ -271,7 +275,7 @@ export function usePortMappingManagement() {
       const instance = instances.value.find(i => i.id === addForm.instanceId)
       if (instance) {
         const providerType = getInstanceProviderType(instance)?.toLowerCase()
-        if (['docker', 'podman', 'containerd', 'orbstack'].includes(providerType)) {
+        if (CONTROLLER_ONLY_PROVIDER_TYPES.includes(providerType)) {
           addForm.mappingType = 'controller'
         }
       }
@@ -286,15 +290,14 @@ export function usePortMappingManagement() {
       if (!instance) { ElMessage.error(t('admin.portMapping.instanceNotFound')); return }
       const providerType = getInstanceProviderType(instance)?.toLowerCase()
       // Docker/Podman/Containerd/Orbstack 仅支持控制端转发模式
-      if (['docker', 'podman', 'containerd', 'orbstack'].includes(providerType)) {
+      if (CONTROLLER_ONLY_PROVIDER_TYPES.includes(providerType)) {
         if (addForm.mappingType !== 'controller') {
           ElMessage.error(t('admin.portMapping.dockerOnlyController'))
           return
         }
       }
       // 验证支持的 Provider 类型
-      const supportedTypes = ['lxd', 'incus', 'proxmox', 'qemu', 'kubevirt', 'vmware', 'virtualbox', 'multipass', 'vagrant', 'docker', 'podman', 'containerd', 'orbstack']
-      if (!supportedTypes.includes(providerType)) { ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported')); return }
+      if (!PORT_MAPPING_PROVIDER_TYPES.includes(providerType)) { ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported')); return }
       addLoading.value = true
       const data = { instanceId: addForm.instanceId, guestPort: addForm.guestPort, hostPort: addForm.hostPort || 0, portCount: addForm.portCount || 1, protocol: addForm.protocol, description: addForm.description, mappingType: addForm.mappingType || 'node', internalHost: addForm.internalHost || '' }
       await createPortMapping(data)

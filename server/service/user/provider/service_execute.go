@@ -116,8 +116,8 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		providerInstance, exists = providerSvc.GetProviderByID(instance.ProviderID)
 		if dbProvider.ConnectionType == "agent" && (!exists || !providerInstance.IsConnected()) {
 			// Agent 连接可能在重载后短时间内重连，等待 Agent 重新建立 WebSocket 连接。
-			// 与 AgentShellExecutor.getConn() 的 60 秒超时保持一致。
-			agentWaitDeadline := time.Now().Add(60 * time.Second)
+			// 30s 足够 agent 完成重连（WebSocket reconnect 通常是亚秒级）。
+			agentWaitDeadline := time.Now().Add(30 * time.Second)
 			for i := 0; ; i++ {
 				if ctx.Err() != nil {
 					return ctx.Err()
@@ -216,6 +216,8 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 			}
 			userLevel = user.Level
 		}
+		// 尝试从系统镜像表查匹配记录填充 imageURL/useCDN（管理端直连创建可能未传URL）
+		s.populateImageURLFromSystemImage(&imageURL, &useCDN, imageName, localProviderType, instance.InstanceType, task.ID)
 	} else {
 		// 获取镜像名称
 		var systemImage systemModel.SystemImage
@@ -700,4 +702,43 @@ func parseCopySizeToMB(raw string) int64 {
 		return 0
 	}
 	return int64(math.Ceil(number * multiplier))
+}
+
+// populateImageURLFromSystemImage 从系统镜像表查找匹配记录，填充 ImageURL/UseCDN。
+// 用于 admin 直连创建（directCreate）场景：此时 ImageURL 未由用户传入，
+// 尝试按镜像名+provider类型+实例类型匹配系统镜像，若匹配成功则自动填充下载信息。
+func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool, imageName, providerType, instanceType string, taskID uint) {
+	// 如果已有 imageURL，不覆盖
+	if *imageURL != "" {
+		return
+	}
+	if imageName == "" {
+		return
+	}
+
+	var sysImg systemModel.SystemImage
+	imageLower := strings.ToLower(imageName)
+	// 按 provider 类型、实例类型、镜像名模糊匹配，优先取启用状态的
+	err := global.APP_DB.Where("provider_type = ? AND instance_type = ? AND status = ?", providerType, instanceType, "active").
+		Where("LOWER(name) LIKE ? OR LOWER(os_type) LIKE ?", "%"+imageLower+"%", "%"+imageLower+"%").
+		Order("created_at DESC").
+		First(&sysImg).Error
+	if err != nil {
+		global.APP_LOG.Debug("未找到匹配的系统镜像用于填充 URL，将依赖 Provider 侧回退",
+			zap.Uint("taskId", taskID),
+			zap.String("imageName", imageName),
+			zap.String("providerType", providerType),
+			zap.String("instanceType", instanceType))
+		return
+	}
+
+	if sysImg.URL != "" {
+		*imageURL = sysImg.URL
+		*useCDN = sysImg.UseCDN
+		global.APP_LOG.Debug("从系统镜像表填充 ImageURL",
+			zap.Uint("taskId", taskID),
+			zap.String("imageName", sysImg.Name),
+			zap.String("imageURL", utils.TruncateString(sysImg.URL, 100)),
+			zap.Bool("useCDN", sysImg.UseCDN))
+	}
 }

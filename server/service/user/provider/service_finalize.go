@@ -393,8 +393,11 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 			// 长耗时等待阶段单独占用 70-82%，避免 VM cloud-init/SSH 等待时进度条长期卡在小区间。
 			s.updateTaskProgress(taskID, 70, "step.waitingSSHReady")
-			// 根据Provider类型确定SSH等待时长：QEMU/KubeVirt虚拟机启动慢，需要更长等待
-			sshWaitTimeout := 120 * time.Second
+			// 根据Provider类型确定SSH等待时长：
+			// - 容器类(Docker/Podman/Containerd/LXD/Incus container)：秒级启动，30s足够
+			// - VM类(QEMU/KubeVirt/VMware)：需等cloud-init完成，保留360s
+			// - Proxmox：KVM加速4分钟，QEMU软件模拟6分钟
+			sshWaitTimeout := 30 * time.Second // 容器默认30s
 			var dbProviderForWait providerModel.Provider
 			if err := global.APP_DB.Select("type, pve_kvm_available").Where("id = ?", providerID).First(&dbProviderForWait).Error; err == nil {
 				switch {
@@ -407,6 +410,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					} else {
 						sshWaitTimeout = 240 * time.Second // 4分钟：KVM硬件加速或未知
 					}
+					// LXD/Incus container 保留30s默认值
 				}
 			}
 
@@ -464,8 +468,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				providerSvc := providerService.GetProviderService()
 				maxRetries := 2
 				for i := 0; i < maxRetries; i++ {
-					// 创建带2分钟超时的context
-					ctxWithTimeout, cancel := context.WithTimeout(taskCtx, 200*time.Second)
+					// 单次密码设置操作（echo/cloud-init注入），60s超时已足够
+					ctxWithTimeout, cancel := context.WithTimeout(taskCtx, 60*time.Second)
 					err := providerSvc.SetInstancePassword(ctxWithTimeout, currentInstance.ProviderID, currentInstance.Name, currentInstance.Password)
 					cancel() // 立即释放context资源
 					if err != nil {

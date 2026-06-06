@@ -9,14 +9,21 @@ import (
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
-	"oneclickvirt/model/auth"
+	authModel "oneclickvirt/model/auth"
+	checkinModel "oneclickvirt/model/checkin"
 	"oneclickvirt/model/config"
+	domainModel "oneclickvirt/model/domain"
+	firewallModel "oneclickvirt/model/firewall"
+	kycModel "oneclickvirt/model/kyc"
+	monitoringModel "oneclickvirt/model/monitoring"
+	oauth2Model "oneclickvirt/model/oauth2"
 	permissionModel "oneclickvirt/model/permission"
-	"oneclickvirt/model/provider"
-	"oneclickvirt/model/resource"
-	"oneclickvirt/model/system"
+	providerModel "oneclickvirt/model/provider"
+	resourceModel "oneclickvirt/model/resource"
+	systemModel "oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/utils"
+	"oneclickvirt/utils/dbcompat"
 
 	configManager "oneclickvirt/config"
 
@@ -131,53 +138,91 @@ func (s *InitService) AutoMigrateTables() error {
 
 	global.APP_LOG.Debug("开始执行数据库表结构自动迁移")
 
-	// 执行表结构迁移
-	err := global.APP_DB.AutoMigrate(
+	// 与 initialize.RegisterTables 保持一致。初始化页会在空数据库上直接调用这里，
+	// 因此不能只迁移旧版核心表，否则监控、OAuth2、KYC、签到等后续路径会缺表。
+	if err := global.APP_DB.AutoMigrate(
 		// 用户相关表
-		&userModel.User{},     // 用户基础信息表
-		&auth.Role{},          // 角色管理表
-		&userModel.UserRole{}, // 用户角色关联表
+		&userModel.User{},
+		&authModel.Role{},
+		&userModel.UserRole{},
+
+		// OAuth2相关表
+		&oauth2Model.OAuth2Provider{},
 
 		// 实例相关表
-		&provider.Instance{}, // 虚拟机/容器实例表
-		&provider.Provider{}, // 服务提供商配置表
-		&provider.Port{},     // 端口映射表
-		&adminModel.Task{},   // 用户任务表
+		&providerModel.Instance{},
+		&providerModel.Provider{},
+		&providerModel.AdminGroupSetting{},
+		&providerModel.Port{},
+		&providerModel.ProviderIPv4Pool{},
+		&adminModel.Task{},
 
 		// 资源管理表
-		&resource.ResourceReservation{}, // 资源预留表
+		&resourceModel.ResourceReservation{},
 
 		// 认证相关表
-		&userModel.VerifyCode{},          // 验证码表（邮笱/短信）
-		&userModel.PasswordReset{},       // 密码重置令牌表
-		&userModel.JWTBlacklistedToken{}, // JWT黑名单持久化表
+		&userModel.VerifyCode{},
+		&userModel.PasswordReset{},
+		&userModel.JWTBlacklistedToken{},
 
 		// 系统配置表
-		&adminModel.SystemConfig{}, // 系统配置表
-		&system.Announcement{},     // 系统公告表
-		&system.SystemImage{},      // 系统镜像模板表
-		&system.Captcha{},          // 图形验证码表
+		&adminModel.SystemConfig{},
+		&systemModel.Announcement{},
+		&systemModel.SystemImage{},
+		&systemModel.Captcha{},
+		&systemModel.JWTSecret{},
 
-		// 邀请码相关表
-		&system.InviteCode{},      // 邀请码表
-		&system.InviteCodeUsage{}, // 邀请码使用记录表
-		&system.RedemptionCode{},  // 兑换码表
+		// 邀请码/兑换码
+		&systemModel.InviteCode{},
+		&systemModel.InviteCodeUsage{},
+		&systemModel.RedemptionCode{},
 
 		// 权限管理表
-		&permissionModel.UserPermission{}, // 用户权限组合表
+		&permissionModel.UserPermission{},
 
-		// 审计日志表
-		&adminModel.AuditLog{},      // 操作审计日志表
-		&provider.PendingDeletion{}, // 待删除资源表
+		// 审计和硬件检测
+		&adminModel.AuditLog{},
+		&providerModel.PendingDeletion{},
+		&providerModel.HardwareTestReport{},
 
 		// 管理员配置任务表
-		&adminModel.ConfigurationTask{}, // 管理员配置任务表
-	)
+		&adminModel.ConfigurationTask{},
+		&adminModel.TrafficMonitorTask{},
 
-	if err != nil {
+		// 监控数据表
+		&monitoringModel.PmacctTrafficRecord{},
+		&monitoringModel.PmacctMonitor{},
+		&monitoringModel.InstanceTrafficHistory{},
+		&monitoringModel.ProviderTrafficHistory{},
+		&monitoringModel.UserTrafficHistory{},
+		&monitoringModel.PerformanceMetric{},
+		&monitoringModel.AgentMonitor{},
+		&monitoringModel.ResourceMetric{},
+		&monitoringModel.MonitoringConfig{},
+
+		// 防火墙/滥用屏蔽表
+		&firewallModel.BlockRule{},
+		&firewallModel.BlockRuleApplication{},
+
+		// 域名绑定表
+		&domainModel.Domain{},
+		&domainModel.DomainConfig{},
+
+		// 实名认证表
+		&kycModel.KYCRecord{},
+
+		// 签到续期表
+		&checkinModel.CheckinConfig{},
+		&checkinModel.CheckinRecord{},
+		&checkinModel.CheckinVerification{},
+
+		// API Token表
+		&authModel.ApiToken{},
+	); err != nil {
 		global.APP_LOG.Error("数据库表结构迁移失败", zap.String("error", utils.FormatError(err)))
 		return fmt.Errorf("表结构迁移失败: %v", err)
 	}
+	dbcompat.Init(global.APP_DB)
 
 	global.APP_LOG.Debug("数据库表结构自动迁移完成")
 	return nil

@@ -276,10 +276,30 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 					return sfErr
 				}
 			} else {
-				// 镜像不存在且没有URL，返回错误
-				global.APP_LOG.Error("Docker镜像不存在且没有下载URL",
-					zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)))
-				return fmt.Errorf("镜像 %s 不存在，且没有提供下载URL", imageNameWithPrefix)
+				// 镜像不存在且没有下载URL，尝试从 registry（Docker Hub 等）拉取原始镜像，
+				// 然后打标为 oneclickvirt_ 前缀。适用于 admin 直连创建等没有预设镜像URL的场景。
+				updateProgress(25, "从 registry 拉取原始镜像作为回退...")
+				global.APP_LOG.Info("Docker镜像不存在且无下载URL，尝试从 registry 拉取原始镜像",
+					zap.String("rawImage", utils.TruncateString(config.Image, 64)),
+					zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)))
+
+				pullErr := d.sshPullImage(ctx, config.Image)
+				if pullErr != nil {
+					global.APP_LOG.Error("从 registry 拉取镜像也失败",
+						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
+						zap.Error(pullErr))
+					return fmt.Errorf("镜像 %s 不存在，且没有提供下载URL；从 registry 拉取也失败: %w", imageNameWithPrefix, pullErr)
+				}
+
+				// 打标为 oneclickvirt_ 前缀以匹配后续流程
+				tagCmd := fmt.Sprintf("%s tag %s %s", d.runtime.CLI, shellSingleQuote(config.Image), shellSingleQuote(imageNameWithPrefix))
+				if _, tagErr := d.sshClient.Execute(tagCmd); tagErr != nil {
+					global.APP_LOG.Warn("镜像打标失败，后续流程可能使用原始镜像名",
+						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
+						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
+						zap.Error(tagErr))
+				}
+				updateProgress(55, "原始镜像拉取并打标完成")
 			}
 		} else {
 			updateProgress(60, "Docker镜像已存在，跳过下载...")

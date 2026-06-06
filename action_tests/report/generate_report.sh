@@ -277,9 +277,10 @@ detail_idx=0
 
 get_group_count() {
     local group="$1" status="$2"
-    jq -sr --arg group "$group" --arg status "$status" '
-        [.[] | select((((.group // "default") | if . == "" or . == null then "default" else . end) == $group) and ((.status // "") == $status))] | length
-    ' "$RESULTS_FILE" 2>/dev/null || printf '0'
+    # shellcheck disable=SC2016
+    jq -sr --arg group "$group" --arg status "$status" \
+        '[.[] | select((((.group // "default") | if . == "" or . == null then "default" else . end) == $group) and ((.status // "") == $status))] | length' \
+        "$RESULTS_FILE" 2>/dev/null || printf '0'
 }
 
 # Second pass: generate HTML

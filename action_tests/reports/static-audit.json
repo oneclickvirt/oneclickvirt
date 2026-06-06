@@ -1,0 +1,96 @@
+{
+  "summary": {
+    "Registered route calls": 295,
+    "Comparable route literals": 292,
+    "Approx. covered route literals": 282,
+    "Approx. route literal coverage": "96.58%",
+    "Distinct test paths": 430,
+    "Test endpoint call sites": 929,
+    "High-risk jq lines": 0,
+    "Pipe risk lines": 0,
+    "Workflow findings": 0,
+    "Retry hygiene findings": 0,
+    "Minimum route literal coverage": "85.0%"
+  },
+  "route_methods": {
+    "GET": 150,
+    "POST": 97,
+    "PUT": 27,
+    "DELETE": 21
+  },
+  "test_methods": {
+    "GET": 409,
+    "DELETE": 64,
+    "POST": 364,
+    "PUT": 91,
+    "PATCH": 1
+  },
+  "uncovered_sample": [
+    {
+      "method": "POST",
+      "path": "/providers/import-csv",
+      "file": "server/service/router/admin.go",
+      "line": 49
+    },
+    {
+      "method": "GET",
+      "path": "callback",
+      "file": "server/service/router/oauth2.go",
+      "line": 18
+    },
+    {
+      "method": "POST",
+      "path": "/instances/:name/start",
+      "file": "server/service/router/provider.go",
+      "line": 44
+    },
+    {
+      "method": "POST",
+      "path": "/instances/:name/stop",
+      "file": "server/service/router/provider.go",
+      "line": 45
+    },
+    {
+      "method": "DELETE",
+      "path": "/images/:image",
+      "file": "server/service/router/provider.go",
+      "line": 49
+    },
+    {
+      "method": "GET",
+      "path": "/swagger/*any",
+      "file": "server/service/router/setup.go",
+      "line": 282
+    },
+    {
+      "method": "GET",
+      "path": "/swagger/*any",
+      "file": "server/service/router/setup.go",
+      "line": 284
+    },
+    {
+      "method": "GET",
+      "path": "/v1/health",
+      "file": "server/service/router/setup.go",
+      "line": 292
+    },
+    {
+      "method": "GET",
+      "path": "agent/releases/:filename",
+      "file": "server/service/router/setup.go",
+      "line": 311
+    },
+    {
+      "method": "GET",
+      "path": "/v1/ws/agent",
+      "file": "server/service/router/setup.go",
+      "line": 362
+    }
+  ],
+  "findings": {
+    "Unguarded jq Findings": [],
+    "Pipe Findings": [],
+    "Workflow Findings": [],
+    "Retry Hygiene Findings": []
+  }
+}

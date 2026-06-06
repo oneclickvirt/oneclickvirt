@@ -225,7 +225,28 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 					return sfErr
 				}
 			} else {
-				return fmt.Errorf("镜像 %s 不存在，且没有提供下载URL", imageNameWithPrefix)
+				// 镜像不存在且没有下载URL，尝试从 registry 拉取原始镜像并打标
+				updateProgress(25, "从 registry 拉取原始镜像作为回退...")
+				global.APP_LOG.Info("Containerd镜像不存在且无下载URL，尝试从 registry 拉取原始镜像",
+					zap.String("rawImage", utils.TruncateString(config.Image, 64)),
+					zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)))
+
+				pullErr := c.sshPullImage(ctx, config.Image)
+				if pullErr != nil {
+					global.APP_LOG.Error("从 registry 拉取镜像也失败",
+						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
+						zap.Error(pullErr))
+					return fmt.Errorf("镜像 %s 不存在，且没有提供下载URL；从 registry 拉取也失败: %w", imageNameWithPrefix, pullErr)
+				}
+
+				tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(config.Image), shellSingleQuote(imageNameWithPrefix))
+				if _, tagErr := c.sshClient.Execute(tagCmd); tagErr != nil {
+					global.APP_LOG.Warn("Containerd镜像打标失败",
+						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
+						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
+						zap.Error(tagErr))
+				}
+				updateProgress(55, "原始镜像拉取并打标完成")
 			}
 		} else {
 			updateProgress(60, "Containerd镜像已存在，跳过下载...")
