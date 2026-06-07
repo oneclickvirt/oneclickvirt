@@ -12,6 +12,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
+	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/utils"
 
@@ -32,6 +33,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		}
 		return err
 	}
+	// 保存原始值，用于检测变更后清理缓存
+	originalConnectionType := provider.ConnectionType
+	originalType := provider.Type
 	// 保存原始过期时间，用于后续对比是否发生变化
 	originalExpiresAt := provider.ExpiresAt
 	normalizedEndpoint, normalizedSSHPort := normalizeProviderEndpointAndPort(req.Endpoint, req.SSHPort)
@@ -458,6 +462,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			zap.Uint("providerID", req.ID),
 			zap.String("connectionType", req.ConnectionType))
 	}
+	// 检测连接类型是否发生变化，需要在事务提交后清理缓存
+	connectionTypeChanged := (req.ConnectionType == "agent" || req.ConnectionType == "ssh") &&
+		originalConnectionType != "" && originalConnectionType != req.ConnectionType
 	if provider.ConnectionType == "agent" {
 		provider.EnableTrafficControl = true
 		provider.EnableResourceMonitoring = true
@@ -512,7 +519,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 
 	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	txErr := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 保存Provider更新
 		if err := tx.Save(&provider).Error; err != nil {
 			return err
@@ -541,6 +548,29 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 
 		return nil
 	})
+
+	if txErr != nil {
+		return txErr
+	}
+
+	// 事务成功提交后，清理可能受影响的缓存
+	if connectionTypeChanged {
+		global.APP_LOG.Info("Provider连接类型已变更，清理Agent缓存",
+			zap.Uint("providerID", req.ID),
+			zap.String("oldType", originalConnectionType),
+			zap.String("newType", provider.ConnectionType))
+		agentService.GetHub().DisconnectProvider(req.ID)
+		agentService.RemoveClient(req.ID)
+	}
+	if originalType != "" && originalType != provider.Type {
+		global.APP_LOG.Info("Provider虚拟化类型已变更，清理Agent客户端缓存",
+			zap.Uint("providerID", req.ID),
+			zap.String("oldType", originalType),
+			zap.String("newType", provider.Type))
+		agentService.RemoveClient(req.ID)
+	}
+
+	return nil
 }
 
 // handleTrafficControlToggle 处理流量统计开关切换（后台任务）

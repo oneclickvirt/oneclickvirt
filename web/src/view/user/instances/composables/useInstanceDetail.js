@@ -1,5 +1,5 @@
 // 实例详情页 - 状态管理与数据加载
-import { ref, reactive } from 'vue'
+import { ref, reactive, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
@@ -225,6 +225,41 @@ export function useInstanceDetail(shareToken = '') {
     }
   }
 
+  // 定时检测分享令牌有效期，过期时自动刷新页面避免用户看到缓存的过期内容
+  let shareTokenTimer = null
+  const SHARE_TOKEN_CHECK_INTERVAL = 30000 // 30 秒
+
+  const startShareTokenMonitor = () => {
+    const token = getShareToken()
+    if (!token) return
+
+    // 清除已有定时器
+    if (shareTokenTimer) clearInterval(shareTokenTimer)
+
+    shareTokenTimer = setInterval(async () => {
+      try {
+        await getSharedInstanceDetail(token)
+        // 请求成功，令牌仍然有效
+      } catch (error) {
+        const msg = error?.message || error?.details || ''
+        if (msg.includes('过期') || msg.includes('无效') || error?.code === 401) {
+          clearInterval(shareTokenTimer)
+          shareTokenTimer = null
+          ElMessage.warning(t('user.instanceDetail.shareLinkExpired'))
+          router.push('/home')
+        }
+      }
+    }, SHARE_TOKEN_CHECK_INTERVAL)
+
+    // 组件卸载时清理定时器
+    onUnmounted(() => {
+      if (shareTokenTimer) {
+        clearInterval(shareTokenTimer)
+        shareTokenTimer = null
+      }
+    })
+  }
+
   return {
     loading,
     portMappings,
@@ -236,6 +271,7 @@ export function useInstanceDetail(shareToken = '') {
     loadInstanceDetail,
     refreshPortMappings,
     refreshMonitoring,
-    loadInstanceTypePermissions
+    loadInstanceTypePermissions,
+    startShareTokenMonitor
   }
 }

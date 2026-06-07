@@ -239,6 +239,8 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 			}
 		}
 		ps.providers[dbProvider.ID] = prov
+		// Agent 模式也需要自动检测架构（ARM 节点同样可能因默认 amd64 导致不可用）
+		go detectAndUpdateArchitecture(dbProvider.ID, prov)
 		global.APP_LOG.Info("Agent模式节点加载完成",
 			zap.String("name", dbProvider.Name),
 			zap.Uint("id", dbProvider.ID),
@@ -264,6 +266,9 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 			zap.Error(err))
 		return err
 	}
+
+	// 连接成功后自动检测节点架构，确保 ARM 节点不会因为默认 amd64 而无法使用
+	go detectAndUpdateArchitecture(dbProvider.ID, prov)
 
 	// 存储Provider实例（使用ID作为key）
 	// 此时已经持有ps.mutex.Lock()，不需要再次加锁
@@ -446,4 +451,69 @@ func (ps *ProviderService) ResetInstancePassword(ctx context.Context, providerID
 
 	// 调用Provider的密码重置方法
 	return prov.ResetInstancePassword(ctx, instanceName)
+}
+
+// detectAndUpdateArchitecture 在 Provider 连接成功后自动检测节点 CPU 架构，
+// 如果检测值与数据库记录不一致则自动更新。
+// 解决 ARM 节点因默认 amd64 架构导致镜像筛选错误、无法开设实例的问题。
+func detectAndUpdateArchitecture(providerID uint, prov provider.Provider) {
+	defer func() {
+		if r := recover(); r != nil {
+			global.APP_LOG.Warn("架构检测发生panic",
+				zap.Uint("providerID", providerID),
+				zap.Any("panic", r))
+		}
+	}()
+
+	detectCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	output, err := prov.ExecuteSSHCommand(detectCtx, "uname -m")
+	if err != nil {
+		global.APP_LOG.Debug("架构检测失败（非关键错误）",
+			zap.Uint("providerID", providerID),
+			zap.Error(err))
+		return
+	}
+
+	arch := strings.TrimSpace(output)
+	var detectedArch string
+	switch arch {
+	case "x86_64", "amd64":
+		detectedArch = "amd64"
+	case "aarch64", "arm64", "armv8l", "armv8", "armv7l", "armv7", "armv6l", "armv6", "armv5tel", "armv5te", "armv5t":
+		detectedArch = "arm64"
+	case "s390x":
+		detectedArch = "s390x"
+	default:
+		global.APP_LOG.Debug("未知架构，跳过自动更新",
+			zap.Uint("providerID", providerID),
+			zap.String("arch", arch))
+		return
+	}
+
+	// 只在检测值与数据库不一致时才更新
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.Select("id, architecture").First(&dbProvider, providerID).Error; err != nil {
+		return
+	}
+
+	if dbProvider.Architecture == detectedArch {
+		return // 无需更新
+	}
+
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ?", providerID).
+		Update("architecture", detectedArch).Error; err != nil {
+		global.APP_LOG.Warn("更新Provider架构失败",
+			zap.Uint("providerID", providerID),
+			zap.String("detected", detectedArch),
+			zap.Error(err))
+		return
+	}
+
+	global.APP_LOG.Info("自动检测并更新Provider架构",
+		zap.Uint("providerID", providerID),
+		zap.String("oldArch", dbProvider.Architecture),
+		zap.String("newArch", detectedArch))
 }

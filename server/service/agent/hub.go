@@ -205,6 +205,19 @@ func (h *AgentHub) GetConn(providerID uint) (*AgentConn, bool) {
 	return ac, ok
 }
 
+// DisconnectProvider 强制断开指定 Provider 的 Agent 连接（如 provider 类型变更时）。
+// 关闭底层 TCP 连接，后续的 readLoop 会自然调用 unregister 完成清理。
+func (h *AgentHub) DisconnectProvider(providerID uint) {
+	h.mu.RLock()
+	ac, ok := h.conns[providerID]
+	h.mu.RUnlock()
+	if ok && ac != nil {
+		global.APP_LOG.Info("主动断开 Agent 连接（Provider 配置变更）",
+			zap.Uint("providerID", providerID))
+		ac.conn.Close() // 关闭底层连接，触发 readLoop 退出 -> unregister
+	}
+}
+
 // unregister 注销连接（同步更新 DB 状态以确保前端立即可见）。
 func (h *AgentHub) unregister(ac *AgentConn) {
 	providerID := ac.ProviderID

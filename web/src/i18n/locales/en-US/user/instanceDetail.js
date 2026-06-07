@@ -54,6 +54,7 @@ export default {
   trafficLimitStartBlocked: "Instance is restricted due to traffic limit exceeded and cannot be started. Please contact an administrator to reset traffic or increase the traffic quota.",
   trafficQuotaHidden: "This node does not expose traffic quota to users",
   getMonitoringFailed: "Failed to get monitoring data",
+  shareLinkExpired: "Share link has expired, returning to home page",
   resourceMonitoring: "Resource Monitoring",
   noResourceData: "No resource monitoring data available",
   cpuUsage: "CPU Usage",

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUserInstances, createUserInstanceShare } from '@/api/user'
 import { copyToClipboard } from '@/utils/clipboard'
-import { normalizeShareURL } from '@/utils/share-link'
+import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
 
 export function useUserInstances() {
   const { t, locale } = useI18n()
@@ -199,8 +199,12 @@ export function useUserInstances() {
       )
       const minutes = Number(value || 30)
       const response = await createUserInstanceShare(instance.id, { expiresInMinutes: minutes })
-      await copyToClipboard(normalizeShareURL(response.data?.url), t('user.instances.shareLinkCopied'))
-      ElMessage.success(t('user.instances.shareLinkCreated'))
+      const url = normalizeShareURL(response.data?.url)
+      if (!url) {
+        ElMessage.error(t('user.instances.shareLinkCreateFailed'))
+        return
+      }
+      await showShareLinkDialog(url, { title: t('user.instances.createShareLink'), t })
     } catch (error) {
       if (error !== 'cancel') {
         console.error('创建分享链接失败:', error)

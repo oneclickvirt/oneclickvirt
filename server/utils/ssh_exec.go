@@ -492,20 +492,5 @@ func shellEscape(s string) string {
 // 保证通过软链接安装的命令（snap LXD、/opt 下工具、profile.d 扩展包等）
 // 在 SSH 路径下同样能被 command -v / which 发现。
 func buildSSHEnvCommand(command string) string {
-	// 加载顺序：系统级 → 用户级，最后无条件补全 PATH。
-	// /etc/environment：systemd/pam 环境变量生成器
-	// /etc/profile：系统级登录 shell 配置
-	// /etc/profile.d/*.sh：模块化 profile 扩展（RHEL/CentOS/部分 Debian 包）
-	// /etc/bash.bashrc：系统级 bashrc（Debian/Ubuntu）
-	// ~/.bashrc / ~/.bash_profile：用户级 bash 配置
-	return fmt.Sprintf(
-		"[ -f /etc/environment ] && source /etc/environment 2>/dev/null || true; "+
-			"[ -f /etc/profile ] && source /etc/profile 2>/dev/null || true; "+
-			"[ -d /etc/profile.d ] && for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && source \"$f\" 2>/dev/null || true; done; "+
-			"[ -f /etc/bash.bashrc ] && source /etc/bash.bashrc 2>/dev/null || true; "+
-			"source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; "+
-			"export PATH=$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/var/lib/snapd/snap/bin:/opt/bin; "+
-			"%s",
-		command,
-	)
+	return BuildEnvCommand(command)
 }

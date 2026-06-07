@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
-import { normalizeShareURL } from '@/utils/share-link'
+import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
 import {
   performInstanceAction,
   resetInstancePassword,
@@ -350,8 +350,12 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       const minutes = Number(value || 30)
       const response = await createUserInstanceShare(instance.value.id, { expiresInMinutes: minutes })
       const url = normalizeShareURL(response.data?.url)
-      await copyToClipboardUtil(url, t('user.instances.shareLinkCopied'))
-      ElMessage.success(t('user.instances.shareLinkCreated'))
+      if (!url) {
+        ElMessage.error(t('user.instances.shareLinkCreateFailed'))
+        return
+      }
+      // 显示分享链接对话框，支持手动选择和复制
+      await showShareLinkDialog(url, { title: t('user.instances.createShareLink'), t })
     } catch (error) {
       if (error !== 'cancel') {
         console.error('创建分享链接失败:', error)

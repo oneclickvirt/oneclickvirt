@@ -151,5 +151,6 @@ export default {
   shareLinkCreated: "分享链接已创建",
   shareLinkCopied: "分享链接已复制",
   shareLinkCreateFailed: "创建分享链接失败",
+  shareLinkTip: "点击上方链接区域可全选，然后使用 Ctrl+C 复制",
   acceleratorConfig: "加速设备配置"
 }

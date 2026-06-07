@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/utils"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
@@ -92,12 +93,24 @@ func (a *AgentConn) writeBinaryMessage(payload []byte, timeout time.Duration) er
 
 // Execute 通过 WebSocket 在远端 Agent 上执行命令，返回 (stdout, error)。
 // 超时默认 30 秒。
+// 命令会自动添加完整的系统 PATH 前缀，确保 snap 安装的 lxc/lxd 等工具可被发现。
 func (a *AgentConn) Execute(cmd string) (string, error) {
 	return a.ExecuteWithTimeout(cmd, 30*time.Second)
 }
 
+// agentEnvPrefix 构建发送给 Agent 的命令环境前缀。
+// Agent 通过 sh -c 执行命令，不会加载 bash profile/login shell 环境，
+// 因此需要显式设置完整的标准 PATH 及扩展路径，
+// 保证 snap LXD、/opt 下工具等在 Agent 侧也能被 command -v / which 发现。
+// 不加载用户级配置（~/.bashrc）以避免交互式阻塞。
+var agentEnvPrefix = "export PATH=\"" + utils.StandardExtendedPath + ":$PATH\"; "
+
 // ExecuteWithTimeout 带自定义超时的命令执行。
+// 命令会自动添加完整的系统 PATH 前缀。
 func (a *AgentConn) ExecuteWithTimeout(cmd string, timeout time.Duration) (string, error) {
+	// 为 Agent 侧添加完整 PATH 环境，确保 snap 等非标准路径下的命令可被发现
+	cmd = agentEnvPrefix + cmd
+
 	reqID := randomID()
 
 	respCh := make(chan execResponsePayload, 1)

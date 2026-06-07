@@ -7,6 +7,54 @@ use std::sync::Mutex;
 use tracing::debug;
 use utoipa::ToSchema;
 
+/// Extended PATH (canonical, kept in sync with server/utils/env.go:StandardExtendedPath).
+/// This value is inlined in AGENT_ENV_PREFIX below due to Rust concat! limitations.
+/// When updating the PATH, change both this comment and the inline value in AGENT_ENV_PREFIX.
+#[allow(dead_code)]
+const AGENT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/var/lib/snapd/snap/bin:/opt/bin";
+
+/// Comprehensive environment loading prefix, matching Go's utils/env.go:envLoadScript.
+/// Ensures all system and user environment files are loaded before command execution,
+/// so snap-installed tools, /opt binaries, locale settings, and profile.d extensions
+/// are all available — exactly the same behavior as SSH command execution in Go.
+///
+/// Key design:
+///   - LC_ALL=C.UTF-8 prevents locale warnings and encoding issues
+///   - PS1='$ ' fakes interactive shell to bypass bashrc [[ $- != *i* ]] guards
+///   - Loads: /etc/environment, /etc/profile, /etc/profile.d/*.sh,
+///            /etc/bash.bashrc, /etc/bashrc, /etc/zsh/zprofile, /etc/zsh/zshrc,
+///            ~/.profile, ~/.bash_profile, ~/.bashrc, ~/.zprofile, ~/.zshrc,
+///            ~/.config/environment.d/*.conf
+///   - Final PATH: AGENT_PATH prepended + inherited PATH
+/// NOTE: concat! only accepts string literals, so AGENT_PATH is inlined here.
+/// See AGENT_PATH constant above for the canonical path list (kept in sync with Go).
+const AGENT_ENV_PREFIX: &str = concat!(
+    "export LC_ALL=C.UTF-8 LANG=C.UTF-8 LANGUAGE=C.UTF-8 2>/dev/null || true; ",
+    "export PS1='$ ' 2>/dev/null || true; ",
+    "[ -f /etc/environment ] && . /etc/environment 2>/dev/null || true; ",
+    "[ -f /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true; ",
+    "[ -d /etc/profile.d ] && for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\" >/dev/null 2>&1 || true; done 2>/dev/null || true; ",
+    "[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc >/dev/null 2>&1 || true; ",
+    "[ -f /etc/bashrc ] && . /etc/bashrc >/dev/null 2>&1 || true; ",
+    "[ -f /etc/zsh/zprofile ] && . /etc/zsh/zprofile >/dev/null 2>&1 || true; ",
+    "[ -f /etc/zsh/zshrc ] && . /etc/zsh/zshrc >/dev/null 2>&1 || true; ",
+    "[ -f ~/.profile ] && . ~/.profile >/dev/null 2>&1 || true; ",
+    "[ -f ~/.bash_profile ] && . ~/.bash_profile >/dev/null 2>&1 || true; ",
+    "[ -f ~/.bashrc ] && . ~/.bashrc >/dev/null 2>&1 || true; ",
+    "[ -f ~/.zprofile ] && . ~/.zprofile >/dev/null 2>&1 || true; ",
+    "[ -f ~/.zshrc ] && . ~/.zshrc >/dev/null 2>&1 || true; ",
+    "[ -d ~/.config/environment.d ] && for f in ~/.config/environment.d/*.conf; do [ -r \"$f\" ] && . \"$f\" >/dev/null 2>&1 || true; done 2>/dev/null || true; ",
+    "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/var/lib/snapd/snap/bin:/opt/bin${PATH:+:$PATH}; ",
+);
+
+/// Run a command through `sh -c` with comprehensive environment loading.
+/// This ensures the same env as Go's BuildEnvCommand — all system/user profile
+/// files are sourced, locale is set, and the extended PATH is available.
+fn run_with_env(cmd: &str) -> std::io::Result<std::process::Output> {
+    let full_cmd = format!("{}{}", AGENT_ENV_PREFIX, cmd);
+    Command::new("sh").arg("-c").arg(&full_cmd).output()
+}
+
 /// Cache for previous cgroup CPU usage_usec readings, keyed by cgroup base path.
 static PREV_CPU_USEC: Mutex<Option<HashMap<String, (u64, std::time::Instant)>>> = Mutex::new(None);
 
@@ -72,9 +120,7 @@ fn collect_podman(name: &str) -> Result<ResourceSnapshot, ApiError> {
 
 fn collect_oci_runtime(runtime: &str, name: &str) -> Result<ResourceSnapshot, ApiError> {
     // Use stats --no-stream --format json for a single snapshot
-    let out = Command::new(runtime)
-        .args(["stats", "--no-stream", "--format", "{{json .}}", name])
-        .output()
+    let out = run_with_env(&format!("{runtime} stats --no-stream --format '{{{{json .}}}}' {name}"))
         .map_err(|e| ApiError::internal(format!("{runtime} stats failed: {e}")))?;
 
     if !out.status.success() {
@@ -110,9 +156,7 @@ fn collect_oci_runtime(runtime: &str, name: &str) -> Result<ResourceSnapshot, Ap
 }
 
 fn get_oci_disk(runtime: &str, name: &str) -> (u64, u64) {
-    let out = Command::new(runtime)
-        .args(["inspect", "--size", "--format", "{{json .}}", name])
-        .output();
+    let out = run_with_env(&format!("{runtime} inspect --size --format '{{{{json .}}}}' {name}"));
 
     if let Ok(out) = out {
         if out.status.success() {
@@ -172,9 +216,7 @@ fn collect_cgroup_stats(name: &str) -> Result<ResourceSnapshot, ApiError> {
 
 /// Get disk usage for containerd via `ctr snapshots usage`.
 fn get_containerd_disk(name: &str) -> (u64, u64) {
-    let out = Command::new("ctr")
-        .args(["-n", "default", "snapshots", "usage", name])
-        .output();
+    let out = run_with_env(&format!("ctr -n default snapshots usage {name}"));
     if let Ok(out) = out {
         if out.status.success() {
             let stdout = String::from_utf8_lossy(&out.stdout);
@@ -252,9 +294,7 @@ fn read_cgroup_v2(base: &str) -> Result<ResourceSnapshot, ApiError> {
 
 fn collect_lxc(cli: &str, name: &str) -> Result<ResourceSnapshot, ApiError> {
     // lxc/incus info <name> --resources outputs resource usage
-    let out = Command::new(cli)
-        .args(["info", name])
-        .output()
+    let out = run_with_env(&format!("{cli} info {name}"))
         .map_err(|e| ApiError::internal(format!("{cli} info failed: {e}")))?;
 
     if !out.status.success() {
@@ -328,9 +368,7 @@ fn collect_lxc(cli: &str, name: &str) -> Result<ResourceSnapshot, ApiError> {
     }
 
     // Get memory limit from config
-    let config_out = Command::new(cli)
-        .args(["config", "show", name])
-        .output();
+    let config_out = run_with_env(&format!("{cli} config show {name}"));
     if let Ok(config_out) = config_out {
         if config_out.status.success() {
             let config_str = String::from_utf8_lossy(&config_out.stdout);
@@ -346,9 +384,7 @@ fn collect_lxc(cli: &str, name: &str) -> Result<ResourceSnapshot, ApiError> {
     }
 
     // Get disk limit
-    let storage_out = Command::new(cli)
-        .args(["config", "device", "show", name])
-        .output();
+    let storage_out = run_with_env(&format!("{cli} config device show {name}"));
     if let Ok(storage_out) = storage_out {
         if storage_out.status.success() {
             let storage_str = String::from_utf8_lossy(&storage_out.stdout);
@@ -394,14 +430,9 @@ fn collect_proxmox(vmid: &str) -> Result<ResourceSnapshot, ApiError> {
 
     // Try LXC first, then QEMU
     for kind in &["lxc", "qemu"] {
-        let out = Command::new("pvesh")
-            .args([
-                "get",
-                &format!("/nodes/{node}/{kind}/{vmid}/status/current"),
-                "--output-format",
-                "json",
-            ])
-            .output();
+        let out = run_with_env(&format!(
+            "pvesh get /nodes/{node}/{kind}/{vmid}/status/current --output-format json"
+        ));
 
         if let Ok(out) = out {
             if out.status.success() {

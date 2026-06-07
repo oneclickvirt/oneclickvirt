@@ -42,6 +42,7 @@ type Architecture string
 const (
 	ArchitectureAMD64 Architecture = "amd64"
 	ArchitectureARM64 Architecture = "arm64"
+	ArchitectureS390X Architecture = "s390x"
 )
 
 // PortMappingMethod 端口映射方法

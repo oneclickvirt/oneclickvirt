@@ -151,5 +151,6 @@ export default {
   shareLinkCreated: "Share link created",
   shareLinkCopied: "Share link copied",
   shareLinkCreateFailed: "Failed to create share link",
+  shareLinkTip: "Click the link area above to select all, then use Ctrl+C to copy",
   acceleratorConfig: "Accelerator Config"
 }

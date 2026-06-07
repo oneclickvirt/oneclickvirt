@@ -311,12 +311,12 @@ func (d *DockerHealthChecker) checkDockerService(ctx context.Context) error {
 		return fmt.Errorf("请求PTY失败: %w", err)
 	}
 
-	// 设置环境变量来确保PATH正确加载，避免bash -l -c的转义问题
+	// 使用统一的命令环境包装，确保非标准路径下的容器运行时命令可被发现
 	cliName := "docker"
 	if len(d.config.ServiceChecks) > 0 {
 		cliName = d.config.ServiceChecks[0]
 	}
-	envCommand := "source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; " + cliName + " version"
+	envCommand := utils.BuildEnvCommand(cliName + " version")
 	output, err := session.CombinedOutput(envCommand)
 	if err != nil {
 		return fmt.Errorf("%s服务不可用: %w", cliName, err)

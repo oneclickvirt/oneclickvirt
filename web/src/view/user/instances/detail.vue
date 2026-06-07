@@ -174,7 +174,8 @@ const {
   loadInstanceDetail,
   refreshPortMappings,
   refreshMonitoring,
-  loadInstanceTypePermissions
+  loadInstanceTypePermissions,
+  startShareTokenMonitor
 } = useInstanceDetail(shareToken)
 const currentInstanceId = computed(() => instance.value?.id || route.params.id || '')
 
@@ -261,6 +262,7 @@ onMounted(async () => {
       updateInstancePermissions()
       refreshMonitoring()
       refreshPortMappings()
+      startShareTokenMonitor() // 定时检测分享令牌有效期
       monitoringTimer = setInterval(refreshMonitoring, 30000)
     }
   } catch (error) {

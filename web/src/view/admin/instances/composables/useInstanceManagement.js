@@ -5,7 +5,7 @@ import { getAllInstances, adminInstanceAction, adminBatchInstanceAction, resetIn
 import { adminTransferInstance } from '@/api/features'
 import { useSSHStore } from '@/pinia/modules/ssh'
 import { copyToClipboard } from '@/utils/clipboard'
-import { normalizeShareURL } from '@/utils/share-link'
+import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
 
 export function useInstanceManagement() {
   const { t, locale } = useI18n()
@@ -381,8 +381,12 @@ export function useInstanceManagement() {
       )
       const minutes = Number(value || 30)
       const response = await createAdminInstanceShare(instance.id, { expiresInMinutes: minutes })
-      await copyToClipboard(normalizeShareURL(response.data?.url), t('admin.instances.shareLinkCopied'))
-      ElMessage.success(t('admin.instances.shareLinkCreated'))
+      const url = normalizeShareURL(response.data?.url)
+      if (!url) {
+        ElMessage.error(t('admin.instances.shareLinkCreateFailed'))
+        return
+      }
+      await showShareLinkDialog(url, { title: t('admin.instances.createShareLink'), t })
     } catch (error) {
       if (error !== 'cancel') {
         console.error('创建分享链接失败:', error)

@@ -172,8 +172,10 @@ func (s *InstanceShareService) Validate(token string) (*providerModel.InstanceSh
 		return nil, nil, err
 	}
 	now := time.Now()
+	// 不要立即删除已过期的分享链接记录，只返回过期错误。
+	// 前端需要收到明确的"已过期"错误来触发页面刷新，而非收到"无效"后缓存误导。
+	// 过期记录的清理由后续请求或定时任务完成。
 	if link.RevokedAt != nil || link.ExpiresAt.Before(now) {
-		_ = global.APP_DB.Delete(&providerModel.InstanceShareLink{}, link.ID).Error
 		return nil, nil, fmt.Errorf("分享链接已过期")
 	}
 	var instance providerModel.Instance

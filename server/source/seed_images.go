@@ -474,7 +474,7 @@ func convertArch(arch string) string {
 	switch arch {
 	case "x86_64", "amd64":
 		return "amd64"
-	case "arm64", "aarch64":
+	case "arm64", "aarch64", "armv8l", "armv8", "armv7l", "armv7", "armv6l", "armv6", "armv5tel", "armv5te", "armv5t":
 		return "arm64"
 	case "s390x":
 		return "s390x"

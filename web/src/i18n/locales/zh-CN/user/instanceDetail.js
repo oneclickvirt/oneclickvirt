@@ -54,6 +54,7 @@ export default {
   trafficLimitStartBlocked: "实例因流量超限已被系统限制，无法启动，请联系管理员重置流量或增加流量额度",
   trafficQuotaHidden: "该节点未向用户展示流量额度",
   getMonitoringFailed: "获取监控数据失败",
+  shareLinkExpired: "分享链接已过期，即将返回首页",
   resourceMonitoring: "资源监控",
   noResourceData: "暂无资源监控数据",
   cpuUsage: "CPU 使用率",

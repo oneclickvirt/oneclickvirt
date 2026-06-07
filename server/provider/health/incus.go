@@ -312,7 +312,7 @@ func (i *IncusHealthChecker) checkIncusService(ctx context.Context) error {
 	}
 
 	// 设置环境变量来确保PATH正确加载，避免bash -l -c的转义问题
-	envCommand := "source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; incus --version"
+	envCommand := utils.BuildEnvCommand("incus --version")
 	output, err := session.CombinedOutput(envCommand)
 	if err != nil {
 		return fmt.Errorf("Incus服务不可用: %w", err)
@@ -340,7 +340,7 @@ func (i *IncusHealthChecker) checkIncusService(ctx context.Context) error {
 	}
 
 	// 设置环境变量来确保PATH正确加载
-	envCommand2 := "source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; incus list"
+	envCommand2 := utils.BuildEnvCommand("incus list")
 	_, err = session2.CombinedOutput(envCommand2)
 	if err != nil {
 		return fmt.Errorf("Incus守护进程未运行或无法连接: %w", err)

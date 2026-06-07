@@ -15,7 +15,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-
 // GetSystemResourceInfo 通过SSH获取系统资源信息
 func (phc *ProviderHealthChecker) GetSystemResourceInfo(ctx context.Context, providerID uint, providerName, host, username, password string, port int) (*ResourceInfo, error) {
 	return phc.GetSystemResourceInfoWithKey(ctx, providerID, providerName, host, username, password, "", port, "", "")
@@ -253,8 +252,8 @@ func (phc *ProviderHealthChecker) executeSSHCommand(client *ssh.Client, command 
 		return "", fmt.Errorf("failed to request PTY: %w", err)
 	}
 
-	// 设置环境变量来确保PATH正确加载，避免bash -l -c的转义问题
-	envCommand := fmt.Sprintf("source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; %s", command)
+	// 使用统一的命令环境包装，确保非标准路径下的命令可被发现
+	envCommand := utils.BuildEnvCommand(command)
 
 	output, err := session.Output(envCommand)
 	if err != nil {

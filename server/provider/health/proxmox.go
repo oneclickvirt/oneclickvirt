@@ -271,8 +271,8 @@ func (p *ProxmoxHealthChecker) checkProxmoxService(ctx context.Context) error {
 		return fmt.Errorf("请求PTY失败: %w", err)
 	}
 
-	// 设置环境变量来确保PATH正确加载，避免bash -l -c的转义问题
-	envCommand := "source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; pveversion"
+	// 使用统一的命令环境包装，确保非标准路径下的 pve 命令可被发现
+	envCommand := utils.BuildEnvCommand("pveversion")
 	output, err := session.CombinedOutput(envCommand)
 	if err != nil {
 		return fmt.Errorf("Proxmox服务不可用: %w", err)
@@ -301,8 +301,8 @@ func (p *ProxmoxHealthChecker) checkProxmoxService(ctx context.Context) error {
 			return fmt.Errorf("请求PTY失败: %w", err)
 		}
 
-		// 设置环境变量来确保PATH正确加载
-		envCommand := fmt.Sprintf("source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; systemctl is-active %s", service)
+		// 使用统一的命令环境包装
+		envCommand := utils.BuildEnvCommand(fmt.Sprintf("systemctl is-active %s", service))
 		_, err = session.CombinedOutput(envCommand)
 		session.Close()
 
