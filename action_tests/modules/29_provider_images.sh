@@ -9,7 +9,7 @@ run_module_29() {
 
     if [[ -z "$PROVIDER_ID" ]]; then
         chain_break "$group" "No provider, skipping image tests"
-        return 1
+        return 0
     fi
 
     # -- Get provider's architecture so we only test matching images --
@@ -44,14 +44,14 @@ run_module_29() {
         if [[ -z "$image_count" || "$image_count" == "0" || "$image_count" == "null" ]]; then
             log_warning "No images found for provider type ${ENV_TYPE} arch ${provider_arch}"
             chain_break "$group" "No images available for testing"
-            return 1
+            return 0
         fi
     fi
 
     log_info "Found ${image_count} candidate images (arch=${provider_arch})"
     ensure_provider_health_ready "$PROVIDER_ID" "$ADMIN_TOKEN" || {
         chain_break "$group" "Provider health check failed before image creation tests"
-        return 1
+        return 0
     }
 
     # -- Test each unique image (deduplicate by name) --

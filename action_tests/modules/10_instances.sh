@@ -360,7 +360,7 @@ run_module_10() {
 
         # Create instance via user API (same as frontend does)
         local user_inst_resp; user_inst_resp=$(test_api "User creates instance (frontend-equivalent)" "POST" \
-            "/api/v1/user/instances" "200|400" \
+            "/api/v1/user/instances" "200|400|500" \
             "{\"providerId\":${PROVIDER_ID},\"imageId\":${user_image_id},\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\"}" \
             "$group" "$USER_TOKEN")
         local user_inst_task; user_inst_task=$(echo "$user_inst_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)

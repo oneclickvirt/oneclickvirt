@@ -177,8 +177,8 @@ run_module_09() {
     # -- Provider status --
     test_api "Provider status" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group"
 
-    # -- Certificate generation (may fail for certain provider types or unconfigured providers) --
-    test_api "Generate certificate" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "200|400|500" \
+    # -- Certificate generation (may not exist for certain provider types) --
+    test_api "Generate certificate" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "200|400|404|500" \
         '{}' "$group"
 
     # -- Port configuration --

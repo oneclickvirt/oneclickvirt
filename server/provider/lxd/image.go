@@ -28,7 +28,6 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 
 	// 为镜像名称添加前缀
 	originalImageName := config.Image
-	imageNameWithPrefix := "oneclickvirt_" + config.Image
 
 	// 根据实例类型确定镜像类型
 	var imageTypeStr string
@@ -38,26 +37,45 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 		imageTypeStr = "容器"
 	}
 
-	// 提前计算确定性别名（纯计算，无 I/O），确保并发时 key 一致
+	// 有 URL：下载 → 导入 → 用本地别名
 	if config.ImageURL != "" {
+		imageNameWithPrefix := "oneclickvirt_" + originalImageName
 		config.Image = imageNameWithPrefix + "_" + config.InstanceType + "_" + l.generateImageAlias(config.ImageURL, originalImageName, l.config.Architecture)[len(originalImageName)+1:]
-	} else {
-		config.Image = imageNameWithPrefix + "_" + config.InstanceType
+
+		// 快速路径：镜像已存在，直接跳过（避免进入 singleflight）
+		if l.imageExists(config.Image) {
+			global.APP_LOG.Debug("LXD"+imageTypeStr+"镜像已存在，跳过导入",
+				zap.String("alias", utils.TruncateString(config.Image, 100)),
+				zap.String("type", config.InstanceType))
+			return nil
+		}
+
+		return l.downloadAndImportImage(ctx, config, originalImageName, imageTypeStr)
 	}
 
-	// 没有 URL 说明不需要下载/导入
-	if config.ImageURL == "" {
-		return nil
-	}
-
-	// 快速路径：镜像已存在，直接跳过（避免进入 singleflight）
-	if l.imageExists(config.Image) {
-		global.APP_LOG.Debug("LXD"+imageTypeStr+"镜像已存在，跳过导入",
-			zap.String("alias", utils.TruncateString(config.Image, 100)),
+	// 无 URL（数据库无匹配的系统镜像）：尝试解析为 LXD 远程镜像引用
+	// Docker 风格名称 "debian:12" → LXD 远程 "images:debian/12/cloud"
+	// 如果已经是 LXD 远程格式（含 / 或 :），直接使用
+	lxdRemoteImage := l.resolveLxdRemoteImage(originalImageName)
+	if lxdRemoteImage != "" {
+		config.Image = lxdRemoteImage
+		global.APP_LOG.Info("将镜像名解析为LXD远程镜像引用",
+			zap.String("original", originalImageName),
+			zap.String("resolved", lxdRemoteImage),
 			zap.String("type", config.InstanceType))
 		return nil
 	}
 
+	// 兜底：保留原始名称让 LXD 自行解析
+	config.Image = originalImageName
+	global.APP_LOG.Warn("无法解析镜像为LXD远程引用，使用原始名称",
+		zap.String("image", originalImageName),
+		zap.String("type", config.InstanceType))
+	return nil
+}
+
+// downloadAndImportImage 下载镜像并导入到 LXD（原 handleImageDownloadAndImport 的下载导入逻辑）
+func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provider.InstanceConfig, originalImageName, imageTypeStr string) error {
 	// 使用 singleflight 确保同一别名只有一个协程执行下载+导入，
 	// 其余协程阻塞等待，完成后共享同一结果，彻底消除并发解压/导入冲突。
 	aliasKey := config.Image
@@ -173,6 +191,62 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 	})
 
 	return err
+}
+
+// resolveLxdRemoteImage 将 Docker 风格的镜像名转换为 LXD 远程镜像引用
+// "debian:12"    → "images:debian/12/cloud"
+// "ubuntu:22.04" → "ubuntu:22.04"
+// "alpine:3.19"  → "images:alpine/3.19/cloud"
+// "centos:7"     → "images:centos/7/cloud"
+// 如果镜像名已经包含 "/"（如 "images:debian/12"），直接返回原值
+func (l *LXDProvider) resolveLxdRemoteImage(imageName string) string {
+	// 已经是 LXD 远程格式（含 /）则直接返回
+	if strings.Contains(imageName, "/") {
+		return imageName
+	}
+
+	// 解析 Docker 风格 "os:version" 格式
+	parts := strings.SplitN(imageName, ":", 2)
+	if len(parts) != 2 {
+		// 无冒号：可能是别名，直接返回让 LXD 自行解析
+		return imageName
+	}
+
+	osName := strings.ToLower(strings.TrimSpace(parts[0]))
+	version := strings.TrimSpace(parts[1])
+
+	// 已知的 LXD 官方远程：ubuntu、debian 等有专属镜像服务器
+	// 其他的统一走 images: 远程
+	switch osName {
+	case "ubuntu":
+		return imageName // ubuntu:22.04 可直接用
+	case "debian":
+		return fmt.Sprintf("images:debian/%s/cloud", version)
+	case "alpine":
+		if version == "latest" || version == "edge" {
+			return fmt.Sprintf("images:alpine/%s/cloud", version)
+		}
+		return fmt.Sprintf("images:alpine/%s/cloud", version)
+	case "centos":
+		return fmt.Sprintf("images:centos/%s/cloud", version)
+	case "fedora":
+		return fmt.Sprintf("images:fedora/%s/cloud", version)
+	case "archlinux", "arch":
+		return "images:archlinux/cloud"
+	case "opensuse", "opensuse-leap":
+		return fmt.Sprintf("images:opensuse/%s/cloud", version)
+	case "rockylinux":
+		return fmt.Sprintf("images:rockylinux/%s/cloud", version)
+	case "oracle", "oraclelinux":
+		return fmt.Sprintf("images:oracle/%s/cloud", version)
+	case "kali":
+		return fmt.Sprintf("images:kali/%s/cloud", version)
+	case "gentoo":
+		return fmt.Sprintf("images:gentoo/%s/cloud", version)
+	default:
+		// 未知 OS：尝试 images: 远程，用 os/version/cloud 格式
+		return fmt.Sprintf("images:%s/%s/cloud", osName, version)
+	}
 }
 
 // queryAndSetSystemImage 从数据库查询匹配的系统镜像记录并设置到配置中
