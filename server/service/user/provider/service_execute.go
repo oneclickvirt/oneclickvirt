@@ -217,7 +217,8 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 			userLevel = user.Level
 		}
 		// 尝试从系统镜像表查匹配记录填充 imageURL/useCDN（管理端直连创建可能未传URL）
-		s.populateImageURLFromSystemImage(&imageURL, &useCDN, imageName, localProviderType, instance.InstanceType, task.ID)
+		// 传入架构以精确匹配，避免选中 arm64 镜像用于 amd64 Provider
+		s.populateImageURLFromSystemImage(&imageURL, &useCDN, imageName, localProviderType, instance.InstanceType, dbProvider.Architecture, task.ID)
 	} else {
 		// 获取镜像名称
 		var systemImage systemModel.SystemImage
@@ -706,12 +707,15 @@ func parseCopySizeToMB(raw string) int64 {
 
 // populateImageURLFromSystemImage 从系统镜像表查找匹配记录，填充 ImageURL/UseCDN。
 // 用于 admin 直连创建（directCreate）场景：此时 ImageURL 未由用户传入，
-// 尝试按镜像名+provider类型+实例类型匹配系统镜像，若匹配成功则自动填充下载信息。
-// 匹配策略：
-//  1. 优先按 name 精确匹配
-//  2. 从镜像名提取 OS 名（如 debian:12 → debian）按 osType 匹配
-//  3. 从镜像名提取版本号（如 debian:12 → 12）辅助按 osVersion 前缀匹配
-func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool, imageName, providerType, instanceType string, taskID uint) {
+// 尝试按镜像名+provider类型+实例类型+架构匹配系统镜像，若匹配成功则自动填充下载信息。
+// 匹配策略（按优先级依次回退）：
+//  1. 精确匹配 name
+//  2. osType 精确 + osVersion 前缀 + architecture 匹配
+//  3. osType 精确 + osVersion 前缀（忽略架构）
+//  4. osType 精确 + architecture 匹配
+//  5. osType 精确（忽略架构和版本）
+//  6. 模糊匹配（name 或 osType 包含镜像名片段）
+func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool, imageName, providerType, instanceType, architecture string, taskID uint) {
 	// 如果已有 imageURL，不覆盖
 	if *imageURL != "" {
 		return
@@ -732,26 +736,53 @@ func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool
 
 	var sysImg systemModel.SystemImage
 	baseQuery := global.APP_DB.Where("provider_type = ? AND instance_type = ? AND status = ?", providerType, instanceType, "active")
+	// 如果传入了架构参数，在所有策略的 WHERE 条件中附加架构过滤，
+	// 避免选中 arm64 镜像用于 amd64 Provider（或反之）。
+	baseWithArch := baseQuery
+	if architecture != "" {
+		baseWithArch = baseQuery.Where("architecture = ?", architecture)
+	}
 
 	// 策略 1: 按 name 精确匹配
 	err := baseQuery.Where("LOWER(name) = ?", imageLower).Order("created_at DESC").First(&sysImg).Error
 	if err != nil {
-		// 策略 2: 按 osType 精确 + osVersion 前缀匹配
-		if osVer != "" {
+		// 策略 2: 按 osType 精确 + osVersion 前缀 + architecture 匹配
+		if osVer != "" && architecture != "" {
+			err = baseWithArch.
+				Where("LOWER(os_type) = ? AND LOWER(os_version) LIKE ?", osName, osVer+"%").
+				Order("created_at DESC").
+				First(&sysImg).Error
+		}
+		// 策略 2b: 按 osType 精确 + osVersion 前缀（忽略架构）
+		if err != nil && osVer != "" {
 			err = baseQuery.
 				Where("LOWER(os_type) = ? AND LOWER(os_version) LIKE ?", osName, osVer+"%").
 				Order("created_at DESC").
 				First(&sysImg).Error
 		}
+		// 策略 3: 按 osType 精确 + architecture 匹配
+		if err != nil && architecture != "" {
+			err = baseWithArch.
+				Where("LOWER(os_type) = ?", osName).
+				Order("created_at DESC").
+				First(&sysImg).Error
+		}
+		// 策略 3b: 按 osType 精确（忽略架构和版本）
 		if err != nil {
-			// 策略 3: 按 osType 精确（忽略版本）
 			err = baseQuery.
 				Where("LOWER(os_type) = ?", osName).
 				Order("created_at DESC").
 				First(&sysImg).Error
 		}
+		// 策略 4: 模糊匹配（name 或 osType 包含镜像名片段）+ architecture
+		if err != nil && architecture != "" {
+			err = baseWithArch.
+				Where("LOWER(name) LIKE ? OR LOWER(os_type) LIKE ?", "%"+osName+"%", "%"+osName+"%").
+				Order("created_at DESC").
+				First(&sysImg).Error
+		}
+		// 策略 4b: 模糊匹配（忽略架构）
 		if err != nil {
-			// 策略 4: 模糊匹配（name 或 osType 包含镜像名片段）
 			err = baseQuery.
 				Where("LOWER(name) LIKE ? OR LOWER(os_type) LIKE ?", "%"+osName+"%", "%"+osName+"%").
 				Order("created_at DESC").
@@ -765,7 +796,8 @@ func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool
 			zap.String("osName", osName),
 			zap.String("osVer", osVer),
 			zap.String("providerType", providerType),
-			zap.String("instanceType", instanceType))
+			zap.String("instanceType", instanceType),
+			zap.String("architecture", architecture))
 		return
 	}
 

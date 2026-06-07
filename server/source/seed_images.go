@@ -353,50 +353,53 @@ func parseImageURL(imageURL string) *ImageInfo {
 	// Docker镜像
 	dockerRe := regexp.MustCompile(`https://github\.com/oneclickvirt/docker/releases/download/([^/]+)/spiritlhl_([^_]+)_([^.]+)\.tar\.gz`)
 	if matches := dockerRe.FindStringSubmatch(imageURL); matches != nil {
+		osType := matches[2]
 		return &ImageInfo{
-			Name:         fmt.Sprintf("spiritlhl-%s", matches[2]),
+			Name:         fmt.Sprintf("spiritlhl-%s", osType),
 			ProviderType: "docker",
 			InstanceType: "container",
 			Architecture: convertArch(matches[3]),
 			URL:          imageURL,
-			OSType:       matches[2],
-			OSVersion:    "latest",
-			Description:  fmt.Sprintf("Docker %s %s image", matches[2], matches[3]),
+			OSType:       osType,
+			OSVersion:    inferDockerOSVersion(osType),
+			Description:  fmt.Sprintf("Docker %s %s image", osType, matches[3]),
 		}
 	}
 
 	// Podman镜像
 	podmanRe := regexp.MustCompile(`https://github\.com/oneclickvirt/podman/releases/download/([^/]+)/spiritlhl_([^_]+)_([^.]+)\.tar\.gz`)
 	if matches := podmanRe.FindStringSubmatch(imageURL); matches != nil {
+		osType := matches[2]
 		return &ImageInfo{
-			Name:         fmt.Sprintf("spiritlhl-%s", matches[2]),
+			Name:         fmt.Sprintf("spiritlhl-%s", osType),
 			ProviderType: "podman",
 			InstanceType: "container",
 			Architecture: convertArch(matches[3]),
 			URL:          imageURL,
-			OSType:       matches[2],
-			OSVersion:    "latest",
-			Description:  fmt.Sprintf("Podman %s %s image", matches[2], matches[3]),
+			OSType:       osType,
+			OSVersion:    inferDockerOSVersion(osType),
+			Description:  fmt.Sprintf("Podman %s %s image", osType, matches[3]),
 		}
 	}
 
 	// Containerd镜像
 	containerdRe := regexp.MustCompile(`https://github\.com/oneclickvirt/containerd/releases/download/([^/]+)/spiritlhl_([^_]+)_([^.]+)\.tar\.gz`)
 	if matches := containerdRe.FindStringSubmatch(imageURL); matches != nil {
+		osType := matches[2]
 		return &ImageInfo{
-			Name:         fmt.Sprintf("spiritlhl-%s", matches[2]),
+			Name:         fmt.Sprintf("spiritlhl-%s", osType),
 			ProviderType: "containerd",
 			InstanceType: "container",
 			Architecture: convertArch(matches[3]),
 			URL:          imageURL,
-			OSType:       matches[2],
-			OSVersion:    "latest",
-			Description:  fmt.Sprintf("Containerd %s %s image", matches[2], matches[3]),
+			OSType:       osType,
+			OSVersion:    inferDockerOSVersion(osType),
+			Description:  fmt.Sprintf("Containerd %s %s image", osType, matches[3]),
 		}
 	}
 
 	// Proxmox KVM镜像（pve_kvm_images）
-	proxmoxRe := regexp.MustCompile(`https://github\.com/oneclickvirt/pve_kvm_images/releases/download/([^/]+)/([^.]+)\.qcow2`)
+	proxmoxRe := regexp.MustCompile(`https://github\.com/oneclickvirt/pve_kvm_images/releases/download/([^/]+)/(.+)\.qcow2`)
 	if matches := proxmoxRe.FindStringSubmatch(imageURL); matches != nil {
 		return &ImageInfo{
 			Name:         matches[2],
@@ -411,7 +414,7 @@ func parseImageURL(imageURL string) *ImageInfo {
 	}
 
 	// KVM镜像（kvm_images仓库）
-	kvmImagesRe := regexp.MustCompile(`https://github\.com/oneclickvirt/kvm_images/releases/download/([^/]+)/([^.]+)\.qcow2`)
+	kvmImagesRe := regexp.MustCompile(`https://github\.com/oneclickvirt/kvm_images/releases/download/([^/]+)/(.+)\.qcow2`)
 	if matches := kvmImagesRe.FindStringSubmatch(imageURL); matches != nil {
 		return &ImageInfo{
 			Name:         matches[2],
@@ -428,6 +431,44 @@ func parseImageURL(imageURL string) *ImageInfo {
 	return nil
 }
 
+// inferDockerOSVersion 根据 Docker 镜像的 OS 类型推断主要版本号。
+// Docker 镜像 URL 中不含版本号（版本信息在镜像 tar.gz 内部），此处根据 OS 名称
+// 给出当前主推的默认版本，便于 populateImageURLFromSystemImage 按 osVersion 前缀匹配。
+func inferDockerOSVersion(osType string) string {
+	switch strings.ToLower(osType) {
+	case "debian":
+		return "12"
+	case "alpine":
+		return "3.19"
+	case "ubuntu":
+		return "24.04"
+	case "rockylinux":
+		return "9"
+	case "almalinux":
+		return "9"
+	case "openeuler":
+		return "24.03"
+	case "fedora":
+		return "41"
+	case "centos":
+		return "9"
+	case "opensuse":
+		return "15.6"
+	case "archlinux":
+		return "current"
+	case "gentoo":
+		return "current"
+	case "kali":
+		return "latest"
+	case "oracle":
+		return "9"
+	case "openwrt":
+		return "24.10"
+	default:
+		return "latest"
+	}
+}
+
 // convertArch 转换架构名称
 func convertArch(arch string) string {
 	switch arch {
@@ -442,29 +483,34 @@ func convertArch(arch string) string {
 	}
 }
 
-// extractOSFromFilename 从文件名提取操作系统
+// extractOSFromFilename 从文件名提取操作系统（确定性顺序匹配，避免 map 随机迭代）
 func extractOSFromFilename(filename string) string {
 	lowerName := strings.ToLower(filename)
 
-	osMap := map[string]string{
-		"ubuntu":    "ubuntu",
-		"debian":    "debian",
-		"centos":    "centos",
-		"rocky":     "rockylinux",
-		"alma":      "almalinux",
-		"fedora":    "fedora",
-		"alpine":    "alpine",
-		"arch":      "archlinux",
-		"opensuse":  "opensuse",
-		"openeuler": "openeuler",
-		"oracle":    "oracle",
-		"gentoo":    "gentoo",
-		"kali":      "kali",
+	// 使用确定性顺序的切片而非 map，避免 Go map 随机迭代导致的不确定性匹配。
+	// 较长的键优先匹配，确保 "archlinux" 在 "arch" 之前被检查。
+	type osPair struct{ key, value string }
+	osList := []osPair{
+		{"archlinux", "archlinux"},
+		{"rockylinux", "rockylinux"},
+		{"almalinux", "almalinux"},
+		{"openeuler", "openeuler"},
+		{"opensuse", "opensuse"},
+		{"alpine", "alpine"},
+		{"ubuntu", "ubuntu"},
+		{"debian", "debian"},
+		{"centos", "centos"},
+		{"fedora", "fedora"},
+		{"oracle", "oracle"},
+		{"gentoo", "gentoo"},
+		{"kali", "kali"},
+		{"openwrt", "openwrt"},
+		{"arch", "archlinux"},
 	}
 
-	for key, value := range osMap {
-		if strings.Contains(lowerName, key) {
-			return value
+	for _, p := range osList {
+		if strings.Contains(lowerName, p.key) {
+			return p.value
 		}
 	}
 
@@ -478,13 +524,17 @@ func extractVersionFromFilename(filename string) string {
 		return matches[1]
 	}
 
-	if strings.Contains(filename, "latest") {
+	lowerName := strings.ToLower(filename)
+	if strings.Contains(lowerName, "latest") {
 		return "latest"
 	}
-	if strings.Contains(filename, "current") {
+	if strings.Contains(lowerName, "current") {
 		return "current"
 	}
-	if strings.Contains(filename, "edge") {
+	if strings.Contains(lowerName, "stable") {
+		return "stable"
+	}
+	if strings.Contains(lowerName, "edge") {
 		return "edge"
 	}
 

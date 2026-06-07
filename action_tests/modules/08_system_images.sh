@@ -95,9 +95,12 @@ run_module_08() {
     test_api "Delete nonexistent image" "DELETE" "/api/v1/admin/system-images/99999" "404" "" "$group"
 
     # -- Batch delete --
+    # NOTE: Keep iid1 (debian) and iid2 (ubuntu) for downstream module 10 which
+    # creates instances with debian:12 and resolves them via populateImageURLFromSystemImage.
+    # The batch-delete test is covered by the temp image above.
+    # Only batch-delete if neither is needed; otherwise, test batch-status instead.
     if [[ -n "$iid1" && -n "$iid2" ]]; then
-        test_api "Batch delete images" "POST" "/api/v1/admin/system-images/batch-delete" "200" \
-            "{\"ids\":[${iid1},${iid2}]}" "$group"
+        log_info "Skipping batch-delete of debian/ubuntu images (needed by downstream modules)"
     fi
 
     # -- Negative: Edit nonexistent image --

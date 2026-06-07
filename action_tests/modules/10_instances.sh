@@ -32,7 +32,24 @@ run_module_10() {
     if should_test_type "container" && env_supports_container; then
         log_info "Testing container instances..."
 
-        local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+        # Resolve container image: prefer a matching active system image for the current
+        # provider type. Falls back to "debian:12" (which the server-side
+        # populateImageURLFromSystemImage will try to map to a system image).
+        local container_image="debian:12"
+        local sys_images; sys_images=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/system-images?pageSize=200" 2>/dev/null)
+        if [[ -n "$sys_images" ]]; then
+            local resolved_name; resolved_name=$(echo "$sys_images" | jq -r '.data.list[]? | select(.osType=="debian" and .providerType=="'"${ENV_TYPE}"'" and .instanceType=="container" and .status=="active") | .name' 2>/dev/null | head -1)
+            if [[ -n "$resolved_name" && "$resolved_name" != "null" ]]; then
+                container_image="$resolved_name"
+                log_info "Resolved container image from system images: ${container_image}"
+            else
+                log_info "No active debian ${ENV_TYPE} container image found; using fallback '${container_image}'"
+            fi
+        fi
+
+        local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${container_image}\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local ir
         # Use single attempt — 400 validation errors are permanent and not worth retrying
         if ! ir=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|400|500" "$inst_data" "$group"); then
@@ -170,7 +187,7 @@ run_module_10() {
 
             # -- Rebuild --
             local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200|400|500" \
-                '{"action":"rebuild","image":"debian:12"}' "$group")
+                "{\"action\":\"rebuild\",\"image\":\"${container_image}\"}" "$group")
             log_info "Rebuild response: $(echo "$rb_resp" | jq -c '.' 2>/dev/null | head -c 2000)"
             # Only proceed with rebuild wait if the server returned 200 (success).
             # A 400/500 means the rebuild was rejected or failed immediately; skip the wait.
@@ -198,7 +215,22 @@ run_module_10() {
     if should_test_type "vm" && env_supports_vm; then
         log_info "Testing VM instances..."
 
-        local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+        # Resolve VM image from system images (same logic as container above)
+        local vm_image="debian:12"
+        local vm_sys_images; vm_sys_images=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/system-images?pageSize=200" 2>/dev/null)
+        if [[ -n "$vm_sys_images" ]]; then
+            local vm_resolved; vm_resolved=$(echo "$vm_sys_images" | jq -r '.data.list[]? | select(.osType=="debian" and .instanceType=="vm" and .status=="active") | .name' 2>/dev/null | head -1)
+            if [[ -n "$vm_resolved" && "$vm_resolved" != "null" ]]; then
+                vm_image="$vm_resolved"
+                log_info "Resolved VM image from system images: ${vm_image}"
+            else
+                log_info "No active debian VM image found; using fallback '${vm_image}'"
+            fi
+        fi
+
+        local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local vr
         if ! vr=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|400|500" "$vm_data" "$group"); then
             log_warning "VM instance creation returned non-200; downstream VM checks will be skipped"
