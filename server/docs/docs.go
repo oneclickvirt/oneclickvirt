@@ -12601,9 +12601,6 @@ const docTemplate = `{
             "properties": {
                 "action": {
                     "type": "string"
-                },
-                "image": {
-                    "type": "string"
                 }
             }
         },
@@ -15494,10 +15491,6 @@ const docTemplate = `{
                 "usagePercent": {
                     "description": "使用百分比",
                     "type": "number"
-                },
-                "visible": {
-                    "description": "用户侧是否显示流量额度与用量",
-                    "type": "boolean"
                 }
             }
         },
@@ -15567,9 +15560,6 @@ const docTemplate = `{
                     "description": "实例过期时间",
                     "type": "string"
                 },
-                "frozenReason": {
-                    "type": "string"
-                },
                 "hasSshMapping": {
                     "description": "是否有可用的SSH端口映射（支持Web SSH连接）",
                     "type": "boolean"
@@ -15592,9 +15582,6 @@ const docTemplate = `{
                 "ipv6Address": {
                     "description": "内网IPv6地址",
                     "type": "string"
-                },
-                "isFrozen": {
-                    "type": "boolean"
                 },
                 "memory": {
                     "type": "integer"

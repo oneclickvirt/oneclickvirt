@@ -35,7 +35,7 @@ const (
 // QEMUProvider 基于 libvirt/virsh 的 QEMU/KVM 虚拟机 Provider
 type QEMUProvider struct {
 	config           provider.NodeConfig
-	sshClient        utils.ShellExecutor
+	sshClient        *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
 	connected        bool
 	healthChecker    health.HealthChecker
 	version          string
@@ -45,7 +45,9 @@ type QEMUProvider struct {
 }
 
 func NewQEMUProvider() provider.Provider {
-	return &QEMUProvider{}
+	return &QEMUProvider{
+		sshClient: utils.NewSafeShellExecutor(nil),
+	}
 }
 
 func (p *QEMUProvider) GetType() string {
@@ -88,7 +90,7 @@ func (p *QEMUProvider) Connect(ctx context.Context, config provider.NodeConfig) 
 		return fmt.Errorf("failed to connect via SSH: %w", err)
 	}
 
-	p.sshClient = client
+	p.sshClient.SetExecutor(client)
 	p.connected = true
 
 	// 初始化健康检查器，使用Provider的SSH连接
@@ -122,7 +124,7 @@ func (p *QEMUProvider) Connect(ctx context.Context, config provider.NodeConfig) 
 
 func (p *QEMUProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	p.config = config
-	p.sshClient = executor
+	p.sshClient.SetExecutor(executor)
 	p.connected = true
 	p.healthChecker = nil
 
@@ -141,42 +143,32 @@ func (p *QEMUProvider) ConnectAgent(executor utils.ShellExecutor, config provide
 
 func (p *QEMUProvider) Disconnect(ctx context.Context) error {
 	p.mu.Lock()
-	if p.sshClient != nil {
-		p.sshClient.Close()
-		p.sshClient = nil
-	}
+	p.sshClient.Close() // SafeShellExecutor.Close 内部清理executor，无需置nil
 	p.mu.Unlock()
 	p.connected = false
 	return nil
 }
 
 func (p *QEMUProvider) IsConnected() bool {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-	return p.connected && client != nil && client.IsHealthy()
+	return p.connected && p.sshClient.HasExecutor() && p.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (p *QEMUProvider) EnsureConnection() error {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-
-	if client == nil {
+	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
 
-	if !client.IsHealthy() {
+	if !p.sshClient.IsHealthy() {
 		global.APP_LOG.Warn("QEMU Provider SSH连接不健康，尝试重连",
 			zap.String("host", utils.TruncateString(p.config.Host, 50)),
 			zap.Int("port", p.config.Port))
 
-		if err := client.Reconnect(); err != nil {
+		if err := p.sshClient.Reconnect(); err != nil {
 			p.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
-		if !client.IsHealthy() {
+		if !p.sshClient.IsHealthy() {
 			p.connected = false
 			return fmt.Errorf("connection remains unhealthy after reconnect")
 		}
@@ -191,7 +183,7 @@ func (p *QEMUProvider) EnsureConnection() error {
 
 func (p *QEMUProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if p.healthChecker == nil {
-		if p.sshClient == nil {
+		if !p.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")
 		}
 		status := health.HealthStatusUnhealthy
@@ -224,14 +216,11 @@ func (p *QEMUProvider) GetVersion() string {
 
 // getVersion 获取 QEMU/libvirt 版本
 func (p *QEMUProvider) getVersion() error {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-	if client == nil {
+	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	output, err := client.Execute("virsh version --short 2>/dev/null || virsh --version 2>/dev/null")
+	output, err := p.sshClient.Execute("virsh version --short 2>/dev/null || virsh --version 2>/dev/null")
 	if err != nil {
 		p.version = "unknown"
 		return err

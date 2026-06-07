@@ -128,9 +128,9 @@ func (c *ContainerdProvider) setContainerPasswordWithRetry(containerName, passwo
 					cliName, shellSingleQuote(containerName), shellSingleQuote(shell), shellSingleQuote(primaryInnerCmd)),
 				FallbackCmd: fmt.Sprintf("printf 'root:%%s\\n' %s | %s exec -i %s %s -c %s",
 					shellSingleQuote(password), cliName, shellSingleQuote(containerName), shellSingleQuote(shell), shellSingleQuote(fallbackInnerCmd)),
-				TimeoutSeconds: 30,
+				TimeoutSeconds: 60,
 			})
-			_, err := c.sshClient.ExecuteViaTempScript(script, nil, 60*time.Second)
+			_, err := c.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)
 			if err == nil {
 				return nil
 			}

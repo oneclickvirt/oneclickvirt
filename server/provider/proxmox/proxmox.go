@@ -76,7 +76,7 @@ func InternalIPToVMIDCandidates(ip string) []int {
 
 type ProxmoxProvider struct {
 	config           provider.NodeConfig
-	sshClient        utils.ShellExecutor
+	sshClient        *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
 	apiClient        *http.Client
 	transport        *http.Transport
 	providerID       uint // 存储providerID用于清理
@@ -117,6 +117,7 @@ func NewProxmoxProvider() provider.Provider {
 	// 注册到清理管理器（自动去重）
 	provider.GetTransportCleanupManager().RegisterTransport(transport)
 	return &ProxmoxProvider{
+		sshClient: utils.NewSafeShellExecutor(nil),
 		transport: transport,
 		apiClient: &http.Client{
 			Timeout:   30 * time.Second,
@@ -189,7 +190,7 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 		return fmt.Errorf("failed to connect via SSH: %w", err)
 	}
 
-	p.sshClient = client
+	p.sshClient.SetExecutor(client)
 	p.connected = true
 
 	// 获取节点名：优先使用配置中的HostName（数据库存储的），否则动态获取
@@ -257,7 +258,7 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 	p.config = config
 	p.providerUUID = config.UUID
 	p.providerID = config.ID
-	p.sshClient = executor
+	p.sshClient.SetExecutor(executor)
 	p.connected = true
 	p.healthChecker = nil
 
@@ -295,10 +296,7 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 
 func (p *ProxmoxProvider) Disconnect(ctx context.Context) error {
 	p.mu.Lock()
-	if p.sshClient != nil {
-		p.sshClient.Close()
-		p.sshClient = nil
-	}
+	p.sshClient.Close() // SafeShellExecutor.Close 内部清理executor，无需置nil
 	p.mu.Unlock()
 
 	// 按providerID清理transport
@@ -316,32 +314,25 @@ func (p *ProxmoxProvider) Disconnect(ctx context.Context) error {
 }
 
 func (p *ProxmoxProvider) IsConnected() bool {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-	return p.connected && client != nil && client.IsHealthy()
+	return p.connected && p.sshClient.HasExecutor() && p.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (p *ProxmoxProvider) EnsureConnection() error {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-
-	if client == nil {
+	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
 
-	if !client.IsHealthy() {
+	if !p.sshClient.IsHealthy() {
 		global.APP_LOG.Warn("Proxmox Provider SSH连接不健康，尝试重连",
 			zap.String("host", utils.TruncateString(p.config.Host, 32)),
 			zap.Int("port", p.config.Port))
 
-		if err := client.Reconnect(); err != nil {
+		if err := p.sshClient.Reconnect(); err != nil {
 			p.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
-		if !client.IsHealthy() {
+		if !p.sshClient.IsHealthy() {
 			p.connected = false
 			return fmt.Errorf("connection remains unhealthy after reconnect")
 		}
@@ -356,7 +347,7 @@ func (p *ProxmoxProvider) EnsureConnection() error {
 
 func (p *ProxmoxProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if p.healthChecker == nil {
-		if p.sshClient == nil {
+		if !p.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")
 		}
 		status := health.HealthStatusUnhealthy
@@ -474,13 +465,10 @@ func (p *ProxmoxProvider) getInternalGateway() string {
 
 // 获取节点名
 func (p *ProxmoxProvider) getNodeName(ctx context.Context) error {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-	if client == nil {
+	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client不可用")
 	}
-	output, err := client.Execute("hostname")
+	output, err := p.sshClient.Execute("hostname")
 	if err != nil {
 		return err
 	}
@@ -492,17 +480,14 @@ func (p *ProxmoxProvider) getNodeName(ctx context.Context) error {
 
 // ExecuteSSHCommand 执行SSH命令
 func (p *ProxmoxProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-	if !p.connected || client == nil {
+	if !p.connected || !p.sshClient.HasExecutor() {
 		return "", fmt.Errorf("Proxmox provider not connected")
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.RedactSensitiveCommand(command, 200)))
 
-	output, err := client.Execute(command)
+	output, err := p.sshClient.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.RedactSensitiveCommand(command, 200)),
@@ -688,7 +673,7 @@ func (p *ProxmoxProvider) setAPIAuth(req *http.Request) {
 
 // getProxmoxVersion 获取 Proxmox VE 版本
 func (p *ProxmoxProvider) getProxmoxVersion() error {
-	if p.sshClient == nil {
+	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not connected")
 	}
 

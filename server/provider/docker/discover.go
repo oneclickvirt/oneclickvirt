@@ -21,7 +21,7 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 
 	global.APP_LOG.Debug("开始发现Docker容器", zap.String("provider", d.config.Name))
 
-	if d.sshClient == nil {
+	if !d.sshClient.HasExecutor() {
 		return nil, fmt.Errorf("SSH client not initialized")
 	}
 

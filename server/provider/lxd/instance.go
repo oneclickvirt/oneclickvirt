@@ -550,9 +550,9 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 	directPasswordScript := utils.BuildTempScript(utils.TempScriptConfig{
 		PrimaryCmd:     buildLXDChpasswdCommand(config.Name, password),
 		FallbackCmd:    buildLXDChpasswdCommand(config.Name, password),
-		TimeoutSeconds: 30,
+		TimeoutSeconds: 60,
 	})
-	_, err = l.sshClient.ExecuteViaTempScript(directPasswordScript, nil, 120*time.Second)
+	_, err = l.sshClient.ExecuteViaTempScript(directPasswordScript, nil, 180*time.Second)
 	if err != nil {
 		global.APP_LOG.Error("设置实例密码失败",
 			zap.String("instanceName", config.Name),

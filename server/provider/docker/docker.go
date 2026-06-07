@@ -59,7 +59,7 @@ var orbstackRuntime = ContainerRuntimeConfig{
 type DockerProvider struct {
 	config           provider.NodeConfig
 	runtime          ContainerRuntimeConfig
-	sshClient        utils.ShellExecutor
+	sshClient        *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
 	connected        bool
 	healthChecker    health.HealthChecker
 	version          string             // CLI 版本
@@ -77,7 +77,10 @@ func NewOrbstackProvider() provider.Provider {
 
 // NewContainerProvider 创建使用指定运行时配置的容器 Provider
 func NewContainerProvider(runtime ContainerRuntimeConfig) provider.Provider {
-	return &DockerProvider{runtime: runtime}
+	return &DockerProvider{
+		runtime:   runtime,
+		sshClient: utils.NewSafeShellExecutor(nil),
+	}
 }
 
 func (d *DockerProvider) GetType() string {
@@ -123,7 +126,7 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 		return fmt.Errorf("failed to connect via SSH: %w", err)
 	}
 
-	d.sshClient = client // *SSHClient satisfies utils.ShellExecutor
+	d.sshClient.SetExecutor(client)
 	d.connected = true
 
 	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
@@ -161,10 +164,8 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 }
 
 func (d *DockerProvider) Disconnect(ctx context.Context) error {
-	if d.sshClient != nil {
-		d.sshClient.Close()
-		d.connected = false
-	}
+	d.sshClient.Close() // SafeShellExecutor.Close 内部清理executor，无需置nil
+	d.connected = false
 	return nil
 }
 
@@ -172,7 +173,7 @@ func (d *DockerProvider) Disconnect(ctx context.Context) error {
 // 由 service/provider.LoadProvider 在检测到 connection_type=agent 时调用。
 func (d *DockerProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	d.config = config
-	d.sshClient = executor
+	d.sshClient.SetExecutor(executor)
 	d.connected = true
 	// Agent 模式不使用 SSH 健康检查器；健康状态由 AgentHub 管理。
 	d.healthChecker = nil
@@ -194,12 +195,12 @@ func (d *DockerProvider) ConnectAgent(executor utils.ShellExecutor, config provi
 }
 
 func (d *DockerProvider) IsConnected() bool {
-	return d.connected && d.sshClient != nil && d.sshClient.IsHealthy()
+	return d.connected && d.sshClient.HasExecutor() && d.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保执行器连接可用，如不健康则尝试重连（SSH 模式重建连接；Agent 模式为 no-op）
 func (d *DockerProvider) EnsureConnection() error {
-	if d.sshClient == nil {
+	if !d.sshClient.HasExecutor() {
 		return fmt.Errorf("shell executor not initialized")
 	}
 
@@ -240,7 +241,7 @@ func (d *DockerProvider) GetVersion() string {
 
 // getDockerVersion 获取容器运行时版本
 func (d *DockerProvider) getDockerVersion() error {
-	if d.sshClient == nil {
+	if !d.sshClient.HasExecutor() {
 		return fmt.Errorf("executor not initialized")
 	}
 
@@ -618,7 +619,7 @@ fi
 
 // checkIPv6NetworkAvailable 检查IPv6网络是否可用
 func (d *DockerProvider) checkIPv6NetworkAvailable() bool {
-	if !d.connected || d.sshClient == nil {
+	if !d.connected || !d.sshClient.HasExecutor() {
 		return false
 	}
 
@@ -666,7 +667,7 @@ func (d *DockerProvider) checkIPv6NetworkAvailable() bool {
 
 // ExecuteSSHCommand 执行SSH命令
 func (d *DockerProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	if !d.connected || d.sshClient == nil {
+	if !d.connected || !d.sshClient.HasExecutor() {
 		return "", fmt.Errorf("Docker provider not connected")
 	}
 

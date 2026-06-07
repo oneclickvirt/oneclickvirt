@@ -239,7 +239,7 @@ func (l *LXDProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Disc
 
 // sshDiscoverInstances 通过SSH命令发现实例
 func (l *LXDProvider) sshDiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {
-	if l.sshClient == nil {
+	if !l.sshClient.HasExecutor() {
 		return nil, fmt.Errorf("SSH client not initialized")
 	}
 

@@ -36,7 +36,7 @@ func (p *PodmanProvider) getDownloadURL(originalURL, providerCountry string, use
 // ensureRegistriesConf 确保 /etc/containers/registries.conf 配置有效
 // 确认 "invalid condition: location is unset and prefix is not in the format: *.example.com" 错误
 func (p *PodmanProvider) ensureRegistriesConf() {
-	if p.sshClient == nil {
+	if !p.sshClient.HasExecutor() {
 		return
 	}
 	// 检测 registries.conf 是否有效

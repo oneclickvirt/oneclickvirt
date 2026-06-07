@@ -206,9 +206,9 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 		script := utils.BuildTempScript(utils.TempScriptConfig{
 			PrimaryCmd:     buildProxmoxContainerChpasswdCommand(vmid, password),
 			FallbackCmd:    buildProxmoxContainerChpasswdCommand(vmid, password),
-			TimeoutSeconds: 30,
+			TimeoutSeconds: 60,
 		})
-		_, err = p.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)
+		_, err = p.sshClient.ExecuteViaTempScript(script, nil, 180*time.Second)
 		if err != nil {
 			global.APP_LOG.Error("设置Proxmox容器密码失败",
 				zap.String("instanceID", instanceID),

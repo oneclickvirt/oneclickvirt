@@ -22,7 +22,7 @@ import (
 
 type IncusProvider struct {
 	config           provider.NodeConfig
-	sshClient        utils.ShellExecutor
+	sshClient        *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
 	apiClient        *http.Client
 	transport        *http.Transport // 保存transport以便清理
 	providerID       uint            // 存储providerID用于清理
@@ -43,6 +43,7 @@ func NewIncusProvider() provider.Provider {
 	}
 	provider.GetTransportCleanupManager().RegisterTransport(transport)
 	return &IncusProvider{
+		sshClient: utils.NewSafeShellExecutor(nil),
 		transport: transport,
 		apiClient: &http.Client{
 			Timeout:   30 * time.Second,
@@ -119,7 +120,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 	if err != nil {
 		return fmt.Errorf("failed to connect via SSH: %w", err)
 	}
-	i.sshClient = client
+	i.sshClient.SetExecutor(client)
 	i.connected = true
 
 	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
@@ -162,7 +163,7 @@ func (i *IncusProvider) ConnectAgent(executor utils.ShellExecutor, config provid
 	if i.transport != nil && i.providerID > 0 {
 		provider.GetTransportCleanupManager().RegisterTransportWithProvider(i.transport, i.providerID)
 	}
-	i.sshClient = executor
+	i.sshClient.SetExecutor(executor)
 	i.connected = true
 	i.healthChecker = nil
 
@@ -190,17 +191,13 @@ func (i *IncusProvider) GetVersion() string {
 // blocking the agent's WebSocket read loop when incus isn't installed.
 // Falls back to incus version only if incus binary is absent.
 func (i *IncusProvider) getIncusVersion() error {
-	i.mu.RLock()
-	client := i.sshClient
-	i.mu.RUnlock()
-
-	if client == nil {
+	if !i.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not connected")
 	}
 
 	// incus --version is fast and local; incus version may try to reach the
 	// incus daemon socket and hang.  Use a short timeout (15 s).
-	output, err := client.ExecuteWithTimeout(
+	output, err := i.sshClient.ExecuteWithTimeout(
 		"incus --version 2>/dev/null || incus version 2>/dev/null",
 		15*time.Second,
 	)
@@ -237,10 +234,7 @@ func (i *IncusProvider) getIncusVersion() error {
 
 func (i *IncusProvider) Disconnect(ctx context.Context) error {
 	i.mu.Lock()
-	if i.sshClient != nil {
-		i.sshClient.Close()
-		i.sshClient = nil
-	}
+	i.sshClient.Close() // SafeShellExecutor.Close 内部清理executor，无需置nil
 	i.mu.Unlock()
 
 	// 按providerID清理transport
@@ -258,32 +252,25 @@ func (i *IncusProvider) Disconnect(ctx context.Context) error {
 }
 
 func (i *IncusProvider) IsConnected() bool {
-	i.mu.RLock()
-	client := i.sshClient
-	i.mu.RUnlock()
-	return i.connected && client != nil && client.IsHealthy()
+	return i.connected && i.sshClient.HasExecutor() && i.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (i *IncusProvider) EnsureConnection() error {
-	i.mu.RLock()
-	client := i.sshClient
-	i.mu.RUnlock()
-
-	if client == nil {
+	if !i.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
 
-	if !client.IsHealthy() {
+	if !i.sshClient.IsHealthy() {
 		global.APP_LOG.Warn("Incus Provider SSH连接不健康，尝试重连",
 			zap.String("host", utils.TruncateString(i.config.Host, 32)),
 			zap.Int("port", i.config.Port))
 
-		if err := client.Reconnect(); err != nil {
+		if err := i.sshClient.Reconnect(); err != nil {
 			i.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
-		if !client.IsHealthy() {
+		if !i.sshClient.IsHealthy() {
 			i.connected = false
 			return fmt.Errorf("connection remains unhealthy after reconnect")
 		}
@@ -298,7 +285,7 @@ func (i *IncusProvider) EnsureConnection() error {
 
 func (i *IncusProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if i.healthChecker == nil {
-		if i.sshClient == nil {
+		if !i.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")
 		}
 		status := health.HealthStatusUnhealthy
@@ -562,17 +549,14 @@ func (i *IncusProvider) createTLSConfig(certPath, keyPath string) (*tls.Config, 
 
 // ExecuteSSHCommand 执行SSH命令
 func (i *IncusProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	i.mu.RLock()
-	client := i.sshClient
-	i.mu.RUnlock()
-	if !i.connected || client == nil {
+	if !i.connected || !i.sshClient.HasExecutor() {
 		return "", fmt.Errorf("Incus provider not connected")
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.RedactSensitiveCommand(command, 200)))
 
-	output, err := client.Execute(command)
+	output, err := i.sshClient.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.RedactSensitiveCommand(command, 200)),
@@ -605,18 +589,16 @@ func (i *IncusProvider) shouldUseAPI() bool {
 
 // shouldUseSSH 根据执行规则判断是否应该使用SSH
 func (i *IncusProvider) shouldUseSSH() bool {
-	i.mu.RLock()
-	client := i.sshClient
-	i.mu.RUnlock()
+	hasClient := i.sshClient.HasExecutor() && i.connected
 	switch i.config.ExecutionRule {
 	case "api_only":
 		return false
 	case "ssh_only":
-		return client != nil && i.connected
+		return hasClient
 	case "auto":
 		fallthrough
 	default:
-		return client != nil && i.connected
+		return hasClient
 	}
 }
 

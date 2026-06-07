@@ -93,7 +93,7 @@ func (p *ProxmoxProvider) apiDiscoverInstances(ctx context.Context) ([]provider.
 
 // sshDiscoverInstances 通过SSH命令发现实例
 func (p *ProxmoxProvider) sshDiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {
-	if p.sshClient == nil {
+	if !p.sshClient.HasExecutor() {
 		return nil, fmt.Errorf("SSH client not initialized")
 	}
 

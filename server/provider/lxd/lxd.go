@@ -22,7 +22,7 @@ import (
 
 type LXDProvider struct {
 	config           provider.NodeConfig
-	sshClient        utils.ShellExecutor
+	sshClient        *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
 	apiClient        *http.Client
 	transport        *http.Transport
 	providerID       uint // 存储providerID用于清理
@@ -43,6 +43,7 @@ func NewLXDProvider() provider.Provider {
 	}
 	provider.GetTransportCleanupManager().RegisterTransport(transport)
 	return &LXDProvider{
+		sshClient: utils.NewSafeShellExecutor(nil),
 		transport: transport,
 		apiClient: &http.Client{
 			Timeout:   30 * time.Second,
@@ -122,7 +123,7 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 		return fmt.Errorf("failed to connect via SSH: %w", err)
 	}
 
-	l.sshClient = client
+	l.sshClient.SetExecutor(client)
 	l.connected = true
 
 	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
@@ -166,7 +167,7 @@ func (l *LXDProvider) ConnectAgent(executor utils.ShellExecutor, config provider
 	if l.transport != nil && l.providerID > 0 {
 		provider.GetTransportCleanupManager().RegisterTransportWithProvider(l.transport, l.providerID)
 	}
-	l.sshClient = executor
+	l.sshClient.SetExecutor(executor)
 	l.connected = true
 	l.healthChecker = nil
 
@@ -194,18 +195,14 @@ func (l *LXDProvider) GetVersion() string {
 // blocking the agent's WebSocket read loop when lxd isn't installed.
 // Falls back to lxc version only if lxd binary is absent.
 func (l *LXDProvider) getLXDVersion() error {
-	l.mu.RLock()
-	client := l.sshClient
-	l.mu.RUnlock()
-
-	if client == nil {
+	if !l.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not connected")
 	}
 
 	// lxd --version is fast and local; lxc version may try to reach the
 	// LXD daemon socket and hang.  Use a short timeout (15 s) which is
 	// more than enough for a version query.
-	output, err := client.ExecuteWithTimeout(
+	output, err := l.sshClient.ExecuteWithTimeout(
 		"lxd --version 2>/dev/null || lxc version 2>/dev/null",
 		15*time.Second,
 	)
@@ -242,10 +239,7 @@ func (l *LXDProvider) getLXDVersion() error {
 
 func (l *LXDProvider) Disconnect(ctx context.Context) error {
 	l.mu.Lock()
-	if l.sshClient != nil {
-		l.sshClient.Close()
-		l.sshClient = nil
-	}
+	l.sshClient.Close() // SafeShellExecutor.Close 内部清理executor，无需置nil
 	l.mu.Unlock()
 
 	// 按providerID清理transport
@@ -263,32 +257,25 @@ func (l *LXDProvider) Disconnect(ctx context.Context) error {
 }
 
 func (l *LXDProvider) IsConnected() bool {
-	l.mu.RLock()
-	client := l.sshClient
-	l.mu.RUnlock()
-	return l.connected && client != nil && client.IsHealthy()
+	return l.connected && l.sshClient.HasExecutor() && l.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (l *LXDProvider) EnsureConnection() error {
-	l.mu.RLock()
-	client := l.sshClient
-	l.mu.RUnlock()
-
-	if client == nil {
+	if !l.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
 
-	if !client.IsHealthy() {
+	if !l.sshClient.IsHealthy() {
 		global.APP_LOG.Warn("LXD Provider SSH连接不健康，尝试重连",
 			zap.String("host", utils.TruncateString(l.config.Host, 50)),
 			zap.Int("port", l.config.Port))
 
-		if err := client.Reconnect(); err != nil {
+		if err := l.sshClient.Reconnect(); err != nil {
 			l.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
-		if !client.IsHealthy() {
+		if !l.sshClient.IsHealthy() {
 			l.connected = false
 			return fmt.Errorf("connection remains unhealthy after reconnect")
 		}
@@ -303,7 +290,7 @@ func (l *LXDProvider) EnsureConnection() error {
 
 func (l *LXDProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if l.healthChecker == nil {
-		if l.sshClient == nil {
+		if !l.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")
 		}
 		status := health.HealthStatusUnhealthy
@@ -572,17 +559,14 @@ func (l *LXDProvider) createTLSConfig(certPath, keyPath string) (*tls.Config, er
 
 // ExecuteSSHCommand 执行SSH命令
 func (l *LXDProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	l.mu.RLock()
-	client := l.sshClient
-	l.mu.RUnlock()
-	if !l.connected || client == nil {
+	if !l.connected || !l.sshClient.HasExecutor() {
 		return "", fmt.Errorf("LXD provider not connected")
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.RedactSensitiveCommand(command, 200)))
 
-	output, err := client.Execute(command)
+	output, err := l.sshClient.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.RedactSensitiveCommand(command, 200)),
@@ -615,18 +599,16 @@ func (l *LXDProvider) shouldUseAPI() bool {
 
 // shouldUseSSH 根据执行规则判断是否应该使用SSH
 func (l *LXDProvider) shouldUseSSH() bool {
-	l.mu.RLock()
-	client := l.sshClient
-	l.mu.RUnlock()
+	hasClient := l.sshClient.HasExecutor() && l.connected
 	switch l.config.ExecutionRule {
 	case "api_only":
 		return false
 	case "ssh_only":
-		return client != nil && l.connected
+		return hasClient
 	case "auto":
 		fallthrough
 	default:
-		return client != nil && l.connected
+		return hasClient
 	}
 }
 

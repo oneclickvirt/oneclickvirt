@@ -215,7 +215,7 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 
 // sshDiscoverInstances 通过SSH命令发现实例
 func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {
-	if i.sshClient == nil {
+	if !i.sshClient.HasExecutor() {
 		return nil, fmt.Errorf("SSH client not initialized")
 	}
 

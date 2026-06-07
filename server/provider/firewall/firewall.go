@@ -27,7 +27,7 @@ const (
 
 // Manager 防火墙管理器，封装 nft-first + iptables-fallback 双后端
 type Manager struct {
-	sshClient utils.ShellExecutor
+	sshClient *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
 	backend   Backend
 	tableName string // nft table 名称，如 "qemu" "kubevirt" "docker"
 	subnet    string // 内网网段，如 "192.168.122.0/24"
@@ -39,7 +39,7 @@ type Manager struct {
 // subnet: 需要做 NAT 的内网网段（如 "192.168.122.0/24"），为空则跳过基础 NAT 规则
 func NewManager(sshClient utils.ShellExecutor, tableName, subnet string) *Manager {
 	return &Manager{
-		sshClient: sshClient,
+		sshClient: utils.NewSafeShellExecutor(sshClient),
 		tableName: tableName,
 		subnet:    subnet,
 	}

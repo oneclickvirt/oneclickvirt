@@ -33,7 +33,7 @@ const (
 // PodmanProvider Podman容器运行时Provider（独立实现，不依赖docker包）
 type PodmanProvider struct {
 	config           provider.NodeConfig
-	sshClient        utils.ShellExecutor
+	sshClient        *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
 	connected        bool
 	healthChecker    health.HealthChecker
 	version          string
@@ -43,7 +43,9 @@ type PodmanProvider struct {
 
 // NewPodmanProvider 创建Podman Provider实例
 func NewPodmanProvider() provider.Provider {
-	return &PodmanProvider{}
+	return &PodmanProvider{
+		sshClient: utils.NewSafeShellExecutor(nil),
+	}
 }
 
 func (p *PodmanProvider) GetType() string {
@@ -87,7 +89,7 @@ func (p *PodmanProvider) Connect(ctx context.Context, config provider.NodeConfig
 		return fmt.Errorf("failed to connect via SSH: %w", err)
 	}
 
-	p.sshClient = client
+	p.sshClient.SetExecutor(client)
 	p.connected = true
 
 	healthConfig := health.HealthConfig{
@@ -118,7 +120,7 @@ func (p *PodmanProvider) Connect(ctx context.Context, config provider.NodeConfig
 
 func (p *PodmanProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	p.config = config
-	p.sshClient = executor
+	p.sshClient.SetExecutor(executor)
 	p.connected = true
 	p.healthChecker = nil
 
@@ -136,20 +138,18 @@ func (p *PodmanProvider) ConnectAgent(executor utils.ShellExecutor, config provi
 }
 
 func (p *PodmanProvider) Disconnect(ctx context.Context) error {
-	if p.sshClient != nil {
-		p.sshClient.Close()
-		p.connected = false
-	}
+	p.sshClient.Close() // SafeShellExecutor.Close 内部清理executor，无需置nil
+	p.connected = false
 	return nil
 }
 
 func (p *PodmanProvider) IsConnected() bool {
-	return p.connected && p.sshClient != nil && p.sshClient.IsHealthy()
+	return p.connected && p.sshClient.HasExecutor() && p.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (p *PodmanProvider) EnsureConnection() error {
-	if p.sshClient == nil {
+	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
 	if !p.sshClient.IsHealthy() {
@@ -169,7 +169,7 @@ func (p *PodmanProvider) EnsureConnection() error {
 
 func (p *PodmanProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if p.healthChecker == nil {
-		if p.sshClient == nil {
+		if !p.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")
 		}
 		status := health.HealthStatusUnhealthy
@@ -201,7 +201,7 @@ func (p *PodmanProvider) GetVersion() string {
 }
 
 func (p *PodmanProvider) getPodmanVersion() error {
-	if p.sshClient == nil {
+	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not connected")
 	}
 	versionCmd := fmt.Sprintf("%s version --format '{{.Server.Version}}' 2>/dev/null || %s --version 2>/dev/null || echo unknown", cliName, cliName)
@@ -474,7 +474,7 @@ fi
 
 // checkIPv6NetworkAvailable 检查IPv6网络是否可用
 func (p *PodmanProvider) checkIPv6NetworkAvailable() bool {
-	if !p.connected || p.sshClient == nil {
+	if !p.connected || !p.sshClient.HasExecutor() {
 		return false
 	}
 	_, err := p.sshClient.Execute(fmt.Sprintf("%s network inspect %s", cliName, shellSingleQuote(ipv6Network)))
@@ -496,7 +496,7 @@ func (p *PodmanProvider) checkIPv6NetworkAvailable() bool {
 
 // ExecuteSSHCommand 执行SSH命令
 func (p *PodmanProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	if !p.connected || p.sshClient == nil {
+	if !p.connected || !p.sshClient.HasExecutor() {
 		return "", fmt.Errorf("Podman provider not connected")
 	}
 	output, err := p.sshClient.Execute(command)

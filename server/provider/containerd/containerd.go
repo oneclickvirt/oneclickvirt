@@ -33,7 +33,7 @@ const (
 // ContainerdProvider Containerd/nerdctl容器运行时Provider（独立实现，不依赖docker包）
 type ContainerdProvider struct {
 	config           provider.NodeConfig
-	sshClient        utils.ShellExecutor
+	sshClient        *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
 	connected        bool
 	healthChecker    health.HealthChecker
 	version          string
@@ -43,7 +43,9 @@ type ContainerdProvider struct {
 
 // NewContainerdProvider 创建Containerd Provider实例
 func NewContainerdProvider() provider.Provider {
-	return &ContainerdProvider{}
+	return &ContainerdProvider{
+		sshClient: utils.NewSafeShellExecutor(nil),
+	}
 }
 
 func (c *ContainerdProvider) GetType() string {
@@ -87,7 +89,7 @@ func (c *ContainerdProvider) Connect(ctx context.Context, config provider.NodeCo
 		return fmt.Errorf("failed to connect via SSH: %w", err)
 	}
 
-	c.sshClient = client
+	c.sshClient.SetExecutor(client)
 	c.connected = true
 
 	healthConfig := health.HealthConfig{
@@ -118,7 +120,7 @@ func (c *ContainerdProvider) Connect(ctx context.Context, config provider.NodeCo
 
 func (c *ContainerdProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	c.config = config
-	c.sshClient = executor
+	c.sshClient.SetExecutor(executor)
 	c.connected = true
 	c.healthChecker = nil
 
@@ -136,20 +138,18 @@ func (c *ContainerdProvider) ConnectAgent(executor utils.ShellExecutor, config p
 }
 
 func (c *ContainerdProvider) Disconnect(ctx context.Context) error {
-	if c.sshClient != nil {
-		c.sshClient.Close()
-		c.connected = false
-	}
+	c.sshClient.Close() // SafeShellExecutor.Close 内部清理executor，无需置nil
+	c.connected = false
 	return nil
 }
 
 func (c *ContainerdProvider) IsConnected() bool {
-	return c.connected && c.sshClient != nil && c.sshClient.IsHealthy()
+	return c.connected && c.sshClient.HasExecutor() && c.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用
 func (c *ContainerdProvider) EnsureConnection() error {
-	if c.sshClient == nil {
+	if !c.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
 	if !c.sshClient.IsHealthy() {
@@ -169,7 +169,7 @@ func (c *ContainerdProvider) EnsureConnection() error {
 
 func (c *ContainerdProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if c.healthChecker == nil {
-		if c.sshClient == nil {
+		if !c.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")
 		}
 		status := health.HealthStatusUnhealthy
@@ -201,7 +201,7 @@ func (c *ContainerdProvider) GetVersion() string {
 }
 
 func (c *ContainerdProvider) getContainerdVersion() error {
-	if c.sshClient == nil {
+	if !c.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not connected")
 	}
 	versionCmd := fmt.Sprintf("%s version --format '{{.Server.Version}}' 2>/dev/null || %s --version 2>/dev/null || echo unknown", cliName, cliName)

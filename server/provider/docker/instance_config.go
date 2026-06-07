@@ -168,9 +168,9 @@ func (d *DockerProvider) setContainerPasswordWithRetry(containerName, password, 
 					d.runtime.CLI, shellSingleQuote(containerName), shellSingleQuote(shell), shellSingleQuote(primaryInnerCmd)),
 				FallbackCmd: fmt.Sprintf("printf 'root:%%s\\n' %s | %s exec -i %s %s -c %s",
 					shellSingleQuote(password), d.runtime.CLI, shellSingleQuote(containerName), shellSingleQuote(shell), shellSingleQuote(fallbackInnerCmd)),
-				TimeoutSeconds: 30,
+				TimeoutSeconds: 60,
 			})
-			_, err := d.sshClient.ExecuteViaTempScript(script, nil, 60*time.Second)
+			_, err := d.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)
 			if err == nil {
 				global.APP_LOG.Info("容器密码设置成功",
 					zap.String("containerName", containerName),

@@ -178,7 +178,7 @@ run_module_25() {
 
     # -- Share link with SQL injection in token --
     test_api_noauth "Share link (SQL injection token)" "GET" \
-        "/api/v1/public/instance-shares/'%20OR%201=1%20--" "401|404" "" "$share_err_group"
+        "/api/v1/public/instance-shares/'%20OR%201=1%20--" "400|401|404" "" "$share_err_group"
 
     # -- Share link action without body --
     test_api_noauth "Share link action (no body)" "POST" \

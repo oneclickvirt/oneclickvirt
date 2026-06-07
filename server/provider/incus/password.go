@@ -94,9 +94,9 @@ func (i *IncusProvider) sshSetInstancePassword(instanceID, password string) erro
 	script := utils.BuildTempScript(utils.TempScriptConfig{
 		PrimaryCmd:     buildIncusChpasswdCommand(instanceID, password),
 		FallbackCmd:    buildIncusChpasswdCommand(instanceID, password),
-		TimeoutSeconds: 30,
+		TimeoutSeconds: 60,
 	})
-	_, err = i.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)
+	_, err = i.sshClient.ExecuteViaTempScript(script, nil, 180*time.Second)
 	if err != nil {
 		global.APP_LOG.Error("设置Incus实例密码失败",
 			zap.String("instanceID", instanceID),

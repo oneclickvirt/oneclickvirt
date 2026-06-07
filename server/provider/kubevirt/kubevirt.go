@@ -33,7 +33,7 @@ const (
 // KubeVirtProvider 基于 kubectl/virtctl 的 KubeVirt 虚拟机 Provider
 type KubeVirtProvider struct {
 	config           provider.NodeConfig
-	sshClient        utils.ShellExecutor
+	sshClient        *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
 	connected        bool
 	healthChecker    health.HealthChecker
 	version          string
@@ -42,7 +42,9 @@ type KubeVirtProvider struct {
 }
 
 func NewKubeVirtProvider() provider.Provider {
-	return &KubeVirtProvider{}
+	return &KubeVirtProvider{
+		sshClient: utils.NewSafeShellExecutor(nil),
+	}
 }
 
 func (p *KubeVirtProvider) GetType() string {
@@ -85,7 +87,7 @@ func (p *KubeVirtProvider) Connect(ctx context.Context, config provider.NodeConf
 		return fmt.Errorf("failed to connect via SSH: %w", err)
 	}
 
-	p.sshClient = client
+	p.sshClient.SetExecutor(client)
 	p.connected = true
 
 	// 初始化健康检查器，使用Provider的SSH连接
@@ -119,7 +121,7 @@ func (p *KubeVirtProvider) Connect(ctx context.Context, config provider.NodeConf
 
 func (p *KubeVirtProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	p.config = config
-	p.sshClient = executor
+	p.sshClient.SetExecutor(executor)
 	p.connected = true
 	p.healthChecker = nil
 
@@ -138,42 +140,32 @@ func (p *KubeVirtProvider) ConnectAgent(executor utils.ShellExecutor, config pro
 
 func (p *KubeVirtProvider) Disconnect(ctx context.Context) error {
 	p.mu.Lock()
-	if p.sshClient != nil {
-		p.sshClient.Close()
-		p.sshClient = nil
-	}
+	p.sshClient.Close() // SafeShellExecutor.Close 内部清理executor，无需置nil
 	p.mu.Unlock()
 	p.connected = false
 	return nil
 }
 
 func (p *KubeVirtProvider) IsConnected() bool {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-	return p.connected && client != nil && client.IsHealthy()
+	return p.connected && p.sshClient.HasExecutor() && p.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (p *KubeVirtProvider) EnsureConnection() error {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-
-	if client == nil {
+	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
 
-	if !client.IsHealthy() {
+	if !p.sshClient.IsHealthy() {
 		global.APP_LOG.Warn("KubeVirt Provider SSH连接不健康，尝试重连",
 			zap.String("host", utils.TruncateString(p.config.Host, 50)),
 			zap.Int("port", p.config.Port))
 
-		if err := client.Reconnect(); err != nil {
+		if err := p.sshClient.Reconnect(); err != nil {
 			p.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
-		if !client.IsHealthy() {
+		if !p.sshClient.IsHealthy() {
 			p.connected = false
 			return fmt.Errorf("connection remains unhealthy after reconnect")
 		}
@@ -188,7 +180,7 @@ func (p *KubeVirtProvider) EnsureConnection() error {
 
 func (p *KubeVirtProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if p.healthChecker == nil {
-		if p.sshClient == nil {
+		if !p.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")
 		}
 		status := health.HealthStatusUnhealthy
@@ -221,14 +213,11 @@ func (p *KubeVirtProvider) GetVersion() string {
 
 // getKubeVirtVersion 获取 KubeVirt 版本
 func (p *KubeVirtProvider) getKubeVirtVersion() error {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-	if client == nil {
+	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	output, err := client.Execute("kubectl get kubevirt -n kubevirt -o jsonpath='{.items[0].status.observedKubeVirtVersion}' 2>/dev/null || virtctl version --client 2>/dev/null")
+	output, err := p.sshClient.Execute("kubectl get kubevirt -n kubevirt -o jsonpath='{.items[0].status.observedKubeVirtVersion}' 2>/dev/null || virtctl version --client 2>/dev/null")
 	if err != nil {
 		p.version = "unknown"
 		return err
@@ -246,17 +235,14 @@ func (p *KubeVirtProvider) getKubeVirtVersion() error {
 
 // ExecuteSSHCommand 执行SSH命令
 func (p *KubeVirtProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	p.mu.RLock()
-	client := p.sshClient
-	p.mu.RUnlock()
-	if !p.connected || client == nil {
+	if !p.connected || !p.sshClient.HasExecutor() {
 		return "", fmt.Errorf("KubeVirt provider not connected")
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.RedactSensitiveCommand(command, 200)))
 
-	output, err := client.Execute(command)
+	output, err := p.sshClient.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.RedactSensitiveCommand(command, 200)),
