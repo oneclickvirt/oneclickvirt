@@ -52,6 +52,11 @@ var providerCSVHeaders = []string{
 	"trafficCountMode",
 	"trafficMultiplier",
 	"trafficSyncMethod",
+	"trafficOverLimitAction",
+	"trafficSpeedLimitKbps",
+	"trafficQuotaVisible",
+	"instanceExpiryAction",
+	"instanceExpiryExtendDays",
 	"trafficStatsMode",
 	"trafficCollectInterval",
 	"trafficCollectBatchSize",
@@ -127,6 +132,10 @@ func parseCSVInt64(raw string) (int64, error) {
 	return strconv.ParseInt(v, 10, 64)
 }
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 func parseCSVFloat64(raw string) (float64, error) {
 	v := strings.TrimSpace(raw)
 	return strconv.ParseFloat(v, 64)
@@ -181,6 +190,11 @@ func defaultCreateProviderRequest(name, providerType string) admin.CreateProvide
 		EnableTrafficControl:     false,
 		EnableResourceMonitoring: false,
 		TrafficSyncMethod:        "agent",
+		TrafficOverLimitAction:   providerModel.TrafficOverLimitActionStop,
+		TrafficSpeedLimitKbps:    1024,
+		TrafficQuotaVisible:      boolPtr(true),
+		InstanceExpiryAction:     providerModel.InstanceExpiryActionDelete,
+		InstanceExpiryExtendDays: 0,
 		IPv4PortMappingMethod:    "device_proxy",
 		IPv6PortMappingMethod:    "device_proxy",
 		SSHConnectTimeout:        30,
@@ -271,6 +285,11 @@ func updateReqFromProvider(p providerModel.Provider) admin.UpdateProviderRequest
 		TrafficCountMode:         p.TrafficCountMode,
 		TrafficMultiplier:        p.TrafficMultiplier,
 		TrafficSyncMethod:        p.TrafficSyncMethod,
+		TrafficOverLimitAction:   p.TrafficOverLimitAction,
+		TrafficSpeedLimitKbps:    p.TrafficSpeedLimitKbps,
+		TrafficQuotaVisible:      boolPtr(p.TrafficQuotaVisible),
+		InstanceExpiryAction:     p.InstanceExpiryAction,
+		InstanceExpiryExtendDays: p.InstanceExpiryExtendDays,
 		IPv4PortMappingMethod:    p.IPv4PortMappingMethod,
 		IPv6PortMappingMethod:    p.IPv6PortMappingMethod,
 		SSHConnectTimeout:        p.SSHConnectTimeout,
@@ -646,6 +665,11 @@ func (s *Service) ExportProvidersCSV(ownerAdminID uint, providerIDs []uint) ([]b
 			p.TrafficCountMode,
 			strconv.FormatFloat(p.TrafficMultiplier, 'f', -1, 64),
 			p.TrafficSyncMethod,
+			p.TrafficOverLimitAction,
+			strconv.Itoa(p.TrafficSpeedLimitKbps),
+			strconv.FormatBool(p.TrafficQuotaVisible),
+			p.InstanceExpiryAction,
+			strconv.Itoa(p.InstanceExpiryExtendDays),
 			p.TrafficStatsMode,
 			strconv.Itoa(p.TrafficCollectInterval),
 			strconv.Itoa(p.TrafficCollectBatchSize),

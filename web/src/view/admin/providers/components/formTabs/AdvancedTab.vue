@@ -243,6 +243,143 @@
       </el-text>
     </div>
 
+    <!-- 生命周期与流量处置策略 -->
+    <el-divider content-position="left">
+      <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.lifecyclePolicy') }}</span>
+    </el-divider>
+
+    <el-form-item
+      :label="$t('admin.providers.trafficOverLimitAction')"
+      prop="trafficOverLimitAction"
+    >
+      <el-select
+        v-model="modelValue.trafficOverLimitAction"
+        :placeholder="$t('admin.providers.trafficOverLimitActionPlaceholder')"
+        style="width: 260px"
+      >
+        <el-option
+          :label="$t('admin.providers.trafficActionStop')"
+          value="stop"
+        />
+        <el-option
+          :label="$t('admin.providers.trafficActionSpeedLimit')"
+          value="speed_limit"
+        />
+        <el-option
+          :label="$t('admin.providers.trafficActionFreeze')"
+          value="freeze"
+        />
+        <el-option
+          :label="$t('admin.providers.trafficActionMarkOnly')"
+          value="mark_only"
+        />
+      </el-select>
+    </el-form-item>
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.trafficOverLimitActionTip') }}
+      </el-text>
+    </div>
+
+    <el-form-item
+      v-if="modelValue.trafficOverLimitAction === 'speed_limit'"
+      :label="$t('admin.providers.trafficSpeedLimitKbps')"
+      prop="trafficSpeedLimitKbps"
+    >
+      <el-input-number
+        v-model="modelValue.trafficSpeedLimitKbps"
+        :min="1"
+        :max="1048576"
+        :step="128"
+        :controls="false"
+        style="width: 200px"
+      />
+      <span style="margin-left: 10px; color: #666;">Kbps</span>
+    </el-form-item>
+
+    <el-form-item
+      :label="$t('admin.providers.trafficQuotaVisible')"
+      prop="trafficQuotaVisible"
+    >
+      <el-switch
+        v-model="modelValue.trafficQuotaVisible"
+        :active-text="$t('common.yes')"
+        :inactive-text="$t('common.no')"
+      />
+    </el-form-item>
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.trafficQuotaVisibleTip') }}
+      </el-text>
+    </div>
+
+    <el-form-item
+      :label="$t('admin.providers.instanceExpiryAction')"
+      prop="instanceExpiryAction"
+    >
+      <el-select
+        v-model="modelValue.instanceExpiryAction"
+        :placeholder="$t('admin.providers.instanceExpiryActionPlaceholder')"
+        style="width: 260px"
+      >
+        <el-option
+          :label="$t('admin.providers.expiryActionDelete')"
+          value="delete"
+        />
+        <el-option
+          :label="$t('admin.providers.expiryActionFreeze')"
+          value="freeze"
+        />
+        <el-option
+          :label="$t('admin.providers.expiryActionStop')"
+          value="stop"
+        />
+        <el-option
+          :label="$t('admin.providers.expiryActionExtend')"
+          value="extend"
+        />
+      </el-select>
+    </el-form-item>
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.instanceExpiryActionTip') }}
+      </el-text>
+    </div>
+
+    <el-form-item
+      v-if="modelValue.instanceExpiryAction === 'extend'"
+      :label="$t('admin.providers.instanceExpiryExtendDays')"
+      prop="instanceExpiryExtendDays"
+    >
+      <el-input-number
+        v-model="modelValue.instanceExpiryExtendDays"
+        :min="1"
+        :max="365"
+        :step="1"
+        :controls="false"
+        style="width: 200px"
+      />
+      <span style="margin-left: 10px; color: #666;">{{ $t('common.days') }}</span>
+    </el-form-item>
+
     <!-- 域名反向代理设置 -->
     <el-divider content-position="left">
       <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.domainProxy') }}</span>

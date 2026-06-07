@@ -1,9 +1,11 @@
 import { ref, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { getAllInstances, adminInstanceAction, adminBatchInstanceAction, resetInstancePassword, getAdminInstanceNewPassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList } from '@/api/admin'
+import { getAllInstances, adminInstanceAction, adminBatchInstanceAction, resetInstancePassword, getAdminInstanceNewPassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList, createAdminInstanceShare } from '@/api/admin'
 import { adminTransferInstance } from '@/api/features'
 import { useSSHStore } from '@/pinia/modules/ssh'
+import { copyToClipboard } from '@/utils/clipboard'
+import { normalizeShareURL } from '@/utils/share-link'
 
 export function useInstanceManagement() {
   const { t, locale } = useI18n()
@@ -360,6 +362,35 @@ export function useInstanceManagement() {
     } finally { transferLoading.value = false }
   }
 
+  const createShareLink = async (instance) => {
+    if (!instance || !instance.id) {
+      ElMessage.error(t('admin.instances.instanceNotFound'))
+      return
+    }
+    try {
+      const { value } = await ElMessageBox.prompt(
+        t('admin.instances.shareExpiryPrompt'),
+        t('admin.instances.createShareLink'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          inputValue: '30',
+          inputPattern: /^([1-9]\d{0,3}|100[0-7]\d|10080)$/,
+          inputErrorMessage: t('admin.instances.shareExpiryInvalid')
+        }
+      )
+      const minutes = Number(value || 30)
+      const response = await createAdminInstanceShare(instance.id, { expiresInMinutes: minutes })
+      await copyToClipboard(normalizeShareURL(response.data?.url), t('admin.instances.shareLinkCopied'))
+      ElMessage.success(t('admin.instances.shareLinkCreated'))
+    } catch (error) {
+      if (error !== 'cancel') {
+        console.error('创建分享链接失败:', error)
+        ElMessage.error(t('admin.instances.shareLinkCreateFailed'))
+      }
+    }
+  }
+
   return {
     instances, loading, detailDialogVisible, actionDialogVisible,
     selectedInstance, actionInstance, actionLoading, showPassword,
@@ -372,6 +403,7 @@ export function useInstanceManagement() {
     handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,
     showTransferDialog, confirmTransfer, handleWindowResize,
     searchUsers, searchingUsers, userOptions,
+    createShareLink,
     t
   }
 }

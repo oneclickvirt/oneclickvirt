@@ -61,14 +61,15 @@ type PortMappingResponse struct {
 
 type UserInstanceResponse struct {
 	providerModel.Instance
-	CanStart       bool                  `json:"canStart"`
-	CanStop        bool                  `json:"canStop"`
-	CanRestart     bool                  `json:"canRestart"`
-	CanDelete      bool                  `json:"canDelete"`
-	PortMappings   []PortMappingResponse `json:"portMappings"`   // 端口映射列表
-	PublicIP       string                `json:"publicIP"`       // 纯净的公网IP（不含端口）
-	ProviderType   string                `json:"providerType"`   // Provider虚拟化类型：docker, lxd, incus, proxmox
-	ProviderStatus string                `json:"providerStatus"` // Provider状态：active, inactive, partial
+	CanStart            bool                  `json:"canStart"`
+	CanStop             bool                  `json:"canStop"`
+	CanRestart          bool                  `json:"canRestart"`
+	CanDelete           bool                  `json:"canDelete"`
+	PortMappings        []PortMappingResponse `json:"portMappings"`        // 端口映射列表
+	PublicIP            string                `json:"publicIP"`            // 纯净的公网IP（不含端口）
+	ProviderType        string                `json:"providerType"`        // Provider虚拟化类型：docker, lxd, incus, proxmox
+	ProviderStatus      string                `json:"providerStatus"`      // Provider状态：active, inactive, partial
+	TrafficQuotaVisible bool                  `json:"trafficQuotaVisible"` // 用户侧是否显示流量额度与用量
 }
 
 // UserLimitsResponse 用户配额限制响应
@@ -180,6 +181,8 @@ type UserInstanceDetailResponse struct {
 	HasSshMapping   bool       `json:"hasSshMapping"`   // 是否有可用的SSH端口映射（支持Web SSH连接）
 	CreatedAt       time.Time  `json:"createdAt"`
 	ExpiresAt       *time.Time `json:"expiresAt"` // 实例过期时间
+	IsFrozen        bool       `json:"isFrozen"`
+	FrozenReason    string     `json:"frozenReason"`
 	// 关联任务信息
 	RelatedTask *UserTaskResponse `json:"relatedTask,omitempty"` // 关联的最新任务（如果有）
 }
@@ -200,6 +203,7 @@ type TrafficData struct {
 	IsLimited    bool                 `json:"isLimited"`    // 是否因流量超限被限制
 	LimitType    string               `json:"limitType"`    // 流量限制类型: user, provider, both, unknown
 	LimitReason  string               `json:"limitReason"`  // 流量限制原因描述
+	Visible      bool                 `json:"visible"`      // 用户侧是否显示流量额度与用量
 	History      []TrafficHistoryItem `json:"history"`      // 历史流量数据
 }
 

@@ -124,6 +124,7 @@ func RegisterTables(db *gorm.DB) {
 		&providerModel.AdminGroupSetting{}, // 管理员分组设置表
 		&providerModel.Port{},              // 端口映射表
 		&providerModel.ProviderIPv4Pool{},  // IPv4地址池表（dedicated_ipv4类型服务商）
+		&providerModel.InstanceShareLink{}, // 临时实例授权分享表
 		&adminModel.Task{},                 // 用户任务表
 
 		// 资源管理表

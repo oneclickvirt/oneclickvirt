@@ -35,13 +35,14 @@
             class="terminal-panel"
           >
             <SSHTerminal
-            :ref="el => setTerminalRef(conn.connectionKey, el)"
-            :instance-id="conn.instanceId"
-            :instance-name="conn.instanceName"
-            :is-admin="conn.isAdmin || false"
-            :mode="conn.mode || 'ssh'"
-            @close="() => closeConnection(conn.connectionKey)"
-            @error="(error) => handleSSHError(conn.connectionKey, error)"
+              :ref="el => setTerminalRef(conn.connectionKey, el)"
+              :instance-id="conn.instanceId"
+              :instance-name="conn.instanceName"
+              :is-admin="conn.isAdmin || false"
+              :mode="conn.mode || 'ssh'"
+              :share-token="conn.shareToken || ''"
+              @close="() => closeConnection(conn.connectionKey)"
+              @error="(error) => handleSSHError(conn.connectionKey, error)"
             />
           </div>
 
@@ -51,8 +52,8 @@
           >
             <SFTPPanel
               :ref="el => setSftpRef(conn.connectionKey, el)"
-              :entity-type="conn.isAdmin ? 'admin-instance' : 'user-instance'"
-              :entity-id="conn.instanceId"
+              :entity-type="conn.shareToken ? 'share-instance' : (conn.isAdmin ? 'admin-instance' : 'user-instance')"
+              :entity-id="conn.shareToken || conn.instanceId"
               :active="(conn.activeView || 'terminal') === 'sftp'"
             />
           </div>
@@ -88,7 +89,6 @@
 import { computed, ref } from 'vue'
 import { Close, Minus, Refresh, FullScreen } from '@element-plus/icons-vue'
 import { useSSHStore } from '@/pinia/modules/ssh'
-import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import SSHTerminal from '@/components/SSHTerminal.vue'
@@ -98,7 +98,6 @@ import RemoteTerminalToolbar from '@/components/RemoteTerminalToolbar.vue'
 const { t } = useI18n()
 
 const sshStore = useSSHStore()
-const router = useRouter()
 
 // 存储所有终端组件的引用
 const terminalRefs = ref({})
@@ -220,9 +219,9 @@ const handleSSHError = (instanceId, error) => {
 }
 
 const openSSHInNewWindow = (conn) => {
-  const token = sessionStorage.getItem('token')
+  const token = conn.shareToken ? '' : sessionStorage.getItem('token')
   
-  if (!token) {
+  if (!conn.shareToken && !token) {
     ElMessage.error(t('errors.unauthorized'))
     return
   }
@@ -239,7 +238,9 @@ const openSSHInNewWindow = (conn) => {
   
   const endpoint = conn.mode === 'exec' ? 'exec' : 'ssh'
   const rolePrefix = conn.isAdmin ? 'admin' : 'user'
-  const wsUrl = `${protocol}//${wsHost}/api/v1/${rolePrefix}/instances/${conn.instanceId}/${endpoint}?token=${encodeURIComponent(token)}`
+  const wsUrl = conn.shareToken
+    ? `${protocol}//${wsHost}/api/v1/public/instance-shares/${encodeURIComponent(conn.shareToken)}/${endpoint}`
+    : `${protocol}//${wsHost}/api/v1/${rolePrefix}/instances/${conn.instanceId}/${endpoint}?token=${encodeURIComponent(token)}`
   
   const escapeHtml = (str) => str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
   const sshTitle = escapeHtml(t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName }))
@@ -512,7 +513,7 @@ const openSSHInNewWindow = (conn) => {
   
   const newWindow = window.open(
     'about:blank',
-    `ssh-terminal-${conn.instanceId}`,
+    `ssh-terminal-${conn.shareToken || conn.instanceId}`,
     `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=no,menubar=no,toolbar=no,location=no,status=no`
   )
   

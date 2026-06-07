@@ -1,8 +1,10 @@
 import { ref, reactive, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
-import { getUserInstances } from '@/api/user'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getUserInstances, createUserInstanceShare } from '@/api/user'
+import { copyToClipboard } from '@/utils/clipboard'
+import { normalizeShareURL } from '@/utils/share-link'
 
 export function useUserInstances() {
   const { t, locale } = useI18n()
@@ -178,6 +180,35 @@ export function useUserInstances() {
     showTrafficDialog.value = true
   }
 
+  const createShareLink = async (instance) => {
+    if (!instance || !instance.id) {
+      ElMessage.error(t('user.instances.instanceInvalid'))
+      return
+    }
+    try {
+      const { value } = await ElMessageBox.prompt(
+        t('user.instances.shareExpiryPrompt'),
+        t('user.instances.createShareLink'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          inputValue: '30',
+          inputPattern: /^([1-9]\d{0,3}|100[0-7]\d|10080)$/,
+          inputErrorMessage: t('user.instances.shareExpiryInvalid')
+        }
+      )
+      const minutes = Number(value || 30)
+      const response = await createUserInstanceShare(instance.id, { expiresInMinutes: minutes })
+      await copyToClipboard(normalizeShareURL(response.data?.url), t('user.instances.shareLinkCopied'))
+      ElMessage.success(t('user.instances.shareLinkCreated'))
+    } catch (error) {
+      if (error !== 'cancel') {
+        console.error('创建分享链接失败:', error)
+        ElMessage.error(t('user.instances.shareLinkCreateFailed'))
+      }
+    }
+  }
+
   // 监听路由变化，确保页面切换时重新加载数据
   watch(() => route.path, (newPath, oldPath) => {
     if (newPath === '/user/instances' && oldPath !== newPath) {
@@ -257,6 +288,7 @@ export function useUserInstances() {
     getProviderTypeColor,
     formatDate,
     viewInstanceDetail,
-    showTrafficDetail
+    showTrafficDetail,
+    createShareLink
   }
 }

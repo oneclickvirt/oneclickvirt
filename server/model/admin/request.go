@@ -94,11 +94,16 @@ type CreateProviderRequest struct {
 	MaxInboundBandwidth      int `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
 	// 流量管理
-	EnableTrafficControl bool    `json:"enableTrafficControl"` // 是否启用流量统计和限制，默认启用
-	MaxTraffic           int64   `json:"maxTraffic"`           // 最大流量限制（MB），默认1TB=1048576MB
-	TrafficCountMode     string  `json:"trafficCountMode"`     // 流量统计模式：both(双向), out(仅出向), in(仅入向)
-	TrafficMultiplier    float64 `json:"trafficMultiplier"`    // 流量计费倍率，默认1.0
-	TrafficSyncMethod    string  `json:"trafficSyncMethod"`    // 流量同步方式：pmacct(传统), agent(Rust Agent)
+	EnableTrafficControl     bool    `json:"enableTrafficControl"`     // 是否启用流量统计和限制，默认启用
+	MaxTraffic               int64   `json:"maxTraffic"`               // 最大流量限制（MB），默认1TB=1048576MB
+	TrafficCountMode         string  `json:"trafficCountMode"`         // 流量统计模式：both(双向), out(仅出向), in(仅入向)
+	TrafficMultiplier        float64 `json:"trafficMultiplier"`        // 流量计费倍率，默认1.0
+	TrafficSyncMethod        string  `json:"trafficSyncMethod"`        // 流量同步方式：pmacct(传统), agent(Rust Agent)
+	TrafficOverLimitAction   string  `json:"trafficOverLimitAction"`   // 流量超限操作：stop, speed_limit, freeze, mark_only
+	TrafficSpeedLimitKbps    int     `json:"trafficSpeedLimitKbps"`    // 限速值(Kbps)，仅speed_limit模式生效
+	TrafficQuotaVisible      *bool   `json:"trafficQuotaVisible"`      // 用户侧是否显示流量额度
+	InstanceExpiryAction     string  `json:"instanceExpiryAction"`     // 实例到期操作：delete, freeze, stop, extend
+	InstanceExpiryExtendDays int     `json:"instanceExpiryExtendDays"` // 到期延期天数，仅extend模式生效
 	// 流量统计性能配置
 	TrafficStatsMode           string `json:"trafficStatsMode"`           // 流量统计性能模式：high, standard, light, minimal, custom
 	TrafficCollectInterval     int    `json:"trafficCollectInterval"`     // 流量统计间隔（秒）
@@ -199,6 +204,12 @@ type UpdateProviderRequest struct {
 	MaxTraffic           int64   `json:"maxTraffic"`           // 最大流量限制（MB），默认1TB=1048576MB
 	TrafficCountMode     string  `json:"trafficCountMode"`     // 流量统计模式：both(双向), out(仅出向), in(仅入向)
 	TrafficMultiplier    float64 `json:"trafficMultiplier"`    // 流量计费倍率，默认1.0
+	// 流量统计性能配置
+	TrafficOverLimitAction   string `json:"trafficOverLimitAction"`   // 流量超限操作：stop, speed_limit, freeze, mark_only
+	TrafficSpeedLimitKbps    int    `json:"trafficSpeedLimitKbps"`    // 限速值(Kbps)，仅speed_limit模式生效
+	TrafficQuotaVisible      *bool  `json:"trafficQuotaVisible"`      // 用户侧是否显示流量额度
+	InstanceExpiryAction     string `json:"instanceExpiryAction"`     // 实例到期操作：delete, freeze, stop, extend
+	InstanceExpiryExtendDays int    `json:"instanceExpiryExtendDays"` // 到期延期天数，仅extend模式生效
 	// 流量统计性能配置
 	TrafficStatsMode           string `json:"trafficStatsMode"`           // 流量统计性能模式：high, standard, light, minimal, custom
 	TrafficCollectInterval     int    `json:"trafficCollectInterval"`     // 流量统计间隔（秒）
@@ -375,6 +386,7 @@ type InstanceListRequest struct {
 
 type InstanceActionRequest struct {
 	Action string `json:"action" binding:"required"`
+	Image  string `json:"image"`
 }
 
 type BatchInstanceActionRequest struct {

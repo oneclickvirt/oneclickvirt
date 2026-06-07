@@ -66,12 +66,13 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
-import { getInstanceResourceMonitoring } from '@/api/user'
+import { getInstanceResourceMonitoring, getSharedInstanceResourceMonitoring } from '@/api/user'
 
 const { t } = useI18n()
 
 const props = defineProps({
   instanceId: { type: [String, Number], required: true },
+  shareToken: { type: String, default: '' },
   autoRefresh: { type: Number, default: 300000 }
 })
 
@@ -140,10 +141,8 @@ const renderCharts = (data) => {
   const times = data.map(d => formatTime(d.timestamp))
   const cpuData = data.map(d => d.cpu_percent || 0)
   const memUsed = data.map(d => d.memory_used || 0)
-  const memTotal = data.map(d => d.memory_total || 0)
   const memPercent = data.map(d => d.memory_total ? ((d.memory_used / d.memory_total) * 100).toFixed(1) : 0)
   const diskUsed = data.map(d => d.disk_used || 0)
-  const diskTotal = data.map(d => d.disk_total || 0)
   const diskPercent = data.map(d => d.disk_total ? ((d.disk_used / d.disk_total) * 100).toFixed(1) : 0)
 
   // CPU chart
@@ -159,7 +158,6 @@ const renderCharts = (data) => {
   // Memory chart
   if (memChartRef.value) {
     if (!memChart || memChart.isDisposed()) memChart = echarts.init(memChartRef.value)
-    const maxMem = memTotal.length > 0 ? Math.max(...memTotal) : 0
     memChart.setOption(buildLineOption(times,
       [
         { name: t('user.instanceDetail.memUsed'), data: memUsed },
@@ -208,10 +206,12 @@ const generateZeroFilledResourceData = () => {
 }
 
 const loadData = async () => {
-  if (!props.instanceId) return
+  if (!props.instanceId && !props.shareToken) return
   loading.value = true
   try {
-    const res = await getInstanceResourceMonitoring(props.instanceId, { hours: 24 })
+    const res = props.shareToken
+      ? await getSharedInstanceResourceMonitoring(props.shareToken, { hours: 24 })
+      : await getInstanceResourceMonitoring(props.instanceId, { hours: 24 })
     if (res.code === 200) {
       let data = Array.isArray(res.data) ? res.data : (res.data?.metrics || [])
       if (res.data && typeof res.data === 'object' && !Array.isArray(res.data)) {
@@ -265,6 +265,10 @@ onUnmounted(() => {
 })
 
 watch(() => props.instanceId, () => {
+  loadData()
+})
+
+watch(() => props.shareToken, () => {
   loadData()
 })
 

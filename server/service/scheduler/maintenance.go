@@ -39,6 +39,9 @@ func (s *SchedulerService) performMaintenance() {
 	// 清理过期实例
 	s.cleanupExpiredInstances()
 
+	// 清理过期或已撤销的临时实例分享授权
+	s.cleanupExpiredInstanceShareLinks()
+
 	// 确认用户配额（定期运行，确认因重置、删除等操作导致的配额不准确）
 	s.repairUserQuotas()
 
@@ -51,6 +54,13 @@ func (s *SchedulerService) cleanupExpiredInstances() {
 	cleanupService := system.GetInstanceCleanupService()
 	if err := cleanupService.CleanupExpiredInstances(); err != nil {
 		global.APP_LOG.Warn("清理过期实例时发生错误", zap.Error(err))
+	}
+}
+
+func (s *SchedulerService) cleanupExpiredInstanceShareLinks() {
+	cleanupService := system.GetInstanceCleanupService()
+	if err := cleanupService.CleanupExpiredInstanceShareLinks(); err != nil {
+		global.APP_LOG.Warn("清理过期实例分享链接时发生错误", zap.Error(err))
 	}
 }
 

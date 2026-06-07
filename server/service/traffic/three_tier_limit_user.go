@@ -178,13 +178,20 @@ func (s *ThreeTierLimitService) limitUserInstances(userID uint, message string) 
 		return false, fmt.Errorf("获取用户运行实例失败: %w", err)
 	}
 
-	// 分为停机实例和限速实例
+	// 分为停机、限速、冻结、仅标记实例
 	var stopInstanceIDs []uint
 	var speedLimitInstanceIDs []uint
+	var freezeInstanceIDs []uint
+	var markOnlyInstanceIDs []uint
 	for _, inst := range instances {
-		if inst.TrafficOverLimitAction == "speed_limit" {
+		switch inst.TrafficOverLimitAction {
+		case provider.TrafficOverLimitActionSpeedLimit:
 			speedLimitInstanceIDs = append(speedLimitInstanceIDs, inst.ID)
-		} else {
+		case provider.TrafficOverLimitActionFreeze:
+			freezeInstanceIDs = append(freezeInstanceIDs, inst.ID)
+		case provider.TrafficOverLimitActionMarkOnly:
+			markOnlyInstanceIDs = append(markOnlyInstanceIDs, inst.ID)
+		default:
 			stopInstanceIDs = append(stopInstanceIDs, inst.ID)
 		}
 	}
@@ -205,6 +212,32 @@ func (s *ThreeTierLimitService) limitUserInstances(userID uint, message string) 
 					"traffic_limit_reason": "user",
 				}).Error; err != nil {
 				return fmt.Errorf("批量标记限速实例失败: %w", err)
+			}
+		}
+
+		if len(freezeInstanceIDs) > 0 {
+			now := time.Now()
+			if err := tx.Model(&provider.Instance{}).
+				Where("id IN ?", freezeInstanceIDs).
+				Updates(map[string]interface{}{
+					"traffic_limited":      true,
+					"traffic_limit_reason": "user",
+					"is_frozen":            true,
+					"frozen_reason":        "traffic_limit",
+					"frozen_at":            now,
+				}).Error; err != nil {
+				return fmt.Errorf("批量冻结超流量实例失败: %w", err)
+			}
+		}
+
+		if len(markOnlyInstanceIDs) > 0 {
+			if err := tx.Model(&provider.Instance{}).
+				Where("id IN ?", markOnlyInstanceIDs).
+				Updates(map[string]interface{}{
+					"traffic_limited":      true,
+					"traffic_limit_reason": "user",
+				}).Error; err != nil {
+				return fmt.Errorf("批量标记超流量实例失败: %w", err)
 			}
 		}
 
@@ -233,7 +266,9 @@ func (s *ThreeTierLimitService) limitUserInstances(userID uint, message string) 
 		// 利用已有数据构建 provider.Instance 切片，避免重复查询
 		var stopInstances []provider.Instance
 		for _, inst := range instances {
-			if inst.TrafficOverLimitAction != "speed_limit" {
+			if inst.TrafficOverLimitAction != provider.TrafficOverLimitActionSpeedLimit &&
+				inst.TrafficOverLimitAction != provider.TrafficOverLimitActionFreeze &&
+				inst.TrafficOverLimitAction != provider.TrafficOverLimitActionMarkOnly {
 				si := provider.Instance{ProviderID: inst.ProviderID}
 				si.ID = inst.ID
 				stopInstances = append(stopInstances, si)
@@ -255,7 +290,9 @@ func (s *ThreeTierLimitService) limitUserInstances(userID uint, message string) 
 	global.APP_LOG.Info("已限制用户所有实例",
 		zap.Uint("userID", userID),
 		zap.Int("停机实例数", len(stopInstanceIDs)),
-		zap.Int("限速实例数", len(speedLimitInstanceIDs)))
+		zap.Int("限速实例数", len(speedLimitInstanceIDs)),
+		zap.Int("冻结实例数", len(freezeInstanceIDs)),
+		zap.Int("仅标记实例数", len(markOnlyInstanceIDs)))
 
 	return true, nil
 }
@@ -278,6 +315,15 @@ func (s *ThreeTierLimitService) unlimitUserInstances(userID uint, reason string)
 		Updates(updates).Error; err != nil {
 		return false, fmt.Errorf("解除用户实例限制失败: %w", err)
 	}
+	if err := global.APP_DB.Model(&provider.Instance{}).
+		Where("user_id = ? AND traffic_limit_reason = ? AND frozen_reason = ?", userID, "", "traffic_limit").
+		Updates(map[string]interface{}{
+			"is_frozen":     false,
+			"frozen_reason": "",
+			"frozen_at":     nil,
+		}).Error; err != nil {
+		return false, fmt.Errorf("解除用户实例流量冻结失败: %w", err)
+	}
 
 	global.APP_LOG.Info("解除用户流量限制",
 		zap.Uint("userID", userID),
@@ -285,4 +331,3 @@ func (s *ThreeTierLimitService) unlimitUserInstances(userID uint, reason string)
 
 	return false, nil
 }
-

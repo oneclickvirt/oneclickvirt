@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -41,7 +42,7 @@ func getUserInstanceForSFTP(c *gin.Context) (*providerModel.Instance, error) {
 	}
 
 	var instance providerModel.Instance
-	err := global.APP_DB.Select("id", "name", "provider_id", "status", "private_ip", "public_ip", "ssh_port", "username", "password").
+	err := global.APP_DB.Select("id", "name", "provider_id", "status", "private_ip", "public_ip", "ssh_port", "username", "password", "is_frozen", "frozen_reason", "expires_at").
 		Where("id = ? AND user_id = ?", instanceID, userID).
 		First(&instance).Error
 	if err != nil {
@@ -49,6 +50,13 @@ func getUserInstanceForSFTP(c *gin.Context) (*providerModel.Instance, error) {
 			return nil, common.NewError(common.CodeNotFound, "实例不存在")
 		}
 		return nil, err
+	}
+
+	if instance.IsFrozen {
+		return nil, common.NewError(common.CodeForbidden, "实例已被冻结，无法建立SFTP连接")
+	}
+	if instance.ExpiresAt != nil && instance.ExpiresAt.Before(time.Now()) {
+		return nil, common.NewError(common.CodeForbidden, "实例已到期，无法建立SFTP连接")
 	}
 
 	if instance.Status != "running" {

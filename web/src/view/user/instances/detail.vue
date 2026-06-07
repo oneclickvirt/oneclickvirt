@@ -5,7 +5,7 @@
       <el-button 
         type="text" 
         class="back-btn"
-        @click="$router.back()"
+        @click="handleBack"
       >
         <el-icon><ArrowLeft /></el-icon>
         {{ t('user.instanceDetail.backToList') }}
@@ -18,10 +18,12 @@
       :monitoring="monitoring"
       :action-loading="actionLoading"
       :instance-type-permissions="instanceTypePermissions"
+      :share-mode="isShareMode"
       @perform-action="performAction"
       @reset-password="showResetPasswordDialog"
       @open-ssh="openSSHTerminal"
       @view-task="viewTaskDetail"
+      @create-share="createShareLink"
     />
 
     <!-- 标签页内容 -->
@@ -64,7 +66,8 @@
           <StatisticsTab
             :instance="instance"
             :monitoring="monitoring"
-            :instance-id="route.params.id"
+            :instance-id="currentInstanceId"
+            :share-token="shareToken"
             @refresh="refreshMonitoring"
             @show-traffic-detail="showTrafficDetail = true"
           />
@@ -76,7 +79,8 @@
         >
           <ResourceMonitorChart
             ref="resourceChartRef"
-            :instance-id="route.params.id"
+            :instance-id="currentInstanceId"
+            :share-token="shareToken"
             :auto-refresh="300000"
           />
         </el-tab-pane>
@@ -86,7 +90,8 @@
     <!-- PMAcct 流量详情对话框 -->
     <InstanceTrafficDetail
       v-model="showTrafficDetail"
-      :instance-id="route.params.id"
+      :instance-id="currentInstanceId"
+      :share-token="shareToken"
       :instance-name="instance.name"
     />
 
@@ -139,7 +144,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
@@ -147,7 +152,6 @@ import ResourceMonitorChart from '@/components/ResourceMonitorChart.vue'
 import OsIcon from '@/components/OsIcon.vue'
 import { useInstanceDetail } from './composables/useInstanceDetail'
 import { useInstanceActions } from './composables/useInstanceActions'
-import { useInstanceFormatters } from './composables/useInstanceFormatters'
 import InstanceOverviewCard from './components/InstanceOverviewCard.vue'
 import OverviewTab from './components/OverviewTab.vue'
 import PortMappingsTab from './components/PortMappingsTab.vue'
@@ -158,11 +162,11 @@ const router = useRouter()
 const { t } = useI18n()
 const activeTab = ref('overview')
 const resourceChartRef = ref(null)
+const shareToken = computed(() => route.params.token ? String(route.params.token) : '')
+const isShareMode = computed(() => Boolean(shareToken.value))
 
 const {
-  loading,
   portMappings,
-  trafficChartRef,
   instanceTypePermissions,
   instance,
   monitoring,
@@ -171,7 +175,8 @@ const {
   refreshPortMappings,
   refreshMonitoring,
   loadInstanceTypePermissions
-} = useInstanceDetail()
+} = useInstanceDetail(shareToken)
+const currentInstanceId = computed(() => instance.value?.id || route.params.id || '')
 
 const {
   actionLoading,
@@ -185,41 +190,25 @@ const {
   viewTaskDetail,
   performAction,
   openSSHTerminal,
+  createShareLink,
   showResetPasswordDialog,
   togglePassword,
-  truncateIP,
-  formatSSHCommand,
-  formatIPPort,
   copyToClipboard
-} = useInstanceActions(instance, monitoring, loadInstanceDetail)
-
-const {
-  getNetworkTypeFromLegacy,
-  getNetworkTypeDisplayName,
-  getNetworkTypeTagType,
-  getProviderTypeName,
-  getProviderTypeColor,
-  getTaskTitle,
-  getTaskTypeText,
-  getTaskAlertType,
-  getStatusType,
-  getStatusText,
-  getTrafficProgressColor,
-  formatTraffic,
-  formatDate,
-  getTrafficLimitTitle: _getTrafficLimitTitle,
-  getTrafficLimitType: _getTrafficLimitType
-} = useInstanceFormatters()
-
-// wrap monitoring-dependent helpers
-const getTrafficLimitTitle = () => _getTrafficLimitTitle(monitoring)
-const getTrafficLimitType = () => _getTrafficLimitType(monitoring)
+} = useInstanceActions(instance, monitoring, loadInstanceDetail, shareToken)
 
 // 标志位，防止 watch 循环触发
 let isUpdatingFromRoute = false
 
-watch(() => route.params.id, async (newId, oldId) => {
-  if (newId && newId !== oldId && newId !== 'undefined') {
+const handleBack = () => {
+  if (isShareMode.value) {
+    router.push('/home')
+    return
+  }
+  router.back()
+}
+
+watch(() => [route.params.id, route.params.token], async ([newId, newToken], [oldId, oldToken] = []) => {
+  if ((newToken && newToken !== oldToken) || (newId && newId !== oldId && newId !== 'undefined')) {
     try {
       const [detailSuccess, permissionsSuccess] = await Promise.all([
         loadInstanceDetail(true),

@@ -144,5 +144,12 @@ export default {
   npuDeviceIds: "NPU设备ID",
   gpuEnabled: "已启用",
   gpuDisabled: "未启用",
+  share: "分享",
+  createShareLink: "创建临时授权链接",
+  shareExpiryPrompt: "请输入有效期（分钟），默认 30 分钟，最长 10080 分钟。",
+  shareExpiryInvalid: "请输入 1 到 10080 之间的分钟数",
+  shareLinkCreated: "分享链接已创建",
+  shareLinkCopied: "分享链接已复制",
+  shareLinkCreateFailed: "创建分享链接失败",
   acceleratorConfig: "加速设备配置"
 }

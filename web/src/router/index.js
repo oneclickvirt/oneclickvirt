@@ -76,6 +76,16 @@ const routes = [
     }
   },
   {
+    path: '/share/instances/:token',
+    name: 'SharedInstanceDetail',
+    component: () => import('@/view/user/instances/detail.vue'),
+    meta: {
+      title: 'common.instanceDetail',
+      requiresAuth: false,
+      shareMode: true
+    }
+  },
+  {
     path: '/user',
     name: 'User',
     component: Layout,

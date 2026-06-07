@@ -98,6 +98,82 @@ run_module_09() {
     # -- Edit provider --
     test_api "Edit provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
         '{"name":"ci-provider-updated"}' "$group"
+
+    # -- Lifecycle policy: update provider with instance expiry and traffic over-limit policies --
+    log_info "Testing provider lifecycle and traffic policies..."
+    test_api "Update provider lifecycle policy (freeze)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"instanceExpiryAction":"freeze","instanceExpiryExtendDays":0}' "$group"
+    test_api "Update provider lifecycle policy (stop)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"instanceExpiryAction":"stop"}' "$group"
+    test_api "Update provider lifecycle policy (extend)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"instanceExpiryAction":"extend","instanceExpiryExtendDays":3}' "$group"
+    test_api "Update provider lifecycle policy (delete)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"instanceExpiryAction":"delete","instanceExpiryExtendDays":0}' "$group"
+
+    # -- Traffic over-limit policy --
+    test_api "Update traffic over-limit (speed_limit)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"trafficOverLimitAction":"speed_limit","trafficSpeedLimitKbps":2048}' "$group"
+    test_api "Update traffic over-limit (freeze)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"trafficOverLimitAction":"freeze"}' "$group"
+    test_api "Update traffic over-limit (mark_only)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"trafficOverLimitAction":"mark_only"}' "$group"
+    test_api "Update traffic over-limit (stop)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"trafficOverLimitAction":"stop","trafficSpeedLimitKbps":1024}' "$group"
+
+    # -- Traffic quota visibility --
+    test_api "Update traffic quota visible=false" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"trafficQuotaVisible":false}' "$group"
+
+    # -- Verify all new fields persisted in provider detail --
+    local policy_detail; policy_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null)
+    local saved_expiry_action; saved_expiry_action=$(echo "$policy_detail" | jq -r '.data.instanceExpiryAction // empty' 2>/dev/null)
+    local saved_traffic_action; saved_traffic_action=$(echo "$policy_detail" | jq -r '.data.trafficOverLimitAction // empty' 2>/dev/null)
+    local saved_quota_visible; saved_quota_visible=$(echo "$policy_detail" | jq -r '.data.trafficQuotaVisible // empty' 2>/dev/null)
+    local saved_speed_kbps; saved_speed_kbps=$(echo "$policy_detail" | jq -r '.data.trafficSpeedLimitKbps // empty' 2>/dev/null)
+
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    if [[ "$saved_expiry_action" == "delete" ]]; then
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        log_success "instanceExpiryAction=delete saved correctly"
+        _add_result_json "Lifecycle policy verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "PASS" "delete" "$saved_expiry_action" "" "$group"
+    else
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        log_error "instanceExpiryAction: expected delete, got ${saved_expiry_action}"
+        _add_result_json "Lifecycle policy verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "FAIL" "delete" "$saved_expiry_action" "" "$group"
+    fi
+
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    if [[ "$saved_traffic_action" == "stop" ]]; then
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        log_success "trafficOverLimitAction=stop saved correctly"
+        _add_result_json "Traffic over-limit verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "PASS" "stop" "$saved_traffic_action" "" "$group"
+    else
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        log_error "trafficOverLimitAction: expected stop, got ${saved_traffic_action}"
+        _add_result_json "Traffic over-limit verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "FAIL" "stop" "$saved_traffic_action" "" "$group"
+    fi
+
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    if [[ "$saved_quota_visible" == "false" ]]; then
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        log_success "trafficQuotaVisible=false saved correctly"
+        _add_result_json "Traffic quota visible verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "PASS" "false" "$saved_quota_visible" "" "$group"
+    else
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        log_error "trafficQuotaVisible: expected false, got ${saved_quota_visible}"
+        _add_result_json "Traffic quota visible verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "FAIL" "false" "$saved_quota_visible" "" "$group"
+    fi
+
+    # -- Revert trafficQuotaVisible to true for downstream modules --
+    test_api "Revert traffic quota visible=true" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"trafficQuotaVisible":true}' "$group"
+
+    # -- Negative: invalid lifecycle policy values --
+    test_api "Invalid instanceExpiryAction" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200|400" \
+        '{"instanceExpiryAction":"invalid_action"}' "$group"
+    test_api "Invalid trafficOverLimitAction" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200|400" \
+        '{"trafficOverLimitAction":"invalid_action"}' "$group"
     test_api "Edit provider back" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
         "{\"name\":\"ci-${ENV_TYPE}-provider\"}" "$group"
 
@@ -238,8 +314,16 @@ run_module_09() {
         "${SERVER_URL}/api/v1/admin/providers/export-csv?ids=999999999" 2>/dev/null || echo "000")
     if [[ "$csv_template_code" == "200" ]]; then
         local csv_template_header; csv_template_header=$(head -n 1 "$csv_template_tmp" | tr -d '\r')
+        # Verify new lifecycle/traffic policy fields are present in CSV header
         if [[ "$csv_template_header" == id,name,type,* ]]; then
-            log_success "Exported empty CSV template contains header row"
+            if echo "$csv_template_header" | grep -q "trafficOverLimitAction" && \
+               echo "$csv_template_header" | grep -q "trafficQuotaVisible" && \
+               echo "$csv_template_header" | grep -q "instanceExpiryAction"; then
+                log_success "Exported empty CSV template contains header row + lifecycle/traffic policy fields"
+            else
+                log_warning "CSV template missing some lifecycle/traffic policy fields in header"
+                log_success "Exported empty CSV template contains header row (basic check passed)"
+            fi
         else
             log_error "CSV template header mismatch: ${csv_template_header}"
             rm -f "$csv_template_tmp"

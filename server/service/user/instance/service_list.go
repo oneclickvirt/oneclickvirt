@@ -82,7 +82,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 
 	var providers []providerModel.Provider
 	if len(providerIDs) > 0 {
-		if err := global.APP_DB.Select("id, name, type, status, port_ip, endpoint, connection_type, network_type").
+		if err := global.APP_DB.Select("id, name, type, status, port_ip, endpoint, connection_type, network_type, traffic_quota_visible").
 			Where("id IN ?", providerIDs).
 			Limit(1000).
 			Find(&providers).Error; err != nil {
@@ -105,6 +105,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		var sshPort int
 		var providerType string
 		var providerStatus string
+		trafficQuotaVisible := true
 
 		// 查找SSH端口映射
 		for _, port := range ports {
@@ -119,6 +120,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			if providerInfo, ok := providerMap[instance.ProviderID]; ok {
 				providerType = providerInfo.Type
 				providerStatus = providerInfo.Status
+				trafficQuotaVisible = providerInfo.TrafficQuotaVisible
 
 				// 如果实例状态是unavailable，检查provider是否已经恢复
 				if instance.Status == "unavailable" && providerInfo.Status == "active" {
@@ -169,15 +171,16 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		}
 
 		userInstance := userModel.UserInstanceResponse{
-			Instance:       modifiedInstance,
-			CanStart:       instance.Status == "stopped" && !instance.TrafficLimited, // 流量受限时不能启动
-			CanStop:        instance.Status == "running" || instance.Status == "unavailable",
-			CanRestart:     instance.Status == "running" && !instance.TrafficLimited, // 流量受限时不能重启
-			CanDelete:      instance.Status != "deleting",
-			PortMappings:   portMappings,
-			PublicIP:       publicIP, // 公网IP（agent+no_port_mapping模式下为空）
-			ProviderType:   providerType,
-			ProviderStatus: providerStatus,
+			Instance:            modifiedInstance,
+			CanStart:            instance.Status == "stopped" && !instance.TrafficLimited, // 流量受限时不能启动
+			CanStop:             instance.Status == "running" || instance.Status == "unavailable",
+			CanRestart:          instance.Status == "running" && !instance.TrafficLimited, // 流量受限时不能重启
+			CanDelete:           instance.Status != "deleting",
+			PortMappings:        portMappings,
+			PublicIP:            publicIP, // 公网IP（agent+no_port_mapping模式下为空）
+			ProviderType:        providerType,
+			ProviderStatus:      providerStatus,
+			TrafficQuotaVisible: trafficQuotaVisible,
 		}
 		userInstances = append(userInstances, userInstance)
 	}

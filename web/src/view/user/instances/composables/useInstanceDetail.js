@@ -7,13 +7,21 @@ import {
   getUserInstanceDetail,
   getInstanceMonitoring,
   getUserInstancePorts,
-  getUserInstanceTypePermissions
+  getUserInstanceTypePermissions,
+  getSharedInstanceDetail,
+  getSharedInstanceMonitoring,
+  getSharedInstancePorts
 } from '@/api/user'
 
-export function useInstanceDetail() {
+export function useInstanceDetail(shareToken = '') {
   const route = useRoute()
   const router = useRouter()
   const { t } = useI18n()
+
+  const getShareToken = () => {
+    if (typeof shareToken === 'string') return shareToken
+    return shareToken?.value || ''
+  }
 
   const loading = ref(false)
   const portMappings = ref([])
@@ -75,7 +83,8 @@ export function useInstanceDetail() {
   }
 
   const loadInstanceDetail = async (skipPermissionUpdate = false) => {
-    if (!route.params.id || route.params.id === 'undefined') {
+    const token = getShareToken()
+    if (!token && (!route.params.id || route.params.id === 'undefined')) {
       console.error('实例ID无效，返回实例列表')
       ElMessage.error(t('user.instances.instanceInvalid'))
       router.push('/user/instances')
@@ -84,7 +93,9 @@ export function useInstanceDetail() {
 
     try {
       loading.value = true
-      const response = await getUserInstanceDetail(route.params.id)
+      const response = token
+        ? await getSharedInstanceDetail(token)
+        : await getUserInstanceDetail(route.params.id)
       if (response.code === 200) {
         const data = response.data
         if (data.type && !data.instance_type) {
@@ -100,7 +111,11 @@ export function useInstanceDetail() {
     } catch (error) {
       console.error('获取实例详情失败:', error)
       ElMessage.error(t('user.instanceDetail.getDetailFailed'))
-      router.back()
+      if (token) {
+        router.push('/home')
+      } else {
+        router.back()
+      }
       return false
     } finally {
       loading.value = false
@@ -108,10 +123,13 @@ export function useInstanceDetail() {
   }
 
   const refreshPortMappings = async () => {
-    if (!route.params.id) return
+    const token = getShareToken()
+    if (!token && !route.params.id) return
 
     try {
-      const response = await getUserInstancePorts(route.params.id)
+      const response = token
+        ? await getSharedInstancePorts(token)
+        : await getUserInstancePorts(route.params.id)
       if (response.code === 200) {
         portMappings.value = response.data.list || []
         if (response.data.publicIP) {
@@ -127,13 +145,16 @@ export function useInstanceDetail() {
   }
 
   const refreshMonitoring = async () => {
-    if (!route.params.id || route.params.id === 'undefined') {
+    const token = getShareToken()
+    if (!token && (!route.params.id || route.params.id === 'undefined')) {
       console.warn('实例ID无效，跳过监控数据获取')
       return
     }
 
     try {
-      const response = await getInstanceMonitoring(route.params.id)
+      const response = token
+        ? await getSharedInstanceMonitoring(token)
+        : await getInstanceMonitoring(route.params.id)
       if (response.code === 200) {
         Object.assign(monitoring, response.data)
         if (monitoring.trafficData?.isLimited) {
@@ -158,6 +179,19 @@ export function useInstanceDetail() {
   }
 
   const loadInstanceTypePermissions = async () => {
+    if (getShareToken()) {
+      instanceTypePermissions.value = {
+        canCreateContainer: false,
+        canCreateVM: false,
+        canDeleteContainer: true,
+        canDeleteVM: true,
+        canResetContainer: true,
+        canResetVM: true,
+        canDeleteInstance: true,
+        canResetInstance: true
+      }
+      return true
+    }
     try {
       const response = await getUserInstanceTypePermissions()
       if (response.code === 200) {

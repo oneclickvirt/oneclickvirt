@@ -35,6 +35,10 @@ const props = defineProps({
     type: String,
     default: 'ssh', // 'ssh' or 'exec'
     validator: (v) => ['ssh', 'exec'].includes(v)
+  },
+  shareToken: {
+    type: String,
+    default: ''
   }
 })
 
@@ -126,8 +130,8 @@ const connect = () => {
   terminal.writeln(t('user.instanceDetail.sshConnecting'))
 
   // 获取token - 从 sessionStorage 获取（与 user store 保持一致）
-  const token = sessionStorage.getItem('token')
-  if (!token) {
+  const token = props.shareToken ? '' : sessionStorage.getItem('token')
+  if (!props.shareToken && !token) {
     terminal.writeln(`\x1b[31m${t('user.instanceDetail.sshAuthTokenNotFound')}\x1b[0m`)
     emit('error', 'Authentication token not found')
     isConnecting = false
@@ -147,11 +151,15 @@ const connect = () => {
   
   // 根据是否为管理员模式和终端类型选择不同的API端点
   const endpoint = props.mode === 'exec' ? 'exec' : 'ssh'
-  const apiPath = props.isAdmin 
-    ? `/api/v1/admin/instances/${props.instanceId}/${endpoint}`
-    : `/api/v1/user/instances/${props.instanceId}/${endpoint}`
+  const apiPath = props.shareToken
+    ? `/api/v1/public/instance-shares/${encodeURIComponent(props.shareToken)}/${endpoint}`
+    : (props.isAdmin
+      ? `/api/v1/admin/instances/${props.instanceId}/${endpoint}`
+      : `/api/v1/user/instances/${props.instanceId}/${endpoint}`)
   
-  const wsUrl = `${protocol}//${host}${apiPath}?token=${token}`
+  const wsUrl = props.shareToken
+    ? `${protocol}//${host}${apiPath}`
+    : `${protocol}//${host}${apiPath}?token=${encodeURIComponent(token)}`
 
   try {
     websocket = new WebSocket(wsUrl)

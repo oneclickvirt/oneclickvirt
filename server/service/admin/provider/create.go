@@ -167,6 +167,12 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		return nil, err
 	}
 	containerEnabled, vmEnabled := normalizeProviderInstanceTypeCapabilities(providerType, req.ContainerEnabled, req.VirtualMachineEnabled)
+	trafficAction, trafficSpeedKbps := normalizeTrafficOverLimitPolicy(req.TrafficOverLimitAction, req.TrafficSpeedLimitKbps)
+	expiryAction, expiryExtendDays := normalizeInstanceExpiryPolicy(req.InstanceExpiryAction, req.InstanceExpiryExtendDays)
+	trafficQuotaVisible := true
+	if req.TrafficQuotaVisible != nil {
+		trafficQuotaVisible = *req.TrafficQuotaVisible
+	}
 
 	provider := providerModel.Provider{
 		Name:                  req.Name,
@@ -226,6 +232,11 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		TrafficSyncMethod:        req.TrafficSyncMethod,
 		EnableTrafficControl:     req.EnableTrafficControl,
 		EnableResourceMonitoring: req.EnableResourceMonitoring,
+		TrafficOverLimitAction:   trafficAction,
+		TrafficSpeedLimitKbps:    trafficSpeedKbps,
+		TrafficQuotaVisible:      trafficQuotaVisible,
+		InstanceExpiryAction:     expiryAction,
+		InstanceExpiryExtendDays: expiryExtendDays,
 		// 端口映射方式
 		IPv4PortMappingMethod: req.IPv4PortMappingMethod,
 		IPv6PortMappingMethod: req.IPv6PortMappingMethod,

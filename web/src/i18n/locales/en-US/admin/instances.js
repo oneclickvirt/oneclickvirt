@@ -144,5 +144,12 @@ export default {
   npuDeviceIds: "NPU Device IDs",
   gpuEnabled: "Enabled",
   gpuDisabled: "Disabled",
+  share: "Share",
+  createShareLink: "Create Temporary Access Link",
+  shareExpiryPrompt: "Enter validity period in minutes. Default is 30 minutes, maximum is 10080 minutes.",
+  shareExpiryInvalid: "Enter a minute value from 1 to 10080",
+  shareLinkCreated: "Share link created",
+  shareLinkCopied: "Share link copied",
+  shareLinkCreateFailed: "Failed to create share link",
   acceleratorConfig: "Accelerator Config"
 }

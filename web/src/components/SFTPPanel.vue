@@ -114,6 +114,11 @@ import {
   uploadUserInstanceSFTP,
   getUserInstanceSFTPUploadStatus,
   abortUserInstanceSFTPUpload,
+  listSharedInstanceSFTP,
+  downloadSharedInstanceSFTP,
+  uploadSharedInstanceSFTP,
+  getSharedInstanceSFTPUploadStatus,
+  abortSharedInstanceSFTPUpload,
   listAdminInstanceSFTP,
   downloadAdminInstanceSFTP,
   uploadAdminInstanceSFTP,
@@ -133,7 +138,7 @@ const props = defineProps({
   entityType: {
     type: String,
     required: true,
-    validator: (v) => ['user-instance', 'admin-instance', 'admin-provider', 'agent-fm-provider'].includes(v)
+    validator: (v) => ['user-instance', 'share-instance', 'admin-instance', 'admin-provider', 'agent-fm-provider'].includes(v)
   },
   entityId: {
     type: [Number, String],
@@ -235,6 +240,15 @@ const getApi = () => {
       upload: uploadUserInstanceSFTP,
       uploadStatus: getUserInstanceSFTPUploadStatus,
       uploadAbort: abortUserInstanceSFTPUpload
+    }
+  }
+  if (props.entityType === 'share-instance') {
+    return {
+      list: listSharedInstanceSFTP,
+      download: downloadSharedInstanceSFTP,
+      upload: uploadSharedInstanceSFTP,
+      uploadStatus: getSharedInstanceSFTPUploadStatus,
+      uploadAbort: abortSharedInstanceSFTPUpload
     }
   }
   if (props.entityType === 'admin-instance') {

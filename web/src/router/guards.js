@@ -47,6 +47,7 @@ export function setupRouterGuards(router) {
     NProgress.start()
     
     const userStore = useUserStore()
+    const isPublicShareRoute = to.path.startsWith('/share/instances/')
     
     // 检查URL参数中是否有OAuth2 token（避免跨域localStorage隔离问题）
     const urlParams = new URLSearchParams(window.location.search)
@@ -126,7 +127,7 @@ export function setupRouterGuards(router) {
         userStore.clearUserData()
         
         // 如果当前在需要认证的页面，重定向到首页
-        if (to.meta.requiresAuth || (!whiteList.includes(to.path) && to.path !== '/home')) {
+        if (to.meta.requiresAuth || (!whiteList.includes(to.path) && to.path !== '/home' && !isPublicShareRoute)) {
           next('/home')
           return
         }
@@ -155,7 +156,7 @@ export function setupRouterGuards(router) {
     
     // whiteList 已在函数开头定义，这里不需要重复定义
     
-    if (whiteList.includes(to.path)) {
+    if (whiteList.includes(to.path) || isPublicShareRoute) {
       next()
       return
     }

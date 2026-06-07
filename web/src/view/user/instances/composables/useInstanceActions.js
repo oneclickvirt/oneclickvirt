@@ -4,13 +4,29 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
-import { performInstanceAction, resetInstancePassword, getInstanceNewPassword, getFilteredImages } from '@/api/user'
+import { normalizeShareURL } from '@/utils/share-link'
+import {
+  performInstanceAction,
+  resetInstancePassword,
+  getInstanceNewPassword,
+  getFilteredImages,
+  createUserInstanceShare,
+  performSharedInstanceAction,
+  resetSharedInstancePassword,
+  getSharedInstanceNewPassword,
+  getSharedFilteredImages
+} from '@/api/user'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
-export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
+export function useInstanceActions(instance, monitoring, loadInstanceDetail, shareToken = '') {
   const router = useRouter()
   const { t } = useI18n()
   const sshStore = useSSHStore()
+
+  const getShareToken = () => {
+    if (typeof shareToken === 'string') return shareToken
+    return shareToken?.value || ''
+  }
 
   const actionLoading = ref(false)
   const showPassword = ref(false)
@@ -23,17 +39,25 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
   const loadingResetImages = ref(false)
 
   const viewTaskDetail = (taskId) => {
+    if (getShareToken()) {
+      ElMessage.info(`${t('user.tasks.taskID')}: ${taskId}`)
+      return
+    }
     router.push({ path: '/user/tasks', query: { taskId } })
   }
 
   const loadResetImages = async () => {
-    if (!instance.value?.provider_id) return
+    const token = getShareToken()
+    const providerId = instance.value?.provider_id || instance.value?.providerId
+    if (!token && !providerId) return
     loadingResetImages.value = true
     try {
-      const res = await getFilteredImages({
-        provider_id: instance.value.provider_id,
-        instance_type: instance.value.instance_type || instance.value.instanceType
-      })
+      const res = token
+        ? await getSharedFilteredImages(token)
+        : await getFilteredImages({
+          provider_id: providerId,
+          instance_type: instance.value.instance_type || instance.value.instanceType
+        })
       resetImages.value = res.data?.data || res.data || []
       selectedResetImage.value = instance.value.image || ''
     } catch (err) {
@@ -51,17 +75,25 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
 
   const executeReset = async (image) => {
     actionLoading.value = true
+    const token = getShareToken()
     try {
-      const response = await performInstanceAction({
+      const payload = {
         instanceId: instance.value.id,
         action: 'reset',
         image: image || undefined
-      })
+      }
+      const response = token
+        ? await performSharedInstanceAction(token, payload)
+        : await performInstanceAction(payload)
       if (response.code === 200) {
         const actionText = t('user.instanceDetail.actionReset')
         ElMessage.success(`${actionText}${t('user.tasks.request')}${t('user.tasks.submitted')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
         ElMessage.info(t('user.instanceDetail.resetSystemNotice'))
-        router.push('/user/instances')
+        if (token) {
+          await loadInstanceDetail()
+        } else {
+          router.push('/user/instances')
+        }
       }
     } catch (error) {
       if (error !== 'cancel') {
@@ -131,10 +163,14 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
 
       actionLoading.value = true
 
-      const response = await performInstanceAction({
+      const token = getShareToken()
+      const payload = {
         instanceId: instance.value.id,
         action
-      })
+      }
+      const response = token
+        ? await performSharedInstanceAction(token, payload)
+        : await performInstanceAction(payload)
 
       if (response.code === 200) {
         ElMessage.success(`${actionText}${t('user.tasks.request')}${t('user.tasks.submitted')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
@@ -143,7 +179,15 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
           if (action === 'reset') {
             ElMessage.info(t('user.instanceDetail.resetSystemNotice'))
           }
-          router.push('/user/instances')
+          if (token) {
+            if (action === 'delete') {
+              router.push('/home')
+            } else {
+              await loadInstanceDetail()
+            }
+          } else {
+            router.push('/user/instances')
+          }
         } else {
           setTimeout(async () => {
             await loadInstanceDetail()
@@ -176,10 +220,15 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
       ElMessage.warning(t('user.instanceDetail.sshNoPortMapping'))
       return
     }
-    if (!sshStore.hasConnection(instance.value.id)) {
-      sshStore.createConnection(instance.value.id, instance.value.name)
+    const token = getShareToken()
+    const connectionKey = token ? `share-${token}` : instance.value.id
+    if (!sshStore.hasConnection(connectionKey)) {
+      sshStore.createConnection(instance.value.id, instance.value.name, false, 'ssh', {
+        connectionKey,
+        shareToken: token
+      })
     } else {
-      sshStore.showConnection(instance.value.id)
+      sshStore.showConnection(connectionKey)
     }
   }
 
@@ -192,22 +241,29 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
       ElMessage.warning(t('user.instanceDetail.instanceNotRunning'))
       return
     }
-    const execKey = `exec-${instance.value.id}`
+    const token = getShareToken()
+    const execKey = token ? `exec-share-${token}` : `exec-${instance.value.id}`
     if (!sshStore.hasConnection(execKey)) {
-      sshStore.createConnection(instance.value.id, instance.value.name, false, 'exec')
+      sshStore.createConnection(instance.value.id, instance.value.name, false, 'exec', {
+        connectionKey: execKey,
+        shareToken: token
+      })
     } else {
       sshStore.showConnection(execKey)
     }
   }
 
   const pollForNewPassword = (instanceId, taskId) => {
+    const token = getShareToken()
     let attempts = 0
     const maxAttempts = 20 // up to ~60 seconds (3s intervals)
 
     const attempt = async () => {
       attempts++
       try {
-        const res = await getInstanceNewPassword(instanceId, taskId)
+        const res = token
+          ? await getSharedInstanceNewPassword(token, taskId)
+          : await getInstanceNewPassword(instanceId, taskId)
         if (res.code === 200 && res.data?.newPassword) {
           const pwd = res.data.newPassword
           await ElMessageBox.alert(
@@ -251,7 +307,10 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
       actionLoading.value = true
 
       try {
-        const response = await resetInstancePassword(instance.value.id)
+        const token = getShareToken()
+        const response = token
+          ? await resetSharedInstancePassword(token)
+          : await resetInstancePassword(instance.value.id)
         if (response.code === 200) {
           const taskId = response.data.taskId
           ElMessage.info(`${t('user.instanceDetail.resetPassword')}${t('user.tasks.taskCreated')}${t('common.leftParen')}${t('user.tasks.taskID')}: ${taskId}${t('common.rightParen')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
@@ -268,6 +327,36 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
       }
     } catch {
       // 用户取消
+    }
+  }
+
+  const createShareLink = async () => {
+    if (!instance.value?.id) {
+      ElMessage.error(t('user.instances.instanceInvalid'))
+      return
+    }
+    try {
+      const { value } = await ElMessageBox.prompt(
+        t('user.instances.shareExpiryPrompt'),
+        t('user.instances.createShareLink'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          inputValue: '30',
+          inputPattern: /^([1-9]\d{0,3}|100[0-7]\d|10080)$/,
+          inputErrorMessage: t('user.instances.shareExpiryInvalid')
+        }
+      )
+      const minutes = Number(value || 30)
+      const response = await createUserInstanceShare(instance.value.id, { expiresInMinutes: minutes })
+      const url = normalizeShareURL(response.data?.url)
+      await copyToClipboardUtil(url, t('user.instances.shareLinkCopied'))
+      ElMessage.success(t('user.instances.shareLinkCreated'))
+    } catch (error) {
+      if (error !== 'cancel') {
+        console.error('创建分享链接失败:', error)
+        ElMessage.error(t('user.instances.shareLinkCreateFailed'))
+      }
     }
   }
 
@@ -311,6 +400,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
     performAction,
     openSSHTerminal,
     openExecTerminal,
+    createShareLink,
     showResetPasswordDialog,
     togglePassword,
     truncateIP,

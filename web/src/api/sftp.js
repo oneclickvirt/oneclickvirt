@@ -25,6 +25,31 @@ export const abortUserInstanceSFTPUpload = (instanceId, formData) => {
   })
 }
 
+export const listSharedInstanceSFTP = (token, remotePath = '/') => {
+  return get(`/v1/public/instance-shares/${encodeURIComponent(token)}/sftp/list`, { path: remotePath })
+}
+
+export const downloadSharedInstanceSFTP = (token, remotePath) => {
+  return download(`/v1/public/instance-shares/${encodeURIComponent(token)}/sftp/download`, { path: remotePath })
+}
+
+export const uploadSharedInstanceSFTP = (token, formData, config = {}) => {
+  return upload(`/v1/public/instance-shares/${encodeURIComponent(token)}/sftp/upload`, formData, {
+    timeout: 0,
+    ...config
+  })
+}
+
+export const getSharedInstanceSFTPUploadStatus = (token, params) => {
+  return get(`/v1/public/instance-shares/${encodeURIComponent(token)}/sftp/upload/status`, params)
+}
+
+export const abortSharedInstanceSFTPUpload = (token, formData) => {
+  return upload(`/v1/public/instance-shares/${encodeURIComponent(token)}/sftp/upload/abort`, formData, {
+    timeout: 0
+  })
+}
+
 export const listAdminInstanceSFTP = (instanceId, remotePath = '/') => {
   return get(`/v1/admin/instances/${instanceId}/sftp/list`, { path: remotePath })
 }

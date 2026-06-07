@@ -399,4 +399,189 @@ run_module_10() {
         test_api "User create instance (missing providerId)" "POST" "/api/v1/user/instances" "400" \
             "{\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\"}" "$group" "$USER_TOKEN"
     fi
+
+    # ==============================
+    # Instance Share Link Tests
+    # ==============================
+    local share_instance_id="${container_id:-${vm_id:-}}"
+    if [[ -n "$share_instance_id" ]]; then
+        log_info "Testing instance share links with instance ID=${share_instance_id}..."
+        local share_group="instances_share"
+
+        # Ensure instance is unfrozen and running for share tests
+        test_api "Unfreeze for share test" "POST" "/api/v1/admin/instances/unfreeze" "200" \
+            "{\"instanceId\":${share_instance_id}}" "$share_group"
+
+        # -- User creates share link --
+        if [[ -n "$USER_TOKEN" ]]; then
+            local share_resp; share_resp=$(test_api "User create instance share link" "POST" \
+                "/api/v1/user/instances/${share_instance_id}/share-links" "200|403|404" \
+                '{"expiresInMinutes":30}' "$share_group" "$USER_TOKEN")
+            local share_token; share_token=$(echo "$share_resp" | jq -r '.data.token // empty' 2>/dev/null)
+            local share_url; share_url=$(echo "$share_resp" | jq -r '.data.url // empty' 2>/dev/null)
+            local share_expires; share_expires=$(echo "$share_resp" | jq -r '.data.expiresAt // empty' 2>/dev/null)
+
+            if [[ -n "$share_token" ]]; then
+                log_info "Share token created: prefix=${share_token:0:8}..."
+
+                TOTAL_TESTS=$((TOTAL_TESTS + 1))
+                if [[ -n "$share_url" ]]; then
+                    PASSED_TESTS=$((PASSED_TESTS + 1))
+                    log_success "Share link URL returned: ${share_url}"
+                    _add_result_json "Share link URL check" "POST" "/api/v1/user/instances/${share_instance_id}/share-links" "PASS" "non-empty" "present" "" "$share_group"
+                else
+                    FAILED_TESTS=$((FAILED_TESTS + 1))
+                    log_error "Share link URL missing in response"
+                    _add_result_json "Share link URL check" "POST" "/api/v1/user/instances/${share_instance_id}/share-links" "FAIL" "non-empty" "missing" "" "$share_group"
+                fi
+
+                TOTAL_TESTS=$((TOTAL_TESTS + 1))
+                if [[ -n "$share_expires" ]]; then
+                    PASSED_TESTS=$((PASSED_TESTS + 1))
+                    log_success "Share link expiresAt returned: ${share_expires}"
+                    _add_result_json "Share link expiry check" "POST" "/api/v1/user/instances/${share_instance_id}/share-links" "PASS" "non-empty" "present" "" "$share_group"
+                else
+                    FAILED_TESTS=$((FAILED_TESTS + 1))
+                    log_error "Share link expiresAt missing"
+                    _add_result_json "Share link expiry check" "POST" "/api/v1/user/instances/${share_instance_id}/share-links" "FAIL" "non-empty" "missing" "" "$share_group"
+                fi
+
+                # -- Access shared instance detail (public, no auth) --
+                local shared_detail; shared_detail=$(test_api_noauth "Shared instance detail (public)" "GET" \
+                    "/api/v1/public/instance-shares/${share_token}" "200" "" "$share_group")
+
+                # Verify essential fields in shared detail
+                local shared_id; shared_id=$(echo "$shared_detail" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+                TOTAL_TESTS=$((TOTAL_TESTS + 1))
+                if [[ -n "$shared_id" ]]; then
+                    PASSED_TESTS=$((PASSED_TESTS + 1))
+                    log_success "Shared detail contains instance ID: ${shared_id}"
+                    _add_result_json "Shared detail ID check" "GET" "/api/v1/public/instance-shares/${share_token}" "PASS" "non-empty" "$shared_id" "" "$share_group"
+                else
+                    FAILED_TESTS=$((FAILED_TESTS + 1))
+                    log_error "Shared detail missing instance ID"
+                    _add_result_json "Shared detail ID check" "GET" "/api/v1/public/instance-shares/${share_token}" "FAIL" "non-empty" "missing" "" "$share_group"
+                fi
+
+                # Verify isFrozen and frozenReason fields in shared detail
+                local shared_frozen; shared_frozen=$(echo "$shared_detail" | jq -r '.data.isFrozen // "__missing__"' 2>/dev/null)
+                TOTAL_TESTS=$((TOTAL_TESTS + 1))
+                if [[ "$shared_frozen" != "__missing__" ]]; then
+                    PASSED_TESTS=$((PASSED_TESTS + 1))
+                    log_success "Shared detail contains isFrozen field: ${shared_frozen}"
+                    _add_result_json "Shared detail isFrozen field" "GET" "/api/v1/public/instance-shares/${share_token}" "PASS" "present" "$shared_frozen" "" "$share_group"
+                else
+                    FAILED_TESTS=$((FAILED_TESTS + 1))
+                    log_error "Shared detail missing isFrozen field"
+                    _add_result_json "Shared detail isFrozen field" "GET" "/api/v1/public/instance-shares/${share_token}" "FAIL" "present" "missing" "" "$share_group"
+                fi
+
+                # Verify trafficQuotaVisible field in shared detail
+                local shared_tqv; shared_tqv=$(echo "$shared_detail" | jq -r '.data.trafficQuotaVisible // "__missing__"' 2>/dev/null)
+                TOTAL_TESTS=$((TOTAL_TESTS + 1))
+                if [[ "$shared_tqv" != "__missing__" ]]; then
+                    PASSED_TESTS=$((PASSED_TESTS + 1))
+                    log_success "Shared detail contains trafficQuotaVisible field: ${shared_tqv}"
+                    _add_result_json "Shared detail trafficQuotaVisible field" "GET" "/api/v1/public/instance-shares/${share_token}" "PASS" "present" "$shared_tqv" "" "$share_group"
+                else
+                    FAILED_TESTS=$((FAILED_TESTS + 1))
+                    log_error "Shared detail missing trafficQuotaVisible field"
+                    _add_result_json "Shared detail trafficQuotaVisible field" "GET" "/api/v1/public/instance-shares/${share_token}" "FAIL" "present" "missing" "" "$share_group"
+                fi
+
+                # -- Shared instance ports (public) --
+                test_api_noauth "Shared instance ports (public)" "GET" \
+                    "/api/v1/public/instance-shares/${share_token}/ports" "200|403|404" "" "$share_group"
+
+                # -- Shared instance monitoring (public) --
+                test_api_noauth "Shared instance monitoring (public)" "GET" \
+                    "/api/v1/public/instance-shares/${share_token}/monitoring" "200|403|404" "" "$share_group"
+
+                # -- Shared instance resource monitoring (public) --
+                test_api_noauth "Shared instance resources (public)" "GET" \
+                    "/api/v1/public/instance-shares/${share_token}/monitoring/resources" "200|403|404" "" "$share_group"
+
+                # -- Shared instance traffic detail (public) --
+                test_api_noauth "Shared instance traffic detail (public)" "GET" \
+                    "/api/v1/public/instance-shares/${share_token}/traffic/detail" "200|403|404" "" "$share_group"
+
+                # -- Shared instance filtered images (public) --
+                test_api_noauth "Shared instance images (public)" "GET" \
+                    "/api/v1/public/instance-shares/${share_token}/images/filtered" "200|403|404" "" "$share_group"
+
+                # -- Shared instance action (public) --
+                test_api_noauth "Shared instance action (invalid action)" "POST" \
+                    "/api/v1/public/instance-shares/${share_token}/action" "400" \
+                    '{"action":"invalid_action"}' "$share_group"
+
+                # -- Shared instance password reset (public) --
+                local shrp; shrp=$(test_api_noauth "Shared instance reset password" "PUT" \
+                    "/api/v1/public/instance-shares/${share_token}/reset-password" "200|400|403" \
+                    '{}' "$share_group")
+                local shrp_task; shrp_task=$(echo "$shrp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
+                if [[ -n "$shrp_task" ]]; then
+                    wait_task_complete "$SERVER_URL" "$shrp_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || true
+                    test_api_noauth "Shared instance get new password" "GET" \
+                        "/api/v1/public/instance-shares/${share_token}/password/${shrp_task}" "200|403|404" "" "$share_group"
+                fi
+            else
+                log_warning "User share link creation did not return a token (may be 403 if user doesn't own instance)"
+            fi
+        fi
+
+        # -- Admin creates share link --
+        local admin_share_resp; admin_share_resp=$(test_api "Admin create instance share link" "POST" \
+            "/api/v1/admin/instances/${share_instance_id}/share-links" "200|403|404" \
+            '{"expiresInMinutes":60}' "$share_group")
+        local admin_share_token; admin_share_token=$(echo "$admin_share_resp" | jq -r '.data.token // empty' 2>/dev/null)
+
+        if [[ -n "$admin_share_token" ]]; then
+            log_info "Admin share token created: prefix=${admin_share_token:0:8}..."
+
+            # -- Access admin-created share link (public) --
+            test_api_noauth "Admin share detail (public)" "GET" \
+                "/api/v1/public/instance-shares/${admin_share_token}" "200" "" "$share_group"
+
+            # Verify fields in admin share detail
+            local admin_shared_detail; admin_shared_detail=$(curl -s --max-time 30 \
+                "${SERVER_URL}/api/v1/public/instance-shares/${admin_share_token}" 2>/dev/null)
+            
+            # Check isFrozen field
+            local adm_is_frozen; adm_is_frozen=$(echo "$admin_shared_detail" | jq -r '.data.isFrozen // "__missing__"' 2>/dev/null)
+            if [[ "$adm_is_frozen" != "__missing__" ]]; then
+                log_success "Admin share detail isFrozen field present: ${adm_is_frozen}"
+            else
+                log_warning "Admin share detail missing isFrozen field"
+            fi
+
+            # Check frozenReason field
+            local adm_frozen_reason; adm_frozen_reason=$(echo "$admin_shared_detail" | jq -r '.data.frozenReason // "__empty__"' 2>/dev/null)
+            log_info "Admin share detail frozenReason: ${adm_frozen_reason}"
+
+            # Check expiresAt field
+            local adm_expires; adm_expires=$(echo "$admin_shared_detail" | jq -r '.data.expiresAt // "__missing__"' 2>/dev/null)
+            if [[ "$adm_expires" != "__missing__" ]]; then
+                log_success "Admin share detail expiresAt field present: ${adm_expires}"
+            else
+                log_warning "Admin share detail missing expiresAt field"
+            fi
+        fi
+
+        # -- Negative: share link with invalid token --
+        test_api_noauth "Shared instance (invalid token)" "GET" \
+            "/api/v1/public/instance-shares/invalid_token_xxxxx" "401|404" "" "$share_group"
+
+        # -- Negative: share link with empty token --
+        test_api_noauth "Shared instance (empty token)" "GET" \
+            "/api/v1/public/instance-shares/" "404" "" "$share_group"
+
+        # -- Negative: action on shared instance without freeze check --
+        if [[ -n "$admin_share_token" ]]; then
+            test_api_noauth "Shared instance action (empty body)" "POST" \
+                "/api/v1/public/instance-shares/${admin_share_token}/action" "400" \
+                '{}' "$share_group"
+        fi
+    else
+        log_info "Skipping share link tests: no instance available"
+    fi
 }

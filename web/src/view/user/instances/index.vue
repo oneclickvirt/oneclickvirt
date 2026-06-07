@@ -202,6 +202,7 @@
             @click.stop
           >
             <el-button
+              v-if="instance.trafficQuotaVisible !== false"
               size="small"
               type="primary"
               @click="showTrafficDetail(instance)"
@@ -215,6 +216,14 @@
             >
               <el-icon><View /></el-icon>
               {{ t('user.instances.viewDetail') }}
+            </el-button>
+            <el-button
+              size="small"
+              type="success"
+              @click="createShareLink(instance)"
+            >
+              <el-icon><Link /></el-icon>
+              {{ t('user.instances.share') }}
             </el-button>
           </div>
         </div>
@@ -271,7 +280,7 @@
 </template>
 
 <script setup>
-import { TrendCharts, View } from '@element-plus/icons-vue'
+import { TrendCharts, View, Link } from '@element-plus/icons-vue'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 import OsIcon from '@/components/OsIcon.vue'
@@ -296,7 +305,8 @@ const {
   getProviderTypeColor,
   formatDate,
   viewInstanceDetail,
-  showTrafficDetail
+  showTrafficDetail,
+  createShareLink
 } = useUserInstances()
 </script>
 

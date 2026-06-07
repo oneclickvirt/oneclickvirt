@@ -43,5 +43,12 @@ export default {
   loadFailedNetwork: "Failed to load instance list, please check network connection",
   instanceInvalid: "Invalid instance information",
   cannotViewDetail: "Instance is currently in \"{status}\" state and cannot view details. Please wait for the instance to enter running or stopped state.",
+  share: "Share",
+  createShareLink: "Create Temporary Access Link",
+  shareExpiryPrompt: "Enter validity period in minutes. Default is 30 minutes, maximum is 10080 minutes.",
+  shareExpiryInvalid: "Enter a minute value from 1 to 10080",
+  shareLinkCreated: "Share link created",
+  shareLinkCopied: "Share link copied",
+  shareLinkCreateFailed: "Failed to create share link",
   cores: " cores"
 }

@@ -103,4 +103,51 @@ run_module_12() {
     # -- Negative: Traffic manage with missing type --
     test_api "Manage traffic (missing type)" "POST" "/api/v1/admin/traffic/manage" "400" \
         '{"action":"sync","target_id":1}' "$group"
+
+    # ==============================
+    # Traffic Quota Visibility Tests
+    # ==============================
+    # Verify provider traffic_quota_visible is reflected in instance traffic detail
+    if [[ -n "$TEST_INSTANCE_ID" && -n "$USER_TOKEN" ]]; then
+        log_info "Testing traffic quota visibility with instance ${TEST_INSTANCE_ID}..."
+        local tqv_group="traffic_visibility"
+
+        # Get instance traffic detail
+        local tqv_detail; tqv_detail=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${USER_TOKEN}" \
+            "${SERVER_URL}/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" 2>/dev/null)
+        local tqv_code; tqv_code=$(echo "$tqv_detail" | jq -r '.code // empty' 2>/dev/null)
+
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        if [[ "$tqv_code" == "200" ]]; then
+            local tqv_visible; tqv_visible=$(echo "$tqv_detail" | jq -r '.data.visible // "__missing__"' 2>/dev/null)
+            if [[ "$tqv_visible" != "__missing__" ]]; then
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+                log_success "Traffic detail contains visible field: ${tqv_visible}"
+                _add_result_json "Traffic visible field" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "PASS" "present" "$tqv_visible" "" "$tqv_group"
+            else
+                FAILED_TESTS=$((FAILED_TESTS + 1))
+                log_error "Traffic detail missing visible field"
+                _add_result_json "Traffic visible field" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "FAIL" "present" "missing" "" "$tqv_group"
+            fi
+        fi
+
+        # Get instance traffic history and check it respects visibility
+        local tqv_hist; tqv_hist=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${USER_TOKEN}" \
+            "${SERVER_URL}/api/v1/user/instances/${TEST_INSTANCE_ID}/traffic/history" 2>/dev/null)
+        local tqv_hist_code; tqv_hist_code=$(echo "$tqv_hist" | jq -r '.code // empty' 2>/dev/null)
+        log_info "Traffic history response code: ${tqv_hist_code}"
+    fi
+
+    # -- Verify provider has traffic over-limit policy fields --
+    if [[ -n "$PROVIDER_ID" ]]; then
+        log_info "Verifying provider traffic over-limit policy fields..."
+        local prov_detail; prov_detail=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null)
+        local prov_traffic_action; prov_traffic_action=$(echo "$prov_detail" | jq -r '.data.trafficOverLimitAction // empty' 2>/dev/null)
+        local prov_speed_kbps; prov_speed_kbps=$(echo "$prov_detail" | jq -r '.data.trafficSpeedLimitKbps // empty' 2>/dev/null)
+        log_info "Provider trafficOverLimitAction=${prov_traffic_action}, trafficSpeedLimitKbps=${prov_speed_kbps}"
+    fi
 }

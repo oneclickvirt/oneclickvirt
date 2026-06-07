@@ -76,19 +76,25 @@ func (api *UserTrafficAPI) GetInstanceTrafficHistory(c *gin.Context) {
 	isAdmin := userType == "admin"
 
 	// 验证实例是否存在以及用户是否有权限访问
-	var instanceUserID uint
-	err = global.APP_DB.Table("instances").
-		Select("user_id").
-		Where("id = ?", instanceID).
-		Scan(&instanceUserID).Error
-	if err != nil {
+	var access instanceTrafficAccess
+	tx := global.APP_DB.Table("instances").
+		Select("instances.user_id, COALESCE(providers.traffic_quota_visible, 1) AS traffic_quota_visible").
+		Joins("LEFT JOIN providers ON providers.id = instances.provider_id").
+		Where("instances.id = ?", instanceID).
+		Limit(1).
+		Scan(&access)
+	if tx.Error != nil || tx.RowsAffected == 0 {
 		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例不存在或无权限"))
 		return
 	}
 
 	// 管理员可以访问所有实例，普通用户只能访问自己的实例
-	if !isAdmin && instanceUserID != userID.(uint) {
+	if !isAdmin && access.UserID != userID.(uint) {
 		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权限访问该实例"))
+		return
+	}
+	if !isAdmin && !access.TrafficQuotaVisible {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "该实例流量额度不可见"))
 		return
 	}
 

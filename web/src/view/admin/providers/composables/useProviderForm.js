@@ -1,8 +1,8 @@
 // Provider 添加/编辑表单状态与逻辑
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createProvider, updateProvider } from '@/api/admin'
-import { countries, getCountriesByRegion } from '@/utils/countries'
+import { getCountriesByRegion } from '@/utils/countries'
 import { extractEndpointHost } from '@/utils/endpoint'
 import { useI18n } from 'vue-i18n'
 import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits, formatLevelLimitsForBackend as formatLevels, getLevelTagType } from '@/utils/levels'
@@ -76,6 +76,11 @@ const buildDefaultForm = () => ({
   trafficLimitCheckBatchSize: 10,
   trafficAutoResetInterval: 1800,
   trafficAutoResetBatchSize: 10,
+  trafficOverLimitAction: 'stop',
+  trafficSpeedLimitKbps: 1024,
+  trafficQuotaVisible: true,
+  instanceExpiryAction: 'delete',
+  instanceExpiryExtendDays: 1,
   ipv4PortMappingMethod: 'device_proxy',
   ipv6PortMappingMethod: 'device_proxy',
   executionRule: 'auto',
@@ -228,6 +233,11 @@ export function useProviderForm(loadProviders) {
     addProviderForm.trafficLimitCheckBatchSize = provider.trafficLimitCheckBatchSize || 10
     addProviderForm.trafficAutoResetInterval = provider.trafficAutoResetInterval || 1800
     addProviderForm.trafficAutoResetBatchSize = provider.trafficAutoResetBatchSize || 10
+    addProviderForm.trafficOverLimitAction = provider.trafficOverLimitAction || 'stop'
+    addProviderForm.trafficSpeedLimitKbps = provider.trafficSpeedLimitKbps || 1024
+    addProviderForm.trafficQuotaVisible = provider.trafficQuotaVisible !== undefined ? provider.trafficQuotaVisible : true
+    addProviderForm.instanceExpiryAction = provider.instanceExpiryAction || 'delete'
+    addProviderForm.instanceExpiryExtendDays = provider.instanceExpiryExtendDays || 1
     addProviderForm.executionRule = provider.executionRule || 'auto'
     addProviderForm.sshConnectTimeout = provider.sshConnectTimeout || 30
     addProviderForm.sshExecuteTimeout = provider.sshExecuteTimeout || 300
@@ -360,6 +370,11 @@ export function useProviderForm(loadProviders) {
         trafficLimitCheckBatchSize: formData.trafficLimitCheckBatchSize || 10,
         trafficAutoResetInterval: formData.trafficAutoResetInterval || 1800,
         trafficAutoResetBatchSize: formData.trafficAutoResetBatchSize || 10,
+        trafficOverLimitAction: formData.trafficOverLimitAction || 'stop',
+        trafficSpeedLimitKbps: formData.trafficSpeedLimitKbps || 1024,
+        trafficQuotaVisible: formData.trafficQuotaVisible !== undefined ? formData.trafficQuotaVisible : true,
+        instanceExpiryAction: formData.instanceExpiryAction || 'delete',
+        instanceExpiryExtendDays: formData.instanceExpiryExtendDays || 1,
         executionRule: formData.executionRule || 'auto',
         sshConnectTimeout: formData.sshConnectTimeout || 30,
         sshExecuteTimeout: formData.sshExecuteTimeout || 300,

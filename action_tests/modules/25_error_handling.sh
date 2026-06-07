@@ -156,4 +156,81 @@ run_module_25() {
 
     # ---- Path traversal ----
     test_api "Path traversal" "GET" "/api/v1/admin/../../etc/passwd" "400|404" "" "$group" "$ADMIN_TOKEN"
+
+    # ==============================
+    # Instance Share Link Edge Cases
+    # ==============================
+    log_info "Testing instance share link edge cases..."
+    local share_err_group="share_errors"
+
+    # -- Invalid/malformed share token --
+    test_api_noauth "Share link (malformed token)" "GET" \
+        "/api/v1/public/instance-shares/!@#\$%^&*()" "401|404" "" "$share_err_group"
+
+    # -- Very long share token --
+    local long_token; long_token=$(python3 -c "print('A'*1000)" 2>/dev/null || printf '%0.sA' {1..500})
+    test_api_noauth "Share link (long token)" "GET" \
+        "/api/v1/public/instance-shares/${long_token}" "401|404" "" "$share_err_group"
+
+    # -- Share link with path traversal in token --
+    test_api_noauth "Share link (path traversal token)" "GET" \
+        "/api/v1/public/instance-shares/../../../etc/passwd" "401|404" "" "$share_err_group"
+
+    # -- Share link with SQL injection in token --
+    test_api_noauth "Share link (SQL injection token)" "GET" \
+        "/api/v1/public/instance-shares/'%20OR%201=1%20--" "401|404" "" "$share_err_group"
+
+    # -- Share link action without body --
+    test_api_noauth "Share link action (no body)" "POST" \
+        "/api/v1/public/instance-shares/fake_token/action" "400|401|404" "" "$share_err_group"
+
+    # -- Share link reset password without body (should fail) --
+    test_api_noauth "Share link reset password (no body)" "PUT" \
+        "/api/v1/public/instance-shares/fake_token/reset-password" "400|401|404" "" "$share_err_group"
+
+    # -- Share link images with invalid token --
+    test_api_noauth "Share link images (invalid)" "GET" \
+        "/api/v1/public/instance-shares/invalid_token/images/filtered" "401|404" "" "$share_err_group"
+
+    # -- Share link ports with invalid token --
+    test_api_noauth "Share link ports (invalid)" "GET" \
+        "/api/v1/public/instance-shares/invalid_token/ports" "401|404" "" "$share_err_group"
+
+    # -- Share link monitoring with invalid token --
+    test_api_noauth "Share link monitoring (invalid)" "GET" \
+        "/api/v1/public/instance-shares/invalid_token/monitoring" "401|404" "" "$share_err_group"
+
+    # -- Share link traffic detail with invalid token --
+    test_api_noauth "Share link traffic (invalid)" "GET" \
+        "/api/v1/public/instance-shares/invalid_token/traffic/detail" "401|404" "" "$share_err_group"
+
+    # -- Share link WebSocket endpoints with invalid token --
+    test_api_noauth "Share link SSH ws (invalid)" "GET" \
+        "/api/v1/public/instance-shares/invalid_token/ssh" "400|401|404|426" "" "$share_err_group"
+    test_api_noauth "Share link exec ws (invalid)" "GET" \
+        "/api/v1/public/instance-shares/invalid_token/exec" "400|401|404|426" "" "$share_err_group"
+
+    # -- Share link SFTP endpoints with invalid token --
+    test_api_noauth "Share link SFTP list (invalid)" "GET" \
+        "/api/v1/public/instance-shares/invalid_token/sftp/list?path=/" "400|401|404" "" "$share_err_group"
+    test_api_noauth "Share link SFTP download (invalid)" "GET" \
+        "/api/v1/public/instance-shares/invalid_token/sftp/download?path=/tmp/missing" "400|401|404" "" "$share_err_group"
+    test_api_noauth "Share link SFTP upload (invalid)" "POST" \
+        "/api/v1/public/instance-shares/invalid_token/sftp/upload" "400|401|404" '{}' "$share_err_group"
+    test_api_noauth "Share link SFTP upload status (invalid)" "GET" \
+        "/api/v1/public/instance-shares/invalid_token/sftp/upload/status?uploadId=missing" "400|401|404" "" "$share_err_group"
+    test_api_noauth "Share link SFTP upload abort (invalid)" "POST" \
+        "/api/v1/public/instance-shares/invalid_token/sftp/upload/abort" "400|401|404" '{"uploadId":"missing"}' "$share_err_group"
+
+    # -- Negative: User tries to create share link for nonexistent instance --
+    if [[ -n "${USER_TOKEN:-}" ]]; then
+        test_api "User share link nonexistent instance" "POST" \
+            "/api/v1/user/instances/99999/share-links" "400|403|404" \
+            '{"expiresInMinutes":30}' "$share_err_group" "$USER_TOKEN"
+    fi
+
+    # -- Negative: Admin tries to create share link for nonexistent instance --
+    test_api "Admin share link nonexistent instance" "POST" \
+        "/api/v1/admin/instances/99999/share-links" "400|404" \
+        '{"expiresInMinutes":30}' "$share_err_group" "$ADMIN_TOKEN"
 }

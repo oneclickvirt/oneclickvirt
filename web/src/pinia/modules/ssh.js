@@ -8,12 +8,12 @@ export const useSSHStore = defineStore('ssh', {
   
   getters: {
     // 获取所有最小化的连接
-    minimizedConnections: (state) => {
-      return Object.entries(state.connections)
-        .filter(([_, conn]) => conn.minimized)
-        .map(([connectionKey, conn]) => ({
-          connectionKey,
-          ...conn
+	    minimizedConnections: (state) => {
+	      return Object.entries(state.connections)
+	        .filter(([, conn]) => conn.minimized)
+	        .map(([connectionKey, conn]) => ({
+	          connectionKey,
+	          ...conn
         }))
     },
     
@@ -30,15 +30,16 @@ export const useSSHStore = defineStore('ssh', {
   
   actions: {
     // 创建SSH/Exec连接
-    createConnection(instanceId, instanceName, isAdmin = false, mode = 'ssh') {
+    createConnection(instanceId, instanceName, isAdmin = false, mode = 'ssh', options = {}) {
       // Use different key for exec vs ssh to allow both
-      const key = mode === 'exec' ? `exec-${instanceId}` : instanceId
+      const key = options.connectionKey || (mode === 'exec' ? `exec-${instanceId}` : instanceId)
       this.connections[key] = {
         visible: true,
         minimized: false,
         instanceName,
         isAdmin,
         mode,
+        shareToken: options.shareToken || '',
         activeView: 'terminal',
         instanceId,
         createdAt: Date.now()

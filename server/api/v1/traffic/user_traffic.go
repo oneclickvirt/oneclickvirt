@@ -8,7 +8,6 @@ import (
 	"oneclickvirt/model/common"
 	"oneclickvirt/service/pmacct"
 	"oneclickvirt/service/traffic"
-	userService "oneclickvirt/service/user"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -16,6 +15,31 @@ import (
 
 // UserTrafficAPI 用户流量API
 type UserTrafficAPI struct{}
+
+type instanceTrafficAccess struct {
+	UserID              uint
+	TrafficQuotaVisible bool
+}
+
+func ensureUserCanViewInstanceTraffic(userID, instanceID uint) error {
+	var access instanceTrafficAccess
+	tx := global.APP_DB.Table("instances").
+		Select("instances.user_id, COALESCE(providers.traffic_quota_visible, 1) AS traffic_quota_visible").
+		Joins("LEFT JOIN providers ON providers.id = instances.provider_id").
+		Where("instances.id = ?", instanceID).
+		Limit(1).
+		Scan(&access)
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if tx.RowsAffected == 0 || access.UserID != userID {
+		return common.NewError(common.CodeForbidden, "无权限访问该实例")
+	}
+	if !access.TrafficQuotaVisible {
+		return common.NewError(common.CodeForbidden, "该实例流量额度不可见")
+	}
+	return nil
+}
 
 // GetTrafficOverview 获取用户流量概览
 // @Summary 获取用户流量概览
@@ -67,6 +91,10 @@ func (api *UserTrafficAPI) GetInstanceTrafficDetail(c *gin.Context) {
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例ID格式错误"))
+		return
+	}
+	if err := ensureUserCanViewInstanceTraffic(userID, uint(instanceID)); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -166,11 +194,8 @@ func (api *UserTrafficAPI) GetPmacctData(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例ID格式错误"))
 		return
 	}
-
-	// 验证用户权限
-	userServiceInstance := userService.NewService()
-	if !userServiceInstance.HasInstanceAccess(userID, uint(instanceID)) {
-		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权限访问该实例"))
+	if err := ensureUserCanViewInstanceTraffic(userID, uint(instanceID)); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

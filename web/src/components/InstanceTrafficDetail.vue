@@ -190,7 +190,7 @@
 
 <script setup>
 import { ref, watch, computed } from 'vue'
-import { getInstanceTrafficDetail } from '@/api/user'
+import { getInstanceTrafficDetail, getSharedInstanceTrafficDetail } from '@/api/user'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -205,6 +205,10 @@ const props = defineProps({
   instanceId: {
     type: [Number, String],
     required: true
+  },
+  shareToken: {
+    type: String,
+    default: ''
   },
   instanceName: {
     type: String,
@@ -235,11 +239,13 @@ watch(visible, (newVal) => {
 })
 
 const loadTrafficDetail = async () => {
-  if (!props.instanceId) return
+  if (!props.instanceId && !props.shareToken) return
   
   loading.value = true
   try {
-    const response = await getInstanceTrafficDetail(props.instanceId)
+    const response = props.shareToken
+      ? await getSharedInstanceTrafficDetail(props.shareToken)
+      : await getInstanceTrafficDetail(props.instanceId)
     
     if ((response.code === 200)) {
       trafficData.value = response.data

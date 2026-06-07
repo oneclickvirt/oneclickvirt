@@ -23,6 +23,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 实例管理
 		NormalAdminGroup.GET("/instances", admin.GetInstanceList)
 		NormalAdminGroup.GET("/instances/:id", admin.GetInstanceDetail)
+		NormalAdminGroup.POST("/instances/:id/share-links", admin.CreateAdminInstanceShare)
 		NormalAdminGroup.POST("/instances", admin.CreateInstance)
 		NormalAdminGroup.POST("/instances/batch-action", admin.AdminBatchInstanceAction)
 		NormalAdminGroup.PUT("/instances/:id", admin.UpdateInstance)

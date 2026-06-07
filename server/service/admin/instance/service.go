@@ -548,6 +548,9 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 	}
 	if req.Action == "reset" || req.Action == "rebuild" {
 		taskData["originalStatus"] = instance.Status
+		if req.Image != "" {
+			taskData["resetImage"] = req.Image
+		}
 	}
 	if req.Action == "delete" {
 		taskData["adminOperation"] = true

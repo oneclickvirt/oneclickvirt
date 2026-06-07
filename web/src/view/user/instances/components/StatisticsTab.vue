@@ -1,7 +1,10 @@
 <template>
   <div class="stats-content">
     <!-- 流量统计 -->
-    <div class="traffic-section">
+    <div
+      v-if="monitoring.trafficData?.visible !== false"
+      class="traffic-section"
+    >
       <div class="traffic-stats">
         <div class="traffic-usage">
           <div class="usage-header">
@@ -53,7 +56,17 @@
     </div>
 
     <!-- 流量历史趋势图 -->
+    <el-alert
+      v-else
+      :title="$t('user.instanceDetail.trafficQuotaHidden')"
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 20px;"
+    />
+
     <TrafficHistoryChart
+      v-if="!shareToken && monitoring.trafficData?.visible !== false"
       type="instance"
       :resource-id="instanceId"
       :title="''"
@@ -82,13 +95,12 @@
 <script setup>
 import TrafficHistoryChart from '@/components/TrafficHistoryChart.vue'
 import { useInstanceFormatters } from '../composables/useInstanceFormatters'
-import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
 
 const props = defineProps({
   instance: { type: Object, required: true },
   monitoring: { type: Object, required: true },
-  instanceId: { type: String, required: true }
+  instanceId: { type: [String, Number], required: true },
+  shareToken: { type: String, default: '' }
 })
 
 defineEmits(['refresh', 'show-traffic-detail'])

@@ -41,6 +41,13 @@ export const getUserInstancePorts = (instanceId) => {
   })
 }
 
+export const getSharedInstancePorts = (token) => {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/ports`,
+    method: 'get'
+  })
+}
+
 export const getUserPortMappings = (params) => {
   return request({
     url: '/v1/user/port-mappings',
@@ -94,6 +101,21 @@ export function getInstanceNewPassword(instanceId, taskId) {
   })
 }
 
+export function resetSharedInstancePassword(token) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/reset-password`,
+    method: 'put',
+    data: {}
+  })
+}
+
+export function getSharedInstanceNewPassword(token, taskId) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/password/${taskId}`,
+    method: 'get'
+  })
+}
+
 export function getAvailableProviders() {
   return request({
     url: '/v1/user/providers/available',
@@ -118,10 +140,33 @@ export function getUserInstanceDetail(id) {
   })
 }
 
+export function createUserInstanceShare(instanceId, data) {
+  return request({
+    url: `/v1/user/instances/${instanceId}/share-links`,
+    method: 'post',
+    data
+  })
+}
+
+export function getSharedInstanceDetail(token) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}`,
+    method: 'get'
+  })
+}
+
 // 实例操作
 export function performInstanceAction(data) {
   return request({
     url: '/v1/user/instances/action',
+    method: 'post',
+    data
+  })
+}
+
+export function performSharedInstanceAction(token, data) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/action`,
     method: 'post',
     data
   })
@@ -135,10 +180,25 @@ export function getInstanceMonitoring(id) {
   })
 }
 
+export function getSharedInstanceMonitoring(token) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/monitoring`,
+    method: 'get'
+  })
+}
+
 // 实例资源监控（CPU/内存/磁盘）
 export function getInstanceResourceMonitoring(id, params) {
   return request({
     url: `/v1/user/instances/${id}/monitoring/resources`,
+    method: 'get',
+    params
+  })
+}
+
+export function getSharedInstanceResourceMonitoring(token, params) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/monitoring/resources`,
     method: 'get',
     params
   })
@@ -176,6 +236,13 @@ export function getFilteredImages(params) {
     url: '/v1/user/images/filtered',
     method: 'get',
     params
+  })
+}
+
+export function getSharedFilteredImages(token) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/images/filtered`,
+    method: 'get'
   })
 }
 
@@ -244,6 +311,13 @@ export function getUserTrafficOverview() {
 export function getInstanceTrafficDetail(instanceId) {
   return request({
     url: `/v1/user/traffic/instance/${instanceId}`,
+    method: 'get'
+  })
+}
+
+export function getSharedInstanceTrafficDetail(token) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/traffic/detail`,
     method: 'get'
   })
 }

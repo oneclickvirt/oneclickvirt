@@ -273,8 +273,13 @@ type Provider struct {
 	EnableCheckin bool `json:"enableCheckin" gorm:"default:false"` // 是否启用签到续期
 
 	// 流量超限动作
-	TrafficOverLimitAction string `json:"trafficOverLimitAction" gorm:"size:16;default:stop"` // 流量超限操作: stop(停机), speed_limit(限速)
+	TrafficOverLimitAction string `json:"trafficOverLimitAction" gorm:"size:16;default:stop"` // 流量超限操作: stop(停机), speed_limit(限速), freeze(冻结), mark_only(仅标记)
 	TrafficSpeedLimitKbps  int    `json:"trafficSpeedLimitKbps" gorm:"default:1024"`          // 限速值(Kbps), 仅speed_limit模式生效
+	TrafficQuotaVisible    bool   `json:"trafficQuotaVisible" gorm:"default:true"`            // 用户侧是否显示流量额度与用量
+
+	// 实例到期处置策略
+	InstanceExpiryAction     string `json:"instanceExpiryAction" gorm:"size:16;default:delete"` // 实例到期操作: delete(删除), freeze(冻结), stop(关机), extend(延期)
+	InstanceExpiryExtendDays int    `json:"instanceExpiryExtendDays" gorm:"default:0"`          // 到期延期天数，仅extend模式生效
 
 	// 容器特殊配置选项（仅适用于 LXD 和 Incus 的容器实例）
 	ContainerPrivileged   bool   `json:"containerPrivileged" gorm:"default:false"`          // 容器特权模式：允许容器访问宿主机资源
@@ -322,6 +327,15 @@ func (p *Provider) BeforeCreate(tx *gorm.DB) error {
 	// 如果没有设置流量统计模式，使用默认轻量模式
 	if p.TrafficStatsMode == "" {
 		p.TrafficStatsMode = TrafficStatsModeLight
+	}
+	if p.TrafficOverLimitAction == "" {
+		p.TrafficOverLimitAction = TrafficOverLimitActionStop
+	}
+	if p.InstanceExpiryAction == "" {
+		p.InstanceExpiryAction = InstanceExpiryActionDelete
+	}
+	if p.TrafficSpeedLimitKbps <= 0 {
+		p.TrafficSpeedLimitKbps = 1024
 	}
 
 	// 应用预设配置（如果不是自定义模式且配置值为0）

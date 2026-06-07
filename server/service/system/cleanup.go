@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"oneclickvirt/constant"
@@ -330,6 +331,17 @@ func (s *InstanceCleanupService) CleanupExpiredInstances() error {
 
 // cleanupSingleExpiredInstance 清理单个过期实例
 func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *providerModel.Instance, providerMap map[uint]providerModel.Provider) error {
+	if provider, ok := providerMap[instance.ProviderID]; ok {
+		switch provider.InstanceExpiryAction {
+		case providerModel.InstanceExpiryActionFreeze:
+			return s.freezeExpiredInstance(instance)
+		case providerModel.InstanceExpiryActionStop:
+			return s.stopExpiredInstance(instance)
+		case providerModel.InstanceExpiryActionExtend:
+			return s.extendExpiredInstance(instance, provider.InstanceExpiryExtendDays)
+		}
+	}
+
 	// 第一步：在事务外清理 pmacct 数据（可能包含SSH命令，不应在事务内）
 	trafficMonitorManager := traffic_monitor.GetManager()
 	deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -399,6 +411,92 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 	})
 }
 
+func (s *InstanceCleanupService) freezeExpiredInstance(instance *providerModel.Instance) error {
+	now := time.Now()
+	return global.APP_DB.Model(&providerModel.Instance{}).
+		Where("id = ?", instance.ID).
+		Updates(map[string]interface{}{
+			"is_frozen":     true,
+			"frozen_at":     now,
+			"frozen_reason": "expired",
+			"updated_at":    now,
+		}).Error
+}
+
+func (s *InstanceCleanupService) stopExpiredInstance(instance *providerModel.Instance) error {
+	now := time.Now()
+	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		nextStatus := constant.InstanceStatusStopped
+		needsStopTask := instance.Status == constant.InstanceStatusRunning
+		if needsStopTask {
+			nextStatus = constant.InstanceStatusStopping
+		}
+
+		if err := tx.Model(&providerModel.Instance{}).
+			Where("id = ?", instance.ID).
+			Updates(map[string]interface{}{
+				"status":        nextStatus,
+				"is_frozen":     true,
+				"frozen_at":     now,
+				"frozen_reason": "expired",
+				"updated_at":    now,
+			}).Error; err != nil {
+			return err
+		}
+
+		if !needsStopTask {
+			return nil
+		}
+
+		var existing adminModel.Task
+		err := tx.Where("instance_id = ? AND task_type = ? AND status IN ?",
+			instance.ID, "stop", []string{"pending", "running", "processing"}).
+			First(&existing).Error
+		if err == nil {
+			return nil
+		}
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return err
+		}
+
+		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d,"expiredPolicy":"stop"}`, instance.ID, instance.ProviderID)
+		task := &adminModel.Task{
+			TaskType:         "stop",
+			Status:           "pending",
+			Progress:         0,
+			StatusMessage:    "实例已到期，按节点策略自动关机",
+			TaskData:         taskData,
+			UserID:           instance.UserID,
+			ProviderID:       &instance.ProviderID,
+			InstanceID:       &instance.ID,
+			TimeoutDuration:  600,
+			IsForceStoppable: true,
+			CanForceStop:     false,
+		}
+		return tx.Create(task).Error
+	})
+	if err == nil && global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
+	return err
+}
+
+func (s *InstanceCleanupService) extendExpiredInstance(instance *providerModel.Instance, extendDays int) error {
+	if extendDays <= 0 {
+		extendDays = 1
+	}
+	nextExpiry := time.Now().AddDate(0, 0, extendDays)
+	return global.APP_DB.Model(&providerModel.Instance{}).
+		Where("id = ?", instance.ID).
+		Updates(map[string]interface{}{
+			"expires_at":    nextExpiry,
+			"is_frozen":     false,
+			"frozen_at":     nil,
+			"frozen_reason": "",
+			"updated_at":    time.Now(),
+		}).Error
+}
+
 // RepairUserQuotas 确认所有用户的配额（定期运行，批量处理，避免N+1和竞态）
 // 重新计算每个用户的实际资源占用，确认因异常、删除等操作导致的配额不准确问题
 func (s *InstanceCleanupService) RepairUserQuotas() error {
@@ -454,6 +552,25 @@ func (s *InstanceCleanupService) RepairUserQuotas() error {
 		zap.Int("repaired", repairedCount),
 		zap.Int("errors", errorCount))
 
+	return nil
+}
+
+// CleanupExpiredInstanceShareLinks removes expired or revoked temporary instance grants.
+func (s *InstanceCleanupService) CleanupExpiredInstanceShareLinks() error {
+	if global.APP_DB == nil {
+		return nil
+	}
+	now := time.Now()
+	result := global.APP_DB.
+		Where("expires_at < ? OR revoked_at IS NOT NULL", now).
+		Delete(&providerModel.InstanceShareLink{})
+	if result.Error != nil {
+		global.APP_LOG.Warn("清理过期实例分享链接失败", zap.Error(result.Error))
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		global.APP_LOG.Info("已清理过期实例分享链接", zap.Int64("count", result.RowsAffected))
+	}
 	return nil
 }
 

@@ -38,6 +38,8 @@ func applyExtendedCSVToCreateReq(req *admin.CreateProviderRequest, values map[st
 		{"config", func(v string) { req.Config = v }},
 		{"storagePool", func(v string) { req.StoragePool = v }},
 		{"trafficSyncMethod", func(v string) { req.TrafficSyncMethod = v }},
+		{"trafficOverLimitAction", func(v string) { req.TrafficOverLimitAction = v }},
+		{"instanceExpiryAction", func(v string) { req.InstanceExpiryAction = v }},
 		{"trafficStatsMode", func(v string) { req.TrafficStatsMode = v }},
 		{"ipv4PortMappingMethod", func(v string) { req.IPv4PortMappingMethod = v }},
 		{"ipv6PortMappingMethod", func(v string) { req.IPv6PortMappingMethod = v }},
@@ -77,6 +79,7 @@ func applyExtendedCSVToCreateReq(req *admin.CreateProviderRequest, values map[st
 		{"gpuEnabled", func(v bool) { req.GpuEnabled = v }},
 		{"allowConcurrentTasks", func(v bool) { req.AllowConcurrentTasks = v }},
 		{"enableTaskPolling", func(v bool) { req.EnableTaskPolling = v }},
+		{"trafficQuotaVisible", func(v bool) { req.TrafficQuotaVisible = boolPtr(v) }},
 	} {
 		if err := applyCSVBoolField(values, field.key, field.set); err != nil {
 			return err
@@ -102,6 +105,8 @@ func applyExtendedCSVToCreateReq(req *admin.CreateProviderRequest, values map[st
 		{"trafficLimitCheckBatchSize", func(v int) { req.TrafficLimitCheckBatchSize = v }},
 		{"trafficAutoResetInterval", func(v int) { req.TrafficAutoResetInterval = v }},
 		{"trafficAutoResetBatchSize", func(v int) { req.TrafficAutoResetBatchSize = v }},
+		{"trafficSpeedLimitKbps", func(v int) { req.TrafficSpeedLimitKbps = v }},
+		{"instanceExpiryExtendDays", func(v int) { req.InstanceExpiryExtendDays = v }},
 		{"sshConnectTimeout", func(v int) { req.SSHConnectTimeout = v }},
 		{"sshExecuteTimeout", func(v int) { req.SSHExecuteTimeout = v }},
 		{"containerMaxProcesses", func(v int) { req.ContainerMaxProcesses = v }},
@@ -122,6 +127,8 @@ func applyExtendedCSVToUpdateReq(req *admin.UpdateProviderRequest, values map[st
 		{"config", func(v string) { req.Config = v }},
 		{"storagePool", func(v string) { req.StoragePool = v }},
 		{"trafficSyncMethod", func(v string) { req.TrafficSyncMethod = v }},
+		{"trafficOverLimitAction", func(v string) { req.TrafficOverLimitAction = v }},
+		{"instanceExpiryAction", func(v string) { req.InstanceExpiryAction = v }},
 		{"trafficStatsMode", func(v string) { req.TrafficStatsMode = v }},
 		{"ipv4PortMappingMethod", func(v string) { req.IPv4PortMappingMethod = v }},
 		{"ipv6PortMappingMethod", func(v string) { req.IPv6PortMappingMethod = v }},
@@ -161,6 +168,7 @@ func applyExtendedCSVToUpdateReq(req *admin.UpdateProviderRequest, values map[st
 		{"gpuEnabled", func(v bool) { req.GpuEnabled = v }},
 		{"allowConcurrentTasks", func(v bool) { req.AllowConcurrentTasks = v }},
 		{"enableTaskPolling", func(v bool) { req.EnableTaskPolling = v }},
+		{"trafficQuotaVisible", func(v bool) { req.TrafficQuotaVisible = boolPtr(v) }},
 	} {
 		if err := applyCSVBoolField(values, field.key, field.set); err != nil {
 			return err
@@ -186,6 +194,8 @@ func applyExtendedCSVToUpdateReq(req *admin.UpdateProviderRequest, values map[st
 		{"trafficLimitCheckBatchSize", func(v int) { req.TrafficLimitCheckBatchSize = v }},
 		{"trafficAutoResetInterval", func(v int) { req.TrafficAutoResetInterval = v }},
 		{"trafficAutoResetBatchSize", func(v int) { req.TrafficAutoResetBatchSize = v }},
+		{"trafficSpeedLimitKbps", func(v int) { req.TrafficSpeedLimitKbps = v }},
+		{"instanceExpiryExtendDays", func(v int) { req.InstanceExpiryExtendDays = v }},
 		{"sshConnectTimeout", func(v int) { req.SSHConnectTimeout = v }},
 		{"sshExecuteTimeout", func(v int) { req.SSHExecuteTimeout = v }},
 		{"containerMaxProcesses", func(v int) { req.ContainerMaxProcesses = v }},

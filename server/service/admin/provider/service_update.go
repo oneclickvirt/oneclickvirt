@@ -284,6 +284,19 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.TrafficSyncMethod != "" {
 		provider.TrafficSyncMethod = req.TrafficSyncMethod
 	}
+	if req.TrafficOverLimitAction != "" || req.TrafficSpeedLimitKbps > 0 {
+		provider.TrafficOverLimitAction, provider.TrafficSpeedLimitKbps = normalizeTrafficOverLimitPolicy(req.TrafficOverLimitAction, req.TrafficSpeedLimitKbps)
+	} else if provider.TrafficOverLimitAction == "" {
+		provider.TrafficOverLimitAction, provider.TrafficSpeedLimitKbps = normalizeTrafficOverLimitPolicy("", provider.TrafficSpeedLimitKbps)
+	}
+	if req.TrafficQuotaVisible != nil {
+		provider.TrafficQuotaVisible = *req.TrafficQuotaVisible
+	}
+	if req.InstanceExpiryAction != "" || req.InstanceExpiryExtendDays > 0 {
+		provider.InstanceExpiryAction, provider.InstanceExpiryExtendDays = normalizeInstanceExpiryPolicy(req.InstanceExpiryAction, req.InstanceExpiryExtendDays)
+	} else if provider.InstanceExpiryAction == "" {
+		provider.InstanceExpiryAction, provider.InstanceExpiryExtendDays = normalizeInstanceExpiryPolicy("", provider.InstanceExpiryExtendDays)
+	}
 
 	// 检测流量统计开关是否发生变化
 	trafficControlChanged := oldEnableTrafficControl != req.EnableTrafficControl

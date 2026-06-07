@@ -95,6 +95,8 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		NetworkType:   instance.NetworkType, // 默认使用实例的网络类型（创建时从Provider继承）
 		CreatedAt:     instance.CreatedAt,
 		ExpiresAt:     instance.ExpiresAt,
+		IsFrozen:      instance.IsFrozen,
+		FrozenReason:  instance.FrozenReason,
 	}
 
 	if hasProvider {
@@ -205,6 +207,11 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 
 	// 检查流量限制状态
 	var limitType, limitReason string
+	trafficQuotaVisible := true
+	var trafficProvider providerModel.Provider
+	if err := global.APP_DB.Select("id, max_traffic, traffic_quota_visible").First(&trafficProvider, instance.ProviderID).Error; err == nil {
+		trafficQuotaVisible = trafficProvider.TrafficQuotaVisible
+	}
 
 	// 检查实例是否因流量超限被限制
 	if instance.TrafficLimited {
@@ -213,11 +220,10 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 		var providerLimited bool
 
 		// 检查Provider流量限制（使用统一的流量查询服务）
-		var provider providerModel.Provider
-		if err := global.APP_DB.First(&provider, instance.ProviderID).Error; err == nil {
-			providerMonthlyStats, providerErr := trafficQueryService.GetProviderMonthlyTraffic(provider.ID, year, int(month))
-			if providerErr == nil && provider.MaxTraffic > 0 {
-				providerLimited = int64(providerMonthlyStats.ActualUsageMB) >= provider.MaxTraffic
+		if trafficProvider.ID != 0 {
+			providerMonthlyStats, providerErr := trafficQueryService.GetProviderMonthlyTraffic(trafficProvider.ID, year, int(month))
+			if providerErr == nil && trafficProvider.MaxTraffic > 0 {
+				providerLimited = int64(providerMonthlyStats.ActualUsageMB) >= trafficProvider.MaxTraffic
 			}
 		}
 
@@ -247,8 +253,15 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 			IsLimited:    instance.TrafficLimited,
 			LimitType:    limitType,
 			LimitReason:  limitReason,
+			Visible:      trafficQuotaVisible,
 			History:      []userModel.TrafficHistoryItem{},
 		},
+	}
+	if !trafficQuotaVisible {
+		monitoring.TrafficData.CurrentMonth = 0
+		monitoring.TrafficData.TotalLimit = 0
+		monitoring.TrafficData.UsagePercent = 0
+		monitoring.TrafficData.History = []userModel.TrafficHistoryItem{}
 	}
 
 	return monitoring, nil

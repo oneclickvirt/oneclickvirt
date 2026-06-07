@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -93,6 +94,12 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 	}()
 	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
 		return err
+	}
+	if instance.IsFrozen && req.Action != "delete" {
+		return errors.New("实例已被冻结，仅允许删除操作")
+	}
+	if instance.ExpiresAt != nil && instance.ExpiresAt.Before(time.Now()) && req.Action != "delete" {
+		return errors.New("实例已到期，仅允许删除操作")
 	}
 
 	switch req.Action {

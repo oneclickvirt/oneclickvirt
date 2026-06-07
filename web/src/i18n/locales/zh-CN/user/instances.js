@@ -43,5 +43,12 @@ export default {
   loadFailedNetwork: "获取实例列表失败，请检查网络连接",
   instanceInvalid: "实例信息无效",
   cannotViewDetail: "实例当前状态为\"{status}\"，无法查看详情。请等待实例进入运行或停止状态。",
+  share: "分享",
+  createShareLink: "创建临时授权链接",
+  shareExpiryPrompt: "请输入有效期（分钟），默认 30 分钟，最长 10080 分钟。",
+  shareExpiryInvalid: "请输入 1 到 10080 之间的分钟数",
+  shareLinkCreated: "分享链接已创建",
+  shareLinkCopied: "分享链接已复制",
+  shareLinkCreateFailed: "创建分享链接失败",
   cores: "核"
 }

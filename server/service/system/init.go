@@ -155,6 +155,7 @@ func (s *InitService) AutoMigrateTables() error {
 		&providerModel.AdminGroupSetting{},
 		&providerModel.Port{},
 		&providerModel.ProviderIPv4Pool{},
+		&providerModel.InstanceShareLink{},
 		&adminModel.Task{},
 
 		// 资源管理表

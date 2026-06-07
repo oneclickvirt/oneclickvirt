@@ -52,6 +52,7 @@ export default {
   getDetailFailed: "Failed to get instance details",
   trafficLimitWarning: "This instance has been restricted due to traffic limit exceeded",
   trafficLimitStartBlocked: "Instance is restricted due to traffic limit exceeded and cannot be started. Please contact an administrator to reset traffic or increase the traffic quota.",
+  trafficQuotaHidden: "This node does not expose traffic quota to users",
   getMonitoringFailed: "Failed to get monitoring data",
   resourceMonitoring: "Resource Monitoring",
   noResourceData: "No resource monitoring data available",

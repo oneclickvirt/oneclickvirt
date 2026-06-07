@@ -292,7 +292,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('common.actions')"
-          width="360"
+          width="430"
           fixed="right"
         >
           <template #default="scope">
@@ -326,6 +326,14 @@
                 @click="showTransferDialog(scope.row)"
               >
                 {{ $t('admin.instances.transfer') }}
+              </el-button>
+              <el-button
+                size="small"
+                type="success"
+                @click="createShareLink(scope.row)"
+              >
+                <el-icon><Link /></el-icon>
+                {{ $t('admin.instances.share') }}
               </el-button>
             </div>
           </template>
@@ -666,7 +674,8 @@ import {
   Refresh, 
   RefreshRight, 
   Lock, 
-  Delete 
+  Delete,
+  Link
 } from '@element-plus/icons-vue'
 import { useInstanceManagement } from './composables/useInstanceManagement'
 
@@ -681,7 +690,7 @@ const {
   isExpired, isExpiringSoon, openSSHTerminal,
   handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,
   showTransferDialog, confirmTransfer, handleWindowResize,
-  searchUsers, searchingUsers, userOptions
+  searchUsers, searchingUsers, userOptions, createShareLink
 } = useInstanceManagement()
 
 onMounted(() => {

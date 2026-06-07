@@ -53,6 +53,14 @@ export const adminBatchInstanceAction = (instanceIds, action) => {
   })
 }
 
+export const createAdminInstanceShare = (id, data) => {
+  return request({
+    url: `/v1/admin/instances/${id}/share-links`,
+    method: 'post',
+    data
+  })
+}
+
 export const resetInstancePassword = (id) => {
   return request({
     url: `/v1/admin/instances/${id}/reset-password`,

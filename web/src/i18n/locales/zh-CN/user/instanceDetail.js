@@ -52,6 +52,7 @@ export default {
   getDetailFailed: "获取实例详情失败",
   trafficLimitWarning: "当前实例因流量超限已被限制使用",
   trafficLimitStartBlocked: "实例因流量超限已被系统限制，无法启动，请联系管理员重置流量或增加流量额度",
+  trafficQuotaHidden: "该节点未向用户展示流量额度",
   getMonitoringFailed: "获取监控数据失败",
   resourceMonitoring: "资源监控",
   noResourceData: "暂无资源监控数据",

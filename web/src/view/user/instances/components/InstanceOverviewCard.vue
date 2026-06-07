@@ -161,6 +161,16 @@
             <el-icon><Monitor /></el-icon>
             {{ $t('user.instanceDetail.webSSH') }}
           </el-button>
+          <el-button
+            v-if="!shareMode"
+            type="success"
+            size="small"
+            :loading="actionLoading"
+            @click="$emit('create-share')"
+          >
+            <el-icon><Link /></el-icon>
+            {{ $t('user.instances.share') }}
+          </el-button>
           <!-- 删除按钮 -->
           <el-button
             v-if="instanceTypePermissions.canDeleteInstance"
@@ -203,6 +213,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
+import { Link } from '@element-plus/icons-vue'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import { useInstanceFormatters } from '../composables/useInstanceFormatters'
 
@@ -212,10 +223,11 @@ defineProps({
   instance: { type: Object, required: true },
   monitoring: { type: Object, required: true },
   actionLoading: { type: Boolean, default: false },
-  instanceTypePermissions: { type: Object, required: true }
+  instanceTypePermissions: { type: Object, required: true },
+  shareMode: { type: Boolean, default: false }
 })
 
-defineEmits(['perform-action', 'reset-password', 'open-ssh', 'view-task'])
+defineEmits(['perform-action', 'reset-password', 'open-ssh', 'view-task', 'create-share'])
 
 const {
   getTaskTitle,

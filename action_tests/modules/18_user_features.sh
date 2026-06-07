@@ -144,4 +144,70 @@ run_module_18() {
 
     # ---- Negative: Provider capabilities nonexistent ----
     test_api "Capabilities nonexistent" "GET" "/api/v1/user/providers/99999/capabilities" "200|400|404" "" "$group" "$USER_TOKEN"
+
+    # ---- Verify new response fields: trafficQuotaVisible, isFrozen, frozenReason ----
+    if [[ -n "$TEST_INSTANCE_ID" ]]; then
+        log_info "Verifying new response fields in user instance detail..."
+        local uf_group="user_fields"
+
+        # User instance detail
+        local uf_detail; uf_detail=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${USER_TOKEN}" \
+            "${SERVER_URL}/api/v1/user/instances/${TEST_INSTANCE_ID}" 2>/dev/null)
+
+        # Check trafficQuotaVisible field
+        local uf_tqv; uf_tqv=$(echo "$uf_detail" | jq -r '.data.trafficQuotaVisible // "__missing__"' 2>/dev/null)
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        if [[ "$uf_tqv" != "__missing__" ]]; then
+            PASSED_TESTS=$((PASSED_TESTS + 1))
+            log_success "User instance detail contains trafficQuotaVisible: ${uf_tqv}"
+            _add_result_json "User trafficQuotaVisible field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "PASS" "present" "$uf_tqv" "" "$uf_group"
+        else
+            FAILED_TESTS=$((FAILED_TESTS + 1))
+            log_error "User instance detail missing trafficQuotaVisible field"
+            _add_result_json "User trafficQuotaVisible field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "FAIL" "present" "missing" "" "$uf_group"
+        fi
+
+        # Check isFrozen field
+        local uf_frozen; uf_frozen=$(echo "$uf_detail" | jq -r '.data.isFrozen // "__missing__"' 2>/dev/null)
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        if [[ "$uf_frozen" != "__missing__" ]]; then
+            PASSED_TESTS=$((PASSED_TESTS + 1))
+            log_success "User instance detail contains isFrozen: ${uf_frozen}"
+            _add_result_json "User isFrozen field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "PASS" "present" "$uf_frozen" "" "$uf_group"
+        else
+            FAILED_TESTS=$((FAILED_TESTS + 1))
+            log_error "User instance detail missing isFrozen field"
+            _add_result_json "User isFrozen field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "FAIL" "present" "missing" "" "$uf_group"
+        fi
+
+        # Check frozenReason field (may be empty string for unfrozen instances)
+        local uf_frozen_reason; uf_frozen_reason=$(echo "$uf_detail" | jq -r '.data.frozenReason // "__missing__"' 2>/dev/null)
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        if [[ "$uf_frozen_reason" != "__missing__" ]]; then
+            PASSED_TESTS=$((PASSED_TESTS + 1))
+            log_success "User instance detail contains frozenReason: '${uf_frozen_reason}'"
+            _add_result_json "User frozenReason field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "PASS" "present" "$uf_frozen_reason" "" "$uf_group"
+        else
+            FAILED_TESTS=$((FAILED_TESTS + 1))
+            log_error "User instance detail missing frozenReason field"
+            _add_result_json "User frozenReason field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "FAIL" "present" "missing" "" "$uf_group"
+        fi
+
+        # Check expiresAt field in user detail
+        local uf_expires; uf_expires=$(echo "$uf_detail" | jq -r '.data.expiresAt // "__missing__"' 2>/dev/null)
+        log_info "User instance expiresAt: ${uf_expires}"
+
+        # -- User creates share link --
+        local user_share_resp; user_share_resp=$(test_api "User create share link (features)" "POST" \
+            "/api/v1/user/instances/${TEST_INSTANCE_ID}/share-links" "200|403|404" \
+            '{"expiresInMinutes":15}' "$uf_group" "$USER_TOKEN")
+        local user_share_token; user_share_token=$(echo "$user_share_resp" | jq -r '.data.token // empty' 2>/dev/null)
+        if [[ -n "$user_share_token" ]]; then
+            log_success "User share token created: prefix=${user_share_token:0:8}..."
+            # Verify share link accessible via public API (no auth)
+            test_api_noauth "User share link accessible (public)" "GET" \
+                "/api/v1/public/instance-shares/${user_share_token}" "200" "" "$uf_group"
+        fi
+    fi
 }

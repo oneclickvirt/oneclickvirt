@@ -28,6 +28,7 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/user/instances", user.GetUserInstances)
 		UserGroup.POST("/user/instances", middleware.RequireKYCFor("create-instance"), user.CreateUserInstance)
 		UserGroup.GET("/user/instances/:id", user.GetUserInstanceDetail)
+		UserGroup.POST("/user/instances/:id/share-links", user.CreateUserInstanceShare)
 		UserGroup.GET("/user/instances/:id/monitoring", user.GetInstanceMonitoring)
 		UserGroup.GET("/user/instances/:id/monitoring/resources", user.GetInstanceResourceMonitoring)
 		UserGroup.GET("/user/instances/:id/monitoring/status", user.GetInstanceMonitoringStatus)
