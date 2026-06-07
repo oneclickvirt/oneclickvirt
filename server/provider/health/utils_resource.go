@@ -144,6 +144,27 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 			zap.Error(err))
 		storagePoolPath = "/"
 	}
+	resourceInfo.StoragePoolPath = storagePoolPath
+
+	// 自动检测 LXD/Incus 存储池名称（优先级高于 hardcode 的 "default"）
+	detectedPoolName := phc.DetectStoragePoolName(client, localProviderType)
+	if detectedPoolName != "" && (localStoragePoolName == "" || localStoragePoolName == "local" || localStoragePoolName == "default") {
+		// 用户未明确指定存储池或使用默认占位符 → 使用自动检测值
+		resourceInfo.StoragePoolName = detectedPoolName
+		if phc.logger != nil {
+			phc.logger.Info("自动检测并更新存储池名称",
+				zap.String("providerType", localProviderType),
+				zap.String("oldPool", localStoragePoolName),
+				zap.String("newPool", detectedPoolName))
+		}
+	}
+
+	// 自动确保 LXD/Incus default profile 包含 root 磁盘设备
+	if strings.ToLower(localProviderType) == "lxd" || strings.ToLower(localProviderType) == "incus" {
+		if fixed := phc.EnsureProfileHasRootDevice(client, localProviderType); fixed {
+			resourceInfo.ProfileRootDeviceFixed = true
+		}
+	}
 
 	// 使用检测到的存储池路径获取磁盘信息
 	totalDisk, freeDisk, err := phc.getDiskInfoByPath(client, storagePoolPath)

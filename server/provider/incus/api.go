@@ -244,10 +244,15 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 		instanceConfig["config"].(map[string]interface{})["limits.memory"] = config.Memory
 	}
 	if config.Disk != "" {
+		// 使用 Provider 配置中记录的存储池名称，fallback 到 "default"
+		poolName := i.config.StoragePool
+		if poolName == "" || poolName == "local" {
+			poolName = "default"
+		}
 		instanceConfig["devices"].(map[string]interface{})["root"] = map[string]interface{}{
 			"type": "disk",
 			"path": "/",
-			"pool": "default",
+			"pool": poolName,
 			"size": config.Disk,
 		}
 	}

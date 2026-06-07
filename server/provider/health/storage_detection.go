@@ -295,3 +295,126 @@ func (phc *ProviderHealthChecker) detectContainerStoragePath(client *ssh.Client,
 	}
 	return "/", nil
 }
+
+// ── LXD/Incus 存储池名称检测 ──────────────────────────────────────────────
+
+// DetectLXDStoragePoolName 检测 LXD 存储池名称（返回第一个可用池，默认 "default"）
+func (phc *ProviderHealthChecker) DetectLXDStoragePoolName(client *ssh.Client) string {
+	// 获取所有存储池列表，取第一个
+	cmd := "lxc storage list --format csv 2>/dev/null | cut -d, -f1 | head -1"
+	output, err := phc.executeSSHCommand(client, cmd)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		name := utils.CleanCommandOutput(output)
+		if phc.logger != nil {
+			phc.logger.Info("检测到LXD存储池名称", zap.String("pool", name))
+		}
+		return name
+	}
+	return "default"
+}
+
+// DetectIncusStoragePoolName 检测 Incus 存储池名称（返回第一个可用池，默认 "default"）
+func (phc *ProviderHealthChecker) DetectIncusStoragePoolName(client *ssh.Client) string {
+	cmd := "incus storage list --format csv 2>/dev/null | cut -d, -f1 | head -1"
+	output, err := phc.executeSSHCommand(client, cmd)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		name := utils.CleanCommandOutput(output)
+		if phc.logger != nil {
+			phc.logger.Info("检测到Incus存储池名称", zap.String("pool", name))
+		}
+		return name
+	}
+	return "default"
+}
+
+// DetectStoragePoolName 统一入口：根据 provider 类型检测存储池名称
+func (phc *ProviderHealthChecker) DetectStoragePoolName(client *ssh.Client, providerType string) string {
+	switch strings.ToLower(providerType) {
+	case "lxd":
+		return phc.DetectLXDStoragePoolName(client)
+	case "incus":
+		return phc.DetectIncusStoragePoolName(client)
+	default:
+		return ""
+	}
+}
+
+// ── LXD/Incus Profile Root 设备检测与修复 ──────────────────────────────────
+
+// EnsureProfileHasRootDevice 确保 LXD/Incus 的 default profile 包含 root 磁盘设备
+// 返回 true 表示进行了修复（添加了 root 设备）
+func (phc *ProviderHealthChecker) EnsureProfileHasRootDevice(client *ssh.Client, providerType string) (fixed bool) {
+	switch strings.ToLower(providerType) {
+	case "lxd":
+		return phc.ensureLXDProfileRootDevice(client)
+	case "incus":
+		return phc.ensureIncusProfileRootDevice(client)
+	}
+	return false
+}
+
+func (phc *ProviderHealthChecker) ensureLXDProfileRootDevice(client *ssh.Client) bool {
+	// 检查 default profile 是否有 root 设备
+	checkCmd := "lxc profile show default 2>/dev/null | grep -A3 'root:' | head -4"
+	output, err := phc.executeSSHCommand(client, checkCmd)
+	if err == nil && strings.Contains(output, "type: disk") {
+		return false // root 设备已存在
+	}
+
+	// 检测存储池名称
+	poolName := phc.DetectLXDStoragePoolName(client)
+
+	// 添加 root 设备到 default profile
+	addCmd := fmt.Sprintf("lxc profile device add default root disk path=/ pool=%s 2>/dev/null", poolName)
+	_, err = phc.executeSSHCommand(client, addCmd)
+	if err != nil {
+		// 不指定 pool 重试
+		addCmd2 := "lxc profile device add default root disk path=/ 2>/dev/null"
+		_, err = phc.executeSSHCommand(client, addCmd2)
+		if err != nil {
+			if phc.logger != nil {
+				phc.logger.Warn("无法添加root设备到default profile",
+					zap.String("pool", poolName),
+					zap.Error(err))
+			}
+			return false
+		}
+	}
+
+	if phc.logger != nil {
+		phc.logger.Info("已自动添加root设备到default profile",
+			zap.String("pool", poolName))
+	}
+	return true
+}
+
+func (phc *ProviderHealthChecker) ensureIncusProfileRootDevice(client *ssh.Client) bool {
+	checkCmd := "incus profile show default 2>/dev/null | grep -A3 'root:' | head -4"
+	output, err := phc.executeSSHCommand(client, checkCmd)
+	if err == nil && strings.Contains(output, "type: disk") {
+		return false
+	}
+
+	poolName := phc.DetectIncusStoragePoolName(client)
+
+	addCmd := fmt.Sprintf("incus profile device add default root disk path=/ pool=%s 2>/dev/null", poolName)
+	_, err = phc.executeSSHCommand(client, addCmd)
+	if err != nil {
+		addCmd2 := "incus profile device add default root disk path=/ 2>/dev/null"
+		_, err = phc.executeSSHCommand(client, addCmd2)
+		if err != nil {
+			if phc.logger != nil {
+				phc.logger.Warn("无法添加root设备到default profile",
+					zap.String("pool", poolName),
+					zap.Error(err))
+			}
+			return false
+		}
+	}
+
+	if phc.logger != nil {
+		phc.logger.Info("已自动添加root设备到default profile",
+			zap.String("pool", poolName))
+	}
+	return true
+}

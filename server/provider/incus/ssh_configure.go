@@ -115,8 +115,32 @@ func (i *IncusProvider) configureInstanceNetworkSettings(ctx context.Context, co
 // configureInstanceStorage 配置实例存储
 func (i *IncusProvider) configureInstanceStorage(ctx context.Context, config provider.InstanceConfig) error {
 	// 参考: https://github.com/oneclickvirt/incus/blob/main/scripts/buildct.sh
-	// 磁盘大小已在创建容器时通过 -d root,size=... 参数设置
-	// 此函数仅保留用于IO限制配置
+	// 磁盘大小在创建实例后通过 device set 设置（不再使用 -d 标志，避免 profile 缺少 root 设备时失败）
+
+	// 设置 root 磁盘大小
+	if config.Disk != "" {
+		diskFormatted := convertDiskFormat(config.Disk)
+		// 优先用新语法设置磁盘大小
+		setSizeCmd := fmt.Sprintf("incus config device set %s root size=%s", shellSingleQuote(config.Name), shellSingleQuote(diskFormatted))
+		if _, err := i.sshClient.Execute(setSizeCmd); err != nil {
+			// 兼容旧语法
+			legacySizeCmd := fmt.Sprintf("incus config device set %s root size %s", shellSingleQuote(config.Name), shellSingleQuote(diskFormatted))
+			if _, legacyErr := i.sshClient.Execute(legacySizeCmd); legacyErr != nil {
+				global.APP_LOG.Warn("设置磁盘大小失败（可能 root 设备继承自 profile）",
+					zap.String("instance", config.Name),
+					zap.String("size", diskFormatted),
+					zap.Error(legacyErr))
+			} else {
+				global.APP_LOG.Debug("已通过 legacy 语法设置磁盘大小",
+					zap.String("instance", config.Name),
+					zap.String("size", diskFormatted))
+			}
+		} else {
+			global.APP_LOG.Debug("已设置磁盘大小",
+				zap.String("instance", config.Name),
+				zap.String("size", diskFormatted))
+		}
+	}
 
 	// 如果是容器，配置IO限制
 	if config.InstanceType != "vm" {

@@ -232,6 +232,24 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 			provider.ResourceSynced = true
 			provider.ResourceSyncedAt = resourceInfo.SyncedAt
 
+			// 自动检测到的存储池名称（LXD/Incus）
+			if resourceInfo.StoragePoolName != "" && provider.StoragePool != resourceInfo.StoragePoolName {
+				oldPool := provider.StoragePool
+				provider.StoragePool = resourceInfo.StoragePoolName
+				global.APP_LOG.Info("自动更新存储池名称",
+					zap.Uint("providerID", localProviderID),
+					zap.String("provider", localProviderName),
+					zap.String("oldPool", oldPool),
+					zap.String("newPool", resourceInfo.StoragePoolName))
+			}
+
+			// profile root 设备修复日志
+			if resourceInfo.ProfileRootDeviceFixed {
+				global.APP_LOG.Info("已自动修复default profile的root设备",
+					zap.Uint("providerID", localProviderID),
+					zap.String("provider", localProviderName))
+			}
+
 			// 更新主机名（如果资源信息中包含）
 			if resourceInfo.HostName != "" {
 				provider.HostName = resourceInfo.HostName

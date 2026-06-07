@@ -262,17 +262,52 @@ func (i *IncusProvider) setInstanceDeviceConfig(ctx context.Context, instanceNam
 
 	cmdLegacy := fmt.Sprintf("incus config device set %s %s %s %s", shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(key), shellSingleQuote(value))
 	_, legacyErr := i.sshClient.Execute(cmdLegacy)
-	if legacyErr != nil {
-		return fmt.Errorf("SSH设置实例设备配置失败: new syntax error=%v, legacy syntax error=%w", newErr, legacyErr)
+	if legacyErr == nil {
+		global.APP_LOG.Debug("Incus SSH设置实例设备配置成功",
+			zap.String("instance", instanceName),
+			zap.String("device", deviceName),
+			zap.String("key", key),
+			zap.String("value", value),
+			zap.String("syntax", "legacy"))
+		return nil
 	}
 
-	global.APP_LOG.Debug("Incus SSH设置实例设备配置成功",
-		zap.String("instance", instanceName),
-		zap.String("device", deviceName),
-		zap.String("key", key),
-		zap.String("value", value),
-		zap.String("syntax", "legacy"))
-	return nil
+	// 检查是否为 "Device not found" 错误，如果是则尝试添加设备
+	// 两种语法都失败了，使用新语法错误信息（通常更有帮助）
+	errMsg := newErr.Error()
+	if strings.Contains(strings.ToLower(errMsg), "device not found") ||
+		strings.Contains(strings.ToLower(errMsg), "not found") {
+		global.APP_LOG.Debug("设备不存在，尝试自动添加设备",
+			zap.String("instance", instanceName),
+			zap.String("device", deviceName))
+
+		// 尝试添加 root 设备（disk 类型）
+		if deviceName == "root" {
+			addCmd := fmt.Sprintf("incus config device add %s root disk path=/ size=1GB", shellSingleQuote(instanceName))
+			if _, addErr := i.sshClient.Execute(addCmd); addErr != nil {
+				// 不指定 size 重试
+				addCmd2 := fmt.Sprintf("incus config device add %s root disk path=/", shellSingleQuote(instanceName))
+				if _, addErr2 := i.sshClient.Execute(addCmd2); addErr2 != nil {
+					return fmt.Errorf("添加root设备失败: add(size)=%v, add(no size)=%w", addErr, addErr2)
+				}
+			}
+
+			// 添加成功后重试设置配置
+			_, retryErr := i.sshClient.Execute(cmdNew)
+			if retryErr == nil {
+				return nil
+			}
+			_, retryErr = i.sshClient.Execute(cmdLegacy)
+			if retryErr == nil {
+				return nil
+			}
+			return fmt.Errorf("添加root设备后设置配置仍然失败: new syntax=%v, legacy=%w", newErr, legacyErr)
+		}
+
+		return fmt.Errorf("SSH设置实例设备配置失败: device '%s' not found and auto-add only supported for 'root': new syntax error=%v, legacy syntax error=%w", deviceName, newErr, legacyErr)
+	}
+
+	return fmt.Errorf("SSH设置实例设备配置失败: new syntax error=%v, legacy syntax error=%w", newErr, legacyErr)
 }
 
 // ensureSSHScriptsAvailable 确保SSH脚本文件在远程服务器上可用

@@ -108,11 +108,9 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 		cmd += fmt.Sprintf(" -c %s", shellSingleQuote(param))
 	}
 
-	// 如果有磁盘大小配置
-	if config.Disk != "" {
-		diskFormatted := convertDiskFormat(config.Disk)
-		cmd += fmt.Sprintf(" -d %s", shellSingleQuote("root,size="+diskFormatted))
-	}
+	// 磁盘配置统一在后置阶段处理（configureInstanceStorage），
+	// 避免 "-d root,size=..." 覆盖标志在 profile 缺少 root 设备时失败
+	// （部分 Incus 安装的 default profile 不包含 root 设备，或使用非 default 存储池）
 
 	global.APP_LOG.Debug("构建的完整创建命令",
 		zap.String("full_command", cmd),
