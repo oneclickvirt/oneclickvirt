@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/provider"
 	"oneclickvirt/utils"
@@ -18,7 +19,7 @@ import (
 )
 
 // handleImageDownloadAndImport 处理镜像下载和导入的通用逻辑
-func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *provider.InstanceConfig) error {
+func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
 	// 首先从数据库查询匹配的系统镜像（单次读查询，无长事务）
 	if err := l.queryAndSetSystemImage(ctx, config); err != nil {
 		global.APP_LOG.Warn("从数据库查询系统镜像失败，使用原有镜像配置",
@@ -40,17 +41,26 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 	// 有 URL：下载 → 导入 → 用本地别名
 	if config.ImageURL != "" {
 		imageNameWithPrefix := "oneclickvirt_" + originalImageName
-		config.Image = imageNameWithPrefix + "_" + config.InstanceType + "_" + l.generateImageAlias(config.ImageURL, originalImageName, l.config.Architecture)[len(originalImageName)+1:]
+		// 始终使用数据库中的最新架构值（可能已被 detectAndUpdateArchitecture 自动纠正），
+		// 避免使用 l.config.Architecture 中的缓存旧值导致 ARM 节点仍生成 amd64 别名
+		architecture := l.getCurrentArchitecture()
+		config.Image = imageNameWithPrefix + "_" + config.InstanceType + "_" + l.generateImageAlias(config.ImageURL, originalImageName, architecture)[len(originalImageName)+1:]
 
 		// 快速路径：镜像已存在，直接跳过（避免进入 singleflight）
 		if l.imageExists(config.Image) {
 			global.APP_LOG.Debug("LXD"+imageTypeStr+"镜像已存在，跳过导入",
 				zap.String("alias", utils.TruncateString(config.Image, 100)),
 				zap.String("type", config.InstanceType))
+			if progressCallback != nil {
+				progressCallback(28, "镜像已缓存，跳过下载")
+			}
 			return nil
 		}
 
-		return l.downloadAndImportImage(ctx, config, originalImageName, imageTypeStr)
+		if progressCallback != nil {
+			progressCallback(17, "开始下载镜像...")
+		}
+		return l.downloadAndImportImage(ctx, config, originalImageName, imageTypeStr, progressCallback)
 	}
 
 	// 无 URL（数据库无匹配的系统镜像）：尝试解析为 LXD 远程镜像引用
@@ -74,8 +84,9 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 	return nil
 }
 
-// downloadAndImportImage 下载镜像并导入到 LXD（原 handleImageDownloadAndImport 的下载导入逻辑）
-func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provider.InstanceConfig, originalImageName, imageTypeStr string) error {
+// downloadAndImportImage 下载镜像并导入到 LXD。
+// progressCallback 用于报告下载/导入进度；可为 nil。
+func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provider.InstanceConfig, originalImageName, imageTypeStr string, progressCallback provider.ProgressCallback) error {
 	// 使用 singleflight 确保同一别名只有一个协程执行下载+导入，
 	// 其余协程阻塞等待，完成后共享同一结果，彻底消除并发解压/导入冲突。
 	aliasKey := config.Image
@@ -89,16 +100,22 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 			return nil, nil
 		}
 
+		if progressCallback != nil {
+			progressCallback(19, "下载镜像到远程服务器...")
+		}
 		global.APP_LOG.Info("开始在远程服务器下载LXD"+imageTypeStr+"镜像",
 			zap.String("imageURL", utils.TruncateString(imageURL, 200)),
 			zap.String("type", config.InstanceType),
 			zap.Bool("useCDN", useCDN))
 
-		imagePath, err := l.downloadImageToRemote(imageURL, originalImageName, l.config.Country, l.config.Architecture, config.InstanceType, useCDN)
+		imagePath, err := l.downloadImageToRemote(imageURL, originalImageName, l.config.Country, l.getCurrentArchitecture(), config.InstanceType, useCDN)
 		if err != nil {
 			return nil, fmt.Errorf("下载%s镜像失败: %w", imageTypeStr, err)
 		}
 
+		if progressCallback != nil {
+			progressCallback(23, "镜像下载完成，开始导入...")
+		}
 		global.APP_LOG.Info("LXD"+imageTypeStr+"镜像下载成功",
 			zap.String("imagePath", utils.TruncateString(imagePath, 200)),
 			zap.String("type", config.InstanceType))
@@ -176,7 +193,7 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 			zap.String("type", config.InstanceType))
 
 		// 导入成功后删除远程镜像 zip 文件
-		if err := l.cleanupRemoteImage(originalImageName, imageURL, l.config.Architecture, config.InstanceType); err != nil {
+		if err := l.cleanupRemoteImage(originalImageName, imageURL, l.getCurrentArchitecture(), config.InstanceType); err != nil {
 			global.APP_LOG.Warn("删除LXD远程"+imageTypeStr+"镜像文件失败",
 				zap.String("imagePath", utils.TruncateString(imagePath, 100)),
 				zap.String("type", config.InstanceType),
@@ -249,8 +266,18 @@ func (l *LXDProvider) resolveLxdRemoteImage(imageName string) string {
 	}
 }
 
-// queryAndSetSystemImage 从数据库查询匹配的系统镜像记录并设置到配置中
+// queryAndSetSystemImage 从数据库查询匹配的系统镜像记录并设置到配置中。
+// 如果 config.ImageURL 已由上层设置（例如用户选择了特定系统镜像），则跳过查询，
+// 避免模糊匹配返回不同的镜像导致 URL/别名不一致。
 func (l *LXDProvider) queryAndSetSystemImage(ctx context.Context, config *provider.InstanceConfig) error {
+	// 若上层已设置 ImageURL，直接信任该值，避免二次查询覆盖
+	if config.ImageURL != "" {
+		global.APP_LOG.Debug("ImageURL已由上层设置，跳过queryAndSetSystemImage",
+			zap.String("image", config.Image),
+			zap.String("imageURL", utils.TruncateString(config.ImageURL, 100)))
+		return nil
+	}
+
 	// 构建查询条件
 	var systemImage systemModel.SystemImage
 	query := global.APP_DB.WithContext(ctx).Where("provider_type = ?", "lxd")
@@ -271,7 +298,8 @@ func (l *LXDProvider) queryAndSetSystemImage(ctx context.Context, config *provid
 
 	// 按架构筛选
 	if l.config.Architecture != "" {
-		query = query.Where("architecture = ?", l.config.Architecture)
+		// 使用数据库最新架构值（可能已被 auto-detect 纠正）
+		query = query.Where("architecture = ?", l.getCurrentArchitecture())
 	} else {
 		// 默认使用amd64
 		query = query.Where("architecture = ?", "amd64")
@@ -310,6 +338,16 @@ func (l *LXDProvider) generateImageAlias(imageURL, imageName, architecture strin
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(hashInput)))
 	// 取前8位哈希值，组合镜像名和架构
 	return fmt.Sprintf("%s-%s-%s", imageName, architecture, hash[:8])
+}
+
+// getCurrentArchitecture 从数据库读取最新的 Provider 架构值。
+// 用于镜像别名生成，确保自动架构检测纠正后立即生效，避免使用 l.config.Architecture 中的缓存旧值。
+func (l *LXDProvider) getCurrentArchitecture() string {
+	var p providerModel.Provider
+	if err := global.APP_DB.Select("architecture").Where("id = ?", l.config.ID).First(&p).Error; err == nil && p.Architecture != "" {
+		return p.Architecture
+	}
+	return l.config.Architecture
 }
 
 // imageExists 检查镜像是否已存在

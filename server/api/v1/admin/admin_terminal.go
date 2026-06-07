@@ -295,6 +295,13 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 				_ = conn.ResizeShell(session.ID, resize.Cols, resize.Rows)
 				continue
 			}
+			// 过滤心跳包（ping），避免 JSON 文本被回显到终端
+			var pingMsg struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(msg, &pingMsg) == nil && pingMsg.Type == "ping" {
+				continue
+			}
 			if err := conn.WriteShellInput(session.ID, msg); err != nil {
 				_ = writer.writeSafe(ctx, websocket.TextMessage, []byte("\r\nAgent shell 输入失败: "+err.Error()+"\r\n"))
 				cancel()
@@ -428,6 +435,13 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session, parentCt
 			}
 			if json.Unmarshal(msg, &resize) == nil && resize.Type == "resize" {
 				session.WindowChange(resize.Rows, resize.Cols)
+				continue
+			}
+			// 过滤心跳包（ping），避免 JSON 文本被回显到终端
+			var pingMsg struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(msg, &pingMsg) == nil && pingMsg.Type == "ping" {
 				continue
 			}
 			stdinPipe.Write(msg)

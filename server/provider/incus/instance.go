@@ -147,7 +147,7 @@ func (i *IncusProvider) executeCreateCommand(cmd string) error {
 			return fmt.Errorf("实例 %s 已存在", instanceName)
 		}
 
-		return fmt.Errorf("创建实例失败: %w", err)
+		return fmt.Errorf("创建实例失败: %w (incus output: %s)", err, utils.TruncateString(output, 500))
 	}
 
 	global.APP_LOG.Debug("实例创建命令执行成功", zap.String("output", output))

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/provider"
 	"oneclickvirt/utils"
@@ -242,16 +243,19 @@ func (p *ProxmoxProvider) DeleteImage(ctx context.Context, id string) error {
 	return p.sshDeleteImage(ctx, id)
 }
 
-// prepareImage 准备镜像，确保镜像存在且可用
-func (p *ProxmoxProvider) prepareImage(ctx context.Context, imageName, instanceType string) error {
+// prepareImage 准备镜像，确保镜像存在且可用。
+// imageURL 参数为上层已设置的镜像下载地址；若提供，则跳过 DB 查询直接使用。
+func (p *ProxmoxProvider) prepareImage(ctx context.Context, imageName, instanceType, imageURL string, useCDN bool) error {
 	global.APP_LOG.Debug("准备Proxmox镜像",
 		zap.String("image", imageName),
 		zap.String("type", instanceType))
 
-	// 创建配置结构
+	// 创建配置结构，传入上层已设置的 ImageURL
 	config := &provider.InstanceConfig{
 		Image:        imageName,
 		InstanceType: instanceType,
+		ImageURL:     imageURL,
+		UseCDN:       useCDN,
 	}
 
 	// 首先从数据库查询匹配的系统镜像
@@ -395,6 +399,16 @@ func (p *ProxmoxProvider) downloadImageByTemplate(ctx context.Context, imageName
 	}
 }
 
+// getCurrentArchitecture 从数据库读取最新的 Provider 架构值。
+// 用于镜像查询和文件名生成，确保自动架构检测纠正后立即生效。
+func (p *ProxmoxProvider) getCurrentArchitecture() string {
+	var prov providerModel.Provider
+	if err := global.APP_DB.Select("architecture").Where("id = ?", p.config.ID).First(&prov).Error; err == nil && prov.Architecture != "" {
+		return prov.Architecture
+	}
+	return p.config.Architecture
+}
+
 // generateRemoteFileName 生成远程文件名
 func (p *ProxmoxProvider) generateRemoteFileName(imageName, imageURL, architecture string) string {
 	// 组合字符串
@@ -438,8 +452,18 @@ func (p *ProxmoxProvider) removeRemoteFile(remotePath string) error {
 	return err
 }
 
-// queryAndSetSystemImage 从数据库查询匹配的系统镜像记录并设置到配置中
+// queryAndSetSystemImage 从数据库查询匹配的系统镜像记录并设置到配置中。
+// 如果 config.ImageURL 已由上层设置（例如用户选择了特定系统镜像），则跳过查询，
+// 避免模糊匹配返回不同的镜像导致 URL 不一致。
 func (p *ProxmoxProvider) queryAndSetSystemImage(ctx context.Context, config *provider.InstanceConfig) error {
+	// 若上层已设置 ImageURL，直接信任该值，避免二次查询覆盖
+	if config.ImageURL != "" {
+		global.APP_LOG.Debug("ImageURL已由上层设置，跳过queryAndSetSystemImage",
+			zap.String("image", config.Image),
+			zap.String("imageURL", utils.TruncateString(config.ImageURL, 100)))
+		return nil
+	}
+
 	// 构建查询条件
 	var systemImage systemModel.SystemImage
 	query := global.APP_DB.WithContext(ctx).Where("provider_type = ?", "proxmox")
@@ -460,7 +484,8 @@ func (p *ProxmoxProvider) queryAndSetSystemImage(ctx context.Context, config *pr
 
 	// 按架构筛选
 	if p.config.Architecture != "" {
-		query = query.Where("architecture = ?", p.config.Architecture)
+		// 使用数据库最新架构值（可能已被 auto-detect 纠正）
+		query = query.Where("architecture = ?", p.getCurrentArchitecture())
 	} else {
 		// 默认使用amd64
 		query = query.Where("architecture = ?", "amd64")

@@ -76,7 +76,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 			return fmt.Errorf("复制容器失败: %s", errMsg)
 		}
 	} else {
-		if err := l.handleImageDownloadAndImport(ctx, &config); err != nil {
+		if err := l.handleImageDownloadAndImport(ctx, &config, progressCallback); err != nil {
 			return fmt.Errorf("镜像处理失败: %w", err)
 		}
 	}
@@ -164,7 +164,8 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 			// 创建失败时清理可能已损坏/不兼容的镜像缓存，下次创建可重新下载
 			l.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
 
-			return fmt.Errorf("failed to create instance: %s", errMsg)
+			// 返回包含 LXD 原始错误输出的消息，帮助排查问题（如存储池不存在、镜像别名无效等）
+			return fmt.Errorf("failed to create instance: %s (lxc output: %s)", errMsg, utils.TruncateString(output, 500))
 		}
 
 		// 如果是虚拟机，需要额外的配置

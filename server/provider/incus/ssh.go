@@ -262,7 +262,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 			return fmt.Errorf("复制容器失败: %s", errMsg)
 		}
 	} else {
-		if err := i.handleImageDownloadAndImport(ctx, &config); err != nil {
+		if err := i.handleImageDownloadAndImport(ctx, &config, progressCallback); err != nil {
 			return fmt.Errorf("镜像处理失败: %w", err)
 		}
 	}

@@ -24,6 +24,8 @@
         <div
           ref="terminalRef"
           class="terminal"
+          @contextmenu="handleContextMenu"
+          @mousedown="handleMouseDown"
         />
     </div>
 
@@ -38,13 +40,39 @@
         :active="activeView === 'sftp'"
       />
     </div>
+
+    <!-- 右键上下文菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="contextMenu.visible"
+        class="terminal-context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+        @click.stop
+        @contextmenu.prevent
+      >
+        <div class="menu-item" @click="handleCopy">
+          <span class="menu-label">{{ t('common.copy') }}</span>
+          <span class="menu-shortcut">{{ copyShortcut }}</span>
+        </div>
+        <div class="menu-item" @click="handlePaste">
+          <span class="menu-label">{{ t('common.paste') }}</span>
+          <span class="menu-shortcut">{{ pasteShortcut }}</span>
+        </div>
+        <div class="menu-divider" />
+        <div class="menu-item" @click="handleSelectAll">
+          <span class="menu-label">{{ t('common.selectAll') }}</span>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch, reactive } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
@@ -72,6 +100,8 @@ const activeView = ref('terminal')
 const manualReconnecting = ref(false)
 let terminal = null
 let fitAddon = null
+let webLinksAddon = null
+let unicode11Addon = null
 let websocket = null
 let resizeObserver = null
 let isCleanedUp = false
@@ -82,6 +112,59 @@ let reconnectTimeout = null
 let dataDisposable = null
 let resizeDisposable = null
 let themeObserver = null
+
+// ── 右键上下文菜单 ──────────────────────────────────────────────────
+const contextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0
+})
+
+const isMac = computed(() => navigator.platform.toUpperCase().indexOf('MAC') >= 0)
+const copyShortcut = computed(() => isMac.value ? '⌘C' : 'Ctrl+Shift+C')
+const pasteShortcut = computed(() => isMac.value ? '⌘V' : 'Ctrl+Shift+V')
+
+const hideContextMenu = () => {
+  contextMenu.visible = false
+}
+
+const handleContextMenu = (event) => {
+  event.preventDefault()
+  contextMenu.x = event.clientX
+  contextMenu.y = event.clientY
+  contextMenu.visible = true
+}
+
+const handleMouseDown = (event) => {
+  if (event.button === 1) {
+    event.preventDefault()
+    pasteFromClipboard()
+  }
+  if (event.button !== 2) {
+    hideContextMenu()
+  }
+}
+
+const handleCopy = () => {
+  copySelectionToClipboard()
+  hideContextMenu()
+}
+
+const handlePaste = () => {
+  pasteFromClipboard()
+  hideContextMenu()
+}
+
+const handleSelectAll = () => {
+  if (terminal) {
+    terminal.selectAll()
+  }
+  hideContextMenu()
+}
+
+const onGlobalClick = () => {
+  hideContextMenu()
+}
 
 const hasProviderSshCredentials = computed(() => {
   return !!(props.providerUsername && props.providerAuthMethod)
@@ -127,9 +210,57 @@ const ignoreNonCriticalTerminalError = (error) => {
   void error
 }
 
-onMounted(() => nextTick(() => initTerminal()))
+onMounted(() => {
+  document.addEventListener('click', onGlobalClick)
+  nextTick(() => initTerminal())
+})
 
-onBeforeUnmount(() => cleanup())
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onGlobalClick)
+  cleanup()
+})
+
+// 复制选中文本到系统剪贴板
+const copySelectionToClipboard = () => {
+  if (!terminal) return
+  const selection = terminal.getSelection()
+  if (selection) {
+    try {
+      navigator.clipboard.writeText(selection).catch((err) => {
+        console.error('复制到剪贴板失败:', err)
+      })
+    } catch (error) {
+      const textarea = document.createElement('textarea')
+      textarea.value = selection
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      try {
+        document.execCommand('copy')
+      } catch (e) {
+        // ignore
+      }
+      document.body.removeChild(textarea)
+    }
+  }
+}
+
+// 从系统剪贴板粘贴到终端
+const pasteFromClipboard = () => {
+  if (!terminal || !websocket || websocket.readyState !== WebSocket.OPEN) return
+  try {
+    navigator.clipboard.readText().then((text) => {
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(text)
+      }
+    }).catch((err) => {
+      console.error('从剪贴板读取失败:', err)
+    })
+  } catch (error) {
+    console.error('粘贴失败:', error)
+  }
+}
 
 const initTerminal = () => {
   if (isCleanedUp) return
@@ -144,13 +275,65 @@ const initTerminal = () => {
     cols: 80,
     scrollback: 1000,
     convertEol: false,
-    allowProposedApi: true
+    allowProposedApi: true,
+    // ── 鼠标支持 ─────────────────────────────────────────────────
+    allowMouseReporting: true,
+    rightClickSelectsWord: false,
+    // ── Mac 键盘支持 ────────────────────────────────────────────
+    macOptionIsMeta: true,
+    macOptionClickForcesSelection: true
   })
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
+
+  // Web 链接识别（Ctrl+点击打开链接）
+  webLinksAddon = new WebLinksAddon((event, uri) => {
+    event.preventDefault()
+    window.open(uri, '_blank', 'noopener,noreferrer')
+  })
+  terminal.loadAddon(webLinksAddon)
+
+  // Unicode 11 支持
+  unicode11Addon = new Unicode11Addon()
+  terminal.loadAddon(unicode11Addon)
+  terminal.unicode.activeVersion = '11'
+
   terminal.open(terminalRef.value)
   applyTerminalTheme(terminal)
   startThemeSync()
+
+  // ── 键盘快捷键：复制/粘贴 ──────────────────────────────────────────
+  terminal.attachCustomKeyEventHandler((event) => {
+    const hasSelection = terminal.hasSelection()
+    const ctrlOrCmd = isMac.value ? event.metaKey : event.ctrlKey
+    const shift = event.shiftKey
+
+    if (ctrlOrCmd && shift && event.code === 'KeyC') {
+      copySelectionToClipboard()
+      return false
+    }
+    if (isMac.value && event.metaKey && !shift && event.code === 'KeyC') {
+      if (hasSelection) { copySelectionToClipboard(); return false }
+      return true
+    }
+    if (event.ctrlKey && event.code === 'Insert') {
+      copySelectionToClipboard()
+      return false
+    }
+    if (event.shiftKey && event.code === 'Insert') {
+      pasteFromClipboard()
+      return false
+    }
+    if (ctrlOrCmd && shift && event.code === 'KeyV') {
+      pasteFromClipboard()
+      return false
+    }
+    return true
+  })
+
+  terminal.onSelectionChange(() => {
+    // 选区变化时可在此做 UI 更新
+  })
 
   // Auto-fit after render
   nextTick(() => {
@@ -409,6 +592,16 @@ const cleanup = () => {
     try { fitAddon.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
     fitAddon = null
   }
+
+  if (webLinksAddon) {
+    try { webLinksAddon.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
+    webLinksAddon = null
+  }
+
+  if (unicode11Addon) {
+    try { unicode11Addon.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
+    unicode11Addon = null
+  }
 }
 
 const startThemeSync = () => {
@@ -487,5 +680,68 @@ watch(supportsFileTransfer, (enabled) => {
 :deep(.xterm) {
   height: 100%;
   padding: 10px;
+}
+
+:deep(.xterm-viewport) {
+  /* 确保文本可选 */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+:deep(.xterm-selection) {
+  pointer-events: none;
+}
+
+:deep(.xterm-helpers) {
+  pointer-events: none;
+}
+
+/* ── 右键上下文菜单 ──────────────────────────────────────────────── */
+.terminal-context-menu {
+  position: fixed;
+  z-index: 99999;
+  min-width: 200px;
+  background: var(--el-bg-color-overlay, #ffffff);
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px 0;
+  font-size: 13px;
+  animation: contextMenuFadeIn 0.15s ease;
+}
+
+@keyframes contextMenuFadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--el-text-color-primary, #303133);
+  transition: background 0.1s;
+}
+
+.menu-item:hover {
+  background: var(--el-fill-color-light, #f5f7fa);
+}
+
+.menu-label {
+  flex: 1;
+}
+
+.menu-shortcut {
+  margin-left: 24px;
+  color: var(--el-text-color-secondary, #909399);
+  font-size: 12px;
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--el-border-color-lighter, #ebeef5);
+  margin: 4px 0;
 }
 </style>

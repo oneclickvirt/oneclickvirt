@@ -211,7 +211,7 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 
 	// 在API创建之前，处理镜像下载和导入
 	updateProgress(30, "处理镜像下载和导入...")
-	if err := i.handleImageDownloadAndImport(ctx, &config); err != nil {
+	if err := i.handleImageDownloadAndImport(ctx, &config, progressCallback); err != nil {
 		return fmt.Errorf("镜像处理失败: %w", err)
 	}
 

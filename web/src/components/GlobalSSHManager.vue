@@ -328,6 +328,46 @@ const openSSHInNewWindow = (conn) => {
     #terminal {
       width: 100%;
       height: 100%;
+      /* 确保文本可选 */
+      -webkit-user-select: text;
+      user-select: text;
+    }
+    /* ── 右键上下文菜单 ────────────────────────────── */
+    .terminal-context-menu {
+      position: fixed;
+      z-index: 99999;
+      min-width: 200px;
+      background: ${isDarkTheme ? '#1e293b' : '#ffffff'};
+      border: 1px solid ${isDarkTheme ? '#334155' : '#e4e7ed'};
+      border-radius: 8px;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+      padding: 4px 0;
+      font-size: 13px;
+      display: none;
+      color: ${isDarkTheme ? '#e2e8f0' : '#303133'};
+    }
+    .terminal-context-menu.visible { display: block; }
+    .menu-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .menu-item:hover {
+      background: ${isDarkTheme ? '#334155' : '#f5f7fa'};
+    }
+    .menu-label { flex: 1; }
+    .menu-shortcut {
+      margin-left: 24px;
+      color: ${isDarkTheme ? '#94a3b8' : '#909399'};
+      font-size: 12px;
+    }
+    .menu-divider {
+      height: 1px;
+      background: ${isDarkTheme ? '#334155' : '#ebeef5'};
+      margin: 4px 0;
     }
   </style>
   <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css">
@@ -343,10 +383,31 @@ const openSSHInNewWindow = (conn) => {
   <div class="terminal-container">
     <div id="terminal"></div>
   </div>
+  <!-- 右键上下文菜单 -->
+  <div id="ctxMenu" class="terminal-context-menu">
+    <div class="menu-item" data-action="copy">
+      <span class="menu-label">${escapeHtml(t('common.copy') || 'Copy')}</span>
+      <span class="menu-shortcut" id="copyShortcut">Ctrl+Shift+C</span>
+    </div>
+    <div class="menu-item" data-action="paste">
+      <span class="menu-label">${escapeHtml(t('common.paste') || 'Paste')}</span>
+      <span class="menu-shortcut" id="pasteShortcut">Ctrl+Shift+V</span>
+    </div>
+    <div class="menu-divider"></div>
+    <div class="menu-item" data-action="selectAll">
+      <span class="menu-label">${escapeHtml(t('common.selectAll') || 'Select All')}</span>
+    </div>
+  </div>
   <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></${'script'}>
   <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></${'script'}>
+  <script src="https://unpkg.com/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></${'script'}>
+  <script src="https://unpkg.com/xterm-addon-unicode11@0.8.0/lib/xterm-addon-unicode11.js"></${'script'}>
   <script>
     (function() {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      document.getElementById('copyShortcut').textContent = isMac ? '\u2318C' : 'Ctrl+Shift+C';
+      document.getElementById('pasteShortcut').textContent = isMac ? '\u2318V' : 'Ctrl+Shift+V';
+
       let websocket = null;
       let heartbeatInterval = null;
       let reconnectTimeout = null;
@@ -356,6 +417,10 @@ const openSSHInNewWindow = (conn) => {
         cursorBlink: true,
         fontSize: 14,
         fontFamily: 'Monaco, Menlo, "Courier New", monospace',
+        allowMouseReporting: true,
+        rightClickSelectsWord: false,
+        macOptionIsMeta: true,
+        macOptionClickForcesSelection: true,
         theme: {
           background: '${popupTerminalBg}',
           foreground: '${isDarkTheme ? '#d4d4d4' : '#1f2937'}',
@@ -385,8 +450,122 @@ const openSSHInNewWindow = (conn) => {
       
       const fitAddon = new window.FitAddon.FitAddon();
       terminal.loadAddon(fitAddon);
+
+      // Web 链接识别
+      try {
+        const weblinks = new window.WebLinksAddon.WebLinksAddon(function(event, uri) {
+          event.preventDefault();
+          window.open(uri, '_blank', 'noopener,noreferrer');
+        });
+        terminal.loadAddon(weblinks);
+      } catch(e) { /* ignore if not available */ }
+
+      // Unicode 11 支持
+      try {
+        const unicode11 = new window.Unicode11Addon.Unicode11Addon();
+        terminal.loadAddon(unicode11);
+        terminal.unicode.activeVersion = '11';
+      } catch(e) { /* ignore if not available */ }
+
       terminal.open(document.getElementById('terminal'));
-      
+
+      // ── 复制/粘贴辅助函数 ────────────────────────────────────────
+      function copySelectionToClipboard() {
+        var selection = terminal.getSelection();
+        if (selection) {
+          try {
+            navigator.clipboard.writeText(selection).catch(function() {});
+          } catch (e) {
+            var textarea = document.createElement('textarea');
+            textarea.value = selection;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try { document.execCommand('copy'); } catch (ex) {}
+            document.body.removeChild(textarea);
+          }
+        }
+      }
+
+      function pasteFromClipboard() {
+        if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
+        try {
+          navigator.clipboard.readText().then(function(text) {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+              websocket.send(text);
+            }
+          }).catch(function() {});
+        } catch (e) {}
+      }
+
+      // ── 右键上下文菜单 ────────────────────────────────────────────
+      const ctxMenu = document.getElementById('ctxMenu');
+      const termEl = document.getElementById('terminal');
+
+      function hideCtxMenu() { ctxMenu.classList.remove('visible'); }
+
+      termEl.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        var rect = termEl.getBoundingClientRect();
+        ctxMenu.style.left = e.clientX + 'px';
+        ctxMenu.style.top = e.clientY + 'px';
+        ctxMenu.classList.add('visible');
+      });
+
+      termEl.addEventListener('mousedown', function(e) {
+        if (e.button === 1) {
+          e.preventDefault();
+          pasteFromClipboard();
+        }
+        if (e.button !== 2) {
+          hideCtxMenu();
+        }
+      });
+
+      ctxMenu.addEventListener('click', function(e) {
+        var item = e.target.closest('.menu-item');
+        if (!item) return;
+        var action = item.getAttribute('data-action');
+        if (action === 'copy') copySelectionToClipboard();
+        else if (action === 'paste') pasteFromClipboard();
+        else if (action === 'selectAll') terminal.selectAll();
+        hideCtxMenu();
+      });
+
+      document.addEventListener('click', hideCtxMenu);
+
+      // ── 键盘快捷键 ────────────────────────────────────────────────
+      terminal.attachCustomKeyEventHandler(function(event) {
+        var hasSelection = terminal.hasSelection();
+        var ctrlOrCmd = isMac ? event.metaKey : event.ctrlKey;
+        var shift = event.shiftKey;
+
+        if (ctrlOrCmd && shift && event.code === 'KeyC') {
+          copySelectionToClipboard();
+          return false;
+        }
+        if (isMac && event.metaKey && !shift && event.code === 'KeyC') {
+          if (hasSelection) { copySelectionToClipboard(); return false; }
+          return true;
+        }
+        if (event.ctrlKey && event.code === 'Insert') {
+          copySelectionToClipboard();
+          return false;
+        }
+        if (event.shiftKey && event.code === 'Insert') {
+          pasteFromClipboard();
+          return false;
+        }
+        if (ctrlOrCmd && shift && event.code === 'KeyV') {
+          pasteFromClipboard();
+          return false;
+        }
+        return true;
+      });
+
+      terminal.onSelectionChange(function() {});
+
       setTimeout(function() { 
         fitAddon.fit(); 
         terminal.focus();

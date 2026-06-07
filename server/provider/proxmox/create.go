@@ -56,8 +56,8 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 
 	updateProgress(20, "准备镜像和资源...")
 
-	// 确保必要的镜像存在
-	if err := p.prepareImage(ctx, config.Image, config.InstanceType); err != nil {
+	// 确保必要的镜像存在（传入上层已设置的 ImageURL，避免冗余 DB 查询）
+	if err := p.prepareImage(ctx, config.Image, config.InstanceType, config.ImageURL, config.UseCDN); err != nil {
 		return fmt.Errorf("准备镜像失败: %w", err)
 	}
 

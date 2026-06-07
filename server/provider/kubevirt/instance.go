@@ -239,7 +239,7 @@ spec:
 			zap.String("name", config.Name),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to create DataVolume: %w", err)
+		return fmt.Errorf("failed to create DataVolume: %w (kubectl output: %s)", err, utils.TruncateString(output, 300))
 	}
 
 	updateProgress(30, "等待镜像导入完成")

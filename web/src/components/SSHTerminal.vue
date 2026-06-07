@@ -3,14 +3,41 @@
     <div 
       ref="terminalRef" 
       class="terminal"
+      @contextmenu="handleContextMenu"
+      @mousedown="handleMouseDown"
     />
+    <!-- 右键上下文菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="contextMenu.visible"
+        class="terminal-context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+        @click.stop
+        @contextmenu.prevent
+      >
+        <div class="menu-item" @click="handleCopy">
+          <span class="menu-label">{{ t('common.copy') }}</span>
+          <span class="menu-shortcut">{{ copyShortcut }}</span>
+        </div>
+        <div class="menu-item" @click="handlePaste">
+          <span class="menu-label">{{ t('common.paste') }}</span>
+          <span class="menu-shortcut">{{ pasteShortcut }}</span>
+        </div>
+        <div class="menu-divider" />
+        <div class="menu-item" @click="handleSelectAll">
+          <span class="menu-label">{{ t('common.selectAll') }}</span>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed, reactive } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
@@ -47,6 +74,8 @@ const emit = defineEmits(['close', 'error'])
 const terminalRef = ref(null)
 let terminal = null
 let fitAddon = null
+let webLinksAddon = null
+let unicode11Addon = null
 let websocket = null
 let isConnecting = false
 let heartbeatInterval = null
@@ -54,11 +83,68 @@ let reconnectTimeout = null
 let isIntentionallyClosed = false
 let themeObserver = null
 
+// ── 右键上下文菜单 ──────────────────────────────────────────────────
+const contextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0
+})
+
+const isMac = computed(() => navigator.platform.toUpperCase().indexOf('MAC') >= 0)
+const copyShortcut = computed(() => isMac.value ? '⌘C' : 'Ctrl+Shift+C')
+const pasteShortcut = computed(() => isMac.value ? '⌘V' : 'Ctrl+Shift+V')
+
+const hideContextMenu = () => {
+  contextMenu.visible = false
+}
+
+const handleContextMenu = (event) => {
+  event.preventDefault()
+  contextMenu.x = event.clientX
+  contextMenu.y = event.clientY
+  contextMenu.visible = true
+}
+
+const handleMouseDown = (event) => {
+  // 中键粘贴（Unix 终端标准行为）
+  if (event.button === 1) {
+    event.preventDefault()
+    pasteFromClipboard()
+  }
+  // 点击其他地方关闭右键菜单
+  if (event.button !== 2) {
+    hideContextMenu()
+  }
+}
+
+const handleCopy = () => {
+  copySelectionToClipboard()
+  hideContextMenu()
+}
+
+const handlePaste = () => {
+  pasteFromClipboard()
+  hideContextMenu()
+}
+
+const handleSelectAll = () => {
+  if (terminal) {
+    terminal.selectAll()
+  }
+  hideContextMenu()
+}
+
+// 全局点击关闭菜单
+const onGlobalClick = () => {
+  hideContextMenu()
+}
+
 const ignoreNonCriticalTerminalError = (error) => {
   void error
 }
 
 onMounted(() => {
+  document.addEventListener('click', onGlobalClick)
   nextTick(() => {
     initTerminal()
     connect()
@@ -66,8 +152,53 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('click', onGlobalClick)
   cleanup()
 })
+
+// 复制选中文本到系统剪贴板
+const copySelectionToClipboard = () => {
+  if (!terminal) return
+  const selection = terminal.getSelection()
+  if (selection) {
+    try {
+      navigator.clipboard.writeText(selection).catch((err) => {
+        console.error('复制到剪贴板失败:', err)
+      })
+    } catch (error) {
+      // 降级方案：使用 textarea
+      const textarea = document.createElement('textarea')
+      textarea.value = selection
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      try {
+        document.execCommand('copy')
+      } catch (e) {
+        // ignore
+      }
+      document.body.removeChild(textarea)
+    }
+  }
+}
+
+// 从系统剪贴板粘贴到终端
+const pasteFromClipboard = () => {
+  if (!terminal || !websocket || websocket.readyState !== WebSocket.OPEN) return
+  try {
+    navigator.clipboard.readText().then((text) => {
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(text)
+      }
+    }).catch((err) => {
+      console.error('从剪贴板读取失败:', err)
+    })
+  } catch (error) {
+    // 降级方案不可用于粘贴
+    console.error('粘贴失败:', error)
+  }
+}
 
 const initTerminal = () => {
   terminal = new Terminal({
@@ -77,19 +208,83 @@ const initTerminal = () => {
     theme: {},
     rows: 24,
     cols: 80,
-    // vim/vi 需要的额外配置
     scrollback: 1000,
     convertEol: false,
-    // 确保能正确处理特殊按键
-    allowProposedApi: true
+    allowProposedApi: true,
+    // ── 鼠标支持 ─────────────────────────────────────────────────
+    allowMouseReporting: true,        // 允许 vim/htop/tmux 等程序接收鼠标事件
+    rightClickSelectsWord: false,      // 右键不选词，留给自定义上下文菜单
+    // ── Mac 键盘支持 ────────────────────────────────────────────
+    macOptionIsMeta: true,             // Mac Option 键作为 Meta/Alt 键
+    macOptionClickForcesSelection: true // Mac Option+点击强制选择（不发送到终端）
   })
 
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
+
+  // Web 链接识别（Ctrl+点击打开链接）
+  webLinksAddon = new WebLinksAddon((event, uri) => {
+    event.preventDefault()
+    window.open(uri, '_blank', 'noopener,noreferrer')
+  })
+  terminal.loadAddon(webLinksAddon)
+
+  // Unicode 11 支持（更宽的字符、Emoji 等）
+  unicode11Addon = new Unicode11Addon()
+  terminal.loadAddon(unicode11Addon)
+  terminal.unicode.activeVersion = '11'
+
   terminal.open(terminalRef.value)
   applyTerminalTheme(terminal)
   startThemeSync()
-  
+
+  // ── 键盘快捷键：复制/粘贴 ──────────────────────────────────────────
+  terminal.attachCustomKeyEventHandler((event) => {
+    const hasSelection = terminal.hasSelection()
+    const ctrlOrCmd = isMac.value ? event.metaKey : event.ctrlKey
+    const shift = event.shiftKey
+
+    // Ctrl+Shift+C / Cmd+Shift+C → 复制（终端标准快捷键）
+    if (ctrlOrCmd && shift && event.code === 'KeyC') {
+      copySelectionToClipboard()
+      return false
+    }
+
+    // Cmd+C (Mac) 有选区时 → 复制；无选区时交给终端
+    if (isMac.value && event.metaKey && !shift && event.code === 'KeyC') {
+      if (hasSelection) {
+        copySelectionToClipboard()
+        return false
+      }
+      return true
+    }
+
+    // Ctrl+Insert → 复制（经典终端快捷键）
+    if (event.ctrlKey && event.code === 'Insert') {
+      copySelectionToClipboard()
+      return false
+    }
+
+    // Shift+Insert → 粘贴（经典终端快捷键）
+    if (event.shiftKey && event.code === 'Insert') {
+      pasteFromClipboard()
+      return false
+    }
+
+    // Ctrl+Shift+V / Cmd+Shift+V → 粘贴
+    if (ctrlOrCmd && shift && event.code === 'KeyV') {
+      pasteFromClipboard()
+      return false
+    }
+
+    return true
+  })
+
+  // ── 选区变化监听 ──────────────────────────────────────────────
+  terminal.onSelectionChange(() => {
+    // 可以在此做选区变化时的 UI 更新（如显示复制按钮等）
+  })
+
   // 适应容器大小
   setTimeout(() => {
     fitAddon.fit()
@@ -272,7 +467,6 @@ const cleanup = () => {
   if (websocket) {
     const ws = websocket
     websocket = null
-    // 使用 1000 (Normal Closure) 通知后端正常关闭
     try { ws.close(1000, 'User closed terminal') } catch (error) { ignoreNonCriticalTerminalError(error) }
   }
   
@@ -284,6 +478,16 @@ const cleanup = () => {
   if (fitAddon) {
     try { fitAddon.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
     fitAddon = null
+  }
+
+  if (webLinksAddon) {
+    try { webLinksAddon.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
+    webLinksAddon = null
+  }
+
+  if (unicode11Addon) {
+    try { unicode11Addon.dispose() } catch (error) { ignoreNonCriticalTerminalError(error) }
+    unicode11Addon = null
   }
 }
 
@@ -355,9 +559,72 @@ defineExpose({
 
 :deep(.xterm-viewport) {
   overflow-y: auto;
+  /* 确保文本可选 */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 :deep(.xterm-screen) {
   height: 100% !important;
 }
+
+:deep(.xterm-selection) {
+  /* 确保选区层在字符之上但允许鼠标事件穿透 */
+  pointer-events: none;
+}
+
+:deep(.xterm-helpers) {
+  /* 确保 xterm 的 textarea 辅助元素不会干扰选择 */
+  pointer-events: none;
+}
+
+/* ── 右键上下文菜单 ──────────────────────────────────────────────── */
+.terminal-context-menu {
+  position: fixed;
+  z-index: 99999;
+  min-width: 200px;
+  background: var(--el-bg-color-overlay, #ffffff);
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px 0;
+  font-size: 13px;
+  animation: contextMenuFadeIn 0.15s ease;
+}
+
+@keyframes contextMenuFadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--el-text-color-primary, #303133);
+  transition: background 0.1s;
+}
+
+.menu-item:hover {
+  background: var(--el-fill-color-light, #f5f7fa);
+}
+
+.menu-label {
+  flex: 1;
+}
+
+.menu-shortcut {
+  margin-left: 24px;
+  color: var(--el-text-color-secondary, #909399);
+  font-size: 12px;
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--el-border-color-lighter, #ebeef5);
+  margin: 4px 0;
+}
+
 </style>
