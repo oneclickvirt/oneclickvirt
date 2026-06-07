@@ -43,6 +43,7 @@ export default {
   taskTypeResetPassword: "Reset Password",
   taskTypeCreatePortMapping: "Create Port Mapping",
   taskTypeDeletePortMapping: "Delete Port Mapping",
+  taskTypeSyncPortMappings: "Sync Port Mappings",
   taskTypeCreateRedemptionInstance: "Redeem Code Instance",
   statusPending: "Pending",
   statusProcessing: "Processing",

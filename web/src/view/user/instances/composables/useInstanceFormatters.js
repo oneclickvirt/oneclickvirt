@@ -69,7 +69,10 @@ export function useInstanceFormatters() {
       restart: t('user.instanceDetail.taskRestart'),
       reset: t('user.instanceDetail.taskReset'),
       reset_password: t('user.instanceDetail.taskResetPassword'),
-      create_redemption_instance: t('user.instanceDetail.taskRedemption')
+      create_redemption_instance: t('user.instanceDetail.taskRedemption'),
+      'create-port-mapping': t('user.tasks.taskTypeCreatePortMapping'),
+      'delete-port-mapping': t('user.tasks.taskTypeDeletePortMapping'),
+      'sync-port-mappings': t('user.tasks.taskTypeSyncPortMappings')
     }
     return taskTypes[taskType] || t('user.instanceDetail.taskDefault')
   }

@@ -225,6 +225,7 @@ export function useTaskManagement() {
       'reset-password': t('admin.tasks.taskTypeResetPassword'),
       'create-port-mapping': t('admin.tasks.taskTypeCreatePortMapping'),
       'delete-port-mapping': t('admin.tasks.taskTypeDeletePortMapping'),
+      'sync-port-mappings': t('admin.tasks.taskTypeSyncPortMappings'),
       'create_redemption_instance': t('admin.tasks.taskTypeCreateRedemptionInstance')
     }
     return typeMap[type] || type

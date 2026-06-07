@@ -97,7 +97,7 @@ export function useUserTaskManagement() {
   }
 
   const getTaskTypeText = (type) => {
-    const typeMap = { 'create': t('user.tasks.taskTypeCreate'), 'start': t('user.tasks.taskTypeStart'), 'stop': t('user.tasks.taskTypeStop'), 'restart': t('user.tasks.taskTypeRestart'), 'reset': t('user.tasks.taskTypeReset'), 'delete': t('user.tasks.taskTypeDelete'), 'create_redemption_instance': t('user.tasks.taskTypeCreateRedemptionInstance') }
+    const typeMap = { 'create': t('user.tasks.taskTypeCreate'), 'start': t('user.tasks.taskTypeStart'), 'stop': t('user.tasks.taskTypeStop'), 'restart': t('user.tasks.taskTypeRestart'), 'reset': t('user.tasks.taskTypeReset'), 'delete': t('user.tasks.taskTypeDelete'), 'create_redemption_instance': t('user.tasks.taskTypeCreateRedemptionInstance'), 'create-port-mapping': t('user.tasks.taskTypeCreatePortMapping'), 'delete-port-mapping': t('user.tasks.taskTypeDeletePortMapping'), 'sync-port-mappings': t('user.tasks.taskTypeSyncPortMappings') }
     return typeMap[type] || type
   }
 

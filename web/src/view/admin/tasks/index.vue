@@ -154,6 +154,18 @@
                 value="reset-password"
               />
               <el-option
+                :label="$t('admin.tasks.taskTypeCreatePortMapping')"
+                value="create-port-mapping"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeDeletePortMapping')"
+                value="delete-port-mapping"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeSyncPortMappings')"
+                value="sync-port-mappings"
+              />
+              <el-option
                 :label="$t('admin.tasks.taskTypeCreateRedemptionInstance')"
                 value="create_redemption_instance"
               />
