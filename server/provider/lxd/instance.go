@@ -663,6 +663,12 @@ func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSecon
 	global.APP_LOG.Debug("开始等待实例可执行命令",
 		zap.String("instanceName", instanceName),
 		zap.Int("timeout", timeoutSeconds))
+
+	// 防御性检查：SSH 客户端可能因连接丢失而为 nil
+	if l.sshClient == nil {
+		return fmt.Errorf("SSH客户端不可用，无法等待实例就绪: %s", instanceName)
+	}
+
 	time.Sleep(12 * time.Second)
 	loopCount := 0
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 5 {

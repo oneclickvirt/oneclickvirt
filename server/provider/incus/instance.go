@@ -3,6 +3,8 @@ package incus
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,7 +121,7 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 	return cmd, nil
 }
 
-// executeCreateCommand 执行创建命令
+// executeCreateCommand 执行创建命令，自动处理镜像大小超过磁盘大小的重试
 func (i *IncusProvider) executeCreateCommand(cmd string) error {
 	// 输出完整的创建命令用于调试
 	global.APP_LOG.Debug("准备执行实例创建命令",
@@ -132,6 +134,48 @@ func (i *IncusProvider) executeCreateCommand(cmd string) error {
 		cmdParts := strings.Fields(cmd)
 		if len(cmdParts) >= 3 {
 			instanceName = cmdParts[2]
+		}
+
+		// 检查是否为镜像大小超过磁盘大小的错误，自动调整重试
+		lowerOutput := strings.ToLower(output)
+		if strings.Contains(lowerOutput, "source image size") && strings.Contains(lowerOutput, "exceeds specified volume size") {
+			// 尝试从错误信息中提取镜像大小 (如: "Source image size (4294967296)")
+			imgSizeBytes := extractSizeFromError(output, "source image size")
+			if imgSizeBytes > 0 {
+				// 转换为 GiB 并向上取整，加 1GiB 余量
+				imgSizeGiB := int(imgSizeBytes/(1024*1024*1024)) + 1
+				newDisk := fmt.Sprintf("%dGiB", imgSizeGiB)
+
+				global.APP_LOG.Warn("镜像大小超过磁盘大小，自动调整重试",
+					zap.String("instanceName", instanceName),
+					zap.Int64("imageSizeBytes", imgSizeBytes),
+					zap.String("adjustedDisk", newDisk))
+
+				// 重建命令：将 -d root,size=... 替换为调整后的大小
+				re := regexp.MustCompile(`-d\s+'?root,size=[^'\s]*'?`)
+				adjustedCmd := re.ReplaceAllString(cmd, fmt.Sprintf("-d '%s'", shellSingleQuote("root,size="+convertDiskFormat(newDisk))))
+				if adjustedCmd == cmd {
+					// 正则没匹配到（-d 标志已被我们之前的修改移除），使用 --device 格式
+					adjustedCmd = strings.TrimSuffix(cmd, "\n") + fmt.Sprintf(" -d '%s'", shellSingleQuote("root,size="+convertDiskFormat(newDisk)))
+				}
+
+				global.APP_LOG.Debug("重试实例创建命令（调整磁盘大小）",
+					zap.String("adjustedCommand", adjustedCmd))
+
+				output2, retryErr := i.sshClient.Execute(adjustedCmd)
+				if retryErr == nil {
+					global.APP_LOG.Info("调整磁盘大小后实例创建成功",
+						zap.String("instanceName", instanceName),
+						zap.String("adjustedDisk", newDisk))
+					return nil
+				}
+
+				global.APP_LOG.Error("调整磁盘大小后创建仍然失败",
+					zap.String("adjustedCommand", adjustedCmd),
+					zap.String("output", output2),
+					zap.Error(retryErr))
+				return fmt.Errorf("创建实例失败（尝试自动调整磁盘大小后仍然失败）: %w (incus output: %s)", retryErr, utils.TruncateString(output2, 500))
+			}
 		}
 
 		global.APP_LOG.Error("实例创建命令执行失败",
@@ -150,6 +194,32 @@ func (i *IncusProvider) executeCreateCommand(cmd string) error {
 
 	global.APP_LOG.Debug("实例创建命令执行成功", zap.String("output", output))
 	return nil
+}
+
+// extractSizeFromError 从错误输出中提取数值大小（如 "Source image size (4294967296)"）
+func extractSizeFromError(output, prefix string) int64 {
+	lower := strings.ToLower(output)
+	idx := strings.Index(lower, prefix)
+	if idx < 0 {
+		return 0
+	}
+	// 跳过前缀和括号
+	rest := output[idx+len(prefix):]
+	parenIdx := strings.Index(rest, "(")
+	if parenIdx < 0 {
+		return 0
+	}
+	rest = rest[parenIdx+1:]
+	endIdx := strings.IndexAny(rest, ")\n\r ")
+	if endIdx < 0 {
+		return 0
+	}
+	numStr := strings.TrimSpace(rest[:endIdx])
+	size, err := strconv.ParseInt(numStr, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return size
 }
 
 // waitForInstanceState 等待实例达到指定状态
@@ -336,6 +406,12 @@ func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSec
 	global.APP_LOG.Debug("开始等待实例可执行命令",
 		zap.String("instanceName", instanceName),
 		zap.Int("timeout", timeoutSeconds))
+
+	// 防御性检查：SSH 客户端可能因连接丢失而为 nil
+	if i.sshClient == nil {
+		return fmt.Errorf("SSH客户端不可用，无法等待实例就绪: %s", instanceName)
+	}
+
 	time.Sleep(12 * time.Second)
 	loopCount := 0
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 5 {

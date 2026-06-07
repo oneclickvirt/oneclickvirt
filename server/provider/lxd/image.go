@@ -126,6 +126,7 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 			zap.String("type", config.InstanceType))
 
 		var importErr error
+		var importOutput string
 		if config.InstanceType == "vm" {
 			if strings.HasSuffix(imagePath, ".zip") {
 				extractDir := strings.TrimSuffix(imagePath, ".zip")
@@ -151,10 +152,10 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 				} else {
 					importCmd = fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
 				}
-				_, importErr = l.sshClient.Execute(importCmd)
-				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir))) // 显式清理，避免 defer 被并发协程复用
+				importOutput, importErr = l.sshClient.Execute(importCmd)
+				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 			} else {
-				_, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
+				importOutput, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
 			}
 		} else {
 			if strings.HasSuffix(imagePath, ".zip") {
@@ -176,15 +177,24 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 					}
 					importCmd = fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(utils.CleanCommandOutput(tarPath)), shellSingleQuote(aliasKey))
 				}
-				_, importErr = l.sshClient.Execute(importCmd)
-				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir))) // 显式清理，避免 defer 被并发协程复用
+				importOutput, importErr = l.sshClient.Execute(importCmd)
+				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 			} else {
-				_, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
+				importOutput, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
 			}
 		}
 
 		if importErr != nil {
-			return nil, fmt.Errorf("LXD%s镜像导入失败: %w", imageTypeStr, importErr)
+			// 保留 LXD 原始错误输出，帮助排查镜像格式、存储池空间等问题
+			if importOutput == "" {
+				importOutput = importErr.Error()
+			}
+			global.APP_LOG.Error("LXD镜像导入命令失败",
+				zap.String("alias", utils.TruncateString(aliasKey, 100)),
+				zap.String("imagePath", utils.TruncateString(imagePath, 200)),
+				zap.String("lxcOutput", utils.TruncateString(importOutput, 1000)),
+				zap.Error(importErr))
+			return nil, fmt.Errorf("LXD%s镜像导入失败: %s (lxc output: %s)", imageTypeStr, importErr.Error(), utils.TruncateString(importOutput, 500))
 		}
 
 		global.APP_LOG.Info("LXD"+imageTypeStr+"镜像导入成功",
