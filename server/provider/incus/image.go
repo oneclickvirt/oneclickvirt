@@ -45,11 +45,29 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 		architecture := i.getCurrentArchitecture()
 		config.Image = imageNameWithPrefix + "_" + config.InstanceType + "_" + i.generateImageAlias(config.ImageURL, originalImageName, architecture)[len(originalImageName)+1:]
 
-		// 快速路径：镜像已存在，直接跳过（避免进入 singleflight）
+		// 快速路径：精确别名已存在
 		if i.imageExists(config.Image) {
 			global.APP_LOG.Debug("Incus"+imageTypeStr+"镜像已存在，跳过导入",
 				zap.String("alias", utils.TruncateString(config.Image, 100)),
 				zap.String("type", config.InstanceType))
+			if progressCallback != nil {
+				progressCallback(28, "镜像已缓存，跳过下载")
+			}
+			return nil
+		}
+
+		// 前缀匹配：同内容镜像可能已以不同别名导入（架构纠正、URL hash 变化等）
+		existingAlias := i.findImageByPrefix(imageNameWithPrefix + "_" + config.InstanceType + "_")
+		if existingAlias != "" {
+			global.APP_LOG.Info("Incus"+imageTypeStr+"镜像已通过前缀匹配找到，创建别名后跳过下载",
+				zap.String("existingAlias", utils.TruncateString(existingAlias, 100)),
+				zap.String("targetAlias", utils.TruncateString(config.Image, 100)))
+			fp := i.getImageFingerprint(existingAlias)
+			if fp != "" {
+				aliasCmd := fmt.Sprintf("incus image alias create %s %s 2>/dev/null || true",
+					shellSingleQuote(config.Image), shellSingleQuote(fp))
+				i.sshClient.Execute(aliasCmd)
+			}
 			if progressCallback != nil {
 				progressCallback(28, "镜像已缓存，跳过下载")
 			}
@@ -178,6 +196,26 @@ func (i *IncusProvider) downloadAndImportImage(ctx context.Context, config *prov
 		}
 
 		if importErr != nil {
+			// 图片指纹已存在（同内容不同别名）→ 给已有镜像添加新别名即可
+			if strings.Contains(strings.ToLower(importOutput), "fingerprint already exists") ||
+				strings.Contains(strings.ToLower(importErr.Error()), "fingerprint already exists") {
+				global.APP_LOG.Info("Incus镜像指纹已存在，尝试为已有镜像添加别名",
+					zap.String("alias", utils.TruncateString(aliasKey, 100)),
+					zap.String("imagePath", utils.TruncateString(imagePath, 200)))
+
+				fingerprint := extractFingerprintFromOutput(importOutput)
+				if fingerprint != "" {
+					aliasCmd := fmt.Sprintf("incus image alias create %s %s 2>/dev/null || true",
+						shellSingleQuote(aliasKey), shellSingleQuote(fingerprint))
+					i.sshClient.Execute(aliasCmd)
+				}
+				if i.imageExists(aliasKey) {
+					global.APP_LOG.Info("Incus镜像别名已存在（指纹重复但别名可用）",
+						zap.String("alias", utils.TruncateString(aliasKey, 100)))
+					return nil, nil
+				}
+			}
+
 			// 保留 Incus 原始错误输出，帮助排查镜像格式、存储池空间等问题
 			if importOutput == "" {
 				importOutput = importErr.Error()
@@ -211,6 +249,32 @@ func (i *IncusProvider) downloadAndImportImage(ctx context.Context, config *prov
 	})
 
 	return err
+}
+
+// extractFingerprintFromOutput 从 Incus/LXD 错误输出中提取镜像指纹
+// 典型输出: "Error: Image with same fingerprint already exists: abc123def456..."
+func extractFingerprintFromOutput(output string) string {
+	lower := strings.ToLower(output)
+	idx := strings.Index(lower, "fingerprint")
+	if idx < 0 {
+		return ""
+	}
+	rest := output[idx:]
+	for _, prefix := range []string{"sha256:", "exists: "} {
+		if pi := strings.Index(strings.ToLower(rest), prefix); pi >= 0 {
+			fp := strings.TrimSpace(rest[pi+len(prefix):])
+			end := 0
+			for end < len(fp) && (('0' <= fp[end] && fp[end] <= '9') ||
+				('a' <= fp[end] && fp[end] <= 'f') ||
+				('A' <= fp[end] && fp[end] <= 'F')) {
+				end++
+			}
+			if end >= 12 {
+				return fp[:end]
+			}
+		}
+	}
+	return ""
 }
 
 // queryAndSetSystemImage 从数据库查询匹配的系统镜像记录并设置到配置中。
@@ -304,6 +368,26 @@ func (i *IncusProvider) imageExists(alias string) bool {
 		return false
 	}
 	return strings.TrimSpace(output) != ""
+}
+
+// findImageByPrefix 通过前缀查找 Incus 镜像别名（用于避免架构纠正后重复下载）
+func (i *IncusProvider) findImageByPrefix(prefix string) string {
+	cmd := fmt.Sprintf("incus image list --format csv -c l 2>/dev/null | grep '^%s' | head -1", prefix)
+	output, err := i.sshClient.Execute(cmd)
+	if err != nil || strings.TrimSpace(output) == "" {
+		return ""
+	}
+	return strings.TrimSpace(output)
+}
+
+// getImageFingerprint 获取 Incus 镜像的指纹
+func (i *IncusProvider) getImageFingerprint(alias string) string {
+	cmd := fmt.Sprintf("incus image list %s --format csv -c f 2>/dev/null | head -1", shellSingleQuote(alias))
+	output, err := i.sshClient.Execute(cmd)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(output)
 }
 
 // isRemoteFileValid 检查远程文件是否存在
