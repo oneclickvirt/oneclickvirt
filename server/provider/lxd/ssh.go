@@ -258,8 +258,9 @@ func (l *LXDProvider) validateCopyModeSource(config provider.InstanceConfig) err
 func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 	startCmd := fmt.Sprintf("lxc start %s", shellSingleQuote(id))
 	var startErr error
+	var output string
 	for attempt := 1; attempt <= 2; attempt++ {
-		_, startErr = l.sshClient.Execute(startCmd)
+		output, startErr = l.sshClient.Execute(startCmd)
 		if startErr == nil {
 			break
 		}
@@ -275,6 +276,7 @@ func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 		if attempt == 1 {
 			global.APP_LOG.Warn("LXD启动实例首次失败，准备重试",
 				zap.String("id", id),
+				zap.String("output", utils.TruncateString(output, 500)),
 				zap.Error(startErr))
 			time.Sleep(2 * time.Second)
 		}

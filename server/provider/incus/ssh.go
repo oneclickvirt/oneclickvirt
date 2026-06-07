@@ -249,8 +249,17 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		updateProgress(30, "复制源容器...")
 		copyCmd := fmt.Sprintf("incus copy %s %s", shellSingleQuote(config.CopySourceName), shellSingleQuote(config.Name))
 		global.APP_LOG.Debug("执行Incus容器复制命令", zap.String("command", copyCmd))
-		if _, err := i.sshClient.Execute(copyCmd); err != nil {
-			return fmt.Errorf("复制容器失败: %w", err)
+		output, err := i.sshClient.Execute(copyCmd)
+		if err != nil {
+			errMsg := output
+			if errMsg == "" {
+				errMsg = err.Error()
+			}
+			global.APP_LOG.Error("Incus容器复制命令失败",
+				zap.String("command", copyCmd),
+				zap.String("output", utils.TruncateString(output, 2000)),
+				zap.Error(err))
+			return fmt.Errorf("复制容器失败: %s", errMsg)
 		}
 	} else {
 		if err := i.handleImageDownloadAndImport(ctx, &config); err != nil {
@@ -274,6 +283,8 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 
 		updateProgress(35, "创建Incus实例...")
 		if err := i.executeCreateCommand(cmd); err != nil {
+			// 创建失败时清理可能已损坏/不兼容的镜像缓存
+			i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
 			return fmt.Errorf("执行创建命令失败: %w", err)
 		}
 

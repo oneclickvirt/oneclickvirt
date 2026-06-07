@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/provider"
 	"oneclickvirt/service/pmacct"
 	"oneclickvirt/service/traffic"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -62,8 +63,17 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		updateProgress(30, "复制源容器...")
 		copyCmd := fmt.Sprintf("lxc copy %s %s", shellSingleQuote(config.CopySourceName), shellSingleQuote(config.Name))
 		global.APP_LOG.Debug("执行LXD容器复制命令", zap.String("command", copyCmd))
-		if _, err := l.sshClient.Execute(copyCmd); err != nil {
-			return fmt.Errorf("复制容器失败: %w", err)
+		output, err := l.sshClient.Execute(copyCmd)
+		if err != nil {
+			errMsg := output
+			if errMsg == "" {
+				errMsg = err.Error()
+			}
+			global.APP_LOG.Error("LXD容器复制命令失败",
+				zap.String("command", copyCmd),
+				zap.String("output", utils.TruncateString(output, 2000)),
+				zap.Error(err))
+			return fmt.Errorf("复制容器失败: %s", errMsg)
 		}
 	} else {
 		if err := l.handleImageDownloadAndImport(ctx, &config); err != nil {
@@ -139,9 +149,22 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 		// 创建实例
 		global.APP_LOG.Debug("执行LXD实例创建命令", zap.String("command", cmd))
-		_, err = l.sshClient.Execute(cmd)
+		output, err := l.sshClient.Execute(cmd)
 		if err != nil {
-			return fmt.Errorf("failed to create instance: %w", err)
+			// 保留完整输出（stdout+stderr）以便排查架构不匹配、镜像损坏等问题
+			errMsg := output
+			if errMsg == "" {
+				errMsg = err.Error()
+			}
+			global.APP_LOG.Error("LXD实例创建命令失败",
+				zap.String("command", cmd),
+				zap.String("output", utils.TruncateString(output, 2000)),
+				zap.Error(err))
+
+			// 创建失败时清理可能已损坏/不兼容的镜像缓存，下次创建可重新下载
+			l.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
+
+			return fmt.Errorf("failed to create instance: %s", errMsg)
 		}
 
 		// 如果是虚拟机，需要额外的配置

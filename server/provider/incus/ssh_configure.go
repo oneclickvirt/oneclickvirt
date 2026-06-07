@@ -156,8 +156,9 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 
 	startCmd := fmt.Sprintf("incus start %s", shellSingleQuote(id))
 	var startErr error
+	var startOutput string
 	for attempt := 1; attempt <= 2; attempt++ {
-		_, startErr = i.sshClient.Execute(startCmd)
+		startOutput, startErr = i.sshClient.Execute(startCmd)
 		if startErr == nil {
 			break
 		}
@@ -173,6 +174,7 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 		if attempt == 1 {
 			global.APP_LOG.Warn("Incus启动实例首次失败，准备重试",
 				zap.String("id", id),
+				zap.String("output", utils.TruncateString(startOutput, 500)),
 				zap.Error(startErr))
 			time.Sleep(2 * time.Second)
 		}

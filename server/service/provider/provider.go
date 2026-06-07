@@ -239,8 +239,8 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 			}
 		}
 		ps.providers[dbProvider.ID] = prov
-		// Agent 模式也需要自动检测架构（ARM 节点同样可能因默认 amd64 导致不可用）
-		go detectAndUpdateArchitecture(dbProvider.ID, prov)
+		// 同步检测架构，确保后续实例创建使用正确的架构（ARM 节点不会误用 amd64 镜像）
+		detectAndUpdateArchitecture(dbProvider.ID, prov)
 		global.APP_LOG.Info("Agent模式节点加载完成",
 			zap.String("name", dbProvider.Name),
 			zap.Uint("id", dbProvider.ID),
@@ -267,8 +267,8 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 		return err
 	}
 
-	// 连接成功后自动检测节点架构，确保 ARM 节点不会因为默认 amd64 而无法使用
-	go detectAndUpdateArchitecture(dbProvider.ID, prov)
+	// 连接成功后同步检测节点架构，确保 ARM 节点不会因为默认 amd64 而无法使用
+	detectAndUpdateArchitecture(dbProvider.ID, prov)
 
 	// 存储Provider实例（使用ID作为key）
 	// 此时已经持有ps.mutex.Lock()，不需要再次加锁
@@ -453,8 +453,8 @@ func (ps *ProviderService) ResetInstancePassword(ctx context.Context, providerID
 	return prov.ResetInstancePassword(ctx, instanceName)
 }
 
-// detectAndUpdateArchitecture 在 Provider 连接成功后自动检测节点 CPU 架构，
-// 如果检测值与数据库记录不一致则自动更新。
+// detectAndUpdateArchitecture 在 Provider 连接成功后同步检测节点 CPU 架构，
+// 如果检测值与数据库记录不一致则自动更新（同步执行，5s 超时）。
 // 解决 ARM 节点因默认 amd64 架构导致镜像筛选错误、无法开设实例的问题。
 func detectAndUpdateArchitecture(providerID uint, prov provider.Provider) {
 	defer func() {
@@ -465,7 +465,8 @@ func detectAndUpdateArchitecture(providerID uint, prov provider.Provider) {
 		}
 	}()
 
-	detectCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// uname -m 是瞬时命令，5s 足够；使用同步调用确保架构在 Provider 可用前已纠正
+	detectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	output, err := prov.ExecuteSSHCommand(detectCtx, "uname -m")

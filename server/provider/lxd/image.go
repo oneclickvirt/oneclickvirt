@@ -669,3 +669,40 @@ func (l *LXDProvider) DeleteImage(ctx context.Context, id string) error {
 	// SSH 方式
 	return l.sshDeleteImage(ctx, id)
 }
+
+// cleanupCachedImageOnFailure 在实例创建失败时清理可能不兼容/损坏的镜像缓存。
+// 典型场景：ARM 节点上误下载了 amd64 镜像，或镜像文件下载不完整。
+// 清理后下次创建会重新下载正确的镜像。
+func (l *LXDProvider) cleanupCachedImageOnFailure(imageName, instanceType string) {
+	if imageName == "" {
+		return
+	}
+	// 仅清理 oneclickvirt_ 前缀的本地镜像别名（非远程镜像引用）
+	if !strings.HasPrefix(imageName, "oneclickvirt_") {
+		return
+	}
+
+	global.APP_LOG.Info("实例创建失败，清理可能不兼容的镜像缓存",
+		zap.String("imageName", imageName),
+		zap.String("instanceType", instanceType))
+
+	// 1. 删除 LXD 中的镜像别名
+	deleteAliasCmd := fmt.Sprintf("lxc image alias delete %s 2>/dev/null || true", shellSingleQuote(imageName))
+	l.sshClient.Execute(deleteAliasCmd)
+
+	// 2. 删除远程下载的镜像文件缓存
+	var downloadDir string
+	if instanceType == "vm" {
+		downloadDir = "/usr/local/bin/lxd_vm_images"
+	} else {
+		downloadDir = "/usr/local/bin/lxd_ct_images"
+	}
+	// 删除 oneclickvirt_ 开头的相关缓存文件
+	cleanupCmd := fmt.Sprintf("find %s -name 'oneclickvirt_*' -mtime +0 -delete 2>/dev/null || true; "+
+		"find %s -name 'oneclickvirt_*' -delete 2>/dev/null || true",
+		shellSingleQuote(downloadDir), shellSingleQuote(downloadDir))
+	l.sshClient.Execute(cleanupCmd)
+
+	global.APP_LOG.Info("镜像缓存清理完成",
+		zap.String("imageName", imageName))
+}
