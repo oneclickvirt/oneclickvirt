@@ -448,6 +448,23 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		zap.String("type", req.Type),
 		zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)))
 
+	// LXD/Incus 节点录入后立即做一次强制资源/存储同步。
+	// 这一步会保留可用的原 storagePool；如果原值为空、local/default 占位符或远端不存在，
+	// 会自动改成远端实际存在的 pool，并刷新运行时缓存，避免刚录入后马上创建实例时使用旧配置。
+	if provider.ConnectionType == "ssh" && isLXDOrIncusProvider(provider.Type) {
+		if err := s.CheckProviderHealthWithOptions(provider.ID, true); err != nil {
+			global.APP_LOG.Warn("Provider创建后自动同步LXD/Incus存储配置失败，节点已保存，可稍后手动健康检查重试",
+				zap.Uint("providerID", provider.ID),
+				zap.String("provider", provider.Name),
+				zap.String("type", provider.Type),
+				zap.Error(err))
+		} else if err := global.APP_DB.First(&provider, provider.ID).Error; err != nil {
+			global.APP_LOG.Warn("Provider创建后重新读取已纠正配置失败",
+				zap.Uint("providerID", provider.ID),
+				zap.Error(err))
+		}
+	}
+
 	// 如果启用了实例发现模式，则在创建成功后执行实例发现和导入
 	if req.DiscoverMode {
 		// 解析导入实例的所有者用户ID

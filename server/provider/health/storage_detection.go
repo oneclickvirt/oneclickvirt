@@ -9,6 +9,10 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+func storageShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // DetectStoragePoolPath 根据provider类型自动检测存储池路径
 func (phc *ProviderHealthChecker) DetectStoragePoolPath(client *ssh.Client, providerType, storagePoolName string) (string, error) {
 	switch strings.ToLower(providerType) {
@@ -95,26 +99,28 @@ func (phc *ProviderHealthChecker) detectProxmoxStoragePath(client *ssh.Client, s
 
 // detectLXDStoragePath 检测LXD存储池路径
 func (phc *ProviderHealthChecker) detectLXDStoragePath(client *ssh.Client, storagePoolName string) (string, error) {
-	if storagePoolName == "" {
-		storagePoolName = "default"
+	if storagePoolName == "" || storagePoolName == "local" {
+		storagePoolName = phc.DetectLXDStoragePoolName(client)
 	}
 
-	// 使用lxc storage info命令查询存储池路径
-	cmd := fmt.Sprintf("lxc storage info %s 2>/dev/null | grep -E '^\\s+source:' | awk '{print $2}'", storagePoolName)
-	output, err := phc.executeSSHCommand(client, cmd)
-	if err == nil && utils.CleanCommandOutput(output) != "" {
-		path := utils.CleanCommandOutput(output)
-		if phc.logger != nil {
-			phc.logger.Info("检测到LXD存储池路径",
-				zap.String("storagePool", storagePoolName),
-				zap.String("path", path))
+	if storagePoolName != "" {
+		// 使用 lxc storage info 命令查询存储池路径。pool 名称必须先来自真实存在的池，避免把 default/local 占位符当成有效池。
+		cmd := fmt.Sprintf("lxc storage info %s 2>/dev/null | grep -E '^\\s+source:' | awk '{print $2}'", storageShellQuote(storagePoolName))
+		output, err := phc.executeSSHCommand(client, cmd)
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			path := utils.CleanCommandOutput(output)
+			if phc.logger != nil {
+				phc.logger.Info("检测到LXD存储池路径",
+					zap.String("storagePool", storagePoolName),
+					zap.String("path", path))
+			}
+			return path, nil
 		}
-		return path, nil
 	}
 
 	// 尝试从配置目录获取
-	cmd = "ls -d /var/lib/lxd/storage-pools/* 2>/dev/null | head -1"
-	output, err = phc.executeSSHCommand(client, cmd)
+	cmd := "ls -d /var/lib/lxd/storage-pools/* 2>/dev/null | head -1"
+	output, err := phc.executeSSHCommand(client, cmd)
 	if err == nil && utils.CleanCommandOutput(output) != "" {
 		path := utils.CleanCommandOutput(output)
 		if phc.logger != nil {
@@ -124,37 +130,33 @@ func (phc *ProviderHealthChecker) detectLXDStoragePath(client *ssh.Client, stora
 		return path, nil
 	}
 
-	// 默认路径
-	defaultPath := "/var/lib/lxd/storage-pools/default"
-	if phc.logger != nil {
-		phc.logger.Info("使用LXD默认存储池路径",
-			zap.String("path", defaultPath))
-	}
-	return defaultPath, nil
+	return "", fmt.Errorf("no usable LXD storage pool path found")
 }
 
 // detectIncusStoragePath 检测Incus存储池路径
 func (phc *ProviderHealthChecker) detectIncusStoragePath(client *ssh.Client, storagePoolName string) (string, error) {
-	if storagePoolName == "" {
-		storagePoolName = "default"
+	if storagePoolName == "" || storagePoolName == "local" {
+		storagePoolName = phc.DetectIncusStoragePoolName(client)
 	}
 
-	// 使用incus storage info命令查询存储池路径
-	cmd := fmt.Sprintf("incus storage info %s 2>/dev/null | grep -E '^\\s+source:' | awk '{print $2}'", storagePoolName)
-	output, err := phc.executeSSHCommand(client, cmd)
-	if err == nil && utils.CleanCommandOutput(output) != "" {
-		path := utils.CleanCommandOutput(output)
-		if phc.logger != nil {
-			phc.logger.Info("检测到Incus存储池路径",
-				zap.String("storagePool", storagePoolName),
-				zap.String("path", path))
+	if storagePoolName != "" {
+		// 使用 incus storage info 命令查询存储池路径。pool 名称必须先来自真实存在的池，避免把 default/local 占位符当成有效池。
+		cmd := fmt.Sprintf("incus storage info %s 2>/dev/null | grep -E '^\\s+source:' | awk '{print $2}'", storageShellQuote(storagePoolName))
+		output, err := phc.executeSSHCommand(client, cmd)
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			path := utils.CleanCommandOutput(output)
+			if phc.logger != nil {
+				phc.logger.Info("检测到Incus存储池路径",
+					zap.String("storagePool", storagePoolName),
+					zap.String("path", path))
+			}
+			return path, nil
 		}
-		return path, nil
 	}
 
 	// 尝试从配置目录获取
-	cmd = "ls -d /var/lib/incus/storage-pools/* 2>/dev/null | head -1"
-	output, err = phc.executeSSHCommand(client, cmd)
+	cmd := "ls -d /var/lib/incus/storage-pools/* 2>/dev/null | head -1"
+	output, err := phc.executeSSHCommand(client, cmd)
 	if err == nil && utils.CleanCommandOutput(output) != "" {
 		path := utils.CleanCommandOutput(output)
 		if phc.logger != nil {
@@ -164,13 +166,7 @@ func (phc *ProviderHealthChecker) detectIncusStoragePath(client *ssh.Client, sto
 		return path, nil
 	}
 
-	// 默认路径
-	defaultPath := "/var/lib/incus/storage-pools/default"
-	if phc.logger != nil {
-		phc.logger.Info("使用Incus默认存储池路径",
-			zap.String("path", defaultPath))
-	}
-	return defaultPath, nil
+	return "", fmt.Errorf("no usable Incus storage pool path found")
 }
 
 // detectDockerStoragePath 检测Docker存储路径
@@ -298,10 +294,10 @@ func (phc *ProviderHealthChecker) detectContainerStoragePath(client *ssh.Client,
 
 // ── LXD/Incus 存储池名称检测 ──────────────────────────────────────────────
 
-// DetectLXDStoragePoolName 检测 LXD 存储池名称（返回第一个可用池，默认 "default"）
+// DetectLXDStoragePoolName 检测 LXD 存储池名称（返回第一个真实可用池；未检测到则返回空字符串）
 func (phc *ProviderHealthChecker) DetectLXDStoragePoolName(client *ssh.Client) string {
 	// 获取所有存储池列表，取第一个
-	cmd := "lxc storage list --format csv 2>/dev/null | cut -d, -f1 | head -1"
+	cmd := "{ lxc storage list --format csv -c n 2>/dev/null || lxc storage list --format csv 2>/dev/null | cut -d, -f1; } | awk 'NF {print; exit}'"
 	output, err := phc.executeSSHCommand(client, cmd)
 	if err == nil && utils.CleanCommandOutput(output) != "" {
 		name := utils.CleanCommandOutput(output)
@@ -310,12 +306,12 @@ func (phc *ProviderHealthChecker) DetectLXDStoragePoolName(client *ssh.Client) s
 		}
 		return name
 	}
-	return "default"
+	return ""
 }
 
-// DetectIncusStoragePoolName 检测 Incus 存储池名称（返回第一个可用池，默认 "default"）
+// DetectIncusStoragePoolName 检测 Incus 存储池名称（返回第一个真实可用池；未检测到则返回空字符串）
 func (phc *ProviderHealthChecker) DetectIncusStoragePoolName(client *ssh.Client) string {
-	cmd := "incus storage list --format csv 2>/dev/null | cut -d, -f1 | head -1"
+	cmd := "{ incus storage list --format csv -c n 2>/dev/null || incus storage list --format csv 2>/dev/null | cut -d, -f1; } | awk 'NF {print; exit}'"
 	output, err := phc.executeSSHCommand(client, cmd)
 	if err == nil && utils.CleanCommandOutput(output) != "" {
 		name := utils.CleanCommandOutput(output)
@@ -324,7 +320,7 @@ func (phc *ProviderHealthChecker) DetectIncusStoragePoolName(client *ssh.Client)
 		}
 		return name
 	}
-	return "default"
+	return ""
 }
 
 // DetectStoragePoolName 统一入口：根据 provider 类型检测存储池名称
@@ -343,17 +339,17 @@ func (phc *ProviderHealthChecker) DetectStoragePoolName(client *ssh.Client, prov
 
 // EnsureProfileHasRootDevice 确保 LXD/Incus 的 default profile 包含 root 磁盘设备
 // 返回 true 表示进行了修复（添加了 root 设备）
-func (phc *ProviderHealthChecker) EnsureProfileHasRootDevice(client *ssh.Client, providerType string) (fixed bool) {
+func (phc *ProviderHealthChecker) EnsureProfileHasRootDevice(client *ssh.Client, providerType string, preferredPool ...string) (fixed bool) {
 	switch strings.ToLower(providerType) {
 	case "lxd":
-		return phc.ensureLXDProfileRootDevice(client)
+		return phc.ensureLXDProfileRootDevice(client, preferredPool...)
 	case "incus":
-		return phc.ensureIncusProfileRootDevice(client)
+		return phc.ensureIncusProfileRootDevice(client, preferredPool...)
 	}
 	return false
 }
 
-func (phc *ProviderHealthChecker) ensureLXDProfileRootDevice(client *ssh.Client) bool {
+func (phc *ProviderHealthChecker) ensureLXDProfileRootDevice(client *ssh.Client, preferredPool ...string) bool {
 	// 检查 default profile 是否有 root 设备
 	checkCmd := "lxc profile show default 2>/dev/null | grep -A3 'root:' | head -4"
 	output, err := phc.executeSSHCommand(client, checkCmd)
@@ -361,11 +357,23 @@ func (phc *ProviderHealthChecker) ensureLXDProfileRootDevice(client *ssh.Client)
 		return false // root 设备已存在
 	}
 
-	// 检测存储池名称
-	poolName := phc.DetectLXDStoragePoolName(client)
+	// 检测存储池名称。优先使用上游已验证可用的池，避免多池环境下误回落到第一个池。
+	poolName := ""
+	if len(preferredPool) > 0 {
+		poolName = strings.TrimSpace(preferredPool[0])
+	}
+	if poolName == "" {
+		poolName = phc.DetectLXDStoragePoolName(client)
+	}
+	if poolName == "" {
+		if phc.logger != nil {
+			phc.logger.Warn("无法添加root设备到default profile：未检测到可用LXD存储池")
+		}
+		return false
+	}
 
 	// 添加 root 设备到 default profile
-	addCmd := fmt.Sprintf("lxc profile device add default root disk path=/ pool=%s 2>/dev/null", poolName)
+	addCmd := fmt.Sprintf("lxc profile device add default root disk path=/ pool=%s 2>/dev/null", storageShellQuote(poolName))
 	_, err = phc.executeSSHCommand(client, addCmd)
 	if err != nil {
 		// 不指定 pool 重试
@@ -388,16 +396,28 @@ func (phc *ProviderHealthChecker) ensureLXDProfileRootDevice(client *ssh.Client)
 	return true
 }
 
-func (phc *ProviderHealthChecker) ensureIncusProfileRootDevice(client *ssh.Client) bool {
+func (phc *ProviderHealthChecker) ensureIncusProfileRootDevice(client *ssh.Client, preferredPool ...string) bool {
 	checkCmd := "incus profile show default 2>/dev/null | grep -A3 'root:' | head -4"
 	output, err := phc.executeSSHCommand(client, checkCmd)
 	if err == nil && strings.Contains(output, "type: disk") {
 		return false
 	}
 
-	poolName := phc.DetectIncusStoragePoolName(client)
+	poolName := ""
+	if len(preferredPool) > 0 {
+		poolName = strings.TrimSpace(preferredPool[0])
+	}
+	if poolName == "" {
+		poolName = phc.DetectIncusStoragePoolName(client)
+	}
+	if poolName == "" {
+		if phc.logger != nil {
+			phc.logger.Warn("无法添加root设备到default profile：未检测到可用Incus存储池")
+		}
+		return false
+	}
 
-	addCmd := fmt.Sprintf("incus profile device add default root disk path=/ pool=%s 2>/dev/null", poolName)
+	addCmd := fmt.Sprintf("incus profile device add default root disk path=/ pool=%s 2>/dev/null", storageShellQuote(poolName))
 	_, err = phc.executeSSHCommand(client, addCmd)
 	if err != nil {
 		addCmd2 := "incus profile device add default root disk path=/ 2>/dev/null"
@@ -423,17 +443,58 @@ func (phc *ProviderHealthChecker) ensureIncusProfileRootDevice(client *ssh.Clien
 
 // storagePoolExists 检查 LXD/Incus 存储池是否存在
 func (phc *ProviderHealthChecker) storagePoolExists(client *ssh.Client, providerType, poolName string) bool {
+	poolName = strings.TrimSpace(poolName)
+	if poolName == "" {
+		return false
+	}
 	var cmd string
 	if strings.ToLower(providerType) == "incus" {
-		cmd = fmt.Sprintf("incus storage info %s >/dev/null 2>&1 && echo 'yes' || echo 'no'", poolName)
+		cmd = fmt.Sprintf("incus storage info %s >/dev/null 2>&1 && echo 'yes' || echo 'no'", storageShellQuote(poolName))
 	} else {
-		cmd = fmt.Sprintf("lxc storage info %s >/dev/null 2>&1 && echo 'yes' || echo 'no'", poolName)
+		cmd = fmt.Sprintf("lxc storage info %s >/dev/null 2>&1 && echo 'yes' || echo 'no'", storageShellQuote(poolName))
 	}
 	output, err := phc.executeSSHCommand(client, cmd)
 	if err != nil {
 		return false
 	}
 	return strings.TrimSpace(output) == "yes"
+}
+
+// ResolveStoragePoolNameForProvider 验证并解析 LXD/Incus 实际可用的存储池。
+// 规则：用户/数据库已有配置真实存在时保留；为空、local/default 占位符不存在、或配置指向不存在的池时，回退到远端第一个真实存在的池。
+func (phc *ProviderHealthChecker) ResolveStoragePoolNameForProvider(client *ssh.Client, providerType, configuredPool string) string {
+	pt := strings.ToLower(providerType)
+	if pt != "lxd" && pt != "incus" {
+		return strings.TrimSpace(configuredPool)
+	}
+
+	configuredPool = strings.TrimSpace(configuredPool)
+	if configuredPool != "" && phc.storagePoolExists(client, providerType, configuredPool) {
+		if phc.logger != nil {
+			phc.logger.Info("保留已配置且可用的存储池",
+				zap.String("providerType", providerType),
+				zap.String("pool", configuredPool))
+		}
+		return configuredPool
+	}
+
+	detectedPool := phc.detectFirstStoragePool(client, providerType)
+	if detectedPool != "" {
+		if phc.logger != nil {
+			phc.logger.Warn("存储池配置不可用，自动切换到远端真实存在的存储池",
+				zap.String("providerType", providerType),
+				zap.String("configuredPool", configuredPool),
+				zap.String("detectedPool", detectedPool))
+		}
+		return detectedPool
+	}
+
+	if phc.logger != nil {
+		phc.logger.Error("未检测到任何可用的 LXD/Incus 存储池",
+			zap.String("providerType", providerType),
+			zap.String("configuredPool", configuredPool))
+	}
+	return ""
 }
 
 // detectFirstStoragePool 检测 LXD/Incus 第一个可用存储池
@@ -461,9 +522,9 @@ func (phc *ProviderHealthChecker) getProfileRootPool(client *ssh.Client, provide
 func (phc *ProviderHealthChecker) fixProfileRootPool(client *ssh.Client, providerType, poolName string) {
 	var cmd string
 	if strings.ToLower(providerType) == "incus" {
-		cmd = fmt.Sprintf("incus profile device set default root pool=%s 2>/dev/null || { incus profile device remove default root 2>/dev/null; incus profile device add default root disk path=/ pool=%s 2>/dev/null; }", poolName, poolName)
+		cmd = fmt.Sprintf("incus profile device set default root pool=%s 2>/dev/null || { incus profile device remove default root 2>/dev/null; incus profile device add default root disk path=/ pool=%s 2>/dev/null; }", storageShellQuote(poolName), storageShellQuote(poolName))
 	} else {
-		cmd = fmt.Sprintf("lxc profile device set default root pool=%s 2>/dev/null || { lxc profile device remove default root 2>/dev/null; lxc profile device add default root disk path=/ pool=%s 2>/dev/null; }", poolName, poolName)
+		cmd = fmt.Sprintf("lxc profile device set default root pool=%s 2>/dev/null || { lxc profile device remove default root 2>/dev/null; lxc profile device add default root disk path=/ pool=%s 2>/dev/null; }", storageShellQuote(poolName), storageShellQuote(poolName))
 	}
 	phc.executeSSHCommand(client, cmd)
 }
@@ -495,14 +556,18 @@ func (phc *ProviderHealthChecker) detectLXDEnvironment(client *ssh.Client) (isSn
 // 1. 检测是否有存储池 → 无池则记录错误（不自动创建 dir，应由管理员通过脚本创建 btrfs/lvm/zfs 池）
 // 2. profile 引用的 pool 不存在但有其他可用池 → 自动对齐修复
 // 3. profile 无 root 设备 → 自动添加（使用现有池或默认 "default"）
-func (phc *ProviderHealthChecker) EnsureProviderStorageReady(client *ssh.Client, providerType string) (fixed bool) {
+func (phc *ProviderHealthChecker) EnsureProviderStorageReady(client *ssh.Client, providerType string, preferredPool ...string) (fixed bool) {
 	pt := strings.ToLower(providerType)
 	if pt != "lxd" && pt != "incus" {
 		return false
 	}
+	configuredPool := ""
+	if len(preferredPool) > 0 {
+		configuredPool = preferredPool[0]
+	}
 
 	// 步骤 1：检测存储池
-	poolName := phc.detectFirstStoragePool(client, providerType)
+	poolName := phc.ResolveStoragePoolNameForProvider(client, providerType, configuredPool)
 	if poolName == "" {
 		// 没有任何存储池 — 严重问题，记录明确错误引导管理员
 		isSnap, lxcPath, _ := phc.detectLXDEnvironment(client)
@@ -536,7 +601,7 @@ func (phc *ProviderHealthChecker) EnsureProviderStorageReady(client *ssh.Client,
 	}
 
 	// 步骤 3：确保 profile 有 root 设备
-	if deviceFixed := phc.EnsureProfileHasRootDevice(client, providerType); deviceFixed {
+	if deviceFixed := phc.EnsureProfileHasRootDevice(client, providerType, poolName); deviceFixed {
 		fixed = true
 	}
 

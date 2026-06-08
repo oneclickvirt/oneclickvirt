@@ -95,13 +95,17 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 			output, err := client.Execute(checkCmd)
 			if err != nil || !strings.Contains(output, "root") {
 				// root设备继承自profile，无法直接 device set；先 add 一个显式root设备
-				// 使用 Provider 配置中记录的存储池名称（自动检测或用户指定），fallback 到 "default"
-				poolName := l.config.StoragePool
-				if poolName == "" || poolName == "local" {
-					poolName = "default"
+				// 使用真实存在的存储池；配置无效时自动从远端 storage list 纠正，
+				// 不再把 local/空值硬切到 default，避免 default 池不存在时失败。
+				poolName := l.resolveStoragePoolForInstance()
+				var addErr error
+				if poolName != "" {
+					addRootCmd := fmt.Sprintf("lxc config device add %s root disk path=/ pool=%s", shellSingleQuote(config.Name), shellSingleQuote(poolName))
+					_, addErr = client.Execute(addRootCmd)
+				} else {
+					addErr = fmt.Errorf("no usable LXD storage pool detected")
 				}
-				addRootCmd := fmt.Sprintf("lxc config device add %s root disk path=/ pool=%s", shellSingleQuote(config.Name), shellSingleQuote(poolName))
-				if _, addErr := client.Execute(addRootCmd); addErr != nil {
+				if addErr != nil {
 					// 不指定 pool 重试（让 LXD 使用默认池）
 					addRootCmd2 := fmt.Sprintf("lxc config device add %s root disk path=/", shellSingleQuote(config.Name))
 					if _, addErr2 := client.Execute(addRootCmd2); addErr2 != nil {

@@ -103,16 +103,19 @@ func (l *LXDProvider) apiCreateInstanceWithProgress(ctx context.Context, config 
 		instanceConfig["config"].(map[string]interface{})["limits.memory"] = config.Memory
 	}
 	if config.Disk != "" {
-		// 使用 Provider 配置中记录的存储池名称，fallback 到 "default"
-		poolName := l.config.StoragePool
-		if poolName == "" || poolName == "local" {
-			poolName = "default"
-		}
-		instanceConfig["devices"].(map[string]interface{})["root"] = map[string]interface{}{
-			"type": "disk",
-			"path": "/",
-			"pool": poolName,
-			"size": config.Disk,
+		// 使用 Provider 配置中真实存在的存储池；配置无效时自动从远端 storage list 纠正，
+		// 不再把 local/空值硬切到 default，避免 default 池不存在时创建失败。
+		poolName := l.resolveStoragePoolForInstance()
+		if poolName != "" {
+			instanceConfig["devices"].(map[string]interface{})["root"] = map[string]interface{}{
+				"type": "disk",
+				"path": "/",
+				"pool": poolName,
+				"size": config.Disk,
+			}
+		} else {
+			global.APP_LOG.Warn("未检测到可用LXD存储池，创建实例时跳过显式root磁盘设备，改用default profile",
+				zap.String("instance", config.Name))
 		}
 	}
 

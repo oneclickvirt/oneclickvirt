@@ -135,6 +135,22 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 		resourceInfo.SwapTotal = phc.parseMemoryValue(memInfo, "SwapTotal")
 	}
 
+	// LXD/Incus：先解析真实可用的存储池名称。
+	// 保留已配置且真实存在的池；配置为空/local/default占位符或已失效时，切换到远端实际存在的池。
+	if strings.ToLower(localProviderType) == "lxd" || strings.ToLower(localProviderType) == "incus" {
+		resolvedPoolName := phc.ResolveStoragePoolNameForProvider(client, localProviderType, localStoragePoolName)
+		if resolvedPoolName != "" {
+			resourceInfo.StoragePoolName = resolvedPoolName
+			if resolvedPoolName != localStoragePoolName && phc.logger != nil {
+				phc.logger.Info("自动解析Provider存储池名称",
+					zap.String("providerType", localProviderType),
+					zap.String("oldPool", localStoragePoolName),
+					zap.String("newPool", resolvedPoolName))
+			}
+			localStoragePoolName = resolvedPoolName
+		}
+	}
+
 	// 自动检测存储池路径
 	storagePoolPath, err := phc.DetectStoragePoolPath(client, localProviderType, localStoragePoolName)
 	if err != nil && phc.logger != nil {
@@ -146,27 +162,15 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 	}
 	resourceInfo.StoragePoolPath = storagePoolPath
 
-	// 自动检测 LXD/Incus 存储池名称（优先级高于 hardcode 的 "default"）
-	detectedPoolName := phc.DetectStoragePoolName(client, localProviderType)
-	if detectedPoolName != "" && (localStoragePoolName == "" || localStoragePoolName == "local" || localStoragePoolName == "default") {
-		// 用户未明确指定存储池或使用默认占位符 → 使用自动检测值
-		resourceInfo.StoragePoolName = detectedPoolName
-		if phc.logger != nil {
-			phc.logger.Info("自动检测并更新存储池名称",
-				zap.String("providerType", localProviderType),
-				zap.String("oldPool", localStoragePoolName),
-				zap.String("newPool", detectedPoolName))
-		}
-	}
-
 	// 自动确保 LXD/Incus 存储环境完整就绪（存储池 + profile root 设备对齐）
 	if strings.ToLower(localProviderType) == "lxd" || strings.ToLower(localProviderType) == "incus" {
-		if fixed := phc.EnsureProviderStorageReady(client, localProviderType); fixed {
+		if fixed := phc.EnsureProviderStorageReady(client, localProviderType, localStoragePoolName); fixed {
 			resourceInfo.ProfileRootDeviceFixed = true
-			// 重新检测 pool name（可能刚创建了 default）
-			detectedPoolName = phc.DetectStoragePoolName(client, localProviderType)
+			// 重新解析 pool name（可能刚修复了 profile root pool）
+			detectedPoolName := phc.ResolveStoragePoolNameForProvider(client, localProviderType, localStoragePoolName)
 			if detectedPoolName != "" {
 				resourceInfo.StoragePoolName = detectedPoolName
+				localStoragePoolName = detectedPoolName
 			}
 		}
 	}

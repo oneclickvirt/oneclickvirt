@@ -11,6 +11,7 @@ import (
 	"oneclickvirt/service/images"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -18,6 +19,11 @@ import (
 )
 
 const agentReconnectGraceWindow = 2 * time.Minute
+
+func isLXDOrIncusProvider(providerType string) bool {
+	pt := strings.ToLower(providerType)
+	return pt == "lxd" || pt == "incus"
+}
 
 // CheckProviderHealthAsync 异步检查Provider健康状态
 func (s *Service) CheckProviderHealthAsync(providerID uint) {
@@ -57,6 +63,8 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 	}
 	localAutoConfigured := provider.AutoConfigured
 	localAuthConfig := provider.AuthConfig
+	originalStoragePool := provider.StoragePool
+	originalStoragePoolPath := provider.StoragePoolPath
 
 	now := time.Now()
 	ctx := context.Background()
@@ -203,9 +211,10 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 			apiStatus = "offline"
 		}
 	}
-
 	// 如果SSH连接成功且（强制刷新或资源信息尚未同步），获取系统资源信息
-	shouldSyncResources := sshStatus == "online" && (forceRefresh || !provider.ResourceSynced)
+	// LXD/Incus 的 storage pool 名称直接参与创建实例。即使资源已同步，也要在健康检查中轻量校验并纠正，
+	// 防止历史默认值 default/local 或人工录入错误导致后续创建实例报 Storage pool not found。
+	shouldSyncResources := sshStatus == "online" && (forceRefresh || !provider.ResourceSynced || isLXDOrIncusProvider(provider.Type))
 	if shouldSyncResources {
 		logMsg := "开始同步节点资源信息"
 		if forceRefresh {
@@ -313,6 +322,29 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 		return tx.Save(&provider).Error
 	}); dbErr != nil {
 		return fmt.Errorf("保存Provider状态失败: %w", dbErr)
+	}
+
+	// 如果健康检查纠正了存储池或存储路径，立即刷新运行时 Provider 与 SSH/API 连接缓存，
+	// 避免内存中的旧 NodeConfig 继续使用失效的 default/local pool 创建实例。
+	if provider.StoragePool != originalStoragePool || provider.StoragePoolPath != originalStoragePoolPath {
+		if reloadErr := provider2.GetProviderService().ReloadProvider(localProviderID); reloadErr != nil {
+			global.APP_LOG.Warn("Provider存储配置已更新但运行时缓存刷新失败，新配置将在下次重连后生效",
+				zap.Uint("providerID", localProviderID),
+				zap.String("provider", localProviderName),
+				zap.String("oldPool", originalStoragePool),
+				zap.String("newPool", provider.StoragePool),
+				zap.String("oldPoolPath", originalStoragePoolPath),
+				zap.String("newPoolPath", provider.StoragePoolPath),
+				zap.Error(reloadErr))
+		} else {
+			global.APP_LOG.Info("Provider存储配置已更新并刷新运行时缓存",
+				zap.Uint("providerID", localProviderID),
+				zap.String("provider", localProviderName),
+				zap.String("oldPool", originalStoragePool),
+				zap.String("newPool", provider.StoragePool),
+				zap.String("oldPoolPath", originalStoragePoolPath),
+				zap.String("newPoolPath", provider.StoragePoolPath))
+		}
 	}
 
 	// 如果健康检查有错误，返回该错误（这样前端可以获取具体错误信息）
