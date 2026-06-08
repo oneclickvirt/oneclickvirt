@@ -283,9 +283,51 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 
 		updateProgress(35, "创建Incus实例...")
 		if err := i.executeCreateCommand(cmd); err != nil {
-			// 创建失败时清理可能已损坏/不兼容的镜像缓存
-			i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
-			return fmt.Errorf("执行创建命令失败: %w", err)
+			lowerErr := strings.ToLower(err.Error())
+			if strings.Contains(lowerErr, "failed to find image") || strings.Contains(lowerErr, "image not found") || strings.Contains(lowerErr, "no such image") {
+				fallbackAlias := config.Image
+				if strings.ContainsAny(fallbackAlias, ":/") || !strings.HasPrefix(fallbackAlias, "oneclickvirt_") {
+					fallbackAlias = i.spiritlhlLocalAlias(config.Image, config.InstanceType)
+				}
+				if fallbackAlias != "" {
+					global.APP_LOG.Warn("Incus创建时镜像不存在，尝试spiritlhl远程源兜底并重试",
+						zap.String("image", utils.TruncateString(config.Image, 100)),
+						zap.String("fallbackAlias", utils.TruncateString(fallbackAlias, 100)))
+					if copyErr := i.copySpiritlhlImageToLocal(config.Image, fallbackAlias, config.InstanceType); copyErr == nil {
+						retryCmd := strings.Replace(cmd, shellSingleQuote(config.Image), shellSingleQuote(fallbackAlias), 1)
+						if retryErr := i.executeCreateCommand(retryCmd); retryErr == nil {
+							global.APP_LOG.Info("Incus使用spiritlhl本地缓存镜像重试创建成功",
+								zap.String("instance", config.Name),
+								zap.String("alias", utils.TruncateString(fallbackAlias, 100)))
+							config.Image = fallbackAlias
+						} else {
+							global.APP_LOG.Warn("Incus使用spiritlhl本地缓存镜像重试创建仍失败", zap.Error(retryErr))
+							if i.shouldCleanupCachedImageOnCreateFailure("", err) {
+								i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
+							}
+							return fmt.Errorf("执行创建命令失败: %w", err)
+						}
+					} else {
+						global.APP_LOG.Warn("Incus创建时spiritlhl镜像兜底失败", zap.Error(copyErr))
+						if i.shouldCleanupCachedImageOnCreateFailure("", err) {
+							i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
+						}
+						return fmt.Errorf("执行创建命令失败: %w", err)
+					}
+				} else {
+					if i.shouldCleanupCachedImageOnCreateFailure("", err) {
+						i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
+					}
+					return fmt.Errorf("执行创建命令失败: %w", err)
+				}
+			} else {
+				// 只在明确属于镜像问题时清理缓存。存储池、网络、权限等错误不能删掉健康镜像，
+				// 否则会造成后续重复下载/重复导入/别名丢失。
+				if i.shouldCleanupCachedImageOnCreateFailure("", err) {
+					i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
+				}
+				return fmt.Errorf("执行创建命令失败: %w", err)
+			}
 		}
 
 		// 如果是虚拟机，需要额外的配置

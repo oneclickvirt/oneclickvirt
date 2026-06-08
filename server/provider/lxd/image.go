@@ -38,6 +38,19 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 		imageTypeStr = "容器"
 	}
 
+	// 本地镜像优先：如果用户/数据库传入的本来就是本地 alias/fingerprint，先直接使用。
+	// 这可以避免有可用本地缓存时仍然去下载或走远程源。
+	if config.ImageURL == "" && l.imageExists(originalImageName) {
+		config.Image = originalImageName
+		global.APP_LOG.Info("LXD"+imageTypeStr+"镜像已在本地存在，优先使用本地镜像",
+			zap.String("image", utils.TruncateString(config.Image, 100)),
+			zap.String("type", config.InstanceType))
+		if progressCallback != nil {
+			progressCallback(28, "使用本地已存在镜像")
+		}
+		return nil
+	}
+
 	// 有 URL：下载 → 导入 → 用本地别名
 	if config.ImageURL != "" {
 		imageNameWithPrefix := "oneclickvirt_" + originalImageName
@@ -57,24 +70,24 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 			return nil
 		}
 
-		// 前缀匹配：同内容镜像可能已以不同别名导入（架构纠正、URL hash 变化等）
-		// 避免重复下载和 import 指纹冲突
-		existingAlias := l.findImageByPrefix(imageNameWithPrefix + "_" + config.InstanceType + "_")
-		if existingAlias != "" {
-			global.APP_LOG.Info("LXD"+imageTypeStr+"镜像已通过前缀匹配找到，创建别名后跳过下载",
+		// 前缀匹配只能作为优化，不能直接返回成功。
+		// 只有成功把目标 alias 绑定到已有 fingerprint，并再次验证 alias 可用后，才跳过下载。
+		if fp, existingAlias := l.findImageFingerprintByPrefix(imageNameWithPrefix + "_" + config.InstanceType + "_"); fp != "" {
+			global.APP_LOG.Info("LXD"+imageTypeStr+"镜像已通过前缀匹配找到，尝试修补目标别名",
 				zap.String("existingAlias", utils.TruncateString(existingAlias, 100)),
-				zap.String("targetAlias", utils.TruncateString(config.Image, 100)))
-			// 获取已有镜像的指纹，为新别名创建引用
-			fp := l.getImageFingerprint(existingAlias)
-			if fp != "" {
-				aliasCmd := fmt.Sprintf("lxc image alias create %s %s 2>/dev/null || true",
-					shellSingleQuote(config.Image), shellSingleQuote(fp))
-				l.sshClient.Execute(aliasCmd)
+				zap.String("targetAlias", utils.TruncateString(config.Image, 100)),
+				zap.String("fingerprint", utils.TruncateString(fp, 64)))
+			if err := l.ensureImageAliasFromFingerprint(config.Image, fp); err == nil {
+				if progressCallback != nil {
+					progressCallback(28, "镜像别名已自动修补，跳过下载")
+				}
+				return nil
+			} else {
+				global.APP_LOG.Warn("LXD镜像前缀匹配别名修补失败，将继续重新下载导入",
+					zap.String("targetAlias", utils.TruncateString(config.Image, 100)),
+					zap.String("fingerprint", utils.TruncateString(fp, 64)),
+					zap.Error(err))
 			}
-			if progressCallback != nil {
-				progressCallback(28, "镜像已缓存，跳过下载")
-			}
-			return nil
 		}
 
 		if progressCallback != nil {
@@ -83,9 +96,30 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 		return l.downloadAndImportImage(ctx, config, originalImageName, imageTypeStr, progressCallback)
 	}
 
-	// 无 URL（数据库无匹配的系统镜像）：尝试解析为 LXD 远程镜像引用
+	// 无 URL（数据库无匹配的系统镜像）：先尝试 spiritlhl simplestreams 镜像源，
+	// 成功后复制到本地 alias，再使用本地镜像创建实例；失败再回退到官方 images:/ubuntu: 远程。
+	if fallbackAlias := l.spiritlhlLocalAlias(originalImageName, config.InstanceType); fallbackAlias != "" {
+		if err := l.copySpiritlhlImageToLocal(originalImageName, fallbackAlias, config.InstanceType); err == nil {
+			config.Image = fallbackAlias
+			global.APP_LOG.Info("已从spiritlhl LXD镜像源复制镜像到本地",
+				zap.String("original", originalImageName),
+				zap.String("alias", utils.TruncateString(config.Image, 100)),
+				zap.String("type", config.InstanceType))
+			if progressCallback != nil {
+				progressCallback(28, "已使用spiritlhl镜像源缓存到本地")
+			}
+			return nil
+		} else {
+			global.APP_LOG.Warn("spiritlhl LXD镜像源回退失败，将继续尝试官方远程镜像",
+				zap.String("image", originalImageName),
+				zap.String("targetAlias", fallbackAlias),
+				zap.Error(err))
+		}
+	}
+
+	// 兜底：尝试解析为 LXD 官方远程镜像引用。
 	// Docker 风格名称 "debian:12" → LXD 远程 "images:debian/12/cloud"
-	// 如果已经是 LXD 远程格式（含 / 或 :），直接使用
+	// 如果已经是 LXD 远程格式（含 / 或 :），直接使用。
 	lxdRemoteImage := l.resolveLxdRemoteImage(originalImageName)
 	if lxdRemoteImage != "" {
 		config.Image = lxdRemoteImage
@@ -107,11 +141,26 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 // downloadAndImportImage 下载镜像并导入到 LXD。
 // progressCallback 用于报告下载/导入进度；可为 nil。
 func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provider.InstanceConfig, originalImageName, imageTypeStr string, progressCallback provider.ProgressCallback) error {
-	// 使用 singleflight 确保同一别名只有一个协程执行下载+导入，
-	// 其余协程阻塞等待，完成后共享同一结果，彻底消除并发解压/导入冲突。
+	// 使用 singleflight 确保同一别名只有一个协程执行下载+导入；
+	// 同时使用远端 flock 防止多个 oneclickvirt 进程/容器同时导入同一 fingerprint。
 	aliasKey := config.Image
 	imageURL := config.ImageURL
 	useCDN := config.UseCDN
+	trySpiritlhlFallback := func(stage string, cause error) error {
+		if err := l.copySpiritlhlImageToLocal(originalImageName, aliasKey, config.InstanceType); err == nil {
+			global.APP_LOG.Info("LXD镜像下载/导入异常后已回退到spiritlhl本地缓存",
+				zap.String("stage", stage),
+				zap.String("alias", utils.TruncateString(aliasKey, 100)),
+				zap.String("type", config.InstanceType))
+			return nil
+		} else {
+			global.APP_LOG.Warn("LXD镜像spiritlhl回退失败",
+				zap.String("stage", stage),
+				zap.String("alias", utils.TruncateString(aliasKey, 100)),
+				zap.Error(err))
+		}
+		return cause
+	}
 	_, err, _ := l.imageImportGroup.Do(aliasKey, func() (interface{}, error) {
 		// 等待期间镜像可能已由其他协程导入完毕，再次检查
 		if l.imageExists(aliasKey) {
@@ -130,155 +179,104 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 
 		imagePath, err := l.downloadImageToRemote(imageURL, originalImageName, l.config.Country, l.getCurrentArchitecture(), config.InstanceType, useCDN)
 		if err != nil {
-			return nil, fmt.Errorf("下载%s镜像失败: %w", imageTypeStr, err)
+			return nil, trySpiritlhlFallback("download", fmt.Errorf("下载%s镜像失败: %w", imageTypeStr, err))
 		}
 
 		if progressCallback != nil {
-			progressCallback(23, "镜像下载完成，开始导入...")
+			progressCallback(23, "镜像下载完成，开始校验...")
 		}
 		global.APP_LOG.Info("LXD"+imageTypeStr+"镜像下载成功",
 			zap.String("imagePath", utils.TruncateString(imagePath, 200)),
 			zap.String("type", config.InstanceType))
 
-		global.APP_LOG.Info("开始导入LXD"+imageTypeStr+"镜像",
-			zap.String("imagePath", utils.TruncateString(imagePath, 200)),
-			zap.String("alias", utils.TruncateString(aliasKey, 100)),
-			zap.String("type", config.InstanceType))
+		plan, err := l.buildImageImportPlan(imagePath, aliasKey, config.InstanceType)
+		if err != nil {
+			_ = l.removeRemoteFile(imagePath)
+			return nil, trySpiritlhlFallback("build-import-plan", err)
+		}
+		defer plan.cleanup()
 
-		var importErr error
-		var importOutput string
-		var imageFingerprint string
-		if config.InstanceType == "vm" {
-			if strings.HasSuffix(imagePath, ".zip") {
-				extractDir := strings.TrimSuffix(imagePath, ".zip")
-				if _, err := l.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", shellSingleQuote(imagePath), shellSingleQuote(extractDir))); err != nil {
-					return nil, fmt.Errorf("解压LXD虚拟机镜像失败: %w", err)
+		// 如果本地已经存在同 fingerprint 镜像，只需要修补目标 alias，不要重复 import。
+		if plan.fingerprint != "" {
+			if existingFP := l.findImageFingerprint(plan.fingerprint); existingFP != "" {
+				global.APP_LOG.Info("LXD镜像fingerprint已存在，自动修补目标别名",
+					zap.String("alias", utils.TruncateString(aliasKey, 100)),
+					zap.String("fingerprint", utils.TruncateString(existingFP, 64)))
+				if err := l.ensureImageAliasFromFingerprint(aliasKey, existingFP); err != nil {
+					return nil, trySpiritlhlFallback("alias-repair-existing-fingerprint", fmt.Errorf("LXD%s镜像已存在但别名修补失败: %w", imageTypeStr, err))
 				}
-				defer l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
-				var importCmd string
-				findCmd := fmt.Sprintf("find %s -name '*.img' -o -name '*.qcow2' -o -name '*.vmdk' | head -1", shellSingleQuote(extractDir))
-				vmImagePath, err := l.sshClient.Execute(findCmd)
-				if err != nil || strings.TrimSpace(vmImagePath) == "" {
-					findCmd = fmt.Sprintf("find %s -name '*.tar.xz' | head -1", shellSingleQuote(extractDir))
-					vmImagePath, err = l.sshClient.Execute(findCmd)
-					if err != nil || utils.CleanCommandOutput(vmImagePath) == "" {
-						l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
-						return nil, fmt.Errorf("未找到解压后的LXD虚拟机镜像文件")
-					}
-				}
-				vmImagePath = utils.CleanCommandOutput(vmImagePath)
-				lxdTarPath := fmt.Sprintf("%s/lxd.tar.xz", extractDir)
-				diskPath := fmt.Sprintf("%s/disk.qcow2", extractDir)
-				if l.isRemoteFileValid(lxdTarPath) && l.isRemoteFileValid(diskPath) {
-					imageFingerprint = l.calculateRemoteImageFingerprint(lxdTarPath, diskPath)
-					importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(lxdTarPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
-				} else {
-					imageFingerprint = l.calculateRemoteImageFingerprint(vmImagePath)
-					importCmd = fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
-				}
-				if imageFingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, imageFingerprint) {
-					global.APP_LOG.Info("LXD"+imageTypeStr+"镜像指纹已存在，已自动补齐别名，跳过导入",
-						zap.String("alias", utils.TruncateString(aliasKey, 100)),
-						zap.String("fingerprint", utils.TruncateString(imageFingerprint, 32)))
-					return nil, nil
-				}
-				importOutput, importErr = l.sshClient.Execute(importCmd)
-			} else {
-				imageFingerprint = l.calculateRemoteImageFingerprint(imagePath)
-				if imageFingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, imageFingerprint) {
-					global.APP_LOG.Info("LXD"+imageTypeStr+"镜像指纹已存在，已自动补齐别名，跳过导入",
-						zap.String("alias", utils.TruncateString(aliasKey, 100)),
-						zap.String("fingerprint", utils.TruncateString(imageFingerprint, 32)))
-					return nil, nil
-				}
-				importOutput, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
-			}
-		} else {
-			if strings.HasSuffix(imagePath, ".zip") {
-				extractDir := strings.TrimSuffix(imagePath, ".zip")
-				if _, err := l.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", shellSingleQuote(imagePath), shellSingleQuote(extractDir))); err != nil {
-					return nil, fmt.Errorf("解压LXD容器镜像失败: %w", err)
-				}
-				defer l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
-				var importCmd string
-				lxdTarPath := fmt.Sprintf("%s/lxd.tar.xz", extractDir)
-				rootfsPath := fmt.Sprintf("%s/rootfs.squashfs", extractDir)
-				if l.isRemoteFileValid(lxdTarPath) && l.isRemoteFileValid(rootfsPath) {
-					imageFingerprint = l.calculateRemoteImageFingerprint(lxdTarPath, rootfsPath)
-					importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(lxdTarPath), shellSingleQuote(rootfsPath), shellSingleQuote(aliasKey))
-				} else {
-					findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", shellSingleQuote(extractDir))
-					tarPath, err := l.sshClient.Execute(findCmd)
-					if err != nil || utils.CleanCommandOutput(tarPath) == "" {
-						l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
-						return nil, fmt.Errorf("未找到解压后的LXD容器镜像文件")
-					}
-					cleanTarPath := utils.CleanCommandOutput(tarPath)
-					imageFingerprint = l.calculateRemoteImageFingerprint(cleanTarPath)
-					importCmd = fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(cleanTarPath), shellSingleQuote(aliasKey))
-				}
-				if imageFingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, imageFingerprint) {
-					global.APP_LOG.Info("LXD"+imageTypeStr+"镜像指纹已存在，已自动补齐别名，跳过导入",
-						zap.String("alias", utils.TruncateString(aliasKey, 100)),
-						zap.String("fingerprint", utils.TruncateString(imageFingerprint, 32)))
-					return nil, nil
-				}
-				importOutput, importErr = l.sshClient.Execute(importCmd)
-			} else {
-				imageFingerprint = l.calculateRemoteImageFingerprint(imagePath)
-				if imageFingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, imageFingerprint) {
-					global.APP_LOG.Info("LXD"+imageTypeStr+"镜像指纹已存在，已自动补齐别名，跳过导入",
-						zap.String("alias", utils.TruncateString(aliasKey, 100)),
-						zap.String("fingerprint", utils.TruncateString(imageFingerprint, 32)))
-					return nil, nil
-				}
-				importOutput, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
+				return nil, nil
 			}
 		}
 
+		if progressCallback != nil {
+			progressCallback(25, "导入镜像到LXD...")
+		}
+		global.APP_LOG.Info("开始导入LXD"+imageTypeStr+"镜像",
+			zap.String("imagePath", utils.TruncateString(imagePath, 200)),
+			zap.String("alias", utils.TruncateString(aliasKey, 100)),
+			zap.String("fingerprint", utils.TruncateString(plan.fingerprint, 64)),
+			zap.String("type", config.InstanceType))
+
+		importOutput, importErr := l.sshClient.Execute(l.wrapImageImportWithLock(plan.importCmd, plan.fingerprint, aliasKey))
 		if importErr != nil {
-			// 图片指纹已存在（同内容不同别名/并发导入）→ 给已有镜像添加新别名即可。
-			// 不能只依赖 LXD 输出里的 fingerprint，因为部分版本只返回
-			// "Image with same fingerprint already exists"，不会附带具体指纹。
-			errText := importOutput + "\n" + importErr.Error()
-			if strings.Contains(strings.ToLower(errText), "fingerprint already exists") {
-				global.APP_LOG.Info("LXD镜像指纹已存在，尝试自动修补镜像别名",
-					zap.String("alias", utils.TruncateString(aliasKey, 100)),
-					zap.String("imagePath", utils.TruncateString(imagePath, 200)))
+			errText := importOutput
+			if errText == "" {
+				errText = importErr.Error()
+			} else {
+				errText += "\n" + importErr.Error()
+			}
+			lowerErrText := strings.ToLower(errText)
 
-				fingerprint := imageFingerprint
-				if fingerprint == "" {
-					fingerprint = extractFingerprintFromOutput(errText)
+			// 同内容镜像已存在：优先使用本地计算的 fingerprint；输出中带 fingerprint 时也兼容解析。
+			if strings.Contains(lowerErrText, "fingerprint already exists") || strings.Contains(lowerErrText, "same fingerprint") {
+				fingerprint := plan.fingerprint
+				if parsed := extractFingerprintFromOutput(errText); parsed != "" {
+					fingerprint = parsed
 				}
-				if fingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, fingerprint) {
-					global.APP_LOG.Info("LXD镜像别名自动修补成功",
+				if fingerprint != "" {
+					global.APP_LOG.Info("LXD镜像指纹重复，自动修补目标别名",
 						zap.String("alias", utils.TruncateString(aliasKey, 100)),
-						zap.String("fingerprint", utils.TruncateString(fingerprint, 32)))
-					return nil, nil
+						zap.String("fingerprint", utils.TruncateString(fingerprint, 64)))
+					if err := l.ensureImageAliasFromFingerprint(aliasKey, fingerprint); err == nil {
+						return nil, nil
+					} else {
+						global.APP_LOG.Warn("LXD镜像指纹重复后的别名修补失败",
+							zap.String("alias", utils.TruncateString(aliasKey, 100)),
+							zap.String("fingerprint", utils.TruncateString(fingerprint, 64)),
+							zap.Error(err))
+					}
 				}
-				// 兜底：并发场景下别的流程可能已经补完 alias。
 				if l.imageExists(aliasKey) {
-					global.APP_LOG.Info("LXD镜像别名已存在（指纹重复但别名可用）",
-						zap.String("alias", utils.TruncateString(aliasKey, 100)))
 					return nil, nil
 				}
 			}
 
-			// 保留 LXD 原始错误输出，帮助排查镜像格式、存储池空间等问题
-			if importOutput == "" {
-				importOutput = importErr.Error()
-			}
 			global.APP_LOG.Error("LXD镜像导入命令失败",
 				zap.String("alias", utils.TruncateString(aliasKey, 100)),
 				zap.String("imagePath", utils.TruncateString(imagePath, 200)),
-				zap.String("lxcOutput", utils.TruncateString(importOutput, 1000)),
+				zap.String("lxcOutput", utils.TruncateString(errText, 1000)),
 				zap.Error(importErr))
-			return nil, fmt.Errorf("LXD%s镜像导入失败: %s (lxc output: %s)", imageTypeStr, importErr.Error(), utils.TruncateString(importOutput, 500))
+			_ = l.removeRemoteFile(imagePath)
+			return nil, trySpiritlhlFallback("import", fmt.Errorf("LXD%s镜像导入失败: %s (lxc output: %s)", imageTypeStr, importErr.Error(), utils.TruncateString(errText, 500)))
+		}
+
+		// import 成功后仍必须验证 alias。部分异常环境会 import 成功但 alias 未创建，
+		// 如果 fingerprint 已知则自动补 alias；否则明确失败，避免拖到 lxc init 才报找不到镜像。
+		if !l.imageExists(aliasKey) {
+			if plan.fingerprint != "" {
+				if err := l.ensureImageAliasFromFingerprint(aliasKey, plan.fingerprint); err != nil {
+					return nil, trySpiritlhlFallback("post-import-alias-verify", fmt.Errorf("LXD%s镜像导入成功但别名不可用，自动修补失败: %w", imageTypeStr, err))
+				}
+			} else {
+				return nil, trySpiritlhlFallback("post-import-alias-empty-fingerprint", fmt.Errorf("LXD%s镜像导入成功但别名不可用: %s", imageTypeStr, aliasKey))
+			}
 		}
 
 		global.APP_LOG.Info("LXD"+imageTypeStr+"镜像导入成功",
 			zap.String("imagePath", utils.TruncateString(imagePath, 200)),
 			zap.String("alias", utils.TruncateString(aliasKey, 100)),
+			zap.String("fingerprint", utils.TruncateString(plan.fingerprint, 64)),
 			zap.String("type", config.InstanceType))
 
 		// 导入成功后删除远程镜像 zip 文件
@@ -467,30 +465,177 @@ func (l *LXDProvider) getCurrentArchitecture() string {
 	return l.config.Architecture
 }
 
-// imageExists 检查镜像是否已存在
-func (l *LXDProvider) imageExists(alias string) bool {
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc image list %s --format csv", shellSingleQuote(alias)))
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(output) != ""
+// lxdImageImportPlan 记录一次镜像导入所需的命令、指纹和临时目录。
+type lxdImageImportPlan struct {
+	importCmd   string
+	fingerprint string
+	cleanupDir  string
+	cleanupFunc func()
 }
 
-// findImageByPrefix 通过前缀查找 LXD 镜像别名（用于避免架构纠正后重复下载）
-// 返回第一个匹配的别名，未找到返回空字符串
-func (l *LXDProvider) findImageByPrefix(prefix string) string {
-	// lxc image list 支持按列过滤；用 csv 格式取别名列，然后 grep 前缀
-	cmd := fmt.Sprintf("lxc image list --format csv -c l 2>/dev/null | grep '^%s' | head -1", prefix)
+func (p *lxdImageImportPlan) cleanup() {
+	if p != nil && p.cleanupFunc != nil {
+		p.cleanupFunc()
+	}
+}
+
+// buildImageImportPlan 兼容 oneclickvirt/lxd、oneclickvirt/incus 以及标准 LXD split/single 镜像。
+// 它会递归查找 zip 内的 metadata/rootfs/disk 文件，避免因文件名为 incus.tar.xz、嵌套目录等导致导入异常。
+func (l *LXDProvider) buildImageImportPlan(imagePath, aliasKey, instanceType string) (*lxdImageImportPlan, error) {
+	plan := &lxdImageImportPlan{}
+	workPath := imagePath
+
+	if strings.HasSuffix(strings.ToLower(imagePath), ".zip") {
+		extractDir := strings.TrimSuffix(imagePath, ".zip")
+		plan.cleanupDir = extractDir
+		plan.cleanupFunc = func() {
+			_, _ = l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
+		}
+		// 先清理旧解压目录，避免上次失败残留文件参与本次导入。
+		_, _ = l.sshClient.Execute(fmt.Sprintf("rm -rf %s && mkdir -p %s", shellSingleQuote(extractDir), shellSingleQuote(extractDir)))
+		if _, err := l.sshClient.Execute(fmt.Sprintf("unzip -oq %s -d %s", shellSingleQuote(imagePath), shellSingleQuote(extractDir))); err != nil {
+			return nil, fmt.Errorf("解压LXD镜像失败: %w", err)
+		}
+		workPath = extractDir
+	}
+
+	if instanceType == "vm" {
+		metadataPath := l.findRemoteImageFile(workPath, "metadata")
+		diskPath := l.findRemoteImageFile(workPath, "disk")
+		if metadataPath != "" && diskPath != "" {
+			plan.fingerprint = l.computeRemoteSplitFingerprint(metadataPath, diskPath)
+			plan.importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(metadataPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
+			return plan, nil
+		}
+
+		vmImagePath := l.findRemoteImageFile(workPath, "vm-single")
+		if vmImagePath == "" && !strings.HasSuffix(strings.ToLower(imagePath), ".zip") && l.isRemoteFileValid(imagePath) {
+			vmImagePath = imagePath
+		}
+		if vmImagePath == "" {
+			return nil, fmt.Errorf("未找到可导入的LXD虚拟机镜像文件")
+		}
+		plan.fingerprint = l.computeRemoteFileFingerprint(vmImagePath)
+		plan.importCmd = fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
+		return plan, nil
+	}
+
+	metadataPath := l.findRemoteImageFile(workPath, "metadata")
+	rootfsPath := l.findRemoteImageFile(workPath, "rootfs")
+	if metadataPath != "" && rootfsPath != "" {
+		plan.fingerprint = l.computeRemoteSplitFingerprint(metadataPath, rootfsPath)
+		plan.importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(metadataPath), shellSingleQuote(rootfsPath), shellSingleQuote(aliasKey))
+		return plan, nil
+	}
+
+	singlePath := l.findRemoteImageFile(workPath, "container-single")
+	if singlePath == "" && !strings.HasSuffix(strings.ToLower(imagePath), ".zip") && l.isRemoteFileValid(imagePath) {
+		singlePath = imagePath
+	}
+	if singlePath == "" {
+		return nil, fmt.Errorf("未找到可导入的LXD容器镜像文件")
+	}
+	plan.fingerprint = l.computeRemoteFileFingerprint(singlePath)
+	plan.importCmd = fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(singlePath), shellSingleQuote(aliasKey))
+	return plan, nil
+}
+
+// findRemoteImageFile 在远端递归查找镜像组成文件。
+func (l *LXDProvider) findRemoteImageFile(basePath, kind string) string {
+	var cmd string
+	switch kind {
+	case "metadata":
+		cmd = fmt.Sprintf("find %s -type f \\( -name 'lxd.tar.xz' -o -name 'incus.tar.xz' -o -name 'metadata.tar.xz' -o -name 'metadata.tar.gz' -o -name 'metadata.tar' \\) | sort | head -1", shellSingleQuote(basePath))
+		if out, err := l.sshClient.Execute(cmd); err == nil && utils.CleanCommandOutput(out) != "" {
+			return utils.CleanCommandOutput(out)
+		}
+		cmd = fmt.Sprintf("find %s -type f \\( -name '*.tar.xz' -o -name '*.tar.gz' -o -name '*.tar' \\) ! -name 'rootfs*' ! -name '*rootfs*' | sort | head -1", shellSingleQuote(basePath))
+	case "rootfs":
+		cmd = fmt.Sprintf("find %s -type f \\( -name 'rootfs.squashfs' -o -name 'rootfs.tar.xz' -o -name 'rootfs.tar.gz' -o -name 'rootfs.tar.bz2' -o -name 'rootfs.tar' -o -name 'rootfs.ext4' \\) | sort | head -1", shellSingleQuote(basePath))
+	case "disk":
+		cmd = fmt.Sprintf("find %s -type f \\( -name 'disk.qcow2' -o -name '*.qcow2' -o -name '*.img' -o -name '*.vmdk' \\) | sort | head -1", shellSingleQuote(basePath))
+	case "vm-single":
+		cmd = fmt.Sprintf("find %s -type f \\( -name '*.qcow2' -o -name '*.img' -o -name '*.vmdk' -o -name '*.tar.xz' -o -name '*.tar.gz' -o -name '*.tar' \\) | sort | head -1", shellSingleQuote(basePath))
+	case "container-single":
+		cmd = fmt.Sprintf("find %s -type f \\( -name '*.tar.xz' -o -name '*.tar.gz' -o -name '*.tar.bz2' -o -name '*.tar' \\) | sort | head -1", shellSingleQuote(basePath))
+	default:
+		return ""
+	}
+	out, err := l.sshClient.Execute(cmd)
+	if err != nil {
+		return ""
+	}
+	return utils.CleanCommandOutput(out)
+}
+
+func (l *LXDProvider) computeRemoteFileFingerprint(path string) string {
+	out, err := l.sshClient.Execute(fmt.Sprintf("sha256sum %s 2>/dev/null | awk '{print $1}'", shellSingleQuote(path)))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+func (l *LXDProvider) computeRemoteSplitFingerprint(metadataPath, dataPath string) string {
+	// LXD/Incus split images use the metadata tarball fingerprint as the image fingerprint;
+	// the rootfs/disk hash is referenced from metadata, so do not hash metadata+rootfs here.
+	_ = dataPath
+	return l.computeRemoteFileFingerprint(metadataPath)
+}
+
+func (l *LXDProvider) wrapImageImportWithLock(importCmd, fingerprint, alias string) string {
+	lockKey := fingerprint
+	if lockKey == "" {
+		lockKey = alias
+	}
+	lockFile := "/tmp/oneclickvirt-lxd-image-" + sanitizeLockKey(lockKey) + ".lock"
+	return fmt.Sprintf("if command -v flock >/dev/null 2>&1; then flock %s -c %s; else %s; fi", shellSingleQuote(lockFile), shellSingleQuote(importCmd), importCmd)
+}
+
+// imageExists 检查镜像 alias 是否精确存在。
+func (l *LXDProvider) imageExists(alias string) bool {
+	return l.getImageFingerprint(alias) != ""
+}
+
+// findImageFingerprint 查找本地是否已有指定 fingerprint 的镜像。
+func (l *LXDProvider) findImageFingerprint(fingerprint string) string {
+	if strings.TrimSpace(fingerprint) == "" {
+		return ""
+	}
+	cmd := fmt.Sprintf("lxc image info %s 2>/dev/null | awk -F': ' '/^Fingerprint:/{print $2; exit}'", shellSingleQuote(fingerprint))
+	output, err := l.sshClient.Execute(cmd)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(output)
+}
+
+// findImageFingerprintByPrefix 通过别名前缀查找本地镜像，返回 fingerprint 和匹配到的 alias。
+func (l *LXDProvider) findImageFingerprintByPrefix(prefix string) (string, string) {
+	cmd := fmt.Sprintf("lxc image list --format csv -c f,l 2>/dev/null | awk -F, -v p=%s '{for(i=2;i<=NF;i++){gsub(/^ +| +$/, \"\", $i); if(index($i,p)==1){print $1 \"\\t\" $i; exit}}}'", shellSingleQuote(prefix))
 	output, err := l.sshClient.Execute(cmd)
 	if err != nil || strings.TrimSpace(output) == "" {
-		return ""
+		return "", ""
 	}
-	return strings.TrimSpace(output)
+	parts := strings.SplitN(strings.TrimSpace(output), "\t", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 }
 
-// getImageFingerprint 获取 LXD 镜像的指纹（用于创建别名引用）
+// findImageByPrefix 兼容旧调用：返回第一个匹配的别名。
+func (l *LXDProvider) findImageByPrefix(prefix string) string {
+	_, alias := l.findImageFingerprintByPrefix(prefix)
+	return alias
+}
+
+// getImageFingerprint 获取 LXD 镜像的指纹（用于创建别名引用）。
 func (l *LXDProvider) getImageFingerprint(alias string) string {
-	cmd := fmt.Sprintf("lxc image list %s --format csv -c f 2>/dev/null | head -1", shellSingleQuote(alias))
+	if strings.TrimSpace(alias) == "" {
+		return ""
+	}
+	cmd := fmt.Sprintf("lxc image info %s 2>/dev/null | awk -F': ' '/^Fingerprint:/{print $2; exit}'", shellSingleQuote(alias))
 	output, err := l.sshClient.Execute(cmd)
 	if err != nil {
 		return ""
@@ -498,84 +643,263 @@ func (l *LXDProvider) getImageFingerprint(alias string) string {
 	return strings.TrimSpace(output)
 }
 
-// imageFingerprintExists 检查指定指纹的镜像是否已在本地 LXD 镜像库中。
-func (l *LXDProvider) imageFingerprintExists(fingerprint string) bool {
-	fingerprint = normalizeImageFingerprint(fingerprint)
-	if fingerprint == "" {
-		return false
+// ensureImageAliasFromFingerprint 确保目标 alias 精确指向已有 fingerprint。
+func (l *LXDProvider) ensureImageAliasFromFingerprint(alias, fingerprint string) error {
+	alias = strings.TrimSpace(alias)
+	fingerprint = strings.TrimSpace(fingerprint)
+	if alias == "" || fingerprint == "" {
+		return fmt.Errorf("alias或fingerprint为空")
 	}
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc image list %s --format csv -c f 2>/dev/null | head -1", shellSingleQuote(fingerprint)))
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(output) != ""
-}
-
-// calculateRemoteImageFingerprint 按 LXD/Incus 的镜像指纹规则计算远程镜像文件指纹。
-// 单文件镜像：sha256(file)；split 镜像：sha256(metadata + rootfs/disk)。
-func (l *LXDProvider) calculateRemoteImageFingerprint(paths ...string) string {
-	if len(paths) == 0 {
-		return ""
-	}
-	quoted := make([]string, 0, len(paths))
-	for _, path := range paths {
-		path = strings.TrimSpace(path)
-		if path == "" {
-			return ""
+	if existing := l.getImageFingerprint(alias); existing != "" {
+		if strings.HasPrefix(existing, fingerprint) || strings.HasPrefix(fingerprint, existing) || existing == fingerprint {
+			return nil
 		}
-		quoted = append(quoted, shellSingleQuote(path))
 	}
-
-	var cmd string
-	if len(quoted) == 1 {
-		cmd = fmt.Sprintf("sha256sum %s 2>/dev/null | awk '{print $1}'", quoted[0])
-	} else {
-		cmd = fmt.Sprintf("cat %s 2>/dev/null | sha256sum | awk '{print $1}'", strings.Join(quoted, " "))
+	if existing := l.findImageFingerprint(fingerprint); existing != "" {
+		fingerprint = existing
 	}
+	cmd := fmt.Sprintf("lxc image alias delete %s >/dev/null 2>&1 || true; lxc image alias create %s %s", shellSingleQuote(alias), shellSingleQuote(alias), shellSingleQuote(fingerprint))
 	output, err := l.sshClient.Execute(cmd)
 	if err != nil {
-		return ""
+		return fmt.Errorf("创建LXD镜像别名失败: %w (output: %s)", err, utils.TruncateString(output, 300))
 	}
-	return normalizeImageFingerprint(output)
+	if !l.imageExists(alias) {
+		return fmt.Errorf("创建LXD镜像别名后验证失败: %s", alias)
+	}
+	return nil
 }
 
-// ensureImageAliasFromFingerprint 如果本地已有 fingerprint 对应镜像，则确保 alias 指向它。
-// 返回 true 表示 alias 已可用，可以跳过 import。
-func (l *LXDProvider) ensureImageAliasFromFingerprint(alias, fingerprint string) bool {
-	fingerprint = normalizeImageFingerprint(fingerprint)
-	if alias == "" || fingerprint == "" || !l.imageFingerprintExists(fingerprint) {
-		return false
+func (l *LXDProvider) spiritlhlLocalAlias(imageName, instanceType string) string {
+	base := strings.TrimSpace(imageName)
+	if base == "" {
+		return ""
 	}
-
-	currentFP := normalizeImageFingerprint(l.getImageFingerprint(alias))
-	if currentFP == fingerprint || strings.HasPrefix(currentFP, fingerprint) || strings.HasPrefix(fingerprint, currentFP) {
-		return true
+	base = strings.TrimPrefix(base, "local:")
+	base = strings.TrimPrefix(base, "images:")
+	base = strings.TrimPrefix(base, "spiritlhl:")
+	base = strings.TrimPrefix(base, "oneclickvirt_")
+	if idx := strings.Index(base, "_container_"); idx > 0 {
+		base = base[:idx]
 	}
-
-	// oneclickvirt 自己生成的 alias 可安全重绑；已有实例不会因为 alias 改变而被改写。
-	cmd := fmt.Sprintf("lxc image alias delete %s >/dev/null 2>&1 || true; lxc image alias create %s %s >/dev/null 2>&1 || true",
-		shellSingleQuote(alias), shellSingleQuote(alias), shellSingleQuote(fingerprint))
-	_, _ = l.sshClient.Execute(cmd)
-
-	currentFP = normalizeImageFingerprint(l.getImageFingerprint(alias))
-	return currentFP == fingerprint || strings.HasPrefix(currentFP, fingerprint) || strings.HasPrefix(fingerprint, currentFP)
+	if idx := strings.Index(base, "_vm_"); idx > 0 {
+		base = base[:idx]
+	}
+	base = strings.ReplaceAll(base, "/", "-")
+	base = strings.ReplaceAll(base, ":", "-")
+	base = sanitizeLockKey(base)
+	if base == "" || base == "unknown" {
+		return ""
+	}
+	arch := sanitizeLockKey(l.getCurrentArchitecture())
+	return fmt.Sprintf("oneclickvirt_%s_%s_%s-spiritlhl", base, instanceType, arch)
 }
 
-func normalizeImageFingerprint(value string) string {
-	fields := strings.Fields(strings.TrimSpace(value))
-	if len(fields) == 0 {
-		return ""
+func (l *LXDProvider) ensureSpiritlhlRemote() error {
+	checkCmd := "lxc remote list --format csv 2>/dev/null | awk -F, '$1==\"spiritlhl\"{found=1} END{exit !found}'"
+	if _, err := l.sshClient.Execute(checkCmd); err == nil {
+		return nil
 	}
-	fp := strings.TrimPrefix(strings.TrimSpace(fields[0]), "sha256:")
-	if len(fp) < 12 {
-		return ""
+	cmd := "lxc remote add spiritlhl https://lxdimages.spiritlhl.net --protocol simplestreams --public"
+	output, err := l.sshClient.Execute(cmd)
+	if err == nil {
+		return nil
 	}
-	for _, ch := range fp {
-		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
-			return ""
+	// 如果名称存在但配置损坏或 URL 不对，重建一次 remote。
+	rebuildCmd := "lxc remote remove spiritlhl >/dev/null 2>&1 || true; lxc remote add spiritlhl https://lxdimages.spiritlhl.net --protocol simplestreams --public"
+	output, err = l.sshClient.Execute(rebuildCmd)
+	if err != nil {
+		return fmt.Errorf("添加spiritlhl LXD远程镜像源失败: %w (output: %s)", err, utils.TruncateString(output, 300))
+	}
+	return nil
+}
+
+func (l *LXDProvider) copySpiritlhlImageToLocal(imageName, targetAlias, instanceType string) error {
+	if strings.TrimSpace(targetAlias) == "" {
+		return fmt.Errorf("目标镜像alias为空")
+	}
+	if l.imageExists(targetAlias) {
+		return nil
+	}
+	candidates := buildSpiritlhlImageCandidates(imageName)
+	if len(candidates) == 0 {
+		return fmt.Errorf("无法从镜像名生成spiritlhl候选路径: %s", imageName)
+	}
+	if err := l.ensureSpiritlhlRemote(); err != nil {
+		return err
+	}
+	if err := l.copySpiritlhlImageCandidates(targetAlias, instanceType, candidates); err == nil {
+		return nil
+	}
+	// remote 可能存在但指向旧地址或协议不对，重建一次再重试。
+	_, _ = l.sshClient.Execute("lxc remote remove spiritlhl >/dev/null 2>&1 || true; lxc remote add spiritlhl https://lxdimages.spiritlhl.net --protocol simplestreams --public")
+	return l.copySpiritlhlImageCandidates(targetAlias, instanceType, candidates)
+}
+
+func (l *LXDProvider) copySpiritlhlImageCandidates(targetAlias, instanceType string, candidates []string) error {
+	var lastErr error
+	for _, candidate := range candidates {
+		source := "spiritlhl:" + candidate
+		vmFlag := ""
+		if instanceType == "vm" {
+			vmFlag = " --vm"
+		}
+		cmd := fmt.Sprintf("lxc image alias delete %s >/dev/null 2>&1 || true; lxc image copy %s local: --alias %s%s --auto-update=false", shellSingleQuote(targetAlias), shellSingleQuote(source), shellSingleQuote(targetAlias), vmFlag)
+		output, err := l.sshClient.ExecuteWithTimeout(cmd, 1*time.Hour)
+		if err == nil && l.imageExists(targetAlias) {
+			global.APP_LOG.Info("已复制spiritlhl LXD镜像到本地", zap.String("source", source), zap.String("alias", utils.TruncateString(targetAlias, 100)), zap.String("type", instanceType))
+			return nil
+		}
+		if l.imageExists(targetAlias) {
+			return nil
+		}
+		errText := output
+		if err != nil {
+			errText += "\n" + err.Error()
+		}
+		if strings.Contains(strings.ToLower(errText), "fingerprint") {
+			if fp := extractFingerprintFromOutput(errText); fp != "" {
+				if aliasErr := l.ensureImageAliasFromFingerprint(targetAlias, fp); aliasErr == nil {
+					return nil
+				}
+			}
+		}
+		lastErr = fmt.Errorf("复制候选镜像 %s 失败: %v (output: %s)", source, err, utils.TruncateString(output, 300))
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("没有可用的spiritlhl候选镜像")
+	}
+	return lastErr
+}
+
+func buildSpiritlhlImageCandidates(imageName string) []string {
+	osName, version, variant := parseSpiritlhlImageName(imageName)
+	if osName == "" {
+		return nil
+	}
+	variants := uniqueNonEmpty([]string{variant, "cloud", "default"})
+	var out []string
+	if version != "" {
+		for _, v := range variants {
+			out = append(out, fmt.Sprintf("%s/%s/%s", osName, version, v))
 		}
 	}
-	return strings.ToLower(fp)
+	// archlinux 在部分 simplestreams 源里也可能有 archlinux/cloud 这种别名。
+	if osName == "archlinux" || osName == "arch" {
+		out = append(out, "archlinux/cloud")
+	}
+	return uniqueNonEmpty(out)
+}
+
+func parseSpiritlhlImageName(imageName string) (string, string, string) {
+	s := strings.ToLower(strings.TrimSpace(imageName))
+	for _, p := range []string{"local:", "images:", "spiritlhl:", "oneclickvirt_", "spiritlhl_"} {
+		s = strings.TrimPrefix(s, p)
+	}
+	if idx := strings.Index(s, "_container_"); idx > 0 {
+		s = s[:idx]
+	}
+	if idx := strings.Index(s, "_vm_"); idx > 0 {
+		s = s[:idx]
+	}
+	tokens := strings.FieldsFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.')
+	})
+	if len(tokens) == 0 {
+		return "", "", ""
+	}
+	knownOS := map[string]bool{
+		"almalinux": true, "alpine": true, "archlinux": true, "arch": true, "centos": true,
+		"debian": true, "fedora": true, "gentoo": true, "kali": true, "openeuler": true,
+		"opensuse": true, "oracle": true, "oraclelinux": true, "rockylinux": true, "ubuntu": true, "openwrt": true,
+	}
+	variants := map[string]bool{"cloud": true, "default": true, "openrc": true, "systemd": true}
+	archTokens := map[string]bool{"amd64": true, "x86": true, "x86_64": true, "arm64": true, "aarch64": true, "container": true, "vm": true, "kvm": true}
+	osName := ""
+	osIdx := -1
+	for idx, t := range tokens {
+		if knownOS[t] {
+			osName = t
+			osIdx = idx
+			break
+		}
+		for known := range knownOS {
+			if strings.HasPrefix(t, known) && len(t) > len(known) {
+				osName = known
+				osIdx = idx
+				tokens = append(tokens[:idx+1], append([]string{strings.TrimPrefix(t, known)}, tokens[idx+1:]...)...)
+				break
+			}
+		}
+		if osName != "" {
+			break
+		}
+	}
+	if osName == "arch" {
+		osName = "archlinux"
+	}
+	if osName == "oraclelinux" {
+		osName = "oracle"
+	}
+	if osName == "" {
+		return "", "", ""
+	}
+	variant := "cloud"
+	for _, t := range tokens {
+		if variants[t] {
+			variant = t
+			break
+		}
+	}
+	version := ""
+	for _, t := range tokens[osIdx+1:] {
+		if t == "" || archTokens[t] || variants[t] || strings.HasPrefix(t, "sha256") {
+			continue
+		}
+		version = t
+		break
+	}
+	if version == "" {
+		switch osName {
+		case "archlinux", "gentoo":
+			version = "current"
+		case "kali":
+			version = "latest"
+		}
+	}
+	return osName, version, variant
+}
+
+func uniqueNonEmpty(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+func sanitizeLockKey(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	out := b.String()
+	if len(out) > 96 {
+		out = out[:96]
+	}
+	return out
 }
 
 // downloadImageToRemote 在远程服务器上下载LXD镜像
@@ -699,7 +1023,7 @@ func (l *LXDProvider) downloadFileToRemote(url, remotePath string) error {
 
 	// 下载文件，支持断点续传
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
+		"curl -4 -fL -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
 		shellSingleQuote(tmpPath), shellSingleQuote(url),
 	)
 
@@ -925,6 +1249,35 @@ func (l *LXDProvider) DeleteImage(ctx context.Context, id string) error {
 
 	// SSH 方式
 	return l.sshDeleteImage(ctx, id)
+}
+
+// shouldCleanupCachedImageOnCreateFailure 判断创建失败是否真的由镜像缓存损坏/不兼容引起。
+// 存储池不存在、网络配置失败、权限失败等不应清理镜像，否则会把健康镜像 alias 删除。
+func (l *LXDProvider) shouldCleanupCachedImageOnCreateFailure(output string, err error) bool {
+	msg := strings.ToLower(output)
+	if err != nil {
+		msg += "\n" + strings.ToLower(err.Error())
+	}
+	if msg == "" {
+		return false
+	}
+	imageIndicators := []string{
+		"failed to find image",
+		"image not found",
+		"no such image",
+		"requested image",
+		"not a valid image",
+		"invalid image",
+		"image architecture",
+		"architecture mismatch",
+		"unsupported image",
+	}
+	for _, indicator := range imageIndicators {
+		if strings.Contains(msg, indicator) {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanupCachedImageOnFailure 在实例创建失败时清理可能不兼容/损坏的镜像缓存。

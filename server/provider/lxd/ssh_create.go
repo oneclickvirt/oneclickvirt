@@ -3,6 +3,7 @@ package lxd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -149,6 +150,34 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		global.APP_LOG.Debug("执行LXD实例创建命令", zap.String("command", cmd))
 		output, err := l.sshClient.Execute(cmd)
 		if err != nil {
+			createErrText := strings.ToLower(output + "\n" + err.Error())
+			if strings.Contains(createErrText, "failed to find image") || strings.Contains(createErrText, "image not found") || strings.Contains(createErrText, "no such image") {
+				fallbackAlias := config.Image
+				if strings.ContainsAny(fallbackAlias, ":/") || !strings.HasPrefix(fallbackAlias, "oneclickvirt_") {
+					fallbackAlias = l.spiritlhlLocalAlias(config.Image, config.InstanceType)
+				}
+				if fallbackAlias != "" {
+					global.APP_LOG.Warn("LXD创建时镜像不存在，尝试spiritlhl远程源兜底并重试",
+						zap.String("image", utils.TruncateString(config.Image, 100)),
+						zap.String("fallbackAlias", utils.TruncateString(fallbackAlias, 100)))
+					if copyErr := l.copySpiritlhlImageToLocal(config.Image, fallbackAlias, config.InstanceType); copyErr == nil {
+						retryCmd := strings.Replace(cmd, shellSingleQuote(config.Image), shellSingleQuote(fallbackAlias), 1)
+						output2, retryErr := l.sshClient.Execute(retryCmd)
+						if retryErr == nil {
+							global.APP_LOG.Info("LXD使用spiritlhl本地缓存镜像重试创建成功",
+								zap.String("instance", config.Name),
+								zap.String("alias", utils.TruncateString(fallbackAlias, 100)))
+							config.Image = fallbackAlias
+							output = output2
+							goto lxdCreateSucceeded
+						}
+						global.APP_LOG.Warn("LXD使用spiritlhl本地缓存镜像重试创建仍失败", zap.String("output", utils.TruncateString(output2, 1000)), zap.Error(retryErr))
+					} else {
+						global.APP_LOG.Warn("LXD创建时spiritlhl镜像兜底失败", zap.Error(copyErr))
+					}
+				}
+			}
+
 			// 保留完整输出（stdout+stderr）以便排查架构不匹配、镜像损坏等问题
 			errMsg := output
 			if errMsg == "" {
@@ -159,13 +188,17 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 				zap.String("output", utils.TruncateString(output, 2000)),
 				zap.Error(err))
 
-			// 创建失败时清理可能已损坏/不兼容的镜像缓存，下次创建可重新下载
-			l.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
+			// 只在明确属于镜像问题时清理缓存。存储池、网络、权限等错误不能删掉健康镜像，
+			// 否则会造成后续重复下载/重复导入/别名丢失。
+			if l.shouldCleanupCachedImageOnCreateFailure(output, err) {
+				l.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
+			}
 
 			// 返回包含 LXD 原始错误输出的消息，帮助排查问题（如存储池不存在、镜像别名无效等）
 			return fmt.Errorf("failed to create instance: %s (lxc output: %s)", errMsg, utils.TruncateString(output, 500))
 		}
 
+	lxdCreateSucceeded:
 		// 如果是虚拟机，需要额外的配置
 		if config.InstanceType == "vm" {
 			updateProgress(40, "配置虚拟机设置...")
