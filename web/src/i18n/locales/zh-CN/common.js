@@ -30,6 +30,7 @@ export default {
   no: '否',
   refresh: '刷新',
   copy: '复制',
+  paste: '粘贴',
   download: '下载',
   upload: '上传',
   view: '查看',

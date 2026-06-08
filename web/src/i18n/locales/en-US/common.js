@@ -30,6 +30,7 @@ export default {
   no: 'No',
   refresh: 'Refresh',
   copy: 'Copy',
+  paste: 'Paste',
   download: 'Download',
   upload: 'Upload',
   view: 'View',

@@ -418,3 +418,127 @@ func (phc *ProviderHealthChecker) ensureIncusProfileRootDevice(client *ssh.Clien
 	}
 	return true
 }
+
+// ── 存储池存在性检查与自动对齐修复 ────────────────────────────────────────
+
+// storagePoolExists 检查 LXD/Incus 存储池是否存在
+func (phc *ProviderHealthChecker) storagePoolExists(client *ssh.Client, providerType, poolName string) bool {
+	var cmd string
+	if strings.ToLower(providerType) == "incus" {
+		cmd = fmt.Sprintf("incus storage info %s >/dev/null 2>&1 && echo 'yes' || echo 'no'", poolName)
+	} else {
+		cmd = fmt.Sprintf("lxc storage info %s >/dev/null 2>&1 && echo 'yes' || echo 'no'", poolName)
+	}
+	output, err := phc.executeSSHCommand(client, cmd)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(output) == "yes"
+}
+
+// detectFirstStoragePool 检测 LXD/Incus 第一个可用存储池
+// 用于 profile 引用不存在的池时，回退到实际存在的池
+func (phc *ProviderHealthChecker) detectFirstStoragePool(client *ssh.Client, providerType string) string {
+	return phc.DetectStoragePoolName(client, providerType)
+}
+
+// getProfileRootPool 获取 default profile 中 root 设备引用的存储池名称
+func (phc *ProviderHealthChecker) getProfileRootPool(client *ssh.Client, providerType string) string {
+	var cmd string
+	if strings.ToLower(providerType) == "incus" {
+		cmd = "incus profile device get default root pool 2>/dev/null"
+	} else {
+		cmd = "lxc profile device get default root pool 2>/dev/null"
+	}
+	output, err := phc.executeSSHCommand(client, cmd)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(output)
+}
+
+// fixProfileRootPool 修复 profile root 设备的 pool 指向
+func (phc *ProviderHealthChecker) fixProfileRootPool(client *ssh.Client, providerType, poolName string) {
+	var cmd string
+	if strings.ToLower(providerType) == "incus" {
+		cmd = fmt.Sprintf("incus profile device set default root pool=%s 2>/dev/null || { incus profile device remove default root 2>/dev/null; incus profile device add default root disk path=/ pool=%s 2>/dev/null; }", poolName, poolName)
+	} else {
+		cmd = fmt.Sprintf("lxc profile device set default root pool=%s 2>/dev/null || { lxc profile device remove default root 2>/dev/null; lxc profile device add default root disk path=/ pool=%s 2>/dev/null; }", poolName, poolName)
+	}
+	phc.executeSSHCommand(client, cmd)
+}
+
+// detectLXDEnvironment 检测 LXD 环境：判断是否为 snap 安装、lxc 命令路径
+// 返回 (isSnap, lxcPath, lxdPath)
+func (phc *ProviderHealthChecker) detectLXDEnvironment(client *ssh.Client) (isSnap bool, lxcPath, lxdPath string) {
+	// 检查 snap lxc
+	output, err := phc.executeSSHCommand(client, "which /snap/bin/lxc 2>/dev/null || true")
+	if err == nil && strings.TrimSpace(output) != "" {
+		isSnap = true
+		lxcPath = "/snap/bin/lxc"
+		lxdPath = "/snap/bin/lxd"
+		return
+	}
+	// 检查普通 lxc
+	output, err = phc.executeSSHCommand(client, "which lxc 2>/dev/null || true")
+	if err == nil {
+		lxcPath = strings.TrimSpace(output)
+	}
+	output, err = phc.executeSSHCommand(client, "which lxd 2>/dev/null || true")
+	if err == nil {
+		lxdPath = strings.TrimSpace(output)
+	}
+	return
+}
+
+// EnsureProviderStorageReady LXD/Incus 存储环境完整就绪检查：
+// 1. 检测是否有存储池 → 无池则记录错误（不自动创建 dir，应由管理员通过脚本创建 btrfs/lvm/zfs 池）
+// 2. profile 引用的 pool 不存在但有其他可用池 → 自动对齐修复
+// 3. profile 无 root 设备 → 自动添加（使用现有池或默认 "default"）
+func (phc *ProviderHealthChecker) EnsureProviderStorageReady(client *ssh.Client, providerType string) (fixed bool) {
+	pt := strings.ToLower(providerType)
+	if pt != "lxd" && pt != "incus" {
+		return false
+	}
+
+	// 步骤 1：检测存储池
+	poolName := phc.detectFirstStoragePool(client, providerType)
+	if poolName == "" {
+		// 没有任何存储池 — 严重问题，记录明确错误引导管理员
+		isSnap, lxcPath, _ := phc.detectLXDEnvironment(client)
+		if phc.logger != nil {
+			actionHint := "请通过 oneclickvirt/lxd 安装脚本创建存储池（推荐 btrfs/lvm/zfs），不要手动创建 dir 池"
+			if isSnap {
+				actionHint += fmt.Sprintf("；检测到 snap LXD (%s)，请确保 Provider SSH 环境可访问 snap 命令", lxcPath)
+			}
+			actionHint += "；创建后请在面板触发 Provider 健康检查/资源同步"
+			phc.logger.Error("Provider 无任何 LXD/Incus 存储池，无法创建实例",
+				zap.String("providerType", providerType),
+				zap.Bool("isSnap", isSnap),
+				zap.String("lxcPath", lxcPath),
+				zap.String("action", actionHint))
+		}
+		return false
+	}
+
+	// 步骤 2：检查 profile root 设备引用的 pool 是否存在
+	profilePoolName := phc.getProfileRootPool(client, providerType)
+	if profilePoolName != "" && profilePoolName != poolName && !phc.storagePoolExists(client, providerType, profilePoolName) {
+		// profile 引用的 pool (如 "default") 不存在，但存在另一个可用池 (如 "local")
+		if phc.logger != nil {
+			phc.logger.Warn("profile 引用的存储池不存在，自动对齐到现有池",
+				zap.String("providerType", providerType),
+				zap.String("profilePool", profilePoolName),
+				zap.String("actualPool", poolName))
+		}
+		phc.fixProfileRootPool(client, providerType, poolName)
+		fixed = true
+	}
+
+	// 步骤 3：确保 profile 有 root 设备
+	if deviceFixed := phc.EnsureProfileHasRootDevice(client, providerType); deviceFixed {
+		fixed = true
+	}
+
+	return fixed
+}

@@ -159,10 +159,15 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 		}
 	}
 
-	// 自动确保 LXD/Incus default profile 包含 root 磁盘设备
+	// 自动确保 LXD/Incus 存储环境完整就绪（存储池 + profile root 设备对齐）
 	if strings.ToLower(localProviderType) == "lxd" || strings.ToLower(localProviderType) == "incus" {
-		if fixed := phc.EnsureProfileHasRootDevice(client, localProviderType); fixed {
+		if fixed := phc.EnsureProviderStorageReady(client, localProviderType); fixed {
 			resourceInfo.ProfileRootDeviceFixed = true
+			// 重新检测 pool name（可能刚创建了 default）
+			detectedPoolName = phc.DetectStoragePoolName(client, localProviderType)
+			if detectedPoolName != "" {
+				resourceInfo.StoragePoolName = detectedPoolName
+			}
 		}
 	}
 
