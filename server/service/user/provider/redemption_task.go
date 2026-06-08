@@ -510,7 +510,27 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 				redeemSSHWait = 240 * time.Second
 			}
 		}
-		_ = s.waitForInstanceSSHReadyInRange(taskCtx, instanceID, providerID, taskID, redeemSSHWait, 70, 82)
+		if err := s.waitForInstanceSSHReadyInRange(taskCtx, instanceID, providerID, taskID, redeemSSHWait, 70, 82); err != nil {
+			utils.AppendTaskError(taskID, 82, "step.waitingSSHReadyFailed", err)
+			global.APP_LOG.Warn("等待兑换码实例SSH就绪超时",
+				zap.Uint("instanceId", instanceID),
+				zap.Error(err))
+		}
+
+		if err := s.ensureInstanceRunnableAfterCreate(taskCtx, instanceID, providerID, taskID, 83); err != nil {
+			finalErr := fmt.Errorf("兑换码实例创建后状态检查失败: %w", err)
+			utils.AppendTaskError(taskID, 83, "step.createPostProcessFailed", finalErr)
+			_ = global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Update("status", "error").Error
+			if taskReq.RedemptionCodeID != 0 {
+				_ = global.APP_DB.Unscoped().Delete(&systemModel.RedemptionCode{}, taskReq.RedemptionCodeID).Error
+			}
+			go s.delayedDeleteFailedInstance(instanceID)
+			stateManager := s.taskService.GetStateManager()
+			if stateManager != nil {
+				_ = stateManager.CompleteMainTask(taskID, false, finalErr.Error(), nil)
+			}
+			return
+		}
 		if err := s.ensureInstanceNetworkAddresses(taskCtx, instanceID, providerID); err != nil {
 			global.APP_LOG.Warn("兑换码实例网络地址补齐失败",
 				zap.Uint("instanceId", instanceID),

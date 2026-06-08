@@ -405,7 +405,26 @@
                       >
                         <span class="log-time">{{ entry.t }}</span>
                         <span class="log-badge">{{ entry.p }}%</span>
-                        <span class="log-msg">{{ translateStepMsg(entry.m) }}</span>
+                        <div class="log-content">
+                          <span class="log-msg">{{ translateStepMsg(entry.m) }}</span>
+                          <div
+                            v-if="entry.command || entry.output || entry.error"
+                            class="log-detail"
+                          >
+                            <div v-if="entry.command">
+                              <strong>Command</strong>
+                              <pre>{{ entry.command }}</pre>
+                            </div>
+                            <div v-if="entry.output">
+                              <strong>Output</strong>
+                              <pre>{{ entry.output }}</pre>
+                            </div>
+                            <div v-if="entry.error">
+                              <strong>Error</strong>
+                              <pre>{{ entry.error }}</pre>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -791,7 +810,7 @@ onUnmounted(() => {
 
 .progress-log-entry {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 2px 0;
   line-height: 1.5;
@@ -820,6 +839,26 @@ onUnmounted(() => {
 
 .empty-provider {
   padding: 20px;
+}
+
+.log-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.log-detail {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  background: var(--el-fill-color);
+}
+
+.log-detail pre {
+  margin: 2px 0 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: monospace;
 }
 
 .pagination {

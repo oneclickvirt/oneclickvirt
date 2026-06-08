@@ -46,7 +46,10 @@ const TASK_STEP_SEQUENCES = {
     'step.dbPreprocessing',
     'step.callingProviderCreate',
     'step.providerCreateSuccess',
+    'step.providerCreateFailed',
     'step.waitingSSHReady',
+    'step.waitingSSHReadyFailed',
+    'step.instanceNotRunnable',
     'step.skipSSHDetection',
     'step.configuringPortMappings',
     'step.verifyingMonitorStatus',
@@ -55,20 +58,29 @@ const TASK_STEP_SEQUENCES = {
     'step.configuringNetworkMonitor',
     'step.startingTrafficSync',
     'step.createCompleted',
-    'step.createCompletedWithWarning'
+    'step.createCompletedWithWarning',
+    'step.createPostProcessFailed',
+    'step.taskFailed',
+    'step.taskFailedDetail'
   ],
   create_redemption_instance: [
     'step.preparingRedemptionCreate',
     'step.dbPreprocessing',
     'step.callingProviderCreate',
     'step.providerCreateSuccess',
+    'step.providerCreateFailed',
     'step.waitingSSHReady',
+    'step.waitingSSHReadyFailed',
+    'step.instanceNotRunnable',
     'step.skipSSHDetection',
     'step.configuringPortMappings',
     'step.verifyingMonitorStatus',
     'step.configuringAgentMonitor',
     'step.startingTrafficSync',
-    'step.redemptionCreateCompleted'
+    'step.redemptionCreateCompleted',
+    'step.createPostProcessFailed',
+    'step.taskFailed',
+    'step.taskFailedDetail'
   ],
   start: [
     'step.parseTaskData',

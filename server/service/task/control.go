@@ -9,6 +9,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/utils"
 	"time"
 
 	"go.uber.org/zap"
@@ -70,6 +71,15 @@ func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage strin
 	}
 
 	s.invalidateTaskInstanceCaches(taskID)
+
+	if !success && errorMessage != "" {
+		var currentTask adminModel.Task
+		progress := 0
+		if err := global.APP_DB.Select("progress").First(&currentTask, taskID).Error; err == nil {
+			progress = currentTask.Progress
+		}
+		utils.AppendTaskError(taskID, progress, "step.taskFailedDetail", fmt.Errorf("%s", errorMessage))
+	}
 
 	// 若任务失败且无关联实例，释放预留资源
 	if !success {

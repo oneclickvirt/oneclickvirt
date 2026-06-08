@@ -529,6 +529,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 
 	if err := providerInstance.CreateInstanceWithProgress(ctx, instanceConfig, progressCallback); err != nil {
 		err := fmt.Errorf("Provider创建实例失败: %v", err)
+		utils.AppendTaskError(task.ID, 70, "step.providerCreateFailed", err)
 		global.APP_LOG.Error("Provider创建实例失败", zap.Uint("taskId", task.ID), zap.Error(err))
 		return err
 	}

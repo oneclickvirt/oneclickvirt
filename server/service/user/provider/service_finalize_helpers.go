@@ -12,6 +12,7 @@ import (
 	"oneclickvirt/provider/incus"
 	"oneclickvirt/provider/lxd"
 	providerService "oneclickvirt/service/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
@@ -157,6 +158,90 @@ func (s *Service) waitForInstanceSSHReadyInRange(ctx context.Context, instanceID
 		case <-time.After(checkInterval):
 		}
 	}
+}
+
+// ensureInstanceRunnableAfterCreate verifies that the provider still reports the
+// instance as runnable after creation. This catches cases where the provider
+// command returned success or partial success, but the LXD/Incus container ended
+// up STOPPED/FROZEN and later password/network steps would only fail with a
+// generic "container not running" error.
+func (s *Service) ensureInstanceRunnableAfterCreate(ctx context.Context, instanceID, providerID, taskID uint, progress int) error {
+	var instance providerModel.Instance
+	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
+		return fmt.Errorf("获取实例信息失败: %w", err)
+	}
+
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
+		return fmt.Errorf("获取Provider信息失败: %w", err)
+	}
+
+	providerSvc := providerService.GetProviderService()
+	providerInstance, exists := providerSvc.GetProviderByID(providerID)
+	if !exists || providerInstance == nil || !providerInstance.IsConnected() {
+		return fmt.Errorf("Provider %d 未连接，无法确认实例 %s 创建后状态", providerID, instance.Name)
+	}
+
+	actual, err := providerInstance.GetInstance(ctx, instance.Name)
+	if err != nil {
+		return fmt.Errorf("创建后获取实例 %s 状态失败: %w", instance.Name, err)
+	}
+	if actual == nil {
+		return fmt.Errorf("创建后Provider未返回实例 %s 的状态", instance.Name)
+	}
+
+	statusRaw := strings.TrimSpace(actual.Status)
+	status := strings.ToLower(statusRaw)
+	if status == "" {
+		return nil
+	}
+	if status == "running" || status == "active" || status == "started" {
+		return nil
+	}
+
+	badStatus := map[string]bool{
+		"stopped": true,
+		"stop":    true,
+		"exited":  true,
+		"created": true,
+		"paused":  true,
+		"frozen":  true,
+		"failed":  true,
+		"error":   true,
+		"aborted": true,
+	}
+	if !badStatus[status] {
+		global.APP_LOG.Warn("Provider返回未知实例状态，继续后处理但记录详情",
+			zap.Uint("taskId", taskID),
+			zap.Uint("instanceId", instanceID),
+			zap.String("instanceName", instance.Name),
+			zap.String("status", statusRaw))
+		utils.AppendTaskLog(taskID, progress, "warn", fmt.Sprintf("step.instanceUnknownStatus:%s", statusRaw))
+		return nil
+	}
+
+	diag := ""
+	switch dbProvider.Type {
+	case "lxd":
+		if output, diagErr := providerInstance.ExecuteSSHCommand(ctx, fmt.Sprintf("lxc info %s --show-log", shellSingleQuote(instance.Name))); diagErr == nil {
+			diag = output
+		} else {
+			diag = diagErr.Error()
+		}
+	case "incus":
+		if output, diagErr := providerInstance.ExecuteSSHCommand(ctx, fmt.Sprintf("incus info %s --show-log", shellSingleQuote(instance.Name))); diagErr == nil {
+			diag = output
+		} else {
+			diag = diagErr.Error()
+		}
+	}
+
+	baseErr := fmt.Errorf("实例 %s 创建后未处于运行状态，Provider状态: %s", instance.Name, statusRaw)
+	if strings.TrimSpace(diag) != "" {
+		baseErr = fmt.Errorf("%w; diagnostics: %s", baseErr, utils.TruncateString(diag, 2000))
+	}
+	utils.AppendTaskError(taskID, progress, "step.instanceNotRunnable", baseErr)
+	return baseErr
 }
 
 func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID, providerID uint) error {

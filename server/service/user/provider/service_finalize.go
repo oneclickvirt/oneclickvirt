@@ -362,11 +362,13 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					global.APP_LOG.Error("实例创建后处理任务发生panic",
 						zap.Uint("instanceId", instanceID),
 						zap.Any("panic", r))
-					// 即使后处理失败，也要标记任务完成，因为实例已经创建成功
-					// 使用统一状态管理器
+					panicErr := fmt.Errorf("实例创建后处理任务发生panic: %v", r)
+					utils.AppendTaskError(taskID, 95, "step.createPostProcessFailed", panicErr)
+					_ = global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Update("status", "error").Error
+					// 后处理包含密码设置/网络信息等关键步骤；发生 panic 时不能标记 completed。
 					stateManager := s.taskService.GetStateManager()
 					if stateManager != nil {
-						if err := stateManager.CompleteMainTask(taskID, true, "实例创建成功，但部分后处理任务失败", nil); err != nil {
+						if err := stateManager.CompleteMainTask(taskID, false, panicErr.Error(), nil); err != nil {
 							global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", taskID), zap.Error(err))
 						}
 					} else {
@@ -414,12 +416,28 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				}
 			}
 
-			// 智能等待实例SSH服务就绪，传入taskID以便更新进度
+			// 智能等待实例SSH服务就绪，传入taskID以便更新进度。
+			// 这里不直接判失败，因为 LXD/Incus 等容器可能不暴露外部 SSH，后续仍可通过 lxc/incus exec 设置密码；
+			// 但必须把等待失败原因写入任务详情，避免排查时只看到进度停留。
 			if err := s.waitForInstanceSSHReadyInRange(taskCtx, instanceID, providerID, taskID, sshWaitTimeout, 70, 82); err != nil {
+				utils.AppendTaskError(taskID, 82, "step.waitingSSHReadyFailed", err)
 				global.APP_LOG.Warn("等待实例SSH就绪超时",
 					zap.Uint("instanceId", instanceID),
 					zap.Error(err))
-				// 继续执行，但后续SSH相关操作可能失败
+			}
+
+			// 即使 SSH 检测可跳过，也必须确认 Provider 侧实例没有停在 STOPPED/FROZEN/ERROR。
+			// 否则后续密码设置会失败，但任务可能被误判为完成。
+			if err := s.ensureInstanceRunnableAfterCreate(taskCtx, instanceID, providerID, taskID, 83); err != nil {
+				finalErr := fmt.Errorf("实例创建后状态检查失败: %w", err)
+				_ = global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Update("status", "error").Error
+				stateManager := s.taskService.GetStateManager()
+				if stateManager != nil {
+					if err := stateManager.CompleteMainTask(taskID, false, finalErr.Error(), nil); err != nil {
+						global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", taskID), zap.Error(err))
+					}
+				}
+				return
 			}
 
 			if err := s.ensureInstanceNetworkAddresses(taskCtx, instanceID, providerID); err != nil {
@@ -456,14 +474,21 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 			// 更新进度到90% (设置SSH密码)
 			s.updateTaskProgress(taskID, 90, "step.settingSSHPassword")
-			// 3. 设置实例SSH密码（关键步骤）
+			// 3. 设置实例SSH密码（关键步骤）：创建任务不能在密码不可用时标记 completed。
 			var currentInstance providerModel.Instance
-			var passwordSetSuccess bool = false
+			passwordSetSuccess := false
+			var passwordSetErr error
 			if err := global.APP_DB.Where("id = ?", instanceID).First(&currentInstance).Error; err != nil {
+				passwordSetErr = fmt.Errorf("获取实例信息失败，无法设置SSH密码: %w", err)
 				global.APP_LOG.Error("获取实例信息失败，无法设置SSH密码",
 					zap.Uint("instanceId", instanceID),
 					zap.Error(err))
-			} else if currentInstance.Password != "" {
+			} else if currentInstance.Password == "" {
+				passwordSetErr = fmt.Errorf("实例 %s 数据库中没有预生成密码，禁止标记创建完成", currentInstance.Name)
+				global.APP_LOG.Error("实例缺少预生成密码，无法完成创建任务",
+					zap.Uint("instanceId", instanceID),
+					zap.String("instanceName", currentInstance.Name))
+			} else {
 				// 设置实例SSH密码，最多重试2次（总共2次尝试）
 				providerSvc := providerService.GetProviderService()
 				maxRetries := 2
@@ -473,6 +498,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					err := providerSvc.SetInstancePassword(ctxWithTimeout, currentInstance.ProviderID, currentInstance.Name, currentInstance.Password)
 					cancel() // 立即释放context资源
 					if err != nil {
+						passwordSetErr = err
+						utils.AppendTaskError(taskID, 90, fmt.Sprintf("step.settingPasswordRetry:%d", i+1), err)
 						global.APP_LOG.Warn("设置实例SSH密码失败",
 							zap.Uint("instanceId", instanceID),
 							zap.String("instanceName", currentInstance.Name),
@@ -493,7 +520,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					}
 				}
 
-				// 密码设置成功后，验证SSH密码认证是否真正可用
+				// 密码设置成功后，验证SSH密码认证是否真正可用；验证失败只记录，不覆盖 lxc/incus exec 已成功写入的结果。
 				if passwordSetSuccess {
 					s.updateTaskProgress(taskID, 93, "step.verifyingSSHPassword")
 					var sshVerifyProvider providerModel.Provider
@@ -520,6 +547,30 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				}
 			}
 
+			if !passwordSetSuccess {
+				if passwordSetErr == nil {
+					passwordSetErr = fmt.Errorf("实例SSH密码未设置成功")
+				}
+				finalErr := fmt.Errorf("实例创建后处理失败，SSH密码不可用: %w", passwordSetErr)
+				utils.AppendTaskError(taskID, 93, "step.createPostProcessFailed", finalErr)
+				global.APP_LOG.Error("实例创建后处理失败，任务标记为失败",
+					zap.Uint("taskId", taskID),
+					zap.Uint("instanceId", instanceID),
+					zap.String("instanceName", currentInstance.Name),
+					zap.Error(finalErr))
+				_ = global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Update("status", "error").Error
+
+				stateManager := s.taskService.GetStateManager()
+				if stateManager != nil {
+					if err := stateManager.CompleteMainTask(taskID, false, finalErr.Error(), nil); err != nil {
+						global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", taskID), zap.Error(err))
+					}
+				} else {
+					global.APP_LOG.Error("状态管理器未初始化", zap.Uint("taskId", taskID))
+				}
+				return
+			}
+
 			s.updateTaskProgress(taskID, 95, "step.configuringNetworkMonitor")
 			if monitoringStatus.TrafficEnabled && !monitoringStatus.PmacctReady && !monitoringStatus.AgentMonitorReady {
 				global.APP_LOG.Debug("创建后未获得可用监控记录，后续调度或人工同步仍可补齐",
@@ -542,14 +593,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					zap.String("trafficMethod", monitoringStatus.TrafficMethod))
 			}
 
-			// 最终完成状态判断
+			// 最终完成状态判断：走到这里说明实例后处理关键步骤均成功。
 			completionMessage := "step.createCompleted"
-			if !passwordSetSuccess && currentInstance.Password != "" {
-				completionMessage = "step.createCompletedWithWarning"
-				global.APP_LOG.Warn("实例创建完成但SSH密码设置失败",
-					zap.Uint("instanceId", instanceID),
-					zap.String("instanceName", currentInstance.Name))
-			}
 
 			// 标记任务最终完成
 			// 使用统一状态管理器

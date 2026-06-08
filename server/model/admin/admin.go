@@ -54,7 +54,7 @@ type Task struct {
 	IsForceStoppable bool `json:"isForceStoppable" gorm:"default:true"` // 是否允许被强制停止
 
 	// 进度日志（每次调用 UpdateTaskProgress 时追加，JSON 格式）
-	ProgressLogs string `json:"progressLogs" gorm:"type:text"` // 进度日志（JSON数组，格式：[{"t":"时间戳","p":进度,"m":"消息"}]）
+	ProgressLogs string `json:"progressLogs" gorm:"type:longtext"` // 进度日志（JSON数组，支持步骤、命令、输出、错误详情）
 }
 
 func (t *Task) BeforeCreate(tx *gorm.DB) error {

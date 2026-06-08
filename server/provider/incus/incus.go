@@ -562,7 +562,7 @@ func (i *IncusProvider) ExecuteSSHCommand(ctx context.Context, command string) (
 			zap.String("command", utils.RedactSensitiveCommand(command, 200)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return "", fmt.Errorf("SSH command execution failed: %w", err)
+		return output, fmt.Errorf("SSH command execution failed: %w; output: %s", err, utils.TruncateString(output, 2000))
 	}
 
 	return output, nil

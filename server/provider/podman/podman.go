@@ -501,7 +501,7 @@ func (p *PodmanProvider) ExecuteSSHCommand(ctx context.Context, command string) 
 	}
 	output, err := p.sshClient.Execute(command)
 	if err != nil {
-		return "", fmt.Errorf("SSH command execution failed: %w", err)
+		return output, fmt.Errorf("SSH command execution failed: %w; output: %s", err, utils.TruncateString(output, 2000))
 	}
 	return output, nil
 }
