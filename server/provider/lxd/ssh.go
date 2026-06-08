@@ -419,38 +419,7 @@ func (l *LXDProvider) sshDeleteImage(ctx context.Context, id string) error {
 
 // sshSetInstancePassword 通过SSH设置实例密码
 func (l *LXDProvider) sshSetInstancePassword(ctx context.Context, instanceID, password string) error {
-	// 精确匹配实例名并读取状态，避免 grep 模式注入与误匹配
-	simpleCheckCmd := fmt.Sprintf(
-		"lxc list --format csv -c n,s | awk -F, -v n=%s '$1==n {print $2}'",
-		shellSingleQuote(instanceID),
-	)
-	output, err := l.sshClient.Execute(simpleCheckCmd)
-	if err != nil {
-		global.APP_LOG.Error("检查LXD实例状态失败",
-			zap.String("instanceID", instanceID),
-			zap.Error(err))
-		return fmt.Errorf("检查实例状态失败: %w", err)
-	}
-
-	status := strings.TrimSpace(output)
-
-	// 检查实例是否存在且运行
-	if status == "" {
-		return fmt.Errorf("实例 %s 不存在", instanceID)
-	}
-
-	if !strings.EqualFold(status, "RUNNING") {
-		return fmt.Errorf("实例 %s 未运行，无法设置密码", instanceID)
-	}
-
-	// 使用临时脚本设置密码（支持超时回退），避免 agent 模式下 WebSocket 连接中断
-	script := utils.BuildTempScript(utils.TempScriptConfig{
-		PrimaryCmd:     buildLXDChpasswdCommand(instanceID, password),
-		FallbackCmd:    buildLXDChpasswdCommand(instanceID, password),
-		TimeoutSeconds: 60,
-	})
-	_, err = l.sshClient.ExecuteViaTempScript(script, nil, 180*time.Second)
-	if err != nil {
+	if err := l.setLXDInstancePasswordWithRetry(instanceID, password, "sh"); err != nil {
 		global.APP_LOG.Error("设置LXD实例密码失败",
 			zap.String("instanceID", instanceID),
 			zap.Error(err))

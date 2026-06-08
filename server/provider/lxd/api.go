@@ -373,8 +373,9 @@ func (l *LXDProvider) apiDeleteImage(ctx context.Context, id string) error {
 func (l *LXDProvider) apiSetInstancePassword(ctx context.Context, instanceID, password string) error {
 	// LXD API方式设置密码
 	// 构造执行命令的请求
+	passwordCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
 	execData := map[string]interface{}{
-		"command":     []string{"bash", "-c", fmt.Sprintf("echo 'root:%s' | chpasswd", password)},
+		"command":     []string{"sh", "-c", passwordCmd},
 		"wait-for-ws": true,
 		"interactive": false,
 	}

@@ -617,14 +617,9 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 		}
 	}
 
-	// 使用临时脚本直接设置密码（含超时回退），确保 agent 模式下不因 WebSocket 超时失败
-	directPasswordScript := utils.BuildTempScript(utils.TempScriptConfig{
-		PrimaryCmd:     buildLXDChpasswdCommand(config.Name, password),
-		FallbackCmd:    buildLXDChpasswdCommand(config.Name, password),
-		TimeoutSeconds: 60,
-	})
-	_, err = l.sshClient.ExecuteViaTempScript(directPasswordScript, nil, 180*time.Second)
-	if err != nil {
+	// 使用统一的 LXD 密码设置流程：自动恢复 STOPPED/FROZEN 状态，等待 exec 就绪，
+	// 并在 sh/bash/历史 stdin 管道方式之间回退，避免初次开设后实例没有可用密码。
+	if err = l.setLXDInstancePasswordWithRetry(config.Name, password, "sh"); err != nil {
 		global.APP_LOG.Error("设置实例密码失败",
 			zap.String("instanceName", config.Name),
 			zap.Error(err))
