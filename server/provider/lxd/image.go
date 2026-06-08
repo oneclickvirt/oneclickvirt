@@ -147,12 +147,14 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 
 		var importErr error
 		var importOutput string
+		var imageFingerprint string
 		if config.InstanceType == "vm" {
 			if strings.HasSuffix(imagePath, ".zip") {
 				extractDir := strings.TrimSuffix(imagePath, ".zip")
 				if _, err := l.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", shellSingleQuote(imagePath), shellSingleQuote(extractDir))); err != nil {
 					return nil, fmt.Errorf("解压LXD虚拟机镜像失败: %w", err)
 				}
+				defer l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 				var importCmd string
 				findCmd := fmt.Sprintf("find %s -name '*.img' -o -name '*.qcow2' -o -name '*.vmdk' | head -1", shellSingleQuote(extractDir))
 				vmImagePath, err := l.sshClient.Execute(findCmd)
@@ -168,13 +170,27 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 				lxdTarPath := fmt.Sprintf("%s/lxd.tar.xz", extractDir)
 				diskPath := fmt.Sprintf("%s/disk.qcow2", extractDir)
 				if l.isRemoteFileValid(lxdTarPath) && l.isRemoteFileValid(diskPath) {
+					imageFingerprint = l.calculateRemoteImageFingerprint(lxdTarPath, diskPath)
 					importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(lxdTarPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
 				} else {
+					imageFingerprint = l.calculateRemoteImageFingerprint(vmImagePath)
 					importCmd = fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
 				}
+				if imageFingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, imageFingerprint) {
+					global.APP_LOG.Info("LXD"+imageTypeStr+"镜像指纹已存在，已自动补齐别名，跳过导入",
+						zap.String("alias", utils.TruncateString(aliasKey, 100)),
+						zap.String("fingerprint", utils.TruncateString(imageFingerprint, 32)))
+					return nil, nil
+				}
 				importOutput, importErr = l.sshClient.Execute(importCmd)
-				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 			} else {
+				imageFingerprint = l.calculateRemoteImageFingerprint(imagePath)
+				if imageFingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, imageFingerprint) {
+					global.APP_LOG.Info("LXD"+imageTypeStr+"镜像指纹已存在，已自动补齐别名，跳过导入",
+						zap.String("alias", utils.TruncateString(aliasKey, 100)),
+						zap.String("fingerprint", utils.TruncateString(imageFingerprint, 32)))
+					return nil, nil
+				}
 				importOutput, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
 			}
 		} else {
@@ -183,10 +199,12 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 				if _, err := l.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", shellSingleQuote(imagePath), shellSingleQuote(extractDir))); err != nil {
 					return nil, fmt.Errorf("解压LXD容器镜像失败: %w", err)
 				}
+				defer l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 				var importCmd string
 				lxdTarPath := fmt.Sprintf("%s/lxd.tar.xz", extractDir)
 				rootfsPath := fmt.Sprintf("%s/rootfs.squashfs", extractDir)
 				if l.isRemoteFileValid(lxdTarPath) && l.isRemoteFileValid(rootfsPath) {
+					imageFingerprint = l.calculateRemoteImageFingerprint(lxdTarPath, rootfsPath)
 					importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(lxdTarPath), shellSingleQuote(rootfsPath), shellSingleQuote(aliasKey))
 				} else {
 					findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", shellSingleQuote(extractDir))
@@ -195,31 +213,50 @@ func (l *LXDProvider) downloadAndImportImage(ctx context.Context, config *provid
 						l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 						return nil, fmt.Errorf("未找到解压后的LXD容器镜像文件")
 					}
-					importCmd = fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(utils.CleanCommandOutput(tarPath)), shellSingleQuote(aliasKey))
+					cleanTarPath := utils.CleanCommandOutput(tarPath)
+					imageFingerprint = l.calculateRemoteImageFingerprint(cleanTarPath)
+					importCmd = fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(cleanTarPath), shellSingleQuote(aliasKey))
+				}
+				if imageFingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, imageFingerprint) {
+					global.APP_LOG.Info("LXD"+imageTypeStr+"镜像指纹已存在，已自动补齐别名，跳过导入",
+						zap.String("alias", utils.TruncateString(aliasKey, 100)),
+						zap.String("fingerprint", utils.TruncateString(imageFingerprint, 32)))
+					return nil, nil
 				}
 				importOutput, importErr = l.sshClient.Execute(importCmd)
-				l.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(extractDir)))
 			} else {
+				imageFingerprint = l.calculateRemoteImageFingerprint(imagePath)
+				if imageFingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, imageFingerprint) {
+					global.APP_LOG.Info("LXD"+imageTypeStr+"镜像指纹已存在，已自动补齐别名，跳过导入",
+						zap.String("alias", utils.TruncateString(aliasKey, 100)),
+						zap.String("fingerprint", utils.TruncateString(imageFingerprint, 32)))
+					return nil, nil
+				}
 				importOutput, importErr = l.sshClient.Execute(fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(imagePath), shellSingleQuote(aliasKey)))
 			}
 		}
 
 		if importErr != nil {
-			// 图片指纹已存在（同内容不同别名）→ 给已有镜像添加新别名即可
-			if strings.Contains(strings.ToLower(importOutput), "fingerprint already exists") ||
-				strings.Contains(strings.ToLower(importErr.Error()), "fingerprint already exists") {
-				global.APP_LOG.Info("LXD镜像指纹已存在，尝试为已有镜像添加别名",
+			// 图片指纹已存在（同内容不同别名/并发导入）→ 给已有镜像添加新别名即可。
+			// 不能只依赖 LXD 输出里的 fingerprint，因为部分版本只返回
+			// "Image with same fingerprint already exists"，不会附带具体指纹。
+			errText := importOutput + "\n" + importErr.Error()
+			if strings.Contains(strings.ToLower(errText), "fingerprint already exists") {
+				global.APP_LOG.Info("LXD镜像指纹已存在，尝试自动修补镜像别名",
 					zap.String("alias", utils.TruncateString(aliasKey, 100)),
 					zap.String("imagePath", utils.TruncateString(imagePath, 200)))
 
-				// 从输出中提取已有别名或指纹
-				fingerprint := extractFingerprintFromOutput(importOutput)
-				if fingerprint != "" {
-					aliasCmd := fmt.Sprintf("lxc image alias create %s %s 2>/dev/null || true",
-						shellSingleQuote(aliasKey), shellSingleQuote(fingerprint))
-					l.sshClient.Execute(aliasCmd)
+				fingerprint := imageFingerprint
+				if fingerprint == "" {
+					fingerprint = extractFingerprintFromOutput(errText)
 				}
-				// 即使提取不到指纹，也检查别名是否已存在（可能上一次导入成功了别名但整体流程失败了回滚了）
+				if fingerprint != "" && l.ensureImageAliasFromFingerprint(aliasKey, fingerprint) {
+					global.APP_LOG.Info("LXD镜像别名自动修补成功",
+						zap.String("alias", utils.TruncateString(aliasKey, 100)),
+						zap.String("fingerprint", utils.TruncateString(fingerprint, 32)))
+					return nil, nil
+				}
+				// 兜底：并发场景下别的流程可能已经补完 alias。
 				if l.imageExists(aliasKey) {
 					global.APP_LOG.Info("LXD镜像别名已存在（指纹重复但别名可用）",
 						zap.String("alias", utils.TruncateString(aliasKey, 100)))
@@ -459,6 +496,86 @@ func (l *LXDProvider) getImageFingerprint(alias string) string {
 		return ""
 	}
 	return strings.TrimSpace(output)
+}
+
+// imageFingerprintExists 检查指定指纹的镜像是否已在本地 LXD 镜像库中。
+func (l *LXDProvider) imageFingerprintExists(fingerprint string) bool {
+	fingerprint = normalizeImageFingerprint(fingerprint)
+	if fingerprint == "" {
+		return false
+	}
+	output, err := l.sshClient.Execute(fmt.Sprintf("lxc image list %s --format csv -c f 2>/dev/null | head -1", shellSingleQuote(fingerprint)))
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(output) != ""
+}
+
+// calculateRemoteImageFingerprint 按 LXD/Incus 的镜像指纹规则计算远程镜像文件指纹。
+// 单文件镜像：sha256(file)；split 镜像：sha256(metadata + rootfs/disk)。
+func (l *LXDProvider) calculateRemoteImageFingerprint(paths ...string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return ""
+		}
+		quoted = append(quoted, shellSingleQuote(path))
+	}
+
+	var cmd string
+	if len(quoted) == 1 {
+		cmd = fmt.Sprintf("sha256sum %s 2>/dev/null | awk '{print $1}'", quoted[0])
+	} else {
+		cmd = fmt.Sprintf("cat %s 2>/dev/null | sha256sum | awk '{print $1}'", strings.Join(quoted, " "))
+	}
+	output, err := l.sshClient.Execute(cmd)
+	if err != nil {
+		return ""
+	}
+	return normalizeImageFingerprint(output)
+}
+
+// ensureImageAliasFromFingerprint 如果本地已有 fingerprint 对应镜像，则确保 alias 指向它。
+// 返回 true 表示 alias 已可用，可以跳过 import。
+func (l *LXDProvider) ensureImageAliasFromFingerprint(alias, fingerprint string) bool {
+	fingerprint = normalizeImageFingerprint(fingerprint)
+	if alias == "" || fingerprint == "" || !l.imageFingerprintExists(fingerprint) {
+		return false
+	}
+
+	currentFP := normalizeImageFingerprint(l.getImageFingerprint(alias))
+	if currentFP == fingerprint || strings.HasPrefix(currentFP, fingerprint) || strings.HasPrefix(fingerprint, currentFP) {
+		return true
+	}
+
+	// oneclickvirt 自己生成的 alias 可安全重绑；已有实例不会因为 alias 改变而被改写。
+	cmd := fmt.Sprintf("lxc image alias delete %s >/dev/null 2>&1 || true; lxc image alias create %s %s >/dev/null 2>&1 || true",
+		shellSingleQuote(alias), shellSingleQuote(alias), shellSingleQuote(fingerprint))
+	_, _ = l.sshClient.Execute(cmd)
+
+	currentFP = normalizeImageFingerprint(l.getImageFingerprint(alias))
+	return currentFP == fingerprint || strings.HasPrefix(currentFP, fingerprint) || strings.HasPrefix(fingerprint, currentFP)
+}
+
+func normalizeImageFingerprint(value string) string {
+	fields := strings.Fields(strings.TrimSpace(value))
+	if len(fields) == 0 {
+		return ""
+	}
+	fp := strings.TrimPrefix(strings.TrimSpace(fields[0]), "sha256:")
+	if len(fp) < 12 {
+		return ""
+	}
+	for _, ch := range fp {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			return ""
+		}
+	}
+	return strings.ToLower(fp)
 }
 
 // downloadImageToRemote 在远程服务器上下载LXD镜像
