@@ -133,7 +133,7 @@
       :history-tasks="trafficMonitorDialog.historyTasks"
       :loading="trafficMonitorDialog.loading"
       :pagination="trafficMonitorDialog.pagination"
-      @close="trafficMonitorDialog.visible = false"
+      @close="resetTrafficMonitorDialog()"
       @refresh="refreshTrafficMonitorTask"
       @view-task-log="viewTrafficMonitorTaskLog"
       @view-running-task="viewRunningTrafficMonitorTask"
@@ -224,7 +224,7 @@ const {
   openTrafficMonitorDialog, handleTrafficMonitorPageChange,
   handleTrafficMonitorPageSizeChange, executeTrafficMonitorOperation,
   viewTrafficMonitorTaskLog, viewRunningTrafficMonitorTask,
-  refreshTrafficMonitorTask, debugAuthStatus
+  refreshTrafficMonitorTask, resetTrafficMonitorDialog, debugAuthStatus
 } = useProviderDialogs(loadProviders)
 
 

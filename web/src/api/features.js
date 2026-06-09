@@ -66,6 +66,13 @@ export function queryAlipayKYCResult() {
 
 // ============ 用户签到 ============
 
+export function getEligibleCheckinInstances() {
+  return request({
+    url: '/v1/user/checkin/eligible-instances',
+    method: 'get'
+  })
+}
+
 export function generateCheckinCode(instanceId) {
   return request({
     url: `/v1/user/checkin/code/${instanceId}`,

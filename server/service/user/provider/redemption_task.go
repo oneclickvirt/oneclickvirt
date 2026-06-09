@@ -150,7 +150,7 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		instanceName := s.generateInstanceName(provider.Name)
 
 		expiredAt := determineInitialInstanceExpiryInTx(tx, &provider)
-		gpuEnabled := taskReq.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, instanceType)
+		gpuEnabled := provider.GpuEnabled && taskReq.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, instanceType)
 		gpuDeviceIDs := ""
 		if gpuEnabled {
 			gpuDeviceIDs = taskReq.GpuDeviceIds

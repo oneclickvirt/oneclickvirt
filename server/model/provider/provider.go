@@ -84,16 +84,17 @@ type Provider struct {
 
 	// 基本信息
 	// name已有uniqueIndex，type添加索引
-	Name     string `json:"name" gorm:"uniqueIndex;not null;size:64"`    // Provider名称（唯一）
-	Type     string `json:"type" gorm:"not null;size:32;index:idx_type"` // Provider类型：docker, podman, containerd, orbstack, lxd, incus, proxmox, qemu, kubevirt, vmware
-	Endpoint string `json:"endpoint" gorm:"size:255"`                    // SSH连接端点地址
-	PortIP   string `json:"portIP" gorm:"size:255"`                      // 端口映射使用的公网IP（非必填，若为空则使用Endpoint）
-	SSHPort  int    `json:"sshPort" gorm:"default:22"`                   // SSH连接端口
-	Username string `json:"username" gorm:"size:128"`                    // SSH连接用户名
-	Password string `json:"-" gorm:"size:255"`                           // SSH连接密码（不返回给前端）
-	SSHKey   string `json:"-" gorm:"type:text"`                          // SSH私钥（不返回给前端，优先于密码使用）
-	Token    string `json:"-" gorm:"size:255"`                           // API访问令牌（不返回给前端）
-	Config   string `json:"config" gorm:"type:text"`                     // 额外配置信息（JSON格式）
+	Name        string `json:"name" gorm:"uniqueIndex;not null;size:64"`    // Provider名称（唯一）
+	Description string `json:"description" gorm:"type:text"`                // Provider描述（管理员备注）
+	Type        string `json:"type" gorm:"not null;size:32;index:idx_type"` // Provider类型：docker, podman, containerd, orbstack, lxd, incus, proxmox, qemu, kubevirt, vmware
+	Endpoint    string `json:"endpoint" gorm:"size:255"`                    // SSH连接端点地址
+	PortIP      string `json:"portIP" gorm:"size:255"`                      // 端口映射使用的公网IP（非必填，若为空则使用Endpoint）
+	SSHPort     int    `json:"sshPort" gorm:"default:22"`                   // SSH连接端口
+	Username    string `json:"username" gorm:"size:128"`                    // SSH连接用户名
+	Password    string `json:"-" gorm:"size:255"`                           // SSH连接密码（不返回给前端）
+	SSHKey      string `json:"-" gorm:"type:text"`                          // SSH私钥（不返回给前端，优先于密码使用）
+	Token       string `json:"-" gorm:"size:255"`                           // API访问令牌（不返回给前端）
+	Config      string `json:"config" gorm:"type:text"`                     // 额外配置信息（JSON格式）
 
 	// 状态和地理信息
 	Status      string `json:"status" gorm:"default:active;size:16;index:idx_status"` // Provider状态：active, inactive
@@ -251,8 +252,9 @@ type Provider struct {
 
 	// 普通管理员归属
 	OwnerAdminID     uint   `json:"ownerAdminId" gorm:"default:0;index:idx_owner_admin"` // 归属普通管理员ID(0=超级管理员)
+	ProviderGroupID  uint   `json:"groupId" gorm:"default:0;index"`                      // 所属节点分组ID（0=未分组）
 	GroupName        string `json:"groupName" gorm:"size:64"`                            // 分组名称(普通管理员可自定义)
-	GroupDescription string `json:"groupDescription" gorm:"type:text"`                   // 分组描述(支持富文本HTML)
+	GroupDescription string `json:"groupDescription" gorm:"type:text"`                   // 分组描述(Markdown源码，由前端/接口渲染为安全HTML)
 
 	// 域名绑定开关（高级配置）
 	EnableDomainBinding bool `json:"enableDomainBinding" gorm:"default:false"` // 是否启用域名绑定功能
@@ -314,9 +316,10 @@ type Provider struct {
 
 type AdminGroupSetting struct {
 	ID               uint      `json:"id" gorm:"primarykey"`
-	OwnerAdminID     uint      `json:"ownerAdminId" gorm:"uniqueIndex;default:0"`
-	GroupName        string    `json:"groupName" gorm:"size:64;not null"`
+	OwnerAdminID     uint      `json:"ownerAdminId" gorm:"default:0;index:idx_group_owner_name,unique"`
+	GroupName        string    `json:"groupName" gorm:"size:64;not null;index:idx_group_owner_name,unique"`
 	GroupDescription string    `json:"groupDescription" gorm:"type:text"`
+	SortOrder        int       `json:"sortOrder" gorm:"default:0;index"`
 	CreatedAt        time.Time `json:"createdAt"`
 	UpdatedAt        time.Time `json:"updatedAt"`
 }

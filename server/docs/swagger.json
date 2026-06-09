@@ -15046,6 +15046,9 @@
                 "cpuUsage": {
                     "type": "number"
                 },
+                "description": {
+                    "type": "string"
+                },
                 "disk": {
                     "description": "总硬盘空间(MB)",
                     "type": "integer"
@@ -15055,8 +15058,16 @@
                     "type": "boolean"
                 },
                 "groupDescription": {
-                    "description": "分组描述(HTML)",
+                    "description": "分组描述(Markdown源码)",
                     "type": "string"
+                },
+                "groupDescriptionHtml": {
+                    "description": "分组描述安全HTML",
+                    "type": "string"
+                },
+                "groupId": {
+                    "description": "分组ID",
+                    "type": "integer"
                 },
                 "groupName": {
                     "description": "分组名称",

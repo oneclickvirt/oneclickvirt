@@ -60,9 +60,6 @@ func (s *Service) UpdateCheckinConfig(providerID uint, req *UpdateCheckinConfigR
 		return err
 	}
 
-	var config checkinModel.CheckinConfig
-	result := global.APP_DB.Where("provider_id = ?", providerID).First(&config)
-
 	updates := map[string]interface{}{
 		"enabled":             req.Enabled,
 		"default_expire_days": req.DefaultExpireDays,
@@ -75,25 +72,33 @@ func (s *Service) UpdateCheckinConfig(providerID uint, req *UpdateCheckinConfigR
 		"pow_difficulty":      req.PowDifficulty,
 	}
 
-	if result.Error != nil {
-		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("查询签到配置失败: %w", result.Error)
+	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&providerModel.Provider{}).Where("id = ?", providerID).Update("enable_checkin", req.Enabled).Error; err != nil {
+			return err
 		}
-		config = checkinModel.CheckinConfig{
-			ProviderID:        providerID,
-			Enabled:           req.Enabled,
-			DefaultExpireDays: req.DefaultExpireDays,
-			RenewalDays:       req.RenewalDays,
-			MaxExpireDays:     req.MaxExpireDays,
-			OverdueAction:     req.OverdueAction,
-			CheckinMethod:     req.CheckinMethod,
-			CaptchaSiteKey:    req.CaptchaSiteKey,
-			CaptchaSecretKey:  req.CaptchaSecretKey,
-			PowDifficulty:     req.PowDifficulty,
+
+		var config checkinModel.CheckinConfig
+		result := tx.Where("provider_id = ?", providerID).First(&config)
+		if result.Error != nil {
+			if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("查询签到配置失败: %w", result.Error)
+			}
+			config = checkinModel.CheckinConfig{
+				ProviderID:        providerID,
+				Enabled:           req.Enabled,
+				DefaultExpireDays: req.DefaultExpireDays,
+				RenewalDays:       req.RenewalDays,
+				MaxExpireDays:     req.MaxExpireDays,
+				OverdueAction:     req.OverdueAction,
+				CheckinMethod:     req.CheckinMethod,
+				CaptchaSiteKey:    req.CaptchaSiteKey,
+				CaptchaSecretKey:  req.CaptchaSecretKey,
+				PowDifficulty:     req.PowDifficulty,
+			}
+			return tx.Create(&config).Error
 		}
-		return global.APP_DB.Create(&config).Error
-	}
-	return global.APP_DB.Model(&config).Updates(updates).Error
+		return tx.Model(&config).Updates(updates).Error
+	})
 }
 
 // GetCheckinChallenge 获取签到挑战信息（前端呈现验证组件所需数据）
@@ -109,6 +114,10 @@ func (s *Service) GetCheckinChallenge(userID, instanceID uint) (map[string]inter
 		Take(&instance)
 	if dbResult.Error != nil {
 		return nil, fmt.Errorf("实例不存在或不属于您")
+	}
+
+	if !s.isProviderCheckinEnabled(instance.ProviderID) {
+		return nil, fmt.Errorf("该节点未启用签到续期")
 	}
 
 	config, err := s.GetCheckinConfig(instance.ProviderID)
@@ -205,6 +214,10 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 		Take(&instance)
 	if result.Error != nil {
 		return fmt.Errorf("实例不存在或不属于您")
+	}
+
+	if !s.isProviderCheckinEnabled(instance.ProviderID) {
+		return fmt.Errorf("该节点未启用签到续期")
 	}
 
 	config, err := s.GetCheckinConfig(instance.ProviderID)
@@ -439,6 +452,37 @@ func (s *Service) GetCheckinRecords(userID uint, page, pageSize int) ([]checkinM
 	}
 	err := query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&records).Error
 	return records, total, err
+}
+
+func (s *Service) isProviderCheckinEnabled(providerID uint) bool {
+	var count int64
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ? AND enable_checkin = ? AND is_frozen = ?", providerID, true, false).
+		Count(&count).Error; err != nil {
+		return false
+	}
+	return count > 0
+}
+
+type EligibleCheckinInstance struct {
+	ID           uint       `json:"id"`
+	Name         string     `json:"name"`
+	ProviderID   uint       `json:"providerId"`
+	ProviderName string     `json:"providerName"`
+	Status       string     `json:"status"`
+	ExpiresAt    *time.Time `json:"expiresAt"`
+}
+
+func (s *Service) GetEligibleCheckinInstances(userID uint) ([]EligibleCheckinInstance, error) {
+	instances := make([]EligibleCheckinInstance, 0)
+	err := global.APP_DB.Table("instances i").
+		Select("i.id, i.name, i.provider_id, p.name AS provider_name, i.status, i.expires_at").
+		Joins("JOIN providers p ON p.id = i.provider_id").
+		Joins("JOIN checkin_configs c ON c.provider_id = p.id").
+		Where("i.user_id = ? AND i.status NOT IN ? AND i.is_manual_expiry = ? AND p.enable_checkin = ? AND p.is_frozen = ? AND c.enabled = ?", userID, []string{"deleted", "deleting"}, false, true, false, true).
+		Order("i.id DESC").
+		Scan(&instances).Error
+	return instances, err
 }
 
 func (s *Service) ensureProviderExists(providerID uint) error {

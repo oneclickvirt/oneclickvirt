@@ -173,6 +173,9 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 
 	// 验证 GPU 直通配置（LXD/Incus 原生设备配置，Docker 家族 best-effort）
 	if req.GpuEnabled {
+		if !provider.GpuEnabled {
+			return nil, fmt.Errorf("该节点未启用GPU直通")
+		}
 		if !utils.SupportsContainerGPUProvider(provider.Type, systemImage.InstanceType) {
 			return nil, fmt.Errorf("GPU 直通仅支持 LXD/Incus/Docker/Podman/Containerd/Orbstack 的容器实例")
 		}

@@ -46,6 +46,7 @@ type UserListRequest struct {
 
 type CreateProviderRequest struct {
 	Name                  string `json:"name" binding:"required"`
+	Description           string `json:"description"`
 	Type                  string `json:"type" binding:"required"`
 	Endpoint              string `json:"endpoint"`
 	PortIP                string `json:"portIP"` // 端口映射使用的公网IP
@@ -158,6 +159,7 @@ type CreateProviderRequest struct {
 type UpdateProviderRequest struct {
 	ID                    uint    `json:"id"`
 	Name                  string  `json:"name"`
+	Description           string  `json:"description"`
 	Type                  string  `json:"type"`
 	Endpoint              string  `json:"endpoint"`
 	PortIP                string  `json:"portIP"` // 端口映射使用的公网IP

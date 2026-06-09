@@ -317,9 +317,9 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		instanceConfig.MaxProcesses = intPtr(dbProvider.ContainerMaxProcesses)
 		instanceConfig.DiskIOLimit = stringPtr(dbProvider.ContainerDiskIOLimit)
 	}
-	if supportsContainerGPU {
-		instanceConfig.GpuEnabled = dbProvider.GpuEnabled
-		instanceConfig.GpuDeviceIds = dbProvider.GpuDeviceIds
+	if supportsContainerGPU && dbProvider.GpuEnabled {
+		instanceConfig.GpuEnabled = instance.GpuEnabled
+		instanceConfig.GpuDeviceIds = instance.GpuDeviceIds
 	}
 
 	// 复制模式处理（CreateRedemptionInstanceTaskRequest 传入）
@@ -327,19 +327,19 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		instanceConfig.CopyMode = true
 		instanceConfig.CopySourceName = redemptionTaskReq.SourceContainer
 		// 复制模式下，GPU配置也从任务请求中获取（覆盖Provider默认值）
-		if supportsContainerGPU {
+		if supportsContainerGPU && dbProvider.GpuEnabled {
 			instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
 		}
 	} else if redemptionTaskJSONErr == nil && redemptionTaskReq.GpuEnabled {
 		// 标准模式下，如果兑换码任务请求中指定了GPU配置，覆盖Provider默认值
-		if supportsContainerGPU {
+		if supportsContainerGPU && dbProvider.GpuEnabled {
 			instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
 		}
 	} else if taskReq.GpuEnabled {
 		// 标准模式下（普通用户创建），如果任务请求中指定了GPU配置，覆盖Provider默认值
-		if supportsContainerGPU {
+		if supportsContainerGPU && dbProvider.GpuEnabled {
 			instanceConfig.GpuEnabled = taskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = taskReq.GpuDeviceIds
 		}

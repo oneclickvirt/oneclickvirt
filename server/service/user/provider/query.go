@@ -14,6 +14,7 @@ import (
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/images"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -167,6 +168,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 			providerResp := userModel.AvailableProviderResponse{
 				ID:                      provider.ID,
 				Name:                    provider.Name,
+				Description:             provider.Description,
 				Type:                    provider.Type,
 				Region:                  provider.Region,
 				Country:                 provider.Country,
@@ -185,9 +187,11 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				ContainerEnabled:        provider.ContainerEnabled,
 				VmEnabled:               provider.VirtualMachineEnabled,
 				RedeemCodeOnly:          provider.RedeemCodeOnly,
-				GpuEnabled:              provider.GpuEnabled,
+				GpuEnabled:              provider.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, "container"),
+				GroupID:                 provider.ProviderGroupID,
 				GroupName:               provider.GroupName,
 				GroupDescription:        provider.GroupDescription,
+				GroupDescriptionHtml:    utils.MarkdownToSafeHTML(provider.GroupDescription),
 			}
 			providers = append(providers, providerResp)
 		}
@@ -452,6 +456,8 @@ func (s *Service) GetProviderCapabilities(userID uint, providerID uint) (map[str
 		"maxCpu":           provider.NodeCPUCores,
 		"maxMemory":        provider.NodeMemoryTotal,
 		"maxDisk":          provider.NodeDiskTotal,
+		"architecture":     provider.Architecture,
+		"gpuEnabled":       provider.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, "container"),
 		"region":           provider.Region,
 		"country":          provider.Country,
 		"city":             provider.City,

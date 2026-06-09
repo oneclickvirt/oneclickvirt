@@ -94,6 +94,7 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/user/kyc/alipay/result", user.QueryAlipayKYCResult)
 
 		// 签到续期
+		UserGroup.GET("/user/checkin/eligible-instances", user.GetEligibleCheckinInstances)
 		UserGroup.POST("/user/checkin/code/:instance_id", user.GenerateCheckinCode)
 		UserGroup.POST("/user/checkin", user.DoCheckin)
 		UserGroup.GET("/user/checkin/records", user.GetCheckinRecords)

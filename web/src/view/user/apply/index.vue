@@ -58,9 +58,9 @@
       >
         <el-tab-pane
           v-for="group in providerGroups"
-          :key="group.name"
+          :key="group.tabName"
           :label="group.name || t('user.apply.defaultGroup')"
-          :name="group.name"
+          :name="group.tabName"
         >
           <div
             v-if="group.description"
@@ -144,10 +144,13 @@
           </div>
         </el-tab-pane>
       </el-tabs>
-      <div
-        v-else
-        class="providers-grid"
-      >
+      <div v-else>
+        <div
+          v-if="providerGroups[0]?.description"
+          class="group-description"
+          v-html="providerGroups[0].description"
+        />
+        <div class="providers-grid">
         <div 
           v-for="provider in providers" 
           :key="provider.id"
@@ -220,6 +223,7 @@
               </el-link>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </el-card>

@@ -132,7 +132,7 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 
 		// 设置实例到期时间：节点到期优先；节点不过期且启用签到时，使用签到默认到期天数。
 		expiredAt := determineInitialInstanceExpiryInTx(tx, &provider)
-		gpuEnabled := taskReq.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, instanceType)
+		gpuEnabled := provider.GpuEnabled && taskReq.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, instanceType)
 		gpuDeviceIDs := ""
 		if gpuEnabled {
 			gpuDeviceIDs = taskReq.GpuDeviceIds

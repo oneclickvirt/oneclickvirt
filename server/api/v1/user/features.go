@@ -205,6 +205,23 @@ func QueryAlipayKYCResult(c *gin.Context) {
 
 // ============ 签到续期 ============
 
+// GetEligibleCheckinInstances 获取当前用户可签到续期的实例
+func GetEligibleCheckinInstances(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
+		return
+	}
+
+	svc := &checkinService.Service{}
+	instances, err := svc.GetEligibleCheckinInstances(userID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, instances)
+}
+
 // GenerateCheckinCode 获取签到验证挑战
 // @Summary 获取签到验证挑战
 // @Description 为指定实例生成签到续期所需的验证码或 PoW challenge

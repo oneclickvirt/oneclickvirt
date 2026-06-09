@@ -110,6 +110,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.Name != "" {
 		provider.Name = req.Name
 	}
+	provider.Description = req.Description
 	if req.Type != "" {
 		provider.Type = utils.NormalizeProviderType(req.Type)
 	}

@@ -85,18 +85,70 @@ export function useMonitoringManagement(props, emit) {
     return t('admin.providers.agentNotInstalled')
   })
 
+  const resetViewState = (resetLoadedData = true) => {
+    activeTab.value = 'agent'
+    showConfigEditor.value = false
+    deployOutput.value = ''
+    agentOnlineChecked.value = false
+    agentIsOnline.value = false
+    showToken.value = false
+    showAgentMonitors.value = false
+    agentMonitors.value = []
+    monitorsPagination.page = 1
+    monitorsPagination.pageSize = 10
+    monitorsPagination.total = 0
+    agentMonitorsPagination.page = 1
+    agentMonitorsPagination.pageSize = 10
+    agentMonitorsPagination.total = 0
+    if (resetLoadedData) {
+      monitors.value = []
+      Object.assign(config, {
+        monitoring_mode: 'agent',
+        traffic_collect_method: 'nft',
+        agent_token: '',
+        agent_port: 23782,
+        agent_installed: false,
+        agent_version: '',
+        collect_interval: 5,
+        resource_collect_interval: 30,
+        extra_exclude_cidrs_v4: '',
+        extra_exclude_cidrs_v6: ''
+      })
+      Object.assign(editConfig, {
+        monitoring_mode: 'agent',
+        traffic_collect_method: 'nft',
+        agent_port: 23782,
+        collect_interval: 5,
+        resource_collect_interval: 30,
+        extra_exclude_cidrs_v4: '',
+        extra_exclude_cidrs_v6: ''
+      })
+    }
+  }
+
+  const loadDialogData = async () => {
+    if (!props.provider) return
+    configLoading.value = true
+    try {
+      await loadConfig()
+      await loadMonitors()
+      if (config.agent_installed) handleCheckStatus()
+    } finally { configLoading.value = false }
+  }
+
   watch(() => props.visible, async (val) => {
     if (val && props.provider) {
-      agentOnlineChecked.value = false
-      agentIsOnline.value = false
-      showToken.value = false
-      configLoading.value = true
-      try {
-        await loadConfig()
-        await loadMonitors()
-        if (config.agent_installed) handleCheckStatus()
-      } finally { configLoading.value = false }
+      resetViewState(true)
+      await loadDialogData()
+    } else if (!val) {
+      resetViewState(false)
     }
+  })
+
+  watch(() => props.provider?.id, async (id, oldId) => {
+    if (!props.visible || !id || id === oldId) return
+    resetViewState(true)
+    await loadDialogData()
   })
 
   const loadConfig = async () => {

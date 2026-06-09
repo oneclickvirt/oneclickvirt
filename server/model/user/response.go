@@ -35,6 +35,7 @@ type ResourceUsageInfo struct {
 type AvailableResourceResponse struct {
 	ID                    uint   `json:"id"`
 	Name                  string `json:"name"`
+	Description           string `json:"description"`
 	Type                  string `json:"type"`
 	Region                string `json:"region"`
 	Country               string `json:"country"`
@@ -226,6 +227,7 @@ type ResetPasswordResponse struct {
 type AvailableProviderResponse struct {
 	ID                      uint    `json:"id"`
 	Name                    string  `json:"name"`
+	Description             string  `json:"description"`
 	Type                    string  `json:"type"`
 	Region                  string  `json:"region"`
 	Country                 string  `json:"country"`
@@ -243,10 +245,12 @@ type AvailableProviderResponse struct {
 	MemoryUsage             float64 `json:"memoryUsage"`
 	ContainerEnabled        bool    `json:"containerEnabled"`
 	VmEnabled               bool    `json:"vmEnabled"`
-	RedeemCodeOnly          bool    `json:"redeemCodeOnly"`   // 是否仅支持兑换码兑换
-	GpuEnabled              bool    `json:"gpuEnabled"`       // 是否启用GPU直通
-	GroupName               string  `json:"groupName"`        // 分组名称
-	GroupDescription        string  `json:"groupDescription"` // 分组描述(HTML)
+	RedeemCodeOnly          bool    `json:"redeemCodeOnly"`       // 是否仅支持兑换码兑换
+	GpuEnabled              bool    `json:"gpuEnabled"`           // 是否启用GPU直通
+	GroupID                 uint    `json:"groupId"`              // 分组ID
+	GroupName               string  `json:"groupName"`            // 分组名称
+	GroupDescription        string  `json:"groupDescription"`     // 分组描述(Markdown源码)
+	GroupDescriptionHtml    string  `json:"groupDescriptionHtml"` // 分组描述安全HTML
 }
 
 // SystemImageResponse 系统镜像响应

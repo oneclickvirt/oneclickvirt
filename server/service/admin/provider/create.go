@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
@@ -46,24 +45,6 @@ func maskAuthMethod(password, sshKey string) string {
 		return "sshKey:***"
 	}
 	return "none"
-}
-
-func loadAdminGroupForProvider(ownerAdminID uint) (string, string) {
-	var setting providerModel.AdminGroupSetting
-	if err := global.APP_DB.Select("group_name, group_description").
-		Where("owner_admin_id = ?", ownerAdminID).
-		First(&setting).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			global.APP_LOG.Warn("读取管理员分组设置失败，将使用默认分组",
-				zap.Uint("ownerAdminID", ownerAdminID),
-				zap.Error(err))
-		}
-		return "测试", ""
-	}
-	if setting.GroupName == "" {
-		setting.GroupName = "测试"
-	}
-	return setting.GroupName, setting.GroupDescription
 }
 
 // CreateProvider 创建Provider
@@ -142,7 +123,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		return nil, fmt.Errorf("SSH直连模式必须提供SSH密码或SSH密钥其中一种认证方式")
 	}
 
-	groupName, groupDescription := loadAdminGroupForProvider(ownerAdminID)
+	groupID, groupName, groupDescription := uint(0), "", ""
 
 	providerType := utils.NormalizeProviderType(req.Type)
 	containerOptionsSupported := utils.IsLXDIncusProvider(providerType)
@@ -176,6 +157,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 
 	provider := providerModel.Provider{
 		Name:                  req.Name,
+		Description:           req.Description,
 		Type:                  providerType,
 		Endpoint:              normalizedEndpoint,
 		PortIP:                req.PortIP,
@@ -271,6 +253,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		}(),
 		// 普通管理员归属
 		OwnerAdminID:     ownerAdminID,
+		ProviderGroupID:  groupID,
 		GroupName:        groupName,
 		GroupDescription: groupDescription,
 	}

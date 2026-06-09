@@ -32,25 +32,35 @@ export default function useApplyPage() {
     submitApplication, submitRedemption, resetForm,
     // GPU
     gpuLoading, detectedGpus, selectedGpuIndices, gpuInfoMsg,
-    loadProviderGPUs, selectAllGpus, deselectAllGpus
+    loadProviderGPUs, resetGpuState, selectAllGpus, deselectAllGpus
   } = useApplyForm(selectedProvider, providerCapabilities, loadProviderCapabilities, canCreateInstanceType)
 
 
   // Provider group tabs
   const activeGroupTab = ref('')
+  let providerSelectSeq = 0
 
   // GPU passthrough is native on LXD/Incus and best-effort on Docker-family providers.
   const canConfigureGpuPassthrough = computed(() => {
     if (!selectedProvider.value) return false
     const providerType = selectedProvider.value.type
     const isContainer = configForm.type === 'container'
-    return isContainerGPUProvider(providerType) && isContainer
+    return Boolean(selectedProvider.value.gpuEnabled) && isContainerGPUProvider(providerType) && isContainer
   })
 
   // When GPU enabled checkbox is toggled, load cached GPU info if not already loaded.
   // Only applicable when provider is lxd/incus AND admin has enabled GPU on the node.
   const onGpuEnabledChange = (val) => {
-    if (val && detectedGpus.value.length === 0 && selectedProvider.value) {
+    if (!val) {
+      selectedGpuIndices.value = []
+      configForm.gpuDeviceIds = ''
+      return
+    }
+    if (!canConfigureGpuPassthrough.value) {
+      configForm.gpuEnabled = false
+      return
+    }
+    if (detectedGpus.value.length === 0 && selectedProvider.value) {
       const pt = selectedProvider.value.type
       if ((pt === 'lxd' || pt === 'incus') && selectedProvider.value.gpuEnabled) {
         loadProviderGPUs(selectedProvider.value.id)
@@ -61,21 +71,21 @@ export default function useApplyPage() {
   const providerGroups = computed(() => {
     const groupMap = new Map()
     for (const p of providers.value) {
-      const key = p.groupName || ''
+      const key = p.groupId ? `group-${p.groupId}` : 'default-group'
       if (!groupMap.has(key)) {
-        groupMap.set(key, { name: key, description: p.groupDescription || '', providers: [] })
+        groupMap.set(key, { id: p.groupId || 0, tabName: key, name: p.groupName || '', description: p.groupDescriptionHtml || p.groupDescription || '', providers: [] })
       }
       groupMap.get(key).providers.push(p)
     }
     const groups = Array.from(groupMap.values())
     // Put the default group (empty name) first
     groups.sort((a, b) => {
-      if (a.name === '') return -1
-      if (b.name === '') return 1
-      return a.name.localeCompare(b.name)
+      if (!a.id && !a.name) return -1
+      if (!b.id && !b.name) return 1
+      return (a.name || '').localeCompare(b.name || '')
     })
-    if (groups.length > 0 && !activeGroupTab.value) {
-      activeGroupTab.value = groups[0].name
+    if (groups.length > 0 && (!activeGroupTab.value || !groups.some(g => g.tabName === activeGroupTab.value))) {
+      activeGroupTab.value = groups[0].tabName
     }
     return groups
   })
@@ -122,15 +132,13 @@ export default function useApplyPage() {
       ElMessage.warning(t('user.apply.nodeInsufficientResources'))
       return
     }
+    const requestSeq = ++providerSelectSeq
+    resetGpuState()
     selectedProvider.value = provider
     await loadProviderCapabilities(provider.id)
+    if (requestSeq !== providerSelectSeq || selectedProvider.value?.id !== provider.id) return
     await loadInstanceConfig(provider.id)
-    // Only preload GPU info if the provider type supports native GPU passthrough
-    // AND the admin has explicitly enabled GPU on this node.
-    const pt = provider.type
-    if ((pt === 'lxd' || pt === 'incus') && provider.gpuEnabled) {
-      loadProviderGPUs(provider.id)
-    }
+    if (requestSeq !== providerSelectSeq || selectedProvider.value?.id !== provider.id) return
     if (!canCreateInstanceType(configForm.type)) {
       const capabilities = providerCapabilities.value[provider.id]
       if (capabilities?.supportedTypes?.length > 0) {
@@ -142,7 +150,9 @@ export default function useApplyPage() {
         }
       }
     }
+    if (!canConfigureGpuPassthrough.value) resetGpuState()
     if (configForm.type) await loadFilteredImages()
+    if (requestSeq !== providerSelectSeq || selectedProvider.value?.id !== provider.id) return
     configForm.imageId = ''
     autoSelectFirstAvailableSpecs()
   }

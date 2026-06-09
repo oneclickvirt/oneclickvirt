@@ -204,17 +204,6 @@
     </template>
 
     <el-form-item
-      :label="$t('common.description')"
-      prop="description"
-    >
-      <el-input
-        v-model="modelValue.description"
-        type="textarea"
-        :rows="3"
-        :placeholder="$t('admin.providers.descriptionPlaceholder')"
-      />
-    </el-form-item>
-    <el-form-item
       :label="$t('common.status')"
       prop="status"
     >
@@ -269,6 +258,17 @@
         {{ $t('admin.providers.architectureTip') }}
       </el-text>
     </div>
+    <el-form-item
+      :label="$t('common.description')"
+      prop="description"
+    >
+      <el-input
+        v-model="modelValue.description"
+        type="textarea"
+        :rows="3"
+        :placeholder="$t('admin.providers.descriptionPlaceholder')"
+      />
+    </el-form-item>
   </el-form>
 </template>
 

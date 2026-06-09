@@ -171,6 +171,18 @@ export function useProviderDialogs(loadProviders) {
 
   // ── 流量监控对话框 ────────────────────────────────────
 
+  const resetTrafficMonitorDialog = (provider = null) => {
+    trafficMonitorDialog.loading = false
+    trafficMonitorDialog.provider = provider
+    trafficMonitorDialog.task = null
+    trafficMonitorDialog.showHistory = false
+    trafficMonitorDialog.runningTask = null
+    trafficMonitorDialog.historyTasks = []
+    trafficMonitorDialog.pagination.page = 1
+    trafficMonitorDialog.pagination.pageSize = 10
+    trafficMonitorDialog.pagination.total = 0
+  }
+
   const loadTrafficMonitorHistory = async () => {
     if (!trafficMonitorDialog.provider) return
     try {
@@ -194,12 +206,9 @@ export function useProviderDialogs(loadProviders) {
   }
 
   const openTrafficMonitorDialog = async (provider) => {
-    trafficMonitorDialog.provider = provider
-    trafficMonitorDialog.pagination.page = 1
-    trafficMonitorDialog.pagination.pageSize = 10
+    resetTrafficMonitorDialog(provider)
     await loadTrafficMonitorHistory()
     trafficMonitorDialog.showHistory = true
-    trafficMonitorDialog.task = null
     trafficMonitorDialog.visible = true
   }
 
@@ -314,6 +323,13 @@ export function useProviderDialogs(loadProviders) {
     }
   }
 
+  const debugAuthStatus = () => {
+    console.debug('[providers] dialog state', {
+      configDialogVisible: configDialog.visible,
+      trafficMonitorDialogVisible: trafficMonitorDialog.visible
+    })
+  }
+
   return {
     configDialog,
     taskLogDialog,
@@ -334,6 +350,8 @@ export function useProviderDialogs(loadProviders) {
     executeTrafficMonitorOperation,
     viewTrafficMonitorTaskLog,
     viewRunningTrafficMonitorTask,
-    refreshTrafficMonitorTask
+    refreshTrafficMonitorTask,
+    resetTrafficMonitorDialog,
+    debugAuthStatus
   }
 }

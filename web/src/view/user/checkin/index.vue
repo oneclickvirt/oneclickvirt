@@ -5,10 +5,12 @@
         <span>{{ t('user.checkin.title') }}</span>
       </template>
 
-      <div
-        v-loading="loadingStats"
-        class="checkin-stats"
-      >
+      <div v-loading="loadingInstances">
+        <template v-if="instances.length > 0">
+          <div
+            v-loading="loadingStats"
+            class="checkin-stats"
+          >
         <el-row :gutter="12">
           <el-col
             :xs="12"
@@ -241,6 +243,12 @@
         layout="total, prev, pager, next"
         @current-change="handlePageChange"
       />
+        </template>
+        <el-empty
+          v-else-if="!loadingInstances"
+          description="当前没有可签到续期的实例；只有实例所属节点已启用签到续期时，这里才会显示操作界面。"
+        />
+      </div>
     </el-card>
   </div>
 </template>
@@ -250,8 +258,7 @@ import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { generateCheckinCode, doCheckin as doCheckinApi, getCheckinRecords, getCheckinStats } from '@/api/features'
-import { getUserInstances } from '@/api/user'
+import { generateCheckinCode, doCheckin as doCheckinApi, getCheckinRecords, getCheckinStats, getEligibleCheckinInstances } from '@/api/features'
 
 const { t } = useI18n()
 
@@ -266,6 +273,7 @@ const powComputing = ref(false)
 const gettingChallenge = ref(false)
 const checkingIn = ref(false)
 const loadingStats = ref(false)
+const loadingInstances = ref(true)
 const stats = ref({
   totalCheckins: 0,
   currentStreak: 0,
@@ -302,12 +310,25 @@ function resetChallenge() {
 }
 
 async function fetchInstances() {
+  loadingInstances.value = true
   try {
-    const res = await getUserInstances({ page: 1, pageSize: 100 })
+    const res = await getEligibleCheckinInstances()
     if (res.code === 200) {
-      instances.value = res.data?.list || res.data || []
+      const nextInstances = Array.isArray(res.data) ? res.data : []
+      instances.value = nextInstances
+      if (!instances.value.some(item => item.id === selectedInstanceId.value)) {
+        selectedInstanceId.value = null
+        resetChallenge()
+      }
     }
-  } catch { /* ignore */ }
+  } catch (e) {
+    console.error('获取可签到续期实例失败:', e)
+    instances.value = []
+    selectedInstanceId.value = null
+    resetChallenge()
+  } finally {
+    loadingInstances.value = false
+  }
 }
 
 async function fetchStats() {
@@ -505,10 +526,12 @@ function handlePageChange(p) {
   fetchRecords()
 }
 
-onMounted(() => {
-  fetchInstances()
-  fetchStats()
-  fetchRecords()
+onMounted(async () => {
+  await fetchInstances()
+  if (instances.value.length > 0) {
+    fetchStats()
+    fetchRecords()
+  }
 })
 
 onUnmounted(() => {

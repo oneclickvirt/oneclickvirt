@@ -80,6 +80,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
   const detectedGpus = ref([])       // [{index, name, vendor, id, ...}]
   const selectedGpuIndices = ref([]) // indices of selected GPUs
   const gpuInfoMsg = ref('')         // informational message (e.g. "not yet detected")
+  let gpuRequestSeq = 0
 
   // ── Formatters ────────────────────────────────────
 
@@ -266,8 +267,9 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
 
   // Build gpuDeviceIds string from selected GPU indices
   const buildGpuDeviceIds = () => {
-    if (!configForm.gpuEnabled || selectedGpuIndices.value.length === 0) return ''
-    return selectedGpuIndices.value.join(',')
+    if (!configForm.gpuEnabled) return ''
+    if (selectedGpuIndices.value.length > 0) return selectedGpuIndices.value.join(',')
+    return (configForm.gpuDeviceIds || '').trim()
   }
 
   const submitApplication = async () => {
@@ -334,7 +336,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         diskId: configForm.diskId,
         bandwidthId: configForm.bandwidthId,
         description: configForm.description,
-        gpuEnabled: configForm.gpuEnabled || false,
+        gpuEnabled: Boolean(configForm.gpuEnabled && selectedProvider.value?.gpuEnabled),
         gpuDeviceIds: buildGpuDeviceIds()
       })
 
@@ -404,7 +406,18 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
 
   // ── GPU loading (cached results from backend) ──
 
+  const resetGpuState = () => {
+    gpuRequestSeq += 1
+    configForm.gpuEnabled = false
+    configForm.gpuDeviceIds = ''
+    detectedGpus.value = []
+    selectedGpuIndices.value = []
+    gpuInfoMsg.value = ''
+    gpuLoading.value = false
+  }
+
   const loadProviderGPUs = async (providerId) => {
+    const requestSeq = ++gpuRequestSeq
     if (!providerId) {
       detectedGpus.value = []
       gpuInfoMsg.value = ''
@@ -414,6 +427,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     gpuInfoMsg.value = ''
     try {
       const res = await getProviderGPUs(providerId)
+      if (requestSeq !== gpuRequestSeq || selectedProvider.value?.id !== providerId) return
       if (res.code === 200 && res.data) {
         const gpus = res.data.gpus || []
         detectedGpus.value = gpus.map((g, idx) => ({
@@ -426,11 +440,12 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         }
       }
     } catch (e) {
+      if (requestSeq !== gpuRequestSeq) return
       console.error('获取GPU列表失败:', e)
       detectedGpus.value = []
       ElMessage.error(e?.message || t('user.apply.loadGPUsFailed'))
     } finally {
-      gpuLoading.value = false
+      if (requestSeq === gpuRequestSeq) gpuLoading.value = false
     }
   }
 
@@ -474,6 +489,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     selectedGpuIndices,
     gpuInfoMsg,
     loadProviderGPUs,
+    resetGpuState,
     selectAllGpus,
     deselectAllGpus
   }
