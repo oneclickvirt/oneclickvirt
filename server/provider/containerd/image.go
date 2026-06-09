@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
@@ -11,6 +12,24 @@ import (
 
 	"go.uber.org/zap"
 )
+
+func containerdPlatformFromArch(arch string) string {
+	a := strings.ToLower(strings.TrimSpace(arch))
+	switch a {
+	case "amd64", "x86_64":
+		return "linux/amd64"
+	case "arm64", "aarch64":
+		return "linux/arm64"
+	case "arm", "armv7", "armv7l":
+		return "linux/arm/v7"
+	default:
+		return "linux/amd64"
+	}
+}
+
+func (c *ContainerdProvider) containerdPlatform() string {
+	return containerdPlatformFromArch(c.config.Architecture)
+}
 
 // sshListImages 列出所有镜像
 func (c *ContainerdProvider) sshListImages(ctx context.Context) ([]provider.Image, error) {
@@ -44,7 +63,7 @@ func (c *ContainerdProvider) sshListImages(ctx context.Context) ([]provider.Imag
 
 // sshPullImage 拉取镜像
 func (c *ContainerdProvider) sshPullImage(ctx context.Context, image string) error {
-	pullCmd := fmt.Sprintf("%s pull %s", cliName, shellSingleQuote(image))
+	pullCmd := fmt.Sprintf("%s pull --platform=%s %s", cliName, shellSingleQuote(c.containerdPlatform()), shellSingleQuote(image))
 	output, err := c.sshClient.Execute(pullCmd)
 	if err != nil {
 		global.APP_LOG.Error("Containerd镜像拉取失败",
@@ -68,17 +87,31 @@ func (c *ContainerdProvider) sshDeleteImage(ctx context.Context, id string) erro
 }
 
 // loadImageToContainerd 加载镜像到Containerd
-// nerdctl load 不支持 -i 参数，需使用 --input=<path> 或 stdin 重定向
+// containerd/nerdctl 2.x 对多架构 archive 必须显式指定 platform，否则可能报
+// "unable to initialize unpacker: no unpack platforms defined"。
 func (c *ContainerdProvider) loadImageToContainerd(imagePath, targetImageName string) error {
-	// 使用 nerdctl load --input=<path>，这是 nerdctl 正确的语法（不同于 docker/podman 的 -i）
-	loadCmd := fmt.Sprintf("%s load --input=%s", cliName, shellSingleQuote(imagePath))
-	output, err := c.sshClient.Execute(loadCmd)
+	platform := c.containerdPlatform()
+	loadCmd := fmt.Sprintf("%s load --platform=%s --input=%s", cliName, shellSingleQuote(platform), shellSingleQuote(imagePath))
+	output, err := c.sshClient.ExecuteWithTimeout(loadCmd, 30*time.Minute)
 	if err != nil {
-		global.APP_LOG.Error("Containerd镜像加载失败",
+		global.APP_LOG.Warn("Containerd nerdctl load失败，尝试ctr --local导入",
 			zap.String("imagePath", utils.TruncateString(imagePath, 64)),
+			zap.String("platform", platform),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to load image from %s: %w", imagePath, err)
+
+		ctrCmd := fmt.Sprintf("command -v ctr >/dev/null 2>&1 && ctr images import --local --platform %s %s", shellSingleQuote(platform), shellSingleQuote(imagePath))
+		ctrOutput, ctrErr := c.sshClient.ExecuteWithTimeout(ctrCmd, 30*time.Minute)
+		if ctrErr != nil {
+			global.APP_LOG.Error("Containerd镜像加载失败",
+				zap.String("imagePath", utils.TruncateString(imagePath, 64)),
+				zap.String("platform", platform),
+				zap.String("nerdctlOutput", utils.TruncateString(output, 500)),
+				zap.String("ctrOutput", utils.TruncateString(ctrOutput, 500)),
+				zap.Error(ctrErr))
+			return fmt.Errorf("failed to load image from %s: nerdctl: %v; ctr: %w", imagePath, err, ctrErr)
+		}
+		output = ctrOutput
 	}
 
 	// nerdctl load 输出格式为“unpacking <image>...” 或 "Loaded image: <image>"

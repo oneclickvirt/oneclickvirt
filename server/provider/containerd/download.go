@@ -90,23 +90,33 @@ func (c *ContainerdProvider) removeRemoteFile(remotePath string) error {
 // downloadFileToRemote 在远程服务器上下载文件
 func (c *ContainerdProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
-	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
-		shellSingleQuote(tmpPath), shellSingleQuote(url),
-	)
+	script := fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+url=%s
+tmp=%s
+dst=%s
+rm -f "$tmp"
+mkdir -p "$(dirname "$dst")"
+curl -4 -fL --connect-timeout 30 --max-time 900 --retry 5 --retry-delay 10 --retry-connrefused -o "$tmp" "$url"
+test -s "$tmp"
+# 避免 CDN/鉴权错误页被当作镜像包。tar.gz/tgz 用 gzip 测试，其余至少尝试 tar 列表。
+case "$dst" in
+  *.tar.gz|*.tgz) gzip -t "$tmp" ;;
+  *.tar) tar -tf "$tmp" >/dev/null ;;
+  *) tar -tf "$tmp" >/dev/null 2>&1 || gzip -t "$tmp" ;;
+esac
+mv -f "$tmp" "$dst"
+echo TEMP_SCRIPT_OK > "${MARKER_FILE:-$0.marker}"
+`, shellSingleQuote(url), shellSingleQuote(tmpPath), shellSingleQuote(remotePath))
 
-	output, err := c.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
+	output, err := c.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
 	if err != nil {
 		c.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
-			zap.String("output", utils.TruncateString(output, 500)),
+			zap.String("output", utils.TruncateString(output, 1000)),
 			zap.Error(err))
-		return fmt.Errorf("远程下载失败: %w", err)
-	}
-
-	if _, err := c.sshClient.Execute(fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))); err != nil {
-		return fmt.Errorf("移动文件失败: %w", err)
+		return fmt.Errorf("远程下载失败: %w; output: %s", err, utils.TruncateString(output, 500))
 	}
 
 	return nil

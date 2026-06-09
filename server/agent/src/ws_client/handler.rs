@@ -382,8 +382,18 @@ where
                                     return;
                                 }
                             };
-                            if let Err(err) = open_shell_session(req_id, payload, ws_tx_hi_clone, shell_sessions_clone).await {
+                            if let Err(err) = open_shell_session(req_id.clone(), payload, ws_tx_hi_clone.clone(), shell_sessions_clone).await {
                                 warn!(error = %err, "failed to open shell session");
+                                // Tell the controller immediately. Otherwise StartShell() has already
+                                // returned successfully and the browser terminal waits forever.
+                                let close_frame = WsFrame {
+                                    msg_type: "shell_close".to_string(),
+                                    id: Some(req_id),
+                                    payload: Some(serde_json::json!({ "reason": format!("failed to open shell session: {}", err) })),
+                                };
+                                if let Ok(text) = serde_json::to_string(&close_frame) {
+                                    let _ = ws_tx_hi_clone.try_send(Message::Text(text.into()));
+                                }
                             }
                         });
                     }
