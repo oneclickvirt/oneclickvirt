@@ -134,11 +134,25 @@ func SyncProviderMonitors(c *gin.Context) {
 
 	monitorSvc := agentService.NewMonitorService(ctx, global.APP_DB)
 
-	// Ensure all running instances have monitors and update existing ones' interfaces
-	if err := monitorSvc.EnsureMonitorsForProvider(providerInstance, uint(providerID), config); err != nil {
+	// Ensure all running instances have monitors and update existing ones' interfaces.
+	// Existing mappings are preloaded once by the service to avoid per-instance DB lookups.
+	summary, err := monitorSvc.EnsureMonitorsForProvider(providerInstance, uint(providerID), config)
+	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
+
+	cleaned, cleanupErr := monitorSvc.CleanupStaleMonitors(uint(providerID), config)
+	if cleanupErr != nil {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("cleanup stale monitors failed during provider sync",
+				zap.Uint64("provider_id", providerID),
+				zap.Error(cleanupErr))
+		}
+		summary.Errors = append(summary.Errors, "cleanup: "+cleanupErr.Error())
+		summary.Failed++
+	}
+	summary.Cleaned = cleaned
 
 	// Return updated list
 	var monitors []monitoringModel.AgentMonitor
@@ -147,7 +161,10 @@ func SyncProviderMonitors(c *gin.Context) {
 		return
 	}
 
-	common.ResponseSuccess(c, monitors, "同步完成")
+	common.ResponseSuccess(c, map[string]interface{}{
+		"summary":  summary,
+		"monitors": monitors,
+	}, "同步完成")
 }
 
 // ListAgentMonitors godoc
@@ -275,14 +292,17 @@ func ListAgentMonitors(c *gin.Context) {
 	enriched := make([]EnrichedMonitorItem, 0, len(monitors))
 	for _, m := range monitors {
 		item := EnrichedMonitorItem{
-			ID:           m.ID,
-			Interface:    m.Interface,
-			ProviderKind: m.ProviderKind,
-			InstanceName: m.InstanceName,
-			TotalBytes:   m.TotalBytes,
-			UpdatedAt:    m.UpdatedAt,
+			ID:            m.ID,
+			Interface:     m.Interface,
+			ProviderKind:  m.ProviderKind,
+			InstanceName:  m.InstanceName,
+			TotalBytes:    m.TotalBytes,
+			TotalBytesIn:  m.TotalBytesIn,
+			TotalBytesOut: m.TotalBytesOut,
+			UpdatedAt:     m.UpdatedAt,
 		}
 		if info, ok := infoMap[m.ID]; ok {
+			item.TotalBytes = info.UsedTraffic
 			item.TotalBytesIn = info.UsedTrafficIn
 			item.TotalBytesOut = info.UsedTrafficOut
 		}
@@ -327,12 +347,8 @@ func listAgentMonitorsFromDB(c *gin.Context, providerID uint, page, pageSize int
 
 	// Batch check which instances are deleted
 	instanceIDs := make([]uint, 0, len(monitors))
-	instanceNames := make([]string, 0, len(monitors))
 	for _, m := range monitors {
 		instanceIDs = append(instanceIDs, m.InstanceID)
-		if m.InstanceName != "" {
-			instanceNames = append(instanceNames, m.InstanceName)
-		}
 	}
 
 	activeInstanceIDs := make(map[uint]bool)

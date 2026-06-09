@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       assetsDir: 'assets',
       sourcemap: false,
-      minify: 'terser',
+      minify: 'esbuild',
       rollupOptions: {
         output: {
           chunkFileNames: 'js/[name]-[hash].js',
@@ -46,11 +46,8 @@ export default defineConfig(({ mode }) => {
           assetFileNames: 'assets/[name]-[hash].[ext]'
         }
       },
-      terserOptions: {
-        compress: {
-          drop_console: mode === 'production',
-          drop_debugger: mode === 'production'
-        }
+      esbuild: {
+        drop: mode === 'production' ? ['console', 'debugger'] : []
       }
     }
   }

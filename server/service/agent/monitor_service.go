@@ -26,6 +26,29 @@ func NewMonitorService(ctx context.Context, db *gorm.DB) *MonitorService {
 	return &MonitorService{db: db, ctx: ctx}
 }
 
+// MonitorSyncSummary describes what a provider monitor synchronization changed.
+type MonitorSyncSummary struct {
+	Total     int      `json:"total"`
+	Created   int      `json:"created"`
+	Updated   int      `json:"updated"`
+	Unchanged int      `json:"unchanged"`
+	Failed    int      `json:"failed"`
+	Cleaned   int      `json:"cleaned"`
+	Errors    []string `json:"errors,omitempty"`
+}
+
+func normalizeMonitorInterfaces(raw string) []string {
+	parts := strings.Split(raw, ",")
+	interfaces := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			interfaces = append(interfaces, part)
+		}
+	}
+	return interfaces
+}
+
 // getAgentClient returns an agent client for the given provider using its endpoint.
 // For agent-mode providers behind NAT, the HTTP API is not directly reachable;
 // the WS fallback in Client.doRequest handles connectivity via WebSocket.
@@ -58,7 +81,8 @@ func (s *MonitorService) RegisterMonitor(
 	config *monitoringModel.MonitoringConfig,
 	vmidHint string,
 ) (*monitoringModel.AgentMonitor, error) {
-	// Check if already registered
+	// Check if already registered. If the agent-side record still exists, refresh
+	// local metadata only; otherwise delete the stale mapping and recreate it.
 	var existing monitoringModel.AgentMonitor
 	if err := s.db.Where("instance_id = ?", instance.ID).First(&existing).Error; err == nil {
 		client, clientErr := s.getAgentClient(instance.ProviderID, config)
@@ -66,30 +90,12 @@ func (s *MonitorService) RegisterMonitor(
 			return &existing, nil
 		}
 		if _, infoErr := client.GetInfo(existing.AgentMonitorID); infoErr == nil {
-			updates := map[string]interface{}{}
-			if existing.ProviderID != instance.ProviderID {
-				updates["provider_id"] = instance.ProviderID
+			updated, err := s.updateMonitorForInstance(providerInstance, instance, config, vmidHint, &existing)
+			if err != nil {
+				return nil, err
 			}
-			if existing.UserID != instance.UserID {
-				updates["user_id"] = instance.UserID
-			}
-			if existing.ProviderKind != providerInstance.GetType() {
-				updates["provider_kind"] = providerInstance.GetType()
-			}
-			if existing.InstanceName != instance.Name {
-				updates["instance_name"] = instance.Name
-			}
-			if !existing.IsEnabled {
-				updates["is_enabled"] = true
-			}
-			if len(updates) > 0 {
-				updates["last_sync_at"] = time.Now()
-				if err := s.db.Model(&existing).Updates(updates).Error; err != nil {
-					return nil, fmt.Errorf("refresh existing agent monitor mapping: %w", err)
-				}
-				if err := s.db.Where("id = ?", existing.ID).First(&existing).Error; err != nil {
-					return nil, fmt.Errorf("reload existing agent monitor mapping: %w", err)
-				}
+			if updated {
+				return s.GetMonitorByInstanceID(instance.ID)
 			}
 			return &existing, nil
 		} else if global.APP_LOG != nil {
@@ -101,9 +107,19 @@ func (s *MonitorService) RegisterMonitor(
 		if err := s.db.Unscoped().Delete(&existing).Error; err != nil {
 			return nil, fmt.Errorf("remove stale agent monitor mapping: %w", err)
 		}
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("find existing agent monitor: %w", err)
 	}
 
-	// Detect network interfaces for this instance
+	return s.registerMonitorForInstance(providerInstance, instance, config, vmidHint)
+}
+
+func (s *MonitorService) registerMonitorForInstance(
+	providerInstance provider.Provider,
+	instance *providerModel.Instance,
+	config *monitoringModel.MonitoringConfig,
+	vmidHint string,
+) (*monitoringModel.AgentMonitor, error) {
 	interfaces, err := s.detectInstanceInterfaces(providerInstance, instance, vmidHint)
 	if err != nil {
 		return nil, fmt.Errorf("detect interfaces for instance %s: %w", instance.Name, err)
@@ -112,7 +128,6 @@ func (s *MonitorService) RegisterMonitor(
 		return nil, fmt.Errorf("no network interfaces found for instance %s", instance.Name)
 	}
 
-	// Get agent client
 	client, err := s.getAgentClient(instance.ProviderID, config)
 	if err != nil {
 		return nil, err
@@ -120,21 +135,13 @@ func (s *MonitorService) RegisterMonitor(
 
 	providerKind := providerInstance.GetType()
 	instanceName := instance.Name
-
-	// Determine inner IP for per-IP traffic filtering.
-	// For containers sharing a bridge (NAT), PrivateIP is set → per-IP rules.
-	// For dedicated-IP instances (PrivateIP empty), pass "" → interface-based
-	// counting that excludes private ranges, which is more accurate for
-	// single-tenant veth interfaces.
 	innerIP := instance.PrivateIP
 
-	// Call agent to add monitor
 	resp, err := client.AddMonitor(interfaces, providerKind, instanceName, innerIP)
 	if err != nil {
 		return nil, fmt.Errorf("agent add monitor for %s: %w", instance.Name, err)
 	}
 
-	// Save mapping in MySQL
 	monitor := monitoringModel.AgentMonitor{
 		InstanceID:     instance.ID,
 		ProviderID:     instance.ProviderID,
@@ -143,12 +150,12 @@ func (s *MonitorService) RegisterMonitor(
 		Interfaces:     strings.Join(resp.Interface, ","),
 		ProviderKind:   providerKind,
 		InstanceName:   instanceName,
+		InnerIP:        innerIP,
 		IsEnabled:      true,
 		LastSyncAt:     time.Now(),
 	}
 
 	if err := s.db.Create(&monitor).Error; err != nil {
-		// If DB save fails, try to clean up the agent-side monitor
 		_, _ = client.DeleteMonitor(resp.ID)
 		return nil, fmt.Errorf("save agent monitor mapping: %w", err)
 	}
@@ -213,57 +220,87 @@ func (s *MonitorService) UpdateMonitorInterfaces(
 	if err := s.db.Where("instance_id = ?", instance.ID).First(&monitor).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			// Not registered yet, register now
-			_, err := s.RegisterMonitor(providerInstance, instance, config, vmidHint)
+			_, err := s.registerMonitorForInstance(providerInstance, instance, config, vmidHint)
 			return err
 		}
 		return fmt.Errorf("find monitor: %w", err)
 	}
+	_, err := s.updateMonitorForInstance(providerInstance, instance, config, vmidHint, &monitor)
+	return err
+}
 
-	// Detect current interfaces
+func (s *MonitorService) updateMonitorForInstance(
+	providerInstance provider.Provider,
+	instance *providerModel.Instance,
+	config *monitoringModel.MonitoringConfig,
+	vmidHint string,
+	monitor *monitoringModel.AgentMonitor,
+) (bool, error) {
 	interfaces, err := s.detectInstanceInterfaces(providerInstance, instance, vmidHint)
 	if err != nil {
-		return fmt.Errorf("detect interfaces: %w", err)
+		return false, fmt.Errorf("detect interfaces: %w", err)
 	}
 	if len(interfaces) == 0 {
-		return fmt.Errorf("no interfaces found for %s", instance.Name)
+		return false, fmt.Errorf("no interfaces found for %s", instance.Name)
 	}
 
-	// Check if interfaces changed
-	currentInterfaces := strings.Split(monitor.Interfaces, ",")
-	if stringsEqual(currentInterfaces, interfaces) {
-		return nil // No change
+	providerKind := providerInstance.GetType()
+	instanceName := instance.Name
+	innerIP := instance.PrivateIP
+	interfacesChanged := !stringsEqual(normalizeMonitorInterfaces(monitor.Interfaces), interfaces)
+	metadataChanged := monitor.ProviderID != instance.ProviderID ||
+		monitor.UserID != instance.UserID ||
+		monitor.ProviderKind != providerKind ||
+		monitor.InstanceName != instanceName ||
+		monitor.InnerIP != innerIP ||
+		!monitor.IsEnabled
+
+	if !interfacesChanged && !metadataChanged {
+		return false, nil
 	}
 
-	// Update on agent
 	client, err := s.getAgentClient(instance.ProviderID, config)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	// Determine inner IP for per-IP traffic filtering
-	innerIP := instance.PrivateIP
-	if innerIP == "" {
-		innerIP = instance.PublicIP
-	}
-
-	resp, err := client.UpdateMonitor(monitor.AgentMonitorID, interfaces, providerInstance.GetType(), instance.Name, innerIP)
+	resp, err := client.UpdateMonitor(monitor.AgentMonitorID, interfaces, providerKind, instanceName, innerIP)
 	if err != nil {
-		return fmt.Errorf("agent update monitor: %w", err)
+		return false, fmt.Errorf("agent update monitor: %w", err)
 	}
 
-	// Update in MySQL
-	monitor.Interfaces = strings.Join(resp.Interface, ",")
-	if err := s.db.Save(&monitor).Error; err != nil {
-		return fmt.Errorf("save updated interfaces: %w", err)
+	now := time.Now()
+	updates := map[string]interface{}{
+		"provider_id":   instance.ProviderID,
+		"user_id":       instance.UserID,
+		"interfaces":    strings.Join(resp.Interface, ","),
+		"provider_kind": providerKind,
+		"instance_name": instanceName,
+		"inner_ip":      innerIP,
+		"is_enabled":    true,
+		"last_sync_at":  now,
 	}
+	if err := s.db.Model(monitor).Updates(updates).Error; err != nil {
+		return false, fmt.Errorf("save updated monitor mapping: %w", err)
+	}
+
+	monitor.ProviderID = instance.ProviderID
+	monitor.UserID = instance.UserID
+	monitor.Interfaces = strings.Join(resp.Interface, ",")
+	monitor.ProviderKind = providerKind
+	monitor.InstanceName = instanceName
+	monitor.InnerIP = innerIP
+	monitor.IsEnabled = true
+	monitor.LastSyncAt = now
 
 	if global.APP_LOG != nil {
-		global.APP_LOG.Info("updated agent monitor interfaces",
+		global.APP_LOG.Info("updated agent monitor mapping",
 			zap.Uint("instance_id", instance.ID),
 			zap.Int64("agent_monitor_id", monitor.AgentMonitorID),
-			zap.Strings("new_interfaces", resp.Interface))
+			zap.Strings("interfaces", resp.Interface),
+			zap.String("inner_ip", innerIP))
 	}
-	return nil
+	return true, nil
 }
 
 // EnsureMonitorsForProvider ensures all active instances under a provider have monitors,
@@ -272,21 +309,22 @@ func (s *MonitorService) EnsureMonitorsForProvider(
 	providerInstance provider.Provider,
 	providerID uint,
 	config *monitoringModel.MonitoringConfig,
-) error {
-	// Get all running instances for this provider
+) (*MonitorSyncSummary, error) {
+	summary := &MonitorSyncSummary{}
+
 	var instances []providerModel.Instance
 	if err := s.db.Where("provider_id = ? AND status IN ?", providerID,
 		[]string{"running", "active"}).Find(&instances).Error; err != nil {
-		return fmt.Errorf("list instances: %w", err)
+		return summary, fmt.Errorf("list instances: %w", err)
 	}
+	summary.Total = len(instances)
 
-	// Get existing monitors for this provider
 	var monitors []monitoringModel.AgentMonitor
 	if err := s.db.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
-		return fmt.Errorf("list monitors: %w", err)
+		return summary, fmt.Errorf("list monitors: %w", err)
 	}
 
-	monitorByInstanceID := make(map[uint]*monitoringModel.AgentMonitor)
+	monitorByInstanceID := make(map[uint]*monitoringModel.AgentMonitor, len(monitors))
 	for i := range monitors {
 		monitorByInstanceID[monitors[i].InstanceID] = &monitors[i]
 	}
@@ -309,42 +347,54 @@ func (s *MonitorService) EnsureMonitorsForProvider(
 
 	for i := range instances {
 		inst := &instances[i]
-		existing := monitorByInstanceID[inst.ID]
 		vmid := vmidByName[inst.Name]
-
-		if existing != nil {
-			// Already registered - re-detect interfaces and update on agent
-			if err := s.UpdateMonitorInterfaces(providerInstance, inst, config, vmid); err != nil {
+		if existing := monitorByInstanceID[inst.ID]; existing != nil {
+			updated, err := s.updateMonitorForInstance(providerInstance, inst, config, vmid, existing)
+			if err != nil {
+				summary.Failed++
+				summary.Errors = append(summary.Errors, fmt.Sprintf("%s: %v", inst.Name, err))
 				if global.APP_LOG != nil {
 					global.APP_LOG.Warn("failed to update monitor interfaces for instance",
 						zap.Uint("instance_id", inst.ID),
 						zap.String("name", inst.Name),
 						zap.Error(err))
 				}
+				continue
+			}
+			if updated {
+				summary.Updated++
+			} else {
+				summary.Unchanged++
+			}
+			continue
+		}
+
+		if monitor, err := s.registerMonitorForInstance(providerInstance, inst, config, vmid); err != nil {
+			summary.Failed++
+			summary.Errors = append(summary.Errors, fmt.Sprintf("%s: %v", inst.Name, err))
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("failed to register monitor for instance",
+					zap.Uint("instance_id", inst.ID),
+					zap.String("name", inst.Name),
+					zap.Error(err))
 			}
 		} else {
-			// Not registered - create new monitor
-			if _, err := s.RegisterMonitor(providerInstance, inst, config, vmid); err != nil {
-				if global.APP_LOG != nil {
-					global.APP_LOG.Warn("failed to register monitor for instance",
-						zap.Uint("instance_id", inst.ID),
-						zap.String("name", inst.Name),
-						zap.Error(err))
-				}
-			}
+			monitorByInstanceID[inst.ID] = monitor
+			summary.Created++
 		}
 	}
-	return nil
+
+	return summary, nil
 }
 
 // CleanupStaleMonitors removes monitors for instances that no longer exist or are stopped.
-func (s *MonitorService) CleanupStaleMonitors(providerID uint, config *monitoringModel.MonitoringConfig) error {
+func (s *MonitorService) CleanupStaleMonitors(providerID uint, config *monitoringModel.MonitoringConfig) (int, error) {
 	var monitors []monitoringModel.AgentMonitor
 	if err := s.db.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
-		return err
+		return 0, err
 	}
 	if len(monitors) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	instanceIDs := make([]uint, 0, len(monitors))
@@ -366,7 +416,7 @@ func (s *MonitorService) CleanupStaleMonitors(providerID uint, config *monitorin
 		Select("id", "status").
 		Where("id IN ?", instanceIDs).
 		Find(&instances).Error; err != nil {
-		return fmt.Errorf("list instance states: %w", err)
+		return 0, fmt.Errorf("list instance states: %w", err)
 	}
 
 	statusByInstanceID := make(map[uint]string, len(instances))
@@ -374,19 +424,41 @@ func (s *MonitorService) CleanupStaleMonitors(providerID uint, config *monitorin
 		statusByInstanceID[instance.ID] = instance.Status
 	}
 
+	stale := make([]monitoringModel.AgentMonitor, 0)
 	for _, monitor := range monitors {
 		status, exists := statusByInstanceID[monitor.InstanceID]
 		if !exists || (status != "running" && status != "active") {
-			if err := s.DeregisterMonitor(monitor.InstanceID, config); err != nil {
-				if global.APP_LOG != nil {
-					global.APP_LOG.Warn("failed to deregister stale monitor",
-						zap.Uint("instance_id", monitor.InstanceID),
-						zap.Error(err))
-				}
-			}
+			stale = append(stale, monitor)
 		}
 	}
-	return nil
+	if len(stale) == 0 {
+		return 0, nil
+	}
+
+	client, err := s.getAgentClient(providerID, config)
+	if err == nil {
+		for _, monitor := range stale {
+			if _, err := client.DeleteMonitor(monitor.AgentMonitorID); err != nil && global.APP_LOG != nil {
+				global.APP_LOG.Warn("agent delete stale monitor failed (will remove mapping anyway)",
+					zap.Uint("instance_id", monitor.InstanceID),
+					zap.Int64("agent_monitor_id", monitor.AgentMonitorID),
+					zap.Error(err))
+			}
+		}
+	} else if global.APP_LOG != nil {
+		global.APP_LOG.Warn("agent client unavailable while cleaning stale monitors (will remove mappings anyway)",
+			zap.Uint("provider_id", providerID),
+			zap.Error(err))
+	}
+
+	ids := make([]uint, 0, len(stale))
+	for _, monitor := range stale {
+		ids = append(ids, monitor.ID)
+	}
+	if err := s.db.Unscoped().Where("id IN ?", ids).Delete(&monitoringModel.AgentMonitor{}).Error; err != nil {
+		return 0, fmt.Errorf("delete stale monitor mappings: %w", err)
+	}
+	return len(stale), nil
 }
 
 // GetMonitorByInstanceID returns the agent monitor mapping for an instance.

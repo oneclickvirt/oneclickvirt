@@ -95,7 +95,7 @@ type UpdateRequest struct {
 	NewInterface interface{} `json:"new_interface"` // string or []string
 	ProviderKind string      `json:"provider_kind,omitempty"`
 	InstanceName string      `json:"instance_name,omitempty"`
-	InnerIP      string      `json:"inner_ip,omitempty"`
+	InnerIP      string      `json:"inner_ip"`
 }
 
 type UpdateResponse struct {
@@ -114,6 +114,15 @@ type DeleteResponse struct {
 
 type InfoRequest struct {
 	ID int64 `json:"id"`
+}
+
+type BatchInfoRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+type BatchInfoResponse struct {
+	Monitors []InfoResponse `json:"monitors"`
+	Total    int            `json:"total"`
 }
 
 type InfoResponse struct {
@@ -155,12 +164,14 @@ type CleanupResponse struct {
 }
 
 type ListMonitorItem struct {
-	ID           int64    `json:"id"`
-	Interface    []string `json:"interface"`
-	ProviderKind *string  `json:"provider_kind"`
-	InstanceName *string  `json:"instance_name"`
-	TotalBytes   uint64   `json:"total_bytes"`
-	UpdatedAt    int64    `json:"updated_at"`
+	ID            int64    `json:"id"`
+	Interface     []string `json:"interface"`
+	ProviderKind  *string  `json:"provider_kind"`
+	InstanceName  *string  `json:"instance_name"`
+	TotalBytes    uint64   `json:"total_bytes"`
+	TotalBytesIn  uint64   `json:"total_bytes_in"`
+	TotalBytesOut uint64   `json:"total_bytes_out"`
+	UpdatedAt     int64    `json:"updated_at"`
 }
 
 type ListMonitorsResponse struct {
@@ -415,20 +426,37 @@ func (c *Client) ListMonitors() (*ListMonitorsResponse, error) {
 	return &resp, nil
 }
 
-// BatchGetInfo fetches traffic info for multiple monitors.
+// BatchGetInfo fetches traffic info for multiple monitors in one agent request.
 func (c *Client) BatchGetInfo(ids []int64) (map[int64]*InfoResponse, error) {
 	results := make(map[int64]*InfoResponse)
+	if len(ids) == 0 {
+		return results, nil
+	}
+
+	seen := make(map[int64]struct{}, len(ids))
+	uniqueIDs := make([]int64, 0, len(ids))
 	for _, id := range ids {
-		info, err := c.GetInfo(id)
-		if err != nil {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("agent batch get info: single monitor failed",
-					zap.Int64("agent_monitor_id", id),
-					zap.Error(err))
-			}
+		if id <= 0 {
 			continue
 		}
-		results[id] = info
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	if len(uniqueIDs) == 0 {
+		return results, nil
+	}
+
+	req := BatchInfoRequest{IDs: uniqueIDs}
+	var resp BatchInfoResponse
+	if err := c.doRequest("POST", "/api/v1/batch-info", req, &resp); err != nil {
+		return nil, err
+	}
+	for i := range resp.Monitors {
+		info := resp.Monitors[i]
+		results[info.ID] = &info
 	}
 	return results, nil
 }

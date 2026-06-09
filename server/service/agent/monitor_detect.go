@@ -396,7 +396,9 @@ type InstanceInterfaces struct {
 }
 
 // detectBothInterfaces detects both the IPv4 and IPv6 host-side network interfaces
-// for an instance. It never returns an error for missing V6; in that case V6 = V4.
+// for an instance. It never returns an error for missing V6; IPv4 remains usable
+// and V6 is only set when a real interface is detected (or when the runtime uses
+// a single veth for both stacks).
 func (s *MonitorService) detectBothInterfaces(
 	providerInstance provider.Provider,
 	instance *providerModel.Instance,
@@ -430,7 +432,7 @@ func (s *MonitorService) detectBothInterfaces(
 			}
 			result.V4 = iface
 		}
-		if result.V6 == "" {
+		if result.V6 == "" && !hasIPv6 {
 			result.V6 = result.V4
 		}
 
@@ -459,7 +461,7 @@ func (s *MonitorService) detectBothInterfaces(
 			}
 			result.V4 = iface
 		}
-		if result.V6 == "" {
+		if result.V6 == "" && !hasIPv6 {
 			result.V6 = result.V4
 		}
 
@@ -492,7 +494,7 @@ func (s *MonitorService) detectBothInterfaces(
 				result.V6 = v6iface
 			}
 		}
-		if result.V6 == "" {
+		if result.V6 == "" && !hasIPv6 {
 			result.V6 = result.V4 // single-stack: both use the same interface
 		}
 
@@ -533,10 +535,15 @@ func DetectAndSaveInstanceInterfaces(
 	if ifaces.V4 != "" && instance.PmacctInterfaceV4 != ifaces.V4 {
 		updates["pmacct_interface_v4"] = ifaces.V4
 	}
-	// Only save V6 if the network type supports IPv6.
-	// For no_port_mapping and other IPv4-only network types, V6 should not be saved.
-	if ifaces.V6 != "" && isIPv6Capable(instance.NetworkType) && instance.PmacctInterfaceV6 != ifaces.V6 {
-		updates["pmacct_interface_v6"] = ifaces.V6
+	// For IPv6-capable networks, persist the real V6 interface when detected and
+	// clear stale V6 values when detection fails after rebuild/reset. For IPv4-only
+	// networks, keep V6 empty.
+	if isIPv6Capable(instance.NetworkType) {
+		if instance.PmacctInterfaceV6 != ifaces.V6 {
+			updates["pmacct_interface_v6"] = ifaces.V6
+		}
+	} else if instance.PmacctInterfaceV6 != "" {
+		updates["pmacct_interface_v6"] = ""
 	}
 
 	if len(updates) == 0 {

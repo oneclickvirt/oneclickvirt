@@ -21,6 +21,8 @@ type AgentMonitor struct {
 	Interfaces     string `gorm:"type:text" json:"interfaces"`
 	ProviderKind   string `gorm:"size:32" json:"provider_kind"`
 	InstanceName   string `gorm:"size:255" json:"instance_name"`
+	// InnerIP is passed to the agent for per-IP filtering on shared bridges/NAT.
+	InnerIP string `gorm:"size:64" json:"inner_ip"`
 	// LastTrafficBytes is the last known total_bytes from the agent.
 	LastTrafficBytes uint64 `gorm:"not null;default:0" json:"last_traffic_bytes"`
 	// LastTrafficBytesIn is the last known total_bytes_in (inbound) from the agent.

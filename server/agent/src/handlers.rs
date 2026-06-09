@@ -5,7 +5,8 @@ use crate::{
     error::{ApiError, ErrorResponse},
     ipt, nft,
     models::{
-        AddDomainProxyRequest, AddDomainProxyResponse, AddRequest, AddResponse,
+        AddDomainProxyRequest, AddDomainProxyResponse, AddRequest, AddResponse, BatchInfoRequest,
+        BatchInfoResponse,
         ApplyBlockRulesRequest, ApplyBlockRulesResponse, CleanupRequest, CleanupResponse,
         DeleteRequest, DeleteResponse, DomainProxyItem, GetBlockRulesResponse, InfoRequest,
         InfoResponse, ListDomainProxiesResponse, ListMonitorItem, ListMonitorsResponse,
@@ -18,7 +19,7 @@ use axum::{
     Json,
     extract::{Query, State},
 };
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, params, params_from_iter};
 use std::collections::HashSet;
 use tracing::{debug, info, warn};
 
@@ -62,6 +63,76 @@ fn clean_interfaces(items: Vec<String>) -> Result<Vec<String>, ApiError> {
         ));
     }
     Ok(cleaned)
+}
+
+fn validate_inner_ip(raw: Option<&str>) -> Result<Option<String>, ApiError> {
+    let Some(ip) = raw else {
+        return Ok(None);
+    };
+    let trimmed = ip.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.parse::<std::net::IpAddr>().is_err() {
+        return Err(ApiError::bad_request("inner_ip must be a valid IP address"));
+    }
+    Ok(Some(trimmed.to_owned()))
+}
+
+#[derive(Debug)]
+struct CounterSnapshot {
+    interface: String,
+    base_in: u64,
+    base_out: u64,
+}
+
+fn ensure_interface_counters(
+    monitor_id: i64,
+    interfaces: &[String],
+    inner_ip: Option<&str>,
+    use_ipt: bool,
+) -> (Vec<CounterSnapshot>, Vec<String>) {
+    let mut snapshots = Vec::new();
+    let mut errors = Vec::new();
+
+    for interface in interfaces {
+        let ensure_result = if use_ipt {
+            ipt::ensure_counter(monitor_id, interface, inner_ip)
+        } else {
+            nft::ensure_counter(monitor_id, interface, inner_ip)
+        };
+
+        if let Err(err) = ensure_result {
+            warn!(
+                monitor_id,
+                interface,
+                error = %err.message,
+                "failed to ensure traffic counter for interface; continuing with remaining interfaces"
+            );
+            errors.push(format!("{interface}: {}", err.message));
+            continue;
+        }
+
+        let (base_in, base_out) = if use_ipt {
+            ipt::read_external_bytes(monitor_id, interface).unwrap_or((0, 0))
+        } else {
+            nft::read_external_bytes(monitor_id, interface).unwrap_or((0, 0))
+        };
+
+        snapshots.push(CounterSnapshot {
+            interface: interface.clone(),
+            base_in,
+            base_out,
+        });
+    }
+
+    (snapshots, errors)
+}
+
+fn serialize_snapshot_interfaces(snapshots: &[CounterSnapshot]) -> Result<String, ApiError> {
+    let interfaces: Vec<String> = snapshots.iter().map(|s| s.interface.clone()).collect();
+    serde_json::to_string(&interfaces)
+        .map_err(|e| ApiError::internal(format!("serialize interfaces error: {e}")))
 }
 
 fn parse_max_update_time_to_seconds(raw: &str) -> Result<i64, ApiError> {
@@ -114,10 +185,8 @@ fn parse_max_update_time_to_seconds(raw: &str) -> Result<i64, ApiError> {
         consumed_any = true;
     }
 
-    if !consumed_any || total <= 0 {
-        return Err(ApiError::bad_request(
-            "max_update_time must be greater than 0",
-        ));
+    if !consumed_any || total < 0 {
+        return Err(ApiError::bad_request("invalid max_update_time"));
     }
 
     Ok(total)
@@ -143,56 +212,68 @@ pub async fn add_monitor(
     Json(payload): Json<AddRequest>,
 ) -> Result<Json<AddResponse>, ApiError> {
     let interfaces = clean_interfaces(payload.interface.into_vec())?;
-    let interfaces_json = serde_json::to_string(&interfaces)
-        .map_err(|e| ApiError::internal(format!("serialize interfaces error: {e}")))?;
     let now = now_ts();
 
-    // Validate inner_ip if provided
-    let inner_ip = payload.inner_ip.as_deref().and_then(|ip| {
-        let trimmed = ip.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            // Basic IP validation
-            if trimmed.parse::<std::net::IpAddr>().is_ok() {
-                Some(trimmed.to_owned())
-            } else {
-                None
-            }
-        }
-    });
+    let inner_ip = validate_inner_ip(payload.inner_ip.as_deref())?;
 
     let use_ipt = state.traffic_collect_method == "ipt";
-    let conn = state.conn.lock().await;
-    conn.execute(
-        "INSERT INTO monitors (interfaces, total_bytes, provider_kind, instance_name, inner_ip, updated_at) VALUES (?1, 0, ?2, ?3, ?4, ?5)",
-        params![interfaces_json, payload.provider_kind, payload.instance_name, inner_ip, now],
-    )
-    .map_err(|e| ApiError::internal(format!("insert monitor error: {e}")))?;
-    let id = conn.last_insert_rowid();
-
-    for interface in &interfaces {
-        if use_ipt {
-            ipt::ensure_counter(id, interface, inner_ip.as_deref())?;
-        } else {
-            nft::ensure_counter(id, interface, inner_ip.as_deref())?;
-        }
-        let (base_in, base_out) = if use_ipt {
-            ipt::read_external_bytes(id, interface).unwrap_or((0, 0))
-        } else {
-            nft::read_external_bytes(id, interface).unwrap_or((0, 0))
-        };
+    let requested_interfaces_json = serde_json::to_string(&interfaces)
+        .map_err(|e| ApiError::internal(format!("serialize interfaces error: {e}")))?;
+    let id = {
+        let conn = state.conn.lock().await;
         conn.execute(
-            "INSERT INTO interface_states (monitor_id, interface, last_counter_in, last_counter_out) VALUES (?1, ?2, ?3, ?4)",
-            params![id, interface, base_in, base_out],
+            "INSERT INTO monitors (interfaces, total_bytes, provider_kind, instance_name, inner_ip, updated_at) VALUES (?1, 0, ?2, ?3, ?4, ?5)",
+            params![requested_interfaces_json, payload.provider_kind.as_deref(), payload.instance_name.as_deref(), inner_ip.as_deref(), now],
         )
-        .map_err(|e| ApiError::internal(format!("insert interface state error: {e}")))?;
+        .map_err(|e| ApiError::internal(format!("insert monitor error: {e}")))?;
+        conn.last_insert_rowid()
+    };
+
+    // Do not hold the SQLite mutex while invoking nft/iptables.  Each interface is
+    // reconciled independently so a broken IPv6-only/secondary NIC does not prevent
+    // the valid IPv4 NIC from being monitored.
+    let (snapshots, counter_errors) =
+        ensure_interface_counters(id, &interfaces, inner_ip.as_deref(), use_ipt);
+    if snapshots.is_empty() {
+        let conn = state.conn.lock().await;
+        let _ = conn.execute("DELETE FROM monitors WHERE id = ?1", params![id]);
+        return Err(ApiError::internal(format!(
+            "failed to ensure counters for all interfaces: {}",
+            counter_errors.join("; ")
+        )));
     }
 
-    info!(id, interfaces = ?interfaces, inner_ip = ?inner_ip, "monitor added");
+    let active_interfaces_json = serialize_snapshot_interfaces(&snapshots)?;
+    {
+        let mut conn = state.conn.lock().await;
+        let tx = conn
+            .transaction()
+            .map_err(|e| ApiError::internal(format!("begin add monitor transaction error: {e}")))?;
+        tx.execute(
+            "UPDATE monitors SET interfaces = ?1, updated_at = ?2 WHERE id = ?3",
+            params![active_interfaces_json, now, id],
+        )
+        .map_err(|e| ApiError::internal(format!("update active monitor interfaces error: {e}")))?;
+        for snapshot in &snapshots {
+            tx.execute(
+                "INSERT INTO interface_states (monitor_id, interface, last_counter_in, last_counter_out) VALUES (?1, ?2, ?3, ?4)",
+                params![id, snapshot.interface.as_str(), snapshot.base_in, snapshot.base_out],
+            )
+            .map_err(|e| ApiError::internal(format!("insert interface state error: {e}")))?;
+        }
+        tx.commit()
+            .map_err(|e| ApiError::internal(format!("commit add monitor transaction error: {e}")))?;
+    }
+
+    let active_interfaces: Vec<String> = snapshots.iter().map(|s| s.interface.clone()).collect();
+    if !counter_errors.is_empty() {
+        warn!(id, errors = ?counter_errors, "monitor added with partial interface coverage");
+    }
+
+    info!(id, interfaces = ?active_interfaces, inner_ip = ?inner_ip, "monitor added");
     Ok(Json(AddResponse {
         id,
-        interface: interfaces,
+        interface: active_interfaces,
     }))
 }
 
@@ -217,92 +298,85 @@ pub async fn update_monitor(
     Json(payload): Json<UpdateRequest>,
 ) -> Result<Json<UpdateResponse>, ApiError> {
     let interfaces = clean_interfaces(payload.new_interface.into_vec())?;
-    let interfaces_json = serde_json::to_string(&interfaces)
-        .map_err(|e| ApiError::internal(format!("serialize interfaces error: {e}")))?;
     let now = now_ts();
     let id = payload.id;
 
-    // Validate inner_ip if provided
-    let inner_ip = payload.inner_ip.as_deref().and_then(|ip| {
-        let trimmed = ip.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            if trimmed.parse::<std::net::IpAddr>().is_ok() {
-                Some(trimmed.to_owned())
-            } else {
-                None
-            }
+    let inner_ip = validate_inner_ip(payload.inner_ip.as_deref())?;
+
+    let use_ipt = state.traffic_collect_method == "ipt";
+    let old_interfaces = {
+        let conn = state.conn.lock().await;
+        let exists: Option<i64> = conn
+            .query_row("SELECT id FROM monitors WHERE id = ?1", params![id], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(|e| ApiError::internal(format!("query monitor error: {e}")))?;
+        if exists.is_none() {
+            warn!(id, "update failed: monitor not found");
+            return Err(ApiError::not_found(format!("monitor id {id} not found")));
         }
-    });
 
-let use_ipt = state.traffic_collect_method == "ipt";
-    let conn = state.conn.lock().await;
-    let exists: Option<i64> = conn
-        .query_row("SELECT id FROM monitors WHERE id = ?1", params![id], |row| {
-            row.get(0)
-        })
-        .optional()
-        .map_err(|e| ApiError::internal(format!("query monitor error: {e}")))?;
-    if exists.is_none() {
-        warn!(id, "update failed: monitor not found");
-        return Err(ApiError::not_found(format!("monitor id {id} not found")));
-    }
-
-    let mut old_stmt = conn
-        .prepare("SELECT interface FROM interface_states WHERE monitor_id = ?1")
-        .map_err(|e| ApiError::internal(format!("prepare old interfaces query error: {e}")))?;
-    let old_rows = old_stmt
-        .query_map(params![id], |row| row.get::<_, String>(0))
-        .map_err(|e| ApiError::internal(format!("old interfaces query error: {e}")))?;
-    let mut old_interfaces: Vec<String> = Vec::new();
-    for row in old_rows {
+        let mut old_stmt = conn
+            .prepare("SELECT interface FROM interface_states WHERE monitor_id = ?1")
+            .map_err(|e| ApiError::internal(format!("prepare old interfaces query error: {e}")))?;
+        let old_rows = old_stmt
+            .query_map(params![id], |row| row.get::<_, String>(0))
+            .map_err(|e| ApiError::internal(format!("old interfaces query error: {e}")))?;
+        let mut old_interfaces: Vec<String> = Vec::new();
+        for row in old_rows {
+            old_interfaces.push(
+                row.map_err(|e| ApiError::internal(format!("old interface row error: {e}")))?,
+            );
+        }
         old_interfaces
-            .push(row.map_err(|e| ApiError::internal(format!("old interface row error: {e}")))?);
+    };
+
+    // The control plane always sends the current inner_ip value. Empty/invalid values
+    // clear per-IP filtering so dedicated-interface monitoring does not keep stale IP rules.
+    let effective_inner_ip = inner_ip.as_deref();
+
+    // Reconcile counters before mutating the DB. If every requested interface fails,
+    // keep the old monitor intact so a transient IPv6/secondary-NIC error does not
+    // break the already working IPv4 monitor.
+    let (snapshots, counter_errors) =
+        ensure_interface_counters(id, &interfaces, effective_inner_ip, use_ipt);
+    if snapshots.is_empty() {
+        return Err(ApiError::internal(format!(
+            "failed to ensure counters for all interfaces: {}",
+            counter_errors.join("; ")
+        )));
     }
 
-    // Read old inner_ip to detect changes
-    let old_inner_ip: Option<String> = conn
-        .query_row("SELECT inner_ip FROM monitors WHERE id = ?1", params![id], |row| {
-            row.get(0)
-        })
-        .optional()
-        .map_err(|e| ApiError::internal(format!("query old inner_ip error: {e}")))?  
-        .flatten();
-
-    conn.execute(
-        "UPDATE monitors SET interfaces = ?1, updated_at = ?2, provider_kind = COALESCE(?4, provider_kind), instance_name = COALESCE(?5, instance_name), inner_ip = COALESCE(?6, inner_ip) WHERE id = ?3",
-        params![interfaces_json, now, id, payload.provider_kind, payload.instance_name, inner_ip],
-    )
-    .map_err(|e| ApiError::internal(format!("update monitor error: {e}")))?;
-    conn.execute(
-        "DELETE FROM interface_states WHERE monitor_id = ?1",
-        params![id],
-    )
-    .map_err(|e| ApiError::internal(format!("delete old interface states error: {e}")))?;
-
-    // Determine effective inner_ip for counter rules
-    let effective_inner_ip = inner_ip.as_deref().or(old_inner_ip.as_deref());
-
-    for interface in &interfaces {
-        if use_ipt {
-            ipt::ensure_counter(id, interface, effective_inner_ip)?;
-        } else {
-            nft::ensure_counter(id, interface, effective_inner_ip)?;
-        }
-        let (base_in, base_out) = if use_ipt {
-            ipt::read_external_bytes(id, interface).unwrap_or((0, 0))
-        } else {
-            nft::read_external_bytes(id, interface).unwrap_or((0, 0))
-        };
-        conn.execute(
-            "INSERT INTO interface_states (monitor_id, interface, last_counter_in, last_counter_out) VALUES (?1, ?2, ?3, ?4)",
-            params![id, interface, base_in, base_out],
+    let active_interfaces_json = serialize_snapshot_interfaces(&snapshots)?;
+    {
+        let mut conn = state.conn.lock().await;
+        let tx = conn
+            .transaction()
+            .map_err(|e| ApiError::internal(format!("begin update monitor transaction error: {e}")))?;
+        tx.execute(
+            "UPDATE monitors SET interfaces = ?1, updated_at = ?2, provider_kind = COALESCE(?4, provider_kind), instance_name = COALESCE(?5, instance_name), inner_ip = ?6 WHERE id = ?3",
+            params![active_interfaces_json, now, id, payload.provider_kind.as_deref(), payload.instance_name.as_deref(), inner_ip.as_deref()],
         )
-        .map_err(|e| ApiError::internal(format!("insert new interface state error: {e}")))?;
+        .map_err(|e| ApiError::internal(format!("update monitor error: {e}")))?;
+        tx.execute(
+            "DELETE FROM interface_states WHERE monitor_id = ?1",
+            params![id],
+        )
+        .map_err(|e| ApiError::internal(format!("delete old interface states error: {e}")))?;
+        for snapshot in &snapshots {
+            tx.execute(
+                "INSERT INTO interface_states (monitor_id, interface, last_counter_in, last_counter_out) VALUES (?1, ?2, ?3, ?4)",
+                params![id, snapshot.interface.as_str(), snapshot.base_in, snapshot.base_out],
+            )
+            .map_err(|e| ApiError::internal(format!("insert new interface state error: {e}")))?;
+        }
+        tx.commit()
+            .map_err(|e| ApiError::internal(format!("commit update monitor transaction error: {e}")))?;
     }
 
-    let new_set: HashSet<String> = interfaces.iter().cloned().collect();
+    let active_interfaces: Vec<String> = snapshots.iter().map(|s| s.interface.clone()).collect();
+    let new_set: HashSet<String> = active_interfaces.iter().cloned().collect();
     for old in old_interfaces {
         if !new_set.contains(&old) {
             if let Err(err) = if use_ipt { ipt::remove_counter(id, &old) } else { nft::remove_counter(id, &old) } {
@@ -311,10 +385,14 @@ let use_ipt = state.traffic_collect_method == "ipt";
         }
     }
 
-    info!(id, interfaces = ?interfaces, "monitor interfaces updated");
+    if !counter_errors.is_empty() {
+        warn!(id, errors = ?counter_errors, "monitor updated with partial interface coverage");
+    }
+
+    info!(id, interfaces = ?active_interfaces, "monitor interfaces updated");
     Ok(Json(UpdateResponse {
         id,
-        interface: interfaces,
+        interface: active_interfaces,
     }))
 }
 
@@ -337,23 +415,29 @@ pub async fn delete_monitor(
     Json(payload): Json<DeleteRequest>,
 ) -> Result<Json<DeleteResponse>, ApiError> {
     let id = payload.id;
-    let conn = state.conn.lock().await;
-    let mut old_stmt = conn
-        .prepare("SELECT interface FROM interface_states WHERE monitor_id = ?1")
-        .map_err(|e| ApiError::internal(format!("prepare delete interfaces query error: {e}")))?;
-    let old_rows = old_stmt
-        .query_map(params![id], |row| row.get::<_, String>(0))
-        .map_err(|e| ApiError::internal(format!("delete interfaces query error: {e}")))?;
-    let mut old_interfaces: Vec<String> = Vec::new();
-    for row in old_rows {
-        old_interfaces.push(
-            row.map_err(|e| ApiError::internal(format!("delete interface row error: {e}")))?,
-        );
-    }
+    let (affected, old_interfaces) = {
+        let conn = state.conn.lock().await;
+        let old_interfaces = {
+            let mut old_stmt = conn
+                .prepare("SELECT interface FROM interface_states WHERE monitor_id = ?1")
+                .map_err(|e| ApiError::internal(format!("prepare delete interfaces query error: {e}")))?;
+            let old_rows = old_stmt
+                .query_map(params![id], |row| row.get::<_, String>(0))
+                .map_err(|e| ApiError::internal(format!("delete interfaces query error: {e}")))?;
+            let mut old_interfaces: Vec<String> = Vec::new();
+            for row in old_rows {
+                old_interfaces.push(
+                    row.map_err(|e| ApiError::internal(format!("delete interface row error: {e}")))?,
+                );
+            }
+            old_interfaces
+        };
 
-    let affected = conn
-        .execute("DELETE FROM monitors WHERE id = ?1", params![id])
-        .map_err(|e| ApiError::internal(format!("delete monitor error: {e}")))?;
+        let affected = conn
+            .execute("DELETE FROM monitors WHERE id = ?1", params![id])
+            .map_err(|e| ApiError::internal(format!("delete monitor error: {e}")))?;
+        (affected, old_interfaces)
+    };
 
     let use_ipt = state.traffic_collect_method == "ipt";
     if affected > 0 {
@@ -435,6 +519,77 @@ pub async fn info_monitor(
 
 #[utoipa::path(
     post,
+    path = "/api/v1/batch-info",
+    request_body = BatchInfoRequest,
+    responses(
+        (status = 200, description = "Get traffic info for multiple monitors", body = BatchInfoResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    security(
+        ("token_auth" = [])
+    ),
+    tag = "VM Traffic"
+)]
+pub async fn batch_info_monitor(
+    State(state): State<AppState>,
+    Json(payload): Json<BatchInfoRequest>,
+) -> Result<Json<BatchInfoResponse>, ApiError> {
+    let mut seen = HashSet::new();
+    let ids: Vec<i64> = payload
+        .ids
+        .into_iter()
+        .filter(|id| *id > 0 && seen.insert(*id))
+        .collect();
+
+    if ids.is_empty() {
+        return Ok(Json(BatchInfoResponse {
+            monitors: Vec::new(),
+            total: 0,
+        }));
+    }
+
+    let placeholders = std::iter::repeat("?")
+        .take(ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT id, interfaces, total_bytes, total_bytes_in, total_bytes_out, updated_at \
+         FROM monitors WHERE id IN ({placeholders}) ORDER BY id"
+    );
+
+    let conn = state.conn.lock().await;
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| ApiError::internal(format!("prepare batch info query error: {e}")))?;
+    let rows = stmt
+        .query_map(params_from_iter(ids.iter()), |row| {
+            let interfaces_json: String = row.get(1)?;
+            let interfaces: Vec<String> =
+                serde_json::from_str(&interfaces_json).unwrap_or_default();
+            Ok(InfoResponse {
+                id: row.get(0)?,
+                interface: interfaces,
+                used_traffic: row.get(2)?,
+                used_traffic_in: row.get(3)?,
+                used_traffic_out: row.get(4)?,
+                used_traffic_human: None,
+                last_update_time: row.get(5)?,
+            })
+        })
+        .map_err(|e| ApiError::internal(format!("batch info query error: {e}")))?;
+
+    let mut monitors = Vec::new();
+    for row in rows {
+        monitors.push(row.map_err(|e| ApiError::internal(format!("batch info row error: {e}")))?);
+    }
+
+    let total = monitors.len();
+    Ok(Json(BatchInfoResponse { monitors, total }))
+}
+
+#[utoipa::path(
+    post,
     path = "/api/v1/cleanup",
     request_body = CleanupRequest,
     responses(
@@ -455,7 +610,12 @@ pub async fn cleanup_monitor(
     let max_age_seconds = parse_max_update_time_to_seconds(&payload.max_update_time)?;
     let use_ipt = state.traffic_collect_method == "ipt";
     let conn = state.conn.lock().await;
-    let deleted = cleanup_stale_monitors(&conn, max_age_seconds)?;
+    let deleted = if max_age_seconds == 0 {
+        conn.execute("DELETE FROM monitors", [])
+            .map_err(|e| ApiError::internal(format!("cleanup all monitors error: {e}")))?
+    } else {
+        cleanup_stale_monitors(&conn, max_age_seconds)?
+    };
     let gc_result = if use_ipt {
         ipt::garbage_collect_orphans(&conn)
     } else {
@@ -562,7 +722,7 @@ pub async fn list_monitors(
     let conn = state.conn.lock().await;
     let mut stmt = conn
         .prepare(
-            "SELECT id, interfaces, provider_kind, instance_name, total_bytes, updated_at FROM monitors ORDER BY id",
+            "SELECT id, interfaces, provider_kind, instance_name, total_bytes, total_bytes_in, total_bytes_out, updated_at FROM monitors ORDER BY id",
         )
         .map_err(|e| ApiError::internal(format!("prepare list query error: {e}")))?;
 
@@ -577,7 +737,9 @@ pub async fn list_monitors(
                 provider_kind: row.get(2)?,
                 instance_name: row.get(3)?,
                 total_bytes: row.get(4)?,
-                updated_at: row.get(5)?,
+                total_bytes_in: row.get(5)?,
+                total_bytes_out: row.get(6)?,
+                updated_at: row.get(7)?,
             })
         })
         .map_err(|e| ApiError::internal(format!("list query error: {e}")))?;

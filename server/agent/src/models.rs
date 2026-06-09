@@ -33,6 +33,11 @@ pub struct InfoRequest {
 }
 
 #[derive(Deserialize, ToSchema)]
+pub struct BatchInfoRequest {
+    pub ids: Vec<i64>,
+}
+
+#[derive(Deserialize, ToSchema)]
 pub struct CleanupRequest {
     pub max_update_time: String,
 }
@@ -90,6 +95,12 @@ pub struct InfoResponse {
 }
 
 #[derive(Serialize, ToSchema)]
+pub struct BatchInfoResponse {
+    pub monitors: Vec<InfoResponse>,
+    pub total: usize,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct CleanupResponse {
     pub deleted: usize,
     pub max_update_seconds: i64,
@@ -118,6 +129,8 @@ pub struct ListMonitorItem {
     pub provider_kind: Option<String>,
     pub instance_name: Option<String>,
     pub total_bytes: u64,
+    pub total_bytes_in: u64,
+    pub total_bytes_out: u64,
     pub updated_at: i64,
 }
 

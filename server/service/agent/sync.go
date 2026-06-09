@@ -47,7 +47,6 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		return nil
 	}
 
-	// Get all active monitors for this provider
 	var monitors []monitoringModel.AgentMonitor
 	if err := s.db.Where("provider_id = ? AND is_enabled = ?", providerID, true).Find(&monitors).Error; err != nil {
 		return fmt.Errorf("list monitors: %w", err)
@@ -56,19 +55,15 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		return nil
 	}
 
-	// Collect agent monitor IDs
 	agentIDs := make([]int64, 0, len(monitors))
-	monitorByAgentID := make(map[int64]*monitoringModel.AgentMonitor)
+	monitorByAgentID := make(map[int64]*monitoringModel.AgentMonitor, len(monitors))
+	instanceIDs := make([]uint, 0, len(monitors))
 	for i := range monitors {
 		agentIDs = append(agentIDs, monitors[i].AgentMonitorID)
 		monitorByAgentID[monitors[i].AgentMonitorID] = &monitors[i]
+		instanceIDs = append(instanceIDs, monitors[i].InstanceID)
 	}
 
-	// Get agent client
-	// Agent runs on the Endpoint host — PortIP is the external NAT IP used for port mapping,
-	// NOT the machine where the agent is installed.
-	// For agent-mode providers behind NAT, the HTTP API is not directly reachable;
-	// the WS fallback in Client.doRequest handles connectivity via WebSocket.
 	host := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
 		if p.ConnectionType == "agent" {
@@ -88,6 +83,9 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	if err != nil {
 		return fmt.Errorf("batch get info: %w", err)
 	}
+	if len(infoMap) == 0 {
+		return nil
+	}
 
 	now := time.Now()
 	year := now.Year()
@@ -100,128 +98,123 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		multiplier = 1.0
 	}
 
-	// Process each monitor within a single transaction to reduce commit overhead
-	txErr := s.db.Transaction(func(tx *gorm.DB) error {
-		// Batch-load current UserID for all monitored instances so we use the
-		// authoritative value rather than the potentially stale monitor.UserID.
-		instanceIDs := make([]uint, 0, len(monitors))
-		for i := range monitors {
-			instanceIDs = append(instanceIDs, monitors[i].InstanceID)
+	// Batch-load authoritative instance owners outside the write transactions.
+	type idPair struct {
+		ID     uint
+		UserID uint
+	}
+	var pairs []idPair
+	if err := s.db.Model(&providerModel.Instance{}).Select("id, user_id").Where("id IN ?", instanceIDs).Find(&pairs).Error; err != nil {
+		return fmt.Errorf("batch load instance user_ids: %w", err)
+	}
+	instanceUserMap := make(map[uint]uint, len(pairs))
+	for _, pair := range pairs {
+		instanceUserMap[pair.ID] = pair.UserID
+	}
+
+	backfills := make([]trafficUserIDBackfill, 0)
+	for i := range monitors {
+		monitor := &monitors[i]
+		if currentUID, ok := instanceUserMap[monitor.InstanceID]; ok && currentUID != monitor.UserID {
+			backfills = append(backfills, trafficUserIDBackfill{
+				monitorID:  monitor.ID,
+				instanceID: monitor.InstanceID,
+				oldUserID:  monitor.UserID,
+				newUserID:  currentUID,
+			})
+			monitor.UserID = currentUID
 		}
-		type idPair struct {
-			ID     uint
-			UserID uint
-		}
-		var pairs []idPair
-		if err := tx.Model(&providerModel.Instance{}).Select("id, user_id").Where("id IN ?", instanceIDs).Find(&pairs).Error; err != nil {
-			return fmt.Errorf("batch load instance user_ids: %w", err)
-		}
-		instanceUserMap := make(map[uint]uint, len(pairs))
-		for _, p := range pairs {
-			instanceUserMap[p.ID] = p.UserID
-		}
-		backfills := make([]trafficUserIDBackfill, 0)
-		for i := range monitors {
-			monitor := &monitors[i]
-			if currentUID, ok := instanceUserMap[monitor.InstanceID]; ok && currentUID != monitor.UserID {
-				backfills = append(backfills, trafficUserIDBackfill{
-					monitorID:  monitor.ID,
-					instanceID: monitor.InstanceID,
-					oldUserID:  monitor.UserID,
-					newUserID:  currentUID,
-				})
-				monitor.UserID = currentUID
-			}
-		}
-		if err := applyTrafficUserIDBackfills(tx, backfills); err != nil {
+	}
+	if len(backfills) > 0 {
+		if err := s.db.Transaction(func(tx *gorm.DB) error {
+			return applyTrafficUserIDBackfills(tx, backfills)
+		}); err != nil {
 			return err
 		}
+	}
 
-		txSync := &SyncService{db: tx, ctx: s.ctx}
-		for agentID, info := range infoMap {
-			monitor := monitorByAgentID[agentID]
-			if monitor == nil {
-				continue
-			}
+	affectedUsers := make(map[uint]bool, len(monitors))
+	var firstErr error
+	for agentID, info := range infoMap {
+		monitor := monitorByAgentID[agentID]
+		if monitor == nil {
+			continue
+		}
+		affectedUsers[monitor.UserID] = true
 
-			currentTraffic := info.UsedTraffic
-			currentTrafficIn := info.UsedTrafficIn
-			currentTrafficOut := info.UsedTrafficOut
+		currentTraffic := info.UsedTraffic
+		currentTrafficIn := info.UsedTrafficIn
+		currentTrafficOut := info.UsedTrafficOut
 
-			// Compute delta since last sync for in/out separately
-			var deltaBytesIn, deltaBytesOut uint64
-			if currentTrafficIn >= monitor.LastTrafficBytesIn {
-				deltaBytesIn = currentTrafficIn - monitor.LastTrafficBytesIn
-			} else {
-				deltaBytesIn = currentTrafficIn
+		var deltaBytesIn, deltaBytesOut uint64
+		if currentTrafficIn >= monitor.LastTrafficBytesIn {
+			deltaBytesIn = currentTrafficIn - monitor.LastTrafficBytesIn
+		} else {
+			deltaBytesIn = currentTrafficIn
+			if global.APP_LOG != nil {
 				global.APP_LOG.Warn("Agent入站流量计数器重置检测",
 					zap.Uint("instanceID", monitor.InstanceID),
 					zap.Uint64("lastIn", monitor.LastTrafficBytesIn),
 					zap.Uint64("currentIn", currentTrafficIn))
 			}
-			if currentTrafficOut >= monitor.LastTrafficBytesOut {
-				deltaBytesOut = currentTrafficOut - monitor.LastTrafficBytesOut
-			} else {
-				deltaBytesOut = currentTrafficOut
+		}
+		if currentTrafficOut >= monitor.LastTrafficBytesOut {
+			deltaBytesOut = currentTrafficOut - monitor.LastTrafficBytesOut
+		} else {
+			deltaBytesOut = currentTrafficOut
+			if global.APP_LOG != nil {
 				global.APP_LOG.Warn("Agent出站流量计数器重置检测",
 					zap.Uint("instanceID", monitor.InstanceID),
 					zap.Uint64("lastOut", monitor.LastTrafficBytesOut),
 					zap.Uint64("currentOut", currentTrafficOut))
 			}
+		}
 
-			deltaBytes := deltaBytesIn + deltaBytesOut
-			if deltaBytes == 0 {
-				// Still update sync time
-				if err := tx.Model(monitor).Updates(map[string]interface{}{
-					"last_sync_at": now,
-				}).Error; err != nil {
-					return fmt.Errorf("update sync time: %w", err)
+		deltaBytes := deltaBytesIn + deltaBytesOut
+		if deltaBytes == 0 {
+			if err := s.db.Model(monitor).Updates(map[string]interface{}{
+				"last_sync_at": now,
+			}).Error; err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("update sync time for monitor %d: %w", monitor.ID, err)
 				}
-				continue
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("update agent monitor sync time failed",
+						zap.Uint("monitor_id", monitor.ID),
+						zap.Error(err))
+				}
 			}
+			continue
+		}
 
-			// Convert bytes to MB using real rx/tx from agent
-			rxMB := float64(deltaBytesIn) * multiplier / 1048576.0
-			txMB := float64(deltaBytesOut) * multiplier / 1048576.0
+		rxMB := float64(deltaBytesIn) * multiplier / 1048576.0
+		txMB := float64(deltaBytesOut) * multiplier / 1048576.0
+		minute := (now.Minute() / 5) * 5
+		alignedTime := time.Date(year, time.Month(month), day, hour, minute, 0, 0, now.Location())
 
-			// Update instance traffic history (hourly)
+		err := s.db.Transaction(func(tx *gorm.DB) error {
+			txSync := &SyncService{db: tx, ctx: s.ctx}
 			if err := txSync.upsertInstanceTrafficHistory(
 				monitor.InstanceID, monitor.ProviderID, monitor.UserID,
 				rxMB, txMB, year, month, day, hour, now,
 			); err != nil {
-				if global.APP_LOG != nil {
-					global.APP_LOG.Warn("upsert instance traffic history failed",
-						zap.Uint("instance_id", monitor.InstanceID),
-						zap.Error(err))
-				}
+				return fmt.Errorf("upsert instance traffic history: %w", err)
 			}
-
-			// Update instance monthly total (day=0, hour=0)
 			if err := txSync.upsertInstanceMonthlyTraffic(
 				monitor.InstanceID, monitor.ProviderID, monitor.UserID,
 				year, month, now,
 			); err != nil {
-				if global.APP_LOG != nil {
-					global.APP_LOG.Warn("upsert instance monthly traffic failed",
-						zap.Uint("instance_id", monitor.InstanceID),
-						zap.Error(err))
-				}
+				return fmt.Errorf("upsert instance monthly traffic: %w", err)
 			}
-
-			// Update agent monitor tracking
-			tx.Model(monitor).Updates(map[string]interface{}{
+			if err := tx.Model(monitor).Updates(map[string]interface{}{
 				"last_traffic_bytes":     currentTraffic,
 				"last_traffic_bytes_in":  currentTrafficIn,
 				"last_traffic_bytes_out": currentTrafficOut,
 				"last_sync_at":           now,
-			})
-
-			// Also write cumulative values to pmacct_traffic_records for unified chart query support.
-			// Agent cumulative counters are monotonically increasing (no reset on rebuild),
-			// so they are naturally compatible with the segment detection logic used by chart queries.
-			minute := (now.Minute() / 5) * 5
-			alignedTime := time.Date(year, time.Month(month), day, hour, minute, 0, 0, now.Location())
-			tx.Exec(`
+			}).Error; err != nil {
+				return fmt.Errorf("update agent monitor tracking: %w", err)
+			}
+			if err := tx.Exec(`
 				INSERT INTO pmacct_traffic_records
 					(instance_id, user_id, provider_id, provider_type, mapped_ip,
 					 rx_bytes, tx_bytes, total_bytes, timestamp, year, month, day, hour, minute,
@@ -235,19 +228,24 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 				int64(currentTrafficIn), int64(currentTrafficOut), int64(currentTraffic),
 				alignedTime, year, month, day, hour, minute, now, now, now,
 				int64(currentTrafficIn), int64(currentTrafficOut), int64(currentTraffic),
-				now, now)
-		}
-		return nil
-	})
-	if txErr != nil {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Error("traffic sync transaction failed",
-				zap.Uint("provider_id", providerID),
-				zap.Error(txErr))
+				now, now).Error; err != nil {
+				return fmt.Errorf("upsert pmacct traffic record: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("sync monitor %d: %w", monitor.ID, err)
+			}
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("traffic sync for monitor failed",
+					zap.Uint("monitor_id", monitor.ID),
+					zap.Int64("agent_monitor_id", agentID),
+					zap.Error(err))
+			}
 		}
 	}
 
-	// Aggregate provider and user traffic
 	if err := s.aggregateProviderTraffic(providerID, year, month, day, hour, now); err != nil {
 		if global.APP_LOG != nil {
 			global.APP_LOG.Warn("aggregate provider traffic failed",
@@ -261,7 +259,7 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	for _, m := range monitors {
 		userIDs[m.UserID] = true
 	}
-	for userID := range userIDs {
+	for userID := range affectedUsers {
 		if err := s.aggregateUserTraffic(userID, year, month, day, hour, now); err != nil {
 			if global.APP_LOG != nil {
 				global.APP_LOG.Warn("aggregate user traffic failed",
@@ -271,7 +269,7 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		}
 	}
 
-	return nil
+	return firstErr
 }
 
 func applyTrafficUserIDBackfills(tx *gorm.DB, changes []trafficUserIDBackfill) error {

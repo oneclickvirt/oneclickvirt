@@ -232,8 +232,18 @@ export function useMonitoringManagement(props, emit) {
       await ElMessageBox.confirm(t('admin.providers.syncMonitorsConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'info' })
       syncLoading.value = true
       const res = await syncProviderMonitors(props.provider.id)
-      if (res.code === 200) { ElMessage.success(t('admin.providers.syncMonitorsSuccess')); await loadMonitors() }
-      else { ElMessage.error(res.msg || t('admin.providers.syncMonitorsFailed')) }
+      if (res.code === 200) {
+        const summary = res.data?.summary
+        if (summary) {
+          const message = `${t('admin.providers.syncMonitorsSuccess')}：新增 ${summary.created || 0}，更新 ${summary.updated || 0}，不变 ${summary.unchanged || 0}，清理 ${summary.cleaned || 0}，失败 ${summary.failed || 0}`
+          if ((summary.failed || 0) > 0) ElMessage.warning(message)
+          else ElMessage.success(message)
+        } else {
+          ElMessage.success(t('admin.providers.syncMonitorsSuccess'))
+        }
+        await loadMonitors()
+        if (showAgentMonitors.value) await handleListAgentMonitors()
+      } else { ElMessage.error(res.msg || t('admin.providers.syncMonitorsFailed')) }
     } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.syncMonitorsFailed')) }
     finally { syncLoading.value = false }
   }
@@ -258,8 +268,15 @@ export function useMonitoringManagement(props, emit) {
       )
       clearMonitorsLoading.value = true
       const res = await clearProviderMonitors(props.provider.id)
-      if (res.code === 200) { ElMessage.success(t('admin.providers.clearMonitorsSuccess')); await loadMonitors() }
-      else { ElMessage.error(res.msg || t('admin.providers.clearMonitorsFailed')) }
+      if (res.code === 200) {
+        ElMessage.success(t('admin.providers.clearMonitorsSuccess'))
+        monitors.value = []
+        agentMonitors.value = []
+        monitorsPagination.total = 0
+        agentMonitorsPagination.total = 0
+        showAgentMonitors.value = false
+        await loadMonitors()
+      } else { ElMessage.error(res.msg || t('admin.providers.clearMonitorsFailed')) }
     } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.clearMonitorsFailed')) }
     finally { clearMonitorsLoading.value = false }
   }
@@ -289,7 +306,15 @@ export function useMonitoringManagement(props, emit) {
 
   const handleClose = () => { emit('update:visible', false); emit('close') }
 
-  const formatDateTime = (dateTime) => { if (!dateTime) return '-'; return new Date(dateTime).toLocaleString() }
+  const formatDateTime = (dateTime) => {
+    if (!dateTime) return '-'
+    const value = typeof dateTime === 'number' && dateTime > 0 && dateTime < 1000000000000
+      ? dateTime * 1000
+      : dateTime
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return '-'
+    return parsed.toLocaleString()
+  }
 
   const formatBytes = (bytes) => {
     if (bytes === 0) return '0 B'

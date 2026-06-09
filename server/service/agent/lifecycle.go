@@ -220,9 +220,11 @@ func updateInstanceInterfaces(ctx context.Context, db *gorm.DB, instance *provid
 	// Overwriting with V4 would corrupt the V6 field for IPv6-capable instances.
 	if len(parts) >= 2 {
 		ifaceV6 := strings.TrimSpace(parts[1])
-		if ifaceV6 != "" && instance.PmacctInterfaceV6 != ifaceV6 {
+		if instance.PmacctInterfaceV6 != ifaceV6 {
 			updates["pmacct_interface_v6"] = ifaceV6
 		}
+	} else if instance.PmacctInterfaceV6 != "" {
+		updates["pmacct_interface_v6"] = ""
 	}
 
 	if len(updates) > 0 {

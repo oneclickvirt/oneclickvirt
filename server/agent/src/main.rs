@@ -209,7 +209,12 @@ async fn main() {
             .await
             .expect("failed to bind localhost API server in agent mode");
         tokio::spawn(async move {
-            if let Err(e) = axum::serve(api_listener, api_router).await {
+            if let Err(e) = axum::serve(
+                api_listener,
+                api_router.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            {
                 error!(error = %e, "agent-mode localhost API server error");
             }
         });
@@ -237,11 +242,21 @@ async fn main() {
     if !enable_proxy {
         // Only run API server if proxy is disabled
         info!("reverse proxy disabled, running API server only");
-        axum::serve(api_listener, app).await.expect("API server error");
+        axum::serve(
+            api_listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .expect("API server error");
     } else {
         // Start API server in background
         let api_server = tokio::spawn(async move {
-            axum::serve(api_listener, app).await.expect("API server error");
+            axum::serve(
+                api_listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .expect("API server error");
         });
 
         // Reverse proxy configuration
@@ -414,6 +429,7 @@ fn build_api_router(state: AppState) -> Router {
         .route("/api/v1/update", post(handlers::update_monitor))
         .route("/api/v1/delete", post(handlers::delete_monitor))
         .route("/api/v1/info", post(handlers::info_monitor))
+        .route("/api/v1/batch-info", post(handlers::batch_info_monitor))
         .route("/api/v1/cleanup", post(handlers::cleanup_monitor))
         .route("/api/v1/resources", post(handlers::query_resources))
         .route("/api/v1/list", get(handlers::list_monitors))
