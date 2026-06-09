@@ -43,13 +43,14 @@ type AdminGroupResponse struct {
 }
 
 type AdminGroupProvider struct {
-	ID          uint   `json:"id"`
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Status      string `json:"status"`
-	GroupID     uint   `json:"groupId"`
-	GroupName   string `json:"groupName"`
-	Description string `json:"description"`
+	ID           uint   `json:"id"`
+	OwnerAdminID uint   `json:"ownerAdminId"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Status       string `json:"status"`
+	GroupID      uint   `json:"groupId"`
+	GroupName    string `json:"groupName"`
+	Description  string `json:"description"`
 }
 
 type AdminGroupsPayload struct {
@@ -87,7 +88,8 @@ func groupOwnerScope(db *gorm.DB, ownerAdminID uint) *gorm.DB {
 	if ownerAdminID > 0 {
 		return db.Where("owner_admin_id = ?", ownerAdminID)
 	}
-	return db.Where("owner_admin_id = 0")
+	// 超级管理员不过滤 owner_admin_id，可查看所有普通管理员与系统级分组/节点。
+	return db
 }
 
 func loadAdminGroupsPayload(ownerAdminID uint) (*AdminGroupsPayload, error) {
@@ -103,23 +105,36 @@ func loadAdminGroupsPayload(ownerAdminID uint) (*AdminGroupsPayload, error) {
 		return nil, err
 	}
 
+	groupByID := make(map[uint]providerModel.AdminGroupSetting, len(groups))
+	for _, g := range groups {
+		groupByID[g.ID] = g
+	}
+
 	providerResp := make([]AdminGroupProvider, 0, len(providers))
 	providersByGroup := make(map[uint][]AdminGroupProvider)
 	providerIDsByGroup := make(map[uint][]uint)
 	for _, p := range providers {
+		groupID := uint(0)
+		groupName := ""
+		if group, ok := groupByID[p.ProviderGroupID]; ok && group.OwnerAdminID == p.OwnerAdminID {
+			groupID = group.ID
+			groupName = group.GroupName
+		}
+
 		item := AdminGroupProvider{
-			ID:          p.ID,
-			Name:        p.Name,
-			Description: p.Description,
-			Type:        p.Type,
-			Status:      p.Status,
-			GroupID:     p.ProviderGroupID,
-			GroupName:   p.GroupName,
+			ID:           p.ID,
+			OwnerAdminID: p.OwnerAdminID,
+			Name:         p.Name,
+			Description:  p.Description,
+			Type:         p.Type,
+			Status:       p.Status,
+			GroupID:      groupID,
+			GroupName:    groupName,
 		}
 		providerResp = append(providerResp, item)
-		if p.ProviderGroupID > 0 {
-			providersByGroup[p.ProviderGroupID] = append(providersByGroup[p.ProviderGroupID], item)
-			providerIDsByGroup[p.ProviderGroupID] = append(providerIDsByGroup[p.ProviderGroupID], p.ID)
+		if groupID > 0 {
+			providersByGroup[groupID] = append(providersByGroup[groupID], item)
+			providerIDsByGroup[groupID] = append(providerIDsByGroup[groupID], p.ID)
 		}
 	}
 
@@ -149,14 +164,48 @@ func loadAdminGroupsPayload(ownerAdminID uint) (*AdminGroupsPayload, error) {
 	return &AdminGroupsPayload{Groups: groupResp, Providers: providerResp}, nil
 }
 
-func assignProvidersToGroup(tx *gorm.DB, ownerAdminID uint, group providerModel.AdminGroupSetting, providerIDs []uint) error {
-	// 清理从该分组移除的节点，避免节点切换后仍保留旧描述/旧分组。
-	clearQuery := tx.Model(&providerModel.Provider{}).Where("provider_group_id = ?", group.ID)
-	if ownerAdminID > 0 {
-		clearQuery = clearQuery.Where("owner_admin_id = ?", ownerAdminID)
-	} else {
-		clearQuery = clearQuery.Where("owner_admin_id = 0")
+func normalizeProviderIDs(ids []uint) []uint {
+	if len(ids) == 0 {
+		return []uint{}
 	}
+	seen := make(map[uint]struct{}, len(ids))
+	result := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func applyProviderOwnerScope(db *gorm.DB, ownerAdminID uint) *gorm.DB {
+	if ownerAdminID > 0 {
+		return db.Where("owner_admin_id = ?", ownerAdminID)
+	}
+	return db.Where("owner_admin_id = 0")
+}
+
+func assignProvidersToGroup(tx *gorm.DB, group providerModel.AdminGroupSetting, providerIDs []uint) error {
+	providerIDs = normalizeProviderIDs(providerIDs)
+
+	if len(providerIDs) > 0 {
+		var count int64
+		checkQuery := applyProviderOwnerScope(tx.Model(&providerModel.Provider{}), group.OwnerAdminID).Where("id IN ?", providerIDs)
+		if err := checkQuery.Count(&count).Error; err != nil {
+			return err
+		}
+		if count != int64(len(providerIDs)) {
+			return common.NewError(common.CodeForbidden, "存在不属于该分组管理员作用域的节点，不能加入此分组")
+		}
+	}
+
+	// 清理从该分组移除的节点，避免节点切换后仍保留旧描述/旧分组。
+	clearQuery := applyProviderOwnerScope(tx.Model(&providerModel.Provider{}).Where("provider_group_id = ?", group.ID), group.OwnerAdminID)
 	if len(providerIDs) > 0 {
 		clearQuery = clearQuery.Where("id NOT IN ?", providerIDs)
 	}
@@ -171,12 +220,7 @@ func assignProvidersToGroup(tx *gorm.DB, ownerAdminID uint, group providerModel.
 	if len(providerIDs) == 0 {
 		return nil
 	}
-	assignQuery := tx.Model(&providerModel.Provider{}).Where("id IN ?", providerIDs)
-	if ownerAdminID > 0 {
-		assignQuery = assignQuery.Where("owner_admin_id = ?", ownerAdminID)
-	} else {
-		assignQuery = assignQuery.Where("owner_admin_id = 0")
-	}
+	assignQuery := applyProviderOwnerScope(tx.Model(&providerModel.Provider{}).Where("id IN ?", providerIDs), group.OwnerAdminID)
 	return assignQuery.Updates(map[string]interface{}{
 		"provider_group_id": group.ID,
 		"group_name":        group.GroupName,
@@ -212,7 +256,7 @@ func CreateAdminGroup(c *gin.Context) {
 		if err := tx.Create(&group).Error; err != nil {
 			return err
 		}
-		return assignProvidersToGroup(tx, ownerAdminID, group, req.ProviderIDs)
+		return assignProvidersToGroup(tx, group, req.ProviderIDs)
 	}); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -241,8 +285,6 @@ func UpdateAdminGroup(c *gin.Context) {
 		q := tx.Where("id = ?", uint(id64))
 		if ownerAdminID > 0 {
 			q = q.Where("owner_admin_id = ?", ownerAdminID)
-		} else {
-			q = q.Where("owner_admin_id = 0")
 		}
 		if err := q.First(&group).Error; err != nil {
 			return err
@@ -252,7 +294,7 @@ func UpdateAdminGroup(c *gin.Context) {
 		}
 		group.GroupName = req.GroupName
 		group.GroupDescription = req.GroupDescription
-		return assignProvidersToGroup(tx, ownerAdminID, group, req.ProviderIDs)
+		return assignProvidersToGroup(tx, group, req.ProviderIDs)
 	}); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -272,13 +314,12 @@ func DeleteAdminGroup(c *gin.Context) {
 		q := tx.Where("id = ?", uint(id64))
 		if ownerAdminID > 0 {
 			q = q.Where("owner_admin_id = ?", ownerAdminID)
-		} else {
-			q = q.Where("owner_admin_id = 0")
 		}
 		if err := q.First(&group).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&providerModel.Provider{}).Where("provider_group_id = ?", group.ID).Updates(map[string]interface{}{"provider_group_id": 0, "group_name": "", "group_description": ""}).Error; err != nil {
+		clearQuery := applyProviderOwnerScope(tx.Model(&providerModel.Provider{}).Where("provider_group_id = ?", group.ID), group.OwnerAdminID)
+		if err := clearQuery.Updates(map[string]interface{}{"provider_group_id": 0, "group_name": "", "group_description": ""}).Error; err != nil {
 			return err
 		}
 		return tx.Delete(&group).Error
@@ -341,7 +382,7 @@ func UpdateAdminGroupInfo(c *gin.Context) {
 		if err := providerQuery.Pluck("id", &providerIDs).Error; err != nil {
 			return err
 		}
-		return assignProvidersToGroup(tx, ownerAdminID, group, providerIDs)
+		return assignProvidersToGroup(tx, group, providerIDs)
 	}); err != nil {
 		global.APP_LOG.Error("更新管理员分组信息失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))

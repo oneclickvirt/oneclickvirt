@@ -193,7 +193,13 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/providers/:id/checkin-config", admin.AdminGetCheckinConfig)
 		NormalAdminGroup.PUT("/providers/:id/checkin-config", admin.AdminUpdateCheckinConfig)
 
-		// 管理员分组管理（普通管理员管理自己的分组信息）
+		// 普通管理员/超级管理员节点分组管理
+		NormalAdminGroup.GET("/groups", admin.GetAdminGroups)
+		NormalAdminGroup.POST("/groups", admin.CreateAdminGroup)
+		NormalAdminGroup.PUT("/groups/:id", admin.UpdateAdminGroup)
+		NormalAdminGroup.DELETE("/groups/:id", admin.DeleteAdminGroup)
+
+		// 兼容旧单分组接口
 		NormalAdminGroup.GET("/group-info", admin.GetAdminGroupInfo)
 		NormalAdminGroup.PUT("/group-info", admin.UpdateAdminGroupInfo)
 

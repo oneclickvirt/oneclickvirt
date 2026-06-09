@@ -228,7 +228,8 @@ type AvailableProviderResponse struct {
 	ID                      uint    `json:"id"`
 	Name                    string  `json:"name"`
 	Description             string  `json:"description"`
-	Type                    string  `json:"type"`
+	Type                    string  `json:"type"`        // 虚拟化/Provider类型
+	NetworkType             string  `json:"networkType"` // 节点网络模式
 	Region                  string  `json:"region"`
 	Country                 string  `json:"country"`
 	CountryCode             string  `json:"countryCode"`

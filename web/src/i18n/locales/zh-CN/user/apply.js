@@ -14,6 +14,8 @@ export default {
   dataRefreshed: "数据已刷新",
   refreshFailed: "刷新失败，请稍后重试",
   location: "位置",
+  virtualizationType: "虚拟化",
+  networkMode: "网络模式",
   availableInstances: "可用实例",
   container: "容器",
   vm: "虚拟机",
@@ -76,6 +78,14 @@ export default {
     dedicatedIPv4: "独立IPv4",
     dedicatedIPv6: "独立IPv6",
     ipv6Only: "仅IPv6"
+  },
+  networkModes: {
+    natIpv4: "NAT IPv4",
+    natIpv4Ipv6: "NAT IPv4 + IPv6",
+    dedicatedIpv4: "独立 IPv4",
+    dedicatedIpv4Ipv6: "独立 IPv4 + IPv6",
+    ipv6Only: "仅 IPv6",
+    noPortMapping: "无端口映射"
   },
   resetConfig: "重置配置",
   confirmDialogTitle: "确认申请信息",

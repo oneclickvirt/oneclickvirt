@@ -15097,6 +15097,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "networkType": {
+                    "description": "节点网络模式",
+                    "type": "string"
+                },
                 "redeemCodeOnly": {
                     "description": "是否仅支持兑换码兑换",
                     "type": "boolean"
@@ -15108,6 +15112,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "type": {
+                    "description": "虚拟化/Provider类型",
                     "type": "string"
                 },
                 "vmEnabled": {

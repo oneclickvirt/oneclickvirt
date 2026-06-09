@@ -36,8 +36,8 @@ export default function useApplyPage() {
   } = useApplyForm(selectedProvider, providerCapabilities, loadProviderCapabilities, canCreateInstanceType)
 
 
-  // Provider group tabs
-  const activeGroupTab = ref('')
+  // Provider groups are shown as collapsed panels by default.
+  const expandedProviderGroups = ref([])
   let providerSelectSeq = 0
 
   // GPU passthrough is native on LXD/Incus and best-effort on Docker-family providers.
@@ -73,22 +73,49 @@ export default function useApplyPage() {
     for (const p of providers.value) {
       const key = p.groupId ? `group-${p.groupId}` : 'default-group'
       if (!groupMap.has(key)) {
-        groupMap.set(key, { id: p.groupId || 0, tabName: key, name: p.groupName || '', description: p.groupDescriptionHtml || p.groupDescription || '', providers: [] })
+        groupMap.set(key, {
+          id: p.groupId || 0,
+          tabName: key,
+          name: p.groupName || t('user.apply.defaultGroup'),
+          description: p.groupDescriptionHtml || p.groupDescription || '',
+          providers: []
+        })
       }
       groupMap.get(key).providers.push(p)
     }
     const groups = Array.from(groupMap.values())
-    // Put the default group (empty name) first
+    // 默认分组置顶，其余按名称排序。
     groups.sort((a, b) => {
-      if (!a.id && !a.name) return -1
-      if (!b.id && !b.name) return 1
+      if (!a.id) return -1
+      if (!b.id) return 1
       return (a.name || '').localeCompare(b.name || '')
     })
-    if (groups.length > 0 && (!activeGroupTab.value || !groups.some(g => g.tabName === activeGroupTab.value))) {
-      activeGroupTab.value = groups[0].tabName
-    }
     return groups
   })
+
+  const formatProviderType = (type) => {
+    if (!type) return '-'
+    const key = `admin.providers.${type}`
+    const label = t(key)
+    return label === key ? type : label
+  }
+
+  const formatNetworkType = (networkType) => {
+    const normalized = networkType || 'nat_ipv4'
+    const keyMap = {
+      nat_ipv4: 'natIpv4',
+      nat_ipv4_ipv6: 'natIpv4Ipv6',
+      dedicated_ipv4: 'dedicatedIpv4',
+      dedicated_ipv4_ipv6: 'dedicatedIpv4Ipv6',
+      ipv6_only: 'ipv6Only',
+      no_port_mapping: 'noPortMapping'
+    }
+    const key = keyMap[normalized]
+    if (!key) return normalized
+    const labelKey = `user.apply.networkModes.${key}`
+    const label = t(labelKey)
+    return label === labelKey ? normalized : label
+  }
 
   const viewHardwareReport = async (providerId) => {
     try {
@@ -272,9 +299,10 @@ export default function useApplyPage() {
     onInstanceTypeChange, submitApplication, submitRedemption, resetForm,
     gpuLoading, detectedGpus, selectedGpuIndices, gpuInfoMsg,
     selectAllGpus, deselectAllGpus,
-    activeGroupTab, canConfigureGpuPassthrough,
+    expandedProviderGroups, canConfigureGpuPassthrough,
     onGpuEnabledChange, providerGroups,
     viewHardwareReport, refreshData, selectProvider,
+    formatProviderType, formatNetworkType,
     formatMemorySize, formatDiskSize, formatResourceUsage, getFlagEmoji
   }
 }

@@ -14,6 +14,8 @@ export default {
   dataRefreshed: "Data refreshed",
   refreshFailed: "Refresh failed, please try again later",
   location: "Location",
+  virtualizationType: "Virtualization",
+  networkMode: "Network Mode",
   availableInstances: "Available Instances",
   container: "Container",
   vm: "VM",
@@ -76,6 +78,14 @@ export default {
     dedicatedIPv4: "Dedicated IPv4",
     dedicatedIPv6: "Dedicated IPv6",
     ipv6Only: "IPv6 Only"
+  },
+  networkModes: {
+    natIpv4: "NAT IPv4",
+    natIpv4Ipv6: "NAT IPv4 + IPv6",
+    dedicatedIpv4: "Dedicated IPv4",
+    dedicatedIpv4Ipv6: "Dedicated IPv4 + IPv6",
+    ipv6Only: "IPv6 Only",
+    noPortMapping: "No Port Mapping"
   },
   resetConfig: "Reset Configuration",
   confirmDialogTitle: "Confirm Application Information",

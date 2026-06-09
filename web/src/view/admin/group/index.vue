@@ -105,8 +105,10 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import service from '@/utils/request'
 import { renderMarkdown } from '@/utils/markdown'
+import { useUserStore } from '@/pinia/modules/user'
 
 const { t } = useI18n()
+const userStore = useUserStore()
 const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
@@ -169,7 +171,11 @@ const openEditDialog = async (row) => {
   })
 }
 
-const canSelectProvider = () => true
+const canSelectProvider = (provider) => {
+  if (editingGroup.value?.id) return provider.ownerAdminId === editingGroup.value.ownerAdminId
+  if (userStore.userType === 'admin') return !provider.ownerAdminId
+  return true
+}
 
 const onProviderSelectionChange = (selection) => {
   selectedProviderIds.value = selection.map(item => item.id)

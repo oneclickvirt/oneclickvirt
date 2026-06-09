@@ -36,10 +36,30 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 		zap.Int("totalProviders", len(dbProviders)),
 		zap.Uint("userID", userID))
 
-	// 批量查询所有Provider的活跃预留资源
+	// 批量查询所有Provider的活跃预留资源与有效分组，避免在循环中产生 N+1 查询。
 	var providerIDs []uint
+	groupIDSet := make(map[uint]struct{})
 	for _, provider := range dbProviders {
 		providerIDs = append(providerIDs, provider.ID)
+		if provider.ProviderGroupID > 0 {
+			groupIDSet[provider.ProviderGroupID] = struct{}{}
+		}
+	}
+
+	groupByID := make(map[uint]providerModel.AdminGroupSetting)
+	if len(groupIDSet) > 0 {
+		groupIDs := make([]uint, 0, len(groupIDSet))
+		for id := range groupIDSet {
+			groupIDs = append(groupIDs, id)
+		}
+		var groups []providerModel.AdminGroupSetting
+		if err := global.APP_DB.Where("id IN ?", groupIDs).Find(&groups).Error; err == nil {
+			for _, group := range groups {
+				groupByID[group.ID] = group
+			}
+		} else {
+			global.APP_LOG.Warn("批量查询Provider分组失败，将未确认分组视为默认分组", zap.Error(err))
+		}
 	}
 
 	var allReservations []resourceModel.ResourceReservation
@@ -165,11 +185,21 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				}
 			}
 
+			groupID, groupName, groupDescription := uint(0), "", ""
+			if provider.ProviderGroupID > 0 {
+				if group, ok := groupByID[provider.ProviderGroupID]; ok && group.OwnerAdminID == provider.OwnerAdminID {
+					groupID = group.ID
+					groupName = group.GroupName
+					groupDescription = group.GroupDescription
+				}
+			}
+
 			providerResp := userModel.AvailableProviderResponse{
 				ID:                      provider.ID,
 				Name:                    provider.Name,
 				Description:             provider.Description,
 				Type:                    provider.Type,
+				NetworkType:             provider.NetworkType,
 				Region:                  provider.Region,
 				Country:                 provider.Country,
 				CountryCode:             provider.CountryCode,
@@ -188,10 +218,10 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				VmEnabled:               provider.VirtualMachineEnabled,
 				RedeemCodeOnly:          provider.RedeemCodeOnly,
 				GpuEnabled:              provider.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, "container"),
-				GroupID:                 provider.ProviderGroupID,
-				GroupName:               provider.GroupName,
-				GroupDescription:        provider.GroupDescription,
-				GroupDescriptionHtml:    utils.MarkdownToSafeHTML(provider.GroupDescription),
+				GroupID:                 groupID,
+				GroupName:               groupName,
+				GroupDescription:        groupDescription,
+				GroupDescriptionHtml:    utils.MarkdownToSafeHTML(groupDescription),
 			}
 			providers = append(providers, providerResp)
 		}

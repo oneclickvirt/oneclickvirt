@@ -49,30 +49,43 @@
       <template #header>
         <div class="card-header">
           <span>{{ t('user.apply.selectProvider') }}</span>
+          <el-button
+            size="small"
+            :loading="refreshing"
+            @click="refreshData"
+          >
+            {{ t('user.apply.refresh') }}
+          </el-button>
         </div>
       </template>
-      <el-tabs
-        v-if="providerGroups.length > 1"
-        v-model="activeGroupTab"
-        type="border-card"
+
+      <el-collapse
+        v-if="providerGroups.length > 0"
+        v-model="expandedProviderGroups"
+        class="provider-groups-collapse"
       >
-        <el-tab-pane
+        <el-collapse-item
           v-for="group in providerGroups"
           :key="group.tabName"
-          :label="group.name || t('user.apply.defaultGroup')"
           :name="group.tabName"
         >
+          <template #title>
+            <div class="group-title">
+              <span>{{ group.name }}</span>
+              <el-tag size="small" type="info">{{ group.providers.length }}</el-tag>
+            </div>
+          </template>
           <div
             v-if="group.description"
             class="group-description"
             v-html="group.description"
           />
           <div class="providers-grid">
-            <div 
-              v-for="provider in group.providers" 
+            <div
+              v-for="provider in group.providers"
               :key="provider.id"
               class="provider-card"
-              :class="{ 
+              :class="{
                 'selected': selectedProvider?.id === provider.id,
                 'active': provider.status === 'active',
                 'offline': provider.status === 'offline' || provider.status === 'inactive',
@@ -82,7 +95,7 @@
             >
               <div class="provider-header">
                 <h3>{{ provider.name }}</h3>
-                <el-tag 
+                <el-tag
                   :type="getProviderStatusType(provider.status)"
                   size="small"
                 >
@@ -99,6 +112,14 @@
                     {{ t('user.apply.location') }}: {{ formatProviderLocation(provider) }}
                   </span>
                 </div>
+                <div class="info-item provider-meta-line">
+                  <el-tag size="small" type="info">
+                    {{ t('user.apply.virtualizationType') }}: {{ formatProviderType(provider.type) }}
+                  </el-tag>
+                  <el-tag size="small" type="info">
+                    {{ t('user.apply.networkMode') }}: {{ formatNetworkType(provider.networkType) }}
+                  </el-tag>
+                </div>
                 <div class="info-item">
                   <span>CPU: {{ provider.cpu }}{{ t('user.apply.cores') }}</span>
                 </div>
@@ -108,23 +129,23 @@
                 <div class="info-item">
                   <span>{{ t('user.apply.diskLimit') }}: {{ formatDiskSize(provider.disk || 0) }}</span>
                 </div>
-                <div 
+                <div
                   v-if="provider.containerEnabled && provider.vmEnabled"
                   class="info-item"
                 >
                   <span>
-                    {{ t('user.apply.availableInstances') }}: 
-                    {{ t('user.apply.container') }}{{ provider.availableContainerSlots === -1 ? t('user.apply.unlimited') : provider.availableContainerSlots }} / 
+                    {{ t('user.apply.availableInstances') }}:
+                    {{ t('user.apply.container') }}{{ provider.availableContainerSlots === -1 ? t('user.apply.unlimited') : provider.availableContainerSlots }} /
                     {{ t('user.apply.vm') }}{{ provider.availableVMSlots === -1 ? t('user.apply.unlimited') : provider.availableVMSlots }}
                   </span>
                 </div>
-                <div 
+                <div
                   v-else-if="provider.containerEnabled"
                   class="info-item"
                 >
                   <span>{{ t('user.apply.availableInstances') }}: {{ provider.availableContainerSlots === -1 ? t('user.apply.unlimited') : provider.availableContainerSlots }}</span>
                 </div>
-                <div 
+                <div
                   v-else-if="provider.vmEnabled"
                   class="info-item"
                 >
@@ -142,90 +163,8 @@
               </div>
             </div>
           </div>
-        </el-tab-pane>
-      </el-tabs>
-      <div v-else>
-        <div
-          v-if="providerGroups[0]?.description"
-          class="group-description"
-          v-html="providerGroups[0].description"
-        />
-        <div class="providers-grid">
-        <div 
-          v-for="provider in providers" 
-          :key="provider.id"
-          class="provider-card"
-          :class="{ 
-            'selected': selectedProvider?.id === provider.id,
-            'active': provider.status === 'active',
-            'offline': provider.status === 'offline' || provider.status === 'inactive',
-            'partial': provider.status === 'partial'
-          }"
-          @click="selectProvider(provider)"
-        >
-          <div class="provider-header">
-            <h3>{{ provider.name }}</h3>
-            <el-tag 
-              :type="getProviderStatusType(provider.status)"
-              size="small"
-            >
-              {{ getProviderStatusText(provider.status) }}
-            </el-tag>
-          </div>
-          <div class="provider-info">
-            <div class="info-item">
-              <span class="location-info">
-                <span
-                  v-if="provider.countryCode"
-                  class="flag-icon"
-                >{{ getFlagEmoji(provider.countryCode) }}</span>
-                {{ t('user.apply.location') }}: {{ formatProviderLocation(provider) }}
-              </span>
-            </div>
-            <div class="info-item">
-              <span>CPU: {{ provider.cpu }}{{ t('user.apply.cores') }}</span>
-            </div>
-            <div class="info-item">
-              <span>{{ t('user.apply.memoryLimit') }}: {{ formatMemorySize(provider.memory || 0) }}</span>
-            </div>
-            <div class="info-item">
-              <span>{{ t('user.apply.diskLimit') }}: {{ formatDiskSize(provider.disk || 0) }}</span>
-            </div>
-            <div 
-              v-if="provider.containerEnabled && provider.vmEnabled"
-              class="info-item"
-            >
-              <span>
-                {{ t('user.apply.availableInstances') }}: 
-                {{ t('user.apply.container') }}{{ provider.availableContainerSlots === -1 ? t('user.apply.unlimited') : provider.availableContainerSlots }} / 
-                {{ t('user.apply.vm') }}{{ provider.availableVMSlots === -1 ? t('user.apply.unlimited') : provider.availableVMSlots }}
-              </span>
-            </div>
-            <div 
-              v-else-if="provider.containerEnabled"
-              class="info-item"
-            >
-              <span>{{ t('user.apply.availableInstances') }}: {{ provider.availableContainerSlots === -1 ? t('user.apply.unlimited') : provider.availableContainerSlots }}</span>
-            </div>
-            <div 
-              v-else-if="provider.vmEnabled"
-              class="info-item"
-            >
-              <span>{{ t('user.apply.availableInstances') }}: {{ provider.availableVMSlots === -1 ? t('user.apply.unlimited') : provider.availableVMSlots }}</span>
-            </div>
-            <div class="info-item">
-              <el-link
-                type="primary"
-                :underline="false"
-                @click.stop="viewHardwareReport(provider.id)"
-              >
-                {{ t('user.apply.viewHardwareReport') }}
-              </el-link>
-            </div>
-          </div>
-        </div>
-        </div>
-      </div>
+        </el-collapse-item>
+      </el-collapse>
     </el-card>
 
     <!-- 配置表单 -->
@@ -561,7 +500,6 @@
 
 <script setup>
 import OsIcon from '@/components/OsIcon.vue'
-import { Refresh } from '@element-plus/icons-vue'
 import useApplyPage from './useApplyPage'
 import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
@@ -579,9 +517,10 @@ const {
   onInstanceTypeChange, submitApplication, submitRedemption, resetForm,
   gpuLoading, detectedGpus, selectedGpuIndices, gpuInfoMsg,
   selectAllGpus, deselectAllGpus,
-  activeGroupTab, canConfigureGpuPassthrough,
+  expandedProviderGroups, canConfigureGpuPassthrough,
   onGpuEnabledChange, providerGroups,
   viewHardwareReport, refreshData, selectProvider,
+  formatProviderType, formatNetworkType,
   formatMemorySize, formatDiskSize, formatResourceUsage, getFlagEmoji
 } = useApplyPage()
 </script>
@@ -626,6 +565,17 @@ const {
   color: var(--text-color-primary);
 }
 
+.provider-groups-collapse {
+  border-top: none;
+}
+
+.group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
 .limits-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -655,6 +605,12 @@ const {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
+}
+
+.provider-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .provider-card {
