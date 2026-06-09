@@ -221,7 +221,7 @@ func defaultCreateProviderRequest(name, providerType string) admin.CreateProvide
 		req.VirtualMachineEnabled = false
 		req.IPv4PortMappingMethod = "native"
 		req.IPv6PortMappingMethod = "native"
-	case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
+	case "qemu", "vmware", "virtualbox", "multipass", "vagrant":
 		req.ContainerEnabled = false
 		req.VirtualMachineEnabled = true
 		req.IPv4PortMappingMethod = "iptables"
@@ -231,6 +231,11 @@ func defaultCreateProviderRequest(name, providerType string) admin.CreateProvide
 		req.VirtualMachineEnabled = true
 		req.IPv4PortMappingMethod = "iptables"
 		req.IPv6PortMappingMethod = "native"
+	case "kubevirt":
+		req.ContainerEnabled = true
+		req.VirtualMachineEnabled = true
+		req.IPv4PortMappingMethod = "iptables"
+		req.IPv6PortMappingMethod = "iptables"
 	case "lxd", "incus":
 		req.ContainerEnabled = true
 		req.VirtualMachineEnabled = true

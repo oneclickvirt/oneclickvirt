@@ -502,9 +502,11 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		// 根据Provider类型确定SSH等待时长（容器30s，VM保留360s）
 		redeemSSHWait := 30 * time.Second
 		var redeemProvider providerModel.Provider
+		var redeemInstance providerModel.Instance
+		_ = global.APP_DB.Select("instance_type").Where("id = ?", instanceID).First(&redeemInstance).Error
 		if err := global.APP_DB.Select("type").Where("id = ?", providerID).First(&redeemProvider).Error; err == nil {
 			switch {
-			case utils.IsVMOnlyProvider(redeemProvider.Type):
+			case utils.UsesVMPositionalPorts(redeemProvider.Type, redeemInstance.InstanceType):
 				redeemSSHWait = 360 * time.Second
 			case redeemProvider.Type == "proxmox":
 				redeemSSHWait = 240 * time.Second

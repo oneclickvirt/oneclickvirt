@@ -14780,8 +14780,15 @@ const docTemplate = `{
                         "lxd",
                         "incus",
                         "docker",
+                        "podman",
+                        "containerd",
+                        "orbstack",
                         "qemu",
-                        "kubevirt"
+                        "kubevirt",
+                        "vmware",
+                        "virtualbox",
+                        "multipass",
+                        "vagrant"
                     ]
                 },
                 "size": {

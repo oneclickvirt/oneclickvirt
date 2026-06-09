@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/constant"
@@ -457,7 +458,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 
 	// 容器类Provider（docker/podman/containerd）端口映射特殊处理
 	// 这些Provider通过 -p 标志在创建时绑定端口，需要将端口信息写入创建请求
-	if utils.IsDockerFamilyProvider(resetCtx.Provider.Type) && len(resetCtx.OldPortMappings) > 0 {
+	if utils.UsesContainerRuntimePorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) && len(resetCtx.OldPortMappings) > 0 {
 		var ports []string
 		for _, oldPort := range resetCtx.OldPortMappings {
 			if oldPort.Protocol == "both" {
@@ -473,7 +474,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	}
 
 	// VM-only providers may consume positional ports: [sshPort, startPort, endPort].
-	if utils.IsVMOnlyProvider(resetCtx.Provider.Type) && len(resetCtx.OldPortMappings) > 0 {
+	if utils.UsesVMPositionalPorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) && len(resetCtx.OldPortMappings) > 0 {
 		var sshPort, startPort, endPort int
 		for _, oldPort := range resetCtx.OldPortMappings {
 			if oldPort.IsSSH {
@@ -516,7 +517,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	// 等待实例启动：QEMU/KubeVirt虚拟机启动慢，需要更长等待
 	instanceStartWait := 15 * time.Second
 	switch resetCtx.Provider.Type {
-	case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
+	case "qemu", "vmware", "virtualbox", "multipass", "vagrant":
 		instanceStartWait = 120 * time.Second
 	case "proxmox":
 		instanceStartWait = 60 * time.Second
@@ -551,7 +552,9 @@ func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminMode
 	s.updateTaskProgress(task.ID, 70, "step.settingPassword")
 
 	// 生成新密码
-	resetCtx.NewPassword = utils.GenerateStrongPassword(12)
+	if strings.TrimSpace(resetCtx.NewPassword) == "" {
+		resetCtx.NewPassword = utils.GenerateStrongPassword(12)
+	}
 
 	// 获取内网IP
 	providerApiService := &provider2.ProviderApiService{}

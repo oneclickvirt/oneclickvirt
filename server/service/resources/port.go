@@ -121,7 +121,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	// - LXD/Incus/Proxmox/QEMU/KubeVirt/VMware/VirtualBox/Multipass/Vagrant：支持节点侧映射（device_proxy/iptables）和控制端转发
 	// - Docker/Podman/Containerd/Orbstack：仅支持控制端转发（内网穿透），不支持节点侧映射
 	isContainerRuntime := utils.IsDockerFamilyProvider(providerInfo.Type)
-	isNodeSupported := providerInfo.Type == "lxd" || providerInfo.Type == "incus" || providerInfo.Type == "proxmox" || providerInfo.Type == "proxmoxve" || utils.IsVMOnlyProvider(providerInfo.Type)
+	isNodeSupported := providerInfo.Type == "lxd" || providerInfo.Type == "incus" || providerInfo.Type == "proxmox" || providerInfo.Type == "proxmoxve" || providerInfo.Type == "kubevirt" || utils.IsVMOnlyProvider(providerInfo.Type)
 
 	if isContainerRuntime {
 		// Docker/Podman/Containerd/Orbstack 仅支持控制端端口转发（内网穿透）

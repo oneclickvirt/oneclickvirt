@@ -16,9 +16,9 @@ export const PROVIDER_TYPE_ORDER = [
 
 export const CONTAINER_ONLY_PROVIDER_TYPES = ['docker', 'podman', 'containerd', 'orbstack']
 
-export const VM_ONLY_PROVIDER_TYPES = ['qemu', 'kubevirt', 'vmware', 'virtualbox', 'multipass', 'vagrant']
+export const VM_ONLY_PROVIDER_TYPES = ['qemu', 'vmware', 'virtualbox', 'multipass', 'vagrant']
 
-export const STORAGE_POOL_PROVIDER_TYPES = ['proxmox', 'lxd', 'incus', ...VM_ONLY_PROVIDER_TYPES]
+export const STORAGE_POOL_PROVIDER_TYPES = ['proxmox', 'lxd', 'incus', 'kubevirt', ...VM_ONLY_PROVIDER_TYPES]
 
 export const COPY_CAPABLE_PROVIDER_TYPES = ['lxd', 'incus', ...CONTAINER_ONLY_PROVIDER_TYPES]
 

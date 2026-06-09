@@ -79,8 +79,8 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 
 	// Docker类型：端口映射已在创建时设置，只需创建数据库记录
 	// 容器类Provider和 VM-only Provider 的端口映射已在创建时设置，只需创建数据库记录。
-	if utils.IsDockerFamilyProvider(resetCtx.Provider.Type) ||
-		utils.IsVMOnlyProvider(resetCtx.Provider.Type) {
+	if utils.UsesContainerRuntimePorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) ||
+		utils.UsesVMPositionalPorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) {
 		for _, oldPort := range resetCtx.OldPortMappings {
 			var createdPort providerModel.Port
 			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
@@ -563,7 +563,7 @@ func getInstancePrivateIP(ctx context.Context, prov interface{}, providerType, i
 				return ip
 			}
 		}
-	case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
+	case "qemu", "vmware", "virtualbox", "multipass", "vagrant", "kubevirt":
 		if p, ok := prov.(interface {
 			GetInstance(context.Context, string) (*providerModel.ProviderInstance, error)
 		}); ok {

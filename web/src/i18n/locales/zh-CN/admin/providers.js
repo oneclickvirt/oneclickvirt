@@ -293,7 +293,7 @@ export default {
   containerTech: "支持Docker、LXC等容器技术",
   vmTech: "支持KVM、Xen等虚拟化技术",
   dockerOnlyContainer: "Docker/Podman/Containerd/Orbstack只支持容器；Incus/LXD/ProxmoxVE支持容器和虚拟机",
-  qemuOnlyVM: "QEMU/KVM、KubeVirt、VMware、VirtualBox、Multipass 和 Vagrant 只支持虚拟机",
+  qemuOnlyVM: "QEMU/KVM、VMware、VirtualBox、Multipass 和 Vagrant 只支持虚拟机",
   selectVirtualizationType: "至少选择一种支持的虚拟化类型",
   instanceLimits: "实例数限制",
   maxContainers: "最大容器数",

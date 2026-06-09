@@ -25,7 +25,7 @@ type SystemImageResponse struct {
 // CreateSystemImageRequest 创建系统镜像请求
 type CreateSystemImageRequest struct {
 	Name         string `json:"name" binding:"required"`
-	ProviderType string `json:"providerType" binding:"required,oneof=proxmox lxd incus docker qemu kubevirt"`
+	ProviderType string `json:"providerType" binding:"required,oneof=proxmox lxd incus docker podman containerd orbstack qemu kubevirt vmware virtualbox multipass vagrant"`
 	InstanceType string `json:"instanceType" binding:"required,oneof=vm container"`
 	Architecture string `json:"architecture" binding:"required,oneof=amd64 arm64 s390x"`
 	URL          string `json:"url" binding:"required,url"`
@@ -43,7 +43,7 @@ type CreateSystemImageRequest struct {
 // UpdateSystemImageRequest 更新系统镜像请求
 type UpdateSystemImageRequest struct {
 	Name         string `json:"name"`
-	ProviderType string `json:"providerType" binding:"omitempty,oneof=proxmox lxd incus docker qemu kubevirt"`
+	ProviderType string `json:"providerType" binding:"omitempty,oneof=proxmox lxd incus docker podman containerd orbstack qemu kubevirt vmware virtualbox multipass vagrant"`
 	InstanceType string `json:"instanceType" binding:"omitempty,oneof=vm container"`
 	Architecture string `json:"architecture" binding:"omitempty,oneof=amd64 arm64 s390x"`
 	URL          string `json:"url" binding:"omitempty,url"`
@@ -184,6 +184,11 @@ func CreateSystemImage(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeConflict, "该镜像名称已存在"))
 		return
 	}
+	// 同一 Provider 类型下镜像链接不可重复；不同 Provider 类型允许复用同一 URL。
+	if err := global.APP_DB.Where("provider_type = ? AND url = ?", req.ProviderType, req.URL).First(&existingImage).Error; err == nil {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "同类型镜像链接已存在"))
+		return
+	}
 
 	// 创建系统镜像
 	image := systemModel.SystemImage{
@@ -242,20 +247,41 @@ func UpdateSystemImage(c *gin.Context) {
 		return
 	}
 
-	// 验证文件扩展名（如果更新了URL）
-	if req.URL != "" && req.URL != image.URL {
-		providerType := req.ProviderType
-		if providerType == "" {
-			providerType = image.ProviderType
-		}
-		instanceType := req.InstanceType
-		if instanceType == "" {
-			instanceType = image.InstanceType
-		}
-		if err := validateImageURL(providerType, instanceType, req.URL); err != nil {
-			common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
-			return
-		}
+	finalProviderType := image.ProviderType
+	if req.ProviderType != "" {
+		finalProviderType = req.ProviderType
+	}
+	finalInstanceType := image.InstanceType
+	if req.InstanceType != "" {
+		finalInstanceType = req.InstanceType
+	}
+	finalArchitecture := image.Architecture
+	if req.Architecture != "" {
+		finalArchitecture = req.Architecture
+	}
+	finalName := image.Name
+	if req.Name != "" {
+		finalName = req.Name
+	}
+	finalURL := image.URL
+	if req.URL != "" {
+		finalURL = req.URL
+	}
+
+	// 验证文件扩展名和唯一性（更新 Provider/URL 时同样适用）
+	if err := validateImageURL(finalProviderType, finalInstanceType, finalURL); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		return
+	}
+	var duplicate systemModel.SystemImage
+	if err := global.APP_DB.Where("provider_type = ? AND url = ? AND id <> ?", finalProviderType, finalURL, image.ID).First(&duplicate).Error; err == nil {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "同类型镜像链接已存在"))
+		return
+	}
+	if err := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ? AND id <> ?",
+		finalName, finalProviderType, finalInstanceType, finalArchitecture, image.ID).First(&duplicate).Error; err == nil {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "该镜像名称已存在"))
+		return
 	}
 
 	// 更新字段
@@ -420,9 +446,20 @@ func validateImageURL(providerType, instanceType, url string) error {
 		if !strings.HasSuffix(url, ".zip") {
 			return fmt.Errorf("LXD/Incus镜像地址必须是zip文件")
 		}
-	case "docker", "orbstack":
+	case "docker", "podman", "containerd", "orbstack":
 		if instanceType == "container" && !strings.HasSuffix(url, ".tar.gz") {
-			return fmt.Errorf("Docker/Orbstack容器镜像地址必须是.tar.gz文件")
+			return fmt.Errorf("Docker/Podman/Containerd/Orbstack容器镜像地址必须是.tar.gz文件")
+		}
+	case "qemu":
+		if instanceType == "vm" && !strings.HasSuffix(url, ".qcow2") {
+			return fmt.Errorf("QEMU虚拟机镜像地址必须是.qcow2文件")
+		}
+	case "kubevirt":
+		if instanceType == "vm" && !strings.HasSuffix(url, ".qcow2") {
+			return fmt.Errorf("KubeVirt虚拟机镜像地址必须是.qcow2文件")
+		}
+		if instanceType == "container" && !strings.HasSuffix(url, ".tar.gz") {
+			return fmt.Errorf("KubeVirt容器镜像归档地址必须是.tar.gz文件")
 		}
 	case "vmware":
 		if instanceType == "vm" && !strings.HasSuffix(url, ".vmx") && !strings.HasSuffix(url, ".zip") && !strings.HasSuffix(url, ".tar.gz") {

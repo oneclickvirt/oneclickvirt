@@ -45,8 +45,9 @@ func (p *KubeVirtProvider) GetInstance(ctx context.Context, id string) (*provide
 	if err != nil {
 		return nil, err
 	}
+	sanitizedID := k8sResourceName(id)
 	for _, inst := range instances {
-		if inst.Name == id || inst.ID == id {
+		if inst.Name == id || inst.ID == id || (sanitizedID != "" && inst.Name == sanitizedID) {
 			return &inst, nil
 		}
 	}
@@ -130,6 +131,13 @@ func (p *KubeVirtProvider) sshListInstances(ctx context.Context) ([]provider.Ins
 		instances = append(instances, inst)
 	}
 
+	containers, containerErr := p.sshListK3sContainers(ctx)
+	if containerErr != nil {
+		global.APP_LOG.Warn("KubeVirt容器实例列表读取失败", zap.Error(containerErr))
+	} else {
+		instances = append(instances, containers...)
+	}
+
 	return instances, nil
 }
 
@@ -140,6 +148,10 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 			progressCallback(pct, msg)
 		}
 		global.APP_LOG.Debug(msg, zap.String("instance", config.Name), zap.Int("progress", pct))
+	}
+
+	if strings.EqualFold(config.InstanceType, "container") {
+		return p.sshCreateK3sContainer(ctx, config, updateProgress)
 	}
 
 	updateProgress(5, "开始创建KubeVirt虚拟机")

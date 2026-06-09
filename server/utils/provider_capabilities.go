@@ -8,6 +8,10 @@ func NormalizeProviderType(providerType string) string {
 	return strings.ToLower(strings.TrimSpace(providerType))
 }
 
+func NormalizeInstanceType(instanceType string) string {
+	return strings.ToLower(strings.TrimSpace(instanceType))
+}
+
 func IsLXDIncusProvider(providerType string) bool {
 	switch NormalizeProviderType(providerType) {
 	case "lxd", "incus":
@@ -18,7 +22,7 @@ func IsLXDIncusProvider(providerType string) bool {
 }
 
 func SupportsLXDContainerOptions(providerType, instanceType string) bool {
-	return IsLXDIncusProvider(providerType) && NormalizeProviderType(instanceType) != "vm"
+	return IsLXDIncusProvider(providerType) && NormalizeInstanceType(instanceType) != "vm"
 }
 
 func SupportsContainerCopyProvider(providerType string) bool {
@@ -26,7 +30,7 @@ func SupportsContainerCopyProvider(providerType string) bool {
 }
 
 func SupportsContainerGPUProvider(providerType, instanceType string) bool {
-	return NormalizeProviderType(instanceType) != "vm" &&
+	return NormalizeInstanceType(instanceType) != "vm" &&
 		(IsLXDIncusProvider(providerType) || IsDockerFamilyProvider(providerType))
 }
 
@@ -39,11 +43,33 @@ func IsDockerFamilyProvider(providerType string) bool {
 	}
 }
 
+func IsKubeVirtProvider(providerType string) bool {
+	return NormalizeProviderType(providerType) == "kubevirt"
+}
+
+// IsVMOnlyProvider returns true for providers that can only create virtual machines.
+// KubeVirt is intentionally excluded: it can create both KubeVirt VMs and K3s backed containers.
 func IsVMOnlyProvider(providerType string) bool {
 	switch NormalizeProviderType(providerType) {
-	case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
+	case "qemu", "vmware", "virtualbox", "multipass", "vagrant":
 		return true
 	default:
 		return false
 	}
+}
+
+// UsesContainerRuntimePorts returns true when provider creation must receive docker-style
+// host:guest/protocol port mappings up front.
+func UsesContainerRuntimePorts(providerType, instanceType string) bool {
+	providerType = NormalizeProviderType(providerType)
+	instanceType = NormalizeInstanceType(instanceType)
+	return IsDockerFamilyProvider(providerType) || (providerType == "kubevirt" && instanceType == "container")
+}
+
+// UsesVMPositionalPorts returns true when provider creation consumes positional
+// ssh/start/end ports for VM-side NodePort/forwarding setup.
+func UsesVMPositionalPorts(providerType, instanceType string) bool {
+	providerType = NormalizeProviderType(providerType)
+	instanceType = NormalizeInstanceType(instanceType)
+	return IsVMOnlyProvider(providerType) || (providerType == "kubevirt" && instanceType == "vm")
 }

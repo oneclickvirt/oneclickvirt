@@ -56,7 +56,7 @@ func (p *KubeVirtProvider) GetName() string {
 }
 
 func (p *KubeVirtProvider) GetSupportedInstanceTypes() []string {
-	return []string{"vm"}
+	return []string{"container", "vm"}
 }
 
 func (p *KubeVirtProvider) Connect(ctx context.Context, config provider.NodeConfig) error {

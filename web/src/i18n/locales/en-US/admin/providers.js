@@ -283,7 +283,7 @@ export default {
   containerTech: "Support Docker, LXC and other container technologies",
   vmTech: "Support KVM, Xen and other virtualization technologies",
   dockerOnlyContainer: "Docker/Podman/Containerd/Orbstack only support containers; Incus/LXD/ProxmoxVE support containers and VMs",
-  qemuOnlyVM: "QEMU/KVM, KubeVirt, VMware, VirtualBox, Multipass and Vagrant only support VMs",
+  qemuOnlyVM: "QEMU/KVM, VMware, VirtualBox, Multipass and Vagrant only support VMs",
   selectVirtualizationType: "Please select at least one virtualization type",
   instanceLimits: "Instance Limits",
   maxContainers: "Max Containers",

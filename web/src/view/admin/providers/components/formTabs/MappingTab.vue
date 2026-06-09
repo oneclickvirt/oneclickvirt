@@ -460,7 +460,7 @@
 
     <!-- VM-only provider port mapping method (fixed to iptables) -->
     <el-form-item
-      v-if="VM_ONLY_PROVIDER_TYPES.includes(modelValue.type)"
+      v-if="(VM_ONLY_PROVIDER_TYPES.includes(modelValue.type) || modelValue.type === 'kubevirt')"
       :label="$t('admin.providers.portMappingMethod')"
     >
       <el-input
@@ -470,7 +470,7 @@
       />
     </el-form-item>
     <div
-      v-if="VM_ONLY_PROVIDER_TYPES.includes(modelValue.type)"
+      v-if="(VM_ONLY_PROVIDER_TYPES.includes(modelValue.type) || modelValue.type === 'kubevirt')"
       class="form-tip"
       style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
     >
@@ -679,8 +679,8 @@ watch(() => props.modelValue.type, (newType) => {
     // Docker/Podman/Containerd/Orbstack: IPv4和IPv6都固定使用 native
     props.modelValue.ipv4PortMappingMethod = 'native'
     props.modelValue.ipv6PortMappingMethod = 'native'
-  } else if (VM_ONLY_PROVIDER_TYPES.includes(newType)) {
-    // 本地虚拟化类型：IPv4和IPv6都固定使用 iptables
+  } else if (VM_ONLY_PROVIDER_TYPES.includes(newType) || newType === 'kubevirt') {
+    // 本地虚拟化/KubeVirt 类型：IPv4和IPv6都默认使用 iptables
     props.modelValue.ipv4PortMappingMethod = 'iptables'
     props.modelValue.ipv6PortMappingMethod = 'iptables'
   } else if (newType === 'proxmox') {

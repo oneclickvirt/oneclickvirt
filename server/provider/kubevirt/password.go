@@ -36,8 +36,27 @@ func (p *KubeVirtProvider) ResetInstancePassword(ctx context.Context, instanceID
 
 // sshSetPassword 通过SSH设置VM密码
 func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, password string) error {
-	global.APP_LOG.Info("设置KubeVirt虚拟机密码",
+	global.APP_LOG.Info("设置KubeVirt实例密码",
 		zap.String("instance", utils.TruncateString(instanceID, 32)))
+
+	if exists, _ := p.sshK3sContainerExists(instanceID); exists {
+		name := k8sResourceName(instanceID)
+		podOutput, podErr := p.sshClient.Execute(fmt.Sprintf(
+			"kubectl get pod -n %s -l %s -o jsonpath='{.items[0].metadata.name}' 2>/dev/null",
+			shellSingleQuote(Namespace), shellSingleQuote("oneclickvirt.io/instance="+name)))
+		podName := strings.TrimSpace(podOutput)
+		if podErr == nil && podName != "" {
+			remoteCmd := fmt.Sprintf("printf 'root:%%s\n' %s | chpasswd", shellSingleQuote(password))
+			output, err := p.sshClient.Execute(fmt.Sprintf(
+				"kubectl exec -n %s %s -- /bin/sh -c %s 2>&1",
+				shellSingleQuote(Namespace), shellSingleQuote(podName), shellSingleQuote(remoteCmd)))
+			if err == nil {
+				global.APP_LOG.Info("通过kubectl exec设置KubeVirt容器密码成功", zap.String("instance", utils.TruncateString(instanceID, 32)))
+				return nil
+			}
+			global.APP_LOG.Warn("通过kubectl exec设置KubeVirt容器密码失败", zap.String("instance", utils.TruncateString(instanceID, 32)), zap.String("output", utils.TruncateString(output, 300)), zap.Error(err))
+		}
+	}
 
 	// 方法1: 通过 virtctl console/ssh 连接到VM内部
 	// 先获取VM的NodePort SSH端口

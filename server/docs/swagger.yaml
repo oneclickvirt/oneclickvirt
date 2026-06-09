@@ -2208,8 +2208,15 @@ definitions:
         - lxd
         - incus
         - docker
+        - podman
+        - containerd
+        - orbstack
         - qemu
         - kubevirt
+        - vmware
+        - virtualbox
+        - multipass
+        - vagrant
         type: string
       size:
         type: integer

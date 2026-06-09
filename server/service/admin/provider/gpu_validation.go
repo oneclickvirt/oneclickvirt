@@ -41,6 +41,12 @@ func normalizeProviderInstanceTypeCapabilities(providerType string, containerEna
 	if utils.IsDockerFamilyProvider(providerType) {
 		return true, false
 	}
+	if utils.IsKubeVirtProvider(providerType) {
+		if !containerEnabled && !vmEnabled {
+			return true, true
+		}
+		return containerEnabled, vmEnabled
+	}
 	if utils.IsVMOnlyProvider(providerType) {
 		return false, true
 	}

@@ -2,7 +2,6 @@ package source
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -11,11 +10,9 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/system"
-	"oneclickvirt/service/database"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 func SeedSystemImages() {
@@ -24,12 +21,16 @@ func SeedSystemImages() {
 	// 初始化等级配置
 	initLevelConfigurations()
 
-	// 检查是否已经有镜像数据
+	// 初始化等级配置；该操作本身是幂等的，放在镜像同步前确保新库/老库启动口径一致。
+	initLevelConfigurations()
+
+	// 先记录当前数量，但不再因为已有数据而直接跳过。
+	// 主控从老版本升级时，数据库里可能已有旧初始化镜像，但新版本新增的系统镜像仍需自动补齐。
 	var count int64
-	global.APP_DB.Model(&system.SystemImage{}).Count(&count)
-	if count > 0 {
-		global.APP_LOG.Debug("镜像数据已存在，跳过同步", zap.Int64("count", count))
-		return
+	if err := global.APP_DB.Model(&system.SystemImage{}).Count(&count).Error; err != nil {
+		global.APP_LOG.Warn("统计已有系统镜像失败，仍继续尝试同步", zap.Error(err))
+	} else {
+		global.APP_LOG.Debug("当前系统镜像数量", zap.Int64("count", count))
 	}
 
 	// 收集所有镜像URL
@@ -74,7 +75,7 @@ func SeedSystemImages() {
 
 	// 如果远程获取失败，使用默认镜像列表
 	if useDefaultImages {
-		global.APP_LOG.Debug("使用默认镜像列表进行初始化")
+		global.APP_LOG.Debug("使用默认镜像列表进行初始化/补齐")
 		imageURLs = getDefaultImageURLs()
 	}
 
@@ -101,162 +102,166 @@ func SeedSystemImages() {
 		sortedURLs = append(primary, supplement...)
 	}
 
-	processedCount := 0
-	importedImages := make(map[string]bool) // 用于跟踪已导入的镜像基础信息
+		desiredImages := buildDesiredSystemImages(sortedURLs)
+	if len(desiredImages) == 0 {
+		global.APP_LOG.Warn("镜像列表解析后没有可导入镜像")
+		return
+	}
+
+	// 一次性加载已有 provider_type + url 组合，避免逐条查询导致 N+1。
+	// 去重口径：同一种 Provider 类型下 URL 不可重复；不同 Provider 类型允许复用同一 URL。
+	var existingImages []system.SystemImage
+	if err := global.APP_DB.Select("id", "provider_type", "url").Find(&existingImages).Error; err != nil {
+		global.APP_LOG.Error("查询已有系统镜像失败", zap.Error(err))
+		return
+	}
+	existingKeys := make(map[string]struct{}, len(existingImages)+len(desiredImages))
+	for _, img := range existingImages {
+		existingKeys[systemImageUniqueKey(img.ProviderType, img.URL)] = struct{}{}
+	}
+
+	missingImages := make([]system.SystemImage, 0)
+	for _, img := range desiredImages {
+		key := systemImageUniqueKey(img.ProviderType, img.URL)
+		if _, exists := existingKeys[key]; exists {
+			continue
+		}
+		missingImages = append(missingImages, img)
+		existingKeys[key] = struct{}{}
+	}
+
+	if len(missingImages) == 0 {
+		global.APP_LOG.Info("系统镜像同步完成，没有发现遗漏镜像", zap.Int("desired", len(desiredImages)))
+		return
+	}
+
+	if err := global.APP_DB.CreateInBatches(&missingImages, 100).Error; err != nil {
+		global.APP_LOG.Error("批量创建遗漏系统镜像失败", zap.Error(err), zap.Int("missing", len(missingImages)))
+		return
+	}
+
+	global.APP_LOG.Info("系统镜像同步完成", zap.Int("processed", len(missingImages)), zap.Int("desired", len(desiredImages)))
+}
+
+func systemImageUniqueKey(providerType, url string) string {
+	return strings.ToLower(strings.TrimSpace(providerType)) + "\x00" + strings.TrimSpace(url)
+}
+
+func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
+	importedImages := make(map[string]bool)
+	desiredKeys := make(map[string]bool)
+	desiredImages := make([]system.SystemImage, 0, len(sortedURLs))
 
 	for _, imageURL := range sortedURLs {
 		imageInfo := parseImageURL(imageURL)
-		if imageInfo != nil {
-			// 生成基础镜像标识（不包含变体信息）
-			baseImageKey := fmt.Sprintf("%s-%s-%s-%s-%s",
-				imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.Architecture,
-				imageInfo.OSType, imageInfo.OSVersion)
+		if imageInfo == nil {
+			continue
+		}
 
-			// 获取当前镜像的变体
-			currentVariant := getImageVariant(imageURL)
+		baseImageKey := fmt.Sprintf("%s-%s-%s-%s-%s",
+			imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.Architecture,
+			imageInfo.OSType, imageInfo.OSVersion)
+		currentVariant := getImageVariant(imageURL)
 
-			// 如果是default镜像且已经导入了优先级更高的镜像（cloud/openrc/systemd），跳过
-			if currentVariant == "default" && importedImages[baseImageKey] {
-				global.APP_LOG.Debug("跳过default镜像，已有优先级更高的版本",
-					zap.String("url", imageURL), zap.String("variant", currentVariant))
-				continue
+		// 如果是default镜像且已经导入了优先级更高的镜像（cloud/openrc/systemd），跳过
+		if currentVariant == "default" && importedImages[baseImageKey] {
+			global.APP_LOG.Debug("跳过default镜像，已有优先级更高的版本",
+				zap.String("url", imageURL), zap.String("variant", currentVariant))
+			continue
+		}
+
+		// 如果当前是openrc/systemd，但已经有cloud版本，跳过
+		if (currentVariant == "openrc" || currentVariant == "systemd") && importedImages[baseImageKey+"_cloud"] {
+			global.APP_LOG.Debug("跳过openrc/systemd镜像，已有cloud版本",
+				zap.String("url", imageURL), zap.String("variant", currentVariant))
+			continue
+		}
+
+		if isImageBlacklisted(imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.Architecture, imageInfo.OSType, imageInfo.OSVersion) {
+			global.APP_LOG.Warn("跳过黑名单镜像",
+				zap.String("name", imageInfo.Name),
+				zap.String("provider", imageInfo.ProviderType),
+				zap.String("type", imageInfo.InstanceType),
+				zap.String("arch", imageInfo.Architecture),
+				zap.String("os", imageInfo.OSType),
+				zap.String("version", imageInfo.OSVersion))
+			continue
+		}
+
+		imageStatus := defaultSystemImageStatus(imageInfo.OSType)
+		minMemoryMB, minDiskMB := getMinHardwareRequirements(imageInfo.OSType, imageInfo.InstanceType)
+		useCDN := isGitHubURL(imageInfo.URL)
+
+		baseImage := system.SystemImage{
+			Name:         imageInfo.Name,
+			ProviderType: imageInfo.ProviderType,
+			InstanceType: imageInfo.InstanceType,
+			Architecture: imageInfo.Architecture,
+			URL:          imageInfo.URL,
+			Status:       imageStatus,
+			Description:  imageInfo.Description,
+			OSType:       imageInfo.OSType,
+			OSVersion:    imageInfo.OSVersion,
+			MinMemoryMB:  minMemoryMB,
+			MinDiskMB:    minDiskMB,
+			UseCDN:       useCDN,
+			CreatedBy:    nil,
+		}
+		if appendSystemImageIfNew(&desiredImages, desiredKeys, baseImage) {
+			importedImages[baseImageKey] = true
+			if currentVariant == "cloud" {
+				importedImages[baseImageKey+"_cloud"] = true
 			}
+			global.APP_LOG.Debug("准备导入镜像",
+				zap.String("name", imageInfo.Name),
+				zap.String("provider", imageInfo.ProviderType),
+				zap.String("url", imageURL),
+				zap.String("variant", currentVariant))
+		}
 
-			// 如果当前是openrc/systemd，但已经有cloud版本，跳过
-			if (currentVariant == "openrc" || currentVariant == "systemd") && importedImages[baseImageKey+"_cloud"] {
-				global.APP_LOG.Debug("跳过openrc/systemd镜像，已有cloud版本",
-					zap.String("url", imageURL), zap.String("variant", currentVariant))
-				continue
+		// 对于 PVE/QEMU 通用 qcow2 虚拟机镜像，同时为 QEMU 和 KubeVirt 创建镜像记录。
+		if imageInfo.ProviderType == "proxmox" && imageInfo.InstanceType == "vm" && strings.HasSuffix(imageInfo.URL, ".qcow2") {
+			for _, extraProvider := range []string{"qemu", "kubevirt"} {
+				providerLabel := strings.ToUpper(extraProvider[:1]) + extraProvider[1:]
+				extraImage := baseImage
+				extraImage.ProviderType = extraProvider
+				extraImage.InstanceType = "vm"
+				extraImage.Description = fmt.Sprintf("%s KVM %s image", providerLabel, imageInfo.Name)
+				appendSystemImageIfNew(&desiredImages, desiredKeys, extraImage)
 			}
+		}
 
-			// 检查镜像是否在黑名单中
-			if isImageBlacklisted(imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.Architecture, imageInfo.OSType, imageInfo.OSVersion) {
-				global.APP_LOG.Warn("跳过黑名单镜像",
-					zap.String("name", imageInfo.Name),
-					zap.String("provider", imageInfo.ProviderType),
-					zap.String("type", imageInfo.InstanceType),
-					zap.String("arch", imageInfo.Architecture),
-					zap.String("os", imageInfo.OSType),
-					zap.String("version", imageInfo.OSVersion))
-				continue
-			}
-
-			// 检查是否已存在
-			var existingImage system.SystemImage
-			result := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ?",
-				imageInfo.Name, imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.Architecture).First(&existingImage)
-
-			if result.Error != nil {
-				// 确定镜像状态：默认仅启用 Debian 和 Alpine 镜像
-				imageStatus := "inactive"
-				osTypeLower := strings.ToLower(imageInfo.OSType)
-				if osTypeLower == "debian" || osTypeLower == "alpine" {
-					imageStatus = "active"
-				}
-
-				// 获取最低硬件要求
-				minMemoryMB, minDiskMB := getMinHardwareRequirements(imageInfo.OSType, imageInfo.InstanceType)
-
-				// 判断是否使用CDN：仅对GitHub链接启用CDN加速，非GitHub链接（如官方上游）不启用
-				useCDN := isGitHubURL(imageInfo.URL)
-
-				// 创建新镜像记录
-				systemImage := system.SystemImage{
-					Name:         imageInfo.Name,
-					ProviderType: imageInfo.ProviderType,
-					InstanceType: imageInfo.InstanceType,
-					Architecture: imageInfo.Architecture,
-					URL:          imageInfo.URL,
-					Status:       imageStatus,
-					Description:  imageInfo.Description,
-					OSType:       imageInfo.OSType,
-					OSVersion:    imageInfo.OSVersion,
-					MinMemoryMB:  minMemoryMB,
-					MinDiskMB:    minDiskMB,
-					UseCDN:       useCDN,
-					CreatedBy:    nil, // 系统创建，设为nil
-				}
-
-				dbService := database.GetDatabaseService()
-				if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-					return tx.Create(&systemImage).Error
-				}); err != nil {
-					global.APP_LOG.Warn("创建镜像记录失败", zap.Error(err), zap.String("name", imageInfo.Name))
-				} else {
-					processedCount++
-					// 标记该基础镜像已导入
-					importedImages[baseImageKey] = true
-					// 如果是cloud镜像，单独标记
-					if currentVariant == "cloud" {
-						importedImages[baseImageKey+"_cloud"] = true
-					}
-					global.APP_LOG.Debug("导入镜像成功",
-						zap.String("name", imageInfo.Name),
-						zap.String("url", imageURL),
-						zap.String("variant", currentVariant))
-				}
-
-				// 对于 KVM qcow2 虚拟机镜像，同时为 QEMU 和 KubeVirt 创建镜像记录
-				// 因为 pve_kvm_images/kvm_images 的 qcow2 镜像是通用的 cloud image，
-				// 可以被 Proxmox、QEMU(libvirt) 和 KubeVirt(CDI) 三种 provider 共用
-				if imageInfo.InstanceType == "vm" && strings.HasSuffix(imageInfo.URL, ".qcow2") {
-					for _, extraProvider := range []string{"qemu", "kubevirt"} {
-						// 使用镜像名称作为去重key，避免同osType+osVersion的不同镜像（如centos8 vs centos8-stream）互相阻塞
-						extraKey := fmt.Sprintf("%s-%s-%s-%s",
-							extraProvider, imageInfo.InstanceType, imageInfo.Architecture,
-							imageInfo.Name)
-
-						if importedImages[extraKey] {
-							continue
-						}
-
-						var existingExtra system.SystemImage
-						checkResult := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ?",
-							imageInfo.Name, extraProvider, imageInfo.InstanceType, imageInfo.Architecture).First(&existingExtra)
-						if checkResult.Error == nil {
-							importedImages[extraKey] = true
-							continue
-						}
-
-						providerLabel := strings.ToUpper(extraProvider[:1]) + extraProvider[1:]
-						extraImage := system.SystemImage{
-							Name:         imageInfo.Name,
-							ProviderType: extraProvider,
-							InstanceType: "vm",
-							Architecture: imageInfo.Architecture,
-							URL:          imageInfo.URL,
-							Status:       imageStatus,
-							Description:  fmt.Sprintf("%s KVM %s image", providerLabel, imageInfo.Name),
-							OSType:       imageInfo.OSType,
-							OSVersion:    imageInfo.OSVersion,
-							MinMemoryMB:  minMemoryMB,
-							MinDiskMB:    minDiskMB,
-							UseCDN:       useCDN,
-							CreatedBy:    nil,
-						}
-
-						if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-							return tx.Create(&extraImage).Error
-						}); err != nil {
-							global.APP_LOG.Warn("创建额外provider镜像记录失败",
-								zap.Error(err),
-								zap.String("name", imageInfo.Name),
-								zap.String("provider", extraProvider))
-						} else {
-							processedCount++
-							importedImages[extraKey] = true
-							global.APP_LOG.Debug("导入额外provider镜像成功",
-								zap.String("name", imageInfo.Name),
-								zap.String("provider", extraProvider))
-						}
-					}
-				}
-			}
+		// KubeVirt 的容器实例走 K3s/containerd 方式创建，可复用 Docker 家族的容器镜像归档。
+		if imageInfo.ProviderType == "docker" && imageInfo.InstanceType == "container" {
+			extraImage := baseImage
+			extraImage.ProviderType = "kubevirt"
+			extraImage.Description = fmt.Sprintf("KubeVirt K3s container %s image", imageInfo.Name)
+			appendSystemImageIfNew(&desiredImages, desiredKeys, extraImage)
 		}
 	}
 
-	global.APP_LOG.Info("系统镜像同步完成", zap.Int("processed", processedCount))
+	return desiredImages
 }
+
+func appendSystemImageIfNew(images *[]system.SystemImage, keys map[string]bool, image system.SystemImage) bool {
+	key := systemImageUniqueKey(image.ProviderType, image.URL)
+	if keys[key] {
+		return false
+	}
+	keys[key] = true
+	*images = append(*images, image)
+	return true
+}
+
+func defaultSystemImageStatus(osType string) string {
+	osTypeLower := strings.ToLower(osType)
+	if osTypeLower == "debian" || osTypeLower == "alpine" {
+		return "active"
+	}
+	return "inactive"
+}
+
+
 
 // parseImageURL 解析镜像URL并提取信息
 func parseImageURL(imageURL string) *ImageInfo {

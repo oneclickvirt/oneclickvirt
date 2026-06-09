@@ -156,9 +156,10 @@ export function useSystemImageManagement() {
 
   const getUrlHint = () => {
     if (!form.providerType || !form.instanceType) return ''
-    if (form.providerType === 'proxmox' && form.instanceType === 'vm') return t('admin.systemImages.urlHintProxmoxVM')
+    if ((form.providerType === 'proxmox' || form.providerType === 'qemu') && form.instanceType === 'vm') return t('admin.systemImages.urlHintProxmoxVM')
+    if (form.providerType === 'kubevirt' && form.instanceType === 'vm') return t('admin.systemImages.urlHintProxmoxVM')
     if (form.providerType === 'lxd' || form.providerType === 'incus') return t('admin.systemImages.urlHintLxdIncus')
-    if (isContainerOnlyProvider(form.providerType) && form.instanceType === 'container') return t('admin.systemImages.urlHintContainerTarGz', { provider: form.providerType.charAt(0).toUpperCase() + form.providerType.slice(1) })
+    if ((isContainerOnlyProvider(form.providerType) || form.providerType === 'kubevirt') && form.instanceType === 'container') return t('admin.systemImages.urlHintContainerTarGz', { provider: form.providerType.charAt(0).toUpperCase() + form.providerType.slice(1) })
     return ''
   }
 

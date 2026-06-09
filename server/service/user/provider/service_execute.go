@@ -170,7 +170,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		if instance.InstanceType != "container" {
 			return fmt.Errorf("复制模式仅支持容器实例")
 		}
-		if utils.IsDockerFamilyProvider(localProviderType) {
+		if utils.UsesContainerRuntimePorts(localProviderType, instance.InstanceType) {
 			if !utils.IsValidContainerRuntimeName(redemptionTaskReq.SourceContainer) {
 				return fmt.Errorf("源容器名称格式无效")
 			}
@@ -405,7 +405,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 			zap.Error(err))
 		// 对于容器类Provider（docker/podman/containerd/orbstack），端口映射通过 -p 标志在容器创建时建立，
 		// 预分配失败意味着容器将无任何端口映射，继续创建会产生无法访问的僵尸实例，必须立即终止任务。
-		if utils.IsDockerFamilyProvider(localProviderType) {
+		if utils.UsesContainerRuntimePorts(localProviderType, instance.InstanceType) {
 			return fmt.Errorf("容器类Provider端口映射预分配失败（docker/podman/containerd/orbstack 的端口映射在容器创建时绑定，无法事后追加），无法继续创建实例: %v", err)
 		}
 	} else {
@@ -419,7 +419,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		} else {
 			// 对于容器类Provider（docker/podman/containerd/orbstack），将端口映射信息写入实例配置，
 			// 作为 -p 参数传给容器运行时。LXD/Incus/Proxmox 通过其他机制管理端口，无需此步骤。
-			if utils.IsDockerFamilyProvider(localProviderType) {
+			if utils.UsesContainerRuntimePorts(localProviderType, instance.InstanceType) {
 				// 将端口映射信息添加到实例配置中
 				var ports []string
 				for _, port := range portMappings {
@@ -442,7 +442,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 					zap.String("providerType", localProviderType),
 					zap.Int("portCount", len(ports)),
 					zap.Strings("ports", ports))
-			} else if utils.IsVMOnlyProvider(localProviderType) {
+			} else if utils.UsesVMPositionalPorts(localProviderType, instance.InstanceType) {
 				// VM-only providers may consume positional ports for host-side forwarding.
 				var sshPort, startPort, endPort int
 				for _, port := range portMappings {

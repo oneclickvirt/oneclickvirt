@@ -15,7 +15,7 @@ import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/p
 
 export function usePortMappingManagement() {
   const { t } = useI18n()
-  const NODE_MAPPING_PROVIDER_TYPES = ['lxd', 'incus', 'proxmox', 'proxmoxve', ...VM_ONLY_PROVIDER_TYPES]
+  const NODE_MAPPING_PROVIDER_TYPES = ['lxd', 'incus', 'proxmox', 'proxmoxve', 'kubevirt', ...VM_ONLY_PROVIDER_TYPES]
   const CONTROLLER_ONLY_PROVIDER_TYPES = [...CONTAINER_ONLY_PROVIDER_TYPES]
   const PORT_MAPPING_PROVIDER_TYPES = [...NODE_MAPPING_PROVIDER_TYPES, ...CONTROLLER_ONLY_PROVIDER_TYPES]
 

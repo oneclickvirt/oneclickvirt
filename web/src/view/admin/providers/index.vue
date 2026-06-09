@@ -262,6 +262,12 @@ watch(() => addProviderForm.type, (newType) => {
     addProviderForm.vmEnabled = true
     addProviderForm.ipv4PortMappingMethod = 'iptables'
     addProviderForm.ipv6PortMappingMethod = 'iptables'
+  } else if (newType === 'kubevirt') {
+    // KubeVirt 同时支持 VM 和基于 K3s 的容器，端口默认走节点侧映射
+    addProviderForm.containerEnabled = true
+    addProviderForm.vmEnabled = true
+    addProviderForm.ipv4PortMappingMethod = 'iptables'
+    addProviderForm.ipv6PortMappingMethod = 'iptables'
   } else if (newType === 'proxmox') {
     // Proxmox支持容器和虚拟机
     addProviderForm.containerEnabled = true

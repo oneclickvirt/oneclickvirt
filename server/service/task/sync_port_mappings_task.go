@@ -601,7 +601,7 @@ func (s *TaskService) removePortMappingsFromNode(ctx context.Context, provInstan
 
 	providerType := utils.NormalizeProviderType(prov.Type)
 	portMappingType := providerType
-	if portMappingType == "proxmox" || portMappingType == "proxmoxve" || utils.IsVMOnlyProvider(portMappingType) {
+	if portMappingType == "proxmox" || portMappingType == "proxmoxve" || portMappingType == "kubevirt" || utils.IsVMOnlyProvider(portMappingType) {
 		portMappingType = "iptables"
 	}
 
