@@ -280,7 +280,7 @@ export function useProviderForm(loadProviders) {
     if (isContainerOnlyProvider(provider.type)) {
       addProviderForm.ipv4PortMappingMethod = 'native'
       addProviderForm.ipv6PortMappingMethod = 'native'
-    } else if (isVMOnlyProvider(provider.type)) {
+    } else if (isVMOnlyProvider(provider.type) || provider.type === 'qemu') {
       addProviderForm.ipv4PortMappingMethod = provider.ipv4PortMappingMethod || 'iptables'
       addProviderForm.ipv6PortMappingMethod = provider.ipv6PortMappingMethod || 'iptables'
     } else if (provider.type === 'proxmox') {
@@ -305,7 +305,7 @@ export function useProviderForm(loadProviders) {
         return null
       }
       // agent 模式新增：不需要 SSH 凭据
-      if (!isEditing.value && formData.connectionType !== 'agent') {
+      if (!isEditing.value && formData.connectionType !== 'agent' && formData.connectionType !== 'local') {
         if (formData.authMethod === 'password' && !formData.password) {
           ElMessage.error(t('admin.providers.passwordRequired'))
           return null
@@ -317,6 +317,7 @@ export function useProviderForm(loadProviders) {
       }
 
       const isAgentMode = formData.connectionType === 'agent'
+      const isLocalMode = formData.connectionType === 'local'
       const agentCanUseMappedNetworking = hasAgentMappedNetworking(formData)
 
       addProviderLoading.value = true
@@ -324,10 +325,10 @@ export function useProviderForm(loadProviders) {
       const serverData = {
         name: formData.name,
         type: formData.type,
-        endpoint: isAgentMode ? '' : (formData.host || ''),
+        endpoint: (isAgentMode || isLocalMode) ? (isLocalMode ? '127.0.0.1' : '') : (formData.host || ''),
         portIP: formData.portIP || '',
-        sshPort: isAgentMode ? 0 : (formData.port || 22),
-        username: isAgentMode ? (formData.username || '') : formData.username,
+        sshPort: (isAgentMode || isLocalMode) ? 0 : (formData.port || 22),
+        username: (isAgentMode || isLocalMode) ? (formData.username || '') : formData.username,
         config: '',
         region: formData.region,
         country: formData.country,
@@ -411,7 +412,7 @@ export function useProviderForm(loadProviders) {
       if (isContainerOnlyProvider(formData.type)) {
         serverData.ipv4PortMappingMethod = 'native'
         serverData.ipv6PortMappingMethod = 'native'
-      } else if (isVMOnlyProvider(formData.type)) {
+      } else if (isVMOnlyProvider(formData.type) || formData.type === 'qemu') {
         serverData.ipv4PortMappingMethod = formData.ipv4PortMappingMethod || 'iptables'
         serverData.ipv6PortMappingMethod = formData.ipv6PortMappingMethod || 'iptables'
       } else if (formData.type === 'proxmox') {
@@ -441,8 +442,10 @@ export function useProviderForm(loadProviders) {
           serverData.sshKey = formData.sshKey
         }
       } else {
-        // 创建模式：密码/密钥必须提供（上方的校验已确保非 agent 模式必填）
-        if (formData.authMethod === 'password') {
+        // 创建模式：密码/密钥必须提供（上方的校验已确保非 agent/local 模式必填）
+        if (isLocalMode) {
+          // 本机模式不需要 SSH 认证信息
+        } else if (formData.authMethod === 'password') {
           serverData.password = formData.password
         } else if (formData.authMethod === 'sshKey') {
           serverData.sshKey = formData.sshKey

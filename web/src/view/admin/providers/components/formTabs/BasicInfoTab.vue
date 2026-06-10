@@ -34,8 +34,8 @@
       </el-select>
     </el-form-item>
 
-    <!-- SSH模式：主机地址（Agent模式下不需要SSH IP/端口，由Agent主动连回控制端） -->
-    <template v-if="!isAgentMode">
+    <!-- SSH模式：主机地址（Agent/本机模式下不需要SSH IP/端口） -->
+    <template v-if="!isAgentMode && !isLocalMode">
       <el-form-item
         :label="$t('admin.providers.hostAddress')"
         prop="host"
@@ -60,7 +60,7 @@
 
     <el-form-item
       :label="$t('admin.providers.portIP')"
-      :prop="isAgentMode ? '' : 'portIP'"
+      :prop="isAgentMode || isLocalMode ? '' : 'portIP'"
     >
       <el-input
         v-model="modelValue.portIP"
@@ -75,12 +75,12 @@
         size="small"
         type="info"
       >
-        {{ isAgentMode ? $t('admin.providers.portIPTipAgent') : $t('admin.providers.portIPTip') }}
+        {{ isAgentMode ? $t('admin.providers.portIPTipAgent') : (isLocalMode ? $t('admin.providers.portIPTipLocal') : $t('admin.providers.portIPTip')) }}
       </el-text>
     </div>
 
-    <!-- SSH模式：SSH端口（Agent模式下不需要） -->
-    <template v-if="!isAgentMode">
+    <!-- SSH模式：SSH端口（Agent/本机模式下不需要） -->
+    <template v-if="!isAgentMode && !isLocalMode">
       <el-form-item
         :label="$t('admin.providers.port')"
         prop="port"
@@ -288,6 +288,7 @@ const props = defineProps({
 })
 
 const isAgentMode = computed(() => props.modelValue.connectionType === 'agent')
+const isLocalMode = computed(() => props.modelValue.connectionType === 'local')
 
 // 暴露表单引用供父组件使用
 const formRef = ref()

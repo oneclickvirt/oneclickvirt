@@ -351,9 +351,10 @@ func InitSystem(c *gin.Context) {
 	source.InitSeedData()
 	global.APP_INIT_PROGRESS.CompleteStep(4)
 
-	// Step 5: 初始化系统镜像
+	// Step 5: 初始化系统镜像与本机QEMU节点
 	global.APP_INIT_PROGRESS.StartStep(5)
 	source.SeedSystemImages()
+	source.SeedLocalQEMUProviderIfAvailable()
 	global.APP_INIT_PROGRESS.CompleteStep(5)
 
 	// 创建业务系统初始化标志文件

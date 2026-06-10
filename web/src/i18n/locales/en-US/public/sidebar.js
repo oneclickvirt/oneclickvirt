@@ -16,6 +16,7 @@ export default {
   instanceManagement: 'Instance Management',
   trafficManagement: 'Traffic Management',
   portManagement: 'Port Management',
+  snapshotManagement: 'Snapshot Management',
   systemImages: 'System Images',
   announcementManagement: 'Announcement Management',
   systemConfiguration: 'System Configuration',

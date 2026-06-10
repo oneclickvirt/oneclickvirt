@@ -90,6 +90,8 @@ export default {
   trafficLimitMB: "流量限制(MB)",
   expiryDays: "过期天数",
   expiryDaysHint: "用户资源过期时间，单位：天",
+  maxSnapshots: "快照配额",
+  maxSnapshotsHint: "每个实例允许保留的最大快照数，0表示不允许创建快照",
   instancePermissions: "实例权限",
   instancePermissionsDesc: "实例类型权限说明",
   instancePermissionsHint: "配置不同实例类型和操作的最低用户等级要求。可以分别设置容器和虚拟机的创建、删除和重置系统操作的最低等级。",

@@ -28,6 +28,12 @@ type AgentConnector interface {
 	ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error
 }
 
+// LocalConnector 由支持本机模式的 Provider 实现。
+// 本机模式用于控制端宿主机直接通过本地 shell 管理 libvirt/qemu/lxc，无需 SSH。
+type LocalConnector interface {
+	ConnectLocal(config provider.NodeConfig) error
+}
+
 // ProviderService 管理已配置的Provider实例
 type ProviderService struct {
 	providers map[uint]provider.Provider // key: provider ID, value: provider instance
@@ -242,6 +248,28 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 		// 同步检测架构，确保后续实例创建使用正确的架构（ARM 节点不会误用 amd64 镜像）
 		detectAndUpdateArchitecture(dbProvider.ID, prov)
 		global.APP_LOG.Info("Agent模式节点加载完成",
+			zap.String("name", dbProvider.Name),
+			zap.Uint("id", dbProvider.ID),
+			zap.String("type", dbProvider.Type))
+		return nil
+	}
+
+	if dbProvider.ConnectionType == "local" {
+		lc, ok := prov.(LocalConnector)
+		if !ok {
+			return fmt.Errorf("provider %s does not support local connection mode", dbProvider.Type)
+		}
+		if err := lc.ConnectLocal(config); err != nil {
+			global.APP_LOG.Error("本机模式Provider连接失败",
+				zap.String("name", dbProvider.Name),
+				zap.Uint("id", dbProvider.ID),
+				zap.String("type", dbProvider.Type),
+				zap.Error(err))
+			return err
+		}
+		detectAndUpdateArchitecture(dbProvider.ID, prov)
+		ps.providers[dbProvider.ID] = prov
+		global.APP_LOG.Info("本机模式Provider加载成功",
 			zap.String("name", dbProvider.Name),
 			zap.Uint("id", dbProvider.ID),
 			zap.String("type", dbProvider.Type))

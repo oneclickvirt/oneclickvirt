@@ -163,10 +163,10 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 
 	// 验证：SSH 直连模式下必须至少保留一种认证方式；agent 模式无需 SSH 凭据
 	effectiveConnectionType := provider.ConnectionType
-	if req.ConnectionType == "ssh" || req.ConnectionType == "agent" {
+	if req.ConnectionType == "ssh" || req.ConnectionType == "agent" || req.ConnectionType == "local" {
 		effectiveConnectionType = req.ConnectionType
 	}
-	if effectiveConnectionType != "agent" && newPassword == "" && newSSHKey == "" {
+	if effectiveConnectionType != "agent" && effectiveConnectionType != "local" && newPassword == "" && newSSHKey == "" {
 		global.APP_LOG.Warn("Provider更新失败：尝试清空所有认证方式",
 			zap.Uint("providerID", req.ID))
 		return fmt.Errorf("必须保留至少一种SSH认证方式（密码或密钥）")
@@ -457,14 +457,14 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		}
 		provider.DiscoveryOwnerUserID = ownerUserID
 	}
-	if req.ConnectionType == "agent" || req.ConnectionType == "ssh" {
+	if req.ConnectionType == "agent" || req.ConnectionType == "ssh" || req.ConnectionType == "local" {
 		provider.ConnectionType = req.ConnectionType
 		global.APP_LOG.Debug("更新Provider连接类型",
 			zap.Uint("providerID", req.ID),
 			zap.String("connectionType", req.ConnectionType))
 	}
 	// 检测连接类型是否发生变化，需要在事务提交后清理缓存
-	connectionTypeChanged := (req.ConnectionType == "agent" || req.ConnectionType == "ssh") &&
+	connectionTypeChanged := (req.ConnectionType == "agent" || req.ConnectionType == "ssh" || req.ConnectionType == "local") &&
 		originalConnectionType != "" && originalConnectionType != req.ConnectionType
 	if provider.ConnectionType == "agent" {
 		provider.EnableTrafficControl = true

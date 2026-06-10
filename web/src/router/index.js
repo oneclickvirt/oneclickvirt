@@ -318,6 +318,16 @@ const routes = [
         }
       },
       {
+        path: 'snapshots',
+        name: 'AdminSnapshots',
+        component: () => import('@/view/admin/snapshots/index.vue'),
+        meta: {
+          title: 'sidebar.snapshotManagement',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
         path: 'announcements',
         name: 'AdminAnnouncements',
         component: () => import('@/view/admin/announcements/index.vue'),

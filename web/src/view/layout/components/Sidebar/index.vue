@@ -285,6 +285,14 @@ const userRoutes = computed(() => {
         }
       },
       {
+        path: '/admin/snapshots',
+        name: 'AdminSnapshots',
+        meta: {
+          title: t('sidebar.snapshotManagement'),
+          icon: 'Camera'
+        }
+      },
+      {
         path: '/admin/block-rules',
         name: 'AdminBlockRules',
         meta: {

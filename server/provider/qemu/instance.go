@@ -26,12 +26,18 @@ func (p *QEMUProvider) CreateInstance(ctx context.Context, config provider.Insta
 	if !p.connected {
 		return fmt.Errorf("not connected")
 	}
+	if strings.ToLower(strings.TrimSpace(config.InstanceType)) == "container" {
+		return p.sshCreateLXCContainer(ctx, config, nil)
+	}
 	return p.sshCreateInstance(ctx, config, nil)
 }
 
 func (p *QEMUProvider) CreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
 	if !p.connected {
 		return fmt.Errorf("not connected")
+	}
+	if strings.ToLower(strings.TrimSpace(config.InstanceType)) == "container" {
+		return p.sshCreateLXCContainer(ctx, config, progressCallback)
 	}
 	return p.sshCreateInstance(ctx, config, progressCallback)
 }
@@ -52,41 +58,70 @@ func (p *QEMUProvider) GetInstance(ctx context.Context, id string) (*provider.In
 	return nil, fmt.Errorf("instance %s not found", id)
 }
 
-// sshListInstances 通过virsh列出所有虚拟机
+// sshListInstances 通过 libvirt 列出 QEMU/KVM 虚拟机和 libvirt-lxc 容器。
 func (p *QEMUProvider) sshListInstances(ctx context.Context) ([]provider.Instance, error) {
-	output, err := p.sshClient.Execute("virsh list --all --name 2>/dev/null | grep -v '^$'")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list VMs: %w", err)
-	}
-
 	var instances []provider.Instance
-	names := strings.Split(strings.TrimSpace(output), "\n")
-	for _, name := range names {
+	seen := map[string]struct{}{}
+
+	vmOutput, vmErr := p.sshClient.Execute("virsh -c qemu:///system list --all --name 2>/dev/null | grep -v '^$'")
+	if vmErr != nil {
+		global.APP_LOG.Debug("列出QEMU虚拟机失败", zap.Error(vmErr))
+	}
+	for _, name := range strings.Split(strings.TrimSpace(vmOutput), "\n") {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
 		}
-		inst, err := p.getInstanceInfo(ctx, name)
+		inst, err := p.getInstanceInfo(ctx, name, "vm")
 		if err != nil {
-			global.APP_LOG.Warn("获取VM信息失败", zap.String("name", name), zap.Error(err))
+			global.APP_LOG.Warn("获取QEMU虚拟机信息失败", zap.String("name", name), zap.Error(err))
+			continue
+		}
+		seen[name] = struct{}{}
+		instances = append(instances, *inst)
+	}
+
+	lxcOutput, lxcErr := p.sshClient.Execute("virsh -c lxc:/// list --all --name 2>/dev/null | grep -v '^$'")
+	if lxcErr != nil {
+		global.APP_LOG.Debug("列出libvirt-lxc容器失败", zap.Error(lxcErr))
+	}
+	for _, name := range strings.Split(strings.TrimSpace(lxcOutput), "\n") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		inst, err := p.getInstanceInfo(ctx, name, "container")
+		if err != nil {
+			global.APP_LOG.Warn("获取libvirt-lxc容器信息失败", zap.String("name", name), zap.Error(err))
 			continue
 		}
 		instances = append(instances, *inst)
 	}
+
+	if vmErr != nil && lxcErr != nil {
+		return nil, fmt.Errorf("failed to list QEMU VMs and LXC containers: %w", vmErr)
+	}
 	return instances, nil
 }
 
-// getInstanceInfo 获取单个VM详细信息
-func (p *QEMUProvider) getInstanceInfo(ctx context.Context, name string) (*provider.Instance, error) {
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh dominfo %s 2>/dev/null", shellSingleQuote(name)))
+// getInstanceInfo 获取单个 libvirt domain 详细信息。
+func (p *QEMUProvider) getInstanceInfo(ctx context.Context, name string, instanceType string) (*provider.Instance, error) {
+	uri := "qemu:///system"
+	if instanceType == "container" {
+		uri = "lxc:///"
+	}
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s dominfo %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(name)))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get VM info: %w", err)
+		return nil, fmt.Errorf("failed to get libvirt domain info: %w", err)
 	}
 
 	inst := &provider.Instance{
 		Name:   name,
 		ID:     name,
-		Type:   "vm",
+		Type:   instanceType,
 		Status: "unknown",
 	}
 
@@ -137,6 +172,13 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	}
 	if _, err := p.sshClient.Execute("command -v qemu-img >/dev/null 2>&1"); err != nil {
 		return fmt.Errorf("qemu-img 命令不可用，请确认 provider 节点已安装 qemu-utils 并在 PATH 中: %w", err)
+	}
+	if _, err := p.sshClient.Execute("command -v virt-install >/dev/null 2>&1"); err != nil {
+		return fmt.Errorf("virt-install 命令不可用，请确认 provider 节点已安装 virtinst/virt-install 并在 PATH 中: %w", err)
+	}
+	// libvirt 在不同发行版上服务名可能是 libvirtd 或 virtqemud，允许已由 socket 激活；至少确认 virsh 能连接。
+	if _, err := p.sshClient.Execute("virsh uri >/dev/null 2>&1"); err != nil {
+		return fmt.Errorf("libvirt 连接不可用，请确认 libvirtd/virtqemud 已启动且当前用户有权限访问: %w", err)
 	}
 
 	// 解析资源配置
@@ -242,8 +284,9 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 	updateProgress(15, "确保 libvirt default 网络就绪")
 
-	// 确保 libvirt default 网络活跃
+	// 确保 libvirt default 网络活跃并随宿主机自启动。
 	p.sshClient.Execute("virsh net-start default 2>/dev/null || true")
+	p.sshClient.Execute("virsh net-autostart default 2>/dev/null || true")
 
 	// 获取网桥名称
 	bridgeOutput, _ := p.sshClient.Execute("virsh net-dumpxml default 2>/dev/null | grep '<bridge' | grep -oP 'name=\"\\K[^\"]+' || echo virbr0")

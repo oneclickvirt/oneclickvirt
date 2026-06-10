@@ -1,6 +1,10 @@
 export default {
   title: "系统镜像",
   addImage: "添加镜像",
+  syncImages: "同步",
+  syncConfirm: "将从初始化定义同步缺失的系统镜像，包含 QEMU/KubeVirt 虚拟机、QEMU/LXC 容器、KubeVirt 容器和 Docker/Podman/Containerd/Orbstack 可复用镜像。确认继续吗？",
+  syncSuccess: "同步完成：新增 {processed} 条，候选 {desired} 条",
+  syncFailed: "同步失败",
   editImage: "编辑镜像",
   imageName: "镜像名称",
   providerType: "Provider类型",
@@ -72,8 +76,9 @@ export default {
   batchStatusConfirm: "确认{action}选中的 {count} 个镜像吗？",
   batchStatusSuccess: "批量{action}成功",
   batchStatusFailed: "批量{action}失败",
-  urlHintProxmoxVM: "ProxmoxVE虚拟机镜像必须是 .qcow2 文件",
+  urlHintProxmoxVM: "ProxmoxVE/QEMU/KubeVirt虚拟机镜像必须是 .qcow2 文件",
   urlHintLxdIncus: "LXD/Incus镜像必须是 .zip 文件",
   urlHintContainerTarGz: "{provider}容器镜像必须是 .tar.gz 文件",
+  urlHintQemuLxc: "QEMU/Libvirt LXC容器镜像必须是 .tar.xz 文件",
   urlHintQemuKubevirt: "QEMU/KubeVirt虚拟机镜像必须是 .qcow2 文件"
 }

@@ -32,8 +32,9 @@ func initLevelConfigurations() {
 			"disk":      1024, // 1GB
 			"bandwidth": 100,  // 100Mbps
 		},
-		MaxTraffic: 102400, // 100GB
-		ExpiryDays: 0,      // 0表示不过期
+		MaxTraffic:   102400, // 100GB
+		ExpiryDays:   0,      // 0表示不过期
+		MaxSnapshots: 1,
 	}
 
 	// 等级2: 中级档次
@@ -45,8 +46,9 @@ func initLevelConfigurations() {
 			"disk":      20480, // 20GB
 			"bandwidth": 200,   // 200Mbps
 		},
-		MaxTraffic: 204800, // 200GB
-		ExpiryDays: 0,      // 0表示不过期
+		MaxTraffic:   204800, // 200GB
+		ExpiryDays:   0,      // 0表示不过期
+		MaxSnapshots: 3,
 	}
 
 	// 等级3: 高级档次
@@ -58,8 +60,9 @@ func initLevelConfigurations() {
 			"disk":      40960, // 40GB
 			"bandwidth": 500,   // 500Mbps
 		},
-		MaxTraffic: 307200, // 300GB
-		ExpiryDays: 0,      // 0表示不过期
+		MaxTraffic:   307200, // 300GB
+		ExpiryDays:   0,      // 0表示不过期
+		MaxSnapshots: 5,
 	}
 
 	// 等级4: 超级档次
@@ -71,8 +74,9 @@ func initLevelConfigurations() {
 			"disk":      81920, // 80GB
 			"bandwidth": 1000,  // 1000Mbps
 		},
-		MaxTraffic: 409600, // 400GB
-		ExpiryDays: 0,      // 0表示不过期
+		MaxTraffic:   409600, // 400GB
+		ExpiryDays:   0,      // 0表示不过期
+		MaxSnapshots: 10,
 	}
 
 	// 等级5: 管理员档次
@@ -84,8 +88,9 @@ func initLevelConfigurations() {
 			"disk":      163840, // 160GB
 			"bandwidth": 2000,   // 2000Mbps
 		},
-		MaxTraffic: 512000, // 500GB
-		ExpiryDays: 0,      // 0表示不过期
+		MaxTraffic:   512000, // 500GB
+		ExpiryDays:   0,      // 0表示不过期
+		MaxSnapshots: 20,
 	}
 
 	global.SetAppConfig(cfg) // 原子写入

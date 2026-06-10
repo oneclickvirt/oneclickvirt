@@ -56,7 +56,7 @@ func applyExtendedCSVToCreateReq(req *admin.CreateProviderRequest, values map[st
 			field.set(v)
 		}
 	}
-	if req.ConnectionType != "agent" {
+	if req.ConnectionType != "agent" && req.ConnectionType != "local" {
 		if v := values["token"]; v != "" {
 			req.Token = v
 		}
@@ -145,7 +145,7 @@ func applyExtendedCSVToUpdateReq(req *admin.UpdateProviderRequest, values map[st
 			field.set(v)
 		}
 	}
-	if req.ConnectionType != "agent" {
+	if req.ConnectionType != "agent" && req.ConnectionType != "local" {
 		if v := values["token"]; v != "" {
 			req.Token = v
 		}

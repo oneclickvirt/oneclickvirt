@@ -16,6 +16,7 @@ export default {
   instanceManagement: '实例管理',
   trafficManagement: '流量管理',
   portManagement: '端口管理',
+  snapshotManagement: '快照管理',
   systemImages: '系统镜像',
   announcementManagement: '公告管理',
   systemConfiguration: '系统配置',

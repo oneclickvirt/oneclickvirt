@@ -13,15 +13,23 @@ import (
 	"go.uber.org/zap"
 )
 
-// StartInstance 启动虚拟机
+func (p *QEMUProvider) libvirtURIForInstance(id string) (string, string) {
+	if p.isLXCInstance(id) {
+		return "lxc:///", "QEMU/LXC容器"
+	}
+	return "qemu:///system", "QEMU虚拟机"
+}
+
+// StartInstance 启动实例
 func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 	if !p.connected {
 		return fmt.Errorf("not connected")
 	}
 
-	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(id)))
+	uri, kind := p.libvirtURIForInstance(id)
+	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
 	if err != nil {
-		return fmt.Errorf("failed to check VM status: %w", err)
+		return fmt.Errorf("failed to check %s status: %w", kind, err)
 	}
 
 	status := strings.ToLower(strings.TrimSpace(statusOutput))
@@ -29,17 +37,17 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 		return nil
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh start %s 2>&1", shellSingleQuote(id)))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s start %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Error("QEMU虚拟机启动失败",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to start VM: %w", err)
+		return fmt.Errorf("failed to start %s: %w", kind, err)
 	}
 
 	for i := 0; i < 15; i++ {
-		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(id)))
+		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
 		if err == nil && strings.Contains(strings.TrimSpace(statusOutput), "running") {
 			return nil
 		}
@@ -48,7 +56,7 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 		}
 	}
 
-	return fmt.Errorf("VM '%s' did not reach running state within timeout", id)
+	return fmt.Errorf("%s '%s' did not reach running state within timeout", kind, id)
 }
 
 // StopInstance 停止虚拟机
@@ -57,7 +65,8 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh shutdown %s 2>&1", shellSingleQuote(id)))
+	uri, kind := p.libvirtURIForInstance(id)
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s shutdown %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Warn("QEMU虚拟机优雅关机失败，尝试强制关闭",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -66,7 +75,7 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 	}
 
 	for i := 0; i < 15; i++ {
-		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(id)))
+		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
 		if err == nil {
 			status := strings.ToLower(strings.TrimSpace(statusOutput))
 			if strings.Contains(status, "shut off") || strings.Contains(status, "shutoff") {
@@ -78,13 +87,13 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 		}
 	}
 
-	output, err = p.sshClient.Execute(fmt.Sprintf("virsh destroy %s 2>&1", shellSingleQuote(id)))
+	output, err = p.sshClient.Execute(fmt.Sprintf("virsh -c %s destroy %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Error("QEMU虚拟机强制关闭失败",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to stop VM: %w", err)
+		return fmt.Errorf("failed to stop %s: %w", kind, err)
 	}
 
 	return nil
@@ -96,9 +105,10 @@ func (p *QEMUProvider) RestartInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(id)))
+	uri, kind := p.libvirtURIForInstance(id)
+	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
 	if err != nil {
-		return fmt.Errorf("failed to check VM status: %w", err)
+		return fmt.Errorf("failed to check %s status: %w", kind, err)
 	}
 
 	status := strings.ToLower(strings.TrimSpace(statusOutput))
@@ -106,12 +116,12 @@ func (p *QEMUProvider) RestartInstance(ctx context.Context, id string) error {
 		return p.StartInstance(ctx, id)
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh reboot %s 2>&1", shellSingleQuote(id)))
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s reboot %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Warn("QEMU虚拟机reboot失败，尝试destroy+start",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)))
-		p.sshClient.Execute(fmt.Sprintf("virsh destroy %s 2>/dev/null", shellSingleQuote(id)))
+		p.sshClient.Execute(fmt.Sprintf("virsh -c %s destroy %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
 		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
 			return fmt.Errorf("waiting before fallback start cancelled: %w", err)
 		}
@@ -139,7 +149,12 @@ func (p *QEMUProvider) DeleteInstance(ctx context.Context, id string) error {
 			}
 		}
 
-		err := p.sshDeleteInstance(ctx, id)
+		var err error
+		if p.isLXCInstance(id) {
+			err = p.sshDeleteLXCContainer(ctx, id)
+		} else {
+			err = p.sshDeleteInstance(ctx, id)
+		}
 		if err == nil {
 			return nil
 		}

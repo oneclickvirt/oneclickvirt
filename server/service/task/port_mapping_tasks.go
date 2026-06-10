@@ -312,7 +312,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 
 	// 确定使用的 portmapping provider 类型
 	portMappingType := localProviderType
-	if portMappingType == "proxmox" || portMappingType == "proxmoxve" || portMappingType == "kubevirt" || utils.IsVMOnlyProvider(portMappingType) {
+	if portMappingType == "proxmox" || portMappingType == "proxmoxve" || portMappingType == "kubevirt" || portMappingType == "qemu" || utils.IsVMOnlyProvider(portMappingType) {
 		portMappingType = "iptables"
 	}
 
@@ -516,7 +516,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		})
 
 		portMappingType := localProviderType
-		if portMappingType == "proxmox" || portMappingType == "proxmoxve" || portMappingType == "kubevirt" || utils.IsVMOnlyProvider(portMappingType) {
+		if portMappingType == "proxmox" || portMappingType == "proxmoxve" || portMappingType == "kubevirt" || portMappingType == "qemu" || utils.IsVMOnlyProvider(portMappingType) {
 			portMappingType = "iptables"
 		}
 

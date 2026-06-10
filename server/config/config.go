@@ -65,8 +65,9 @@ type InstanceTypePermissions struct {
 type LevelLimitInfo struct {
 	MaxInstances int                    `mapstructure:"max-instances" json:"max-instances" yaml:"max-instances"`
 	MaxResources map[string]interface{} `mapstructure:"max-resources" json:"max-resources" yaml:"max-resources"`
-	MaxTraffic   int64                  `mapstructure:"max-traffic" json:"max-traffic" yaml:"max-traffic"` // 最大流量限制（MB）
-	ExpiryDays   int                    `mapstructure:"expiry-days" json:"expiry-days" yaml:"expiry-days"` // 新注册用户的默认过期天数，0表示不过期
+	MaxTraffic   int64                  `mapstructure:"max-traffic" json:"max-traffic" yaml:"max-traffic"`       // 最大流量限制（MB）
+	ExpiryDays   int                    `mapstructure:"expiry-days" json:"expiry-days" yaml:"expiry-days"`       // 新注册用户的默认过期天数，0表示不过期
+	MaxSnapshots int                    `mapstructure:"max-snapshots" json:"max-snapshots" yaml:"max-snapshots"` // 每个实例允许保留的最大快照数，0表示不允许
 }
 
 type System struct {

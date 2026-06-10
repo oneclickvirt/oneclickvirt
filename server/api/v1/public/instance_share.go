@@ -1,21 +1,25 @@
 package public
 
 import (
+	"net"
 	"strconv"
+	"strings"
 	"time"
 
-	adminInstance "oneclickvirt/service/admin/instance"
-	shareService "oneclickvirt/service/share"
-	"oneclickvirt/service/task"
-	userService "oneclickvirt/service/user"
-
+	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	authModel "oneclickvirt/model/auth"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
+	adminInstance "oneclickvirt/service/admin/instance"
+	agentService "oneclickvirt/service/agent"
+	"oneclickvirt/service/resources"
+	shareService "oneclickvirt/service/share"
+	"oneclickvirt/service/task"
+	trafficService "oneclickvirt/service/traffic"
+	userService "oneclickvirt/service/user"
 
-	trafficAPI "oneclickvirt/api/v1/traffic"
 	userAPI "oneclickvirt/api/v1/user"
 
 	"github.com/gin-gonic/gin"
@@ -29,6 +33,35 @@ func setRouteParam(c *gin.Context, key, value string) {
 		}
 	}
 	c.Params = append(c.Params, gin.Param{Key: key, Value: value})
+}
+
+func getPublicControllerAccessHost(c *gin.Context) string {
+	host := c.GetHeader("X-Forwarded-Host")
+	if host == "" {
+		host = c.Request.Host
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	if comma := strings.Index(host, ","); comma > 0 {
+		host = strings.TrimSpace(host[:comma])
+	}
+	if strings.HasPrefix(host, "[") {
+		if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			return strings.Trim(parsedHost, "[]")
+		}
+		return strings.Trim(host, "[]")
+	}
+	if strings.Count(host, ":") == 1 {
+		if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			return parsedHost
+		}
+		if colonIdx := strings.LastIndex(host, ":"); colonIdx > 0 {
+			return host[:colonIdx]
+		}
+	}
+	return host
 }
 
 func loadSharedInstance(c *gin.Context) (*providerModel.InstanceShareLink, *providerModel.Instance, bool) {
@@ -148,32 +181,126 @@ func GetSharedInstanceImages(c *gin.Context) {
 }
 
 func GetSharedInstancePorts(c *gin.Context) {
-	if _, _, ok := loadSharedInstance(c); !ok {
+	_, instance, ok := loadSharedInstance(c)
+	if !ok {
 		return
 	}
-	userAPI.GetInstancePorts(c)
+
+	portMappingService := resources.PortMappingService{}
+	ports, err := portMappingService.GetPortMappingsByInstanceID(instance.ID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	var providerInfo providerModel.Provider
+	agentNoPortMapping := false
+	if err := global.APP_DB.Select("connection_type, network_type").Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err == nil {
+		agentNoPortMapping = providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping"
+	}
+	requestHost := getPublicControllerAccessHost(c)
+	hasControllerMapping := false
+	for _, port := range ports {
+		if port.MappingType == "controller" {
+			hasControllerMapping = true
+			break
+		}
+	}
+	publicIP := instance.PublicIP
+	if (agentNoPortMapping || hasControllerMapping) && requestHost != "" {
+		publicIP = requestHost
+	}
+	if (agentNoPortMapping || hasControllerMapping) && requestHost == "" {
+		publicIP = ""
+	}
+
+	formattedPorts := make([]userModel.PortMappingResponse, len(ports))
+	for i, port := range ports {
+		formattedPorts[i] = userModel.PortMappingResponse{
+			ID:          port.ID,
+			HostPort:    port.HostPort,
+			GuestPort:   port.GuestPort,
+			Protocol:    port.Protocol,
+			Status:      port.Status,
+			Description: port.Description,
+			IsSSH:       port.IsSSH,
+			PortType:    port.PortType,
+			MappingType: port.MappingType,
+			CreatedAt:   port.CreatedAt,
+		}
+	}
+
+	common.ResponseSuccess(c, gin.H{
+		"list":     formattedPorts,
+		"total":    len(formattedPorts),
+		"publicIP": publicIP,
+		"instance": map[string]interface{}{
+			"id":       instance.ID,
+			"name":     instance.Name,
+			"username": instance.Username,
+		},
+	})
 }
 
 func GetSharedInstanceMonitoring(c *gin.Context) {
-	if _, _, ok := loadSharedInstance(c); !ok {
+	_, instance, ok := loadSharedInstance(c)
+	if !ok {
 		return
 	}
-	userAPI.GetInstanceMonitoring(c)
+	monitoring, err := userService.NewService().GetInstanceMonitoring(instance.UserID, instance.ID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, monitoring)
 }
 
 func GetSharedInstanceResourceMonitoring(c *gin.Context) {
-	if _, _, ok := loadSharedInstance(c); !ok {
+	_, instance, ok := loadSharedInstance(c)
+	if !ok {
 		return
 	}
-	userAPI.GetInstanceResourceMonitoring(c)
+	hours, _ := strconv.Atoi(c.DefaultQuery("hours", "24"))
+	if hours <= 0 || hours > 24 {
+		hours = 24
+	}
+	resSvc := agentService.NewResourceSyncService(c.Request.Context(), global.APP_DB)
+	metrics, err := resSvc.GetInstanceResources(instance.ID, hours)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	diskMonitoringEnabled := true
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("container_limit_disk, vm_limit_disk").Where("id = ?", instance.ProviderID).First(&provider).Error; err == nil {
+		if instance.InstanceType == "vm" {
+			diskMonitoringEnabled = provider.VMLimitDisk
+		} else {
+			diskMonitoringEnabled = provider.ContainerLimitDisk
+		}
+	}
+	common.ResponseSuccess(c, gin.H{
+		"metrics":                 metrics,
+		"disk_monitoring_enabled": diskMonitoringEnabled,
+	})
 }
 
 func GetSharedInstanceTrafficDetail(c *gin.Context) {
-	if _, _, ok := loadSharedInstance(c); !ok {
+	_, instance, ok := loadSharedInstance(c)
+	if !ok {
 		return
 	}
-	api := &trafficAPI.UserTrafficAPI{}
-	api.GetInstanceTrafficDetail(c)
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("traffic_quota_visible").Where("id = ?", instance.ProviderID).First(&provider).Error; err == nil && !provider.TrafficQuotaVisible {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "该实例流量额度不可见"))
+		return
+	}
+	detail, err := trafficService.NewUserTrafficService().GetInstanceTrafficDetail(instance.UserID, instance.ID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, detail, "获取流量详情成功")
 }
 
 func SharedSSHWebSocket(c *gin.Context) {

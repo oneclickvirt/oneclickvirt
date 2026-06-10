@@ -137,6 +137,14 @@ export const systemImageApi = {
     })
   },
 
+  // 同步系统镜像
+  sync: () => {
+    return request({
+      url: '/v1/admin/system-images/sync',
+      method: 'post'
+    })
+  },
+
   // 创建系统镜像
   create: (data) => {
     return request({

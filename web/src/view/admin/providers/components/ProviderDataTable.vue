@@ -28,36 +28,36 @@
         width="100"
       >
         <template #default="scope">
-          <el-tag
-            v-if="scope.row.version && scope.row.version !== ''"
-            size="small"
-            type="info"
-          >
-            {{ scope.row.version }}
-          </el-tag>
-          <el-text
-            v-else
-            size="small"
-            type="info"
-          >
-            -
-          </el-text>
-          <el-tag
-            v-if="scope.row.type === 'proxmox' && scope.row.pveKvmAvailable === true"
-            size="small"
-            type="success"
-            style="margin-left: 4px;"
-          >
-            {{ $t('admin.providers.pveKvmAvailableTrue') }}
-          </el-tag>
-          <el-tag
-            v-else-if="scope.row.type === 'proxmox' && scope.row.pveKvmAvailable === false"
-            size="small"
-            type="warning"
-            style="margin-left: 4px;"
-          >
-            {{ $t('admin.providers.pveKvmAvailableFalse') }}
-          </el-tag>
+          <div class="version-tags">
+            <el-tag
+              v-if="scope.row.version && scope.row.version !== ''"
+              size="small"
+              type="info"
+            >
+              {{ scope.row.version }}
+            </el-tag>
+            <el-text
+              v-else
+              size="small"
+              type="info"
+            >
+              -
+            </el-text>
+            <el-tag
+              v-if="scope.row.type === 'proxmox' && scope.row.pveKvmAvailable === true"
+              size="small"
+              type="success"
+            >
+              {{ $t('admin.providers.pveKvmAvailableTrue') }}
+            </el-tag>
+            <el-tag
+              v-else-if="scope.row.type === 'proxmox' && scope.row.pveKvmAvailable === false"
+              size="small"
+              type="warning"
+            >
+              {{ $t('admin.providers.pveKvmAvailableFalse') }}
+            </el-tag>
+          </div>
         </template>
       </el-table-column>
       <el-table-column
@@ -100,7 +100,7 @@
         <template #default="scope">
           {{ scope.row.connectionType === 'agent'
             ? (scope.row.agentRemoteIP || '-')
-            : (scope.row.endpoint ? extractEndpointHost(scope.row.endpoint) : '-') }}
+            : (scope.row.connectionType === 'local' ? $t('admin.providers.localConnection') : (scope.row.endpoint ? extractEndpointHost(scope.row.endpoint) : '-')) }}
         </template>
       </el-table-column>
       <el-table-column
@@ -108,7 +108,7 @@
         width="120"
       >
         <template #default="scope">
-          {{ scope.row.connectionType === 'agent' ? '-' : (scope.row.sshPort || 22) }}
+          {{ scope.row.connectionType === 'agent' || scope.row.connectionType === 'local' ? '-' : (scope.row.sshPort || 22) }}
         </template>
       </el-table-column>
       <el-table-column
@@ -577,6 +577,7 @@ defineEmits(['selection-change', 'edit', 'show-actions', 'delete', 'size-change'
 .location-flag { font-size: 20px; }
 .location-country, .location-city { font-size: 12px; color: #606266; }
 .location-empty { color: #c0c4cc; }
+.version-tags { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .support-types { display: flex; flex-direction: column; gap: 4px; }
 .connection-status { display: flex; flex-direction: column; gap: 4px; }
 .connection-status-row { display: flex; align-items: center; gap: 4px; }

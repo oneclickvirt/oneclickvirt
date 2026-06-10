@@ -143,7 +143,7 @@ type CreateProviderRequest struct {
 	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔的PCI ordinal ID，如"0,1"）
 
 	// 内网穿透连接模式
-	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent
+	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent / local
 
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源
@@ -251,7 +251,7 @@ type UpdateProviderRequest struct {
 	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔的PCI ordinal ID，如"0,1"）
 
 	// 内网穿透连接模式
-	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent
+	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent / local
 
 	// 实例发现与导入配置（用于更新时的发现设置）
 	DiscoverMode          *bool   `json:"discoverMode,omitempty"`          // 是否启用实例发现模式（发现并导入已有实例），指针区分未提供

@@ -56,6 +56,7 @@ import adminDomain from './en-US/admin/domain.js'
 import adminKyc from './en-US/admin/kyc.js'
 import adminGroup from './en-US/admin/group.js'
 import adminApiTokens from './en-US/admin/apiTokens.js'
+import adminSnapshots from './en-US/admin/snapshots.js'
 
 export default {
   common,
@@ -104,7 +105,8 @@ export default {
     domain: adminDomain,
     kyc: adminKyc,
     group: adminGroup,
-    apiTokens: adminApiTokens
+    apiTokens: adminApiTokens,
+    snapshots: adminSnapshots
   },
   validation,
   message,

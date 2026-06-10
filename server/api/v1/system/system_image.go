@@ -6,6 +6,8 @@ import (
 	"oneclickvirt/model/common"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/images"
+	"oneclickvirt/source"
+	"oneclickvirt/utils"
 	"strconv"
 	"strings"
 	"time"
@@ -88,7 +90,7 @@ func GetSystemImageList(c *gin.Context) {
 	providerType := c.Query("providerType")
 	instanceType := c.Query("instanceType")
 	architecture := c.Query("architecture")
-	osType := c.Query("osType")
+	osType := utils.NormalizeOSType(c.Query("osType"))
 	status := c.Query("status")
 	search := c.Query("search")
 
@@ -105,8 +107,7 @@ func GetSystemImageList(c *gin.Context) {
 		db = db.Where("architecture = ?", architecture)
 	}
 	if osType != "" {
-		// 使用小写匹配，支持主流Linux系统
-		db = db.Where("LOWER(os_type) = LOWER(?)", osType)
+		db = db.Where("LOWER(os_type) = ?", osType)
 	}
 	if status != "" {
 		db = db.Where("status = ?", status)
@@ -143,6 +144,16 @@ func GetSystemImageList(c *gin.Context) {
 	})
 }
 
+// SyncSystemImages 手动同步系统镜像，补齐初始化定义中缺失的镜像。
+func SyncSystemImages(c *gin.Context) {
+	result, err := source.SyncSystemImages()
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		return
+	}
+	common.ResponseSuccess(c, result)
+}
+
 // CreateSystemImage 创建系统镜像
 // @Summary 创建系统镜像
 // @Description 创建新的系统镜像配置
@@ -164,6 +175,8 @@ func CreateSystemImage(c *gin.Context) {
 		return
 	}
 
+	req.OSType = normalizeSystemImageOSType(req.OSType, req.Name, req.URL)
+
 	// 验证文件扩展名
 	if err := validateImageURL(req.ProviderType, req.InstanceType, req.URL); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
@@ -184,9 +197,10 @@ func CreateSystemImage(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeConflict, "该镜像名称已存在"))
 		return
 	}
-	// 同一 Provider 类型下镜像链接不可重复；不同 Provider 类型允许复用同一 URL。
-	if err := global.APP_DB.Where("provider_type = ? AND url = ?", req.ProviderType, req.URL).First(&existingImage).Error; err == nil {
-		common.ResponseWithError(c, common.NewError(common.CodeConflict, "同类型镜像链接已存在"))
+	// 同 Provider + 同节点类型 + 同架构 + 同 URL 才视为重复；不同节点类型允许复用同一 URL。
+	if err := global.APP_DB.Where("provider_type = ? AND instance_type = ? AND architecture = ? AND url = ?",
+		req.ProviderType, req.InstanceType, req.Architecture, req.URL).First(&existingImage).Error; err == nil {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "同类型同架构镜像链接已存在"))
 		return
 	}
 
@@ -267,6 +281,10 @@ func UpdateSystemImage(c *gin.Context) {
 	if req.URL != "" {
 		finalURL = req.URL
 	}
+	finalOSType := image.OSType
+	if req.OSType != "" {
+		finalOSType = normalizeSystemImageOSType(req.OSType, finalName, finalURL)
+	}
 
 	// 验证文件扩展名和唯一性（更新 Provider/URL 时同样适用）
 	if err := validateImageURL(finalProviderType, finalInstanceType, finalURL); err != nil {
@@ -274,8 +292,9 @@ func UpdateSystemImage(c *gin.Context) {
 		return
 	}
 	var duplicate systemModel.SystemImage
-	if err := global.APP_DB.Where("provider_type = ? AND url = ? AND id <> ?", finalProviderType, finalURL, image.ID).First(&duplicate).Error; err == nil {
-		common.ResponseWithError(c, common.NewError(common.CodeConflict, "同类型镜像链接已存在"))
+	if err := global.APP_DB.Where("provider_type = ? AND instance_type = ? AND architecture = ? AND url = ? AND id <> ?",
+		finalProviderType, finalInstanceType, finalArchitecture, finalURL, image.ID).First(&duplicate).Error; err == nil {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "同类型同架构镜像链接已存在"))
 		return
 	}
 	if err := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ? AND id <> ?",
@@ -314,7 +333,7 @@ func UpdateSystemImage(c *gin.Context) {
 		updates["description"] = req.Description
 	}
 	if req.OSType != "" {
-		updates["os_type"] = req.OSType
+		updates["os_type"] = finalOSType
 	}
 	if req.OSVersion != "" {
 		updates["os_version"] = req.OSVersion
@@ -420,7 +439,7 @@ func GetAvailableSystemImages(c *gin.Context) {
 	providerType := c.Query("providerType")
 	instanceType := c.Query("instanceType")
 	architecture := c.Query("architecture")
-	osType := c.Query("osType")
+	osType := utils.NormalizeOSType(c.Query("osType"))
 
 	imageService := images.ImageService{}
 	images, err := imageService.GetAvailableImagesWithOS(providerType, instanceType, architecture, osType)
@@ -430,6 +449,16 @@ func GetAvailableSystemImages(c *gin.Context) {
 	}
 
 	common.ResponseSuccess(c, images)
+}
+
+func normalizeSystemImageOSType(osType, name, imageURL string) string {
+	if normalized := utils.NormalizeOSType(osType); normalized != "" {
+		return normalized
+	}
+	if detected := utils.DetectOSTypeFromText(name + " " + imageURL); detected != "" {
+		return detected
+	}
+	return "unknown"
 }
 
 // validateImageURL 验证镜像URL的文件扩展名
@@ -453,6 +482,9 @@ func validateImageURL(providerType, instanceType, url string) error {
 	case "qemu":
 		if instanceType == "vm" && !strings.HasSuffix(url, ".qcow2") {
 			return fmt.Errorf("QEMU虚拟机镜像地址必须是.qcow2文件")
+		}
+		if instanceType == "container" && !strings.HasSuffix(url, ".tar.xz") {
+			return fmt.Errorf("QEMU/LXC容器镜像地址必须是.tar.xz文件")
 		}
 	case "kubevirt":
 		if instanceType == "vm" && !strings.HasSuffix(url, ".qcow2") {

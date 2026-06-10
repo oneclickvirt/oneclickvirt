@@ -1,6 +1,10 @@
 export default {
   title: "System Images",
   addImage: "Add Image",
+  syncImages: "Sync",
+  syncConfirm: "Sync missing system images from initialization definitions, including QEMU/KubeVirt VMs, QEMU/LXC containers, KubeVirt containers, and reusable Docker/Podman/Containerd/Orbstack images. Continue?",
+  syncSuccess: "Sync complete: {processed} added, {desired} candidates",
+  syncFailed: "Sync failed",
   editImage: "Edit Image",
   imageName: "Image Name",
   providerType: "Node Type",
@@ -72,8 +76,9 @@ export default {
   batchStatusConfirm: "Are you sure you want to {action} the selected {count} images?",
   batchStatusSuccess: "Batch {action} successful",
   batchStatusFailed: "Batch {action} failed",
-  urlHintProxmoxVM: "ProxmoxVE VM images must be .qcow2 files",
+  urlHintProxmoxVM: "ProxmoxVE/QEMU/KubeVirt VM images must be .qcow2 files",
   urlHintLxdIncus: "LXD/Incus images must be .zip files",
   urlHintContainerTarGz: "{provider} container images must be .tar.gz files",
+  urlHintQemuLxc: "QEMU/Libvirt LXC container images must be .tar.xz files",
   urlHintQemuKubevirt: "QEMU/KubeVirt VM images must be .qcow2 files"
 }

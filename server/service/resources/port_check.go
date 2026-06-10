@@ -343,7 +343,7 @@ func (s *PortMappingService) batchCheckPortsAvailability(providerInfo *provider.
 	systemOccupiedPorts := make(map[int]bool)
 
 	// Agent 模式节点：若没有 SSH 凭据则跳过系统端口扫描（Agent 通过 WebSocket 通道通信，SSH 不可用是正常情况）
-	if providerInfo.ConnectionType != "agent" || providerInfo.Password != "" || providerInfo.SSHKey != "" {
+	if (providerInfo.ConnectionType != "agent" && providerInfo.ConnectionType != "local") || providerInfo.Password != "" || providerInfo.SSHKey != "" {
 		// 创建SSH客户端连接到Provider节点
 		sshClient, err := s.createSSHClientForProvider(providerInfo)
 		if err != nil {

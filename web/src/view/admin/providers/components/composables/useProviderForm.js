@@ -36,6 +36,7 @@ export function useProviderForm(props, emit) {
   const agentConnectCmdGithub = ref('')
 
   const isAgentMode = computed(() => formData.value.connectionType === 'agent')
+  const isLocalMode = computed(() => formData.value.connectionType === 'local')
 
   const hasAgentMappedNetworking = computed(() => Boolean(formData.value.portIP))
 
@@ -166,7 +167,7 @@ export function useProviderForm(props, emit) {
 
   // 异步验证器：检查SSH地址和端口是否已存在
   const validateEndpoint = async (rule, value, callback) => {
-    if (isAgentMode.value) {
+    if (isAgentMode.value || isLocalMode.value) {
       callback()
       return
     }
@@ -210,7 +211,7 @@ export function useProviderForm(props, emit) {
     host: [
       {
         validator: (rule, value, callback) => {
-          if (isAgentMode.value || value) {
+          if (isAgentMode.value || isLocalMode.value || value) {
             callback()
             return
           }
@@ -223,7 +224,7 @@ export function useProviderForm(props, emit) {
     port: [
       {
         validator: (rule, value, callback) => {
-          if (isAgentMode.value || value) {
+          if (isAgentMode.value || isLocalMode.value || value) {
             callback()
             return
           }
@@ -236,7 +237,7 @@ export function useProviderForm(props, emit) {
     username: [
       {
         validator: (rule, value, callback) => {
-          if (isAgentMode.value || value) {
+          if (isAgentMode.value || isLocalMode.value || value) {
             callback()
             return
           }
@@ -583,7 +584,7 @@ export function useProviderForm(props, emit) {
       }
       
       // 验证SSH认证方式（agent模式无需）
-      if (!props.isEditing && formData.value.connectionType !== 'agent') {
+      if (!props.isEditing && formData.value.connectionType !== 'agent' && formData.value.connectionType !== 'local') {
         if (formData.value.authMethod === 'password' && !formData.value.password) {
           ElMessage.error(t('admin.providers.passwordRequired'))
           return
@@ -656,6 +657,7 @@ export function useProviderForm(props, emit) {
     formSnapshot,
     rules,
     isAgentMode,
+    isLocalMode,
     hasAgentMappedNetworking,
     groupedCountries,
     showHardwareConfigTab,

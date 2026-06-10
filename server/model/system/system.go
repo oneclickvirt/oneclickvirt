@@ -42,22 +42,22 @@ type InviteCodeUsage struct {
 // SystemImage 系统镜像模型 - 用于管理各种操作系统镜像
 type SystemImage struct {
 	// 基础字段
-	ID        uint           `json:"id" gorm:"primarykey"`                                                                                                             // 镜像主键ID
-	UUID      string         `json:"uuid" gorm:"uniqueIndex:idx_system_image_uuid_deleted,priority:1;not null;size:36"`                                                // 镜像唯一标识符
-	CreatedAt time.Time      `json:"createdAt"`                                                                                                                        // 镜像记录创建时间
-	UpdatedAt time.Time      `json:"updatedAt"`                                                                                                                        // 镜像记录更新时间
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:idx_system_image_uuid_deleted,priority:2;uniqueIndex:idx_system_image_provider_url_deleted,priority:3"` // 软删除时间
+	ID        uint           `json:"id" gorm:"primarykey"`                                                                                                                       // 镜像主键ID
+	UUID      string         `json:"uuid" gorm:"uniqueIndex:idx_system_image_uuid_deleted,priority:1;not null;size:36"`                                                          // 镜像唯一标识符
+	CreatedAt time.Time      `json:"createdAt"`                                                                                                                                  // 镜像记录创建时间
+	UpdatedAt time.Time      `json:"updatedAt"`                                                                                                                                  // 镜像记录更新时间
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:idx_system_image_uuid_deleted,priority:2;uniqueIndex:idx_system_image_provider_url_type_arch_deleted,priority:5"` // 软删除时间
 
 	// 基本信息
-	Name        string `json:"name" gorm:"not null;size:128"`                                                             // 自定义镜像名称
-	Description string `json:"description" gorm:"size:512"`                                                               // 镜像描述
-	URL         string `json:"url" gorm:"not null;size:512;uniqueIndex:idx_system_image_provider_url_deleted,priority:2"` // 镜像下载地址
-	Status      string `json:"status" gorm:"default:active;size:16"`                                                      // 镜像状态：active, inactive
+	Name        string `json:"name" gorm:"not null;size:128"`                                                                       // 自定义镜像名称
+	Description string `json:"description" gorm:"size:512"`                                                                         // 镜像描述
+	URL         string `json:"url" gorm:"not null;size:512;uniqueIndex:idx_system_image_provider_url_type_arch_deleted,priority:4"` // 镜像下载地址
+	Status      string `json:"status" gorm:"default:active;size:16"`                                                                // 镜像状态：active, inactive
 
 	// 技术规格
-	ProviderType string `json:"providerType" gorm:"not null;size:32;uniqueIndex:idx_system_image_provider_url_deleted,priority:1"` // 支持的Provider类型：proxmox, lxd, incus, docker
-	InstanceType string `json:"instanceType" gorm:"not null;size:16"`                                                              // 实例类型：vm（虚拟机）, container（容器）
-	Architecture string `json:"architecture" gorm:"not null;size:16"`                                                              // CPU架构：amd64, arm64, s390x等
+	ProviderType string `json:"providerType" gorm:"not null;size:32;uniqueIndex:idx_system_image_provider_url_type_arch_deleted,priority:1"` // 支持的Provider类型：proxmox, lxd, incus, docker
+	InstanceType string `json:"instanceType" gorm:"not null;size:16;uniqueIndex:idx_system_image_provider_url_type_arch_deleted,priority:2"` // 实例类型：vm（虚拟机）, container（容器）
+	Architecture string `json:"architecture" gorm:"not null;size:16;uniqueIndex:idx_system_image_provider_url_type_arch_deleted,priority:3"` // CPU架构：amd64, arm64, s390x等
 
 	// 文件信息
 	Checksum string `json:"checksum" gorm:"size:128"` // 文件校验和（用于验证完整性）

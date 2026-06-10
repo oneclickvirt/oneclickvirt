@@ -900,7 +900,7 @@ func (s *Service) ImportProvidersCSV(ownerAdminID uint, csvBytes []byte) (*Impor
 			continue
 		}
 
-		if createReq.ConnectionType != "agent" && createReq.Password == "" && createReq.SSHKey == "" {
+		if createReq.ConnectionType != "agent" && createReq.ConnectionType != "local" && createReq.Password == "" && createReq.SSHKey == "" {
 			result.Skipped++
 			result.Errors = append(result.Errors, fmt.Sprintf("第%d行跳过: SSH模式需提供 password 或 sshKey", rowNum+1))
 			continue

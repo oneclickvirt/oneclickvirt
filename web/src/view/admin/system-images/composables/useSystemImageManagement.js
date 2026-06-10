@@ -13,6 +13,7 @@ export function useSystemImageManagement() {
 
   const loading = ref(false)
   const submitting = ref(false)
+  const syncing = ref(false)
   const dialogVisible = ref(false)
   const selectedRows = ref([])
   const tableData = ref([])
@@ -69,6 +70,22 @@ export function useSystemImageManagement() {
 
   const handleSearch = () => { pagination.page = 1; fetchData() }
   const handleReset = () => { Object.assign(searchForm, { search: '', providerType: '', instanceType: '', architecture: '', osType: '', status: '' }); handleSearch() }
+  const handleSync = async () => {
+    try {
+      await ElMessageBox.confirm(t('admin.systemImages.syncConfirm'), t('admin.systemImages.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
+      syncing.value = true
+      const response = await systemImageApi.sync()
+      const processed = response?.data?.processed ?? 0
+      const desired = response?.data?.desired ?? 0
+      ElMessage.success(t('admin.systemImages.syncSuccess', { processed, desired }))
+      pagination.page = 1
+      fetchData()
+    } catch (error) {
+      if (error !== 'cancel') ElMessage.error(t('admin.systemImages.syncFailed') + ': ' + (error.message || error))
+    } finally {
+      syncing.value = false
+    }
+  }
   const handleSelectionChange = (selection) => { selectedRows.value = selection }
 
   const handleCreate = () => { isEdit.value = false; editId.value = null; resetForm(); dialogVisible.value = true }
@@ -157,6 +174,7 @@ export function useSystemImageManagement() {
   const getUrlHint = () => {
     if (!form.providerType || !form.instanceType) return ''
     if ((form.providerType === 'proxmox' || form.providerType === 'qemu') && form.instanceType === 'vm') return t('admin.systemImages.urlHintProxmoxVM')
+    if (form.providerType === 'qemu' && form.instanceType === 'container') return t('admin.systemImages.urlHintQemuLxc')
     if (form.providerType === 'kubevirt' && form.instanceType === 'vm') return t('admin.systemImages.urlHintProxmoxVM')
     if (form.providerType === 'lxd' || form.providerType === 'incus') return t('admin.systemImages.urlHintLxdIncus')
     if ((isContainerOnlyProvider(form.providerType) || form.providerType === 'kubevirt') && form.instanceType === 'container') return t('admin.systemImages.urlHintContainerTarGz', { provider: form.providerType.charAt(0).toUpperCase() + form.providerType.slice(1) })
@@ -172,7 +190,7 @@ export function useSystemImageManagement() {
       orbstack: 'Orbstack',
       podman: 'Podman',
       containerd: 'Containerd',
-      qemu: 'QEMU/KVM',
+      qemu: 'QEMU/Libvirt',
       kubevirt: 'KubeVirt',
       vmware: 'VMware',
       virtualbox: 'VirtualBox',
@@ -216,10 +234,10 @@ export function useSystemImageManagement() {
   }
 
   return {
-    loading, submitting, dialogVisible, selectedRows, tableData,
+    loading, submitting, syncing, dialogVisible, selectedRows, tableData,
     searchForm, pagination, form, formRef, isEdit, editId,
     groupedOperatingSystems, dialogTitle, rules,
-    fetchData, handleSearch, handleReset, handleSelectionChange,
+    fetchData, handleSearch, handleReset, handleSync, handleSelectionChange,
     handleCreate, handleEdit, handleSubmit, handleDelete,
     handleToggleStatus, handleBatchDelete, handleBatchStatus,
     handleSizeChange, handleCurrentChange, handleDialogClose,

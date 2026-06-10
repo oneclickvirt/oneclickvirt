@@ -90,6 +90,8 @@ export default {
   trafficLimitMB: "Traffic Limit (MB)",
   expiryDays: "Expiry Days",
   expiryDaysHint: "User resource expiration time, unit: days",
+  maxSnapshots: "Snapshot Quota",
+  maxSnapshotsHint: "Maximum snapshots per instance. 0 means snapshots are disabled.",
   instancePermissions: "Instance Permissions",
   instancePermissionsDesc: "Instance Type Permissions Description",
   instancePermissionsHint: "Configure minimum user level requirements for different instance types and operations. You can separately set minimum levels for container and VM creation, deletion, and system reset operations.",

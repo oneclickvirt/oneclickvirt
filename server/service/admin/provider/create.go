@@ -117,7 +117,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	}
 
 	// 验证：SSH直连模式下必须提供密码或SSH密钥其中一种；agent模式无需SSH凭据
-	if req.ConnectionType != "agent" && req.Password == "" && req.SSHKey == "" {
+	if req.ConnectionType != "agent" && req.ConnectionType != "local" && req.Password == "" && req.SSHKey == "" {
 		global.APP_LOG.Warn("Provider创建失败：未提供SSH认证方式",
 			zap.String("name", utils.TruncateString(req.Name, 32)))
 		return nil, fmt.Errorf("SSH直连模式必须提供SSH密码或SSH密钥其中一种认证方式")
@@ -246,8 +246,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		GpuDeviceIds: gpuDeviceIDs,
 		// 内网穿透连接模式（默认 ssh）
 		ConnectionType: func() string {
-			if req.ConnectionType == "agent" {
-				return "agent"
+			if req.ConnectionType == "agent" || req.ConnectionType == "local" {
+				return req.ConnectionType
 			}
 			return "ssh"
 		}(),

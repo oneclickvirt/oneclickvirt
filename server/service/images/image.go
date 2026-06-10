@@ -305,8 +305,8 @@ func (s *ImageService) GetAvailableImagesWithOS(providerType, instanceType, arch
 		query = query.Where("architecture = ?", architecture)
 	}
 	if osType != "" {
-		// 使用小写匹配，支持主流Linux系统
-		query = query.Where("LOWER(os_type) = LOWER(?)", osType)
+		osType = utils.NormalizeOSType(osType)
+		query = query.Where("LOWER(os_type) = ?", osType)
 	}
 
 	if err := query.Order("created_at DESC").Find(&images).Error; err != nil {

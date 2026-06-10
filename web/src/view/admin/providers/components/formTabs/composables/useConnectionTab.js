@@ -15,8 +15,9 @@ export function useConnectionTab(props, emit) {
   let wssProbeSocket = null
 
   const isAgentMode = computed(() => props.modelValue.connectionType === 'agent')
+  const isLocalMode = computed(() => props.modelValue.connectionType === 'local')
   const hasAgentMappedNetworking = computed(() => false)
-  const showSSHSettings = computed(() => !isAgentMode.value)
+  const showSSHSettings = computed(() => !isAgentMode.value && !isLocalMode.value)
   const effectiveAgentStatus = computed(() => props.modelValue.agentRuntimeStatus || props.modelValue.agentStatus || 'offline')
   const agentAlertType = computed(() => {
     if (effectiveAgentStatus.value === 'online') return 'success'
@@ -170,6 +171,7 @@ export function useConnectionTab(props, emit) {
     wssUnavailable,
     probingWSS,
     isAgentMode,
+    isLocalMode,
     hasAgentMappedNetworking,
     showSSHSettings,
     effectiveAgentStatus,

@@ -1,17 +1,17 @@
 export const DEFAULT_PROVIDER_LEVEL_LIMITS = {
-  1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 100 }, maxTraffic: 102400, expiryDays: 0 },
-  2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 200 }, maxTraffic: 204800, expiryDays: 0 },
-  3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 40960, bandwidth: 500 }, maxTraffic: 307200, expiryDays: 0 },
-  4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600, expiryDays: 0 },
-  5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000, expiryDays: 0 }
+  1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 100 }, maxTraffic: 102400, expiryDays: 0, maxSnapshots: 1 },
+  2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 200 }, maxTraffic: 204800, expiryDays: 0, maxSnapshots: 3 },
+  3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 40960, bandwidth: 500 }, maxTraffic: 307200, expiryDays: 0, maxSnapshots: 5 },
+  4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600, expiryDays: 0, maxSnapshots: 10 },
+  5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000, expiryDays: 0, maxSnapshots: 20 }
 }
 
 export const DEFAULT_QUOTA_LEVEL_LIMITS = {
-  1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 1024, bandwidth: 100 }, maxTraffic: 102400, expiryDays: 0 },
-  2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 2048, bandwidth: 200 }, maxTraffic: 204800, expiryDays: 0 },
-  3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 4096, bandwidth: 500 }, maxTraffic: 409600, expiryDays: 0 },
-  4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 8192, bandwidth: 1000 }, maxTraffic: 819200, expiryDays: 0 },
-  5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 16384, bandwidth: 2000 }, maxTraffic: 1638400, expiryDays: 0 }
+  1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 1024, bandwidth: 100 }, maxTraffic: 102400, expiryDays: 0, maxSnapshots: 1 },
+  2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 2048, bandwidth: 200 }, maxTraffic: 204800, expiryDays: 0, maxSnapshots: 3 },
+  3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 4096, bandwidth: 500 }, maxTraffic: 409600, expiryDays: 0, maxSnapshots: 5 },
+  4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 8192, bandwidth: 1000 }, maxTraffic: 819200, expiryDays: 0, maxSnapshots: 10 },
+  5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 16384, bandwidth: 2000 }, maxTraffic: 1638400, expiryDays: 0, maxSnapshots: 20 }
 }
 
 export const DEFAULT_LEVEL_LIMITS = DEFAULT_PROVIDER_LEVEL_LIMITS
@@ -23,6 +23,7 @@ export function cloneLevelLimit(limit = {}) {
     maxInstances: Number(limit.maxInstances ?? limit['max-instances'] ?? 1),
     maxTraffic: Number(limit.maxTraffic ?? limit['max-traffic'] ?? 102400),
     expiryDays: Number(limit.expiryDays ?? limit['expiry-days'] ?? 0),
+    maxSnapshots: Number(limit.maxSnapshots ?? limit['max-snapshots'] ?? 0),
     maxResources: {
       cpu: Number(limit.maxResources?.cpu ?? limit['max-resources']?.cpu ?? 1),
       memory: Number(limit.maxResources?.memory ?? limit['max-resources']?.memory ?? 512),
@@ -42,6 +43,7 @@ export function buildDefaultLevelLimit(level, previousLimit = null, defaults = D
     maxInstances: Math.max(1, base.maxInstances),
     maxTraffic: Math.max(1024, base.maxTraffic),
     expiryDays: base.expiryDays || 0,
+    maxSnapshots: Math.max(0, base.maxSnapshots || 0),
     maxResources: {
       cpu: Math.max(1, base.maxResources.cpu),
       memory: Math.max(128, base.maxResources.memory),
@@ -78,6 +80,7 @@ export function formatLevelLimitsForBackend(levelLimits = {}) {
       'max-instances': limit.maxInstances,
       'max-traffic': limit.maxTraffic,
       'expiry-days': limit.expiryDays,
+      'max-snapshots': limit.maxSnapshots,
       'max-resources': {
         cpu: limit.maxResources.cpu,
         memory: limit.maxResources.memory,

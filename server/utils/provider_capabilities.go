@@ -22,14 +22,17 @@ func IsLXDIncusProvider(providerType string) bool {
 }
 
 func SupportsLXDContainerOptions(providerType, instanceType string) bool {
+	providerType = NormalizeProviderType(providerType)
 	return IsLXDIncusProvider(providerType) && NormalizeInstanceType(instanceType) != "vm"
 }
 
 func SupportsContainerCopyProvider(providerType string) bool {
+	providerType = NormalizeProviderType(providerType)
 	return IsLXDIncusProvider(providerType) || IsDockerFamilyProvider(providerType)
 }
 
 func SupportsContainerGPUProvider(providerType, instanceType string) bool {
+	providerType = NormalizeProviderType(providerType)
 	return NormalizeInstanceType(instanceType) != "vm" &&
 		(IsLXDIncusProvider(providerType) || IsDockerFamilyProvider(providerType))
 }
@@ -47,11 +50,17 @@ func IsKubeVirtProvider(providerType string) bool {
 	return NormalizeProviderType(providerType) == "kubevirt"
 }
 
+// IsQEMUProvider returns true for the local/remote libvirt provider that can create
+// both libvirt-lxc containers and QEMU/KVM virtual machines.
+func IsQEMUProvider(providerType string) bool {
+	return NormalizeProviderType(providerType) == "qemu"
+}
+
 // IsVMOnlyProvider returns true for providers that can only create virtual machines.
-// KubeVirt is intentionally excluded: it can create both KubeVirt VMs and K3s backed containers.
+// QEMU and KubeVirt are intentionally excluded: they can create both containers and VMs.
 func IsVMOnlyProvider(providerType string) bool {
 	switch NormalizeProviderType(providerType) {
-	case "qemu", "vmware", "virtualbox", "multipass", "vagrant":
+	case "vmware", "virtualbox", "multipass", "vagrant":
 		return true
 	default:
 		return false
@@ -71,5 +80,5 @@ func UsesContainerRuntimePorts(providerType, instanceType string) bool {
 func UsesVMPositionalPorts(providerType, instanceType string) bool {
 	providerType = NormalizeProviderType(providerType)
 	instanceType = NormalizeInstanceType(instanceType)
-	return IsVMOnlyProvider(providerType) || (providerType == "kubevirt" && instanceType == "vm")
+	return IsVMOnlyProvider(providerType) || providerType == "qemu" || (providerType == "kubevirt" && instanceType == "vm")
 }

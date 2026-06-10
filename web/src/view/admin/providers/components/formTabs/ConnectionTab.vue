@@ -207,6 +207,25 @@
     </el-form>
 
     <!-- ======================================================
+         本机模式内容（connectionType === 'local'）
+         ====================================================== -->
+    <div
+      v-if="modelValue.connectionType === 'local'"
+      class="local-mode-content"
+    >
+      <el-alert
+        type="success"
+        :closable="false"
+        show-icon
+      >
+        <template #title>
+          {{ $t('admin.providers.localConnection') }}
+        </template>
+        <div>{{ $t('admin.providers.localConnectionTip') }}</div>
+      </el-alert>
+    </div>
+
+    <!-- ======================================================
          Agent 模式内容（connectionType === 'agent'）
          ====================================================== -->
     <div
@@ -638,6 +657,7 @@ const {
   wssUnavailable,
   probingWSS,
   isAgentMode,
+  isLocalMode,
   hasAgentMappedNetworking,
   showSSHSettings,
   effectiveAgentStatus,
@@ -665,6 +685,10 @@ const {
 
 .form-tip {
   margin-top: 5px;
+}
+
+.local-mode-content {
+  padding: 4px 0;
 }
 
 .agent-mode-content {

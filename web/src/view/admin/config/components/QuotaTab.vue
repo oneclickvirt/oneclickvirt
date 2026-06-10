@@ -163,6 +163,21 @@
               </el-form-item>
             </el-col>
             <el-col :span="6">
+              <el-form-item :label="$t('admin.config.maxSnapshots')">
+                <el-input-number
+                  v-model="config.quota.levelLimits[level]['maxSnapshots']"
+                  :min="0"
+                  :max="1000"
+                  :controls="false"
+                  :step="1"
+                  style="width: 100%"
+                />
+                <div class="form-item-hint">
+                  {{ $t('admin.config.maxSnapshotsHint') }}
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :span="6">
               <el-form-item :label="$t('admin.config.expiryDays')">
                 <el-input-number
                   v-model="config.quota.levelLimits[level]['expiryDays']"

@@ -15,11 +15,28 @@ import (
 	"go.uber.org/zap"
 )
 
-func SeedSystemImages() {
-	global.APP_LOG.Info("开始同步系统镜像列表")
+type SystemImageSyncResult struct {
+	Existing  int64  `json:"existing"`
+	Desired   int    `json:"desired"`
+	Processed int    `json:"processed"`
+	Source    string `json:"source"`
+}
 
-	// 初始化等级配置
-	initLevelConfigurations()
+func SeedSystemImages() {
+	result, err := SyncSystemImages()
+	if err != nil {
+		global.APP_LOG.Error("系统镜像同步失败", zap.Error(err))
+		return
+	}
+	global.APP_LOG.Info("系统镜像同步完成",
+		zap.Int("processed", result.Processed),
+		zap.Int("desired", result.Desired),
+		zap.Int64("existing", result.Existing),
+		zap.String("source", result.Source))
+}
+
+func SyncSystemImages() (*SystemImageSyncResult, error) {
+	global.APP_LOG.Info("开始同步系统镜像列表")
 
 	// 初始化等级配置；该操作本身是幂等的，放在镜像同步前确保新库/老库启动口径一致。
 	initLevelConfigurations()
@@ -28,10 +45,10 @@ func SeedSystemImages() {
 	// 主控从老版本升级时，数据库里可能已有旧初始化镜像，但新版本新增的系统镜像仍需自动补齐。
 	var count int64
 	if err := global.APP_DB.Model(&system.SystemImage{}).Count(&count).Error; err != nil {
-		global.APP_LOG.Warn("统计已有系统镜像失败，仍继续尝试同步", zap.Error(err))
-	} else {
-		global.APP_LOG.Debug("当前系统镜像数量", zap.Int64("count", count))
+		return nil, fmt.Errorf("统计已有系统镜像失败: %w", err)
 	}
+	global.APP_LOG.Debug("当前系统镜像数量", zap.Int64("count", count))
+	result := &SystemImageSyncResult{Existing: count, Source: "remote"}
 
 	// 收集所有镜像URL
 	var imageURLs []string
@@ -77,12 +94,12 @@ func SeedSystemImages() {
 	if useDefaultImages {
 		global.APP_LOG.Debug("使用默认镜像列表进行初始化/补齐")
 		imageURLs = getDefaultImageURLs()
+		result.Source = "default"
 	}
 
 	// 如果仍然没有镜像URL，记录错误并返回
 	if len(imageURLs) == 0 {
-		global.APP_LOG.Error("无法获取镜像列表，远程和默认列表均为空")
-		return
+		return nil, fmt.Errorf("无法获取镜像列表，远程和默认列表均为空")
 	}
 
 	// 按优先级排序：cloud镜像优先
@@ -102,27 +119,26 @@ func SeedSystemImages() {
 		sortedURLs = append(primary, supplement...)
 	}
 
-		desiredImages := buildDesiredSystemImages(sortedURLs)
+	desiredImages := buildDesiredSystemImages(sortedURLs)
 	if len(desiredImages) == 0 {
-		global.APP_LOG.Warn("镜像列表解析后没有可导入镜像")
-		return
+		return nil, fmt.Errorf("镜像列表解析后没有可导入镜像")
 	}
+	result.Desired = len(desiredImages)
 
-	// 一次性加载已有 provider_type + url 组合，避免逐条查询导致 N+1。
-	// 去重口径：同一种 Provider 类型下 URL 不可重复；不同 Provider 类型允许复用同一 URL。
+	// 一次性加载已有 provider_type + instance_type + architecture + url 组合，避免逐条查询导致 N+1。
+	// 去重口径：同 Provider + 同节点类型 + 同架构 + 同 URL 才视为重复；不同节点类型允许复用同一 URL。
 	var existingImages []system.SystemImage
-	if err := global.APP_DB.Select("id", "provider_type", "url").Find(&existingImages).Error; err != nil {
-		global.APP_LOG.Error("查询已有系统镜像失败", zap.Error(err))
-		return
+	if err := global.APP_DB.Select("id", "provider_type", "instance_type", "architecture", "url").Find(&existingImages).Error; err != nil {
+		return nil, fmt.Errorf("查询已有系统镜像失败: %w", err)
 	}
 	existingKeys := make(map[string]struct{}, len(existingImages)+len(desiredImages))
 	for _, img := range existingImages {
-		existingKeys[systemImageUniqueKey(img.ProviderType, img.URL)] = struct{}{}
+		existingKeys[systemImageUniqueKey(img.ProviderType, img.InstanceType, img.Architecture, img.URL)] = struct{}{}
 	}
 
 	missingImages := make([]system.SystemImage, 0)
 	for _, img := range desiredImages {
-		key := systemImageUniqueKey(img.ProviderType, img.URL)
+		key := systemImageUniqueKey(img.ProviderType, img.InstanceType, img.Architecture, img.URL)
 		if _, exists := existingKeys[key]; exists {
 			continue
 		}
@@ -131,20 +147,25 @@ func SeedSystemImages() {
 	}
 
 	if len(missingImages) == 0 {
-		global.APP_LOG.Info("系统镜像同步完成，没有发现遗漏镜像", zap.Int("desired", len(desiredImages)))
-		return
+		return result, nil
 	}
 
 	if err := global.APP_DB.CreateInBatches(&missingImages, 100).Error; err != nil {
-		global.APP_LOG.Error("批量创建遗漏系统镜像失败", zap.Error(err), zap.Int("missing", len(missingImages)))
-		return
+		return nil, fmt.Errorf("批量创建遗漏系统镜像失败: %w", err)
 	}
 
-	global.APP_LOG.Info("系统镜像同步完成", zap.Int("processed", len(missingImages)), zap.Int("desired", len(desiredImages)))
+	result.Processed = len(missingImages)
+	return result, nil
 }
 
-func systemImageUniqueKey(providerType, url string) string {
-	return strings.ToLower(strings.TrimSpace(providerType)) + "\x00" + strings.TrimSpace(url)
+func systemImageUniqueKey(providerType, instanceType, architecture, url string) string {
+	parts := []string{
+		strings.ToLower(strings.TrimSpace(providerType)),
+		strings.ToLower(strings.TrimSpace(instanceType)),
+		strings.ToLower(strings.TrimSpace(architecture)),
+		strings.TrimSpace(url),
+	}
+	return strings.Join(parts, "\x00")
 }
 
 func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
@@ -156,6 +177,14 @@ func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
 		imageInfo := parseImageURL(imageURL)
 		if imageInfo == nil {
 			continue
+		}
+
+		imageInfo.OSType = utils.NormalizeOSType(imageInfo.OSType)
+		if imageInfo.OSType == "" {
+			imageInfo.OSType = utils.DetectOSTypeFromText(imageInfo.Name + " " + imageInfo.URL)
+		}
+		if imageInfo.OSType == "" {
+			imageInfo.OSType = "unknown"
 		}
 
 		baseImageKey := fmt.Sprintf("%s-%s-%s-%s-%s",
@@ -231,20 +260,61 @@ func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
 			}
 		}
 
-		// KubeVirt 的容器实例走 K3s/containerd 方式创建，可复用 Docker 家族的容器镜像归档。
-		if imageInfo.ProviderType == "docker" && imageInfo.InstanceType == "container" {
+		// QEMU Provider 同时支持 libvirt-lxc 容器，可复用 Proxmox LXC rootfs 模板。
+		if imageInfo.ProviderType == "proxmox" && imageInfo.InstanceType == "container" && strings.HasSuffix(imageInfo.URL, ".tar.xz") {
 			extraImage := baseImage
-			extraImage.ProviderType = "kubevirt"
-			extraImage.Description = fmt.Sprintf("KubeVirt K3s container %s image", imageInfo.Name)
+			extraImage.ProviderType = "qemu"
+			extraImage.InstanceType = "container"
+			extraImage.Description = fmt.Sprintf("QEMU/LXC %s image", imageInfo.Name)
 			appendSystemImageIfNew(&desiredImages, desiredKeys, extraImage)
+		}
+
+		// OCI 容器镜像归档在 Docker/Podman/Containerd/Orbstack/KubeVirt 容器场景可复用。
+		if imageInfo.InstanceType == "container" && isOCIArchiveProvider(imageInfo.ProviderType) && strings.HasSuffix(imageInfo.URL, ".tar.gz") {
+			for _, extraProvider := range []string{"docker", "podman", "containerd", "orbstack", "kubevirt"} {
+				if extraProvider == imageInfo.ProviderType {
+					continue
+				}
+				extraImage := baseImage
+				extraImage.ProviderType = extraProvider
+				extraImage.InstanceType = "container"
+				extraImage.Description = fmt.Sprintf("%s container %s image", providerDisplayName(extraProvider), imageInfo.Name)
+				appendSystemImageIfNew(&desiredImages, desiredKeys, extraImage)
+			}
 		}
 	}
 
 	return desiredImages
 }
 
+func isOCIArchiveProvider(providerType string) bool {
+	switch providerType {
+	case "docker", "podman", "containerd", "orbstack", "kubevirt":
+		return true
+	default:
+		return false
+	}
+}
+
+func providerDisplayName(providerType string) string {
+	switch providerType {
+	case "docker":
+		return "Docker"
+	case "podman":
+		return "Podman"
+	case "containerd":
+		return "Containerd"
+	case "orbstack":
+		return "Orbstack"
+	case "kubevirt":
+		return "KubeVirt"
+	default:
+		return providerType
+	}
+}
+
 func appendSystemImageIfNew(images *[]system.SystemImage, keys map[string]bool, image system.SystemImage) bool {
-	key := systemImageUniqueKey(image.ProviderType, image.URL)
+	key := systemImageUniqueKey(image.ProviderType, image.InstanceType, image.Architecture, image.URL)
 	if keys[key] {
 		return false
 	}
@@ -254,14 +324,13 @@ func appendSystemImageIfNew(images *[]system.SystemImage, keys map[string]bool, 
 }
 
 func defaultSystemImageStatus(osType string) string {
-	osTypeLower := strings.ToLower(osType)
-	if osTypeLower == "debian" || osTypeLower == "alpine" {
+	switch utils.NormalizeOSType(osType) {
+	case "debian", "alpine":
 		return "active"
+	default:
+		return "inactive"
 	}
-	return "inactive"
 }
-
-
 
 // parseImageURL 解析镜像URL并提取信息
 func parseImageURL(imageURL string) *ImageInfo {
@@ -403,6 +472,22 @@ func parseImageURL(imageURL string) *ImageInfo {
 		}
 	}
 
+	// Orbstack镜像
+	orbstackRe := regexp.MustCompile(`https://github\.com/oneclickvirt/orbstack/releases/download/([^/]+)/spiritlhl_([^_]+)_([^.]+)\.tar\.gz`)
+	if matches := orbstackRe.FindStringSubmatch(imageURL); matches != nil {
+		osType := matches[2]
+		return &ImageInfo{
+			Name:         fmt.Sprintf("spiritlhl-%s", osType),
+			ProviderType: "orbstack",
+			InstanceType: "container",
+			Architecture: convertArch(matches[3]),
+			URL:          imageURL,
+			OSType:       osType,
+			OSVersion:    inferDockerOSVersion(osType),
+			Description:  fmt.Sprintf("Orbstack %s %s image", osType, matches[3]),
+		}
+	}
+
 	// Proxmox KVM镜像（pve_kvm_images）
 	proxmoxRe := regexp.MustCompile(`https://github\.com/oneclickvirt/pve_kvm_images/releases/download/([^/]+)/(.+)\.qcow2`)
 	if matches := proxmoxRe.FindStringSubmatch(imageURL); matches != nil {
@@ -440,7 +525,7 @@ func parseImageURL(imageURL string) *ImageInfo {
 // Docker 镜像 URL 中不含版本号（版本信息在镜像 tar.gz 内部），此处根据 OS 名称
 // 给出当前主推的默认版本，便于 populateImageURLFromSystemImage 按 osVersion 前缀匹配。
 func inferDockerOSVersion(osType string) string {
-	switch strings.ToLower(osType) {
+	switch utils.NormalizeOSType(osType) {
 	case "debian":
 		return "12"
 	case "alpine":
@@ -490,35 +575,9 @@ func convertArch(arch string) string {
 
 // extractOSFromFilename 从文件名提取操作系统（确定性顺序匹配，避免 map 随机迭代）
 func extractOSFromFilename(filename string) string {
-	lowerName := strings.ToLower(filename)
-
-	// 使用确定性顺序的切片而非 map，避免 Go map 随机迭代导致的不确定性匹配。
-	// 较长的键优先匹配，确保 "archlinux" 在 "arch" 之前被检查。
-	type osPair struct{ key, value string }
-	osList := []osPair{
-		{"archlinux", "archlinux"},
-		{"rockylinux", "rockylinux"},
-		{"almalinux", "almalinux"},
-		{"openeuler", "openeuler"},
-		{"opensuse", "opensuse"},
-		{"alpine", "alpine"},
-		{"ubuntu", "ubuntu"},
-		{"debian", "debian"},
-		{"centos", "centos"},
-		{"fedora", "fedora"},
-		{"oracle", "oracle"},
-		{"gentoo", "gentoo"},
-		{"kali", "kali"},
-		{"openwrt", "openwrt"},
-		{"arch", "archlinux"},
+	if osType := utils.DetectOSTypeFromText(filename); osType != "" {
+		return osType
 	}
-
-	for _, p := range osList {
-		if strings.Contains(lowerName, p.key) {
-			return p.value
-		}
-	}
-
 	return "unknown"
 }
 

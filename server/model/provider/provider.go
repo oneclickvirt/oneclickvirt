@@ -297,8 +297,8 @@ type Provider struct {
 	GpuDeviceIds string `json:"gpuDeviceIds" gorm:"size:256"`    // GPU设备ID列表（逗号分隔的PCI ID，如"0,1"），为空则附加所有GPU
 	GpuInfo      string `json:"gpuInfo" gorm:"type:json"`        // 缓存GPU/NPU检测结果（JSON数组），供前端展示选择，免去每次检测
 
-	// 内网穿透连接模式（ConnectionType = "agent" 时节点通过 Rust Agent 主动连回控制端）
-	ConnectionType   string     `json:"connectionType" gorm:"default:ssh;size:16"`  // 连接方式：ssh（控制端主动SSH）/ agent（Agent反向连接）
+	// 连接模式（agent 由 Rust Agent 主动连回控制端，local 直接管理本机 libvirt/QEMU）
+	ConnectionType   string     `json:"connectionType" gorm:"default:ssh;size:16"`  // 连接方式：ssh（控制端主动SSH）/ agent（Agent反向连接）/ local（本机libvirt/QEMU）
 	AgentSecret      string     `json:"-" gorm:"size:128"`                          // Agent 连接鉴权密钥（不返回给前端，由控制端生成）
 	AgentStatus      string     `json:"agentStatus" gorm:"default:offline;size:16"` // Agent 在线状态：online / offline
 	AgentLastSeen    *time.Time `json:"agentLastSeen"`                              // Agent 最后心跳时间

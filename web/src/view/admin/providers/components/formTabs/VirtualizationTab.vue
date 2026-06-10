@@ -422,8 +422,11 @@ const supportTypeTip = computed(() => {
   if (containerOnlyTypes.includes(props.modelValue.type)) {
     return 'admin.providers.dockerOnlyContainer'
   }
+  if (props.modelValue.type === 'qemu') {
+    return 'admin.providers.qemuSupportsLXCAndVM'
+  }
   if (vmOnlyTypes.includes(props.modelValue.type)) {
-    return 'admin.providers.qemuOnlyVM'
+    return 'admin.providers.vmOnlyProviders'
   }
   return 'admin.providers.selectVirtualizationType'
 })

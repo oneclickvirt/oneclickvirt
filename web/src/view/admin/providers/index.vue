@@ -205,7 +205,19 @@ const handleAddProvider = () => {
 const handleModeConfirm = (mode) => {
   isEditing.value = false
   cancelAddServer()
-  addProviderForm.connectionType = mode  // 'ssh' or 'agent'
+  addProviderForm.connectionType = mode  // 'ssh', 'agent' or 'local'
+  if (mode === 'local') {
+    addProviderForm.name = '本机'
+    addProviderForm.type = 'qemu'
+    addProviderForm.host = ''
+    addProviderForm.port = 0
+    addProviderForm.username = 'root'
+    addProviderForm.containerEnabled = true
+    addProviderForm.vmEnabled = true
+    addProviderForm.networkType = 'nat_ipv4'
+    addProviderForm.ipv4PortMappingMethod = 'iptables'
+    addProviderForm.ipv6PortMappingMethod = 'native'
+  }
   if (mode === 'agent') {
     addProviderForm.enableTrafficControl = true
     addProviderForm.enableResourceMonitoring = true
@@ -262,8 +274,8 @@ watch(() => addProviderForm.type, (newType) => {
     addProviderForm.vmEnabled = true
     addProviderForm.ipv4PortMappingMethod = 'iptables'
     addProviderForm.ipv6PortMappingMethod = 'iptables'
-  } else if (newType === 'kubevirt') {
-    // KubeVirt 同时支持 VM 和基于 K3s 的容器，端口默认走节点侧映射
+  } else if (newType === 'qemu' || newType === 'kubevirt') {
+    // QEMU/KubeVirt 同时支持容器和虚拟机，端口默认走节点侧映射
     addProviderForm.containerEnabled = true
     addProviderForm.vmEnabled = true
     addProviderForm.ipv4PortMappingMethod = 'iptables'

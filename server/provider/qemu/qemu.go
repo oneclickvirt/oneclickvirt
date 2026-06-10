@@ -22,6 +22,8 @@ const (
 	ImageDir = "/var/lib/libvirt/images"
 	// VMLogDir VM 信息日志目录
 	VMLogDir = "/root/vmlog"
+	// LXCBaseDir libvirt-lxc 容器根目录
+	LXCBaseDir = "/var/lib/libvirt/oneclickvirt-lxc"
 	// InternalSubnet 内网网段
 	InternalSubnet = "192.168.122.0/24"
 	// InternalGateway 内网网关
@@ -59,7 +61,7 @@ func (p *QEMUProvider) GetName() string {
 }
 
 func (p *QEMUProvider) GetSupportedInstanceTypes() []string {
-	return []string{"vm"}
+	return []string{"container", "vm"}
 }
 
 func (p *QEMUProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
@@ -138,6 +140,27 @@ func (p *QEMUProvider) ConnectAgent(executor utils.ShellExecutor, config provide
 	global.APP_LOG.Info("QEMU provider (Agent模式) 加载完成",
 		zap.String("name", config.Name),
 		zap.String("type", config.Type))
+	return nil
+}
+
+func (p *QEMUProvider) ConnectLocal(config provider.NodeConfig) error {
+	p.config = config
+	timeout := time.Duration(config.SSHExecuteTimeout) * time.Second
+	if timeout <= 0 {
+		timeout = 300 * time.Second
+	}
+	p.sshClient.SetExecutor(utils.NewLocalShellExecutor(timeout))
+	p.connected = true
+	p.healthChecker = nil
+
+	if err := p.getVersion(); err != nil {
+		global.APP_LOG.Warn("本机模式下QEMU版本获取失败", zap.Error(err))
+	}
+
+	global.APP_LOG.Info("QEMU provider (本机模式) 加载完成",
+		zap.String("name", config.Name),
+		zap.String("type", config.Type),
+		zap.String("version", p.version))
 	return nil
 }
 

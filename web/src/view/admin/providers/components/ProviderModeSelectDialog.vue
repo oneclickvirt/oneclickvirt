@@ -34,6 +34,31 @@
 
       <div
         class="mode-card"
+        :class="{ selected: selectedMode === 'local' }"
+        @click="selectedMode = 'local'"
+      >
+        <div class="mode-icon">
+          <el-icon size="40">
+            <Monitor />
+          </el-icon>
+        </div>
+        <div class="mode-title">
+          {{ $t('admin.providers.modeLocal') }}
+        </div>
+        <div class="mode-desc">
+          {{ $t('admin.providers.modeLocalDesc') }}
+        </div>
+        <el-tag
+          type="success"
+          size="small"
+          style="margin-top: 10px;"
+        >
+          {{ $t('admin.providers.modeLocalTag') }}
+        </el-tag>
+      </div>
+
+      <div
+        class="mode-card"
         :class="{ selected: selectedMode === 'agent' }"
         @click="selectedMode = 'agent'"
       >
@@ -106,7 +131,7 @@ const handleClose = () => {
 <style scoped>
 .mode-select-container {
   display: flex;
-  gap: 20px;
+  gap: 16px;
   padding: 10px 0;
 }
 

@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/model/auth"
 	"oneclickvirt/model/system"
 	"oneclickvirt/service/database"
+	"oneclickvirt/utils"
 
 	"gorm.io/gorm"
 )
@@ -98,27 +99,48 @@ type ImageInfo struct {
 // getMinHardwareRequirements 根据操作系统类型和实例类型获取最低硬件要求
 // 返回值：minMemoryMB, minDiskMB
 func getMinHardwareRequirements(osType string, instanceType string) (int, int) {
-	osTypeLower := strings.ToLower(osType)
+	osTypeLower := utils.NormalizeOSType(osType)
 
 	// 容器的最低要求
 	containerRequirements := map[string]struct{ memory, disk int }{
-		"centos":     {512, 2048}, // 512MB, 2GB
-		"almalinux":  {350, 1536}, // 350MB, 1.5GB
-		"debian":     {128, 1024}, // 128MB, 1GB
-		"kali":       {256, 1024}, // 256MB, 1GB
-		"rockylinux": {350, 1536}, // 350MB, 1.5GB
-		"alpine":     {64, 200},   // 64MB, 200MB
+		"alpine":     {64, 200},
+		"debian":     {128, 1024},
+		"ubuntu":     {256, 1536},
+		"centos":     {512, 2048},
+		"fedora":     {512, 2048},
+		"almalinux":  {350, 1536},
+		"rockylinux": {350, 1536},
+		"openeuler":  {512, 2048},
+		"opensuse":   {512, 2048},
+		"oracle":     {512, 2048},
+		"archlinux":  {256, 1536},
+		"gentoo":     {256, 1536},
+		"kali":       {256, 1024},
+		"openwrt":    {64, 128},
 	}
 
 	// 虚拟机的最低要求（取容器要求和当前硬编码的最大值）
 	// 当前硬编码：VM 512MB内存，3GB硬盘
 	vmRequirements := map[string]struct{ memory, disk int }{
-		"centos":     {512, 3072}, // max(512, 512)=512MB, max(2048, 3072)=3072MB
-		"almalinux":  {512, 3072}, // max(350, 512)=512MB, max(1536, 3072)=3072MB
-		"debian":     {326, 3072}, // max(128, 326)=326MB, max(1024, 3072)=3072MB
-		"kali":       {326, 3072}, // max(256, 326)=326MB, max(1024, 3072)=3072MB
-		"rockylinux": {512, 3072}, // max(350, 512)=512MB, max(1536, 3072)=3072MB
-		"alpine":     {64, 3072},  // max(64, 326)=326MB, max(200, 3072)=3072MB
+		"alpine":     {128, 2048},
+		"debian":     {326, 3072},
+		"ubuntu":     {512, 4096},
+		"centos":     {512, 3072},
+		"fedora":     {512, 4096},
+		"almalinux":  {512, 3072},
+		"rockylinux": {512, 3072},
+		"openeuler":  {512, 4096},
+		"opensuse":   {512, 4096},
+		"oracle":     {512, 4096},
+		"archlinux":  {512, 4096},
+		"gentoo":     {512, 4096},
+		"kali":       {512, 4096},
+		"freebsd":    {512, 4096},
+		"openbsd":    {512, 4096},
+		"netbsd":     {512, 4096},
+		"openwrt":    {128, 512},
+		"windows":    {2048, 20480},
+		"macos":      {4096, 40960},
 	}
 
 	if instanceType == "vm" {

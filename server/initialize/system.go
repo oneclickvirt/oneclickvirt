@@ -18,6 +18,7 @@ import (
 	"oneclickvirt/service/system"
 	"oneclickvirt/service/task"
 	userProviderService "oneclickvirt/service/user/provider"
+	"oneclickvirt/source"
 	"oneclickvirt/utils"
 
 	// 导入端口映射 providers 以触发其 init() 函数进行注册
@@ -228,6 +229,9 @@ func InitializeFullSystem() {
 	// Provider服务现在采用按需连接，不再预加载
 	global.APP_LOG.Debug("Provider服务配置为按需连接模式")
 
+	syncSystemImagesOnStartup()
+	source.SeedLocalQEMUProviderIfAvailable()
+
 	// 初始化调度器服务
 	initializeSchedulers()
 }
@@ -254,6 +258,27 @@ func initializeJWTService() {
 	} else {
 		global.APP_LOG.Debug("JWT密钥管理服务初始化完成")
 	}
+}
+
+// syncSystemImagesOnStartup 主控启动时补齐系统镜像。
+// 该同步仅做批量缺失插入，不包裹长事务，避免老库升级后新增初始化镜像缺失。
+func syncSystemImagesOnStartup() {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("启动时同步系统镜像panic", zap.Any("panic", r))
+			}
+		}()
+		result, err := source.SyncSystemImages()
+		if err != nil {
+			global.APP_LOG.Warn("启动时同步系统镜像失败", zap.Error(err))
+			return
+		}
+		global.APP_LOG.Info("启动时同步系统镜像完成",
+			zap.Int("processed", result.Processed),
+			zap.Int("desired", result.Desired),
+			zap.String("source", result.Source))
+	}()
 }
 
 // syncProvidersDataOnStartup 启动时同步Provider层面的数据
@@ -348,6 +373,11 @@ func initializeSchedulers() {
 	instanceSyncSchedulerService := scheduler.NewInstanceSyncSchedulerService()
 	instanceSyncSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
 	lifecycleMgr.Register("InstanceSyncScheduler", instanceSyncSchedulerService)
+
+	// 启动计划快照调度器
+	snapshotSchedulerService := scheduler.NewSnapshotSchedulerService()
+	snapshotSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
+	lifecycleMgr.Register("SnapshotScheduler", snapshotSchedulerService)
 
 	// 启动控制端端口转发健康检查调度器（使用全局shutdown context确保可以正确关闭）
 	controllerPortHealthSchedulerService := scheduler.NewControllerPortHealthSchedulerService()

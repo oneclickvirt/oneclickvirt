@@ -23,6 +23,8 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 实例管理
 		NormalAdminGroup.GET("/instances", admin.GetInstanceList)
 		NormalAdminGroup.GET("/instances/:id", admin.GetInstanceDetail)
+		NormalAdminGroup.GET("/instances/:id/snapshots", admin.GetInstanceSnapshots)
+		NormalAdminGroup.POST("/instances/:id/snapshots", admin.CreateInstanceSnapshot)
 		NormalAdminGroup.POST("/instances/:id/share-links", admin.CreateAdminInstanceShare)
 		NormalAdminGroup.POST("/instances", admin.CreateInstance)
 		NormalAdminGroup.POST("/instances/batch-action", admin.AdminBatchInstanceAction)
@@ -31,6 +33,14 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.POST("/instances/:id/action", admin.AdminInstanceAction)
 		NormalAdminGroup.PUT("/instances/:id/reset-password", admin.ResetInstancePassword)
 		NormalAdminGroup.GET("/instances/:id/password/:taskId", admin.GetInstanceNewPassword)
+		NormalAdminGroup.GET("/snapshots/overview", admin.GetSnapshotOverview)
+		NormalAdminGroup.GET("/snapshots", admin.GetSnapshotList)
+		NormalAdminGroup.DELETE("/snapshots/:id", admin.DeleteSnapshot)
+		NormalAdminGroup.POST("/snapshots/:id/restore", admin.RestoreSnapshot)
+		NormalAdminGroup.GET("/snapshot-schedules", admin.GetSnapshotSchedules)
+		NormalAdminGroup.POST("/snapshot-schedules", admin.CreateSnapshotSchedule)
+		NormalAdminGroup.PUT("/snapshot-schedules/:id", admin.UpdateSnapshotSchedule)
+		NormalAdminGroup.DELETE("/snapshot-schedules/:id", admin.DeleteSnapshotSchedule)
 		NormalAdminGroup.GET("/instances/:id/ssh", admin.AdminSSHWebSocket)
 		NormalAdminGroup.GET("/instances/:id/sftp/list", admin.AdminInstanceSFTPList)
 		NormalAdminGroup.GET("/instances/:id/sftp/download", admin.AdminInstanceSFTPDownload)
@@ -215,6 +225,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 
 		// 系统镜像管理（超管专用）
 		SuperAdminGroup.GET("/system-images", system.GetSystemImageList)
+		SuperAdminGroup.POST("/system-images/sync", system.SyncSystemImages)
 		SuperAdminGroup.POST("/system-images", system.CreateSystemImage)
 		SuperAdminGroup.PUT("/system-images/:id", system.UpdateSystemImage)
 		SuperAdminGroup.DELETE("/system-images/:id", system.DeleteSystemImage)

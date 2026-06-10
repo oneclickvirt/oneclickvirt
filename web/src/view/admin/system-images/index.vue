@@ -5,6 +5,13 @@
         <div class="card-header">
           <span>{{ $t('admin.systemImages.title') }}</span>
           <div class="header-buttons">
+            <el-button
+              type="success"
+              :loading="syncing"
+              @click="handleSync"
+            >
+              {{ $t('admin.systemImages.syncImages') }}
+            </el-button>
             <el-button @click="handleReset">
               {{ $t('common.reset') }}
             </el-button>
@@ -573,10 +580,10 @@ import { useSystemImageManagement } from './composables/useSystemImageManagement
 import { PROVIDER_TYPE_OPTIONS } from '@/utils/providerTypes'
 
 const {
-  loading, submitting, dialogVisible, selectedRows, tableData,
+  loading, submitting, syncing, dialogVisible, selectedRows, tableData,
   searchForm, pagination, form, formRef, isEdit, editId,
   groupedOperatingSystems, dialogTitle, rules,
-  fetchData, handleSearch, handleReset, handleSelectionChange,
+  fetchData, handleSearch, handleReset, handleSync, handleSelectionChange,
   handleCreate, handleEdit, handleSubmit, handleDelete,
   handleToggleStatus, handleBatchDelete, handleBatchStatus,
   handleSizeChange, handleCurrentChange, handleDialogClose,
