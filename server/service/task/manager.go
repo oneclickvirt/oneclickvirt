@@ -56,6 +56,18 @@ func (s *TaskService) calculateEstimatedDuration(taskType string, instanceType s
 		return 600 // 10分钟 - 删除操作（包含重试和清理时间）
 	case "reset-password":
 		return 30 // 30秒 - 密码重置操作快
+	case "monitor-sync":
+		return 300 // 5分钟 - 批量同步监控器，受节点并发控制
+	case "agent-deploy":
+		return 600 // 10分钟 - 需要下载/安装/配置agent
+	case "agent-uninstall":
+		return 120 // 2分钟 - 卸载agent，仍进入任务列表避免HTTP 120s边界
+	case "traffic-monitor-enable", "traffic-monitor-disable", "traffic-monitor-detect":
+		return 300 // 5分钟 - 批量监控启停/探测，实际超时由任务上下文控制
+	case "snapshot-create", "snapshot-delete", "snapshot-restore":
+		return 300 // 5分钟 - 快照操作可能触发远端命令
+	case "provider-image-cleanup":
+		return 300 // 5分钟 - 节点镜像/缓存批量清理
 	default:
 		return 120 // 默认2分钟 - 保守估计
 	}

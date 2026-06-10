@@ -12742,6 +12742,10 @@ const docTemplate = `{
         "admin.TrafficMonitorTask": {
             "type": "object",
             "properties": {
+                "adminTaskId": {
+                    "description": "统一任务列表中的任务ID",
+                    "type": "integer"
+                },
                 "completedAt": {
                     "description": "任务完成时间",
                     "type": "string"
@@ -15030,6 +15034,10 @@ const docTemplate = `{
         "user.AvailableProviderResponse": {
             "type": "object",
             "properties": {
+                "architecture": {
+                    "description": "CPU架构：amd64, arm64, s390x等",
+                    "type": "string"
+                },
                 "availableContainerSlots": {
                     "description": "可用容器槽位数，-1表示不限制",
                     "type": "integer"
@@ -15039,6 +15047,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "city": {
+                    "type": "string"
+                },
+                "connectionType": {
+                    "description": "连接类型：ssh/agent",
                     "type": "string"
                 },
                 "containerEnabled": {
@@ -15108,6 +15120,10 @@ const docTemplate = `{
                     "description": "节点网络模式",
                     "type": "string"
                 },
+                "physicalMemory": {
+                    "description": "物理内存(MB)",
+                    "type": "integer"
+                },
                 "redeemCodeOnly": {
                     "description": "是否仅支持兑换码兑换",
                     "type": "boolean"
@@ -15117,6 +15133,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "swapMemory": {
+                    "description": "Swap内存(MB)",
+                    "type": "integer"
                 },
                 "type": {
                     "description": "虚拟化/Provider类型",

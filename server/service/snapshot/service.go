@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -9,9 +10,11 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
 	providerSvc "oneclickvirt/service/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -21,9 +24,20 @@ const (
 	StatusCreating  = "creating"
 	StatusAvailable = "available"
 	StatusFailed    = "failed"
+
+	SnapshotTaskActionCreate  = "create"
+	SnapshotTaskActionDelete  = "delete"
+	SnapshotTaskActionRestore = "restore"
+
+	SnapshotTaskStatusPending = "pending"
+	SnapshotTaskStatusRunning = "running"
+	SnapshotTaskStatusSuccess = "success"
+	SnapshotTaskStatusFailed  = "failed"
 )
 
 type Service struct{}
+
+var snapshotTaskSemaphore = make(chan struct{}, 4)
 
 type ListFilter struct {
 	Page         int
@@ -64,6 +78,24 @@ type Overview struct {
 	ByProviderType map[string]int64      `json:"byProviderType"`
 	ByInstance     []InstanceSnapshotSum `json:"byInstance"`
 	Schedules      int64                 `json:"schedules"`
+}
+
+type SnapshotTaskResponse struct {
+	// Task is the unified task-list entry. All manual or scheduled snapshot
+	// operations that may exceed the HTTP 120s budget are visible here.
+	Task         *adminModel.Task                `json:"task"`
+	SnapshotTask *providerModel.SnapshotTask     `json:"snapshotTask,omitempty"`
+	Snapshot     *providerModel.InstanceSnapshot `json:"snapshot,omitempty"`
+}
+
+type SnapshotAdminTaskData struct {
+	SnapshotTaskID uint   `json:"snapshotTaskId"`
+	SnapshotID     uint   `json:"snapshotId"`
+	ScheduleID     uint   `json:"scheduleId,omitempty"`
+	Action         string `json:"action"`
+	Source         string `json:"source"`
+	Name           string `json:"name,omitempty"`
+	Description    string `json:"description,omitempty"`
 }
 
 type InstanceSnapshotSum struct {
@@ -137,6 +169,351 @@ func (s *Service) Overview() (*Overview, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+func (s *Service) GetSnapshotTask(id uint) (*providerModel.SnapshotTask, error) {
+	var task providerModel.SnapshotTask
+	if err := global.APP_DB.First(&task, id).Error; err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+func (s *Service) StartCreateSnapshotTask(instanceID uint, req SnapshotRequest, createdBy uint, source string) (*SnapshotTaskResponse, error) {
+	return s.startCreateSnapshotTask(instanceID, req, createdBy, source, nil)
+}
+
+func (s *Service) startCreateSnapshotTask(instanceID uint, req SnapshotRequest, createdBy uint, source string, schedule *providerModel.SnapshotSchedule) (*SnapshotTaskResponse, error) {
+	inst, err := loadInstance(instanceID)
+	if err != nil {
+		return nil, err
+	}
+	quota, err := maxSnapshotsForUser(inst.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if quota <= 0 {
+		return nil, fmt.Errorf("当前用户等级未开放快照配额")
+	}
+	var count int64
+	if err := global.APP_DB.Model(&providerModel.InstanceSnapshot{}).
+		Where("instance_id = ? AND status IN ?", inst.ID, []string{StatusCreating, StatusAvailable}).Count(&count).Error; err != nil {
+		return nil, err
+	}
+	if int(count) >= quota {
+		return nil, fmt.Errorf("快照数量已达用户等级配额上限 %d", quota)
+	}
+
+	snapshotName := sanitizeName(req.Name)
+	if snapshotName == "" {
+		snapshotName = fmt.Sprintf("snap-%s", time.Now().Format("20060102150405"))
+	}
+	providerType := providerTypeForInstance(*inst)
+	snapshot := &providerModel.InstanceSnapshot{
+		ProviderID:   inst.ProviderID,
+		InstanceID:   inst.ID,
+		UserID:       inst.UserID,
+		ProviderType: providerType,
+		InstanceType: strings.ToLower(strings.TrimSpace(inst.InstanceType)),
+		InstanceName: inst.Name,
+		Name:         snapshotName,
+		Description:  req.Description,
+		Status:       StatusCreating,
+		Source:       source,
+		CreatedBy:    createdBy,
+	}
+	if err := global.APP_DB.Create(snapshot).Error; err != nil {
+		return nil, err
+	}
+
+	task := &providerModel.SnapshotTask{
+		ProviderID:  inst.ProviderID,
+		InstanceID:  inst.ID,
+		SnapshotID:  snapshot.ID,
+		UserID:      inst.UserID,
+		Action:      SnapshotTaskActionCreate,
+		Status:      SnapshotTaskStatusPending,
+		Source:      source,
+		Name:        snapshotName,
+		Description: req.Description,
+		CreatedBy:   createdBy,
+	}
+	if schedule != nil {
+		task.ScheduleID = schedule.ID
+	}
+	if err := global.APP_DB.Create(task).Error; err != nil {
+		markSnapshotFailed(snapshot.ID, err)
+		return nil, err
+	}
+	adminTask, err := s.createUnifiedSnapshotTask(task, snapshot, SnapshotTaskActionCreate, createdBy)
+	if err != nil {
+		markSnapshotFailed(snapshot.ID, err)
+		_ = global.APP_DB.Model(task).Updates(map[string]interface{}{
+			"status":        SnapshotTaskStatusFailed,
+			"error_message": err.Error(),
+		}).Error
+		return nil, err
+	}
+
+	return &SnapshotTaskResponse{Task: adminTask, SnapshotTask: task, Snapshot: snapshot}, nil
+}
+
+func (s *Service) StartDeleteSnapshotTask(snapshotID uint, createdBy uint) (*SnapshotTaskResponse, error) {
+	var snapshot providerModel.InstanceSnapshot
+	if err := global.APP_DB.First(&snapshot, snapshotID).Error; err != nil {
+		return nil, err
+	}
+	task := &providerModel.SnapshotTask{
+		ProviderID: snapshot.ProviderID,
+		InstanceID: snapshot.InstanceID,
+		SnapshotID: snapshot.ID,
+		UserID:     snapshot.UserID,
+		Action:     SnapshotTaskActionDelete,
+		Status:     SnapshotTaskStatusPending,
+		Source:     snapshot.Source,
+		Name:       snapshot.Name,
+		CreatedBy:  createdBy,
+	}
+	if err := global.APP_DB.Create(task).Error; err != nil {
+		return nil, err
+	}
+	adminTask, err := s.createUnifiedSnapshotTask(task, &snapshot, SnapshotTaskActionDelete, createdBy)
+	if err != nil {
+		return nil, err
+	}
+	return &SnapshotTaskResponse{Task: adminTask, SnapshotTask: task, Snapshot: &snapshot}, nil
+}
+
+func (s *Service) StartRestoreSnapshotTask(snapshotID uint, createdBy uint) (*SnapshotTaskResponse, error) {
+	var snapshot providerModel.InstanceSnapshot
+	if err := global.APP_DB.First(&snapshot, snapshotID).Error; err != nil {
+		return nil, err
+	}
+	task := &providerModel.SnapshotTask{
+		ProviderID: snapshot.ProviderID,
+		InstanceID: snapshot.InstanceID,
+		SnapshotID: snapshot.ID,
+		UserID:     snapshot.UserID,
+		Action:     SnapshotTaskActionRestore,
+		Status:     SnapshotTaskStatusPending,
+		Source:     snapshot.Source,
+		Name:       snapshot.Name,
+		CreatedBy:  createdBy,
+	}
+	if err := global.APP_DB.Create(task).Error; err != nil {
+		return nil, err
+	}
+	adminTask, err := s.createUnifiedSnapshotTask(task, &snapshot, SnapshotTaskActionRestore, createdBy)
+	if err != nil {
+		return nil, err
+	}
+	return &SnapshotTaskResponse{Task: adminTask, SnapshotTask: task, Snapshot: &snapshot}, nil
+}
+
+func (s *Service) createUnifiedSnapshotTask(snapshotTask *providerModel.SnapshotTask, snapshot *providerModel.InstanceSnapshot, action string, createdBy uint) (*adminModel.Task, error) {
+	if snapshotTask == nil || snapshot == nil {
+		return nil, fmt.Errorf("snapshot task and snapshot are required")
+	}
+	data, _ := json.Marshal(SnapshotAdminTaskData{
+		SnapshotTaskID: snapshotTask.ID,
+		SnapshotID:     snapshot.ID,
+		ScheduleID:     snapshotTask.ScheduleID,
+		Action:         action,
+		Source:         snapshotTask.Source,
+		Name:           snapshotTask.Name,
+		Description:    snapshotTask.Description,
+	})
+	instanceID := snapshot.InstanceID
+	providerID := snapshot.ProviderID
+	task := &adminModel.Task{
+		UserID:            snapshot.UserID,
+		ProviderID:        &providerID,
+		InstanceID:        &instanceID,
+		TaskType:          "snapshot-" + action,
+		Status:            "pending",
+		TaskData:          string(data),
+		TimeoutDuration:   1800,
+		EstimatedDuration: 300,
+		CanForceStop:      true,
+		IsForceStoppable:  true,
+		StatusMessage:     "snapshot.pending",
+	}
+	// Task.UserID must remain the instance owner. createdBy is stored on the snapshot/schedule records.
+	if err := global.APP_DB.Create(task).Error; err != nil {
+		return nil, err
+	}
+	snapshotTask.AdminTaskID = task.ID
+	if err := global.APP_DB.Model(snapshotTask).Update("admin_task_id", task.ID).Error; err != nil {
+		return nil, err
+	}
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
+	return task, nil
+}
+
+func (s *Service) ExecuteSnapshotAdminTask(ctx context.Context, task *adminModel.Task) error {
+	if task == nil {
+		return fmt.Errorf("snapshot admin task is nil")
+	}
+	var data SnapshotAdminTaskData
+	if err := json.Unmarshal([]byte(task.TaskData), &data); err != nil {
+		return fmt.Errorf("解析快照任务数据失败: %w", err)
+	}
+	if data.SnapshotTaskID == 0 || data.SnapshotID == 0 {
+		return fmt.Errorf("快照任务数据缺少snapshotTaskId或snapshotId")
+	}
+
+	utils.UpdateTaskProgress(task.ID, 5, "snapshot.taskStarted")
+	s.markSnapshotTaskRunning(data.SnapshotTaskID)
+
+	var err error
+	switch data.Action {
+	case SnapshotTaskActionCreate:
+		err = s.executeCreateSnapshotForTask(ctx, task.ID, data)
+	case SnapshotTaskActionDelete:
+		utils.UpdateTaskProgress(task.ID, 30, "snapshot.deleteRemote")
+		err = s.DeleteSnapshot(ctx, data.SnapshotID)
+	case SnapshotTaskActionRestore:
+		utils.UpdateTaskProgress(task.ID, 30, "snapshot.restoreRemote")
+		err = s.RestoreSnapshot(ctx, data.SnapshotID)
+	default:
+		err = fmt.Errorf("unsupported snapshot action: %s", data.Action)
+	}
+	if err != nil {
+		s.finishSnapshotTask(data.SnapshotTaskID, SnapshotTaskStatusFailed, err)
+		utils.UpdateTaskProgress(task.ID, 95, "snapshot.taskFailed")
+		return err
+	}
+	s.finishSnapshotTask(data.SnapshotTaskID, SnapshotTaskStatusSuccess, nil)
+	utils.UpdateTaskProgress(task.ID, 100, "snapshot.taskCompleted")
+	return nil
+}
+
+func (s *Service) executeCreateSnapshotForTask(ctx context.Context, adminTaskID uint, data SnapshotAdminTaskData) error {
+	var snapshot providerModel.InstanceSnapshot
+	if err := global.APP_DB.First(&snapshot, data.SnapshotID).Error; err != nil {
+		return err
+	}
+	inst, err := loadInstance(snapshot.InstanceID)
+	if err != nil {
+		markSnapshotFailed(snapshot.ID, err)
+		return err
+	}
+	utils.UpdateTaskProgress(adminTaskID, 30, "snapshot.buildCommand")
+	cmd, err := buildSnapshotCommand(SnapshotTaskActionCreate, *inst, snapshot)
+	if err != nil {
+		markSnapshotFailed(snapshot.ID, err)
+		return err
+	}
+	utils.UpdateTaskProgress(adminTaskID, 60, "snapshot.executeRemote")
+	if err := executeProviderCommand(ctx, inst.ProviderID, cmd); err != nil {
+		markSnapshotFailed(snapshot.ID, err)
+		return err
+	}
+	utils.UpdateTaskProgress(adminTaskID, 90, "snapshot.updateDatabase")
+	if err := global.APP_DB.Model(&snapshot).Updates(map[string]interface{}{"status": StatusAvailable, "error_message": ""}).Error; err != nil {
+		return err
+	}
+	if data.ScheduleID > 0 {
+		var schedule providerModel.SnapshotSchedule
+		if err := global.APP_DB.First(&schedule, data.ScheduleID).Error; err == nil && (schedule.RetentionDays > 0 || schedule.MaxSnapshots > 0) {
+			s.pruneScheduledSnapshots(ctx, schedule)
+		}
+	}
+	return nil
+}
+
+func (s *Service) runCreateSnapshotTask(taskID uint, snapshotID uint) {
+	release := acquireSnapshotTaskSlot()
+	defer release()
+	s.markSnapshotTaskRunning(taskID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	var snapshot providerModel.InstanceSnapshot
+	err := global.APP_DB.First(&snapshot, snapshotID).Error
+	if err == nil {
+		var inst *providerModel.Instance
+		inst, err = loadInstance(snapshot.InstanceID)
+		if err == nil {
+			var cmd string
+			cmd, err = buildSnapshotCommand(SnapshotTaskActionCreate, *inst, snapshot)
+			if err == nil {
+				err = executeProviderCommand(ctx, inst.ProviderID, cmd)
+			}
+		}
+	}
+	if err != nil {
+		markSnapshotFailed(snapshotID, err)
+		s.finishSnapshotTask(taskID, SnapshotTaskStatusFailed, err)
+		return
+	}
+	if err := global.APP_DB.Model(&snapshot).Updates(map[string]interface{}{"status": StatusAvailable, "error_message": ""}).Error; err != nil {
+		s.finishSnapshotTask(taskID, SnapshotTaskStatusFailed, err)
+		return
+	}
+
+	var task providerModel.SnapshotTask
+	if err := global.APP_DB.First(&task, taskID).Error; err == nil && task.ScheduleID > 0 {
+		var schedule providerModel.SnapshotSchedule
+		if err := global.APP_DB.First(&schedule, task.ScheduleID).Error; err == nil && (schedule.RetentionDays > 0 || schedule.MaxSnapshots > 0) {
+			s.pruneScheduledSnapshots(ctx, schedule)
+		}
+	}
+	s.finishSnapshotTask(taskID, SnapshotTaskStatusSuccess, nil)
+}
+
+func (s *Service) runSnapshotOperationTask(taskID uint, action string, snapshotID uint) {
+	release := acquireSnapshotTaskSlot()
+	defer release()
+	s.markSnapshotTaskRunning(taskID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	var err error
+	switch action {
+	case SnapshotTaskActionDelete:
+		err = s.DeleteSnapshot(ctx, snapshotID)
+	case SnapshotTaskActionRestore:
+		err = s.RestoreSnapshot(ctx, snapshotID)
+	default:
+		err = fmt.Errorf("unsupported snapshot task action: %s", action)
+	}
+	if err != nil {
+		s.finishSnapshotTask(taskID, SnapshotTaskStatusFailed, err)
+		return
+	}
+	s.finishSnapshotTask(taskID, SnapshotTaskStatusSuccess, nil)
+}
+
+func acquireSnapshotTaskSlot() func() {
+	snapshotTaskSemaphore <- struct{}{}
+	return func() { <-snapshotTaskSemaphore }
+}
+
+func (s *Service) markSnapshotTaskRunning(taskID uint) {
+	now := time.Now()
+	_ = global.APP_DB.Model(&providerModel.SnapshotTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+		"status":     SnapshotTaskStatusRunning,
+		"started_at": &now,
+	}).Error
+}
+
+func (s *Service) finishSnapshotTask(taskID uint, status string, err error) {
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status":      status,
+		"finished_at": &now,
+	}
+	if err != nil {
+		updates["error_message"] = err.Error()
+	} else {
+		updates["error_message"] = ""
+	}
+	_ = global.APP_DB.Model(&providerModel.SnapshotTask{}).Where("id = ?", taskID).Updates(updates).Error
 }
 
 func (s *Service) CreateSnapshot(ctx context.Context, instanceID uint, req SnapshotRequest, createdBy uint, source string) (*providerModel.InstanceSnapshot, error) {
@@ -333,7 +710,10 @@ func (s *Service) DeleteSchedule(id uint) error {
 func (s *Service) RunDueSchedules(ctx context.Context) {
 	now := time.Now()
 	var schedules []providerModel.SnapshotSchedule
-	if err := global.APP_DB.Where("enabled = ? AND next_run_at IS NOT NULL AND next_run_at <= ?", true, now).Find(&schedules).Error; err != nil {
+	if err := global.APP_DB.Where("enabled = ? AND next_run_at IS NOT NULL AND next_run_at <= ?", true, now).
+		Order("next_run_at ASC").
+		Limit(20).
+		Find(&schedules).Error; err != nil {
 		global.APP_LOG.Warn("查询计划快照失败", zap.Error(err))
 		return
 	}
@@ -344,7 +724,7 @@ func (s *Service) RunDueSchedules(ctx context.Context) {
 
 func (s *Service) runOneSchedule(ctx context.Context, schedule providerModel.SnapshotSchedule) {
 	name := fmt.Sprintf("%s-%s", sanitizeName(schedule.Name), time.Now().Format("20060102150405"))
-	_, err := s.CreateSnapshot(ctx, schedule.InstanceID, SnapshotRequest{Name: name, Description: "scheduled snapshot"}, schedule.CreatedBy, "scheduled")
+	_, err := s.startCreateSnapshotTask(schedule.InstanceID, SnapshotRequest{Name: name, Description: "scheduled snapshot"}, schedule.CreatedBy, "scheduled", &schedule)
 	updates := map[string]interface{}{}
 	now := time.Now()
 	updates["last_run_at"] = &now
@@ -358,9 +738,6 @@ func (s *Service) runOneSchedule(ctx context.Context, schedule providerModel.Sna
 		updates["last_error"] = err.Error()
 	} else {
 		updates["last_error"] = ""
-		if schedule.RetentionDays > 0 || schedule.MaxSnapshots > 0 {
-			s.pruneScheduledSnapshots(ctx, schedule)
-		}
 	}
 	if updateErr := global.APP_DB.Model(&schedule).Updates(updates).Error; updateErr != nil {
 		global.APP_LOG.Warn("更新计划快照状态失败", zap.Uint("scheduleID", schedule.ID), zap.Error(updateErr))

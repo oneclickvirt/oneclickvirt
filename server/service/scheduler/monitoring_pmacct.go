@@ -393,7 +393,7 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 
 				// 逐个重置实例的pmacct守护进程
 				for _, monitor := range monitors {
-					if err := s.pmacctService.ResetPmacctDaemon(monitor.InstanceID); err != nil {
+					if err := s.resetPmacctDaemonWithTimeout(monitor.InstanceID, 2*time.Minute); err != nil {
 						global.APP_LOG.Error("重置pmacct守护进程失败",
 							zap.Uint("instanceID", monitor.InstanceID),
 							zap.Error(err))
@@ -498,6 +498,22 @@ func (s *MonitoringSchedulerService) cleanupDeletedInstanceResetTime() {
 	if cleanedDB > 0 {
 		global.APP_LOG.Debug("按数据库清理已删除Provider的pmacct重置时间记录",
 			zap.Int("cleaned", cleanedDB))
+	}
+}
+
+func (s *MonitoringSchedulerService) resetPmacctDaemonWithTimeout(instanceID uint, timeout time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- s.pmacctService.ResetPmacctDaemon(instanceID)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-s.stopChan:
+		return context.Canceled
+	case <-time.After(timeout):
+		return fmt.Errorf("reset pmacct daemon timeout after %s for instance %d", timeout, instanceID)
 	}
 }
 

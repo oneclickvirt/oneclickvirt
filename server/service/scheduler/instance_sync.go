@@ -41,6 +41,8 @@ type InstanceSyncSchedulerService struct {
 	isRunning       bool
 	maxConcurrency  int
 	semaphore       chan struct{}
+	syncMu          sync.Mutex // 防止整轮Provider实例同步重叠
+	refreshMu       sync.Mutex // 防止缺失网卡刷新任务重叠
 
 	// mismatchTracker stores pending status mismatch records keyed by instanceID.
 	mismatchMu      sync.Mutex
@@ -147,6 +149,12 @@ func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
 
 // syncAllProvidersInstances 同步所有Provider的实例
 func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
+	if !s.syncMu.TryLock() {
+		global.APP_LOG.Debug("Provider实例同步仍在运行中，跳过本轮触发")
+		return
+	}
+	defer s.syncMu.Unlock()
+
 	startTime := time.Now()
 	global.APP_LOG.Debug("开始Provider实例同步检查")
 
@@ -407,6 +415,12 @@ func (s *InstanceSyncSchedulerService) cleanupExpiredMismatchRecords() {
 // instances that have not yet had their host-side network interface recorded.
 // It groups instances by provider to reuse SSH connections and avoids N+1 DB queries.
 func (s *InstanceSyncSchedulerService) refreshMissingInterfaces() {
+	if !s.refreshMu.TryLock() {
+		global.APP_LOG.Debug("refreshMissingInterfaces 已在运行中，跳过重叠触发")
+		return
+	}
+	defer s.refreshMu.Unlock()
+
 	// Query running instances that need interface detection:
 	// 1. V4 interface is missing (fresh instance or never detected)
 	// 2. IPv6-capable instances where V6 is missing OR V6 equals V4

@@ -228,8 +228,10 @@ type AvailableProviderResponse struct {
 	ID                      uint    `json:"id"`
 	Name                    string  `json:"name"`
 	Description             string  `json:"description"`
-	Type                    string  `json:"type"`        // 虚拟化/Provider类型
-	NetworkType             string  `json:"networkType"` // 节点网络模式
+	Type                    string  `json:"type"`           // 虚拟化/Provider类型
+	Architecture            string  `json:"architecture"`   // CPU架构：amd64, arm64, s390x等
+	NetworkType             string  `json:"networkType"`    // 节点网络模式
+	ConnectionType          string  `json:"connectionType"` // 连接类型：ssh/agent
 	Region                  string  `json:"region"`
 	Country                 string  `json:"country"`
 	CountryCode             string  `json:"countryCode"`
@@ -237,6 +239,8 @@ type AvailableProviderResponse struct {
 	Status                  string  `json:"status"`
 	CPU                     int     `json:"cpu"`
 	Memory                  int     `json:"memory"`                  // 总内存(MB)
+	PhysicalMemory          int     `json:"physicalMemory"`          // 物理内存(MB)
+	SwapMemory              int     `json:"swapMemory"`              // Swap内存(MB)
 	Disk                    int     `json:"disk"`                    // 总硬盘空间(MB)
 	AvailableContainerSlots int     `json:"availableContainerSlots"` // 可用容器槽位数，-1表示不限制
 	AvailableVMSlots        int     `json:"availableVMSlots"`        // 可用虚拟机槽位数，-1表示不限制

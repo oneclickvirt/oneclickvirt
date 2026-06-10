@@ -16,6 +16,7 @@ type SnapshotSchedulerService struct {
 	service   *snapshotSvc.Service
 	stopChan  chan struct{}
 	isRunning bool
+	runMu     sync.Mutex
 	mu        sync.RWMutex
 }
 
@@ -69,7 +70,14 @@ func (s *SnapshotSchedulerService) loop(ctx context.Context) {
 			if global.APP_DB == nil {
 				continue
 			}
-			s.service.RunDueSchedules(ctx)
+			if !s.runMu.TryLock() {
+				global.APP_LOG.Debug("计划快照调度仍在运行中，跳过本轮触发")
+				continue
+			}
+			func() {
+				defer s.runMu.Unlock()
+				s.service.RunDueSchedules(ctx)
+			}()
 		}
 	}
 }

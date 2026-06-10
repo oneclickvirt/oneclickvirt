@@ -127,6 +127,7 @@ func RegisterTables(db *gorm.DB) {
 		&providerModel.InstanceShareLink{}, // 临时实例授权分享表
 		&providerModel.InstanceSnapshot{},  // 实例快照表
 		&providerModel.SnapshotSchedule{},  // 实例计划快照表
+		&providerModel.SnapshotTask{},      // 实例快照后台任务表
 		&adminModel.Task{},                 // 用户任务表
 
 		// 资源管理表

@@ -35,6 +35,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/instances/:id/password/:taskId", admin.GetInstanceNewPassword)
 		NormalAdminGroup.GET("/snapshots/overview", admin.GetSnapshotOverview)
 		NormalAdminGroup.GET("/snapshots", admin.GetSnapshotList)
+		NormalAdminGroup.GET("/snapshot-tasks/:id", admin.GetSnapshotTask)
 		NormalAdminGroup.DELETE("/snapshots/:id", admin.DeleteSnapshot)
 		NormalAdminGroup.POST("/snapshots/:id/restore", admin.RestoreSnapshot)
 		NormalAdminGroup.GET("/snapshot-schedules", admin.GetSnapshotSchedules)

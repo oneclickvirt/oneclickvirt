@@ -58,6 +58,20 @@ func GetInstanceSnapshots(c *gin.Context) {
 	common.ResponseSuccessWithPagination(c, list, total, filter.Page, filter.PageSize)
 }
 
+func GetSnapshotTask(c *gin.Context) {
+	taskID, ok := parsePathUint(c, "id")
+	if !ok {
+		return
+	}
+	service := &snapshotSvc.Service{}
+	task, err := service.GetSnapshotTask(taskID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, task)
+}
+
 func CreateInstanceSnapshot(c *gin.Context) {
 	instanceID, ok := parsePathUint(c, "id")
 	if !ok {
@@ -75,12 +89,12 @@ func CreateInstanceSnapshot(c *gin.Context) {
 		}
 	}
 	service := &snapshotSvc.Service{}
-	snapshot, err := service.CreateSnapshot(c.Request.Context(), instanceID, req, creator, "manual")
+	result, err := service.StartCreateSnapshotTask(instanceID, req, creator, "manual")
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
-	common.ResponseSuccess(c, snapshot)
+	common.ResponseSuccess(c, result, "快照创建任务已提交")
 }
 
 func DeleteSnapshot(c *gin.Context) {
@@ -89,11 +103,18 @@ func DeleteSnapshot(c *gin.Context) {
 		return
 	}
 	service := &snapshotSvc.Service{}
-	if err := service.DeleteSnapshot(c.Request.Context(), snapshotID); err != nil {
+	creator := uint(0)
+	if v, exists := c.Get("user_id"); exists {
+		if id, ok := v.(uint); ok {
+			creator = id
+		}
+	}
+	result, err := service.StartDeleteSnapshotTask(snapshotID, creator)
+	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
-	common.ResponseSuccess(c, nil)
+	common.ResponseSuccess(c, result, "快照删除任务已提交")
 }
 
 func RestoreSnapshot(c *gin.Context) {
@@ -102,11 +123,18 @@ func RestoreSnapshot(c *gin.Context) {
 		return
 	}
 	service := &snapshotSvc.Service{}
-	if err := service.RestoreSnapshot(c.Request.Context(), snapshotID); err != nil {
+	creator := uint(0)
+	if v, exists := c.Get("user_id"); exists {
+		if id, ok := v.(uint); ok {
+			creator = id
+		}
+	}
+	result, err := service.StartRestoreSnapshotTask(snapshotID, creator)
+	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
-	common.ResponseSuccess(c, nil)
+	common.ResponseSuccess(c, result, "快照恢复任务已提交")
 }
 
 func GetSnapshotSchedules(c *gin.Context) {

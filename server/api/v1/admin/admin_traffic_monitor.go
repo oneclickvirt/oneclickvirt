@@ -1,15 +1,13 @@
 package admin
 
 import (
-	"context"
-	"fmt"
 	"strconv"
-	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
-	trafficMonitorService "oneclickvirt/service/admin/traffic_monitor"
+	taskService "oneclickvirt/service/task"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -66,52 +64,20 @@ func TrafficMonitorOperation(c *gin.Context) {
 		return
 	}
 
-	// 异步执行任务
-	go func(taskID uint, providerID uint, operation string) {
-		defer func() {
-			if r := recover(); r != nil {
-				global.APP_LOG.Error("流量监控任务执行panic",
-					zap.Uint("taskID", taskID),
-					zap.Any("panic", r),
-					zap.Stack("stack"))
-
-				// 更新任务状态为失败
-				completedAt := time.Now()
-				global.APP_DB.Model(&adminModel.TrafficMonitorTask{}).
-					Where("id = ?", taskID).
-					Updates(map[string]interface{}{
-						"status":       "failed",
-						"message":      fmt.Sprintf("任务执行异常: %v", r),
-						"completed_at": completedAt,
-					})
-			}
-		}()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-
-		manager := trafficMonitorService.GetManager()
-
-		var err error
-		switch operation {
-		case "enable":
-			err = manager.BatchEnableMonitoring(ctx, providerID, taskID)
-		case "disable":
-			err = manager.BatchDisableMonitoring(ctx, providerID, taskID)
-		case "detect":
-			err = manager.BatchDetectMonitoring(ctx, providerID, taskID)
-		}
-
-		if err != nil {
-			global.APP_LOG.Error("流量监控任务执行失败",
-				zap.Uint("taskID", taskID),
-				zap.String("operation", operation),
-				zap.Error(err))
-		}
-	}(task.ID, req.ProviderID, req.Operation)
+	adminTask, err := taskService.CreateTrafficMonitorAdminTask(req.ProviderID, task.ID, req.Operation, middleware.GetOwnerAdminID(c))
+	if err != nil {
+		_ = global.APP_DB.Model(&task).Updates(map[string]interface{}{
+			"status":  "failed",
+			"message": err.Error(),
+		}).Error
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	_ = global.APP_DB.Model(&task).Update("admin_task_id", adminTask.ID).Error
 
 	common.ResponseSuccess(c, map[string]interface{}{
-		"taskId": task.ID,
+		"taskId":      task.ID,
+		"adminTaskId": adminTask.ID,
 	}, "任务已创建")
 }
 

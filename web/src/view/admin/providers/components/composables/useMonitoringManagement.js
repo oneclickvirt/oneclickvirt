@@ -224,9 +224,10 @@ export function useMonitoringManagement(props, emit) {
       deployLoading.value = true; deployOutput.value = ''
       const res = await deployAgent(props.provider.id)
       if (res.code === 200) {
-        ElMessage.success(t('admin.providers.deployAgentSuccess'))
-        deployOutput.value = res.data?.output || 'OK'
-        await loadConfig(); await loadMonitors(); handleCheckStatus()
+        ElMessage.success(res.msg || t('admin.providers.deployAgentSuccess'))
+        const taskId = res.data?.taskId || res.data?.task_id
+        deployOutput.value = taskId ? `Task ID: ${taskId}` : ''
+        await loadConfig(); await loadMonitors()
       } else {
         ElMessage.error(res.msg || t('admin.providers.deployAgentFailed'))
         deployOutput.value = res.data?.output || res.msg || ''
@@ -250,8 +251,9 @@ export function useMonitoringManagement(props, emit) {
       uninstallLoading.value = true
       const res = await uninstallAgent(props.provider.id)
       if (res.code === 200) {
-        ElMessage.success(t('admin.providers.uninstallAgentSuccess'))
-        await loadConfig(); monitors.value = []; agentOnlineChecked.value = false; agentIsOnline.value = false
+        ElMessage.success(res.msg || t('admin.providers.uninstallAgentSuccess'))
+        const taskId = res.data?.taskId || res.data?.task_id
+        deployOutput.value = taskId ? `Task ID: ${taskId}` : ''
       } else { ElMessage.error(res.msg || t('admin.providers.uninstallAgentFailed')) }
     } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.uninstallAgentFailed')) }
     finally { uninstallLoading.value = false }

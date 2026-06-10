@@ -67,6 +67,7 @@ type MonitorSyncTask struct {
 	UpdatedAt    time.Time  `json:"updated_at"`
 	ProviderID   uint       `gorm:"index:idx_monitor_sync_provider_status,priority:1;not null" json:"provider_id"`
 	TaskID       string     `gorm:"size:64;uniqueIndex;not null" json:"task_id"`
+	AdminTaskID  uint       `gorm:"index" json:"admin_task_id"`
 	Status       string     `gorm:"size:16;index:idx_monitor_sync_provider_status,priority:2;not null;default:pending" json:"status"`
 	Total        int        `gorm:"not null;default:0" json:"total"`
 	Created      int        `gorm:"not null;default:0" json:"created"`

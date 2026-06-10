@@ -150,9 +150,11 @@ type Provider struct {
 	TokenContent     string     `json:"-" gorm:"type:text"`                  // Token内容JSON格式（不返回给前端）
 
 	// 节点硬件资源信息（通过SSH查询获得）
-	NodeCPUCores    int   `json:"nodeCpuCores" gorm:"default:0"`    // 节点总CPU核心数
-	NodeMemoryTotal int64 `json:"nodeMemoryTotal" gorm:"default:0"` // 节点总内存大小（MB）
-	NodeDiskTotal   int64 `json:"nodeDiskTotal" gorm:"default:0"`   // 节点总磁盘空间（MB）
+	NodeCPUCores            int   `json:"nodeCpuCores" gorm:"default:0"`            // 节点总CPU核心数
+	NodeMemoryTotal         int64 `json:"nodeMemoryTotal" gorm:"default:0"`         // 节点总内存大小（MB）
+	NodeMemoryPhysicalTotal int64 `json:"nodeMemoryPhysicalTotal" gorm:"default:0"` // 节点物理内存大小（MB，不含Swap）
+	NodeMemorySwapTotal     int64 `json:"nodeMemorySwapTotal" gorm:"default:0"`     // 节点Swap大小（MB）
+	NodeDiskTotal           int64 `json:"nodeDiskTotal" gorm:"default:0"`           // 节点总磁盘空间（MB）
 
 	// 并发控制配置
 	AllowConcurrentTasks bool `json:"allowConcurrentTasks" gorm:"default:false"` // 是否允许并发执行任务
@@ -258,6 +260,11 @@ type Provider struct {
 
 	// 域名绑定开关（高级配置）
 	EnableDomainBinding bool `json:"enableDomainBinding" gorm:"default:false"` // 是否启用域名绑定功能
+
+	// WebVNC 高级配置：默认关闭。仅对支持图形控制台的VM类Provider显示WebVNC按钮。
+	EnableVNC   bool   `json:"enableVNC" gorm:"default:false"`     // 是否启用WebVNC入口
+	VNCBasePort int    `json:"vncBasePort" gorm:"default:5900"`    // 直连VNC端口基准，默认5900；实际端口可由实例发现数据覆盖
+	VNCHost     string `json:"vncHost" gorm:"size:128;default:''"` // 可选VNC宿主地址，留空使用Provider Endpoint/PortIP
 
 	// 域名反向代理高级配置
 	ProxyHTTPPort    int        `json:"proxyHttpPort" gorm:"default:80"`       // HTTP反向代理监听端口(默认80)

@@ -132,6 +132,12 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 			// 使用真实的资源数据
 			nodeCPU := provider.NodeCPUCores
 			nodeMemory := provider.NodeMemoryTotal
+			physicalMemory := provider.NodeMemoryPhysicalTotal
+			swapMemory := provider.NodeMemorySwapTotal
+			if physicalMemory == 0 && nodeMemory > 0 {
+				// 兼容旧数据：未拆分前仅有总内存，前端仍显示物理内存=总内存，Swap=0。
+				physicalMemory = nodeMemory
+			}
 			nodeDisk := provider.NodeDiskTotal
 
 			// 计算实际使用的资源 = 已分配的 + 预留的
@@ -199,7 +205,9 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				Name:                    provider.Name,
 				Description:             provider.Description,
 				Type:                    provider.Type,
+				Architecture:            provider.Architecture,
 				NetworkType:             provider.NetworkType,
+				ConnectionType:          provider.ConnectionType,
 				Region:                  provider.Region,
 				Country:                 provider.Country,
 				CountryCode:             provider.CountryCode,
@@ -207,7 +215,9 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				Status:                  provider.Status,
 				CPU:                     nodeCPU,
 				Memory:                  int(nodeMemory), // 返回MB单位
-				Disk:                    int(nodeDisk),   // 返回MB单位
+				PhysicalMemory:          int(physicalMemory),
+				SwapMemory:              int(swapMemory),
+				Disk:                    int(nodeDisk), // 返回MB单位
 				AvailableContainerSlots: availableContainerSlots,
 				AvailableVMSlots:        availableVMSlots,
 				MaxContainerInstances:   provider.MaxContainerInstances,

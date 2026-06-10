@@ -13,6 +13,7 @@ type TrafficMonitorTask struct {
 	UpdatedAt    time.Time      `json:"updatedAt"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 	ProviderID   uint           `gorm:"not null;index" json:"providerId"`                          // Provider ID
+	AdminTaskID  uint           `gorm:"index" json:"adminTaskId"`                                  // 统一任务列表中的任务ID
 	TaskType     string         `gorm:"type:varchar(50);not null" json:"taskType"`                 // 任务类型: enable_all, disable_all, detect_all
 	Status       string         `gorm:"type:varchar(20);not null;default:'pending'" json:"status"` // 状态: pending, running, completed, failed
 	Progress     int            `gorm:"default:0" json:"progress"`                                 // 进度 0-100

@@ -120,11 +120,18 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 					continue
 				}
 
+				if !s.tryStartAgentTrafficSync(cfg.ProviderID) {
+					global.APP_LOG.Debug("agent traffic sync already running, skip overlapping run",
+						zap.Uint("provider_id", cfg.ProviderID))
+					continue
+				}
+
 				lastAgentCollect[cfg.ProviderID] = now
 
 				s.wg.Add(1)
 				go func(providerID uint, config monitoringModel.MonitoringConfig) {
 					defer s.wg.Done()
+					defer s.finishAgentTrafficSync(providerID)
 					defer func() {
 						if r := recover(); r != nil {
 							global.APP_LOG.Error("agent traffic sync panic",
@@ -134,8 +141,16 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 						}
 					}()
 
-					syncCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-					defer cancel()
+					baseCtx, baseCancel := context.WithCancel(context.Background())
+					go func() {
+						select {
+						case <-s.stopChan:
+							baseCancel()
+						case <-baseCtx.Done():
+						}
+					}()
+					syncCtx, cancel := context.WithTimeout(baseCtx, 3*time.Minute)
+					defer func() { cancel(); baseCancel() }()
 
 					syncSvc := agentService.NewSyncService(syncCtx, global.APP_DB)
 					if err := syncSvc.SyncProviderTraffic(providerID, &config); err != nil {
@@ -231,11 +246,18 @@ func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Co
 					continue
 				}
 
+				if !s.tryStartAgentResourceSync(cfg.ProviderID) {
+					global.APP_LOG.Debug("agent resource sync already running, skip overlapping run",
+						zap.Uint("provider_id", cfg.ProviderID))
+					continue
+				}
+
 				lastResourceCollect[cfg.ProviderID] = now
 
 				s.wg.Add(1)
 				go func(providerID uint, config monitoringModel.MonitoringConfig) {
 					defer s.wg.Done()
+					defer s.finishAgentResourceSync(providerID)
 					defer func() {
 						if r := recover(); r != nil {
 							global.APP_LOG.Error("agent resource sync panic",
@@ -245,8 +267,16 @@ func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Co
 						}
 					}()
 
-					syncCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-					defer cancel()
+					baseCtx, baseCancel := context.WithCancel(context.Background())
+					go func() {
+						select {
+						case <-s.stopChan:
+							baseCancel()
+						case <-baseCtx.Done():
+						}
+					}()
+					syncCtx, cancel := context.WithTimeout(baseCtx, 2*time.Minute)
+					defer func() { cancel(); baseCancel() }()
 
 					resSvc := agentService.NewResourceSyncService(syncCtx, global.APP_DB)
 					if err := resSvc.SyncProviderResources(providerID, &config); err != nil {

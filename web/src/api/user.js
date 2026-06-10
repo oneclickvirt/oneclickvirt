@@ -1,5 +1,15 @@
 import request from '@/utils/request'
 
+export const getUserInstanceVNCInfo = (instanceId) => request({
+  url: `/v1/user/instances/${instanceId}/vnc`,
+  method: 'get'
+})
+
+export const getUserInstanceVNCWsUrl = (instanceId) => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}/api/v1/user/instances/${instanceId}/vnc/ws`
+}
+
 // 用户仪表盘相关
 export function getUserDashboard() {
   return request({

@@ -7,6 +7,7 @@ import (
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
+	snapshotSvc "oneclickvirt/service/snapshot"
 	"oneclickvirt/utils"
 )
 
@@ -99,6 +100,17 @@ func (s *TaskService) executeTaskLogic(ctx context.Context, task *adminModel.Tas
 		return s.executeDeletePortMappingTask(ctx, task)
 	case "sync-port-mappings":
 		return s.executeSyncPortMappingsTask(ctx, task)
+	case "snapshot-create", "snapshot-delete", "snapshot-restore":
+		service := &snapshotSvc.Service{}
+		return service.ExecuteSnapshotAdminTask(ctx, task)
+	case "monitor-sync":
+		return s.executeMonitorSyncTask(ctx, task)
+	case "agent-deploy", "agent-uninstall":
+		return s.executeAgentMonitoringTask(ctx, task)
+	case "traffic-monitor-enable", "traffic-monitor-disable", "traffic-monitor-detect":
+		return s.executeTrafficMonitorTask(ctx, task)
+	case "provider-image-cleanup":
+		return s.executeProviderImageCleanupTask(ctx, task)
 	default:
 		return fmt.Errorf("未知的任务类型: %s", task.TaskType)
 	}

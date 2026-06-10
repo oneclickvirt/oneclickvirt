@@ -35,6 +35,8 @@ type MonitoringSchedulerService struct {
 	providerStateManager *ProviderStateManager // Provider状态管理器
 	lastResetTime        sync.Map              // map[uint]time.Time - pmacct重置时间记录
 	lastResetCleanup     time.Time             // 最后清理时间
+	agentTrafficRunning  sync.Map              // map[uint]time.Time - 防止同一Provider的agent流量采集重叠
+	agentResourceRunning sync.Map              // map[uint]time.Time - 防止同一Provider的agent资源采集重叠
 	mu                   sync.RWMutex          // 保护 isRunning 和 lastResetCleanup
 }
 
@@ -128,3 +130,20 @@ func (s *MonitoringSchedulerService) DeleteProviderState(providerID uint) {
 		zap.Uint("providerID", providerID))
 }
 
+func (s *MonitoringSchedulerService) tryStartAgentTrafficSync(providerID uint) bool {
+	_, loaded := s.agentTrafficRunning.LoadOrStore(providerID, time.Now())
+	return !loaded
+}
+
+func (s *MonitoringSchedulerService) finishAgentTrafficSync(providerID uint) {
+	s.agentTrafficRunning.Delete(providerID)
+}
+
+func (s *MonitoringSchedulerService) tryStartAgentResourceSync(providerID uint) bool {
+	_, loaded := s.agentResourceRunning.LoadOrStore(providerID, time.Now())
+	return !loaded
+}
+
+func (s *MonitoringSchedulerService) finishAgentResourceSync(providerID uint) {
+	s.agentResourceRunning.Delete(providerID)
+}

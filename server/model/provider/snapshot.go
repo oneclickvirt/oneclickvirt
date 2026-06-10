@@ -67,3 +67,38 @@ func (s *SnapshotSchedule) BeforeCreate(tx *gorm.DB) error {
 	s.UUID = uuid.New().String()
 	return nil
 }
+
+// SnapshotTask tracks asynchronous snapshot create/delete/restore operations.
+// Snapshot provider commands may take minutes, so API handlers and schedulers
+// enqueue a task and return immediately instead of holding an HTTP request or
+// a scheduler tick until the remote command completes.
+type SnapshotTask struct {
+	ID        uint           `json:"id" gorm:"primarykey"`
+	UUID      string         `json:"uuid" gorm:"uniqueIndex;not null;size:36"`
+	CreatedAt time.Time      `json:"createdAt"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+
+	ProviderID  uint `json:"providerId" gorm:"not null;index"`
+	InstanceID  uint `json:"instanceId" gorm:"not null;index"`
+	SnapshotID  uint `json:"snapshotId" gorm:"index"`
+	AdminTaskID uint `json:"adminTaskId" gorm:"index"`
+	ScheduleID  uint `json:"scheduleId" gorm:"index"`
+	UserID      uint `json:"userId" gorm:"index"`
+
+	Action      string `json:"action" gorm:"not null;size:32;index"`
+	Status      string `json:"status" gorm:"not null;size:32;index"`
+	Source      string `json:"source" gorm:"size:32;index"`
+	Name        string `json:"name" gorm:"size:128"`
+	Description string `json:"description" gorm:"size:512"`
+
+	ErrorMessage string     `json:"errorMessage" gorm:"type:text"`
+	StartedAt    *time.Time `json:"startedAt"`
+	FinishedAt   *time.Time `json:"finishedAt"`
+	CreatedBy    uint       `json:"createdBy" gorm:"index"`
+}
+
+func (s *SnapshotTask) BeforeCreate(tx *gorm.DB) error {
+	s.UUID = uuid.New().String()
+	return nil
+}

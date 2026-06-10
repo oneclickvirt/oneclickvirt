@@ -1,5 +1,4 @@
 import request from '@/utils/request'
-import { createLongTimeoutRequest } from '@/utils/longTimeoutRequest'
 
 // 流量监控任务管理（pmacct 旧接口，保留兼容）
 export const trafficMonitorOperation = (data) => {
@@ -55,14 +54,14 @@ export const updateMonitoringConfig = (providerId, data) => {
 }
 
 export const deployAgent = (providerId) => {
-  return createLongTimeoutRequest(180000)({
+  return request({
     url: `/v1/admin/providers/${providerId}/monitoring/agent`,
     method: 'post'
   })
 }
 
 export const uninstallAgent = (providerId) => {
-  return createLongTimeoutRequest(120000)({
+  return request({
     url: `/v1/admin/providers/${providerId}/monitoring/agent`,
     method: 'delete'
   })

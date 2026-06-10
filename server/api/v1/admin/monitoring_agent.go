@@ -7,14 +7,15 @@ import (
 
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
 	providerService "oneclickvirt/service/provider"
+	taskService "oneclickvirt/service/task"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 // DeployAgentRequest is the request body for deploying the agent.
@@ -42,111 +43,21 @@ func DeployAgent(c *gin.Context) {
 	}
 
 	var req DeployAgentRequest
-	// Body is optional — version is the only field and it has a default.
 	_ = c.ShouldBindJSON(&req)
-
 	if req.Version == "" {
 		req.Version = constant.CompatibleAgentVersion
 	}
 
-	// Get or create monitoring config (token is auto-generated on creation)
-	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
+	task, err := taskService.CreateAgentMonitoringAdminTask(uint(providerID), middleware.GetOwnerAdminID(c), "agent-deploy", req.Version)
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
-
-	// Ensure token exists (legacy configs created before auto-generation was added)
-	if config.AgentToken == "" {
-		config.AgentToken = agentService.GenerateAgentToken()
-		if err := global.APP_DB.Save(config).Error; err != nil {
-			common.ResponseWithError(c, common.ClassifyError(err))
-			return
-		}
-	}
-
-	// Get provider instance from the registry
-	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider未连接: "+err.Error()))
-		return
-	}
-
-	// Check kernel version for nft support (the deploy script will install nft if needed)
-	if config.TrafficCollectMethod == "" || config.TrafficCollectMethod == "nft" {
-		nftCtx, nftCancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-		defer nftCancel()
-
-		kernelOK, err := agentService.DetectKernelVersionForNFT(nftCtx, providerInstance)
-		if err != nil {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("kernel version check failed, proceeding with deploy",
-					zap.Error(err))
-			}
-			// Don't block deploy on detection failure - the deploy script will handle it
-		} else if !kernelOK {
-			// Kernel too old for nftables, auto-switch to iptables mode
-			config.TrafficCollectMethod = "ipt"
-			if err := global.APP_DB.Save(config).Error; err != nil {
-				common.ResponseWithError(c, common.ClassifyError(err))
-				return
-			}
-			if global.APP_LOG != nil {
-				global.APP_LOG.Info("kernel too old for nftables, switched to iptables mode",
-					zap.Uint("providerID", uint(providerID)))
-			}
-		}
-	}
-
-	// Get provider model from database for proxy config
-	var dbProvider providerModel.Provider
-	if err := global.APP_DB.First(&dbProvider, uint(providerID)).Error; err != nil {
-		common.ResponseWithError(c, common.ClassifyError(err))
-		return
-	}
-
-	// Agent 模式节点无需重复部署监控 agent（已通过 ocv 安装）
-	if dbProvider.ConnectionType == "agent" {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Agent 模式节点已部署 Agent，无需重复部署监控。"))
-		return
-	}
-
-	// Deploy agent with full config
-	deployCtx, deployCancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
-	defer deployCancel()
-
-	agentCfg := &agentService.AgentConfig{
-		Token:                   config.AgentToken,
-		TrafficCollectInterval:  config.CollectInterval,
-		ResourceCollectInterval: config.ResourceCollectInterval,
-		ExtraExcludeCIDRsV4:     config.ExtraExcludeCIDRsV4,
-		ExtraExcludeCIDRsV6:     config.ExtraExcludeCIDRsV6,
-		TrafficCollectMethod:    config.TrafficCollectMethod,
-		// Reverse proxy config from provider database model
-		EnableReverseProxy: dbProvider.EnableDomainBinding,
-		ProxyHTTPPort:      dbProvider.ProxyHTTPPort,
-		ProxyHTTPSPort:     dbProvider.ProxyHTTPSPort,
-		ProxyEnableHTTP:    dbProvider.ProxyEnableHTTP,
-		ProxyEnableHTTPS:   dbProvider.ProxyEnableHTTPS,
-		ProxyTLSCertPath:   dbProvider.ProxyTLSCertPath,
-		ProxyTLSKeyPath:    dbProvider.ProxyTLSKeyPath,
-	}
-	logs, err := agentService.DeployAgentWithConfig(deployCtx, providerInstance, agentCfg, req.Version)
-	if err != nil {
-		common.ResponseWithError(c, common.ClassifyError(err))
-		return
-	}
-
-	// Update config
-	config.AgentInstalled = true
-	config.AgentVersion = req.Version
-	config.MonitoringMode = "agent"
-	if err := global.APP_DB.Save(config).Error; err != nil {
-		common.ResponseWithError(c, common.ClassifyError(err))
-		return
-	}
-
-	common.ResponseSuccess(c, gin.H{"config": config, "output": logs}, "Agent部署成功")
+	common.ResponseSuccess(c, gin.H{
+		"taskId":  task.ID,
+		"task_id": task.ID,
+		"status":  task.Status,
+	}, "Agent部署任务已提交")
 }
 
 // UninstallAgent godoc
@@ -165,40 +76,16 @@ func UninstallAgent(c *gin.Context) {
 		return
 	}
 
-	// Agent 模式节点不允许从主控端卸载 agent
-	var dbProvider providerModel.Provider
-	if err := global.APP_DB.First(&dbProvider, uint(providerID)).Error; err != nil {
-		common.ResponseWithError(c, common.ClassifyError(err))
-		return
-	}
-	if dbProvider.ConnectionType == "agent" {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Agent 模式节点不能从主控端卸载。请在节点上执行 ocv uninstall 进行卸载。"))
-		return
-	}
-
-	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
+	task, err := taskService.CreateAgentMonitoringAdminTask(uint(providerID), middleware.GetOwnerAdminID(c), "agent-uninstall", "")
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider未连接: "+err.Error()))
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
-	defer cancel()
-
-	if err := agentService.UninstallAgent(ctx, providerInstance); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
-
-	// Update config
-	config, _ := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
-	if config != nil {
-		config.AgentInstalled = false
-		config.MonitoringMode = "pmacct"
-		_ = global.APP_DB.Save(config).Error // best-effort update after successful uninstall
-	}
-
-	common.ResponseSuccess(c, nil, "Agent已卸载")
+	common.ResponseSuccess(c, gin.H{
+		"taskId":  task.ID,
+		"task_id": task.ID,
+		"status":  task.Status,
+	}, "Agent卸载任务已提交")
 }
 
 // GetAgentStatus godoc

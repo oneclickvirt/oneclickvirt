@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
 	providerService "oneclickvirt/service/provider"
+	taskService "oneclickvirt/service/task"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -147,8 +149,17 @@ func SyncProviderMonitors(c *gin.Context) {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
-	configCopy := *config
-	go runProviderMonitorSyncTask(task.TaskID, uint(providerID), configCopy)
+	adminTask, err := taskService.CreateMonitorSyncAdminTask(uint(providerID), task.ID, middleware.GetOwnerAdminID(c))
+	if err != nil {
+		_ = global.APP_DB.Model(&task).Updates(map[string]interface{}{
+			"status":        "failed",
+			"error_message": err.Error(),
+			"finished_at":   time.Now(),
+		}).Error
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	_ = global.APP_DB.Model(&task).Update("admin_task_id", adminTask.ID).Error
 
 	common.ResponseSuccess(c, buildMonitorSyncTaskResponse(&task), "同步任务已提交")
 }
@@ -199,6 +210,7 @@ func buildMonitorSyncTaskResponse(task *monitoringModel.MonitorSyncTask) map[str
 	}
 	return map[string]interface{}{
 		"task_id":       task.TaskID,
+		"admin_task_id": task.AdminTaskID,
 		"provider_id":   task.ProviderID,
 		"status":        task.Status,
 		"total":         task.Total,
