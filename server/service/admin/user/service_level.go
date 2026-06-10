@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"oneclickvirt/config"
 	auth2 "oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/userquota"
 	"time"
 
 	"oneclickvirt/global"
@@ -20,13 +20,7 @@ import (
 )
 
 func highestConfiguredUserLevel() int {
-	maxLevel := 1
-	for level := range global.GetAppConfig().Quota.LevelLimits {
-		if level > maxLevel {
-			maxLevel = level
-		}
-	}
-	return maxLevel
+	return userquota.HighestConfiguredLevel()
 }
 
 func validateConfiguredUserLevel(level int) error {
@@ -70,9 +64,10 @@ func (s *Service) UpdateUserStatus(userID uint, status int) error {
 			zap.String("username", user.Username))
 	}
 
-	// 清除用户权限缓存，确保状态变更立即生效
+	// 清除用户权限和用户资料缓存，确保状态变更立即生效
 	permissionService := auth2.PermissionService{}
 	permissionService.ClearUserPermissionCache(userID)
+	cache.GetUserCacheService().InvalidateUserCache(userID)
 
 	return nil
 }
@@ -142,10 +137,12 @@ func (s *Service) BatchUpdateUserStatus(userIDs []uint, status int) error {
 		}
 	}
 
-	// 批量清除用户权限缓存
+	// 批量清除用户权限和资料缓存
 	permissionService := auth2.PermissionService{}
+	cacheService := cache.GetUserCacheService()
 	for _, userID := range userIDs {
 		permissionService.ClearUserPermissionCache(userID)
+		cacheService.InvalidateUserCache(userID)
 	}
 
 	return nil
@@ -153,88 +150,73 @@ func (s *Service) BatchUpdateUserStatus(userIDs []uint, status int) error {
 
 // syncUserResourceLimits 同步用户资源限制到对应等级配置
 func (s *Service) syncUserResourceLimits(userIDs []uint) error {
+	return s.syncUserResourceLimitsWithDB(global.APP_DB, userIDs)
+}
+
+// syncUserResourceLimitsWithDB 在指定 DB/事务中同步用户资源限制。
+func (s *Service) syncUserResourceLimitsWithDB(db *gorm.DB, userIDs []uint) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
 
-	// 按等级分组查询用户
-	// 批量查询用户level信息
 	var users []userModel.User
-	if err := global.APP_DB.Select("id, level").
-		Where("id IN ?", userIDs).
-		Limit(1000).
-		Find(&users).Error; err != nil {
+	if err := db.Select("id, level").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
 		global.APP_LOG.Error("查询用户信息失败", zap.Error(err))
 		return err
 	}
 
-	// 按等级分组
 	levelGroups := make(map[int][]uint)
 	for _, user := range users {
 		levelGroups[user.Level] = append(levelGroups[user.Level], user.ID)
 	}
 
-	// 为每个等级的用户更新资源限制
-	for level, userIDList := range levelGroups {
-		if levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]; exists {
-			levelConfig = config.NormalizeLevelLimitInfo(level, levelConfig)
-			// 构建完整的资源限制更新数据
-			updateData := map[string]interface{}{
-				"total_traffic": levelConfig.MaxTraffic,
-				"max_instances": levelConfig.MaxInstances,
-			}
+	for level, ids := range levelGroups {
+		updateData, err := userquota.BuildLimitUpdateMap(level)
+		if err != nil {
+			global.APP_LOG.Error("构建用户资源限制失败",
+				zap.Int("level", level),
+				zap.Uints("userIDs", ids),
+				zap.Error(err))
+			return err
+		}
 
-			// 从 MaxResources 中提取各项资源限制
-			if levelConfig.MaxResources != nil {
-				if cpu, ok := levelConfig.MaxResources["cpu"].(int); ok {
-					updateData["max_cpu"] = cpu
-				} else if cpu, ok := levelConfig.MaxResources["cpu"].(float64); ok {
-					updateData["max_cpu"] = int(cpu)
-				}
-
-				if memory, ok := levelConfig.MaxResources["memory"].(int); ok {
-					updateData["max_memory"] = memory
-				} else if memory, ok := levelConfig.MaxResources["memory"].(float64); ok {
-					updateData["max_memory"] = int(memory)
-				}
-
-				if disk, ok := levelConfig.MaxResources["disk"].(int); ok {
-					updateData["max_disk"] = disk
-				} else if disk, ok := levelConfig.MaxResources["disk"].(float64); ok {
-					updateData["max_disk"] = int(disk)
-				}
-
-				if bandwidth, ok := levelConfig.MaxResources["bandwidth"].(int); ok {
-					updateData["max_bandwidth"] = bandwidth
-				} else if bandwidth, ok := levelConfig.MaxResources["bandwidth"].(float64); ok {
-					updateData["max_bandwidth"] = int(bandwidth)
-				}
-			}
-
-			if err := global.APP_DB.Table("users").
-				Where("id IN ?", userIDList).
+		for _, batch := range splitUintBatch(ids, 500) {
+			if err := db.Model(&userModel.User{}).
+				Where("id IN ?", batch).
 				Updates(updateData).Error; err != nil {
 				global.APP_LOG.Error("同步用户资源限制失败",
 					zap.Int("level", level),
-					zap.Uints("userIDs", userIDList),
+					zap.Uints("userIDs", batch),
 					zap.Error(err))
 				return err
 			}
-
-			global.APP_LOG.Debug("同步用户资源限制成功",
-				zap.Int("level", level),
-				zap.Int("userCount", len(userIDList)),
-				zap.Int64("newTrafficLimit", levelConfig.MaxTraffic),
-				zap.Int("maxInstances", levelConfig.MaxInstances),
-				zap.Any("updateData", updateData))
-		} else {
-			global.APP_LOG.Warn("等级配置不存在，跳过资源限制同步",
-				zap.Int("level", level),
-				zap.Uints("userIDs", userIDList))
 		}
+
+		global.APP_LOG.Debug("同步用户资源限制成功",
+			zap.Int("level", level),
+			zap.Int("userCount", len(ids)),
+			zap.Any("updateData", updateData))
 	}
 
 	return nil
+}
+
+func splitUintBatch(ids []uint, size int) [][]uint {
+	if len(ids) == 0 {
+		return nil
+	}
+	if size <= 0 || len(ids) <= size {
+		return [][]uint{ids}
+	}
+	batches := make([][]uint, 0, (len(ids)+size-1)/size)
+	for start := 0; start < len(ids); start += size {
+		end := start + size
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batches = append(batches, ids[start:end])
+	}
+	return batches
 }
 
 // BatchUpdateUserLevel 批量更新用户等级
@@ -247,71 +229,60 @@ func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 		return err
 	}
 
-	// 检查是否有管理员用户，管理员用户应该始终是最高等级
 	var specialUsers []userModel.User
-	if err := global.APP_DB.Where("id IN ? AND user_type IN ?", userIDs, []string{"admin"}).Find(&specialUsers).Error; err != nil {
+	if err := global.APP_DB.Select("id").Where("id IN ? AND user_type IN ?", userIDs, []string{"admin", "super_admin"}).Find(&specialUsers).Error; err != nil {
 		global.APP_LOG.Warn("检查管理员用户失败",
 			zap.Error(err),
 			zap.Int("userCount", len(userIDs)))
-		// 出错时继续，假设没有特殊用户
-		specialUsers = []userModel.User{}
+		return err
 	}
 
-	// 为特殊用户设置最高等级
-	if len(specialUsers) > 0 {
-		specialUserIDs := make([]uint, len(specialUsers))
-		for i, user := range specialUsers {
-			specialUserIDs[i] = user.ID
-		}
-		if err := global.APP_DB.Model(&userModel.User{}).Where("id IN ?", specialUserIDs).Update("level", highestConfiguredUserLevel()).Error; err != nil {
-			global.APP_LOG.Error("更新管理员用户等级失败",
-				zap.Uints("specialUserIDs", specialUserIDs),
-				zap.Error(err))
-			return err
-		}
+	specialSet := make(map[uint]struct{}, len(specialUsers))
+	specialUserIDs := make([]uint, 0, len(specialUsers))
+	for _, user := range specialUsers {
+		specialSet[user.ID] = struct{}{}
+		specialUserIDs = append(specialUserIDs, user.ID)
+	}
 
-		// 从原列表中移除特殊用户
-		normalUserIDs := make([]uint, 0)
-		for _, id := range userIDs {
-			isSpecial := false
-			for _, specialID := range specialUserIDs {
-				if id == specialID {
-					isSpecial = true
-					break
-				}
+	normalUserIDs := make([]uint, 0, len(userIDs))
+	for _, id := range userIDs {
+		if _, isSpecial := specialSet[id]; !isSpecial {
+			normalUserIDs = append(normalUserIDs, id)
+		}
+	}
+
+	normalUpdates, err := userquota.BuildLevelAndLimitUpdateMap(level)
+	if err != nil {
+		return err
+	}
+	specialLevel := highestConfiguredUserLevel()
+	specialUpdates, err := userquota.BuildLevelAndLimitUpdateMap(specialLevel)
+	if err != nil {
+		return err
+	}
+
+	dbService := database.GetDatabaseService()
+	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		for _, batch := range splitUintBatch(normalUserIDs, 500) {
+			if err := tx.Model(&userModel.User{}).Where("id IN ?", batch).Updates(normalUpdates).Error; err != nil {
+				return err
 			}
-			if !isSpecial {
-				normalUserIDs = append(normalUserIDs, id)
+		}
+		for _, batch := range splitUintBatch(specialUserIDs, 500) {
+			if err := tx.Model(&userModel.User{}).Where("id IN ?", batch).Updates(specialUpdates).Error; err != nil {
+				return err
 			}
 		}
-		userIDs = normalUserIDs
+		return nil
+	}); err != nil {
+		return err
 	}
 
-	// 更新普通用户等级
-	if len(userIDs) > 0 {
-		if err := global.APP_DB.Model(&userModel.User{}).Where("id IN ?", userIDs).Update("level", level).Error; err != nil {
-			return err
-		}
-	}
-
-	// 清除所有相关用户的权限缓存
 	permissionService := auth2.PermissionService{}
-	allUserIDs := append(userIDs, func() []uint {
-		var specialIDs []uint
-		for _, user := range specialUsers {
-			specialIDs = append(specialIDs, user.ID)
-		}
-		return specialIDs
-	}()...)
-
-	for _, userID := range allUserIDs {
+	cacheService := cache.GetUserCacheService()
+	for _, userID := range userIDs {
 		permissionService.ClearUserPermissionCache(userID)
-	}
-
-	// 同步所有更新用户的资源限制
-	if err := s.syncUserResourceLimits(allUserIDs); err != nil {
-		global.APP_LOG.Warn("同步用户资源限制失败", zap.Error(err))
-		// 不返回错误，因为等级更新已经成功，资源限制同步失败只记录日志
+		cacheService.InvalidateUserCache(userID)
 	}
 
 	return nil
@@ -323,36 +294,33 @@ func (s *Service) UpdateUserLevel(userID uint, level int) error {
 		return common.NewError(common.CodeValidationError, err.Error())
 	}
 
-	// 获取用户信息
 	var user userModel.User
-	if err := global.APP_DB.First(&user, userID).Error; err != nil {
+	if err := global.APP_DB.Select("id, user_type").First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return common.NewError(common.CodeUserNotFound, "用户不存在")
 		}
 		return err
 	}
 
-	// 管理员应该始终是最高等级
-	if user.UserType == "admin" {
+	if user.UserType == "admin" || user.UserType == "super_admin" {
 		level = highestConfiguredUserLevel()
 	}
 
-	if err := global.APP_DB.Model(&user).Update("level", level).Error; err != nil {
+	updates, err := userquota.BuildLevelAndLimitUpdateMap(level)
+	if err != nil {
+		return common.NewError(common.CodeValidationError, err.Error())
+	}
+
+	dbService := database.GetDatabaseService()
+	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		return tx.Model(&userModel.User{}).Where("id = ?", userID).Updates(updates).Error
+	}); err != nil {
 		return err
 	}
 
-	// 清除用户权限缓存
 	permissionService := auth2.PermissionService{}
 	permissionService.ClearUserPermissionCache(userID)
-
-	// 同步用户资源限制
-	if err := s.syncUserResourceLimits([]uint{userID}); err != nil {
-		global.APP_LOG.Warn("同步用户资源限制失败",
-			zap.Uint("userID", userID),
-			zap.Int("level", level),
-			zap.Error(err))
-		// 不返回错误，因为等级更新已经成功，资源限制同步失败只记录日志
-	}
+	cache.GetUserCacheService().InvalidateUserCache(userID)
 
 	return nil
 }

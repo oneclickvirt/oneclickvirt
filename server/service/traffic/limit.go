@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"oneclickvirt/config"
 	"oneclickvirt/global"
+	"oneclickvirt/service/userquota"
 	dashboardModel "oneclickvirt/model/dashboard"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
@@ -144,11 +144,7 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 
 	// 自动同步用户流量限额：如果TotalTraffic为0，从等级配置中获取
 	if u.TotalTraffic == 0 {
-		levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[u.Level]
-		if exists {
-			levelLimits = config.NormalizeLevelLimitInfo(u.Level, levelLimits)
-		}
-		if exists && levelLimits.MaxTraffic > 0 {
+		if levelLimits, err := userquota.ResolveLevelLimit(u.Level); err == nil && levelLimits.MaxTraffic > 0 {
 			u.TotalTraffic = levelLimits.MaxTraffic
 		}
 	}

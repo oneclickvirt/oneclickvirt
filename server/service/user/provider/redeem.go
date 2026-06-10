@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
 
@@ -25,7 +26,7 @@ func (s *Service) RedeemCode(userID uint, code string) error {
 
 	dbService := database.GetDatabaseService()
 
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 查询并锁定兑换码（FOR UPDATE 防止并发兑换同一个码）
 		var redemptionCode systemModel.RedemptionCode
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -97,6 +98,10 @@ func (s *Service) RedeemCode(userID uint, code string) error {
 			return fmt.Errorf("转移实例归属失败: %v", err)
 		}
 
+		if err := quotaService.RecalculateUserQuotaInTx(tx, userID); err != nil {
+			return fmt.Errorf("更新用户配额缓存失败: %v", err)
+		}
+
 		// 标记兑换码为已使用
 		userIDVal := userID
 		if err := tx.Model(&systemModel.RedemptionCode{}).
@@ -115,5 +120,10 @@ func (s *Service) RedeemCode(userID uint, code string) error {
 			zap.Uint("instanceID", instanceID))
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	cache.GetUserCacheService().InvalidateUserCache(userID)
+	return nil
 }

@@ -186,7 +186,9 @@ func UpdateUnifiedConfig(c *gin.Context) {
 	if shouldSyncUserQuota {
 		quotaSyncService := &resourceService.QuotaSyncService{}
 		if err := quotaSyncService.SyncAllUsersToCurrentConfig(); err != nil {
-			global.APP_LOG.Warn("同步用户配额缓存失败", zap.Error(err))
+			global.APP_LOG.Error("同步用户配额缓存失败", zap.Error(err))
+			common.ResponseWithError(c, common.NewError(common.CodeConfigError, "配置已保存，但同步用户配额缓存失败: "+err.Error()))
+			return
 		}
 	}
 

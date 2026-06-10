@@ -42,6 +42,7 @@ export default {
   disable: "Disable",
   resetPassword: "Reset Password",
   levelTag: "Level {level}",
+  confirmBatchSetLevel: "Are you sure you want to set selected users to level {level}?",
   confirmBatchDelete: "Are you sure you want to batch delete selected users?",
   confirmToggleStatus: "Are you sure you want to {action} this user?",
   confirmResetPassword: "Are you sure you want to reset this user's password?",

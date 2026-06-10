@@ -3,6 +3,8 @@ package resources
 import (
 	"oneclickvirt/config"
 	"oneclickvirt/global"
+	"oneclickvirt/service/cache"
+	"oneclickvirt/service/userquota"
 	"sort"
 	"strconv"
 
@@ -39,16 +41,19 @@ func (s *QuotaSyncService) DetectAndSyncLevelChanges(oldConfig, newConfig map[st
 		zap.Int("changedLevels", len(changes)))
 
 	// 同步变更的等级用户限制
+	var firstErr error
 	for _, change := range changes {
 		if err := s.syncLevelUsers(change.Level, change.NewLimits); err != nil {
 			global.APP_LOG.Warn("同步等级用户限制失败",
 				zap.Int("level", change.Level),
 				zap.Error(err))
-			continue // 继续处理其他等级，不中断整个过程
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 
-	return nil
+	return firstErr
 }
 
 // extractLevelLimits 从配置中提取等级限制
@@ -248,62 +253,20 @@ func (s *QuotaSyncService) syncLevelUsers(level int, levelConfig *config.LevelLi
 		return nil
 	}
 
-	// 查询该等级的所有用户ID
-	var userIDs []uint
-	if err := global.APP_DB.Table("users").
-		Select("id").
+	updateData := userquota.BuildLimitUpdateMapFromLimit(level, *levelConfig)
+	result := global.APP_DB.Table("users").
 		Where("level = ? AND deleted_at IS NULL", level).
-		Pluck("id", &userIDs).Error; err != nil {
-		return err
+		Updates(updateData)
+	if result.Error != nil {
+		return result.Error
 	}
 
-	if len(userIDs) == 0 {
-		global.APP_LOG.Debug("该等级没有用户需要同步", zap.Int("level", level))
-		return nil
+	if result.RowsAffected > 0 {
+		cache.GetUserCacheService().DeleteByPrefix("user:")
 	}
-
-	// 构建更新数据 - 不再自动设置 total_traffic
-	updateData := map[string]interface{}{
-		"max_instances": levelConfig.MaxInstances,
-	}
-
-	// 从 MaxResources 中提取各项资源限制
-	if levelConfig.MaxResources != nil {
-		if cpu, ok := levelConfig.MaxResources["cpu"].(int); ok {
-			updateData["max_cpu"] = cpu
-		} else if cpu, ok := levelConfig.MaxResources["cpu"].(float64); ok {
-			updateData["max_cpu"] = int(cpu)
-		}
-
-		if memory, ok := levelConfig.MaxResources["memory"].(int); ok {
-			updateData["max_memory"] = memory
-		} else if memory, ok := levelConfig.MaxResources["memory"].(float64); ok {
-			updateData["max_memory"] = int(memory)
-		}
-
-		if disk, ok := levelConfig.MaxResources["disk"].(int); ok {
-			updateData["max_disk"] = disk
-		} else if disk, ok := levelConfig.MaxResources["disk"].(float64); ok {
-			updateData["max_disk"] = int(disk)
-		}
-
-		if bandwidth, ok := levelConfig.MaxResources["bandwidth"].(int); ok {
-			updateData["max_bandwidth"] = bandwidth
-		} else if bandwidth, ok := levelConfig.MaxResources["bandwidth"].(float64); ok {
-			updateData["max_bandwidth"] = int(bandwidth)
-		}
-	}
-
-	// 批量更新用户限制
-	if err := global.APP_DB.Table("users").
-		Where("id IN ?", userIDs).
-		Updates(updateData).Error; err != nil {
-		return err
-	}
-
 	global.APP_LOG.Info("自动同步等级用户资源限制成功",
 		zap.Int("level", level),
-		zap.Int("userCount", len(userIDs)),
+		zap.Int64("userCount", result.RowsAffected),
 		zap.Any("updateData", updateData))
 
 	return nil
@@ -339,20 +302,23 @@ func (s *QuotaSyncService) SyncUserToLevel(level int, userIDs []uint) error {
 		return nil
 	}
 
-	// 获取等级配置
-	levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]
-	if !exists {
-		global.APP_LOG.Warn("等级配置不存在，使用默认配置", zap.Int("level", level))
-		// 使用内置默认配置
-		if defaultConfig, ok := config.DefaultLevelLimitInfo(level); ok {
-			levelConfig = defaultConfig
-		} else if defaultConfig, ok := config.DefaultLevelLimitInfo(global.GetAppConfig().Quota.DefaultLevel); ok {
-			levelConfig = defaultConfig
+	updateData, err := userquota.BuildLimitUpdateMap(level)
+	if err != nil {
+		return err
+	}
+	for _, batch := range splitUintBatch(userIDs, 500) {
+		if err := global.APP_DB.Table("users").
+			Where("id IN ? AND level = ? AND deleted_at IS NULL", batch, level).
+			Updates(updateData).Error; err != nil {
+			return err
 		}
 	}
 
-	levelConfig = config.NormalizeLevelLimitInfo(level, levelConfig)
-	return s.syncLevelUsers(level, &levelConfig)
+	cacheService := cache.GetUserCacheService()
+	for _, userID := range userIDs {
+		cacheService.InvalidateUserCache(userID)
+	}
+	return nil
 }
 
 
@@ -363,4 +329,21 @@ func firstExisting(values map[string]interface{}, keys ...string) (interface{}, 
 		}
 	}
 	return nil, false
+}
+func splitUintBatch(ids []uint, size int) [][]uint {
+	if len(ids) == 0 {
+		return nil
+	}
+	if size <= 0 || len(ids) <= size {
+		return [][]uint{ids}
+	}
+	batches := make([][]uint, 0, (len(ids)+size-1)/size)
+	for start := 0; start < len(ids); start += size {
+		end := start + size
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batches = append(batches, ids[start:end])
+	}
+	return batches
 }

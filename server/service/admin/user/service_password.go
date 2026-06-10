@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"math/big"
 
-	"oneclickvirt/config"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 	"oneclickvirt/utils/messaging"
 
@@ -249,53 +249,11 @@ func (s *Service) generateRandomPassword(length int) string {
 
 // syncSingleUserResourceLimits 同步单个用户的资源限制
 func (s *Service) syncSingleUserResourceLimits(level int, userID uint) error {
-	// 获取等级配置
-	levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]
-	if !exists {
-		global.APP_LOG.Warn("等级配置不存在，使用默认配置", zap.Int("level", level))
-		// 使用内置默认配置
-		if defaultConfig, ok := config.DefaultLevelLimitInfo(level); ok {
-			levelConfig = defaultConfig
-		} else if defaultConfig, ok := config.DefaultLevelLimitInfo(global.GetAppConfig().Quota.DefaultLevel); ok {
-			levelConfig = defaultConfig
-		}
+	updateData, err := userquota.BuildLimitUpdateMap(level)
+	if err != nil {
+		return err
 	}
-	levelConfig = config.NormalizeLevelLimitInfo(level, levelConfig)
-
-	// 构建更新数据 - 不再自动设置 total_traffic
-	updateData := map[string]interface{}{
-		"max_instances": levelConfig.MaxInstances,
-	}
-
-	// 从 MaxResources 中提取各项资源限制
-	if levelConfig.MaxResources != nil {
-		if cpu, ok := levelConfig.MaxResources["cpu"].(int); ok {
-			updateData["max_cpu"] = cpu
-		} else if cpu, ok := levelConfig.MaxResources["cpu"].(float64); ok {
-			updateData["max_cpu"] = int(cpu)
-		}
-
-		if memory, ok := levelConfig.MaxResources["memory"].(int); ok {
-			updateData["max_memory"] = memory
-		} else if memory, ok := levelConfig.MaxResources["memory"].(float64); ok {
-			updateData["max_memory"] = int(memory)
-		}
-
-		if disk, ok := levelConfig.MaxResources["disk"].(int); ok {
-			updateData["max_disk"] = disk
-		} else if disk, ok := levelConfig.MaxResources["disk"].(float64); ok {
-			updateData["max_disk"] = int(disk)
-		}
-
-		if bandwidth, ok := levelConfig.MaxResources["bandwidth"].(int); ok {
-			updateData["max_bandwidth"] = bandwidth
-		} else if bandwidth, ok := levelConfig.MaxResources["bandwidth"].(float64); ok {
-			updateData["max_bandwidth"] = int(bandwidth)
-		}
-	}
-
-	// 更新用户资源限制
-	if err := global.APP_DB.Table("users").
+	if err := global.APP_DB.Model(&userModel.User{}).
 		Where("id = ?", userID).
 		Updates(updateData).Error; err != nil {
 		return err

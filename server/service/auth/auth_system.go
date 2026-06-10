@@ -5,14 +5,13 @@ import (
 	"crypto/rand"
 	"errors"
 	"math/big"
-	"oneclickvirt/config"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
-	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -29,13 +28,7 @@ func GenerateRandomString(length int) string {
 }
 
 func highestConfiguredLevel() int {
-	maxLevel := 1
-	for level := range global.GetAppConfig().Quota.LevelLimits {
-		if level > maxLevel {
-			maxLevel = level
-		}
-	}
-	return maxLevel
+	return userquota.HighestConfiguredLevel()
 }
 
 // InitSystem 初始化系统
@@ -56,7 +49,11 @@ func (s *AuthService) InitSystem(adminUsername, adminPassword, adminEmail string
 		Password: string(hashedPassword),
 		Email:    adminEmail,
 		UserType: "admin",
+		Level:    highestConfiguredLevel(),
 		Status:   1,
+	}
+	if err := userquota.ApplyLimitFields(&admin, admin.Level); err != nil {
+		return err
 	}
 	// 创建示例用户（默认禁用，防止未授权访问）
 	userPassword, err := bcrypt.GenerateFromPassword([]byte("user123"), bcrypt.DefaultCost)
@@ -68,7 +65,11 @@ func (s *AuthService) InitSystem(adminUsername, adminPassword, adminEmail string
 		Password: string(userPassword),
 		Email:    "user@spiritlhl.net",
 		UserType: "user",
+		Level:    global.GetAppConfig().Quota.DefaultLevel,
 		Status:   0, // 默认禁用状态，需要管理员手动启用
+	}
+	if err := userquota.ApplyLimitFields(&user, user.Level); err != nil {
+		return err
 	}
 
 	// 使用数据库抽象层进行事务处理
@@ -139,7 +140,11 @@ func (s *AuthService) InitSystemWithUsers(adminInfo UserInfo, userInfo *UserInfo
 				Password: string(userPassword),
 				Email:    userInfo.Email,
 				UserType: "user",
+				Level:    global.GetAppConfig().Quota.DefaultLevel,
 				Status:   1,
+			}
+			if err := userquota.ApplyLimitFields(&user, user.Level); err != nil {
+				return err
 			}
 			if err := tx.Create(&user).Error; err != nil {
 				return err
@@ -150,66 +155,6 @@ func (s *AuthService) InitSystemWithUsers(adminInfo UserInfo, userInfo *UserInfo
 }
 
 // syncNewUserResourceLimits 同步新用户的资源限制（避免循环导入）
-func syncNewUserResourceLimits(level int, userID uint) error {
-	// 获取等级配置
-	levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]
-	if !exists {
-		global.APP_LOG.Warn("等级配置不存在，使用默认配置", zap.Int("level", level))
-		// 使用内置默认配置
-		if defaultConfig, ok := config.DefaultLevelLimitInfo(level); ok {
-			levelConfig = defaultConfig
-		} else if defaultConfig, ok := config.DefaultLevelLimitInfo(global.GetAppConfig().Quota.DefaultLevel); ok {
-			levelConfig = defaultConfig
-		}
-	}
-	levelConfig = config.NormalizeLevelLimitInfo(level, levelConfig)
-
-	// 构建更新数据 - 不再自动设置 total_traffic，保持为0
-	updateData := map[string]interface{}{
-		"max_instances": levelConfig.MaxInstances,
-	}
-
-	// 从 MaxResources 中提取各项资源限制
-	if levelConfig.MaxResources != nil {
-		if cpu, ok := levelConfig.MaxResources["cpu"].(int); ok {
-			updateData["max_cpu"] = cpu
-		} else if cpu, ok := levelConfig.MaxResources["cpu"].(float64); ok {
-			updateData["max_cpu"] = int(cpu)
-		}
-
-		if memory, ok := levelConfig.MaxResources["memory"].(int); ok {
-			updateData["max_memory"] = memory
-		} else if memory, ok := levelConfig.MaxResources["memory"].(float64); ok {
-			updateData["max_memory"] = int(memory)
-		}
-
-		if disk, ok := levelConfig.MaxResources["disk"].(int); ok {
-			updateData["max_disk"] = disk
-		} else if disk, ok := levelConfig.MaxResources["disk"].(float64); ok {
-			updateData["max_disk"] = int(disk)
-		}
-
-		if bandwidth, ok := levelConfig.MaxResources["bandwidth"].(int); ok {
-			updateData["max_bandwidth"] = bandwidth
-		} else if bandwidth, ok := levelConfig.MaxResources["bandwidth"].(float64); ok {
-			updateData["max_bandwidth"] = int(bandwidth)
-		}
-	}
-
-	// 更新用户资源限制
-	if err := global.APP_DB.Table("users").
-		Where("id = ?", userID).
-		Updates(updateData).Error; err != nil {
-		return err
-	}
-
-	global.APP_LOG.Debug("新用户资源限制已同步",
-		zap.Uint("userID", userID),
-		zap.Int("level", level),
-		zap.Any("updateData", updateData))
-
-	return nil
-}
 
 // isEmailConfigured 检查邮箱配置是否可用
 func (s *AuthService) isEmailConfigured() bool {

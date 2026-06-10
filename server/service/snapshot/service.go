@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
 	providerSvc "oneclickvirt/service/provider"
+	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -792,18 +792,9 @@ func maxSnapshotsForUser(userID uint) (int, error) {
 	if err := global.APP_DB.Select("id", "level").First(&user, userID).Error; err != nil {
 		return 0, err
 	}
-	limits := global.GetAppConfig().Quota.LevelLimits
-	limit, ok := limits[user.Level]
-	if !ok {
-		keys := make([]int, 0, len(limits))
-		for key := range limits {
-			keys = append(keys, key)
-		}
-		sort.Ints(keys)
-		if len(keys) == 0 {
-			return 3, nil
-		}
-		limit = limits[keys[0]]
+	limit, err := userquota.ResolveLevelLimit(user.Level)
+	if err != nil {
+		return 0, err
 	}
 	if limit.MaxSnapshots == 0 {
 		return 0, nil

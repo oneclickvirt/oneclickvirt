@@ -15,6 +15,7 @@ import (
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/images"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -546,16 +547,5 @@ func (s *Service) GetInstanceTypePermissions(userID uint) (map[string]interface{
 }
 
 func resourceInt(value interface{}) int {
-	switch v := value.(type) {
-	case int:
-		return v
-	case int64:
-		return int(v)
-	case float64:
-		return int(v)
-	case float32:
-		return int(v)
-	default:
-		return 0
-	}
+	return userquota.AnyInt(value)
 }

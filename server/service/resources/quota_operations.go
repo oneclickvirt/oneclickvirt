@@ -3,9 +3,9 @@ package resources
 import (
 	"fmt"
 
-	"oneclickvirt/config"
 	"oneclickvirt/global"
 	"oneclickvirt/model/user"
+	"oneclickvirt/service/userquota"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -123,47 +123,44 @@ func (s *QuotaService) ValidateAdminInstanceCreation(req ResourceRequest) (*Quot
 // RecalculateUserQuota 重新计算用户配额（两阶段配额系统）
 func (s *QuotaService) RecalculateUserQuota(userID uint) error {
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		var user user.User
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
-			return fmt.Errorf("用户不存在: %v", err)
-		}
-
-		// 分别计算稳定状态和待确认状态的资源使用
-		_, stableResources, pendingResources, err := s.getCurrentResourceUsageWithPending(tx, userID)
-		if err != nil {
-			return fmt.Errorf("获取当前资源使用情况失败: %v", err)
-		}
-
-		actualUsedQuota := stableResources.GetResourceUsage()
-		actualPendingQuota := pendingResources.GetResourceUsage()
-
-		// 只有在配额不一致时才更新
-		needUpdate := false
-		updates := make(map[string]interface{})
-
-		if user.UsedQuota != actualUsedQuota {
-			updates["used_quota"] = actualUsedQuota
-			needUpdate = true
-		}
-
-		if user.PendingQuota != actualPendingQuota {
-			updates["pending_quota"] = actualPendingQuota
-			needUpdate = true
-		}
-
-		if needUpdate {
-			if err := tx.Model(&user).Updates(updates).Error; err != nil {
-				return fmt.Errorf("更新用户配额失败: %v", err)
-			}
-
-			global.APP_LOG.Debug(fmt.Sprintf("用户 %d 配额已重新计算: used %d -> %d, pending %d -> %d",
-				userID, user.UsedQuota, actualUsedQuota, user.PendingQuota, actualPendingQuota))
-		}
-
-		return nil
+		return s.RecalculateUserQuotaInTx(tx, userID)
 	})
 }
 
+// RecalculateUserQuotaInTx 在已有事务中重新计算用户配额。
+func (s *QuotaService) RecalculateUserQuotaInTx(tx *gorm.DB, userID uint) error {
+	var user user.User
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
+		return fmt.Errorf("用户不存在: %v", err)
+	}
+
+	_, stableResources, pendingResources, err := s.getCurrentResourceUsageWithPending(tx, userID)
+	if err != nil {
+		return fmt.Errorf("获取当前资源使用情况失败: %v", err)
+	}
+
+	actualUsedQuota := stableResources.GetResourceUsage()
+	actualPendingQuota := pendingResources.GetResourceUsage()
+	updates := make(map[string]interface{})
+
+	if user.UsedQuota != actualUsedQuota {
+		updates["used_quota"] = actualUsedQuota
+	}
+	if user.PendingQuota != actualPendingQuota {
+		updates["pending_quota"] = actualPendingQuota
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+	if err := tx.Model(&user).Updates(updates).Error; err != nil {
+		return fmt.Errorf("更新用户配额失败: %v", err)
+	}
+
+	global.APP_LOG.Debug(fmt.Sprintf("用户 %d 配额已重新计算: used %d -> %d, pending %d -> %d",
+		userID, user.UsedQuota, actualUsedQuota, user.PendingQuota, actualPendingQuota))
+	return nil
+}
 // GetUserQuotaInfo 获取用户配额信息
 func (s *QuotaService) GetUserQuotaInfo(userID uint) (*QuotaCheckResult, error) {
 	// 简单的读取操作不需要锁，数据库本身保证读取一致性
@@ -173,11 +170,10 @@ func (s *QuotaService) GetUserQuotaInfo(userID uint) (*QuotaCheckResult, error) 
 	}
 
 	// 获取用户等级限制
-	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[user.Level]
-	if !exists {
-		return nil, fmt.Errorf("用户等级 %d 没有配置资源限制", user.Level)
+	levelLimits, err := userquota.ResolveLevelLimit(user.Level)
+	if err != nil {
+		return nil, err
 	}
-	levelLimits = config.NormalizeLevelLimitInfo(user.Level, levelLimits)
 
 	// 获取当前资源使用情况
 	currentInstances, currentResources, err := s.getCurrentResourceUsage(global.APP_DB, userID)

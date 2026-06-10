@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"oneclickvirt/config"
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -17,6 +16,7 @@ import (
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -224,11 +224,10 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 		}
 
 		// 2. 验证用户全局实例数量限制
-		levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[currentUser.Level]
-		if !exists {
-			return fmt.Errorf("用户等级 %d 没有配置资源限制", currentUser.Level)
+		levelLimits, err := userquota.ResolveLevelLimit(currentUser.Level)
+		if err != nil {
+			return err
 		}
-		levelLimits = config.NormalizeLevelLimitInfo(currentUser.Level, levelLimits)
 
 		currentInstances, _, err := quotaService.GetCurrentResourceUsageInTx(tx, userID)
 		if err != nil {

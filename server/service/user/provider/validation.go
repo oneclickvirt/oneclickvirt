@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"oneclickvirt/config"
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -15,6 +14,7 @@ import (
 	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/userquota"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -78,11 +78,10 @@ func (s *Service) validateUserSpecPermissions(userID uint, providerID uint, cpuS
 	}
 
 	// 获取用户全局等级限制
-	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[effective.EffectiveLevel]
-	if !exists {
-		return fmt.Errorf("用户等级 %d 没有配置资源限制", effective.EffectiveLevel)
+	levelLimits, err := userquota.ResolveLevelLimit(effective.EffectiveLevel)
+	if err != nil {
+		return err
 	}
-	levelLimits = config.NormalizeLevelLimitInfo(effective.EffectiveLevel, levelLimits)
 
 	// 如果指定了Provider，获取并合并Provider的节点等级限制（取最小值）
 	if providerID > 0 {
@@ -94,28 +93,12 @@ func (s *Service) validateUserSpecPermissions(userID uint, providerID uint, cpuS
 				// 获取用户等级对应的Provider限制
 				levelKey := fmt.Sprintf("%d", effective.EffectiveLevel)
 				if providerLimits, ok := allProviderLimits[levelKey]; ok {
-					// 合并Provider限制：如果Provider有限制且更严格，则使用Provider的限制
 					if providerMaxResources, ok := providerLimits["max-resources"].(map[string]interface{}); ok {
-						// 更新levelLimits为合并后的限制（取最小值）
-						for key, value := range levelLimits.MaxResources {
-							if providerValue, exists := providerMaxResources[key]; exists {
-								// 比较并取最小值
-								var currentVal, providerVal float64
-								switch v := value.(type) {
-								case float64:
-									currentVal = v
-								case int:
-									currentVal = float64(v)
-								}
-								switch v := providerValue.(type) {
-								case float64:
-									providerVal = v
-								case int:
-									providerVal = float64(v)
-								}
-								if providerVal > 0 && providerVal < currentVal {
-									levelLimits.MaxResources[key] = providerVal
-								}
+						for key := range levelLimits.MaxResources {
+							currentVal := userquota.ResourceInt(levelLimits.MaxResources, key)
+							providerVal := userquota.AnyInt(providerMaxResources[key])
+							if providerVal > 0 && (currentVal <= 0 || providerVal < currentVal) {
+								levelLimits.MaxResources[key] = providerVal
 							}
 						}
 					}
@@ -125,71 +108,24 @@ func (s *Service) validateUserSpecPermissions(userID uint, providerID uint, cpuS
 	}
 
 	// 从配置中获取当前等级的最大资源限制
-	maxResources, ok := levelLimits.MaxResources["cpu"]
-	if ok {
-		var maxCPU int
-		switch v := maxResources.(type) {
-		case float64:
-			maxCPU = int(v)
-		case int:
-			maxCPU = v
-		}
-
-		if cpuSpec.Cores > maxCPU {
-			return fmt.Errorf("您的等级不足以使用CPU规格 %s（需要 %d 核，您的等级 %d 最多支持 %d 核）",
-				cpuSpec.Name, cpuSpec.Cores, effective.EffectiveLevel, maxCPU)
-		}
+	if maxCPU := userquota.ResourceInt(levelLimits.MaxResources, "cpu"); maxCPU > 0 && cpuSpec.Cores > maxCPU {
+		return fmt.Errorf("您的等级不足以使用CPU规格 %s（需要 %d 核，您的等级 %d 最多支持 %d 核）",
+			cpuSpec.Name, cpuSpec.Cores, effective.EffectiveLevel, maxCPU)
 	}
 
-	// 内存规格验证
-	maxResources, ok = levelLimits.MaxResources["memory"]
-	if ok {
-		var maxMemory int
-		switch v := maxResources.(type) {
-		case float64:
-			maxMemory = int(v)
-		case int:
-			maxMemory = v
-		}
-
-		if memorySpec.SizeMB > maxMemory {
-			return fmt.Errorf("您的等级不足以使用内存规格 %s（需要 %d MB，您的等级 %d 最多支持 %d MB）",
-				memorySpec.Name, memorySpec.SizeMB, effective.EffectiveLevel, maxMemory)
-		}
+	if maxMemory := userquota.ResourceInt(levelLimits.MaxResources, "memory"); maxMemory > 0 && memorySpec.SizeMB > maxMemory {
+		return fmt.Errorf("您的等级不足以使用内存规格 %s（需要 %d MB，您的等级 %d 最多支持 %d MB）",
+			memorySpec.Name, memorySpec.SizeMB, effective.EffectiveLevel, maxMemory)
 	}
 
-	// 磁盘规格验证
-	maxResources, ok = levelLimits.MaxResources["disk"]
-	if ok {
-		var maxDisk int
-		switch v := maxResources.(type) {
-		case float64:
-			maxDisk = int(v)
-		case int:
-			maxDisk = v
-		}
-
-		if diskSpec.SizeMB > maxDisk {
-			return fmt.Errorf("您的等级不足以使用磁盘规格 %s（需要 %d MB，您的等级 %d 最多支持 %d MB）",
-				diskSpec.Name, diskSpec.SizeMB, effective.EffectiveLevel, maxDisk)
-		}
+	if maxDisk := userquota.ResourceInt(levelLimits.MaxResources, "disk"); maxDisk > 0 && diskSpec.SizeMB > maxDisk {
+		return fmt.Errorf("您的等级不足以使用磁盘规格 %s（需要 %d MB，您的等级 %d 最多支持 %d MB）",
+			diskSpec.Name, diskSpec.SizeMB, effective.EffectiveLevel, maxDisk)
 	}
 
-	// 带宽规格验证
-	maxResources, ok = levelLimits.MaxResources["bandwidth"]
-	if ok {
-		var maxBandwidth int
-		switch v := maxResources.(type) {
-		case float64:
-			maxBandwidth = int(v)
-		case int:
-			maxBandwidth = v
-		}
-
-		if bandwidthSpec.SpeedMbps > maxBandwidth {
-			return fmt.Errorf("您的等级不足以使用带宽规格 %s（需要 %d Mbps，您的等级 %d 最多支持 %d Mbps）",
-				bandwidthSpec.Name, bandwidthSpec.SpeedMbps, effective.EffectiveLevel, maxBandwidth)
-		}
+	if maxBandwidth := userquota.ResourceInt(levelLimits.MaxResources, "bandwidth"); maxBandwidth > 0 && bandwidthSpec.SpeedMbps > maxBandwidth {
+		return fmt.Errorf("您的等级不足以使用带宽规格 %s（需要 %d Mbps，您的等级 %d 最多支持 %d Mbps）",
+			bandwidthSpec.Name, bandwidthSpec.SpeedMbps, effective.EffectiveLevel, maxBandwidth)
 	}
 
 	return nil

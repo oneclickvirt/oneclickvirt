@@ -1,39 +1,12 @@
 package config
 
-import "sort"
+import "strconv"
 
-// DefaultLevelLimits 返回所有内置等级的默认限制（LevelLimitInfo 格式）。
-func DefaultLevelLimits() map[int]LevelLimitInfo {
-	result := make(map[int]LevelLimitInfo, 5)
-	for level := 1; level <= 5; level++ {
-		if info, ok := DefaultLevelLimitInfo(level); ok {
-			result[level] = info
-		}
-	}
-	return result
-}
-
-// DefaultLevelLimitsConfigMap 返回所有内置等级的默认限制（map[string]interface{} 格式，兼容旧代码）。
-func DefaultLevelLimitsConfigMap() map[string]interface{} {
-	result := make(map[string]interface{}, 5)
-	for level := 1; level <= 5; level++ {
-		if info, ok := DefaultLevelLimitInfo(level); ok {
-			result[fmtLevelKey(level)] = map[string]interface{}{
-				"max-instances": info.MaxInstances,
-				"max-resources": info.MaxResources,
-				"max-traffic":   info.MaxTraffic,
-				"expiry-days":   info.ExpiryDays,
-				"max-snapshots": info.MaxSnapshots,
-			}
-		}
-	}
-	return result
-}
-
-// DefaultLevelLimitInfo 返回指定等级的内置默认限制，未知等级返回 (nil, false)。
+// DefaultLevelLimitInfo returns the built-in quota defaults for a user level.
+// Resource units: memory/disk are MB, bandwidth is Mbps, traffic is MB.
 func DefaultLevelLimitInfo(level int) (LevelLimitInfo, bool) {
-	defaults := [][2]interface{}{
-		{1, LevelLimitInfo{
+	defaults := map[int]LevelLimitInfo{
+		1: {
 			MaxInstances: 1,
 			MaxResources: map[string]interface{}{
 				"cpu":       1,
@@ -44,8 +17,8 @@ func DefaultLevelLimitInfo(level int) (LevelLimitInfo, bool) {
 			MaxTraffic:   102400,
 			ExpiryDays:   0,
 			MaxSnapshots: 1,
-		}},
-		{2, LevelLimitInfo{
+		},
+		2: {
 			MaxInstances: 3,
 			MaxResources: map[string]interface{}{
 				"cpu":       2,
@@ -56,8 +29,8 @@ func DefaultLevelLimitInfo(level int) (LevelLimitInfo, bool) {
 			MaxTraffic:   204800,
 			ExpiryDays:   0,
 			MaxSnapshots: 3,
-		}},
-		{3, LevelLimitInfo{
+		},
+		3: {
 			MaxInstances: 5,
 			MaxResources: map[string]interface{}{
 				"cpu":       4,
@@ -68,8 +41,8 @@ func DefaultLevelLimitInfo(level int) (LevelLimitInfo, bool) {
 			MaxTraffic:   307200,
 			ExpiryDays:   0,
 			MaxSnapshots: 5,
-		}},
-		{4, LevelLimitInfo{
+		},
+		4: {
 			MaxInstances: 10,
 			MaxResources: map[string]interface{}{
 				"cpu":       8,
@@ -80,8 +53,8 @@ func DefaultLevelLimitInfo(level int) (LevelLimitInfo, bool) {
 			MaxTraffic:   409600,
 			ExpiryDays:   0,
 			MaxSnapshots: 10,
-		}},
-		{5, LevelLimitInfo{
+		},
+		5: {
 			MaxInstances: 20,
 			MaxResources: map[string]interface{}{
 				"cpu":       16,
@@ -92,95 +65,105 @@ func DefaultLevelLimitInfo(level int) (LevelLimitInfo, bool) {
 			MaxTraffic:   512000,
 			ExpiryDays:   0,
 			MaxSnapshots: 20,
-		}},
+		},
 	}
 
-	for _, entry := range defaults {
-		lvl := entry[0].(int)
-		info := entry[1].(LevelLimitInfo)
-		if lvl == level {
-			return info, true
-		}
+	info, ok := defaults[level]
+	if !ok {
+		return LevelLimitInfo{}, false
 	}
-	return LevelLimitInfo{}, false
+	return CloneLevelLimitInfo(info), true
 }
 
-// NormalizeLevelLimitInfo 填充 LevelLimitInfo 中的零值字段为内置默认值，确保带宽、快照等字段始终有效。
-func NormalizeLevelLimitInfo(level int, info LevelLimitInfo) LevelLimitInfo {
-	defaultInfo, ok := DefaultLevelLimitInfo(level)
-	if !ok {
-		return info
+// DefaultLevelLimits returns all built-in quota level defaults.
+func DefaultLevelLimits() map[int]LevelLimitInfo {
+	limits := make(map[int]LevelLimitInfo, 5)
+	for level := 1; level <= 5; level++ {
+		if info, ok := DefaultLevelLimitInfo(level); ok {
+			limits[level] = info
+		}
 	}
+	return limits
+}
 
-	if info.MaxInstances <= 0 {
-		info.MaxInstances = defaultInfo.MaxInstances
-	}
-	if info.MaxTraffic <= 0 {
-		info.MaxTraffic = defaultInfo.MaxTraffic
-	}
-	if info.MaxSnapshots <= 0 {
-		info.MaxSnapshots = defaultInfo.MaxSnapshots
-	}
-	if info.MaxResources == nil {
-		info.MaxResources = make(map[string]interface{})
-	}
-	for _, key := range []string{"cpu", "memory", "disk", "bandwidth"} {
-		if v, exists := info.MaxResources[key]; !exists || isZeroValue(v) {
-			if defaultVal, ok := defaultInfo.MaxResources[key]; ok {
-				info.MaxResources[key] = defaultVal
+// DefaultLevelLimitsConfigMap returns defaults in the shape used by configCache/YAML.
+func DefaultLevelLimitsConfigMap() map[string]interface{} {
+	limits := make(map[string]interface{}, 5)
+	for level := 1; level <= 5; level++ {
+		if info, ok := DefaultLevelLimitInfo(level); ok {
+			limits[itoa(level)] = map[string]interface{}{
+				"max-instances": info.MaxInstances,
+				"max-resources": CloneLevelLimitInfo(info).MaxResources,
+				"max-traffic":   info.MaxTraffic,
+				"expiry-days":   info.ExpiryDays,
+				"max-snapshots": info.MaxSnapshots,
 			}
 		}
 	}
-	return info
+	return limits
 }
 
-// NormalizeLevelLimits 批量归一化所有等级限制。
+func itoa(value int) string {
+	return strconv.Itoa(value)
+}
+
+// CloneLevelLimitInfo deep-copies a LevelLimitInfo, including MaxResources.
+func CloneLevelLimitInfo(info LevelLimitInfo) LevelLimitInfo {
+	clone := info
+	if info.MaxResources != nil {
+		clone.MaxResources = make(map[string]interface{}, len(info.MaxResources))
+		for key, value := range info.MaxResources {
+			clone.MaxResources[key] = value
+		}
+	}
+	return clone
+}
+
+// NormalizeLevelLimitInfo fills missing/invalid legacy quota fields with defaults.
+// It intentionally does not override zero ExpiryDays or MaxSnapshots because both
+// can be meaningful administrator choices.
+func NormalizeLevelLimitInfo(level int, info LevelLimitInfo) LevelLimitInfo {
+	defaultInfo, hasDefault := DefaultLevelLimitInfo(level)
+	if !hasDefault {
+		if info.MaxResources == nil {
+			info.MaxResources = map[string]interface{}{}
+		}
+		return info
+	}
+
+	normalized := CloneLevelLimitInfo(info)
+	if normalized.MaxInstances <= 0 {
+		normalized.MaxInstances = defaultInfo.MaxInstances
+	}
+	if normalized.MaxTraffic <= 0 {
+		normalized.MaxTraffic = defaultInfo.MaxTraffic
+	}
+	if normalized.MaxResources == nil {
+		normalized.MaxResources = map[string]interface{}{}
+	}
+
+	for _, key := range []string{"cpu", "memory", "disk", "bandwidth"} {
+		if !positiveResourceValue(normalized.MaxResources[key]) {
+			normalized.MaxResources[key] = defaultInfo.MaxResources[key]
+		}
+	}
+
+	return normalized
+}
+
+// NormalizeLevelLimits returns a new map with each level normalized.
 func NormalizeLevelLimits(limits map[int]LevelLimitInfo) map[int]LevelLimitInfo {
 	if limits == nil {
 		return DefaultLevelLimits()
 	}
-
-	// 确保所有内置等级都存在
-	for level := 1; level <= 5; level++ {
-		if _, exists := limits[level]; !exists {
-			if defaultInfo, ok := DefaultLevelLimitInfo(level); ok {
-				limits[level] = defaultInfo
-			}
-		}
+	result := make(map[int]LevelLimitInfo, len(limits))
+	for level, info := range limits {
+		result[level] = NormalizeLevelLimitInfo(level, info)
 	}
-
-	// 归一化每个等级
-	levels := make([]int, 0, len(limits))
-	for level := range limits {
-		levels = append(levels, level)
-	}
-	sort.Ints(levels)
-
-	for _, level := range levels {
-		limits[level] = NormalizeLevelLimitInfo(level, limits[level])
-	}
-
-	return limits
+	return result
 }
 
-func fmtLevelKey(level int) string {
-	if level < 10 {
-		return string(rune('0' + level))
-	}
-	return string(rune('0'+level/10)) + string(rune('0'+level%10))
-}
-
-func isZeroValue(v interface{}) bool {
-	switch val := v.(type) {
-	case int:
-		return val == 0
-	case int64:
-		return val == 0
-	case float64:
-		return val == 0
-	case float32:
-		return val == 0
-	default:
-		return v == nil
-	}
+func positiveResourceValue(value interface{}) bool {
+	num, ok := toInt(value)
+	return ok && num > 0
 }

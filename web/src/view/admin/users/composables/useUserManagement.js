@@ -185,7 +185,7 @@ export function useUserManagement() {
       return
     }
     try {
-      await ElMessageBox.confirm(t('admin.users.confirmBatchDelete'), t('common.confirm'), {
+      await ElMessageBox.confirm(t('admin.users.confirmBatchSetLevel', { level }), t('common.confirm'), {
         confirmButtonText: t('common.confirm'),
         cancelButtonText: t('common.cancel'),
         type: 'warning',
@@ -254,7 +254,7 @@ export function useUserManagement() {
       return
     }
     try {
-      await ElMessageBox.confirm(t('admin.users.confirmBatchDelete'), t('common.confirm'), {
+      await ElMessageBox.confirm(t('admin.users.confirmBatchSetLevel', { level }), t('common.confirm'), {
         confirmButtonText: t('common.confirm'),
         cancelButtonText: t('common.cancel'),
         type: 'warning',

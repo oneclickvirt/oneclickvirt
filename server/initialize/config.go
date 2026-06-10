@@ -171,10 +171,21 @@ func detectDatabaseType() string {
 }
 
 // 初始化配置
+
+// findConfigFile 查找配置文件，同时支持 .yaml 和 .yml 后缀。
+func findConfigFile() string {
+	for _, name := range []string{"config.yaml", "config.yml"} {
+		if _, err := os.Stat(name); err == nil {
+			return name
+		}
+	}
+	// 都不存在时返回默认名称（稍后会自动生成）
+	return "config.yaml"
+}
 func InitConfig(configPath ...string) *viper.Viper {
 	var configFile string
 	if len(configPath) == 0 {
-		configFile = "config.yaml"
+		configFile = findConfigFile()
 	} else {
 		configFile = configPath[0]
 	}

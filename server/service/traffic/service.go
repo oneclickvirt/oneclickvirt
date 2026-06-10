@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/service/userquota"
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
@@ -30,11 +31,11 @@ func NewService() *Service {
 
 // GetUserTrafficLimitByLevel 根据用户等级获取流量限制
 func (s *Service) GetUserTrafficLimitByLevel(level int) int64 {
-	configManager := global.GetAppConfig().Quota.LevelLimits
-	if levelConfig, exists := configManager[level]; exists {
-		return levelConfig.MaxTraffic
+	levelConfig, err := userquota.ResolveLevelLimit(level)
+	if err != nil {
+		return 102400 // 默认100GB
 	}
-	return 102400 // 默认100GB
+	return levelConfig.MaxTraffic
 }
 
 // InitUserTrafficQuota 初始化用户流量配额

@@ -6,6 +6,7 @@ import (
 	auth2 "oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/userquota"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
@@ -129,7 +130,11 @@ func (s *Service) CreateUser(req admin.CreateUserRequest) error {
 			zap.String("username", utils.TruncateString(req.Username, 32)))
 		return errors.New("密码不能为空")
 	}
-	if err := validateConfiguredUserLevel(req.Level); err != nil {
+	level := req.Level
+	if req.UserType == "admin" || req.UserType == "super_admin" {
+		level = highestConfiguredUserLevel()
+	}
+	if err := validateConfiguredUserLevel(level); err != nil {
 		return common.NewError(common.CodeValidationError, err.Error())
 	}
 
@@ -150,9 +155,12 @@ func (s *Service) CreateUser(req admin.CreateUserRequest) error {
 		Telegram:   req.Telegram,
 		QQ:         req.QQ,
 		UserType:   req.UserType,
-		Level:      req.Level,
+		Level:      level,
 		TotalQuota: req.TotalQuota,
 		Status:     req.Status,
+	}
+	if err := userquota.ApplyLimitFields(&user, level); err != nil {
+		return common.NewError(common.CodeValidationError, err.Error())
 	}
 
 	// 使用数据库抽象层创建
@@ -166,24 +174,10 @@ func (s *Service) CreateUser(req admin.CreateUserRequest) error {
 		return err
 	}
 
-	// 异步同步用户资源限制到对应等级配置
-	go func() {
-		if syncErr := s.syncSingleUserResourceLimits(user.Level, user.ID); syncErr != nil {
-			global.APP_LOG.Error("新创建用户的资源限制同步失败",
-				zap.Uint("userID", user.ID),
-				zap.Int("level", user.Level),
-				zap.Error(syncErr))
-		} else {
-			global.APP_LOG.Info("新创建用户的资源限制同步成功",
-				zap.Uint("userID", user.ID),
-				zap.Int("level", user.Level))
-		}
-	}()
-
 	global.APP_LOG.Info("用户创建成功",
 		zap.String("username", utils.TruncateString(req.Username, 32)),
 		zap.String("userType", req.UserType),
-		zap.Int("level", req.Level))
+		zap.Int("level", level))
 	return nil
 }
 
@@ -259,7 +253,9 @@ func (s *Service) UpdateUser(req admin.UpdateUserRequest, currentUserID uint) er
 		if err := validateConfiguredUserLevel(req.Level); err != nil {
 			return common.NewError(common.CodeValidationError, err.Error())
 		}
-		user.Level = req.Level
+		if err := userquota.ApplyLevelAndLimitFields(&user, req.Level); err != nil {
+			return common.NewError(common.CodeValidationError, err.Error())
+		}
 	}
 	if req.TotalQuota >= 0 {
 		user.TotalQuota = req.TotalQuota
@@ -286,6 +282,14 @@ func (s *Service) UpdateUser(req admin.UpdateUserRequest, currentUserID uint) er
 	} else if req.UserType != "" && req.ID != currentUserID {
 		// 直接指定的用户类型（仅在不是修改自己时允许）
 		user.UserType = req.UserType
+	}
+
+	// 管理员类账号始终保持最高等级与最高等级配额，防止后台编辑产生等级/配额不一致。
+	if user.UserType == "admin" || user.UserType == "super_admin" {
+		adminLevel := highestConfiguredUserLevel()
+		if err := userquota.ApplyLevelAndLimitFields(&user, adminLevel); err != nil {
+			return common.NewError(common.CodeValidationError, err.Error())
+		}
 	}
 
 	// 保存更新（在事务内完成所有操作）

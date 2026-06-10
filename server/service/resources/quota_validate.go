@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
+	"oneclickvirt/service/userquota"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,14 +44,13 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 	}
 
 	// 获取用户等级限制
-	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[user.Level]
-	if !exists {
+	levelLimits, err := userquota.ResolveLevelLimit(user.Level)
+	if err != nil {
 		return &QuotaCheckResult{
 			Allowed: false,
-			Reason:  fmt.Sprintf("用户等级 %d 没有配置资源限制", user.Level),
+			Reason:  err.Error(),
 		}, nil
 	}
-	levelLimits = config.NormalizeLevelLimitInfo(user.Level, levelLimits)
 
 	// 如果提供了 ProviderID，需要获取并合并 Provider 的等级限制
 	var providerLevelLimits *config.LevelLimitInfo
@@ -300,46 +300,37 @@ func (s *QuotaService) GetProviderLevelLimitsInTx(tx *gorm.DB, providerID uint, 
 // GetLevelMaxResources 获取等级最大资源限制
 func (s *QuotaService) GetLevelMaxResources(levelLimits config.LevelLimitInfo) ResourceUsage {
 	maxResources := ResourceUsage{
-		CPU:       1,     // 默认值
-		Memory:    512,   // 默认值 (MB)
-		Disk:      10240, // 默认值 (MB) 10GB = 10240MB
-		Bandwidth: 100,   // 默认值 (Mbps)
+		CPU:       userquota.ResourceInt(levelLimits.MaxResources, "cpu"),
+		Memory:    int64(userquota.ResourceInt(levelLimits.MaxResources, "memory")),
+		Disk:      int64(userquota.ResourceInt(levelLimits.MaxResources, "disk")),
+		Bandwidth: userquota.ResourceInt(levelLimits.MaxResources, "bandwidth"),
 	}
-
-	if levelLimits.MaxResources != nil {
-		if cpu, ok := levelLimits.MaxResources["cpu"].(int); ok {
-			maxResources.CPU = cpu
-		} else if cpuFloat, ok := levelLimits.MaxResources["cpu"].(float64); ok {
-			maxResources.CPU = int(cpuFloat)
-		}
-
-		if memory, ok := levelLimits.MaxResources["memory"].(int); ok {
-			maxResources.Memory = int64(memory)
-		} else if memoryFloat, ok := levelLimits.MaxResources["memory"].(float64); ok {
-			maxResources.Memory = int64(memoryFloat)
-		}
-
-		if disk, ok := levelLimits.MaxResources["disk"].(int); ok {
-			maxResources.Disk = int64(disk)
-		} else if diskFloat, ok := levelLimits.MaxResources["disk"].(float64); ok {
-			maxResources.Disk = int64(diskFloat)
-		}
-
-		if bandwidth, ok := levelLimits.MaxResources["bandwidth"].(int); ok {
-			maxResources.Bandwidth = bandwidth
-		} else if bandwidthFloat, ok := levelLimits.MaxResources["bandwidth"].(float64); ok {
-			maxResources.Bandwidth = int(bandwidthFloat)
-		}
+	if maxResources.CPU <= 0 {
+		maxResources.CPU = 1
 	}
-
+	if maxResources.Memory <= 0 {
+		maxResources.Memory = 512
+	}
+	if maxResources.Disk <= 0 {
+		maxResources.Disk = 10240
+	}
+	if maxResources.Bandwidth <= 0 {
+		maxResources.Bandwidth = 100
+	}
 	return maxResources
 }
 
 // getLevelBandwidthLimit 获取等级带宽限制
 func (s *QuotaService) getLevelBandwidthLimit(level int) int {
-	// 默认带宽限制：每个等级+100Mbps，从100Mbps开始
-	baseBandwidth := 100
-	return baseBandwidth + (level-1)*100
+	levelLimit, err := userquota.ResolveLevelLimit(level)
+	if err != nil {
+		return 100
+	}
+	bandwidth := userquota.ResourceInt(levelLimit.MaxResources, "bandwidth")
+	if bandwidth <= 0 {
+		return 100
+	}
+	return bandwidth
 }
 
 // checkInstanceTypePermission 检查实例类型权限
@@ -502,23 +493,5 @@ func (s *QuotaService) mergeLevelLimitsWithOvercommit(userLimits, providerLimits
 
 // getResourceValue 从资源 map 中获取数值
 func (s *QuotaService) getResourceValue(resources map[string]interface{}, key string) int64 {
-	if resources == nil {
-		return 0
-	}
-
-	val, exists := resources[key]
-	if !exists {
-		return 0
-	}
-
-	switch v := val.(type) {
-	case int:
-		return int64(v)
-	case int64:
-		return v
-	case float64:
-		return int64(v)
-	default:
-		return 0
-	}
+	return int64(userquota.ResourceInt(resources, key))
 }

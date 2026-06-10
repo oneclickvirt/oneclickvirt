@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"oneclickvirt/global"
-	"oneclickvirt/config"
 	"oneclickvirt/model/common"
 	oauth2Model "oneclickvirt/model/oauth2"
 	"oneclickvirt/model/user"
+	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -466,7 +466,9 @@ func (s *Service) FindOrCreateUser(provider *oauth2Model.OAuth2Provider, userInf
 
 	if err == nil {
 		// 用户已存在，同步用户信息和等级
-		s.SyncUserInfo(&usr, provider, userInfo)
+		if err := s.SyncUserInfo(&usr, provider, userInfo); err != nil {
+			return nil, false, err
+		}
 		return &usr, false, nil
 	}
 
@@ -479,9 +481,9 @@ func (s *Service) FindOrCreateUser(provider *oauth2Model.OAuth2Provider, userInf
 }
 
 // SyncUserInfo 同步OAuth2用户信息和等级
-func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provider, userInfo *UserInfo) {
-	// 计算新的用户等级
+func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provider, userInfo *UserInfo) error {
 	newLevel := s.GetUserLevel(provider, userInfo.TrustLevel)
+	oldLevel := usr.Level
 
 	// 准备更新数据
 	updates := map[string]interface{}{
@@ -496,51 +498,39 @@ func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provi
 		updates["nickname"] = userInfo.Nickname
 	}
 
-	// 如果等级发生变化，更新等级和配额
-	levelChanged := false
-	if usr.Level != newLevel {
-		usr.Level = newLevel
-		updates["level"] = newLevel
-		levelChanged = true
-
-		global.APP_LOG.Info("OAuth2用户等级已更新",
-			zap.String("username", usr.Username),
-			zap.Int("old_level", usr.Level),
-			zap.Int("new_level", newLevel),
-			zap.Int("trust_level", userInfo.TrustLevel))
+	if oldLevel != newLevel {
+		quotaUpdates, err := userquota.BuildLevelAndLimitUpdateMap(newLevel)
+		if err != nil {
+			return common.NewError(common.CodeValidationError, err.Error())
+		}
+		for key, value := range quotaUpdates {
+			updates[key] = value
+		}
 	}
 
 	// 更新基本信息
 	if err := global.APP_DB.Model(usr).Updates(updates).Error; err != nil {
-		global.APP_LOG.Error("同步OAuth2用户基本信息失败",
+		global.APP_LOG.Error("同步OAuth2用户信息失败",
 			zap.String("username", usr.Username),
 			zap.Error(err))
+		return err
 	}
 
-	// 如果等级发生变化，重新设置配额
-	if levelChanged {
-		s.SetUserQuotaByLevel(usr)
-
-		// 更新配额信息到数据库
-		quotaUpdates := map[string]interface{}{
-			"max_instances": usr.MaxInstances,
-			"max_cpu":       usr.MaxCPU,
-			"max_memory":    usr.MaxMemory,
-			"max_disk":      usr.MaxDisk,
-			"max_bandwidth": usr.MaxBandwidth,
-			"total_traffic": usr.TotalTraffic,
+	if oldLevel != newLevel {
+		usr.Level = newLevel
+		if err := userquota.ApplyLimitFields(usr, newLevel); err != nil {
+			return err
 		}
-		if err := global.APP_DB.Model(usr).Updates(quotaUpdates).Error; err != nil {
-			global.APP_LOG.Error("同步OAuth2用户配额失败",
-				zap.String("username", usr.Username),
-				zap.Error(err))
-		}
-
-		global.APP_LOG.Info("OAuth2用户配额已更新",
+		global.APP_LOG.Info("OAuth2用户等级和配额已更新",
 			zap.String("username", usr.Username),
-			zap.Int("level", newLevel),
-			zap.Int("max_instances", usr.MaxInstances))
+			zap.Int("old_level", oldLevel),
+			zap.Int("new_level", newLevel),
+			zap.Int("trust_level", userInfo.TrustLevel),
+			zap.Int("max_instances", usr.MaxInstances),
+			zap.Int("max_bandwidth", usr.MaxBandwidth))
 	}
+
+	return nil
 }
 
 // CreateUser 创建新用户
@@ -580,7 +570,9 @@ func (s *Service) CreateUser(provider *oauth2Model.OAuth2Provider, userInfo *Use
 	}
 
 	// 根据用户等级设置配额
-	s.SetUserQuotaByLevel(usr)
+	if err := s.SetUserQuotaByLevel(usr); err != nil {
+		return nil, false, common.NewError(common.CodeValidationError, err.Error())
+	}
 
 	// 使用带重试的数据库操作创建用户
 	err = utils.RetryableDBOperation(context.Background(), func() error {
@@ -636,33 +628,13 @@ func (s *Service) GenerateUniqueUsername(baseUsername string) string {
 }
 
 // SetUserQuotaByLevel 根据用户等级设置配额
-func (s *Service) SetUserQuotaByLevel(usr *user.User) {
-	effectiveLevel := usr.Level
-	levelLimits, ok := global.GetAppConfig().Quota.LevelLimits[usr.Level]
-	if !ok {
-		// 使用默认等级配置
-		effectiveLevel = global.GetAppConfig().Quota.DefaultLevel
-		levelLimits = global.GetAppConfig().Quota.LevelLimits[effectiveLevel]
+func (s *Service) SetUserQuotaByLevel(usr *user.User) error {
+	if err := userquota.ApplyLimitFields(usr, usr.Level); err != nil {
+		global.APP_LOG.Warn("OAuth2用户等级配置不存在，无法设置配额",
+			zap.String("username", usr.Username),
+			zap.Int("level", usr.Level),
+			zap.Error(err))
+		return err
 	}
-	levelLimits = config.NormalizeLevelLimitInfo(effectiveLevel, levelLimits)
-
-	usr.MaxInstances = levelLimits.MaxInstances
-
-	// 设置资源限制
-	if maxRes, ok := levelLimits.MaxResources["cpu"].(int); ok {
-		usr.MaxCPU = maxRes
-	}
-	if maxRes, ok := levelLimits.MaxResources["memory"].(int); ok {
-		usr.MaxMemory = maxRes
-	}
-	if maxRes, ok := levelLimits.MaxResources["disk"].(int); ok {
-		usr.MaxDisk = maxRes
-	}
-	if maxRes, ok := levelLimits.MaxResources["bandwidth"].(int); ok {
-		usr.MaxBandwidth = maxRes
-	}
-
-	// 不再自动设置流量限制，保持为0，只有当用户实例所在Provider启用流量统计时才设置
-	// usr.TotalTraffic = levelLimits.MaxTraffic
-	usr.TotalTraffic = 0
+	return nil
 }

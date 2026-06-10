@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/userquota"
 	"time"
 
 	"oneclickvirt/global"
@@ -351,20 +352,20 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return err
 	}
 	user := userModel.User{
-		Username: req.Username,
-		Password: string(hashedPassword),
-		Nickname: req.Nickname,
-		Email:    req.Email,
-		Phone:    req.Phone,
-		Telegram: req.Telegram,
-		QQ:       req.QQ,
-		UserType: "user",
-		Level:    global.GetAppConfig().Quota.DefaultLevel,
-		Status:   1, // 默认状态为正常
-		// 资源限制将在创建后通过同步服务自动设置
-		// UsedTraffic字段已删除，流量数据从pmacct_traffic_records实时查询
-		TotalTraffic:   0, // 默认为0，不自动设置流量限制，只有当用户实例所在Provider启用流量统计时才设置
+		Username:       req.Username,
+		Password:       string(hashedPassword),
+		Nickname:       req.Nickname,
+		Email:          req.Email,
+		Phone:          req.Phone,
+		Telegram:       req.Telegram,
+		QQ:             req.QQ,
+		UserType:       "user",
+		Level:          global.GetAppConfig().Quota.DefaultLevel,
+		Status:         1, // 默认状态为正常
 		TrafficLimited: false,
+	}
+	if err := userquota.ApplyLimitFields(&user, user.Level); err != nil {
+		return common.NewError(common.CodeValidationError, err.Error())
 	}
 
 	// 设置流量重置时间为下个月1号
@@ -373,8 +374,7 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 	user.TrafficResetAt = &resetTime
 
 	// 根据全局配置设置用户过期时间
-	levelLimits := global.GetAppConfig().Quota.LevelLimits
-	if levelLimit, exists := levelLimits[user.Level]; exists && levelLimit.ExpiryDays > 0 {
+	if levelLimit, err := userquota.ResolveLevelLimit(user.Level); err == nil && levelLimit.ExpiryDays > 0 {
 		// 如果配置了该等级的过期天数，设置过期时间
 		expiryTime := now.AddDate(0, 0, levelLimit.ExpiryDays)
 		user.ExpiresAt = &expiryTime
@@ -428,23 +428,6 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return nil
 	})
 
-	// 事务成功后，同步用户资源限制到对应等级配置
-	if transactionErr == nil {
-		// 使用延迟函数避免循环导入，在用户创建后同步资源限制
-		go func() {
-			if syncErr := syncNewUserResourceLimits(user.Level, user.ID); syncErr != nil {
-				// 用户已创建成功，资源同步失败只记录日志，不影响注册流程
-				global.APP_LOG.Error("新用户资源限制同步失败",
-					zap.Uint("userID", user.ID),
-					zap.Int("level", user.Level),
-					zap.Error(syncErr))
-			} else {
-				global.APP_LOG.Info("新用户资源限制同步成功",
-					zap.Uint("userID", user.ID),
-					zap.Int("level", user.Level))
-			}
-		}()
-	}
 
 	return transactionErr
 }

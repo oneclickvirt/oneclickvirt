@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"oneclickvirt/config"
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -282,27 +282,20 @@ func (l *LXDProvider) getBandwidthFromProvider(userLevel int) (inSpeed, outSpeed
 }
 
 // getUserLevelBandwidth 根据用户等级获取带宽限制
-func (l *LXDProvider) getUserLevelBandwidth(userLevel int) int {
-	// 从全局配置中获取用户等级对应的带宽限制，并兼容旧配置缺失 bandwidth 的情况。
-	if levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[userLevel]; exists {
-		levelLimits = config.NormalizeLevelLimitInfo(userLevel, levelLimits)
-		if bandwidth, ok := levelLimits.MaxResources["bandwidth"].(int); ok {
-			return bandwidth
-		} else if bandwidthFloat, ok := levelLimits.MaxResources["bandwidth"].(float64); ok {
-			return int(bandwidthFloat)
-		}
+// getUserLevelBandwidth 根据用户等级获取带宽限制
+func (i *LXDProvider) getUserLevelBandwidth(userLevel int) int {
+	levelLimit, err := userquota.ResolveLevelLimit(userLevel)
+	if err != nil {
+		global.APP_LOG.Warn("获取用户等级带宽限制失败，使用等级1默认值",
+			zap.Int("userLevel", userLevel),
+			zap.Error(err))
+		levelLimit, _ = userquota.ResolveLevelLimit(1)
 	}
-
-	// 如果没有配置，优先使用内置等级默认值。
-	if defaultLimit, ok := config.DefaultLevelLimitInfo(userLevel); ok {
-		if bandwidth, ok := defaultLimit.MaxResources["bandwidth"].(int); ok {
-			return bandwidth
-		}
+	bandwidth := userquota.ResourceInt(levelLimit.MaxResources, "bandwidth")
+	if bandwidth <= 0 {
+		return 100
 	}
-
-	// 超出内置等级时，使用等级基础计算方法（每级+100Mbps，从100开始）。
-	baseBandwidth := 100
-	return baseBandwidth + (userLevel-1)*100
+	return bandwidth
 }
 
 // tryUseExistingNetworkConfig 尝试使用现有的网络配置继续

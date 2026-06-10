@@ -2,7 +2,6 @@ package resources
 
 import (
 	"fmt"
-	"oneclickvirt/config"
 	"oneclickvirt/constant"
 	"oneclickvirt/utils"
 	"time"
@@ -12,6 +11,7 @@ import (
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/cache"
 	trafficService "oneclickvirt/service/traffic"
+	"oneclickvirt/service/userquota"
 
 	"go.uber.org/zap"
 )
@@ -88,11 +88,10 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 	}
 
 	// 获取用户等级限制
-	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[user.Level]
-	if !exists {
-		return nil, fmt.Errorf("用户等级 %d 没有配置资源限制", user.Level)
+	levelLimits, err := userquota.ResolveLevelLimit(user.Level)
+	if err != nil {
+		return nil, err
 	}
-	levelLimits = config.NormalizeLevelLimitInfo(user.Level, levelLimits)
 
 	// 统计当前实例使用的资源（只统计稳定状态，避免双倍计数）
 	stableStatuses := constant.GetQuotaCountableStatuses()
@@ -157,11 +156,10 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 	}
 
 	// 获取等级限制
-	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[user.Level]
-	if !exists {
-		return nil, fmt.Errorf("用户等级 %d 没有配置资源限制", user.Level)
+	levelLimits, err := userquota.ResolveLevelLimit(user.Level)
+	if err != nil {
+		return nil, err
 	}
-	levelLimits = config.NormalizeLevelLimitInfo(user.Level, levelLimits)
 
 	// 获取配额服务来计算最大资源
 	quotaService := NewQuotaService()
@@ -183,7 +181,7 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 	stableStatuses := constant.GetQuotaCountableStatuses()
 
 	var resourceStats ResourceStats
-	err := global.APP_DB.Raw(`
+	err = global.APP_DB.Raw(`
 		SELECT 
 			COUNT(*) as used_instances,
 			SUM(CASE WHEN instance_type = 'container' THEN 1 ELSE 0 END) as container_count,

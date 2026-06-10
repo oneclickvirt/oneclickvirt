@@ -42,6 +42,7 @@ export default {
   disable: "禁用",
   resetPassword: "重置密码",
   levelTag: "等级{level}",
+  confirmBatchSetLevel: "确定要将选中的用户批量设置为等级{level}吗？",
   confirmBatchDelete: "确定要批量删除选中的用户吗？",
   confirmToggleStatus: "确定要{action}该用户吗？",
   confirmResetPassword: "确定要重置该用户的密码吗？",
