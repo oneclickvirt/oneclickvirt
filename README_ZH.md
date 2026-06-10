@@ -354,22 +354,22 @@ go run main.go
 
 ## 致谢
 
-感谢以下平台提供测试：
+感谢以下平台提供的测试：
 
-<a href="https://console.zmto.com/?affid=1524" target="_blank">
-  <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" style="height: 50px;">
+<a href="https://console.zmto.com/?affid=1524">
+  <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" height="50">
 </a>
 
-<a href="https://fossvps.org/" target="_blank">
-  <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" style="height: 50px;">
+<a href="https://fossvps.org/">
+  <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" height="50">
 </a>
 
-<a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/" target="_blank">
-  <img src="https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png" alt="ibm" style="height: 50px;">
+<a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
+  <img src="https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png" alt="IBM LinuxONE OSS Community Cloud" height="50">
 </a>
 
-<a href=https://linux.do/" target="_blank">
-  <img src="https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png" alt="ibm" style="height: 50px;">
+<a href="https://linux.do/">
+  <img src="https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png" alt="Linux DO" height="50">
 </a>
 
 ## LICENSE
