@@ -127,53 +127,7 @@ func getDefaultConfigMap() map[string]interface{} {
 				"min-level-for-reset-container":  2,
 				"min-level-for-reset-vm":         2,
 			},
-			"level-limits": map[string]interface{}{
-				"1": map[string]interface{}{
-					"max-instances": 1,
-					"max-resources": map[string]interface{}{
-						"cpu":    1,
-						"memory": 1024,
-						"disk":   10,
-					},
-					"max-traffic": 0,
-				},
-				"2": map[string]interface{}{
-					"max-instances": 3,
-					"max-resources": map[string]interface{}{
-						"cpu":    2,
-						"memory": 1024,
-						"disk":   20,
-					},
-					"max-traffic": 0,
-				},
-				"3": map[string]interface{}{
-					"max-instances": 5,
-					"max-resources": map[string]interface{}{
-						"cpu":    4,
-						"memory": 2048,
-						"disk":   40,
-					},
-					"max-traffic": 0,
-				},
-				"4": map[string]interface{}{
-					"max-instances": 10,
-					"max-resources": map[string]interface{}{
-						"cpu":    8,
-						"memory": 4096,
-						"disk":   80,
-					},
-					"max-traffic": 0,
-				},
-				"5": map[string]interface{}{
-					"max-instances": 20,
-					"max-resources": map[string]interface{}{
-						"cpu":    16,
-						"memory": 8192,
-						"disk":   160,
-					},
-					"max-traffic": 0,
-				},
-			},
+			"level-limits": DefaultLevelLimitsConfigMap(),
 		},
 		"invite-code": map[string]interface{}{
 			"enabled":  false,

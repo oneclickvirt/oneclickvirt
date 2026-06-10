@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"oneclickvirt/config"
 	"oneclickvirt/global"
 	dashboardModel "oneclickvirt/model/dashboard"
 	monitoringModel "oneclickvirt/model/monitoring"
@@ -88,6 +89,9 @@ func (s *UserTrafficService) fetchUserTrafficOverview(userID uint) (map[string]i
 	// 自动设置TotalTraffic（如TotalTraffic为0时）
 	if u.TotalTraffic == 0 {
 		levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[u.Level]
+		if exists {
+			levelLimits = config.NormalizeLevelLimitInfo(u.Level, levelLimits)
+		}
 		if exists && levelLimits.MaxTraffic > 0 {
 			u.TotalTraffic = levelLimits.MaxTraffic
 		}

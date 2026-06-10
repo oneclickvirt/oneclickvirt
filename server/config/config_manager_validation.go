@@ -138,6 +138,16 @@ func (cm *ConfigManager) validateLevelLimits(value interface{}) error {
 			}
 		}
 
+		// 验证并填充 max-snapshots。0 表示不允许快照，因此只有字段缺失时才使用默认值。
+		maxSnapshots, exists := limitMap["max-snapshots"]
+		if !exists || maxSnapshots == nil {
+			if hasDefaultConfig {
+				limitMap["max-snapshots"] = defaultConfig["max-snapshots"]
+			}
+		} else if err := validateNonNegativeNumber(maxSnapshots, fmt.Sprintf("等级 %s 的 max-snapshots", levelStr)); err != nil {
+			return err
+		}
+
 		// 验证并填充 max-resources
 		maxResources, exists := limitMap["max-resources"]
 		if !exists || maxResources == nil {
@@ -248,60 +258,17 @@ func (cm *ConfigManager) validateQuotaLevelsInUse(flatConfig map[string]interfac
 }
 
 func defaultLevelLimitConfig(level int) (map[string]interface{}, bool) {
-	defaults := map[int]map[string]interface{}{
-		1: {
-			"max-instances": 1,
-			"max-resources": map[string]interface{}{
-				"cpu":       1,
-				"memory":    350,
-				"disk":      1024,
-				"bandwidth": 100,
-			},
-			"max-traffic": 102400,
-		},
-		2: {
-			"max-instances": 3,
-			"max-resources": map[string]interface{}{
-				"cpu":       2,
-				"memory":    1024,
-				"disk":      20480,
-				"bandwidth": 200,
-			},
-			"max-traffic": 204800,
-		},
-		3: {
-			"max-instances": 5,
-			"max-resources": map[string]interface{}{
-				"cpu":       4,
-				"memory":    2048,
-				"disk":      40960,
-				"bandwidth": 500,
-			},
-			"max-traffic": 307200,
-		},
-		4: {
-			"max-instances": 10,
-			"max-resources": map[string]interface{}{
-				"cpu":       8,
-				"memory":    4096,
-				"disk":      81920,
-				"bandwidth": 1000,
-			},
-			"max-traffic": 409600,
-		},
-		5: {
-			"max-instances": 20,
-			"max-resources": map[string]interface{}{
-				"cpu":       16,
-				"memory":    8192,
-				"disk":      163840,
-				"bandwidth": 2000,
-			},
-			"max-traffic": 512000,
-		},
+	info, ok := DefaultLevelLimitInfo(level)
+	if !ok {
+		return nil, false
 	}
-	defaultConfig, ok := defaults[level]
-	return defaultConfig, ok
+	return map[string]interface{}{
+		"max-instances": info.MaxInstances,
+		"max-resources": info.MaxResources,
+		"max-traffic":   info.MaxTraffic,
+		"expiry-days":   info.ExpiryDays,
+		"max-snapshots": info.MaxSnapshots,
+	}, true
 }
 
 func toInt(value interface{}) (int, bool) {
@@ -362,6 +329,30 @@ func validatePositiveNumber(value interface{}, fieldName string) error {
 		}
 	default:
 		return fmt.Errorf("%s 必须是数值类型", fieldName)
+	}
+	return nil
+}
+
+func validateNonNegativeNumber(value interface{}, fieldName string) error {
+	switch v := value.(type) {
+	case int:
+		if v < 0 {
+			return fmt.Errorf("%s 不能为负数", fieldName)
+		}
+	case int64:
+		if v < 0 {
+			return fmt.Errorf("%s 不能为负数", fieldName)
+		}
+	case float64:
+		if v < 0 {
+			return fmt.Errorf("%s 不能为负数", fieldName)
+		}
+	case float32:
+		if v < 0 {
+			return fmt.Errorf("%s 不能为负数", fieldName)
+		}
+	default:
+		return fmt.Errorf("%s 必须是数字", fieldName)
 	}
 	return nil
 }

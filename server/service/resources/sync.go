@@ -95,7 +95,7 @@ func (s *QuotaSyncService) extractLevelLimits(configMap map[string]interface{}) 
 			levelLimit := config.LevelLimitInfo{}
 
 			// 解析 MaxInstances
-			if maxInstances, exists := limitMap["max-instances"]; exists {
+			if maxInstances, exists := firstExisting(limitMap, "max-instances", "maxInstances"); exists {
 				if instances, ok := maxInstances.(float64); ok {
 					levelLimit.MaxInstances = int(instances)
 				} else if instances, ok := maxInstances.(int); ok {
@@ -104,7 +104,7 @@ func (s *QuotaSyncService) extractLevelLimits(configMap map[string]interface{}) 
 			}
 
 			// 解析 MaxTraffic
-			if maxTraffic, exists := limitMap["max-traffic"]; exists {
+			if maxTraffic, exists := firstExisting(limitMap, "max-traffic", "maxTraffic"); exists {
 				if traffic, ok := maxTraffic.(float64); ok {
 					levelLimit.MaxTraffic = int64(traffic)
 				} else if traffic, ok := maxTraffic.(int64); ok {
@@ -115,13 +115,23 @@ func (s *QuotaSyncService) extractLevelLimits(configMap map[string]interface{}) 
 			}
 
 			// 解析 MaxResources
-			if maxResources, exists := limitMap["max-resources"]; exists {
+			if maxResources, exists := firstExisting(limitMap, "max-resources", "maxResources"); exists {
 				if resourcesMap, ok := maxResources.(map[string]interface{}); ok {
 					levelLimit.MaxResources = resourcesMap
 				}
 			}
 
-			levelLimits[level] = levelLimit
+			if maxSnapshots, exists := firstExisting(limitMap, "max-snapshots", "maxSnapshots"); exists {
+				if snapshots, ok := maxSnapshots.(float64); ok {
+					levelLimit.MaxSnapshots = int(snapshots)
+				} else if snapshots, ok := maxSnapshots.(int); ok {
+					levelLimit.MaxSnapshots = snapshots
+				}
+			} else if defaultLimit, ok := config.DefaultLevelLimitInfo(level); ok {
+				levelLimit.MaxSnapshots = defaultLimit.MaxSnapshots
+			}
+
+			levelLimits[level] = config.NormalizeLevelLimitInfo(level, levelLimit)
 		}
 	}
 
@@ -310,6 +320,7 @@ func (s *QuotaSyncService) SyncAllUsersToCurrentConfig() error {
 	sort.Ints(levels)
 	for _, level := range levels {
 		levelConfig := global.GetAppConfig().Quota.LevelLimits[level]
+		levelConfig = config.NormalizeLevelLimitInfo(level, levelConfig)
 		if err := s.syncLevelUsers(level, &levelConfig); err != nil {
 			global.APP_LOG.Warn("同步等级用户失败",
 				zap.Int("level", level),
@@ -332,18 +343,24 @@ func (s *QuotaSyncService) SyncUserToLevel(level int, userIDs []uint) error {
 	levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]
 	if !exists {
 		global.APP_LOG.Warn("等级配置不存在，使用默认配置", zap.Int("level", level))
-		// 使用默认配置
-		levelConfig = config.LevelLimitInfo{
-			MaxInstances: 1,
-			MaxTraffic:   102400, // 100GB
-			MaxResources: map[string]interface{}{
-				"cpu":       1,
-				"memory":    512,
-				"disk":      10240,
-				"bandwidth": 100,
-			},
+		// 使用内置默认配置
+		if defaultConfig, ok := config.DefaultLevelLimitInfo(level); ok {
+			levelConfig = defaultConfig
+		} else if defaultConfig, ok := config.DefaultLevelLimitInfo(global.GetAppConfig().Quota.DefaultLevel); ok {
+			levelConfig = defaultConfig
 		}
 	}
 
+	levelConfig = config.NormalizeLevelLimitInfo(level, levelConfig)
 	return s.syncLevelUsers(level, &levelConfig)
+}
+
+
+func firstExisting(values map[string]interface{}, keys ...string) (interface{}, bool) {
+	for _, key := range keys {
+		if value, exists := values[key]; exists {
+			return value, true
+		}
+	}
+	return nil, false
 }

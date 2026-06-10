@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"oneclickvirt/config"
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
@@ -270,8 +271,9 @@ func (p *ProxmoxProvider) getBandwidthFromProvider(ctx context.Context, userLeve
 
 // getUserLevelBandwidth 根据用户等级获取带宽限制
 func (p *ProxmoxProvider) getUserLevelBandwidth(userLevel int) int {
-	// 从全局配置中获取用户等级对应的带宽限制
+	// 从全局配置中获取用户等级对应的带宽限制，并兼容旧配置缺失 bandwidth 的情况。
 	if levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[userLevel]; exists {
+		levelLimits = config.NormalizeLevelLimitInfo(userLevel, levelLimits)
 		if bandwidth, ok := levelLimits.MaxResources["bandwidth"].(int); ok {
 			return bandwidth
 		} else if bandwidthFloat, ok := levelLimits.MaxResources["bandwidth"].(float64); ok {
@@ -279,7 +281,14 @@ func (p *ProxmoxProvider) getUserLevelBandwidth(userLevel int) int {
 		}
 	}
 
-	// 如果没有配置，使用等级基础计算方法（每级+100Mbps，从100开始）
+	// 如果没有配置，优先使用内置等级默认值。
+	if defaultLimit, ok := config.DefaultLevelLimitInfo(userLevel); ok {
+		if bandwidth, ok := defaultLimit.MaxResources["bandwidth"].(int); ok {
+			return bandwidth
+		}
+	}
+
+	// 超出内置等级时，使用等级基础计算方法（每级+100Mbps，从100开始）。
 	baseBandwidth := 100
 	return baseBandwidth + (userLevel-1)*100
 }

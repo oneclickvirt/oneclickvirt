@@ -50,6 +50,7 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 			Reason:  fmt.Sprintf("用户等级 %d 没有配置资源限制", user.Level),
 		}, nil
 	}
+	levelLimits = config.NormalizeLevelLimitInfo(user.Level, levelLimits)
 
 	// 如果提供了 ProviderID，需要获取并合并 Provider 的等级限制
 	var providerLevelLimits *config.LevelLimitInfo
@@ -378,6 +379,7 @@ func (s *QuotaService) getProviderLevelLimits(tx *gorm.DB, providerID uint, user
 
 	// 获取对应用户等级的限制
 	if limitInfo, exists := providerLimits[userLevel]; exists {
+		limitInfo = config.NormalizeLevelLimitInfo(userLevel, limitInfo)
 		return &limitInfo, nil
 	}
 

@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"oneclickvirt/service/auth"
 	"reflect"
 	"strconv"
 	"strings"
@@ -13,8 +12,11 @@ import (
 	authModel "oneclickvirt/model/auth"
 	"oneclickvirt/model/common"
 	configModel "oneclickvirt/model/config"
+	"oneclickvirt/service/auth"
+	resourceService "oneclickvirt/service/resources"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 type configGetter interface {
@@ -166,6 +168,8 @@ func UpdateUnifiedConfig(c *gin.Context) {
 		return
 	}
 
+	shouldSyncUserQuota := hasQuotaLevelLimitUpdate(filteredConfig)
+
 	// 更新配置
 	// UpdateConfig 会自动：
 	// 1. 将配置保存到数据库（自动转换为 kebab-case 格式）
@@ -179,6 +183,12 @@ func UpdateUnifiedConfig(c *gin.Context) {
 	// ConfigManager.UpdateConfig 已经通过回调机制自动同步到全局配置
 	// 回调函数在 initialize/config_manager.go 的 syncConfigToGlobal 中定义
 	// 它会正确处理 kebab-case 和 camelCase 两种格式的键名
+	if shouldSyncUserQuota {
+		quotaSyncService := &resourceService.QuotaSyncService{}
+		if err := quotaSyncService.SyncAllUsersToCurrentConfig(); err != nil {
+			global.APP_LOG.Warn("同步用户配额缓存失败", zap.Error(err))
+		}
+	}
 
 	common.ResponseSuccess(c, nil, "配置更新成功")
 }
@@ -242,12 +252,14 @@ func getUserConfig(cm *config.ConfigManager, authCtx *authModel.AuthContext) map
 	// 配额配置 - 从 global.APP_CONFIG 获取完整配置
 	levelLimits := make(map[string]interface{})
 	for level, limitInfo := range global.GetAppConfig().Quota.LevelLimits {
+		limitInfo = config.NormalizeLevelLimitInfo(level, limitInfo)
 		levelKey := fmt.Sprintf("%d", level)
 		levelLimits[levelKey] = map[string]interface{}{
 			"max-instances": limitInfo.MaxInstances,
 			"max-resources": limitInfo.MaxResources,
 			"max-traffic":   limitInfo.MaxTraffic,
 			"expiry-days":   limitInfo.ExpiryDays,
+			"max-snapshots": limitInfo.MaxSnapshots,
 		}
 	}
 
@@ -301,12 +313,14 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 	// 配额配置 - 从 global.APP_CONFIG 获取完整的等级限制
 	levelLimits := make(map[string]interface{})
 	for level, limitInfo := range global.GetAppConfig().Quota.LevelLimits {
+		limitInfo = config.NormalizeLevelLimitInfo(level, limitInfo)
 		levelKey := fmt.Sprintf("%d", level)
 		levelLimits[levelKey] = map[string]interface{}{
 			"max-instances": limitInfo.MaxInstances,
 			"max-resources": limitInfo.MaxResources,
 			"max-traffic":   limitInfo.MaxTraffic,
 			"expiry-days":   limitInfo.ExpiryDays,
+			"max-snapshots": limitInfo.MaxSnapshots,
 		}
 	}
 
@@ -441,52 +455,97 @@ func filterConfigByScope(config map[string]interface{}, scope string, authCtx *a
 	return filtered
 }
 
-// validateLevelLimitsConfig validates the level_limits section of config updates.
-// Keys must be numeric level identifiers and quota values must be non-negative numbers.
+// validateLevelLimitsConfig validates the level-limits section of config updates.
+// It supports the legacy level_limits key and the current nested quota.levelLimits shape.
 func validateLevelLimitsConfig(cfg map[string]interface{}) error {
-	rawLimits, ok := cfg["level_limits"]
+	rawLimits, ok := findLevelLimitsConfig(cfg)
 	if !ok {
 		return nil
 	}
 	limits, ok := rawLimits.(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("level_limits 格式无效")
+		return fmt.Errorf("levelLimits 格式无效")
 	}
-	numericFields := []string{"max_instances", "max_cpu", "max_memory", "max_disk"}
+
 	for levelKey, levelVal := range limits {
-		// Key must be a valid non-negative integer
 		levelNum, err := strconv.Atoi(levelKey)
-		if err != nil || levelNum < 0 {
-			return fmt.Errorf("level_limits 的键必须为非负整数，无效键: %s", levelKey)
+		if err != nil || levelNum < 1 || levelNum > 99 {
+			return fmt.Errorf("levelLimits 的键必须为 1-99 的整数，无效键: %s", levelKey)
 		}
 		levelMap, ok := levelVal.(map[string]interface{})
 		if !ok {
-			return fmt.Errorf("level_limits[%s] 格式无效", levelKey)
+			return fmt.Errorf("levelLimits[%s] 格式无效", levelKey)
 		}
-		for _, field := range numericFields {
-			val, exists := levelMap[field]
-			if !exists {
-				continue
+
+		for _, field := range []string{"maxInstances", "max-instances", "maxTraffic", "max-traffic", "expiryDays", "expiry-days", "maxSnapshots", "max-snapshots"} {
+			if val, exists := levelMap[field]; exists {
+				if err := validateNonNegativeConfigNumber(val, fmt.Sprintf("levelLimits[%s].%s", levelKey, field)); err != nil {
+					return err
+				}
 			}
-			switch v := val.(type) {
-			case float64:
-				if v < 0 {
-					return fmt.Errorf("level_limits[%s].%s 不能为负数", levelKey, field)
+		}
+
+		if rawResources, exists := firstMapValue(levelMap, "maxResources", "max-resources"); exists {
+			resources, ok := rawResources.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("levelLimits[%s].maxResources 格式无效", levelKey)
+			}
+			for _, field := range []string{"cpu", "memory", "disk", "bandwidth"} {
+				if val, exists := resources[field]; exists {
+					if err := validateNonNegativeConfigNumber(val, fmt.Sprintf("levelLimits[%s].maxResources.%s", levelKey, field)); err != nil {
+						return err
+					}
 				}
-			case int:
-				if v < 0 {
-					return fmt.Errorf("level_limits[%s].%s 不能为负数", levelKey, field)
-				}
-			case int64:
-				if v < 0 {
-					return fmt.Errorf("level_limits[%s].%s 不能为负数", levelKey, field)
-				}
-			case string:
-				return fmt.Errorf("level_limits[%s].%s 必须为数字类型", levelKey, field)
-			default:
-				return fmt.Errorf("level_limits[%s].%s 类型无效", levelKey, field)
 			}
 		}
 	}
 	return nil
+}
+
+func findLevelLimitsConfig(cfg map[string]interface{}) (interface{}, bool) {
+	for _, key := range []string{"level_limits", "quota.levelLimits", "quota.level-limits"} {
+		if value, exists := cfg[key]; exists {
+			return value, true
+		}
+	}
+	if quota, ok := cfg["quota"].(map[string]interface{}); ok {
+		return firstMapValue(quota, "levelLimits", "level-limits")
+	}
+	return nil, false
+}
+
+func firstMapValue(values map[string]interface{}, keys ...string) (interface{}, bool) {
+	for _, key := range keys {
+		if value, exists := values[key]; exists {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+func validateNonNegativeConfigNumber(value interface{}, fieldName string) error {
+	switch v := value.(type) {
+	case float64:
+		if v < 0 {
+			return fmt.Errorf("%s 不能为负数", fieldName)
+		}
+	case int:
+		if v < 0 {
+			return fmt.Errorf("%s 不能为负数", fieldName)
+		}
+	case int64:
+		if v < 0 {
+			return fmt.Errorf("%s 不能为负数", fieldName)
+		}
+	case string:
+		return fmt.Errorf("%s 必须为数字类型", fieldName)
+	default:
+		return fmt.Errorf("%s 类型无效", fieldName)
+	}
+	return nil
+}
+
+func hasQuotaLevelLimitUpdate(config map[string]interface{}) bool {
+	_, ok := findLevelLimitsConfig(config)
+	return ok
 }

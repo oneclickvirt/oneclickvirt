@@ -253,18 +253,14 @@ func (s *Service) syncSingleUserResourceLimits(level int, userID uint) error {
 	levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]
 	if !exists {
 		global.APP_LOG.Warn("等级配置不存在，使用默认配置", zap.Int("level", level))
-		// 使用默认配置
-		levelConfig = config.LevelLimitInfo{
-			MaxInstances: 1,
-			MaxTraffic:   102400, // 100GB
-			MaxResources: map[string]interface{}{
-				"cpu":       1,
-				"memory":    512,
-				"disk":      10240,
-				"bandwidth": 100,
-			},
+		// 使用内置默认配置
+		if defaultConfig, ok := config.DefaultLevelLimitInfo(level); ok {
+			levelConfig = defaultConfig
+		} else if defaultConfig, ok := config.DefaultLevelLimitInfo(global.GetAppConfig().Quota.DefaultLevel); ok {
+			levelConfig = defaultConfig
 		}
 	}
+	levelConfig = config.NormalizeLevelLimitInfo(level, levelConfig)
 
 	// 构建更新数据 - 不再自动设置 total_traffic
 	updateData := map[string]interface{}{

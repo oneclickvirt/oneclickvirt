@@ -3,6 +3,7 @@ package resources
 import (
 	"fmt"
 
+	"oneclickvirt/config"
 	"oneclickvirt/global"
 	"oneclickvirt/model/user"
 
@@ -176,6 +177,7 @@ func (s *QuotaService) GetUserQuotaInfo(userID uint) (*QuotaCheckResult, error) 
 	if !exists {
 		return nil, fmt.Errorf("用户等级 %d 没有配置资源限制", user.Level)
 	}
+	levelLimits = config.NormalizeLevelLimitInfo(user.Level, levelLimits)
 
 	// 获取当前资源使用情况
 	currentInstances, currentResources, err := s.getCurrentResourceUsage(global.APP_DB, userID)

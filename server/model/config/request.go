@@ -47,6 +47,7 @@ type LevelLimitInfo struct {
 	MaxTraffic   int64                  `json:"maxTraffic"`                                // 最大流量限制(MB)
 	ExpiryDays   int                    `json:"expiryDays"`                                // 新注册用户的默认过期天数，0表示不过期
 	ExpiryTime   *time.Time             `json:"expiryTime,omitempty" swaggertype:"string"` // 具体过期时间（用于计算，前端不需要传）
+	MaxSnapshots int                    `json:"maxSnapshots"`                              // 每个实例允许保留的最大快照数，0表示不允许
 }
 
 // DatabaseConfig 数据库初始化配置

@@ -86,48 +86,7 @@ func getDefaultConfig() config.Server {
 				MinLevelForResetContainer:  1,
 				MinLevelForResetVM:         1,
 			},
-			LevelLimits: map[int]config.LevelLimitInfo{
-				1: {
-					MaxInstances: 1,
-					MaxResources: map[string]interface{}{
-						"cpu":    1,
-						"memory": 1025,
-						"disk":   1,
-					},
-				},
-				2: {
-					MaxInstances: 3,
-					MaxResources: map[string]interface{}{
-						"cpu":    2,
-						"memory": 1024,
-						"disk":   20,
-					},
-				},
-				3: {
-					MaxInstances: 5,
-					MaxResources: map[string]interface{}{
-						"cpu":    4,
-						"memory": 2048,
-						"disk":   40,
-					},
-				},
-				4: {
-					MaxInstances: 10,
-					MaxResources: map[string]interface{}{
-						"cpu":    8,
-						"memory": 4096,
-						"disk":   80,
-					},
-				},
-				5: {
-					MaxInstances: 20,
-					MaxResources: map[string]interface{}{
-						"cpu":    16,
-						"memory": 8192,
-						"disk":   160,
-					},
-				},
-			},
+			LevelLimits: config.DefaultLevelLimits(),
 		},
 		InviteCode: config.InviteCode{
 			Enabled:  false,
@@ -213,21 +172,21 @@ func detectDatabaseType() string {
 
 // 初始化配置
 func InitConfig(configPath ...string) *viper.Viper {
-	var config string
+	var configFile string
 	if len(configPath) == 0 {
-		config = "config.yaml"
+		configFile = "config.yaml"
 	} else {
-		config = configPath[0]
+		configFile = configPath[0]
 	}
 
 	v := viper.New()
-	v.SetConfigFile(config)
+	v.SetConfigFile(configFile)
 	v.SetConfigType("yaml")
 
 	// 配置文件不存在时自动生成默认配置
-	if _, err := os.Stat(config); os.IsNotExist(err) {
-		fmt.Printf("[CONFIG] 配置文件 %q 不存在，正在生成默认配置...\n", config)
-		if err := createDefaultConfigFile(config); err != nil {
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		fmt.Printf("[CONFIG] 配置文件 %q 不存在，正在生成默认配置...\n", configFile)
+		if err := createDefaultConfigFile(configFile); err != nil {
 			fmt.Fprintf(os.Stderr, "[CONFIG ERROR] 创建默认配置文件失败: %v，降级为内存配置\n", err)
 			global.SetAppConfig(getDefaultConfig())
 			return v
@@ -252,6 +211,8 @@ func InitConfig(configPath ...string) *viper.Viper {
 			return
 		}
 
+		newConfig.Quota.LevelLimits = config.NormalizeLevelLimits(newConfig.Quota.LevelLimits)
+
 		if err := validateConfig(&newConfig); err != nil {
 			fmt.Fprintf(os.Stderr, "[CONFIG WARN] 新配置校验失败: %v，保持原有配置\n", err)
 			return
@@ -273,6 +234,8 @@ func InitConfig(configPath ...string) *viper.Viper {
 		fmt.Fprintf(os.Stderr, "[CONFIG ERROR] 解析配置文件失败: %v，降级为内存默认配置\n", err)
 		global.SetAppConfig(getDefaultConfig())
 	} else {
+		loadedConfig.Quota.LevelLimits = config.NormalizeLevelLimits(loadedConfig.Quota.LevelLimits)
+
 		if err := validateConfig(&loadedConfig); err != nil {
 			fmt.Fprintf(os.Stderr, "[CONFIG ERROR] 配置校验失败: %v，降级为内存默认配置\n", err)
 			global.SetAppConfig(getDefaultConfig())

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"oneclickvirt/config"
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -81,6 +82,7 @@ func (s *Service) validateUserSpecPermissions(userID uint, providerID uint, cpuS
 	if !exists {
 		return fmt.Errorf("用户等级 %d 没有配置资源限制", effective.EffectiveLevel)
 	}
+	levelLimits = config.NormalizeLevelLimitInfo(effective.EffectiveLevel, levelLimits)
 
 	// 如果指定了Provider，获取并合并Provider的节点等级限制（取最小值）
 	if providerID > 0 {

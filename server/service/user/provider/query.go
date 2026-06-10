@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"oneclickvirt/config"
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -296,19 +297,19 @@ func (s *Service) GetInstanceConfig(userID uint, providerID uint) (*userModel.In
 	remainingGlobalBandwidth := quotaInfo.MaxQuota.Bandwidth
 
 	// 获取节点的等级限制（如果指定了 providerID）
-	var providerLevelLimits map[string]interface{}
+	var providerLevelLimits *config.LevelLimitInfo
 	if providerID > 0 {
 		var provider providerModel.Provider
 		if err := global.APP_DB.First(&provider, providerID).Error; err == nil && provider.LevelLimits != "" {
 			// 解析节点的 levelLimits JSON
-			var allLevelLimits map[string]map[string]interface{}
+			var allLevelLimits map[int]config.LevelLimitInfo
 			if err := json.Unmarshal([]byte(provider.LevelLimits), &allLevelLimits); err == nil {
 				// 获取用户等级对应的限制
 				var user userModel.User
 				if err := global.APP_DB.First(&user, userID).Error; err == nil {
-					levelKey := fmt.Sprintf("%d", user.Level)
-					if limits, ok := allLevelLimits[levelKey]; ok {
-						providerLevelLimits = limits
+					if limits, ok := allLevelLimits[user.Level]; ok {
+						normalized := config.NormalizeLevelLimitInfo(user.Level, limits)
+						providerLevelLimits = &normalized
 					}
 				}
 			}
@@ -323,18 +324,18 @@ func (s *Service) GetInstanceConfig(userID uint, providerID uint) (*userModel.In
 
 	if providerLevelLimits != nil {
 		// 如果有节点限制，取最小值
-		if maxResources, ok := providerLevelLimits["max-resources"].(map[string]interface{}); ok {
-			if cpu, ok := maxResources["cpu"].(float64); ok && int(cpu) < finalMaxCPU {
-				finalMaxCPU = int(cpu)
+		if maxResources := providerLevelLimits.MaxResources; maxResources != nil {
+			if cpu := resourceInt(maxResources["cpu"]); cpu > 0 && cpu < finalMaxCPU {
+				finalMaxCPU = cpu
 			}
-			if memory, ok := maxResources["memory"].(float64); ok && int64(memory) < finalMaxMemory {
+			if memory := resourceInt(maxResources["memory"]); memory > 0 && int64(memory) < finalMaxMemory {
 				finalMaxMemory = int64(memory)
 			}
-			if disk, ok := maxResources["disk"].(float64); ok && int64(disk) < finalMaxDisk {
+			if disk := resourceInt(maxResources["disk"]); disk > 0 && int64(disk) < finalMaxDisk {
 				finalMaxDisk = int64(disk)
 			}
-			if bandwidth, ok := maxResources["bandwidth"].(float64); ok && int(bandwidth) < finalMaxBandwidth {
-				finalMaxBandwidth = int(bandwidth)
+			if bandwidth := resourceInt(maxResources["bandwidth"]); bandwidth > 0 && bandwidth < finalMaxBandwidth {
+				finalMaxBandwidth = bandwidth
 			}
 		}
 	}
@@ -542,4 +543,19 @@ func (s *Service) GetInstanceTypePermissions(userID uint) (map[string]interface{
 	}
 
 	return result, nil
+}
+
+func resourceInt(value interface{}) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case float32:
+		return int(v)
+	default:
+		return 0
+	}
 }

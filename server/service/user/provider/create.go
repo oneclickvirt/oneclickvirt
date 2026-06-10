@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"oneclickvirt/config"
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -227,6 +228,7 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 		if !exists {
 			return fmt.Errorf("用户等级 %d 没有配置资源限制", currentUser.Level)
 		}
+		levelLimits = config.NormalizeLevelLimitInfo(currentUser.Level, levelLimits)
 
 		currentInstances, _, err := quotaService.GetCurrentResourceUsageInTx(tx, userID)
 		if err != nil {

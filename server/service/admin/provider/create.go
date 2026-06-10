@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"oneclickvirt/config"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
@@ -301,19 +302,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		}
 		provider.LevelLimits = string(levelLimitsJSON)
 	} else {
-		// 如果没有提供等级限制，设置默认等级1的限制
-		defaultLevelLimits := map[int]map[string]interface{}{
-			1: {
-				"max-instances": 1,
-				"max-resources": map[string]interface{}{
-					"cpu":       1,
-					"memory":    350,
-					"disk":      1025,
-					"bandwidth": 100,
-				},
-				"max-traffic": 102400,
-			},
-		}
+		// 如果没有提供等级限制，写入完整的内置默认等级，避免高等级用户被旧的 100Mbps 兜底限制误伤。
+		defaultLevelLimits := config.DefaultLevelLimits()
 		levelLimitsJSON, err := json.Marshal(defaultLevelLimits)
 		if err != nil {
 			global.APP_LOG.Error("序列化默认节点等级限制配置失败",

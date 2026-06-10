@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/config"
 	"oneclickvirt/model/common"
 	oauth2Model "oneclickvirt/model/oauth2"
 	"oneclickvirt/model/user"
@@ -636,11 +637,14 @@ func (s *Service) GenerateUniqueUsername(baseUsername string) string {
 
 // SetUserQuotaByLevel 根据用户等级设置配额
 func (s *Service) SetUserQuotaByLevel(usr *user.User) {
+	effectiveLevel := usr.Level
 	levelLimits, ok := global.GetAppConfig().Quota.LevelLimits[usr.Level]
 	if !ok {
 		// 使用默认等级配置
-		levelLimits = global.GetAppConfig().Quota.LevelLimits[global.GetAppConfig().Quota.DefaultLevel]
+		effectiveLevel = global.GetAppConfig().Quota.DefaultLevel
+		levelLimits = global.GetAppConfig().Quota.LevelLimits[effectiveLevel]
 	}
+	levelLimits = config.NormalizeLevelLimitInfo(effectiveLevel, levelLimits)
 
 	usr.MaxInstances = levelLimits.MaxInstances
 

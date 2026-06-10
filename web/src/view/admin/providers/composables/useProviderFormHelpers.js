@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { testSSHConnection as testSSHConnectionAPI } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
+import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits } from '@/utils/levels'
 
 export function useProviderFormHelpers() {
   const { t } = useI18n()
@@ -162,13 +163,7 @@ export function useProviderFormHelpers() {
     vmLimitCpu: true,
     vmLimitMemory: true,
     vmLimitDisk: true,
-    levelLimits: {
-      1: { maxInstances: 1, maxResources: { cpu: 1, memory: 350, disk: 1025, bandwidth: 100 }, maxTraffic: 102400 },
-      2: { maxInstances: 2, maxResources: { cpu: 2, memory: 512, disk: 2048, bandwidth: 200 }, maxTraffic: 102400 },
-      3: { maxInstances: 3, maxResources: { cpu: 3, memory: 1024, disk: 4096, bandwidth: 500 }, maxTraffic: 204800 },
-      4: { maxInstances: 4, maxResources: { cpu: 4, memory: 4096, disk: 8192, bandwidth: 1000 }, maxTraffic: 409600 },
-      5: { maxInstances: 5, maxResources: { cpu: 5, memory: 8192, disk: 16384, bandwidth: 2000 }, maxTraffic: 512000 }
-    }
+    levelLimits: normalizeLevelLimits(DEFAULT_LEVEL_LIMITS)
   })
 
   return {

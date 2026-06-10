@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { getCountriesByRegion, getCountryByName, getLocalizedRegion } from '@/utils/countries'
 import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI, getProviderDetail, checkProviderHealth as checkProviderHealthAPI } from '@/api/admin'
 import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
+import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits } from '@/utils/levels'
 
 export function useProviderForm(props, emit) {
   const { t, locale } = useI18n()
@@ -106,13 +107,7 @@ export function useProviderForm(props, emit) {
     vmLimitCpu: true,
     vmLimitMemory: true,
     vmLimitDisk: true,
-    levelLimits: {
-      1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 100 }, maxTraffic: 102400 },
-      2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 200 }, maxTraffic: 204800 },
-      3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 40960, bandwidth: 500 }, maxTraffic: 307200 },
-      4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600 },
-      5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000 }
-    },
+    levelLimits: normalizeLevelLimits(DEFAULT_LEVEL_LIMITS),
     // 容器特殊配置选项（仅 LXD/Incus 容器）
     containerPrivileged: false,
     containerAllowNesting: false,
@@ -544,13 +539,7 @@ export function useProviderForm(props, emit) {
         type: 'warning'
       }
     ).then(() => {
-      formData.value.levelLimits = {
-        1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 100 }, maxTraffic: 102400 },
-        2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 200 }, maxTraffic: 204800 },
-        3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 40960, bandwidth: 500 }, maxTraffic: 307200 },
-        4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600 },
-        5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000 }
-      }
+      formData.value.levelLimits = normalizeLevelLimits(DEFAULT_LEVEL_LIMITS)
       ElMessage.success(t('admin.providers.levelLimitsRestored'))
       // 同时通知父组件
       emit('reset-level-limits')

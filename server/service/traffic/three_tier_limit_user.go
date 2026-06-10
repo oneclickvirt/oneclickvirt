@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"oneclickvirt/config"
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
@@ -110,6 +111,9 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 	// 自动同步用户流量限额
 	if u.TotalTraffic == 0 {
 		levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[u.Level]
+		if exists {
+			levelLimits = config.NormalizeLevelLimitInfo(u.Level, levelLimits)
+		}
 		if exists && levelLimits.MaxTraffic > 0 {
 			u.TotalTraffic = levelLimits.MaxTraffic
 			if err := global.APP_DB.Model(&u).Update("total_traffic", u.TotalTraffic).Error; err != nil {

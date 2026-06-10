@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"oneclickvirt/config"
 	auth2 "oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
@@ -176,6 +177,7 @@ func (s *Service) syncUserResourceLimits(userIDs []uint) error {
 	// 为每个等级的用户更新资源限制
 	for level, userIDList := range levelGroups {
 		if levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]; exists {
+			levelConfig = config.NormalizeLevelLimitInfo(level, levelConfig)
 			// 构建完整的资源限制更新数据
 			updateData := map[string]interface{}{
 				"total_traffic": levelConfig.MaxTraffic,

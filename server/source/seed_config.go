@@ -23,75 +23,7 @@ func initLevelConfigurations() {
 	}
 
 	// 设置默认等级配置（操作本地副本，最后原子写入）
-	// 等级1: 最低档次
-	cfg.Quota.LevelLimits[1] = config.LevelLimitInfo{
-		MaxInstances: 1,
-		MaxResources: map[string]interface{}{
-			"cpu":       1,
-			"memory":    350,  // 350MB
-			"disk":      1024, // 1GB
-			"bandwidth": 100,  // 100Mbps
-		},
-		MaxTraffic:   102400, // 100GB
-		ExpiryDays:   0,      // 0表示不过期
-		MaxSnapshots: 1,
-	}
-
-	// 等级2: 中级档次
-	cfg.Quota.LevelLimits[2] = config.LevelLimitInfo{
-		MaxInstances: 3,
-		MaxResources: map[string]interface{}{
-			"cpu":       2,
-			"memory":    1024,  // 1GB
-			"disk":      20480, // 20GB
-			"bandwidth": 200,   // 200Mbps
-		},
-		MaxTraffic:   204800, // 200GB
-		ExpiryDays:   0,      // 0表示不过期
-		MaxSnapshots: 3,
-	}
-
-	// 等级3: 高级档次
-	cfg.Quota.LevelLimits[3] = config.LevelLimitInfo{
-		MaxInstances: 5,
-		MaxResources: map[string]interface{}{
-			"cpu":       4,
-			"memory":    2048,  // 2GB
-			"disk":      40960, // 40GB
-			"bandwidth": 500,   // 500Mbps
-		},
-		MaxTraffic:   307200, // 300GB
-		ExpiryDays:   0,      // 0表示不过期
-		MaxSnapshots: 5,
-	}
-
-	// 等级4: 超级档次
-	cfg.Quota.LevelLimits[4] = config.LevelLimitInfo{
-		MaxInstances: 10,
-		MaxResources: map[string]interface{}{
-			"cpu":       8,
-			"memory":    4096,  // 4GB
-			"disk":      81920, // 80GB
-			"bandwidth": 1000,  // 1000Mbps
-		},
-		MaxTraffic:   409600, // 400GB
-		ExpiryDays:   0,      // 0表示不过期
-		MaxSnapshots: 10,
-	}
-
-	// 等级5: 管理员档次
-	cfg.Quota.LevelLimits[5] = config.LevelLimitInfo{
-		MaxInstances: 20,
-		MaxResources: map[string]interface{}{
-			"cpu":       16,
-			"memory":    8192,   // 8GB
-			"disk":      163840, // 160GB
-			"bandwidth": 2000,   // 2000Mbps
-		},
-		MaxTraffic:   512000, // 500GB
-		ExpiryDays:   0,      // 0表示不过期
-		MaxSnapshots: 20,
-	}
+	cfg.Quota.LevelLimits = config.DefaultLevelLimits()
 
 	global.SetAppConfig(cfg) // 原子写入
 	global.APP_LOG.Info("等级与带宽配置初始化完成")

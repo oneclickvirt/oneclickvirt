@@ -208,7 +208,14 @@ func syncQuotaConfig(cfg *config.Server, quotaConfig map[string]interface{}) {
 				} else if v, ok := limitMap["expiry-days"].(int); ok {
 					levelLimit.ExpiryDays = v
 				}
-				newMap[level] = levelLimit
+				if v, ok := limitMap["max-snapshots"].(float64); ok {
+					levelLimit.MaxSnapshots = int(v)
+				} else if v, ok := limitMap["max-snapshots"].(int); ok {
+					levelLimit.MaxSnapshots = v
+				} else if defaultLimit, ok := config.DefaultLevelLimitInfo(level); ok {
+					levelLimit.MaxSnapshots = defaultLimit.MaxSnapshots
+				}
+				newMap[level] = config.NormalizeLevelLimitInfo(level, levelLimit)
 			}
 		}
 		cfg.Quota.LevelLimits = newMap
