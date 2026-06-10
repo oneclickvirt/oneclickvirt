@@ -356,16 +356,16 @@ go run main.go
 
 感谢以下平台提供的测试：
 
+<a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
+  <img src="https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png" alt="IBM LinuxONE OSS Community Cloud" height="50">
+</a>
+
 <a href="https://console.zmto.com/?affid=1524">
   <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" height="50">
 </a>
 
 <a href="https://fossvps.org/">
   <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" height="50">
-</a>
-
-<a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
-  <img src="https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png" alt="IBM LinuxONE OSS Community Cloud" height="50">
 </a>
 
 <a href="https://linux.do/">
