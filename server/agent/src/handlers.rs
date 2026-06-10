@@ -8,7 +8,7 @@ use crate::{
         AddDomainProxyRequest, AddDomainProxyResponse, AddRequest, AddResponse, BatchInfoRequest,
         BatchInfoResponse,
         ApplyBlockRulesRequest, ApplyBlockRulesResponse, CleanupRequest, CleanupResponse,
-        DeleteRequest, DeleteResponse, DomainProxyItem, GetBlockRulesResponse, InfoRequest,
+        DeleteRequest, DeleteResponse, DomainProxyItem, GetBlockRulesResponse, InfoRequest, InterfaceInput,
         InfoResponse, ListDomainProxiesResponse, ListMonitorItem, ListMonitorsResponse,
         RemoveBlockRulesResponse, RemoveDomainProxyRequest, RemoveDomainProxyResponse,
         ResourceDataPoint, ResourceQueryRequest, ResourceQueryResponse, UpdateRequest,
@@ -213,8 +213,51 @@ pub async fn add_monitor(
 ) -> Result<Json<AddResponse>, ApiError> {
     let interfaces = clean_interfaces(payload.interface.into_vec())?;
     let now = now_ts();
+    let provider_kind = payload.provider_kind.clone();
+    let instance_name = payload.instance_name.clone();
+    let inner_ip_raw = payload.inner_ip.clone();
 
-    let inner_ip = validate_inner_ip(payload.inner_ip.as_deref())?;
+    let inner_ip = validate_inner_ip(inner_ip_raw.as_deref())?;
+
+    // Make add idempotent for controller reconciliation.  If the controller DB was
+    // rebuilt or the local mapping was lost, a sync may call /add for an instance
+    // that the agent already knows about.  Reusing the existing agent-side monitor
+    // avoids duplicate nft/iptables counters and keeps repeated sync attempts cheap.
+    if let (Some(provider_kind_key), Some(instance_name_key)) =
+        (provider_kind.clone(), instance_name.clone())
+    {
+        let existing_id: Option<i64> = {
+            let conn = state.conn.lock().await;
+            conn.query_row(
+                "SELECT id FROM monitors WHERE provider_kind = ?1 AND instance_name = ?2 ORDER BY id DESC LIMIT 1",
+                params![provider_kind_key.as_str(), instance_name_key.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| ApiError::internal(format!("query existing monitor error: {e}")))?
+        };
+
+        if let Some(id) = existing_id {
+            debug!(
+                id,
+                provider_kind = %provider_kind_key,
+                instance_name = %instance_name_key,
+                "add monitor resolved to existing monitor; updating instead"
+            );
+            let update_payload = UpdateRequest {
+                id,
+                new_interface: InterfaceInput::Many(interfaces),
+                provider_kind,
+                instance_name,
+                inner_ip: inner_ip_raw,
+            };
+            let Json(resp) = update_monitor(State(state), Json(update_payload)).await?;
+            return Ok(Json(AddResponse {
+                id: resp.id,
+                interface: resp.interface,
+            }));
+        }
+    }
 
     let use_ipt = state.traffic_collect_method == "ipt";
     let requested_interfaces_json = serde_json::to_string(&interfaces)
@@ -223,7 +266,7 @@ pub async fn add_monitor(
         let conn = state.conn.lock().await;
         conn.execute(
             "INSERT INTO monitors (interfaces, total_bytes, provider_kind, instance_name, inner_ip, updated_at) VALUES (?1, 0, ?2, ?3, ?4, ?5)",
-            params![requested_interfaces_json, payload.provider_kind.as_deref(), payload.instance_name.as_deref(), inner_ip.as_deref(), now],
+            params![requested_interfaces_json, provider_kind.as_deref(), instance_name.as_deref(), inner_ip.as_deref(), now],
         )
         .map_err(|e| ApiError::internal(format!("insert monitor error: {e}")))?;
         conn.last_insert_rowid()

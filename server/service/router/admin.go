@@ -159,6 +159,8 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/providers/:id/monitoring/status", admin.GetAgentStatus)
 		NormalAdminGroup.GET("/providers/:id/monitoring/monitors", admin.GetProviderMonitors)
 		NormalAdminGroup.POST("/providers/:id/monitoring/sync", admin.SyncProviderMonitors)
+		NormalAdminGroup.GET("/providers/:id/monitoring/sync/latest", admin.GetLatestProviderMonitorSyncTask)
+		NormalAdminGroup.GET("/providers/:id/monitoring/sync/:taskId", admin.GetProviderMonitorSyncTask)
 		NormalAdminGroup.DELETE("/providers/:id/monitoring/clear", admin.ClearProviderMonitors)
 		NormalAdminGroup.GET("/providers/:id/monitoring/agent-monitors", admin.ListAgentMonitors)
 		NormalAdminGroup.GET("/providers/:id/monitoring/resources", admin.GetProviderResourceSummary)

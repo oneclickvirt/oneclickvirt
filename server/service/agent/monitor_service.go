@@ -49,6 +49,46 @@ func normalizeMonitorInterfaces(raw string) []string {
 	return interfaces
 }
 
+func cachedInterfacesForInstance(instance *providerModel.Instance) []string {
+	interfaces := make([]string, 0, 2)
+	if v4 := strings.TrimSpace(instance.PmacctInterfaceV4); v4 != "" {
+		interfaces = append(interfaces, v4)
+	}
+	if isIPv6Capable(instance.NetworkType) {
+		if v6 := strings.TrimSpace(instance.PmacctInterfaceV6); v6 != "" {
+			duplicate := false
+			for _, iface := range interfaces {
+				if iface == v6 {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				interfaces = append(interfaces, v6)
+			}
+		}
+	}
+	return interfaces
+}
+
+func monitorMatchesInstanceCache(
+	monitor *monitoringModel.AgentMonitor,
+	instance *providerModel.Instance,
+	providerKind string,
+	cachedInterfaces []string,
+) bool {
+	if len(cachedInterfaces) == 0 {
+		return false
+	}
+	return monitor.ProviderID == instance.ProviderID &&
+		monitor.UserID == instance.UserID &&
+		monitor.ProviderKind == providerKind &&
+		monitor.InstanceName == instance.Name &&
+		monitor.InnerIP == instance.PrivateIP &&
+		monitor.IsEnabled &&
+		stringsEqual(normalizeMonitorInterfaces(monitor.Interfaces), cachedInterfaces)
+}
+
 // getAgentClient returns an agent client for the given provider using its endpoint.
 // For agent-mode providers behind NAT, the HTTP API is not directly reachable;
 // the WS fallback in Client.doRequest handles connectivity via WebSocket.
@@ -318,6 +358,7 @@ func (s *MonitorService) EnsureMonitorsForProvider(
 		return summary, fmt.Errorf("list instances: %w", err)
 	}
 	summary.Total = len(instances)
+	providerKind := providerInstance.GetType()
 
 	var monitors []monitoringModel.AgentMonitor
 	if err := s.db.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
@@ -332,7 +373,7 @@ func (s *MonitorService) EnsureMonitorsForProvider(
 	// Pre-fetch provider-side instance list once for Proxmox to map name→VMID,
 	// avoiding N+1 API calls when iterating over instances.
 	vmidByName := make(map[string]string)
-	if providerInstance.GetType() == "proxmox" {
+	if providerKind == "proxmox" {
 		pInstances, listErr := providerInstance.ListInstances(s.ctx)
 		if listErr == nil {
 			for _, pi := range pInstances {
@@ -348,7 +389,14 @@ func (s *MonitorService) EnsureMonitorsForProvider(
 	for i := range instances {
 		inst := &instances[i]
 		vmid := vmidByName[inst.Name]
+		if vmid == "" {
+			vmid = strings.TrimSpace(inst.ProviderVMID)
+		}
 		if existing := monitorByInstanceID[inst.ID]; existing != nil {
+			if cached := cachedInterfacesForInstance(inst); monitorMatchesInstanceCache(existing, inst, providerKind, cached) {
+				summary.Unchanged++
+				continue
+			}
 			updated, err := s.updateMonitorForInstance(providerInstance, inst, config, vmid, existing)
 			if err != nil {
 				summary.Failed++

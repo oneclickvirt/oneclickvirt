@@ -76,10 +76,11 @@ report_init "${REPORT_DIR}/module-${MODULE_INPUT}.md" "Module ${MODULE_INPUT}"
 # Init results file (inherit from parent or create new one)
 if [[ -z "${RESULTS_FILE:-}" ]]; then
     RESULTS_FILE="${REPORT_DIR}/module-${MODULE_INPUT}-results.jsonl"
-    init_results_file "$RESULTS_FILE"
-elif [[ ! -f "$RESULTS_FILE" ]]; then
-    init_results_file "$RESULTS_FILE"
 fi
+# Always truncate the active result file at the beginning of this run. Retry
+# wrappers may intentionally roll back intermediate failures; stale JSONL lines
+# must not be allowed to disagree with the in-memory counters and HTML report.
+init_results_file "$RESULTS_FILE"
 
 # Login first
 wait_server_ready "$SERVER_URL" 60 5 || { log_error "Server unreachable"; exit 1; }
@@ -241,6 +242,14 @@ for mod in "${MODULES[@]}"; do
 done
 
 # Summary
+if [[ -n "${RESULTS_FILE:-}" && ${#TEST_RESULTS_JSON[@]} -gt 0 ]]; then
+    : > "$RESULTS_FILE"
+    for _result_json in "${TEST_RESULTS_JSON[@]}"; do
+        [[ -n "${_result_json:-}" ]] || continue
+        printf '%s\n' "$_result_json" >> "$RESULTS_FILE"
+    done
+fi
+
 report_finalize
 
 # Generate HTML report if we have a results file and are not delegating to parent

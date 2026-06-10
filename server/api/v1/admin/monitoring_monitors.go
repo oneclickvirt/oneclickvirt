@@ -2,6 +2,9 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // GetProviderMonitors godoc
@@ -98,7 +102,7 @@ func GetProviderMonitors(c *gin.Context) {
 
 // SyncProviderMonitors godoc
 // @Summary 同步节点监控器
-// @Description 确保所有运行中实例均有监控器，并清理失效的监控记录（最长5分钟）
+// @Description 创建后台任务确保所有运行中实例均有监控器，并清理失效的监控记录
 // @Tags 管理员/节点
 // @Produce json
 // @Param id path uint true "节点ID"
@@ -123,48 +127,162 @@ func SyncProviderMonitors(c *gin.Context) {
 		return
 	}
 
-	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider未连接: "+err.Error()))
+	var running monitoringModel.MonitorSyncTask
+	if err := global.APP_DB.Where("provider_id = ? AND status IN ?", providerID, []string{"pending", "running"}).
+		Order("id DESC").First(&running).Error; err == nil {
+		common.ResponseSuccess(c, buildMonitorSyncTaskResponse(&running), "已有同步任务正在执行")
 		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
-	defer cancel()
-
-	monitorSvc := agentService.NewMonitorService(ctx, global.APP_DB)
-
-	// Ensure all running instances have monitors and update existing ones' interfaces.
-	// Existing mappings are preloaded once by the service to avoid per-instance DB lookups.
-	summary, err := monitorSvc.EnsureMonitorsForProvider(providerInstance, uint(providerID), config)
-	if err != nil {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
-	cleaned, cleanupErr := monitorSvc.CleanupStaleMonitors(uint(providerID), config)
+	now := time.Now()
+	task := monitoringModel.MonitorSyncTask{
+		ProviderID: uint(providerID),
+		TaskID:     fmt.Sprintf("monitor-sync-%d-%d", providerID, now.UnixNano()),
+		Status:     "pending",
+	}
+	if err := global.APP_DB.Create(&task).Error; err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	configCopy := *config
+	go runProviderMonitorSyncTask(task.TaskID, uint(providerID), configCopy)
+
+	common.ResponseSuccess(c, buildMonitorSyncTaskResponse(&task), "同步任务已提交")
+}
+
+func GetProviderMonitorSyncTask(c *gin.Context) {
+	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
+		return
+	}
+	taskID := strings.TrimSpace(c.Param("taskId"))
+	if taskID == "" {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的任务ID"))
+		return
+	}
+
+	var task monitoringModel.MonitorSyncTask
+	if err := global.APP_DB.Where("provider_id = ? AND task_id = ?", providerID, taskID).First(&task).Error; err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, buildMonitorSyncTaskResponse(&task))
+}
+
+func GetLatestProviderMonitorSyncTask(c *gin.Context) {
+	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
+		return
+	}
+
+	var task monitoringModel.MonitorSyncTask
+	if err := global.APP_DB.Where("provider_id = ?", providerID).Order("id DESC").First(&task).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ResponseSuccess(c, nil)
+			return
+		}
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, buildMonitorSyncTaskResponse(&task))
+}
+
+func buildMonitorSyncTaskResponse(task *monitoringModel.MonitorSyncTask) map[string]interface{} {
+	errs := []string{}
+	if task.ErrorsJSON != "" {
+		_ = json.Unmarshal([]byte(task.ErrorsJSON), &errs)
+	}
+	return map[string]interface{}{
+		"task_id":       task.TaskID,
+		"provider_id":   task.ProviderID,
+		"status":        task.Status,
+		"total":         task.Total,
+		"created":       task.Created,
+		"updated":       task.Updated,
+		"unchanged":     task.Unchanged,
+		"failed":        task.Failed,
+		"cleaned":       task.Cleaned,
+		"error_message": task.ErrorMessage,
+		"errors":        errs,
+		"started_at":    task.StartedAt,
+		"finished_at":   task.FinishedAt,
+		"summary": map[string]interface{}{
+			"total":     task.Total,
+			"created":   task.Created,
+			"updated":   task.Updated,
+			"unchanged": task.Unchanged,
+			"failed":    task.Failed,
+			"cleaned":   task.Cleaned,
+			"errors":    errs,
+		},
+	}
+}
+
+func runProviderMonitorSyncTask(taskID string, providerID uint, config monitoringModel.MonitoringConfig) {
+	now := time.Now()
+	_ = global.APP_DB.Model(&monitoringModel.MonitorSyncTask{}).Where("task_id = ?", taskID).
+		Updates(map[string]interface{}{"status": "running", "started_at": &now}).Error
+
+	finish := func(status string, summary *agentService.MonitorSyncSummary, taskErr error) {
+		if summary == nil {
+			summary = &agentService.MonitorSyncSummary{}
+		}
+		finished := time.Now()
+		errorMessage := ""
+		if taskErr != nil {
+			errorMessage = taskErr.Error()
+			if len(summary.Errors) == 0 || summary.Errors[len(summary.Errors)-1] != errorMessage {
+				summary.Errors = append(summary.Errors, errorMessage)
+			}
+		}
+		errorsJSON, _ := json.Marshal(summary.Errors)
+		updates := map[string]interface{}{
+			"status":        status,
+			"total":         summary.Total,
+			"created":       summary.Created,
+			"updated":       summary.Updated,
+			"unchanged":     summary.Unchanged,
+			"failed":        summary.Failed,
+			"cleaned":       summary.Cleaned,
+			"error_message": errorMessage,
+			"errors_json":   string(errorsJSON),
+			"finished_at":   &finished,
+		}
+		if err := global.APP_DB.Model(&monitoringModel.MonitorSyncTask{}).Where("task_id = ?", taskID).Updates(updates).Error; err != nil && global.APP_LOG != nil {
+			global.APP_LOG.Warn("update monitor sync task failed", zap.String("task_id", taskID), zap.Error(err))
+		}
+	}
+
+	providerInstance, err := providerService.GetProviderInstanceByID(providerID)
+	if err != nil {
+		finish("failed", &agentService.MonitorSyncSummary{Failed: 1}, fmt.Errorf("Provider未连接: %w", err))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	monitorSvc := agentService.NewMonitorService(ctx, global.APP_DB.Session(&gorm.Session{}))
+	summary, err := monitorSvc.EnsureMonitorsForProvider(providerInstance, providerID, &config)
+	if err != nil {
+		finish("failed", summary, err)
+		return
+	}
+
+	cleaned, cleanupErr := monitorSvc.CleanupStaleMonitors(providerID, &config)
 	if cleanupErr != nil {
 		if global.APP_LOG != nil {
-			global.APP_LOG.Warn("cleanup stale monitors failed during provider sync",
-				zap.Uint64("provider_id", providerID),
-				zap.Error(cleanupErr))
+			global.APP_LOG.Warn("cleanup stale monitors failed during provider sync", zap.Uint("provider_id", providerID), zap.Error(cleanupErr))
 		}
 		summary.Errors = append(summary.Errors, "cleanup: "+cleanupErr.Error())
 		summary.Failed++
 	}
 	summary.Cleaned = cleaned
-
-	// Return updated list
-	var monitors []monitoringModel.AgentMonitor
-	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
-		common.ResponseWithError(c, common.ClassifyError(err))
-		return
-	}
-
-	common.ResponseSuccess(c, map[string]interface{}{
-		"summary":  summary,
-		"monitors": monitors,
-	}, "同步完成")
+	finish("completed", summary, nil)
 }
 
 // ListAgentMonitors godoc

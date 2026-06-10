@@ -84,9 +84,23 @@ export const getProviderMonitors = (providerId, params = {}) => {
 }
 
 export const syncProviderMonitors = (providerId) => {
-  return createLongTimeoutRequest(300000)({
+  return request({
     url: `/v1/admin/providers/${providerId}/monitoring/sync`,
     method: 'post'
+  })
+}
+
+export const getProviderMonitorSyncTask = (providerId, taskId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/monitoring/sync/${taskId}`,
+    method: 'get'
+  })
+}
+
+export const getLatestProviderMonitorSyncTask = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/monitoring/sync/latest`,
+    method: 'get'
   })
 }
 

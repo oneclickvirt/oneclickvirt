@@ -11,6 +11,7 @@ import {
   getAgentStatus,
   getProviderMonitors,
   syncProviderMonitors,
+  getProviderMonitorSyncTask,
   clearProviderMonitors,
   listAgentMonitors
 } from '@/api/admin'
@@ -39,6 +40,8 @@ export function useMonitoringManagement(props, emit) {
   const agentMonitors = ref([])
   const monitorsPagination = reactive({ page: 1, pageSize: 10, total: 0 })
   const agentMonitorsPagination = reactive({ page: 1, pageSize: 10, total: 0 })
+  const syncTask = ref(null)
+  let syncPollTimer = null
 
   const config = reactive({
     monitoring_mode: 'agent',
@@ -86,7 +89,13 @@ export function useMonitoringManagement(props, emit) {
   })
 
   const resetViewState = (resetLoadedData = true) => {
+    if (syncPollTimer) {
+      clearTimeout(syncPollTimer)
+      syncPollTimer = null
+    }
     activeTab.value = 'agent'
+    syncLoading.value = false
+    syncTask.value = null
     showConfigEditor.value = false
     deployOutput.value = ''
     agentOnlineChecked.value = false
@@ -278,6 +287,50 @@ export function useMonitoringManagement(props, emit) {
     } finally { statusLoading.value = false }
   }
 
+  const renderSyncSummaryMessage = (task) => {
+    const summary = task?.summary || task || {}
+    return `${t('admin.providers.syncMonitorsSuccess')}：新增 ${summary.created || 0}，更新 ${summary.updated || 0}，不变 ${summary.unchanged || 0}，清理 ${summary.cleaned || 0}，失败 ${summary.failed || 0}`
+  }
+
+  const finishSyncTask = async (task, failed = false) => {
+    syncTask.value = task || syncTask.value
+    syncLoading.value = false
+    if (syncPollTimer) {
+      clearTimeout(syncPollTimer)
+      syncPollTimer = null
+    }
+    if (failed) {
+      ElMessage.error(task?.error_message || t('admin.providers.syncMonitorsFailed'))
+    } else {
+      const message = renderSyncSummaryMessage(task)
+      if (((task?.summary || task || {}).failed || 0) > 0) ElMessage.warning(message)
+      else ElMessage.success(message)
+    }
+    await loadMonitors()
+    if (showAgentMonitors.value) await handleListAgentMonitors()
+  }
+
+  const pollSyncTask = async (taskId) => {
+    if (!props.provider || !taskId) return
+    try {
+      const res = await getProviderMonitorSyncTask(props.provider.id, taskId)
+      if (res.code === 200 && res.data) {
+        syncTask.value = res.data
+        if (res.data.status === 'completed') {
+          await finishSyncTask(res.data, false)
+          return
+        }
+        if (res.data.status === 'failed') {
+          await finishSyncTask(res.data, true)
+          return
+        }
+      }
+    } catch (e) {
+      console.error('Failed to poll monitor sync task:', e)
+    }
+    syncPollTimer = setTimeout(() => pollSyncTask(taskId), 2000)
+  }
+
   const handleSyncMonitors = async () => {
     if (!props.provider) return
     try {
@@ -285,19 +338,21 @@ export function useMonitoringManagement(props, emit) {
       syncLoading.value = true
       const res = await syncProviderMonitors(props.provider.id)
       if (res.code === 200) {
-        const summary = res.data?.summary
-        if (summary) {
-          const message = `${t('admin.providers.syncMonitorsSuccess')}：新增 ${summary.created || 0}，更新 ${summary.updated || 0}，不变 ${summary.unchanged || 0}，清理 ${summary.cleaned || 0}，失败 ${summary.failed || 0}`
-          if ((summary.failed || 0) > 0) ElMessage.warning(message)
-          else ElMessage.success(message)
-        } else {
-          ElMessage.success(t('admin.providers.syncMonitorsSuccess'))
+        const task = res.data || {}
+        syncTask.value = task
+        if (task.task_id && (task.status === 'pending' || task.status === 'running')) {
+          ElMessage.info(t('admin.providers.syncMonitorsSuccess'))
+          pollSyncTask(task.task_id)
+          return
         }
-        await loadMonitors()
-        if (showAgentMonitors.value) await handleListAgentMonitors()
+        await finishSyncTask(task, task.status === 'failed')
       } else { ElMessage.error(res.msg || t('admin.providers.syncMonitorsFailed')) }
     } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.syncMonitorsFailed')) }
-    finally { syncLoading.value = false }
+    finally {
+      if (!syncTask.value?.task_id || !['pending', 'running'].includes(syncTask.value.status)) {
+        syncLoading.value = false
+      }
+    }
   }
 
   const handleClearMonitors = async () => {
@@ -399,7 +454,7 @@ export function useMonitoringManagement(props, emit) {
     activeTab, showConfigEditor, configLoading, deployLoading, uninstallLoading,
     statusLoading, saveConfigLoading, syncLoading, clearMonitorsLoading,
     monitorsLoading, listAgentLoading, deployOutput, monitors,
-    agentOnlineChecked, agentIsOnline, showToken, showAgentMonitors, agentMonitors,
+    agentOnlineChecked, agentIsOnline, showToken, showAgentMonitors, agentMonitors, syncTask,
     monitorsPagination, agentMonitorsPagination, config, editConfig,
     agentSwaggerUrl, agentStatusType, agentStatusText,
     isAgentProvider,

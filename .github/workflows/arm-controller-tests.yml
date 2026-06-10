@@ -235,6 +235,9 @@ jobs:
           export noninteractive=true
           MODULES_INPUT="${{ inputs.modules || '01,02,03,04,05,06,07,08,17,20,21,25' }}"
 
+          rm -f action_tests/reports/*.jsonl
+          export RESULTS_FILE="action_tests/reports/arm-controller-results.jsonl"
+
           set +e
           bash action_tests/run_module.sh "$MODULES_INPUT" "$SERVER_URL" \
             2>&1 | tee action_tests/reports/arm-controller-output.log
@@ -305,27 +308,25 @@ jobs:
             exit 0
           fi
 
-          result_files=(action_tests/reports/*.jsonl)
-          if [[ ${#result_files[@]} -eq 0 ]]; then
-            echo "::error::ARM controller tests did not produce any JSONL result files."
+          result_file="action_tests/reports/arm-controller-results.jsonl"
+          if [[ ! -s "$result_file" ]]; then
+            echo "::error::ARM controller tests did not produce a non-empty JSONL result file."
             [[ -f action_tests/reports/arm-controller-output.log ]] && tail -200 action_tests/reports/arm-controller-output.log || true
             exit 1
           fi
 
           total=0 passed=0 failed=0 skipped=0
-          for f in "${result_files[@]}"; do
-            while IFS= read -r line; do
-              [[ -z "$line" ]] && continue
-              status=$(echo "$line" | jq -r '.status // "UNKNOWN"' 2>/dev/null) || status="UNKNOWN"
-              total=$((total + 1))
-              case "$status" in
-                PASS) passed=$((passed + 1)) ;;
-                FAIL) failed=$((failed + 1)) ;;
-                SKIP) skipped=$((skipped + 1)) ;;
-                *) skipped=$((skipped + 1)) ;;
-              esac
-            done < "$f"
-          done
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            status=$(echo "$line" | jq -r '.status // "UNKNOWN"' 2>/dev/null) || status="UNKNOWN"
+            total=$((total + 1))
+            case "$status" in
+              PASS) passed=$((passed + 1)) ;;
+              FAIL) failed=$((failed + 1)) ;;
+              SKIP) skipped=$((skipped + 1)) ;;
+              *) skipped=$((skipped + 1)) ;;
+            esac
+          done < "$result_file"
           executed=$((passed + failed))
 
           {

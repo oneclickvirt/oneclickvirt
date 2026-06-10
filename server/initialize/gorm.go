@@ -172,6 +172,7 @@ func RegisterTables(db *gorm.DB) {
 		&monitoringModel.AgentMonitor{},     // Agent监控映射表
 		&monitoringModel.ResourceMetric{},   // 资源监控数据表（24小时保留）
 		&monitoringModel.MonitoringConfig{}, // Provider监控配置表
+		&monitoringModel.MonitorSyncTask{},  // Provider监控同步后台任务表
 		// 防火墙/滥用屏蔽表
 		&firewallModel.BlockRule{},            // 屏蔽规则表
 		&firewallModel.BlockRuleApplication{}, // 屏蔽规则应用记录表

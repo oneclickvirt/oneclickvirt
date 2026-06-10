@@ -4243,7 +4243,7 @@
         },
         "/admin/providers/{id}/monitoring/sync": {
             "post": {
-                "description": "确保所有运行中实例均有监控器，并清理失效的监控记录（最长5分钟）",
+                "description": "创建后台任务确保所有运行中实例均有监控器，并清理失效的监控记录",
                 "produces": [
                     "application/json"
                 ],

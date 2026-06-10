@@ -57,6 +57,33 @@ func (ResourceMetric) TableName() string {
 	return "resource_metrics"
 }
 
+// MonitorSyncTask records long-running provider monitor reconciliation jobs.
+// Syncing many instances can require provider-side interface detection and
+// agent-side nft/iptables reconciliation, so it must not be tied to a single
+// HTTP request lifecycle.
+type MonitorSyncTask struct {
+	ID           uint       `gorm:"primarykey" json:"id"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	ProviderID   uint       `gorm:"index:idx_monitor_sync_provider_status,priority:1;not null" json:"provider_id"`
+	TaskID       string     `gorm:"size:64;uniqueIndex;not null" json:"task_id"`
+	Status       string     `gorm:"size:16;index:idx_monitor_sync_provider_status,priority:2;not null;default:pending" json:"status"`
+	Total        int        `gorm:"not null;default:0" json:"total"`
+	Created      int        `gorm:"not null;default:0" json:"created"`
+	Updated      int        `gorm:"not null;default:0" json:"updated"`
+	Unchanged    int        `gorm:"not null;default:0" json:"unchanged"`
+	Failed       int        `gorm:"not null;default:0" json:"failed"`
+	Cleaned      int        `gorm:"not null;default:0" json:"cleaned"`
+	ErrorMessage string     `gorm:"type:text" json:"error_message,omitempty"`
+	ErrorsJSON   string     `gorm:"type:text" json:"-"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+}
+
+func (MonitorSyncTask) TableName() string {
+	return "monitor_sync_tasks"
+}
+
 // MonitoringConfig stores the monitoring configuration for a provider.
 type MonitoringConfig struct {
 	ID         uint           `gorm:"primarykey" json:"id"`
