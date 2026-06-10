@@ -1,5 +1,3 @@
-export const DEFAULT_PROVIDER_LEVEL_LIMITS = DEFAULT_QUOTA_LEVEL_LIMITS
-
 export const DEFAULT_QUOTA_LEVEL_LIMITS = {
   1: { maxInstances: 1, maxResources: { cpu: 1, memory: 350, disk: 1024, bandwidth: 100 }, maxTraffic: 102400, expiryDays: 0, maxSnapshots: 1 },
   2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 200 }, maxTraffic: 204800, expiryDays: 0, maxSnapshots: 3 },
@@ -7,6 +5,8 @@ export const DEFAULT_QUOTA_LEVEL_LIMITS = {
   4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600, expiryDays: 0, maxSnapshots: 10 },
   5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000, expiryDays: 0, maxSnapshots: 20 }
 }
+
+export const DEFAULT_PROVIDER_LEVEL_LIMITS = DEFAULT_QUOTA_LEVEL_LIMITS
 
 export const DEFAULT_LEVEL_LIMITS = DEFAULT_PROVIDER_LEVEL_LIMITS
 

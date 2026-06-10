@@ -40,6 +40,12 @@ async function checkInitStatus() {
 }
 
 export function setupRouterGuards(router) {
+  router.onError((error) => {
+    NProgress.done()
+    console.error('路由加载失败:', error)
+    ElMessage.error(i18n.global.t('common.loadFailed'))
+  })
+
   // 定义白名单（放在最前面，供所有逻辑使用）
   const whiteList = ['/home', '/login', '/register', '/forgot-password', '/init', '/admin/login']
   
