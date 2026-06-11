@@ -348,27 +348,34 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 
 	// 获取并更新实例的IPv6网络接口（使用i1接口，确保与IPv4的i0接口不同）
 	// 对于通过本项目脚本安装的Proxmox节点，IPv4使用i0接口，IPv6必须使用i1接口
-	if interfaceV6, err := pmacctService.DetectProxmoxNetworkInterfaceV6(p, instanceName, vmidStr); err == nil && interfaceV6 != "" {
-		if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", interfaceV6).Error; err == nil {
-			global.APP_LOG.Debug("已更新Proxmox实例IPv6网络接口",
-				zap.String("instanceName", instanceName),
-				zap.String("interfaceV6", interfaceV6))
-		}
-	} else {
-		// GetIPv6NetworkInterface作为备选方案（用于已有实例或SSH检测）
-		// 注意：sshClient.Execute不接受context参数，ctx仅用于parseInstanceInfo内的DB查询
-		ctx4, cancel4 := context.WithTimeout(ctx, 15*time.Second)
-		defer cancel4()
-		if interfaceV6, err := p.GetIPv6NetworkInterface(ctx4, instanceName); err == nil && interfaceV6 != "" {
+	// 仅当网络类型支持IPv6时才进行检测
+	if providerRecord.NetworkType == "nat_ipv4_ipv6" || providerRecord.NetworkType == "dedicated_ipv4_ipv6" || providerRecord.NetworkType == "ipv6_only" {
+		if interfaceV6, err := pmacctService.DetectProxmoxNetworkInterfaceV6(p, instanceName, vmidStr); err == nil && interfaceV6 != "" {
 			if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", interfaceV6).Error; err == nil {
-				global.APP_LOG.Debug("通过备选方案更新Proxmox实例IPv6网络接口",
+				global.APP_LOG.Debug("已更新Proxmox实例IPv6网络接口",
 					zap.String("instanceName", instanceName),
 					zap.String("interfaceV6", interfaceV6))
 			}
 		} else {
-			global.APP_LOG.Debug("未获取到IPv6网络接口或实例无公网IPv6",
-				zap.String("instanceName", instanceName))
+			// GetIPv6NetworkInterface作为备选方案（用于已有实例或SSH检测）
+			// 注意：sshClient.Execute不接受context参数，ctx仅用于parseInstanceInfo内的DB查询
+			ctx4, cancel4 := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel4()
+			if interfaceV6, err := p.GetIPv6NetworkInterface(ctx4, instanceName); err == nil && interfaceV6 != "" {
+				if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", interfaceV6).Error; err == nil {
+					global.APP_LOG.Debug("通过备选方案更新Proxmox实例IPv6网络接口",
+						zap.String("instanceName", instanceName),
+						zap.String("interfaceV6", interfaceV6))
+				}
+			} else {
+				global.APP_LOG.Debug("未获取到IPv6网络接口或实例无公网IPv6",
+					zap.String("instanceName", instanceName))
+			}
 		}
+	} else {
+		global.APP_LOG.Debug("Provider网络类型不支持IPv6，跳过IPv6网络接口检测",
+			zap.String("instanceName", instanceName),
+			zap.String("networkType", providerRecord.NetworkType))
 	}
 
 	// 初始化流量监控

@@ -61,8 +61,8 @@ if [ -n "$INTERFACE" ]; then
     exit 0
 fi
 
-echo "ERROR: 无法找到实例 ${INSTANCE_ID} 的IPv6网络接口(i1)" >&2
-exit 1
+# 无i1接口 = 该实例未配置IPv6，静默退出（不报错）
+exit 0
 `, instanceID)
 
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
@@ -70,12 +70,17 @@ exit 1
 
 	output, err := providerInstance.ExecuteSSHCommand(ctx, detectCmd)
 	if err != nil {
+		// SSH命令本身失败（连接问题等）才返回错误
 		return "", fmt.Errorf("failed to execute Proxmox IPv6 interface detection: %w", err)
 	}
 
 	interfaceName := utils.CleanCommandOutput(output)
-	if interfaceName == "" || strings.HasPrefix(interfaceName, "ERROR:") {
-		return "", fmt.Errorf("无法检测Proxmox实例 %s (ID: %s) 的IPv6网络接口(i1)", instanceName, instanceID)
+	if interfaceName == "" {
+		// 未找到IPv6接口（无i1接口），这不是错误，正常返回空字符串
+		global.APP_LOG.Debug("Proxmox实例无IPv6网络接口(i1)",
+			zap.String("instance", instanceName),
+			zap.String("instanceID", instanceID))
+		return "", nil
 	}
 
 	// 验证接口名称格式（必须是i1结尾）

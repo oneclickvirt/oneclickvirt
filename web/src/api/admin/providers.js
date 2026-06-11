@@ -284,3 +284,12 @@ export const deleteHardwareReport = (providerId) => {
     method: 'delete'
   })
 }
+
+// 强制单向同步：清理远程孤儿实例
+export const cleanupOrphanInstances = (id) => {
+  return request({
+    url: `/v1/admin/providers/${id}/cleanup-orphans`,
+    method: 'post',
+    timeout: 300000 // 5分钟超时，可能需要删除多个实例
+  })
+}

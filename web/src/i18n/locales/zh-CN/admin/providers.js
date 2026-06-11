@@ -836,5 +836,19 @@ export default {
   execRun: "执行",
   execResult: "执行结果",
   execTimeout: "超时（秒）",
-  execNoOutput: "（无输出）"
+  execNoOutput: "（无输出）",
+
+  // 强制单向同步 - 清理远程孤儿实例
+  cleanupOrphans: "强制同步清理",
+  cleanupOrphansWarning: "⚠️ <strong>危险操作</strong><br><br>将对节点 <strong>{name}</strong>（{host}）执行强制单向同步：<br><br>• 扫描远程服务器上的所有实例<br>• <span style='color: #F56C6C;'><strong>删除远程服务器上存在但主控数据库中不存在的实例</strong></span><br>• 主控数据库中的实例不受影响<br><br><strong>此操作不可恢复，请谨慎执行！</strong>",
+  cleanupOrphansTypedConfirm: "请确认要清理节点 <strong>{name}</strong> 上的远程孤儿实例。此操作将<span style='color: #F56C6C;'>永久删除远程服务器上的多余实例</span>，请输入节点名称以确认：",
+  cleanupOrphansContinue: "我已知晓风险，继续",
+  cleanupOrphansConfirmDelete: "确认删除",
+  cleanupOrphansRunning: "正在清理远程孤儿实例...",
+  cleanupOrphansNoOrphans: "未发现远程孤儿实例，无需清理",
+  cleanupOrphansResult: "强制同步清理完成：",
+  cleanupOrphansTotal: "发现孤儿实例数",
+  cleanupOrphansDeleted: "已成功删除",
+  cleanupOrphansFailedCount: "删除失败数",
+  cleanupOrphansFailed: "清理远程孤儿实例失败",
 }

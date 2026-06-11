@@ -152,6 +152,31 @@ func (s *ProviderApiService) CreateInstanceByProviderID(ctx context.Context, pro
 		return err
 	}
 
+	// 检查Provider节点实例数量限制（实时查询）
+	if dbProvider.MaxContainerInstances > 0 || dbProvider.MaxVMInstances > 0 {
+		var containerCount, vmCount int64
+		if config.InstanceType == "container" && dbProvider.MaxContainerInstances > 0 {
+			if err := global.APP_DB.Model(&providerModel.Instance{}).
+				Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
+					dbProvider.ID, "container", []string{"deleted", "deleting", "failed"}).
+				Count(&containerCount).Error; err == nil {
+				if int(containerCount) >= dbProvider.MaxContainerInstances {
+					return fmt.Errorf("节点容器数量已达上限：%d/%d", containerCount, dbProvider.MaxContainerInstances)
+				}
+			}
+		}
+		if config.InstanceType == "vm" && dbProvider.MaxVMInstances > 0 {
+			if err := global.APP_DB.Model(&providerModel.Instance{}).
+				Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
+					dbProvider.ID, "vm", []string{"deleted", "deleting", "failed"}).
+				Count(&vmCount).Error; err == nil {
+				if int(vmCount) >= dbProvider.MaxVMInstances {
+					return fmt.Errorf("节点虚拟机数量已达上限：%d/%d", vmCount, dbProvider.MaxVMInstances)
+				}
+			}
+		}
+	}
+
 	// 如果指定了系统镜像ID，获取镜像URL
 	if req.SystemImageID > 0 {
 		imageService := images.ImageService{}

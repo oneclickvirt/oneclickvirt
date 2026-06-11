@@ -129,7 +129,7 @@ run_module_09() {
         "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null)
     local saved_expiry_action; saved_expiry_action=$(echo "$policy_detail" | jq -r '.data.instanceExpiryAction // empty' 2>/dev/null)
     local saved_traffic_action; saved_traffic_action=$(echo "$policy_detail" | jq -r '.data.trafficOverLimitAction // empty' 2>/dev/null)
-    local saved_quota_visible; saved_quota_visible=$(echo "$policy_detail" | jq -r '.data.trafficQuotaVisible // empty' 2>/dev/null)
+    local saved_quota_visible; saved_quota_visible=$(echo "$policy_detail" | jq -r '.data.trafficQuotaVisible' 2>/dev/null)
     local saved_speed_kbps; saved_speed_kbps=$(echo "$policy_detail" | jq -r '.data.trafficSpeedLimitKbps // empty' 2>/dev/null)
 
     TOTAL_TESTS=$((TOTAL_TESTS + 1))

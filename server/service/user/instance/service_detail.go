@@ -71,38 +71,40 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 	}
 
 	detail := &userModel.UserInstanceDetailResponse{
-		ID:            instance.ID,
-		Name:          instance.Name,
-		Type:          instance.InstanceType,
-		InstanceType:  instance.InstanceType,
-		Status:        instance.Status,
-		CPU:           instance.CPU,
-		Memory:        int(instance.Memory),
-		Disk:          int(instance.Disk),
-		Bandwidth:     instance.Bandwidth,
-		OsType:        instance.OSType,
-		Image:         instance.Image,
-		ProviderID:    instance.ProviderID,
-		PrivateIP:     instance.PrivateIP,   // 使用实例的内网IP
-		PublicIP:      instance.PublicIP,    // 使用实例的公网IP
-		IPv6Address:   instance.IPv6Address, // 内网IPv6地址
-		PublicIPv6:    instance.PublicIPv6,  // 公网IPv6地址
-		SSHPort:       sshPort,              // 使用映射的公网端口
-		Username:      instance.Username,
-		Password:      instance.Password,
-		ProviderName:  instance.Provider,
-		HasSshMapping: hasSshMapping,        // 是否有可用的SSH端口映射
-		NetworkType:   instance.NetworkType, // 默认使用实例的网络类型（创建时从Provider继承）
-		CreatedAt:     instance.CreatedAt,
-		ExpiresAt:     instance.ExpiresAt,
-		IsFrozen:      instance.IsFrozen,
-		FrozenReason:  instance.FrozenReason,
+		ID:                  instance.ID,
+		Name:                instance.Name,
+		Type:                instance.InstanceType,
+		InstanceType:        instance.InstanceType,
+		Status:              instance.Status,
+		CPU:                 instance.CPU,
+		Memory:              int(instance.Memory),
+		Disk:                int(instance.Disk),
+		Bandwidth:           instance.Bandwidth,
+		OsType:              instance.OSType,
+		Image:               instance.Image,
+		ProviderID:          instance.ProviderID,
+		PrivateIP:           instance.PrivateIP,   // 使用实例的内网IP
+		PublicIP:            instance.PublicIP,    // 使用实例的公网IP
+		IPv6Address:         instance.IPv6Address, // 内网IPv6地址
+		PublicIPv6:          instance.PublicIPv6,  // 公网IPv6地址
+		SSHPort:             sshPort,              // 使用映射的公网端口
+		Username:            instance.Username,
+		Password:            instance.Password,
+		ProviderName:        instance.Provider,
+		HasSshMapping:       hasSshMapping,        // 是否有可用的SSH端口映射
+		NetworkType:         instance.NetworkType, // 默认使用实例的网络类型（创建时从Provider继承）
+		CreatedAt:           instance.CreatedAt,
+		ExpiresAt:           instance.ExpiresAt,
+		IsFrozen:            instance.IsFrozen,
+		FrozenReason:        instance.FrozenReason,
+		TrafficQuotaVisible: true, // 默认显示流量额度，后续从Provider覆盖
 	}
 
 	if hasProvider {
 		detail.ProviderName = provider.Name
 		detail.ProviderType = provider.Type // Provider虚拟化类型
 		detail.ProviderStatus = provider.Status
+		detail.TrafficQuotaVisible = provider.TrafficQuotaVisible // 从Provider读取流量额度显示设置
 
 		// agent录入模式+无端口映射模式：不显示公网IP
 		// 因为该模式下的端口转发是通过控制端内网穿透实现的，节点本身没有对外的公网IP

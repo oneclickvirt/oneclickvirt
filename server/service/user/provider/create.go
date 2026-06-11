@@ -373,7 +373,7 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 			TaskType:              "create",
 			TaskData:              taskData,
 			Status:                "pending",
-			TimeoutDuration:       1800,
+			TimeoutDuration:       2400, // 40分钟，部分VM（如Proxmox QEMU）启动较慢
 			IsForceStoppable:      true,
 			EstimatedDuration:     estimatedDuration,
 			PreallocatedCPU:       cpuSpec.Cores,

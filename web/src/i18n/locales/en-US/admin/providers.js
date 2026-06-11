@@ -837,5 +837,19 @@ export default {
   execRun: "Run",
   execResult: "Output",
   execTimeout: "Timeout (s)",
-  execNoOutput: "(no output)"
+  execNoOutput: "(no output)",
+
+  // Force sync cleanup - remote orphan instance cleanup
+  cleanupOrphans: "Force Sync Cleanup",
+  cleanupOrphansWarning: "⚠️ <strong>Dangerous Operation</strong><br><br>This will perform a forced one-way sync on node <strong>{name}</strong> ({host}):<br><br>• Scan all instances on the remote server<br>• <span style='color: #F56C6C;'><strong>Delete instances on the remote server that do NOT exist in the master database</strong></span><br>• Instances in the master database will NOT be affected<br><br><strong>This operation is irreversible. Proceed with caution!</strong>",
+  cleanupOrphansTypedConfirm: "Please confirm you want to clean up orphan instances on node <strong>{name}</strong>. This will <span style='color: #F56C6C;'>permanently delete extra instances on the remote server</span>. Type the node name to confirm:",
+  cleanupOrphansContinue: "I understand the risks, continue",
+  cleanupOrphansConfirmDelete: "Confirm Delete",
+  cleanupOrphansRunning: "Cleaning up remote orphan instances...",
+  cleanupOrphansNoOrphans: "No remote orphan instances found, cleanup not needed",
+  cleanupOrphansResult: "Force sync cleanup completed:",
+  cleanupOrphansTotal: "Orphan instances found",
+  cleanupOrphansDeleted: "Successfully deleted",
+  cleanupOrphansFailedCount: "Failed to delete",
+  cleanupOrphansFailed: "Failed to clean up orphan instances",
 }

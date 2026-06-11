@@ -38,6 +38,9 @@ export default function useProviderTableActions(emit) {
       case 'unfreeze':
         emit('unfreeze', currentRow.value)
         break
+      case 'cleanup-orphans':
+        emit('cleanup-orphans', currentRow.value)
+        break
       case 'remote-connect':
         showRemoteDialog(currentRow.value)
         return // 不关闭 actionsDialogVisible，交给 remote dialog

@@ -42,6 +42,13 @@ func DeployAgent(c *gin.Context) {
 		return
 	}
 
+	// 验证Provider是否存在
+	var provider providerModel.Provider
+	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
+		return
+	}
+
 	var req DeployAgentRequest
 	_ = c.ShouldBindJSON(&req)
 	if req.Version == "" {
@@ -73,6 +80,13 @@ func UninstallAgent(c *gin.Context) {
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
+		return
+	}
+
+	// 验证Provider是否存在
+	var provider providerModel.Provider
+	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
 		return
 	}
 

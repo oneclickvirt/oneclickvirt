@@ -184,6 +184,8 @@ type UserInstanceDetailResponse struct {
 	ExpiresAt       *time.Time `json:"expiresAt"` // 实例过期时间
 	IsFrozen        bool       `json:"isFrozen"`
 	FrozenReason    string     `json:"frozenReason"`
+	// 流量配额显示
+	TrafficQuotaVisible bool `json:"trafficQuotaVisible"` // 用户侧是否显示流量额度与用量
 	// 关联任务信息
 	RelatedTask *UserTaskResponse `json:"relatedTask,omitempty"` // 关联的最新任务（如果有）
 }

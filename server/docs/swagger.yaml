@@ -1915,6 +1915,23 @@ definitions:
         description: 是否使用CDN加速下载镜像
         type: boolean
     type: object
+  provider.CleanupOrphanResult:
+    properties:
+      deletedCount:
+        description: 成功删除数量
+        type: integer
+      failedCount:
+        description: 删除失败数量
+        type: integer
+      orphans:
+        description: 所有孤儿实例详情
+        items:
+          $ref: '#/definitions/provider.RemoteOrphanInfo'
+        type: array
+      totalOrphans:
+        description: 发现的孤儿实例总数
+        type: integer
+    type: object
   provider.DiscoveredAccelerator:
     properties:
       bus:
@@ -2161,6 +2178,27 @@ definitions:
       totalRemote:
         description: 远程总实例数
         type: integer
+    type: object
+  provider.RemoteOrphanInfo:
+    properties:
+      deleted:
+        description: 是否成功删除
+        type: boolean
+      error:
+        description: 删除失败原因
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      status:
+        description: 远程实例状态
+        type: string
+      type:
+        description: container / vm
+        type: string
+      uuid:
+        type: string
     type: object
   resource.ResourceReservation:
     properties:
@@ -2905,6 +2943,9 @@ definitions:
         type: integer
       status:
         type: string
+      trafficQuotaVisible:
+        description: 流量配额显示
+        type: boolean
       type:
         type: string
       username:
@@ -5093,6 +5134,42 @@ paths:
       summary: 获取流量监控任务详情
       tags:
       - 流量监控管理
+  /admin/providers/{id}/cleanup-orphans:
+    post:
+      consumes:
+      - application/json
+      description: 强制单向同步：删除远程服务器上存在但数据库中不存在的实例（主控数据库为权威来源，需双重确认）
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 清理完成
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/provider.CleanupOrphanResult'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 清理孤儿实例
+      tags:
+      - Provider管理
   /admin/providers/{id}/discover:
     post:
       consumes:

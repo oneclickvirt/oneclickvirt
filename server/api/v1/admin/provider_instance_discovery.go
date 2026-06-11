@@ -195,3 +195,40 @@ func ensureProviderOwner(c *gin.Context, providerID uint) error {
 	}
 	return nil
 }
+
+// CleanupOrphanInstances 强制单向同步：删除远程孤儿实例
+// @Summary 清理孤儿实例
+// @Description 强制单向同步：删除远程服务器上存在但数据库中不存在的实例（主控数据库为权威来源，需双重确认）
+// @Tags Provider管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "Provider ID"
+// @Success 200 {object} common.Response{data=adminProvider.CleanupOrphanResult} "清理完成"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 500 {object} common.Response "服务器内部错误"
+// @Router /admin/providers/{id}/cleanup-orphans [post]
+func CleanupOrphanInstances(c *gin.Context) {
+	providerIDStr := c.Param("id")
+	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
+
+	providerService := adminProvider.NewService()
+	result, err := providerService.CleanupOrphanInstances(context.Background(), uint(providerID))
+	if err != nil {
+		global.APP_LOG.Error("清理远程孤儿实例失败",
+			zap.Uint64("providerId", providerID),
+			zap.Error(err))
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	common.ResponseSuccess(c, result, "清理完成")
+}

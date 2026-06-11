@@ -337,6 +337,28 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest, ownerAdminID .
 	if req.InstanceType == "vm" && !provider.VirtualMachineEnabled {
 		return nil, fmt.Errorf("提供商 %s 不支持虚拟机实例", req.Provider)
 	}
+
+	// 检查Provider节点实例数量限制（实时查询，排除已删除/失败的实例）
+	if provider.MaxContainerInstances > 0 || provider.MaxVMInstances > 0 {
+		var containerCount, vmCount int64
+		if err := global.APP_DB.Model(&providerModel.Instance{}).
+			Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
+				provider.ID, "container", []string{"deleted", "deleting", "failed"}).
+			Count(&containerCount).Error; err == nil {
+			if req.InstanceType == "container" && provider.MaxContainerInstances > 0 && int(containerCount) >= provider.MaxContainerInstances {
+				return nil, fmt.Errorf("节点容器数量已达上限：%d/%d", containerCount, provider.MaxContainerInstances)
+			}
+		}
+		if err := global.APP_DB.Model(&providerModel.Instance{}).
+			Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
+				provider.ID, "vm", []string{"deleted", "deleting", "failed"}).
+			Count(&vmCount).Error; err == nil {
+			if req.InstanceType == "vm" && provider.MaxVMInstances > 0 && int(vmCount) >= provider.MaxVMInstances {
+				return nil, fmt.Errorf("节点虚拟机数量已达上限：%d/%d", vmCount, provider.MaxVMInstances)
+			}
+		}
+	}
+
 	if req.UserID > 0 {
 		quotaService := resources.NewQuotaService()
 		quotaResult, err := quotaService.ValidateAdminInstanceCreation(resources.ResourceRequest{

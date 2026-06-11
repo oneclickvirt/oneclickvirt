@@ -156,9 +156,9 @@ run_module_18() {
             "${SERVER_URL}/api/v1/user/instances/${TEST_INSTANCE_ID}" 2>/dev/null)
 
         # Check trafficQuotaVisible field
-        local uf_tqv; uf_tqv=$(echo "$uf_detail" | jq -r '.data.trafficQuotaVisible // "__missing__"' 2>/dev/null)
+        local uf_tqv; uf_tqv=$(echo "$uf_detail" | jq -r '.data.trafficQuotaVisible' 2>/dev/null)
         TOTAL_TESTS=$((TOTAL_TESTS + 1))
-        if [[ "$uf_tqv" != "__missing__" ]]; then
+        if [[ "$uf_tqv" != "null" ]]; then
             PASSED_TESTS=$((PASSED_TESTS + 1))
             log_success "User instance detail contains trafficQuotaVisible: ${uf_tqv}"
             _add_result_json "User trafficQuotaVisible field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "PASS" "present" "$uf_tqv" "" "$uf_group"
@@ -169,9 +169,9 @@ run_module_18() {
         fi
 
         # Check isFrozen field
-        local uf_frozen; uf_frozen=$(echo "$uf_detail" | jq -r '.data.isFrozen // "__missing__"' 2>/dev/null)
+        local uf_frozen; uf_frozen=$(echo "$uf_detail" | jq -r '.data.isFrozen' 2>/dev/null)
         TOTAL_TESTS=$((TOTAL_TESTS + 1))
-        if [[ "$uf_frozen" != "__missing__" ]]; then
+        if [[ "$uf_frozen" != "null" ]]; then
             PASSED_TESTS=$((PASSED_TESTS + 1))
             log_success "User instance detail contains isFrozen: ${uf_frozen}"
             _add_result_json "User isFrozen field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "PASS" "present" "$uf_frozen" "" "$uf_group"

@@ -83,6 +83,15 @@
       >
         {{ $t('admin.providers.viewHardwareReport') }}
       </el-button>
+
+      <el-divider />
+      <el-button
+        class="action-button"
+        type="danger"
+        @click="$emit('action', 'cleanup-orphans')"
+      >
+        {{ $t('admin.providers.cleanupOrphans') }}
+      </el-button>
     </div>
   </el-dialog>
 </template>

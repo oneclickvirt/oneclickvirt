@@ -84,6 +84,9 @@ func (s *ResourceService) CheckProviderResourcesWithTx(tx *gorm.DB, req resource
 		return nil, fmt.Errorf("Provider不存在: %v", err)
 	}
 
+	// 实时刷新实例计数（传入事务以确保一致性读取）
+	s.refreshInstanceCountsInTx(tx, &provider)
+
 	result := s.checkProviderResourceAvailability(&provider, req)
 
 	if result.Allowed {
@@ -111,6 +114,9 @@ func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheck
 		}
 		return nil, fmt.Errorf("Provider不存在: %v", err)
 	}
+
+	// 实时刷新实例计数（缓存值可能过时）
+	s.refreshInstanceCounts(&provider)
 
 	result := s.checkProviderResourceAvailability(&provider, req)
 	return result, nil
@@ -627,4 +633,69 @@ func (s *ResourceService) ValidateInstanceTypeSupport(providerID uint, instanceT
 	}
 
 	return nil
+}
+
+// refreshInstanceCounts 实时刷新Provider的实例计数（非事务版本）
+// 解决缓存值可能过时导致配额检查失效的问题
+func (s *ResourceService) refreshInstanceCounts(provider *providerModel.Provider) {
+	if provider.MaxContainerInstances <= 0 && provider.MaxVMInstances <= 0 {
+		return // 无限制，无需刷新
+	}
+
+	// 检查缓存是否仍然有效
+	if provider.CountCacheExpiry != nil && time.Now().Before(*provider.CountCacheExpiry) {
+		return // 缓存未过期，使用缓存值
+	}
+
+	var containerCount, vmCount int64
+	global.APP_DB.Model(&providerModel.Instance{}).
+		Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
+			provider.ID, "container", []string{"deleted", "deleting", "failed"}).
+		Count(&containerCount)
+	global.APP_DB.Model(&providerModel.Instance{}).
+		Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
+			provider.ID, "vm", []string{"deleted", "deleting", "failed"}).
+		Count(&vmCount)
+
+	provider.ContainerCount = int(containerCount)
+	provider.VMCount = int(vmCount)
+
+	// 写回缓存
+	newExpiry := time.Now().Add(5 * time.Minute)
+	global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", provider.ID).Updates(map[string]interface{}{
+		"container_count":    containerCount,
+		"vm_count":           vmCount,
+		"count_cache_expiry": newExpiry,
+	})
+}
+
+// refreshInstanceCountsInTx 在事务中实时刷新Provider的实例计数
+func (s *ResourceService) refreshInstanceCountsInTx(tx *gorm.DB, provider *providerModel.Provider) {
+	if provider.MaxContainerInstances <= 0 && provider.MaxVMInstances <= 0 {
+		return
+	}
+
+	if provider.CountCacheExpiry != nil && time.Now().Before(*provider.CountCacheExpiry) {
+		return
+	}
+
+	var containerCount, vmCount int64
+	tx.Model(&providerModel.Instance{}).
+		Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
+			provider.ID, "container", []string{"deleted", "deleting", "failed"}).
+		Count(&containerCount)
+	tx.Model(&providerModel.Instance{}).
+		Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
+			provider.ID, "vm", []string{"deleted", "deleting", "failed"}).
+		Count(&vmCount)
+
+	provider.ContainerCount = int(containerCount)
+	provider.VMCount = int(vmCount)
+
+	newExpiry := time.Now().Add(5 * time.Minute)
+	tx.Model(&providerModel.Provider{}).Where("id = ?", provider.ID).Updates(map[string]interface{}{
+		"container_count":    containerCount,
+		"vm_count":           vmCount,
+		"count_cache_expiry": newExpiry,
+	})
 }

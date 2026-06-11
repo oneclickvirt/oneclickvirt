@@ -74,6 +74,7 @@
         @set-expiry="handleSetProviderExpiry"
         @freeze="freezeServer"
         @unfreeze="unfreezeServer"
+        @cleanup-orphans="cleanupOrphans"
         @delete="handleDeleteProvider"
         @size-change="handleSizeChange"
         @page-change="handleCurrentChange"
@@ -170,7 +171,7 @@ const {
   handleSizeChange, handleCurrentChange, handleSelectionChange,
   handleDeleteProvider, handleBatchDelete, handleBatchFreeze,
   handleSetProviderExpiry, freezeServer, unfreezeServer, checkHealth,
-  handleExportCSV, handleImportCSV
+  handleExportCSV, handleImportCSV, cleanupOrphans
 } = useProviderCRUD()
 
 const importCsvInput = ref(null)

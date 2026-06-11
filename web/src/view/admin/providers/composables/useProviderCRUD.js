@@ -9,7 +9,8 @@ import {
   setProviderExpiry,
   checkProviderHealth,
   exportProvidersCSV,
-  importProvidersCSV
+  importProvidersCSV,
+  cleanupOrphanInstances
 } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
 
@@ -638,6 +639,86 @@ export function useProviderCRUD() {
     }
   }
 
+  // 强制单向同步：清理远程孤儿实例（需双重确认）
+  const cleanupOrphans = async (provider) => {
+    try {
+      // 第一重确认：警告对话框
+      await ElMessageBox.confirm(
+        t('admin.providers.cleanupOrphansWarning', {
+          name: provider.name,
+          host: provider.endpoint || provider.host || provider.name
+        }),
+        t('admin.providers.cleanupOrphans'),
+        {
+          confirmButtonText: t('admin.providers.cleanupOrphansContinue'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning',
+          dangerouslyUseHTMLString: true
+        }
+      )
+
+      // 第二重确认：输入确认文本
+      const confirmText = provider.name
+      await requireTypedConfirmation({
+        title: t('admin.providers.cleanupOrphans'),
+        message: t('admin.providers.cleanupOrphansTypedConfirm', { name: confirmText }),
+        expected: confirmText,
+        confirmButtonText: t('admin.providers.cleanupOrphansConfirmDelete'),
+        type: 'error'
+      })
+
+      // 执行清理
+      const loadingInstance = ElLoading.service({
+        lock: true,
+        text: t('admin.providers.cleanupOrphansRunning'),
+        background: 'rgba(0, 0, 0, 0.7)'
+      })
+
+      try {
+        const response = await cleanupOrphanInstances(provider.id)
+        const result = response.data || response
+        loadingInstance.close()
+
+        if (result.totalOrphans === 0) {
+          ElMessage.info(t('admin.providers.cleanupOrphansNoOrphans'))
+        } else {
+          const resultHtml = `
+            <div>
+              <p>${t('admin.providers.cleanupOrphansResult')}</p>
+              <p style="color:#E6A23C;">${t('admin.providers.cleanupOrphansTotal')}: ${result.totalOrphans}</p>
+              <p style="color:#67C23A;">${t('admin.providers.cleanupOrphansDeleted')}: ${result.deletedCount}</p>
+              ${result.failedCount > 0
+                ? `<p style="color:#F56C6C;">${t('admin.providers.cleanupOrphansFailedCount')}: ${result.failedCount}</p>`
+                : ''}
+              ${result.orphans?.length > 0
+                ? `<div style="margin-top:10px;max-height:200px;overflow-y:auto;">
+                    ${result.orphans.map(o =>
+                      `<p style="font-size:12px;color:${o.deleted ? '#67C23A' : '#F56C6C'};">
+                        ${o.deleted ? '✓' : '✗'} ${o.name || o.id} (${o.type || 'unknown'})
+                        ${o.error ? ` - ${o.error}` : ''}
+                      </p>`
+                    ).join('')}
+                  </div>`
+                : ''}
+            </div>`
+          ElMessageBox.alert(resultHtml, t('admin.providers.cleanupOrphans'), {
+            dangerouslyUseHTMLString: true,
+            confirmButtonText: t('common.confirm')
+          })
+        }
+        await loadProviders()
+      } catch (error) {
+        loadingInstance.close()
+        throw error
+      }
+    } catch (error) {
+      if (error !== 'cancel') {
+        const errorMsg = error?.response?.data?.msg || error?.message || t('common.failed')
+        ElMessage.error(t('admin.providers.cleanupOrphansFailed') + ': ' + errorMsg)
+      }
+    }
+  }
+
   return {
     providers,
     selectedProviders,
@@ -660,6 +741,7 @@ export function useProviderCRUD() {
     unfreezeServer,
     checkHealth,
     handleExportCSV,
-    handleImportCSV
+    handleImportCSV,
+    cleanupOrphans
   }
 }

@@ -3372,6 +3372,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/providers/{id}/cleanup-orphans": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "强制单向同步：删除远程服务器上存在但数据库中不存在的实例（主控数据库为权威来源，需双重确认）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Provider管理"
+                ],
+                "summary": "清理孤儿实例",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "清理完成",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/provider.CleanupOrphanResult"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/providers/{id}/discover": {
             "post": {
                 "security": [
@@ -14481,6 +14542,30 @@ const docTemplate = `{
                 }
             }
         },
+        "provider.CleanupOrphanResult": {
+            "type": "object",
+            "properties": {
+                "deletedCount": {
+                    "description": "成功删除数量",
+                    "type": "integer"
+                },
+                "failedCount": {
+                    "description": "删除失败数量",
+                    "type": "integer"
+                },
+                "orphans": {
+                    "description": "所有孤儿实例详情",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/provider.RemoteOrphanInfo"
+                    }
+                },
+                "totalOrphans": {
+                    "description": "发现的孤儿实例总数",
+                    "type": "integer"
+                }
+            }
+        },
         "provider.DiscoveredAccelerator": {
             "type": "object",
             "properties": {
@@ -14829,6 +14914,36 @@ const docTemplate = `{
                 "totalRemote": {
                     "description": "远程总实例数",
                     "type": "integer"
+                }
+            }
+        },
+        "provider.RemoteOrphanInfo": {
+            "type": "object",
+            "properties": {
+                "deleted": {
+                    "description": "是否成功删除",
+                    "type": "boolean"
+                },
+                "error": {
+                    "description": "删除失败原因",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "远程实例状态",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "container / vm",
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
                 }
             }
         },
@@ -15886,6 +16001,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "trafficQuotaVisible": {
+                    "description": "流量配额显示",
+                    "type": "boolean"
                 },
                 "type": {
                     "type": "string"

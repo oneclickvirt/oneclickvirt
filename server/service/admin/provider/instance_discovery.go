@@ -254,3 +254,145 @@ type InstanceChange struct {
 	OldStatus  string `json:"oldStatus"`
 	NewStatus  string `json:"newStatus"`
 }
+
+// RemoteOrphanInfo 远程孤儿实例信息
+type RemoteOrphanInfo struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	UUID    string `json:"uuid"`
+	Type    string `json:"type"`            // container / vm
+	Status  string `json:"status"`          // 远程实例状态
+	Deleted bool   `json:"deleted"`         // 是否成功删除
+	Error   string `json:"error,omitempty"` // 删除失败原因
+}
+
+// CleanupOrphanResult 孤儿清理结果
+type CleanupOrphanResult struct {
+	TotalOrphans int                `json:"totalOrphans"` // 发现的孤儿实例总数
+	DeletedCount int                `json:"deletedCount"` // 成功删除数量
+	FailedCount  int                `json:"failedCount"`  // 删除失败数量
+	Orphans      []RemoteOrphanInfo `json:"orphans"`      // 所有孤儿实例详情
+}
+
+// CleanupOrphanInstances 强制单向同步：删除远程服务器上不存在于主控数据库的实例
+// 主控数据库为权威来源，远程多余的实例视为"孤儿"，直接删除
+func (s *Service) CleanupOrphanInstances(ctx context.Context, providerID uint) (*CleanupOrphanResult, error) {
+	global.APP_LOG.Info("开始强制单向同步：清理远程孤儿实例", zap.Uint("providerId", providerID))
+
+	// 1. 获取Provider信息
+	var providerInfo providerModel.Provider
+	if err := global.APP_DB.First(&providerInfo, providerID).Error; err != nil {
+		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
+	}
+
+	// 2. 获取Provider实例连接
+	providerInstance, err := provider2.EnsureProviderConnected(ctx, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("连接Provider失败: %w", err)
+	}
+
+	// 3. 发现远程实例
+	discoveredInstances, err := providerInstance.DiscoverInstances(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("发现远程实例失败: %w", err)
+	}
+
+	// 4. 获取数据库中该Provider的所有实例
+	var dbInstances []providerModel.Instance
+	if err := global.APP_DB.Where("provider_id = ?", providerID).
+		Select("id", "uuid", "name", "instance_type", "status").
+		Find(&dbInstances).Error; err != nil {
+		return nil, fmt.Errorf("查询数据库实例失败: %w", err)
+	}
+
+	// 5. 构建数据库实例映射（用于快速查找）
+	dbUUIDs := make(map[string]bool)
+	dbNames := make(map[string]bool)
+	for _, inst := range dbInstances {
+		if inst.UUID != "" {
+			dbUUIDs[inst.UUID] = true
+		}
+		if inst.Name != "" {
+			dbNames[inst.Name] = true
+		}
+	}
+
+	// 6. 识别远程孤儿实例（存在于远程但不在数据库中）
+	var orphans []RemoteOrphanInfo
+	for _, remote := range discoveredInstances {
+		// 通过UUID或名称匹配，如果数据库中没有则为孤儿
+		if !dbUUIDs[remote.UUID] && !dbNames[remote.Name] {
+			orphanID := remote.UUID
+			if orphanID == "" {
+				orphanID = remote.Name
+			}
+			orphans = append(orphans, RemoteOrphanInfo{
+				ID:     orphanID,
+				Name:   remote.Name,
+				UUID:   remote.UUID,
+				Type:   remote.InstanceType,
+				Status: remote.Status,
+			})
+		}
+	}
+
+	if len(orphans) == 0 {
+		global.APP_LOG.Info("未发现远程孤儿实例，无需清理",
+			zap.Uint("providerId", providerID))
+		return &CleanupOrphanResult{
+			TotalOrphans: 0,
+			DeletedCount: 0,
+			FailedCount:  0,
+			Orphans:      []RemoteOrphanInfo{},
+		}, nil
+	}
+
+	global.APP_LOG.Info("发现远程孤儿实例，开始清理",
+		zap.Uint("providerId", providerID),
+		zap.Int("orphanCount", len(orphans)))
+
+	// 7. 逐个删除远程孤儿实例
+	deletedCount := 0
+	failedCount := 0
+	for i := range orphans {
+		remoteID := orphans[i].ID
+		if remoteID == "" {
+			remoteID = orphans[i].Name
+		}
+		global.APP_LOG.Debug("删除远程孤儿实例",
+			zap.Uint("providerId", providerID),
+			zap.String("remoteID", remoteID),
+			zap.String("name", orphans[i].Name))
+
+		if err := providerInstance.DeleteInstance(ctx, remoteID); err != nil {
+			orphans[i].Error = err.Error()
+			orphans[i].Deleted = false
+			failedCount++
+			global.APP_LOG.Warn("删除远程孤儿实例失败",
+				zap.Uint("providerId", providerID),
+				zap.String("remoteID", remoteID),
+				zap.Error(err))
+		} else {
+			orphans[i].Deleted = true
+			deletedCount++
+			global.APP_LOG.Info("成功删除远程孤儿实例",
+				zap.Uint("providerId", providerID),
+				zap.String("remoteID", remoteID))
+		}
+	}
+
+	result := &CleanupOrphanResult{
+		TotalOrphans: len(orphans),
+		DeletedCount: deletedCount,
+		FailedCount:  failedCount,
+		Orphans:      orphans,
+	}
+
+	global.APP_LOG.Info("远程孤儿实例清理完成",
+		zap.Uint("providerId", providerID),
+		zap.Int("totalOrphans", result.TotalOrphans),
+		zap.Int("deleted", result.DeletedCount),
+		zap.Int("failed", result.FailedCount))
+
+	return result, nil
+}

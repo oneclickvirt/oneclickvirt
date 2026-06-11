@@ -496,9 +496,9 @@ run_module_10() {
                 fi
 
                 # Verify isFrozen and frozenReason fields in shared detail
-                local shared_frozen; shared_frozen=$(echo "$shared_detail" | jq -r '.data.isFrozen // "__missing__"' 2>/dev/null)
+                local shared_frozen; shared_frozen=$(echo "$shared_detail" | jq -r '.data.isFrozen' 2>/dev/null)
                 TOTAL_TESTS=$((TOTAL_TESTS + 1))
-                if [[ "$shared_frozen" != "__missing__" ]]; then
+                if [[ "$shared_frozen" != "null" ]]; then
                     PASSED_TESTS=$((PASSED_TESTS + 1))
                     log_success "Shared detail contains isFrozen field: ${shared_frozen}"
                     _add_result_json "Shared detail isFrozen field" "GET" "/api/v1/public/instance-shares/${share_token}" "PASS" "present" "$shared_frozen" "" "$share_group"
@@ -509,9 +509,9 @@ run_module_10() {
                 fi
 
                 # Verify trafficQuotaVisible field in shared detail
-                local shared_tqv; shared_tqv=$(echo "$shared_detail" | jq -r '.data.trafficQuotaVisible // "__missing__"' 2>/dev/null)
+                local shared_tqv; shared_tqv=$(echo "$shared_detail" | jq -r '.data.trafficQuotaVisible' 2>/dev/null)
                 TOTAL_TESTS=$((TOTAL_TESTS + 1))
-                if [[ "$shared_tqv" != "__missing__" ]]; then
+                if [[ "$shared_tqv" != "null" && -n "$shared_tqv" ]]; then
                     PASSED_TESTS=$((PASSED_TESTS + 1))
                     log_success "Shared detail contains trafficQuotaVisible field: ${shared_tqv}"
                     _add_result_json "Shared detail trafficQuotaVisible field" "GET" "/api/v1/public/instance-shares/${share_token}" "PASS" "present" "$shared_tqv" "" "$share_group"
