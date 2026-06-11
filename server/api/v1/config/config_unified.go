@@ -479,7 +479,17 @@ func validateLevelLimitsConfig(cfg map[string]interface{}) error {
 			return fmt.Errorf("levelLimits[%s] 格式无效", levelKey)
 		}
 
-		for _, field := range []string{"maxInstances", "max-instances", "maxTraffic", "max-traffic", "expiryDays", "expiry-days", "maxSnapshots", "max-snapshots"} {
+		for _, field := range []string{
+			"maxInstances", "max-instances", "max_instances",
+			"maxTraffic", "max-traffic", "max_traffic",
+			"expiryDays", "expiry-days", "expiry_days",
+			"maxSnapshots", "max-snapshots", "max_snapshots",
+			// Legacy flattened resource aliases accepted by older clients/tests.
+			"maxCPU", "max-cpu", "max_cpu",
+			"maxMemory", "max-memory", "max_memory",
+			"maxDisk", "max-disk", "max_disk",
+			"maxBandwidth", "max-bandwidth", "max_bandwidth",
+		} {
 			if val, exists := levelMap[field]; exists {
 				if err := validateNonNegativeConfigNumber(val, fmt.Sprintf("levelLimits[%s].%s", levelKey, field)); err != nil {
 					return err

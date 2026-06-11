@@ -131,7 +131,7 @@ func (s *Service) CreateUser(req admin.CreateUserRequest) error {
 		return errors.New("密码不能为空")
 	}
 	level := req.Level
-	if req.UserType == "admin" || req.UserType == "super_admin" {
+	if isAdminUserType(req.UserType) {
 		level = highestConfiguredUserLevel()
 	}
 	if err := validateConfiguredUserLevel(level); err != nil {
@@ -285,7 +285,7 @@ func (s *Service) UpdateUser(req admin.UpdateUserRequest, currentUserID uint) er
 	}
 
 	// 管理员类账号始终保持最高等级与最高等级配额，防止后台编辑产生等级/配额不一致。
-	if user.UserType == "admin" || user.UserType == "super_admin" {
+	if isAdminUserType(user.UserType) {
 		adminLevel := highestConfiguredUserLevel()
 		if err := userquota.ApplyLevelAndLimitFields(&user, adminLevel); err != nil {
 			return common.NewError(common.CodeValidationError, err.Error())

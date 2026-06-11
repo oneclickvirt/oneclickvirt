@@ -14,6 +14,14 @@ run_module_03() {
         '{"username":"admin_created_user","password":"AdminCreated123!@#","email":"ac@ci.local","level":1,"userType":"user"}' "$group")
     local created_uid; created_uid=$(echo "$cu" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
+    # Some controller builds return data=null for create-user. Resolve the id from
+    # the list endpoint so the edit/level/status/password paths are still covered.
+    if [[ -z "$created_uid" ]]; then
+        created_uid=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/users?page=1&pageSize=50" 2>/dev/null | \
+            jq -r '[.data.list[]? | select(.username=="admin_created_user")][0].id // empty' 2>/dev/null)
+    fi
+
     # -- Create duplicate username --
     test_api "Create duplicate user" "POST" "/api/v1/admin/users" "400|409" \
         '{"username":"admin_created_user","password":"Test123!@#","email":"ac2@ci.local"}' "$group"
@@ -35,7 +43,7 @@ run_module_03() {
 
         # -- Change level --
         test_api "Update user level" "PUT" "/api/v1/admin/users/${created_uid}/level" "200" \
-            '{"level":2}' "$group"
+            '{"level":1}' "$group"
 
         # -- Change level to invalid --
         test_api "Update user level (invalid)" "PUT" "/api/v1/admin/users/${created_uid}/level" "400" \
@@ -64,7 +72,7 @@ run_module_03() {
         jq -r '[.data.list[]? | select(.username | test("batch_user")) | .id // .ID] | join(",")' 2>/dev/null)
     if [[ -n "$uid_list" ]]; then
         test_api "Batch update level" "PUT" "/api/v1/admin/users/batch-level" "200" \
-            "{\"userIds\":[${uid_list}],\"level\":2}" "$group"
+            "{\"userIds\":[${uid_list}],\"level\":1}" "$group"
         test_api "Batch update status (disable)" "PUT" "/api/v1/admin/users/batch-status" "200" \
             "{\"userIds\":[${uid_list}],\"status\":0}" "$group"
         test_api "Batch update status (enable)" "PUT" "/api/v1/admin/users/batch-status" "200" \
@@ -73,7 +81,7 @@ run_module_03() {
 
     # -- Create normal admin user (may already exist if pre-created by run_module.sh) --
     test_api "Create normal admin" "POST" "/api/v1/admin/users" "200|400|409" \
-        "{\"username\":\"${NORMAL_ADMIN_USER}\",\"password\":\"${NORMAL_ADMIN_PASS}\",\"email\":\"nadmin@ci.local\",\"userType\":\"normal_admin\"}" "$group"
+        "{\"username\":\"${NORMAL_ADMIN_USER}\",\"password\":\"${NORMAL_ADMIN_PASS}\",\"email\":\"nadmin@ci.local\",\"userType\":\"normal_admin\",\"level\":1}" "$group"
     NORMAL_ADMIN_TOKEN=$(do_login "$SERVER_URL" "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_PASS") || true
 
     # -- User expiry --

@@ -219,6 +219,10 @@ func splitUintBatch(ids []uint, size int) [][]uint {
 	return batches
 }
 
+func isAdminUserType(userType string) bool {
+	return userType == "admin" || userType == "super_admin" || userType == "normal_admin"
+}
+
 // BatchUpdateUserLevel 批量更新用户等级
 func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 	if len(userIDs) == 0 {
@@ -230,7 +234,7 @@ func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 	}
 
 	var specialUsers []userModel.User
-	if err := global.APP_DB.Select("id").Where("id IN ? AND user_type IN ?", userIDs, []string{"admin", "super_admin"}).Find(&specialUsers).Error; err != nil {
+	if err := global.APP_DB.Select("id").Where("id IN ? AND user_type IN ?", userIDs, []string{"admin", "super_admin", "normal_admin"}).Find(&specialUsers).Error; err != nil {
 		global.APP_LOG.Warn("检查管理员用户失败",
 			zap.Error(err),
 			zap.Int("userCount", len(userIDs)))
@@ -302,7 +306,7 @@ func (s *Service) UpdateUserLevel(userID uint, level int) error {
 		return err
 	}
 
-	if user.UserType == "admin" || user.UserType == "super_admin" {
+	if isAdminUserType(user.UserType) {
 		level = highestConfiguredUserLevel()
 	}
 
