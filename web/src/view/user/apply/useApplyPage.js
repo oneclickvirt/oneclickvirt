@@ -38,6 +38,7 @@ export default function useApplyPage() {
 
   // Provider groups are shown as collapsed panels by default.
   const expandedProviderGroups = ref([])
+  const redeemCodeOnlyProviders = computed(() => providers.value.filter(provider => Boolean(provider.redeemCodeOnly)))
   let providerSelectSeq = 0
 
   // GPU passthrough is native on LXD/Incus and best-effort on Docker-family providers.
@@ -155,13 +156,17 @@ export default function useApplyPage() {
     }
     const hasAvailableContainer = provider.containerEnabled && (provider.availableContainerSlots === -1 || provider.availableContainerSlots > 0)
     const hasAvailableVM = provider.vmEnabled && (provider.availableVMSlots === -1 || provider.availableVMSlots > 0)
-    if (!hasAvailableContainer && !hasAvailableVM) {
+    if (!provider.redeemCodeOnly && !hasAvailableContainer && !hasAvailableVM) {
       ElMessage.warning(t('user.apply.nodeInsufficientResources'))
       return
     }
     const requestSeq = ++providerSelectSeq
     resetGpuState()
     selectedProvider.value = provider
+    if (provider.redeemCodeOnly) {
+      ElMessage.info(t('user.apply.useGlobalRedeemArea'))
+      return
+    }
     await loadProviderCapabilities(provider.id)
     if (requestSeq !== providerSelectSeq || selectedProvider.value?.id !== provider.id) return
     await loadInstanceConfig(provider.id)
@@ -299,7 +304,7 @@ export default function useApplyPage() {
     onInstanceTypeChange, submitApplication, submitRedemption, resetForm,
     gpuLoading, detectedGpus, selectedGpuIndices, gpuInfoMsg,
     selectAllGpus, deselectAllGpus,
-    expandedProviderGroups, canConfigureGpuPassthrough,
+    expandedProviderGroups, redeemCodeOnlyProviders, canConfigureGpuPassthrough,
     onGpuEnabledChange, providerGroups,
     viewHardwareReport, refreshData, selectProvider,
     formatProviderType, formatNetworkType,

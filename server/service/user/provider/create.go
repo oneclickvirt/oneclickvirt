@@ -73,6 +73,14 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 		return nil, errors.New("服务器已过期")
 	}
 
+	if provider.RedeemCodeOnly {
+		global.APP_LOG.Info("节点仅支持兑换码领取，拒绝用户自行创建实例",
+			zap.Uint("userID", userID),
+			zap.Uint("providerId", req.ProviderId),
+			zap.String("providerName", provider.Name))
+		return nil, errors.New("该服务器仅支持兑换码领取，请使用兑换码区域领取实例")
+	}
+
 	// 检查Provider是否因流量超限被限制
 	if provider.TrafficLimited {
 		global.APP_LOG.Error("Provider因流量超限被限制，禁止申请新实例",

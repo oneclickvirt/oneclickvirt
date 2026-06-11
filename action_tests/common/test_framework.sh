@@ -596,6 +596,64 @@ wait_task_complete() {
     return 1
 }
 
+
+
+# Non-fatal task waiter for optional/high-variance integration checks.
+# It mirrors wait_task_complete but reports terminal failures as WARN so provider
+# or image-specific flakiness can be recorded as SKIP by the caller instead of
+# polluting CI output with false FAIL lines.
+wait_task_complete_nonfatal() {
+    local url="$1" task_id="$2" token="$3" max="${4:-600}" interval="${5:-10}" elapsed=0
+    log_info "Waiting for optional task ${task_id} (max ${max}s)..."
+    local empty_count=0
+    local last_known_status=""
+
+    while [[ $elapsed -lt $max ]]; do
+        local r; r=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+            "${url}/api/v1/admin/tasks/${task_id}" 2>/dev/null) || true
+        local st; st=$(safe_jq "$r" '-r .data.status // empty' '')
+
+        case "$st" in
+            completed)
+                log_success "Optional task ${task_id} completed"
+                echo "$r"
+                return 0
+                ;;
+            failed|cancelled|timeout)
+                log_warning "Optional task ${task_id}: ${st}"
+                echo "$r"
+                return 1
+                ;;
+            pending|running|processing|queued)
+                log_debug "Optional task ${task_id} status: ${st}"
+                last_known_status="$st"
+                empty_count=0
+                ;;
+            "")
+                empty_count=$((empty_count + 1))
+                if [[ -n "$last_known_status" && $empty_count -ge 2 ]]; then
+                    log_debug "Optional task ${task_id} not found after running - assuming completed/cleaned"
+                    return 0
+                fi
+                if [[ -z "$last_known_status" && $empty_count -ge 3 ]]; then
+                    log_warning "Optional task ${task_id} never found after 3 attempts - assuming already completed"
+                    return 0
+                fi
+                log_debug "Optional task ${task_id} status empty (attempt ${empty_count})"
+                ;;
+            *)
+                log_debug "Optional task ${task_id} unknown status: ${st}"
+                last_known_status="$st"
+                empty_count=0
+                ;;
+        esac
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    log_warning "Optional task ${task_id} timeout after ${max}s"
+    return 1
+}
+
 ensure_provider_health_ready() {
     local provider_id="$1" token="${2:-$ADMIN_TOKEN}" settle_seconds="${3:-$INSTANCE_HEALTH_SETTLE_SECONDS}"
 
@@ -665,6 +723,71 @@ wait_instance_status() {
         case "$status" in
             failed|error|cancelled|timeout)
                 log_error "${label} reached terminal status=${status} before expected '${expected}'"
+                echo "$resp"
+                return 1
+                ;;
+        esac
+
+        if [[ "$status" != "$last_status" || $((elapsed % 30)) -eq 0 ]]; then
+            log_info "${label} status: ${status:-unknown}, waiting... (${elapsed}s/${max}s)"
+            last_status="$status"
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    local final_resp; final_resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+        "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
+    log_warning "${label} did not reach '${expected}' after ${max}s. Full detail:"
+    echo "$final_resp" | jq '.' 2>/dev/null || echo "$final_resp"
+    return 1
+}
+
+
+
+# Non-fatal instance status waiter for optional checks. Terminal statuses are
+# logged as WARN and left to the caller to record as SKIP/FAIL according to the
+# module semantics.
+wait_instance_status_nonfatal() {
+    local instance_id="$1" expected="$2" max="${3:-$INSTANCE_STATUS_MAX_WAIT}" interval="${4:-10}" token="${5:-$ADMIN_TOKEN}" label="${6:-instance ${instance_id}}"
+    local elapsed=0 last_status="" first_dumped=false
+
+    log_info "Waiting for optional ${label} status '${expected}' (max ${max}s)..."
+    while [[ $elapsed -lt $max ]]; do
+        local resp; resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+            "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
+        local code; code=$(safe_jq "$resp" '-r .code // empty' '')
+        local status; status=$(safe_jq "$resp" '-r .data.status // empty' '')
+
+        if [[ "$expected" == *"deleted"* && "$code" != "200" && -n "$code" ]]; then
+            log_success "${label} deleted/gone (code=${code}, waited ${elapsed}s)"
+            echo "$resp"
+            return 0
+        fi
+
+        local ok=false
+        IFS='|' read -ra expected_statuses <<< "$expected"
+        local exp
+        for exp in "${expected_statuses[@]}"; do
+            if [[ "$status" == "$exp" ]]; then
+                ok=true
+                break
+            fi
+        done
+        if [[ "$ok" == "true" ]]; then
+            log_success "${label} status=${status} (waited ${elapsed}s)"
+            echo "$resp"
+            return 0
+        fi
+
+        if [[ "$first_dumped" == "false" ]]; then
+            first_dumped=true
+            log_debug "${label} initial detail: $(echo "$resp" | jq -c '.' 2>/dev/null | head -c 2000)"
+        fi
+
+        case "$status" in
+            failed|error|cancelled|timeout)
+                log_warning "${label} reached terminal status=${status} before expected '${expected}'"
                 echo "$resp"
                 return 1
                 ;;

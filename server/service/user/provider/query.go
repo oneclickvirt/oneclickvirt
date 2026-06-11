@@ -85,7 +85,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 
 		// 只在资源信息完全缺失时才进行同步，避免阻塞用户请求
 		// Agent 模式节点不依赖 SSH 健康检查同步资源，由 Agent 独立上报，跳过此检查
-		if !isAgentMode && !provider.ResourceSynced && provider.NodeCPUCores == 0 && provider.NodeMemoryTotal == 0 && provider.NodeDiskTotal == 0 {
+		if !provider.RedeemCodeOnly && !isAgentMode && !provider.ResourceSynced && provider.NodeCPUCores == 0 && provider.NodeMemoryTotal == 0 && provider.NodeDiskTotal == 0 {
 			global.APP_LOG.Debug("节点资源信息缺失，跳过该节点",
 				zap.String("provider", provider.Name),
 				zap.Uint("id", provider.ID))
@@ -96,10 +96,10 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 		}
 
 		// 对于有可用资源的服务器，添加到返回列表
-		if provider.ContainerEnabled || provider.VirtualMachineEnabled {
+		if provider.ContainerEnabled || provider.VirtualMachineEnabled || provider.RedeemCodeOnly {
 			// 检查是否有有效的资源数据，如果没有则跳过
 			// Agent 模式节点资源由 Agent 独立上报，允许资源为 0（尚未上报时显示为 0）
-			if !isAgentMode && (provider.NodeCPUCores == 0 || provider.NodeMemoryTotal == 0 || provider.NodeDiskTotal == 0) {
+			if !provider.RedeemCodeOnly && !isAgentMode && (provider.NodeCPUCores == 0 || provider.NodeMemoryTotal == 0 || provider.NodeDiskTotal == 0) {
 				global.APP_LOG.Warn("节点资源数据不完整，跳过该节点",
 					zap.String("provider", provider.Name),
 					zap.Uint("id", provider.ID),

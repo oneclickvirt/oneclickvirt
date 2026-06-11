@@ -44,6 +44,60 @@
       </div>
     </el-card>
 
+    <!-- 常驻兑换码区域：兑换码不再依赖节点选择 -->
+    <el-card class="global-redeem-card">
+      <template #header>
+        <div class="card-header">
+          <span>{{ t('user.apply.redeemCodeTitle') }}</span>
+        </div>
+      </template>
+      <el-alert
+        v-if="redeemCodeOnlyProviders.length > 0"
+        class="redeem-alert"
+        type="info"
+        :closable="false"
+        show-icon
+      >
+        <template #title>
+          {{ t('user.apply.redeemCodeOnlyNotice') }}
+        </template>
+        <div class="redeem-only-provider-list">
+          <el-tag
+            v-for="provider in redeemCodeOnlyProviders"
+            :key="provider.id"
+            size="small"
+            type="info"
+          >
+            {{ provider.name }}
+          </el-tag>
+        </div>
+      </el-alert>
+      <el-form
+        class="global-redeem-form"
+        label-width="120px"
+      >
+        <el-form-item :label="t('user.apply.redeemCodeTitle')">
+          <el-input
+            v-model="redeemCodeInput"
+            :placeholder="t('user.apply.redeemCodePlaceholder')"
+            class="redeem-input"
+            clearable
+            @keyup.enter="submitRedemption"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button
+            type="primary"
+            :loading="redeemSubmitting"
+            size="large"
+            @click="submitRedemption"
+          >
+            {{ t('user.apply.redeemCodeSubmit') }}
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <!-- 服务器选择 -->
     <el-card class="providers-card">
       <template #header>
@@ -118,6 +172,13 @@
                   </el-tag>
                   <el-tag size="small" type="info">
                     {{ t('user.apply.networkMode') }}: {{ formatNetworkType(provider.networkType) }}
+                  </el-tag>
+                  <el-tag
+                    v-if="provider.redeemCodeOnly"
+                    size="small"
+                    type="warning"
+                  >
+                    {{ t('user.apply.redeemCodeOnlyTag') }}
                   </el-tag>
                 </div>
                 <div class="info-item">
@@ -438,26 +499,34 @@
         </el-form-item>
       </el-form>
 
-      <!-- 兑换码兑换表单 -->
+      <!-- 仅兑换码节点不再重复展示兑换入口 -->
       <div
         v-else
-        class="redeem-card"
+        class="redeem-card disabled-redeem-card"
       >
-        <el-form label-width="120px">
+        <el-alert
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="t('user.apply.redeemCodeOnlySelectedTitle', { provider: selectedProvider.name })"
+          :description="t('user.apply.redeemCodeOnlySelectedDescription')"
+        />
+        <el-form
+          label-width="120px"
+          class="disabled-redeem-form"
+        >
           <el-form-item :label="t('user.apply.redeemCodeTitle')">
             <el-input
-              v-model="redeemCodeInput"
-              :placeholder="t('user.apply.redeemCodePlaceholder')"
-              style="max-width: 340px"
-              @keyup.enter="submitRedemption"
+              :model-value="''"
+              :placeholder="t('user.apply.useGlobalRedeemArea')"
+              class="redeem-input"
+              disabled
             />
           </el-form-item>
           <el-form-item>
             <el-button
-              type="primary"
-              :loading="redeemSubmitting"
               size="large"
-              @click="submitRedemption"
+              disabled
             >
               {{ t('user.apply.redeemCodeSubmit') }}
             </el-button>
@@ -506,7 +575,7 @@ const { t } = useI18n()
 
 const {
   loading, refreshing, providers, selectedProvider, providerCapabilities,
-  instanceTypePermissions,
+  instanceTypePermissions, redeemCodeOnlyProviders,
   getProviderStatusType, getProviderStatusText, formatProviderLocation,
   canCreateInstanceType,
   submitting, redeemCodeInput, redeemSubmitting,
@@ -547,6 +616,7 @@ const {
 }
 
 .user-limits-card,
+.global-redeem-card,
 .providers-card,
 .config-card {
   margin-bottom: 24px;
@@ -555,6 +625,35 @@ const {
 
 .redeem-card {
   padding: 8px 0;
+}
+
+.global-redeem-form {
+  margin-top: 16px;
+}
+
+.redeem-input {
+  max-width: 420px;
+}
+
+.redeem-alert {
+  margin-bottom: 8px;
+}
+
+.redeem-only-provider-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.disabled-redeem-card {
+  padding: 12px 0;
+  opacity: 0.72;
+}
+
+.disabled-redeem-form {
+  margin-top: 16px;
+  pointer-events: none;
 }
 
 .card-header {
