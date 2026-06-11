@@ -196,16 +196,16 @@ func MarkTaskCompleted(taskID uint, message string) {
 		updates["status_message"] = message
 	}
 
-	// 只在任务状态为running时才更新为completed，避免覆盖failed状态
-	result := global.APP_DB.Model(&adminModel.Task{}).Where("id = ? AND status = ?", taskID, "running").Updates(updates)
+	// 只在任务状态为running/processing时才更新为completed，避免覆盖failed状态
+	result := global.APP_DB.Model(&adminModel.Task{}).Where("id = ? AND status IN ?", taskID, []string{"running", "processing"}).Updates(updates)
 	if result.Error != nil {
 		global.APP_LOG.Error("标记任务完成失败",
 			zap.Uint("taskId", taskID),
 			zap.String("message", message),
 			zap.Error(result.Error))
 	} else if result.RowsAffected == 0 {
-		// 没有更新任何行，说明任务状态不是running（可能已经是failed或其他状态）
-		global.APP_LOG.Warn("任务状态不是running，跳过标记为完成",
+		// 没有更新任何行，说明任务状态不是running/processing（可能已经是failed或其他状态）
+		global.APP_LOG.Warn("任务状态不是running/processing，跳过标记为完成",
 			zap.Uint("taskId", taskID),
 			zap.String("message", message))
 	} else {

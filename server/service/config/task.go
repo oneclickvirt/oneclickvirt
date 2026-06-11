@@ -81,22 +81,38 @@ func (s *TaskService) cleanupUnfinishedTasks() {
 	}
 
 	var tasks []admin.ConfigurationTask
-	global.APP_DB.Where("status IN ?", []string{
+	if err := global.APP_DB.Where("status IN ?", []string{
 		admin.TaskStatusPending,
 		admin.TaskStatusRunning,
-	}).Find(&tasks)
+	}).Find(&tasks).Error; err != nil {
+		global.APP_LOG.Warn("查询未完成配置任务失败", zap.Error(err))
+		return
+	}
+	if len(tasks) == 0 {
+		return
+	}
 
 	stateManager := taskManager.GetTaskStateManager()
 	if stateManager == nil {
-		global.APP_LOG.Fatal("统一任务状态管理器未初始化，无法清理未完成任务")
+		now := time.Now()
+		result := global.APP_DB.Model(&admin.ConfigurationTask{}).
+			Where("status IN ?", []string{admin.TaskStatusPending, admin.TaskStatusRunning}).
+			Updates(map[string]interface{}{
+				"status":        admin.TaskStatusCancelled,
+				"error_message": "服务重启，任务已取消",
+				"completed_at":  &now,
+			})
+		if result.Error != nil {
+			global.APP_LOG.Warn("清理未完成配置任务失败", zap.Error(result.Error))
+		}
 		return
 	}
 
 	for _, task := range tasks {
-		global.APP_LOG.Debug("清理未完成任务", zap.Uint("taskId", task.ID), zap.Uint("providerId", task.ProviderID), zap.String("taskType", task.TaskType))
+		global.APP_LOG.Debug("清理未完成配置任务", zap.Uint("taskId", task.ID), zap.Uint("providerId", task.ProviderID), zap.String("taskType", task.TaskType))
 
 		if err := stateManager.CancelConfigTask(task.ID, "服务重启，任务已取消"); err != nil {
-			global.APP_LOG.Warn("清理任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
+			global.APP_LOG.Warn("清理配置任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
 		}
 	}
 }

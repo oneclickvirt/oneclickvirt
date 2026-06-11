@@ -92,10 +92,14 @@ type TaskPoolStatusResponse struct {
 
 // TaskStatsResponse 任务统计响应
 type TaskStatsResponse struct {
-	TotalTasks     int64 `json:"totalTasks"`
-	PendingTasks   int64 `json:"pendingTasks"`
-	RunningTasks   int64 `json:"runningTasks"`
-	CompletedTasks int64 `json:"completedTasks"`
-	FailedTasks    int64 `json:"failedTasks"`
-	TimeoutTasks   int64 `json:"timeoutTasks"`
+	TotalTasks         int64 `json:"totalTasks"`
+	PendingTasks       int64 `json:"pendingTasks"`
+	RunningTasks       int64 `json:"runningTasks"`
+	ProcessingTasks    int64 `json:"processingTasks"`
+	CompletedTasks     int64 `json:"completedTasks"`
+	FailedTasks        int64 `json:"failedTasks"`
+	CancelledTasks     int64 `json:"cancelledTasks"`
+	TimeoutTasks       int64 `json:"timeoutTasks"`
+	ConfigPendingTasks int64 `json:"configPendingTasks"`
+	ConfigRunningTasks int64 `json:"configRunningTasks"`
 }

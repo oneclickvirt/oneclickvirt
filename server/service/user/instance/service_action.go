@@ -57,7 +57,7 @@ func releaseInstanceActionLock(instanceID uint) {
 func (s *Service) ensureNoActiveInstanceTask(instanceID uint) error {
 	activeTypes := []string{"start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}
 	var existingTask adminModel.Task
-	err := global.APP_DB.Where("instance_id = ? AND task_type IN ? AND status IN ?", instanceID, activeTypes, []string{"pending", "running"}).
+	err := global.APP_DB.Where("instance_id = ? AND task_type IN ? AND status IN ?", instanceID, activeTypes, []string{"pending", "processing", "running", "cancelling"}).
 		First(&existingTask).Error
 	if err == nil {
 		return fmt.Errorf("实例已有%s任务正在进行", existingTask.TaskType)
@@ -115,7 +115,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 
 		// 检查是否已有进行中的启动任务
 		var existingTask adminModel.Task
-		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'start' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {
+		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'start' AND status IN ('pending', 'processing', 'running', 'cancelling')", instance.ID).First(&existingTask).Error; err == nil {
 			return errors.New("实例已有启动任务正在进行")
 		}
 
@@ -135,7 +135,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 
 		// 检查是否已有进行中的停止任务
 		var existingTask adminModel.Task
-		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'stop' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {
+		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'stop' AND status IN ('pending', 'processing', 'running', 'cancelling')", instance.ID).First(&existingTask).Error; err == nil {
 			return errors.New("实例已有停止任务正在进行")
 		}
 
@@ -155,7 +155,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 
 		// 检查是否已有进行中的重启任务
 		var existingTask adminModel.Task
-		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'restart' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {
+		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'restart' AND status IN ('pending', 'processing', 'running', 'cancelling')", instance.ID).First(&existingTask).Error; err == nil {
 			return errors.New("实例已有重启任务正在进行")
 		}
 
@@ -181,7 +181,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 
 		// 检查是否已有进行中的重置任务
 		var existingTask adminModel.Task
-		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'reset' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {
+		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'reset' AND status IN ('pending', 'processing', 'running', 'cancelling')", instance.ID).First(&existingTask).Error; err == nil {
 			return errors.New("实例已有重置任务正在进行")
 		}
 
@@ -212,7 +212,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 
 		// 检查是否已有进行中的删除任务
 		var existingTask adminModel.Task
-		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'delete' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {
+		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'delete' AND status IN ('pending', 'processing', 'running', 'cancelling')", instance.ID).First(&existingTask).Error; err == nil {
 			return errors.New("实例已有删除任务正在进行")
 		}
 

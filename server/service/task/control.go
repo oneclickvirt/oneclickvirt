@@ -474,7 +474,7 @@ func (s *TaskService) releaseTaskResources(taskID uint) {
 
 	// 2. 释放待确认配额（用户配额）
 	// 对于创建任务，如果实例没有创建成功，需要释放已分配的待确认配额
-	if task.TaskType == "create_instance" && task.InstanceID == nil {
+	if (task.TaskType == "create" || task.TaskType == "create_instance" || task.TaskType == "create_redemption_instance") && task.InstanceID == nil {
 		// 从 taskData 中提取资源信息
 		cpu, cpuOk := taskData["cpu"].(float64)
 		memory, memOk := taskData["memory"].(float64)

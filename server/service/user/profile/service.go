@@ -304,7 +304,7 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 	if len(providerIDs) > 0 {
 		var allProviderTasks []adminModel.Task
 		if err := global.APP_DB.Select("id", "provider_id", "status", "created_at", "estimated_duration", "started_at").
-			Where("provider_id IN ? AND status IN (?, ?)", providerIDs, "pending", "running").
+			Where("provider_id IN ? AND status IN ?", providerIDs, []string{"pending", "running", "processing"}).
 			Order("provider_id ASC, created_at ASC").
 			Find(&allProviderTasks).Error; err == nil {
 			// 按 provider_id 分组
@@ -391,7 +391,7 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 		}
 
 		// 计算剩余时间
-		if task.Status == "running" && task.StartedAt != nil {
+		if (task.Status == "running" || task.Status == "processing") && task.StartedAt != nil {
 			elapsed := time.Since(*task.StartedAt).Seconds()
 			remaining := float64(task.TimeoutDuration) - elapsed
 			if remaining > 0 {
@@ -449,7 +449,7 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 
 		// 检查是否可以取消
 		taskResponse.CanCancel = task.IsForceStoppable &&
-			(task.Status == "pending" || task.Status == "running")
+			(task.Status == "pending" || task.Status == "running" || task.Status == "processing")
 
 		taskResponses = append(taskResponses, taskResponse)
 	}

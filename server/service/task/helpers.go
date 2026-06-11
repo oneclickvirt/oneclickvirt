@@ -26,28 +26,29 @@ func (s *TaskService) CleanupTimeoutTasksWithLockRelease(timeoutThreshold time.T
 	var timeoutRunningTasks []adminModel.Task
 	var timeoutCancellingTasks []adminModel.Task
 
-	// 获取超时的running任务
-	global.APP_DB.Where("status = ? AND updated_at < ?", "running", timeoutThreshold).Find(&timeoutRunningTasks)
+	// 获取超时的执行中任务。processing 是创建任务预处理后的执行态，不能遗漏。
+	global.APP_DB.Where("status IN ? AND updated_at < ?", []string{mainTaskStatusRunning, mainTaskStatusProcessing}, timeoutThreshold).Find(&timeoutRunningTasks)
 
 	// 获取超时的cancelling任务
-	global.APP_DB.Where("status = ? AND updated_at < ?", "cancelling", timeoutThreshold).Find(&timeoutCancellingTasks)
+	global.APP_DB.Where("status = ? AND updated_at < ?", mainTaskStatusCancelling, timeoutThreshold).Find(&timeoutCancellingTasks)
 
-	// 更新超时的running任务
+	now := time.Now()
+	// 更新超时的执行中任务
 	result1 := global.APP_DB.Model(&adminModel.Task{}).
-		Where("status = ? AND updated_at < ?", "running", timeoutThreshold).
+		Where("status IN ? AND updated_at < ?", []string{mainTaskStatusRunning, mainTaskStatusProcessing}, timeoutThreshold).
 		Updates(map[string]interface{}{
-			"status":        "timeout",
+			"status":        mainTaskStatusTimeout,
 			"cancel_reason": "Task timeout - exceeded 30 minutes",
-			"updated_at":    time.Now(),
+			"completed_at":  &now,
 		})
 
 	// 更新超时的cancelling任务
 	result2 := global.APP_DB.Model(&adminModel.Task{}).
-		Where("status = ? AND updated_at < ?", "cancelling", timeoutThreshold).
+		Where("status = ? AND updated_at < ?", mainTaskStatusCancelling, timeoutThreshold).
 		Updates(map[string]interface{}{
-			"status":        "cancelled",
+			"status":        mainTaskStatusCancelled,
 			"cancel_reason": "Force cancelled - cancelling timeout",
-			"updated_at":    time.Now(),
+			"completed_at":  &now,
 		})
 
 	var count1, count2 int64

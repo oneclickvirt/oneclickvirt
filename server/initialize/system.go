@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/global"
 	agentSvc "oneclickvirt/service/agent"
 	"oneclickvirt/service/auth"
+	configTaskService "oneclickvirt/service/config"
 	"oneclickvirt/service/lifecycle"
 	"oneclickvirt/service/log"
 	"oneclickvirt/service/pmacct"
@@ -346,6 +347,10 @@ func initializeSchedulers() {
 	userProviderService.SetGlobalTaskService(taskService)
 	// 注册任务服务到生命周期管理器
 	lifecycleMgr.Register("TaskService", taskService)
+
+	// 初始化配置任务服务，确保主控重启后 configuration_tasks 中的 pending/running
+	// 也会被取消，不再残留在任务池统计里。必须在 TaskStateManager 初始化后执行。
+	configTaskService.GetTaskService()
 
 	// 启动前先同步Provider层面的数据（资源和流量统计）
 	syncProvidersDataOnStartup()

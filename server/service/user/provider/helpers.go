@@ -115,7 +115,7 @@ func (s *Service) executeAdminDeleteInstance(instanceID uint, taskService interf
 
 	// 检查是否已有进行中的删除任务
 	var existingTask adminModel.Task
-	if err := global.APP_DB.Where("instance_id = ? AND task_type = 'delete' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {
+	if err := global.APP_DB.Where("instance_id = ? AND task_type = 'delete' AND status IN ('pending', 'processing', 'running', 'cancelling')", instance.ID).First(&existingTask).Error; err == nil {
 		return fmt.Errorf("实例已有删除任务正在进行")
 	}
 

@@ -95,8 +95,8 @@ func (tsm *TaskStateManager) CancelMainTask(taskID uint, reason string) error {
 		return fmt.Errorf("获取任务信息失败: %w", err)
 	}
 
-	// 只有pending和running状态的任务可以取消
-	if task.Status != "pending" && task.Status != "running" {
+	// 只有活跃状态的任务可以取消
+	if !isMainTaskActiveStatus(task.Status) {
 		return fmt.Errorf("任务状态 %s 不允许取消", task.Status)
 	}
 

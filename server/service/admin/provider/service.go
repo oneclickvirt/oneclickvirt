@@ -139,7 +139,7 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 	if len(providerIDs) > 0 {
 		global.APP_DB.Model(&admin.Task{}).
 			Select("provider_id, COUNT(*) as running_tasks_count").
-			Where("provider_id IN ? AND status = ?", providerIDs, "running").
+			Where("provider_id IN ? AND status IN ?", providerIDs, []string{"running", "processing", "cancelling"}).
 			Group("provider_id").
 			Scan(&taskCounts)
 	}

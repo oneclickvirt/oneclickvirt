@@ -12869,13 +12869,25 @@ const docTemplate = `{
         "admin.TaskStatsResponse": {
             "type": "object",
             "properties": {
+                "cancelledTasks": {
+                    "type": "integer"
+                },
                 "completedTasks": {
+                    "type": "integer"
+                },
+                "configPendingTasks": {
+                    "type": "integer"
+                },
+                "configRunningTasks": {
                     "type": "integer"
                 },
                 "failedTasks": {
                     "type": "integer"
                 },
                 "pendingTasks": {
+                    "type": "integer"
+                },
+                "processingTasks": {
                     "type": "integer"
                 },
                 "runningTasks": {

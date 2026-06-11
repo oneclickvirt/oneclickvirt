@@ -121,30 +121,10 @@ func isSystemInitialized() bool {
 	return global.APP_DB.Migrator().HasTable("users")
 }
 
-// cleanupRunningTasksOnStartup 服务启动时清理running状态的任务
+// cleanupRunningTasksOnStartup 服务启动时清理上一个进程遗留的活跃任务。
+// 兼容旧命名：历史上只清理 running，现在会同时清理 processing/cancelling。
 func (s *TaskService) cleanupRunningTasksOnStartup() {
-	// 再次检查数据库是否可用，防止在初始化过程中数据库状态发生变化
-	if global.APP_DB == nil {
-		global.APP_LOG.Warn("数据库连接不存在，无法清理运行中的任务")
-		return
-	}
-
-	// 将所有running状态的任务标记为failed
-	result := global.APP_DB.Model(&adminModel.Task{}).
-		Where("status = ?", "running").
-		Updates(map[string]interface{}{
-			"status":        "failed",
-			"error_message": "服务重启，任务被中断",
-			"completed_at":  time.Now(),
-		})
-
-	if result.Error != nil {
-		global.APP_LOG.Error("清理运行中任务失败", zap.Error(result.Error))
-	} else if result.RowsAffected > 0 {
-		global.APP_LOG.Info("服务启动时清理了运行中的任务", zap.Int64("count", result.RowsAffected))
-	}
-
-	// 内存计数器从空开始，不需要额外初始化
+	s.cleanupInterruptedTasks("服务重启，任务被中断")
 }
 
 // cleanupStaleContexts 定期清理陈旧的任务context，防止内存泄漏
@@ -229,6 +209,10 @@ func (s *TaskService) Shutdown() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+
+	// 进程正在退出时，内存中的工作池不会在重启后保留。
+	// 立即把已进入执行阶段的任务落到终态，避免重启后页面仍显示"执行中"。
+	s.cleanupInterruptedTasks("服务关闭，任务被中断")
 	select {
 	case <-s.shutdown:
 		// 已关闭

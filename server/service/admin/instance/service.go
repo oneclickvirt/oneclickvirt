@@ -652,7 +652,7 @@ func (s *Service) checkInstanceOwnerAdmin(instance *providerModel.Instance, owne
 func (s *Service) ensureNoActiveInstanceTask(instanceID uint) error {
 	activeTypes := []string{"start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}
 	var existingTask adminModel.Task
-	err := global.APP_DB.Where("instance_id = ? AND task_type IN ? AND status IN ?", instanceID, activeTypes, []string{"pending", "running"}).
+	err := global.APP_DB.Where("instance_id = ? AND task_type IN ? AND status IN ?", instanceID, activeTypes, []string{"pending", "processing", "running", "cancelling"}).
 		First(&existingTask).Error
 	if err == nil {
 		return fmt.Errorf("实例已有%s任务正在进行", existingTask.TaskType)

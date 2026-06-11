@@ -152,7 +152,7 @@ func ForceStopTask(c *gin.Context) {
 // @Router /admin/tasks/stats [get]
 func GetTaskStats(c *gin.Context) {
 	taskService := task.GetTaskService()
-	stats, err := taskService.GetTaskStats()
+	stats, err := taskService.GetTaskStats(middleware.GetOwnerAdminID(c))
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -204,7 +204,7 @@ func CancelUserTaskByAdmin(c *gin.Context) {
 // @Router /admin/tasks/overall-stats [get]
 func GetTaskOverallStats(c *gin.Context) {
 	taskService := task.GetTaskService()
-	stats, err := taskService.GetTaskOverallStats()
+	stats, err := taskService.GetTaskOverallStats(middleware.GetOwnerAdminID(c))
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return

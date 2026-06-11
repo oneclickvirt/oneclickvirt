@@ -321,7 +321,7 @@ func (s *Service) validateProviderConcurrencyLimitInTx(tx *gorm.DB, providerID u
 	var pendingTaskCount int64
 
 	err := tx.Model(&adminModel.Task{}).
-		Where("provider_id = ? AND status = 'running'", providerID).
+		Where("provider_id = ? AND status IN ?", providerID, []string{"running", "processing", "cancelling"}).
 		Count(&runningTaskCount).Error
 	if err != nil {
 		return fmt.Errorf("查询Provider当前running任务数失败: %v", err)
@@ -371,7 +371,7 @@ func (s *Service) validateProviderConcurrencyLimit(providerID uint, maxConcurren
 	var pendingTaskCount int64
 
 	err := global.APP_DB.Model(&adminModel.Task{}).
-		Where("provider_id = ? AND status = 'running'", providerID).
+		Where("provider_id = ? AND status IN ?", providerID, []string{"running", "processing", "cancelling"}).
 		Count(&runningTaskCount).Error
 	if err != nil {
 		return fmt.Errorf("查询Provider当前running任务数失败: %v", err)

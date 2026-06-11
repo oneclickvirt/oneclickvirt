@@ -199,7 +199,11 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 		hasFilter = true
 	}
 	if req.Status != "" {
-		query = query.Where("status = ?", req.Status)
+		if req.Status == mainTaskStatusRunning {
+			query = query.Where("status IN ?", []string{mainTaskStatusRunning, mainTaskStatusProcessing})
+		} else {
+			query = query.Where("status = ?", req.Status)
+		}
 		hasFilter = true
 	}
 
@@ -241,7 +245,7 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 	// 批量查询所有涉及的 provider 的任务
 	providerIDs := make(map[uint]bool)
 	for _, task := range tasks {
-		if task.ProviderID != nil && (task.Status == "pending" || task.Status == "running") {
+		if task.ProviderID != nil && (task.Status == "pending" || isMainTaskRunningLikeStatus(task.Status)) {
 			providerIDs[*task.ProviderID] = true
 		}
 	}
@@ -256,7 +260,7 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 		// 一次性查询所有 provider 的 pending 和 running 任务
 		var allProviderTasks []adminModel.Task
 		if err := global.APP_DB.Select("id", "provider_id", "status", "created_at", "estimated_duration", "started_at").
-			Where("provider_id IN ? AND status IN (?, ?)", providerIDList, "pending", "running").
+			Where("provider_id IN ? AND status IN ?", providerIDList, []string{mainTaskStatusPending, mainTaskStatusRunning, mainTaskStatusProcessing}).
 			Order("provider_id ASC, created_at ASC").
 			Find(&allProviderTasks).Error; err == nil {
 			// 按 provider_id 分组
@@ -334,7 +338,7 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 		}
 
 		// 计算剩余时间
-		if task.Status == "running" && task.StartedAt != nil {
+		if isMainTaskRunningLikeStatus(task.Status) && task.StartedAt != nil {
 			elapsed := time.Since(*task.StartedAt).Seconds()
 			remaining := float64(task.TimeoutDuration) - elapsed
 			if remaining > 0 {
@@ -411,7 +415,7 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 		}
 
 		// 设置是否可取消（考虑任务状态和是否允许被用户取消）
-		taskResponse.CanCancel = (task.Status == "pending" || task.Status == "running") && task.IsForceStoppable
+		taskResponse.CanCancel = (task.Status == mainTaskStatusPending || isMainTaskRunningLikeStatus(task.Status)) && task.IsForceStoppable
 		taskResponse.IsForceStoppable = task.IsForceStoppable
 
 		taskResponses = append(taskResponses, taskResponse)
@@ -455,7 +459,11 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest, ownerAd
 		query = query.Where("tasks.task_type = ?", req.TaskType)
 	}
 	if req.Status != "" {
-		query = query.Where("tasks.status = ?", req.Status)
+		if req.Status == mainTaskStatusRunning {
+			query = query.Where("tasks.status IN ?", []string{mainTaskStatusRunning, mainTaskStatusProcessing})
+		} else {
+			query = query.Where("tasks.status = ?", req.Status)
+		}
 	}
 	if req.InstanceType != "" {
 		query = query.Joins("LEFT JOIN instances ON instances.id = tasks.instance_id").
@@ -553,7 +561,7 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest, ownerAd
 
 		// 计算剩余时间
 		remainingTime := 0
-		if task.Status == "running" && task.StartedAt != nil {
+		if isMainTaskRunningLikeStatus(task.Status) && task.StartedAt != nil {
 			elapsed := time.Since(*task.StartedAt).Seconds()
 			remaining := float64(task.TimeoutDuration) - elapsed
 			if remaining > 0 {
@@ -614,13 +622,29 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest, ownerAd
 }
 
 // GetTaskStats 获取任务统计信息
-func (s *TaskService) GetTaskStats() (map[string]interface{}, error) {
+func (s *TaskService) GetTaskStats(ownerAdminID uint) (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
+
+	query := global.APP_DB.Model(&adminModel.Task{})
+	if ownerAdminID > 0 {
+		var providerIDs []uint
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("owner_admin_id = ?", ownerAdminID).
+			Pluck("id", &providerIDs).Error; err != nil {
+			return nil, fmt.Errorf("查询管理员节点失败: %w", err)
+		}
+		if len(providerIDs) == 0 {
+			stats["task_counts"] = map[string]int64{}
+			stats["last_update"] = time.Now()
+			return stats, nil
+		}
+		query = query.Where("provider_id IN ?", providerIDs)
+	}
 
 	// 统计各状态任务数量
 	var statusCounts []dashboardModel.TaskStatusCount
 
-	err := global.APP_DB.Model(&adminModel.Task{}).
+	err := query.
 		Select("status, count(*) as count").
 		Group("status").
 		Find(&statusCounts).Error
@@ -641,11 +665,27 @@ func (s *TaskService) GetTaskStats() (map[string]interface{}, error) {
 }
 
 // GetTaskOverallStats 获取任务总体统计信息
-func (s *TaskService) GetTaskOverallStats() (*adminModel.TaskStatsResponse, error) {
+func (s *TaskService) GetTaskOverallStats(ownerAdminID uint) (*adminModel.TaskStatsResponse, error) {
 	var stats adminModel.TaskStatsResponse
 
+	baseQuery := global.APP_DB.Model(&adminModel.Task{})
+	configQuery := global.APP_DB.Model(&adminModel.ConfigurationTask{})
+	if ownerAdminID > 0 {
+		var providerIDs []uint
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("owner_admin_id = ?", ownerAdminID).
+			Pluck("id", &providerIDs).Error; err != nil {
+			return nil, fmt.Errorf("查询管理员节点失败: %w", err)
+		}
+		if len(providerIDs) == 0 {
+			return &stats, nil
+		}
+		baseQuery = baseQuery.Where("provider_id IN ?", providerIDs)
+		configQuery = configQuery.Where("provider_id IN ?", providerIDs)
+	}
+
 	// 统计总任务数
-	if err := global.APP_DB.Model(&adminModel.Task{}).Count(&stats.TotalTasks).Error; err != nil {
+	if err := baseQuery.Count(&stats.TotalTasks).Error; err != nil {
 		return nil, fmt.Errorf("统计总任务数失败: %w", err)
 	}
 
@@ -655,30 +695,48 @@ func (s *TaskService) GetTaskOverallStats() (*adminModel.TaskStatsResponse, erro
 		Count  int64
 	}
 	var statusCounts []StatusCount
-	if err := global.APP_DB.Model(&adminModel.Task{}).
+	if err := baseQuery.Session(&gorm.Session{}).
 		Select("status, COUNT(*) as count").
 		Group("status").
 		Scan(&statusCounts).Error; err != nil {
 		return nil, fmt.Errorf("统计任务状态失败: %w", err)
 	}
 
-	// 将状态统计映射到响应结构
+	// 将状态统计映射到响应结构。processing 属于执行态，和 running 一并用于"执行中"卡片。
 	for _, sc := range statusCounts {
 		switch sc.Status {
-		case "pending":
+		case mainTaskStatusPending:
 			stats.PendingTasks = sc.Count
-		case "running":
+		case mainTaskStatusRunning:
 			stats.RunningTasks = sc.Count
-		case "processing":
-			stats.RunningTasks += sc.Count // processing算作运行中
-		case "completed":
+		case mainTaskStatusProcessing:
+			stats.ProcessingTasks = sc.Count
+			stats.RunningTasks += sc.Count
+		case mainTaskStatusCompleted:
 			stats.CompletedTasks = sc.Count
-		case "failed":
+		case mainTaskStatusFailed:
 			stats.FailedTasks = sc.Count
-		case "timeout":
+		case mainTaskStatusTimeout:
 			stats.TimeoutTasks = sc.Count
-		case "cancelled", "cancelling":
-			stats.FailedTasks += sc.Count // cancelled算作失败
+		case mainTaskStatusCancelled, mainTaskStatusCancelling:
+			stats.CancelledTasks += sc.Count
+			stats.FailedTasks += sc.Count // 保持旧前端"失败"卡片包含取消任务的行为
+		}
+	}
+
+	var configStatusCounts []StatusCount
+	if err := configQuery.Session(&gorm.Session{}).
+		Select("status, COUNT(*) as count").
+		Group("status").
+		Scan(&configStatusCounts).Error; err != nil {
+		return nil, fmt.Errorf("统计配置任务状态失败: %w", err)
+	}
+	for _, sc := range configStatusCounts {
+		switch sc.Status {
+		case adminModel.TaskStatusPending:
+			stats.ConfigPendingTasks = sc.Count
+		case adminModel.TaskStatusRunning:
+			stats.ConfigRunningTasks = sc.Count
 		}
 	}
 
@@ -702,7 +760,7 @@ func (s *TaskService) GetTaskDetail(taskID uint) (*adminModel.AdminTaskDetailRes
 
 	// 计算剩余时间
 	remainingTime := 0
-	if task.Status == "running" && task.StartedAt != nil {
+	if isMainTaskRunningLikeStatus(task.Status) && task.StartedAt != nil {
 		elapsed := time.Since(*task.StartedAt).Seconds()
 		remaining := float64(task.TimeoutDuration) - elapsed
 		if remaining > 0 {

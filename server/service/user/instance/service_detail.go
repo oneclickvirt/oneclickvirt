@@ -54,7 +54,7 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 	}()
 	go func() {
 		defer wg.Done()
-		if err := global.APP_DB.Where("instance_id = ? AND status IN (?, ?, ?)", instanceID, "pending", "processing", "running").
+		if err := global.APP_DB.Where("instance_id = ? AND status IN ?", instanceID, []string{"pending", "processing", "running", "cancelling"}).
 			Order("created_at DESC").
 			First(&task).Error; err == nil {
 			hasTask = true
