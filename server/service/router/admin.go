@@ -117,6 +117,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/tasks/stats", admin.GetTaskStats)
 		NormalAdminGroup.GET("/tasks/overall-stats", admin.GetTaskOverallStats)
 		NormalAdminGroup.GET("/tasks/:taskId", admin.GetTaskDetail)
+		NormalAdminGroup.POST("/tasks/:taskId/cancel", admin.CancelUserTaskByAdmin)
 		// 端口映射管理
 		NormalAdminGroup.GET("/port-mappings", admin.GetPortMappingList)
 		NormalAdminGroup.POST("/port-mappings", admin.CreatePortMapping)
