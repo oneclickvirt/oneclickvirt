@@ -249,7 +249,11 @@ func SSHWebSocket(c *gin.Context) {
 			messageType, message, err := ws.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-					global.APP_LOG.Error("WebSocket读取失败", zap.Error(err))
+					if isBenignWebSocketOrSessionClose(err) {
+						global.APP_LOG.Debug("SSH WebSocket连接已关闭", zap.Error(err))
+					} else {
+						global.APP_LOG.Error("WebSocket读取失败", zap.Error(err))
+					}
 				}
 				errChan <- err
 				return

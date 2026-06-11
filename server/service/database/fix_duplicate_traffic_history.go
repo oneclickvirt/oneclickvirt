@@ -87,6 +87,11 @@ func (ds *DatabaseService) FixAllDuplicateData() error {
 	if err := ds.MigratePortsIndex(); err != nil {
 		return err
 	}
+	// 迁移 users 表 OAuth2 列名：将 GORM 默认生成的 o_auth2_* 重命名为 oauth2_*
+	// 解决显式 column tag 与 GORM 默认命名策略不一致导致的"Unknown column"错误
+	if err := ds.FixOAuth2ColumnNames(); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -62,12 +62,12 @@ type User struct {
 	TokensInvalidatedAt *time.Time `json:"-" gorm:"index"` // 此时间点之前签发的所有 Token 均无效（封号/改密码时设置）
 
 	// OAuth2关联信息
-	OAuth2ProviderID uint   `json:"oauth2ProviderId" gorm:"index"`   // OAuth2提供商ID（关联oauth2_providers表）
-	OAuth2UID        string `json:"oauth2Uid" gorm:"size:255;index"` // OAuth2提供商返回的用户唯一标识
-	OAuth2Username   string `json:"oauth2Username" gorm:"size:255"`  // OAuth2提供商返回的用户名
-	OAuth2Email      string `json:"oauth2Email" gorm:"size:255"`     // OAuth2提供商返回的邮箱
-	OAuth2Avatar     string `json:"oauth2Avatar" gorm:"size:512"`    // OAuth2提供商返回的头像URL
-	OAuth2Extra      string `json:"oauth2Extra" gorm:"type:text"`    // OAuth2提供商返回的额外信息（JSON格式）
+	OAuth2ProviderID uint   `json:"oauth2ProviderId" gorm:"index;column:oauth2_provider_id"` // OAuth2提供商ID（关联oauth2_providers表）
+	OAuth2UID        string `json:"oauth2Uid" gorm:"size:255;index;column:oauth2_uid"`       // OAuth2提供商返回的用户唯一标识
+	OAuth2Username   string `json:"oauth2Username" gorm:"size:255;column:oauth2_username"`   // OAuth2提供商返回的用户名
+	OAuth2Email      string `json:"oauth2Email" gorm:"size:255;column:oauth2_email"`         // OAuth2提供商返回的邮箱
+	OAuth2Avatar     string `json:"oauth2Avatar" gorm:"size:512;column:oauth2_avatar"`       // OAuth2提供商返回的头像URL
+	OAuth2Extra      string `json:"oauth2Extra" gorm:"type:text;column:oauth2_extra"`        // OAuth2提供商返回的额外信息（JSON格式）
 }
 
 func (u *User) BeforeCreate(tx *gorm.DB) error {

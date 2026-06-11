@@ -553,6 +553,10 @@ func isOptionalOAuth2UpdateError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "oauth2_avatar") ||
 		strings.Contains(msg, "oauth2_extra") ||
+		strings.Contains(msg, "oauth2_email") ||
+		strings.Contains(msg, "oauth2_username") ||
+		strings.Contains(msg, "oauth2_uid") ||
+		strings.Contains(msg, "oauth2_provider_id") ||
 		strings.Contains(msg, "data too long") ||
 		strings.Contains(msg, "value too long")
 }
