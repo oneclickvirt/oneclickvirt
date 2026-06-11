@@ -37,6 +37,11 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.PUT("/user/instances/:id/reset-password", user.ResetInstancePassword)
 		UserGroup.GET("/user/instances/:id/password/:taskId", user.GetInstanceNewPassword)
 		UserGroup.GET("/user/instances/:id/ports", user.GetInstancePorts)
+		UserGroup.GET("/user/instances/:id/snapshots", user.GetUserInstanceSnapshots)
+		UserGroup.POST("/user/instances/:id/snapshots", user.CreateUserInstanceSnapshot)
+		UserGroup.POST("/user/snapshots/:id/restore", user.RestoreUserSnapshot)
+		UserGroup.DELETE("/user/snapshots/:id", user.DeleteUserSnapshot)
+		UserGroup.GET("/user/snapshots/:id/download", user.DownloadUserSnapshot)
 		UserGroup.GET("/user/instances/:id/ssh", user.SSHWebSocket) // WebSocket SSH连接
 		UserGroup.GET("/user/instances/:id/vnc", user.UserInstanceVNCInfo)
 		UserGroup.GET("/user/instances/:id/vnc/ws", user.UserInstanceVNCWebSocket)

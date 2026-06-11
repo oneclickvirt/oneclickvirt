@@ -27,7 +27,24 @@
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane :label="t('admin.snapshots.overview')" name="snapshots">
           <div class="toolbar">
-            <el-input v-model.number="snapshotFilter.instanceId" :placeholder="t('admin.snapshots.instanceId')" clearable class="toolbar-input" />
+            <el-select
+              v-model="snapshotFilter.instanceId"
+              :placeholder="t('admin.snapshots.searchInstancePlaceholder')"
+              class="toolbar-input wide"
+              filterable
+              remote
+              clearable
+              :remote-method="searchInstances"
+              :loading="instanceSearchLoading"
+              @focus="searchInstances('')"
+            >
+              <el-option
+                v-for="item in instanceOptions"
+                :key="item.id"
+                :label="formatInstanceOption(item)"
+                :value="item.id"
+              />
+            </el-select>
             <el-select v-model="snapshotFilter.status" :placeholder="t('admin.snapshots.status')" clearable class="toolbar-input">
               <el-option :label="t('admin.snapshots.creating')" value="creating" />
               <el-option :label="t('admin.snapshots.available')" value="available" />
@@ -61,9 +78,10 @@
             <el-table-column prop="createdAt" :label="t('admin.snapshots.createTime')" width="180">
               <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
             </el-table-column>
-            <el-table-column :label="t('admin.snapshots.actions')" width="210" fixed="right">
+            <el-table-column :label="t('admin.snapshots.actions')" width="290" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" type="warning" :disabled="row.status !== 'available'" @click="restoreSnapshot(row)">{{ t('admin.snapshots.restore') }}</el-button>
+                <el-button size="small" @click="downloadSnapshot(row)">{{ t('admin.snapshots.download') }}</el-button>
                 <el-button size="small" type="danger" @click="deleteSnapshot(row)">{{ t('admin.snapshots.delete') }}</el-button>
               </template>
             </el-table-column>
@@ -121,10 +139,31 @@
       </el-tabs>
     </el-card>
 
-    <el-dialog v-model="createDialogVisible" :title="t('admin.snapshots.createSnapshot')" width="520px">
-      <el-form :model="createForm" label-width="100px">
-        <el-form-item :label="t('admin.snapshots.instanceId')" required>
-          <el-input-number v-model="createForm.instanceId" :min="1" controls-position="right" />
+    <el-dialog v-model="createDialogVisible" :title="t('admin.snapshots.createSnapshot')" width="620px">
+      <el-form :model="createForm" label-width="120px">
+        <el-form-item :label="t('admin.snapshots.selectInstances')" required>
+          <el-select
+            v-model="createForm.instanceIds"
+            multiple
+            filterable
+            remote
+            reserve-keyword
+            clearable
+            collapse-tags
+            collapse-tags-tooltip
+            :placeholder="t('admin.snapshots.searchInstancePlaceholder')"
+            :remote-method="searchInstances"
+            :loading="instanceSearchLoading"
+            style="width: 100%"
+            @focus="searchInstances('')"
+          >
+            <el-option
+              v-for="item in instanceOptions"
+              :key="item.id"
+              :label="formatInstanceOption(item)"
+              :value="item.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item :label="t('admin.snapshots.snapshotName')">
           <el-input v-model="createForm.name" :placeholder="t('admin.snapshots.autoNamePlaceholder')" />
@@ -141,8 +180,25 @@
 
     <el-dialog v-model="scheduleDialogVisible" :title="t('admin.snapshots.addSchedule')" width="560px">
       <el-form :model="scheduleForm" label-width="120px">
-        <el-form-item :label="t('admin.snapshots.instanceId')" required>
-          <el-input-number v-model="scheduleForm.instanceId" :min="1" controls-position="right" />
+        <el-form-item :label="t('admin.snapshots.selectInstance')" required>
+          <el-select
+            v-model="scheduleForm.instanceId"
+            filterable
+            remote
+            clearable
+            :placeholder="t('admin.snapshots.searchInstancePlaceholder')"
+            :remote-method="searchInstances"
+            :loading="instanceSearchLoading"
+            style="width: 100%"
+            @focus="searchInstances('')"
+          >
+            <el-option
+              v-for="item in instanceOptions"
+              :key="item.id"
+              :label="formatInstanceOption(item)"
+              :value="item.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item :label="t('admin.snapshots.scheduleName')" required>
           <el-input v-model="scheduleForm.name" />
@@ -172,7 +228,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { snapshotApi } from '@/api/admin'
+import { snapshotApi, getAllInstances } from '@/api/admin'
 
 const { t, locale } = useI18n()
 
@@ -187,8 +243,10 @@ const schedulePagination = reactive({ page: 1, pageSize: 20, total: 0 })
 const snapshotFilter = reactive({ instanceId: null, providerType: '', status: '' })
 const createDialogVisible = ref(false)
 const scheduleDialogVisible = ref(false)
-const createForm = reactive({ instanceId: null, name: '', description: '' })
+const createForm = reactive({ instanceIds: [], name: '', description: '' })
 const scheduleForm = reactive({ instanceId: null, name: '', intervalHours: 24, retentionDays: 7, maxSnapshots: 3, enabled: true })
+const instanceOptions = ref([])
+const instanceSearchLoading = ref(false)
 
 const loadOverview = async () => {
   const res = await snapshotApi.overview()
@@ -231,10 +289,27 @@ const loadSchedules = async () => {
 const loadAll = async () => {
   loading.value = true
   try {
-    await Promise.all([loadOverview(), loadSnapshots(), loadSchedules()])
+    await Promise.all([loadOverview(), loadSnapshots(), loadSchedules(), searchInstances('')])
   } finally {
     loading.value = false
   }
+}
+
+const searchInstances = async (keyword = '') => {
+  instanceSearchLoading.value = true
+  try {
+    const res = await getAllInstances({ page: 1, pageSize: 30, name: keyword || undefined })
+    instanceOptions.value = res.data?.list || []
+  } catch (error) {
+    ElMessage.error(error.message || t('admin.snapshots.searchInstancesFailed'))
+  } finally {
+    instanceSearchLoading.value = false
+  }
+}
+
+const formatInstanceOption = (item) => {
+  if (!item) return ''
+  return `${item.name || '-'} (#${item.id}) ${item.provider ? ` / ${item.provider}` : ''}`
 }
 
 const handleTabChange = (tab) => {
@@ -248,20 +323,29 @@ const resetSnapshotFilter = () => {
   loadSnapshots()
 }
 
-const openCreateDialog = () => {
-  Object.assign(createForm, { instanceId: snapshotFilter.instanceId || null, name: '', description: '' })
+const openCreateDialog = async () => {
+  createForm.instanceIds = snapshotFilter.instanceId ? [snapshotFilter.instanceId] : []
+  createForm.name = ''
+  createForm.description = ''
   createDialogVisible.value = true
+  await searchInstances('')
 }
 
 const createSnapshot = async () => {
-  if (!createForm.instanceId) {
-    ElMessage.warning(t('admin.snapshots.fillInstanceId'))
+  if (!createForm.instanceIds.length) {
+    ElMessage.warning(t('admin.snapshots.fillInstances'))
     return
   }
   submitting.value = true
   try {
-    await snapshotApi.create(createForm.instanceId, { name: createForm.name, description: createForm.description })
-    ElMessage.success(t('admin.snapshots.createSnapshotSuccess'))
+    const payload = { instanceIds: createForm.instanceIds, name: createForm.name, description: createForm.description }
+    const res = await snapshotApi.batchCreate(payload)
+    const failed = res.data?.failed || 0
+    if (failed > 0) {
+      ElMessage.warning(t('admin.snapshots.batchCreatePartial', { failed }))
+    } else {
+      ElMessage.success(t('admin.snapshots.createSnapshotSuccess'))
+    }
     createDialogVisible.value = false
     await Promise.all([loadOverview(), loadSnapshots()])
   } catch (error) {
@@ -292,9 +376,19 @@ const deleteSnapshot = async (row) => {
   }
 }
 
-const openScheduleDialog = () => {
+const downloadSnapshot = async (row) => {
+  try {
+    const res = await snapshotApi.download(row.id)
+    saveBlob(res.data, filenameFromResponse(res) || `snapshot-${row.instanceName}-${row.name}.json`)
+  } catch (error) {
+    ElMessage.error(error.message || t('admin.snapshots.downloadFailed'))
+  }
+}
+
+const openScheduleDialog = async () => {
   Object.assign(scheduleForm, { instanceId: null, name: '', intervalHours: 24, retentionDays: 7, maxSnapshots: 3, enabled: true })
   scheduleDialogVisible.value = true
+  await searchInstances('')
 }
 
 const createSchedule = async () => {
@@ -352,6 +446,23 @@ const formatDate = (date) => {
   return new Date(date).toLocaleString(locale.value)
 }
 
+const filenameFromResponse = (response) => {
+  const disposition = response?.headers?.['content-disposition'] || ''
+  const match = disposition.match(/filename="?([^";]+)"?/i)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
+const saveBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 onMounted(loadAll)
 </script>
 
@@ -377,6 +488,9 @@ onMounted(loadAll)
 }
 .toolbar-input {
   width: 180px;
+}
+.toolbar-input.wide {
+  width: 260px;
 }
 .pagination {
   margin-top: 16px;

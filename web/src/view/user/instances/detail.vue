@@ -84,6 +84,15 @@
             :auto-refresh="300000"
           />
         </el-tab-pane>
+
+        <!-- 快照标签页：分享视图不暴露快照操作 -->
+        <el-tab-pane
+          v-if="!isShareMode"
+          :label="t('user.instanceDetail.snapshots')"
+          name="snapshots"
+        >
+          <SnapshotsTab :instance-id="currentInstanceId" />
+        </el-tab-pane>
       </el-tabs>
     </el-card>
 
@@ -156,6 +165,7 @@ import InstanceOverviewCard from './components/InstanceOverviewCard.vue'
 import OverviewTab from './components/OverviewTab.vue'
 import PortMappingsTab from './components/PortMappingsTab.vue'
 import StatisticsTab from './components/StatisticsTab.vue'
+import SnapshotsTab from './components/SnapshotsTab.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -228,7 +238,7 @@ watch(() => [route.params.id, route.params.token], async ([newId, newToken], [ol
 
 watch(() => route.query.tab, (newTab, oldTab) => {
   if (newTab === oldTab) return
-  if (newTab && ['overview', 'ports', 'stats', 'resources'].includes(newTab)) {
+  if (newTab && ['overview', 'ports', 'stats', 'resources', 'snapshots'].includes(newTab) && !(isShareMode.value && newTab === 'snapshots')) {
     if (activeTab.value === newTab) return
     isUpdatingFromRoute = true
     activeTab.value = newTab

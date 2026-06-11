@@ -18,7 +18,6 @@ import (
 	"oneclickvirt/model/common"
 	oauth2Model "oneclickvirt/model/oauth2"
 	"oneclickvirt/model/user"
-	"oneclickvirt/service/database"
 	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
@@ -481,12 +480,17 @@ func (s *Service) FindOrCreateUser(provider *oauth2Model.OAuth2Provider, userInf
 	return s.CreateUser(provider, userInfo)
 }
 
-// SyncUserInfo 同步OAuth2用户信息和等级
+// SyncUserInfo 同步OAuth2用户信息和等级。
+// OAuth2 提供商回传的头像、额外 JSON 等属于附加信息：这些字段写入失败不应导致
+// 登录主流程失败，核心身份和等级字段会使用一次降级更新保证登录可继续。
 func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provider, userInfo *UserInfo) error {
 	newLevel := s.GetUserLevel(provider, userInfo.TrustLevel)
 	oldLevel := usr.Level
 
-	// 准备更新数据
+	coreUpdates := map[string]interface{}{
+		"oauth2_username": userInfo.Username,
+		"oauth2_email":    userInfo.Email,
+	}
 	updates := map[string]interface{}{
 		"oauth2_username": userInfo.Username,
 		"oauth2_email":    userInfo.Email,
@@ -497,6 +501,7 @@ func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provi
 	// 更新昵称（如果用户未自定义）
 	if userInfo.Nickname != "" && usr.Nickname == "" {
 		updates["nickname"] = userInfo.Nickname
+		coreUpdates["nickname"] = userInfo.Nickname
 	}
 
 	if oldLevel != newLevel {
@@ -506,20 +511,16 @@ func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provi
 		}
 		for key, value := range quotaUpdates {
 			updates[key] = value
+			coreUpdates[key] = value
 		}
 	}
 
-	// 更新基本信息。旧库若缺少 OAuth2 新字段，先补齐字段后重试一次，
-	// 避免 OAuth2 回调因 users.oauth2_avatar 等列不存在而持续失败。
 	err := global.APP_DB.Model(usr).Updates(updates).Error
-	if err != nil && strings.Contains(err.Error(), "Unknown column") && strings.Contains(err.Error(), "oauth2_") {
-		if migrateErr := database.EnsureUserOAuth2Columns(global.APP_DB); migrateErr != nil {
-			global.APP_LOG.Error("补齐OAuth2用户字段失败",
-				zap.String("username", usr.Username),
-				zap.Error(migrateErr))
-		} else {
-			err = global.APP_DB.Model(usr).Updates(updates).Error
-		}
+	if err != nil && isOptionalOAuth2UpdateError(err) {
+		global.APP_LOG.Warn("OAuth2附加资料写入失败，改为只同步核心字段",
+			zap.String("username", usr.Username),
+			zap.Error(err))
+		err = global.APP_DB.Model(usr).Updates(coreUpdates).Error
 	}
 	if err != nil {
 		global.APP_LOG.Error("同步OAuth2用户信息失败",
@@ -543,6 +544,17 @@ func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provi
 	}
 
 	return nil
+}
+
+func isOptionalOAuth2UpdateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "oauth2_avatar") ||
+		strings.Contains(msg, "oauth2_extra") ||
+		strings.Contains(msg, "data too long") ||
+		strings.Contains(msg, "value too long")
 }
 
 // CreateUser 创建新用户
@@ -573,6 +585,7 @@ func (s *Service) CreateUser(provider *oauth2Model.OAuth2Provider, userInfo *Use
 		OAuth2UID:        userInfo.ID,
 		OAuth2Username:   userInfo.Username,
 		OAuth2Email:      userInfo.Email,
+		OAuth2Avatar:     userInfo.Avatar,
 		OAuth2Extra:      userInfo.RawData,
 	}
 

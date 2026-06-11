@@ -197,10 +197,6 @@ func RegisterTables(db *gorm.DB) {
 		global.APP_LOG.Error("register table failed", zap.Error(err))
 		return
 	}
-	if err := database.EnsureUserOAuth2Columns(db); err != nil {
-		global.APP_LOG.Warn("确认OAuth2用户字段失败", zap.Error(err))
-	}
-
 	global.APP_LOG.Info("数据库表注册成功")
 
 	// AutoMigrate完成后再确认重复数据（表已存在才安全执行）

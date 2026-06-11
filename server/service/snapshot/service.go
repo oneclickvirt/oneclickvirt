@@ -193,74 +193,7 @@ func (s *Service) startCreateSnapshotTask(instanceID uint, req SnapshotRequest, 
 	if err != nil {
 		return nil, err
 	}
-	quota, err := maxSnapshotsForUser(inst.UserID)
-	if err != nil {
-		return nil, err
-	}
-	if quota <= 0 {
-		return nil, fmt.Errorf("当前用户等级未开放快照配额")
-	}
-	var count int64
-	if err := global.APP_DB.Model(&providerModel.InstanceSnapshot{}).
-		Where("instance_id = ? AND status IN ?", inst.ID, []string{StatusCreating, StatusAvailable}).Count(&count).Error; err != nil {
-		return nil, err
-	}
-	if int(count) >= quota {
-		return nil, fmt.Errorf("快照数量已达用户等级配额上限 %d", quota)
-	}
-
-	snapshotName := sanitizeName(req.Name)
-	if snapshotName == "" {
-		snapshotName = fmt.Sprintf("snap-%s", time.Now().Format("20060102150405"))
-	}
-	providerType := providerTypeForInstance(*inst)
-	snapshot := &providerModel.InstanceSnapshot{
-		ProviderID:   inst.ProviderID,
-		InstanceID:   inst.ID,
-		UserID:       inst.UserID,
-		ProviderType: providerType,
-		InstanceType: strings.ToLower(strings.TrimSpace(inst.InstanceType)),
-		InstanceName: inst.Name,
-		Name:         snapshotName,
-		Description:  req.Description,
-		Status:       StatusCreating,
-		Source:       source,
-		CreatedBy:    createdBy,
-	}
-	if err := global.APP_DB.Create(snapshot).Error; err != nil {
-		return nil, err
-	}
-
-	task := &providerModel.SnapshotTask{
-		ProviderID:  inst.ProviderID,
-		InstanceID:  inst.ID,
-		SnapshotID:  snapshot.ID,
-		UserID:      inst.UserID,
-		Action:      SnapshotTaskActionCreate,
-		Status:      SnapshotTaskStatusPending,
-		Source:      source,
-		Name:        snapshotName,
-		Description: req.Description,
-		CreatedBy:   createdBy,
-	}
-	if schedule != nil {
-		task.ScheduleID = schedule.ID
-	}
-	if err := global.APP_DB.Create(task).Error; err != nil {
-		markSnapshotFailed(snapshot.ID, err)
-		return nil, err
-	}
-	adminTask, err := s.createUnifiedSnapshotTask(task, snapshot, SnapshotTaskActionCreate, createdBy)
-	if err != nil {
-		markSnapshotFailed(snapshot.ID, err)
-		_ = global.APP_DB.Model(task).Updates(map[string]interface{}{
-			"status":        SnapshotTaskStatusFailed,
-			"error_message": err.Error(),
-		}).Error
-		return nil, err
-	}
-
-	return &SnapshotTaskResponse{Task: adminTask, SnapshotTask: task, Snapshot: snapshot}, nil
+	return s.startCreateSnapshotTaskForLoaded(inst, req, createdBy, source, schedule, "")
 }
 
 func (s *Service) StartDeleteSnapshotTask(snapshotID uint, createdBy uint) (*SnapshotTaskResponse, error) {

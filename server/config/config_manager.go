@@ -241,6 +241,21 @@ func (cm *ConfigManager) GetAllConfig() map[string]interface{} {
 	return result
 }
 
+// SetRuntimeConfigCache updates already-persisted runtime config values in memory only.
+// It is intentionally used by services that write their own DB rows outside of
+// ConfigManager but still need subsequent readers to observe the new value immediately.
+func (cm *ConfigManager) SetRuntimeConfigCache(values map[string]interface{}) {
+	if cm == nil || len(values) == 0 {
+		return
+	}
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	for k, v := range values {
+		cm.configCache[k] = v
+	}
+	cm.lastUpdate = time.Now()
+}
+
 // SetConfig 设置单个配置项
 func (cm *ConfigManager) SetConfig(key string, value interface{}) error {
 	cm.mu.Lock()

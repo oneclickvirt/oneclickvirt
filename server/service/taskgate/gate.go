@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	appConfig "oneclickvirt/config"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/service/database"
@@ -20,10 +22,33 @@ const (
 	defaultMessage = "系统正在维护，任务池已关闭，暂不接受新的任务。请等待管理员完成升级或重启后再重试。"
 )
 
+type cachedGateConfig struct {
+	enabled     bool
+	message     string
+	updatedAt   *time.Time
+	initialized bool
+}
+
+var gateCache = struct {
+	sync.RWMutex
+	cachedGateConfig
+}{
+	cachedGateConfig: cachedGateConfig{enabled: true, message: defaultMessage},
+}
+
 func readConfig() (enabled bool, message string, updatedAt *time.Time, err error) {
+	gateCache.RLock()
+	if gateCache.initialized {
+		cfg := gateCache.cachedGateConfig
+		gateCache.RUnlock()
+		return cfg.enabled, cfg.message, cfg.updatedAt, nil
+	}
+	gateCache.RUnlock()
+
 	enabled = true
 	message = defaultMessage
 	if global.APP_DB == nil {
+		cacheConfig(enabled, message, nil)
 		return enabled, message, nil, nil
 	}
 
@@ -54,7 +79,20 @@ func readConfig() (enabled bool, message string, updatedAt *time.Time, err error
 		}
 	}
 
+	cacheConfig(enabled, message, updatedAt)
 	return enabled, message, updatedAt, nil
+}
+
+func cacheConfig(enabled bool, message string, updatedAt *time.Time) {
+	if strings.TrimSpace(message) == "" {
+		message = defaultMessage
+	}
+	gateCache.Lock()
+	gateCache.enabled = enabled
+	gateCache.message = message
+	gateCache.updatedAt = updatedAt
+	gateCache.initialized = true
+	gateCache.Unlock()
 }
 
 func isMissingConfigStorage(err error) bool {
@@ -159,6 +197,15 @@ func SetEnabled(enabled bool, message string) (*adminModel.TaskPoolStatusRespons
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	now := time.Now()
+	cacheConfig(enabled, message, &now)
+	if cm := appConfig.GetConfigManager(); cm != nil {
+		cm.SetRuntimeConfigCache(map[string]interface{}{
+			enabledKey: enabled,
+			messageKey: message,
+		})
 	}
 	return GetStatus()
 }

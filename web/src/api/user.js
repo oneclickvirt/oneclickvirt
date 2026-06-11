@@ -73,6 +73,45 @@ export function getInstanceDetail(instanceId) {
   })
 }
 
+// 用户快照管理
+export function getUserInstanceSnapshots(instanceId, params) {
+  return request({
+    url: `/v1/user/instances/${instanceId}/snapshots`,
+    method: 'get',
+    params
+  })
+}
+
+export function createUserInstanceSnapshot(instanceId, data) {
+  return request({
+    url: `/v1/user/instances/${instanceId}/snapshots`,
+    method: 'post',
+    data
+  })
+}
+
+export function restoreUserSnapshot(snapshotId) {
+  return request({
+    url: `/v1/user/snapshots/${snapshotId}/restore`,
+    method: 'post'
+  })
+}
+
+export function deleteUserSnapshot(snapshotId) {
+  return request({
+    url: `/v1/user/snapshots/${snapshotId}`,
+    method: 'delete'
+  })
+}
+
+export function downloadUserSnapshot(snapshotId) {
+  return request({
+    url: `/v1/user/snapshots/${snapshotId}/download`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
 export function getUserProfile() {
   return request({
     url: '/v1/user/info',
