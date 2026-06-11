@@ -10,6 +10,42 @@
         </div>
       </template>
 
+      <!-- 任务池全局开关 -->
+      <el-alert
+        class="task-pool-alert"
+        :type="poolStatus.enabled ? 'success' : (poolStatus.drainComplete ? 'warning' : 'error')"
+        :closable="false"
+        show-icon
+      >
+        <template #title>
+          <div class="task-pool-header">
+            <div>
+              <strong>
+                {{ poolStatus.enabled ? $t('admin.tasks.poolEnabled') : $t('admin.tasks.poolDisabled') }}
+              </strong>
+              <span class="task-pool-desc">
+                {{ poolStatus.enabled ? $t('admin.tasks.poolEnabledDesc') : (poolStatus.drainComplete ? $t('admin.tasks.poolMaintenanceReady') : $t('admin.tasks.poolDraining')) }}
+              </span>
+            </div>
+            <el-button
+              v-if="isSuperAdmin"
+              :type="poolStatus.enabled ? 'danger' : 'success'"
+              :loading="poolLoading"
+              size="small"
+              @click="toggleTaskPool(!poolStatus.enabled)"
+            >
+              {{ poolStatus.enabled ? $t('admin.tasks.disableTaskPool') : $t('admin.tasks.enableTaskPool') }}
+            </el-button>
+          </div>
+        </template>
+        <div class="task-pool-meta">
+          <span>{{ $t('admin.tasks.pendingTasks') }}: {{ poolStatus.pendingTasks }}</span>
+          <span>{{ $t('admin.tasks.runningTasks') }}: {{ poolStatus.runningTasks }}</span>
+          <span>{{ $t('admin.tasks.configurationPendingTasks') }}: {{ poolStatus.configurationPendingTasks }}</span>
+          <span>{{ $t('admin.tasks.configurationRunningTasks') }}: {{ poolStatus.configurationRunningTasks }}</span>
+        </div>
+      </el-alert>
+
       <!-- 统计卡片 -->
       <div class="stats-cards">
         <el-row :gutter="20">
@@ -700,10 +736,10 @@ import { useTaskManagement } from './composables/useTaskManagement'
 import TaskStepsPanel from '@/components/TaskStepsPanel.vue'
 
 const {
-  loading, tasks, providers, total, stats,
+  loading, poolLoading, tasks, providers, total, stats, poolStatus, isSuperAdmin,
   filterForm, pagination,
   forceStopDialog, detailDialog, expandedLogTaskIds,
-  loadTasks, resetFilter,
+  loadTasks, resetFilter, loadTaskPoolStatus, toggleTaskPool,
   showForceStopDialog, confirmForceStop,
   cancelTask, viewTaskDetail,
   parseProgressLogs, translateStepMsg, toggleProgressLogs,
@@ -731,6 +767,31 @@ const {
     color: var(--text-color-secondary);
     font-size: 14px;
   }
+}
+
+.task-pool-alert {
+  margin-bottom: 18px;
+}
+
+.task-pool-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.task-pool-desc {
+  margin-left: 8px;
+  font-weight: 400;
+}
+
+.task-pool-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 13px;
 }
 
 .stats-cards {

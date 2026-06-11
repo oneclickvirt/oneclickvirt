@@ -139,6 +139,11 @@ func SyncProviderMonitors(c *gin.Context) {
 		return
 	}
 
+	if err := taskService.GetTaskService().EnsureTaskPoolAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	now := time.Now()
 	task := monitoringModel.MonitorSyncTask{
 		ProviderID: uint(providerID),

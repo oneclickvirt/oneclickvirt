@@ -1,13 +1,17 @@
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminTasks, forceStopTask, getTaskOverallStats, cancelUserTaskByAdmin, getAdminTaskDetail } from '@/api/admin'
+import { getAdminTasks, forceStopTask, getTaskOverallStats, cancelUserTaskByAdmin, getAdminTaskDetail, getTaskPoolStatus, updateTaskPoolStatus } from '@/api/admin'
 import { getProviderList } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
+import { useUserStore } from '@/pinia/modules/user'
 
 export function useTaskManagement() {
   const { t, te, locale } = useI18n()
+  const userStore = useUserStore()
+  const isSuperAdmin = computed(() => userStore.userType === 'admin')
 
   const loading = ref(false)
+  const poolLoading = ref(false)
   const tasks = ref([])
   const providers = ref([])
   const total = ref(0)
@@ -19,6 +23,20 @@ export function useTaskManagement() {
     completedTasks: 0,
     failedTasks: 0,
     timeoutTasks: 0
+  })
+
+  const poolStatus = reactive({
+    enabled: true,
+    acceptingNewTasks: true,
+    state: 'enabled',
+    message: '',
+    pendingTasks: 0,
+    runningTasks: 0,
+    configurationPendingTasks: 0,
+    configurationRunningTasks: 0,
+    activeTasks: 0,
+    drainComplete: true,
+    canRestartController: false
   })
 
   const filterForm = reactive({
@@ -51,6 +69,57 @@ export function useTaskManagement() {
   })
 
   const expandedLogTaskIds = ref(new Set())
+
+  const loadTaskPoolStatus = async () => {
+    try {
+      const response = await getTaskPoolStatus()
+      if (response.code === 200 && response.data) {
+        Object.assign(poolStatus, response.data)
+      }
+    } catch (error) {
+      console.error('获取任务池状态失败:', error)
+    }
+  }
+
+  const toggleTaskPool = async (enabled) => {
+    if (!isSuperAdmin.value) {
+      ElMessage.warning(t('admin.tasks.superAdminOnly'))
+      return
+    }
+
+    const confirmMessage = enabled
+      ? t('admin.tasks.enableTaskPoolConfirm')
+      : t('admin.tasks.disableTaskPoolConfirm')
+    const confirmTitle = enabled ? t('admin.tasks.enableTaskPool') : t('admin.tasks.disableTaskPool')
+
+    try {
+      await ElMessageBox.confirm(confirmMessage, confirmTitle, {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: enabled ? 'success' : 'warning'
+      })
+
+      poolLoading.value = true
+      const response = await updateTaskPoolStatus({
+        enabled,
+        message: t('admin.tasks.defaultMaintenanceMessage')
+      })
+      if (response.code === 200 && response.data) {
+        Object.assign(poolStatus, response.data)
+      }
+      ElMessage.success(t('admin.tasks.poolToggleSuccess'))
+      loadTaskPoolStatus()
+      loadStats()
+      loadTasks()
+    } catch (error) {
+      if (error !== 'cancel' && error?.action !== 'cancel' && error?.action !== 'close') {
+        console.error('切换任务池状态失败:', error)
+        ElMessage.error(error?.message || t('admin.tasks.poolToggleFailed'))
+      }
+    } finally {
+      poolLoading.value = false
+    }
+  }
 
   const loadTasks = async () => {
     try {
@@ -284,19 +353,21 @@ export function useTaskManagement() {
     loadTasks()
     loadStats()
     loadProviders()
+    loadTaskPoolStatus()
 
     setInterval(() => {
       if (!forceStopDialog.visible && !detailDialog.visible) {
         loadStats()
+        loadTaskPoolStatus()
       }
     }, 30000)
   })
 
   return {
-    loading, tasks, providers, total, stats,
+    loading, poolLoading, tasks, providers, total, stats, poolStatus, isSuperAdmin,
     filterForm, pagination,
     forceStopDialog, detailDialog, expandedLogTaskIds,
-    loadTasks, resetFilter,
+    loadTasks, resetFilter, loadTaskPoolStatus, toggleTaskPool,
     showForceStopDialog, confirmForceStop,
     cancelTask, viewTaskDetail,
     parseProgressLogs, translateStepMsg, toggleProgressLogs,

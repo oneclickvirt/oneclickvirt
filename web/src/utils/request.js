@@ -12,6 +12,26 @@ const service = axios.create({
   }
 })
 
+
+let maintenanceDialogVisible = false
+
+function shouldShowMaintenanceDialog(errorInfo) {
+  const text = `${errorInfo?.message || ''} ${errorInfo?.details || ''}`
+  return Number(errorInfo?.code) === 503 && /任务池|维护|maintenance/i.test(text)
+}
+
+function showMaintenanceDialog(errorInfo) {
+  if (!shouldShowMaintenanceDialog(errorInfo) || maintenanceDialogVisible) return
+  maintenanceDialogVisible = true
+  const details = errorInfo.details || errorInfo.message || '系统正在维护，暂不接受新的任务。请稍后再试。'
+  ElMessageBox.alert(details, '系统维护中', {
+    type: 'warning',
+    confirmButtonText: '确定'
+  }).finally(() => {
+    maintenanceDialogVisible = false
+  })
+}
+
 function createNormalizedError(errorInfo, response, originalError) {
   const normalizedError = new Error(errorInfo.message)
   normalizedError.code = errorInfo.code
@@ -73,6 +93,7 @@ service.interceptors.response.use(
           showMessage: false, // 不自动显示错误消息，让组件自己处理
           autoRedirect: false // 不自动重定向
         })
+        showMaintenanceDialog(errorInfo)
         return Promise.reject(createNormalizedError(errorInfo, {
           ...response,
           status: response.status === 200 ? res.code : (response.status || res.code),
@@ -102,6 +123,7 @@ service.interceptors.response.use(
       showMessage: false, // 不自动显示错误消息，让组件自己处理
       autoRedirect: false // 不自动重定向
     })
+    showMaintenanceDialog(errorInfo)
     return Promise.reject(createNormalizedError(errorInfo, error.response, error))
   }
 )

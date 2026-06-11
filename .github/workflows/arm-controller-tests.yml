@@ -125,6 +125,29 @@ jobs:
             enabled: false
           auth:
             enable-public-registration: true
+          quota:
+            default-level: 1
+            level-limits:
+              "1":
+                max-instances: 3
+                max-resources:
+                  cpu: 2
+                  memory: 2048
+                  disk: 20480
+                  bandwidth: 100
+                max-traffic: 102400
+                expiry-days: 0
+                max-snapshots: 1
+              "99":
+                max-instances: 999
+                max-resources:
+                  cpu: 64
+                  memory: 262144
+                  disk: 1048576
+                  bandwidth: 10000
+                max-traffic: 0
+                expiry-days: 0
+                max-snapshots: 10
           EOF
 
       - name: Start server

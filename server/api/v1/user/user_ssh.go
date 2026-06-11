@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"oneclickvirt/utils"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,22 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gorm.io/gorm"
 )
+
+func isBenignWebSocketOrSessionClose(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "close 1000") ||
+		strings.Contains(msg, "close 1001") ||
+		strings.Contains(msg, "User closed terminal") ||
+		strings.Contains(msg, "unexpected EOF") ||
+		strings.Contains(msg, "abnormal closure") ||
+		strings.Contains(msg, "use of closed network connection")
+}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -360,7 +377,11 @@ func SSHWebSocket(c *gin.Context) {
 		global.APP_LOG.Warn("WebSocket连接超时")
 	case err := <-errChan:
 		if err != nil && err != io.EOF {
-			global.APP_LOG.Error("SSH会话错误", zap.Error(err))
+			if isBenignWebSocketOrSessionClose(err) {
+				global.APP_LOG.Debug("SSH会话已关闭", zap.Error(err))
+			} else {
+				global.APP_LOG.Error("SSH会话错误", zap.Error(err))
+			}
 		}
 	}
 

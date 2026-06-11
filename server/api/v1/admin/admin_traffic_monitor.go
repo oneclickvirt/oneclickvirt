@@ -46,6 +46,11 @@ func TrafficMonitorOperation(c *gin.Context) {
 		return
 	}
 
+	if err := taskService.GetTaskService().EnsureTaskPoolAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	// 创建任务记录
 	task := adminModel.TrafficMonitorTask{
 		ProviderID: req.ProviderID,

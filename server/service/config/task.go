@@ -220,6 +220,10 @@ func (s *TaskService) CancelTask(taskID uint) error {
 
 // CreateTask 创建任务
 func (s *TaskService) CreateTask(providerID uint, taskType string, userID uint, username string) (*admin.ConfigurationTask, error) {
+	if err := taskManager.GetTaskService().EnsureTaskPoolAccepting(); err != nil {
+		return nil, err
+	}
+
 	global.APP_LOG.Debug("开始创建配置任务",
 		zap.Uint("providerID", providerID),
 		zap.String("taskType", taskType),

@@ -22,6 +22,7 @@ import (
 	resourceModel "oneclickvirt/model/resource"
 	systemModel "oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/database"
 	"oneclickvirt/utils"
 	"oneclickvirt/utils/dbcompat"
 
@@ -226,6 +227,10 @@ func (s *InitService) AutoMigrateTables() error {
 		return fmt.Errorf("表结构迁移失败: %v", err)
 	}
 	dbcompat.Init(global.APP_DB)
+	if err := database.EnsureUserOAuth2Columns(global.APP_DB); err != nil {
+		global.APP_LOG.Error("确认OAuth2用户字段失败", zap.String("error", utils.FormatError(err)))
+		return fmt.Errorf("确认OAuth2用户字段失败: %v", err)
+	}
 
 	global.APP_LOG.Debug("数据库表结构自动迁移完成")
 	return nil

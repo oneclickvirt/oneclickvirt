@@ -723,6 +723,40 @@ definitions:
           type: integer
         type: array
     type: object
+  admin.TaskPoolControlRequest:
+    properties:
+      enabled:
+        type: boolean
+      message:
+        type: string
+    type: object
+  admin.TaskPoolStatusResponse:
+    properties:
+      acceptingNewTasks:
+        type: boolean
+      activeTasks:
+        type: integer
+      canRestartController:
+        type: boolean
+      configurationPendingTasks:
+        type: integer
+      configurationRunningTasks:
+        type: integer
+      drainComplete:
+        type: boolean
+      enabled:
+        type: boolean
+      message:
+        type: string
+      pendingTasks:
+        type: integer
+      runningTasks:
+        type: integer
+      state:
+        type: string
+      updatedAt:
+        type: string
+    type: object
   admin.TaskStatsResponse:
     properties:
       completedTasks:
@@ -6397,6 +6431,76 @@ paths:
       security:
       - BearerAuth: []
       summary: 获取任务总体统计信息
+      tags:
+      - 管理员管理
+  /admin/tasks/pool-status:
+    get:
+      consumes:
+      - application/json
+      description: 获取任务池是否接受新任务以及当前队列排空状态
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.TaskPoolStatusResponse'
+              type: object
+        "401":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取任务池全局状态
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 超级管理员开启/关闭任务池新任务入口，关闭后不会再新增 pending 任务，但已有任务继续执行
+      parameters:
+      - description: 任务池开关请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.TaskPoolControlRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.TaskPoolStatusResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新任务池全局开关
       tags:
       - 管理员管理
   /admin/tasks/stats:

@@ -324,31 +324,67 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 		return fmt.Errorf("保存Provider状态失败: %w", dbErr)
 	}
 
-	// 如果健康检查纠正了存储池或存储路径，立即刷新运行时 Provider 与 SSH/API 连接缓存，
-	// 避免内存中的旧 NodeConfig 继续使用失效的 default/local pool 创建实例。
-	if provider.StoragePool != originalStoragePool || provider.StoragePoolPath != originalStoragePoolPath {
-		if reloadErr := provider2.GetProviderService().ReloadProvider(localProviderID); reloadErr != nil {
-			global.APP_LOG.Warn("Provider存储配置已更新但运行时缓存刷新失败，新配置将在下次重连后生效",
-				zap.Uint("providerID", localProviderID),
-				zap.String("provider", localProviderName),
-				zap.String("oldPool", originalStoragePool),
-				zap.String("newPool", provider.StoragePool),
-				zap.String("oldPoolPath", originalStoragePoolPath),
-				zap.String("newPoolPath", provider.StoragePoolPath),
-				zap.Error(reloadErr))
-		} else {
-			global.APP_LOG.Info("Provider存储配置已更新并刷新运行时缓存",
-				zap.Uint("providerID", localProviderID),
-				zap.String("provider", localProviderName),
-				zap.String("oldPool", originalStoragePool),
-				zap.String("newPool", provider.StoragePool),
-				zap.String("oldPoolPath", originalStoragePoolPath),
-				zap.String("newPoolPath", provider.StoragePoolPath))
-		}
-	}
+	storageChanged := provider.StoragePool != originalStoragePool || provider.StoragePoolPath != originalStoragePoolPath
+	refreshRuntimeProviderAfterHealthCheck(localProviderID, localProviderName, provider.ConnectionType, provider.Status, provider.SSHStatus, forceRefresh, storageChanged, originalStoragePool, provider.StoragePool, originalStoragePoolPath, provider.StoragePoolPath)
 
 	// 如果健康检查有错误，返回该错误（这样前端可以获取具体错误信息）
 	return err
+}
+
+// refreshRuntimeProviderAfterHealthCheck keeps the in-memory ProviderService cache consistent
+// with an explicit health check. Health checks use independent SSH/Agent probes and update DB
+// state first; without this reload, stale cached providers can remain disconnected and keep
+// returning "Provider不可用" even after the node has passed a manual health check.
+func refreshRuntimeProviderAfterHealthCheck(providerID uint, providerName, connectionType, status, sshStatus string, forceRefresh, storageChanged bool, oldPool, newPool, oldPoolPath, newPoolPath string) {
+	providerSvc := provider2.GetProviderService()
+
+	if status == "inactive" {
+		providerSvc.RemoveProvider(providerID)
+		global.APP_LOG.Info("Provider健康检查为离线，已清理运行时缓存",
+			zap.Uint("providerID", providerID),
+			zap.String("provider", providerName))
+		return
+	}
+
+	shouldReload := storageChanged || forceRefresh
+	if connectionType == "agent" {
+		shouldReload = true
+	}
+	if !shouldReload {
+		return
+	}
+
+	// SSH 类型只有在 SSH 在线时才重载，避免把一次 API/网络抖动变成缓存清空。
+	if connectionType != "agent" && sshStatus != "online" {
+		return
+	}
+
+	if reloadErr := providerSvc.ReloadProvider(providerID); reloadErr != nil {
+		global.APP_LOG.Warn("Provider健康检查后运行时缓存刷新失败，新状态将在下次重连后生效",
+			zap.Uint("providerID", providerID),
+			zap.String("provider", providerName),
+			zap.String("status", status),
+			zap.String("sshStatus", sshStatus),
+			zap.Bool("forceRefresh", forceRefresh),
+			zap.Bool("storageChanged", storageChanged),
+			zap.String("oldPool", oldPool),
+			zap.String("newPool", newPool),
+			zap.String("oldPoolPath", oldPoolPath),
+			zap.String("newPoolPath", newPoolPath),
+			zap.Error(reloadErr))
+		return
+	}
+
+	global.APP_LOG.Info("Provider健康检查后运行时缓存已刷新",
+		zap.Uint("providerID", providerID),
+		zap.String("provider", providerName),
+		zap.String("status", status),
+		zap.Bool("forceRefresh", forceRefresh),
+		zap.Bool("storageChanged", storageChanged),
+		zap.String("oldPool", oldPool),
+		zap.String("newPool", newPool),
+		zap.String("oldPoolPath", oldPoolPath),
+		zap.String("newPoolPath", newPoolPath))
 }
 
 // CheckProviderNameExists 检查Provider名称是否已存在

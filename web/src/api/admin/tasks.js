@@ -43,3 +43,18 @@ export const getAdminTaskDetail = (taskId) => {
     method: 'get'
   })
 }
+
+export const getTaskPoolStatus = () => {
+  return request({
+    url: '/v1/admin/tasks/pool-status',
+    method: 'get'
+  })
+}
+
+export const updateTaskPoolStatus = (data) => {
+  return request({
+    url: '/v1/admin/tasks/pool-status',
+    method: 'put',
+    data
+  })
+}

@@ -24,6 +24,10 @@ type agentMonitoringAdminTaskData struct {
 }
 
 func CreateAgentMonitoringAdminTask(providerID uint, userID uint, taskType string, version string) (*adminModel.Task, error) {
+	if err := GetTaskService().EnsureTaskPoolAccepting(); err != nil {
+		return nil, err
+	}
+
 	action := "deploy"
 	timeout := 1800
 	estimated := 600

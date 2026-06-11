@@ -18,6 +18,7 @@ import (
 	"oneclickvirt/model/common"
 	oauth2Model "oneclickvirt/model/oauth2"
 	"oneclickvirt/model/user"
+	"oneclickvirt/service/database"
 	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
@@ -508,8 +509,19 @@ func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provi
 		}
 	}
 
-	// 更新基本信息
-	if err := global.APP_DB.Model(usr).Updates(updates).Error; err != nil {
+	// 更新基本信息。旧库若缺少 OAuth2 新字段，先补齐字段后重试一次，
+	// 避免 OAuth2 回调因 users.oauth2_avatar 等列不存在而持续失败。
+	err := global.APP_DB.Model(usr).Updates(updates).Error
+	if err != nil && strings.Contains(err.Error(), "Unknown column") && strings.Contains(err.Error(), "oauth2_") {
+		if migrateErr := database.EnsureUserOAuth2Columns(global.APP_DB); migrateErr != nil {
+			global.APP_LOG.Error("补齐OAuth2用户字段失败",
+				zap.String("username", usr.Username),
+				zap.Error(migrateErr))
+		} else {
+			err = global.APP_DB.Model(usr).Updates(updates).Error
+		}
+	}
+	if err != nil {
 		global.APP_LOG.Error("同步OAuth2用户信息失败",
 			zap.String("username", usr.Username),
 			zap.Error(err))

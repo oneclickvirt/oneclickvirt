@@ -114,6 +114,10 @@ func (s *TaskService) executeMonitorSyncTask(ctx context.Context, task *adminMod
 // user/admin initiated long operations respect Provider.AllowConcurrentTasks and
 // Provider.MaxConcurrentTasks. Background collectors must not call this helper.
 func CreateMonitorSyncAdminTask(providerID uint, monitorSyncTaskID uint, userID uint) (*adminModel.Task, error) {
+	if err := GetTaskService().EnsureTaskPoolAccepting(); err != nil {
+		return nil, err
+	}
+
 	data, _ := json.Marshal(monitorSyncAdminTaskData{
 		MonitorSyncTaskID: monitorSyncTaskID,
 		ProviderID:        providerID,

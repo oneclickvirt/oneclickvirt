@@ -19,10 +19,18 @@ func GetProviderInstanceByID(providerID uint) (provider.Provider, error) {
 	// 获取Provider服务
 	providerSvc := GetProviderService()
 
-	// 尝试从内存中获取
+	// 尝试从内存中获取。若存在但已不健康，必须先清理并重载，
+	// 否则后续 GetProviderInstanceByID 调用会拿到 stale provider，表现为
+	// 健康检查已恢复但仍提示"Provider不可用/SSH client not initialized"。
 	providerInstance, exists := providerSvc.GetProviderByID(providerID)
 	if exists {
-		return providerInstance, nil
+		if providerInstance.IsConnected() {
+			return providerInstance, nil
+		}
+		global.APP_LOG.Info("Provider内存缓存存在但连接不可用，准备重载",
+			zap.Uint("providerID", providerID),
+			zap.String("provider", providerInstance.GetName()))
+		providerSvc.RemoveProvider(providerID)
 	}
 
 	// 从数据库获取Provider信息
@@ -39,10 +47,14 @@ func GetProviderInstanceByID(providerID uint) (provider.Provider, error) {
 		return nil, fmt.Errorf("加载Provider失败: %w", err)
 	}
 
-	// 重新获取Provider实例
+	// 重新获取Provider实例，并确认已经真实连接；否则不要把不可用缓存返回给调用方。
 	providerInstance, exists = providerSvc.GetProviderByID(providerID)
 	if !exists {
 		return nil, fmt.Errorf("Provider ID %d 加载后仍然不可用", providerID)
+	}
+	if !providerInstance.IsConnected() {
+		providerSvc.RemoveProvider(providerID)
+		return nil, fmt.Errorf("Provider ID %d 加载后仍未连接", providerID)
 	}
 
 	return providerInstance, nil

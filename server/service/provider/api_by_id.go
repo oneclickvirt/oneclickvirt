@@ -41,15 +41,17 @@ func (s *ProviderApiService) GetProviderByIDForOperation(providerID uint, operat
 		return nil, nil, fmt.Errorf("Provider已过期")
 	}
 
-	// 从Provider服务获取已连接的实例（使用ID）
+	// 从Provider服务获取已连接的实例（使用ID）。如果内存里存在但已断开，
+	// 必须先移除 stale cache，否则 LoadProviderWithOptions 会认为"已加载"而跳过重连。
 	providerService := GetProviderService()
 	if prov, exists := providerService.GetProviderByID(dbProvider.ID); exists {
 		if prov.IsConnected() {
 			return prov, &dbProvider, nil
 		}
-		global.APP_LOG.Debug("Provider已存在但未连接，尝试重新连接",
+		global.APP_LOG.Info("Provider已存在但未连接，清理缓存后重新连接",
 			zap.Uint("providerId", providerID),
 			zap.String("name", dbProvider.Name))
+		providerService.RemoveProvider(dbProvider.ID)
 	}
 
 	// 如果未连接，尝试加载并连接
@@ -62,8 +64,8 @@ func (s *ProviderApiService) GetProviderByIDForOperation(providerID uint, operat
 		return nil, nil, fmt.Errorf("Provider连接失败: %v", err)
 	}
 
-	// 再次获取（使用ID）
-	if prov, exists := providerService.GetProviderByID(dbProvider.ID); exists {
+	// 再次获取（使用ID），必须确认已连接，避免把 stale provider 返回给调用方。
+	if prov, exists := providerService.GetProviderByID(dbProvider.ID); exists && prov.IsConnected() {
 		return prov, &dbProvider, nil
 	}
 

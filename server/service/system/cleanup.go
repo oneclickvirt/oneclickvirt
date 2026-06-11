@@ -15,6 +15,7 @@ import (
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/taskgate"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -449,6 +450,10 @@ func (s *InstanceCleanupService) stopExpiredInstance(instance *providerModel.Ins
 		}
 
 		var existing adminModel.Task
+		if err := taskgate.EnsureAccepting(); err != nil {
+			return err
+		}
+
 		err := tx.Where("instance_id = ? AND task_type = ? AND status IN ?",
 			instance.ID, "stop", []string{"pending", "running", "processing"}).
 			First(&existing).Error

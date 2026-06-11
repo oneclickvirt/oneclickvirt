@@ -28,7 +28,19 @@ func GenerateRandomString(length int) string {
 }
 
 func highestConfiguredLevel() int {
-	return userquota.HighestConfiguredLevel()
+	level := userquota.HighestConfiguredLevel()
+	if level < 1 || level > 99 {
+		return 99
+	}
+	return level
+}
+
+func defaultConfiguredUserLevel() int {
+	level := global.GetAppConfig().Quota.DefaultLevel
+	if level < 1 || level > 99 {
+		return 1
+	}
+	return level
 }
 
 // InitSystem 初始化系统
@@ -65,7 +77,7 @@ func (s *AuthService) InitSystem(adminUsername, adminPassword, adminEmail string
 		Password: string(userPassword),
 		Email:    "user@spiritlhl.net",
 		UserType: "user",
-		Level:    global.GetAppConfig().Quota.DefaultLevel,
+		Level:    defaultConfiguredUserLevel(),
 		Status:   0, // 默认禁用状态，需要管理员手动启用
 	}
 	if err := userquota.ApplyLimitFields(&user, user.Level); err != nil {
@@ -121,6 +133,9 @@ func (s *AuthService) InitSystemWithUsers(adminInfo UserInfo, userInfo *UserInfo
 		UserType: "admin",
 		Level:    highestConfiguredLevel(),
 		Status:   1,
+	}
+	if err := userquota.ApplyLimitFields(&admin, admin.Level); err != nil {
+		return err
 	}
 
 	// 使用数据库服务处理事务

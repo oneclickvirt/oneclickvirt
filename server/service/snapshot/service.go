@@ -13,6 +13,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
 	providerSvc "oneclickvirt/service/provider"
+	"oneclickvirt/service/taskgate"
 	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
@@ -184,6 +185,10 @@ func (s *Service) StartCreateSnapshotTask(instanceID uint, req SnapshotRequest, 
 }
 
 func (s *Service) startCreateSnapshotTask(instanceID uint, req SnapshotRequest, createdBy uint, source string, schedule *providerModel.SnapshotSchedule) (*SnapshotTaskResponse, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, err
+	}
+
 	inst, err := loadInstance(instanceID)
 	if err != nil {
 		return nil, err
@@ -259,6 +264,10 @@ func (s *Service) startCreateSnapshotTask(instanceID uint, req SnapshotRequest, 
 }
 
 func (s *Service) StartDeleteSnapshotTask(snapshotID uint, createdBy uint) (*SnapshotTaskResponse, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, err
+	}
+
 	var snapshot providerModel.InstanceSnapshot
 	if err := global.APP_DB.First(&snapshot, snapshotID).Error; err != nil {
 		return nil, err
@@ -285,6 +294,10 @@ func (s *Service) StartDeleteSnapshotTask(snapshotID uint, createdBy uint) (*Sna
 }
 
 func (s *Service) StartRestoreSnapshotTask(snapshotID uint, createdBy uint) (*SnapshotTaskResponse, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, err
+	}
+
 	var snapshot providerModel.InstanceSnapshot
 	if err := global.APP_DB.First(&snapshot, snapshotID).Error; err != nil {
 		return nil, err
@@ -311,6 +324,10 @@ func (s *Service) StartRestoreSnapshotTask(snapshotID uint, createdBy uint) (*Sn
 }
 
 func (s *Service) createUnifiedSnapshotTask(snapshotTask *providerModel.SnapshotTask, snapshot *providerModel.InstanceSnapshot, action string, createdBy uint) (*adminModel.Task, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, err
+	}
+
 	if snapshotTask == nil || snapshot == nil {
 		return nil, fmt.Errorf("snapshot task and snapshot are required")
 	}

@@ -7,6 +7,7 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/service/taskgate"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -73,6 +74,10 @@ func (s *ThreeTierLimitService) createStopTask(userID, instanceID, providerID ui
 
 // createStopTaskTx 在指定的DB/事务中创建停止任务（供事务内调用）
 func (s *ThreeTierLimitService) createStopTaskTx(db *gorm.DB, userID, instanceID, providerID uint, message string) error {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return err
+	}
+
 	taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instanceID, providerID)
 
 	task := &adminModel.Task{
@@ -94,6 +99,10 @@ func (s *ThreeTierLimitService) createStopTaskTx(db *gorm.DB, userID, instanceID
 
 // batchCreateStopTasks 批量创建停止任务（用户层级限流）
 func (s *ThreeTierLimitService) batchCreateStopTasks(userID uint, instances []provider.Instance, message string) error {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return err
+	}
+
 	if len(instances) == 0 {
 		return nil
 	}
@@ -133,6 +142,10 @@ func (s *ThreeTierLimitService) batchCreateStopTasks(userID uint, instances []pr
 
 // batchCreateStopTasksForProvider 批量创建停止任务（Provider层级限流）
 func (s *ThreeTierLimitService) batchCreateStopTasksForProvider(providerID uint, instances []provider.Instance, message string) error {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return err
+	}
+
 	if len(instances) == 0 {
 		return nil
 	}

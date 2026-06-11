@@ -130,6 +130,9 @@ func ClassifyError(err error) *AppError {
 	}
 	msg := err.Error()
 	lower := strings.ToLower(msg)
+	if strings.Contains(msg, "任务池已关闭") || strings.Contains(msg, "系统正在维护") || strings.Contains(msg, "维护中") || strings.Contains(lower, "maintenance") {
+		return NewError(CodeUnavailable, msg)
+	}
 	// Not found patterns
 	if strings.Contains(msg, "不存在") || strings.Contains(msg, "找不到") || strings.Contains(msg, "未找到") ||
 		strings.Contains(msg, "暂无") || strings.Contains(msg, "无此") ||

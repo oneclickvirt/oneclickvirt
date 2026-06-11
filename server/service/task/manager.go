@@ -123,6 +123,10 @@ func (s *TaskService) parseTaskDataForConfig(taskData string) (cpu int, memory i
 
 // CreateTask 创建任务
 func (s *TaskService) CreateTask(userID uint, providerID *uint, instanceID *uint, taskType string, taskData string, timeoutDuration int) (*adminModel.Task, error) {
+	if err := s.EnsureTaskPoolAccepting(); err != nil {
+		return nil, err
+	}
+
 	if timeoutDuration <= 0 {
 		timeoutDuration = s.getDefaultTimeout(taskType)
 	}

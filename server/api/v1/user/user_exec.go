@@ -234,7 +234,11 @@ func ExecWebSocket(c *gin.Context) {
 			messageType, message, err := ws.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-					global.APP_LOG.Error("WebSocket读取失败", zap.Error(err))
+					if isBenignWebSocketOrSessionClose(err) {
+						global.APP_LOG.Debug("WebSocket exec连接已关闭", zap.Error(err))
+					} else {
+						global.APP_LOG.Error("WebSocket读取失败", zap.Error(err))
+					}
 				}
 				errChan <- err
 				return
@@ -347,7 +351,11 @@ func ExecWebSocket(c *gin.Context) {
 		global.APP_LOG.Warn("WebSocket exec连接超时")
 	case err := <-errChan:
 		if err != nil && err != io.EOF {
-			global.APP_LOG.Error("exec会话错误", zap.Error(err))
+			if isBenignWebSocketOrSessionClose(err) {
+				global.APP_LOG.Debug("exec会话已关闭", zap.Error(err))
+			} else {
+				global.APP_LOG.Error("exec会话错误", zap.Error(err))
+			}
 		}
 	}
 

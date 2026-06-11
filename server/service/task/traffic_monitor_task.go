@@ -19,6 +19,10 @@ type trafficMonitorAdminTaskData struct {
 }
 
 func CreateTrafficMonitorAdminTask(providerID uint, trafficTaskID uint, operation string, userID uint) (*adminModel.Task, error) {
+	if err := GetTaskService().EnsureTaskPoolAccepting(); err != nil {
+		return nil, err
+	}
+
 	taskType := "traffic-monitor-" + operation
 	data, _ := json.Marshal(trafficMonitorAdminTaskData{
 		TrafficMonitorTaskID: trafficTaskID,

@@ -11,6 +11,55 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GetTaskPoolStatus 获取任务池全局状态
+// @Summary 获取任务池全局状态
+// @Description 获取任务池是否接受新任务以及当前队列排空状态
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=adminModel.TaskPoolStatusResponse} "获取成功"
+// @Failure 401 {object} common.Response "权限不足"
+// @Failure 500 {object} common.Response "获取失败"
+// @Router /admin/tasks/pool-status [get]
+func GetTaskPoolStatus(c *gin.Context) {
+	taskService := task.GetTaskService()
+	status, err := taskService.GetTaskPoolStatus()
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, status)
+}
+
+// UpdateTaskPoolStatus 更新任务池全局开关
+// @Summary 更新任务池全局开关
+// @Description 超级管理员开启/关闭任务池新任务入口，关闭后不会再新增 pending 任务，但已有任务继续执行
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body adminModel.TaskPoolControlRequest true "任务池开关请求"
+// @Success 200 {object} common.Response{data=adminModel.TaskPoolStatusResponse} "更新成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 401 {object} common.Response "权限不足"
+// @Failure 500 {object} common.Response "更新失败"
+// @Router /admin/tasks/pool-status [put]
+func UpdateTaskPoolStatus(c *gin.Context) {
+	var req adminModel.TaskPoolControlRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	taskService := task.GetTaskService()
+	status, err := taskService.SetTaskPoolEnabled(req.Enabled, req.Message)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, status)
+}
+
 // GetAdminTasks 获取管理员任务列表
 // @Summary 获取管理员任务列表
 // @Description 获取所有用户的任务列表，支持分页和筛选

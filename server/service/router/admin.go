@@ -109,12 +109,11 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 
 		// 用户任务管理
 		NormalAdminGroup.GET("/tasks", admin.GetAdminTasks)
-		NormalAdminGroup.GET("/tasks/:taskId", admin.GetTaskDetail)
+		NormalAdminGroup.GET("/tasks/pool-status", admin.GetTaskPoolStatus)
 		NormalAdminGroup.POST("/tasks/force-stop", admin.ForceStopTask)
 		NormalAdminGroup.GET("/tasks/stats", admin.GetTaskStats)
 		NormalAdminGroup.GET("/tasks/overall-stats", admin.GetTaskOverallStats)
-		NormalAdminGroup.POST("/tasks/:taskId/cancel", admin.CancelUserTaskByAdmin)
-
+		NormalAdminGroup.GET("/tasks/:taskId", admin.GetTaskDetail)
 		// 端口映射管理
 		NormalAdminGroup.GET("/port-mappings", admin.GetPortMappingList)
 		NormalAdminGroup.POST("/port-mappings", admin.CreatePortMapping)
@@ -225,7 +224,8 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 系统配置（超管专用）
 		SuperAdminGroup.GET("/config", config.GetUnifiedConfig)
 		SuperAdminGroup.PUT("/config", config.UpdateUnifiedConfig)
-
+		// 任务池维护开关（超管专用）
+		SuperAdminGroup.PUT("/tasks/pool-status", admin.UpdateTaskPoolStatus)
 		// 系统镜像管理（超管专用）
 		SuperAdminGroup.GET("/system-images", system.GetSystemImageList)
 		SuperAdminGroup.POST("/system-images/sync", system.SyncSystemImages)

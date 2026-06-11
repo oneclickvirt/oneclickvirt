@@ -13,6 +13,7 @@ import (
 	"oneclickvirt/utils"
 
 	"github.com/pkg/sftp"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -24,6 +25,13 @@ type SSHAccessTarget struct {
 	Password       string
 	PrivateKey     string
 	UseAgentTunnel bool
+
+	// FallbackAgentTunnelHost/Port are used for agent-mode instances whose
+	// public SSH port mapping is stale or temporarily refused. The web terminal
+	// can still be reachable through the agent tunnel, so SFTP/SSH should try the
+	// same tunnel path before reporting unavailable.
+	FallbackAgentTunnelHost string
+	FallbackAgentTunnelPort int
 }
 
 func providerPortHost(provider *providerModel.Provider) string {
@@ -112,6 +120,16 @@ func ResolveInstanceSSHTarget(instance *providerModel.Instance) (*SSHAccessTarge
 				}
 			}
 			target.Port = sshPortMapping.HostPort
+			if hasProvider && provider.ConnectionType == "agent" && strings.TrimSpace(instance.PrivateIP) != "" {
+				target.FallbackAgentTunnelHost = instance.PrivateIP
+				target.FallbackAgentTunnelPort = sshPortMapping.GuestPort
+				if target.FallbackAgentTunnelPort == 0 {
+					target.FallbackAgentTunnelPort = instance.SSHPort
+				}
+				if target.FallbackAgentTunnelPort == 0 {
+					target.FallbackAgentTunnelPort = 22
+				}
+			}
 		}
 	} else {
 		if instance.PublicIP != "" {
@@ -125,6 +143,10 @@ func ResolveInstanceSSHTarget(instance *providerModel.Instance) (*SSHAccessTarge
 		target.Port = instance.SSHPort
 		if target.Port == 0 {
 			target.Port = 22
+		}
+		if hasProvider && provider.ConnectionType == "agent" && strings.TrimSpace(instance.PrivateIP) != "" && !target.UseAgentTunnel {
+			target.FallbackAgentTunnelHost = instance.PrivateIP
+			target.FallbackAgentTunnelPort = target.Port
 		}
 	}
 
@@ -209,6 +231,27 @@ func buildSSHClientConfig(target *SSHAccessTarget, timeout time.Duration) (*ssh.
 	}, nil
 }
 
+func openSSHClientViaAgentTunnel(target *SSHAccessTarget, host string, port int, sshConfig *ssh.ClientConfig) (*ssh.Client, error) {
+	if strings.TrimSpace(host) == "" {
+		return nil, fmt.Errorf("agent 隧道目标为空")
+	}
+	if port <= 0 {
+		port = 22
+	}
+
+	tunnelConn, err := agentService.OpenTunnelConn(target.ProviderID, host, port)
+	if err != nil {
+		return nil, fmt.Errorf("agent 隧道建立失败: %w", err)
+	}
+
+	sshConn, chans, reqs, err := ssh.NewClientConn(tunnelConn, fmt.Sprintf("%s:%d", host, port), sshConfig)
+	if err != nil {
+		tunnelConn.Close()
+		return nil, fmt.Errorf("通过 agent 隧道建立 SSH 连接失败: %w", err)
+	}
+	return ssh.NewClient(sshConn, chans, reqs), nil
+}
+
 func OpenSSHClient(target *SSHAccessTarget) (*ssh.Client, error) {
 	if target == nil {
 		return nil, fmt.Errorf("target is nil")
@@ -220,25 +263,32 @@ func OpenSSHClient(target *SSHAccessTarget) (*ssh.Client, error) {
 	}
 
 	if target.UseAgentTunnel {
-		tunnelConn, err := agentService.OpenTunnelConn(target.ProviderID, target.Host, target.Port)
-		if err != nil {
-			return nil, fmt.Errorf("agent 隧道建立失败: %w", err)
-		}
-
-		sshConn, chans, reqs, err := ssh.NewClientConn(tunnelConn, fmt.Sprintf("%s:%d", target.Host, target.Port), sshConfig)
-		if err != nil {
-			tunnelConn.Close()
-			return nil, fmt.Errorf("通过 agent 隧道建立 SSH 连接失败: %w", err)
-		}
-		return ssh.NewClient(sshConn, chans, reqs), nil
+		return openSSHClientViaAgentTunnel(target, target.Host, target.Port, sshConfig)
 	}
 
 	address := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
 	client, err := ssh.Dial("tcp", address, sshConfig)
-	if err != nil {
-		return nil, fmt.Errorf("建立 SSH 连接失败: %w", err)
+	if err == nil {
+		return client, nil
 	}
-	return client, nil
+
+	if target.ProviderID > 0 && strings.TrimSpace(target.FallbackAgentTunnelHost) != "" {
+		client, tunnelErr := openSSHClientViaAgentTunnel(target, target.FallbackAgentTunnelHost, target.FallbackAgentTunnelPort, sshConfig)
+		if tunnelErr == nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Info("直连SSH失败，已通过Agent隧道回退成功",
+					zap.Uint("providerID", target.ProviderID),
+					zap.String("directHost", target.Host),
+					zap.Int("directPort", target.Port),
+					zap.String("tunnelHost", target.FallbackAgentTunnelHost),
+					zap.Int("tunnelPort", target.FallbackAgentTunnelPort))
+			}
+			return client, nil
+		}
+		return nil, fmt.Errorf("建立 SSH 连接失败: %w；Agent隧道回退也失败: %v", err, tunnelErr)
+	}
+
+	return nil, fmt.Errorf("建立 SSH 连接失败: %w", err)
 }
 
 func OpenSFTPClient(target *SSHAccessTarget) (*sftp.Client, func(), error) {

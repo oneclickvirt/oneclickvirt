@@ -68,6 +68,28 @@ type ForceStopTaskRequest struct {
 	Reason string `json:"reason"` // 强制停止原因
 }
 
+// TaskPoolControlRequest 任务池全局开关请求
+type TaskPoolControlRequest struct {
+	Enabled bool   `json:"enabled"`
+	Message string `json:"message"`
+}
+
+// TaskPoolStatusResponse 任务池全局状态响应
+type TaskPoolStatusResponse struct {
+	Enabled                   bool       `json:"enabled"`
+	AcceptingNewTasks         bool       `json:"acceptingNewTasks"`
+	State                     string     `json:"state"`
+	Message                   string     `json:"message"`
+	PendingTasks              int64      `json:"pendingTasks"`
+	RunningTasks              int64      `json:"runningTasks"`
+	ConfigurationPendingTasks int64      `json:"configurationPendingTasks"`
+	ConfigurationRunningTasks int64      `json:"configurationRunningTasks"`
+	ActiveTasks               int64      `json:"activeTasks"`
+	DrainComplete             bool       `json:"drainComplete"`
+	CanRestartController      bool       `json:"canRestartController"`
+	UpdatedAt                 *time.Time `json:"updatedAt,omitempty"`
+}
+
 // TaskStatsResponse 任务统计响应
 type TaskStatsResponse struct {
 	TotalTasks     int64 `json:"totalTasks"`

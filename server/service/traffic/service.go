@@ -5,10 +5,11 @@ import (
 	"time"
 
 	"oneclickvirt/global"
-	"oneclickvirt/service/userquota"
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
+	"oneclickvirt/service/taskgate"
+	"oneclickvirt/service/userquota"
 
 	"go.uber.org/zap"
 )
@@ -176,6 +177,10 @@ func (s *Service) resumeProviderInstances(providerID uint) error {
 
 // createStartTaskForInstance 创建启动实例的任务
 func (s *Service) createStartTaskForInstance(instanceID, userID, providerID uint) error {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return err
+	}
+
 	taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instanceID, providerID)
 
 	task := &adminModel.Task{

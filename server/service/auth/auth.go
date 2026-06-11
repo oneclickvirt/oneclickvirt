@@ -360,7 +360,7 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		Telegram:       req.Telegram,
 		QQ:             req.QQ,
 		UserType:       "user",
-		Level:          global.GetAppConfig().Quota.DefaultLevel,
+		Level:          defaultConfiguredUserLevel(),
 		Status:         1, // 默认状态为正常
 		TrafficLimited: false,
 	}
@@ -427,7 +427,6 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		// 提交事务前完成所有创建操作
 		return nil
 	})
-
 
 	return transactionErr
 }
