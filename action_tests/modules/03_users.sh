@@ -55,7 +55,7 @@ run_module_03() {
 
         # -- Disable user --
         test_api "Disable user" "PUT" "/api/v1/admin/users/${created_uid}/status" "200" \
-            '{"status":"disabled"}' "$group"
+            '{"status":0}' "$group"
 
         # -- Verify disabled user cannot login --
         test_api_noauth "Disabled user login" "POST" "/api/v1/auth/login" "401|403" \
@@ -63,7 +63,7 @@ run_module_03() {
 
         # -- Enable user --
         test_api "Enable user" "PUT" "/api/v1/admin/users/${created_uid}/status" "200" \
-            '{"status":"active"}' "$group"
+            '{"status":1}' "$group"
     fi
 
     # -- Batch level update --
@@ -88,7 +88,7 @@ run_module_03() {
     if [[ -n "$created_uid" ]]; then
         local exp_date; exp_date=$(date -u -d "+30 days" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -v+30d '+%Y-%m-%dT%H:%M:%SZ')
         test_api "Set user expiry" "POST" "/api/v1/admin/users/set-expiry" "200" \
-            "{\"user_id\":${created_uid},\"expires_at\":\"${exp_date}\"}" "$group"
+            "{\"userId\":${created_uid},\"expiresAt\":\"${exp_date}\"}" "$group"
     fi
 
     # -- Admin login as user --

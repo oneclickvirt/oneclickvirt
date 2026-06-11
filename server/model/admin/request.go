@@ -21,7 +21,7 @@ type CreateUserRequest struct {
 }
 
 type UpdateUserRequest struct {
-	ID         uint   `json:"id" binding:"required"`
+	ID         uint   `json:"id"`
 	Username   string `json:"username"`
 	Password   string `json:"password"`
 	Nickname   string `json:"nickname"`
