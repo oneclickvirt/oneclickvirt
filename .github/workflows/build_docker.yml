@@ -615,9 +615,9 @@ jobs:
         run: |
           DATE_TAG="${{ steps.date.outputs.date }}"
           
-          # Update Chinese README
-          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | 一体化版本特定日期版本 |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | 一体化版本特定日期版本 |/g" README_ZH.md
-          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | 独立数据库版本特定日期 |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | 独立数据库版本特定日期 |/g" README_ZH.md
+          # Update Chinese README - only match the image tag date portion
+          sed -i "s/\(spiritlhl\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" README_ZH.md
+          sed -i "s/\(spiritlhl\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" README_ZH.md
           
           echo "Updated README_ZH.md with tag: ${DATE_TAG}"
       
@@ -625,9 +625,9 @@ jobs:
         run: |
           DATE_TAG="${{ steps.date.outputs.date }}"
           
-          # Update English README
-          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | All-in-one version with specific date |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | All-in-one version with specific date |/g" README.md
-          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | Standalone database version with date |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | Standalone database version with date |/g" README.md
+          # Update English README - only match the image tag date portion
+          sed -i "s/\(spiritlhl\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" README.md
+          sed -i "s/\(spiritlhl\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" README.md
           
           echo "Updated README.md with tag: ${DATE_TAG}"
       
@@ -657,9 +657,9 @@ jobs:
           DATE_TAG="${{ steps.date.outputs.date }}"
           DOC_FILE="docs-repo/docs/guide/oneclickvirt/oneclickvirt_install.md"
           
-          # Update the image tag table
-          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | 一体化版本特定日期版本 |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | 一体化版本特定日期版本 |/g" "$DOC_FILE"
-          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | 独立数据库版本特定日期 |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | 独立数据库版本特定日期 |/g" "$DOC_FILE"
+          # Update the image tag table - only match the date portion in image tags
+          sed -i "s/\(spiritlhl\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
+          sed -i "s/\(spiritlhl\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
           
           echo "Updated Chinese documentation with tag: ${DATE_TAG}"
       
@@ -668,9 +668,9 @@ jobs:
           DATE_TAG="${{ steps.date.outputs.date }}"
           DOC_FILE="docs-repo/docs/en/guide/oneclickvirt/oneclickvirt_install.md"
           
-          # Update the image tag table
-          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | All-in-one version with specific date |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | All-in-one version with specific date |/g" "$DOC_FILE"
-          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | Standalone database version with date |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | Standalone database version with date |/g" "$DOC_FILE"
+          # Update the image tag table - only match the date portion in image tags
+          sed -i "s/\(spiritlhl\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
+          sed -i "s/\(spiritlhl\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
           
           echo "Updated English documentation with tag: ${DATE_TAG}"
       
