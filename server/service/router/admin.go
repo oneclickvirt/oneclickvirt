@@ -4,6 +4,7 @@ import (
 	"oneclickvirt/api/v1/admin"
 	"oneclickvirt/api/v1/auth"
 	"oneclickvirt/api/v1/config"
+	"oneclickvirt/api/v1/public"
 	"oneclickvirt/api/v1/system"
 	"oneclickvirt/api/v1/traffic"
 	"oneclickvirt/middleware"
@@ -247,6 +248,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		SuperAdminGroup.PUT("/users/:id/status", admin.UpdateUserStatus)
 		SuperAdminGroup.PUT("/users/:id/level", admin.UpdateUserLevel)
 		SuperAdminGroup.PUT("/users/:id/reset-password", admin.ResetUserPassword)
+		SuperAdminGroup.PUT("/users/:id/reset-password-notify", admin.ResetUserPasswordAndNotify)
 		SuperAdminGroup.PUT("/users/batch-level", admin.AdminBatchUpdateUserLevel)
 		SuperAdminGroup.PUT("/users/batch-status", admin.AdminBatchUpdateUserStatus)
 		SuperAdminGroup.POST("/users/batch-delete", admin.AdminBatchDeleteUsers)
@@ -272,16 +274,33 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		SuperAdminGroup.POST("/announcements/batch-delete", admin.BatchDeleteAnnouncements)
 
 		// 系统监控
+		monitoringApi := &system.MonitoringApi{}
 		SuperAdminGroup.GET("/monitoring/system", admin.GetAdminDashboard)
 		SuperAdminGroup.GET("/monitoring/audit-logs", system.GetOperationLogs)
+		SuperAdminGroup.GET("/monitoring/metrics", monitoringApi.GetMetrics)
+		SuperAdminGroup.GET("/monitoring/logs", system.GetSystemLogs)
+		SuperAdminGroup.GET("/monitoring/provider", system.GetProviderMonitoring)
+		SuperAdminGroup.GET("/monitoring/health", monitoringApi.GetHealthCheck)
 
 		// 性能监控
 		SuperAdminGroup.GET("/performance/metrics", system.GetPerformanceMetrics)
 		SuperAdminGroup.GET("/performance/history", system.GetPerformanceHistory)
 
 		// 日志查看
+		storageApi := &system.StorageApi{}
 		SuperAdminGroup.GET("/logs/dates", system.GetLogDates)
 		SuperAdminGroup.GET("/logs/content", system.GetLogContent)
+		SuperAdminGroup.GET("/logs/files", storageApi.GetLogFiles)
+		SuperAdminGroup.GET("/logs/read", storageApi.ReadLogFile)
+		SuperAdminGroup.POST("/logs/cleanup", storageApi.CleanupOldLogs)
+
+		// 存储管理
+		SuperAdminGroup.GET("/storage/info", storageApi.GetStorageInfo)
+		SuperAdminGroup.POST("/storage/init", storageApi.InitializeStorage)
+		SuperAdminGroup.POST("/storage/cleanup", storageApi.CleanupTempFiles)
+
+		// 数据库统计
+		SuperAdminGroup.GET("/database/stats", public.DatabaseStatsAPI)
 
 		// 配额管理
 		SuperAdminGroup.GET("/quota/users/:userId", system.GetUserQuotaInfo)
