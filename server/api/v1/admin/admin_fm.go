@@ -15,6 +15,7 @@ import (
 	adminProvider "oneclickvirt/service/admin/provider"
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/remote"
+	"oneclickvirt/service/taskgate"
 	"path"
 	"sort"
 	"strings"
@@ -113,6 +114,11 @@ func AdminProviderFMList(c *gin.Context) {
 // @Success 200 {file} binary
 // @Router /admin/providers/{id}/fm/download [get]
 func AdminProviderFMDownload(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	provider, err := getAgentProviderForFM(c)
 	if err != nil {
 		common.ResponseWithError(c, err)
@@ -151,6 +157,11 @@ func AdminProviderFMDownload(c *gin.Context) {
 // @Success 200 {object} common.Response
 // @Router /admin/providers/{id}/fm/upload [post]
 func AdminProviderFMUpload(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	provider, err := getAgentProviderForFM(c)
 	if err != nil {
 		common.ResponseWithError(c, err)
@@ -215,6 +226,11 @@ func AdminProviderFMUpload(c *gin.Context) {
 // @Success 200 {object} common.Response
 // @Router /admin/providers/{id}/fm/file [delete]
 func AdminProviderFMDelete(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	provider, err := getAgentProviderForFM(c)
 	if err != nil {
 		common.ResponseWithError(c, err)

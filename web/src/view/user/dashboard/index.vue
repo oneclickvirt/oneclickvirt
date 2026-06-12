@@ -142,6 +142,25 @@
                 {{ userLimits.maxTraffic > 0 ? t('user.dashboard.trafficLimitDesc') : t('user.dashboard.unlimitedTrafficDesc') }}
               </div>
             </div>
+
+            <!-- 快照配额 -->
+            <div class="limit-item">
+              <div class="limit-header">
+                <span class="limit-title">{{ t('user.dashboard.snapshotQuota') }}</span>
+                <span class="limit-usage">{{ userLimits.usedSnapshots }} / {{ userLimits.maxSnapshots }}</span>
+              </div>
+              <el-progress
+                :percentage="getUsagePercentage(userLimits.usedSnapshots, userLimits.maxSnapshots)"
+                :color="getProgressColor(userLimits.usedSnapshots, userLimits.maxSnapshots)"
+                :stroke-width="8"
+              />
+              <div class="limit-description">
+                {{ t('user.dashboard.snapshotQuotaDesc', {
+                  remaining: userLimits.remainingSnapshots,
+                  perInstance: userLimits.maxSnapshotsPerInstance
+                }) }}
+              </div>
+            </div>
           </div>
         </el-card>
       </div>
@@ -224,7 +243,11 @@ const userLimits = reactive({
   maxBandwidth: 0,
   usedBandwidth: 0,
   maxTraffic: 0,
-  usedTraffic: 0
+  usedTraffic: 0,
+  maxSnapshots: 0,
+  usedSnapshots: 0,
+  remainingSnapshots: 0,
+  maxSnapshotsPerInstance: 0
 })
 
 const announcements = ref([])
@@ -246,7 +269,7 @@ const loadUserLimits = async () => {
   } catch (error) {
     console.error(t('user.dashboard.getUserLimitsFailed'), error)
     loadingMsg.close()
-    ElMessage.error(error?.message || t('user.dashboard.loadQuotaFailed'))
+    ElMessage.error(error?.details || error?.message || t('user.dashboard.loadQuotaFailed'))
   }
 }
 

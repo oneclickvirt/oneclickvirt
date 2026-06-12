@@ -162,7 +162,7 @@ export function useInstanceManagement() {
   }
 
   const getStatusType = (status) => {
-    const types = { running: 'success', stopped: 'info', error: 'danger', failed: 'danger', starting: 'warning', stopping: 'warning', creating: 'warning', restarting: 'warning', rebuilding: 'warning', resetting: 'warning', deleting: 'danger' }
+    const types = { running: 'success', stopped: 'info', error: 'danger', failed: 'danger', starting: 'warning', stopping: 'warning', creating: 'warning', restarting: 'warning', rebuilding: 'warning', resetting: 'warning', deleting: 'danger', deleted: 'info' }
     return types[status] || 'info'
   }
 
@@ -170,7 +170,7 @@ export function useInstanceManagement() {
     const texts = {
       running: t('admin.instances.statusRunning'), stopped: t('admin.instances.statusStopped'), error: t('admin.instances.statusError'),
       failed: t('admin.instances.statusFailed'), starting: t('admin.instances.statusStarting'), stopping: t('admin.instances.statusStopping'),
-      creating: t('admin.instances.statusCreating'), restarting: t('admin.instances.statusRestarting'), rebuilding: t('admin.instances.statusRebuilding'), resetting: t('admin.instances.statusResetting'), deleting: t('admin.instances.statusDeleting')
+      creating: t('admin.instances.statusCreating'), restarting: t('admin.instances.statusRestarting'), rebuilding: t('admin.instances.statusRebuilding'), resetting: t('admin.instances.statusResetting'), deleting: t('admin.instances.statusDeleting'), deleted: t('admin.instances.statusDeleted')
     }
     return texts[status] || status
   }

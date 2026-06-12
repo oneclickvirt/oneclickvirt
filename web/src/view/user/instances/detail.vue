@@ -85,13 +85,16 @@
           />
         </el-tab-pane>
 
-        <!-- 快照标签页：分享视图不暴露快照操作 -->
+        <!-- 快照标签页 -->
         <el-tab-pane
-          v-if="!isShareMode"
           :label="t('user.instanceDetail.snapshots')"
           name="snapshots"
         >
-          <SnapshotsTab :instance-id="currentInstanceId" />
+          <SnapshotsTab
+            :instance-id="currentInstanceId"
+            :share-token="shareToken"
+            :readonly="isShareMode"
+          />
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -238,7 +241,7 @@ watch(() => [route.params.id, route.params.token], async ([newId, newToken], [ol
 
 watch(() => route.query.tab, (newTab, oldTab) => {
   if (newTab === oldTab) return
-  if (newTab && ['overview', 'ports', 'stats', 'resources', 'snapshots'].includes(newTab) && !(isShareMode.value && newTab === 'snapshots')) {
+  if (newTab && ['overview', 'ports', 'stats', 'resources', 'snapshots'].includes(newTab)) {
     if (activeTab.value === newTab) return
     isUpdatingFromRoute = true
     activeTab.value = newTab

@@ -65,6 +65,18 @@
               :label="t('user.tasks.taskTypeDelete')"
               value="delete"
             />
+            <el-option
+              :label="t('user.tasks.taskTypeSnapshotCreate')"
+              value="snapshot-create"
+            />
+            <el-option
+              :label="t('user.tasks.taskTypeSnapshotDelete')"
+              value="snapshot-delete"
+            />
+            <el-option
+              :label="t('user.tasks.taskTypeSnapshotRestore')"
+              value="snapshot-restore"
+            />
           </el-select>
         </el-form-item>
         <el-form-item>

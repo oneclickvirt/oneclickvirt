@@ -118,7 +118,7 @@ func ClaimResource(c *gin.Context) {
 		zap.String("name", utils.TruncateString(req.Name, 32)))
 
 	userServiceInstance := userService.NewService()
-	instance, err := userServiceInstance.ClaimResource(userID, req)
+	task, err := userServiceInstance.ClaimResource(userID, req)
 	if err != nil {
 		global.APP_LOG.Error("用户申领资源失败",
 			zap.Uint("userID", userID),
@@ -131,8 +131,15 @@ func ClaimResource(c *gin.Context) {
 
 	global.APP_LOG.Info("用户申领资源成功",
 		zap.Uint("userID", userID),
+		zap.Uint("taskID", task.ID),
 		zap.String("instanceName", utils.TruncateString(req.Name, 32)))
-	common.ResponseSuccess(c, instance, "申领成功")
+	responseData := user.CreateInstanceTaskResponse{
+		TaskID:    task.ID,
+		Status:    task.Status,
+		Message:   "资源申领任务已提交，正在后台处理",
+		CreatedAt: task.CreatedAt,
+	}
+	common.ResponseSuccess(c, responseData, "资源申领任务已提交")
 }
 
 // GetUserInstances 获取用户实例列表

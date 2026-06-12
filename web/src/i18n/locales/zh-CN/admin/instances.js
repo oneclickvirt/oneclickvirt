@@ -27,6 +27,7 @@ export default {
   statusRebuilding: "重建中",
   statusResetting: "重置中",
   statusDeleting: "删除中",
+  statusDeleted: "已删除",
   typeContainer: "容器",
   typeVM: "虚拟机",
   instanceName: "实例名称",

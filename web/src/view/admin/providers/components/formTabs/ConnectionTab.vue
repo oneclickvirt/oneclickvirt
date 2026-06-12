@@ -223,6 +223,68 @@
         </template>
         <div>{{ $t('admin.providers.localConnectionTip') }}</div>
       </el-alert>
+      <div class="local-detect-actions">
+        <el-button
+          type="primary"
+          :loading="detectingLocal"
+          @click="handleDetectLocalProvider"
+        >
+          <el-icon v-if="!detectingLocal">
+            <CircleCheck />
+          </el-icon>
+          {{ detectingLocal ? $t('admin.providers.localDetecting') : $t('admin.providers.localDetect') }}
+        </el-button>
+      </div>
+      <el-alert
+        v-if="localDetectionResult"
+        class="local-detect-result"
+        :type="localDetectionResult.available ? 'success' : 'warning'"
+        :closable="false"
+        show-icon
+      >
+        <template #title>
+          {{ localDetectionResult.available ? $t('admin.providers.localDetectSuccess') : $t('admin.providers.localDetectFailed') }}
+        </template>
+        <div class="local-detect-summary">
+          <span>{{ $t('admin.providers.localDetectKvm') }}: <el-tag size="small" :type="localDetectionResult.kvmAvailable ? 'success' : 'warning'">{{ formatLocalDetectStatus(localDetectionResult.kvmAvailable) }}</el-tag></span>
+          <span>{{ $t('admin.providers.localDetectQemu') }}: <el-tag size="small" :type="localDetectionResult.qemuAvailable ? 'success' : 'danger'">{{ formatLocalDetectStatus(localDetectionResult.qemuAvailable) }}</el-tag></span>
+          <span>{{ $t('admin.providers.localDetectLxc') }}: <el-tag size="small" :type="localDetectionResult.lxcAvailable ? 'success' : 'warning'">{{ formatLocalDetectStatus(localDetectionResult.lxcAvailable) }}</el-tag></span>
+        </div>
+        <div
+          v-if="localCommandChecks.length"
+          class="local-command-list"
+        >
+          <strong>{{ $t('admin.providers.localDetectCommands') }}</strong>
+          <div
+            v-for="command in localCommandChecks"
+            :key="command.name"
+            class="local-command-row"
+          >
+            <span>{{ command.name }}</span>
+            <el-tag
+              size="small"
+              :type="command.present ? 'success' : 'danger'"
+            >
+              {{ formatLocalDetectStatus(command.present) }}
+            </el-tag>
+            <code v-if="command.path">{{ command.path }}</code>
+          </div>
+        </div>
+        <div
+          v-if="localDetectionResult.warnings?.length"
+          class="local-warning-list"
+        >
+          <strong>{{ $t('admin.providers.localDetectWarnings') }}</strong>
+          <ul>
+            <li
+              v-for="warning in localDetectionResult.warnings"
+              :key="warning"
+            >
+              {{ warning }}
+            </li>
+          </ul>
+        </div>
+      </el-alert>
     </div>
 
     <!-- ======================================================
@@ -656,6 +718,9 @@ const {
   useControllerSource,
   wssUnavailable,
   probingWSS,
+  detectingLocal,
+  localDetectionResult,
+  localCommandChecks,
   isAgentMode,
   isLocalMode,
   hasAgentMappedNetworking,
@@ -668,6 +733,8 @@ const {
   probeWssAvailability,
   formatOnlineDuration,
   formatDateTime,
+  formatLocalDetectStatus,
+  handleDetectLocalProvider,
   copyCmd,
 } = useConnectionTab(props, emit)
 </script>
@@ -689,6 +756,44 @@ const {
 
 .local-mode-content {
   padding: 4px 0;
+}
+
+.local-detect-actions {
+  margin-top: 12px;
+}
+
+.local-detect-result {
+  margin-top: 12px;
+}
+
+.local-detect-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+
+.local-command-list,
+.local-warning-list {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.local-command-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.local-command-row code {
+  color: var(--el-text-color-secondary);
+  word-break: break-all;
+}
+
+.local-warning-list ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
 }
 
 .agent-mode-content {

@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"oneclickvirt/service/images"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/taskgate"
+	"time"
 
 	"oneclickvirt/global"
 	imageModel "oneclickvirt/model/image"
 	providerModel "oneclickvirt/model/provider"
+	resourceModel "oneclickvirt/model/resource"
 	"oneclickvirt/provider"
 
 	"go.uber.org/zap"
@@ -132,6 +135,9 @@ func CheckProviderConnection(prov provider.Provider) error {
 
 // CreateInstanceByProviderID 根据Provider ID创建实例（确保使用正确的Provider）
 func (s *ProviderApiService) CreateInstanceByProviderID(ctx context.Context, providerID uint, req CreateInstanceRequest) error {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return err
+	}
 	// 使用新的GetProviderByID方法
 	prov, dbProvider, err := s.GetProviderByID(providerID)
 	if err != nil {
@@ -155,23 +161,35 @@ func (s *ProviderApiService) CreateInstanceByProviderID(ctx context.Context, pro
 	// 检查Provider节点实例数量限制（实时查询）
 	if dbProvider.MaxContainerInstances > 0 || dbProvider.MaxVMInstances > 0 {
 		var containerCount, vmCount int64
+		var reservationCount int64
 		if config.InstanceType == "container" && dbProvider.MaxContainerInstances > 0 {
 			if err := global.APP_DB.Model(&providerModel.Instance{}).
 				Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
 					dbProvider.ID, "container", []string{"deleted", "deleting", "failed"}).
 				Count(&containerCount).Error; err == nil {
-				if int(containerCount) >= dbProvider.MaxContainerInstances {
-					return fmt.Errorf("节点容器数量已达上限：%d/%d", containerCount, dbProvider.MaxContainerInstances)
+				_ = global.APP_DB.Model(&resourceModel.ResourceReservation{}).
+					Where("provider_id = ? AND instance_type = ? AND expires_at > ?",
+						dbProvider.ID, "container", time.Now()).
+					Count(&reservationCount).Error
+				total := containerCount + reservationCount
+				if int(total) >= dbProvider.MaxContainerInstances {
+					return fmt.Errorf("节点容器数量已达上限：%d/%d", total, dbProvider.MaxContainerInstances)
 				}
 			}
 		}
 		if config.InstanceType == "vm" && dbProvider.MaxVMInstances > 0 {
+			reservationCount = 0
 			if err := global.APP_DB.Model(&providerModel.Instance{}).
 				Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
 					dbProvider.ID, "vm", []string{"deleted", "deleting", "failed"}).
 				Count(&vmCount).Error; err == nil {
-				if int(vmCount) >= dbProvider.MaxVMInstances {
-					return fmt.Errorf("节点虚拟机数量已达上限：%d/%d", vmCount, dbProvider.MaxVMInstances)
+				_ = global.APP_DB.Model(&resourceModel.ResourceReservation{}).
+					Where("provider_id = ? AND instance_type = ? AND expires_at > ?",
+						dbProvider.ID, "vm", time.Now()).
+					Count(&reservationCount).Error
+				total := vmCount + reservationCount
+				if int(total) >= dbProvider.MaxVMInstances {
+					return fmt.Errorf("节点虚拟机数量已达上限：%d/%d", total, dbProvider.MaxVMInstances)
 				}
 			}
 		}

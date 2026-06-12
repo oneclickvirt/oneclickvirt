@@ -11,7 +11,6 @@ import (
 
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/auth"
-	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
 )
 
@@ -133,7 +132,7 @@ func (s *Service) GetAvailableResources(req userModel.AvailableResourcesRequest)
 }
 
 // ClaimResource 申领资源
-func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest) (*providerModel.Instance, error) {
+func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest) (*adminModel.Task, error) {
 	return s.resource.ClaimResource(userID, req)
 }
 

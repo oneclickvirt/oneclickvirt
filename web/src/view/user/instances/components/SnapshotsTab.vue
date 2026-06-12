@@ -1,12 +1,16 @@
 <template>
   <div class="snapshots-tab">
     <div class="toolbar">
-      <el-button type="primary" :loading="submitting" @click="openCreateDialog">
+      <el-button v-if="!isReadOnly" type="primary" :loading="submitting" @click="openCreateDialog">
         {{ t('user.instanceDetail.createSnapshot') }}
+      </el-button>
+      <el-button v-if="!isReadOnly" :loading="uploading" @click="triggerUpload">
+        {{ t('user.instanceDetail.uploadSnapshot') }}
       </el-button>
       <el-button :loading="loading" @click="loadSnapshots">
         {{ t('user.instanceDetail.refresh') }}
       </el-button>
+      <input ref="uploadInput" class="hidden-file-input" type="file" accept="application/json,.json" @change="handleUpload" />
     </div>
 
     <el-table v-loading="loading" :data="snapshots" border>
@@ -21,15 +25,15 @@
       <el-table-column prop="createdAt" :label="t('user.instanceDetail.createdAt')" width="180">
         <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column :label="t('user.instanceDetail.actions')" width="290" fixed="right">
+      <el-table-column :label="t('user.instanceDetail.actions')" :width="isReadOnly ? 130 : 290" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" type="warning" :disabled="row.status !== 'available'" @click="restoreSnapshot(row)">
+          <el-button v-if="!isReadOnly" size="small" type="warning" :disabled="row.status !== 'available'" @click="restoreSnapshot(row)">
             {{ t('user.instanceDetail.restoreSnapshot') }}
           </el-button>
-          <el-button size="small" @click="downloadSnapshot(row)">
+          <el-button size="small" :disabled="row.status !== 'available'" @click="downloadSnapshot(row)">
             {{ t('user.instanceDetail.downloadSnapshot') }}
           </el-button>
-          <el-button size="small" type="danger" @click="deleteSnapshot(row)">
+          <el-button v-if="!isReadOnly" size="small" type="danger" @click="deleteSnapshot(row)">
             {{ t('user.instanceDetail.delete') }}
           </el-button>
         </template>
@@ -49,7 +53,14 @@
       @current-change="loadSnapshots"
     />
 
-    <el-dialog v-model="createDialogVisible" :title="t('user.instanceDetail.createSnapshot')" width="520px">
+    <el-dialog
+      v-model="createDialogVisible"
+      :title="t('user.instanceDetail.createSnapshot')"
+      width="520px"
+      append-to-body
+      destroy-on-close
+      :lock-scroll="false"
+    >
       <el-form :model="createForm" label-width="110px">
         <el-form-item :label="t('user.instanceDetail.snapshotName')">
           <el-input v-model="createForm.name" :placeholder="t('user.instanceDetail.autoSnapshotName')" />
@@ -67,47 +78,67 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
+  import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createUserInstanceSnapshot,
   deleteUserSnapshot,
+  downloadSharedSnapshot,
   downloadUserSnapshot,
+  getSharedInstanceSnapshots,
   getUserInstanceSnapshots,
-  restoreUserSnapshot
+  restoreUserSnapshot,
+  uploadUserSnapshot
 } from '@/api/user'
 
 const props = defineProps({
   instanceId: {
     type: [Number, String],
     required: true
+  },
+  shareToken: {
+    type: String,
+    default: ''
+  },
+  readonly: {
+    type: Boolean,
+    default: false
   }
 })
 
 const { t, locale } = useI18n()
 const loading = ref(false)
 const submitting = ref(false)
+const uploading = ref(false)
 const snapshots = ref([])
 const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
 const createDialogVisible = ref(false)
 const createForm = reactive({ name: '', description: '' })
+const isReadOnly = computed(() => props.readonly || Boolean(props.shareToken))
+const uploadInput = ref(null)
+
+const errorMessage = (error, fallback) => error?.details || error?.message || fallback
 
 const loadSnapshots = async () => {
   if (!props.instanceId) return
   loading.value = true
   try {
-    const res = await getUserInstanceSnapshots(props.instanceId, { page: pagination.page, pageSize: pagination.pageSize })
+    const params = { page: pagination.page, pageSize: pagination.pageSize }
+    const res = props.shareToken
+      ? await getSharedInstanceSnapshots(props.shareToken, params)
+      : await getUserInstanceSnapshots(props.instanceId, params)
     snapshots.value = res.data?.list || []
     pagination.total = res.data?.total || 0
   } catch (error) {
-    ElMessage.error(error.message || t('user.instanceDetail.loadSnapshotsFailed'))
+    ElMessage.error(errorMessage(error, t('user.instanceDetail.loadSnapshotsFailed')))
   } finally {
     loading.value = false
   }
 }
 
 const openCreateDialog = () => {
+  if (isReadOnly.value) return
   createForm.name = ''
   createForm.description = ''
   createDialogVisible.value = true
@@ -121,9 +152,30 @@ const createSnapshot = async () => {
     createDialogVisible.value = false
     await loadSnapshots()
   } catch (error) {
-    ElMessage.error(error.message || t('user.instanceDetail.createSnapshotFailed'))
+    ElMessage.error(errorMessage(error, t('user.instanceDetail.createSnapshotFailed')))
   } finally {
     submitting.value = false
+  }
+}
+
+const triggerUpload = () => {
+  if (isReadOnly.value) return
+  uploadInput.value?.click()
+}
+
+const handleUpload = async (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || isReadOnly.value) return
+  uploading.value = true
+  try {
+    await uploadUserSnapshot(props.instanceId, file)
+    ElMessage.success(t('user.instanceDetail.uploadSnapshotSuccess'))
+    await loadSnapshots()
+  } catch (error) {
+    ElMessage.error(errorMessage(error, t('user.instanceDetail.uploadSnapshotFailed')))
+  } finally {
+    uploading.value = false
   }
 }
 
@@ -133,7 +185,7 @@ const restoreSnapshot = async (row) => {
     await restoreUserSnapshot(row.id)
     ElMessage.success(t('user.instanceDetail.restoreSnapshotSubmitted'))
   } catch (error) {
-    if (error !== 'cancel') ElMessage.error(error.message || t('user.instanceDetail.restoreSnapshotFailed'))
+    if (error !== 'cancel') ElMessage.error(errorMessage(error, t('user.instanceDetail.restoreSnapshotFailed')))
   }
 }
 
@@ -144,16 +196,18 @@ const deleteSnapshot = async (row) => {
     ElMessage.success(t('user.instanceDetail.deleteSuccess'))
     await loadSnapshots()
   } catch (error) {
-    if (error !== 'cancel') ElMessage.error(error.message || t('user.instanceDetail.deleteFailed'))
+    if (error !== 'cancel') ElMessage.error(errorMessage(error, t('user.instanceDetail.deleteFailed')))
   }
 }
 
 const downloadSnapshot = async (row) => {
   try {
-    const res = await downloadUserSnapshot(row.id)
+    const res = props.shareToken
+      ? await downloadSharedSnapshot(props.shareToken, row.id)
+      : await downloadUserSnapshot(row.id)
     saveBlob(res.data, filenameFromResponse(res) || `snapshot-${row.instanceName || props.instanceId}-${row.name}.json`)
   } catch (error) {
-    ElMessage.error(error.message || t('user.instanceDetail.downloadSnapshotFailed'))
+    ElMessage.error(errorMessage(error, t('user.instanceDetail.downloadSnapshotFailed')))
   }
 }
 
@@ -190,7 +244,7 @@ const saveBlob = (blob, filename) => {
   URL.revokeObjectURL(url)
 }
 
-watch(() => props.instanceId, () => {
+watch(() => [props.instanceId, props.shareToken], () => {
   pagination.page = 1
   loadSnapshots()
 })
@@ -208,6 +262,9 @@ onMounted(loadSnapshots)
   align-items: center;
   margin-bottom: 16px;
   flex-wrap: wrap;
+}
+.hidden-file-input {
+  display: none;
 }
 .pagination {
   margin-top: 16px;

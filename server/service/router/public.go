@@ -25,6 +25,8 @@ func InitPublicRouter(Router *gin.RouterGroup) {
 		PublicRouter.GET("instance-shares/:token/monitoring", public.GetSharedInstanceMonitoring)
 		PublicRouter.GET("instance-shares/:token/monitoring/resources", public.GetSharedInstanceResourceMonitoring)
 		PublicRouter.GET("instance-shares/:token/traffic/detail", public.GetSharedInstanceTrafficDetail)
+		PublicRouter.GET("instance-shares/:token/snapshots", public.GetSharedInstanceSnapshots)
+		PublicRouter.GET("instance-shares/:token/snapshots/:snapshotId/download", public.DownloadSharedSnapshot)
 		PublicRouter.GET("instance-shares/:token/ssh", public.SharedSSHWebSocket)
 		PublicRouter.GET("instance-shares/:token/exec", public.SharedExecWebSocket)
 		PublicRouter.GET("instance-shares/:token/sftp/list", public.SharedSFTPList)

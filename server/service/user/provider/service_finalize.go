@@ -277,6 +277,23 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				global.APP_LOG.Debug("Provider资源释放成功", zap.Uint("instanceId", instance.ID))
 			}
 
+			if task.UserID > 0 {
+				quotaService := resources.NewQuotaService()
+				resourceUsage := resources.ResourceUsage{
+					CPU:       instance.CPU,
+					Memory:    instance.Memory,
+					Disk:      instance.Disk,
+					Bandwidth: instance.Bandwidth,
+				}
+				if err := quotaService.ReleasePendingQuota(tx, task.UserID, resourceUsage); err != nil {
+					global.APP_LOG.Warn("释放失败实例待确认配额失败",
+						zap.Uint("taskId", task.ID),
+						zap.Uint("instanceId", instance.ID),
+						zap.Uint("userId", task.UserID),
+						zap.Error(err))
+				}
+			}
+
 			// 资源预留已在创建时被原子化消费，无需额外释放
 			if err := tx.Model(&providerModel.ProviderIPv4Pool{}).
 				Where("instance_id = ?", instance.ID).
@@ -395,27 +412,13 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 			// 长耗时等待阶段单独占用 70-82%，避免 VM cloud-init/SSH 等待时进度条长期卡在小区间。
 			s.updateTaskProgress(taskID, 70, "step.waitingSSHReady")
-			// 根据Provider类型确定SSH等待时长：
-			// - 容器类(Docker/Podman/Containerd/LXD/Incus container)：秒级启动，30s足够
-			// - VM类(QEMU/KubeVirt/VMware)：需等cloud-init完成，保留360s
-			// - Proxmox：KVM加速4分钟，QEMU软件模拟6分钟
+			// 根据Provider类型和实例类型确定SSH等待时长。
 			sshWaitTimeout := 30 * time.Second // 容器默认30s
 			var dbProviderForWait providerModel.Provider
 			var instanceForWait providerModel.Instance
 			_ = global.APP_DB.Select("instance_type").Where("id = ?", instanceID).First(&instanceForWait).Error
 			if err := global.APP_DB.Select("type, pve_kvm_available").Where("id = ?", providerID).First(&dbProviderForWait).Error; err == nil {
-				switch {
-				case utils.UsesVMPositionalPorts(dbProviderForWait.Type, instanceForWait.InstanceType):
-					sshWaitTimeout = 360 * time.Second // 6分钟等待VM cloud-init完成
-				case dbProviderForWait.Type == "proxmox":
-					// Proxmox使用QEMU软件模拟时启动更慢，需要更长等待
-					if dbProviderForWait.PveKvmAvailable != nil && !*dbProviderForWait.PveKvmAvailable {
-						sshWaitTimeout = 360 * time.Second // 6分钟：QEMU软件模拟
-					} else {
-						sshWaitTimeout = 240 * time.Second // 4分钟：KVM硬件加速或未知
-					}
-					// LXD/Incus container 保留30s默认值
-				}
+				sshWaitTimeout = providerCreateSSHWaitTimeout(dbProviderForWait, instanceForWait)
 			}
 
 			// 智能等待实例SSH服务就绪，传入taskID以便更新进度。

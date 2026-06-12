@@ -2,11 +2,13 @@ package user
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
 	"oneclickvirt/model/common"
 	snapshotSvc "oneclickvirt/service/snapshot"
+	"oneclickvirt/service/taskgate"
 
 	"github.com/gin-gonic/gin"
 )
@@ -95,6 +97,11 @@ func RestoreUserSnapshot(c *gin.Context) {
 }
 
 func DownloadUserSnapshot(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	userID, err := getUserID(c)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
@@ -112,6 +119,57 @@ func DownloadUserSnapshot(c *gin.Context) {
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
+}
+
+func UploadUserSnapshot(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	userID, err := getUserID(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
+		return
+	}
+	instanceID, ok := parseUserPathUint(c, "id")
+	if !ok {
+		return
+	}
+
+	const maxSnapshotManifestUploadBytes = 1 << 20
+	var payload []byte
+	if fileHeader, fileErr := c.FormFile("file"); fileErr == nil {
+		if fileHeader.Size > maxSnapshotManifestUploadBytes {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "快照清单文件不能超过1MB"))
+			return
+		}
+		file, openErr := fileHeader.Open()
+		if openErr != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "读取快照清单失败"))
+			return
+		}
+		defer file.Close()
+		payload, err = io.ReadAll(io.LimitReader(file, maxSnapshotManifestUploadBytes+1))
+	} else {
+		payload, err = io.ReadAll(io.LimitReader(c.Request.Body, maxSnapshotManifestUploadBytes+1))
+	}
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "读取快照清单失败"))
+		return
+	}
+	if len(payload) > maxSnapshotManifestUploadBytes {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "快照清单文件不能超过1MB"))
+		return
+	}
+
+	service := &snapshotSvc.Service{}
+	snapshot, err := service.ImportUserSnapshotManifest(instanceID, userID, payload)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, snapshot, "快照清单上传成功")
 }
 
 func parseUserPathUint(c *gin.Context, key string) (uint, bool) {

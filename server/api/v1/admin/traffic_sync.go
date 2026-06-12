@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"oneclickvirt/model/common"
+	"oneclickvirt/service/taskgate"
 	"oneclickvirt/service/traffic"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +29,10 @@ import (
 func SyncInstanceTraffic(c *gin.Context) {
 	// 检查管理员权限
 	if !requireAdminOnly(c) {
+		return
+	}
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -67,6 +72,10 @@ func SyncUserTraffic(c *gin.Context) {
 	if !requireAdminOnly(c) {
 		return
 	}
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
 
 	// 获取用户ID
 	userIDStr := c.Param("user_id")
@@ -104,6 +113,10 @@ func SyncProviderTraffic(c *gin.Context) {
 	if !requireAdminOnly(c) {
 		return
 	}
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
 
 	// 获取Provider ID
 	providerIDStr := c.Param("provider_id")
@@ -137,6 +150,10 @@ func SyncProviderTraffic(c *gin.Context) {
 func SyncAllTraffic(c *gin.Context) {
 	// 检查管理员权限
 	if !requireAdminOnly(c) {
+		return
+	}
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

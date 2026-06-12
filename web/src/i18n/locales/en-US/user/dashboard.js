@@ -20,6 +20,8 @@ export default {
   unlimitedTraffic: "No Traffic Limit",
   trafficLimitDesc: "Monthly traffic quota usage",
   unlimitedTrafficDesc: "Unlimited traffic for current level",
+  snapshotQuota: "Snapshot Quota",
+  snapshotQuotaDesc: "{remaining} remaining; up to {perInstance} snapshots per instance",
   systemAnnouncements: "System Announcements",
   refreshingQuota: "Refreshing quota information...",
   quotaRefreshed: "Quota information refreshed",

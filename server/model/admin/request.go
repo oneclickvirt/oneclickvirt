@@ -94,6 +94,11 @@ type CreateProviderRequest struct {
 	DefaultOutboundBandwidth int `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
 	MaxInboundBandwidth      int `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
+	// 磁盘读写 I/O 速率限制
+	ContainerReadIOLimit  string `json:"containerReadIoLimit"`  // 容器读取速率限制，如"50MB"
+	ContainerWriteIOLimit string `json:"containerWriteIoLimit"` // 容器写入速率限制，如"50MB"
+	VMReadIOLimit         string `json:"vmReadIoLimit"`         // 虚拟机读取速率限制，如"50MB"
+	VMWriteIOLimit        string `json:"vmWriteIoLimit"`        // 虚拟机写入速率限制，如"50MB"
 	// 流量管理
 	EnableTrafficControl     bool    `json:"enableTrafficControl"`     // 是否启用流量统计和限制，默认启用
 	MaxTraffic               int64   `json:"maxTraffic"`               // 最大流量限制（MB），默认1TB=1048576MB
@@ -201,6 +206,11 @@ type UpdateProviderRequest struct {
 	DefaultOutboundBandwidth int `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
 	MaxInboundBandwidth      int `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
+	// 磁盘读写 I/O 速率限制
+	ContainerReadIOLimit  string `json:"containerReadIoLimit"`  // 容器读取速率限制，如"50MB"
+	ContainerWriteIOLimit string `json:"containerWriteIoLimit"` // 容器写入速率限制，如"50MB"
+	VMReadIOLimit         string `json:"vmReadIoLimit"`         // 虚拟机读取速率限制，如"50MB"
+	VMWriteIOLimit        string `json:"vmWriteIoLimit"`        // 虚拟机写入速率限制，如"50MB"
 	// 流量管理
 	EnableTrafficControl bool    `json:"enableTrafficControl"` // 是否启用流量统计和限制，默认启用
 	MaxTraffic           int64   `json:"maxTraffic"`           // 最大流量限制（MB），默认1TB=1048576MB
@@ -555,6 +565,7 @@ type CreateInstanceTaskRequest struct {
 	CPU          int    `json:"cpu,omitempty"`
 	Memory       int64  `json:"memory,omitempty"` // MB
 	Disk         int64  `json:"disk,omitempty"`   // GB
+	DiskMB       int64  `json:"diskMb,omitempty"` // MB，兼容旧资源申领接口的精确磁盘口径
 	Bandwidth    int    `json:"bandwidth,omitempty"`
 	InstanceType string `json:"instanceType,omitempty"`
 	NetworkType  string `json:"networkType,omitempty"`

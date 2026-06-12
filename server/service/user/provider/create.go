@@ -11,11 +11,13 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	resourceModel "oneclickvirt/model/resource"
 	systemModel "oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/taskgate"
 	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
@@ -39,6 +41,10 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 		zap.String("diskId", req.DiskId),
 		zap.String("bandwidthId", req.BandwidthId),
 		zap.String("description", req.Description))
+
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, err
+	}
 
 	// 快速验证基本参数
 	var provider providerModel.Provider
@@ -216,6 +222,10 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 	// 使用事务确保原子性，但只在关键操作中持有锁
 	var task *adminModel.Task
 	err := database.GetDatabaseService().ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+			return err
+		}
+
 		// 在事务中验证实例数量限制（防止并发超配）
 		// 使用行锁保护，确保原子性
 		quotaService := resources.NewQuotaService()
@@ -276,16 +286,20 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 
 			// 检查缓存是否过期
 			if provider.CountCacheExpiry == nil || time.Now().After(*provider.CountCacheExpiry) {
-				// 缓存过期，需要重新查询（排除deleted、deleting、failed状态）
+				// 缓存过期，需要重新查询（排除终态，创建中/重置中仍会占用或即将占用名额）
 				var freshContainerCount, freshVMCount int64
-				tx.Model(&providerModel.Instance{}).
-					Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
-						provider.ID, "container", []string{"deleted", "deleting", "failed"}).
-					Count(&freshContainerCount)
-				tx.Model(&providerModel.Instance{}).
-					Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
-						provider.ID, "vm", []string{"deleted", "deleting", "failed"}).
-					Count(&freshVMCount)
+				if err := tx.Model(&providerModel.Instance{}).
+					Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status NOT IN (?)",
+						provider.ID, "container", constant.GetTerminalStatuses()).
+					Count(&freshContainerCount).Error; err != nil {
+					return fmt.Errorf("统计节点容器数量失败: %v", err)
+				}
+				if err := tx.Model(&providerModel.Instance{}).
+					Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status NOT IN (?)",
+						provider.ID, "vm", constant.GetTerminalStatuses()).
+					Count(&freshVMCount).Error; err != nil {
+					return fmt.Errorf("统计节点虚拟机数量失败: %v", err)
+				}
 
 				containerCount = int(freshContainerCount)
 				vmCount = int(freshVMCount)
@@ -313,6 +327,20 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 					zap.Int("containerCount", containerCount),
 					zap.Int("vmCount", vmCount))
 			}
+
+			var reservedByType struct {
+				ReservedContainers int64
+				ReservedVMs        int64
+			}
+			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+				Model(&resourceModel.ResourceReservation{}).
+				Select("COALESCE(SUM(CASE WHEN instance_type = 'vm' THEN 0 ELSE 1 END), 0) AS reserved_containers, COALESCE(SUM(CASE WHEN instance_type = 'vm' THEN 1 ELSE 0 END), 0) AS reserved_vms").
+				Where("provider_id = ? AND expires_at > ?", provider.ID, time.Now()).
+				Scan(&reservedByType).Error; err != nil {
+				return fmt.Errorf("统计节点预留资源失败: %v", err)
+			}
+			containerCount += int(reservedByType.ReservedContainers)
+			vmCount += int(reservedByType.ReservedVMs)
 
 			if systemImage.InstanceType == "container" && provider.MaxContainerInstances > 0 {
 				if containerCount >= provider.MaxContainerInstances {

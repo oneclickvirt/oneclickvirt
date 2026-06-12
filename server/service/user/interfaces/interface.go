@@ -5,7 +5,6 @@ import (
 
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/auth"
-	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
 )
 
@@ -38,7 +37,7 @@ type NotificationServiceInterface interface {
 // ResourceServiceInterface 资源服务接口
 type ResourceServiceInterface interface {
 	GetAvailableResources(req userModel.AvailableResourcesRequest) ([]userModel.AvailableResourceResponse, int64, error)
-	ClaimResource(userID uint, req userModel.ClaimResourceRequest) (*providerModel.Instance, error)
+	ClaimResource(userID uint, req userModel.ClaimResourceRequest) (*adminModel.Task, error)
 }
 
 // ProviderServiceInterface 提供商服务接口

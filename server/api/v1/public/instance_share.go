@@ -16,7 +16,9 @@ import (
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/resources"
 	shareService "oneclickvirt/service/share"
+	snapshotSvc "oneclickvirt/service/snapshot"
 	"oneclickvirt/service/task"
+	"oneclickvirt/service/taskgate"
 	trafficService "oneclickvirt/service/traffic"
 	userService "oneclickvirt/service/user"
 
@@ -112,6 +114,11 @@ func SharedInstanceAction(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	var req userModel.InstanceActionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
@@ -137,6 +144,11 @@ func ResetSharedInstancePassword(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	if !ensureSharedInstanceUsable(instance, "reset-password") {
 		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例已被冻结或到期，无法重置密码"))
 		return
@@ -301,6 +313,57 @@ func GetSharedInstanceTrafficDetail(c *gin.Context) {
 		return
 	}
 	common.ResponseSuccess(c, detail, "获取流量详情成功")
+}
+
+func GetSharedInstanceSnapshots(c *gin.Context) {
+	_, instance, ok := loadSharedInstance(c)
+	if !ok {
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	svc := snapshotSvc.Service{}
+	snapshots, total, err := svc.ListSnapshots(snapshotSvc.ListFilter{
+		Page:       page,
+		PageSize:   pageSize,
+		InstanceID: instance.ID,
+		UserID:     instance.UserID,
+	})
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, gin.H{
+		"list":     snapshots,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
+	})
+}
+
+func DownloadSharedSnapshot(c *gin.Context) {
+	_, instance, ok := loadSharedInstance(c)
+	if !ok {
+		return
+	}
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	snapshotID, err := strconv.ParseUint(c.Param("snapshotId"), 10, 32)
+	if err != nil || snapshotID == 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的快照ID"))
+		return
+	}
+	svc := snapshotSvc.Service{}
+	payload, filename, err := svc.BuildSharedSnapshotDownloadManifest(uint(snapshotID), instance.UserID, instance.ID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Data(200, "application/json; charset=utf-8", payload)
 }
 
 func SharedSSHWebSocket(c *gin.Context) {

@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	adminProvider "oneclickvirt/service/admin/provider"
+	"oneclickvirt/service/taskgate"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,6 +39,11 @@ func parseProviderIDs(idsRaw string) ([]uint, error) {
 
 // ExportProvidersCSV 导出节点CSV
 func ExportProvidersCSV(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	providerIDs, err := parseProviderIDs(c.Query("ids"))
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
@@ -58,6 +64,11 @@ func ExportProvidersCSV(c *gin.Context) {
 
 // ImportProvidersCSV 导入节点CSV（新增或按标识更新）
 func ImportProvidersCSV(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	file, err := c.FormFile("file")
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请上传CSV文件（file字段）"))

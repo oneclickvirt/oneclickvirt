@@ -191,6 +191,7 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 		p.sshDeleteLXCContainer(context.Background(), config.Name)
 		return fmt.Errorf("failed to start LXC container: %s, %w", utils.TruncateString(output, 500), err)
 	}
+	p.applyLibvirtIOLimits(ctx, "lxc:///", config.Name, "", config)
 	p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// autostart %s 2>/dev/null || true", shellSingleQuote(config.Name)))
 
 	logLine := fmt.Sprintf("%s %d *** %d %d 0 %d %d %s %s", config.Name, sshPort, cpu, memoryMB, startPort, endPort, systemName, containerIP)

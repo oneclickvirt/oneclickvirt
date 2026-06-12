@@ -26,6 +26,7 @@ func InitOAuth2AdminRouter(Router *gin.RouterGroup) {
 	{
 		// 管理员路由（需要管理员权限）
 		OAuth2Router.Use(middleware.RequireAuth(authModel.AuthLevelAdmin)).
+			Use(middleware.TaskPoolAdmissionGate()).
 			GET("providers", oauth2Api.GetProviders).                            // 获取所有提供商
 			GET("providers/:id", oauth2Api.GetProvider).                         // 获取单个提供商
 			POST("providers", oauth2Api.CreateProvider).                         // 创建提供商

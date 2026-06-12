@@ -20,6 +20,8 @@ export default {
   unlimitedTraffic: "无流量限制",
   trafficLimitDesc: "当月流量配额使用情况",
   unlimitedTrafficDesc: "当前等级享有无限流量",
+  snapshotQuota: "快照配额",
+  snapshotQuotaDesc: "剩余 {remaining} 个；每个实例最多 {perInstance} 个快照",
   systemAnnouncements: "系统公告",
   refreshingQuota: "正在刷新配额信息...",
   quotaRefreshed: "配额信息已刷新",

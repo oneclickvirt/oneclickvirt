@@ -22,14 +22,18 @@ type UserDashboardResponse struct {
 }
 
 type ResourceUsageInfo struct {
-	CPU              int   `json:"cpu"`              // 当前使用的CPU核心数
-	Memory           int64 `json:"memory"`           // 当前使用的内存(MB)
-	Disk             int64 `json:"disk"`             // 当前使用的磁盘(MB)
-	MaxInstances     int   `json:"maxInstances"`     // 最大实例数量
-	CurrentInstances int   `json:"currentInstances"` // 当前实例数量
-	MaxCPU           int   `json:"maxCpu"`           // 最大CPU核心数
-	MaxMemory        int64 `json:"maxMemory"`        // 最大内存(MB)
-	MaxDisk          int64 `json:"maxDisk"`          // 最大磁盘(MB)
+	CPU                     int   `json:"cpu"`                     // 当前使用的CPU核心数
+	Memory                  int64 `json:"memory"`                  // 当前使用的内存(MB)
+	Disk                    int64 `json:"disk"`                    // 当前使用的磁盘(MB)
+	MaxInstances            int   `json:"maxInstances"`            // 最大实例数量
+	CurrentInstances        int   `json:"currentInstances"`        // 当前实例数量
+	MaxCPU                  int   `json:"maxCpu"`                  // 最大CPU核心数
+	MaxMemory               int64 `json:"maxMemory"`               // 最大内存(MB)
+	MaxDisk                 int64 `json:"maxDisk"`                 // 最大磁盘(MB)
+	MaxSnapshots            int   `json:"maxSnapshots"`            // 当前实例可用快照总槽位
+	UsedSnapshots           int   `json:"usedSnapshots"`           // 已使用快照数量
+	RemainingSnapshots      int   `json:"remainingSnapshots"`      // 剩余快照槽位
+	MaxSnapshotsPerInstance int   `json:"maxSnapshotsPerInstance"` // 每个实例允许保留的快照数
 }
 
 type AvailableResourceResponse struct {
@@ -75,21 +79,25 @@ type UserInstanceResponse struct {
 
 // UserLimitsResponse 用户配额限制响应
 type UserLimitsResponse struct {
-	Level          int   `json:"level"`
-	MaxInstances   int   `json:"maxInstances"`
-	UsedInstances  int   `json:"usedInstances"`
-	ContainerCount int   `json:"containerCount"` // 容器数量
-	VMCount        int   `json:"vmCount"`        // 虚拟机数量
-	MaxCpu         int   `json:"maxCpu"`         // 最大CPU核心数
-	UsedCpu        int   `json:"usedCpu"`        // 已使用CPU核心数
-	MaxMemory      int   `json:"maxMemory"`      // 最大内存(MB)
-	UsedMemory     int   `json:"usedMemory"`     // 已使用内存(MB)
-	MaxDisk        int   `json:"maxDisk"`        // 最大磁盘(MB)
-	UsedDisk       int   `json:"usedDisk"`       // 已使用磁盘(MB)
-	MaxBandwidth   int   `json:"maxBandwidth"`   // 最大带宽(Mbps)
-	UsedBandwidth  int   `json:"usedBandwidth"`  // 已使用带宽(Mbps)
-	MaxTraffic     int64 `json:"maxTraffic"`     // 最大流量(MB)
-	UsedTraffic    int64 `json:"usedTraffic"`    // 已使用流量(MB)
+	Level                   int   `json:"level"`
+	MaxInstances            int   `json:"maxInstances"`
+	UsedInstances           int   `json:"usedInstances"`
+	ContainerCount          int   `json:"containerCount"`          // 容器数量
+	VMCount                 int   `json:"vmCount"`                 // 虚拟机数量
+	MaxCpu                  int   `json:"maxCpu"`                  // 最大CPU核心数
+	UsedCpu                 int   `json:"usedCpu"`                 // 已使用CPU核心数
+	MaxMemory               int   `json:"maxMemory"`               // 最大内存(MB)
+	UsedMemory              int   `json:"usedMemory"`              // 已使用内存(MB)
+	MaxDisk                 int   `json:"maxDisk"`                 // 最大磁盘(MB)
+	UsedDisk                int   `json:"usedDisk"`                // 已使用磁盘(MB)
+	MaxBandwidth            int   `json:"maxBandwidth"`            // 最大带宽(Mbps)
+	UsedBandwidth           int   `json:"usedBandwidth"`           // 已使用带宽(Mbps)
+	MaxTraffic              int64 `json:"maxTraffic"`              // 最大流量(MB)
+	UsedTraffic             int64 `json:"usedTraffic"`             // 已使用流量(MB)
+	MaxSnapshots            int   `json:"maxSnapshots"`            // 当前实例可用快照总槽位
+	UsedSnapshots           int   `json:"usedSnapshots"`           // 已使用快照数量
+	RemainingSnapshots      int   `json:"remainingSnapshots"`      // 剩余快照槽位
+	MaxSnapshotsPerInstance int   `json:"maxSnapshotsPerInstance"` // 每个实例允许保留的快照数
 }
 
 // UserTaskResponse 用户任务响应

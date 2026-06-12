@@ -21,6 +21,8 @@ export default {
   statusRestarting: "Restarting",
   statusRebuilding: "Rebuilding",
   statusResetting: "Resetting",
+  statusDeleting: "Deleting",
+  statusDeleted: "Deleted",
   statusUnavailable: "Unavailable",
   statusError: "Error",
   statusFailed: "Creation Failed",

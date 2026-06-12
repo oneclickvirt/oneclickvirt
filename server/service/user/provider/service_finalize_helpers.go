@@ -24,6 +24,31 @@ func (s *Service) waitForInstanceSSHReady(ctx context.Context, instanceID, provi
 	return s.waitForInstanceSSHReadyInRange(ctx, instanceID, providerID, taskID, maxWaitTime, 75, 79)
 }
 
+func providerCreateSSHWaitTimeout(provider providerModel.Provider, instance providerModel.Instance) time.Duration {
+	providerType := utils.NormalizeProviderType(provider.Type)
+	instanceType := utils.NormalizeInstanceType(instance.InstanceType)
+	if providerType == "proxmox" {
+		if instanceType == "vm" {
+			if provider.PveKvmAvailable != nil && !*provider.PveKvmAvailable {
+				return 360 * time.Second
+			}
+			return 240 * time.Second
+		}
+		return 90 * time.Second
+	}
+	if instanceType != "vm" {
+		return 30 * time.Second
+	}
+	switch {
+	case providerType == "lxd" || providerType == "incus":
+		return 180 * time.Second
+	case providerType == "qemu" || providerType == "kubevirt" || utils.IsVMOnlyProvider(providerType):
+		return 360 * time.Second
+	default:
+		return 180 * time.Second
+	}
+}
+
 func (s *Service) waitForInstanceSSHReadyInRange(ctx context.Context, instanceID, providerID, taskID uint, maxWaitTime time.Duration, progressStart, progressEnd int) error {
 	if progressEnd < progressStart {
 		progressEnd = progressStart

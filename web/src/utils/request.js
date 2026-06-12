@@ -33,13 +33,46 @@ function showMaintenanceDialog(errorInfo) {
 }
 
 function createNormalizedError(errorInfo, response, originalError) {
-  const normalizedError = new Error(errorInfo.message)
+  const displayMessage = errorInfo.details || errorInfo.message
+  const normalizedError = new Error(displayMessage || '请求失败')
   normalizedError.code = errorInfo.code
   normalizedError.status = response?.status
   normalizedError.details = errorInfo.details
+  normalizedError.serverMessage = errorInfo.message
+  normalizedError.userMessage = displayMessage
   normalizedError.response = response
   normalizedError.originalError = originalError
   return normalizedError
+}
+
+async function parseBlobErrorResponse(error) {
+  const data = error?.response?.data
+  if (!data || typeof data.text !== 'function') return error
+
+  const contentType = String(error.response?.headers?.['content-type'] || data.type || '').toLowerCase()
+  if (!contentType.includes('json') && !contentType.includes('text')) return error
+
+  try {
+    const text = await data.text()
+    if (!text) return error
+    let parsed
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      parsed = {
+        code: error.response?.status,
+        message: text,
+        details: text
+      }
+    }
+    error.response = {
+      ...error.response,
+      data: parsed
+    }
+  } catch (parseError) {
+    console.warn('解析下载错误响应失败:', parseError)
+  }
+  return error
 }
 
 function generateRequestId() {
@@ -105,6 +138,7 @@ service.interceptors.response.use(
     return response
   },
   async error => {
+    error = await parseBlobErrorResponse(error)
     const config = error.config
     
     // 重试逻辑

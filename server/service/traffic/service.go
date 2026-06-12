@@ -109,6 +109,10 @@ func (s *Service) CheckProviderTrafficLimit(providerID uint) (bool, error) {
 
 // resumeProviderInstances 恢复Provider上的受限实例
 func (s *Service) resumeProviderInstances(providerID uint) error {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return err
+	}
+
 	var instances []provider.Instance
 	err := global.APP_DB.Where("provider_id = ? AND traffic_limited = ?", providerID, true).
 		Find(&instances).Error

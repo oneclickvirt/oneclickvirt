@@ -369,10 +369,12 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 
 	// 验证实例可以执行命令（容器和虚拟机都需要）
 	if config.InstanceType == "vm" {
-		updateProgress(58, "等待虚拟机Agent启动...")
-		if err := i.waitForInstanceExecReady(config.Name, 120); err != nil {
+		waitTimeout := incusExecReadyTimeout(config.InstanceType)
+		updateProgress(58, fmt.Sprintf("等待虚拟机Agent启动（最多%d秒）...", waitTimeout))
+		if err := i.waitForInstanceExecReady(config.Name, waitTimeout); err != nil {
 			global.APP_LOG.Error("等待虚拟机Agent启动超时",
 				zap.String("instanceName", config.Name),
+				zap.Int("timeoutSeconds", waitTimeout),
 				zap.Error(err))
 			return fmt.Errorf("虚拟机Agent启动超时，无法继续配置: %w", err)
 		} else {
@@ -380,10 +382,12 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 				zap.String("instanceName", config.Name))
 		}
 	} else {
-		updateProgress(58, "等待容器启动...")
-		if err := i.waitForInstanceExecReady(config.Name, 120); err != nil {
+		waitTimeout := incusExecReadyTimeout(config.InstanceType)
+		updateProgress(58, fmt.Sprintf("等待容器启动（最多%d秒）...", waitTimeout))
+		if err := i.waitForInstanceExecReady(config.Name, waitTimeout); err != nil {
 			global.APP_LOG.Warn("等待容器启动超时",
 				zap.String("instanceName", config.Name),
+				zap.Int("timeoutSeconds", waitTimeout),
 				zap.Error(err))
 			// 容器超时只是警告，继续尝试
 		} else {
@@ -414,14 +418,16 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		global.APP_LOG.Warn("配置实例系统失败", zap.Error(err))
 	}
 
-	updateProgress(80, "等待实例完全启动...")
-	if err := i.waitForInstanceExecReady(config.Name, 120); err != nil {
-		global.APP_LOG.Warn("等待容器启动超时",
+	waitTimeout := incusExecReadyTimeout(config.InstanceType)
+	updateProgress(80, fmt.Sprintf("等待实例完全启动（最多%d秒）...", waitTimeout))
+	if err := i.waitForInstanceExecReady(config.Name, waitTimeout); err != nil {
+		global.APP_LOG.Warn("等待实例完全启动超时，继续后续流程",
 			zap.String("instanceName", config.Name),
+			zap.String("instanceType", config.InstanceType),
+			zap.Int("timeoutSeconds", waitTimeout),
 			zap.Error(err))
-		// 容器超时只是警告，继续尝试
 	} else {
-		global.APP_LOG.Debug("容器已启动",
+		global.APP_LOG.Debug("实例已启动",
 			zap.String("instanceName", config.Name))
 	}
 	// 查找实例ID用于pmacct初始化

@@ -84,6 +84,46 @@
                 :label="t('user.instances.statusPaused')"
                 value="paused"
               />
+              <el-option
+                :label="t('user.instances.statusCreating')"
+                value="creating"
+              />
+              <el-option
+                :label="t('user.instances.statusStarting')"
+                value="starting"
+              />
+              <el-option
+                :label="t('user.instances.statusStopping')"
+                value="stopping"
+              />
+              <el-option
+                :label="t('user.instances.statusRestarting')"
+                value="restarting"
+              />
+              <el-option
+                :label="t('user.instances.statusRebuilding')"
+                value="rebuilding"
+              />
+              <el-option
+                :label="t('user.instances.statusResetting')"
+                value="resetting"
+              />
+              <el-option
+                :label="t('user.instances.statusError')"
+                value="error"
+              />
+              <el-option
+                :label="t('user.instances.statusFailed')"
+                value="failed"
+              />
+              <el-option
+                :label="t('user.instances.statusDeleting')"
+                value="deleting"
+              />
+              <el-option
+                :label="t('user.instances.statusDeleted')"
+                value="deleted"
+              />
             </el-select>
           </el-form-item>
           <el-form-item>

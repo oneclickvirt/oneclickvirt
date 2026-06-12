@@ -267,14 +267,14 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 		zap.String("type", instanceType))
 
 	// 等待实例真正启动
-	maxWaitTime := 120 * time.Second
+	maxWaitTime := proxmoxStartWaitTimeout(instanceType)
 	checkInterval := 3 * time.Second
 	startTime := time.Now()
 
 	for {
 		// 检查是否超时
 		if time.Since(startTime) > maxWaitTime {
-			return fmt.Errorf("等待实例启动超时 (120秒)")
+			return fmt.Errorf("等待实例启动超时 (%s)", maxWaitTime)
 		}
 
 		// 等待一段时间后再检查

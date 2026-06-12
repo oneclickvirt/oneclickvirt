@@ -92,6 +92,10 @@ export function useProviderForm(props, emit) {
     defaultOutboundBandwidth: 300,
     maxInboundBandwidth: 1000,
     maxOutboundBandwidth: 1000,
+    containerReadIoLimit: '',
+    containerWriteIoLimit: '',
+    vmReadIoLimit: '',
+    vmWriteIoLimit: '',
     maxTraffic: 1048576,
     trafficCountMode: 'both',
     trafficMultiplier: 1.0,
@@ -277,11 +281,23 @@ export function useProviderForm(props, emit) {
   }, { immediate: true })
 
   watch(() => [formData.value.connectionType, formData.value.host, formData.value.portIP], ([connectionType]) => {
-    if (connectionType !== 'agent') {
+    if (connectionType === 'agent' && !hasAgentMappedNetworking.value) {
+      formData.value.networkType = 'no_port_mapping'
       return
     }
-    if (!hasAgentMappedNetworking.value) {
-      formData.value.networkType = 'no_port_mapping'
+    if (connectionType === 'local') {
+      formData.value.type = 'qemu'
+      formData.value.host = ''
+      formData.value.port = 0
+      formData.value.username = formData.value.username || 'root'
+      if (!formData.value.containerEnabled && !formData.value.vmEnabled) {
+        formData.value.containerEnabled = true
+        formData.value.vmEnabled = true
+      }
+      formData.value.networkType = formData.value.networkType || 'nat_ipv4'
+      formData.value.storagePool = formData.value.storagePool || 'local'
+      formData.value.ipv4PortMappingMethod = formData.value.ipv4PortMappingMethod || 'iptables'
+      formData.value.ipv6PortMappingMethod = formData.value.ipv6PortMappingMethod || 'native'
     }
   }, { immediate: true })
 

@@ -491,18 +491,62 @@ func (s *Service) GetProviderCapabilities(userID uint, providerID uint) (map[str
 		supportedTypes = append(supportedTypes, "vm")
 	}
 
+	var containerCount, vmCount int64
+	if err := global.APP_DB.Model(&providerModel.Instance{}).
+		Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status NOT IN (?)",
+			provider.ID, "container", constant.GetTerminalStatuses()).
+		Count(&containerCount).Error; err != nil {
+		return nil, err
+	}
+	if err := global.APP_DB.Model(&providerModel.Instance{}).
+		Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status NOT IN (?)",
+			provider.ID, "vm", constant.GetTerminalStatuses()).
+		Count(&vmCount).Error; err != nil {
+		return nil, err
+	}
+	var reservedByType struct {
+		ReservedContainers int64
+		ReservedVMs        int64
+	}
+	if err := global.APP_DB.Model(&resourceModel.ResourceReservation{}).
+		Select("COALESCE(SUM(CASE WHEN instance_type = 'vm' THEN 0 ELSE 1 END), 0) AS reserved_containers, COALESCE(SUM(CASE WHEN instance_type = 'vm' THEN 1 ELSE 0 END), 0) AS reserved_vms").
+		Where("provider_id = ? AND expires_at > ?", provider.ID, time.Now()).
+		Scan(&reservedByType).Error; err != nil {
+		return nil, err
+	}
+	actualUsedContainers := int(containerCount + reservedByType.ReservedContainers)
+	actualUsedVMs := int(vmCount + reservedByType.ReservedVMs)
+	availableContainerSlots := -1
+	availableVMSlots := -1
+	if provider.MaxContainerInstances > 0 {
+		availableContainerSlots = provider.MaxContainerInstances - actualUsedContainers
+		if availableContainerSlots < 0 {
+			availableContainerSlots = 0
+		}
+	}
+	if provider.MaxVMInstances > 0 {
+		availableVMSlots = provider.MaxVMInstances - actualUsedVMs
+		if availableVMSlots < 0 {
+			availableVMSlots = 0
+		}
+	}
+
 	capabilities := map[string]interface{}{
-		"containerEnabled": provider.ContainerEnabled,
-		"vmEnabled":        provider.VirtualMachineEnabled,
-		"supportedTypes":   supportedTypes,
-		"maxCpu":           provider.NodeCPUCores,
-		"maxMemory":        provider.NodeMemoryTotal,
-		"maxDisk":          provider.NodeDiskTotal,
-		"architecture":     provider.Architecture,
-		"gpuEnabled":       provider.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, "container"),
-		"region":           provider.Region,
-		"country":          provider.Country,
-		"city":             provider.City,
+		"containerEnabled":        provider.ContainerEnabled,
+		"vmEnabled":               provider.VirtualMachineEnabled,
+		"supportedTypes":          supportedTypes,
+		"maxCpu":                  provider.NodeCPUCores,
+		"maxMemory":               provider.NodeMemoryTotal,
+		"maxDisk":                 provider.NodeDiskTotal,
+		"architecture":            provider.Architecture,
+		"gpuEnabled":              provider.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, "container"),
+		"region":                  provider.Region,
+		"country":                 provider.Country,
+		"city":                    provider.City,
+		"availableContainerSlots": availableContainerSlots,
+		"availableVMSlots":        availableVMSlots,
+		"maxContainerInstances":   provider.MaxContainerInstances,
+		"maxVMInstances":          provider.MaxVMInstances,
 	}
 
 	return capabilities, nil

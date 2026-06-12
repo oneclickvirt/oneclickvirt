@@ -14,6 +14,7 @@ func InitResourceRouter(Router *gin.RouterGroup) {
 	// 基于资源的细粒度权限路由（虚拟化资源）
 	ResourceGroup := Router.Group("/v1/resources")
 	ResourceGroup.Use(middleware.RequireAuth(authModel.AuthLevelUser))
+	ResourceGroup.Use(middleware.TaskPoolAdmissionGate())
 	{
 		// 虚拟化资源管理，使用基于资源的权限验证
 		VirtualizationGroup := ResourceGroup.Group("/virtualization")
@@ -28,6 +29,7 @@ func InitResourceRouter(Router *gin.RouterGroup) {
 func InitProviderRouter(Router *gin.RouterGroup) {
 	ProviderGroup := Router.Group("/v1/providers")
 	ProviderGroup.Use(middleware.RequireAuth(authModel.AuthLevelAdmin))
+	ProviderGroup.Use(middleware.TaskPoolAdmissionGate())
 	{
 		providerApi := &provider.ProviderApi{}
 		ProviderGroup.GET("", providerApi.GetProviders)

@@ -210,6 +210,12 @@ type Provider struct {
 	MaxInboundBandwidth      int `json:"maxInboundBandwidth" gorm:"default:1000"`     // 最大入站带宽限制（Mbps）
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth" gorm:"default:1000"`    // 最大出站带宽限制（Mbps）
 
+	// 磁盘读写 I/O 速率限制（Provider 默认值，按实例类型区分；空值表示不限制，后端 best-effort 应用）
+	ContainerReadIOLimit  string `json:"containerReadIoLimit" gorm:"size:32"`  // 容器读速率限制，如 "50MB"
+	ContainerWriteIOLimit string `json:"containerWriteIoLimit" gorm:"size:32"` // 容器写速率限制，如 "50MB"
+	VMReadIOLimit         string `json:"vmReadIoLimit" gorm:"size:32"`         // 虚拟机读速率限制，如 "50MB"
+	VMWriteIOLimit        string `json:"vmWriteIoLimit" gorm:"size:32"`        // 虚拟机写速率限制，如 "50MB"
+
 	// 流量管理（MB为单位）
 	EnableTrafficControl     bool       `json:"enableTrafficControl" gorm:"default:false"`      // 是否启用流量统计和限制，默认不启用
 	EnableResourceMonitoring bool       `json:"enableResourceMonitoring" gorm:"default:false"`  // 是否启用硬件资源监控（CPU/内存/磁盘），默认不启用
@@ -595,6 +601,8 @@ type ProviderInstanceConfig struct {
 	MemorySwap   *bool   `json:"memorySwap,omitempty"`   // 内存交换
 	MaxProcesses *int    `json:"maxProcesses,omitempty"` // 最大进程数
 	DiskIOLimit  *string `json:"diskIoLimit,omitempty"`  // 磁盘IO限制
+	ReadIOLimit  *string `json:"readIoLimit,omitempty"`  // 磁盘读取速率限制
+	WriteIOLimit *string `json:"writeIoLimit,omitempty"` // 磁盘写入速率限制
 
 	// GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）
 	GpuEnabled   bool   `json:"gpuEnabled,omitempty"`   // 是否启用GPU直通
@@ -648,6 +656,12 @@ type ProviderNodeConfig struct {
 	VMLimitCPU    bool `json:"vmLimitCpu"`    // 虚拟机是否限制CPU数量，默认限制
 	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机是否限制内存大小，默认限制
 	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机是否限制硬盘大小，默认限制
+
+	// 磁盘读写 I/O 速率限制（Provider 默认值，按实例类型区分）
+	ContainerReadIOLimit  string `json:"containerReadIoLimit"`  // 容器读取速率限制
+	ContainerWriteIOLimit string `json:"containerWriteIoLimit"` // 容器写入速率限制
+	VMReadIOLimit         string `json:"vmReadIoLimit"`         // 虚拟机读取速率限制
+	VMWriteIOLimit        string `json:"vmWriteIoLimit"`        // 虚拟机写入速率限制
 
 	// 节点标识（用于区分多个相同hostname的节点）
 	HostName string `json:"host_name"` // 节点主机名（hostname），用于Proxmox等需要节点名的Provider

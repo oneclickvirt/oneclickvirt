@@ -99,6 +99,10 @@ const buildDefaultForm = () => ({
   containerMemorySwap: true,
   containerMaxProcesses: 0,
   containerDiskIoLimit: '',
+  containerReadIoLimit: '',
+  containerWriteIoLimit: '',
+  vmReadIoLimit: '',
+  vmWriteIoLimit: '',
   redeemCodeOnly: false,
   discoverMode: false,
   autoImport: true,
@@ -172,9 +176,10 @@ export function useProviderForm(loadProviders) {
     addProviderForm.levelLimits = parsedLevelLimits
     addProviderForm.id = provider.id
     addProviderForm.name = provider.name
-    addProviderForm.type = provider.type
-    // Agent模式不使用SSH IP/端口，始终清空
-    if (provider.connectionType === 'agent') {
+    const connectionType = provider.connectionType || 'ssh'
+    addProviderForm.type = connectionType === 'local' ? 'qemu' : provider.type
+    // Agent/本机模式不使用远程 SSH IP/端口，始终清空
+    if (connectionType === 'agent' || connectionType === 'local') {
       addProviderForm.host = ''
       addProviderForm.port = 0
     } else {
@@ -182,7 +187,7 @@ export function useProviderForm(loadProviders) {
       addProviderForm.port = provider.sshPort || 22
     }
     addProviderForm.portIP = provider.portIP || ''
-    addProviderForm.username = provider.username || ''
+    addProviderForm.username = connectionType === 'local' ? (provider.username || 'root') : (provider.username || '')
     addProviderForm.password = ''
     addProviderForm.sshKey = ''
     addProviderForm.authMethod = provider.authMethod || 'password'
@@ -254,6 +259,10 @@ export function useProviderForm(loadProviders) {
     addProviderForm.containerMemorySwap = provider.containerMemorySwap !== undefined ? provider.containerMemorySwap : true
     addProviderForm.containerMaxProcesses = provider.containerMaxProcesses || 0
     addProviderForm.containerDiskIoLimit = provider.containerDiskIoLimit || ''
+    addProviderForm.containerReadIoLimit = provider.containerReadIoLimit || ''
+    addProviderForm.containerWriteIoLimit = provider.containerWriteIoLimit || ''
+    addProviderForm.vmReadIoLimit = provider.vmReadIoLimit || ''
+    addProviderForm.vmWriteIoLimit = provider.vmWriteIoLimit || ''
     addProviderForm.redeemCodeOnly = provider.redeemCodeOnly !== undefined ? provider.redeemCodeOnly : false
     addProviderForm.gpuEnabled = provider.gpuEnabled !== undefined ? provider.gpuEnabled : false
     addProviderForm.gpuDeviceIds = provider.gpuDeviceIds || ''
@@ -263,7 +272,7 @@ export function useProviderForm(loadProviders) {
     addProviderForm.bridgeDedicatedV4 = provider.bridgeDedicatedV4 || ''
     addProviderForm.bridgeDedicatedV6 = provider.bridgeDedicatedV6 || ''
     addProviderForm.natSubnet = provider.natSubnet || ''
-    addProviderForm.connectionType = provider.connectionType || 'ssh'
+    addProviderForm.connectionType = connectionType
     addProviderForm.agentStatus = provider.agentStatus || 'offline'
     addProviderForm.agentRuntimeStatus = provider.agentRuntimeStatus || provider.agentStatus || 'offline'
     addProviderForm.agentLastSeen = provider.agentLastSeen || null
@@ -292,6 +301,20 @@ export function useProviderForm(loadProviders) {
     } else {
       addProviderForm.ipv4PortMappingMethod = provider.ipv4PortMappingMethod || 'device_proxy'
       addProviderForm.ipv6PortMappingMethod = provider.ipv6PortMappingMethod || 'device_proxy'
+    }
+
+    if (connectionType === 'local') {
+      addProviderForm.type = 'qemu'
+      addProviderForm.containerEnabled = provider.container_enabled !== undefined ? Boolean(provider.container_enabled) : true
+      addProviderForm.vmEnabled = provider.vm_enabled !== undefined ? Boolean(provider.vm_enabled) : true
+      if (!addProviderForm.containerEnabled && !addProviderForm.vmEnabled) {
+        addProviderForm.containerEnabled = true
+        addProviderForm.vmEnabled = true
+      }
+      addProviderForm.networkType = provider.networkType || 'nat_ipv4'
+      addProviderForm.ipv4PortMappingMethod = provider.ipv4PortMappingMethod || 'iptables'
+      addProviderForm.ipv6PortMappingMethod = provider.ipv6PortMappingMethod || 'native'
+      addProviderForm.storagePool = provider.storagePool || 'local'
     }
 
     isEditing.value = true
@@ -324,11 +347,11 @@ export function useProviderForm(loadProviders) {
 
       const serverData = {
         name: formData.name,
-        type: formData.type,
+        type: isLocalMode ? 'qemu' : formData.type,
         endpoint: (isAgentMode || isLocalMode) ? (isLocalMode ? '127.0.0.1' : '') : (formData.host || ''),
         portIP: formData.portIP || '',
         sshPort: (isAgentMode || isLocalMode) ? 0 : (formData.port || 22),
-        username: (isAgentMode || isLocalMode) ? (formData.username || '') : formData.username,
+        username: isLocalMode ? (formData.username || 'root') : (isAgentMode ? (formData.username || '') : formData.username),
         config: '',
         region: formData.region,
         country: formData.country,
@@ -358,6 +381,10 @@ export function useProviderForm(loadProviders) {
         defaultOutboundBandwidth: formData.defaultOutboundBandwidth || 300,
         maxInboundBandwidth: formData.maxInboundBandwidth || 1000,
         maxOutboundBandwidth: formData.maxOutboundBandwidth || 1000,
+        containerReadIoLimit: formData.containerReadIoLimit || '',
+        containerWriteIoLimit: formData.containerWriteIoLimit || '',
+        vmReadIoLimit: formData.vmReadIoLimit || '',
+        vmWriteIoLimit: formData.vmWriteIoLimit || '',
         enableTrafficControl: isAgentMode ? true : (formData.enableTrafficControl !== undefined ? formData.enableTrafficControl : false),
         enableResourceMonitoring: isAgentMode ? true : (formData.enableResourceMonitoring !== undefined ? formData.enableResourceMonitoring : false),
         maxTraffic: formData.maxTraffic || 1048576,
@@ -431,6 +458,10 @@ export function useProviderForm(loadProviders) {
       if (isAgentMode && !agentCanUseMappedNetworking) {
         serverData.ipv4PortMappingMethod = ''
         serverData.ipv6PortMappingMethod = ''
+      }
+      if (isLocalMode) {
+        serverData.ipv4PortMappingMethod = formData.ipv4PortMappingMethod || 'iptables'
+        serverData.ipv6PortMappingMethod = formData.ipv6PortMappingMethod || 'native'
       }
 
       // 认证方式处理（独立于端口映射方法清除，避免被 if-else 误跳过）

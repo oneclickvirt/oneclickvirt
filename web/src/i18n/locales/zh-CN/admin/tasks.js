@@ -45,6 +45,9 @@ export default {
   taskTypeDeletePortMapping: "删除端口映射",
   taskTypeSyncPortMappings: "同步端口映射",
   taskTypeCreateRedemptionInstance: "兑换开设实例",
+  taskTypeSnapshotCreate: "创建快照",
+  taskTypeSnapshotDelete: "删除快照",
+  taskTypeSnapshotRestore: "加载快照",
   statusPending: "等待中",
   statusProcessing: "处理中",
   statusRunning: "执行中",
@@ -154,5 +157,16 @@ export default {
     deletingPortMappingInfo: "正在删除端口映射记录",
     syncProviderPortMappings: "正在同步节点 {name} 的端口映射",
     generatingReport: "同步完成，正在生成报告"
+  },
+  snapshot: {
+    pending: "快照任务等待调度中",
+    taskStarted: "快照任务已开始",
+    buildCommand: "正在生成快照执行命令",
+    executeRemote: "正在远程执行快照操作",
+    updateDatabase: "正在更新快照记录",
+    deleteRemote: "正在删除远程快照",
+    restoreRemote: "正在加载远程快照",
+    taskFailed: "快照任务失败",
+    taskCompleted: "快照任务完成"
   }
 }

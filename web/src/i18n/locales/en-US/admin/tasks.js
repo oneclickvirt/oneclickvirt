@@ -45,6 +45,9 @@ export default {
   taskTypeDeletePortMapping: "Delete Port Mapping",
   taskTypeSyncPortMappings: "Sync Port Mappings",
   taskTypeCreateRedemptionInstance: "Redeem Code Instance",
+  taskTypeSnapshotCreate: "Create Snapshot",
+  taskTypeSnapshotDelete: "Delete Snapshot",
+  taskTypeSnapshotRestore: "Load Snapshot",
   statusPending: "Pending",
   statusProcessing: "Processing",
   statusRunning: "Running",
@@ -154,5 +157,16 @@ export default {
     deletingPortMappingInfo: "Deleting port mapping record",
     syncProviderPortMappings: "Syncing port mappings for node {name}",
     generatingReport: "Sync complete, generating report"
+  },
+  snapshot: {
+    pending: "Snapshot task waiting for scheduling",
+    taskStarted: "Snapshot task started",
+    buildCommand: "Preparing snapshot command",
+    executeRemote: "Executing snapshot operation remotely",
+    updateDatabase: "Updating snapshot record",
+    deleteRemote: "Deleting remote snapshot",
+    restoreRemote: "Loading remote snapshot",
+    taskFailed: "Snapshot task failed",
+    taskCompleted: "Snapshot task completed"
   }
 }

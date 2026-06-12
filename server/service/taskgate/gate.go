@@ -36,24 +36,15 @@ var gateCache = struct {
 	cachedGateConfig: cachedGateConfig{enabled: true, message: defaultMessage},
 }
 
-func readConfig() (enabled bool, message string, updatedAt *time.Time, err error) {
-	gateCache.RLock()
-	if gateCache.initialized {
-		cfg := gateCache.cachedGateConfig
-		gateCache.RUnlock()
-		return cfg.enabled, cfg.message, cfg.updatedAt, nil
-	}
-	gateCache.RUnlock()
-
+func readConfigFromDB(db *gorm.DB) (enabled bool, message string, updatedAt *time.Time, err error) {
 	enabled = true
 	message = defaultMessage
-	if global.APP_DB == nil {
-		cacheConfig(enabled, message, nil)
+	if db == nil {
 		return enabled, message, nil, nil
 	}
 
 	var enabledConfig adminModel.SystemConfig
-	if err = global.APP_DB.Where("category = ? AND `key` = ?", configCategory, enabledKey).First(&enabledConfig).Error; err != nil {
+	if err = db.Where("category = ? AND `key` = ?", configCategory, enabledKey).First(&enabledConfig).Error; err != nil {
 		if err == gorm.ErrRecordNotFound || isMissingConfigStorage(err) {
 			err = nil
 		} else {
@@ -66,7 +57,7 @@ func readConfig() (enabled bool, message string, updatedAt *time.Time, err error
 	}
 
 	var messageConfig adminModel.SystemConfig
-	if err = global.APP_DB.Where("category = ? AND `key` = ?", configCategory, messageKey).First(&messageConfig).Error; err != nil {
+	if err = db.Where("category = ? AND `key` = ?", configCategory, messageKey).First(&messageConfig).Error; err != nil {
 		if err == gorm.ErrRecordNotFound || isMissingConfigStorage(err) {
 			err = nil
 		} else {
@@ -79,6 +70,26 @@ func readConfig() (enabled bool, message string, updatedAt *time.Time, err error
 		}
 	}
 
+	return enabled, message, updatedAt, nil
+}
+
+func readConfig() (enabled bool, message string, updatedAt *time.Time, err error) {
+	if global.APP_DB == nil {
+		gateCache.RLock()
+		if gateCache.initialized {
+			cfg := gateCache.cachedGateConfig
+			gateCache.RUnlock()
+			return cfg.enabled, cfg.message, cfg.updatedAt, nil
+		}
+		gateCache.RUnlock()
+		cacheConfig(true, defaultMessage, nil)
+		return true, defaultMessage, nil, nil
+	}
+
+	enabled, message, updatedAt, err = readConfigFromDB(global.APP_DB)
+	if err != nil {
+		return enabled, message, updatedAt, err
+	}
 	cacheConfig(enabled, message, updatedAt)
 	return enabled, message, updatedAt, nil
 }
@@ -117,6 +128,23 @@ func IsEnabled() bool {
 // in maintenance mode. Existing pending/running tasks are not affected.
 func EnsureAccepting() error {
 	enabled, message, _, err := readConfig()
+	if err != nil {
+		return err
+	}
+	if enabled {
+		return nil
+	}
+	if strings.TrimSpace(message) == "" {
+		message = defaultMessage
+	}
+	return fmt.Errorf("任务池已关闭：%s", message)
+}
+
+// EnsureAcceptingInTx repeats admission control inside the transaction that will
+// insert a pending task or reserve resources. This closes stale-cache and
+// close-during-precheck races.
+func EnsureAcceptingInTx(tx *gorm.DB) error {
+	enabled, message, _, err := readConfigFromDB(tx)
 	if err != nil {
 		return err
 	}

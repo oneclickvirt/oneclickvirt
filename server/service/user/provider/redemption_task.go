@@ -499,18 +499,13 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 
 		s.updateTaskProgress(taskID, 70, "step.waitingSSHReady")
 
-		// 根据Provider类型确定SSH等待时长（容器30s，VM保留360s）
+		// 根据Provider类型和实例类型确定SSH等待时长。
 		redeemSSHWait := 30 * time.Second
 		var redeemProvider providerModel.Provider
 		var redeemInstance providerModel.Instance
 		_ = global.APP_DB.Select("instance_type").Where("id = ?", instanceID).First(&redeemInstance).Error
-		if err := global.APP_DB.Select("type").Where("id = ?", providerID).First(&redeemProvider).Error; err == nil {
-			switch {
-			case utils.UsesVMPositionalPorts(redeemProvider.Type, redeemInstance.InstanceType):
-				redeemSSHWait = 360 * time.Second
-			case redeemProvider.Type == "proxmox":
-				redeemSSHWait = 240 * time.Second
-			}
+		if err := global.APP_DB.Select("type, pve_kvm_available").Where("id = ?", providerID).First(&redeemProvider).Error; err == nil {
+			redeemSSHWait = providerCreateSSHWaitTimeout(redeemProvider, redeemInstance)
 		}
 		if err := s.waitForInstanceSSHReadyInRange(taskCtx, instanceID, providerID, taskID, redeemSSHWait, 70, 82); err != nil {
 			utils.AppendTaskError(taskID, 82, "step.waitingSSHReadyFailed", err)

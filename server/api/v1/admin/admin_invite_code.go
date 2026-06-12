@@ -7,6 +7,7 @@ import (
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	"oneclickvirt/service/admin/invite"
+	"oneclickvirt/service/taskgate"
 
 	"github.com/gin-gonic/gin"
 )
@@ -192,6 +193,11 @@ func BatchDeleteInviteCodes(c *gin.Context) {
 // @Failure 500 {object} common.Response "服务器内部错误"
 // @Router /admin/invite-codes/export [get]
 func ExportInviteCodes(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	var req struct {
 		IDs []uint `form:"ids"`
 	}

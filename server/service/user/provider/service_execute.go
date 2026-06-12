@@ -205,7 +205,15 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		imageName = taskReq.Image
 		cpuValue = fmt.Sprintf("%d", taskReq.CPU)
 		memoryValue = fmt.Sprintf("%dm", taskReq.Memory)
-		diskValue = fmt.Sprintf("%dG", taskReq.Disk)
+		if taskReq.DiskMB > 0 {
+			if taskReq.DiskMB%1024 == 0 {
+				diskValue = fmt.Sprintf("%dG", taskReq.DiskMB/1024)
+			} else {
+				diskValue = fmt.Sprintf("%dM", taskReq.DiskMB)
+			}
+		} else {
+			diskValue = fmt.Sprintf("%dG", taskReq.Disk)
+		}
 		bandwidthSpeedMbps = taskReq.Bandwidth
 		if task.UserID > 0 {
 			var user userModel.User
@@ -316,6 +324,13 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		instanceConfig.MemorySwap = boolPtr(dbProvider.ContainerMemorySwap)
 		instanceConfig.MaxProcesses = intPtr(dbProvider.ContainerMaxProcesses)
 		instanceConfig.DiskIOLimit = stringPtr(dbProvider.ContainerDiskIOLimit)
+	}
+	if strings.EqualFold(instance.InstanceType, "vm") {
+		instanceConfig.ReadIOLimit = stringPtr(dbProvider.VMReadIOLimit)
+		instanceConfig.WriteIOLimit = stringPtr(dbProvider.VMWriteIOLimit)
+	} else {
+		instanceConfig.ReadIOLimit = stringPtr(dbProvider.ContainerReadIOLimit)
+		instanceConfig.WriteIOLimit = stringPtr(dbProvider.ContainerWriteIOLimit)
 	}
 	if supportsContainerGPU && dbProvider.GpuEnabled {
 		instanceConfig.GpuEnabled = instance.GpuEnabled

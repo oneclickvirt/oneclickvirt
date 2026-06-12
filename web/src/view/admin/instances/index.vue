@@ -99,6 +99,18 @@
             :label="$t('admin.instances.statusError')"
             value="error"
           />
+          <el-option
+            :label="$t('admin.instances.statusFailed')"
+            value="failed"
+          />
+          <el-option
+            :label="$t('admin.instances.statusDeleting')"
+            value="deleting"
+          />
+          <el-option
+            :label="$t('admin.instances.statusDeleted')"
+            value="deleted"
+          />
         </el-select>
         <el-select
           v-model="filters.instanceType"

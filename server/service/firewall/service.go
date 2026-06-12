@@ -13,6 +13,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/taskgate"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -257,6 +258,10 @@ func (s *Service) DeleteRule(id uint) error {
 
 // ApplyRules applies block rules to targets and executes them on the agent.
 func (s *Service) ApplyRules(ctx context.Context, req *firewallModel.ApplyBlockRuleRequest) ([]firewallModel.BlockRuleApplication, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, err
+	}
+
 	var rules []firewallModel.BlockRule
 	if err := global.APP_DB.Where("id IN ? AND enabled = ?", req.RuleIDs, true).Find(&rules).Error; err != nil {
 		return nil, fmt.Errorf("load rules: %w", err)
@@ -333,6 +338,10 @@ func (s *Service) ApplyRules(ctx context.Context, req *firewallModel.ApplyBlockR
 
 // RemoveApplications removes specific rule applications and re-syncs agents.
 func (s *Service) RemoveApplications(ctx context.Context, req *firewallModel.RemoveBlockRuleApplicationRequest) error {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return err
+	}
+
 	var apps []firewallModel.BlockRuleApplication
 	if err := global.APP_DB.Where("id IN ?", req.ApplicationIDs).Find(&apps).Error; err != nil {
 		return err

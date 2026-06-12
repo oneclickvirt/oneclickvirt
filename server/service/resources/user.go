@@ -117,6 +117,10 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 	// 获取最大允许资源
 	quotaService := NewQuotaService()
 	maxResources := quotaService.GetLevelMaxResources(levelLimits)
+	usedSnapshots, maxSnapshotSlots, remainingSnapshots, err := s.getSnapshotQuotaSummary(userID, levelLimits.MaxSnapshots, int(stats.TotalInstances))
+	if err != nil {
+		return nil, err
+	}
 
 	dashboard := &userModel.UserDashboardResponse{
 		User:            user,
@@ -133,14 +137,18 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 
 	// 详细的资源使用信息（只包含实际实例，不包含临时预留）
 	dashboard.ResourceUsage = &userModel.ResourceUsageInfo{
-		CPU:              totalCPU,                 // 实际使用的CPU
-		Memory:           totalMemory,              // 实际使用的内存
-		Disk:             totalDisk,                // 实际使用的磁盘
-		MaxInstances:     levelLimits.MaxInstances, // 最大实例数
-		CurrentInstances: len(currentInstances),    // 实际实例数量
-		MaxCPU:           maxResources.CPU,
-		MaxMemory:        maxResources.Memory,
-		MaxDisk:          maxResources.Disk,
+		CPU:                     totalCPU,                 // 实际使用的CPU
+		Memory:                  totalMemory,              // 实际使用的内存
+		Disk:                    totalDisk,                // 实际使用的磁盘
+		MaxInstances:            levelLimits.MaxInstances, // 最大实例数
+		CurrentInstances:        len(currentInstances),    // 实际实例数量
+		MaxCPU:                  maxResources.CPU,
+		MaxMemory:               maxResources.Memory,
+		MaxDisk:                 maxResources.Disk,
+		MaxSnapshots:            maxSnapshotSlots,
+		UsedSnapshots:           usedSnapshots,
+		RemainingSnapshots:      remainingSnapshots,
+		MaxSnapshotsPerInstance: levelLimits.MaxSnapshots,
 	}
 
 	return dashboard, nil
@@ -209,6 +217,16 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 	usedBandwidth := int(resourceStats.UsedBandwidth)
 	containerCount := int(resourceStats.ContainerCount)
 	vmCount := int(resourceStats.VMCount)
+	var activeInstances int64
+	if err := global.APP_DB.Model(&providerModel.Instance{}).
+		Where("user_id = ? AND deleted_at IS NULL AND status NOT IN (?)", userID, constant.GetTerminalStatuses()).
+		Count(&activeInstances).Error; err != nil {
+		return nil, fmt.Errorf("统计用户有效实例失败: %v", err)
+	}
+	usedSnapshots, maxSnapshotSlots, remainingSnapshots, err := s.getSnapshotQuotaSummary(userID, levelLimits.MaxSnapshots, int(activeInstances))
+	if err != nil {
+		return nil, err
+	}
 
 	// 查询当月流量使用情况（从pmacct_traffic_records实时聚合）
 	trafficQueryService := trafficService.NewQueryService()
@@ -226,24 +244,46 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 	}
 
 	response := &userModel.UserLimitsResponse{
-		Level:          user.Level,
-		MaxInstances:   levelLimits.MaxInstances,
-		UsedInstances:  usedInstances,
-		ContainerCount: containerCount,
-		VMCount:        vmCount,
-		MaxCpu:         maxResources.CPU,
-		UsedCpu:        usedCPU,
-		MaxMemory:      int(maxResources.Memory),
-		UsedMemory:     usedMemory,
-		MaxDisk:        int(maxResources.Disk),
-		UsedDisk:       usedDisk,
-		MaxBandwidth:   maxResources.Bandwidth,
-		UsedBandwidth:  usedBandwidth,
-		MaxTraffic:     levelLimits.MaxTraffic, // 使用等级配置的流量限制
-		UsedTraffic:    usedTrafficMB,          // 使用实时查询的流量数据
+		Level:                   user.Level,
+		MaxInstances:            levelLimits.MaxInstances,
+		UsedInstances:           usedInstances,
+		ContainerCount:          containerCount,
+		VMCount:                 vmCount,
+		MaxCpu:                  maxResources.CPU,
+		UsedCpu:                 usedCPU,
+		MaxMemory:               int(maxResources.Memory),
+		UsedMemory:              usedMemory,
+		MaxDisk:                 int(maxResources.Disk),
+		UsedDisk:                usedDisk,
+		MaxBandwidth:            maxResources.Bandwidth,
+		UsedBandwidth:           usedBandwidth,
+		MaxTraffic:              levelLimits.MaxTraffic, // 使用等级配置的流量限制
+		UsedTraffic:             usedTrafficMB,          // 使用实时查询的流量数据
+		MaxSnapshots:            maxSnapshotSlots,
+		UsedSnapshots:           usedSnapshots,
+		RemainingSnapshots:      remainingSnapshots,
+		MaxSnapshotsPerInstance: levelLimits.MaxSnapshots,
 	}
 
 	return response, nil
+}
+
+func (s *UserDashboardService) getSnapshotQuotaSummary(userID uint, maxPerInstance int, activeInstances int) (used int, maxSlots int, remaining int, err error) {
+	var usedCount int64
+	if err = global.APP_DB.Model(&providerModel.InstanceSnapshot{}).
+		Where("user_id = ? AND status IN ?", userID, []string{"creating", "available"}).
+		Count(&usedCount).Error; err != nil {
+		return 0, 0, 0, fmt.Errorf("统计用户快照失败: %v", err)
+	}
+	used = int(usedCount)
+	if maxPerInstance > 0 && activeInstances > 0 {
+		maxSlots = maxPerInstance * activeInstances
+	}
+	remaining = maxSlots - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	return used, maxSlots, remaining, nil
 }
 
 // extractIPFromEndpoint 从endpoint中提取纯IP地址（使用全局函数）

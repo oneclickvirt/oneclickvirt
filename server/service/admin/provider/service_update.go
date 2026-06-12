@@ -38,7 +38,16 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	originalType := provider.Type
 	// 保存原始过期时间，用于后续对比是否发生变化
 	originalExpiresAt := provider.ExpiresAt
+	originalProviderForIOLimits := provider
 	normalizedEndpoint, normalizedSSHPort := normalizeProviderEndpointAndPort(req.Endpoint, req.SSHPort)
+	effectiveConnectionType := provider.ConnectionType
+	if req.ConnectionType == "ssh" || req.ConnectionType == "agent" || req.ConnectionType == "local" {
+		effectiveConnectionType = req.ConnectionType
+	}
+	if effectiveConnectionType == "local" {
+		normalizedEndpoint = "127.0.0.1"
+		normalizedSSHPort = 0
+	}
 
 	// 1. 检查Provider名称是否与其他Provider重复（排除当前Provider）
 	if req.Name != provider.Name {
@@ -114,6 +123,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.Type != "" {
 		provider.Type = utils.NormalizeProviderType(req.Type)
 	}
+	if effectiveConnectionType == "local" {
+		provider.Type = "qemu"
+	}
 	if normalizedEndpoint != "" {
 		provider.Endpoint = normalizedEndpoint
 	}
@@ -123,13 +135,19 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if normalizedSSHPort > 0 {
 		provider.SSHPort = normalizedSSHPort
 	}
-	// Agent模式不使用SSH IP/端口：强制清空，确保不保留旧值
-	if req.ConnectionType == "agent" {
+	// Agent/本机模式不使用远程 SSH IP/端口：强制清空或固定本机，确保不保留旧值。
+	if effectiveConnectionType == "agent" {
 		provider.Endpoint = ""
+		provider.SSHPort = 0
+	} else if effectiveConnectionType == "local" {
+		provider.Endpoint = "127.0.0.1"
 		provider.SSHPort = 0
 	}
 	if req.Username != "" {
 		provider.Username = req.Username
+	}
+	if effectiveConnectionType == "local" && provider.Username == "" {
+		provider.Username = "root"
 	}
 
 	// 密码和SSH密钥的更新逻辑（使用指针以区分"未提供"和"空值"）：
@@ -162,10 +180,6 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 
 	// 验证：SSH 直连模式下必须至少保留一种认证方式；agent 模式无需 SSH 凭据
-	effectiveConnectionType := provider.ConnectionType
-	if req.ConnectionType == "ssh" || req.ConnectionType == "agent" || req.ConnectionType == "local" {
-		effectiveConnectionType = req.ConnectionType
-	}
 	if effectiveConnectionType != "agent" && effectiveConnectionType != "local" && newPassword == "" && newSSHKey == "" {
 		global.APP_LOG.Warn("Provider更新失败：尝试清空所有认证方式",
 			zap.Uint("providerID", req.ID))
@@ -280,6 +294,10 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.MaxOutboundBandwidth > 0 {
 		provider.MaxOutboundBandwidth = req.MaxOutboundBandwidth
 	}
+	provider.ContainerReadIOLimit = req.ContainerReadIOLimit
+	provider.ContainerWriteIOLimit = req.ContainerWriteIOLimit
+	provider.VMReadIOLimit = req.VMReadIOLimit
+	provider.VMWriteIOLimit = req.VMWriteIOLimit
 	// 流量控制开关更新
 	oldEnableTrafficControl := provider.EnableTrafficControl
 	provider.EnableTrafficControl = req.EnableTrafficControl
@@ -475,6 +493,21 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			provider.NetworkType = "no_port_mapping"
 		}
 	}
+	if provider.ConnectionType == "local" {
+		provider.Type = "qemu"
+		provider.Endpoint = "127.0.0.1"
+		provider.SSHPort = 0
+		if provider.Username == "" {
+			provider.Username = "root"
+		}
+		if provider.NetworkType == "" {
+			provider.NetworkType = "nat_ipv4"
+		}
+		if !provider.ContainerEnabled && !provider.VirtualMachineEnabled {
+			provider.ContainerEnabled = true
+			provider.VirtualMachineEnabled = true
+		}
+	}
 	// SSH模式：允许管理员手动设置 no_port_mapping（如节点无公网IPv4的场景），不强制重置
 
 	// 节点级别等级限制配置更新
@@ -569,6 +602,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			zap.String("oldType", originalType),
 			zap.String("newType", provider.Type))
 		agentService.RemoveClient(req.ID)
+	}
+	if providerIOLimitsChanged(originalProviderForIOLimits, provider) {
+		go s.syncProviderIOLimits(provider.ID)
 	}
 
 	return nil

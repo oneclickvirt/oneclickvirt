@@ -16,6 +16,7 @@ import (
 	adminProvider "oneclickvirt/service/admin/provider"
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/provider"
+	"oneclickvirt/service/taskgate"
 	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
@@ -243,6 +244,11 @@ func GetProviderStatus(c *gin.Context) {
 
 // ExportProviderConfigs 导出所有Provider配置
 func ExportProviderConfigs(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	var req struct {
 		ProviderIDs []uint `json:"provider_ids"`
 	}

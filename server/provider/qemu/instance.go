@@ -486,6 +486,8 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 		return fmt.Errorf("VM '%s' did not start within 60 seconds", config.Name)
 	}
 
+	p.applyLibvirtIOLimits(ctx, "qemu:///system", config.Name, "vda", config)
+
 	// cloud-init ISO 仅首次启动时需要，启动成功后分离并删除以节省磁盘空间
 	p.sshClient.Execute(fmt.Sprintf("virsh detach-disk %s sdb --persistent 2>/dev/null || true", shellSingleQuote(config.Name)))
 	p.sshClient.Execute(fmt.Sprintf("rm -f %s 2>/dev/null || true", shellSingleQuote(ciISO)))

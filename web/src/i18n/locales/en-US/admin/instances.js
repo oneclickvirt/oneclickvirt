@@ -27,6 +27,7 @@ export default {
   statusRebuilding: "Rebuilding",
   statusResetting: "Resetting",
   statusDeleting: "Deleting",
+  statusDeleted: "Deleted",
   typeContainer: "Container",
   typeVM: "Virtual Machine",
   instanceName: "Instance Name",

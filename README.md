@@ -50,9 +50,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `spiritlhl/oneclickvirt:20260612` | All-in-one version with specific date | Fixed version requirement |
+| `spiritlhl/oneclickvirt:20260610` | All-in-one version with specific date | Fixed version requirement |
 | `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
-| `spiritlhl/oneclickvirt:no-db-20260612` | Standalone database version with date | Without database |
+| `spiritlhl/oneclickvirt:no-db-20260610` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -206,14 +206,14 @@ rm -rf ./data
 <details>
 <summary>View Full Installer</summary>
 
-`install_full.sh` installs the database, reverse proxy, TLS configuration, frontend, backend, and system service in one flow. It supports MySQL-compatible local databases (MySQL or MariaDB) and Caddy, Nginx, or OpenResty.
+`scripts/install_full.sh` installs the database, reverse proxy, TLS configuration, frontend, backend, and system service in one flow. It supports MySQL-compatible local databases (MySQL or MariaDB) and Caddy, Nginx, or OpenResty.
 
 The installer auto-detects common Linux and Unix-like targets, including Debian/Ubuntu, RHEL/CentOS/Rocky/Alma/Fedora/Amazon Linux, openSUSE/SLES, Arch/Manjaro, Alpine, and BSD package managers. It also detects systemd, OpenRC, rc.d/service, and no-init environments. On distributions where native MySQL packages are unavailable or unstable, the installer automatically falls back to MariaDB as the MySQL-compatible backend; use `--no-db-fallback` to disable this behavior. BSD installs require a matching release asset for the OS/architecture, otherwise use Docker/Linux or build the server from source.
 
 The domain input auto-detects protocol prefixes: enter `https://panel.example.com` to auto-enable TLS, `http://panel.example.com` to auto-disable TLS, or a plain domain to be prompted interactively.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_full.sh -o install_full.sh
+curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install_full.sh -o install_full.sh
 bash install_full.sh
 ```
 
@@ -268,7 +268,7 @@ docker run -d \
   oneclickvirt
 ```
 
-Docker builds embed `install_agent.sh` automatically. If you also want the controller image to serve local agent release archives instead of redirecting to GitHub Releases, place these files in `server/assets/agent/` before `docker build`:
+Docker builds embed `scripts/install_agent.sh` automatically. If you also want the controller image to serve local agent release archives instead of redirecting to GitHub Releases, place these files in `server/assets/agent/` before `docker build`:
 
 ```text
 install_agent.sh

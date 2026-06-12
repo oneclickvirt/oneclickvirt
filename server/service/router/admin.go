@@ -17,6 +17,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 	// 普通管理员和超管都可以访问的路由（level >= 2）
 	NormalAdminGroup := Router.Group("/v1/admin")
 	NormalAdminGroup.Use(middleware.RequireNormalAdmin())
+	NormalAdminGroup.Use(middleware.TaskPoolAdmissionGate())
 	{
 		// 仪表盘
 		NormalAdminGroup.GET("/dashboard", admin.GetAdminDashboard)
@@ -61,6 +62,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// Provider管理
 		NormalAdminGroup.GET("/providers", admin.GetProviderList)
 		NormalAdminGroup.GET("/providers/export-csv", admin.ExportProvidersCSV)
+		NormalAdminGroup.GET("/providers/local/detect", admin.DetectLocalProvider)
 		NormalAdminGroup.POST("/providers/import-csv", admin.ImportProvidersCSV)
 		NormalAdminGroup.POST("/providers", admin.CreateProvider)
 		NormalAdminGroup.GET("/providers/:id", admin.GetProviderDetail)
@@ -225,6 +227,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 	// 超级管理员专用路由（仅admin用户类型，排除normal_admin）
 	SuperAdminGroup := Router.Group("/v1/admin")
 	SuperAdminGroup.Use(middleware.RequireSuperAdmin())
+	SuperAdminGroup.Use(middleware.TaskPoolAdmissionGate())
 	{
 		// 系统配置（超管专用）
 		SuperAdminGroup.GET("/config", config.GetUnifiedConfig)

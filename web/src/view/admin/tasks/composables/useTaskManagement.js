@@ -295,7 +295,10 @@ export function useTaskManagement() {
       'create-port-mapping': t('admin.tasks.taskTypeCreatePortMapping'),
       'delete-port-mapping': t('admin.tasks.taskTypeDeletePortMapping'),
       'sync-port-mappings': t('admin.tasks.taskTypeSyncPortMappings'),
-      'create_redemption_instance': t('admin.tasks.taskTypeCreateRedemptionInstance')
+      'create_redemption_instance': t('admin.tasks.taskTypeCreateRedemptionInstance'),
+      'snapshot-create': t('admin.tasks.taskTypeSnapshotCreate'),
+      'snapshot-delete': t('admin.tasks.taskTypeSnapshotDelete'),
+      'snapshot-restore': t('admin.tasks.taskTypeSnapshotRestore')
     }
     return typeMap[type] || type
   }

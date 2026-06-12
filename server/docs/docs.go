@@ -14532,6 +14532,10 @@ const docTemplate = `{
                     "description": "容器特殊配置选项（仅适用于 LXD 和 Incus 的容器实例）",
                     "type": "boolean"
                 },
+                "readIoLimit": {
+                    "description": "磁盘读取速率限制",
+                    "type": "string"
+                },
                 "systemImageId": {
                     "description": "系统镜像ID",
                     "type": "integer"
@@ -14539,6 +14543,10 @@ const docTemplate = `{
                 "use_cdn": {
                     "description": "是否使用CDN加速下载镜像",
                     "type": "boolean"
+                },
+                "writeIoLimit": {
+                    "description": "磁盘写入速率限制",
+                    "type": "string"
                 }
             }
         },
@@ -16043,8 +16051,20 @@ const docTemplate = `{
                     "description": "最大内存(MB)",
                     "type": "integer"
                 },
+                "maxSnapshots": {
+                    "description": "当前实例可用快照总槽位",
+                    "type": "integer"
+                },
+                "maxSnapshotsPerInstance": {
+                    "description": "每个实例允许保留的快照数",
+                    "type": "integer"
+                },
                 "maxTraffic": {
                     "description": "最大流量(MB)",
+                    "type": "integer"
+                },
+                "remainingSnapshots": {
+                    "description": "剩余快照槽位",
                     "type": "integer"
                 },
                 "usedBandwidth": {
@@ -16064,6 +16084,10 @@ const docTemplate = `{
                 },
                 "usedMemory": {
                     "description": "已使用内存(MB)",
+                    "type": "integer"
+                },
+                "usedSnapshots": {
+                    "description": "已使用快照数量",
                     "type": "integer"
                 },
                 "usedTraffic": {

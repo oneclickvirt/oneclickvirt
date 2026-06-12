@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ type SystemImageSyncResult struct {
 	Source    string `json:"source"`
 }
 
+const defaultSystemImageListURL = "https://raw.githubusercontent.com/oneclickvirt/images_auto_list/refs/heads/main/images.txt"
+
 func SeedSystemImages() {
 	result, err := SyncSystemImages()
 	if err != nil {
@@ -36,6 +39,10 @@ func SeedSystemImages() {
 }
 
 func SyncSystemImages() (*SystemImageSyncResult, error) {
+	return SyncSystemImagesFromURL("")
+}
+
+func SyncSystemImagesFromURL(sourceURL string) (*SystemImageSyncResult, error) {
 	global.APP_LOG.Info("开始同步系统镜像列表")
 
 	// 初始化等级配置；该操作本身是幂等的，放在镜像同步前确保新库/老库启动口径一致。
@@ -53,36 +60,50 @@ func SyncSystemImages() (*SystemImageSyncResult, error) {
 	// 收集所有镜像URL
 	var imageURLs []string
 	useDefaultImages := false
+	customSource := strings.TrimSpace(sourceURL) != ""
 
 	// 从配置获取基础CDN端点
-	baseCDN := utils.GetBaseCDNEndpoint()
-	imageURL := baseCDN + "https://raw.githubusercontent.com/oneclickvirt/images_auto_list/refs/heads/main/images.txt"
+	listURL := strings.TrimSpace(sourceURL)
+	if listURL == "" {
+		listURL = utils.GetBaseCDNEndpoint() + defaultSystemImageListURL
+	}
+	result.Source = listURL
 
 	// 获取镜像列表，使用带超时的HTTP客户端
 	client := &http.Client{
 		Timeout: 60 * time.Second, // 获取文本列表，60秒超时
 	}
-	resp, err := client.Get(imageURL)
+	resp, err := client.Get(listURL)
 	if err != nil {
+		if customSource {
+			return nil, fmt.Errorf("获取镜像列表失败: %w", err)
+		}
 		global.APP_LOG.Warn("获取远程镜像列表失败，将使用默认镜像列表", zap.Error(err))
 		useDefaultImages = true
 	} else {
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
+			if customSource {
+				return nil, fmt.Errorf("获取镜像列表失败，HTTP状态码: %d", resp.StatusCode)
+			}
 			global.APP_LOG.Warn("获取远程镜像列表失败，将使用默认镜像列表", zap.Int("status", resp.StatusCode))
 			useDefaultImages = true
 		} else {
 			// 从远程读取镜像URL
 			scanner := bufio.NewScanner(resp.Body)
+			scanner.Buffer(make([]byte, 1024), 1024*1024)
 			for scanner.Scan() {
 				imageURL := strings.TrimSpace(scanner.Text())
-				if imageURL != "" {
+				if imageURL != "" && !strings.HasPrefix(imageURL, "#") {
 					imageURLs = append(imageURLs, imageURL)
 				}
 			}
 
 			if err := scanner.Err(); err != nil {
+				if customSource {
+					return nil, fmt.Errorf("读取镜像列表失败: %w", err)
+				}
 				global.APP_LOG.Warn("读取远程镜像列表失败，将使用默认镜像列表", zap.Error(err))
 				useDefaultImages = true
 				imageURLs = nil // 清空可能部分读取的数据
@@ -180,11 +201,14 @@ func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
 		}
 
 		imageInfo.OSType = utils.NormalizeOSType(imageInfo.OSType)
-		if imageInfo.OSType == "" {
+		if isUnresolvedSystemImageOS(imageInfo.OSType) {
 			imageInfo.OSType = utils.DetectOSTypeFromText(imageInfo.Name + " " + imageInfo.URL)
 		}
-		if imageInfo.OSType == "" {
-			imageInfo.OSType = "unknown"
+		if isUnresolvedSystemImageOS(imageInfo.OSType) {
+			global.APP_LOG.Warn("跳过无法识别操作系统的镜像",
+				zap.String("name", imageInfo.Name),
+				zap.String("url", imageInfo.URL))
+			continue
 		}
 
 		baseImageKey := fmt.Sprintf("%s-%s-%s-%s-%s",
@@ -330,6 +354,11 @@ func defaultSystemImageStatus(osType string) string {
 	default:
 		return "inactive"
 	}
+}
+
+func isUnresolvedSystemImageOS(osType string) bool {
+	value := strings.ToLower(strings.TrimSpace(osType))
+	return value == "" || value == "unknown" || value == "other"
 }
 
 // parseImageURL 解析镜像URL并提取信息
@@ -518,7 +547,168 @@ func parseImageURL(imageURL string) *ImageInfo {
 		}
 	}
 
-	return nil
+	return parseGenericOneClickVirtImageURL(imageURL)
+}
+
+func parseGenericOneClickVirtImageURL(imageURL string) *ImageInfo {
+	cleanURL := strings.Split(strings.TrimSpace(imageURL), "?")[0]
+	if cleanURL == "" || !strings.Contains(strings.ToLower(cleanURL), "github.com/oneclickvirt/") {
+		return nil
+	}
+	lowerURL := strings.ToLower(cleanURL)
+	filename := path.Base(cleanURL)
+	base := trimKnownImageExtension(filename)
+	if base == "" || base == filename {
+		return nil
+	}
+
+	providerType := ""
+	instanceType := "container"
+	architecture := ""
+	switch {
+	case strings.Contains(lowerURL, "/lxc_amd64_images/"):
+		providerType = "proxmox"
+		instanceType = "container"
+		architecture = "amd64"
+	case strings.Contains(lowerURL, "/lxc_arm_images/"):
+		providerType = "proxmox"
+		instanceType = "container"
+		architecture = "arm64"
+	case strings.Contains(lowerURL, "/lxd_images/"):
+		providerType = "lxd"
+	case strings.Contains(lowerURL, "/incus_images/"):
+		providerType = "incus"
+	case strings.Contains(lowerURL, "/pve_kvm_images/"), strings.Contains(lowerURL, "/kvm_images/"):
+		providerType = "proxmox"
+		instanceType = "vm"
+		architecture = "amd64"
+	case strings.Contains(lowerURL, "/docker/"):
+		providerType = "docker"
+	case strings.Contains(lowerURL, "/podman/"):
+		providerType = "podman"
+	case strings.Contains(lowerURL, "/containerd/"):
+		providerType = "containerd"
+	case strings.Contains(lowerURL, "/orbstack/"):
+		providerType = "orbstack"
+	default:
+		return nil
+	}
+	if strings.Contains(lowerURL, "/kvm_images/") || strings.HasSuffix(base, "_kvm") || strings.HasSuffix(filename, ".qcow2") {
+		instanceType = "vm"
+	}
+
+	tokens := strings.Split(base, "_")
+	if len(tokens) == 0 {
+		return nil
+	}
+	if strings.EqualFold(tokens[0], "spiritlhl") && len(tokens) > 1 {
+		tokens = tokens[1:]
+	}
+	if architecture == "" {
+		if arch, _ := detectArchitectureToken(tokens); arch != "" {
+			architecture = arch
+		}
+	}
+	if architecture == "" {
+		architecture = "amd64"
+	}
+
+	archIndex := -1
+	if _, idx := detectArchitectureToken(tokens); idx >= 0 {
+		archIndex = idx
+	}
+	osType := utils.NormalizeOSType(extractOSFromFilename(base))
+	if osType == "unknown" || osType == "" {
+		osType = utils.NormalizeOSType(tokens[0])
+	}
+	if isUnresolvedSystemImageOS(osType) {
+		return nil
+	}
+
+	versionTokens := []string{}
+	variantTokens := []string{}
+	if archIndex > 0 {
+		versionTokens = tokens[1:archIndex]
+		if archIndex+1 < len(tokens) {
+			variantTokens = tokens[archIndex+1:]
+		}
+	} else if len(tokens) > 1 {
+		versionTokens = tokens[1:]
+	}
+	versionTokens = filterImageTokens(versionTokens, map[string]bool{
+		"cloud": true, "default": true, "systemd": true, "openrc": true, "kvm": true,
+	})
+	variantTokens = filterImageTokens(variantTokens, map[string]bool{"kvm": true})
+
+	osVersion := strings.Join(versionTokens, ".")
+	if osVersion == "" {
+		if isOCIArchiveProvider(providerType) {
+			osVersion = inferDockerOSVersion(osType)
+		} else {
+			osVersion = extractVersionFromFilename(base)
+		}
+	}
+	if osVersion == "" || osVersion == "unknown" {
+		osVersion = "latest"
+	}
+
+	nameParts := []string{osType}
+	if osVersion != "" && osVersion != "latest" && osVersion != "unknown" {
+		nameParts = append(nameParts, osVersion)
+	}
+	for _, token := range variantTokens {
+		if token != "" && token != "default" {
+			nameParts = append(nameParts, token)
+			break
+		}
+	}
+	name := strings.Join(nameParts, "-")
+	if name == "" || name == "unknown" {
+		name = base
+	}
+
+	return &ImageInfo{
+		Name:         name,
+		ProviderType: providerType,
+		InstanceType: instanceType,
+		Architecture: architecture,
+		URL:          imageURL,
+		OSType:       osType,
+		OSVersion:    osVersion,
+		Description:  fmt.Sprintf("%s %s %s image", providerDisplayName(providerType), strings.ToUpper(instanceType), name),
+	}
+}
+
+func trimKnownImageExtension(filename string) string {
+	for _, ext := range []string{".tar.xz", ".tar.gz", ".qcow2", ".zip"} {
+		if strings.HasSuffix(strings.ToLower(filename), ext) {
+			return strings.TrimSuffix(filename, ext)
+		}
+	}
+	return filename
+}
+
+func detectArchitectureToken(tokens []string) (string, int) {
+	for idx, token := range tokens {
+		arch := convertArch(strings.ToLower(strings.TrimSpace(token)))
+		switch arch {
+		case "amd64", "arm64", "s390x":
+			return arch, idx
+		}
+	}
+	return "", -1
+}
+
+func filterImageTokens(tokens []string, skip map[string]bool) []string {
+	filtered := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		token = strings.TrimSpace(strings.ToLower(token))
+		if token == "" || skip[token] {
+			continue
+		}
+		filtered = append(filtered, token)
+	}
+	return filtered
 }
 
 // inferDockerOSVersion 根据 Docker 镜像的 OS 类型推断主要版本号。

@@ -9,6 +9,7 @@ import (
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/remote"
+	"oneclickvirt/service/taskgate"
 	"path"
 	"sort"
 	"strconv"
@@ -134,6 +135,11 @@ func UserSFTPList(c *gin.Context) {
 // @Success 200 {file} binary
 // @Router /user/instances/{id}/sftp/download [get]
 func UserSFTPDownload(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
 		common.ResponseWithError(c, err)
@@ -196,6 +202,11 @@ func UserSFTPDownload(c *gin.Context) {
 // @Success 200 {object} common.Response
 // @Router /user/instances/{id}/sftp/upload [post]
 func UserSFTPUpload(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
 		common.ResponseWithError(c, err)
@@ -397,6 +408,11 @@ func UserSFTPUploadStatus(c *gin.Context) {
 // @Success 200 {object} common.Response
 // @Router /user/instances/{id}/sftp/upload/abort [post]
 func UserSFTPUploadAbort(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
 		common.ResponseWithError(c, err)

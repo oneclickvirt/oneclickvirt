@@ -83,7 +83,9 @@ func (s *TaskService) parseTaskDataForConfig(taskData string) (cpu int, memory i
 	if taskReq.AdminDirect {
 		cpu = taskReq.CPU
 		memory = int(taskReq.Memory)
-		if taskReq.Disk > 0 {
+		if taskReq.DiskMB > 0 {
+			disk = int(taskReq.DiskMB)
+		} else if taskReq.Disk > 0 {
 			disk = int(taskReq.Disk * 1024)
 		}
 		bandwidth = taskReq.Bandwidth
@@ -162,6 +164,9 @@ func (s *TaskService) CreateTask(userID uint, providerID *uint, instanceID *uint
 	}
 
 	err := s.dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		if err := s.EnsureTaskPoolAcceptingInTx(tx); err != nil {
+			return err
+		}
 		return tx.Create(task).Error
 	})
 

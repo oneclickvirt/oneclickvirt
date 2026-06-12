@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/model/common"
 	redemptionService "oneclickvirt/service/admin/redemption"
 	"oneclickvirt/service/task"
+	"oneclickvirt/service/taskgate"
 
 	"github.com/gin-gonic/gin"
 )
@@ -124,6 +125,11 @@ func BatchDeleteRedemptionCodes(c *gin.Context) {
 // @Success 200 {object} common.Response "导出成功"
 // @Router /admin/redemption-codes/export [post]
 func ExportRedemptionCodes(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	var req adminModel.ExportRedemptionCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))

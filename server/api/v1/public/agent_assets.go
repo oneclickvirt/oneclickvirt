@@ -13,7 +13,7 @@ import (
 var allowedAgentReleaseName = regexp.MustCompile(`^oneclickvirt-agent-linux-(amd64|arm64)\.tar\.gz$`)
 
 const (
-	githubAgentInstallerURL = "https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_agent.sh"
+	githubAgentInstallerURL = "https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install_agent.sh"
 	githubReleaseBaseURL    = "https://github.com/oneclickvirt/oneclickvirt/releases/download"
 )
 

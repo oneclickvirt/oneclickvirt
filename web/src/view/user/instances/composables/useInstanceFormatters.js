@@ -55,7 +55,10 @@ export function useInstanceFormatters() {
       stop: t('user.instanceDetail.taskTitleStop'),
       restart: t('user.instanceDetail.taskTitleRestart'),
       reset: t('user.instanceDetail.taskTitleReset'),
-      reset_password: t('user.instanceDetail.taskTitleResetPassword')
+      reset_password: t('user.instanceDetail.taskTitleResetPassword'),
+      'snapshot-create': t('user.tasks.taskTypeSnapshotCreate'),
+      'snapshot-delete': t('user.tasks.taskTypeSnapshotDelete'),
+      'snapshot-restore': t('user.tasks.taskTypeSnapshotRestore')
     }
     return taskTypes[task.taskType] || t('user.instanceDetail.taskTitleDefault')
   }
@@ -72,7 +75,10 @@ export function useInstanceFormatters() {
       create_redemption_instance: t('user.instanceDetail.taskRedemption'),
       'create-port-mapping': t('user.tasks.taskTypeCreatePortMapping'),
       'delete-port-mapping': t('user.tasks.taskTypeDeletePortMapping'),
-      'sync-port-mappings': t('user.tasks.taskTypeSyncPortMappings')
+      'sync-port-mappings': t('user.tasks.taskTypeSyncPortMappings'),
+      'snapshot-create': t('user.tasks.taskTypeSnapshotCreate'),
+      'snapshot-delete': t('user.tasks.taskTypeSnapshotDelete'),
+      'snapshot-restore': t('user.tasks.taskTypeSnapshotRestore')
     }
     return taskTypes[taskType] || t('user.instanceDetail.taskDefault')
   }
@@ -94,11 +100,14 @@ export function useInstanceFormatters() {
       'running': 'success',
       'stopped': 'info',
       'paused': 'warning',
+      'creating': 'warning',
       'starting': 'warning',
       'stopping': 'warning',
       'restarting': 'warning',
       'rebuilding': 'warning',
       'resetting': 'warning',
+      'deleting': 'danger',
+      'deleted': 'info',
       'processing': 'warning',
       'unavailable': 'danger',
       'error': 'danger',
@@ -112,11 +121,14 @@ export function useInstanceFormatters() {
       'running': t('user.instanceDetail.statusRunning'),
       'stopped': t('user.instanceDetail.statusStopped'),
       'paused': t('user.instanceDetail.statusPaused'),
+      'creating': t('user.instanceDetail.statusCreating'),
       'starting': t('user.instanceDetail.statusStarting'),
       'stopping': t('user.instanceDetail.statusStopping'),
       'restarting': t('user.instanceDetail.statusRestarting'),
       'rebuilding': t('user.instanceDetail.statusRebuilding'),
       'resetting': t('user.instanceDetail.statusResetting'),
+      'deleting': t('user.instanceDetail.statusDeleting'),
+      'deleted': t('user.instanceDetail.statusDeleted'),
       'processing': t('user.instanceDetail.statusProcessing'),
       'unavailable': t('user.instanceDetail.statusUnavailable'),
       'error': t('user.instanceDetail.statusError'),

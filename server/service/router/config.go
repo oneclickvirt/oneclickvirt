@@ -13,6 +13,7 @@ func InitConfigRouter(Router *gin.RouterGroup) {
 	// 统一配置API
 	ConfigGroup := Router.Group("/v1/config")
 	ConfigGroup.Use(middleware.RequireAuth(authModel.AuthLevelAdmin))
+	ConfigGroup.Use(middleware.TaskPoolAdmissionGate())
 	{
 		ConfigGroup.GET("", config.GetUnifiedConfig)
 		ConfigGroup.PUT("", config.UpdateUnifiedConfig)

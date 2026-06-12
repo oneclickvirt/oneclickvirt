@@ -90,6 +90,16 @@ export function createUserInstanceSnapshot(instanceId, data) {
   })
 }
 
+export function uploadUserSnapshot(instanceId, file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: `/v1/user/instances/${instanceId}/snapshots/upload`,
+    method: 'post',
+    data
+  })
+}
+
 export function restoreUserSnapshot(snapshotId) {
   return request({
     url: `/v1/user/snapshots/${snapshotId}/restore`,
@@ -107,6 +117,22 @@ export function deleteUserSnapshot(snapshotId) {
 export function downloadUserSnapshot(snapshotId) {
   return request({
     url: `/v1/user/snapshots/${snapshotId}/download`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
+export function getSharedInstanceSnapshots(token, params) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/snapshots`,
+    method: 'get',
+    params
+  })
+}
+
+export function downloadSharedSnapshot(token, snapshotId) {
+  return request({
+    url: `/v1/public/instance-shares/${encodeURIComponent(token)}/snapshots/${snapshotId}/download`,
     method: 'get',
     responseType: 'blob'
   })

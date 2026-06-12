@@ -61,11 +61,19 @@ export function useApplyProviders() {
     return parts.length > 0 ? parts.join(', ') : '-'
   }
 
+  const hasAvailableSlots = (provider, capabilities, instanceType) => {
+    const providerSlotKey = instanceType === 'vm' ? 'availableVMSlots' : 'availableContainerSlots'
+    const capabilitySlotKey = instanceType === 'vm' ? 'availableVMSlots' : 'availableContainerSlots'
+    const slots = capabilities?.[capabilitySlotKey] ?? provider?.[providerSlotKey]
+    return slots === undefined || slots === null || slots === -1 || Number(slots) > 0
+  }
+
   const canCreateInstanceType = (instanceType) => {
     if (!selectedProvider.value) return false
     const capabilities = providerCapabilities.value[selectedProvider.value.id]
     if (!capabilities) return false
     if (!capabilities.supportedTypes?.includes(instanceType)) return false
+    if (!hasAvailableSlots(selectedProvider.value, capabilities, instanceType)) return false
     switch (instanceType) {
       case 'container': return instanceTypePermissions.value.canCreateContainer
       case 'vm':        return instanceTypePermissions.value.canCreateVM
@@ -91,7 +99,7 @@ export function useApplyProviders() {
     } catch (error) {
       console.error('获取提供商列表失败:', error)
       providers.value = []
-      ElMessage.error(t('user.apply.loadProvidersFailed'))
+      ElMessage.error(error?.details || error?.message || t('user.apply.loadProvidersFailed'))
     } finally {
       loading.value = false
     }

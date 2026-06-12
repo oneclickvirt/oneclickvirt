@@ -151,9 +151,9 @@ jobs:
     - name: Prepare controller agent assets
       run: |
         mkdir -p build/controller-agent web/public/controller-agent server/assets/agent
-        cp install_agent.sh build/controller-agent/install_agent.sh
-        cp install_agent.sh web/public/controller-agent/install_agent.sh
-        cp install_agent.sh server/assets/agent/install_agent.sh
+        cp scripts/install_agent.sh build/controller-agent/install_agent.sh
+        cp scripts/install_agent.sh web/public/controller-agent/install_agent.sh
+        cp scripts/install_agent.sh server/assets/agent/install_agent.sh
 
         tmp_amd64=$(mktemp -d)
         cp build/oneclickvirt-agent-linux-amd64 "$tmp_amd64/oneclickvirt-agent"

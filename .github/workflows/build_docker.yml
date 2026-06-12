@@ -108,7 +108,7 @@ jobs:
       - name: Stage optional agent assets
         run: |
           mkdir -p server/assets/agent
-          cp install_agent.sh server/assets/agent/install_agent.sh
+          cp scripts/install_agent.sh server/assets/agent/install_agent.sh
 
           TAG="${{ steps.latest-tag.outputs.tag }}"
           BASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
@@ -254,7 +254,7 @@ jobs:
       - name: Stage optional agent assets
         run: |
           mkdir -p server/assets/agent
-          cp install_agent.sh server/assets/agent/install_agent.sh
+          cp scripts/install_agent.sh server/assets/agent/install_agent.sh
 
           TAG="${{ steps.latest-tag.outputs.tag }}"
           BASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}"

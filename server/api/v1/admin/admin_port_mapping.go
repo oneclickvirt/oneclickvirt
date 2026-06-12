@@ -265,6 +265,7 @@ func CreatePortMapping(c *gin.Context) {
 	taskDataJSON, err := json.Marshal(taskData)
 	if err != nil {
 		global.APP_LOG.Error("序列化任务数据失败", zap.Error(err))
+		_ = global.APP_DB.Unscoped().Delete(&provider.Port{}, portID).Error
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -273,6 +274,7 @@ func CreatePortMapping(c *gin.Context) {
 	taskService := task.GetTaskService()
 	if taskService == nil {
 		global.APP_LOG.Error("任务服务未初始化")
+		_ = global.APP_DB.Unscoped().Delete(&provider.Port{}, portID).Error
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "任务服务未初始化，请稍后重试"))
 		return
 	}
@@ -286,6 +288,7 @@ func CreatePortMapping(c *gin.Context) {
 	)
 	if err != nil {
 		global.APP_LOG.Error("创建端口映射任务失败", zap.Error(err))
+		_ = global.APP_DB.Unscoped().Delete(&provider.Port{}, portID).Error
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -293,6 +296,11 @@ func CreatePortMapping(c *gin.Context) {
 	// 启动任务
 	if err := taskService.StartTask(newTask.ID); err != nil {
 		global.APP_LOG.Error("启动端口映射任务失败", zap.Uint("task_id", newTask.ID), zap.Error(err))
+		_ = global.APP_DB.Unscoped().Delete(&provider.Port{}, portID).Error
+		_ = global.APP_DB.Model(&admin.Task{}).Where("id = ?", newTask.ID).Updates(map[string]interface{}{
+			"status":        "failed",
+			"error_message": err.Error(),
+		}).Error
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -358,6 +366,7 @@ func DeletePortMapping(c *gin.Context) {
 	)
 	if err != nil {
 		global.APP_LOG.Error("创建端口删除任务失败", zap.Error(err))
+		_ = global.APP_DB.Model(&provider.Port{}).Where("id = ?", taskData.PortID).Update("status", "active").Error
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -365,6 +374,11 @@ func DeletePortMapping(c *gin.Context) {
 	// 启动任务
 	if err := taskService.StartTask(newTask.ID); err != nil {
 		global.APP_LOG.Error("启动端口删除任务失败", zap.Uint("task_id", newTask.ID), zap.Error(err))
+		_ = global.APP_DB.Model(&provider.Port{}).Where("id = ?", taskData.PortID).Update("status", "active").Error
+		_ = global.APP_DB.Model(&admin.Task{}).Where("id = ?", newTask.ID).Updates(map[string]interface{}{
+			"status":        "failed",
+			"error_message": err.Error(),
+		}).Error
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -438,6 +452,7 @@ func BatchDeletePortMapping(c *gin.Context) {
 			global.APP_LOG.Error("创建端口删除任务失败",
 				zap.Uint("portId", taskData.PortID),
 				zap.Error(err))
+			_ = global.APP_DB.Model(&provider.Port{}).Where("id = ?", taskData.PortID).Update("status", "active").Error
 			failedPorts = append(failedPorts, taskData.PortID)
 			continue
 		}
@@ -448,6 +463,11 @@ func BatchDeletePortMapping(c *gin.Context) {
 				zap.Uint("taskId", newTask.ID),
 				zap.Uint("portId", taskData.PortID),
 				zap.Error(err))
+			_ = global.APP_DB.Model(&provider.Port{}).Where("id = ?", taskData.PortID).Update("status", "active").Error
+			_ = global.APP_DB.Model(&admin.Task{}).Where("id = ?", newTask.ID).Updates(map[string]interface{}{
+				"status":        "failed",
+				"error_message": err.Error(),
+			}).Error
 			failedPorts = append(failedPorts, taskData.PortID)
 			continue
 		}

@@ -16,6 +16,7 @@ import (
 	"oneclickvirt/model/admin"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	resourceModel "oneclickvirt/model/resource"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/cache"
 
@@ -341,20 +342,32 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest, ownerAdminID .
 	// 检查Provider节点实例数量限制（实时查询，排除已删除/失败的实例）
 	if provider.MaxContainerInstances > 0 || provider.MaxVMInstances > 0 {
 		var containerCount, vmCount int64
+		var reservationCount int64
 		if err := global.APP_DB.Model(&providerModel.Instance{}).
 			Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
 				provider.ID, "container", []string{"deleted", "deleting", "failed"}).
 			Count(&containerCount).Error; err == nil {
-			if req.InstanceType == "container" && provider.MaxContainerInstances > 0 && int(containerCount) >= provider.MaxContainerInstances {
-				return nil, fmt.Errorf("节点容器数量已达上限：%d/%d", containerCount, provider.MaxContainerInstances)
+			_ = global.APP_DB.Model(&resourceModel.ResourceReservation{}).
+				Where("provider_id = ? AND instance_type = ? AND expires_at > ?",
+					provider.ID, "container", time.Now()).
+				Count(&reservationCount).Error
+			total := containerCount + reservationCount
+			if req.InstanceType == "container" && provider.MaxContainerInstances > 0 && int(total) >= provider.MaxContainerInstances {
+				return nil, fmt.Errorf("节点容器数量已达上限：%d/%d", total, provider.MaxContainerInstances)
 			}
 		}
+		reservationCount = 0
 		if err := global.APP_DB.Model(&providerModel.Instance{}).
 			Where("provider_id = ? AND instance_type = ? AND status NOT IN ?",
 				provider.ID, "vm", []string{"deleted", "deleting", "failed"}).
 			Count(&vmCount).Error; err == nil {
-			if req.InstanceType == "vm" && provider.MaxVMInstances > 0 && int(vmCount) >= provider.MaxVMInstances {
-				return nil, fmt.Errorf("节点虚拟机数量已达上限：%d/%d", vmCount, provider.MaxVMInstances)
+			_ = global.APP_DB.Model(&resourceModel.ResourceReservation{}).
+				Where("provider_id = ? AND instance_type = ? AND expires_at > ?",
+					provider.ID, "vm", time.Now()).
+				Count(&reservationCount).Error
+			total := vmCount + reservationCount
+			if req.InstanceType == "vm" && provider.MaxVMInstances > 0 && int(total) >= provider.MaxVMInstances {
+				return nil, fmt.Errorf("节点虚拟机数量已达上限：%d/%d", total, provider.MaxVMInstances)
 			}
 		}
 	}

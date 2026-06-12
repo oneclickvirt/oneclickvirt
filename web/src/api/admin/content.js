@@ -138,10 +138,11 @@ export const systemImageApi = {
   },
 
   // 同步系统镜像
-  sync: () => {
+  sync: (data = {}) => {
     return request({
       url: '/v1/admin/system-images/sync',
-      method: 'post'
+      method: 'post',
+      data
     })
   },
 

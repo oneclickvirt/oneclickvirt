@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	snapshotSvc "oneclickvirt/service/snapshot"
+	"oneclickvirt/service/taskgate"
 
 	"github.com/gin-gonic/gin"
 )
@@ -137,6 +138,11 @@ func RestoreSnapshot(c *gin.Context) {
 }
 
 func DownloadSnapshot(c *gin.Context) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
 	snapshotID, ok := parsePathUint(c, "id")
 	if !ok {
 		return

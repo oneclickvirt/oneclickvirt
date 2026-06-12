@@ -412,7 +412,13 @@ func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSec
 		return fmt.Errorf("SSH客户端不可用，无法等待实例就绪: %s", instanceName)
 	}
 
-	time.Sleep(12 * time.Second)
+	initialDelay := 12 * time.Second
+	if timeoutSeconds <= 30 {
+		initialDelay = 3 * time.Second
+	} else if timeoutSeconds <= 90 {
+		initialDelay = 6 * time.Second
+	}
+	time.Sleep(initialDelay)
 	loopCount := 0
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 5 {
 		// 每两轮循环（10秒）尝试启动实例，避免实例因故障停止导致一直干等待
@@ -451,4 +457,11 @@ func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSec
 		time.Sleep(5 * time.Second)
 	}
 	return fmt.Errorf("等待实例可执行命令超时 (%d秒)", timeoutSeconds)
+}
+
+func incusExecReadyTimeout(instanceType string) int {
+	if strings.EqualFold(strings.TrimSpace(instanceType), "vm") {
+		return 90
+	}
+	return 30
 }

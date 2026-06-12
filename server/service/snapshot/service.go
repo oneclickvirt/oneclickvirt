@@ -205,25 +205,7 @@ func (s *Service) StartDeleteSnapshotTask(snapshotID uint, createdBy uint) (*Sna
 	if err := global.APP_DB.First(&snapshot, snapshotID).Error; err != nil {
 		return nil, err
 	}
-	task := &providerModel.SnapshotTask{
-		ProviderID: snapshot.ProviderID,
-		InstanceID: snapshot.InstanceID,
-		SnapshotID: snapshot.ID,
-		UserID:     snapshot.UserID,
-		Action:     SnapshotTaskActionDelete,
-		Status:     SnapshotTaskStatusPending,
-		Source:     snapshot.Source,
-		Name:       snapshot.Name,
-		CreatedBy:  createdBy,
-	}
-	if err := global.APP_DB.Create(task).Error; err != nil {
-		return nil, err
-	}
-	adminTask, err := s.createUnifiedSnapshotTask(task, &snapshot, SnapshotTaskActionDelete, createdBy)
-	if err != nil {
-		return nil, err
-	}
-	return &SnapshotTaskResponse{Task: adminTask, SnapshotTask: task, Snapshot: &snapshot}, nil
+	return s.startSnapshotOperationTask(&snapshot, SnapshotTaskActionDelete, createdBy)
 }
 
 func (s *Service) StartRestoreSnapshotTask(snapshotID uint, createdBy uint) (*SnapshotTaskResponse, error) {
@@ -235,32 +217,25 @@ func (s *Service) StartRestoreSnapshotTask(snapshotID uint, createdBy uint) (*Sn
 	if err := global.APP_DB.First(&snapshot, snapshotID).Error; err != nil {
 		return nil, err
 	}
-	task := &providerModel.SnapshotTask{
-		ProviderID: snapshot.ProviderID,
-		InstanceID: snapshot.InstanceID,
-		SnapshotID: snapshot.ID,
-		UserID:     snapshot.UserID,
-		Action:     SnapshotTaskActionRestore,
-		Status:     SnapshotTaskStatusPending,
-		Source:     snapshot.Source,
-		Name:       snapshot.Name,
-		CreatedBy:  createdBy,
-	}
-	if err := global.APP_DB.Create(task).Error; err != nil {
-		return nil, err
-	}
-	adminTask, err := s.createUnifiedSnapshotTask(task, &snapshot, SnapshotTaskActionRestore, createdBy)
-	if err != nil {
-		return nil, err
-	}
-	return &SnapshotTaskResponse{Task: adminTask, SnapshotTask: task, Snapshot: &snapshot}, nil
+	return s.startSnapshotOperationTask(&snapshot, SnapshotTaskActionRestore, createdBy)
 }
 
 func (s *Service) createUnifiedSnapshotTask(snapshotTask *providerModel.SnapshotTask, snapshot *providerModel.InstanceSnapshot, action string, createdBy uint) (*adminModel.Task, error) {
 	if err := taskgate.EnsureAccepting(); err != nil {
 		return nil, err
 	}
+	task, err := s.createUnifiedSnapshotTaskInTx(global.APP_DB, snapshotTask, snapshot, action, createdBy)
+	if err != nil {
+		return nil, err
+	}
+	triggerUnifiedTaskProcessing()
+	return task, nil
+}
 
+func (s *Service) createUnifiedSnapshotTaskInTx(tx *gorm.DB, snapshotTask *providerModel.SnapshotTask, snapshot *providerModel.InstanceSnapshot, action string, createdBy uint) (*adminModel.Task, error) {
+	if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+		return nil, err
+	}
 	if snapshotTask == nil || snapshot == nil {
 		return nil, fmt.Errorf("snapshot task and snapshot are required")
 	}
@@ -289,17 +264,20 @@ func (s *Service) createUnifiedSnapshotTask(snapshotTask *providerModel.Snapshot
 		StatusMessage:     "snapshot.pending",
 	}
 	// Task.UserID must remain the instance owner. createdBy is stored on the snapshot/schedule records.
-	if err := global.APP_DB.Create(task).Error; err != nil {
+	if err := tx.Create(task).Error; err != nil {
 		return nil, err
 	}
 	snapshotTask.AdminTaskID = task.ID
-	if err := global.APP_DB.Model(snapshotTask).Update("admin_task_id", task.ID).Error; err != nil {
+	if err := tx.Model(snapshotTask).Update("admin_task_id", task.ID).Error; err != nil {
 		return nil, err
 	}
+	return task, nil
+}
+
+func triggerUnifiedTaskProcessing() {
 	if global.APP_SCHEDULER != nil {
 		global.APP_SCHEDULER.TriggerTaskProcessing()
 	}
-	return task, nil
 }
 
 func (s *Service) ExecuteSnapshotAdminTask(ctx context.Context, task *adminModel.Task) error {

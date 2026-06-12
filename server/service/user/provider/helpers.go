@@ -8,11 +8,17 @@ import (
 	"strings"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	systemModel "oneclickvirt/model/system"
+	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
+	agentLifecycle "oneclickvirt/service/agent"
+	"oneclickvirt/service/firewall"
 	"oneclickvirt/service/interfaces"
 	providerService "oneclickvirt/service/provider"
+	"oneclickvirt/service/resources"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -88,13 +94,144 @@ func (s *Service) delayedDeleteFailedInstance(instanceID uint) {
 
 	// 模拟管理员删除实例的逻辑
 	if err := s.executeAdminDeleteInstance(instanceID, adminInstanceSvc.taskService); err != nil {
-		global.APP_LOG.Error("延迟删除失败实例失败",
+		global.APP_LOG.Warn("延迟删除任务创建失败，改用直接清理兜底",
 			zap.Uint("instanceId", instanceID),
 			zap.Error(err))
+		if cleanupErr := s.cleanupFailedInstanceDirect(instanceID); cleanupErr != nil {
+			global.APP_LOG.Error("直接清理失败实例失败",
+				zap.Uint("instanceId", instanceID),
+				zap.Error(cleanupErr))
+		}
 	} else {
 		global.APP_LOG.Debug("延迟删除失败实例成功",
 			zap.Uint("instanceId", instanceID))
 	}
+}
+
+func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
+	var instance providerModel.Instance
+	if err := global.APP_DB.Unscoped().First(&instance, instanceID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return fmt.Errorf("获取失败实例信息失败: %w", err)
+	}
+
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	providerApiService := &providerService.ProviderApiService{}
+	if err := providerApiService.DeleteInstanceByProviderID(cleanupCtx, instance.ProviderID, instance.Name); err != nil {
+		global.APP_LOG.Warn("直接清理失败实例时Provider删除失败，继续清理本地记录",
+			zap.Uint("instanceId", instance.ID),
+			zap.String("instanceName", instance.Name),
+			zap.Error(err))
+	}
+
+	if err := traffic_monitor.GetManager().DetachMonitor(cleanupCtx, instance.ID); err != nil {
+		global.APP_LOG.Warn("直接清理失败实例监控数据失败",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(err))
+	}
+
+	agentCtx, agentCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	agentLifecycle.OnInstanceDeleted(agentCtx, global.APP_DB, instance.ID)
+	agentCancel()
+
+	firewall.CleanupInstanceApplications(instance.ID)
+
+	resourceUsage := resources.ResourceUsage{
+		CPU:       instance.CPU,
+		Memory:    instance.Memory,
+		Disk:      instance.Disk,
+		Bandwidth: instance.Bandwidth,
+	}
+	quotaService := resources.NewQuotaService()
+
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		var freshStatus struct{ Status string }
+		if err := tx.Model(&providerModel.Instance{}).Unscoped().
+			Select("status").Where("id = ?", instance.ID).
+			Scan(&freshStatus).Error; err == nil && freshStatus.Status != "" {
+			instance.Status = freshStatus.Status
+		}
+
+		portMappingService := resources.PortMappingService{}
+		if err := portMappingService.DeleteInstancePortMappingsInTx(tx, instance.ID); err != nil {
+			global.APP_LOG.Warn("直接清理失败实例端口映射失败",
+				zap.Uint("instanceId", instance.ID),
+				zap.Error(err))
+		}
+
+		if !constant.IsTerminalStatus(instance.Status) {
+			resourceService := &resources.ResourceService{}
+			if err := resourceService.ReleaseResourcesInTx(tx, instance.ProviderID, instance.InstanceType,
+				instance.CPU, instance.Memory, instance.Disk); err != nil {
+				global.APP_LOG.Warn("直接清理失败实例Provider资源失败",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("status", instance.Status),
+					zap.Error(err))
+			}
+		}
+
+		if instance.UserID > 0 {
+			if constant.IsTransitionalStatus(instance.Status) || instance.Status == constant.InstanceStatusFailed {
+				if err := quotaService.ReleasePendingQuota(tx, instance.UserID, resourceUsage); err != nil {
+					global.APP_LOG.Warn("直接清理失败实例待确认配额失败",
+						zap.Uint("instanceId", instance.ID),
+						zap.Uint("userId", instance.UserID),
+						zap.String("status", instance.Status),
+						zap.Error(err))
+				}
+			} else if !constant.IsTerminalStatus(instance.Status) {
+				if err := quotaService.ReleaseUsedQuota(tx, instance.UserID, resourceUsage); err != nil {
+					global.APP_LOG.Warn("直接清理失败实例已用配额失败",
+						zap.Uint("instanceId", instance.ID),
+						zap.Uint("userId", instance.UserID),
+						zap.String("status", instance.Status),
+						zap.Error(err))
+				}
+			}
+		}
+
+		if err := tx.Unscoped().
+			Where("instance_id = ? AND status != ?", instance.ID, systemModel.RedemptionStatusUsed).
+			Delete(&systemModel.RedemptionCode{}).Error; err != nil {
+			global.APP_LOG.Warn("直接清理失败实例兑换码失败",
+				zap.Uint("instanceId", instance.ID),
+				zap.Error(err))
+		}
+
+		if err := tx.Delete(&instance).Error; err != nil {
+			return fmt.Errorf("删除失败实例记录失败: %w", err)
+		}
+
+		if instance.UserID > 0 {
+			if err := quotaService.RecalculateUserQuotaInTx(tx, instance.UserID); err != nil {
+				global.APP_LOG.Warn("直接清理失败实例后重算用户配额失败",
+					zap.Uint("instanceId", instance.ID),
+					zap.Uint("userId", instance.UserID),
+					zap.Error(err))
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := global.APP_DB.Model(&providerModel.ProviderIPv4Pool{}).
+		Where("instance_id = ?", instance.ID).
+		Updates(map[string]interface{}{"is_allocated": false, "instance_id": nil}).Error; err != nil {
+		global.APP_LOG.Warn("直接清理失败实例IPv4池地址失败",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(err))
+	}
+
+	global.APP_LOG.Info("直接清理失败实例完成",
+		zap.Uint("instanceId", instance.ID),
+		zap.String("instanceName", instance.Name))
+	return nil
 }
 
 // executeAdminDeleteInstance 执行管理员删除实例操作

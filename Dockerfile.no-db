@@ -22,7 +22,7 @@ WORKDIR /app/server
 ENV GOTOOLCHAIN=local
 RUN apk add --no-cache git ca-certificates
 COPY server/ ./
-COPY install_agent.sh /app/install_agent.sh
+COPY scripts/install_agent.sh /app/install_agent.sh
 RUN mkdir -p assets/agent && cp /app/install_agent.sh assets/agent/install_agent.sh
 RUN go version
 RUN go mod download

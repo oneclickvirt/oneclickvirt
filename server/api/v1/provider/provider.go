@@ -6,6 +6,7 @@ import (
 
 	"oneclickvirt/model/common"
 	"oneclickvirt/service/provider"
+	"oneclickvirt/service/taskgate"
 
 	"oneclickvirt/global"
 
@@ -17,6 +18,14 @@ type ProviderApi struct{}
 
 // 使用全局服务实例或者直接在方法中创建
 var providerApiService = &provider.ProviderApiService{}
+
+func ensureProviderMutationAllowed(c *gin.Context) bool {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return false
+	}
+	return true
+}
 
 // ConnectProvider 连接Provider
 // @Summary 连接虚拟化Provider
@@ -151,6 +160,10 @@ func (p *ProviderApi) ListInstances(c *gin.Context) {
 // @Failure 500 {object} common.Response "创建失败"
 // @Router /provider/{id}/instances [post]
 func (p *ProviderApi) CreateInstance(c *gin.Context) {
+	if !ensureProviderMutationAllowed(c) {
+		return
+	}
+
 	providerID := c.Param("id")
 
 	var req provider.CreateInstanceRequest
@@ -194,6 +207,10 @@ func (p *ProviderApi) GetInstance(c *gin.Context) {
 
 // StartInstance 启动实例
 func (p *ProviderApi) StartInstance(c *gin.Context) {
+	if !ensureProviderMutationAllowed(c) {
+		return
+	}
+
 	providerID := c.Param("id")
 	instanceName := c.Param("name")
 
@@ -211,6 +228,10 @@ func (p *ProviderApi) StartInstance(c *gin.Context) {
 
 // StopInstance 停止实例
 func (p *ProviderApi) StopInstance(c *gin.Context) {
+	if !ensureProviderMutationAllowed(c) {
+		return
+	}
+
 	providerID := c.Param("id")
 	instanceName := c.Param("name")
 
@@ -228,6 +249,10 @@ func (p *ProviderApi) StopInstance(c *gin.Context) {
 
 // DeleteInstance 删除实例
 func (p *ProviderApi) DeleteInstance(c *gin.Context) {
+	if !ensureProviderMutationAllowed(c) {
+		return
+	}
+
 	providerID := c.Param("id")
 	instanceName := c.Param("name")
 
@@ -262,6 +287,10 @@ func (p *ProviderApi) ListImages(c *gin.Context) {
 
 // PullImage 拉取镜像
 func (p *ProviderApi) PullImage(c *gin.Context) {
+	if !ensureProviderMutationAllowed(c) {
+		return
+	}
+
 	providerID := c.Param("id")
 
 	var req struct {
@@ -288,6 +317,10 @@ func (p *ProviderApi) PullImage(c *gin.Context) {
 
 // DeleteImage 删除镜像
 func (p *ProviderApi) DeleteImage(c *gin.Context) {
+	if !ensureProviderMutationAllowed(c) {
+		return
+	}
+
 	providerID := c.Param("id")
 	imageName := c.Param("image")
 

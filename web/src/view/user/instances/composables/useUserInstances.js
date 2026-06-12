@@ -88,6 +88,8 @@ export function useUserInstances() {
       'restarting': 'warning',
       'rebuilding': 'warning',
       'resetting': 'warning',
+      'deleting': 'danger',
+      'deleted': 'info',
       'unavailable': 'danger',
       'error': 'danger',
       'failed': 'danger'
@@ -107,6 +109,8 @@ export function useUserInstances() {
       'restarting': t('user.instances.statusRestarting'),
       'rebuilding': t('user.instances.statusRebuilding'),
       'resetting': t('user.instances.statusResetting'),
+      'deleting': t('user.instances.statusDeleting'),
+      'deleted': t('user.instances.statusDeleted'),
       'unavailable': t('user.instances.statusUnavailable'),
       'error': t('user.instances.statusError'),
       'failed': t('user.instances.statusFailed')

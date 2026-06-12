@@ -392,6 +392,74 @@
         {{ $t('admin.providers.proxmoxStorageTip') }}
       </el-text>
     </div>
+
+    <el-divider content-position="left">
+      <el-icon><Memo /></el-icon>
+      <span style="margin-left: 8px;">{{ $t('admin.providers.ioRateLimits') }}</span>
+    </el-divider>
+    <el-alert
+      :title="$t('admin.providers.ioRateLimitsTip')"
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 16px;"
+    />
+    <el-row :gutter="20">
+      <el-col :span="12">
+        <el-card shadow="never">
+          <template #header>
+            <span>{{ $t('admin.providers.containerIoRateLimits') }}</span>
+          </template>
+          <el-form-item
+            :label="$t('admin.providers.readIoLimit')"
+            prop="containerReadIoLimit"
+          >
+            <el-input
+              v-model="modelValue.containerReadIoLimit"
+              :placeholder="$t('admin.providers.ioRateLimitPlaceholder')"
+              clearable
+            />
+          </el-form-item>
+          <el-form-item
+            :label="$t('admin.providers.writeIoLimit')"
+            prop="containerWriteIoLimit"
+          >
+            <el-input
+              v-model="modelValue.containerWriteIoLimit"
+              :placeholder="$t('admin.providers.ioRateLimitPlaceholder')"
+              clearable
+            />
+          </el-form-item>
+        </el-card>
+      </el-col>
+      <el-col :span="12">
+        <el-card shadow="never">
+          <template #header>
+            <span>{{ $t('admin.providers.vmIoRateLimits') }}</span>
+          </template>
+          <el-form-item
+            :label="$t('admin.providers.readIoLimit')"
+            prop="vmReadIoLimit"
+          >
+            <el-input
+              v-model="modelValue.vmReadIoLimit"
+              :placeholder="$t('admin.providers.ioRateLimitPlaceholder')"
+              clearable
+            />
+          </el-form-item>
+          <el-form-item
+            :label="$t('admin.providers.writeIoLimit')"
+            prop="vmWriteIoLimit"
+          >
+            <el-input
+              v-model="modelValue.vmWriteIoLimit"
+              :placeholder="$t('admin.providers.ioRateLimitPlaceholder')"
+              clearable
+            />
+          </el-form-item>
+        </el-card>
+      </el-col>
+    </el-row>
   </el-form>
 </template>
 

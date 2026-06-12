@@ -205,6 +205,18 @@
                 :label="$t('admin.tasks.taskTypeCreateRedemptionInstance')"
                 value="create_redemption_instance"
               />
+              <el-option
+                :label="$t('admin.tasks.taskTypeSnapshotCreate')"
+                value="snapshot-create"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeSnapshotDelete')"
+                value="snapshot-delete"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeSnapshotRestore')"
+                value="snapshot-restore"
+              />
             </el-select>
           </el-form-item>
           <el-form-item>

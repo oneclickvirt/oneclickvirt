@@ -5,6 +5,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/service/taskgate"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -71,6 +72,10 @@ func (s *PortMappingService) DeleteInstancePortMappingsInTx(tx *gorm.DB, instanc
 // BatchDeletePortMappingWithTask 批量删除端口映射（通过任务系统异步执行，仅支持删除手动/批量添加的端口）
 // 返回任务数据列表（由调用者创建和启动任务）
 func (s *PortMappingService) BatchDeletePortMappingWithTask(req admin.BatchDeletePortMappingRequest) ([]*admin.DeletePortMappingTaskRequest, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, err
+	}
+
 	// 获取所有要删除的端口
 	var ports []provider.Port
 	if err := global.APP_DB.Where("id IN ?", req.IDs).Find(&ports).Error; err != nil {
@@ -114,6 +119,10 @@ func (s *PortMappingService) BatchDeletePortMappingWithTask(req admin.BatchDelet
 // DeletePortMappingWithTask 删除端口映射（通过任务系统异步执行，支持删除手动和批量添加的端口）
 // 返回任务数据（由调用者创建和启动任务）
 func (s *PortMappingService) DeletePortMappingWithTask(id uint) (*admin.DeletePortMappingTaskRequest, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, err
+	}
+
 	var port provider.Port
 	if err := global.APP_DB.Where("id = ?", id).First(&port).Error; err != nil {
 		return nil, fmt.Errorf("端口映射不存在")

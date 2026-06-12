@@ -107,7 +107,7 @@ func GenerateAgentSecret(c *gin.Context) {
 
 	// 构造 CDN 加速安装命令（使用 sh 以保证最广兼容性）
 	cdnBase := "https://cdn.spiritlhl.net"
-	installScript := fmt.Sprintf("%s/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_agent.sh", cdnBase)
+	installScript := fmt.Sprintf("%s/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install_agent.sh", cdnBase)
 	installCmdGithub := fmt.Sprintf(
 		"curl -fsSL %s | sh -s -- --ws-url %s --secret %s --agent-source github",
 		installScript, wsURL, secret,

@@ -241,7 +241,12 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		}
 
 		isPendingState := constant.IsTransitionalStatus(instance.Status)
-		if isPendingState {
+		isTerminalState := constant.IsTerminalStatus(instance.Status)
+		if instanceUserID == 0 {
+			global.APP_LOG.Debug("实例无用户归属，跳过用户配额释放",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instanceID))
+		} else if isPendingState {
 			if err := quotaService.ReleasePendingQuota(tx, instanceUserID, resourceUsage); err != nil {
 				global.APP_LOG.Warn("释放待确认配额失败",
 					zap.Uint("taskId", task.ID),
@@ -250,6 +255,11 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 					zap.Error(err))
 				// 配额释放失败不阻止整个流程
 			}
+		} else if isTerminalState {
+			global.APP_LOG.Debug("跳过终止状态实例的直接配额扣减，后续重算兜底",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instanceID),
+				zap.String("status", instance.Status))
 		} else {
 			if err := quotaService.ReleaseUsedQuota(tx, instanceUserID, resourceUsage); err != nil {
 				global.APP_LOG.Warn("释放已使用配额失败",
@@ -276,6 +286,16 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		// 5. 软删除当前实例记录（保留流量数据以供统计）- 这是最关键的操作
 		if err := tx.Delete(&instance).Error; err != nil {
 			return fmt.Errorf("删除实例记录失败: %v", err)
+		}
+
+		if instanceUserID > 0 {
+			if err := quotaService.RecalculateUserQuotaInTx(tx, instanceUserID); err != nil {
+				global.APP_LOG.Warn("删除实例后重算用户配额失败",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("instanceId", instanceID),
+					zap.Uint("userId", instanceUserID),
+					zap.Error(err))
+			}
 		}
 
 		return nil

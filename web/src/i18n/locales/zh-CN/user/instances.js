@@ -21,6 +21,8 @@ export default {
   statusRestarting: "重启中",
   statusRebuilding: "重建中",
   statusResetting: "重置中",
+  statusDeleting: "删除中",
+  statusDeleted: "已删除",
   statusUnavailable: "不可用",
   statusError: "错误",
   statusFailed: "创建失败",

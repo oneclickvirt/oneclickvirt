@@ -183,6 +183,23 @@ const TASK_STEP_SEQUENCES = {
     'step.getProviderInfo',
     'step.syncProviderPortMappings',
     'step.generatingReport'
+  ],
+  'snapshot-create': [
+    'snapshot.taskStarted',
+    'snapshot.buildCommand',
+    'snapshot.executeRemote',
+    'snapshot.updateDatabase',
+    'snapshot.taskCompleted'
+  ],
+  'snapshot-delete': [
+    'snapshot.taskStarted',
+    'snapshot.deleteRemote',
+    'snapshot.taskCompleted'
+  ],
+  'snapshot-restore': [
+    'snapshot.taskStarted',
+    'snapshot.restoreRemote',
+    'snapshot.taskCompleted'
   ]
 }
 
@@ -191,7 +208,7 @@ const TASK_STEP_SEQUENCES = {
 // - "step.settingPasswordRetry:2" -> { key: "step.settingPasswordRetry", params: { n: 2, name: "2" } }
 // - "step.syncProviderPortMappings:node-a" -> { key: "step.syncProviderPortMappings", params: { n: "node-a", name: "node-a" } }
 function parseLogStep(m) {
-  if (!m || !m.startsWith('step.')) return null
+  if (!m || (!m.startsWith('step.') && !m.startsWith('snapshot.'))) return null
   const colonIdx = m.indexOf(':')
   if (colonIdx === -1) {
     return { key: m, params: {} }

@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"oneclickvirt/config"
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/model/resource"
 	"oneclickvirt/model/user"
 	"oneclickvirt/service/userquota"
 
@@ -211,8 +213,8 @@ func (s *QuotaService) getCurrentResourceUsage(tx *gorm.DB, userID uint) (int, R
 
 // getCurrentResourceUsageWithPending 获取当前资源使用情况（分别统计稳定和待确认）
 func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID uint) (int, ResourceUsage, ResourceUsage, error) {
-	// 使用状态常量分别查询稳定状态和过渡状态的实例
-	stableStatuses := constant.GetStableStatuses()
+	// 使用状态常量分别查询已占用状态和待确认状态的实例。
+	stableStatuses := constant.GetQuotaCountableStatuses()
 	transitionalStatuses := constant.GetTransitionalStatuses()
 	type quotaUsageAggregate struct {
 		Count     int64
@@ -244,8 +246,19 @@ func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID ui
 		return 0, ResourceUsage{}, ResourceUsage{}, err
 	}
 
-	// 总实例数 = 稳定状态 + 待确认状态
-	totalCount := int(stableUsage.Count + pendingUsage.Count)
+	// 活跃预留也会在稍后生成实例，必须计入待确认配额，避免并发超配。
+	var reservationUsage quotaUsageAggregate
+	err = tx.Clauses(clause.Locking{Strength: "SHARE"}).
+		Model(&resource.ResourceReservation{}).
+		Select("COUNT(*) AS count, COALESCE(SUM(cpu), 0) AS cpu, COALESCE(SUM(memory), 0) AS memory, COALESCE(SUM(disk), 0) AS disk, COALESCE(SUM(bandwidth), 0) AS bandwidth").
+		Where("user_id = ? AND expires_at > ?", userID, time.Now()).
+		Scan(&reservationUsage).Error
+	if err != nil {
+		return 0, ResourceUsage{}, ResourceUsage{}, err
+	}
+
+	// 总实例数 = 已占用状态 + 待确认实例 + 未消费预留
+	totalCount := int(stableUsage.Count + pendingUsage.Count + reservationUsage.Count)
 
 	stableResources := ResourceUsage{
 		CPU:       stableUsage.CPU,
@@ -255,10 +268,10 @@ func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID ui
 	}
 
 	pendingResources := ResourceUsage{
-		CPU:       pendingUsage.CPU,
-		Memory:    pendingUsage.Memory,
-		Disk:      pendingUsage.Disk,
-		Bandwidth: pendingUsage.Bandwidth,
+		CPU:       pendingUsage.CPU + reservationUsage.CPU,
+		Memory:    pendingUsage.Memory + reservationUsage.Memory,
+		Disk:      pendingUsage.Disk + reservationUsage.Disk,
+		Bandwidth: pendingUsage.Bandwidth + reservationUsage.Bandwidth,
 	}
 
 	return totalCount, stableResources, pendingResources, nil
@@ -268,18 +281,26 @@ func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID ui
 func (s *QuotaService) getCurrentProviderInstanceCount(tx *gorm.DB, userID uint, providerID uint) (int, error) {
 	var count int64
 
-	// 使用 FOR SHARE 共享锁，防止幻读
+	// 使用 FOR SHARE 共享锁，防止幻读。创建中/重置中实例和活跃预留都要计入。
 	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
 		Model(&provider.Instance{}).
-		Where("user_id = ? AND provider_id = ? AND status NOT IN (?)",
-			userID, providerID, []string{"deleting", "deleted", "failed", "creating", "resetting"}).
+		Where("user_id = ? AND provider_id = ? AND deleted_at IS NULL AND status NOT IN (?)",
+			userID, providerID, constant.GetTerminalStatuses()).
 		Count(&count).Error
 
 	if err != nil {
 		return 0, err
 	}
 
-	return int(count), nil
+	var reservedCount int64
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+		Model(&resource.ResourceReservation{}).
+		Where("user_id = ? AND provider_id = ? AND expires_at > ?", userID, providerID, time.Now()).
+		Count(&reservedCount).Error; err != nil {
+		return 0, err
+	}
+
+	return int(count + reservedCount), nil
 }
 
 // GetCurrentResourceUsageInTx 公开方法：在事务中获取当前资源使用情况

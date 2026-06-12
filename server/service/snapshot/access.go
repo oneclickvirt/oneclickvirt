@@ -61,6 +61,118 @@ type SnapshotDownloadManifest struct {
 	Note         string    `json:"note"`
 }
 
+func (s *Service) ImportUserSnapshotManifest(instanceID uint, userID uint, payload []byte) (*providerModel.InstanceSnapshot, error) {
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("快照清单不能为空")
+	}
+
+	var manifest SnapshotDownloadManifest
+	if err := json.Unmarshal(payload, &manifest); err != nil {
+		return nil, fmt.Errorf("快照清单格式不兼容: %w", err)
+	}
+	if strings.TrimSpace(manifest.Name) == "" {
+		return nil, fmt.Errorf("快照清单缺少快照名称")
+	}
+	if manifest.Status != "" && manifest.Status != StatusAvailable {
+		return nil, fmt.Errorf("只能上传可用状态的快照清单")
+	}
+
+	var imported providerModel.InstanceSnapshot
+	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+			return err
+		}
+
+		var inst providerModel.Instance
+		if err := tx.Where("id = ? AND user_id = ?", instanceID, userID).First(&inst).Error; err != nil {
+			return fmt.Errorf("实例不存在或无权限")
+		}
+
+		providerType := providerTypeForInstance(inst)
+		instanceType := strings.ToLower(strings.TrimSpace(inst.InstanceType))
+		if manifest.ProviderID != 0 && manifest.ProviderID != inst.ProviderID {
+			return fmt.Errorf("快照清单所属节点与当前实例不一致")
+		}
+		if manifest.InstanceID != 0 && manifest.InstanceID != inst.ID {
+			return fmt.Errorf("快照清单所属实例与当前实例不一致")
+		}
+		if manifest.ProviderType != "" && strings.ToLower(strings.TrimSpace(manifest.ProviderType)) != providerType {
+			return fmt.Errorf("快照清单节点类型不兼容")
+		}
+		if manifest.InstanceType != "" && strings.ToLower(strings.TrimSpace(manifest.InstanceType)) != instanceType {
+			return fmt.Errorf("快照清单实例类型不兼容")
+		}
+		if manifest.InstanceName != "" && manifest.InstanceName != inst.Name {
+			return fmt.Errorf("快照清单实例名称与当前实例不一致")
+		}
+
+		quota, err := maxSnapshotsForUserInTx(tx, userID)
+		if err != nil {
+			return err
+		}
+		if quota <= 0 {
+			return fmt.Errorf("当前用户等级未开放快照配额")
+		}
+		var count int64
+		if err := tx.Model(&providerModel.InstanceSnapshot{}).
+			Where("instance_id = ? AND status IN ?", inst.ID, []string{StatusCreating, StatusAvailable}).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if int(count) >= quota {
+			return fmt.Errorf("快照数量已达用户等级配额上限 %d", quota)
+		}
+
+		snapshotName := sanitizeName(manifest.Name)
+		if snapshotName == "" {
+			return fmt.Errorf("快照名称无效")
+		}
+		var existing int64
+		if err := tx.Model(&providerModel.InstanceSnapshot{}).
+			Where("instance_id = ? AND name = ?", inst.ID, snapshotName).
+			Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return fmt.Errorf("同名快照已存在，请先重命名或删除原快照")
+		}
+
+		metadata := strings.TrimSpace(manifest.Metadata)
+		if metadata == "" {
+			metadataBytes, _ := json.Marshal(map[string]interface{}{
+				"uploadedFrom": manifest.UUID,
+				"uploadedAt":   time.Now(),
+				"note":         "uploaded snapshot manifest; remote snapshot data must already exist on the provider backend",
+			})
+			metadata = string(metadataBytes)
+		}
+
+		imported = providerModel.InstanceSnapshot{
+			ProviderID:   inst.ProviderID,
+			InstanceID:   inst.ID,
+			UserID:       userID,
+			ProviderType: providerType,
+			InstanceType: instanceType,
+			InstanceName: inst.Name,
+			Name:         snapshotName,
+			Description:  strings.TrimSpace(manifest.Description),
+			Status:       StatusAvailable,
+			Source:       "uploaded",
+			SizeBytes:    manifest.SizeBytes,
+			Metadata:     metadata,
+			CreatedBy:    userID,
+		}
+		if err := tx.Create(&imported).Error; err != nil {
+			return fmt.Errorf("导入快照记录失败: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &imported, nil
+}
+
 func (s *Service) startCreateSnapshotTaskForLoaded(inst *providerModel.Instance, req SnapshotRequest, createdBy uint, source string, schedule *providerModel.SnapshotSchedule, providerTypeOverride string) (*SnapshotTaskResponse, error) {
 	if inst == nil {
 		return nil, fmt.Errorf("实例不存在")
@@ -110,10 +222,6 @@ func (s *Service) startCreateSnapshotTaskPrepared(inst *providerModel.Instance, 
 		Source:       source,
 		CreatedBy:    createdBy,
 	}
-	if err := global.APP_DB.Create(snapshot).Error; err != nil {
-		return nil, err
-	}
-
 	task := &providerModel.SnapshotTask{
 		ProviderID:  inst.ProviderID,
 		InstanceID:  inst.ID,
@@ -129,19 +237,41 @@ func (s *Service) startCreateSnapshotTaskPrepared(inst *providerModel.Instance, 
 	if schedule != nil {
 		task.ScheduleID = schedule.ID
 	}
-	if err := global.APP_DB.Create(task).Error; err != nil {
-		markSnapshotFailed(snapshot.ID, err)
-		return nil, err
-	}
-	adminTask, err := s.createUnifiedSnapshotTask(task, snapshot, SnapshotTaskActionCreate, createdBy)
+	var adminTask *adminModel.Task
+	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+			return err
+		}
+		quota, err := maxSnapshotsForUserInTx(tx, inst.UserID)
+		if err != nil {
+			return err
+		}
+		if quota <= 0 {
+			return fmt.Errorf("当前用户等级未开放快照配额")
+		}
+		var currentCount int64
+		if err := tx.Model(&providerModel.InstanceSnapshot{}).
+			Where("instance_id = ? AND status IN ?", inst.ID, []string{StatusCreating, StatusAvailable}).
+			Count(&currentCount).Error; err != nil {
+			return err
+		}
+		if int(currentCount) >= quota {
+			return fmt.Errorf("快照数量已达用户等级配额上限 %d", quota)
+		}
+		if err := tx.Create(snapshot).Error; err != nil {
+			return err
+		}
+		task.SnapshotID = snapshot.ID
+		if err := tx.Create(task).Error; err != nil {
+			return err
+		}
+		adminTask, err = s.createUnifiedSnapshotTaskInTx(tx, task, snapshot, SnapshotTaskActionCreate, createdBy)
+		return err
+	})
 	if err != nil {
-		markSnapshotFailed(snapshot.ID, err)
-		_ = global.APP_DB.Model(task).Updates(map[string]interface{}{
-			"status":        SnapshotTaskStatusFailed,
-			"error_message": err.Error(),
-		}).Error
 		return nil, err
 	}
+	triggerUnifiedTaskProcessing()
 
 	return &SnapshotTaskResponse{Task: adminTask, SnapshotTask: task, Snapshot: snapshot}, nil
 }
@@ -337,15 +467,35 @@ func (s *Service) startSnapshotOperationTask(snapshot *providerModel.InstanceSna
 		Name:       snapshot.Name,
 		CreatedBy:  createdBy,
 	}
-	if err := global.APP_DB.Create(task).Error; err != nil {
-		return nil, err
-	}
-	adminTask, err := s.createUnifiedSnapshotTask(task, snapshot, action, createdBy)
+	var adminTask *adminModel.Task
+	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+			return err
+		}
+		if err := tx.Create(task).Error; err != nil {
+			return err
+		}
+		var err error
+		adminTask, err = s.createUnifiedSnapshotTaskInTx(tx, task, snapshot, action, createdBy)
+		return err
+	})
 	if err != nil {
-		_ = global.APP_DB.Model(task).Updates(map[string]interface{}{"status": SnapshotTaskStatusFailed, "error_message": err.Error()}).Error
 		return nil, err
 	}
+	triggerUnifiedTaskProcessing()
 	return &SnapshotTaskResponse{Task: adminTask, SnapshotTask: task, Snapshot: snapshot}, nil
+}
+
+func maxSnapshotsForUserInTx(tx *gorm.DB, userID uint) (int, error) {
+	var usr userModel.User
+	if err := tx.Select("id", "level").First(&usr, userID).Error; err != nil {
+		return 0, err
+	}
+	limit, err := userquota.ResolveLevelLimit(usr.Level)
+	if err != nil {
+		return 0, err
+	}
+	return limit.MaxSnapshots, nil
 }
 
 func (s *Service) BuildSnapshotDownloadManifest(snapshotID uint, userID uint, ownerAdminID uint) ([]byte, string, error) {
@@ -358,6 +508,27 @@ func (s *Service) BuildSnapshotDownloadManifest(snapshotID uint, userID uint, ow
 	}
 	if err != nil {
 		return nil, "", err
+	}
+	return buildSnapshotDownloadPayload(snapshot)
+}
+
+func (s *Service) BuildSharedSnapshotDownloadManifest(snapshotID uint, userID uint, instanceID uint) ([]byte, string, error) {
+	snapshot, err := loadUserSnapshot(snapshotID, userID)
+	if err != nil {
+		return nil, "", err
+	}
+	if snapshot.InstanceID != instanceID {
+		return nil, "", fmt.Errorf("快照不存在或无权限")
+	}
+	return buildSnapshotDownloadPayload(snapshot)
+}
+
+func buildSnapshotDownloadPayload(snapshot *providerModel.InstanceSnapshot) ([]byte, string, error) {
+	if snapshot == nil {
+		return nil, "", fmt.Errorf("快照不存在")
+	}
+	if snapshot.Status != StatusAvailable {
+		return nil, "", fmt.Errorf("只有可用快照才能下载")
 	}
 	manifest := SnapshotDownloadManifest{
 		ID:           snapshot.ID,

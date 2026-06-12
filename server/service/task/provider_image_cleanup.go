@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -100,7 +101,7 @@ func (s *TaskService) executeProviderImageCleanupTask(ctx context.Context, task 
 
 	if len(failures) > 0 {
 		utils.UpdateTaskProgress(task.ID, 100, fmt.Sprintf("清理完成：成功 %d，失败 %d", successCount, len(failures)))
-		return fmt.Errorf(strings.Join(failures, "; "))
+		return errors.New(strings.Join(failures, "; "))
 	}
 	utils.UpdateTaskProgress(task.ID, 100, fmt.Sprintf("清理完成：成功 %d/%d", successCount, total))
 	return nil

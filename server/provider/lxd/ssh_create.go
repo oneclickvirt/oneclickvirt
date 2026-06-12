@@ -214,19 +214,6 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		global.APP_LOG.Warn("配置实例存储失败，但继续", zap.Error(err))
 	}
 
-	// 如果用户指定了自定义IO限制，在存储配置后应用
-	if config.InstanceType != "vm" && config.DiskIOLimit != nil && *config.DiskIOLimit != "" {
-		// 解析格式："10MB"（带宽）或 "100iops"（IOPS）
-		limit := *config.DiskIOLimit
-		if _, readErr := l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read=%s", shellSingleQuote(config.Name), shellSingleQuote(limit))); readErr != nil {
-			_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read %s", shellSingleQuote(config.Name), shellSingleQuote(limit)))
-		}
-		if _, writeErr := l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write=%s", shellSingleQuote(config.Name), shellSingleQuote(limit))); writeErr != nil {
-			_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write %s", shellSingleQuote(config.Name), shellSingleQuote(limit)))
-		}
-		global.APP_LOG.Debug("已应用自定义磁盘IO限制", zap.String("limit", limit))
-	}
-
 	updateProgress(50, "配置实例安全设置...")
 	// 配置安全设置
 	time.Sleep(6 * time.Second)
@@ -256,10 +243,12 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 	// 验证实例可以执行命令（容器和虚拟机都需要）
 	if config.InstanceType == "vm" {
-		updateProgress(63, "等待虚拟机Agent启动...")
-		if err := l.waitForInstanceExecReady(config.Name, 120); err != nil {
+		waitTimeout := lxdExecReadyTimeout(config.InstanceType)
+		updateProgress(63, fmt.Sprintf("等待虚拟机Agent启动（最多%d秒）...", waitTimeout))
+		if err := l.waitForInstanceExecReady(config.Name, waitTimeout); err != nil {
 			global.APP_LOG.Error("等待虚拟机Agent启动超时",
 				zap.String("instanceName", config.Name),
+				zap.Int("timeoutSeconds", waitTimeout),
 				zap.Error(err))
 			return fmt.Errorf("虚拟机Agent启动超时，无法继续配置: %w", err)
 		} else {
@@ -267,10 +256,12 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 				zap.String("instanceName", config.Name))
 		}
 	} else {
-		updateProgress(63, "等待容器启动...")
-		if err := l.waitForInstanceExecReady(config.Name, 120); err != nil {
+		waitTimeout := lxdExecReadyTimeout(config.InstanceType)
+		updateProgress(63, fmt.Sprintf("等待容器启动（最多%d秒）...", waitTimeout))
+		if err := l.waitForInstanceExecReady(config.Name, waitTimeout); err != nil {
 			global.APP_LOG.Warn("等待容器启动超时",
 				zap.String("instanceName", config.Name),
+				zap.Int("timeoutSeconds", waitTimeout),
 				zap.Error(err))
 			// 容器超时只是警告，继续尝试
 		} else {
@@ -291,14 +282,16 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		global.APP_LOG.Warn("配置实例系统失败", zap.Error(err))
 	}
 
-	updateProgress(75, "等待实例完全启动...")
-	if err := l.waitForInstanceExecReady(config.Name, 120); err != nil {
-		global.APP_LOG.Warn("等待容器启动超时",
+	waitTimeout := lxdExecReadyTimeout(config.InstanceType)
+	updateProgress(75, fmt.Sprintf("等待实例完全启动（最多%d秒）...", waitTimeout))
+	if err := l.waitForInstanceExecReady(config.Name, waitTimeout); err != nil {
+		global.APP_LOG.Warn("等待实例完全启动超时，继续后续流程",
 			zap.String("instanceName", config.Name),
+			zap.String("instanceType", config.InstanceType),
+			zap.Int("timeoutSeconds", waitTimeout),
 			zap.Error(err))
-		// 容器超时只是警告，继续尝试
 	} else {
-		global.APP_LOG.Debug("容器已启动",
+		global.APP_LOG.Debug("实例已启动",
 			zap.String("instanceName", config.Name))
 	}
 	// 查找实例ID用于pmacct初始化

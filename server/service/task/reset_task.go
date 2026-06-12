@@ -455,6 +455,13 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 		createReq.InstanceConfig.GpuEnabled = resetCtx.Provider.GpuEnabled
 		createReq.InstanceConfig.GpuDeviceIds = resetCtx.Provider.GpuDeviceIds
 	}
+	if strings.EqualFold(resetCtx.Instance.InstanceType, "vm") {
+		createReq.InstanceConfig.ReadIOLimit = stringPtr(resetCtx.Provider.VMReadIOLimit)
+		createReq.InstanceConfig.WriteIOLimit = stringPtr(resetCtx.Provider.VMWriteIOLimit)
+	} else {
+		createReq.InstanceConfig.ReadIOLimit = stringPtr(resetCtx.Provider.ContainerReadIOLimit)
+		createReq.InstanceConfig.WriteIOLimit = stringPtr(resetCtx.Provider.ContainerWriteIOLimit)
+	}
 
 	// 容器类Provider（docker/podman/containerd）端口映射特殊处理
 	// 这些Provider通过 -p 标志在创建时绑定端口，需要将端口信息写入创建请求

@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/service/taskgate"
 	"oneclickvirt/utils"
 	"strings"
 
@@ -100,6 +101,10 @@ func (s *PortMappingService) GetPortMappingList(req admin.PortMappingListRequest
 // 支持单个端口和端口段批量创建
 // 返回端口ID和任务数据（由调用者创建和启动任务）
 func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappingRequest) (uint, *admin.CreatePortMappingTaskRequest, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return 0, nil, err
+	}
+
 	// 防御：检查数据库连接是否可用
 	if global.APP_DB == nil {
 		return 0, nil, fmt.Errorf("数据库连接不可用")

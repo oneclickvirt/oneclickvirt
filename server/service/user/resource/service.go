@@ -2,14 +2,18 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"oneclickvirt/constant"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/taskgate"
 	"time"
 
 	"oneclickvirt/global"
+	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	resourceModel "oneclickvirt/model/resource"
 	userModel "oneclickvirt/model/user"
@@ -115,142 +119,144 @@ func (s *Service) GetAvailableResources(req userModel.AvailableResourcesRequest)
 	return resourceResponses, total, nil
 }
 
-// ClaimResource 申领资源
-func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest) (*providerModel.Instance, error) {
-	// 初始化服务
+// ClaimResource 申领资源。旧接口仍可用，但必须进入统一创建任务流水线，
+// 避免直接落库 creating 实例后绕过 Provider 创建、回滚和任务池控制。
+func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest) (*adminModel.Task, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, err
+	}
+	if req.InstanceType != "container" && req.InstanceType != "vm" {
+		return nil, errors.New("实例类型必须为container或vm")
+	}
+	if req.CPU <= 0 || req.Memory <= 0 || req.Disk <= 0 {
+		return nil, errors.New("CPU、内存和磁盘必须大于0")
+	}
+
 	dbService := database.GetDatabaseService()
 	quotaService := resources.NewQuotaService()
 	reservationService := resources.GetResourceReservationService()
-
-	// 生成会话ID用于资源预留
 	sessionID := resources.GenerateSessionID()
 
-	// ===== 阶段1: 短事务 - 快速验证和预留资源 =====
+	var task *adminModel.Task
 	var provider providerModel.Provider
-	var expiredAt time.Time
-
 	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		// 1. 获取并锁定用户（防止并发）
+		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+			return err
+		}
+
 		var currentUser userModel.User
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&currentUser, userID).Error; err != nil {
 			return fmt.Errorf("获取用户信息失败: %v", err)
 		}
-
-		// 检查用户状态
 		if currentUser.Status != 1 {
 			return errors.New("用户账户已被禁用")
 		}
 
-		// 2. 获取并锁定Provider（防止并发）
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, req.ProviderID).Error; err != nil {
 			return errors.New("提供商不存在")
 		}
-
 		if !provider.AllowClaim {
 			return errors.New("该提供商不允许申领")
 		}
-
+		if provider.RedeemCodeOnly {
+			return errors.New("该提供商仅支持兑换码领取")
+		}
+		if provider.IsFrozen {
+			return errors.New("提供商已被冻结")
+		}
+		if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
+			return errors.New("提供商已过期")
+		}
+		if provider.TrafficLimited {
+			return errors.New("该提供商因流量超限暂时不可用")
+		}
 		providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
 			(provider.ConnectionType != "agent" && (provider.Status == "active" || provider.Status == "partial"))
 		if !providerAvailable {
 			return errors.New("提供商不可用")
 		}
-
-		// 检查提供商状态
-		if provider.IsFrozen {
-			return errors.New("提供商已被冻结")
+		if req.InstanceType == "container" && !provider.ContainerEnabled {
+			return errors.New("该提供商未启用容器实例")
+		}
+		if req.InstanceType == "vm" && !provider.VirtualMachineEnabled {
+			return errors.New("该提供商未启用虚拟机实例")
 		}
 
-		// 检查提供商是否过期
-		if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
-			return errors.New("提供商已过期")
+		bandwidth := provider.DefaultInboundBandwidth
+		if bandwidth < 0 {
+			bandwidth = 0
 		}
-
-		// 设置实例到期时间
-		if provider.ExpiresAt != nil {
-			expiredAt = *provider.ExpiresAt
-		} else {
-			expiredAt = time.Now().AddDate(1, 0, 0)
-		}
-
-		// 3. 在事务中验证配额（使用行锁）
 		quotaReq := resources.ResourceRequest{
 			UserID:       userID,
 			CPU:          req.CPU,
 			Memory:       req.Memory,
 			Disk:         req.Disk,
+			Bandwidth:    bandwidth,
 			InstanceType: req.InstanceType,
 			ProviderID:   req.ProviderID,
 		}
-
 		quotaResult, err := quotaService.ValidateInTransaction(tx, quotaReq)
 		if err != nil {
 			return fmt.Errorf("配额验证失败: %v", err)
 		}
-
 		if !quotaResult.Allowed {
 			return errors.New(quotaResult.Reason)
 		}
 
-		// 4. 检查Provider节点级别的实例数量限制
-		// 使用缓存的计数值（如果缓存有效），否则进行实时查询
 		containerCount := provider.ContainerCount
 		vmCount := provider.VMCount
-
-		// 检查缓存是否过期
 		if provider.CountCacheExpiry == nil || time.Now().After(*provider.CountCacheExpiry) {
-			// 缓存过期，需要重新查询（只统计稳定状态，避免重置时双倍计数）
-			stableStatuses := constant.GetQuotaCountableStatuses()
 			var freshContainerCount, freshVMCount int64
-			tx.Model(&providerModel.Instance{}).
-				Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status IN (?)",
-					provider.ID, "container", stableStatuses).
-				Count(&freshContainerCount)
-			tx.Model(&providerModel.Instance{}).
-				Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status IN (?)",
-					provider.ID, "vm", stableStatuses).
-				Count(&freshVMCount)
-
+			if err := tx.Model(&providerModel.Instance{}).
+				Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status NOT IN (?)",
+					provider.ID, "container", constant.GetTerminalStatuses()).
+				Count(&freshContainerCount).Error; err != nil {
+				return fmt.Errorf("统计节点容器数量失败: %v", err)
+			}
+			if err := tx.Model(&providerModel.Instance{}).
+				Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status NOT IN (?)",
+					provider.ID, "vm", constant.GetTerminalStatuses()).
+				Count(&freshVMCount).Error; err != nil {
+				return fmt.Errorf("统计节点虚拟机数量失败: %v", err)
+			}
 			containerCount = int(freshContainerCount)
 			vmCount = int(freshVMCount)
-
-			global.APP_LOG.Debug("使用实时查询的实例数量（缓存已过期）",
-				zap.Uint("providerID", provider.ID),
-				zap.Int("containerCount", containerCount),
-				zap.Int("vmCount", vmCount))
-		} else {
-			global.APP_LOG.Debug("使用缓存的实例数量",
-				zap.Uint("providerID", provider.ID),
-				zap.Int("containerCount", containerCount),
-				zap.Int("vmCount", vmCount))
 		}
 
-		if req.InstanceType == "container" && provider.MaxContainerInstances > 0 {
-			if containerCount >= provider.MaxContainerInstances {
-				return fmt.Errorf("节点容器数量已达上限：%d/%d", containerCount, provider.MaxContainerInstances)
-			}
-		} else if req.InstanceType == "vm" && provider.MaxVMInstances > 0 {
-			if vmCount >= provider.MaxVMInstances {
-				return fmt.Errorf("节点虚拟机数量已达上限：%d/%d", vmCount, provider.MaxVMInstances)
-			}
+		var reservedByType struct {
+			ReservedContainers int64
+			ReservedVMs        int64
+		}
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+			Model(&resourceModel.ResourceReservation{}).
+			Select("COALESCE(SUM(CASE WHEN instance_type = 'vm' THEN 0 ELSE 1 END), 0) AS reserved_containers, COALESCE(SUM(CASE WHEN instance_type = 'vm' THEN 1 ELSE 0 END), 0) AS reserved_vms").
+			Where("provider_id = ? AND expires_at > ?", provider.ID, time.Now()).
+			Scan(&reservedByType).Error; err != nil {
+			return fmt.Errorf("统计节点预留资源失败: %v", err)
+		}
+		containerCount += int(reservedByType.ReservedContainers)
+		vmCount += int(reservedByType.ReservedVMs)
+
+		if req.InstanceType == "container" && provider.MaxContainerInstances > 0 && containerCount >= provider.MaxContainerInstances {
+			return fmt.Errorf("节点容器数量已达上限：%d/%d", containerCount, provider.MaxContainerInstances)
+		}
+		if req.InstanceType == "vm" && provider.MaxVMInstances > 0 && vmCount >= provider.MaxVMInstances {
+			return fmt.Errorf("节点虚拟机数量已达上限：%d/%d", vmCount, provider.MaxVMInstances)
 		}
 
-		// 5. 检查该用户在此节点的等级实例数量限制
 		providerLevelLimits, err := quotaService.GetProviderLevelLimitsInTx(tx, req.ProviderID, currentUser.Level)
 		if err == nil && providerLevelLimits != nil && providerLevelLimits.MaxInstances > 0 {
 			currentProviderInstances, err := quotaService.GetCurrentProviderInstanceCountInTx(tx, userID, req.ProviderID)
 			if err != nil {
 				return fmt.Errorf("获取节点实例数量失败: %v", err)
 			}
-
 			if currentProviderInstances >= providerLevelLimits.MaxInstances {
 				return fmt.Errorf("该节点实例数量已达上限：当前在此节点 %d/%d", currentProviderInstances, providerLevelLimits.MaxInstances)
 			}
 		}
 
-		// 6. 预留资源（关键步骤，防止并发超配）
 		if err := reservationService.ReserveResourcesInTx(tx, userID, req.ProviderID, sessionID,
-			req.InstanceType, req.CPU, req.Memory, req.Disk, 0); err != nil {
+			req.InstanceType, req.CPU, req.Memory, req.Disk, bandwidth); err != nil {
 			global.APP_LOG.Error("预留资源失败",
 				zap.Uint("userID", userID),
 				zap.String("sessionId", sessionID),
@@ -258,10 +264,51 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 			return fmt.Errorf("资源分配失败: %v", err)
 		}
 
-		global.APP_LOG.Debug("资源预留成功，准备创建实例",
-			zap.Uint("userId", userID),
-			zap.String("sessionId", sessionID))
+		networkType := provider.NetworkType
+		if networkType == "" {
+			networkType = "nat_ipv4"
+		}
+		taskReq := adminModel.CreateInstanceTaskRequest{
+			ProviderId:   provider.ID,
+			AdminDirect:  true,
+			Name:         req.Name,
+			Image:        req.Image,
+			CPU:          req.CPU,
+			Memory:       req.Memory,
+			DiskMB:       req.Disk,
+			Bandwidth:    bandwidth,
+			InstanceType: req.InstanceType,
+			NetworkType:  networkType,
+			SessionId:    sessionID,
+		}
+		taskData, err := json.Marshal(taskReq)
+		if err != nil {
+			return fmt.Errorf("序列化创建任务失败: %w", err)
+		}
 
+		estimatedDuration := 300
+		if req.InstanceType == "vm" {
+			estimatedDuration = 600
+		}
+		providerID := provider.ID
+		newTask := &adminModel.Task{
+			UserID:                userID,
+			ProviderID:            &providerID,
+			TaskType:              "create",
+			TaskData:              string(taskData),
+			Status:                "pending",
+			TimeoutDuration:       2400,
+			IsForceStoppable:      true,
+			EstimatedDuration:     estimatedDuration,
+			PreallocatedCPU:       req.CPU,
+			PreallocatedMemory:    int(req.Memory),
+			PreallocatedDisk:      int(req.Disk),
+			PreallocatedBandwidth: bandwidth,
+		}
+		if err := tx.Create(newTask).Error; err != nil {
+			return fmt.Errorf("创建任务失败: %v", err)
+		}
+		task = newTask
 		return nil
 	})
 
@@ -269,65 +316,16 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 		return nil, err
 	}
 
-	// ===== 阶段2: 创建实例（事务外，失败时通过预留过期自动释放） =====
-	instance := providerModel.Instance{
-		Name:         req.Name,
-		Provider:     provider.Name,
-		Image:        req.Image,
-		CPU:          req.CPU,
-		Memory:       req.Memory,
-		Disk:         req.Disk,
-		InstanceType: req.InstanceType,
-		UserID:       userID,
-		Status:       "creating",
-		ExpiresAt:    &expiredAt,
-		NetworkType:  provider.NetworkType, // 继承Provider的网络类型
+	cache.GetUserCacheService().InvalidateUserCache(userID)
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
 	}
 
-	// ===== 阶段3: 短事务 - 创建实例、消费预留、更新配额 =====
-	err = dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		// 1. 创建实例
-		if err := tx.Create(&instance).Error; err != nil {
-			return fmt.Errorf("创建实例失败: %v", err)
-		}
-
-		// 2. 消费预留的资源
-		if err := reservationService.ConsumeReservationBySessionInTx(tx, sessionID); err != nil {
-			global.APP_LOG.Error("消费预留资源失败，回滚事务",
-				zap.String("sessionId", sessionID),
-				zap.Error(err))
-			// 消费失败必须返回错误，触发事务回滚，避免资源重复计算
-			return fmt.Errorf("消费预留资源失败: %v", err)
-		}
-
-		// 3. 更新用户配额
-		usage := resources.ResourceUsage{
-			CPU:    req.CPU,
-			Memory: req.Memory,
-			Disk:   req.Disk,
-		}
-
-		if err := quotaService.UpdateUserQuotaAfterCreationWithTx(tx, userID, usage); err != nil {
-			return fmt.Errorf("更新用户配额失败: %v", err)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		// 如果创建失败，预留的资源会在1小时后自动过期释放
-		global.APP_LOG.Error("创建实例失败",
-			zap.Uint("userId", userID),
-			zap.String("sessionId", sessionID),
-			zap.Error(err))
-		return nil, err
-	}
-
-	global.APP_LOG.Info("申领资源成功",
+	global.APP_LOG.Info("申领资源任务已提交",
 		zap.Uint("userId", userID),
 		zap.Uint("providerId", req.ProviderID),
-		zap.Uint("instanceId", instance.ID),
+		zap.Uint("taskId", task.ID),
 		zap.String("sessionId", sessionID))
 
-	return &instance, nil
+	return task, nil
 }

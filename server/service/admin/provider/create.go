@@ -69,6 +69,11 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	}
 
 	normalizedEndpoint, normalizedSSHPort := normalizeProviderEndpointAndPort(req.Endpoint, req.SSHPort)
+	isLocalConnection := req.ConnectionType == "local"
+	if isLocalConnection {
+		normalizedEndpoint = "127.0.0.1"
+		normalizedSSHPort = 0
+	}
 
 	// 2. 检查SSH地址和端口组合是否已存在（防止配置相同节点）
 	if normalizedEndpoint != "" {
@@ -127,6 +132,13 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	groupID, groupName, groupDescription := uint(0), "", ""
 
 	providerType := utils.NormalizeProviderType(req.Type)
+	if isLocalConnection {
+		providerType = "qemu"
+	}
+	providerUsername := req.Username
+	if isLocalConnection && providerUsername == "" {
+		providerUsername = "root"
+	}
 	containerOptionsSupported := utils.IsLXDIncusProvider(providerType)
 	containerPrivileged := false
 	containerAllowNesting := false
@@ -163,7 +175,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		Endpoint:              normalizedEndpoint,
 		PortIP:                req.PortIP,
 		SSHPort:               normalizedSSHPort,
-		Username:              req.Username,
+		Username:              providerUsername,
 		Password:              req.Password,
 		SSHKey:                req.SSHKey,
 		Token:                 req.Token,
@@ -208,6 +220,10 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		DefaultOutboundBandwidth: req.DefaultOutboundBandwidth,
 		MaxInboundBandwidth:      req.MaxInboundBandwidth,
 		MaxOutboundBandwidth:     req.MaxOutboundBandwidth,
+		ContainerReadIOLimit:     req.ContainerReadIOLimit,
+		ContainerWriteIOLimit:    req.ContainerWriteIOLimit,
+		VMReadIOLimit:            req.VMReadIOLimit,
+		VMWriteIOLimit:           req.VMWriteIOLimit,
 		// 流量管理
 		MaxTraffic:               req.MaxTraffic,
 		TrafficCountMode:         req.TrafficCountMode,
@@ -267,6 +283,18 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		// Agent 模式不保存 SSH endpoint；端口映射能力由 portIP 明确控制。
 		if req.PortIP == "" || req.NetworkType == "" {
 			provider.NetworkType = "no_port_mapping"
+		}
+	}
+	if provider.ConnectionType == "local" {
+		provider.Type = "qemu"
+		provider.Endpoint = "127.0.0.1"
+		provider.SSHPort = 0
+		if provider.Username == "" {
+			provider.Username = "root"
+		}
+		if !provider.ContainerEnabled && !provider.VirtualMachineEnabled {
+			provider.ContainerEnabled = true
+			provider.VirtualMachineEnabled = true
 		}
 	}
 

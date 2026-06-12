@@ -133,6 +133,14 @@ export const getProviderStatus = (id) => {
   })
 }
 
+export const detectLocalProvider = () => {
+  return request({
+    url: '/v1/admin/providers/local/detect',
+    method: 'get',
+    timeout: 15000
+  })
+}
+
 // GPU 检测
 export const detectProviderGPUs = (providerId) => {
   return request({

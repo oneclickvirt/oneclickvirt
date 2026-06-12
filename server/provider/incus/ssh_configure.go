@@ -34,10 +34,13 @@ func (i *IncusProvider) configureInstanceLimits(ctx context.Context, config prov
 
 	// 如果是容器，配置额外的限制
 	if config.InstanceType != "vm" {
-		// 配置IO限制（移除了limits.read.iops和limits.write.iops，Incus不支持这些选项）
-		ioConfigs := map[string]string{
-			"limits.read":  "500MB",
-			"limits.write": "500MB",
+		readLimit, writeLimit := incusResolveIOLimits(config)
+		ioConfigs := map[string]string{}
+		if readLimit != "" {
+			ioConfigs["limits.read"] = readLimit
+		}
+		if writeLimit != "" {
+			ioConfigs["limits.write"] = writeLimit
 		}
 
 		for key, value := range ioConfigs {
@@ -142,24 +145,21 @@ func (i *IncusProvider) configureInstanceStorage(ctx context.Context, config pro
 		}
 	}
 
-	// 如果是容器，配置IO限制
-	if config.InstanceType != "vm" {
-		// 设置读写带宽限制
-		if err := i.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", "500MB"); err != nil {
-			global.APP_LOG.Warn("设置读取带宽限制失败", zap.Error(err))
+	readLimit, writeLimit := incusResolveIOLimits(config)
+	if readLimit != "" {
+		if err := i.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", readLimit); err != nil {
+			global.APP_LOG.Warn("设置读取IO速率限制失败",
+				zap.String("instance", config.Name),
+				zap.String("limit", readLimit),
+				zap.Error(err))
 		}
-
-		if err := i.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.write", "500MB"); err != nil {
-			global.APP_LOG.Warn("设置写入带宽限制失败", zap.Error(err))
-		}
-
-		// 设置IOPS限制（会覆盖上面的带宽限制，按官方脚本逻辑）
-		if err := i.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", "5000iops"); err != nil {
-			global.APP_LOG.Warn("设置读取IOPS限制失败", zap.Error(err))
-		}
-
-		if err := i.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.write", "5000iops"); err != nil {
-			global.APP_LOG.Warn("设置写入IOPS限制失败", zap.Error(err))
+	}
+	if writeLimit != "" {
+		if err := i.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.write", writeLimit); err != nil {
+			global.APP_LOG.Warn("设置写入IO速率限制失败",
+				zap.String("instance", config.Name),
+				zap.String("limit", writeLimit),
+				zap.Error(err))
 		}
 	}
 
@@ -168,6 +168,27 @@ func (i *IncusProvider) configureInstanceStorage(ctx context.Context, config pro
 		zap.String("instanceType", config.InstanceType))
 
 	return nil
+}
+
+func incusResolveIOLimits(config provider.InstanceConfig) (string, string) {
+	readLimit := ""
+	writeLimit := ""
+	if config.ReadIOLimit != nil {
+		readLimit = strings.TrimSpace(*config.ReadIOLimit)
+	}
+	if config.WriteIOLimit != nil {
+		writeLimit = strings.TrimSpace(*config.WriteIOLimit)
+	}
+	if config.InstanceType != "vm" && config.DiskIOLimit != nil {
+		legacyLimit := strings.TrimSpace(*config.DiskIOLimit)
+		if readLimit == "" {
+			readLimit = legacyLimit
+		}
+		if writeLimit == "" {
+			writeLimit = legacyLimit
+		}
+	}
+	return readLimit, writeLimit
 }
 
 func (i *IncusProvider) sshStartInstance(id string) error {

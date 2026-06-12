@@ -15,6 +15,7 @@ import (
 func InitUserRouter(Router *gin.RouterGroup) {
 	UserGroup := Router.Group("/v1")
 	UserGroup.Use(middleware.RequireAuth(authModel.AuthLevelUser))
+	UserGroup.Use(middleware.TaskPoolAdmissionGate())
 	{
 		// 用户管理
 		UserGroup.GET("/user/profile", user.GetUserInfo)
@@ -39,6 +40,7 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/user/instances/:id/ports", user.GetInstancePorts)
 		UserGroup.GET("/user/instances/:id/snapshots", user.GetUserInstanceSnapshots)
 		UserGroup.POST("/user/instances/:id/snapshots", user.CreateUserInstanceSnapshot)
+		UserGroup.POST("/user/instances/:id/snapshots/upload", user.UploadUserSnapshot)
 		UserGroup.POST("/user/snapshots/:id/restore", user.RestoreUserSnapshot)
 		UserGroup.DELETE("/user/snapshots/:id", user.DeleteUserSnapshot)
 		UserGroup.GET("/user/snapshots/:id/download", user.DownloadUserSnapshot)

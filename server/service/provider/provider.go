@@ -175,12 +175,16 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 		SSHExecuteTimeout: dbProvider.SSHExecuteTimeout,
 		HostName:          dbProvider.HostName, // 传递数据库中存储的主机名，避免动态获取导致的节点混淆
 		// 资源限制配置
-		ContainerLimitCPU:    dbProvider.ContainerLimitCPU,
-		ContainerLimitMemory: dbProvider.ContainerLimitMemory,
-		ContainerLimitDisk:   dbProvider.ContainerLimitDisk,
-		VMLimitCPU:           dbProvider.VMLimitCPU,
-		VMLimitMemory:        dbProvider.VMLimitMemory,
-		VMLimitDisk:          dbProvider.VMLimitDisk,
+		ContainerLimitCPU:     dbProvider.ContainerLimitCPU,
+		ContainerLimitMemory:  dbProvider.ContainerLimitMemory,
+		ContainerLimitDisk:    dbProvider.ContainerLimitDisk,
+		VMLimitCPU:            dbProvider.VMLimitCPU,
+		VMLimitMemory:         dbProvider.VMLimitMemory,
+		VMLimitDisk:           dbProvider.VMLimitDisk,
+		ContainerReadIOLimit:  dbProvider.ContainerReadIOLimit,
+		ContainerWriteIOLimit: dbProvider.ContainerWriteIOLimit,
+		VMReadIOLimit:         dbProvider.VMReadIOLimit,
+		VMWriteIOLimit:        dbProvider.VMWriteIOLimit,
 		// 容器特殊配置选项（仅 LXD/Incus 容器）
 		ContainerPrivileged:   dbProvider.ContainerPrivileged,
 		ContainerAllowNesting: dbProvider.ContainerAllowNesting,

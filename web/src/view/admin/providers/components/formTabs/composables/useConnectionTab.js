@@ -1,5 +1,7 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
+import { detectLocalProvider } from '@/api/admin/providers'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
 
 export function useConnectionTab(props, emit) {
@@ -8,6 +10,8 @@ export function useConnectionTab(props, emit) {
   const useCDN = ref(true)
   const useWSS = ref(true)
   const useControllerSource = ref(true)
+  const detectingLocal = ref(false)
+  const localDetectionResult = ref(null)
   // wssUnavailable: true when the probe detected that wss:// does NOT work
   // on this host. The toggle is forced off and a warning is shown.
   const wssUnavailable = ref(false)
@@ -26,6 +30,10 @@ export function useConnectionTab(props, emit) {
   const agentStatusLabel = computed(() => {
     if (effectiveAgentStatus.value === 'online') return t('admin.providers.agentStatusOnline')
     return t('admin.providers.agentStatusOffline')
+  })
+  const localCommandChecks = computed(() => {
+    const commands = localDetectionResult.value?.commands || {}
+    return Object.keys(commands).sort().map((key) => commands[key]).filter(Boolean)
   })
 
   const installCmdDisplay = computed(() => {
@@ -162,6 +170,29 @@ export function useConnectionTab(props, emit) {
     await copyToClipboardUtil(cmd, t('common.copySuccess'))
   }
 
+  const formatLocalDetectStatus = (value) => {
+    return value ? t('admin.providers.localDetectAvailable') : t('admin.providers.localDetectUnavailable')
+  }
+
+  const handleDetectLocalProvider = async () => {
+    detectingLocal.value = true
+    localDetectionResult.value = null
+    try {
+      const res = await detectLocalProvider()
+      localDetectionResult.value = res.data || {}
+      if (localDetectionResult.value.available) {
+        ElMessage.success(t('admin.providers.localDetectSuccess'))
+      } else {
+        ElMessage.warning(t('admin.providers.localDetectFailed'))
+      }
+    } catch (error) {
+      const message = error?.details || error?.message || t('admin.providers.localDetectFailed')
+      ElMessage.error(message)
+    } finally {
+      detectingLocal.value = false
+    }
+  }
+
   return {
     t,
     localCommand,
@@ -170,6 +201,9 @@ export function useConnectionTab(props, emit) {
     useControllerSource,
     wssUnavailable,
     probingWSS,
+    detectingLocal,
+    localDetectionResult,
+    localCommandChecks,
     isAgentMode,
     isLocalMode,
     hasAgentMappedNetworking,
@@ -182,6 +216,8 @@ export function useConnectionTab(props, emit) {
     probeWssAvailability,
     formatOnlineDuration,
     formatDateTime,
+    formatLocalDetectStatus,
+    handleDetectLocalProvider,
     copyCmd,
   }
 }

@@ -50,9 +50,9 @@
 | 镜像标签 | 说明 | 适用场景 |
 |---------|------|---------|
 | `spiritlhl/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
-| `spiritlhl/oneclickvirt:20260612` | 一体化版本特定日期版本 | 需要固定版本 |
+| `spiritlhl/oneclickvirt:20260610` | 一体化版本特定日期版本 | 需要固定版本 |
 | `spiritlhl/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
-| `spiritlhl/oneclickvirt:no-db-20260612` | 独立数据库版本特定日期 | 不内置数据库 |
+| `spiritlhl/oneclickvirt:no-db-20260610` | 独立数据库版本特定日期 | 不内置数据库 |
 
 所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
 
@@ -206,14 +206,14 @@ rm -rf ./data
 <details>
 <summary>展开查看全量安装脚本</summary>
 
-`install_full.sh` 会在一个流程中安装数据库、反向代理、TLS 配置、前端、后端和系统服务，支持 MySQL 兼容本地数据库（MySQL 或 MariaDB）以及 Caddy/Nginx/OpenResty。
+`scripts/install_full.sh` 会在一个流程中安装数据库、反向代理、TLS 配置、前端、后端和系统服务，支持 MySQL 兼容本地数据库（MySQL 或 MariaDB）以及 Caddy/Nginx/OpenResty。
 
 安装器会自动识别常见 Linux 与类 Unix 目标，包括 Debian/Ubuntu、RHEL/CentOS/Rocky/Alma/Fedora/Amazon Linux、openSUSE/SLES、Arch/Manjaro、Alpine 和 BSD 包管理器；同时识别 systemd、OpenRC、rc.d/service 和无 init 环境。在原生 MySQL 包不可用或不稳定的发行版上，安装器会自动回退到 MariaDB 作为 MySQL 兼容后端；如需禁用该行为可使用 `--no-db-fallback`。BSD 安装需要存在对应 OS/架构的 release 二进制，否则请使用 Docker/Linux 或从源码构建服务端。
 
 域名输入会自动识别协议前缀：输入 `https://panel.example.com` 自动启用 TLS，输入 `http://panel.example.com` 自动关闭 TLS，无前缀则交互询问。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_full.sh -o install_full.sh
+curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install_full.sh -o install_full.sh
 bash install_full.sh
 ```
 
@@ -268,7 +268,7 @@ docker run -d \
   oneclickvirt
 ```
 
-Docker 构建会自动内嵌 `install_agent.sh`。如果你还希望控制端镜像直接提供本地 Agent 发布包，而不是在下载时 302 跳转到 GitHub Releases，请在执行 `docker build` 前把下面这些文件放到 `server/assets/agent/`：
+Docker 构建会自动内嵌 `scripts/install_agent.sh`。如果你还希望控制端镜像直接提供本地 Agent 发布包，而不是在下载时 302 跳转到 GitHub Releases，请在执行 `docker build` 前把下面这些文件放到 `server/assets/agent/`：
 
 ```text
 install_agent.sh

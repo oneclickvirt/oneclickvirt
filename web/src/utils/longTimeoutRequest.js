@@ -79,7 +79,8 @@ export const createLongTimeoutRequest = (timeout = 60000, options = {}) => {
       
       return response
     },
-    error => {
+    async error => {
+      error = await parseBlobErrorResponse(error)
       // 处理401认证过期 - 与主请求工具保持一致
       if (error.response?.status === 401) {
         const userStore = useUserStore()
@@ -108,13 +109,46 @@ function generateRequestId(prefix = 'req') {
 }
 
 function createNormalizedError(errorInfo, response, originalError) {
-  const normalizedError = new Error(errorInfo.message || i18n.global.t('common.requestFailed'))
+  const displayMessage = errorInfo.details || errorInfo.message
+  const normalizedError = new Error(displayMessage || i18n.global.t('common.requestFailed'))
   normalizedError.code = errorInfo.code
   normalizedError.status = response?.status
   normalizedError.details = errorInfo.details
+  normalizedError.serverMessage = errorInfo.message
+  normalizedError.userMessage = displayMessage
   normalizedError.response = response
   normalizedError.originalError = originalError
   return normalizedError
+}
+
+async function parseBlobErrorResponse(error) {
+  const data = error?.response?.data
+  if (!data || typeof data.text !== 'function') return error
+
+  const contentType = String(error.response?.headers?.['content-type'] || data.type || '').toLowerCase()
+  if (!contentType.includes('json') && !contentType.includes('text')) return error
+
+  try {
+    const text = await data.text()
+    if (!text) return error
+    let parsed
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      parsed = {
+        code: error.response?.status,
+        message: text,
+        details: text
+      }
+    }
+    error.response = {
+      ...error.response,
+      data: parsed
+    }
+  } catch (parseError) {
+    console.warn('解析下载错误响应失败:', parseError)
+  }
+  return error
 }
 
 /**

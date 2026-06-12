@@ -85,10 +85,11 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 		}
 	}
 
-	// 如果是容器，配置IO限制
+	readLimit, writeLimit := lxdResolveIOLimits(config)
+	// 配置IO限制。旧的 containerDiskIoLimit 仅作为容器回退值；新读/写字段适用于容器和 VM。
 	// copy模式下容器继承来自profile的root设备，lxc config device set 需要容器有显式root设备
 	// 先确保root设备存在（若不存在则添加），再设置限制
-	if config.InstanceType != "vm" {
+	if readLimit != "" || writeLimit != "" {
 		if client != nil && config.CopyMode {
 			// 检查容器是否有显式root设备
 			checkCmd := fmt.Sprintf("lxc config device list %s", shellSingleQuote(config.Name))
@@ -122,26 +123,46 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 			}
 		}
 
-		// 设置读写带宽限制
-		if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", "500MB"); err != nil {
-			global.APP_LOG.Warn("设置读取带宽限制失败", zap.Error(err))
+		if readLimit != "" {
+			if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", readLimit); err != nil {
+				global.APP_LOG.Warn("设置读取IO速率限制失败",
+					zap.String("instance", config.Name),
+					zap.String("limit", readLimit),
+					zap.Error(err))
+			}
 		}
-
-		if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.write", "500MB"); err != nil {
-			global.APP_LOG.Warn("设置写入带宽限制失败", zap.Error(err))
-		}
-
-		// 设置IOPS限制（会覆盖上面的带宽限制，按官方脚本逻辑）
-		if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", "5000iops"); err != nil {
-			global.APP_LOG.Warn("设置读取IOPS限制失败", zap.Error(err))
-		}
-
-		if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.write", "5000iops"); err != nil {
-			global.APP_LOG.Warn("设置写入IOPS限制失败", zap.Error(err))
+		if writeLimit != "" {
+			if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.write", writeLimit); err != nil {
+				global.APP_LOG.Warn("设置写入IO速率限制失败",
+					zap.String("instance", config.Name),
+					zap.String("limit", writeLimit),
+					zap.Error(err))
+			}
 		}
 	}
 
 	return nil
+}
+
+func lxdResolveIOLimits(config provider.InstanceConfig) (string, string) {
+	readLimit := ""
+	writeLimit := ""
+	if config.ReadIOLimit != nil {
+		readLimit = strings.TrimSpace(*config.ReadIOLimit)
+	}
+	if config.WriteIOLimit != nil {
+		writeLimit = strings.TrimSpace(*config.WriteIOLimit)
+	}
+	if config.InstanceType != "vm" && config.DiskIOLimit != nil {
+		legacyLimit := strings.TrimSpace(*config.DiskIOLimit)
+		if readLimit == "" {
+			readLimit = legacyLimit
+		}
+		if writeLimit == "" {
+			writeLimit = legacyLimit
+		}
+	}
+	return readLimit, writeLimit
 }
 
 // configureInstanceGPU 配置实例GPU直通（仅 LXD/Incus 容器，VM不支持通过此方式直通）
@@ -668,7 +689,13 @@ func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSecon
 		return fmt.Errorf("SSH客户端不可用，无法等待实例就绪: %s", instanceName)
 	}
 
-	time.Sleep(12 * time.Second)
+	initialDelay := 12 * time.Second
+	if timeoutSeconds <= 30 {
+		initialDelay = 3 * time.Second
+	} else if timeoutSeconds <= 90 {
+		initialDelay = 6 * time.Second
+	}
+	time.Sleep(initialDelay)
 	loopCount := 0
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 5 {
 		// 每两轮循环（10秒）尝试启动实例，避免实例因故障停止导致一直干等待
@@ -707,4 +734,11 @@ func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSecon
 		time.Sleep(5 * time.Second)
 	}
 	return fmt.Errorf("等待实例可执行命令超时 (%d秒)", timeoutSeconds)
+}
+
+func lxdExecReadyTimeout(instanceType string) int {
+	if strings.EqualFold(strings.TrimSpace(instanceType), "vm") {
+		return 90
+	}
+	return 30
 }

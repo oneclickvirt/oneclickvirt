@@ -56,12 +56,16 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		if taskReq.Memory <= 0 {
 			return nil, fmt.Errorf("内存必须大于0")
 		}
-		if taskReq.Disk <= 0 {
+		if taskReq.Disk <= 0 && taskReq.DiskMB <= 0 {
 			return nil, fmt.Errorf("磁盘必须大于0")
 		}
 		cpuCores = taskReq.CPU
 		memoryMB = taskReq.Memory
-		diskMB = taskReq.Disk * 1024
+		if taskReq.DiskMB > 0 {
+			diskMB = taskReq.DiskMB
+		} else {
+			diskMB = taskReq.Disk * 1024
+		}
 		bandwidthSpeedMbps = taskReq.Bandwidth
 	} else {
 		// 验证各个规格ID

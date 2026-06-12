@@ -72,16 +72,26 @@ export function useSystemImageManagement() {
   const handleReset = () => { Object.assign(searchForm, { search: '', providerType: '', instanceType: '', architecture: '', osType: '', status: '' }); handleSearch() }
   const handleSync = async () => {
     try {
-      await ElMessageBox.confirm(t('admin.systemImages.syncConfirm'), t('admin.systemImages.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
+      const { value } = await ElMessageBox.prompt(t('admin.systemImages.syncPromptMessage'), t('admin.systemImages.syncPromptTitle'), {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        inputPlaceholder: t('admin.systemImages.syncUrlPlaceholder'),
+        inputValue: '',
+        type: 'warning',
+        distinguishCancelAndClose: true
+      })
       syncing.value = true
-      const response = await systemImageApi.sync()
+      const sourceUrl = String(value || '').trim()
+      const response = await systemImageApi.sync(sourceUrl ? { sourceUrl } : {})
       const processed = response?.data?.processed ?? 0
       const desired = response?.data?.desired ?? 0
       ElMessage.success(t('admin.systemImages.syncSuccess', { processed, desired }))
       pagination.page = 1
       fetchData()
     } catch (error) {
-      if (error !== 'cancel') ElMessage.error(t('admin.systemImages.syncFailed') + ': ' + (error.message || error))
+      if (error !== 'cancel' && error?.action !== 'cancel' && error?.action !== 'close') {
+        ElMessage.error(t('admin.systemImages.syncFailed') + ': ' + (error?.details || error?.message || error))
+      }
     } finally {
       syncing.value = false
     }

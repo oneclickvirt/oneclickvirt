@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/model/common"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/images"
+	"oneclickvirt/service/taskgate"
 	"oneclickvirt/source"
 	"oneclickvirt/utils"
 	"strconv"
@@ -59,6 +60,10 @@ type UpdateSystemImageRequest struct {
 	MinMemoryMB  *int   `json:"minMemoryMB" binding:"omitempty,min=1"`
 	MinDiskMB    *int   `json:"minDiskMB" binding:"omitempty,min=1"`
 	UseCDN       *bool  `json:"useCdn"`
+}
+
+type SyncSystemImagesRequest struct {
+	SourceURL string `json:"sourceUrl"`
 }
 
 // GetSystemImageList 获取系统镜像列表
@@ -146,7 +151,17 @@ func GetSystemImageList(c *gin.Context) {
 
 // SyncSystemImages 手动同步系统镜像，补齐初始化定义中缺失的镜像。
 func SyncSystemImages(c *gin.Context) {
-	result, err := source.SyncSystemImages()
+	if err := taskgate.EnsureAccepting(); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	var req SyncSystemImagesRequest
+	_ = c.ShouldBindJSON(&req)
+	if queryURL := strings.TrimSpace(c.Query("sourceUrl")); queryURL != "" {
+		req.SourceURL = queryURL
+	}
+	result, err := source.SyncSystemImagesFromURL(strings.TrimSpace(req.SourceURL))
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return

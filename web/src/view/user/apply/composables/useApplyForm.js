@@ -138,6 +138,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
   })
 
   const availableBandwidthSpecs = computed(() => instanceConfig.value.bandwidthSpecs || [])
+  const errorMessage = (error, fallback) => error?.details || error?.message || fallback
 
   // ── Data loaders ───────────────────────────────
 
@@ -151,7 +152,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       }
     } catch (error) {
       console.error('获取用户限制失败:', error)
-      ElMessage.error(error?.message || t('user.apply.loadLimitsFailed'))
+      ElMessage.error(errorMessage(error, t('user.apply.loadLimitsFailed')))
     }
   }
 
@@ -165,7 +166,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       }
     } catch (error) {
       console.error('获取实例配置失败:', error)
-      ElMessage.error(error?.message || t('user.apply.loadConfigFailed'))
+      ElMessage.error(errorMessage(error, t('user.apply.loadConfigFailed')))
     }
   }
 
@@ -175,9 +176,10 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       return
     }
     try {
-      const capabilities = providerCapabilities.value[selectedProvider.value.id]
+      let capabilities = providerCapabilities.value[selectedProvider.value.id]
       if (!capabilities) {
         await loadProviderCapabilities(selectedProvider.value.id)
+        capabilities = providerCapabilities.value[selectedProvider.value.id]
       }
       const response = await getFilteredImages({
         provider_id: selectedProvider.value.id,
@@ -193,7 +195,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     } catch (error) {
       console.error('获取过滤镜像失败:', error)
       availableImages.value = []
-      ElMessage.error(error?.message || t('user.apply.loadImagesFailed'))
+      ElMessage.error(errorMessage(error, t('user.apply.loadImagesFailed')))
     }
   }
 
@@ -216,17 +218,26 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
 
   const onInstanceTypeChange = async () => {
     if (selectedProvider.value && configForm.type) {
+      const providerId = selectedProvider.value.id
+      await loadProviderCapabilities(providerId)
+      if (!selectedProvider.value || selectedProvider.value.id !== providerId) return
+      const capabilities = providerCapabilities.value[providerId] || {}
+      const supportedTypes = capabilities.supportedTypes || []
+      const supportsContainer = supportedTypes.length > 0 ? supportedTypes.includes('container') : selectedProvider.value.containerEnabled
+      const supportsVM = supportedTypes.length > 0 ? supportedTypes.includes('vm') : selectedProvider.value.vmEnabled
+      const containerSlots = capabilities.availableContainerSlots ?? selectedProvider.value.availableContainerSlots
+      const vmSlots = capabilities.availableVMSlots ?? selectedProvider.value.availableVMSlots
       if (configForm.type === 'container') {
-        if (!selectedProvider.value.containerEnabled) {
+        if (!supportsContainer) {
           ElMessage.warning(t('user.apply.nodeNotSupportContainer'))
           configForm.type = 'vm'
           return
         }
-        if (selectedProvider.value.availableContainerSlots !== -1 && selectedProvider.value.availableContainerSlots <= 0) {
+        if (containerSlots !== -1 && containerSlots <= 0) {
           ElMessage.warning(t('user.apply.nodeContainerSlotsFull'))
           if (
-            selectedProvider.value.vmEnabled &&
-            (selectedProvider.value.availableVMSlots === -1 || selectedProvider.value.availableVMSlots > 0)
+            supportsVM &&
+            (vmSlots === -1 || vmSlots > 0)
           ) {
             configForm.type = 'vm'
             ElMessage.info(t('user.apply.autoSwitchToVM'))
@@ -237,16 +248,16 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
           }
         }
       } else if (configForm.type === 'vm') {
-        if (!selectedProvider.value.vmEnabled) {
+        if (!supportsVM) {
           ElMessage.warning(t('user.apply.nodeNotSupportVM'))
           configForm.type = 'container'
           return
         }
-        if (selectedProvider.value.availableVMSlots !== -1 && selectedProvider.value.availableVMSlots <= 0) {
+        if (vmSlots !== -1 && vmSlots <= 0) {
           ElMessage.warning(t('user.apply.nodeVMSlotsFull'))
           if (
-            selectedProvider.value.containerEnabled &&
-            (selectedProvider.value.availableContainerSlots === -1 || selectedProvider.value.availableContainerSlots > 0)
+            supportsContainer &&
+            (containerSlots === -1 || containerSlots > 0)
           ) {
             configForm.type = 'container'
             ElMessage.info(t('user.apply.autoSwitchToContainer'))
@@ -358,7 +369,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
           ElMessage.error(t('user.apply.requestTimeout'))
           setTimeout(() => { router.push('/user/tasks') }, 3000)
         } else {
-          ElMessage.error(t('user.apply.submitFailed'))
+          ElMessage.error(errorMessage(error, t('user.apply.submitFailed')))
           submitting.value = false
         }
       } else {
