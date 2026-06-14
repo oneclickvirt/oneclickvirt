@@ -3,17 +3,17 @@ use crate::{
     collector::normalize_interface_name,
     db::{cleanup_stale_monitors, now_ts},
     error::{ApiError, ErrorResponse},
-    ipt, nft,
+    ipt,
     models::{
-        AddDomainProxyRequest, AddDomainProxyResponse, AddRequest, AddResponse, BatchInfoRequest,
-        BatchInfoResponse,
-        ApplyBlockRulesRequest, ApplyBlockRulesResponse, CleanupRequest, CleanupResponse,
-        DeleteRequest, DeleteResponse, DomainProxyItem, GetBlockRulesResponse, InfoRequest, InterfaceInput,
-        InfoResponse, ListDomainProxiesResponse, ListMonitorItem, ListMonitorsResponse,
-        RemoveBlockRulesResponse, RemoveDomainProxyRequest, RemoveDomainProxyResponse,
-        ResourceDataPoint, ResourceQueryRequest, ResourceQueryResponse, UpdateRequest,
-        UpdateResponse,
+        AddDomainProxyRequest, AddDomainProxyResponse, AddRequest, AddResponse,
+        ApplyBlockRulesRequest, ApplyBlockRulesResponse, BatchInfoRequest, BatchInfoResponse,
+        CleanupRequest, CleanupResponse, DeleteRequest, DeleteResponse, DomainProxyItem,
+        GetBlockRulesResponse, InfoRequest, InfoResponse, InterfaceInput,
+        ListDomainProxiesResponse, ListMonitorItem, ListMonitorsResponse, RemoveBlockRulesResponse,
+        RemoveDomainProxyRequest, RemoveDomainProxyResponse, ResourceDataPoint,
+        ResourceQueryRequest, ResourceQueryResponse, UpdateRequest, UpdateResponse,
     },
+    nft,
 };
 use axum::{
     Json,
@@ -304,8 +304,9 @@ pub async fn add_monitor(
             )
             .map_err(|e| ApiError::internal(format!("insert interface state error: {e}")))?;
         }
-        tx.commit()
-            .map_err(|e| ApiError::internal(format!("commit add monitor transaction error: {e}")))?;
+        tx.commit().map_err(|e| {
+            ApiError::internal(format!("commit add monitor transaction error: {e}"))
+        })?;
     }
 
     let active_interfaces: Vec<String> = snapshots.iter().map(|s| s.interface.clone()).collect();
@@ -350,9 +351,11 @@ pub async fn update_monitor(
     let old_interfaces = {
         let conn = state.conn.lock().await;
         let exists: Option<i64> = conn
-            .query_row("SELECT id FROM monitors WHERE id = ?1", params![id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT id FROM monitors WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
             .optional()
             .map_err(|e| ApiError::internal(format!("query monitor error: {e}")))?;
         if exists.is_none() {
@@ -394,9 +397,9 @@ pub async fn update_monitor(
     let active_interfaces_json = serialize_snapshot_interfaces(&snapshots)?;
     {
         let mut conn = state.conn.lock().await;
-        let tx = conn
-            .transaction()
-            .map_err(|e| ApiError::internal(format!("begin update monitor transaction error: {e}")))?;
+        let tx = conn.transaction().map_err(|e| {
+            ApiError::internal(format!("begin update monitor transaction error: {e}"))
+        })?;
         tx.execute(
             "UPDATE monitors SET interfaces = ?1, updated_at = ?2, provider_kind = COALESCE(?4, provider_kind), instance_name = COALESCE(?5, instance_name), inner_ip = ?6 WHERE id = ?3",
             params![active_interfaces_json, now, id, payload.provider_kind.as_deref(), payload.instance_name.as_deref(), inner_ip.as_deref()],
@@ -414,15 +417,20 @@ pub async fn update_monitor(
             )
             .map_err(|e| ApiError::internal(format!("insert new interface state error: {e}")))?;
         }
-        tx.commit()
-            .map_err(|e| ApiError::internal(format!("commit update monitor transaction error: {e}")))?;
+        tx.commit().map_err(|e| {
+            ApiError::internal(format!("commit update monitor transaction error: {e}"))
+        })?;
     }
 
     let active_interfaces: Vec<String> = snapshots.iter().map(|s| s.interface.clone()).collect();
     let new_set: HashSet<String> = active_interfaces.iter().cloned().collect();
     for old in old_interfaces {
         if !new_set.contains(&old) {
-            if let Err(err) = if use_ipt { ipt::remove_counter(id, &old) } else { nft::remove_counter(id, &old) } {
+            if let Err(err) = if use_ipt {
+                ipt::remove_counter(id, &old)
+            } else {
+                nft::remove_counter(id, &old)
+            } {
                 warn!(id, interface = old, error = %err.message, "failed to remove old counter rules after update");
             }
         }
@@ -463,14 +471,18 @@ pub async fn delete_monitor(
         let old_interfaces = {
             let mut old_stmt = conn
                 .prepare("SELECT interface FROM interface_states WHERE monitor_id = ?1")
-                .map_err(|e| ApiError::internal(format!("prepare delete interfaces query error: {e}")))?;
+                .map_err(|e| {
+                    ApiError::internal(format!("prepare delete interfaces query error: {e}"))
+                })?;
             let old_rows = old_stmt
                 .query_map(params![id], |row| row.get::<_, String>(0))
                 .map_err(|e| ApiError::internal(format!("delete interfaces query error: {e}")))?;
             let mut old_interfaces: Vec<String> = Vec::new();
             for row in old_rows {
                 old_interfaces.push(
-                    row.map_err(|e| ApiError::internal(format!("delete interface row error: {e}")))?,
+                    row.map_err(|e| {
+                        ApiError::internal(format!("delete interface row error: {e}"))
+                    })?,
                 );
             }
             old_interfaces
@@ -485,7 +497,11 @@ pub async fn delete_monitor(
     let use_ipt = state.traffic_collect_method == "ipt";
     if affected > 0 {
         for interface in old_interfaces {
-            if let Err(err) = if use_ipt { ipt::remove_counter(id, &interface) } else { nft::remove_counter(id, &interface) } {
+            if let Err(err) = if use_ipt {
+                ipt::remove_counter(id, &interface)
+            } else {
+                nft::remove_counter(id, &interface)
+            } {
                 warn!(id, interface, error = %err.message, "failed to remove counter rules after delete");
             }
         }
@@ -553,11 +569,10 @@ pub async fn info_monitor(
         .optional()
         .map_err(|e| ApiError::internal(format!("query monitor info error: {e}")))?;
 
-    row.map(Json)
-        .ok_or_else(|| {
-            debug!(id = payload.id, "info requested for missing monitor");
-            ApiError::not_found(format!("monitor id {} not found", payload.id))
-        })
+    row.map(Json).ok_or_else(|| {
+        debug!(id = payload.id, "info requested for missing monitor");
+        ApiError::not_found(format!("monitor id {} not found", payload.id))
+    })
 }
 
 #[utoipa::path(
@@ -871,7 +886,11 @@ pub async fn get_block_rules(
         nft::get_block_rules()
     };
     let count = strings.len();
-    Ok(Json(GetBlockRulesResponse { strings, count, ip_version }))
+    Ok(Json(GetBlockRulesResponse {
+        strings,
+        count,
+        ip_version,
+    }))
 }
 
 // ---- Domain Proxy Handlers ----
@@ -881,8 +900,8 @@ fn validate_domain(domain: &str) -> Result<(), ApiError> {
     if domain.is_empty() || domain.len() > 253 {
         return Err(ApiError::bad_request("invalid domain length"));
     }
-    let re = regex::Regex::new(r"^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$")
-        .unwrap();
+    let re =
+        regex::Regex::new(r"^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$").unwrap();
     if !re.is_match(domain) {
         return Err(ApiError::bad_request("invalid domain format"));
     }
@@ -906,11 +925,18 @@ fn validate_domain(domain: &str) -> Result<(), ApiError> {
 )]
 pub async fn add_domain_proxy(
     State(state): State<AppState>,
-    Json(req): Json<AddDomainProxyRequest>,
+    Json(mut req): Json<AddDomainProxyRequest>,
 ) -> Result<Json<AddDomainProxyResponse>, ApiError> {
+    req.domain = req.domain.trim().to_lowercase();
+    req.internal_ip = req.internal_ip.trim().to_string();
     validate_domain(&req.domain)?;
 
-    let protocol = req.protocol.as_deref().unwrap_or("http");
+    let protocol = req
+        .protocol
+        .as_deref()
+        .unwrap_or("http")
+        .trim()
+        .to_lowercase();
     if protocol != "http" && protocol != "https" {
         return Err(ApiError::bad_request("protocol must be http or https"));
     }
@@ -921,8 +947,13 @@ pub async fn add_domain_proxy(
     let enable_ssl = req.enable_ssl.unwrap_or(false);
 
     // Validate and parse SSL cert if provided
-    let ssl_cert = req.ssl_cert.unwrap_or_default();
-    let ssl_key = req.ssl_key.unwrap_or_default();
+    let mut ssl_cert = req.ssl_cert.unwrap_or_default();
+    let mut ssl_key = req.ssl_key.unwrap_or_default();
+    if enable_ssl && (ssl_cert.is_empty() || ssl_key.is_empty()) {
+        return Err(ApiError::bad_request(
+            "ssl_cert and ssl_key are required when enable_ssl is true",
+        ));
+    }
     if enable_ssl && !ssl_cert.is_empty() && !ssl_key.is_empty() {
         // Validate cert/key pair by parsing
         match crate::proxy::parse_certified_key(&ssl_cert, &ssl_key) {
@@ -934,7 +965,9 @@ pub async fn add_domain_proxy(
                 info!(domain = %req.domain, "domain SSL certificate loaded");
             }
             Err(e) => {
-                return Err(ApiError::bad_request(format!("invalid SSL certificate: {e}")));
+                return Err(ApiError::bad_request(format!(
+                    "invalid SSL certificate: {e}"
+                )));
             }
         }
     } else if !enable_ssl {
@@ -942,13 +975,15 @@ pub async fn add_domain_proxy(
         if let Ok(mut store) = state.cert_store.write() {
             store.remove(&req.domain);
         }
+        ssl_cert.clear();
+        ssl_key.clear();
     }
 
     // Save to DB
     let conn = state.conn.lock().await;
     conn.execute(
         "INSERT OR REPLACE INTO domain_proxies (domain, internal_ip, internal_port, protocol, enable_ssl, ssl_cert, ssl_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        rusqlite::params![req.domain, req.internal_ip, req.internal_port, protocol, enable_ssl as i32, ssl_cert, ssl_key, now_ts()],
+        rusqlite::params![req.domain, req.internal_ip, req.internal_port, protocol.as_str(), enable_ssl as i32, ssl_cert, ssl_key, now_ts()],
     ).map_err(|e| ApiError::internal(format!("save domain proxy error: {e}")))?;
     drop(conn);
 
@@ -956,7 +991,7 @@ pub async fn add_domain_proxy(
     let target = crate::proxy::ProxyTarget {
         internal_ip: req.internal_ip.clone(),
         internal_port: req.internal_port,
-        protocol: protocol.to_string(),
+        protocol,
     };
     crate::proxy::add_route(&state.proxy_routes, req.domain.clone(), target).await;
 
@@ -983,14 +1018,17 @@ pub async fn add_domain_proxy(
 )]
 pub async fn remove_domain_proxy(
     State(state): State<AppState>,
-    Json(req): Json<RemoveDomainProxyRequest>,
+    Json(mut req): Json<RemoveDomainProxyRequest>,
 ) -> Result<Json<RemoveDomainProxyResponse>, ApiError> {
+    req.domain = req.domain.trim().to_lowercase();
     // Remove from DB first
     let conn = state.conn.lock().await;
-    let deleted = conn.execute(
-        "DELETE FROM domain_proxies WHERE domain = ?1",
-        rusqlite::params![req.domain],
-    ).map_err(|e| ApiError::internal(format!("delete domain proxy error: {e}")))?;
+    let deleted = conn
+        .execute(
+            "DELETE FROM domain_proxies WHERE domain = ?1",
+            rusqlite::params![req.domain],
+        )
+        .map_err(|e| ApiError::internal(format!("delete domain proxy error: {e}")))?;
     drop(conn);
 
     // Remove from in-memory proxy routes
@@ -1029,18 +1067,20 @@ pub async fn list_domain_proxies(
         .prepare("SELECT domain, internal_ip, internal_port, protocol, enable_ssl, ssl_cert, created_at FROM domain_proxies ORDER BY created_at")
         .map_err(|e| ApiError::internal(format!("prepare domain proxy query: {e}")))?;
 
-    let rows = stmt.query_map([], |row| {
-        let ssl_cert: String = row.get(5)?;
-        Ok(DomainProxyItem {
-            domain: row.get(0)?,
-            internal_ip: row.get(1)?,
-            internal_port: row.get(2)?,
-            protocol: row.get(3)?,
-            enable_ssl: row.get::<_, i32>(4)? != 0,
-            has_cert: !ssl_cert.is_empty(),
-            created_at: row.get(6)?,
+    let rows = stmt
+        .query_map([], |row| {
+            let ssl_cert: String = row.get(5)?;
+            Ok(DomainProxyItem {
+                domain: row.get(0)?,
+                internal_ip: row.get(1)?,
+                internal_port: row.get(2)?,
+                protocol: row.get(3)?,
+                enable_ssl: row.get::<_, i32>(4)? != 0,
+                has_cert: !ssl_cert.is_empty(),
+                created_at: row.get(6)?,
+            })
         })
-    }).map_err(|e| ApiError::internal(format!("domain proxy query: {e}")))?;
+        .map_err(|e| ApiError::internal(format!("domain proxy query: {e}")))?;
 
     let mut proxies = Vec::new();
     for row in rows {

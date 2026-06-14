@@ -3,10 +3,10 @@ use serde_json::Value;
 use tracing::warn;
 
 use super::{
-    counter_name_in, counter_name_out, ensure_base_objects, escape_quoted, exclude_v4, exclude_v6,
-    expected_rule_count, find_rule_refs_by_counter, interface_aliases, nft_set_literal,
-    remove_rules_by_counter, run_nft, run_nft_script, current_config_tag, is_not_found,
-    Scope, SCOPES,
+    SCOPES, Scope, counter_name_in, counter_name_out, current_config_tag, ensure_base_objects,
+    escape_quoted, exclude_v4, exclude_v6, expected_rule_count, find_rule_refs_by_counter,
+    interface_aliases, is_not_found, nft_set_literal, remove_rules_by_counter, run_nft,
+    run_nft_script,
 };
 
 fn query_counter_bytes(scope: Scope, counter: &str) -> Result<Option<u64>, ApiError> {

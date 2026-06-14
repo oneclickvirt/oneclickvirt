@@ -50,6 +50,18 @@ func AdminDeleteDomain(c *gin.Context) {
 	common.ResponseSuccess(c, nil)
 }
 
+// AdminSyncDomainProxies 管理员重新下发域名反向代理配置
+func AdminSyncDomainProxies(c *gin.Context) {
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	svc := &domainService.Service{}
+	result, err := svc.AdminSyncDomainProxies(ownerAdminID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, result)
+}
+
 // GetDomainConfig 获取域名配置
 func GetDomainConfig(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)

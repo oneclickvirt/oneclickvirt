@@ -362,6 +362,14 @@ func (s *PortMappingService) UpdateProviderPortConfig(providerID uint, req admin
 	if req.PortRangeStart >= req.PortRangeEnd {
 		return fmt.Errorf("端口范围起始值必须小于结束值")
 	}
+	availablePortCount := req.PortRangeEnd - req.PortRangeStart + 1
+	if req.DefaultPortCount > availablePortCount {
+		return fmt.Errorf("默认端口数 %d 不能超过端口范围容量 %d", req.DefaultPortCount, availablePortCount)
+	}
+	fixedPorts, err := NormalizeProviderFixedPorts(req.FixedPorts, req.DefaultPortCount)
+	if err != nil {
+		return err
+	}
 
 	var providerInfo provider.Provider
 	if err := global.APP_DB.Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
@@ -372,6 +380,7 @@ func (s *PortMappingService) UpdateProviderPortConfig(providerID uint, req admin
 	providerInfo.DefaultPortCount = req.DefaultPortCount
 	providerInfo.PortRangeStart = req.PortRangeStart
 	providerInfo.PortRangeEnd = req.PortRangeEnd
+	providerInfo.FixedPorts = fixedPorts
 	if req.NetworkType != "" {
 		providerInfo.NetworkType = req.NetworkType
 	}
@@ -422,10 +431,15 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		return fmt.Errorf("无效的端口范围配置")
 	}
 
-	// 如果可用端口数量小于请求数量，调整为可用数量
 	if defaultPortCount > availablePortCount {
-		defaultPortCount = availablePortCount
+		return fmt.Errorf("端口范围可用数量不足，默认端口数 %d 大于范围容量 %d", defaultPortCount, availablePortCount)
 	}
+
+	fixedPorts, err := NormalizeProviderFixedPorts(providerInfo.FixedPorts, defaultPortCount)
+	if err != nil {
+		return err
+	}
+	ordinaryPortCount := defaultPortCount - len(fixedPorts)
 
 	if useControllerMapping {
 		controllerPortAllocateMu.Lock()
@@ -456,9 +470,6 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 			}
 		}
 
-		// 第一个端口作为SSH端口
-		sshHostPort := allocatedPorts[0]
-
 		// 确定映射类型：agent模式且无PortIP/no_port_mapping时使用控制端转发
 		mappingType := "node"
 		internalHost := ""
@@ -472,63 +483,86 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 			}
 		}
 
-		sshPort := provider.Port{
-			InstanceID:    instanceID,
-			ProviderID:    providerID,
-			HostPort:      sshHostPort,
-			GuestPort:     22,     // SSH端口固定为22
-			Protocol:      "both", // SSH 使用 TCP/UDP 通用协议
-			Description:   "SSH",
-			Status:        "active",
-			IsSSH:         true,
-			IsAutomatic:   true,
-			PortType:      "range_mapped", // 标记为区间映射
-			IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
-			MappingMethod: providerInfo.IPv4PortMappingMethod,
-			MappingType:   mappingType,
-			InternalHost:  internalHost,
+		sshHostPort := 0
+		usedGuestPorts := make(map[int]struct{}, defaultPortCount)
+		var portRecords []provider.Port
+		for i, guestPort := range fixedPorts {
+			usedGuestPorts[guestPort] = struct{}{}
+			hostPort := allocatedPorts[i]
+			if guestPort == requiredFixedSSHPort {
+				sshHostPort = hostPort
+			}
+			description := fmt.Sprintf("固定端口%d", guestPort)
+			if guestPort == requiredFixedSSHPort {
+				description = "SSH"
+			}
+			portRecords = append(portRecords, provider.Port{
+				InstanceID:    instanceID,
+				ProviderID:    providerID,
+				HostPort:      hostPort,
+				GuestPort:     guestPort,
+				Protocol:      "both",
+				Description:   description,
+				Status:        "active",
+				IsSSH:         guestPort == requiredFixedSSHPort,
+				IsAutomatic:   true,
+				PortType:      "range_mapped",
+				IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
+				MappingMethod: providerInfo.IPv4PortMappingMethod,
+				MappingType:   mappingType,
+				InternalHost:  internalHost,
+			})
 		}
-
-		if err := tx.Create(&sshPort).Error; err != nil {
-			return fmt.Errorf("创建SSH端口映射失败: %v", err)
+		if sshHostPort == 0 {
+			return fmt.Errorf("固定端口配置缺少SSH端口22")
 		}
-		createdPorts = append(createdPorts, sshPort)
 
 		// 更新实例的SSH端口
 		if err := tx.Model(&provider.Instance{}).Where("id = ?", instanceID).Update("ssh_port", sshHostPort).Error; err != nil {
 			global.APP_LOG.Warn("更新实例SSH端口失败", zap.Error(err))
 		}
 
-		// 批量创建其余端口的1:1映射（避免循环插入）
-		if len(allocatedPorts) > 1 {
-			var portRecords []provider.Port
-			for i := 1; i < len(allocatedPorts); i++ {
-				port := allocatedPorts[i]
-				portRecord := provider.Port{
-					InstanceID:    instanceID,
-					ProviderID:    providerID,
-					HostPort:      port,
-					GuestPort:     port,   // 内外端口完全相同
-					Protocol:      "both", // 区间映射使用 TCP/UDP 通用协议
-					Description:   fmt.Sprintf("端口%d", port),
-					Status:        "active",
-					IsSSH:         false,
-					IsAutomatic:   true,
-					PortType:      "range_mapped", // 标记为区间映射
-					IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
-					MappingMethod: providerInfo.IPv4PortMappingMethod,
-					MappingType:   mappingType,
-					InternalHost:  internalHost,
+		// 批量创建剩余普通映射。默认使用 host port 作为 guest port；
+		// 若与固定 guest port 冲突，则顺延到下一个未占用 guest port。
+		for i := len(fixedPorts); i < len(allocatedPorts); i++ {
+			port := allocatedPorts[i]
+			guestPort := port
+			for attempts := 0; attempts < 65535; attempts++ {
+				if _, exists := usedGuestPorts[guestPort]; !exists {
+					break
 				}
-				portRecords = append(portRecords, portRecord)
+				guestPort++
+				if guestPort > 65535 {
+					guestPort = 1
+				}
 			}
-
-			// 批量插入端口映射
-			if err := tx.CreateInBatches(portRecords, 100).Error; err != nil {
-				return fmt.Errorf("批量创建端口映射失败: %v", err)
+			if _, exists := usedGuestPorts[guestPort]; exists {
+				return fmt.Errorf("无法为普通端口映射分配未冲突的实例内端口")
 			}
-			createdPorts = append(createdPorts, portRecords...)
+			usedGuestPorts[guestPort] = struct{}{}
+			portRecords = append(portRecords, provider.Port{
+				InstanceID:    instanceID,
+				ProviderID:    providerID,
+				HostPort:      port,
+				GuestPort:     guestPort,
+				Protocol:      "both",
+				Description:   fmt.Sprintf("端口%d", guestPort),
+				Status:        "active",
+				IsSSH:         false,
+				IsAutomatic:   true,
+				PortType:      "range_mapped",
+				IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
+				MappingMethod: providerInfo.IPv4PortMappingMethod,
+				MappingType:   mappingType,
+				InternalHost:  internalHost,
+			})
 		}
+
+		// 批量插入端口映射
+		if err := tx.CreateInBatches(portRecords, 100).Error; err != nil {
+			return fmt.Errorf("批量创建端口映射失败: %v", err)
+		}
+		createdPorts = append(createdPorts, portRecords...)
 
 		if !useControllerMapping {
 			// 更新NextAvailablePort到下一个端口；控制端端口不占用节点端口池。
@@ -544,6 +578,8 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		global.APP_LOG.Info("创建默认端口映射成功",
 			zap.Uint("instance_id", instanceID),
 			zap.Int("total_ports", len(createdPorts)),
+			zap.Int("fixed_ports", len(fixedPorts)),
+			zap.Int("ordinary_ports", ordinaryPortCount),
 			zap.Int("ssh_port", sshHostPort),
 			zap.Int("start_port", startPort),
 			zap.Int("end_port", allocatedPorts[len(allocatedPorts)-1]),

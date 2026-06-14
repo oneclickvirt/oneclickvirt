@@ -7,6 +7,18 @@ import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as gener
 import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
 import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits } from '@/utils/levels'
 
+const REQUIRED_FIXED_PORT = 22
+
+const normalizeFixedPorts = (ports = []) => {
+  const values = Array.isArray(ports) ? ports : []
+  const normalized = Array.from(new Set([REQUIRED_FIXED_PORT, ...values.map(port => Number(port)).filter(port => Number.isInteger(port) && port >= 1 && port <= 65535)]))
+  return normalized.sort((a, b) => {
+    if (a === REQUIRED_FIXED_PORT) return -1
+    if (b === REQUIRED_FIXED_PORT) return 1
+    return a - b
+  })
+}
+
 export function useProviderForm(props, emit) {
   const { t, locale } = useI18n()
 
@@ -87,6 +99,7 @@ export function useProviderForm(props, emit) {
     defaultPortCount: 10,
     portRangeStart: 10000,
     portRangeEnd: 65535,
+    fixedPorts: [REQUIRED_FIXED_PORT],
     networkType: 'nat_ipv4',
     defaultInboundBandwidth: 300,
     defaultOutboundBandwidth: 300,
@@ -125,6 +138,17 @@ export function useProviderForm(props, emit) {
     gpuDeviceIds: '',
     // 连接方式（内网穿透）
     connectionType: 'ssh',
+    enableDomainBinding: false,
+    proxyEnableHttp: true,
+    proxyHttpPort: 80,
+    proxyEnableHttps: false,
+    proxyHttpsPort: 443,
+    proxyTlsCertPath: '',
+    proxyTlsKeyPath: '',
+    proxyAutoSync: true,
+    enableVNC: false,
+    vncBasePort: 5900,
+    vncHost: '',
     agentStatus: 'offline',
     agentRuntimeStatus: 'offline',
     agentLastSeen: null,
@@ -272,8 +296,10 @@ export function useProviderForm(props, emit) {
       if (props.providerData && Object.keys(props.providerData).length > 0) {
         // 对话框打开时，同步父组件的数据到表单（使用深拷贝避免引用问题）
         Object.assign(formData.value, JSON.parse(JSON.stringify(props.providerData)))
-      }    // 记录开屏快照用于检测修改
-      formSnapshot.value = JSON.stringify(formData.value)    // 清除上次遗留的验证状态
+      }
+      // 记录开屏快照用于检测修改
+      formSnapshot.value = JSON.stringify(formData.value)
+      // 清除上次遗留的验证状态
       nextTick(() => {
         basicInfoTabRef.value?.formRef?.clearValidate()
       })
@@ -493,7 +519,7 @@ export function useProviderForm(props, emit) {
       if (formData.value.connectionType === 'agent' && looksLikeConnectionError) {
         try {
           await handleCheckAgentStatus()
-        } catch (_) {
+        } catch {
           // 忽略状态刷新错误，保留原始执行错误展示
         }
       }
@@ -586,6 +612,11 @@ export function useProviderForm(props, emit) {
 
       if (isAgentMode.value && !hasAgentMappedNetworking.value) {
         formData.value.networkType = 'no_port_mapping'
+      }
+      formData.value.fixedPorts = normalizeFixedPorts(formData.value.fixedPorts)
+      if (formData.value.fixedPorts.length > (formData.value.defaultPortCount || 10)) {
+        ElMessage.error(t('admin.providers.fixedPortOverflow'))
+        return
       }
       
       // 验证SSH认证方式（agent模式无需）

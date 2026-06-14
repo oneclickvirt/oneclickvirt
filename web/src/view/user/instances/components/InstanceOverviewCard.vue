@@ -162,6 +162,15 @@
             {{ $t('user.instanceDetail.webSSH') }}
           </el-button>
           <el-button
+            v-if="instance.status === 'running' && instance.instanceType === 'vm' && !shareMode"
+            type="primary"
+            size="small"
+            @click="$emit('open-vnc')"
+          >
+            <el-icon><Monitor /></el-icon>
+            {{ $t('user.instanceDetail.webVNC') }}
+          </el-button>
+          <el-button
             v-if="!shareMode"
             type="success"
             size="small"
@@ -227,7 +236,7 @@ defineProps({
   shareMode: { type: Boolean, default: false }
 })
 
-defineEmits(['perform-action', 'reset-password', 'open-ssh', 'view-task', 'create-share'])
+defineEmits(['perform-action', 'reset-password', 'open-ssh', 'open-vnc', 'view-task', 'create-share'])
 
 const {
   getTaskTitle,

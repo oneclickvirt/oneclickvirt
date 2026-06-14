@@ -5,6 +5,7 @@ export default {
   forbidden: '禁止访问',
   notFound: '资源不存在',
   conflict: '资源冲突',
+  tooManyRequests: '请求过于频繁，请稍后重试',
   validationFailed: '数据验证失败',
   userNotFound: '用户不存在',
   userExists: '用户已存在',

@@ -4,11 +4,11 @@ use serde_json::Value;
 use std::collections::HashSet;
 use tracing::{debug, info, warn};
 
-use super::{
-    counter_name_in, counter_name_out, ensure_base_objects, is_not_found,
-    remove_counter_by_name, run_nft, Scope, SCOPES,
-};
 use super::counter::ensure_counter;
+use super::{
+    SCOPES, Scope, counter_name_in, counter_name_out, ensure_base_objects, is_not_found,
+    remove_counter_by_name, run_nft,
+};
 
 fn list_existing_managed_counters(scope: Scope) -> Result<HashSet<String>, ApiError> {
     let out = run_nft(&["-j", "list", "table", scope.family, scope.table])?;

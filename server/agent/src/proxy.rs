@@ -4,24 +4,21 @@ use axum::{
     http::{HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
-use hyper_util::{
-    client::legacy::{connect::HttpConnector, Client},
-    rt::TokioExecutor,
-};
-use std::{collections::HashMap, io::BufReader, sync::Arc};
+use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use std::sync::RwLock as StdRwLock;
+use std::{collections::HashMap, io::BufReader, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::app_state::AppState;
 
+use rustls_pemfile::{certs, private_key};
 use tokio_rustls::rustls::{
     self,
     pki_types::CertificateDer,
     server::{ClientHello, ResolvesServerCert},
     sign::CertifiedKey,
 };
-use rustls_pemfile::{certs, private_key};
 
 #[derive(Clone, Debug)]
 pub struct ProxyTarget {
@@ -45,8 +42,9 @@ pub struct DomainCertResolver {
 impl ResolvesServerCert for DomainCertResolver {
     fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
         if let Some(domain) = client_hello.server_name() {
+            let domain = domain.to_lowercase();
             if let Ok(certs) = self.domain_certs.read() {
-                if let Some(cert) = certs.get(domain) {
+                if let Some(cert) = certs.get(&domain) {
                     return Some(cert.clone());
                 }
             }
@@ -83,10 +81,12 @@ pub fn parse_certified_key(cert_pem: &str, key_pem: &str) -> Result<CertifiedKey
 }
 
 /// Load domain certificates from DB into a cert store
-pub fn load_domain_certs_from_db(conn: &rusqlite::Connection) -> HashMap<String, Arc<CertifiedKey>> {
+pub fn load_domain_certs_from_db(
+    conn: &rusqlite::Connection,
+) -> HashMap<String, Arc<CertifiedKey>> {
     let mut certs = HashMap::new();
     let mut stmt = match conn.prepare(
-        "SELECT domain, ssl_cert, ssl_key FROM domain_proxies WHERE ssl_cert != '' AND ssl_key != ''"
+        "SELECT domain, ssl_cert, ssl_key FROM domain_proxies WHERE enable_ssl = 1 AND ssl_cert != '' AND ssl_key != ''"
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -111,6 +111,10 @@ pub fn load_domain_certs_from_db(conn: &rusqlite::Connection) -> HashMap<String,
 
     for row in rows {
         if let Ok((domain, cert_pem, key_pem)) = row {
+            let domain = domain.trim().to_lowercase();
+            if domain.is_empty() {
+                continue;
+            }
             match parse_certified_key(&cert_pem, &key_pem) {
                 Ok(ck) => {
                     info!(domain = %domain, "loaded domain certificate");
@@ -123,7 +127,10 @@ pub fn load_domain_certs_from_db(conn: &rusqlite::Connection) -> HashMap<String,
         }
     }
 
-    info!(count = certs.len(), "loaded domain certificates from database");
+    info!(
+        count = certs.len(),
+        "loaded domain certificates from database"
+    );
     certs
 }
 
@@ -150,6 +157,10 @@ pub async fn load_routes_from_db(state: &AppState) -> Result<HashMap<String, Pro
     let mut routes = HashMap::new();
     for row in rows {
         let (domain, target) = row.map_err(|e| format!("parse proxy route: {e}"))?;
+        let domain = domain.trim().to_lowercase();
+        if domain.is_empty() {
+            continue;
+        }
         routes.insert(domain, target);
     }
 
@@ -160,6 +171,7 @@ pub async fn load_routes_from_db(state: &AppState) -> Result<HashMap<String, Pro
 /// Add or update a proxy route in memory
 pub async fn add_route(routes: &ProxyRoutes, domain: String, target: ProxyTarget) {
     let mut map = routes.write().await;
+    let domain = domain.to_lowercase();
     map.insert(domain.clone(), target);
     info!(domain = %domain, "proxy route added to memory");
 }
@@ -167,9 +179,10 @@ pub async fn add_route(routes: &ProxyRoutes, domain: String, target: ProxyTarget
 /// Remove a proxy route from memory
 pub async fn remove_route(routes: &ProxyRoutes, domain: &str) -> bool {
     let mut map = routes.write().await;
-    let removed = map.remove(domain).is_some();
+    let domain = domain.to_lowercase();
+    let removed = map.remove(&domain).is_some();
     if removed {
-        info!(domain, "proxy route removed from memory");
+        info!(domain = %domain, "proxy route removed from memory");
     }
     removed
 }
@@ -177,7 +190,7 @@ pub async fn remove_route(routes: &ProxyRoutes, domain: &str) -> bool {
 /// Get a proxy target by domain
 pub async fn get_route(routes: &ProxyRoutes, domain: &str) -> Option<ProxyTarget> {
     let map = routes.read().await;
-    map.get(domain).cloned()
+    map.get(&domain.to_lowercase()).cloned()
 }
 
 /// Main proxy handler
@@ -187,15 +200,15 @@ pub async fn proxy_handler(
     mut req: Request,
 ) -> Response {
     // Extract domain from Host header (remove port if present)
-    let domain = host.split(':').next().unwrap_or(&host);
+    let domain = host.split(':').next().unwrap_or(&host).to_lowercase();
 
-    debug!(domain, "proxy request received");
+    debug!(domain = %domain, "proxy request received");
 
     // Look up the target
-    let target = match get_route(&routes, domain).await {
+    let target = match get_route(&routes, &domain).await {
         Some(t) => t,
         None => {
-            warn!(domain, "no proxy route found for domain");
+            warn!(domain = %domain, "no proxy route found for domain");
             return (
                 StatusCode::NOT_FOUND,
                 format!("No proxy configured for domain: {}", domain),
@@ -221,8 +234,7 @@ pub async fn proxy_handler(
         Ok(uri) => uri,
         Err(e) => {
             error!(error = %e, "failed to parse upstream URI");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid upstream URI")
-                .into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid upstream URI").into_response();
         }
     };
 
@@ -233,8 +245,7 @@ pub async fn proxy_handler(
 
     // Update Host header to match upstream
     if let Ok(authority) = format!("{}:{}", target.internal_ip, target.internal_port).parse() {
-        req.headers_mut()
-            .insert(hyper::header::HOST, authority);
+        req.headers_mut().insert(hyper::header::HOST, authority);
     }
 
     // Add X-Forwarded headers
@@ -249,8 +260,13 @@ pub async fn proxy_handler(
     );
 
     // Create HTTP client
-    let client: Client<HttpConnector, Body> =
-        Client::builder(TokioExecutor::new()).build(HttpConnector::new());
+    let connector = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_webpki_roots()
+        .https_or_http()
+        .enable_http1()
+        .enable_http2()
+        .build();
+    let client: Client<_, Body> = Client::builder(TokioExecutor::new()).build(connector);
 
     // Forward the request
     match client.request(req).await {

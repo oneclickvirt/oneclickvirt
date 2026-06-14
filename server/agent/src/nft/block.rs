@@ -85,9 +85,13 @@ pub fn apply_block_rules(strings: &[String], ip_version: &str) -> Result<usize, 
 
     let mut script = String::new();
     for s in strings {
-        if s.is_empty() { continue; }
+        if s.is_empty() {
+            continue;
+        }
         // Hard cap at 128 bytes (reasonable upper bound for content patterns)
-        if s.len() > 128 { continue; }
+        if s.len() > 128 {
+            continue;
+        }
 
         let pattern = s.as_bytes();
 
@@ -162,7 +166,10 @@ pub fn restore_block_rules() {
         return;
     }
     match apply_block_rules(&strings, &ip_version) {
-        Ok(count) => info!(count, ip_version, "restored persisted block rules on startup"),
+        Ok(count) => info!(
+            count,
+            ip_version, "restored persisted block rules on startup"
+        ),
         Err(e) => warn!(error = %e.message, "failed to restore block rules on startup"),
     }
 }

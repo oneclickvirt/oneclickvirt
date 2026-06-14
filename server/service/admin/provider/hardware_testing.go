@@ -56,8 +56,8 @@ func parsePasteFileName(pasteURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("粘贴板URL格式错误: %w", err)
 	}
-	if parsed.Scheme != "https" && parsed.Scheme != "http" {
-		return "", fmt.Errorf("仅支持 http/https 粘贴板URL")
+	if parsed.Scheme != "https" {
+		return "", fmt.Errorf("仅支持 https://paste.spiritlhl.net 的粘贴板URL")
 	}
 	if !strings.EqualFold(parsed.Hostname(), "paste.spiritlhl.net") {
 		return "", fmt.Errorf("仅支持 paste.spiritlhl.net 的粘贴板URL")

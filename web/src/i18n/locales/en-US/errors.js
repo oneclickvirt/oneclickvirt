@@ -5,6 +5,7 @@ export default {
   forbidden: 'Access forbidden',
   notFound: 'Resource not found',
   conflict: 'Resource conflict',
+  tooManyRequests: 'Too many requests, please retry later',
   validationFailed: 'Data validation failed',
   userNotFound: 'User not found',
   userExists: 'User already exists',

@@ -1,12 +1,6 @@
 use crate::error::ApiError;
 use rusqlite::Connection;
-use std::{
-    collections::HashSet,
-    env, fs,
-    path::Path,
-    process::Command,
-    sync::OnceLock,
-};
+use std::{collections::HashSet, env, fs, path::Path, process::Command, sync::OnceLock};
 use tracing::{debug, info, warn};
 
 // Full exclusion ranges matching nft.rs
@@ -73,13 +67,21 @@ fn exclude_v6() -> &'static Vec<String> {
 
 fn has_iptables() -> bool {
     *HAS_IPTABLES.get_or_init(|| {
-        Command::new("iptables").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+        Command::new("iptables")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     })
 }
 
 fn has_ip6tables() -> bool {
     *HAS_IP6TABLES.get_or_init(|| {
-        Command::new("ip6tables").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+        Command::new("ip6tables")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     })
 }
 
@@ -407,7 +409,8 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64
         if chain_exists_ipt("ip6tables", &cin6) || chain_exists_ipt("ip6tables", &cout6) {
             has_any = true;
             bytes_in = bytes_in.saturating_add(read_chain_bytes("ip6tables", &cin6).unwrap_or(0));
-            bytes_out = bytes_out.saturating_add(read_chain_bytes("ip6tables", &cout6).unwrap_or(0));
+            bytes_out =
+                bytes_out.saturating_add(read_chain_bytes("ip6tables", &cout6).unwrap_or(0));
         }
     }
 
@@ -420,7 +423,9 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64
 
 pub fn bootstrap_from_db(conn: &Connection) -> Result<(), ApiError> {
     if !has_iptables() {
-        return Err(ApiError::internal("iptables not available, cannot bootstrap"));
+        return Err(ApiError::internal(
+            "iptables not available, cannot bootstrap",
+        ));
     }
     ensure_forward_jump_ipt("iptables", CHAIN_FORWARD)?;
     if has_ip6tables() {
@@ -531,7 +536,10 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
     }
 
     if removed > 0 {
-        info!(removed, "garbage-collected orphan iptables/ip6tables chains");
+        info!(
+            removed,
+            "garbage-collected orphan iptables/ip6tables chains"
+        );
     }
     Ok(removed)
 }
@@ -617,18 +625,44 @@ pub fn apply_block_rules(strings: &[String], ip_version: &str) -> Result<usize, 
 
     let mut count = 0usize;
     for s in strings {
-        if s.is_empty() { continue; }
-        if s.len() > 128 { continue; }
+        if s.is_empty() {
+            continue;
+        }
+        if s.len() > 128 {
+            continue;
+        }
         // Only allow printable ASCII to prevent iptables argument issues
         if !s.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
             continue;
         }
 
         if use_v4 {
-            let _ = run_iptables(&["-A", BLOCK_CHAIN, "-m", "string", "--algo", "bm", "--string", s, "-j", "DROP"]);
+            let _ = run_iptables(&[
+                "-A",
+                BLOCK_CHAIN,
+                "-m",
+                "string",
+                "--algo",
+                "bm",
+                "--string",
+                s,
+                "-j",
+                "DROP",
+            ]);
         }
         if use_v6 {
-            let _ = run_ip6tables(&["-A", BLOCK_CHAIN_V6, "-m", "string", "--algo", "bm", "--string", s, "-j", "DROP"]);
+            let _ = run_ip6tables(&[
+                "-A",
+                BLOCK_CHAIN_V6,
+                "-m",
+                "string",
+                "--algo",
+                "bm",
+                "--string",
+                s,
+                "-j",
+                "DROP",
+            ]);
         }
         count += 1;
     }
@@ -680,7 +714,10 @@ pub fn restore_block_rules() {
         return;
     }
     match apply_block_rules(&strings, &ip_version) {
-        Ok(count) => info!(count, ip_version, "restored persisted block rules on startup (iptables)"),
+        Ok(count) => info!(
+            count,
+            ip_version, "restored persisted block rules on startup (iptables)"
+        ),
         Err(e) => warn!(error = %e.message, "failed to restore block rules on startup (iptables)"),
     }
 }

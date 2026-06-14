@@ -7,6 +7,16 @@
         name="domains"
       >
         <el-card>
+          <div class="table-toolbar">
+            <el-button
+              type="primary"
+              :loading="syncingProxies"
+              @click="handleSyncProxies"
+            >
+              <el-icon><Refresh /></el-icon>
+              <span>{{ t('admin.domain.syncProxies') }}</span>
+            </el-button>
+          </div>
           <el-table
             v-loading="loading"
             :data="domains"
@@ -226,9 +236,9 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Edit } from '@element-plus/icons-vue'
+import { Delete, Edit, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { adminGetDomains, adminDeleteDomain, getDomainConfig, updateDomainConfig } from '@/api/features'
+import { adminGetDomains, adminDeleteDomain, adminSyncDomainProxies, getDomainConfig, updateDomainConfig } from '@/api/features'
 import { getProviderList } from '@/api/admin'
 
 const { t } = useI18n()
@@ -236,6 +246,7 @@ const { t } = useI18n()
 const activeTab = ref('domains')
 const domains = ref([])
 const loading = ref(false)
+const syncingProxies = ref(false)
 const providers = ref([])
 const providerConfigs = ref({})
 const configLoading = ref(false)
@@ -284,7 +295,7 @@ async function fetchProviders() {
           if (r.code === 200) {
             configs[p.id] = r.data
           }
-        } catch (_) {
+        } catch {
           // provider has no config yet
         }
       }))
@@ -337,6 +348,26 @@ async function handleDelete(row) {
   }
 }
 
+async function handleSyncProxies() {
+  syncingProxies.value = true
+  try {
+    const res = await adminSyncDomainProxies()
+    if (res.code === 200) {
+      const data = res.data || {}
+      ElMessage.success(t('admin.domain.syncProxiesSuccess', {
+        success: data.success || 0,
+        failed: data.failed || 0,
+        skipped: data.skipped || 0
+      }))
+      await fetchData()
+    }
+  } catch (e) {
+    ElMessage.error(e?.message || t('admin.domain.syncProxiesFailed'))
+  } finally {
+    syncingProxies.value = false
+  }
+}
+
 onMounted(() => {
   fetchData()
   fetchProviders()
@@ -345,4 +376,10 @@ onMounted(() => {
 
 <style scoped>
 .domain-mgmt-container { padding: 20px; }
+
+.table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
 </style>

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -278,7 +279,9 @@ func (c *Client) doWSRequest(method, path string, body interface{}, result inter
 	// Use 127.0.0.1 explicitly to avoid IPv6 resolution issues
 	// (the agent binds to 127.0.0.1:23782, not [::1]:23782).
 	curlURL := fmt.Sprintf("http://127.0.0.1:%s%s", port, path)
-	curlCmd := fmt.Sprintf("curl -s -X %s %s -H %s -H %s",
+	const statusMarker = "__OCV_HTTP_STATUS__:"
+	curlCmd := fmt.Sprintf("curl -sS --max-time 25 -w %s -X %s %s -H %s -H %s",
+		shellEscapeArg("\n"+statusMarker+"%{http_code}"),
 		shellEscapeArg(method),
 		shellEscapeArg(curlURL),
 		shellEscapeArg("Content-Type: application/json"),
@@ -297,20 +300,34 @@ func (c *Client) doWSRequest(method, path string, body interface{}, result inter
 		return fmt.Errorf("ws exec curl failed for %s: %w (output: %s)", path, err, output)
 	}
 
-	output = strings.TrimSpace(output)
+	output = strings.TrimRight(output, "\r\n")
 	if output == "" {
 		return fmt.Errorf("ws exec curl returned empty for %s", path)
 	}
 
+	statusIdx := strings.LastIndex(output, statusMarker)
+	if statusIdx < 0 {
+		return fmt.Errorf("ws exec curl returned response without status marker for %s: %s", path, output)
+	}
+	respBody := strings.TrimSpace(output[:statusIdx])
+	statusRaw := strings.TrimSpace(output[statusIdx+len(statusMarker):])
+	statusCode, parseStatusErr := strconv.Atoi(statusRaw)
+	if parseStatusErr != nil {
+		return fmt.Errorf("ws exec curl returned invalid status for %s: %q (body: %s)", path, statusRaw, respBody)
+	}
+
 	// Check if output looks like an error response
 	var errResp ErrorResponse
-	if json.Unmarshal([]byte(output), &errResp) == nil && errResp.Error != "" {
+	if json.Unmarshal([]byte(respBody), &errResp) == nil && errResp.Error != "" {
 		return fmt.Errorf("agent API error via WS: %s", errResp.Error)
+	}
+	if statusCode >= 400 {
+		return fmt.Errorf("agent API error via WS (status %d): %s", statusCode, respBody)
 	}
 
 	if result != nil {
-		if err := json.Unmarshal([]byte(output), result); err != nil {
-			return fmt.Errorf("unmarshal WS response for %s: %w (body: %s)", path, err, output)
+		if err := json.Unmarshal([]byte(respBody), result); err != nil {
+			return fmt.Errorf("unmarshal WS response for %s: %w (body: %s)", path, err, respBody)
 		}
 	}
 	return nil

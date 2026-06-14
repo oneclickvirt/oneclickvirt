@@ -46,6 +46,10 @@
               value="create"
             />
             <el-option
+              :label="t('user.tasks.taskTypeCreateInstance')"
+              value="create_instance"
+            />
+            <el-option
               :label="t('user.tasks.taskTypeStart')"
               value="start"
             />
@@ -62,8 +66,28 @@
               value="reset"
             />
             <el-option
+              :label="t('user.tasks.taskTypeRebuild')"
+              value="rebuild"
+            />
+            <el-option
               :label="t('user.tasks.taskTypeDelete')"
               value="delete"
+            />
+            <el-option
+              :label="t('user.tasks.taskTypeResetPassword')"
+              value="reset-password"
+            />
+            <el-option
+              :label="t('user.tasks.taskTypeCreatePortMapping')"
+              value="create-port-mapping"
+            />
+            <el-option
+              :label="t('user.tasks.taskTypeDeletePortMapping')"
+              value="delete-port-mapping"
+            />
+            <el-option
+              :label="t('user.tasks.taskTypeSyncPortMappings')"
+              value="sync-port-mappings"
             />
             <el-option
               :label="t('user.tasks.taskTypeSnapshotCreate')"

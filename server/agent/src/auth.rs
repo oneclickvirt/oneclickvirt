@@ -34,7 +34,12 @@ pub async fn require_token(
             ApiError::unauthorized("missing x-token header")
         })?;
 
-    if token.as_bytes().ct_eq(state.api_token.as_bytes()).unwrap_u8() != 1 {
+    if token
+        .as_bytes()
+        .ct_eq(state.api_token.as_bytes())
+        .unwrap_u8()
+        != 1
+    {
         warn!(%path, "unauthorized request: invalid token");
         return Err(ApiError::unauthorized("invalid token"));
     }

@@ -208,7 +208,12 @@ const TASK_STEP_SEQUENCES = {
 // - "step.settingPasswordRetry:2" -> { key: "step.settingPasswordRetry", params: { n: 2, name: "2" } }
 // - "step.syncProviderPortMappings:node-a" -> { key: "step.syncProviderPortMappings", params: { n: "node-a", name: "node-a" } }
 function parseLogStep(m) {
-  if (!m || (!m.startsWith('step.') && !m.startsWith('snapshot.'))) return null
+  if (!m) return null
+  const knownPrefixes = ['step.', 'snapshot.', 'monitorSync.', 'agent.', 'trafficMonitor.']
+  const hasKnownPrefix = knownPrefixes.some(prefix => m.startsWith(prefix))
+  if (!hasKnownPrefix) {
+    return { key: m, params: {}, raw: true }
+  }
   const colonIdx = m.indexOf(':')
   if (colonIdx === -1) {
     return { key: m, params: {} }
@@ -245,7 +250,10 @@ const latestLoggedStepByKey = computed(() => {
   return map
 })
 
-const canonicalSteps = computed(() => TASK_STEP_SEQUENCES[props.taskType] || [])
+const canonicalSteps = computed(() => {
+  if (TASK_STEP_SEQUENCES[props.taskType]) return TASK_STEP_SEQUENCES[props.taskType]
+  return Array.from(new Set(loggedKeys.value))
+})
 
 const visibleSteps = computed(() => {
   const steps = canonicalSteps.value
@@ -292,6 +300,7 @@ const visibleSteps = computed(() => {
 })
 
 function translateStep(step) {
+  if (step.raw) return step.key
   const key = step.key
   const userKey = `user.tasks.${key}`
   const adminKey = `admin.tasks.${key}`

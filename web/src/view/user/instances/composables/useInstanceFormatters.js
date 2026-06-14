@@ -55,10 +55,19 @@ export function useInstanceFormatters() {
       stop: t('user.instanceDetail.taskTitleStop'),
       restart: t('user.instanceDetail.taskTitleRestart'),
       reset: t('user.instanceDetail.taskTitleReset'),
+      rebuild: t('user.tasks.taskTypeRebuild'),
       reset_password: t('user.instanceDetail.taskTitleResetPassword'),
+      'reset-password': t('user.tasks.taskTypeResetPassword'),
       'snapshot-create': t('user.tasks.taskTypeSnapshotCreate'),
       'snapshot-delete': t('user.tasks.taskTypeSnapshotDelete'),
-      'snapshot-restore': t('user.tasks.taskTypeSnapshotRestore')
+      'snapshot-restore': t('user.tasks.taskTypeSnapshotRestore'),
+      'monitor-sync': t('user.tasks.taskTypeMonitorSync'),
+      'agent-deploy': t('user.tasks.taskTypeAgentDeploy'),
+      'agent-uninstall': t('user.tasks.taskTypeAgentUninstall'),
+      'traffic-monitor-enable': t('user.tasks.taskTypeTrafficMonitorEnable'),
+      'traffic-monitor-disable': t('user.tasks.taskTypeTrafficMonitorDisable'),
+      'traffic-monitor-detect': t('user.tasks.taskTypeTrafficMonitorDetect'),
+      'provider-image-cleanup': t('user.tasks.taskTypeProviderImageCleanup')
     }
     return taskTypes[task.taskType] || t('user.instanceDetail.taskTitleDefault')
   }
@@ -71,14 +80,23 @@ export function useInstanceFormatters() {
       stop: t('user.instanceDetail.taskStop'),
       restart: t('user.instanceDetail.taskRestart'),
       reset: t('user.instanceDetail.taskReset'),
+      rebuild: t('user.tasks.taskTypeRebuild'),
       reset_password: t('user.instanceDetail.taskResetPassword'),
+      'reset-password': t('user.tasks.taskTypeResetPassword'),
       create_redemption_instance: t('user.instanceDetail.taskRedemption'),
       'create-port-mapping': t('user.tasks.taskTypeCreatePortMapping'),
       'delete-port-mapping': t('user.tasks.taskTypeDeletePortMapping'),
       'sync-port-mappings': t('user.tasks.taskTypeSyncPortMappings'),
       'snapshot-create': t('user.tasks.taskTypeSnapshotCreate'),
       'snapshot-delete': t('user.tasks.taskTypeSnapshotDelete'),
-      'snapshot-restore': t('user.tasks.taskTypeSnapshotRestore')
+      'snapshot-restore': t('user.tasks.taskTypeSnapshotRestore'),
+      'monitor-sync': t('user.tasks.taskTypeMonitorSync'),
+      'agent-deploy': t('user.tasks.taskTypeAgentDeploy'),
+      'agent-uninstall': t('user.tasks.taskTypeAgentUninstall'),
+      'traffic-monitor-enable': t('user.tasks.taskTypeTrafficMonitorEnable'),
+      'traffic-monitor-disable': t('user.tasks.taskTypeTrafficMonitorDisable'),
+      'traffic-monitor-detect': t('user.tasks.taskTypeTrafficMonitorDetect'),
+      'provider-image-cleanup': t('user.tasks.taskTypeProviderImageCleanup')
     }
     return taskTypes[taskType] || t('user.instanceDetail.taskDefault')
   }

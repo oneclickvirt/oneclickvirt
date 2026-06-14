@@ -29,8 +29,7 @@ var (
 	ctrlListeners  = make(map[uint]*controllerListener) // Port.ID → listener
 
 	// recoveryMu 防止同一 Provider 的端口转发恢复操作并发执行
-	recoveryMu   sync.Mutex
-	recoveringAt = make(map[uint]time.Time) // ProviderID → 上次恢复时间
+	recoveryMu sync.Mutex
 )
 
 // ResolveControllerPortTarget resolves the effective target for controller-mode
@@ -176,14 +175,10 @@ func StopControllerPortForwardsByProvider(providerID uint) {
 }
 
 // RestartControllerPortForward 重启指定 Port 的控制端监听（先停后启）。
-// 用于 Agent 重连后刷新 TunnelManager 引用。
 // 包含重试机制以处理端口尚未完全释放的情况。
 func RestartControllerPortForward(portID uint, providerID uint, listenPort int, targetHost string, targetPort int) error {
 	// 先停止旧监听器（同步等待其完全退出）
 	StopControllerPortForward(portID)
-
-	// 清理旧的 TunnelManager，确保 GetOrCreateTunnelManager 创建新的
-	RemoveTunnelManager(providerID)
 
 	// 短暂等待以确保操作系统完全释放端口
 	time.Sleep(200 * time.Millisecond)
@@ -253,24 +248,14 @@ func looksLikeIP(s string) bool {
 }
 
 // RecoverControllerPortForwardsByProvider 恢复指定 Provider 的所有活跃控制端端口转发。
-// 在 Agent 重连时调用，确保端口转发使用新的 WebSocket 连接。
-// 内置防抖机制：同一 Provider 在 30 秒内不会重复执行恢复操作。
-// 使用 recoveryMu 防止与 StopControllerPortForwardsByProvider 并发执行。
+// 在 Agent 重连时调用，必须重启所有监听器，确保每个端口都使用同一个新的
+// TunnelManager/AgentConn。不能跳过正在运行的监听器：旧监听器闭包里可能仍持有
+// 断线前的 TunnelManager，导致 tunnel_ack 被全局路由到新 manager 后丢失。
 func RecoverControllerPortForwardsByProvider(providerID uint) {
 	// 互斥：与 StopControllerPortForwardsByProvider 互斥，防止并发操作
 	// 同一 Provider 的监听器导致竞态条件。
 	recoveryMu.Lock()
 	defer recoveryMu.Unlock()
-
-	// 防抖：检查上次恢复时间，30 秒内不重复执行
-	if lastTime, exists := recoveringAt[providerID]; exists {
-		if time.Since(lastTime) < 30*time.Second {
-			global.APP_LOG.Debug("跳过重复的端口转发恢复（距上次不足30秒）",
-				zap.Uint("providerID", providerID))
-			return
-		}
-	}
-	recoveringAt[providerID] = time.Now()
 
 	var ports []providerModel.Port
 	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status = ?",
@@ -288,17 +273,19 @@ func RecoverControllerPortForwardsByProvider(providerID uint) {
 		zap.Uint("providerID", providerID),
 		zap.Int("count", len(ports)))
 
+	stopped := 0
+	for _, port := range ports {
+		if IsControllerPortForwardRunning(port.ID) {
+			stopped++
+		}
+		StopControllerPortForward(port.ID)
+	}
+
+	RemoveTunnelManager(providerID)
+	time.Sleep(200 * time.Millisecond)
+
 	recovered := 0
 	for _, port := range ports {
-		// 检查是否已在运行（避免不必要的重启）
-		ctrlListenerMu.RLock()
-		_, running := ctrlListeners[port.ID]
-		ctrlListenerMu.RUnlock()
-		if running {
-			recovered++
-			continue
-		}
-
 		targetHost := resolveTargetHost(&port)
 		if targetHost == "" {
 			global.APP_LOG.Warn("控制器端口转发恢复失败：无目标地址",
@@ -306,7 +293,7 @@ func RecoverControllerPortForwardsByProvider(providerID uint) {
 			continue
 		}
 
-		if err := RestartControllerPortForward(port.ID, port.ProviderID,
+		if err := StartControllerPortForward(port.ID, port.ProviderID,
 			port.HostPort, targetHost, port.GuestPort); err != nil {
 			global.APP_LOG.Warn("恢复控制器端口转发失败",
 				zap.Uint("portID", port.ID), zap.Error(err))
@@ -317,6 +304,7 @@ func RecoverControllerPortForwardsByProvider(providerID uint) {
 
 	global.APP_LOG.Info("控制器端口转发恢复完成",
 		zap.Uint("providerID", providerID),
+		zap.Int("stopped", stopped),
 		zap.Int("recovered", recovered),
 		zap.Int("total", len(ports)))
 }
@@ -398,6 +386,18 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 			delete(portRepairFailCount, port.ID)
 			portRepairFailMu.Unlock()
 			continue
+		}
+
+		if hub := GetHub(); hub != nil {
+			if ac, ok := hub.GetConn(port.ProviderID); !ok || ac == nil {
+				// Agent 离线不是端口映射配置错误。保持 DB 中 active 状态，
+				// 等 Agent 重连后 RecoverControllerPortForwardsByProvider 统一恢复。
+				global.APP_LOG.Debug("控制器端口转发等待 Agent 重连后恢复",
+					zap.Uint("portID", port.ID),
+					zap.Uint("providerID", port.ProviderID),
+					zap.Int("hostPort", port.HostPort))
+				continue
+			}
 		}
 
 		// 检查连续失败次数

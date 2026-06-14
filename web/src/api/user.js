@@ -7,7 +7,13 @@ export const getUserInstanceVNCInfo = (instanceId) => request({
 
 export const getUserInstanceVNCWsUrl = (instanceId) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/api/v1/user/instances/${instanceId}/vnc/ws`
+  let host = window.location.host
+  if (import.meta.env.MODE === 'development' && import.meta.env.VITE_SERVER_PORT) {
+    host = `${window.location.hostname}:${import.meta.env.VITE_SERVER_PORT}`
+  }
+  const token = sessionStorage.getItem('token') || ''
+  const query = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `${protocol}//${host}/api/v1/user/instances/${instanceId}/vnc/ws${query}`
 }
 
 // 用户仪表盘相关

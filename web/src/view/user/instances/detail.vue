@@ -22,6 +22,7 @@
       @perform-action="performAction"
       @reset-password="showResetPasswordDialog"
       @open-ssh="openSSHTerminal"
+      @open-vnc="showVNCDialog = true"
       @view-task="viewTaskDetail"
       @create-share="createShareLink"
     />
@@ -107,6 +108,13 @@
       :instance-name="instance.name"
     />
 
+    <VNCDialog
+      v-if="!isShareMode"
+      v-model="showVNCDialog"
+      :instance-id="currentInstanceId"
+      :instance-name="instance.name"
+    />
+
     <!-- 重置系统镜像选择对话框 -->
     <el-dialog
       v-model="showResetImageDialog"
@@ -161,6 +169,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 import ResourceMonitorChart from '@/components/ResourceMonitorChart.vue'
+import VNCDialog from '@/components/VNCDialog.vue'
 import OsIcon from '@/components/OsIcon.vue'
 import { useInstanceDetail } from './composables/useInstanceDetail'
 import { useInstanceActions } from './composables/useInstanceActions'
@@ -175,6 +184,7 @@ const router = useRouter()
 const { t } = useI18n()
 const activeTab = ref('overview')
 const resourceChartRef = ref(null)
+const showVNCDialog = ref(false)
 const shareToken = computed(() => route.params.token ? String(route.params.token) : '')
 const isShareMode = computed(() => Boolean(shareToken.value))
 

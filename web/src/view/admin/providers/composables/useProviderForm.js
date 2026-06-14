@@ -26,6 +26,17 @@ export const formatLevelLimitsForBackend = (levelLimits) => {
 }
 
 const TB_TO_MB = 1048576
+const REQUIRED_FIXED_PORT = 22
+
+const normalizeFixedPorts = (ports = []) => {
+  const values = Array.isArray(ports) ? ports : []
+  const normalized = Array.from(new Set([REQUIRED_FIXED_PORT, ...values.map(port => Number(port)).filter(port => Number.isInteger(port) && port >= 1 && port <= 65535)]))
+  return normalized.sort((a, b) => {
+    if (a === REQUIRED_FIXED_PORT) return -1
+    if (b === REQUIRED_FIXED_PORT) return 1
+    return a - b
+  })
+}
 
 const buildDefaultForm = () => ({
   id: null,
@@ -58,6 +69,7 @@ const buildDefaultForm = () => ({
   defaultPortCount: 10,
   portRangeStart: 10000,
   portRangeEnd: 65535,
+  fixedPorts: [REQUIRED_FIXED_PORT],
   networkType: 'nat_ipv4',
   defaultInboundBandwidth: 300,
   defaultOutboundBandwidth: 300,
@@ -111,6 +123,17 @@ const buildDefaultForm = () => ({
   gpuEnabled: false,
   gpuDeviceIds: '',
   connectionType: 'ssh',
+  enableDomainBinding: false,
+  proxyEnableHttp: true,
+  proxyHttpPort: 80,
+  proxyEnableHttps: false,
+  proxyHttpsPort: 443,
+  proxyTlsCertPath: '',
+  proxyTlsKeyPath: '',
+  proxyAutoSync: true,
+  enableVNC: false,
+  vncBasePort: 5900,
+  vncHost: '',
   agentStatus: 'offline',
   agentRuntimeStatus: 'offline',
   agentLastSeen: null,
@@ -217,6 +240,7 @@ export function useProviderForm(loadProviders) {
     addProviderForm.enableTaskPolling = provider.enableTaskPolling !== undefined ? provider.enableTaskPolling : true
     addProviderForm.storagePool = provider.storagePool || 'local'
     addProviderForm.defaultPortCount = provider.defaultPortCount || 10
+    addProviderForm.fixedPorts = normalizeFixedPorts(provider.fixedPorts)
     addProviderForm.enableIPv6 = provider.enableIPv6 || false
     addProviderForm.portRangeStart = provider.portRangeStart || 10000
     addProviderForm.portRangeEnd = provider.portRangeEnd || 65535
@@ -243,6 +267,17 @@ export function useProviderForm(loadProviders) {
     addProviderForm.trafficQuotaVisible = provider.trafficQuotaVisible !== undefined ? provider.trafficQuotaVisible : true
     addProviderForm.instanceExpiryAction = provider.instanceExpiryAction || 'delete'
     addProviderForm.instanceExpiryExtendDays = provider.instanceExpiryExtendDays || 1
+    addProviderForm.enableDomainBinding = Boolean(provider.enableDomainBinding)
+    addProviderForm.proxyEnableHttp = provider.proxyEnableHttp !== undefined ? provider.proxyEnableHttp : true
+    addProviderForm.proxyHttpPort = provider.proxyHttpPort || 80
+    addProviderForm.proxyEnableHttps = provider.proxyEnableHttps !== undefined ? provider.proxyEnableHttps : false
+    addProviderForm.proxyHttpsPort = provider.proxyHttpsPort || 443
+    addProviderForm.proxyTlsCertPath = provider.proxyTlsCertPath || ''
+    addProviderForm.proxyTlsKeyPath = provider.proxyTlsKeyPath || ''
+    addProviderForm.proxyAutoSync = provider.proxyAutoSync !== undefined ? provider.proxyAutoSync : true
+    addProviderForm.enableVNC = provider.enableVNC !== undefined ? provider.enableVNC : false
+    addProviderForm.vncBasePort = provider.vncBasePort || 5900
+    addProviderForm.vncHost = provider.vncHost || ''
     addProviderForm.executionRule = provider.executionRule || 'auto'
     addProviderForm.sshConnectTimeout = provider.sshConnectTimeout || 30
     addProviderForm.sshExecuteTimeout = provider.sshExecuteTimeout || 300
@@ -342,6 +377,12 @@ export function useProviderForm(loadProviders) {
       const isAgentMode = formData.connectionType === 'agent'
       const isLocalMode = formData.connectionType === 'local'
       const agentCanUseMappedNetworking = hasAgentMappedNetworking(formData)
+      const fixedPorts = normalizeFixedPorts(formData.fixedPorts)
+      const defaultPortCount = formData.defaultPortCount || 10
+      if (fixedPorts.length > defaultPortCount) {
+        ElMessage.error(t('admin.providers.fixedPortOverflow'))
+        return null
+      }
 
       addProviderLoading.value = true
 
@@ -371,9 +412,10 @@ export function useProviderForm(loadProviders) {
         taskPollInterval: formData.taskPollInterval || 60,
         enableTaskPolling: formData.enableTaskPolling !== undefined ? formData.enableTaskPolling : true,
         storagePool: formData.storagePool || 'local',
-        defaultPortCount: formData.defaultPortCount || 10,
+        defaultPortCount,
         portRangeStart: formData.portRangeStart || 10000,
         portRangeEnd: formData.portRangeEnd || 65535,
+        fixedPorts,
         networkType: isAgentMode
           ? (agentCanUseMappedNetworking ? (formData.networkType || 'nat_ipv4') : 'no_port_mapping')
           : (formData.networkType || 'nat_ipv4'),
@@ -403,6 +445,17 @@ export function useProviderForm(loadProviders) {
         trafficQuotaVisible: formData.trafficQuotaVisible !== undefined ? formData.trafficQuotaVisible : true,
         instanceExpiryAction: formData.instanceExpiryAction || 'delete',
         instanceExpiryExtendDays: formData.instanceExpiryExtendDays || 1,
+        enableDomainBinding: formData.enableDomainBinding !== undefined ? formData.enableDomainBinding : false,
+        proxyEnableHttp: formData.proxyEnableHttp !== undefined ? formData.proxyEnableHttp : true,
+        proxyHttpPort: formData.proxyHttpPort || 80,
+        proxyEnableHttps: formData.proxyEnableHttps !== undefined ? formData.proxyEnableHttps : false,
+        proxyHttpsPort: formData.proxyHttpsPort || 443,
+        proxyTlsCertPath: formData.proxyTlsCertPath || '',
+        proxyTlsKeyPath: formData.proxyTlsKeyPath || '',
+        proxyAutoSync: formData.proxyAutoSync !== undefined ? formData.proxyAutoSync : true,
+        enableVNC: formData.enableVNC !== undefined ? formData.enableVNC : false,
+        vncBasePort: formData.vncBasePort || 5900,
+        vncHost: formData.vncHost || '',
         executionRule: formData.executionRule || 'auto',
         sshConnectTimeout: formData.sshConnectTimeout || 30,
         sshExecuteTimeout: formData.sshExecuteTimeout || 300,

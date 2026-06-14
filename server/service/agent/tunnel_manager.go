@@ -52,8 +52,6 @@ func NewTunnelManager(ac *AgentConn) *TunnelManager {
 
 // HandleControllerPort 在控制端监听 listenAddr 并将连接转发到 agent 侧的 targetHost:targetPort。
 // 应在 goroutine 中调用，直到 stopCh 关闭才退出。
-// 退出时会关闭所有 in-flight 隧道会话，防止残留的 handleConn goroutine
-// 在监听器停止后继续向 WebSocket 写入数据导致拥塞。
 func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost string, targetPort int, stopCh <-chan struct{}) error {
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
@@ -69,10 +67,15 @@ func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost stri
 		zap.String("listen", listenAddr),
 		zap.String("target", fmt.Sprintf("%s:%d", targetHost, targetPort)))
 
-	// 当 HandleControllerPort 返回时，关闭所有未完成的隧道会话。
-	// 这确保在 StopControllerPortForward 等待 doneCh 后，不再有
-	// handleConn goroutine 持有旧的 client 连接向 WebSocket 写数据。
-	defer tm.CloseAllSessions()
+	var listenerConns sync.Map
+	defer func() {
+		listenerConns.Range(func(key, _ any) bool {
+			if conn, ok := key.(net.Conn); ok {
+				_ = conn.Close()
+			}
+			return true
+		})
+	}()
 
 	for {
 		conn, err := ln.Accept()
@@ -85,7 +88,11 @@ func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost stri
 			global.APP_LOG.Warn("Accept 失败", zap.Error(err))
 			continue
 		}
-		go tm.handleConn(conn, targetHost, targetPort)
+		listenerConns.Store(conn, struct{}{})
+		go func() {
+			defer listenerConns.Delete(conn)
+			tm.handleConn(conn, targetHost, targetPort)
+		}()
 	}
 }
 
@@ -238,7 +245,10 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 				}
 			}
 			idleTimer.Reset(tunnelSessionIdleTimeout)
-		case data := <-sess.sendCh:
+		case data, ok := <-sess.sendCh:
+			if !ok {
+				return
+			}
 			notifyActivity()
 			if _, err := client.Write(data); err != nil {
 				return
@@ -284,6 +294,10 @@ func (tm *TunnelManager) DeliverAck(ack tunnelAckPayload) {
 	sess, ok := tm.sessions[ack.ConnID]
 	tm.mu.RUnlock()
 	if !ok {
+		global.APP_LOG.Debug("丢弃未知隧道 ACK",
+			zap.Uint("providerID", tm.ac.ProviderID),
+			zap.String("connID", ack.ConnID),
+			zap.Bool("ok", ack.OK))
 		return
 	}
 	select {
@@ -398,8 +412,12 @@ func OpenTunnelConn(providerID uint, targetHost string, targetPort int) (net.Con
 // RemoveTunnelManager 移除指定 Provider 的 TunnelManager（Agent 断线时调用）。
 func RemoveTunnelManager(providerID uint) {
 	tunnelMgrMu.Lock()
+	mgr := tunnelMgrs[providerID]
 	delete(tunnelMgrs, providerID)
 	tunnelMgrMu.Unlock()
+	if mgr != nil {
+		mgr.CloseAllSessions()
+	}
 }
 
 // hashString 将字符串 hash 为 uint64（用于帧头）。

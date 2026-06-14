@@ -88,7 +88,7 @@ func CreateInstanceSnapshot(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	result, err := service.StartCreateSnapshotTaskForAdmin(instanceID, req, currentAdminID(c), middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, result, "快照创建任务已提交")
@@ -103,7 +103,7 @@ func BatchCreateInstanceSnapshots(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	result, err := service.StartBatchCreateSnapshotTasks(req, currentAdminID(c), middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, result, "快照创建任务已提交")
@@ -117,7 +117,7 @@ func DeleteSnapshot(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	result, err := service.StartDeleteSnapshotTaskForAdmin(snapshotID, currentAdminID(c), middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, result, "快照删除任务已提交")
@@ -131,7 +131,7 @@ func RestoreSnapshot(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	result, err := service.StartRestoreSnapshotTaskForAdmin(snapshotID, currentAdminID(c), middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, result, "快照恢复任务已提交")
@@ -150,7 +150,7 @@ func DownloadSnapshot(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	payload, filename, err := service.BuildSnapshotDownloadManifest(snapshotID, 0, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
@@ -178,7 +178,7 @@ func CreateSnapshotSchedule(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	schedule, err := service.CreateScheduleForAdmin(req, currentAdminID(c), middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, schedule)
@@ -197,7 +197,7 @@ func UpdateSnapshotSchedule(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	schedule, err := service.UpdateScheduleForAdmin(id, req, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, schedule)
@@ -210,7 +210,7 @@ func DeleteSnapshotSchedule(c *gin.Context) {
 	}
 	service := &snapshotSvc.Service{}
 	if err := service.DeleteScheduleForAdmin(id, middleware.GetOwnerAdminID(c)); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil)

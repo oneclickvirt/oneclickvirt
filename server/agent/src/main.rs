@@ -15,7 +15,10 @@ mod tunnel;
 mod ws_client;
 
 use app_state::AppState;
-use axum::{Router, middleware, routing::{get, post}};
+use axum::{
+    Router, middleware,
+    routing::{get, post},
+};
 use collector::start_collector;
 use db::init_db;
 use docs::ApiDoc;
@@ -68,8 +71,8 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(30);
 
-    let traffic_collect_method = env::var("TRAFFIC_COLLECT_METHOD")
-        .unwrap_or_else(|_| "nft".to_string());
+    let traffic_collect_method =
+        env::var("TRAFFIC_COLLECT_METHOD").unwrap_or_else(|_| "nft".to_string());
 
     // Check if reverse proxy should be enabled
     let enable_proxy = env::var("ENABLE_REVERSE_PROXY")
@@ -177,8 +180,14 @@ async fn main() {
     //   1. Env vars: WS_URL, AGENT_SECRET (preferred — avoids plaintext in ps/systemctl)
     //   2. CLI args: --ws-url <URL> --secret <SECRET> (legacy fallback)
     let args: Vec<String> = std::env::args().collect();
-    let ws_url_arg = args.windows(2).find(|w| w[0] == "--ws-url").map(|w| w[1].clone());
-    let secret_arg = args.windows(2).find(|w| w[0] == "--secret").map(|w| w[1].clone());
+    let ws_url_arg = args
+        .windows(2)
+        .find(|w| w[0] == "--ws-url")
+        .map(|w| w[1].clone());
+    let secret_arg = args
+        .windows(2)
+        .find(|w| w[0] == "--secret")
+        .map(|w| w[1].clone());
 
     // Env vars take priority over CLI args (env vars don't appear in ps output)
     let ws_url_final = env::var("WS_URL").ok().or(ws_url_arg);
@@ -219,6 +228,10 @@ async fn main() {
             }
         });
 
+        if enable_proxy {
+            start_agent_mode_proxy_servers(proxy_routes.clone(), cert_store.clone()).await;
+        }
+
         info!(url = %clean_url, "starting agent WebSocket client (secret sent via headers)");
         ws_client::run_ws_client(clean_url, secret).await;
         return;
@@ -226,9 +239,8 @@ async fn main() {
 
     let api_router = build_api_router(state.clone());
 
-    let app = api_router.merge(
-        SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
-    );
+    let app = api_router
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     // API server address
     let api_addr: SocketAddr = "0.0.0.0:23782".parse().expect("invalid bind address");
@@ -263,7 +275,7 @@ async fn main() {
         let proxy_http_addr: Option<SocketAddr> = env::var("PROXY_HTTP_ADDR")
             .ok()
             .and_then(|s| s.parse().ok());
-        
+
         let proxy_https_addr: Option<SocketAddr> = env::var("PROXY_HTTPS_ADDR")
             .ok()
             .and_then(|s| s.parse().ok());
@@ -283,7 +295,7 @@ async fn main() {
                 let listener = tokio::net::TcpListener::bind(http_addr)
                     .await
                     .expect("failed to bind HTTP proxy server");
-                
+
                 tokio::select! {
                     _ = api_server => {
                         warn!("API server stopped unexpectedly");
@@ -321,14 +333,16 @@ async fn main() {
             // Both HTTP and HTTPS
             (Some(http_addr), Some(https_addr), Some(cert), Some(key)) => {
                 info!(%http_addr, %https_addr, "starting HTTP and HTTPS reverse proxy servers");
-                
+
                 let http_listener = tokio::net::TcpListener::bind(http_addr)
                     .await
                     .expect("failed to bind HTTP proxy server");
-                
+
                 let http_router = proxy_router.clone();
                 let http_server = tokio::spawn(async move {
-                    axum::serve(http_listener, http_router).await.expect("HTTP proxy error");
+                    axum::serve(http_listener, http_router)
+                        .await
+                        .expect("HTTP proxy error");
                 });
 
                 match load_tls_config(&cert, &key, cert_store.clone()) {
@@ -364,12 +378,11 @@ async fn main() {
             _ => {
                 // Check if we have an HTTPS address configured but no default cert
                 // In that case, use SNI-only mode with per-domain certs
-                let has_domain_certs = cert_store.read().map(|c| !c.is_empty()).unwrap_or(false);
                 let https_addr_for_sni: Option<SocketAddr> = env::var("PROXY_HTTPS_ADDR")
                     .ok()
                     .and_then(|s| s.parse().ok());
 
-                if has_domain_certs && https_addr_for_sni.is_some() {
+                if https_addr_for_sni.is_some() {
                     let https_addr = https_addr_for_sni.unwrap();
                     info!(%https_addr, "starting HTTPS reverse proxy with SNI-only certs (no default cert)");
                     let tls_config = load_tls_config_sni_only(cert_store.clone());
@@ -380,7 +393,9 @@ async fn main() {
                         .expect("failed to bind HTTP proxy server");
                     let http_router = proxy_router.clone();
                     let http_server = tokio::spawn(async move {
-                        axum::serve(http_listener, http_router).await.expect("HTTP proxy error");
+                        axum::serve(http_listener, http_router)
+                            .await
+                            .expect("HTTP proxy error");
                     });
 
                     tokio::select! {
@@ -398,13 +413,15 @@ async fn main() {
                         }
                     }
                 } else {
-                    warn!("no valid proxy TLS configuration found, falling back to HTTP on port 80");
+                    warn!(
+                        "no valid proxy TLS configuration found, falling back to HTTP on port 80"
+                    );
                     let http_addr: SocketAddr = "0.0.0.0:80".parse().unwrap();
                     info!(%http_addr, "starting HTTP reverse proxy server (fallback)");
                     let listener = tokio::net::TcpListener::bind(http_addr)
                         .await
                         .expect("failed to bind HTTP proxy server");
-                    
+
                     tokio::select! {
                         _ = api_server => {
                             warn!("API server stopped unexpectedly");
@@ -452,6 +469,96 @@ fn build_api_router(state: AppState) -> Router {
         .with_state(state)
 }
 
+/// Start reverse-proxy listeners in agent WebSocket mode.
+///
+/// Agent mode primarily blocks on the reverse WebSocket client, so proxy
+/// listeners must run in background tasks. Bind errors are logged but do not
+/// prevent the control WebSocket from reconnecting; otherwise a busy port would
+/// make the whole agent unavailable.
+async fn start_agent_mode_proxy_servers(
+    proxy_routes: proxy::ProxyRoutes,
+    cert_store: proxy::CertStore,
+) {
+    let proxy_http_addr: Option<SocketAddr> = env::var("PROXY_HTTP_ADDR")
+        .ok()
+        .and_then(|s| s.parse().ok());
+    let proxy_https_addr: Option<SocketAddr> = env::var("PROXY_HTTPS_ADDR")
+        .ok()
+        .and_then(|s| s.parse().ok());
+    let cert_path = env::var("PROXY_TLS_CERT").ok();
+    let key_path = env::var("PROXY_TLS_KEY").ok();
+
+    let mut started = false;
+
+    if let Some(http_addr) = proxy_http_addr {
+        let router = Router::new()
+            .fallback(proxy::proxy_handler)
+            .with_state(proxy_routes.clone());
+        match tokio::net::TcpListener::bind(http_addr).await {
+            Ok(listener) => {
+                started = true;
+                info!(%http_addr, "starting agent-mode HTTP reverse proxy server");
+                tokio::spawn(async move {
+                    if let Err(e) = axum::serve(listener, router).await {
+                        error!(error = %e, "agent-mode HTTP proxy server error");
+                    }
+                });
+            }
+            Err(e) => {
+                error!(%http_addr, error = %e, "failed to bind agent-mode HTTP proxy server");
+            }
+        }
+    }
+
+    if let Some(https_addr) = proxy_https_addr {
+        let router = Router::new()
+            .fallback(proxy::proxy_handler)
+            .with_state(proxy_routes.clone());
+
+        let tls_config = match (cert_path.as_deref(), key_path.as_deref()) {
+            (Some(cert), Some(key)) => match load_tls_config(cert, key, cert_store.clone()) {
+                Ok(config) => config,
+                Err(e) => {
+                    warn!(%https_addr, error = %e, "default TLS config unavailable, using SNI-only domain cert resolver");
+                    load_tls_config_sni_only(cert_store.clone())
+                }
+            },
+            _ => load_tls_config_sni_only(cert_store.clone()),
+        };
+
+        started = true;
+        info!(%https_addr, "starting agent-mode HTTPS reverse proxy server");
+        tokio::spawn(async move {
+            if let Err(e) = axum_server::bind_rustls(https_addr, tls_config)
+                .serve(router.into_make_service())
+                .await
+            {
+                error!(error = %e, "agent-mode HTTPS proxy server error");
+            }
+        });
+    }
+
+    if !started {
+        let http_addr: SocketAddr = "0.0.0.0:80".parse().unwrap();
+        let router = Router::new()
+            .fallback(proxy::proxy_handler)
+            .with_state(proxy_routes);
+        match tokio::net::TcpListener::bind(http_addr).await {
+            Ok(listener) => {
+                info!(%http_addr, "starting agent-mode HTTP reverse proxy server (fallback)");
+                tokio::spawn(async move {
+                    if let Err(e) = axum::serve(listener, router).await {
+                        error!(error = %e, "agent-mode HTTP proxy fallback server error");
+                    }
+                });
+            }
+            Err(e) => {
+                error!(%http_addr, error = %e, "failed to bind agent-mode HTTP proxy fallback");
+            }
+        }
+    }
+}
+
 /// Load TLS configuration from certificate and key files with SNI-based cert resolution
 fn load_tls_config(
     cert_path: &str,
@@ -471,8 +578,7 @@ fn load_tls_config(
     }
 
     // Read certificate file
-    let cert_file = fs::read(cert_path)
-        .map_err(|e| format!("failed to read cert file: {}", e))?;
+    let cert_file = fs::read(cert_path).map_err(|e| format!("failed to read cert file: {}", e))?;
     let mut cert_reader = BufReader::new(Cursor::new(cert_file));
     let cert_chain: Vec<CertificateDer> = certs(&mut cert_reader)
         .collect::<Result<_, _>>()
@@ -483,8 +589,7 @@ fn load_tls_config(
     }
 
     // Read private key file
-    let key_file = fs::read(key_path)
-        .map_err(|e| format!("failed to read key file: {}", e))?;
+    let key_file = fs::read(key_path).map_err(|e| format!("failed to read key file: {}", e))?;
     let mut key_reader = BufReader::new(Cursor::new(key_file));
     let key_der = private_key(&mut key_reader)
         .map_err(|e| format!("failed to parse private key: {}", e))?
@@ -510,13 +615,13 @@ fn load_tls_config(
 
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
-    Ok(axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(config)))
+    Ok(axum_server::tls_rustls::RustlsConfig::from_config(
+        Arc::new(config),
+    ))
 }
 
 /// Load TLS configuration with only per-domain certificates (no default cert)
-fn load_tls_config_sni_only(
-    cert_store: proxy::CertStore,
-) -> axum_server::tls_rustls::RustlsConfig {
+fn load_tls_config_sni_only(cert_store: proxy::CertStore) -> axum_server::tls_rustls::RustlsConfig {
     use tokio_rustls::rustls;
 
     let resolver = proxy::DomainCertResolver {
@@ -566,9 +671,7 @@ fn strip_secret_from_url(url: &str) -> String {
         // Rebuild query without sensitive params
         let new_query: Vec<String> = parsed
             .query_pairs()
-            .filter(|(k, _)| {
-                !sensitive_keys.iter().any(|sk| *sk == k.as_ref())
-            })
+            .filter(|(k, _)| !sensitive_keys.iter().any(|sk| *sk == k.as_ref()))
             .map(|(k, v)| format!("{}={}", k, v))
             .collect();
 

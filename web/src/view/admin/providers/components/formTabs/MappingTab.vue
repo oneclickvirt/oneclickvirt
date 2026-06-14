@@ -34,6 +34,46 @@
       </el-text>
     </div>
 
+    <el-form-item
+      :label="$t('admin.providers.fixedPorts')"
+      prop="fixedPorts"
+    >
+      <div class="fixed-port-config">
+        <el-checkbox-group
+          v-model="modelValue.fixedPorts"
+          @change="handleFixedPortsChange"
+        >
+          <el-checkbox
+            v-for="option in fixedPortOptions"
+            :key="option.value"
+            :label="option.value"
+            :disabled="option.value === REQUIRED_FIXED_PORT"
+          >
+            {{ option.label }}
+          </el-checkbox>
+        </el-checkbox-group>
+        <div class="fixed-port-summary">
+          <el-tag size="small">
+            {{ $t('admin.providers.fixedPortSummary', { fixed: fixedPortCount, ordinary: ordinaryPortCount, total: modelValue.defaultPortCount || 10, limit: modelValue.defaultPortCount || 10 }) }}
+          </el-tag>
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.fixedPortsTip') }}
+          </el-text>
+        </div>
+        <el-alert
+          v-if="fixedPortsOverflow"
+          :title="$t('admin.providers.fixedPortOverflow')"
+          type="error"
+          :closable="false"
+          show-icon
+          style="margin-top: 8px;"
+        />
+      </div>
+    </el-form-item>
+
     <el-row :gutter="20">
       <el-col :span="12">
         <el-form-item
@@ -645,7 +685,7 @@
 </template>
 
 <script setup>
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIPv4Pool } from './composables/useIPv4Pool'
 import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
@@ -658,6 +698,38 @@ const props = defineProps({
 })
 
 const { t } = useI18n()
+const REQUIRED_FIXED_PORT = 22
+const commonFixedPorts = [22, 80, 443, 8080, 8443, 3306, 5432, 6379, 27017]
+
+const normalizeFixedPorts = (ports = []) => {
+  const values = Array.isArray(ports) ? ports : []
+  const normalized = Array.from(new Set([REQUIRED_FIXED_PORT, ...values.map(port => Number(port)).filter(port => Number.isInteger(port) && port >= 1 && port <= 65535)]))
+  return normalized.sort((a, b) => {
+    if (a === REQUIRED_FIXED_PORT) return -1
+    if (b === REQUIRED_FIXED_PORT) return 1
+    return a - b
+  })
+}
+
+const arraysEqual = (a, b) => a.length === b.length && a.every((value, index) => value === b[index])
+
+const ensureFixedPorts = () => {
+  const normalized = normalizeFixedPorts(props.modelValue.fixedPorts)
+  if (!Array.isArray(props.modelValue.fixedPorts) || !arraysEqual(props.modelValue.fixedPorts, normalized)) {
+    props.modelValue.fixedPorts = normalized
+  }
+}
+
+const fixedPortOptions = computed(() => commonFixedPorts.map((port) => ({
+  value: port,
+  label: port === REQUIRED_FIXED_PORT
+    ? t('admin.providers.fixedPortOptionSsh')
+    : t(`admin.providers.fixedPortOption${port}`)
+})))
+const fixedPortCount = computed(() => normalizeFixedPorts(props.modelValue.fixedPorts).length)
+const ordinaryPortCount = computed(() => Math.max((props.modelValue.defaultPortCount || 10) - fixedPortCount.value, 0))
+const fixedPortsOverflow = computed(() => fixedPortCount.value > (props.modelValue.defaultPortCount || 10))
+const handleFixedPortsChange = () => ensureFixedPorts()
 
 const {
   poolEntries,
@@ -665,11 +737,12 @@ const {
   poolLoading,
   newAddresses,
   saving,
-  loadPool,
   addToPool,
   clearPool,
   deleteEntry,
 } = useIPv4Pool(props)
+
+watch(() => props.modelValue.fixedPorts, ensureFixedPorts, { immediate: true, deep: true })
 
 // 监听节点类型变化，自动更新端口映射方式
 watch(() => props.modelValue.type, (newType) => {
@@ -743,5 +816,18 @@ watch(() => [props.modelValue.type, props.modelValue.networkType], ([type, netwo
 
 .form-tip {
   margin-top: 5px;
+}
+
+.fixed-port-config {
+  width: 100%;
+}
+
+.fixed-port-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+  line-height: 1.5;
 }
 </style>

@@ -2,9 +2,7 @@ use crate::{
     app_state::AppState,
     db::{AUTO_CLEANUP_SECONDS, cleanup_old_resource_metrics, cleanup_stale_monitors, now_ts},
     error::ApiError,
-    ipt,
-    nft,
-    resource,
+    ipt, nft, resource,
 };
 use rusqlite::{Connection, params};
 use std::time::Duration;
@@ -46,7 +44,14 @@ fn collect_once(conn: &Connection, use_ipt: bool) -> Result<(), ApiError> {
         .prepare("SELECT id, total_bytes, total_bytes_in, total_bytes_out FROM monitors")
         .map_err(|e| ApiError::internal(format!("prepare monitor query error: {e}")))?;
     let monitor_rows = monitor_stmt
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, u64>(1)?, row.get::<_, u64>(2)?, row.get::<_, u64>(3)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, u64>(1)?,
+                row.get::<_, u64>(2)?,
+                row.get::<_, u64>(3)?,
+            ))
+        })
         .map_err(|e| ApiError::internal(format!("monitor query error: {e}")))?;
 
     let mut monitors: Vec<(i64, u64, u64, u64)> = Vec::new();
@@ -60,7 +65,11 @@ fn collect_once(conn: &Connection, use_ipt: bool) -> Result<(), ApiError> {
             .map_err(|e| ApiError::internal(format!("prepare state query error: {e}")))?;
         let state_rows = state_stmt
             .query_map(params![monitor_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?, row.get::<_, u64>(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, u64>(1)?,
+                    row.get::<_, u64>(2)?,
+                ))
             })
             .map_err(|e| ApiError::internal(format!("state query error: {e}")))?;
 
@@ -110,7 +119,10 @@ fn collect_once(conn: &Connection, use_ipt: bool) -> Result<(), ApiError> {
                 params![new_total, new_total_in, new_total_out, now, monitor_id],
             )
             .map_err(|e| ApiError::internal(format!("update monitor total error: {e}")))?;
-            debug!(monitor_id, increment_in, increment_out, new_total, "collector updated traffic stats");
+            debug!(
+                monitor_id,
+                increment_in, increment_out, new_total, "collector updated traffic stats"
+            );
         }
     }
 
@@ -135,7 +147,8 @@ fn collect_resources(conn: &Connection) -> Result<(), ApiError> {
 
     let mut monitors = Vec::new();
     for row in rows {
-        monitors.push(row.map_err(|e| ApiError::internal(format!("resource monitor row error: {e}")))?);
+        monitors
+            .push(row.map_err(|e| ApiError::internal(format!("resource monitor row error: {e}")))?);
     }
 
     let snapshots = resource::collect_all_resources(&monitors);
@@ -193,7 +206,11 @@ pub fn start_collector(state: AppState) {
                 match cleanup_stale_monitors(&conn, AUTO_CLEANUP_SECONDS) {
                     Ok(deleted) => {
                         if deleted > 0 {
-                            info!(deleted, max_age_seconds = AUTO_CLEANUP_SECONDS, "auto cleanup removed stale monitors");
+                            info!(
+                                deleted,
+                                max_age_seconds = AUTO_CLEANUP_SECONDS,
+                                "auto cleanup removed stale monitors"
+                            );
                             let gc_result = if use_ipt {
                                 ipt::garbage_collect_orphans(&conn)
                             } else {

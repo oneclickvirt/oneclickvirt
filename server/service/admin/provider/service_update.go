@@ -14,6 +14,7 @@ import (
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/resources"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -278,6 +279,15 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.PortRangeEnd > 0 {
 		provider.PortRangeEnd = req.PortRangeEnd
 	}
+	if req.FixedPorts != nil {
+		fixedPorts, err := resources.NormalizeProviderFixedPorts(req.FixedPorts, provider.DefaultPortCount)
+		if err != nil {
+			return err
+		}
+		provider.FixedPorts = fixedPorts
+	} else if len(provider.FixedPorts) == 0 {
+		provider.FixedPorts = []int{22}
+	}
 	if req.NetworkType != "" {
 		provider.NetworkType = req.NetworkType
 	}
@@ -419,6 +429,32 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.ContainerLimitCPU = req.ContainerLimitCpu
 	provider.ContainerLimitMemory = req.ContainerLimitMemory
 	provider.ContainerLimitDisk = req.ContainerLimitDisk
+	provider.EnableDomainBinding = req.EnableDomainBinding
+	if req.ProxyHTTPPort > 0 {
+		provider.ProxyHTTPPort = req.ProxyHTTPPort
+	} else if provider.ProxyHTTPPort <= 0 {
+		provider.ProxyHTTPPort = 80
+	}
+	if req.ProxyHTTPSPort > 0 {
+		provider.ProxyHTTPSPort = req.ProxyHTTPSPort
+	} else if provider.ProxyHTTPSPort <= 0 {
+		provider.ProxyHTTPSPort = 443
+	}
+	provider.ProxyEnableHTTP = req.ProxyEnableHTTP
+	provider.ProxyEnableHTTPS = req.ProxyEnableHTTPS
+	if !provider.ProxyEnableHTTP && !provider.ProxyEnableHTTPS {
+		provider.ProxyEnableHTTP = true
+	}
+	provider.ProxyTLSCertPath = req.ProxyTLSCertPath
+	provider.ProxyTLSKeyPath = req.ProxyTLSKeyPath
+	provider.ProxyAutoSync = req.ProxyAutoSync
+	provider.EnableVNC = req.EnableVNC
+	if req.VNCBasePort > 0 {
+		provider.VNCBasePort = req.VNCBasePort
+	} else if provider.VNCBasePort <= 0 {
+		provider.VNCBasePort = 5900
+	}
+	provider.VNCHost = req.VNCHost
 	// 虚拟机资源限制配置更新
 	provider.VMLimitCPU = req.VMLimitCpu
 	provider.VMLimitMemory = req.VMLimitMemory
@@ -556,6 +592,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	txErr := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 保存Provider更新
 		if err := tx.Save(&provider).Error; err != nil {
+			return err
+		}
+		if err := syncProviderDomainConfig(tx, provider.ID, provider.EnableDomainBinding); err != nil {
 			return err
 		}
 

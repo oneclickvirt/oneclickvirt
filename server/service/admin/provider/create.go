@@ -10,6 +10,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/resources"
 	"oneclickvirt/utils"
 	"time"
 
@@ -210,10 +211,23 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		BridgeDedicatedV4: req.BridgeDedicatedV4,
 		BridgeDedicatedV6: req.BridgeDedicatedV6,
 		NATSubnet:         req.NATSubnet,
+		// 域名反向代理配置
+		EnableDomainBinding: req.EnableDomainBinding,
+		ProxyHTTPPort:       req.ProxyHTTPPort,
+		ProxyHTTPSPort:      req.ProxyHTTPSPort,
+		ProxyEnableHTTP:     req.ProxyEnableHTTP,
+		ProxyEnableHTTPS:    req.ProxyEnableHTTPS,
+		ProxyTLSCertPath:    req.ProxyTLSCertPath,
+		ProxyTLSKeyPath:     req.ProxyTLSKeyPath,
+		ProxyAutoSync:       req.ProxyAutoSync,
+		EnableVNC:           req.EnableVNC,
+		VNCBasePort:         req.VNCBasePort,
+		VNCHost:             req.VNCHost,
 		// 端口映射配置
 		DefaultPortCount: req.DefaultPortCount,
 		PortRangeStart:   req.PortRangeStart,
 		PortRangeEnd:     req.PortRangeEnd,
+		FixedPorts:       req.FixedPorts,
 		NetworkType:      req.NetworkType,
 		// 带宽配置
 		DefaultInboundBandwidth:  req.DefaultInboundBandwidth,
@@ -372,6 +386,11 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	if provider.NetworkType == "" {
 		provider.NetworkType = "nat_ipv4"
 	}
+	fixedPorts, err := resources.NormalizeProviderFixedPorts(provider.FixedPorts, provider.DefaultPortCount)
+	if err != nil {
+		return nil, err
+	}
+	provider.FixedPorts = fixedPorts
 	// 带宽配置默认值
 	if provider.DefaultInboundBandwidth <= 0 {
 		provider.DefaultInboundBandwidth = 300
@@ -423,6 +442,18 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	if provider.SSHExecuteTimeout <= 0 {
 		provider.SSHExecuteTimeout = 300 // 默认300秒执行超时
 	}
+	if provider.ProxyHTTPPort <= 0 {
+		provider.ProxyHTTPPort = 80
+	}
+	if provider.ProxyHTTPSPort <= 0 {
+		provider.ProxyHTTPSPort = 443
+	}
+	if !provider.ProxyEnableHTTP && !provider.ProxyEnableHTTPS {
+		provider.ProxyEnableHTTP = true
+	}
+	if provider.VNCBasePort <= 0 {
+		provider.VNCBasePort = 5900
+	}
 	// 容器特殊配置默认值（仅 LXD/Incus 容器）
 	if (provider.Type == "lxd" || provider.Type == "incus") && provider.ContainerCPUAllowance == "" {
 		provider.ContainerCPUAllowance = "100%" // 默认100% CPU使用率
@@ -436,7 +467,10 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 
 	dbService := database.GetDatabaseService()
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Create(&provider).Error
+		if err := tx.Create(&provider).Error; err != nil {
+			return err
+		}
+		return syncProviderDomainConfig(tx, provider.ID, provider.EnableDomainBinding)
 	}); err != nil {
 		global.APP_LOG.Error("Provider创建失败",
 			zap.String("name", utils.TruncateString(req.Name, 32)),

@@ -517,9 +517,49 @@ func (s *Service) DeleteSnapshot(ctx context.Context, snapshotID uint) error {
 		return err
 	}
 	if err := executeProviderCommand(ctx, inst.ProviderID, cmd); err != nil {
-		return err
+		if !isSnapshotDeleteAlreadySatisfied(err) {
+			return err
+		}
+		global.APP_LOG.Warn("远端快照已不存在，按删除成功处理",
+			zap.Uint("snapshotID", snapshot.ID),
+			zap.Uint("instanceID", snapshot.InstanceID),
+			zap.String("snapshotName", snapshot.Name),
+			zap.Error(err))
 	}
 	return global.APP_DB.Delete(&snapshot).Error
+}
+
+func isSnapshotDeleteAlreadySatisfied(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+	looksSnapshotRelated := strings.Contains(lower, "snapshot") ||
+		strings.Contains(lower, "delsnapshot") ||
+		strings.Contains(lower, "image") ||
+		strings.Contains(msg, "快照")
+	if !looksSnapshotRelated {
+		return false
+	}
+	missingPatterns := []string{
+		"does not exist",
+		"not found",
+		"no such",
+		"not a snapshot",
+		"snapshot not found",
+		"snapshot missing",
+		"no such image",
+		"快照不存在",
+		"找不到快照",
+		"未找到快照",
+	}
+	for _, pattern := range missingPatterns {
+		if strings.Contains(lower, pattern) || strings.Contains(msg, pattern) {
+			return true
+		}
+	}
+	return strings.Contains(msg, "不存在") && strings.Contains(msg, "快照")
 }
 
 func (s *Service) RestoreSnapshot(ctx context.Context, snapshotID uint) error {

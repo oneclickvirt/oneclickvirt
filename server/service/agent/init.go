@@ -9,6 +9,7 @@ import (
 	mathRand "math/rand"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -34,6 +35,46 @@ func init() {
 // OnAgentConnected 是 Agent 成功连接并完成资源同步后的回调。
 // 由 service/admin/provider 包在初始化时注册，用于触发延迟的实例发现与导入。
 var OnAgentConnected func(providerID uint)
+
+type AgentReconnectHook func(providerID uint)
+
+var (
+	agentReconnectHooksMu sync.RWMutex
+	agentReconnectHooks   []AgentReconnectHook
+)
+
+// RegisterAgentReconnectHook registers a best-effort hook that runs after an
+// agent WebSocket connection is established and the core recovery tasks have had
+// a short stabilization window. Hooks must be idempotent: they can run after
+// agent restart, controller restart, or duplicate reconnect events.
+func RegisterAgentReconnectHook(hook AgentReconnectHook) {
+	if hook == nil {
+		return
+	}
+	agentReconnectHooksMu.Lock()
+	agentReconnectHooks = append(agentReconnectHooks, hook)
+	agentReconnectHooksMu.Unlock()
+}
+
+func runAgentReconnectHooks(providerID uint) {
+	agentReconnectHooksMu.RLock()
+	hooks := append([]AgentReconnectHook(nil), agentReconnectHooks...)
+	agentReconnectHooksMu.RUnlock()
+
+	for _, hook := range hooks {
+		func(h AgentReconnectHook) {
+			defer func() {
+				if r := recover(); r != nil && global.APP_LOG != nil {
+					global.APP_LOG.Error("Agent 重连 hook panic",
+						zap.Uint("providerID", providerID),
+						zap.Any("panic", r),
+						zap.Stack("stack"))
+				}
+			}()
+			h(providerID)
+		}(hook)
+	}
+}
 
 // hubStartupTime AgentHub 启动时间，用于计算启动后的重连宽限期
 var hubStartupTime time.Time

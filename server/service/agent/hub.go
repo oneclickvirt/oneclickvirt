@@ -140,6 +140,13 @@ func (h *AgentHub) Register(ac *AgentConn) {
 		RecoverControllerPortForwardsByProvider(ac.ProviderID)
 	}()
 
+	// Agent 重连后的跨模块配置重放（例如域名反代）。这些 hook 必须幂等，
+	// 用于覆盖 agent 重启、本地 sqlite 丢失、主控重启后重新上线等恢复场景。
+	go func() {
+		time.Sleep(5 * time.Second)
+		runAgentReconnectHooks(ac.ProviderID)
+	}()
+
 	// 触发延迟实例发现与导入（Agent 模式节点在创建时标记了 PendingDiscovery）
 	go h.triggerPendingDiscovery(ac.ProviderID)
 

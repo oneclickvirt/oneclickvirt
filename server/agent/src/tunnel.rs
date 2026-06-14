@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
@@ -87,7 +87,60 @@ fn fnv1a_64(s: &str) -> u64 {
     h
 }
 
+async fn send_ack_with_timeout(
+    ws_sink: &WsSink,
+    conn_id: &str,
+    ok: bool,
+    error: Option<String>,
+) -> bool {
+    let ack = TunnelAckPayload {
+        id: conn_id.to_string(),
+        ok,
+        error: error.filter(|e| !e.is_empty()),
+    };
+    let frame = WsFrame {
+        msg_type: "tunnel_ack".to_string(),
+        id: None,
+        payload: serde_json::to_value(ack).ok(),
+    };
+    let text = match serde_json::to_string(&frame) {
+        Ok(t) => t,
+        Err(e) => {
+            warn!(conn_id = %conn_id, error = %e, "failed to serialize tunnel_ack");
+            return false;
+        }
+    };
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(TUNNEL_ACK_SEND_TIMEOUT_SECS),
+            ws_sink.send(Message::Text(text.into())),
+        )
+        .await,
+        Ok(Ok(()))
+    )
+}
 
+/// Reject a tunnel_open frame before a full TCP session is created.
+///
+/// This is used when the agent is locally saturated (for example, tunnel
+/// concurrency permits are exhausted). Sending an explicit negative ACK lets the
+/// controller close the accepted client connection immediately instead of
+/// waiting for the controller-side ACK timeout and retrying a request that the
+/// agent already knows it cannot accept.
+pub async fn reject_tunnel_open(payload_val: serde_json::Value, hi_sink: WsSink, reason: &str) {
+    let conn_id = payload_val
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if conn_id.is_empty() {
+        warn!(reason, "cannot reject tunnel_open without id");
+        return;
+    }
+    if !send_ack_with_timeout(&hi_sink, &conn_id, false, Some(reason.to_string())).await {
+        warn!(conn_id = %conn_id, reason, "failed to reject tunnel_open");
+    }
+}
 
 /// 处理 tunnel_open 帧：建立本地 TCP 连接并开始转发。
 /// `hi_sink` — high-priority control channel (tunnel_ack / tunnel_close).
@@ -102,16 +155,29 @@ pub async fn handle_tunnel_open(
     data_sink: WsSink,
     sessions: SessionMap,
 ) {
-    let payload: TunnelOpenPayload = match serde_json::from_value(payload_val) {
+    let payload: TunnelOpenPayload = match serde_json::from_value(payload_val.clone()) {
         Ok(p) => p,
         Err(e) => {
             warn!(error = %e, "failed to parse tunnel_open payload");
+            reject_tunnel_open(payload_val, hi_sink, "invalid tunnel_open payload").await;
             return;
         }
     };
 
     let conn_id = payload.id.clone();
     let conn_hash = fnv1a_64(&conn_id);
+    {
+        let map = sessions.lock().await;
+        if map.contains_key(&conn_hash) {
+            drop(map);
+            warn!(conn_id = %conn_id, "duplicate tunnel_open for active session, acking existing tunnel");
+            if !send_ack_with_timeout(&hi_sink, &conn_id, true, None).await {
+                warn!(conn_id = %conn_id, "failed to ack duplicate tunnel_open");
+            }
+            return;
+        }
+    }
+
     // IPv6 addresses must be wrapped in brackets: [::1]:22 vs 127.0.0.1:22
     let addr = if payload.host.contains(':') {
         format!("[{}]:{}", payload.host, payload.port)
@@ -131,66 +197,62 @@ pub async fn handle_tunnel_open(
         Ok(Ok(s)) => s,
         Ok(Err(e)) => {
             warn!(conn_id = %conn_id, addr = %addr, error = %e, "failed to connect tunnel target");
-            send_ack_nonblocking(&hi_sink, &conn_id, false, Some(e.to_string()));
+            if !send_ack_with_timeout(&hi_sink, &conn_id, false, Some(e.to_string())).await {
+                warn!(conn_id = %conn_id, "failed to send tunnel failure ack");
+            }
             return;
         }
         Err(_elapsed) => {
             warn!(conn_id = %conn_id, addr = %addr, "tunnel target connect timed out ({TUNNEL_CONNECT_TIMEOUT_SECS}s)");
-            send_ack_nonblocking(
+            if !send_ack_with_timeout(
                 &hi_sink,
                 &conn_id,
                 false,
-                Some(format!("connect timeout after {}s", TUNNEL_CONNECT_TIMEOUT_SECS)),
-            );
+                Some(format!(
+                    "connect timeout after {}s",
+                    TUNNEL_CONNECT_TIMEOUT_SECS
+                )),
+            )
+            .await
+            {
+                warn!(conn_id = %conn_id, "failed to send tunnel timeout ack");
+            }
             return;
         }
     };
 
-    // 回复成功 ack（带超时的阻塞发送）。
-    // 注意：此处必须使用阻塞 send 而非 try_send + 后台任务。
-    // send_ack_nonblocking 在通道满时会生成后台任务发出 ok:true 的 ack，
-    // 但同时返回 false 让调用方 drop TCP 并 return，session 不会被加入 map。
-    // 若后台任务成功发送了成功 ack，控制端会认为隧道已就绪并开始发送数据，
-    // 但 agent 侧找不到对应 session，导致数据静默丢弃（session 不一致 bug）。
-    // 使用带超时的 .await 确保 ack 真正入队后才继续建立 session；
-    // 若 5 秒内写路径仍拥塞，则视为连接异常，干净地放弃本次隧道。
-    {
-        let ack = TunnelAckPayload { id: conn_id.clone(), ok: true, error: None };
-        let frame = WsFrame {
-            msg_type: "tunnel_ack".to_string(),
-            id: None,
-            payload: serde_json::to_value(ack).ok(),
-        };
-        let text = match serde_json::to_string(&frame) {
-            Ok(t) => t,
-            Err(e) => {
-                warn!(conn_id = %conn_id, error = %e, "failed to serialize tunnel_ack");
-                return;
-            }
-        };
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(TUNNEL_ACK_SEND_TIMEOUT_SECS),
-            hi_sink.send(Message::Text(text.into())),
-        )
-        .await
-        {
-            Ok(Ok(())) => {}
-            _ => {
-                warn!(conn_id = %conn_id, "failed to send tunnel_ack (channel congested or closed), dropping tunnel");
-                drop(tcp);
-                return;
-            }
-        }
-    }
-
-    let (mut tcp_rx, mut tcp_tx) = tcp.into_split();
-
-    // 控制端 → Agent（二进制帧 → TCP）
+    // 控制端 → Agent（二进制帧 → TCP）。先注册 session，再发送成功 ack。
+    // 这样控制端收到 ack 后立即发来的 SSH banner/kex 数据会先进入 mpsc buffer，
+    // 不会落到“ack 已发但 session 尚未加入 map”的短暂空窗。
     let (data_tx, mut data_rx) = mpsc::channel::<Vec<u8>>(64);
     {
         let mut map = sessions.lock().await;
+        if map.contains_key(&conn_hash) {
+            warn!(conn_id = %conn_id, "duplicate tunnel_open won race after TCP connect, dropping new TCP");
+            drop(tcp);
+            drop(map);
+            if !send_ack_with_timeout(&hi_sink, &conn_id, true, None).await {
+                warn!(conn_id = %conn_id, "failed to ack duplicate tunnel_open after connect");
+            }
+            return;
+        }
         map.insert(conn_hash, data_tx);
     }
+
+    // 回复成功 ack（带超时的阻塞发送）。
+    // 使用带超时的 .await 确保 ACK 真正入队；若 5 秒内写路径仍拥塞，
+    // 则视为连接异常，干净地放弃本次隧道。
+    if !send_ack_with_timeout(&hi_sink, &conn_id, true, None).await {
+        warn!(conn_id = %conn_id, "failed to send tunnel_ack (channel congested or closed), dropping tunnel");
+        {
+            let mut map = sessions.lock().await;
+            map.remove(&conn_hash);
+        }
+        drop(tcp);
+        return;
+    }
+
+    let (mut tcp_rx, mut tcp_tx) = tcp.into_split();
 
     // Agent → 控制端（TCP → 二进制帧 → lo-priority data channel）
     // Anti-DPI: vary read buffer (8KB-64KB), occasional micro-delay (20% prob).
@@ -236,7 +298,9 @@ pub async fn handle_tunnel_open(
             }
         }
         // TCP 读完后发 tunnel_close (non-blocking via hi-priority control channel)
-        let close_payload = TunnelClosePayload { id: conn_id_clone.clone() };
+        let close_payload = TunnelClosePayload {
+            id: conn_id_clone.clone(),
+        };
         if let Ok(body) = serde_json::to_string(&WsFrame {
             msg_type: "tunnel_close".to_string(),
             id: None,
@@ -273,7 +337,10 @@ pub async fn handle_tunnel_open(
             }) {
                 // Non-blocking send for keepalive — if channel is full, skip
                 // this cycle rather than blocking.
-                if hi_sink_keepalive.try_send(Message::Text(body.into())).is_err() {
+                if hi_sink_keepalive
+                    .try_send(Message::Text(body.into()))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -300,9 +367,21 @@ pub async fn handle_binary_frame(data: &[u8], sessions: &SessionMap) {
     }
     let hash = u64::from_be_bytes(data[..8].try_into().unwrap_or([0; 8]));
     let payload = data[8..].to_vec();
-    let map = sessions.lock().await;
+    let mut map = sessions.lock().await;
     if let Some(tx) = map.get(&hash) {
-        let _ = tx.try_send(payload);
+        match tx.try_send(payload) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                map.remove(&hash);
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                warn!(
+                    conn_hash = hash,
+                    "tunnel inbound buffer full, closing session"
+                );
+                map.remove(&hash);
+            }
+        }
     }
 }
 
@@ -323,63 +402,4 @@ pub async fn handle_tunnel_close(payload_val: serde_json::Value, sessions: &Sess
 
 pub async fn handle_tunnel_keepalive(_payload_val: serde_json::Value, _sessions: &SessionMap) {
     // Session-level keepalive: no-op on agent side.
-}
-
-/// Non-blocking ack send: tries try_send first, falls back to spawning a
-/// background task with a short timeout.  Returns true if the ack was
-/// successfully enqueued synchronously.
-fn send_ack_nonblocking(ws_sink: &WsSink, conn_id: &str, ok: bool, error: Option<String>) -> bool {
-    let error_str = error.filter(|e| !e.is_empty());
-    let ack = TunnelAckPayload {
-        id: conn_id.to_string(),
-        ok,
-        error: error_str.clone(),
-    };
-    let frame = WsFrame {
-        msg_type: "tunnel_ack".to_string(),
-        id: None,
-        payload: serde_json::to_value(ack).ok(),
-    };
-    let text = match serde_json::to_string(&frame) {
-        Ok(t) => t,
-        Err(e) => {
-            warn!(error = %e, "failed to serialize tunnel_ack");
-            return false;
-        }
-    };
-    let msg = Message::Text(text.into());
-    match ws_sink.try_send(msg) {
-        Ok(()) => true,
-        Err(mpsc::error::TrySendError::Closed(_)) => false,
-        Err(mpsc::error::TrySendError::Full(_)) => {
-            // Channel full — spawn a one-shot task with a short timeout
-            // so the caller is not blocked.
-            let conn_id = conn_id.to_string();
-            let sink = ws_sink.clone();
-            tokio::spawn(async move {
-                let msg = Message::Text(
-                    serde_json::to_string(&WsFrame {
-                        msg_type: "tunnel_ack".to_string(),
-                        id: None,
-                        payload: serde_json::to_value(TunnelAckPayload {
-                            id: conn_id,
-                            ok,
-                            error: error_str,
-                        })
-                        .ok(),
-                    })
-                    .unwrap_or_default()
-                    .into(),
-                );
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_secs(TUNNEL_ACK_SEND_TIMEOUT_SECS),
-                    sink.send(msg),
-                )
-                .await;
-            });
-            // Return false since we couldn't send synchronously,
-            // but the background task will attempt delivery.
-            false
-        }
-    }
 }

@@ -5,8 +5,12 @@
     width="500px"
     @update:model-value="$emit('update:visible', $event)"
   >
-    <el-form @submit.prevent="$emit('submit')">
-      <el-form-item :label="$t('admin.providers.pasteUrl')">
+    <el-form @submit.prevent="handleSubmit">
+      <el-form-item
+        :label="$t('admin.providers.pasteUrl')"
+        required
+        :error="input && !isValidPasteUrl ? $t('admin.providers.pasteUrlInvalid') : ''"
+      >
         <el-input
           :model-value="input"
           :placeholder="$t('admin.providers.pasteUrlPlaceholder')"
@@ -22,7 +26,8 @@
       <el-button
         type="primary"
         :loading="saving"
-        @click="$emit('submit')"
+        :disabled="!isValidPasteUrl"
+        @click="handleSubmit"
       >
         {{ $t('common.confirm') }}
       </el-button>
@@ -31,14 +36,32 @@
 </template>
 
 <script setup>
-import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
+import { computed } from 'vue'
 
-defineProps({
+const props = defineProps({
   visible: { type: Boolean, default: false },
   input: { type: String, default: '' },
   saving: { type: Boolean, default: false }
 })
 
-defineEmits(['update:visible', 'update:input', 'submit'])
+const emit = defineEmits(['update:visible', 'update:input', 'submit'])
+
+const isValidPasteUrl = computed(() => {
+  const value = props.input.trim()
+  if (!value) return false
+  try {
+    const url = new URL(value)
+    const searchArea = `${url.pathname} ${url.search} ${url.hash}`
+    return url.protocol === 'https:' &&
+      url.hostname === 'paste.spiritlhl.net' &&
+      /[a-zA-Z0-9_-]+\.txt/.test(searchArea)
+  } catch {
+    return false
+  }
+})
+
+const handleSubmit = () => {
+  if (props.saving || !isValidPasteUrl.value) return
+  emit('submit')
+}
 </script>

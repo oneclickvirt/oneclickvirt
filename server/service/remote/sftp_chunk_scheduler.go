@@ -29,7 +29,14 @@ func cleanupTargetKey(target *SSHAccessTarget) string {
 	if target == nil {
 		return ""
 	}
-	return fmt.Sprintf("%d|%s|%d|%s|%t", target.ProviderID, target.Host, target.Port, target.Username, target.UseAgentTunnel)
+	return fmt.Sprintf("%d|%s|%d|%s|%t|%s|%d",
+		target.ProviderID,
+		target.Host,
+		target.Port,
+		target.Username,
+		target.UseAgentTunnel,
+		target.FallbackAgentTunnelHost,
+		target.FallbackAgentTunnelPort)
 }
 
 func RegisterSFTPChunkCleanupTarget(target *SSHAccessTarget, remoteDir string) {
@@ -55,13 +62,15 @@ func RegisterSFTPChunkCleanupTarget(target *SSHAccessTarget, remoteDir string) {
 	if !ok {
 		state = &sftpCleanupTargetState{
 			target: SSHAccessTarget{
-				ProviderID:     target.ProviderID,
-				Host:           target.Host,
-				Port:           target.Port,
-				Username:       target.Username,
-				Password:       target.Password,
-				PrivateKey:     target.PrivateKey,
-				UseAgentTunnel: target.UseAgentTunnel,
+				ProviderID:              target.ProviderID,
+				Host:                    target.Host,
+				Port:                    target.Port,
+				Username:                target.Username,
+				Password:                target.Password,
+				PrivateKey:              target.PrivateKey,
+				UseAgentTunnel:          target.UseAgentTunnel,
+				FallbackAgentTunnelHost: target.FallbackAgentTunnelHost,
+				FallbackAgentTunnelPort: target.FallbackAgentTunnelPort,
 			},
 			dirs: make(map[string]struct{}),
 		}
@@ -69,13 +78,15 @@ func RegisterSFTPChunkCleanupTarget(target *SSHAccessTarget, remoteDir string) {
 	}
 
 	state.target = SSHAccessTarget{
-		ProviderID:     target.ProviderID,
-		Host:           target.Host,
-		Port:           target.Port,
-		Username:       target.Username,
-		Password:       target.Password,
-		PrivateKey:     target.PrivateKey,
-		UseAgentTunnel: target.UseAgentTunnel,
+		ProviderID:              target.ProviderID,
+		Host:                    target.Host,
+		Port:                    target.Port,
+		Username:                target.Username,
+		Password:                target.Password,
+		PrivateKey:              target.PrivateKey,
+		UseAgentTunnel:          target.UseAgentTunnel,
+		FallbackAgentTunnelHost: target.FallbackAgentTunnelHost,
+		FallbackAgentTunnelPort: target.FallbackAgentTunnelPort,
 	}
 	state.lastSeen = now
 	state.dirs[dir] = struct{}{}

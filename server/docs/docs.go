@@ -12796,6 +12796,13 @@ const docTemplate = `{
                     "maximum": 1500,
                     "minimum": 1
                 },
+                "fixedPorts": {
+                    "description": "固定实例内端口，22强制保留",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "networkType": {
                     "description": "网络配置类型",
                     "type": "string",
@@ -12804,7 +12811,8 @@ const docTemplate = `{
                         "nat_ipv4_ipv6",
                         "dedicated_ipv4",
                         "dedicated_ipv4_ipv6",
-                        "ipv6_only"
+                        "ipv6_only",
+                        "no_port_mapping"
                     ]
                 },
                 "portRangeEnd": {

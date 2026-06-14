@@ -213,7 +213,10 @@ fn interface_aliases(interface: &str) -> Vec<String> {
 
     let master_link = format!("/sys/class/net/{interface}/master");
     if let Ok(target) = std::fs::read_link(master_link) {
-        if let Some(name) = std::path::Path::new(&target).file_name().and_then(|x| x.to_str()) {
+        if let Some(name) = std::path::Path::new(&target)
+            .file_name()
+            .and_then(|x| x.to_str())
+        {
             if !name.is_empty() && !aliases.iter().any(|v| v == name) {
                 aliases.push(name.to_string());
             }

@@ -1,26 +1,31 @@
 // PTY-based shell session management for the agent WebSocket client.
 use std::collections::HashMap;
-use std::os::unix::io::{OwnedFd, FromRawFd, AsRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::process::Command;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::tunnel::WsFrame;
 use super::types::{ShellHandle, ShellOpenPayload};
+use crate::tunnel::WsFrame;
 
 /// Find the best available interactive shell (bash preferred, then zsh, fish, sh as fallback).
 pub(super) fn find_best_shell() -> Option<String> {
     let candidates = [
-        "/usr/bin/bash", "/bin/bash",
-        "/usr/bin/zsh", "/bin/zsh",
-        "/usr/bin/fish", "/usr/local/bin/fish",
-        "/bin/sh", "/usr/bin/sh",
+        "/usr/bin/bash",
+        "/bin/bash",
+        "/usr/bin/zsh",
+        "/bin/zsh",
+        "/usr/bin/fish",
+        "/usr/local/bin/fish",
+        "/bin/sh",
+        "/usr/bin/sh",
     ];
-    candidates.iter()
+    candidates
+        .iter()
         .find(|p| std::path::Path::new(p).exists())
         .map(|s| s.to_string())
 }
@@ -29,9 +34,7 @@ pub(super) fn find_best_shell() -> Option<String> {
 /// return (master_owned_fd, slave_raw_fd).  The caller is responsible for
 /// closing `slave_raw_fd` in the parent process after spawning the child.
 pub(super) fn open_pty(cols: u16, rows: u16) -> Result<(OwnedFd, i32), String> {
-    let master_fd = unsafe {
-        libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC)
-    };
+    let master_fd = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
     if master_fd < 0 {
         return Err(format!("posix_openpt: {}", std::io::Error::last_os_error()));
     }
@@ -44,7 +47,12 @@ pub(super) fn open_pty(cols: u16, rows: u16) -> Result<(OwnedFd, i32), String> {
         return Err(format!("unlockpt: {}", std::io::Error::last_os_error()));
     }
     // Set initial window size on the master before opening the slave.
-    let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+    let ws = libc::winsize {
+        ws_row: rows,
+        ws_col: cols,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
     unsafe { libc::ioctl(master_fd, libc::TIOCSWINSZ, &ws) };
     // Get the slave PTY path.
     let slave_name_ptr = unsafe { libc::ptsname(master_fd) };
@@ -61,7 +69,10 @@ pub(super) fn open_pty(cols: u16, rows: u16) -> Result<(OwnedFd, i32), String> {
     let slave_fd = unsafe { libc::open(slave_name_c.as_ptr(), libc::O_RDWR | libc::O_NOCTTY) };
     if slave_fd < 0 {
         unsafe { libc::close(master_fd) };
-        return Err(format!("open slave PTY: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "open slave PTY: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     // Set O_NONBLOCK on master so tokio's AsyncFd can poll it without blocking.
     let flags = unsafe { libc::fcntl(master_fd, libc::F_GETFL) };
@@ -73,7 +84,12 @@ pub(super) fn open_pty(cols: u16, rows: u16) -> Result<(OwnedFd, i32), String> {
 /// Resize the PTY window and deliver SIGWINCH to the shell's process group.
 pub(super) fn pty_resize(master_fd: i32, child_pid: u32, cols: u16, rows: u16) {
     unsafe {
-        let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+        let ws = libc::winsize {
+            ws_row: rows,
+            ws_col: cols,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
         libc::ioctl(master_fd, libc::TIOCSWINSZ.into(), &ws);
         let pgid = libc::getpgid(child_pid as libc::pid_t);
         if pgid > 0 {
@@ -102,10 +118,11 @@ pub(super) async fn open_shell_session(
     ws_tx: mpsc::Sender<Message>,
     shell_sessions: Arc<Mutex<HashMap<String, ShellHandle>>>,
 ) -> Result<(), String> {
-    let payload: ShellOpenPayload = serde_json::from_value(payload_val).unwrap_or(ShellOpenPayload {
-        cols: Some(80),
-        rows: Some(24),
-    });
+    let payload: ShellOpenPayload =
+        serde_json::from_value(payload_val).unwrap_or(ShellOpenPayload {
+            cols: Some(80),
+            rows: Some(24),
+        });
     let cols = payload.cols.unwrap_or(80);
     let rows = payload.rows.unwrap_or(24);
 
@@ -135,28 +152,34 @@ pub(super) async fn open_shell_session(
     let slave_stderr = unsafe { libc::dup(slave_fd) };
     if slave_stdout < 0 || slave_stderr < 0 {
         unsafe {
-            if slave_stdout >= 0 { libc::close(slave_stdout); }
-            if slave_stderr >= 0 { libc::close(slave_stderr); }
+            if slave_stdout >= 0 {
+                libc::close(slave_stdout);
+            }
+            if slave_stderr >= 0 {
+                libc::close(slave_stderr);
+            }
             libc::close(slave_fd);
         }
-        return Err(format!("dup slave PTY fd: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "dup slave PTY fd: {}",
+            std::io::Error::last_os_error()
+        ));
     }
 
     // Wrap master in AsyncFd for non-blocking async I/O.  Shared via Arc so
     // both the stdin-writer task and the PTY-reader task can use the same fd.
-    let async_master = Arc::new(
-        AsyncFd::new(master_owned).map_err(|e| format!("AsyncFd::new: {}", e))?
-    );
+    let async_master =
+        Arc::new(AsyncFd::new(master_owned).map_err(|e| format!("AsyncFd::new: {}", e))?);
 
     let mut cmd = Command::new(&shell);
     cmd.env("TERM", "xterm-256color")
-       .env("HOME", &work_dir)
-       .env("COLUMNS", cols.to_string())
-       .env("LINES", rows.to_string())
-       .current_dir(&work_dir)
-       .stdin(unsafe { Stdio::from_raw_fd(slave_fd) })
-       .stdout(unsafe { Stdio::from_raw_fd(slave_stdout) })
-       .stderr(unsafe { Stdio::from_raw_fd(slave_stderr) });
+        .env("HOME", &work_dir)
+        .env("COLUMNS", cols.to_string())
+        .env("LINES", rows.to_string())
+        .current_dir(&work_dir)
+        .stdin(unsafe { Stdio::from_raw_fd(slave_fd) })
+        .stdout(unsafe { Stdio::from_raw_fd(slave_stdout) })
+        .stderr(unsafe { Stdio::from_raw_fd(slave_stderr) });
 
     // pre_exec runs in the forked child AFTER dup2 has mapped slave_fd to
     // fd 0/1/2.  We must:
@@ -197,10 +220,15 @@ pub(super) async fn open_shell_session(
                                     data.len() - offset,
                                 )
                             };
-                            if n < 0 { Err(std::io::Error::last_os_error()) }
-                            else { Ok(n as usize) }
+                            if n < 0 {
+                                Err(std::io::Error::last_os_error())
+                            } else {
+                                Ok(n as usize)
+                            }
                         }) {
-                            Ok(Ok(n)) => { offset += n; }
+                            Ok(Ok(n)) => {
+                                offset += n;
+                            }
                             Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                             _ => return,
                         }
@@ -210,8 +238,15 @@ pub(super) async fn open_shell_session(
         }
     });
 
-    let handle = ShellHandle { stdin_tx, master: async_master.clone(), child_pid };
-    shell_sessions.lock().await.insert(session_id.clone(), handle);
+    let handle = ShellHandle {
+        stdin_tx,
+        master: async_master.clone(),
+        child_pid,
+    };
+    shell_sessions
+        .lock()
+        .await
+        .insert(session_id.clone(), handle);
 
     // PTY reader: master fd → WebSocket.
     // Reading from the master gives us the shell's combined stdout+stderr.
@@ -234,8 +269,11 @@ pub(super) async fn open_shell_session(
                         buf.len(),
                     )
                 };
-                if n < 0 { Err(std::io::Error::last_os_error()) }
-                else { Ok(n as usize) }
+                if n < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(n as usize)
+                }
             });
             match result {
                 Ok(Ok(0)) => break,
@@ -253,7 +291,8 @@ pub(super) async fn open_shell_session(
                             let _ = tokio::time::timeout(
                                 Duration::from_secs(3),
                                 ws_tx_reader.send(msg),
-                            ).await;
+                            )
+                            .await;
                         }
                     }
                 }
@@ -273,9 +312,17 @@ pub(super) async fn open_shell_session(
         let status = child.wait().await.ok();
         // Only send shell_close if the session is still registered (not already
         // closed by an explicit shell_close frame from the controller).
-        if shell_sessions_clone.lock().await.remove(&session_id).is_some() {
+        if shell_sessions_clone
+            .lock()
+            .await
+            .remove(&session_id)
+            .is_some()
+        {
             let reason = status
-                .and_then(|s| s.code().map(|code| format!("shell exited with code {}", code)))
+                .and_then(|s| {
+                    s.code()
+                        .map(|code| format!("shell exited with code {}", code))
+                })
                 .unwrap_or_else(|| "shell closed".to_string());
             let close_frame = WsFrame {
                 msg_type: "shell_close".to_string(),
@@ -285,10 +332,8 @@ pub(super) async fn open_shell_session(
             if let Ok(text) = serde_json::to_string(&close_frame) {
                 let msg = Message::Text(text.into());
                 if ws_tx_clone.try_send(msg.clone()).is_err() {
-                    let _ = tokio::time::timeout(
-                        Duration::from_secs(3),
-                        ws_tx_clone.send(msg),
-                    ).await;
+                    let _ =
+                        tokio::time::timeout(Duration::from_secs(3), ws_tx_clone.send(msg)).await;
                 }
             }
         }
@@ -296,5 +341,3 @@ pub(super) async fn open_shell_session(
 
     Ok(())
 }
-
-

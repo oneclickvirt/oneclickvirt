@@ -93,6 +93,8 @@ func DetectLocalProvider(c *gin.Context) {
 		"architecture":  runtime.GOARCH,
 		"commands":      commands,
 		"checks":        checks,
+		"detectScript":  "scripts/local.sh",
+		"installScript": "scripts/local_install.sh",
 		"warnings":      warnings,
 	}, "本机 Provider 检测完成")
 }

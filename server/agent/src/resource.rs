@@ -95,7 +95,10 @@ impl ProviderKind {
 
 /// Collect resource usage for a given instance.
 /// `instance_name` is the container/VM name on the provider host.
-pub fn collect_resource(kind: ProviderKind, instance_name: &str) -> Result<ResourceSnapshot, ApiError> {
+pub fn collect_resource(
+    kind: ProviderKind,
+    instance_name: &str,
+) -> Result<ResourceSnapshot, ApiError> {
     match kind {
         ProviderKind::Docker => collect_docker(instance_name),
         ProviderKind::Podman => collect_podman(instance_name),
@@ -120,27 +123,37 @@ fn collect_podman(name: &str) -> Result<ResourceSnapshot, ApiError> {
 
 fn collect_oci_runtime(runtime: &str, name: &str) -> Result<ResourceSnapshot, ApiError> {
     // Use stats --no-stream --format json for a single snapshot
-    let out = run_with_env(&format!("{runtime} stats --no-stream --format '{{{{json .}}}}' {name}"))
-        .map_err(|e| ApiError::internal(format!("{runtime} stats failed: {e}")))?;
+    let out = run_with_env(&format!(
+        "{runtime} stats --no-stream --format '{{{{json .}}}}' {name}"
+    ))
+    .map_err(|e| ApiError::internal(format!("{runtime} stats failed: {e}")))?;
 
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(ApiError::internal(format!("{runtime} stats error: {}", stderr.trim())));
+        return Err(ApiError::internal(format!(
+            "{runtime} stats error: {}",
+            stderr.trim()
+        )));
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     let line = stdout.trim();
     if line.is_empty() {
-        return Err(ApiError::internal(format!("{runtime} stats returned empty output")));
+        return Err(ApiError::internal(format!(
+            "{runtime} stats returned empty output"
+        )));
     }
 
     let v: serde_json::Value = serde_json::from_str(line)
         .map_err(|e| ApiError::internal(format!("{runtime} stats json parse error: {e}")))?;
 
-    let cpu_percent = parse_percent_string(v.get("CPUPerc").and_then(|v| v.as_str()).unwrap_or("0%"));
+    let cpu_percent =
+        parse_percent_string(v.get("CPUPerc").and_then(|v| v.as_str()).unwrap_or("0%"));
 
     let (mem_used, mem_total) = parse_mem_usage(
-        v.get("MemUsage").and_then(|v| v.as_str()).unwrap_or("0B / 0B"),
+        v.get("MemUsage")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0B / 0B"),
     );
 
     // Disk: Docker stats doesn't directly provide disk; use inspect for rootfs size
@@ -156,7 +169,9 @@ fn collect_oci_runtime(runtime: &str, name: &str) -> Result<ResourceSnapshot, Ap
 }
 
 fn get_oci_disk(runtime: &str, name: &str) -> (u64, u64) {
-    let out = run_with_env(&format!("{runtime} inspect --size --format '{{{{json .}}}}' {name}"));
+    let out = run_with_env(&format!(
+        "{runtime} inspect --size --format '{{{{json .}}}}' {name}"
+    ));
 
     if let Ok(out) = out {
         if out.status.success() {
@@ -299,7 +314,10 @@ fn collect_lxc(cli: &str, name: &str) -> Result<ResourceSnapshot, ApiError> {
 
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(ApiError::internal(format!("{cli} info error: {}", stderr.trim())));
+        return Err(ApiError::internal(format!(
+            "{cli} info error: {}",
+            stderr.trim()
+        )));
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -522,7 +540,10 @@ fn parse_mem_usage(s: &str) -> (u64, u64) {
     if parts.len() != 2 {
         return (0, 0);
     }
-    (parse_size_string(parts[0].trim()), parse_size_string(parts[1].trim()))
+    (
+        parse_size_string(parts[0].trim()),
+        parse_size_string(parts[1].trim()),
+    )
 }
 
 fn parse_size_string(s: &str) -> u64 {

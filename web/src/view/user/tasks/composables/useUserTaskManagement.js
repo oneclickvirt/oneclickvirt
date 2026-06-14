@@ -97,7 +97,31 @@ export function useUserTaskManagement() {
   }
 
   const getTaskTypeText = (type) => {
-    const typeMap = { 'create': t('user.tasks.taskTypeCreate'), 'start': t('user.tasks.taskTypeStart'), 'stop': t('user.tasks.taskTypeStop'), 'restart': t('user.tasks.taskTypeRestart'), 'reset': t('user.tasks.taskTypeReset'), 'delete': t('user.tasks.taskTypeDelete'), 'create_redemption_instance': t('user.tasks.taskTypeCreateRedemptionInstance'), 'create-port-mapping': t('user.tasks.taskTypeCreatePortMapping'), 'delete-port-mapping': t('user.tasks.taskTypeDeletePortMapping'), 'sync-port-mappings': t('user.tasks.taskTypeSyncPortMappings'), 'snapshot-create': t('user.tasks.taskTypeSnapshotCreate'), 'snapshot-delete': t('user.tasks.taskTypeSnapshotDelete'), 'snapshot-restore': t('user.tasks.taskTypeSnapshotRestore') }
+    const typeMap = {
+      'create': t('user.tasks.taskTypeCreate'),
+      'create_instance': t('user.tasks.taskTypeCreateInstance'),
+      'start': t('user.tasks.taskTypeStart'),
+      'stop': t('user.tasks.taskTypeStop'),
+      'restart': t('user.tasks.taskTypeRestart'),
+      'reset': t('user.tasks.taskTypeReset'),
+      'rebuild': t('user.tasks.taskTypeRebuild'),
+      'delete': t('user.tasks.taskTypeDelete'),
+      'reset-password': t('user.tasks.taskTypeResetPassword'),
+      'create_redemption_instance': t('user.tasks.taskTypeCreateRedemptionInstance'),
+      'create-port-mapping': t('user.tasks.taskTypeCreatePortMapping'),
+      'delete-port-mapping': t('user.tasks.taskTypeDeletePortMapping'),
+      'sync-port-mappings': t('user.tasks.taskTypeSyncPortMappings'),
+      'snapshot-create': t('user.tasks.taskTypeSnapshotCreate'),
+      'snapshot-delete': t('user.tasks.taskTypeSnapshotDelete'),
+      'snapshot-restore': t('user.tasks.taskTypeSnapshotRestore'),
+      'monitor-sync': t('user.tasks.taskTypeMonitorSync'),
+      'agent-deploy': t('user.tasks.taskTypeAgentDeploy'),
+      'agent-uninstall': t('user.tasks.taskTypeAgentUninstall'),
+      'traffic-monitor-enable': t('user.tasks.taskTypeTrafficMonitorEnable'),
+      'traffic-monitor-disable': t('user.tasks.taskTypeTrafficMonitorDisable'),
+      'traffic-monitor-detect': t('user.tasks.taskTypeTrafficMonitorDetect'),
+      'provider-image-cleanup': t('user.tasks.taskTypeProviderImageCleanup')
+    }
     return typeMap[type] || type
   }
 

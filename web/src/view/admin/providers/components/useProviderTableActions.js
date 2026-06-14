@@ -3,6 +3,20 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { saveHardwareReport, getHardwareTestReport } from '@/api/admin'
 
+const isValidPasteUrl = (value) => {
+  const raw = String(value || '').trim()
+  if (!raw) return false
+  try {
+    const url = new URL(raw)
+    const searchArea = `${url.pathname} ${url.search} ${url.hash}`
+    return url.protocol === 'https:' &&
+      url.hostname === 'paste.spiritlhl.net' &&
+      /[a-zA-Z0-9_-]+\.txt/.test(searchArea)
+  } catch {
+    return false
+  }
+}
+
 export default function useProviderTableActions(emit) {
   const { t } = useI18n()
 
@@ -80,7 +94,11 @@ export default function useProviderTableActions(emit) {
   }
 
   const submitPasteUrl = async () => {
-    if (!pasteUrlInput.value || !pasteUrlProviderId) return
+    if (!pasteUrlProviderId) return
+    if (!isValidPasteUrl(pasteUrlInput.value)) {
+      ElMessage.error(t('admin.providers.pasteUrlInvalid'))
+      return
+    }
     pasteUrlSaving.value = true
     try {
       await saveHardwareReport(pasteUrlProviderId, pasteUrlInput.value)

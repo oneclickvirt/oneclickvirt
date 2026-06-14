@@ -39,6 +39,9 @@ func ErrorHandler() gin.HandlerFunc {
 
 		// 处理 handler 通过 c.Error() 附加的业务错误
 		if len(c.Errors) > 0 {
+			if c.Writer.Written() {
+				return
+			}
 			err := c.Errors.Last()
 
 			global.APP_LOG.Error("HTTP 请求处理错误",
@@ -56,10 +59,10 @@ func ErrorHandler() gin.HandlerFunc {
 				common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, err.Error()))
 			case gin.ErrorTypePublic:
 				// 可对外暴露的业务错误
-				common.ResponseWithError(c, common.NewError(common.CodeError, err.Error()))
+				common.ResponseWithError(c, common.ClassifyError(err.Err))
 			default:
 				// 内部错误，保留详情用于排查
-				common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+				common.ResponseWithError(c, common.ClassifyError(err.Err))
 			}
 		}
 	}

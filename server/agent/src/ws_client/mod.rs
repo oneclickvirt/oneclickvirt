@@ -10,8 +10,8 @@ use regex;
 use std::io;
 use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio_tungstenite::tungstenite::{ClientRequestBuilder, http::Uri};
 use tokio_tungstenite::{client_async, connect_async};
-use tokio_tungstenite::tungstenite::{http::Uri, ClientRequestBuilder};
 use tracing::{info, warn};
 use url;
 
@@ -20,7 +20,11 @@ use url;
 /// ws://host:port/path  → http://host:port
 fn origin_from_ws_url(url_str: &str) -> String {
     if let Ok(parsed) = url::Url::parse(url_str) {
-        let scheme = if parsed.scheme() == "wss" { "https" } else { "http" };
+        let scheme = if parsed.scheme() == "wss" {
+            "https"
+        } else {
+            "http"
+        };
         let host = parsed.host_str().unwrap_or("localhost");
         if let Some(port) = parsed.port() {
             format!("{}://{}:{}", scheme, host, port)
@@ -67,7 +71,9 @@ pub async fn run_ws_client(ws_url: String, secret: String) {
                 Err(e) => {
                     warn!(error = %e, "invalid WebSocket URI, retrying");
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
-                    if delay_secs < 60 { delay_secs = (delay_secs * 2).min(60); }
+                    if delay_secs < 60 {
+                        delay_secs = (delay_secs * 2).min(60);
+                    }
                     continue;
                 }
             };
@@ -147,7 +153,6 @@ fn is_tls_layer_error(err_msg: &str) -> bool {
         || lower.contains("peer misbehaving")
 }
 
-
 /// Strip sensitive query parameters (secret, agent_secret, token) from a URL.
 /// Defense-in-depth: even if the caller passes a URL with the secret embedded,
 /// we remove it before using the URL in the HTTP request or logging.
@@ -159,9 +164,9 @@ fn strip_secret_params(url_str: &str) -> String {
     // Use the `url` crate for robust parsing
     if let Ok(mut parsed) = url::Url::parse(url_str) {
         let sensitive: &[&str] = &["secret", "agent_secret", "token"];
-        let had = sensitive.iter().any(|k| {
-            parsed.query_pairs().any(|(qk, _)| *k == qk.as_ref())
-        });
+        let had = sensitive
+            .iter()
+            .any(|k| parsed.query_pairs().any(|(qk, _)| *k == qk.as_ref()));
         if !had {
             return url_str.to_string();
         }
@@ -229,8 +234,7 @@ fn set_keepalive_on_tcp(stream: &TcpStream) {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let ka = socket2::TcpKeepalive::new()
-            .with_time(Duration::from_secs(30));
+        let ka = socket2::TcpKeepalive::new().with_time(Duration::from_secs(30));
         let _ = sock.set_tcp_keepalive(&ka);
     }
 }
@@ -243,8 +247,7 @@ fn try_set_keepalive_on_maybe_tls(
 }
 
 #[cfg(not(unix))]
-fn set_keepalive_on_tcp(_stream: &TcpStream) {
-}
+fn set_keepalive_on_tcp(_stream: &TcpStream) {}
 /// Create a TCP stream with keepalive configured using tokio's async connect.
 ///
 /// TCP keepalive parameters (applied after connect via socket2::SockRef):
@@ -287,8 +290,7 @@ async fn create_tcp_stream_with_keepalive(addr: &str) -> io::Result<TcpStream> {
     #[cfg(not(target_os = "linux"))]
     {
         // Fallback: set idle time via TcpKeepalive (interval uses OS defaults)
-        let ka = socket2::TcpKeepalive::new()
-            .with_time(Duration::from_secs(30));
+        let ka = socket2::TcpKeepalive::new().with_time(Duration::from_secs(30));
         let _ = sock_ref.set_tcp_keepalive(&ka);
     }
 
@@ -317,15 +319,14 @@ async fn connect_plain_with_keepalive(
         format!("{host}:{port}")
     };
 
-    let tcp_stream = create_tcp_stream_with_keepalive(&addr_str).await
+    let tcp_stream = create_tcp_stream_with_keepalive(&addr_str)
+        .await
         .map_err(|e| format!("TCP connect failed: {e}"))?;
 
     // Parse the full URL as the request URI (same approach as the wss://
     // path using connect_async).  http::Uri extracts the Host header and
     // request path from the full URL automatically.
-    let request_uri: Uri = url_str
-        .parse()
-        .map_err(|e| format!("invalid URI: {e}"))?;
+    let request_uri: Uri = url_str.parse().map_err(|e| format!("invalid URI: {e}"))?;
 
     let origin = origin_from_ws_url(url_str);
     let request = ClientRequestBuilder::new(request_uri)
@@ -333,9 +334,8 @@ async fn connect_plain_with_keepalive(
         .with_header("User-Agent", BROWSER_UA)
         .with_header("Origin", origin);
 
-    let (ws_stream, _) =
-        client_async(request, tcp_stream)
-            .await
-            .map_err(|e| format!("WebSocket handshake failed: {e}"))?;
+    let (ws_stream, _) = client_async(request, tcp_stream)
+        .await
+        .map_err(|e| format!("WebSocket handshake failed: {e}"))?;
     Ok(ws_stream)
 }

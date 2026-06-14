@@ -21,6 +21,27 @@ type Service struct{}
 
 var domainRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
 
+func init() {
+	agent.RegisterAgentReconnectHook(func(providerID uint) {
+		svc := &Service{}
+		result, err := svc.SyncProviderDomainProxies(providerID)
+		if err != nil {
+			global.APP_LOG.Warn("Agent 重连后同步域名代理失败",
+				zap.Uint("providerID", providerID),
+				zap.Error(err))
+			return
+		}
+		if result.Total > 0 {
+			global.APP_LOG.Info("Agent 重连后域名代理同步完成",
+				zap.Uint("providerID", providerID),
+				zap.Int("total", result.Total),
+				zap.Int("success", result.Success),
+				zap.Int("failed", result.Failed),
+				zap.Int("skipped", result.Skipped))
+		}
+	})
+}
+
 // getAgentClient returns an agent client for the given provider, or nil if agent is not configured.
 // For agent-mode providers behind NAT, the HTTP API is not directly reachable;
 // the WS fallback in Client.doRequest handles connectivity via WebSocket.
@@ -51,6 +72,121 @@ func getAgentClient(providerID uint) *agent.Client {
 	return agent.GetClientWithMode(providerID, host, port, config.AgentToken, p.ConnectionType == "agent")
 }
 
+func normalizeDomainName(domain string) string {
+	return strings.ToLower(strings.TrimSpace(domain))
+}
+
+func normalizeProtocol(protocol string) (string, error) {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "" {
+		return "http", nil
+	}
+	if protocol != "http" && protocol != "https" {
+		return "", fmt.Errorf("协议仅支持 http 或 https")
+	}
+	return protocol, nil
+}
+
+func normalizeAllowedSuffixes(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", nil
+	}
+	parts := strings.Split(raw, ",")
+	normalized := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		suffix := normalizeDomainName(part)
+		suffix = strings.TrimPrefix(suffix, "*")
+		if suffix == "" {
+			continue
+		}
+		if !strings.HasPrefix(suffix, ".") {
+			suffix = "." + suffix
+		}
+		candidate := strings.TrimPrefix(suffix, ".")
+		if !domainRegex.MatchString(candidate) {
+			return "", fmt.Errorf("域名后缀格式无效: %s", suffix)
+		}
+		if _, ok := seen[suffix]; ok {
+			continue
+		}
+		seen[suffix] = struct{}{}
+		normalized = append(normalized, suffix)
+	}
+	return strings.Join(normalized, ","), nil
+}
+
+func domainMatchesAllowedSuffix(domainName, allowedSuffixes string) bool {
+	if strings.TrimSpace(allowedSuffixes) == "" {
+		return true
+	}
+	for _, suffix := range strings.Split(allowedSuffixes, ",") {
+		suffix = normalizeDomainName(suffix)
+		suffix = strings.TrimPrefix(suffix, "*")
+		if suffix == "" {
+			continue
+		}
+		if !strings.HasPrefix(suffix, ".") {
+			suffix = "." + suffix
+		}
+		rootDomain := strings.TrimPrefix(suffix, ".")
+		if domainName == rootDomain || strings.HasSuffix(domainName, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func applyDomainProxy(domain *domainModel.Domain) error {
+	client := getAgentClient(domain.ProviderID)
+	if client == nil {
+		return nil
+	}
+	protocol, err := normalizeProtocol(domain.Protocol)
+	if err != nil {
+		return err
+	}
+	_, err = client.AddDomainProxy(
+		domain.DomainName,
+		domain.InternalIP,
+		domain.InternalPort,
+		protocol,
+		domain.EnableSSL,
+		domain.SSLCertContent,
+		domain.SSLKeyContent,
+	)
+	if err != nil {
+		updateErr := global.APP_DB.Model(domain).Updates(map[string]interface{}{
+			"status":    "error",
+			"error_msg": fmt.Sprintf("agent proxy error: %v", err),
+		}).Error
+		if updateErr != nil {
+			global.APP_LOG.Warn("更新域名代理错误状态失败",
+				zap.String("domain", domain.DomainName),
+				zap.Error(updateErr))
+		}
+		return err
+	}
+	updateErr := global.APP_DB.Model(domain).Updates(map[string]interface{}{
+		"status":    "active",
+		"error_msg": "",
+	}).Error
+	if updateErr != nil {
+		global.APP_LOG.Warn("更新域名代理成功状态失败",
+			zap.String("domain", domain.DomainName),
+			zap.Error(updateErr))
+	}
+	return nil
+}
+
+func removeDomainProxy(domain *domainModel.Domain) error {
+	client := getAgentClient(domain.ProviderID)
+	if client == nil {
+		return nil
+	}
+	return client.RemoveDomainProxy(domain.DomainName)
+}
+
 // GetUserDomains 获取用户域名列表
 func (s *Service) GetUserDomains(userID uint) ([]domainModel.Domain, error) {
 	var domains []domainModel.Domain
@@ -60,6 +196,13 @@ func (s *Service) GetUserDomains(userID uint) ([]domainModel.Domain, error) {
 
 // CreateDomain 用户创建域名绑定
 func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainModel.Domain, error) {
+	req.DomainName = normalizeDomainName(req.DomainName)
+	req.InternalIP = strings.TrimSpace(req.InternalIP)
+	protocol, err := normalizeProtocol(req.Protocol)
+	if err != nil {
+		return nil, err
+	}
+	req.Protocol = protocol
 	// 验证域名格式
 	if !domainRegex.MatchString(req.DomainName) {
 		return nil, fmt.Errorf("域名格式无效")
@@ -89,28 +232,16 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 	if !provider.EnableDomainBinding {
 		return nil, fmt.Errorf("该节点未启用域名绑定功能")
 	}
-	// 检查域名配置
-	var domainConfig domainModel.DomainConfig
-	if err := global.APP_DB.Where("provider_id = ?", provider.ID).First(&domainConfig).Error; err != nil {
-		return nil, fmt.Errorf("节点域名配置不存在，请联系管理员")
+	// 检查域名配置。没有显式配置时使用节点开关派生的默认配置。
+	domainConfig, err := s.GetDomainConfig(provider.ID)
+	if err != nil {
+		return nil, fmt.Errorf("读取节点域名配置失败: %w", err)
 	}
 	if !domainConfig.Enabled {
 		return nil, fmt.Errorf("该节点域名绑定未启用")
 	}
-	// 检查域名后缀限制
-	if domainConfig.AllowedSuffixes != "" {
-		allowed := false
-		suffixes := strings.Split(domainConfig.AllowedSuffixes, ",")
-		for _, suffix := range suffixes {
-			suffix = strings.TrimSpace(suffix)
-			if suffix != "" && strings.HasSuffix(req.DomainName, suffix) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return nil, fmt.Errorf("不允许绑定此后缀的域名")
-		}
+	if !domainMatchesAllowedSuffix(req.DomainName, domainConfig.AllowedSuffixes) {
+		return nil, fmt.Errorf("不允许绑定此后缀的域名")
 	}
 	// 检查配额 + 唯一性 + 创建在同一事务中，避免 TOCTOU 竞争
 	domain := &domainModel.Domain{
@@ -150,21 +281,10 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 	}
 
 	// Apply reverse proxy via agent
-	if client := getAgentClient(provider.ID); client != nil {
-		protocol := req.Protocol
-		if protocol == "" {
-			protocol = "http"
-		}
-		_, err := client.AddDomainProxy(req.DomainName, req.InternalIP, req.InternalPort, protocol, req.EnableSSL, req.SSLCertContent, req.SSLKeyContent)
-		if err != nil {
-			global.APP_LOG.Error("域名代理应用到Agent失败",
-				zap.String("domain", req.DomainName),
-				zap.Error(err))
-			global.APP_DB.Model(domain).Updates(map[string]interface{}{
-				"status":    "error",
-				"error_msg": fmt.Sprintf("agent proxy error: %v", err),
-			})
-		}
+	if err := applyDomainProxy(domain); err != nil {
+		global.APP_LOG.Error("域名代理应用到Agent失败",
+			zap.String("domain", req.DomainName),
+			zap.Error(err))
 	}
 
 	global.APP_LOG.Info("用户域名绑定成功",
@@ -182,13 +302,10 @@ func (s *Service) DeleteDomain(userID, domainID uint) error {
 		return fmt.Errorf("域名绑定不存在或无权限")
 	}
 
-	// Remove proxy from agent
-	if client := getAgentClient(domain.ProviderID); client != nil {
-		if err := client.RemoveDomainProxy(domain.DomainName); err != nil {
-			global.APP_LOG.Warn("从Agent移除域名代理失败",
-				zap.String("domain", domain.DomainName),
-				zap.Error(err))
-		}
+	if err := removeDomainProxy(&domain); err != nil {
+		global.APP_LOG.Warn("从Agent移除域名代理失败",
+			zap.String("domain", domain.DomainName),
+			zap.Error(err))
 	}
 
 	// 硬删除：確保域名可被重新注册
@@ -204,16 +321,24 @@ func (s *Service) UpdateDomain(userID, domainID uint, req *UpdateDomainRequest) 
 
 	updates := map[string]interface{}{}
 	if req.InternalIP != "" {
+		req.InternalIP = strings.TrimSpace(req.InternalIP)
 		if net.ParseIP(req.InternalIP) == nil {
 			return fmt.Errorf("内部IP格式无效")
 		}
 		updates["internal_ip"] = req.InternalIP
 	}
-	if req.InternalPort > 0 && req.InternalPort <= 65535 {
+	if req.InternalPort < 0 || req.InternalPort > 65535 {
+		return fmt.Errorf("端口范围无效")
+	}
+	if req.InternalPort > 0 {
 		updates["internal_port"] = req.InternalPort
 	}
 	if req.Protocol != "" {
-		updates["protocol"] = req.Protocol
+		protocol, err := normalizeProtocol(req.Protocol)
+		if err != nil {
+			return err
+		}
+		updates["protocol"] = protocol
 	}
 	updates["enable_ssl"] = req.EnableSSL
 
@@ -228,35 +353,13 @@ func (s *Service) UpdateDomain(userID, domainID uint, req *UpdateDomainRequest) 
 		return err
 	}
 
-	// Re-apply proxy via agent with updated config
-	if client := getAgentClient(domain.ProviderID); client != nil {
-		ip := domain.InternalIP
-		if v, ok := updates["internal_ip"].(string); ok {
-			ip = v
-		}
-		port := domain.InternalPort
-		if v, ok := updates["internal_port"].(int); ok {
-			port = v
-		}
-		protocol := domain.Protocol
-		if v, ok := updates["protocol"].(string); ok {
-			protocol = v
-		}
-		enableSSL := req.EnableSSL
-		// Use new cert if provided, otherwise use existing
-		certContent := req.SSLCertContent
-		keyContent := req.SSLKeyContent
-		if certContent == "" {
-			certContent = domain.SSLCertContent
-		}
-		if keyContent == "" {
-			keyContent = domain.SSLKeyContent
-		}
-		if _, err := client.AddDomainProxy(domain.DomainName, ip, port, protocol, enableSSL, certContent, keyContent); err != nil {
-			global.APP_LOG.Warn("域名代理更新Agent失败",
-				zap.String("domain", domain.DomainName),
-				zap.Error(err))
-		}
+	if err := global.APP_DB.First(&domain, domain.ID).Error; err != nil {
+		return err
+	}
+	if err := applyDomainProxy(&domain); err != nil {
+		global.APP_LOG.Warn("域名代理更新Agent失败",
+			zap.String("domain", domain.DomainName),
+			zap.Error(err))
 	}
 
 	return nil
@@ -296,13 +399,10 @@ func (s *Service) AdminDeleteDomain(domainID, ownerAdminID uint) error {
 			return fmt.Errorf("无权删除该域名")
 		}
 	}
-	// Remove proxy from agent
-	if client := getAgentClient(domain.ProviderID); client != nil {
-		if err := client.RemoveDomainProxy(domain.DomainName); err != nil {
-			global.APP_LOG.Warn("管理员从Agent移除域名代理失败",
-				zap.String("domain", domain.DomainName),
-				zap.Error(err))
-		}
+	if err := removeDomainProxy(&domain); err != nil {
+		global.APP_LOG.Warn("管理员从Agent移除域名代理失败",
+			zap.String("domain", domain.DomainName),
+			zap.Error(err))
 	}
 	// 硬删除：确保域名可被重新注册
 	return global.APP_DB.Delete(&domain).Error
@@ -313,10 +413,14 @@ func (s *Service) GetDomainConfig(providerID uint) (*domainModel.DomainConfig, e
 	var config domainModel.DomainConfig
 	err := global.APP_DB.Where("provider_id = ?", providerID).First(&config).Error
 	if err == gorm.ErrRecordNotFound {
+		var provider providerModel.Provider
+		if dbErr := global.APP_DB.Select("enable_domain_binding").First(&provider, providerID).Error; dbErr != nil && dbErr != gorm.ErrRecordNotFound {
+			return nil, dbErr
+		}
 		// 返回默认配置
 		return &domainModel.DomainConfig{
 			ProviderID:        providerID,
-			Enabled:           false,
+			Enabled:           provider.EnableDomainBinding,
 			MaxDomainsPerUser: 3,
 			DNSType:           "hosts",
 		}, nil
@@ -326,33 +430,120 @@ func (s *Service) GetDomainConfig(providerID uint) (*domainModel.DomainConfig, e
 
 // UpdateDomainConfig 更新节点域名配置
 func (s *Service) UpdateDomainConfig(providerID uint, req *UpdateDomainConfigRequest) error {
-	var config domainModel.DomainConfig
-	err := global.APP_DB.Where("provider_id = ?", providerID).First(&config).Error
-	if err == gorm.ErrRecordNotFound {
-		config = domainModel.DomainConfig{
-			ProviderID:        providerID,
-			Enabled:           req.Enabled,
-			MaxDomainsPerUser: req.MaxDomainsPerUser,
-			DNSType:           req.DNSType,
-			DNSConfigPath:     req.DNSConfigPath,
-			NginxConfigPath:   req.NginxConfigPath,
-			NginxReloadCmd:    req.NginxReloadCmd,
-			AllowedSuffixes:   req.AllowedSuffixes,
-		}
-		return global.APP_DB.Create(&config).Error
+	if req.MaxDomainsPerUser <= 0 {
+		return fmt.Errorf("每用户最大域名数必须大于0")
 	}
+	dnsType := strings.ToLower(strings.TrimSpace(req.DNSType))
+	if dnsType == "" {
+		dnsType = "hosts"
+	}
+	if dnsType != "hosts" && dnsType != "nginx" {
+		return fmt.Errorf("DNS类型仅支持 hosts 或 nginx")
+	}
+	allowedSuffixes, err := normalizeAllowedSuffixes(req.AllowedSuffixes)
 	if err != nil {
 		return err
 	}
-	return global.APP_DB.Model(&config).Updates(map[string]interface{}{
-		"enabled":              req.Enabled,
-		"max_domains_per_user": req.MaxDomainsPerUser,
-		"dns_type":             req.DNSType,
-		"dns_config_path":      req.DNSConfigPath,
-		"nginx_config_path":    req.NginxConfigPath,
-		"nginx_reload_cmd":     req.NginxReloadCmd,
-		"allowed_suffixes":     req.AllowedSuffixes,
-	}).Error
+
+	var config domainModel.DomainConfig
+	err = global.APP_DB.Where("provider_id = ?", providerID).First(&config).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return err
+	}
+
+	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		var providerCount int64
+		if err := tx.Model(&providerModel.Provider{}).
+			Where("id = ?", providerID).
+			Count(&providerCount).Error; err != nil {
+			return err
+		}
+		if providerCount == 0 {
+			return fmt.Errorf("节点不存在")
+		}
+		if err := tx.Model(&providerModel.Provider{}).
+			Where("id = ?", providerID).
+			Update("enable_domain_binding", req.Enabled).Error; err != nil {
+			return err
+		}
+
+		values := map[string]interface{}{
+			"enabled":              req.Enabled,
+			"max_domains_per_user": req.MaxDomainsPerUser,
+			"dns_type":             dnsType,
+			"dns_config_path":      strings.TrimSpace(req.DNSConfigPath),
+			"nginx_config_path":    strings.TrimSpace(req.NginxConfigPath),
+			"nginx_reload_cmd":     strings.TrimSpace(req.NginxReloadCmd),
+			"allowed_suffixes":     allowedSuffixes,
+		}
+		if err == gorm.ErrRecordNotFound {
+			config = domainModel.DomainConfig{
+				ProviderID:        providerID,
+				Enabled:           req.Enabled,
+				MaxDomainsPerUser: req.MaxDomainsPerUser,
+				DNSType:           dnsType,
+				DNSConfigPath:     strings.TrimSpace(req.DNSConfigPath),
+				NginxConfigPath:   strings.TrimSpace(req.NginxConfigPath),
+				NginxReloadCmd:    strings.TrimSpace(req.NginxReloadCmd),
+				AllowedSuffixes:   allowedSuffixes,
+			}
+			return tx.Create(&config).Error
+		}
+		return tx.Model(&config).Updates(values).Error
+	})
+}
+
+// SyncDomainProxiesResult records the outcome of replaying domain proxy config.
+type SyncDomainProxiesResult struct {
+	Total   int `json:"total"`
+	Success int `json:"success"`
+	Failed  int `json:"failed"`
+	Skipped int `json:"skipped"`
+}
+
+// AdminSyncDomainProxies replays active/error domain bindings for all providers visible to the admin.
+func (s *Service) AdminSyncDomainProxies(ownerAdminID uint) (*SyncDomainProxiesResult, error) {
+	domains, err := s.AdminGetAllDomains(ownerAdminID)
+	if err != nil {
+		return nil, err
+	}
+	return s.syncDomainProxyRows(domains), nil
+}
+
+// SyncProviderDomainProxies replays active/error domain bindings for a single provider.
+// It is used as an agent reconnect hook so the controller database remains the
+// authoritative source if the agent restarts, is reinstalled, or loses its local sqlite DB.
+func (s *Service) SyncProviderDomainProxies(providerID uint) (*SyncDomainProxiesResult, error) {
+	var domains []domainModel.Domain
+	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&domains).Error; err != nil {
+		return nil, err
+	}
+	return s.syncDomainProxyRows(domains), nil
+}
+
+func (s *Service) syncDomainProxyRows(domains []domainModel.Domain) *SyncDomainProxiesResult {
+	result := &SyncDomainProxiesResult{Total: len(domains)}
+	for i := range domains {
+		domain := &domains[i]
+		if domain.Status != "" && domain.Status != "active" && domain.Status != "error" {
+			result.Skipped++
+			continue
+		}
+		if client := getAgentClient(domain.ProviderID); client == nil {
+			result.Skipped++
+			continue
+		}
+		if err := applyDomainProxy(domain); err != nil {
+			result.Failed++
+			global.APP_LOG.Warn("同步域名代理失败",
+				zap.Uint("domainID", domain.ID),
+				zap.String("domain", domain.DomainName),
+				zap.Error(err))
+			continue
+		}
+		result.Success++
+	}
+	return result
 }
 
 // Request/Response types

@@ -1,6 +1,6 @@
 [package]
 name = "oneclickvirt-agent"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 
 [[bin]]
@@ -22,6 +22,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 subtle = "2"
 hyper = { version = "1", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2", "tokio"] }
+hyper-rustls = { version = "0.27", features = ["http1", "http2", "webpki-roots", "ring"] }
 http-body-util = "0.1"
 tower = "0.5"
 axum-server = { version = "0.7", features = ["tls-rustls"] }

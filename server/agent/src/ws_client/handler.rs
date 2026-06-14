@@ -7,15 +7,21 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::Command;
-use tokio::sync::{mpsc, Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
-use crate::tunnel::{handle_binary_frame, handle_tunnel_close, handle_tunnel_keepalive, handle_tunnel_open, SessionMap, WsFrame};
-use super::types::*;
 use super::shell::{open_shell_session, pty_kill, pty_resize};
+use super::types::*;
+use crate::tunnel::{
+    SessionMap, WsFrame, handle_binary_frame, handle_tunnel_close, handle_tunnel_keepalive,
+    handle_tunnel_open, reject_tunnel_open,
+};
 
-pub(super) async fn handle_connection<S>(ws_stream: tokio_tungstenite::WebSocketStream<S>, secret: &str) -> Result<(), String>
+pub(super) async fn handle_connection<S>(
+    ws_stream: tokio_tungstenite::WebSocketStream<S>,
+    secret: &str,
+) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -28,6 +34,7 @@ where
     //     without blocking control frames.
     let (ws_tx_hi, mut ws_rx_hi) = mpsc::channel::<Message>(64);
     let (ws_tx_lo, mut ws_rx_lo) = mpsc::channel::<Message>(512);
+    let (write_done_tx, mut write_done_rx) = oneshot::channel::<()>();
 
     // Forwarder: always drain hi-priority channel first.
     // ── Critical: write.send() is wrapped in a 15 s timeout.
@@ -46,28 +53,23 @@ where
                         m = ws_rx_lo.recv() => m,
                     }
                 }
-                Err(mpsc::error::TryRecvError::Disconnected) => {
-                    match ws_rx_lo.recv().await {
-                        Some(msg) => Some(msg),
-                        None => break,
-                    }
-                }
+                Err(mpsc::error::TryRecvError::Disconnected) => match ws_rx_lo.recv().await {
+                    Some(msg) => Some(msg),
+                    None => break,
+                },
             };
             match msg {
                 Some(msg) => {
-                    match tokio::time::timeout(
-                        Duration::from_secs(15),
-                        write.send(msg),
-                    )
-                    .await
-                    {
+                    match tokio::time::timeout(Duration::from_secs(15), write.send(msg)).await {
                         Ok(Ok(())) => {} // write succeeded
                         Ok(Err(_)) => {
                             warn!("write.send returned error, closing write forwarder");
                             break;
                         }
                         Err(_elapsed) => {
-                            warn!("write.send timed out (15 s), closing write forwarder to trigger reconnect");
+                            warn!(
+                                "write.send timed out (15 s), closing write forwarder to trigger reconnect"
+                            );
                             break;
                         }
                     }
@@ -75,11 +77,13 @@ where
                 None => break,
             }
         }
+        let _ = write_done_tx.send(());
     });
 
     // Shared session map for tunnel routing
     let sessions: SessionMap = Arc::new(Mutex::new(HashMap::new()));
-    let shell_sessions: Arc<Mutex<HashMap<String, ShellHandle>>> = Arc::new(Mutex::new(HashMap::new()));
+    let shell_sessions: Arc<Mutex<HashMap<String, ShellHandle>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     // Limit concurrent command executions to 10 to prevent the agent from
     // spawning an unbounded number of processes when the controller sends
@@ -158,14 +162,20 @@ where
     let info_frame = WsFrame {
         msg_type: "info".to_string(),
         id: None,
-        payload: Some(serde_json::to_value(InfoPayload {
-            hostname,
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            secret: Some(secret.to_string()),
-        }).unwrap()),
+        payload: Some(
+            serde_json::to_value(InfoPayload {
+                hostname,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                secret: Some(secret.to_string()),
+            })
+            .unwrap(),
+        ),
     };
     let info_text = serde_json::to_string(&info_frame).map_err(|e| e.to_string())?;
-    ws_tx_hi.send(Message::Text(info_text.into())).await.map_err(|e| e.to_string())?;
+    ws_tx_hi
+        .send(Message::Text(info_text.into()))
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Read messages with a 180 s timeout so a silently-broken TCP
     // connection (e.g. NAT gateway dropping state) doesn't cause the
@@ -174,13 +184,22 @@ where
     // the connection is truly dead.
     let mut loop_err: Option<String> = None;
     'main_loop: loop {
-        let msg_result = match tokio::time::timeout(Duration::from_secs(180), read.next()).await {
-            Ok(Some(result)) => result,
-            Ok(None) => break 'main_loop, // stream ended cleanly
-            Err(_elapsed) => {
-                warn!("WebSocket read timeout (180 s), connection may be dead, reconnecting");
-                loop_err = Some("read timeout".to_string());
+        let msg_result = tokio::select! {
+            _ = &mut write_done_rx => {
+                warn!("WebSocket write forwarder stopped, reconnecting");
+                loop_err = Some("write forwarder stopped".to_string());
                 break 'main_loop;
+            }
+            result = tokio::time::timeout(Duration::from_secs(180), read.next()) => {
+                match result {
+                    Ok(Some(result)) => result,
+                    Ok(None) => break 'main_loop, // stream ended cleanly
+                    Err(_elapsed) => {
+                        warn!("WebSocket read timeout (180 s), connection may be dead, reconnecting");
+                        loop_err = Some("read timeout".to_string());
+                        break 'main_loop;
+                    }
+                }
             }
         };
 
@@ -229,8 +248,37 @@ where
                         let ws_tx_hi_clone = ws_tx_hi.clone();
                         let permits = exec_permits.clone();
                         tokio::spawn(async move {
-                            let _permit = permits.acquire_owned().await
-                                .expect("exec semaphore must not be closed");
+                            let _permit = match tokio::time::timeout(
+                                Duration::from_secs(10),
+                                permits.acquire_owned(),
+                            )
+                            .await
+                            {
+                                Ok(Ok(permit)) => permit,
+                                _ => {
+                                    let resp_payload = ExecRespPayload {
+                                        stdout: String::new(),
+                                        stderr: "agent exec concurrency limit exceeded".to_string(),
+                                        exit_code: -1,
+                                    };
+                                    let resp_frame = WsFrame {
+                                        msg_type: "exec_resp".to_string(),
+                                        id: Some(req_id.clone()),
+                                        payload: Some(serde_json::to_value(resp_payload).unwrap()),
+                                    };
+                                    if let Ok(resp_text) = serde_json::to_string(&resp_frame) {
+                                        let msg = Message::Text(resp_text.into());
+                                        if ws_tx_hi_clone.try_send(msg.clone()).is_err() {
+                                            let _ = tokio::time::timeout(
+                                                Duration::from_secs(5),
+                                                ws_tx_hi_clone.send(msg),
+                                            )
+                                            .await;
+                                        }
+                                    }
+                                    return;
+                                }
+                            };
 
                             let output = tokio::time::timeout(
                                 std::time::Duration::from_secs(300),
@@ -256,7 +304,8 @@ where
                                 },
                                 Err(_elapsed) => ExecRespPayload {
                                     stdout: String::new(),
-                                    stderr: "command execution timed out (300s) on agent".to_string(),
+                                    stderr: "command execution timed out (300s) on agent"
+                                        .to_string(),
                                     exit_code: -1,
                                 },
                             };
@@ -275,7 +324,8 @@ where
                                 let _ = tokio::time::timeout(
                                     Duration::from_secs(10),
                                     ws_tx_hi_clone.send(resp_msg),
-                                ).await;
+                                )
+                                .await;
                             }
                         });
                     }
@@ -295,14 +345,16 @@ where
                             }
                             // Add small random noise to pong payload (0-16 bytes)
                             let noise_len = (rand::random::<u8>() % 17) as usize;
-                            let noise: Vec<u8> = (0..noise_len).map(|_| rand::random::<u8>()).collect();
+                            let noise: Vec<u8> =
+                                (0..noise_len).map(|_| rand::random::<u8>()).collect();
                             let pong = WsFrame {
                                 msg_type: "pong".to_string(),
                                 id: pong_id,
                                 payload: if noise.is_empty() {
                                     None
                                 } else {
-                                    let hex: String = noise.iter().map(|b| format!("{:02x}", b)).collect();
+                                    let hex: String =
+                                        noise.iter().map(|b| format!("{:02x}", b)).collect();
                                     Some(serde_json::json!({ "n": hex }))
                                 },
                             };
@@ -321,7 +373,8 @@ where
                                 let _ = tokio::time::timeout(
                                     Duration::from_secs(5),
                                     ws_tx_pong.send(pong_msg),
-                                ).await;
+                                )
+                                .await;
                             }
                         });
                     }
@@ -340,11 +393,20 @@ where
                                 let _permit = match permits.try_acquire_owned() {
                                     Ok(p) => p,
                                     Err(_) => {
-                                        warn!("tunnel permit exhausted, dropping tunnel_open frame");
+                                        warn!(
+                                            "tunnel permit exhausted, dropping tunnel_open frame"
+                                        );
+                                        reject_tunnel_open(
+                                            payload_val,
+                                            hi_clone,
+                                            "tunnel permit exhausted",
+                                        )
+                                        .await;
                                         return;
                                     }
                                 };
-                                handle_tunnel_open(payload_val, hi_clone, lo_clone, sess_clone).await;
+                                handle_tunnel_open(payload_val, hi_clone, lo_clone, sess_clone)
+                                    .await;
                             });
                         }
                     }
@@ -374,25 +436,50 @@ where
                                     let close_frame = WsFrame {
                                         msg_type: "shell_close".to_string(),
                                         id: Some(req_id),
-                                        payload: Some(serde_json::json!({ "reason": "shell permit exhausted" })),
+                                        payload: Some(
+                                            serde_json::json!({ "reason": "shell permit exhausted" }),
+                                        ),
                                     };
                                     if let Ok(text) = serde_json::to_string(&close_frame) {
-                                        let _ = ws_tx_hi_clone.try_send(Message::Text(text.into()));
+                                        let msg = Message::Text(text.into());
+                                        if ws_tx_hi_clone.try_send(msg.clone()).is_err() {
+                                            let _ = tokio::time::timeout(
+                                                Duration::from_secs(5),
+                                                ws_tx_hi_clone.send(msg),
+                                            )
+                                            .await;
+                                        }
                                     }
                                     return;
                                 }
                             };
-                            if let Err(err) = open_shell_session(req_id.clone(), payload, ws_tx_hi_clone.clone(), shell_sessions_clone).await {
+                            if let Err(err) = open_shell_session(
+                                req_id.clone(),
+                                payload,
+                                ws_tx_hi_clone.clone(),
+                                shell_sessions_clone,
+                            )
+                            .await
+                            {
                                 warn!(error = %err, "failed to open shell session");
                                 // Tell the controller immediately. Otherwise StartShell() has already
                                 // returned successfully and the browser terminal waits forever.
                                 let close_frame = WsFrame {
                                     msg_type: "shell_close".to_string(),
                                     id: Some(req_id),
-                                    payload: Some(serde_json::json!({ "reason": format!("failed to open shell session: {}", err) })),
+                                    payload: Some(
+                                        serde_json::json!({ "reason": format!("failed to open shell session: {}", err) }),
+                                    ),
                                 };
                                 if let Ok(text) = serde_json::to_string(&close_frame) {
-                                    let _ = ws_tx_hi_clone.try_send(Message::Text(text.into()));
+                                    let msg = Message::Text(text.into());
+                                    if ws_tx_hi_clone.try_send(msg.clone()).is_err() {
+                                        let _ = tokio::time::timeout(
+                                            Duration::from_secs(5),
+                                            ws_tx_hi_clone.send(msg),
+                                        )
+                                        .await;
+                                    }
                                 }
                             }
                         });
@@ -400,12 +487,16 @@ where
                     "shell_data" => {
                         let req_id = frame.id.clone().unwrap_or_default();
                         if let Some(payload_val) = frame.payload {
-                            if let Ok(payload) = serde_json::from_value::<ShellDataPayload>(payload_val) {
+                            if let Ok(payload) =
+                                serde_json::from_value::<ShellDataPayload>(payload_val)
+                            {
                                 // Send data to the session's dedicated stdin writer task.
                                 // The channel preserves FIFO order, so stdin bytes always
                                 // arrive in the same order as WebSocket frames — unlike
                                 // spawning a new task per frame which allows out-of-order writes.
-                                if let Some(handle) = shell_sessions.lock().await.get(&req_id).cloned() {
+                                if let Some(handle) =
+                                    shell_sessions.lock().await.get(&req_id).cloned()
+                                {
                                     let data = payload.data.into_bytes();
                                     // Non-blocking try_send; fall back to short-timeout send
                                     // to avoid stalling the WS read loop on a full channel.
@@ -415,7 +506,8 @@ where
                                             let _ = tokio::time::timeout(
                                                 Duration::from_secs(3),
                                                 tx.send(data),
-                                            ).await;
+                                            )
+                                            .await;
                                         });
                                     }
                                 }
@@ -425,11 +517,20 @@ where
                     "shell_resize" => {
                         let req_id = frame.id.clone().unwrap_or_default();
                         if let Some(payload_val) = frame.payload {
-                            if let Ok(payload) = serde_json::from_value::<ShellResizePayload>(payload_val) {
-                                if let Some(handle) = shell_sessions.lock().await.get(&req_id).cloned() {
+                            if let Ok(payload) =
+                                serde_json::from_value::<ShellResizePayload>(payload_val)
+                            {
+                                if let Some(handle) =
+                                    shell_sessions.lock().await.get(&req_id).cloned()
+                                {
                                     let cols = payload.cols.unwrap_or(80);
                                     let rows = payload.rows.unwrap_or(24);
-                                    pty_resize(handle.master.as_raw_fd(), handle.child_pid, cols, rows);
+                                    pty_resize(
+                                        handle.master.as_raw_fd(),
+                                        handle.child_pid,
+                                        cols,
+                                        rows,
+                                    );
                                 }
                             }
                         }
@@ -455,31 +556,41 @@ where
                         let id = frame.id;
                         let payload = frame.payload;
                         let tx = ws_tx_hi.clone();
-                        tokio::spawn(async move { crate::fm::handle_fm_list(id, payload, tx).await; });
+                        tokio::spawn(async move {
+                            crate::fm::handle_fm_list(id, payload, tx).await;
+                        });
                     }
                     "fm_download" => {
                         let id = frame.id;
                         let payload = frame.payload;
                         let tx = ws_tx_hi.clone();
-                        tokio::spawn(async move { crate::fm::handle_fm_download(id, payload, tx).await; });
+                        tokio::spawn(async move {
+                            crate::fm::handle_fm_download(id, payload, tx).await;
+                        });
                     }
                     "fm_upload" => {
                         let id = frame.id;
                         let payload = frame.payload;
                         let tx = ws_tx_hi.clone();
-                        tokio::spawn(async move { crate::fm::handle_fm_upload(id, payload, tx).await; });
+                        tokio::spawn(async move {
+                            crate::fm::handle_fm_upload(id, payload, tx).await;
+                        });
                     }
                     "fm_delete" => {
                         let id = frame.id;
                         let payload = frame.payload;
                         let tx = ws_tx_hi.clone();
-                        tokio::spawn(async move { crate::fm::handle_fm_delete(id, payload, tx).await; });
+                        tokio::spawn(async move {
+                            crate::fm::handle_fm_delete(id, payload, tx).await;
+                        });
                     }
                     "fm_mkdir" => {
                         let id = frame.id;
                         let payload = frame.payload;
                         let tx = ws_tx_hi.clone();
-                        tokio::spawn(async move { crate::fm::handle_fm_mkdir(id, payload, tx).await; });
+                        tokio::spawn(async move {
+                            crate::fm::handle_fm_mkdir(id, payload, tx).await;
+                        });
                     }
                     other => {
                         info!(msg_type = %other, "received unhandled frame type");
@@ -492,7 +603,7 @@ where
             }
             Message::Ping(data) => {
                 // Protocol-level pong: non-blocking send to avoid deadlock.
-                let pong_msg = Message::Pong(data);
+                let pong_msg = Message::Pong(data.clone());
                 if ws_tx_hi.try_send(pong_msg).is_err() {
                     // Channel closed or full — spawn a one-shot task with
                     // a short timeout so the read loop stays unblocked.
@@ -500,7 +611,7 @@ where
                     tokio::spawn(async move {
                         let _ = tokio::time::timeout(
                             Duration::from_secs(5),
-                            tx.send(Message::Pong(vec![])),
+                            tx.send(Message::Pong(data)),
                         )
                         .await;
                     });

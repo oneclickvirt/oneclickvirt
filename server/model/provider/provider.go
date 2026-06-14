@@ -202,6 +202,7 @@ type Provider struct {
 	PortRangeStart    int    `json:"portRangeStart" gorm:"default:10000"`                  // 端口映射范围起始
 	PortRangeEnd      int    `json:"portRangeEnd" gorm:"default:65535"`                    // 端口映射范围结束
 	NextAvailablePort int    `json:"nextAvailablePort" gorm:"default:10000"`               // 下一个可用端口
+	FixedPorts        []int  `json:"fixedPorts" gorm:"serializer:json;type:text"`          // 固定实例内端口，宿主机端口仍从端口池分配；22 强制保留
 	NetworkType       string `json:"networkType" gorm:"default:nat_ipv4;size:32;not null"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
 
 	// 带宽配置（Mbps为单位）
@@ -364,7 +365,17 @@ func (p *Provider) BeforeCreate(tx *gorm.DB) error {
 	if p.GpuInfo == "" {
 		p.GpuInfo = "[]"
 	}
+	if len(p.FixedPorts) == 0 {
+		p.FixedPorts = []int{22}
+	}
 
+	return nil
+}
+
+func (p *Provider) BeforeSave(tx *gorm.DB) error {
+	if len(p.FixedPorts) == 0 {
+		p.FixedPorts = []int{22}
+	}
 	return nil
 }
 
@@ -639,6 +650,7 @@ type ProviderNodeConfig struct {
 	SSHExecuteTimeout     int      `json:"ssh_execute_timeout"` // SSH命令执行超时时间（秒）
 	ExecutionRule         string   `json:"execution_rule"`      // 操作轮转规则：auto, api_only, ssh_only
 	NetworkType           string   `json:"networkType"`         // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	FixedPorts            []int    `json:"fixedPorts"`          // 固定实例内端口，22 强制保留
 	StoragePool           string   `json:"storagePool"`         // 存储池名称；VMware 等本地虚拟化类型可作为实例目录路径使用
 	StoragePoolPath       string   `json:"storagePoolPath"`     // 存储池实际挂载路径，优先级高于 StoragePool
 	// Proxmox 网桥配置（third_party 安装类型时生效）

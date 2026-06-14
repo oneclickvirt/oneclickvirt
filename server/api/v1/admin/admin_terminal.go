@@ -16,8 +16,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"oneclickvirt/global"
@@ -28,6 +31,7 @@ import (
 	agentService "oneclickvirt/service/agent"
 	remoteService "oneclickvirt/service/remote"
 
+	"github.com/creack/pty"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
@@ -138,6 +142,9 @@ func AdminProviderTerminal(c *gin.Context) {
 	} else if dbProvider.ConnectionType == "ssh" {
 		global.APP_LOG.Debug("使用SSH模式连接Provider", zap.Uint("providerID", providerID))
 		handleSSHTerminal(ws, &dbProvider, ctx)
+	} else if dbProvider.ConnectionType == "local" {
+		global.APP_LOG.Debug("使用本机模式连接Provider", zap.Uint("providerID", providerID))
+		handleLocalTerminal(ws, &dbProvider, ctx)
 	} else {
 		global.APP_LOG.Warn("Provider连接类型未设置或不合法，默认使用SSH",
 			zap.Uint("providerID", providerID),
@@ -257,9 +264,9 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 	}
 
 	// 确保会话最终被关闭（使用 safeClose 防止重复关闭 panic）
-	sessionClosed := false
+	var sessionClosed atomic.Bool
 	defer func() {
-		if !sessionClosed {
+		if !sessionClosed.Load() {
 			conn.CloseShell(session.ID)
 		}
 	}()
@@ -321,7 +328,7 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 					// OutputCh closed means safeClose() has flushed all buffered
 					// data.  Only treat session as closed here, not on DoneCh,
 					// to avoid losing the last bytes still queued in OutputCh.
-					sessionClosed = true
+					sessionClosed.Store(true)
 					cancel()
 					return
 				}
@@ -341,6 +348,120 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 	// stdin goroutine 可能阻塞在 ws.ReadMessage()，不设置读超时则 wg.Wait() 永久挂起。
 	// 同理，当管理员切换到同一 Provider 的新终端时，父上下文取消会触发此路径。
 	_ = ws.SetReadDeadline(time.Now())
+	wg.Wait()
+}
+
+// ── 本机模式终端 ────────────────────────────────────────────────────────────
+
+func handleLocalTerminal(ws *websocket.Conn, p *providerModel.Provider, parentCtx context.Context) {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, shell)
+	cmd.Env = append(os.Environ(),
+		"TERM=xterm-256color",
+		fmt.Sprintf("OCV_PROVIDER_ID=%d", p.ID),
+		fmt.Sprintf("OCV_PROVIDER_NAME=%s", p.Name),
+	)
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte("启动本机 Shell 失败: "+err.Error()+"\r\n"))
+		return
+	}
+
+	cmdDone := make(chan error, 1)
+	go func() {
+		cmdDone <- cmd.Wait()
+	}()
+	processExited := false
+
+	cleanup := func() {
+		_ = ptmx.Close()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		if !processExited {
+			select {
+			case <-cmdDone:
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+	defer cleanup()
+
+	writer := newWsWriter(ws)
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			_, msg, err := ws.ReadMessage()
+			if err != nil {
+				cancel()
+				return
+			}
+			var resize struct {
+				Type string `json:"type"`
+				Cols int    `json:"cols"`
+				Rows int    `json:"rows"`
+			}
+			if json.Unmarshal(msg, &resize) == nil && resize.Type == "resize" {
+				if resize.Cols > 0 && resize.Rows > 0 {
+					_ = pty.Setsize(ptmx, &pty.Winsize{Rows: uint16(resize.Rows), Cols: uint16(resize.Cols)})
+				}
+				continue
+			}
+			var pingMsg struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(msg, &pingMsg) == nil && pingMsg.Type == "ping" {
+				continue
+			}
+			if _, err := ptmx.Write(msg); err != nil {
+				cancel()
+				return
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		buf := make([]byte, 8192)
+		for {
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				if werr := writer.writeSafe(ctx, websocket.BinaryMessage, buf[:n]); werr != nil {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+	case <-cmdDone:
+		processExited = true
+		cancel()
+	}
+
+	_ = ws.SetReadDeadline(time.Now())
+	_ = ptmx.Close()
 	wg.Wait()
 }
 

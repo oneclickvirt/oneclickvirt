@@ -144,6 +144,7 @@ func (s *ProviderApiService) GetProviderStatusByID(providerIDStr string) (map[st
 		"portRangeStart":        dbProvider.PortRangeStart,
 		"portRangeEnd":          dbProvider.PortRangeEnd,
 		"defaultPortCount":      dbProvider.DefaultPortCount,
+		"fixedPorts":            dbProvider.FixedPorts,
 		"ipv4PortMappingMethod": ipv4Method,
 		"ipv6PortMappingMethod": ipv6Method,
 		"maxTraffic":            dbProvider.MaxTraffic,

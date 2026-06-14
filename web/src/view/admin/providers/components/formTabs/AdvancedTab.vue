@@ -380,6 +380,84 @@
       <span style="margin-left: 10px; color: #666;">{{ $t('common.days') }}</span>
     </el-form-item>
 
+    <!-- WebVNC 设置 -->
+    <el-divider content-position="left">
+      <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.webVncSettings') }}</span>
+    </el-divider>
+
+    <el-form-item
+      :label="$t('admin.providers.enableVNC')"
+      prop="enableVNC"
+    >
+      <el-switch
+        v-model="modelValue.enableVNC"
+        :active-text="$t('common.yes')"
+        :inactive-text="$t('common.no')"
+      />
+    </el-form-item>
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.enableVNCTip') }}
+      </el-text>
+    </div>
+
+    <template v-if="modelValue.enableVNC">
+      <el-form-item
+        :label="$t('admin.providers.vncBasePort')"
+        prop="vncBasePort"
+      >
+        <el-input-number
+          v-model="modelValue.vncBasePort"
+          :min="1"
+          :max="65535"
+          :step="1"
+          :controls="false"
+          placeholder="5900"
+          style="width: 200px"
+        />
+      </el-form-item>
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.vncBasePortTip') }}
+        </el-text>
+      </div>
+
+      <el-form-item
+        :label="$t('admin.providers.vncHost')"
+        prop="vncHost"
+      >
+        <el-input
+          v-model="modelValue.vncHost"
+          :placeholder="$t('admin.providers.vncHostPlaceholder')"
+          clearable
+          style="width: 400px"
+        />
+      </el-form-item>
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.vncHostTip') }}
+        </el-text>
+      </div>
+    </template>
+
     <!-- 域名反向代理设置 -->
     <el-divider content-position="left">
       <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.domainProxy') }}</span>

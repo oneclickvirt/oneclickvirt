@@ -21,7 +21,7 @@ const (
 	tunnelSessionIdleTimeout = 5 * time.Minute
 	tunnelKeepaliveInterval  = 30 * time.Second
 	tunnelOpenAckAttempts    = 2
-	tunnelOpenAckTimeout     = 5 * time.Second
+	tunnelOpenAckTimeout     = 20 * time.Second
 	tunnelOpenRetryBackoff   = 200 * time.Millisecond
 )
 

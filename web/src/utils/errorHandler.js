@@ -23,6 +23,7 @@ export const errorHandler = {
       404: t('errors.notFound'),
       409: t('errors.conflict'),
       413: t('common.requestTooLarge'),
+      429: t('errors.tooManyRequests'),
       500: t('errors.internalError'),
       502: t('errors.externalApiFailed'),
       503: t('errors.databaseError')
@@ -63,7 +64,7 @@ export const errorHandler = {
 
       // 特殊错误码处理
       if (autoRedirect) {
-        this.handleSpecialErrorCodes(code, message, details)
+        this.handleSpecialErrorCodes(code, message)
       }
     } 
     // 处理网络错误或其他错误
@@ -101,7 +102,7 @@ export const errorHandler = {
    * @param {string} message - 错误消息
    * @param {string} details - 错误详情
    */
-  handleSpecialErrorCodes(code, message, details) {
+  handleSpecialErrorCodes(code, message) {
     const userStore = useUserStore()
     const currentRoute = router.currentRoute.value
 
@@ -179,7 +180,7 @@ export const errorHandler = {
         type
       })
       return true
-    } catch (error) {
+    } catch {
       return false
     }
   },

@@ -286,10 +286,12 @@ export function useTaskManagement() {
   const getTaskTypeText = (type) => {
     const typeMap = {
       'create': t('admin.tasks.taskTypeCreate'),
+      'create_instance': t('admin.tasks.taskTypeCreateInstance'),
       'start': t('admin.tasks.taskTypeStart'),
       'stop': t('admin.tasks.taskTypeStop'),
       'restart': t('admin.tasks.taskTypeRestart'),
       'reset': t('admin.tasks.taskTypeReset'),
+      'rebuild': t('admin.tasks.taskTypeRebuild'),
       'delete': t('admin.tasks.taskTypeDelete'),
       'reset-password': t('admin.tasks.taskTypeResetPassword'),
       'create-port-mapping': t('admin.tasks.taskTypeCreatePortMapping'),
@@ -298,7 +300,14 @@ export function useTaskManagement() {
       'create_redemption_instance': t('admin.tasks.taskTypeCreateRedemptionInstance'),
       'snapshot-create': t('admin.tasks.taskTypeSnapshotCreate'),
       'snapshot-delete': t('admin.tasks.taskTypeSnapshotDelete'),
-      'snapshot-restore': t('admin.tasks.taskTypeSnapshotRestore')
+      'snapshot-restore': t('admin.tasks.taskTypeSnapshotRestore'),
+      'monitor-sync': t('admin.tasks.taskTypeMonitorSync'),
+      'agent-deploy': t('admin.tasks.taskTypeAgentDeploy'),
+      'agent-uninstall': t('admin.tasks.taskTypeAgentUninstall'),
+      'traffic-monitor-enable': t('admin.tasks.taskTypeTrafficMonitorEnable'),
+      'traffic-monitor-disable': t('admin.tasks.taskTypeTrafficMonitorDisable'),
+      'traffic-monitor-detect': t('admin.tasks.taskTypeTrafficMonitorDetect'),
+      'provider-image-cleanup': t('admin.tasks.taskTypeProviderImageCleanup')
     }
     return typeMap[type] || type
   }

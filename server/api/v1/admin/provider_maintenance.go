@@ -20,11 +20,10 @@ import (
 )
 
 func buildInstanceVNCInfo(instanceID uint, userID uint, admin bool) (gin.H, error) {
-	host, port, err := resolveInstanceVNCTarget(instanceID, userID, admin)
-	if err != nil {
+	if _, _, err := resolveInstanceVNCTarget(instanceID, userID, admin); err != nil {
 		return gin.H{"enabled": false, "reason": err.Error()}, nil
 	}
-	return gin.H{"enabled": true, "host": host, "port": port}, nil
+	return gin.H{"enabled": true}, nil
 }
 
 func resolveInstanceVNCTarget(instanceID uint, userID uint, admin bool) (string, int, error) {
@@ -142,7 +141,6 @@ func proxyVNCWebSocket(c *gin.Context, host string, port int) {
 		defer cancel()
 		buf := make([]byte, 32768)
 		for {
-			_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 			n, err := conn.Read(buf)
 			if n > 0 {
 				if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {

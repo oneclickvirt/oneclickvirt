@@ -127,6 +127,13 @@ export function adminDeleteDomain(id) {
   })
 }
 
+export function adminSyncDomainProxies() {
+  return request({
+    url: '/v1/admin/domains/sync-proxies',
+    method: 'post'
+  })
+}
+
 export function getDomainConfig(providerId) {
   return request({
     url: `/v1/admin/providers/${providerId}/domain-config`,

@@ -52,7 +52,7 @@ func CreateUserInstanceSnapshot(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	result, err := service.StartCreateSnapshotTaskForUser(instanceID, req, userID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, result, "快照创建任务已提交")
@@ -71,7 +71,7 @@ func DeleteUserSnapshot(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	result, err := service.StartDeleteSnapshotTaskForUser(snapshotID, userID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, result, "快照删除任务已提交")
@@ -90,7 +90,7 @@ func RestoreUserSnapshot(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	result, err := service.StartRestoreSnapshotTaskForUser(snapshotID, userID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, result, "快照恢复任务已提交")
@@ -114,7 +114,7 @@ func DownloadUserSnapshot(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	payload, filename, err := service.BuildSnapshotDownloadManifest(snapshotID, userID, 0)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
