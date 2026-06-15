@@ -5,6 +5,7 @@ import (
 	"net"
 	"regexp"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	domainModel "oneclickvirt/model/domain"
@@ -18,6 +19,39 @@ import (
 
 // Service 域名绑定服务
 type Service struct{}
+
+type AdminDomainListRequest struct {
+	Page       int
+	PageSize   int
+	Keyword    string
+	Status     string
+	UserID     uint
+	ProviderID uint
+	InstanceID uint
+}
+
+type AdminDomainListItem struct {
+	ID           uint       `json:"id" gorm:"column:id"`
+	CreatedAt    time.Time  `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt    time.Time  `json:"updatedAt" gorm:"column:updated_at"`
+	UserID       uint       `json:"userId" gorm:"column:user_id"`
+	Username     string     `json:"username" gorm:"column:username"`
+	UserNickname string     `json:"userNickname" gorm:"column:user_nickname"`
+	InstanceID   uint       `json:"instanceId" gorm:"column:instance_id"`
+	InstanceName string     `json:"instanceName" gorm:"column:instance_name"`
+	ProviderID   uint       `json:"providerId" gorm:"column:provider_id"`
+	ProviderName string     `json:"providerName" gorm:"column:provider_name"`
+	ProviderType string     `json:"providerType" gorm:"column:provider_type"`
+	DomainName   string     `json:"domainName" gorm:"column:domain_name"`
+	Protocol     string     `json:"protocol" gorm:"column:protocol"`
+	InternalIP   string     `json:"internalIP" gorm:"column:internal_ip"`
+	InternalPort int        `json:"internalPort" gorm:"column:internal_port"`
+	EnableSSL    bool       `json:"enableSSL" gorm:"column:enable_ssl"`
+	HasCert      bool       `json:"hasCert" gorm:"column:has_cert"`
+	Status       string     `json:"status" gorm:"column:status"`
+	ErrorMsg     string     `json:"errorMsg" gorm:"column:error_msg"`
+	ExpiresAt    *time.Time `json:"expiresAt" gorm:"column:expires_at"`
+}
 
 var domainRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
 
@@ -382,6 +416,95 @@ func (s *Service) AdminGetAllDomains(ownerAdminID uint) ([]domainModel.Domain, e
 	return domains, err
 }
 
+func (s *Service) AdminGetDomainList(ownerAdminID uint, req AdminDomainListRequest) ([]AdminDomainListItem, int64, error) {
+	var domains []AdminDomainListItem
+	var total int64
+
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	if req.PageSize <= 0 {
+		req.PageSize = 10
+	}
+
+	query := global.APP_DB.Table("domains AS d").
+		Joins("LEFT JOIN users AS u ON u.id = d.user_id").
+		Joins("LEFT JOIN instances AS i ON i.id = d.instance_id").
+		Joins("LEFT JOIN providers AS p ON p.id = d.provider_id")
+
+	if ownerAdminID > 0 {
+		query = query.Where("p.owner_admin_id = ?", ownerAdminID)
+	}
+	if req.UserID > 0 {
+		query = query.Where("d.user_id = ?", req.UserID)
+	}
+	if req.ProviderID > 0 {
+		query = query.Where("d.provider_id = ?", req.ProviderID)
+	}
+	if req.InstanceID > 0 {
+		query = query.Where("d.instance_id = ?", req.InstanceID)
+	}
+	if req.Status != "" {
+		query = query.Where("d.status = ?", req.Status)
+	}
+	if req.Keyword != "" {
+		keyword := "%" + strings.TrimSpace(req.Keyword) + "%"
+		query = query.Where(
+			"d.domain_name LIKE ? OR d.internal_ip LIKE ? OR u.username LIKE ? OR u.nickname LIKE ? OR i.name LIKE ? OR p.name LIKE ?",
+			keyword, keyword, keyword, keyword, keyword, keyword,
+		)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	offset := (req.Page - 1) * req.PageSize
+	err := query.Select(`
+			d.id,
+			d.created_at,
+			d.updated_at,
+			d.user_id,
+			COALESCE(u.username, '') AS username,
+			COALESCE(u.nickname, '') AS user_nickname,
+			d.instance_id,
+			COALESCE(i.name, '') AS instance_name,
+			d.provider_id,
+			COALESCE(p.name, '') AS provider_name,
+			COALESCE(p.type, '') AS provider_type,
+			d.domain_name,
+			d.protocol,
+			d.internal_ip,
+			d.internal_port,
+			d.enable_ssl,
+			d.has_cert,
+			d.status,
+			d.error_msg,
+			d.expires_at
+		`).
+		Order("d.created_at DESC, d.id DESC").
+		Offset(offset).
+		Limit(req.PageSize).
+		Scan(&domains).Error
+	return domains, total, err
+}
+
+func (s *Service) ensureAdminCanAccessDomain(domain *domainModel.Domain, ownerAdminID uint) error {
+	if ownerAdminID == 0 {
+		return nil
+	}
+	var count int64
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ? AND owner_admin_id = ?", domain.ProviderID, ownerAdminID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("无权操作该域名")
+	}
+	return nil
+}
+
 // AdminDeleteDomain 管理员删除域名
 // ownerAdminID > 0 时校验域名所在节点是否属于该管理员（普通管理员隔离）
 func (s *Service) AdminDeleteDomain(domainID, ownerAdminID uint) error {
@@ -389,15 +512,8 @@ func (s *Service) AdminDeleteDomain(domainID, ownerAdminID uint) error {
 	if err := global.APP_DB.First(&domain, domainID).Error; err != nil {
 		return fmt.Errorf("域名不存在")
 	}
-	// 普通管理员只能删除自己节点的域名
-	if ownerAdminID > 0 {
-		var count int64
-		global.APP_DB.Model(&providerModel.Provider{}).
-			Where("id = ? AND owner_admin_id = ?", domain.ProviderID, ownerAdminID).
-			Count(&count)
-		if count == 0 {
-			return fmt.Errorf("无权删除该域名")
-		}
+	if err := s.ensureAdminCanAccessDomain(&domain, ownerAdminID); err != nil {
+		return err
 	}
 	if err := removeDomainProxy(&domain); err != nil {
 		global.APP_LOG.Warn("管理员从Agent移除域名代理失败",
@@ -406,6 +522,152 @@ func (s *Service) AdminDeleteDomain(domainID, ownerAdminID uint) error {
 	}
 	// 硬删除：确保域名可被重新注册
 	return global.APP_DB.Delete(&domain).Error
+}
+
+func (s *Service) AdminUpdateDomain(domainID, ownerAdminID uint, req *AdminUpdateDomainRequest) error {
+	var domain domainModel.Domain
+	if err := global.APP_DB.First(&domain, domainID).Error; err != nil {
+		return fmt.Errorf("域名不存在")
+	}
+	if err := s.ensureAdminCanAccessDomain(&domain, ownerAdminID); err != nil {
+		return err
+	}
+
+	oldDomain := domain
+	updates := map[string]interface{}{}
+	targetProviderID := domain.ProviderID
+	providerChanged := false
+
+	if req.InstanceID > 0 && req.InstanceID != domain.InstanceID {
+		var instance providerModel.Instance
+		if err := global.APP_DB.First(&instance, req.InstanceID).Error; err != nil {
+			return fmt.Errorf("实例不存在")
+		}
+		if ownerAdminID > 0 {
+			var providerCount int64
+			if err := global.APP_DB.Model(&providerModel.Provider{}).
+				Where("id = ? AND owner_admin_id = ?", instance.ProviderID, ownerAdminID).
+				Count(&providerCount).Error; err != nil {
+				return err
+			}
+			if providerCount == 0 {
+				return fmt.Errorf("无权绑定到该实例")
+			}
+		}
+		targetProviderID = instance.ProviderID
+		providerChanged = targetProviderID != domain.ProviderID
+		updates["instance_id"] = instance.ID
+		updates["provider_id"] = instance.ProviderID
+		updates["user_id"] = instance.UserID
+	}
+
+	domainName := normalizeDomainName(req.DomainName)
+	domainNameChanged := domainName != "" && domainName != domain.DomainName
+	if domainNameChanged {
+		if !domainRegex.MatchString(domainName) {
+			return fmt.Errorf("域名格式无效")
+		}
+		if len(domainName) > 253 {
+			return fmt.Errorf("域名长度不能超过253个字符")
+		}
+		var existing int64
+		if err := global.APP_DB.Model(&domainModel.Domain{}).
+			Where("domain_name = ? AND id <> ?", domainName, domain.ID).
+			Count(&existing).Error; err != nil {
+			return fmt.Errorf("查询域名唯一性失败: %w", err)
+		}
+		if existing > 0 {
+			return fmt.Errorf("该域名已被绑定")
+		}
+		updates["domain_name"] = domainName
+	}
+
+	if domainNameChanged || providerChanged {
+		config, err := s.GetDomainConfig(targetProviderID)
+		if err != nil {
+			return fmt.Errorf("读取节点域名配置失败: %w", err)
+		}
+		if !config.Enabled {
+			return fmt.Errorf("该节点域名绑定未启用")
+		}
+		nameForSuffixCheck := domain.DomainName
+		if domainNameChanged {
+			nameForSuffixCheck = domainName
+		}
+		if !domainMatchesAllowedSuffix(nameForSuffixCheck, config.AllowedSuffixes) {
+			return fmt.Errorf("不允许绑定此后缀的域名")
+		}
+	}
+
+	if req.InternalIP != "" {
+		internalIP := strings.TrimSpace(req.InternalIP)
+		if net.ParseIP(internalIP) == nil {
+			return fmt.Errorf("内部IP格式无效")
+		}
+		updates["internal_ip"] = internalIP
+	}
+	if req.InternalPort < 0 || req.InternalPort > 65535 {
+		return fmt.Errorf("端口范围无效")
+	}
+	if req.InternalPort > 0 {
+		updates["internal_port"] = req.InternalPort
+	}
+	if req.Protocol != "" {
+		protocol, err := normalizeProtocol(req.Protocol)
+		if err != nil {
+			return err
+		}
+		updates["protocol"] = protocol
+	}
+	if req.EnableSSL != nil {
+		updates["enable_ssl"] = *req.EnableSSL
+	}
+	if req.ClearCert {
+		updates["ssl_cert_content"] = ""
+		updates["ssl_key_content"] = ""
+		updates["has_cert"] = false
+	} else if req.SSLCertContent != "" || req.SSLKeyContent != "" {
+		if req.SSLCertContent == "" || req.SSLKeyContent == "" {
+			return fmt.Errorf("SSL证书和私钥必须同时填写")
+		}
+		updates["ssl_cert_content"] = req.SSLCertContent
+		updates["ssl_key_content"] = req.SSLKeyContent
+		updates["has_cert"] = true
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	if err := global.APP_DB.Model(&domain).Updates(updates).Error; err != nil {
+		return err
+	}
+	if err := global.APP_DB.First(&domain, domain.ID).Error; err != nil {
+		return err
+	}
+	if oldDomain.DomainName != domain.DomainName || oldDomain.ProviderID != domain.ProviderID {
+		if err := removeDomainProxy(&oldDomain); err != nil {
+			global.APP_LOG.Warn("管理员更新域名时移除旧代理失败",
+				zap.String("domain", oldDomain.DomainName),
+				zap.Error(err))
+		}
+	}
+	if err := applyDomainProxy(&domain); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Service) AdminSyncDomainProxy(domainID, ownerAdminID uint) error {
+	var domain domainModel.Domain
+	if err := global.APP_DB.First(&domain, domainID).Error; err != nil {
+		return fmt.Errorf("域名不存在")
+	}
+	if err := s.ensureAdminCanAccessDomain(&domain, ownerAdminID); err != nil {
+		return err
+	}
+	return applyDomainProxy(&domain)
 }
 
 // GetDomainConfig 获取节点域名配置
@@ -566,6 +828,18 @@ type UpdateDomainRequest struct {
 	EnableSSL      bool   `json:"enableSSL"`
 	SSLCertContent string `json:"sslCertContent"`
 	SSLKeyContent  string `json:"sslKeyContent"`
+}
+
+type AdminUpdateDomainRequest struct {
+	InstanceID     uint   `json:"instanceId"`
+	DomainName     string `json:"domainName"`
+	InternalIP     string `json:"internalIP"`
+	InternalPort   int    `json:"internalPort"`
+	Protocol       string `json:"protocol"`
+	EnableSSL      *bool  `json:"enableSSL"`
+	SSLCertContent string `json:"sslCertContent"`
+	SSLKeyContent  string `json:"sslKeyContent"`
+	ClearCert      bool   `json:"clearCert"`
 }
 
 type UpdateDomainConfigRequest struct {

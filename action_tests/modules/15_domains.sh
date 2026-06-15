@@ -13,7 +13,7 @@ run_module_15() {
     if [[ -n "$PROVIDER_ID" ]]; then
         test_api "Get domain config" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/domain-config" "200" "" "$group"
         test_api "Update domain config" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/domain-config" "200" \
-            '{"enabled":true,"base_domain":"test.example.com"}' "$group"
+            '{"enabled":true,"maxDomainsPerUser":3,"dnsType":"hosts","allowedSuffixes":".example.com"}' "$group"
     fi
 
     # -- User domains --
@@ -38,7 +38,7 @@ run_module_15() {
         # -- Edit domain --
         if [[ -n "$did1" ]]; then
             test_api "Edit user domain" "PUT" "/api/v1/user/domains/${did1}" "200" \
-                '{"target_port":8080}' "$group" "$USER_TOKEN"
+                '{"internalPort":8080}' "$group" "$USER_TOKEN"
         fi
 
         # -- User2 cannot see user1's domain --

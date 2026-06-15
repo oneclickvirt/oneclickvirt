@@ -30,6 +30,7 @@
         :default-active="activeMenu"
         :collapse="isCollapse && !isMobile"
         :unique-opened="false"
+        :default-openeds="defaultOpeneds"
         :collapse-transition="false"
         mode="vertical"
         active-text-color="#16a34a"
@@ -61,7 +62,7 @@
 
 <script setup>
 import { computed, onMounted, watch, nextTick, inject, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/pinia/modules/user'
 import { HomeFilled, Expand, Fold } from '@element-plus/icons-vue'
@@ -70,7 +71,6 @@ import { useSiteStore } from '@/pinia/modules/site'
 import { useFeatureStore } from '@/pinia/modules/feature'
 
 const route = useRoute()
-const router = useRouter()
 const { t, locale } = useI18n()
 const userStore = useUserStore()
 const siteStore = useSiteStore()
@@ -101,11 +101,6 @@ const activeMenu = computed(() => {
   return route.path
 })
 
-// 导航函数
-const navigateTo = (path) => {
-  router.push(path)
-}
-
 // 根据用户类型获取对应的路由
 const userRoutes = computed(() => {
   // 使用 viewMode 来决定显示哪个视图的菜单
@@ -125,7 +120,7 @@ const userRoutes = computed(() => {
         path: '/user/dashboard',
         name: 'UserDashboard',
         meta: {
-          title: t('sidebar.dashboard'),
+          title: 'sidebar.dashboard',
           icon: 'Odometer'
         }
       },
@@ -133,7 +128,7 @@ const userRoutes = computed(() => {
         path: '/user/instances',
         name: 'UserInstances',
         meta: {
-          title: t('sidebar.myInstances'),
+          title: 'sidebar.myInstances',
           icon: 'Box'
         }
       },
@@ -141,7 +136,7 @@ const userRoutes = computed(() => {
         path: '/user/apply',
         name: 'UserApply',
         meta: {
-          title: t('sidebar.apply'),
+          title: 'sidebar.apply',
           icon: 'Plus'
         }
       },
@@ -149,7 +144,7 @@ const userRoutes = computed(() => {
         path: '/user/tasks',
         name: 'UserTasks',
         meta: {
-          title: t('sidebar.taskList'),
+          title: 'sidebar.taskList',
           icon: 'List'
         }
       },
@@ -157,7 +152,7 @@ const userRoutes = computed(() => {
         path: '/user/profile',
         name: 'UserProfile',
         meta: {
-          title: t('sidebar.personalCenter'),
+          title: 'sidebar.personalCenter',
           icon: 'User'
         }
       },
@@ -165,7 +160,7 @@ const userRoutes = computed(() => {
         path: '/user/domain',
         name: 'UserDomain',
         meta: {
-          title: t('sidebar.domainBinding'),
+          title: 'sidebar.domainBinding',
           icon: 'Link'
         }
       },
@@ -173,7 +168,7 @@ const userRoutes = computed(() => {
         path: '/user/kyc',
         name: 'UserKYC',
         meta: {
-          title: t('sidebar.kycVerification'),
+          title: 'sidebar.kycVerification',
           icon: 'Postcard'
         }
       },
@@ -181,7 +176,7 @@ const userRoutes = computed(() => {
         path: '/user/checkin',
         name: 'UserCheckin',
         meta: {
-          title: t('sidebar.checkinRenewal'),
+          title: 'sidebar.checkinRenewal',
           icon: 'Calendar'
         }
       },
@@ -189,7 +184,7 @@ const userRoutes = computed(() => {
         path: '/user/api-tokens',
         name: 'UserApiTokens',
         meta: {
-          title: t('sidebar.apiTokenManagement'),
+          title: 'sidebar.apiTokenManagement',
           icon: 'Key'
         }
       }
@@ -197,172 +192,238 @@ const userRoutes = computed(() => {
     // 管理员路由
     admin: [
       {
-        path: '/admin/dashboard',
-        name: 'AdminDashboard',
+        path: '/admin/_overview',
+        name: 'AdminMenuOverview',
+        alwaysShow: true,
         meta: {
-          title: t('sidebar.dashboard'),
+          title: 'sidebar.groupOverview',
           icon: 'Odometer'
-        }
+        },
+        children: [
+          {
+            path: '/admin/dashboard',
+            name: 'AdminDashboard',
+            meta: {
+              title: 'sidebar.dashboard',
+              icon: 'Odometer'
+            }
+          },
+          {
+            path: '/admin/performance',
+            name: 'AdminPerformance',
+            meta: {
+              title: 'sidebar.performanceMonitoring',
+              icon: 'Histogram'
+            }
+          },
+          {
+            path: '/admin/logs',
+            name: 'AdminLogs',
+            meta: {
+              title: 'sidebar.logViewer',
+              icon: 'Document'
+            }
+          }
+        ]
       },
       {
-        path: '/admin/users',
-        name: 'AdminUsers',
+        path: '/admin/_users',
+        name: 'AdminMenuUsers',
+        alwaysShow: true,
         meta: {
-          title: t('sidebar.userManagement'),
+          title: 'sidebar.groupUsers',
           icon: 'User'
-        }
+        },
+        children: [
+          {
+            path: '/admin/users',
+            name: 'AdminUsers',
+            meta: {
+              title: 'sidebar.userManagement',
+              icon: 'User'
+            }
+          },
+          {
+            path: '/admin/invite-codes',
+            name: 'AdminInviteCodes',
+            meta: {
+              title: 'sidebar.inviteCodeManagement',
+              icon: 'Ticket'
+            }
+          },
+          {
+            path: '/admin/redemption-codes',
+            name: 'AdminRedemptionCodes',
+            meta: {
+              title: 'sidebar.redemptionCodeManagement',
+              icon: 'Discount'
+            }
+          },
+          {
+            path: '/admin/kyc',
+            name: 'AdminKYC',
+            meta: {
+              title: 'sidebar.kycManagement',
+              icon: 'Postcard'
+            }
+          }
+        ]
       },
       {
-        path: '/admin/invite-codes',
-        name: 'AdminInviteCodes',
+        path: '/admin/_resources',
+        name: 'AdminMenuResources',
+        alwaysShow: true,
         meta: {
-          title: t('sidebar.inviteCodeManagement'),
-          icon: 'Ticket'
-        }
-      },
-      {
-        path: '/admin/redemption-codes',
-        name: 'AdminRedemptionCodes',
-        meta: {
-          title: t('sidebar.redemptionCodeManagement'),
-          icon: 'Discount'
-        }
-      },
-      {
-        path: '/admin/providers',
-        name: 'AdminProviders',
-        meta: {
-          title: t('sidebar.providerManagement'),
-          icon: 'Monitor'
-        }
-      },
-      {
-        path: '/admin/group',
-        name: 'AdminGroup',
-        meta: {
-          title: t('sidebar.groupManagement'),
-          icon: 'Collection'
-        }
-      },
-      {
-        path: '/admin/tasks',
-        name: 'AdminTasks',
-        meta: {
-          title: t('sidebar.taskManagement'),
-          icon: 'List'
-        }
-      },
-      {
-        path: '/admin/instances',
-        name: 'AdminInstances',
-        meta: {
-          title: t('sidebar.instanceManagement'),
+          title: 'sidebar.groupResources',
           icon: 'Box'
-        }
+        },
+        children: [
+          {
+            path: '/admin/instances',
+            name: 'AdminInstances',
+            meta: {
+              title: 'sidebar.instanceManagement',
+              icon: 'Box'
+            }
+          },
+          {
+            path: '/admin/providers',
+            name: 'AdminProviders',
+            meta: {
+              title: 'sidebar.providerManagement',
+              icon: 'Monitor'
+            }
+          },
+          {
+            path: '/admin/group',
+            name: 'AdminGroup',
+            meta: {
+              title: 'sidebar.groupManagement',
+              icon: 'Collection'
+            }
+          },
+          {
+            path: '/admin/port-mappings',
+            name: 'AdminPortMappings',
+            meta: {
+              title: 'sidebar.portManagement',
+              icon: 'Connection'
+            }
+          },
+          {
+            path: '/admin/domain',
+            name: 'AdminDomain',
+            meta: {
+              title: 'sidebar.domainManagement',
+              icon: 'Link'
+            }
+          }
+        ]
       },
       {
-        path: '/admin/traffic',
-        name: 'AdminTraffic',
+        path: '/admin/_images',
+        name: 'AdminMenuImages',
+        alwaysShow: true,
         meta: {
-          title: t('sidebar.trafficManagement'),
-          icon: 'TrendCharts'
-        }
-      },
-      {
-        path: '/admin/port-mappings',
-        name: 'AdminPortMappings',
-        meta: {
-          title: t('sidebar.portManagement'),
-          icon: 'Connection'
-        }
-      },
-      {
-        path: '/admin/system-images',
-        name: 'AdminSystemImages',
-        meta: {
-          title: t('sidebar.systemImages'),
+          title: 'sidebar.groupImages',
           icon: 'Folder'
-        }
+        },
+        children: [
+          {
+            path: '/admin/system-images',
+            name: 'AdminSystemImages',
+            meta: {
+              title: 'sidebar.systemImages',
+              icon: 'Folder'
+            }
+          },
+          {
+            path: '/admin/snapshots',
+            name: 'AdminSnapshots',
+            meta: {
+              title: 'sidebar.snapshotManagement',
+              icon: 'Camera'
+            }
+          }
+        ]
       },
       {
-        path: '/admin/snapshots',
-        name: 'AdminSnapshots',
+        path: '/admin/_tasks',
+        name: 'AdminMenuTasks',
+        alwaysShow: true,
         meta: {
-          title: t('sidebar.snapshotManagement'),
-          icon: 'Camera'
-        }
+          title: 'sidebar.groupTasks',
+          icon: 'List'
+        },
+        children: [
+          {
+            path: '/admin/traffic',
+            name: 'AdminTraffic',
+            meta: {
+              title: 'sidebar.trafficManagement',
+              icon: 'TrendCharts'
+            }
+          },
+          {
+            path: '/admin/tasks',
+            name: 'AdminTasks',
+            meta: {
+              title: 'sidebar.taskManagement',
+              icon: 'List'
+            }
+          }
+        ]
       },
       {
-        path: '/admin/block-rules',
-        name: 'AdminBlockRules',
+        path: '/admin/_system',
+        name: 'AdminMenuSystem',
+        alwaysShow: true,
         meta: {
-          title: t('sidebar.blockRulesManagement'),
-          icon: 'Lock'
-        }
-      },
-      {
-        path: '/admin/domain',
-        name: 'AdminDomain',
-        meta: {
-          title: t('sidebar.domainManagement'),
-          icon: 'Link'
-        }
-      },
-      {
-        path: '/admin/kyc',
-        name: 'AdminKYC',
-        meta: {
-          title: t('sidebar.kycManagement'),
-          icon: 'Postcard'
-        }
-      },
-      {
-        path: '/admin/api-tokens',
-        name: 'AdminApiTokens',
-        meta: {
-          title: t('sidebar.adminApiTokenManagement'),
-          icon: 'Key'
-        }
-      },
-      {
-        path: '/admin/announcements',
-        name: 'AdminAnnouncements',
-        meta: {
-          title: t('sidebar.announcementManagement'),
-          icon: 'Bell'
-        }
-      },
-      {
-        path: '/admin/oauth2-providers',
-        name: 'AdminOAuth2Providers',
-        meta: {
-          title: 'OAuth2',
-          icon: 'Connection'
-        }
-      },
-      {
-        path: '/admin/config',
-        name: 'AdminConfig',
-        meta: {
-          title: t('sidebar.systemConfiguration'),
+          title: 'sidebar.groupSystem',
           icon: 'Setting'
-        }
-      },
-      {
-        path: '/admin/performance',
-        name: 'AdminPerformance',
-        meta: {
-          title: t('sidebar.performanceMonitoring'),
-          icon: 'Histogram'
-        }
-      },
-      {
-        path: '/admin/logs',
-        name: 'AdminLogs',
-        meta: {
-          title: t('sidebar.logViewer'),
-          icon: 'Document'
-        }
+        },
+        children: [
+          {
+            path: '/admin/config',
+            name: 'AdminConfig',
+            meta: {
+              title: 'sidebar.systemConfiguration',
+              icon: 'Setting'
+            }
+          },
+          {
+            path: '/admin/block-rules',
+            name: 'AdminBlockRules',
+            meta: {
+              title: 'sidebar.blockRulesManagement',
+              icon: 'Lock'
+            }
+          },
+          {
+            path: '/admin/api-tokens',
+            name: 'AdminApiTokens',
+            meta: {
+              title: 'sidebar.adminApiTokenManagement',
+              icon: 'Key'
+            }
+          },
+          {
+            path: '/admin/oauth2-providers',
+            name: 'AdminOAuth2Providers',
+            meta: {
+              title: 'sidebar.oauth2Management',
+              icon: 'Connection'
+            }
+          },
+          {
+            path: '/admin/announcements',
+            name: 'AdminAnnouncements',
+            meta: {
+              title: 'sidebar.announcementManagement',
+              icon: 'Bell'
+            }
+          }
+        ]
       }
     ]
   }
@@ -379,16 +440,40 @@ const userRoutes = computed(() => {
   // 判断是否为普通管理员
   const isNormalAdmin = userStore.userType === 'normal_admin'
   
-  // 根据功能开关和角色过滤路由
-  const filteredRoutes = routes.filter(route => {
+  const shouldShowRoute = (route) => {
     if (['UserKYC', 'AdminKYC'].includes(route.name) && !featureStore.kycEnabled) return false
     if (['UserDomain', 'AdminDomain'].includes(route.name) && !featureStore.domainEnabled) return false
     if (['UserCheckin'].includes(route.name) && !featureStore.checkinEnabled) return false
     if (isNormalAdmin && superAdminOnlyRoutes.has(route.name)) return false
     return true
-  })
+  }
+
+  const filterRoutes = (menuRoutes) => {
+    return menuRoutes.reduce((result, menuRoute) => {
+      if (menuRoute.children?.length) {
+        const children = filterRoutes(menuRoute.children)
+        if (children.length > 0) {
+          result.push({ ...menuRoute, children })
+        }
+        return result
+      }
+
+      if (shouldShowRoute(menuRoute)) {
+        result.push(menuRoute)
+      }
+      return result
+    }, [])
+  }
+
+  const filteredRoutes = filterRoutes(routes)
   
   return filteredRoutes
+})
+
+const defaultOpeneds = computed(() => {
+  return userRoutes.value
+    .filter(menuRoute => menuRoute.children?.length)
+    .map(menuRoute => menuRoute.path)
 })
 
 // 生命周期钩子，检查DOM渲染

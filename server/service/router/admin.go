@@ -201,6 +201,8 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 域名管理
 		NormalAdminGroup.GET("/domains", admin.AdminGetDomains)
 		NormalAdminGroup.POST("/domains/sync-proxies", admin.AdminSyncDomainProxies)
+		NormalAdminGroup.PUT("/domains/:id", admin.AdminUpdateDomain)
+		NormalAdminGroup.POST("/domains/:id/sync", admin.AdminSyncDomainProxy)
 		NormalAdminGroup.DELETE("/domains/:id", admin.AdminDeleteDomain)
 		NormalAdminGroup.GET("/providers/:id/domain-config", admin.GetDomainConfig)
 		NormalAdminGroup.PUT("/providers/:id/domain-config", admin.UpdateDomainConfig)

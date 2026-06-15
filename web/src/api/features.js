@@ -113,10 +113,19 @@ export function batchCheckin(data) {
 
 // ============ 管理员域名管理 ============
 
-export function adminGetDomains() {
+export function adminGetDomains(params) {
   return request({
     url: '/v1/admin/domains',
-    method: 'get'
+    method: 'get',
+    params
+  })
+}
+
+export function adminUpdateDomain(id, data) {
+  return request({
+    url: `/v1/admin/domains/${id}`,
+    method: 'put',
+    data
   })
 }
 
@@ -124,6 +133,13 @@ export function adminDeleteDomain(id) {
   return request({
     url: `/v1/admin/domains/${id}`,
     method: 'delete'
+  })
+}
+
+export function adminSyncDomainProxy(id) {
+  return request({
+    url: `/v1/admin/domains/${id}/sync`,
+    method: 'post'
   })
 }
 

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"strconv"
+	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
@@ -23,14 +24,40 @@ func AdminGetDomains(c *gin.Context) {
 	authCtx, _ := middleware.GetAuthContext(c)
 	ownerAdminID := middleware.GetOwnerAdminID(c)
 
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	page, pageSize = common.NormalizePagination(page, pageSize, common.DefaultPageSize)
+
+	parseUintQuery := func(key string) uint {
+		raw := strings.TrimSpace(c.Query(key))
+		if raw == "" {
+			return 0
+		}
+		value, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return uint(value)
+	}
+
+	req := domainService.AdminDomainListRequest{
+		Page:       page,
+		PageSize:   pageSize,
+		Keyword:    strings.TrimSpace(c.Query("keyword")),
+		Status:     strings.TrimSpace(c.Query("status")),
+		UserID:     parseUintQuery("userId"),
+		ProviderID: parseUintQuery("providerId"),
+		InstanceID: parseUintQuery("instanceId"),
+	}
+
 	svc := &domainService.Service{}
-	domains, err := svc.AdminGetAllDomains(ownerAdminID)
+	domains, total, err := svc.AdminGetDomainList(ownerAdminID, req)
 	if err != nil {
 		global.APP_LOG.Error("获取域名列表失败", zap.Error(err), zap.Uint("adminID", authCtx.UserID))
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
-	common.ResponseSuccess(c, domains)
+	common.ResponseSuccessWithPagination(c, domains, total, page, pageSize)
 }
 
 // AdminDeleteDomain 管理员删除域名绑定
@@ -44,6 +71,46 @@ func AdminDeleteDomain(c *gin.Context) {
 	ownerAdminID := middleware.GetOwnerAdminID(c)
 	svc := &domainService.Service{}
 	if err := svc.AdminDeleteDomain(uint(domainID), ownerAdminID); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, nil)
+}
+
+// AdminUpdateDomain 管理员更新域名绑定
+func AdminUpdateDomain(c *gin.Context) {
+	domainID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的域名ID"))
+		return
+	}
+
+	var req domainService.AdminUpdateDomainRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	svc := &domainService.Service{}
+	if err := svc.AdminUpdateDomain(uint(domainID), ownerAdminID, &req); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, nil)
+}
+
+// AdminSyncDomainProxy 管理员重新下发单个域名反向代理配置
+func AdminSyncDomainProxy(c *gin.Context) {
+	domainID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的域名ID"))
+		return
+	}
+
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	svc := &domainService.Service{}
+	if err := svc.AdminSyncDomainProxy(uint(domainID), ownerAdminID); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
