@@ -4,6 +4,7 @@ package agent
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,8 @@ type controllerListener struct {
 	stopCh     chan struct{}
 	doneCh     chan struct{} // closed when the HandleControllerPort goroutine has fully exited
 }
+
+var controllerPortRecoverStatuses = []string{"active", "pending"}
 
 var (
 	ctrlListenerMu sync.RWMutex
@@ -77,8 +80,15 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 	}
 	ctrlListenerMu.Unlock()
 
+	addr := fmt.Sprintf(":%d", listenPort)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("控制端监听 %s 失败: %w", addr, err)
+	}
+
 	mgr, err := GetOrCreateTunnelManager(providerID)
 	if err != nil {
+		_ = ln.Close()
 		return err
 	}
 
@@ -89,18 +99,57 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 	// 双重检查：可能在获取 TunnelManager 期间其他 goroutine 已启动
 	if _, exists := ctrlListeners[portID]; exists {
 		ctrlListenerMu.Unlock()
+		_ = ln.Close()
 		close(stopCh)
 		return nil
 	}
 	ctrlListeners[portID] = &controllerListener{listenPort: listenPort, stopCh: stopCh, doneCh: doneCh}
 	ctrlListenerMu.Unlock()
 
+	if err := global.APP_DB.Model(&providerModel.Port{}).
+		Where("id = ?", portID).
+		Updates(map[string]interface{}{
+			"status":         "active",
+			"mapping_method": "controller",
+		}).Error; err != nil {
+		ctrlListenerMu.Lock()
+		delete(ctrlListeners, portID)
+		ctrlListenerMu.Unlock()
+		close(stopCh)
+		close(doneCh)
+		_ = ln.Close()
+		return fmt.Errorf("更新控制端端口状态失败: %w", err)
+	}
+
+	resolver := func() (string, int, error) {
+		var current providerModel.Port
+		if err := global.APP_DB.Select("id", "provider_id", "instance_id", "host_port", "guest_port", "mapping_type", "status", "internal_host").
+			Where("id = ?", portID).
+			First(&current).Error; err != nil {
+			return "", 0, fmt.Errorf("load controller port %d: %w", portID, err)
+		}
+		if current.ProviderID != providerID || current.HostPort != listenPort ||
+			current.MappingType != "controller" || current.Status != "active" {
+			return "", 0, fmt.Errorf("controller port %d metadata mismatch or inactive", portID)
+		}
+
+		effectiveHost := resolveTargetHost(&current)
+		if effectiveHost == "" {
+			effectiveHost = targetHost
+		}
+		effectivePort := current.GuestPort
+		if effectivePort <= 0 {
+			effectivePort = targetPort
+		}
+		if effectiveHost == "" || effectivePort <= 0 {
+			return "", 0, fmt.Errorf("controller port %d target unavailable", portID)
+		}
+		return effectiveHost, effectivePort, nil
+	}
+
 	go func() {
 		defer close(doneCh)
-		// Listen on all interfaces (IPv4 + IPv6 dual-stack) so controller ports
-		// are reachable over both IPv4 and IPv6.
-		addr := fmt.Sprintf(":%d", listenPort)
-		if err := mgr.HandleControllerPort(addr, targetHost, targetPort, stopCh); err != nil {
+		if err := mgr.serveControllerPort(ln, addr, fmt.Sprintf("port:%d(dynamic)", portID), resolver, stopCh); err != nil {
 			global.APP_LOG.Error("控制端端口转发异常退出",
 				zap.Uint("portID", portID), zap.Error(err))
 		}
@@ -147,8 +196,8 @@ func StopControllerPortForwardsByProvider(providerID uint) {
 	defer recoveryMu.Unlock()
 
 	var ports []providerModel.Port
-	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status = ?",
-		providerID, "controller", "active").Find(&ports).Error; err != nil {
+	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status IN ?",
+		providerID, "controller", controllerPortRecoverStatuses).Find(&ports).Error; err != nil {
 		global.APP_LOG.Warn("查询待停止的控制器端口转发失败",
 			zap.Uint("providerID", providerID), zap.Error(err))
 		return
@@ -258,8 +307,8 @@ func RecoverControllerPortForwardsByProvider(providerID uint) {
 	defer recoveryMu.Unlock()
 
 	var ports []providerModel.Port
-	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status = ?",
-		providerID, "controller", "active").Find(&ports).Error; err != nil {
+	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status IN ?",
+		providerID, "controller", controllerPortRecoverStatuses).Find(&ports).Error; err != nil {
 		global.APP_LOG.Error("查询待恢复的控制器端口转发失败",
 			zap.Uint("providerID", providerID), zap.Error(err))
 		return
@@ -314,8 +363,8 @@ func RecoverControllerPortForwardsByProvider(providerID uint) {
 // 对于 Agent 尚未上线的 Provider，监听器会等待 Agent 连接后生效。
 func RecoverAllControllerPortForwards() {
 	var ports []providerModel.Port
-	if err := global.APP_DB.Where("mapping_type = ? AND status = ?",
-		"controller", "active").Find(&ports).Error; err != nil {
+	if err := global.APP_DB.Where("mapping_type = ? AND status IN ?",
+		"controller", controllerPortRecoverStatuses).Find(&ports).Error; err != nil {
 		global.APP_LOG.Error("查询所有待恢复的控制器端口转发失败", zap.Error(err))
 		return
 	}
@@ -368,10 +417,28 @@ const maxRepairFailCount = 5 // 连续失败超过此次数后标记端口为 er
 // 返回 (total, repaired)。
 func CheckAndRepairControllerPortForwards() (int, int) {
 	var ports []providerModel.Port
-	if err := global.APP_DB.Where("mapping_type = ? AND status = ?",
-		"controller", "active").Find(&ports).Error; err != nil {
+	if err := global.APP_DB.Where("mapping_type = ? AND status IN ?",
+		"controller", controllerPortRecoverStatuses).Find(&ports).Error; err != nil {
 		global.APP_LOG.Error("查询控制器端口转发失败", zap.Error(err))
 		return 0, 0
+	}
+
+	desired := make(map[uint]struct{}, len(ports))
+	for _, port := range ports {
+		desired[port.ID] = struct{}{}
+	}
+	var orphanListeners []uint
+	ctrlListenerMu.RLock()
+	for portID := range ctrlListeners {
+		if _, ok := desired[portID]; !ok {
+			orphanListeners = append(orphanListeners, portID)
+		}
+	}
+	ctrlListenerMu.RUnlock()
+	for _, portID := range orphanListeners {
+		global.APP_LOG.Warn("停止数据库中不存在或非活跃的控制端端口转发监听器",
+			zap.Uint("portID", portID))
+		StopControllerPortForward(portID)
 	}
 
 	repaired := 0
@@ -381,6 +448,16 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 		ctrlListenerMu.RUnlock()
 
 		if running {
+			if port.Status != "active" {
+				if err := global.APP_DB.Model(&providerModel.Port{}).
+					Where("id = ?", port.ID).
+					Update("status", "active").Error; err != nil {
+					global.APP_LOG.Warn("控制端端口转发已运行但状态修正失败",
+						zap.Uint("portID", port.ID),
+						zap.String("status", port.Status),
+						zap.Error(err))
+				}
+			}
 			// 确认成功运行后重置失败计数
 			portRepairFailMu.Lock()
 			delete(portRepairFailCount, port.ID)

@@ -13,6 +13,7 @@ import (
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	agentLifecycle "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
+	domainService "oneclickvirt/service/domain"
 	"oneclickvirt/service/firewall"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
@@ -189,6 +190,14 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	instanceProviderID := instance.ProviderID
 	instanceType := instance.InstanceType
 	instanceUserID := instance.UserID
+	domainSvc := &domainService.Service{}
+	instanceDomains, domainErr := domainSvc.GetInstanceDomains(instanceID)
+	if domainErr != nil {
+		global.APP_LOG.Warn("查询实例域名绑定失败，继续删除实例",
+			zap.Uint("taskId", task.ID),
+			zap.Uint("instanceId", instanceID),
+			zap.Error(domainErr))
+	}
 
 	// 分离事务操作
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
@@ -283,7 +292,12 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			// 兔换码清理失败不阻止整个流程
 		}
 
-		// 5. 软删除当前实例记录（保留流量数据以供统计）- 这是最关键的操作
+		// 5. 删除实例域名绑定记录，避免实例删除后留下孤儿域名
+		if err := domainSvc.DeleteInstanceDomainsInTx(tx, instanceID); err != nil {
+			return fmt.Errorf("删除实例域名绑定失败: %v", err)
+		}
+
+		// 6. 软删除当前实例记录（保留流量数据以供统计）- 这是最关键的操作
 		if err := tx.Delete(&instance).Error; err != nil {
 			return fmt.Errorf("删除实例记录失败: %v", err)
 		}
@@ -319,6 +333,8 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 
 		return err
 	}
+
+	domainSvc.RemoveDomainProxies(instanceDomains)
 
 	// 事务提交成功后，释放IPv4池地址（事务外执行，避免事务回滚时误释放）
 	if provider.NetworkType == "dedicated_ipv4" || provider.NetworkType == "dedicated_ipv4_ipv6" {

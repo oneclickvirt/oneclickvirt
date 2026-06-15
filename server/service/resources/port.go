@@ -197,11 +197,12 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 			if hostPortEnd > 65535 {
 				return 0, nil, fmt.Errorf("控制端端口段 %d-%d 超出有效范围", hostPort, hostPortEnd)
 			}
-			// 检查控制端端口是否已被占用
+			// 检查控制端端口是否已被占用。pending/deleting 期间监听器或恢复流程可能仍在运行，
+			// 不能把这些端口重新分配给其他控制端转发。
 			var occupiedPorts []int
 			err := global.APP_DB.Model(&provider.Port{}).
-				Where("mapping_type = 'controller' AND host_port BETWEEN ? AND ? AND status = 'active'",
-					hostPort, hostPort+portCount-1).
+				Where("mapping_type = 'controller' AND host_port BETWEEN ? AND ? AND status IN ?",
+					hostPort, hostPort+portCount-1, []string{"active", "pending", "deleting"}).
 				Pluck("host_port", &occupiedPorts).Error
 			if err != nil {
 				return 0, nil, fmt.Errorf("检查控制端端口占用失败: %v", err)

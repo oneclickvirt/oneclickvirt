@@ -346,6 +346,29 @@ func (s *Service) DeleteDomain(userID, domainID uint) error {
 	return global.APP_DB.Delete(&domain).Error
 }
 
+func (s *Service) GetInstanceDomains(instanceID uint) ([]domainModel.Domain, error) {
+	var domains []domainModel.Domain
+	err := global.APP_DB.Where("instance_id = ?", instanceID).Find(&domains).Error
+	return domains, err
+}
+
+func (s *Service) DeleteInstanceDomainsInTx(tx *gorm.DB, instanceID uint) error {
+	return tx.Where("instance_id = ?", instanceID).Delete(&domainModel.Domain{}).Error
+}
+
+func (s *Service) RemoveDomainProxies(domains []domainModel.Domain) {
+	for i := range domains {
+		domain := &domains[i]
+		if err := removeDomainProxy(domain); err != nil {
+			global.APP_LOG.Warn("移除实例域名代理失败",
+				zap.Uint("instanceID", domain.InstanceID),
+				zap.Uint("domainID", domain.ID),
+				zap.String("domain", domain.DomainName),
+				zap.Error(err))
+		}
+	}
+}
+
 // UpdateDomain 用户更新域名绑定
 func (s *Service) UpdateDomain(userID, domainID uint, req *UpdateDomainRequest) error {
 	var domain domainModel.Domain
@@ -556,6 +579,19 @@ func (s *Service) AdminUpdateDomain(domainID, ownerAdminID uint, req *AdminUpdat
 		}
 		targetProviderID = instance.ProviderID
 		providerChanged = targetProviderID != domain.ProviderID
+		config, err := s.GetDomainConfig(targetProviderID)
+		if err != nil {
+			return fmt.Errorf("读取节点域名配置失败: %w", err)
+		}
+		var count int64
+		if err := global.APP_DB.Model(&domainModel.Domain{}).
+			Where("user_id = ? AND provider_id = ? AND id <> ?", instance.UserID, instance.ProviderID, domain.ID).
+			Count(&count).Error; err != nil {
+			return fmt.Errorf("查询域名配额失败: %w", err)
+		}
+		if int(count) >= config.MaxDomainsPerUser {
+			return fmt.Errorf("目标用户已达到该节点域名绑定上限(%d)", config.MaxDomainsPerUser)
+		}
 		updates["instance_id"] = instance.ID
 		updates["provider_id"] = instance.ProviderID
 		updates["user_id"] = instance.UserID
@@ -667,6 +703,9 @@ func (s *Service) AdminSyncDomainProxy(domainID, ownerAdminID uint) error {
 	if err := s.ensureAdminCanAccessDomain(&domain, ownerAdminID); err != nil {
 		return err
 	}
+	if getAgentClient(domain.ProviderID) == nil {
+		return fmt.Errorf("节点Agent未配置或不可用")
+	}
 	return applyDomainProxy(&domain)
 }
 
@@ -761,40 +800,84 @@ type SyncDomainProxiesResult struct {
 	Success int `json:"success"`
 	Failed  int `json:"failed"`
 	Skipped int `json:"skipped"`
+	Removed int `json:"removed"`
 }
 
 // AdminSyncDomainProxies replays active/error domain bindings for all providers visible to the admin.
 func (s *Service) AdminSyncDomainProxies(ownerAdminID uint) (*SyncDomainProxiesResult, error) {
-	domains, err := s.AdminGetAllDomains(ownerAdminID)
+	providerIDs, err := s.getVisibleDomainProviderIDs(ownerAdminID)
 	if err != nil {
 		return nil, err
 	}
-	return s.syncDomainProxyRows(domains), nil
+	result := &SyncDomainProxiesResult{}
+	for _, providerID := range providerIDs {
+		domains, err := s.getProviderDomains(providerID)
+		if err != nil {
+			return nil, err
+		}
+		result.merge(s.syncProviderDomainProxyRows(providerID, domains))
+	}
+	return result, nil
 }
 
 // SyncProviderDomainProxies replays active/error domain bindings for a single provider.
 // It is used as an agent reconnect hook so the controller database remains the
 // authoritative source if the agent restarts, is reinstalled, or loses its local sqlite DB.
 func (s *Service) SyncProviderDomainProxies(providerID uint) (*SyncDomainProxiesResult, error) {
+	domains, err := s.getProviderDomains(providerID)
+	if err != nil {
+		return nil, err
+	}
+	return s.syncProviderDomainProxyRows(providerID, domains), nil
+}
+
+func (s *Service) getVisibleDomainProviderIDs(ownerAdminID uint) ([]uint, error) {
+	var providerIDs []uint
+	query := global.APP_DB.Model(&providerModel.Provider{})
+	if ownerAdminID > 0 {
+		query = query.Where("owner_admin_id = ?", ownerAdminID)
+	}
+	if err := query.Pluck("id", &providerIDs).Error; err != nil {
+		return nil, err
+	}
+	return providerIDs, nil
+}
+
+func (s *Service) getProviderDomains(providerID uint) ([]domainModel.Domain, error) {
 	var domains []domainModel.Domain
 	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&domains).Error; err != nil {
 		return nil, err
 	}
-	return s.syncDomainProxyRows(domains), nil
+	return domains, nil
 }
 
-func (s *Service) syncDomainProxyRows(domains []domainModel.Domain) *SyncDomainProxiesResult {
+func (r *SyncDomainProxiesResult) merge(other *SyncDomainProxiesResult) {
+	if other == nil {
+		return
+	}
+	r.Total += other.Total
+	r.Success += other.Success
+	r.Failed += other.Failed
+	r.Skipped += other.Skipped
+	r.Removed += other.Removed
+}
+
+func (s *Service) syncProviderDomainProxyRows(providerID uint, domains []domainModel.Domain) *SyncDomainProxiesResult {
 	result := &SyncDomainProxiesResult{Total: len(domains)}
+	client := getAgentClient(providerID)
+	if client == nil {
+		result.Skipped += len(domains)
+		return result
+	}
+
+	desiredDomains := make(map[string]struct{}, len(domains))
 	for i := range domains {
 		domain := &domains[i]
 		if domain.Status != "" && domain.Status != "active" && domain.Status != "error" {
 			result.Skipped++
 			continue
 		}
-		if client := getAgentClient(domain.ProviderID); client == nil {
-			result.Skipped++
-			continue
-		}
+		desiredDomains[domain.DomainName] = struct{}{}
 		if err := applyDomainProxy(domain); err != nil {
 			result.Failed++
 			global.APP_LOG.Warn("同步域名代理失败",
@@ -804,6 +887,29 @@ func (s *Service) syncDomainProxyRows(domains []domainModel.Domain) *SyncDomainP
 			continue
 		}
 		result.Success++
+	}
+
+	existing, err := client.ListDomainProxies()
+	if err != nil {
+		result.Failed++
+		global.APP_LOG.Warn("列出Agent域名代理失败，无法对账删除孤儿代理",
+			zap.Uint("providerID", providerID),
+			zap.Error(err))
+		return result
+	}
+	for _, proxy := range existing.Proxies {
+		if _, ok := desiredDomains[proxy.Domain]; ok {
+			continue
+		}
+		if err := client.RemoveDomainProxy(proxy.Domain); err != nil {
+			result.Failed++
+			global.APP_LOG.Warn("删除Agent孤儿域名代理失败",
+				zap.Uint("providerID", providerID),
+				zap.String("domain", proxy.Domain),
+				zap.Error(err))
+			continue
+		}
+		result.Removed++
 	}
 	return result
 }

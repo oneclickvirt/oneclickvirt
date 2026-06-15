@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
+	domainModel "oneclickvirt/model/domain"
 	"oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	resourceModel "oneclickvirt/model/resource"
 	"oneclickvirt/provider"
+	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
+	domainService "oneclickvirt/service/domain"
 	"oneclickvirt/service/firewall"
 	"oneclickvirt/service/pmacct"
 	providerService "oneclickvirt/service/provider"
@@ -156,6 +159,28 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 		Where("provider_id = ?", providerID).
 		Pluck("id", &instanceIDs)
 
+	var controllerPortIDs []uint
+	if err := global.APP_DB.Model(&providerModel.Port{}).
+		Where("provider_id = ? AND mapping_type = ?", providerID, "controller").
+		Pluck("id", &controllerPortIDs).Error; err != nil {
+		global.APP_LOG.Warn("查询Provider控制端端口转发失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(err))
+	}
+	for _, portID := range controllerPortIDs {
+		agentService.StopControllerPortForward(portID)
+	}
+
+	var providerDomains []domainModel.Domain
+	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&providerDomains).Error; err != nil {
+		global.APP_LOG.Warn("查询Provider域名绑定失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(err))
+	}
+	if len(providerDomains) > 0 {
+		(&domainService.Service{}).RemoveDomainProxies(providerDomains)
+	}
+
 	dbService := database.GetDatabaseService()
 	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 1. 硬删除所有关联的端口映射（包括软删除的）
@@ -248,7 +273,17 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 		// 9. 硬删除资源预留记录
 		tx.Unscoped().Where("provider_id = ?", providerID).Delete(&resourceModel.ResourceReservation{})
 
-		// 10. 硬删除Provider本身
+		// 10. 硬删除域名绑定和域名配置
+		if err := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&domainModel.Domain{}).Error; err != nil {
+			global.APP_LOG.Error("删除Provider域名绑定失败", zap.Error(err))
+			return err
+		}
+		if err := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&domainModel.DomainConfig{}).Error; err != nil {
+			global.APP_LOG.Error("删除Provider域名配置失败", zap.Error(err))
+			return err
+		}
+
+		// 11. 硬删除Provider本身
 		if err := tx.Unscoped().Delete(&providerModel.Provider{}, providerID).Error; err != nil {
 			global.APP_LOG.Error("删除Provider记录失败", zap.Error(err))
 			return err
@@ -305,7 +340,13 @@ func (s *Service) cleanupProviderLocalFiles(p *providerModel.Provider) {
 func (s *Service) cleanupAllProviderResources(providerID uint) {
 	global.APP_LOG.Info("开始清理Provider的所有内存资源", zap.Uint("providerID", providerID))
 
-	// 1. 先清理SSH连接池（断开SSH连接，避免后续操作使用过期连接）
+	// 1. 先断开Agent及其隧道资源，避免Provider删除后仍有WebSocket/端口转发写入。
+	agentService.GetHub().DisconnectProvider(providerID)
+	agentService.RemoveTunnelManager(providerID)
+	agentService.RemoveClient(providerID)
+	global.APP_LOG.Debug("Agent连接和客户端缓存已清理", zap.Uint("providerID", providerID))
+
+	// 2. 先清理SSH连接池（断开SSH连接，避免后续操作使用过期连接）
 	if global.APP_SSH_POOL != nil {
 		if pool, ok := global.APP_SSH_POOL.(interface {
 			Remove(uint)
@@ -315,17 +356,17 @@ func (s *Service) cleanupAllProviderResources(providerID uint) {
 		}
 	}
 
-	// 2. 从 ProviderService 中移除 Provider
+	// 3. 从 ProviderService 中移除 Provider
 	providerService.GetProviderService().RemoveProvider(providerID)
 	global.APP_LOG.Debug("Provider已移除", zap.Uint("providerID", providerID))
 
-	// 3. 清理任务工作池及其所有相关的sync.Map（同步清理pools、lastAccess、createdAt）
+	// 4. 清理任务工作池及其所有相关的sync.Map（同步清理pools、lastAccess、createdAt）
 	if taskService := task.GetTaskService(); taskService != nil {
 		taskService.DeleteProviderPool(providerID)
 		global.APP_LOG.Debug("任务工作池已清理", zap.Uint("providerID", providerID))
 	}
 
-	// 4. 清理监控状态（同步清理providerStateManager和lastResetTime）
+	// 5. 清理监控状态（同步清理providerStateManager和lastResetTime）
 	if global.APP_MONITORING_SCHEDULER != nil {
 		if scheduler, ok := global.APP_MONITORING_SCHEDULER.(interface {
 			DeleteProviderState(uint)
@@ -335,7 +376,7 @@ func (s *Service) cleanupAllProviderResources(providerID uint) {
 		}
 	}
 
-	// 5. 清理HTTP Transport（释放连接池资源，同步清理transports和providerMap）
+	// 6. 清理HTTP Transport（释放连接池资源，同步清理transports和providerMap）
 	provider.GetTransportCleanupManager().CleanupProvider(providerID)
 	global.APP_LOG.Debug("HTTP Transport已清理", zap.Uint("providerID", providerID))
 

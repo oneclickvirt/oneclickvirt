@@ -31,7 +31,7 @@ export default {
   blockRulesManagement: 'Block Rules',
   domainManagement: 'Domain Bindings',
   kycManagement: 'KYC Management',
-  oauth2Management: 'OAuth2 Management',
+  oauth2Management: 'OAuth2',
   apiTokenManagement: 'API Token',
   adminApiTokenManagement: 'API Tokens Management',
 }

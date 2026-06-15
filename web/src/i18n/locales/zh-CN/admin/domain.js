@@ -16,7 +16,7 @@ export default {
   configUpdated: '域名配置更新成功',
   saveFailed: '保存域名配置失败',
   syncProxies: '同步代理',
-  syncProxiesSuccess: '域名代理同步完成：成功 {success}，失败 {failed}，跳过 {skipped}',
+  syncProxiesSuccess: '域名代理同步完成：成功 {success}，失败 {failed}，跳过 {skipped}，清理孤儿 {removed}',
   syncProxiesFailed: '域名代理同步失败',
   retrySync: '重试同步',
   retrySyncSuccess: '域名代理已重新同步',

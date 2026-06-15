@@ -946,9 +946,12 @@ pub async fn add_domain_proxy(
 
     let enable_ssl = req.enable_ssl.unwrap_or(false);
 
-    // Validate and parse SSL cert if provided
+    // Validate and parse SSL cert if provided.  Do not mutate the in-memory
+    // certificate store until SQLite has accepted the route, otherwise a DB
+    // write failure can leave a certificate without a matching proxy route.
     let mut ssl_cert = req.ssl_cert.unwrap_or_default();
     let mut ssl_key = req.ssl_key.unwrap_or_default();
+    let mut parsed_cert = None;
     if enable_ssl && (ssl_cert.is_empty() || ssl_key.is_empty()) {
         return Err(ApiError::bad_request(
             "ssl_cert and ssl_key are required when enable_ssl is true",
@@ -958,11 +961,7 @@ pub async fn add_domain_proxy(
         // Validate cert/key pair by parsing
         match crate::proxy::parse_certified_key(&ssl_cert, &ssl_key) {
             Ok(ck) => {
-                // Add to in-memory cert store
-                if let Ok(mut store) = state.cert_store.write() {
-                    store.insert(req.domain.clone(), std::sync::Arc::new(ck));
-                }
-                info!(domain = %req.domain, "domain SSL certificate loaded");
+                parsed_cert = Some(std::sync::Arc::new(ck));
             }
             Err(e) => {
                 return Err(ApiError::bad_request(format!(
@@ -971,10 +970,6 @@ pub async fn add_domain_proxy(
             }
         }
     } else if !enable_ssl {
-        // Remove cert from store if SSL is disabled
-        if let Ok(mut store) = state.cert_store.write() {
-            store.remove(&req.domain);
-        }
         ssl_cert.clear();
         ssl_key.clear();
     }
@@ -994,6 +989,15 @@ pub async fn add_domain_proxy(
         protocol,
     };
     crate::proxy::add_route(&state.proxy_routes, req.domain.clone(), target).await;
+
+    if let Ok(mut store) = state.cert_store.write() {
+        if let Some(ck) = parsed_cert {
+            store.insert(req.domain.clone(), ck);
+            info!(domain = %req.domain, "domain SSL certificate loaded");
+        } else if !enable_ssl {
+            store.remove(&req.domain);
+        }
+    }
 
     info!(domain = %req.domain, ip = %req.internal_ip, port = req.internal_port, "domain proxy added");
     Ok(Json(AddDomainProxyResponse {

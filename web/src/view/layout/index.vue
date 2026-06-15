@@ -55,11 +55,22 @@ import { useUserStore } from '@/pinia/modules/user'
 import TopbarAnnouncement from '@/components/TopbarAnnouncement.vue'
 
 const userStore = useUserStore()
+const SIDEBAR_COLLAPSE_STORAGE_KEY = 'sidebarCollapsed'
 const isMobile = ref(false)
 const sidebar = ref({
   opened: true
 })
-const isCollapse = ref(false)
+const isCollapse = ref(true)
+
+const readStoredCollapse = () => {
+  const stored = localStorage.getItem(SIDEBAR_COLLAPSE_STORAGE_KEY)
+  if (stored === null) return true
+  return stored === 'true'
+}
+
+const saveStoredCollapse = (collapsed) => {
+  localStorage.setItem(SIDEBAR_COLLAPSE_STORAGE_KEY, String(collapsed))
+}
 
 // 检测设备类型
 const checkDevice = () => {
@@ -72,10 +83,7 @@ const checkDevice = () => {
     isCollapse.value = false
   } else {
     sidebar.value.opened = true
-    // 平板端默认收缩
-    if (width >= 768 && width < 1024) {
-      isCollapse.value = true
-    }
+    isCollapse.value = readStoredCollapse()
   }
 }
 
@@ -85,6 +93,7 @@ const toggleSidebar = () => {
     sidebar.value.opened = !sidebar.value.opened
   } else {
     isCollapse.value = !isCollapse.value
+    saveStoredCollapse(isCollapse.value)
     if (toggleSidebarCollapse) {
       toggleSidebarCollapse(isCollapse.value)
     }
@@ -100,6 +109,7 @@ const closeSidebar = () => {
 const toggleSidebarCollapse = (collapsed) => {
   if (!isMobile.value) {
     isCollapse.value = collapsed
+    saveStoredCollapse(collapsed)
   }
 }
 

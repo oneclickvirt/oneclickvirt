@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap"
 )
 
+type tunnelTargetResolver func() (host string, port int, err error)
+
 // ──────────────────────────────────────────────────────────────────────────────
 // TunnelSession — 控制端侧的单条 TCP 隧道会话
 // ──────────────────────────────────────────────────────────────────────────────
@@ -53,11 +55,25 @@ func NewTunnelManager(ac *AgentConn) *TunnelManager {
 // HandleControllerPort 在控制端监听 listenAddr 并将连接转发到 agent 侧的 targetHost:targetPort。
 // 应在 goroutine 中调用，直到 stopCh 关闭才退出。
 func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost string, targetPort int, stopCh <-chan struct{}) error {
+	return tm.handleControllerPortWithResolver(
+		listenAddr,
+		fmt.Sprintf("%s:%d", targetHost, targetPort),
+		func() (string, int, error) {
+			return targetHost, targetPort, nil
+		},
+		stopCh,
+	)
+}
+
+func (tm *TunnelManager) handleControllerPortWithResolver(listenAddr string, targetDescription string, resolver tunnelTargetResolver, stopCh <-chan struct{}) error {
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return fmt.Errorf("控制端监听 %s 失败: %w", listenAddr, err)
 	}
+	return tm.serveControllerPort(ln, listenAddr, targetDescription, resolver, stopCh)
+}
 
+func (tm *TunnelManager) serveControllerPort(ln net.Listener, listenAddr string, targetDescription string, resolver tunnelTargetResolver, stopCh <-chan struct{}) error {
 	go func() {
 		<-stopCh
 		ln.Close()
@@ -65,10 +81,11 @@ func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost stri
 
 	global.APP_LOG.Info("控制端端口转发已启动",
 		zap.String("listen", listenAddr),
-		zap.String("target", fmt.Sprintf("%s:%d", targetHost, targetPort)))
+		zap.String("target", targetDescription))
 
 	var listenerConns sync.Map
 	defer func() {
+		_ = ln.Close()
 		listenerConns.Range(func(key, _ any) bool {
 			if conn, ok := key.(net.Conn); ok {
 				_ = conn.Close()
@@ -91,6 +108,15 @@ func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost stri
 		listenerConns.Store(conn, struct{}{})
 		go func() {
 			defer listenerConns.Delete(conn)
+			targetHost, targetPort, err := resolver()
+			if err != nil {
+				global.APP_LOG.Warn("解析控制端端口转发目标失败",
+					zap.Uint("providerID", tm.ac.ProviderID),
+					zap.String("listen", listenAddr),
+					zap.Error(err))
+				_ = conn.Close()
+				return
+			}
 			tm.handleConn(conn, targetHost, targetPort)
 		}()
 	}

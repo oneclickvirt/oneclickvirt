@@ -822,7 +822,8 @@ async function handleSyncProxies() {
       ElMessage.success(t('admin.domain.syncProxiesSuccess', {
         success: data.success || 0,
         failed: data.failed || 0,
-        skipped: data.skipped || 0
+        skipped: data.skipped || 0,
+        removed: data.removed || 0
       }))
       await fetchData()
     }

@@ -15,6 +15,7 @@ import (
 	systemModel "oneclickvirt/model/system"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	agentLifecycle "oneclickvirt/service/agent"
+	domainService "oneclickvirt/service/domain"
 	"oneclickvirt/service/firewall"
 	"oneclickvirt/service/interfaces"
 	providerService "oneclickvirt/service/provider"
@@ -147,6 +148,13 @@ func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
 		Bandwidth: instance.Bandwidth,
 	}
 	quotaService := resources.NewQuotaService()
+	domainSvc := &domainService.Service{}
+	instanceDomains, domainErr := domainSvc.GetInstanceDomains(instance.ID)
+	if domainErr != nil {
+		global.APP_LOG.Warn("直接清理失败实例时查询域名绑定失败，继续清理实例",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(domainErr))
+	}
 
 	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		var freshStatus struct{ Status string }
@@ -202,6 +210,10 @@ func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
 				zap.Error(err))
 		}
 
+		if err := domainSvc.DeleteInstanceDomainsInTx(tx, instance.ID); err != nil {
+			return fmt.Errorf("删除失败实例域名绑定失败: %w", err)
+		}
+
 		if err := tx.Delete(&instance).Error; err != nil {
 			return fmt.Errorf("删除失败实例记录失败: %w", err)
 		}
@@ -227,6 +239,8 @@ func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
 			zap.Uint("instanceId", instance.ID),
 			zap.Error(err))
 	}
+
+	domainSvc.RemoveDomainProxies(instanceDomains)
 
 	global.APP_LOG.Info("直接清理失败实例完成",
 		zap.Uint("instanceId", instance.ID),

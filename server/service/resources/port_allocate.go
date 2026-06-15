@@ -495,7 +495,7 @@ func (s *PortMappingService) allocateControllerPortWithDB(db *gorm.DB, providerI
 	// 获取所有控制端转发模式的已用端口
 	var usedPorts []int
 	if err := db.Model(&provider.Port{}).
-		Where("mapping_type = 'controller' AND status = 'active' AND host_port BETWEEN ? AND ?", rangeStart, rangeEnd).
+		Where("mapping_type = 'controller' AND status IN ? AND host_port BETWEEN ? AND ?", []string{"active", "pending", "deleting"}, rangeStart, rangeEnd).
 		Pluck("host_port", &usedPorts).Error; err != nil {
 		return 0, fmt.Errorf("查询控制端端口占用失败: %v", err)
 	}

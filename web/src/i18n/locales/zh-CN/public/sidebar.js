@@ -31,7 +31,7 @@ export default {
   blockRulesManagement: '封禁规则',
   domainManagement: '域名绑定',
   kycManagement: 'KYC管理',
-  oauth2Management: 'OAuth2管理',
+  oauth2Management: 'OAuth2',
   apiTokenManagement: 'API Token管理',
   adminApiTokenManagement: 'API Token管理'
 }

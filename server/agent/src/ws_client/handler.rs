@@ -621,6 +621,14 @@ where
         }
     } // end 'main_loop
 
+    // Cleanup: drop all active tunnel senders so local TCP write halves close
+    // promptly after WebSocket disconnect/reconnect instead of waiting for the
+    // next controller data frame.
+    {
+        let mut tunnel_sessions = sessions.lock().await;
+        tunnel_sessions.clear();
+    }
+
     // Cleanup: kill all active shell sessions to prevent orphan processes
     // after WebSocket disconnect or reconnect.
     {

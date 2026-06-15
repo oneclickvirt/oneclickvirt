@@ -29,7 +29,7 @@
       <el-menu
         :default-active="activeMenu"
         :collapse="isCollapse && !isMobile"
-        :unique-opened="false"
+        :unique-opened="true"
         :default-openeds="defaultOpeneds"
         :collapse-transition="false"
         mode="vertical"
@@ -471,9 +471,10 @@ const userRoutes = computed(() => {
 })
 
 const defaultOpeneds = computed(() => {
-  return userRoutes.value
-    .filter(menuRoute => menuRoute.children?.length)
-    .map(menuRoute => menuRoute.path)
+  const activeGroup = userRoutes.value.find(menuRoute => {
+    return menuRoute.children?.some(child => route.path === child.path || route.path.startsWith(`${child.path}/`))
+  })
+  return activeGroup ? [activeGroup.path] : []
 })
 
 // 生命周期钩子，检查DOM渲染

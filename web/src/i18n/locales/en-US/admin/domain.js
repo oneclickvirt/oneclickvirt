@@ -16,7 +16,7 @@ export default {
   configUpdated: 'Domain config updated',
   saveFailed: 'Failed to save domain config',
   syncProxies: 'Sync Proxies',
-  syncProxiesSuccess: 'Domain proxy sync completed: {success} success, {failed} failed, {skipped} skipped',
+  syncProxiesSuccess: 'Domain proxy sync completed: {success} success, {failed} failed, {skipped} skipped, {removed} orphaned removed',
   syncProxiesFailed: 'Failed to sync domain proxies',
   retrySync: 'Retry Sync',
   retrySyncSuccess: 'Domain proxy synced',

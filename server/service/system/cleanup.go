@@ -14,6 +14,7 @@ import (
 
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	"oneclickvirt/service/cache"
+	domainService "oneclickvirt/service/domain"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/taskgate"
 
@@ -206,7 +207,15 @@ func (s *InstanceCleanupService) CleanupOldFailedInstances() error {
 
 // cleanupSingleFailedInstance 清理单个失败实例
 func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerModel.Instance, providerMap map[uint]providerModel.Provider) error {
-	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+	domainSvc := &domainService.Service{}
+	instanceDomains, domainErr := domainSvc.GetInstanceDomains(instance.ID)
+	if domainErr != nil {
+		global.APP_LOG.Warn("清理失败实例时查询域名绑定失败，继续清理实例",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(domainErr))
+	}
+
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		// 1. 清理实例相关的端口映射等资源
 		global.APP_LOG.Debug("清理失败实例端口映射",
 			zap.Uint("instanceId", instance.ID))
@@ -264,7 +273,12 @@ func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerM
 			}
 		}
 
-		// 4. 删除实例记录
+		// 4. 删除实例域名绑定记录
+		if err := domainSvc.DeleteInstanceDomainsInTx(tx, instanceID); err != nil {
+			return err
+		}
+
+		// 5. 删除实例记录
 		if err := tx.Delete(instance).Error; err != nil {
 			return err
 		}
@@ -274,7 +288,12 @@ func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerM
 			zap.String("instanceName", instanceName))
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	domainSvc.RemoveDomainProxies(instanceDomains)
+	return nil
 }
 
 // CleanupExpiredInstances 清理过期实例
@@ -343,6 +362,14 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 		}
 	}
 
+	domainSvc := &domainService.Service{}
+	instanceDomains, domainErr := domainSvc.GetInstanceDomains(instance.ID)
+	if domainErr != nil {
+		global.APP_LOG.Warn("清理过期实例时查询域名绑定失败，继续清理实例",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(domainErr))
+	}
+
 	// 第一步：在事务外清理 pmacct 数据（可能包含SSH命令，不应在事务内）
 	trafficMonitorManager := traffic_monitor.GetManager()
 	deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -355,7 +382,7 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 	}
 
 	// 第二步：在短事务内完成数据库操作
-	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		// 1. 标记实例为删除中
 		if err := tx.Model(instance).Updates(map[string]interface{}{
 			"status":     "deleting",
@@ -398,7 +425,12 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 			}
 		}
 
-		// 3. 软删除实例记录（使用GORM的软删除）
+		// 3. 删除实例域名绑定记录
+		if err := domainSvc.DeleteInstanceDomainsInTx(tx, instanceID); err != nil {
+			return err
+		}
+
+		// 4. 软删除实例记录（使用GORM的软删除）
 		if err := tx.Delete(instance).Error; err != nil {
 			return err
 		}
@@ -409,7 +441,12 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 			zap.Timep("expiredAt", instanceExpiresAt))
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	domainSvc.RemoveDomainProxies(instanceDomains)
+	return nil
 }
 
 func (s *InstanceCleanupService) freezeExpiredInstance(instance *providerModel.Instance) error {
