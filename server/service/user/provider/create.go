@@ -256,6 +256,38 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 			return fmt.Errorf("实例数量已达上限：当前 %d/%d", currentInstances, levelLimits.MaxInstances)
 		}
 
+		quotaReq := resources.ResourceRequest{
+			UserID:       userID,
+			ProviderID:   req.ProviderId,
+			CPU:          cpuSpec.Cores,
+			Memory:       int64(memorySpec.SizeMB),
+			Disk:         int64(diskSpec.SizeMB),
+			Bandwidth:    bandwidthSpec.SpeedMbps,
+			InstanceType: systemImage.InstanceType,
+		}
+		quotaResult, err := quotaService.ValidateInTransaction(tx, quotaReq)
+		if err != nil {
+			return fmt.Errorf("用户配额验证失败: %v", err)
+		}
+		if !quotaResult.Allowed {
+			return fmt.Errorf("用户配额不足: %s", quotaResult.Reason)
+		}
+
+		resourceService := &resources.ResourceService{}
+		resourceResult, err := resourceService.CheckProviderResourcesWithTx(tx, resourceModel.ResourceCheckRequest{
+			ProviderID:   req.ProviderId,
+			InstanceType: systemImage.InstanceType,
+			CPU:          cpuSpec.Cores,
+			Memory:       int64(memorySpec.SizeMB),
+			Disk:         int64(diskSpec.SizeMB),
+		})
+		if err != nil {
+			return fmt.Errorf("Provider资源检查失败: %v", err)
+		}
+		if !resourceResult.Allowed {
+			return fmt.Errorf("Provider资源不足: %s", resourceResult.Reason)
+		}
+
 		// 3. 验证Provider节点级别的实例数量限制
 		if req.ProviderId > 0 {
 			// 获取Provider并加锁（防止并发超配）

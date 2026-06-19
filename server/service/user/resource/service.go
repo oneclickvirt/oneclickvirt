@@ -203,6 +203,21 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 			return errors.New(quotaResult.Reason)
 		}
 
+		resourceService := &resources.ResourceService{}
+		resourceResult, err := resourceService.CheckProviderResourcesWithTx(tx, resourceModel.ResourceCheckRequest{
+			ProviderID:   req.ProviderID,
+			InstanceType: req.InstanceType,
+			CPU:          req.CPU,
+			Memory:       req.Memory,
+			Disk:         req.Disk,
+		})
+		if err != nil {
+			return fmt.Errorf("Provider资源检查失败: %v", err)
+		}
+		if !resourceResult.Allowed {
+			return fmt.Errorf("Provider资源不足: %s", resourceResult.Reason)
+		}
+
 		containerCount := provider.ContainerCount
 		vmCount := provider.VMCount
 		if provider.CountCacheExpiry == nil || time.Now().After(*provider.CountCacheExpiry) {

@@ -182,25 +182,30 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		if err != nil {
 			return fmt.Errorf("复制模式获取源容器资源失败: %w", err)
 		}
-		if err := validateCopyResourceIsolation(dbProvider, copyCPU, copyMemory, copyDisk); err != nil {
-			return err
-		}
+		resourceUsageUpdates := buildCopyResourceUsageUpdates(instance, copyCPU, copyMemory, copyDisk)
+		instanceUpdates := buildCopyInstanceResourceUpdates(copyCPU, copyMemory, copyDisk)
 		resourceService := &resources.ResourceService{}
 		if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-			if err := resourceService.AllocateResourcesInTx(tx, localProviderID, "container", copyCPU, copyMemory, copyDisk); err != nil {
+			if err := resourceService.RecordExistingInstanceResourceUsageInTx(tx, localProviderID, "container",
+				resourceUsageUpdates.cpuDelta, resourceUsageUpdates.memoryDelta, resourceUsageUpdates.diskDelta); err != nil {
 				return err
 			}
-			return tx.Model(instance).Updates(map[string]interface{}{
-				"cpu":    copyCPU,
-				"memory": copyMemory,
-				"disk":   copyDisk,
-			}).Error
+			if len(instanceUpdates) == 0 {
+				return nil
+			}
+			return tx.Model(instance).Updates(instanceUpdates).Error
 		}); err != nil {
-			return fmt.Errorf("复制模式分配节点资源失败: %w", err)
+			return fmt.Errorf("复制模式记录源容器资源限制失败: %w", err)
 		}
-		instance.CPU = copyCPU
-		instance.Memory = copyMemory
-		instance.Disk = copyDisk
+		if copyCPU > 0 {
+			instance.CPU = copyCPU
+		}
+		if copyMemory > 0 {
+			instance.Memory = copyMemory
+		}
+		if copyDisk > 0 {
+			instance.Disk = copyDisk
+		}
 	} else if directCreate {
 		imageName = taskReq.Image
 		cpuValue = fmt.Sprintf("%d", taskReq.CPU)
@@ -624,31 +629,46 @@ func (s *Service) detectCopySourceResources(ctx context.Context, providerInstanc
 	return cpu, memory, disk, nil
 }
 
-func validateCopyResourceIsolation(provider providerModel.Provider, cpu int, memory, disk int64) error {
-	// 复制模式：源容器可能未设置资源限制，此时跳过该资源的校验（不阻塞流程），
-	// 仅当源容器设置了限制且超过节点可用容量时才报错。
-	if provider.ContainerLimitCPU && cpu <= 0 {
-		global.APP_LOG.Warn("复制模式源容器未设置 limits.cpu，跳过 CPU 资源隔离校验",
-			zap.String("provider", provider.Name))
+type copyResourceUsageUpdates struct {
+	cpuDelta    int
+	memoryDelta int64
+	diskDelta   int64
+}
+
+func buildCopyResourceUsageUpdates(instance *providerModel.Instance, cpu int, memory, disk int64) copyResourceUsageUpdates {
+	return copyResourceUsageUpdates{
+		cpuDelta:    positiveIntResourceDelta(cpu, instance.CPU),
+		memoryDelta: positiveInt64ResourceDelta(memory, instance.Memory),
+		diskDelta:   positiveInt64ResourceDelta(disk, instance.Disk),
 	}
-	if provider.ContainerLimitMemory && memory <= 0 {
-		global.APP_LOG.Warn("复制模式源容器未设置 limits.memory，跳过内存资源隔离校验",
-			zap.String("provider", provider.Name))
+}
+
+func buildCopyInstanceResourceUpdates(cpu int, memory, disk int64) map[string]interface{} {
+	updates := make(map[string]interface{}, 3)
+	if cpu > 0 {
+		updates["cpu"] = cpu
 	}
-	if provider.ContainerLimitDisk && disk <= 0 {
-		global.APP_LOG.Warn("复制模式源容器未设置 root 磁盘 size/limits.max，跳过磁盘资源隔离校验",
-			zap.String("provider", provider.Name))
+	if memory > 0 {
+		updates["memory"] = memory
 	}
-	if provider.ContainerLimitCPU && cpu > 0 && provider.NodeCPUCores > 0 && cpu > provider.NodeCPUCores-provider.UsedCPUCores {
-		return fmt.Errorf("节点CPU资源不足：需要 %d 核，当前可用 %d 核", cpu, provider.NodeCPUCores-provider.UsedCPUCores)
+	if disk > 0 {
+		updates["disk"] = disk
 	}
-	if provider.ContainerLimitMemory && memory > 0 && provider.NodeMemoryTotal > 0 && memory > provider.NodeMemoryTotal-provider.UsedMemory {
-		return fmt.Errorf("节点内存资源不足：需要 %d MB，当前可用 %d MB", memory, provider.NodeMemoryTotal-provider.UsedMemory)
+	return updates
+}
+
+func positiveIntResourceDelta(newValue, oldValue int) int {
+	if newValue <= 0 || newValue <= oldValue {
+		return 0
 	}
-	if provider.ContainerLimitDisk && disk > 0 && provider.NodeDiskTotal > 0 && disk > provider.NodeDiskTotal-provider.UsedDisk {
-		return fmt.Errorf("节点磁盘资源不足：需要 %d MB，当前可用 %d MB", disk, provider.NodeDiskTotal-provider.UsedDisk)
+	return newValue - oldValue
+}
+
+func positiveInt64ResourceDelta(newValue, oldValue int64) int64 {
+	if newValue <= 0 || newValue <= oldValue {
+		return 0
 	}
-	return nil
+	return newValue - oldValue
 }
 
 func parseCopyCPUValue(raw string) int {

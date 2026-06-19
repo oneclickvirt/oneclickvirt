@@ -581,9 +581,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 
 	// 设置默认值
 	// 并发控制默认值：确保一致性
-	if provider.MaxConcurrentTasks <= 0 {
-		provider.MaxConcurrentTasks = 1
-	}
+	normalizeProviderConcurrencySettings(&provider)
 	if provider.TaskPollInterval <= 0 {
 		provider.TaskPollInterval = 60
 	}

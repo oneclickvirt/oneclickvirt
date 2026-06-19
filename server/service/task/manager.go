@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/constant"
@@ -12,7 +13,9 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	dashboardModel "oneclickvirt/model/dashboard"
 	providerModel "oneclickvirt/model/provider"
+	resourceModel "oneclickvirt/model/resource"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/resources"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -167,6 +170,9 @@ func (s *TaskService) CreateTask(userID uint, providerID *uint, instanceID *uint
 		if err := s.EnsureTaskPoolAcceptingInTx(tx); err != nil {
 			return err
 		}
+		if err := s.reserveCreateTaskResourcesInTx(tx, task); err != nil {
+			return err
+		}
 		return tx.Create(task).Error
 	})
 
@@ -183,6 +189,79 @@ func (s *TaskService) CreateTask(userID uint, providerID *uint, instanceID *uint
 		zap.Int("memory", memory))
 
 	return task, nil
+}
+
+func (s *TaskService) reserveCreateTaskResourcesInTx(tx *gorm.DB, task *adminModel.Task) error {
+	if task.TaskType != "create" || task.ProviderID == nil {
+		return nil
+	}
+
+	var taskReq adminModel.CreateInstanceTaskRequest
+	if err := json.Unmarshal([]byte(task.TaskData), &taskReq); err != nil {
+		return fmt.Errorf("解析创建任务数据失败: %v", err)
+	}
+	if strings.TrimSpace(taskReq.SessionId) != "" {
+		return nil
+	}
+
+	cpu, memory, disk, bandwidth, instanceType := s.parseTaskDataForConfig(task.TaskData)
+	if cpu <= 0 || memory <= 0 || disk <= 0 || instanceType == "" {
+		return fmt.Errorf("无法解析创建任务资源规格，拒绝创建未预留资源的任务")
+	}
+
+	if task.UserID > 0 {
+		quotaService := resources.NewQuotaService()
+		quotaResult, err := quotaService.ValidateInTransaction(tx, resources.ResourceRequest{
+			UserID:       task.UserID,
+			ProviderID:   *task.ProviderID,
+			CPU:          cpu,
+			Memory:       int64(memory),
+			Disk:         int64(disk),
+			Bandwidth:    bandwidth,
+			InstanceType: instanceType,
+		})
+		if err != nil {
+			return fmt.Errorf("用户配额验证失败: %v", err)
+		}
+		if !quotaResult.Allowed {
+			return fmt.Errorf("用户配额不足: %s", quotaResult.Reason)
+		}
+	}
+
+	resourceService := &resources.ResourceService{}
+	resourceResult, err := resourceService.CheckProviderResourcesWithTx(tx, resourceModel.ResourceCheckRequest{
+		ProviderID:   *task.ProviderID,
+		InstanceType: instanceType,
+		CPU:          cpu,
+		Memory:       int64(memory),
+		Disk:         int64(disk),
+	})
+	if err != nil {
+		return fmt.Errorf("Provider资源检查失败: %v", err)
+	}
+	if !resourceResult.Allowed {
+		return fmt.Errorf("Provider资源不足: %s", resourceResult.Reason)
+	}
+
+	sessionID := resources.GenerateSessionID()
+	taskReq.SessionId = sessionID
+	taskData, err := json.Marshal(taskReq)
+	if err != nil {
+		return fmt.Errorf("序列化创建任务数据失败: %v", err)
+	}
+
+	reservationService := resources.GetResourceReservationService()
+	if err := reservationService.ReserveResourcesInTx(tx, task.UserID, *task.ProviderID, sessionID,
+		instanceType, cpu, int64(memory), int64(disk), bandwidth); err != nil {
+		return fmt.Errorf("预留创建任务资源失败: %v", err)
+	}
+
+	task.TaskData = string(taskData)
+	task.PreallocatedCPU = cpu
+	task.PreallocatedMemory = memory
+	task.PreallocatedDisk = disk
+	task.PreallocatedBandwidth = bandwidth
+	return nil
 }
 
 // GetUserTasks 获取用户任务列表

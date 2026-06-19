@@ -428,7 +428,7 @@ export default {
   allowConcurrentTasks: "允许并发任务",
   allowConcurrentTasksTip: "是否允许在同一个Provider上并发执行多个任务（创建、删除、操作实例等）",
   maxConcurrentTasks: "最大并发任务数",
-  maxConcurrentTasksTip: "同时执行的任务数量上限，建议根据服务器性能设置",
+  maxConcurrentTasksTip: "同一节点同时执行的任务数量上限，范围 1-10，后端会强制限制",
   taskPollingSettings: "任务轮询设置",
   enableTaskPolling: "启用任务轮询",
   enableTaskPollingTip: "是否启用该Provider的任务轮询检测，关闭后任务将不会自动执行",

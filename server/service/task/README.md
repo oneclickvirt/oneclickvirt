@@ -71,7 +71,7 @@ timeout   cancelling
 ### 并发模式
 
 - **串行模式**：`AllowConcurrentTasks = false`（默认）
-- **并发模式**：`AllowConcurrentTasks = true` + `MaxConcurrentTasks` 配置
+- **并发模式**：`AllowConcurrentTasks = true` + `MaxConcurrentTasks` 配置（后端强制 1-10）
 - **队列缓冲**：支持任务排队（缓冲大小 = 并发数 × 2）
 - **超时保护**：任务级别和系统级别的超时机制
 

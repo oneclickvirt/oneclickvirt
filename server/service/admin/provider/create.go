@@ -360,12 +360,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 
 	// 设置默认值
 	// 并发控制默认值：默认不允许并发，最大并发数为1
-	if !provider.AllowConcurrentTasks && provider.MaxConcurrentTasks <= 0 {
-		provider.MaxConcurrentTasks = 1
-	}
-	if provider.MaxConcurrentTasks <= 0 {
-		provider.MaxConcurrentTasks = 1
-	}
+	normalizeProviderConcurrencySettings(&provider)
 	if provider.TaskPollInterval <= 0 {
 		provider.TaskPollInterval = 60
 	}

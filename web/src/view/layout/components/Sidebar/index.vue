@@ -27,9 +27,10 @@
     </div>
     <el-scrollbar wrap-class="scrollbar-wrapper">
       <el-menu
+        :key="menuRenderKey"
         :default-active="activeMenu"
         :collapse="isCollapse && !isMobile"
-        :unique-opened="true"
+        :unique-opened="false"
         :default-openeds="defaultOpeneds"
         :collapse-transition="false"
         mode="vertical"
@@ -258,14 +259,6 @@ const userRoutes = computed(() => {
               title: 'sidebar.redemptionCodeManagement',
               icon: 'Discount'
             }
-          },
-          {
-            path: '/admin/kyc',
-            name: 'AdminKYC',
-            meta: {
-              title: 'sidebar.kycManagement',
-              icon: 'Postcard'
-            }
           }
         ]
       },
@@ -308,14 +301,6 @@ const userRoutes = computed(() => {
             meta: {
               title: 'sidebar.portManagement',
               icon: 'Connection'
-            }
-          },
-          {
-            path: '/admin/domain',
-            name: 'AdminDomain',
-            meta: {
-              title: 'sidebar.domainManagement',
-              icon: 'Link'
             }
           }
         ]
@@ -471,10 +456,18 @@ const userRoutes = computed(() => {
 })
 
 const defaultOpeneds = computed(() => {
-  const activeGroup = userRoutes.value.find(menuRoute => {
-    return menuRoute.children?.some(child => route.path === child.path || route.path.startsWith(`${child.path}/`))
-  })
-  return activeGroup ? [activeGroup.path] : []
+  if (isCollapse.value && !isMobile.value) {
+    return []
+  }
+  return userRoutes.value
+    .filter(menuRoute => menuRoute.children?.length)
+    .map(menuRoute => menuRoute.path)
+})
+
+const menuRenderKey = computed(() => {
+  const viewMode = userStore.currentViewMode || userStore.userType || 'guest'
+  const collapseState = isCollapse.value && !isMobile.value ? 'collapsed' : 'expanded'
+  return `${viewMode}-${locale.value}-${collapseState}-${defaultOpeneds.value.join('|')}`
 })
 
 // 生命周期钩子，检查DOM渲染
@@ -486,7 +479,13 @@ onMounted(() => {
 })
 
 // 监听用户类型变化
-watch(() => userStore.userType, () => {
+watch([
+  () => userStore.userType,
+  () => userStore.currentViewMode,
+  () => featureStore.kycEnabled,
+  () => featureStore.domainEnabled,
+  () => featureStore.checkinEnabled
+], () => {
   nextTick(() => {
     userRoutes.value
   })
@@ -590,6 +589,8 @@ watch(() => userStore.userType, () => {
 
   /* 菜单项悬停效果 */
   :deep(.el-menu-item) {
+    height: 48px;
+    line-height: 48px;
     background-color: transparent !important;
     
     &:hover {
@@ -605,12 +606,32 @@ watch(() => userStore.userType, () => {
   }
 
   :deep(.el-sub-menu__title) {
+    height: 48px;
+    line-height: 48px;
     background-color: transparent !important;
+    color: var(--text-color-sidebar-primary) !important;
+    font-weight: var(--font-weight-semibold);
     
     &:hover {
       background-color: var(--bg-color-hover) !important;
       color: #16a34a !important;
     }
+  }
+
+  :deep(.el-sub-menu.is-opened > .el-sub-menu__title),
+  :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
+    color: #16a34a !important;
+  }
+
+  :deep(.el-sub-menu .el-menu) {
+    background-color: var(--bg-color-sidebar-light) !important;
+  }
+
+  :deep(.el-sub-menu .el-menu-item) {
+    height: 42px;
+    line-height: 42px;
+    padding-left: 44px !important;
+    font-size: 13px;
   }
 
   // 收缩状态样式

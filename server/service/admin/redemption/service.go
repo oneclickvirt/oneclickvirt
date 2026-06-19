@@ -13,10 +13,12 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	resourceModel "oneclickvirt/model/resource"
 	systemModel "oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
+	"oneclickvirt/service/resources"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -224,6 +226,7 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 	var cpuSpec *constant.CPUSpec
 	var memorySpec *constant.MemorySpec
 	var diskSpec *constant.DiskSpec
+	var bandwidthSpec *constant.BandwidthSpec
 
 	if !isCopyMode {
 		var err error
@@ -238,6 +241,10 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		diskSpec, err = constant.GetDiskSpecByID(req.DiskId)
 		if err != nil {
 			return fmt.Errorf("无效的磁盘规格: %v", err)
+		}
+		bandwidthSpec, err = constant.GetBandwidthSpecByID(req.BandwidthId)
+		if err != nil {
+			return fmt.Errorf("无效的带宽规格: %v", err)
 		}
 	}
 
@@ -275,30 +282,32 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		}
 	}
 
-	for i := 0; i < req.Count; i++ {
-		code, err := s.generateUniqueCode()
-		if err != nil {
-			return fmt.Errorf("生成兑换码失败: %v", err)
-		}
+	reservationService := resources.GetResourceReservationService()
+	resourceService := &resources.ResourceService{}
+	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		for i := 0; i < req.Count; i++ {
+			code, err := s.generateUniqueCode()
+			if err != nil {
+				return fmt.Errorf("第 %d 个兑换码生成失败: %w", i+1, err)
+			}
+			sessionID := resources.GenerateSessionID()
 
-		// 构造任务数据（字段名与 CreateInstanceTaskRequest 的 JSON 标签一致，便于 executeProviderCreation 复用）
-		taskDataReq := adminModel.CreateRedemptionInstanceTaskRequest{
-			ProviderId:      req.ProviderID,
-			ImageId:         req.ImageId,
-			CPUId:           req.CPUId,
-			MemoryId:        req.MemoryId,
-			DiskId:          req.DiskId,
-			BandwidthId:     req.BandwidthId,
-			CreationMode:    req.CreationMode,
-			SourceContainer: req.SourceContainer,
-			GpuEnabled:      req.GpuEnabled,
-			GpuDeviceIds:    req.GpuDeviceIds,
-		}
+			// 构造任务数据（字段名与 CreateInstanceTaskRequest 的 JSON 标签一致，便于 executeProviderCreation 复用）
+			taskDataReq := adminModel.CreateRedemptionInstanceTaskRequest{
+				ProviderId:      req.ProviderID,
+				ImageId:         req.ImageId,
+				CPUId:           req.CPUId,
+				MemoryId:        req.MemoryId,
+				DiskId:          req.DiskId,
+				BandwidthId:     req.BandwidthId,
+				SessionId:       sessionID,
+				CreationMode:    req.CreationMode,
+				SourceContainer: req.SourceContainer,
+				GpuEnabled:      req.GpuEnabled,
+				GpuDeviceIds:    req.GpuDeviceIds,
+			}
 
-		var redemptionCode systemModel.RedemptionCode
-
-		err = dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-			redemptionCode = systemModel.RedemptionCode{
+			redemptionCode := systemModel.RedemptionCode{
 				Code:            code,
 				Status:          systemModel.RedemptionStatusPendingCreate,
 				ProviderID:      req.ProviderID,
@@ -317,20 +326,69 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 				GpuDeviceIds:    req.GpuDeviceIds,
 			}
 			if err := tx.Create(&redemptionCode).Error; err != nil {
-				return fmt.Errorf("创建兑换码记录失败: %v", err)
+				return fmt.Errorf("第 %d 个兑换码记录创建失败: %w", i+1, err)
+			}
+
+			reserveCPU := 0
+			reserveMemory := int64(0)
+			reserveDisk := int64(0)
+			reserveBandwidth := 0
+			if !isCopyMode {
+				reserveCPU = cpuSpec.Cores
+				reserveMemory = int64(memorySpec.SizeMB)
+				reserveDisk = int64(diskSpec.SizeMB)
+				reserveBandwidth = bandwidthSpec.SpeedMbps
+			}
+			resourceResult, err := resourceService.CheckProviderResourcesWithTx(tx, resourceModel.ResourceCheckRequest{
+				ProviderID:   req.ProviderID,
+				InstanceType: req.InstanceType,
+				CPU:          reserveCPU,
+				Memory:       reserveMemory,
+				Disk:         reserveDisk,
+			})
+			if err != nil {
+				return fmt.Errorf("第 %d 个兑换码Provider资源检查失败: %w", i+1, err)
+			}
+			if !resourceResult.Allowed {
+				return fmt.Errorf("第 %d 个兑换码Provider资源不足: %s", i+1, resourceResult.Reason)
+			}
+			if err := reservationService.ReserveResourcesInTx(tx, 0, req.ProviderID, sessionID,
+				req.InstanceType, reserveCPU, reserveMemory, reserveDisk, reserveBandwidth); err != nil {
+				return fmt.Errorf("第 %d 个兑换码实例资源预留失败: %w", i+1, err)
 			}
 
 			// 将 RedemptionCodeID 写入任务数据
 			taskDataReq.RedemptionCodeID = redemptionCode.ID
 			taskDataJSON, err := json.Marshal(taskDataReq)
 			if err != nil {
-				return fmt.Errorf("序列化任务数据失败: %v", err)
+				return fmt.Errorf("第 %d 个兑换码任务数据序列化失败: %w", i+1, err)
 			}
 
-			// 使用管理员 ID 创建任务（避免 executeProviderCreation 中用户查询失败）
-			task, err := s.taskService.CreateTask(adminID, &req.ProviderID, nil, "create_redemption_instance", string(taskDataJSON), 0)
-			if err != nil {
-				return fmt.Errorf("创建任务失败: %v", err)
+			providerID := req.ProviderID
+			timeoutDuration := utils.GetDefaultTaskTimeout("create_redemption_instance")
+			if timeoutDuration <= 0 {
+				timeoutDuration = 2400
+			}
+			estimatedDuration := 300
+			if req.InstanceType == "vm" {
+				estimatedDuration = 600
+			}
+			task := adminModel.Task{
+				UserID:                adminID,
+				ProviderID:            &providerID,
+				TaskType:              "create_redemption_instance",
+				TaskData:              string(taskDataJSON),
+				Status:                "pending",
+				TimeoutDuration:       timeoutDuration,
+				IsForceStoppable:      true,
+				EstimatedDuration:     estimatedDuration,
+				PreallocatedCPU:       reserveCPU,
+				PreallocatedMemory:    int(reserveMemory),
+				PreallocatedDisk:      int(reserveDisk),
+				PreallocatedBandwidth: reserveBandwidth,
+			}
+			if err := tx.Create(&task).Error; err != nil {
+				return fmt.Errorf("第 %d 个兑换码任务创建失败: %w", i+1, err)
 			}
 
 			// 更新兑换码状态为 creating，记录 TaskID
@@ -339,16 +397,18 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 				"status":  systemModel.RedemptionStatusCreating,
 				"task_id": taskID,
 			}).Error; err != nil {
-				return fmt.Errorf("更新兑换码状态失败: %v", err)
+				return fmt.Errorf("第 %d 个兑换码状态更新失败: %w", i+1, err)
 			}
-
-			return nil
-		})
-
-		if err != nil {
-			global.APP_LOG.Error("创建兑换码失败", zap.Int("index", i), zap.Error(err))
-			return err
 		}
+		return nil
+	})
+	if err != nil {
+		global.APP_LOG.Error("批量创建兑换码失败", zap.Error(err))
+		return err
+	}
+
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
 	}
 
 	return nil

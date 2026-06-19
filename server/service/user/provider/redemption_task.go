@@ -28,7 +28,7 @@ import (
 
 // ProcessCreateRedemptionInstanceTask 处理兑换码实例创建任务（三阶段）
 // 与 ProcessCreateInstanceTask 的区别：
-//   - 不消费 SessionId 预留资源（兑换码流程无资源预留）
+//   - 兑换码流程只使用 Provider 资源预留，不占用具体用户配额
 //   - 创建的实例 UserID = 0（归属系统，兑换后转移到用户）
 //   - 任务创建者为管理员（task.UserID = adminID，非零）
 //   - 阶段3额外更新 RedemptionCode 状态
@@ -74,7 +74,7 @@ func (s *Service) ProcessCreateRedemptionInstanceTask(ctx context.Context, task 
 	return nil
 }
 
-// prepareRedemptionInstanceCreation 阶段1: 数据库预处理（无 SessionId 消费 / 无用户配额检查）
+// prepareRedemptionInstanceCreation 阶段1: 数据库预处理（无用户配额检查）
 func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *adminModel.Task) (*providerModel.Instance, error) {
 	var taskReq adminModel.CreateRedemptionInstanceTaskRequest
 	if err := json.Unmarshal([]byte(task.TaskData), &taskReq); err != nil {
@@ -201,12 +201,18 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 			return fmt.Errorf("更新任务状态失败: %v", err)
 		}
 
-		// 分配节点资源（复制模式不分配资源，继承源容器资源）
-		if !isCopyMode {
-			resourceService := &resources.ResourceService{}
-			if err := resourceService.AllocateResourcesInTx(tx, provider.ID, instanceType,
-				cpuCores, memMB, diskMB); err != nil {
-				return fmt.Errorf("分配节点资源失败: %v", err)
+		// 分配节点资源。复制模式此时还不知道源容器的 CPU/内存/磁盘，
+		// 先占用实例数量，执行阶段检测源容器后再补资源用量。
+		resourceService := &resources.ResourceService{}
+		if err := resourceService.AllocateResourcesInTx(tx, provider.ID, instanceType,
+			cpuCores, memMB, diskMB); err != nil {
+			return fmt.Errorf("分配节点资源失败: %v", err)
+		}
+
+		if taskReq.SessionId != "" {
+			reservationService := resources.GetResourceReservationService()
+			if err := reservationService.ConsumeReservationBySessionInTx(tx, taskReq.SessionId); err != nil {
+				return fmt.Errorf("消费兑换码资源预留失败: %v", err)
 			}
 		}
 

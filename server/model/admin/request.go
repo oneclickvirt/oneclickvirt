@@ -610,6 +610,7 @@ type CreateRedemptionInstanceTaskRequest struct {
 	MemoryId         string `json:"memoryId"`
 	DiskId           string `json:"diskId"`
 	BandwidthId      string `json:"bandwidthId"`
+	SessionId        string `json:"sessionId,omitempty"` // Provider资源预留会话ID
 	// 复制模式（LXD/Incus 与 Docker/Podman/Containerd/Orbstack 容器节点）
 	CreationMode    string `json:"creationMode,omitempty"`    // "standard"（默认）或 "copy"
 	SourceContainer string `json:"sourceContainer,omitempty"` // 复制模式下的源容器名称

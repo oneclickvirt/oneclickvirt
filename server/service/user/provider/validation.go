@@ -334,16 +334,7 @@ func (s *Service) validateProviderConcurrencyLimitInTx(tx *gorm.DB, providerID u
 		return fmt.Errorf("查询Provider当前pending任务数失败: %v", err)
 	}
 
-	// 确定最大允许并发执行任务数
-	var maxRunningTasks int
-	if allowConcurrentTasks {
-		maxRunningTasks = maxConcurrentTasks
-		if maxRunningTasks <= 0 {
-			maxRunningTasks = 1 // 默认值
-		}
-	} else {
-		maxRunningTasks = 1 // 串行模式只允许1个运行中的任务
-	}
+	maxRunningTasks := normalizedProviderConcurrencyLimit(maxConcurrentTasks, allowConcurrentTasks)
 
 	// pending任务可以排队，可无限制排队；maxRunningTasks 由调度器根据节点容量动态控制，
 	// 此处不做硬拒绝，仅记录运行中任务数供调度参考。
@@ -384,16 +375,7 @@ func (s *Service) validateProviderConcurrencyLimit(providerID uint, maxConcurren
 		return fmt.Errorf("查询Provider当前pending任务数失败: %v", err)
 	}
 
-	// 确定最大允许并发执行任务数
-	var maxRunningTasks int
-	if allowConcurrentTasks {
-		maxRunningTasks = maxConcurrentTasks
-		if maxRunningTasks <= 0 {
-			maxRunningTasks = 1 // 默认值
-		}
-	} else {
-		maxRunningTasks = 1 // 串行模式只允许1个运行中的任务
-	}
+	maxRunningTasks := normalizedProviderConcurrencyLimit(maxConcurrentTasks, allowConcurrentTasks)
 
 	// pending任务可以排队，可无限制排队；maxRunningTasks 由调度器根据节点容量动态控制，
 	// 此处不做硬拒绝，仅记录运行中任务数供调度参考。
@@ -412,4 +394,14 @@ func (s *Service) validateProviderConcurrencyLimit(providerID uint, maxConcurren
 		zap.Bool("allowConcurrent", allowConcurrentTasks))
 
 	return nil
+}
+
+func normalizedProviderConcurrencyLimit(maxConcurrentTasks int, allowConcurrentTasks bool) int {
+	if !allowConcurrentTasks || maxConcurrentTasks <= 0 {
+		return constant.ProviderDefaultConcurrentTasks
+	}
+	if maxConcurrentTasks > constant.ProviderMaxConcurrentTasks {
+		return constant.ProviderMaxConcurrentTasks
+	}
+	return maxConcurrentTasks
 }

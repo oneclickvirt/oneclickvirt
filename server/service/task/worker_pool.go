@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
@@ -19,6 +20,19 @@ import (
 // getOrCreateProviderPool 获取或创建Provider工作池
 func (s *TaskService) getOrCreateProviderPool(providerID uint, concurrency int) *ProviderWorkerPool {
 	return s.poolManager.GetOrCreate(providerID, concurrency, s)
+}
+
+func getProviderTaskConcurrency(provider providerModel.Provider) int {
+	if !provider.AllowConcurrentTasks {
+		return constant.ProviderDefaultConcurrentTasks
+	}
+	if provider.MaxConcurrentTasks <= 0 {
+		return constant.ProviderDefaultConcurrentTasks
+	}
+	if provider.MaxConcurrentTasks > constant.ProviderMaxConcurrentTasks {
+		return constant.ProviderMaxConcurrentTasks
+	}
+	return provider.MaxConcurrentTasks
 }
 
 // worker 工作者goroutine
@@ -125,16 +139,16 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 			return fmt.Errorf("查询任务状态失败: %v", err)
 		}
 
-		// 如果任务已经不是pending状态，说明被其他worker处理了
-		if currentTask.Status != "pending" {
+		// 如果任务已经不是待执行状态，说明被其他worker处理或被取消了
+		if currentTask.Status != mainTaskStatusPending && currentTask.Status != mainTaskStatusProcessing {
 			return fmt.Errorf("任务状态已变更，当前状态: %s", currentTask.Status)
 		}
 
-		// 使用WHERE条件确保只有pending状态才会被更新
+		// 使用WHERE条件确保只有待执行状态才会被更新
 		result := tx.Model(&adminModel.Task{}).
-			Where("id = ? AND status = ?", task.ID, "pending").
+			Where("id = ? AND status IN ?", task.ID, []string{mainTaskStatusPending, mainTaskStatusProcessing}).
 			Updates(map[string]interface{}{
-				"status":     "running",
+				"status":     mainTaskStatusRunning,
 				"started_at": time.Now(),
 			})
 
@@ -224,11 +238,19 @@ func (s *TaskService) StartTaskWithPool(taskID uint) error {
 		return fmt.Errorf("查询Provider失败: %v", err)
 	}
 
-	// 确定并发数
-	concurrency := 1 // 默认串行
-	if provider.AllowConcurrentTasks && provider.MaxConcurrentTasks > 0 {
-		concurrency = provider.MaxConcurrentTasks
+	claimResult := global.APP_DB.Model(&adminModel.Task{}).
+		Where("id = ? AND status = ?", task.ID, mainTaskStatusPending).
+		Update("status", mainTaskStatusProcessing)
+	if claimResult.Error != nil {
+		return fmt.Errorf("标记任务入队失败: %v", claimResult.Error)
 	}
+	if claimResult.RowsAffected == 0 {
+		return fmt.Errorf("任务已被其他调度器处理或状态已变化")
+	}
+	task.Status = mainTaskStatusProcessing
+
+	// 确定并发数。这里再做一次上限保护，防止历史脏数据或绕过接口的写入放大工作池。
+	concurrency := getProviderTaskConcurrency(provider)
 
 	// 获取或创建工作池
 	pool := s.getOrCreateProviderPool(*task.ProviderID, concurrency)
@@ -289,10 +311,16 @@ func (s *TaskService) StartTaskWithPool(taskID uint) error {
 	case <-pool.Ctx.Done():
 		// 工作池已关闭，立即拒绝任务提交
 		close(taskReq.ResponseCh)
+		global.APP_DB.Model(&adminModel.Task{}).
+			Where("id = ? AND status = ?", task.ID, mainTaskStatusProcessing).
+			Update("status", mainTaskStatusPending)
 		return fmt.Errorf("工作池已关闭，任务提交被拒绝")
 	case <-timer.C:
 		// 发送失败，关闭ResponseCh防止泄漏
 		close(taskReq.ResponseCh)
+		global.APP_DB.Model(&adminModel.Task{}).
+			Where("id = ? AND status = ?", task.ID, mainTaskStatusProcessing).
+			Update("status", mainTaskStatusPending)
 		return fmt.Errorf("任务队列已满，发送超时")
 	}
 

@@ -418,7 +418,7 @@ export default {
   allowConcurrentTasks: "Allow Concurrent Tasks",
   allowConcurrentTasksTip: "Whether to allow concurrent execution of multiple tasks on the same Provider (create, delete, operate instances, etc.)",
   maxConcurrentTasks: "Max Concurrent Tasks",
-  maxConcurrentTasksTip: "Maximum number of tasks executed simultaneously, recommended to set based on server performance",
+  maxConcurrentTasksTip: "Maximum simultaneous tasks on the same provider. Range: 1-10; the backend enforces this limit.",
   taskPollingSettings: "Task Polling Settings",
   enableTaskPolling: "Enable Task Polling",
   enableTaskPollingTip: "Whether to enable task polling detection for this Provider, tasks will not execute automatically when disabled",

@@ -73,7 +73,7 @@ func (s *ResourceService) CheckProviderResourcesWithTx(tx *gorm.DB, req resource
 		zap.Int64("disk", req.Disk))
 
 	var provider providerModel.Provider
-	if err := tx.First(&provider, req.ProviderID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, req.ProviderID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			global.APP_LOG.Warn("Provider不存在", zap.Uint("providerId", req.ProviderID))
 		} else {
@@ -86,6 +86,9 @@ func (s *ResourceService) CheckProviderResourcesWithTx(tx *gorm.DB, req resource
 
 	// 实时刷新实例计数（传入事务以确保一致性读取）
 	s.refreshInstanceCountsInTx(tx, &provider)
+	if err := s.applyActiveReservationsInTx(tx, &provider); err != nil {
+		return nil, err
+	}
 
 	result := s.checkProviderResourceAvailability(&provider, req)
 
@@ -99,6 +102,81 @@ func (s *ResourceService) CheckProviderResourcesWithTx(tx *gorm.DB, req resource
 	}
 
 	return result, nil
+}
+
+// RecordExistingInstanceResourceUsageInTx 为已创建实例补充记录资源用量。
+// 用于复制模式等先创建实例记录、后检测源容器限制的流程：这里不做容量限制校验，
+// 只在源容器明确设置了正数限制时追加统计，避免未配置限制的源容器被误统计为资源占用。
+func (s *ResourceService) RecordExistingInstanceResourceUsageInTx(tx *gorm.DB, providerID uint, instanceType string, cpu int, memory, disk int64) error {
+	global.APP_LOG.Debug("开始记录已存在实例资源用量",
+		zap.Uint("providerId", providerID),
+		zap.String("instanceType", instanceType),
+		zap.Int("cpu", cpu),
+		zap.Int64("memory", memory),
+		zap.Int64("disk", disk))
+
+	var provider providerModel.Provider
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, providerID).Error; err != nil {
+		global.APP_LOG.Error("锁定Provider失败",
+			zap.Uint("providerId", providerID),
+			zap.String("error", utils.TruncateString(err.Error(), 200)))
+		return fmt.Errorf("Provider不存在或无法锁定: %v", err)
+	}
+
+	s.refreshInstanceCountsInTx(tx, &provider)
+
+	updates := buildExistingInstanceResourceUsageUpdates(&provider, instanceType, cpu, memory, disk, time.Now())
+	if len(updates) == 1 {
+		global.APP_LOG.Debug("已存在实例没有明确设置的资源限制需要计入统计",
+			zap.Uint("providerId", providerID),
+			zap.String("instanceType", instanceType))
+		return nil
+	}
+
+	if err := tx.Model(&provider).Updates(updates).Error; err != nil {
+		global.APP_LOG.Error("记录已存在实例资源用量失败",
+			zap.Uint("providerId", providerID),
+			zap.String("error", utils.TruncateString(err.Error(), 200)))
+		return err
+	}
+
+	global.APP_LOG.Debug("已存在实例资源用量记录成功",
+		zap.Uint("providerId", providerID),
+		zap.String("instanceType", instanceType),
+		zap.Int("cpu", cpu),
+		zap.Int64("memory", memory),
+		zap.Int64("disk", disk))
+
+	return nil
+}
+
+func buildExistingInstanceResourceUsageUpdates(provider *providerModel.Provider, instanceType string, cpu int, memory, disk int64, now time.Time) map[string]interface{} {
+	updates := map[string]interface{}{
+		"updated_at": now,
+	}
+	if instanceType == "vm" {
+		if provider.VMLimitCPU && cpu > 0 {
+			updates["used_cpu_cores"] = provider.UsedCPUCores + cpu
+		}
+		if provider.VMLimitMemory && memory > 0 {
+			updates["used_memory"] = provider.UsedMemory + memory
+		}
+		if provider.VMLimitDisk && disk > 0 {
+			updates["used_disk"] = provider.UsedDisk + disk
+		}
+		return updates
+	}
+
+	if provider.ContainerLimitCPU && cpu > 0 {
+		updates["used_cpu_cores"] = provider.UsedCPUCores + cpu
+	}
+	if provider.ContainerLimitMemory && memory > 0 {
+		updates["used_memory"] = provider.UsedMemory + memory
+	}
+	if provider.ContainerLimitDisk && disk > 0 {
+		updates["used_disk"] = provider.UsedDisk + disk
+	}
+	return updates
 }
 
 // checkResourcesInTransaction 在事务中检查资源
@@ -117,9 +195,63 @@ func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheck
 
 	// 实时刷新实例计数（缓存值可能过时）
 	s.refreshInstanceCounts(&provider)
+	if err := s.applyActiveReservationsInTx(global.APP_DB, &provider); err != nil {
+		return nil, err
+	}
 
 	result := s.checkProviderResourceAvailability(&provider, req)
 	return result, nil
+}
+
+type providerReservationAggregate struct {
+	InstanceType string
+	Count        int64
+	CPU          int
+	Memory       int64
+	Disk         int64
+}
+
+func (s *ResourceService) applyActiveReservationsInTx(tx *gorm.DB, provider *providerModel.Provider) error {
+	var aggregates []providerReservationAggregate
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+		Model(&resource.ResourceReservation{}).
+		Select("instance_type, COUNT(*) AS count, COALESCE(SUM(cpu), 0) AS cpu, COALESCE(SUM(memory), 0) AS memory, COALESCE(SUM(disk), 0) AS disk").
+		Where("provider_id = ? AND expires_at > ?", provider.ID, time.Now()).
+		Group("instance_type").
+		Scan(&aggregates).Error; err != nil {
+		return fmt.Errorf("统计Provider预留资源失败: %w", err)
+	}
+	applyReservationAggregates(provider, aggregates)
+	return nil
+}
+
+func applyReservationAggregates(provider *providerModel.Provider, aggregates []providerReservationAggregate) {
+	for _, agg := range aggregates {
+		if agg.InstanceType == "vm" {
+			provider.VMCount += int(agg.Count)
+			if provider.VMLimitCPU {
+				provider.UsedCPUCores += agg.CPU
+			}
+			if provider.VMLimitMemory {
+				provider.UsedMemory += agg.Memory
+			}
+			if provider.VMLimitDisk {
+				provider.UsedDisk += agg.Disk
+			}
+			continue
+		}
+
+		provider.ContainerCount += int(agg.Count)
+		if provider.ContainerLimitCPU {
+			provider.UsedCPUCores += agg.CPU
+		}
+		if provider.ContainerLimitMemory {
+			provider.UsedMemory += agg.Memory
+		}
+		if provider.ContainerLimitDisk {
+			provider.UsedDisk += agg.Disk
+		}
+	}
 }
 
 // checkProviderResourceAvailability 检查Provider资源可用性
