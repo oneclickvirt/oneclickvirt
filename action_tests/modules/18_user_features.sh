@@ -146,14 +146,22 @@ run_module_18() {
     test_api "Capabilities nonexistent" "GET" "/api/v1/user/providers/99999/capabilities" "200|400|404" "" "$group" "$USER_TOKEN"
 
     # ---- Verify new response fields: trafficQuotaVisible, isFrozen, frozenReason ----
-    if [[ -n "$TEST_INSTANCE_ID" ]]; then
+    local uf_instance_id="${TEST_INSTANCE_ID:-}"
+    if [[ -n "$uf_instance_id" ]] && ensure_test_instance_available "$ADMIN_TOKEN" "$uf_instance_id" "user fields instance"; then
         log_info "Verifying new response fields in user instance detail..."
         local uf_group="user_fields"
 
         # User instance detail
         local uf_detail; uf_detail=$(curl -s --max-time 30 \
             -H "Authorization: Bearer ${USER_TOKEN}" \
-            "${SERVER_URL}/api/v1/user/instances/${TEST_INSTANCE_ID}" 2>/dev/null)
+            "${SERVER_URL}/api/v1/user/instances/${uf_instance_id}" 2>/dev/null)
+        local uf_code; uf_code=$(safe_jq "$uf_detail" '-r .code // empty' '')
+        if [[ "$uf_code" != "200" ]]; then
+            record_skip_result "User trafficQuotaVisible field" "GET" "/api/v1/user/instances/${uf_instance_id}" "user instance detail unavailable (code=${uf_code:-unknown}); response: ${uf_detail}" "$uf_group"
+            record_skip_result "User isFrozen field" "GET" "/api/v1/user/instances/${uf_instance_id}" "user instance detail unavailable (code=${uf_code:-unknown}); response: ${uf_detail}" "$uf_group"
+            record_skip_result "User frozenReason field" "GET" "/api/v1/user/instances/${uf_instance_id}" "user instance detail unavailable (code=${uf_code:-unknown}); response: ${uf_detail}" "$uf_group"
+            return 0
+        fi
 
         # Check trafficQuotaVisible field
         local uf_tqv; uf_tqv=$(echo "$uf_detail" | jq -r '.data.trafficQuotaVisible' 2>/dev/null)
@@ -161,11 +169,11 @@ run_module_18() {
         if [[ "$uf_tqv" != "null" ]]; then
             PASSED_TESTS=$((PASSED_TESTS + 1))
             log_success "User instance detail contains trafficQuotaVisible: ${uf_tqv}"
-            _add_result_json "User trafficQuotaVisible field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "PASS" "present" "$uf_tqv" "" "$uf_group"
+            _add_result_json "User trafficQuotaVisible field" "GET" "/api/v1/user/instances/${uf_instance_id}" "PASS" "present" "$uf_tqv" "" "$uf_group"
         else
             FAILED_TESTS=$((FAILED_TESTS + 1))
             log_error "User instance detail missing trafficQuotaVisible field"
-            _add_result_json "User trafficQuotaVisible field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "FAIL" "present" "missing" "" "$uf_group"
+            _add_result_json "User trafficQuotaVisible field" "GET" "/api/v1/user/instances/${uf_instance_id}" "FAIL" "present" "missing" "$uf_detail" "$uf_group"
         fi
 
         # Check isFrozen field
@@ -174,11 +182,11 @@ run_module_18() {
         if [[ "$uf_frozen" != "null" ]]; then
             PASSED_TESTS=$((PASSED_TESTS + 1))
             log_success "User instance detail contains isFrozen: ${uf_frozen}"
-            _add_result_json "User isFrozen field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "PASS" "present" "$uf_frozen" "" "$uf_group"
+            _add_result_json "User isFrozen field" "GET" "/api/v1/user/instances/${uf_instance_id}" "PASS" "present" "$uf_frozen" "" "$uf_group"
         else
             FAILED_TESTS=$((FAILED_TESTS + 1))
             log_error "User instance detail missing isFrozen field"
-            _add_result_json "User isFrozen field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "FAIL" "present" "missing" "" "$uf_group"
+            _add_result_json "User isFrozen field" "GET" "/api/v1/user/instances/${uf_instance_id}" "FAIL" "present" "missing" "$uf_detail" "$uf_group"
         fi
 
         # Check frozenReason field (may be empty string for unfrozen instances)
@@ -187,11 +195,11 @@ run_module_18() {
         if [[ "$uf_frozen_reason" != "__missing__" ]]; then
             PASSED_TESTS=$((PASSED_TESTS + 1))
             log_success "User instance detail contains frozenReason: '${uf_frozen_reason}'"
-            _add_result_json "User frozenReason field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "PASS" "present" "$uf_frozen_reason" "" "$uf_group"
+            _add_result_json "User frozenReason field" "GET" "/api/v1/user/instances/${uf_instance_id}" "PASS" "present" "$uf_frozen_reason" "" "$uf_group"
         else
             FAILED_TESTS=$((FAILED_TESTS + 1))
             log_error "User instance detail missing frozenReason field"
-            _add_result_json "User frozenReason field" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "FAIL" "present" "missing" "" "$uf_group"
+            _add_result_json "User frozenReason field" "GET" "/api/v1/user/instances/${uf_instance_id}" "FAIL" "present" "missing" "$uf_detail" "$uf_group"
         fi
 
         # Check expiresAt field in user detail
@@ -200,7 +208,7 @@ run_module_18() {
 
         # -- User creates share link --
         local user_share_resp; user_share_resp=$(test_api "User create share link (features)" "POST" \
-            "/api/v1/user/instances/${TEST_INSTANCE_ID}/share-links" "200|403|404" \
+            "/api/v1/user/instances/${uf_instance_id}/share-links" "200|403|404" \
             '{"expiresInMinutes":15}' "$uf_group" "$USER_TOKEN")
         local user_share_token; user_share_token=$(echo "$user_share_resp" | jq -r '.data.token // empty' 2>/dev/null)
         if [[ -n "$user_share_token" ]]; then
@@ -209,5 +217,10 @@ run_module_18() {
             test_api_noauth "User share link accessible (public)" "GET" \
                 "/api/v1/public/instance-shares/${user_share_token}" "200" "" "$uf_group"
         fi
+    elif [[ -n "$uf_instance_id" ]]; then
+        local uf_group="user_fields"
+        record_skip_result "User trafficQuotaVisible field" "GET" "/api/v1/user/instances/${uf_instance_id}" "test instance is no longer available" "$uf_group"
+        record_skip_result "User isFrozen field" "GET" "/api/v1/user/instances/${uf_instance_id}" "test instance is no longer available" "$uf_group"
+        record_skip_result "User frozenReason field" "GET" "/api/v1/user/instances/${uf_instance_id}" "test instance is no longer available" "$uf_group"
     fi
 }

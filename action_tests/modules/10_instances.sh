@@ -52,11 +52,9 @@ run_module_10() {
         local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${container_image}\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local ir
         # Use single attempt — 400 validation errors are permanent and not worth retrying
-        if ! ir=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|400|500" "$inst_data" "$group"); then
+        if ! ir=$(test_api_retry "Create container instance" "POST" "/api/v1/admin/instances" "200" "$inst_data" 2 10 "$group"); then
             log_warning "Container instance creation returned non-200; downstream container checks will be skipped"
             ir=""
-        else
-            container_created=true
         fi
         # Debug: log full creation response
         log_info "Create instance response: $(echo "$ir" | jq -c '.' 2>/dev/null | head -c 2000)"
@@ -64,11 +62,22 @@ run_module_10() {
         local maybe_task; maybe_task=$(echo "$ir" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$maybe_task" ]]; then
             log_info "Instance creation task: ${maybe_task}"
-            local task_r; task_r=$(wait_task_complete "$SERVER_URL" "$maybe_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10)
-            log_info "Task complete response: $(echo "$task_r" | jq -c '.' 2>/dev/null | head -c 2000)"
-            container_id=$(echo "$task_r" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+            local task_r=""
+            if task_r=$(wait_task_complete "$SERVER_URL" "$maybe_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
+                log_info "Task complete response: $(echo "$task_r" | jq -c '.' 2>/dev/null | head -c 2000)"
+                container_id=$(echo "$task_r" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+                if [[ -z "$container_id" ]]; then
+                    record_fail_result "Create container instance task result" "GET" "/api/v1/admin/tasks/${maybe_task}" "instance id" "missing" "$task_r" "$group"
+                fi
+            else
+                log_info "Task failed response: $(echo "$task_r" | jq -c '.' 2>/dev/null | head -c 2000)"
+                record_fail_result "Create container instance task" "GET" "/api/v1/admin/tasks/${maybe_task}" "completed" "failed" "$task_r" "$group"
+            fi
         else
             container_id=$(echo "$ir" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+            if [[ -n "$ir" && -z "$container_id" ]]; then
+                record_fail_result "Create container instance result" "POST" "/api/v1/admin/instances" "instance id" "missing" "$ir" "$group" "$inst_data"
+            fi
         fi
 
         if [[ -n "$container_id" ]]; then
@@ -87,26 +96,33 @@ run_module_10() {
             fi
 
             # -- Detail --
-            local detail; detail=$(test_api "Container detail" "GET" "/api/v1/admin/instances/${container_id}" "200" "" "$group")
-
-            # -- Config validation --
-            TOTAL_TESTS=$((TOTAL_TESTS + 1))
-            local d_cpu; d_cpu=$(echo "$detail" | jq -r '.data.cpu // empty' 2>/dev/null)
-            local d_mem; d_mem=$(echo "$detail" | jq -r '.data.memory // empty' 2>/dev/null)
-            if [[ -n "$d_cpu" || -n "$d_mem" ]]; then
-                PASSED_TESTS=$((PASSED_TESTS + 1))
-                log_success "Container config: CPU=${d_cpu} MEM=${d_mem}"
-                report_add_pass "Container config validation" "GET" "/api/v1/admin/instances/${container_id}"
-                _add_result_json "Container config validation" "GET" "/api/v1/admin/instances/${container_id}" "PASS" "" "" "" "$group"
+            local detail=""
+            if ! detail=$(test_api "Container detail" "GET" "/api/v1/admin/instances/${container_id}" "200" "" "$group"); then
+                log_warning "Container ${container_id} disappeared after creation; clearing TEST_INSTANCE_ID to avoid cascading failures"
+                TEST_INSTANCE_ID=""
+                export TEST_INSTANCE_ID
+                container_id=""
             else
-                FAILED_TESTS=$((FAILED_TESTS + 1))
-                log_error "Container config empty"
-                report_add_fail "Container config validation" "GET" "/api/v1/admin/instances/${container_id}" "" "non-empty" "empty" "$detail"
-                _add_result_json "Container config validation" "GET" "/api/v1/admin/instances/${container_id}" "FAIL" "non-empty" "empty" "" "$group"
-            fi
+                container_created=true
 
-            # -- Operations (only if instance is running) --
-            if [[ "$ssh_ready" == "true" ]]; then
+                # -- Config validation --
+                TOTAL_TESTS=$((TOTAL_TESTS + 1))
+                local d_cpu; d_cpu=$(echo "$detail" | jq -r '.data.cpu // empty' 2>/dev/null)
+                local d_mem; d_mem=$(echo "$detail" | jq -r '.data.memory // empty' 2>/dev/null)
+                if [[ -n "$d_cpu" || -n "$d_mem" ]]; then
+                    PASSED_TESTS=$((PASSED_TESTS + 1))
+                    log_success "Container config: CPU=${d_cpu} MEM=${d_mem}"
+                    report_add_pass "Container config validation" "GET" "/api/v1/admin/instances/${container_id}"
+                    _add_result_json "Container config validation" "GET" "/api/v1/admin/instances/${container_id}" "PASS" "" "" "" "$group"
+                else
+                    FAILED_TESTS=$((FAILED_TESTS + 1))
+                    log_error "Container config empty"
+                    report_add_fail "Container config validation" "GET" "/api/v1/admin/instances/${container_id}" "" "non-empty" "empty" "$detail"
+                    _add_result_json "Container config validation" "GET" "/api/v1/admin/instances/${container_id}" "FAIL" "non-empty" "empty" "$detail" "$group"
+                fi
+
+                # -- Operations (only if instance is running) --
+                if [[ "$ssh_ready" == "true" ]]; then
                 local stop_resp; stop_resp=$(test_api "Stop container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
                     '{"action":"stop"}' "$group") || stop_resp=""
                 [[ -n "$stop_resp" ]] && wait_instance_operation_settled "$container_id" "$stop_resp" "stopped" "stop container ${container_id}" "$ADMIN_TOKEN" || true
@@ -118,14 +134,14 @@ run_module_10() {
                 local restart_resp; restart_resp=$(test_api "Restart container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
                     '{"action":"restart"}' "$group") || restart_resp=""
                 [[ -n "$restart_resp" ]] && wait_instance_operation_settled "$container_id" "$restart_resp" "running" "restart container ${container_id}" "$ADMIN_TOKEN" || true
-            else
+                else
                 log_warning "Skipping stop/start/restart tests: instance not in 'running' state"
                 SKIPPED_TESTS=$((SKIPPED_TESTS + 3))
                 for op in "Stop container" "Start container" "Restart container"; do
                     report_add_skip "$op" "POST" "/api/v1/admin/instances/${container_id}/action" "instance not in running state"
                     _add_result_json "$op" "POST" "/api/v1/admin/instances/${container_id}/action" "SKIP" "" "instance not running" "" "$group"
                 done
-            fi
+                fi
 
             # -- Invalid action --
             test_api "Invalid action" "POST" "/api/v1/admin/instances/${container_id}/action" "400" \
@@ -205,6 +221,7 @@ run_module_10() {
             else
                 log_info "Rebuild returned code=${rb_code}, skipping post-rebuild status wait"
             fi
+            fi
         fi
     fi
 
@@ -232,22 +249,31 @@ run_module_10() {
 
         local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local vr
-        if ! vr=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|400|500" "$vm_data" "$group"); then
+        if ! vr=$(test_api_retry "Create VM instance" "POST" "/api/v1/admin/instances" "200" "$vm_data" 2 15 "$group"); then
             log_warning "VM instance creation returned non-200; downstream VM checks will be skipped"
             vr=""
-        else
-            vm_created=true
         fi
         local vm_task; vm_task=$(echo "$vr" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$vm_task" ]]; then
-            local vm_tr; vm_tr=$(wait_task_complete "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 15)
-            vm_id=$(echo "$vm_tr" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+            local vm_tr=""
+            if vm_tr=$(wait_task_complete "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 15); then
+                vm_id=$(echo "$vm_tr" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+                if [[ -z "$vm_id" ]]; then
+                    record_fail_result "Create VM instance task result" "GET" "/api/v1/admin/tasks/${vm_task}" "instance id" "missing" "$vm_tr" "$group"
+                fi
+            else
+                record_fail_result "Create VM instance task" "GET" "/api/v1/admin/tasks/${vm_task}" "completed" "failed" "$vm_tr" "$group"
+            fi
         else
             vm_id=$(echo "$vr" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+            if [[ -n "$vr" && -z "$vm_id" ]]; then
+                record_fail_result "Create VM instance result" "POST" "/api/v1/admin/instances" "instance id" "missing" "$vr" "$group" "$vm_data"
+            fi
         fi
 
         if [[ -n "$vm_id" ]]; then
             log_info "VM instance ID: ${vm_id}"
+            vm_created=true
 
             # -- Wait for VM SSH to be ready --
             log_info "Waiting 30s for VM SSH daemon startup..."
@@ -464,7 +490,7 @@ run_module_10() {
                 else
                     FAILED_TESTS=$((FAILED_TESTS + 1))
                     log_error "Share link URL missing in response"
-                    _add_result_json "Share link URL check" "POST" "/api/v1/user/instances/${share_instance_id}/share-links" "FAIL" "non-empty" "missing" "" "$share_group"
+                    _add_result_json "Share link URL check" "POST" "/api/v1/user/instances/${share_instance_id}/share-links" "FAIL" "non-empty" "missing" "$share_resp" "$share_group"
                 fi
 
                 TOTAL_TESTS=$((TOTAL_TESTS + 1))
@@ -475,7 +501,7 @@ run_module_10() {
                 else
                     FAILED_TESTS=$((FAILED_TESTS + 1))
                     log_error "Share link expiresAt missing"
-                    _add_result_json "Share link expiry check" "POST" "/api/v1/user/instances/${share_instance_id}/share-links" "FAIL" "non-empty" "missing" "" "$share_group"
+                    _add_result_json "Share link expiry check" "POST" "/api/v1/user/instances/${share_instance_id}/share-links" "FAIL" "non-empty" "missing" "$share_resp" "$share_group"
                 fi
 
                 # -- Access shared instance detail (public, no auth) --
@@ -492,7 +518,7 @@ run_module_10() {
                 else
                     FAILED_TESTS=$((FAILED_TESTS + 1))
                     log_error "Shared detail missing instance ID"
-                    _add_result_json "Shared detail ID check" "GET" "/api/v1/public/instance-shares/${share_token}" "FAIL" "non-empty" "missing" "" "$share_group"
+                    _add_result_json "Shared detail ID check" "GET" "/api/v1/public/instance-shares/${share_token}" "FAIL" "non-empty" "missing" "$shared_detail" "$share_group"
                 fi
 
                 # Verify isFrozen and frozenReason fields in shared detail
@@ -505,7 +531,7 @@ run_module_10() {
                 else
                     FAILED_TESTS=$((FAILED_TESTS + 1))
                     log_error "Shared detail missing isFrozen field"
-                    _add_result_json "Shared detail isFrozen field" "GET" "/api/v1/public/instance-shares/${share_token}" "FAIL" "present" "missing" "" "$share_group"
+                    _add_result_json "Shared detail isFrozen field" "GET" "/api/v1/public/instance-shares/${share_token}" "FAIL" "present" "missing" "$shared_detail" "$share_group"
                 fi
 
                 # Verify trafficQuotaVisible field in shared detail
@@ -518,7 +544,7 @@ run_module_10() {
                 else
                     FAILED_TESTS=$((FAILED_TESTS + 1))
                     log_error "Shared detail missing trafficQuotaVisible field"
-                    _add_result_json "Shared detail trafficQuotaVisible field" "GET" "/api/v1/public/instance-shares/${share_token}" "FAIL" "present" "missing" "" "$share_group"
+                    _add_result_json "Shared detail trafficQuotaVisible field" "GET" "/api/v1/public/instance-shares/${share_token}" "FAIL" "present" "missing" "$shared_detail" "$share_group"
                 fi
 
                 # -- Shared instance ports (public) --

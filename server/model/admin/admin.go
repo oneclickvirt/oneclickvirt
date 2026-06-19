@@ -76,8 +76,8 @@ type AuditLog struct {
 	Latency    int64          `json:"latency"`
 	ClientIP   string         `json:"clientIP" gorm:"size:64"`
 	UserAgent  string         `json:"userAgent" gorm:"size:255"`
-	Request    string         `json:"request" gorm:"type:text"`
-	Response   string         `json:"response" gorm:"type:text"`
+	Request    string         `json:"request" gorm:"type:longtext"`
+	Response   string         `json:"response" gorm:"type:longtext"`
 }
 
 // SystemConfig 系统配置模型

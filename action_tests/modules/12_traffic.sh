@@ -108,14 +108,15 @@ run_module_12() {
     # Traffic Quota Visibility Tests
     # ==============================
     # Verify provider traffic_quota_visible is reflected in instance traffic detail
-    if [[ -n "$TEST_INSTANCE_ID" && -n "$USER_TOKEN" ]]; then
-        log_info "Testing traffic quota visibility with instance ${TEST_INSTANCE_ID}..."
+    local traffic_instance_id="${TEST_INSTANCE_ID:-}"
+    if [[ -n "$traffic_instance_id" && -n "$USER_TOKEN" ]] && ensure_test_instance_available "$ADMIN_TOKEN" "$traffic_instance_id" "traffic visibility instance"; then
+        log_info "Testing traffic quota visibility with instance ${traffic_instance_id}..."
         local tqv_group="traffic_visibility"
 
         # Get instance traffic detail
         local tqv_detail; tqv_detail=$(curl -s --max-time 30 \
             -H "Authorization: Bearer ${USER_TOKEN}" \
-            "${SERVER_URL}/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" 2>/dev/null)
+            "${SERVER_URL}/api/v1/user/traffic/instance/${traffic_instance_id}" 2>/dev/null)
         local tqv_code; tqv_code=$(echo "$tqv_detail" | jq -r '.code // empty' 2>/dev/null)
 
         TOTAL_TESTS=$((TOTAL_TESTS + 1))
@@ -124,20 +125,27 @@ run_module_12() {
             if [[ "$tqv_visible" != "__missing__" ]]; then
                 PASSED_TESTS=$((PASSED_TESTS + 1))
                 log_success "Traffic detail contains visible field: ${tqv_visible}"
-                _add_result_json "Traffic visible field" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "PASS" "present" "$tqv_visible" "" "$tqv_group"
+                _add_result_json "Traffic visible field" "GET" "/api/v1/user/traffic/instance/${traffic_instance_id}" "PASS" "present" "$tqv_visible" "" "$tqv_group"
             else
                 FAILED_TESTS=$((FAILED_TESTS + 1))
                 log_error "Traffic detail missing visible field"
-                _add_result_json "Traffic visible field" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "FAIL" "present" "missing" "" "$tqv_group"
+                _add_result_json "Traffic visible field" "GET" "/api/v1/user/traffic/instance/${traffic_instance_id}" "FAIL" "present" "missing" "$tqv_detail" "$tqv_group"
             fi
+        else
+            SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
+            report_add_skip "Traffic visible field" "GET" "/api/v1/user/traffic/instance/${traffic_instance_id}" "user traffic detail unavailable (code=${tqv_code:-unknown})"
+            _add_result_json "Traffic visible field" "GET" "/api/v1/user/traffic/instance/${traffic_instance_id}" "SKIP" "" "" "user traffic detail unavailable (code=${tqv_code:-unknown}); response: ${tqv_detail}" "$tqv_group"
         fi
 
         # Get instance traffic history and check it respects visibility
         local tqv_hist; tqv_hist=$(curl -s --max-time 30 \
             -H "Authorization: Bearer ${USER_TOKEN}" \
-            "${SERVER_URL}/api/v1/user/instances/${TEST_INSTANCE_ID}/traffic/history" 2>/dev/null)
+            "${SERVER_URL}/api/v1/user/instances/${traffic_instance_id}/traffic/history" 2>/dev/null)
         local tqv_hist_code; tqv_hist_code=$(echo "$tqv_hist" | jq -r '.code // empty' 2>/dev/null)
         log_info "Traffic history response code: ${tqv_hist_code}"
+    elif [[ -n "$traffic_instance_id" ]]; then
+        local tqv_group="traffic_visibility"
+        record_skip_result "Traffic visible field" "GET" "/api/v1/user/traffic/instance/${traffic_instance_id}" "test instance is no longer available or USER_TOKEN is missing" "$tqv_group"
     fi
 
     # -- Verify provider has traffic over-limit policy fields --

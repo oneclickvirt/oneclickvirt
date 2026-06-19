@@ -140,7 +140,7 @@ run_module_09() {
     else
         FAILED_TESTS=$((FAILED_TESTS + 1))
         log_error "instanceExpiryAction: expected delete, got ${saved_expiry_action}"
-        _add_result_json "Lifecycle policy verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "FAIL" "delete" "$saved_expiry_action" "" "$group"
+        _add_result_json "Lifecycle policy verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "FAIL" "delete" "$saved_expiry_action" "$policy_detail" "$group"
     fi
 
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
@@ -151,7 +151,7 @@ run_module_09() {
     else
         FAILED_TESTS=$((FAILED_TESTS + 1))
         log_error "trafficOverLimitAction: expected stop, got ${saved_traffic_action}"
-        _add_result_json "Traffic over-limit verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "FAIL" "stop" "$saved_traffic_action" "" "$group"
+        _add_result_json "Traffic over-limit verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "FAIL" "stop" "$saved_traffic_action" "$policy_detail" "$group"
     fi
 
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
@@ -162,7 +162,7 @@ run_module_09() {
     else
         FAILED_TESTS=$((FAILED_TESTS + 1))
         log_error "trafficQuotaVisible: expected false, got ${saved_quota_visible}"
-        _add_result_json "Traffic quota visible verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "FAIL" "false" "$saved_quota_visible" "" "$group"
+        _add_result_json "Traffic quota visible verify" "GET" "/api/v1/admin/providers/${PROVIDER_ID}" "FAIL" "false" "$saved_quota_visible" "$policy_detail" "$group"
     fi
 
     # -- Revert trafficQuotaVisible to true for downstream modules --
@@ -297,7 +297,7 @@ run_module_09() {
     # -- Domain config --
     test_api "Get domain config" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/domain-config" "200" "" "$group"
     test_api "Update domain config" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/domain-config" "200" \
-        '{"enabled":true,"base_domain":"test.example.com"}' "$group"
+        '{"enabled":true,"maxDomainsPerUser":3,"dnsType":"hosts","allowedSuffixes":".example.com"}' "$group"
 
     # -- Export configs --
     test_api "Export provider configs" "POST" "/api/v1/admin/providers/export-configs" "200" \

@@ -340,14 +340,14 @@ SECHEAD2
     if [[ "$status" == "FAIL" && ( -n "$detail" || -n "$error_logs" ) ]]; then
         has_detail="1"
         detail_content=""
-        [[ -n "$expected" || -n "$actual" ]] && detail_content+="Expected: ${expected} | Actual: ${actual}\n"
-        [[ -n "$detail" && "$detail" != "null" ]] && detail_content+="--- Response ---\n${detail}\n"
-        [[ -n "$error_logs" && "$error_logs" != "null" ]] && detail_content+="--- Service Logs ---\n${error_logs}"
+        [[ -n "$expected" || -n "$actual" ]] && detail_content+="Expected: ${expected} | Actual: ${actual}"$'\n'
+        [[ -n "$detail" && "$detail" != "null" ]] && detail_content+="--- Response ---"$'\n'"${detail}"$'\n'
+        [[ -n "$error_logs" && "$error_logs" != "null" ]] && detail_content+="--- Service Logs ---"$'\n'"${error_logs}"
         # Escape HTML
-        detail_content=$(echo -e "$detail_content" | sed 's/</\&lt;/g; s/>/\&gt;/g')
+        detail_content=$(html_escape "$detail_content")
     elif [[ "$status" == "SKIP" && -n "$detail" && "$detail" != "null" ]]; then
         has_detail="1"
-        detail_content=$(echo "$detail" | sed 's/</\&lt;/g; s/>/\&gt;/g')
+        detail_content=$(html_escape "$detail")
     fi
 
     echo "<tr class=\"test-row\" data-status=\"${status}\" data-group=\"${grp}\" data-name=\"${name}\" data-url=\"${url}\">" >> "$OUTPUT_HTML"

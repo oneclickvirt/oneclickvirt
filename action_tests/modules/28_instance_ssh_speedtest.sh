@@ -410,7 +410,7 @@ run_module_28() {
         report_add_fail "Instance speedtest download (>=${SPEEDTEST_MIN_MB}MB)" "SSH-DL" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
             "" ">=${SPEEDTEST_MIN_MB}MB" "all failed" "No URL returned enough data in ${SPEEDTEST_TIMEOUT}s"
         _record_result "Instance speedtest download" "SSH-DL" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
-            "FAIL" ">=${SPEEDTEST_MIN_MB}MB" "all failed" "" "$group"
+            "FAIL" ">=${SPEEDTEST_MIN_MB}MB" "all failed" "No URL returned enough data in ${SPEEDTEST_TIMEOUT}s" "$group"
     fi
 
     if [[ -n "$m28_temp_key_file" && -f "$m28_temp_key_file" ]]; then

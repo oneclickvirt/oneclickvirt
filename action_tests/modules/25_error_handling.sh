@@ -34,9 +34,11 @@ run_module_25() {
 
     # ---- Invalid JSON ----
     # Use raw curl for malformed JSON
-    local resp_code
-    resp_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${SERVER_URL}/api/v1/auth/login" \
+    local resp_code resp_body resp_raw
+    resp_raw=$(curl -s -w "\n%{http_code}" -X POST "${SERVER_URL}/api/v1/auth/login" \
         -H "Content-Type: application/json" -d 'NOT_JSON{{{')
+    resp_code=$(echo "$resp_raw" | tail -1)
+    resp_body=$(echo "$resp_raw" | sed '$d')
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     if [[ "$resp_code" == "400" || "$resp_code" == "422" ]]; then
         PASSED_TESTS=$((PASSED_TESTS + 1))
@@ -45,7 +47,7 @@ run_module_25() {
     else
         FAILED_TESTS=$((FAILED_TESTS + 1))
         log_error "Invalid JSON not rejected (got $resp_code)"
-        _add_result_json "Invalid JSON body" "POST" "/api/v1/auth/login" "FAIL" "400|422" "$resp_code" "" "$group"
+        _add_result_json "Invalid JSON body" "POST" "/api/v1/auth/login" "FAIL" "400|422" "$resp_code" "$resp_body" "$group"
     fi
 
     # ---- Negative IDs ----
@@ -131,8 +133,10 @@ run_module_25() {
     fi
 
     # ---- Content-Type enforcement ----
-    resp_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${SERVER_URL}/api/v1/auth/login" \
+    resp_raw=$(curl -s -w "\n%{http_code}" -X POST "${SERVER_URL}/api/v1/auth/login" \
         -H "Content-Type: text/plain" -d '{"username":"admin","password":"test"}')
+    resp_code=$(echo "$resp_raw" | tail -1)
+    resp_body=$(echo "$resp_raw" | sed '$d')
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     if [[ "$resp_code" == "400" || "$resp_code" == "415" || "$resp_code" == "401" ]]; then
         PASSED_TESTS=$((PASSED_TESTS + 1))
@@ -141,7 +145,7 @@ run_module_25() {
     else
         FAILED_TESTS=$((FAILED_TESTS + 1))
         log_warning "Wrong content-type returned $resp_code"
-        _add_result_json "Wrong Content-Type" "POST" "/api/v1/auth/login" "FAIL" "400|415|401" "$resp_code" "" "$group"
+        _add_result_json "Wrong Content-Type" "POST" "/api/v1/auth/login" "FAIL" "400|415|401" "$resp_code" "$resp_body" "$group"
     fi
 
     # ---- Concurrent duplicate requests ----

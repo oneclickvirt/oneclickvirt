@@ -16,21 +16,30 @@ run_module_24() {
     local u1_instances; u1_instances=$(test_api "User1 instances" "GET" "/api/v1/user/instances" "200" "" "$group" "$USER_TOKEN")
     local u2_instances; u2_instances=$(test_api "User2 instances" "GET" "/api/v1/user/instances" "200" "" "$group" "$USER_TOKEN2")
 
-    if [[ -n "$TEST_INSTANCE_ID" ]]; then
-        test_api "User2 -> user1 instance (403/404)" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "403|404" \
+    local isolation_instance_id="${TEST_INSTANCE_ID:-}"
+    if [[ -n "$isolation_instance_id" ]] && ensure_test_instance_available "$ADMIN_TOKEN" "$isolation_instance_id" "data isolation instance"; then
+        test_api "User2 -> user1 instance (403/404)" "GET" "/api/v1/user/instances/${isolation_instance_id}" "403|404" \
             "" "$group" "$USER_TOKEN2"
         test_api "User2 -> user1 instance action (403/404)" "POST" "/api/v1/user/instances/action" "403|404|400" \
-            '{"instance_id":"'"$TEST_INSTANCE_ID"'","action":"stop"}' "$group" "$USER_TOKEN2"
+            '{"instance_id":"'"$isolation_instance_id"'","action":"stop"}' "$group" "$USER_TOKEN2"
         test_api_json_value "User2 -> user1 batch action blocked" "POST" "/api/v1/user/instances/batch-action" "200" \
-            '.data.successCount' "0" "{\"instanceIds\":[${TEST_INSTANCE_ID}],\"action\":\"stop\"}" "$group" "$USER_TOKEN2" >/dev/null
-        test_api "User2 -> user1 instance password (403/404)" "PUT" "/api/v1/user/instances/${TEST_INSTANCE_ID}/reset-password" "403|404" \
+            '.data.successCount' "0" "{\"instanceIds\":[${isolation_instance_id}],\"action\":\"stop\"}" "$group" "$USER_TOKEN2" >/dev/null
+        test_api "User2 -> user1 instance password (403/404)" "PUT" "/api/v1/user/instances/${isolation_instance_id}/reset-password" "403|404" \
             '{"password":"Hack123!@#"}' "$group" "$USER_TOKEN2"
-        test_api "User2 -> user1 monitoring (403/404)" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring" "403|404" \
+        test_api "User2 -> user1 monitoring (403/404)" "GET" "/api/v1/user/instances/${isolation_instance_id}/monitoring" "403|404" \
             "" "$group" "$USER_TOKEN2"
-        test_api "User2 -> user1 ports (403/404)" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/ports" "403|404" \
+        test_api "User2 -> user1 ports (403/404)" "GET" "/api/v1/user/instances/${isolation_instance_id}/ports" "403|404" \
             "" "$group" "$USER_TOKEN2"
-        test_api "User2 -> user1 traffic (403/404)" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "403|404" \
+        test_api "User2 -> user1 traffic (403/404)" "GET" "/api/v1/user/traffic/instance/${isolation_instance_id}" "403|404" \
             "" "$group" "$USER_TOKEN2"
+    elif [[ -n "$isolation_instance_id" ]]; then
+        record_skip_result "User2 -> user1 instance (403/404)" "GET" "/api/v1/user/instances/${isolation_instance_id}" "test instance is no longer available" "$group"
+        record_skip_result "User2 -> user1 instance action (403/404)" "POST" "/api/v1/user/instances/action" "test instance is no longer available" "$group"
+        record_skip_result "User2 -> user1 batch action blocked" "POST" "/api/v1/user/instances/batch-action" "test instance is no longer available" "$group"
+        record_skip_result "User2 -> user1 instance password (403/404)" "PUT" "/api/v1/user/instances/${isolation_instance_id}/reset-password" "test instance is no longer available" "$group"
+        record_skip_result "User2 -> user1 monitoring (403/404)" "GET" "/api/v1/user/instances/${isolation_instance_id}/monitoring" "test instance is no longer available" "$group"
+        record_skip_result "User2 -> user1 ports (403/404)" "GET" "/api/v1/user/instances/${isolation_instance_id}/ports" "test instance is no longer available" "$group"
+        record_skip_result "User2 -> user1 traffic (403/404)" "GET" "/api/v1/user/traffic/instance/${isolation_instance_id}" "test instance is no longer available" "$group"
     fi
 
     # ---- Domain isolation ----

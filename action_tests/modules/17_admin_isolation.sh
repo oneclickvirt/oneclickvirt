@@ -19,19 +19,25 @@ run_module_17() {
 
     # -- Normal admin instance isolation --
     test_api "Normal admin instances" "GET" "/api/v1/admin/instances?page=1&pageSize=10" "200" "" "$group" "$NORMAL_ADMIN_TOKEN"
-    if [[ -n "${TEST_INSTANCE_ID:-}" ]]; then
-        test_api "Normal admin -> foreign instance detail (403)" "GET" "/api/v1/admin/instances/${TEST_INSTANCE_ID}" "403|404" \
+    local isolation_instance_id="${TEST_INSTANCE_ID:-}"
+    if [[ -n "$isolation_instance_id" ]] && ensure_test_instance_available "$ADMIN_TOKEN" "$isolation_instance_id" "admin isolation instance"; then
+        test_api "Normal admin -> foreign instance detail (403)" "GET" "/api/v1/admin/instances/${isolation_instance_id}" "403|404" \
             "" "$group" "$NORMAL_ADMIN_TOKEN"
         # Instance may have been deleted/transferred by the time this module runs, so accept 403 (forbidden) or 404 (not found)
-        test_api "Normal admin -> foreign instance action blocked before validation (403)" "POST" "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "403|404" \
+        test_api "Normal admin -> foreign instance action blocked before validation (403)" "POST" "/api/v1/admin/instances/${isolation_instance_id}/action" "403|404" \
             '{"action":"invalid_action_for_isolation"}' "$group" "$NORMAL_ADMIN_TOKEN"
         # Use a valid action (e.g. "start") so the request passes input validation and reaches the isolation/permission check.
         # Using "invalid_action_for_isolation" would be rejected at the validation layer with 400 before isolation is tested.
         test_api_json_value "Normal admin -> foreign batch action blocked before validation" "POST" "/api/v1/admin/instances/batch-action" "200" \
             '.data.results[0].error | contains("无权")' "true" \
-            "{\"instanceIds\":[${TEST_INSTANCE_ID}],\"action\":\"start\"}" "$group" "$NORMAL_ADMIN_TOKEN" >/dev/null
-        test_api "Normal admin -> foreign password result (403)" "GET" "/api/v1/admin/instances/${TEST_INSTANCE_ID}/password/999999" "403|404" \
+            "{\"instanceIds\":[${isolation_instance_id}],\"action\":\"start\"}" "$group" "$NORMAL_ADMIN_TOKEN" >/dev/null
+        test_api "Normal admin -> foreign password result (403)" "GET" "/api/v1/admin/instances/${isolation_instance_id}/password/999999" "403|404" \
             "" "$group" "$NORMAL_ADMIN_TOKEN"
+    elif [[ -n "$isolation_instance_id" ]]; then
+        record_skip_result "Normal admin -> foreign instance detail (403)" "GET" "/api/v1/admin/instances/${isolation_instance_id}" "test instance is no longer available" "$group"
+        record_skip_result "Normal admin -> foreign instance action blocked before validation (403)" "POST" "/api/v1/admin/instances/${isolation_instance_id}/action" "test instance is no longer available" "$group"
+        record_skip_result "Normal admin -> foreign batch action blocked before validation" "POST" "/api/v1/admin/instances/batch-action" "test instance is no longer available" "$group"
+        record_skip_result "Normal admin -> foreign password result (403)" "GET" "/api/v1/admin/instances/${isolation_instance_id}/password/999999" "test instance is no longer available" "$group"
     fi
 
     # -- Super admin sees all providers --

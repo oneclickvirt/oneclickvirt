@@ -61,6 +61,9 @@ run_module_27() {
 
     # ---- Task management ----
     test_api "List all admin tasks" "GET" "/api/v1/admin/tasks?page=1&pageSize=10" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Task pool status" "GET" "/api/v1/admin/tasks/pool-status" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Task pool enable" "PUT" "/api/v1/admin/tasks/pool-status" "200" \
+        '{"enabled":true,"message":"CI test keeps task pool enabled"}' "$group" "$ADMIN_TOKEN"
     test_api "Task statistics" "GET" "/api/v1/admin/tasks/stats" "200" "" "$group" "$ADMIN_TOKEN"
     test_api "Task overall stats" "GET" "/api/v1/admin/tasks/overall-stats" "200" "" "$group" "$ADMIN_TOKEN"
 
@@ -72,6 +75,12 @@ run_module_27() {
     test_api "Get group info" "GET" "/api/v1/admin/group-info" "200" "" "$group" "$ADMIN_TOKEN"
     test_api "Update group info" "PUT" "/api/v1/admin/group-info" "200" \
         '{"name":"Test Group","description":"Updated via test"}' "$group" "$ADMIN_TOKEN"
+    test_api "Admin groups list" "GET" "/api/v1/admin/groups" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Create admin group invalid name" "POST" "/api/v1/admin/groups" "400" \
+        '{"groupName":"<script>bad</script>"}' "$group" "$ADMIN_TOKEN"
+    test_api "Update admin group nonexistent" "PUT" "/api/v1/admin/groups/99999" "400|404" \
+        '{"name":"missing-group"}' "$group" "$ADMIN_TOKEN"
+    test_api "Delete admin group nonexistent" "DELETE" "/api/v1/admin/groups/99999" "400|404" "" "$group" "$ADMIN_TOKEN"
 
     # ---- User quota (nonexistent user) ----
     test_api "User quota (nonexistent)" "GET" "/api/v1/admin/quota/users/99999" "200|400|404" \
@@ -90,6 +99,11 @@ run_module_27() {
 
     # ---- Performance history ----
     test_api "Performance history" "GET" "/api/v1/admin/performance/history" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Monitoring metrics" "GET" "/api/v1/admin/monitoring/metrics" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Monitoring health" "GET" "/api/v1/admin/monitoring/health" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Storage info" "GET" "/api/v1/admin/storage/info" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Log files" "GET" "/api/v1/admin/logs/files" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Database stats" "GET" "/api/v1/admin/database/stats" "200" "" "$group" "$ADMIN_TOKEN"
 
     # ---- Provider traffic history ----
     if [[ -n "$PROVIDER_ID" ]]; then

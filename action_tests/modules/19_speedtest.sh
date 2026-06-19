@@ -6,8 +6,13 @@ run_module_19() {
     report_add_section "19 - Speedtest"
     local group="speedtest"
 
-    if [[ -z "$TEST_INSTANCE_ID" || -z "$PROVIDER_ID" ]]; then
+    local speedtest_instance_id="${TEST_INSTANCE_ID:-}"
+    if [[ -z "$speedtest_instance_id" || -z "$PROVIDER_ID" ]]; then
         chain_break "$group" "No instance or provider"
+        return 0
+    fi
+    if ! ensure_test_instance_available "$ADMIN_TOKEN" "$speedtest_instance_id" "speedtest instance"; then
+        chain_break "$group" "Test instance is no longer available"
         return 0
     fi
 
@@ -25,23 +30,21 @@ run_module_19() {
 
     # -- Run speedtest via instance action (only if instance is in a runnable state) --
     local inst_status; inst_status=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-        "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}" 2>/dev/null | jq -r '.data.status // empty' 2>/dev/null)
+        "${SERVER_URL}/api/v1/admin/instances/${speedtest_instance_id}" 2>/dev/null | jq -r '.data.status // empty' 2>/dev/null)
     if [[ "$inst_status" == "running" || "$inst_status" == "stopped" ]]; then
         local action_resp; action_resp=$(test_api "Speedtest instance action" "POST" \
-            "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "200|400|404|409|500" \
+            "/api/v1/admin/instances/${speedtest_instance_id}/action" "200|400|404|409|500" \
             '{"action":"restart"}' "$group" "$ADMIN_TOKEN")
-        wait_instance_operation_settled "$TEST_INSTANCE_ID" "$action_resp" "running" "speedtest restart ${TEST_INSTANCE_ID}" "$ADMIN_TOKEN" || true
+        wait_instance_operation_settled "$speedtest_instance_id" "$action_resp" "running" "speedtest restart ${speedtest_instance_id}" "$ADMIN_TOKEN" || true
     else
-        log_warning "Skipping speedtest: instance ${TEST_INSTANCE_ID} status=${inst_status:-gone}, not runnable"
-        SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
-        report_add_skip "Speedtest instance action" "POST" "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "instance not runnable"
+        record_skip_result "Speedtest instance action" "POST" "/api/v1/admin/instances/${speedtest_instance_id}/action" "instance status=${inst_status:-gone}, not runnable" "$group"
     fi
 
     # -- Wait for traffic data to settle --
     sleep 5
 
     # -- Sync traffic --
-    test_api "Sync instance traffic" "POST" "/api/v1/admin/traffic/sync/instance/${TEST_INSTANCE_ID}" "200" \
+    test_api "Sync instance traffic" "POST" "/api/v1/admin/traffic/sync/instance/${speedtest_instance_id}" "200" \
         '' "$group" "$ADMIN_TOKEN"
 
     # -- Get traffic after --
@@ -49,7 +52,7 @@ run_module_19() {
 
     # -- User-side traffic verification --
     test_api "User traffic after test" "GET" "/api/v1/user/traffic/overview" "200" "" "$group" "$USER_TOKEN"
-    test_api "User instance traffic" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "200|403|404" "" "$group" "$USER_TOKEN"
+    test_api "User instance traffic" "GET" "/api/v1/user/traffic/instance/${speedtest_instance_id}" "200|403|404" "" "$group" "$USER_TOKEN"
 
     # -- Monitor tasks --
     test_api "Monitor tasks list" "GET" "/api/v1/admin/providers/traffic-monitor/tasks" "200" "" "$group" "$ADMIN_TOKEN"
@@ -60,7 +63,7 @@ run_module_19() {
         '{"providerId":'"$PROVIDER_ID"',"operation":"disable"}' "$group" "$ADMIN_TOKEN"
 
     # -- Pmacct data (if available) --
-    test_api "Pmacct summary" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/pmacct/summary" "200|403|404" "" "$group" "$USER_TOKEN"
-    test_api "Pmacct query" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/pmacct/query" "200|403|404" "" "$group" "$USER_TOKEN"
-    test_api "User pmacct traffic" "GET" "/api/v1/user/traffic/pmacct/${TEST_INSTANCE_ID}" "200|403|404" "" "$group" "$USER_TOKEN"
+    test_api "Pmacct summary" "GET" "/api/v1/user/instances/${speedtest_instance_id}/pmacct/summary" "200|403|404" "" "$group" "$USER_TOKEN"
+    test_api "Pmacct query" "GET" "/api/v1/user/instances/${speedtest_instance_id}/pmacct/query" "200|403|404" "" "$group" "$USER_TOKEN"
+    test_api "User pmacct traffic" "GET" "/api/v1/user/traffic/pmacct/${speedtest_instance_id}" "200|403|404" "" "$group" "$USER_TOKEN"
 }

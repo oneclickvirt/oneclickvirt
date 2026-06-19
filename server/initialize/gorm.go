@@ -197,6 +197,7 @@ func RegisterTables(db *gorm.DB) {
 		global.APP_LOG.Error("register table failed", zap.Error(err))
 		return
 	}
+	ensureAuditLogTextCharset(db)
 	global.APP_LOG.Info("数据库表注册成功")
 
 	// AutoMigrate完成后再确认重复数据（表已存在才安全执行）
@@ -208,5 +209,18 @@ func RegisterTables(db *gorm.DB) {
 	firewallSvc := &firewallService.Service{}
 	if err := firewallSvc.EnsureDefaultRules(); err != nil {
 		global.APP_LOG.Warn("初始化默认屏蔽规则失败（可忽略）", zap.Error(err))
+	}
+}
+
+func ensureAuditLogTextCharset(db *gorm.DB) {
+	if db == nil || db.Dialector.Name() != "mysql" {
+		return
+	}
+	if err := db.Exec(
+		"ALTER TABLE `audit_logs` " +
+			"MODIFY COLUMN `request` LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci, " +
+			"MODIFY COLUMN `response` LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
+	).Error; err != nil {
+		global.APP_LOG.Warn("修正审计日志字符集失败（可忽略，后续迁移会重试）", zap.Error(err))
 	}
 }

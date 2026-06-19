@@ -71,6 +71,16 @@ sanitize_json_body() {
     fi
 }
 
+log_failure_response() {
+    local name="$1" body="$2" error_logs="${3:-}"
+    log_error "${name} - actual response body follows:"
+    printf '%s\n' "$body" >&2
+    if [[ -n "$error_logs" ]]; then
+        log_error "${name} - service logs captured for this failure:"
+        printf '%s\n' "$error_logs" >&2
+    fi
+}
+
 json_string() {
     jq -cn --arg value "$1" '$value'
 }
@@ -241,6 +251,7 @@ test_api() {
         # Capture service logs on failure (timestamp-based)
         local error_logs=""
         error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
+        log_failure_response "$name" "$body" "$error_logs"
         report_add_fail "$name" "$method" "$url" "$data" "$expected" "$code" "$body"
         _record_result "$name" "$method" "$url" "FAIL" "$expected" "$code" "$body" "$group" "$error_logs"
         return 1
@@ -329,6 +340,7 @@ test_api_json_value() {
         log_error "${name} - expected HTTP ${expected_http}, got HTTP ${code}"
         local error_logs=""
         error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
+        log_failure_response "$name" "$body" "$error_logs"
         report_add_fail "$name" "$method" "$url" "$data" "$expected_http" "$code" "$body"
         _record_result "$name" "$method" "$url" "FAIL" "$expected_http" "$code" "$body" "$group" "$error_logs"
         return 1
@@ -349,6 +361,7 @@ test_api_json_value() {
         local expected_detail="HTTP ${expected_http}, jq(${jq_expr})=${expected_value}"
         local actual_detail="HTTP ${code}, jq(${jq_expr})=${actual_value}"
         error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
+        log_failure_response "$name" "$body" "$error_logs"
         report_add_fail "$name" "$method" "$url" "$data" "$expected_detail" "$actual_detail" "$body"
         _record_result "$name" "$method" "$url" "FAIL" "$expected_detail" "$actual_detail" "$body" "$group" "$error_logs"
         return 1
@@ -974,9 +987,19 @@ init_results_file() {
 _record_result() {
     local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8" error_logs="${9:-}"
     local ts; ts=$(_ts)
-    local safe_detail; safe_detail=$(printf '%s' "$detail" | tr '\000-\037' ' ' | sed 's/"/\\"/g')
-    local safe_logs; safe_logs=$(printf '%s' "$error_logs" | tr '\000-\037' ' ' | sed 's/"/\\"/g')
-    local json="{\"name\":\"${name}\",\"method\":\"${method}\",\"url\":\"${url}\",\"status\":\"${status}\",\"expected\":\"${expected}\",\"actual\":\"${actual}\",\"detail\":\"${safe_detail}\",\"group\":\"${group}\",\"timestamp\":\"${ts}\",\"error_logs\":\"${safe_logs}\"}"
+    local json
+    json=$(jq -cn \
+        --arg name "$name" \
+        --arg method "$method" \
+        --arg url "$url" \
+        --arg status "$status" \
+        --arg expected "$expected" \
+        --arg actual "$actual" \
+        --arg detail "$detail" \
+        --arg group "$group" \
+        --arg timestamp "$ts" \
+        --arg error_logs "$error_logs" \
+        '{name:$name,method:$method,url:$url,status:$status,expected:$expected,actual:$actual,detail:$detail,group:$group,timestamp:$timestamp,error_logs:$error_logs}')
     [[ -n "$RESULTS_FILE" ]] && echo "$json" >> "$RESULTS_FILE"
     TEST_RESULTS_JSON+=("$json")
 }
@@ -985,6 +1008,57 @@ _record_result() {
 _add_result_json() {
     local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8"
     _record_result "$name" "$method" "$url" "$status" "$expected" "$actual" "$detail" "$group" ""
+}
+
+record_skip_result() {
+    local name="$1" method="$2" url="$3" reason="$4" group="${5:-default}"
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
+    log_skip "${name}: ${reason}"
+    report_add_skip "$name" "$method" "$url" "$reason"
+    _record_result "$name" "$method" "$url" "SKIP" "" "" "$reason" "$group"
+}
+
+record_fail_result() {
+    local name="$1" method="$2" url="$3" expected="$4" actual="$5" detail="$6" group="${7:-default}" data="${8:-}"
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    log_error "${name} - expected ${expected}, got ${actual}"
+    log_failure_response "$name" "$detail"
+    report_add_fail "$name" "$method" "$url" "$data" "$expected" "$actual" "$detail"
+    _record_result "$name" "$method" "$url" "FAIL" "$expected" "$actual" "$detail" "$group"
+}
+
+ensure_test_instance_available() {
+    local token="${1:-$ADMIN_TOKEN}" instance_id="${2:-${TEST_INSTANCE_ID:-}}" label="${3:-TEST_INSTANCE_ID}"
+    if [[ -z "$instance_id" ]]; then
+        return 1
+    fi
+
+    local resp; resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${token}" \
+        "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
+    local code; code=$(safe_jq "$resp" '-r .code // empty' '')
+    local detail_id; detail_id=$(safe_jq "$resp" '-r .data.id // .data.ID // empty' '')
+    local status; status=$(safe_jq "$resp" '-r .data.status // empty' '')
+
+    if [[ "$code" == "200" && -n "$detail_id" ]]; then
+        case "$status" in
+            deleted|deleting|failed|error|cancelled|timeout)
+                log_warning "${label}=${instance_id} is terminal (status=${status}); clearing stale TEST_INSTANCE_ID"
+                ;;
+            *)
+                return 0
+                ;;
+        esac
+    else
+        log_warning "${label}=${instance_id} is unavailable (code=${code:-unknown}, status=${status:-unknown}); clearing stale TEST_INSTANCE_ID"
+    fi
+
+    if [[ "${TEST_INSTANCE_ID:-}" == "$instance_id" ]]; then
+        TEST_INSTANCE_ID=""
+        export TEST_INSTANCE_ID
+    fi
+    return 1
 }
 
 # -- Markdown report --

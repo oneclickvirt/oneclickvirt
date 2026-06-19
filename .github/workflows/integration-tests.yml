@@ -450,11 +450,18 @@ jobs:
           fi
 
           # Safely aggregate results - handle empty/corrupt JSONL lines
-          total=0 passed=0 failed=0 skipped=0
+          total=0 passed=0 failed=0 skipped=0 corrupt=0
           for f in "${result_files[@]}"; do
+            line_no=0
             while IFS= read -r line; do
+              line_no=$((line_no + 1))
               [[ -z "$line" ]] && continue
-              status=$(echo "$line" | jq -r '.status // "UNKNOWN"' 2>/dev/null) || status="UNKNOWN"
+              if ! status=$(echo "$line" | jq -er '.status // "UNKNOWN"' 2>/dev/null); then
+                echo "::error file=${f},line=${line_no}::Invalid JSONL result line"
+                printf '%s\n' "$line"
+                corrupt=$((corrupt + 1))
+                continue
+              fi
               total=$((total + 1))
               case "$status" in
                 PASS) passed=$((passed + 1)) ;;
@@ -477,7 +484,13 @@ jobs:
             echo "| Passed | ${passed} |"
             echo "| Failed | ${failed} |"
             echo "| Skipped | ${skipped} |"
+            echo "| Corrupt JSONL Lines | ${corrupt} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$corrupt" -ne 0 ]]; then
+            echo "::error::Integration test result JSONL contains ${corrupt} invalid line(s)."
+            exit 1
+          fi
 
           if [[ "$total" -eq 0 ]]; then
             echo "::error::Integration tests produced an empty result set."
@@ -490,9 +503,8 @@ jobs:
           fi
 
           if [[ "$failed" -ne 0 ]]; then
-            echo "::warning::Integration tests recorded ${failed} failing assertions (often transient cloud infrastructure issues). Check the artifact reports for details."
-            # Don't block CI on transient assertion failures — the test harness
-            # already captures results in artifacts and the HTML report.
+            echo "::error::Integration tests recorded ${failed} failing assertions. Check the artifact reports for full request/response details."
+            exit 1
           fi
 
       - name: Show integration log on failure
