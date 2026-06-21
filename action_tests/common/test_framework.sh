@@ -81,6 +81,14 @@ log_failure_response() {
     fi
 }
 
+redact_request_payload() {
+    printf '%s' "$1" | sed -E \
+        -e 's/"password"[[:space:]]*:[[:space:]]*"[^"]*"/"password":"[REDACTED]"/g' \
+        -e 's/"sshKey"[[:space:]]*:[[:space:]]*"[^"]*"/"sshKey":"[REDACTED]"/g' \
+        -e 's/"token"[[:space:]]*:[[:space:]]*"[^"]*"/"token":"[REDACTED]"/g' \
+        -e 's/Bearer [A-Za-z0-9._-]+/Bearer [REDACTED]/g'
+}
+
 json_string() {
     jq -cn --arg value "$1" '$value'
 }
@@ -987,6 +995,7 @@ init_results_file() {
 _record_result() {
     local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8" error_logs="${9:-}" request_payload="${10:-}"
     local ts; ts=$(_ts)
+    request_payload=$(redact_request_payload "$request_payload")
     local json
     json=$(jq -cn \
         --arg name "$name" \
@@ -1101,6 +1110,7 @@ report_add_pass() {
 report_add_fail() {
     local name="$1" method="$2" url="$3" data="$4" expect="$5" actual="$6" body="$7"
     [[ -z "$REPORT_FILE" ]] && return
+    data=$(redact_request_payload "$data")
     echo "| FAIL | ${name} | ${method} | \`${url}\` | expected ${expect}, got ${actual} |" >> "$REPORT_FILE"
     {
         echo ""; echo "<details>"; echo "<summary>${name} - Details</summary>"; echo ""

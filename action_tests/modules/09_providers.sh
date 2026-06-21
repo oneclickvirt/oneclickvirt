@@ -20,14 +20,19 @@ run_module_09() {
     test_api "Provider list" "GET" "/api/v1/admin/providers?page=1&pageSize=10" "200" "" "$group"
 
     # -- SSH connection test (use available auth method) --
+    local password_ssh_code="" key_ssh_code=""
     if [[ -n "$worker_pass" ]]; then
-        test_api "Test SSH connection (password)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400|500" \
-            "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group"
+        local password_ssh_resp=""
+        password_ssh_resp=$(test_api "Test SSH connection (password)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400|500" \
+            "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group") || password_ssh_resp=""
+        password_ssh_code=$(echo "$password_ssh_resp" | jq -r '.code // empty' 2>/dev/null || true)
     fi
     if [[ -n "$worker_key" ]]; then
         local escaped_key; escaped_key=$(echo "$worker_key" | jq -Rsa .)
-        test_api "Test SSH connection (key)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400" \
-            "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"sshKey\":${escaped_key}}" "$group"
+        local key_ssh_resp=""
+        key_ssh_resp=$(test_api "Test SSH connection (key)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400" \
+            "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"sshKey\":${escaped_key}}" "$group") || key_ssh_resp=""
+        key_ssh_code=$(echo "$key_ssh_resp" | jq -r '.code // empty' 2>/dev/null || true)
     fi
 
     # -- SSH test with invalid credentials --
@@ -42,13 +47,23 @@ run_module_09() {
 
     # -- Create provider (or reuse existing one from state restoration) --
     # Build auth payload at function scope (always set to avoid set -u issues)
-    local auth_payload=""
-    if [[ -n "$worker_pass" ]]; then
-        auth_payload="\"password\":\"${worker_pass}\""
-    elif [[ -n "$worker_key" ]]; then
+    local auth_payload="" auth_method=""
+    if [[ -n "$worker_key" && "$key_ssh_code" == "200" ]]; then
         local escaped_key_create; escaped_key_create=$(echo "$worker_key" | jq -Rsa .)
-        auth_payload="\"sshKey\":${escaped_key_create}"
+        auth_payload="\"password\":\"\",\"sshKey\":${escaped_key_create}"
+        auth_method="sshKey"
+    elif [[ -n "$worker_pass" && "$password_ssh_code" == "200" ]]; then
+        auth_payload="\"password\":\"${worker_pass}\",\"sshKey\":\"\""
+        auth_method="password"
+    elif [[ -n "$worker_key" ]]; then
+        local escaped_key_fallback; escaped_key_fallback=$(echo "$worker_key" | jq -Rsa .)
+        auth_payload="\"password\":\"\",\"sshKey\":${escaped_key_fallback}"
+        auth_method="sshKey-fallback"
+    elif [[ -n "$worker_pass" ]]; then
+        auth_payload="\"password\":\"${worker_pass}\",\"sshKey\":\"\""
+        auth_method="password-fallback"
     fi
+    log_info "Provider SSH auth selected: ${auth_method:-none} (password_code=${password_ssh_code:-n/a}, key_code=${key_ssh_code:-n/a})"
 
     if [[ -n "$PROVIDER_ID" ]]; then
         # Provider ID exists (restored from previous module),verify it's still valid
@@ -90,6 +105,27 @@ run_module_09() {
         
         log_info "Created new provider ID: ${PROVIDER_ID}"
     fi
+
+    local provider_detail_for_auth; provider_detail_for_auth=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null) || true
+    local provider_container_enabled; provider_container_enabled=$(echo "$provider_detail_for_auth" | jq -r '.data.container_enabled // .data.containerEnabled // .data.container_enabled_flag // empty' 2>/dev/null || true)
+    local provider_vm_enabled; provider_vm_enabled=$(echo "$provider_detail_for_auth" | jq -r '.data.vm_enabled // .data.vmEnabled // .data.virtualMachineEnabled // empty' 2>/dev/null || true)
+    if [[ "$provider_container_enabled" != "true" && "$provider_container_enabled" != "false" ]]; then
+        case "$INSTANCE_TYPES" in
+            both|container) provider_container_enabled="true" ;;
+            vm) provider_container_enabled="false" ;;
+            *) if env_supports_container; then provider_container_enabled="true"; else provider_container_enabled="false"; fi ;;
+        esac
+    fi
+    if [[ "$provider_vm_enabled" != "true" && "$provider_vm_enabled" != "false" ]]; then
+        case "$INSTANCE_TYPES" in
+            both|vm) provider_vm_enabled="true" ;;
+            container) provider_vm_enabled="false" ;;
+            *) if env_supports_vm; then provider_vm_enabled="true"; else provider_vm_enabled="false"; fi ;;
+        esac
+    fi
+    test_api "Refresh provider SSH auth" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        "{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"networkType\":\"nat_ipv4\",\"container_enabled\":${provider_container_enabled},\"vm_enabled\":${provider_vm_enabled},${auth_payload}}" "$group"
 
     # -- Create duplicate name --
     test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "409" \
@@ -521,13 +557,13 @@ EOF
     else
         log_warning "connectionType expected 'agent', got '${saved_ct}'"
     fi
-    # Revert to ssh — must restore endpoint/sshPort/networkType/containerEnabled/virtualMachineEnabled
+    # Revert to ssh — must restore endpoint/sshPort/networkType/container_enabled/vm_enabled
     # because "Update connectionType=agent" forced endpoint="" sshPort=0 networkType="no_port_mapping"
-    # and direct bool assignment zeroed containerEnabled/virtualMachineEnabled.
+    # and direct bool assignment zeroed container_enabled/vm_enabled.
     # Without this, SSH health checks fail for ~60 min and the provider is auto-frozen,
     # causing HTTP 400 in module 29 VM image creates (images 15-22) and module 30 failures.
     test_api "Revert connectionType=ssh" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
-        "{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"networkType\":\"nat_ipv4\",\"containerEnabled\":true,\"virtualMachineEnabled\":true,${auth_payload}}" "$group"
+        "{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"networkType\":\"nat_ipv4\",\"container_enabled\":${provider_container_enabled},\"vm_enabled\":${provider_vm_enabled},${auth_payload}}" "$group"
     if [[ -n "${ALICE_PRIVATE_KEY:-}" ]]; then
         local escaped_key; escaped_key=$(echo "$ALICE_PRIVATE_KEY" | jq -Rsa .)
         local key_provider; key_provider=$(test_api "Create provider (key auth)" "POST" "/api/v1/admin/providers" "200|409" \

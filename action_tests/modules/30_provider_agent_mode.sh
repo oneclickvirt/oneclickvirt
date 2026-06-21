@@ -16,6 +16,18 @@ run_module_30() {
     # Resolve worker credentials (global vars from run_env_test.sh)
     local worker_pass="${WORKER_PASSWORD:-${NODE_PASSWORD:-}}"
     local worker_key="${ALICE_PRIVATE_KEY:-}"
+    local worker_platform="${WORKER_PLATFORM:-${ACTIVE_PLATFORM:-}}"
+    local worker_auth_pref="ssh_key_or_password"
+    if declare -f get_platform_auth_method >/dev/null 2>&1 && [[ -n "$worker_platform" ]]; then
+        worker_auth_pref=$(get_platform_auth_method "$worker_platform" 2>/dev/null || echo "ssh_key_or_password")
+    elif [[ "$worker_platform" == "alice" ]]; then
+        worker_auth_pref="ssh_key"
+    fi
+    local use_worker_key="false"
+    if [[ "$worker_auth_pref" == "ssh_key" && -n "$worker_key" ]]; then
+        use_worker_key="true"
+    fi
+    log_info "Provider agent SSH restore auth preference: platform=${worker_platform:-unknown}, auth_pref=${worker_auth_pref}, use_key=${use_worker_key}"
 
     # =========================================================
     # Section A: Agent Secret Generation
@@ -167,11 +179,11 @@ run_module_30() {
 
             # If collision still happens due backend-side normalization, retry with alternative ports.
             local switch_payload=''
-            if [[ -n "$worker_pass" ]]; then
-                switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${switch_port},\"username\":\"root\",\"password\":\"${worker_pass}\"}"
-            elif [[ -n "$worker_key" ]]; then
+            if [[ "$use_worker_key" == "true" || ( -z "$worker_pass" && -n "$worker_key" ) ]]; then
                 local escaped_switch_key; escaped_switch_key=$(echo "$worker_key" | jq -Rsa .)
-                switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${switch_port},\"username\":\"root\",\"sshKey\":${escaped_switch_key}}"
+                switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${switch_port},\"username\":\"root\",\"password\":\"\",\"sshKey\":${escaped_switch_key}}"
+            elif [[ -n "$worker_pass" ]]; then
+                switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${switch_port},\"username\":\"root\",\"password\":\"${worker_pass}\",\"sshKey\":\"\"}"
             fi
             if [[ -n "$switch_payload" ]]; then
                 local switch_resp=''
@@ -180,11 +192,11 @@ run_module_30() {
                 local try_port=''
                 for try_port in "$switch_port" 22022 22023 22024 22025 22026 22027 22028 22029; do
                     if [[ "$try_port" != "$switch_port" ]]; then
-                        if [[ -n "$worker_pass" ]]; then
-                            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${try_port},\"username\":\"root\",\"password\":\"${worker_pass}\"}"
-                        else
+                        if [[ "$use_worker_key" == "true" || ( -z "$worker_pass" && -n "$worker_key" ) ]]; then
                             local escaped_switch_key_retry; escaped_switch_key_retry=$(echo "$worker_key" | jq -Rsa .)
-                            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${try_port},\"username\":\"root\",\"sshKey\":${escaped_switch_key_retry}}"
+                            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${try_port},\"username\":\"root\",\"password\":\"\",\"sshKey\":${escaped_switch_key_retry}}"
+                        else
+                            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${try_port},\"username\":\"root\",\"password\":\"${worker_pass}\",\"sshKey\":\"\"}"
                         fi
                     fi
                     switch_resp=$(test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200|409" \

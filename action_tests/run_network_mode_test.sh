@@ -160,16 +160,30 @@ _register_ocv_provider() {
 
     log_info "Registering OCV provider: name=${provider_name} method=${mapping_method}"
 
-    local auth_payload
-    if [[ -n "$worker_pass" ]]; then
-        auth_payload="\"password\":\"${worker_pass}\""
-    elif [[ -n "$worker_key" ]]; then
-        local escaped_key; escaped_key=$(printf '%s' "$worker_key" | jq -Rsa .)
+    local auth_payload auth_method escaped_key
+    local worker_platform="${WORKER_PLATFORM:-${ACTIVE_PLATFORM:-}}"
+    local auth_pref="ssh_key_or_password"
+    if declare -f get_platform_auth_method >/dev/null 2>&1 && [[ -n "$worker_platform" ]]; then
+        auth_pref=$(get_platform_auth_method "$worker_platform" 2>/dev/null || echo "ssh_key_or_password")
+    elif [[ "$worker_platform" == "alice" ]]; then
+        auth_pref="ssh_key"
+    fi
+    if [[ "$auth_pref" == "ssh_key" && -n "$worker_key" ]]; then
+        escaped_key=$(printf '%s' "$worker_key" | jq -Rsa .)
         auth_payload="\"sshKey\":${escaped_key}"
+        auth_method="sshKey"
+    elif [[ -n "$worker_pass" ]]; then
+        auth_payload="\"password\":\"${worker_pass}\""
+        auth_method="password"
+    elif [[ -n "$worker_key" ]]; then
+        escaped_key=$(printf '%s' "$worker_key" | jq -Rsa .)
+        auth_payload="\"sshKey\":${escaped_key}"
+        auth_method="sshKey-fallback"
     else
         log_error "No authentication credentials for worker"
         return 1
     fi
+    log_info "Provider SSH auth selected for network-mode test: ${auth_method} (platform=${worker_platform:-unknown}, auth_pref=${auth_pref})"
 
     local resp; resp=$(curl -s -w "\n%{http_code}" --max-time 60 \
         -H "Authorization: Bearer ${ADMIN_TOKEN}" \
