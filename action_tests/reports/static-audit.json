@@ -1,36 +1,198 @@
 {
   "summary": {
-    "Registered route calls": 295,
-    "Comparable route literals": 292,
-    "Approx. covered route literals": 282,
-    "Approx. route literal coverage": "96.58%",
-    "Distinct test paths": 430,
-    "Test endpoint call sites": 931,
+    "Registered route calls": 363,
+    "Comparable route literals": 360,
+    "Approx. covered route literals": 305,
+    "Approx. route literal coverage": "84.72%",
+    "Distinct test paths": 488,
+    "Test endpoint call sites": 1058,
     "High-risk jq lines": 0,
     "Pipe risk lines": 0,
     "Workflow findings": 0,
     "Retry hygiene findings": 0,
-    "Minimum route literal coverage": "85.0%"
+    "Minimum route literal coverage": "80.0%"
   },
   "route_methods": {
-    "GET": 150,
-    "POST": 97,
-    "PUT": 27,
-    "DELETE": 21
+    "GET": 188,
+    "POST": 117,
+    "PUT": 33,
+    "DELETE": 25
   },
   "test_methods": {
-    "GET": 409,
-    "DELETE": 64,
-    "POST": 366,
-    "PUT": 91,
+    "GET": 494,
+    "DELETE": 65,
+    "POST": 389,
+    "PUT": 109,
     "PATCH": 1
   },
   "uncovered_sample": [
     {
+      "method": "GET",
+      "path": "/instances/:id/snapshots",
+      "file": "server/service/router/admin.go",
+      "line": 28
+    },
+    {
+      "method": "POST",
+      "path": "/instances/:id/snapshots",
+      "file": "server/service/router/admin.go",
+      "line": 29
+    },
+    {
+      "method": "POST",
+      "path": "/snapshot-batches",
+      "file": "server/service/router/admin.go",
+      "line": 30
+    },
+    {
+      "method": "GET",
+      "path": "/snapshots/overview",
+      "file": "server/service/router/admin.go",
+      "line": 39
+    },
+    {
+      "method": "GET",
+      "path": "/snapshots",
+      "file": "server/service/router/admin.go",
+      "line": 40
+    },
+    {
+      "method": "GET",
+      "path": "/snapshot-tasks/:id",
+      "file": "server/service/router/admin.go",
+      "line": 41
+    },
+    {
+      "method": "DELETE",
+      "path": "/snapshots/:id",
+      "file": "server/service/router/admin.go",
+      "line": 42
+    },
+    {
+      "method": "POST",
+      "path": "/snapshots/:id/restore",
+      "file": "server/service/router/admin.go",
+      "line": 43
+    },
+    {
+      "method": "GET",
+      "path": "/snapshots/download/:id",
+      "file": "server/service/router/admin.go",
+      "line": 44
+    },
+    {
+      "method": "GET",
+      "path": "/snapshot-schedules",
+      "file": "server/service/router/admin.go",
+      "line": 45
+    },
+    {
+      "method": "POST",
+      "path": "/snapshot-schedules",
+      "file": "server/service/router/admin.go",
+      "line": 46
+    },
+    {
+      "method": "PUT",
+      "path": "/snapshot-schedules/:id",
+      "file": "server/service/router/admin.go",
+      "line": 47
+    },
+    {
+      "method": "DELETE",
+      "path": "/snapshot-schedules/:id",
+      "file": "server/service/router/admin.go",
+      "line": 48
+    },
+    {
+      "method": "GET",
+      "path": "/providers/local/detect",
+      "file": "server/service/router/admin.go",
+      "line": 65
+    },
+    {
       "method": "POST",
       "path": "/providers/import-csv",
       "file": "server/service/router/admin.go",
-      "line": 49
+      "line": 66
+    },
+    {
+      "method": "POST",
+      "path": "/providers/:id/cleanup-orphans",
+      "file": "server/service/router/admin.go",
+      "line": 82
+    },
+    {
+      "method": "GET",
+      "path": "/providers/:id/monitoring/sync/latest",
+      "file": "server/service/router/admin.go",
+      "line": 169
+    },
+    {
+      "method": "GET",
+      "path": "/providers/:id/monitoring/sync/:taskId",
+      "file": "server/service/router/admin.go",
+      "line": 170
+    },
+    {
+      "method": "POST",
+      "path": "/domains/sync-proxies",
+      "file": "server/service/router/admin.go",
+      "line": 203
+    },
+    {
+      "method": "POST",
+      "path": "/domains/:id/sync",
+      "file": "server/service/router/admin.go",
+      "line": 205
+    },
+    {
+      "method": "POST",
+      "path": "/system-images/sync",
+      "file": "server/service/router/admin.go",
+      "line": 242
+    },
+    {
+      "method": "PUT",
+      "path": "/users/:id/reset-password-notify",
+      "file": "server/service/router/admin.go",
+      "line": 257
+    },
+    {
+      "method": "GET",
+      "path": "/monitoring/logs",
+      "file": "server/service/router/admin.go",
+      "line": 287
+    },
+    {
+      "method": "GET",
+      "path": "/monitoring/provider",
+      "file": "server/service/router/admin.go",
+      "line": 288
+    },
+    {
+      "method": "GET",
+      "path": "/logs/read",
+      "file": "server/service/router/admin.go",
+      "line": 300
+    },
+    {
+      "method": "POST",
+      "path": "/logs/cleanup",
+      "file": "server/service/router/admin.go",
+      "line": 301
+    },
+    {
+      "method": "POST",
+      "path": "/storage/init",
+      "file": "server/service/router/admin.go",
+      "line": 305
+    },
+    {
+      "method": "POST",
+      "path": "/storage/cleanup",
+      "file": "server/service/router/admin.go",
+      "line": 306
     },
     {
       "method": "GET",
@@ -42,19 +204,73 @@
       "method": "POST",
       "path": "/instances/:name/start",
       "file": "server/service/router/provider.go",
-      "line": 44
+      "line": 46
     },
     {
       "method": "POST",
       "path": "/instances/:name/stop",
       "file": "server/service/router/provider.go",
-      "line": 45
+      "line": 47
     },
     {
       "method": "DELETE",
       "path": "/images/:image",
       "file": "server/service/router/provider.go",
-      "line": 49
+      "line": 51
+    },
+    {
+      "method": "GET",
+      "path": "instance-shares/:token/snapshots",
+      "file": "server/service/router/public.go",
+      "line": 28
+    },
+    {
+      "method": "GET",
+      "path": "instance-shares/:token/snapshots/:snapshotId/download",
+      "file": "server/service/router/public.go",
+      "line": 29
+    },
+    {
+      "method": "GET",
+      "path": "instance-shares/:token/ssh",
+      "file": "server/service/router/public.go",
+      "line": 30
+    },
+    {
+      "method": "GET",
+      "path": "instance-shares/:token/exec",
+      "file": "server/service/router/public.go",
+      "line": 31
+    },
+    {
+      "method": "GET",
+      "path": "instance-shares/:token/sftp/list",
+      "file": "server/service/router/public.go",
+      "line": 32
+    },
+    {
+      "method": "GET",
+      "path": "instance-shares/:token/sftp/download",
+      "file": "server/service/router/public.go",
+      "line": 33
+    },
+    {
+      "method": "POST",
+      "path": "instance-shares/:token/sftp/upload",
+      "file": "server/service/router/public.go",
+      "line": 34
+    },
+    {
+      "method": "GET",
+      "path": "instance-shares/:token/sftp/upload/status",
+      "file": "server/service/router/public.go",
+      "line": 35
+    },
+    {
+      "method": "POST",
+      "path": "instance-shares/:token/sftp/upload/abort",
+      "file": "server/service/router/public.go",
+      "line": 36
     },
     {
       "method": "GET",
@@ -85,6 +301,60 @@
       "path": "/v1/ws/agent",
       "file": "server/service/router/setup.go",
       "line": 362
+    },
+    {
+      "method": "GET",
+      "path": "/user/instances/:id/snapshots",
+      "file": "server/service/router/user.go",
+      "line": 41
+    },
+    {
+      "method": "POST",
+      "path": "/user/instances/:id/snapshots",
+      "file": "server/service/router/user.go",
+      "line": 42
+    },
+    {
+      "method": "POST",
+      "path": "/user/instances/:id/snapshots/upload",
+      "file": "server/service/router/user.go",
+      "line": 43
+    },
+    {
+      "method": "POST",
+      "path": "/user/snapshots/:id/restore",
+      "file": "server/service/router/user.go",
+      "line": 44
+    },
+    {
+      "method": "DELETE",
+      "path": "/user/snapshots/:id",
+      "file": "server/service/router/user.go",
+      "line": 45
+    },
+    {
+      "method": "GET",
+      "path": "/user/snapshots/:id/download",
+      "file": "server/service/router/user.go",
+      "line": 46
+    },
+    {
+      "method": "GET",
+      "path": "/user/instances/:id/vnc",
+      "file": "server/service/router/user.go",
+      "line": 48
+    },
+    {
+      "method": "GET",
+      "path": "/user/instances/:id/vnc/ws",
+      "file": "server/service/router/user.go",
+      "line": 49
+    },
+    {
+      "method": "GET",
+      "path": "/user/checkin/eligible-instances",
+      "file": "server/service/router/user.go",
+      "line": 106
     }
   ],
   "findings": {

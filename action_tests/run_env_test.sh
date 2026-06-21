@@ -165,7 +165,12 @@ log_section "Phase 3: Install ${ENV_TYPE} on worker node"
 install_env "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || {
     log_warning "Environment installation may have issues, continuing..."
 }
-verify_worker_runtime "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || true
+if ! verify_worker_runtime "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE"; then
+    if [[ "$ENV_TYPE" == "kubevirt" ]]; then
+        log_error "KubeVirt/CDI runtime prerequisites are incomplete; treating as transient infrastructure failure"
+        exit 75
+    fi
+fi
 
 # =============================================================
 # Phase 4: Prepare dirty node for discovery tests

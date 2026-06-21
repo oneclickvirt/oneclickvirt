@@ -81,6 +81,43 @@ log_failure_response() {
     fi
 }
 
+ensure_worker_ssh_reachable() {
+    local max="${1:-120}" label="${2:-worker}"
+    [[ -z "${WORKER_IP:-}" ]] && {
+        log_debug "Worker SSH precheck skipped: WORKER_IP is empty"
+        return 0
+    }
+
+    if ! declare -f platform_init >/dev/null 2>&1; then
+        local _common_dir
+        _common_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        # shellcheck source=action_tests/common/platform_interface.sh
+        source "${_common_dir}/platform_interface.sh"
+    fi
+
+    if [[ -n "${WORKER_PLATFORM:-}" ]]; then
+        platform_init "${WORKER_PLATFORM}" >/dev/null 2>&1 || {
+            log_warning "Worker SSH precheck could not initialize platform '${WORKER_PLATFORM}'"
+        }
+        ACTIVE_INSTANCE_IP="${WORKER_IP}"
+    fi
+
+    log_info "Checking real SSH reachability for ${label} before provider operation..."
+    if wait_for_ssh "${WORKER_IP}" "${max}" >/dev/null 2>&1; then
+        log_success "Worker SSH reachable for ${label}"
+        return 0
+    fi
+
+    log_error "Worker SSH unreachable for ${label}; treating as transient infrastructure failure"
+    return 75
+}
+
+is_infrastructure_failure_detail() {
+    local detail="$1"
+    printf '%s' "$detail" | grep -Eiq \
+        'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|lookup .* on \[::1\]:53|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
+}
+
 redact_request_payload() {
     printf '%s' "$1" | sed -E \
         -e 's/"password"[[:space:]]*:[[:space:]]*"[^"]*"/"password":"[REDACTED]"/g' \
@@ -562,10 +599,12 @@ wait_task_complete() {
     log_info "Waiting for task ${task_id} (max ${max}s)..."
     local empty_count=0
     local last_known_status=""
+    local last_response=""
     
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
             "${url}/api/v1/admin/tasks/${task_id}" 2>/dev/null) || true
+        [[ -n "$r" ]] && last_response="$r"
         local st; st=$(safe_jq "$r" '-r .data.status // empty' '')
         
         case "$st" in
@@ -591,14 +630,22 @@ wait_task_complete() {
                 
                 # If we previously saw the task running and now it's gone, likely completed
                 if [[ -n "$last_known_status" && $empty_count -ge 2 ]]; then
-                    log_debug "Task ${task_id} not found after running - assuming completed/cleaned"
-                    return 0
+                    log_warning "Task ${task_id} disappeared after status=${last_known_status}; returning last known task response"
+                    if [[ -n "$last_response" ]]; then
+                        echo "$last_response"
+                    else
+                        jq -cn --arg id "$task_id" --arg status "unknown" --arg message "task disappeared after running" \
+                            '{code:504,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
+                    fi
+                    return 1
                 fi
                 
                 # If we never saw the task and got multiple empty responses, it might not exist
                 if [[ -z "$last_known_status" && $empty_count -ge 3 ]]; then
-                    log_warning "Task ${task_id} never found after 3 attempts - assuming already completed"
-                    return 0
+                    log_warning "Task ${task_id} never found after 3 attempts"
+                    jq -cn --arg id "$task_id" --arg status "unknown" --arg message "task never found" \
+                        '{code:404,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
+                    return 1
                 fi
                 
                 log_debug "Task ${task_id} status empty (attempt ${empty_count})"
@@ -614,6 +661,12 @@ wait_task_complete() {
         elapsed=$((elapsed + interval))
     done
     log_error "Task ${task_id} timeout after ${max}s"
+    if [[ -n "$last_response" ]]; then
+        echo "$last_response"
+    else
+        jq -cn --arg id "$task_id" --arg status "timeout" --arg message "task wait timed out with no task detail response" \
+            '{code:504,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
+    fi
     return 1
 }
 
@@ -628,10 +681,12 @@ wait_task_complete_nonfatal() {
     log_info "Waiting for optional task ${task_id} (max ${max}s)..."
     local empty_count=0
     local last_known_status=""
+    local last_response=""
 
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
             "${url}/api/v1/admin/tasks/${task_id}" 2>/dev/null) || true
+        [[ -n "$r" ]] && last_response="$r"
         local st; st=$(safe_jq "$r" '-r .data.status // empty' '')
 
         case "$st" in
@@ -653,12 +708,20 @@ wait_task_complete_nonfatal() {
             "")
                 empty_count=$((empty_count + 1))
                 if [[ -n "$last_known_status" && $empty_count -ge 2 ]]; then
-                    log_debug "Optional task ${task_id} not found after running - assuming completed/cleaned"
-                    return 0
+                    log_warning "Optional task ${task_id} disappeared after status=${last_known_status}; returning last known task response"
+                    if [[ -n "$last_response" ]]; then
+                        echo "$last_response"
+                    else
+                        jq -cn --arg id "$task_id" --arg status "unknown" --arg message "optional task disappeared after running" \
+                            '{code:504,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
+                    fi
+                    return 1
                 fi
                 if [[ -z "$last_known_status" && $empty_count -ge 3 ]]; then
-                    log_warning "Optional task ${task_id} never found after 3 attempts - assuming already completed"
-                    return 0
+                    log_warning "Optional task ${task_id} never found after 3 attempts"
+                    jq -cn --arg id "$task_id" --arg status "unknown" --arg message "optional task never found" \
+                        '{code:404,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
+                    return 1
                 fi
                 log_debug "Optional task ${task_id} status empty (attempt ${empty_count})"
                 ;;
@@ -672,6 +735,12 @@ wait_task_complete_nonfatal() {
         elapsed=$((elapsed + interval))
     done
     log_warning "Optional task ${task_id} timeout after ${max}s"
+    if [[ -n "$last_response" ]]; then
+        echo "$last_response"
+    else
+        jq -cn --arg id "$task_id" --arg status "timeout" --arg message "optional task wait timed out with no task detail response" \
+            '{code:504,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
+    fi
     return 1
 }
 

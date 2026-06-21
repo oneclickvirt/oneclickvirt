@@ -25,6 +25,58 @@ mysql_root_exec() {
     mysql "${args[@]}" "$@"
 }
 
+ensure_worker_dns() {
+    local ip="$1" label="${2:-worker}"
+    [[ -z "$ip" ]] && { log_warning "DNS check skipped: worker IP is empty"; return 1; }
+
+    log_info "Verifying DNS on ${label}..."
+    local dns_script='
+targets="github.com raw.githubusercontent.com images.lxd.canonical.com images.linuxcontainers.org"
+check_dns() {
+    for host in $targets; do
+        getent ahostsv4 "$host" >/dev/null 2>&1 || return 1
+    done
+}
+if check_dns; then
+    echo "DNS_OK"
+    exit 0
+fi
+if command -v resolvectl >/dev/null 2>&1; then
+    resolvectl flush-caches >/dev/null 2>&1 || true
+fi
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl restart systemd-resolved >/dev/null 2>&1 || true
+    sleep 2
+fi
+if check_dns; then
+    echo "DNS_OK_AFTER_RESOLVED_RESTART"
+    exit 0
+fi
+if [ -L /etc/resolv.conf ]; then
+    rm -f /etc/resolv.conf
+fi
+cat > /etc/resolv.conf <<'"'"'RESOLVCONF'"'"'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+nameserver 9.9.9.9
+options timeout:2 attempts:3 rotate
+RESOLVCONF
+if check_dns; then
+    echo "DNS_REPAIRED"
+    exit 0
+fi
+echo "DNS_FAILED"
+cat /etc/resolv.conf || true
+exit 1
+'
+    if platform_exec_and_wait "${ip}" "${dns_script}" 120; then
+        log_success "DNS verified on ${label}"
+        return 0
+    fi
+    log_warning "DNS verification/repair failed on ${label}"
+    return 1
+}
+
 create_test_node() {
     local env_type="$1" hours="${2:-8}"
     log_info "Creating test node: env=${env_type} hours=${hours}"
@@ -66,6 +118,7 @@ install_env() {
     # min_wait=120s (required wait), max_wait=300s (timeout), interval=10s
     wait_for_apt_lock "${ip}" 120 300 10
     platform_exec_and_wait "${ip}" "${noninteractive_prefix} apt-get update -y && apt-get install -y curl wget sudo jq ipcalc lsof" 600
+    ensure_worker_dns "${ip}" "worker before ${env} install" || true
     local url="${ENV_INSTALL_SCRIPTS[$env]:-}"
     [[ -z "$url" ]] && { log_error "Unknown environment: ${env}"; return 1; }
     # Build non-interactive env var prefix per script type
@@ -103,6 +156,7 @@ install_env() {
         platform_exec_and_wait "${ip}" "reboot" 10 || true
         sleep 25
         wait_for_ssh "${ip}" 300
+        ensure_worker_dns "${ip}" "worker after PVE reboot" || true
         log_info "PVE install step 2/3: completing PVE configuration after reboot..."
         platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200
         log_info "PVE install step 3a/3: configuring backend bridge..."
@@ -124,9 +178,11 @@ install_env() {
         platform_exec_and_wait "${ip}" "reboot" 10 || true
         log_info "Waiting for SSH after reboot (max 180s)..."
         wait_for_ssh "${ip}" 180
+        ensure_worker_dns "${ip}" "worker after ${env} reboot" || true
         log_info "Re-running ${env} install to complete post-reboot setup..."
         platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
     fi
+    ensure_worker_dns "${ip}" "worker after ${env} install" || true
 }
 
 verify_worker_runtime() {
@@ -155,7 +211,7 @@ verify_worker_runtime() {
             verify_cmd="command -v virsh >/dev/null 2>&1 && (systemctl is-active --quiet libvirtd || systemctl is-active --quiet virtqemud)"
             ;;
         kubevirt)
-            verify_cmd="command -v kubectl >/dev/null 2>&1 && kubectl get nodes >/dev/null 2>&1"
+            verify_cmd="command -v kubectl >/dev/null 2>&1 && kubectl get nodes >/dev/null 2>&1 && kubectl get crd virtualmachines.kubevirt.io >/dev/null 2>&1 && kubectl get crd datavolumes.cdi.kubevirt.io >/dev/null 2>&1"
             ;;
         *)
             log_warning "Unknown runtime '${env}', skipping runtime verification"

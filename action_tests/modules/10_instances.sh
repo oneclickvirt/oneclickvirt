@@ -11,6 +11,15 @@ run_module_10() {
         return 1
     fi
 
+    if ! ensure_worker_ssh_reachable 120 "instance lifecycle"; then
+        local _ssh_rc=$?
+        if [[ $_ssh_rc -eq 75 ]]; then
+            exit 75
+        fi
+        chain_break "$group" "Worker SSH is not reachable before instance tests"
+        return 1
+    fi
+
     # -- Health check before instance creation --
     log_info "Verifying provider health before instance tests..."
     local hc_resp; hc_resp=$(test_api_retry "Provider health (pre-instance)" "POST" \
@@ -82,7 +91,12 @@ run_module_10() {
                 fi
             else
                 log_info "Task failed response: $(echo "$task_r" | jq -c '.' 2>/dev/null || printf '%s' "$task_r")"
-                record_fail_result "Create container instance task" "GET" "/api/v1/admin/tasks/${maybe_task}" "completed" "failed" "$task_r" "$group"
+                if is_infrastructure_failure_detail "$task_r"; then
+                    log_error "Container creation failed due to worker network/SSH/DNS infrastructure: $(echo "$task_r" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$task_r")"
+                    exit 75
+                fi
+                local task_actual; task_actual=$(safe_jq "$task_r" '.data.status // .message // .msg // "failed"' 'failed')
+                record_fail_result "Create container instance task" "GET" "/api/v1/admin/tasks/${maybe_task}" "completed" "$task_actual" "$task_r" "$group"
             fi
         else
             container_id=$(echo "$ir" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
@@ -287,7 +301,12 @@ run_module_10() {
                 fi
             else
                 log_info "VM task failed response: $(echo "$vm_tr" | jq -c '.' 2>/dev/null || printf '%s' "$vm_tr")"
-                record_fail_result "Create VM instance task" "GET" "/api/v1/admin/tasks/${vm_task}" "completed" "failed" "$vm_tr" "$group"
+                if is_infrastructure_failure_detail "$vm_tr"; then
+                    log_error "VM creation failed due to worker network/SSH/DNS infrastructure: $(echo "$vm_tr" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$vm_tr")"
+                    exit 75
+                fi
+                local vm_task_actual; vm_task_actual=$(safe_jq "$vm_tr" '.data.status // .message // .msg // "failed"' 'failed')
+                record_fail_result "Create VM instance task" "GET" "/api/v1/admin/tasks/${vm_task}" "completed" "$vm_task_actual" "$vm_tr" "$group"
             fi
         else
             vm_id=$(echo "$vr" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
