@@ -32,6 +32,16 @@ run_module_10() {
     if should_test_type "container" && env_supports_container; then
         log_info "Testing container instances..."
 
+        local img_provider_type="${ENV_TYPE:-docker}"
+        case "${img_provider_type}" in
+            proxmoxve) img_provider_type="proxmox" ;;
+        esac
+        local provider_arch="${TARGET_ARCH:-$(uname -m 2>/dev/null || echo x86_64)}"
+        case "$provider_arch" in
+            x86_64) provider_arch="amd64" ;;
+            aarch64) provider_arch="arm64" ;;
+        esac
+
         # Resolve container image: prefer a matching active system image for the current
         # provider type. Falls back to "debian:12" (which the server-side
         # populateImageURLFromSystemImage will try to map to a system image).
@@ -40,12 +50,13 @@ run_module_10() {
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/system-images?pageSize=200" 2>/dev/null)
         if [[ -n "$sys_images" ]]; then
-            local resolved_name; resolved_name=$(echo "$sys_images" | jq -r '.data.list[]? | select(.osType=="debian" and .providerType=="'"${ENV_TYPE}"'" and .instanceType=="container" and .status=="active") | .name' 2>/dev/null | head -1)
+            local resolved_name; resolved_name=$(echo "$sys_images" | jq -r --arg pt "$img_provider_type" --arg arch "$provider_arch" \
+                '.data.list[]? | select(.osType=="debian" and .providerType==$pt and .instanceType=="container" and .status=="active" and (.architecture==$arch or $arch=="")) | .name' 2>/dev/null | head -1)
             if [[ -n "$resolved_name" && "$resolved_name" != "null" ]]; then
                 container_image="$resolved_name"
                 log_info "Resolved container image from system images: ${container_image}"
             else
-                log_info "No active debian ${ENV_TYPE} container image found; using fallback '${container_image}'"
+                log_info "No active debian ${img_provider_type} container image found; using fallback '${container_image}'"
             fi
         fi
 
@@ -57,20 +68,20 @@ run_module_10() {
             ir=""
         fi
         # Debug: log full creation response
-        log_info "Create instance response: $(echo "$ir" | jq -c '.' 2>/dev/null | head -c 2000)"
+        log_info "Create instance response: $(echo "$ir" | jq -c '.' 2>/dev/null || printf '%s' "$ir")"
         # Handle task-based creation
         local maybe_task; maybe_task=$(echo "$ir" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$maybe_task" ]]; then
             log_info "Instance creation task: ${maybe_task}"
             local task_r=""
             if task_r=$(wait_task_complete "$SERVER_URL" "$maybe_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
-                log_info "Task complete response: $(echo "$task_r" | jq -c '.' 2>/dev/null | head -c 2000)"
+                log_info "Task complete response: $(echo "$task_r" | jq -c '.' 2>/dev/null || printf '%s' "$task_r")"
                 container_id=$(echo "$task_r" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
                 if [[ -z "$container_id" ]]; then
                     record_fail_result "Create container instance task result" "GET" "/api/v1/admin/tasks/${maybe_task}" "instance id" "missing" "$task_r" "$group"
                 fi
             else
-                log_info "Task failed response: $(echo "$task_r" | jq -c '.' 2>/dev/null | head -c 2000)"
+                log_info "Task failed response: $(echo "$task_r" | jq -c '.' 2>/dev/null || printf '%s' "$task_r")"
                 record_fail_result "Create container instance task" "GET" "/api/v1/admin/tasks/${maybe_task}" "completed" "failed" "$task_r" "$group"
             fi
         else
@@ -204,7 +215,7 @@ run_module_10() {
             # -- Rebuild --
             local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200|400|500" \
                 "{\"action\":\"rebuild\",\"image\":\"${container_image}\"}" "$group")
-            log_info "Rebuild response: $(echo "$rb_resp" | jq -c '.' 2>/dev/null | head -c 2000)"
+            log_info "Rebuild response: $(echo "$rb_resp" | jq -c '.' 2>/dev/null || printf '%s' "$rb_resp")"
             # Only proceed with rebuild wait if the server returned 200 (success).
             # A 400/500 means the rebuild was rejected or failed immediately; skip the wait.
             local rb_code; rb_code=$(echo "$rb_resp" | jq -r '.code // empty' 2>/dev/null)
@@ -232,18 +243,30 @@ run_module_10() {
     if should_test_type "vm" && env_supports_vm; then
         log_info "Testing VM instances..."
 
-        # Resolve VM image from system images (same logic as container above)
+        local vm_img_provider_type="${ENV_TYPE:-docker}"
+        case "${vm_img_provider_type}" in
+            proxmoxve) vm_img_provider_type="proxmox" ;;
+        esac
+        local vm_provider_arch="${TARGET_ARCH:-$(uname -m 2>/dev/null || echo x86_64)}"
+        case "$vm_provider_arch" in
+            x86_64) vm_provider_arch="amd64" ;;
+            aarch64) vm_provider_arch="arm64" ;;
+        esac
+
+        # Resolve VM image from system images using the same provider-specific
+        # contract as populateImageURLFromSystemImage.
         local vm_image="debian:12"
         local vm_sys_images; vm_sys_images=$(curl -s --max-time 30 \
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/system-images?pageSize=200" 2>/dev/null)
         if [[ -n "$vm_sys_images" ]]; then
-            local vm_resolved; vm_resolved=$(echo "$vm_sys_images" | jq -r '.data.list[]? | select(.osType=="debian" and .instanceType=="vm" and .status=="active") | .name' 2>/dev/null | head -1)
+            local vm_resolved; vm_resolved=$(echo "$vm_sys_images" | jq -r --arg pt "$vm_img_provider_type" --arg arch "$vm_provider_arch" \
+                '.data.list[]? | select(.osType=="debian" and .providerType==$pt and .instanceType=="vm" and .status=="active" and (.architecture==$arch or $arch=="")) | .name' 2>/dev/null | head -1)
             if [[ -n "$vm_resolved" && "$vm_resolved" != "null" ]]; then
                 vm_image="$vm_resolved"
                 log_info "Resolved VM image from system images: ${vm_image}"
             else
-                log_info "No active debian VM image found; using fallback '${vm_image}'"
+                log_info "No active debian ${vm_img_provider_type} VM image found; using fallback '${vm_image}'"
             fi
         fi
 
@@ -257,11 +280,13 @@ run_module_10() {
         if [[ -n "$vm_task" ]]; then
             local vm_tr=""
             if vm_tr=$(wait_task_complete "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 15); then
+                log_info "VM task complete response: $(echo "$vm_tr" | jq -c '.' 2>/dev/null || printf '%s' "$vm_tr")"
                 vm_id=$(echo "$vm_tr" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
                 if [[ -z "$vm_id" ]]; then
                     record_fail_result "Create VM instance task result" "GET" "/api/v1/admin/tasks/${vm_task}" "instance id" "missing" "$vm_tr" "$group"
                 fi
             else
+                log_info "VM task failed response: $(echo "$vm_tr" | jq -c '.' 2>/dev/null || printf '%s' "$vm_tr")"
                 record_fail_result "Create VM instance task" "GET" "/api/v1/admin/tasks/${vm_task}" "completed" "failed" "$vm_tr" "$group"
             fi
         else
@@ -400,21 +425,38 @@ run_module_10() {
         # Get available system images to find a valid imageId.
         # Prefer alpine (smallest, fastest download) for instance creation tests.
         # Filter by provider type matching the current ENV_TYPE.
-        local img_provider_type="${ENV_TYPE:-docker}"
+        local user_img_provider_type="${ENV_TYPE:-docker}"
+        case "${user_img_provider_type}" in
+            proxmoxve) user_img_provider_type="proxmox" ;;
+        esac
+        local user_provider_arch="${TARGET_ARCH:-$(uname -m 2>/dev/null || echo x86_64)}"
+        case "$user_provider_arch" in
+            x86_64) user_provider_arch="amd64" ;;
+            aarch64) user_provider_arch="arm64" ;;
+        esac
+        local user_image_instance_type="container"
+        if ! env_supports_container && env_supports_vm; then
+            user_image_instance_type="vm"
+        fi
         local sys_images; sys_images=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=20" 2>/dev/null)
-        # Try alpine + matching providerType first, then any alpine, then first matching providerType
-        local user_image_id; user_image_id=$(echo "$sys_images" | jq -r --arg pt "$img_provider_type" \
-            '.data.list[]? | select(.osType=="alpine" and .status=="active" and .providerType==$pt) | .id' 2>/dev/null | head -1)
+        # Try alpine + matching provider/type/arch first for container platforms,
+        # debian first for VM-only platforms, then any matching provider/type/arch.
+        local user_image_id; user_image_id=$(echo "$sys_images" | jq -r --arg pt "$user_img_provider_type" --arg arch "$user_provider_arch" \
+            --arg it "$user_image_instance_type" \
+            '.data.list[]? | select(.osType=="alpine" and .status=="active" and .providerType==$pt and .instanceType==$it and (.architecture==$arch or $arch=="")) | .id' 2>/dev/null | head -1)
         [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && \
-            user_image_id=$(echo "$sys_images" | jq -r '.data.list[]? | select(.osType=="alpine" and .status=="active") | .id' 2>/dev/null | head -1)
+            user_image_id=$(echo "$sys_images" | jq -r --arg pt "$user_img_provider_type" --arg arch "$user_provider_arch" \
+            --arg it "$user_image_instance_type" \
+            '.data.list[]? | select(.osType=="debian" and .status=="active" and .providerType==$pt and .instanceType==$it and (.architecture==$arch or $arch=="")) | .id' 2>/dev/null | head -1)
         [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && \
-            user_image_id=$(echo "$sys_images" | jq -r --arg pt "$img_provider_type" \
-            '.data.list[]? | select(.status=="active" and .providerType==$pt) | .id' 2>/dev/null | head -1)
+            user_image_id=$(echo "$sys_images" | jq -r --arg pt "$user_img_provider_type" --arg arch "$user_provider_arch" \
+            --arg it "$user_image_instance_type" \
+            '.data.list[]? | select(.status=="active" and .providerType==$pt and .instanceType==$it and (.architecture==$arch or $arch=="")) | .id' 2>/dev/null | head -1)
         [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && \
             user_image_id=$(echo "$sys_images" | jq -r '.data.list[0].id // .data[0].id // empty' 2>/dev/null)
         [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && user_image_id=1
-        log_info "Using system image ID=${user_image_id} for user instance creation test"
+        log_info "Using system image ID=${user_image_id} (${user_img_provider_type}/${user_image_instance_type}/${user_provider_arch}) for user instance creation test"
 
         # Create instance via user API (same as frontend does)
         local user_inst_resp; user_inst_resp=$(test_api "User creates instance (frontend-equivalent)" "POST" \

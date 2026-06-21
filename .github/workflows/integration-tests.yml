@@ -503,7 +503,67 @@ jobs:
           fi
 
           if [[ "$failed" -ne 0 ]]; then
-            echo "::error::Integration tests recorded ${failed} failing assertions. Check the artifact reports for full request/response details."
+            {
+              echo ""
+              echo "### Failed Assertions"
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+            for f in "${result_files[@]}"; do
+              line_no=0
+              while IFS= read -r line; do
+                line_no=$((line_no + 1))
+                [[ -z "$line" ]] && continue
+                [[ "$(echo "$line" | jq -r '.status // empty' 2>/dev/null)" == "FAIL" ]] || continue
+                name=$(echo "$line" | jq -r '.name // "unknown"' 2>/dev/null)
+                method=$(echo "$line" | jq -r '.method // ""' 2>/dev/null)
+                url=$(echo "$line" | jq -r '.url // ""' 2>/dev/null)
+                expected=$(echo "$line" | jq -r '.expected // ""' 2>/dev/null)
+                actual=$(echo "$line" | jq -r '.actual // ""' 2>/dev/null)
+                request_payload=$(echo "$line" | jq -r '.request_payload // ""' 2>/dev/null)
+                detail=$(echo "$line" | jq -r '.detail // ""' 2>/dev/null)
+                error_logs=$(echo "$line" | jq -r '.error_logs // ""' 2>/dev/null)
+                {
+                  echo "<details open>"
+                  echo "<summary>${f}:${line_no} ${name} (${method} ${url})</summary>"
+                  echo ""
+                  echo "- Expected: ${expected}"
+                  echo "- Actual: ${actual}"
+                  if [[ -n "$request_payload" && "$request_payload" != "null" ]]; then
+                    echo ""
+                    echo "Request payload:"
+                    echo '```json'
+                    printf '%s\n' "$request_payload" | jq '.' 2>/dev/null || printf '%s\n' "$request_payload"
+                    echo '```'
+                  fi
+                  if [[ -n "$detail" && "$detail" != "null" ]]; then
+                    echo ""
+                    echo "Response detail:"
+                    echo '```json'
+                    printf '%s\n' "$detail" | jq '.' 2>/dev/null || printf '%s\n' "$detail"
+                    echo '```'
+                  fi
+                  if [[ -n "$error_logs" && "$error_logs" != "null" ]]; then
+                    echo ""
+                    echo "Service logs:"
+                    echo '```text'
+                    printf '%s\n' "$error_logs"
+                    echo '```'
+                  fi
+                  echo "</details>"
+                  echo ""
+                } >> "$GITHUB_STEP_SUMMARY"
+                annotation_detail=$(jq -cn \
+                  --arg file "$f" --arg line "$line_no" --arg name "$name" \
+                  --arg method "$method" --arg url "$url" --arg expected "$expected" --arg actual "$actual" \
+                  --arg request "$request_payload" --arg detail "$detail" --arg logs "$error_logs" \
+                  '{file:$file,line:$line,name:$name,method:$method,url:$url,expected:$expected,actual:$actual,request_payload:$request,response_detail:$detail,error_logs:$logs}')
+                annotation_detail="${annotation_detail//'%'/'%25'}"
+                annotation_detail="${annotation_detail//$'\r'/'%0D'}"
+                annotation_detail="${annotation_detail//$'\n'/'%0A'}"
+                echo "::error file=${f},line=${line_no}::${annotation_detail}"
+              done < "$f"
+            done
+            echo "::error::Integration tests recorded ${failed} failing assertions. Full request payload, response detail, and service logs are printed above and in artifacts."
             exit 1
           fi
 

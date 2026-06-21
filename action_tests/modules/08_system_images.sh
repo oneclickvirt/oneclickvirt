@@ -25,7 +25,10 @@ run_module_08() {
     esac
     local base_url="https://github.com/oneclickvirt/${img_repo}/releases/download"
     local img_provider_type="${ENV_TYPE:-docker}"
-    # Normalize: lxd/incus container images are docker-format; keep providerType as the actual env
+    case "${img_provider_type}" in
+        proxmoxve) img_provider_type="proxmox" ;;
+    esac
+    # Normalize: providerType must match the DB/provider contract used by image lookup.
     log_info "System image tests: arch=${test_arch} env=${ENV_TYPE:-docker} repo=${img_repo}"
 
     # -- List --
@@ -50,10 +53,29 @@ run_module_08() {
         "{\"name\":\"ci-alpine-3.19\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${base_url}/alpine/spiritlhl_alpine_${test_arch}.tar.gz\",\"description\":\"CI test alpine image (small, for creation tests)\",\"osType\":\"alpine\",\"osVersion\":\"3.19\",\"minMemoryMB\":64,\"minDiskMB\":256}" "$group")
     local iid3; iid3=$(echo "$i3" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
-    # -- Create VM image (uses incus_images repo, different URL format) --
-    local vm_img_url="https://github.com/oneclickvirt/incus_images/releases/download/debian/debian_12_bookworm_${lxd_arch}_cloud.zip"
-    test_api "Create VM image" "POST" "/api/v1/admin/system-images" "200|400" \
-        "{\"name\":\"ci-debian-12-vm\",\"providerType\":\"lxd\",\"instanceType\":\"vm\",\"architecture\":\"${test_arch}\",\"url\":\"${vm_img_url}\",\"description\":\"CI test VM image\",\"osType\":\"debian\",\"osVersion\":\"12\",\"minMemoryMB\":256,\"minDiskMB\":2048}" "$group"
+    # -- Create VM image for the current provider type --
+    # Direct instance creation resolves ImageURL by providerType+instanceType+arch.
+    # Creating only an LXD VM image makes qemu/kubevirt select a name that cannot
+    # resolve to a URL in the provider-specific lookup.
+    local vm_img_provider_type="${img_provider_type}"
+    local vm_img_url=""
+    case "${vm_img_provider_type}" in
+        lxd)
+            vm_img_url="https://github.com/oneclickvirt/lxd_images/releases/download/kvm_images/debian_12_bookworm_${test_arch}_cloud_kvm.zip"
+            ;;
+        incus)
+            vm_img_url="https://github.com/oneclickvirt/incus_images/releases/download/kvm_images/debian_12_bookworm_${lxd_arch}_cloud_kvm.zip"
+            ;;
+        proxmox|qemu|kubevirt)
+            vm_img_url="https://github.com/oneclickvirt/pve_kvm_images/releases/download/debian/debian12.qcow2"
+            ;;
+    esac
+    if [[ -n "$vm_img_url" ]]; then
+        test_api "Create VM image (${vm_img_provider_type})" "POST" "/api/v1/admin/system-images" "200|400|409" \
+            "{\"name\":\"ci-debian-12-${vm_img_provider_type}-vm\",\"providerType\":\"${vm_img_provider_type}\",\"instanceType\":\"vm\",\"architecture\":\"${test_arch}\",\"url\":\"${vm_img_url}\",\"description\":\"CI test ${vm_img_provider_type} VM image\",\"osType\":\"debian\",\"osVersion\":\"12\",\"minMemoryMB\":256,\"minDiskMB\":2048}" "$group"
+    else
+        log_info "Skipping VM image creation for providerType=${vm_img_provider_type}"
+    fi
 
     # -- Create with missing name --
     test_api "Create image (no name)" "POST" "/api/v1/admin/system-images" "400" \

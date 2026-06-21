@@ -70,7 +70,7 @@ func (c *ContainerdProvider) sshPullImage(ctx context.Context, image string) err
 			zap.String("image", utils.TruncateString(image, 64)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to pull image: %w", err)
+		return fmt.Errorf("failed to pull image %s: %w; output: %s", image, err, output)
 	}
 	global.APP_LOG.Info("Containerd镜像拉取成功", zap.String("image", utils.TruncateString(image, 64)))
 	return nil
@@ -78,9 +78,9 @@ func (c *ContainerdProvider) sshPullImage(ctx context.Context, image string) err
 
 // sshDeleteImage 删除镜像
 func (c *ContainerdProvider) sshDeleteImage(ctx context.Context, id string) error {
-	_, err := c.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(id)))
+	output, err := c.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(id)))
 	if err != nil {
-		return fmt.Errorf("failed to delete image: %w", err)
+		return fmt.Errorf("failed to delete image %s: %w; output: %s", id, err, output)
 	}
 	global.APP_LOG.Info("Containerd镜像删除成功", zap.String("id", utils.TruncateString(id, 32)))
 	return nil
@@ -109,57 +109,134 @@ func (c *ContainerdProvider) loadImageToContainerd(imagePath, targetImageName st
 				zap.String("nerdctlOutput", utils.TruncateString(output, 500)),
 				zap.String("ctrOutput", utils.TruncateString(ctrOutput, 500)),
 				zap.Error(ctrErr))
-			return fmt.Errorf("failed to load image from %s: nerdctl: %v; ctr: %w", imagePath, err, ctrErr)
+			return fmt.Errorf("failed to load image from %s: nerdctl: %v; nerdctl output: %s; ctr: %w; ctr output: %s", imagePath, err, output, ctrErr, ctrOutput)
 		}
 		output = ctrOutput
 	}
 
-	// nerdctl load 输出格式为“unpacking <image>...” 或 "Loaded image: <image>"
-	// 且 nerdctl 会自动添加 docker.io/ 前缀，如 docker.io/spiritlhl/debian:latest
-	var loadedImageName string
+	loadedImageNames := containerdLoadedImageCandidates(output)
+	for _, loadedImageName := range loadedImageNames {
+		if err := c.ensureContainerdImageTag(loadedImageName, targetImageName); err == nil {
+			if c.imageExists(targetImageName) {
+				global.APP_LOG.Debug("Containerd镜像打标成功",
+					zap.String("loadedImageName", utils.TruncateString(loadedImageName, 64)),
+					zap.String("targetImageName", utils.TruncateString(targetImageName, 64)))
+				return nil
+			}
+		} else {
+			global.APP_LOG.Warn("Containerd镜像候选打标失败",
+				zap.String("loadedImageName", utils.TruncateString(loadedImageName, 64)),
+				zap.String("targetImageName", utils.TruncateString(targetImageName, 64)),
+				zap.Error(err))
+		}
+	}
+	if !c.imageExists(targetImageName) {
+		return fmt.Errorf("loaded containerd image did not create expected tag %s; load output: %s", targetImageName, output)
+	}
+
+	global.APP_LOG.Debug("Containerd镜像加载成功",
+		zap.String("imagePath", utils.TruncateString(imagePath, 64)),
+		zap.Strings("loadedImageNames", loadedImageNames),
+		zap.String("targetImageName", utils.TruncateString(targetImageName, 64)))
+	return nil
+}
+
+func containerdLoadedImageCandidates(output string) []string {
+	seen := make(map[string]struct{})
+	candidates := make([]string, 0, 4)
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		candidate = strings.TrimSuffix(candidate, "...")
+		candidate = strings.TrimSuffix(candidate, ",")
+		if candidate == "" {
+			return
+		}
+		if _, ok := seen[candidate]; ok {
+			return
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.Contains(line, "Loaded image:") {
 			parts := strings.SplitN(line, "Loaded image:", 2)
 			if len(parts) == 2 {
-				loadedImageName = strings.TrimSpace(parts[1])
-				break
+				add(parts[1])
 			}
-		} else if strings.HasPrefix(line, "unpacking ") {
-			// nerdctl v2 输出格式: "unpacking docker.io/spiritlhl/debian:latest..."
+			continue
+		}
+		if strings.HasPrefix(line, "unpacking ") {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
-				candidate := strings.TrimSuffix(parts[1], "...")
-				candidate = strings.TrimSuffix(candidate, ",")
-				if strings.Contains(candidate, "/") || strings.Contains(candidate, ":") {
-					loadedImageName = candidate
-				}
+				add(parts[1])
 			}
 		}
 	}
+	return candidates
+}
 
-	// 如果加载的镜像名与目标名不同，进行打标操作
-	if loadedImageName != "" && loadedImageName != targetImageName {
-		// nerdctl 会自动添加 docker.io/ 前缀，这里需要同时处理带和不带前缀的情况
-		tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(loadedImageName), shellSingleQuote(targetImageName))
-		_, err = c.sshClient.Execute(tagCmd)
-		if err != nil {
-			// 尝试不带 docker.io/ 前缀的名字来打标
-			shortName := strings.TrimPrefix(loadedImageName, "docker.io/")
-			tagCmd2 := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(shortName), shellSingleQuote(targetImageName))
-			_, err2 := c.sshClient.Execute(tagCmd2)
-			if err2 != nil {
-				return fmt.Errorf("failed to tag image from %s to %s: %w", loadedImageName, targetImageName, err)
+func containerdRefWithImplicitLatest(imageName string) string {
+	if imageName == "" || strings.Contains(imageName, "@") {
+		return imageName
+	}
+	lastSlash := strings.LastIndex(imageName, "/")
+	lastColon := strings.LastIndex(imageName, ":")
+	if lastColon > lastSlash {
+		return imageName
+	}
+	return imageName + ":latest"
+}
+
+func containerdTagSources(loadedImageName string) []string {
+	seen := make(map[string]struct{})
+	sources := make([]string, 0, 4)
+	add := func(source string) {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			return
+		}
+		if _, ok := seen[source]; ok {
+			return
+		}
+		seen[source] = struct{}{}
+		sources = append(sources, source)
+	}
+	add(loadedImageName)
+	add(strings.TrimPrefix(loadedImageName, "docker.io/"))
+	if strings.HasPrefix(loadedImageName, "import@sha256:") {
+		add("sha256:" + strings.TrimPrefix(loadedImageName, "import@sha256:"))
+	}
+	return sources
+}
+
+func (c *ContainerdProvider) ensureContainerdImageTag(loadedImageName, targetImageName string) error {
+	if loadedImageName == "" || loadedImageName == targetImageName || loadedImageName == containerdRefWithImplicitLatest(targetImageName) {
+		return nil
+	}
+	targetRef := containerdRefWithImplicitLatest(targetImageName)
+	var attempts []string
+	for _, source := range containerdTagSources(loadedImageName) {
+		nerdctlCmd := fmt.Sprintf("%s tag %s %s 2>&1", cliName, shellSingleQuote(source), shellSingleQuote(targetRef))
+		nerdctlOutput, nerdctlErr := c.sshClient.Execute(nerdctlCmd)
+		if nerdctlErr == nil {
+			return nil
+		}
+		attempts = append(attempts, fmt.Sprintf("nerdctl tag %s -> %s failed: %v; output: %s", source, targetRef, nerdctlErr, nerdctlOutput))
+
+		for _, namespace := range []string{"default", "k8s.io", "moby"} {
+			ctrCmd := fmt.Sprintf("command -v ctr >/dev/null 2>&1 && ctr -n %s images tag %s %s 2>&1",
+				shellSingleQuote(namespace), shellSingleQuote(source), shellSingleQuote(targetRef))
+			ctrOutput, ctrErr := c.sshClient.Execute(ctrCmd)
+			if ctrErr == nil {
+				return nil
 			}
+			attempts = append(attempts, fmt.Sprintf("ctr -n %s images tag %s -> %s failed: %v; output: %s", namespace, source, targetRef, ctrErr, ctrOutput))
 		}
 	}
-
-	global.APP_LOG.Debug("Containerd镜像加载成功",
-		zap.String("imagePath", utils.TruncateString(imagePath, 64)),
-		zap.String("loadedImageName", utils.TruncateString(loadedImageName, 64)),
-		zap.String("targetImageName", utils.TruncateString(targetImageName, 64)))
-	return nil
+	return fmt.Errorf("failed to tag image from %s to %s:\n%s", loadedImageName, targetRef, strings.Join(attempts, "\n"))
 }
 
 // cleanupContainerdImage 清理Containerd镜像

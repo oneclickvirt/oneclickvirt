@@ -253,7 +253,7 @@ test_api() {
         error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
         log_failure_response "$name" "$body" "$error_logs"
         report_add_fail "$name" "$method" "$url" "$data" "$expected" "$code" "$body"
-        _record_result "$name" "$method" "$url" "FAIL" "$expected" "$code" "$body" "$group" "$error_logs"
+        _record_result "$name" "$method" "$url" "FAIL" "$expected" "$code" "$body" "$group" "$error_logs" "$data"
         return 1
     fi
     PASSED_TESTS=$((PASSED_TESTS + 1))
@@ -342,7 +342,7 @@ test_api_json_value() {
         error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
         log_failure_response "$name" "$body" "$error_logs"
         report_add_fail "$name" "$method" "$url" "$data" "$expected_http" "$code" "$body"
-        _record_result "$name" "$method" "$url" "FAIL" "$expected_http" "$code" "$body" "$group" "$error_logs"
+        _record_result "$name" "$method" "$url" "FAIL" "$expected_http" "$code" "$body" "$group" "$error_logs" "$data"
         return 1
     fi
 
@@ -363,7 +363,7 @@ test_api_json_value() {
         error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
         log_failure_response "$name" "$body" "$error_logs"
         report_add_fail "$name" "$method" "$url" "$data" "$expected_detail" "$actual_detail" "$body"
-        _record_result "$name" "$method" "$url" "FAIL" "$expected_detail" "$actual_detail" "$body" "$group" "$error_logs"
+        _record_result "$name" "$method" "$url" "FAIL" "$expected_detail" "$actual_detail" "$body" "$group" "$error_logs" "$data"
         return 1
     fi
 
@@ -985,7 +985,7 @@ init_results_file() {
 
 # -- Record test result to JSON Lines file --
 _record_result() {
-    local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8" error_logs="${9:-}"
+    local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8" error_logs="${9:-}" request_payload="${10:-}"
     local ts; ts=$(_ts)
     local json
     json=$(jq -cn \
@@ -999,7 +999,8 @@ _record_result() {
         --arg group "$group" \
         --arg timestamp "$ts" \
         --arg error_logs "$error_logs" \
-        '{name:$name,method:$method,url:$url,status:$status,expected:$expected,actual:$actual,detail:$detail,group:$group,timestamp:$timestamp,error_logs:$error_logs}')
+        --arg request_payload "$request_payload" \
+        '{name:$name,method:$method,url:$url,status:$status,expected:$expected,actual:$actual,detail:$detail,group:$group,timestamp:$timestamp,error_logs:$error_logs,request_payload:$request_payload}')
     [[ -n "$RESULTS_FILE" ]] && echo "$json" >> "$RESULTS_FILE"
     TEST_RESULTS_JSON+=("$json")
 }
@@ -1026,7 +1027,7 @@ record_fail_result() {
     log_error "${name} - expected ${expected}, got ${actual}"
     log_failure_response "$name" "$detail"
     report_add_fail "$name" "$method" "$url" "$data" "$expected" "$actual" "$detail"
-    _record_result "$name" "$method" "$url" "FAIL" "$expected" "$actual" "$detail" "$group"
+    _record_result "$name" "$method" "$url" "FAIL" "$expected" "$actual" "$detail" "$group" "" "$data"
 }
 
 ensure_test_instance_available() {

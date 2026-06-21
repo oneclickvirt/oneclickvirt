@@ -298,6 +298,7 @@ while IFS= read -r line; do
     detail=$(echo "$line" | jq -r '.detail // ""' 2>/dev/null)
     timestamp=$(echo "$line" | jq -r '.timestamp // ""' 2>/dev/null)
     error_logs=$(echo "$line" | jq -r '.error_logs // ""' 2>/dev/null)
+    request_payload=$(echo "$line" | jq -r '.request_payload // ""' 2>/dev/null)
     st_class=$(echo "$status" | tr '[:upper:]' '[:lower:]')
 
     if [[ "$grp" != "$current_group" ]]; then
@@ -337,10 +338,11 @@ SECHEAD2
     # Write test row
     has_detail=""
     detail_content=""
-    if [[ "$status" == "FAIL" && ( -n "$detail" || -n "$error_logs" ) ]]; then
+    if [[ "$status" == "FAIL" && ( -n "$detail" || -n "$error_logs" || -n "$request_payload" ) ]]; then
         has_detail="1"
         detail_content=""
         [[ -n "$expected" || -n "$actual" ]] && detail_content+="Expected: ${expected} | Actual: ${actual}"$'\n'
+        [[ -n "$request_payload" && "$request_payload" != "null" ]] && detail_content+="--- Request Payload ---"$'\n'"${request_payload}"$'\n'
         [[ -n "$detail" && "$detail" != "null" ]] && detail_content+="--- Response ---"$'\n'"${detail}"$'\n'
         [[ -n "$error_logs" && "$error_logs" != "null" ]] && detail_content+="--- Service Logs ---"$'\n'"${error_logs}"
         # Escape HTML
