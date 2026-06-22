@@ -47,3 +47,25 @@ func TestValidateOptionalEmail(t *testing.T) {
 		})
 	}
 }
+
+func TestIsValidLXDInstanceName(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{name: "hyphen name", in: "type-test-ct", want: true},
+		{name: "underscore rejected", in: "type_test_ct", want: false},
+		{name: "leading hyphen rejected", in: "-bad", want: false},
+		{name: "trailing hyphen rejected", in: "bad-", want: false},
+		{name: "double hyphen rejected", in: "bad--name", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsValidLXDInstanceName(tt.in); got != tt.want {
+				t.Fatalf("IsValidLXDInstanceName(%q) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}

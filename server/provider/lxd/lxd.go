@@ -523,6 +523,21 @@ func (l *LXDProvider) GetInstance(ctx context.Context, id string) (*provider.Ins
 		}
 	}
 
+	if l.shouldUseSSH() {
+		sshInstances, sshErr := l.sshListInstances(ctx)
+		if sshErr == nil {
+			for _, instance := range sshInstances {
+				if instance.ID == id || instance.Name == id {
+					return &instance, nil
+				}
+			}
+		} else {
+			global.APP_LOG.Warn("LXD API列表未找到实例，SSH兜底查询失败",
+				zap.String("instance", id),
+				zap.Error(sshErr))
+		}
+	}
+
 	return nil, fmt.Errorf("instance not found: %s", id)
 }
 

@@ -190,6 +190,72 @@ func containerdRefWithImplicitLatest(imageName string) string {
 	return imageName + ":latest"
 }
 
+func containerdTrimDockerHubPrefix(imageName string) string {
+	imageName = strings.TrimSpace(imageName)
+	imageName = strings.TrimPrefix(imageName, "docker.io/library/")
+	imageName = strings.TrimPrefix(imageName, "docker.io/")
+	return imageName
+}
+
+func containerdRefPathWithoutTag(imageName string) string {
+	if at := strings.Index(imageName, "@"); at >= 0 {
+		imageName = imageName[:at]
+	}
+	lastSlash := strings.LastIndex(imageName, "/")
+	lastColon := strings.LastIndex(imageName, ":")
+	if lastColon > lastSlash {
+		return imageName[:lastColon]
+	}
+	return imageName
+}
+
+func containerdRuntimeImageRef(imageName string) string {
+	raw := strings.TrimSpace(imageName)
+	if strings.HasPrefix(raw, "docker.io/") && !strings.HasPrefix(raw, "docker.io/library/") {
+		return containerdRefWithImplicitLatest(raw)
+	}
+	ref := containerdRefWithImplicitLatest(containerdTrimDockerHubPrefix(raw))
+	if ref == "" || strings.Contains(ref, "@") {
+		return ref
+	}
+	if strings.Contains(containerdRefPathWithoutTag(ref), "/") {
+		return ref
+	}
+	return "docker.io/library/" + ref
+}
+
+func containerdImageReferenceVariants(imageName string) []string {
+	seen := make(map[string]struct{})
+	var refs []string
+	add := func(ref string) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			return
+		}
+		if _, ok := seen[ref]; ok {
+			return
+		}
+		seen[ref] = struct{}{}
+		refs = append(refs, ref)
+	}
+
+	add(imageName)
+	add(containerdRefWithImplicitLatest(imageName))
+
+	trimmed := containerdTrimDockerHubPrefix(imageName)
+	add(trimmed)
+	add(containerdRefWithImplicitLatest(trimmed))
+
+	taggedTrimmed := containerdRefWithImplicitLatest(trimmed)
+	add("docker.io/" + taggedTrimmed)
+	if !strings.Contains(containerdRefPathWithoutTag(taggedTrimmed), "/") {
+		add("docker.io/library/" + taggedTrimmed)
+	}
+	add(containerdRuntimeImageRef(imageName))
+
+	return refs
+}
+
 func containerdTagSources(loadedImageName string) []string {
 	seen := make(map[string]struct{})
 	sources := make([]string, 0, 4)
@@ -206,6 +272,10 @@ func containerdTagSources(loadedImageName string) []string {
 	}
 	add(loadedImageName)
 	add(strings.TrimPrefix(loadedImageName, "docker.io/"))
+	add(containerdTrimDockerHubPrefix(loadedImageName))
+	for _, ref := range containerdImageReferenceVariants(loadedImageName) {
+		add(ref)
+	}
 	if strings.HasPrefix(loadedImageName, "import@sha256:") {
 		add("sha256:" + strings.TrimPrefix(loadedImageName, "import@sha256:"))
 	}
@@ -213,57 +283,65 @@ func containerdTagSources(loadedImageName string) []string {
 }
 
 func (c *ContainerdProvider) ensureContainerdImageTag(loadedImageName, targetImageName string) error {
-	if loadedImageName == "" || loadedImageName == targetImageName || loadedImageName == containerdRefWithImplicitLatest(targetImageName) {
+	if loadedImageName == "" {
+		return fmt.Errorf("loaded containerd image name is empty")
+	}
+	if c.imageExists(targetImageName) {
 		return nil
 	}
-	targetRef := containerdRefWithImplicitLatest(targetImageName)
 	var attempts []string
-	for _, source := range containerdTagSources(loadedImageName) {
-		nerdctlCmd := fmt.Sprintf("%s tag %s %s 2>&1", cliName, shellSingleQuote(source), shellSingleQuote(targetRef))
-		nerdctlOutput, nerdctlErr := c.sshClient.Execute(nerdctlCmd)
-		if nerdctlErr == nil {
+	for _, targetRef := range containerdImageReferenceVariants(targetImageName) {
+		if c.imageExists(targetRef) {
 			return nil
 		}
-		attempts = append(attempts, fmt.Sprintf("nerdctl tag %s -> %s failed: %v; output: %s", source, targetRef, nerdctlErr, nerdctlOutput))
-
-		for _, namespace := range []string{"default", "k8s.io", "moby"} {
-			ctrCmd := fmt.Sprintf("command -v ctr >/dev/null 2>&1 && ctr -n %s images tag %s %s 2>&1",
-				shellSingleQuote(namespace), shellSingleQuote(source), shellSingleQuote(targetRef))
-			ctrOutput, ctrErr := c.sshClient.Execute(ctrCmd)
-			if ctrErr == nil {
-				return nil
+		for _, source := range containerdTagSources(loadedImageName) {
+			if source == targetRef {
+				continue
 			}
-			attempts = append(attempts, fmt.Sprintf("ctr -n %s images tag %s -> %s failed: %v; output: %s", namespace, source, targetRef, ctrErr, ctrOutput))
+			nerdctlCmd := fmt.Sprintf("%s tag %s %s 2>&1", cliName, shellSingleQuote(source), shellSingleQuote(targetRef))
+			nerdctlOutput, nerdctlErr := c.sshClient.Execute(nerdctlCmd)
+			if nerdctlErr == nil {
+				if c.imageExists(targetRef) {
+					return nil
+				}
+				attempts = append(attempts, fmt.Sprintf("nerdctl tag %s -> %s succeeded but target was not inspectable", source, targetRef))
+				continue
+			}
+			attempts = append(attempts, fmt.Sprintf("nerdctl tag %s -> %s failed: %v; output: %s", source, targetRef, nerdctlErr, nerdctlOutput))
+
+			for _, namespace := range []string{"default", "k8s.io", "moby"} {
+				ctrCmd := fmt.Sprintf("command -v ctr >/dev/null 2>&1 && ctr -n %s images tag %s %s 2>&1",
+					shellSingleQuote(namespace), shellSingleQuote(source), shellSingleQuote(targetRef))
+				ctrOutput, ctrErr := c.sshClient.Execute(ctrCmd)
+				if ctrErr == nil {
+					if c.imageExists(targetRef) {
+						return nil
+					}
+					attempts = append(attempts, fmt.Sprintf("ctr -n %s images tag %s -> %s succeeded but target was not inspectable", namespace, source, targetRef))
+					continue
+				}
+				attempts = append(attempts, fmt.Sprintf("ctr -n %s images tag %s -> %s failed: %v; output: %s", namespace, source, targetRef, ctrErr, ctrOutput))
+			}
 		}
 	}
-	return fmt.Errorf("failed to tag image from %s to %s:\n%s", loadedImageName, targetRef, strings.Join(attempts, "\n"))
+	return fmt.Errorf("failed to tag image from %s to %s:\n%s", loadedImageName, targetImageName, strings.Join(attempts, "\n"))
 }
 
 // cleanupContainerdImage 清理Containerd镜像
 func (c *ContainerdProvider) cleanupContainerdImage(imageName string) {
-	c.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(imageName)))
+	for _, ref := range containerdImageReferenceVariants(imageName) {
+		c.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(ref)))
+	}
 	c.sshClient.Execute(fmt.Sprintf("%s image prune -f", cliName))
 }
 
 // imageExists 检查Containerd镜像是否已存在
 // nerdctl 会自动为镜像名添加 docker.io/ 前缀，所以需要同时检查带前缀和不带前缀的情况
 func (c *ContainerdProvider) imageExists(imageName string) bool {
-	// 同时检查原始名称和带 docker.io/ 前缀的名称
-	shortName := strings.TrimPrefix(imageName, "docker.io/")
-	// 检查 Repository:Tag 格式 (不带标签的名字添加 :latest)
-	checkName := shortName
-	if !strings.Contains(shortName, ":") {
-		checkName = shortName + ":latest"
-	}
-	// nerdctl images --format 输出格式: docker.io/<repo>:<tag>
-	// 同时尝试匹配带和不带 docker.io/ 前缀的名字
-	checks := []string{
-		checkName,
-		"docker.io/" + checkName,
-		shortName,
-		imageName,
-	}
-	for _, name := range checks {
+	for _, name := range containerdImageReferenceVariants(imageName) {
+		if _, err := c.sshClient.Execute(fmt.Sprintf("%s image inspect %s >/dev/null 2>&1", cliName, shellSingleQuote(name))); err == nil {
+			return true
+		}
 		output, err := c.sshClient.Execute(fmt.Sprintf("%s images --format '{{.Repository}}:{{.Tag}}' | grep -Fx %s", cliName, shellSingleQuote(name)))
 		if err == nil && strings.TrimSpace(output) != "" {
 			return true

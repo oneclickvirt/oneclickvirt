@@ -148,7 +148,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 		// 创建实例
 		global.APP_LOG.Debug("执行LXD实例创建命令", zap.String("command", cmd))
-		output, err := l.sshClient.Execute(cmd)
+		output, err := l.executeCreateCommand(cmd, config.InstanceType)
 		if err != nil {
 			createErrText := strings.ToLower(output + "\n" + err.Error())
 			if strings.Contains(createErrText, "failed to find image") || strings.Contains(createErrText, "image not found") || strings.Contains(createErrText, "no such image") {
@@ -162,7 +162,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 						zap.String("fallbackAlias", utils.TruncateString(fallbackAlias, 100)))
 					if copyErr := l.copySpiritlhlImageToLocal(config.Image, fallbackAlias, config.InstanceType); copyErr == nil {
 						retryCmd := strings.Replace(cmd, shellSingleQuote(config.Image), shellSingleQuote(fallbackAlias), 1)
-						output2, retryErr := l.sshClient.Execute(retryCmd)
+						output2, retryErr := l.executeCreateCommand(retryCmd, config.InstanceType)
 						if retryErr == nil {
 							global.APP_LOG.Info("LXD使用spiritlhl本地缓存镜像重试创建成功",
 								zap.String("instance", config.Name),
@@ -394,4 +394,12 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	updateProgress(100, "LXD实例创建完成")
 	global.APP_LOG.Info("LXD实例创建成功", zap.String("name", config.Name))
 	return nil
+}
+
+func (l *LXDProvider) executeCreateCommand(cmd, instanceType string) (string, error) {
+	timeout := 5 * time.Minute
+	if strings.EqualFold(strings.TrimSpace(instanceType), "vm") {
+		timeout = 15 * time.Minute
+	}
+	return l.sshClient.ExecuteWithTimeout(cmd, timeout)
 }

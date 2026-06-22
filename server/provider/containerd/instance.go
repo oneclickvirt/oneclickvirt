@@ -241,7 +241,7 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 					return fmt.Errorf("镜像 %s 不存在，且没有提供下载URL；从 registry 拉取也失败: %w", imageNameWithPrefix, pullErr)
 				}
 
-				tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(config.Image), shellSingleQuote(imageNameWithPrefix))
+				tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(config.Image), shellSingleQuote(containerdRuntimeImageRef(imageNameWithPrefix)))
 				if _, tagErr := c.sshClient.Execute(tagCmd); tagErr != nil {
 					global.APP_LOG.Warn("Containerd镜像打标失败",
 						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
@@ -412,7 +412,12 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	}
 
 	// --pull=never: 确保使用本地已加载的镜像，不尝试远程拉取
-	cmd += fmt.Sprintf(" --pull=never %s", shellSingleQuote(imageNameWithPrefix))
+	runImageRef := containerdRuntimeImageRef(imageNameWithPrefix)
+	cmd += fmt.Sprintf(" --pull=never %s", shellSingleQuote(runImageRef))
+	global.APP_LOG.Debug("Containerd使用本地镜像引用创建容器",
+		zap.String("name", utils.TruncateString(config.Name, 32)),
+		zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)),
+		zap.String("runImageRef", utils.TruncateString(runImageRef, 80)))
 
 	// 若使用 registry 回退拉取的原始镜像（无持久进程），追加 keep-alive 命令
 	if registryFallback {

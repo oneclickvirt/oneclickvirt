@@ -127,7 +127,7 @@ func (i *IncusProvider) executeCreateCommand(cmd string) error {
 	global.APP_LOG.Debug("准备执行实例创建命令",
 		zap.String("full_command", cmd))
 
-	output, err := i.sshClient.Execute(cmd)
+	output, err := i.sshClient.ExecuteWithTimeout(cmd, incusCreateCommandTimeout(cmd))
 	if err != nil {
 		// 尝试获取更详细的错误信息
 		instanceName := ""
@@ -162,7 +162,7 @@ func (i *IncusProvider) executeCreateCommand(cmd string) error {
 				global.APP_LOG.Debug("重试实例创建命令（调整磁盘大小）",
 					zap.String("adjustedCommand", adjustedCmd))
 
-				output2, retryErr := i.sshClient.Execute(adjustedCmd)
+				output2, retryErr := i.sshClient.ExecuteWithTimeout(adjustedCmd, incusCreateCommandTimeout(adjustedCmd))
 				if retryErr == nil {
 					global.APP_LOG.Info("调整磁盘大小后实例创建成功",
 						zap.String("instanceName", instanceName),
@@ -194,6 +194,13 @@ func (i *IncusProvider) executeCreateCommand(cmd string) error {
 
 	global.APP_LOG.Debug("实例创建命令执行成功", zap.String("output", output))
 	return nil
+}
+
+func incusCreateCommandTimeout(cmd string) time.Duration {
+	if strings.Contains(cmd, " --vm") || strings.HasSuffix(strings.TrimSpace(cmd), " --vm") {
+		return 15 * time.Minute
+	}
+	return 5 * time.Minute
 }
 
 // extractSizeFromError 从错误输出中提取数值大小（如 "Source image size (4294967296)"）
@@ -461,7 +468,7 @@ func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSec
 
 func incusExecReadyTimeout(instanceType string) int {
 	if strings.EqualFold(strings.TrimSpace(instanceType), "vm") {
-		return 90
+		return 300
 	}
 	return 30
 }
