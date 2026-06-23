@@ -77,6 +77,57 @@ exit 1
     return 1
 }
 
+stabilize_worker_network_for_env() {
+    local ip="$1" env="$2" label="${3:-worker}"
+    ensure_worker_dns "$ip" "$label" || return 1
+
+    case "$env" in
+        lxd)
+            log_info "Refreshing LXD daemon DNS view on ${label}..."
+            platform_exec_and_wait "$ip" '
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl restart snap.lxd.daemon >/dev/null 2>&1 || systemctl restart lxd >/dev/null 2>&1 || true
+fi
+if command -v snap >/dev/null 2>&1; then
+    snap restart lxd >/dev/null 2>&1 || true
+fi
+sleep 3
+command -v lxc >/dev/null 2>&1 && lxc info >/dev/null 2>&1
+' 180 >/dev/null 2>&1 || log_warning "LXD daemon DNS refresh did not verify cleanly on ${label}"
+            ;;
+        incus)
+            log_info "Refreshing Incus daemon DNS view on ${label}..."
+            platform_exec_and_wait "$ip" '
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl restart incus >/dev/null 2>&1 || true
+fi
+sleep 3
+command -v incus >/dev/null 2>&1 && incus info >/dev/null 2>&1
+' 180 >/dev/null 2>&1 || log_warning "Incus daemon DNS refresh did not verify cleanly on ${label}"
+            ;;
+    esac
+}
+
+run_kubevirt_installer_with_retry() {
+    local ip="$1" install_cmd="$2"
+    local attempt max_attempts=2
+    for attempt in $(seq 1 "$max_attempts"); do
+        log_info "KubeVirt install attempt ${attempt}/${max_attempts}..."
+        if platform_exec_and_wait "$ip" "$install_cmd" 7200; then
+            return 0
+        fi
+        log_warning "KubeVirt install attempt ${attempt} did not complete over SSH; waiting for worker recovery before retry..."
+        wait_for_ssh "$ip" 600 || return 1
+        ensure_worker_dns "$ip" "worker after kubevirt install disconnect" || true
+        if KUBEVIRT_RUNTIME_MAX_WAIT="${KUBEVIRT_INSTALL_RETRY_READY_WAIT:-600}" verify_worker_runtime "kubevirt-retry-${attempt}" "$ip" "kubevirt"; then
+            log_success "KubeVirt runtime became ready after install SSH disconnect"
+            return 0
+        fi
+        sleep 20
+    done
+    return 1
+}
+
 create_test_node() {
     local env_type="$1" hours="${2:-8}"
     log_info "Creating test node: env=${env_type} hours=${hours}"
@@ -156,7 +207,7 @@ install_env() {
         platform_exec_and_wait "${ip}" "reboot" 10 || true
         sleep 25
         wait_for_ssh "${ip}" 300
-        ensure_worker_dns "${ip}" "worker after PVE reboot" || true
+        stabilize_worker_network_for_env "${ip}" "${env}" "worker after PVE reboot" || true
         log_info "PVE install step 2/3: completing PVE configuration after reboot..."
         platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200
         log_info "PVE install step 3a/3: configuring backend bridge..."
@@ -167,7 +218,7 @@ install_env() {
         # kubevirt needs K3s + KubeVirt + CDI, single-pass install (no reboot needed)
         # K3s + KubeVirt + CDI typically takes 60-120 minutes; use 7200s (2h) to be safe
         log_info "Installing KubeVirt environment (K3s + KubeVirt + CDI)..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 7200
+        run_kubevirt_installer_with_retry "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh"
     elif [[ "$env" == "qemu" ]]; then
         # qemu needs libvirt + QEMU/KVM, single-pass install
         log_info "Installing QEMU/KVM environment..."
@@ -178,16 +229,17 @@ install_env() {
         platform_exec_and_wait "${ip}" "reboot" 10 || true
         log_info "Waiting for SSH after reboot (max 180s)..."
         wait_for_ssh "${ip}" 180
-        ensure_worker_dns "${ip}" "worker after ${env} reboot" || true
+        stabilize_worker_network_for_env "${ip}" "${env}" "worker after ${env} reboot" || true
         log_info "Re-running ${env} install to complete post-reboot setup..."
         platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
     fi
-    ensure_worker_dns "${ip}" "worker after ${env} install" || true
+    stabilize_worker_network_for_env "${ip}" "${env}" "worker after ${env} install" || true
 }
 
 verify_worker_runtime() {
     local _id="$1" ip="$2" env="$3"
     local verify_cmd=""
+    local verify_timeout=180
     case "$env" in
         docker)
             verify_cmd="command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1"
@@ -211,7 +263,56 @@ verify_worker_runtime() {
             verify_cmd="command -v virsh >/dev/null 2>&1 && (systemctl is-active --quiet libvirtd || systemctl is-active --quiet virtqemud)"
             ;;
         kubevirt)
-            verify_cmd="command -v kubectl >/dev/null 2>&1 && kubectl get nodes >/dev/null 2>&1 && kubectl get crd virtualmachines.kubevirt.io >/dev/null 2>&1 && kubectl get crd datavolumes.cdi.kubevirt.io >/dev/null 2>&1"
+            verify_timeout="${KUBEVIRT_RUNTIME_MAX_WAIT:-2400}"
+            verify_cmd=$(cat <<'VERIFY_KUBEVIRT'
+set -u
+export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+deadline=$((SECONDS + ${KUBEVIRT_RUNTIME_MAX_WAIT:-2400}))
+last_reason=""
+while [ "$SECONDS" -lt "$deadline" ]; do
+    if ! command -v kubectl >/dev/null 2>&1; then
+        last_reason="kubectl missing"
+    elif ! kubectl get nodes >/dev/null 2>&1; then
+        last_reason="kubernetes API unavailable"
+    elif ! kubectl wait --for=condition=Ready nodes --all --timeout=20s >/dev/null 2>&1; then
+        last_reason="node not Ready"
+    elif ! kubectl get crd virtualmachines.kubevirt.io >/dev/null 2>&1; then
+        last_reason="KubeVirt VirtualMachine CRD missing"
+    elif ! kubectl get crd kubevirts.kubevirt.io >/dev/null 2>&1; then
+        last_reason="KubeVirt CRD missing"
+    elif ! kubectl -n kubevirt get kubevirt kubevirt >/dev/null 2>&1; then
+        last_reason="KubeVirt CR missing"
+    elif ! kubectl -n kubevirt wait kubevirt/kubevirt --for=condition=Available --timeout=30s >/dev/null 2>&1; then
+        phase="$(kubectl -n kubevirt get kubevirt kubevirt -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+        last_reason="KubeVirt not Available (phase=${phase:-unknown})"
+    elif ! kubectl get crd datavolumes.cdi.kubevirt.io >/dev/null 2>&1; then
+        last_reason="CDI DataVolume CRD missing"
+    elif ! kubectl api-resources --api-group=cdi.kubevirt.io 2>/dev/null | grep -q '^datavolumes[[:space:]]'; then
+        last_reason="CDI DataVolume API resource not discoverable"
+    else
+        echo "KUBEVIRT_RUNTIME_READY"
+        kubectl get nodes -o wide || true
+        kubectl -n kubevirt get kubevirt kubevirt || true
+        kubectl -n kubevirt get pods || true
+        kubectl -n cdi get pods 2>/dev/null || true
+        exit 0
+    fi
+    echo "WAITING_KUBEVIRT_RUNTIME: ${last_reason}"
+    sleep 20
+done
+echo "KUBEVIRT_RUNTIME_NOT_READY: ${last_reason:-timeout}"
+echo "--- nodes ---"
+kubectl get nodes -o wide 2>&1 || true
+echo "--- kubevirt cr ---"
+kubectl -n kubevirt get kubevirt kubevirt -o yaml 2>&1 || true
+echo "--- kubevirt pods ---"
+kubectl -n kubevirt get pods -o wide 2>&1 || true
+echo "--- cdi resources ---"
+kubectl get crd | grep -E 'cdi|kubevirt' 2>&1 || true
+kubectl -n cdi get all -o wide 2>&1 || true
+exit 1
+VERIFY_KUBEVIRT
+)
             ;;
         *)
             log_warning "Unknown runtime '${env}', skipping runtime verification"
@@ -220,11 +321,14 @@ verify_worker_runtime() {
     esac
 
     log_info "Verifying ${env} runtime on worker..."
-    if platform_exec_and_wait "${ip}" "${verify_cmd}" 180 >/dev/null 2>&1; then
+    local verify_output=""
+    if verify_output=$(platform_exec_and_wait "${ip}" "${verify_cmd}" "$verify_timeout" 2>&1); then
         log_success "${env} runtime verified on worker"
+        [[ "${DEBUG:-0}" == "1" && -n "$verify_output" ]] && printf '%s\n' "$verify_output" >&2
         return 0
     fi
     log_warning "${env} runtime verification failed or timed out"
+    [[ -n "$verify_output" ]] && printf '%s\n' "$verify_output" >&2
     return 1
 }
 

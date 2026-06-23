@@ -21,6 +21,37 @@ import (
 	"gorm.io/gorm"
 )
 
+func updateProviderRequestHasField(req admin.UpdateProviderRequest, names ...string) bool {
+	if req.ProvidedFields == nil {
+		return true
+	}
+	for _, name := range names {
+		if req.ProvidedFields[name] {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveUpdatedProviderCapabilities(provider providerModel.Provider, req admin.UpdateProviderRequest) (bool, bool) {
+	containerEnabled := provider.ContainerEnabled
+	vmEnabled := provider.VirtualMachineEnabled
+	containerProvided := updateProviderRequestHasField(req, "container_enabled", "containerEnabled")
+	vmProvided := updateProviderRequestHasField(req, "vm_enabled", "vmEnabled", "virtualMachineEnabled")
+
+	if containerProvided {
+		containerEnabled = req.ContainerEnabled
+	}
+	if vmProvided {
+		vmEnabled = req.VirtualMachineEnabled
+	}
+	if !containerProvided && !vmProvided && req.Type == "" {
+		return provider.ContainerEnabled, provider.VirtualMachineEnabled
+	}
+
+	return normalizeProviderInstanceTypeCapabilities(provider.Type, containerEnabled, vmEnabled)
+}
+
 // UpdateProvider 更新Provider
 func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	global.APP_LOG.Debug("开始更新Provider", zap.Uint("providerID", req.ID))
@@ -120,7 +151,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.Name != "" {
 		provider.Name = req.Name
 	}
-	provider.Description = req.Description
+	if updateProviderRequestHasField(req, "description") {
+		provider.Description = req.Description
+	}
 	if req.Type != "" {
 		provider.Type = utils.NormalizeProviderType(req.Type)
 	}
@@ -215,35 +248,37 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.Architecture != "" {
 		provider.Architecture = req.Architecture
 	}
-	// Boolean字段：需要区分"未提供"和"提供false"，这里简化处理为直接赋值
-	// 如果需要更精确的控制，应使用指针类型
-	provider.ContainerEnabled, provider.VirtualMachineEnabled = normalizeProviderInstanceTypeCapabilities(
-		provider.Type,
-		req.ContainerEnabled,
-		req.VirtualMachineEnabled,
-	)
+	provider.ContainerEnabled, provider.VirtualMachineEnabled = resolveUpdatedProviderCapabilities(provider, req)
 	if req.TotalQuota > 0 {
 		provider.TotalQuota = req.TotalQuota
 	}
-	provider.AllowClaim = req.AllowClaim
-	provider.RedeemCodeOnly = req.RedeemCodeOnly
+	if updateProviderRequestHasField(req, "allowClaim") {
+		provider.AllowClaim = req.AllowClaim
+	}
+	if updateProviderRequestHasField(req, "redeemCodeOnly") {
+		provider.RedeemCodeOnly = req.RedeemCodeOnly
+	}
 	if req.Status != "" {
 		provider.Status = req.Status
 	}
-	if req.MaxContainerInstances > 0 {
+	if updateProviderRequestHasField(req, "maxContainerInstances") && req.MaxContainerInstances >= 0 {
 		provider.MaxContainerInstances = req.MaxContainerInstances
 	}
-	if req.MaxVMInstances > 0 {
+	if updateProviderRequestHasField(req, "maxVMInstances") && req.MaxVMInstances >= 0 {
 		provider.MaxVMInstances = req.MaxVMInstances
 	}
-	provider.AllowConcurrentTasks = req.AllowConcurrentTasks
+	if updateProviderRequestHasField(req, "allowConcurrentTasks") {
+		provider.AllowConcurrentTasks = req.AllowConcurrentTasks
+	}
 	if req.MaxConcurrentTasks > 0 {
 		provider.MaxConcurrentTasks = req.MaxConcurrentTasks
 	}
 	if req.TaskPollInterval > 0 {
 		provider.TaskPollInterval = req.TaskPollInterval
 	}
-	provider.EnableTaskPolling = req.EnableTaskPolling
+	if updateProviderRequestHasField(req, "enableTaskPolling") {
+		provider.EnableTaskPolling = req.EnableTaskPolling
+	}
 	// 存储配置（所有Provider类型通用）
 	if req.StoragePool != "" {
 		provider.StoragePool = req.StoragePool
@@ -304,15 +339,27 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.MaxOutboundBandwidth > 0 {
 		provider.MaxOutboundBandwidth = req.MaxOutboundBandwidth
 	}
-	provider.ContainerReadIOLimit = req.ContainerReadIOLimit
-	provider.ContainerWriteIOLimit = req.ContainerWriteIOLimit
-	provider.VMReadIOLimit = req.VMReadIOLimit
-	provider.VMWriteIOLimit = req.VMWriteIOLimit
+	if updateProviderRequestHasField(req, "containerReadIoLimit") {
+		provider.ContainerReadIOLimit = req.ContainerReadIOLimit
+	}
+	if updateProviderRequestHasField(req, "containerWriteIoLimit") {
+		provider.ContainerWriteIOLimit = req.ContainerWriteIOLimit
+	}
+	if updateProviderRequestHasField(req, "vmReadIoLimit") {
+		provider.VMReadIOLimit = req.VMReadIOLimit
+	}
+	if updateProviderRequestHasField(req, "vmWriteIoLimit") {
+		provider.VMWriteIOLimit = req.VMWriteIOLimit
+	}
 	// 流量控制开关更新
 	oldEnableTrafficControl := provider.EnableTrafficControl
-	provider.EnableTrafficControl = req.EnableTrafficControl
+	if updateProviderRequestHasField(req, "enableTrafficControl") {
+		provider.EnableTrafficControl = req.EnableTrafficControl
+	}
 	// 硬件资源监控开关更新
-	provider.EnableResourceMonitoring = req.EnableResourceMonitoring
+	if updateProviderRequestHasField(req, "enableResourceMonitoring") {
+		provider.EnableResourceMonitoring = req.EnableResourceMonitoring
+	}
 	// 流量同步方式更新
 	if req.TrafficSyncMethod != "" {
 		provider.TrafficSyncMethod = req.TrafficSyncMethod
@@ -332,7 +379,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 
 	// 检测流量统计开关是否发生变化
-	trafficControlChanged := oldEnableTrafficControl != req.EnableTrafficControl
+	trafficControlChanged := oldEnableTrafficControl != provider.EnableTrafficControl
 
 	// 流量限制更新
 	if req.MaxTraffic > 0 {
@@ -426,10 +473,18 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		provider.SSHExecuteTimeout = req.SSHExecuteTimeout
 	}
 	// 容器资源限制配置更新
-	provider.ContainerLimitCPU = req.ContainerLimitCpu
-	provider.ContainerLimitMemory = req.ContainerLimitMemory
-	provider.ContainerLimitDisk = req.ContainerLimitDisk
-	provider.EnableDomainBinding = req.EnableDomainBinding
+	if updateProviderRequestHasField(req, "containerLimitCpu") {
+		provider.ContainerLimitCPU = req.ContainerLimitCpu
+	}
+	if updateProviderRequestHasField(req, "containerLimitMemory") {
+		provider.ContainerLimitMemory = req.ContainerLimitMemory
+	}
+	if updateProviderRequestHasField(req, "containerLimitDisk") {
+		provider.ContainerLimitDisk = req.ContainerLimitDisk
+	}
+	if updateProviderRequestHasField(req, "enableDomainBinding") {
+		provider.EnableDomainBinding = req.EnableDomainBinding
+	}
 	if req.ProxyHTTPPort > 0 {
 		provider.ProxyHTTPPort = req.ProxyHTTPPort
 	} else if provider.ProxyHTTPPort <= 0 {
@@ -440,38 +495,70 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	} else if provider.ProxyHTTPSPort <= 0 {
 		provider.ProxyHTTPSPort = 443
 	}
-	provider.ProxyEnableHTTP = req.ProxyEnableHTTP
-	provider.ProxyEnableHTTPS = req.ProxyEnableHTTPS
+	if updateProviderRequestHasField(req, "proxyEnableHttp") {
+		provider.ProxyEnableHTTP = req.ProxyEnableHTTP
+	}
+	if updateProviderRequestHasField(req, "proxyEnableHttps") {
+		provider.ProxyEnableHTTPS = req.ProxyEnableHTTPS
+	}
 	if !provider.ProxyEnableHTTP && !provider.ProxyEnableHTTPS {
 		provider.ProxyEnableHTTP = true
 	}
-	provider.ProxyTLSCertPath = req.ProxyTLSCertPath
-	provider.ProxyTLSKeyPath = req.ProxyTLSKeyPath
-	provider.ProxyAutoSync = req.ProxyAutoSync
-	provider.EnableVNC = req.EnableVNC
+	if updateProviderRequestHasField(req, "proxyTlsCertPath") {
+		provider.ProxyTLSCertPath = req.ProxyTLSCertPath
+	}
+	if updateProviderRequestHasField(req, "proxyTlsKeyPath") {
+		provider.ProxyTLSKeyPath = req.ProxyTLSKeyPath
+	}
+	if updateProviderRequestHasField(req, "proxyAutoSync") {
+		provider.ProxyAutoSync = req.ProxyAutoSync
+	}
+	if updateProviderRequestHasField(req, "enableVNC") {
+		provider.EnableVNC = req.EnableVNC
+	}
 	if req.VNCBasePort > 0 {
 		provider.VNCBasePort = req.VNCBasePort
 	} else if provider.VNCBasePort <= 0 {
 		provider.VNCBasePort = 5900
 	}
-	provider.VNCHost = req.VNCHost
+	if updateProviderRequestHasField(req, "vncHost") {
+		provider.VNCHost = req.VNCHost
+	}
 	// 虚拟机资源限制配置更新
-	provider.VMLimitCPU = req.VMLimitCpu
-	provider.VMLimitMemory = req.VMLimitMemory
-	provider.VMLimitDisk = req.VMLimitDisk
+	if updateProviderRequestHasField(req, "vmLimitCpu") {
+		provider.VMLimitCPU = req.VMLimitCpu
+	}
+	if updateProviderRequestHasField(req, "vmLimitMemory") {
+		provider.VMLimitMemory = req.VMLimitMemory
+	}
+	if updateProviderRequestHasField(req, "vmLimitDisk") {
+		provider.VMLimitDisk = req.VMLimitDisk
+	}
 	// 容器特殊配置与 GPU 直通仅对 LXD/Incus 容器有效；类型切换时清理旧值。
 	if utils.IsLXDIncusProvider(provider.Type) {
-		provider.ContainerPrivileged = req.ContainerPrivileged
-		provider.ContainerAllowNesting = req.ContainerAllowNesting
-		provider.ContainerEnableLXCFS = req.ContainerEnableLXCFS
+		if updateProviderRequestHasField(req, "containerPrivileged") {
+			provider.ContainerPrivileged = req.ContainerPrivileged
+		}
+		if updateProviderRequestHasField(req, "containerAllowNesting") {
+			provider.ContainerAllowNesting = req.ContainerAllowNesting
+		}
+		if updateProviderRequestHasField(req, "containerEnableLxcfs") {
+			provider.ContainerEnableLXCFS = req.ContainerEnableLXCFS
+		}
 		if req.ContainerCPUAllowance != "" {
 			provider.ContainerCPUAllowance = req.ContainerCPUAllowance
 		} else if provider.ContainerCPUAllowance == "" {
 			provider.ContainerCPUAllowance = "100%"
 		}
-		provider.ContainerMemorySwap = req.ContainerMemorySwap
-		provider.ContainerMaxProcesses = req.ContainerMaxProcesses
-		provider.ContainerDiskIOLimit = req.ContainerDiskIOLimit
+		if updateProviderRequestHasField(req, "containerMemorySwap") {
+			provider.ContainerMemorySwap = req.ContainerMemorySwap
+		}
+		if updateProviderRequestHasField(req, "containerMaxProcesses") {
+			provider.ContainerMaxProcesses = req.ContainerMaxProcesses
+		}
+		if updateProviderRequestHasField(req, "containerDiskIoLimit") {
+			provider.ContainerDiskIOLimit = req.ContainerDiskIOLimit
+		}
 	} else {
 		provider.ContainerPrivileged = false
 		provider.ContainerAllowNesting = false
@@ -481,12 +568,22 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		provider.ContainerMaxProcesses = 0
 		provider.ContainerDiskIOLimit = ""
 	}
-	gpuEnabled, gpuDeviceIDs, err := normalizeProviderGPUConfig(provider.Type, req.GpuEnabled, req.GpuDeviceIds)
-	if err != nil {
-		return err
+	if updateProviderRequestHasField(req, "gpuEnabled", "gpuDeviceIds") || req.Type != "" {
+		gpuEnabled := provider.GpuEnabled
+		gpuDeviceIDs := provider.GpuDeviceIds
+		if updateProviderRequestHasField(req, "gpuEnabled") {
+			gpuEnabled = req.GpuEnabled
+		}
+		if updateProviderRequestHasField(req, "gpuDeviceIds") {
+			gpuDeviceIDs = req.GpuDeviceIds
+		}
+		normalizedGPUEnabled, normalizedGPUDeviceIDs, err := normalizeProviderGPUConfig(provider.Type, gpuEnabled, gpuDeviceIDs)
+		if err != nil {
+			return err
+		}
+		provider.GpuEnabled = normalizedGPUEnabled
+		provider.GpuDeviceIds = normalizedGPUDeviceIDs
 	}
-	provider.GpuEnabled = gpuEnabled
-	provider.GpuDeviceIds = gpuDeviceIDs
 	// 实例发现与导入配置更新
 	if req.DiscoverMode != nil {
 		provider.PendingDiscovery = *req.DiscoverMode
@@ -614,7 +711,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 
 		// 如果流量统计开关发生变化，触发后台任务处理监控配置
 		if trafficControlChanged {
-			go s.handleTrafficControlToggle(provider.ID, req.EnableTrafficControl)
+			go s.handleTrafficControlToggle(provider.ID, provider.EnableTrafficControl)
 		}
 
 		return nil

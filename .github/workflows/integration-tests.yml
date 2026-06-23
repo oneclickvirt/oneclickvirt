@@ -418,32 +418,34 @@ jobs:
             exit 0
           fi
 
-          # Any non-zero harness exit code means the tests could not run due to infrastructure
-          # problems (cloud resource exhaustion, server startup failure, etc.).
-          # Treat ALL non-zero exits as a skip/warning — not as an Action failure — so transient
-          # cloud issues don't block CI permanently.
+          HARNESS_NONZERO=false
+          _skip_reason=""
           if [[ "${TEST_EXIT}" != "0" ]]; then
+            HARNESS_NONZERO=true
             if [[ "${TEST_EXIT}" == "75" ]]; then
-              _skip_reason="all cloud platforms temporarily unavailable (resource exhaustion)"
+              _skip_reason="temporary infrastructure/runtime prerequisite failure (EX_TEMPFAIL=75)"
             else
               _skip_reason="infrastructure failure (harness exited with code ${TEST_EXIT})"
             fi
-            echo "::warning::Integration tests skipped: ${_skip_reason}. Re-run when infrastructure is available."
-            {
-              echo "## Integration Validation"
-              echo ""
-              echo "| Metric | Value |"
-              echo "|--------|-------|"
-              echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
-              echo "| Harness Exit Code | ${TEST_EXIT} |"
-              echo "| Status | SKIPPED (${_skip_reason}) |"
-            } >> "$GITHUB_STEP_SUMMARY"
-            [[ -f action_tests/reports/full-output.log ]] && tail -50 action_tests/reports/full-output.log || true
-            exit 0
+            echo "::warning::Integration harness exited non-zero: ${_skip_reason}. Aggregating any JSONL results that were produced."
           fi
 
           result_files=(action_tests/reports/*.jsonl)
           if [[ ${#result_files[@]} -eq 0 ]]; then
+            if [[ "${HARNESS_NONZERO}" == "true" ]]; then
+              echo "::warning::Integration tests did not produce JSONL results after ${_skip_reason}."
+              {
+                echo "## Integration Validation"
+                echo ""
+                echo "| Metric | Value |"
+                echo "|--------|-------|"
+                echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
+                echo "| Harness Exit Code | ${TEST_EXIT} |"
+                echo "| Status | SKIPPED (${_skip_reason}; no JSONL results) |"
+              } >> "$GITHUB_STEP_SUMMARY"
+              [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
+              exit 0
+            fi
             echo "::error::Integration tests did not produce any JSONL result files."
             [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
             exit 1
@@ -479,7 +481,7 @@ jobs:
             echo "| Metric | Value |"
             echo "|--------|-------|"
             echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
-            echo "| Harness Exit Code | 0 |"
+            echo "| Harness Exit Code | ${TEST_EXIT} |"
             echo "| Total | ${total} |"
             echo "| Passed | ${passed} |"
             echo "| Failed | ${failed} |"
@@ -493,6 +495,11 @@ jobs:
           fi
 
           if [[ "$total" -eq 0 ]]; then
+            if [[ "${HARNESS_NONZERO}" == "true" ]]; then
+              echo "::warning::Integration tests produced an empty result set after ${_skip_reason}."
+              [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
+              exit 0
+            fi
             echo "::error::Integration tests produced an empty result set."
             exit 1
           fi
@@ -565,6 +572,10 @@ jobs:
             done
             echo "::error::Integration tests recorded ${failed} failing assertions. Full request payload, response detail, and service logs are printed above and in artifacts."
             exit 1
+          fi
+
+          if [[ "${HARNESS_NONZERO}" == "true" ]]; then
+            echo "::warning::Integration harness exited with ${TEST_EXIT} after writing ${total} result(s): ${_skip_reason}. JSONL results were still aggregated above."
           fi
 
       - name: Show integration log on failure

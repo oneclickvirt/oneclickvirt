@@ -121,7 +121,7 @@ skrime_platform_ssh_exec() {
     local ip="$1" cmd="$2" timeout="${3:-300}"
     if [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
         sshpass -p "${PLATFORM_SSH_PASSWORD}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=30 "root@${ip}" "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
+            -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "root@${ip}" "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
     else
         log_error "[skrime] No SSH credentials (password auth only)"; return 1
     fi
@@ -133,7 +133,7 @@ skrime_platform_wait_ssh() {
     while [[ $elapsed -lt $max ]]; do
         if [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
             sshpass -p "${PLATFORM_SSH_PASSWORD}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                -o ConnectTimeout=10 "root@${ip}" "echo ok" >/dev/null 2>&1 && {
+                -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 "root@${ip}" "echo ok" >/dev/null 2>&1 && {
                 log_success "[skrime] SSH ready on ${ip}"; return 0
             }
         fi

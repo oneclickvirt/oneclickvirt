@@ -28,6 +28,21 @@ run_module_08() {
     case "${img_provider_type}" in
         proxmoxve) img_provider_type="proxmox" ;;
     esac
+    local debian_url="${base_url}/debian/spiritlhl_debian_${test_arch}.tar.gz"
+    local ubuntu_url="${base_url}/ubuntu/spiritlhl_ubuntu_${test_arch}.tar.gz"
+    local alpine_url="${base_url}/alpine/spiritlhl_alpine_${test_arch}.tar.gz"
+    case "${img_provider_type}" in
+        lxd)
+            debian_url="https://github.com/oneclickvirt/lxd_images/releases/download/debian/debian_12_bookworm_${test_arch}_cloud.zip"
+            ubuntu_url="https://github.com/oneclickvirt/lxd_images/releases/download/ubuntu/ubuntu_22.04_jammy_${test_arch}_cloud.zip"
+            alpine_url="https://github.com/oneclickvirt/lxd_images/releases/download/alpine/alpine_3.19_3.19_${test_arch}_cloud.zip"
+            ;;
+        incus)
+            debian_url="https://github.com/oneclickvirt/incus_images/releases/download/debian/debian_12_bookworm_${lxd_arch}_cloud.zip"
+            ubuntu_url="https://github.com/oneclickvirt/incus_images/releases/download/ubuntu/ubuntu_22.04_jammy_${lxd_arch}_cloud.zip"
+            alpine_url="https://github.com/oneclickvirt/incus_images/releases/download/alpine/alpine_3.19_3.19_${lxd_arch}_cloud.zip"
+            ;;
+    esac
     # Normalize: providerType must match the DB/provider contract used by image lookup.
     log_info "System image tests: arch=${test_arch} env=${ENV_TYPE:-docker} repo=${img_repo}"
 
@@ -41,16 +56,16 @@ run_module_08() {
     # The image IDs extracted below are used for downstream edit/batch/delete tests
     # which are already guarded with [[ -n "$iidN" ]].
     local i1; i1=$(test_api "Create image (debian)" "POST" "/api/v1/admin/system-images" "200|400|409" \
-        "{\"name\":\"ci-debian-12\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${base_url}/debian/spiritlhl_debian_${test_arch}.tar.gz\",\"description\":\"CI test debian image\",\"osType\":\"debian\",\"osVersion\":\"12\",\"minMemoryMB\":128,\"minDiskMB\":512}" "$group")
+        "{\"name\":\"ci-debian-12\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${debian_url}\",\"description\":\"CI test debian image\",\"osType\":\"debian\",\"osVersion\":\"12\",\"minMemoryMB\":128,\"minDiskMB\":512}" "$group")
     local iid1; iid1=$(echo "$i1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     local i2; i2=$(test_api "Create image (ubuntu)" "POST" "/api/v1/admin/system-images" "200|400|409" \
-        "{\"name\":\"ci-ubuntu-22.04\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${base_url}/ubuntu/spiritlhl_ubuntu_${test_arch}.tar.gz\",\"description\":\"CI test ubuntu image\",\"osType\":\"ubuntu\",\"osVersion\":\"22.04\",\"minMemoryMB\":128,\"minDiskMB\":512}" "$group")
+        "{\"name\":\"ci-ubuntu-22.04\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${ubuntu_url}\",\"description\":\"CI test ubuntu image\",\"osType\":\"ubuntu\",\"osVersion\":\"22.04\",\"minMemoryMB\":128,\"minDiskMB\":512}" "$group")
     local iid2; iid2=$(echo "$i2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     # Alpine image: smallest (~5MB), preferred for instance creation tests
     local i3; i3=$(test_api "Create image (alpine)" "POST" "/api/v1/admin/system-images" "200|400|409" \
-        "{\"name\":\"ci-alpine-3.19\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${base_url}/alpine/spiritlhl_alpine_${test_arch}.tar.gz\",\"description\":\"CI test alpine image (small, for creation tests)\",\"osType\":\"alpine\",\"osVersion\":\"3.19\",\"minMemoryMB\":64,\"minDiskMB\":256}" "$group")
+        "{\"name\":\"ci-alpine-3.19\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${alpine_url}\",\"description\":\"CI test alpine image (small, for creation tests)\",\"osType\":\"alpine\",\"osVersion\":\"3.19\",\"minMemoryMB\":64,\"minDiskMB\":256}" "$group")
     local iid3; iid3=$(echo "$i3" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     # -- Create VM image for the current provider type --
@@ -107,8 +122,17 @@ run_module_08() {
     # -- Delete single image test (use a temporary image, keep alpine for downstream modules) --
     # Create a temp image just for the single-delete test
     local unique_suffix="${GITHUB_RUN_ID:-local}-$$-$(date +%s)"
+    local tmp_url="${base_url}/alpine/ci_temp_${unique_suffix}_${test_arch}.tar.gz"
+    case "${img_provider_type}" in
+        lxd)
+            tmp_url="https://github.com/oneclickvirt/lxd_images/releases/download/alpine/ci_temp_${unique_suffix}_${test_arch}_cloud.zip"
+            ;;
+        incus)
+            tmp_url="https://github.com/oneclickvirt/incus_images/releases/download/alpine/ci_temp_${unique_suffix}_${lxd_arch}_cloud.zip"
+            ;;
+    esac
     local tmp_img; tmp_img=$(test_api "Create temp image for delete test" "POST" "/api/v1/admin/system-images" "200|400|409" \
-        "{\"name\":\"ci-temp-for-delete-${unique_suffix}\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${base_url}/alpine/ci_temp_${unique_suffix}_${test_arch}.tar.gz\",\"description\":\"temp for delete test\",\"osType\":\"temp\",\"osVersion\":\"1\",\"minMemoryMB\":64,\"minDiskMB\":64}" "$group")
+        "{\"name\":\"ci-temp-for-delete-${unique_suffix}\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${tmp_url}\",\"description\":\"temp for delete test\",\"osType\":\"temp\",\"osVersion\":\"1\",\"minMemoryMB\":64,\"minDiskMB\":64}" "$group")
     local tmp_iid; tmp_iid=$(echo "$tmp_img" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
     if [[ -n "$tmp_iid" ]]; then
         test_api "Delete image" "DELETE" "/api/v1/admin/system-images/${tmp_iid}" "200" "" "$group"
@@ -133,8 +157,17 @@ run_module_08() {
         '{"name":"Ghost Image"}' "$group"
 
     # -- Negative: Create with negative resource values --
+    local negative_url="${base_url}/alpine/neg_test_${unique_suffix}_${test_arch}.tar.gz"
+    case "${img_provider_type}" in
+        lxd)
+            negative_url="https://github.com/oneclickvirt/lxd_images/releases/download/alpine/neg_test_${unique_suffix}_${test_arch}_cloud.zip"
+            ;;
+        incus)
+            negative_url="https://github.com/oneclickvirt/incus_images/releases/download/alpine/neg_test_${unique_suffix}_${lxd_arch}_cloud.zip"
+            ;;
+    esac
     test_api "Create image (negative memory)" "POST" "/api/v1/admin/system-images" "400" \
-        "{\"name\":\"neg-test\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${base_url}/alpine/spiritlhl_alpine_${test_arch}.tar.gz\",\"minMemoryMB\":-1,\"minDiskMB\":-1}" "$group"
+        "{\"name\":\"neg-test\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${negative_url}\",\"minMemoryMB\":-1,\"minDiskMB\":-1}" "$group"
 
     # -- Negative: Batch status with empty ids --
     test_api "Batch status (empty ids)" "PUT" "/api/v1/admin/system-images/batch-status" "400" \

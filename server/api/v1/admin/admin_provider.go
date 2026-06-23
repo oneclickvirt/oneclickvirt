@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"strconv"
 
 	"oneclickvirt/global"
@@ -11,6 +12,7 @@ import (
 	"oneclickvirt/service/provider"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"go.uber.org/zap"
 )
 
@@ -69,10 +71,23 @@ func UpdateProvider(c *gin.Context) {
 	}
 
 	var req admin.UpdateProviderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	body, err := c.GetRawData()
+	if err != nil {
+		global.APP_LOG.Warn("UpdateProvider读取请求体失败", zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		return
+	}
+	if err := binding.JSON.BindBody(body, &req); err != nil {
 		global.APP_LOG.Warn("UpdateProvider参数绑定失败", zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &rawFields); err == nil {
+		req.ProvidedFields = make(map[string]bool, len(rawFields))
+		for key := range rawFields {
+			req.ProvidedFields[key] = true
+		}
 	}
 
 	req.ID = uint(id)
@@ -162,4 +177,3 @@ func UnfreezeProvider(c *gin.Context) {
 
 	common.ResponseSuccess(c, nil, "提供商已解冻")
 }
-

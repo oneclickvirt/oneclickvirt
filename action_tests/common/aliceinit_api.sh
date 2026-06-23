@@ -81,7 +81,7 @@ alice_ssh_exec() {
     ssh -i "${_ALICE_SSH_KEY_FILE}" \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
-        -o ConnectTimeout=30 \
+        -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
         -o BatchMode=yes \
         "root@${ip}" \
         "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
@@ -98,7 +98,7 @@ wait_for_ssh() {
         if ssh -i "${_ALICE_SSH_KEY_FILE}" \
                -o StrictHostKeyChecking=no \
                -o UserKnownHostsFile=/dev/null \
-               -o ConnectTimeout=10 \
+               -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
                -o BatchMode=yes \
                "root@${ip}" "echo ok" >/dev/null 2>&1; then
             log_success "SSH ready on ${ip}"

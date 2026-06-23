@@ -14,6 +14,10 @@ MODULES_DIR="${SCRIPT_DIR}/modules"
 COMMON_DIR="${SCRIPT_DIR}/common"
 
 source "${COMMON_DIR}/test_framework.sh"
+source "${COMMON_DIR}/node_manager.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODULES_DIR="${SCRIPT_DIR}/modules"
+COMMON_DIR="${SCRIPT_DIR}/common"
 
 MODULE_INPUT="${1:-}"
 SERVER_URL="${2:-${SERVER_URL:-}}"

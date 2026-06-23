@@ -19,6 +19,13 @@ run_module_10() {
         chain_break "$group" "Worker SSH is not reachable before instance tests"
         return 1
     fi
+    if declare -F stabilize_worker_network_for_env >/dev/null 2>&1 && [[ -n "${WORKER_IP:-}" ]]; then
+        stabilize_worker_network_for_env "$WORKER_IP" "${ENV_TYPE:-}" "worker before instance lifecycle" || {
+            record_skip_result "Worker DNS/runtime precheck" "SSH" "${WORKER_IP}" \
+                "worker DNS/runtime stabilization failed before instance lifecycle" "$group"
+            exit 75
+        }
+    fi
 
     # -- Health check before instance creation --
     log_info "Verifying provider health before instance tests..."
@@ -57,7 +64,7 @@ run_module_10() {
         local container_image="debian:12"
         local sys_images; sys_images=$(curl -s --max-time 30 \
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-            "${SERVER_URL}/api/v1/admin/system-images?pageSize=200" 2>/dev/null)
+            "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=1000&providerType=${img_provider_type}&instanceType=container&architecture=${provider_arch}&status=active" 2>/dev/null)
         if [[ -n "$sys_images" ]]; then
             local resolved_name; resolved_name=$(echo "$sys_images" | jq -r --arg pt "$img_provider_type" --arg arch "$provider_arch" \
                 '.data.list[]? | select(.osType=="debian" and .providerType==$pt and .instanceType=="container" and .status=="active" and (.architecture==$arch or $arch=="")) | .name' 2>/dev/null | head -1)
@@ -92,7 +99,9 @@ run_module_10() {
             else
                 log_info "Task failed response: $(echo "$task_r" | jq -c '.' 2>/dev/null || printf '%s' "$task_r")"
                 if is_infrastructure_failure_detail "$task_r"; then
-                    log_error "Container creation failed due to worker network/SSH/DNS infrastructure: $(echo "$task_r" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$task_r")"
+                    local infra_detail; infra_detail=$(echo "$task_r" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$task_r")
+                    log_error "Container creation failed due to worker network/SSH/DNS infrastructure: ${infra_detail}"
+                    record_skip_result "Create container instance task (infrastructure)" "GET" "/api/v1/admin/tasks/${maybe_task}" "${infra_detail}" "$group"
                     exit 75
                 fi
                 local task_actual; task_actual=$(safe_jq "$task_r" '.data.status // .message // .msg // "failed"' 'failed')
@@ -272,7 +281,7 @@ run_module_10() {
         local vm_image="debian:12"
         local vm_sys_images; vm_sys_images=$(curl -s --max-time 30 \
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-            "${SERVER_URL}/api/v1/admin/system-images?pageSize=200" 2>/dev/null)
+            "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=1000&providerType=${vm_img_provider_type}&instanceType=vm&architecture=${vm_provider_arch}&status=active" 2>/dev/null)
         if [[ -n "$vm_sys_images" ]]; then
             local vm_resolved; vm_resolved=$(echo "$vm_sys_images" | jq -r --arg pt "$vm_img_provider_type" --arg arch "$vm_provider_arch" \
                 '.data.list[]? | select(.osType=="debian" and .providerType==$pt and .instanceType=="vm" and .status=="active" and (.architecture==$arch or $arch=="")) | .name' 2>/dev/null | head -1)
@@ -302,7 +311,9 @@ run_module_10() {
             else
                 log_info "VM task failed response: $(echo "$vm_tr" | jq -c '.' 2>/dev/null || printf '%s' "$vm_tr")"
                 if is_infrastructure_failure_detail "$vm_tr"; then
-                    log_error "VM creation failed due to worker network/SSH/DNS infrastructure: $(echo "$vm_tr" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$vm_tr")"
+                    local vm_infra_detail; vm_infra_detail=$(echo "$vm_tr" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$vm_tr")
+                    log_error "VM creation failed due to worker network/SSH/DNS infrastructure: ${vm_infra_detail}"
+                    record_skip_result "Create VM instance task (infrastructure)" "GET" "/api/v1/admin/tasks/${vm_task}" "${vm_infra_detail}" "$group"
                     exit 75
                 fi
                 local vm_task_actual; vm_task_actual=$(safe_jq "$vm_tr" '.data.status // .message // .msg // "failed"' 'failed')

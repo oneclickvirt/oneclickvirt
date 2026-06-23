@@ -779,8 +779,14 @@ func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool
 		baseWithArch = baseQuery.Where("architecture = ?", architecture)
 	}
 
-	// 策略 1: 按 name 精确匹配
-	err := baseQuery.Where("LOWER(name) = ?", imageLower).Order("created_at DESC").First(&sysImg).Error
+	// 策略 1: 按 name 精确匹配，优先约束架构，避免多架构同名镜像串用。
+	err := gorm.ErrRecordNotFound
+	if architecture != "" {
+		err = baseWithArch.Where("LOWER(name) = ?", imageLower).Order("created_at DESC").First(&sysImg).Error
+	}
+	if err != nil {
+		err = baseQuery.Where("LOWER(name) = ?", imageLower).Order("created_at DESC").First(&sysImg).Error
+	}
 	if err != nil {
 		// 策略 2: 按 osType 精确 + osVersion 前缀 + architecture 匹配
 		if osVer != "" && architecture != "" {

@@ -50,5 +50,8 @@ func normalizeProviderInstanceTypeCapabilities(providerType string, containerEna
 	if utils.IsVMOnlyProvider(providerType) {
 		return false, true
 	}
+	if (utils.IsLXDIncusProvider(providerType) || providerType == "proxmox" || providerType == "proxmoxve") && !containerEnabled && !vmEnabled {
+		return true, true
+	}
 	return containerEnabled, vmEnabled
 }

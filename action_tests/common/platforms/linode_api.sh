@@ -120,10 +120,10 @@ linode_platform_ssh_exec() {
     local ip="$1" cmd="$2" timeout="${3:-300}"
     if [[ -n "${PLATFORM_SSH_KEY_FILE:-}" && -f "${PLATFORM_SSH_KEY_FILE}" ]]; then
         ssh -i "${PLATFORM_SSH_KEY_FILE}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=30 -o BatchMode=yes "root@${ip}" "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
+            -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o BatchMode=yes "root@${ip}" "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
     elif [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
         sshpass -p "${PLATFORM_SSH_PASSWORD}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=30 "root@${ip}" "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
+            -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "root@${ip}" "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
     else
         log_error "[linode] No SSH credentials"; return 1
     fi
@@ -136,10 +136,10 @@ linode_platform_wait_ssh() {
         local ok=false
         if [[ -n "${PLATFORM_SSH_KEY_FILE:-}" && -f "${PLATFORM_SSH_KEY_FILE}" ]]; then
             ssh -i "${PLATFORM_SSH_KEY_FILE}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                -o ConnectTimeout=10 -o BatchMode=yes "root@${ip}" "echo ok" >/dev/null 2>&1 && ok=true
+                -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o BatchMode=yes "root@${ip}" "echo ok" >/dev/null 2>&1 && ok=true
         elif [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
             sshpass -p "${PLATFORM_SSH_PASSWORD}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                -o ConnectTimeout=10 "root@${ip}" "echo ok" >/dev/null 2>&1 && ok=true
+                -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 "root@${ip}" "echo ok" >/dev/null 2>&1 && ok=true
         fi
         $ok && { log_success "[linode] SSH ready on ${ip}"; return 0; }
         sleep "${interval}"; elapsed=$((elapsed + interval))

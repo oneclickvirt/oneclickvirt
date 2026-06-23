@@ -64,6 +64,12 @@ init_results_file "${REPORT_DIR}/${ENV_TYPE}-results.jsonl"
 
 CREATED_IDS=""
 
+record_harness_skip_and_exit() {
+    local reason="$1"
+    record_skip_result "Harness infrastructure skip (${ENV_TYPE})" "HARNESS" "run_env_test.sh" "$reason" "infrastructure"
+    exit 75
+}
+
 # Error handler: capture logs and cleanup on unexpected exit
 _cleanup_on_exit() {
     local exit_code=$?
@@ -168,7 +174,7 @@ install_env "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || {
 if ! verify_worker_runtime "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE"; then
     if [[ "$ENV_TYPE" == "kubevirt" ]]; then
         log_error "KubeVirt/CDI runtime prerequisites are incomplete; treating as transient infrastructure failure"
-        exit 75
+        record_harness_skip_and_exit "KubeVirt/CDI runtime prerequisites are incomplete after install; see full-output.log for kubectl diagnostics"
     fi
 fi
 

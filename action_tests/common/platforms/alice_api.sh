@@ -347,7 +347,7 @@ alice_platform_ssh_exec() {
         ssh -i "${PLATFORM_SSH_KEY_FILE}" \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=30 \
+            -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             -o BatchMode=yes \
             "${ssh_user}@${ip}" \
             "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
@@ -366,7 +366,7 @@ alice_platform_wait_ssh() {
         ssh_err=$(ssh -i "${PLATFORM_SSH_KEY_FILE}" \
                -o StrictHostKeyChecking=no \
                -o UserKnownHostsFile=/dev/null \
-               -o ConnectTimeout=10 \
+               -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
                -o BatchMode=yes \
                "${ssh_user}@${ip}" "echo ok" 2>&1)
         if [[ $? -eq 0 ]]; then
