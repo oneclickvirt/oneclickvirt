@@ -426,12 +426,16 @@ func GetOrCreateTunnelManager(providerID uint) (*TunnelManager, error) {
 
 // OpenTunnelConn returns a net.Conn bridged through the agent tunnel to the target host and port.
 func OpenTunnelConn(providerID uint, targetHost string, targetPort int) (net.Conn, error) {
+	normalizedHost, ok := validateTunnelTarget(targetHost, targetPort)
+	if !ok {
+		return nil, fmt.Errorf("无效的 agent 隧道目标: host=%q port=%d", targetHost, targetPort)
+	}
 	mgr, err := GetOrCreateTunnelManager(providerID)
 	if err != nil {
 		return nil, err
 	}
 	localConn, tunnelConn := net.Pipe()
-	go mgr.handleConn(tunnelConn, targetHost, targetPort)
+	go mgr.handleConn(tunnelConn, normalizedHost, targetPort)
 	return localConn, nil
 }
 

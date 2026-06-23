@@ -117,10 +117,11 @@ func (c *ContainerdProvider) loadImageToContainerd(imagePath, targetImageName st
 	loadedImageNames := containerdLoadedImageCandidates(output)
 	for _, loadedImageName := range loadedImageNames {
 		if err := c.ensureContainerdImageTag(loadedImageName, targetImageName); err == nil {
-			if c.imageExists(targetImageName) {
+			if c.imageRefExists(containerdRuntimeImageRef(targetImageName)) {
 				global.APP_LOG.Debug("Containerd镜像打标成功",
 					zap.String("loadedImageName", utils.TruncateString(loadedImageName, 64)),
-					zap.String("targetImageName", utils.TruncateString(targetImageName, 64)))
+					zap.String("targetImageName", utils.TruncateString(targetImageName, 64)),
+					zap.String("runtimeImageRef", utils.TruncateString(containerdRuntimeImageRef(targetImageName), 80)))
 				return nil
 			}
 		} else {
@@ -130,14 +131,15 @@ func (c *ContainerdProvider) loadImageToContainerd(imagePath, targetImageName st
 				zap.Error(err))
 		}
 	}
-	if !c.imageExists(targetImageName) {
-		return fmt.Errorf("loaded containerd image did not create expected tag %s; load output: %s", targetImageName, output)
+	if !c.imageRefExists(containerdRuntimeImageRef(targetImageName)) {
+		return fmt.Errorf("loaded containerd image did not create expected runtime tag %s; load output: %s", containerdRuntimeImageRef(targetImageName), output)
 	}
 
 	global.APP_LOG.Debug("Containerd镜像加载成功",
 		zap.String("imagePath", utils.TruncateString(imagePath, 64)),
 		zap.Strings("loadedImageNames", loadedImageNames),
-		zap.String("targetImageName", utils.TruncateString(targetImageName, 64)))
+		zap.String("targetImageName", utils.TruncateString(targetImageName, 64)),
+		zap.String("runtimeImageRef", utils.TruncateString(containerdRuntimeImageRef(targetImageName), 80)))
 	return nil
 }
 
@@ -286,45 +288,63 @@ func (c *ContainerdProvider) ensureContainerdImageTag(loadedImageName, targetIma
 	if loadedImageName == "" {
 		return fmt.Errorf("loaded containerd image name is empty")
 	}
-	if c.imageExists(targetImageName) {
+	return c.ensureContainerdRuntimeImageRefFromSources(targetImageName, containerdTagSources(loadedImageName))
+}
+
+func (c *ContainerdProvider) ensureContainerdRuntimeImageRef(imageName string) error {
+	return c.ensureContainerdRuntimeImageRefFromSources(imageName, containerdImageReferenceVariants(imageName))
+}
+
+func (c *ContainerdProvider) ensureContainerdRuntimeImageRefFromSources(targetImageName string, sources []string) error {
+	targetRef := containerdRuntimeImageRef(targetImageName)
+	if c.imageRefExists(targetRef) {
 		return nil
 	}
+
 	var attempts []string
-	for _, targetRef := range containerdImageReferenceVariants(targetImageName) {
-		if c.imageExists(targetRef) {
-			return nil
-		}
-		for _, source := range containerdTagSources(loadedImageName) {
-			if source == targetRef {
+	for _, source := range sources {
+		for _, sourceRef := range containerdImageReferenceVariants(source) {
+			if sourceRef == targetRef {
 				continue
 			}
-			nerdctlCmd := fmt.Sprintf("%s tag %s %s 2>&1", cliName, shellSingleQuote(source), shellSingleQuote(targetRef))
+			nerdctlCmd := fmt.Sprintf("%s tag %s %s 2>&1", cliName, shellSingleQuote(sourceRef), shellSingleQuote(targetRef))
 			nerdctlOutput, nerdctlErr := c.sshClient.Execute(nerdctlCmd)
 			if nerdctlErr == nil {
-				if c.imageExists(targetRef) {
+				if c.imageRefExists(targetRef) {
 					return nil
 				}
-				attempts = append(attempts, fmt.Sprintf("nerdctl tag %s -> %s succeeded but target was not inspectable", source, targetRef))
+				attempts = append(attempts, fmt.Sprintf("nerdctl tag %s -> %s succeeded but target was not inspectable", sourceRef, targetRef))
 				continue
 			}
-			attempts = append(attempts, fmt.Sprintf("nerdctl tag %s -> %s failed: %v; output: %s", source, targetRef, nerdctlErr, nerdctlOutput))
+			attempts = append(attempts, fmt.Sprintf("nerdctl tag %s -> %s failed: %v; output: %s", sourceRef, targetRef, nerdctlErr, nerdctlOutput))
 
 			for _, namespace := range []string{"default", "k8s.io", "moby"} {
 				ctrCmd := fmt.Sprintf("command -v ctr >/dev/null 2>&1 && ctr -n %s images tag %s %s 2>&1",
-					shellSingleQuote(namespace), shellSingleQuote(source), shellSingleQuote(targetRef))
+					shellSingleQuote(namespace), shellSingleQuote(sourceRef), shellSingleQuote(targetRef))
 				ctrOutput, ctrErr := c.sshClient.Execute(ctrCmd)
 				if ctrErr == nil {
-					if c.imageExists(targetRef) {
+					if c.imageRefExists(targetRef) {
 						return nil
 					}
-					attempts = append(attempts, fmt.Sprintf("ctr -n %s images tag %s -> %s succeeded but target was not inspectable", namespace, source, targetRef))
+					attempts = append(attempts, fmt.Sprintf("ctr -n %s images tag %s -> %s succeeded but target was not inspectable", namespace, sourceRef, targetRef))
 					continue
 				}
-				attempts = append(attempts, fmt.Sprintf("ctr -n %s images tag %s -> %s failed: %v; output: %s", namespace, source, targetRef, ctrErr, ctrOutput))
+				attempts = append(attempts, fmt.Sprintf("ctr -n %s images tag %s -> %s failed: %v; output: %s", namespace, sourceRef, targetRef, ctrErr, ctrOutput))
 			}
 		}
 	}
-	return fmt.Errorf("failed to tag image from %s to %s:\n%s", loadedImageName, targetImageName, strings.Join(attempts, "\n"))
+	return fmt.Errorf("failed to tag image to runtime ref %s from sources %s:\n%s", targetRef, strings.Join(sources, ","), strings.Join(attempts, "\n"))
+}
+
+func (c *ContainerdProvider) imageRefExists(imageRef string) bool {
+	if imageRef == "" {
+		return false
+	}
+	if _, err := c.sshClient.Execute(fmt.Sprintf("%s image inspect %s >/dev/null 2>&1", cliName, shellSingleQuote(imageRef))); err == nil {
+		return true
+	}
+	output, err := c.sshClient.Execute(fmt.Sprintf("%s images --format '{{.Repository}}:{{.Tag}}' | grep -Fx %s", cliName, shellSingleQuote(imageRef)))
+	return err == nil && strings.TrimSpace(output) != ""
 }
 
 // cleanupContainerdImage 清理Containerd镜像
@@ -339,11 +359,7 @@ func (c *ContainerdProvider) cleanupContainerdImage(imageName string) {
 // nerdctl 会自动为镜像名添加 docker.io/ 前缀，所以需要同时检查带前缀和不带前缀的情况
 func (c *ContainerdProvider) imageExists(imageName string) bool {
 	for _, name := range containerdImageReferenceVariants(imageName) {
-		if _, err := c.sshClient.Execute(fmt.Sprintf("%s image inspect %s >/dev/null 2>&1", cliName, shellSingleQuote(name))); err == nil {
-			return true
-		}
-		output, err := c.sshClient.Execute(fmt.Sprintf("%s images --format '{{.Repository}}:{{.Tag}}' | grep -Fx %s", cliName, shellSingleQuote(name)))
-		if err == nil && strings.TrimSpace(output) != "" {
+		if c.imageRefExists(name) {
 			return true
 		}
 	}

@@ -41,7 +41,7 @@ func providerCreateSSHWaitTimeout(provider providerModel.Provider, instance prov
 	}
 	switch {
 	case providerType == "lxd" || providerType == "incus":
-		return 300 * time.Second
+		return 90 * time.Second
 	case providerType == "qemu" || providerType == "kubevirt" || utils.IsVMOnlyProvider(providerType):
 		return 360 * time.Second
 	default:

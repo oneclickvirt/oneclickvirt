@@ -242,11 +242,13 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 				}
 
 				tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(config.Image), shellSingleQuote(containerdRuntimeImageRef(imageNameWithPrefix)))
-				if _, tagErr := c.sshClient.Execute(tagCmd); tagErr != nil {
-					global.APP_LOG.Warn("Containerd镜像打标失败",
+				if out, tagErr := c.sshClient.Execute(tagCmd); tagErr != nil {
+					global.APP_LOG.Error("Containerd镜像打标失败",
 						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
 						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
+						zap.String("output", utils.TruncateString(out, 500)),
 						zap.Error(tagErr))
+					return fmt.Errorf("registry镜像打标失败: %w; output: %s", tagErr, out)
 				}
 				registryFallback = true
 				updateProgress(55, "原始镜像拉取并打标完成")
@@ -254,6 +256,10 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		} else {
 			updateProgress(60, "Containerd镜像已存在，跳过下载...")
 		}
+	}
+
+	if err := c.ensureContainerdRuntimeImageRef(imageNameWithPrefix); err != nil {
+		return fmt.Errorf("Containerd镜像运行引用不可用: %w", err)
 	}
 
 	updateProgress(70, "清理同名残留容器...")
@@ -446,6 +452,9 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
+		if strings.TrimSpace(output) != "" {
+			return fmt.Errorf("failed to create container: %w; output: %s", err, output)
+		}
 		return fmt.Errorf("failed to create container: %w", err)
 	}
 

@@ -184,3 +184,30 @@ func TestSendTunnelOpenWithRetryIgnoresEmptyConnIDAck(t *testing.T) {
 		t.Fatalf("expected single attempt, got %d", attempts)
 	}
 }
+
+func TestOpenTunnelConnRejectsInvalidTargetBeforeHubLookup(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		port int
+	}{
+		{name: "empty host", host: " ", port: 22},
+		{name: "bad port", host: "127.0.0.1", port: 0},
+		{name: "host with path", host: "127.0.0.1/root", port: 22},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			conn, err := OpenTunnelConn(12345, tc.host, tc.port)
+			if err == nil {
+				if conn != nil {
+					_ = conn.Close()
+				}
+				t.Fatalf("expected invalid tunnel target to fail")
+			}
+			if !strings.Contains(err.Error(), "无效的 agent 隧道目标") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}

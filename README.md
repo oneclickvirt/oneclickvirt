@@ -50,9 +50,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `spiritlhl/oneclickvirt:20260622` | All-in-one version with specific date | Fixed version requirement |
+| `spiritlhl/oneclickvirt:20260610` | All-in-one version with specific date | Fixed version requirement |
 | `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
-| `spiritlhl/oneclickvirt:no-db-20260622` | Standalone database version with date | Without database |
+| `spiritlhl/oneclickvirt:no-db-20260610` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -307,7 +307,7 @@ Direct source builds of the Go controller behave the same way: local agent asset
 
 ### Environment Requirements
 
-* Go 1.24.5
+* Go 1.25.0
 * Node.js 22+
 * MySQL 5.7+
 * npm or yarn

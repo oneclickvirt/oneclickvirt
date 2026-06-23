@@ -1,6 +1,6 @@
 # OneClickVirt All-in-One Container
 
-ARG GO_VERSION=1.24.5
+ARG GO_VERSION=1.25.0
 FROM node:22-slim AS frontend-builder
 ARG TARGETARCH
 WORKDIR /app/web
