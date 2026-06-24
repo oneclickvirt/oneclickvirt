@@ -326,7 +326,105 @@
   border-color: rgba(22, 163, 74, 0.3);
 }
 
-/* 可点击平台卡片 */
+/* ===== Carousel Platform Cards ===== */
+.carousel-platform-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 24px;
+  min-width: 180px;
+  border-radius: 18px;
+  background: var(--card-bg);
+  border: 1px solid rgba(22, 163, 74, 0.10);
+  box-shadow: 0 4px 16px rgba(22, 163, 74, 0.06);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.carousel-platform-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(22, 163, 74, 0.35);
+  box-shadow: 0 12px 32px rgba(22, 163, 74, 0.14);
+}
+
+.platform-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  background: rgba(22, 163, 74, 0.06);
+}
+
+.platform-card-icon img {
+  object-fit: contain;
+}
+
+.platform-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.platform-card-repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-color-secondary);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  opacity: 0.7;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.carousel-platform-card:hover .platform-card-repo {
+  opacity: 1;
+  color: #16a34a;
+}
+
+/* ===== Supporters Carousel ===== */
+.supporters-section {
+  max-width: 1200px;
+  margin: 80px auto 0;
+  padding: 60px 24px;
+  text-align: center;
+}
+
+.supporter-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 28px;
+  min-width: 160px;
+  height: 72px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(6px);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.supporter-card:hover {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.35);
+  box-shadow: 0 8px 24px rgba(34, 197, 94, 0.10);
+  transform: translateY(-4px);
+}
+
+.supporter-card img {
+  max-width: 140px;
+  max-height: 44px;
+  object-fit: contain;
+}
+
+/* 可点击平台卡片（保留兼容） */
 .platform-link {
   text-decoration: none;
   cursor: pointer;
@@ -568,7 +666,7 @@
 /* 链接网格 */
 .footer-links-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 28px;
 }
 
@@ -787,17 +885,15 @@
     width: 100%;
   }
 
-  .platforms-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 24px;
+  .carousel-platform-card {
+    min-width: 150px;
+    padding: 22px 18px;
   }
 
-  .platforms-extra-row {
-    gap: 24px;
-  }
-
-  .platforms-extra-row .platform-item {
-    width: calc(50% - 12px);
+  .supporter-card {
+    min-width: 130px;
+    padding: 12px 20px;
+    height: 60px;
   }
 
   .platform-item {
@@ -813,11 +909,6 @@
   .footer-links-grid {
     grid-template-columns: 1fr 1fr;
     gap: 24px;
-  }
-
-  .footer-support-logo-link {
-    width: 100%;
-    min-width: 0;
   }
 
   .footer-tagline {
@@ -852,14 +943,21 @@
   }
 
   .platforms-section,
+  .supporters-section,
   .overview-section,
   .announcements-section {
     padding: 40px 20px;
   }
 
-  .platforms-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
+  .carousel-platform-card {
+    min-width: 130px;
+    padding: 18px 14px;
+  }
+
+  .supporter-card {
+    min-width: 110px;
+    padding: 10px 16px;
+    height: 52px;
   }
 
   .footer-links-grid {

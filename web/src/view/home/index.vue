@@ -168,218 +168,54 @@
           <h2>{{ t('home.platforms.title') }}</h2>
           <p>{{ t('home.platforms.description') }}</p>
         </div>
-        <div class="platforms-grid">
-          <a
-            class="platform-item platform-link"
-            href="https://github.com/oneclickvirt/pve"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div class="platform-icon pve-icon">
-              <img
-                src="@/assets/images/proxmox.png"
-                alt="Proxmox VE"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>Proxmox VE</h3>
-            <span class="platform-link-hint">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              ><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
-              oneclickvirt/pve
-            </span>
-          </a>
+        <LogoCarousel :items="platforms" :speed="35" direction="left" :gap="24">
+          <template #default="{ item }">
+            <a
+              :href="item.href"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="carousel-platform-card"
+              :title="item.name"
+            >
+              <div class="platform-card-icon">
+                <img :src="item.icon" :alt="item.name" width="48" height="48" loading="lazy">
+              </div>
+              <span class="platform-card-name">{{ item.name }}</span>
+              <span class="platform-card-repo">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                {{ item.repo }}
+              </span>
+            </a>
+          </template>
+        </LogoCarousel>
+      </section>
 
-          <a
-            class="platform-item platform-link"
-            href="https://github.com/oneclickvirt/incus"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div class="platform-icon incus-icon">
-              <img
-                src="@/assets/images/incus.png"
-                alt="Incus"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>Incus</h3>
-            <span class="platform-link-hint">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              ><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
-              oneclickvirt/incus
-            </span>
-          </a>
-
-          <a
-            class="platform-item platform-link"
-            href="https://github.com/oneclickvirt/docker"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div class="platform-icon docker-icon">
-              <img
-                src="@/assets/images/docker.png"
-                alt="Docker"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>Docker</h3>
-            <span class="platform-link-hint">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              ><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
-              oneclickvirt/docker
-            </span>
-          </a>
-
-          <a
-            class="platform-item platform-link"
-            href="https://github.com/oneclickvirt/lxd"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div class="platform-icon lxd-icon">
-              <img
-                src="@/assets/images/lxd.png"
-                alt="LXD"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>LXD</h3>
-            <span class="platform-link-hint">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              ><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
-              oneclickvirt/lxd
-            </span>
-          </a>
-
-          <a
-            class="platform-item platform-link"
-            href="https://github.com/oneclickvirt/podman"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div class="platform-icon">
-              <img
-                src="@/assets/images/podman.svg"
-                alt="Podman"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>Podman</h3>
-            <span class="platform-link-hint">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              ><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
-              oneclickvirt/podman
-            </span>
-          </a>
-
-          <a
-            class="platform-item platform-link"
-            href="https://github.com/oneclickvirt/containerd"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div class="platform-icon">
-              <img
-                src="@/assets/images/containerd.svg"
-                alt="Containerd"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>Containerd</h3>
-            <span class="platform-link-hint">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              ><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
-              oneclickvirt/containerd
-            </span>
-          </a>
+      <!-- 支持方 -->
+      <section class="supporters-section">
+        <div class="section-header">
+          <h2>{{ t('home.supporters.title') }}</h2>
+          <p>{{ t('home.supporters.description') }}</p>
         </div>
-
-        <!-- 虚拟化平台（居中展示） -->
-        <div class="platforms-extra-row">
-          <a
-            class="platform-item platform-link"
-            href="https://github.com/oneclickvirt/qemu"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div class="platform-icon">
+        <LogoCarousel :items="footerSupporters" :speed="38" direction="right" :gap="20">
+          <template #default="{ item }">
+            <a
+              :href="item.href"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="supporter-card"
+              :title="item.name"
+              :aria-label="item.name"
+            >
               <img
-                src="@/assets/images/qemu.svg"
-                alt="QEMU"
-                width="60"
-                height="60"
+                :src="item.logo"
+                :alt="item.name"
+                loading="lazy"
+                decoding="async"
+                :style="item.invert ? 'filter: invert(1);' : ''"
               >
-            </div>
-            <h3>QEMU</h3>
-            <span class="platform-link-hint">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              ><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
-              oneclickvirt/qemu
-            </span>
-          </a>
-
-          <a
-            class="platform-item platform-link"
-            href="https://github.com/oneclickvirt/kubevirt"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div class="platform-icon">
-              <img
-                src="@/assets/images/KubeVirt.png"
-                alt="KubeVirt"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>KubeVirt</h3>
-            <span class="platform-link-hint">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              ><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
-              oneclickvirt/kubevirt
-            </span>
-          </a>
-        </div>
+            </a>
+          </template>
+        </LogoCarousel>
       </section>
 
       <!-- 系统公告 -->
@@ -570,31 +406,6 @@
             </ul>
           </div>
 
-          <div class="footer-col footer-supporters-col">
-            <h4 class="footer-col-title">
-              <span class="footer-col-dot" />
-              {{ t('home.footer.supporters') }}
-            </h4>
-            <div class="footer-support-logo-list">
-              <a
-                v-for="supporter in footerSupporters"
-                :key="supporter.href"
-                :href="supporter.href"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="footer-support-logo-link"
-                :title="supporter.name"
-                :aria-label="supporter.name"
-              >
-                <img
-                  :src="supporter.logo"
-                  :alt="supporter.name"
-                  loading="lazy"
-                  decoding="async"
-                >
-              </a>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -655,6 +466,15 @@ import { checkSystemInit } from '@/api/init'
 import { ElTag, ElMessage } from 'element-plus'
 import { Operation, Sunny, Moon } from '@element-plus/icons-vue'
 import { useLanguageStore } from '@/pinia/modules/language'
+import LogoCarousel from '@/components/LogoCarousel.vue'
+import proxmoxPng from '@/assets/images/proxmox.png'
+import incusPng from '@/assets/images/incus.png'
+import dockerPng from '@/assets/images/docker.png'
+import lxdPng from '@/assets/images/lxd.png'
+import podmanSvg from '@/assets/images/podman.svg'
+import containerdSvg from '@/assets/images/containerd.svg'
+import qemuSvg from '@/assets/images/qemu.svg'
+import kubevirtPng from '@/assets/images/KubeVirt.png'
 import { useThemeStore } from '@/pinia/modules/theme'
 import { useSiteStore } from '@/pinia/modules/site'
 
@@ -673,6 +493,17 @@ const serverVersion = ref('')
 const latestVersion = ref('')
 const releaseUrl = ref('')
 const updateAvailable = ref(false)
+const platforms = [
+  { name: 'Proxmox VE', icon: proxmoxPng, href: 'https://github.com/oneclickvirt/pve', repo: 'oneclickvirt/pve' },
+  { name: 'Incus', icon: incusPng, href: 'https://github.com/oneclickvirt/incus', repo: 'oneclickvirt/incus' },
+  { name: 'Docker', icon: dockerPng, href: 'https://github.com/oneclickvirt/docker', repo: 'oneclickvirt/docker' },
+  { name: 'LXD', icon: lxdPng, href: 'https://github.com/oneclickvirt/lxd', repo: 'oneclickvirt/lxd' },
+  { name: 'Podman', icon: podmanSvg, href: 'https://github.com/oneclickvirt/podman', repo: 'oneclickvirt/podman' },
+  { name: 'Containerd', icon: containerdSvg, href: 'https://github.com/oneclickvirt/containerd', repo: 'oneclickvirt/containerd' },
+  { name: 'QEMU', icon: qemuSvg, href: 'https://github.com/oneclickvirt/qemu', repo: 'oneclickvirt/qemu' },
+  { name: 'KubeVirt', icon: kubevirtPng, href: 'https://github.com/oneclickvirt/kubevirt', repo: 'oneclickvirt/kubevirt' }
+]
+
 const footerSupporters = [
   {
     name: 'IBM LinuxONE OSS Community Cloud',
@@ -687,7 +518,14 @@ const footerSupporters = [
   {
     name: 'JTTI',
     href: 'https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt',
-    logo: 'https://www.jtti.cc/static/images/common/logo.png'
+    logo: 'https://www.jtti.cc/static/images/common/logo.png',
+    invert: true
+  },
+  {
+    name: 'DartNode',
+    href: 'https://dartnode.com?aff=bonus',
+    logo: 'https://dartnode.com/assets/dash/images/brand/logo.png',
+    invert: true
   },
   {
     name: 'fossvps',

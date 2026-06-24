@@ -43,6 +43,10 @@ export default {
     typeHomepage: '首页公告',
     typeTopbar: '顶部栏公告'
   },
+  supporters: {
+    title: '支持方',
+    description: '感谢以下组织对 OneClickVirt 项目的大力支持'
+  },
   footer: {
     coreProjects: '核心项目',
     relatedProjects: '相关项目',

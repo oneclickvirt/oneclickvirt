@@ -364,16 +364,30 @@ go run main.go
   <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" height="50">
 </a>
 
-<a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
-  <img src="https://www.jtti.cc/static/images/common/logo.png" alt="jtti" height="50">
-</a>
-
 <a href="https://fossvps.org/">
   <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" height="50">
 </a>
 
 <a href="https://linux.do/">
   <img src="https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png" alt="Linux DO" height="50">
+</a>
+
+<a href="https://dartnode.com?aff=bonus">
+  <img
+    src="https://dartnode.com/assets/dash/images/brand/logo.png"
+    alt="DartNode"
+    height="50"
+    style="filter: invert(1);"
+  >
+</a>
+
+<a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
+  <img
+    src="https://www.jtti.cc/static/images/common/logo.png"
+    alt="jtti"
+    height="50"
+    style="filter: invert(1);"
+  >
 </a>
 
 ## LICENSE

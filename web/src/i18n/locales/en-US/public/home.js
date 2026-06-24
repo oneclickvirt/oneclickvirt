@@ -43,6 +43,10 @@ export default {
     typeHomepage: 'Homepage Announcement',
     typeTopbar: 'Top Bar Announcement'
   },
+  supporters: {
+    title: 'Our Supporters',
+    description: 'Thanks to these amazing organizations for supporting the OneClickVirt project'
+  },
   footer: {
     coreProjects: 'Core Projects',
     relatedProjects: 'Related Projects',
