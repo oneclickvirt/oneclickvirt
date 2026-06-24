@@ -374,10 +374,9 @@ Thank the following platforms for providing testing:
 
 <a href="https://dartnode.com?aff=bonus">
   <img
-    src="https://dartnode.com/assets/dash/images/brand/logo.png"
+    src="https://avatars.githubusercontent.com/u/194546403?s=200&v=4"
     alt="DartNode"
     height="50"
-    style="filter: invert(1);"
   >
 </a>
 

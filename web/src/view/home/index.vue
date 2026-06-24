@@ -524,8 +524,7 @@ const footerSupporters = [
   {
     name: 'DartNode',
     href: 'https://dartnode.com?aff=bonus',
-    logo: 'https://dartnode.com/assets/dash/images/brand/logo.png',
-    invert: true
+    logo: 'https://avatars.githubusercontent.com/u/194546403?s=200&v=4',
   },
   {
     name: 'fossvps',
