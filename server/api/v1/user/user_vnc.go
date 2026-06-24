@@ -5,6 +5,7 @@ import (
 
 	adminAPI "oneclickvirt/api/v1/admin"
 	"oneclickvirt/model/common"
+	trafficService "oneclickvirt/service/traffic"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,6 +20,10 @@ func UserInstanceVNCInfo(c *gin.Context) {
 	instanceID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
+		return
+	}
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, uint(instanceID), "vnc"); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
 		return
 	}
 	info, err := adminAPI.BuildInstanceVNCInfoForUser(uint(instanceID), userID)
@@ -39,6 +44,10 @@ func UserInstanceVNCWebSocket(c *gin.Context) {
 	instanceID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
+		return
+	}
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, uint(instanceID), "vnc"); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
 		return
 	}
 	adminAPI.ProxyInstanceVNCForUser(c, uint(instanceID), userID)

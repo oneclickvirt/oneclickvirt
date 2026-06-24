@@ -462,12 +462,14 @@ type Instance struct {
 	Region string `json:"region" gorm:"size:64"` // 所在地区
 
 	// 流量统计（实例层面）
-	MaxTraffic         int64  `json:"maxTraffic" gorm:"default:0"`                       // 实例流量限制（MB），0表示不限制，从用户等级继承
-	TrafficLimited     bool   `json:"trafficLimited" gorm:"default:false"`               // 是否因流量超限被停机
-	TrafficLimitReason string `json:"trafficLimitReason" gorm:"size:16;default:''"`      // 流量限制原因：instance(实例超限), user(用户超限), provider(Provider超限)
-	PmacctInterfaceV4  string `json:"pmacctInterfaceV4" gorm:"size:32"`                  // pmacct 监控的IPv4网络接口名称
-	PmacctInterfaceV6  string `json:"pmacctInterfaceV6" gorm:"size:32"`                  // pmacct 监控的IPv6网络接口名称
-	ProviderVMID       string `json:"providerVmId" gorm:"column:provider_vm_id;size:32"` // 虚拟化平台的实例ID（Proxmox VMID/CTID等），用于接口检测
+	MaxTraffic         int64      `json:"maxTraffic" gorm:"default:0"`                       // 实例流量限制（MB），0表示不限制，从用户等级继承
+	TrafficLimited     bool       `json:"trafficLimited" gorm:"default:false"`               // 是否因流量超限被限制
+	TrafficLimitReason string     `json:"trafficLimitReason" gorm:"size:16;default:''"`      // 流量限制原因：instance(实例超限), user(用户超限), provider(Provider超限)
+	TrafficStopped     bool       `json:"trafficStopped" gorm:"default:false"`               // 是否由流量策略自动停机，解除限制后可自动恢复
+	TrafficStoppedAt   *time.Time `json:"trafficStoppedAt"`                                  // 流量策略自动停机时间
+	PmacctInterfaceV4  string     `json:"pmacctInterfaceV4" gorm:"size:32"`                  // pmacct 监控的IPv4网络接口名称
+	PmacctInterfaceV6  string     `json:"pmacctInterfaceV6" gorm:"size:32"`                  // pmacct 监控的IPv6网络接口名称
+	ProviderVMID       string     `json:"providerVmId" gorm:"column:provider_vm_id;size:32"` // 虚拟化平台的实例ID（Proxmox VMID/CTID等），用于接口检测
 
 	// 生命周期和冻结管理
 	ExpiresAt      *time.Time `json:"expiresAt" gorm:"index:idx_expires_at;column:expires_at"` // 实例到期时间（默认与节点同步，手动设置优先级更高）

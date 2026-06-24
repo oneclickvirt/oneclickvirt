@@ -128,6 +128,16 @@ func SharedInstanceAction(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例已被冻结或到期，仅允许删除操作"))
 		return
 	}
+	trafficGuard := trafficService.NewThreeTierLimitService()
+	if req.Action == "start" {
+		if err := trafficGuard.RefreshAndEnsureUserInstanceOperationAllowed(instance.UserID, instance.ID, req.Action); err != nil {
+			common.ResponseWithError(c, common.ClassifyError(err))
+			return
+		}
+	} else if err := trafficGuard.EnsureUserInstanceOperationAllowed(instance.UserID, instance.ID, req.Action); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
 	if err := adminInstance.NewService(task.GetTaskService()).InstanceAction(
 		instance.ID,
 		adminModel.InstanceActionRequest{Action: req.Action, Image: req.Image},
@@ -151,6 +161,10 @@ func ResetSharedInstancePassword(c *gin.Context) {
 
 	if !ensureSharedInstanceUsable(instance, "reset-password") {
 		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例已被冻结或到期，无法重置密码"))
+		return
+	}
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(instance.UserID, instance.ID, "reset-password"); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	taskID, err := adminInstance.NewService(task.GetTaskService()).ResetInstancePassword(instance.ID)

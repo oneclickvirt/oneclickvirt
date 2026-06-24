@@ -12,6 +12,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/taskgate"
+	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/service/userquota"
 
 	"gorm.io/gorm"
@@ -64,6 +65,9 @@ type SnapshotDownloadManifest struct {
 func (s *Service) ImportUserSnapshotManifest(instanceID uint, userID uint, payload []byte) (*providerModel.InstanceSnapshot, error) {
 	if len(payload) == 0 {
 		return nil, fmt.Errorf("快照清单不能为空")
+	}
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, instanceID, "snapshot-create"); err != nil {
+		return nil, err
 	}
 
 	var manifest SnapshotDownloadManifest
@@ -284,6 +288,9 @@ func (s *Service) StartCreateSnapshotTaskForUser(instanceID uint, req SnapshotRe
 	if err != nil {
 		return nil, err
 	}
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, inst.ID, "snapshot-create"); err != nil {
+		return nil, err
+	}
 	return s.startCreateSnapshotTaskForLoaded(inst, req, userID, "manual", nil, "")
 }
 
@@ -413,6 +420,9 @@ func (s *Service) StartDeleteSnapshotTaskForUser(snapshotID uint, userID uint) (
 	if err != nil {
 		return nil, err
 	}
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, snapshot.InstanceID, "snapshot-delete"); err != nil {
+		return nil, err
+	}
 	return s.startSnapshotOperationTask(snapshot, SnapshotTaskActionDelete, userID)
 }
 
@@ -422,6 +432,9 @@ func (s *Service) StartRestoreSnapshotTaskForUser(snapshotID uint, userID uint) 
 	}
 	snapshot, err := loadUserSnapshot(snapshotID, userID)
 	if err != nil {
+		return nil, err
+	}
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, snapshot.InstanceID, "snapshot-restore"); err != nil {
 		return nil, err
 	}
 	return s.startSnapshotOperationTask(snapshot, SnapshotTaskActionRestore, userID)

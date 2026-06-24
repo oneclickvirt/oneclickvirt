@@ -14,6 +14,7 @@ import (
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
+	trafficService "oneclickvirt/service/traffic"
 
 	"gorm.io/gorm"
 )
@@ -95,6 +96,16 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
 		return err
 	}
+
+	trafficGuard := trafficService.NewThreeTierLimitService()
+	if req.Action == "start" {
+		if err := trafficGuard.RefreshAndEnsureUserInstanceOperationAllowed(userID, instance.ID, req.Action); err != nil {
+			return err
+		}
+	} else if err := trafficGuard.EnsureUserInstanceOperationAllowed(userID, instance.ID, req.Action); err != nil {
+		return err
+	}
+
 	if instance.IsFrozen && req.Action != "delete" {
 		return errors.New("实例已被冻结，仅允许删除操作")
 	}
@@ -106,11 +117,6 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 	case "start":
 		if instance.Status != "stopped" {
 			return errors.New("实例状态不允许启动")
-		}
-
-		// 禁止流量超限的实例被用户启动
-		if instance.TrafficLimited {
-			return errors.New("实例因流量超限已被系统限制，普通用户无法启动，请联系管理员重置流量或增加流量额度")
 		}
 
 		// 检查是否已有进行中的启动任务

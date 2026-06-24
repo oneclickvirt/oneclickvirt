@@ -7,6 +7,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
+	trafficService "oneclickvirt/service/traffic"
 
 	"go.uber.org/zap"
 )
@@ -49,6 +50,12 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		return nil, 0, err
 	}
 
+	var currentUser userModel.User
+	userTrafficLimited := false
+	if err := global.APP_DB.Select("traffic_limited").First(&currentUser, userID).Error; err == nil {
+		userTrafficLimited = currentUser.TrafficLimited
+	}
+
 	// 批量预加载端口映射
 	var instanceIDs []uint
 	for _, instance := range instances {
@@ -82,7 +89,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 
 	var providers []providerModel.Provider
 	if len(providerIDs) > 0 {
-		if err := global.APP_DB.Select("id, name, type, status, port_ip, endpoint, connection_type, network_type, traffic_quota_visible").
+		if err := global.APP_DB.Select("id, name, type, status, port_ip, endpoint, connection_type, network_type, traffic_quota_visible, traffic_limited").
 			Where("id IN ?", providerIDs).
 			Limit(1000).
 			Find(&providers).Error; err != nil {
@@ -106,6 +113,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		var providerType string
 		var providerStatus string
 		trafficQuotaVisible := true
+		providerTrafficLimited := false
 
 		// 查找SSH端口映射
 		for _, port := range ports {
@@ -121,6 +129,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 				providerType = providerInfo.Type
 				providerStatus = providerInfo.Status
 				trafficQuotaVisible = providerInfo.TrafficQuotaVisible
+				providerTrafficLimited = providerInfo.TrafficLimited
 
 				// 如果实例状态是unavailable，检查provider是否已经恢复
 				if instance.Status == "unavailable" && providerInfo.Status == "active" {
@@ -131,6 +140,13 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 				}
 			}
 		}
+		operationLock := trafficService.DescribeInstanceOperationLock(
+			instance.TrafficLimited,
+			instance.TrafficLimitReason,
+			userTrafficLimited,
+			providerTrafficLimited,
+			"",
+		)
 
 		// 构建端口映射列表
 		var portMappings []userModel.PortMappingResponse
@@ -171,16 +187,19 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		}
 
 		userInstance := userModel.UserInstanceResponse{
-			Instance:            modifiedInstance,
-			CanStart:            instance.Status == "stopped" && !instance.TrafficLimited, // 流量受限时不能启动
-			CanStop:             instance.Status == "running" || instance.Status == "unavailable",
-			CanRestart:          instance.Status == "running" && !instance.TrafficLimited, // 流量受限时不能重启
-			CanDelete:           instance.Status != "deleting",
-			PortMappings:        portMappings,
-			PublicIP:            publicIP, // 公网IP（agent+no_port_mapping模式下为空）
-			ProviderType:        providerType,
-			ProviderStatus:      providerStatus,
-			TrafficQuotaVisible: trafficQuotaVisible,
+			Instance:                    modifiedInstance,
+			CanStart:                    instance.Status == "stopped" && !operationLock.Locked,
+			CanStop:                     (instance.Status == "running" || instance.Status == "unavailable") && !operationLock.Locked,
+			CanRestart:                  instance.Status == "running" && !operationLock.Locked,
+			CanDelete:                   instance.Status != "deleting" && !operationLock.Locked,
+			PortMappings:                portMappings,
+			PublicIP:                    publicIP, // 公网IP（agent+no_port_mapping模式下为空）
+			ProviderType:                providerType,
+			ProviderStatus:              providerStatus,
+			TrafficQuotaVisible:         trafficQuotaVisible,
+			TrafficOperationLocked:      operationLock.Locked,
+			TrafficOperationLockLevel:   string(operationLock.Level),
+			TrafficOperationLockMessage: operationLock.Message,
 		}
 		userInstances = append(userInstances, userInstance)
 	}

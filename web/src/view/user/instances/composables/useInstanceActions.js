@@ -32,6 +32,24 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   const showPassword = ref(false)
   const showTrafficDetail = ref(false)
 
+  const getErrorMessage = (error, fallback) => {
+    return error?.fullMessage || error?.userMessage || error?.message || fallback
+  }
+
+  const getTrafficOperationLockMessage = () => {
+    return instance.value?.trafficOperationLockMessage ||
+      monitoring.trafficData?.limitReason ||
+      t('user.instanceDetail.trafficLimitStartBlocked')
+  }
+
+  const ensureTrafficOperationAllowed = () => {
+    if (instance.value?.trafficOperationLocked || monitoring.trafficData?.isLimited) {
+      ElMessage.error(getTrafficOperationLockMessage())
+      return false
+    }
+    return true
+  }
+
   // Reset image selection state
   const showResetImageDialog = ref(false)
   const resetImages = ref([])
@@ -74,6 +92,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   }
 
   const executeReset = async (image) => {
+    if (!ensureTrafficOperationAllowed()) return
     actionLoading.value = true
     const token = getShareToken()
     try {
@@ -98,7 +117,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
     } catch (error) {
       if (error !== 'cancel') {
         console.error('重置实例失败:', error)
-        ElMessage.error(`${t('user.instanceDetail.actionReset')}${t('user.instances.title')}${t('common.failed')}`)
+        ElMessage.error(getErrorMessage(error, `${t('user.instanceDetail.actionReset')}${t('user.instances.title')}${t('common.failed')}`))
       }
     } finally {
       actionLoading.value = false
@@ -123,8 +142,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       ? `${t('user.instanceDetail.confirm')}${t('user.instanceDetail.delete')}${t('user.instances.title')} "${instance.value.name}" ${t('common.questionMark')}${t('user.profile.deleteConfirmNote')}`
       : `${t('user.instanceDetail.confirm')}${actionText}${t('user.instances.title')} "${instance.value.name}" ${t('common.questionMark')}`
 
-    if (action === 'start' && monitoring.trafficData?.isLimited) {
-      ElMessage.error(t('user.instanceDetail.trafficLimitStartBlocked'))
+    if (!ensureTrafficOperationAllowed()) {
       return
     }
 
@@ -200,7 +218,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
     } catch (error) {
       if (error !== 'cancel') {
         console.error(`${actionText}实例失败:`, error)
-        ElMessage.error(`${actionText}${t('user.instances.title')}${t('common.failed')}`)
+        ElMessage.error(getErrorMessage(error, `${actionText}${t('user.instances.title')}${t('common.failed')}`))
       }
       actionLoading.value = false
     }
@@ -211,6 +229,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       ElMessage.error(t('user.instanceDetail.instanceNotFound'))
       return
     }
+    if (!ensureTrafficOperationAllowed()) return
     if (instance.value.status !== 'running') {
       ElMessage.warning(t('user.instanceDetail.instanceNotRunning'))
       return
@@ -237,6 +256,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       ElMessage.error(t('user.instanceDetail.instanceNotFound'))
       return
     }
+    if (!ensureTrafficOperationAllowed()) return
     if (instance.value.status !== 'running') {
       ElMessage.warning(t('user.instanceDetail.instanceNotRunning'))
       return
@@ -292,6 +312,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       ElMessage.warning(t('user.instanceDetail.operationInProgress'))
       return
     }
+    if (!ensureTrafficOperationAllowed()) return
 
     try {
       await ElMessageBox.confirm(
@@ -322,7 +343,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
         }
       } catch (error) {
         console.error('创建密码重置任务失败:', error)
-        ElMessage.error(t('user.instanceDetail.resetPasswordFailed'))
+        ElMessage.error(getErrorMessage(error, t('user.instanceDetail.resetPasswordFailed')))
         actionLoading.value = false
       }
     } catch {
@@ -335,6 +356,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       ElMessage.error(t('user.instances.instanceInvalid'))
       return
     }
+    if (!ensureTrafficOperationAllowed()) return
     try {
       const { value } = await ElMessageBox.prompt(
         t('user.instances.shareExpiryPrompt'),
@@ -359,7 +381,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
     } catch (error) {
       if (error !== 'cancel') {
         console.error('创建分享链接失败:', error)
-        ElMessage.error(t('user.instances.shareLinkCreateFailed'))
+        ElMessage.error(getErrorMessage(error, t('user.instances.shareLinkCreateFailed')))
       }
     }
   }

@@ -1,6 +1,7 @@
 package traffic
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -107,76 +108,19 @@ func (s *Service) CheckProviderTrafficLimit(providerID uint) (bool, error) {
 	return false, nil
 }
 
-// resumeProviderInstances 恢复Provider上的受限实例
+// resumeProviderInstances 恢复Provider层级的受限实例。
 func (s *Service) resumeProviderInstances(providerID uint) error {
-	if err := taskgate.EnsureAccepting(); err != nil {
-		return err
-	}
-
-	var instances []provider.Instance
-	err := global.APP_DB.Where("provider_id = ? AND traffic_limited = ?", providerID, true).
-		Find(&instances).Error
-	if err != nil {
-		return err
-	}
-
-	global.APP_LOG.Info("开始恢复Provider受限实例",
-		zap.Uint("providerID", providerID),
-		zap.Int("实例数量", len(instances)))
-
-	if len(instances) == 0 {
-		return nil
-	}
-
-	// 收集所有受限实例ID，批量更新
-	instanceIDs := make([]uint, 0, len(instances))
-	for _, inst := range instances {
-		instanceIDs = append(instanceIDs, inst.ID)
-	}
-
-	// 批量更新状态：先标记为 starting，等任务实际启动成功后再设为 running
-	result := global.APP_DB.Model(&provider.Instance{}).
-		Where("id IN ? AND traffic_limited = ?", instanceIDs, true).
+	if err := global.APP_DB.Model(&provider.Instance{}).
+		Where("provider_id = ? AND traffic_limit_reason = ?", providerID, "provider").
 		Updates(map[string]interface{}{
-			"traffic_limited": false,
-			"status":          "starting",
-		})
-	if result.Error != nil {
-		global.APP_LOG.Error("批量恢复Provider实例状态失败", zap.Error(result.Error))
-		return result.Error
+			"traffic_limited":      false,
+			"traffic_limit_reason": "",
+		}).Error; err != nil {
+		return err
 	}
-
-	successCount := int(result.RowsAffected)
-
-	// 批量创建启动任务
-	var taskBatch []adminModel.Task
-	for _, instance := range instances {
-		taskBatch = append(taskBatch, adminModel.Task{
-			TaskType:        "start",
-			Status:          "pending",
-			UserID:          instance.UserID,
-			ProviderID:      &instance.ProviderID,
-			InstanceID:      &instance.ID,
-			TimeoutDuration: 300,
-		})
-	}
-
-	// 批量创建任务
-	if len(taskBatch) > 0 {
-		if err := global.APP_DB.Create(&taskBatch).Error; err != nil {
-			global.APP_LOG.Error("批量创建启动任务失败", zap.Error(err))
-		} else {
-			global.APP_LOG.Info("批量创建启动任务成功",
-				zap.Int("count", len(taskBatch)))
-		}
-	}
-
-	global.APP_LOG.Info("Provider实例恢复完成",
-		zap.Uint("providerID", providerID),
-		zap.Int("成功数量", successCount),
-		zap.Int("总数量", len(instances)))
-
-	return nil
+	global.APP_LOG.Info("Provider流量限制解除，准备恢复流量策略自动停机实例",
+		zap.Uint("providerID", providerID))
+	return NewThreeTierLimitService().RecoverTrafficStoppedInstances(context.Background())
 }
 
 // createStartTaskForInstance 创建启动实例的任务

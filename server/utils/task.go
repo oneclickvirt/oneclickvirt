@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	maxTaskLogFieldLen = 4000
-	maxTaskCommandLen  = 1000
+	maxTaskLogFieldLen = 16000
+	maxTaskCommandLen  = 4000
 )
 
 // progressLogEntry 单条进度日志条目。

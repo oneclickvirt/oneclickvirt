@@ -13,6 +13,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
+	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
@@ -82,6 +83,11 @@ func ExecWebSocket(c *gin.Context) {
 		}
 		global.APP_LOG.Error("查询实例失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, instance.ID, "exec"); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
 		return
 	}
 

@@ -67,6 +67,8 @@ CREATED_IDS=""
 record_harness_skip_and_exit() {
     local reason="$1"
     record_skip_result "Harness infrastructure skip (${ENV_TYPE})" "HARNESS" "run_env_test.sh" "$reason" "infrastructure"
+    generate_html_report "${REPORT_DIR}/${ENV_TYPE}-report.html" "${ENV_TYPE}" 2>/dev/null || true
+    report_finalize 2>/dev/null || true
     exit 75
 }
 

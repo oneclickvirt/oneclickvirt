@@ -260,6 +260,8 @@
             <el-button
               size="small"
               type="success"
+              :disabled="instance.trafficOperationLocked"
+              :title="instance.trafficOperationLockMessage || ''"
               @click="createShareLink(instance)"
             >
               <el-icon><Link /></el-icon>

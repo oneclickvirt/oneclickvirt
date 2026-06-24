@@ -55,6 +55,10 @@ func (s *ThreeTierLimitService) CheckAllTrafficLimits(ctx context.Context) error
 		global.APP_LOG.Warn("实例层级流量检查失败", zap.Error(err))
 	}
 
+	if err := s.RecoverTrafficStoppedInstances(ctx); err != nil {
+		global.APP_LOG.Warn("恢复流量策略自动停机实例失败", zap.Error(err))
+	}
+
 	global.APP_LOG.Debug("三层级流量限制检查完成")
 	return nil
 }
@@ -176,6 +180,46 @@ func (s *ThreeTierLimitService) batchCreateStopTasksForProvider(providerID uint,
 	}
 
 	// 触发调度器立即处理任务
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
+
+	return nil
+}
+
+// batchCreateStartTasks 批量创建启动任务（流量限制解除后的自动恢复）。
+func (s *ThreeTierLimitService) batchCreateStartTasks(instances []provider.Instance, message string) error {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return err
+	}
+
+	if len(instances) == 0 {
+		return nil
+	}
+
+	tasks := make([]*adminModel.Task, 0, len(instances))
+	for _, instance := range instances {
+		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instance.ID, instance.ProviderID)
+		task := &adminModel.Task{
+			TaskType:         "start",
+			Status:           "pending",
+			Progress:         0,
+			StatusMessage:    message,
+			TaskData:         taskData,
+			UserID:           instance.UserID,
+			ProviderID:       &instance.ProviderID,
+			InstanceID:       &instance.ID,
+			TimeoutDuration:  600,
+			IsForceStoppable: true,
+			CanForceStop:     false,
+		}
+		tasks = append(tasks, task)
+	}
+
+	if err := global.APP_DB.CreateInBatches(tasks, 100).Error; err != nil {
+		return err
+	}
+
 	if global.APP_SCHEDULER != nil {
 		global.APP_SCHEDULER.TriggerTaskProcessing()
 	}

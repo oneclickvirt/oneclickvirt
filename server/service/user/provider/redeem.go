@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
+	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
@@ -22,6 +23,13 @@ import (
 func (s *Service) RedeemCode(userID uint, code string) error {
 	if code == "" {
 		return fmt.Errorf("兑换码不能为空")
+	}
+	var currentUser userModel.User
+	if err := global.APP_DB.Select("id", "traffic_limited").First(&currentUser, userID).Error; err != nil {
+		return fmt.Errorf("获取用户信息失败: %w", err)
+	}
+	if currentUser.TrafficLimited {
+		return fmt.Errorf("当前账号当月总流量已超限，普通用户禁止兑换新实例，请等待自然月自动重置或联系管理员")
 	}
 
 	dbService := database.GetDatabaseService()

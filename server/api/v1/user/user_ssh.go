@@ -16,6 +16,7 @@ import (
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	remoteService "oneclickvirt/service/remote"
+	trafficService "oneclickvirt/service/traffic"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -99,6 +100,11 @@ func SSHWebSocket(c *gin.Context) {
 		}
 		global.APP_LOG.Error("查询实例失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, instance.ID, "ssh"); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
 		return
 	}
 

@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"oneclickvirt/global"
-	"oneclickvirt/service/userquota"
 	dashboardModel "oneclickvirt/model/dashboard"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
+	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -635,41 +635,81 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 
 // SetUserTrafficLimit 设置用户流量限制
 func (s *LimitService) SetUserTrafficLimit(userID uint, reason string) error {
-	return global.APP_DB.Model(&user.User{}).
+	if err := global.APP_DB.Model(&user.User{}).
 		Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"traffic_limited": true,
 			"updated_at":      time.Now(),
+		}).Error; err != nil {
+		return err
+	}
+	return global.APP_DB.Model(&provider.Instance{}).
+		Where("user_id = ? AND deleted_at IS NULL AND status NOT IN ? AND traffic_limit_reason <> ?", userID, []string{"deleted", "deleting"}, "provider").
+		Updates(map[string]interface{}{
+			"traffic_limited":      true,
+			"traffic_limit_reason": "user",
+			"traffic_stopped":      false,
+			"traffic_stopped_at":   nil,
+			"updated_at":           time.Now(),
 		}).Error
 }
 
 // RemoveUserTrafficLimit 解除用户流量限制
 func (s *LimitService) RemoveUserTrafficLimit(userID uint) error {
-	return global.APP_DB.Model(&user.User{}).
+	if err := global.APP_DB.Model(&user.User{}).
 		Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"traffic_limited": false,
 			"updated_at":      time.Now(),
+		}).Error; err != nil {
+		return err
+	}
+	return global.APP_DB.Model(&provider.Instance{}).
+		Where("user_id = ? AND traffic_limit_reason = ?", userID, "user").
+		Updates(map[string]interface{}{
+			"traffic_limited":      false,
+			"traffic_limit_reason": "",
+			"updated_at":           time.Now(),
 		}).Error
 }
 
 // SetProviderTrafficLimit 设置Provider流量限制
 func (s *LimitService) SetProviderTrafficLimit(providerID uint, reason string) error {
-	return global.APP_DB.Model(&provider.Provider{}).
+	if err := global.APP_DB.Model(&provider.Provider{}).
 		Where("id = ?", providerID).
 		Updates(map[string]interface{}{
 			"traffic_limited": true,
 			"updated_at":      time.Now(),
+		}).Error; err != nil {
+		return err
+	}
+	return global.APP_DB.Model(&provider.Instance{}).
+		Where("provider_id = ? AND deleted_at IS NULL AND status NOT IN ?", providerID, []string{"deleted", "deleting"}).
+		Updates(map[string]interface{}{
+			"traffic_limited":      true,
+			"traffic_limit_reason": "provider",
+			"traffic_stopped":      false,
+			"traffic_stopped_at":   nil,
+			"updated_at":           time.Now(),
 		}).Error
 }
 
 // RemoveProviderTrafficLimit 解除Provider流量限制
 func (s *LimitService) RemoveProviderTrafficLimit(providerID uint) error {
-	return global.APP_DB.Model(&provider.Provider{}).
+	if err := global.APP_DB.Model(&provider.Provider{}).
 		Where("id = ?", providerID).
 		Updates(map[string]interface{}{
 			"traffic_limited": false,
 			"updated_at":      time.Now(),
+		}).Error; err != nil {
+		return err
+	}
+	return global.APP_DB.Model(&provider.Instance{}).
+		Where("provider_id = ? AND traffic_limit_reason = ?", providerID, "provider").
+		Updates(map[string]interface{}{
+			"traffic_limited":      false,
+			"traffic_limit_reason": "",
+			"updated_at":           time.Now(),
 		}).Error
 }
 

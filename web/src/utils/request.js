@@ -1,8 +1,7 @@
 import axios from 'axios'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/pinia/modules/user'
 import { errorHandler } from './errorHandler'
-import router from '@/router'
 
 const service = axios.create({
   baseURL: import.meta.env.VITE_BASE_API,
@@ -32,14 +31,31 @@ function showMaintenanceDialog(errorInfo) {
   })
 }
 
+function stringifyResponseData(data) {
+  if (data === undefined || data === null) return ''
+  if (typeof data === 'string') return data
+  try {
+    return JSON.stringify(data, null, 2)
+  } catch {
+    return String(data)
+  }
+}
+
 function createNormalizedError(errorInfo, response, originalError) {
   const displayMessage = errorInfo.details || errorInfo.message
-  const normalizedError = new Error(displayMessage || '请求失败')
+  const rawResponseText = stringifyResponseData(response?.data)
+  const fullMessage = rawResponseText && rawResponseText !== displayMessage
+    ? `${displayMessage || '请求失败'}\n${rawResponseText}`
+    : (displayMessage || rawResponseText || '请求失败')
+  const normalizedError = new Error(fullMessage)
   normalizedError.code = errorInfo.code
   normalizedError.status = response?.status
   normalizedError.details = errorInfo.details
   normalizedError.serverMessage = errorInfo.message
   normalizedError.userMessage = displayMessage
+  normalizedError.fullMessage = fullMessage
+  normalizedError.rawResponse = response?.data
+  normalizedError.rawResponseText = rawResponseText
   normalizedError.response = response
   normalizedError.originalError = originalError
   return normalizedError

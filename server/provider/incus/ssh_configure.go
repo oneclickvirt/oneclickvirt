@@ -197,11 +197,18 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 		global.APP_LOG.Debug("Incus 实例已在运行，跳过启动", zap.String("id", id))
 		return nil
 	}
+	if err := i.ensureVMCloudInitTemplates(id); err != nil {
+		global.APP_LOG.Warn("Incus VM cloud-init模板预检查失败，将继续尝试启动",
+			zap.String("id", id),
+			zap.Error(err))
+	}
 
 	startCmd := fmt.Sprintf("incus start %s", shellSingleQuote(id))
 	var startErr error
 	var startOutput string
-	for attempt := 1; attempt <= 3; attempt++ {
+	maxAttempts := 3
+	repairedCloudInitTemplates := false
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		startOutput, startErr = i.sshClient.Execute(startCmd)
 		if startErr == nil {
 			break
@@ -214,7 +221,22 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 			return nil
 		}
 
-		if attempt < 3 {
+		if incusStartNeedsCloudInitTemplateRepair(errMsg) && !repairedCloudInitTemplates {
+			if repairErr := i.ensureVMCloudInitTemplates(id); repairErr != nil {
+				global.APP_LOG.Warn("Incus VM cloud-init模板自动修复失败",
+					zap.String("id", id),
+					zap.Error(repairErr))
+			} else {
+				repairedCloudInitTemplates = true
+				if maxAttempts < 4 {
+					maxAttempts = 4
+				}
+				global.APP_LOG.Info("Incus VM cloud-init模板已自动修复，准备重试启动",
+					zap.String("id", id))
+			}
+		}
+
+		if attempt < maxAttempts {
 			global.APP_LOG.Warn("Incus启动实例首次失败，准备重试",
 				zap.String("id", id),
 				zap.String("output", utils.TruncateString(startOutput, 500)),

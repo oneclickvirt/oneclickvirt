@@ -96,6 +96,16 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 		return nil, errors.New("该服务器因流量超限暂时不可用，请选择其他服务器或联系管理员")
 	}
 
+	var currentUser userModel.User
+	if err := global.APP_DB.Select("id", "traffic_limited").First(&currentUser, userID).Error; err != nil {
+		return nil, fmt.Errorf("获取用户信息失败: %w", err)
+	}
+	if currentUser.TrafficLimited {
+		global.APP_LOG.Error("用户因流量超限被限制，禁止申请新实例",
+			zap.Uint("userID", userID))
+		return nil, errors.New("当前账号当月总流量已超限，普通用户禁止申请新实例，请等待自然月自动重置或联系管理员")
+	}
+
 	var systemImage systemModel.SystemImage
 	if err := global.APP_DB.Where("id = ?", req.ImageId).First(&systemImage).Error; err != nil {
 		global.APP_LOG.Error("无效的镜像ID", zap.Uint("imageId", req.ImageId), zap.Error(err))

@@ -94,8 +94,8 @@
         <div class="control-actions">
           <el-tooltip
             v-if="instance.status === 'stopped'"
-            :content="monitoring.trafficData?.isLimited ? $t('user.instanceDetail.trafficLimitStartBlocked') : ''"
-            :disabled="!monitoring.trafficData?.isLimited"
+            :content="operationLockMessage"
+            :disabled="!operationLocked"
             placement="top"
           >
             <span>
@@ -103,7 +103,7 @@
                 type="success"
                 size="small"
                 :loading="actionLoading"
-                :disabled="monitoring.trafficData?.isLimited"
+                :disabled="operationLocked"
                 @click="$emit('perform-action', 'start')"
               >
                 <el-icon><VideoPlay /></el-icon>
@@ -116,6 +116,8 @@
             type="warning"
             size="small"
             :loading="actionLoading"
+            :disabled="operationLocked"
+            :title="operationLockMessage"
             @click="$emit('perform-action', 'stop')"
           >
             <el-icon><VideoPause /></el-icon>
@@ -125,6 +127,8 @@
             v-if="instance.status === 'running' && instance.canRestart !== false"
             size="small"
             :loading="actionLoading"
+            :disabled="operationLocked"
+            :title="operationLockMessage"
             @click="$emit('perform-action', 'restart')"
           >
             <el-icon><Refresh /></el-icon>
@@ -135,6 +139,8 @@
             type="info"
             size="small"
             :loading="actionLoading"
+            :disabled="operationLocked"
+            :title="operationLockMessage"
             @click="$emit('perform-action', 'reset')"
           >
             <el-icon><Refresh /></el-icon>
@@ -145,6 +151,8 @@
             type="primary"
             size="small"
             :loading="actionLoading"
+            :disabled="operationLocked"
+            :title="operationLockMessage"
             @click="$emit('reset-password')"
           >
             {{ $t('user.instanceDetail.resetPassword') }}
@@ -154,8 +162,8 @@
             v-if="instance.status === 'running'"
             type="primary"
             size="small"
-            :disabled="!instance.hasSshMapping && instance.networkType === 'no_port_mapping'"
-            :title="(!instance.hasSshMapping && instance.networkType === 'no_port_mapping') ? $t('user.instanceDetail.sshNoPortMapping') : ''"
+            :disabled="operationLocked || (!instance.hasSshMapping && instance.networkType === 'no_port_mapping')"
+            :title="operationLocked ? operationLockMessage : ((!instance.hasSshMapping && instance.networkType === 'no_port_mapping') ? $t('user.instanceDetail.sshNoPortMapping') : '')"
             @click="$emit('open-ssh')"
           >
             <el-icon><Monitor /></el-icon>
@@ -165,6 +173,8 @@
             v-if="instance.status === 'running' && instance.instanceType === 'vm' && !shareMode"
             type="primary"
             size="small"
+            :disabled="operationLocked"
+            :title="operationLockMessage"
             @click="$emit('open-vnc')"
           >
             <el-icon><Monitor /></el-icon>
@@ -175,6 +185,8 @@
             type="success"
             size="small"
             :loading="actionLoading"
+            :disabled="operationLocked"
+            :title="operationLockMessage"
             @click="$emit('create-share')"
           >
             <el-icon><Link /></el-icon>
@@ -186,6 +198,8 @@
             type="danger"
             size="small"
             :loading="actionLoading"
+            :disabled="operationLocked"
+            :title="operationLockMessage"
             @click="$emit('perform-action', 'delete')"
           >
             <el-icon><Delete /></el-icon>
@@ -221,6 +235,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Link } from '@element-plus/icons-vue'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
@@ -228,7 +243,7 @@ import { useInstanceFormatters } from '../composables/useInstanceFormatters'
 
 const { t, te } = useI18n()
 
-defineProps({
+const props = defineProps({
   instance: { type: Object, required: true },
   monitoring: { type: Object, required: true },
   actionLoading: { type: Boolean, default: false },
@@ -247,6 +262,16 @@ const {
   getProviderTypeName,
   getProviderTypeColor
 } = useInstanceFormatters()
+
+const operationLocked = computed(() => Boolean(
+  props.instance?.trafficOperationLocked || props.monitoring?.trafficData?.isLimited
+))
+
+const operationLockMessage = computed(() => (
+  props.instance?.trafficOperationLockMessage ||
+  props.monitoring?.trafficData?.limitReason ||
+  t('user.instanceDetail.trafficLimitStartBlocked')
+))
 
 function translateStepMsg(m) {
   if (!m) return m

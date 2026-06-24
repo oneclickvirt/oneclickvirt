@@ -10,6 +10,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/remote"
 	"oneclickvirt/service/taskgate"
+	trafficService "oneclickvirt/service/traffic"
 	"path"
 	"sort"
 	"strconv"
@@ -51,6 +52,10 @@ func getUserInstanceForSFTP(c *gin.Context) (*providerModel.Instance, error) {
 			return nil, common.NewError(common.CodeNotFound, "实例不存在")
 		}
 		return nil, err
+	}
+
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, instance.ID, "sftp"); err != nil {
+		return nil, common.NewError(common.CodeForbidden, err.Error())
 	}
 
 	if instance.IsFrozen {

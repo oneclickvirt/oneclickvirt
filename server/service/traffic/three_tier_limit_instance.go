@@ -9,9 +9,9 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/service/taskgate"
 
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 // ============ 实例层级流量限制 ============
@@ -33,8 +33,8 @@ func (s *ThreeTierLimitService) CheckAllInstancesTrafficLimit(ctx context.Contex
 		// 游标分页：每次获取200条，按id升序，从上次最大id之后开始
 		var instances []provider.Instance
 		err := global.APP_DB.
-			Where("id > ? AND status NOT IN (?) AND traffic_limited = ? AND (traffic_limit_reason = ? OR traffic_limit_reason = ?)",
-				lastID, []string{"deleted", "deleting"}, false, "", "instance").
+			Where("id > ? AND status NOT IN (?) AND (traffic_limited = ? OR traffic_limit_reason = ?)",
+				lastID, []string{"deleted", "deleting"}, false, "instance").
 			Order("id ASC").
 			Limit(batchSize).
 			Find(&instances).Error
@@ -304,6 +304,8 @@ func (s *ThreeTierLimitService) limitInstanceWithAction(instance provider.Instan
 		updates := map[string]interface{}{
 			"traffic_limited":      true,
 			"traffic_limit_reason": reason,
+			"traffic_stopped":      false,
+			"traffic_stopped_at":   nil,
 		}
 		if err := global.APP_DB.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
 			return false, fmt.Errorf("标记实例为限速状态失败: %w", err)
@@ -325,6 +327,8 @@ func (s *ThreeTierLimitService) limitInstanceWithAction(instance provider.Instan
 		updates := map[string]interface{}{
 			"traffic_limited":      true,
 			"traffic_limit_reason": reason,
+			"traffic_stopped":      false,
+			"traffic_stopped_at":   nil,
 			"is_frozen":            true,
 			"frozen_reason":        "traffic_limit",
 			"frozen_at":            now,
@@ -340,6 +344,8 @@ func (s *ThreeTierLimitService) limitInstanceWithAction(instance provider.Instan
 		updates := map[string]interface{}{
 			"traffic_limited":      true,
 			"traffic_limit_reason": reason,
+			"traffic_stopped":      false,
+			"traffic_stopped_at":   nil,
 		}
 		if err := global.APP_DB.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
 			return false, fmt.Errorf("标记超流量实例失败: %w", err)
@@ -350,29 +356,36 @@ func (s *ThreeTierLimitService) limitInstanceWithAction(instance provider.Instan
 		return true, nil
 	}
 
-	// 停机模式（默认行为）
-	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		// 原子性标记实例为受限状态
-		updates := map[string]interface{}{
-			"traffic_limited":      true,
-			"traffic_limit_reason": reason,
-			"status":               "stopped",
+	// 停机模式（默认行为）。只有原本运行中的实例才进入自动恢复队列。
+	now := time.Now()
+	updates := map[string]interface{}{
+		"traffic_limited":      true,
+		"traffic_limit_reason": reason,
+		"traffic_stopped":      false,
+		"traffic_stopped_at":   nil,
+	}
+	shouldCreateStopTask := instance.Status == "running"
+	if shouldCreateStopTask {
+		if err := taskgate.EnsureAccepting(); err != nil {
+			global.APP_LOG.Warn("任务池暂不接受任务，实例仅标记为流量受限，稍后重试停机",
+				zap.Uint("instanceID", instanceID),
+				zap.Error(err))
+			shouldCreateStopTask = false
 		}
-		if err := tx.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
-			return fmt.Errorf("标记实例为受限状态失败: %w", err)
-		}
-
-		// 在同一事务中创建停止任务，防止状态与任务不一致
-		return s.createStopTaskTx(tx, userID, instanceID, providerID, message)
-	})
-
-	if err != nil {
-		return false, err
+	}
+	if shouldCreateStopTask {
+		updates["status"] = "stopped"
+		updates["traffic_stopped"] = true
+		updates["traffic_stopped_at"] = now
+	}
+	if err := global.APP_DB.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
+		return false, fmt.Errorf("标记实例为受限状态失败: %w", err)
 	}
 
-	// 事务提交后触发调度器（事务外执行，避免长事务）
-	if global.APP_SCHEDULER != nil {
-		global.APP_SCHEDULER.TriggerTaskProcessing()
+	if shouldCreateStopTask {
+		if err := s.createStopTask(userID, instanceID, providerID, message); err != nil {
+			return false, err
+		}
 	}
 	return true, nil
 }

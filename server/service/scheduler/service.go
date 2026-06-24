@@ -134,7 +134,7 @@ func (s *SchedulerService) runTaskScheduler() {
 	maintenanceTicker := time.NewTicker(10 * time.Minute)  // 系统维护保持 10分钟
 	trafficAggTicker := time.NewTicker(10 * time.Minute)   // 流量聚合保持 10分钟
 	expiryCheckTicker := time.NewTicker(1 * time.Hour)     // 过期检查保持 1小时
-	trafficLimitTicker := time.NewTicker(30 * time.Minute) // 流量限制检查保持 30分钟
+	trafficLimitTicker := time.NewTicker(10 * time.Minute) // 流量限制检查保持 10分钟，与Provider默认配置对齐
 	agentVersionTicker := time.NewTicker(30 * time.Minute) // Agent版本检查保持 30分钟
 
 	defer func() {
@@ -151,6 +151,7 @@ func (s *SchedulerService) runTaskScheduler() {
 
 	// 启动时立即执行一次过期检查
 	s.checkExpiredResources()
+	go s.checkAndEnforceTrafficLimits()
 
 	for {
 		select {

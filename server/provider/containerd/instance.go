@@ -462,7 +462,7 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 			details = append(details, "diagnostics: "+utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 		}
 		if len(details) == 0 {
-			return fmt.Errorf("failed to create container: %w", err)
+			details = append(details, "diagnostics: containerd命令无stdout/stderr，且未采集到容器日志；请检查节点nerdctl/containerd运行状态与journalctl日志")
 		}
 		return fmt.Errorf("failed to create container: %w; %s", err, strings.Join(details, "; "))
 	}
@@ -526,6 +526,7 @@ func (c *ContainerdProvider) collectCreateDiagnostics(name string) string {
 		label string
 		cmd   string
 	}{
+		{"runtime", fmt.Sprintf("%s version 2>&1; echo '---'; %s info 2>&1; echo '---'; %s network ls 2>&1; echo '---'; %s images --no-trunc 2>&1 | head -80", cliName, cliName, cliName, cliName)},
 		{"containers", fmt.Sprintf("%s ps -a --filter %s --no-trunc", cliName, containerNameFilter(name))},
 		{"logs", fmt.Sprintf("%s logs --tail 80 %s 2>&1", cliName, shellSingleQuote(name))},
 		{"inspect", fmt.Sprintf("%s inspect %s 2>&1", cliName, shellSingleQuote(name))},

@@ -66,15 +66,18 @@ type PortMappingResponse struct {
 
 type UserInstanceResponse struct {
 	providerModel.Instance
-	CanStart            bool                  `json:"canStart"`
-	CanStop             bool                  `json:"canStop"`
-	CanRestart          bool                  `json:"canRestart"`
-	CanDelete           bool                  `json:"canDelete"`
-	PortMappings        []PortMappingResponse `json:"portMappings"`        // 端口映射列表
-	PublicIP            string                `json:"publicIP"`            // 纯净的公网IP（不含端口）
-	ProviderType        string                `json:"providerType"`        // Provider虚拟化类型：docker, lxd, incus, proxmox
-	ProviderStatus      string                `json:"providerStatus"`      // Provider状态：active, inactive, partial
-	TrafficQuotaVisible bool                  `json:"trafficQuotaVisible"` // 用户侧是否显示流量额度与用量
+	CanStart                    bool                  `json:"canStart"`
+	CanStop                     bool                  `json:"canStop"`
+	CanRestart                  bool                  `json:"canRestart"`
+	CanDelete                   bool                  `json:"canDelete"`
+	PortMappings                []PortMappingResponse `json:"portMappings"`                // 端口映射列表
+	PublicIP                    string                `json:"publicIP"`                    // 纯净的公网IP（不含端口）
+	ProviderType                string                `json:"providerType"`                // Provider虚拟化类型：docker, lxd, incus, proxmox
+	ProviderStatus              string                `json:"providerStatus"`              // Provider状态：active, inactive, partial
+	TrafficQuotaVisible         bool                  `json:"trafficQuotaVisible"`         // 用户侧是否显示流量额度与用量
+	TrafficOperationLocked      bool                  `json:"trafficOperationLocked"`      // 是否因实例/用户/节点流量超限锁定普通用户操作
+	TrafficOperationLockLevel   string                `json:"trafficOperationLockLevel"`   // 锁定层级：instance/user/provider
+	TrafficOperationLockMessage string                `json:"trafficOperationLockMessage"` // 锁定提示
 }
 
 // UserLimitsResponse 用户配额限制响应
@@ -193,7 +196,12 @@ type UserInstanceDetailResponse struct {
 	IsFrozen        bool       `json:"isFrozen"`
 	FrozenReason    string     `json:"frozenReason"`
 	// 流量配额显示
-	TrafficQuotaVisible bool `json:"trafficQuotaVisible"` // 用户侧是否显示流量额度与用量
+	TrafficQuotaVisible         bool   `json:"trafficQuotaVisible"`         // 用户侧是否显示流量额度与用量
+	TrafficLimited              bool   `json:"trafficLimited"`              // 实例是否因流量限制
+	TrafficLimitReason          string `json:"trafficLimitReason"`          // 实例流量限制原因
+	TrafficOperationLocked      bool   `json:"trafficOperationLocked"`      // 是否因实例/用户/节点流量超限锁定普通用户操作
+	TrafficOperationLockLevel   string `json:"trafficOperationLockLevel"`   // 锁定层级：instance/user/provider
+	TrafficOperationLockMessage string `json:"trafficOperationLockMessage"` // 锁定提示
 	// 关联任务信息
 	RelatedTask *UserTaskResponse `json:"relatedTask,omitempty"` // 关联的最新任务（如果有）
 }

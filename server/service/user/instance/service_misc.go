@@ -76,6 +76,9 @@ func (s *Service) ResetInstancePassword(userID uint, instanceID uint) (uint, err
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		return 0, fmt.Errorf("实例不存在: %w", err)
 	}
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, instance.ID, "reset-password"); err != nil {
+		return 0, err
+	}
 	if instance.IsFrozen {
 		return 0, errors.New("实例已被冻结，无法重置密码")
 	}

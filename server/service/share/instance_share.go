@@ -12,6 +12,7 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	trafficService "oneclickvirt/service/traffic"
 
 	"gorm.io/gorm"
 )
@@ -76,6 +77,9 @@ func (s *InstanceShareService) CreateForUser(userID, instanceID uint, expiresInM
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("实例不存在或无权限")
 		}
+		return nil, err
+	}
+	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, instance.ID, "share"); err != nil {
 		return nil, err
 	}
 	return s.create(instance, userID, userID, CreatorTypeUser, expiresInMinutes)

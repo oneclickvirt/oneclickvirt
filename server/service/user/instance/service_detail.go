@@ -98,6 +98,8 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		IsFrozen:            instance.IsFrozen,
 		FrozenReason:        instance.FrozenReason,
 		TrafficQuotaVisible: true, // 默认显示流量额度，后续从Provider覆盖
+		TrafficLimited:      instance.TrafficLimited,
+		TrafficLimitReason:  instance.TrafficLimitReason,
 	}
 
 	if hasProvider {
@@ -122,6 +124,28 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 			detail.NetworkType = provider.NetworkType
 		}
 	}
+
+	providerTrafficLimited := hasProvider && provider.TrafficLimited
+	lock := trafficService.DescribeInstanceOperationLock(
+		instance.TrafficLimited,
+		instance.TrafficLimitReason,
+		false,
+		providerTrafficLimited,
+		"",
+	)
+	var currentUser userModel.User
+	if err := global.APP_DB.Select("traffic_limited").First(&currentUser, userID).Error; err == nil {
+		lock = trafficService.DescribeInstanceOperationLock(
+			instance.TrafficLimited,
+			instance.TrafficLimitReason,
+			currentUser.TrafficLimited,
+			providerTrafficLimited,
+			"",
+		)
+	}
+	detail.TrafficOperationLocked = lock.Locked
+	detail.TrafficOperationLockLevel = string(lock.Level)
+	detail.TrafficOperationLockMessage = lock.Message
 
 	if hasTask {
 		// 有关联任务，添加到响应中
@@ -211,34 +235,20 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 	var limitType, limitReason string
 	trafficQuotaVisible := true
 	var trafficProvider providerModel.Provider
-	if err := global.APP_DB.Select("id, max_traffic, traffic_quota_visible").First(&trafficProvider, instance.ProviderID).Error; err == nil {
+	if err := global.APP_DB.Select("id, max_traffic, traffic_quota_visible, traffic_limited").First(&trafficProvider, instance.ProviderID).Error; err == nil {
 		trafficQuotaVisible = trafficProvider.TrafficQuotaVisible
 	}
 
-	// 检查实例是否因流量超限被限制
-	if instance.TrafficLimited {
-		// 判断限制类型
-		userLimited := userTotalMonthTraffic >= user.TotalTraffic && user.TotalTraffic > 0
-		var providerLimited bool
-
-		// 检查Provider流量限制（使用统一的流量查询服务）
-		if trafficProvider.ID != 0 {
-			providerMonthlyStats, providerErr := trafficQueryService.GetProviderMonthlyTraffic(trafficProvider.ID, year, int(month))
-			if providerErr == nil && trafficProvider.MaxTraffic > 0 {
-				providerLimited = int64(providerMonthlyStats.ActualUsageMB) >= trafficProvider.MaxTraffic
-			}
-		}
-
-		if userLimited {
-			limitType = "user"
-			limitReason = "当前实例因用户流量已超限被系统自动限制，请等待下月自动重置或联系管理员。"
-		} else if providerLimited {
-			limitType = "provider"
-			limitReason = "当前实例因Provider流量已超限被系统自动限制，请等待下月自动重置或联系管理员。"
-		} else {
-			limitType = "unknown"
-			limitReason = "当前实例因流量超限被系统自动限制，请等待下月自动重置或联系管理员。"
-		}
+	isLimited := instance.TrafficLimited || user.TrafficLimited || trafficProvider.TrafficLimited
+	if trafficProvider.TrafficLimited {
+		limitType = "provider"
+		limitReason = "当前实例因节点流量已超限被系统限制，请等待自然月自动重置或联系管理员。"
+	} else if user.TrafficLimited {
+		limitType = "user"
+		limitReason = "当前实例因用户流量已超限被系统限制，请等待自然月自动重置或联系管理员。"
+	} else if instance.TrafficLimited {
+		limitType = "instance"
+		limitReason = "当前实例因流量超限被系统限制，请等待自然月自动重置或联系管理员。"
 	}
 
 	// 确保使用百分比被正确计算
@@ -252,7 +262,7 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 			CurrentMonth: currentInstanceTraffic, // 显示实例流量，而非用户总流量
 			TotalLimit:   user.TotalTraffic,
 			UsagePercent: usagePercent,
-			IsLimited:    instance.TrafficLimited,
+			IsLimited:    isLimited,
 			LimitType:    limitType,
 			LimitReason:  limitReason,
 			Visible:      trafficQuotaVisible,

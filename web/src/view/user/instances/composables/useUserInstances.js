@@ -3,7 +3,6 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUserInstances, createUserInstanceShare } from '@/api/user'
-import { copyToClipboard } from '@/utils/clipboard'
 import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
 
 export function useUserInstances() {
@@ -189,6 +188,10 @@ export function useUserInstances() {
       ElMessage.error(t('user.instances.instanceInvalid'))
       return
     }
+    if (instance.trafficOperationLocked) {
+      ElMessage.error(instance.trafficOperationLockMessage || t('user.instanceDetail.trafficLimitStartBlocked'))
+      return
+    }
     try {
       const { value } = await ElMessageBox.prompt(
         t('user.instances.shareExpiryPrompt'),
@@ -212,7 +215,7 @@ export function useUserInstances() {
     } catch (error) {
       if (error !== 'cancel') {
         console.error('创建分享链接失败:', error)
-        ElMessage.error(t('user.instances.shareLinkCreateFailed'))
+        ElMessage.error(error?.fullMessage || error?.userMessage || error?.message || t('user.instances.shareLinkCreateFailed'))
       }
     }
   }

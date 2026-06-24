@@ -14333,8 +14333,16 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "trafficLimited": {
-                    "description": "是否因流量超限被停机",
+                    "description": "是否因流量超限被限制",
                     "type": "boolean"
+                },
+                "trafficStopped": {
+                    "description": "是否由流量策略自动停机，解除限制后可自动恢复",
+                    "type": "boolean"
+                },
+                "trafficStoppedAt": {
+                    "description": "流量策略自动停机时间",
+                    "type": "string"
                 },
                 "updatedAt": {
                     "description": "实例信息更新时间",
@@ -16017,6 +16025,26 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "trafficLimitReason": {
+                    "description": "实例流量限制原因",
+                    "type": "string"
+                },
+                "trafficLimited": {
+                    "description": "实例是否因流量限制",
+                    "type": "boolean"
+                },
+                "trafficOperationLockLevel": {
+                    "description": "锁定层级：instance/user/provider",
+                    "type": "string"
+                },
+                "trafficOperationLockMessage": {
+                    "description": "锁定提示",
+                    "type": "string"
+                },
+                "trafficOperationLocked": {
+                    "description": "是否因实例/用户/节点流量超限锁定普通用户操作",
+                    "type": "boolean"
                 },
                 "trafficQuotaVisible": {
                     "description": "流量配额显示",

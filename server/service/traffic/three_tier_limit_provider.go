@@ -7,6 +7,7 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/service/taskgate"
 
 	"go.uber.org/zap"
 )
@@ -128,6 +129,42 @@ func (s *ThreeTierLimitService) limitProviderInstances(providerID uint, message 
 		p.TrafficOverLimitAction = provider.TrafficOverLimitActionStop
 	}
 
+	type providerInstance struct {
+		ID     uint
+		UserID uint
+		Status string
+	}
+	var allInstances []providerInstance
+	if err := global.APP_DB.Table("instances").
+		Select("id, user_id, status").
+		Where("provider_id = ? AND deleted_at IS NULL AND status NOT IN ?", providerID, []string{"deleted", "deleting"}).
+		Find(&allInstances).Error; err != nil {
+		return false, fmt.Errorf("获取Provider实例失败: %w", err)
+	}
+
+	instanceIDs := make([]uint, 0, len(allInstances))
+	stopRunningIDs := make([]uint, 0)
+	stopInstances := make([]provider.Instance, 0)
+	for _, inst := range allInstances {
+		instanceIDs = append(instanceIDs, inst.ID)
+		if inst.Status == "running" {
+			stopRunningIDs = append(stopRunningIDs, inst.ID)
+			si := provider.Instance{UserID: inst.UserID, ProviderID: providerID}
+			si.ID = inst.ID
+			stopInstances = append(stopInstances, si)
+		}
+	}
+	if len(stopRunningIDs) > 0 {
+		if err := taskgate.EnsureAccepting(); err != nil {
+			global.APP_LOG.Warn("任务池暂不接受任务，Provider级流量限制仅锁定实例，稍后重试停机",
+				zap.Uint("providerID", providerID),
+				zap.Int("instanceCount", len(stopRunningIDs)),
+				zap.Error(err))
+			stopRunningIDs = nil
+			stopInstances = nil
+		}
+	}
+
 	// 标记Provider为受限状态
 	if err := global.APP_DB.Model(&provider.Provider{}).Where("id = ?", providerID).
 		Update("traffic_limited", true).Error; err != nil {
@@ -137,11 +174,16 @@ func (s *ThreeTierLimitService) limitProviderInstances(providerID uint, message 
 	if p.TrafficOverLimitAction == provider.TrafficOverLimitActionSpeedLimit {
 		// 限速模式：标记受限但不停机
 		result := global.APP_DB.Model(&provider.Instance{}).
-			Where("provider_id = ? AND status = ?", providerID, "running").
+			Where("id IN ?", instanceIDs).
 			Updates(map[string]interface{}{
 				"traffic_limited":      true,
 				"traffic_limit_reason": "provider",
+				"traffic_stopped":      false,
+				"traffic_stopped_at":   nil,
 			})
+		if result.Error != nil {
+			return false, fmt.Errorf("批量标记Provider限速实例失败: %w", result.Error)
+		}
 
 		global.APP_LOG.Info("已对Provider所有实例限速",
 			zap.Uint("providerID", providerID),
@@ -152,10 +194,12 @@ func (s *ThreeTierLimitService) limitProviderInstances(providerID uint, message 
 	if p.TrafficOverLimitAction == provider.TrafficOverLimitActionFreeze {
 		now := time.Now()
 		result := global.APP_DB.Model(&provider.Instance{}).
-			Where("provider_id = ? AND status = ?", providerID, "running").
+			Where("id IN ?", instanceIDs).
 			Updates(map[string]interface{}{
 				"traffic_limited":      true,
 				"traffic_limit_reason": "provider",
+				"traffic_stopped":      false,
+				"traffic_stopped_at":   nil,
 				"is_frozen":            true,
 				"frozen_reason":        "traffic_limit",
 				"frozen_at":            now,
@@ -170,10 +214,12 @@ func (s *ThreeTierLimitService) limitProviderInstances(providerID uint, message 
 	}
 	if p.TrafficOverLimitAction == provider.TrafficOverLimitActionMarkOnly {
 		result := global.APP_DB.Model(&provider.Instance{}).
-			Where("provider_id = ? AND status = ?", providerID, "running").
+			Where("id IN ?", instanceIDs).
 			Updates(map[string]interface{}{
 				"traffic_limited":      true,
 				"traffic_limit_reason": "provider",
+				"traffic_stopped":      false,
+				"traffic_stopped_at":   nil,
 			})
 		if result.Error != nil {
 			return false, fmt.Errorf("批量标记Provider实例失败: %w", result.Error)
@@ -184,44 +230,45 @@ func (s *ThreeTierLimitService) limitProviderInstances(providerID uint, message 
 		return true, nil
 	}
 
-	// 停机模式（默认）
-	// 批量更新实例状态，避免逐个UPDATE
+	// 停机模式（默认）。所有有效实例进入操作锁；仅原本运行的实例进入自动恢复队列。
 	updates := map[string]interface{}{
 		"traffic_limited":      true,
 		"traffic_limit_reason": "provider",
-		"status":               "stopped",
+		"traffic_stopped":      false,
+		"traffic_stopped_at":   nil,
 	}
 
 	result := global.APP_DB.Model(&provider.Instance{}).
-		Where("provider_id = ? AND status = ?", providerID, "running").
+		Where("id IN ?", instanceIDs).
 		Updates(updates)
 
 	if result.Error != nil {
 		return false, fmt.Errorf("批量标记实例为受限状态失败: %w", result.Error)
 	}
 
-	// 获取被停止的实例ID列表用于创建任务
-	var instances []provider.Instance
-	if err := global.APP_DB.Select("id, user_id").
-		Where("provider_id = ? AND traffic_limited = ? AND traffic_limit_reason = ?",
-			providerID, true, "provider").
-		Find(&instances).Error; err != nil {
-		global.APP_LOG.Warn("获取受限实例列表失败", zap.Error(err))
-		// 不返回错误，状态已更新，任务创建是次要的
-	} else if len(instances) > 0 {
-		// 批量创建停止任务
-		// 这里的userID来自instance，需要特殊处理
-		if err := s.batchCreateStopTasksForProvider(providerID, instances, message); err != nil {
+	if len(stopRunningIDs) > 0 {
+		now := time.Now()
+		if err := global.APP_DB.Model(&provider.Instance{}).
+			Where("id IN ?", stopRunningIDs).
+			Updates(map[string]interface{}{
+				"status":             "stopped",
+				"traffic_stopped":    true,
+				"traffic_stopped_at": now,
+			}).Error; err != nil {
+			return false, fmt.Errorf("批量标记Provider运行实例为流量停机失败: %w", err)
+		}
+		if err := s.batchCreateStopTasksForProvider(providerID, stopInstances, message); err != nil {
 			global.APP_LOG.Warn("批量创建实例停止任务失败",
 				zap.Uint("providerID", providerID),
-				zap.Int("instanceCount", len(instances)),
+				zap.Int("instanceCount", len(stopInstances)),
 				zap.Error(err))
 		}
 	}
 
 	global.APP_LOG.Info("已批量限制Provider所有实例",
 		zap.Uint("providerID", providerID),
-		zap.Int64("影响实例数", result.RowsAffected))
+		zap.Int64("影响实例数", result.RowsAffected),
+		zap.Int("自动停机实例数", len(stopRunningIDs)))
 
 	return true, nil
 }
