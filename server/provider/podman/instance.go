@@ -457,18 +457,22 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			cmdRetry := strings.Replace(effectiveCmd, storageOptStr, "", 1)
 			output, err = p.sshClient.Execute(cmdRetry)
 			if err != nil {
+				diagnostics := p.collectCreateDiagnostics(config.Name)
 				global.APP_LOG.Error("Podman创建容器失败(重试后)",
 					zap.String("name", utils.TruncateString(config.Name, 32)),
-					zap.String("output", utils.TruncateString(output, 500)),
+					zap.String("output", utils.TruncateString(output, 2000)),
+					zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)),
 					zap.Error(err))
-				return fmt.Errorf("failed to create container: %w", err)
+				return fmt.Errorf("failed to create container: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 			}
 		} else {
+			diagnostics := p.collectCreateDiagnostics(config.Name)
 			global.APP_LOG.Error("Podman创建容器失败",
 				zap.String("name", utils.TruncateString(config.Name, 32)),
-				zap.String("output", utils.TruncateString(output, 500)),
+				zap.String("output", utils.TruncateString(output, 2000)),
+				zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)),
 				zap.Error(err))
-			return fmt.Errorf("failed to create container: %w", err)
+			return fmt.Errorf("failed to create container: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 		}
 	}
 
@@ -524,6 +528,30 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(100, "Podman实例创建完成")
 	global.APP_LOG.Info("Podman容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+func (p *PodmanProvider) collectCreateDiagnostics(name string) string {
+	commands := []struct {
+		label string
+		cmd   string
+	}{
+		{"containers", fmt.Sprintf("%s ps -a --filter %s --no-trunc", cliName, shellSingleQuote("name=^"+name+"$"))},
+		{"logs", fmt.Sprintf("%s logs --tail 80 %s 2>&1", cliName, shellSingleQuote(name))},
+		{"inspect", fmt.Sprintf("%s inspect %s 2>&1", cliName, shellSingleQuote(name))},
+		{"runtime info", fmt.Sprintf("%s info 2>&1 | sed -n '1,120p'", cliName)},
+		{"podman journal", "journalctl -u podman -n 80 --no-pager 2>/dev/null"},
+	}
+	var parts []string
+	for _, command := range commands {
+		output, err := p.sshClient.Execute(command.cmd)
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			parts = append(parts, fmt.Sprintf("[%s]\n%s", command.label, trimmed))
+		}
+		if err != nil {
+			parts = append(parts, fmt.Sprintf("[%s error]\n%v", command.label, err))
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // ensureContainerNetworkRouting 确保宿主机上的iptables路由规则存在

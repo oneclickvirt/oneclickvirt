@@ -578,10 +578,12 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		output, err = d.sshClient.Execute(effectiveCmd)
 	}
 	if err != nil {
+		diagnostics := d.collectCreateDiagnostics(config.Name)
 		global.APP_LOG.Error("Docker创建容器失败",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("command", utils.TruncateString(effectiveCmd, 200)),
-			zap.String("output", utils.TruncateString(output, 500)),
+			zap.String("output", utils.TruncateString(output, 2000)),
+			zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)),
 			zap.Error(err))
 		if strings.Contains(output, "iptables") && (strings.Contains(output, "No chain") || strings.Contains(output, "no chain")) {
 			// Auto-repair: restart the container runtime to recreate iptables chains
@@ -589,21 +591,23 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 				global.APP_LOG.Error("iptables自动确认失败",
 					zap.String("name", utils.TruncateString(config.Name, 32)),
 					zap.Error(repairErr))
-				return fmt.Errorf("Docker iptables chains missing and auto-repair failed: %w", err)
+				return fmt.Errorf("Docker iptables chains missing and auto-repair failed: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 			}
 			// Retry container creation after repair
 			global.APP_LOG.Info("iptables确认完成，重试创建容器",
 				zap.String("name", utils.TruncateString(config.Name, 32)))
 			output, err = d.sshClient.Execute(effectiveCmd)
 			if err != nil {
+				diagnostics = d.collectCreateDiagnostics(config.Name)
 				global.APP_LOG.Error("iptables确认后创建容器仍然失败",
 					zap.String("name", utils.TruncateString(config.Name, 32)),
-					zap.String("output", utils.TruncateString(output, 500)),
+					zap.String("output", utils.TruncateString(output, 2000)),
+					zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)),
 					zap.Error(err))
-				return fmt.Errorf("failed to create container after iptables repair: %w", err)
+				return fmt.Errorf("failed to create container after iptables repair: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 			}
 		} else {
-			return fmt.Errorf("failed to create container: %w", err)
+			return fmt.Errorf("failed to create container: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 		}
 	}
 
@@ -687,6 +691,30 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(100, "Docker实例创建完成")
 	global.APP_LOG.Info("容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+func (d *DockerProvider) collectCreateDiagnostics(name string) string {
+	commands := []struct {
+		label string
+		cmd   string
+	}{
+		{"containers", fmt.Sprintf("%s ps -a --filter %s --no-trunc", d.runtime.CLI, shellSingleQuote("name=^"+name+"$"))},
+		{"logs", fmt.Sprintf("%s logs --tail 80 %s 2>&1", d.runtime.CLI, shellSingleQuote(name))},
+		{"inspect", fmt.Sprintf("%s inspect %s 2>&1", d.runtime.CLI, shellSingleQuote(name))},
+		{"runtime info", fmt.Sprintf("%s info 2>&1 | sed -n '1,120p'", d.runtime.CLI)},
+		{"docker journal", "journalctl -u docker -n 80 --no-pager 2>/dev/null"},
+	}
+	var parts []string
+	for _, command := range commands {
+		output, err := d.sshClient.Execute(command.cmd)
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			parts = append(parts, fmt.Sprintf("[%s]\n%s", command.label, trimmed))
+		}
+		if err != nil {
+			parts = append(parts, fmt.Sprintf("[%s error]\n%v", command.label, err))
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // repairIptablesChains restarts the container runtime service to recreate iptables/nftables chains.

@@ -703,7 +703,11 @@ func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSecon
 			startCmd := fmt.Sprintf("lxc start %s", shellSingleQuote(instanceName))
 			startOutput, startErr := l.sshClient.Execute(startCmd)
 			// "already running" 不是错误，而是实例已在运行的正常状态
-			if startErr == nil || strings.Contains(startOutput, "already running") {
+			startText := startOutput
+			if startErr != nil {
+				startText += "\n" + startErr.Error()
+			}
+			if startErr == nil || lxdAlreadyRunningMessage(startText) {
 				global.APP_LOG.Debug("实例已启动或正在运行",
 					zap.String("instanceName", instanceName),
 					zap.Int("loopCount", loopCount))

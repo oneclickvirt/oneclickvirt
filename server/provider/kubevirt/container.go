@@ -195,7 +195,7 @@ spec:
 	output, err := p.sshClient.Execute(deployCmd)
 	if err != nil {
 		global.APP_LOG.Error("KubeVirt容器Deployment创建失败", zap.String("name", config.Name), zap.String("output", utils.TruncateString(output, 500)), zap.Error(err))
-		return fmt.Errorf("failed to create k3s deployment: %w (kubectl output: %s)", err, utils.TruncateString(output, 300))
+		return fmt.Errorf("failed to create k3s deployment: %w (kubectl output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1200))
 	}
 
 	if len(ports) > 0 {
@@ -206,7 +206,7 @@ spec:
 		output, err = p.sshClient.Execute(svcCmd)
 		if err != nil {
 			global.APP_LOG.Warn("KubeVirt容器Service创建失败", zap.String("name", config.Name), zap.String("output", utils.TruncateString(output, 500)), zap.Error(err))
-			return fmt.Errorf("failed to create k3s service: %w", err)
+			return fmt.Errorf("failed to create k3s service: %w (kubectl output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1200))
 		}
 	}
 
@@ -214,8 +214,9 @@ spec:
 	rolloutCmd := fmt.Sprintf("kubectl rollout status deploy/%s -n %s --timeout=180s 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))
 	output, err = p.sshClient.Execute(rolloutCmd)
 	if err != nil {
+		diagnostics := p.collectK3sContainerDiagnostics(name)
 		_ = p.sshDeleteK3sContainer(context.Background(), name)
-		return fmt.Errorf("container %s did not become ready: %w (output: %s)", name, err, utils.TruncateString(output, 300))
+		return fmt.Errorf("container %s did not become ready: %w (output: %s; diagnostics: %s)", name, err, utils.TruncateString(strings.TrimSpace(output), 1200), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 	}
 
 	logLine := fmt.Sprintf("%s %s %s", name, "***", imageRef)
@@ -407,6 +408,32 @@ spec:
 	return b.String()
 }
 
+func (p *KubeVirtProvider) collectK3sContainerDiagnostics(name string) string {
+	commands := []struct {
+		label string
+		cmd   string
+	}{
+		{"deployment yaml", fmt.Sprintf("kubectl get deploy %s -n %s -o yaml 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))},
+		{"deployment describe", fmt.Sprintf("kubectl describe deploy %s -n %s 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))},
+		{"pods", fmt.Sprintf("kubectl get pods -n %s -l %s -o wide 2>&1", shellSingleQuote(Namespace), shellSingleQuote("app="+name))},
+		{"pod describe", fmt.Sprintf("kubectl describe pods -n %s -l %s 2>&1", shellSingleQuote(Namespace), shellSingleQuote("app="+name))},
+		{"pod logs", fmt.Sprintf("kubectl logs -n %s -l %s --all-containers --tail=120 2>&1", shellSingleQuote(Namespace), shellSingleQuote("app="+name))},
+		{"service yaml", fmt.Sprintf("kubectl get svc %s -n %s -o yaml 2>&1", shellSingleQuote(name+"-ports"), shellSingleQuote(Namespace))},
+		{"namespace events", fmt.Sprintf("kubectl get events -n %s --sort-by=.lastTimestamp 2>&1 | tail -120", shellSingleQuote(Namespace))},
+	}
+	var parts []string
+	for _, command := range commands {
+		output, err := p.sshClient.Execute(command.cmd)
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			parts = append(parts, fmt.Sprintf("[%s]\n%s", command.label, trimmed))
+		}
+		if err != nil {
+			parts = append(parts, fmt.Sprintf("[%s error]\n%v", command.label, err))
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 func indentBlock(s string, spaces int) string {
 	prefix := strings.Repeat(" ", spaces)
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
@@ -466,7 +493,7 @@ func (p *KubeVirtProvider) sshScaleK3sContainer(ctx context.Context, id string, 
 			return fmt.Errorf("waiting for KubeVirt container '%s' to start cancelled: %w", id, err)
 		}
 	}
-	return fmt.Errorf("KubeVirt container '%s' did not become ready within timeout", id)
+	return fmt.Errorf("KubeVirt container '%s' did not become ready within timeout; diagnostics: %s", id, utils.TruncateString(strings.TrimSpace(p.collectK3sContainerDiagnostics(name)), 8000))
 }
 
 func (p *KubeVirtProvider) sshDeleteK3sContainer(ctx context.Context, id string) error {

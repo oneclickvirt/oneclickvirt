@@ -448,14 +448,23 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		output, err = c.sshClient.Execute(effectiveCmd)
 	}
 	if err != nil {
+		diagnostics := c.collectCreateDiagnostics(config.Name)
 		global.APP_LOG.Error("Containerd创建容器失败",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
-			zap.String("output", utils.TruncateString(output, 500)),
+			zap.String("output", utils.TruncateString(output, 2000)),
+			zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)),
 			zap.Error(err))
+		details := []string{}
 		if strings.TrimSpace(output) != "" {
-			return fmt.Errorf("failed to create container: %w; output: %s", err, output)
+			details = append(details, "output: "+utils.TruncateString(strings.TrimSpace(output), 8000))
 		}
-		return fmt.Errorf("failed to create container: %w", err)
+		if strings.TrimSpace(diagnostics) != "" {
+			details = append(details, "diagnostics: "+utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
+		}
+		if len(details) == 0 {
+			return fmt.Errorf("failed to create container: %w", err)
+		}
+		return fmt.Errorf("failed to create container: %w; %s", err, strings.Join(details, "; "))
 	}
 
 	updateProgress(96, "等待容器完全启动...")
@@ -510,6 +519,29 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	updateProgress(100, "Containerd实例创建完成")
 	global.APP_LOG.Info("Containerd容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+func (c *ContainerdProvider) collectCreateDiagnostics(name string) string {
+	commands := []struct {
+		label string
+		cmd   string
+	}{
+		{"containers", fmt.Sprintf("%s ps -a --filter %s --no-trunc", cliName, containerNameFilter(name))},
+		{"logs", fmt.Sprintf("%s logs --tail 80 %s 2>&1", cliName, shellSingleQuote(name))},
+		{"inspect", fmt.Sprintf("%s inspect %s 2>&1", cliName, shellSingleQuote(name))},
+		{"containerd journal", "journalctl -u containerd -n 80 --no-pager 2>/dev/null"},
+	}
+	var parts []string
+	for _, command := range commands {
+		output, err := c.sshClient.Execute(command.cmd)
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			parts = append(parts, fmt.Sprintf("[%s]\n%s", command.label, trimmed))
+		}
+		if err != nil {
+			parts = append(parts, fmt.Sprintf("[%s error]\n%v", command.label, err))
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // ensureContainerNetworkRouting 确保宿主机上的iptables路由规则存在

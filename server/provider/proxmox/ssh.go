@@ -161,9 +161,18 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 	}
 
 	// 执行启动命令
-	_, err = p.sshClient.Execute(command)
+	startOutput, err := p.sshClient.Execute(command)
 	if err != nil {
-		return fmt.Errorf("failed to start %s %s: %w", instanceType, vmid, err)
+		statusAfter, statusErr := p.sshClient.Execute(statusCommand)
+		if statusErr == nil && strings.Contains(statusAfter, "status: running") {
+			global.APP_LOG.Debug("Proxmox启动命令失败后状态已变为运行，继续流程",
+				zap.String("id", utils.TruncateString(id, 50)),
+				zap.String("vmid", vmid),
+				zap.String("type", instanceType),
+				zap.String("output", utils.TruncateString(startOutput, 500)))
+			return nil
+		}
+		return fmt.Errorf("failed to start %s %s: %w; output: %s; status: %s", instanceType, vmid, err, utils.TruncateString(strings.TrimSpace(startOutput), 8000), utils.TruncateString(strings.TrimSpace(statusAfter), 2000))
 	}
 
 	global.APP_LOG.Debug("已发送启动命令，等待实例启动",
@@ -266,9 +275,17 @@ func (p *ProxmoxProvider) sshStopInstance(ctx context.Context, id string) error 
 	}
 
 	// 执行停止命令
-	_, err = p.sshClient.Execute(command)
+	stopOutput, err := p.sshClient.Execute(command)
 	if err != nil {
-		return fmt.Errorf("failed to stop %s %s: %w", instanceType, vmid, err)
+		statusCommand := fmt.Sprintf("pct status %s", vmid)
+		if instanceType == "vm" {
+			statusCommand = fmt.Sprintf("qm status %s", vmid)
+		}
+		statusAfter, statusErr := p.sshClient.Execute(statusCommand)
+		if statusErr == nil && strings.Contains(statusAfter, "status: stopped") {
+			return nil
+		}
+		return fmt.Errorf("failed to stop %s %s: %w; output: %s; status: %s", instanceType, vmid, err, utils.TruncateString(strings.TrimSpace(stopOutput), 8000), utils.TruncateString(strings.TrimSpace(statusAfter), 2000))
 	}
 
 	global.APP_LOG.Info("通过SSH成功停止Proxmox实例",
@@ -300,21 +317,22 @@ func (p *ProxmoxProvider) sshRestartInstance(ctx context.Context, id string) err
 	}
 
 	// 首先尝试优雅重启
-	_, err = p.sshClient.Execute(command)
+	rebootOutput, err := p.sshClient.Execute(command)
 	if err != nil {
 		global.APP_LOG.Warn("优雅重启失败，尝试强制重启",
 			zap.String("id", utils.TruncateString(id, 50)),
 			zap.String("vmid", vmid),
 			zap.String("type", instanceType),
+			zap.String("output", utils.TruncateString(rebootOutput, 1000)),
 			zap.Error(err))
 
 		// 等待2秒后尝试强制重启
 		time.Sleep(2 * time.Second)
 
 		// 尝试强制重启
-		_, resetErr := p.sshClient.Execute(resetCommand)
+		resetOutput, resetErr := p.sshClient.Execute(resetCommand)
 		if resetErr != nil {
-			return fmt.Errorf("failed to restart %s %s (both reboot and reset failed): reboot error: %w, reset error: %v", instanceType, vmid, err, resetErr)
+			return fmt.Errorf("failed to restart %s %s (both reboot and reset failed): reboot error: %w, reboot output: %s, reset error: %v, reset output: %s", instanceType, vmid, err, utils.TruncateString(strings.TrimSpace(rebootOutput), 8000), resetErr, utils.TruncateString(strings.TrimSpace(resetOutput), 8000))
 		}
 
 		global.APP_LOG.Info("通过强制重启成功重启Proxmox实例",

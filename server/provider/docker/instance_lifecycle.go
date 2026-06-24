@@ -46,7 +46,7 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 			zap.String("command", startCmd),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to start container: %w", err)
+		return fmt.Errorf("failed to start container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	// 等待容器真正启动 - 最多等待30秒
@@ -96,7 +96,7 @@ func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
 			zap.String("command", stopCmd),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to stop container: %w", err)
+		return fmt.Errorf("failed to stop container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	// 等待并验证容器状态
@@ -147,7 +147,7 @@ func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) erro
 			zap.String("command", restartCmd),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to restart container: %w", err)
+		return fmt.Errorf("failed to restart container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	global.APP_LOG.Info("Docker实例重启成功", zap.String("id", utils.TruncateString(id, 32)))

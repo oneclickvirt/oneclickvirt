@@ -43,7 +43,7 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to start %s: %w", kind, err)
+		return fmt.Errorf("failed to start %s: %w; output: %s", kind, err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	for i := 0; i < 15; i++ {
@@ -93,7 +93,7 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to stop %s: %w", kind, err)
+		return fmt.Errorf("failed to stop %s: %w; output: %s", kind, err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	return nil
@@ -125,7 +125,10 @@ func (p *QEMUProvider) RestartInstance(ctx context.Context, id string) error {
 		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
 			return fmt.Errorf("waiting before fallback start cancelled: %w", err)
 		}
-		return p.StartInstance(ctx, id)
+		if startErr := p.StartInstance(ctx, id); startErr != nil {
+			return fmt.Errorf("failed to restart %s: reboot failed: %w; reboot output: %s; fallback start error: %v", kind, err, utils.TruncateString(strings.TrimSpace(output), 8000), startErr)
+		}
+		return nil
 	}
 
 	return nil

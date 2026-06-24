@@ -256,43 +256,56 @@ func (l *LXDProvider) validateCopyModeSource(config provider.InstanceConfig) err
 }
 
 func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
+	if l.sshInstanceRunning(id) {
+		global.APP_LOG.Debug("LXD实例已在运行，跳过启动", zap.String("id", id))
+		return nil
+	}
+
 	startCmd := fmt.Sprintf("lxc start %s", shellSingleQuote(id))
 	var startErr error
 	var output string
-	for attempt := 1; attempt <= 2; attempt++ {
+	for attempt := 1; attempt <= 3; attempt++ {
 		output, startErr = l.sshClient.Execute(startCmd)
 		if startErr == nil {
 			break
 		}
 
 		// 如果错误提示实例已在运行，不视为错误
-		errMsg := startErr.Error()
-		if strings.Contains(errMsg, "already running") ||
-			strings.Contains(errMsg, "The instance is already running") {
+		errMsg := output + "\n" + startErr.Error()
+		if lxdAlreadyRunningMessage(errMsg) || l.sshInstanceRunning(id) {
 			global.APP_LOG.Debug("LXD实例已在运行", zap.String("id", id))
 			return nil
 		}
 
-		if attempt == 1 {
+		if attempt < 3 {
 			global.APP_LOG.Warn("LXD启动实例首次失败，准备重试",
 				zap.String("id", id),
 				zap.String("output", utils.TruncateString(output, 500)),
 				zap.Error(startErr))
-			time.Sleep(2 * time.Second)
+			time.Sleep(time.Duration(attempt*3) * time.Second)
 		}
 	}
 
 	if startErr != nil {
-		diagCmd := fmt.Sprintf("lxc info %s --show-log", shellSingleQuote(id))
-		diagOutput, diagErr := l.sshClient.Execute(diagCmd)
-		if diagErr != nil {
-			return fmt.Errorf("failed to start instance: %w; 获取实例诊断日志失败: %v", startErr, diagErr)
+		if l.sshInstanceRunning(id) {
+			global.APP_LOG.Debug("LXD实例启动命令失败后状态已变为运行，继续流程", zap.String("id", id))
+			return nil
 		}
-		cleanDiag := strings.TrimSpace(diagOutput)
-		if cleanDiag == "" {
+		diagOutput, diagErr := l.collectStartDiagnostics(id)
+		details := []string{}
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			details = append(details, "start output: "+utils.TruncateString(trimmed, 8000))
+		}
+		if cleanDiag := strings.TrimSpace(diagOutput); cleanDiag != "" {
+			details = append(details, "diagnostics: "+utils.TruncateString(cleanDiag, 8000))
+		}
+		if diagErr != nil {
+			details = append(details, fmt.Sprintf("获取实例诊断日志失败: %v", diagErr))
+		}
+		if len(details) == 0 {
 			return fmt.Errorf("failed to start instance: %w", startErr)
 		}
-		return fmt.Errorf("failed to start instance: %w; diagnostics: %s", startErr, utils.TruncateString(cleanDiag, 1200))
+		return fmt.Errorf("failed to start instance: %w; %s", startErr, strings.Join(details, "; "))
 	}
 
 	global.APP_LOG.Debug("已发送启动命令，等待实例启动", zap.String("id", id))
@@ -331,10 +344,61 @@ func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 	}
 }
 
-func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {
-	_, err := l.sshClient.Execute(fmt.Sprintf("lxc stop %s", shellSingleQuote(id)))
+func lxdAlreadyRunningMessage(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "already running") || strings.Contains(lower, "instance is already running")
+}
+
+func (l *LXDProvider) sshInstanceRunning(id string) bool {
+	statusOutput, err := l.sshClient.Execute(fmt.Sprintf("lxc info %s | awk -F': ' '/^Status:/{print $2; exit}'", shellSingleQuote(id)))
 	if err != nil {
-		return fmt.Errorf("failed to stop instance: %w", err)
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(statusOutput), "running")
+}
+
+func (l *LXDProvider) sshInstanceStopped(id string) bool {
+	statusOutput, err := l.sshClient.Execute(fmt.Sprintf("lxc info %s | awk -F': ' '/^Status:/{print $2; exit}'", shellSingleQuote(id)))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(statusOutput), "stopped")
+}
+
+func (l *LXDProvider) collectStartDiagnostics(id string) (string, error) {
+	commands := []struct {
+		name string
+		cmd  string
+	}{
+		{"lxc info --show-log", fmt.Sprintf("lxc info %s --show-log", shellSingleQuote(id))},
+		{"lxc info", fmt.Sprintf("lxc info %s", shellSingleQuote(id))},
+		{"lxc config show --expanded", fmt.Sprintf("lxc config show %s --expanded", shellSingleQuote(id))},
+		{"lxc list", fmt.Sprintf("lxc list %s --format csv -c n,s,t,4,6", shellSingleQuote(id))},
+	}
+	var parts []string
+	var errs []string
+	for _, command := range commands {
+		output, err := l.sshClient.Execute(command.cmd)
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			parts = append(parts, fmt.Sprintf("[%s]\n%s", command.name, trimmed))
+		}
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", command.name, err))
+		}
+	}
+	if len(errs) > 0 {
+		return strings.Join(parts, "\n\n"), fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return strings.Join(parts, "\n\n"), nil
+}
+
+func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {
+	output, err := l.sshClient.Execute(fmt.Sprintf("lxc stop %s", shellSingleQuote(id)))
+	if err != nil {
+		if l.sshInstanceStopped(id) {
+			return nil
+		}
+		return fmt.Errorf("failed to stop instance: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	global.APP_LOG.Info("通过SSH成功停止LXD实例", zap.String("id", utils.TruncateString(id, 50)))
@@ -342,9 +406,9 @@ func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {
 }
 
 func (l *LXDProvider) sshRestartInstance(ctx context.Context, id string) error {
-	_, err := l.sshClient.Execute(fmt.Sprintf("lxc restart %s", shellSingleQuote(id)))
+	output, err := l.sshClient.Execute(fmt.Sprintf("lxc restart %s", shellSingleQuote(id)))
 	if err != nil {
-		return fmt.Errorf("failed to restart instance: %w", err)
+		return fmt.Errorf("failed to restart instance: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	global.APP_LOG.Info("通过SSH成功重启LXD实例", zap.String("id", utils.TruncateString(id, 50)))

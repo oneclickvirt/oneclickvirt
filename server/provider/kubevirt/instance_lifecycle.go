@@ -36,11 +36,13 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 
 	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl start %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	if err != nil {
+		diagnostics := p.collectVMDiagnostics(id)
 		global.APP_LOG.Error("KubeVirt虚拟机启动失败",
 			zap.String("id", utils.TruncateString(id, 32)),
-			zap.String("output", utils.TruncateString(output, 500)),
+			zap.String("output", utils.TruncateString(output, 2000)),
+			zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)),
 			zap.Error(err))
-		return fmt.Errorf("failed to start VM: %w", err)
+		return fmt.Errorf("failed to start VM: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 	}
 
 	for i := 0; i < 30; i++ {
@@ -54,7 +56,7 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		}
 	}
 
-	return fmt.Errorf("VM '%s' did not reach Running state within timeout", id)
+	return fmt.Errorf("VM '%s' did not reach Running state within timeout; diagnostics: %s", id, utils.TruncateString(strings.TrimSpace(p.collectVMDiagnostics(id)), 8000))
 }
 
 // StopInstance 停止虚拟机
@@ -69,11 +71,13 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 
 	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl stop %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	if err != nil {
+		diagnostics := p.collectVMDiagnostics(id)
 		global.APP_LOG.Error("KubeVirt虚拟机停止失败",
 			zap.String("id", utils.TruncateString(id, 32)),
-			zap.String("output", utils.TruncateString(output, 500)),
+			zap.String("output", utils.TruncateString(output, 2000)),
+			zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)),
 			zap.Error(err))
-		return fmt.Errorf("failed to stop VM: %w", err)
+		return fmt.Errorf("failed to stop VM: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 	}
 
 	for i := 0; i < 20; i++ {
@@ -87,7 +91,7 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 		}
 	}
 
-	return fmt.Errorf("VM '%s' did not reach Stopped state within timeout", id)
+	return fmt.Errorf("VM '%s' did not reach Stopped state within timeout; diagnostics: %s", id, utils.TruncateString(strings.TrimSpace(p.collectVMDiagnostics(id)), 8000))
 }
 
 // RestartInstance 重启虚拟机
@@ -123,7 +127,7 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)))
 		if stopErr := p.StopInstance(ctx, id); stopErr != nil {
-			return fmt.Errorf("failed to stop VM for restart: %w", stopErr)
+			return fmt.Errorf("failed to stop VM for restart after virtctl restart failed: %w; restart output: %s", stopErr, utils.TruncateString(strings.TrimSpace(output), 8000))
 		}
 		if err := sleepWithContext(ctx, 3*time.Second); err != nil {
 			return fmt.Errorf("waiting before fallback start cancelled: %w", err)
@@ -132,6 +136,32 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 	}
 
 	return nil
+}
+
+func (p *KubeVirtProvider) collectVMDiagnostics(name string) string {
+	commands := []struct {
+		label string
+		cmd   string
+	}{
+		{"vm yaml", fmt.Sprintf("kubectl get vm %s -n %s -o yaml 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))},
+		{"vmi yaml", fmt.Sprintf("kubectl get vmi %s -n %s -o yaml 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))},
+		{"datavolume yaml", fmt.Sprintf("kubectl get datavolume %s -n %s -o yaml 2>&1", shellSingleQuote(name+"-dv"), shellSingleQuote(Namespace))},
+		{"launcher pods", fmt.Sprintf("kubectl get pods -n %s -l %s -o wide 2>&1", shellSingleQuote(Namespace), shellSingleQuote("kubevirt.io/domain="+name))},
+		{"launcher describe", fmt.Sprintf("kubectl describe pods -n %s -l %s 2>&1", shellSingleQuote(Namespace), shellSingleQuote("kubevirt.io/domain="+name))},
+		{"launcher logs", fmt.Sprintf("kubectl logs -n %s -l %s --all-containers --tail=120 2>&1", shellSingleQuote(Namespace), shellSingleQuote("kubevirt.io/domain="+name))},
+		{"namespace events", fmt.Sprintf("kubectl get events -n %s --sort-by=.lastTimestamp 2>&1 | tail -120", shellSingleQuote(Namespace))},
+	}
+	var parts []string
+	for _, command := range commands {
+		output, err := p.sshClient.Execute(command.cmd)
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			parts = append(parts, fmt.Sprintf("[%s]\n%s", command.label, trimmed))
+		}
+		if err != nil {
+			parts = append(parts, fmt.Sprintf("[%s error]\n%v", command.label, err))
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // DeleteInstance 删除虚拟机

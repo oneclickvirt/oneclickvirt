@@ -70,6 +70,64 @@ platform_init() {
 PLATFORM_FAILURE_REASON=""
 PLATFORM_LAST_ERROR=""
 
+env_needs_worker_resource_check() {
+    local env_type="$1"
+    [[ "$env_type" == "kubevirt" ]]
+}
+
+platform_validate_worker_resources() {
+    local env_type="$1" ip="$2" platform="${3:-${ACTIVE_PLATFORM}}"
+    if ! env_needs_worker_resource_check "$env_type"; then
+        return 0
+    fi
+
+    local min_mem_mb="${KUBEVIRT_MIN_WORKER_MEMORY_MB:-3072}"
+    local min_cpu="${KUBEVIRT_MIN_WORKER_CPU_CORES:-2}"
+    local min_disk_gb="${KUBEVIRT_MIN_WORKER_DISK_GB:-20}"
+    local check_cmd
+    check_cmd=$(cat <<RESOURCE_CHECK
+set -u
+mem_mb=\$(awk '/MemTotal:/ {print int(\$2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+mem_mb=\${mem_mb:-0}
+cpu_count=\$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 0)
+cpu_count=\${cpu_count:-0}
+disk_gb=\$(df -Pk / 2>/dev/null | awk 'NR==2 {print int(\$4/1024/1024)}')
+disk_gb=\${disk_gb:-0}
+kvm_state="missing"
+[ -e /dev/kvm ] && kvm_state="present"
+echo "WORKER_RESOURCE_CHECK env=${env_type} platform=${platform} memory_mb=\${mem_mb} cpu=\${cpu_count} disk_gb=\${disk_gb} kvm=\${kvm_state}"
+if [ "\${mem_mb}" -lt "${min_mem_mb}" ]; then
+    echo "WORKER_RESOURCE_INSUFFICIENT: memory_mb=\${mem_mb} required>=${min_mem_mb}"
+    exit 42
+fi
+if [ "\${cpu_count}" -lt "${min_cpu}" ]; then
+    echo "WORKER_RESOURCE_INSUFFICIENT: cpu=\${cpu_count} required>=${min_cpu}"
+    exit 42
+fi
+if [ "\${disk_gb}" -lt "${min_disk_gb}" ]; then
+    echo "WORKER_RESOURCE_INSUFFICIENT: disk_gb=\${disk_gb} required>=${min_disk_gb}"
+    exit 42
+fi
+if [ ! -e /dev/kvm ]; then
+    echo "WORKER_RESOURCE_INSUFFICIENT: /dev/kvm missing"
+    exit 42
+fi
+exit 0
+RESOURCE_CHECK
+)
+
+    log_info "Checking worker resources for ${env_type} on ${platform} (memory>=${min_mem_mb}MB cpu>=${min_cpu} disk>=${min_disk_gb}GB /dev/kvm required)..."
+    local output
+    if output=$(platform_ssh_exec "$ip" "$check_cmd" 90 2>&1); then
+        [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+        log_success "Worker resources satisfy ${env_type} requirements"
+        return 0
+    fi
+    [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+    log_warning "Worker resources do not satisfy ${env_type} requirements on ${platform}"
+    return 75
+}
+
 try_create_with_fallback() {
     local env_type="$1" hours="${2:-8}"
     local enabled_platforms
@@ -128,6 +186,21 @@ try_create_with_fallback() {
                         ACTIVE_PLATFORM="$platform"
                         ACTIVE_INSTANCE_ID="$keep_id"
                         ACTIVE_INSTANCE_IP="$rip"
+                        if env_needs_worker_resource_check "$env_type"; then
+                            if ! wait_for_ssh "$rip" 600; then
+                                log_error "[${platform}] SSH never became available for resource validation"
+                                all_resource_exhausted=false
+                                platform_dispatch "$platform" "delete_instance" "$keep_id" 2>/dev/null || true
+                                continue
+                            fi
+                            if ! platform_validate_worker_resources "$env_type" "$rip" "$platform"; then
+                                log_warning "[${platform}] Reinstalled instance ${keep_id} does not meet ${env_type} worker requirements; releasing it and trying next platform"
+                                platform_dispatch "$platform" "delete_instance" "$keep_id" 2>/dev/null || true
+                                keep_id=""
+                                PLATFORM_LAST_ERROR="resource_exhausted"
+                                continue
+                            fi
+                        fi
                         PLATFORM_FAILURE_REASON=""
                         echo "$result"
                         return 0
@@ -166,6 +239,20 @@ try_create_with_fallback() {
                 ACTIVE_PLATFORM="$platform"
                 ACTIVE_INSTANCE_ID="$cid"
                 ACTIVE_INSTANCE_IP="$cip"
+                if env_needs_worker_resource_check "$env_type"; then
+                    if ! wait_for_ssh "$cip" 600; then
+                        log_error "[${platform}] SSH never became available for resource validation"
+                        all_resource_exhausted=false
+                        platform_dispatch "$platform" "delete_instance" "$cid" 2>/dev/null || true
+                        continue
+                    fi
+                    if ! platform_validate_worker_resources "$env_type" "$cip" "$platform"; then
+                        log_warning "[${platform}] Instance ${cid} does not meet ${env_type} worker requirements; releasing it and trying next platform"
+                        platform_dispatch "$platform" "delete_instance" "$cid" 2>/dev/null || true
+                        PLATFORM_LAST_ERROR="resource_exhausted"
+                        continue
+                    fi
+                fi
                 PLATFORM_FAILURE_REASON=""
                 echo "$result"
                 return 0

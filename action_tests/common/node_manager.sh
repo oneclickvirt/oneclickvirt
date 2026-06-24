@@ -165,6 +165,9 @@ install_env() {
     local id="$1" ip="$2" env="$3"
     log_section "Installing ${env} environment on worker node"
     local noninteractive_prefix="export noninteractive=true; export DEBIAN_FRONTEND=noninteractive;"
+    if declare -f platform_validate_worker_resources >/dev/null 2>&1; then
+        platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}" || return 75
+    fi
     # Wait for cloud-init and other processes to release apt/dpkg locks
     # min_wait=120s (required wait), max_wait=300s (timeout), interval=10s
     wait_for_apt_lock "${ip}" 120 300 10
@@ -307,9 +310,23 @@ echo "--- kubevirt cr ---"
 kubectl -n kubevirt get kubevirt kubevirt -o yaml 2>&1 || true
 echo "--- kubevirt pods ---"
 kubectl -n kubevirt get pods -o wide 2>&1 || true
+echo "--- kubevirt pending pod descriptions ---"
+for pod in $(kubectl -n kubevirt get pods --field-selector=status.phase=Pending -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+    echo "### describe pod/${pod}"
+    kubectl -n kubevirt describe pod "${pod}" 2>&1 || true
+done
+echo "--- kubevirt recent events ---"
+kubectl -n kubevirt get events --sort-by=.lastTimestamp 2>&1 || true
+echo "--- kubevirt recent logs ---"
+for pod in $(kubectl -n kubevirt get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+    echo "### logs pod/${pod}"
+    kubectl -n kubevirt logs "${pod}" --all-containers --tail=120 2>&1 || true
+done
 echo "--- cdi resources ---"
 kubectl get crd | grep -E 'cdi|kubevirt' 2>&1 || true
 kubectl -n cdi get all -o wide 2>&1 || true
+echo "--- cdi recent events ---"
+kubectl -n cdi get events --sort-by=.lastTimestamp 2>&1 || true
 exit 1
 VERIFY_KUBEVIRT
 )

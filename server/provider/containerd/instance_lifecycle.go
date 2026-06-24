@@ -31,7 +31,7 @@ func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) er
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to start container: %w", err)
+		return fmt.Errorf("failed to start container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	maxWaitTime := 30 * time.Second
@@ -63,7 +63,7 @@ func (c *ContainerdProvider) sshStopInstance(ctx context.Context, id string) err
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to stop container: %w", err)
+		return fmt.Errorf("failed to stop container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	maxRetries := 10
@@ -92,7 +92,7 @@ func (c *ContainerdProvider) sshRestartInstance(ctx context.Context, id string) 
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to restart container: %w", err)
+		return fmt.Errorf("failed to restart container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 	global.APP_LOG.Info("Containerd实例重启成功", zap.String("id", utils.TruncateString(id, 32)))
 	return nil

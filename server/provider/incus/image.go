@@ -85,6 +85,23 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 					zap.Error(err))
 			}
 		}
+		if fp, existingAlias := i.findImageFingerprintByURLAliasSuffix(config.Image, config.InstanceType); fp != "" {
+			global.APP_LOG.Info("Incus"+imageTypeStr+"镜像已通过URL别名后缀匹配找到，尝试修补目标别名",
+				zap.String("existingAlias", utils.TruncateString(existingAlias, 100)),
+				zap.String("targetAlias", utils.TruncateString(config.Image, 100)),
+				zap.String("fingerprint", utils.TruncateString(fp, 64)))
+			if err := i.ensureImageAliasFromFingerprint(config.Image, fp); err == nil {
+				if progressCallback != nil {
+					progressCallback(28, "镜像别名已按URL缓存自动修补，跳过下载")
+				}
+				return nil
+			} else {
+				global.APP_LOG.Warn("Incus镜像URL别名后缀匹配修补失败，将继续重新下载导入",
+					zap.String("targetAlias", utils.TruncateString(config.Image, 100)),
+					zap.String("fingerprint", utils.TruncateString(fp, 64)),
+					zap.Error(err))
+			}
+		}
 
 		if progressCallback != nil {
 			progressCallback(17, "开始下载镜像...")
@@ -241,6 +258,20 @@ func (i *IncusProvider) downloadAndImportImage(ctx context.Context, config *prov
 				}
 				if i.imageExists(aliasKey) {
 					return nil, nil
+				}
+				if fp, existingAlias := i.findImageFingerprintByURLAliasSuffix(aliasKey, config.InstanceType); fp != "" {
+					global.APP_LOG.Info("Incus镜像指纹重复后按URL别名后缀找到已有镜像，自动修补目标别名",
+						zap.String("existingAlias", utils.TruncateString(existingAlias, 100)),
+						zap.String("targetAlias", utils.TruncateString(aliasKey, 100)),
+						zap.String("fingerprint", utils.TruncateString(fp, 64)))
+					if err := i.ensureImageAliasFromFingerprint(aliasKey, fp); err == nil {
+						return nil, nil
+					} else {
+						global.APP_LOG.Warn("Incus镜像URL别名后缀匹配后的别名修补失败",
+							zap.String("alias", utils.TruncateString(aliasKey, 100)),
+							zap.String("fingerprint", utils.TruncateString(fp, 64)),
+							zap.Error(err))
+					}
 				}
 			}
 
@@ -553,6 +584,56 @@ func (i *IncusProvider) findImageFingerprintByPrefix(prefix string) (string, str
 	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 }
 
+func imageURLAliasSuffix(alias, instanceType string) string {
+	alias = strings.TrimSpace(alias)
+	instanceType = strings.ToLower(strings.TrimSpace(instanceType))
+	if alias == "" || instanceType == "" {
+		return ""
+	}
+	marker := "_" + instanceType + "_"
+	idx := strings.LastIndex(strings.ToLower(alias), marker)
+	if idx < 0 {
+		return ""
+	}
+	suffix := alias[idx:]
+	if !hasShortHexHashSuffix(suffix) {
+		return ""
+	}
+	return suffix
+}
+
+func hasShortHexHashSuffix(value string) bool {
+	dash := strings.LastIndex(value, "-")
+	if dash < 0 || len(value)-dash-1 != 8 {
+		return false
+	}
+	for _, ch := range value[dash+1:] {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// findImageFingerprintByURLAliasSuffix matches aliases generated from the same
+// image URL even when the human-readable image name differs.
+func (i *IncusProvider) findImageFingerprintByURLAliasSuffix(alias, instanceType string) (string, string) {
+	suffix := imageURLAliasSuffix(alias, instanceType)
+	if suffix == "" {
+		return "", ""
+	}
+	cmd := fmt.Sprintf("incus image list --format csv -c f,l 2>/dev/null | awk -F, -v s=%s '{for(i=2;i<=NF;i++){gsub(/^ +| +$/, \"\", $i); if(length($i)>=length(s) && substr($i,length($i)-length(s)+1)==s){print $1 \"\\t\" $i; exit}}}'", shellSingleQuote(suffix))
+	output, err := i.sshClient.Execute(cmd)
+	if err != nil || strings.TrimSpace(output) == "" {
+		return "", ""
+	}
+	parts := strings.SplitN(strings.TrimSpace(output), "\t", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+}
+
 // findImageByPrefix 兼容旧调用：返回第一个匹配的别名。
 func (i *IncusProvider) findImageByPrefix(prefix string) string {
 	_, alias := i.findImageFingerprintByPrefix(prefix)
@@ -691,8 +772,13 @@ func (i *IncusProvider) copySpiritlhlImageCandidates(targetAlias, instanceType s
 					return nil
 				}
 			}
+			if fp, _ := i.findImageFingerprintByURLAliasSuffix(targetAlias, instanceType); fp != "" {
+				if aliasErr := i.ensureImageAliasFromFingerprint(targetAlias, fp); aliasErr == nil {
+					return nil
+				}
+			}
 		}
-		lastErr = fmt.Errorf("复制候选镜像 %s 失败: %v (output: %s)", source, err, utils.TruncateString(output, 300))
+		lastErr = fmt.Errorf("复制候选镜像 %s 失败: %v (output: %s)", source, err, utils.TruncateString(output, 1200))
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("没有可用的spiritlhl候选镜像")

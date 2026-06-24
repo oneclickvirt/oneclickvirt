@@ -272,8 +272,9 @@ spec:
 				// 获取失败原因
 				msgOutput, _ := p.sshClient.Execute(fmt.Sprintf(
 					"kubectl get datavolume %s -n %s -o jsonpath='{.status.conditions[*].message}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
+				diagnostics := p.collectVMDiagnostics(config.Name)
 				p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-				return fmt.Errorf("DataVolume import failed: %s", strings.TrimSpace(msgOutput))
+				return fmt.Errorf("DataVolume import failed: %s; diagnostics: %s", strings.TrimSpace(msgOutput), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 			}
 		}
 
@@ -302,8 +303,9 @@ spec:
 		}
 	}
 	if !dvReady {
+		diagnostics := p.collectVMDiagnostics(config.Name)
 		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-		return fmt.Errorf("DataVolume import timed out for '%s' (30 minutes)", dvName)
+		return fmt.Errorf("DataVolume import timed out for '%s' (30 minutes); diagnostics: %s", dvName, utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 	}
 
 	updateProgress(55, "创建 VirtualMachine 资源")
@@ -377,11 +379,11 @@ spec:
 	if err != nil {
 		global.APP_LOG.Error("VirtualMachine创建失败",
 			zap.String("name", config.Name),
-			zap.String("output", utils.TruncateString(output, 500)),
+			zap.String("output", utils.TruncateString(output, 2000)),
 			zap.Error(err))
 		// 清理 DataVolume
 		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-		return fmt.Errorf("failed to create VM: %w", err)
+		return fmt.Errorf("failed to create VM: %w; kubectl output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
 	updateProgress(70, "创建 SSH NodePort Service")
@@ -454,15 +456,17 @@ spec:
 		}
 	}
 	if !vmStarted {
+		diagnostics := p.collectVMDiagnostics(config.Name)
 		global.APP_LOG.Warn("KubeVirt虚拟机创建等待启动超时，开始清理远端资源",
-			zap.String("name", utils.TruncateString(config.Name, 32)))
+			zap.String("name", utils.TruncateString(config.Name, 32)),
+			zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)))
 		updateProgress(90, "启动超时，正在清理KubeVirt资源")
 		if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
 			global.APP_LOG.Error("KubeVirt虚拟机启动超时后清理失败",
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.Error(cleanupErr))
 		}
-		return fmt.Errorf("VM '%s' did not reach Running state within 180 seconds", config.Name)
+		return fmt.Errorf("VM '%s' did not reach Running state within 180 seconds; diagnostics: %s", config.Name, utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 	}
 
 	updateProgress(95, "虚拟机创建完成")
