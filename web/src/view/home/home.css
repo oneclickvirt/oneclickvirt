@@ -568,8 +568,8 @@
 /* 链接网格 */
 .footer-links-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 32px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 28px;
 }
 
 .footer-col-title {
@@ -639,6 +639,46 @@
   font-style: italic;
 }
 
+.footer-supporters-col {
+  min-width: 0;
+}
+
+.footer-support-logo-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.footer-support-logo-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  min-width: 142px;
+  min-height: 62px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  transition: all 0.25s ease;
+}
+
+.footer-support-logo-link:hover {
+  border-color: rgba(34, 197, 94, 0.55);
+  box-shadow: 0 10px 28px rgba(34, 197, 94, 0.18);
+  transform: translateY(-2px);
+}
+
+.footer-support-logo-link img {
+  display: block;
+  width: auto;
+  max-width: 160px;
+  height: 50px;
+  object-fit: contain;
+}
+
 /* 底部版权栏 */
 .footer-bottom {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -655,6 +695,7 @@
   justify-content: center;
   gap: 12px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .footer-copyright {
@@ -673,6 +714,7 @@
 .footer-bottom-link {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   color: rgba(34, 197, 94, 0.75);
   text-decoration: none;
   font-size: 13px;
@@ -686,9 +728,33 @@
 }
 
 .footer-version-tag {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.4);
   font-family: monospace;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.footer-version-update {
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.footer-version-value {
+  min-width: 0;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 /* 响应式调整 */
@@ -747,6 +813,11 @@
   .footer-links-grid {
     grid-template-columns: 1fr 1fr;
     gap: 24px;
+  }
+
+  .footer-support-logo-link {
+    width: 100%;
+    min-width: 0;
   }
 
   .footer-tagline {

@@ -48,6 +48,7 @@ export default {
     relatedProjects: '相关项目',
     moreProjects: '更多项目',
     supportAndDocs: '支持',
+    supporters: '支持方',
     documentation: '使用文档',
     feedback: '问题反馈',
     communityGroup: '交流群组',

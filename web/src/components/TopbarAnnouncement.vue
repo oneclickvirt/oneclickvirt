@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/no-v-html -->
 <template>
   <div
     v-if="announcements.length > 0"
@@ -88,23 +89,80 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { getPublicAnnouncements } from '@/api/public'
 
+const emit = defineEmits(['visible-change'])
 const announcements = ref([])
 const currentIndex = ref(0)
 const scrollContainer = ref()
 let autoScrollTimer = null
+
+const getAnnouncementKey = (item) => `${item.id}:${item.updatedAt || item.createdAt || ''}`
+
+const getWeekKey = () => {
+  const now = new Date()
+  const day = now.getDay() || 7
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - day + 1)
+  monday.setHours(0, 0, 0, 0)
+  const year = monday.getFullYear()
+  const month = String(monday.getMonth() + 1).padStart(2, '0')
+  const date = String(monday.getDate()).padStart(2, '0')
+  return `${year}-${month}-${date}`
+}
+
+const readClosedState = () => {
+  const raw = localStorage.getItem('topbar_announcement_closed')
+  if (!raw) return { weekKey: getWeekKey(), hiddenKeys: [] }
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && parsed.weekKey === getWeekKey() && Array.isArray(parsed.hiddenKeys)) {
+      return parsed
+    }
+  } catch {
+    // Older versions stored a single timestamp. Ignore it so weekly per-item state starts cleanly.
+  }
+  return { weekKey: getWeekKey(), hiddenKeys: [] }
+}
+
+const writeClosedState = (state) => {
+  localStorage.setItem('topbar_announcement_closed', JSON.stringify({
+    weekKey: getWeekKey(),
+    hiddenKeys: [...new Set(state.hiddenKeys || [])]
+  }))
+}
+
+const filterVisibleAnnouncements = (items) => {
+  const state = readClosedState()
+  const hidden = new Set(state.hiddenKeys)
+  return items.filter(item => !hidden.has(getAnnouncementKey(item)))
+}
+
+const setAnnouncements = (items) => {
+  announcements.value = items
+  if (currentIndex.value >= announcements.value.length) {
+    currentIndex.value = 0
+  }
+  emit('visible-change', announcements.value.length > 0)
+}
 
 // 获取顶部栏公告
 const fetchTopbarAnnouncements = async () => {
   try {
     const response = await getPublicAnnouncements('topbar')
     if (response.code === 200) {
-      announcements.value = response.data || []
-      if (announcements.value.length > 0) {
+      const items = response.data || []
+      const visibleItems = filterVisibleAnnouncements(items)
+      if (visibleItems.length > 0) {
+        setAnnouncements(visibleItems)
         startAutoScroll()
+      } else {
+        setAnnouncements([])
       }
+    } else {
+      setAnnouncements([])
     }
   } catch (error) {
     console.error('获取顶部栏公告失败:', error)
+    setAnnouncements([])
   }
 }
 
@@ -140,31 +198,27 @@ const resetAutoScroll = () => {
 
 // 关闭公告栏
 const closeAnnouncement = () => {
-  announcements.value = []
+  const current = announcements.value[currentIndex.value]
+  if (!current) return
+
+  const state = readClosedState()
+  state.hiddenKeys = [...(state.hiddenKeys || []), getAnnouncementKey(current)]
+  writeClosedState(state)
+
   if (autoScrollTimer) {
     clearInterval(autoScrollTimer)
     autoScrollTimer = null
   }
-  // 可以在这里添加记住用户关闭状态的逻辑
-  localStorage.setItem('topbar_announcement_closed', Date.now())
-}
 
-// 检查是否应该显示公告
-const shouldShowAnnouncement = () => {
-  const closed = localStorage.getItem('topbar_announcement_closed')
-  if (closed) {
-    const closedTime = parseInt(closed)
-    const now = Date.now()
-    // 如果关闭时间超过24小时，重新显示
-    return (now - closedTime) > 24 * 60 * 60 * 1000
+  const nextItems = announcements.value.filter(item => getAnnouncementKey(item) !== getAnnouncementKey(current))
+  setAnnouncements(nextItems)
+  if (announcements.value.length > 1) {
+    startAutoScroll()
   }
-  return true
 }
 
 onMounted(() => {
-  if (shouldShowAnnouncement()) {
-    fetchTopbarAnnouncements()
-  }
+  fetchTopbarAnnouncements()
 })
 
 onUnmounted(() => {
@@ -181,7 +235,7 @@ onUnmounted(() => {
   padding: 8px 0;
   position: sticky;
   top: 0;
-  z-index: 1000;
+  z-index: calc(var(--z-navbar, 1002) + 2);
   box-shadow: 0 2px 10px rgba(22, 163, 74, 0.2);
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }

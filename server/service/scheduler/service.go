@@ -13,6 +13,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	dashboardModel "oneclickvirt/model/dashboard"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/service/maintenance"
 	"oneclickvirt/service/traffic"
 
 	"go.uber.org/zap"
@@ -29,6 +30,7 @@ type SchedulerService struct {
 	mu             sync.RWMutex
 	triggerChan    chan struct{} // 用于立即触发任务处理
 	trafficCheckMu sync.Mutex    // 防止并发流量限制检查
+	dataCleanupMu  sync.Mutex    // 防止数据库保留策略清理并发执行
 }
 
 // TaskServiceInterface 任务服务接口
@@ -136,6 +138,7 @@ func (s *SchedulerService) runTaskScheduler() {
 	expiryCheckTicker := time.NewTicker(1 * time.Hour)     // 过期检查保持 1小时
 	trafficLimitTicker := time.NewTicker(10 * time.Minute) // 流量限制检查保持 10分钟，与Provider默认配置对齐
 	agentVersionTicker := time.NewTicker(30 * time.Minute) // Agent版本检查保持 30分钟
+	dataCleanupTicker := time.NewTicker(s.dataCleanupInterval())
 
 	defer func() {
 		taskTicker.Stop()
@@ -145,6 +148,7 @@ func (s *SchedulerService) runTaskScheduler() {
 		expiryCheckTicker.Stop()
 		trafficLimitTicker.Stop()
 		agentVersionTicker.Stop()
+		dataCleanupTicker.Stop()
 	}()
 
 	global.APP_LOG.Info("Task scheduler main loop started with traffic aggregation and expiry check")
@@ -152,6 +156,7 @@ func (s *SchedulerService) runTaskScheduler() {
 	// 启动时立即执行一次过期检查
 	s.checkExpiredResources()
 	go s.checkAndEnforceTrafficLimits()
+	go s.scheduleInitialRetentionDataCleanup()
 
 	for {
 		select {
@@ -188,6 +193,10 @@ func (s *SchedulerService) runTaskScheduler() {
 		case <-agentVersionTicker.C:
 			// 定期检查Agent版本是否与主控兼容
 			s.checkAgentVersions()
+
+		case <-dataCleanupTicker.C:
+			// 定期清理数据库历史数据，避免审计/流量表无限增长
+			s.cleanupRetentionData()
 		}
 	}
 }
@@ -454,6 +463,59 @@ func (s *SchedulerService) checkAndEnforceTrafficLimits() {
 	}
 
 	global.APP_LOG.Debug("自动流量限制检查完成")
+}
+
+func (s *SchedulerService) dataCleanupInterval() time.Duration {
+	cfg := maintenance.NormalizeMaintenanceConfig(global.GetAppConfig().Maintenance)
+	return time.Duration(cfg.DataCleanupIntervalHours) * time.Hour
+}
+
+func (s *SchedulerService) scheduleInitialRetentionDataCleanup() {
+	timer := time.NewTimer(5 * time.Minute)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		s.cleanupRetentionData()
+	case <-s.ctx.Done():
+		return
+	}
+}
+
+func (s *SchedulerService) cleanupRetentionData() {
+	if global.APP_DB == nil {
+		return
+	}
+	cfg := maintenance.NormalizeMaintenanceConfig(global.GetAppConfig().Maintenance)
+	if !cfg.EnableDataCleanup {
+		return
+	}
+	if !s.dataCleanupMu.TryLock() {
+		global.APP_LOG.Debug("数据库保留策略清理正在运行中，跳过本次触发")
+		return
+	}
+	defer s.dataCleanupMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(s.ctx, 15*time.Minute)
+	defer cancel()
+
+	stats, err := maintenance.NewDataCleanupService().Run(ctx)
+	if err != nil {
+		global.APP_LOG.Warn("数据库保留策略清理失败", zap.Error(err))
+		return
+	}
+	if stats.AuditLogs > 0 ||
+		stats.PmacctTrafficRecords > 0 ||
+		stats.InstanceTrafficHistories > 0 ||
+		stats.ProviderTrafficHistories > 0 ||
+		stats.UserTrafficHistories > 0 {
+		global.APP_LOG.Debug("数据库保留策略清理统计",
+			zap.Int64("auditLogs", stats.AuditLogs),
+			zap.Int64("pmacctTrafficRecords", stats.PmacctTrafficRecords),
+			zap.Int64("instanceTrafficHistories", stats.InstanceTrafficHistories),
+			zap.Int64("providerTrafficHistories", stats.ProviderTrafficHistories),
+			zap.Int64("userTrafficHistories", stats.UserTrafficHistories))
+	}
 }
 
 // checkAgentVersions 检查所有agent模式节点的Agent版本是否与主控兼容

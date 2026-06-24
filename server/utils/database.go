@@ -31,6 +31,7 @@ func IsDeadlockError(err error) bool {
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "database is locked") ||
 		strings.Contains(errMsg, "deadlock") ||
+		strings.Contains(errMsg, "error 1213") ||
 		strings.Contains(errMsg, "database lock") ||
 		strings.Contains(errMsg, "busy") ||
 		strings.Contains(errMsg, "lock wait timeout exceeded") ||

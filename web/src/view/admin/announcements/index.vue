@@ -179,30 +179,32 @@
         </el-table-column>
         <el-table-column
           :label="$t('common.actions')"
-          width="200"
+          width="260"
           fixed="right"
         >
           <template #default="scope">
-            <el-button
-              size="small"
-              @click="editAnnouncement(scope.row)"
-            >
-              {{ $t('common.edit') }}
-            </el-button>
-            <el-button 
-              size="small" 
-              :type="scope.row.status === 1 ? 'warning' : 'success'"
-              @click="toggleAnnouncementStatus(scope.row)"
-            >
-              {{ scope.row.status === 1 ? $t('common.disable') : $t('common.enable') }}
-            </el-button>
-            <el-button
-              size="small"
-              type="danger"
-              @click="deleteAnnouncementHandler(scope.row.id)"
-            >
-              {{ $t('common.delete') }}
-            </el-button>
+            <div class="row-actions">
+              <el-button
+                size="small"
+                @click="editAnnouncement(scope.row)"
+              >
+                {{ $t('common.edit') }}
+              </el-button>
+              <el-button
+                size="small"
+                :type="scope.row.status === 1 ? 'warning' : 'success'"
+                @click="toggleAnnouncementStatus(scope.row)"
+              >
+                {{ scope.row.status === 1 ? $t('common.disable') : $t('common.enable') }}
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                @click="deleteAnnouncementHandler(scope.row.id)"
+              >
+                {{ $t('common.delete') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -414,6 +416,18 @@ const {
 
 .filter-container {
   margin-bottom: 20px;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.row-actions :deep(.el-button) {
+  margin-left: 0;
 }
 
 /* 富文本编辑器容器固定大小 */

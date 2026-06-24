@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/no-v-html -->
 <template>
   <div class="home-container">
     <!-- 导航栏 -->
@@ -43,7 +44,7 @@
         </nav>
       </div>
     </header>
-    
+
     <!-- 主要内容 -->
     <main class="home-main">
       <!-- 英雄区域 -->
@@ -415,7 +416,7 @@
         </div>
       </section>
     </main>
-    
+
     <!-- 页脚 -->
     <footer class="home-footer">
       <div class="footer-glow-top" />
@@ -433,7 +434,7 @@
             {{ t('home.hero.description') }}
           </p>
           <a
-            href="https://github.com/oneclickvirt"
+            href="https://github.com/oneclickvirt/oneclickvirt"
             target="_blank"
             rel="noopener noreferrer"
             class="footer-github-btn"
@@ -568,6 +569,32 @@
               </li>
             </ul>
           </div>
+
+          <div class="footer-col footer-supporters-col">
+            <h4 class="footer-col-title">
+              <span class="footer-col-dot" />
+              {{ t('home.footer.supporters') }}
+            </h4>
+            <div class="footer-support-logo-list">
+              <a
+                v-for="supporter in footerSupporters"
+                :key="supporter.href"
+                :href="supporter.href"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="footer-support-logo-link"
+                :title="supporter.name"
+                :aria-label="supporter.name"
+              >
+                <img
+                  :src="supporter.logo"
+                  :alt="supporter.name"
+                  loading="lazy"
+                  decoding="async"
+                >
+              </a>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -594,15 +621,23 @@
           </a>
           <template v-if="serverVersion">
             <span class="footer-divider" />
-            <span class="footer-version-tag">{{ t('home.footer.serverVersion') }} {{ serverVersion }}</span>
+            <span
+              class="footer-version-tag"
+              :title="`${t('home.footer.serverVersion')} ${serverVersion}`"
+            >
+              <span>{{ t('home.footer.serverVersion') }}</span>
+              <span class="footer-version-value">{{ serverVersion }}</span>
+            </span>
             <a
               v-if="updateAvailable && latestVersion"
               :href="releaseUrl || 'https://github.com/oneclickvirt/oneclickvirt/releases'"
               target="_blank"
               rel="noopener noreferrer"
               class="footer-bottom-link footer-version-update"
+              :title="`${t('home.footer.latestVersion')} ${latestVersion}`"
             >
-              {{ t('home.footer.latestVersion') }} {{ latestVersion }}
+              <span>{{ t('home.footer.latestVersion') }}</span>
+              <span class="footer-version-value">{{ latestVersion }}</span>
             </a>
           </template>
         </div>
@@ -638,6 +673,28 @@ const serverVersion = ref('')
 const latestVersion = ref('')
 const releaseUrl = ref('')
 const updateAvailable = ref(false)
+const footerSupporters = [
+  {
+    name: 'IBM LinuxONE OSS Community Cloud',
+    href: 'https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/',
+    logo: 'https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png'
+  },
+  {
+    name: 'zmto',
+    href: 'https://console.zmto.com/?affid=1524',
+    logo: 'https://console.zmto.com/templates/2019/dist/images/logo_dark.svg'
+  },
+  {
+    name: 'JTTI',
+    href: 'https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt',
+    logo: 'https://www.jtti.cc/static/images/common/logo.png'
+  },
+  {
+    name: 'fossvps',
+    href: 'https://fossvps.org/',
+    logo: 'https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png'
+  }
+]
 
 const usersCountDisplay = computed(() => (usersCount.value === null ? '-' : usersCount.value))
 const nodesCountDisplay = computed(() => (nodesCount.value === null ? '-' : nodesCount.value))

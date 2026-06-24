@@ -1,21 +1,32 @@
 package config
 
 type Server struct {
-	JWT        JWT        `mapstructure:"jwt" json:"jwt" yaml:"jwt"`
-	Zap        Zap        `mapstructure:"zap" json:"zap" yaml:"zap"`
-	System     System     `mapstructure:"system" json:"system" yaml:"system"`
-	Mysql      Mysql      `mapstructure:"mysql" json:"mysql" yaml:"mysql"`
-	Auth       Auth       `mapstructure:"auth" json:"auth" yaml:"auth"`
-	Quota      Quota      `mapstructure:"quota" json:"quota" yaml:"quota"`
-	InviteCode InviteCode `mapstructure:"invite-code" json:"invite-code" yaml:"invite-code"`
-	Captcha    Captcha    `mapstructure:"captcha" json:"captcha" yaml:"captcha"`
-	Cors       CORS       `mapstructure:"cors" json:"cors" yaml:"cors"`
-	Redis      Redis      `mapstructure:"redis" json:"redis" yaml:"redis"`
-	CDN        CDN        `mapstructure:"cdn" json:"cdn" yaml:"cdn"`
-	Task       Task       `mapstructure:"task" json:"task" yaml:"task"`
-	Upload     Upload     `mapstructure:"upload" json:"upload" yaml:"upload"`
-	Other      Other      `mapstructure:"other" json:"other" yaml:"other"`
-	KYC        KYC        `mapstructure:"kyc" json:"kyc" yaml:"kyc"`
+	JWT         JWT         `mapstructure:"jwt" json:"jwt" yaml:"jwt"`
+	Zap         Zap         `mapstructure:"zap" json:"zap" yaml:"zap"`
+	System      System      `mapstructure:"system" json:"system" yaml:"system"`
+	Mysql       Mysql       `mapstructure:"mysql" json:"mysql" yaml:"mysql"`
+	Auth        Auth        `mapstructure:"auth" json:"auth" yaml:"auth"`
+	Quota       Quota       `mapstructure:"quota" json:"quota" yaml:"quota"`
+	InviteCode  InviteCode  `mapstructure:"invite-code" json:"invite-code" yaml:"invite-code"`
+	Captcha     Captcha     `mapstructure:"captcha" json:"captcha" yaml:"captcha"`
+	Cors        CORS        `mapstructure:"cors" json:"cors" yaml:"cors"`
+	Redis       Redis       `mapstructure:"redis" json:"redis" yaml:"redis"`
+	CDN         CDN         `mapstructure:"cdn" json:"cdn" yaml:"cdn"`
+	Task        Task        `mapstructure:"task" json:"task" yaml:"task"`
+	Upload      Upload      `mapstructure:"upload" json:"upload" yaml:"upload"`
+	Other       Other       `mapstructure:"other" json:"other" yaml:"other"`
+	KYC         KYC         `mapstructure:"kyc" json:"kyc" yaml:"kyc"`
+	Maintenance Maintenance `mapstructure:"maintenance" json:"maintenance" yaml:"maintenance"`
+}
+
+type Maintenance struct {
+	EnableDataCleanup           bool `mapstructure:"enable-data-cleanup" json:"enable-data-cleanup" yaml:"enable-data-cleanup"`
+	DataCleanupIntervalHours    int  `mapstructure:"data-cleanup-interval-hours" json:"data-cleanup-interval-hours" yaml:"data-cleanup-interval-hours"`
+	AuditLogRetentionDays       int  `mapstructure:"audit-log-retention-days" json:"audit-log-retention-days" yaml:"audit-log-retention-days"`
+	PmacctRawRetentionDays      int  `mapstructure:"pmacct-raw-retention-days" json:"pmacct-raw-retention-days" yaml:"pmacct-raw-retention-days"`
+	TrafficHistoryRetentionDays int  `mapstructure:"traffic-history-retention-days" json:"traffic-history-retention-days" yaml:"traffic-history-retention-days"`
+	CleanupBatchSize            int  `mapstructure:"cleanup-batch-size" json:"cleanup-batch-size" yaml:"cleanup-batch-size"`
+	OptimizeAfterCleanup        bool `mapstructure:"optimize-after-cleanup" json:"optimize-after-cleanup" yaml:"optimize-after-cleanup"`
 }
 
 type Other struct {

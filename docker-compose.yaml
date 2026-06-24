@@ -1,3 +1,9 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   web:
     build:
@@ -10,6 +16,7 @@ services:
       - default
     depends_on:
       - api
+    logging: *default-logging
 
   api:
     build:
@@ -32,6 +39,7 @@ services:
       mysql:
         condition: service_healthy
     restart: on-failure
+    logging: *default-logging
 
   mysql:
     image: mariadb:10.11
@@ -55,6 +63,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+    logging: *default-logging
 
 volumes:
   mysql_data:

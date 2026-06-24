@@ -1,11 +1,14 @@
 package pmacct
 
 import (
+	"context"
 	"fmt"
 	"oneclickvirt/global"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/utils"
 	"oneclickvirt/utils/dbcompat"
+	"sort"
 	"strings"
 	"time"
 
@@ -60,7 +63,11 @@ func (s *Service) fillGapRecords(instanceID uint, instance *providerModel.Instan
 		return
 	}
 
-	fillBatchSize := 50
+	sort.Slice(fillRecords, func(i, j int) bool {
+		return fillRecords[i].Timestamp.Before(fillRecords[j].Timestamp)
+	})
+
+	fillBatchSize := 20
 	for i := 0; i < len(fillRecords); i += fillBatchSize {
 		end := i + fillBatchSize
 		if end > len(fillRecords) {
@@ -68,8 +75,10 @@ func (s *Service) fillGapRecords(instanceID uint, instance *providerModel.Instan
 		}
 		batch := fillRecords[i:end]
 
-		err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-			return s.execBatchInsertIgnore(tx, batch, recordTimeStr)
+		err := s.retryDBOperation(func() error {
+			return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+				return s.execBatchInsertIgnore(tx, batch, recordTimeStr)
+			})
 		})
 		if err != nil {
 			global.APP_LOG.Warn("填补空白期数据失败（继续执行）",
@@ -89,7 +98,10 @@ func (s *Service) fillGapRecords(instanceID uint, instance *providerModel.Instan
 // batchUpsertRecords 批量插入新采集的流量记录
 func (s *Service) batchUpsertRecords(instanceID uint, records []monitoringModel.PmacctTrafficRecord, recordTimeStr string) (int, error) {
 	var imported int
-	batchSize := 50
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].Timestamp.Before(records[j].Timestamp)
+	})
+	batchSize := 20
 
 	for i := 0; i < len(records); i += batchSize {
 		end := i + batchSize
@@ -98,8 +110,10 @@ func (s *Service) batchUpsertRecords(instanceID uint, records []monitoringModel.
 		}
 		batch := records[i:end]
 
-		err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-			return s.execBatchUpsert(tx, batch, recordTimeStr)
+		err := s.retryDBOperation(func() error {
+			return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+				return s.execBatchUpsert(tx, batch, recordTimeStr)
+			})
 		})
 		if err != nil {
 			global.APP_LOG.Error("批量创建流量记录失败",
@@ -137,6 +151,14 @@ func (s *Service) execBatchInsertIgnore(tx *gorm.DB, batch []monitoringModel.Pma
 	`, strings.Join(values, ","))
 
 	return tx.Exec(insertSQL, args...).Error
+}
+
+func (s *Service) retryDBOperation(operation func() error) error {
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return utils.RetryableDBOperation(ctx, operation, 8)
 }
 
 // execBatchUpsert 执行 ON DUPLICATE KEY UPDATE 批量插入（用于新数据）

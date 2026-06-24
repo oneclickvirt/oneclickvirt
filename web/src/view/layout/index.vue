@@ -1,10 +1,10 @@
 <template>
   <div
     class="app-wrapper"
-    :class="{ 'mobile': isMobile }"
+    :class="{ 'mobile': isMobile, 'has-topbar-announcement': hasTopbarAnnouncement }"
   >
     <!-- 顶部栏公告 -->
-    <TopbarAnnouncement />
+    <TopbarAnnouncement @visible-change="hasTopbarAnnouncement = $event" />
     
     <!-- 移动端遮罩层 -->
     <div
@@ -61,6 +61,7 @@ const sidebar = ref({
   opened: true
 })
 const isCollapse = ref(true)
+const hasTopbarAnnouncement = ref(false)
 
 const readStoredCollapse = () => {
   const stored = localStorage.getItem(SIDEBAR_COLLAPSE_STORAGE_KEY)
@@ -143,9 +144,21 @@ onBeforeUnmount(() => {
   height: 100%;
   width: 100%;
   background-color: var(--bg-color-primary);
+  --topbar-announcement-height: 56px;
 
   &.mobile {
     overflow-x: hidden;
+  }
+
+  &.has-topbar-announcement {
+    .fixed-header {
+      top: var(--topbar-announcement-height);
+    }
+
+    .sidebar-container {
+      top: var(--topbar-announcement-height);
+      height: calc(100% - var(--topbar-announcement-height));
+    }
   }
 }
 

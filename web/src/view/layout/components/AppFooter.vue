@@ -27,8 +27,10 @@
       <span
         v-if="serverVersion"
         class="footer-version"
+        :title="`${t('home.footer.serverVersion')} ${serverVersion}`"
       >
-        {{ t('home.footer.serverVersion') }} {{ serverVersion }}
+        <span>{{ t('home.footer.serverVersion') }}</span>
+        <span class="footer-version-value">{{ serverVersion }}</span>
       </span>
       <a
         v-if="updateAvailable && latestVersion"
@@ -36,8 +38,10 @@
         target="_blank"
         rel="noopener noreferrer"
         class="footer-update-link"
+        :title="`${t('home.footer.latestVersion')} ${latestVersion}`"
       >
-        {{ t('home.footer.latestVersion') }} {{ latestVersion }}
+        <span>{{ t('home.footer.latestVersion') }}</span>
+        <span class="footer-version-value">{{ latestVersion }}</span>
       </a>
       <span
         v-if="versionFetchFailed"
@@ -101,6 +105,7 @@ onMounted(async () => {
   justify-content: center;
   gap: 12px;
   flex-wrap: wrap;
+  min-width: 0;
   padding: 0 var(--spacing-lg);
 }
 
@@ -121,6 +126,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
   font-size: 13px;
   color: var(--primary-color);
   text-decoration: none;
@@ -136,20 +142,44 @@ onMounted(async () => {
 }
 
 .footer-version {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
   font-size: 12px;
   color: var(--text-color-placeholder);
   font-family: monospace;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .footer-update-link {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
   font-size: 12px;
   color: var(--el-color-success);
   text-decoration: none;
   font-family: monospace;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: normal;
 
   &:hover {
     text-decoration: underline;
   }
+}
+
+.footer-version-value {
+  min-width: 0;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .footer-version-error {

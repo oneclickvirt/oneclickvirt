@@ -48,6 +48,7 @@ export default {
     relatedProjects: 'Related Projects',
     moreProjects: 'More Projects',
     supportAndDocs: 'Support',
+    supporters: 'Supporters',
     documentation: 'Documentation',
     feedback: 'Issue Feedback',
     communityGroup: 'Community Group',

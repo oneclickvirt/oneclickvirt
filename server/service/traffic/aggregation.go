@@ -1,12 +1,15 @@
 package traffic
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"oneclickvirt/global"
 	monitoringModel "oneclickvirt/model/monitoring"
+	"oneclickvirt/utils"
 	"oneclickvirt/utils/dbcompat"
 
 	"go.uber.org/zap"
@@ -74,7 +77,9 @@ func (s *AggregationService) AggregateMonthlyTraffic(year, month int) error {
 	}
 
 	// 分批处理，避免一次性处理太多数据
-	batchSize := 50
+	sort.Slice(instanceIDs, func(i, j int) bool { return instanceIDs[i] < instanceIDs[j] })
+
+	batchSize := 20
 	successCount := 0
 	errorCount := 0
 
@@ -150,6 +155,15 @@ func (s *AggregationService) saveBatchToCacheWithInfo(
 	if len(rows) == 0 {
 		return 0, errCount
 	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].providerID != rows[j].providerID {
+			return rows[i].providerID < rows[j].providerID
+		}
+		if rows[i].userID != rows[j].userID {
+			return rows[i].userID < rows[j].userID
+		}
+		return rows[i].instanceID < rows[j].instanceID
+	})
 
 	// 构建批量 INSERT ON DUPLICATE KEY UPDATE
 	placeholders := make([]string, len(rows))
@@ -193,7 +207,13 @@ func (s *AggregationService) saveBatchToCacheWithInfo(
 				updated_at = NOW()`
 	}
 
-	if err := global.APP_DB.Exec(sql, args...).Error; err != nil {
+	ctx := global.APP_SHUTDOWN_CONTEXT
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := utils.RetryableDBOperation(ctx, func() error {
+		return global.APP_DB.Exec(sql, args...).Error
+	}, 8); err != nil {
 		global.APP_LOG.Error("批量保存流量缓存失败",
 			zap.Error(err),
 			zap.Int("rows", len(rows)))

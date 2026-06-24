@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"oneclickvirt/global"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/utils"
 	"oneclickvirt/utils/dbcompat"
 
 	"go.uber.org/zap"
@@ -63,6 +65,8 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		monitorByAgentID[monitors[i].AgentMonitorID] = &monitors[i]
 		instanceIDs = append(instanceIDs, monitors[i].InstanceID)
 	}
+	sort.Slice(agentIDs, func(i, j int) bool { return agentIDs[i] < agentIDs[j] })
+	sort.Slice(instanceIDs, func(i, j int) bool { return instanceIDs[i] < instanceIDs[j] })
 
 	host := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
@@ -126,8 +130,10 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		}
 	}
 	if len(backfills) > 0 {
-		if err := s.db.Transaction(func(tx *gorm.DB) error {
-			return applyTrafficUserIDBackfills(tx, backfills)
+		if err := s.retryDB(func() error {
+			return s.db.Transaction(func(tx *gorm.DB) error {
+				return applyTrafficUserIDBackfills(tx, backfills)
+			})
 		}); err != nil {
 			return err
 		}
@@ -135,7 +141,11 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 
 	affectedUsers := make(map[uint]bool, len(monitors))
 	var firstErr error
-	for agentID, info := range infoMap {
+	for _, agentID := range agentIDs {
+		info := infoMap[agentID]
+		if info == nil {
+			continue
+		}
 		monitor := monitorByAgentID[agentID]
 		if monitor == nil {
 			continue
@@ -172,9 +182,11 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 
 		deltaBytes := deltaBytesIn + deltaBytesOut
 		if deltaBytes == 0 {
-			if err := s.db.Model(monitor).Updates(map[string]interface{}{
-				"last_sync_at": now,
-			}).Error; err != nil {
+			if err := s.retryDB(func() error {
+				return s.db.Model(monitor).Updates(map[string]interface{}{
+					"last_sync_at": now,
+				}).Error
+			}); err != nil {
 				if firstErr == nil {
 					firstErr = fmt.Errorf("update sync time for monitor %d: %w", monitor.ID, err)
 				}
@@ -192,46 +204,48 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		minute := (now.Minute() / 5) * 5
 		alignedTime := time.Date(year, time.Month(month), day, hour, minute, 0, 0, now.Location())
 
-		err := s.db.Transaction(func(tx *gorm.DB) error {
-			txSync := &SyncService{db: tx, ctx: s.ctx}
-			if err := txSync.upsertInstanceTrafficHistory(
-				monitor.InstanceID, monitor.ProviderID, monitor.UserID,
-				rxMB, txMB, year, month, day, hour, now,
-			); err != nil {
-				return fmt.Errorf("upsert instance traffic history: %w", err)
-			}
-			if err := txSync.upsertInstanceMonthlyTraffic(
-				monitor.InstanceID, monitor.ProviderID, monitor.UserID,
-				year, month, now,
-			); err != nil {
-				return fmt.Errorf("upsert instance monthly traffic: %w", err)
-			}
-			if err := tx.Model(monitor).Updates(map[string]interface{}{
-				"last_traffic_bytes":     currentTraffic,
-				"last_traffic_bytes_in":  currentTrafficIn,
-				"last_traffic_bytes_out": currentTrafficOut,
-				"last_sync_at":           now,
-			}).Error; err != nil {
-				return fmt.Errorf("update agent monitor tracking: %w", err)
-			}
-			if err := tx.Exec(`
-				INSERT INTO pmacct_traffic_records
-					(instance_id, user_id, provider_id, provider_type, mapped_ip,
-					 rx_bytes, tx_bytes, total_bytes, timestamp, year, month, day, hour, minute,
-					 record_time, created_at, updated_at)
-				VALUES (?, ?, ?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON DUPLICATE KEY UPDATE
-					rx_bytes = ?, tx_bytes = ?, total_bytes = ?,
-					record_time = ?, updated_at = ?`,
-				monitor.InstanceID, monitor.UserID, monitor.ProviderID,
-				monitor.Interfaces,
-				int64(currentTrafficIn), int64(currentTrafficOut), int64(currentTraffic),
-				alignedTime, year, month, day, hour, minute, now, now, now,
-				int64(currentTrafficIn), int64(currentTrafficOut), int64(currentTraffic),
-				now, now).Error; err != nil {
-				return fmt.Errorf("upsert pmacct traffic record: %w", err)
-			}
-			return nil
+		err := s.retryDB(func() error {
+			return s.db.Transaction(func(tx *gorm.DB) error {
+				txSync := &SyncService{db: tx, ctx: s.ctx}
+				if err := txSync.upsertInstanceTrafficHistory(
+					monitor.InstanceID, monitor.ProviderID, monitor.UserID,
+					rxMB, txMB, year, month, day, hour, now,
+				); err != nil {
+					return fmt.Errorf("upsert instance traffic history: %w", err)
+				}
+				if err := txSync.upsertInstanceMonthlyTraffic(
+					monitor.InstanceID, monitor.ProviderID, monitor.UserID,
+					year, month, now,
+				); err != nil {
+					return fmt.Errorf("upsert instance monthly traffic: %w", err)
+				}
+				if err := tx.Model(monitor).Updates(map[string]interface{}{
+					"last_traffic_bytes":     currentTraffic,
+					"last_traffic_bytes_in":  currentTrafficIn,
+					"last_traffic_bytes_out": currentTrafficOut,
+					"last_sync_at":           now,
+				}).Error; err != nil {
+					return fmt.Errorf("update agent monitor tracking: %w", err)
+				}
+				if err := tx.Exec(`
+					INSERT INTO pmacct_traffic_records
+						(instance_id, user_id, provider_id, provider_type, mapped_ip,
+						 rx_bytes, tx_bytes, total_bytes, timestamp, year, month, day, hour, minute,
+						 record_time, created_at, updated_at)
+					VALUES (?, ?, ?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					ON DUPLICATE KEY UPDATE
+						rx_bytes = ?, tx_bytes = ?, total_bytes = ?,
+						record_time = ?, updated_at = ?`,
+					monitor.InstanceID, monitor.UserID, monitor.ProviderID,
+					monitor.Interfaces,
+					int64(currentTrafficIn), int64(currentTrafficOut), int64(currentTraffic),
+					alignedTime, year, month, day, hour, minute, now, now, now,
+					int64(currentTrafficIn), int64(currentTrafficOut), int64(currentTraffic),
+					now, now).Error; err != nil {
+					return fmt.Errorf("upsert pmacct traffic record: %w", err)
+				}
+				return nil
+			})
 		})
 		if err != nil {
 			if firstErr == nil {
@@ -246,7 +260,9 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		}
 	}
 
-	if err := s.aggregateProviderTraffic(providerID, year, month, day, hour, now); err != nil {
+	if err := s.retryDB(func() error {
+		return s.aggregateProviderTraffic(providerID, year, month, day, hour, now)
+	}); err != nil {
 		if global.APP_LOG != nil {
 			global.APP_LOG.Warn("aggregate provider traffic failed",
 				zap.Uint("provider_id", providerID),
@@ -255,12 +271,15 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	}
 
 	// Aggregate user traffic for all affected users
-	userIDs := make(map[uint]bool)
-	for _, m := range monitors {
-		userIDs[m.UserID] = true
-	}
+	affectedUserIDs := make([]uint, 0, len(affectedUsers))
 	for userID := range affectedUsers {
-		if err := s.aggregateUserTraffic(userID, year, month, day, hour, now); err != nil {
+		affectedUserIDs = append(affectedUserIDs, userID)
+	}
+	sort.Slice(affectedUserIDs, func(i, j int) bool { return affectedUserIDs[i] < affectedUserIDs[j] })
+	for _, userID := range affectedUserIDs {
+		if err := s.retryDB(func() error {
+			return s.aggregateUserTraffic(userID, year, month, day, hour, now)
+		}); err != nil {
 			if global.APP_LOG != nil {
 				global.APP_LOG.Warn("aggregate user traffic failed",
 					zap.Uint("user_id", userID),
@@ -270,6 +289,14 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	}
 
 	return firstErr
+}
+
+func (s *SyncService) retryDB(operation func() error) error {
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return utils.RetryableDBOperation(ctx, operation, 8)
 }
 
 func applyTrafficUserIDBackfills(tx *gorm.DB, changes []trafficUserIDBackfill) error {
