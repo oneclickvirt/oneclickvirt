@@ -90,7 +90,7 @@ run_module_10() {
         if [[ -n "$maybe_task" ]]; then
             log_info "Instance creation task: ${maybe_task}"
             local task_r=""
-            if task_r=$(wait_task_complete "$SERVER_URL" "$maybe_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
+            if task_r=$(wait_task_complete_nonfatal "$SERVER_URL" "$maybe_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
                 log_info "Task complete response: $(echo "$task_r" | jq -c '.' 2>/dev/null || printf '%s' "$task_r")"
                 container_id=$(echo "$task_r" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
                 if [[ -z "$container_id" ]]; then
@@ -100,12 +100,12 @@ run_module_10() {
                 log_info "Task failed response: $(echo "$task_r" | jq -c '.' 2>/dev/null || printf '%s' "$task_r")"
                 if is_infrastructure_failure_detail "$task_r"; then
                     local infra_detail; infra_detail=$(echo "$task_r" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$task_r")
-                    log_error "Container creation failed due to worker network/SSH/DNS infrastructure: ${infra_detail}"
+                    log_warning "Container creation skipped due to worker network/SSH/DNS infrastructure: ${infra_detail}"
                     record_skip_result "Create container instance task (infrastructure)" "GET" "/api/v1/admin/tasks/${maybe_task}" "${infra_detail}" "$group"
-                    exit 75
+                else
+                    local task_actual; task_actual=$(safe_jq "$task_r" '.data.status // .message // .msg // "failed"' 'failed')
+                    record_fail_result "Create container instance task" "GET" "/api/v1/admin/tasks/${maybe_task}" "completed" "$task_actual" "$task_r" "$group"
                 fi
-                local task_actual; task_actual=$(safe_jq "$task_r" '.data.status // .message // .msg // "failed"' 'failed')
-                record_fail_result "Create container instance task" "GET" "/api/v1/admin/tasks/${maybe_task}" "completed" "$task_actual" "$task_r" "$group"
             fi
         else
             container_id=$(echo "$ir" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
@@ -302,7 +302,7 @@ run_module_10() {
         local vm_task; vm_task=$(echo "$vr" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$vm_task" ]]; then
             local vm_tr=""
-            if vm_tr=$(wait_task_complete "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 15); then
+            if vm_tr=$(wait_task_complete_nonfatal "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 15); then
                 log_info "VM task complete response: $(echo "$vm_tr" | jq -c '.' 2>/dev/null || printf '%s' "$vm_tr")"
                 vm_id=$(echo "$vm_tr" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
                 if [[ -z "$vm_id" ]]; then
@@ -312,12 +312,12 @@ run_module_10() {
                 log_info "VM task failed response: $(echo "$vm_tr" | jq -c '.' 2>/dev/null || printf '%s' "$vm_tr")"
                 if is_infrastructure_failure_detail "$vm_tr"; then
                     local vm_infra_detail; vm_infra_detail=$(echo "$vm_tr" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$vm_tr")
-                    log_error "VM creation failed due to worker network/SSH/DNS infrastructure: ${vm_infra_detail}"
+                    log_warning "VM creation skipped due to worker network/SSH/DNS infrastructure: ${vm_infra_detail}"
                     record_skip_result "Create VM instance task (infrastructure)" "GET" "/api/v1/admin/tasks/${vm_task}" "${vm_infra_detail}" "$group"
-                    exit 75
+                else
+                    local vm_task_actual; vm_task_actual=$(safe_jq "$vm_tr" '.data.status // .message // .msg // "failed"' 'failed')
+                    record_fail_result "Create VM instance task" "GET" "/api/v1/admin/tasks/${vm_task}" "completed" "$vm_task_actual" "$vm_tr" "$group"
                 fi
-                local vm_task_actual; vm_task_actual=$(safe_jq "$vm_tr" '.data.status // .message // .msg // "failed"' 'failed')
-                record_fail_result "Create VM instance task" "GET" "/api/v1/admin/tasks/${vm_task}" "completed" "$vm_task_actual" "$vm_tr" "$group"
             fi
         else
             vm_id=$(echo "$vr" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)

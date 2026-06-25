@@ -120,6 +120,7 @@
         </div>
       </el-form>
     </div>
+    <AppFooter />
   </div>
 </template>
 
@@ -137,6 +138,7 @@ import { Operation, HomeFilled, Sunny, Moon } from '@element-plus/icons-vue'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useThemeStore } from '@/pinia/modules/theme'
 import { useSiteStore } from '@/pinia/modules/site'
+import AppFooter from '@/view/layout/components/AppFooter.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -269,7 +271,6 @@ onMounted(async () => {
   min-height: 100vh;
   min-height: 100dvh;
   background: var(--auth-page-bg);
-  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* 顶部栏样式 */

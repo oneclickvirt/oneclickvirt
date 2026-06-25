@@ -399,7 +399,7 @@
   color: #16a34a;
 }
 
-/* ===== Sponsors Carousel ===== */
+/* ===== Sponsors ===== */
 .supporters-section {
   max-width: 1200px;
   margin: 18px auto 0;
@@ -407,12 +407,22 @@
   text-align: center;
 }
 
+.supporters-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+}
+
 .supporter-card {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 14px 24px;
-  min-width: 168px;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 14px 20px;
+  min-width: 150px;
   height: 82px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.06);
@@ -438,8 +448,8 @@
 }
 
 .supporter-card-ibm {
-  min-width: 430px;
-  padding-inline: 24px;
+  min-width: 410px;
+  padding-inline: 20px;
 }
 
 .supporter-card img.supporter-logo-ibm {
@@ -455,6 +465,18 @@
 .supporter-card img.supporter-logo-dartnode {
   width: 64px;
   height: 64px;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+
+.supporter-card-linuxdo {
+  min-width: 132px;
+}
+
+.supporter-card img.supporter-logo-linuxdo {
+  width: 58px;
+  height: 58px;
   max-width: none;
   max-height: none;
   object-fit: contain;
@@ -960,13 +982,13 @@
   }
 
   .supporter-card {
-    min-width: 140px;
+    min-width: 132px;
     padding: 12px 18px;
     height: 72px;
   }
 
   .supporter-card-ibm {
-    min-width: 360px;
+    min-width: 342px;
     padding-inline: 18px;
   }
 
@@ -983,6 +1005,15 @@
   .supporter-card img.supporter-logo-dartnode {
     width: 56px;
     height: 56px;
+  }
+
+  .supporter-card-linuxdo {
+    min-width: 116px;
+  }
+
+  .supporter-card img.supporter-logo-linuxdo {
+    width: 54px;
+    height: 54px;
   }
 
   .platform-item {
@@ -1114,18 +1145,18 @@
   }
 
   .supporter-card {
-    min-width: 118px;
+    min-width: 108px;
     padding: 10px 14px;
     height: 64px;
   }
 
   .supporter-card-ibm {
-    min-width: 314px;
+    min-width: min(314px, 100%);
     padding-inline: 14px;
   }
 
   .supporter-card img.supporter-logo-ibm {
-    width: 286px;
+    width: min(286px, 100%);
     max-width: none;
     max-height: 38px;
   }
@@ -1137,6 +1168,15 @@
   .supporter-card img.supporter-logo-dartnode {
     width: 48px;
     height: 48px;
+  }
+
+  .supporter-card-linuxdo {
+    min-width: 96px;
+  }
+
+  .supporter-card img.supporter-logo-linuxdo {
+    width: 46px;
+    height: 46px;
   }
 
   .footer-links-grid {

@@ -54,9 +54,9 @@
 | 镜像标签 | 说明 | 适用场景 |
 |---------|------|---------|
 | `spiritlhl/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
-| `spiritlhl/oneclickvirt:20260625` | 一体化版本特定日期版本 | 需要固定版本 |
+| `spiritlhl/oneclickvirt:20260624` | 一体化版本特定日期版本 | 需要固定版本 |
 | `spiritlhl/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
-| `spiritlhl/oneclickvirt:no-db-20260625` | 独立数据库版本特定日期 | 不内置数据库 |
+| `spiritlhl/oneclickvirt:no-db-20260624` | 独立数据库版本特定日期 | 不内置数据库 |
 
 所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
 
@@ -361,24 +361,28 @@ go run main.go
 感谢以下团体或个人赞助 OneClickVirt 项目：
 
 <p>
-  <a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
-    <img src="./web/src/assets/images/ibm-linuxone.png" alt="IBM LinuxONE OSS Community Cloud" height="44">
+  <a href="https://dartnode.com?aff=bonus">
+    <img src="./web/src/assets/images/dartnode.png" alt="DartNode" height="44">
   </a>
   &nbsp;&nbsp;
   <a href="https://console.zmto.com/?affid=1524">
     <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" height="44">
   </a>
   &nbsp;&nbsp;
-  <a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
-    <img src="https://www.jtti.cc/static/images/common/article_logo.png" alt="Jtti.cc" height="44">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://dartnode.com?aff=bonus">
-    <img src="./web/src/assets/images/dartnode.png" alt="DartNode" height="44">
+  <a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
+    <img src="./web/src/assets/images/ibm-linuxone.png" alt="IBM LinuxONE OSS Community Cloud" height="44">
   </a>
   &nbsp;&nbsp;
   <a href="https://fossvps.org/">
     <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://linux.do/">
+    <img src="https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png" alt="Linux DO" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
+    <img src="https://www.jtti.cc/static/images/common/article_logo.png" alt="Jtti.cc" height="44">
   </a>
 </p>
 

@@ -115,7 +115,7 @@ ensure_worker_ssh_reachable() {
 is_infrastructure_failure_detail() {
     local detail="$1"
     printf '%s' "$detail" | grep -Eiq \
-        'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|lookup .* on \[::1\]:53|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
+        'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|process exited with status 6|远程下载.*(status 6|lookup|temporary failure|resolving)|remote download.*(status 6|lookup|temporary failure|resolving)|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
 }
 
 redact_request_payload() {
@@ -898,13 +898,51 @@ wait_instance_status_nonfatal() {
     return 1
 }
 
+wait_instance_active_tasks_idle() {
+    local instance_id="$1" label="${2:-instance ${instance_id}}" token="${3:-$ADMIN_TOKEN}" max="${4:-$INSTANCE_TASK_MAX_WAIT}" interval="${5:-10}"
+    local elapsed=0 last_summary=""
+
+    [[ -z "$instance_id" ]] && return 0
+
+    log_info "Waiting for ${label} active task queue to settle (max ${max}s)..."
+    while [[ $elapsed -lt $max ]]; do
+        local resp; resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+            "${SERVER_URL}/api/v1/admin/tasks?page=1&pageSize=50" 2>/dev/null) || true
+        local active_count
+        active_count=$(printf '%s' "$resp" | jq -r --arg id "$instance_id" \
+            '[.data.list[]? | select(((.instanceId // .instance_id // 0) | tostring) == $id and ((.status // "") | test("^(pending|running|processing|queued)$")))] | length' 2>/dev/null) || active_count=""
+        [[ "$active_count" =~ ^[0-9]+$ ]] || active_count=0
+
+        if [[ "$active_count" -eq 0 ]]; then
+            log_success "${label} has no active instance tasks (waited ${elapsed}s)"
+            return 0
+        fi
+
+        local summary
+        summary=$(printf '%s' "$resp" | jq -r --arg id "$instance_id" \
+            '[.data.list[]? | select(((.instanceId // .instance_id // 0) | tostring) == $id and ((.status // "") | test("^(pending|running|processing|queued)$"))) | "\(.id):\(.taskType // .task_type // "task"):\(.status)"] | join(",")' 2>/dev/null) || summary=""
+        if [[ "$summary" != "$last_summary" || $((elapsed % 30)) -eq 0 ]]; then
+            log_info "${label} active task(s): ${summary:-${active_count}} (${elapsed}s/${max}s)"
+            last_summary="$summary"
+        fi
+
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    log_warning "${label} still has active instance tasks after ${max}s"
+    return 1
+}
+
 wait_instance_operation_settled() {
     local instance_id="$1" response="$2" expected_status="${3:-}" label="${4:-instance operation}" token="${5:-$ADMIN_TOKEN}" max="${6:-$INSTANCE_TASK_MAX_WAIT}" interval="${7:-10}"
-    local task_id; task_id=$(safe_jq "$response" '-r .data.task_id // empty' '')
+    local task_id; task_id=$(safe_jq "$response" '-r .data.task_id // .data.taskId // .task_id // .taskId // empty' '')
 
     if [[ -n "$task_id" ]]; then
         log_info "Waiting for ${label} task ${task_id}..."
         wait_task_complete "$SERVER_URL" "$task_id" "$token" "$max" "$interval" > /dev/null || return 1
+    else
+        wait_instance_active_tasks_idle "$instance_id" "$label" "$token" "$max" "$interval" || return 1
     fi
 
     if [[ "${INSTANCE_OPERATION_SETTLE_SECONDS:-0}" -gt 0 ]]; then

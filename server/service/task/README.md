@@ -198,6 +198,10 @@ tasks, total, err := taskService.GetAdminTasks(request)
 stats, err := taskService.GetTaskStats()
 ```
 
+### API 返回约定
+
+实例创建、重建、端口映射等接口通常会把创建出的任务 ID 放在响应数据中，调用方可以直接轮询任务详情。启动、停止、重启、删除等部分实例操作接口由 API 层提交后台任务后只返回通用成功响应，调用方不应强依赖 `data.task_id` 一定存在；需要感知完成状态时，应轮询任务列表中同一实例的活跃任务，或结合实例详情中的最终状态判断操作是否落地。
+
 ### 优雅关闭
 
 ```go

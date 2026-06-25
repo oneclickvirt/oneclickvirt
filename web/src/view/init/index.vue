@@ -1,7 +1,8 @@
 <template>
-  <div class="init-container">
-    <div class="init-bg-pattern" />
-    <div class="init-card">
+  <div class="init-page">
+    <div class="init-container">
+      <div class="init-bg-pattern" />
+      <div class="init-card">
       <!-- Header -->
       <div class="init-header">
         <div class="init-logo">
@@ -376,7 +377,9 @@
           </el-button>
         </div>
       </template>
+      </div>
     </div>
+    <AppFooter />
   </div>
 </template>
 
@@ -384,6 +387,7 @@
 import InitProgressPanel from './components/InitProgressPanel.vue'
 import useInit from './useInit'
 import { useI18n } from 'vue-i18n'
+import AppFooter from '@/view/layout/components/AppFooter.vue'
 const { t } = useI18n()
 
 const {
@@ -404,17 +408,23 @@ const {
 </script>
 
 <style scoped>
-.init-container {
+.init-page {
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 50%, #f0f9ff 100%);
+}
+
+.init-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 50%, #f0f9ff 100%);
   padding: 20px;
-  padding-bottom: calc(20px + env(safe-area-inset-bottom));
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 .init-bg-pattern {
@@ -573,7 +583,6 @@ const {
 @media (max-width: 640px) {
   .init-container {
     padding: 12px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
     align-items: flex-start;
   }
 

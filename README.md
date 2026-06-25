@@ -54,9 +54,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `spiritlhl/oneclickvirt:20260625` | All-in-one version with specific date | Fixed version requirement |
+| `spiritlhl/oneclickvirt:20260624` | All-in-one version with specific date | Fixed version requirement |
 | `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
-| `spiritlhl/oneclickvirt:no-db-20260625` | Standalone database version with date | Without database |
+| `spiritlhl/oneclickvirt:no-db-20260624` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -361,24 +361,28 @@ The main configuration file is located at `server/config.yaml`
 Thanks to the following groups and individuals for sponsoring OneClickVirt:
 
 <p>
-  <a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
-    <img src="./web/src/assets/images/ibm-linuxone.png" alt="IBM LinuxONE OSS Community Cloud" height="44">
+  <a href="https://dartnode.com?aff=bonus">
+    <img src="./web/src/assets/images/dartnode.png" alt="DartNode" height="44">
   </a>
   &nbsp;&nbsp;
   <a href="https://console.zmto.com/?affid=1524">
     <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" height="44">
   </a>
   &nbsp;&nbsp;
-  <a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
-    <img src="https://www.jtti.cc/static/images/common/article_logo.png" alt="Jtti.cc" height="44">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://dartnode.com?aff=bonus">
-    <img src="./web/src/assets/images/dartnode.png" alt="DartNode" height="44">
+  <a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
+    <img src="./web/src/assets/images/ibm-linuxone.png" alt="IBM LinuxONE OSS Community Cloud" height="44">
   </a>
   &nbsp;&nbsp;
   <a href="https://fossvps.org/">
     <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://linux.do/">
+    <img src="https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png" alt="Linux DO" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
+    <img src="https://www.jtti.cc/static/images/common/article_logo.png" alt="Jtti.cc" height="44">
   </a>
 </p>
 

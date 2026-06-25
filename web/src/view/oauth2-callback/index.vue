@@ -1,57 +1,60 @@
 <template>
-  <div class="oauth2-callback-container">
-    <el-card class="callback-card">
-      <div
-        v-if="loading"
-        class="loading-container"
-      >
-        <el-icon
-          class="is-loading"
-          :size="50"
+  <div class="oauth2-callback-page">
+    <div class="oauth2-callback-container">
+      <el-card class="callback-card">
+        <div
+          v-if="loading"
+          class="loading-container"
         >
-          <Loading />
-        </el-icon>
-        <p class="loading-text">
-          {{ t('oauth2Callback.processing') }}
-        </p>
-      </div>
-      
-      <div
-        v-else-if="error"
-        class="error-container"
-      >
-        <el-icon
-          :size="50"
-          color="#f56c6c"
+          <el-icon
+            class="is-loading"
+            :size="50"
+          >
+            <Loading />
+          </el-icon>
+          <p class="loading-text">
+            {{ t('oauth2Callback.processing') }}
+          </p>
+        </div>
+
+        <div
+          v-else-if="error"
+          class="error-container"
         >
-          <CircleClose />
-        </el-icon>
-        <p class="error-text">
-          {{ errorMessage }}
-        </p>
-        <el-button
-          type="primary"
-          @click="goToLogin"
+          <el-icon
+            :size="50"
+            color="#f56c6c"
+          >
+            <CircleClose />
+          </el-icon>
+          <p class="error-text">
+            {{ errorMessage }}
+          </p>
+          <el-button
+            type="primary"
+            @click="goToLogin"
+          >
+            {{ t('oauth2Callback.backToLogin') }}
+          </el-button>
+        </div>
+
+        <div
+          v-else
+          class="success-container"
         >
-          {{ t('oauth2Callback.backToLogin') }}
-        </el-button>
-      </div>
-      
-      <div
-        v-else
-        class="success-container"
-      >
-        <el-icon
-          :size="50"
-          color="#67c23a"
-        >
-          <CircleCheck />
-        </el-icon>
-        <p class="success-text">
-          {{ t('oauth2Callback.loginSuccess') }}
-        </p>
-      </div>
-    </el-card>
+          <el-icon
+            :size="50"
+            color="#67c23a"
+          >
+            <CircleCheck />
+          </el-icon>
+          <p class="success-text">
+            {{ t('oauth2Callback.loginSuccess') }}
+          </p>
+        </div>
+      </el-card>
+    </div>
+    <AppFooter />
   </div>
 </template>
 
@@ -62,6 +65,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Loading, CircleClose, CircleCheck } from '@element-plus/icons-vue'
 import { useUserStore } from '@/pinia/modules/user'
+import AppFooter from '@/view/layout/components/AppFooter.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -117,15 +121,21 @@ const goToLogin = () => {
 </script>
 
 <style scoped lang="scss">
+.oauth2-callback-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--auth-page-bg);
+}
+
 .oauth2-callback-container {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
-  min-height: 100dvh;
-  background: var(--auth-page-bg);
+  flex: 1;
+  min-height: 0;
   padding: 16px;
-  padding-bottom: calc(16px + env(safe-area-inset-bottom));
   
   .callback-card {
     width: min(400px, 100%);
@@ -169,7 +179,6 @@ const goToLogin = () => {
   .oauth2-callback-container {
     align-items: flex-start;
     padding: 12px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
 
     .callback-card {
       margin-top: 12px;

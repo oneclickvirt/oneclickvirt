@@ -212,32 +212,26 @@
           <h2>{{ t('home.supporters.title') }}</h2>
           <p>{{ t('home.supporters.description') }}</p>
         </div>
-        <LogoCarousel
-          :items="footerSponsors"
-          :speed="38"
-          direction="right"
-          :gap="20"
-        >
-          <template #default="{ item }">
-            <a
-              :href="item.href"
-              target="_blank"
-              rel="noopener noreferrer"
-              :class="['supporter-card', item.cardClass]"
-              :title="item.name"
-              :aria-label="item.name"
+        <div class="supporters-grid">
+          <a
+            v-for="item in footerSponsors"
+            :key="item.name"
+            :href="item.href"
+            target="_blank"
+            rel="noopener noreferrer"
+            :class="['supporter-card', item.cardClass]"
+            :title="item.name"
+            :aria-label="item.name"
+          >
+            <img
+              :src="item.logo"
+              :alt="item.name"
+              loading="eager"
+              decoding="async"
+              :class="item.logoClass"
             >
-              <img
-                :src="item.logo"
-                :alt="item.name"
-                loading="eager"
-                decoding="async"
-                :class="item.logoClass"
-                :style="item.invert ? 'filter: invert(1);' : ''"
-              >
-            </a>
-          </template>
-        </LogoCarousel>
+          </a>
+        </div>
       </section>
 
       <!-- 系统公告 -->
@@ -529,24 +523,6 @@ const platforms = [
 
 const footerSponsors = [
   {
-    name: 'IBM LinuxONE OSS Community Cloud',
-    href: 'https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/',
-    logo: ibmLinuxonePng,
-    cardClass: 'supporter-card-ibm',
-    logoClass: 'supporter-logo-ibm'
-  },
-  {
-    name: 'zmto',
-    href: 'https://console.zmto.com/?affid=1524',
-    logo: 'https://console.zmto.com/templates/2019/dist/images/logo_dark.svg'
-  },
-  {
-    name: 'JTTI',
-    href: 'https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt',
-    logo: 'https://www.jtti.cc/static/images/common/logo.png',
-    invert: true
-  },
-  {
     name: 'DartNode',
     href: 'https://dartnode.com?aff=bonus',
     logo: dartnodePng,
@@ -554,9 +530,33 @@ const footerSponsors = [
     logoClass: 'supporter-logo-dartnode'
   },
   {
+    name: 'zmto',
+    href: 'https://console.zmto.com/?affid=1524',
+    logo: 'https://console.zmto.com/templates/2019/dist/images/logo_dark.svg'
+  },
+  {
+    name: 'IBM LinuxONE OSS Community Cloud',
+    href: 'https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/',
+    logo: ibmLinuxonePng,
+    cardClass: 'supporter-card-ibm',
+    logoClass: 'supporter-logo-ibm'
+  },
+  {
     name: 'fossvps',
     href: 'https://fossvps.org/',
     logo: 'https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png'
+  },
+  {
+    name: 'Linux DO',
+    href: 'https://linux.do/',
+    logo: 'https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png',
+    cardClass: 'supporter-card-linuxdo',
+    logoClass: 'supporter-logo-linuxdo'
+  },
+  {
+    name: 'JTTI',
+    href: 'https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt',
+    logo: 'https://www.jtti.cc/static/images/common/article_logo.png'
   }
 ]
 

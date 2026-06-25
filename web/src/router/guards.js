@@ -47,7 +47,7 @@ export function setupRouterGuards(router) {
   })
 
   // 定义白名单（放在最前面，供所有逻辑使用）
-  const whiteList = ['/home', '/login', '/register', '/forgot-password', '/init', '/admin/login']
+  const whiteList = ['/home', '/login', '/register', '/forgot-password', '/oauth2/callback', '/init', '/admin/login']
   
   router.beforeEach(async (to, from, next) => {
     NProgress.start()
