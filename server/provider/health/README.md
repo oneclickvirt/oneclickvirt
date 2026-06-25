@@ -15,6 +15,7 @@
 | `base.go` | 基础健康检查器实现，提供 HTTP 客户端管理和通用检查逻辑 |
 | `factory.go` | 工厂方法和适配器，提供便捷的创建函数 |
 | `utils.go` | 辅助工具：SSH 命令执行、资源信息采集、结果解析 |
+| `utils_resource.go` | CPU、内存、磁盘等资源信息采集辅助 |
 | `storage_detection.go` | 存储池路径自动检测（支持 Proxmox/LXD/Incus/Docker） |
 | `docker.go` | Docker 提供商健康检查实现 |
 | `lxd.go` | LXD 提供商健康检查实现 |
@@ -24,13 +25,15 @@
 ### 支持的提供商类型
 
 - `docker` — Docker 容器
+- `orbstack` — Orbstack 容器（复用 Docker 检查逻辑）
 - `podman` — Podman 容器（复用 Docker 检查逻辑）
 - `containerd` — Containerd 容器（复用 Docker 检查逻辑）
 - `lxd` — LXD 容器/虚拟机
 - `incus` — Incus 容器/虚拟机
-- `proxmox` — Proxmox VE 虚拟化
+- `proxmox`、`proxmoxve` — Proxmox VE 虚拟化
 - `qemu` — QEMU/KVM 虚拟机（SSH 连接检查 + libvirtd 服务状态）
 - `kubevirt` — KubeVirt 虚拟机（SSH 连接检查 + kubelet 服务状态）
+- `vmware`、`virtualbox`、`multipass`、`vagrant` — VM CLI Provider（SSH-only 健康检查）
 
 ## 工作流程
 

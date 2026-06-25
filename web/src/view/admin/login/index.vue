@@ -267,25 +267,30 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--auth-page-bg);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* 顶部栏样式 */
 .auth-header {
   background: var(--auth-header-bg);
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   box-shadow: 0 2px 20px rgba(22, 163, 74, 0.1);
   border-bottom: 1px solid rgba(22, 163, 74, 0.1);
+  padding-top: env(safe-area-inset-top);
 }
 
 .header-content {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 70px;
+  gap: 16px;
+  min-height: 60px;
 }
 
 .logo {
@@ -295,13 +300,13 @@ onMounted(async () => {
 }
 
 .logo-image {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   object-fit: contain;
 }
 
 .logo h1 {
-  font-size: 28px;
+  font-size: 24px;
   color: #16a34a;
   margin: 0;
   font-weight: 700;
@@ -314,11 +319,15 @@ onMounted(async () => {
 .nav-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .nav-link.theme-btn {
-  padding: 10px 12px;
+  padding: 8px 10px;
+  min-width: 38px;
+  justify-content: center;
 }
 
 .nav-link {
@@ -326,12 +335,12 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 12px 24px;
-  border-radius: 25px;
+  padding: 9px 14px;
+  border-radius: 22px;
   border: 1px solid var(--border-color);
   background: transparent;
   color: var(--text-color-primary);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -357,17 +366,15 @@ onMounted(async () => {
 }
 
 .login-form {
-  width: 420px;
-  padding: 48px 44px;
+  width: min(420px, calc(100% - 32px));
+  padding: 36px 38px;
   background: var(--card-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 20px;
   box-shadow: 0 20px 60px rgba(22, 163, 74, 0.12), 0 4px 20px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(22, 163, 74, 0.1);
-  margin: auto;
-  margin-top: 60px;
-  margin-bottom: 60px;
+  margin: 32px auto;
 }
 
 .login-form :deep(.el-form) {
@@ -473,9 +480,74 @@ onMounted(async () => {
 }
 
 @media (max-width: 768px) {
+  .header-content {
+    min-height: 56px;
+    padding: 8px 16px;
+    gap: 10px;
+  }
+
+  .logo {
+    gap: 8px;
+  }
+
+  .logo-image {
+    width: 38px;
+    height: 38px;
+  }
+
+  .logo h1 {
+    font-size: 21px;
+  }
+
+  .nav-actions {
+    gap: 6px;
+  }
+
+  .nav-link {
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+
   .login-form {
-    width: 90%;
-    padding: 20px;
+    width: calc(100% - 24px);
+    margin: 24px auto;
+    padding: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-content {
+    justify-content: center;
+    padding: 8px 12px;
+  }
+
+  .logo {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .logo-image {
+    width: 34px;
+    height: 34px;
+  }
+
+  .logo h1 {
+    font-size: 20px;
+  }
+
+  .nav-actions {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .nav-link {
+    padding: 7px 9px;
+    font-size: 13px;
+    border-radius: 18px;
+  }
+
+  .login-form {
+    padding: 22px 18px;
   }
 }
 </style>

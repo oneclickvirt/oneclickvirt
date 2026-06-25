@@ -17,6 +17,7 @@ const (
 	ProviderTypeLXD        ProviderType = "lxd"
 	ProviderTypeIncus      ProviderType = "incus"
 	ProviderTypeProxmox    ProviderType = "proxmox"
+	ProviderTypeProxmoxVE  ProviderType = "proxmoxve"
 	ProviderTypePodman     ProviderType = "podman"
 	ProviderTypeContainerd ProviderType = "containerd"
 	ProviderTypeQEMU       ProviderType = "qemu"
@@ -97,7 +98,7 @@ func (hm *HealthManager) CreateChecker(providerType ProviderType, config HealthC
 		checker = NewIncusHealthChecker(configCopy, hm.logger)
 		checkerTypeName = "IncusHealthChecker"
 
-	case ProviderTypeProxmox:
+	case ProviderTypeProxmox, ProviderTypeProxmoxVE:
 		if configCopy.APIPort == 0 {
 			configCopy.APIPort = 8006
 		}

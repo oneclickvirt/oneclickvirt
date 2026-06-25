@@ -10,6 +10,8 @@
 
 An extensible universal virtualization management platform that supports LXD, Incus, Docker, Podman, Containerd, Proxmox VE, QEMU/KVM, and KubeVirt.
 
+The web console uses Vue 3, Vite, and Element Plus, with responsive layouts checked for desktop, tablet, Android-sized, and iOS-sized viewports.
+
 ## **Language**
 
 [English Docs](README.md) | [中文文档](README_ZH.md)
@@ -36,6 +38,8 @@ The report supports bilingual display (Chinese/English), light/dark theme switch
 | `proxmox` | Proxmox VE | container, vm | [oneclickvirt/pve](https://github.com/oneclickvirt/pve) |
 | `qemu` | QEMU | vm | [oneclickvirt/qemu](https://github.com/oneclickvirt/qemu) |
 | `kubevirt` | KubeVirt | vm | [oneclickvirt/kubevirt](https://github.com/oneclickvirt/kubevirt) |
+
+Additional backend adapters are available for local or desktop virtualization experiments, including `orbstack`, `multipass`, `vagrant`, `virtualbox`, and `vmware`. See [`server/provider/README.md`](server/provider/README.md) for implementation details and support scope.
 
 ## Quick Deployment
 
@@ -352,42 +356,31 @@ The administrator account is created from the setup form during first initializa
 
 The main configuration file is located at `server/config.yaml`
 
-## Thanks
+## Sponsors
 
-Thank the following platforms for providing testing:
+Thanks to the following groups and individuals for sponsoring OneClickVirt:
 
-<a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
-  <img src="https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png" alt="IBM LinuxONE OSS Community Cloud" height="50">
-</a>
-
-<a href="https://console.zmto.com/?affid=1524">
-  <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" height="50">
-</a>
-
-<a href="https://fossvps.org/">
-  <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" height="50">
-</a>
-
-<a href="https://linux.do/">
-  <img src="https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png" alt="Linux DO" height="50">
-</a>
-
-<a href="https://dartnode.com?aff=bonus">
-  <img
-    src="https://avatars.githubusercontent.com/u/194546403?s=200&v=4"
-    alt="DartNode"
-    height="50"
-  >
-</a>
-
-<a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
-  <img
-    src="https://www.jtti.cc/static/images/common/logo.png"
-    alt="jtti"
-    height="50"
-    style="filter: invert(1);"
-  >
-</a>
+<p>
+  <a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
+    <img src="./web/src/assets/images/ibm-linuxone.png" alt="IBM LinuxONE OSS Community Cloud" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://console.zmto.com/?affid=1524">
+    <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
+    <img src="https://www.jtti.cc/static/images/common/article_logo.png" alt="Jtti.cc" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://dartnode.com?aff=bonus">
+    <img src="./web/src/assets/images/dartnode.png" alt="DartNode" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://fossvps.org/">
+    <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" height="44">
+  </a>
+</p>
 
 ## LICENSE
 
@@ -395,10 +388,32 @@ Thank the following platforms for providing testing:
 
 ## Demo Screenshots
 
+The screenshots below are generated from the current responsive frontend, including the public homepage, sponsor section, mobile layout, admin pages, and user pages.
+
+**Public homepage**
+
 ![](./.back/1.png)
+
+**Sponsors**
+
 ![](./.back/2.png)
+
+**Mobile homepage**
+
 ![](./.back/3.png)
+
+**Admin dashboard**
+
 ![](./.back/4.png)
+
+**Provider management**
+
 ![](./.back/5.png)
+
+**User dashboard**
+
 ![](./.back/6.png)
+
+**User instances**
+
 ![](./.back/7.png)

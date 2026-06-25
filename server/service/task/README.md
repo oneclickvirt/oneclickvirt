@@ -22,9 +22,19 @@
 | `restart` | 重启实例 | 10 分钟 |
 | `delete` | 删除实例 | 30 分钟 |
 | `reset` | 重置实例 | 20 分钟 |
-| `reset-password` | 重置密码 | 5 分钟 |
-| `create-port` | 创建端口映射 | 5 分钟 |
-| `delete-port` | 删除端口映射 | 5 分钟 |
+| `rebuild` | 重装/重建实例，复用 reset 执行链路 | 30 分钟 |
+| `reset-password` | 重置密码 | 10 分钟 |
+| `create-port-mapping` | 创建端口映射 | 10 分钟 |
+| `delete-port-mapping` | 删除端口映射 | 5 分钟 |
+| `sync-port-mappings` | 同步节点端口映射 | 30 分钟 |
+| `snapshot-create` / `snapshot-delete` / `snapshot-restore` | 快照创建、删除、恢复 | 30 分钟 |
+| `monitor-sync` | Provider 监控器同步与陈旧监控清理 | 30 分钟 |
+| `agent-deploy` | 部署监控 Agent | 30 分钟 |
+| `agent-uninstall` | 卸载监控 Agent | 10 分钟 |
+| `traffic-monitor-enable` / `traffic-monitor-disable` / `traffic-monitor-detect` | 批量启停或探测流量监控 | 30 分钟 |
+| `provider-image-cleanup` | 清理节点运行时镜像或本地镜像缓存 | 30 分钟 |
+
+默认超时来自 `utils.GetDefaultTaskTimeout`；部分监控、Agent 和清理类任务在创建时会显式传入更贴合场景的超时与预计执行时长。
 
 ## 任务状态管理
 
@@ -117,6 +127,10 @@ enableTaskPolling: true       # 是否启用轮询
 | `helpers.go` | 辅助函数（默认超时、进度更新、任务路由、超时清理） |
 | `context_manager.go` | 任务上下文管理 |
 | `pool_manager.go` | 工作池管理器 |
+| `pool_control.go` | 任务池维护模式和接收状态控制 |
+| `task_status.go` | 主任务状态常量与状态转换辅助 |
+| `cache_invalidation.go` | 任务结束后的用户/实例/仪表盘缓存失效 |
+| `startup_cleanup.go` | 服务启动时清理上次进程遗留的活跃任务 |
 
 ### 任务执行文件
 
@@ -131,6 +145,10 @@ enableTaskPolling: true       # 是否启用轮询
 | `port_mapping_tasks.go` | 端口映射的创建和删除任务 |
 | `sync_port_mappings_task.go` | 端口映射同步任务 |
 | `freeze_check.go` | 冻结检查（防止卡死任务） |
+| `monitor_sync_task.go` | Provider 监控器同步任务 |
+| `agent_monitoring_task.go` | 监控 Agent 部署/卸载任务 |
+| `traffic_monitor_task.go` | 流量监控启用、禁用和探测任务 |
+| `provider_image_cleanup.go` | Provider 镜像与缓存清理任务 |
 
 ## API 接口
 

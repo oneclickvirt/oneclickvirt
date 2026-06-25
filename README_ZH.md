@@ -10,6 +10,8 @@
 
 一个可扩展的通用虚拟化管理平台，支持 LXD、Incus、Docker、Podman、Containerd、Proxmox VE、QEMU/KVM 和 KubeVirt。
 
+前端控制台基于 Vue 3、Vite 和 Element Plus 构建，已针对桌面、平板、安卓尺寸和 iOS 尺寸视口进行响应式布局检查。
+
 ## **语言**
 
 [English Docs](README.md) | [中文文档](README_ZH.md)
@@ -36,6 +38,8 @@
 | `proxmox` | Proxmox VE | container, vm | [oneclickvirt/pve](https://github.com/oneclickvirt/pve) |
 | `qemu` | QEMU | vm | [oneclickvirt/qemu](https://github.com/oneclickvirt/qemu) |
 | `kubevirt` | KubeVirt | vm | [oneclickvirt/kubevirt](https://github.com/oneclickvirt/kubevirt) |
+
+后端还包含面向本地或桌面虚拟化实验场景的适配器，例如 `orbstack`、`multipass`、`vagrant`、`virtualbox` 和 `vmware`。实现细节和支持范围见 [`server/provider/README.md`](server/provider/README.md)。
 
 ## 快速部署
 
@@ -352,42 +356,31 @@ go run main.go
 
 主要配置文件位于 `server/config.yaml`
 
-## 致谢
+## 赞助方
 
-感谢以下平台提供的测试：
+感谢以下团体或个人赞助 OneClickVirt 项目：
 
-<a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
-  <img src="https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png" alt="IBM LinuxONE OSS Community Cloud" height="50">
-</a>
-
-<a href="https://console.zmto.com/?affid=1524">
-  <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" height="50">
-</a>
-
-<a href="https://fossvps.org/">
-  <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" height="50">
-</a>
-
-<a href="https://linux.do/">
-  <img src="https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png" alt="Linux DO" height="50">
-</a>
-
-<a href="https://dartnode.com?aff=bonus">
-  <img
-    src="https://avatars.githubusercontent.com/u/194546403?s=200&v=4"
-    alt="DartNode"
-    height="50"
-  >
-</a>
-
-<a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
-  <img
-    src="https://www.jtti.cc/static/images/common/logo.png"
-    alt="jtti"
-    height="50"
-    style="filter: invert(1);"
-  >
-</a>
+<p>
+  <a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/">
+    <img src="./web/src/assets/images/ibm-linuxone.png" alt="IBM LinuxONE OSS Community Cloud" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://console.zmto.com/?affid=1524">
+    <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
+    <img src="https://www.jtti.cc/static/images/common/article_logo.png" alt="Jtti.cc" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://dartnode.com?aff=bonus">
+    <img src="./web/src/assets/images/dartnode.png" alt="DartNode" height="44">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://fossvps.org/">
+    <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="fossvps" height="44">
+  </a>
+</p>
 
 ## LICENSE
 
@@ -395,10 +388,32 @@ go run main.go
 
 ## 演示截图
 
+以下截图从当前响应式前端重新生成，覆盖未登录首页、赞助方区域、移动端布局、管理员页面和用户页面。
+
+**未登录首页**
+
 ![](./.back/1.png)
+
+**赞助方**
+
 ![](./.back/2.png)
+
+**移动端首页**
+
 ![](./.back/3.png)
+
+**管理员仪表盘**
+
 ![](./.back/4.png)
+
+**节点管理**
+
 ![](./.back/5.png)
+
+**用户仪表盘**
+
 ![](./.back/6.png)
+
+**用户实例**
+
 ![](./.back/7.png)

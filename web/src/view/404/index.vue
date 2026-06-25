@@ -58,11 +58,13 @@ const goBack = () => {
 <style scoped>
 .not-found-container {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 50%, #f0f9ff 100%);
-  padding: 24px;
+  padding: 20px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
   position: relative;
   overflow: hidden;
 }
@@ -84,7 +86,7 @@ const goBack = () => {
 
 .error-illustration {
   position: relative;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
   display: inline-block;
 }
 
@@ -155,7 +157,7 @@ const goBack = () => {
 .error-message {
   font-size: 16px;
   color: #6b7280;
-  margin: 0 0 36px;
+  margin: 0 0 28px;
   line-height: 1.6;
 }
 
@@ -176,6 +178,11 @@ const goBack = () => {
 }
 
 @media (max-width: 640px) {
+  .not-found-container {
+    padding: 14px;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+
   .error-code {
     font-size: 100px;
   }
@@ -186,6 +193,10 @@ const goBack = () => {
 
   .error-message {
     font-size: 15px;
+  }
+
+  .actions {
+    flex-wrap: wrap;
   }
 
   .shape-1 { width: 120px; height: 120px; }

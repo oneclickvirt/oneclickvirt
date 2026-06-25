@@ -406,11 +406,13 @@ const {
 <style scoped>
 .init-container {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 50%, #f0f9ff 100%);
-  padding: 24px;
+  padding: 20px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
   position: relative;
   overflow: hidden;
 }
@@ -427,7 +429,7 @@ const {
 .init-card {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
-  padding: 48px 40px 36px;
+  padding: 36px 34px 30px;
   border-radius: 20px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
   width: 100%;
@@ -439,7 +441,7 @@ const {
 
 .init-header {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .init-logo {
@@ -469,19 +471,19 @@ const {
 }
 
 .init-steps {
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .step-content {
-  min-height: 280px;
+  min-height: 240px;
 }
 
 .init-actions {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 24px;
-  padding-top: 24px;
+  margin-top: 18px;
+  padding-top: 18px;
   border-top: 1px solid #f3f4f6;
 }
 
@@ -569,8 +571,14 @@ const {
 }
 
 @media (max-width: 640px) {
+  .init-container {
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    align-items: flex-start;
+  }
+
   .init-card {
-    padding: 32px 20px 24px;
+    padding: 24px 18px 20px;
     border-radius: 16px;
   }
 
@@ -580,6 +588,14 @@ const {
 
   .init-actions {
     flex-wrap: wrap;
+  }
+
+  :deep(.el-steps) {
+    padding: 0;
+  }
+
+  :deep(.el-form-item__label) {
+    line-height: 1.3;
   }
 }
 </style>

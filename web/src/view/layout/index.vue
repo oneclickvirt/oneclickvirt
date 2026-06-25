@@ -141,10 +141,11 @@ onBeforeUnmount(() => {
 <style lang="scss" scoped>
 .app-wrapper {
   position: relative;
-  height: 100%;
+  min-height: 100%;
+  min-height: 100dvh;
   width: 100%;
   background-color: var(--bg-color-primary);
-  --topbar-announcement-height: 56px;
+  --topbar-announcement-height: 48px;
 
   &.mobile {
     overflow-x: hidden;
@@ -221,10 +222,12 @@ onBeforeUnmount(() => {
 
 .main-container {
   min-height: 100vh;
+  min-height: 100dvh;
   transition: margin-left 0.28s;
   margin-left: var(--sidebar-width);
   position: relative;
   padding-top: var(--navbar-height);
+  padding-bottom: env(safe-area-inset-bottom);
   display: flex;
   flex-direction: column;
   
@@ -255,6 +258,10 @@ onBeforeUnmount(() => {
 
 /* 移动端适配 */
 @media (max-width: 768px) {
+  .app-wrapper {
+    --topbar-announcement-height: 48px;
+  }
+
   .sidebar-container {
     width: var(--sidebar-width);
   }

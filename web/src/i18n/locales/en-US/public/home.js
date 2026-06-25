@@ -44,15 +44,15 @@ export default {
     typeTopbar: 'Top Bar Announcement'
   },
   supporters: {
-    title: 'Our Supporters',
-    description: 'Thanks to these amazing organizations for supporting the OneClickVirt project'
+    title: 'Sponsors',
+    description: 'Thanks to these groups and individuals for sponsoring OneClickVirt'
   },
   footer: {
     coreProjects: 'Core Projects',
     relatedProjects: 'Related Projects',
     moreProjects: 'More Projects',
     supportAndDocs: 'Support',
-    supporters: 'Supporters',
+    supporters: 'Sponsors',
     documentation: 'Documentation',
     feedback: 'Issue Feedback',
     communityGroup: 'Community Group',

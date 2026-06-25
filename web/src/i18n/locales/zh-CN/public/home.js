@@ -44,15 +44,15 @@ export default {
     typeTopbar: '顶部栏公告'
   },
   supporters: {
-    title: '支持方',
-    description: '感谢以下组织对 OneClickVirt 项目的大力支持'
+    title: '赞助方',
+    description: '感谢以下团体或个人赞助 OneClickVirt 项目'
   },
   footer: {
     coreProjects: '核心项目',
     relatedProjects: '相关项目',
     moreProjects: '更多项目',
     supportAndDocs: '支持',
-    supporters: '支持方',
+    supporters: '赞助方',
     documentation: '使用文档',
     feedback: '问题反馈',
     communityGroup: '交流群组',

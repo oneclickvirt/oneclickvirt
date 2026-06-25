@@ -16,6 +16,11 @@ provider/
 ├── proxmox/                 # Proxmox VE 虚拟化提供商实现
 ├── qemu/                    # QEMU/KVM 虚拟机提供商实现
 ├── kubevirt/                # KubeVirt 虚拟机提供商实现
+├── multipass/               # Multipass 本地/桌面 VM Provider（基于 vmcli）
+├── vagrant/                 # Vagrant 本地/桌面 VM Provider（基于 vmcli）
+├── virtualbox/              # VirtualBox 本地/桌面 VM Provider（基于 vmcli）
+├── vmware/                  # VMware VM Provider
+├── vmcli/                   # Multipass/Vagrant/VirtualBox 共用 CLI Provider 抽象
 ├── firewall/                # 防火墙管理模块（nftables 优先，iptables 兜底）
 ├── health/                  # 统一健康检查模块
 └── portmapping/             # 端口映射模块
@@ -151,13 +156,33 @@ Provider 支持三种执行规则，控制操作的执行方式：
 | `ssh_only` | 仅通过命令执行通道执行操作 |
 | `auto` | 优先使用 API，失败时自动回退到命令执行通道 |
 
+## 当前注册的 Provider 类型
+
+| 类型标识 | 实现目录 | 实例类型 | 说明 |
+|---|---|---|---|
+| `docker` | `docker/` | container | Docker 容器 Provider |
+| `orbstack` | `docker/` | container | Orbstack 兼容 Docker CLI，复用 Docker Provider 和端口映射实现 |
+| `podman` | `podman/` | container | Podman 容器 Provider |
+| `containerd` | `containerd/` | container | Containerd/nerdctl 容器 Provider |
+| `incus` | `incus/` | container, vm | Incus Provider |
+| `lxd` | `lxd/` | container, vm | LXD Provider |
+| `proxmox`, `proxmoxve` | `proxmox/` | container, vm | Proxmox VE Provider，两个类型标识指向同一实现 |
+| `qemu` | `qemu/` | vm | QEMU/KVM Provider |
+| `kubevirt` | `kubevirt/` | vm | KubeVirt Provider |
+| `multipass` | `multipass/` + `vmcli/` | vm | 通过 Multipass CLI 管理 VM |
+| `vagrant` | `vagrant/` + `vmcli/` | vm | 通过 Vagrant CLI 管理 VM |
+| `virtualbox` | `virtualbox/` + `vmcli/` | vm | 通过 VBoxManage 管理 VM |
+| `vmware` | `vmware/` | vm | 通过 VMware CLI/命令执行通道管理 VM |
+
+`multipass`、`vagrant`、`virtualbox` 和 `vmware` 更偏向本地/桌面虚拟化节点或实验场景。生产接入前应确认目标节点的 CLI、网络、镜像路径、端口转发和健康检查能力是否满足当前部署要求。
+
 ## 已支持的 Provider
 
 ### Docker
 
 基于 Docker 容器技术的 Provider 实现。
 
-- **类型标识**：`docker`
+- **类型标识**：`docker`、`orbstack`
 - **支持实例类型**：`container`
 - **连接方式**：SSH / Agent
 - **执行方式**：命令执行通道（SSH 或 Agent WebSocket）
@@ -255,6 +280,16 @@ Provider 支持三种执行规则，控制操作的执行方式：
 - **创建方式**：直接生成 YAML 并 `kubectl apply`（PVC + VirtualMachine + NodePort Service + cloud-init）
 - **特性**：直接 YAML 创建（无需下载脚本）、虚拟机生命周期管理、PVC 磁盘发现、NodePort + DNAT 端口发现、实例发现
 
+### 本地/桌面 VM Provider
+
+本地/桌面虚拟化 Provider 主要用于开发、验证或轻量节点接入。`multipass`、`vagrant` 和 `virtualbox` 复用 `vmcli` 抽象，通过目标节点上的 CLI 执行实例生命周期、镜像和健康检查相关操作；`vmware` 使用独立实现，但同样暴露统一 Provider 接口。
+
+- **类型标识**：`multipass`、`vagrant`、`virtualbox`、`vmware`
+- **支持实例类型**：`vm`
+- **连接方式**：SSH / Agent
+- **执行方式**：命令执行通道（SSH 或 Agent WebSocket）
+- **注意事项**：此类 Provider 对宿主机 CLI、镜像目录、网络模式和端口转发配置依赖更强，生产环境使用前需要单独验证节点能力。
+
 ## 子模块
 
 ### firewall/
@@ -276,7 +311,7 @@ Provider 支持三种执行规则，控制操作的执行方式：
 端口映射模块，为不同 Provider 提供统一的端口映射管理接口。
 
 - **支持的映射方法**：native（Provider 原生）、iptables/nftables（通过 firewall.Manager）
-- **支持的 Provider**：Docker、Podman、Containerd、Incus、LXD、iptables（通用，用于 QEMU/KubeVirt 等）
+- **支持的 Provider**：Docker、Orbstack、Podman、Containerd、Incus、LXD、iptables（通用，用于 QEMU/KubeVirt 等）
 - **功能**：端口分配、映射创建/删除、冲突检测
 - **架构**：接口定义 + Manager 统一管理 + 各 Provider 独立实现
 

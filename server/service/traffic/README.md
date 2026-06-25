@@ -16,6 +16,11 @@
 | `aggregation.go` | 流量数据聚合（小时/天/月） |
 | `limit.go` | 流量限额检查 |
 | `three_tier_limit.go` | 三级限额检查（实例/用户/Provider） |
+| `three_tier_limit_instance.go` | 实例级流量限额检查与锁定 |
+| `three_tier_limit_user.go` | 用户级流量限额检查与批量影响 |
+| `three_tier_limit_provider.go` | Provider 级流量限额检查与批量影响 |
+| `three_tier_recovery.go` | 三级限额恢复与活跃任务保护 |
+| `operation_guard.go` | 流量超限时的实例操作保护 |
 | `query.go` | 流量统计查询 |
 | `user.go` | 用户流量相关操作 |
 | `clear.go` | 流量数据清理（月度重置等） |
@@ -157,6 +162,8 @@ Agent 支持两种流量采集方式，通过 `TRAFFIC_COLLECT_METHOD` 环境变
 3. **Provider 级别**：`providers.max_traffic`
 
 任一层级超限即触发流量限制。
+
+限额检查已经拆分为实例、用户、Provider 三个专用文件，并通过恢复逻辑避免在 `start`、`stop`、`restart`、`reset`、`rebuild`、`delete`、`reset-password` 等活跃任务期间误解锁实例。实例操作入口还会通过 `operation_guard.go` 判断当前流量锁定状态，避免用户在超限后继续启动或分享受限实例。
 
 ## 相关函数
 

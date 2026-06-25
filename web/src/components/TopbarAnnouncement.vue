@@ -232,7 +232,7 @@ onUnmounted(() => {
 .topbar-announcement {
   background: linear-gradient(135deg, #16a34a, #22c55e);
   color: white;
-  padding: 8px 0;
+  padding: 6px 0;
   position: sticky;
   top: 0;
   z-index: calc(var(--z-navbar, 1002) + 2);
@@ -246,15 +246,15 @@ onUnmounted(() => {
   padding: 0 20px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  min-height: 40px;
+  gap: 12px;
+  min-height: 36px;
 }
 
 .announcement-scroll {
   flex: 1;
   overflow: hidden;
   position: relative;
-  height: 40px;
+  height: 36px;
 }
 
 .announcement-item {
@@ -364,7 +364,7 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .announcement-container {
     padding: 0 16px;
-    gap: 12px;
+    gap: 8px;
   }
   
   .announcement-title {

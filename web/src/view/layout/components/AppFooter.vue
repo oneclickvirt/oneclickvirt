@@ -94,7 +94,7 @@ onMounted(async () => {
   width: 100%;
   background-color: var(--bg-color-secondary);
   border-top: 1px solid var(--border-color);
-  padding: 12px 0;
+  padding: 9px 0;
   margin-top: auto;
   flex-shrink: 0;
 }
@@ -103,10 +103,26 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
   min-width: 0;
   padding: 0 var(--spacing-lg);
+}
+
+@media (max-width: 768px) {
+  .app-footer {
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .app-footer-inner {
+    gap: 8px;
+    padding: 0 12px;
+  }
+
+  .footer-copyright,
+  .footer-link {
+    font-size: 12px;
+  }
 }
 
 .footer-copyright {

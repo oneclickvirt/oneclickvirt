@@ -10,6 +10,7 @@
 
 html, body {
   height: 100%;
+  min-height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
@@ -17,6 +18,11 @@ html, body {
   color: var(--text-color-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+body {
+  min-width: 320px;
 }
 
 #app {
@@ -90,12 +96,14 @@ html, body {
 /* 布局样式 */
 .app-wrapper {
   position: relative;
-  height: 100%;
+  min-height: 100%;
+  min-height: 100dvh;
   width: 100%;
 }
 
 .main-container {
   min-height: 100%;
+  min-height: 100dvh;
   transition: margin-left var(--transition-normal);
   margin-left: var(--sidebar-width);
   position: relative;
@@ -141,6 +149,11 @@ html, body {
 
 .sidebar-container.is-collapse ~ .main-container .fixed-header {
   width: calc(100% - var(--sidebar-width-collapsed));
+}
+
+#app .app-main > [class] {
+  min-width: 0;
+  padding: 0;
 }
 
 /* Global button consistency */
@@ -357,4 +370,45 @@ html, body {
 
 .table-action-link.success:hover {
   background-color: var(--success-color-bg);
+}
+
+@media (max-width: 900px) {
+  .el-card__header {
+    padding: 14px 16px;
+  }
+
+  .el-card__body {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  #app .app-main .user-dashboard,
+  #app .app-main .user-apply,
+  #app .app-main .profile-container,
+  #app .app-main .domain-container,
+  #app .app-main .kyc-container,
+  #app .app-main .checkin-container,
+  #app .app-main .api-tokens-page,
+  #app .app-main .users-container,
+  #app .app-main .api-tokens-container,
+  #app .app-main .block-rules-container,
+  #app .app-main .admin-group-page,
+  #app .app-main .snapshot-page,
+  #app .app-main .domain-mgmt-container,
+  #app .app-main .kyc-mgmt-container {
+    padding: 0;
+  }
+
+  #app .app-main .page-header,
+  #app .app-main .dashboard-header,
+  #app .app-main .resource-limits-section,
+  #app .app-main .traffic-history-section,
+  #app .app-main .announcements,
+  #app .app-main .user-limits-card,
+  #app .app-main .global-redeem-card,
+  #app .app-main .providers-card,
+  #app .app-main .config-card {
+    margin-bottom: 14px;
+  }
 }

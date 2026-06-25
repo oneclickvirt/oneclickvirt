@@ -59,9 +59,22 @@ defineExpose({
   min-height: 0;
   width: 100%;
   position: relative;
-  overflow: hidden;
-  padding: var(--spacing-lg);
+  overflow-x: hidden;
+  overflow-y: visible;
+  padding: clamp(12px, 1.4vw, 18px);
   background-color: var(--bg-color-tertiary, #f9fafb);
+}
+
+@media (max-width: 768px) {
+  .app-main {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-main {
+    padding: 8px;
+  }
 }
 
 .fade-transform-enter-active,

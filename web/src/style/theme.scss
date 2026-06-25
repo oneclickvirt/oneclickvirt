@@ -107,7 +107,7 @@
   --transition-all: all 0.3s ease;
   
   /* 布局尺寸 */
-  --navbar-height: 70px;
+  --navbar-height: 60px;
   --sidebar-width: 240px;
   --sidebar-width-collapsed: 64px;
   --content-max-width: 1200px;
@@ -523,9 +523,9 @@ body {
     --font-size-3xl: 24px;
     --font-size-2xl: 20px;
     --font-size-xl: 18px;
-    --spacing-3xl: 48px;
-    --spacing-2xl: 32px;
-    --spacing-xl: 24px;
+    --spacing-3xl: 40px;
+    --spacing-2xl: 28px;
+    --spacing-xl: 22px;
   }
   
   .grid-cols-4,
@@ -570,9 +570,9 @@ body {
     --font-size-4xl: 28px;
     --font-size-3xl: 22px;
     --font-size-2xl: 18px;
-    --spacing-2xl: 24px;
-    --spacing-xl: 20px;
-    --spacing-lg: 16px;
+    --spacing-2xl: 22px;
+    --spacing-xl: 18px;
+    --spacing-lg: 14px;
   }
   
   .btn {

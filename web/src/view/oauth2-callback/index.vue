@@ -122,10 +122,13 @@ const goToLogin = () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--auth-page-bg);
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
   
   .callback-card {
-    width: 400px;
+    width: min(400px, 100%);
     text-align: center;
     
     .loading-container,
@@ -158,6 +161,24 @@ const goToLogin = () => {
     
     .el-button {
       margin-top: 20px;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .oauth2-callback-container {
+    align-items: flex-start;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+
+    .callback-card {
+      margin-top: 12px;
+
+      .loading-container,
+      .error-container,
+      .success-container {
+        padding: 28px 14px;
+      }
     }
   }
 }

@@ -216,7 +216,7 @@ const logout = async () => {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 8px 20px;
+        padding: 8px 14px;
         border-radius: 25px;
         font-size: 16px;
         
@@ -304,10 +304,23 @@ const logout = async () => {
     height: var(--navbar-height);
     
     .right-menu {
-      gap: 8px;
+      gap: 6px;
+
+      .theme-switcher .el-button,
+      .language-switcher .el-button {
+        min-width: 36px;
+        padding: 7px 9px;
+        font-size: 14px;
+      }
+
+      .language-switcher .el-button .language-text {
+        font-size: 14px;
+      }
 
       .avatar-container {
         .avatar-wrapper {
+          padding: 4px 6px;
+
           .el-avatar {
             width: 32px !important;
             height: 32px !important;
@@ -317,6 +330,24 @@ const logout = async () => {
             display: none;
           }
         }
+      }
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .navbar {
+    padding: 0 8px;
+
+    .right-menu {
+      gap: 4px;
+
+      .language-switcher .el-button .language-text {
+        display: none;
+      }
+
+      .avatar-container .avatar-wrapper {
+        padding: 4px;
       }
     }
   }
