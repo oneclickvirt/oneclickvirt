@@ -533,7 +533,7 @@ func (l *LXDProvider) buildImageImportPlan(imagePath, aliasKey, instanceType str
 		diskPath := l.findRemoteImageFile(workPath, "disk")
 		if metadataPath != "" && diskPath != "" {
 			plan.fingerprint = l.computeRemoteSplitFingerprint(metadataPath, diskPath)
-			plan.importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(metadataPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
+			plan.importCmd = fmt.Sprintf("lxc image import %s %s --alias %s --vm", shellSingleQuote(metadataPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
 			return plan, nil
 		}
 

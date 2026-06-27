@@ -456,7 +456,7 @@ func (i *IncusProvider) buildImageImportPlan(imagePath, aliasKey, instanceType s
 		diskPath := i.findRemoteImageFile(workPath, "disk")
 		if metadataPath != "" && diskPath != "" {
 			plan.fingerprint = i.computeRemoteSplitFingerprint(metadataPath, diskPath)
-			plan.importCmd = fmt.Sprintf("incus image import %s %s --alias %s", shellSingleQuote(metadataPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
+			plan.importCmd = fmt.Sprintf("incus image import %s %s --alias %s --vm", shellSingleQuote(metadataPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
 			return plan, nil
 		}
 
