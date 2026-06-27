@@ -228,7 +228,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	output, err := p.sshClient.Execute(fmt.Sprintf("test -f %s && test -s %s && echo 'ok'", shellSingleQuote(baseImage), shellSingleQuote(baseImage)))
 	if err != nil || strings.TrimSpace(output) != "ok" {
 		if config.ImageURL == "" {
-			return fmt.Errorf("base image not found and no image URL configured for %s", system)
+			return fmt.Errorf("base image not found and no image URL configured for image=%s", system)
 		}
 		global.APP_LOG.Info("QEMU基础镜像不存在，开始自动下载",
 			zap.String("system", system),
@@ -263,7 +263,8 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 			}
 			if dlErr != nil {
 				p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
-				return fmt.Errorf("failed to download base image for %s: %s", system, utils.TruncateString(dlOutput, 200))
+				return fmt.Errorf("failed to download base image for image=%s imageURL=%s downloadURL=%s: %s",
+					system, utils.TruncateString(config.ImageURL, 300), utils.TruncateString(downloadURL, 300), utils.TruncateString(dlOutput, 200))
 			}
 		}
 
@@ -271,11 +272,13 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 		checkOutput, _ := p.sshClient.Execute(fmt.Sprintf("test -s %s && echo 'ok'", shellSingleQuote(tmpPath)))
 		if strings.TrimSpace(checkOutput) != "ok" {
 			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
-			return fmt.Errorf("downloaded image is empty for %s", system)
+			return fmt.Errorf("downloaded image is empty for image=%s imageURL=%s downloadURL=%s",
+				system, utils.TruncateString(config.ImageURL, 300), utils.TruncateString(downloadURL, 300))
 		}
 		if _, mvErr := p.sshClient.Execute(fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(baseImage))); mvErr != nil {
 			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
-			return fmt.Errorf("failed to move downloaded image: %w", mvErr)
+			return fmt.Errorf("failed to move downloaded image for image=%s imageURL=%s: %w",
+				system, utils.TruncateString(config.ImageURL, 300), mvErr)
 		}
 		global.APP_LOG.Info("QEMU基础镜像下载成功",
 			zap.String("system", system),
@@ -370,6 +373,12 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	kvmOutput, err := p.sshClient.Execute("test -w /dev/kvm && echo kvm")
 	if err == nil && strings.TrimSpace(kvmOutput) == "kvm" {
 		virtType = "kvm"
+		global.APP_LOG.Debug("QEMU Provider检测到KVM硬件加速可用", zap.String("virtType", virtType))
+	} else {
+		global.APP_LOG.Warn("QEMU Provider未检测到可用KVM，自动使用QEMU软件模拟",
+			zap.String("virtType", virtType),
+			zap.String("image", system),
+			zap.String("imageURL", utils.TruncateString(config.ImageURL, 300)))
 	}
 
 	// 获取 os-variant
@@ -432,6 +441,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 			shellSingleQuote("pty,target_type=serial"))
 		output, err = p.sshClient.Execute(tcgCmd)
 		virtRC = err
+		virtType = "qemu"
 	}
 
 	// 清理临时文件
@@ -445,7 +455,8 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 			zap.Error(virtRC))
 		p.sshClient.Execute(fmt.Sprintf("virsh undefine %s 2>/dev/null || true", shellSingleQuote(config.Name)))
 		p.sshClient.Execute(fmt.Sprintf("rm -f %s %s 2>/dev/null || true", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
-		return fmt.Errorf("failed to create VM: %w", virtRC)
+		return fmt.Errorf("failed to create VM using virt-type=%s image=%s imageURL=%s: %w (virt-install output: %s)",
+			virtType, system, utils.TruncateString(config.ImageURL, 300), virtRC, utils.TruncateString(output, 500))
 	}
 
 	// 设置开机自启
@@ -454,8 +465,12 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	updateProgress(80, "等待虚拟机启动")
 
 	// 等待VM启动
+	startWaitSeconds := 60
+	if virtType == "qemu" {
+		startWaitSeconds = 300
+	}
 	var vmStarted bool
-	for i := 0; i < 30; i++ {
+	for i := 0; i < startWaitSeconds/2; i++ {
 		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(config.Name)))
 		if err == nil && strings.Contains(strings.TrimSpace(statusOutput), "running") {
 			vmStarted = true
@@ -476,14 +491,17 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	}
 	if !vmStarted {
 		global.APP_LOG.Warn("QEMU虚拟机创建等待启动超时，开始清理远端资源",
-			zap.String("name", utils.TruncateString(config.Name, 32)))
+			zap.String("name", utils.TruncateString(config.Name, 32)),
+			zap.String("virtType", virtType),
+			zap.Int("waitSeconds", startWaitSeconds))
 		updateProgress(90, "启动超时，正在清理QEMU资源")
 		if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
 			global.APP_LOG.Error("QEMU虚拟机启动超时后清理失败",
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.Error(cleanupErr))
 		}
-		return fmt.Errorf("VM '%s' did not start within 60 seconds", config.Name)
+		return fmt.Errorf("VM %q did not start within %d seconds (virt-type=%s image=%s imageURL=%s)",
+			config.Name, startWaitSeconds, virtType, system, utils.TruncateString(config.ImageURL, 300))
 	}
 
 	p.applyLibvirtIOLimits(ctx, "qemu:///system", config.Name, "vda", config)

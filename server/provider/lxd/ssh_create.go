@@ -78,7 +78,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		}
 	} else {
 		if err := l.handleImageDownloadAndImport(ctx, &config, progressCallback); err != nil {
-			return fmt.Errorf("镜像处理失败: %w", err)
+			return fmt.Errorf("镜像处理失败 [%s]: %w", l.formatImageContext(config, ""), err)
 		}
 	}
 
@@ -195,7 +195,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 			}
 
 			// 返回包含 LXD 原始错误输出的消息，帮助排查问题（如存储池不存在、镜像别名无效等）
-			return fmt.Errorf("failed to create instance: %s (lxc output: %s)", errMsg, utils.TruncateString(output, 500))
+			return fmt.Errorf("failed to create instance [%s]: %s (lxc output: %s)", l.formatImageContext(config, ""), errMsg, utils.TruncateString(output, 500))
 		}
 
 	lxdCreateSucceeded:
@@ -232,7 +232,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	// 启动实例
 	err = l.sshStartInstance(ctx, config.Name)
 	if err != nil {
-		return fmt.Errorf("failed to start instance: %w", err)
+		return fmt.Errorf("failed to start instance [%s]: %w", l.formatImageContext(config, ""), err)
 	}
 
 	updateProgress(60, "等待实例就绪...")

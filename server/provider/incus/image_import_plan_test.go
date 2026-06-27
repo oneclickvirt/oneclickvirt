@@ -50,7 +50,7 @@ func (fakeIncusImageImportExecutor) IsHealthy() bool  { return true }
 func (fakeIncusImageImportExecutor) Reconnect() error { return nil }
 func (fakeIncusImageImportExecutor) Close() error     { return nil }
 
-func TestBuildImageImportPlanSplitVMUsesVMFlag(t *testing.T) {
+func TestBuildImageImportPlanSplitVMDoesNotUseVMFlag(t *testing.T) {
 	provider := &IncusProvider{sshClient: utils.NewSafeShellExecutor(fakeIncusImageImportExecutor{})}
 
 	plan, err := provider.buildImageImportPlan("/tmp/image", "vm-alias", "vm")
@@ -58,7 +58,7 @@ func TestBuildImageImportPlanSplitVMUsesVMFlag(t *testing.T) {
 		t.Fatalf("buildImageImportPlan() error = %v", err)
 	}
 
-	want := "incus image import '/tmp/image/lxd.tar.xz' '/tmp/image/disk.qcow2' --alias 'vm-alias' --vm"
+	want := "incus image import '/tmp/image/lxd.tar.xz' '/tmp/image/disk.qcow2' --alias 'vm-alias'"
 	if plan.importCmd != want {
 		t.Fatalf("importCmd = %q, want %q", plan.importCmd, want)
 	}

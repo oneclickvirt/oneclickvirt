@@ -285,6 +285,18 @@ func (i *IncusProvider) checkVMSupport() error {
 		return fmt.Errorf("Incus不支持虚拟机 (未找到qemu驱动)，此系统仅支持容器")
 	}
 
+	kvmOutput, kvmErr := i.sshClient.Execute("if [ -e /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then echo kvm; else echo qemu; fi")
+	if kvmErr != nil {
+		global.APP_LOG.Warn("Incus KVM可用性检测失败，将继续使用Incus/QEMU默认策略",
+			zap.Error(kvmErr))
+	} else if strings.TrimSpace(kvmOutput) != "kvm" {
+		global.APP_LOG.Warn("Incus Provider未检测到可用KVM，将依赖QEMU软件模拟/TCG启动VM",
+			zap.String("virtType", "qemu"),
+			zap.String("kvmCheck", strings.TrimSpace(kvmOutput)))
+	} else {
+		global.APP_LOG.Debug("Incus Provider检测到KVM硬件加速可用", zap.String("virtType", "kvm"))
+	}
+
 	global.APP_LOG.Debug("已确认Incus支持虚拟机 - qemu驱动可用")
 	return nil
 }

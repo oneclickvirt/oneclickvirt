@@ -106,7 +106,10 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 		if progressCallback != nil {
 			progressCallback(17, "开始下载镜像...")
 		}
-		return i.downloadAndImportImage(ctx, config, originalImageName, imageTypeStr, progressCallback)
+		if err := i.downloadAndImportImage(ctx, config, originalImageName, imageTypeStr, progressCallback); err != nil {
+			return fmt.Errorf("%w (image context: %s)", err, i.formatImageContext(*config, originalImageName))
+		}
+		return nil
 	}
 
 	// 无 URL（数据库无匹配的系统镜像）：先尝试 spiritlhl simplestreams 镜像源，
@@ -456,7 +459,7 @@ func (i *IncusProvider) buildImageImportPlan(imagePath, aliasKey, instanceType s
 		diskPath := i.findRemoteImageFile(workPath, "disk")
 		if metadataPath != "" && diskPath != "" {
 			plan.fingerprint = i.computeRemoteSplitFingerprint(metadataPath, diskPath)
-			plan.importCmd = fmt.Sprintf("incus image import %s %s --alias %s --vm", shellSingleQuote(metadataPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
+			plan.importCmd = fmt.Sprintf("incus image import %s %s --alias %s", shellSingleQuote(metadataPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
 			return plan, nil
 		}
 
@@ -468,7 +471,7 @@ func (i *IncusProvider) buildImageImportPlan(imagePath, aliasKey, instanceType s
 			return nil, fmt.Errorf("未找到可导入的Incus虚拟机镜像文件")
 		}
 		plan.fingerprint = i.computeRemoteFileFingerprint(vmImagePath)
-		plan.importCmd = fmt.Sprintf("incus image import %s --alias %s --vm", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
+		plan.importCmd = fmt.Sprintf("incus image import %s --alias %s", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
 		return plan, nil
 	}
 
@@ -702,6 +705,33 @@ func (i *IncusProvider) spiritlhlLocalAlias(imageName, instanceType string) stri
 	}
 	arch := sanitizeLockKey(i.getCurrentArchitecture())
 	return fmt.Sprintf("oneclickvirt_%s_%s_%s-spiritlhl", base, instanceType, arch)
+}
+
+func (i *IncusProvider) formatImageContext(config provider.InstanceConfig, requestedImage string) string {
+	parts := []string{"provider=incus"}
+	if config.Name != "" {
+		parts = append(parts, "instance="+config.Name)
+	}
+	if config.InstanceType != "" {
+		parts = append(parts, "instanceType="+config.InstanceType)
+	}
+	if requestedImage != "" {
+		parts = append(parts, "requestedImage="+requestedImage)
+	}
+	if config.Image != "" {
+		label := "image"
+		if requestedImage != "" && requestedImage != config.Image {
+			label = "imageAlias"
+		}
+		parts = append(parts, label+"="+config.Image)
+	}
+	if config.ImageURL != "" {
+		parts = append(parts, "imageURL="+utils.TruncateString(config.ImageURL, 300))
+	}
+	if config.UseCDN {
+		parts = append(parts, "useCDN=true")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (i *IncusProvider) ensureSpiritlhlRemote() error {

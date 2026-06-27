@@ -263,7 +263,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		}
 	} else {
 		if err := i.handleImageDownloadAndImport(ctx, &config, progressCallback); err != nil {
-			return fmt.Errorf("镜像处理失败: %w", err)
+			return fmt.Errorf("镜像处理失败 [%s]: %w", i.formatImageContext(config, ""), err)
 		}
 	}
 
@@ -305,20 +305,20 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 							if i.shouldCleanupCachedImageOnCreateFailure("", err) {
 								i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
 							}
-							return fmt.Errorf("执行创建命令失败: %w", err)
+							return fmt.Errorf("执行创建命令失败 [%s]: %w", i.formatImageContext(config, ""), err)
 						}
 					} else {
 						global.APP_LOG.Warn("Incus创建时spiritlhl镜像兜底失败", zap.Error(copyErr))
 						if i.shouldCleanupCachedImageOnCreateFailure("", err) {
 							i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
 						}
-						return fmt.Errorf("执行创建命令失败: %w", err)
+						return fmt.Errorf("执行创建命令失败 [%s]: %w", i.formatImageContext(config, ""), err)
 					}
 				} else {
 					if i.shouldCleanupCachedImageOnCreateFailure("", err) {
 						i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
 					}
-					return fmt.Errorf("执行创建命令失败: %w", err)
+					return fmt.Errorf("执行创建命令失败 [%s]: %w", i.formatImageContext(config, ""), err)
 				}
 			} else {
 				// 只在明确属于镜像问题时清理缓存。存储池、网络、权限等错误不能删掉健康镜像，
@@ -326,7 +326,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 				if i.shouldCleanupCachedImageOnCreateFailure("", err) {
 					i.cleanupCachedImageOnFailure(config.Image, config.InstanceType)
 				}
-				return fmt.Errorf("执行创建命令失败: %w", err)
+				return fmt.Errorf("执行创建命令失败 [%s]: %w", i.formatImageContext(config, ""), err)
 			}
 		}
 
@@ -357,7 +357,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	time.Sleep(6 * time.Second)
 	err = i.sshStartInstance(config.Name)
 	if err != nil {
-		return fmt.Errorf("启动实例失败: %w", err)
+		return fmt.Errorf("启动实例失败 [%s]: %w", i.formatImageContext(config, ""), err)
 	}
 
 	updateProgress(55, "等待实例就绪...")

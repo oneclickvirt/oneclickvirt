@@ -108,7 +108,10 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 		if progressCallback != nil {
 			progressCallback(17, "开始下载镜像...")
 		}
-		return l.downloadAndImportImage(ctx, config, originalImageName, imageTypeStr, progressCallback)
+		if err := l.downloadAndImportImage(ctx, config, originalImageName, imageTypeStr, progressCallback); err != nil {
+			return fmt.Errorf("%w (image context: %s)", err, l.formatImageContext(*config, originalImageName))
+		}
+		return nil
 	}
 
 	// 无 URL（数据库无匹配的系统镜像）：先尝试 spiritlhl simplestreams 镜像源，
@@ -533,7 +536,7 @@ func (l *LXDProvider) buildImageImportPlan(imagePath, aliasKey, instanceType str
 		diskPath := l.findRemoteImageFile(workPath, "disk")
 		if metadataPath != "" && diskPath != "" {
 			plan.fingerprint = l.computeRemoteSplitFingerprint(metadataPath, diskPath)
-			plan.importCmd = fmt.Sprintf("lxc image import %s %s --alias %s --vm", shellSingleQuote(metadataPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
+			plan.importCmd = fmt.Sprintf("lxc image import %s %s --alias %s", shellSingleQuote(metadataPath), shellSingleQuote(diskPath), shellSingleQuote(aliasKey))
 			return plan, nil
 		}
 
@@ -545,7 +548,7 @@ func (l *LXDProvider) buildImageImportPlan(imagePath, aliasKey, instanceType str
 			return nil, fmt.Errorf("未找到可导入的LXD虚拟机镜像文件")
 		}
 		plan.fingerprint = l.computeRemoteFileFingerprint(vmImagePath)
-		plan.importCmd = fmt.Sprintf("lxc image import %s --alias %s --vm", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
+		plan.importCmd = fmt.Sprintf("lxc image import %s --alias %s", shellSingleQuote(vmImagePath), shellSingleQuote(aliasKey))
 		return plan, nil
 	}
 
@@ -771,6 +774,33 @@ func (l *LXDProvider) spiritlhlLocalAlias(imageName, instanceType string) string
 	}
 	arch := sanitizeLockKey(l.getCurrentArchitecture())
 	return fmt.Sprintf("oneclickvirt_%s_%s_%s-spiritlhl", base, instanceType, arch)
+}
+
+func (l *LXDProvider) formatImageContext(config provider.InstanceConfig, requestedImage string) string {
+	parts := []string{"provider=lxd"}
+	if config.Name != "" {
+		parts = append(parts, "instance="+config.Name)
+	}
+	if config.InstanceType != "" {
+		parts = append(parts, "instanceType="+config.InstanceType)
+	}
+	if requestedImage != "" {
+		parts = append(parts, "requestedImage="+requestedImage)
+	}
+	if config.Image != "" {
+		label := "image"
+		if requestedImage != "" && requestedImage != config.Image {
+			label = "imageAlias"
+		}
+		parts = append(parts, label+"="+config.Image)
+	}
+	if config.ImageURL != "" {
+		parts = append(parts, "imageURL="+utils.TruncateString(config.ImageURL, 300))
+	}
+	if config.UseCDN {
+		parts = append(parts, "useCDN=true")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (l *LXDProvider) ensureSpiritlhlRemote() error {

@@ -212,7 +212,7 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 	// 在API创建之前，处理镜像下载和导入
 	updateProgress(30, "处理镜像下载和导入...")
 	if err := i.handleImageDownloadAndImport(ctx, &config, progressCallback); err != nil {
-		return fmt.Errorf("镜像处理失败: %w", err)
+		return fmt.Errorf("镜像处理失败 [%s]: %w", i.formatImageContext(config, ""), err)
 	}
 
 	updateProgress(50, "调用Incus API创建实例...")
@@ -283,13 +283,13 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 	if resp.StatusCode != http.StatusAccepted {
 		var respData map[string]interface{}
 		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("failed to create instance via API: status %d, response: %v", resp.StatusCode, respData)
+		return fmt.Errorf("failed to create instance via API [%s]: status %d, response: %v", i.formatImageContext(config, ""), resp.StatusCode, respData)
 	}
 
 	updateProgress(70, "启动实例...")
 	// 启动实例
 	if err := i.apiStartInstance(ctx, config.Name); err != nil {
-		return fmt.Errorf("failed to start instance: %w", err)
+		return fmt.Errorf("failed to start instance [%s]: %w", i.formatImageContext(config, ""), err)
 	}
 
 	updateProgress(90, "配置SSH密码...")

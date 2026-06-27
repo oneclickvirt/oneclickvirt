@@ -50,7 +50,7 @@ func (fakeLXDImageImportExecutor) IsHealthy() bool  { return true }
 func (fakeLXDImageImportExecutor) Reconnect() error { return nil }
 func (fakeLXDImageImportExecutor) Close() error     { return nil }
 
-func TestBuildImageImportPlanSplitVMUsesVMFlag(t *testing.T) {
+func TestBuildImageImportPlanSplitVMDoesNotUseVMFlag(t *testing.T) {
 	provider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(fakeLXDImageImportExecutor{})}
 
 	plan, err := provider.buildImageImportPlan("/tmp/image", "vm-alias", "vm")
@@ -58,7 +58,7 @@ func TestBuildImageImportPlanSplitVMUsesVMFlag(t *testing.T) {
 		t.Fatalf("buildImageImportPlan() error = %v", err)
 	}
 
-	want := "lxc image import '/tmp/image/lxd.tar.xz' '/tmp/image/disk.qcow2' --alias 'vm-alias' --vm"
+	want := "lxc image import '/tmp/image/lxd.tar.xz' '/tmp/image/disk.qcow2' --alias 'vm-alias'"
 	if plan.importCmd != want {
 		t.Fatalf("importCmd = %q, want %q", plan.importCmd, want)
 	}
