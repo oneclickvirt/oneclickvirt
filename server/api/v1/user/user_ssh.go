@@ -51,11 +51,8 @@ var upgrader = websocket.Upgrader{
 		if origin == "" {
 			return true // 无 Origin 头（非浏览器客户端）允许
 		}
-		frontendURL := global.GetAppConfig().System.FrontendURL
-		if frontendURL == "" {
-			return true // 未配置前端 URL 时放行
-		}
-		return utils.OriginMatchesFrontend(origin, frontendURL)
+		appConfig := global.GetAppConfig()
+		return utils.OriginAllowedForRequest(r, origin, appConfig.System.FrontendURL, appConfig.Cors.Whitelist)
 	},
 }
 

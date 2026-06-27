@@ -30,6 +30,7 @@ import (
 	adminProvider "oneclickvirt/service/admin/provider"
 	agentService "oneclickvirt/service/agent"
 	remoteService "oneclickvirt/service/remote"
+	"oneclickvirt/utils"
 
 	"github.com/creack/pty"
 	"github.com/gin-gonic/gin"
@@ -42,7 +43,12 @@ var terminalUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // 鉴权依赖 JWT token query param
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		appConfig := global.GetAppConfig()
+		return utils.OriginAllowedForRequest(r, origin, appConfig.System.FrontendURL, appConfig.Cors.Whitelist)
 	},
 }
 

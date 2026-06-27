@@ -31,11 +31,8 @@ var adminUpgrader = websocket.Upgrader{
 		if origin == "" {
 			return true
 		}
-		frontendURL := global.GetAppConfig().System.FrontendURL
-		if frontendURL == "" {
-			return true
-		}
-		return utils.OriginMatchesFrontend(origin, frontendURL)
+		appConfig := global.GetAppConfig()
+		return utils.OriginAllowedForRequest(r, origin, appConfig.System.FrontendURL, appConfig.Cors.Whitelist)
 	},
 }
 

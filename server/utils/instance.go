@@ -26,3 +26,11 @@ func GenerateInstanceName(providerName string) string {
 func SanitizeShellArg(s string) string {
 	return safeNameRegexp.ReplaceAllString(s, "")
 }
+
+// ShellSingleQuote returns a POSIX shell single-quoted literal.
+func ShellSingleQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}

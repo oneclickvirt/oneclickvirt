@@ -74,7 +74,6 @@ func GenerateAgentSecret(c *gin.Context) {
 			return
 		}
 	}
-
 	// 构造控制端 WebSocket 地址
 	// 默认 wss（加密）。仅当直接 HTTP 无代理且无 TLS 时才降级为 ws。
 	scheme := "wss"
@@ -338,6 +337,15 @@ func ExecOnProvider(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
+		return
+	}
+	req.Command = strings.TrimSpace(req.Command)
+	if req.Command == "" {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "命令不能为空"))
+		return
+	}
+	if len(req.Command) > 4096 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "命令长度不能超过 4096 字符"))
 		return
 	}
 	if req.Timeout <= 0 || req.Timeout > 300 {

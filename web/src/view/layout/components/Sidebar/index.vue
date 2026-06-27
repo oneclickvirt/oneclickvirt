@@ -456,12 +456,7 @@ const userRoutes = computed(() => {
 })
 
 const defaultOpeneds = computed(() => {
-  if (isCollapse.value && !isMobile.value) {
-    return []
-  }
-  return userRoutes.value
-    .filter(menuRoute => menuRoute.children?.length)
-    .map(menuRoute => menuRoute.path)
+  return []
 })
 
 const menuRenderKey = computed(() => {

@@ -226,6 +226,7 @@ func SetupRouter() *gin.Engine {
 		"Accept",
 		"Authorization",
 		"X-Requested-With",
+		"X-CSRF-Token",
 		middleware.RequestIDHeader,
 	}
 	var corsMiddleware gin.HandlerFunc
@@ -268,6 +269,7 @@ func SetupRouter() *gin.Engine {
 	}
 	Router.Use(preflightMiddleware)
 	Router.Use(corsMiddleware)
+	Router.Use(middleware.CSRFProtection())
 	Router.Use(middleware.RateLimit())           // API限流防护（防滥用）
 	Router.Use(middleware.RequestIDMiddleware()) // 注入 X-Request-ID，必须在 Logger 前
 	Router.Use(middleware.LoggerMiddleware())    // HTTP 访问日志
