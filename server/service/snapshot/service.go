@@ -328,6 +328,10 @@ func (s *Service) executeCreateSnapshotForTask(ctx context.Context, adminTaskID 
 		markSnapshotFailed(snapshot.ID, err)
 		return err
 	}
+	if err := ensureInstanceSnapshotReady(*inst); err != nil {
+		markSnapshotFailed(snapshot.ID, err)
+		return err
+	}
 	utils.UpdateTaskProgress(adminTaskID, 30, "snapshot.buildCommand")
 	cmd, err := buildSnapshotCommand(SnapshotTaskActionCreate, *inst, snapshot)
 	if err != nil {
@@ -366,10 +370,13 @@ func (s *Service) runCreateSnapshotTask(taskID uint, snapshotID uint) {
 		var inst *providerModel.Instance
 		inst, err = loadInstance(snapshot.InstanceID)
 		if err == nil {
-			var cmd string
-			cmd, err = buildSnapshotCommand(SnapshotTaskActionCreate, *inst, snapshot)
+			err = ensureInstanceSnapshotReady(*inst)
 			if err == nil {
-				err = executeProviderCommand(ctx, inst.ProviderID, cmd)
+				var cmd string
+				cmd, err = buildSnapshotCommand(SnapshotTaskActionCreate, *inst, snapshot)
+				if err == nil {
+					err = executeProviderCommand(ctx, inst.ProviderID, cmd)
+				}
 			}
 		}
 	}
@@ -447,6 +454,9 @@ func (s *Service) finishSnapshotTask(taskID uint, status string, err error) {
 func (s *Service) CreateSnapshot(ctx context.Context, instanceID uint, req SnapshotRequest, createdBy uint, source string) (*providerModel.InstanceSnapshot, error) {
 	inst, err := loadInstance(instanceID)
 	if err != nil {
+		return nil, err
+	}
+	if err := ensureInstanceSnapshotReady(*inst); err != nil {
 		return nil, err
 	}
 	quota, err := maxSnapshotsForUser(inst.UserID)
@@ -572,6 +582,9 @@ func (s *Service) RestoreSnapshot(ctx context.Context, snapshotID uint) error {
 	}
 	inst, err := loadInstance(snapshot.InstanceID)
 	if err != nil {
+		return err
+	}
+	if err := ensureInstanceSnapshotReady(*inst); err != nil {
 		return err
 	}
 	cmd, err := buildSnapshotCommand("restore", *inst, snapshot)

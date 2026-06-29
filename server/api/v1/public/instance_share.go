@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	authModel "oneclickvirt/model/auth"
@@ -86,14 +87,23 @@ func loadSharedInstance(c *gin.Context) (*providerModel.InstanceShareLink, *prov
 	return link, instance, true
 }
 
-func ensureSharedInstanceUsable(instance *providerModel.Instance, action string) bool {
+func ensureSharedInstanceUsable(instance *providerModel.Instance, action string) *common.AppError {
+	if constant.IsBusyStatus(instance.Status) {
+		return common.NewError(common.CodeConflict, "实例正在操作进行中，请等待当前任务完成")
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		return common.NewError(common.CodeConflict, "实例当前状态不允许执行该操作")
+	}
 	if action == "delete" {
-		return true
+		return nil
 	}
 	if instance.IsFrozen {
-		return false
+		return common.NewError(common.CodeForbidden, "实例已被冻结或到期，仅允许删除操作")
 	}
-	return instance.ExpiresAt == nil || !instance.ExpiresAt.Before(time.Now())
+	if instance.ExpiresAt != nil && instance.ExpiresAt.Before(time.Now()) {
+		return common.NewError(common.CodeForbidden, "实例已被冻结或到期，仅允许删除操作")
+	}
+	return nil
 }
 
 func GetSharedInstanceDetail(c *gin.Context) {
@@ -124,8 +134,8 @@ func SharedInstanceAction(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
-	if !ensureSharedInstanceUsable(instance, req.Action) {
-		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例已被冻结或到期，仅允许删除操作"))
+	if err := ensureSharedInstanceUsable(instance, req.Action); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 	trafficGuard := trafficService.NewThreeTierLimitService()
@@ -159,8 +169,8 @@ func ResetSharedInstancePassword(c *gin.Context) {
 		return
 	}
 
-	if !ensureSharedInstanceUsable(instance, "reset-password") {
-		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例已被冻结或到期，无法重置密码"))
+	if err := ensureSharedInstanceUsable(instance, "reset-password"); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(instance.UserID, instance.ID, "reset-password"); err != nil {
@@ -284,6 +294,10 @@ func GetSharedInstanceMonitoring(c *gin.Context) {
 func GetSharedInstanceResourceMonitoring(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
+		return
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "实例正在操作进行中，请等待当前任务完成"))
 		return
 	}
 	hours, _ := strconv.Atoi(c.DefaultQuery("hours", "24"))

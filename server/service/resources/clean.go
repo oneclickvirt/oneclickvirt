@@ -92,6 +92,31 @@ func (s *PortMappingService) BatchDeletePortMappingWithTask(req admin.BatchDelet
 			return nil, fmt.Errorf("端口 %d 是自动或区间映射端口，不能批量删除", port.ID)
 		}
 	}
+	instanceIDs := make([]uint, 0, len(ports))
+	seenInstances := make(map[uint]struct{}, len(ports))
+	for _, port := range ports {
+		if _, ok := seenInstances[port.InstanceID]; !ok {
+			seenInstances[port.InstanceID] = struct{}{}
+			instanceIDs = append(instanceIDs, port.InstanceID)
+		}
+	}
+	var instances []provider.Instance
+	if err := global.APP_DB.Select("id", "status").Where("id IN ?", instanceIDs).Find(&instances).Error; err != nil {
+		return nil, fmt.Errorf("获取端口关联实例失败: %v", err)
+	}
+	instanceMap := make(map[uint]provider.Instance, len(instances))
+	for _, instance := range instances {
+		instanceMap[instance.ID] = instance
+	}
+	for _, id := range instanceIDs {
+		instance, ok := instanceMap[id]
+		if !ok {
+			return nil, fmt.Errorf("关联的实例不存在")
+		}
+		if err := ensureInstanceReadyForPortMapping(instance); err != nil {
+			return nil, err
+		}
+	}
 
 	// 将所有端口状态更新为 deleting
 	if err := global.APP_DB.Model(&provider.Port{}).Where("id IN ?", req.IDs).Update("status", "deleting").Error; err != nil {
@@ -137,6 +162,9 @@ func (s *PortMappingService) DeletePortMappingWithTask(id uint) (*admin.DeletePo
 	var instance provider.Instance
 	if err := global.APP_DB.Where("id = ?", port.InstanceID).First(&instance).Error; err != nil {
 		return nil, fmt.Errorf("关联的实例不存在")
+	}
+	if err := ensureInstanceReadyForPortMapping(instance); err != nil {
+		return nil, err
 	}
 
 	var providerInfo provider.Provider

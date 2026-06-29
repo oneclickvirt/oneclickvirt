@@ -3,6 +3,7 @@ package resources
 import (
 	"errors"
 	"fmt"
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
@@ -29,6 +30,16 @@ var (
 )
 
 type PortMappingService struct{}
+
+func ensureInstanceReadyForPortMapping(instance provider.Instance) error {
+	if constant.IsBusyStatus(instance.Status) {
+		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		return fmt.Errorf("实例当前状态不允许操作端口映射: %s", instance.Status)
+	}
+	return nil
+}
 
 // GetPortMappingList 获取端口映射列表
 func (s *PortMappingService) GetPortMappingList(req admin.PortMappingListRequest, ownerAdminID uint) ([]provider.Port, int64, error) {
@@ -114,6 +125,9 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	var instance provider.Instance
 	if err := global.APP_DB.Where("id = ?", req.InstanceID).First(&instance).Error; err != nil {
 		return 0, nil, fmt.Errorf("实例不存在")
+	}
+	if err := ensureInstanceReadyForPortMapping(instance); err != nil {
+		return 0, nil, err
 	}
 
 	// 获取Provider信息
@@ -593,6 +607,13 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 // GetInstancePortMappings 获取实例的端口映射
 func (s *PortMappingService) GetInstancePortMappings(instanceID uint) ([]provider.Port, error) {
 	var ports []provider.Port
+	var instance provider.Instance
+	if err := global.APP_DB.Select("id", "status").Where("id = ?", instanceID).First(&instance).Error; err != nil {
+		return nil, fmt.Errorf("实例不存在")
+	}
+	if err := ensureInstanceReadyForPortMapping(instance); err != nil {
+		return nil, err
+	}
 
 	if err := global.APP_DB.Where("instance_id = ?", instanceID).Find(&ports).Error; err != nil {
 		global.APP_LOG.Error("获取实例端口映射失败", zap.Error(err), zap.Uint("instanceID", instanceID))

@@ -38,7 +38,7 @@ func (s *Service) syncInstanceHourlyHistory(instanceID uint, instance *providerM
 	}
 
 	err := global.APP_DB.Table("pmacct_traffic_records").
-		Select("instance_id, provider_id, user_id, MAX(rx_bytes) DIV 1048576 as traffic_in, MAX(tx_bytes) DIV 1048576 as traffic_out, MAX(total_bytes) DIV 1048576 as total_used").
+		Select("instance_id, provider_id, user_id, MAX(rx_bytes) DIV 1048576 as traffic_in, MAX(tx_bytes) DIV 1048576 as traffic_out, (MAX(rx_bytes) + MAX(tx_bytes)) DIV 1048576 as total_used").
 		Where("instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL", instanceID, year, month, day, hour).
 		Group("instance_id, provider_id, user_id, year, month, day, hour").
 		Scan(&hourlyData).Error
@@ -105,14 +105,13 @@ func (s *Service) syncInstanceMonthlyHistory(instanceID uint, instance *provider
 			user_id,
 			COALESCE(SUM(segment_max_rx), 0) DIV 1048576 as traffic_in,
 			COALESCE(SUM(segment_max_tx), 0) DIV 1048576 as traffic_out,
-			COALESCE(SUM(segment_max_total), 0) DIV 1048576 as total_used
+			(COALESCE(SUM(segment_max_rx), 0) + COALESCE(SUM(segment_max_tx), 0)) DIV 1048576 as total_used
 		FROM (
 			SELECT 
 				instance_id, provider_id, user_id,
 				segment_id,
 				MAX(rx_bytes) as segment_max_rx,
-				MAX(tx_bytes) as segment_max_tx,
-				MAX(total_bytes) as segment_max_total
+				MAX(tx_bytes) as segment_max_tx
 			FROM (
 				SELECT 
 					t1.instance_id,
@@ -120,7 +119,6 @@ func (s *Service) syncInstanceMonthlyHistory(instanceID uint, instance *provider
 					t1.user_id,
 					t1.rx_bytes,
 					t1.tx_bytes,
-					t1.total_bytes,
 					(
 						SELECT COUNT(DISTINCT t2.id)
 						FROM pmacct_traffic_records t2

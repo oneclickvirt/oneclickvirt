@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUserInstances, createUserInstanceShare } from '@/api/user'
 import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
+import { canOpenInstanceDetail, getInstanceBusyMessage, isInstanceBusy } from '@/utils/instance-status'
 
 export function useUserInstances() {
   const { t, locale } = useI18n()
@@ -161,11 +162,11 @@ export function useUserInstances() {
       return
     }
 
-    // 只允许运行中、停止中、已停止状态进入详情页面
-    const allowedStatuses = ['running', 'stopped', 'stopping']
-    if (!allowedStatuses.includes(instance.status)) {
+    if (!canOpenInstanceDetail(instance)) {
       const statusText = getStatusText(instance.status)
-      ElMessage.warning(t('user.instances.cannotViewDetail', { status: statusText }))
+      ElMessage.warning(isInstanceBusy(instance)
+        ? getInstanceBusyMessage(instance, statusText)
+        : t('user.instances.cannotViewDetail', { status: statusText }))
       return
     }
 
@@ -179,6 +180,13 @@ export function useUserInstances() {
       ElMessage.error(t('user.instances.instanceInvalid'))
       return
     }
+    if (!canOpenInstanceDetail(instance)) {
+      const statusText = getStatusText(instance.status)
+      ElMessage.warning(isInstanceBusy(instance)
+        ? getInstanceBusyMessage(instance, statusText)
+        : t('user.instances.cannotViewDetail', { status: statusText }))
+      return
+    }
     selectedInstanceForTraffic.value = instance
     showTrafficDialog.value = true
   }
@@ -186,6 +194,13 @@ export function useUserInstances() {
   const createShareLink = async (instance) => {
     if (!instance || !instance.id) {
       ElMessage.error(t('user.instances.instanceInvalid'))
+      return
+    }
+    if (!canOpenInstanceDetail(instance)) {
+      const statusText = getStatusText(instance.status)
+      ElMessage.warning(isInstanceBusy(instance)
+        ? getInstanceBusyMessage(instance, statusText)
+        : t('user.instances.cannotViewDetail', { status: statusText }))
       return
     }
     if (instance.trafficOperationLocked) {
@@ -298,6 +313,8 @@ export function useUserInstances() {
     getProviderTypeName,
     getProviderTypeColor,
     formatDate,
+    canOpenInstanceDetail,
+    isInstanceBusy,
     viewInstanceDetail,
     showTrafficDetail,
     createShareLink

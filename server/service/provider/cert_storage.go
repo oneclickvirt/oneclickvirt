@@ -14,13 +14,15 @@ import (
 	"go.uber.org/zap"
 )
 
+const configScriptExecuteTimeout = 30 * time.Minute
+
 func (cs *CertService) AutoConfigureProvider(provider *provider.Provider) error {
 	switch provider.Type {
 	case "lxd":
 		return cs.autoConfigureLXD(provider)
 	case "incus":
 		return cs.autoConfigureIncus(provider)
-	case "proxmox":
+	case "proxmox", "proxmoxve":
 		return cs.autoConfigureProxmox(provider)
 	default:
 		return fmt.Errorf("不支持的Provider类型: %s", provider.Type)
@@ -44,7 +46,7 @@ func (cs *CertService) AutoConfigureProviderWithStreamContext(ctx context.Contex
 		return cs.autoConfigureLXDWithStreamContext(ctx, provider, outputChan)
 	case "incus":
 		return cs.autoConfigureIncusWithStreamContext(ctx, provider, outputChan)
-	case "proxmox":
+	case "proxmox", "proxmoxve":
 		return cs.autoConfigureProxmoxWithStreamContext(ctx, provider, outputChan)
 	default:
 		return fmt.Errorf("不支持的Provider类型: %s", provider.Type)
@@ -310,7 +312,7 @@ func (cs *CertService) executeScriptViaSFTP(provider *provider.Provider, script,
 		Password:       provider.Password,
 		PrivateKey:     provider.SSHKey,
 		ConnectTimeout: 10 * time.Second,
-		ExecuteTimeout: 300 * time.Second,
+		ExecuteTimeout: configScriptExecuteTimeout,
 	}
 
 	sshClient, err := utils.NewSSHClient(sshConfig)
@@ -346,7 +348,7 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 		Password:       provider.Password,
 		PrivateKey:     provider.SSHKey,
 		ConnectTimeout: 10 * time.Second,
-		ExecuteTimeout: 300 * time.Second,
+		ExecuteTimeout: configScriptExecuteTimeout,
 	}
 
 	sshClient, err := utils.NewSSHClient(sshConfig)

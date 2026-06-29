@@ -3,6 +3,7 @@ package user
 import (
 	"strconv"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
@@ -32,6 +33,10 @@ func GetInstanceResourceMonitoring(c *gin.Context) {
 	var instance providerModel.Instance
 	if err := global.APP_DB.Where("id = ? AND user_id = ?", instanceID, userID).First(&instance).Error; err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "实例不存在"))
+		return
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "实例正在操作进行中，请在任务详情中查看进度"))
 		return
 	}
 
@@ -86,6 +91,10 @@ func GetInstanceMonitoringStatus(c *gin.Context) {
 	var instance providerModel.Instance
 	if err := global.APP_DB.Where("id = ? AND user_id = ?", instanceID, userID).First(&instance).Error; err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "实例不存在"))
+		return
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "实例正在操作进行中，请在任务详情中查看进度"))
 		return
 	}
 

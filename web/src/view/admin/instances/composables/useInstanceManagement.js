@@ -6,6 +6,7 @@ import { adminTransferInstance } from '@/api/features'
 import { useSSHStore } from '@/pinia/modules/ssh'
 import { copyToClipboard } from '@/utils/clipboard'
 import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
+import { canOpenInstanceDetail, getInstanceBusyMessage, isInstanceBusy } from '@/utils/instance-status'
 
 export function useInstanceManagement() {
   const { t, locale } = useI18n()
@@ -40,6 +41,23 @@ export function useInstanceManagement() {
     pageSize: 10,
     total: 0
   })
+
+  const warnInstanceBlocked = (instance, requireDetail = false) => {
+    if (!instance || !instance.id) {
+      ElMessage.error(t('admin.instances.instanceNotFound'))
+      return false
+    }
+    const statusText = getStatusText(instance.status)
+    if (isInstanceBusy(instance)) {
+      ElMessage.warning(getInstanceBusyMessage(instance, statusText))
+      return false
+    }
+    if (requireDetail && !canOpenInstanceDetail(instance)) {
+      ElMessage.warning(`当前状态不允许进入详情或执行该操作：${statusText}`)
+      return false
+    }
+    return true
+  }
 
   const loadInstances = async () => {
     loading.value = true
@@ -77,12 +95,17 @@ export function useInstanceManagement() {
   const handleCurrentChange = (val) => { pagination.value.page = val; loadInstances() }
 
   const viewInstanceDetail = (instance) => {
+    if (!warnInstanceBlocked(instance, true)) return
     selectedInstance.value = instance
     showPassword.value = false
     detailDialogVisible.value = true
   }
 
-  const showActionDialog = (instance) => { actionInstance.value = instance; actionDialogVisible.value = true }
+  const showActionDialog = (instance) => {
+    if (!warnInstanceBlocked(instance)) return
+    actionInstance.value = instance
+    actionDialogVisible.value = true
+  }
 
   const pollForAdminNewPassword = (instanceId, taskId) => {
     let attempts = 0
@@ -116,6 +139,7 @@ export function useInstanceManagement() {
   }
 
   const performAction = async (action) => {
+    if (!warnInstanceBlocked(actionInstance.value)) return
     if (action === 'setExpiry') { actionDialogVisible.value = false; await handleSetInstanceExpiry(actionInstance.value); actionInstance.value = null; return }
     if (action === 'freeze') { actionDialogVisible.value = false; await handleFreezeInstance(actionInstance.value); actionInstance.value = null; return }
     if (action === 'unfreeze') { actionDialogVisible.value = false; await handleUnfreezeInstance(actionInstance.value); actionInstance.value = null; return }
@@ -205,6 +229,7 @@ export function useInstanceManagement() {
   }
 
   const openSSHTerminal = (instance) => {
+    if (!warnInstanceBlocked(instance, true)) return
     if (!instance.id) { ElMessage.error(t('admin.instances.instanceNotFound')); return }
     if (instance.status !== 'running') { ElMessage.warning(t('admin.instances.instanceNotRunning')); return }
     if (!instance.hasSshMapping && instance.networkType === 'no_port_mapping') { ElMessage.warning(t('admin.instances.sshNoPortMapping')); return }
@@ -236,7 +261,18 @@ export function useInstanceManagement() {
   }
 
   const runBatchInstanceAction = async (action, options) => {
-    const selected = [...selectedInstances.value]
+    const rawSelected = [...selectedInstances.value]
+    if (rawSelected.length === 0) { ElMessage.warning(t(options.emptyWarning)); return }
+    const selected = rawSelected.filter(item => {
+      if (isInstanceBusy(item) || !canOpenInstanceDetail(item)) return false
+      if (action === 'start') return item.status === 'stopped' || item.status === 'error'
+      if (action === 'stop') return item.status === 'running'
+      return true
+    })
+    const skipped = rawSelected.length - selected.length
+    if (skipped > 0) {
+      ElMessage.warning(`已跳过 ${skipped} 个状态不适合当前操作的实例`)
+    }
     if (selected.length === 0) { ElMessage.warning(t(options.emptyWarning)); return }
     try {
       if (options.confirmMessage) {
@@ -326,6 +362,7 @@ export function useInstanceManagement() {
   const handleWindowResize = () => { nextTick(() => { if (tableRef.value) tableRef.value.doLayout() }) }
 
   const showTransferDialog = (instance) => {
+    if (!warnInstanceBlocked(instance, true)) return
     transferForm.value = { instanceId: instance.id, instanceName: instance.name || instance.uuid, targetUserId: null }
     userOptions.value = []
     transferDialogVisible.value = true
@@ -367,6 +404,7 @@ export function useInstanceManagement() {
       ElMessage.error(t('admin.instances.instanceNotFound'))
       return
     }
+    if (!warnInstanceBlocked(instance, true)) return
     try {
       const { value } = await ElMessageBox.prompt(
         t('admin.instances.shareExpiryPrompt'),
@@ -407,6 +445,7 @@ export function useInstanceManagement() {
     handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,
     showTransferDialog, confirmTransfer, handleWindowResize,
     searchUsers, searchingUsers, userOptions,
+    canOpenInstanceDetail, isInstanceBusy,
     createShareLink,
     t
   }

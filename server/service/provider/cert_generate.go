@@ -20,7 +20,6 @@ import (
 	"go.uber.org/zap"
 )
 
-
 type CertService struct{}
 
 type CertInfo struct {
@@ -169,9 +168,12 @@ func (cs *CertService) CleanupCertificates(providerUUID string) error {
 }
 func (cs *CertService) generateLXDScript(provider *provider.Provider, certContent string) string {
 	return fmt.Sprintf(`#!/bin/bash
-set -e
+set -euo pipefail
 
-echo "=== OneClickVirt LXD 配置开始 ==="
+echo "=== OneClickVirt LXD configuration start ==="
+
+CERT_NAME="oneclickvirt-%s.crt"
+CERT_PATH="/tmp/${CERT_NAME}"
 
 LXC_CMD=""
 if command -v lxc >/dev/null 2>&1; then
@@ -181,194 +183,297 @@ elif [ -x "/usr/bin/lxc" ]; then
 elif [ -x "/snap/bin/lxc" ]; then
 	LXC_CMD="/snap/bin/lxc"
 else
-	echo "❌ 未找到可用的lxc命令"
+	echo "ERROR: lxc command not found"
 	exit 1
 fi
-echo "✅ 使用LXC命令: $LXC_CMD"
+echo "Using LXC command: $LXC_CMD"
 
-echo "检查LXD服务状态..."
+if ! command -v jq >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
+	if command -v apt-get >/dev/null 2>&1; then
+		DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
+		DEBIAN_FRONTEND=noninteractive apt-get install -y jq openssl >/dev/null 2>&1 || true
+	fi
+fi
+
+echo "Checking LXD service..."
 if systemctl is-active lxd >/dev/null 2>&1 || systemctl is-active snap.lxd.daemon >/dev/null 2>&1; then
-	echo "✅ LXD服务已运行"
+	echo "LXD service is running"
 else
-	echo "启动LXD服务..."
-	systemctl start lxd || systemctl start snap.lxd.daemon || true
+	echo "Starting LXD service..."
+	if systemctl list-unit-files snap.lxd.daemon.service >/dev/null 2>&1; then
+		systemctl start snap.lxd.daemon || true
+	fi
+	if systemctl list-unit-files lxd.service >/dev/null 2>&1; then
+		systemctl start lxd || true
+	fi
+	if command -v snap >/dev/null 2>&1; then
+		snap start lxd >/dev/null 2>&1 || true
+	fi
 	sleep 2
 fi
 
-echo "等待LXD服务就绪..."
-for i in {1..10}; do
+echo "Waiting for LXD service..."
+for i in {1..30}; do
 	if $LXC_CMD info >/dev/null 2>&1; then
-		echo "✅ LXD服务已就绪"
+		echo "LXD service is ready"
 		break
 	fi
-	echo "等待中... ($i/10)"
+	echo "Waiting for LXD... ($i/30)"
 	sleep 2
 done
 
 if ! $LXC_CMD info >/dev/null 2>&1; then
-	echo "❌ LXD服务启动失败"
+	echo "ERROR: LXD service is not reachable"
 	exit 1
 fi
 
-echo "清理旧证书..."
-rm -f /var/lib/lxd/server.crt.d/oneclickvirt-*.crt || true
-$LXC_CMD config trust list --format=json | jq -r '.[].fingerprint' | xargs -r -n1 $LXC_CMD config trust remove
+echo "Cleaning old OneClickVirt trust entries only..."
+trust_json="$($LXC_CMD config trust list --format=json 2>/dev/null || echo '[]')"
+if command -v jq >/dev/null 2>&1; then
+	echo "$trust_json" | jq -r '.[] | select((.name // "") | startswith("oneclickvirt-")) | .fingerprint // empty' | while read -r fp; do
+		[ -n "$fp" ] && $LXC_CMD config trust remove "$fp" >/dev/null 2>&1 || true
+	done
+fi
+rm -f /var/lib/lxd/server.crt.d/oneclickvirt-*.crt /var/snap/lxd/common/lxd/server.crt.d/oneclickvirt-*.crt /tmp/oneclickvirt-*.crt || true
 
-echo "创建证书目录..."
-mkdir -p /var/lib/lxd/server.crt.d/
-
-echo "安装客户端证书..."
-cat > /var/lib/lxd/server.crt.d/oneclickvirt-%s.crt << 'CERT_EOF'
+echo "Writing client certificate..."
+cat > "$CERT_PATH" << 'CERT_EOF'
 %s
 CERT_EOF
 
-chmod 600 /var/lib/lxd/server.crt.d/oneclickvirt-%s.crt
-echo "✅ 证书文件已创建"
+chmod 600 "$CERT_PATH"
+echo "Certificate file created: $CERT_PATH"
 
-echo "添加证书到信任列表..."
-# 执行新版本命令格式
-echo "执行 add-certificate 命令..."
-$LXC_CMD config trust add-certificate /var/lib/lxd/server.crt.d/oneclickvirt-%s.crt || true
-# 执行旧版本命令格式
-echo "执行 add 命令..."
-$LXC_CMD config trust add /var/lib/lxd/server.crt.d/oneclickvirt-%s.crt || true
-# 检查证书是否成功添加到信任列表
-echo "检查信任列表..."
-if $LXC_CMD config trust list --format=json | jq -r '.[].name' | grep -q "oneclickvirt-%s.crt"; then
-	echo "✅ 证书已成功添加到信任列表"
+echo "Adding certificate to LXD trust store..."
+if $LXC_CMD config trust add "$CERT_PATH" 2>/tmp/ocv-lxd-trust.err; then
+	echo "Trust add succeeded with 'config trust add'"
+elif $LXC_CMD config trust add-certificate "$CERT_PATH" 2>/tmp/ocv-lxd-trust.err; then
+	echo "Trust add succeeded with 'config trust add-certificate'"
 else
-	echo "❌ 证书添加失败，请检查配置"
+	echo "ERROR: failed to add certificate to LXD trust store"
+	cat /tmp/ocv-lxd-trust.err || true
+	exit 1
 fi
 
-echo "配置监听地址..."
+fingerprint="$(openssl x509 -fingerprint -sha256 -noout -in "$CERT_PATH" | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
+trust_json="$($LXC_CMD config trust list --format=json 2>/dev/null || echo '[]')"
+if command -v jq >/dev/null 2>&1; then
+	if echo "$trust_json" | jq -e --arg fp "$fingerprint" --arg name "$CERT_NAME" '.[] | select(((.fingerprint // "") | ascii_downcase) == $fp or (.name // "") == $name)' >/dev/null; then
+		echo "Certificate verified in LXD trust store"
+	else
+		echo "ERROR: certificate was not found in LXD trust store after add"
+		echo "$trust_json"
+		exit 1
+	fi
+elif echo "$trust_json" | grep -Eiq "$fingerprint|$CERT_NAME"; then
+	echo "Certificate verified in LXD trust store"
+else
+	echo "ERROR: cannot verify LXD trust store because jq is unavailable"
+	exit 1
+fi
+
+echo "Configuring HTTPS listen address..."
 current_addr=$($LXC_CMD config get core.https_address || true)
 if [ -z "$current_addr" ]; then
 	$LXC_CMD config set core.https_address 0.0.0.0:8443
-	echo "✅ 已设置监听地址为 0.0.0.0:8443"
+	echo "Set listen address to 0.0.0.0:8443"
 else
-	echo "✅ 监听地址已设置: $current_addr"
+	echo "Listen address already set: $current_addr"
 fi
 
-echo "重启LXD服务..."
-systemctl restart lxd || systemctl restart snap.lxd.daemon
+echo "Restarting LXD service..."
+restart_ok=false
+if systemctl list-unit-files snap.lxd.daemon.service >/dev/null 2>&1 && systemctl restart snap.lxd.daemon; then
+	restart_ok=true
+fi
+if [ "$restart_ok" != "true" ] && systemctl list-unit-files lxd.service >/dev/null 2>&1 && systemctl restart lxd; then
+	restart_ok=true
+fi
+if [ "$restart_ok" != "true" ] && command -v snap >/dev/null 2>&1 && snap restart lxd >/dev/null 2>&1; then
+	restart_ok=true
+fi
+if [ "$restart_ok" != "true" ]; then
+	echo "WARNING: LXD restart command was not available or failed; continuing with connectivity verification"
+fi
 sleep 3
 
-echo "等待服务重启完成..."
-for i in {1..15}; do
+echo "Waiting for LXD restart..."
+for i in {1..30}; do
 	if $LXC_CMD info >/dev/null 2>&1; then
-		echo "✅ LXD服务重启完成"
+		echo "LXD service restart verified"
 		break
 	fi
-	echo "等待重启... ($i/15)"
+	echo "Waiting for LXD restart... ($i/30)"
 	sleep 2
 done
 
 if ! $LXC_CMD info >/dev/null 2>&1; then
-	echo "❌ LXD服务重启后无法连接"
+	echo "ERROR: LXD is not reachable after restart"
 	exit 1
 fi
 
-echo "清理信任密码..."
+echo "Clearing trust password..."
 $LXC_CMD config unset core.trust_password || true
+rm -f "$CERT_PATH" /tmp/ocv-lxd-trust.err || true
 
-echo "✅ Provider UUID: %s"
-echo "✅ API 端点: https://%s:8443"
-echo "=== LXD 配置完成 ==="
-`, provider.UUID, certContent, provider.UUID, provider.UUID, provider.UUID, provider.UUID, provider.UUID, provider.Endpoint)
+echo "Provider UUID: %s"
+echo "API endpoint: https://%s:8443"
+echo "=== LXD configuration completed ==="
+`, provider.UUID, certContent, provider.UUID, utils.ExtractHost(provider.Endpoint))
 }
 
 func (cs *CertService) generateIncusScript(provider *provider.Provider, certContent string) string {
 	return fmt.Sprintf(`#!/bin/bash
-set -e
-echo "=== OneClickVirt Incus 配置开始 ==="
+set -euo pipefail
+
+echo "=== OneClickVirt Incus configuration start ==="
+
+CERT_NAME="oneclickvirt-%s.crt"
+CERT_PATH="/tmp/${CERT_NAME}"
+
 INCUS_CMD=""
 if command -v incus >/dev/null 2>&1; then
- INCUS_CMD=$(which incus)
+	INCUS_CMD=$(which incus)
 elif [ -x "/usr/bin/incus" ]; then
- INCUS_CMD="/usr/bin/incus"
+	INCUS_CMD="/usr/bin/incus"
 elif [ -x "/snap/bin/incus" ]; then
- INCUS_CMD="/snap/bin/incus"
+	INCUS_CMD="/snap/bin/incus"
 else
- echo "❌ 未找到可用的incus命令"
- exit 1
+	echo "ERROR: incus command not found"
+	exit 1
 fi
-echo "✅ 使用Incus命令: $INCUS_CMD"
-echo "检查Incus服务状态..."
+echo "Using Incus command: $INCUS_CMD"
+
+if ! command -v jq >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
+	if command -v apt-get >/dev/null 2>&1; then
+		DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
+		DEBIAN_FRONTEND=noninteractive apt-get install -y jq openssl >/dev/null 2>&1 || true
+	fi
+fi
+
+echo "Checking Incus service..."
 if systemctl is-active incus >/dev/null 2>&1 || systemctl is-active snap.incus.daemon >/dev/null 2>&1; then
- echo "✅ Incus服务已运行"
+	echo "Incus service is running"
 else
- echo "启动Incus服务..."
- systemctl start incus || systemctl start snap.incus.daemon || true
- sleep 2
+	echo "Starting Incus service..."
+	if systemctl list-unit-files snap.incus.daemon.service >/dev/null 2>&1; then
+		systemctl start snap.incus.daemon || true
+	fi
+	if systemctl list-unit-files incus.service >/dev/null 2>&1; then
+		systemctl start incus || true
+	fi
+	if command -v snap >/dev/null 2>&1; then
+		snap start incus >/dev/null 2>&1 || true
+	fi
+	sleep 2
 fi
-echo "等待Incus服务就绪..."
-for i in {1..10}; do
- if $INCUS_CMD info >/dev/null 2>&1; then
- echo "✅ Incus服务已就绪"
- break
- fi
- echo "等待中... ($i/10)"
- sleep 2
+
+echo "Waiting for Incus service..."
+for i in {1..30}; do
+	if $INCUS_CMD info >/dev/null 2>&1; then
+		echo "Incus service is ready"
+		break
+	fi
+	echo "Waiting for Incus... ($i/30)"
+	sleep 2
 done
 if ! $INCUS_CMD info >/dev/null 2>&1; then
- echo "❌ Incus服务启动失败"
- exit 1
+	echo "ERROR: Incus service is not reachable"
+	exit 1
 fi
-echo "清理旧证书..."
-rm -f /var/lib/incus/server.crt.d/oneclickvirt-*.crt || true
-$INCUS_CMD config trust list --format=json | jq -r '.[].fingerprint' | xargs -r -n1 $INCUS_CMD config trust remove
-echo "创建证书目录..."
-mkdir -p /var/lib/incus/server.crt.d/
-echo "安装客户端证书..."
-cat > /var/lib/incus/server.crt.d/oneclickvirt-%s.crt << 'CERT_EOF'
+
+echo "Cleaning old OneClickVirt trust entries only..."
+trust_json="$($INCUS_CMD config trust list --format=json 2>/dev/null || echo '[]')"
+if command -v jq >/dev/null 2>&1; then
+	echo "$trust_json" | jq -r '.[] | select((.name // "") | startswith("oneclickvirt-")) | .fingerprint // empty' | while read -r fp; do
+		[ -n "$fp" ] && $INCUS_CMD config trust remove "$fp" >/dev/null 2>&1 || true
+	done
+fi
+rm -f /var/lib/incus/server.crt.d/oneclickvirt-*.crt /var/snap/incus/common/incus/server.crt.d/oneclickvirt-*.crt /tmp/oneclickvirt-*.crt || true
+
+echo "Writing client certificate..."
+cat > "$CERT_PATH" << 'CERT_EOF'
 %s
 CERT_EOF
-chmod 600 /var/lib/incus/server.crt.d/oneclickvirt-%s.crt
-echo "✅ 证书文件已创建"
-echo "添加证书到信任列表..."
-# 执行新版本命令格式
-echo "执行 add-certificate 命令..."
-$INCUS_CMD config trust add-certificate /var/lib/incus/server.crt.d/oneclickvirt-%s.crt || true
-# 执行旧版本命令格式
-echo "执行 add 命令..."
-$INCUS_CMD config trust add /var/lib/incus/server.crt.d/oneclickvirt-%s.crt || true
-# 检查证书是否成功添加到信任列表
-echo "检查信任列表..."
-if $INCUS_CMD config trust list --format=json | jq -r '.[].name' | grep -q "oneclickvirt-%s.crt"; then
- echo "✅ 证书已成功添加到信任列表"
+
+chmod 600 "$CERT_PATH"
+echo "Certificate file created: $CERT_PATH"
+
+echo "Adding certificate to Incus trust store..."
+if $INCUS_CMD config trust add "$CERT_PATH" 2>/tmp/ocv-incus-trust.err; then
+	echo "Trust add succeeded with 'config trust add'"
+elif $INCUS_CMD config trust add-certificate "$CERT_PATH" 2>/tmp/ocv-incus-trust.err; then
+	echo "Trust add succeeded with 'config trust add-certificate'"
 else
- echo "❌ 证书添加失败，请检查配置"
+	echo "ERROR: failed to add certificate to Incus trust store"
+	cat /tmp/ocv-incus-trust.err || true
+	exit 1
 fi
-echo "配置监听地址..."
+
+fingerprint="$(openssl x509 -fingerprint -sha256 -noout -in "$CERT_PATH" | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
+trust_json="$($INCUS_CMD config trust list --format=json 2>/dev/null || echo '[]')"
+if command -v jq >/dev/null 2>&1; then
+	if echo "$trust_json" | jq -e --arg fp "$fingerprint" --arg name "$CERT_NAME" '.[] | select(((.fingerprint // "") | ascii_downcase) == $fp or (.name // "") == $name)' >/dev/null; then
+		echo "Certificate verified in Incus trust store"
+	else
+		echo "ERROR: certificate was not found in Incus trust store after add"
+		echo "$trust_json"
+		exit 1
+	fi
+elif echo "$trust_json" | grep -Eiq "$fingerprint|$CERT_NAME"; then
+	echo "Certificate verified in Incus trust store"
+else
+	echo "ERROR: cannot verify Incus trust store because jq is unavailable"
+	exit 1
+fi
+
+echo "Configuring HTTPS listen address..."
 current_addr=$($INCUS_CMD config get core.https_address || true)
 if [ -z "$current_addr" ]; then
- $INCUS_CMD config set core.https_address 0.0.0.0:8443
- echo "✅ 已设置监听地址为 0.0.0.0:8443"
+	$INCUS_CMD config set core.https_address 0.0.0.0:8443
+	echo "Set listen address to 0.0.0.0:8443"
 else
- echo "✅ 监听地址已设置: $current_addr"
+	echo "Listen address already set: $current_addr"
 fi
-echo "重启Incus服务..."
-systemctl restart incus || systemctl restart snap.incus.daemon
+
+echo "Restarting Incus service..."
+restart_ok=false
+if systemctl list-unit-files snap.incus.daemon.service >/dev/null 2>&1 && systemctl restart snap.incus.daemon; then
+	restart_ok=true
+fi
+if [ "$restart_ok" != "true" ] && systemctl list-unit-files incus.service >/dev/null 2>&1 && systemctl restart incus; then
+	restart_ok=true
+fi
+if [ "$restart_ok" != "true" ] && command -v snap >/dev/null 2>&1 && snap restart incus >/dev/null 2>&1; then
+	restart_ok=true
+fi
+if [ "$restart_ok" != "true" ]; then
+	echo "WARNING: Incus restart command was not available or failed; continuing with connectivity verification"
+fi
 sleep 3
-echo "等待服务重启完成..."
-for i in {1..15}; do
- if $INCUS_CMD info >/dev/null 2>&1; then
- echo "✅ Incus服务重启完成"
- break
- fi
- echo "等待重启... ($i/15)"
- sleep 2
+
+echo "Waiting for Incus restart..."
+for i in {1..30}; do
+	if $INCUS_CMD info >/dev/null 2>&1; then
+		echo "Incus service restart verified"
+		break
+	fi
+	echo "Waiting for Incus restart... ($i/30)"
+	sleep 2
 done
 if ! $INCUS_CMD info >/dev/null 2>&1; then
- echo "❌ Incus服务重启后无法连接"
- exit 1
+	echo "ERROR: Incus is not reachable after restart"
+	exit 1
 fi
-echo "清理信任密码..."
+
+echo "Clearing trust password..."
 $INCUS_CMD config unset core.trust_password || true
-echo "✅ Provider UUID: %s"
-echo "✅ API 端点: https://%s:8443"
-echo "=== Incus 配置完成 ==="
-`, provider.UUID, certContent, provider.UUID, provider.UUID, provider.UUID, provider.UUID, provider.UUID, provider.Endpoint)
+rm -f "$CERT_PATH" /tmp/ocv-incus-trust.err || true
+
+echo "Provider UUID: %s"
+echo "API endpoint: https://%s:8443"
+echo "=== Incus configuration completed ==="
+`, provider.UUID, certContent, provider.UUID, utils.ExtractHost(provider.Endpoint))
 }
 
 func (cs *CertService) generateProxmoxScript(providerUUID, username, tokenId string) string {
@@ -466,7 +571,6 @@ echo "✅ Token ID: %s@pve!%s"
 echo "=== Proxmox VE 配置完成 ==="
 `, username, username, username, username, username, username, username, tokenId, username, tokenId, username, tokenId, username, tokenId, providerUUID, username, tokenId)
 }
-
 
 // ProxmoxTokenInfo 存储 Proxmox Token 信息的结构
 type ProxmoxTokenInfo struct {

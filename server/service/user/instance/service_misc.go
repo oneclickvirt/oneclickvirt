@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
@@ -76,6 +77,9 @@ func (s *Service) ResetInstancePassword(userID uint, instanceID uint) (uint, err
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		return 0, fmt.Errorf("实例不存在: %w", err)
 	}
+	if constant.IsBusyStatus(instance.Status) {
+		return 0, fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
+	}
 	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, instance.ID, "reset-password"); err != nil {
 		return 0, err
 	}
@@ -87,7 +91,7 @@ func (s *Service) ResetInstancePassword(userID uint, instanceID uint) (uint, err
 	}
 
 	// 检查实例状态
-	if instance.Status != "running" {
+	if instance.Status != constant.InstanceStatusRunning {
 		return 0, errors.New("只有运行中的实例才能重置密码")
 	}
 	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {

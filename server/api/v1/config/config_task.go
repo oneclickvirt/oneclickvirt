@@ -19,6 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const autoConfigureTaskTimeout = 30 * time.Minute
+
 // AutoConfigureProvider 自动配置Provider
 // @Summary 自动配置Provider
 // @Description 自动配置Provider，支持检查历史记录和防重复执行
@@ -141,8 +143,8 @@ func AutoConfigureProvider(c *gin.Context) {
 			}
 		}()
 
-		// 创备2分钟超时的context，但与系统关闭信号关联
-		ctx, cancel := context.WithTimeout(global.APP_SHUTDOWN_CONTEXT, 2*time.Minute)
+		// 创建较长超时的context，但与系统关闭信号关联
+		ctx, cancel := context.WithTimeout(global.APP_SHUTDOWN_CONTEXT, autoConfigureTaskTimeout)
 		defer cancel()
 
 		// 使用带context的执行函数
@@ -311,7 +313,7 @@ func executeAutoConfigurationWithContext(ctx context.Context, taskID uint, provi
 		writeLog("=== 开始自动配置 %s Provider: %s ===", provider.Type, provider.Name)
 		writeLog("Provider地址: %s", provider.Endpoint)
 		writeLog("SSH用户: %s", provider.Username)
-		writeLog("⏰ 任务超时时间: 2分钟")
+		writeLog("⏰ 任务超时时间: %s", autoConfigureTaskTimeout)
 
 		// 更新进度
 		configService.UpdateTaskProgress(taskID, 10)
@@ -332,7 +334,7 @@ func executeAutoConfigurationWithContext(ctx context.Context, taskID uint, provi
 			defer close(logChan)
 			// 执行实际的配置逻辑
 			certService := &provider2.CertService{}
-			configDone <- certService.AutoConfigureProviderWithStream(provider, logChan)
+			configDone <- certService.AutoConfigureProviderWithStreamContext(ctx, provider, logChan)
 		}()
 
 		// 等待配置完成或context取消
@@ -349,7 +351,7 @@ func executeAutoConfigurationWithContext(ctx context.Context, taskID uint, provi
 			// 根据类型返回不同的成功消息
 			var message string
 			switch provider.Type {
-			case "proxmox":
+			case "proxmox", "proxmoxve":
 				message = "Proxmox VE API 自动配置成功，Token已创建并应用到系统"
 			case "lxd":
 				message = "LXD 自动配置成功，证书已安装并配置监听地址"
@@ -363,8 +365,8 @@ func executeAutoConfigurationWithContext(ctx context.Context, taskID uint, provi
 		case <-ctx.Done():
 			success = false
 			if ctx.Err() == context.DeadlineExceeded {
-				errorMessage = "任务执行超时（超过2分钟）"
-				writeLog("❌ 任务执行超时（超过2分钟），自动终止")
+				errorMessage = fmt.Sprintf("任务执行超时（超过%s）", autoConfigureTaskTimeout)
+				writeLog("❌ 任务执行超时（超过%s），自动终止", autoConfigureTaskTimeout)
 			} else {
 				errorMessage = "任务被取消"
 				writeLog("❌ 任务被手动取消")

@@ -274,9 +274,9 @@ run_module_09() {
         # -- Auto configure (task) --
         local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "200|400|500" \
             "{\"providerId\":${PROVIDER_ID}}" "$group")
-        local ac_task; ac_task=$(echo "$ac" | jq -r '.data.task_id // empty' 2>/dev/null)
+        local ac_task; ac_task=$(echo "$ac" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
         if [[ -n "$ac_task" ]]; then
-            wait_task_complete "$SERVER_URL" "$ac_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 || true
+            wait_configuration_task_complete_nonfatal "$ac_task" "$ADMIN_TOKEN" "$CONFIG_TASK_MAX_WAIT" 10 || true
         fi
     else
         log_info "Skipping auto-configure for ssh_only execution rule"
@@ -290,8 +290,17 @@ run_module_09() {
     test_api "Provider status" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group"
 
     # -- Certificate generation (may not exist for certain provider types) --
-    test_api "Generate certificate" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "200|400|404|500" \
-        '{}' "$group"
+    # LXD/Incus/Proxmox certificate setup is covered by the asynchronous
+    # auto-configure task above; avoid launching a duplicate long SSH task here.
+    case "$ENV_TYPE" in
+        lxd|incus|proxmox|proxmoxve)
+            record_skip_result "Generate certificate (sync)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "covered by auto-configure task for ${ENV_TYPE}" "$group"
+            ;;
+        *)
+            test_api "Generate certificate" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "200|400|404|500" \
+                '{}' "$group"
+            ;;
+    esac
 
     # -- Port configuration --
     test_api "Update port config" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/port-config" "200" \

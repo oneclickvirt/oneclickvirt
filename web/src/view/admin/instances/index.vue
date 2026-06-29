@@ -312,6 +312,7 @@
               <el-button
                 size="small"
                 type="info"
+                :disabled="!canOpenInstanceDetail(scope.row)"
                 @click="viewInstanceDetail(scope.row)"
               >
                 {{ $t('admin.instances.viewDetail') }}
@@ -319,6 +320,7 @@
               <el-button
                 size="small"
                 type="primary"
+                :disabled="isInstanceBusy(scope.row)"
                 @click="showActionDialog(scope.row)"
               >
                 {{ $t('admin.instances.actions') }}
@@ -326,7 +328,7 @@
               <el-button
                 size="small"
                 type="success"
-                :disabled="scope.row.status !== 'running' || (!scope.row.hasSshMapping && scope.row.networkType === 'no_port_mapping')"
+                :disabled="isInstanceBusy(scope.row) || scope.row.status !== 'running' || (!scope.row.hasSshMapping && scope.row.networkType === 'no_port_mapping')"
                 :title="(!scope.row.hasSshMapping && scope.row.networkType === 'no_port_mapping') ? $t('admin.instances.sshNoPortMapping') : ''"
                 @click="openSSHTerminal(scope.row)"
               >
@@ -335,6 +337,7 @@
               <el-button
                 size="small"
                 type="warning"
+                :disabled="!canOpenInstanceDetail(scope.row)"
                 @click="showTransferDialog(scope.row)"
               >
                 {{ $t('admin.instances.transfer') }}
@@ -342,6 +345,7 @@
               <el-button
                 size="small"
                 type="success"
+                :disabled="!canOpenInstanceDetail(scope.row)"
                 @click="createShareLink(scope.row)"
               >
                 <el-icon><Link /></el-icon>
@@ -545,7 +549,7 @@
       >
         <el-button
           type="success"
-          :disabled="actionInstance.status === 'running' || actionInstance.status === 'starting'"
+          :disabled="isInstanceBusy(actionInstance) || actionInstance.status === 'running' || actionInstance.status === 'starting'"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('start')"
@@ -555,7 +559,7 @@
         </el-button>
         <el-button
           type="warning"
-          :disabled="actionInstance.status === 'stopped' || actionInstance.status === 'stopping'"
+          :disabled="isInstanceBusy(actionInstance) || actionInstance.status === 'stopped' || actionInstance.status === 'stopping'"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('stop')"
@@ -565,7 +569,7 @@
         </el-button>
         <el-button
           type="primary"
-          :disabled="actionInstance.status !== 'running'"
+          :disabled="isInstanceBusy(actionInstance) || actionInstance.status !== 'running'"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('restart')"
@@ -575,7 +579,7 @@
         </el-button>
         <el-button
           type="info"
-          :disabled="actionInstance.status !== 'running'"
+          :disabled="isInstanceBusy(actionInstance) || actionInstance.status !== 'running'"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('resetPassword')"
@@ -585,7 +589,7 @@
         </el-button>
         <el-button
           type="warning"
-          :disabled="actionInstance.status !== 'running'"
+          :disabled="isInstanceBusy(actionInstance) || actionInstance.status !== 'running'"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('reset')"
@@ -596,6 +600,7 @@
         <el-divider />
         <el-button
           type="info"
+          :disabled="isInstanceBusy(actionInstance)"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('setExpiry')"
         >
@@ -604,6 +609,7 @@
         <el-button
           v-if="!actionInstance.isFrozen"
           type="warning"
+          :disabled="isInstanceBusy(actionInstance)"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('freeze')"
         >
@@ -612,6 +618,7 @@
         <el-button
           v-else
           type="success"
+          :disabled="isInstanceBusy(actionInstance)"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('unfreeze')"
         >
@@ -702,7 +709,7 @@ const {
   isExpired, isExpiringSoon, openSSHTerminal,
   handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,
   showTransferDialog, confirmTransfer, handleWindowResize,
-  searchUsers, searchingUsers, userOptions, createShareLink
+  searchUsers, searchingUsers, userOptions, canOpenInstanceDetail, isInstanceBusy, createShareLink
 } = useInstanceManagement()
 
 onMounted(() => {

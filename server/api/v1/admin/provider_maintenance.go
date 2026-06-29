@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/utils"
@@ -38,7 +39,10 @@ func resolveInstanceVNCTarget(instanceID uint, userID uint, admin bool) (string,
 	if err := query.First(&inst).Error; err != nil {
 		return "", 0, err
 	}
-	if inst.Status != "running" {
+	if constant.IsBusyStatus(inst.Status) {
+		return "", 0, fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", inst.Status)
+	}
+	if inst.Status != constant.InstanceStatusRunning {
 		return "", 0, fmt.Errorf("实例未运行")
 	}
 	if inst.InstanceType != "vm" {

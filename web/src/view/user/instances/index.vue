@@ -146,6 +146,7 @@
           v-for="instance in instances" 
           :key="instance.id" 
           class="instance-card"
+          :class="{ 'instance-card-disabled': !canOpenInstanceDetail(instance) }"
           @click="viewInstanceDetail(instance)"
         >
           <div class="instance-header">
@@ -245,6 +246,7 @@
               v-if="instance.trafficQuotaVisible !== false"
               size="small"
               type="primary"
+              :disabled="!canOpenInstanceDetail(instance)"
               @click="showTrafficDetail(instance)"
             >
               <el-icon><TrendCharts /></el-icon>
@@ -252,6 +254,7 @@
             </el-button>
             <el-button
               size="small"
+              :disabled="!canOpenInstanceDetail(instance)"
               @click="viewInstanceDetail(instance)"
             >
               <el-icon><View /></el-icon>
@@ -260,7 +263,7 @@
             <el-button
               size="small"
               type="success"
-              :disabled="instance.trafficOperationLocked"
+              :disabled="!canOpenInstanceDetail(instance) || instance.trafficOperationLocked"
               :title="instance.trafficOperationLockMessage || ''"
               @click="createShareLink(instance)"
             >
@@ -346,6 +349,7 @@ const {
   getProviderTypeName,
   getProviderTypeColor,
   formatDate,
+  canOpenInstanceDetail,
   viewInstanceDetail,
   showTrafficDetail,
   createShareLink
@@ -416,6 +420,17 @@ const {
   border-color: #10b981;
   box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
   transform: translateY(-2px);
+}
+
+.instance-card-disabled {
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
+.instance-card-disabled:hover {
+  border-color: var(--border-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transform: none;
 }
 
 .instance-header {

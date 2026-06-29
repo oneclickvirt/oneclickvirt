@@ -81,7 +81,7 @@ func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int
 			CASE 
 				WHEN ? = 'out' THEN ith.traffic_out * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
 				WHEN ? = 'in' THEN ith.traffic_in * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
-				ELSE ith.total_used * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
+				ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
 			END
 		), 0) as total_traffic_mb
 		FROM instance_traffic_histories ith
@@ -313,7 +313,7 @@ func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) 
 				CASE 
 					WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
 					WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-					ELSE ith.total_used * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+					ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
 				END
 			), 0)
 			FROM instance_traffic_histories ith
@@ -360,7 +360,7 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 		SELECT 
 			COALESCE(SUM(traffic_in), 0) * 1048576 as total_rx,
 			COALESCE(SUM(traffic_out), 0) * 1048576 as total_tx,
-			COALESCE(SUM(total_used), 0) * 1048576 as total_bytes
+			COALESCE(SUM(traffic_in + traffic_out), 0) * 1048576 as total_bytes
 		FROM instance_traffic_histories
 		WHERE year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
 	`, year, int(month)).Scan(&totalTraffic).Error
@@ -577,7 +577,7 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 					CASE 
 						WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
 						WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-						ELSE ith.total_used * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+						ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
 					END
 				) as month_usage
 			FROM instance_traffic_histories ith

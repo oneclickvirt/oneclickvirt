@@ -276,7 +276,7 @@ func (s *Service) aggregateToDailyBetween(startTime, endTime time.Time) error {
 		)
 		SELECT 
 			instance_id, user_id, provider_id, provider_type, mapped_ip,
-			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
+			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, (MAX(rx_bytes) + MAX(tx_bytes)) as total_bytes,
 			CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' 00:00:00') as timestamp,
 			year, month, day, 0 as hour, 0 as minute,
 			MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
@@ -302,7 +302,7 @@ func (s *Service) aggregateToDailyBetween(startTime, endTime time.Time) error {
 		FROM (
 			SELECT 
 				instance_id, user_id, provider_id, provider_type, mapped_ip,
-				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
+				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, (MAX(rx_bytes) + MAX(tx_bytes)) as total_bytes,
 				CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' 00:00:00') as timestamp,
 				year, month, day, 0 as hour, 0 as minute,
 				MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
@@ -342,7 +342,7 @@ func (s *Service) aggregateToHourlyBetween(startTime, endTime time.Time) error {
 		)
 		SELECT 
 			instance_id, user_id, provider_id, provider_type, mapped_ip,
-			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
+			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, (MAX(rx_bytes) + MAX(tx_bytes)) as total_bytes,
 			CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' ', LPAD(hour, 2, '0'), ':00:00') as timestamp,
 			year, month, day, hour, 0 as minute,
 			MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
@@ -368,7 +368,7 @@ func (s *Service) aggregateToHourlyBetween(startTime, endTime time.Time) error {
 		FROM (
 			SELECT 
 				instance_id, user_id, provider_id, provider_type, mapped_ip,
-				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
+				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, (MAX(rx_bytes) + MAX(tx_bytes)) as total_bytes,
 				CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' ', LPAD(hour, 2, '0'), ':00:00') as timestamp,
 				year, month, day, hour, 0 as minute,
 				MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
@@ -505,7 +505,7 @@ func (s *Service) getAggregatedHistory(instanceID uint, days int) []*monitoringM
 			day,
 			SUM(segment_max_rx) as rx_bytes,
 			SUM(segment_max_tx) as tx_bytes,
-			SUM(segment_max_total) as total_bytes,
+			(SUM(segment_max_rx) + SUM(segment_max_tx)) as total_bytes,
 			MAX(record_time) as record_time
 		FROM (
 			SELECT 
@@ -519,7 +519,6 @@ func (s *Service) getAggregatedHistory(instanceID uint, days int) []*monitoringM
 				segment_id,
 				MAX(rx_bytes) as segment_max_rx,
 				MAX(tx_bytes) as segment_max_tx,
-				MAX(total_bytes) as segment_max_total,
 				MAX(record_time) as record_time
 			FROM (
 				SELECT 
@@ -533,7 +532,6 @@ func (s *Service) getAggregatedHistory(instanceID uint, days int) []*monitoringM
 					t1.timestamp,
 					t1.rx_bytes,
 					t1.tx_bytes,
-					t1.total_bytes,
 					t1.record_time,
 					(SELECT COUNT(*)
 					 FROM pmacct_traffic_records t2

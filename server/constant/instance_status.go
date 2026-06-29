@@ -118,3 +118,18 @@ func IsTerminalStatus(status string) bool {
 	}
 	return false
 }
+
+// IsBusyStatus reports whether the instance is in a state where a background
+// lifecycle task owns the instance and interactive detail/operations should wait.
+func IsBusyStatus(status string) bool {
+	return IsTransitionalStatus(status) ||
+		IsOperationalTransitionStatus(status) ||
+		status == InstanceStatusDeleting
+}
+
+// IsDetailAvailableStatus reports whether the instance can safely enter the
+// interactive detail page. Terminal failed/deleted and busy states should be
+// handled from the list/task views instead.
+func IsDetailAvailableStatus(status string) bool {
+	return IsStableStatus(status)
+}

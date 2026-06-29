@@ -252,10 +252,11 @@ EXECUTION_RULE="${EXECUTION_RULE:-auto}"
 TEST_IMAGES="${TEST_IMAGES:-alpine,debian}"
 # Path to the server directory; set by deploy_master_local() in node_manager.sh
 MASTER_SERVER_DIR="${MASTER_SERVER_DIR:-}"
-# Instance tasks can legitimately run for several minutes on freshly prepared
-# virtualization nodes. Keep these defaults overridable for faster local runs.
-INSTANCE_TASK_MAX_WAIT="${INSTANCE_TASK_MAX_WAIT:-900}"
-INSTANCE_STATUS_MAX_WAIT="${INSTANCE_STATUS_MAX_WAIT:-600}"
+# Instance and provider configuration tasks can legitimately wait in queue or
+# run for a long time on freshly prepared virtualization nodes.
+INSTANCE_TASK_MAX_WAIT="${INSTANCE_TASK_MAX_WAIT:-7200}"
+INSTANCE_STATUS_MAX_WAIT="${INSTANCE_STATUS_MAX_WAIT:-1800}"
+CONFIG_TASK_MAX_WAIT="${CONFIG_TASK_MAX_WAIT:-3600}"
 INSTANCE_HEALTH_SETTLE_SECONDS="${INSTANCE_HEALTH_SETTLE_SECONDS:-30}"
 INSTANCE_OPERATION_SETTLE_SECONDS="${INSTANCE_OPERATION_SETTLE_SECONDS:-3}"
 
@@ -744,6 +745,75 @@ wait_task_complete_nonfatal() {
     return 1
 }
 
+wait_configuration_task_complete_nonfatal() {
+    local task_id="$1" token="${2:-$ADMIN_TOKEN}" max="${3:-$CONFIG_TASK_MAX_WAIT}" interval="${4:-10}" elapsed=0
+    log_info "Waiting for configuration task ${task_id} (max ${max}s)..."
+    local empty_count=0
+    local last_known_status=""
+    local last_response=""
+
+    while [[ $elapsed -lt $max ]]; do
+        local r; r=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+            "${SERVER_URL}/api/v1/admin/configuration-tasks/${task_id}" 2>/dev/null) || true
+        [[ -n "$r" ]] && last_response="$r"
+        local st; st=$(safe_jq "$r" '.data.status // empty' '')
+
+        case "$st" in
+            completed)
+                log_success "Configuration task ${task_id} completed"
+                echo "$r"
+                return 0
+                ;;
+            failed|cancelled|timeout)
+                log_warning "Configuration task ${task_id}: ${st}"
+                echo "$r"
+                return 1
+                ;;
+            pending|running|processing|queued|cancelling)
+                log_debug "Configuration task ${task_id} status: ${st}"
+                last_known_status="$st"
+                empty_count=0
+                ;;
+            "")
+                empty_count=$((empty_count + 1))
+                if [[ -n "$last_known_status" && $empty_count -ge 2 ]]; then
+                    log_warning "Configuration task ${task_id} disappeared after status=${last_known_status}; returning last known response"
+                    if [[ -n "$last_response" ]]; then
+                        echo "$last_response"
+                    else
+                        jq -cn --arg id "$task_id" --arg status "unknown" --arg message "configuration task disappeared after running" \
+                            '{code:504,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
+                    fi
+                    return 1
+                fi
+                if [[ -z "$last_known_status" && $empty_count -ge 3 ]]; then
+                    log_warning "Configuration task ${task_id} never found after 3 attempts"
+                    jq -cn --arg id "$task_id" --arg status "unknown" --arg message "configuration task never found" \
+                        '{code:404,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
+                    return 1
+                fi
+                log_debug "Configuration task ${task_id} status empty (attempt ${empty_count})"
+                ;;
+            *)
+                log_debug "Configuration task ${task_id} unknown status: ${st}"
+                last_known_status="$st"
+                empty_count=0
+                ;;
+        esac
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    log_warning "Configuration task ${task_id} still not terminal after ${max}s; leaving it running"
+    if [[ -n "$last_response" ]]; then
+        echo "$last_response"
+    else
+        jq -cn --arg id "$task_id" --arg status "timeout" --arg message "configuration task wait timed out with no detail response" \
+            '{code:504,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
+    fi
+    return 1
+}
+
 ensure_provider_health_ready() {
     local provider_id="$1" token="${2:-$ADMIN_TOKEN}" settle_seconds="${3:-$INSTANCE_HEALTH_SETTLE_SECONDS}"
 
@@ -973,16 +1043,6 @@ wait_provider_active_tasks_idle() {
 is_active_task_status() {
     local status="$1"
     [[ "$status" =~ ^(pending|running|processing|queued|cancelling)$ ]]
-}
-
-cancel_task_safe() {
-    local task_id="$1" token="${2:-$ADMIN_TOKEN}" reason="${3:-test cleanup}" wait_max="${4:-120}"
-    [[ -z "$task_id" ]] && return 0
-
-    log_warning "Cancelling task ${task_id} (${reason})..."
-    curl -s --max-time 30 -X POST -H "Authorization: Bearer ${token}" \
-        "${SERVER_URL}/api/v1/admin/tasks/${task_id}/cancel" >/dev/null 2>&1 || true
-    wait_task_complete_nonfatal "$SERVER_URL" "$task_id" "$token" "$wait_max" 5 >/dev/null 2>&1 || true
 }
 
 wait_instance_operation_settled() {

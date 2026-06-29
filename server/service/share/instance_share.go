@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	trafficService "oneclickvirt/service/traffic"
@@ -60,6 +61,16 @@ func generateShareToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
+func ensureShareInstanceReady(instance providerModel.Instance) error {
+	if constant.IsBusyStatus(instance.Status) {
+		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		return fmt.Errorf("实例当前状态不允许分享: %s", instance.Status)
+	}
+	return nil
+}
+
 func buildShareURL(token string) string {
 	base := strings.TrimRight(global.GetAppConfig().System.FrontendURL, "/")
 	if base == "" {
@@ -77,6 +88,9 @@ func (s *InstanceShareService) CreateForUser(userID, instanceID uint, expiresInM
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("实例不存在或无权限")
 		}
+		return nil, err
+	}
+	if err := ensureShareInstanceReady(instance); err != nil {
 		return nil, err
 	}
 	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, instance.ID, "share"); err != nil {
@@ -103,6 +117,9 @@ func (s *InstanceShareService) CreateForAdmin(actorID uint, creatorType string, 
 		if count == 0 {
 			return nil, fmt.Errorf("无权分享该实例")
 		}
+	}
+	if err := ensureShareInstanceReady(instance); err != nil {
+		return nil, err
 	}
 	if creatorType != CreatorTypeNormalAdmin {
 		creatorType = CreatorTypeAdmin

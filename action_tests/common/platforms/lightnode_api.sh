@@ -9,6 +9,10 @@ LIGHTNODE_REGION="${LIGHTNODE_REGION:-}"
 LIGHTNODE_ZONE="${LIGHTNODE_ZONE:-}"
 # Password rules: 8-30 chars, upper+lower+digit + one of: ()`~!@#$*-+={}[]:;,.?/
 LIGHTNODE_PASSWORD="${LIGHTNODE_PASSWORD:-CiTest1234!}"
+LIGHTNODE_TASK_MAX_WAIT="${LIGHTNODE_TASK_MAX_WAIT:-3600}"
+LIGHTNODE_STOP_TASK_MAX_WAIT="${LIGHTNODE_STOP_TASK_MAX_WAIT:-900}"
+LIGHTNODE_CREATE_TASK_MAX_WAIT="${LIGHTNODE_CREATE_TASK_MAX_WAIT:-1800}"
+LIGHTNODE_REINSTALL_TASK_MAX_WAIT="${LIGHTNODE_REINSTALL_TASK_MAX_WAIT:-3600}"
 
 # ============================================================================
 # Low-level API helpers
@@ -103,7 +107,7 @@ _lightnode_get_image_uuid() {
 }
 
 _lightnode_wait_async_task() {
-    local task_uuid="$1" max="${2:-600}" interval="${3:-15}" elapsed=0
+    local task_uuid="$1" max="${2:-$LIGHTNODE_TASK_MAX_WAIT}" interval="${3:-15}" elapsed=0
     log_info "[lightnode] Waiting for async task ${task_uuid} (max ${max}s)..."
     while [[ $elapsed -lt $max ]]; do
         local resp; resp=$(lightnode_get_async_task "${task_uuid}")
@@ -128,7 +132,7 @@ _lightnode_wait_async_task() {
         fi
         sleep "${interval}"; elapsed=$((elapsed + interval))
     done
-    log_error "[lightnode] Task ${task_uuid} timeout after ${max}s"
+    log_error "[lightnode] Task ${task_uuid} timeout after ${max}s; leaving provider task to reach a final state"
     return 1
 }
 
@@ -190,7 +194,7 @@ lightnode_platform_create_instance() {
     local ecs_uuid; ecs_uuid=$(echo "$body" | jq -r '.asyncTaskInfo.ecsResourceUUID // empty' 2>/dev/null)
     [[ -z "$ecs_uuid" ]] && { log_error "[lightnode] No ecsResourceUUID in response"; return 1; }
     log_success "[lightnode] Instance creation requested: ${ecs_uuid}"
-    if ! _lightnode_wait_async_task "${task_uuid}" 600; then
+    if ! _lightnode_wait_async_task "${task_uuid}" "$LIGHTNODE_CREATE_TASK_MAX_WAIT"; then
         # Async provisioning task failed — attempt to release the partially-created instance
         # so it does not pollute list_instances on the next run
         log_warning "[lightnode] Async provisioning failed for ${ecs_uuid}; attempting to release stale instance..."
@@ -221,7 +225,7 @@ lightnode_platform_delete_instance() {
         return 1
     fi
     local task_uuid; task_uuid=$(echo "$body" | jq -r '.asyncTaskInfo.asyncTaskUUID // empty' 2>/dev/null)
-    [[ -n "$task_uuid" ]] && _lightnode_wait_async_task "${task_uuid}" 300
+    [[ -n "$task_uuid" ]] && _lightnode_wait_async_task "${task_uuid}" "$LIGHTNODE_STOP_TASK_MAX_WAIT"
     return 0
 }
 
@@ -241,7 +245,7 @@ lightnode_platform_reinstall_instance() {
         local stop_code; stop_code=$(lightnode_parse_code "${stop_resp}")
         if [[ "$stop_code" == "200" || "$stop_code" == "202" ]]; then
             local stop_task; stop_task=$(echo "$stop_body" | jq -r '.asyncTaskUUID // empty' 2>/dev/null)
-            [[ -n "$stop_task" ]] && _lightnode_wait_async_task "${stop_task}" 180 || true
+            [[ -n "$stop_task" ]] && _lightnode_wait_async_task "${stop_task}" "$LIGHTNODE_STOP_TASK_MAX_WAIT" || true
         else
             log_warning "[lightnode] Stop returned HTTP ${stop_code}, proceeding anyway..."
         fi
@@ -262,7 +266,7 @@ lightnode_platform_reinstall_instance() {
         return 1
     fi
     local task_uuid; task_uuid=$(echo "$body" | jq -r '.asyncTaskUUID // empty' 2>/dev/null)
-    [[ -n "$task_uuid" ]] && _lightnode_wait_async_task "${task_uuid}" 600
+    [[ -n "$task_uuid" ]] && _lightnode_wait_async_task "${task_uuid}" "$LIGHTNODE_REINSTALL_TASK_MAX_WAIT"
     # Get updated details
     local detail_resp; detail_resp=$(lightnode_get_instance_detail "${id}")
     local detail_body; detail_body=$(lightnode_parse_body "${detail_resp}")

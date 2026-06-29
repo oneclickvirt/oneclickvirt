@@ -85,11 +85,18 @@ func (h *HistoryService) GetInstanceTrafficHistory(instanceID uint, period strin
 				WHEN t1.tx_bytes < t2.tx_bytes THEN t1.tx_bytes
 				ELSE t1.tx_bytes - t2.tx_bytes
 			END) / 1048576.0 as traffic_out,
-			(CASE 
-				WHEN t2.total_bytes IS NULL THEN t1.total_bytes
-				WHEN t1.total_bytes < t2.total_bytes THEN t1.total_bytes
-				ELSE t1.total_bytes - t2.total_bytes
-			END) / 1048576.0 as total_used
+			(
+				(CASE
+					WHEN t2.rx_bytes IS NULL THEN t1.rx_bytes
+					WHEN t1.rx_bytes < t2.rx_bytes THEN t1.rx_bytes
+					ELSE t1.rx_bytes - t2.rx_bytes
+				END) +
+				(CASE
+					WHEN t2.tx_bytes IS NULL THEN t1.tx_bytes
+					WHEN t1.tx_bytes < t2.tx_bytes THEN t1.tx_bytes
+					ELSE t1.tx_bytes - t2.tx_bytes
+				END)
+			) / 1048576.0 as total_used
 		FROM pmacct_traffic_records t1
 		LEFT JOIN pmacct_traffic_records t2 ON t1.instance_id = t2.instance_id
 			AND t2.timestamp = (
@@ -188,11 +195,18 @@ func (h *HistoryService) GetProviderTrafficHistory(providerID uint, period strin
 				WHEN t1.total_tx < t2.total_tx THEN t1.total_tx
 				ELSE t1.total_tx - t2.total_tx
 			END) / 1048576.0 as traffic_out,
-			(CASE 
-				WHEN t2.total_bytes IS NULL THEN t1.total_bytes
-				WHEN t1.total_bytes < t2.total_bytes THEN t1.total_bytes
-				ELSE t1.total_bytes - t2.total_bytes
-			END) / 1048576.0 as total_used
+			(
+				(CASE
+					WHEN t2.total_rx IS NULL THEN t1.total_rx
+					WHEN t1.total_rx < t2.total_rx THEN t1.total_rx
+					ELSE t1.total_rx - t2.total_rx
+				END) +
+				(CASE
+					WHEN t2.total_tx IS NULL THEN t1.total_tx
+					WHEN t1.total_tx < t2.total_tx THEN t1.total_tx
+					ELSE t1.total_tx - t2.total_tx
+				END)
+			) / 1048576.0 as total_used
 		FROM (
 			-- 按时间戳聚合所有实例（每个实例已处理重启）
 			SELECT 
@@ -413,11 +427,18 @@ func (h *HistoryService) GetUserTrafficHistory(userID uint, period string, inter
 				WHEN t1.total_tx < t2.total_tx THEN t1.total_tx
 				ELSE t1.total_tx - t2.total_tx
 			END) / 1048576.0 as traffic_out,
-			(CASE 
-				WHEN t2.total_bytes IS NULL THEN t1.total_bytes
-				WHEN t1.total_bytes < t2.total_bytes THEN t1.total_bytes
-				ELSE t1.total_bytes - t2.total_bytes
-			END) / 1048576.0 as total_used
+			(
+				(CASE
+					WHEN t2.total_rx IS NULL THEN t1.total_rx
+					WHEN t1.total_rx < t2.total_rx THEN t1.total_rx
+					ELSE t1.total_rx - t2.total_rx
+				END) +
+				(CASE
+					WHEN t2.total_tx IS NULL THEN t1.total_tx
+					WHEN t1.total_tx < t2.total_tx THEN t1.total_tx
+					ELSE t1.total_tx - t2.total_tx
+				END)
+			) / 1048576.0 as total_used
 		FROM (
 			-- 按时间戳聚合所有实例（每个实例已处理重启）
 			SELECT 

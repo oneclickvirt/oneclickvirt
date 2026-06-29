@@ -186,12 +186,13 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			}
 		}
 
+		detailReady := constant.IsDetailAvailableStatus(instance.Status)
 		userInstance := userModel.UserInstanceResponse{
 			Instance:                    modifiedInstance,
-			CanStart:                    instance.Status == "stopped" && !operationLock.Locked,
-			CanStop:                     (instance.Status == "running" || instance.Status == "unavailable") && !operationLock.Locked,
-			CanRestart:                  instance.Status == "running" && !operationLock.Locked,
-			CanDelete:                   instance.Status != "deleting" && !operationLock.Locked,
+			CanStart:                    instance.Status == constant.InstanceStatusStopped && !operationLock.Locked,
+			CanStop:                     (instance.Status == constant.InstanceStatusRunning || instance.Status == "unavailable") && !operationLock.Locked,
+			CanRestart:                  instance.Status == constant.InstanceStatusRunning && !operationLock.Locked,
+			CanDelete:                   detailReady && !operationLock.Locked,
 			PortMappings:                portMappings,
 			PublicIP:                    publicIP, // 公网IP（agent+no_port_mapping模式下为空）
 			ProviderType:                providerType,

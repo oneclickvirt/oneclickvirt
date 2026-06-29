@@ -354,7 +354,7 @@ platform_exec_and_wait() {
 # Uses the same approach as the original aliceinit_api.sh:
 # - Always wait min_wait seconds first (cloud-init needs time).
 # - Then actively test with `apt-get check` (more reliable than fuser).
-# - On timeout: force-kill and remove lock files, then proceed.
+# - On timeout: return failure so callers can wait/retry without corrupting dpkg state.
 wait_for_apt_lock() {
     local ip="$1" min_wait="${2:-120}" max_wait="${3:-300}" interval="${4:-10}"
     log_info "Waiting for apt/dpkg locks on ${ip} (min ${min_wait}s, max ${max_wait}s)..."
@@ -374,17 +374,6 @@ wait_for_apt_lock() {
         sleep "$interval"
         elapsed=$((elapsed + interval))
     done
-    log_warning "apt/dpkg lock wait timeout (${max_wait}s), attempting forced cleanup..."
-    platform_ssh_exec "$ip" '
-        pkill -9 apt 2>/dev/null || true
-        pkill -9 apt-get 2>/dev/null || true
-        pkill -9 dpkg 2>/dev/null || true
-        for f in /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend \
-                 /var/cache/apt/archives/lock /var/lib/apt/lists/lock; do
-            [ -f "$f" ] && rm -f "$f" 2>/dev/null || true
-        done
-        dpkg --configure -a 2>/dev/null || true
-    ' 60 >/dev/null 2>&1 || true
-    log_warning "Forced apt cleanup complete, proceeding"
-    return 0
+    log_warning "apt/dpkg locks still held after ${max_wait}s on ${ip}; leaving package manager state untouched"
+    return 1
 }

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
@@ -27,6 +28,9 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 			return nil, errors.New("实例不存在")
 		}
 		return nil, err
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		return nil, fmt.Errorf("实例正在操作进行中（当前状态：%s），请在任务详情中查看进度", instance.Status)
 	}
 
 	// 并发查询 SSH端口映射、Provider信息、关联任务（消除N+1问题）
@@ -190,6 +194,9 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 			return nil, fmt.Errorf("实例不存在或无权限访问")
 		}
 		return nil, fmt.Errorf("验证实例权限失败: %v", err)
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		return nil, fmt.Errorf("实例正在操作进行中（当前状态：%s），请在任务详情中查看进度", instance.Status)
 	}
 
 	// 获取用户信息

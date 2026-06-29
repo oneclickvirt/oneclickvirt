@@ -187,7 +187,7 @@ func (s *QueryService) GetProviderMonthlyTraffic(providerID uint, year, month in
 	}
 
 	err = global.APP_DB.Table("instance_traffic_histories").
-		Select("COALESCE(SUM(traffic_in), 0) as traffic_in, COALESCE(SUM(traffic_out), 0) as traffic_out, COALESCE(SUM(total_used), 0) as total_used").
+		Select("COALESCE(SUM(traffic_in), 0) as traffic_in, COALESCE(SUM(traffic_out), 0) as traffic_out, COALESCE(SUM(traffic_in + traffic_out), 0) as total_used").
 		Where("provider_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL",
 			providerID, year, month).
 		Scan(&result).Error
@@ -269,7 +269,7 @@ func (s *QueryService) getBatchFromCache(instanceIDs []uint, year, month int) ma
 	// 查询月度汇总记录 (day=0, hour=0)
 	err := global.APP_DB.Table("instance_traffic_histories ith").
 		Joins("INNER JOIN providers p ON ith.provider_id = p.id").
-		Select("ith.instance_id, ith.traffic_in, ith.traffic_out, ith.total_used, p.enable_traffic_control as enable_traffic_control, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
+		Select("ith.instance_id, ith.traffic_in, ith.traffic_out, (ith.traffic_in + ith.traffic_out) as total_used, p.enable_traffic_control as enable_traffic_control, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
 		Where("ith.instance_id IN ? AND ith.year = ? AND ith.month = ? AND ith.day = 0 AND ith.hour = 0 AND ith.deleted_at IS NULL", instanceIDs, year, month).
 		Find(&results).Error
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"oneclickvirt/constant"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	"oneclickvirt/service/resources"
@@ -53,6 +54,9 @@ func (s *Service) GetInstanceByID(instanceID uint, ownerAdminID ...uint) (*provi
 	}
 	if err := s.checkInstanceOwnerAdmin(&instance, firstOwnerAdminID(ownerAdminID)); err != nil {
 		return nil, err
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		return nil, fmt.Errorf("实例正在操作进行中（当前状态：%s），请在任务详情中查看进度", instance.Status)
 	}
 
 	return &instance, nil
@@ -472,6 +476,9 @@ func (s *Service) UpdateInstance(req admin.UpdateInstanceRequest, ownerAdminID .
 	if err := s.checkInstanceOwnerAdmin(&instance, firstOwnerAdminID(ownerAdminID)); err != nil {
 		return err
 	}
+	if constant.IsBusyStatus(instance.Status) {
+		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
+	}
 
 	instance.Name = utils.SanitizeShellArg(req.Name)
 	instance.CPU = req.CPU
@@ -507,8 +514,11 @@ func (s *Service) DeleteInstance(instanceID uint, ownerAdminID ...uint) error {
 	}
 
 	// 检查实例状态，避免重复删除
-	if instance.Status == "deleting" {
-		return fmt.Errorf("实例正在删除中")
+	if constant.IsBusyStatus(instance.Status) {
+		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
+	}
+	if instance.Status == constant.InstanceStatusDeleted {
+		return fmt.Errorf("实例已删除")
 	}
 
 	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
@@ -569,6 +579,9 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 	}
 	if err := s.checkInstanceOwnerAdmin(&instance, ownerAdminID); err != nil {
 		return err
+	}
+	if constant.IsBusyStatus(instance.Status) {
+		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
 	}
 	if err := validateAdminInstanceAction(instance.Status, req.Action); err != nil {
 		return err
@@ -685,7 +698,7 @@ func (s *Service) checkInstanceOwnerAdmin(instance *providerModel.Instance, owne
 }
 
 func (s *Service) ensureNoActiveInstanceTask(instanceID uint) error {
-	activeTypes := []string{"start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}
+	activeTypes := []string{"create", "create_instance", "create_redemption_instance", "start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}
 	var existingTask adminModel.Task
 	err := global.APP_DB.Where("instance_id = ? AND task_type IN ? AND status IN ?", instanceID, activeTypes, []string{"pending", "processing", "running", "cancelling"}).
 		First(&existingTask).Error
@@ -717,7 +730,7 @@ func validateAdminInstanceAction(status, action string) error {
 			return errors.New("实例状态不允许重置")
 		}
 	case "delete":
-		if status == "deleting" || status == "deleted" {
+		if status == constant.InstanceStatusDeleting || status == constant.InstanceStatusDeleted {
 			return errors.New("实例正在删除中")
 		}
 	default:
@@ -758,9 +771,12 @@ func (s *Service) ResetInstancePassword(instanceID uint, ownerAdminID ...uint) (
 	if err := s.checkInstanceOwnerAdmin(&instance, firstOwnerAdminID(ownerAdminID)); err != nil {
 		return 0, err
 	}
+	if constant.IsBusyStatus(instance.Status) {
+		return 0, fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
+	}
 
 	// 检查实例状态
-	if instance.Status != "running" {
+	if instance.Status != constant.InstanceStatusRunning {
 		return 0, errors.New("参数错误: 只有运行中的实例才能重置密码")
 	}
 

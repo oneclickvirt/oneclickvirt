@@ -143,42 +143,8 @@ wait_for_apt_lock() {
         elapsed=$((elapsed + interval))
     done
     
-    # If still locked after max_wait, force cleanup and proceed
-    log_warning "apt/dpkg locks still held after ${max_wait}s, attempting forced cleanup..."
-    
-    # Install lsof if not available, then force cleanup locks
-    alice_ssh_exec "${ip}" "
-        # Kill any running apt/dpkg processes
-        pkill -9 apt 2>/dev/null || true
-        pkill -9 apt-get 2>/dev/null || true
-        pkill -9 dpkg 2>/dev/null || true
-        
-        # Try to install lsof if available
-        if ! command -v lsof >/dev/null 2>&1; then
-            # Wait a moment and try install without hang
-            sleep 5
-            timeout 30 apt-get install -y lsof 2>/dev/null || true
-        fi
-        
-        # Remove lock files (with lsof check if available)
-        for lock_file in /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend \\
-                         /var/cache/apt/archives/lock /var/lib/apt/lists/lock; do
-            if [ -f \"\${lock_file}\" ]; then
-                # If lsof is available, kill processes holding the lock
-                if command -v lsof >/dev/null 2>&1; then
-                    lsof \"\${lock_file}\" 2>/dev/null | awk 'NR>1 {print \$2}' | xargs -r kill -9 2>/dev/null || true
-                fi
-                rm -f \"\${lock_file}\" 2>/dev/null || true
-            fi
-        done
-        
-        # Clean up and reconfigure
-        dpkg --configure -a 2>/dev/null || true
-        apt-get clean 2>/dev/null || true
-    " 90 || true
-    
-    log_warning "Forced cleanup complete, proceeding with installation..."
-    return 0
+    log_warning "apt/dpkg locks still held after ${max_wait}s on ${ip}; leaving package manager state untouched"
+    return 1
 }
 
 # ---------- Instance lifecycle helpers ----------

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"oneclickvirt/constant"
 	"oneclickvirt/utils"
 	"sync"
 	"time"
@@ -73,7 +74,11 @@ func AdminSSHWebSocket(c *gin.Context) {
 	}
 
 	// 检查实例状态
-	if instance.Status != "running" {
+	if constant.IsBusyStatus(instance.Status) {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, fmt.Sprintf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)))
+		return
+	}
+	if instance.Status != constant.InstanceStatusRunning {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例未运行，无法连接SSH"))
 		return
 	}

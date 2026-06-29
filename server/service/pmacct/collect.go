@@ -317,7 +317,7 @@ LIMIT 10000;
 		SELECT 
 			COALESCE(MAX(rx_bytes), 0) as max_rx_bytes,
 			COALESCE(MAX(tx_bytes), 0) as max_tx_bytes,
-			COALESCE(MAX(total_bytes), 0) as max_total_bytes,
+			(COALESCE(MAX(rx_bytes), 0) + COALESCE(MAX(tx_bytes), 0)) as max_total_bytes,
 			MAX(timestamp) as last_timestamp
 		FROM pmacct_traffic_records
 		WHERE instance_id = ? 

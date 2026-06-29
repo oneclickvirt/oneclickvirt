@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
@@ -48,7 +49,10 @@ func getAdminInstanceForSFTP(c *gin.Context) (*providerModel.Instance, error) {
 		}
 		return nil, err
 	}
-	if instance.Status != "running" {
+	if constant.IsBusyStatus(instance.Status) {
+		return nil, common.NewError(common.CodeConflict, "实例正在操作进行中，请在任务详情中查看进度")
+	}
+	if instance.Status != constant.InstanceStatusRunning {
 		return nil, common.NewError(common.CodeValidationError, "实例未运行，无法建立SFTP连接")
 	}
 	ownerAdminID := middleware.GetOwnerAdminID(c)

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
@@ -56,7 +57,7 @@ func releaseInstanceActionLock(instanceID uint) {
 }
 
 func (s *Service) ensureNoActiveInstanceTask(instanceID uint) error {
-	activeTypes := []string{"start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}
+	activeTypes := []string{"create", "create_instance", "create_redemption_instance", "start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}
 	var existingTask adminModel.Task
 	err := global.APP_DB.Where("instance_id = ? AND task_type IN ? AND status IN ?", instanceID, activeTypes, []string{"pending", "processing", "running", "cancelling"}).
 		First(&existingTask).Error
@@ -96,6 +97,9 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
 		return err
 	}
+	if constant.IsBusyStatus(instance.Status) {
+		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
+	}
 
 	trafficGuard := trafficService.NewThreeTierLimitService()
 	if req.Action == "start" {
@@ -115,7 +119,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 
 	switch req.Action {
 	case "start":
-		if instance.Status != "stopped" {
+		if instance.Status != constant.InstanceStatusStopped {
 			return errors.New("实例状态不允许启动")
 		}
 
@@ -133,9 +137,9 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 			return fmt.Errorf("创建启动任务失败: %v", err)
 		}
 
-		instance.Status = "starting"
+		instance.Status = constant.InstanceStatusStarting
 	case "stop":
-		if instance.Status != "running" {
+		if instance.Status != constant.InstanceStatusRunning {
 			return errors.New("实例状态不允许停止")
 		}
 
@@ -153,9 +157,9 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 			return fmt.Errorf("创建停止任务失败: %v", err)
 		}
 
-		instance.Status = "stopping"
+		instance.Status = constant.InstanceStatusStopping
 	case "restart":
-		if instance.Status != "running" {
+		if instance.Status != constant.InstanceStatusRunning {
 			return errors.New("实例状态不允许重启")
 		}
 
@@ -173,9 +177,9 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 			return fmt.Errorf("创建重启任务失败: %v", err)
 		}
 
-		instance.Status = "restarting"
+		instance.Status = constant.InstanceStatusRestarting
 	case "reset":
-		if instance.Status != "running" && instance.Status != "stopped" {
+		if instance.Status != constant.InstanceStatusRunning && instance.Status != constant.InstanceStatusStopped {
 			return errors.New("实例状态不允许重置")
 		}
 
@@ -204,9 +208,9 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 			return fmt.Errorf("创建重置任务失败: %v", err)
 		}
 
-		instance.Status = "resetting"
+		instance.Status = constant.InstanceStatusResetting
 	case "delete":
-		if instance.Status == "deleting" {
+		if instance.Status == constant.InstanceStatusDeleting {
 			return errors.New("实例正在删除中")
 		}
 
@@ -230,7 +234,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 			return fmt.Errorf("创建删除任务失败: %v", err)
 		}
 
-		instance.Status = "deleting"
+		instance.Status = constant.InstanceStatusDeleting
 	default:
 		return errors.New("不支持的操作")
 	}

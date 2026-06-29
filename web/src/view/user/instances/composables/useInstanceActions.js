@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
 import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
+import { canOpenInstanceDetail, getInstanceBusyMessage, isInstanceBusy } from '@/utils/instance-status'
 import {
   performInstanceAction,
   resetInstancePassword,
@@ -45,6 +46,18 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   const ensureTrafficOperationAllowed = () => {
     if (instance.value?.trafficOperationLocked || monitoring.trafficData?.isLimited) {
       ElMessage.error(getTrafficOperationLockMessage())
+      return false
+    }
+    return true
+  }
+
+  const ensureInstanceOperationAllowed = () => {
+    if (isInstanceBusy(instance.value)) {
+      ElMessage.warning(getInstanceBusyMessage(instance.value))
+      return false
+    }
+    if (!canOpenInstanceDetail(instance.value)) {
+      ElMessage.warning(t('user.instances.cannotViewDetail', { status: instance.value?.status || 'unknown' }))
       return false
     }
     return true
@@ -92,6 +105,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   }
 
   const executeReset = async (image) => {
+    if (!ensureInstanceOperationAllowed()) return
     if (!ensureTrafficOperationAllowed()) return
     actionLoading.value = true
     const token = getShareToken()
@@ -127,6 +141,9 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   const performAction = async (action) => {
     if (actionLoading.value) {
       ElMessage.warning(t('user.instanceDetail.operationInProgress'))
+      return
+    }
+    if (!ensureInstanceOperationAllowed()) {
       return
     }
 
@@ -229,6 +246,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       ElMessage.error(t('user.instanceDetail.instanceNotFound'))
       return
     }
+    if (!ensureInstanceOperationAllowed()) return
     if (!ensureTrafficOperationAllowed()) return
     if (instance.value.status !== 'running') {
       ElMessage.warning(t('user.instanceDetail.instanceNotRunning'))
@@ -256,6 +274,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       ElMessage.error(t('user.instanceDetail.instanceNotFound'))
       return
     }
+    if (!ensureInstanceOperationAllowed()) return
     if (!ensureTrafficOperationAllowed()) return
     if (instance.value.status !== 'running') {
       ElMessage.warning(t('user.instanceDetail.instanceNotRunning'))
@@ -312,6 +331,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       ElMessage.warning(t('user.instanceDetail.operationInProgress'))
       return
     }
+    if (!ensureInstanceOperationAllowed()) return
     if (!ensureTrafficOperationAllowed()) return
 
     try {
@@ -356,6 +376,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       ElMessage.error(t('user.instances.instanceInvalid'))
       return
     }
+    if (!ensureInstanceOperationAllowed()) return
     if (!ensureTrafficOperationAllowed()) return
     try {
       const { value } = await ElMessageBox.prompt(

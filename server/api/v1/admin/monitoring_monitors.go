@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
@@ -554,6 +555,15 @@ func GetInstanceResources(c *gin.Context) {
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
+		return
+	}
+	var instance providerModel.Instance
+	if err := global.APP_DB.Select("id", "status").First(&instance, instanceID).Error; err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "实例不存在"))
+		return
+	}
+	if !constant.IsDetailAvailableStatus(instance.Status) {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "实例正在操作进行中，请在任务详情中查看进度"))
 		return
 	}
 

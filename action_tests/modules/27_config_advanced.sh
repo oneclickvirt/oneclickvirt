@@ -29,12 +29,11 @@ run_module_27() {
         local auto_resp; auto_resp=$(test_api "Auto-configure provider" "POST" \
             "/api/v1/admin/providers/auto-configure" "200|201|400|500" \
             '{"providerId":'"$PROVIDER_ID"'}' "$group" "$ADMIN_TOKEN")
-        local cfg_task; cfg_task=$(echo "$auto_resp" | grep -o '"task_id":[0-9]*\|"task_id":"[^"]*"' | head -1 | grep -o '[0-9]*$\|[^"]*"$' | tr -d '"')
+        local cfg_task; cfg_task=$(echo "$auto_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
 
         if [[ -n "$cfg_task" ]]; then
+            wait_configuration_task_complete_nonfatal "$cfg_task" "$ADMIN_TOKEN" "$CONFIG_TASK_MAX_WAIT" 10 || true
             test_api "Get config task detail" "GET" "/api/v1/admin/configuration-tasks/${cfg_task}" "200" \
-                "" "$group" "$ADMIN_TOKEN"
-            test_api "Cancel config task" "POST" "/api/v1/admin/configuration-tasks/${cfg_task}/cancel" "200|400" \
                 "" "$group" "$ADMIN_TOKEN"
         fi
 

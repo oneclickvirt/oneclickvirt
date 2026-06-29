@@ -87,6 +87,11 @@ func ExecWebSocket(c *gin.Context) {
 		return
 	}
 
+	if constant.IsBusyStatus(instance.Status) {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, fmt.Sprintf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)))
+		return
+	}
+
 	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, instance.ID, "exec"); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
 		return
@@ -101,7 +106,7 @@ func ExecWebSocket(c *gin.Context) {
 		return
 	}
 
-	if instance.Status != "running" {
+	if instance.Status != constant.InstanceStatusRunning {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例未运行"))
 		return
 	}

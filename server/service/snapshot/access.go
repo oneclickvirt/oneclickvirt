@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
@@ -92,6 +93,9 @@ func (s *Service) ImportUserSnapshotManifest(instanceID uint, userID uint, paylo
 			return fmt.Errorf("实例不存在或无权限")
 		}
 
+		if err := ensureInstanceSnapshotReady(inst); err != nil {
+			return err
+		}
 		providerType := providerTypeForInstance(inst)
 		instanceType := strings.ToLower(strings.TrimSpace(inst.InstanceType))
 		if manifest.ProviderID != 0 && manifest.ProviderID != inst.ProviderID {
@@ -181,6 +185,9 @@ func (s *Service) startCreateSnapshotTaskForLoaded(inst *providerModel.Instance,
 	if inst == nil {
 		return nil, fmt.Errorf("实例不存在")
 	}
+	if err := ensureInstanceSnapshotReady(*inst); err != nil {
+		return nil, err
+	}
 	quota, err := maxSnapshotsForUser(inst.UserID)
 	if err != nil {
 		return nil, err
@@ -205,6 +212,9 @@ func (s *Service) startCreateSnapshotTaskForLoaded(inst *providerModel.Instance,
 func (s *Service) startCreateSnapshotTaskPrepared(inst *providerModel.Instance, req SnapshotRequest, createdBy uint, source string, schedule *providerModel.SnapshotSchedule, providerType string) (*SnapshotTaskResponse, error) {
 	if inst == nil {
 		return nil, fmt.Errorf("实例不存在")
+	}
+	if err := ensureInstanceSnapshotReady(*inst); err != nil {
+		return nil, err
 	}
 	snapshotName := sanitizeName(req.Name)
 	if snapshotName == "" {
@@ -330,6 +340,12 @@ func (s *Service) StartBatchCreateSnapshotTasks(req BatchSnapshotRequest, create
 		}
 		if !ok {
 			item.Error = "实例不存在或无权限"
+			response.Failed++
+			response.Results = append(response.Results, item)
+			continue
+		}
+		if err := ensureInstanceSnapshotReady(*inst); err != nil {
+			item.Error = err.Error()
 			response.Failed++
 			response.Results = append(response.Results, item)
 			continue
@@ -469,6 +485,15 @@ func (s *Service) startSnapshotOperationTask(snapshot *providerModel.InstanceSna
 	if action == SnapshotTaskActionRestore && snapshot.Status != StatusAvailable {
 		return nil, fmt.Errorf("只有可用快照才能恢复")
 	}
+	if action == SnapshotTaskActionRestore {
+		inst, err := loadInstance(snapshot.InstanceID)
+		if err != nil {
+			return nil, err
+		}
+		if err := ensureInstanceSnapshotReady(*inst); err != nil {
+			return nil, err
+		}
+	}
 	task := &providerModel.SnapshotTask{
 		ProviderID: snapshot.ProviderID,
 		InstanceID: snapshot.InstanceID,
@@ -497,6 +522,16 @@ func (s *Service) startSnapshotOperationTask(snapshot *providerModel.InstanceSna
 	}
 	triggerUnifiedTaskProcessing()
 	return &SnapshotTaskResponse{Task: adminTask, SnapshotTask: task, Snapshot: snapshot}, nil
+}
+
+func ensureInstanceSnapshotReady(inst providerModel.Instance) error {
+	if constant.IsBusyStatus(inst.Status) {
+		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", inst.Status)
+	}
+	if !constant.IsDetailAvailableStatus(inst.Status) {
+		return fmt.Errorf("实例当前状态不允许快照操作: %s", inst.Status)
+	}
+	return nil
 }
 
 func maxSnapshotsForUserInTx(tx *gorm.DB, userID uint) (int, error) {

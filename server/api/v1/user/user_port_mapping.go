@@ -11,7 +11,6 @@ import (
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
-	"oneclickvirt/service/admin/instance"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -85,8 +84,10 @@ func GetInstancePorts(c *gin.Context) {
 	}
 
 	// 验证实例是否属于当前用户
-	adminInstanceService := instance.Service{}
-	instance, err := adminInstanceService.GetInstanceByID(uint(instanceID))
+	var instance providerModel.Instance
+	err = global.APP_DB.Select("id", "name", "user_id", "provider_id", "public_ip", "username").
+		Where("id = ? AND user_id = ?", uint(instanceID), userID).
+		First(&instance).Error
 	if err != nil {
 		global.APP_LOG.Error("获取实例失败", zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "实例不存在"))

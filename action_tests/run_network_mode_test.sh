@@ -246,9 +246,9 @@ _auto_configure_provider() {
         -H "Content-Type: application/json" \
         -X POST -d "{\"providerId\":${provider_id}}" \
         "${SERVER_URL}/api/v1/admin/providers/auto-configure" 2>/dev/null) || true
-    local ac_task; ac_task=$(echo "$ac_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+    local ac_task; ac_task=$(echo "$ac_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
     if [[ -n "$ac_task" ]]; then
-        wait_task_complete "$SERVER_URL" "$ac_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 >/dev/null 2>&1 || true
+        wait_configuration_task_complete_nonfatal "$ac_task" "$ADMIN_TOKEN" "$CONFIG_TASK_MAX_WAIT" 10 >/dev/null 2>&1 || true
     fi
 }
 

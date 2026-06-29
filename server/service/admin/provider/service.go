@@ -164,7 +164,7 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 					CASE
 						WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
 						WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-						ELSE ith.total_used * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+						ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
 					END
 				), 0) as used_traffic
 			FROM instance_traffic_histories ith

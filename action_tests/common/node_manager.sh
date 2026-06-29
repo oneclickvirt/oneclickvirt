@@ -77,6 +77,48 @@ exit 1
     return 1
 }
 
+ensure_worker_swap() {
+    local ip="$1" label="${2:-worker}" swap_mb="${WORKER_SWAP_MB:-2048}"
+    [[ -z "$ip" ]] && { log_warning "Swap setup skipped: worker IP is empty"; return 1; }
+    [[ "$swap_mb" =~ ^[0-9]+$ ]] || swap_mb=2048
+    [[ "$swap_mb" -le 0 ]] && return 0
+
+    log_info "Ensuring ${swap_mb}MB swap on ${label}..."
+    local swap_script
+    swap_script=$(cat <<SWAP_SCRIPT
+set -e
+target_mb=${swap_mb}
+current_mb=\$(awk 'NR>1 {sum += int(\$3 / 1024)} END {print sum + 0}' /proc/swaps 2>/dev/null)
+if [ "\${current_mb:-0}" -ge "\$target_mb" ]; then
+    echo "SWAP_OK existing=\${current_mb}MB"
+    exit 0
+fi
+swap_file="/swapfile-oneclickvirt"
+if swapon --show=NAME 2>/dev/null | grep -qx "\$swap_file"; then
+    swapoff "\$swap_file" || true
+fi
+rm -f "\$swap_file"
+if command -v fallocate >/dev/null 2>&1; then
+    fallocate -l "\${target_mb}M" "\$swap_file" || dd if=/dev/zero of="\$swap_file" bs=1M count="\$target_mb" status=none
+else
+    dd if=/dev/zero of="\$swap_file" bs=1M count="\$target_mb" status=none
+fi
+chmod 600 "\$swap_file"
+mkswap "\$swap_file" >/dev/null
+swapon "\$swap_file"
+grep -q ' /swapfile-oneclickvirt ' /etc/fstab 2>/dev/null || echo '/swapfile-oneclickvirt none swap sw 0 0' >> /etc/fstab
+new_mb=\$(awk 'NR>1 {sum += int(\$3 / 1024)} END {print sum + 0}' /proc/swaps 2>/dev/null)
+echo "SWAP_OK total=\${new_mb}MB"
+SWAP_SCRIPT
+)
+    if platform_exec_and_wait "${ip}" "${swap_script}" 300; then
+        log_success "Swap ready on ${label}"
+        return 0
+    fi
+    log_warning "Swap setup failed on ${label}"
+    return 1
+}
+
 stabilize_worker_network_for_env() {
     local ip="$1" env="$2" label="${3:-worker}"
     ensure_worker_dns "$ip" "$label" || return 1
@@ -157,6 +199,7 @@ create_test_node() {
     [[ -n "$password" ]] && PLATFORM_SSH_PASSWORD="$password"
     # Wait for SSH to be available before handing off the node
     wait_for_ssh "${ip}" 600 || { log_error "SSH never became available on ${ip}"; return 1; }
+    ensure_worker_swap "${ip}" "new ${platform_name} worker" || log_warning "Continuing even though swap setup did not complete on new worker"
     log_success "Node created on '${platform_name}': ID=${id} IP=[MASKED]"
     echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\",\"platform\":\"${platform_name}\"}"
 }
@@ -165,13 +208,19 @@ install_env() {
     local id="$1" ip="$2" env="$3"
     log_section "Installing ${env} environment on worker node"
     local noninteractive_prefix="export noninteractive=true; export DEBIAN_FRONTEND=noninteractive;"
+    local install_wait="${ENV_INSTALL_MAX_WAIT:-3600}"
+    local apt_lock_wait="${APT_LOCK_MAX_WAIT:-1800}"
+    local apt_install_wait="${APT_INSTALL_MAX_WAIT:-1800}"
+    local reboot_wait="${ENV_REBOOT_SSH_MAX_WAIT:-600}"
+    local pve_wait="${PVE_INSTALL_MAX_WAIT:-3600}"
     if declare -f platform_validate_worker_resources >/dev/null 2>&1; then
         platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}" || return 75
     fi
+    ensure_worker_swap "${ip}" "worker before ${env} install" || log_warning "Continuing even though swap setup did not complete before ${env} install"
     # Wait for cloud-init and other processes to release apt/dpkg locks
-    # min_wait=120s (required wait), max_wait=300s (timeout), interval=10s
-    wait_for_apt_lock "${ip}" 120 300 10
-    platform_exec_and_wait "${ip}" "${noninteractive_prefix} apt-get update -y && apt-get install -y curl wget sudo jq ipcalc lsof" 600
+    # min_wait=120s (required wait), max_wait defaults to 1800s, interval=15s
+    wait_for_apt_lock "${ip}" 120 "$apt_lock_wait" 15 || return 75
+    platform_exec_and_wait "${ip}" "${noninteractive_prefix} apt-get update -y && apt-get -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install -y curl wget sudo jq ipcalc lsof" "$apt_install_wait" || return 75
     ensure_worker_dns "${ip}" "worker before ${env} install" || true
     local url="${ENV_INSTALL_SCRIPTS[$env]:-}"
     [[ -z "$url" ]] && { log_error "Unknown environment: ${env}"; return 1; }
@@ -179,19 +228,19 @@ install_env() {
     local env_prefix
     case "$env" in
         docker)
-            env_prefix="NEED_DISK_LIMIT=n CN=false WITHOUTCDN=false IPV6_MAXIMUM_SUBSET=n"
+            env_prefix="DEBIAN_FRONTEND=noninteractive NEED_DISK_LIMIT=n CN=false WITHOUTCDN=false IPV6_MAXIMUM_SUBSET=n"
             ;;
         lxd)
-            env_prefix="NONINTERACTIVE=true CN=false WITHOUTCDN=false"
+            env_prefix="DEBIAN_FRONTEND=noninteractive noninteractive=true NONINTERACTIVE=true CN=false WITHOUTCDN=false"
             ;;
         incus)
-            env_prefix="INCUS_NONINTERACTIVE=true WITHOUTCDN=false"
+            env_prefix="DEBIAN_FRONTEND=noninteractive noninteractive=true INCUS_NONINTERACTIVE=true WITHOUTCDN=false"
             ;;
         podman)
-            env_prefix="NEED_DISK_LIMIT=n WITHOUTCDN=false"
+            env_prefix="DEBIAN_FRONTEND=noninteractive NEED_DISK_LIMIT=n WITHOUTCDN=false"
             ;;
         containerd)
-            env_prefix="NEED_DISK_LIMIT=n WITHOUTCDN=false"
+            env_prefix="DEBIAN_FRONTEND=noninteractive NEED_DISK_LIMIT=n WITHOUTCDN=false"
             ;;
         qemu)
             env_prefix="DEBIAN_FRONTEND=noninteractive QEMU_IMAGES_PATH=/var/lib/libvirt/images"
@@ -205,18 +254,19 @@ install_env() {
     esac
     if [[ "$env" == "proxmoxve" ]]; then
         log_info "PVE install step 1/3: installing PVE kernel (reboot required)..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200 || true
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && DEBIAN_FRONTEND=noninteractive bash /tmp/envinstall.sh" "$pve_wait" || true
         log_info "Rebooting worker to load PVE kernel..."
         platform_exec_and_wait "${ip}" "reboot" 10 || true
         sleep 25
-        wait_for_ssh "${ip}" 300
+        wait_for_ssh "${ip}" "$reboot_wait"
+        ensure_worker_swap "${ip}" "worker after PVE reboot" || log_warning "Swap setup after PVE reboot did not complete"
         stabilize_worker_network_for_env "${ip}" "${env}" "worker after PVE reboot" || true
         log_info "PVE install step 2/3: completing PVE configuration after reboot..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && DEBIAN_FRONTEND=noninteractive bash /tmp/envinstall.sh" "$pve_wait"
         log_info "PVE install step 3a/3: configuring backend bridge..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_BACKEND}' | bash" 600
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_BACKEND}' | bash" "$install_wait"
         log_info "PVE install step 3b/3: building NAT IPv4 network..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_NAT}' | bash" 600
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_NAT}' | bash" "$install_wait"
     elif [[ "$env" == "kubevirt" ]]; then
         # kubevirt needs K3s + KubeVirt + CDI, single-pass install (no reboot needed)
         # K3s + KubeVirt + CDI typically takes 60-120 minutes; use 7200s (2h) to be safe
@@ -225,16 +275,17 @@ install_env() {
     elif [[ "$env" == "qemu" ]]; then
         # qemu needs libvirt + QEMU/KVM, single-pass install
         log_info "Installing QEMU/KVM environment..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" "$install_wait"
     else
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200 || true
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" "$install_wait" || true
         log_info "Rebooting worker to apply network/kernel settings..."
         platform_exec_and_wait "${ip}" "reboot" 10 || true
-        log_info "Waiting for SSH after reboot (max 180s)..."
-        wait_for_ssh "${ip}" 180
+        log_info "Waiting for SSH after reboot (max ${reboot_wait}s)..."
+        wait_for_ssh "${ip}" "$reboot_wait"
+        ensure_worker_swap "${ip}" "worker after ${env} reboot" || log_warning "Swap setup after ${env} reboot did not complete"
         stabilize_worker_network_for_env "${ip}" "${env}" "worker after ${env} reboot" || true
         log_info "Re-running ${env} install to complete post-reboot setup..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" "$install_wait"
     fi
     stabilize_worker_network_for_env "${ip}" "${env}" "worker after ${env} install" || true
 }
