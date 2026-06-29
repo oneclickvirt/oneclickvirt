@@ -387,6 +387,11 @@ if [[ -z "$WORKER_IP" ]]; then
         log_error "Failed to create worker node"
         exit 1
     }
+    if ! WORKER_INFO_JSON=$(normalize_json_body "$WORKER_INFO"); then
+        log_error "Failed to create worker node (invalid JSON response): ${WORKER_INFO:0:200}"
+        exit 75
+    fi
+    WORKER_INFO="$WORKER_INFO_JSON"
     WORKER_ID=$(safe_jq "$WORKER_INFO" '.instance_id // empty' '')
     WORKER_IP=$(safe_jq "$WORKER_INFO" '.ipv4 // empty' '')
     NODE_PASSWORD=$(safe_jq "$WORKER_INFO" '.password // empty' '')

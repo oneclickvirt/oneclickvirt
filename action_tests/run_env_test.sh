@@ -142,10 +142,11 @@ if [[ -z "$WORKER_INFO" ]]; then
     log_error "Failed to create worker node (empty response)"
     exit 1
 fi
-if ! printf '%s' "$WORKER_INFO" | jq empty 2>/dev/null; then
+if ! WORKER_INFO_JSON=$(normalize_json_body "$WORKER_INFO"); then
     log_error "Failed to create worker node (invalid JSON response): ${WORKER_INFO:0:200}"
     exit 75
 fi
+WORKER_INFO="$WORKER_INFO_JSON"
 WORKER_ID_VAL=$(safe_jq "$WORKER_INFO" '.instance_id // empty' '')
 export WORKER_IP; WORKER_IP=$(safe_jq "$WORKER_INFO" '.ipv4 // empty' '')
 export NODE_PASSWORD; NODE_PASSWORD=$(safe_jq "$WORKER_INFO" '.password // empty' '')

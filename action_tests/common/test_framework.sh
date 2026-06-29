@@ -71,6 +71,25 @@ sanitize_json_body() {
     fi
 }
 
+normalize_json_body() {
+    local body="$1" sanitized candidate
+    if [[ -z "$body" ]]; then
+        return 1
+    fi
+    if printf '%s' "$body" | jq -c . 2>/dev/null; then
+        return 0
+    fi
+    sanitized=$(sanitize_json_body "$body")
+    if printf '%s' "$sanitized" | jq -c . 2>/dev/null; then
+        return 0
+    fi
+    candidate=$(printf '%s\n' "$body" | awk '/^[[:space:]]*[{[]/ {line=$0} END {print line}')
+    if [[ -n "$candidate" ]] && printf '%s' "$candidate" | jq -c . 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
 log_failure_response() {
     local name="$1" body="$2" error_logs="${3:-}"
     log_error "${name} - actual response body follows:"

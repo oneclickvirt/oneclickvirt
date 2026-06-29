@@ -111,10 +111,13 @@ new_mb=\$(awk 'NR>1 {sum += int(\$3 / 1024)} END {print sum + 0}' /proc/swaps 2>
 echo "SWAP_OK total=\${new_mb}MB"
 SWAP_SCRIPT
 )
-    if platform_exec_and_wait "${ip}" "${swap_script}" 300; then
+    local swap_output
+    if swap_output=$(platform_exec_and_wait "${ip}" "${swap_script}" 300 2>&1); then
+        [[ -n "$swap_output" ]] && log_debug "Swap setup output on ${label}: ${swap_output}"
         log_success "Swap ready on ${label}"
         return 0
     fi
+    [[ -n "$swap_output" ]] && log_warning "Swap setup output on ${label}: ${swap_output}"
     log_warning "Swap setup failed on ${label}"
     return 1
 }
