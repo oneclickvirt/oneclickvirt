@@ -1,0 +1,70 @@
+<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>
+[0;36m========== Environment Integration Test: lxd ==========[0m
+
+[0;34m[INFO][0m 16:32:56 Modules: all
+[0;34m[INFO][0m 16:32:56 Instance types: both (requested: both)
+[0;34m[INFO][0m 16:32:56 Execution rule: auto
+[0;34m[INFO][0m 16:32:56 Node hours: 8h
+[0;34m[INFO][0m 16:32:56 Enabled platforms: lightnode
+[0;34m[INFO][0m 16:32:56 Active platform will be selected automatically with fallback
+[0;32m[PASS][0m 16:32:56 Required commands available: jq curl go mysql
+[0;34m[INFO][0m 16:32:56 Resource check skipped (SKIP_RESOURCE_CHECK=true)
+[0;32m[PASS][0m 16:32:56 Port 8888 is available
+[0;34m[INFO][0m 16:32:56 Waiting for MySQL TCP readiness...
+mysqld is alive
+[0;32m[PASS][0m 16:32:56 MySQL ready after 0s
+
+[0;36m========== Phase 1: Deploy master on runner ==========[0m
+
+
+[0;36m========== Deploying master locally on runner from source (port 8888) ==========[0m
+
+[0;34m[INFO][0m 16:32:56 Server directory: /home/runner/work/oneclickvirt/oneclickvirt/server
+[0;34m[INFO][0m 16:32:56 Patching config.yaml for CI environment...
+[0;32m[PASS][0m 16:32:56 config.yaml patched
+[0;34m[INFO][0m 16:32:56 Building server binary...
+[0;32m[PASS][0m 16:33:09 Server binary built
+[0;34m[INFO][0m 16:33:09 Server process started (PID 3572), waiting for startup...
+[0;32m[PASS][0m 16:33:14 Server started and responding (PID 3572, elapsed 5s, HTTP 200)
+[0;32m[PASS][0m 16:33:14 Master deployed locally on runner (port 8888)
+
+[0;36m========== Phase 2: Create worker node ==========[0m
+
+[0;34m[INFO][0m 16:33:14 Creating test node: env=lxd hours=8
+[0;34m[INFO][0m 16:33:14 Enabled platforms (priority order): lightnode
+[0;34m[INFO][0m 16:33:14 === Trying platform: lightnode (attempt 1/2) ===
+[0;34m[INFO][0m 16:33:14 Initializing platform: lightnode
+[0;34m[INFO][0m 16:33:14 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 16:33:15 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 16:33:16 [lightnode] Platform initialized
+[0;32m[PASS][0m 16:33:16 Platform 'lightnode' initialized
+[DEBUG] 16:33:17 [lightnode] list_instances raw: []
+[0;34m[INFO][0m 16:33:17 [lightnode] Creating new instance (env=lxd hours=8)...
+[0;34m[INFO][0m 16:33:17 [lightnode] Creating instance: env=lxd
+[0;32m[PASS][0m 16:33:26 [lightnode] Instance creation requested: ecs-ew0001bf6d2n
+[0;34m[INFO][0m 16:33:26 [lightnode] Waiting for async task m10001bf6czr (max 1800s)...
+[DEBUG] 16:33:26 [lightnode] Task m10001bf6czr: result=RETRY status=PROCESSING
+[DEBUG] 16:33:42 [lightnode] Task m10001bf6czr: result=RETRY status=PROCESSING
+[DEBUG] 16:33:58 [lightnode] Task m10001bf6czr: result=RETRY status=PROCESSING
+[DEBUG] 16:34:14 [lightnode] Task m10001bf6czr: result=RETRY status=PROCESSING
+[DEBUG] 16:34:29 [lightnode] Task m10001bf6czr: result=RETRY status=PROCESSING
+[DEBUG] 16:34:45 [lightnode] Task m10001bf6czr: result=RETRY status=PROCESSING
+[DEBUG] 16:35:01 [lightnode] Task m10001bf6czr: result=RETRY status=PROCESSING
+[DEBUG] 16:35:16 [lightnode] Task m10001bf6czr: result=SUCCESS status=FINISHED
+[0;32m[PASS][0m 16:35:16 [lightnode] Task m10001bf6czr completed
+[0;32m[PASS][0m 16:35:17 Instance created on 'lightnode': ID=ecs-ew0001bf6d2n IP=38.60.134.86
+[0;34m[INFO][0m 16:35:17 Initializing platform: lightnode
+[0;34m[INFO][0m 16:35:17 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 16:35:19 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 16:35:19 [lightnode] Platform initialized
+[0;32m[PASS][0m 16:35:19 Platform 'lightnode' initialized
+[0;34m[INFO][0m 16:35:19 [lightnode] Waiting for SSH on 38.60.134.86 (max 600s)...
+[0;32m[PASS][0m 16:35:21 [lightnode] SSH ready on 38.60.134.86
+[0;34m[INFO][0m 16:35:21 Ensuring 2048MB swap on new lightnode worker...
+Warning: Permanently added '38.60.134.86' (ED25519) to the list of known hosts.
+[0;32m[PASS][0m 16:35:22 Swap ready on new lightnode worker
+[0;32m[PASS][0m 16:35:22 Node created on 'lightnode': ID=ecs-ew0001bf6d2n IP=[MASKED]
+[0;31m[FAIL][0m 16:35:22 Failed to create worker node (invalid JSON response): SWAP_OK existing=3915MB
+{"instance_id":"ecs-ew0001bf6d2n","ipv4":"38.60.134.86","password":"CiTest1234!","platform":"lightnode"}
+[0;31m[FAIL][0m 16:35:22 Script exiting with code 75
+[0;34m[INFO][0m 16:35:22 Capturing service logs for debugging...</pre></body></html>
