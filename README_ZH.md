@@ -53,10 +53,10 @@
 
 | 镜像标签 | 说明 | 适用场景 |
 |---------|------|---------|
-| `spiritlhl/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
-| `spiritlhl/oneclickvirt:20260629` | 一体化版本特定日期版本 | 需要固定版本 |
-| `spiritlhl/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
-| `spiritlhl/oneclickvirt:no-db-20260629` | 独立数据库版本特定日期 | 不内置数据库 |
+| `oneclickvirt/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
+| `oneclickvirt/oneclickvirt:20260624` | 一体化版本特定日期版本 | 需要固定版本 |
+| `oneclickvirt/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
+| `oneclickvirt/oneclickvirt:no-db-20260624` | 独立数据库版本特定日期 | 不内置数据库 |
 
 所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
 
@@ -72,7 +72,7 @@ docker run -d \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
-  spiritlhl/oneclickvirt:latest
+  oneclickvirt/oneclickvirt:latest
 ```
 
 **配置域名访问：**
@@ -87,7 +87,7 @@ docker run -d \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
-  spiritlhl/oneclickvirt:latest
+  oneclickvirt/oneclickvirt:latest
 ```
 
 或者使用 GitHub Container Registry：
@@ -122,7 +122,7 @@ docker run -d \
   -e DB_PASSWORD="your-password" \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
-  spiritlhl/oneclickvirt:no-db
+  oneclickvirt/oneclickvirt:no-db
 ```
 
 **环境变量说明：**

@@ -53,10 +53,10 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
-| `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `spiritlhl/oneclickvirt:20260629` | All-in-one version with specific date | Fixed version requirement |
-| `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
-| `spiritlhl/oneclickvirt:no-db-20260629` | Standalone database version with date | Without database |
+| `oneclickvirt/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
+| `oneclickvirt/oneclickvirt:20260624` | All-in-one version with specific date | Fixed version requirement |
+| `oneclickvirt/oneclickvirt:no-db` | Standalone database version | Without database |
+| `oneclickvirt/oneclickvirt:no-db-20260624` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -72,7 +72,7 @@ docker run -d \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
-  spiritlhl/oneclickvirt:latest
+  oneclickvirt/oneclickvirt:latest
 ```
 
 **Configure Domain Access:**
@@ -87,7 +87,7 @@ docker run -d \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
-  spiritlhl/oneclickvirt:latest
+  oneclickvirt/oneclickvirt:latest
 ```
 
 Or using GitHub Container Registry:
@@ -122,7 +122,7 @@ docker run -d \
   -e DB_PASSWORD="your-password" \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
-  spiritlhl/oneclickvirt:no-db
+  oneclickvirt/oneclickvirt:no-db
 ```
 
 **Environment Variables:**

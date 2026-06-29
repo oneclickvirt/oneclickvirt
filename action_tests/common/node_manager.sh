@@ -437,7 +437,7 @@ deploy_master() {
     local id="$1" ip="$2" port="${3:-80}"
     log_section "Deploying master on ${ip} (port ${port})"
     platform_exec_and_wait "${ip}" "export noninteractive=true; export DEBIAN_FRONTEND=noninteractive; curl -sSL https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/dockerinstall.sh | bash" 600
-    platform_exec_and_wait "${ip}" "docker pull spiritlhl/oneclickvirt:latest && docker run -d --name oneclickvirt --restart=always -p ${port}:80 spiritlhl/oneclickvirt:latest" 300
+    platform_exec_and_wait "${ip}" "docker pull oneclickvirt/oneclickvirt:latest && docker run -d --name oneclickvirt --restart=always -p ${port}:80 oneclickvirt/oneclickvirt:latest" 300
 }
 
 # MASTER_SERVER_DIR holds the path to the server directory where the binary runs.

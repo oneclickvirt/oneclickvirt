@@ -14,7 +14,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  DOCKER_IMAGE: spiritlhl/oneclickvirt
+  DOCKER_IMAGE: oneclickvirt/oneclickvirt
   GHCR_IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
@@ -130,7 +130,6 @@ jobs:
       
       - name: Login to Docker Hub
         id: login-dockerhub
-        continue-on-error: true
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -345,7 +344,6 @@ jobs:
       
       - name: Login to Docker Hub
         id: login-dockerhub
-        continue-on-error: true
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -398,7 +396,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: spiritlhl/oneclickvirt
+          repository: ${{ env.DOCKER_IMAGE }}
           readme-filepath: ./README.md
 
   merge-full-ghcr:
@@ -484,7 +482,6 @@ jobs:
       
       - name: Login to Docker Hub
         id: login-dockerhub
-        continue-on-error: true
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -614,20 +611,26 @@ jobs:
       - name: Update local README_ZH.md
         run: |
           DATE_TAG="${{ steps.date.outputs.date }}"
+
+          # Normalize legacy Docker Hub namespace before updating date tags.
+          sed -i "s#spiritlhl/oneclickvirt#oneclickvirt/oneclickvirt#g" README_ZH.md
           
           # Update Chinese README - only match the image tag date portion
-          sed -i "s/\(spiritlhl\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" README_ZH.md
-          sed -i "s/\(spiritlhl\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" README_ZH.md
+          sed -i "s/\(oneclickvirt\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" README_ZH.md
+          sed -i "s/\(oneclickvirt\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" README_ZH.md
           
           echo "Updated README_ZH.md with tag: ${DATE_TAG}"
       
       - name: Update local README.md
         run: |
           DATE_TAG="${{ steps.date.outputs.date }}"
+
+          # Normalize legacy Docker Hub namespace before updating date tags.
+          sed -i "s#spiritlhl/oneclickvirt#oneclickvirt/oneclickvirt#g" README.md
           
           # Update English README - only match the image tag date portion
-          sed -i "s/\(spiritlhl\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" README.md
-          sed -i "s/\(spiritlhl\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" README.md
+          sed -i "s/\(oneclickvirt\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" README.md
+          sed -i "s/\(oneclickvirt\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" README.md
           
           echo "Updated README.md with tag: ${DATE_TAG}"
       
@@ -656,10 +659,13 @@ jobs:
         run: |
           DATE_TAG="${{ steps.date.outputs.date }}"
           DOC_FILE="docs-repo/docs/guide/oneclickvirt/oneclickvirt_install.md"
+
+          # Normalize legacy Docker Hub namespace before updating date tags.
+          sed -i "s#spiritlhl/oneclickvirt#oneclickvirt/oneclickvirt#g" "$DOC_FILE"
           
           # Update the image tag table - only match the date portion in image tags
-          sed -i "s/\(spiritlhl\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
-          sed -i "s/\(spiritlhl\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
+          sed -i "s/\(oneclickvirt\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
+          sed -i "s/\(oneclickvirt\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
           
           echo "Updated Chinese documentation with tag: ${DATE_TAG}"
       
@@ -667,10 +673,13 @@ jobs:
         run: |
           DATE_TAG="${{ steps.date.outputs.date }}"
           DOC_FILE="docs-repo/docs/en/guide/oneclickvirt/oneclickvirt_install.md"
+
+          # Normalize legacy Docker Hub namespace before updating date tags.
+          sed -i "s#spiritlhl/oneclickvirt#oneclickvirt/oneclickvirt#g" "$DOC_FILE"
           
           # Update the image tag table - only match the date portion in image tags
-          sed -i "s/\(spiritlhl\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
-          sed -i "s/\(spiritlhl\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
+          sed -i "s/\(oneclickvirt\/oneclickvirt:\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
+          sed -i "s/\(oneclickvirt\/oneclickvirt:no-db-\)[0-9]\{8\}/\1${DATE_TAG}/g" "$DOC_FILE"
           
           echo "Updated English documentation with tag: ${DATE_TAG}"
       
