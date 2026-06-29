@@ -97,11 +97,6 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	day := now.Day()
 	hour := now.Hour()
 
-	multiplier := p.TrafficMultiplier
-	if multiplier <= 0 {
-		multiplier = 1.0
-	}
-
 	// Batch-load authoritative instance owners outside the write transactions.
 	type idPair struct {
 		ID     uint
@@ -199,8 +194,10 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 			continue
 		}
 
-		rxMB := float64(deltaBytesIn) * multiplier / 1048576.0
-		txMB := float64(deltaBytesOut) * multiplier / 1048576.0
+		// History tables store raw in/out usage. Count mode and multiplier are
+		// applied only when querying usage so agent and pmacct data stay consistent.
+		rxMB := float64(deltaBytesIn) / 1048576.0
+		txMB := float64(deltaBytesOut) / 1048576.0
 		minute := (now.Minute() / 5) * 5
 		alignedTime := time.Date(year, time.Month(month), day, hour, minute, 0, 0, now.Location())
 

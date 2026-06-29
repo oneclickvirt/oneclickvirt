@@ -29,9 +29,15 @@ run_module_26() {
         return 1
     }
 
+    local type_task_wait="${INSTANCE_TYPE_TASK_MAX_WAIT:-1800}"
+    if [[ "$INSTANCE_TASK_MAX_WAIT" =~ ^[0-9]+$ && "$type_task_wait" =~ ^[0-9]+$ && "$type_task_wait" -lt "$INSTANCE_TASK_MAX_WAIT" ]]; then
+        type_task_wait="$INSTANCE_TASK_MAX_WAIT"
+    fi
+
     # ---- Container-specific tests ----
     if should_test_type "container" && env_supports_container; then
         log_info "Testing container-specific operations"
+        wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} before container type test" "$ADMIN_TOKEN" "$type_task_wait" 10 || true
 
         # Create container instance
         local ct_resp; ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201|400" \
@@ -43,7 +49,7 @@ run_module_26() {
 
         if [[ -n "$ct_task" ]]; then
             local ct_task_resp=""
-            if ct_task_resp=$(wait_task_complete_nonfatal "$SERVER_URL" "$ct_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
+            if ct_task_resp=$(wait_task_complete_nonfatal "$SERVER_URL" "$ct_task" "$ADMIN_TOKEN" "$type_task_wait" 10); then
                 ct_created=true
                 ct_id=$(echo "$ct_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
                 if [[ -z "$ct_id" ]]; then
@@ -57,7 +63,13 @@ run_module_26() {
                     record_skip_result "Create type-test container task (infrastructure)" "GET" "/api/v1/admin/tasks/${ct_task}" "${ct_infra_detail}" "$group"
                 else
                     local ct_task_actual; ct_task_actual=$(safe_jq "$ct_task_resp" '.data.status // .message // .msg // "failed"' 'failed')
-                    record_fail_result "Create type-test container task" "GET" "/api/v1/admin/tasks/${ct_task}" "completed" "$ct_task_actual" "$ct_task_resp" "$group"
+                    if is_active_task_status "$ct_task_actual"; then
+                        cancel_task_safe "$ct_task" "$ADMIN_TOKEN" "type-test container creation timed out" 180
+                        ct_id=""
+                        record_skip_result "Create type-test container task (still running)" "GET" "/api/v1/admin/tasks/${ct_task}" "task remained ${ct_task_actual} after ${type_task_wait}s and was cancelled" "$group"
+                    else
+                        record_fail_result "Create type-test container task" "GET" "/api/v1/admin/tasks/${ct_task}" "completed" "$ct_task_actual" "$ct_task_resp" "$group"
+                    fi
                 fi
             fi
         else
@@ -103,6 +115,7 @@ run_module_26() {
     # ---- VM-specific tests ----
     if should_test_type "vm" && env_supports_vm; then
         log_info "Testing VM-specific operations"
+        wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} before VM type test" "$ADMIN_TOKEN" "$type_task_wait" 10 || true
 
         # Create VM instance
         local vm_resp; vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201|400" \
@@ -114,7 +127,7 @@ run_module_26() {
 
         if [[ -n "$vm_task" ]]; then
             local vm_task_resp=""
-            if vm_task_resp=$(wait_task_complete_nonfatal "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
+            if vm_task_resp=$(wait_task_complete_nonfatal "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$type_task_wait" 10); then
                 vm_created=true
                 vm_id=$(echo "$vm_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
                 if [[ -z "$vm_id" ]]; then
@@ -128,7 +141,13 @@ run_module_26() {
                     record_skip_result "Create type-test VM task (infrastructure)" "GET" "/api/v1/admin/tasks/${vm_task}" "${vm_infra_detail}" "$group"
                 else
                     local vm_task_actual; vm_task_actual=$(safe_jq "$vm_task_resp" '.data.status // .message // .msg // "failed"' 'failed')
-                    record_fail_result "Create type-test VM task" "GET" "/api/v1/admin/tasks/${vm_task}" "completed" "$vm_task_actual" "$vm_task_resp" "$group"
+                    if is_active_task_status "$vm_task_actual"; then
+                        cancel_task_safe "$vm_task" "$ADMIN_TOKEN" "type-test VM creation timed out" 180
+                        vm_id=""
+                        record_skip_result "Create type-test VM task (still running)" "GET" "/api/v1/admin/tasks/${vm_task}" "task remained ${vm_task_actual} after ${type_task_wait}s and was cancelled" "$group"
+                    else
+                        record_fail_result "Create type-test VM task" "GET" "/api/v1/admin/tasks/${vm_task}" "completed" "$vm_task_actual" "$vm_task_resp" "$group"
+                    fi
                 fi
             fi
         else

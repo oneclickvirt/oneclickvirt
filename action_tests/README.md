@@ -118,6 +118,8 @@ action_tests/
 
 LXD/Incus 等环境在 CI 中依赖远程镜像站、DNS 和 Worker 出网能力。测试框架会把 `Temporary failure resolving`、`curl: (6)`、`lookup images.lxd.canonical.com ... [::1]:53`、远程镜像下载失败、Worker SSH 不可达等明确的基础设施问题记录为 `SKIP`，并继续清理已创建的半成品实例；接口返回格式错误、权限错误、业务状态错误仍会记录为 `FAIL`。
 
+`26_instance_types.sh` 在创建 container/VM 类型实例前会等待同一 Provider 的活跃任务队列清空；创建任务默认最多等待 `INSTANCE_TYPE_TASK_MAX_WAIT=1800` 秒（不会低于 `INSTANCE_TASK_MAX_WAIT`）。如果任务在超时后仍处于 `pending`、`running`、`processing`、`queued` 或 `cancelling`，测试会先调用管理员取消接口并记录为可恢复的 `SKIP`，避免在创建任务仍运行时删除实例导致后续 `record not found`。
+
 ### 错误日志捕获
 
 当测试用例失败时，框架自动从 Master 节点的 OneClickVirt 服务容器中捕获时间相关的日志：

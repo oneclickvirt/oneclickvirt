@@ -159,21 +159,24 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 		// day=0,hour=0 表示月度汇总数据
 		if result := global.APP_DB.Raw(`
 			SELECT 
-				pth.provider_id,
-				CASE 
-					WHEN p.traffic_count_mode = 'out' THEN pth.traffic_out * COALESCE(p.traffic_multiplier, 1.0)
-					WHEN p.traffic_count_mode = 'in' THEN pth.traffic_in * COALESCE(p.traffic_multiplier, 1.0)
-					ELSE pth.total_used * COALESCE(p.traffic_multiplier, 1.0)
-				END as used_traffic
-			FROM provider_traffic_histories pth
-			INNER JOIN providers p ON pth.provider_id = p.id
-			WHERE pth.provider_id IN ?
-			  AND pth.year = ?
-			  AND pth.month = ?
-			  AND pth.day = 0
-			  AND pth.hour = 0
+				ith.provider_id,
+				COALESCE(SUM(
+					CASE
+						WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+						WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+						ELSE ith.total_used * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+					END
+				), 0) as used_traffic
+			FROM instance_traffic_histories ith
+			INNER JOIN providers p ON ith.provider_id = p.id
+			WHERE ith.provider_id IN ?
+			  AND ith.year = ?
+			  AND ith.month = ?
+			  AND ith.day = 0
+			  AND ith.hour = 0
 			  AND p.enable_traffic_control = true
-			  AND pth.deleted_at IS NULL
+			  AND ith.deleted_at IS NULL
+			GROUP BY ith.provider_id
 		`, providerIDs, year, month).Scan(&trafficUsages); result.Error != nil {
 			global.APP_LOG.Warn("查询流量使用情况失败", zap.Error(result.Error))
 		}

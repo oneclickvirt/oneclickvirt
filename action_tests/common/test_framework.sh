@@ -934,6 +934,57 @@ wait_instance_active_tasks_idle() {
     return 1
 }
 
+wait_provider_active_tasks_idle() {
+    local provider_id="$1" label="${2:-provider ${provider_id}}" token="${3:-$ADMIN_TOKEN}" max="${4:-$INSTANCE_TASK_MAX_WAIT}" interval="${5:-10}"
+    local elapsed=0 last_summary=""
+
+    [[ -z "$provider_id" ]] && return 0
+
+    log_info "Waiting for ${label} provider task queue to settle (max ${max}s)..."
+    while [[ $elapsed -lt $max ]]; do
+        local resp; resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+            "${SERVER_URL}/api/v1/admin/tasks?page=1&pageSize=100" 2>/dev/null) || true
+        local active_count
+        active_count=$(printf '%s' "$resp" | jq -r --arg id "$provider_id" \
+            '[.data.list[]? | select(((.providerId // .provider_id // 0) | tostring) == $id and ((.status // "") | test("^(pending|running|processing|queued|cancelling)$")))] | length' 2>/dev/null) || active_count=""
+        [[ "$active_count" =~ ^[0-9]+$ ]] || active_count=0
+
+        if [[ "$active_count" -eq 0 ]]; then
+            log_success "${label} has no active provider tasks (waited ${elapsed}s)"
+            return 0
+        fi
+
+        local summary
+        summary=$(printf '%s' "$resp" | jq -r --arg id "$provider_id" \
+            '[.data.list[]? | select(((.providerId // .provider_id // 0) | tostring) == $id and ((.status // "") | test("^(pending|running|processing|queued|cancelling)$"))) | "\(.id):\(.taskType // .task_type // "task"):\(.status)"] | join(",")' 2>/dev/null) || summary=""
+        if [[ "$summary" != "$last_summary" || $((elapsed % 30)) -eq 0 ]]; then
+            log_info "${label} active provider task(s): ${summary:-${active_count}} (${elapsed}s/${max}s)"
+            last_summary="$summary"
+        fi
+
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    log_warning "${label} still has active provider tasks after ${max}s"
+    return 1
+}
+
+is_active_task_status() {
+    local status="$1"
+    [[ "$status" =~ ^(pending|running|processing|queued|cancelling)$ ]]
+}
+
+cancel_task_safe() {
+    local task_id="$1" token="${2:-$ADMIN_TOKEN}" reason="${3:-test cleanup}" wait_max="${4:-120}"
+    [[ -z "$task_id" ]] && return 0
+
+    log_warning "Cancelling task ${task_id} (${reason})..."
+    curl -s --max-time 30 -X POST -H "Authorization: Bearer ${token}" \
+        "${SERVER_URL}/api/v1/admin/tasks/${task_id}/cancel" >/dev/null 2>&1 || true
+    wait_task_complete_nonfatal "$SERVER_URL" "$task_id" "$token" "$wait_max" 5 >/dev/null 2>&1 || true
+}
+
 wait_instance_operation_settled() {
     local instance_id="$1" response="$2" expected_status="${3:-}" label="${4:-instance operation}" token="${5:-$ADMIN_TOKEN}" max="${6:-$INSTANCE_TASK_MAX_WAIT}" interval="${7:-10}"
     local task_id; task_id=$(safe_jq "$response" '-r .data.task_id // .data.taskId // .task_id // .taskId // empty' '')

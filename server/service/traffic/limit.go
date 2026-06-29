@@ -77,25 +77,26 @@ func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int
 	// day=0,hour=0 表示月度汇总数据
 	var totalTrafficMB float64
 	query := `
-		SELECT 
+		SELECT COALESCE(SUM(
 			CASE 
-				WHEN ? = 'out' THEN pth.traffic_out * COALESCE(?, 1.0)
-				WHEN ? = 'in' THEN pth.traffic_in * COALESCE(?, 1.0)
-				ELSE pth.total_used * COALESCE(?, 1.0)
-			END as total_traffic_mb
-		FROM provider_traffic_histories pth
-		WHERE pth.provider_id = ?
-		  AND pth.year = ?
-		  AND pth.month = ?
-		  AND pth.day = 0
-		  AND pth.hour = 0
-		  AND pth.deleted_at IS NULL
+				WHEN ? = 'out' THEN ith.traffic_out * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
+				WHEN ? = 'in' THEN ith.traffic_in * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
+				ELSE ith.total_used * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
+			END
+		), 0) as total_traffic_mb
+		FROM instance_traffic_histories ith
+		WHERE ith.provider_id = ?
+		  AND ith.year = ?
+		  AND ith.month = ?
+		  AND ith.day = 0
+		  AND ith.hour = 0
+		  AND ith.deleted_at IS NULL
 	`
 
 	err := global.APP_DB.Raw(query,
-		p.TrafficCountMode, p.TrafficMultiplier,
-		p.TrafficCountMode, p.TrafficMultiplier,
-		p.TrafficMultiplier,
+		p.TrafficCountMode, p.TrafficMultiplier, p.TrafficMultiplier,
+		p.TrafficCountMode, p.TrafficMultiplier, p.TrafficMultiplier,
+		p.TrafficMultiplier, p.TrafficMultiplier,
 		providerID, year, month).Scan(&totalTrafficMB).Error
 	if err != nil {
 		return 0, fmt.Errorf("获取Provider月度流量失败: %w", err)
@@ -310,9 +311,9 @@ func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) 
 		err := global.APP_DB.Raw(`
 			SELECT COALESCE(SUM(
 				CASE 
-					WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * COALESCE(p.traffic_multiplier, 1.0)
-					WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * COALESCE(p.traffic_multiplier, 1.0)
-					ELSE ith.total_used * COALESCE(p.traffic_multiplier, 1.0)
+					WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+					WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+					ELSE ith.total_used * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
 				END
 			), 0)
 			FROM instance_traffic_histories ith
@@ -574,9 +575,9 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 				ith.user_id,
 				SUM(
 					CASE 
-						WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * COALESCE(p.traffic_multiplier, 1.0)
-						WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * COALESCE(p.traffic_multiplier, 1.0)
-						ELSE ith.total_used * COALESCE(p.traffic_multiplier, 1.0)
+						WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+						WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+						ELSE ith.total_used * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
 					END
 				) as month_usage
 			FROM instance_traffic_histories ith

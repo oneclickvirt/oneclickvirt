@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"oneclickvirt/global"
-
-	"gorm.io/gorm"
 )
 
 // QueryService 流量查询服务 - 统一的流量数据查询入口
@@ -51,12 +49,13 @@ func (s *QueryService) GetInstanceMonthlyTraffic(instanceID uint, year, month in
 
 	// 获取Provider配置用于计算实际使用量（包含软删除的实例）
 	var providerConfig struct {
-		TrafficCountMode  string
-		TrafficMultiplier float64
+		EnableTrafficControl bool
+		TrafficCountMode     string
+		TrafficMultiplier    float64
 	}
 	err = global.APP_DB.Unscoped().Table("instances i").
 		Joins("INNER JOIN providers p ON i.provider_id = p.id").
-		Select("COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
+		Select("p.enable_traffic_control as enable_traffic_control, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
 		Where("i.id = ?", instanceID).
 		Scan(&providerConfig).Error
 	if err != nil {
@@ -68,12 +67,14 @@ func (s *QueryService) GetInstanceMonthlyTraffic(instanceID uint, year, month in
 		TxBytes:    txBytes,
 		TotalBytes: rxBytes + txBytes,
 	}
-	stats.ActualUsageMB = s.calculateActualUsage(
-		rxBytes,
-		txBytes,
-		providerConfig.TrafficCountMode,
-		providerConfig.TrafficMultiplier,
-	)
+	if providerConfig.EnableTrafficControl {
+		stats.ActualUsageMB = s.calculateActualUsage(
+			rxBytes,
+			txBytes,
+			providerConfig.TrafficCountMode,
+			providerConfig.TrafficMultiplier,
+		)
+	}
 	return stats, nil
 }
 
@@ -185,26 +186,18 @@ func (s *QueryService) GetProviderMonthlyTraffic(providerID uint, year, month in
 		TotalUsed  float64
 	}
 
-	err = global.APP_DB.Table("provider_traffic_histories").
-		Select("traffic_in, traffic_out, total_used").
+	err = global.APP_DB.Table("instance_traffic_histories").
+		Select("COALESCE(SUM(traffic_in), 0) as traffic_in, COALESCE(SUM(traffic_out), 0) as traffic_out, COALESCE(SUM(total_used), 0) as total_used").
 		Where("provider_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL",
 			providerID, year, month).
 		Scan(&result).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
+	if err != nil {
 		return nil, fmt.Errorf("查询Provider流量失败: %w", err)
 	}
 
 	// 聚合表中存储的traffic_in/traffic_out/total_used都是MB单位
 	// 根据流量模式计算实际使用量（MB）
-	var actualUsageMB float64
-	switch p.TrafficCountMode {
-	case "out":
-		actualUsageMB = result.TrafficOut * p.TrafficMultiplier
-	case "in":
-		actualUsageMB = result.TrafficIn * p.TrafficMultiplier
-	default: // "both"
-		actualUsageMB = result.TotalUsed * p.TrafficMultiplier
-	}
+	actualUsageMB := s.calculateActualUsageMB(result.TrafficIn, result.TrafficOut, p.TrafficCountMode, p.TrafficMultiplier)
 
 	// 聚合表存储的是MB，转换为字节用于统一返回格式
 	rxBytes := int64(result.TrafficIn * 1048576) // MB转字节：* 1024 * 1024
@@ -263,17 +256,21 @@ func (s *QueryService) BatchGetInstancesMonthlyTraffic(instanceIDs []uint, year,
 // getBatchFromCache 从缓存表批量获取流量数据
 func (s *QueryService) getBatchFromCache(instanceIDs []uint, year, month int) map[uint]*TrafficStats {
 	type CacheResult struct {
-		InstanceID uint
-		TrafficIn  float64
-		TrafficOut float64
-		TotalUsed  float64
+		InstanceID           uint
+		TrafficIn            float64
+		TrafficOut           float64
+		TotalUsed            float64
+		EnableTrafficControl bool
+		TrafficCountMode     string
+		TrafficMultiplier    float64
 	}
 
 	var results []CacheResult
 	// 查询月度汇总记录 (day=0, hour=0)
-	err := global.APP_DB.Table("instance_traffic_histories").
-		Select("instance_id, traffic_in, traffic_out, total_used").
-		Where("instance_id IN ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL", instanceIDs, year, month).
+	err := global.APP_DB.Table("instance_traffic_histories ith").
+		Joins("INNER JOIN providers p ON ith.provider_id = p.id").
+		Select("ith.instance_id, ith.traffic_in, ith.traffic_out, ith.total_used, p.enable_traffic_control as enable_traffic_control, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
+		Where("ith.instance_id IN ? AND ith.year = ? AND ith.month = ? AND ith.day = 0 AND ith.hour = 0 AND ith.deleted_at IS NULL", instanceIDs, year, month).
 		Find(&results).Error
 
 	if err != nil {
@@ -285,12 +282,15 @@ func (s *QueryService) getBatchFromCache(instanceIDs []uint, year, month int) ma
 		// 缓存表存储的是MB，转换为字节用于统一返回格式
 		// RxBytes/TxBytes/TotalBytes: 字节单位
 		// ActualUsageMB: MB单位（已应用流量计算模式）
-		statsMap[r.InstanceID] = &TrafficStats{
-			RxBytes:       int64(r.TrafficIn * 1048576),  // MB -> Bytes
-			TxBytes:       int64(r.TrafficOut * 1048576), // MB -> Bytes
-			TotalBytes:    int64((r.TrafficIn + r.TrafficOut) * 1048576),
-			ActualUsageMB: r.TotalUsed,
+		stats := &TrafficStats{
+			RxBytes:    int64(r.TrafficIn * 1048576),  // MB -> Bytes
+			TxBytes:    int64(r.TrafficOut * 1048576), // MB -> Bytes
+			TotalBytes: int64((r.TrafficIn + r.TrafficOut) * 1048576),
 		}
+		if r.EnableTrafficControl {
+			stats.ActualUsageMB = s.calculateActualUsageMB(r.TrafficIn, r.TrafficOut, r.TrafficCountMode, r.TrafficMultiplier)
+		}
+		statsMap[r.InstanceID] = stats
 	}
 
 	return statsMap
@@ -335,13 +335,14 @@ func (s *QueryService) computeBatchMonthlyTraffic(instanceIDs []uint, year, mont
 
 	// 批量获取 Provider 配置（一次查询，包含软删除的实例）
 	var providerConfigs []struct {
-		InstanceID        uint
-		TrafficCountMode  string
-		TrafficMultiplier float64
+		InstanceID           uint
+		EnableTrafficControl bool
+		TrafficCountMode     string
+		TrafficMultiplier    float64
 	}
 	err = global.APP_DB.Unscoped().Table("instances i").
 		Joins("INNER JOIN providers p ON i.provider_id = p.id").
-		Select("i.id as instance_id, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
+		Select("i.id as instance_id, p.enable_traffic_control as enable_traffic_control, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
 		Where("i.id IN ?", instanceIDs).
 		Find(&providerConfigs).Error
 	if err != nil {
@@ -349,12 +350,13 @@ func (s *QueryService) computeBatchMonthlyTraffic(instanceIDs []uint, year, mont
 	}
 
 	type cfgEntry struct {
+		Enabled    bool
 		CountMode  string
 		Multiplier float64
 	}
 	configMap := make(map[uint]cfgEntry, len(providerConfigs))
 	for _, cfg := range providerConfigs {
-		configMap[cfg.InstanceID] = cfgEntry{CountMode: cfg.TrafficCountMode, Multiplier: cfg.TrafficMultiplier}
+		configMap[cfg.InstanceID] = cfgEntry{Enabled: cfg.EnableTrafficControl, CountMode: cfg.TrafficCountMode, Multiplier: cfg.TrafficMultiplier}
 	}
 
 	// 为每个实例计算分段流量并应用Provider配置
@@ -371,7 +373,7 @@ func (s *QueryService) computeBatchMonthlyTraffic(instanceIDs []uint, year, mont
 			TxBytes:    txBytes,
 			TotalBytes: rxBytes + txBytes,
 		}
-		if cfg, ok := configMap[id]; ok {
+		if cfg, ok := configMap[id]; ok && cfg.Enabled {
 			stats.ActualUsageMB = s.calculateActualUsage(rxBytes, txBytes, cfg.CountMode, cfg.Multiplier)
 		}
 		statsMap[id] = stats
@@ -484,27 +486,32 @@ func (s *QueryService) GetUserTrafficHistory(userID uint, days int) ([]*HistoryP
 
 	// 查询用户所有实例的配置（用于计算实际用量）（包含软删除的实例）
 	var instanceConfigs []struct {
-		InstanceID        uint
-		TrafficCountMode  string
-		TrafficMultiplier float64
+		InstanceID           uint
+		EnableTrafficControl bool
+		TrafficCountMode     string
+		TrafficMultiplier    float64
 	}
-	if err := global.APP_DB.Unscoped().Table("instances").
-		Select("id as instance_id, traffic_count_mode, traffic_multiplier").
-		Where("user_id = ?", userID).
+	if err := global.APP_DB.Unscoped().Table("instances i").
+		Joins("INNER JOIN providers p ON i.provider_id = p.id").
+		Select("i.id as instance_id, p.enable_traffic_control as enable_traffic_control, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
+		Where("i.user_id = ?", userID).
 		Find(&instanceConfigs).Error; err != nil {
 		return nil, fmt.Errorf("查询用户实例配置失败: %w", err)
 	}
 
 	// 构建实例ID->配置的映射
 	configMap := make(map[uint]struct {
+		Enabled    bool
 		CountMode  string
 		Multiplier float64
 	})
 	for _, cfg := range instanceConfigs {
 		configMap[cfg.InstanceID] = struct {
+			Enabled    bool
 			CountMode  string
 			Multiplier float64
 		}{
+			Enabled:    cfg.EnableTrafficControl,
 			CountMode:  cfg.TrafficCountMode,
 			Multiplier: cfg.TrafficMultiplier,
 		}
@@ -599,7 +606,7 @@ func (s *QueryService) GetUserTrafficHistory(userID uint, days int) ([]*HistoryP
 		dayMap[dateKey].TotalBytes += r.RxBytes + r.TxBytes
 
 		// 根据实例配置计算实际用量
-		if config, ok := configMap[r.InstanceID]; ok {
+		if config, ok := configMap[r.InstanceID]; ok && config.Enabled {
 			actualMB := s.calculateActualUsage(r.RxBytes, r.TxBytes, config.CountMode, config.Multiplier)
 			dayMap[dateKey].ActualUsageMB += actualMB
 		}
@@ -634,6 +641,7 @@ type HistoryPoint struct {
 // calculateActualUsage 根据流量计算模式计算实际使用量（MB）
 func (s *QueryService) calculateActualUsage(rxBytes, txBytes int64, countMode string, multiplier float64) float64 {
 	var bytes float64
+	countMode, multiplier = normalizeTrafficConfig(countMode, multiplier)
 	switch countMode {
 	case "out":
 		bytes = float64(txBytes)
@@ -643,4 +651,28 @@ func (s *QueryService) calculateActualUsage(rxBytes, txBytes int64, countMode st
 		bytes = float64(rxBytes + txBytes)
 	}
 	return (bytes * multiplier) / 1048576.0 // 转换为MB
+}
+
+func (s *QueryService) calculateActualUsageMB(trafficInMB, trafficOutMB float64, countMode string, multiplier float64) float64 {
+	countMode, multiplier = normalizeTrafficConfig(countMode, multiplier)
+	switch countMode {
+	case "out":
+		return trafficOutMB * multiplier
+	case "in":
+		return trafficInMB * multiplier
+	default:
+		return (trafficInMB + trafficOutMB) * multiplier
+	}
+}
+
+func normalizeTrafficConfig(countMode string, multiplier float64) (string, float64) {
+	switch countMode {
+	case "in", "out", "both":
+	default:
+		countMode = "both"
+	}
+	if multiplier <= 0 {
+		multiplier = 1.0
+	}
+	return countMode, multiplier
 }

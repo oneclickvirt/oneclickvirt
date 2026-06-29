@@ -62,7 +62,7 @@ func (s *AggregationService) AggregateMonthlyTraffic(year, month int) error {
 
 	// 预加载所有实例的provider_id和user_id
 	var instanceInfos []aggregationInstanceInfo
-	err = global.APP_DB.Table("instances").
+	err = global.APP_DB.Unscoped().Table("instances").
 		Select("id, provider_id, user_id").
 		Where("id IN ?", instanceIDs).
 		Find(&instanceInfos).Error
@@ -130,7 +130,7 @@ func (s *AggregationService) saveBatchToCacheWithInfo(
 
 	type batchRow struct {
 		instanceID, providerID, userID   uint
-		trafficIn, trafficOut, totalUsed int64
+		trafficIn, trafficOut, totalUsed float64
 	}
 	var rows []batchRow
 
@@ -146,9 +146,9 @@ func (s *AggregationService) saveBatchToCacheWithInfo(
 			instanceID: instanceID,
 			providerID: info.ProviderID,
 			userID:     info.UserID,
-			trafficIn:  stats.RxBytes / 1048576,
-			trafficOut: stats.TxBytes / 1048576,
-			totalUsed:  int64(stats.ActualUsageMB),
+			trafficIn:  float64(stats.RxBytes) / 1048576.0,
+			trafficOut: float64(stats.TxBytes) / 1048576.0,
+			totalUsed:  float64(stats.RxBytes+stats.TxBytes) / 1048576.0,
 		})
 	}
 
@@ -231,7 +231,7 @@ func (s *AggregationService) saveToCacheWithInfo(instanceID, providerID, userID 
 		UserID:     userID,
 		TrafficIn:  float64(stats.RxBytes) / 1048576, // 转换为MB
 		TrafficOut: float64(stats.TxBytes) / 1048576, // 转换为MB
-		TotalUsed:  stats.ActualUsageMB,              // 已经是MB
+		TotalUsed:  float64(stats.RxBytes+stats.TxBytes) / 1048576,
 		Year:       year,
 		Month:      month,
 		Day:        0, // 0表示月度汇总
@@ -274,7 +274,7 @@ func (s *AggregationService) saveToCache(instanceID uint, year, month int, stats
 		ProviderID uint
 		UserID     uint
 	}
-	err := global.APP_DB.Table("instances").
+	err := global.APP_DB.Unscoped().Table("instances").
 		Select("provider_id, user_id").
 		Where("id = ?", instanceID).
 		First(&instance).Error
@@ -322,7 +322,7 @@ func (s *AggregationService) AggregateDailyTraffic(year, month, day int) error {
 		UserID     uint
 	}
 	var instanceInfos []InstanceInfo
-	err = global.APP_DB.Table("instances").
+	err = global.APP_DB.Unscoped().Table("instances").
 		Select("id, provider_id, user_id").
 		Where("id IN ?", instanceIDs).
 		Find(&instanceInfos).Error
@@ -460,9 +460,9 @@ func (s *AggregationService) computeDailyTraffic(instanceID uint, year, month, d
 // saveDailyCacheWithInfo 保存每日缓存数据（使用预加载的实例信息）
 func (s *AggregationService) saveDailyCacheWithInfo(instanceID, providerID, userID uint, year, month, day int, stats *TrafficStats) error {
 	// 转换为MB
-	trafficInMB := stats.RxBytes / 1048576
-	trafficOutMB := stats.TxBytes / 1048576
-	totalUsedMB := int64(stats.ActualUsageMB)
+	trafficInMB := float64(stats.RxBytes) / 1048576.0
+	trafficOutMB := float64(stats.TxBytes) / 1048576.0
+	totalUsedMB := float64(stats.RxBytes+stats.TxBytes) / 1048576.0
 
 	// 使用原生SQL实现真正的 UPSERT（day!=0, hour=0表示按天缓存）
 	// 使用重复参数替代 VALUES(col)，对所有数据库版本通用
@@ -497,7 +497,7 @@ func (s *AggregationService) saveDailyCache(instanceID uint, year, month, day in
 		ProviderID uint
 		UserID     uint
 	}
-	err := global.APP_DB.Table("instances").
+	err := global.APP_DB.Unscoped().Table("instances").
 		Select("provider_id, user_id").
 		Where("id = ?", instanceID).
 		Scan(&instance).Error

@@ -69,24 +69,29 @@
 | `out`（仅出站） | `tx × multiplier` | 仅出站计费的 IDC |
 | `in`（仅入站） | `rx × multiplier` | 特殊计费场景 |
 
-### 统计查询 SQL
+### 月度缓存查询口径
 
 ```sql
 SELECT COALESCE(SUM(
-    CASE 
-        WHEN p.traffic_count_mode = 'out' THEN vr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-        WHEN p.traffic_count_mode = 'in' THEN vr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-        ELSE (vr.rx_bytes + vr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
+    CASE
+        WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+        WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
+        ELSE ith.total_used * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
     END
-), 0) / 1048576 as month_usage
-FROM instances i
-LEFT JOIN providers p ON i.provider_id = p.id
-LEFT JOIN pmacct_traffic_records vr ON i.id = vr.instance_id
-    AND vr.year = ? AND vr.month = ? AND vr.day = 0 AND vr.hour = 0
-WHERE i.user_id = ?
+), 0) AS month_usage_mb
+FROM instance_traffic_histories ith
+INNER JOIN providers p ON ith.provider_id = p.id
+WHERE ith.year = ?
+  AND ith.month = ?
+  AND ith.day = 0
+  AND ith.hour = 0
+  AND p.enable_traffic_control = true
+  AND ith.deleted_at IS NULL
 ```
 
-**关键点**：从 `pmacct_traffic_records` 读取原始字节 → 按 `traffic_count_mode` 选方向 → 应用 `traffic_multiplier` 倍率 → 转换为 MB。查询时必须加 `day = 0 AND hour = 0` 过滤月度汇总记录。
+**关键点**：`instance_traffic_histories`、`provider_traffic_histories`、`user_traffic_histories` 中的 `traffic_in`、`traffic_out`、`total_used` 都存原始 MB。`total_used` 必须是 `traffic_in + traffic_out`，不能存已经应用 `traffic_count_mode` 或 `traffic_multiplier` 后的值。查询、排行、限额、后台 Provider 列表再按 Provider 配置计算实际用量。
+
+后台 Provider 列表和 Provider 限额判断以 `instance_traffic_histories` 的月度记录为准，再批量聚合到 Provider 维度；`provider_traffic_histories` 是派生汇总表，不能作为唯一实时来源，避免聚合任务未刷新时显示旧值。
 
 ## 数据流转流程
 
@@ -102,12 +107,12 @@ MySQL pmacct_traffic_records / instance_traffic_histories (按小时/月聚合)
 provider_traffic_histories / user_traffic_histories
 ```
 
-单位转换：Agent 存储字节 → pmacct_traffic_records 存储字节 → instances 存储 MB → traffic_records 存储 MB
+单位转换：Agent 存储字节 → pmacct_traffic_records 存储字节 → instance/provider/user traffic histories 存储原始 MB → 查询阶段应用计数模式和倍率。
 
 ### 统计阶段（应用流量模式）
 
 ```
-pmacct_traffic_records (原始字节)
+pmacct_traffic_records (原始字节) 或 instance_traffic_histories (原始 MB)
   ↓ JOIN providers
   ↓ 应用 traffic_count_mode (选 rx/tx/both)
   ↓ 应用 traffic_multiplier (倍率)
