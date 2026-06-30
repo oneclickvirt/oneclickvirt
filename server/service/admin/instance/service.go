@@ -30,6 +30,31 @@ type Service struct {
 	taskService interfaces.TaskServiceInterface
 }
 
+func updateInstanceRequestHasField(req admin.UpdateInstanceRequest, name string) bool {
+	if req.ProvidedFields == nil {
+		return true
+	}
+	return req.ProvidedFields[name]
+}
+
+func applyUpdateInstanceRequest(instance *providerModel.Instance, req admin.UpdateInstanceRequest) {
+	if updateInstanceRequestHasField(req, "name") {
+		instance.Name = utils.SanitizeShellArg(req.Name)
+	}
+	if updateInstanceRequestHasField(req, "cpu") && req.CPU > 0 {
+		instance.CPU = req.CPU
+	}
+	if updateInstanceRequestHasField(req, "memory") && req.Memory > 0 {
+		instance.Memory = req.Memory
+	}
+	if updateInstanceRequestHasField(req, "disk") && req.Disk > 0 {
+		instance.Disk = req.Disk
+	}
+	if updateInstanceRequestHasField(req, "status") && req.Status != "" {
+		instance.Status = req.Status
+	}
+}
+
 // NewService 创建实例管理服务
 func NewService(taskService interfaces.TaskServiceInterface) *Service {
 	return &Service{
@@ -480,11 +505,7 @@ func (s *Service) UpdateInstance(req admin.UpdateInstanceRequest, ownerAdminID .
 		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
 	}
 
-	instance.Name = utils.SanitizeShellArg(req.Name)
-	instance.CPU = req.CPU
-	instance.Memory = req.Memory
-	instance.Disk = req.Disk
-	instance.Status = req.Status
+	applyUpdateInstanceRequest(&instance, req)
 
 	dbService := database.GetDatabaseService()
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {

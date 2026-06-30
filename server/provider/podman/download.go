@@ -80,23 +80,16 @@ func (p *PodmanProvider) removeRemoteFile(remotePath string) error {
 // downloadFileToRemote 在远程服务器上下载文件
 func (p *PodmanProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
-	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
-		shellSingleQuote(tmpPath), shellSingleQuote(url),
-	)
+	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
 
-	output, err := p.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
+	output, err := p.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
 	if err != nil {
 		p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
-			zap.String("output", utils.TruncateString(output, 500)),
+			zap.String("output", utils.TruncateString(output, 1000)),
 			zap.Error(err))
 		return fmt.Errorf("远程下载失败: %w", err)
-	}
-
-	if _, err := p.sshClient.Execute(fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))); err != nil {
-		return fmt.Errorf("移动文件失败: %w", err)
 	}
 
 	return nil

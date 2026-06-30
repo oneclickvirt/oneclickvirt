@@ -90,31 +90,7 @@ func (c *ContainerdProvider) removeRemoteFile(remotePath string) error {
 // downloadFileToRemote 在远程服务器上下载文件
 func (c *ContainerdProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
-	script := fmt.Sprintf(`#!/bin/bash
-set -euo pipefail
-url=%s
-tmp=%s
-dst=%s
-rm -f "$tmp"
-mkdir -p "$(dirname "$dst")"
-curl -4 -fL --connect-timeout 30 --max-time 900 --retry 5 --retry-delay 10 --retry-connrefused -o "$tmp" "$url"
-test -s "$tmp"
-# 避免 CDN/鉴权错误页被当作镜像包。镜像包按归档格式校验；
-# SSH 辅助脚本是普通 shell 文件，不能走 tar/gzip 校验。
-case "$dst" in
-  *.tar.gz|*.tgz) gzip -t "$tmp" ;;
-  *.tar) tar -tf "$tmp" >/dev/null ;;
-  *.sh)
-    if head -c 512 "$tmp" | grep -Eiq '<html|<!doctype'; then
-      echo "downloaded script appears to be an HTML/error page" >&2
-      exit 22
-    fi
-    ;;
-  *) test -s "$tmp" ;;
-esac
-mv -f "$tmp" "$dst"
-echo TEMP_SCRIPT_OK > "${MARKER_FILE:-$0.marker}"
-`, shellSingleQuote(url), shellSingleQuote(tmpPath), shellSingleQuote(remotePath))
+	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
 
 	output, err := c.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
 	if err != nil {

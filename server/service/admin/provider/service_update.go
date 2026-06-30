@@ -52,6 +52,34 @@ func resolveUpdatedProviderCapabilities(provider providerModel.Provider, req adm
 	return normalizeProviderInstanceTypeCapabilities(provider.Type, containerEnabled, vmEnabled)
 }
 
+func resolveUpdatedTrafficOverLimitPolicy(provider providerModel.Provider, req admin.UpdateProviderRequest) (string, int) {
+	if updateProviderRequestHasField(req, "trafficOverLimitAction", "trafficSpeedLimitKbps") {
+		action := req.TrafficOverLimitAction
+		if action == "" && updateProviderRequestHasField(req, "trafficSpeedLimitKbps") {
+			action = provider.TrafficOverLimitAction
+		}
+		return normalizeTrafficOverLimitPolicy(action, req.TrafficSpeedLimitKbps)
+	}
+	if provider.TrafficOverLimitAction == "" {
+		return normalizeTrafficOverLimitPolicy("", provider.TrafficSpeedLimitKbps)
+	}
+	return provider.TrafficOverLimitAction, provider.TrafficSpeedLimitKbps
+}
+
+func resolveUpdatedInstanceExpiryPolicy(provider providerModel.Provider, req admin.UpdateProviderRequest) (string, int) {
+	if updateProviderRequestHasField(req, "instanceExpiryAction", "instanceExpiryExtendDays") {
+		action := req.InstanceExpiryAction
+		if action == "" && updateProviderRequestHasField(req, "instanceExpiryExtendDays") {
+			action = provider.InstanceExpiryAction
+		}
+		return normalizeInstanceExpiryPolicy(action, req.InstanceExpiryExtendDays)
+	}
+	if provider.InstanceExpiryAction == "" {
+		return normalizeInstanceExpiryPolicy("", provider.InstanceExpiryExtendDays)
+	}
+	return provider.InstanceExpiryAction, provider.InstanceExpiryExtendDays
+}
+
 // UpdateProvider 更新Provider
 func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	global.APP_LOG.Debug("开始更新Provider", zap.Uint("providerID", req.ID))
@@ -364,19 +392,11 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.TrafficSyncMethod != "" {
 		provider.TrafficSyncMethod = req.TrafficSyncMethod
 	}
-	if req.TrafficOverLimitAction != "" || req.TrafficSpeedLimitKbps > 0 {
-		provider.TrafficOverLimitAction, provider.TrafficSpeedLimitKbps = normalizeTrafficOverLimitPolicy(req.TrafficOverLimitAction, req.TrafficSpeedLimitKbps)
-	} else if provider.TrafficOverLimitAction == "" {
-		provider.TrafficOverLimitAction, provider.TrafficSpeedLimitKbps = normalizeTrafficOverLimitPolicy("", provider.TrafficSpeedLimitKbps)
-	}
+	provider.TrafficOverLimitAction, provider.TrafficSpeedLimitKbps = resolveUpdatedTrafficOverLimitPolicy(provider, req)
 	if req.TrafficQuotaVisible != nil {
 		provider.TrafficQuotaVisible = *req.TrafficQuotaVisible
 	}
-	if req.InstanceExpiryAction != "" || req.InstanceExpiryExtendDays > 0 {
-		provider.InstanceExpiryAction, provider.InstanceExpiryExtendDays = normalizeInstanceExpiryPolicy(req.InstanceExpiryAction, req.InstanceExpiryExtendDays)
-	} else if provider.InstanceExpiryAction == "" {
-		provider.InstanceExpiryAction, provider.InstanceExpiryExtendDays = normalizeInstanceExpiryPolicy("", provider.InstanceExpiryExtendDays)
-	}
+	provider.InstanceExpiryAction, provider.InstanceExpiryExtendDays = resolveUpdatedInstanceExpiryPolicy(provider, req)
 
 	// 检测流量统计开关是否发生变化
 	trafficControlChanged := oldEnableTrafficControl != provider.EnableTrafficControl

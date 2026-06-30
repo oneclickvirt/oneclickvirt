@@ -93,26 +93,15 @@ func (p *QEMUProvider) sshPullImage(ctx context.Context, imageURL string) error 
 
 		// 下载镜像（使用临时文件+mv模式）
 		tmpPath := remotePath + ".tmp"
-		downloadCmd := fmt.Sprintf("curl -L --connect-timeout 30 --max-time 360 -o %s %s 2>&1", shellSingleQuote(tmpPath), shellSingleQuote(imageURL))
-		output, err := p.sshClient.ExecuteWithTimeout(downloadCmd, 1*time.Hour)
+		downloadScript := utils.BuildRemoteDownloadScript(imageURL, tmpPath, remotePath)
+		output, err := p.sshClient.ExecuteViaTempScript(downloadScript, nil, 30*time.Minute)
 		if err != nil {
-			// 回退到wget
-			downloadCmd = fmt.Sprintf("wget --no-check-certificate --timeout=360 -O %s %s 2>&1", shellSingleQuote(tmpPath), shellSingleQuote(imageURL))
-			output, err = p.sshClient.ExecuteWithTimeout(downloadCmd, 1*time.Hour)
-			if err != nil {
-				global.APP_LOG.Error("镜像下载失败",
-					zap.String("url", utils.TruncateString(imageURL, 200)),
-					zap.String("output", utils.TruncateString(output, 500)),
-					zap.Error(err))
-				p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
-				return nil, fmt.Errorf("failed to download image: %w", err)
-			}
-		}
-
-		// 原子移动
-		_, err = p.sshClient.Execute(fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath)))
-		if err != nil {
-			return nil, fmt.Errorf("failed to move image: %w", err)
+			global.APP_LOG.Error("镜像下载失败",
+				zap.String("url", utils.TruncateString(imageURL, 200)),
+				zap.String("output", utils.TruncateString(output, 1000)),
+				zap.Error(err))
+			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
+			return nil, fmt.Errorf("failed to download image: %w", err)
 		}
 
 		global.APP_LOG.Info("镜像下载完成", zap.String("path", remotePath))

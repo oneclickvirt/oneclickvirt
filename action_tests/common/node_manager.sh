@@ -86,7 +86,7 @@ ensure_worker_swap() {
     log_info "Ensuring ${swap_mb}MB swap on ${label}..."
     local swap_script
     swap_script=$(cat <<SWAP_SCRIPT
-set -e
+set -u
 target_mb=${swap_mb}
 current_mb=\$(awk 'NR>1 {sum += int(\$3 / 1024)} END {print sum + 0}' /proc/swaps 2>/dev/null)
 if [ "\${current_mb:-0}" -ge "\$target_mb" ]; then
@@ -97,15 +97,15 @@ swap_file="/swapfile-oneclickvirt"
 if swapon --show=NAME 2>/dev/null | grep -qx "\$swap_file"; then
     swapoff "\$swap_file" || true
 fi
-rm -f "\$swap_file"
+rm -f "\$swap_file" || exit 1
 if command -v fallocate >/dev/null 2>&1; then
-    fallocate -l "\${target_mb}M" "\$swap_file" || dd if=/dev/zero of="\$swap_file" bs=1M count="\$target_mb" status=none
+    fallocate -l "\${target_mb}M" "\$swap_file" || dd if=/dev/zero of="\$swap_file" bs=1M count="\$target_mb" status=none || exit 1
 else
-    dd if=/dev/zero of="\$swap_file" bs=1M count="\$target_mb" status=none
+    dd if=/dev/zero of="\$swap_file" bs=1M count="\$target_mb" status=none || exit 1
 fi
-chmod 600 "\$swap_file"
-mkswap "\$swap_file" >/dev/null
-swapon "\$swap_file"
+chmod 600 "\$swap_file" || exit 1
+mkswap "\$swap_file" >/dev/null || exit 1
+swapon "\$swap_file" || exit 1
 grep -q ' /swapfile-oneclickvirt ' /etc/fstab 2>/dev/null || echo '/swapfile-oneclickvirt none swap sw 0 0' >> /etc/fstab
 new_mb=\$(awk 'NR>1 {sum += int(\$3 / 1024)} END {print sum + 0}' /proc/swaps 2>/dev/null)
 echo "SWAP_OK total=\${new_mb}MB"
@@ -447,9 +447,192 @@ deploy_master() {
 # Set by deploy_master_local() and referenced by log helper functions.
 MASTER_SERVER_DIR=""
 
+ensure_ci_agent_assets() {
+    local server_dir="$1"
+    [[ "${ACTION_TEST_GENERATE_STUB_AGENT:-true}" == "true" ]] || return 0
+
+    local asset_dir="${server_dir}/assets/agent"
+    mkdir -p "$asset_dir" || return 1
+
+    local version="${ACTION_TEST_STUB_AGENT_VERSION:-0.2.0}"
+    local arch archive tmp binary
+    for arch in amd64 arm64; do
+        archive="${asset_dir}/oneclickvirt-agent-linux-${arch}.tar.gz"
+
+        tmp="$(mktemp -d)"
+        binary="${tmp}/oneclickvirt-agent-linux-${arch}"
+        cat > "$binary" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+  --version|-V|version)
+    echo "oneclickvirt-agent __STUB_AGENT_VERSION__"
+    exit 0
+    ;;
+esac
+
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 - <<'PY'
+import json
+import os
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORT = int(os.environ.get("AGENT_PORT", "23782"))
+TOKEN = ""
+ENV_PATH = "/opt/oneclickvirt/agent/.env"
+try:
+    with open(ENV_PATH, "r", encoding="utf-8") as env_file:
+        for line in env_file:
+            if line.startswith("API_TOKEN="):
+                TOKEN = line.split("=", 1)[1].strip()
+                break
+except OSError:
+    pass
+
+monitors = {}
+next_id = 1
+
+def as_interfaces(value):
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if value in (None, ""):
+        return []
+    return [str(value)]
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "oneclickvirt-agent-stub/__STUB_AGENT_VERSION__"
+
+    def log_message(self, fmt, *args):
+        return
+
+    def _authorized(self):
+        if not TOKEN:
+            return True
+        return self.headers.get("x-token", "") == TOKEN
+
+    def _body(self):
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length)
+        if not raw:
+            return {}
+        return json.loads(raw.decode("utf-8"))
+
+    def _send(self, status, payload):
+        data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        if self.path.startswith("/swagger-ui/") or self.path in ("/", "/health"):
+            return self._send(200, {"status": "ok", "version": "__STUB_AGENT_VERSION__"})
+        if not self._authorized():
+            return self._send(401, {"error": "unauthorized"})
+        if self.path.startswith("/api/v1/list"):
+            rows = []
+            for monitor_id, monitor in sorted(monitors.items()):
+                rows.append({
+                    "id": monitor_id,
+                    "interface": monitor.get("interface", []),
+                    "provider_kind": monitor.get("provider_kind"),
+                    "instance_name": monitor.get("instance_name"),
+                    "total_bytes": 0,
+                    "total_bytes_in": 0,
+                    "total_bytes_out": 0,
+                    "updated_at": int(time.time()),
+                })
+            return self._send(200, {"monitors": rows, "total": len(rows)})
+        return self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        global next_id
+        if not self._authorized():
+            return self._send(401, {"error": "unauthorized"})
+        try:
+            body = self._body()
+        except Exception as exc:
+            return self._send(400, {"error": str(exc)})
+
+        if self.path.startswith("/api/v1/add"):
+            monitor_id = next_id
+            next_id += 1
+            interfaces = as_interfaces(body.get("interface"))
+            monitors[monitor_id] = {
+                "interface": interfaces,
+                "provider_kind": body.get("provider_kind"),
+                "instance_name": body.get("instance_name"),
+                "inner_ip": body.get("inner_ip"),
+            }
+            return self._send(200, {"id": monitor_id, "interface": interfaces})
+
+        if self.path.startswith("/api/v1/update"):
+            monitor_id = int(body.get("id") or 0)
+            if monitor_id <= 0:
+                return self._send(400, {"error": "invalid id"})
+            interfaces = as_interfaces(body.get("new_interface", body.get("interface")))
+            monitors[monitor_id] = {
+                "interface": interfaces,
+                "provider_kind": body.get("provider_kind"),
+                "instance_name": body.get("instance_name"),
+                "inner_ip": body.get("inner_ip"),
+            }
+            return self._send(200, {"id": monitor_id, "interface": interfaces})
+
+        if self.path.startswith("/api/v1/delete"):
+            monitor_id = int(body.get("id") or 0)
+            monitors.pop(monitor_id, None)
+            return self._send(200, {"id": monitor_id, "deleted": True})
+
+        if self.path.startswith("/api/v1/info"):
+            monitor_id = int(body.get("id") or 0)
+            human = "0 B"
+            return self._send(200, {
+                "id": monitor_id,
+                "interface": monitors.get(monitor_id, {}).get("interface", []),
+                "used_traffic": 0,
+                "used_traffic_in": 0,
+                "used_traffic_out": 0,
+                "used_traffic_human": human,
+                "last_update_time": int(time.time()),
+            })
+
+        if self.path.startswith("/api/v1/resources"):
+            return self._send(200, {"id": int(body.get("id") or 0), "data": []})
+
+        if self.path.startswith("/api/v1/cleanup"):
+            return self._send(200, {"deleted": 0, "max_update_seconds": 0})
+
+        return self._send(404, {"error": "not found"})
+
+httpd = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+httpd.serve_forever()
+PY
+fi
+
+trap 'exit 0' INT TERM
+while :; do
+  sleep 3600 &
+  wait "$!" || exit 0
+done
+EOF
+        sed_inplace "s/__STUB_AGENT_VERSION__/${version}/g" "$binary"
+        chmod +x "$binary"
+        tar -czf "$archive" -C "$tmp" "oneclickvirt-agent-linux-${arch}" || {
+            rm -rf "$tmp"
+            return 1
+        }
+        rm -rf "$tmp"
+    done
+    log_success "CI stub agent assets ready"
+}
+
 deploy_master_local() {
-    # Port argument kept for API compatibility but the Go server port is fixed at 8888 via config.yaml
     local _port="${1:-8888}"
+    [[ "$DB_NAME" =~ ^[A-Za-z0-9_]+$ ]] || { log_error "Invalid DB_NAME '${DB_NAME}'"; return 1; }
     # Use BASH_SOURCE[0] to get the directory of THIS file (node_manager.sh) regardless of
     # how SCRIPT_DIR is set in the calling script.
     local _this_dir; _this_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -465,53 +648,60 @@ deploy_master_local() {
     log_info "Patching config.yaml for CI environment..."
     local cfg="${server_dir}/config.yaml"
     # Set env=development to bypass captcha, email/telegram/qq sends in development mode
-    sed -i 's/^\( \{4\}env:\) .*/\1 development/' "$cfg"
+    sed_inplace 's/^\( \{4\}env:\) .*/\1 development/' "$cfg"
+    sed_inplace "s/^\( \{4\}addr:\) [0-9][0-9]*/\1 ${_port}/" "$cfg"
     # Fix quoted booleans → unquoted (match any quoted true/false value)
-    sed -i 's/^\( \{4\}auto-create:\) "\(true\|false\)"/\1 \2/' "$cfg"
-    sed -i 's/^\( \{4\}log-zap:\) "\(true\|false\)"/\1 \2/' "$cfg"
-    sed -i 's/^\( \{4\}singular:\) "\(true\|false\)"/\1 \2/' "$cfg"
+    sed_inplace 's/^\( \{4\}auto-create:\) "\(true\|false\)"/\1 \2/' "$cfg"
+    sed_inplace 's/^\( \{4\}log-zap:\) "\(true\|false\)"/\1 \2/' "$cfg"
+    sed_inplace 's/^\( \{4\}singular:\) "\(true\|false\)"/\1 \2/' "$cfg"
     # Fix quoted integers → unquoted (match any quoted numeric value)
-    sed -i 's/^\( \{4\}max-idle-conns:\) "[0-9]*"/\1 10/' "$cfg"
-    sed -i 's/^\( \{4\}max-lifetime:\) "[0-9]*"/\1 3600/' "$cfg"
-    sed -i 's/^\( \{4\}max-open-conns:\) "[0-9]*"/\1 100/' "$cfg"
-    sed -i 's/^\( \{4\}email-smtp-port:\) "[0-9]*"/\1 587/' "$cfg"
+    sed_inplace 's/^\( \{4\}max-idle-conns:\) "[0-9]*"/\1 10/' "$cfg"
+    sed_inplace 's/^\( \{4\}max-lifetime:\) "[0-9]*"/\1 3600/' "$cfg"
+    sed_inplace 's/^\( \{4\}max-open-conns:\) "[0-9]*"/\1 100/' "$cfg"
+    sed_inplace 's/^\( \{4\}email-smtp-port:\) "[0-9]*"/\1 587/' "$cfg"
     # Fix quoted integer map keys (e.g. level-limits: "1": → 1:)
-    sed -i 's/^\( *\)"\([0-9]\+\)":/\1\2:/' "$cfg"
+    sed_inplace 's/^\( *\)"\([0-9]\+\)":/\1\2:/' "$cfg"
     # Keep config.yaml aligned with the CI-created MySQL TCP credential.
     local db_password="${DB_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
     local db_password_escaped
     db_password_escaped=$(printf '%s' "$db_password" | sed 's/[\/&]/\\&/g')
-    sed -i "/^mysql:/,/^[^[:space:]]/s|^\(    password:\).*|\1 \"${db_password_escaped}\"|" "$cfg"
+    sed_inplace "/^mysql:/,/^[^[:space:]]/s|^\(    password:\).*|\1 \"${db_password_escaped}\"|" "$cfg"
+    sed_inplace "/^mysql:/,/^[^[:space:]]/s|^\(    db-name:\).*|\1 ${DB_NAME}|" "$cfg"
     # Disable captcha (real repo default may be true; env=development bypasses checks but
     # setting it to false avoids any reload warnings in the log)
-    sed -i 's/^\( \{4\}enabled:\) true/\1 false/' "$cfg"
+    sed_inplace 's/^\( \{4\}enabled:\) true/\1 false/' "$cfg"
     log_success "config.yaml patched"
 
     # Build and start the server binary in background so that:
     #   - config.yaml is found in the working directory (no binary path issues)
     #   - storage/ and logs/ are created relative to server_dir
     #   - killing the PID actually kills the server (no go run wrapper)
-    rm -f /tmp/oneclickvirt-server.pid /tmp/oneclickvirt-server.log
+    rm -f "$SERVER_PID_FILE" "$SERVER_LOG_FILE"
     
     # Build server binary first, then run it (avoids orphan child process from go run)
     cd "$server_dir" || return 1
+    ensure_ci_agent_assets "$server_dir" || {
+        log_error "Failed to prepare CI agent assets"
+        cd - >/dev/null || true
+        return 1
+    }
     log_info "Building server binary..."
-    if ! go build -o /tmp/oneclickvirt-server . 2>/tmp/oneclickvirt-build.log; then
+    if ! go build -o "$SERVER_BINARY" . 2>"$SERVER_BUILD_LOG"; then
         log_error "Server build failed:"
-        cat /tmp/oneclickvirt-build.log >&2 || true
+        cat "$SERVER_BUILD_LOG" >&2 || true
         cd - >/dev/null || true
         return 1
     fi
-    if [[ ! -x /tmp/oneclickvirt-server ]]; then
+    if [[ ! -x "$SERVER_BINARY" ]]; then
         log_error "Server binary missing or not executable after build"
         cd - >/dev/null || true
         return 1
     fi
     log_success "Server binary built"
     
-    GIN_MODE=debug nohup /tmp/oneclickvirt-server > /tmp/oneclickvirt-server.log 2>&1 &
+    GIN_MODE=debug nohup "$SERVER_BINARY" > "$SERVER_LOG_FILE" 2>&1 &
     local pid=$!
-    echo "$pid" > /tmp/oneclickvirt-server.pid
+    echo "$pid" > "$SERVER_PID_FILE"
     cd - >/dev/null || true
     
     log_info "Server process started (PID ${pid}), waiting for startup..."
@@ -526,7 +716,7 @@ deploy_master_local() {
         if ! kill -0 "$pid" 2>/dev/null; then
             log_error "Server process died during startup (PID ${pid})"
             log_error "=== Last 50 lines of server log ==="
-            tail -50 /tmp/oneclickvirt-server.log >&2 || true
+            tail -50 "$SERVER_LOG_FILE" >&2 || true
             return 1
         fi
         
@@ -543,7 +733,7 @@ deploy_master_local() {
     
     log_error "Server startup timeout after ${max_wait}s (PID ${pid})"
     log_error "=== Last 50 lines of server log ==="
-    tail -50 /tmp/oneclickvirt-server.log >&2 || true
+    tail -50 "$SERVER_LOG_FILE" >&2 || true
     return 1
 }
 
@@ -559,36 +749,36 @@ cleanup_all_nodes() {
 # from test_framework.sh (already sourced before this file).
 reset_master_server() {
     local port="${1:-${MASTER_PORT:-8888}}"
+    [[ "$DB_NAME" =~ ^[A-Za-z0-9_]+$ ]] || { log_error "Invalid DB_NAME '${DB_NAME}'"; return 1; }
     log_section "Resetting master server for execution-rule switch (port ${port})"
 
     # 1. Kill existing server process
-    if [[ -f /tmp/oneclickvirt-server.pid ]]; then
-        local old_pid; old_pid=$(cat /tmp/oneclickvirt-server.pid 2>/dev/null || true)
+    if [[ -f "$SERVER_PID_FILE" ]]; then
+        local old_pid; old_pid=$(cat "$SERVER_PID_FILE" 2>/dev/null || true)
         kill "${old_pid}" 2>/dev/null || true
-        rm -f /tmp/oneclickvirt-server.pid
+        rm -f "$SERVER_PID_FILE"
     fi
-    pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
     sleep 2
 
     # 2. Reset MySQL database
-    log_info "Resetting database (drop + recreate oneclickvirt)..."
+    log_info "Resetting database (drop + recreate ${DB_NAME})..."
     if mysql_root_exec \
-        -e "DROP DATABASE IF EXISTS oneclickvirt; CREATE DATABASE oneclickvirt CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null; then
+        -e "DROP DATABASE IF EXISTS \`${DB_NAME}\`; CREATE DATABASE \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null; then
         log_success "Database reset successful"
     else
         log_error "Database reset failed"
         return 1
     fi
 
-    # 3. Restart server binary from the already-compiled binary in /tmp
+    # 3. Restart server binary from the already-compiled binary
     if [[ -z "${MASTER_SERVER_DIR:-}" || ! -d "${MASTER_SERVER_DIR}" ]]; then
         log_error "MASTER_SERVER_DIR ('${MASTER_SERVER_DIR:-}') not set or missing; cannot restart"
         return 1
     fi
     cd "${MASTER_SERVER_DIR}" || return 1
-    GIN_MODE=debug nohup /tmp/oneclickvirt-server >> /tmp/oneclickvirt-server.log 2>&1 &
+    GIN_MODE=debug nohup "$SERVER_BINARY" >> "$SERVER_LOG_FILE" 2>&1 &
     local pid=$!
-    echo "${pid}" > /tmp/oneclickvirt-server.pid
+    echo "${pid}" > "$SERVER_PID_FILE"
     cd - >/dev/null || true
     log_info "Server restarted (PID ${pid})"
 

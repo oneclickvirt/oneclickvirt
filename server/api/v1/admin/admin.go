@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"fmt"
 	"oneclickvirt/middleware"
 	"oneclickvirt/service/provider"
@@ -16,6 +17,7 @@ import (
 	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"go.uber.org/zap"
 )
 
@@ -168,10 +170,23 @@ func UpdateInstance(c *gin.Context) {
 	}
 
 	var req admin.UpdateInstanceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	body, err := c.GetRawData()
+	if err != nil {
+		global.APP_LOG.Warn("管理员读取更新实例请求体失败", zap.Error(err), zap.String("admin_ip", c.ClientIP()))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	if err := binding.JSON.BindBody(body, &req); err != nil {
 		global.APP_LOG.Warn("管理员更新实例参数错误", zap.Error(err), zap.String("admin_ip", c.ClientIP()))
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &rawFields); err == nil {
+		req.ProvidedFields = make(map[string]bool, len(rawFields))
+		for key := range rawFields {
+			req.ProvidedFields[key] = true
+		}
 	}
 	req.ID = uint(instanceID)
 

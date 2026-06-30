@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"oneclickvirt/assets"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ const (
 	AgentInstallDir  = "/opt/oneclickvirt/agent"
 	AgentPort        = 23782
 	AgentServiceName = "oneclickvirt-agent"
+
+	maxInlineAgentArchiveBytes = 512 * 1024
 )
 
 // AgentConfig holds the configuration parameters for the agent deployment.
@@ -102,7 +105,7 @@ func buildEnvFile(cfg *AgentConfig) string {
 
 // buildDeployScript generates a self-contained bash deploy script for the agent.
 // The script handles download verification, extraction, .env writing and systemd setup.
-func buildDeployScript(cfg *AgentConfig, version, arch string, downloadURLs []string) string {
+func buildDeployScript(cfg *AgentConfig, version, arch string, downloadURLs []string, embeddedArchiveB64 string) string {
 	binaryName := fmt.Sprintf("%s-linux-%s", AgentBinaryName, arch)
 	archiveName := fmt.Sprintf("%s.tar.gz", binaryName)
 	envContent := buildEnvFile(cfg)
@@ -138,6 +141,7 @@ BINARY_NAME="%s"
 SRC_BINARY_NAME="%s"
 ARCHIVE_NAME="%s"
 DOWNLOAD_URLS="%s"
+EMBEDDED_ARCHIVE_B64="%s"
 SERVICE_NAME="%s"
 VERSION="%s"
 
@@ -212,7 +216,18 @@ echo "[OK] 2/6 install directory created"
 echo "[3/6] download agent binary (version $VERSION)..."
 cd "$INSTALL_DIR"
 DOWNLOADED=0
+if [ -n "$EMBEDDED_ARCHIVE_B64" ]; then
+    if printf '%%s' "$EMBEDDED_ARCHIVE_B64" | base64 -d > "$ARCHIVE_NAME" 2>/dev/null && [ -s "$ARCHIVE_NAME" ]; then
+        DOWNLOADED=1
+        echo "  source: embedded controller asset"
+    else
+        rm -f "$ARCHIVE_NAME"
+    fi
+fi
 for url in $DOWNLOAD_URLS; do
+    if [ "$DOWNLOADED" -eq 1 ]; then
+        break
+    fi
     if curl -fsSL --connect-timeout 20 --retry 1 -o "$ARCHIVE_NAME" "$url" 2>/dev/null && [ -s "$ARCHIVE_NAME" ]; then
         DOWNLOADED=1
         echo "  source: $url"
@@ -261,6 +276,7 @@ echo "DEPLOY_SUCCESS"
 		binaryName,
 		archiveName,
 		urlList,
+		embeddedArchiveB64,
 		AgentServiceName,
 		version,
 		envB64, // for dependency detection
@@ -288,10 +304,11 @@ func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provid
 	binaryName := fmt.Sprintf("%s-linux-%s", AgentBinaryName, arch)
 	archiveName := fmt.Sprintf("%s.tar.gz", binaryName)
 	downloadURLs := buildDownloadURLList(version, archiveName)
+	embeddedArchiveB64 := inlineAgentArchiveB64(archiveName)
 
 	providerName := providerInstance.GetName()
 
-	script := buildDeployScript(cfg, version, arch, downloadURLs)
+	script := buildDeployScript(cfg, version, arch, downloadURLs, embeddedArchiveB64)
 	scriptB64 := base64.StdEncoding.EncodeToString([]byte(script))
 
 	// Upload via printf + base64 decode, then execute, then clean up regardless of outcome.
@@ -330,6 +347,14 @@ func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provid
 		return out, fmt.Errorf("deploy script exited without success marker; output:\n%s", out)
 	}
 	return out, nil
+}
+
+func inlineAgentArchiveB64(archiveName string) string {
+	content, err := assets.ReadAgentAsset(archiveName)
+	if err != nil || len(content) == 0 || len(content) > maxInlineAgentArchiveBytes {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(content)
 }
 
 // UninstallAgent removes the agent from a provider host.

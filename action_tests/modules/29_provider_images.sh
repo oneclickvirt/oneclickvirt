@@ -149,9 +149,9 @@ run_module_29() {
         # -- Create instance with this image --
         local inst_data
         if [[ "$img_type" == "vm" ]]; then
-            inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"${img_name}\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+            inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"${img_name}\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         else
-            inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${img_name}\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+            inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${img_name}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         fi
 
         local create_resp M29_CREATE_BODY=""

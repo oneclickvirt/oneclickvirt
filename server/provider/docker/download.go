@@ -103,40 +103,22 @@ func (d *DockerProvider) removeRemoteFile(remotePath string) error {
 
 // downloadFileToRemote 在远程服务器上下载文件
 func (d *DockerProvider) downloadFileToRemote(url, remotePath string) error {
-	// 使用curl在远程服务器上下载文件
 	tmpPath := remotePath + ".tmp"
+	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
 
-	// 下载文件，支持断点续传
-	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s",
-		shellSingleQuote(tmpPath), shellSingleQuote(url),
-	)
-
-	global.APP_LOG.Debug("执行远程下载命令",
+	global.APP_LOG.Debug("执行远程下载脚本",
 		zap.String("url", utils.TruncateString(url, 100)))
 
-	output, err := d.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
+	output, err := d.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
 	if err != nil {
-		// 清理临时文件
 		d.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
 			zap.String("remotePath", remotePath),
-			zap.String("output", utils.TruncateString(output, 500)),
+			zap.String("output", utils.TruncateString(output, 1000)),
 			zap.Error(err))
 		return fmt.Errorf("远程下载失败: %w", err)
-	}
-
-	// 移动文件到最终位置
-	mvCmd := fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))
-	_, err = d.sshClient.Execute(mvCmd)
-	if err != nil {
-		global.APP_LOG.Error("移动文件失败",
-			zap.String("tmpPath", tmpPath),
-			zap.String("remotePath", remotePath),
-			zap.Error(err))
-		return fmt.Errorf("移动文件失败: %w", err)
 	}
 
 	global.APP_LOG.Debug("远程下载成功",

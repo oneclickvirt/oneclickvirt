@@ -54,7 +54,7 @@ RATE=0
 TS=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
 html_escape() {
-    printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
+    printf '%s' "$1" | LC_ALL=C sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
 }
 
 GIT_SHA_RAW="${GITHUB_SHA:-}"
@@ -80,7 +80,7 @@ WORKFLOW_NAME=$(html_escape "$WORKFLOW_RAW")
 # Read service logs if available
 SERVICE_LOGS=""
 if [[ -n "$SERVICE_LOG_FILE" && -f "$SERVICE_LOG_FILE" ]]; then
-    SERVICE_LOGS=$(cat "$SERVICE_LOG_FILE" | sed 's/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
+    SERVICE_LOGS=$(LC_ALL=C sed 's/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g' "$SERVICE_LOG_FILE")
 fi
 
 # ── Collect history from sibling report files for comparison ──
@@ -101,7 +101,7 @@ if [[ -d "$OUTPUT_DIR" ]]; then
         done < "$hf"
         h_rate=0
         [[ $h_total -gt 0 ]] && h_rate=$((h_pass * 100 / h_total))
-        h_name=$(basename "$hf" | sed 's/-results.jsonl//')
+        h_name=$(basename "$hf" | LC_ALL=C sed 's/-results.jsonl//')
         history_entries+=("{\"name\":\"${h_name}\",\"total\":${h_total},\"pass\":${h_pass},\"fail\":${h_fail},\"skip\":${h_skip},\"rate\":${h_rate}}")
     done
     if [[ ${#history_entries[@]} -gt 0 ]]; then
@@ -524,9 +524,9 @@ HTMLFOOT
 
 # Replace JavaScript template variables with actual values
 if [[ "$(uname)" == "Darwin" ]]; then
-    sed -i '' "s/__TOTAL__/${TOTAL}/g;s/__PASSED__/${PASSED}/g;s/__FAILED__/${FAILED}/g;s/__SKIPPED__/${SKIPPED}/g;s/__RATE__/${RATE}/g;s|__HISTORY__|${HISTORY_JSON}|g" "$OUTPUT_HTML"
+    LC_ALL=C sed -i '' "s/__TOTAL__/${TOTAL}/g;s/__PASSED__/${PASSED}/g;s/__FAILED__/${FAILED}/g;s/__SKIPPED__/${SKIPPED}/g;s/__RATE__/${RATE}/g;s|__HISTORY__|${HISTORY_JSON}|g" "$OUTPUT_HTML"
 else
-    sed -i "s/__TOTAL__/${TOTAL}/g;s/__PASSED__/${PASSED}/g;s/__FAILED__/${FAILED}/g;s/__SKIPPED__/${SKIPPED}/g;s/__RATE__/${RATE}/g;s|__HISTORY__|${HISTORY_JSON}|g" "$OUTPUT_HTML"
+    LC_ALL=C sed -i "s/__TOTAL__/${TOTAL}/g;s/__PASSED__/${PASSED}/g;s/__FAILED__/${FAILED}/g;s/__SKIPPED__/${SKIPPED}/g;s/__RATE__/${RATE}/g;s|__HISTORY__|${HISTORY_JSON}|g" "$OUTPUT_HTML"
 fi
 
 echo "HTML report generated: ${OUTPUT_HTML} (Total=${TOTAL} Pass=${PASSED} Fail=${FAILED} Skip=${SKIPPED})"

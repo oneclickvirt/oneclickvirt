@@ -175,47 +175,23 @@ func (p *ProxmoxProvider) downloadImageToRemote(ctx context.Context, imageURL, i
 // downloadFileToRemote 在远程服务器上下载文件
 func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
+	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
 
-	// 下载文件，支持断点续传，优先使用wget，失败则使用curl
-	downloadCmds := []string{
-		fmt.Sprintf("wget --no-check-certificate -c --timeout=360 -O %s %s", shellSingleQuote(tmpPath), shellSingleQuote(url)),
-		fmt.Sprintf("curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s %s", shellSingleQuote(tmpPath), shellSingleQuote(url)),
-	}
-
-	var lastErr error
-	for _, cmd := range downloadCmds {
-		global.APP_LOG.Debug("执行下载命令",
-			zap.String("url", utils.TruncateString(url, 100)))
-
-		output, err := p.sshClient.ExecuteWithTimeout(cmd, 1*time.Hour)
-		if err == nil {
-			// 下载成功，移动文件到最终位置
-			mvCmd := fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(remotePath))
-			_, err = p.sshClient.Execute(mvCmd)
-			if err != nil {
-				global.APP_LOG.Error("移动文件失败",
-					zap.String("tmpPath", tmpPath),
-					zap.String("remotePath", remotePath),
-					zap.Error(err))
-				return fmt.Errorf("移动文件失败: %w", err)
-			}
-
-			global.APP_LOG.Debug("下载成功",
-				zap.String("url", utils.TruncateString(url, 100)),
-				zap.String("remotePath", remotePath))
-			return nil
-		}
-
-		lastErr = err
-		global.APP_LOG.Warn("下载命令失败，尝试下一个",
-			zap.String("output", utils.TruncateString(output, 500)),
-			zap.Error(err))
-
-		// 清理临时文件
+	output, err := p.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
+	if err != nil {
 		p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
+		global.APP_LOG.Error("远程下载失败",
+			zap.String("url", utils.TruncateString(url, 100)),
+			zap.String("remotePath", remotePath),
+			zap.String("output", utils.TruncateString(output, 1000)),
+			zap.Error(err))
+		return fmt.Errorf("远程下载失败: %w", err)
 	}
 
-	return fmt.Errorf("所有下载方式都失败: %w", lastErr)
+	global.APP_LOG.Debug("下载成功",
+		zap.String("url", utils.TruncateString(url, 100)),
+		zap.String("remotePath", remotePath))
+	return nil
 }
 
 func (p *ProxmoxProvider) DeleteImage(ctx context.Context, id string) error {

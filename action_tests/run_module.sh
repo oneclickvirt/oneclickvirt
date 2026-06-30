@@ -39,8 +39,12 @@ parse_modules() {
     local modules=()
     if [[ "$input" == "all" ]]; then
         for f in "${MODULES_DIR}"/*.sh; do
-            local num; num=$(basename "$f" | grep -oP '^\d+')
-            modules+=("$num")
+            local base num
+            base=$(basename "$f")
+            if [[ "$base" =~ ^([0-9]+) ]]; then
+                num="${BASH_REMATCH[1]}"
+                modules+=("$num")
+            fi
         done
     elif [[ "$input" == *-* ]]; then
         local start; start=$(echo "$input" | cut -d- -f1 | sed 's/^0*//')
@@ -60,6 +64,10 @@ parse_modules() {
 }
 
 MODULES=($(parse_modules "$MODULE_INPUT"))
+if [[ ${#MODULES[@]} -eq 0 ]]; then
+    log_error "No test modules selected for input: ${MODULE_INPUT}"
+    exit 1
+fi
 
 if [[ -z "$SERVER_URL" ]]; then
     echo "Error: SERVER_URL not set"

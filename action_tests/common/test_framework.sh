@@ -3,6 +3,19 @@
 set -uo pipefail
 export noninteractive=true
 
+ACTION_TEST_CONTAINER_CPU="${ACTION_TEST_CONTAINER_CPU:-2}"
+ACTION_TEST_CONTAINER_MEMORY="${ACTION_TEST_CONTAINER_MEMORY:-2048}"
+ACTION_TEST_CONTAINER_DISK="${ACTION_TEST_CONTAINER_DISK:-20}"
+ACTION_TEST_VM_CPU="${ACTION_TEST_VM_CPU:-2}"
+ACTION_TEST_VM_MEMORY="${ACTION_TEST_VM_MEMORY:-4096}"
+ACTION_TEST_VM_DISK="${ACTION_TEST_VM_DISK:-20}"
+DB_NAME="${DB_NAME:-oneclickvirt}"
+SERVER_TMP_PREFIX="${SERVER_TMP_PREFIX:-/tmp/oneclickvirt-server}"
+SERVER_BINARY="${SERVER_BINARY:-${SERVER_TMP_PREFIX}}"
+SERVER_PID_FILE="${SERVER_PID_FILE:-${SERVER_TMP_PREFIX}.pid}"
+SERVER_LOG_FILE="${SERVER_LOG_FILE:-${SERVER_TMP_PREFIX}.log}"
+SERVER_BUILD_LOG="${SERVER_BUILD_LOG:-${SERVER_TMP_PREFIX}-build.log}"
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -21,6 +34,15 @@ log_debug()   {
         echo -e "[DEBUG] $(date '+%H:%M:%S') ${msg}" >&2
     fi
     return 0
+}
+
+sed_inplace() {
+    local expr="$1" file="$2"
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$expr" "$file"
+    else
+        sed -i '' "$expr" "$file"
+    fi
 }
 
 # -- Safe jq wrapper: validates JSON before parsing to prevent "parse error" crashes --
@@ -134,7 +156,7 @@ ensure_worker_ssh_reachable() {
 is_infrastructure_failure_detail() {
     local detail="$1"
     printf '%s' "$detail" | grep -Eiq \
-        'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|process exited with status 6|远程下载.*(status 6|lookup|temporary failure|resolving)|remote download.*(status 6|lookup|temporary failure|resolving)|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
+        'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|process exited with status 6|远程下载.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|remote download.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|下载.*镜像失败: 远程下载|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
 }
 
 redact_request_payload() {
@@ -1023,6 +1045,73 @@ wait_instance_active_tasks_idle() {
     return 1
 }
 
+get_latest_instance_task_response() {
+    local instance_id="$1" task_type="$2" token="${3:-$ADMIN_TOKEN}" page_size="${4:-100}"
+    [[ -z "$instance_id" || -z "$task_type" ]] && return 1
+
+    local resp
+    resp=$(curl -s --max-time 20 -H "Authorization: Bearer ${token}" \
+        "${SERVER_URL}/api/v1/admin/tasks?page=1&pageSize=${page_size}" 2>/dev/null) || true
+    if ! printf '%s' "$resp" | jq empty 2>/dev/null; then
+        return 1
+    fi
+
+    local task_json
+    task_json=$(printf '%s' "$resp" | jq -c --arg id "$instance_id" --arg type "$task_type" \
+        '[.data.list[]? | select(((.instanceId // .instance_id // 0) | tostring) == $id and ((.taskType // .task_type // "") == $type))] | sort_by(.id // .ID // 0) | last // empty' 2>/dev/null) || task_json=""
+    [[ -n "$task_json" && "$task_json" != "null" ]] || return 1
+
+    jq -cn --argjson task "$task_json" '{code:200,data:$task,message:"success",msg:"success"}'
+}
+
+record_task_terminal_result() {
+    local name="$1" method="$2" url="$3" task_resp="$4" group="${5:-default}"
+    local task_status task_error
+    task_status=$(safe_jq "$task_resp" '-r .data.status // .status // empty' '')
+    task_error=$(safe_jq "$task_resp" '-r .data.errorMessage // .data.error_message // .data.message // .message // .msg // empty' '')
+
+    case "$task_status" in
+        completed)
+            return 0
+            ;;
+        "")
+            record_fail_result "$name" "$method" "$url" "completed" "missing task status" "$task_resp" "$group"
+            return 1
+            ;;
+    esac
+
+    if is_infrastructure_failure_detail "$task_resp"; then
+        [[ -n "$task_error" ]] || task_error="$task_status"
+        record_skip_result "${name} (infrastructure)" "$method" "$url" "$task_error" "$group"
+    else
+        [[ -n "$task_error" ]] || task_error="$task_status"
+        record_fail_result "$name" "$method" "$url" "completed" "$task_error" "$task_resp" "$group"
+    fi
+    return 1
+}
+
+resolve_instance_id_by_name() {
+    local instance_name="$1" provider_id="${2:-${PROVIDER_ID:-}}" token="${3:-$ADMIN_TOKEN}"
+    [[ -z "$instance_name" ]] && return 1
+
+    local resp
+    resp=$(curl -s --max-time 20 -H "Authorization: Bearer ${token}" \
+        "${SERVER_URL}/api/v1/admin/instances?page=1&pageSize=1000" 2>/dev/null) || true
+    if ! printf '%s' "$resp" | jq empty 2>/dev/null; then
+        return 1
+    fi
+    local rows resolved_id="" row_id row_provider row_name
+    rows=$(safe_jq "$resp" '.data.list[]? | [(.id // .ID // ""), ((.providerId // .provider_id // "") | tostring), (.name // "")] | @tsv' '') || true
+    while IFS=$'\t' read -r row_id row_provider row_name; do
+        [[ -z "$row_id" ]] && continue
+        [[ "$row_name" == "$instance_name" ]] || continue
+        [[ -z "$provider_id" || "$row_provider" == "$provider_id" ]] || continue
+        resolved_id="$row_id"
+    done <<< "$rows"
+    [[ -n "$resolved_id" ]] || return 1
+    printf '%s\n' "$resolved_id"
+}
+
 wait_provider_active_tasks_idle() {
     local provider_id="$1" label="${2:-provider ${provider_id}}" token="${3:-$ADMIN_TOKEN}" max="${4:-$INSTANCE_TASK_MAX_WAIT}" interval="${5:-10}"
     local elapsed=0 last_summary=""
@@ -1066,11 +1155,17 @@ is_active_task_status() {
 
 wait_instance_operation_settled() {
     local instance_id="$1" response="$2" expected_status="${3:-}" label="${4:-instance operation}" token="${5:-$ADMIN_TOKEN}" max="${6:-$INSTANCE_TASK_MAX_WAIT}" interval="${7:-10}"
+    local group="${8:-instance_operation}"
     local task_id; task_id=$(safe_jq "$response" '-r .data.task_id // .data.taskId // .task_id // .taskId // empty' '')
 
     if [[ -n "$task_id" ]]; then
         log_info "Waiting for ${label} task ${task_id}..."
-        wait_task_complete "$SERVER_URL" "$task_id" "$token" "$max" "$interval" > /dev/null || return 1
+        local task_resp=""
+        if ! task_resp=$(wait_task_complete "$SERVER_URL" "$task_id" "$token" "$max" "$interval"); then
+            record_task_terminal_result "${label} task" "GET" "/api/v1/admin/tasks/${task_id}" "$task_resp" "$group" || true
+            return 1
+        fi
+        record_task_terminal_result "${label} task" "GET" "/api/v1/admin/tasks/${task_id}" "$task_resp" "$group" || return 1
     else
         wait_instance_active_tasks_idle "$instance_id" "$label" "$token" "$max" "$interval" || return 1
     fi
@@ -1080,7 +1175,11 @@ wait_instance_operation_settled() {
     fi
 
     if [[ -n "$expected_status" ]]; then
-        wait_instance_status "$instance_id" "$expected_status" "$INSTANCE_STATUS_MAX_WAIT" "$interval" "$token" "$label" > /dev/null
+        local status_resp=""
+        if ! status_resp=$(wait_instance_status "$instance_id" "$expected_status" "$INSTANCE_STATUS_MAX_WAIT" "$interval" "$token" "$label"); then
+            record_fail_result "${label} status" "GET" "/api/v1/admin/instances/${instance_id}" "$expected_status" "not reached" "$status_resp" "$group"
+            return 1
+        fi
     fi
 }
 
@@ -1179,8 +1278,8 @@ init_system() {
     db_password_json=$(json_string "$db_password")
     local data
     printf -v data \
-        '{"admin":{"username":%s,"password":%s,"email":%s},"user":{"username":%s,"password":%s,"email":%s,"enabled":true},"database":{"type":"mysql","host":"127.0.0.1","port":"3306","database":"oneclickvirt","username":"root","password":%s}}' \
-        "$user_json" "$pass_json" "$admin_email_json" "$test_user_json" "$test_user_pass_json" "$test_user_email_json" "$db_password_json"
+        '{"admin":{"username":%s,"password":%s,"email":%s},"user":{"username":%s,"password":%s,"email":%s,"enabled":true},"database":{"type":"mysql","host":"127.0.0.1","port":"3306","database":%s,"username":"root","password":%s}}' \
+        "$user_json" "$pass_json" "$admin_email_json" "$test_user_json" "$test_user_pass_json" "$test_user_email_json" "$(json_string "$DB_NAME")" "$db_password_json"
     local resp; resp=$(curl -s --max-time 60 -H "Content-Type: application/json" -X POST -d "$data" "${url}/api/v1/public/init" 2>/dev/null)
     local init_code; init_code=$(safe_jq "$resp" '-r .code // empty' '')
     log_info "Init response code: ${init_code}"
@@ -1551,7 +1650,7 @@ reset_chain_broken() {
 capture_service_logs() {
     local _since="${1:-}" max_lines="${2:-50}"
     # Read from server stdout/stderr log file; filter for relevant lines
-    tail -"${max_lines}" /tmp/oneclickvirt-server.log 2>/dev/null \
+    tail -"${max_lines}" "$SERVER_LOG_FILE" 2>/dev/null \
         | grep -iE 'error|panic|fatal|warn' \
         || true
 }
@@ -1559,8 +1658,8 @@ capture_service_logs() {
 fetch_full_service_logs() {
     local output_file="$1"
     {
-        echo "=== Server stdout/stderr (/tmp/oneclickvirt-server.log) ==="
-        tail -500 /tmp/oneclickvirt-server.log 2>/dev/null || echo "(not found)"
+        echo "=== Server stdout/stderr (${SERVER_LOG_FILE}) ==="
+        tail -500 "$SERVER_LOG_FILE" 2>/dev/null || echo "(not found)"
         local date_dir; date_dir=$(date +%Y-%m-%d)
         local log_dir="${MASTER_SERVER_DIR}/storage/logs/${date_dir}"
         echo "=== App error log ==="
@@ -1575,7 +1674,7 @@ dump_master_logs() {
     local date_dir; date_dir=$(date +%Y-%m-%d)
     local log_dir="${MASTER_SERVER_DIR}/storage/logs/${date_dir}"
     log_info "=== Server stdout/stderr (last 100 lines) ==="
-    tail -100 /tmp/oneclickvirt-server.log 2>/dev/null || echo "(not found)"
+    tail -100 "$SERVER_LOG_FILE" 2>/dev/null || echo "(not found)"
     log_info "=== App error log (${log_dir}/error.log) ==="
     cat "${log_dir}/error.log" 2>/dev/null || echo "(not found)"
     log_info "=== App warn log (${log_dir}/warn.log) ==="

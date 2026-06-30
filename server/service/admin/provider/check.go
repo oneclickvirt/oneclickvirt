@@ -215,6 +215,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 	// LXD/Incus 的 storage pool 名称直接参与创建实例。即使资源已同步，也要在健康检查中轻量校验并纠正，
 	// 防止历史默认值 default/local 或人工录入错误导致后续创建实例报 Storage pool not found。
 	shouldSyncResources := sshStatus == "online" && (forceRefresh || !provider.ResourceSynced || isLXDOrIncusProvider(provider.Type))
+	resourceSynced := false
 	if shouldSyncResources {
 		logMsg := "开始同步节点资源信息"
 		if forceRefresh {
@@ -240,6 +241,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 			provider.StoragePoolPath = resourceInfo.StoragePoolPath // 更新自动检测到的存储池路径
 			provider.ResourceSynced = true
 			provider.ResourceSyncedAt = resourceInfo.SyncedAt
+			resourceSynced = true
 
 			// 自动检测到的存储池名称（LXD/Incus）
 			if resourceInfo.StoragePoolName != "" && provider.StoragePool != resourceInfo.StoragePoolName {
@@ -316,10 +318,34 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 		provider.Status = "partial" // 部分连接正常
 	}
 
-	// 先保存状态到数据库
+	// 先保存状态到数据库。这里只写健康检查负责的列，避免用健康检查开始时
+	// 读取的旧 provider 快照覆盖并发的管理员配置更新。
+	updates := map[string]interface{}{
+		"ssh_status":     provider.SSHStatus,
+		"api_status":     provider.APIStatus,
+		"last_ssh_check": provider.LastSSHCheck,
+		"last_api_check": provider.LastAPICheck,
+		"status":         provider.Status,
+	}
+	if resourceSynced {
+		updates["node_cpu_cores"] = provider.NodeCPUCores
+		updates["node_memory_total"] = provider.NodeMemoryTotal
+		updates["node_disk_total"] = provider.NodeDiskTotal
+		updates["storage_pool"] = provider.StoragePool
+		updates["storage_pool_path"] = provider.StoragePoolPath
+		updates["resource_synced"] = provider.ResourceSynced
+		updates["resource_synced_at"] = provider.ResourceSyncedAt
+	}
+	if hostName != "" {
+		updates["host_name"] = provider.HostName
+	}
+	if provider.Version != "" {
+		updates["version"] = provider.Version
+	}
+
 	dbService := database.GetDatabaseService()
 	if dbErr := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&provider).Error
+		return tx.Model(&providerModel.Provider{}).Where("id = ?", provider.ID).Updates(updates).Error
 	}); dbErr != nil {
 		return fmt.Errorf("保存Provider状态失败: %w", dbErr)
 	}

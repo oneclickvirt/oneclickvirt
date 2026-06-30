@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -35,6 +36,20 @@ func (p *ProxmoxProvider) getDownloadURL(originalURL string, useCDN bool) string
 // shellSingleQuote 将任意字符串安全包裹为 shell 单引号字面量。
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+func (p *ProxmoxProvider) downloadRemoteFile(url, tmpPath, dstPath string, timeout time.Duration) (string, error) {
+	downloadScript := utils.BuildRemoteDownloadScript(url, tmpPath, dstPath)
+	return p.sshClient.ExecuteViaTempScript(downloadScript, nil, timeout)
+}
+
+func (p *ProxmoxProvider) downloadRemoteFileWithFallback(downloadURL, originalURL, tmpPath, dstPath string, timeout time.Duration) (string, error) {
+	output, err := p.downloadRemoteFile(downloadURL, tmpPath, dstPath, timeout)
+	if err != nil && downloadURL != originalURL {
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
+		output, err = p.downloadRemoteFile(originalURL, tmpPath, dstPath, timeout)
+	}
+	return output, err
 }
 
 // buildProxmoxContainerChpasswdCommand 使用 base64 传递凭据，避免密码特殊字符导致命令解析错误。

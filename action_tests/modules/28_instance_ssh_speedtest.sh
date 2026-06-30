@@ -251,7 +251,7 @@ run_module_28() {
             _m28_skip_optional "provider health check failed before recreating SSH test instance" "/api/v1/admin/providers/${PROVIDER_ID}"
             return 0
         }
-        local _m28_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+        local _m28_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local _m28_create; _m28_create=$(curl -s --max-time 60 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             -H "Content-Type: application/json" -X POST -d "$_m28_data" \
             "${SERVER_URL}/api/v1/admin/instances" 2>/dev/null) || true

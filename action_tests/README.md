@@ -171,6 +171,10 @@ export PLATFORM_ALICE_ENABLED=true
 export PLATFORM_LIGHTNODE_ENABLED=true
 export ALICE_CLIENT_ID="..."
 export LIGHTNODE_TOKEN="your_token"
+# LightNode 默认按第 3 档/2C/4G 选套餐；可用明确 package code 覆盖。
+export LIGHTNODE_PACKAGE_TIER=3
+export LIGHTNODE_TARGET_CPU=2
+export LIGHTNODE_TARGET_MEMORY_MB=4096
 bash action_tests/run_env_test.sh docker all container
 
 # 强制只使用某个平台
@@ -324,6 +328,21 @@ GitHub Actions 会自动安装所需依赖。
 | `LIGHTNODE_TOKEN` | LightNode OpenAPI 控制台生成的 Token 字符串 |
 | `LIGHTNODE_PRIVATE_KEY` | SSH 私钥完整内容，含 `-----BEGIN ... PRIVATE KEY-----` 头尾 |
 | `LIGHTNODE_SSH_KEY_UUID` | LightNode 账户中已上传 SSH 公钥的 UUID（在 LightNode 控制台 SSH Keys 页面查看） |
+| `LIGHTNODE_PACKAGE_TIER` | 默认 `3`，自动选套餐时优先使用第 3 档 |
+| `LIGHTNODE_TARGET_CPU` | 默认 `2`，优先匹配 2 核套餐 |
+| `LIGHTNODE_TARGET_MEMORY_MB` | 默认 `4096`，优先匹配 4G 内存套餐 |
+| `LIGHTNODE_PACKAGE_CODE` | 可选，指定后直接使用该 LightNode 套餐 code |
+
+**Action 实例规格**
+
+| 变量 | 默认值 |
+|------|--------|
+| `ACTION_TEST_CONTAINER_CPU` | `2` |
+| `ACTION_TEST_CONTAINER_MEMORY` | `2048` |
+| `ACTION_TEST_CONTAINER_DISK` | `20` |
+| `ACTION_TEST_VM_CPU` | `2` |
+| `ACTION_TEST_VM_MEMORY` | `4096` |
+| `ACTION_TEST_VM_DISK` | `20` |
 
 **Vultr**
 

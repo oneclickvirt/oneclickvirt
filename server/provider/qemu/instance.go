@@ -245,10 +245,11 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 		}
 
 		tmpPath := baseImage + ".tmp"
-		downloadCmd := fmt.Sprintf(
-			"curl -4 -fL --connect-timeout 30 --max-time 900 -o %s %s 2>&1",
-			shellSingleQuote(tmpPath), shellSingleQuote(downloadURL))
-		dlOutput, dlErr := p.sshClient.ExecuteWithTimeout(downloadCmd, 20*time.Minute)
+		runDownload := func(rawURL string) (string, error) {
+			downloadScript := utils.BuildRemoteDownloadScript(rawURL, tmpPath, baseImage)
+			return p.sshClient.ExecuteViaTempScript(downloadScript, nil, 30*time.Minute)
+		}
+		dlOutput, dlErr := runDownload(downloadURL)
 		if dlErr != nil {
 			// CDN下载失败，回退到原始URL重试
 			if downloadURL != config.ImageURL {
@@ -256,10 +257,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 					zap.String("cdnURL", utils.TruncateString(downloadURL, 200)),
 					zap.String("output", utils.TruncateString(dlOutput, 200)))
 				p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
-				downloadCmd = fmt.Sprintf(
-					"curl -4 -fL --connect-timeout 30 --max-time 900 -o %s %s 2>&1",
-					shellSingleQuote(tmpPath), shellSingleQuote(config.ImageURL))
-				dlOutput, dlErr = p.sshClient.ExecuteWithTimeout(downloadCmd, 20*time.Minute)
+				dlOutput, dlErr = runDownload(config.ImageURL)
 			}
 			if dlErr != nil {
 				p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
@@ -268,18 +266,6 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 			}
 		}
 
-		// 验证并移动文件
-		checkOutput, _ := p.sshClient.Execute(fmt.Sprintf("test -s %s && echo 'ok'", shellSingleQuote(tmpPath)))
-		if strings.TrimSpace(checkOutput) != "ok" {
-			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
-			return fmt.Errorf("downloaded image is empty for image=%s imageURL=%s downloadURL=%s",
-				system, utils.TruncateString(config.ImageURL, 300), utils.TruncateString(downloadURL, 300))
-		}
-		if _, mvErr := p.sshClient.Execute(fmt.Sprintf("mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(baseImage))); mvErr != nil {
-			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
-			return fmt.Errorf("failed to move downloaded image for image=%s imageURL=%s: %w",
-				system, utils.TruncateString(config.ImageURL, 300), mvErr)
-		}
 		global.APP_LOG.Info("QEMU基础镜像下载成功",
 			zap.String("system", system),
 			zap.String("url", utils.TruncateString(downloadURL, 200)))

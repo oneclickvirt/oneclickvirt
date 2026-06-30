@@ -149,7 +149,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	localImagePath := filepath.Join("/var/lib/vz/template/cache", fileName)
 
 	// 检查镜像是否已存在，不存在则下载（用 singleflight 防止同一镜像并发重复下载）
-	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", localImagePath)
+	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", shellSingleQuote(localImagePath))
 	output, err := p.sshClient.Execute(checkCmd)
 	if err != nil {
 		return fmt.Errorf("检查镜像文件失败: %v", err)
@@ -178,16 +178,10 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 
 			// 下载镜像文件（先下载到临时文件，再 mv，避免并发写冲突）
 			tmpPath := localImagePath + ".tmp"
-			downloadCmd := fmt.Sprintf("curl -L -o %s %s", tmpPath, downloadURL)
-			_, err = p.sshClient.Execute(downloadCmd)
+			output, err := p.downloadRemoteFileWithFallback(downloadURL, systemConfig.ImageURL, tmpPath, localImagePath, 30*time.Minute)
 			if err != nil {
 				p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
-				return nil, fmt.Errorf("下载镜像失败: %v", err)
-			}
-			_, err = p.sshClient.Execute(fmt.Sprintf("mv %s %s", tmpPath, localImagePath))
-			if err != nil {
-				p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
-				return nil, fmt.Errorf("移动镜像文件失败: %v", err)
+				return nil, fmt.Errorf("下载镜像失败: %s: %w", utils.TruncateString(output, 300), err)
 			}
 			global.APP_LOG.Debug("容器镜像下载完成",
 				zap.String("image_path", localImagePath),

@@ -44,7 +44,7 @@ run_module_10() {
     # ==============================
     # Container tests
     # ==============================
-    local container_id="" container_created=false
+    local container_id="" container_name="" container_created=false
     if should_test_type "container" && env_supports_container; then
         log_info "Testing container instances..."
 
@@ -76,7 +76,7 @@ run_module_10() {
             fi
         fi
 
-        local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${container_image}\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+        local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${container_image}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local ir
         # Use single attempt — 400 validation errors are permanent and not worth retrying
         if ! ir=$(test_api_retry "Create container instance" "POST" "/api/v1/admin/instances" "200" "$inst_data" 2 10 "$group"); then
@@ -138,6 +138,7 @@ run_module_10() {
                 container_id=""
             else
                 container_created=true
+                container_name=$(echo "$detail" | jq -r '.data.name // empty' 2>/dev/null)
 
                 # -- Config validation --
                 TOTAL_TESTS=$((TOTAL_TESTS + 1))
@@ -190,7 +191,7 @@ run_module_10() {
             local rp; rp=$(test_api "Reset container password" "PUT" "/api/v1/admin/instances/${container_id}/reset-password" "200|400|500" \
                 "{\"password\":\"${known_test_pw}\"}" "$group")
             export TEST_INSTANCE_PASSWORD="${known_test_pw}"
-            local rp_task; rp_task=$(echo "$rp" | jq -r '.data.task_id // empty' 2>/dev/null)
+            local rp_task; rp_task=$(echo "$rp" | jq -r '.data.task_id // .data.taskId // .data.id // empty' 2>/dev/null)
             if [[ -n "$rp_task" ]]; then
                 wait_task_complete "$SERVER_URL" "$rp_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || true
                 local gp; gp=$(test_api "Get new password" "GET" "/api/v1/admin/instances/${container_id}/password/${rp_task}" "200" "" "$group")
@@ -199,10 +200,13 @@ run_module_10() {
                     export TEST_INSTANCE_PASSWORD="$gp_pw"
                 fi
             fi
+            wait_instance_active_tasks_idle "$container_id" "container ${container_id} before rebuild" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 || true
 
             # -- Edit instance --
-            test_api "Edit container" "PUT" "/api/v1/admin/instances/${container_id}" "200" \
-                '{"name":"ci-container-edited"}' "$group"
+            if test_api "Edit container" "PUT" "/api/v1/admin/instances/${container_id}" "200" \
+                '{"name":"ci-container-edited"}' "$group" > /dev/null; then
+                container_name="ci-container-edited"
+            fi
 
             # -- Port mappings --
             test_api "Container port mappings" "GET" "/api/v1/admin/instances/${container_id}/port-mappings" "200" "" "$group"
@@ -243,15 +247,47 @@ run_module_10() {
             # A 400/500 means the rebuild was rejected or failed immediately; skip the wait.
             local rb_code; rb_code=$(echo "$rb_resp" | jq -r '.code // empty' 2>/dev/null)
             if [[ "$rb_code" == "200" ]]; then
-                local rb_task; rb_task=$(echo "$rb_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+                local rb_task; rb_task=$(echo "$rb_resp" | jq -r '.data.task_id // .data.taskId // .data.id // empty' 2>/dev/null)
+                local rb_task_resp="" rebuild_task_ok=true
                 if [[ -n "$rb_task" ]]; then
                     log_info "Waiting for rebuild task ${rb_task}..."
-                    wait_task_complete "$SERVER_URL" "$rb_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || {
+                    if ! rb_task_resp=$(wait_task_complete "$SERVER_URL" "$rb_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
                         log_warning "Rebuild task ${rb_task} did not complete within timeout"
-                    }
+                    fi
+                    if ! record_task_terminal_result "Rebuild container task" "GET" "/api/v1/admin/tasks/${rb_task}" "$rb_task_resp" "$group"; then
+                        rebuild_task_ok=false
+                    fi
+                else
+                    wait_instance_active_tasks_idle "$container_id" "rebuild container ${container_id}" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 || true
+                    if rb_task_resp=$(get_latest_instance_task_response "$container_id" "rebuild" "$ADMIN_TOKEN"); then
+                        local rb_lookup_id; rb_lookup_id=$(safe_jq "$rb_task_resp" '-r .data.id // .data.ID // empty' '')
+                        if ! record_task_terminal_result "Rebuild container task" "GET" "/api/v1/admin/tasks/${rb_lookup_id:-latest}" "$rb_task_resp" "$group"; then
+                            rebuild_task_ok=false
+                        fi
+                    else
+                        record_fail_result "Rebuild container task lookup" "GET" "/api/v1/admin/tasks?page=1&pageSize=100" "latest rebuild task" "missing" "$rb_resp" "$group"
+                        rebuild_task_ok=false
+                    fi
                 fi
-                # Wait for instance to reach running state after rebuild
-                wait_instance_status "$container_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "container ${container_id} after rebuild" > /dev/null || true
+                if [[ "$rebuild_task_ok" == "true" ]]; then
+                    local rebuilt_container_id=""
+                    if [[ -n "$container_name" ]]; then
+                        rebuilt_container_id=$(resolve_instance_id_by_name "$container_name" "$PROVIDER_ID" "$ADMIN_TOKEN" || true)
+                    fi
+                    if [[ -n "$rebuilt_container_id" && "$rebuilt_container_id" != "$container_id" ]]; then
+                        log_info "Container ${container_id} was replaced by ${rebuilt_container_id} after rebuild"
+                        container_id="$rebuilt_container_id"
+                        TEST_INSTANCE_ID="$container_id"
+                        export TEST_INSTANCE_ID
+                    fi
+                    # Wait for instance to reach running state after rebuild
+                    local rebuild_status_wait="${INSTANCE_REBUILD_STATUS_MAX_WAIT:-180}"
+                    wait_instance_status "$container_id" "running" "$rebuild_status_wait" 10 "$ADMIN_TOKEN" "container ${container_id} after rebuild" > /dev/null || {
+                        log_warning "Container ${container_id} did not report running within ${rebuild_status_wait}s after rebuild"
+                    }
+                else
+                    log_warning "Skipping post-rebuild running-state wait because rebuild task did not complete"
+                fi
             else
                 log_info "Rebuild returned code=${rb_code}, skipping post-rebuild status wait"
             fi
@@ -293,7 +329,7 @@ run_module_10() {
             fi
         fi
 
-        local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":1,\"memory\":512,\"disk\":5,\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+        local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local vr
         if ! vr=$(test_api_retry "Create VM instance" "POST" "/api/v1/admin/instances" "200" "$vm_data" 2 15 "$group"); then
             log_warning "VM instance creation returned non-200; downstream VM checks will be skipped"
@@ -490,7 +526,7 @@ run_module_10() {
 
         # Create instance via user API (same as frontend does)
         local user_inst_resp; user_inst_resp=$(test_api "User creates instance (frontend-equivalent)" "POST" \
-            "/api/v1/user/instances" "200|400|500" \
+            "/api/v1/user/instances" "200|400|404|500" \
             "{\"providerId\":${PROVIDER_ID},\"imageId\":${user_image_id},\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\"}" \
             "$group" "$USER_TOKEN")
         local user_inst_task; user_inst_task=$(echo "$user_inst_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)

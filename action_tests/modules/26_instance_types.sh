@@ -44,7 +44,7 @@ run_module_26() {
 
         # Create container instance
         local ct_resp; ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201|400" \
-            '{"provider_id":'"$PROVIDER_ID"',"name":"type-test-ct","instance_type":"container","image":"debian:12","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
+            "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-ct\",\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000}" \
             "$group" "$ADMIN_TOKEN")
         local ct_task; ct_task=$(echo "$ct_resp" | jq -r '.data.task_id // .data.taskId // empty' 2>/dev/null)
         local ct_id=""
@@ -105,7 +105,7 @@ run_module_26() {
 
         if [[ -n "$USER_TOKEN" ]]; then
             test_api "User create container (disabled)" "POST" "/api/v1/user/instances" "400|403" \
-                '{"provider_id":'"$PROVIDER_ID"',"type":"container","image":"debian:11","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
+                "{\"provider_id\":${PROVIDER_ID},\"type\":\"container\",\"image\":\"debian:11\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000}" \
                 "$group" "$USER_TOKEN"
         fi
 
@@ -122,9 +122,33 @@ run_module_26() {
             return 0
         fi
 
+        local vm_img_provider_type="${ENV_TYPE:-docker}"
+        case "${vm_img_provider_type}" in
+            proxmoxve) vm_img_provider_type="proxmox" ;;
+        esac
+        local vm_provider_arch="${TARGET_ARCH:-$(uname -m 2>/dev/null || echo x86_64)}"
+        case "$vm_provider_arch" in
+            x86_64) vm_provider_arch="amd64" ;;
+            aarch64) vm_provider_arch="arm64" ;;
+        esac
+        local vm_image="debian-11"
+        local vm_sys_images; vm_sys_images=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=1000&providerType=${vm_img_provider_type}&instanceType=vm&architecture=${vm_provider_arch}&status=active" 2>/dev/null)
+        if [[ -n "$vm_sys_images" ]]; then
+            local vm_resolved; vm_resolved=$(echo "$vm_sys_images" | jq -r --arg pt "$vm_img_provider_type" --arg arch "$vm_provider_arch" \
+                '.data.list[]? | select(.osType=="debian" and .providerType==$pt and .instanceType=="vm" and .status=="active" and (.architecture==$arch or $arch=="")) | .name' 2>/dev/null | head -1)
+            if [[ -n "$vm_resolved" && "$vm_resolved" != "null" ]]; then
+                vm_image="$vm_resolved"
+                log_info "Resolved type-test VM image from system images: ${vm_image}"
+            else
+                log_info "No active debian ${vm_img_provider_type} VM image found; using fallback '${vm_image}'"
+            fi
+        fi
+
         # Create VM instance
         local vm_resp; vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201|400" \
-            '{"provider_id":'"$PROVIDER_ID"',"name":"type-test-vm","instance_type":"vm","image":"debian-11","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
+            "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-vm\",\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000}" \
             "$group" "$ADMIN_TOKEN")
         local vm_task; vm_task=$(echo "$vm_resp" | jq -r '.data.task_id // .data.taskId // empty' 2>/dev/null)
         local vm_id=""
@@ -182,7 +206,7 @@ run_module_26() {
 
         if [[ -n "$USER_TOKEN" ]]; then
             test_api "User create VM (disabled)" "POST" "/api/v1/user/instances" "400|403" \
-                '{"provider_id":'"$PROVIDER_ID"',"type":"vm","image":"debian-11","cpu":1,"memory":512,"disk":5,"bandwidth":1000}' \
+                "{\"provider_id\":${PROVIDER_ID},\"type\":\"vm\",\"image\":\"debian-11\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000}" \
                 "$group" "$USER_TOKEN"
         fi
 

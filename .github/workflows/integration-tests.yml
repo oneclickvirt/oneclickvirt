@@ -166,6 +166,9 @@ jobs:
           LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
           LIGHTNODE_PRIVATE_KEY: ${{ secrets.LIGHTNODE_PRIVATE_KEY }}
           LIGHTNODE_SSH_KEY_UUID: ${{ secrets.LIGHTNODE_SSH_KEY_UUID }}
+          LIGHTNODE_PACKAGE_TIER: "3"
+          LIGHTNODE_TARGET_CPU: "2"
+          LIGHTNODE_TARGET_MEMORY_MB: "4096"
           VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
           VULTR_PRIVATE_KEY: ${{ secrets.VULTR_PRIVATE_KEY }}
           VULTR_SSH_KEY_ID: ${{ secrets.VULTR_SSH_KEY_ID }}
@@ -295,6 +298,15 @@ jobs:
           LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
           LIGHTNODE_PRIVATE_KEY: ${{ secrets.LIGHTNODE_PRIVATE_KEY }}
           LIGHTNODE_SSH_KEY_UUID: ${{ secrets.LIGHTNODE_SSH_KEY_UUID }}
+          LIGHTNODE_PACKAGE_TIER: "3"
+          LIGHTNODE_TARGET_CPU: "2"
+          LIGHTNODE_TARGET_MEMORY_MB: "4096"
+          ACTION_TEST_CONTAINER_CPU: "2"
+          ACTION_TEST_CONTAINER_MEMORY: "2048"
+          ACTION_TEST_CONTAINER_DISK: "20"
+          ACTION_TEST_VM_CPU: "2"
+          ACTION_TEST_VM_MEMORY: "4096"
+          ACTION_TEST_VM_DISK: "20"
           # Vultr platform
           VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
           VULTR_PRIVATE_KEY: ${{ secrets.VULTR_PRIVATE_KEY }}

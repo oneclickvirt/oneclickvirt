@@ -160,12 +160,13 @@ func redactRawQuery(rawQuery string) string {
 }
 
 func sanitizeAuditPayload(payload string) string {
+	payload = strings.ToValidUTF8(payload, "\uFFFD")
 	payload = strings.TrimSpace(payload)
 	if payload == "" {
 		return ""
 	}
 	if len(payload) > maxAuditPayloadBytes {
-		payload = payload[:maxAuditPayloadBytes] + auditTruncatedValue
+		payload = truncateAuditPayload(payload)
 	}
 
 	var decoded interface{}
@@ -173,14 +174,26 @@ func sanitizeAuditPayload(payload string) string {
 		redactAuditValue(&decoded, "")
 		data, err := json.Marshal(decoded)
 		if err == nil {
-			return utils.TruncateString(string(data), maxAuditPayloadBytes)
+			return truncateAuditPayload(string(data))
 		}
 	}
 
 	if containsSensitiveInfo(payload) {
 		return auditRedactedValue
 	}
-	return utils.TruncateString(payload, maxAuditPayloadBytes)
+	return truncateAuditPayload(payload)
+}
+
+func truncateAuditPayload(payload string) string {
+	payload = strings.ToValidUTF8(payload, "\uFFFD")
+	if len(payload) <= maxAuditPayloadBytes {
+		return payload
+	}
+	limit := maxAuditPayloadBytes - len(auditTruncatedValue)
+	if limit < 0 {
+		limit = 0
+	}
+	return strings.ToValidUTF8(payload[:limit], "") + auditTruncatedValue
 }
 
 func redactAuditValue(value *interface{}, key string) {

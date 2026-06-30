@@ -19,7 +19,31 @@ run_module_11() {
     # -- Deploy agent (may fail if provider not fully connected) --
     local da; da=$(test_api_retry "Deploy agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|400|500" \
         '{}' 3 15 "$group")
-    sleep 15
+    local da_code; da_code=$(safe_jq "$da" '-r .code // empty' '')
+    if [[ "$da_code" == "200" ]]; then
+        local da_task; da_task=$(safe_jq "$da" '-r .data.task_id // .data.taskId // .data.id // empty' '')
+        if [[ -n "$da_task" ]]; then
+            local da_task_resp=""
+            if ! da_task_resp=$(wait_task_complete "$SERVER_URL" "$da_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
+                log_warning "Agent deploy task ${da_task} did not complete successfully"
+            fi
+            if [[ "${STRICT_AGENT_DEPLOY:-true}" == "true" ]]; then
+                local da_task_status da_task_error
+                da_task_status=$(safe_jq "$da_task_resp" '-r .data.status // .status // empty' '')
+                da_task_error=$(safe_jq "$da_task_resp" '-r .data.errorMessage // .data.error_message // .data.message // .message // .msg // empty' '')
+                if [[ "$da_task_status" != "completed" ]]; then
+                    [[ -n "$da_task_error" ]] || da_task_error="${da_task_status:-missing task status}"
+                    record_fail_result "Deploy agent task" "GET" "/api/v1/admin/tasks/${da_task}" "completed" "$da_task_error" "$da_task_resp" "$group"
+                fi
+            else
+                record_task_terminal_result "Deploy agent task" "GET" "/api/v1/admin/tasks/${da_task}" "$da_task_resp" "$group" || true
+            fi
+        else
+            record_fail_result "Deploy agent task id" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "task id" "missing" "$da" "$group"
+        fi
+    else
+        sleep 15
+    fi
 
     # -- Agent status --
     test_api_retry "Agent status" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/status" "200|400" \
@@ -41,7 +65,30 @@ run_module_11() {
     test_api "Clear monitors" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/clear" "200|400" "" "$group"
 
     # -- Uninstall agent (may fail if not installed) --
-    test_api "Uninstall agent" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|400" "" "$group"
+    local ua; ua=$(test_api "Uninstall agent" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|400" "" "$group")
+    local ua_code; ua_code=$(safe_jq "$ua" '-r .code // empty' '')
+    if [[ "$ua_code" == "200" ]]; then
+        local ua_task; ua_task=$(safe_jq "$ua" '-r .data.task_id // .data.taskId // .data.id // empty' '')
+        if [[ -n "$ua_task" ]]; then
+            local ua_task_resp=""
+            if ! ua_task_resp=$(wait_task_complete "$SERVER_URL" "$ua_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
+                log_warning "Agent uninstall task ${ua_task} did not complete successfully"
+            fi
+            if [[ "${STRICT_AGENT_DEPLOY:-true}" == "true" ]]; then
+                local ua_task_status ua_task_error
+                ua_task_status=$(safe_jq "$ua_task_resp" '-r .data.status // .status // empty' '')
+                ua_task_error=$(safe_jq "$ua_task_resp" '-r .data.errorMessage // .data.error_message // .data.message // .message // .msg // empty' '')
+                if [[ "$ua_task_status" != "completed" ]]; then
+                    [[ -n "$ua_task_error" ]] || ua_task_error="${ua_task_status:-missing task status}"
+                    record_fail_result "Uninstall agent task" "GET" "/api/v1/admin/tasks/${ua_task}" "completed" "$ua_task_error" "$ua_task_resp" "$group"
+                fi
+            else
+                record_task_terminal_result "Uninstall agent task" "GET" "/api/v1/admin/tasks/${ua_task}" "$ua_task_resp" "$group" || true
+            fi
+        else
+            record_fail_result "Uninstall agent task id" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "task id" "missing" "$ua" "$group"
+        fi
+    fi
 
     # -- Status after uninstall --
     test_api "Status after uninstall" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/status" "200|400" "" "$group"

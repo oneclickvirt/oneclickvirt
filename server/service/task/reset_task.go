@@ -308,7 +308,11 @@ func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *ad
 
 		// 根据实例的原始状态（重置前的状态）释放对应的配额
 		isPendingState := constant.IsTransitionalStatus(resetCtx.OriginalStatus)
-		if isPendingState {
+		if resetCtx.OriginalUserID == 0 {
+			global.APP_LOG.Debug("实例无用户归属，跳过用户配额释放",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", resetCtx.OldInstanceID))
+		} else if isPendingState {
 			if err := quotaService.ReleasePendingQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
 				global.APP_LOG.Warn("释放待确认配额失败", zap.Error(err))
 			}
@@ -353,10 +357,17 @@ func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *ad
 func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
 	s.updateTaskProgress(task.ID, 40, "step.creatingNewInstance")
 
-	// 获取用户信息
-	var user userModel.User
-	if err := global.APP_DB.First(&user, task.UserID).Error; err != nil {
-		return fmt.Errorf("获取用户信息失败: %v", err)
+	userLevel := 0
+	if resetCtx.OriginalUserID != 0 {
+		var user userModel.User
+		if err := global.APP_DB.First(&user, resetCtx.OriginalUserID).Error; err != nil {
+			return fmt.Errorf("获取用户信息失败: %v", err)
+		}
+		userLevel = user.Level
+	} else {
+		global.APP_LOG.Debug("实例无用户归属，使用管理员重建默认用户等级",
+			zap.Uint("taskId", task.ID),
+			zap.Uint("instanceId", resetCtx.OldInstanceID))
 	}
 
 	// 在事务中创建新实例记录并分配配额
@@ -397,8 +408,14 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			Bandwidth: resetCtx.Instance.Bandwidth,
 		}
 
-		if err := quotaService.AllocatePendingQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
-			return fmt.Errorf("分配待确认配额失败: %v", err)
+		if resetCtx.OriginalUserID != 0 {
+			if err := quotaService.AllocatePendingQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
+				return fmt.Errorf("分配待确认配额失败: %v", err)
+			}
+		} else {
+			global.APP_LOG.Debug("实例无用户归属，跳过待确认配额分配",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("newInstanceId", resetCtx.NewInstanceID))
 		}
 
 		// 分配Provider资源
@@ -432,7 +449,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			Disk:         fmt.Sprintf("%dm", resetCtx.Instance.Disk),
 			Env:          map[string]string{"RESET_OPERATION": "true"},
 			Metadata: map[string]string{
-				"user_level":               fmt.Sprintf("%d", user.Level),
+				"user_level":               fmt.Sprintf("%d", userLevel),
 				"bandwidth_spec":           fmt.Sprintf("%d", resetCtx.Instance.Bandwidth),
 				"ipv4_port_mapping_method": resetCtx.Provider.IPv4PortMappingMethod,
 				"ipv6_port_mapping_method": resetCtx.Provider.IPv6PortMappingMethod,
@@ -635,8 +652,14 @@ func (s *TaskService) resetTask_UpdateInstanceInfo(ctx context.Context, task *ad
 			Bandwidth: resetCtx.Instance.Bandwidth,
 		}
 
-		if err := quotaService.ConfirmPendingQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
-			return fmt.Errorf("确认配额失败: %v", err)
+		if resetCtx.OriginalUserID != 0 {
+			if err := quotaService.ConfirmPendingQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
+				return fmt.Errorf("确认配额失败: %v", err)
+			}
+		} else {
+			global.APP_LOG.Debug("实例无用户归属，跳过待确认配额确认",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("newInstanceId", resetCtx.NewInstanceID))
 		}
 
 		return nil

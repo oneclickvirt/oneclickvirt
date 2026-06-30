@@ -13,6 +13,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -37,7 +38,7 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 	localImagePath := filepath.Join("/var/lib/vz/template/cache", fileName)
 
 	// 确保镜像文件存在（通过SSH下载）
-	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", localImagePath)
+	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", shellSingleQuote(localImagePath))
 	output, err := p.sshClient.Execute(checkCmd)
 	if err != nil {
 		return fmt.Errorf("检查镜像文件失败: %v", err)
@@ -50,10 +51,12 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 			return fmt.Errorf("创建缓存目录失败: %v", err)
 		}
 
-		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, systemConfig.ImageURL)
-		_, err = p.sshClient.Execute(downloadCmd)
+		tmpPath := localImagePath + ".tmp"
+		downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
+		output, err := p.downloadRemoteFileWithFallback(downloadURL, systemConfig.ImageURL, tmpPath, localImagePath, 30*time.Minute)
 		if err != nil {
-			return fmt.Errorf("下载镜像失败: %v", err)
+			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
+			return fmt.Errorf("下载镜像失败: %s: %w", utils.TruncateString(output, 300), err)
 		}
 	}
 
@@ -186,7 +189,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	localImagePath := fmt.Sprintf("/root/qcow/%s", fileName)
 
 	// 确保镜像文件存在（通过SSH下载）
-	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", localImagePath)
+	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", shellSingleQuote(localImagePath))
 	output, err := p.sshClient.Execute(checkCmd)
 	if err != nil {
 		return fmt.Errorf("检查镜像文件失败: %v", err)
@@ -199,10 +202,12 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 			return fmt.Errorf("创建目录失败: %v", err)
 		}
 
-		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, systemConfig.ImageURL)
-		_, err = p.sshClient.Execute(downloadCmd)
+		tmpPath := localImagePath + ".tmp"
+		downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
+		output, err := p.downloadRemoteFileWithFallback(downloadURL, systemConfig.ImageURL, tmpPath, localImagePath, 30*time.Minute)
 		if err != nil {
-			return fmt.Errorf("下载镜像失败: %v", err)
+			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
+			return fmt.Errorf("下载镜像失败: %s: %w", utils.TruncateString(output, 300), err)
 		}
 	}
 

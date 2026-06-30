@@ -35,7 +35,7 @@ run_module_19() {
         local action_resp; action_resp=$(test_api "Speedtest instance action" "POST" \
             "/api/v1/admin/instances/${speedtest_instance_id}/action" "200|400|404|409|500" \
             '{"action":"restart"}' "$group" "$ADMIN_TOKEN")
-        wait_instance_operation_settled "$speedtest_instance_id" "$action_resp" "running" "speedtest restart ${speedtest_instance_id}" "$ADMIN_TOKEN" || true
+        wait_instance_operation_settled "$speedtest_instance_id" "$action_resp" "running" "speedtest restart ${speedtest_instance_id}" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 "$group" || true
     else
         record_skip_result "Speedtest instance action" "POST" "/api/v1/admin/instances/${speedtest_instance_id}/action" "instance status=${inst_status:-gone}, not runnable" "$group"
     fi

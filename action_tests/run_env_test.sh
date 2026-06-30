@@ -16,7 +16,7 @@ export noninteractive=true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMON_DIR="${SCRIPT_DIR}/common"
-REPORT_DIR="${SCRIPT_DIR}/reports"
+REPORT_DIR="${REPORT_DIR:-${SCRIPT_DIR}/reports}"
 mkdir -p "$REPORT_DIR"
 
 source "${COMMON_DIR}/test_framework.sh"
@@ -85,12 +85,11 @@ _cleanup_on_exit() {
         cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
     fi
     # Kill the Go server process started by deploy_master_local
-    if [[ -f /tmp/oneclickvirt-server.pid ]]; then
-        kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
-        rm -f /tmp/oneclickvirt-server.pid
+    if [[ -f "$SERVER_PID_FILE" ]]; then
+        kill "$(cat "$SERVER_PID_FILE")" 2>/dev/null || true
+        rm -f "$SERVER_PID_FILE"
     fi
-    pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
-    rm -f /tmp/oneclickvirt-server
+    rm -f "$SERVER_BINARY"
     report_finalize 2>/dev/null || true
 }
 trap _cleanup_on_exit EXIT
@@ -104,11 +103,10 @@ deploy_master_local "$MASTER_PORT" || {
     # Kill any stale server process before retry — if the first attempt timed out
     # but the process is still alive it will hold port ${MASTER_PORT} and cause
     # the second nohup to fail immediately with "address already in use".
-    if [[ -f /tmp/oneclickvirt-server.pid ]]; then
-        kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
-        rm -f /tmp/oneclickvirt-server.pid
+    if [[ -f "$SERVER_PID_FILE" ]]; then
+        kill "$(cat "$SERVER_PID_FILE")" 2>/dev/null || true
+        rm -f "$SERVER_PID_FILE"
     fi
-    pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
     sleep 30
     deploy_master_local "$MASTER_PORT" || {
         log_error "Failed to deploy master on runner after retry"
@@ -182,6 +180,18 @@ if ! verify_worker_runtime "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE"; then
         record_harness_skip_and_exit "KubeVirt/CDI runtime prerequisites are incomplete after install; see full-output.log for kubectl diagnostics"
     fi
 fi
+worker_arch_raw=$(platform_ssh_exec "$WORKER_IP" "uname -m 2>/dev/null || echo unknown" 30 2>/dev/null | tr -d '\r' | tail -1 || true)
+case "$worker_arch_raw" in
+    x86_64|amd64) export WORKER_ARCH="amd64" ;;
+    aarch64|arm64) export WORKER_ARCH="arm64" ;;
+    *) export WORKER_ARCH="" ;;
+esac
+if [[ -n "$WORKER_ARCH" ]]; then
+    export TARGET_ARCH="$WORKER_ARCH"
+    log_info "Worker architecture detected: ${WORKER_ARCH}"
+else
+    log_warning "Could not detect worker architecture from '${worker_arch_raw:-empty}', module image tests will use local fallback"
+fi
 
 # =============================================================
 # Phase 4: Prepare dirty node for discovery tests
@@ -204,19 +214,18 @@ log_section "Phase 6: Wait for service readiness"
 if ! wait_server_ready "$SERVER_URL" 300 10; then
     log_warning "Master service startup timeout; attempting server restart..."
     # Kill stale process and restart from already-compiled binary
-    if [[ -f /tmp/oneclickvirt-server.pid ]]; then
-        kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
-        rm -f /tmp/oneclickvirt-server.pid
+    if [[ -f "$SERVER_PID_FILE" ]]; then
+        kill "$(cat "$SERVER_PID_FILE")" 2>/dev/null || true
+        rm -f "$SERVER_PID_FILE"
     fi
-    pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
     sleep 5
-    if [[ -n "${MASTER_SERVER_DIR:-}" && -f /tmp/oneclickvirt-server ]]; then
+    if [[ -n "${MASTER_SERVER_DIR:-}" && -f "$SERVER_BINARY" ]]; then
         cd "${MASTER_SERVER_DIR}" || {
             log_error "Cannot cd to server dir ${MASTER_SERVER_DIR} — restart aborted"
             exit 75
         }
-        GIN_MODE=debug nohup /tmp/oneclickvirt-server >> /tmp/oneclickvirt-server.log 2>&1 &
-        echo $! > /tmp/oneclickvirt-server.pid
+        GIN_MODE=debug nohup "$SERVER_BINARY" >> "$SERVER_LOG_FILE" 2>&1 &
+        echo $! > "$SERVER_PID_FILE"
         cd - >/dev/null || true
     fi
     if ! wait_server_ready "$SERVER_URL" 120 10; then
@@ -336,12 +345,11 @@ log_section "Phase 10: Cleanup"
 cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
 CREATED_IDS=""  # Prevent double cleanup in trap
 # Kill the Go server process
-if [[ -f /tmp/oneclickvirt-server.pid ]]; then
-    kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
-    rm -f /tmp/oneclickvirt-server.pid
+if [[ -f "$SERVER_PID_FILE" ]]; then
+    kill "$(cat "$SERVER_PID_FILE")" 2>/dev/null || true
+    rm -f "$SERVER_PID_FILE"
 fi
-pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
-rm -f /tmp/oneclickvirt-server
+rm -f "$SERVER_BINARY"
 
 # -- Finalize --
 report_finalize

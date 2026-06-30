@@ -13,6 +13,10 @@ LIGHTNODE_TASK_MAX_WAIT="${LIGHTNODE_TASK_MAX_WAIT:-3600}"
 LIGHTNODE_STOP_TASK_MAX_WAIT="${LIGHTNODE_STOP_TASK_MAX_WAIT:-900}"
 LIGHTNODE_CREATE_TASK_MAX_WAIT="${LIGHTNODE_CREATE_TASK_MAX_WAIT:-1800}"
 LIGHTNODE_REINSTALL_TASK_MAX_WAIT="${LIGHTNODE_REINSTALL_TASK_MAX_WAIT:-3600}"
+LIGHTNODE_PACKAGE_CODE="${LIGHTNODE_PACKAGE_CODE:-}"
+LIGHTNODE_PACKAGE_TIER="${LIGHTNODE_PACKAGE_TIER:-3}"
+LIGHTNODE_TARGET_CPU="${LIGHTNODE_TARGET_CPU:-2}"
+LIGHTNODE_TARGET_MEMORY_MB="${LIGHTNODE_TARGET_MEMORY_MB:-4096}"
 
 # ============================================================================
 # Low-level API helpers
@@ -84,16 +88,86 @@ _lightnode_auto_detect_region() {
     log_info "[lightnode] Using region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}"
 }
 
-_lightnode_get_cheapest_package() {
+_lightnode_get_default_package() {
     local resp; resp=$(lightnode_get_packages)
     local body; body=$(lightnode_parse_body "$resp")
-    # Filter to current region/zone to avoid picking a package unavailable here
     local code; code=$(lightnode_parse_code "$resp")
-    if [[ -n "${LIGHTNODE_REGION}" ]]; then
-        echo "$body" | jq -r "[.packages[]? | select(.regionCode == \"${LIGHTNODE_REGION}\")][0].packageCode // .packages[0].packageCode // empty" 2>/dev/null
-    else
-        echo "$body" | jq -r '.packages[0].packageCode // empty' 2>/dev/null
+    if [[ "$code" != "200" && "$code" != "202" ]]; then
+        log_error "[lightnode] Failed to get packages (HTTP ${code})"
+        return 1
     fi
+    local target_cpu="${LIGHTNODE_TARGET_CPU:-2}"
+    local target_memory="${LIGHTNODE_TARGET_MEMORY_MB:-4096}"
+    local tier="${LIGHTNODE_PACKAGE_TIER:-3}"
+    [[ "$target_cpu" =~ ^[0-9]+$ ]] || target_cpu=2
+    [[ "$target_memory" =~ ^[0-9]+$ ]] || target_memory=4096
+    [[ "$tier" =~ ^[0-9]+$ && "$tier" -gt 0 ]] || tier=3
+
+    local package_code
+    package_code=$(printf '%s' "$body" | jq -r 2>/dev/null \
+        --arg region "${LIGHTNODE_REGION}" \
+        --arg zone "${LIGHTNODE_ZONE}" \
+        --arg explicit "${LIGHTNODE_PACKAGE_CODE}" \
+        --argjson target_cpu "$target_cpu" \
+        --argjson target_memory "$target_memory" \
+        --argjson tier "$tier" '
+def package_code: .packageCode // .code // .id // empty;
+def package_list: ((.packages // .data.packages // .data.list // .data // []) | if type == "array" then . else [] end);
+def number_from(v):
+  if v == null then null
+  elif (v | type) == "number" then v
+  else (try ((v | tostring) | capture("(?<n>[0-9]+(\\.[0-9]+)?)").n | tonumber) catch null)
+  end;
+def cpu_cores:
+  number_from(.cpu // .cpuCore // .cpuCores // .core // .cores // .vcpu // .vCPU // .cpuCount // .specCpu // .cpuNum);
+def memory_mb:
+  (.memoryMB // .memoryMb // .ramMB // .ramMb // .memorySizeMB // .memorySizeMb // .memoryInMb // .ramInMb) as $mb
+  | if number_from($mb) != null then number_from($mb)
+    else (.memoryGB // .memoryGb // .ramGB // .ramGb // .memorySizeGB // .memorySizeGb) as $gb
+      | if number_from($gb) != null then (number_from($gb) * 1024)
+        else (.memory // .mem // .ram // .memorySize // .specMemory) as $m
+          | if ($m | type) == "number" then (if $m <= 128 then ($m * 1024) else $m end)
+            else ($m | tostring | ascii_downcase) as $s
+              | if ($s | test("[0-9]+(\\.[0-9]+)?\\s*(g|gb|gib)")) then (($s | capture("(?<n>[0-9]+(\\.[0-9]+)?)").n | tonumber) * 1024)
+                elif ($s | test("[0-9]+(\\.[0-9]+)?\\s*(m|mb|mib)")) then ($s | capture("(?<n>[0-9]+(\\.[0-9]+)?)").n | tonumber)
+                else null
+                end
+          end
+      end
+  end;
+def package_text:
+  [.packageName?, .name?, .displayName?, .description?, .spec?, .packageCode?]
+  | map(tostring | ascii_downcase)
+  | join(" ");
+def region_match:
+  ($region == "" or ((has("regionCode") or has("region")) | not) or ((.regionCode // .region // "") == $region));
+def zone_match:
+  ($zone == "" or ((has("zoneCode") or has("zone")) | not) or ((.zoneCode // .zone // "") == $zone));
+def text_matches_target:
+  ((package_text | test("2\\s*(c|cpu|core|cores|核).*4\\s*(g|gb|gib|内存)")) or
+   (package_text | test("4\\s*(g|gb|gib|内存).*2\\s*(c|cpu|core|cores|核)")));
+(package_list | map(select(region_match and zone_match))) as $pkgs
+| if $explicit != "" then
+    ($pkgs | map(select(package_code == $explicit))[0] | package_code)
+  else
+    (($pkgs | map(select((cpu_cores == $target_cpu) and (memory_mb == $target_memory)))[0] | package_code) //
+     ($pkgs | map(select(text_matches_target))[0] | package_code) //
+     ($pkgs[($tier - 1)] | package_code) //
+     ($pkgs[0] | package_code) //
+     empty)
+  end
+') || package_code=""
+
+    if [[ -z "$package_code" && -n "${LIGHTNODE_PACKAGE_CODE}" ]]; then
+        log_error "[lightnode] Configured LIGHTNODE_PACKAGE_CODE is unavailable in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}"
+        return 1
+    fi
+    [[ -n "$package_code" ]] && log_info "[lightnode] Using package=${package_code} (target=${target_cpu}C/${target_memory}MB tier=${tier})"
+    echo "$package_code"
+}
+
+_lightnode_get_cheapest_package() {
+    _lightnode_get_default_package "$@"
 }
 
 _lightnode_get_image_uuid() {
@@ -171,7 +245,7 @@ lightnode_platform_init() {
 lightnode_platform_create_instance() {
     local env_type="$1" hours="${2:-8}"
     log_info "[lightnode] Creating instance: env=${env_type}"
-    local package_code; package_code=$(_lightnode_get_cheapest_package)
+    local package_code; package_code=$(_lightnode_get_default_package)
     [[ -z "$package_code" ]] && { log_error "[lightnode] No packages available"; return 1; }
     local os_name="debian"
     [[ "${env_type}" == "lxd" ]] && os_name="ubuntu"
@@ -181,7 +255,10 @@ lightnode_platform_create_instance() {
     if [[ -n "${LIGHTNODE_SSH_KEY_UUID:-}" ]]; then
         ssh_key_uuid="\"sshKeyUUID\":\"${LIGHTNODE_SSH_KEY_UUID}\","
     fi
-    local instance_name="ci-test-$(date +%Y%m%d%H%M%S)"
+    local name_prefix="${PLATFORM_INSTANCE_NAME_PREFIX:-ci-test-${env_type}}"
+    name_prefix=$(printf '%s' "$name_prefix" | tr -c 'A-Za-z0-9-' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+    [[ -z "$name_prefix" ]] && name_prefix="ci-test"
+    local instance_name="${name_prefix}-$(date +%Y%m%d%H%M%S)-$$"
     local data="{\"packageConfig\":{\"packageCode\":\"${package_code}\",\"regionCode\":\"${LIGHTNODE_REGION}\",\"zoneCode\":\"${LIGHTNODE_ZONE}\",\"instanceName\":\"${instance_name}\",\"imageResourceUUID\":\"${image_uuid}\",${ssh_key_uuid}\"password\":\"${LIGHTNODE_PASSWORD}\"}}"
     local resp; resp=$(lightnode_request "POST" "/instance/create" "$data")
     local body; body=$(lightnode_parse_body "${resp}")
@@ -292,10 +369,13 @@ lightnode_platform_ssh_exec() {
             "${ssh_user}@${ip}" \
             "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
     elif [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
-        sshpass -p "${PLATFORM_SSH_PASSWORD}" ssh \
+        SSHPASS="${PLATFORM_SSH_PASSWORD}" sshpass -e ssh \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -o NumberOfPasswordPrompts=3 \
             "${ssh_user}@${ip}" \
             "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
     else
@@ -316,9 +396,12 @@ lightnode_platform_wait_ssh() {
                 -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o BatchMode=yes \
                 "${ssh_user}@${ip}" "echo ok" >/dev/null 2>&1 && ssh_ok=true
         elif [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
-            sshpass -p "${PLATFORM_SSH_PASSWORD}" ssh \
+            SSHPASS="${PLATFORM_SSH_PASSWORD}" sshpass -e ssh \
                 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                 -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+                -o PreferredAuthentications=password \
+                -o PubkeyAuthentication=no \
+                -o NumberOfPasswordPrompts=3 \
                 "${ssh_user}@${ip}" "echo ok" >/dev/null 2>&1 && ssh_ok=true
         fi
         if $ssh_ok; then

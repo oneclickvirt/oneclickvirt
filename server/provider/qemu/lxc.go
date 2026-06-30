@@ -84,20 +84,18 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 		if config.UseCDN && qemuIsGitHubURL(downloadURL) {
 			downloadURL = utils.GetBaseCDNEndpoint() + downloadURL
 		}
-		downloadCmd := fmt.Sprintf("if command -v curl >/dev/null 2>&1; then curl -4 -fL --connect-timeout 30 --max-time 900 -o %s %s; else wget -4 -O %s %s; fi", shellSingleQuote(tmpPath), shellSingleQuote(downloadURL), shellSingleQuote(tmpPath), shellSingleQuote(downloadURL))
-		output, err := p.sshClient.ExecuteWithTimeout(downloadCmd+" 2>&1", 20*time.Minute)
+		runDownload := func(rawURL string) (string, error) {
+			downloadScript := utils.BuildRemoteDownloadScript(rawURL, tmpPath, imageFile)
+			return p.sshClient.ExecuteViaTempScript(downloadScript, nil, 30*time.Minute)
+		}
+		output, err := runDownload(downloadURL)
 		if err != nil && config.UseCDN && downloadURL != config.ImageURL {
 			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
-			downloadCmd = fmt.Sprintf("if command -v curl >/dev/null 2>&1; then curl -4 -fL --connect-timeout 30 --max-time 900 -o %s %s; else wget -4 -O %s %s; fi", shellSingleQuote(tmpPath), shellSingleQuote(config.ImageURL), shellSingleQuote(tmpPath), shellSingleQuote(config.ImageURL))
-			output, err = p.sshClient.ExecuteWithTimeout(downloadCmd+" 2>&1", 20*time.Minute)
+			output, err = runDownload(config.ImageURL)
 		}
 		if err != nil {
 			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 			return fmt.Errorf("failed to download LXC rootfs: %s, %w", utils.TruncateString(output, 300), err)
-		}
-		if _, err := p.sshClient.Execute(fmt.Sprintf("test -s %s && mv %s %s", shellSingleQuote(tmpPath), shellSingleQuote(tmpPath), shellSingleQuote(imageFile))); err != nil {
-			p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
-			return fmt.Errorf("downloaded LXC rootfs is empty or cannot be moved: %w", err)
 		}
 	}
 

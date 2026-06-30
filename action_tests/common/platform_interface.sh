@@ -24,6 +24,15 @@ ACTIVE_PLATFORM=""
 ACTIVE_INSTANCE_ID=""
 ACTIVE_INSTANCE_IP=""
 
+PLATFORM_REMOTE_PATH="${PLATFORM_REMOTE_PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/var/lib/snapd/snap/bin:/opt/bin}"
+
+platform_wrap_remote_command() {
+    local cmd="$1"
+    # shellcheck disable=SC2016 # ${PATH} is expanded by the remote shell.
+    printf 'export LC_ALL=C.UTF-8 LANG=C.UTF-8 LANGUAGE=C.UTF-8 2>/dev/null || true; export PATH=%s${PATH:+:$PATH}; %s' \
+        "$PLATFORM_REMOTE_PATH" "$cmd"
+}
+
 # ============================================================================
 # Platform dispatch: call <platform>_platform_<action> dynamically
 # ============================================================================
@@ -57,11 +66,13 @@ platform_init() {
 # ============================================================================
 # Create instance with auto-fallback across enabled platforms
 # Tries each enabled platform in priority order until one succeeds.
-# Enforces a hard max of 1 running instance per platform at all times:
+# By default, enforces a hard max of 1 running instance per platform:
 #   - Extra instances (beyond the first) are always deleted immediately.
 #   - If the single kept instance can be reinstalled, reinstall it.
 #   - If reinstall fails (or platform doesn't support it), delete it and
 #     create a brand-new instance so we always start clean.
+# Set PLATFORM_ALLOW_CONCURRENT_INSTANCES=true for local matrix runs where each
+# process owns and cleans up its own instance ID.
 #
 # On exit, PLATFORM_FAILURE_REASON is set to:
 #   "resource_exhausted" if every platform failed due to resource/capacity limits
@@ -155,22 +166,27 @@ try_create_with_fallback() {
         fi
         local result="" exit_code
 
-        # --- Enforce max-1 invariant ---
-        # List all existing instances; delete every one beyond the first.
-        local existing="[]"
-        existing=$(platform_dispatch "$platform" "list_instances" 2>/dev/null) || existing="[]"
-        log_debug "[${platform}] list_instances raw: ${existing}"
-        local all_ids=() keep_id=""
-        mapfile -t all_ids < <(echo "$existing" | jq -r '.[].instance_id // empty' 2>/dev/null)
-        local inst_count=${#all_ids[@]}
-        if [[ $inst_count -gt 1 ]]; then
-            log_warning "[${platform}] Found ${inst_count} instances — enforcing max-1, deleting $((inst_count - 1)) extra(s)..."
-            for (( _i=1; _i<inst_count; _i++ )); do
-                log_info "[${platform}] Deleting extra instance ${all_ids[$_i]}..."
-                platform_dispatch "$platform" "delete_instance" "${all_ids[$_i]}" 2>/dev/null || true
-            done
+        local keep_id=""
+        if [[ "${PLATFORM_ALLOW_CONCURRENT_INSTANCES:-false}" == "true" ]]; then
+            log_info "[${platform}] Concurrent instance mode enabled; creating an isolated worker instance"
+        else
+            # --- Enforce max-1 invariant ---
+            # List all existing instances; delete every one beyond the first.
+            local existing="[]"
+            existing=$(platform_dispatch "$platform" "list_instances" 2>/dev/null) || existing="[]"
+            log_debug "[${platform}] list_instances raw: ${existing}"
+            local all_ids=()
+            mapfile -t all_ids < <(echo "$existing" | jq -r '.[].instance_id // empty' 2>/dev/null)
+            local inst_count=${#all_ids[@]}
+            if [[ $inst_count -gt 1 ]]; then
+                log_warning "[${platform}] Found ${inst_count} instances — enforcing max-1, deleting $((inst_count - 1)) extra(s)..."
+                for (( _i=1; _i<inst_count; _i++ )); do
+                    log_info "[${platform}] Deleting extra instance ${all_ids[$_i]}..."
+                    platform_dispatch "$platform" "delete_instance" "${all_ids[$_i]}" 2>/dev/null || true
+                done
+            fi
+            [[ $inst_count -ge 1 ]] && keep_id="${all_ids[0]}"
         fi
-        [[ $inst_count -ge 1 ]] && keep_id="${all_ids[0]}"
 
         # --- Reuse or discard the kept instance ---
         if [[ -n "$keep_id" ]]; then
@@ -309,7 +325,7 @@ platform_ssh_exec() {
     local ip="$1" cmd="$2" timeout="${3:-300}"
     local platform="${ACTIVE_PLATFORM}"
     [[ -z "$platform" ]] && { log_error "No active platform set"; return 1; }
-    platform_dispatch "$platform" "ssh_exec" "$ip" "$cmd" "$timeout"
+    platform_dispatch "$platform" "ssh_exec" "$ip" "$(platform_wrap_remote_command "$cmd")" "$timeout"
 }
 
 # ============================================================================

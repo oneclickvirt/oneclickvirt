@@ -243,19 +243,25 @@ CERT_EOF
 
 chmod 600 "$CERT_PATH"
 echo "Certificate file created: $CERT_PATH"
+fingerprint="$(openssl x509 -fingerprint -sha256 -noout -in "$CERT_PATH" | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
+if command -v jq >/dev/null 2>&1; then
+	trust_json="$($LXC_CMD config trust list --format=json 2>/dev/null || echo '[]')"
+	echo "$trust_json" | jq -r --arg fp "$fingerprint" '.[] | select(((.fingerprint // "") | ascii_downcase) == $fp) | .fingerprint // empty' | while read -r fp; do
+		[ -n "$fp" ] && $LXC_CMD config trust remove "$fp" >/dev/null 2>&1 || true
+	done
+fi
 
 echo "Adding certificate to LXD trust store..."
-if $LXC_CMD config trust add "$CERT_PATH" 2>/tmp/ocv-lxd-trust.err; then
-	echo "Trust add succeeded with 'config trust add'"
-elif $LXC_CMD config trust add-certificate "$CERT_PATH" 2>/tmp/ocv-lxd-trust.err; then
+if $LXC_CMD config trust add-certificate "$CERT_PATH" 2>/tmp/ocv-lxd-trust.err; then
 	echo "Trust add succeeded with 'config trust add-certificate'"
+elif $LXC_CMD config trust add "$CERT_PATH" 2>/tmp/ocv-lxd-trust.err; then
+	echo "Trust add succeeded with 'config trust add'"
 else
 	echo "ERROR: failed to add certificate to LXD trust store"
 	cat /tmp/ocv-lxd-trust.err || true
 	exit 1
 fi
 
-fingerprint="$(openssl x509 -fingerprint -sha256 -noout -in "$CERT_PATH" | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
 trust_json="$($LXC_CMD config trust list --format=json 2>/dev/null || echo '[]')"
 if command -v jq >/dev/null 2>&1; then
 	if echo "$trust_json" | jq -e --arg fp "$fingerprint" --arg name "$CERT_NAME" '.[] | select(((.fingerprint // "") | ascii_downcase) == $fp or (.name // "") == $name)' >/dev/null; then
@@ -313,7 +319,7 @@ if ! $LXC_CMD info >/dev/null 2>&1; then
 fi
 
 echo "Clearing trust password..."
-$LXC_CMD config unset core.trust_password || true
+$LXC_CMD config unset core.trust_password >/dev/null 2>&1 || true
 rm -f "$CERT_PATH" /tmp/ocv-lxd-trust.err || true
 
 echo "Provider UUID: %s"
@@ -398,19 +404,25 @@ CERT_EOF
 
 chmod 600 "$CERT_PATH"
 echo "Certificate file created: $CERT_PATH"
+fingerprint="$(openssl x509 -fingerprint -sha256 -noout -in "$CERT_PATH" | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
+if command -v jq >/dev/null 2>&1; then
+	trust_json="$($INCUS_CMD config trust list --format=json 2>/dev/null || echo '[]')"
+	echo "$trust_json" | jq -r --arg fp "$fingerprint" '.[] | select(((.fingerprint // "") | ascii_downcase) == $fp) | .fingerprint // empty' | while read -r fp; do
+		[ -n "$fp" ] && $INCUS_CMD config trust remove "$fp" >/dev/null 2>&1 || true
+	done
+fi
 
 echo "Adding certificate to Incus trust store..."
-if $INCUS_CMD config trust add "$CERT_PATH" 2>/tmp/ocv-incus-trust.err; then
-	echo "Trust add succeeded with 'config trust add'"
-elif $INCUS_CMD config trust add-certificate "$CERT_PATH" 2>/tmp/ocv-incus-trust.err; then
+if $INCUS_CMD config trust add-certificate "$CERT_PATH" 2>/tmp/ocv-incus-trust.err; then
 	echo "Trust add succeeded with 'config trust add-certificate'"
+elif $INCUS_CMD config trust add "$CERT_PATH" 2>/tmp/ocv-incus-trust.err; then
+	echo "Trust add succeeded with 'config trust add'"
 else
 	echo "ERROR: failed to add certificate to Incus trust store"
 	cat /tmp/ocv-incus-trust.err || true
 	exit 1
 fi
 
-fingerprint="$(openssl x509 -fingerprint -sha256 -noout -in "$CERT_PATH" | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
 trust_json="$($INCUS_CMD config trust list --format=json 2>/dev/null || echo '[]')"
 if command -v jq >/dev/null 2>&1; then
 	if echo "$trust_json" | jq -e --arg fp "$fingerprint" --arg name "$CERT_NAME" '.[] | select(((.fingerprint // "") | ascii_downcase) == $fp or (.name // "") == $name)' >/dev/null; then
@@ -467,7 +479,7 @@ if ! $INCUS_CMD info >/dev/null 2>&1; then
 fi
 
 echo "Clearing trust password..."
-$INCUS_CMD config unset core.trust_password || true
+$INCUS_CMD config unset core.trust_password >/dev/null 2>&1 || true
 rm -f "$CERT_PATH" /tmp/ocv-incus-trust.err || true
 
 echo "Provider UUID: %s"

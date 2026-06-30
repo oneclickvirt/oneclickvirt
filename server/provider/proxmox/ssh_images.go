@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
@@ -50,7 +51,7 @@ func (p *ProxmoxProvider) sshPullImageToPath(ctx context.Context, imageURL, imag
 	downloadDir := "/usr/local/bin/proxmox_images"
 
 	// 创建下载目录
-	_, err := p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", downloadDir))
+	_, err := p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", shellSingleQuote(downloadDir)))
 	if err != nil {
 		return "", fmt.Errorf("创建下载目录失败: %w", err)
 	}
@@ -68,7 +69,7 @@ func (p *ProxmoxProvider) sshPullImageToPath(ctx context.Context, imageURL, imag
 		zap.String("remotePath", remotePath))
 
 	// 检查文件是否已存在
-	checkCmd := fmt.Sprintf("test -f %s && echo 'exists'", remotePath)
+	checkCmd := fmt.Sprintf("test -f %s && echo 'exists'", shellSingleQuote(remotePath))
 	output, _ := p.sshClient.Execute(checkCmd)
 	if strings.TrimSpace(output) == "exists" {
 		global.APP_LOG.Debug("镜像已存在，跳过下载", zap.String("path", remotePath))
@@ -76,15 +77,11 @@ func (p *ProxmoxProvider) sshPullImageToPath(ctx context.Context, imageURL, imag
 	}
 
 	// 下载镜像
-	downloadCmd := fmt.Sprintf("wget --no-check-certificate -O %s %s", remotePath, imageURL)
-	_, err = p.sshClient.Execute(downloadCmd)
+	tmpPath := remotePath + ".tmp"
+	output, err = p.downloadRemoteFile(imageURL, tmpPath, remotePath, 30*time.Minute)
 	if err != nil {
-		// 尝试使用curl下载
-		downloadCmd = fmt.Sprintf("curl -L -k -o %s %s", remotePath, imageURL)
-		_, err = p.sshClient.Execute(downloadCmd)
-		if err != nil {
-			return "", fmt.Errorf("下载镜像失败: %w", err)
-		}
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
+		return "", fmt.Errorf("下载镜像失败: %s: %w", utils.TruncateString(output, 300), err)
 	}
 
 	global.APP_LOG.Debug("Proxmox镜像下载完成", zap.String("remotePath", remotePath))
@@ -93,7 +90,7 @@ func (p *ProxmoxProvider) sshPullImageToPath(ctx context.Context, imageURL, imag
 	if strings.HasSuffix(fileName, ".iso") {
 		// ISO文件移动到ISO目录
 		isoPath := fmt.Sprintf("/var/lib/vz/template/iso/%s", fileName)
-		moveCmd := fmt.Sprintf("mv %s %s", remotePath, isoPath)
+		moveCmd := fmt.Sprintf("mv %s %s", shellSingleQuote(remotePath), shellSingleQuote(isoPath))
 		_, err = p.sshClient.Execute(moveCmd)
 		if err != nil {
 			global.APP_LOG.Warn("移动ISO文件失败", zap.Error(err))
@@ -103,7 +100,7 @@ func (p *ProxmoxProvider) sshPullImageToPath(ctx context.Context, imageURL, imag
 	} else {
 		// 其他文件可能是LXC模板，移动到cache目录
 		cachePath := fmt.Sprintf("/var/lib/vz/template/cache/%s", fileName)
-		moveCmd := fmt.Sprintf("mv %s %s", remotePath, cachePath)
+		moveCmd := fmt.Sprintf("mv %s %s", shellSingleQuote(remotePath), shellSingleQuote(cachePath))
 		_, err = p.sshClient.Execute(moveCmd)
 		if err != nil {
 			global.APP_LOG.Warn("移动模板文件失败", zap.Error(err))

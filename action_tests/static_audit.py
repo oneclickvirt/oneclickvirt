@@ -112,6 +112,7 @@ def audit_shell(root: Path) -> tuple[list[Finding], list[Finding]]:
                 if (
                     stripped.startswith("log_")
                     or "apt-get install" in line
+                    or re.search(r"\bapt-get\b.*\binstall\b", line)
                     or "preflight_require_commands" in line
                 ):
                     continue

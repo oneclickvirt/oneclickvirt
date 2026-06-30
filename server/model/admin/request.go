@@ -405,12 +405,13 @@ type CreateInstanceRequest struct {
 }
 
 type UpdateInstanceRequest struct {
-	ID     uint   `json:"id"`
-	Name   string `json:"name"`
-	CPU    int    `json:"cpu"`
-	Memory int64  `json:"memory"`
-	Disk   int64  `json:"disk"`
-	Status string `json:"status"`
+	ID             uint            `json:"id"`
+	ProvidedFields map[string]bool `json:"-"`
+	Name           string          `json:"name"`
+	CPU            int             `json:"cpu"`
+	Memory         int64           `json:"memory"`
+	Disk           int64           `json:"disk"`
+	Status         string          `json:"status"`
 }
 
 type InstanceListRequest struct {

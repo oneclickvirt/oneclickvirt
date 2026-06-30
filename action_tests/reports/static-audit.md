@@ -6,24 +6,24 @@
 |---|---:|
 | Registered route calls | 363 |
 | Comparable route literals | 360 |
-| Approx. covered route literals | 305 |
-| Approx. route literal coverage | 84.72% |
-| Distinct test paths | 488 |
-| Test endpoint call sites | 1058 |
+| Approx. covered route literals | 304 |
+| Approx. route literal coverage | 84.44% |
+| Distinct test paths | 493 |
+| Test endpoint call sites | 1079 |
 | High-risk jq lines | 0 |
 | Pipe risk lines | 0 |
 | Workflow findings | 0 |
 | Retry hygiene findings | 0 |
-| Minimum route literal coverage | 80.0% |
+| Minimum route literal coverage | 82.0% |
 
 ## HTTP Method Coverage
 
 | Method | Routes | Tests |
 |---|---:|---:|
-| GET | 188 | 494 |
-| POST | 117 | 389 |
+| GET | 188 | 513 |
+| POST | 117 | 390 |
 | PUT | 33 | 109 |
-| DELETE | 25 | 65 |
+| DELETE | 25 | 66 |
 | PATCH | 0 | 1 |
 
 ## Uncovered Route Literals (sample)
@@ -44,6 +44,7 @@
 - `GET /providers/local/detect` at `server/service/router/admin.go:65`
 - `POST /providers/import-csv` at `server/service/router/admin.go:66`
 - `POST /providers/:id/cleanup-orphans` at `server/service/router/admin.go:82`
+- `POST /configuration-tasks/:id/cancel` at `server/service/router/admin.go:114`
 - `GET /providers/:id/monitoring/sync/latest` at `server/service/router/admin.go:169`
 - `GET /providers/:id/monitoring/sync/:taskId` at `server/service/router/admin.go:170`
 - `POST /domains/sync-proxies` at `server/service/router/admin.go:203`
@@ -69,15 +70,14 @@
 - `POST instance-shares/:token/sftp/upload` at `server/service/router/public.go:34`
 - `GET instance-shares/:token/sftp/upload/status` at `server/service/router/public.go:35`
 - `POST instance-shares/:token/sftp/upload/abort` at `server/service/router/public.go:36`
-- `GET /swagger/*any` at `server/service/router/setup.go:282`
 - `GET /swagger/*any` at `server/service/router/setup.go:284`
-- `GET /v1/health` at `server/service/router/setup.go:292`
-- `GET agent/releases/:filename` at `server/service/router/setup.go:311`
-- `GET /v1/ws/agent` at `server/service/router/setup.go:362`
+- `GET /swagger/*any` at `server/service/router/setup.go:286`
+- `GET /v1/health` at `server/service/router/setup.go:294`
+- `GET agent/releases/:filename` at `server/service/router/setup.go:313`
+- `GET /v1/ws/agent` at `server/service/router/setup.go:364`
 - `GET /user/instances/:id/snapshots` at `server/service/router/user.go:41`
 - `POST /user/instances/:id/snapshots` at `server/service/router/user.go:42`
 - `POST /user/instances/:id/snapshots/upload` at `server/service/router/user.go:43`
-- `POST /user/snapshots/:id/restore` at `server/service/router/user.go:44`
 
 ## Unguarded jq Findings
 

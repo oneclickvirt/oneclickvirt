@@ -260,7 +260,12 @@ _create_test_instance() {
     log_info "Creating test instance (provider=${provider_id} type=${inst_type})..."
 
     local image="debian:12"
-    local memory=512 disk=5 bandwidth=1000
+    local cpu="${ACTION_TEST_CONTAINER_CPU}" memory="${ACTION_TEST_CONTAINER_MEMORY}" disk="${ACTION_TEST_CONTAINER_DISK}" bandwidth=1000
+    if [[ "$inst_type" == "vm" ]]; then
+        cpu="${ACTION_TEST_VM_CPU}"
+        memory="${ACTION_TEST_VM_MEMORY}"
+        disk="${ACTION_TEST_VM_DISK}"
+    fi
 
     ensure_provider_health_ready "$provider_id" "$ADMIN_TOKEN" || return 1
 
@@ -269,7 +274,7 @@ _create_test_instance() {
         -H "Content-Type: application/json" \
         -X POST \
         -d "{\"provider_id\":${provider_id},\"instance_type\":\"${inst_type}\",\
-\"image\":\"${image}\",\"cpu\":1,\"memory\":${memory},\
+\"image\":\"${image}\",\"cpu\":${cpu},\"memory\":${memory},\
 \"disk\":${disk},\"bandwidth\":${bandwidth},\"network_type\":\"nat_ipv4\"}" \
         "${SERVER_URL}/api/v1/admin/instances" 2>/dev/null) || { log_error "Instance create request failed"; return 1; }
 
@@ -453,12 +458,11 @@ _network_test_cleanup() {
     log_info "Network mode test cleanup (exit=${exit_code})"
     # Kill local master if we started it
     if [[ "$PUSH_MASTER" == "true" ]]; then
-        if [[ -f /tmp/oneclickvirt-server.pid ]]; then
-            kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
-            rm -f /tmp/oneclickvirt-server.pid
+        if [[ -f "$SERVER_PID_FILE" ]]; then
+            kill "$(cat "$SERVER_PID_FILE")" 2>/dev/null || true
+            rm -f "$SERVER_PID_FILE"
         fi
-        pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
-        rm -f /tmp/oneclickvirt-server
+        rm -f "$SERVER_BINARY"
     fi
     # Delete worker node if we created it
     if [[ -n "$CREATED_IDS" ]]; then
