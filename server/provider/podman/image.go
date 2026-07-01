@@ -14,20 +14,32 @@ import (
 
 // sshListImages 列出所有镜像
 func (p *PodmanProvider) sshListImages(ctx context.Context) ([]provider.Image, error) {
-	output, err := p.sshClient.ExecuteWithLogging(cliName+" images --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}\\t{{.CreatedAt}}'", "PODMAN_IMAGES")
+	output, err := p.sshClient.ExecuteWithLogging(cliName+" images --format '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.Size}}|{{.CreatedAt}}'", "PODMAN_IMAGES")
 	if err != nil {
 		return nil, err
 	}
 
+	images := parsePodmanImageList(output)
+	global.APP_LOG.Info("获取Podman镜像列表成功", zap.Int("count", len(images)))
+	return images, nil
+}
+
+func parsePodmanImageList(output string) []provider.Image {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) <= 1 {
-		return []provider.Image{}, nil
+	if len(lines) == 0 {
+		return []provider.Image{}
 	}
 
 	var images []provider.Image
-	for _, line := range lines[1:] {
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
+	for _, line := range lines {
+		fields := strings.Split(strings.TrimSpace(line), "|")
+		if len(fields) < 4 {
+			continue
+		}
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+		if fields[0] == "" || strings.EqualFold(fields[0], "repository") {
 			continue
 		}
 		images = append(images, provider.Image{
@@ -38,8 +50,7 @@ func (p *PodmanProvider) sshListImages(ctx context.Context) ([]provider.Image, e
 		})
 	}
 
-	global.APP_LOG.Info("获取Podman镜像列表成功", zap.Int("count", len(images)))
-	return images, nil
+	return images
 }
 
 // sshPullImage 拉取镜像

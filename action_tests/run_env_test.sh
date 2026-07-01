@@ -22,6 +22,7 @@ mkdir -p "$REPORT_DIR"
 _ENV_TYPE_ARG="${1:-docker}"
 _MASTER_PORT_ARG="${MASTER_PORT:-8888}"
 if [[ "${ACTION_TEST_PARALLEL_LOCAL:-${PLATFORM_ALLOW_CONCURRENT_INSTANCES:-false}}" == "true" ]]; then
+    export PLATFORM_ALLOW_CONCURRENT_INSTANCES=true
     _safe_env_arg=$(printf '%s' "$_ENV_TYPE_ARG" | tr -c 'A-Za-z0-9_' '_' | sed 's/_*$//')
     export DB_NAME="${DB_NAME:-oneclickvirt_${_safe_env_arg}_${_MASTER_PORT_ARG}}"
     export SERVER_TMP_PREFIX="${SERVER_TMP_PREFIX:-/tmp/oneclickvirt-server-${_safe_env_arg}-${_MASTER_PORT_ARG}-$$}"
@@ -39,6 +40,40 @@ RAW_INSTANCE_TYPES="${3:-both}"
 NODE_HOURS="${NODE_HOURS:-8}"
 MASTER_PORT="${MASTER_PORT:-8888}"
 EXIT_CODE=0
+
+case "$ENV_TYPE" in
+    kubevirt)
+        export WORKER_SWAP_MB="${KUBEVIRT_WORKER_SWAP_MB:-4096}"
+        export ACTION_TEST_VM_CPU="${ACTION_TEST_KUBEVIRT_VM_CPU:-1}"
+        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_KUBEVIRT_VM_MEMORY:-1024}"
+        export ACTION_TEST_VM_DISK="${ACTION_TEST_KUBEVIRT_VM_DISK:-${ACTION_TEST_VM_DISK:-20}}"
+        log_info "KubeVirt VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
+        ;;
+    lxd)
+        export ACTION_TEST_VM_CPU="${ACTION_TEST_LXD_VM_CPU:-1}"
+        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_LXD_VM_MEMORY:-1024}"
+        export ACTION_TEST_VM_DISK="${ACTION_TEST_LXD_VM_DISK:-${ACTION_TEST_VM_DISK:-20}}"
+        log_info "LXD VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
+        ;;
+    incus)
+        export ACTION_TEST_VM_CPU="${ACTION_TEST_INCUS_VM_CPU:-1}"
+        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_INCUS_VM_MEMORY:-1024}"
+        export ACTION_TEST_VM_DISK="${ACTION_TEST_INCUS_VM_DISK:-${ACTION_TEST_VM_DISK:-20}}"
+        log_info "Incus VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
+        ;;
+    proxmoxve)
+        export ACTION_TEST_VM_CPU="${ACTION_TEST_PROXMOXVE_VM_CPU:-1}"
+        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_PROXMOXVE_VM_MEMORY:-1024}"
+        export ACTION_TEST_VM_DISK="${ACTION_TEST_PROXMOXVE_VM_DISK:-${ACTION_TEST_VM_DISK:-20}}"
+        log_info "ProxmoxVE VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
+        ;;
+    qemu)
+        export ACTION_TEST_VM_CPU="${ACTION_TEST_QEMU_VM_CPU:-1}"
+        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_QEMU_VM_MEMORY:-1024}"
+        export ACTION_TEST_VM_DISK="${ACTION_TEST_QEMU_VM_DISK:-${ACTION_TEST_VM_DISK:-20}}"
+        log_info "QEMU VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
+        ;;
+esac
 
 # =============================================================
 # Phase 0: Validate platform and instance types

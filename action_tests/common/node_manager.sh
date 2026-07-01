@@ -207,15 +207,33 @@ create_test_node() {
     echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\",\"platform\":\"${platform_name}\"}"
 }
 
-find_local_pve_install_script() {
+find_local_env_install_script() {
+    local env="$1"
     local candidate
     local candidates=()
-    [[ -n "${PVE_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${PVE_INSTALL_SCRIPT_LOCAL_PATH}")
-    candidates+=(
-        "/Volumes/Additional/个人数据/GitHub/pve/scripts/install_pve.sh"
-        "${SCRIPT_DIR}/../../../pve/scripts/install_pve.sh"
-        "${SCRIPT_DIR}/../../../../../pve/scripts/install_pve.sh"
-    )
+
+    case "$env" in
+        proxmoxve)
+            [[ -n "${PVE_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${PVE_INSTALL_SCRIPT_LOCAL_PATH}")
+            candidates+=(
+                "/Volumes/Additional/个人数据/GitHub/pve/scripts/install_pve.sh"
+                "${SCRIPT_DIR}/../../../pve/scripts/install_pve.sh"
+                "${SCRIPT_DIR}/../../../../../pve/scripts/install_pve.sh"
+            )
+            ;;
+        incus)
+            [[ -n "${INCUS_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${INCUS_INSTALL_SCRIPT_LOCAL_PATH}")
+            candidates+=(
+                "/Volumes/Additional/个人数据/GitHub/incus/scripts/incus_install.sh"
+                "${SCRIPT_DIR}/../../../incus/scripts/incus_install.sh"
+                "${SCRIPT_DIR}/../../../../../incus/scripts/incus_install.sh"
+            )
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
     for candidate in "${candidates[@]}"; do
         [[ -n "$candidate" && -f "$candidate" ]] && {
             (cd "$(dirname "$candidate")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$candidate")")
@@ -225,23 +243,23 @@ find_local_pve_install_script() {
     return 1
 }
 
-build_pve_install_command() {
-    local url="$1" noninteractive_prefix="$2" pve_env_prefix="$3"
+build_env_install_command() {
+    local env="$1" url="$2" noninteractive_prefix="$3" env_prefix="$4"
     local local_script=""
-    if local_script=$(find_local_pve_install_script); then
+    if local_script=$(find_local_env_install_script "$env"); then
         local payload
         payload=$(gzip -c "$local_script" | base64 | tr -d '\n') || return 1
-        log_info "Using local PVE installer: ${local_script}"
-        cat <<PVE_INSTALL_CMD
-${noninteractive_prefix} cat > /tmp/envinstall.sh.gz.b64 <<'PVE_INSTALL_B64'
+        log_info "Using local ${env} installer: ${local_script}"
+        cat <<ENV_INSTALL_CMD
+${noninteractive_prefix} cat > /tmp/envinstall.sh.gz.b64 <<'ENV_INSTALL_B64'
 ${payload}
-PVE_INSTALL_B64
-base64 -d /tmp/envinstall.sh.gz.b64 | gzip -dc > /tmp/envinstall.sh && rm -f /tmp/envinstall.sh.gz.b64 && chmod +x /tmp/envinstall.sh && ${pve_env_prefix} bash /tmp/envinstall.sh
-PVE_INSTALL_CMD
+ENV_INSTALL_B64
+base64 -d /tmp/envinstall.sh.gz.b64 | gzip -dc > /tmp/envinstall.sh && rm -f /tmp/envinstall.sh.gz.b64 && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh
+ENV_INSTALL_CMD
         return 0
     fi
-    log_info "Using remote PVE installer: ${url}"
-    printf '%s\n' "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${pve_env_prefix} bash /tmp/envinstall.sh"
+    log_info "Using remote ${env} installer: ${url}"
+    printf '%s\n' "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh"
 }
 
 install_env() {
@@ -256,6 +274,11 @@ install_env() {
     local url="${ENV_INSTALL_SCRIPTS[$env]:-}"
     [[ -z "$url" ]] && { log_error "Unknown environment: ${env}"; return 1; }
     local pve_use_private_ip="${PVE_USE_PRIVATE_IP:-true}"
+    local pve_main_interface="${PVE_MAIN_INTERFACE:-}"
+    if [[ "$env" == "proxmoxve" && "${ACTIVE_PLATFORM:-}" == "lightnode" ]]; then
+        pve_use_private_ip="${PVE_USE_PRIVATE_IP:-false}"
+        pve_main_interface="${PVE_MAIN_INTERFACE:-eth1}"
+    fi
     local pve_hostname="${PVE_HOSTNAME:-pve}"
     case "${pve_use_private_ip,,}" in
         true|false) ;;
@@ -265,10 +288,17 @@ install_env() {
         log_error "PVE_HOSTNAME must contain only letters and digits"
         return 1
     fi
+    if [[ -n "$pve_main_interface" && ! "$pve_main_interface" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+        log_error "PVE_MAIN_INTERFACE must contain only letters, numbers, dots, underscores, or hyphens"
+        return 1
+    fi
     local pve_env_prefix="DEBIAN_FRONTEND=noninteractive noninteractive=true USE_PRIVATE_IP=${pve_use_private_ip} PVE_HOSTNAME=${pve_hostname}"
+    if [[ -n "$pve_main_interface" ]]; then
+        pve_env_prefix+=" PVE_MAIN_INTERFACE=${pve_main_interface}"
+    fi
     local pve_install_cmd=""
     if [[ "$env" == "proxmoxve" ]]; then
-        pve_install_cmd=$(build_pve_install_command "$url" "$noninteractive_prefix" "$pve_env_prefix") || return 1
+        pve_install_cmd=$(build_env_install_command "$env" "$url" "$noninteractive_prefix" "$pve_env_prefix") || return 1
     fi
     if declare -f platform_validate_worker_resources >/dev/null 2>&1; then
         platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}" || return 75
@@ -289,7 +319,7 @@ install_env() {
             env_prefix="DEBIAN_FRONTEND=noninteractive noninteractive=true NONINTERACTIVE=true CN=false WITHOUTCDN=false"
             ;;
         incus)
-            env_prefix="DEBIAN_FRONTEND=noninteractive noninteractive=true INCUS_NONINTERACTIVE=true WITHOUTCDN=false"
+            env_prefix="DEBIAN_FRONTEND=noninteractive noninteractive=true INCUS_NONINTERACTIVE=true INCUS_STORAGE_BACKEND=${INCUS_STORAGE_BACKEND:-dir} WITHOUTCDN=false"
             ;;
         podman)
             env_prefix="DEBIAN_FRONTEND=noninteractive NEED_DISK_LIMIT=n WITHOUTCDN=false"
@@ -307,6 +337,13 @@ install_env() {
             env_prefix="DEBIAN_FRONTEND=noninteractive"
             ;;
     esac
+    local env_install_cmd=""
+    if [[ "$env" == "incus" ]]; then
+        env_install_cmd=$(build_env_install_command "$env" "$url" "$noninteractive_prefix" "$env_prefix") || return 1
+    else
+        env_install_cmd="${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh"
+    fi
+
     if [[ "$env" == "proxmoxve" ]]; then
         log_info "PVE install step 1/3: installing PVE kernel (reboot required)..."
         platform_exec_and_wait "${ip}" "${pve_install_cmd}" "$pve_wait" || true
@@ -326,13 +363,13 @@ install_env() {
         # kubevirt needs K3s + KubeVirt + CDI, single-pass install (no reboot needed)
         # K3s + KubeVirt + CDI typically takes 60-120 minutes; use 7200s (2h) to be safe
         log_info "Installing KubeVirt environment (K3s + KubeVirt + CDI)..."
-        run_kubevirt_installer_with_retry "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh"
+        run_kubevirt_installer_with_retry "${ip}" "${env_install_cmd}"
     elif [[ "$env" == "qemu" ]]; then
         # qemu needs libvirt + QEMU/KVM, single-pass install
         log_info "Installing QEMU/KVM environment..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" "$install_wait"
+        platform_exec_and_wait "${ip}" "${env_install_cmd}" "$install_wait"
     else
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" "$install_wait" || true
+        platform_exec_and_wait "${ip}" "${env_install_cmd}" "$install_wait" || true
         log_info "Rebooting worker to apply network/kernel settings..."
         platform_exec_and_wait "${ip}" "reboot" 10 || true
         log_info "Waiting for SSH after reboot (max ${reboot_wait}s)..."
@@ -340,7 +377,7 @@ install_env() {
         ensure_worker_swap "${ip}" "worker after ${env} reboot" || log_warning "Swap setup after ${env} reboot did not complete"
         stabilize_worker_network_for_env "${ip}" "${env}" "worker after ${env} reboot" || true
         log_info "Re-running ${env} install to complete post-reboot setup..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" "$install_wait"
+        platform_exec_and_wait "${ip}" "${env_install_cmd}" "$install_wait"
     fi
     stabilize_worker_network_for_env "${ip}" "${env}" "worker after ${env} install" || true
 }

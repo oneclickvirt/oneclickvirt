@@ -31,7 +31,7 @@ PLATFORM_PRIORITY_ORDER="${PLATFORM_PRIORITY_ORDER:-alice lightnode vultr hetzne
 # Instead, to achieve a clean state for the next run, the existing instance's OS
 # will be reinstalled (if the platform supports it).
 # Monthly/prepaid platforms (skrime, prepaidhost) also default to this behavior.
-SKIP_INSTANCE_DELETE="${SKIP_INSTANCE_DELETE:-true}"
+SKIP_INSTANCE_DELETE="${SKIP_INSTANCE_DELETE:-false}"
 
 # ============================================================================
 # Platform Billing Types (hourly = safe to delete, monthly/prepaid = prefer reinstall)

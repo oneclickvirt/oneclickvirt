@@ -15,23 +15,34 @@ import (
 
 // sshListImages 列出所有镜像
 func (d *DockerProvider) sshListImages(ctx context.Context) ([]provider.Image, error) {
-	output, err := d.sshClient.ExecuteWithLogging(d.runtime.CLI+" images --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}\\t{{.CreatedAt}}'", "DOCKER_IMAGES")
+	output, err := d.sshClient.ExecuteWithLogging(d.runtime.CLI+" images --format '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.Size}}|{{.CreatedAt}}'", "DOCKER_IMAGES")
 	if err != nil {
 		return nil, err
 	}
 
+	images := parseDockerImageList(output)
+	global.APP_LOG.Info("获取Docker镜像列表成功", zap.Int("count", len(images)))
+	return images, nil
+}
+
+func parseDockerImageList(output string) []provider.Image {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) <= 1 {
-		return []provider.Image{}, nil
+	if len(lines) == 0 {
+		return []provider.Image{}
 	}
 
 	var images []provider.Image
-	for _, line := range lines[1:] {
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
+	for _, line := range lines {
+		fields := strings.Split(strings.TrimSpace(line), "|")
+		if len(fields) < 4 {
 			continue
 		}
-
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+		if fields[0] == "" || strings.EqualFold(fields[0], "repository") {
+			continue
+		}
 		image := provider.Image{
 			ID:   fields[2],
 			Name: fields[0],
@@ -41,8 +52,7 @@ func (d *DockerProvider) sshListImages(ctx context.Context) ([]provider.Image, e
 		images = append(images, image)
 	}
 
-	global.APP_LOG.Info("获取Docker镜像列表成功", zap.Int("count", len(images)))
-	return images, nil
+	return images
 }
 
 // sshPullImage 拉取镜像

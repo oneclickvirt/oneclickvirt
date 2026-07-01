@@ -20,7 +20,7 @@ func (i *IncusProvider) getInstanceType(instanceName string) (string, error) {
 	if client == nil {
 		return "", fmt.Errorf("SSH client不可用，无法获取实例类型")
 	}
-	cmd := fmt.Sprintf("incus info %s | grep \"Type:\" | awk '{print $2}'", shellSingleQuote(instanceName))
+	cmd := fmt.Sprintf("incus info %s | awk '/^Type:/ {print $2; exit}'", shellSingleQuote(instanceName))
 	output, err := client.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取实例类型失败: %w", err)
