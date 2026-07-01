@@ -229,6 +229,14 @@ find_local_env_install_script() {
                 "${SCRIPT_DIR}/../../../../../incus/scripts/incus_install.sh"
             )
             ;;
+        kubevirt)
+            [[ -n "${KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH}")
+            candidates+=(
+                "/Volumes/Additional/个人数据/GitHub/kubevirt/kubevirtinstall.sh"
+                "${SCRIPT_DIR}/../../../kubevirt/kubevirtinstall.sh"
+                "${SCRIPT_DIR}/../../../../../kubevirt/kubevirtinstall.sh"
+            )
+            ;;
         *)
             return 1
             ;;

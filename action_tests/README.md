@@ -178,6 +178,7 @@ export LIGHTNODE_TARGET_MEMORY_MB=4096
 # 本地联调安装脚本改动时可覆盖远端 main 版本
 export INCUS_INSTALL_SCRIPT_LOCAL_PATH="/Volumes/Additional/个人数据/GitHub/incus/scripts/incus_install.sh"
 export PVE_INSTALL_SCRIPT_LOCAL_PATH="/Volumes/Additional/个人数据/GitHub/pve/scripts/install_pve.sh"
+export KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH="/Volumes/Additional/个人数据/GitHub/kubevirt/kubevirtinstall.sh"
 bash action_tests/run_env_test.sh docker all container
 
 # 强制只使用某个平台
@@ -339,6 +340,7 @@ GitHub Actions 会自动安装所需依赖。
 | `PVE_MAIN_INTERFACE` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `eth1`，对应 LightNode 公网默认路由网口 |
 | `PVE_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 ProxmoxVE installer 调试路径；未设置时自动探测同级 `pve` 仓库 |
 | `INCUS_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 Incus installer 调试路径；未设置时自动探测同级 `incus` 仓库 |
+| `KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 KubeVirt installer 调试路径；未设置时自动探测同级 `kubevirt` 仓库 |
 
 **Action 实例规格**
 
