@@ -344,21 +344,7 @@ spec:
 
 	// 创建 SSH Service (NodePort)
 	if sshPort > 0 {
-		sshSvcYAML := fmt.Sprintf(`apiVersion: v1
-kind: Service
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  type: NodePort
-  selector:
-    kubevirt.io/vm: %s
-  ports:
-    - name: ssh
-      protocol: TCP
-      port: 22
-      targetPort: 22
-      nodePort: %d`, yamlDoubleQuote(config.Name+"-ssh"), yamlDoubleQuote(Namespace), yamlDoubleQuote(config.Name), sshPort)
+		sshSvcYAML := kubeVirtSSHServiceYAML(config.Name, sshPort)
 
 		sshSvcCmd := fmt.Sprintf("cat << 'SVCEOF' | kubectl apply -f - 2>&1\n%s\nSVCEOF", sshSvcYAML)
 		output, err = p.sshClient.Execute(sshSvcCmd)
@@ -433,6 +419,24 @@ spec:
 
 	updateProgress(100, "KubeVirt虚拟机创建完成")
 	return nil
+}
+
+func kubeVirtSSHServiceYAML(vmName string, sshPort int) string {
+	return fmt.Sprintf(`apiVersion: v1
+kind: Service
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: NodePort
+  selector:
+    kubevirt.io/domain: %s
+  ports:
+    - name: ssh
+      protocol: TCP
+      port: 22
+      targetPort: 22
+      nodePort: %d`, yamlDoubleQuote(vmName+"-ssh"), yamlDoubleQuote(Namespace), yamlDoubleQuote(vmName), sshPort)
 }
 
 func kubeVirtDataVolumeYAML(dvName, vmName, resolvedURL string, diskGB int, storageClassName string) string {

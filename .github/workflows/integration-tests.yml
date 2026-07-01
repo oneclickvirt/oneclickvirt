@@ -307,6 +307,21 @@ jobs:
           ACTION_TEST_VM_CPU: "2"
           ACTION_TEST_VM_MEMORY: "4096"
           ACTION_TEST_VM_DISK: "20"
+          ACTION_TEST_KUBEVIRT_VM_CPU: "1"
+          ACTION_TEST_KUBEVIRT_VM_MEMORY: "1024"
+          ACTION_TEST_KUBEVIRT_VM_DISK: "20"
+          ACTION_TEST_LXD_VM_CPU: "1"
+          ACTION_TEST_LXD_VM_MEMORY: "1024"
+          ACTION_TEST_LXD_VM_DISK: "20"
+          ACTION_TEST_INCUS_VM_CPU: "1"
+          ACTION_TEST_INCUS_VM_MEMORY: "1024"
+          ACTION_TEST_INCUS_VM_DISK: "20"
+          ACTION_TEST_PROXMOXVE_VM_CPU: "1"
+          ACTION_TEST_PROXMOXVE_VM_MEMORY: "1024"
+          ACTION_TEST_PROXMOXVE_VM_DISK: "20"
+          ACTION_TEST_QEMU_VM_CPU: "1"
+          ACTION_TEST_QEMU_VM_MEMORY: "1024"
+          ACTION_TEST_QEMU_VM_DISK: "20"
           # Vultr platform
           VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
           VULTR_PRIVATE_KEY: ${{ secrets.VULTR_PRIVATE_KEY }}
@@ -387,6 +402,23 @@ jobs:
           export PLATFORM_PRIORITY_ORDER="${{ steps.resolve-platforms.outputs.platform_priority }}"
           export noninteractive=true
           echo "Using validated cloud platforms: ${PLATFORM_PRIORITY_ORDER}"
+          case "${{ matrix.environment }}" in
+            kubevirt)
+              echo "KubeVirt VM test size override: ${ACTION_TEST_KUBEVIRT_VM_CPU}C/${ACTION_TEST_KUBEVIRT_VM_MEMORY}MB/${ACTION_TEST_KUBEVIRT_VM_DISK}G"
+              ;;
+            lxd)
+              echo "LXD VM test size override: ${ACTION_TEST_LXD_VM_CPU}C/${ACTION_TEST_LXD_VM_MEMORY}MB/${ACTION_TEST_LXD_VM_DISK}G"
+              ;;
+            incus)
+              echo "Incus VM test size override: ${ACTION_TEST_INCUS_VM_CPU}C/${ACTION_TEST_INCUS_VM_MEMORY}MB/${ACTION_TEST_INCUS_VM_DISK}G"
+              ;;
+            proxmoxve)
+              echo "ProxmoxVE VM test size override: ${ACTION_TEST_PROXMOXVE_VM_CPU}C/${ACTION_TEST_PROXMOXVE_VM_MEMORY}MB/${ACTION_TEST_PROXMOXVE_VM_DISK}G"
+              ;;
+            qemu)
+              echo "QEMU VM test size override: ${ACTION_TEST_QEMU_VM_CPU}C/${ACTION_TEST_QEMU_VM_MEMORY}MB/${ACTION_TEST_QEMU_VM_DISK}G"
+              ;;
+          esac
 
           # Run with error capture - never fail silently
           set +e

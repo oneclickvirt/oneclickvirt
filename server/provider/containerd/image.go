@@ -33,20 +33,32 @@ func (c *ContainerdProvider) containerdPlatform() string {
 
 // sshListImages 列出所有镜像
 func (c *ContainerdProvider) sshListImages(ctx context.Context) ([]provider.Image, error) {
-	output, err := c.sshClient.ExecuteWithLogging(cliName+" images --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}\\t{{.CreatedAt}}'", "CONTAINERD_IMAGES")
+	output, err := c.sshClient.ExecuteWithLogging(cliName+" images --format '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.Size}}|{{.CreatedAt}}'", "CONTAINERD_IMAGES")
 	if err != nil {
 		return nil, err
 	}
 
+	images := parseContainerdImageList(output)
+	global.APP_LOG.Info("获取Containerd镜像列表成功", zap.Int("count", len(images)))
+	return images, nil
+}
+
+func parseContainerdImageList(output string) []provider.Image {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) <= 1 {
-		return []provider.Image{}, nil
+	if len(lines) == 0 {
+		return []provider.Image{}
 	}
 
 	var images []provider.Image
-	for _, line := range lines[1:] {
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
+	for _, line := range lines {
+		fields := strings.Split(strings.TrimSpace(line), "|")
+		if len(fields) < 4 {
+			continue
+		}
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+		if fields[0] == "" || strings.EqualFold(fields[0], "repository") {
 			continue
 		}
 		images = append(images, provider.Image{
@@ -57,8 +69,7 @@ func (c *ContainerdProvider) sshListImages(ctx context.Context) ([]provider.Imag
 		})
 	}
 
-	global.APP_LOG.Info("获取Containerd镜像列表成功", zap.Int("count", len(images)))
-	return images, nil
+	return images
 }
 
 // sshPullImage 拉取镜像

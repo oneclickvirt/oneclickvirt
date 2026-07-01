@@ -71,8 +71,8 @@ platform_init() {
 #   - If the single kept instance can be reinstalled, reinstall it.
 #   - If reinstall fails (or platform doesn't support it), delete it and
 #     create a brand-new instance so we always start clean.
-# Set PLATFORM_ALLOW_CONCURRENT_INSTANCES=true for local matrix runs where each
-# process owns and cleans up its own instance ID.
+# Set PLATFORM_ALLOW_CONCURRENT_INSTANCES=true (or ACTION_TEST_PARALLEL_LOCAL=true)
+# for local matrix runs where each process owns and cleans up its own instance ID.
 #
 # On exit, PLATFORM_FAILURE_REASON is set to:
 #   "resource_exhausted" if every platform failed due to resource/capacity limits
@@ -167,7 +167,7 @@ try_create_with_fallback() {
         local result="" exit_code
 
         local keep_id=""
-        if [[ "${PLATFORM_ALLOW_CONCURRENT_INSTANCES:-false}" == "true" ]]; then
+        if [[ "${PLATFORM_ALLOW_CONCURRENT_INSTANCES:-${ACTION_TEST_PARALLEL_LOCAL:-false}}" == "true" ]]; then
             log_info "[${platform}] Concurrent instance mode enabled; creating an isolated worker instance"
         else
             # --- Enforce max-1 invariant ---
@@ -363,7 +363,24 @@ wait_for_ssh() {
 # Execute a command on a remote node via SSH (replaces alice_exec_and_wait)
 platform_exec_and_wait() {
     local ip="$1" cmd="$2" timeout="${3:-300}"
-    platform_ssh_exec "$ip" "$cmd" "$timeout"
+    local attempts="${PLATFORM_EXEC_RETRIES:-3}"
+    local delay="${PLATFORM_EXEC_RETRY_DELAY:-10}"
+    [[ "$attempts" =~ ^[0-9]+$ && "$attempts" -gt 0 ]] || attempts=3
+    [[ "$delay" =~ ^[0-9]+$ ]] || delay=10
+
+    local attempt rc
+    for ((attempt = 1; attempt <= attempts; attempt++)); do
+        platform_ssh_exec "$ip" "$cmd" "$timeout"
+        rc=$?
+        if [[ $rc -eq 0 ]]; then
+            return 0
+        fi
+        if [[ $attempt -lt $attempts ]]; then
+            log_warning "Remote command failed on ${ip} (attempt ${attempt}/${attempts}, exit=${rc}); retrying in ${delay}s"
+            sleep "$delay"
+        fi
+    done
+    return "$rc"
 }
 
 # Wait for apt/dpkg locks to be released on remote node.

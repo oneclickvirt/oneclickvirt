@@ -175,6 +175,9 @@ export LIGHTNODE_TOKEN="your_token"
 export LIGHTNODE_PACKAGE_TIER=3
 export LIGHTNODE_TARGET_CPU=2
 export LIGHTNODE_TARGET_MEMORY_MB=4096
+# 本地联调安装脚本改动时可覆盖远端 main 版本
+export INCUS_INSTALL_SCRIPT_LOCAL_PATH="/Volumes/Additional/个人数据/GitHub/incus/scripts/incus_install.sh"
+export PVE_INSTALL_SCRIPT_LOCAL_PATH="/Volumes/Additional/个人数据/GitHub/pve/scripts/install_pve.sh"
 bash action_tests/run_env_test.sh docker all container
 
 # 强制只使用某个平台
@@ -332,6 +335,10 @@ GitHub Actions 会自动安装所需依赖。
 | `LIGHTNODE_TARGET_CPU` | 默认 `2`，优先匹配 2 核套餐 |
 | `LIGHTNODE_TARGET_MEMORY_MB` | 默认 `4096`，优先匹配 4G 内存套餐 |
 | `LIGHTNODE_PACKAGE_CODE` | 可选，指定后直接使用该 LightNode 套餐 code |
+| `PVE_USE_PRIVATE_IP` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `false`，避免双网卡宿主重启后写入私网地址和公网网关的组合 |
+| `PVE_MAIN_INTERFACE` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `eth1`，对应 LightNode 公网默认路由网口 |
+| `PVE_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 ProxmoxVE installer 调试路径；未设置时自动探测同级 `pve` 仓库 |
+| `INCUS_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 Incus installer 调试路径；未设置时自动探测同级 `incus` 仓库 |
 
 **Action 实例规格**
 
@@ -343,6 +350,21 @@ GitHub Actions 会自动安装所需依赖。
 | `ACTION_TEST_VM_CPU` | `2` |
 | `ACTION_TEST_VM_MEMORY` | `4096` |
 | `ACTION_TEST_VM_DISK` | `20` |
+| `ACTION_TEST_KUBEVIRT_VM_CPU` | `1`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_CPU`） |
+| `ACTION_TEST_KUBEVIRT_VM_MEMORY` | `1024`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_MEMORY`） |
+| `ACTION_TEST_KUBEVIRT_VM_DISK` | `20`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_DISK`） |
+| `ACTION_TEST_LXD_VM_CPU` | `1`（仅 LXD，覆盖 `ACTION_TEST_VM_CPU`） |
+| `ACTION_TEST_LXD_VM_MEMORY` | `1024`（仅 LXD，覆盖 `ACTION_TEST_VM_MEMORY`） |
+| `ACTION_TEST_LXD_VM_DISK` | `20`（仅 LXD，覆盖 `ACTION_TEST_VM_DISK`） |
+| `ACTION_TEST_INCUS_VM_CPU` | `1`（仅 Incus，覆盖 `ACTION_TEST_VM_CPU`） |
+| `ACTION_TEST_INCUS_VM_MEMORY` | `1024`（仅 Incus，覆盖 `ACTION_TEST_VM_MEMORY`） |
+| `ACTION_TEST_INCUS_VM_DISK` | `20`（仅 Incus，覆盖 `ACTION_TEST_VM_DISK`） |
+| `ACTION_TEST_PROXMOXVE_VM_CPU` | `1`（仅 ProxmoxVE，覆盖 `ACTION_TEST_VM_CPU`） |
+| `ACTION_TEST_PROXMOXVE_VM_MEMORY` | `1024`（仅 ProxmoxVE，覆盖 `ACTION_TEST_VM_MEMORY`） |
+| `ACTION_TEST_PROXMOXVE_VM_DISK` | `20`（仅 ProxmoxVE，覆盖 `ACTION_TEST_VM_DISK`） |
+| `ACTION_TEST_QEMU_VM_CPU` | `1`（仅 QEMU，覆盖 `ACTION_TEST_VM_CPU`） |
+| `ACTION_TEST_QEMU_VM_MEMORY` | `1024`（仅 QEMU，覆盖 `ACTION_TEST_VM_MEMORY`） |
+| `ACTION_TEST_QEMU_VM_DISK` | `20`（仅 QEMU，覆盖 `ACTION_TEST_VM_DISK`） |
 
 **Vultr**
 
