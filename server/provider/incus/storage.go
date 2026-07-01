@@ -47,3 +47,11 @@ func (i *IncusProvider) resolveStoragePoolForInstance() string {
 
 	return configuredPool
 }
+
+func incusStoragePoolArg(storagePool string) string {
+	poolName := strings.TrimSpace(storagePool)
+	if poolName == "" {
+		poolName = "default"
+	}
+	return poolName
+}

@@ -754,7 +754,7 @@ func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSecon
 
 func lxdExecReadyTimeout(instanceType string) int {
 	if strings.EqualFold(strings.TrimSpace(instanceType), "vm") {
-		return 300
+		return 1800
 	}
 	return 30
 }

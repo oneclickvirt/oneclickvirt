@@ -194,8 +194,8 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		zap.String("instance", config.Name))
 
 	updateProgress(20, "处理Docker镜像...")
-	// 为镜像名称添加前缀
-	imageNameWithPrefix := "oneclickvirt_" + config.Image
+	// 为导入镜像添加本地前缀；provider image 列表可能已经返回该前缀。
+	imageNameWithPrefix := dockerManagedImageName(config.Image)
 	// 标记是否使用了 registry 回退拉取（原始镜像无持久进程，需附加 keep-alive 命令）
 	registryFallback := false
 
@@ -691,6 +691,14 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(100, "Docker实例创建完成")
 	global.APP_LOG.Info("容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+func dockerManagedImageName(image string) string {
+	image = strings.TrimSpace(image)
+	if strings.HasPrefix(image, "oneclickvirt_") || strings.Contains(image, "/oneclickvirt_") {
+		return image
+	}
+	return "oneclickvirt_" + image
 }
 
 func (d *DockerProvider) collectCreateDiagnostics(name string) string {

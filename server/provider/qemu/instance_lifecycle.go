@@ -37,7 +37,21 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 		return nil
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s start %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id)))
+	startCmd := fmt.Sprintf("virsh -c %s start %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id))
+	output, err := p.sshClient.Execute(startCmd)
+	if err != nil && qemuCloudInitMissingStartError(output, err) {
+		global.APP_LOG.Warn("QEMU虚拟机启动时检测到缺失的cloud-init ISO，尝试从domain配置中移除",
+			zap.String("id", utils.TruncateString(id, 32)),
+			zap.String("output", utils.TruncateString(output, 500)),
+			zap.Error(err))
+		if detachErr := p.detachCloudInitISO(uri, id, ""); detachErr != nil {
+			global.APP_LOG.Warn("移除缺失cloud-init ISO失败，继续返回原始启动错误",
+				zap.String("id", utils.TruncateString(id, 32)),
+				zap.Error(detachErr))
+		} else {
+			output, err = p.sshClient.Execute(startCmd)
+		}
+	}
 	if err != nil {
 		global.APP_LOG.Error("QEMU虚拟机启动失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -57,6 +71,36 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 	}
 
 	return fmt.Errorf("%s '%s' did not reach running state within timeout", kind, id)
+}
+
+func qemuCloudInitMissingStartError(output string, err error) bool {
+	text := strings.ToLower(output)
+	if err != nil {
+		text += "\n" + strings.ToLower(err.Error())
+	}
+	return strings.Contains(text, "cloudinit.iso") &&
+		(strings.Contains(text, "no such file") || strings.Contains(text, "cannot access storage file"))
+}
+
+func qemuDetachCloudInitISOCommand(uri, id, ciISO string) string {
+	return fmt.Sprintf(
+		`target=$(virsh -c %s domblklist %s --details 2>/dev/null | awk -v src=%s '($2 == "disk" || $2 == "cdrom") && ((src != "" && $4 == src) || $4 ~ /-cloudinit\.iso$/) {print $3; exit}'); if [ -z "$target" ]; then exit 0; fi; virsh -c %s detach-disk %s "$target" --config 2>&1 || virsh -c %s detach-disk %s "$target" --persistent 2>&1`,
+		shellSingleQuote(uri),
+		shellSingleQuote(id),
+		shellSingleQuote(ciISO),
+		shellSingleQuote(uri),
+		shellSingleQuote(id),
+		shellSingleQuote(uri),
+		shellSingleQuote(id),
+	)
+}
+
+func (p *QEMUProvider) detachCloudInitISO(uri, id, ciISO string) error {
+	output, err := p.sshClient.Execute(qemuDetachCloudInitISOCommand(uri, id, ciISO))
+	if err != nil {
+		return fmt.Errorf("failed to detach cloud-init ISO from %s: %w; output: %s", id, err, utils.TruncateString(strings.TrimSpace(output), 8000))
+	}
+	return nil
 }
 
 // StopInstance 停止虚拟机

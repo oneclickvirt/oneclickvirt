@@ -142,6 +142,19 @@ func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) erro
 
 	output, err := d.sshClient.Execute(restartCmd)
 	if err != nil {
+		if isDockerIptablesChainError(output) {
+			global.APP_LOG.Warn("Docker重启遇到iptables chain缺失，尝试修复后重试",
+				zap.String("id", utils.TruncateString(id, 32)),
+				zap.String("output", utils.TruncateString(output, 500)))
+			if repairErr := d.repairIptablesChains(""); repairErr != nil {
+				return fmt.Errorf("failed to repair Docker iptables chains before restart retry: %w; original output: %s", repairErr, utils.TruncateString(strings.TrimSpace(output), 8000))
+			}
+			output, err = d.sshClient.Execute(restartCmd)
+			if err == nil {
+				global.APP_LOG.Info("Docker实例重启在iptables修复后成功", zap.String("id", utils.TruncateString(id, 32)))
+				return nil
+			}
+		}
 		global.APP_LOG.Error("Docker实例重启失败",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("command", restartCmd),
@@ -152,6 +165,14 @@ func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) erro
 
 	global.APP_LOG.Info("Docker实例重启成功", zap.String("id", utils.TruncateString(id, 32)))
 	return nil
+}
+
+func isDockerIptablesChainError(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "iptables") &&
+		(strings.Contains(lower, "no chain") ||
+			strings.Contains(lower, "no chain/target/match") ||
+			strings.Contains(lower, "no such file or directory"))
 }
 
 // sshDeleteInstance 删除实例 - 增强版，多重删除策略

@@ -222,18 +222,30 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 	global.APP_LOG.Debug("开始最终化实例创建", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
 
 	dbService := database.GetDatabaseService()
+	finalizeCtx := ctx
+	var finalizeCancel context.CancelFunc
+	if apiError == nil {
+		finalizeCtx, finalizeCancel = context.WithTimeout(context.Background(), 15*time.Minute)
+		defer finalizeCancel()
+		if err := ctx.Err(); err != nil {
+			global.APP_LOG.Warn("Provider创建成功后任务上下文已结束，使用独立上下文完成最终化",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instance.ID),
+				zap.Error(err))
+		}
+	}
 
 	// 在事务外收集实例网络信息（避免长事务中进行远程API调用）
 	var instanceUpdates map[string]interface{}
 	if apiError == nil {
 		global.APP_LOG.Debug("Provider创建实例成功，获取实例详细信息", zap.Uint("taskId", task.ID))
-		instanceUpdates, _ = s.gatherInstanceNetworkInfo(ctx, instance)
+		instanceUpdates, _ = s.gatherInstanceNetworkInfo(finalizeCtx, instance)
 	}
 
 	cancelledDuringFinalize := false
 
 	// 在事务中仅执行DB写入操作（短事务）
-	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+	err := dbService.ExecuteTransaction(finalizeCtx, func(tx *gorm.DB) error {
 		var taskStatus string
 		if fetchErr := tx.Model(&adminModel.Task{}).Select("status").Where("id = ?", task.ID).Scan(&taskStatus).Error; fetchErr == nil && taskStatus == "cancelled" {
 			global.APP_LOG.Debug("实例创建任务已被取消，跳过最终化并安排实例清理",
@@ -370,7 +382,9 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 	// 如果Provider创建实例成功，执行后处理任务（同步完成关键任务后再标记完成）
 	if apiError == nil {
-		go func(taskCtx context.Context, instanceID uint, providerID uint, taskID uint) {
+		go func(instanceID uint, providerID uint, taskID uint) {
+			taskCtx, taskCancel := context.WithTimeout(context.Background(), 45*time.Minute)
+			defer taskCancel()
 			defer func() {
 				s.taskService.ReleaseTaskLocks(taskID)
 			}()
@@ -615,7 +629,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			global.APP_LOG.Debug("实例创建后处理任务完成",
 				zap.Uint("instanceId", instanceID),
 				zap.Bool("passwordSetSuccess", passwordSetSuccess))
-		}(ctx, instance.ID, instance.ProviderID, task.ID)
+		}(instance.ID, instance.ProviderID, task.ID)
 	}
 	global.APP_LOG.Info("实例创建最终化完成", zap.Uint("taskId", task.ID))
 

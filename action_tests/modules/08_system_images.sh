@@ -5,11 +5,7 @@
 run_module_08() {
     report_add_section "08 - System Images"
     local group="images"
-    local test_arch="amd64"
-    case "${TARGET_ARCH:-$(uname -m 2>/dev/null || echo x86_64)}" in
-        aarch64|arm64) test_arch="arm64" ;;
-        x86_64|amd64) test_arch="amd64" ;;
-    esac
+    local test_arch; test_arch=$(current_test_arch "amd64")
     # incus_images repo uses x86_64 instead of amd64 in filenames
     local lxd_arch="x86_64"
     [[ "$test_arch" == "arm64" ]] && lxd_arch="arm64"

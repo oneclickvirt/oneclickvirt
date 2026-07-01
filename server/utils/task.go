@@ -263,3 +263,27 @@ func GetDefaultTaskTimeout(taskType string) int {
 	}
 	return 1800 // 默认30分钟
 }
+
+// GetCreateTaskTimeout returns a create timeout sized for the provider and
+// instance type. VM creation on node-local virtualization backends can include
+// image import, guest-agent boot, networking, port mapping, and password setup.
+func GetCreateTaskTimeout(providerType, instanceType string) int {
+	providerType = strings.ToLower(strings.TrimSpace(providerType))
+	instanceType = strings.ToLower(strings.TrimSpace(instanceType))
+
+	if instanceType == "vm" {
+		switch providerType {
+		case "lxd", "incus", "proxmox", "proxmoxve", "qemu", "kubevirt":
+			return 7200
+		default:
+			return 3600
+		}
+	}
+
+	switch providerType {
+	case "lxd", "incus", "proxmox", "proxmoxve", "qemu", "kubevirt":
+		return 3600
+	default:
+		return GetDefaultTaskTimeout("create")
+	}
+}

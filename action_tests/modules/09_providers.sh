@@ -15,6 +15,8 @@ run_module_09() {
         chain_break "$group" "No worker node information (need IP + password or SSH key)"
         return 1
     fi
+    local provider_arch; provider_arch=$(current_test_arch "amd64")
+    log_info "Provider test architecture: ${provider_arch}"
 
     # -- Provider list --
     test_api "Provider list" "GET" "/api/v1/admin/providers?page=1&pageSize=10" "200" "" "$group"
@@ -80,7 +82,7 @@ run_module_09() {
     if [[ -z "$PROVIDER_ID" ]]; then
         log_info "Creating provider with executionRule=${EXECUTION_RULE}"
         local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
-            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group")
+            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group")
         
         # Debug: log the response
         log_debug "Provider creation response: ${pr}"
@@ -125,11 +127,11 @@ run_module_09() {
         esac
     fi
     test_api "Refresh provider SSH auth" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
-        "{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"networkType\":\"nat_ipv4\",\"container_enabled\":${provider_container_enabled},\"vm_enabled\":${provider_vm_enabled},${auth_payload}}" "$group"
+        "{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"container_enabled\":${provider_container_enabled},\"vm_enabled\":${provider_vm_enabled},${auth_payload}}" "$group"
 
     # -- Create duplicate name --
     test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "409" \
-        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group"
+        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group"
 
     # -- Edit provider --
     test_api "Edit provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
@@ -257,7 +259,7 @@ run_module_09() {
 
         # Test creating a proxmox provider with third_party type (validation should pass with required fields)
         local tp_create_resp; tp_create_resp=$(test_api "Create proxmox third_party provider" "POST" "/api/v1/admin/providers" "200|409" \
-            "{\"name\":\"ci-proxmox-thirdparty\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload},\"nodeInstallType\":\"third_party\",\"bridgeNAT\":\"vmbr1\",\"bridgeDedicatedV4\":\"vmbr0\",\"bridgeDedicatedV6\":\"\",\"natSubnet\":\"172.16.1.0/24\"}" "$group")
+            "{\"name\":\"ci-proxmox-thirdparty\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload},\"nodeInstallType\":\"third_party\",\"bridgeNAT\":\"vmbr1\",\"bridgeDedicatedV4\":\"vmbr0\",\"bridgeDedicatedV6\":\"\",\"natSubnet\":\"172.16.1.0/24\"}" "$group")
         local tp_pid; tp_pid=$(echo "$tp_create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         if [[ -n "$tp_pid" ]]; then
             test_api "Delete third_party test provider" "DELETE" "/api/v1/admin/providers/${tp_pid}" "200" "" "$group"

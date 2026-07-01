@@ -19,6 +19,15 @@ COMMON_DIR="${SCRIPT_DIR}/common"
 REPORT_DIR="${REPORT_DIR:-${SCRIPT_DIR}/reports}"
 mkdir -p "$REPORT_DIR"
 
+_ENV_TYPE_ARG="${1:-docker}"
+_MASTER_PORT_ARG="${MASTER_PORT:-8888}"
+if [[ "${ACTION_TEST_PARALLEL_LOCAL:-${PLATFORM_ALLOW_CONCURRENT_INSTANCES:-false}}" == "true" ]]; then
+    _safe_env_arg=$(printf '%s' "$_ENV_TYPE_ARG" | tr -c 'A-Za-z0-9_' '_' | sed 's/_*$//')
+    export DB_NAME="${DB_NAME:-oneclickvirt_${_safe_env_arg}_${_MASTER_PORT_ARG}}"
+    export SERVER_TMP_PREFIX="${SERVER_TMP_PREFIX:-/tmp/oneclickvirt-server-${_safe_env_arg}-${_MASTER_PORT_ARG}-$$}"
+    export ACTION_TEST_SERVER_WORKDIR="${ACTION_TEST_SERVER_WORKDIR:-${REPORT_DIR}/server-work-${_safe_env_arg}-${_MASTER_PORT_ARG}-$$}"
+fi
+
 source "${COMMON_DIR}/test_framework.sh"
 source "${COMMON_DIR}/node_manager.sh"
 # Restore SCRIPT_DIR: sourced files above set SCRIPT_DIR to their own directory
@@ -90,6 +99,9 @@ _cleanup_on_exit() {
         rm -f "$SERVER_PID_FILE"
     fi
     rm -f "$SERVER_BINARY"
+    if [[ -n "${ACTION_TEST_SERVER_WORKDIR:-}" && -d "${ACTION_TEST_SERVER_WORKDIR}" ]]; then
+        rm -rf "${ACTION_TEST_SERVER_WORKDIR}" 2>/dev/null || true
+    fi
     report_finalize 2>/dev/null || true
 }
 trap _cleanup_on_exit EXIT
@@ -190,6 +202,7 @@ if [[ -n "$WORKER_ARCH" ]]; then
     export TARGET_ARCH="$WORKER_ARCH"
     log_info "Worker architecture detected: ${WORKER_ARCH}"
 else
+    unset WORKER_ARCH TARGET_ARCH
     log_warning "Could not detect worker architecture from '${worker_arch_raw:-empty}', module image tests will use local fallback"
 fi
 
@@ -260,12 +273,18 @@ if [[ "$NEED_INIT" == "true" ]]; then
     INIT_RESP=$(init_system "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")
     INIT_CODE=$(safe_jq "$INIT_RESP" '.code // empty' '')
     if [[ "$INIT_CODE" != "200" ]]; then
-        log_error "System initialization failed (code=${INIT_CODE}): ${INIT_RESP}"
-        fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
-        dump_master_logs
-        exit 75
+        INIT_MSG=$(safe_jq "$INIT_RESP" '.details // .message // .msg // ""' '')
+        if [[ "$INIT_MSG" == *"已初始化"* || "$INIT_MSG" == *"already initialized"* ]]; then
+            log_warning "System initialization raced with an already-initialized state; continuing"
+        else
+            log_error "System initialization failed (code=${INIT_CODE}): ${INIT_RESP}"
+            fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
+            dump_master_logs
+            exit 75
+        fi
+    else
+        log_success "System initialized, waiting for async setup to complete..."
     fi
-    log_success "System initialized, waiting for async setup to complete..."
     wait_db_ready "$SERVER_URL" 120 3
 fi
 # Login with admin credentials
@@ -319,7 +338,7 @@ for _current_rule in ${EXECUTION_RULES_LIST}; do
     log_section "Running modules with EXECUTION_RULE=${_current_rule}"
 
     local_output_log="${REPORT_DIR}/${ENV_TYPE}-${_current_rule}-output.log"
-    bash "${SCRIPT_DIR}/run_module.sh" "$MODULES" "$SERVER_URL" 2>&1 | tee "${local_output_log}" # PIPESTATUS handled below
+    "${BASH:-bash}" "${SCRIPT_DIR}/run_module.sh" "$MODULES" "$SERVER_URL" 2>&1 | tee "${local_output_log}" # PIPESTATUS handled below
     _run_exit=${PIPESTATUS[0]}
     [[ ${_run_exit} -ne 0 ]] && EXIT_CODE=${_run_exit}
 

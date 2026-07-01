@@ -45,6 +45,61 @@ sed_inplace() {
     fi
 }
 
+normalize_test_arch() {
+    case "${1:-}" in
+        x86_64|amd64) echo "amd64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        *) echo "" ;;
+    esac
+}
+
+current_test_arch() {
+    local fallback="${1:-amd64}"
+    local arch=""
+
+    if [[ -n "${WORKER_ARCH:-}" ]]; then
+        arch=$(normalize_test_arch "$WORKER_ARCH")
+        [[ -n "$arch" ]] && { echo "$arch"; return 0; }
+    fi
+    if [[ -n "${PROVIDER_ID:-}" && -n "${ADMIN_TOKEN:-}" && -n "${SERVER_URL:-}" ]]; then
+        local provider_resp
+        provider_resp=$(curl -s --max-time 15 \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}/status" 2>/dev/null || true)
+        arch=$(printf '%s' "$provider_resp" | jq -r '.data.architecture // empty' 2>/dev/null || true)
+        arch=$(normalize_test_arch "$arch")
+        [[ -n "$arch" ]] && { echo "$arch"; return 0; }
+    fi
+
+    if [[ -n "${WORKER_IP:-}" ]]; then
+        if ! declare -f platform_ssh_exec >/dev/null 2>&1; then
+            local _common_dir
+            _common_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            # shellcheck source=action_tests/common/platform_interface.sh
+            source "${_common_dir}/platform_interface.sh" 2>/dev/null || true
+        fi
+        if declare -f platform_init >/dev/null 2>&1 && [[ -n "${WORKER_PLATFORM:-}" ]]; then
+            platform_init "${WORKER_PLATFORM}" >/dev/null 2>&1 || true
+            ACTIVE_INSTANCE_IP="${WORKER_IP}"
+        fi
+        if declare -f platform_ssh_exec >/dev/null 2>&1; then
+            local raw
+            raw=$(platform_ssh_exec "$WORKER_IP" "uname -m 2>/dev/null || echo unknown" 30 2>/dev/null | tr -d '\r' | tail -1 || true)
+            arch=$(normalize_test_arch "$raw")
+            [[ -n "$arch" ]] && { echo "$arch"; return 0; }
+        fi
+    fi
+
+    if [[ -n "${TARGET_ARCH:-}" ]]; then
+        arch=$(normalize_test_arch "$TARGET_ARCH")
+        [[ -n "$arch" ]] && { echo "$arch"; return 0; }
+    fi
+
+    arch=$(normalize_test_arch "$(uname -m 2>/dev/null || true)")
+    [[ -n "$arch" ]] && { echo "$arch"; return 0; }
+    echo "$fallback"
+}
+
 # -- Safe jq wrapper: validates JSON before parsing to prevent "parse error" crashes --
 # Usage: safe_jq "$body" ".data.token // empty" [default_value]
 # Legacy callers may pass "-r .field"; leading jq flags are stripped for compatibility.
@@ -1157,6 +1212,14 @@ wait_instance_operation_settled() {
     local instance_id="$1" response="$2" expected_status="${3:-}" label="${4:-instance operation}" token="${5:-$ADMIN_TOKEN}" max="${6:-$INSTANCE_TASK_MAX_WAIT}" interval="${7:-10}"
     local group="${8:-instance_operation}"
     local task_id; task_id=$(safe_jq "$response" '-r .data.task_id // .data.taskId // .task_id // .taskId // empty' '')
+    local inferred_task_type=""
+    case "$label" in
+        start\ *) inferred_task_type="start" ;;
+        stop\ *) inferred_task_type="stop" ;;
+        restart\ *) inferred_task_type="restart" ;;
+        delete\ *) inferred_task_type="delete" ;;
+        rebuild\ *) inferred_task_type="rebuild" ;;
+    esac
 
     if [[ -n "$task_id" ]]; then
         log_info "Waiting for ${label} task ${task_id}..."
@@ -1168,6 +1231,12 @@ wait_instance_operation_settled() {
         record_task_terminal_result "${label} task" "GET" "/api/v1/admin/tasks/${task_id}" "$task_resp" "$group" || return 1
     else
         wait_instance_active_tasks_idle "$instance_id" "$label" "$token" "$max" "$interval" || return 1
+        if [[ -n "$inferred_task_type" ]]; then
+            local latest_task_resp=""
+            if latest_task_resp=$(get_latest_instance_task_response "$instance_id" "$inferred_task_type" "$token"); then
+                record_task_terminal_result "${label} task" "GET" "/api/v1/admin/tasks?instance=${instance_id}&type=${inferred_task_type}" "$latest_task_resp" "$group" || return 1
+            fi
+        fi
     fi
 
     if [[ "${INSTANCE_OPERATION_SETTLE_SECONDS:-0}" -gt 0 ]]; then
@@ -1514,7 +1583,7 @@ generate_html_report() {
     fetch_full_service_logs "$service_log_file" || true
 
     if [[ -f "$report_script" && -n "$RESULTS_FILE" ]]; then
-        bash "$report_script" "$RESULTS_FILE" "$output_file" "$env_name" "$service_log_file" "$server_ver" "$agent_ver" || {
+        "${BASH:-bash}" "$report_script" "$RESULTS_FILE" "$output_file" "$env_name" "$service_log_file" "$server_ver" "$agent_ver" || {
             log_warning "Report generator failed, creating fallback report"
             local fallback_results
             fallback_results=$(cat "$RESULTS_FILE" 2>/dev/null || true)

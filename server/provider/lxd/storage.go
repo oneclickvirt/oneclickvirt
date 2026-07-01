@@ -47,3 +47,11 @@ func (l *LXDProvider) resolveStoragePoolForInstance() string {
 
 	return configuredPool
 }
+
+func lxdStoragePoolArg(storagePool string) string {
+	poolName := strings.TrimSpace(storagePool)
+	if poolName == "" {
+		poolName = "default"
+	}
+	return poolName
+}

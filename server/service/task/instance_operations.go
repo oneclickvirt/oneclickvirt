@@ -74,10 +74,12 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 
 	// 调用Provider启动实例
 	providerApiService := &provider2.ProviderApiService{}
-	if err := providerApiService.StartInstanceByProviderID(ctx, localProviderID, instance.Name); err != nil {
+	providerInstanceID := providerInstanceIdentifier(instance)
+	if err := providerApiService.StartInstanceByProviderID(ctx, localProviderID, providerInstanceID); err != nil {
 		global.APP_LOG.Error("Provider启动实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
+			zap.String("providerInstanceId", providerInstanceID),
 			zap.String("provider", localProviderName),
 			zap.Error(err))
 
@@ -315,10 +317,12 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 
 	// 调用Provider停止实例
 	providerApiService := &provider2.ProviderApiService{}
-	if err := providerApiService.StopInstanceByProviderID(ctx, localProviderID, instance.Name); err != nil {
+	providerInstanceID := providerInstanceIdentifier(instance)
+	if err := providerApiService.StopInstanceByProviderID(ctx, localProviderID, providerInstanceID); err != nil {
 		global.APP_LOG.Error("Provider停止实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
+			zap.String("providerInstanceId", providerInstanceID),
 			zap.String("provider", localProviderName),
 			zap.Error(err))
 
@@ -421,10 +425,12 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 
 	// 调用Provider重启实例
 	providerApiService := &provider2.ProviderApiService{}
-	if err := providerApiService.RestartInstanceByProviderID(ctx, localProviderID, instance.Name); err != nil {
+	providerInstanceID := providerInstanceIdentifier(instance)
+	if err := providerApiService.RestartInstanceByProviderID(ctx, localProviderID, providerInstanceID); err != nil {
 		global.APP_LOG.Error("Provider重启实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
+			zap.String("providerInstanceId", providerInstanceID),
 			zap.String("provider", localProviderName),
 			zap.Error(err))
 
@@ -662,13 +668,15 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 			s.updateTaskProgress(task.ID, 50+attempt*10, fmt.Sprintf("step.settingPasswordRetry:%d", attempt))
 		}
 
-		err := providerService.SetInstancePassword(ctx, instance.ProviderID, instance.Name, newPassword)
+		providerInstanceID := providerInstanceIdentifier(instance)
+		err := providerService.SetInstancePassword(ctx, instance.ProviderID, providerInstanceID, newPassword)
 		if err != nil {
 			lastErr = err
 			global.APP_LOG.Warn("重置实例密码失败，准备重试",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instance.ID),
 				zap.String("instanceName", instance.Name),
+				zap.String("providerInstanceId", providerInstanceID),
 				zap.Int("attempt", attempt),
 				zap.Int("maxRetries", maxRetries),
 				zap.Error(err))

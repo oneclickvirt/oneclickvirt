@@ -63,7 +63,7 @@ func (p *QEMUProvider) sshListInstances(ctx context.Context) ([]provider.Instanc
 	var instances []provider.Instance
 	seen := map[string]struct{}{}
 
-	vmOutput, vmErr := p.sshClient.Execute("virsh -c qemu:///system list --all --name 2>/dev/null | grep -v '^$'")
+	vmOutput, vmErr := p.sshClient.Execute(qemuListDomainNamesCommand("qemu:///system"))
 	if vmErr != nil {
 		global.APP_LOG.Debug("列出QEMU虚拟机失败", zap.Error(vmErr))
 	}
@@ -81,7 +81,7 @@ func (p *QEMUProvider) sshListInstances(ctx context.Context) ([]provider.Instanc
 		instances = append(instances, *inst)
 	}
 
-	lxcOutput, lxcErr := p.sshClient.Execute("virsh -c lxc:/// list --all --name 2>/dev/null | grep -v '^$'")
+	lxcOutput, lxcErr := p.sshClient.Execute(qemuListDomainNamesCommand("lxc:///"))
 	if lxcErr != nil {
 		global.APP_LOG.Debug("列出libvirt-lxc容器失败", zap.Error(lxcErr))
 	}
@@ -105,6 +105,10 @@ func (p *QEMUProvider) sshListInstances(ctx context.Context) ([]provider.Instanc
 		return nil, fmt.Errorf("failed to list QEMU VMs and LXC containers: %w", vmErr)
 	}
 	return instances, nil
+}
+
+func qemuListDomainNamesCommand(uri string) string {
+	return fmt.Sprintf("names=$(virsh -c %s list --all --name 2>/dev/null) || exit $?; printf '%%s\\n' \"$names\" | awk 'NF {print}'", shellSingleQuote(uri))
 }
 
 // getInstanceInfo 获取单个 libvirt domain 详细信息。
@@ -492,9 +496,16 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 	p.applyLibvirtIOLimits(ctx, "qemu:///system", config.Name, "vda", config)
 
-	// cloud-init ISO 仅首次启动时需要，启动成功后分离并删除以节省磁盘空间
-	p.sshClient.Execute(fmt.Sprintf("virsh detach-disk %s sdb --persistent 2>/dev/null || true", shellSingleQuote(config.Name)))
-	p.sshClient.Execute(fmt.Sprintf("rm -f %s 2>/dev/null || true", shellSingleQuote(ciISO)))
+	// cloud-init ISO 仅首次启动时需要。virt-install 使用 virtio 时目标盘符可能是 vdb，
+	// 因此按 libvirt 实际块设备列表查找 target，再从持久配置中分离。
+	if err := p.detachCloudInitISO("qemu:///system", config.Name, ciISO); err != nil {
+		global.APP_LOG.Warn("QEMU cloud-init ISO分离失败，保留ISO避免后续启动失败",
+			zap.String("name", utils.TruncateString(config.Name, 32)),
+			zap.String("iso", ciISO),
+			zap.Error(err))
+	} else {
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s 2>/dev/null || true", shellSingleQuote(ciISO)))
+	}
 
 	updateProgress(95, "虚拟机创建完成")
 

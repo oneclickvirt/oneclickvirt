@@ -16,6 +16,12 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	kubeVirtDataVolumeImportTimeout      = 60 * time.Minute
+	kubeVirtDataVolumeImportPollInterval = 3 * time.Second
+	kubeVirtDefaultStorageClass          = "local-path"
+)
+
 func (p *KubeVirtProvider) ListInstances(ctx context.Context) ([]provider.Instance, error) {
 	if !p.connected {
 		return nil, fmt.Errorf("not connected")
@@ -218,28 +224,14 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 
 	updateProgress(25, "创建 CDI DataVolume")
 
+	storageClassName, err := p.resolveDataVolumeStorageClass()
+	if err != nil {
+		return err
+	}
+
 	// 使用 CDI DataVolume 代替空 PVC，CDI 会自动从 HTTP URL 下载镜像到 PVC
 	dvName := fmt.Sprintf("%s-dv", config.Name)
-	dvYAML := fmt.Sprintf(`apiVersion: cdi.kubevirt.io/v1beta1
-kind: DataVolume
-metadata:
-  name: %s
-  namespace: %s
-  labels:
-    kubevirt.io/vm: %s
-    app: kubevirt-vm
-spec:
-  source:
-    http:
-      url: %s
-  storage:
-    accessModes:
-      - ReadWriteOnce
-    resources:
-      requests:
-        storage: %dGi
-    storageClassName: local-path`,
-		yamlDoubleQuote(dvName), yamlDoubleQuote(Namespace), yamlDoubleQuote(config.Name), yamlDoubleQuote(resolvedURL), diskGB)
+	dvYAML := kubeVirtDataVolumeYAML(dvName, config.Name, resolvedURL, diskGB, storageClassName)
 
 	// 先清理可能存在的同名 DataVolume
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
@@ -254,63 +246,10 @@ spec:
 		return fmt.Errorf("failed to create DataVolume: %w (kubectl output: %s)", err, utils.TruncateString(output, 300))
 	}
 
-	updateProgress(30, "等待镜像导入完成")
+	updateProgress(30, "创建 VirtualMachine 资源")
 
-	// 等待 DataVolume 导入完成（最长30分钟）
-	var dvReady bool
-	maxWait := 600 // 30分钟 / 3秒间隔
-	for i := 0; i < maxWait; i++ {
-		phaseOutput, phaseErr := p.sshClient.Execute(fmt.Sprintf(
-			"kubectl get datavolume %s -n %s -o jsonpath='{.status.phase}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-		if phaseErr == nil {
-			phase := strings.TrimSpace(phaseOutput)
-			if phase == "Succeeded" {
-				dvReady = true
-				break
-			}
-			if phase == "Failed" {
-				// 获取失败原因
-				msgOutput, _ := p.sshClient.Execute(fmt.Sprintf(
-					"kubectl get datavolume %s -n %s -o jsonpath='{.status.conditions[*].message}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-				diagnostics := p.collectVMDiagnostics(config.Name)
-				p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-				return fmt.Errorf("DataVolume import failed: %s; diagnostics: %s", strings.TrimSpace(msgOutput), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
-			}
-		}
-
-		// 更新进度（30-50之间线性递增）
-		if i%20 == 0 && i > 0 {
-			pct := 30 + (i*20)/maxWait
-			if pct > 50 {
-				pct = 50
-			}
-			progressOutput, _ := p.sshClient.Execute(fmt.Sprintf(
-				"kubectl get datavolume %s -n %s -o jsonpath='{.status.progress}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-			progress := strings.TrimSpace(progressOutput)
-			if progress != "" {
-				updateProgress(pct, fmt.Sprintf("镜像导入中 %s", progress))
-			}
-		}
-
-		if err := sleepWithContext(ctx, 3*time.Second); err != nil {
-			global.APP_LOG.Warn("KubeVirt DataVolume导入等待被取消，开始清理远端资源",
-				zap.String("name", utils.TruncateString(config.Name, 32)),
-				zap.String("datavolume", utils.TruncateString(dvName, 64)),
-				zap.Error(err))
-			updateProgress(45, "创建已取消，正在清理KubeVirt资源")
-			p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-			return fmt.Errorf("waiting for DataVolume import cancelled: %w", err)
-		}
-	}
-	if !dvReady {
-		diagnostics := p.collectVMDiagnostics(config.Name)
-		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-		return fmt.Errorf("DataVolume import timed out for '%s' (30 minutes); diagnostics: %s", dvName, utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
-	}
-
-	updateProgress(55, "创建 VirtualMachine 资源")
-
-	// 构建 VirtualMachine YAML（引用 DataVolume 而非 PVC）
+	// 构建 VirtualMachine YAML。local-path 等 WaitForFirstConsumer 存储类需要先有 VM 消费者，
+	// DataVolume/PVC 才会绑定并开始导入。
 	vmYAML := fmt.Sprintf(`apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
@@ -386,7 +325,22 @@ spec:
 		return fmt.Errorf("failed to create VM: %w; kubectl output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
-	updateProgress(70, "创建 SSH NodePort Service")
+	updateProgress(45, "等待镜像导入完成")
+	if err := p.waitForDataVolumeImport(ctx, config.Name, dvName, updateProgress); err != nil {
+		global.APP_LOG.Warn("KubeVirt DataVolume导入失败，开始清理远端资源",
+			zap.String("name", utils.TruncateString(config.Name, 32)),
+			zap.String("datavolume", utils.TruncateString(dvName, 64)),
+			zap.Error(err))
+		updateProgress(60, "导入失败，正在清理KubeVirt资源")
+		if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
+			global.APP_LOG.Error("KubeVirt DataVolume导入失败后清理失败",
+				zap.String("name", utils.TruncateString(config.Name, 32)),
+				zap.Error(cleanupErr))
+		}
+		return err
+	}
+
+	updateProgress(75, "创建 SSH NodePort Service")
 
 	// 创建 SSH Service (NodePort)
 	if sshPort > 0 {
@@ -479,6 +433,88 @@ spec:
 
 	updateProgress(100, "KubeVirt虚拟机创建完成")
 	return nil
+}
+
+func kubeVirtDataVolumeYAML(dvName, vmName, resolvedURL string, diskGB int, storageClassName string) string {
+	if storageClassName == "" {
+		storageClassName = kubeVirtDefaultStorageClass
+	}
+	return fmt.Sprintf(`apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    kubevirt.io/vm: %s
+    app: kubevirt-vm
+spec:
+  source:
+    http:
+      url: %s
+  storage:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: %dGi
+    storageClassName: %s`,
+		yamlDoubleQuote(dvName), yamlDoubleQuote(Namespace), yamlDoubleQuote(vmName), yamlDoubleQuote(resolvedURL), diskGB, yamlDoubleQuote(storageClassName))
+}
+
+func (p *KubeVirtProvider) resolveDataVolumeStorageClass() (string, error) {
+	provisioner, err := p.sshClient.Execute(fmt.Sprintf("kubectl get storageclass %s -o jsonpath='{.provisioner}' 2>/dev/null", shellSingleQuote(kubeVirtDefaultStorageClass)))
+	if err != nil || strings.TrimSpace(provisioner) == "" {
+		return "", fmt.Errorf("failed to locate %s storageclass for KubeVirt DataVolume imports: %w", kubeVirtDefaultStorageClass, err)
+	}
+	return kubeVirtDefaultStorageClass, nil
+}
+
+func (p *KubeVirtProvider) waitForDataVolumeImport(ctx context.Context, vmName, dvName string, updateProgress func(int, string)) error {
+	startedAt := time.Now()
+	deadline := startedAt.Add(kubeVirtDataVolumeImportTimeout)
+	for attempt := 0; time.Now().Before(deadline); attempt++ {
+		phaseOutput, phaseErr := p.sshClient.Execute(fmt.Sprintf(
+			"kubectl get datavolume %s -n %s -o jsonpath='{.status.phase}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
+		if phaseErr == nil {
+			phase := strings.TrimSpace(phaseOutput)
+			if phase == "Succeeded" {
+				updateProgress(65, "镜像导入完成")
+				return nil
+			}
+			if phase == "Failed" {
+				msgOutput, _ := p.sshClient.Execute(fmt.Sprintf(
+					"kubectl get datavolume %s -n %s -o jsonpath='{.status.conditions[*].message}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
+				diagnostics := p.collectVMDiagnostics(vmName)
+				return fmt.Errorf("DataVolume import failed: %s; diagnostics: %s", strings.TrimSpace(msgOutput), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
+			}
+		}
+
+		if attempt%20 == 0 && attempt > 0 {
+			elapsed := time.Since(startedAt)
+			pct := 45 + int(elapsed*20/kubeVirtDataVolumeImportTimeout)
+			if pct > 65 {
+				pct = 65
+			}
+			progressOutput, _ := p.sshClient.Execute(fmt.Sprintf(
+				"kubectl get datavolume %s -n %s -o jsonpath='{.status.progress}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
+			progress := strings.TrimSpace(progressOutput)
+			if progress == "" || progress == "N/A" {
+				phaseOutput, _ := p.sshClient.Execute(fmt.Sprintf(
+					"kubectl get datavolume %s -n %s -o jsonpath='{.status.phase}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
+				progress = strings.TrimSpace(phaseOutput)
+			}
+			if progress != "" {
+				updateProgress(pct, fmt.Sprintf("镜像导入中 %s", progress))
+			}
+		}
+
+		if err := sleepWithContext(ctx, kubeVirtDataVolumeImportPollInterval); err != nil {
+			return fmt.Errorf("waiting for DataVolume import cancelled: %w", err)
+		}
+	}
+
+	diagnostics := p.collectVMDiagnostics(vmName)
+	return fmt.Errorf("DataVolume import timed out for '%s' (%s); diagnostics: %s", dvName, kubeVirtDataVolumeImportTimeout, utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 }
 
 // mapKubeVirtStatus 映射KubeVirt状态

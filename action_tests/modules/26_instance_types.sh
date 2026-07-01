@@ -42,9 +42,29 @@ run_module_26() {
             return 0
         fi
 
+        local ct_img_provider_type="${ENV_TYPE:-docker}"
+        case "${ct_img_provider_type}" in
+            proxmoxve) ct_img_provider_type="proxmox" ;;
+        esac
+        local ct_provider_arch; ct_provider_arch=$(current_test_arch "amd64")
+        local ct_image="debian:12"
+        local ct_sys_images; ct_sys_images=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=1000&providerType=${ct_img_provider_type}&instanceType=container&architecture=${ct_provider_arch}&status=active" 2>/dev/null)
+        if [[ -n "$ct_sys_images" ]]; then
+            local ct_resolved; ct_resolved=$(echo "$ct_sys_images" | jq -r --arg pt "$ct_img_provider_type" --arg arch "$ct_provider_arch" \
+                '.data.list[]? | select(.osType=="debian" and .providerType==$pt and .instanceType=="container" and .status=="active" and (.architecture==$arch or $arch=="")) | .name' 2>/dev/null | head -1)
+            if [[ -n "$ct_resolved" && "$ct_resolved" != "null" ]]; then
+                ct_image="$ct_resolved"
+                log_info "Resolved type-test container image from system images: ${ct_image}"
+            else
+                log_info "No active debian ${ct_img_provider_type} container image found; using fallback '${ct_image}'"
+            fi
+        fi
+
         # Create container instance
         local ct_resp; ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201|400" \
-            "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-ct\",\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000}" \
+            "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-ct\",\"instance_type\":\"container\",\"image\":\"${ct_image}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000}" \
             "$group" "$ADMIN_TOKEN")
         local ct_task; ct_task=$(echo "$ct_resp" | jq -r '.data.task_id // .data.taskId // empty' 2>/dev/null)
         local ct_id=""
@@ -126,11 +146,7 @@ run_module_26() {
         case "${vm_img_provider_type}" in
             proxmoxve) vm_img_provider_type="proxmox" ;;
         esac
-        local vm_provider_arch="${TARGET_ARCH:-$(uname -m 2>/dev/null || echo x86_64)}"
-        case "$vm_provider_arch" in
-            x86_64) vm_provider_arch="amd64" ;;
-            aarch64) vm_provider_arch="arm64" ;;
-        esac
+        local vm_provider_arch; vm_provider_arch=$(current_test_arch "amd64")
         local vm_image="debian-11"
         local vm_sys_images; vm_sys_images=$(curl -s --max-time 30 \
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \

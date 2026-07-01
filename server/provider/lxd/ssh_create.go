@@ -96,7 +96,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		configParams := []string{}
 
 		if config.InstanceType == "vm" {
-			// 虚拟机创建命令格式：lxc init image_name vm_name --vm -c limits.cpu=X -c limits.memory=XMiB -d root,size=XGiB
+			// 虚拟机创建命令格式：lxc init image_name vm_name --vm -s pool -c limits.cpu=X -c limits.memory=XMiB
 			cmd = fmt.Sprintf("lxc init %s %s --vm", shellSingleQuote(config.Image), shellSingleQuote(config.Name))
 
 			// 资源配置参数
@@ -142,9 +142,9 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 			cmd += fmt.Sprintf(" -c %s", shellSingleQuote(param))
 		}
 
-		// 磁盘配置统一在后置阶段处理（configureInstanceStorage），
-		// 避免 "-d root,size=..." 覆盖标志在 profile 缺少 root 设备时失败
-		// （部分 LXD 安装的 default profile 不包含 root 设备，或使用非 default 存储池）
+		// 在 init 阶段通过 CLI 原生 storage 参数绑定真实存储池。
+		// 这会自动生成 root disk；磁盘大小仍在后置阶段设置。
+		cmd += fmt.Sprintf(" -s %s", shellSingleQuote(lxdStoragePoolArg(l.resolveStoragePoolForInstance())))
 
 		// 创建实例
 		global.APP_LOG.Debug("执行LXD实例创建命令", zap.String("command", cmd))

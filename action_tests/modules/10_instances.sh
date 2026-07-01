@@ -52,11 +52,7 @@ run_module_10() {
         case "${img_provider_type}" in
             proxmoxve) img_provider_type="proxmox" ;;
         esac
-        local provider_arch="${TARGET_ARCH:-$(uname -m 2>/dev/null || echo x86_64)}"
-        case "$provider_arch" in
-            x86_64) provider_arch="amd64" ;;
-            aarch64) provider_arch="arm64" ;;
-        esac
+        local provider_arch; provider_arch=$(current_test_arch "amd64")
 
         # Resolve container image: prefer a matching active system image for the current
         # provider type. Falls back to "debian:12" (which the server-side
@@ -203,6 +199,7 @@ run_module_10() {
             wait_instance_active_tasks_idle "$container_id" "container ${container_id} before rebuild" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 || true
 
             # -- Edit instance --
+            local container_provider_name_before_rename="$container_name"
             if test_api "Edit container" "PUT" "/api/v1/admin/instances/${container_id}" "200" \
                 '{"name":"ci-container-edited"}' "$group" > /dev/null; then
                 container_name="ci-container-edited"
@@ -280,6 +277,28 @@ run_module_10() {
                         TEST_INSTANCE_ID="$container_id"
                         export TEST_INSTANCE_ID
                     fi
+                    if [[ -n "$container_provider_name_before_rename" && "$container_provider_name_before_rename" != "$container_name" ]]; then
+                        local orphan_check_resp orphan_check_code orphan_check_body orphan_match
+                        orphan_check_resp=$(curl -s --max-time 60 -w "\n%{http_code}" \
+                            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}/orphaned" 2>/dev/null || true)
+                        orphan_check_code=$(printf '%s\n' "$orphan_check_resp" | tail -1)
+                        orphan_check_body=$(printf '%s\n' "$orphan_check_resp" | sed '$d')
+                        if [[ "$orphan_check_code" == "200" ]]; then
+                            orphan_match=$(printf '%s' "$orphan_check_body" | jq -r --arg n "$container_provider_name_before_rename" \
+                                '[.data.orphanedInstances[]? | select((.name // "") == $n or (.uuid // "") == $n)] | length' 2>/dev/null || echo "0")
+                            if [[ "$orphan_match" == "0" ]]; then
+                                report_add_pass "No stale remote after renamed rebuild" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/orphaned"
+                                _add_result_json "No stale remote after renamed rebuild" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/orphaned" "PASS" "" "" "" "$group"
+                            else
+                                record_fail_result "No stale remote after renamed rebuild" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/orphaned" \
+                                    "old remote ${container_provider_name_before_rename} absent" "present" "$orphan_check_body" "$group"
+                            fi
+                        else
+                            record_skip_result "No stale remote after renamed rebuild" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/orphaned" \
+                                "orphan endpoint unavailable (HTTP ${orphan_check_code})" "$group"
+                        fi
+                    fi
                     # Wait for instance to reach running state after rebuild
                     local rebuild_status_wait="${INSTANCE_REBUILD_STATUS_MAX_WAIT:-180}"
                     wait_instance_status "$container_id" "running" "$rebuild_status_wait" 10 "$ADMIN_TOKEN" "container ${container_id} after rebuild" > /dev/null || {
@@ -306,11 +325,7 @@ run_module_10() {
         case "${vm_img_provider_type}" in
             proxmoxve) vm_img_provider_type="proxmox" ;;
         esac
-        local vm_provider_arch="${TARGET_ARCH:-$(uname -m 2>/dev/null || echo x86_64)}"
-        case "$vm_provider_arch" in
-            x86_64) vm_provider_arch="amd64" ;;
-            aarch64) vm_provider_arch="arm64" ;;
-        esac
+        local vm_provider_arch; vm_provider_arch=$(current_test_arch "amd64")
 
         # Resolve VM image from system images using the same provider-specific
         # contract as populateImageURLFromSystemImage.
@@ -495,11 +510,7 @@ run_module_10() {
         case "${user_img_provider_type}" in
             proxmoxve) user_img_provider_type="proxmox" ;;
         esac
-        local user_provider_arch="${TARGET_ARCH:-$(uname -m 2>/dev/null || echo x86_64)}"
-        case "$user_provider_arch" in
-            x86_64) user_provider_arch="amd64" ;;
-            aarch64) user_provider_arch="arm64" ;;
-        esac
+        local user_provider_arch; user_provider_arch=$(current_test_arch "amd64")
         local user_image_instance_type="container"
         if ! env_supports_container && env_supports_vm; then
             user_image_instance_type="vm"

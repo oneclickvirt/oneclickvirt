@@ -61,3 +61,36 @@ func TestApplyUpdateInstanceRequestAppliesExplicitResourceFields(t *testing.T) {
 		t.Fatalf("omitted name changed to %q", inst.Name)
 	}
 }
+
+func TestPreserveProviderIdentifierBeforeRenameCapturesOldName(t *testing.T) {
+	inst := providerModel.Instance{Name: "remote-name"}
+	req := admin.UpdateInstanceRequest{
+		ProvidedFields: map[string]bool{"name": true},
+		Name:           "display-name",
+	}
+
+	preserveProviderIdentifierBeforeRename(&inst, req)
+	applyUpdateInstanceRequest(&inst, req)
+
+	if inst.Name != "display-name" {
+		t.Fatalf("name = %q, want display-name", inst.Name)
+	}
+	if inst.ProviderVMID != "remote-name" {
+		t.Fatalf("provider vm id = %q, want remote-name", inst.ProviderVMID)
+	}
+}
+
+func TestPreserveProviderIdentifierBeforeRenameKeepsExistingRemoteID(t *testing.T) {
+	inst := providerModel.Instance{Name: "old-display", ProviderVMID: "remote-id"}
+	req := admin.UpdateInstanceRequest{
+		ProvidedFields: map[string]bool{"name": true},
+		Name:           "new-display",
+	}
+
+	preserveProviderIdentifierBeforeRename(&inst, req)
+	applyUpdateInstanceRequest(&inst, req)
+
+	if inst.ProviderVMID != "remote-id" {
+		t.Fatalf("provider vm id = %q, want remote-id", inst.ProviderVMID)
+	}
+}
