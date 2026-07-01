@@ -161,7 +161,8 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	}
 
 	updateProgress(20, "处理Containerd镜像...")
-	imageNameWithPrefix := "oneclickvirt_" + config.Image
+	// Provider image 列表可能已经返回 oneclickvirt_ 前缀，避免二次加前缀。
+	imageNameWithPrefix := containerdManagedImageName(config.Image)
 	// 标记是否使用了 registry 回退拉取（原始镜像无持久进程，需附加 keep-alive 命令）
 	registryFallback := false
 
@@ -519,6 +520,14 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	updateProgress(100, "Containerd实例创建完成")
 	global.APP_LOG.Info("Containerd容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+func containerdManagedImageName(image string) string {
+	image = strings.TrimSpace(image)
+	if strings.HasPrefix(image, "oneclickvirt_") || strings.Contains(image, "/oneclickvirt_") {
+		return image
+	}
+	return "oneclickvirt_" + image
 }
 
 func (c *ContainerdProvider) collectCreateDiagnostics(name string) string {

@@ -556,6 +556,18 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 
 	global.APP_LOG.Info("Provider创建实例成功", zap.Uint("taskId", task.ID), zap.String("instanceName", instance.Name))
 
+	if strings.TrimSpace(instance.ProviderVMID) == "" {
+		if err := global.APP_DB.Model(instance).Update("provider_vm_id", instance.Name).Error; err != nil {
+			global.APP_LOG.Warn("写入实例远端ID失败",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instance.ID),
+				zap.String("providerInstanceId", instance.Name),
+				zap.Error(err))
+		} else {
+			instance.ProviderVMID = instance.Name
+		}
+	}
+
 	// 更新进度到70%
 	s.updateTaskProgress(task.ID, 70, "step.providerCreateSuccess")
 
@@ -771,61 +783,62 @@ func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool
 	}
 
 	var sysImg systemModel.SystemImage
-	baseQuery := global.APP_DB.Where("provider_type = ? AND instance_type = ? AND status = ?", providerType, instanceType, "active")
-	// 如果传入了架构参数，在所有策略的 WHERE 条件中附加架构过滤，
-	// 避免选中 arm64 镜像用于 amd64 Provider（或反之）。
-	baseWithArch := baseQuery
-	if architecture != "" {
-		baseWithArch = baseQuery.Where("architecture = ?", architecture)
+	newImageQuery := func(withArch bool) *gorm.DB {
+		query := global.APP_DB.Model(&systemModel.SystemImage{}).
+			Where("provider_type = ? AND instance_type = ? AND status = ?", providerType, instanceType, "active")
+		if withArch && architecture != "" {
+			query = query.Where("architecture = ?", architecture)
+		}
+		return query
 	}
 
 	// 策略 1: 按 name 精确匹配，优先约束架构，避免多架构同名镜像串用。
 	err := gorm.ErrRecordNotFound
 	if architecture != "" {
-		err = baseWithArch.Where("LOWER(name) = ?", imageLower).Order("created_at DESC").First(&sysImg).Error
+		err = newImageQuery(true).Where("LOWER(name) = ?", imageLower).Order("created_at DESC").First(&sysImg).Error
 	}
 	if err != nil {
-		err = baseQuery.Where("LOWER(name) = ?", imageLower).Order("created_at DESC").First(&sysImg).Error
+		err = newImageQuery(false).Where("LOWER(name) = ?", imageLower).Order("created_at DESC").First(&sysImg).Error
 	}
 	if err != nil {
 		// 策略 2: 按 osType 精确 + osVersion 前缀 + architecture 匹配
 		if osVer != "" && architecture != "" {
-			err = baseWithArch.
+			err = newImageQuery(true).
 				Where("LOWER(os_type) = ? AND LOWER(os_version) LIKE ?", osName, osVer+"%").
 				Order("created_at DESC").
 				First(&sysImg).Error
 		}
 		// 策略 2b: 按 osType 精确 + osVersion 前缀（忽略架构）
 		if err != nil && osVer != "" {
-			err = baseQuery.
+			err = newImageQuery(false).
 				Where("LOWER(os_type) = ? AND LOWER(os_version) LIKE ?", osName, osVer+"%").
 				Order("created_at DESC").
 				First(&sysImg).Error
 		}
 		// 策略 3: 按 osType 精确 + architecture 匹配
 		if err != nil && architecture != "" {
-			err = baseWithArch.
+			err = newImageQuery(true).
 				Where("LOWER(os_type) = ?", osName).
 				Order("created_at DESC").
 				First(&sysImg).Error
 		}
 		// 策略 3b: 按 osType 精确（忽略架构和版本）
 		if err != nil {
-			err = baseQuery.
+			err = newImageQuery(false).
 				Where("LOWER(os_type) = ?", osName).
 				Order("created_at DESC").
 				First(&sysImg).Error
 		}
 		// 策略 4: 模糊匹配（name 或 osType 包含镜像名片段）+ architecture
 		if err != nil && architecture != "" {
-			err = baseWithArch.
+			err = newImageQuery(true).
 				Where("LOWER(name) LIKE ? OR LOWER(os_type) LIKE ?", "%"+osName+"%", "%"+osName+"%").
 				Order("created_at DESC").
 				First(&sysImg).Error
 		}
 		// 策略 4b: 模糊匹配（忽略架构）
 		if err != nil {
-			err = baseQuery.
+			err = newImageQuery(false).
 				Where("LOWER(name) LIKE ? OR LOWER(os_type) LIKE ?", "%"+osName+"%", "%"+osName+"%").
 				Order("created_at DESC").
 				First(&sysImg).Error

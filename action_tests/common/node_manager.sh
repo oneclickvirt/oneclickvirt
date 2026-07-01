@@ -207,6 +207,43 @@ create_test_node() {
     echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\",\"platform\":\"${platform_name}\"}"
 }
 
+find_local_pve_install_script() {
+    local candidate
+    local candidates=()
+    [[ -n "${PVE_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${PVE_INSTALL_SCRIPT_LOCAL_PATH}")
+    candidates+=(
+        "/Volumes/Additional/个人数据/GitHub/pve/scripts/install_pve.sh"
+        "${SCRIPT_DIR}/../../../pve/scripts/install_pve.sh"
+        "${SCRIPT_DIR}/../../../../../pve/scripts/install_pve.sh"
+    )
+    for candidate in "${candidates[@]}"; do
+        [[ -n "$candidate" && -f "$candidate" ]] && {
+            (cd "$(dirname "$candidate")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$candidate")")
+            return 0
+        }
+    done
+    return 1
+}
+
+build_pve_install_command() {
+    local url="$1" noninteractive_prefix="$2" pve_env_prefix="$3"
+    local local_script=""
+    if local_script=$(find_local_pve_install_script); then
+        local payload
+        payload=$(gzip -c "$local_script" | base64 | tr -d '\n') || return 1
+        log_info "Using local PVE installer: ${local_script}"
+        cat <<PVE_INSTALL_CMD
+${noninteractive_prefix} cat > /tmp/envinstall.sh.gz.b64 <<'PVE_INSTALL_B64'
+${payload}
+PVE_INSTALL_B64
+base64 -d /tmp/envinstall.sh.gz.b64 | gzip -dc > /tmp/envinstall.sh && rm -f /tmp/envinstall.sh.gz.b64 && chmod +x /tmp/envinstall.sh && ${pve_env_prefix} bash /tmp/envinstall.sh
+PVE_INSTALL_CMD
+        return 0
+    fi
+    log_info "Using remote PVE installer: ${url}"
+    printf '%s\n' "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${pve_env_prefix} bash /tmp/envinstall.sh"
+}
+
 install_env() {
     local id="$1" ip="$2" env="$3"
     log_section "Installing ${env} environment on worker node"
@@ -216,6 +253,23 @@ install_env() {
     local apt_install_wait="${APT_INSTALL_MAX_WAIT:-1800}"
     local reboot_wait="${ENV_REBOOT_SSH_MAX_WAIT:-600}"
     local pve_wait="${PVE_INSTALL_MAX_WAIT:-3600}"
+    local url="${ENV_INSTALL_SCRIPTS[$env]:-}"
+    [[ -z "$url" ]] && { log_error "Unknown environment: ${env}"; return 1; }
+    local pve_use_private_ip="${PVE_USE_PRIVATE_IP:-true}"
+    local pve_hostname="${PVE_HOSTNAME:-pve}"
+    case "${pve_use_private_ip,,}" in
+        true|false) ;;
+        *) log_error "PVE_USE_PRIVATE_IP must be true or false"; return 1 ;;
+    esac
+    if [[ ! "$pve_hostname" =~ ^[A-Za-z0-9]+$ ]]; then
+        log_error "PVE_HOSTNAME must contain only letters and digits"
+        return 1
+    fi
+    local pve_env_prefix="DEBIAN_FRONTEND=noninteractive noninteractive=true USE_PRIVATE_IP=${pve_use_private_ip} PVE_HOSTNAME=${pve_hostname}"
+    local pve_install_cmd=""
+    if [[ "$env" == "proxmoxve" ]]; then
+        pve_install_cmd=$(build_pve_install_command "$url" "$noninteractive_prefix" "$pve_env_prefix") || return 1
+    fi
     if declare -f platform_validate_worker_resources >/dev/null 2>&1; then
         platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}" || return 75
     fi
@@ -225,8 +279,6 @@ install_env() {
     wait_for_apt_lock "${ip}" 120 "$apt_lock_wait" 15 || return 75
     platform_exec_and_wait "${ip}" "${noninteractive_prefix} apt-get update -y && apt-get -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install -y curl wget sudo jq ipcalc lsof" "$apt_install_wait" || return 75
     ensure_worker_dns "${ip}" "worker before ${env} install" || true
-    local url="${ENV_INSTALL_SCRIPTS[$env]:-}"
-    [[ -z "$url" ]] && { log_error "Unknown environment: ${env}"; return 1; }
     # Build non-interactive env var prefix per script type
     local env_prefix
     case "$env" in
@@ -257,19 +309,19 @@ install_env() {
     esac
     if [[ "$env" == "proxmoxve" ]]; then
         log_info "PVE install step 1/3: installing PVE kernel (reboot required)..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && DEBIAN_FRONTEND=noninteractive bash /tmp/envinstall.sh" "$pve_wait" || true
+        platform_exec_and_wait "${ip}" "${pve_install_cmd}" "$pve_wait" || true
         log_info "Rebooting worker to load PVE kernel..."
         platform_exec_and_wait "${ip}" "reboot" 10 || true
         sleep 25
-        wait_for_ssh "${ip}" "$reboot_wait"
+        wait_for_ssh "${ip}" "$reboot_wait" || return 75
         ensure_worker_swap "${ip}" "worker after PVE reboot" || log_warning "Swap setup after PVE reboot did not complete"
         stabilize_worker_network_for_env "${ip}" "${env}" "worker after PVE reboot" || true
         log_info "PVE install step 2/3: completing PVE configuration after reboot..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && DEBIAN_FRONTEND=noninteractive bash /tmp/envinstall.sh" "$pve_wait"
+        platform_exec_and_wait "${ip}" "${pve_install_cmd}" "$pve_wait" || return 75
         log_info "PVE install step 3a/3: configuring backend bridge..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_BACKEND}' | bash" "$install_wait"
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_BACKEND}' | bash" "$install_wait" || return 75
         log_info "PVE install step 3b/3: building NAT IPv4 network..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_NAT}' | bash" "$install_wait"
+        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_NAT}' | bash" "$install_wait" || return 75
     elif [[ "$env" == "kubevirt" ]]; then
         # kubevirt needs K3s + KubeVirt + CDI, single-pass install (no reboot needed)
         # K3s + KubeVirt + CDI typically takes 60-120 minutes; use 7200s (2h) to be safe
@@ -637,7 +689,26 @@ deploy_master_local() {
     # how SCRIPT_DIR is set in the calling script.
     local _this_dir; _this_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     # Server sources live two levels up: common/ -> action_tests/ -> repo_root/server/
-    local server_dir; server_dir="$(cd "${_this_dir}/../../server" && pwd)"
+    local source_server_dir; source_server_dir="$(cd "${_this_dir}/../../server" && pwd)"
+    local server_dir="$source_server_dir"
+    if [[ -n "${ACTION_TEST_SERVER_WORKDIR:-}" ]]; then
+        log_info "Preparing isolated server workdir: ${ACTION_TEST_SERVER_WORKDIR}"
+        rm -rf "${ACTION_TEST_SERVER_WORKDIR}"
+        mkdir -p "$(dirname "${ACTION_TEST_SERVER_WORKDIR}")"
+        if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete \
+                --exclude '.git' \
+                --exclude '/logs' \
+                --exclude '/storage' \
+                --exclude '/tmp' \
+                --exclude '/agent/target' \
+                --exclude '/oneclickvirt-server*' \
+                "${source_server_dir}/" "${ACTION_TEST_SERVER_WORKDIR}/"
+        else
+            cp -R "${source_server_dir}" "${ACTION_TEST_SERVER_WORKDIR}"
+        fi
+        server_dir="$(cd "${ACTION_TEST_SERVER_WORKDIR}" && pwd)"
+    fi
     MASTER_SERVER_DIR="$server_dir"
     export MASTER_SERVER_DIR
 

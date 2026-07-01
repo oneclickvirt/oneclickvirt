@@ -46,6 +46,13 @@ func (l *LXDProvider) waitForVMNetworkReady(instanceName string) error {
 			continue
 		}
 
+		if err := l.ensureVMGuestNetworkUp(instanceName); err != nil {
+			global.APP_LOG.Debug("尝试唤醒虚拟机Guest网络失败，继续等待",
+				zap.String("instanceName", instanceName),
+				zap.Int("attempt", attempt),
+				zap.Error(err))
+		}
+
 		// 检查是否已获取到IP地址
 		if _, err := l.getInstanceIP(instanceName); err == nil {
 			global.APP_LOG.Debug("虚拟机网络已就绪",
@@ -61,6 +68,42 @@ func (l *LXDProvider) waitForVMNetworkReady(instanceName string) error {
 	}
 
 	return fmt.Errorf("虚拟机网络就绪超时，已等待 %d 次", maxRetries)
+}
+
+func (l *LXDProvider) ensureVMGuestNetworkUp(instanceName string) error {
+	script := `
+run_with_timeout() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 30 "$@"
+  else
+    "$@"
+  fi
+}
+for iface in enp5s0 eth0 ens3; do
+  ip link show "$iface" >/dev/null 2>&1 || continue
+  ip link set "$iface" up >/dev/null 2>&1 || true
+  if ip -4 addr show dev "$iface" 2>/dev/null | grep -q ' inet '; then
+    continue
+  fi
+  if command -v dhclient >/dev/null 2>&1; then
+    run_with_timeout dhclient -4 -v "$iface" >/dev/null 2>&1 || true
+  elif command -v dhcpcd >/dev/null 2>&1; then
+    run_with_timeout dhcpcd -4 "$iface" >/dev/null 2>&1 || true
+  elif command -v udhcpc >/dev/null 2>&1; then
+    run_with_timeout udhcpc -q -i "$iface" >/dev/null 2>&1 || true
+  fi
+done
+ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | head -1
+`
+	cmd := fmt.Sprintf("lxc exec %s -- sh -c %s", shellSingleQuote(instanceName), shellSingleQuote(script))
+	output, err := l.sshClient.ExecuteWithTimeout(cmd, 45*time.Second)
+	if err != nil {
+		return fmt.Errorf("唤醒虚拟机Guest网络失败: %w", err)
+	}
+	global.APP_LOG.Debug("虚拟机Guest网络唤醒结果",
+		zap.String("instanceName", instanceName),
+		zap.String("output", strings.TrimSpace(output)))
+	return nil
 }
 
 // waitForContainerNetworkReady 等待容器网络就绪

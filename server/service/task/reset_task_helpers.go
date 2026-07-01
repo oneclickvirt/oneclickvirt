@@ -1,5 +1,18 @@
 package task
 
+import (
+	"strings"
+
+	providerModel "oneclickvirt/model/provider"
+)
+
+func providerInstanceIdentifier(instance providerModel.Instance) string {
+	if id := strings.TrimSpace(instance.ProviderVMID); id != "" {
+		return id
+	}
+	return instance.Name
+}
+
 // 辅助函数：创建指针类型
 func boolPtr(b bool) *bool {
 	return &b

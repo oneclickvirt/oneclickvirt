@@ -14305,7 +14305,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "providerVmId": {
-                    "description": "虚拟化平台的实例ID（Proxmox VMID/CTID等），用于接口检测",
+                    "description": "虚拟化平台的实例ID（Proxmox VMID/CTID或远端实例名），用于接口检测",
                     "type": "string"
                 },
                 "publicIP": {

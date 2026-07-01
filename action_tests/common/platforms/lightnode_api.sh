@@ -187,8 +187,8 @@ _lightnode_wait_async_task() {
         local resp; resp=$(lightnode_get_async_task "${task_uuid}")
         local body; body=$(lightnode_parse_body "${resp}")
         local result; result=$(echo "$body" | jq -r '.asyncTaskInfo.processResult // empty' 2>/dev/null)
-        local status; status=$(echo "$body" | jq -r '.asyncTaskInfo.taskStatus // empty' 2>/dev/null)
-        log_debug "[lightnode] Task ${task_uuid}: result=${result} status=${status}"
+        local task_status; task_status=$(echo "$body" | jq -r '.asyncTaskInfo.taskStatus // empty' 2>/dev/null)
+        log_debug "[lightnode] Task ${task_uuid}: result=${result} status=${task_status}"
         if [[ "$result" == "SUCCESS" ]]; then
             log_success "[lightnode] Task ${task_uuid} completed"
             return 0
@@ -360,16 +360,22 @@ lightnode_platform_list_instances() {
 lightnode_platform_ssh_exec() {
     local ip="$1" cmd="$2" timeout="${3:-300}"
     local ssh_user; ssh_user=$(get_platform_ssh_user "lightnode")
+    local local_timeout=$((timeout + 120))
     if [[ -n "${PLATFORM_SSH_KEY_FILE:-}" && -f "${PLATFORM_SSH_KEY_FILE}" ]]; then
-        ssh -i "${PLATFORM_SSH_KEY_FILE}" \
+        local ssh_cmd=(ssh -i "${PLATFORM_SSH_KEY_FILE}" \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             -o BatchMode=yes \
             "${ssh_user}@${ip}" \
-            "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
+            "timeout ${timeout} bash -c $(printf '%q' "${cmd}")")
+        if command -v timeout >/dev/null 2>&1; then
+            timeout "${local_timeout}" "${ssh_cmd[@]}"
+        else
+            "${ssh_cmd[@]}"
+        fi
     elif [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
-        SSHPASS="${PLATFORM_SSH_PASSWORD}" sshpass -e ssh \
+        local ssh_cmd=(sshpass -e ssh \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
@@ -377,7 +383,12 @@ lightnode_platform_ssh_exec() {
             -o PubkeyAuthentication=no \
             -o NumberOfPasswordPrompts=3 \
             "${ssh_user}@${ip}" \
-            "timeout ${timeout} bash -c $(printf '%q' "${cmd}")"
+            "timeout ${timeout} bash -c $(printf '%q' "${cmd}")")
+        if command -v timeout >/dev/null 2>&1; then
+            SSHPASS="${PLATFORM_SSH_PASSWORD}" timeout "${local_timeout}" "${ssh_cmd[@]}"
+        else
+            SSHPASS="${PLATFORM_SSH_PASSWORD}" "${ssh_cmd[@]}"
+        fi
     else
         log_error "[lightnode] No SSH credentials available"
         return 1
@@ -387,28 +398,42 @@ lightnode_platform_ssh_exec() {
 lightnode_platform_wait_ssh() {
     local ip="$1" max="${2:-300}" interval="${3:-10}" elapsed=0
     local ssh_user; ssh_user=$(get_platform_ssh_user "lightnode")
+    local start_ts; start_ts=$(date +%s)
     log_info "[lightnode] Waiting for SSH on ${ip} (max ${max}s)..."
     while [[ $elapsed -lt $max ]]; do
         local ssh_ok=false
         if [[ -n "${PLATFORM_SSH_KEY_FILE:-}" && -f "${PLATFORM_SSH_KEY_FILE}" ]]; then
-            ssh -i "${PLATFORM_SSH_KEY_FILE}" \
+            local ssh_cmd=(ssh -i "${PLATFORM_SSH_KEY_FILE}" \
                 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o BatchMode=yes \
-                "${ssh_user}@${ip}" "echo ok" >/dev/null 2>&1 && ssh_ok=true
+                -o ConnectTimeout=8 -o ConnectionAttempts=1 \
+                -o ServerAliveInterval=8 -o ServerAliveCountMax=1 -o BatchMode=yes \
+                "${ssh_user}@${ip}" "echo ok")
+            if command -v timeout >/dev/null 2>&1; then
+                timeout 20 "${ssh_cmd[@]}" >/dev/null 2>&1 && ssh_ok=true
+            else
+                "${ssh_cmd[@]}" >/dev/null 2>&1 && ssh_ok=true
+            fi
         elif [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
-            SSHPASS="${PLATFORM_SSH_PASSWORD}" sshpass -e ssh \
+            local ssh_cmd=(sshpass -e ssh \
                 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+                -o ConnectTimeout=8 -o ConnectionAttempts=1 \
+                -o ServerAliveInterval=8 -o ServerAliveCountMax=1 \
                 -o PreferredAuthentications=password \
                 -o PubkeyAuthentication=no \
-                -o NumberOfPasswordPrompts=3 \
-                "${ssh_user}@${ip}" "echo ok" >/dev/null 2>&1 && ssh_ok=true
+                -o NumberOfPasswordPrompts=1 \
+                "${ssh_user}@${ip}" "echo ok")
+            if command -v timeout >/dev/null 2>&1; then
+                SSHPASS="${PLATFORM_SSH_PASSWORD}" timeout 20 "${ssh_cmd[@]}" >/dev/null 2>&1 && ssh_ok=true
+            else
+                SSHPASS="${PLATFORM_SSH_PASSWORD}" "${ssh_cmd[@]}" >/dev/null 2>&1 && ssh_ok=true
+            fi
         fi
         if $ssh_ok; then
             log_success "[lightnode] SSH ready on ${ip}"
             return 0
         fi
-        sleep "${interval}"; elapsed=$((elapsed + interval))
+        sleep "${interval}"
+        elapsed=$(($(date +%s) - start_ts))
     done
     log_error "[lightnode] SSH timeout on ${ip} after ${max}s"
     return 1

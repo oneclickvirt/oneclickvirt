@@ -46,12 +46,14 @@ type ResetTaskContext struct {
 	OldPortMappings        []providerModel.Port
 	OldInstanceID          uint
 	OldInstanceName        string
+	OldProviderInstanceID  string
 	OriginalUserID         uint
 	OriginalStatus         string // 实例重置前的原始状态（用于正确释放配额）
 	OriginalExpiresAt      *time.Time
 	OriginalIsManualExpiry bool // 实例重置前的手动过期时间设置
 	OriginalMaxTraffic     uint64
 	NewInstanceID          uint
+	NewProviderInstanceID  string
 	NewPassword            string
 	NewPrivateIP           string
 }
@@ -226,6 +228,10 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 	// 保存必要信息
 	resetCtx.OldInstanceID = resetCtx.Instance.ID
 	resetCtx.OldInstanceName = resetCtx.Instance.Name
+	resetCtx.OldProviderInstanceID = providerInstanceIdentifier(resetCtx.Instance)
+	if resetCtx.OldProviderInstanceID == "" {
+		resetCtx.OldProviderInstanceID = resetCtx.OldInstanceName
+	}
 	resetCtx.OriginalUserID = resetCtx.Instance.UserID
 	resetCtx.OriginalExpiresAt = resetCtx.Instance.ExpiresAt
 	resetCtx.OriginalIsManualExpiry = resetCtx.Instance.IsManualExpiry
@@ -235,6 +241,7 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 		zap.Uint("taskId", task.ID),
 		zap.Uint("instanceId", resetCtx.OldInstanceID),
 		zap.String("instanceName", resetCtx.OldInstanceName),
+		zap.String("providerInstanceId", resetCtx.OldProviderInstanceID),
 		zap.Int("portMappings", len(resetCtx.OldPortMappings)))
 
 	return nil
@@ -247,7 +254,7 @@ func (s *TaskService) resetTask_DeleteOldInstance(ctx context.Context, task *adm
 	providerApiService := &provider2.ProviderApiService{}
 
 	// 直接调用Provider删除API
-	if err := providerApiService.DeleteInstanceByProviderID(ctx, resetCtx.Provider.ID, resetCtx.OldInstanceName); err != nil {
+	if err := providerApiService.DeleteInstanceByProviderID(ctx, resetCtx.Provider.ID, resetCtx.OldProviderInstanceID); err != nil {
 		// 如果实例不存在，继续流程
 		errStr := err.Error()
 		if contains(errStr, "not found") || contains(errStr, "no such") {
@@ -391,6 +398,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			IsManualExpiry: resetCtx.OriginalIsManualExpiry, // 继承原实例的手动过期时间设置
 			PublicIP:       resetCtx.Provider.Endpoint,
 			MaxTraffic:     int64(resetCtx.OriginalMaxTraffic),
+			ProviderVMID:   resetCtx.OldInstanceName,
 		}
 
 		if err := tx.Create(&newInstance).Error; err != nil {
@@ -398,6 +406,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 		}
 
 		resetCtx.NewInstanceID = newInstance.ID
+		resetCtx.NewProviderInstanceID = newInstance.ProviderVMID
 
 		// 分配待确认配额
 		quotaService := resources.NewQuotaService()
@@ -434,7 +443,8 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 
 	global.APP_LOG.Info("新实例记录创建完成",
 		zap.Uint("newInstanceId", resetCtx.NewInstanceID),
-		zap.String("instanceName", resetCtx.OldInstanceName))
+		zap.String("instanceName", resetCtx.OldInstanceName),
+		zap.String("providerInstanceId", resetCtx.NewProviderInstanceID))
 
 	s.updateTaskProgress(task.ID, 50, "step.callingProviderCreate")
 
@@ -550,12 +560,12 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 
 	// 确保实例运行
 	if prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID); err == nil {
-		if instance, err := prov.GetInstance(ctx, resetCtx.OldInstanceName); err == nil {
+		if instance, err := prov.GetInstance(ctx, resetCtx.NewProviderInstanceID); err == nil {
 			if instance.Status != "running" {
 				global.APP_LOG.Debug("实例未运行，尝试启动",
-					zap.String("instanceName", resetCtx.OldInstanceName),
+					zap.String("instanceName", resetCtx.NewProviderInstanceID),
 					zap.String("status", instance.Status))
-				if err := prov.StartInstance(ctx, resetCtx.OldInstanceName); err != nil {
+				if err := prov.StartInstance(ctx, resetCtx.NewProviderInstanceID); err != nil {
 					global.APP_LOG.Warn("启动实例失败", zap.Error(err))
 				} else {
 					time.Sleep(10 * time.Second)
@@ -584,7 +594,7 @@ func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminMode
 	providerApiService := &provider2.ProviderApiService{}
 	prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID)
 	if err == nil {
-		resetCtx.NewPrivateIP = getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, resetCtx.OldInstanceName)
+		resetCtx.NewPrivateIP = getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, resetCtx.NewProviderInstanceID)
 	}
 
 	// 设置密码（带重试）
@@ -597,7 +607,7 @@ func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminMode
 			time.Sleep(time.Duration(attempt*3) * time.Second)
 		}
 
-		err := providerService.SetInstancePassword(ctx, resetCtx.Provider.ID, resetCtx.OldInstanceName, resetCtx.NewPassword)
+		err := providerService.SetInstancePassword(ctx, resetCtx.Provider.ID, resetCtx.NewProviderInstanceID, resetCtx.NewPassword)
 		if err != nil {
 			lastErr = err
 			global.APP_LOG.Warn("设置密码失败，准备重试",

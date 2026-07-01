@@ -25,7 +25,7 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 	global.APP_LOG.Debug("开始发现QEMU虚拟机", zap.String("provider", p.config.Name))
 
 	// 获取所有VM名称
-	output, err := p.sshClient.Execute("virsh list --all --name 2>/dev/null | grep -v '^$'")
+	output, err := p.sshClient.Execute(qemuListDomainNamesCommand("qemu:///system"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list VMs: %w", err)
 	}

@@ -58,13 +58,26 @@ _ensure_python() {
 _ensure_paramiko() {
     local py; py=$(_ensure_python) || return 1
     if ! "$py" -c 'import paramiko' 2>/dev/null; then
-        log_info "paramiko not found — installing..."
-        "$py" -m pip install --quiet paramiko >/dev/null 2>&1 || {
-            log_warning "Failed to install paramiko"
+        local venv_dir="${ACTION_TEST_PARAMIKO_VENV:-${TMPDIR:-/tmp}/ocv-paramiko-venv}"
+        log_info "paramiko not found — installing into venv: ${venv_dir}"
+        if [[ ! -x "${venv_dir}/bin/python" ]]; then
+            "$py" -m venv "$venv_dir" >/dev/null 2>&1 || {
+                log_warning "Failed to create paramiko venv"
+                return 1
+            }
+        fi
+        "${venv_dir}/bin/python" -m pip install --quiet --upgrade pip >/dev/null 2>&1 || true
+        "${venv_dir}/bin/python" -m pip install --quiet paramiko >/dev/null 2>&1 || {
+            log_warning "Failed to install paramiko into venv"
             return 1
         }
-        "$py" -c 'import paramiko' 2>/dev/null || { log_warning "paramiko still not importable after install"; return 1; }
-        log_success "paramiko installed"
+        "${venv_dir}/bin/python" -c 'import paramiko' 2>/dev/null || {
+            log_warning "paramiko still not importable after venv install"
+            return 1
+        }
+        export PYTHON="${venv_dir}/bin/python"
+        export ACTION_TEST_PARAMIKO_VENV="$venv_dir"
+        log_success "paramiko installed in isolated venv"
     fi
     return 0
 }
@@ -235,8 +248,8 @@ run_module_28() {
         return 1
     }
     _ensure_paramiko || {
-        chain_break "$group" "paramiko not available and could not be installed"
-        return 1
+        _m28_skip_optional "paramiko not available and could not be installed in an isolated venv"
+        return 0
     }
 
     # -- Verify instance exists, recover if needed --

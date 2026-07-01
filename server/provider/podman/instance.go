@@ -161,8 +161,9 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(20, "处理Podman镜像...")
-	// Podman 加载本地 tar 后镜像统一存储在 localhost/ 命名空间下
-	imageNameWithPrefix := normalizePodmanImageName("oneclickvirt_" + config.Image)
+	// Podman 加载本地 tar 后镜像统一存储在 localhost/ 命名空间下。
+	// Provider image 列表可能已经返回 oneclickvirt_ 前缀，避免二次加前缀。
+	imageNameWithPrefix := normalizePodmanImageName(podmanManagedImageName(config.Image))
 	// 标记是否使用了 registry 回退拉取（原始镜像无持久进程，需附加 keep-alive 命令）
 	registryFallback := false
 
@@ -528,6 +529,15 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(100, "Podman实例创建完成")
 	global.APP_LOG.Info("Podman容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+func podmanManagedImageName(image string) string {
+	image = strings.TrimSpace(image)
+	localName := strings.TrimPrefix(image, "localhost/")
+	if strings.HasPrefix(localName, "oneclickvirt_") || strings.Contains(localName, "/oneclickvirt_") {
+		return image
+	}
+	return "oneclickvirt_" + image
 }
 
 func (p *PodmanProvider) collectCreateDiagnostics(name string) string {

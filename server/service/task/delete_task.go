@@ -113,11 +113,13 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			s.updateTaskProgress(task.ID, progressIncrement, fmt.Sprintf("step.deletingInstanceRetry:%d", attempt))
 		}
 
-		if err := providerApiService.DeleteInstanceByProviderID(ctx, localProviderID, instance.Name); err != nil {
+		providerInstanceID := providerInstanceIdentifier(instance)
+		if err := providerApiService.DeleteInstanceByProviderID(ctx, localProviderID, providerInstanceID); err != nil {
 			lastErr = err
 			global.APP_LOG.Warn("Provider删除实例失败，准备重试",
 				zap.Uint("taskId", task.ID),
 				zap.String("instanceName", instance.Name),
+				zap.String("providerInstanceId", providerInstanceID),
 				zap.String("provider", localProviderName),
 				zap.Int("attempt", attempt),
 				zap.Int("maxRetries", maxRetries),

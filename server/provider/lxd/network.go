@@ -111,6 +111,14 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		global.APP_LOG.Warn("等待实例就绪超时，但继续配置", zap.Error(err))
 	}
 
+	if config.InstanceType == "vm" {
+		if err := l.ensureVMGuestNetworkUp(config.Name); err != nil {
+			global.APP_LOG.Warn("LXD VM网络配置后唤醒Guest网络失败，继续后续流程",
+				zap.String("instanceName", config.Name),
+				zap.Error(err))
+		}
+	}
+
 	// 配置防火墙端口
 	if err := l.configureFirewallPorts(config.Name); err != nil {
 		global.APP_LOG.Warn("配置防火墙端口失败", zap.Error(err))

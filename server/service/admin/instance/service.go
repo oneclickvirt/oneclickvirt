@@ -11,6 +11,7 @@ import (
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -52,6 +53,19 @@ func applyUpdateInstanceRequest(instance *providerModel.Instance, req admin.Upda
 	}
 	if updateInstanceRequestHasField(req, "status") && req.Status != "" {
 		instance.Status = req.Status
+	}
+}
+
+func preserveProviderIdentifierBeforeRename(instance *providerModel.Instance, req admin.UpdateInstanceRequest) {
+	if !updateInstanceRequestHasField(req, "name") {
+		return
+	}
+	newName := strings.TrimSpace(req.Name)
+	if newName == "" || newName == instance.Name {
+		return
+	}
+	if strings.TrimSpace(instance.ProviderVMID) == "" {
+		instance.ProviderVMID = instance.Name
 	}
 }
 
@@ -445,7 +459,8 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest, ownerAdminID .
 	if err != nil {
 		return nil, fmt.Errorf("序列化创建任务失败: %w", err)
 	}
-	task, err := s.taskService.CreateTask(req.UserID, &provider.ID, nil, "create", string(taskData), 1800)
+	createTimeout := utils.GetCreateTaskTimeout(provider.Type, req.InstanceType)
+	task, err := s.taskService.CreateTask(req.UserID, &provider.ID, nil, "create", string(taskData), createTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -505,6 +520,7 @@ func (s *Service) UpdateInstance(req admin.UpdateInstanceRequest, ownerAdminID .
 		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
 	}
 
+	preserveProviderIdentifierBeforeRename(&instance, req)
 	applyUpdateInstanceRequest(&instance, req)
 
 	dbService := database.GetDatabaseService()

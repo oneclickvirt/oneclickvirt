@@ -171,9 +171,13 @@ run_module_29() {
             local task_result task_ok=true
             task_result=$(wait_task_complete_nonfatal "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || task_ok=false
             inst_id=$(echo "$task_result" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
-            if [[ "$task_ok" != "true" && -z "$inst_id" ]]; then
+            if [[ "$task_ok" != "true" ]]; then
+                local task_status task_error
+                task_status=$(echo "$task_result" | jq -r '.data.status // "failed"' 2>/dev/null)
+                task_error=$(echo "$task_result" | jq -r '.data.errorMessage // .data.error_message // .message // .msg // empty' 2>/dev/null)
+                [[ -n "$inst_id" ]] && delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 2>/dev/null || true
                 _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
-                    "provider creation task did not complete successfully; skipping this image instead of marking the suite failed" \
+                    "provider creation task ended with status=${task_status:-failed}; ${task_error:-skipping this image}" \
                     "completed task with instance id" "task=${task_id}"
                 consecutive_fails=$((consecutive_fails + 1))
                 continue

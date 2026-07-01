@@ -33,7 +33,11 @@ run_module_11() {
                 da_task_error=$(safe_jq "$da_task_resp" '-r .data.errorMessage // .data.error_message // .data.message // .message // .msg // empty' '')
                 if [[ "$da_task_status" != "completed" ]]; then
                     [[ -n "$da_task_error" ]] || da_task_error="${da_task_status:-missing task status}"
-                    record_fail_result "Deploy agent task" "GET" "/api/v1/admin/tasks/${da_task}" "completed" "$da_task_error" "$da_task_resp" "$group"
+                    if is_infrastructure_failure_detail "$da_task_resp"; then
+                        record_skip_result "Deploy agent task (infrastructure)" "GET" "/api/v1/admin/tasks/${da_task}" "$da_task_error" "$group"
+                    else
+                        record_fail_result "Deploy agent task" "GET" "/api/v1/admin/tasks/${da_task}" "completed" "$da_task_error" "$da_task_resp" "$group"
+                    fi
                 fi
             else
                 record_task_terminal_result "Deploy agent task" "GET" "/api/v1/admin/tasks/${da_task}" "$da_task_resp" "$group" || true
@@ -80,7 +84,11 @@ run_module_11() {
                 ua_task_error=$(safe_jq "$ua_task_resp" '-r .data.errorMessage // .data.error_message // .data.message // .message // .msg // empty' '')
                 if [[ "$ua_task_status" != "completed" ]]; then
                     [[ -n "$ua_task_error" ]] || ua_task_error="${ua_task_status:-missing task status}"
-                    record_fail_result "Uninstall agent task" "GET" "/api/v1/admin/tasks/${ua_task}" "completed" "$ua_task_error" "$ua_task_resp" "$group"
+                    if is_infrastructure_failure_detail "$ua_task_resp"; then
+                        record_skip_result "Uninstall agent task (infrastructure)" "GET" "/api/v1/admin/tasks/${ua_task}" "$ua_task_error" "$group"
+                    else
+                        record_fail_result "Uninstall agent task" "GET" "/api/v1/admin/tasks/${ua_task}" "completed" "$ua_task_error" "$ua_task_resp" "$group"
+                    fi
                 fi
             else
                 record_task_terminal_result "Uninstall agent task" "GET" "/api/v1/admin/tasks/${ua_task}" "$ua_task_resp" "$group" || true

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"oneclickvirt/constant"
@@ -72,6 +73,9 @@ func (pool *ProviderWorkerPool) worker(workerID int) {
 
 // executeTask 执行单个任务
 func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
+	atomic.AddInt64(&pool.activeCount, 1)
+	defer atomic.AddInt64(&pool.activeCount, -1)
+
 	task := taskReq.Task
 	result := TaskResult{
 		Success: false,

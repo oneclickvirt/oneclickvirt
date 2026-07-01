@@ -131,6 +131,7 @@ func (m *ProviderPoolManager) CleanupIdle(idleTimeout time.Duration) int {
 			pool := poolValue.(*ProviderWorkerPool)
 			queueLen := len(pool.TaskQueue)
 			queueCap := cap(pool.TaskQueue)
+			activeCount := atomic.LoadInt64(&pool.activeCount)
 
 			shouldCleanup := false
 			reason := ""
@@ -144,8 +145,9 @@ func (m *ProviderPoolManager) CleanupIdle(idleTimeout time.Duration) int {
 				warned++
 			}
 
-			// 检查1: 空闲超时且队列为空
-			if now.Sub(lastAccess) > idleTimeout && queueLen == 0 {
+			// 检查1: 空闲超时且队列为空且没有正在执行的任务。
+			// 长任务执行期间队列会为空，不能把它当作空闲池关闭。
+			if now.Sub(lastAccess) > idleTimeout && queueLen == 0 && activeCount == 0 {
 				shouldCleanup = true
 				reason = "idle_timeout"
 			}
@@ -154,7 +156,7 @@ func (m *ProviderPoolManager) CleanupIdle(idleTimeout time.Duration) int {
 			if !shouldCleanup {
 				if createdAtValue, ok := m.createdAt.Load(providerID); ok {
 					createdAt := createdAtValue.(time.Time)
-					if now.Sub(createdAt) > maxLifetime && queueLen == 0 {
+					if now.Sub(createdAt) > maxLifetime && queueLen == 0 && activeCount == 0 {
 						shouldCleanup = true
 						reason = "max_lifetime"
 					}
@@ -167,6 +169,7 @@ func (m *ProviderPoolManager) CleanupIdle(idleTimeout time.Duration) int {
 				global.APP_LOG.Debug("清理Provider工作池",
 					zap.Uint("providerId", providerID),
 					zap.String("reason", reason),
+					zap.Int64("activeCount", activeCount),
 					zap.Duration("idleTime", now.Sub(lastAccess)))
 			}
 		}
