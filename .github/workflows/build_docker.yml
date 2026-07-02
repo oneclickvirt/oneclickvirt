@@ -172,7 +172,7 @@ jobs:
       
       - name: Upload Docker Hub digest
         if: steps.build-dockerhub.outcome == 'success'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: digests-dockerhub-${{ matrix.variant }}-${{ matrix.arch }}
           path: /tmp/digests-dockerhub/*
@@ -319,7 +319,7 @@ jobs:
       
       - name: Upload GHCR digest
         if: steps.build-ghcr.outcome == 'success'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: digests-ghcr-${{ matrix.variant }}-${{ matrix.arch }}
           path: /tmp/digests-ghcr/*

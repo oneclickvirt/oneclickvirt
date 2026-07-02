@@ -46,7 +46,7 @@ jobs:
         cp target/x86_64-unknown-linux-musl/release/oneclickvirt-agent oneclickvirt-agent-linux-amd64
 
     - name: Upload AMD64 agent artifact
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: agent-amd64
         path: server/agent/oneclickvirt-agent-linux-amd64
@@ -86,7 +86,7 @@ jobs:
         cp target/aarch64-unknown-linux-musl/release/oneclickvirt-agent oneclickvirt-agent-linux-arm64
 
     - name: Upload ARM64 agent artifact
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: agent-arm64
         path: server/agent/oneclickvirt-agent-linux-arm64
