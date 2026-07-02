@@ -68,7 +68,7 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Validate Docker context prerequisites
         run: |
@@ -213,7 +213,7 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Validate Docker context prerequisites
         run: |
@@ -337,7 +337,7 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -410,7 +410,7 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -475,7 +475,7 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -538,7 +538,7 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -600,7 +600,7 @@ jobs:
     
     steps:
       - name: Checkout oneclickvirt repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.PAT_TOKEN }}
       
@@ -649,7 +649,7 @@ jobs:
           fi
       
       - name: Checkout documentation repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: oneclickvirt/oneclickvirt.github.io
           token: ${{ secrets.PAT_TOKEN }}
