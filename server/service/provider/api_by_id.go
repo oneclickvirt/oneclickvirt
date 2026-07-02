@@ -7,6 +7,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -26,8 +27,9 @@ func (s *ProviderApiService) GetProviderByIDForOperation(providerID uint, operat
 		return nil, nil, fmt.Errorf("Provider不存在")
 	}
 
-	// 检查Provider状态
-	if dbProvider.Status != "active" {
+	// 检查Provider状态。partial 表示节点连通但部分能力探测失败，
+	// 实例 stop/delete 等操作仍应可达；否则清理会被"未激活"卡住。
+	if !isStandardProviderOperableStatus(dbProvider.Status) {
 		return nil, nil, fmt.Errorf("Provider未激活")
 	}
 
@@ -70,6 +72,15 @@ func (s *ProviderApiService) GetProviderByIDForOperation(providerID uint, operat
 	}
 
 	return nil, nil, fmt.Errorf("Provider加载后仍不可用")
+}
+
+func isStandardProviderOperableStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "active", "partial":
+		return true
+	default:
+		return false
+	}
 }
 
 // parseProviderID 解析字符串格式的Provider ID

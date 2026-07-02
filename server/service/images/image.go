@@ -74,7 +74,7 @@ func (s *ImageService) DownloadImage(req image.DownloadImageRequest) error {
 // isImageCompatible 检查镜像是否与指定的provider类型和架构兼容
 func (s *ImageService) isImageCompatible(systemImage system.SystemImage, providerType, instanceType, architecture string) bool {
 	// 检查Provider类型兼容性
-	if systemImage.ProviderType != providerType {
+	if utils.NormalizeSystemImageProviderType(systemImage.ProviderType) != utils.NormalizeSystemImageProviderType(providerType) {
 		return false
 	}
 
@@ -233,7 +233,7 @@ func (s *ImageService) PrepareImageForInstance(req image.DownloadImageRequest) (
 	}
 
 	// 验证参数匹配
-	if systemImage.ProviderType != req.ProviderType ||
+	if !utils.SystemImageProviderTypeMatches(req.ProviderType, systemImage.ProviderType) ||
 		systemImage.InstanceType != req.InstanceType ||
 		systemImage.Architecture != req.Architecture {
 		global.APP_LOG.Warn("镜像参数不匹配",
@@ -296,7 +296,10 @@ func (s *ImageService) GetAvailableImagesWithOS(providerType, instanceType, arch
 	query := global.APP_DB.Where("status = ?", "active")
 
 	if providerType != "" {
-		query = query.Where("provider_type = ?", providerType)
+		providerTypes := utils.SystemImageProviderTypeCandidates(providerType)
+		if len(providerTypes) > 0 {
+			query = query.Where("provider_type IN ?", providerTypes)
+		}
 	}
 	if instanceType != "" {
 		query = query.Where("instance_type = ?", instanceType)

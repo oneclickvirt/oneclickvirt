@@ -22,6 +22,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // executeProviderCreation 阶段2: Provider创建实例 (30% -> 60%)，根据ExecutionRule自动选择API或SSH
@@ -429,73 +430,32 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 			return fmt.Errorf("容器类Provider端口映射预分配失败（docker/podman/containerd/orbstack 的端口映射在容器创建时绑定，无法事后追加），无法继续创建实例: %v", err)
 		}
 	} else {
-		// 获取已分配的端口映射
-		portMappings, err := portMappingService.GetInstancePortMappings(instance.ID)
+		// 获取已分配的端口映射。创建阶段实例仍是 creating，不能使用面向用户操作的
+		// GetInstancePortMappings，否则 busy-state 校验会拒绝读取刚预分配的端口。
+		portMappings, err := portMappingService.GetActivePortMappingsForInstance(instance.ID)
 		if err != nil {
 			global.APP_LOG.Warn("获取端口映射失败",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instance.ID),
 				zap.Error(err))
 		} else {
-			// 对于容器类Provider（docker/podman/containerd/orbstack），将端口映射信息写入实例配置，
-			// 作为 -p 参数传给容器运行时。LXD/Incus/Proxmox 通过其他机制管理端口，无需此步骤。
-			if utils.UsesContainerRuntimePorts(localProviderType, instance.InstanceType) {
-				// 将端口映射信息添加到实例配置中
-				var ports []string
-				for _, port := range portMappings {
-					// 格式: "0.0.0.0:公网端口:容器端口/协议"
-					// 如果协议是 both，需要创建两个端口映射（tcp 和 udp）
-					if port.Protocol == "both" {
-						tcpMapping := fmt.Sprintf("0.0.0.0:%d:%d/tcp", port.HostPort, port.GuestPort)
-						udpMapping := fmt.Sprintf("0.0.0.0:%d:%d/udp", port.HostPort, port.GuestPort)
-						ports = append(ports, tcpMapping, udpMapping)
-					} else {
-						portMapping := fmt.Sprintf("0.0.0.0:%d:%d/%s", port.HostPort, port.GuestPort, port.Protocol)
-						ports = append(ports, portMapping)
-					}
-				}
-				instanceConfig.Ports = ports
+			// 对于容器类Provider（docker/podman/containerd/orbstack/kubevirt container），
+			// 将端口映射信息写入实例配置，作为运行时端口参数。QEMU/KubeVirt VM 则消费
+			// ssh/start/end 三个位置参数。LXD/Incus/Proxmox 通过其他机制管理端口，无需此步骤。
+			if applyPreallocatedPortMappingsToConfig(&instanceConfig, localProviderType, instance.InstanceType, portMappings) == "container_runtime" {
 
 				global.APP_LOG.Debug("容器端口映射预分配成功",
 					zap.Uint("taskId", task.ID),
 					zap.Uint("instanceId", instance.ID),
 					zap.String("providerType", localProviderType),
-					zap.Int("portCount", len(ports)),
-					zap.Strings("ports", ports))
-			} else if utils.UsesVMPositionalPorts(localProviderType, instance.InstanceType) {
-				// VM-only providers may consume positional ports for host-side forwarding.
-				var sshPort, startPort, endPort int
-				for _, port := range portMappings {
-					if port.IsSSH {
-						sshPort = port.HostPort
-					} else {
-						if startPort == 0 || port.HostPort < startPort {
-							startPort = port.HostPort
-						}
-						if port.HostPort > endPort {
-							endPort = port.HostPort
-						}
-					}
-				}
-				if startPort == 0 {
-					startPort = sshPort
-				}
-				if endPort == 0 {
-					endPort = startPort
-				}
-				instanceConfig.Ports = []string{
-					fmt.Sprintf("%d", sshPort),
-					fmt.Sprintf("%d", startPort),
-					fmt.Sprintf("%d", endPort),
-				}
-
+					zap.Int("portCount", len(instanceConfig.Ports)),
+					zap.Strings("ports", instanceConfig.Ports))
+			} else if len(instanceConfig.Ports) == 3 && utils.UsesVMPositionalPorts(localProviderType, instance.InstanceType) {
 				global.APP_LOG.Debug("QEMU/KubeVirt端口映射预分配成功",
 					zap.Uint("taskId", task.ID),
 					zap.Uint("instanceId", instance.ID),
 					zap.String("providerType", localProviderType),
-					zap.Int("sshPort", sshPort),
-					zap.Int("startPort", startPort),
-					zap.Int("endPort", endPort))
+					zap.Strings("ports", instanceConfig.Ports))
 			} else {
 				// 对于LXD等其他Provider，端口映射信息已保存在数据库中，将在实例创建时读取
 				global.APP_LOG.Debug("端口映射预分配成功",
@@ -641,6 +601,73 @@ func (s *Service) detectCopySourceResources(ctx context.Context, providerInstanc
 	return cpu, memory, disk, nil
 }
 
+func applyPreallocatedPortMappingsToConfig(instanceConfig *provider.InstanceConfig, providerType, instanceType string, portMappings []providerModel.Port) string {
+	if instanceConfig == nil || len(portMappings) == 0 {
+		return ""
+	}
+	if utils.UsesContainerRuntimePorts(providerType, instanceType) {
+		instanceConfig.Ports = buildContainerRuntimePorts(portMappings)
+		return "container_runtime"
+	}
+	if utils.UsesVMPositionalPorts(providerType, instanceType) {
+		instanceConfig.Ports = buildVMPositionalPorts(portMappings)
+		return "vm_positional"
+	}
+	return ""
+}
+
+func buildContainerRuntimePorts(portMappings []providerModel.Port) []string {
+	ports := make([]string, 0, len(portMappings))
+	for _, port := range portMappings {
+		if port.HostPort <= 0 || port.GuestPort <= 0 {
+			continue
+		}
+		protocol := strings.ToLower(strings.TrimSpace(port.Protocol))
+		switch protocol {
+		case "both", "":
+			ports = append(ports,
+				fmt.Sprintf("0.0.0.0:%d:%d/tcp", port.HostPort, port.GuestPort),
+				fmt.Sprintf("0.0.0.0:%d:%d/udp", port.HostPort, port.GuestPort))
+		default:
+			ports = append(ports, fmt.Sprintf("0.0.0.0:%d:%d/%s", port.HostPort, port.GuestPort, protocol))
+		}
+	}
+	return ports
+}
+
+func buildVMPositionalPorts(portMappings []providerModel.Port) []string {
+	var sshPort, startPort, endPort int
+	for _, port := range portMappings {
+		if port.HostPort <= 0 {
+			continue
+		}
+		if port.IsSSH {
+			sshPort = port.HostPort
+			continue
+		}
+		if startPort == 0 || port.HostPort < startPort {
+			startPort = port.HostPort
+		}
+		if port.HostPort > endPort {
+			endPort = port.HostPort
+		}
+	}
+	if sshPort <= 0 {
+		return nil
+	}
+	if startPort == 0 {
+		startPort = sshPort
+	}
+	if endPort == 0 {
+		endPort = startPort
+	}
+	return []string{
+		fmt.Sprintf("%d", sshPort),
+		fmt.Sprintf("%d", startPort),
+		fmt.Sprintf("%d", endPort),
+	}
+}
+
 type copyResourceUsageUpdates struct {
 	cpuDelta    int
 	memoryDelta int64
@@ -783,13 +810,17 @@ func (s *Service) populateImageURLFromSystemImage(imageURL *string, useCDN *bool
 	}
 
 	var sysImg systemModel.SystemImage
+	imageProviderTypes := utils.SystemImageProviderTypeCandidates(providerType)
+	if len(imageProviderTypes) == 0 {
+		return
+	}
 	newImageQuery := func(withArch bool) *gorm.DB {
 		query := global.APP_DB.Model(&systemModel.SystemImage{}).
-			Where("provider_type = ? AND instance_type = ? AND status = ?", providerType, instanceType, "active")
+			Where("provider_type IN ? AND instance_type = ? AND status = ?", imageProviderTypes, instanceType, "active")
 		if withArch && architecture != "" {
 			query = query.Where("architecture = ?", architecture)
 		}
-		return query
+		return query.Order(clause.Expr{SQL: "CASE WHEN provider_type = ? THEN 0 ELSE 1 END", Vars: []interface{}{imageProviderTypes[0]}})
 	}
 
 	// 策略 1: 按 name 精确匹配，优先约束架构，避免多架构同名镜像串用。

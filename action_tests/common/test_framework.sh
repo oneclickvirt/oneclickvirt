@@ -588,17 +588,15 @@ should_test_image() {
 # podman    Podman                container
 # containerd Containerd (nerdctl)  container
 # proxmoxve Proxmox VE            container, vm
-# kubevirt  KubeVirt              vm
-# qemu      QEMU                  vm
+# kubevirt  KubeVirt              container, vm
+# qemu      QEMU                  container, vm
 declare -A PLATFORM_SUPPORTS_VM=(
     [docker]=0 [lxd]=1 [incus]=1 [podman]=0 [containerd]=0 [proxmoxve]=1 [kubevirt]=1 [qemu]=1
 )
 
 env_supports_container() {
-    # All supported platforms support containers
     case "$ENV_TYPE" in
-        docker|lxd|incus|podman|containerd|proxmoxve) return 0 ;;
-        kubevirt|qemu) return 1 ;;
+        docker|lxd|incus|podman|containerd|proxmoxve|kubevirt|qemu) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -615,7 +613,7 @@ validate_instance_types() {
     # Determine container support: platforms not in VM-only list support containers
     local supports_container=1
     case "$platform" in
-        kubevirt|qemu) supports_container=0 ;;
+        vmware|virtualbox|multipass|vagrant) supports_container=0 ;;
     esac
     case "$types" in
         both)

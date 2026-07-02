@@ -296,22 +296,11 @@ spec:
         - name: cloudinitdisk
           cloudInitNoCloud:
             userData: |
-              #cloud-config
-              hostname: %s
-              disable_root: false
-              ssh_pwauth: true
-              chpasswd:
-                expire: false
-                list:
-                  - %s
-              runcmd:
-                - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-                - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-                - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true`,
+%s`,
 		yamlDoubleQuote(config.Name), yamlDoubleQuote(Namespace), yamlDoubleQuote(config.Name), yamlDoubleQuote(config.Name),
 		cpu,
 		yamlDoubleQuote(fmt.Sprintf("%dMi", memoryMB)),
-		yamlDoubleQuote(dvName), yamlDoubleQuote(config.Name), yamlDoubleQuote("root:"+strings.ReplaceAll(strings.ReplaceAll(password, "\r", ""), "\n", "")))
+		yamlDoubleQuote(dvName), indentBlock(kubeVirtVMCloudInitUserData(config.Name, password), 14))
 
 	vmCmd := fmt.Sprintf("cat << 'VMEOF' | kubectl apply -f - 2>&1\n%s\nVMEOF", vmYAML)
 	output, err = p.sshClient.Execute(vmCmd)
@@ -430,7 +419,7 @@ metadata:
 spec:
   type: NodePort
   selector:
-    kubevirt.io/domain: %s
+    vm.kubevirt.io/name: %s
   ports:
     - name: ssh
       protocol: TCP
@@ -463,6 +452,28 @@ spec:
         storage: %dGi
     storageClassName: %s`,
 		yamlDoubleQuote(dvName), yamlDoubleQuote(Namespace), yamlDoubleQuote(vmName), yamlDoubleQuote(resolvedURL), diskGB, yamlDoubleQuote(storageClassName))
+}
+
+func kubeVirtVMCloudInitUserData(hostname, password string) string {
+	userPassword := strings.ReplaceAll(strings.ReplaceAll(password, "\r", ""), "\n", "")
+	return fmt.Sprintf(`#cloud-config
+hostname: %s
+disable_root: false
+ssh_pwauth: true
+users:
+  - default
+  - name: root
+    lock_passwd: false
+    shell: /bin/bash
+chpasswd:
+  expire: false
+  list:
+    - %s
+runcmd:
+  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+`, yamlDoubleQuote(hostname), yamlDoubleQuote("root:"+userPassword))
 }
 
 func (p *KubeVirtProvider) resolveDataVolumeStorageClass() (string, error) {

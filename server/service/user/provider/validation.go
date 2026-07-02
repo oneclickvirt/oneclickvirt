@@ -15,6 +15,7 @@ import (
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/userquota"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -26,7 +27,7 @@ func (s *Service) validateProviderImageCompatibility(provider *providerModel.Pro
 	supportedProviders := strings.Split(image.ProviderType, ",")
 	providerSupported := false
 	for _, supportedType := range supportedProviders {
-		if strings.TrimSpace(supportedType) == provider.Type {
+		if utils.SystemImageProviderTypeMatches(provider.Type, supportedType) {
 			providerSupported = true
 			break
 		}

@@ -42,3 +42,51 @@ func TestProviderCreateSSHWaitTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldDefaultInstanceSSHPortTo22(t *testing.T) {
+	tests := []struct {
+		name         string
+		providerType string
+		instanceType string
+		want         bool
+	}{
+		{
+			name:         "lxd vm keeps default direct ssh",
+			providerType: "lxd",
+			instanceType: "vm",
+			want:         true,
+		},
+		{
+			name:         "kubevirt vm uses allocated nodeport mapping",
+			providerType: "kubevirt",
+			instanceType: "vm",
+			want:         false,
+		},
+		{
+			name:         "qemu vm uses allocated positional mapping",
+			providerType: "qemu",
+			instanceType: "vm",
+			want:         false,
+		},
+		{
+			name:         "docker container keeps runtime mapping",
+			providerType: "docker",
+			instanceType: "container",
+			want:         false,
+		},
+		{
+			name:         "kubevirt container keeps runtime mapping",
+			providerType: "kubevirt",
+			instanceType: "container",
+			want:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldDefaultInstanceSSHPortTo22(tt.providerType, tt.instanceType); got != tt.want {
+				t.Fatalf("shouldDefaultInstanceSSHPortTo22(%q, %q) = %v, want %v", tt.providerType, tt.instanceType, got, tt.want)
+			}
+		})
+	}
+}

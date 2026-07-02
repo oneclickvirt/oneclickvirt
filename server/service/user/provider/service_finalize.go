@@ -97,8 +97,10 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 		if actualInstance.IPv6Address != "" {
 			instanceUpdates["ipv6_address"] = actualInstance.IPv6Address
 		}
-		if dbProvider.Type != "docker" && dbProvider.Type != "podman" && dbProvider.Type != "containerd" {
+		if shouldDefaultInstanceSSHPortTo22(dbProvider.Type, instance.InstanceType) {
 			instanceUpdates["ssh_port"] = 22
+		} else {
+			applySSHPortFromActiveMapping(instance.ID, instanceUpdates)
 		}
 		if actualInstance.Status != "" {
 			providerStatus := strings.ToLower(actualInstance.Status)
@@ -113,8 +115,10 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 			}
 		}
 	} else {
-		if dbProvider.Type != "docker" && dbProvider.Type != "podman" && dbProvider.Type != "containerd" {
+		if shouldDefaultInstanceSSHPortTo22(dbProvider.Type, instance.InstanceType) {
 			instanceUpdates["ssh_port"] = 22
+		} else {
+			applySSHPortFromActiveMapping(instance.ID, instanceUpdates)
 		}
 	}
 

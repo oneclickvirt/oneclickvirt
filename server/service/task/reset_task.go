@@ -21,6 +21,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // PortMappingRequest 端口映射创建请求
@@ -195,8 +196,13 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 		}
 
 		// 3. 查询系统镜像（使用用户选择的镜像或当前实例的镜像）
-		if err := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ?",
-			resetImageName, resetCtx.Provider.Type, resetCtx.Instance.InstanceType, resetCtx.Provider.Architecture).
+		imageProviderTypes := utils.SystemImageProviderTypeCandidates(resetCtx.Provider.Type)
+		if len(imageProviderTypes) == 0 {
+			return fmt.Errorf("Provider类型无效，无法查询系统镜像")
+		}
+		if err := global.APP_DB.Where("name = ? AND provider_type IN ? AND instance_type = ? AND architecture = ?",
+			resetImageName, imageProviderTypes, resetCtx.Instance.InstanceType, resetCtx.Provider.Architecture).
+			Order(clause.Expr{SQL: "CASE WHEN provider_type = ? THEN 0 ELSE 1 END", Vars: []interface{}{imageProviderTypes[0]}}).
 			First(&resetCtx.SystemImage).Error; err != nil {
 			return fmt.Errorf("获取系统镜像信息失败: %v", err)
 		}

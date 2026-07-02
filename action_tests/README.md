@@ -91,8 +91,8 @@ action_tests/
 | `podman` | Podman | 是 | 否 | `both`/`vm` 自动纠正为 `container` |
 | `containerd` | Containerd | 是 | 否 | `both`/`vm` 自动纠正为 `container` |
 | `proxmoxve` | Proxmox VE | 是 | 是 | 无需纠正 |
-| `kubevirt` | KubeVirt | 否 | 是 | `both`/`container` 自动纠正为 `vm` |
-| `qemu` | QEMU | 否 | 是 | `both`/`container` 自动纠正为 `vm` |
+| `kubevirt` | KubeVirt | 是 | 是 | 无需纠正 |
+| `qemu` | QEMU | 是 | 是 | 无需纠正 |
 
 实例类型自动纠正：测试框架会根据平台能力自动纠正 `instance_types` 参数。例如选择 `docker` 平台并指定 `both`，框架会自动纠正为 `container`。纠正逻辑同时在 GitHub Actions 工作流和测试脚本中双重验证。
 
@@ -353,7 +353,7 @@ GitHub Actions 会自动安装所需依赖。
 | `ACTION_TEST_VM_MEMORY` | `4096` |
 | `ACTION_TEST_VM_DISK` | `20` |
 | `ACTION_TEST_KUBEVIRT_VM_CPU` | `1`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_CPU`） |
-| `ACTION_TEST_KUBEVIRT_VM_MEMORY` | `1024`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_MEMORY`） |
+| `ACTION_TEST_KUBEVIRT_VM_MEMORY` | `512`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_MEMORY`；2C/4G LightNode Worker 上更容易调度） |
 | `ACTION_TEST_KUBEVIRT_VM_DISK` | `20`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_DISK`） |
 | `ACTION_TEST_LXD_VM_CPU` | `1`（仅 LXD，覆盖 `ACTION_TEST_VM_CPU`） |
 | `ACTION_TEST_LXD_VM_MEMORY` | `1024`（仅 LXD，覆盖 `ACTION_TEST_VM_MEMORY`） |

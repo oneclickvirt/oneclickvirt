@@ -38,6 +38,13 @@ run_module_08() {
             ubuntu_url="https://github.com/oneclickvirt/incus_images/releases/download/ubuntu/ubuntu_22.04_jammy_${lxd_arch}_cloud.zip"
             alpine_url="https://github.com/oneclickvirt/incus_images/releases/download/alpine/alpine_3.19_3.19_${lxd_arch}_cloud.zip"
             ;;
+        qemu)
+            local qemu_lxc_repo="lxc_amd64_images"
+            [[ "$test_arch" == "arm64" ]] && qemu_lxc_repo="lxc_arm_images"
+            debian_url="https://github.com/oneclickvirt/${qemu_lxc_repo}/releases/download/debian/debian_12_bookworm_${lxd_arch}_cloud.tar.xz"
+            ubuntu_url="https://github.com/oneclickvirt/${qemu_lxc_repo}/releases/download/ubuntu/ubuntu_22.04_jammy_${lxd_arch}_cloud.tar.xz"
+            alpine_url="https://github.com/oneclickvirt/${qemu_lxc_repo}/releases/download/alpine/alpine_3.19_3.19_${lxd_arch}_cloud.tar.xz"
+            ;;
     esac
     # Normalize: providerType must match the DB/provider contract used by image lookup.
     log_info "System image tests: arch=${test_arch} env=${ENV_TYPE:-docker} repo=${img_repo}"
@@ -126,6 +133,9 @@ run_module_08() {
         incus)
             tmp_url="https://github.com/oneclickvirt/incus_images/releases/download/alpine/ci_temp_${unique_suffix}_${lxd_arch}_cloud.zip"
             ;;
+        qemu)
+            tmp_url="https://github.com/oneclickvirt/${qemu_lxc_repo:-lxc_amd64_images}/releases/download/alpine/ci_temp_${unique_suffix}_${lxd_arch}_cloud.tar.xz"
+            ;;
     esac
     local tmp_img; tmp_img=$(test_api "Create temp image for delete test" "POST" "/api/v1/admin/system-images" "200|400|409" \
         "{\"name\":\"ci-temp-for-delete-${unique_suffix}\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${tmp_url}\",\"description\":\"temp for delete test\",\"osType\":\"temp\",\"osVersion\":\"1\",\"minMemoryMB\":64,\"minDiskMB\":64}" "$group")
@@ -160,6 +170,9 @@ run_module_08() {
             ;;
         incus)
             negative_url="https://github.com/oneclickvirt/incus_images/releases/download/alpine/neg_test_${unique_suffix}_${lxd_arch}_cloud.zip"
+            ;;
+        qemu)
+            negative_url="https://github.com/oneclickvirt/${qemu_lxc_repo:-lxc_amd64_images}/releases/download/alpine/neg_test_${unique_suffix}_${lxd_arch}_cloud.tar.xz"
             ;;
     esac
     test_api "Create image (negative memory)" "POST" "/api/v1/admin/system-images" "400" \
