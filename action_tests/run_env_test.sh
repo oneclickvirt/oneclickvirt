@@ -10,7 +10,7 @@
 # Platform instance type support (hardcoded):
 #   docker/podman/containerd        → container only
 #   lxd/incus/proxmoxve             → container + vm
-#   kubevirt/qemu                   → vm only
+#   kubevirt/qemu                   → container + vm
 set -uo pipefail
 export noninteractive=true
 
@@ -45,7 +45,7 @@ case "$ENV_TYPE" in
     kubevirt)
         export WORKER_SWAP_MB="${KUBEVIRT_WORKER_SWAP_MB:-4096}"
         export ACTION_TEST_VM_CPU="${ACTION_TEST_KUBEVIRT_VM_CPU:-1}"
-        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_KUBEVIRT_VM_MEMORY:-1024}"
+        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_KUBEVIRT_VM_MEMORY:-512}"
         export ACTION_TEST_VM_DISK="${ACTION_TEST_KUBEVIRT_VM_DISK:-${ACTION_TEST_VM_DISK:-20}}"
         log_info "KubeVirt VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
         ;;
@@ -413,5 +413,11 @@ log_info "Exit code: ${EXIT_CODE}"
 if [[ $EXIT_CODE -ne 0 ]]; then
     log_warning "Some test modules had failures, see reports for details"
 fi
-# Always exit 0 to avoid failing the entire Action; test failures are captured in reports
-exit 0
+if [[ -f "${RESULTS_FILE:-}" ]]; then
+    _jsonl_fail_count=$(jq -r 'select((.status // "") == "FAIL") | 1' "$RESULTS_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "${_jsonl_fail_count:-0}" != "0" ]]; then
+        log_error "Detected ${_jsonl_fail_count} failed assertion(s) in ${RESULTS_FILE}"
+        EXIT_CODE=1
+    fi
+fi
+exit "$EXIT_CODE"

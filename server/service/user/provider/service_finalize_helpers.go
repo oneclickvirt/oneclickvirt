@@ -18,6 +18,27 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+func shouldDefaultInstanceSSHPortTo22(providerType, instanceType string) bool {
+	providerType = utils.NormalizeProviderType(providerType)
+	return !utils.IsDockerFamilyProvider(providerType) &&
+		!utils.UsesContainerRuntimePorts(providerType, instanceType) &&
+		!utils.UsesVMPositionalPorts(providerType, instanceType)
+}
+
+func applySSHPortFromActiveMapping(instanceID uint, instanceUpdates map[string]interface{}) bool {
+	var sshPortMapping providerModel.Port
+	if err := global.APP_DB.
+		Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).
+		First(&sshPortMapping).Error; err != nil {
+		return false
+	}
+	if sshPortMapping.HostPort <= 0 {
+		return false
+	}
+	instanceUpdates["ssh_port"] = sshPortMapping.HostPort
+	return true
+}
+
 // waitForInstanceSSHReady 智能等待实例SSH服务就绪
 // 通过轮询检查SSH端口是否可连接，而不是盲目等待固定时间
 func (s *Service) waitForInstanceSSHReady(ctx context.Context, instanceID, providerID, taskID uint, maxWaitTime time.Duration) error {

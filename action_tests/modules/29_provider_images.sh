@@ -108,7 +108,16 @@ run_module_29() {
         local img_entry; img_entry=$(echo "$images_json" | jq -c ".[$idx]" 2>/dev/null)
         # Try different field names for image identifier
         local img_name; img_name=$(echo "$img_entry" | jq -r '.image // .name // .url // empty' 2>/dev/null)
-        local img_type; img_type=$(echo "$img_entry" | jq -r '.instanceType // .instance_type // "container"' 2>/dev/null)
+        local img_type; img_type=$(echo "$img_entry" | jq -r '.instanceType // .instance_type // empty' 2>/dev/null)
+        if [[ -z "$img_type" || "$img_type" == "null" ]]; then
+            local img_tag; img_tag=$(echo "$img_entry" | jq -r '.tag // empty' 2>/dev/null)
+            local img_hint="${img_name,,} ${img_tag,,}"
+            if [[ "$img_hint" =~ \.(qcow2|img|raw|iso)([[:space:]]|$) || "$img_hint" =~ (^|[[:space:]])(disk|qcow2)([[:space:]]|$) ]]; then
+                img_type="vm"
+            else
+                img_type="container"
+            fi
+        fi
         local img_arch; img_arch=$(echo "$img_entry" | jq -r '.architecture // empty' 2>/dev/null)
 
         if [[ -z "$img_name" ]]; then

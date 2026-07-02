@@ -623,6 +623,21 @@ func (s *PortMappingService) GetInstancePortMappings(instanceID uint) ([]provide
 	return ports, nil
 }
 
+// GetActivePortMappingsForInstance returns already allocated active mappings without
+// checking the instance lifecycle state. It is intended for internal create/reset
+// flows that need the ports while the instance is still in a busy status.
+func (s *PortMappingService) GetActivePortMappingsForInstance(instanceID uint) ([]provider.Port, error) {
+	var ports []provider.Port
+	if err := global.APP_DB.
+		Where("instance_id = ? AND status = 'active'", instanceID).
+		Order("is_ssh DESC, host_port ASC").
+		Find(&ports).Error; err != nil {
+		global.APP_LOG.Error("获取实例已分配端口映射失败", zap.Error(err), zap.Uint("instanceID", instanceID))
+		return nil, err
+	}
+	return ports, nil
+}
+
 // GetPortMappingsByInstanceID 获取指定实例的端口映射（别名方法）
 func (s *PortMappingService) GetPortMappingsByInstanceID(instanceID uint) ([]provider.Port, error) {
 	return s.GetInstancePortMappings(instanceID)

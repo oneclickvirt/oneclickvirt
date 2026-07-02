@@ -576,36 +576,12 @@ func (p *QEMUProvider) createCloudInitISO(vmName, password string) (string, erro
 	ciISO := fmt.Sprintf("%s/vm-%s-cloudinit.iso", ImageDir, artifactName)
 	userDataPath := qemuCloudInitUserDataPath(vmName)
 	metaDataPath := qemuCloudInitMetaDataPath(vmName)
-	userPassword := strings.ReplaceAll(strings.ReplaceAll(password, "\r", ""), "\n", "")
+	userData := qemuCloudInitUserData(vmName, password)
 
 	// 创建 user-data
 	userDataCmd := fmt.Sprintf(`cat > %s << 'CIEOF'
-#cloud-config
-hostname: %s
-locale: en_US.UTF-8
-disable_root: false
-ssh_pwauth: true
-chpasswd:
-  expire: false
-  list:
-    - %s
-write_files:
-  - path: /etc/ssh/sshd_config.d/99-qemu.conf
-    content: |
-      PermitRootLogin yes
-      PasswordAuthentication yes
-      PubkeyAuthentication yes
-runcmd:
-  - systemctl enable --now serial-getty@ttyS0.service 2>/dev/null || true
-  - printf 'root:%%s\n' %s | chpasswd
-  - |
-    if [ -f /etc/ssh/sshd_config ]; then
-      sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-      sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-    fi
-  - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
-final_message: "cloud-init done after $UPTIME seconds"
-CIEOF`, shellSingleQuote(userDataPath), yamlDoubleQuote(qemuSafeFileComponent(vmName)), yamlDoubleQuote("root:"+userPassword), shellSingleQuote(userPassword))
+%s
+CIEOF`, shellSingleQuote(userDataPath), userData)
 	if _, err := p.sshClient.Execute(userDataCmd); err != nil {
 		return "", fmt.Errorf("failed to create user-data: %w", err)
 	}
@@ -654,6 +630,41 @@ fi`,
 	}
 
 	return ciISO, nil
+}
+
+func qemuCloudInitUserData(vmName, password string) string {
+	userPassword := strings.ReplaceAll(strings.ReplaceAll(password, "\r", ""), "\n", "")
+	return fmt.Sprintf(`#cloud-config
+hostname: %s
+locale: en_US.UTF-8
+disable_root: false
+ssh_pwauth: true
+users:
+  - default
+  - name: root
+    lock_passwd: false
+    shell: /bin/bash
+chpasswd:
+  expire: false
+  list:
+    - %s
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-qemu.conf
+    content: |
+      PermitRootLogin yes
+      PasswordAuthentication yes
+      PubkeyAuthentication yes
+runcmd:
+  - systemctl enable --now serial-getty@ttyS0.service 2>/dev/null || true
+  - printf 'root:%%s\n' %s | chpasswd
+  - |
+    if [ -f /etc/ssh/sshd_config ]; then
+      sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+      sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    fi
+  - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+final_message: "cloud-init done after $UPTIME seconds"
+`, yamlDoubleQuote(qemuSafeFileComponent(vmName)), yamlDoubleQuote("root:"+userPassword), shellSingleQuote(userPassword))
 }
 
 // getOSVariant 根据系统名返回 virt-install --os-variant 值

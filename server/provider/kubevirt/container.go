@@ -245,37 +245,70 @@ func (p *KubeVirtProvider) prepareK3sContainerImage(ctx context.Context, config 
 	targetRef := fmt.Sprintf("localhost/oneclickvirt/%s:latest", name)
 	dest := path.Join("/var/lib/oneclickvirt/k3s-images", name+".tar.gz")
 	script := fmt.Sprintf(`set -e
-mkdir -p %s
+image_dir=%s
+dest=%s
+target_ref=%s
+load_log=/tmp/ocv_k3s_load.log
+mkdir -p "$image_dir"
+rm -f "$load_log"
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL --retry 3 -o %s %s
+  curl -fsSL --retry 3 --retry-delay 2 -o "$dest" %s
 else
-  wget -q -O %s %s
+  wget -q -O "$dest" %s
 fi
+if [ ! -s "$dest" ]; then
+  echo "downloaded container image is empty: $dest" >&2
+  exit 1
+fi
+import_src="$dest"
+case "$dest" in
+  *.gz)
+    if gzip -t "$dest" >/dev/null 2>&1; then
+      import_src="${dest%%.gz}"
+      gzip -dc "$dest" > "$import_src"
+    else
+      echo "downloaded container image is not a valid gzip archive: $dest" >&2
+      file "$dest" 2>&1 || true
+      exit 1
+    fi
+    ;;
+esac
+run_loader() {
+  desc="$1"
+  shift
+  rm -f "$load_log"
+  if "$@" >"$load_log" 2>&1; then
+    return 0
+  fi
+  rc=$?
+  echo "loader failed: $desc (rc=$rc)" >&2
+  if [ -s "$load_log" ]; then cat "$load_log" >&2; fi
+  return "$rc"
+}
 if command -v nerdctl >/dev/null 2>&1; then
-  nerdctl -n k8s.io load -i %s >/tmp/ocv_k3s_load.log 2>&1 || nerdctl load -i %s >/tmp/ocv_k3s_load.log 2>&1
-  loaded=$(awk '/Loaded image:/ {print $3}' /tmp/ocv_k3s_load.log | tail -n1)
-  if [ -n "$loaded" ]; then nerdctl -n k8s.io tag "$loaded" %s 2>/dev/null || nerdctl tag "$loaded" %s 2>/dev/null || true; fi
+  run_loader "nerdctl -n k8s.io load" nerdctl -n k8s.io load -i "$import_src" || run_loader "nerdctl load" nerdctl load -i "$import_src"
+  loaded=$(awk '/Loaded image:/ {print $3}' "$load_log" | tail -n1)
+  if [ -n "$loaded" ]; then nerdctl -n k8s.io tag "$loaded" "$target_ref" >/dev/null 2>&1 || nerdctl tag "$loaded" "$target_ref" >/dev/null 2>&1 || true; fi
 elif command -v k3s >/dev/null 2>&1; then
-  k3s ctr -n k8s.io images import %s >/tmp/ocv_k3s_load.log 2>&1
-  loaded=$(awk '/unpacking/ {print $2}' /tmp/ocv_k3s_load.log | tail -n1)
-  if [ -n "$loaded" ]; then k3s ctr -n k8s.io images tag "$loaded" %s 2>/dev/null || true; fi
+  run_loader "k3s ctr images import" k3s ctr -n k8s.io images import "$import_src"
+  loaded=$(awk '/unpacking/ {print $2}' "$load_log" | tail -n1)
+  if [ -n "$loaded" ]; then k3s ctr -n k8s.io images tag "$loaded" "$target_ref" >/dev/null 2>&1 || true; fi
 elif command -v ctr >/dev/null 2>&1; then
-  ctr -n k8s.io images import %s >/tmp/ocv_k3s_load.log 2>&1
-  loaded=$(awk '/unpacking/ {print $2}' /tmp/ocv_k3s_load.log | tail -n1)
-  if [ -n "$loaded" ]; then ctr -n k8s.io images tag "$loaded" %s 2>/dev/null || true; fi
+  run_loader "ctr images import" ctr -n k8s.io images import "$import_src"
+  loaded=$(awk '/unpacking/ {print $2}' "$load_log" | tail -n1)
+  if [ -n "$loaded" ]; then ctr -n k8s.io images tag "$loaded" "$target_ref" >/dev/null 2>&1 || true; fi
 else
   echo "container image runtime not found" >&2
   exit 1
 fi
-printf '%%s' %s`, shellSingleQuote("/var/lib/oneclickvirt/k3s-images"), shellSingleQuote(dest), shellSingleQuote(resolvedURL),
-		shellSingleQuote(dest), shellSingleQuote(resolvedURL), shellSingleQuote(dest), shellSingleQuote(dest), shellSingleQuote(targetRef), shellSingleQuote(targetRef),
-		shellSingleQuote(dest), shellSingleQuote(targetRef), shellSingleQuote(dest), shellSingleQuote(targetRef), shellSingleQuote(targetRef))
+printf '%%s' "$target_ref"`, shellSingleQuote("/var/lib/oneclickvirt/k3s-images"), shellSingleQuote(dest), shellSingleQuote(targetRef),
+		shellSingleQuote(resolvedURL), shellSingleQuote(resolvedURL))
 	updateProgress(30, "下载并导入K3s容器镜像")
 	output, err := p.sshClient.Execute(script)
 	if err != nil {
-		return "", fmt.Errorf("failed to import k3s container image: %w (output: %s)", err, utils.TruncateString(output, 300))
+		return "", fmt.Errorf("failed to import k3s container image: %w (output: %s)", err, utils.TruncateString(output, 1200))
 	}
-	return strings.TrimSpace(output), nil
+	return targetRef, nil
 }
 
 func normalizeK3sImageRef(image string) string {

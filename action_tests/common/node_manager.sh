@@ -229,18 +229,26 @@ find_local_env_install_script() {
                 "${SCRIPT_DIR}/../../../../../incus/scripts/incus_install.sh"
             )
             ;;
-        kubevirt)
-            [[ -n "${KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH}")
-            candidates+=(
-                "/Volumes/Additional/个人数据/GitHub/kubevirt/kubevirtinstall.sh"
-                "${SCRIPT_DIR}/../../../kubevirt/kubevirtinstall.sh"
-                "${SCRIPT_DIR}/../../../../../kubevirt/kubevirtinstall.sh"
-            )
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+		kubevirt)
+			[[ -n "${KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH}")
+			candidates+=(
+				"/Volumes/Additional/个人数据/GitHub/kubevirt/kubevirtinstall.sh"
+				"${SCRIPT_DIR}/../../../kubevirt/kubevirtinstall.sh"
+				"${SCRIPT_DIR}/../../../../../kubevirt/kubevirtinstall.sh"
+			)
+			;;
+		qemu)
+			[[ -n "${QEMU_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${QEMU_INSTALL_SCRIPT_LOCAL_PATH}")
+			candidates+=(
+				"/Volumes/Additional/个人数据/GitHub/qemu/qemuinstall.sh"
+				"${SCRIPT_DIR}/../../../qemu/qemuinstall.sh"
+				"${SCRIPT_DIR}/../../../../../qemu/qemuinstall.sh"
+			)
+			;;
+		*)
+			return 1
+			;;
+	esac
 
     for candidate in "${candidates[@]}"; do
         [[ -n "$candidate" && -f "$candidate" ]] && {
@@ -346,11 +354,11 @@ install_env() {
             ;;
     esac
     local env_install_cmd=""
-    if [[ "$env" == "incus" ]]; then
-        env_install_cmd=$(build_env_install_command "$env" "$url" "$noninteractive_prefix" "$env_prefix") || return 1
-    else
-        env_install_cmd="${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh"
-    fi
+	if [[ "$env" == "incus" || "$env" == "qemu" ]]; then
+		env_install_cmd=$(build_env_install_command "$env" "$url" "$noninteractive_prefix" "$env_prefix") || return 1
+	else
+		env_install_cmd="${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh"
+	fi
 
     if [[ "$env" == "proxmoxve" ]]; then
         log_info "PVE install step 1/3: installing PVE kernel (reboot required)..."

@@ -8,6 +8,65 @@ func NormalizeProviderType(providerType string) string {
 	return strings.ToLower(strings.TrimSpace(providerType))
 }
 
+// NormalizeSystemImageProviderType returns the provider_type stored by system
+// image seed data. Some runtime provider names are aliases for the same image
+// family, for example proxmoxve/pve use proxmox images.
+func NormalizeSystemImageProviderType(providerType string) string {
+	switch NormalizeProviderType(providerType) {
+	case "pve", "proxmoxve":
+		return "proxmox"
+	default:
+		return NormalizeProviderType(providerType)
+	}
+}
+
+// SystemImageProviderTypeCandidates returns the preferred system image provider
+// type plus the raw provider type as a compatibility fallback.
+func SystemImageProviderTypeCandidates(providerType string) []string {
+	raw := NormalizeProviderType(providerType)
+	normalized := NormalizeSystemImageProviderType(raw)
+	if raw == "" {
+		return nil
+	}
+	if raw == normalized {
+		return []string{normalized}
+	}
+	return []string{normalized, raw}
+}
+
+// SystemImageProviderTypeMatches reports whether a runtime provider type can use
+// a system-image provider_type value. imageProviderType may be a comma-separated
+// compatibility list.
+func SystemImageProviderTypeMatches(providerType, imageProviderType string) bool {
+	raw := NormalizeProviderType(providerType)
+	if raw == "" {
+		return false
+	}
+	normalized := NormalizeSystemImageProviderType(raw)
+	candidates := map[string]struct{}{}
+	for _, candidate := range SystemImageProviderTypeCandidates(providerType) {
+		candidates[candidate] = struct{}{}
+	}
+
+	for _, item := range strings.Split(imageProviderType, ",") {
+		supportedRaw := NormalizeProviderType(item)
+		if supportedRaw == "" {
+			continue
+		}
+		supportedNormalized := NormalizeSystemImageProviderType(supportedRaw)
+		if supportedRaw == raw || supportedNormalized == normalized {
+			return true
+		}
+		if _, ok := candidates[supportedRaw]; ok {
+			return true
+		}
+		if _, ok := candidates[supportedNormalized]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func NormalizeInstanceType(instanceType string) string {
 	return strings.ToLower(strings.TrimSpace(instanceType))
 }

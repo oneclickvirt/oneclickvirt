@@ -278,5 +278,11 @@ log_info "Total: ${TOTAL_TESTS} | Passed: ${PASSED_TESTS} | Failed: ${FAILED_TES
 if [[ $EXIT_CODE -ne 0 ]]; then
     log_warning "Some modules had failures (exit_code=${EXIT_CODE}), see reports for details"
 fi
-# Always exit 0 to avoid failing the entire Action; failures are captured in reports
-exit 0
+if [[ -f "${RESULTS_FILE:-}" ]]; then
+    _jsonl_fail_count=$(jq -r 'select((.status // "") == "FAIL") | 1' "$RESULTS_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "${_jsonl_fail_count:-0}" != "0" ]]; then
+        log_error "Detected ${_jsonl_fail_count} failed assertion(s) in ${RESULTS_FILE}"
+        EXIT_CODE=1
+    fi
+fi
+exit "$EXIT_CODE"
