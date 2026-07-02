@@ -88,7 +88,14 @@ run_module_18() {
         local urp_task; urp_task=$(echo "$urp" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$urp_task" ]]; then
             wait_task_complete "$SERVER_URL" "$urp_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || true
-            test_api "User get new password" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/password/${urp_task}" "200|403|404" "" "$group" "$USER_TOKEN"
+            local urp_pw_resp
+            urp_pw_resp=$(test_api "User get new password" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/password/${urp_task}" "200|403|404" "" "$group" "$USER_TOKEN")
+            local urp_pw_code urp_new_pw
+            urp_pw_code=$(echo "$urp_pw_resp" | jq -r '.code // empty' 2>/dev/null)
+            urp_new_pw=$(echo "$urp_pw_resp" | jq -r '.data.password // .data.newPassword // empty' 2>/dev/null)
+            if [[ "$urp_pw_code" == "200" && -n "$urp_new_pw" && "$urp_new_pw" != "null" ]]; then
+                export TEST_INSTANCE_PASSWORD="$urp_new_pw"
+            fi
         fi
 
         # Instance action via user API

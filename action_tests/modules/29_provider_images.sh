@@ -154,6 +154,13 @@ run_module_29() {
         tested=$((tested + 1))
         local test_label="Image[${tested}]: ${img_name} (${img_type}, arch=${img_arch:-${provider_arch}})"
         log_info "Testing: ${test_label}"
+        if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} before ${test_label}" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10; then
+            _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
+                "provider still had active tasks before image creation; avoiding overlapping provider operations" \
+                "idle provider task queue" "busy"
+            consecutive_fails=$((consecutive_fails + 1))
+            continue
+        fi
 
         # -- Create instance with this image --
         local inst_data

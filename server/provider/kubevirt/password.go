@@ -46,21 +46,11 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 		zap.String("instance", utils.TruncateString(instanceID, 32)))
 
 	if exists, _ := p.sshK3sContainerExists(instanceID); exists {
-		name := k8sResourceName(instanceID)
-		podOutput, podErr := p.sshClient.Execute(fmt.Sprintf(
-			"kubectl get pod -n %s -l %s -o jsonpath='{.items[0].metadata.name}' 2>/dev/null",
-			shellSingleQuote(Namespace), shellSingleQuote("oneclickvirt.io/instance="+name)))
-		podName := strings.TrimSpace(podOutput)
-		if podErr == nil && podName != "" {
-			remoteCmd := fmt.Sprintf("printf 'root:%%s\n' %s | chpasswd", shellSingleQuote(password))
-			output, err := p.sshClient.Execute(fmt.Sprintf(
-				"kubectl exec -n %s %s -- /bin/sh -c %s 2>&1",
-				shellSingleQuote(Namespace), shellSingleQuote(podName), shellSingleQuote(remoteCmd)))
-			if err == nil {
-				global.APP_LOG.Info("通过kubectl exec设置KubeVirt容器密码成功", zap.String("instance", utils.TruncateString(instanceID, 32)))
-				return nil
-			}
-			global.APP_LOG.Warn("通过kubectl exec设置KubeVirt容器密码失败", zap.String("instance", utils.TruncateString(instanceID, 32)), zap.String("output", utils.TruncateString(output, 300)), zap.Error(err))
+		if err := p.sshSetK3sContainerPassword(ctx, instanceID, password); err == nil {
+			global.APP_LOG.Info("通过kubectl exec设置KubeVirt容器密码成功", zap.String("instance", utils.TruncateString(instanceID, 32)))
+			return nil
+		} else {
+			global.APP_LOG.Warn("通过kubectl exec设置KubeVirt容器密码失败", zap.String("instance", utils.TruncateString(instanceID, 32)), zap.Error(err))
 		}
 	}
 
@@ -85,14 +75,17 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 			if err := p.ensureSSHPassAvailable(); err != nil {
 				lastErr = err
 			} else {
-				for _, candidate := range passwordCandidates {
-					if err := p.kubeVirtSSHSetPasswordViaNodePort(sshPort, candidate, password); err == nil {
-						global.APP_LOG.Info("通过SSH设置密码成功",
-							zap.String("instance", utils.TruncateString(instanceID, 32)),
-							zap.Int("attempt", attempt))
-						return nil
-					} else {
-						lastErr = err
+				for _, host := range p.kubeVirtSSHNodePortHosts() {
+					for _, candidate := range passwordCandidates {
+						if err := p.kubeVirtSSHSetPasswordViaNodePort(host, sshPort, candidate, password); err == nil {
+							global.APP_LOG.Info("通过SSH设置密码成功",
+								zap.String("instance", utils.TruncateString(instanceID, 32)),
+								zap.String("host", utils.TruncateString(host, 50)),
+								zap.Int("attempt", attempt))
+							return nil
+						} else {
+							lastErr = err
+						}
 					}
 				}
 			}
@@ -119,6 +112,108 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 			return fmt.Errorf("failed to set password for VM %s before timeout: %w", instanceID, err)
 		}
 	}
+}
+
+func (p *KubeVirtProvider) sshSetK3sContainerPassword(ctx context.Context, instanceID, password string) error {
+	name := k8sResourceName(instanceID)
+	if name == "" {
+		return fmt.Errorf("invalid KubeVirt container name: %s", instanceID)
+	}
+	if strings.TrimSpace(password) == "" {
+		return fmt.Errorf("empty KubeVirt container password")
+	}
+	podName, err := p.kubeVirtK3sContainerPodName(name)
+	if err != nil {
+		return err
+	}
+
+	output, err := p.sshClient.Execute(kubeVirtK3sChpasswdCommand(Namespace, podName, password))
+	if err != nil {
+		return fmt.Errorf("KubeVirt container chpasswd failed: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 300))
+	}
+
+	sshPort, err := p.kubeVirtContainerSSHNodePort(name)
+	if err != nil {
+		global.APP_LOG.Debug("KubeVirt容器未找到SSH NodePort，跳过外部密码验证",
+			zap.String("instance", utils.TruncateString(instanceID, 32)),
+			zap.Error(err))
+		return nil
+	}
+	if err := p.ensureSSHPassAvailable(); err != nil {
+		return err
+	}
+	var lastErr error
+	for _, host := range p.kubeVirtSSHNodePortHosts() {
+		if err := p.kubeVirtSSHCheckPasswordViaNodePort(host, sshPort, password); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	for _, host := range p.kubeVirtSSHNodePortHosts() {
+		for _, candidate := range kubeVirtPasswordCandidates(password) {
+			if err := p.kubeVirtSSHSetPasswordViaNodePort(host, sshPort, candidate, password); err == nil {
+				if verifyErr := p.kubeVirtSSHCheckPasswordViaNodePort(host, sshPort, password); verifyErr == nil {
+					return nil
+				} else {
+					lastErr = verifyErr
+				}
+			} else {
+				lastErr = err
+			}
+		}
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+	}
+	return fmt.Errorf("KubeVirt container password update could not be verified via NodePort %d: %v", sshPort, lastErr)
+}
+
+func (p *KubeVirtProvider) kubeVirtK3sContainerPodName(name string) (string, error) {
+	podOutput, podErr := p.sshClient.Execute(fmt.Sprintf(
+		"kubectl get pod -n %s -l %s --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null",
+		shellSingleQuote(Namespace), shellSingleQuote("oneclickvirt.io/instance="+name)))
+	podName := strings.TrimSpace(podOutput)
+	if podErr != nil || podName == "" {
+		podOutput, podErr = p.sshClient.Execute(fmt.Sprintf(
+			"kubectl get pod -n %s -l %s -o jsonpath='{.items[0].metadata.name}' 2>/dev/null",
+			shellSingleQuote(Namespace), shellSingleQuote("oneclickvirt.io/instance="+name)))
+		podName = strings.TrimSpace(podOutput)
+	}
+	if podErr != nil {
+		return "", podErr
+	}
+	if podName == "" {
+		return "", fmt.Errorf("no KubeVirt container pod found for %s", name)
+	}
+	return podName, nil
+}
+
+func kubeVirtK3sChpasswdCommand(namespace, podName, password string) string {
+	return fmt.Sprintf(
+		"printf 'root:%%s\\n' %s | kubectl exec -i -n %s %s -- chpasswd 2>&1",
+		shellSingleQuote(password), shellSingleQuote(namespace), shellSingleQuote(podName))
+}
+
+func (p *KubeVirtProvider) kubeVirtContainerSSHNodePort(instanceID string) (int, error) {
+	name := k8sResourceName(instanceID)
+	if name == "" {
+		return 0, fmt.Errorf("invalid KubeVirt container name: %s", instanceID)
+	}
+	output, err := p.sshClient.Execute(fmt.Sprintf(
+		"kubectl get svc %s -n %s -o jsonpath='{range .spec.ports[*]}{.targetPort}:{.protocol}:{.nodePort}{\"\\n\"}{end}' 2>/dev/null | awk -F: '$1==\"22\" && $2==\"TCP\" {print $3; exit}'",
+		shellSingleQuote(name+"-ports"), shellSingleQuote(Namespace)))
+	if err != nil {
+		return 0, err
+	}
+	sshPort := strings.TrimSpace(output)
+	port, parseErr := strconv.Atoi(sshPort)
+	if sshPort == "" || parseErr != nil || port <= 0 {
+		return 0, fmt.Errorf("invalid SSH nodePort for KubeVirt container %s: %q", instanceID, sshPort)
+	}
+	return port, nil
 }
 
 func kubeVirtPasswordCandidates(password string) []string {
@@ -149,20 +244,76 @@ func (p *KubeVirtProvider) kubeVirtSSHNodePort(instanceID string) (int, error) {
 	return port, nil
 }
 
-func (p *KubeVirtProvider) kubeVirtSSHSetPasswordViaNodePort(sshPort int, authPassword, newPassword string) error {
+func (p *KubeVirtProvider) kubeVirtSSHNodePortHosts() []string {
+	output, _ := p.sshClient.Execute("kubectl get nodes -o jsonpath='{range .items[*].status.addresses[*]}{.address}{\"\\n\"}{end}' 2>/dev/null")
+	return kubeVirtNodePortSSHHosts(p.config.Host, output)
+}
+
+func kubeVirtNodePortSSHHosts(configHost, nodeAddresses string) []string {
+	hosts := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+	add := func(host string) {
+		host = strings.TrimSpace(host)
+		if host == "" || host == "<none>" {
+			return
+		}
+		if _, ok := seen[host]; ok {
+			return
+		}
+		seen[host] = struct{}{}
+		hosts = append(hosts, host)
+	}
+
+	add(configHost)
+	for _, host := range strings.Fields(nodeAddresses) {
+		add(host)
+	}
+	add("127.0.0.1")
+	return hosts
+}
+
+func (p *KubeVirtProvider) kubeVirtSSHSetPasswordViaNodePort(host string, sshPort int, authPassword, newPassword string) error {
 	if strings.TrimSpace(authPassword) == "" {
 		return fmt.Errorf("empty SSH auth password")
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return fmt.Errorf("empty SSH nodePort host")
 	}
 	remoteCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(newPassword))
 	chpasswdCmd := fmt.Sprintf(
 		"SSHPASS=%s sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o PreferredAuthentications=password -o PasswordAuthentication=yes -o PubkeyAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=10 -p %d %s %s 2>&1",
 		shellSingleQuote(authPassword),
 		sshPort,
-		shellSingleQuote("root@127.0.0.1"),
+		shellSingleQuote("root@"+host),
 		shellSingleQuote(remoteCmd))
 	output, err := p.sshClient.Execute(chpasswdCmd)
 	if err != nil {
-		return fmt.Errorf("SSH password update failed: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 300))
+		return fmt.Errorf("SSH password update failed via %s:%d: %w; output: %s", host, sshPort, err, utils.TruncateString(strings.TrimSpace(output), 300))
+	}
+	return nil
+}
+
+func (p *KubeVirtProvider) kubeVirtSSHCheckPasswordViaNodePort(host string, sshPort int, password string) error {
+	if strings.TrimSpace(password) == "" {
+		return fmt.Errorf("empty SSH auth password")
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return fmt.Errorf("empty SSH nodePort host")
+	}
+	checkCmd := fmt.Sprintf(
+		"SSHPASS=%s sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o PreferredAuthentications=password -o PasswordAuthentication=yes -o PubkeyAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=10 -p %d %s %s 2>&1",
+		shellSingleQuote(password),
+		sshPort,
+		shellSingleQuote("root@"+host),
+		shellSingleQuote("echo kubevirt-password-ok"))
+	output, err := p.sshClient.Execute(checkCmd)
+	if err != nil {
+		return fmt.Errorf("SSH password check failed via %s:%d: %w; output: %s", host, sshPort, err, utils.TruncateString(strings.TrimSpace(output), 300))
+	}
+	if !strings.Contains(output, "kubevirt-password-ok") {
+		return fmt.Errorf("SSH password check via %s:%d returned unexpected output: %s", host, sshPort, utils.TruncateString(strings.TrimSpace(output), 300))
 	}
 	return nil
 }
@@ -170,10 +321,9 @@ func (p *KubeVirtProvider) kubeVirtSSHSetPasswordViaNodePort(sshPort int, authPa
 func (p *KubeVirtProvider) kubeVirtSetPasswordViaVirtctl(instanceID, password string) error {
 	remoteCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
 	output, err := p.sshClient.Execute(fmt.Sprintf(
-		"printf '%%s\\n' %s | virtctl ssh --local-ssh=false -n %s %s 2>&1",
+		"printf '%%s\\n' %s | %s",
 		shellSingleQuote(remoteCmd),
-		shellSingleQuote(Namespace),
-		shellSingleQuote("root@"+instanceID)))
+		withKubeVirtKubeconfig(fmt.Sprintf("virtctl ssh --local-ssh=false -n %s %s 2>&1", shellSingleQuote(Namespace), shellSingleQuote("root@"+instanceID)))))
 	if err == nil && !strings.Contains(strings.ToLower(output), "error") {
 		return nil
 	}

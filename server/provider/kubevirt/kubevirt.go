@@ -217,7 +217,7 @@ func (p *KubeVirtProvider) getKubeVirtVersion() error {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	output, err := p.sshClient.Execute("kubectl get kubevirt -n kubevirt -o jsonpath='{.items[0].status.observedKubeVirtVersion}' 2>/dev/null || virtctl version --client 2>/dev/null")
+	output, err := p.sshClient.Execute("kubectl get kubevirt -n kubevirt -o jsonpath='{.items[0].status.observedKubeVirtVersion}' 2>/dev/null || " + withKubeVirtKubeconfig("virtctl version --client 2>/dev/null"))
 	if err != nil {
 		p.version = "unknown"
 		return err

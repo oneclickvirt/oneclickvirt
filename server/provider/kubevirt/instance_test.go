@@ -63,3 +63,29 @@ func TestKubeVirtVMCloudInitUserDataUnlocksRootPasswordLogin(t *testing.T) {
 		t.Fatalf("cloud-init user-data should strip password newlines:\n%s", userData)
 	}
 }
+
+func TestWithKubeVirtKubeconfigPrefixesCommand(t *testing.T) {
+	got := withKubeVirtKubeconfig("virtctl stop vm-1")
+	want := "KUBECONFIG='/etc/rancher/k3s/k3s.yaml' virtctl stop vm-1"
+	if got != want {
+		t.Fatalf("withKubeVirtKubeconfig() = %q, want %q", got, want)
+	}
+}
+
+func TestKubeVirtContainerResourcesUseSmallRequestsAndConfiguredLimits(t *testing.T) {
+	yaml := buildKubeVirtContainerResourcesYAML("2", 2048)
+
+	required := []string{
+		`requests:`,
+		`cpu: "100m"`,
+		`memory: "128Mi"`,
+		`limits:`,
+		`cpu: "2"`,
+		`memory: "2048Mi"`,
+	}
+	for _, item := range required {
+		if !strings.Contains(yaml, item) {
+			t.Fatalf("container resources YAML missing %q:\n%s", item, yaml)
+		}
+	}
+}
