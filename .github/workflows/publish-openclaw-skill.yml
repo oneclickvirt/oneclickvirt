@@ -76,7 +76,7 @@ jobs:
       contents: write
     steps:
       - name: Download packaged skill artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: oneclickvirt-skill
 
