@@ -304,6 +304,13 @@ run_module_10() {
                     wait_instance_status "$container_id" "running" "$rebuild_status_wait" 10 "$ADMIN_TOKEN" "container ${container_id} after rebuild" > /dev/null || {
                         log_warning "Container ${container_id} did not report running within ${rebuild_status_wait}s after rebuild"
                     }
+                    local rebuilt_detail rebuilt_pw
+                    rebuilt_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                        "${SERVER_URL}/api/v1/admin/instances/${container_id}" 2>/dev/null) || true
+                    rebuilt_pw=$(echo "$rebuilt_detail" | jq -r '.data.password // empty' 2>/dev/null)
+                    if [[ -n "$rebuilt_pw" && "$rebuilt_pw" != "null" ]]; then
+                        export TEST_INSTANCE_PASSWORD="$rebuilt_pw"
+                    fi
                 else
                     log_warning "Skipping post-rebuild running-state wait because rebuild task did not complete"
                 fi

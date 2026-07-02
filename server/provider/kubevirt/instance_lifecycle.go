@@ -34,7 +34,7 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		return nil
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl start %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
+	output, err := p.sshClient.Execute(withKubeVirtKubeconfig(fmt.Sprintf("virtctl start %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace))))
 	if err != nil {
 		diagnostics := p.collectVMDiagnostics(id)
 		global.APP_LOG.Error("KubeVirt虚拟机启动失败",
@@ -69,7 +69,7 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 		return p.sshScaleK3sContainer(ctx, id, 0)
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl stop %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
+	output, err := p.sshClient.Execute(withKubeVirtKubeconfig(fmt.Sprintf("virtctl stop %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace))))
 	if err != nil {
 		diagnostics := p.collectVMDiagnostics(id)
 		global.APP_LOG.Error("KubeVirt虚拟机停止失败",
@@ -121,7 +121,7 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 		return p.StartInstance(ctx, id)
 	}
 
-	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl restart %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
+	output, err := p.sshClient.Execute(withKubeVirtKubeconfig(fmt.Sprintf("virtctl restart %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace))))
 	if err != nil {
 		global.APP_LOG.Warn("KubeVirt虚拟机restart失败，尝试stop+start",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -211,7 +211,7 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	global.APP_LOG.Info("开始删除KubeVirt虚拟机", zap.String("id", utils.TruncateString(id, 32)))
 
 	// 1. 停止VM
-	p.sshClient.Execute(fmt.Sprintf("virtctl stop %s -n %s 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
+	p.sshClient.Execute(withKubeVirtKubeconfig(fmt.Sprintf("virtctl stop %s -n %s 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace))))
 	time.Sleep(2 * time.Second)
 
 	// 2. 删除VM资源

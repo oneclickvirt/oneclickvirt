@@ -382,15 +382,20 @@ func buildKubeVirtContainerPortsYAML(ports []kubeVirtContainerPort) string {
 }
 
 func buildKubeVirtContainerResourcesYAML(cpu string, memoryMB int) string {
-	memory := fmt.Sprintf("%dMi", memoryMB)
+	limitMemory := fmt.Sprintf("%dMi", memoryMB)
+	requestMemoryMB := memoryMB
+	if requestMemoryMB <= 0 || requestMemoryMB > 128 {
+		requestMemoryMB = 128
+	}
+	requestMemory := fmt.Sprintf("%dMi", requestMemoryMB)
 	return fmt.Sprintf(`
           resources:
             requests:
-              cpu: %s
+              cpu: "100m"
               memory: %s
             limits:
               cpu: %s
-              memory: %s`, yamlDoubleQuote(cpu), yamlDoubleQuote(memory), yamlDoubleQuote(cpu), yamlDoubleQuote(memory))
+              memory: %s`, yamlDoubleQuote(requestMemory), yamlDoubleQuote(cpu), yamlDoubleQuote(limitMemory))
 }
 
 func buildKubeVirtContainerStartupScript(password string) string {
@@ -446,13 +451,13 @@ func (p *KubeVirtProvider) collectK3sContainerDiagnostics(name string) string {
 		label string
 		cmd   string
 	}{
-		{"deployment yaml", fmt.Sprintf("kubectl get deploy %s -n %s -o yaml 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))},
-		{"deployment describe", fmt.Sprintf("kubectl describe deploy %s -n %s 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))},
 		{"pods", fmt.Sprintf("kubectl get pods -n %s -l %s -o wide 2>&1", shellSingleQuote(Namespace), shellSingleQuote("app="+name))},
 		{"pod describe", fmt.Sprintf("kubectl describe pods -n %s -l %s 2>&1", shellSingleQuote(Namespace), shellSingleQuote("app="+name))},
 		{"pod logs", fmt.Sprintf("kubectl logs -n %s -l %s --all-containers --tail=120 2>&1", shellSingleQuote(Namespace), shellSingleQuote("app="+name))},
-		{"service yaml", fmt.Sprintf("kubectl get svc %s -n %s -o yaml 2>&1", shellSingleQuote(name+"-ports"), shellSingleQuote(Namespace))},
 		{"namespace events", fmt.Sprintf("kubectl get events -n %s --sort-by=.lastTimestamp 2>&1 | tail -120", shellSingleQuote(Namespace))},
+		{"deployment describe", fmt.Sprintf("kubectl describe deploy %s -n %s 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))},
+		{"deployment yaml", fmt.Sprintf("kubectl get deploy %s -n %s -o yaml 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))},
+		{"service yaml", fmt.Sprintf("kubectl get svc %s -n %s -o yaml 2>&1", shellSingleQuote(name+"-ports"), shellSingleQuote(Namespace))},
 	}
 	var parts []string
 	for _, command := range commands {
