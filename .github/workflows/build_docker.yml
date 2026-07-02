@@ -355,7 +355,7 @@ jobs:
       
       - name: Download Docker Hub digests
         id: download-dockerhub
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: digests-dockerhub-full-*
           merge-multiple: true
@@ -430,7 +430,7 @@ jobs:
       
       - name: Download GHCR digests
         id: download-ghcr
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: digests-ghcr-full-*
           merge-multiple: true
@@ -493,7 +493,7 @@ jobs:
       
       - name: Download Docker Hub digests
         id: download-dockerhub
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: digests-dockerhub-no-db-*
           merge-multiple: true
@@ -558,7 +558,7 @@ jobs:
       
       - name: Download GHCR digests
         id: download-ghcr
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: digests-ghcr-no-db-*
           merge-multiple: true
