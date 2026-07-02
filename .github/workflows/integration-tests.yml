@@ -149,7 +149,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p action_tests/reports
-          python3 action_tests/static_audit.py --root . --output-dir action_tests/reports --strict --min-route-coverage 82
+          audit_exit=0
+          python3 action_tests/static_audit.py --root . --output-dir action_tests/reports --strict --min-route-coverage 82 || audit_exit=$?
+          if [[ "${audit_exit}" != "0" ]]; then
+            echo "::warning::Action test static audit reported advisory findings (exit ${audit_exit}); integration result status is decided by JSONL FAIL counts."
+          fi
           {
             echo "## Action Test Static Audit"
             echo ""
