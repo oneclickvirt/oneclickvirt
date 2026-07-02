@@ -59,7 +59,7 @@ jobs:
           sha256sum "oneclickvirt-skill-${VERSION}.tar.gz" > "oneclickvirt-skill-${VERSION}.sha256"
 
       - name: Upload packaged skill artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: oneclickvirt-skill
           path: |
