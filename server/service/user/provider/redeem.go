@@ -29,7 +29,7 @@ func (s *Service) RedeemCode(userID uint, code string) error {
 		return fmt.Errorf("获取用户信息失败: %w", err)
 	}
 	if currentUser.TrafficLimited {
-		return fmt.Errorf("当前账号当月总流量已超限，普通用户禁止兑换新实例，请等待自然月自动重置或联系管理员")
+		return fmt.Errorf("当前账号当前流量周期总流量已超限，普通用户禁止兑换新实例，请等待节点流量重置日自动重置或联系管理员")
 	}
 
 	dbService := database.GetDatabaseService()

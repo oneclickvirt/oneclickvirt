@@ -40,6 +40,10 @@ const (
 func (s *ThreeTierLimitService) CheckAllTrafficLimits(ctx context.Context) error {
 	global.APP_LOG.Debug("开始三层级流量限制检查")
 
+	if err := s.ProcessDueTrafficResets(ctx); err != nil {
+		global.APP_LOG.Warn("处理到期流量重置失败", zap.Error(err))
+	}
+
 	// 第一层：检查Provider层级（最高优先级）
 	if err := s.CheckAllProvidersTrafficLimit(ctx); err != nil {
 		global.APP_LOG.Warn("Provider层级流量检查失败", zap.Error(err))

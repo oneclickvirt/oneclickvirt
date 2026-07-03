@@ -23,6 +23,6 @@ export default {
   trafficStats: "流量统计",
   viewDetailedStats: "查看详细统计",
   currentMonthUsage: "当月使用量",
-  resetOn1st: "每月1日重置",
+  resetOn1st: "按节点重置日重置",
   historicalStats: "历史统计"
 }

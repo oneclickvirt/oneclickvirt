@@ -1,12 +1,15 @@
 package scheduler
 
 import (
+	"encoding/json"
 	"time"
 
 	"oneclickvirt/global"
+	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
 	"oneclickvirt/service/cache"
+	"oneclickvirt/service/taskgate"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -98,21 +101,136 @@ func (s *ExpiryFreezeService) freezeProvider(p *provider.Provider) error {
 func (s *ExpiryFreezeService) CheckAndFreezeExpiredInstances() error {
 	now := time.Now()
 
-	// 单次批量冻结所有已过期实例，避免加载全部记录到内存
-	result := global.APP_DB.Model(&provider.Instance{}).
-		Where("expires_at IS NOT NULL AND expires_at <= ? AND is_frozen = ?", now, false).
-		Updates(map[string]interface{}{
-			"is_frozen":     true,
-			"frozen_at":     now,
-			"frozen_reason": "expired",
-		})
-	if result.Error != nil {
-		global.APP_LOG.Error("批量冻结过期实例失败", zap.Error(result.Error))
-		return result.Error
+	type expiredInstance struct {
+		ID                       uint
+		UserID                   uint
+		ProviderID               uint
+		Status                   string
+		InstanceExpiryAction     string
+		InstanceExpiryExtendDays int
 	}
 
-	if result.RowsAffected > 0 {
-		global.APP_LOG.Info("已批量冻结过期实例", zap.Int64("count", result.RowsAffected))
+	const batchSize = 200
+	var lastID uint
+	totalHandled := 0
+	for {
+		var instances []expiredInstance
+		if err := global.APP_DB.Table("instances i").
+			Joins("INNER JOIN providers p ON i.provider_id = p.id").
+			Select("i.id, i.user_id, i.provider_id, i.status, COALESCE(p.instance_expiry_action, 'delete') AS instance_expiry_action, COALESCE(p.instance_expiry_extend_days, 0) AS instance_expiry_extend_days").
+			Where("i.id > ? AND i.expires_at IS NOT NULL AND i.expires_at <= ? AND i.is_frozen = ? AND i.status NOT IN ?", lastID, now, false, []string{"deleted", "deleting"}).
+			Order("i.id ASC").
+			Limit(batchSize).
+			Find(&instances).Error; err != nil {
+			global.APP_LOG.Error("查询过期实例失败", zap.Error(err))
+			return err
+		}
+		if len(instances) == 0 {
+			break
+		}
+
+		for _, inst := range instances {
+			if err := s.handleExpiredInstance(inst, now); err != nil {
+				global.APP_LOG.Warn("处理过期实例失败",
+					zap.Uint("instanceID", inst.ID),
+					zap.String("action", inst.InstanceExpiryAction),
+					zap.Error(err))
+			} else {
+				totalHandled++
+			}
+			lastID = inst.ID
+		}
+
+		if len(instances) < batchSize {
+			break
+		}
+	}
+
+	if totalHandled > 0 {
+		global.APP_LOG.Info("已处理过期实例", zap.Int("count", totalHandled))
+	}
+	return nil
+}
+
+func (s *ExpiryFreezeService) handleExpiredInstance(inst struct {
+	ID                       uint
+	UserID                   uint
+	ProviderID               uint
+	Status                   string
+	InstanceExpiryAction     string
+	InstanceExpiryExtendDays int
+}, now time.Time) error {
+	switch inst.InstanceExpiryAction {
+	case provider.InstanceExpiryActionExtend:
+		extendDays := inst.InstanceExpiryExtendDays
+		if extendDays <= 0 {
+			extendDays = 1
+		}
+		nextExpiry := now.Add(time.Duration(extendDays) * 24 * time.Hour)
+		return global.APP_DB.Model(&provider.Instance{}).
+			Where("id = ?", inst.ID).
+			Update("expires_at", nextExpiry).Error
+	case provider.InstanceExpiryActionStop:
+		return s.stopExpiredInstance(inst.ID, inst.UserID, inst.ProviderID, inst.Status, now)
+	case provider.InstanceExpiryActionFreeze, provider.InstanceExpiryActionDelete:
+		fallthrough
+	default:
+		return global.APP_DB.Model(&provider.Instance{}).
+			Where("id = ?", inst.ID).
+			Updates(map[string]interface{}{
+				"is_frozen":     true,
+				"frozen_at":     now,
+				"frozen_reason": "expired",
+			}).Error
+	}
+}
+
+func (s *ExpiryFreezeService) stopExpiredInstance(instanceID, userID, providerID uint, status string, now time.Time) error {
+	updates := map[string]interface{}{
+		"is_frozen":     true,
+		"frozen_at":     now,
+		"frozen_reason": "expired",
+	}
+	if status == "running" {
+		if err := taskgate.EnsureAccepting(); err != nil {
+			return err
+		}
+		updates["status"] = "stopped"
+		updates["expiry_stopped"] = true
+		updates["expiry_stopped_at"] = now
+	}
+	if err := global.APP_DB.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
+		return err
+	}
+	if status != "running" {
+		return nil
+	}
+
+	taskData, err := json.Marshal(map[string]interface{}{
+		"instanceId": instanceID,
+		"providerId": providerID,
+	})
+	if err != nil {
+		return err
+	}
+	task := &adminModel.Task{
+		TaskType:         "stop",
+		Status:           "pending",
+		Progress:         0,
+		StatusMessage:    "实例到期自动关机",
+		TaskData:         string(taskData),
+		UserID:           userID,
+		ProviderID:       &providerID,
+		InstanceID:       &instanceID,
+		TimeoutDuration:  600,
+		IsForceStoppable: true,
+		CanForceStop:     false,
+	}
+	if err := global.APP_DB.Create(task).Error; err != nil {
+		return err
+	}
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
 	}
 	return nil
 }

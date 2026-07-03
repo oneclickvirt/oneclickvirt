@@ -690,7 +690,12 @@ https://github.com/oneclickvirt/kvm_images/releases/download/almalinux9/almalinu
 https://github.com/oneclickvirt/kvm_images/releases/download/rockylinux9/rockylinux9.qcow2
 https://github.com/oneclickvirt/kvm_images/releases/download/centos7/centos7.qcow2
 https://github.com/oneclickvirt/kvm_images/releases/download/centos8-stream/centos8-stream.qcow2
-https://github.com/oneclickvirt/kvm_images/releases/download/opensuse-leap-15/opensuse-leap-15.qcow2`
+https://github.com/oneclickvirt/kvm_images/releases/download/opensuse-leap-15/opensuse-leap-15.qcow2
+docker://spiritlhl/wds:2019
+docker://spiritlhl/wds:2022
+docker://redroid/redroid:8.1.0-latest
+docker://redroid/redroid:11.0.0-latest
+docker://dockurr/macos:sonoma`
 
 // getDefaultImageURLs 返回默认的镜像URL列表
 // 当网络不通无法从远程获取镜像列表时，使用此默认列表进行初始化
@@ -700,7 +705,7 @@ func getDefaultImageURLs() []string {
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line != "" && strings.HasPrefix(line, "https://") {
+		if line != "" && (strings.HasPrefix(line, "https://") || strings.HasPrefix(line, "docker://")) {
 			urls = append(urls, line)
 		}
 	}

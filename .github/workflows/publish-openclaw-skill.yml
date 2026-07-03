@@ -81,7 +81,7 @@ jobs:
           name: oneclickvirt-skill
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             oneclickvirt-skill-*.tar.gz

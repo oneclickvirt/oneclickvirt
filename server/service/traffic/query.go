@@ -2,7 +2,6 @@ package traffic
 
 import (
 	"fmt"
-	"sort"
 	"time"
 
 	"oneclickvirt/global"
@@ -29,6 +28,471 @@ type TrafficStats struct {
 type rawTrafficRecord struct {
 	RxBytes int64
 	TxBytes int64
+}
+
+type instanceTrafficConfig struct {
+	InstanceID           uint
+	EnableTrafficControl bool
+	TrafficCountMode     string
+	TrafficMultiplier    float64
+	TrafficResetDay      *int
+}
+
+func (s *QueryService) getInstanceTrafficConfigs(instanceIDs []uint) (map[uint]instanceTrafficConfig, error) {
+	if len(instanceIDs) == 0 {
+		return map[uint]instanceTrafficConfig{}, nil
+	}
+
+	var rows []instanceTrafficConfig
+	err := global.APP_DB.Unscoped().Table("instances i").
+		Joins("INNER JOIN providers p ON i.provider_id = p.id").
+		Select("i.id as instance_id, p.enable_traffic_control as enable_traffic_control, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier, p.traffic_reset_day as traffic_reset_day").
+		Where("i.id IN ?", instanceIDs).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("批量查询Provider流量配置失败: %w", err)
+	}
+
+	configs := make(map[uint]instanceTrafficConfig, len(rows))
+	for _, row := range rows {
+		configs[row.InstanceID] = row
+	}
+	return configs, nil
+}
+
+func trafficWindowKey(start, end time.Time) string {
+	return fmt.Sprintf("%d:%d", start.UnixNano(), end.UnixNano())
+}
+
+func computeWindowTraffic(records []rawTrafficRecord, baseline *rawTrafficRecord) (totalRx, totalTx int64) {
+	if len(records) == 0 {
+		return 0, 0
+	}
+
+	prevRx, prevTx := int64(0), int64(0)
+	hasPrev := false
+	if baseline != nil {
+		prevRx = baseline.RxBytes
+		prevTx = baseline.TxBytes
+		hasPrev = true
+	}
+
+	for _, r := range records {
+		if hasPrev {
+			if r.RxBytes >= prevRx {
+				totalRx += r.RxBytes - prevRx
+			} else {
+				totalRx += r.RxBytes
+			}
+			if r.TxBytes >= prevTx {
+				totalTx += r.TxBytes - prevTx
+			} else {
+				totalTx += r.TxBytes
+			}
+		} else {
+			totalRx += r.RxBytes
+			totalTx += r.TxBytes
+			hasPrev = true
+		}
+		prevRx = r.RxBytes
+		prevTx = r.TxBytes
+	}
+
+	return totalRx, totalTx
+}
+
+func (s *QueryService) batchGetInstancesTrafficInWindow(instanceIDs []uint, start, end time.Time, configs map[uint]instanceTrafficConfig) (map[uint]*TrafficStats, error) {
+	statsMap := make(map[uint]*TrafficStats, len(instanceIDs))
+	if len(instanceIDs) == 0 {
+		return statsMap, nil
+	}
+
+	type baselineRow struct {
+		InstanceID uint
+		RxBytes    int64
+		TxBytes    int64
+	}
+	subQuery := global.APP_DB.Table("pmacct_traffic_records").
+		Select("instance_id, MAX(timestamp) AS max_timestamp").
+		Where("instance_id IN ? AND timestamp < ? AND deleted_at IS NULL", instanceIDs, start).
+		Group("instance_id")
+
+	var baselines []baselineRow
+	if err := global.APP_DB.Table("pmacct_traffic_records r").
+		Select("r.instance_id, r.rx_bytes, r.tx_bytes").
+		Joins("INNER JOIN (?) latest ON latest.instance_id = r.instance_id AND latest.max_timestamp = r.timestamp", subQuery).
+		Where("r.deleted_at IS NULL").
+		Find(&baselines).Error; err != nil {
+		return nil, fmt.Errorf("批量查询流量窗口基线失败: %w", err)
+	}
+	baselineMap := make(map[uint]rawTrafficRecord, len(baselines))
+	for _, row := range baselines {
+		baselineMap[row.InstanceID] = rawTrafficRecord{RxBytes: row.RxBytes, TxBytes: row.TxBytes}
+	}
+
+	type batchRawRecord struct {
+		InstanceID uint
+		RxBytes    int64
+		TxBytes    int64
+	}
+	var allRecords []batchRawRecord
+	if err := global.APP_DB.Table("pmacct_traffic_records").
+		Select("instance_id, rx_bytes, tx_bytes").
+		Where("instance_id IN ? AND timestamp >= ? AND timestamp < ? AND deleted_at IS NULL", instanceIDs, start, end).
+		Order("instance_id ASC, timestamp ASC").
+		Find(&allRecords).Error; err != nil {
+		return nil, fmt.Errorf("批量加载流量窗口原始记录失败: %w", err)
+	}
+
+	groups := make(map[uint][]rawTrafficRecord, len(instanceIDs))
+	for _, rec := range allRecords {
+		groups[rec.InstanceID] = append(groups[rec.InstanceID], rawTrafficRecord{RxBytes: rec.RxBytes, TxBytes: rec.TxBytes})
+	}
+
+	for _, id := range instanceIDs {
+		var baseline *rawTrafficRecord
+		if b, ok := baselineMap[id]; ok {
+			baseline = &b
+		}
+		rxBytes, txBytes := computeWindowTraffic(groups[id], baseline)
+		stats := &TrafficStats{
+			RxBytes:    rxBytes,
+			TxBytes:    txBytes,
+			TotalBytes: rxBytes + txBytes,
+		}
+		if cfg, ok := configs[id]; ok && cfg.EnableTrafficControl {
+			stats.ActualUsageMB = s.calculateActualUsage(rxBytes, txBytes, cfg.TrafficCountMode, cfg.TrafficMultiplier)
+		}
+		statsMap[id] = stats
+	}
+
+	return statsMap, nil
+}
+
+func (s *QueryService) BatchGetInstancesCurrentCycleTraffic(instanceIDs []uint) (map[uint]*TrafficStats, error) {
+	statsMap := make(map[uint]*TrafficStats, len(instanceIDs))
+	if len(instanceIDs) == 0 {
+		return statsMap, nil
+	}
+
+	configs, err := s.getInstanceTrafficConfigs(instanceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	type windowGroup struct {
+		start time.Time
+		end   time.Time
+		ids   []uint
+	}
+	now := time.Now()
+	groups := make(map[string]*windowGroup)
+	for _, id := range instanceIDs {
+		cfg, ok := configs[id]
+		if !ok {
+			statsMap[id] = &TrafficStats{}
+			continue
+		}
+		start, end := CurrentTrafficWindow(cfg.TrafficResetDay, now)
+		key := trafficWindowKey(start, end)
+		group := groups[key]
+		if group == nil {
+			group = &windowGroup{start: start, end: end}
+			groups[key] = group
+		}
+		group.ids = append(group.ids, id)
+	}
+
+	for _, group := range groups {
+		groupStats, err := s.batchGetInstancesTrafficInWindow(group.ids, group.start, group.end, configs)
+		if err != nil {
+			return nil, err
+		}
+		for id, stats := range groupStats {
+			statsMap[id] = stats
+		}
+	}
+
+	for _, id := range instanceIDs {
+		if _, ok := statsMap[id]; !ok {
+			statsMap[id] = &TrafficStats{}
+		}
+	}
+	return statsMap, nil
+}
+
+func (s *QueryService) GetInstanceCurrentCycleTraffic(instanceID uint) (*TrafficStats, error) {
+	statsMap, err := s.BatchGetInstancesCurrentCycleTraffic([]uint{instanceID})
+	if err != nil {
+		return nil, err
+	}
+	if stats, ok := statsMap[instanceID]; ok {
+		return stats, nil
+	}
+	return &TrafficStats{}, nil
+}
+
+func (s *QueryService) GetProviderCurrentCycleTraffic(providerID uint) (*TrafficStats, error) {
+	var p struct {
+		EnableTrafficControl bool
+		TrafficResetDay      *int
+	}
+	if err := global.APP_DB.Table("providers").
+		Select("enable_traffic_control, traffic_reset_day").
+		Where("id = ?", providerID).
+		Scan(&p).Error; err != nil {
+		return nil, fmt.Errorf("查询Provider配置失败: %w", err)
+	}
+	if !p.EnableTrafficControl {
+		return &TrafficStats{}, nil
+	}
+
+	start, end := CurrentTrafficWindow(p.TrafficResetDay, time.Now())
+	var instanceIDs []uint
+	if err := global.APP_DB.Table("pmacct_traffic_records").
+		Where("provider_id = ? AND timestamp < ? AND deleted_at IS NULL", providerID, end).
+		Distinct("instance_id").
+		Pluck("instance_id", &instanceIDs).Error; err != nil {
+		return nil, fmt.Errorf("查询Provider流量实例列表失败: %w", err)
+	}
+	if len(instanceIDs) == 0 {
+		return &TrafficStats{}, nil
+	}
+
+	configs, err := s.getInstanceTrafficConfigs(instanceIDs)
+	if err != nil {
+		return nil, err
+	}
+	instanceStats, err := s.batchGetInstancesTrafficInWindow(instanceIDs, start, end, configs)
+	if err != nil {
+		return nil, err
+	}
+
+	total := &TrafficStats{}
+	for _, stats := range instanceStats {
+		total.RxBytes += stats.RxBytes
+		total.TxBytes += stats.TxBytes
+		total.TotalBytes += stats.TotalBytes
+		total.ActualUsageMB += stats.ActualUsageMB
+	}
+	return total, nil
+}
+
+func (s *QueryService) BatchGetProvidersCurrentCycleTraffic(providerIDs []uint) (map[uint]*TrafficStats, error) {
+	results := make(map[uint]*TrafficStats, len(providerIDs))
+	if len(providerIDs) == 0 {
+		return results, nil
+	}
+
+	type providerTrafficConfig struct {
+		ProviderID           uint
+		EnableTrafficControl bool
+		TrafficResetDay      *int
+	}
+	var providerConfigs []providerTrafficConfig
+	if err := global.APP_DB.Table("providers").
+		Select("id as provider_id, enable_traffic_control, traffic_reset_day").
+		Where("id IN ?", providerIDs).
+		Find(&providerConfigs).Error; err != nil {
+		return nil, fmt.Errorf("批量查询Provider流量配置失败: %w", err)
+	}
+
+	type windowGroup struct {
+		start       time.Time
+		end         time.Time
+		providerIDs []uint
+	}
+	now := time.Now()
+	groups := make(map[string]*windowGroup)
+	for _, cfg := range providerConfigs {
+		results[cfg.ProviderID] = &TrafficStats{}
+		if !cfg.EnableTrafficControl {
+			continue
+		}
+		start, end := CurrentTrafficWindow(cfg.TrafficResetDay, now)
+		key := trafficWindowKey(start, end)
+		group := groups[key]
+		if group == nil {
+			group = &windowGroup{start: start, end: end}
+			groups[key] = group
+		}
+		group.providerIDs = append(group.providerIDs, cfg.ProviderID)
+	}
+
+	for _, providerID := range providerIDs {
+		if _, ok := results[providerID]; !ok {
+			results[providerID] = &TrafficStats{}
+		}
+	}
+
+	for _, group := range groups {
+		type instanceProviderRow struct {
+			InstanceID uint
+			ProviderID uint
+		}
+		var rows []instanceProviderRow
+		if err := global.APP_DB.Table("pmacct_traffic_records").
+			Select("DISTINCT instance_id, provider_id").
+			Where("provider_id IN ? AND timestamp < ? AND deleted_at IS NULL", group.providerIDs, group.end).
+			Find(&rows).Error; err != nil {
+			return nil, fmt.Errorf("批量查询Provider流量实例列表失败: %w", err)
+		}
+		if len(rows) == 0 {
+			continue
+		}
+
+		instanceIDs := make([]uint, 0, len(rows))
+		instanceProvider := make(map[uint]uint, len(rows))
+		for _, row := range rows {
+			if row.InstanceID == 0 || row.ProviderID == 0 {
+				continue
+			}
+			instanceIDs = append(instanceIDs, row.InstanceID)
+			instanceProvider[row.InstanceID] = row.ProviderID
+		}
+		if len(instanceIDs) == 0 {
+			continue
+		}
+
+		configs, err := s.getInstanceTrafficConfigs(instanceIDs)
+		if err != nil {
+			return nil, err
+		}
+		instanceStats, err := s.batchGetInstancesTrafficInWindow(instanceIDs, group.start, group.end, configs)
+		if err != nil {
+			return nil, err
+		}
+		for instanceID, stats := range instanceStats {
+			providerID := instanceProvider[instanceID]
+			total := results[providerID]
+			if total == nil {
+				total = &TrafficStats{}
+				results[providerID] = total
+			}
+			total.RxBytes += stats.RxBytes
+			total.TxBytes += stats.TxBytes
+			total.TotalBytes += stats.TotalBytes
+			total.ActualUsageMB += stats.ActualUsageMB
+		}
+	}
+
+	return results, nil
+}
+
+func (s *QueryService) GetUserCurrentCycleTraffic(userID uint) (*TrafficStats, error) {
+	var instanceIDs []uint
+	if err := global.APP_DB.Unscoped().Table("instances").
+		Where("user_id = ?", userID).
+		Pluck("id", &instanceIDs).Error; err != nil {
+		return nil, fmt.Errorf("获取用户实例列表失败: %w", err)
+	}
+	if len(instanceIDs) == 0 {
+		return &TrafficStats{}, nil
+	}
+
+	instanceStats, err := s.BatchGetInstancesCurrentCycleTraffic(instanceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	total := &TrafficStats{}
+	for _, stats := range instanceStats {
+		total.RxBytes += stats.RxBytes
+		total.TxBytes += stats.TxBytes
+		total.TotalBytes += stats.TotalBytes
+		total.ActualUsageMB += stats.ActualUsageMB
+	}
+	return total, nil
+}
+
+func (s *QueryService) BatchGetUsersCurrentCycleTraffic(userIDs []uint) (map[uint]*TrafficStats, error) {
+	results := make(map[uint]*TrafficStats, len(userIDs))
+	if len(userIDs) == 0 {
+		return results, nil
+	}
+
+	for _, userID := range userIDs {
+		results[userID] = &TrafficStats{}
+	}
+
+	type instanceUserRow struct {
+		InstanceID uint
+		UserID     uint
+	}
+	var rows []instanceUserRow
+	if err := global.APP_DB.Unscoped().Table("instances").
+		Select("id as instance_id, user_id").
+		Where("user_id IN ?", userIDs).
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("批量获取用户实例列表失败: %w", err)
+	}
+	if len(rows) == 0 {
+		return results, nil
+	}
+
+	instanceIDs := make([]uint, 0, len(rows))
+	instanceUserMap := make(map[uint]uint, len(rows))
+	for _, row := range rows {
+		if row.InstanceID == 0 || row.UserID == 0 {
+			continue
+		}
+		instanceIDs = append(instanceIDs, row.InstanceID)
+		instanceUserMap[row.InstanceID] = row.UserID
+	}
+	if len(instanceIDs) == 0 {
+		return results, nil
+	}
+
+	instanceStats, err := s.BatchGetInstancesCurrentCycleTraffic(instanceIDs)
+	if err != nil {
+		return nil, err
+	}
+	for instanceID, stats := range instanceStats {
+		userID := instanceUserMap[instanceID]
+		if userID == 0 {
+			continue
+		}
+		total := results[userID]
+		if total == nil {
+			total = &TrafficStats{}
+			results[userID] = total
+		}
+		total.RxBytes += stats.RxBytes
+		total.TxBytes += stats.TxBytes
+		total.TotalBytes += stats.TotalBytes
+		total.ActualUsageMB += stats.ActualUsageMB
+	}
+
+	return results, nil
+}
+
+func (s *QueryService) GetUserNextTrafficResetTime(userID uint) (*time.Time, error) {
+	type providerReset struct {
+		TrafficResetDay *int
+	}
+	var rows []providerReset
+	if err := global.APP_DB.Unscoped().Table("instances i").
+		Joins("INNER JOIN providers p ON i.provider_id = p.id").
+		Select("p.traffic_reset_day as traffic_reset_day").
+		Where("i.user_id = ? AND p.enable_traffic_control = ?", userID, true).
+		Group("p.id, p.traffic_reset_day").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("查询用户节点流量重置时间失败: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	now := time.Now()
+	var next *time.Time
+	for _, row := range rows {
+		resetAt := NextTrafficResetTime(row.TrafficResetDay, now)
+		if next == nil || resetAt.Before(*next) {
+			value := resetAt
+			next = &value
+		}
+	}
+	return next, nil
 }
 
 // GetInstanceMonthlyTraffic 获取实例当月流量统计
@@ -477,165 +941,6 @@ func (s *QueryService) GetInstanceTrafficHistory(instanceID uint, days int) ([]*
 	}
 
 	return history, nil
-}
-
-// GetUserTrafficHistory 获取用户的流量历史（按天聚合）
-// 实时从 pmacct_traffic_records 聚合所有实例的流量
-func (s *QueryService) GetUserTrafficHistory(userID uint, days int) ([]*HistoryPoint, error) {
-	startDate := time.Now().AddDate(0, 0, -days).Truncate(24 * time.Hour)
-
-	// 查询用户所有实例的配置（用于计算实际用量）（包含软删除的实例）
-	var instanceConfigs []struct {
-		InstanceID           uint
-		EnableTrafficControl bool
-		TrafficCountMode     string
-		TrafficMultiplier    float64
-	}
-	if err := global.APP_DB.Unscoped().Table("instances i").
-		Joins("INNER JOIN providers p ON i.provider_id = p.id").
-		Select("i.id as instance_id, p.enable_traffic_control as enable_traffic_control, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
-		Where("i.user_id = ?", userID).
-		Find(&instanceConfigs).Error; err != nil {
-		return nil, fmt.Errorf("查询用户实例配置失败: %w", err)
-	}
-
-	// 构建实例ID->配置的映射
-	configMap := make(map[uint]struct {
-		Enabled    bool
-		CountMode  string
-		Multiplier float64
-	})
-	for _, cfg := range instanceConfigs {
-		configMap[cfg.InstanceID] = struct {
-			Enabled    bool
-			CountMode  string
-			Multiplier float64
-		}{
-			Enabled:    cfg.EnableTrafficControl,
-			CountMode:  cfg.TrafficCountMode,
-			Multiplier: cfg.TrafficMultiplier,
-		}
-	}
-
-	// 从 pmacct_traffic_records 按天聚合查询（包含 instance_id 用于计算实际用量）
-	// 处理pmacct重启导致的累积值重置问题
-	var rawResults []struct {
-		Date       time.Time
-		InstanceID uint
-		RxBytes    int64
-		TxBytes    int64
-	}
-
-	query := `
-		SELECT 
-			DATE(t1.timestamp) as date,
-			instance_id,
-			SUM(max_rx) as rx_bytes,
-			SUM(max_tx) as tx_bytes
-		FROM (
-			-- 检测重启并分段，每段取MAX
-			SELECT 
-				instance_id,
-				timestamp,
-				segment_id,
-				MAX(rx_bytes) as max_rx,
-				MAX(tx_bytes) as max_tx
-			FROM (
-				-- 计算每条记录的segment_id（累积重启次数）
-				SELECT 
-					t1.instance_id,
-					t1.timestamp,
-					t1.rx_bytes,
-					t1.tx_bytes,
-					(
-						SELECT COUNT(*)
-						FROM pmacct_traffic_records t2
-						LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-							AND t3.timestamp = (
-								SELECT MAX(timestamp) 
-								FROM pmacct_traffic_records 
-								WHERE instance_id = t2.instance_id 
-									AND timestamp < t2.timestamp
-									AND DATE(timestamp) = DATE(t2.timestamp)
-							)
-						WHERE t2.instance_id = t1.instance_id
-							AND t2.user_id = ?
-							AND t2.timestamp >= ?
-							AND t2.timestamp <= t1.timestamp
-							AND DATE(t2.timestamp) = DATE(t1.timestamp)
-							AND (
-								(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
-								OR
-								(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
-							)
-					) as segment_id
-				FROM pmacct_traffic_records t1
-				WHERE t1.user_id = ? AND t1.timestamp >= ?
-			) AS segments
-			GROUP BY instance_id, DATE(timestamp), segment_id, timestamp
-		) AS daily_segments
-		GROUP BY DATE(timestamp), instance_id
-		ORDER BY date ASC, instance_id
-	`
-
-	if err := global.APP_DB.Raw(query, userID, startDate, userID, startDate).Scan(&rawResults).Error; err != nil {
-		return nil, fmt.Errorf("查询用户流量历史失败: %w", err)
-	}
-
-	// 按天汇总所有实例
-	dayMap := make(map[string]*HistoryPoint)
-	for _, r := range rawResults {
-		dateKey := r.Date.Format("2006-01-02")
-
-		if _, exists := dayMap[dateKey]; !exists {
-			dayMap[dateKey] = &HistoryPoint{
-				Date:          r.Date,
-				Year:          r.Date.Year(),
-				Month:         int(r.Date.Month()),
-				Day:           r.Date.Day(),
-				RxBytes:       0,
-				TxBytes:       0,
-				TotalBytes:    0,
-				ActualUsageMB: 0,
-			}
-		}
-
-		// 累加原始字节
-		dayMap[dateKey].RxBytes += r.RxBytes
-		dayMap[dateKey].TxBytes += r.TxBytes
-		dayMap[dateKey].TotalBytes += r.RxBytes + r.TxBytes
-
-		// 根据实例配置计算实际用量
-		if config, ok := configMap[r.InstanceID]; ok && config.Enabled {
-			actualMB := s.calculateActualUsage(r.RxBytes, r.TxBytes, config.CountMode, config.Multiplier)
-			dayMap[dateKey].ActualUsageMB += actualMB
-		}
-	}
-
-	// 转换为有序数组
-	history := make([]*HistoryPoint, 0, len(dayMap))
-	for _, point := range dayMap {
-		history = append(history, point)
-	}
-
-	// 按日期排序
-	sort.Slice(history, func(i, j int) bool {
-		return history[i].Date.Before(history[j].Date)
-	})
-
-	return history, nil
-}
-
-// HistoryPoint 流量历史数据点
-type HistoryPoint struct {
-	Date          time.Time `json:"date"`
-	Year          int       `json:"year"`
-	Month         int       `json:"month"`
-	Day           int       `json:"day"`
-	RxBytes       int64     `json:"rx_bytes"`
-	TxBytes       int64     `json:"tx_bytes"`
-	TotalBytes    int64     `json:"total_bytes"`
-	ActualUsageMB float64   `json:"actual_usage_mb"`
 }
 
 // calculateActualUsage 根据流量计算模式计算实际使用量（MB）

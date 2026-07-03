@@ -29,14 +29,9 @@ func (s *Service) GetUserTrafficUsageWithPmacct(userID uint) (map[string]interfa
 	tService := trafficService.NewService()
 	trafficLimit := tService.GetUserTrafficLimitByLevel(user.Level)
 
-	// 简化的流量使用查询（包含已删除实例，保证累计值准确）
-	now := time.Now()
-	year := now.Year()
-	month := int(now.Month())
-
 	// 使用统一的流量查询服务（从pmacct_traffic_records实时聚合）
 	queryService := trafficService.NewQueryService()
-	monthlyStats, err := queryService.GetUserMonthlyTraffic(userID, year, month)
+	monthlyStats, err := queryService.GetUserCurrentCycleTraffic(userID)
 	if err != nil {
 		return nil, err
 	}

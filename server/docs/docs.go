@@ -14184,6 +14184,14 @@ const docTemplate = `{
                     "description": "生命周期和冻结管理",
                     "type": "string"
                 },
+                "expiryStopped": {
+                    "description": "是否由过期策略自动停机，续期后可自动恢复",
+                    "type": "boolean"
+                },
+                "expiryStoppedAt": {
+                    "description": "过期策略自动停机时间",
+                    "type": "string"
+                },
                 "frozenAt": {
                     "description": "冻结时间",
                     "type": "string"

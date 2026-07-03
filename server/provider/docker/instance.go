@@ -178,6 +178,10 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		zap.String("image", config.Image),
 		zap.String("providerHost", d.config.Host))
 
+	if handled, err := d.sshCreateSpecialRuntimeInstance(ctx, config, updateProgress); handled {
+		return err
+	}
+
 	// 确保SSH脚本文件可用（非致命错误，SSH脚本仅用于后续密码配置）
 	updateProgress(15, "确保SSH脚本可用...")
 	global.APP_LOG.Debug("准备调用ensureSSHScriptsAvailable",

@@ -117,6 +117,9 @@ func getMinHardwareRequirements(osType string, instanceType string) (int, int) {
 		"gentoo":     {256, 1536},
 		"kali":       {256, 1024},
 		"openwrt":    {64, 128},
+		"windows":    {6144, 40960},
+		"macos":      {6144, 51200},
+		"android":    {2048, 15360},
 	}
 
 	// 虚拟机的最低要求（取容器要求和当前硬编码的最大值）
@@ -139,8 +142,9 @@ func getMinHardwareRequirements(osType string, instanceType string) (int, int) {
 		"openbsd":    {512, 4096},
 		"netbsd":     {512, 4096},
 		"openwrt":    {128, 512},
-		"windows":    {2048, 20480},
-		"macos":      {4096, 40960},
+		"windows":    {6144, 40960},
+		"macos":      {6144, 51200},
+		"android":    {4096, 30720},
 	}
 
 	if instanceType == "vm" {

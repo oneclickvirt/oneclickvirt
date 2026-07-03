@@ -22,21 +22,24 @@
 | `three_tier_recovery.go` | 三级限额恢复与活跃任务保护 |
 | `operation_guard.go` | 流量超限时的实例操作保护 |
 | `query.go` | 流量统计查询 |
+| `reset_schedule.go` | Provider 流量重置日和当前周期窗口计算 |
+| `traffic_reset.go` | 到期重置 Provider 超限状态并触发恢复检查 |
 | `user.go` | 用户流量相关操作 |
-| `clear.go` | 流量数据清理（月度重置等） |
+| `clear.go` | 流量数据清理 |
 
 ## 数据表字段单位
 
 | 表名 | 字段 | 单位 | 说明 |
 |---|---|---|---|
 | `users` | `total_traffic` | MB | 用户流量限额 |
-| `users` | `used_traffic` | MB | 用户当月已使用流量 |
+| `users` | `used_traffic` | MB | 用户当前周期已使用流量 |
 | `providers` | `max_traffic` | MB | Provider 流量限额 |
-| `providers` | `used_traffic` | MB | Provider 当月已使用流量 |
+| `providers` | `used_traffic` | MB | Provider 当前周期已使用流量 |
+| `providers` | `traffic_reset_day` | 数字或空 | 每月流量重置日，空或 0 表示每月 1 日自然月重置 |
 | `providers` | `traffic_count_mode` | 字符串 | 流量统计模式：both/out/in |
 | `providers` | `traffic_multiplier` | 数字 | 流量计费倍率（默认 1.0） |
 | `instances` | `max_traffic` | MB | 实例流量限额 |
-| `instances` | `used_traffic` | MB | 实例当月已使用流量（双向总和） |
+| `instances` | `used_traffic` | MB | 实例当前周期已使用流量（双向总和） |
 | `instances` | `used_traffic_in` | MB | 实例入站流量（原始数据） |
 | `instances` | `used_traffic_out` | MB | 实例出站流量（原始数据） |
 | `traffic_records` | `traffic_in` / `traffic_out` / `total_used` | MB | 流量记录 |
@@ -56,8 +59,8 @@
 | 场景 | 是否应用 | 说明 |
 |---|---|---|
 | 数据采集 / 实例同步 / 记录写入 | ❌ | 保持原始数据 |
-| 用户流量统计 | ✅ | `getUserMonthlyTrafficFromPmacct()` |
-| Provider 流量统计 | ✅ | `getProviderMonthlyTrafficFromPmacct()` |
+| 用户流量统计 | ✅ | `GetUserCurrentCycleTraffic()` |
+| Provider 流量统计 | ✅ | `GetProviderCurrentCycleTraffic()` |
 | 流量排行查询 | ✅ | `GetUsersTrafficRanking()` |
 | 流量限制检查 | ✅ | `CheckUserTrafficLimit()` / `CheckProviderTrafficLimit()` |
 
@@ -69,7 +72,11 @@
 | `out`（仅出站） | `tx × multiplier` | 仅出站计费的 IDC |
 | `in`（仅入站） | `rx × multiplier` | 特殊计费场景 |
 
-### 月度缓存查询口径
+### 当前周期查询口径
+
+Provider 可配置 `traffic_reset_day`。空值或 0 表示自然月，当前周期为每月 1 日到下月 1 日；1 到 31 表示每月对应日期重置，29 到 31 在短月份会自动钳制到当月最后一天。查询服务先按 Provider 计算 `[start, nextReset)` 窗口，再按窗口批量汇总实例、用户和 Provider 用量。
+
+底层月度缓存仍然使用 `day = 0 AND hour = 0` 表示整月汇总。对于非自然月周期，查询层会按涉及月份分段读取或实时计算，不能直接把单月缓存当作最终业务周期结果。
 
 ```sql
 SELECT COALESCE(SUM(
@@ -78,7 +85,7 @@ SELECT COALESCE(SUM(
         WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
         ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
     END
-), 0) AS month_usage_mb
+), 0) AS cycle_usage_mb
 FROM instance_traffic_histories ith
 INNER JOIN providers p ON ith.provider_id = p.id
 WHERE ith.year = ?
@@ -89,9 +96,9 @@ WHERE ith.year = ?
   AND ith.deleted_at IS NULL
 ```
 
-**关键点**：`instance_traffic_histories`、`provider_traffic_histories`、`user_traffic_histories` 中的 `traffic_in`、`traffic_out`、`total_used` 都存原始 MB。`total_used` 必须是 `traffic_in + traffic_out`，不能存已经应用 `traffic_count_mode` 或 `traffic_multiplier` 后的值。查询、排行、限额、后台 Provider 列表再按 Provider 配置计算实际用量。
+**关键点**：`instance_traffic_histories`、`provider_traffic_histories`、`user_traffic_histories` 中的 `traffic_in`、`traffic_out`、`total_used` 都存原始 MB。`total_used` 必须是 `traffic_in + traffic_out`，不能存已经应用 `traffic_count_mode` 或 `traffic_multiplier` 后的值。查询、排行、限额、后台 Provider 列表再按 Provider 配置和当前周期窗口计算实际用量。
 
-后台 Provider 列表和 Provider 限额判断以 `instance_traffic_histories` 的月度记录为准，再批量聚合到 Provider 维度；`provider_traffic_histories` 是派生汇总表，不能作为唯一实时来源，避免聚合任务未刷新时显示旧值。
+后台 Provider 列表和 Provider 限额判断以 `instance_traffic_histories` 为准，再按 Provider 当前周期批量聚合到 Provider 维度；`provider_traffic_histories` 是派生汇总表，不能作为唯一实时来源，避免聚合任务未刷新时显示旧值。
 
 ## 数据流转流程
 
@@ -168,7 +175,7 @@ Agent 支持两种流量采集方式，通过 `TRAFFIC_COLLECT_METHOD` 环境变
 
 任一层级超限即触发流量限制。
 
-限额检查已经拆分为实例、用户、Provider 三个专用文件，并通过恢复逻辑避免在 `start`、`stop`、`restart`、`reset`、`rebuild`、`delete`、`reset-password` 等活跃任务期间误解锁实例。实例操作入口还会通过 `operation_guard.go` 判断当前流量锁定状态，避免用户在超限后继续启动或分享受限实例。
+限额检查已经拆分为实例、用户、Provider 三个专用文件，并通过恢复逻辑避免在 `start`、`stop`、`restart`、`reset`、`rebuild`、`delete`、`reset-password` 等活跃任务期间误解锁实例。实例操作入口还会通过 `operation_guard.go` 判断当前流量锁定状态，避免用户在超限后继续启动或分享受限实例。到达 Provider 重置日时，`traffic_reset.go` 会清除该 Provider 的超限状态并重新运行三级限额检查，符合条件的流量超限停机实例会自动创建启动任务。
 
 ## 相关函数
 
@@ -180,8 +187,9 @@ Agent 支持两种流量采集方式，通过 `TRAFFIC_COLLECT_METHOD` 环境变
 
 ### 统计查询（应用流量模式）
 
-- `getUserMonthlyTrafficFromPmacct()` — 用户月度流量统计
-- `getProviderMonthlyTrafficFromPmacct()` — Provider 月度流量统计
+- `GetUserCurrentCycleTraffic()` — 用户当前周期流量统计
+- `GetProviderCurrentCycleTraffic()` — Provider 当前周期流量统计
+- `BatchGetProvidersCurrentCycleTraffic()` — 后台 Provider 列表批量当前周期统计
 - `GetUsersTrafficRanking()` — 用户流量排行
 - `CheckUserTrafficLimit()` — 用户流量限制检查
 - `CheckProviderTrafficLimit()` — Provider 流量限制检查
@@ -191,5 +199,5 @@ Agent 支持两种流量采集方式，通过 `TRAFFIC_COLLECT_METHOD` 环境变
 1. ⚠️ **原始数据不可修改**：pmacct_traffic_records 中的数据是原始监控数据，任何修改都会导致统计错误
 2. ⚠️ **流量模式仅用于统计**：不要在数据写入时应用流量模式，只在查询统计时应用
 3. ⚠️ **倍率影响计费**：修改 traffic_multiplier 会影响所有统计查询
-4. ✅ **向后兼容**：默认值（both + 1.0）保持原有行为
-5. ✅ **月度过滤**：查询时必须加 `day = 0 AND hour = 0` 过滤月度汇总记录
+4. ✅ **默认周期**：`traffic_reset_day` 为空或 0 时按自然月重置，等价于每月 1 日
+5. ✅ **月度缓存过滤**：读取月度汇总缓存时必须加 `day = 0 AND hour = 0`，业务层再按当前周期窗口计算

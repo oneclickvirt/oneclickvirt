@@ -17,9 +17,11 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	adminModel "oneclickvirt/model/admin"
 	checkinModel "oneclickvirt/model/checkin"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/taskgate"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -255,18 +257,21 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 	var oldExpireAt *time.Time
 	var newExpireAt time.Time
 	appliedRenewalDays := config.RenewalDays
+	shouldAutoStart := false
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		var lockedInstance struct {
 			ID             uint
+			UserID         uint
 			ProviderID     uint
 			ExpiresAt      *time.Time
 			IsManualExpiry bool
 			IsFrozen       bool
 			FrozenReason   string
+			ExpiryStopped  bool
 		}
 		if err := tx.Table("instances").
 			Clauses(clause.Locking{Strength: "UPDATE"}).
-			Select("id, provider_id, expires_at, is_manual_expiry, is_frozen, frozen_reason").
+			Select("id, user_id, provider_id, expires_at, is_manual_expiry, is_frozen, frozen_reason, expiry_stopped").
 			Where("id = ? AND user_id = ? AND status NOT IN ?", instanceID, userID, []string{"deleted", "deleting"}).
 			Take(&lockedInstance).Error; err != nil {
 			return fmt.Errorf("实例不存在或不属于您")
@@ -308,6 +313,9 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 			updates["is_frozen"] = false
 			updates["frozen_reason"] = ""
 			updates["frozen_at"] = nil
+			if lockedInstance.ExpiryStopped {
+				shouldAutoStart = true
+			}
 		}
 		if err := tx.Table("instances").Where("id = ?", lockedInstance.ID).Updates(updates).Error; err != nil {
 			return err
@@ -337,6 +345,63 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 		zap.String("method", config.CheckinMethod),
 		zap.Int("renewalDays", appliedRenewalDays))
 
+	if shouldAutoStart {
+		if err := s.queueExpiryRenewalStart(instanceID, userID, instance.ProviderID); err != nil {
+			global.APP_LOG.Warn("签到续期后自动启动实例排队失败",
+				zap.Uint("userID", userID),
+				zap.Uint("instanceID", instanceID),
+				zap.Error(err))
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) queueExpiryRenewalStart(instanceID, userID, providerID uint) error {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return err
+	}
+
+	activeTaskStatuses := []string{"pending", "processing", "running", "cancelling"}
+	var activeCount int64
+	if err := global.APP_DB.Model(&adminModel.Task{}).
+		Where("instance_id = ? AND task_type = ? AND status IN ?", instanceID, "start", activeTaskStatuses).
+		Count(&activeCount).Error; err != nil {
+		return err
+	}
+	if activeCount > 0 {
+		return nil
+	}
+
+	taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instanceID, providerID)
+	task := &adminModel.Task{
+		TaskType:         "start",
+		Status:           "pending",
+		Progress:         0,
+		StatusMessage:    "签到续期后自动启动实例",
+		TaskData:         taskData,
+		UserID:           userID,
+		ProviderID:       &providerID,
+		InstanceID:       &instanceID,
+		TimeoutDuration:  600,
+		IsForceStoppable: true,
+		CanForceStop:     false,
+	}
+	if err := global.APP_DB.Create(task).Error; err != nil {
+		return err
+	}
+	if err := global.APP_DB.Model(&providerModel.Instance{}).
+		Where("id = ? AND expiry_stopped = ?", instanceID, true).
+		Updates(map[string]interface{}{
+			"status":            "starting",
+			"expiry_stopped":    false,
+			"expiry_stopped_at": nil,
+		}).Error; err != nil {
+		return err
+	}
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
 	return nil
 }
 

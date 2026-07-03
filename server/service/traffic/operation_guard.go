@@ -61,7 +61,7 @@ func DescribeInstanceOperationLock(instanceLimited bool, instanceReason string, 
 			Locked:  true,
 			Level:   LimitLevelProvider,
 			Reason:  "provider",
-			Message: fmt.Sprintf("节点当月总流量已超限，当前节点下所有实例已被系统限制，普通用户禁止%s，请等待自然月自动重置或联系管理员。", actionLabel),
+			Message: fmt.Sprintf("节点当前流量周期总流量已超限，当前节点下所有实例已被系统限制，普通用户禁止%s，请等待节点配置的流量重置日自动重置或联系管理员。", actionLabel),
 		}
 	}
 	if userLimited {
@@ -69,7 +69,7 @@ func DescribeInstanceOperationLock(instanceLimited bool, instanceReason string, 
 			Locked:  true,
 			Level:   LimitLevelUser,
 			Reason:  "user",
-			Message: fmt.Sprintf("用户当月总流量已超限，当前账号下所有实例已被系统限制，普通用户禁止%s，请等待自然月自动重置或联系管理员。", actionLabel),
+			Message: fmt.Sprintf("用户当前流量周期总流量已超限，当前账号下所有实例已被系统限制，普通用户禁止%s，请等待节点配置的流量重置日自动重置或联系管理员。", actionLabel),
 		}
 	}
 	if instanceLimited || strings.TrimSpace(instanceReason) != "" {
@@ -80,7 +80,7 @@ func DescribeInstanceOperationLock(instanceLimited bool, instanceReason string, 
 			Locked:  true,
 			Level:   LimitLevelInstance,
 			Reason:  instanceReason,
-			Message: fmt.Sprintf("实例因流量超限已被系统限制，普通用户禁止%s，请等待自然月自动重置或联系管理员。", actionLabel),
+			Message: fmt.Sprintf("实例因流量超限已被系统限制，普通用户禁止%s，请等待节点配置的流量重置日自动重置或联系管理员。", actionLabel),
 		}
 	}
 	return InstanceOperationLock{}

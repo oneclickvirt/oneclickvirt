@@ -19,6 +19,13 @@ const normalizeFixedPorts = (ports = []) => {
   })
 }
 
+const normalizeTrafficResetDay = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  const day = Number(value)
+  if (!Number.isInteger(day) || day < 1 || day > 31) return NaN
+  return day
+}
+
 export function useProviderForm(props, emit) {
   const { t, locale } = useI18n()
 
@@ -112,6 +119,7 @@ export function useProviderForm(props, emit) {
     maxTraffic: 1048576,
     trafficCountMode: 'both',
     trafficMultiplier: 1.0,
+    trafficResetDay: null,
     executionRule: 'auto',
     redeemCodeOnly: false,
     ipv4PortMappingMethod: 'device_proxy',
@@ -618,6 +626,13 @@ export function useProviderForm(props, emit) {
         ElMessage.error(t('admin.providers.fixedPortOverflow'))
         return
       }
+
+      const trafficResetDay = normalizeTrafficResetDay(formData.value.trafficResetDay)
+      if (Number.isNaN(trafficResetDay)) {
+        ElMessage.error(t('admin.providers.trafficResetDayInvalid'))
+        return
+      }
+      formData.value.trafficResetDay = trafficResetDay
       
       // 验证SSH认证方式（agent模式无需）
       if (!props.isEditing && formData.value.connectionType !== 'agent' && formData.value.connectionType !== 'local') {

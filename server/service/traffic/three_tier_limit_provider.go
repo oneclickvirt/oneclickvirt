@@ -78,12 +78,8 @@ func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool
 		return false, nil
 	}
 
-	// 使用统一的流量查询服务获取Provider当月流量
-	now := time.Now()
-	year := now.Year()
-	month := int(now.Month())
 	queryService := NewQueryService()
-	monthlyStats, err := queryService.GetProviderMonthlyTraffic(providerID, year, month)
+	monthlyStats, err := queryService.GetProviderCurrentCycleTraffic(providerID)
 	if err != nil {
 		global.APP_LOG.Error("获取Provider流量失败",
 			zap.Uint("providerID", providerID),

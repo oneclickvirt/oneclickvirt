@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"oneclickvirt/global"
-	"oneclickvirt/service/userquota"
 	dashboardModel "oneclickvirt/model/dashboard"
 	monitoringModel "oneclickvirt/model/monitoring"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
 	"oneclickvirt/service/cache"
+	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -93,11 +93,15 @@ func (s *UserTrafficService) fetchUserTrafficOverview(userID uint) (map[string]i
 		}
 	}
 
-	// 从QueryService获取当月流量统计
-	now := time.Now()
-	stats, err := s.queryService.GetUserMonthlyTraffic(userID, now.Year(), int(now.Month()))
+	// 从QueryService获取当前节点重置周期内的流量统计
+	stats, err := s.queryService.GetUserCurrentCycleTraffic(userID)
 	if err != nil {
-		return nil, fmt.Errorf("查询用户月度流量失败: %w", err)
+		return nil, fmt.Errorf("查询用户当前周期流量失败: %w", err)
+	}
+	resetAt, err := s.queryService.GetUserNextTrafficResetTime(userID)
+	if err != nil {
+		global.APP_LOG.Warn("查询用户下一次流量重置时间失败", zap.Uint("userID", userID), zap.Error(err))
+		resetAt = u.TrafficResetAt
 	}
 
 	// 计算使用百分比
@@ -112,7 +116,7 @@ func (s *UserTrafficService) fetchUserTrafficOverview(userID uint) (map[string]i
 		"total_limit_mb":          u.TotalTraffic,
 		"usage_percent":           usagePercent,
 		"is_limited":              u.TrafficLimited,
-		"reset_time":              u.TrafficResetAt,
+		"reset_time":              resetAt,
 		"traffic_control_enabled": true,
 		"data_source":             "pmacct_realtime",
 		"rx_bytes":                stats.RxBytes,
@@ -228,9 +232,8 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 		}, nil
 	}
 
-	// 从QueryService获取当月流量数据
-	now := time.Now()
-	stats, err := s.queryService.GetInstanceMonthlyTraffic(instanceID, now.Year(), int(now.Month()))
+	// 从QueryService获取当前节点重置周期内的流量数据
+	stats, err := s.queryService.GetInstanceCurrentCycleTraffic(instanceID)
 	if err != nil {
 		return nil, fmt.Errorf("查询实例流量失败: %w", err)
 	}
@@ -249,6 +252,7 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 		history = []*HistoryPoint{}
 	}
 
+	now := time.Now()
 	return map[string]interface{}{
 		"instance_id":             instanceID,
 		"instance_name":           instance.Name,
@@ -331,11 +335,10 @@ func (s *UserTrafficService) fetchUserInstancesTrafficSummary(userID uint) (map[
 		instanceIDs = append(instanceIDs, instance.ID)
 	}
 
-	// 批量查询流量数据
-	now := time.Now()
-	statsMap, err := s.queryService.BatchGetInstancesMonthlyTraffic(instanceIDs, now.Year(), int(now.Month()))
+	// 批量查询当前节点重置周期内的流量数据
+	statsMap, err := s.queryService.BatchGetInstancesCurrentCycleTraffic(instanceIDs)
 	if err != nil {
-		return nil, fmt.Errorf("批量查询实例流量失败: %w", err)
+		return nil, fmt.Errorf("批量查询实例当前周期流量失败: %w", err)
 	}
 
 	// 构建响应数据

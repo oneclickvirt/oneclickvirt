@@ -29,7 +29,7 @@ jobs:
         sudo apt-get install -y musl-tools
 
     - name: Cache Rust dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/registry
@@ -69,7 +69,7 @@ jobs:
         sudo apt-get install -y musl-tools
 
     - name: Cache Rust dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/registry
@@ -179,7 +179,7 @@ jobs:
         cat server/constant/version.go
 
     - name: Cache npm dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: web/node_modules
         key: ${{ runner.os }}-npm-${{ hashFiles('web/package-lock.json') }}

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
@@ -207,8 +206,7 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 
 	// 计算用户总流量使用情况 - 用于流量限制判断
 	trafficQueryService := trafficService.NewQueryService()
-	year, month, _ := time.Now().Date()
-	userMonthlyTrafficStats, err := trafficQueryService.GetUserMonthlyTraffic(userID, year, int(month))
+	userMonthlyTrafficStats, err := trafficQueryService.GetUserCurrentCycleTraffic(userID)
 
 	var userTotalMonthTraffic int64
 	var usagePercent float64
@@ -227,7 +225,7 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 	}
 
 	// 获取当前实例的流量数据 - 用于显示
-	instanceMonthlyTrafficStats, err := trafficQueryService.GetInstanceMonthlyTraffic(instanceID, year, int(month))
+	instanceMonthlyTrafficStats, err := trafficQueryService.GetInstanceCurrentCycleTraffic(instanceID)
 	var currentInstanceTraffic int64
 	if err != nil {
 		global.APP_LOG.Warn("获取实例流量数据失败，使用默认值",
@@ -249,13 +247,13 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 	isLimited := instance.TrafficLimited || user.TrafficLimited || trafficProvider.TrafficLimited
 	if trafficProvider.TrafficLimited {
 		limitType = "provider"
-		limitReason = "当前实例因节点流量已超限被系统限制，请等待自然月自动重置或联系管理员。"
+		limitReason = "当前实例因节点流量已超限被系统限制，请等待节点流量重置日自动重置或联系管理员。"
 	} else if user.TrafficLimited {
 		limitType = "user"
-		limitReason = "当前实例因用户流量已超限被系统限制，请等待自然月自动重置或联系管理员。"
+		limitReason = "当前实例因用户流量已超限被系统限制，请等待节点流量重置日自动重置或联系管理员。"
 	} else if instance.TrafficLimited {
 		limitType = "instance"
-		limitReason = "当前实例因流量超限被系统限制，请等待自然月自动重置或联系管理员。"
+		limitReason = "当前实例因流量超限被系统限制，请等待节点流量重置日自动重置或联系管理员。"
 	}
 
 	// 确保使用百分比被正确计算

@@ -45,6 +45,35 @@ func (s *ThreeTierLimitService) CheckAllUsersTrafficLimit(ctx context.Context) e
 			break
 		}
 
+		userIDs := make([]uint, 0, len(users))
+		for _, u := range users {
+			userIDs = append(userIDs, u.ID)
+		}
+
+		enabledProviderCounts, err := s.batchGetEnabledTrafficProviderCounts(userIDs)
+		if err != nil {
+			global.APP_LOG.Warn("批量检查用户Provider流量统计状态失败，跳过本批次用户检查",
+				zap.Error(err), zap.Int("batchSize", len(users)))
+			lastID = users[len(users)-1].ID
+			totalCount += len(users)
+			if len(users) < batchSize {
+				break
+			}
+			continue
+		}
+
+		statsMap, err := NewQueryService().BatchGetUsersCurrentCycleTraffic(userIDs)
+		if err != nil {
+			global.APP_LOG.Warn("批量获取用户当前流量周期失败，跳过本批次用户检查",
+				zap.Error(err), zap.Int("batchSize", len(users)))
+			lastID = users[len(users)-1].ID
+			totalCount += len(users)
+			if len(users) < batchSize {
+				break
+			}
+			continue
+		}
+
 		for _, u := range users {
 			select {
 			case <-ctx.Done():
@@ -52,7 +81,7 @@ func (s *ThreeTierLimitService) CheckAllUsersTrafficLimit(ctx context.Context) e
 			default:
 			}
 
-			isLimited, err := s.CheckUserTrafficLimit(u.ID)
+			isLimited, err := s.checkUserTrafficLimitWithStats(u, enabledProviderCounts[u.ID], statsMap[u.ID])
 			if err != nil {
 				global.APP_LOG.Warn("检查用户流量限制失败",
 					zap.Uint("userID", u.ID),
@@ -87,22 +116,56 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 		return false, fmt.Errorf("获取用户信息失败: %w", err)
 	}
 
-	// 检查用户的所有实例所在的Provider是否都禁用了流量统计
-	var enabledProviderCount int64
-	err := global.APP_DB.Table("instances").
-		Joins("LEFT JOIN providers ON instances.provider_id = providers.id").
-		Where("instances.user_id = ?", userID).
-		Where("providers.enable_traffic_control = ?", true).
-		Count(&enabledProviderCount).Error
-
+	enabledProviderCounts, err := s.batchGetEnabledTrafficProviderCounts([]uint{userID})
 	if err != nil {
-		global.APP_LOG.Warn("检查Provider流量统计状态失败", zap.Error(err))
+		return false, fmt.Errorf("检查Provider流量统计状态失败: %w", err)
 	}
 
+	// 使用统一的流量查询服务，按各节点的当前重置周期汇总用户流量
+	queryService := NewQueryService()
+	monthlyStats, err := queryService.GetUserCurrentCycleTraffic(userID)
+	if err != nil {
+		return false, fmt.Errorf("获取用户流量失败: %w", err)
+	}
+
+	return s.checkUserTrafficLimitWithStats(u, enabledProviderCounts[userID], monthlyStats)
+}
+
+func (s *ThreeTierLimitService) batchGetEnabledTrafficProviderCounts(userIDs []uint) (map[uint]int64, error) {
+	counts := make(map[uint]int64, len(userIDs))
+	if len(userIDs) == 0 {
+		return counts, nil
+	}
+	for _, userID := range userIDs {
+		counts[userID] = 0
+	}
+
+	var rows []struct {
+		UserID uint
+		Count  int64
+	}
+	err := global.APP_DB.Table("instances").
+		Select("instances.user_id, COUNT(DISTINCT instances.provider_id) as count").
+		Joins("LEFT JOIN providers ON instances.provider_id = providers.id").
+		Where("instances.user_id IN ?", userIDs).
+		Where("providers.enable_traffic_control = ?", true).
+		Group("instances.user_id").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		counts[row.UserID] = row.Count
+	}
+	return counts, nil
+}
+
+func (s *ThreeTierLimitService) checkUserTrafficLimitWithStats(u user.User, enabledProviderCount int64, monthlyStats *TrafficStats) (bool, error) {
 	// 如果所有Provider都禁用了流量统计，解除用户层级限制
 	if enabledProviderCount == 0 {
 		if u.TrafficLimited {
-			return s.unlimitUserInstances(userID, "所有Provider已禁用流量统计")
+			return s.unlimitUserInstances(u.ID, "所有Provider已禁用流量统计")
 		}
 		return false, nil
 	}
@@ -122,21 +185,13 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 	// 如果用户没有流量限制，解除可能存在的用户级限制
 	if u.TotalTraffic <= 0 {
 		if u.TrafficLimited {
-			return s.unlimitUserInstances(userID, "用户无流量限制")
+			return s.unlimitUserInstances(u.ID, "用户无流量限制")
 		}
 		return false, nil
 	}
 
-	// 从pmacct_traffic_records实时汇总用户当月总流量（已包含流量模式和倍率计算）
-	now := time.Now()
-	year := now.Year()
-	month := int(now.Month())
-
-	// 使用统一的流量查询服务（会自动包含软删除实例的流量统计）
-	queryService := NewQueryService()
-	monthlyStats, err := queryService.GetUserMonthlyTraffic(userID, year, month)
-	if err != nil {
-		return false, fmt.Errorf("获取用户流量失败: %w", err)
+	if monthlyStats == nil {
+		monthlyStats = &TrafficStats{}
 	}
 
 	totalUsedMB := int64(monthlyStats.ActualUsageMB)
@@ -145,17 +200,17 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 	if totalUsedMB >= u.TotalTraffic {
 		// 用户超限，根据Provider设置决定停止或限速
 		global.APP_LOG.Info("用户流量超限",
-			zap.Uint("userID", userID),
+			zap.Uint("userID", u.ID),
 			zap.String("username", u.Username),
 			zap.Int64("usedTraffic", totalUsedMB),
 			zap.Int64("totalTraffic", u.TotalTraffic))
 
-		return s.limitUserInstances(userID, fmt.Sprintf("用户流量超限: %dMB/%dMB", totalUsedMB, u.TotalTraffic))
+		return s.limitUserInstances(u.ID, fmt.Sprintf("用户流量超限: %dMB/%dMB", totalUsedMB, u.TotalTraffic))
 	}
 
 	// 未超限，解除用户级限制
 	if u.TrafficLimited {
-		return s.unlimitUserInstances(userID, "用户流量恢复正常")
+		return s.unlimitUserInstances(u.ID, "用户流量恢复正常")
 	}
 
 	return false, nil

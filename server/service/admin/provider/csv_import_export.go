@@ -59,6 +59,7 @@ var providerCSVHeaders = []string{
 	"trafficOverLimitAction",
 	"trafficSpeedLimitKbps",
 	"trafficQuotaVisible",
+	"trafficResetDay",
 	"instanceExpiryAction",
 	"instanceExpiryExtendDays",
 	"trafficStatsMode",
@@ -140,6 +141,13 @@ func boolPtr(v bool) *bool {
 	return &v
 }
 
+func formatOptionalInt(v *int) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.Itoa(*v)
+}
+
 func parseCSVFloat64(raw string) (float64, error) {
 	v := strings.TrimSpace(raw)
 	return strconv.ParseFloat(v, 64)
@@ -197,6 +205,7 @@ func defaultCreateProviderRequest(name, providerType string) admin.CreateProvide
 		TrafficOverLimitAction:   providerModel.TrafficOverLimitActionStop,
 		TrafficSpeedLimitKbps:    1024,
 		TrafficQuotaVisible:      boolPtr(true),
+		TrafficResetDay:          nil,
 		InstanceExpiryAction:     providerModel.InstanceExpiryActionDelete,
 		InstanceExpiryExtendDays: 0,
 		IPv4PortMappingMethod:    "device_proxy",
@@ -297,6 +306,7 @@ func updateReqFromProvider(p providerModel.Provider) admin.UpdateProviderRequest
 		TrafficOverLimitAction:   p.TrafficOverLimitAction,
 		TrafficSpeedLimitKbps:    p.TrafficSpeedLimitKbps,
 		TrafficQuotaVisible:      boolPtr(p.TrafficQuotaVisible),
+		TrafficResetDay:          p.TrafficResetDay,
 		InstanceExpiryAction:     p.InstanceExpiryAction,
 		InstanceExpiryExtendDays: p.InstanceExpiryExtendDays,
 		IPv4PortMappingMethod:    p.IPv4PortMappingMethod,
@@ -685,6 +695,7 @@ func (s *Service) ExportProvidersCSV(ownerAdminID uint, providerIDs []uint) ([]b
 			p.TrafficOverLimitAction,
 			strconv.Itoa(p.TrafficSpeedLimitKbps),
 			strconv.FormatBool(p.TrafficQuotaVisible),
+			formatOptionalInt(p.TrafficResetDay),
 			p.InstanceExpiryAction,
 			strconv.Itoa(p.InstanceExpiryExtendDays),
 			p.TrafficStatsMode,
