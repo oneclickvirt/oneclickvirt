@@ -293,6 +293,19 @@ func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
 			appendSystemImageIfNew(&desiredImages, desiredKeys, extraImage)
 		}
 
+		// LXD/Incus Windows VM creation uses a normal Windows installer ISO
+		// which is repacked by distrobuilder before being attached to an
+		// empty VM. Keep VirtIO-prepatched PVE ISO images PVE-only.
+		if imageInfo.ProviderType == "proxmox" && imageInfo.InstanceType == "vm" && isOrdinaryWindowsInstallerISOURL(imageInfo.URL) {
+			for _, extraProvider := range []string{"lxd", "incus"} {
+				extraImage := baseImage
+				extraImage.ProviderType = extraProvider
+				extraImage.InstanceType = "vm"
+				extraImage.Description = fmt.Sprintf("%s Windows installer VM image", providerDisplayName(extraProvider))
+				appendSystemImageIfNew(&desiredImages, desiredKeys, extraImage)
+			}
+		}
+
 		// OCI 容器镜像归档在 Docker/Podman/Containerd/Orbstack/KubeVirt 容器场景可复用。
 		if imageInfo.InstanceType == "container" && isOCIArchiveProvider(imageInfo.ProviderType) && strings.HasSuffix(imageInfo.URL, ".tar.gz") {
 			for _, extraProvider := range []string{"docker", "podman", "containerd", "orbstack", "kubevirt"} {
@@ -332,6 +345,10 @@ func providerDisplayName(providerType string) string {
 		return "Orbstack"
 	case "kubevirt":
 		return "KubeVirt"
+	case "lxd":
+		return "LXD"
+	case "incus":
+		return "Incus"
 	default:
 		return providerType
 	}
@@ -551,7 +568,138 @@ func parseImageURL(imageURL string) *ImageInfo {
 		}
 	}
 
+	if imageInfo := parseProxmoxInstallerImageURL(imageURL); imageInfo != nil {
+		return imageInfo
+	}
+
 	return parseGenericOneClickVirtImageURL(imageURL)
+}
+
+func parseProxmoxInstallerImageURL(imageURL string) *ImageInfo {
+	cleanPath := imageURLPathForParsing(imageURL)
+	if !strings.Contains(cleanPath, ".iso") {
+		return nil
+	}
+
+	fileName := imageURLBaseForParsing(imageURL)
+	if fileName == "" || fileName == "." || fileName == "/" {
+		return nil
+	}
+	imageName := installerImageNameFromFile(fileName)
+
+	switch {
+	case isWindowsInstallerISOURL(imageURL):
+		return &ImageInfo{
+			Name:         imageName,
+			ProviderType: "proxmox",
+			InstanceType: "vm",
+			Architecture: "amd64",
+			URL:          imageURL,
+			OSType:       "windows",
+			OSVersion:    extractWindowsVersionFromFilename(fileName),
+			Description:  fmt.Sprintf("Proxmox Windows installer %s", fileName),
+		}
+	case strings.Contains(cleanPath, "oneclickvirt/macos") || strings.Contains(cleanPath, "macos"):
+		return &ImageInfo{
+			Name:         imageName,
+			ProviderType: "proxmox",
+			InstanceType: "vm",
+			Architecture: "amd64",
+			URL:          imageURL,
+			OSType:       "macos",
+			OSVersion:    extractInstallerVersionFromFilename(fileName),
+			Description:  fmt.Sprintf("Proxmox macOS installer %s", fileName),
+		}
+	case strings.Contains(cleanPath, "android-x86") || strings.Contains(cleanPath, "blissos"):
+		return &ImageInfo{
+			Name:         imageName,
+			ProviderType: "proxmox",
+			InstanceType: "vm",
+			Architecture: "amd64",
+			URL:          imageURL,
+			OSType:       "android",
+			OSVersion:    extractInstallerVersionFromFilename(fileName),
+			Description:  fmt.Sprintf("Proxmox Android installer %s", fileName),
+		}
+	default:
+		return nil
+	}
+}
+
+func imageURLPathForParsing(imageURL string) string {
+	cleanPath := strings.TrimSpace(strings.Split(imageURL, "?")[0])
+	cleanPath = strings.TrimSuffix(cleanPath, "/download")
+	return strings.ToLower(cleanPath)
+}
+
+func imageURLBaseForParsing(imageURL string) string {
+	cleanPath := strings.TrimSpace(strings.Split(imageURL, "?")[0])
+	cleanPath = strings.TrimSuffix(cleanPath, "/download")
+	return path.Base(cleanPath)
+}
+
+func installerImageNameFromFile(fileName string) string {
+	name := strings.TrimSuffix(fileName, ".iso.7z")
+	name = strings.TrimSuffix(name, ".ISO.7Z")
+	name = strings.TrimSuffix(name, ".iso")
+	name = strings.TrimSuffix(name, ".ISO")
+	name = strings.NewReplacer("_", "-", " ", "-", "--", "-").Replace(name)
+	if len(name) > 120 {
+		name = name[:120]
+	}
+	return strings.Trim(name, "-")
+}
+
+func extractWindowsVersionFromFilename(fileName string) string {
+	lower := strings.ToLower(fileName)
+	for _, version := range []string{"2025", "2022", "2019", "2016", "2012", "2008"} {
+		if strings.Contains(lower, "server_"+version) || strings.Contains(lower, "server-"+version) || strings.Contains(lower, "server"+version) {
+			return version
+		}
+	}
+	if strings.Contains(lower, "windows_11") || strings.Contains(lower, "windows-11") || strings.Contains(lower, "win11") {
+		return "11"
+	}
+	if strings.Contains(lower, "windows_10") || strings.Contains(lower, "windows-10") || strings.Contains(lower, "win10") {
+		return "10"
+	}
+	if strings.Contains(lower, "windows_8.1") || strings.Contains(lower, "windows-8.1") {
+		return "8.1"
+	}
+	if strings.Contains(lower, "windows_8") || strings.Contains(lower, "windows-8") {
+		return "8"
+	}
+	if strings.Contains(lower, "windows_7") || strings.Contains(lower, "windows-7") {
+		return "7"
+	}
+	return extractInstallerVersionFromFilename(fileName)
+}
+
+func extractInstallerVersionFromFilename(fileName string) string {
+	name := strings.TrimSuffix(strings.ToLower(fileName), ".iso.7z")
+	name = strings.TrimSuffix(name, ".iso")
+	name = strings.NewReplacer("x86_64", "", "x86-64", "", "amd64", "", "x86", "").Replace(name)
+	versionRe := regexp.MustCompile(`([0-9]+(?:\.[0-9]+){0,3}(?:-[a-z0-9.]+)?)`)
+	if match := versionRe.FindStringSubmatch(name); match != nil {
+		return match[1]
+	}
+	name = strings.TrimPrefix(name, "virtio-")
+	return strings.Trim(name, "-_")
+}
+
+func isWindowsInstallerISOURL(imageURL string) bool {
+	cleanPath := imageURLPathForParsing(imageURL)
+	return strings.Contains(cleanPath, ".iso") &&
+		(strings.Contains(cleanPath, "/windows/") ||
+			strings.Contains(cleanPath, "/windows-virtio/") ||
+			strings.Contains(cleanPath, "windows_") ||
+			strings.Contains(cleanPath, "windows-") ||
+			strings.Contains(cleanPath, "win.iso"))
+}
+
+func isOrdinaryWindowsInstallerISOURL(imageURL string) bool {
+	cleanPath := imageURLPathForParsing(imageURL)
+	return isWindowsInstallerISOURL(imageURL) && !strings.Contains(cleanPath, "/windows-virtio/")
 }
 
 func parseDockerRuntimeImageURL(imageURL string) *ImageInfo {

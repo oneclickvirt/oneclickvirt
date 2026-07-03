@@ -42,7 +42,8 @@ func (p *ProxmoxProvider) CreateInstance(ctx context.Context, config provider.In
 	}
 
 	// 根据执行规则判断使用哪种方式
-	if p.shouldUseAPI() {
+	forceSSHInstaller := p.shouldForceSSHForInstaller(ctx, &config)
+	if p.shouldUseAPI() && !forceSSHInstaller {
 		err := p.apiCreateInstance(ctx, config)
 		if err == nil {
 			global.APP_LOG.Debug("Proxmox API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
@@ -67,7 +68,8 @@ func (p *ProxmoxProvider) CreateInstanceWithProgress(ctx context.Context, config
 	}
 
 	// 根据执行规则判断使用哪种方式
-	if p.shouldUseAPI() {
+	forceSSHInstaller := p.shouldForceSSHForInstaller(ctx, &config)
+	if p.shouldUseAPI() && !forceSSHInstaller {
 		err := p.apiCreateInstanceWithProgress(ctx, config, progressCallback)
 		if err == nil {
 			global.APP_LOG.Debug("Proxmox API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))

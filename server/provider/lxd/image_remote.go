@@ -103,6 +103,8 @@ func (l *LXDProvider) generateRemoteFileName(imageName, imageURL, architecture, 
 	var extension string
 	if strings.Contains(imageURL, ".zip") {
 		extension = ".zip"
+	} else if strings.Contains(imageURL, ".iso") {
+		extension = ".iso"
 	} else if strings.Contains(imageURL, ".tar.xz") {
 		extension = ".tar.xz"
 	} else {

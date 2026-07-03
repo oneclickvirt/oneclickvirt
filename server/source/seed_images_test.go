@@ -19,9 +19,10 @@ func TestParseDockerRuntimeImageURL(t *testing.T) {
 		osType    string
 		osVersion string
 	}{
+		{"docker://spiritlhl/wds:10", "windows-10", "windows", "10"},
 		{"docker://spiritlhl/wds:2022", "windows-2022", "windows", "2022"},
-		{"docker://redroid/redroid:11.0.0-latest", "android-11.0.0-latest", "android", "11.0.0-latest"},
-		{"docker://dockurr/macos:sonoma", "macos-sonoma", "macos", "sonoma"},
+		{"docker://redroid/redroid:12.0.0-latest", "android-12.0.0-latest", "android", "12.0.0-latest"},
+		{"docker://dockurr/macos:15", "macos-15", "macos", "15"},
 	}
 
 	for _, tt := range tests {
@@ -41,8 +42,8 @@ func TestParseDockerRuntimeImageURL(t *testing.T) {
 func TestDockerRuntimeImagesDefaultInactiveAndHighRequirement(t *testing.T) {
 	images := buildDesiredSystemImages([]string{
 		"docker://spiritlhl/wds:2022",
-		"docker://redroid/redroid:11.0.0-latest",
-		"docker://dockurr/macos:sonoma",
+		"docker://redroid/redroid:12.0.0-latest",
+		"docker://dockurr/macos:15",
 	})
 	if len(images) != 3 {
 		t.Fatalf("len(images) = %d, want 3", len(images))
@@ -67,6 +68,74 @@ func TestDockerRuntimeImagesDefaultInactiveAndHighRequirement(t *testing.T) {
 	}
 }
 
+func TestParseInstallerImageURLs(t *testing.T) {
+	tests := []struct {
+		url          string
+		providerType string
+		instanceType string
+		osType       string
+		osVersion    string
+	}{
+		{
+			url:          "https://download.testip.xyz/Windows-VirtIO/virtio_zh-cn_windows_server_2019_x64_dvd_19d65722.iso",
+			providerType: "proxmox",
+			instanceType: "vm",
+			osType:       "windows",
+			osVersion:    "2019",
+		},
+		{
+			url:          "https://github.com/oneclickvirt/macos/releases/download/images/sonoma.iso.7z",
+			providerType: "proxmox",
+			instanceType: "vm",
+			osType:       "macos",
+			osVersion:    "sonoma",
+		},
+		{
+			url:          "https://mirrors.tuna.tsinghua.edu.cn/osdn/android-x86/71931/android-x86_64-9.0-r2.iso",
+			providerType: "proxmox",
+			instanceType: "vm",
+			osType:       "android",
+			osVersion:    "9.0-r2",
+		},
+		{
+			url:          "https://sourceforge.net/projects/blissos-x86/files/Official/BlissOS15/Gapps/Generic/Bliss-v15.9.2-x86_64-OFFICIAL-gapps-20241012.iso/download",
+			providerType: "proxmox",
+			instanceType: "vm",
+			osType:       "android",
+			osVersion:    "15.9.2",
+		},
+	}
+
+	for _, tt := range tests {
+		got := parseImageURL(tt.url)
+		if got == nil {
+			t.Fatalf("parseImageURL(%q) returned nil", tt.url)
+		}
+		if got.ProviderType != tt.providerType || got.InstanceType != tt.instanceType || got.OSType != tt.osType || got.OSVersion != tt.osVersion {
+			t.Fatalf("parseImageURL(%q) = provider=%s type=%s os=%s version=%s", tt.url, got.ProviderType, got.InstanceType, got.OSType, got.OSVersion)
+		}
+	}
+}
+
+func TestOrdinaryWindowsInstallerAddsLXDAndIncusVMImages(t *testing.T) {
+	images := buildDesiredSystemImages([]string{
+		"https://download.testip.xyz/windows/zh-cn_windows_server_2019_x64_dvd_19d65722.iso",
+	})
+	seen := map[string]bool{}
+	for _, img := range images {
+		seen[img.ProviderType+"/"+img.InstanceType+"/"+img.OSType] = true
+	}
+	for _, want := range []string{
+		"proxmox/vm/windows",
+		"lxd/vm/windows",
+		"incus/vm/windows",
+	} {
+		if !seen[want] {
+			t.Fatalf("expected derived image %s, got %#v", want, seen)
+		}
+	}
+}
+
 func TestDefaultImageURLsIncludeDockerRuntimeRefs(t *testing.T) {
 	urls := getDefaultImageURLs()
 	seen := map[string]bool{}
@@ -74,9 +143,23 @@ func TestDefaultImageURLsIncludeDockerRuntimeRefs(t *testing.T) {
 		seen[url] = true
 	}
 	for _, want := range []string{
+		"https://download.testip.xyz/Windows-VirtIO/virtio_zh-cn_windows_server_2019_x64_dvd_19d65722.iso",
+		"https://github.com/oneclickvirt/macos/releases/download/images/sonoma.iso.7z",
+		"https://mirrors.tuna.tsinghua.edu.cn/osdn/android-x86/71931/android-x86_64-9.0-r2.iso",
+		"https://sourceforge.net/projects/blissos-x86/files/Official/BlissOS15/Gapps/Generic/Bliss-v15.9.2-x86_64-OFFICIAL-gapps-20241012.iso/download",
+		"docker://spiritlhl/wds:10",
+		"docker://spiritlhl/wds:2019",
 		"docker://spiritlhl/wds:2022",
+		"docker://redroid/redroid:8.1.0-latest",
+		"docker://redroid/redroid:9.0.0-latest",
+		"docker://redroid/redroid:10.0.0-latest",
 		"docker://redroid/redroid:11.0.0-latest",
-		"docker://dockurr/macos:sonoma",
+		"docker://redroid/redroid:12.0.0-latest",
+		"docker://dockurr/macos:11",
+		"docker://dockurr/macos:12",
+		"docker://dockurr/macos:13",
+		"docker://dockurr/macos:14",
+		"docker://dockurr/macos:15",
 	} {
 		if !seen[want] {
 			t.Fatalf("default image URL %q not found", want)

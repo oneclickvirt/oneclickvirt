@@ -22,11 +22,16 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	systemConfig := &provider.InstanceConfig{
 		Image:        config.Image,
 		InstanceType: config.InstanceType,
+		ImageURL:     config.ImageURL,
+		UseCDN:       config.UseCDN,
 	}
 
 	err := p.queryAndSetSystemImage(ctx, systemConfig)
 	if err != nil {
 		return fmt.Errorf("获取系统镜像失败: %v", err)
+	}
+	if isProxmoxInstallerImageURL(systemConfig.ImageURL) {
+		return p.createInstallerVM(ctx, vmid, config, systemConfig.ImageURL, systemConfig.UseCDN, updateProgress)
 	}
 
 	// 生成本地镜像文件路径

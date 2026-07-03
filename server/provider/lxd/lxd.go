@@ -349,7 +349,8 @@ func (l *LXDProvider) CreateInstance(ctx context.Context, config provider.Instan
 	}
 
 	// 根据执行规则判断使用哪种方式
-	if l.shouldUseAPI() {
+	forceSSHInstaller := l.shouldUseWindowsInstallerSSH(ctx, &config)
+	if l.shouldUseAPI() && !forceSSHInstaller {
 		if err := l.apiCreateInstance(ctx, config); err == nil {
 			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -377,7 +378,8 @@ func (l *LXDProvider) CreateInstanceWithProgress(ctx context.Context, config pro
 	}
 
 	// 根据执行规则判断使用哪种方式
-	if l.shouldUseAPI() {
+	forceSSHInstaller := l.shouldUseWindowsInstallerSSH(ctx, &config)
+	if l.shouldUseAPI() && !forceSSHInstaller {
 		if err := l.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
 			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil

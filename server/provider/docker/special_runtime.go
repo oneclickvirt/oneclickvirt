@@ -122,7 +122,7 @@ func detectDockerSpecialRuntimeImage(config provider.InstanceConfig) (*dockerSpe
 	case strings.HasPrefix(candidateImage, "macos-"):
 		version := strings.TrimPrefix(candidateImage, "macos-")
 		if version == "" {
-			version = "sonoma"
+			version = "15"
 		}
 		return &dockerSpecialRuntimeImage{Kind: "macos", Image: "dockurr/macos:latest", Version: version}, true
 	default:

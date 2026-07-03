@@ -344,7 +344,8 @@ func (i *IncusProvider) CreateInstance(ctx context.Context, config provider.Inst
 	}
 
 	// 根据执行规则判断使用哪种方式
-	if i.shouldUseAPI() {
+	forceSSHInstaller := i.shouldUseWindowsInstallerSSH(ctx, &config)
+	if i.shouldUseAPI() && !forceSSHInstaller {
 		if err := i.apiCreateInstance(ctx, config); err == nil {
 			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -372,7 +373,8 @@ func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config p
 	}
 
 	// 根据执行规则判断使用哪种方式
-	if i.shouldUseAPI() {
+	forceSSHInstaller := i.shouldUseWindowsInstallerSSH(ctx, &config)
+	if i.shouldUseAPI() && !forceSSHInstaller {
 		if err := i.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
 			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil

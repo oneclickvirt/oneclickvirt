@@ -268,8 +268,29 @@ func GetDefaultTaskTimeout(taskType string) int {
 // instance type. VM creation on node-local virtualization backends can include
 // image import, guest-agent boot, networking, port mapping, and password setup.
 func GetCreateTaskTimeout(providerType, instanceType string) int {
+	return GetCreateTaskTimeoutForImage(providerType, instanceType, "", "")
+}
+
+// GetCreateTaskTimeoutForImage returns a create timeout sized for the provider,
+// instance type, and image preparation cost. Installer-based non-Linux VMs can
+// spend hours downloading, unpacking, or repacking media before the guest boots.
+func GetCreateTaskTimeoutForImage(providerType, instanceType, osType, imageURL string) int {
 	providerType = strings.ToLower(strings.TrimSpace(providerType))
 	instanceType = strings.ToLower(strings.TrimSpace(instanceType))
+	osType = NormalizeOSType(osType)
+	imageURLLower := strings.ToLower(strings.TrimSpace(imageURL))
+
+	if instanceType == "vm" {
+		switch osType {
+		case "windows", "macos":
+			return 8 * 3600
+		case "android":
+			return 4 * 3600
+		}
+		if strings.Contains(imageURLLower, ".iso") {
+			return 4 * 3600
+		}
+	}
 
 	if instanceType == "vm" {
 		switch providerType {
