@@ -54,6 +54,11 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		}
 	}
 
+	if l.shouldUseWindowsInstallerSSH(ctx, &config) {
+		updateProgress(15, "处理Windows安装镜像...")
+		return l.createWindowsInstallerVM(ctx, config, progressCallback)
+	}
+
 	// 在创建之前，处理镜像下载和导入
 	updateProgress(15, "处理镜像下载和导入...")
 	if config.CopyMode && config.CopySourceName != "" {

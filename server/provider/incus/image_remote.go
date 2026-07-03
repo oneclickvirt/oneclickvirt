@@ -96,7 +96,14 @@ func (i *IncusProvider) generateRemoteFileName(imageName, imageURL, architecture
 	safeName := strings.ReplaceAll(imageName, "/", "_")
 	safeName = strings.ReplaceAll(safeName, ":", "_")
 
-	return fmt.Sprintf("%s_%s.zip", safeName, md5Hash[:8])
+	extension := ".zip"
+	if strings.Contains(strings.ToLower(imageURL), ".iso") {
+		extension = ".iso"
+	} else if strings.Contains(strings.ToLower(imageURL), ".tar.xz") {
+		extension = ".tar.xz"
+	}
+
+	return fmt.Sprintf("%s_%s%s", safeName, md5Hash[:8], extension)
 }
 
 // removeRemoteFile 删除远程文件

@@ -691,11 +691,40 @@ https://github.com/oneclickvirt/kvm_images/releases/download/rockylinux9/rockyli
 https://github.com/oneclickvirt/kvm_images/releases/download/centos7/centos7.qcow2
 https://github.com/oneclickvirt/kvm_images/releases/download/centos8-stream/centos8-stream.qcow2
 https://github.com/oneclickvirt/kvm_images/releases/download/opensuse-leap-15/opensuse-leap-15.qcow2
+https://download.testip.xyz/Windows-VirtIO/virtio_zh-cn_windows_server_2019_x64_dvd_19d65722.iso
+https://download.testip.xyz/Windows-VirtIO/virtio_zh-cn_windows_server_2022_updated_nov_2022_x64_dvd_78530c38.iso
+https://download.testip.xyz/windows/zh-cn_windows_10_enterprise_ltsc_2021_x64_dvd_033b7312.iso
+https://download.testip.xyz/windows/en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96.iso
+https://download.testip.xyz/windows/zh-cn_windows_11_enterprise_ltsc_2024_x64_dvd_cff9cd2d.iso
+https://download.testip.xyz/windows/en-us_windows_11_enterprise_ltsc_2024_x64_dvd_965cfb00.iso
+https://download.testip.xyz/windows/zh-cn_windows_server_2019_x64_dvd_19d65722.iso
+https://download.testip.xyz/windows/en-us_windows_server_2019_x64_dvd_f9475476.iso
+https://download.testip.xyz/windows/zh-cn_windows_server_2022_updated_may_2026_x64_dvd_c4723e47.iso
+https://download.testip.xyz/windows/en-us_windows_server_2022_updated_may_2026_x64_dvd_c4723e47.iso
+https://github.com/oneclickvirt/macos/releases/download/images/high-sierra.iso.7z
+https://github.com/oneclickvirt/macos/releases/download/images/mojave.iso.7z
+https://github.com/oneclickvirt/macos/releases/download/images/catalina.iso.7z
+https://github.com/oneclickvirt/macos/releases/download/images/big-sur.iso.7z
+https://github.com/oneclickvirt/macos/releases/download/images/monterey.iso.7z
+https://github.com/oneclickvirt/macos/releases/download/images/ventura.iso.7z
+https://github.com/oneclickvirt/macos/releases/download/images/sonoma.iso.7z
+https://github.com/oneclickvirt/macos/releases/download/images/sequoia.iso.7z
+https://mirrors.tuna.tsinghua.edu.cn/osdn/android-x86/71931/android-x86_64-9.0-r2.iso
+https://mirrors.tuna.tsinghua.edu.cn/osdn/android-x86/71931/android-x86_64-9.0-rc2.iso
+https://sourceforge.net/projects/blissos-x86/files/Official/BlissOS15/Gapps/Generic/Bliss-v15.9.2-x86_64-OFFICIAL-gapps-20241012.iso/download
+docker://spiritlhl/wds:10
 docker://spiritlhl/wds:2019
 docker://spiritlhl/wds:2022
 docker://redroid/redroid:8.1.0-latest
+docker://redroid/redroid:9.0.0-latest
+docker://redroid/redroid:10.0.0-latest
 docker://redroid/redroid:11.0.0-latest
-docker://dockurr/macos:sonoma`
+docker://redroid/redroid:12.0.0-latest
+docker://dockurr/macos:11
+docker://dockurr/macos:12
+docker://dockurr/macos:13
+docker://dockurr/macos:14
+docker://dockurr/macos:15`
 
 // getDefaultImageURLs 返回默认的镜像URL列表
 // 当网络不通无法从远程获取镜像列表时，使用此默认列表进行初始化

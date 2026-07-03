@@ -23,24 +23,51 @@ func (s *TaskService) getDefaultTimeout(taskType string) int {
 
 // CleanupTimeoutTasksWithLockRelease 清理超时任务并释放锁
 func (s *TaskService) CleanupTimeoutTasksWithLockRelease(timeoutThreshold time.Time) (int64, int64) {
+	var runningTasks []adminModel.Task
 	var timeoutRunningTasks []adminModel.Task
 	var timeoutCancellingTasks []adminModel.Task
 
-	// 获取超时的执行中任务。processing 是创建任务预处理后的执行态，不能遗漏。
-	global.APP_DB.Where("status IN ? AND updated_at < ?", []string{mainTaskStatusRunning, mainTaskStatusProcessing}, timeoutThreshold).Find(&timeoutRunningTasks)
+	// 只清理真正已经开始执行的 running 任务。processing 表示已入 provider 队列但
+	// 可能仍在等待 worker，等待时间不能计入任务执行超时。
+	if err := global.APP_DB.Where("status = ?", mainTaskStatusRunning).Find(&runningTasks).Error; err == nil {
+		now := time.Now()
+		for _, task := range runningTasks {
+			timeoutSeconds := task.TimeoutDuration
+			if timeoutSeconds <= 0 {
+				timeoutSeconds = s.getDefaultTimeout(task.TaskType)
+			}
+			startAt := task.UpdatedAt
+			if task.StartedAt != nil {
+				startAt = *task.StartedAt
+			}
+			if startAt.Add(time.Duration(timeoutSeconds) * time.Second).Before(now) {
+				timeoutRunningTasks = append(timeoutRunningTasks, task)
+			}
+		}
+	}
 
 	// 获取超时的cancelling任务
 	global.APP_DB.Where("status = ? AND updated_at < ?", mainTaskStatusCancelling, timeoutThreshold).Find(&timeoutCancellingTasks)
 
 	now := time.Now()
 	// 更新超时的执行中任务
-	result1 := global.APP_DB.Model(&adminModel.Task{}).
-		Where("status IN ? AND updated_at < ?", []string{mainTaskStatusRunning, mainTaskStatusProcessing}, timeoutThreshold).
-		Updates(map[string]interface{}{
-			"status":        mainTaskStatusTimeout,
-			"cancel_reason": "Task timeout - exceeded 30 minutes",
-			"completed_at":  &now,
-		})
+	var count1 int64
+	if len(timeoutRunningTasks) > 0 {
+		timeoutTaskIDs := make([]uint, 0, len(timeoutRunningTasks))
+		for _, task := range timeoutRunningTasks {
+			timeoutTaskIDs = append(timeoutTaskIDs, task.ID)
+		}
+		result1 := global.APP_DB.Model(&adminModel.Task{}).
+			Where("id IN ? AND status = ?", timeoutTaskIDs, mainTaskStatusRunning).
+			Updates(map[string]interface{}{
+				"status":        mainTaskStatusTimeout,
+				"cancel_reason": "Task timeout - exceeded configured execution timeout",
+				"completed_at":  &now,
+			})
+		if result1.Error == nil {
+			count1 = result1.RowsAffected
+		}
+	}
 
 	// 更新超时的cancelling任务
 	result2 := global.APP_DB.Model(&adminModel.Task{}).
@@ -51,10 +78,7 @@ func (s *TaskService) CleanupTimeoutTasksWithLockRelease(timeoutThreshold time.T
 			"completed_at":  &now,
 		})
 
-	var count1, count2 int64
-	if result1.Error == nil {
-		count1 = result1.RowsAffected
-	}
+	var count2 int64
 	if result2.Error == nil {
 		count2 = result2.RowsAffected
 	}

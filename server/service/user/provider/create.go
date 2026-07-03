@@ -231,7 +231,7 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userModel.CreateInstanceRequest, sessionID string, systemImage *systemModel.SystemImage, cpuSpec *constant.CPUSpec, memorySpec *constant.MemorySpec, diskSpec *constant.DiskSpec, bandwidthSpec *constant.BandwidthSpec) (*adminModel.Task, error) {
 	// 使用事务确保原子性，但只在关键操作中持有锁
 	var task *adminModel.Task
-	createTimeout := utils.GetCreateTaskTimeout("", systemImage.InstanceType)
+	createTimeout := utils.GetCreateTaskTimeoutForImage("", systemImage.InstanceType, systemImage.OSType, systemImage.URL)
 	err := database.GetDatabaseService().ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
 			return err
@@ -306,7 +306,7 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, req.ProviderId).Error; err != nil {
 				return fmt.Errorf("获取节点信息失败: %v", err)
 			}
-			createTimeout = utils.GetCreateTaskTimeout(provider.Type, systemImage.InstanceType)
+			createTimeout = utils.GetCreateTaskTimeoutForImage(provider.Type, systemImage.InstanceType, systemImage.OSType, systemImage.URL)
 
 			providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
 				(provider.ConnectionType != "agent" && (provider.Status == "active" || provider.Status == "partial"))

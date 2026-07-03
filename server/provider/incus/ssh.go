@@ -240,6 +240,11 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		}
 	}
 
+	if i.shouldUseWindowsInstallerSSH(ctx, &config) {
+		updateProgress(15, "处理Windows安装镜像...")
+		return i.createWindowsInstallerVM(ctx, config, progressCallback)
+	}
+
 	updateProgress(15, "处理镜像下载和导入...")
 	if config.CopyMode && config.CopySourceName != "" {
 		if err := i.validateCopyModeSource(config); err != nil {

@@ -478,40 +478,66 @@ func normalizeSystemImageOSType(osType, name, imageURL string) string {
 
 // validateImageURL 验证镜像URL的文件扩展名
 func validateImageURL(providerType, instanceType, url string) error {
+	cleanURL := cleanImageURLForValidation(url)
 	switch providerType {
 	case "proxmox":
-		if instanceType == "vm" && !strings.HasSuffix(url, ".qcow2") {
-			return fmt.Errorf("ProxmoxVE虚拟机镜像地址必须是.qcow2文件")
+		if instanceType == "vm" && !hasAnyImageSuffix(cleanURL, ".qcow2", ".iso", ".iso.7z") {
+			return fmt.Errorf("ProxmoxVE虚拟机镜像地址必须是.qcow2、.iso或.iso.7z文件")
 		}
-		if instanceType == "container" && !strings.HasSuffix(url, ".tar.xz") {
+		if instanceType == "container" && !strings.HasSuffix(cleanURL, ".tar.xz") {
 			return fmt.Errorf("ProxmoxVE LXC容器镜像地址必须是.tar.xz文件")
 		}
 	case "lxd", "incus":
-		if !strings.HasSuffix(url, ".zip") {
-			return fmt.Errorf("LXD/Incus镜像地址必须是zip文件")
+		if instanceType == "vm" && hasAnyImageSuffix(cleanURL, ".iso") {
+			return nil
 		}
-	case "docker", "podman", "containerd", "orbstack":
-		if instanceType == "container" && !strings.HasSuffix(url, ".tar.gz") {
-			return fmt.Errorf("Docker/Podman/Containerd/Orbstack容器镜像地址必须是.tar.gz文件")
+		if !strings.HasSuffix(cleanURL, ".zip") {
+			return fmt.Errorf("LXD/Incus镜像地址必须是zip文件；Windows虚拟机可使用.iso安装镜像")
+		}
+	case "docker", "orbstack":
+		if instanceType == "container" && strings.HasPrefix(url, "docker://") {
+			return nil
+		}
+		if instanceType == "container" && !strings.HasSuffix(cleanURL, ".tar.gz") {
+			return fmt.Errorf("Docker/Orbstack容器镜像地址必须是.tar.gz文件或docker://运行时镜像")
+		}
+	case "podman", "containerd":
+		if instanceType == "container" && !strings.HasSuffix(cleanURL, ".tar.gz") {
+			return fmt.Errorf("Podman/Containerd容器镜像地址必须是.tar.gz文件")
 		}
 	case "qemu":
-		if instanceType == "vm" && !strings.HasSuffix(url, ".qcow2") {
+		if instanceType == "vm" && !strings.HasSuffix(cleanURL, ".qcow2") {
 			return fmt.Errorf("QEMU虚拟机镜像地址必须是.qcow2文件")
 		}
-		if instanceType == "container" && !strings.HasSuffix(url, ".tar.xz") {
+		if instanceType == "container" && !strings.HasSuffix(cleanURL, ".tar.xz") {
 			return fmt.Errorf("QEMU/LXC容器镜像地址必须是.tar.xz文件")
 		}
 	case "kubevirt":
-		if instanceType == "vm" && !strings.HasSuffix(url, ".qcow2") {
+		if instanceType == "vm" && !strings.HasSuffix(cleanURL, ".qcow2") {
 			return fmt.Errorf("KubeVirt虚拟机镜像地址必须是.qcow2文件")
 		}
-		if instanceType == "container" && !strings.HasSuffix(url, ".tar.gz") {
+		if instanceType == "container" && !strings.HasSuffix(cleanURL, ".tar.gz") {
 			return fmt.Errorf("KubeVirt容器镜像归档地址必须是.tar.gz文件")
 		}
 	case "vmware":
-		if instanceType == "vm" && !strings.HasSuffix(url, ".vmx") && !strings.HasSuffix(url, ".zip") && !strings.HasSuffix(url, ".tar.gz") {
+		if instanceType == "vm" && !strings.HasSuffix(cleanURL, ".vmx") && !strings.HasSuffix(cleanURL, ".zip") && !strings.HasSuffix(cleanURL, ".tar.gz") {
 			return fmt.Errorf("VMware虚拟机模板地址必须是.vmx、.zip或.tar.gz文件")
 		}
 	}
 	return nil
+}
+
+func cleanImageURLForValidation(rawURL string) string {
+	cleanURL := strings.ToLower(strings.TrimSpace(strings.Split(rawURL, "?")[0]))
+	cleanURL = strings.TrimSuffix(cleanURL, "/download")
+	return cleanURL
+}
+
+func hasAnyImageSuffix(value string, suffixes ...string) bool {
+	for _, suffix := range suffixes {
+		if strings.HasSuffix(value, suffix) {
+			return true
+		}
+	}
+	return false
 }
