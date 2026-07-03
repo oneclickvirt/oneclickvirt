@@ -45,6 +45,10 @@ Additional backend adapters are available for local or desktop virtualization ex
 
 Avoid compiling from source whenever possible. We recommend deploying using separate binary files or directly pulling the Docker image for deployment.
 
+### Method 0: Using the 1Panel Third-Party App Store
+
+[okxlin/appstore](https://github.com/okxlin/appstore) now includes OneClickVirt. If you already use 1Panel, follow that repository's instructions to add or synchronize the local app store, then deploy `oneclickvirt` from the local app list.
+
 ### Method 1: Using Pre-built Images
 
 Use pre-built multi-architecture images that automatically downloads the appropriate version for your system architecture.

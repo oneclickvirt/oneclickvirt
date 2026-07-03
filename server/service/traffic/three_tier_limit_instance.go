@@ -60,11 +60,14 @@ func (s *ThreeTierLimitService) CheckAllInstancesTrafficLimit(ctx context.Contex
 			EnableTrafficControl   bool
 			TrafficOverLimitAction string
 			TrafficSpeedLimitKbps  int
+			TrafficResetDay        *int
+			TrafficCountMode       string
+			TrafficMultiplier      float64
 		}
 		var batchProviders []batchProviderConfig
 		if len(providerIDs) > 0 {
 			if err := global.APP_DB.Table("providers").
-				Select("id, enable_traffic_control, traffic_over_limit_action, traffic_speed_limit_kbps").
+				Select("id, enable_traffic_control, traffic_over_limit_action, traffic_speed_limit_kbps, traffic_reset_day, COALESCE(traffic_count_mode, 'both') as traffic_count_mode, COALESCE(traffic_multiplier, 1.0) as traffic_multiplier").
 				Where("id IN ?", providerIDs).
 				Scan(&batchProviders).Error; err != nil {
 				global.APP_LOG.Error("批量查询Provider配置失败，跳过本批次实例检查",
@@ -81,6 +84,22 @@ func (s *ThreeTierLimitService) CheckAllInstancesTrafficLimit(ctx context.Contex
 		providerConfigMap := make(map[uint]batchProviderConfig, len(batchProviders))
 		for _, pc := range batchProviders {
 			providerConfigMap[pc.ID] = pc
+		}
+
+		instanceIDs := make([]uint, 0, len(instances))
+		for _, inst := range instances {
+			instanceIDs = append(instanceIDs, inst.ID)
+		}
+		statsMap, err := NewQueryService().BatchGetInstancesCurrentCycleTraffic(instanceIDs)
+		if err != nil {
+			global.APP_LOG.Error("批量查询实例当前流量周期失败，跳过本批次实例检查",
+				zap.Error(err), zap.Int("batchSize", len(instances)))
+			lastID = instances[len(instances)-1].ID
+			totalCount += len(instances)
+			if len(instances) < batchSize {
+				break
+			}
+			continue
 		}
 
 		// 并发检查当前批次（上限 20 个 goroutine）
@@ -113,7 +132,7 @@ func (s *ThreeTierLimitService) CheckAllInstancesTrafficLimit(ctx context.Contex
 					}
 					return
 				}
-				isLimited, err := s.checkInstanceTrafficLimitWithData(inst, pc.TrafficOverLimitAction, pc.TrafficSpeedLimitKbps)
+				isLimited, err := s.checkInstanceTrafficLimitWithStats(inst, pc.TrafficOverLimitAction, pc.TrafficSpeedLimitKbps, statsMap[inst.ID])
 				if err != nil {
 					global.APP_LOG.Warn("检查实例流量限制失败",
 						zap.Uint("instanceID", inst.ID),
@@ -152,7 +171,7 @@ func (s *ThreeTierLimitService) CheckInstanceTrafficLimit(instanceID uint) (bool
 
 	// 检查实例所属 Provider 是否启用流量统计
 	var p provider.Provider
-	if err := global.APP_DB.Select("enable_traffic_control").First(&p, instance.ProviderID).Error; err != nil {
+	if err := global.APP_DB.Select("enable_traffic_control, traffic_over_limit_action, traffic_speed_limit_kbps, traffic_reset_day").First(&p, instance.ProviderID).Error; err != nil {
 		global.APP_LOG.Warn("获取Provider流量统计开关失败，跳过实例检查",
 			zap.Uint("instanceID", instanceID),
 			zap.Uint("providerID", instance.ProviderID),
@@ -182,14 +201,9 @@ func (s *ThreeTierLimitService) CheckInstanceTrafficLimit(instanceID uint) (bool
 		return false, nil
 	}
 
-	// 获取实例当月流量
-	now := time.Now()
-	year := now.Year()
-	month := int(now.Month())
-
 	// 使用统一的流量查询服务
 	queryService := NewQueryService()
-	monthlyStats, err := queryService.GetInstanceMonthlyTraffic(instanceID, year, month)
+	monthlyStats, err := queryService.GetInstanceCurrentCycleTraffic(instanceID)
 	if err != nil {
 		global.APP_LOG.Warn("获取实例 pmacct 流量失败",
 			zap.Uint("instanceID", instanceID),
@@ -210,7 +224,7 @@ func (s *ThreeTierLimitService) CheckInstanceTrafficLimit(instanceID uint) (bool
 			zap.Int64("usedTraffic", usedTraffic),
 			zap.Int64("maxTraffic", instance.MaxTraffic))
 
-		return s.limitInstance(instanceID, "instance", fmt.Sprintf("实例流量超限: %dMB/%dMB", usedTraffic, instance.MaxTraffic))
+		return s.limitInstanceWithAction(instance, "instance", fmt.Sprintf("实例流量超限: %dMB/%dMB", usedTraffic, instance.MaxTraffic), p.TrafficOverLimitAction, p.TrafficSpeedLimitKbps)
 	}
 
 	// 未超限，如果之前是实例层级限制的，解除限制
@@ -221,9 +235,9 @@ func (s *ThreeTierLimitService) CheckInstanceTrafficLimit(instanceID uint) (bool
 	return false, nil
 }
 
-// checkInstanceTrafficLimitWithData 使用预加载的实例和Provider配置检查流量限制
+// checkInstanceTrafficLimitWithStats 使用预加载的实例、Provider配置和流量统计检查限制
 // 供批量检查路径使用，避免重复查询数据库（N+1问题）
-func (s *ThreeTierLimitService) checkInstanceTrafficLimitWithData(instance provider.Instance, trafficOverLimitAction string, trafficSpeedLimitKbps int) (bool, error) {
+func (s *ThreeTierLimitService) checkInstanceTrafficLimitWithStats(instance provider.Instance, trafficOverLimitAction string, trafficSpeedLimitKbps int, stats *TrafficStats) (bool, error) {
 	instanceID := instance.ID
 
 	// 如果实例已经被更高层级限制，跳过
@@ -239,20 +253,10 @@ func (s *ThreeTierLimitService) checkInstanceTrafficLimitWithData(instance provi
 		return false, nil
 	}
 
-	now := time.Now()
-	year := now.Year()
-	month := int(now.Month())
-
-	queryService := NewQueryService()
-	monthlyStats, err := queryService.GetInstanceMonthlyTraffic(instanceID, year, month)
-	if err != nil {
-		global.APP_LOG.Warn("获取实例流量失败",
-			zap.Uint("instanceID", instanceID),
-			zap.Error(err))
-		return false, fmt.Errorf("获取实例流量失败: %w", err)
+	usedTraffic := int64(0)
+	if stats != nil {
+		usedTraffic = int64(stats.ActualUsageMB)
 	}
-
-	usedTraffic := int64(monthlyStats.ActualUsageMB)
 
 	if usedTraffic >= instance.MaxTraffic {
 		global.APP_LOG.Info("实例流量超限",

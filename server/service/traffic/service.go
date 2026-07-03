@@ -67,9 +67,15 @@ func (s *Service) CheckProviderTrafficLimit(providerID uint) (bool, error) {
 
 	now := time.Now()
 
+	normalizedResetDay, err := NormalizeTrafficResetDay(p.TrafficResetDay)
+	if err != nil {
+		return false, err
+	}
+	p.TrafficResetDay = normalizedResetDay
+
 	// 初始化TrafficResetAt
 	if p.TrafficResetAt == nil {
-		nextReset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
+		nextReset := NextTrafficResetTime(p.TrafficResetDay, now)
 		p.TrafficResetAt = &nextReset
 		if err := global.APP_DB.Model(&p).Update("traffic_reset_at", nextReset).Error; err != nil {
 			global.APP_LOG.Warn("初始化Provider流量重置时间失败",
@@ -81,21 +87,22 @@ func (s *Service) CheckProviderTrafficLimit(providerID uint) (bool, error) {
 
 	// 检查是否到了重置时间
 	if !now.Before(*p.TrafficResetAt) {
-		nextReset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
-		updates := map[string]interface{}{
-			"traffic_reset_at": nextReset,
-			"traffic_limited":  false,
-		}
-		if err := global.APP_DB.Model(&p).Updates(updates).Error; err != nil {
+		threeTier := NewThreeTierLimitService()
+		if err := threeTier.resetProviderTrafficLimitState(context.Background(), p, now); err != nil {
 			return false, err
 		}
-		return false, s.resumeProviderInstances(providerID)
+		if err := threeTier.CheckAllUsersTrafficLimit(context.Background()); err != nil {
+			return false, err
+		}
+		if err := threeTier.CheckAllInstancesTrafficLimit(context.Background()); err != nil {
+			return false, err
+		}
+		return false, threeTier.RecoverTrafficStoppedInstances(context.Background())
 	}
 
 	// 使用QueryService查询当月流量
 	queryService := NewQueryService()
-	year, month, _ := now.Date()
-	stats, err := queryService.GetProviderMonthlyTraffic(providerID, year, int(month))
+	stats, err := queryService.GetProviderCurrentCycleTraffic(providerID)
 	if err != nil {
 		return false, fmt.Errorf("查询Provider流量失败: %w", err)
 	}

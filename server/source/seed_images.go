@@ -363,6 +363,10 @@ func isUnresolvedSystemImageOS(osType string) bool {
 
 // parseImageURL 解析镜像URL并提取信息
 func parseImageURL(imageURL string) *ImageInfo {
+	if imageInfo := parseDockerRuntimeImageURL(imageURL); imageInfo != nil {
+		return imageInfo
+	}
+
 	// Proxmox LXC AMD64 镜像
 	lxcAmd64Re := regexp.MustCompile(`https://github\.com/oneclickvirt/lxc_amd64_images/releases/download/([^/]+)/([^_]+)_([^_]+)_([^_]+)_([^_]+)_([^.]+)\.tar\.xz`)
 	if matches := lxcAmd64Re.FindStringSubmatch(imageURL); matches != nil {
@@ -548,6 +552,63 @@ func parseImageURL(imageURL string) *ImageInfo {
 	}
 
 	return parseGenericOneClickVirtImageURL(imageURL)
+}
+
+func parseDockerRuntimeImageURL(imageURL string) *ImageInfo {
+	cleanURL := strings.TrimSpace(strings.Split(imageURL, "?")[0])
+	if !strings.HasPrefix(cleanURL, "docker://") {
+		return nil
+	}
+
+	ref := strings.TrimPrefix(cleanURL, "docker://")
+	tag := "latest"
+	if idx := strings.LastIndex(ref, ":"); idx > strings.LastIndex(ref, "/") {
+		tag = strings.TrimSpace(ref[idx+1:])
+		ref = strings.TrimSpace(ref[:idx])
+	}
+	if ref == "" || tag == "" {
+		return nil
+	}
+
+	refLower := strings.ToLower(ref)
+	tagLower := strings.ToLower(tag)
+	switch refLower {
+	case "spiritlhl/wds", "dockurr/windows":
+		return &ImageInfo{
+			Name:         "windows-" + tagLower,
+			ProviderType: "docker",
+			InstanceType: "container",
+			Architecture: "amd64",
+			URL:          cleanURL,
+			OSType:       "windows",
+			OSVersion:    tagLower,
+			Description:  fmt.Sprintf("Docker Windows %s runtime image", tagLower),
+		}
+	case "redroid/redroid":
+		return &ImageInfo{
+			Name:         "android-" + tagLower,
+			ProviderType: "docker",
+			InstanceType: "container",
+			Architecture: "amd64",
+			URL:          cleanURL,
+			OSType:       "android",
+			OSVersion:    tagLower,
+			Description:  fmt.Sprintf("Docker Android %s runtime image", tagLower),
+		}
+	case "dockurr/macos":
+		return &ImageInfo{
+			Name:         "macos-" + tagLower,
+			ProviderType: "docker",
+			InstanceType: "container",
+			Architecture: "amd64",
+			URL:          cleanURL,
+			OSType:       "macos",
+			OSVersion:    tagLower,
+			Description:  fmt.Sprintf("Docker macOS %s runtime image", tagLower),
+		}
+	default:
+		return nil
+	}
 }
 
 func parseGenericOneClickVirtImageURL(imageURL string) *ImageInfo {

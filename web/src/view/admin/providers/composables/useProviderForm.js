@@ -38,6 +38,13 @@ const normalizeFixedPorts = (ports = []) => {
   })
 }
 
+const normalizeTrafficResetDay = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  const day = Number(value)
+  if (!Number.isInteger(day) || day < 1 || day > 31) return NaN
+  return day
+}
+
 const buildDefaultForm = () => ({
   id: null,
   name: '',
@@ -86,6 +93,7 @@ const buildDefaultForm = () => ({
   trafficCollectBatchSize: 10,
   trafficLimitCheckInterval: 180,
   trafficLimitCheckBatchSize: 10,
+  trafficResetDay: null,
   trafficAutoResetInterval: 1800,
   trafficAutoResetBatchSize: 10,
   trafficOverLimitAction: 'stop',
@@ -260,6 +268,7 @@ export function useProviderForm(loadProviders) {
     addProviderForm.trafficCollectBatchSize = provider.trafficCollectBatchSize || 10
     addProviderForm.trafficLimitCheckInterval = provider.trafficLimitCheckInterval || 180
     addProviderForm.trafficLimitCheckBatchSize = provider.trafficLimitCheckBatchSize || 10
+    addProviderForm.trafficResetDay = provider.trafficResetDay || null
     addProviderForm.trafficAutoResetInterval = provider.trafficAutoResetInterval || 1800
     addProviderForm.trafficAutoResetBatchSize = provider.trafficAutoResetBatchSize || 10
     addProviderForm.trafficOverLimitAction = provider.trafficOverLimitAction || 'stop'
@@ -384,6 +393,12 @@ export function useProviderForm(loadProviders) {
         return null
       }
 
+      const trafficResetDay = normalizeTrafficResetDay(formData.trafficResetDay)
+      if (Number.isNaN(trafficResetDay)) {
+        ElMessage.error(t('admin.providers.trafficResetDayInvalid'))
+        return null
+      }
+
       addProviderLoading.value = true
 
       const serverData = {
@@ -438,6 +453,7 @@ export function useProviderForm(loadProviders) {
         trafficCollectBatchSize: formData.trafficCollectBatchSize || 10,
         trafficLimitCheckInterval: formData.trafficLimitCheckInterval || 180,
         trafficLimitCheckBatchSize: formData.trafficLimitCheckBatchSize || 10,
+        trafficResetDay,
         trafficAutoResetInterval: formData.trafficAutoResetInterval || 1800,
         trafficAutoResetBatchSize: formData.trafficAutoResetBatchSize || 10,
         trafficOverLimitAction: formData.trafficOverLimitAction || 'stop',

@@ -1,6 +1,7 @@
 package traffic
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -150,10 +151,17 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 		}
 	}
 
-	// 获取当月流量使用量（MB 单位）
-	currentMonthUsageMB, err := s.getUserMonthlyTrafficFromPmacct(userID)
+	// 获取当前节点重置周期内的流量使用量（MB 单位）
+	queryService := NewQueryService()
+	currentCycleStats, err := queryService.GetUserCurrentCycleTraffic(userID)
 	if err != nil {
-		return nil, fmt.Errorf("获取当月流量使用量失败: %w", err)
+		return nil, fmt.Errorf("获取当前周期流量使用量失败: %w", err)
+	}
+	currentMonthUsageMB := int64(currentCycleStats.ActualUsageMB)
+	resetAt, err := queryService.GetUserNextTrafficResetTime(userID)
+	if err != nil {
+		global.APP_LOG.Warn("获取用户下一次流量重置时间失败", zap.Uint("userID", userID), zap.Error(err))
+		resetAt = u.TrafficResetAt
 	}
 
 	// 获取本年度总流量使用量
@@ -183,7 +191,7 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 		"total_limit":             u.TotalTraffic,
 		"usage_percent":           usagePercent,
 		"is_limited":              u.TrafficLimited,
-		"reset_time":              u.TrafficResetAt,
+		"reset_time":              resetAt,
 		"history":                 history,
 		"traffic_control_enabled": true, // 标记流量统计已启用
 		"formatted": map[string]string{
@@ -449,14 +457,15 @@ func (s *LimitService) GetProviderTrafficUsageWithPmacct(providerID uint) (map[s
 	if !p.EnableTrafficControl {
 		monthlyTrafficMB = 0
 	} else {
-		// 获取当前月份的流量使用（MB 单位）
-		var err error
-		monthlyTrafficMB, err = s.getProviderMonthlyTrafficFromPmacct(providerID)
+		// 获取当前节点重置周期内的流量使用（MB 单位）
+		stats, err := NewQueryService().GetProviderCurrentCycleTraffic(providerID)
 		if err != nil {
-			global.APP_LOG.Warn("获取Provider pmacct月度流量失败，使用默认值",
+			global.APP_LOG.Warn("获取Provider pmacct当前周期流量失败，使用默认值",
 				zap.Uint("providerID", providerID),
 				zap.Error(err))
 			monthlyTrafficMB = 0
+		} else {
+			monthlyTrafficMB = int64(stats.ActualUsageMB)
 		}
 	}
 
@@ -665,13 +674,16 @@ func (s *LimitService) RemoveUserTrafficLimit(userID uint) error {
 		}).Error; err != nil {
 		return err
 	}
-	return global.APP_DB.Model(&provider.Instance{}).
+	if err := global.APP_DB.Model(&provider.Instance{}).
 		Where("user_id = ? AND traffic_limit_reason = ?", userID, "user").
 		Updates(map[string]interface{}{
 			"traffic_limited":      false,
 			"traffic_limit_reason": "",
 			"updated_at":           time.Now(),
-		}).Error
+		}).Error; err != nil {
+		return err
+	}
+	return NewThreeTierLimitService().RecoverTrafficStoppedInstances(context.Background())
 }
 
 // SetProviderTrafficLimit 设置Provider流量限制
@@ -705,13 +717,16 @@ func (s *LimitService) RemoveProviderTrafficLimit(providerID uint) error {
 		}).Error; err != nil {
 		return err
 	}
-	return global.APP_DB.Model(&provider.Instance{}).
+	if err := global.APP_DB.Model(&provider.Instance{}).
 		Where("provider_id = ? AND traffic_limit_reason = ?", providerID, "provider").
 		Updates(map[string]interface{}{
 			"traffic_limited":      false,
 			"traffic_limit_reason": "",
 			"updated_at":           time.Now(),
-		}).Error
+		}).Error; err != nil {
+		return err
+	}
+	return NewThreeTierLimitService().RecoverTrafficStoppedInstances(context.Background())
 }
 
 // FormatPmacctData 格式化pmacct数据显示（输入为字节）

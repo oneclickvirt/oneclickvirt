@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// RecoverTrafficStoppedInstances 在自然月重置或流量限制解除后恢复由流量策略自动停机的实例。
+// RecoverTrafficStoppedInstances 在流量周期重置或流量限制解除后恢复由流量策略自动停机的实例。
 func (s *ThreeTierLimitService) RecoverTrafficStoppedInstances(ctx context.Context) error {
 	const batchSize = 200
 	activeTaskTypes := []string{"start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}

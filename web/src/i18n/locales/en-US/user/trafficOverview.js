@@ -23,6 +23,6 @@ export default {
   trafficStats: "Traffic Statistics",
   viewDetailedStats: "View Detailed Statistics",
   currentMonthUsage: "Current Month Usage",
-  resetOn1st: "Resets on 1st of each month",
+  resetOn1st: "Resets by provider reset day",
   historicalStats: "Historical Statistics"
 }

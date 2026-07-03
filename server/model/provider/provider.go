@@ -218,14 +218,15 @@ type Provider struct {
 	VMWriteIOLimit        string `json:"vmWriteIoLimit" gorm:"size:32"`        // 虚拟机写速率限制，如 "50MB"
 
 	// 流量管理（MB为单位）
-	EnableTrafficControl     bool       `json:"enableTrafficControl" gorm:"default:false"`      // 是否启用流量统计和限制，默认不启用
-	EnableResourceMonitoring bool       `json:"enableResourceMonitoring" gorm:"default:false"`  // 是否启用硬件资源监控（CPU/内存/磁盘），默认不启用
-	MaxTraffic               int64      `json:"maxTraffic" gorm:"default:1048576"`              // 最大流量限制（默认1TB=1048576MB）
-	TrafficLimited           bool       `json:"trafficLimited" gorm:"default:false"`            // 是否因流量超限被限制
-	TrafficResetAt           *time.Time `json:"trafficResetAt"`                                 // 流量重置时间
-	TrafficCountMode         string     `json:"trafficCountMode" gorm:"default:both;size:16"`   // 流量统计模式：both(双向), out(仅出向), in(仅入向)
-	TrafficMultiplier        float64    `json:"trafficMultiplier" gorm:"default:1.0"`           // 流量计费倍率（例如：入向0.5倍，出向1倍）
-	TrafficSyncMethod        string     `json:"trafficSyncMethod" gorm:"default:agent;size:16"` // 流量同步方式：pmacct(传统SSH采集), agent(Rust Agent采集)
+	EnableTrafficControl     bool       `json:"enableTrafficControl" gorm:"default:false"`       // 是否启用流量统计和限制，默认不启用
+	EnableResourceMonitoring bool       `json:"enableResourceMonitoring" gorm:"default:false"`   // 是否启用硬件资源监控（CPU/内存/磁盘），默认不启用
+	MaxTraffic               int64      `json:"maxTraffic" gorm:"default:1048576"`               // 最大流量限制（默认1TB=1048576MB）
+	TrafficLimited           bool       `json:"trafficLimited" gorm:"default:false"`             // 是否因流量超限被限制
+	TrafficResetAt           *time.Time `json:"trafficResetAt"`                                  // 流量重置时间
+	TrafficResetDay          *int       `json:"trafficResetDay" gorm:"column:traffic_reset_day"` // 每月流量重置日期，nil/0表示每月1日自然月重置
+	TrafficCountMode         string     `json:"trafficCountMode" gorm:"default:both;size:16"`    // 流量统计模式：both(双向), out(仅出向), in(仅入向)
+	TrafficMultiplier        float64    `json:"trafficMultiplier" gorm:"default:1.0"`            // 流量计费倍率（例如：入向0.5倍，出向1倍）
+	TrafficSyncMethod        string     `json:"trafficSyncMethod" gorm:"default:agent;size:16"`  // 流量同步方式：pmacct(传统SSH采集), agent(Rust Agent采集)
 
 	// 流量统计性能配置
 	TrafficStatsMode           string `json:"trafficStatsMode" gorm:"default:light;size:16"`                               // 流量统计性能模式：high(高性能), standard(标准), light(轻量), minimal(最小), custom(自定义)
@@ -472,11 +473,13 @@ type Instance struct {
 	ProviderVMID       string     `json:"providerVmId" gorm:"column:provider_vm_id;size:128"` // 虚拟化平台的实例ID（Proxmox VMID/CTID或远端实例名），用于接口检测
 
 	// 生命周期和冻结管理
-	ExpiresAt      *time.Time `json:"expiresAt" gorm:"index:idx_expires_at;column:expires_at"` // 实例到期时间（默认与节点同步，手动设置优先级更高）
-	IsFrozen       bool       `json:"isFrozen" gorm:"default:false;index:idx_frozen"`          // 是否被冻结（冻结后无法操作，除了删除）
-	IsManualExpiry bool       `json:"isManualExpiry" gorm:"default:false"`                     // 是否手动设置了过期时间（手动设置的优先级高于节点）
-	FrozenReason   string     `json:"frozenReason" gorm:"size:255"`                            // 冻结原因：expired(到期), node_frozen(节点冻结), manual(手动冻结)
-	FrozenAt       *time.Time `json:"frozenAt"`                                                // 冻结时间
+	ExpiresAt       *time.Time `json:"expiresAt" gorm:"index:idx_expires_at;column:expires_at"` // 实例到期时间（默认与节点同步，手动设置优先级更高）
+	IsFrozen        bool       `json:"isFrozen" gorm:"default:false;index:idx_frozen"`          // 是否被冻结（冻结后无法操作，除了删除）
+	IsManualExpiry  bool       `json:"isManualExpiry" gorm:"default:false"`                     // 是否手动设置了过期时间（手动设置的优先级高于节点）
+	FrozenReason    string     `json:"frozenReason" gorm:"size:255"`                            // 冻结原因：expired(到期), node_frozen(节点冻结), manual(手动冻结)
+	FrozenAt        *time.Time `json:"frozenAt"`                                                // 冻结时间
+	ExpiryStopped   bool       `json:"expiryStopped" gorm:"default:false"`                      // 是否由过期策略自动停机，续期后可自动恢复
+	ExpiryStoppedAt *time.Time `json:"expiryStoppedAt"`                                         // 过期策略自动停机时间
 
 	// GPU/NPU直通配置（从兑换码/导入时继承，用于展示和运维参考）
 	GpuEnabled   bool   `json:"gpuEnabled" gorm:"default:false"` // 是否启用GPU直通

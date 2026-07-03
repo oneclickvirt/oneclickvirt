@@ -15,6 +15,7 @@ import (
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
+	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -445,6 +446,15 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 	if req.TrafficAutoResetBatchSize > 0 {
 		provider.TrafficAutoResetBatchSize = req.TrafficAutoResetBatchSize
+	}
+	if updateProviderRequestHasField(req, "trafficResetDay") {
+		trafficResetDay, err := trafficService.NormalizeTrafficResetDay(req.TrafficResetDay)
+		if err != nil {
+			return err
+		}
+		provider.TrafficResetDay = trafficResetDay
+		nextReset := trafficService.NextTrafficResetTime(provider.TrafficResetDay, time.Now())
+		provider.TrafficResetAt = &nextReset
 	}
 	// 流量计费倍率更新
 	if req.TrafficMultiplier > 0 {

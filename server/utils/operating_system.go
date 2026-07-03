@@ -56,6 +56,7 @@ func matchKnownOSType(value string) string {
 	}{
 		{[]string{"windows-server", "windows", "windows10", "windows11", "winserver", "win", "win-10", "win-11", "win10", "win11", "winos"}, "windows"},
 		{[]string{"macos", "mac-os", "osx", "darwin"}, "macos"},
+		{[]string{"android", "android-x86", "androidx86", "redroid", "blissos", "bliss-os"}, "android"},
 		{[]string{"archlinux", "arch-linux", "arch"}, "archlinux"},
 		{[]string{"rockylinux", "rocky-linux", "rocky"}, "rockylinux"},
 		{[]string{"almalinux", "alma-linux", "alma"}, "almalinux"},

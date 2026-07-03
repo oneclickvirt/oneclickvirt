@@ -470,15 +470,23 @@ func (s *InstanceCleanupService) stopExpiredInstance(instance *providerModel.Ins
 			nextStatus = constant.InstanceStatusStopping
 		}
 
+		updates := map[string]interface{}{
+			"status":            nextStatus,
+			"is_frozen":         true,
+			"frozen_at":         now,
+			"frozen_reason":     "expired",
+			"expiry_stopped":    false,
+			"expiry_stopped_at": nil,
+			"updated_at":        now,
+		}
+		if needsStopTask {
+			updates["expiry_stopped"] = true
+			updates["expiry_stopped_at"] = now
+		}
+
 		if err := tx.Model(&providerModel.Instance{}).
 			Where("id = ?", instance.ID).
-			Updates(map[string]interface{}{
-				"status":        nextStatus,
-				"is_frozen":     true,
-				"frozen_at":     now,
-				"frozen_reason": "expired",
-				"updated_at":    now,
-			}).Error; err != nil {
+			Updates(updates).Error; err != nil {
 			return err
 		}
 

@@ -45,6 +45,10 @@
 
 尽量不要自行编译，推荐使用二进制文件分离部署或直接docker拉取镜像部署
 
+### 方式零：使用 1Panel 第三方应用商店
+
+[okxlin/appstore](https://github.com/okxlin/appstore) 已收录 OneClickVirt。已安装 1Panel 的用户，可以按该仓库说明添加或同步本地应用商店，然后在本地应用列表中选择 `oneclickvirt` 部署。
+
 ### 方式一：使用预构建镜像
 
 使用已构建好的多架构镜像，会自动根据当前系统架构下载对应版本。

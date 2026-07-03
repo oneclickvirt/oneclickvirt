@@ -109,6 +109,7 @@ type CreateProviderRequest struct {
 	TrafficOverLimitAction   string  `json:"trafficOverLimitAction"`   // 流量超限操作：stop, speed_limit, freeze, mark_only
 	TrafficSpeedLimitKbps    int     `json:"trafficSpeedLimitKbps"`    // 限速值(Kbps)，仅speed_limit模式生效
 	TrafficQuotaVisible      *bool   `json:"trafficQuotaVisible"`      // 用户侧是否显示流量额度
+	TrafficResetDay          *int    `json:"trafficResetDay"`          // 每月流量重置日期，nil/0表示每月1日自然月重置
 	InstanceExpiryAction     string  `json:"instanceExpiryAction"`     // 实例到期操作：delete, freeze, stop, extend
 	InstanceExpiryExtendDays int     `json:"instanceExpiryExtendDays"` // 到期延期天数，仅extend模式生效
 	// 流量统计性能配置
@@ -235,6 +236,7 @@ type UpdateProviderRequest struct {
 	TrafficOverLimitAction   string `json:"trafficOverLimitAction"`   // 流量超限操作：stop, speed_limit, freeze, mark_only
 	TrafficSpeedLimitKbps    int    `json:"trafficSpeedLimitKbps"`    // 限速值(Kbps)，仅speed_limit模式生效
 	TrafficQuotaVisible      *bool  `json:"trafficQuotaVisible"`      // 用户侧是否显示流量额度
+	TrafficResetDay          *int   `json:"trafficResetDay"`          // 每月流量重置日期，nil/0表示每月1日自然月重置
 	InstanceExpiryAction     string `json:"instanceExpiryAction"`     // 实例到期操作：delete, freeze, stop, extend
 	InstanceExpiryExtendDays int    `json:"instanceExpiryExtendDays"` // 到期延期天数，仅extend模式生效
 	// 流量统计性能配置

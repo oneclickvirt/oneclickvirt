@@ -3,12 +3,12 @@ package provider
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
+	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -144,44 +144,6 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 			Scan(&taskCounts)
 	}
 
-	// 批量查询Provider本月流量使用情况
-	// 直接使用provider_traffic_histories聚合表，避免复杂的实时计算
-	type TrafficUsageResult struct {
-		ProviderID  uint
-		UsedTraffic float64
-	}
-	var trafficUsages []TrafficUsageResult
-	if len(providerIDs) > 0 {
-		now := time.Now()
-		year, month := now.Year(), int(now.Month())
-
-		// 使用聚合表查询，性能大幅提升
-		// day=0,hour=0 表示月度汇总数据
-		if result := global.APP_DB.Raw(`
-			SELECT 
-				ith.provider_id,
-				COALESCE(SUM(
-					CASE
-						WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-						WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-						ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-					END
-				), 0) as used_traffic
-			FROM instance_traffic_histories ith
-			INNER JOIN providers p ON ith.provider_id = p.id
-			WHERE ith.provider_id IN ?
-			  AND ith.year = ?
-			  AND ith.month = ?
-			  AND ith.day = 0
-			  AND ith.hour = 0
-			  AND p.enable_traffic_control = true
-			  AND ith.deleted_at IS NULL
-			GROUP BY ith.provider_id
-		`, providerIDs, year, month).Scan(&trafficUsages); result.Error != nil {
-			global.APP_LOG.Warn("查询流量使用情况失败", zap.Error(result.Error))
-		}
-	}
-
 	// 构建映射表
 	instanceCountMap := make(map[uint]InstanceCountResult)
 	for _, count := range instanceCounts {
@@ -194,8 +156,17 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 	}
 
 	trafficUsageMap := make(map[uint]int64)
-	for _, usage := range trafficUsages {
-		trafficUsageMap[usage.ProviderID] = int64(usage.UsedTraffic)
+	if len(providerIDs) > 0 {
+		trafficStatsMap, err := trafficService.NewQueryService().BatchGetProvidersCurrentCycleTraffic(providerIDs)
+		if err != nil {
+			global.APP_LOG.Warn("查询当前流量周期使用情况失败", zap.Error(err))
+		} else {
+			for providerID, stats := range trafficStatsMap {
+				if stats != nil {
+					trafficUsageMap[providerID] = int64(stats.ActualUsageMB)
+				}
+			}
+		}
 	}
 
 	// 批量获取 Agent 运行时健康信息（内存态，不触发数据库查询）

@@ -4,31 +4,6 @@
     label-width="120px"
     class="server-form"
   >
-    <el-form-item
-      :label="$t('admin.providers.expiresAt')"
-      prop="expiresAt"
-    >
-      <el-date-picker
-        v-model="modelValue.expiresAt"
-        type="datetime"
-        :placeholder="$t('admin.providers.expiresAtPlaceholder')"
-        format="YYYY-MM-DD HH:mm:ss"
-        value-format="YYYY-MM-DD HH:mm:ss"
-        :disabled-date="(time) => time.getTime() < Date.now() - 8.64e7"
-      />
-    </el-form-item>
-    <div
-      class="form-tip"
-      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
-    >
-      <el-text
-        size="small"
-        type="info"
-      >
-        {{ $t('admin.providers.expiresAtTip') }}
-      </el-text>
-    </div>
-
     <!-- 并发控制设置 -->
     <el-divider content-position="left">
       <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.concurrencyControl') }}</span>
@@ -324,61 +299,6 @@
         {{ $t('admin.providers.trafficQuotaVisibleTip') }}
       </el-text>
     </div>
-
-    <el-form-item
-      :label="$t('admin.providers.instanceExpiryAction')"
-      prop="instanceExpiryAction"
-    >
-      <el-select
-        v-model="modelValue.instanceExpiryAction"
-        :placeholder="$t('admin.providers.instanceExpiryActionPlaceholder')"
-        style="width: 260px"
-      >
-        <el-option
-          :label="$t('admin.providers.expiryActionDelete')"
-          value="delete"
-        />
-        <el-option
-          :label="$t('admin.providers.expiryActionFreeze')"
-          value="freeze"
-        />
-        <el-option
-          :label="$t('admin.providers.expiryActionStop')"
-          value="stop"
-        />
-        <el-option
-          :label="$t('admin.providers.expiryActionExtend')"
-          value="extend"
-        />
-      </el-select>
-    </el-form-item>
-    <div
-      class="form-tip"
-      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
-    >
-      <el-text
-        size="small"
-        type="info"
-      >
-        {{ $t('admin.providers.instanceExpiryActionTip') }}
-      </el-text>
-    </div>
-
-    <el-form-item
-      v-if="modelValue.instanceExpiryAction === 'extend'"
-      :label="$t('admin.providers.instanceExpiryExtendDays')"
-      prop="instanceExpiryExtendDays"
-    >
-      <el-input-number
-        v-model="modelValue.instanceExpiryExtendDays"
-        :min="1"
-        :max="365"
-        :step="1"
-        :controls="false"
-        style="width: 200px"
-      />
-      <span style="margin-left: 10px; color: #666;">{{ $t('common.days') }}</span>
-    </el-form-item>
 
     <!-- WebVNC 设置 -->
     <el-divider content-position="left">

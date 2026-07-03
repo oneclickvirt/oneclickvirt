@@ -11,6 +11,7 @@ import (
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
+	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
 	"time"
 
@@ -168,6 +169,10 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	if req.TrafficQuotaVisible != nil {
 		trafficQuotaVisible = *req.TrafficQuotaVisible
 	}
+	trafficResetDay, err := trafficService.NormalizeTrafficResetDay(req.TrafficResetDay)
+	if err != nil {
+		return nil, err
+	}
 
 	provider := providerModel.Provider{
 		Name:                  req.Name,
@@ -248,6 +253,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		TrafficOverLimitAction:   trafficAction,
 		TrafficSpeedLimitKbps:    trafficSpeedKbps,
 		TrafficQuotaVisible:      trafficQuotaVisible,
+		TrafficResetDay:          trafficResetDay,
 		InstanceExpiryAction:     expiryAction,
 		InstanceExpiryExtendDays: expiryExtendDays,
 		// 端口映射方式
@@ -455,9 +461,9 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	}
 	provider.NextAvailablePort = provider.PortRangeStart
 
-	// 初始化流量重置时间为下个月的1号
+	// 初始化流量重置时间
 	now := time.Now()
-	nextReset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
+	nextReset := trafficService.NextTrafficResetTime(provider.TrafficResetDay, now)
 	provider.TrafficResetAt = &nextReset
 
 	dbService := database.GetDatabaseService()

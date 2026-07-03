@@ -103,6 +103,18 @@
         />
       </el-tab-pane>
 
+      <!-- 过期设置 -->
+      <el-tab-pane
+        :label="$t('admin.providers.expirySettings')"
+        name="expiry"
+      >
+        <ExpirySettingsTab
+          v-model="formData"
+          :provider-id="formData.id"
+          :is-editing="isEditing"
+        />
+      </el-tab-pane>
+
       <!-- 高级设置 -->
       <el-tab-pane
         :label="$t('admin.providers.advancedSettings')"
@@ -124,16 +136,6 @@
         />
       </el-tab-pane>
 
-      <!-- 签到续期配置 -->
-      <el-tab-pane
-        v-if="isEditing && formData.id"
-        :label="$t('admin.providers.checkinConfig')"
-        name="checkin"
-      >
-        <CheckinConfigTab
-          :provider-id="formData.id"
-        />
-      </el-tab-pane>
     </el-tabs>
     
     <template #footer>
@@ -158,9 +160,9 @@ import VirtualizationTab from './formTabs/VirtualizationTab.vue'
 import MappingTab from './formTabs/MappingTab.vue'
 import BandwidthTab from './formTabs/BandwidthTab.vue'
 import LevelLimitsTab from './formTabs/LevelLimitsTab.vue'
+import ExpirySettingsTab from './formTabs/ExpirySettingsTab.vue'
 import AdvancedTab from './formTabs/AdvancedTab.vue'
 import HardwareConfigTab from './formTabs/HardwareConfigTab.vue'
-import CheckinConfigTab from './formTabs/CheckinConfigTab.vue'
 import { useProviderForm } from './composables/useProviderForm'
 
 const props = defineProps({

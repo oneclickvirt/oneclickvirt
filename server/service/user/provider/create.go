@@ -103,7 +103,7 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 	if currentUser.TrafficLimited {
 		global.APP_LOG.Error("用户因流量超限被限制，禁止申请新实例",
 			zap.Uint("userID", userID))
-		return nil, errors.New("当前账号当月总流量已超限，普通用户禁止申请新实例，请等待自然月自动重置或联系管理员")
+		return nil, errors.New("当前账号当前流量周期总流量已超限，普通用户禁止申请新实例，请等待节点流量重置日自动重置或联系管理员")
 	}
 
 	var systemImage systemModel.SystemImage

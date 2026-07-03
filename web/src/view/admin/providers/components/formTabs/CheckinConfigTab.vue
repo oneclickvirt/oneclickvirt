@@ -6,7 +6,7 @@
     <el-form
       :model="checkinForm"
       label-width="160px"
-      class="server-form"
+      :class="{ 'server-form': !embedded }"
     >
       <el-form-item :label="$t('admin.providers.checkinEnabled')">
         <el-switch
@@ -216,6 +216,10 @@ const props = defineProps({
   providerId: {
     type: [Number, String],
     default: null
+  },
+  embedded: {
+    type: Boolean,
+    default: false
   }
 })
 
