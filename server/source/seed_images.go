@@ -146,20 +146,19 @@ func SyncSystemImagesFromURL(sourceURL string) (*SystemImageSyncResult, error) {
 	}
 	result.Desired = len(desiredImages)
 
-	// 一次性加载已有 provider_type + instance_type + architecture + url 组合，避免逐条查询导致 N+1。
-	// 去重口径：同 Provider + 同节点类型 + 同架构 + 同 URL 才视为重复；不同节点类型允许复用同一 URL。
+	// 一次性加载已有镜像身份，避免逐条查询导致 N+1。
 	var existingImages []system.SystemImage
-	if err := global.APP_DB.Select("id", "provider_type", "instance_type", "architecture", "url").Find(&existingImages).Error; err != nil {
+	if err := global.APP_DB.Select("id", "provider_type", "instance_type", "architecture", "os_type", "os_version", "url").Find(&existingImages).Error; err != nil {
 		return nil, fmt.Errorf("查询已有系统镜像失败: %w", err)
 	}
 	existingKeys := make(map[string]struct{}, len(existingImages)+len(desiredImages))
 	for _, img := range existingImages {
-		existingKeys[systemImageUniqueKey(img.ProviderType, img.InstanceType, img.Architecture, img.URL)] = struct{}{}
+		existingKeys[SystemImageDedupKey(img)] = struct{}{}
 	}
 
 	missingImages := make([]system.SystemImage, 0)
 	for _, img := range desiredImages {
-		key := systemImageUniqueKey(img.ProviderType, img.InstanceType, img.Architecture, img.URL)
+		key := SystemImageDedupKey(img)
 		if _, exists := existingKeys[key]; exists {
 			continue
 		}
@@ -179,14 +178,67 @@ func SyncSystemImagesFromURL(sourceURL string) (*SystemImageSyncResult, error) {
 	return result, nil
 }
 
-func systemImageUniqueKey(providerType, instanceType, architecture, url string) string {
+func SystemImageDedupKey(image system.SystemImage) string {
+	providerType := strings.ToLower(strings.TrimSpace(image.ProviderType))
+	instanceType := strings.ToLower(strings.TrimSpace(image.InstanceType))
+	architecture := strings.ToLower(strings.TrimSpace(image.Architecture))
+	osType := utils.NormalizeOSType(image.OSType)
+	osVersion := strings.ToLower(strings.TrimSpace(image.OSVersion))
+
+	if isUnresolvedSystemImageOS(osType) || osVersion == "" {
+		return strings.Join([]string{
+			"url",
+			providerType,
+			instanceType,
+			architecture,
+			normalizeSystemImageURL(image.URL),
+		}, "\x00")
+	}
+
 	parts := []string{
-		strings.ToLower(strings.TrimSpace(providerType)),
-		strings.ToLower(strings.TrimSpace(instanceType)),
-		strings.ToLower(strings.TrimSpace(architecture)),
-		strings.TrimSpace(url),
+		"identity",
+		providerType,
+		instanceType,
+		architecture,
+		osType,
+		osVersion,
+		systemImageURLFamily(image.URL),
 	}
 	return strings.Join(parts, "\x00")
+}
+
+func normalizeSystemImageURL(imageURL string) string {
+	return strings.TrimSpace(imageURL)
+}
+
+func systemImageURLFamily(imageURL string) string {
+	clean := imageURLPathForParsing(imageURL)
+	lower := strings.ToLower(strings.TrimSpace(imageURL))
+
+	switch {
+	case strings.HasPrefix(lower, "docker://"):
+		return "docker"
+	case strings.Contains(clean, ".iso"):
+		return "iso"
+	case strings.Contains(clean, ".qcow2"):
+		return "qcow2"
+	case strings.HasSuffix(clean, ".tar.xz"):
+		return "tar.xz"
+	case strings.HasSuffix(clean, ".tar.gz"):
+		return "tar.gz"
+	case strings.HasSuffix(clean, ".zip"):
+		return "zip"
+	case strings.HasSuffix(clean, ".raw"):
+		return "raw"
+	case strings.HasSuffix(clean, ".img"):
+		return "img"
+	default:
+		ext := strings.TrimPrefix(path.Ext(clean), ".")
+		if ext != "" {
+			return ext
+		}
+		return "url"
+	}
 }
 
 func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
@@ -355,7 +407,7 @@ func providerDisplayName(providerType string) string {
 }
 
 func appendSystemImageIfNew(images *[]system.SystemImage, keys map[string]bool, image system.SystemImage) bool {
-	key := systemImageUniqueKey(image.ProviderType, image.InstanceType, image.Architecture, image.URL)
+	key := SystemImageDedupKey(image)
 	if keys[key] {
 		return false
 	}
