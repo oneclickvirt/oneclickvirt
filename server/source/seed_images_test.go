@@ -136,6 +136,30 @@ func TestOrdinaryWindowsInstallerAddsLXDAndIncusVMImages(t *testing.T) {
 	}
 }
 
+func TestBuildDesiredSystemImagesDeduplicatesSameURLWithinNodeType(t *testing.T) {
+	url := "https://github.com/oneclickvirt/incus_images/releases/download/images/debian_12_rootfs_x86_64_cloud.zip"
+	images := buildDesiredSystemImages([]string{url, url})
+	if len(images) != 1 {
+		t.Fatalf("len(images) = %d, want 1; images=%#v", len(images), images)
+	}
+	if images[0].ProviderType != "incus" || images[0].InstanceType != "container" || images[0].Architecture != "amd64" {
+		t.Fatalf("unexpected image identity: %s/%s/%s", images[0].ProviderType, images[0].InstanceType, images[0].Architecture)
+	}
+}
+
+func TestBuildDesiredSystemImagesDeduplicatesSameSystemVersionWithinNodeType(t *testing.T) {
+	images := buildDesiredSystemImages([]string{
+		"https://github.com/oneclickvirt/incus_images/releases/download/images/debian_12_rootfs_x86_64_cloud.zip",
+		"https://github.com/oneclickvirt/incus_images/releases/download/images2/debian_12_rootfs_x86_64_cloud2.zip",
+	})
+	if len(images) != 1 {
+		t.Fatalf("len(images) = %d, want 1; images=%#v", len(images), images)
+	}
+	if images[0].OSType != "debian" || images[0].OSVersion != "12" {
+		t.Fatalf("unexpected OS identity: %s/%s", images[0].OSType, images[0].OSVersion)
+	}
+}
+
 func TestDefaultImageURLsIncludeDockerRuntimeRefs(t *testing.T) {
 	urls := getDefaultImageURLs()
 	seen := map[string]bool{}

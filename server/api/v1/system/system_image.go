@@ -169,6 +169,33 @@ func SyncSystemImages(c *gin.Context) {
 	common.ResponseSuccess(c, result)
 }
 
+func findDuplicateSystemImage(candidate systemModel.SystemImage, excludeID uint) (string, error) {
+	db := global.APP_DB.Select("id", "name", "provider_type", "instance_type", "architecture", "os_type", "os_version", "url").
+		Where("provider_type = ? AND instance_type = ? AND architecture = ?",
+			candidate.ProviderType, candidate.InstanceType, candidate.Architecture)
+	if excludeID > 0 {
+		db = db.Where("id <> ?", excludeID)
+	}
+
+	var existingImages []systemModel.SystemImage
+	if err := db.Find(&existingImages).Error; err != nil {
+		return "", err
+	}
+
+	candidateURL := strings.TrimSpace(candidate.URL)
+	candidateKey := source.SystemImageDedupKey(candidate)
+	for _, existing := range existingImages {
+		if candidateURL != "" && strings.TrimSpace(existing.URL) == candidateURL {
+			return "同类型同架构镜像链接已存在", nil
+		}
+		if source.SystemImageDedupKey(existing) == candidateKey {
+			return "同类型同架构系统镜像已存在，请勿重复添加同一系统版本", nil
+		}
+	}
+
+	return "", nil
+}
+
 // CreateSystemImage 创建系统镜像
 // @Summary 创建系统镜像
 // @Description 创建新的系统镜像配置
@@ -212,10 +239,19 @@ func CreateSystemImage(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeConflict, "该镜像名称已存在"))
 		return
 	}
-	// 同 Provider + 同节点类型 + 同架构 + 同 URL 才视为重复；不同节点类型允许复用同一 URL。
-	if err := global.APP_DB.Where("provider_type = ? AND instance_type = ? AND architecture = ? AND url = ?",
-		req.ProviderType, req.InstanceType, req.Architecture, req.URL).First(&existingImage).Error; err == nil {
-		common.ResponseWithError(c, common.NewError(common.CodeConflict, "同类型同架构镜像链接已存在"))
+	candidate := systemModel.SystemImage{
+		ProviderType: req.ProviderType,
+		InstanceType: req.InstanceType,
+		Architecture: req.Architecture,
+		URL:          req.URL,
+		OSType:       req.OSType,
+		OSVersion:    req.OSVersion,
+	}
+	if duplicateMessage, err := findDuplicateSystemImage(candidate, 0); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	} else if duplicateMessage != "" {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, duplicateMessage))
 		return
 	}
 
@@ -300,6 +336,10 @@ func UpdateSystemImage(c *gin.Context) {
 	if req.OSType != "" {
 		finalOSType = normalizeSystemImageOSType(req.OSType, finalName, finalURL)
 	}
+	finalOSVersion := image.OSVersion
+	if req.OSVersion != "" {
+		finalOSVersion = req.OSVersion
+	}
 
 	// 验证文件扩展名和唯一性（更新 Provider/URL 时同样适用）
 	if err := validateImageURL(finalProviderType, finalInstanceType, finalURL); err != nil {
@@ -307,9 +347,19 @@ func UpdateSystemImage(c *gin.Context) {
 		return
 	}
 	var duplicate systemModel.SystemImage
-	if err := global.APP_DB.Where("provider_type = ? AND instance_type = ? AND architecture = ? AND url = ? AND id <> ?",
-		finalProviderType, finalInstanceType, finalArchitecture, finalURL, image.ID).First(&duplicate).Error; err == nil {
-		common.ResponseWithError(c, common.NewError(common.CodeConflict, "同类型同架构镜像链接已存在"))
+	candidate := systemModel.SystemImage{
+		ProviderType: finalProviderType,
+		InstanceType: finalInstanceType,
+		Architecture: finalArchitecture,
+		URL:          finalURL,
+		OSType:       finalOSType,
+		OSVersion:    finalOSVersion,
+	}
+	if duplicateMessage, err := findDuplicateSystemImage(candidate, image.ID); err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	} else if duplicateMessage != "" {
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, duplicateMessage))
 		return
 	}
 	if err := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ? AND id <> ?",
