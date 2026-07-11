@@ -3,7 +3,7 @@ export default {
   refresh: "刷新",
   pmacctRealtime: "实时数据",
   basicData: "基础数据",
-  monthlyUsage: "本月流量使用",
+  monthlyUsage: "当前周期流量使用",
   usagePercent: "使用率",
   limitExceeded: "流量已超限",
   resetTime: "流量重置时间",
@@ -22,7 +22,7 @@ export default {
   loadFailed: "加载流量数据失败",
   trafficStats: "流量统计",
   viewDetailedStats: "查看详细统计",
-  currentMonthUsage: "当月使用量",
+  currentMonthUsage: "当前周期使用量",
   resetOn1st: "按节点重置日重置",
   historicalStats: "历史统计"
 }

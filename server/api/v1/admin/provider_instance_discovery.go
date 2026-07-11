@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"oneclickvirt/global"
-	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	adminProvider "oneclickvirt/service/admin/provider"
 
@@ -183,17 +182,6 @@ func CheckInstanceSync(c *gin.Context) {
 	}
 
 	common.ResponseSuccess(c, report, "检查完成")
-}
-
-func ensureProviderOwner(c *gin.Context, providerID uint) error {
-	ownerAdminID := middleware.GetOwnerAdminID(c)
-	if ownerAdminID == 0 {
-		return nil
-	}
-	if err := adminProvider.CheckProviderOwnership(providerID, ownerAdminID); err != nil {
-		return common.NewError(common.CodeForbidden, err.Error())
-	}
-	return nil
 }
 
 // CleanupOrphanInstances 强制单向同步：删除远程孤儿实例

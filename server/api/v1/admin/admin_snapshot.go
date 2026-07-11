@@ -67,7 +67,7 @@ func GetSnapshotTask(c *gin.Context) {
 		return
 	}
 	service := &snapshotSvc.Service{}
-	task, err := service.GetSnapshotTask(taskID)
+	task, err := service.GetSnapshotTask(taskID, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return

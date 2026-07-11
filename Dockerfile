@@ -89,6 +89,9 @@ RUN echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
     echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
     echo 'innodb_buffer_pool_size=256M' >> /etc/mysql/conf.d/custom.cnf && \
     echo 'innodb_log_file_size=64M' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'loose-binlog_expire_logs_seconds=259200' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'loose-expire_logs_days=3' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'max_binlog_size=256M' >> /etc/mysql/conf.d/custom.cnf && \
     echo 'innodb_force_recovery=0' >> /etc/mysql/conf.d/custom.cnf
 
 RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
@@ -418,6 +421,6 @@ VOLUME ["/var/lib/mysql", "/app/storage"]
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget --quiet --tries=1 -O /dev/null http://127.0.0.1:8888/api/v1/health || exit 1
+    CMD wget --quiet --tries=1 --timeout=5 -O /dev/null http://127.0.0.1:8888/api/v1/health || exit 1
 
 CMD ["/start.sh"]

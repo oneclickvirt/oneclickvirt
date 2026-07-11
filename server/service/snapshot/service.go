@@ -172,9 +172,16 @@ func (s *Service) Overview() (*Overview, error) {
 	return result, nil
 }
 
-func (s *Service) GetSnapshotTask(id uint) (*providerModel.SnapshotTask, error) {
+func (s *Service) GetSnapshotTask(id, ownerAdminID uint) (*providerModel.SnapshotTask, error) {
 	var task providerModel.SnapshotTask
-	if err := global.APP_DB.First(&task, id).Error; err != nil {
+	query := global.APP_DB.Where("snapshot_tasks.id = ?", id)
+	if ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("snapshot_tasks.provider_id IN (?)", providerIDs)
+	}
+	if err := query.First(&task).Error; err != nil {
 		return nil, err
 	}
 	return &task, nil

@@ -199,8 +199,8 @@ export function usePortMappingManagement() {
     try {
       const params = { page: currentPage.value, pageSize: pageSize.value, ...searchForm }
       const response = await getPortMappings(params)
-      portMappings.value = response.data.items || []
-      total.value = response.data.total || 0
+      portMappings.value = response.data?.list || []
+      total.value = response.data?.total || 0
       checkAndStartAutoRefresh()
     } catch (error) {
       ElMessage.error(t('admin.portMapping.loadListFailed'))

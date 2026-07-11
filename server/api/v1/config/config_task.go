@@ -48,9 +48,13 @@ func AutoConfigureProvider(c *gin.Context) {
 		return
 	}
 
-	// 检查Provider是否存在
+	// 检查Provider是否存在且属于当前普通管理员
 	var provider provider.Provider
-	if err := global.APP_DB.First(&provider, req.ProviderID).Error; err != nil {
+	providerQuery := global.APP_DB.Where("id = ?", req.ProviderID)
+	if ownerAdminID := middleware.GetOwnerAdminID(c); ownerAdminID > 0 {
+		providerQuery = providerQuery.Where("owner_admin_id = ?", ownerAdminID)
+	}
+	if err := providerQuery.First(&provider).Error; err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider不存在"))
 		return
 	}
@@ -128,6 +132,9 @@ func AutoConfigureProvider(c *gin.Context) {
 
 	// 启动任务
 	if err := configService.StartTask(task.ID); err != nil {
+		if cancelErr := configService.CancelTask(task.ID); cancelErr != nil {
+			global.APP_LOG.Warn("清理启动失败的配置任务失败", zap.Uint("taskId", task.ID), zap.Error(cancelErr))
+		}
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -140,11 +147,19 @@ func AutoConfigureProvider(c *gin.Context) {
 					zap.Uint("taskId", task.ID),
 					zap.Uint("providerId", req.ProviderID),
 					zap.Any("panic", r))
+				_ = configService.FinishTask(task.ID, false, fmt.Sprintf("配置过程发生异常: %v", r), nil)
 			}
 		}()
 
-		// 创建较长超时的context，但与系统关闭信号关联
-		ctx, cancel := context.WithTimeout(global.APP_SHUTDOWN_CONTEXT, autoConfigureTaskTimeout)
+		// 与任务取消信号和系统关闭信号关联。
+		baseContext := configService.GetTaskContext(task.ID)
+		if baseContext == nil {
+			baseContext = global.APP_SHUTDOWN_CONTEXT
+		}
+		if baseContext == nil {
+			baseContext = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(baseContext, autoConfigureTaskTimeout)
 		defer cancel()
 
 		// 使用带context的执行函数
@@ -195,7 +210,7 @@ func GetConfigurationTasks(c *gin.Context) {
 	}
 
 	configService := config.GetTaskService()
-	tasks, total, err := configService.GetTaskList(&req)
+	tasks, total, err := configService.GetTaskList(&req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -231,7 +246,7 @@ func GetConfigurationTaskDetail(c *gin.Context) {
 	}
 
 	configService := config.GetTaskService()
-	task, err := configService.GetTaskDetail(uint(taskID))
+	task, err := configService.GetTaskDetail(uint(taskID), middleware.GetOwnerAdminID(c))
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "任务不存在"))
 		return
@@ -262,7 +277,7 @@ func CancelConfigurationTask(c *gin.Context) {
 	}
 
 	configService := config.GetTaskService()
-	if err := configService.CancelTask(uint(taskID)); err != nil {
+	if err := configService.CancelTaskScoped(uint(taskID), middleware.GetOwnerAdminID(c)); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}

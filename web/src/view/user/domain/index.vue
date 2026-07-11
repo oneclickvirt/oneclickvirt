@@ -25,26 +25,27 @@
         <el-table-column
           prop="instanceId"
           :label="t('user.domain.instanceId')"
-          width="100"
+          min-width="110"
         />
         <el-table-column
           prop="protocol"
           :label="t('user.domain.protocol')"
-          width="100"
+          min-width="110"
         />
         <el-table-column
           prop="internalIP"
           :label="t('user.domain.internalIp')"
+          min-width="110"
         />
         <el-table-column
           prop="internalPort"
           :label="t('user.domain.internalPort')"
-          width="100"
+          min-width="150"
         />
         <el-table-column
           prop="enableSSL"
           :label="t('user.domain.enableSsl')"
-          width="100"
+          min-width="120"
         >
           <template #default="{ row }">
             <el-tag
@@ -294,6 +295,13 @@ const formRules = {
   internalPort: [{ required: true, message: () => t('user.domain.portRequired'), trigger: 'blur' }]
 }
 
+function toArray(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.list)) return payload.list
+  if (Array.isArray(payload?.data)) return payload.data
+  return []
+}
+
 const selectedInstancePublicIP = computed(() => {
   if (!form.instanceId) return ''
   const inst = userInstances.value.find(i => i.id === form.instanceId)
@@ -323,7 +331,7 @@ async function fetchData() {
   try {
     const res = await getUserDomains()
     if (res.code === 200) {
-      domains.value = res.data || []
+      domains.value = toArray(res.data)
     }
   } finally {
     loading.value = false

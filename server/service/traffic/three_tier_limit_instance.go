@@ -12,6 +12,7 @@ import (
 	"oneclickvirt/service/taskgate"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // ============ 实例层级流量限制 ============
@@ -382,36 +383,45 @@ func (s *ThreeTierLimitService) limitInstanceWithAction(instance provider.Instan
 		updates["traffic_stopped"] = true
 		updates["traffic_stopped_at"] = now
 	}
-	if err := global.APP_DB.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
-		return false, fmt.Errorf("标记实例为受限状态失败: %w", err)
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("标记实例为受限状态失败: %w", err)
+		}
+		if shouldCreateStopTask {
+			return s.createStopTaskTx(tx, userID, instanceID, providerID, message)
+		}
+		return nil
+	}); err != nil {
+		return false, err
 	}
 
-	if shouldCreateStopTask {
-		if err := s.createStopTask(userID, instanceID, providerID, message); err != nil {
-			return false, err
-		}
+	if shouldCreateStopTask && global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
 	}
 	return true, nil
 }
 
 // unlimitInstance 解除单个实例的限制
 func (s *ThreeTierLimitService) unlimitInstance(instanceID uint, reason string) (bool, error) {
-	updates := map[string]interface{}{
-		"traffic_limited":      false,
-		"traffic_limit_reason": "",
-	}
-
-	if err := global.APP_DB.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
-		return false, fmt.Errorf("解除实例限制失败: %w", err)
-	}
-	if err := global.APP_DB.Model(&provider.Instance{}).
-		Where("id = ? AND frozen_reason = ?", instanceID, "traffic_limit").
-		Updates(map[string]interface{}{
-			"is_frozen":     false,
-			"frozen_reason": "",
-			"frozen_at":     nil,
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(map[string]interface{}{
+			"traffic_limited":      false,
+			"traffic_limit_reason": "",
 		}).Error; err != nil {
-		return false, fmt.Errorf("解除实例流量冻结失败: %w", err)
+			return fmt.Errorf("解除实例限制失败: %w", err)
+		}
+		if err := tx.Model(&provider.Instance{}).
+			Where("id = ? AND frozen_reason = ?", instanceID, "traffic_limit").
+			Updates(map[string]interface{}{
+				"is_frozen":     false,
+				"frozen_reason": "",
+				"frozen_at":     nil,
+			}).Error; err != nil {
+			return fmt.Errorf("解除实例流量冻结失败: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return false, err
 	}
 
 	global.APP_LOG.Info("解除实例流量限制",

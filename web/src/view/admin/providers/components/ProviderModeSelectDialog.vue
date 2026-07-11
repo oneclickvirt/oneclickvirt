@@ -137,6 +137,7 @@ const handleClose = () => {
 
 .mode-card {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -175,5 +176,26 @@ const handleClose = () => {
   font-size: 13px;
   color: var(--el-text-color-secondary);
   line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.mode-card :deep(.el-tag) {
+  max-width: 100%;
+  white-space: normal;
+  height: auto;
+  line-height: 1.3;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+@media (max-width: 768px) {
+  .mode-select-container {
+    flex-direction: column;
+  }
+
+  .mode-card {
+    width: 100%;
+    padding: 18px 14px;
+  }
 }
 </style>

@@ -124,7 +124,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("maintenance.enable-data-cleanup", true)
 	v.SetDefault("maintenance.data-cleanup-interval-hours", 24)
 	v.SetDefault("maintenance.audit-log-retention-days", 30)
-	v.SetDefault("maintenance.pmacct-raw-retention-days", 45)
 	v.SetDefault("maintenance.traffic-history-retention-days", 180)
 	v.SetDefault("maintenance.cleanup-batch-size", 5000)
 	v.SetDefault("maintenance.optimize-after-cleanup", false)

@@ -37,9 +37,9 @@ type BlockRuleApplication struct {
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
 	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
-	RuleID     uint           `gorm:"not null;index:idx_bra_rule" json:"rule_id"`
-	Scope      string         `gorm:"size:32;not null;index:idx_bra_scope" json:"scope"`
-	TargetID   uint           `gorm:"not null;default:0;index:idx_bra_target" json:"target_id"`
+	RuleID     uint           `gorm:"not null;index:idx_bra_rule;uniqueIndex:uk_bra_target,priority:1" json:"rule_id"`
+	Scope      string         `gorm:"size:32;not null;index:idx_bra_scope;uniqueIndex:uk_bra_target,priority:2" json:"scope"`
+	TargetID   uint           `gorm:"not null;default:0;index:idx_bra_target;uniqueIndex:uk_bra_target,priority:3" json:"target_id"`
 	TargetName string         `gorm:"size:255" json:"target_name"`
 	Status     string         `gorm:"size:16;not null;default:pending" json:"status"`
 	IPVersion  string         `gorm:"size:8;not null;default:both" json:"ip_version"`
@@ -58,8 +58,8 @@ type CreateBlockRuleRequest struct {
 }
 
 type UpdateBlockRuleRequest struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
+	Name        *string  `json:"name"`
+	Description *string  `json:"description"`
 	Strings     []string `json:"strings"`
 	Enabled     *bool    `json:"enabled"`
 }

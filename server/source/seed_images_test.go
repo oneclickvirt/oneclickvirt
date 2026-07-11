@@ -190,3 +190,41 @@ func TestDefaultImageURLsIncludeDockerRuntimeRefs(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeDefaultImageURLsBackfillsNewBuiltInTypes(t *testing.T) {
+	remoteURL := "https://github.com/oneclickvirt/pve_kvm_images/releases/download/images/debian-12.qcow2"
+	urls := mergeDefaultImageURLs([]string{remoteURL})
+
+	if len(urls) == 0 || urls[0] != remoteURL {
+		t.Fatalf("remote URL order not preserved: %#v", urls)
+	}
+
+	seen := map[string]bool{}
+	for _, url := range urls {
+		seen[url] = true
+	}
+	for _, want := range []string{
+		"docker://spiritlhl/wds:2022",
+		"docker://redroid/redroid:12.0.0-latest",
+		"docker://dockurr/macos:15",
+		"https://download.testip.xyz/Windows-VirtIO/virtio_zh-cn_windows_server_2019_x64_dvd_19d65722.iso",
+	} {
+		if !seen[want] {
+			t.Fatalf("merged default image URL %q not found", want)
+		}
+	}
+}
+
+func TestMergeDefaultImageURLsDeduplicatesExactURLs(t *testing.T) {
+	defaultURL := "docker://spiritlhl/wds:2022"
+	urls := mergeDefaultImageURLs([]string{defaultURL, defaultURL})
+	count := 0
+	for _, url := range urls {
+		if url == defaultURL {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("URL %q count = %d, want 1", defaultURL, count)
+	}
+}

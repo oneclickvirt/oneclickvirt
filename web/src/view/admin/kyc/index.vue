@@ -38,11 +38,12 @@
         <el-table-column
           prop="userId"
           :label="t('admin.kyc.userId')"
-          width="80"
+          min-width="100"
         />
         <el-table-column
           prop="realName"
           :label="t('admin.kyc.realName')"
+          min-width="120"
         />
         <el-table-column
           prop="method"

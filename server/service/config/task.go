@@ -9,6 +9,7 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
+	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/database"
 	taskManager "oneclickvirt/service/task"
 
@@ -25,7 +26,8 @@ type TaskService struct {
 // TaskContext 配置任务上下文
 type TaskContext struct {
 	Task       *admin.ConfigurationTask
-	CancelFunc chan struct{}
+	Context    context.Context
+	CancelFunc context.CancelFunc
 }
 
 var taskService *TaskService
@@ -128,6 +130,19 @@ func (s *TaskService) GetRunningTask(providerID uint) *admin.ConfigurationTask {
 	return nil
 }
 
+// GetTaskContext 返回可由取消操作终止的任务Context。
+func (s *TaskService) GetTaskContext(taskID uint) context.Context {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	for _, taskCtx := range s.runningTasks {
+		if taskCtx.Task.ID == taskID {
+			return taskCtx.Context
+		}
+	}
+	return nil
+}
+
 // GetProviderHistory 获取Provider的历史任务
 func (s *TaskService) GetProviderHistory(providerID uint, limit int) ([]admin.ConfigurationTaskResponse, error) {
 	var tasks []admin.ConfigurationTask
@@ -200,12 +215,22 @@ func (s *TaskService) StopTask(taskID uint) error {
 
 // CancelTask 取消任务
 func (s *TaskService) CancelTask(taskID uint) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	return s.CancelTaskScoped(taskID, 0)
+}
+
+// CancelTaskScoped 取消配置任务，ownerAdminID非零时限定Provider归属。
+func (s *TaskService) CancelTaskScoped(taskID, ownerAdminID uint) error {
 
 	var task admin.ConfigurationTask
-	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
-		return fmt.Errorf("任务不存在: %w", err)
+	query := global.APP_DB.Where("configuration_tasks.id = ?", taskID)
+	if ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("configuration_tasks.provider_id IN (?)", providerIDs)
+	}
+	if err := query.First(&task).Error; err != nil {
+		return fmt.Errorf("任务不存在或无权限: %w", err)
 	}
 
 	// 如果任务已经被取消，直接返回成功
@@ -218,12 +243,6 @@ func (s *TaskService) CancelTask(taskID uint) error {
 		return fmt.Errorf("只能取消等待中或运行中的任务，当前状态：%s", task.Status)
 	}
 
-	// 发送取消信号
-	if ctx, exists := s.runningTasks[task.ProviderID]; exists {
-		close(ctx.CancelFunc)
-		delete(s.runningTasks, task.ProviderID)
-	}
-
 	// 使用统一任务状态管理器取消任务
 	stateManager := taskManager.GetTaskStateManager()
 	if stateManager == nil {
@@ -231,7 +250,18 @@ func (s *TaskService) CancelTask(taskID uint) error {
 	}
 
 	global.APP_LOG.Info("使用统一管理器取消配置任务", zap.Uint("taskId", task.ID))
-	return stateManager.CancelConfigTask(task.ID, "任务已被取消")
+	if err := stateManager.CancelConfigTask(task.ID, "任务已被取消"); err != nil {
+		return err
+	}
+
+	// 只能取消与请求ID一致的运行任务，避免pending任务误停同Provider的活动任务。
+	s.mutex.Lock()
+	if taskCtx, exists := s.runningTasks[task.ProviderID]; exists && taskCtx.Task.ID == task.ID {
+		taskCtx.CancelFunc()
+		delete(s.runningTasks, task.ProviderID)
+	}
+	s.mutex.Unlock()
+	return nil
 }
 
 // CreateTask 创建任务
@@ -311,20 +341,32 @@ func (s *TaskService) StartTask(taskID uint) error {
 	}
 
 	// 创建任务上下文
-	ctx := &TaskContext{
-		Task:       &task,
-		CancelFunc: make(chan struct{}),
+	baseContext := global.APP_SHUTDOWN_CONTEXT
+	if baseContext == nil {
+		baseContext = context.Background()
 	}
-	s.runningTasks[task.ProviderID] = ctx
+	runContext, cancel := context.WithCancel(baseContext)
+	taskCtx := &TaskContext{
+		Task:       &task,
+		Context:    runContext,
+		CancelFunc: cancel,
+	}
+	s.runningTasks[task.ProviderID] = taskCtx
 	s.mutex.Unlock()
 
 	return nil
 }
 
 // GetTaskList 获取任务列表
-func (s *TaskService) GetTaskList(req *admin.ConfigurationTaskListRequest) ([]admin.ConfigurationTaskResponse, int64, error) {
+func (s *TaskService) GetTaskList(req *admin.ConfigurationTaskListRequest, ownerAdminID uint) ([]admin.ConfigurationTaskResponse, int64, error) {
 	db := global.APP_DB.Model(&admin.ConfigurationTask{}).
 		Preload("Provider")
+	if ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		db = db.Where("configuration_tasks.provider_id IN (?)", providerIDs)
+	}
 
 	// 构建查询条件
 	if req.ProviderID > 0 {
@@ -342,7 +384,9 @@ func (s *TaskService) GetTaskList(req *admin.ConfigurationTaskListRequest) ([]ad
 
 	// 获取总数
 	var total int64
-	db.Count(&total)
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	// 分页查询
 	var tasks []admin.ConfigurationTask
@@ -363,10 +407,17 @@ func (s *TaskService) GetTaskList(req *admin.ConfigurationTaskListRequest) ([]ad
 }
 
 // GetTaskDetail 获取任务详情
-func (s *TaskService) GetTaskDetail(taskID uint) (*admin.ConfigurationTaskDetailResponse, error) {
+func (s *TaskService) GetTaskDetail(taskID, ownerAdminID uint) (*admin.ConfigurationTaskDetailResponse, error) {
 	var task admin.ConfigurationTask
-	if err := global.APP_DB.Preload("Provider").First(&task, taskID).Error; err != nil {
-		return nil, fmt.Errorf("任务不存在: %w", err)
+	query := global.APP_DB.Preload("Provider").Where("configuration_tasks.id = ?", taskID)
+	if ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("configuration_tasks.provider_id IN (?)", providerIDs)
+	}
+	if err := query.First(&task).Error; err != nil {
+		return nil, fmt.Errorf("任务不存在或无权限: %w", err)
 	}
 
 	response := s.convertToDetailResponse(task)
@@ -397,8 +448,10 @@ func (s *TaskService) FinishTask(taskID uint, success bool, errorMessage string,
 		return fmt.Errorf("任务不存在: %w", err)
 	}
 
-	// 从运行中的任务中移除
-	delete(s.runningTasks, task.ProviderID)
+	// 旧任务完成时不能删除同Provider上已经启动的新任务。
+	if taskCtx, exists := s.runningTasks[task.ProviderID]; exists && taskCtx.Task.ID == task.ID {
+		delete(s.runningTasks, task.ProviderID)
+	}
 
 	// 使用统一任务状态管理器更新状态
 	stateManager := taskManager.GetTaskStateManager()

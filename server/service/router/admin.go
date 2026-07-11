@@ -145,9 +145,6 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/traffic/user/:userId", adminTrafficAPI.GetUserTrafficStats)
 		NormalAdminGroup.GET("/traffic/users/rank", adminTrafficAPI.GetAllUsersTrafficRank)
 		NormalAdminGroup.POST("/traffic/manage", adminTrafficAPI.ManageTrafficLimits)
-		NormalAdminGroup.POST("/traffic/batch-manage", adminTrafficAPI.BatchManageTrafficLimits)
-		NormalAdminGroup.POST("/traffic/batch-sync", adminTrafficAPI.BatchSyncUserTraffic)
-		NormalAdminGroup.DELETE("/traffic/user/:userId/clear", adminTrafficAPI.ClearUserTrafficRecords)
 
 		// 流量历史API
 		NormalAdminGroup.GET("/providers/:id/traffic/history", traffic.GetProviderTrafficHistory)
@@ -189,9 +186,6 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 防火墙/滥用屏蔽管理
 		NormalAdminGroup.GET("/block-rules", admin.GetBlockRules)
 		NormalAdminGroup.GET("/block-rules/:id", admin.GetBlockRule)
-		NormalAdminGroup.POST("/block-rules", admin.CreateBlockRule)
-		NormalAdminGroup.PUT("/block-rules/:id", admin.UpdateBlockRule)
-		NormalAdminGroup.DELETE("/block-rules/:id", admin.DeleteBlockRule)
 		NormalAdminGroup.POST("/block-rules/apply", admin.ApplyBlockRules)
 		NormalAdminGroup.POST("/block-rules/remove", admin.RemoveBlockRuleApplications)
 		NormalAdminGroup.GET("/block-rules/applications", admin.GetBlockRuleApplications)
@@ -206,10 +200,6 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.DELETE("/domains/:id", admin.AdminDeleteDomain)
 		NormalAdminGroup.GET("/providers/:id/domain-config", admin.GetDomainConfig)
 		NormalAdminGroup.PUT("/providers/:id/domain-config", admin.UpdateDomainConfig)
-
-		// KYC管理
-		NormalAdminGroup.GET("/kyc", admin.AdminGetKYCList)
-		NormalAdminGroup.PUT("/kyc/:id/review", admin.AdminReviewKYC)
 
 		// 签到配置管理
 		NormalAdminGroup.GET("/providers/:id/checkin-config", admin.AdminGetCheckinConfig)
@@ -235,6 +225,12 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 系统配置（超管专用）
 		SuperAdminGroup.GET("/config", config.GetUnifiedConfig)
 		SuperAdminGroup.PUT("/config", config.UpdateUnifiedConfig)
+		// 全局屏蔽规则模板和KYC身份记录（超管专用）
+		SuperAdminGroup.POST("/block-rules", admin.CreateBlockRule)
+		SuperAdminGroup.PUT("/block-rules/:id", admin.UpdateBlockRule)
+		SuperAdminGroup.DELETE("/block-rules/:id", admin.DeleteBlockRule)
+		SuperAdminGroup.GET("/kyc", admin.AdminGetKYCList)
+		SuperAdminGroup.PUT("/kyc/:id/review", admin.AdminReviewKYC)
 		// 任务池维护开关（超管专用）
 		SuperAdminGroup.PUT("/tasks/pool-status", admin.UpdateTaskPoolStatus)
 		// 系统镜像管理（超管专用）
@@ -312,6 +308,10 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		SuperAdminGroup.GET("/quota/users/:userId", system.GetUserQuotaInfo)
 
 		// 流量同步管理
+		adminTrafficAPI := &traffic.AdminTrafficAPI{}
+		SuperAdminGroup.POST("/traffic/batch-manage", adminTrafficAPI.BatchManageTrafficLimits)
+		SuperAdminGroup.POST("/traffic/batch-sync", adminTrafficAPI.BatchSyncUserTraffic)
+		SuperAdminGroup.DELETE("/traffic/user/:userId/clear", adminTrafficAPI.ClearUserTrafficRecords)
 		SuperAdminGroup.POST("/traffic/sync/instance/:instance_id", admin.SyncInstanceTraffic)
 		SuperAdminGroup.POST("/traffic/sync/user/:user_id", admin.SyncUserTraffic)
 		SuperAdminGroup.POST("/traffic/sync/provider/:provider_id", admin.SyncProviderTraffic)

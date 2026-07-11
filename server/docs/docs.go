@@ -10625,7 +10625,7 @@ const docTemplate = `{
                     {
                         "type": "integer",
                         "default": 0,
-                        "description": "数据点间隔（分钟），0表示自动选择，可选: 5, 15, 30, 60",
+                        "description": "数据点间隔（分钟），0表示自动选择，可选: 5, 10, 15, 30, 60",
                         "name": "interval",
                         "in": "query"
                     },

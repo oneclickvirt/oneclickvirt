@@ -107,10 +107,10 @@
             <el-table-column prop="id" label="ID" width="80" />
             <el-table-column prop="name" :label="t('admin.snapshots.scheduleName')" min-width="160" />
             <el-table-column prop="instanceName" :label="t('admin.snapshots.instance')" min-width="160" />
-            <el-table-column prop="intervalHours" :label="t('admin.snapshots.intervalHours')" width="120" />
-            <el-table-column prop="retentionDays" :label="t('admin.snapshots.retentionDays')" width="110" />
-            <el-table-column prop="maxSnapshots" :label="t('admin.snapshots.maxSnapshots')" width="110" />
-            <el-table-column prop="enabled" :label="t('admin.snapshots.enabled')" width="90">
+            <el-table-column prop="intervalHours" :label="t('admin.snapshots.intervalHours')" min-width="170" />
+            <el-table-column prop="retentionDays" :label="t('admin.snapshots.retentionDays')" min-width="170" />
+            <el-table-column prop="maxSnapshots" :label="t('admin.snapshots.maxSnapshots')" min-width="150" />
+            <el-table-column prop="enabled" :label="t('admin.snapshots.enabled')" min-width="100">
               <template #default="{ row }">
                 <el-switch v-model="row.enabled" @change="toggleSchedule(row)" />
               </template>

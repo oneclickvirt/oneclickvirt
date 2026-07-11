@@ -3,7 +3,7 @@ export default {
   refresh: "Refresh",
   pmacctRealtime: "Real-time Data",
   basicData: "Basic Data",
-  monthlyUsage: "Monthly Traffic Usage",
+  monthlyUsage: "Current Cycle Traffic Usage",
   usagePercent: "Usage",
   limitExceeded: "Traffic limit exceeded",
   resetTime: "Traffic reset time",
@@ -22,7 +22,7 @@ export default {
   loadFailed: "Failed to load traffic data",
   trafficStats: "Traffic Statistics",
   viewDetailedStats: "View Detailed Statistics",
-  currentMonthUsage: "Current Month Usage",
+  currentMonthUsage: "Current Cycle Usage",
   resetOn1st: "Resets by provider reset day",
   historicalStats: "Historical Statistics"
 }

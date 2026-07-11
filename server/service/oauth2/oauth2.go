@@ -442,8 +442,9 @@ func (s *Service) HandleCallback(providerID uint, code string) (*user.User, stri
 	}
 
 	// 更新最后登录时间
-	now := time.Now()
-	global.APP_DB.Model(usr).Update("last_login_at", now)
+	if err := utils.UpdateLastLogin(usr.ID); err != nil && global.APP_LOG != nil {
+		global.APP_LOG.Warn("更新OAuth2最后登录时间失败", zap.Uint("userID", usr.ID), zap.Error(err))
+	}
 
 	// 如果是新用户，更新提供商的注册计数
 	if isNewUser {

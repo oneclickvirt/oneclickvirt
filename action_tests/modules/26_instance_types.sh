@@ -13,8 +13,8 @@ run_module_26() {
     fi
 
     # ---- Get provider capabilities ----
-    local caps; caps=$(test_api "Provider capabilities" "GET" \
-        "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group" "$ADMIN_TOKEN")
+    test_api "Provider capabilities" "GET" \
+        "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group" "$ADMIN_TOKEN" >/dev/null || true
 
     # ---- Instance type permissions ----
     test_api "Get instance type perms" "GET" "/api/v1/admin/instance-type-permissions" "200" \
@@ -152,18 +152,8 @@ run_module_26() {
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=1000&providerType=${vm_img_provider_type}&instanceType=vm&architecture=${vm_provider_arch}&status=active" 2>/dev/null)
         if [[ -n "$vm_sys_images" ]]; then
-            local vm_resolved; vm_resolved=$(echo "$vm_sys_images" | jq -r --arg pt "$vm_img_provider_type" --arg arch "$vm_provider_arch" \
-                '[.data.list[]? | select(.osType=="debian" and .providerType==$pt and .instanceType=="vm" and .status=="active" and (.architecture==$arch or $arch==""))]
-                 | sort_by(
-                     if (.name | test("^ci-debian-12-" + $pt + "-vm$")) then 0
-                     elif ((.osVersion // .version // "") == "12") then 1
-                     elif (.name | test("debian-12|debian12|bookworm")) then 2
-                     elif ((.osVersion // .version // "") == "13") then 3
-                     else 9 end,
-                     (.id // 999999)
-                   )
-                 | .[0].name // empty' 2>/dev/null)
-            if [[ -n "$vm_resolved" && "$vm_resolved" != "null" ]]; then
+            local vm_resolved
+            if vm_resolved=$(resolve_vm_system_image "$vm_sys_images" "$vm_img_provider_type" "$vm_provider_arch"); then
                 vm_image="$vm_resolved"
                 log_info "Resolved type-test VM image from system images: ${vm_image}"
             else

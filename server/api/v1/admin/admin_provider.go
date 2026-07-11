@@ -50,7 +50,6 @@ func CreateProvider(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
-
 	providerService := adminProvider.NewService()
 	providerObj, err := providerService.CreateProvider(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
@@ -151,6 +150,10 @@ func FreezeProvider(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
+	if err := ensureProviderOwner(c, req.ID); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	providerService := adminProvider.NewService()
 	if err := providerService.FreezeProvider(req); err != nil {
@@ -166,6 +169,10 @@ func UnfreezeProvider(c *gin.Context) {
 	var req admin.UnfreezeProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	if err := ensureProviderOwner(c, req.ID); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 

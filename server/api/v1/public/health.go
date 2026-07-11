@@ -1,8 +1,10 @@
 package public
 
 import (
+	"net/http"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
 	"oneclickvirt/utils"
@@ -10,6 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
+var processStartedAt = time.Now()
 
 // HealthCheck 系统健康检查
 // @Tags Health
@@ -28,7 +32,9 @@ func HealthCheck(c *gin.Context) {
 	if err := utils.CheckDBHealth(); err != nil {
 		dbHealthy = false
 		dbError = err.Error()
-		global.APP_LOG.Error("数据库健康检查失败", zap.Error(err))
+		if global.APP_LOG != nil {
+			global.APP_LOG.Error("数据库健康检查失败", zap.Error(err))
+		}
 	}
 
 	// 获取数据库连接统计
@@ -41,14 +47,26 @@ func HealthCheck(c *gin.Context) {
 	}
 
 	// 系统信息
+	uptimeSeconds := int64(time.Since(processStartedAt).Seconds())
 	healthStatus["system"] = map[string]interface{}{
-		"timestamp": time.Now(),
-		"version":   "1.0.0",
-		"uptime":    time.Since(time.Now().Add(-time.Hour)), // 示例运行时间
+		"timestamp":      time.Now(),
+		"version":        constant.ServerVersion,
+		"uptime":         uptimeSeconds,
+		"uptime_seconds": uptimeSeconds,
 	}
 
 	// 总体健康状态
 	healthStatus["healthy"] = dbHealthy
+
+	if !dbHealthy {
+		c.JSON(http.StatusServiceUnavailable, common.Response{
+			Code:    http.StatusServiceUnavailable,
+			Data:    healthStatus,
+			Msg:     "健康检查失败",
+			Message: "健康检查失败",
+		})
+		return
+	}
 
 	common.ResponseSuccess(c, healthStatus, "健康检查完成")
 }

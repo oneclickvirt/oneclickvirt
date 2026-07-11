@@ -63,7 +63,7 @@
         <el-table-column
           prop="name"
           :label="$t('admin.oauth2.identifierName')"
-          min-width="140"
+          min-width="160"
         />
         <el-table-column
           :label="$t('common.status')"
@@ -81,7 +81,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('admin.oauth2.registrationStats')"
-          width="140"
+          min-width="190"
           align="center"
         >
           <template #default="{ row }">

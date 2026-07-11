@@ -241,4 +241,41 @@ const {
   justify-content: flex-end;
   gap: 10px;
 }
+
+@media (max-width: 768px) {
+  .server-config-tabs {
+    margin-bottom: 12px;
+  }
+
+  :deep(.server-config-tabs .el-tabs__content) {
+    padding: 12px;
+  }
+
+  :deep(.server-form) {
+    max-height: 62vh;
+    padding-right: 0;
+  }
+
+  :deep(.server-config-tabs [style*="margin-left: 120px"]),
+  :deep(.server-config-tabs [style*="margin-left: 160px"]),
+  :deep(.server-config-tabs [style*="margin-left: 180px"]) {
+    margin-left: 0 !important;
+    margin-top: 4px !important;
+  }
+
+  :deep(.server-config-tabs [style*="width: 300px"]),
+  :deep(.server-config-tabs [style*="width: 400px"]) {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  .dialog-footer {
+    flex-wrap: wrap;
+  }
+
+  .dialog-footer .el-button {
+    flex: 1 1 120px;
+    margin-left: 0;
+  }
+}
 </style>

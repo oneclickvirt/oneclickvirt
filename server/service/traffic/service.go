@@ -6,10 +6,8 @@ import (
 	"time"
 
 	"oneclickvirt/global"
-	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
-	"oneclickvirt/service/taskgate"
 	"oneclickvirt/service/userquota"
 
 	"go.uber.org/zap"
@@ -113,53 +111,4 @@ func (s *Service) CheckProviderTrafficLimit(providerID uint) (bool, error) {
 	}
 
 	return false, nil
-}
-
-// resumeProviderInstances 恢复Provider层级的受限实例。
-func (s *Service) resumeProviderInstances(providerID uint) error {
-	if err := global.APP_DB.Model(&provider.Instance{}).
-		Where("provider_id = ? AND traffic_limit_reason = ?", providerID, "provider").
-		Updates(map[string]interface{}{
-			"traffic_limited":      false,
-			"traffic_limit_reason": "",
-		}).Error; err != nil {
-		return err
-	}
-	global.APP_LOG.Info("Provider流量限制解除，准备恢复流量策略自动停机实例",
-		zap.Uint("providerID", providerID))
-	return NewThreeTierLimitService().RecoverTrafficStoppedInstances(context.Background())
-}
-
-// createStartTaskForInstance 创建启动实例的任务
-func (s *Service) createStartTaskForInstance(instanceID, userID, providerID uint) error {
-	if err := taskgate.EnsureAccepting(); err != nil {
-		return err
-	}
-
-	taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instanceID, providerID)
-
-	task := &adminModel.Task{
-		TaskType:         "start",
-		Status:           "pending",
-		Progress:         0,
-		StatusMessage:    "实例恢复启动中",
-		TaskData:         taskData,
-		UserID:           userID,
-		ProviderID:       &providerID,
-		InstanceID:       &instanceID,
-		TimeoutDuration:  1800,
-		IsForceStoppable: true,
-		CanForceStop:     false,
-	}
-
-	if err := global.APP_DB.Create(task).Error; err != nil {
-		return err
-	}
-
-	// 触发调度器立即处理任务
-	if global.APP_SCHEDULER != nil {
-		global.APP_SCHEDULER.TriggerTaskProcessing()
-	}
-
-	return nil
 }

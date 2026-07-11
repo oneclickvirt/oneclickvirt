@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"oneclickvirt/constant"
 	"oneclickvirt/utils"
-	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -228,10 +227,10 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 		return nil, err
 	}
 
-	// 查询当月流量使用情况（从pmacct_traffic_records实时聚合）
+	// 查询当前节点流量周期使用情况（从pmacct_traffic_records实时聚合）。
+	// 节点可以配置非自然月重置日，因此不能使用固定的自然月窗口。
 	trafficQueryService := trafficService.NewQueryService()
-	year, month, _ := time.Now().Date()
-	monthlyTrafficStats, err := trafficQueryService.GetUserMonthlyTraffic(user.ID, year, int(month))
+	currentTrafficStats, err := trafficQueryService.GetUserCurrentCycleTraffic(user.ID)
 
 	var usedTrafficMB int64
 	if err != nil {
@@ -240,7 +239,7 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 			zap.Error(err))
 		usedTrafficMB = 0
 	} else {
-		usedTrafficMB = int64(monthlyTrafficStats.ActualUsageMB)
+		usedTrafficMB = int64(currentTrafficStats.ActualUsageMB)
 	}
 
 	response := &userModel.UserLimitsResponse{

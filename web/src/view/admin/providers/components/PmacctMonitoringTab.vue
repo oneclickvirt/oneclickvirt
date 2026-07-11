@@ -59,7 +59,7 @@
         <el-table-column
           prop="id"
           :label="$t('admin.providers.taskID')"
-          width="70"
+          min-width="100"
         />
         <el-table-column
           :label="$t('admin.providers.taskType')"
@@ -76,7 +76,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('admin.providers.status')"
-          width="80"
+          min-width="90"
         >
           <template #default="{ row }">
             <el-tag
@@ -89,7 +89,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('admin.providers.executionTime')"
-          width="140"
+          min-width="160"
         >
           <template #default="{ row }">
             {{ formatDateTime(row.createdAt) }}
@@ -97,7 +97,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('admin.providers.progress')"
-          width="100"
+          min-width="110"
         >
           <template #default="{ row }">
             <el-progress

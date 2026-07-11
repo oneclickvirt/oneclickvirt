@@ -175,6 +175,52 @@ body {
   min-width: auto;
 }
 
+/* Element Plus responsive safety rails */
+.el-icon {
+  flex-shrink: 0;
+}
+
+.el-table {
+  max-width: 100%;
+}
+
+.el-table th.el-table__cell > .cell {
+  white-space: nowrap;
+  word-break: keep-all;
+  line-height: 1.25;
+}
+
+.el-table .el-table__body-wrapper {
+  overflow-x: auto;
+}
+
+.el-dialog {
+  max-width: calc(100vw - 48px);
+}
+
+.el-dialog__body {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Common admin/user header action layouts */
+#app .card-header,
+#app .header-row {
+  min-width: 0;
+  gap: 12px;
+}
+
+#app .header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+#app .header-actions .el-button {
+  margin-left: 0;
+}
+
 /* 响应式设计 */
 /* 平板端适配 */
 @media (max-width: 1024px) and (min-width: 768px) {
@@ -191,7 +237,7 @@ body {
   }
   
   /* Element Plus 表格适配 */
-  :deep(.el-table) {
+  .el-table {
     font-size: var(--font-size-sm);
     
     .el-table__cell {
@@ -230,7 +276,7 @@ body {
   }
   
   /* 移动端表格适配 */
-  :deep(.el-table) {
+  .el-table {
     font-size: var(--font-size-xs);
     
     .el-table__cell {
@@ -254,22 +300,116 @@ body {
   }
   
   /* 移动端表单适配 */
-  :deep(.el-form-item) {
+  .el-form-item {
     margin-bottom: var(--spacing-md);
   }
   
-  :deep(.el-form-item__label) {
+  .el-form-item__label {
     font-size: var(--font-size-sm);
   }
   
   /* 移动端对话框适配 */
-  :deep(.el-dialog) {
-    width: 95% !important;
-    margin-top: 5vh !important;
+  .el-dialog {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    margin: 12px auto !important;
+  }
+
+  .el-dialog .el-form:not(.el-form--inline) .el-form-item {
+    display: block;
+  }
+
+  .el-dialog .el-form:not(.el-form--inline) .el-form-item__label {
+    width: 100% !important;
+    justify-content: flex-start;
+    text-align: left;
+    padding: 0 0 6px;
+    line-height: 1.35;
+  }
+
+  .el-dialog .el-form:not(.el-form--inline) .el-form-item__content {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+
+  #app .config-form .el-row {
+    display: block;
+  }
+
+  #app .config-form .el-col {
+    max-width: 100%;
+    flex: 0 0 100%;
+  }
+
+  #app .config-form:not(.el-form--inline) .el-form-item {
+    display: block;
+  }
+
+  #app .config-form:not(.el-form--inline) .el-form-item__label {
+    width: 100% !important;
+    justify-content: flex-start;
+    text-align: left;
+    padding: 0 0 6px;
+    line-height: 1.35;
+  }
+
+  #app .config-form:not(.el-form--inline) .el-form-item__content {
+    width: 100%;
+    margin-left: 0 !important;
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  #app .config-form .form-item-hint {
+    flex: 1 1 100%;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  /* 移动端分页适配 */
+  .pagination,
+  .pagination-wrapper,
+  .pagination-row,
+  .pagination-container {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .el-pagination {
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    white-space: normal;
+  }
+
+  .el-pagination .el-pagination__total,
+  .el-pagination .el-pagination__sizes,
+  .el-pagination .el-pagination__jump {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .el-pagination .el-pager {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  #app .card-header,
+  #app .header-row {
+    flex-wrap: wrap;
+  }
+
+  #app .header-actions {
+    justify-content: flex-start;
   }
   
-  :deep(.el-drawer) {
+  .el-drawer {
     width: 85% !important;
+    max-width: 100vw;
   }
 }
 
@@ -284,7 +424,7 @@ body {
   }
   
   /* 小屏表格进一步精简 */
-  :deep(.el-table) {
+  .el-table {
     .el-table__header-wrapper,
     .el-table__body-wrapper {
       overflow-x: auto;

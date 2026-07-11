@@ -69,20 +69,9 @@ func (s *ThreeTierLimitService) CheckAllTrafficLimits(ctx context.Context) error
 
 // ============ 辅助方法 ============
 
-// createStopTask 创建停止实例的任务
-func (s *ThreeTierLimitService) createStopTask(userID, instanceID, providerID uint, message string) error {
-	if err := s.createStopTaskTx(global.APP_DB, userID, instanceID, providerID, message); err != nil {
-		return err
-	}
-	if global.APP_SCHEDULER != nil {
-		global.APP_SCHEDULER.TriggerTaskProcessing()
-	}
-	return nil
-}
-
 // createStopTaskTx 在指定的DB/事务中创建停止任务（供事务内调用）
 func (s *ThreeTierLimitService) createStopTaskTx(db *gorm.DB, userID, instanceID, providerID uint, message string) error {
-	if err := taskgate.EnsureAccepting(); err != nil {
+	if err := taskgate.EnsureAcceptingInTx(db); err != nil {
 		return err
 	}
 
@@ -105,14 +94,13 @@ func (s *ThreeTierLimitService) createStopTaskTx(db *gorm.DB, userID, instanceID
 	return db.Create(task).Error
 }
 
-// batchCreateStopTasks 批量创建停止任务（用户层级限流）
-func (s *ThreeTierLimitService) batchCreateStopTasks(userID uint, instances []provider.Instance, message string) error {
-	if err := taskgate.EnsureAccepting(); err != nil {
-		return err
-	}
-
+// batchCreateStopTasksTx 在指定的短事务中批量创建停止任务。
+func (s *ThreeTierLimitService) batchCreateStopTasksTx(db *gorm.DB, instances []provider.Instance, message string) error {
 	if len(instances) == 0 {
 		return nil
+	}
+	if err := taskgate.EnsureAcceptingInTx(db); err != nil {
+		return err
 	}
 
 	tasks := make([]*adminModel.Task, 0, len(instances))
@@ -125,7 +113,7 @@ func (s *ThreeTierLimitService) batchCreateStopTasks(userID uint, instances []pr
 			Progress:         0,
 			StatusMessage:    message,
 			TaskData:         taskData,
-			UserID:           userID,
+			UserID:           instance.UserID,
 			ProviderID:       &instance.ProviderID,
 			InstanceID:       &instance.ID,
 			TimeoutDuration:  600,
@@ -135,60 +123,7 @@ func (s *ThreeTierLimitService) batchCreateStopTasks(userID uint, instances []pr
 		tasks = append(tasks, task)
 	}
 
-	// 批量插入任务
-	if err := global.APP_DB.CreateInBatches(tasks, 100).Error; err != nil {
-		return err
-	}
-
-	// 触发调度器立即处理任务
-	if global.APP_SCHEDULER != nil {
-		global.APP_SCHEDULER.TriggerTaskProcessing()
-	}
-
-	return nil
-}
-
-// batchCreateStopTasksForProvider 批量创建停止任务（Provider层级限流）
-func (s *ThreeTierLimitService) batchCreateStopTasksForProvider(providerID uint, instances []provider.Instance, message string) error {
-	if err := taskgate.EnsureAccepting(); err != nil {
-		return err
-	}
-
-	if len(instances) == 0 {
-		return nil
-	}
-
-	tasks := make([]*adminModel.Task, 0, len(instances))
-	for _, instance := range instances {
-		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instance.ID, providerID)
-
-		task := &adminModel.Task{
-			TaskType:         "stop",
-			Status:           "pending",
-			Progress:         0,
-			StatusMessage:    message,
-			TaskData:         taskData,
-			UserID:           instance.UserID,
-			ProviderID:       &providerID,
-			InstanceID:       &instance.ID,
-			TimeoutDuration:  600,
-			IsForceStoppable: true,
-			CanForceStop:     false,
-		}
-		tasks = append(tasks, task)
-	}
-
-	// 批量插入任务
-	if err := global.APP_DB.CreateInBatches(tasks, 100).Error; err != nil {
-		return err
-	}
-
-	// 触发调度器立即处理任务
-	if global.APP_SCHEDULER != nil {
-		global.APP_SCHEDULER.TriggerTaskProcessing()
-	}
-
-	return nil
+	return db.CreateInBatches(tasks, 100).Error
 }
 
 // batchCreateStartTasks 批量创建启动任务（流量限制解除后的自动恢复）。
@@ -202,6 +137,7 @@ func (s *ThreeTierLimitService) batchCreateStartTasks(instances []provider.Insta
 	}
 
 	tasks := make([]*adminModel.Task, 0, len(instances))
+	instanceIDs := make([]uint, 0, len(instances))
 	for _, instance := range instances {
 		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instance.ID, instance.ProviderID)
 		task := &adminModel.Task{
@@ -218,9 +154,31 @@ func (s *ThreeTierLimitService) batchCreateStartTasks(instances []provider.Insta
 			CanForceStop:     false,
 		}
 		tasks = append(tasks, task)
+		instanceIDs = append(instanceIDs, instance.ID)
 	}
 
-	if err := global.APP_DB.CreateInBatches(tasks, 100).Error; err != nil {
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+			return err
+		}
+		if err := tx.CreateInBatches(tasks, 100).Error; err != nil {
+			return err
+		}
+		result := tx.Model(&provider.Instance{}).
+			Where("id IN ? AND status = ? AND traffic_stopped = ?", instanceIDs, "stopped", true).
+			Updates(map[string]interface{}{
+				"status":             "starting",
+				"traffic_stopped":    false,
+				"traffic_stopped_at": nil,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != int64(len(instanceIDs)) {
+			return fmt.Errorf("部分实例已不在可自动恢复状态")
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 

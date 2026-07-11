@@ -18,7 +18,7 @@ export default {
   trafficLimit: "流量限制",
   unlimited: "无限制",
   unlimitedTraffic: "无流量限制",
-  trafficLimitDesc: "当月流量配额使用情况",
+  trafficLimitDesc: "当前周期流量配额使用情况",
   unlimitedTrafficDesc: "当前等级享有无限流量",
   snapshotQuota: "快照配额",
   snapshotQuotaDesc: "剩余 {remaining} 个；每个实例最多 {perInstance} 个快照",
@@ -42,5 +42,5 @@ export default {
   memoryUsage: "内存使用率",
   diskUsage: "磁盘使用率",
   networkUsage: "网络使用",
-  trafficHistoryChart: "本月流量使用趋势"
+  trafficHistoryChart: "近期流量使用趋势"
 }

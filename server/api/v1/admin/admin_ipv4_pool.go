@@ -25,6 +25,10 @@ func GetProviderIPv4Pool(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的服务商ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	page := 1
 	pageSize := 100
@@ -41,7 +45,6 @@ func GetProviderIPv4Pool(c *gin.Context) {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
-
 	totalInt, allocated, available := svc.GetPoolStats(uint(providerID))
 
 	common.ResponseSuccess(c, gin.H{
@@ -72,6 +75,10 @@ func SetProviderIPv4Pool(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的服务商ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	var req struct {
 		Addresses string `json:"addresses" binding:"required"`
@@ -87,7 +94,6 @@ func SetProviderIPv4Pool(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
-
 	common.ResponseSuccess(c, gin.H{
 		"added":        added,
 		"addedCount":   len(added),
@@ -107,6 +113,10 @@ func ClearProviderIPv4Pool(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的服务商ID"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -132,6 +142,10 @@ func DeleteProviderIPv4PoolEntry(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的服务商ID"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 	entryID, err := strconv.ParseUint(c.Param("entry_id"), 10, 64)

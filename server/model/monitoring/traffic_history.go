@@ -40,7 +40,7 @@ func (InstanceTrafficHistory) TableName() string {
 // ProviderTrafficHistory Provider流量历史记录（用于图表展示）
 type ProviderTrafficHistory struct {
 	ID         uint `json:"id" gorm:"primaryKey"`
-	ProviderID uint `json:"provider_id" gorm:"index:idx_provider_time,priority:1;not null"` // Provider ID
+	ProviderID uint `json:"provider_id" gorm:"index:idx_provider_time,priority:1;uniqueIndex:uk_provider_period,priority:1;not null"` // Provider ID
 
 	// 流量数据 (单位: MB)
 	TrafficIn  float64 `json:"traffic_in"`  // 入站流量
@@ -51,10 +51,10 @@ type ProviderTrafficHistory struct {
 	InstanceCount int `json:"instance_count"` // 实例数量
 
 	// 时间维度
-	Year  int `json:"year" gorm:"index:idx_provider_time,priority:2;not null"`  // 年
-	Month int `json:"month" gorm:"index:idx_provider_time,priority:3;not null"` // 月
-	Day   int `json:"day" gorm:"index:idx_provider_time,priority:4;not null"`   // 日
-	Hour  int `json:"hour" gorm:"index:idx_provider_time,priority:5;not null"`  // 小时(0-23)，0表示日度汇总
+	Year  int `json:"year" gorm:"index:idx_provider_time,priority:2;uniqueIndex:uk_provider_period,priority:2;not null"`  // 年
+	Month int `json:"month" gorm:"index:idx_provider_time,priority:3;uniqueIndex:uk_provider_period,priority:3;not null"` // 月
+	Day   int `json:"day" gorm:"index:idx_provider_time,priority:4;uniqueIndex:uk_provider_period,priority:4;not null"`   // 日
+	Hour  int `json:"hour" gorm:"index:idx_provider_time,priority:5;uniqueIndex:uk_provider_period,priority:5;not null"`  // 小时(0-23)，0表示日度汇总
 
 	RecordTime time.Time      `json:"record_time" gorm:"index"` // 记录时间
 	CreatedAt  time.Time      `json:"created_at"`
@@ -70,7 +70,7 @@ func (ProviderTrafficHistory) TableName() string {
 // UserTrafficHistory 用户流量历史记录（用于图表展示）
 type UserTrafficHistory struct {
 	ID     uint `json:"id" gorm:"primaryKey"`
-	UserID uint `json:"user_id" gorm:"index:idx_user_time,priority:1;not null"` // 用户ID
+	UserID uint `json:"user_id" gorm:"index:idx_user_time,priority:1;uniqueIndex:uk_user_period,priority:1;not null"` // 用户ID
 
 	// 流量数据 (单位: MB)
 	TrafficIn  float64 `json:"traffic_in"`  // 入站流量
@@ -81,10 +81,10 @@ type UserTrafficHistory struct {
 	InstanceCount int `json:"instance_count"` // 实例数量
 
 	// 时间维度
-	Year  int `json:"year" gorm:"index:idx_user_time,priority:2;not null"`  // 年
-	Month int `json:"month" gorm:"index:idx_user_time,priority:3;not null"` // 月
-	Day   int `json:"day" gorm:"index:idx_user_time,priority:4;not null"`   // 日
-	Hour  int `json:"hour" gorm:"index:idx_user_time,priority:5;not null"`  // 小时(0-23)，0表示日度汇总
+	Year  int `json:"year" gorm:"index:idx_user_time,priority:2;uniqueIndex:uk_user_period,priority:2;not null"`  // 年
+	Month int `json:"month" gorm:"index:idx_user_time,priority:3;uniqueIndex:uk_user_period,priority:3;not null"` // 月
+	Day   int `json:"day" gorm:"index:idx_user_time,priority:4;uniqueIndex:uk_user_period,priority:4;not null"`   // 日
+	Hour  int `json:"hour" gorm:"index:idx_user_time,priority:5;uniqueIndex:uk_user_period,priority:5;not null"`  // 小时(0-23)，0表示日度汇总
 
 	RecordTime time.Time      `json:"record_time" gorm:"index"` // 记录时间
 	CreatedAt  time.Time      `json:"created_at"`

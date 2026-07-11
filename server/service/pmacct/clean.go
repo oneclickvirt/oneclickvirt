@@ -332,68 +332,6 @@ echo "=== pmacct 资源清理完成: %s ==="
 	return nil
 }
 
-// CleanupOldPmacctData 清理过期的pmacct数据（分层清理策略）
-// 保留策略：
-// - 7天内：保留所有5分钟级数据
-// - 7-30天：聚合为小时级数据（保留minute=0的记录）
-// - 30-90天：聚合为日度数据（保留hour=0, minute=0的记录）
-// - 90天以上：全部删除
-func (s *Service) CleanupOldPmacctData(retentionDays int) error {
-	now := time.Now()
-
-	// 第一步：删除90天以上的所有数据
-	cutoffTime90Days := now.AddDate(0, 0, -90)
-	result90Days := global.APP_DB.Where("record_time < ?", cutoffTime90Days).
-		Delete(&monitoringModel.PmacctTrafficRecord{})
-	if result90Days.Error != nil {
-		return result90Days.Error
-	}
-
-	global.APP_LOG.Debug("清理90天以上的pmacct数据",
-		zap.Int64("deletedRecords", result90Days.RowsAffected))
-
-	// 第二步：聚合30-90天的数据为日度（保留hour=0, minute=0）
-	cutoffTime30Days := now.AddDate(0, 0, -30)
-	if err := s.aggregateToDailyBetween(cutoffTime90Days, cutoffTime30Days); err != nil {
-		global.APP_LOG.Warn("聚合为日度数据失败", zap.Error(err))
-	}
-
-	// 删除30-90天的非日度数据
-	result30_90 := global.APP_DB.Where("record_time < ? AND record_time >= ? AND (hour > 0 OR minute > 0)",
-		cutoffTime30Days, cutoffTime90Days).
-		Delete(&monitoringModel.PmacctTrafficRecord{})
-	if result30_90.Error != nil {
-		return result30_90.Error
-	}
-
-	global.APP_LOG.Debug("清理30-90天的非日度pmacct数据",
-		zap.Int64("deletedRecords", result30_90.RowsAffected))
-
-	// 第三步：聚合7-30天的数据为小时级（保留minute=0）
-	cutoffTime7Days := now.AddDate(0, 0, -7)
-	if err := s.aggregateToHourlyBetween(cutoffTime30Days, cutoffTime7Days); err != nil {
-		global.APP_LOG.Warn("聚合为小时数据失败", zap.Error(err))
-	}
-
-	// 删除7-30天的5分钟级数据
-	result7_30 := global.APP_DB.Where("record_time < ? AND record_time >= ? AND minute > 0",
-		cutoffTime7Days, cutoffTime30Days).
-		Delete(&monitoringModel.PmacctTrafficRecord{})
-	if result7_30.Error != nil {
-		return result7_30.Error
-	}
-
-	global.APP_LOG.Debug("清理7-30天的5分钟级pmacct数据",
-		zap.Int64("deletedRecords", result7_30.RowsAffected))
-
-	totalDeleted := result90Days.RowsAffected + result30_90.RowsAffected + result7_30.RowsAffected
-	global.APP_LOG.Info("pmacct数据清理完成",
-		zap.Int("retentionDays", retentionDays),
-		zap.Int64("totalDeletedRecords", totalDeleted))
-
-	return nil
-}
-
 // ResetPmacctDaemon 完全重置pmacct守护进程和数据库
 // 正确的清理方式：
 // 1. 停止pmacct守护进程

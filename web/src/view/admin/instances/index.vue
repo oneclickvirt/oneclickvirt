@@ -155,7 +155,7 @@
         <el-table-column
           prop="name"
           :label="$t('admin.instances.instanceName')"
-          min-width="140"
+          min-width="150"
           show-overflow-tooltip
           fixed="left"
         />
@@ -167,13 +167,13 @@
         <el-table-column
           prop="providerName"
           :label="$t('admin.instances.provider')"
-          width="120"
+          min-width="160"
           show-overflow-tooltip
         />
         <el-table-column
           prop="instance_type"
           :label="$t('admin.instances.instanceType')"
-          width="80"
+          min-width="100"
         >
           <template #default="scope">
             <el-tag
@@ -186,7 +186,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('admin.instances.acceleratorConfig')"
-          width="130"
+          min-width="190"
         >
           <template #default="scope">
             <template v-if="scope.row.gpuEnabled || scope.row.npuEnabled">
@@ -215,12 +215,12 @@
         <el-table-column
           prop="sshPort"
           :label="$t('admin.instances.sshPort')"
-          width="80"
+          min-width="120"
         />
         <el-table-column
           prop="osType"
           :label="$t('admin.instances.system')"
-          width="80"
+          min-width="90"
         />
         <el-table-column
           :label="$t('admin.instances.instanceStatus')"
@@ -290,7 +290,7 @@
         <el-table-column
           prop="isFrozen"
           :label="$t('admin.instances.freezeStatus')"
-          width="100"
+          min-width="150"
           align="center"
         >
           <template #default="scope">

@@ -92,6 +92,13 @@ export default function useOAuth2() {
     ]
   }))
 
+  const toArray = (payload) => {
+    if (Array.isArray(payload)) return payload
+    if (Array.isArray(payload?.list)) return payload.list
+    if (Array.isArray(payload?.data)) return payload.data
+    return []
+  }
+
   onMounted(() => {
     loadProviders()
     loadSystemConfig()
@@ -118,7 +125,7 @@ export default function useOAuth2() {
     loading.value = true
     try {
       const res = await getAllOAuth2Providers()
-      providers.value = res.data || []
+      providers.value = toArray(res.data)
     } catch (error) {
       ElMessage.error(t('admin.oauth2.loadProvidersFailed'))
     } finally {

@@ -76,29 +76,11 @@
 
 Provider 可配置 `traffic_reset_day`。空值或 0 表示自然月，当前周期为每月 1 日到下月 1 日；1 到 31 表示每月对应日期重置，29 到 31 在短月份会自动钳制到当月最后一天。查询服务先按 Provider 计算 `[start, nextReset)` 窗口，再按窗口批量汇总实例、用户和 Provider 用量。
 
-底层月度缓存仍然使用 `day = 0 AND hour = 0` 表示整月汇总。对于非自然月周期，查询层会按涉及月份分段读取或实时计算，不能直接把单月缓存当作最终业务周期结果。
+底层月度缓存仍然使用 `day = 0 AND hour = 0` 表示整月派生汇总，但当前周期、自然月、年度和历史趋势都应通过 `QueryService` 从 `pmacct_traffic_records` 的原始累计字节重新计算。计算时先取窗口开始前最后一个采样作为基线，再对窗口内采样做相邻差分；如果采样值回退，则视为 pmacct/agent 计数器重启并从当前值重新累计。
 
-```sql
-SELECT COALESCE(SUM(
-    CASE
-        WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-        WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-        ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-    END
-), 0) AS cycle_usage_mb
-FROM instance_traffic_histories ith
-INNER JOIN providers p ON ith.provider_id = p.id
-WHERE ith.year = ?
-  AND ith.month = ?
-  AND ith.day = 0
-  AND ith.hour = 0
-  AND p.enable_traffic_control = true
-  AND ith.deleted_at IS NULL
-```
+**关键点**：`instance_traffic_histories`、`provider_traffic_histories`、`user_traffic_histories` 中的 `traffic_in`、`traffic_out`、`total_used` 都存原始 MB。`total_used` 必须是 `traffic_in + traffic_out`，不能存已经应用 `traffic_count_mode` 或 `traffic_multiplier` 后的值。
 
-**关键点**：`instance_traffic_histories`、`provider_traffic_histories`、`user_traffic_histories` 中的 `traffic_in`、`traffic_out`、`total_used` 都存原始 MB。`total_used` 必须是 `traffic_in + traffic_out`，不能存已经应用 `traffic_count_mode` 或 `traffic_multiplier` 后的值。查询、排行、限额、后台 Provider 列表再按 Provider 配置和当前周期窗口计算实际用量。
-
-后台 Provider 列表和 Provider 限额判断以 `instance_traffic_histories` 为准，再按 Provider 当前周期批量聚合到 Provider 维度；`provider_traffic_histories` 是派生汇总表，不能作为唯一实时来源，避免聚合任务未刷新时显示旧值。
+当前实时展示、排行、三层限额判断统一以 `pmacct_traffic_records` 为来源，经 `QueryService` 按窗口前基线和窗口内相邻采样差分计算；`instance_traffic_histories`、`provider_traffic_histories`、`user_traffic_histories` 只作为派生聚合表和历史兼容数据，不能作为唯一实时来源，避免聚合任务未刷新时显示旧值或限额误判。
 
 ## 数据流转流程
 

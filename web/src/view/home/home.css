@@ -643,7 +643,7 @@
   top: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 600px;
+  width: min(600px, 100%);
   height: 2px;
   background: linear-gradient(90deg, transparent, #16a34a, #22c55e, #16a34a, transparent);
   box-shadow: 0 0 24px 6px rgba(34, 197, 94, 0.35);

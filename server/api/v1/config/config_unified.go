@@ -131,8 +131,17 @@ func UpdateUnifiedConfig(c *gin.Context) {
 	// 检查是否是新的统一格式
 	if scope, exists := rawData["scope"]; exists {
 		if config, configExists := rawData["config"]; configExists {
-			req.Scope = scope.(string)
-			req.Config = config.(map[string]interface{})
+			var ok bool
+			req.Scope, ok = scope.(string)
+			if !ok || req.Scope == "" {
+				common.ResponseWithError(c, common.NewError(common.CodeValidationError, "scope必须是非空字符串"))
+				return
+			}
+			req.Config, ok = config.(map[string]interface{})
+			if !ok {
+				common.ResponseWithError(c, common.NewError(common.CodeValidationError, "config必须是JSON对象"))
+				return
+			}
 		} else {
 			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "统一格式缺少config字段"))
 			return

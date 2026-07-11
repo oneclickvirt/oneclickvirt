@@ -159,7 +159,7 @@ run_module_30() {
                 --argjson ssh_port "$switch_port" \
                 'def p: (.sshPort // .ssh_port // 22 | tonumber? // 22);
                  def e: (.endpoint // .host // "");
-                 if any((.data.list // .data.items // .data // [])[]?; ((.id // .ID | tostring) != $self_id) and (e == $endpoint) and (p == $ssh_port)) then "yes" else "no" end' 2>/dev/null)
+                 if any((.data.list // .data.items // .data // [])[]?; ((.id // .ID | tostring) != $self_id) and (e == $endpoint) and (p == $ssh_port)) then "yes" else "no" end')
             if [[ "$endpoint_conflict" == "yes" ]]; then
                 for candidate_port in 22022 22023 22024 22025 22026 22027 22028 22029; do
                     local port_conflict; port_conflict=$(echo "$providers_resp" | jq -r 2>/dev/null \
@@ -168,7 +168,7 @@ run_module_30() {
                         --argjson ssh_port "$candidate_port" \
                         'def p: (.sshPort // .ssh_port // 22 | tonumber? // 22);
                          def e: (.endpoint // .host // "");
-                         if any((.data.list // .data.items // .data // [])[]?; ((.id // .ID | tostring) != $self_id) and (e == $endpoint) and (p == $ssh_port)) then "yes" else "no" end' 2>/dev/null)
+                         if any((.data.list // .data.items // .data // [])[]?; ((.id // .ID | tostring) != $self_id) and (e == $endpoint) and (p == $ssh_port)) then "yes" else "no" end')
                     if [[ "$port_conflict" != "yes" ]]; then
                         switch_port="$candidate_port"
                         break

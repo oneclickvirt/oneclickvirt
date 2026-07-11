@@ -29,6 +29,7 @@
             </div>
             <el-button
               v-if="isSuperAdmin"
+              class="task-pool-action"
               :type="poolStatus.enabled ? 'danger' : 'success'"
               :loading="poolLoading"
               size="small"
@@ -447,7 +448,7 @@
           <el-table-column
             prop="remainingTime"
             :label="$t('admin.tasks.remainingTime')"
-            width="125"
+            min-width="160"
             align="center"
           >
             <template #default="{ row }">

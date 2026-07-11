@@ -27,7 +27,7 @@ export default {
     dataSource: "数据源",
     realtimeData: "实时数据",
     trafficSummary: "流量使用汇总",
-    currentMonth: "本月流量",
+    currentMonth: "当前周期流量",
     receivedTraffic: "接收流量",
     sentTraffic: "发送流量",
     totalTraffic: "总流量",

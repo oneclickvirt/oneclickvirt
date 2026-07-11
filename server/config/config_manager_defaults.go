@@ -182,7 +182,6 @@ func getDefaultConfigMap() map[string]interface{} {
 			"enable-data-cleanup":            true,
 			"data-cleanup-interval-hours":    24,
 			"audit-log-retention-days":       30,
-			"pmacct-raw-retention-days":      45,
 			"traffic-history-retention-days": 180,
 			"cleanup-batch-size":             5000,
 			"optimize-after-cleanup":         false,

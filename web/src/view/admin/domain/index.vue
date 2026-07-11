@@ -275,7 +275,7 @@
             />
             <el-table-column
               :label="t('admin.domain.domainBindingEnabled')"
-              width="140"
+              min-width="160"
             >
               <template #default="{ row }">
                 <el-tag
@@ -288,7 +288,7 @@
             </el-table-column>
             <el-table-column
               :label="t('admin.domain.maxDomainsPerUser')"
-              width="150"
+              min-width="200"
             >
               <template #default="{ row }">
                 {{ getProviderConfig(row.id)?.maxDomainsPerUser ?? 3 }}

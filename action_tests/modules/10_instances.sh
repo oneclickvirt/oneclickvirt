@@ -11,8 +11,9 @@ run_module_10() {
         return 1
     fi
 
-    if ! ensure_worker_ssh_reachable 120 "instance lifecycle"; then
-        local _ssh_rc=$?
+    local _ssh_rc=0
+    ensure_worker_ssh_reachable 120 "instance lifecycle" || _ssh_rc=$?
+    if [[ $_ssh_rc -ne 0 ]]; then
         if [[ $_ssh_rc -eq 75 ]]; then
             exit 75
         fi
@@ -29,9 +30,8 @@ run_module_10() {
 
     # -- Health check before instance creation --
     log_info "Verifying provider health before instance tests..."
-    local hc_resp; hc_resp=$(test_api_retry "Provider health (pre-instance)" "POST" \
-        "/api/v1/admin/providers/${PROVIDER_ID}/health-check" "200" '{}' 3 10 "$group")
-    if [[ $? -ne 0 ]]; then
+    if ! test_api_retry "Provider health (pre-instance)" "POST" \
+        "/api/v1/admin/providers/${PROVIDER_ID}/health-check" "200" '{}' 3 10 "$group" >/dev/null; then
         chain_break "$group" "Provider health check failed, cannot create instances"
         return 1
     fi
@@ -341,18 +341,8 @@ run_module_10() {
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=1000&providerType=${vm_img_provider_type}&instanceType=vm&architecture=${vm_provider_arch}&status=active" 2>/dev/null)
         if [[ -n "$vm_sys_images" ]]; then
-            local vm_resolved; vm_resolved=$(echo "$vm_sys_images" | jq -r --arg pt "$vm_img_provider_type" --arg arch "$vm_provider_arch" \
-                '[.data.list[]? | select(.osType=="debian" and .providerType==$pt and .instanceType=="vm" and .status=="active" and (.architecture==$arch or $arch==""))]
-                 | sort_by(
-                     if (.name | test("^ci-debian-12-" + $pt + "-vm$")) then 0
-                     elif ((.osVersion // .version // "") == "12") then 1
-                     elif (.name | test("debian-12|debian12|bookworm")) then 2
-                     elif ((.osVersion // .version // "") == "13") then 3
-                     else 9 end,
-                     (.id // 999999)
-                   )
-                 | .[0].name // empty' 2>/dev/null)
-            if [[ -n "$vm_resolved" && "$vm_resolved" != "null" ]]; then
+            local vm_resolved
+            if vm_resolved=$(resolve_vm_system_image "$vm_sys_images" "$vm_img_provider_type" "$vm_provider_arch"); then
                 vm_image="$vm_resolved"
                 log_info "Resolved VM image from system images: ${vm_image}"
             else

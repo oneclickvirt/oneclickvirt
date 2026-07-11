@@ -130,6 +130,30 @@ safe_jq() {
     return 0
 }
 
+# Resolve the preferred Debian VM image from a system-images API response.
+# Invalid or incomplete responses return non-zero so callers can keep their fallback image.
+resolve_vm_system_image() {
+    local input="$1" provider_type="$2" architecture="$3"
+    # shellcheck disable=SC2016 # jq variables are supplied with --arg below.
+    local filter='[.data.list[]? | select(.osType=="debian" and .providerType==$pt and .instanceType=="vm" and .status=="active" and (.architecture==$arch or $arch==""))]
+        | sort_by(
+            if (.name | test("^ci-debian-12-" + $pt + "-vm$")) then 0
+            elif ((.osVersion // .version // "") == "12") then 1
+            elif (.name | test("debian-12|debian12|bookworm")) then 2
+            elif ((.osVersion // .version // "") == "13") then 3
+            else 9 end,
+            (.id // 999999)
+          )
+        | .[0].name // empty'
+    local result
+
+    [[ -n "$input" ]] || return 1
+    printf '%s' "$input" | jq empty 2>/dev/null || return 1
+    result=$(printf '%s' "$input" | jq -r --arg pt "$provider_type" --arg arch "$architecture" "$filter" 2>/dev/null) || return 1
+    [[ -n "$result" && "$result" != "null" ]] || return 1
+    printf '%s\n' "$result"
+}
+
 # -- Sanitize response body for jq: strip non-JSON prefix (e.g., HTTP headers, warnings) --
 # Some APIs may prepend warnings or have mixed output; this extracts the JSON portion
 sanitize_json_body() {
@@ -938,7 +962,8 @@ ensure_provider_health_ready() {
 }
 
 wait_instance_status() {
-    local instance_id="$1" expected="$2" max="${3:-$INSTANCE_STATUS_MAX_WAIT}" interval="${4:-10}" token="${5:-$ADMIN_TOKEN}" label="${6:-instance ${instance_id}}"
+    local instance_id="$1" expected="$2" max="${3:-$INSTANCE_STATUS_MAX_WAIT}" interval="${4:-10}" token="${5:-$ADMIN_TOKEN}"
+    local label="${6:-instance ${instance_id}}"
     local elapsed=0 last_status="" first_dumped=false
 
     log_info "Waiting for ${label} status '${expected}' (max ${max}s)..."
@@ -1003,7 +1028,8 @@ wait_instance_status() {
 # logged as WARN and left to the caller to record as SKIP/FAIL according to the
 # module semantics.
 wait_instance_status_nonfatal() {
-    local instance_id="$1" expected="$2" max="${3:-$INSTANCE_STATUS_MAX_WAIT}" interval="${4:-10}" token="${5:-$ADMIN_TOKEN}" label="${6:-instance ${instance_id}}"
+    local instance_id="$1" expected="$2" max="${3:-$INSTANCE_STATUS_MAX_WAIT}" interval="${4:-10}" token="${5:-$ADMIN_TOKEN}"
+    local label="${6:-instance ${instance_id}}"
     local elapsed=0 last_status="" first_dumped=false
 
     log_info "Waiting for optional ${label} status '${expected}' (max ${max}s)..."
@@ -1063,7 +1089,8 @@ wait_instance_status_nonfatal() {
 }
 
 wait_instance_active_tasks_idle() {
-    local instance_id="$1" label="${2:-instance ${instance_id}}" token="${3:-$ADMIN_TOKEN}" max="${4:-$INSTANCE_TASK_MAX_WAIT}" interval="${5:-10}"
+    local instance_id="$1" token="${3:-$ADMIN_TOKEN}" max="${4:-$INSTANCE_TASK_MAX_WAIT}" interval="${5:-10}"
+    local label="${2:-instance ${instance_id}}"
     local elapsed=0 last_summary=""
 
     [[ -z "$instance_id" ]] && return 0
@@ -1166,7 +1193,8 @@ resolve_instance_id_by_name() {
 }
 
 wait_provider_active_tasks_idle() {
-    local provider_id="$1" label="${2:-provider ${provider_id}}" token="${3:-$ADMIN_TOKEN}" max="${4:-$INSTANCE_TASK_MAX_WAIT}" interval="${5:-10}"
+    local provider_id="$1" token="${3:-$ADMIN_TOKEN}" max="${4:-$INSTANCE_TASK_MAX_WAIT}" interval="${5:-10}"
+    local label="${2:-provider ${provider_id}}"
     local elapsed=0 last_summary=""
 
     [[ -z "$provider_id" ]] && return 0

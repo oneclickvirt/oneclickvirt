@@ -27,7 +27,7 @@ export default {
     dataSource: "Data Source",
     realtimeData: "Real-time Data",
     trafficSummary: "Traffic Usage Summary",
-    currentMonth: "Current Month Traffic",
+    currentMonth: "Current Cycle Traffic",
     receivedTraffic: "Received Traffic",
     sentTraffic: "Sent Traffic",
     totalTraffic: "Total Traffic",

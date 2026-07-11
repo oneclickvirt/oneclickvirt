@@ -41,6 +41,10 @@ func GetProviderMonitors(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
@@ -52,7 +56,10 @@ func GetProviderMonitors(c *gin.Context) {
 	}
 
 	var total int64
-	global.APP_DB.Model(&monitoringModel.AgentMonitor{}).Where("provider_id = ?", providerID).Count(&total)
+	if err := global.APP_DB.Model(&monitoringModel.AgentMonitor{}).Where("provider_id = ?", providerID).Count(&total).Error; err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
 
 	var monitors []monitoringModel.AgentMonitor
 	if err := global.APP_DB.Where("provider_id = ?", providerID).
@@ -118,6 +125,10 @@ func SyncProviderMonitors(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
@@ -176,6 +187,10 @@ func GetProviderMonitorSyncTask(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 	taskID := strings.TrimSpace(c.Param("taskId"))
 	if taskID == "" {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的任务ID"))
@@ -194,6 +209,10 @@ func GetLatestProviderMonitorSyncTask(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -318,6 +337,10 @@ func ListAgentMonitors(c *gin.Context) {
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -557,6 +580,10 @@ func GetInstanceResources(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
 		return
 	}
+	if err := ensureInstanceOwner(c, uint(instanceID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 	var instance providerModel.Instance
 	if err := global.APP_DB.Select("id", "status").First(&instance, instanceID).Error; err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "实例不存在"))
@@ -571,6 +598,9 @@ func GetInstanceResources(c *gin.Context) {
 	hours, _ := strconv.Atoi(hoursStr)
 	if hours <= 0 {
 		hours = 24
+	}
+	if hours > 24*31 {
+		hours = 24 * 31
 	}
 
 	ctx := c.Request.Context()
@@ -599,6 +629,10 @@ func GetProviderResourceSummary(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	ctx := c.Request.Context()
 	resSvc := agentService.NewResourceSyncService(ctx, global.APP_DB)
@@ -624,6 +658,10 @@ func ClearProviderMonitors(c *gin.Context) {
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 

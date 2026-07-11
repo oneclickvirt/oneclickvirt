@@ -523,13 +523,14 @@
     </div>
 
     <el-alert
+      class="mapping-help-alert"
       :title="$t('admin.providers.mappingTypeDescription')"
       type="warning"
       :closable="false"
       show-icon
       style="margin-top: 20px;"
     >
-      <ul style="margin: 0; padding-left: 20px;">
+      <ul class="mapping-help-list">
         <li><strong>{{ $t('admin.providers.natMapping') }}:</strong> {{ $t('admin.providers.natMappingDesc') }}</li>
         <li><strong>{{ $t('admin.providers.dedicatedMapping') }}:</strong> {{ $t('admin.providers.dedicatedMappingDesc') }}</li>
         <li><strong>{{ $t('admin.providers.ipv6Support') }}:</strong> {{ $t('admin.providers.ipv6SupportDesc') }}</li>
@@ -649,7 +650,7 @@
             <el-table-column
               :label="$t('admin.providers.ipv4Pool.instance')"
               prop="instance_id"
-              min-width="90"
+              min-width="110"
             >
               <template #default="{ row }">
                 <span>{{ row.instance_id || '-' }}</span>
@@ -829,5 +830,26 @@ watch(() => [props.modelValue.type, props.modelValue.networkType], ([type, netwo
   align-items: center;
   margin-top: 6px;
   line-height: 1.5;
+}
+
+.mapping-help-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+@media (max-width: 768px) {
+  .mapping-help-alert :deep(.el-alert__content),
+  .mapping-help-alert :deep(.el-alert__title),
+  .mapping-help-alert :deep(.el-alert__description) {
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .mapping-help-list {
+    max-width: 100%;
+    padding-left: 16px;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

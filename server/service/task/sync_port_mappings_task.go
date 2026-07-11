@@ -309,9 +309,12 @@ func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *provid
 }
 
 // PreviewSyncPortMappings 生成端口映射同步预览，不修改数据库或节点侧规则。
-func (s *TaskService) PreviewSyncPortMappings(ctx context.Context, req *adminModel.SyncPortMappingsTaskRequest) (*adminModel.SyncPortMappingsPreviewResponse, error) {
+func (s *TaskService) PreviewSyncPortMappings(ctx context.Context, req *adminModel.SyncPortMappingsTaskRequest, ownerAdminID uint) (*adminModel.SyncPortMappingsPreviewResponse, error) {
 	var providers []providerModel.Provider
 	query := global.APP_DB.Where("status = ?", "active")
+	if ownerAdminID > 0 {
+		query = query.Where("owner_admin_id = ?", ownerAdminID)
+	}
 	if len(req.ProviderIDs) > 0 {
 		query = query.Where("id IN ?", req.ProviderIDs)
 	}

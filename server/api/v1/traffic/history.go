@@ -21,7 +21,7 @@ import (
 // @Security BearerAuth
 // @Param instance_id path int true "实例ID"
 // @Param period query string false "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h" default(1h)
-// @Param interval query int false "数据点间隔（分钟），0表示自动选择，可选: 5, 15, 30, 60" default(0)
+// @Param interval query int false "数据点间隔（分钟），0表示自动选择，可选: 5, 10, 15, 30, 60" default(0)
 // @Param includeArchived query bool false "是否包含已归档数据（重置前的历史记录）" default(false)
 // @Success 200 {object} common.Response{data=[]monitoring.InstanceTrafficHistory}
 // @Failure 400 {object} common.Response
@@ -59,8 +59,8 @@ func (api *UserTrafficAPI) GetInstanceTrafficHistory(c *gin.Context) {
 	}
 
 	// 验证interval参数
-	if interval != 0 && interval != 5 && interval != 15 && interval != 30 && interval != 60 {
-		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "interval参数必须是0, 5, 15, 30, 60之一"))
+	if interval != 0 && interval != 5 && interval != 10 && interval != 15 && interval != 30 && interval != 60 {
+		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "interval参数必须是0, 5, 10, 15, 30, 60之一"))
 		return
 	}
 
@@ -161,8 +161,8 @@ func GetProviderTrafficHistory(c *gin.Context) {
 	}
 
 	// 验证interval参数
-	if interval != 0 && interval != 5 && interval != 15 && interval != 30 && interval != 60 {
-		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "interval参数必须是0, 5, 15, 30, 60之一"))
+	if interval != 0 && interval != 5 && interval != 10 && interval != 15 && interval != 30 && interval != 60 {
+		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "interval参数必须是0, 5, 10, 15, 30, 60之一"))
 		return
 	}
 
@@ -226,8 +226,8 @@ func (api *UserTrafficAPI) GetUserTrafficHistory(c *gin.Context) {
 	}
 
 	// 验证interval参数
-	if interval != 0 && interval != 5 && interval != 15 && interval != 30 && interval != 60 {
-		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "interval参数必须是0, 5, 15, 30, 60之一"))
+	if interval != 0 && interval != 5 && interval != 10 && interval != 15 && interval != 30 && interval != 60 {
+		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "interval参数必须是0, 5, 10, 15, 30, 60之一"))
 		return
 	}
 

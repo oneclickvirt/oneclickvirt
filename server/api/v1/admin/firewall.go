@@ -1,20 +1,19 @@
 package admin
 
 import (
-	"context"
-	"fmt"
 	"strconv"
 
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	firewallModel "oneclickvirt/model/firewall"
-	providerModel "oneclickvirt/model/provider"
 	firewallService "oneclickvirt/service/firewall"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
+const maxBlockRuleRequestIDs = 5000
 
 // GetBlockRules returns all block rules.
 func GetBlockRules(c *gin.Context) {
@@ -110,9 +109,22 @@ func ApplyBlockRules(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "规则ID不能为空"))
 		return
 	}
+	if len(req.RuleIDs) > maxBlockRuleRequestIDs || len(req.TargetIDs) > maxBlockRuleRequestIDs {
+		common.ResponseWithError(c, common.NewError(common.CodeTooLarge, "单次请求的规则或目标ID不能超过5000个"))
+		return
+	}
 	validScopes := map[string]bool{"global": true, "provider": true, "instance": true, "user": true}
 	if !validScopes[req.Scope] {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的scope, 可选值: global, provider, instance, user"))
+		return
+	}
+	validIPVersions := map[string]bool{"": true, "both": true, "ipv4": true, "ipv6": true}
+	if !validIPVersions[req.IPVersion] {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的IP版本"))
+		return
+	}
+	if req.Scope != "global" && len(req.TargetIDs) == 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "目标ID不能为空"))
 		return
 	}
 
@@ -124,51 +136,31 @@ func ApplyBlockRules(c *gin.Context) {
 			return
 		}
 		// 验证目标provider/instance归属于当前管理员
-		if err := validateBlockRuleTargetOwnership(ownerAdminID, req.Scope, req.TargetIDs); err != nil {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+		switch req.Scope {
+		case "provider":
+			if err := ensureProviderOwners(c, req.TargetIDs); err != nil {
+				common.ResponseWithError(c, err)
+				return
+			}
+		case "instance":
+			if err := ensureInstanceOwners(c, req.TargetIDs); err != nil {
+				common.ResponseWithError(c, err)
+				return
+			}
+		case "user":
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "普通管理员不能应用用户级别的屏蔽规则"))
 			return
 		}
 	}
 
 	svc := &firewallService.Service{}
-	apps, err := svc.ApplyRules(context.Background(), &req)
+	apps, err := svc.ApplyRules(c.Request.Context(), &req)
 	if err != nil {
 		global.APP_LOG.Error("应用屏蔽规则失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, apps, "规则应用中")
-}
-
-// validateBlockRuleTargetOwnership 验证普通管理员只能操作自己的provider/instance
-func validateBlockRuleTargetOwnership(ownerAdminID uint, scope string, targetIDs []uint) error {
-	if len(targetIDs) == 0 {
-		return nil
-	}
-	switch scope {
-	case "provider":
-		var count int64
-		global.APP_DB.Model(&providerModel.Provider{}).
-			Where("id IN ? AND owner_admin_id = ?", targetIDs, ownerAdminID).
-			Count(&count)
-		if count != int64(len(targetIDs)) {
-			return fmt.Errorf("无权操作不属于您的节点")
-		}
-	case "instance":
-		// 查询实例所属的provider是否归属于当前管理员
-		var count int64
-		global.APP_DB.Model(&providerModel.Instance{}).
-			Joins("JOIN providers ON providers.id = instances.provider_id").
-			Where("instances.id IN ? AND providers.owner_admin_id = ?", targetIDs, ownerAdminID).
-			Count(&count)
-		if count != int64(len(targetIDs)) {
-			return fmt.Errorf("无权操作不属于您的实例")
-		}
-	case "user":
-		// 普通管理员不能对用户级别应用规则（涉及其他管理员的用户）
-		return fmt.Errorf("普通管理员不能应用用户级别的屏蔽规则")
-	}
-	return nil
 }
 
 // RemoveBlockRuleApplications removes applied rules.
@@ -183,46 +175,61 @@ func RemoveBlockRuleApplications(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "应用ID不能为空"))
 		return
 	}
+	if len(req.ApplicationIDs) > maxBlockRuleRequestIDs {
+		common.ResponseWithError(c, common.NewError(common.CodeTooLarge, "单次最多移除5000条规则应用"))
+		return
+	}
+	req.ApplicationIDs = uniqueNonZeroIDs(req.ApplicationIDs)
+	if len(req.ApplicationIDs) == 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "应用ID不能为空"))
+		return
+	}
 
 	// 普通管理员数据隔离：验证目标归属
 	ownerAdminID := middleware.GetOwnerAdminID(c)
-	if ownerAdminID > 0 && len(req.ApplicationIDs) > 0 {
+	if ownerAdminID > 0 {
 		// 查询这些application的scope和target_id
 		var apps []firewallModel.BlockRuleApplication
-		global.APP_DB.Where("id IN ?", req.ApplicationIDs).Find(&apps)
+		if err := global.APP_DB.Where("id IN ?", req.ApplicationIDs).Find(&apps).Error; err != nil {
+			common.ResponseWithError(c, common.ClassifyError(err))
+			return
+		}
+		if len(apps) != len(req.ApplicationIDs) {
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "部分规则应用不存在"))
+			return
+		}
+		providerIDs := make([]uint, 0, len(apps))
+		instanceIDs := make([]uint, 0, len(apps))
 		for _, app := range apps {
 			switch app.Scope {
 			case "global":
 				common.ResponseWithError(c, common.NewError(common.CodeForbidden, "普通管理员不能移除全局规则"))
 				return
 			case "provider":
-				var count int64
-				global.APP_DB.Model(&providerModel.Provider{}).
-					Where("id = ? AND owner_admin_id = ?", app.TargetID, ownerAdminID).
-					Count(&count)
-				if count == 0 {
-					common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权移除不属于您的节点上的规则"))
-					return
-				}
+				providerIDs = append(providerIDs, app.TargetID)
 			case "instance":
-				var count int64
-				global.APP_DB.Model(&providerModel.Instance{}).
-					Joins("JOIN providers ON providers.id = instances.provider_id").
-					Where("instances.id = ? AND providers.owner_admin_id = ?", app.TargetID, ownerAdminID).
-					Count(&count)
-				if count == 0 {
-					common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权移除不属于您的实例上的规则"))
-					return
-				}
+				instanceIDs = append(instanceIDs, app.TargetID)
 			case "user":
 				common.ResponseWithError(c, common.NewError(common.CodeForbidden, "普通管理员不能移除用户级别的规则"))
+				return
+			}
+		}
+		if len(providerIDs) > 0 {
+			if err := ensureProviderOwners(c, providerIDs); err != nil {
+				common.ResponseWithError(c, err)
+				return
+			}
+		}
+		if len(instanceIDs) > 0 {
+			if err := ensureInstanceOwners(c, instanceIDs); err != nil {
+				common.ResponseWithError(c, err)
 				return
 			}
 		}
 	}
 
 	svc := &firewallService.Service{}
-	if err := svc.RemoveApplications(context.Background(), &req); err != nil {
+	if err := svc.RemoveApplications(c.Request.Context(), &req); err != nil {
 		global.APP_LOG.Error("移除屏蔽规则应用失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -236,12 +243,14 @@ func GetBlockRuleApplications(c *gin.Context) {
 	var ruleID uint
 	if ruleIDStr != "" {
 		id, err := strconv.ParseUint(ruleIDStr, 10, 64)
-		if err == nil {
-			ruleID = uint(id)
+		if err != nil || id == 0 {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的规则ID"))
+			return
 		}
+		ruleID = uint(id)
 	}
 	svc := &firewallService.Service{}
-	apps, err := svc.ListApplications(ruleID)
+	apps, err := svc.ListApplications(ruleID, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("获取屏蔽规则应用记录失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -257,6 +266,10 @@ func GetProviderBlockStatus(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的节点ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(id)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 	svc := &firewallService.Service{}
 	status, err := svc.GetProviderBlockStatus(uint(id))
 	if err != nil {
@@ -269,7 +282,7 @@ func GetProviderBlockStatus(c *gin.Context) {
 // GetAgentEnabledProviders returns provider IDs with agent monitoring enabled.
 func GetAgentEnabledProviders(c *gin.Context) {
 	svc := &firewallService.Service{}
-	ids, err := svc.GetAgentEnabledProviders()
+	ids, err := svc.GetAgentEnabledProviders(middleware.GetOwnerAdminID(c))
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return

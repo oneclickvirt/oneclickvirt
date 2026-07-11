@@ -44,7 +44,7 @@
       <el-table-column
         prop="mappingType"
         :label="$t('user.instanceDetail.mappingSource')"
-        width="110"
+        min-width="180"
       >
         <template #default="{ row }">
           <el-tag
@@ -58,17 +58,17 @@
       <el-table-column
         prop="hostPort"
         :label="$t('user.instanceDetail.publicPort')"
-        width="110"
+        min-width="130"
       />
       <el-table-column
         prop="guestPort"
         :label="$t('user.instanceDetail.internalPort')"
-        width="110"
+        min-width="150"
       />
       <el-table-column
         prop="protocol"
         :label="$t('user.instanceDetail.protocol')"
-        width="90"
+        min-width="110"
       >
         <template #default="{ row }">
           <el-tag

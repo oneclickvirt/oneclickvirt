@@ -42,7 +42,7 @@ export default {
   nodeForwarding: "节点侧转发",
   controllerForwarding: "控制端转发",
   controllerSSHHint: "此SSH端口通过控制端内网穿透转发",
-  controllerForwardingSSH: "ssh root@主控地址 -p {port}",
+  controllerForwardingSSH: "ssh root{'@'}主控地址 -p {port}",
   controllerPortHint: "此端口通过控制端内网穿透转发，端口: {port}",
   controllerForwardingPort: "控制端转发端口: {port}",
   statistics: "流量统计",

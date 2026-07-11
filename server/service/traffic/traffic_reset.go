@@ -54,7 +54,6 @@ func (s *ThreeTierLimitService) ProcessDueTrafficResets(ctx context.Context) err
 
 func (s *ThreeTierLimitService) resetProviderTrafficLimitState(ctx context.Context, p provider.Provider, now time.Time) error {
 	nextReset := NextTrafficResetTime(p.TrafficResetDay, now)
-	var affectedUsers []uint
 
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&provider.Provider{}).
@@ -85,12 +84,6 @@ func (s *ThreeTierLimitService) resetProviderTrafficLimitState(ctx context.Conte
 			return err
 		}
 
-		if err := tx.Model(&provider.Instance{}).
-			Where("provider_id = ? AND deleted_at IS NULL", p.ID).
-			Distinct("user_id").
-			Pluck("user_id", &affectedUsers).Error; err != nil {
-			return err
-		}
 		return nil
 	})
 	if err != nil {
@@ -99,8 +92,7 @@ func (s *ThreeTierLimitService) resetProviderTrafficLimitState(ctx context.Conte
 
 	global.APP_LOG.Info("节点流量周期已重置",
 		zap.Uint("providerID", p.ID),
-		zap.Time("nextResetAt", nextReset),
-		zap.Int("affectedUsers", len(affectedUsers)))
+		zap.Time("nextResetAt", nextReset))
 
 	select {
 	case <-ctx.Done():

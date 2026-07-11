@@ -79,8 +79,14 @@ func (s *UserTrafficService) fetchUserTrafficOverview(userID uint) (map[string]i
 			"is_limited":              false,
 			"traffic_control_enabled": false,
 			"data_source":             "none",
+			"rx_bytes":                int64(0),
+			"tx_bytes":                int64(0),
+			"total_bytes":             int64(0),
 			"formatted": map[string]string{
 				"current_usage": "0 MB",
+				"rx":            "0 B",
+				"tx":            "0 B",
+				"total":         "0 B",
 				"total_limit":   "无限制",
 			},
 		}, nil
@@ -226,8 +232,14 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 			"mapped_ip":               mappedIP,
 			"traffic_control_enabled": false,
 			"current_month_usage_mb":  float64(0),
+			"rx_bytes":                int64(0),
+			"tx_bytes":                int64(0),
+			"total_bytes":             int64(0),
 			"formatted": map[string]string{
 				"current_usage": "0 MB",
+				"rx":            "0 B",
+				"tx":            "0 B",
+				"total":         "0 B",
 			},
 		}, nil
 	}

@@ -41,7 +41,7 @@
         <div class="traffic-summary">
           <h4>{{ t('user.traffic.detail.trafficSummary') }}</h4>
           
-          <!-- 当月流量 -->
+          <!-- 当前周期流量 -->
           <div class="period-section">
             <h5>{{ t('user.traffic.detail.currentMonth') }}</h5>
             <el-row :gutter="20">
@@ -128,7 +128,7 @@
             <el-table-column
               prop="name"
               :label="t('user.traffic.detail.interfaceName')"
-              width="120"
+              min-width="160"
             />
             <el-table-column
               prop="alias"
@@ -153,7 +153,7 @@
             <el-table-column
               prop="active"
               :label="t('user.traffic.detail.status')"
-              width="80"
+              min-width="90"
             >
               <template #default="{ row }">
                 <el-tag :type="row.active ? 'success' : 'info'">
@@ -263,6 +263,9 @@ const loadTrafficDetail = async () => {
 
 const getTrafficCountModeText = (mode) => {
   const modes = {
+    'both': t('user.traffic.detail.bidirectional'),
+    'out': t('user.traffic.detail.uploadOnly'),
+    'in': t('user.traffic.detail.downloadOnly'),
     'bidirectional': t('user.traffic.detail.bidirectional'),
     'upload_only': t('user.traffic.detail.uploadOnly'),
     'download_only': t('user.traffic.detail.downloadOnly')

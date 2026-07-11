@@ -44,8 +44,8 @@
           <div class="usage-header">
             <span class="usage-title">{{ t('user.trafficOverview.monthlyUsage') }}</span>
             <span class="usage-values">
-              {{ trafficData.formatted?.current_usage || formatTraffic(trafficData.current_month_usage_mb) }} / 
-              {{ trafficData.formatted?.total_limit || formatTraffic(trafficData.total_limit_mb) }}
+              {{ trafficData.formatted?.current_usage || formatTraffic(trafficData.current_month_usage_mb ?? trafficData.current_month_usage) }} /
+              {{ trafficData.formatted?.total_limit || formatTraffic(trafficData.total_limit_mb ?? trafficData.total_limit) }}
             </span>
           </div>
           <el-progress 
@@ -92,15 +92,15 @@
           <div class="details-grid">
             <div class="detail-item">
               <span class="detail-label">{{ t('user.trafficOverview.rxTraffic') }}</span>
-              <span class="detail-value">{{ trafficData.formatted?.rx || '0 B' }}</span>
+              <span class="detail-value">{{ trafficData.formatted?.rx || formatBytes(trafficData.rx_bytes) }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">{{ t('user.trafficOverview.txTraffic') }}</span>
-              <span class="detail-value">{{ trafficData.formatted?.tx || '0 B' }}</span>
+              <span class="detail-value">{{ trafficData.formatted?.tx || formatBytes(trafficData.tx_bytes) }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">{{ t('user.trafficOverview.totalTraffic') }}</span>
-              <span class="detail-value">{{ trafficData.formatted?.total || '0 B' }}</span>
+              <span class="detail-value">{{ trafficData.formatted?.total || formatBytes(trafficData.total_bytes) }}</span>
             </div>
           </div>
         </div>
@@ -176,6 +176,21 @@ const formatTraffic = (mb) => {
     return `${(mb * 1024).toFixed(2)} KB`
   }
   return '0 B'
+}
+
+const formatBytes = (bytes) => {
+  if (!bytes || bytes === 0) return '0 B'
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let size = bytes
+  let unitIndex = 0
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex++
+  }
+
+  return `${size.toFixed(2)} ${units[unitIndex]}`
 }
 
 const getProgressColor = (percentage) => {
