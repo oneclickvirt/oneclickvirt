@@ -283,7 +283,7 @@ const logout = async () => {
 }
 
 /* 平板和移动端适配 */
-@media (max-width: 1024px) {
+@media (max-width: 1024px), (max-width: 1100px) and (orientation: portrait) {
   .navbar {
     .hamburger-container {
       display: block;

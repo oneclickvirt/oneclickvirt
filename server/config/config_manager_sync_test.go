@@ -6,6 +6,18 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestRegisterChangeCallbackOnceDeduplicatesLifecycleCallback(t *testing.T) {
+	cm := NewConfigManager(nil, zap.NewNop())
+	callback := func(string, interface{}, interface{}) error { return nil }
+
+	cm.RegisterChangeCallbackOnce(callback)
+	cm.RegisterChangeCallbackOnce(callback)
+
+	if len(cm.changeCallbacks) != 1 {
+		t.Fatalf("callback count = %d, want 1", len(cm.changeCallbacks))
+	}
+}
+
 func TestSyncToGlobalConfigUsesFullCacheSnapshot(t *testing.T) {
 	cm := &ConfigManager{
 		logger: zap.NewNop(),

@@ -53,6 +53,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick, provide } from 'vu
 import { Navbar, Sidebar, AppMain, AppFooter } from './components'
 import { useUserStore } from '@/pinia/modules/user'
 import TopbarAnnouncement from '@/components/TopbarAnnouncement.vue'
+import { shouldUseSidebarDrawer } from '@/utils/layout'
 
 const userStore = useUserStore()
 const SIDEBAR_COLLAPSE_STORAGE_KEY = 'sidebarCollapsed'
@@ -62,6 +63,7 @@ const sidebar = ref({
 })
 const isCollapse = ref(true)
 const hasTopbarAnnouncement = ref(false)
+let deviceModeInitialized = false
 
 const readStoredCollapse = () => {
   const stored = localStorage.getItem(SIDEBAR_COLLAPSE_STORAGE_KEY)
@@ -75,10 +77,12 @@ const saveStoredCollapse = (collapsed) => {
 
 // 检测设备类型
 const checkDevice = () => {
-  const width = window.innerWidth
-  isMobile.value = width < 768
+  const useDrawer = shouldUseSidebarDrawer(window.innerWidth, window.innerHeight)
+  if (deviceModeInitialized && useDrawer === isMobile.value) return
+
+  isMobile.value = useDrawer
   
-  // 移动端默认关闭侧边栏
+  // 手机和竖屏平板使用完整宽度抽屉，避免固定窄栏截断菜单名称。
   if (isMobile.value) {
     sidebar.value.opened = false
     isCollapse.value = false
@@ -86,6 +90,7 @@ const checkDevice = () => {
     sidebar.value.opened = true
     isCollapse.value = readStoredCollapse()
   }
+  deviceModeInitialized = true
 }
 
 // 切换侧边栏
@@ -149,6 +154,7 @@ onBeforeUnmount(() => {
 
   &.mobile {
     overflow-x: hidden;
+    --sidebar-width: min(280px, calc(100vw - 40px));
   }
 
   &.has-topbar-announcement {
@@ -238,21 +244,6 @@ onBeforeUnmount(() => {
   &.mobile {
     margin-left: 0;
     width: 100%;
-  }
-}
-
-/* 平板端适配 */
-@media (max-width: 1024px) and (min-width: 768px) {
-  .sidebar-container:not(.mobile) {
-    width: var(--sidebar-width-collapsed);
-  }
-  
-  .main-container:not(.mobile) {
-    margin-left: var(--sidebar-width-collapsed);
-  }
-  
-  .fixed-header:not(.mobile) {
-    width: calc(100% - var(--sidebar-width-collapsed));
   }
 }
 

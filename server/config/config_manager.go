@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -164,7 +165,7 @@ func PreInitializeConfigManager(db *gorm.DB, logger *zap.Logger, callback Config
 
 	// 注册回调（RegisterChangeCallback 内部有自己的锁）
 	if callback != nil {
-		cm.RegisterChangeCallback(callback)
+		cm.RegisterChangeCallbackOnce(callback)
 		logger.Info("配置变更回调已提前注册")
 	}
 }
@@ -455,8 +456,30 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 
 // RegisterChangeCallback 注册配置变更回调
 func (cm *ConfigManager) RegisterChangeCallback(callback ConfigChangeCallback) {
+	if callback == nil {
+		return
+	}
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	cm.changeCallbacks = append(cm.changeCallbacks, callback)
+}
+
+// RegisterChangeCallbackOnce is used by lifecycle initialization paths that may
+// run again after database recovery. Named callbacks are identified by their
+// function pointer so reconnects do not multiply side effects.
+func (cm *ConfigManager) RegisterChangeCallbackOnce(callback ConfigChangeCallback) {
+	if callback == nil {
+		return
+	}
+	callbackPointer := reflect.ValueOf(callback).Pointer()
+
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	for _, existing := range cm.changeCallbacks {
+		if existing != nil && reflect.ValueOf(existing).Pointer() == callbackPointer {
+			return
+		}
+	}
 	cm.changeCallbacks = append(cm.changeCallbacks, callback)
 }

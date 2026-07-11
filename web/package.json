@@ -8,6 +8,7 @@
     "serve": "vite --host --mode development",
     "build": "vite build --mode production",
     "preview": "vite preview",
+    "test:unit": "node --test tests/*.test.js",
     "lint": "eslint --fix src"
   },
   "dependencies": {

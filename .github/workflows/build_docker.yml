@@ -23,6 +23,9 @@ jobs:
     timeout-minutes: 5
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Check trigger type and status
         run: |
           echo "Event name: ${{ github.event_name }}"
@@ -33,6 +36,11 @@ jobs:
             echo "Previous workflow: ${{ github.event.workflow_run.name }}"
             echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
           fi
+
+      - name: Validate no-db runtime configuration persistence
+        run: |
+          bash -n deploy/no-db-entrypoint.sh scripts/tests/no_db_entrypoint_test.sh
+          bash scripts/tests/no_db_entrypoint_test.sh
 
   build-dockerhub:
     runs-on: ${{ matrix.runner }}

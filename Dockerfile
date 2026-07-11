@@ -54,7 +54,8 @@ RUN apt-get update && \
     fi && \
     apt-get clean
 
-ENV TZ=Asia/Shanghai
+ENV TZ=Asia/Shanghai \
+    SERVER_PORT=8888
 WORKDIR /app
 RUN mkdir -p /var/lib/mysql /var/log/mysql /var/run/mysqld /var/log/supervisor \
     && mkdir -p /app/storage/{cache,certs,configs,exports,logs,temp,uploads} \

@@ -58,9 +58,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `oneclickvirt/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `oneclickvirt/oneclickvirt:20260704` | All-in-one version with specific date | Fixed version requirement |
+| `oneclickvirt/oneclickvirt:20260702` | All-in-one version with specific date | Fixed version requirement |
 | `oneclickvirt/oneclickvirt:no-db` | Standalone database version | Without database |
-| `oneclickvirt/oneclickvirt:no-db-20260704` | Standalone database version with date | Without database |
+| `oneclickvirt/oneclickvirt:no-db-20260702` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -136,6 +136,8 @@ docker run -d \
 - `DB_NAME`: Database name
 - `DB_USER`: Database username
 - `DB_PASSWORD`: Database password
+
+The `no-db` image stores its runtime configuration at `/app/storage/config.yaml` in the `oneclickvirt-storage` volume. Reuse the same storage volume when updating the image or recreating the container; database settings entered on the initialization page and other system-level settings then survive replacement. Non-empty `DB_*` environment variables take precedence over the file, so recreations may also keep passing the same database environment. Deployments that explicitly mount `/app/config.yaml` continue to use that file first.
 
 </details>
 
@@ -303,6 +305,8 @@ docker run -d \
   --restart unless-stopped \
   oneclickvirt:no-db
 ```
+
+When updating or recreating a `no-db` container, reuse the same `oneclickvirt-storage` volume. The runtime configuration remains at `/app/storage/config.yaml`, so the database does not need to be initialized again.
 
 Direct source builds of the Go controller behave the same way: local agent assets in `server/assets/agent/` are optional, and missing files fall back to the official GitHub installer/releases instead of breaking the build.
 

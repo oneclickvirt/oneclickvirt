@@ -5,7 +5,6 @@ import (
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/system"
-	"os"
 	"runtime"
 	"strconv"
 	"time"
@@ -29,98 +28,60 @@ import (
 // @Success 200 {object} common.Response{data=object} "检查成功"
 // @Router /public/init/check [get]
 func CheckInit(c *gin.Context) {
-	var (
-		message  = "前往初始化数据库"
-		needInit = true
-	)
-
-	// 首先检查业务系统初始化标志文件是否存在（最可靠的判断方式）
-	initFlagPath := "./storage/.system_initialized"
-	if _, err := os.Stat(initFlagPath); err == nil {
-		// 标志文件存在，说明系统已初始化
-		message = "数据库无需初始化"
-		needInit = false
-		global.APP_LOG.Debug("检测到系统初始化标志文件，系统已初始化", zap.String("flagPath", initFlagPath))
-
+	initialized, err := system.IsDatabaseInitialized(global.APP_DB)
+	if err != nil {
+		// A marker only means this installation was initialized before. When the
+		// database is temporarily unavailable it prevents an existing deployment
+		// from being redirected into the destructive first-run flow.
+		markerExists := system.HasSystemInitializedMarker()
+		needInit := !markerExists
+		message := "数据库未连接，需要初始化"
+		if markerExists {
+			message = "数据库暂时不可用，系统正在自动重连"
+		}
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("检查初始化状态时数据库不可用",
+				zap.Bool("markerExists", markerExists),
+				zap.Bool("needInit", needInit),
+				zap.Error(err))
+		}
 		common.ResponseSuccess(c, gin.H{
 			"needInit": needInit,
+			"ready":    false,
+			"state":    "database_unavailable",
 			"message":  message,
 		})
 		return
 	}
 
-	// 标志文件不存在，继续其他检查
-	global.APP_LOG.Debug("系统初始化标志文件不存在，继续检查数据库状态", zap.String("flagPath", initFlagPath))
-
-	// 检查数据库连接是否存在
-	if global.APP_DB == nil {
-		message = "数据库未连接，需要初始化"
-		needInit = true
-		global.APP_LOG.Debug("数据库连接为空，需要初始化")
-	} else {
-		// 验证数据库连接是否有效
-		sqlDB, err := global.APP_DB.DB()
-		if err != nil {
-			message = "数据库连接无效，需要初始化"
-			needInit = true
-			global.APP_LOG.Warn("获取数据库连接失败", zap.Error(err))
-		} else if err := sqlDB.Ping(); err != nil {
-			message = "数据库连接测试失败，需要初始化"
-			needInit = true
-			global.APP_LOG.Warn("数据库连接ping失败", zap.Error(err))
-		} else {
-			// 检查数据库配置是否完整
-			if global.GetAppConfig().Mysql.Dbname == "" || global.GetAppConfig().Mysql.Path == "" {
-				message = "数据库配置不完整，需要初始化"
-				needInit = true
-				global.APP_LOG.Debug("数据库配置不完整，需要初始化")
-			} else {
-				// 检查users表是否存在
-				hasUsersTable := global.APP_DB.Migrator().HasTable("users")
-				if !hasUsersTable {
-					message = "数据库表未初始化，需要初始化"
-					needInit = true
-					global.APP_LOG.Debug("users表不存在，需要初始化")
-				} else {
-					// 使用服务层检查是否有用户数据
-					// 使用defer + recover捕获可能的panic
-					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								message = "检查用户数据异常，需要初始化"
-								needInit = true
-								global.APP_LOG.Warn("检查用户数据时发生panic", zap.Any("panic", r))
-							}
-						}()
-
-						systemStatsService := resources.SystemStatsService{}
-						hasUsers, err := systemStatsService.CheckUserExists()
-						if err != nil {
-							message = "检查用户数据失败，需要初始化"
-							needInit = true
-							global.APP_LOG.Warn("检查用户数据失败", zap.Error(err))
-						} else if !hasUsers {
-							message = "未找到用户数据，需要初始化"
-							needInit = true
-							global.APP_LOG.Debug("数据库中无用户数据，需要初始化")
-						} else {
-							message = "数据库无需初始化"
-							needInit = false
-							global.APP_LOG.Debug("系统已初始化")
-						}
-					}()
-				}
-			}
+	if initialized {
+		if err := system.EnsureSystemInitializedMarker(); err != nil && global.APP_LOG != nil {
+			global.APP_LOG.Warn("补全系统初始化标志文件失败", zap.Error(err))
 		}
+		ready := config.GetConfigManager() != nil && global.CONFIG_MANAGER_READY.Load()
+		state := "ready"
+		message := "数据库无需初始化"
+		if !ready {
+			state = "starting"
+			message = "数据库已初始化，系统服务正在启动"
+		}
+		common.ResponseSuccess(c, gin.H{
+			"needInit": false,
+			"ready":    ready,
+			"state":    state,
+			"message":  message,
+		})
+		return
 	}
 
-	global.APP_LOG.Debug("初始化状态检查",
-		zap.Bool("needInit", needInit),
-		zap.String("message", message))
-
+	if err := system.RemoveSystemInitializedMarker(); err != nil && global.APP_LOG != nil {
+		global.APP_LOG.Warn("清理失效的系统初始化标志文件失败", zap.Error(err))
+	}
 	common.ResponseSuccess(c, gin.H{
-		"needInit": needInit,
-		"message":  message,
+		"needInit": true,
+		"ready":    false,
+		"state":    "needs_initialization",
+		"message":  "前往初始化数据库",
 	})
 }
 
@@ -357,17 +318,11 @@ func InitSystem(c *gin.Context) {
 	source.SeedLocalQEMUProviderIfAvailable()
 	global.APP_INIT_PROGRESS.CompleteStep(5)
 
-	// 创建业务系统初始化标志文件
-	initFlagPath := "./storage/.system_initialized"
-	initFlagDir := "./storage"
-	if err := os.MkdirAll(initFlagDir, 0755); err != nil {
-		global.APP_LOG.Warn("创建storage目录失败", zap.Error(err))
-	}
-	flagContent := "System initialized at: " + time.Now().Format(time.RFC3339)
-	if err := os.WriteFile(initFlagPath, []byte(flagContent), 0644); err != nil {
+	// 标志文件仅用于识别曾经初始化过的部署；数据库仍是状态真值来源。
+	if err := system.EnsureSystemInitializedMarker(); err != nil {
 		global.APP_LOG.Warn("创建系统初始化标志文件失败", zap.Error(err))
 	} else {
-		global.APP_LOG.Info("成功创建系统初始化标志文件", zap.String("path", initFlagPath))
+		global.APP_LOG.Info("成功创建系统初始化标志文件", zap.String("path", system.SystemInitializedFlagPath))
 	}
 
 	// 系统初始化完成后，触发完整系统重新初始化（异步，进度由回调内部更新）

@@ -20,16 +20,17 @@ var (
 
 // DatabaseManager 数据库连接管理器
 type DatabaseManager struct {
-	mu                sync.RWMutex
-	db                *gorm.DB
-	config            config.MysqlConfig
-	heartbeatTicker   *time.Ticker
-	heartbeatStop     chan struct{}
-	reconnecting      bool
-	maxReconnectRetry int
-	reconnectInterval time.Duration
-	ctx               context.Context
-	cancel            context.CancelFunc
+	mu                   sync.RWMutex
+	db                   *gorm.DB
+	config               config.MysqlConfig
+	heartbeatTicker      *time.Ticker
+	heartbeatStop        chan struct{}
+	reconnecting         bool
+	maxReconnectRetry    int
+	reconnectInterval    time.Duration
+	onConnectionRestored func(*gorm.DB)
+	ctx                  context.Context
+	cancel               context.CancelFunc
 }
 
 // GetDatabaseManager 获取数据库管理器单例
@@ -57,6 +58,15 @@ func (dm *DatabaseManager) Initialize(cfg config.MysqlConfig) (*gorm.DB, error) 
 	db, err := dm.connect()
 	if err != nil {
 		global.APP_LOG.Error("数据库初始化失败", zap.Error(err))
+		dm.mu.Lock()
+		dm.db = nil
+		dm.mu.Unlock()
+		// Initial connection failures previously left the process permanently in
+		// partial-init mode. Keep the heartbeat alive and retry immediately; later
+		// heartbeat ticks continue retrying if the database starts slowly.
+		dm.startHeartbeat()
+		dm.updateGlobalStats()
+		go dm.reconnect()
 		return nil, err
 	}
 
@@ -72,6 +82,29 @@ func (dm *DatabaseManager) Initialize(cfg config.MysqlConfig) (*gorm.DB, error) 
 
 	global.APP_LOG.Info("数据库连接管理器初始化成功")
 	return db, nil
+}
+
+// SetConnectionRestoredHandler registers the system-level recovery hook. The
+// callback runs after a replacement connection has become globally visible.
+func (dm *DatabaseManager) SetConnectionRestoredHandler(handler func(*gorm.DB)) {
+	dm.mu.Lock()
+	dm.onConnectionRestored = handler
+	dm.mu.Unlock()
+}
+
+func (dm *DatabaseManager) notifyConnectionRestored(db *gorm.DB) {
+	dm.mu.RLock()
+	handler := dm.onConnectionRestored
+	dm.mu.RUnlock()
+	if handler == nil {
+		return
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			global.APP_LOG.Error("数据库恢复回调发生panic", zap.Any("panic", recovered))
+		}
+	}()
+	handler(db)
 }
 
 // GetDB 获取当前数据库连接
@@ -266,6 +299,7 @@ func (dm *DatabaseManager) reconnect() {
 		dm.updateGlobalStats()
 
 		global.APP_LOG.Info("数据库重连成功", zap.Int("attempt", i+1))
+		dm.notifyConnectionRestored(newDB)
 		return
 	}
 

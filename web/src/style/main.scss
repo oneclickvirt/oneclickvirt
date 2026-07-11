@@ -222,20 +222,8 @@ body {
 }
 
 /* 响应式设计 */
-/* 平板端适配 */
+/* 平板端适配。侧边栏宽度由组件状态控制，避免展开菜单被强制裁成窄栏。 */
 @media (max-width: 1024px) and (min-width: 768px) {
-  .sidebar-container:not(.mobile) {
-    width: var(--sidebar-width-collapsed) !important;
-  }
-  
-  .sidebar-container.is-collapse ~ .main-container {
-    margin-left: var(--sidebar-width-collapsed);
-  }
-  
-  .fixed-header {
-    width: calc(100% - var(--sidebar-width-collapsed));
-  }
-  
   /* Element Plus 表格适配 */
   .el-table {
     font-size: var(--font-size-sm);
