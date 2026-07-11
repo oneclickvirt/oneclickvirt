@@ -193,6 +193,8 @@ normalize_json_body() {
 
 log_failure_response() {
     local name="$1" body="$2" error_logs="${3:-}"
+    body=$(redact_sensitive_text "$body")
+    error_logs=$(redact_sensitive_text "$error_logs")
     log_error "${name} - actual response body follows:"
     printf '%s\n' "$body" >&2
     if [[ -n "$error_logs" ]]; then
@@ -238,12 +240,51 @@ is_infrastructure_failure_detail() {
         'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|process exited with status 6|远程下载.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|remote download.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|下载.*镜像失败: 远程下载|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
 }
 
+redact_sensitive_text() {
+    local input="$1"
+    if [[ -z "$input" ]]; then
+        return 0
+    fi
+
+    if printf '%s' "$input" | jq empty 2>/dev/null; then
+        local json_redacted
+        if json_redacted=$(printf '%s' "$input" | jq -c 2>/dev/null '
+            walk(
+                if type == "object" then
+                    with_entries(
+                        if (.key | test("(^|[_-])(password|passwd|token|secret|private[_-]?key|signing[_-]?key)($|[_-])|^(sshKey|agentSecret|accessToken|refreshToken|clientSecret|initialPassword|rootPassword|defaultPassword|newPassword|currentPassword)$"; "i"))
+                        then .value = "[REDACTED]"
+                        else .
+                        end
+                    )
+                else .
+                end
+            )'); then
+            printf '%s' "$json_redacted"
+            return 0
+        fi
+    fi
+
+    printf '%s' "$input" | sed -E \
+        -e 's/"([A-Za-z0-9_-]*(password|passwd|token|secret|private[_-]?key|signing[_-]?key)[A-Za-z0-9_-]*)"[[:space:]]*:[[:space:]]*"[^"]*"/"\1":"[REDACTED]"/g' \
+        -e 's/Bearer [A-Za-z0-9._~+\/-]+/Bearer [REDACTED]/g'
+}
+
 redact_request_payload() {
-    printf '%s' "$1" | sed -E \
-        -e 's/"password"[[:space:]]*:[[:space:]]*"[^"]*"/"password":"[REDACTED]"/g' \
-        -e 's/"sshKey"[[:space:]]*:[[:space:]]*"[^"]*"/"sshKey":"[REDACTED]"/g' \
-        -e 's/"token"[[:space:]]*:[[:space:]]*"[^"]*"/"token":"[REDACTED]"/g' \
-        -e 's/Bearer [A-Za-z0-9._-]+/Bearer [REDACTED]/g'
+    redact_sensitive_text "$1"
+}
+
+# Successful response bodies are returned unchanged to command substitutions,
+# while direct test calls stay quiet unless verbose output is explicitly enabled.
+# This keeps response parsing intact without exposing session tokens in CI logs.
+emit_test_response() {
+    local body="$1"
+    if (( BASH_SUBSHELL > 0 )); then
+        printf '%s\n' "$body"
+    elif [[ "${ACTION_TEST_VERBOSE_RESPONSES:-0}" == "1" ]]; then
+        redact_sensitive_text "$body"
+        printf '\n'
+    fi
 }
 
 json_string() {
@@ -426,7 +467,7 @@ test_api() {
     log_success "${name}"
     report_add_pass "$name" "$method" "$url"
     _record_result "$name" "$method" "$url" "PASS" "$expected" "$code" "" "$group"
-    echo "$body"
+    emit_test_response "$body"
     return 0
 }
 
@@ -537,7 +578,7 @@ test_api_json_value() {
     log_success "${name}"
     report_add_pass "$name" "$method" "$url"
     _record_result "$name" "$method" "$url" "PASS" "HTTP ${expected_http}, jq(${jq_expr})=${expected_value}" "HTTP ${code}, jq(${jq_expr})=${actual_value}" "" "$group"
-    echo "$body"
+    emit_test_response "$body"
     return 0
 }
 
@@ -1427,6 +1468,8 @@ _record_result() {
     local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8" error_logs="${9:-}" request_payload="${10:-}"
     local ts; ts=$(_ts)
     request_payload=$(redact_request_payload "$request_payload")
+    detail=$(redact_sensitive_text "$detail")
+    error_logs=$(redact_sensitive_text "$error_logs")
     local json
     json=$(jq -cn \
         --arg name "$name" \
@@ -1542,6 +1585,7 @@ report_add_fail() {
     local name="$1" method="$2" url="$3" data="$4" expect="$5" actual="$6" body="$7"
     [[ -z "$REPORT_FILE" ]] && return
     data=$(redact_request_payload "$data")
+    body=$(redact_sensitive_text "$body")
     echo "| FAIL | ${name} | ${method} | \`${url}\` | expected ${expect}, got ${actual} |" >> "$REPORT_FILE"
     {
         echo ""; echo "<details>"; echo "<summary>${name} - Details</summary>"; echo ""
