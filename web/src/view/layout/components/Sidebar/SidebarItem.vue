@@ -12,7 +12,7 @@
           <item
             :icon="onlyOneChild.meta.icon || (item.meta && item.meta.icon)"
             :title="onlyOneChild.meta.title"
-            :is-collapse="isCollapse"
+            :is-collapse="isCollapse && !isNest"
           />
         </el-menu-item>
       </app-link>
@@ -29,7 +29,7 @@
           v-if="item.meta"
           :icon="item.meta && item.meta.icon"
           :title="item.meta.title"
-          :is-collapse="isCollapse"
+          :is-collapse="isCollapse && !isNest"
         />
       </template>
       <sidebar-item
