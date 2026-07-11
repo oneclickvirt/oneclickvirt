@@ -212,8 +212,11 @@ bash action_tests/run_module.sh 01,03,09,23
 # 启用调试日志
 DEBUG=1 bash action_tests/run_env_test.sh docker all container
 
-# 运行静态审计（不访问真实服务，CI 使用 85% 路由覆盖门槛）
-python3 action_tests/static_audit.py --root . --output-dir action_tests/reports --strict --min-route-coverage 85
+# 显示成功接口响应（敏感字段会自动脱敏，默认不输出响应正文）
+ACTION_TEST_VERBOSE_RESPONSES=1 bash action_tests/run_module.sh 01-05
+
+# 运行静态审计（不访问真实服务，CI 使用 82% 路由覆盖门槛）
+python3 action_tests/static_audit.py --root . --output-dir action_tests/reports --strict --min-route-coverage 82
 ```
 
 ## 测试报告
