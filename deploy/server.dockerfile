@@ -17,6 +17,8 @@ FROM alpine
 
 WORKDIR /app
 
+ENV SERVER_PORT=8888
+
 COPY --from=builder /app/main /app/main
 
 COPY server/config.yaml /app/config.yaml

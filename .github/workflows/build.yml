@@ -191,6 +191,7 @@ jobs:
         cd web
         npm ci || npm install
         npm install @rollup/rollup-linux-x64-gnu --save-dev --force
+        npm run test:unit
         npm run build
         cd dist
         zip -r ../../build/web-dist.zip .

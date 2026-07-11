@@ -58,9 +58,9 @@
 | 镜像标签 | 说明 | 适用场景 |
 |---------|------|---------|
 | `oneclickvirt/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
-| `oneclickvirt/oneclickvirt:20260704` | 一体化版本特定日期版本 | 需要固定版本 |
+| `oneclickvirt/oneclickvirt:20260702` | 一体化版本特定日期版本 | 需要固定版本 |
 | `oneclickvirt/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
-| `oneclickvirt/oneclickvirt:no-db-20260704` | 独立数据库版本特定日期 | 不内置数据库 |
+| `oneclickvirt/oneclickvirt:no-db-20260702` | 独立数据库版本特定日期 | 不内置数据库 |
 
 所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
 
@@ -136,6 +136,8 @@ docker run -d \
 - `DB_NAME`: 数据库名称
 - `DB_USER`: 数据库用户名
 - `DB_PASSWORD`: 数据库密码
+
+`no-db` 镜像会将运行时配置保存到 `oneclickvirt-storage` 卷内的 `/app/storage/config.yaml`。更新镜像或重建容器时必须继续挂载同一个存储卷；初始化页面写入的数据库配置和系统级配置会随该卷保留。非空的 `DB_*` 环境变量优先于配置文件，因此重建时也可继续传入同一组数据库环境变量。显式挂载 `/app/config.yaml` 的部署仍会优先使用该文件。
 
 </details>
 
@@ -303,6 +305,8 @@ docker run -d \
   --restart unless-stopped \
   oneclickvirt:no-db
 ```
+
+更新或重建 `no-db` 容器时继续挂载同一个 `oneclickvirt-storage` 卷，运行时配置位于卷内的 `/app/storage/config.yaml`，无需重新初始化数据库。
 
 直接执行 Go 源码编译时也是同样逻辑：`server/assets/agent/` 里的本地 Agent 资源是可选的，缺失时会回退到官方 GitHub 安装脚本和 Release 包，不会因此导致控制端构建失败。
 

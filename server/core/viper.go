@@ -140,10 +140,17 @@ func applyEnvOverrides(v *viper.Viper) {
 		"DB_USER":     "mysql.username",
 		"DB_PASSWORD": "mysql.password",
 		"DB_TYPE":     "system.db-type",
+		"SERVER_PORT": "system.addr",
 	}
 	for envName, configKey := range envToKey {
 		if value, exists := os.LookupEnv(envName); exists {
-			v.Set(configKey, value)
+			value = strings.TrimSpace(value)
+			// Deployment tools often declare optional variables as empty strings.
+			// Treating those as authoritative erased a persisted no-db connection
+			// during image replacement, so only non-empty values override YAML.
+			if value != "" {
+				v.Set(configKey, value)
+			}
 		}
 	}
 }

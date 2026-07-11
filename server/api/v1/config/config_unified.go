@@ -68,7 +68,7 @@ func GetUnifiedConfig(c *gin.Context) {
 	// 根据用户权限和请求范围决定返回的配置
 	configManager := config.GetConfigManager()
 	if configManager == nil && scope != "admin" && scope != "public" {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "配置管理器未初始化"))
+		common.ResponseWithError(c, common.NewError(common.CodeUnavailable, "配置服务正在初始化，请稍后重试"))
 		return
 	}
 
@@ -164,7 +164,7 @@ func UpdateUnifiedConfig(c *gin.Context) {
 
 	configManager := config.GetConfigManager()
 	if configManager == nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "配置管理器未初始化"))
+		common.ResponseWithError(c, common.NewError(common.CodeUnavailable, "配置服务正在初始化，请稍后重试"))
 		return
 	}
 

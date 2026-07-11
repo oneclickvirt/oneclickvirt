@@ -34,11 +34,16 @@ func InitializeConfigManager() {
 // ReInitializeConfigManager 重新初始化配置管理器（用于系统初始化完成后）
 func ReInitializeConfigManager() {
 	if global.APP_DB == nil || global.APP_LOG == nil {
-		global.APP_LOG.Error("重新初始化配置管理器失败: 全局数据库或日志记录器未初始化")
+		if global.APP_LOG != nil {
+			global.APP_LOG.Error("重新初始化配置管理器失败: 全局数据库或日志记录器未初始化")
+		}
 		return
 	}
 
-	// 不重新注册回调（InitializeConfigManager 已注册过）
+	// Fresh installations enter this path without calling InitializeConfigManager
+	// first. PreInitialize is idempotent and guarantees the global sync callback
+	// exists in both fresh-init and reconnect paths.
+	config.PreInitializeConfigManager(global.APP_DB, global.APP_LOG, syncConfigToGlobal)
 	config.ReInitializeConfigManager(global.APP_DB, global.APP_LOG)
 
 	// 确保标记已设置（ReInitialize 可能在系统初始化完成后调用）

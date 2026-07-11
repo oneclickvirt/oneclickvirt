@@ -2,6 +2,7 @@ package initialize
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"oneclickvirt/core"
@@ -31,6 +32,12 @@ import (
 	_ "oneclickvirt/provider/portmapping/podman"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
+)
+
+var (
+	runtimeInitializationMu sync.Mutex
+	runtimeServicesReady    bool
 )
 
 // InitializeSystem 初始化系统基础组件
@@ -79,7 +86,9 @@ func InitializeSystem() {
 	// 启动日志轮转定时任务
 	initializeLogRotation()
 
-	// 尝试连接数据库，但不强制要求成功
+	// 尝试连接数据库，但不强制要求成功。首次连接失败后由
+	// DatabaseManager 持续重连，并通过回调补齐完整运行时初始化。
+	GetDatabaseManager().SetConnectionRestoredHandler(handleDatabaseConnectionRestored)
 	global.APP_DB = Gorm()
 	isSystemInitialized := CheckSystemInitialized()
 
@@ -158,63 +167,41 @@ func initializeLogRotation() {
 
 // CheckSystemInitialized 检查系统是否已经初始化
 func CheckSystemInitialized() bool {
-	if global.APP_DB == nil {
-		global.APP_LOG.Debug("数据库连接不存在，系统未初始化")
-		return false
-	}
-
-	// 验证数据库连接
-	sqlDB, err := global.APP_DB.DB()
+	initialized, err := system.IsDatabaseInitialized(global.APP_DB)
 	if err != nil {
-		global.APP_LOG.Debug("获取数据库连接失败", zap.Error(err))
+		global.APP_LOG.Debug("数据库尚不可用，无法确认系统初始化状态", zap.Error(err))
 		return false
 	}
-
-	if err := sqlDB.Ping(); err != nil {
-		global.APP_LOG.Debug("数据库连接测试失败", zap.Error(err))
+	if !initialized {
+		if err := system.RemoveSystemInitializedMarker(); err != nil {
+			global.APP_LOG.Warn("清理失效的系统初始化标志文件失败", zap.Error(err))
+		}
+		global.APP_LOG.Debug("数据库中没有用户，系统未初始化")
 		return false
 	}
-
-	// 检查users表是否存在
-	if !global.APP_DB.Migrator().HasTable("users") {
-		global.APP_LOG.Debug("users表不存在，系统未初始化")
-		return false
+	if err := system.EnsureSystemInitializedMarker(); err != nil {
+		global.APP_LOG.Warn("补全系统初始化标志文件失败", zap.Error(err))
 	}
-
-	// 检查是否有用户数据（作为初始化完成的标志）
-	// 使用defer+recover防止可能的panic
-	var userCount int64
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				global.APP_LOG.Warn("查询用户表时发生panic", zap.Any("panic", r))
-				userCount = 0
-			}
-		}()
-
-		err = global.APP_DB.Table("users").Count(&userCount).Error
-	}()
-
-	if err != nil {
-		// 如果表不存在或查询失败，说明未初始化
-		global.APP_LOG.Debug("查询用户表失败，系统未初始化", zap.Error(err))
-		return false
-	}
-
-	if userCount == 0 {
-		global.APP_LOG.Debug("用户表为空，系统未初始化")
-		return false
-	}
-
-	global.APP_LOG.Debug("系统已初始化", zap.Int64("userCount", userCount))
+	global.APP_LOG.Debug("数据库确认系统已初始化")
 	return true
 }
 
 // InitializeFullSystem 执行完整的系统初始化（仅在系统已初始化时调用）
 func InitializeFullSystem() {
+	runtimeInitializationMu.Lock()
+	defer runtimeInitializationMu.Unlock()
+	initializeFullSystemLocked()
+}
+
+func initializeFullSystemLocked() {
 	// 确保数据库连接存在
 	if global.APP_DB == nil {
 		global.APP_LOG.Warn("数据库未连接，跳过完整系统初始化")
+		return
+	}
+	if runtimeServicesReady {
+		// DatabaseManager 重建连接池后，ConfigManager 必须切换到新的 *gorm.DB。
+		ReInitializeConfigManager()
 		return
 	}
 
@@ -235,6 +222,25 @@ func InitializeFullSystem() {
 
 	// 初始化调度器服务
 	initializeSchedulers()
+	runtimeServicesReady = true
+}
+
+// handleDatabaseConnectionRestored completes startup after an external database
+// becomes available. It also rebinds ConfigManager when a running process gets a
+// replacement connection pool after an outage.
+func handleDatabaseConnectionRestored(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	global.APP_LOG.Info("数据库连接已恢复，开始恢复系统运行服务")
+	global.APP_DB = db
+	RegisterTables(db)
+	if !CheckSystemInitialized() {
+		global.APP_LOG.Info("数据库连接已恢复，系统仍处于待初始化模式")
+		return
+	}
+	InitializeFullSystem()
+	global.APP_LOG.Info("数据库连接恢复后的系统服务初始化完成")
 }
 
 // initializeJWTSecret 初始化JWT密钥（从数据库持久化加载）
@@ -445,6 +451,9 @@ func initializeSchedulers() {
 
 // InitializePostSystemInit 系统初始化完成后的完整初始化
 func InitializePostSystemInit() {
+	runtimeInitializationMu.Lock()
+	defer runtimeInitializationMu.Unlock()
+
 	// Step 6: 重新初始化数据库连接（确保使用最新配置）
 	global.APP_INIT_PROGRESS.StartStep(6)
 	global.APP_DB = Gorm()
@@ -464,11 +473,13 @@ func InitializePostSystemInit() {
 
 	// Step 8: 启动调度器服务
 	global.APP_INIT_PROGRESS.StartStep(8)
-	// 初始化JWT密钥管理服务
+	// 初始化JWT密钥及其管理服务
+	initializeJWTSecret()
 	initializeJWTService()
 	if global.APP_SCHEDULER == nil {
 		initializeSchedulers()
 	}
+	runtimeServicesReady = true
 	global.APP_INIT_PROGRESS.CompleteStep(8)
 
 	// 整体完成
