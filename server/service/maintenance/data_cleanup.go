@@ -17,7 +17,6 @@ type DataCleanupService struct{}
 
 type DataCleanupStats struct {
 	AuditLogs                int64 `json:"auditLogs"`
-	PmacctTrafficRecords     int64 `json:"pmacctTrafficRecords"`
 	InstanceTrafficHistories int64 `json:"instanceTrafficHistories"`
 	ProviderTrafficHistories int64 `json:"providerTrafficHistories"`
 	UserTrafficHistories     int64 `json:"userTrafficHistories"`
@@ -33,9 +32,6 @@ func NormalizeMaintenanceConfig(cfg config.Maintenance) config.Maintenance {
 	}
 	if cfg.AuditLogRetentionDays <= 0 {
 		cfg.AuditLogRetentionDays = 30
-	}
-	if cfg.PmacctRawRetentionDays <= 0 {
-		cfg.PmacctRawRetentionDays = 45
 	}
 	if cfg.TrafficHistoryRetentionDays <= 0 {
 		cfg.TrafficHistoryRetentionDays = 180
@@ -62,15 +58,11 @@ func (s *DataCleanupService) Run(ctx context.Context) (DataCleanupStats, error) 
 
 	now := time.Now()
 	auditCutoff := now.AddDate(0, 0, -cfg.AuditLogRetentionDays)
-	rawCutoff := now.AddDate(0, 0, -cfg.PmacctRawRetentionDays)
 	historyCutoff := now.AddDate(0, 0, -cfg.TrafficHistoryRetentionDays)
 
 	var err error
 	if stats.AuditLogs, err = s.deleteOldRows(ctx, "audit_logs", "created_at", auditCutoff, cfg.CleanupBatchSize); err != nil {
 		return stats, fmt.Errorf("清理审计日志失败: %w", err)
-	}
-	if stats.PmacctTrafficRecords, err = s.deleteOldRows(ctx, "pmacct_traffic_records", "timestamp", rawCutoff, cfg.CleanupBatchSize); err != nil {
-		return stats, fmt.Errorf("清理pmacct原始流量记录失败: %w", err)
 	}
 	if stats.InstanceTrafficHistories, err = s.deleteOldRows(ctx, "instance_traffic_histories", "record_time", historyCutoff, cfg.CleanupBatchSize); err != nil {
 		return stats, fmt.Errorf("清理实例流量历史失败: %w", err)
@@ -89,7 +81,6 @@ func (s *DataCleanupService) Run(ctx context.Context) (DataCleanupStats, error) 
 	if stats.totalDeleted() > 0 {
 		global.APP_LOG.Info("数据库保留策略清理完成",
 			zap.Int64("auditLogs", stats.AuditLogs),
-			zap.Int64("pmacctTrafficRecords", stats.PmacctTrafficRecords),
 			zap.Int64("instanceTrafficHistories", stats.InstanceTrafficHistories),
 			zap.Int64("providerTrafficHistories", stats.ProviderTrafficHistories),
 			zap.Int64("userTrafficHistories", stats.UserTrafficHistories))
@@ -135,7 +126,6 @@ func (s *DataCleanupService) deleteOldRows(ctx context.Context, tableName string
 func (s *DataCleanupService) optimizeTables(ctx context.Context) {
 	for _, tableName := range []string{
 		"audit_logs",
-		"pmacct_traffic_records",
 		"instance_traffic_histories",
 		"provider_traffic_histories",
 		"user_traffic_histories",
@@ -155,7 +145,6 @@ func (s *DataCleanupService) optimizeTables(ctx context.Context) {
 
 func (s DataCleanupStats) totalDeleted() int64 {
 	return s.AuditLogs +
-		s.PmacctTrafficRecords +
 		s.InstanceTrafficHistories +
 		s.ProviderTrafficHistories +
 		s.UserTrafficHistories

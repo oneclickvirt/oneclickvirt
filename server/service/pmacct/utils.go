@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"oneclickvirt/provider"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
-	"oneclickvirt/utils/dbcompat"
 
 	"go.uber.org/zap"
 )
@@ -260,317 +260,216 @@ func (s *Service) refreshProviderCache(providerID uint, providerRecord *provider
 	return nil
 }
 
-// aggregateToDailyBetween 将小时级数据聚合为日度统计
-func (s *Service) aggregateToDailyBetween(startTime, endTime time.Time) error {
-	global.APP_LOG.Debug("开始聚合小时数据到日度统计",
-		zap.Time("startTime", startTime),
-		zap.Time("endTime", endTime))
-
-	result := dbcompat.Exec(global.APP_DB,
-		// MariaDB / MySQL < 9
-		`INSERT INTO pmacct_traffic_records (
-			instance_id, user_id, provider_id, provider_type, mapped_ip,
-			rx_bytes, tx_bytes, total_bytes,
-			timestamp, year, month, day, hour, minute,
-			record_time, created_at, updated_at
-		)
-		SELECT 
-			instance_id, user_id, provider_id, provider_type, mapped_ip,
-			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, (MAX(rx_bytes) + MAX(tx_bytes)) as total_bytes,
-			CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' 00:00:00') as timestamp,
-			year, month, day, 0 as hour, 0 as minute,
-			MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
-		FROM pmacct_traffic_records
-		WHERE record_time >= ? AND record_time < ? AND (hour > 0 OR minute > 0)
-		GROUP BY instance_id, user_id, provider_id, provider_type, mapped_ip, year, month, day
-		ON DUPLICATE KEY UPDATE
-			rx_bytes = VALUES(rx_bytes),
-			tx_bytes = VALUES(tx_bytes),
-			total_bytes = VALUES(total_bytes),
-			updated_at = VALUES(updated_at)`,
-		// MySQL 9.0+
-		`INSERT INTO pmacct_traffic_records (
-			instance_id, user_id, provider_id, provider_type, mapped_ip,
-			rx_bytes, tx_bytes, total_bytes,
-			timestamp, year, month, day, hour, minute,
-			record_time, created_at, updated_at
-		)
-		SELECT instance_id, user_id, provider_id, provider_type, mapped_ip,
-			rx_bytes, tx_bytes, total_bytes,
-			timestamp, year, month, day, hour, minute,
-			record_time, created_at, updated_at
-		FROM (
-			SELECT 
-				instance_id, user_id, provider_id, provider_type, mapped_ip,
-				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, (MAX(rx_bytes) + MAX(tx_bytes)) as total_bytes,
-				CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' 00:00:00') as timestamp,
-				year, month, day, 0 as hour, 0 as minute,
-				MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
-			FROM pmacct_traffic_records
-			WHERE record_time >= ? AND record_time < ? AND (hour > 0 OR minute > 0)
-			GROUP BY instance_id, user_id, provider_id, provider_type, mapped_ip, year, month, day
-		) AS _src
-		ON DUPLICATE KEY UPDATE
-			rx_bytes = _src.rx_bytes,
-			tx_bytes = _src.tx_bytes,
-			total_bytes = _src.total_bytes,
-			updated_at = _src.updated_at`,
-		startTime, endTime)
-	if result.Error != nil {
-		return fmt.Errorf("failed to aggregate to daily: %w", result.Error)
-	}
-
-	global.APP_LOG.Debug("日度统计聚合完成",
-		zap.Int64("aggregatedDays", result.RowsAffected))
-
-	return nil
-}
-
-// aggregateToHourlyBetween 将5分钟数据聚合为小时级统计
-func (s *Service) aggregateToHourlyBetween(startTime, endTime time.Time) error {
-	global.APP_LOG.Debug("开始聚合5分钟数据到小时统计",
-		zap.Time("startTime", startTime),
-		zap.Time("endTime", endTime))
-
-	result := dbcompat.Exec(global.APP_DB,
-		// MariaDB / MySQL < 9
-		`INSERT INTO pmacct_traffic_records (
-			instance_id, user_id, provider_id, provider_type, mapped_ip,
-			rx_bytes, tx_bytes, total_bytes,
-			timestamp, year, month, day, hour, minute,
-			record_time, created_at, updated_at
-		)
-		SELECT 
-			instance_id, user_id, provider_id, provider_type, mapped_ip,
-			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, (MAX(rx_bytes) + MAX(tx_bytes)) as total_bytes,
-			CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' ', LPAD(hour, 2, '0'), ':00:00') as timestamp,
-			year, month, day, hour, 0 as minute,
-			MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
-		FROM pmacct_traffic_records
-		WHERE record_time >= ? AND record_time < ? AND minute > 0
-		GROUP BY instance_id, user_id, provider_id, provider_type, mapped_ip, year, month, day, hour
-		ON DUPLICATE KEY UPDATE
-			rx_bytes = VALUES(rx_bytes),
-			tx_bytes = VALUES(tx_bytes),
-			total_bytes = VALUES(total_bytes),
-			updated_at = VALUES(updated_at)`,
-		// MySQL 9.0+
-		`INSERT INTO pmacct_traffic_records (
-			instance_id, user_id, provider_id, provider_type, mapped_ip,
-			rx_bytes, tx_bytes, total_bytes,
-			timestamp, year, month, day, hour, minute,
-			record_time, created_at, updated_at
-		)
-		SELECT instance_id, user_id, provider_id, provider_type, mapped_ip,
-			rx_bytes, tx_bytes, total_bytes,
-			timestamp, year, month, day, hour, minute,
-			record_time, created_at, updated_at
-		FROM (
-			SELECT 
-				instance_id, user_id, provider_id, provider_type, mapped_ip,
-				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, (MAX(rx_bytes) + MAX(tx_bytes)) as total_bytes,
-				CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' ', LPAD(hour, 2, '0'), ':00:00') as timestamp,
-				year, month, day, hour, 0 as minute,
-				MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
-			FROM pmacct_traffic_records
-			WHERE record_time >= ? AND record_time < ? AND minute > 0
-			GROUP BY instance_id, user_id, provider_id, provider_type, mapped_ip, year, month, day, hour
-		) AS _src
-		ON DUPLICATE KEY UPDATE
-			rx_bytes = _src.rx_bytes,
-			tx_bytes = _src.tx_bytes,
-			total_bytes = _src.total_bytes,
-			updated_at = _src.updated_at`,
-		startTime, endTime)
-	if result.Error != nil {
-		return fmt.Errorf("failed to aggregate to hourly: %w", result.Error)
-	}
-
-	global.APP_LOG.Debug("小时统计聚合完成",
-		zap.Int64("aggregatedHours", result.RowsAffected))
-
-	return nil
-}
-
 // aggregateTrafficRecords 聚合指定条件的流量记录
 func (s *Service) aggregateTrafficRecords(instanceID uint, year, month, day, hour int) *monitoringModel.PmacctTrafficRecord {
-	query := global.APP_DB.Model(&monitoringModel.PmacctTrafficRecord{}).
-		Where("instance_id = ?", instanceID)
-
-	if year > 0 {
-		query = query.Where("year = ?", year)
-	}
-	if month > 0 {
-		query = query.Where("month = ?", month)
-	}
-	if day > 0 {
-		query = query.Where("day = ?", day)
-	}
-	if hour > 0 {
-		query = query.Where("hour = ?", hour)
+	start, end, bounded := pmacctAggregateWindow(year, month, day, hour)
+	records, err := s.loadPmacctInstanceRecords(instanceID, start, end, bounded)
+	if err != nil {
+		global.APP_LOG.Warn("聚合pmacct流量记录失败",
+			zap.Uint("instanceID", instanceID),
+			zap.Error(err))
+		return zeroPmacctAggregate(instanceID, year, month, day, hour)
 	}
 
-	// 处理pmacct重启导致的累积值重置问题
-	var result struct {
-		RxBytes int64
-		TxBytes int64
+	aggregate := zeroPmacctAggregate(instanceID, year, month, day, hour)
+	for _, delta := range computePmacctRecordDeltas(records, start, bounded) {
+		aggregate.ProviderID = delta.record.ProviderID
+		aggregate.ProviderType = delta.record.ProviderType
+		aggregate.MappedIP = delta.record.MappedIP
+		aggregate.RxBytes += delta.rxBytes
+		aggregate.TxBytes += delta.txBytes
+		aggregate.TotalBytes += delta.rxBytes + delta.txBytes
+		aggregate.Timestamp = pmacctRecordTimestamp(delta.record)
+		aggregate.RecordTime = delta.record.RecordTime
 	}
-
-	// 构建查询条件
-	whereClause := "instance_id = ?"
-	args := []interface{}{instanceID}
-
-	if year > 0 {
-		whereClause += " AND year = ?"
-		args = append(args, year)
-	}
-	if month > 0 {
-		whereClause += " AND month = ?"
-		args = append(args, month)
-	}
-	if day > 0 {
-		whereClause += " AND day = ?"
-		args = append(args, day)
-	}
-	if hour > 0 {
-		whereClause += " AND hour = ?"
-		args = append(args, hour)
-	}
-
-	sql := fmt.Sprintf(`
-		SELECT 
-			COALESCE(SUM(segment_max_rx), 0) as rx_bytes,
-			COALESCE(SUM(segment_max_tx), 0) as tx_bytes
-		FROM (
-			SELECT 
-				segment_id,
-				MAX(rx_bytes) as segment_max_rx,
-				MAX(tx_bytes) as segment_max_tx
-			FROM (
-				SELECT 
-					t1.timestamp,
-					t1.rx_bytes,
-					t1.tx_bytes,
-					(SELECT COUNT(*)
-					 FROM pmacct_traffic_records t2
-					 WHERE %s
-					   AND t2.timestamp <= t1.timestamp
-					   AND (
-						 (t2.rx_bytes < (SELECT COALESCE(MAX(t3.rx_bytes), 0)
-										 FROM pmacct_traffic_records t3
-										 WHERE %s
-										   AND t3.timestamp < t2.timestamp))
-						 OR
-						 (t2.tx_bytes < (SELECT COALESCE(MAX(t3.tx_bytes), 0)
-										 FROM pmacct_traffic_records t3
-										 WHERE %s
-										   AND t3.timestamp < t2.timestamp))
-					   )
-					) as segment_id
-				FROM pmacct_traffic_records t1
-				WHERE %s
-			) segments
-			GROUP BY segment_id
-		) segment_max
-	`, whereClause, whereClause, whereClause, whereClause)
-
-	global.APP_DB.Raw(sql, append(append(append(args, args...), args...), args...)...).Scan(&result)
-
-	return &monitoringModel.PmacctTrafficRecord{
-		InstanceID: instanceID,
-		RxBytes:    result.RxBytes,
-		TxBytes:    result.TxBytes,
-		TotalBytes: result.RxBytes + result.TxBytes,
-		Year:       year,
-		Month:      month,
-		Day:        day,
-		Hour:       hour,
-		RecordTime: time.Now(),
-	}
+	return aggregate
 }
 
 // getAggregatedHistory 获取聚合的历史记录
 func (s *Service) getAggregatedHistory(instanceID uint, days int) []*monitoringModel.PmacctTrafficRecord {
-	var records []*monitoringModel.PmacctTrafficRecord
+	if days <= 0 {
+		days = 30
+	}
 
-	// 获取最近N天的日度统计
-	query := `
-		SELECT 
-			instance_id,
-			provider_id,
-			provider_type,
-			mapped_ip,
-			year,
-			month,
-			day,
-			SUM(segment_max_rx) as rx_bytes,
-			SUM(segment_max_tx) as tx_bytes,
-			(SUM(segment_max_rx) + SUM(segment_max_tx)) as total_bytes,
-			MAX(record_time) as record_time
-		FROM (
-			SELECT 
-				instance_id,
-				provider_id,
-				provider_type,
-				mapped_ip,
-				year,
-				month,
-				day,
-				segment_id,
-				MAX(rx_bytes) as segment_max_rx,
-				MAX(tx_bytes) as segment_max_tx,
-				MAX(record_time) as record_time
-			FROM (
-				SELECT 
-					t1.instance_id,
-					t1.provider_id,
-					t1.provider_type,
-					t1.mapped_ip,
-					t1.year,
-					t1.month,
-					t1.day,
-					t1.timestamp,
-					t1.rx_bytes,
-					t1.tx_bytes,
-					t1.record_time,
-					(SELECT COUNT(*)
-					 FROM pmacct_traffic_records t2
-					 WHERE t2.instance_id = ? 
-					   AND t2.day > 0
-					   AND t2.year = t1.year
-					   AND t2.month = t1.month
-					   AND t2.day = t1.day
-					   AND t2.timestamp <= t1.timestamp
-					   AND (
-						 (t2.rx_bytes < (SELECT COALESCE(MAX(t3.rx_bytes), 0)
-										 FROM pmacct_traffic_records t3
-										 WHERE t3.instance_id = ?
-										   AND t3.day > 0
-										   AND t3.year = t1.year
-										   AND t3.month = t1.month
-										   AND t3.day = t1.day
-										   AND t3.timestamp < t2.timestamp))
-						 OR
-						 (t2.tx_bytes < (SELECT COALESCE(MAX(t3.tx_bytes), 0)
-										 FROM pmacct_traffic_records t3
-										 WHERE t3.instance_id = ?
-										   AND t3.day > 0
-										   AND t3.year = t1.year
-										   AND t3.month = t1.month
-										   AND t3.day = t1.day
-										   AND t3.timestamp < t2.timestamp))
-					   )
-					) as segment_id
-				FROM pmacct_traffic_records t1
-				WHERE t1.instance_id = ? AND t1.day > 0
-			) daily_segments
-			GROUP BY instance_id, provider_id, provider_type, mapped_ip, year, month, day, segment_id
-		) daily_segment_max
-		GROUP BY instance_id, provider_id, provider_type, mapped_ip, year, month, day
-		ORDER BY year DESC, month DESC, day DESC
-		LIMIT ?
-	`
+	now := time.Now()
+	start := pmacctDayStart(now.AddDate(0, 0, -days+1))
+	records, err := s.loadPmacctInstanceRecords(instanceID, start, now, true)
+	if err != nil {
+		global.APP_LOG.Warn("获取pmacct历史记录失败",
+			zap.Uint("instanceID", instanceID),
+			zap.Error(err))
+		return []*monitoringModel.PmacctTrafficRecord{}
+	}
 
-	global.APP_DB.Raw(query, instanceID, instanceID, instanceID, instanceID, days).Scan(&records)
-	return records
+	dayMap := make(map[time.Time]*monitoringModel.PmacctTrafficRecord)
+	for _, delta := range computePmacctRecordDeltas(records, start, true) {
+		ts := pmacctRecordTimestamp(delta.record)
+		dayStart := pmacctDayStart(ts)
+		record := dayMap[dayStart]
+		if record == nil {
+			record = &monitoringModel.PmacctTrafficRecord{
+				InstanceID:   instanceID,
+				ProviderID:   delta.record.ProviderID,
+				ProviderType: delta.record.ProviderType,
+				MappedIP:     delta.record.MappedIP,
+				Year:         dayStart.Year(),
+				Month:        int(dayStart.Month()),
+				Day:          dayStart.Day(),
+				Timestamp:    dayStart,
+				RecordTime:   ts,
+			}
+			dayMap[dayStart] = record
+		}
+		record.ProviderID = delta.record.ProviderID
+		record.ProviderType = delta.record.ProviderType
+		record.MappedIP = delta.record.MappedIP
+		record.RxBytes += delta.rxBytes
+		record.TxBytes += delta.txBytes
+		record.TotalBytes += delta.rxBytes + delta.txBytes
+		if delta.record.RecordTime.After(record.RecordTime) {
+			record.RecordTime = delta.record.RecordTime
+		}
+	}
+
+	recordsByDay := make([]*monitoringModel.PmacctTrafficRecord, 0, len(dayMap))
+	for _, record := range dayMap {
+		recordsByDay = append(recordsByDay, record)
+	}
+	sort.Slice(recordsByDay, func(i, j int) bool {
+		return recordsByDay[i].Timestamp.After(recordsByDay[j].Timestamp)
+	})
+	if len(recordsByDay) > days {
+		recordsByDay = recordsByDay[:days]
+	}
+	return recordsByDay
+}
+
+type pmacctRecordDelta struct {
+	record  monitoringModel.PmacctTrafficRecord
+	rxBytes int64
+	txBytes int64
+}
+
+func (s *Service) loadPmacctInstanceRecords(instanceID uint, start, end time.Time, bounded bool) ([]monitoringModel.PmacctTrafficRecord, error) {
+	query := global.APP_DB.
+		Model(&monitoringModel.PmacctTrafficRecord{}).
+		Where("instance_id = ?", instanceID).
+		Order("timestamp ASC")
+	if bounded {
+		query = query.Where("timestamp >= ? AND timestamp < ?", start, end)
+	}
+
+	var records []monitoringModel.PmacctTrafficRecord
+	if err := query.Find(&records).Error; err != nil {
+		return nil, err
+	}
+	if !bounded {
+		return records, nil
+	}
+
+	var baseline monitoringModel.PmacctTrafficRecord
+	baselineTx := global.APP_DB.
+		Where("instance_id = ? AND timestamp < ?", instanceID, start).
+		Order("timestamp DESC").
+		Limit(1).
+		Find(&baseline)
+	if baselineTx.Error != nil {
+		return nil, baselineTx.Error
+	}
+	if baselineTx.RowsAffected > 0 {
+		records = append([]monitoringModel.PmacctTrafficRecord{baseline}, records...)
+	}
+	return records, nil
+}
+
+func computePmacctRecordDeltas(records []monitoringModel.PmacctTrafficRecord, start time.Time, bounded bool) []pmacctRecordDelta {
+	sort.Slice(records, func(i, j int) bool {
+		return pmacctRecordTimestamp(records[i]).Before(pmacctRecordTimestamp(records[j]))
+	})
+
+	deltas := make([]pmacctRecordDelta, 0, len(records))
+	var previous monitoringModel.PmacctTrafficRecord
+	hasPrevious := false
+	for _, record := range records {
+		ts := pmacctRecordTimestamp(record)
+		if bounded && ts.Before(start) {
+			previous = record
+			hasPrevious = true
+			continue
+		}
+
+		rxDelta := record.RxBytes
+		txDelta := record.TxBytes
+		if hasPrevious {
+			rxDelta = pmacctCounterDelta(previous.RxBytes, record.RxBytes)
+			txDelta = pmacctCounterDelta(previous.TxBytes, record.TxBytes)
+		}
+
+		deltas = append(deltas, pmacctRecordDelta{
+			record:  record,
+			rxBytes: rxDelta,
+			txBytes: txDelta,
+		})
+		previous = record
+		hasPrevious = true
+	}
+	return deltas
+}
+
+func pmacctCounterDelta(previous, current int64) int64 {
+	if current < previous {
+		return current
+	}
+	return current - previous
+}
+
+func pmacctAggregateWindow(year, month, day, hour int) (time.Time, time.Time, bool) {
+	if year <= 0 {
+		return time.Time{}, time.Time{}, false
+	}
+
+	if month <= 0 {
+		start := time.Date(year, time.January, 1, 0, 0, 0, 0, time.Local)
+		return start, start.AddDate(1, 0, 0), true
+	}
+
+	if day <= 0 {
+		start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.Local)
+		return start, start.AddDate(0, 1, 0), true
+	}
+
+	if hour > 0 {
+		start := time.Date(year, time.Month(month), day, hour, 0, 0, 0, time.Local)
+		return start, start.Add(time.Hour), true
+	}
+
+	start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.Local)
+	return start, start.AddDate(0, 0, 1), true
+}
+
+func zeroPmacctAggregate(instanceID uint, year, month, day, hour int) *monitoringModel.PmacctTrafficRecord {
+	timestamp := time.Now()
+	if start, _, bounded := pmacctAggregateWindow(year, month, day, hour); bounded {
+		timestamp = start
+	}
+	return &monitoringModel.PmacctTrafficRecord{
+		InstanceID: instanceID,
+		Year:       year,
+		Month:      month,
+		Day:        day,
+		Hour:       hour,
+		Timestamp:  timestamp,
+		RecordTime: time.Now(),
+	}
+}
+
+func pmacctRecordTimestamp(record monitoringModel.PmacctTrafficRecord) time.Time {
+	if !record.Timestamp.IsZero() {
+		return record.Timestamp
+	}
+	return record.RecordTime
+}
+
+func pmacctDayStart(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }

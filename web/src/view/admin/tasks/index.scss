@@ -26,6 +26,15 @@
   justify-content: space-between;
   gap: 12px;
   width: 100%;
+
+  .task-pool-action {
+    flex: 0 0 auto;
+    min-width: max-content;
+    height: auto;
+    min-height: 24px;
+    white-space: normal;
+    line-height: 1.25;
+  }
 }
 
 .task-pool-desc {

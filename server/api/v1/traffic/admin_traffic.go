@@ -3,6 +3,7 @@ package traffic
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
@@ -30,6 +31,64 @@ func (api *AdminTrafficAPI) checkProviderOwnership(c *gin.Context, providerID ui
 	return count > 0
 }
 
+// checkUserOwnership checks whether a normal administrator owns at least one
+// active instance of the target user through one of the administrator's
+// providers. Super administrators are not filtered.
+func (api *AdminTrafficAPI) checkUserOwnership(c *gin.Context, userID uint) bool {
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID == 0 {
+		return true
+	}
+	var count int64
+	err := global.APP_DB.Table("instances").
+		Joins("INNER JOIN providers ON providers.id = instances.provider_id").
+		Where("instances.user_id = ? AND instances.deleted_at IS NULL AND providers.owner_admin_id = ?", userID, ownerAdminID).
+		Count(&count).Error
+	return err == nil && count > 0
+}
+
+func (api *AdminTrafficAPI) checkUsersOwnership(c *gin.Context, userIDs []uint) bool {
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID == 0 {
+		return true
+	}
+	uniqueIDs := make(map[uint]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		if id != 0 {
+			uniqueIDs[id] = struct{}{}
+		}
+	}
+	if len(uniqueIDs) == 0 {
+		return false
+	}
+	var ownedIDs []uint
+	err := global.APP_DB.Table("instances").
+		Joins("INNER JOIN providers ON providers.id = instances.provider_id").
+		Where("instances.user_id IN ? AND instances.deleted_at IS NULL AND providers.owner_admin_id = ?", userIDs, ownerAdminID).
+		Distinct("instances.user_id").
+		Pluck("instances.user_id", &ownedIDs).Error
+	if err != nil || len(ownedIDs) != len(uniqueIDs) {
+		return false
+	}
+	return true
+}
+
+func normalizeUserIDs(userIDs []uint) []uint {
+	uniqueIDs := make([]uint, 0, len(userIDs))
+	seen := make(map[uint]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		if userID == 0 {
+			continue
+		}
+		if _, exists := seen[userID]; exists {
+			continue
+		}
+		seen[userID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, userID)
+	}
+	return uniqueIDs
+}
+
 // GetSystemTrafficOverview 获取系统流量概览
 // @Summary 获取系统流量概览
 // @Description 获取整个系统的流量使用情况概览
@@ -43,7 +102,7 @@ func (api *AdminTrafficAPI) GetSystemTrafficOverview(c *gin.Context) {
 	trafficLimitService := traffic.NewLimitService()
 
 	// 获取系统全局流量统计
-	systemStats, err := trafficLimitService.GetSystemTrafficStats()
+	systemStats, err := trafficLimitService.GetSystemTrafficStats(middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("获取系统流量统计失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -109,8 +168,16 @@ func (api *AdminTrafficAPI) GetUserTrafficStats(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "用户ID格式错误"))
 		return
 	}
+	if middleware.GetOwnerAdminID(c) > 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "用户级流量详情仅限超级管理员查看"))
+		return
+	}
 
 	trafficLimitService := traffic.NewLimitService()
+	if !api.checkUserOwnership(c, uint(userID)) {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权访问该用户的流量信息"))
+		return
+	}
 
 	// 获取用户流量使用情况
 	userUsage, err := trafficLimitService.GetUserTrafficUsageWithPmacct(uint(userID))
@@ -147,7 +214,7 @@ func (api *AdminTrafficAPI) GetAllUsersTrafficRank(c *gin.Context) {
 		page = 1
 	}
 	pageSize, err := strconv.Atoi(pageSizeStr)
-	if err != nil || pageSize <= 0 {
+	if err != nil || pageSize <= 0 || pageSize > 100 {
 		pageSize = 10
 	}
 
@@ -158,7 +225,7 @@ func (api *AdminTrafficAPI) GetAllUsersTrafficRank(c *gin.Context) {
 	trafficLimitService := traffic.NewLimitService()
 
 	// 获取用户流量排行榜
-	userRankings, total, err := trafficLimitService.GetUsersTrafficRanking(page, pageSize, username, nickname)
+	userRankings, total, err := trafficLimitService.GetUsersTrafficRanking(page, pageSize, username, nickname, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("获取用户流量排行榜失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -197,6 +264,14 @@ func (api *AdminTrafficAPI) ManageTrafficLimits(c *gin.Context) {
 
 	switch req.Type {
 	case "user":
+		if middleware.GetOwnerAdminID(c) > 0 {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "用户级流量限制仅限超级管理员操作"))
+			return
+		}
+		if !api.checkUserOwnership(c, req.TargetID) {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权管理该用户的流量"))
+			return
+		}
 		if req.Action == "limit" {
 			err = trafficLimitService.SetUserTrafficLimit(req.TargetID, req.Reason)
 			result = "设置用户流量限制"
@@ -208,6 +283,10 @@ func (api *AdminTrafficAPI) ManageTrafficLimits(c *gin.Context) {
 			return
 		}
 	case "provider":
+		if !api.checkProviderOwnership(c, req.TargetID) {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权管理该Provider的流量"))
+			return
+		}
 		if req.Action == "limit" {
 			err = trafficLimitService.SetProviderTrafficLimit(req.TargetID, req.Reason)
 			result = "设置Provider流量限制"
@@ -266,8 +345,17 @@ func (api *AdminTrafficAPI) BatchManageTrafficLimits(c *gin.Context) {
 		return
 	}
 
-	if len(req.UserIDs) == 0 {
+	userIDs := normalizeUserIDs(req.UserIDs)
+	if len(userIDs) == 0 {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "用户ID列表不能为空"))
+		return
+	}
+	if len(userIDs) > 100 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "单次最多处理100个用户"))
+		return
+	}
+	if !api.checkUsersOwnership(c, userIDs) {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "包含无权管理的用户"))
 		return
 	}
 
@@ -277,7 +365,7 @@ func (api *AdminTrafficAPI) BatchManageTrafficLimits(c *gin.Context) {
 	failCount := 0
 	var errors []string
 
-	for _, userID := range req.UserIDs {
+	for _, userID := range userIDs {
 		var err error
 		if req.Action == "limit" {
 			err = trafficLimitService.SetUserTrafficLimit(userID, req.Reason)
@@ -323,24 +411,32 @@ func (api *AdminTrafficAPI) BatchSyncUserTraffic(c *gin.Context) {
 		return
 	}
 
-	if len(req.UserIDs) == 0 {
+	userIDs := normalizeUserIDs(req.UserIDs)
+	if len(userIDs) == 0 {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "用户ID列表不能为空"))
 		return
 	}
+	if len(userIDs) > 100 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "单次最多同步100个用户"))
+		return
+	}
+	if !api.checkUsersOwnership(c, userIDs) {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "包含无权同步的用户"))
+		return
+	}
 
-	// 触发异步同步任务
+	// 远程采集和流量检查必须在事务外异步执行，避免阻塞HTTP请求和持有数据库锁。
+	syncTrigger := traffic.NewSyncTriggerService()
+	for _, userID := range userIDs {
+		syncTrigger.TriggerUserTrafficSync(userID, "管理员批量手动触发")
+	}
 	go func() {
-		for _, userID := range req.UserIDs {
-			// 这里可以调用实际的同步逻辑
-			// 目前只是记录日志
-			global.APP_LOG.Debug("触发用户流量同步",
-				zap.Uint("userID", userID))
-		}
+		_ = syncTrigger.Shutdown(30 * time.Minute)
 	}()
 
 	common.ResponseSuccess(c, map[string]interface{}{
-		"user_ids": req.UserIDs,
-	}, fmt.Sprintf("已触发 %d 个用户的流量同步任务", len(req.UserIDs)))
+		"user_ids": userIDs,
+	}, fmt.Sprintf("已触发 %d 个用户的流量同步任务", len(userIDs)))
 }
 
 // BatchManageTrafficLimitRequest 批量流量限制管理请求
@@ -370,6 +466,10 @@ func (api *AdminTrafficAPI) ClearUserTrafficRecords(c *gin.Context) {
 	userID, err := strconv.ParseUint(userIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "用户ID格式错误"))
+		return
+	}
+	if !api.checkUserOwnership(c, uint(userID)) {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权清空该用户的流量记录"))
 		return
 	}
 

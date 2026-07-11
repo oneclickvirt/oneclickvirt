@@ -41,6 +41,10 @@ func DeployAgent(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	// 验证Provider是否存在
 	var provider providerModel.Provider
@@ -82,6 +86,10 @@ func UninstallAgent(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	// 验证Provider是否存在
 	var provider providerModel.Provider
@@ -115,6 +123,10 @@ func GetAgentStatus(c *gin.Context) {
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 

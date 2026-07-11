@@ -133,12 +133,12 @@
         <el-table-column
           prop="priority"
           :label="$t('admin.announcements.priority')"
-          width="80"
+          min-width="110"
         />
         <el-table-column
           prop="isSticky"
           :label="$t('admin.announcements.isSticky')"
-          width="80"
+          min-width="90"
         >
           <template #default="scope">
             <el-tag
@@ -152,7 +152,7 @@
         <el-table-column
           prop="status"
           :label="$t('common.status')"
-          width="80"
+          min-width="90"
         >
           <template #default="scope">
             <el-tag

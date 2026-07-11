@@ -139,6 +139,13 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
 
   const availableBandwidthSpecs = computed(() => instanceConfig.value.bandwidthSpecs || [])
   const errorMessage = (error, fallback) => error?.details || error?.message || fallback
+  const toArray = (payload) => {
+    if (Array.isArray(payload)) return payload
+    if (Array.isArray(payload?.list)) return payload.list
+    if (Array.isArray(payload?.items)) return payload.items
+    if (Array.isArray(payload?.records)) return payload.records
+    return []
+  }
 
   // ── Data loaders ───────────────────────────────
 
@@ -187,7 +194,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         architecture: capabilities?.architecture || 'amd64'
       })
       if (response.code === 200) {
-        availableImages.value = response.data || []
+        availableImages.value = toArray(response.data)
       } else {
         availableImages.value = []
         console.warn('获取过滤镜像失败:', response.message)

@@ -340,7 +340,7 @@ export INSTANCE_TYPES; INSTANCE_TYPES=$(_resolve_instance_type "$ENV_TYPE" "$RAW
 log_info "Resolved instance type: ${INSTANCE_TYPES}"
 
 # Get supported mapping methods
-MAPPING_METHODS=($(_get_supported_mapping_methods "$ENV_TYPE"))
+read -r -a MAPPING_METHODS <<< "$(_get_supported_mapping_methods "$ENV_TYPE")"
 log_info "Mapping methods to test: ${MAPPING_METHODS[*]}"
 log_info "Worker node hours: ${NODE_HOURS}"
 

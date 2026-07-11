@@ -2,7 +2,9 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -252,19 +254,23 @@ func ExportProviderConfigs(c *gin.Context) {
 	var req struct {
 		ProviderIDs []uint `json:"provider_ids"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		// 绑定失败时导出所有
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	req.ProviderIDs = uniqueNonZeroIDs(req.ProviderIDs)
+	if len(req.ProviderIDs) > 500 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "单次最多导出500个Provider配置"))
+		return
 	}
 
 	configService := &provider.ProviderConfigService{}
 	ownerAdminID := middleware.GetOwnerAdminID(c)
 	if ownerAdminID > 0 {
 		if len(req.ProviderIDs) > 0 {
-			for _, providerID := range req.ProviderIDs {
-				if err := adminProvider.CheckProviderOwnership(providerID, ownerAdminID); err != nil {
-					common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
-					return
-				}
+			if err := ensureProviderOwners(c, req.ProviderIDs); err != nil {
+				common.ResponseWithError(c, err)
+				return
 			}
 		} else {
 			if err := global.APP_DB.Model(&providerModel.Provider{}).
@@ -275,7 +281,6 @@ func ExportProviderConfigs(c *gin.Context) {
 			}
 		}
 	}
-
 	exportDir := "exports"
 	var err error
 	if ownerAdminID > 0 {

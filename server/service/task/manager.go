@@ -518,16 +518,10 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest, ownerAd
 
 	// 普通管理员数据隔离：只能看到归属自己的Provider的任务
 	if ownerAdminID > 0 {
-		var providerIDs []uint
-		if err := global.APP_DB.Model(&providerModel.Provider{}).
-			Where("owner_admin_id = ?", ownerAdminID).
-			Pluck("id", &providerIDs).Error; err != nil {
-			return nil, 0, err
-		}
-		if len(providerIDs) == 0 {
-			return []adminModel.AdminTaskResponse{}, 0, nil
-		}
-		query = query.Where("tasks.provider_id IN ?", providerIDs)
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("tasks.provider_id IN (?)", providerIDs)
 	}
 
 	// 应用筛选条件
@@ -711,18 +705,10 @@ func (s *TaskService) GetTaskStats(ownerAdminID uint) (map[string]interface{}, e
 
 	query := global.APP_DB.Model(&adminModel.Task{})
 	if ownerAdminID > 0 {
-		var providerIDs []uint
-		if err := global.APP_DB.Model(&providerModel.Provider{}).
-			Where("owner_admin_id = ?", ownerAdminID).
-			Pluck("id", &providerIDs).Error; err != nil {
-			return nil, fmt.Errorf("查询管理员节点失败: %w", err)
-		}
-		if len(providerIDs) == 0 {
-			stats["task_counts"] = map[string]int64{}
-			stats["last_update"] = time.Now()
-			return stats, nil
-		}
-		query = query.Where("provider_id IN ?", providerIDs)
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("provider_id IN (?)", providerIDs)
 	}
 
 	// 统计各状态任务数量
@@ -755,17 +741,11 @@ func (s *TaskService) GetTaskOverallStats(ownerAdminID uint) (*adminModel.TaskSt
 	baseQuery := global.APP_DB.Model(&adminModel.Task{})
 	configQuery := global.APP_DB.Model(&adminModel.ConfigurationTask{})
 	if ownerAdminID > 0 {
-		var providerIDs []uint
-		if err := global.APP_DB.Model(&providerModel.Provider{}).
-			Where("owner_admin_id = ?", ownerAdminID).
-			Pluck("id", &providerIDs).Error; err != nil {
-			return nil, fmt.Errorf("查询管理员节点失败: %w", err)
-		}
-		if len(providerIDs) == 0 {
-			return &stats, nil
-		}
-		baseQuery = baseQuery.Where("provider_id IN ?", providerIDs)
-		configQuery = configQuery.Where("provider_id IN ?", providerIDs)
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		baseQuery = baseQuery.Where("provider_id IN (?)", providerIDs)
+		configQuery = configQuery.Where("provider_id IN (?)", providerIDs)
 	}
 
 	// 统计总任务数
@@ -828,18 +808,20 @@ func (s *TaskService) GetTaskOverallStats(ownerAdminID uint) (*adminModel.TaskSt
 }
 
 // GetTaskDetail 获取任务详情
-func (s *TaskService) GetTaskDetail(taskID uint) (*adminModel.AdminTaskDetailResponse, error) {
+func (s *TaskService) GetTaskDetail(taskID, ownerAdminID uint) (*adminModel.AdminTaskDetailResponse, error) {
 	var task adminModel.Task
-	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
+	query := global.APP_DB.Where("tasks.id = ?", taskID)
+	if ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("tasks.provider_id IN (?)", providerIDs)
+	}
+	if err := query.First(&task).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("任务不存在")
 		}
 		return nil, fmt.Errorf("查询任务失败: %w", err)
-	}
-
-	var providerID uint
-	if task.ProviderID != nil {
-		providerID = *task.ProviderID
 	}
 
 	// 计算剩余时间
@@ -867,7 +849,7 @@ func (s *TaskService) GetTaskDetail(taskID uint) (*adminModel.AdminTaskDetailRes
 			TimeoutDuration:       task.TimeoutDuration,
 			StatusMessage:         task.StatusMessage,
 			UserID:                task.UserID,
-			ProviderID:            &providerID,
+			ProviderID:            task.ProviderID,
 			InstanceID:            task.InstanceID,
 			InstanceIDSnake:       task.InstanceID,
 			CanForceStop:          (task.Status == "processing" || task.Status == "running" || task.Status == "cancelling"),

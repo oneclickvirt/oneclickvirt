@@ -41,6 +41,9 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 	for global.APP_DB == nil {
 		timer := time.NewTimer(10 * time.Second)
 		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
 		case <-s.stopChan:
 			timer.Stop()
 			return
@@ -59,6 +62,8 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-s.stopChan:
 			return
 
@@ -219,8 +224,8 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 	}
 }
 
-// startCleanupTask 启动清理任务，定期清理过期的pmacct数据
-func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
+// startInstanceRepairTask 定期修复长时间停留在中间状态的实例。
+func (s *MonitoringSchedulerService) startInstanceRepairTask(ctx context.Context) {
 	defer s.wg.Done()
 	// 确俟ticker在panic时也能停止，防止goroutine泄漏
 	var ticker *time.Ticker
@@ -229,19 +234,22 @@ func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
 			ticker.Stop()
 		}
 		if r := recover(); r != nil {
-			global.APP_LOG.Error("pmacct数据清理任务panic",
+			global.APP_LOG.Error("实例状态修复任务panic",
 				zap.Any("panic", r),
 				zap.Stack("stack"))
 		}
-		global.APP_LOG.Info("pmacct数据清理任务已停止")
+		global.APP_LOG.Info("实例状态修复任务已停止")
 	}()
 
-	global.APP_LOG.Info("启动pmacct数据清理任务")
+	global.APP_LOG.Info("启动实例状态修复任务")
 
 	// 等待数据库初始化
 	for global.APP_DB == nil {
 		timer := time.NewTimer(10 * time.Second)
 		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
 		case <-s.stopChan:
 			timer.Stop()
 			return
@@ -251,31 +259,20 @@ func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
 		}
 	}
 
-	// 每小时执行一次状态确认，每天凌晨3点执行数据清理
+	// 每小时执行一次状态确认。原始 pmacct 累计采样不执行保留期清理。
 	ticker = time.NewTicker(1 * time.Hour)
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-s.stopChan:
 			return
 		case <-ticker.C:
-			now := time.Now()
-
-			// 每小时执行实例状态确认
 			global.APP_LOG.Debug("开始确认卡住的实例状态")
 			cleanupService := &system.InstanceCleanupService{}
 			if err := cleanupService.RepairStuckInstances(); err != nil {
 				global.APP_LOG.Error("确认卡住的实例状态失败", zap.Error(err))
-			}
-
-			// 只在凌晨3点执行数据清理
-			if now.Hour() == 3 {
-				global.APP_LOG.Debug("开始清理过期的pmacct数据")
-				if err := s.pmacctService.CleanupOldPmacctData(90); err != nil {
-					global.APP_LOG.Error("清理过期pmacct数据失败", zap.Error(err))
-				} else {
-					global.APP_LOG.Debug("清理过期pmacct数据成功")
-				}
 			}
 		}
 	}

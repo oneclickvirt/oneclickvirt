@@ -200,7 +200,7 @@
         />
         <el-table-column
           :label="$t('admin.systemImages.providerType')"
-          width="130"
+          min-width="190"
           align="center"
         >
           <template #default="scope">
@@ -223,13 +223,13 @@
         <el-table-column
           prop="architecture"
           :label="$t('admin.systemImages.architecture')"
-          width="110"
+          min-width="140"
           align="center"
           show-overflow-tooltip
         />
         <el-table-column
           :label="$t('admin.systemImages.osType')"
-          width="150"
+          min-width="170"
           show-overflow-tooltip
         >
           <template #default="scope">

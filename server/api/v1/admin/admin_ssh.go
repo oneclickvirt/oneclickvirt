@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"oneclickvirt/constant"
 	"oneclickvirt/utils"
+	"strconv"
 	"sync"
 	"time"
 
@@ -57,10 +58,19 @@ func AdminSSHWebSocket(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例ID不能为空"))
 		return
 	}
+	parsedInstanceID, err := strconv.ParseUint(instanceID, 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
+		return
+	}
+	if err := ensureInstanceOwner(c, uint(parsedInstanceID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	// 获取实例信息（管理员可以访问任意实例）
 	var instance providerModel.Instance
-	err := global.APP_DB.Select("id", "name", "provider_id", "status", "private_ip", "public_ip", "ipv6_address", "public_ipv6", "ssh_port", "username", "password").
+	err = global.APP_DB.Select("id", "name", "provider_id", "status", "private_ip", "public_ip", "ipv6_address", "public_ipv6", "ssh_port", "username", "password").
 		Where("id = ?", instanceID).
 		First(&instance).Error
 	if err != nil {

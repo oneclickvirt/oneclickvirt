@@ -1,4 +1,4 @@
-import { ref, reactive } from 'vue'
+import { computed, ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { 
@@ -8,13 +8,15 @@ import {
   manageTrafficLimits,
   batchManageTrafficLimits,
   batchSyncUserTraffic,
-  syncUserTraffic,
   syncAllTraffic,
   clearUserTrafficRecords
 } from '@/api/admin'
+import { useUserStore } from '@/pinia/modules/user'
 
 export function useTrafficManagement() {
   const { t, locale } = useI18n()
+  const userStore = useUserStore()
+  const isSuperAdmin = computed(() => userStore.userType === 'admin')
 
   const overviewLoading = ref(false)
   const systemOverview = ref(null)
@@ -162,7 +164,7 @@ export function useTrafficManagement() {
     if (syncingUsers.value.includes(userId)) return
     syncingUsers.value.push(userId)
     try {
-      const response = await syncUserTraffic(userId)
+      const response = await batchSyncUserTraffic({ user_ids: [userId] })
       if ((response.code === 200)) { ElMessage.success(t('admin.traffic.syncTriggered')); setTimeout(() => loadTrafficRanking(), 3000) }
       else { ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`) }
     } catch (error) { ElMessage.error(t('admin.traffic.syncError')) }
@@ -173,7 +175,7 @@ export function useTrafficManagement() {
     if (!selectedUserTraffic.value || syncingUserDetail.value) return
     syncingUserDetail.value = true
     try {
-      const response = await syncUserTraffic(selectedUserTraffic.value.user_id)
+      const response = await batchSyncUserTraffic({ user_ids: [selectedUserTraffic.value.user_id] })
       if ((response.code === 200)) { ElMessage.success(t('admin.traffic.syncTriggered')); setTimeout(async () => { await viewUserTraffic(selectedUserTraffic.value.user_id); loadTrafficRanking() }, 3000) }
       else { ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`) }
     } catch (error) { ElMessage.error(t('admin.traffic.syncError')) }
@@ -181,6 +183,7 @@ export function useTrafficManagement() {
   }
 
   const syncAllTrafficData = async () => {
+    if (!isSuperAdmin.value) return
     syncingAllTraffic.value = true
     try {
       const response = await syncAllTraffic()
@@ -236,7 +239,7 @@ export function useTrafficManagement() {
   }
 
   return {
-    overviewLoading, systemOverview, syncingAllTraffic,
+    overviewLoading, systemOverview, syncingAllTraffic, isSuperAdmin,
     rankingLoading, trafficRanking, currentPage, pageSize, total, selectedUsers,
     searchParams,
     userTrafficDialogVisible, userTrafficLoading, selectedUserTraffic, syncingUserDetail,

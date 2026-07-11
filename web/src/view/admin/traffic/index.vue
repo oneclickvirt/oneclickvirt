@@ -19,6 +19,7 @@
                 {{ $t('common.refresh') }}
               </el-button>
               <el-button
+                v-if="isSuperAdmin"
                 type="primary"
                 :loading="syncingAllTraffic"
                 @click="syncAllTrafficData"
@@ -107,7 +108,9 @@
               size="small"
             >
               <el-icon><Calendar /></el-icon>
-              {{ $t('admin.traffic.statsPeriod') }}: {{ systemOverview.period }}
+              {{ $t('admin.traffic.statsPeriod') }}:
+              {{ systemOverview.period_type === 'current_cycle' ? $t('admin.traffic.currentTrafficCycle') : systemOverview.period }}
+              <span v-if="systemOverview.period">({{ systemOverview.period }})</span>
             </el-text>
           </div>
         </div>
@@ -172,7 +175,7 @@
 
           <!-- 批量操作 -->
           <div
-            v-if="selectedUsers.length > 0"
+            v-if="isSuperAdmin && selectedUsers.length > 0"
             class="batch-actions"
           >
             <span class="selection-info">
@@ -259,7 +262,7 @@
             </el-table-column>
             <el-table-column
               :label="$t('admin.traffic.totalLimit')"
-              width="120"
+              min-width="130"
             >
               <template #default="{ row }">
                 {{ row.formatted?.total_limit || formatTrafficMB(row.total_limit) }}
@@ -297,6 +300,7 @@
               </template>
             </el-table-column>
             <el-table-column
+              v-if="isSuperAdmin"
               :label="$t('common.actions')"
               width="450"
               align="center"
@@ -398,7 +402,7 @@
               {{ $t('admin.traffic.pmacctRealtime') }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('admin.traffic.monthlyUsage')">
+          <el-descriptions-item :label="$t('admin.traffic.currentCycleUsage')">
             {{ selectedUserTraffic.formatted?.current_usage || formatTrafficMB(selectedUserTraffic.current_month_usage) }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.traffic.totalLimit')">
@@ -493,7 +497,7 @@ import { Refresh, Calendar, Clock, Search } from '@element-plus/icons-vue'
 import { useTrafficManagement } from './composables/useTrafficManagement'
 
 const {
-  overviewLoading, systemOverview, syncingAllTraffic,
+  overviewLoading, systemOverview, syncingAllTraffic, isSuperAdmin,
   rankingLoading, trafficRanking, currentPage, pageSize, total, selectedUsers,
   searchParams,
   userTrafficDialogVisible, userTrafficLoading, selectedUserTraffic, syncingUserDetail,
@@ -516,9 +520,11 @@ onMounted(() => {
 </script>
 <style scoped>
 .admin-traffic {
-  margin: -24px -24px -24px -24px;
+  margin: -24px 0 -24px -24px;
   padding: 24px 0 24px 24px;
-  width: calc(100% + 48px);
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .page-header {
@@ -635,6 +641,8 @@ onMounted(() => {
 .search-section {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-bottom: 12px;
 }
 
@@ -659,5 +667,45 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+@media (max-width: 1024px) {
+  .admin-traffic {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+  }
+
+  .page-header,
+  .system-overview {
+    padding-right: 0;
+  }
+
+  .card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-actions,
+  .search-section,
+  .batch-actions {
+    justify-content: flex-start;
+  }
+
+  .search-section :deep(.el-input),
+  .search-section :deep(.el-button),
+  .header-actions .el-button,
+  .batch-actions .el-button {
+    margin-left: 0 !important;
+  }
+
+  .search-section :deep(.el-input) {
+    flex: 1 1 180px;
+    max-width: 100%;
+  }
+
+  .pagination-wrapper {
+    justify-content: center;
+  }
 }
 </style>

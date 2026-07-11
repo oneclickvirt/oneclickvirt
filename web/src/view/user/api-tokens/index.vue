@@ -62,7 +62,7 @@
           <el-table-column
             :label="t('user.apiTokens.tokenName')"
             prop="name"
-            min-width="120"
+            min-width="150"
           />
           <el-table-column
             :label="t('user.apiTokens.tokenPrefix')"
@@ -81,7 +81,7 @@
           <el-table-column
             :label="t('user.apiTokens.useCount')"
             prop="useCount"
-            width="90"
+            min-width="110"
           />
           <el-table-column
             :label="t('user.apiTokens.createdAt')"

@@ -29,6 +29,10 @@ func GetMonitoringConfig(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
@@ -67,6 +71,10 @@ func UpdateMonitoringConfig(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	var req UpdateMonitoringConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -86,8 +94,8 @@ func UpdateMonitoringConfig(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "配置值不能为负数"))
 		return
 	}
-	if req.CollectInterval == 0 && req.ResourceCollectInterval == 0 {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "采集间隔不能为零"))
+	if req.AgentPort > 65535 || req.CollectInterval > 86400 || req.ResourceCollectInterval > 86400 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "端口或采集间隔超出允许范围"))
 		return
 	}
 

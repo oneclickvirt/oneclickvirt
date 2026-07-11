@@ -212,7 +212,7 @@ export function setupRouterGuards(router) {
       }
       
       // 超级管理员专属页面：normal_admin 不能访问
-      const superAdminOnlyPaths = ['/admin/users', '/admin/config', '/admin/performance', '/admin/logs', '/admin/oauth2-providers', '/admin/invite-codes', '/admin/announcements']
+      const superAdminOnlyPaths = ['/admin/users', '/admin/config', '/admin/performance', '/admin/logs', '/admin/oauth2-providers', '/admin/invite-codes', '/admin/announcements', '/admin/kyc']
       if (userStore.userType === 'normal_admin' && superAdminOnlyPaths.some(p => to.path.startsWith(p))) {
         ElMessage.warning(i18n.global.t('navbar.noPermission'))
         next('/admin/dashboard')

@@ -199,10 +199,7 @@ func GetPortMappingList(c *gin.Context) {
 		}
 	}
 
-	common.ResponseSuccess(c, map[string]interface{}{
-		"items": formattedPorts,
-		"total": total,
-	}, "获取成功")
+	common.ResponseSuccessWithPagination(c, formattedPorts, total, req.Page, req.PageSize)
 }
 
 // CreatePortMapping 创建端口映射
@@ -221,6 +218,10 @@ func CreatePortMapping(c *gin.Context) {
 	var req admin.CreatePortMappingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	if err := ensureInstanceOwner(c, req.InstanceID); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -330,6 +331,10 @@ func DeletePortMapping(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "无效的端口映射ID"))
 		return
 	}
+	if err := ensurePortMappingOwner(c, uint(id)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	// 获取当前管理员用户ID
 	authCtx, exists := middleware.GetAuthContext(c)
@@ -405,6 +410,10 @@ func BatchDeletePortMapping(c *gin.Context) {
 	var req admin.BatchDeletePortMappingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	if err := ensurePortMappingOwners(c, req.IDs); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -507,6 +516,10 @@ func UpdateProviderPortConfig(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(id)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	var req admin.ProviderPortConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -544,6 +557,10 @@ func GetProviderPortUsage(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(id)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	portMappingService := resources.PortMappingService{}
 	usage, err := portMappingService.GetProviderPortUsage(uint(id))
@@ -573,6 +590,10 @@ func GetInstancePortMappings(c *gin.Context) {
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "无效的实例ID"))
+		return
+	}
+	if err := ensureInstanceOwner(c, uint(id)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -608,6 +629,10 @@ func CheckPortAvailability(c *gin.Context) {
 	var req admin.CheckPortAvailabilityRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	if err := ensureProviderOwner(c, req.ProviderID); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -646,6 +671,24 @@ func SyncPortMappings(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
+	if len(req.ProviderIDs) > 0 {
+		if err := ensureProviderOwners(c, req.ProviderIDs); err != nil {
+			common.ResponseWithError(c, err)
+			return
+		}
+	}
+	if len(req.IncludedPortIDs) > 0 {
+		if err := ensurePortMappingOwners(c, req.IncludedPortIDs); err != nil {
+			common.ResponseWithError(c, err)
+			return
+		}
+	}
+	if len(req.ExcludedPortIDs) > 0 {
+		if err := ensurePortMappingOwners(c, req.ExcludedPortIDs); err != nil {
+			common.ResponseWithError(c, err)
+			return
+		}
+	}
 
 	// 获取当前用户ID
 	userID, err := getUserIDFromContext(c)
@@ -657,7 +700,7 @@ func SyncPortMappings(c *gin.Context) {
 	// 创建同步任务（为每个Provider创建独立任务）
 	taskService := task.GetTaskService()
 	if req.DryRun {
-		preview, err := taskService.PreviewSyncPortMappings(c.Request.Context(), &req)
+		preview, err := taskService.PreviewSyncPortMappings(c.Request.Context(), &req, middleware.GetOwnerAdminID(c))
 		if err != nil {
 			global.APP_LOG.Error("生成端口映射同步预览失败",
 				zap.Uint("userId", userID),
@@ -668,7 +711,7 @@ func SyncPortMappings(c *gin.Context) {
 		common.ResponseSuccess(c, preview, "端口映射同步预览已生成")
 		return
 	}
-	tasks, err := taskService.CreateSyncPortMappingsTask(userID, &req)
+	tasks, err := taskService.CreateSyncPortMappingsTask(userID, &req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("创建端口映射同步任务失败",
 			zap.Uint("userId", userID),

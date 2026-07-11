@@ -19,9 +19,6 @@ type PmacctServiceInterface interface {
 	// 参数：预加载的instance和monitor数据
 	CollectTrafficFromSQLite(instance *providerModel.Instance, monitor *monitoringModel.PmacctMonitor) error
 
-	// CleanupOldPmacctData 清理过期的流量数据
-	CleanupOldPmacctData(days int) error
-
 	// ResetPmacctDaemon 完全重置pmacct守护进程和数据库
 	ResetPmacctDaemon(instanceID uint) error
 }
@@ -75,8 +72,8 @@ func (s *MonitoringSchedulerService) Start(ctx context.Context) {
 	// 启动agent资源监控收集任务
 	go s.startAgentResourceCollection(ctx)
 
-	// 启动清理任务
-	go s.startCleanupTask(ctx)
+	// 启动卡住实例状态修复任务
+	go s.startInstanceRepairTask(ctx)
 
 	// 启动pmacct守护进程重置任务
 	go s.startPmacctResetTask(ctx)

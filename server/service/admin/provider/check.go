@@ -344,7 +344,9 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 	}
 
 	dbService := database.GetDatabaseService()
-	if dbErr := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if dbErr := dbService.ExecuteTransaction(dbCtx, func(tx *gorm.DB) error {
 		return tx.Model(&providerModel.Provider{}).Where("id = ?", provider.ID).Updates(updates).Error
 	}); dbErr != nil {
 		return fmt.Errorf("保存Provider状态失败: %w", dbErr)

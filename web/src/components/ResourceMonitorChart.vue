@@ -291,6 +291,21 @@ defineExpose({ refresh: loadData })
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.chart-header > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
 }
 
 .charts-container {
@@ -313,5 +328,17 @@ defineExpose({ refresh: loadData })
 
 .no-data {
   padding: 40px 0;
+}
+
+@media (max-width: 768px) {
+  .chart-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chart-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 </style>

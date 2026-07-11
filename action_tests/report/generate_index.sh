@@ -61,7 +61,7 @@ if [[ -d "$REPORTS_DIR" ]]; then
             links_parts=()
             for html_file in "$tsdir"*.html; do
                 [[ -f "$html_file" ]] || continue
-                rel="${html_file#${OUTPUT_DIR}/}"
+                rel="${html_file#"${OUTPUT_DIR}/"}"
                 links_parts+=("\"${rel}\"")
             done
             links_str=""

@@ -7,6 +7,7 @@
           <span>{{ t('admin.blockRules.rules') }}</span>
           <div>
             <el-button
+              v-if="isSuperAdmin"
               type="primary"
               @click="handleCreateRule"
             >
@@ -60,7 +61,7 @@
         />
         <el-table-column
           :label="t('admin.blockRules.strings')"
-          width="120"
+          min-width="150"
         >
           <template #default="{ row }">
             {{ parseStrings(row.strings).length }} {{ t('admin.blockRules.strings') }}
@@ -72,6 +73,7 @@
         >
           <template #default="{ row }">
             <el-switch
+              v-if="isSuperAdmin"
               :model-value="row.enabled"
               @change="(val) => handleToggleEnabled(row, val)"
             />
@@ -79,7 +81,7 @@
         </el-table-column>
         <el-table-column
           :label="t('admin.blockRules.builtin')"
-          width="80"
+          min-width="110"
         >
           <template #default="{ row }">
             <el-tag
@@ -92,6 +94,7 @@
           </template>
         </el-table-column>
         <el-table-column
+          v-if="isSuperAdmin"
           :label="t('admin.blockRules.actions')"
           width="160"
           fixed="right"
@@ -144,7 +147,7 @@
         <el-table-column
           prop="rule_id"
           :label="t('admin.blockRules.ruleId')"
-          width="90"
+          min-width="100"
         />
         <el-table-column
           prop="scope"
@@ -412,6 +415,7 @@ const { t } = useI18n()
 const {
   rules,
   applications,
+  isSuperAdmin,
   providerOptions,
   instanceOptions,
   selectedRules,

@@ -277,7 +277,8 @@ const loadUserLimits = async () => {
 const loadAnnouncements = async () => {
   try {
     const response = await getAnnouncements({ page: 1, pageSize: 3 })
-    announcements.value = response.data.list || []
+    const data = response.data
+    announcements.value = Array.isArray(data) ? data : (data?.list || data?.items || [])
   } catch (error) {
     console.error(t('user.dashboard.getAnnouncementsFailed'), error)
   }

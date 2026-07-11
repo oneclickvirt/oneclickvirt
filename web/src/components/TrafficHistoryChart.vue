@@ -6,11 +6,11 @@
           <span v-if="title">{{ title }}</span>
           <div class="chart-controls">
             <slot name="extra-actions" />
-            <span style="margin-right: 8px; font-size: 14px;">{{ $t('user.traffic.historyChart.timeRange') }}:</span>
+            <span class="control-label">{{ $t('user.traffic.historyChart.timeRange') }}:</span>
             <el-select
               v-model="selectedPeriod"
               size="small"
-              style="width: 120px; margin-right: 16px;"
+              class="history-select"
               @change="loadData"
             >
               <el-option
@@ -38,11 +38,11 @@
                 value="24h"
               />
             </el-select>
-            <span style="margin-right: 8px; font-size: 14px;">{{ $t('user.traffic.historyChart.dataInterval') }}:</span>
+            <span class="control-label">{{ $t('user.traffic.historyChart.dataInterval') }}:</span>
             <el-select
               v-model="selectedInterval"
               size="small"
-              style="width: 120px;"
+              class="history-select"
               @change="loadData"
             >
               <el-option
@@ -128,6 +128,14 @@ const selectedInterval = ref(5)    // 默认5分钟间隔
 const chartInstance = ref(null)
 const refreshTimer = ref(null)
 const chartData = ref([])          // 存储图表数据，用于语言切换时重新渲染
+
+const normalizeHistoryData = (payload) => {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.list)) return payload.list
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.history)) return payload.history
+  return []
+}
 
 // 格式化流量单位
 const formatTraffic = (bytes) => {
@@ -232,7 +240,7 @@ const loadData = async () => {
     if (response && (response.code === 200)) {
       loading.value = false
       // 存储数据供语言切换时使用
-      chartData.value = response.data || []
+      chartData.value = normalizeHistoryData(response.data)
       // 等待DOM更新后再渲染图表
       await nextTick()
       renderChart(chartData.value)
@@ -278,6 +286,7 @@ const renderChart = (data) => {
     console.warn('TrafficHistoryChart - chartRef is null')
     return
   }
+  data = normalizeHistoryData(data)
   
   // 如果无数据，生成零填充数据点（显示全零曲线图）
   if (!data || data.length === 0) {
@@ -501,11 +510,30 @@ defineExpose({
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
+    min-width: 0;
+
+    > span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
 
     .chart-controls {
       display: flex;
       align-items: center;
-      gap: 4px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+
+      .control-label {
+        font-size: 14px;
+        white-space: nowrap;
+      }
+
+      .history-select {
+        width: 120px;
+      }
     }
   }
 
@@ -518,6 +546,24 @@ defineExpose({
 
   .chart-container {
     min-height: 400px;
+  }
+
+  @media (max-width: 768px) {
+    .chart-header {
+      align-items: flex-start;
+      flex-direction: column;
+
+      .chart-controls {
+        width: 100%;
+        justify-content: flex-start;
+
+        .history-select {
+          flex: 1 1 120px;
+          width: auto;
+          max-width: 100%;
+        }
+      }
+    }
   }
 }
 </style>

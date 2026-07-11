@@ -64,6 +64,10 @@ func BatchCreateRedemptionCodes(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
+	if err := ensureProviderOwner(c, req.ProviderID); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
@@ -73,7 +77,7 @@ func BatchCreateRedemptionCodes(c *gin.Context) {
 	adminID := authCtx.UserID
 
 	svc := redemptionService.NewService(task.GetTaskService())
-	if err := svc.BatchCreate(req, adminID); err != nil {
+	if err := svc.BatchCreate(req, adminID, middleware.GetOwnerAdminID(c)); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -97,6 +101,10 @@ func BatchDeleteRedemptionCodes(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
+	if len(req.IDs) > 100 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "单次最多删除100个兑换码"))
+		return
+	}
 
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
@@ -106,7 +114,7 @@ func BatchDeleteRedemptionCodes(c *gin.Context) {
 	adminID := authCtx.UserID
 
 	svc := redemptionService.NewService(task.GetTaskService())
-	if err := svc.BatchDelete(req.IDs, adminID); err != nil {
+	if err := svc.BatchDelete(req.IDs, adminID, middleware.GetOwnerAdminID(c)); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -137,7 +145,7 @@ func ExportRedemptionCodes(c *gin.Context) {
 	}
 
 	svc := redemptionService.NewService(task.GetTaskService())
-	codes, err := svc.ExportByIDs(req.IDs)
+	codes, err := svc.ExportByIDs(req.IDs, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return

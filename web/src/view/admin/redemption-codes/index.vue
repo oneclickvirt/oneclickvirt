@@ -138,7 +138,7 @@
         />
         <el-table-column
           :label="t('admin.redemptionCodes.colInstanceType')"
-          width="100"
+          min-width="150"
         >
           <template #default="scope">
             {{ scope.row.instanceType === 'container' ? t('admin.redemptionCodes.container') : t('admin.redemptionCodes.vm') }}
@@ -146,7 +146,7 @@
         </el-table-column>
         <el-table-column
           :label="t('admin.redemptionCodes.colCreationMode')"
-          width="110"
+          min-width="150"
         >
           <template #default="scope">
             <el-tag
@@ -180,12 +180,12 @@
         <el-table-column
           prop="createdByUser"
           :label="t('admin.redemptionCodes.colCreatedBy')"
-          width="110"
+          min-width="120"
         />
         <el-table-column
           prop="instanceName"
           :label="t('admin.redemptionCodes.colInstanceName')"
-          min-width="120"
+          min-width="150"
         >
           <template #default="scope">
             {{ scope.row.instanceName || '-' }}

@@ -131,7 +131,7 @@ func ForceStopTask(c *gin.Context) {
 	}
 
 	taskService := task.GetTaskService()
-	if err := taskService.ForceStopTask(req.TaskID, req.Reason); err != nil {
+	if err := taskService.ForceStopTaskScoped(req.TaskID, req.Reason, middleware.GetOwnerAdminID(c)); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -183,7 +183,7 @@ func CancelUserTaskByAdmin(c *gin.Context) {
 	}
 
 	taskService := task.GetTaskService()
-	if err := taskService.CancelTaskByAdmin(uint(taskID), "管理员取消"); err != nil {
+	if err := taskService.CancelTaskByAdminScoped(uint(taskID), "管理员取消", middleware.GetOwnerAdminID(c)); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
@@ -236,7 +236,7 @@ func GetTaskDetail(c *gin.Context) {
 	}
 
 	taskService := task.GetTaskService()
-	detail, err := taskService.GetTaskDetail(uint(taskID))
+	detail, err := taskService.GetTaskDetail(uint(taskID), middleware.GetOwnerAdminID(c))
 	if err != nil {
 		if err.Error() == "任务不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "任务不存在"))

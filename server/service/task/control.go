@@ -114,7 +114,9 @@ func (s *TaskService) ReleaseTaskLocks(taskID uint) {
 
 // CancelTask 用户取消任务
 func (s *TaskService) CancelTask(taskID uint, userID uint) error {
+	cleanup := cancellationCleanupNone
 	err := s.dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		cleanup = cancellationCleanupNone
 		var task adminModel.Task
 		err := tx.Where("id = ? AND user_id = ?", taskID, userID).First(&task).Error
 		if err != nil {
@@ -128,44 +130,83 @@ func (s *TaskService) CancelTask(taskID uint, userID uint) error {
 
 		switch task.Status {
 		case "pending":
-			return s.cancelPendingTask(tx, taskID, "用户取消")
+			if err := s.cancelPendingTask(tx, taskID, "用户取消"); err != nil {
+				return err
+			}
+			cleanup = cancellationCleanupPending
+			return nil
 		case "processing", "running":
-			return s.cancelRunningTask(tx, taskID, "用户取消")
+			if err := s.cancelRunningTask(tx, taskID, "用户取消"); err != nil {
+				return err
+			}
+			cleanup = cancellationCleanupRunning
+			return nil
 		default:
 			return fmt.Errorf("任务状态[%s]不允许取消", task.Status)
 		}
 	})
-
-	return err
+	if err != nil {
+		return err
+	}
+	s.scheduleCancellationCleanup(taskID, cleanup)
+	return nil
 }
 
 // CancelTaskByAdmin 管理员取消/强制停止任务
 func (s *TaskService) CancelTaskByAdmin(taskID uint, reason string) error {
-	err := s.dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	return s.CancelTaskByAdminScoped(taskID, reason, 0)
+}
+
+// CancelTaskByAdminScoped 取消任务，ownerAdminID非零时限定任务必须属于该管理员的Provider。
+func (s *TaskService) CancelTaskByAdminScoped(taskID uint, reason string, ownerAdminID uint) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cleanup := cancellationCleanupNone
+	err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		cleanup = cancellationCleanupNone
 		var task adminModel.Task
-		err := tx.First(&task, taskID).Error
+		query := tx.Where("tasks.id = ?", taskID)
+		if ownerAdminID > 0 {
+			providerIDs := tx.Model(&providerModel.Provider{}).
+				Select("id").
+				Where("owner_admin_id = ?", ownerAdminID)
+			query = query.Where("tasks.provider_id IN (?)", providerIDs)
+		}
+		err := query.First(&task).Error
 		if err != nil {
-			return fmt.Errorf("任务不存在")
+			return fmt.Errorf("任务不存在或无权限")
 		}
 
 		switch task.Status {
 		case "pending":
-			return s.cancelPendingTask(tx, taskID, fmt.Sprintf("管理员取消: %s", reason))
+			if err := s.cancelPendingTask(tx, taskID, fmt.Sprintf("管理员取消: %s", reason)); err != nil {
+				return err
+			}
+			cleanup = cancellationCleanupPending
+			return nil
 		case "processing", "running":
-			// processing和running状态都使用强制停止
-			return s.forceStopRunningTask(tx, taskID, fmt.Sprintf("管理员强制停止: %s", reason))
+			if err := s.forceStopRunningTask(tx, taskID, fmt.Sprintf("管理员强制停止: %s", reason)); err != nil {
+				return err
+			}
+			cleanup = cancellationCleanupForce
+			return nil
 		case "cancelling":
-			return s.forceKillTask(tx, taskID, fmt.Sprintf("管理员强制终止: %s", reason))
+			if err := s.forceKillTask(tx, taskID, fmt.Sprintf("管理员强制终止: %s", reason)); err != nil {
+				return err
+			}
+			cleanup = cancellationCleanupForce
+			return nil
 		default:
 			return fmt.Errorf("参数错误: 任务状态[%s]不允许操作", task.Status)
 		}
 	})
 
-	// 对于running状态的任务，不在这里调用handleCancelledTaskCleanup
-	// 因为任务可能已经部分执行，不应该简单恢复状态
-	// 只有pending状态的任务取消才会在cancelPendingTask中恢复状态
-
-	return err
+	if err != nil {
+		return err
+	}
+	s.scheduleCancellationCleanup(taskID, cleanup)
+	return nil
 }
 
 // cancelPendingTask 取消pending状态的任务
@@ -183,20 +224,6 @@ func (s *TaskService) cancelPendingTask(tx *gorm.DB, taskID uint, reason string)
 		return fmt.Errorf("任务状态已变更，无法取消")
 	}
 
-	// 释放预留资源
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		s.releaseTaskResources(taskID)
-	}()
-
-	// pending状态的任务取消后，需要恢复实例状态
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		s.handleCancelledTaskCleanup(taskID)
-	}()
-
 	return nil
 }
 
@@ -213,19 +240,6 @@ func (s *TaskService) cancelRunningTask(tx *gorm.DB, taskID uint, reason string)
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("任务状态已变更，无法取消")
 	}
-
-	// 2. 发送取消信号并清理实例状态（异步处理，避免阻塞事务）
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		if taskCtx, exists := s.contextManager.Get(taskID); exists {
-			taskCtx.CancelFunc()
-		}
-		// 等待一小段时间让任务有机会正常退出
-		time.Sleep(5 * time.Second)
-		// 清理实例状态
-		s.handleCancelledTaskCleanup(taskID)
-	}()
 
 	return nil
 }
@@ -254,42 +268,60 @@ func (s *TaskService) forceKillTask(tx *gorm.DB, taskID uint, reason string) err
 		return nil
 	}
 
-	// 强制清理上下文和实例状态（异步处理）
+	return nil
+}
+
+type cancellationCleanup uint8
+
+const (
+	cancellationCleanupNone cancellationCleanup = iota
+	cancellationCleanupPending
+	cancellationCleanupRunning
+	cancellationCleanupForce
+)
+
+func (s *TaskService) scheduleCancellationCleanup(taskID uint, cleanup cancellationCleanup) {
+	if cleanup == cancellationCleanupNone {
+		return
+	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		// 获取任务信息以便记录日志
-		var task adminModel.Task
-		if err := global.APP_DB.First(&task, taskID).Error; err == nil {
-			if task.ProviderID != nil {
+		switch cleanup {
+		case cancellationCleanupPending:
+			s.releaseTaskResources(taskID)
+			s.handleCancelledTaskCleanup(taskID)
+		case cancellationCleanupRunning:
+			if taskCtx, exists := s.contextManager.Get(taskID); exists {
+				taskCtx.CancelFunc()
+			}
+			time.Sleep(5 * time.Second)
+			s.handleCancelledTaskCleanup(taskID)
+		case cancellationCleanupForce:
+			var task adminModel.Task
+			if err := global.APP_DB.First(&task, taskID).Error; err == nil && task.ProviderID != nil && global.APP_LOG != nil {
 				global.APP_LOG.Debug("强制取消任务",
 					zap.Uint("task_id", taskID),
 					zap.Uint("provider_id", *task.ProviderID))
 			}
-		}
-
-		// 取消运行中的context
-		if taskCtx, exists := s.contextManager.Get(taskID); exists {
-			taskCtx.CancelFunc()
 			s.contextManager.Delete(taskID)
+			s.releaseTaskResources(taskID)
+			s.handleCancelledTaskCleanup(taskID)
 		}
-
-		// 释放资源
-		s.releaseTaskResources(taskID)
-
-		// 清理实例状态
-		s.handleCancelledTaskCleanup(taskID)
 	}()
-
-	return nil
 }
 
 // ForceStopTask 强制停止任务（管理员专用）
 func (s *TaskService) ForceStopTask(taskID uint, reason string) error {
+	return s.ForceStopTaskScoped(taskID, reason, 0)
+}
+
+// ForceStopTaskScoped 强制停止任务，ownerAdminID非零时应用Provider归属隔离。
+func (s *TaskService) ForceStopTaskScoped(taskID uint, reason string, ownerAdminID uint) error {
 	if reason == "" {
 		reason = "管理员强制停止"
 	}
-	return s.CancelTaskByAdmin(taskID, reason)
+	return s.CancelTaskByAdminScoped(taskID, reason, ownerAdminID)
 }
 
 // handleCancelledTaskCleanup 处理被取消任务的清理工作

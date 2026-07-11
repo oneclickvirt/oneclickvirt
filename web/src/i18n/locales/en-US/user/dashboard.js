@@ -18,7 +18,7 @@ export default {
   trafficLimit: "Traffic Limit",
   unlimited: "Unlimited",
   unlimitedTraffic: "No Traffic Limit",
-  trafficLimitDesc: "Monthly traffic quota usage",
+  trafficLimitDesc: "Current cycle traffic quota usage",
   unlimitedTrafficDesc: "Unlimited traffic for current level",
   snapshotQuota: "Snapshot Quota",
   snapshotQuotaDesc: "{remaining} remaining; up to {perInstance} snapshots per instance",
@@ -42,5 +42,5 @@ export default {
   memoryUsage: "Memory Usage",
   diskUsage: "Disk Usage",
   networkUsage: "Network Usage",
-  trafficHistoryChart: "Monthly Traffic Usage Trend"
+  trafficHistoryChart: "Recent Traffic Usage Trend"
 }

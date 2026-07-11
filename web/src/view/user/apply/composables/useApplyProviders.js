@@ -28,6 +28,14 @@ export function useApplyProviders() {
     }
   })
 
+  const toArray = (payload) => {
+    if (Array.isArray(payload)) return payload
+    if (Array.isArray(payload?.list)) return payload.list
+    if (Array.isArray(payload?.items)) return payload.items
+    if (Array.isArray(payload?.records)) return payload.records
+    return []
+  }
+
   const getProviderStatusType = (status) => {
     switch (status) {
       case 'active':   return 'success'
@@ -86,7 +94,7 @@ export function useApplyProviders() {
       loading.value = true
       const response = await getAvailableProviders()
       if (response.code === 200) {
-        providers.value = response.data || []
+        providers.value = toArray(response.data)
         if (providers.value.length === 0) {
           ElMessage.info(t('user.apply.noProvidersRetry'))
         } else if (showSuccessMsg) {

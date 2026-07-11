@@ -335,7 +335,14 @@ func (s *AggregationService) AggregateDailyTraffic(year, month, day int) error {
 		instanceInfoMap[info.ID] = info
 	}
 
-	// 对每个实例计算当天的流量（使用完整分段逻辑）
+	start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 0, 1)
+	statsMap, err := s.queryService.computeBatchTrafficInWindow(instanceIDs, start, end)
+	if err != nil {
+		return fmt.Errorf("批量计算每日流量失败: %w", err)
+	}
+
+	// 对每个实例保存当天的流量（统一使用窗口基线增量逻辑）
 	for _, instanceID := range instanceIDs {
 		instanceInfo, exists := instanceInfoMap[instanceID]
 		if !exists {
@@ -344,16 +351,8 @@ func (s *AggregationService) AggregateDailyTraffic(year, month, day int) error {
 			continue
 		}
 
-		dailyStats, err := s.computeDailyTraffic(instanceID, year, month, day)
-		if err != nil {
-			global.APP_LOG.Warn("计算每日流量失败",
-				zap.Uint("instance_id", instanceID),
-				zap.Error(err))
-			continue
-		}
-
 		// 保存到缓存表（day!=0, hour=0表示按天缓存）
-		err = s.saveDailyCacheWithInfo(instanceID, instanceInfo.ProviderID, instanceInfo.UserID, year, month, day, dailyStats)
+		err = s.saveDailyCacheWithInfo(instanceID, instanceInfo.ProviderID, instanceInfo.UserID, year, month, day, statsMap[instanceID])
 		if err != nil {
 			global.APP_LOG.Warn("保存每日缓存失败",
 				zap.Uint("instance_id", instanceID),
@@ -369,92 +368,19 @@ func (s *AggregationService) AggregateDailyTraffic(year, month, day int) error {
 
 // computeDailyTraffic 计算实例的每日流量（处理pmacct重启）
 func (s *AggregationService) computeDailyTraffic(instanceID uint, year, month, day int) (*TrafficStats, error) {
-	// 使用与月度计算相同的分段逻辑
-	query := `
-		SELECT 
-			COALESCE(SUM(max_rx), 0) as rx_bytes,
-			COALESCE(SUM(max_tx), 0) as tx_bytes
-		FROM (
-			-- 检测重启并分段
-			SELECT 
-				segment_id,
-				MAX(rx_bytes) as max_rx,
-				MAX(tx_bytes) as max_tx
-			FROM (
-				-- 计算累积重启次数作为segment_id
-				SELECT 
-					t1.timestamp,
-					t1.rx_bytes,
-					t1.tx_bytes,
-					(
-						SELECT COUNT(*)
-						FROM pmacct_traffic_records t2
-						LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-							AND t3.timestamp = (
-								SELECT MAX(timestamp) 
-								FROM pmacct_traffic_records 
-								WHERE instance_id = t2.instance_id 
-									AND timestamp < t2.timestamp
-									AND year = ? AND month = ? AND day = ?
-							)
-						WHERE t2.instance_id = ?
-							AND t2.year = ? AND t2.month = ? AND t2.day = ?
-							AND t2.timestamp <= t1.timestamp
-							AND (
-								(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
-								OR
-								(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
-							)
-					) as segment_id
-				FROM pmacct_traffic_records t1
-				WHERE t1.instance_id = ? AND t1.year = ? AND t1.month = ? AND t1.day = ?
-			) AS segments
-			GROUP BY segment_id
-		) AS segment_max
-	`
-
-	var result struct {
-		RxBytes int64
-		TxBytes int64
+	{
+		start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.Local)
+		end := start.AddDate(0, 0, 1)
+		statsMap, err := s.queryService.computeBatchTrafficInWindow([]uint{instanceID}, start, end)
+		if err != nil {
+			return nil, fmt.Errorf("查询每日流量失败: %w", err)
+		}
+		if stats, ok := statsMap[instanceID]; ok {
+			return stats, nil
+		}
+		return &TrafficStats{}, nil
 	}
 
-	err := global.APP_DB.Raw(query,
-		year, month, day, instanceID, year, month, day, instanceID, year, month, day).
-		Scan(&result).Error
-	if err != nil {
-		return nil, fmt.Errorf("查询每日流量失败: %w", err)
-	}
-
-	// 获取Provider配置用于计算实际使用量
-	var providerConfig struct {
-		TrafficCountMode  string
-		TrafficMultiplier float64
-	}
-
-	err = global.APP_DB.Table("instances i").
-		Joins("INNER JOIN providers p ON i.provider_id = p.id").
-		Select("COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
-		Where("i.id = ?", instanceID).
-		Scan(&providerConfig).Error
-	if err != nil {
-		return nil, fmt.Errorf("查询Provider配置失败: %w", err)
-	}
-
-	stats := &TrafficStats{
-		RxBytes:    result.RxBytes,
-		TxBytes:    result.TxBytes,
-		TotalBytes: result.RxBytes + result.TxBytes,
-	}
-
-	// 应用流量计算模式
-	stats.ActualUsageMB = s.queryService.calculateActualUsage(
-		result.RxBytes,
-		result.TxBytes,
-		providerConfig.TrafficCountMode,
-		providerConfig.TrafficMultiplier,
-	)
-
-	return stats, nil
 }
 
 // saveDailyCacheWithInfo 保存每日缓存数据（使用预加载的实例信息）

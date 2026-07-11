@@ -42,7 +42,7 @@ export default {
   nodeForwarding: "Node-side",
   controllerForwarding: "Controller-side",
   controllerSSHHint: "This SSH port is forwarded via controller tunneling",
-  controllerForwardingSSH: "ssh root@controller -p {port}",
+  controllerForwardingSSH: "ssh root{'@'}controller -p {port}",
   controllerPortHint: "This port is forwarded via controller tunneling, port: {port}",
   controllerForwardingPort: "Controller forwarding port: {port}",
   statistics: "Statistics",

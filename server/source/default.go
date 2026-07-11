@@ -726,8 +726,8 @@ docker://dockurr/macos:13
 docker://dockurr/macos:14
 docker://dockurr/macos:15`
 
-// getDefaultImageURLs 返回默认的镜像URL列表
-// 当网络不通无法从远程获取镜像列表时，使用此默认列表进行初始化
+// getDefaultImageURLs 返回内置镜像URL列表。
+// 默认同步会把该列表作为远程列表的补充；远程不可用时则完全使用该列表初始化。
 func getDefaultImageURLs() []string {
 	lines := strings.Split(defaultTemplates, "\n")
 	urls := make([]string, 0, len(lines))

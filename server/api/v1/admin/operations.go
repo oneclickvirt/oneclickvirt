@@ -136,6 +136,10 @@ func GetDomainConfig(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	svc := &domainService.Service{}
 	config, err := svc.GetDomainConfig(uint(providerID))
@@ -154,15 +158,9 @@ func UpdateDomainConfig(c *gin.Context) {
 		return
 	}
 
-	// 普通管理员只能更改自己节点的配置
-	ownerAdminID := middleware.GetOwnerAdminID(c)
-	if ownerAdminID > 0 {
-		var count int64
-		global.APP_DB.Table("providers").Where("id = ? AND owner_admin_id = ?", providerID, ownerAdminID).Count(&count)
-		if count == 0 {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权操作该节点的域名配置"))
-			return
-		}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
 	}
 
 	var req domainService.UpdateDomainConfigRequest

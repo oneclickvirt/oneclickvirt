@@ -77,10 +77,12 @@ func RetryableDBOperation(ctx context.Context, operation func() error, maxRetrie
 
 		// 在重试前检查数据库连接健康（第一次除外）
 		if i > 0 {
-			if err := CheckDBHealth(); err != nil {
-				global.APP_LOG.Warn("数据库健康检查失败",
-					zap.Int("retry", i),
-					zap.Error(err))
+			if err := CheckDBHealthContext(ctx); err != nil {
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("数据库健康检查失败",
+						zap.Int("retry", i),
+						zap.Error(err))
+				}
 			}
 		}
 
@@ -191,17 +193,37 @@ func GetDBStats() map[string]interface{} {
 
 // CheckDBHealth 检查数据库健康状态
 func CheckDBHealth() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return CheckDBHealthContext(ctx)
+}
+
+func CheckDBHealthContext(ctx context.Context) error {
 	if global.APP_DB == nil {
 		return errors.New("数据库连接为空")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	sqlDB, err := global.APP_DB.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.PingContext(ctx)
+}
+
+// UpdateLastLogin records non-critical login metadata without allowing a
+// locked database row to delay a successful authentication request.
+func UpdateLastLogin(userID uint) error {
+	if global.APP_DB == nil {
+		return errors.New("数据库连接为空")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	return SafeQuery(ctx, func() error {
-		var result int
-		return global.APP_DB.Raw("SELECT 1").Scan(&result).Error
-	})
+	return global.APP_DB.WithContext(ctx).
+		Table("users").
+		Where("id = ? AND deleted_at IS NULL", userID).
+		UpdateColumn("last_login_at", time.Now()).Error
 }
 
 // GetDB 安全地获取数据库连接

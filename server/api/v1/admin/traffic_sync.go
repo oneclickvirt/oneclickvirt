@@ -46,9 +46,10 @@ func SyncInstanceTraffic(c *gin.Context) {
 
 	// 触发同步
 	syncTrigger := traffic.NewSyncTriggerService()
-	defer syncTrigger.Shutdown(5 * time.Second)
-
 	syncTrigger.TriggerInstanceTrafficSync(uint(instanceID), "管理员手动触发")
+	go func() {
+		_ = syncTrigger.Shutdown(30 * time.Minute)
+	}()
 
 	common.ResponseSuccess(c, nil, "实例流量同步已触发")
 }
@@ -87,9 +88,10 @@ func SyncUserTraffic(c *gin.Context) {
 
 	// 触发同步
 	syncTrigger := traffic.NewSyncTriggerService()
-	defer syncTrigger.Shutdown(5 * time.Second)
-
 	syncTrigger.TriggerUserTrafficSync(uint(userID), "管理员手动触发")
+	go func() {
+		_ = syncTrigger.Shutdown(30 * time.Minute)
+	}()
 
 	common.ResponseSuccess(c, nil, "用户流量同步已触发")
 }
@@ -128,9 +130,10 @@ func SyncProviderTraffic(c *gin.Context) {
 
 	// 触发同步
 	syncTrigger := traffic.NewSyncTriggerService()
-	defer syncTrigger.Shutdown(5 * time.Second)
-
 	syncTrigger.TriggerProviderTrafficSync(uint(providerID), "管理员手动触发")
+	go func() {
+		_ = syncTrigger.Shutdown(30 * time.Minute)
+	}()
 
 	common.ResponseSuccess(c, nil, "Provider流量同步已触发")
 }

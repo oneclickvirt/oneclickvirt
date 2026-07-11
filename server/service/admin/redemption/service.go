@@ -19,6 +19,7 @@ import (
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/taskgate"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -44,16 +45,10 @@ func (s *Service) GetList(req adminModel.RedemptionCodeListRequest, ownerAdminID
 
 	// 普通管理员数据隔离：只能看到归属自己的Provider的兑换码
 	if ownerAdminID > 0 {
-		var providerIDs []uint
-		if err := global.APP_DB.Model(&providerModel.Provider{}).
-			Where("owner_admin_id = ?", ownerAdminID).
-			Pluck("id", &providerIDs).Error; err != nil {
-			return nil, 0, err
-		}
-		if len(providerIDs) == 0 {
-			return []adminModel.RedemptionCodeResponse{}, 0, nil
-		}
-		query = query.Where("provider_id IN ?", providerIDs)
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("provider_id IN (?)", providerIDs)
 	}
 
 	if req.Code != "" {
@@ -156,7 +151,7 @@ func (s *Service) GetList(req adminModel.RedemptionCodeListRequest, ownerAdminID
 }
 
 // BatchCreate 批量创建兑换码：生成 Code -> 插入 DB (status=pending_create) -> 创建 create_redemption_instance 任务
-func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, adminID uint) error {
+func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, adminID, ownerAdminID uint) error {
 	dbService := database.GetDatabaseService()
 
 	if req.CreationMode == "" {
@@ -168,7 +163,11 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 
 	// 验证 Provider 存在
 	var provider providerModel.Provider
-	if err := global.APP_DB.Where("id = ?", req.ProviderID).First(&provider).Error; err != nil {
+	providerQuery := global.APP_DB.Where("id = ?", req.ProviderID)
+	if ownerAdminID > 0 {
+		providerQuery = providerQuery.Where("owner_admin_id = ?", ownerAdminID)
+	}
+	if err := providerQuery.First(&provider).Error; err != nil {
 		return fmt.Errorf("节点不存在或不可用")
 	}
 	providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
@@ -282,33 +281,47 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		}
 	}
 
-	reservationService := resources.GetResourceReservationService()
+	codes, err := s.generateUniqueCodes(req.Count)
+	if err != nil {
+		return err
+	}
+	reserveCPU := 0
+	reserveMemory := int64(0)
+	reserveDisk := int64(0)
+	reserveBandwidth := 0
+	if !isCopyMode {
+		reserveCPU = cpuSpec.Cores
+		reserveMemory = int64(memorySpec.SizeMB)
+		reserveDisk = int64(diskSpec.SizeMB)
+		reserveBandwidth = bandwidthSpec.SpeedMbps
+	}
+	sessionIDs := make([]string, req.Count)
+	for i := range sessionIDs {
+		sessionIDs[i] = resources.GenerateSessionID()
+	}
+
 	resourceService := &resources.ResourceService{}
-	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		for i := 0; i < req.Count; i++ {
-			code, err := s.generateUniqueCode()
-			if err != nil {
-				return fmt.Errorf("第 %d 个兑换码生成失败: %w", i+1, err)
-			}
-			sessionID := resources.GenerateSessionID()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		resourceResult, err := resourceService.CheckProviderResourcesWithTx(tx, resourceModel.ResourceCheckRequest{
+			ProviderID:   req.ProviderID,
+			InstanceType: req.InstanceType,
+			CPU:          reserveCPU * req.Count,
+			Memory:       reserveMemory * int64(req.Count),
+			Disk:         reserveDisk * int64(req.Count),
+		})
+		if err != nil {
+			return fmt.Errorf("Provider资源检查失败: %w", err)
+		}
+		if !resourceResult.Allowed {
+			return fmt.Errorf("Provider资源不足: %s", resourceResult.Reason)
+		}
 
-			// 构造任务数据（字段名与 CreateInstanceTaskRequest 的 JSON 标签一致，便于 executeProviderCreation 复用）
-			taskDataReq := adminModel.CreateRedemptionInstanceTaskRequest{
-				ProviderId:      req.ProviderID,
-				ImageId:         req.ImageId,
-				CPUId:           req.CPUId,
-				MemoryId:        req.MemoryId,
-				DiskId:          req.DiskId,
-				BandwidthId:     req.BandwidthId,
-				SessionId:       sessionID,
-				CreationMode:    req.CreationMode,
-				SourceContainer: req.SourceContainer,
-				GpuEnabled:      req.GpuEnabled,
-				GpuDeviceIds:    req.GpuDeviceIds,
-			}
-
-			redemptionCode := systemModel.RedemptionCode{
-				Code:            code,
+		redemptionCodes := make([]systemModel.RedemptionCode, req.Count)
+		for i := range redemptionCodes {
+			redemptionCodes[i] = systemModel.RedemptionCode{
+				Code:            codes[i],
 				Status:          systemModel.RedemptionStatusPendingCreate,
 				ProviderID:      req.ProviderID,
 				ProviderName:    provider.Name,
@@ -325,40 +338,40 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 				GpuEnabled:      req.GpuEnabled,
 				GpuDeviceIds:    req.GpuDeviceIds,
 			}
-			if err := tx.Create(&redemptionCode).Error; err != nil {
-				return fmt.Errorf("第 %d 个兑换码记录创建失败: %w", i+1, err)
-			}
+		}
+		if err := tx.CreateInBatches(&redemptionCodes, 100).Error; err != nil {
+			return fmt.Errorf("批量创建兑换码失败: %w", err)
+		}
 
-			reserveCPU := 0
-			reserveMemory := int64(0)
-			reserveDisk := int64(0)
-			reserveBandwidth := 0
-			if !isCopyMode {
-				reserveCPU = cpuSpec.Cores
-				reserveMemory = int64(memorySpec.SizeMB)
-				reserveDisk = int64(diskSpec.SizeMB)
-				reserveBandwidth = bandwidthSpec.SpeedMbps
-			}
-			resourceResult, err := resourceService.CheckProviderResourcesWithTx(tx, resourceModel.ResourceCheckRequest{
+		expiresAt := time.Now().Add(time.Hour)
+		reservations := make([]resourceModel.ResourceReservation, req.Count)
+		tasks := make([]adminModel.Task, req.Count)
+		for i := range redemptionCodes {
+			reservations[i] = resourceModel.ResourceReservation{
+				UserID:       0,
 				ProviderID:   req.ProviderID,
+				SessionID:    sessionIDs[i],
 				InstanceType: req.InstanceType,
 				CPU:          reserveCPU,
 				Memory:       reserveMemory,
 				Disk:         reserveDisk,
-			})
-			if err != nil {
-				return fmt.Errorf("第 %d 个兑换码Provider资源检查失败: %w", i+1, err)
+				Bandwidth:    reserveBandwidth,
+				ExpiresAt:    expiresAt,
 			}
-			if !resourceResult.Allowed {
-				return fmt.Errorf("第 %d 个兑换码Provider资源不足: %s", i+1, resourceResult.Reason)
+			taskDataReq := adminModel.CreateRedemptionInstanceTaskRequest{
+				ProviderId:       req.ProviderID,
+				ImageId:          req.ImageId,
+				CPUId:            req.CPUId,
+				MemoryId:         req.MemoryId,
+				DiskId:           req.DiskId,
+				BandwidthId:      req.BandwidthId,
+				SessionId:        sessionIDs[i],
+				CreationMode:     req.CreationMode,
+				SourceContainer:  req.SourceContainer,
+				GpuEnabled:       req.GpuEnabled,
+				GpuDeviceIds:     req.GpuDeviceIds,
+				RedemptionCodeID: redemptionCodes[i].ID,
 			}
-			if err := reservationService.ReserveResourcesInTx(tx, 0, req.ProviderID, sessionID,
-				req.InstanceType, reserveCPU, reserveMemory, reserveDisk, reserveBandwidth); err != nil {
-				return fmt.Errorf("第 %d 个兑换码实例资源预留失败: %w", i+1, err)
-			}
-
-			// 将 RedemptionCodeID 写入任务数据
-			taskDataReq.RedemptionCodeID = redemptionCode.ID
 			taskDataJSON, err := json.Marshal(taskDataReq)
 			if err != nil {
 				return fmt.Errorf("第 %d 个兑换码任务数据序列化失败: %w", i+1, err)
@@ -373,7 +386,7 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 			if req.InstanceType == "vm" {
 				estimatedDuration = 600
 			}
-			task := adminModel.Task{
+			tasks[i] = adminModel.Task{
 				UserID:                adminID,
 				ProviderID:            &providerID,
 				TaskType:              "create_redemption_instance",
@@ -387,18 +400,19 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 				PreallocatedDisk:      int(reserveDisk),
 				PreallocatedBandwidth: reserveBandwidth,
 			}
-			if err := tx.Create(&task).Error; err != nil {
-				return fmt.Errorf("第 %d 个兑换码任务创建失败: %w", i+1, err)
-			}
-
-			// 更新兑换码状态为 creating，记录 TaskID
-			taskID := task.ID
-			if err := tx.Model(&redemptionCode).Updates(map[string]interface{}{
-				"status":  systemModel.RedemptionStatusCreating,
-				"task_id": taskID,
-			}).Error; err != nil {
-				return fmt.Errorf("第 %d 个兑换码状态更新失败: %w", i+1, err)
-			}
+		}
+		if err := tx.CreateInBatches(&reservations, 100).Error; err != nil {
+			return fmt.Errorf("批量预留兑换码资源失败: %w", err)
+		}
+		if err := tx.CreateInBatches(&tasks, 100).Error; err != nil {
+			return fmt.Errorf("批量创建兑换码任务失败: %w", err)
+		}
+		for i := range redemptionCodes {
+			redemptionCodes[i].Status = systemModel.RedemptionStatusCreating
+			redemptionCodes[i].TaskID = &tasks[i].ID
+		}
+		if err := tx.Save(&redemptionCodes).Error; err != nil {
+			return fmt.Errorf("批量关联兑换码任务失败: %w", err)
 		}
 		return nil
 	})
@@ -419,141 +433,224 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 // - pending_create / creating: 取消任务 + 硬删除兑换码
 // - used: 创建实例删除任务 + 硬删除兑换码（无论已兑换与否，实例一并删除）
 // - deleting: 跳过（已在处理中）
-func (s *Service) BatchDelete(ids []uint, adminID uint) error {
+func (s *Service) BatchDelete(ids []uint, adminID, ownerAdminID uint) error {
 	if len(ids) == 0 {
 		return fmt.Errorf("请选择要删除的兑换码")
 	}
 
+	ids = uniqueUintIDs(ids)
+	if len(ids) == 0 || len(ids) > 100 {
+		return fmt.Errorf("兑换码数量必须在1到100之间")
+	}
 	var codes []systemModel.RedemptionCode
-	if err := global.APP_DB.Where("id IN ?", ids).Find(&codes).Error; err != nil {
+	query := global.APP_DB.Where("redemption_codes.id IN ?", ids)
+	if ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("redemption_codes.provider_id IN (?)", providerIDs)
+	}
+	if err := query.Find(&codes).Error; err != nil {
 		return fmt.Errorf("查询兑换码失败: %v", err)
 	}
-
-	dbService := database.GetDatabaseService()
-
+	if len(codes) != len(ids) {
+		return fmt.Errorf("部分兑换码不存在或无权限")
+	}
 	for _, code := range codes {
-		codeID := code.ID
+		if code.Status == systemModel.RedemptionStatusDeleting {
+			return fmt.Errorf("兑换码 %d 正在删除中，请稍后重试", code.ID)
+		}
+	}
 
-		switch code.Status {
-		case systemModel.RedemptionStatusDeleting:
-			continue
+	linkedTaskIDs := make([]uint, 0, len(codes))
+	instanceIDSet := make(map[uint]struct{}, len(codes))
+	for _, code := range codes {
+		if code.TaskID != nil {
+			linkedTaskIDs = append(linkedTaskIDs, *code.TaskID)
+		}
+		if code.InstanceID != nil {
+			instanceIDSet[*code.InstanceID] = struct{}{}
+		}
+	}
 
-		case systemModel.RedemptionStatusPendingUse:
-			if code.InstanceID != nil {
-				var instance providerModel.Instance
-				if err := global.APP_DB.First(&instance, *code.InstanceID).Error; err == nil {
-					taskData := map[string]interface{}{
-						"instanceId":     instance.ID,
-						"providerId":     instance.ProviderID,
-						"adminOperation": true,
-					}
-					taskDataJSON, err := json.Marshal(taskData)
-					if err == nil {
-						if _, tErr := s.taskService.CreateTask(adminID, &instance.ProviderID, &instance.ID, "delete", string(taskDataJSON), 0); tErr != nil {
-							global.APP_LOG.Warn("创建实例删除任务失败",
-								zap.Uint("codeId", codeID),
-								zap.Uint("instanceId", instance.ID),
-								zap.Error(tErr))
-						} else {
-							global.APP_DB.Model(&instance).Update("status", "deleting")
-						}
-					}
-				}
-			}
-			if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-				return tx.Unscoped().Delete(&systemModel.RedemptionCode{}, codeID).Error
-			}); err != nil {
-				global.APP_LOG.Warn("硬删除兑换码失败", zap.Uint("codeId", codeID), zap.Error(err))
-			}
+	var linkedTasks []adminModel.Task
+	if len(linkedTaskIDs) > 0 {
+		if err := global.APP_DB.Where("id IN ?", linkedTaskIDs).Find(&linkedTasks).Error; err != nil {
+			return fmt.Errorf("批量查询兑换码任务失败: %w", err)
+		}
+	}
+	linkedTaskMap := make(map[uint]adminModel.Task, len(linkedTasks))
+	for _, linkedTask := range linkedTasks {
+		linkedTaskMap[linkedTask.ID] = linkedTask
+		if linkedTask.Status == "completed" && linkedTask.InstanceID != nil {
+			instanceIDSet[*linkedTask.InstanceID] = struct{}{}
+		}
+	}
 
-		case systemModel.RedemptionStatusPendingCreate, systemModel.RedemptionStatusCreating:
-			if code.TaskID != nil {
-				taskID := *code.TaskID
-				var t adminModel.Task
-				if err := global.APP_DB.First(&t, taskID).Error; err == nil {
-					// 取消仍在运行的任务（含 processing：阶段1已创建实例记录但尚未最终化）
-					if t.Status == "pending" || t.Status == "running" || t.Status == "processing" {
-						global.APP_DB.Model(&t).Updates(map[string]interface{}{
-							"status":        "cancelled",
-							"cancel_reason": "兑换码被管理员删除",
-							"completed_at":  time.Now(),
-						})
-						// finalizeRedemptionInstanceCreation 检测到 cancelled 后会调用
-						// delayedDeleteFailedInstance 清理已创建的实例，无需在此重复处理
-					} else if t.Status == "completed" && t.InstanceID != nil {
-						// 竞态：任务在我们取消前已完成，但兑换码未切换为 pending_use（极窄窗口）
-						// 此时实例已存在于 DB，需手动创建删除任务
-						var instance providerModel.Instance
-						if err := global.APP_DB.First(&instance, *t.InstanceID).Error; err == nil {
-							taskData := map[string]interface{}{
-								"instanceId":     instance.ID,
-								"providerId":     instance.ProviderID,
-								"adminOperation": true,
-							}
-							taskDataJSON, marshalErr := json.Marshal(taskData)
-							if marshalErr == nil {
-								if _, tErr := s.taskService.CreateTask(adminID, &instance.ProviderID, &instance.ID, "delete", string(taskDataJSON), 0); tErr != nil {
-									global.APP_LOG.Warn("创建孤儿实例删除任务失败",
-										zap.Uint("codeId", codeID),
-										zap.Uint("instanceId", instance.ID),
-										zap.Error(tErr))
-								} else {
-									global.APP_DB.Model(&instance).Update("status", "deleting")
-								}
-							}
-						}
-					}
-				}
-			}
-			if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-				return tx.Unscoped().Delete(&systemModel.RedemptionCode{}, codeID).Error
-			}); err != nil {
-				global.APP_LOG.Warn("硬删除兑换码失败", zap.Uint("codeId", codeID), zap.Error(err))
-			}
+	instanceIDs := make([]uint, 0, len(instanceIDSet))
+	for instanceID := range instanceIDSet {
+		instanceIDs = append(instanceIDs, instanceID)
+	}
+	var instances []providerModel.Instance
+	if len(instanceIDs) > 0 {
+		instanceQuery := global.APP_DB.Where("instances.id IN ?", instanceIDs)
+		if ownerAdminID > 0 {
+			providerIDs := global.APP_DB.Model(&providerModel.Provider{}).Select("id").Where("owner_admin_id = ?", ownerAdminID)
+			instanceQuery = instanceQuery.Where("instances.provider_id IN (?)", providerIDs)
+		}
+		if err := instanceQuery.Find(&instances).Error; err != nil {
+			return fmt.Errorf("批量查询兑换码实例失败: %w", err)
+		}
+	}
+	instanceMap := make(map[uint]providerModel.Instance, len(instances))
+	for _, instance := range instances {
+		instanceMap[instance.ID] = instance
+	}
 
-		default:
-			// used 及未知状态：如果关联了实例，创建删除任务
-			if code.InstanceID != nil {
-				var instance providerModel.Instance
-				if err := global.APP_DB.First(&instance, *code.InstanceID).Error; err == nil {
-					taskData := map[string]interface{}{
-						"instanceId":     instance.ID,
-						"providerId":     instance.ProviderID,
-						"adminOperation": true,
-					}
-					taskDataJSON, marshalErr := json.Marshal(taskData)
-					if marshalErr == nil {
-						if _, tErr := s.taskService.CreateTask(adminID, &instance.ProviderID, &instance.ID, "delete", string(taskDataJSON), 0); tErr != nil {
-							global.APP_LOG.Warn("创建已兑换实例删除任务失败",
-								zap.Uint("codeId", codeID),
-								zap.Uint("instanceId", instance.ID),
-								zap.Error(tErr))
-						} else {
-							global.APP_DB.Model(&instance).Update("status", "deleting")
-						}
-					}
-				}
-			}
-			if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-				return tx.Unscoped().Delete(&systemModel.RedemptionCode{}, codeID).Error
-			}); err != nil {
-				global.APP_LOG.Warn("硬删除兑换码失败", zap.Uint("codeId", codeID), zap.Error(err))
+	activeDeleteInstances := make(map[uint]struct{})
+	if len(instanceIDs) > 0 {
+		var activeDeleteTasks []adminModel.Task
+		if err := global.APP_DB.Select("instance_id").
+			Where("instance_id IN ? AND task_type = ? AND status IN ?", instanceIDs, "delete", []string{"pending", "processing", "running", "cancelling"}).
+			Find(&activeDeleteTasks).Error; err != nil {
+			return fmt.Errorf("查询实例删除任务失败: %w", err)
+		}
+		for _, activeTask := range activeDeleteTasks {
+			if activeTask.InstanceID != nil {
+				activeDeleteInstances[*activeTask.InstanceID] = struct{}{}
 			}
 		}
 	}
 
+	cancelTaskIDs := make([]uint, 0, len(codes))
+	deleteTasks := make([]adminModel.Task, 0, len(codes))
+	deletingInstanceIDs := make([]uint, 0, len(codes))
+	queuedInstances := make(map[uint]struct{}, len(codes))
+	for _, code := range codes {
+		var instanceID uint
+		if code.Status == systemModel.RedemptionStatusPendingCreate || code.Status == systemModel.RedemptionStatusCreating {
+			if code.TaskID != nil {
+				if linkedTask, exists := linkedTaskMap[*code.TaskID]; exists {
+					switch linkedTask.Status {
+					case "pending", "processing", "running", "cancelling":
+						cancelTaskIDs = append(cancelTaskIDs, linkedTask.ID)
+					case "completed":
+						if linkedTask.InstanceID != nil {
+							instanceID = *linkedTask.InstanceID
+						}
+					}
+				}
+			}
+		} else if code.InstanceID != nil {
+			instanceID = *code.InstanceID
+		}
+		if instanceID == 0 {
+			continue
+		}
+		instance, exists := instanceMap[instanceID]
+		if !exists {
+			continue
+		}
+		if _, exists := queuedInstances[instance.ID]; exists {
+			continue
+		}
+		queuedInstances[instance.ID] = struct{}{}
+		deletingInstanceIDs = append(deletingInstanceIDs, instance.ID)
+		if _, exists := activeDeleteInstances[instance.ID]; exists {
+			continue
+		}
+		taskDataJSON, err := json.Marshal(map[string]interface{}{
+			"instanceId":     instance.ID,
+			"providerId":     instance.ProviderID,
+			"adminOperation": true,
+		})
+		if err != nil {
+			return err
+		}
+		providerID := instance.ProviderID
+		id := instance.ID
+		deleteTasks = append(deleteTasks, adminModel.Task{
+			UserID:            adminID,
+			ProviderID:        &providerID,
+			InstanceID:        &id,
+			TaskType:          "delete",
+			Status:            "pending",
+			TaskData:          string(taskDataJSON),
+			TimeoutDuration:   utils.GetDefaultTaskTimeout("delete"),
+			IsForceStoppable:  false,
+			EstimatedDuration: utils.GetEstimatedTaskDuration("delete", instance.InstanceType),
+		})
+	}
+
+	if len(deleteTasks) > 0 {
+		if err := taskgate.EnsureAccepting(); err != nil {
+			return err
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := database.GetDatabaseService().ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		if len(deleteTasks) > 0 {
+			if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+				return err
+			}
+			tasksToCreate := append([]adminModel.Task(nil), deleteTasks...)
+			if err := tx.CreateInBatches(&tasksToCreate, 100).Error; err != nil {
+				return err
+			}
+		}
+		if len(cancelTaskIDs) > 0 {
+			now := time.Now()
+			if err := tx.Model(&adminModel.Task{}).
+				Where("id IN ? AND status IN ?", cancelTaskIDs, []string{"pending", "processing", "running", "cancelling"}).
+				Updates(map[string]interface{}{
+					"status":        "cancelled",
+					"cancel_reason": "兑换码被管理员删除",
+					"completed_at":  now,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		if len(deletingInstanceIDs) > 0 {
+			if err := tx.Model(&providerModel.Instance{}).Where("id IN ?", deletingInstanceIDs).Update("status", "deleting").Error; err != nil {
+				return err
+			}
+		}
+		return tx.Unscoped().Where("id IN ?", ids).Delete(&systemModel.RedemptionCode{}).Error
+	})
+	if err != nil {
+		return err
+	}
+	if s.taskService != nil {
+		for _, taskID := range cancelTaskIDs {
+			s.taskService.ReleaseTaskLocks(taskID)
+		}
+	}
+	if len(deleteTasks) > 0 && global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
 	return nil
 }
 
 // ExportByIDs 导出指定 ID 的兑换码详细信息
-func (s *Service) ExportByIDs(ids []uint) ([]adminModel.RedemptionCodeResponse, error) {
+func (s *Service) ExportByIDs(ids []uint, ownerAdminID uint) ([]adminModel.RedemptionCodeResponse, error) {
 	var codes []systemModel.RedemptionCode
 	query := global.APP_DB.Model(&systemModel.RedemptionCode{})
+	ids = uniqueUintIDs(ids)
+	if ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("provider_id IN (?)", providerIDs)
+	}
 	if len(ids) > 0 {
 		query = query.Where("id IN ?", ids)
 	}
 	if err := query.Find(&codes).Error; err != nil {
 		return nil, err
+	}
+	if len(ids) > 0 && len(codes) != len(ids) {
+		return nil, fmt.Errorf("部分兑换码不存在或无权限")
 	}
 
 	// 批量查询实例名称
@@ -730,13 +827,26 @@ func (s *Service) generateUniqueCode() (string, error) {
 		if strings.HasPrefix(code, "ORI") {
 			continue
 		}
-
-		var existing systemModel.RedemptionCode
-		if err := global.APP_DB.Where("code = ?", code).First(&existing).Error; err != nil {
-			return code, nil
-		}
+		return code, nil
 	}
 	return "", fmt.Errorf("无法生成唯一兑换码，请重试")
+}
+
+func (s *Service) generateUniqueCodes(count int) ([]string, error) {
+	result := make([]string, 0, count)
+	seen := make(map[string]struct{}, count)
+	for len(result) < count {
+		code, err := s.generateUniqueCode()
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[code]; exists {
+			continue
+		}
+		seen[code] = struct{}{}
+		result = append(result, code)
+	}
+	return result, nil
 }
 
 func validateGPUDeviceIDs(raw string) error {
@@ -758,4 +868,20 @@ func validateGPUDeviceIDs(raw string) error {
 		}
 	}
 	return nil
+}
+
+func uniqueUintIDs(ids []uint) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	result := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
 }

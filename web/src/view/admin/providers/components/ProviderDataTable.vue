@@ -20,7 +20,7 @@
       <el-table-column
         prop="type"
         :label="$t('admin.providers.providerType')"
-        width="100"
+        min-width="110"
       />
       <el-table-column
         prop="version"
@@ -62,7 +62,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.location')"
-        width="100"
+        min-width="110"
       >
         <template #default="scope">
           <div class="location-cell-vertical">
@@ -113,7 +113,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.supportTypes')"
-        width="120"
+        min-width="150"
       >
         <template #default="scope">
           <div class="support-types">
@@ -137,7 +137,7 @@
       <el-table-column
         prop="architecture"
         :label="$t('admin.providers.architecture')"
-        width="110"
+        min-width="140"
       >
         <template #default="scope">
           <el-tag
@@ -150,7 +150,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.storagePool')"
-        width="110"
+        min-width="140"
       >
         <template #default="scope">
           <el-tag
@@ -181,7 +181,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.connectionStatus')"
-        width="100"
+        min-width="120"
       >
         <template #default="scope">
           <div class="connection-status">
@@ -300,7 +300,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.diskResource')"
-        width="140"
+        min-width="150"
       >
         <template #default="scope">
           <div
@@ -337,7 +337,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.trafficUsage')"
-        width="140"
+        min-width="150"
       >
         <template #default="scope">
           <div
@@ -435,7 +435,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('common.status')"
-        width="80"
+        min-width="90"
       >
         <template #default="scope">
           <el-tag

@@ -1,10 +1,13 @@
-import { ref, reactive, onMounted, watch } from 'vue'
+import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { blockRulesApi, getAllInstances } from '@/api/admin'
+import { useUserStore } from '@/pinia/modules/user'
 
 export function useBlockRuleManagement() {
   const { t } = useI18n()
+  const userStore = useUserStore()
+  const isSuperAdmin = computed(() => userStore.userType === 'admin')
 
   const rules = ref([])
   const applications = ref([])
@@ -25,7 +28,7 @@ export function useBlockRuleManagement() {
   const instanceProviderFilter = ref(null)
 
   const categories = ['mining', 'bt', 'speedtest', 'custom']
-  const scopeOptions = ['global', 'provider', 'instance']
+  const scopeOptions = computed(() => isSuperAdmin.value ? ['global', 'provider', 'instance'] : ['provider', 'instance'])
   const ipVersionOptions = ['both', 'ipv4', 'ipv6']
 
   // Preset strings for each category
@@ -66,7 +69,7 @@ export function useBlockRuleManagement() {
   })
 
   const applyForm = reactive({
-    scope: 'global',
+    scope: isSuperAdmin.value ? 'global' : 'provider',
     target_ids: [],
     ip_version: 'both'
   })
@@ -79,6 +82,13 @@ export function useBlockRuleManagement() {
 
   const applyFormRules = {
     scope: [{ required: true, message: () => t('admin.blockRules.scopeRequired'), trigger: 'change' }]
+  }
+
+  function toArray(payload) {
+    if (Array.isArray(payload)) return payload
+    if (Array.isArray(payload?.list)) return payload.list
+    if (Array.isArray(payload?.data)) return payload.data
+    return []
   }
 
   function parseStrings(str) {
@@ -104,7 +114,7 @@ export function useBlockRuleManagement() {
     loadingRules.value = true
     try {
       const res = await blockRulesApi.getRules()
-      rules.value = res?.data || []
+      rules.value = toArray(res?.data)
     } catch (err) {
       ElMessage.error(err?.message || t('common.loadFailed'))
     } finally {
@@ -116,7 +126,7 @@ export function useBlockRuleManagement() {
     loadingApps.value = true
     try {
       const res = await blockRulesApi.getApplications()
-      applications.value = res?.data || []
+      applications.value = toArray(res?.data)
     } catch (err) {
       ElMessage.error(err?.message || t('common.loadFailed'))
     } finally {
@@ -127,7 +137,7 @@ export function useBlockRuleManagement() {
   async function fetchAgentProviders() {
     try {
       const res = await blockRulesApi.getAgentProviders()
-      const providers = res?.data || []
+      const providers = toArray(res?.data)
       providerOptions.value = providers.map(p => ({
         id: typeof p === 'object' ? p.id : p,
         name: typeof p === 'object' ? p.name : `Provider #${p}`
@@ -144,7 +154,7 @@ export function useBlockRuleManagement() {
     loadingInstances.value = true
     try {
       const res = await getAllInstances({ provider_id: providerId, page: 1, pageSize: 500 })
-      instanceOptions.value = res?.data?.list || res?.data || []
+      instanceOptions.value = toArray(res?.data)
     } catch {
       instanceOptions.value = []
     } finally {
@@ -303,6 +313,7 @@ export function useBlockRuleManagement() {
   return {
     rules,
     applications,
+    isSuperAdmin,
     providerOptions,
     instanceOptions,
     selectedRules,

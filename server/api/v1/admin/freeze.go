@@ -17,7 +17,6 @@ func SetUserExpiry(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "参数错误: "+err.Error()))
 		return
 	}
-
 	if err := freezeService.SetUserExpiry(req.UserID, req.ExpiresAt); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -31,6 +30,10 @@ func SetProviderExpiry(c *gin.Context) {
 	var req adminModel.SetProviderExpiryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "参数错误: "+err.Error()))
+		return
+	}
+	if err := ensureProviderOwner(c, req.ProviderID); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -49,6 +52,10 @@ func SetInstanceExpiry(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "参数错误: "+err.Error()))
 		return
 	}
+	if err := ensureInstanceOwner(c, req.InstanceID); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	if err := freezeService.SetInstanceExpiry(req.InstanceID, req.ExpiresAt); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -63,6 +70,10 @@ func FreezeProviderManual(c *gin.Context) {
 	var req adminModel.FreezeProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "参数错误: "+err.Error()))
+		return
+	}
+	if err := ensureProviderOwner(c, req.ID); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -81,6 +92,10 @@ func FreezeInstance(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "参数错误: "+err.Error()))
 		return
 	}
+	if err := ensureInstanceOwner(c, req.InstanceID); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	if err := freezeService.FreezeInstance(req.InstanceID, req.Reason); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -97,6 +112,10 @@ func UnfreezeProviderManual(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "参数错误: "+err.Error()))
 		return
 	}
+	if err := ensureProviderOwner(c, req.ID); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	if err := freezeService.UnfreezeProvider(req.ID); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -111,6 +130,10 @@ func UnfreezeInstance(c *gin.Context) {
 	var req adminModel.UnfreezeInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "参数错误: "+err.Error()))
+		return
+	}
+	if err := ensureInstanceOwner(c, req.InstanceID); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 

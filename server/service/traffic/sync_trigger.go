@@ -37,8 +37,6 @@ func NewSyncTriggerService() *SyncTriggerService {
 
 // Shutdown 优雅关闭服务，等待所有goroutine完成
 func (s *SyncTriggerService) Shutdown(timeout time.Duration) error {
-	s.cancel()
-
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -50,9 +48,13 @@ func (s *SyncTriggerService) Shutdown(timeout time.Duration) error {
 
 	select {
 	case <-done:
+		s.cancel()
 		global.APP_LOG.Info("流量同步触发服务已关闭")
 		return nil
 	case <-timer.C:
+		// Cancel only after the grace period. Cancelling before Wait would make
+		// every request-scoped trigger exit before it can do any work.
+		s.cancel()
 		global.APP_LOG.Warn("流量同步触发服务关闭超时")
 		return context.DeadlineExceeded
 	}

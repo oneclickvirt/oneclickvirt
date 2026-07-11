@@ -401,7 +401,7 @@ const {
 
 .instances-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr));
   gap: 20px;
   margin-bottom: 24px;
 }
@@ -411,6 +411,9 @@ const {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 20px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   cursor: pointer;
   transition: all 0.3s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -440,11 +443,30 @@ const {
   margin-bottom: 16px;
 }
 
+.instance-info {
+  min-width: 0;
+}
+
 .instance-info h3 {
   margin: 0 0 8px 0;
   font-size: 18px;
   font-weight: 600;
   color: var(--text-color-primary);
+  overflow-wrap: anywhere;
+}
+
+.instance-type {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.instance-type .el-tag {
+  margin-left: 0 !important;
+}
+
+.instance-status {
+  flex-shrink: 0;
 }
 
 .instance-details {
@@ -474,6 +496,8 @@ const {
   color: var(--text-color-primary);
   text-align: right;
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .port-mappings {
@@ -524,6 +548,8 @@ const {
   color: var(--text-color-primary);
   text-align: right;
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .port-mappings {
@@ -550,11 +576,60 @@ const {
   border-top: 1px solid var(--el-border-color-lighter);
   padding-top: 12px;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
 }
 
 .instance-actions .el-button {
   font-size: 12px;
+  margin-left: 0;
+}
+
+@media (max-width: 768px) {
+  .user-instances {
+    padding: 0;
+  }
+
+  .filter-section :deep(.el-form--inline) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .filter-section :deep(.el-form--inline .el-form-item) {
+    margin-right: 0;
+    margin-bottom: 0;
+  }
+
+  .filter-section :deep(.el-input),
+  .filter-section :deep(.el-select),
+  .filter-section :deep(.el-button) {
+    width: 100% !important;
+  }
+
+  .instances-grid {
+    gap: 12px;
+  }
+
+  .instance-card {
+    padding: 16px;
+  }
+
+  .instance-header {
+    gap: 12px;
+  }
+
+  .detail-item {
+    gap: 12px;
+  }
+
+  .detail-item .label {
+    min-width: 72px;
+  }
+
+  .instance-actions {
+    justify-content: flex-start;
+  }
 }
 </style>

@@ -419,7 +419,7 @@ const userRoutes = computed(() => {
   // 超级管理员专属路由名称集（normal_admin 不可见）
   const superAdminOnlyRoutes = new Set([
     'AdminUsers', 'AdminConfig', 'AdminPerformance', 'AdminLogs', 'AdminOAuth2Providers',
-    'AdminInviteCodes', 'AdminAnnouncements', 'AdminSystemImages', 'AdminApiTokens'
+    'AdminInviteCodes', 'AdminAnnouncements', 'AdminSystemImages', 'AdminApiTokens', 'AdminKYC'
   ])
   
   // 判断是否为普通管理员

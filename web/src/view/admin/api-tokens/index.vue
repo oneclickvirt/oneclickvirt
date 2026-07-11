@@ -65,7 +65,7 @@
         <el-table-column
           :label="t('admin.apiTokens.userId')"
           prop="userId"
-          width="80"
+          min-width="100"
         />
         <el-table-column
           :label="t('admin.apiTokens.username')"
@@ -89,12 +89,12 @@
         <el-table-column
           :label="t('admin.apiTokens.tokenName')"
           prop="name"
-          min-width="120"
+          min-width="150"
         />
         <el-table-column
           :label="t('admin.apiTokens.tokenPrefix')"
           prop="tokenPrefix"
-          width="140"
+          min-width="150"
         >
           <template #default="{ row }">
             <el-tag
@@ -108,7 +108,7 @@
         <el-table-column
           :label="t('admin.apiTokens.useCount')"
           prop="useCount"
-          width="90"
+          min-width="110"
         />
         <el-table-column
           :label="t('admin.apiTokens.createdAt')"

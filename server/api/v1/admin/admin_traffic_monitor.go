@@ -7,6 +7,7 @@ import (
 	"oneclickvirt/middleware"
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
+	providerModel "oneclickvirt/model/provider"
 	taskService "oneclickvirt/service/task"
 
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,10 @@ func TrafficMonitorOperation(c *gin.Context) {
 	var req adminModel.TrafficMonitorOperationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
+		return
+	}
+	if err := ensureProviderOwner(c, req.ProviderID); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 
@@ -107,7 +112,8 @@ func GetTrafficMonitorTaskList(c *gin.Context) {
 	req.PageSize = 10
 
 	if err := c.ShouldBindQuery(&req); err != nil {
-		global.APP_LOG.Warn("任务列表查询参数绑定失败，使用默认值", zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "任务列表查询参数错误"))
+		return
 	}
 
 	if req.Page <= 0 {
@@ -118,6 +124,12 @@ func GetTrafficMonitorTaskList(c *gin.Context) {
 	}
 
 	db := global.APP_DB.Model(&adminModel.TrafficMonitorTask{})
+	if ownerAdminID := middleware.GetOwnerAdminID(c); ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		db = db.Where("provider_id IN (?)", providerIDs)
+	}
 
 	// 应用筛选条件
 	if req.ProviderID > 0 {
@@ -174,7 +186,14 @@ func GetTrafficMonitorTaskDetail(c *gin.Context) {
 	}
 
 	var task adminModel.TrafficMonitorTask
-	if err := global.APP_DB.First(&task, uint(id)).Error; err != nil {
+	query := global.APP_DB.Where("traffic_monitor_tasks.id = ?", uint(id))
+	if ownerAdminID := middleware.GetOwnerAdminID(c); ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).
+			Select("id").
+			Where("owner_admin_id = ?", ownerAdminID)
+		query = query.Where("traffic_monitor_tasks.provider_id IN (?)", providerIDs)
+	}
+	if err := query.First(&task).Error; err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "任务不存在"))
 		return
 	}
@@ -204,6 +223,10 @@ func GetLatestTrafficMonitorTask(c *gin.Context) {
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的providerId"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 

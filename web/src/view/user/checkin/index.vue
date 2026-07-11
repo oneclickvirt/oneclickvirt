@@ -187,7 +187,7 @@
         <el-table-column
           prop="instanceId"
           :label="t('user.checkin.instanceName')"
-          width="120"
+          min-width="150"
         >
           <template #default="{ row }">
             {{ formatInstanceName(row.instanceId) }}
@@ -207,7 +207,7 @@
         <el-table-column
           prop="renewalDays"
           :label="t('user.checkin.renewalDays')"
-          width="100"
+          min-width="140"
         />
         <el-table-column
           :label="t('user.checkin.oldExpireAt')"

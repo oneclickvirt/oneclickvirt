@@ -17,11 +17,9 @@ import (
 	"time"
 
 	"oneclickvirt/global"
-	adminModel "oneclickvirt/model/admin"
 	checkinModel "oneclickvirt/model/checkin"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/database"
-	"oneclickvirt/service/taskgate"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -354,54 +352,6 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 		}
 	}
 
-	return nil
-}
-
-func (s *Service) queueExpiryRenewalStart(instanceID, userID, providerID uint) error {
-	if err := taskgate.EnsureAccepting(); err != nil {
-		return err
-	}
-
-	activeTaskStatuses := []string{"pending", "processing", "running", "cancelling"}
-	var activeCount int64
-	if err := global.APP_DB.Model(&adminModel.Task{}).
-		Where("instance_id = ? AND task_type = ? AND status IN ?", instanceID, "start", activeTaskStatuses).
-		Count(&activeCount).Error; err != nil {
-		return err
-	}
-	if activeCount > 0 {
-		return nil
-	}
-
-	taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instanceID, providerID)
-	task := &adminModel.Task{
-		TaskType:         "start",
-		Status:           "pending",
-		Progress:         0,
-		StatusMessage:    "签到续期后自动启动实例",
-		TaskData:         taskData,
-		UserID:           userID,
-		ProviderID:       &providerID,
-		InstanceID:       &instanceID,
-		TimeoutDuration:  600,
-		IsForceStoppable: true,
-		CanForceStop:     false,
-	}
-	if err := global.APP_DB.Create(task).Error; err != nil {
-		return err
-	}
-	if err := global.APP_DB.Model(&providerModel.Instance{}).
-		Where("id = ? AND expiry_stopped = ?", instanceID, true).
-		Updates(map[string]interface{}{
-			"status":            "starting",
-			"expiry_stopped":    false,
-			"expiry_stopped_at": nil,
-		}).Error; err != nil {
-		return err
-	}
-	if global.APP_SCHEDULER != nil {
-		global.APP_SCHEDULER.TriggerTaskProcessing()
-	}
 	return nil
 }
 

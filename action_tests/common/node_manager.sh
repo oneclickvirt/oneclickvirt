@@ -30,6 +30,7 @@ ensure_worker_dns() {
     [[ -z "$ip" ]] && { log_warning "DNS check skipped: worker IP is empty"; return 1; }
 
     log_info "Verifying DNS on ${label}..."
+    # shellcheck disable=SC2016 # Variables are expanded by the remote shell.
     local dns_script='
 targets="github.com raw.githubusercontent.com images.lxd.canonical.com images.linuxcontainers.org"
 check_dns() {

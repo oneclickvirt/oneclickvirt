@@ -201,6 +201,6 @@ VOLUME ["/app/storage"]
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget --quiet --tries=1 -O /dev/null http://127.0.0.1:8888/api/v1/health || exit 1
+    CMD wget --quiet --tries=1 --timeout=5 -O /dev/null http://127.0.0.1:8888/api/v1/health || exit 1
 
 CMD ["/start.sh"]

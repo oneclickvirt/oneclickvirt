@@ -376,6 +376,10 @@ func AdminBatchInstanceAction(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的操作类型"))
 		return
 	}
+	if len(req.InstanceIDs) > 100 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "单次最多操作100个实例"))
+		return
+	}
 
 	instanceService := instance.NewService(task.GetTaskService())
 	result := instanceService.BatchInstanceAction(req, middleware.GetOwnerAdminID(c))

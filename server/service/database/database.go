@@ -46,13 +46,15 @@ func (ds *DatabaseService) ExecuteWithTimeout(db *gorm.DB, timeout time.Duration
 func (ds *DatabaseService) ExecuteTransaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
 	db := ds.getDB()
 	if db == nil {
-		global.APP_LOG.Error("数据库连接不可用")
+		if global.APP_LOG != nil {
+			global.APP_LOG.Error("数据库连接不可用")
+		}
 		return gorm.ErrInvalidDB
 	}
 
 	// 使用指数退避重试机制
 	return utils.RetryableDBOperation(ctx, func() error {
-		return ds.ExecuteInTransaction(db, fn)
+		return ds.ExecuteInTransaction(db.WithContext(ctx), fn)
 	}, 8) // 最多重试8次，配合指数退避可以处理更复杂的并发场景
 }
 

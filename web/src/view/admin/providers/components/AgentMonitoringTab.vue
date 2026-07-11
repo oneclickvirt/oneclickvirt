@@ -350,11 +350,11 @@
       <el-table-column
         prop="agent_monitor_id"
         :label="$t('admin.providers.agentId')"
-        width="90"
+        min-width="160"
       />
       <el-table-column
         :label="$t('admin.providers.trafficIn')"
-        width="100"
+        min-width="120"
       >
         <template #default="{ row }">
           {{ formatBytes(row.last_traffic_bytes_in || 0) }}
@@ -362,7 +362,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.trafficOut')"
-        width="100"
+        min-width="130"
       >
         <template #default="{ row }">
           {{ formatBytes(row.last_traffic_bytes_out || 0) }}
@@ -370,7 +370,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.status')"
-        width="80"
+        min-width="90"
       >
         <template #default="{ row }">
           <el-tag
@@ -449,7 +449,7 @@
       <el-table-column
         prop="provider_kind"
         :label="$t('admin.providers.provider')"
-        width="100"
+        min-width="160"
       >
         <template #default="{ row }">
           {{ row.provider_kind || '-' }}
@@ -457,7 +457,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.trafficIn')"
-        width="100"
+        min-width="120"
       >
         <template #default="{ row }">
           {{ formatBytes(row.total_bytes_in || 0) }}
@@ -465,7 +465,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.trafficOut')"
-        width="100"
+        min-width="130"
       >
         <template #default="{ row }">
           {{ formatBytes(row.total_bytes_out || 0) }}
@@ -473,7 +473,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.totalTraffic')"
-        width="100"
+        min-width="150"
       >
         <template #default="{ row }">
           {{ formatBytes(row.total_bytes || 0) }}

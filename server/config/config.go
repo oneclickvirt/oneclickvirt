@@ -23,7 +23,6 @@ type Maintenance struct {
 	EnableDataCleanup           bool `mapstructure:"enable-data-cleanup" json:"enable-data-cleanup" yaml:"enable-data-cleanup"`
 	DataCleanupIntervalHours    int  `mapstructure:"data-cleanup-interval-hours" json:"data-cleanup-interval-hours" yaml:"data-cleanup-interval-hours"`
 	AuditLogRetentionDays       int  `mapstructure:"audit-log-retention-days" json:"audit-log-retention-days" yaml:"audit-log-retention-days"`
-	PmacctRawRetentionDays      int  `mapstructure:"pmacct-raw-retention-days" json:"pmacct-raw-retention-days" yaml:"pmacct-raw-retention-days"`
 	TrafficHistoryRetentionDays int  `mapstructure:"traffic-history-retention-days" json:"traffic-history-retention-days" yaml:"traffic-history-retention-days"`
 	CleanupBatchSize            int  `mapstructure:"cleanup-batch-size" json:"cleanup-batch-size" yaml:"cleanup-batch-size"`
 	OptimizeAfterCleanup        bool `mapstructure:"optimize-after-cleanup" json:"optimize-after-cleanup" yaml:"optimize-after-cleanup"`

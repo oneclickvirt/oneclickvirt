@@ -21,7 +21,7 @@ import (
 )
 
 // CreateSyncPortMappingsTask 创建同步端口映射任务（为每个Provider创建独立任务）
-func (s *TaskService) CreateSyncPortMappingsTask(userID uint, req *adminModel.SyncPortMappingsTaskRequest) ([]*adminModel.Task, error) {
+func (s *TaskService) CreateSyncPortMappingsTask(userID uint, req *adminModel.SyncPortMappingsTaskRequest, ownerAdminID uint) ([]*adminModel.Task, error) {
 	// 获取需要同步的Provider列表
 	if len(req.ProviderIDs) == 0 && len(req.IncludedPortIDs) > 0 {
 		if err := global.APP_DB.Model(&providerModel.Port{}).
@@ -33,6 +33,9 @@ func (s *TaskService) CreateSyncPortMappingsTask(userID uint, req *adminModel.Sy
 	}
 	var providers []providerModel.Provider
 	query := global.APP_DB.Where("status = ?", "active")
+	if ownerAdminID > 0 {
+		query = query.Where("owner_admin_id = ?", ownerAdminID)
+	}
 	if len(req.ProviderIDs) > 0 {
 		query = query.Where("id IN ?", req.ProviderIDs)
 	}

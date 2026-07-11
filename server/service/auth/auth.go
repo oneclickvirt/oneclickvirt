@@ -118,10 +118,7 @@ func (s *AuthService) loginWithPassword(req auth.LoginRequest) (*userModel.User,
 		global.APP_LOG.Error("生成JWT令牌失败", zap.Error(err))
 		return nil, "", errors.New("登录失败，请稍后重试")
 	}
-	// 更新最后登录时间
-	if err := global.APP_DB.Model(&user).UpdateColumn("last_login_at", time.Now()).Error; err != nil {
-		global.APP_LOG.Warn("更新最后登录时间失败", zap.Uint("userID", user.ID), zap.Error(err))
-	}
+	updateLastLogin(user.ID)
 	return &user, token, nil
 }
 
@@ -163,10 +160,7 @@ func (s *AuthService) loginWithEmailCode(req auth.LoginRequest) (*userModel.User
 		global.APP_LOG.Error("生成JWT令牌失败", zap.Error(err))
 		return nil, "", errors.New("登录失败，请稍后重试")
 	}
-	// 更新最后登录时间
-	if err := global.APP_DB.Model(&user).UpdateColumn("last_login_at", time.Now()).Error; err != nil {
-		global.APP_LOG.Warn("更新最后登录时间失败", zap.Uint("userID", user.ID), zap.Error(err))
-	}
+	updateLastLogin(user.ID)
 	return &user, token, nil
 }
 
@@ -208,10 +202,7 @@ func (s *AuthService) loginWithTelegramCode(req auth.LoginRequest) (*userModel.U
 		global.APP_LOG.Error("生成JWT令牌失败", zap.Error(err))
 		return nil, "", errors.New("登录失败，请稍后重试")
 	}
-	// 更新最后登录时间
-	if err := global.APP_DB.Model(&user).UpdateColumn("last_login_at", time.Now()).Error; err != nil {
-		global.APP_LOG.Warn("更新最后登录时间失败", zap.Uint("userID", user.ID), zap.Error(err))
-	}
+	updateLastLogin(user.ID)
 	return &user, token, nil
 }
 
@@ -253,10 +244,7 @@ func (s *AuthService) loginWithQQCode(req auth.LoginRequest) (*userModel.User, s
 		global.APP_LOG.Error("生成JWT令牌失败", zap.Error(err))
 		return nil, "", errors.New("登录失败，请稍后重试")
 	}
-	// 更新最后登录时间
-	if err := global.APP_DB.Model(&user).UpdateColumn("last_login_at", time.Now()).Error; err != nil {
-		global.APP_LOG.Warn("更新最后登录时间失败", zap.Uint("userID", user.ID), zap.Error(err))
-	}
+	updateLastLogin(user.ID)
 	return &user, token, nil
 }
 
@@ -452,14 +440,19 @@ func (s *AuthService) RegisterAndLogin(req auth.RegisterRequest, ip string, user
 		return nil, "", errors.New("登录失败，请稍后重试")
 	}
 
-	// 更新最后登录时间
-	global.APP_DB.Model(&user).Update("last_login_at", time.Now())
+	updateLastLogin(user.ID)
 
 	global.APP_LOG.Info("用户注册并自动登录成功",
 		zap.String("username", user.Username),
 		zap.Uint("user_id", user.ID))
 
 	return &user, token, nil
+}
+
+func updateLastLogin(userID uint) {
+	if err := utils.UpdateLastLogin(userID); err != nil && global.APP_LOG != nil {
+		global.APP_LOG.Warn("更新最后登录时间失败", zap.Uint("userID", userID), zap.Error(err))
+	}
 }
 
 // UserInfo 用户信息结构体

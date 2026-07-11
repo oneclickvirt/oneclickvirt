@@ -264,6 +264,49 @@ func GetDefaultTaskTimeout(taskType string) int {
 	return 1800 // 默认30分钟
 }
 
+// GetEstimatedTaskDuration returns the queue-time estimate for a task.
+func GetEstimatedTaskDuration(taskType, instanceType string) int {
+	switch taskType {
+	case "create":
+		if instanceType == "vm" {
+			return 300
+		}
+		return 180
+	case "reset":
+		if instanceType == "vm" {
+			return 450
+		}
+		return 270
+	case "start":
+		if instanceType == "vm" {
+			return 90
+		}
+		return 30
+	case "stop":
+		if instanceType == "vm" {
+			return 60
+		}
+		return 30
+	case "restart":
+		if instanceType == "vm" {
+			return 150
+		}
+		return 60
+	case "delete":
+		return 600
+	case "reset-password":
+		return 30
+	case "monitor-sync", "traffic-monitor-enable", "traffic-monitor-disable", "traffic-monitor-detect", "snapshot-create", "snapshot-delete", "snapshot-restore", "provider-image-cleanup":
+		return 300
+	case "agent-deploy":
+		return 600
+	case "agent-uninstall":
+		return 120
+	default:
+		return 120
+	}
+}
+
 // GetCreateTaskTimeout returns a create timeout sized for the provider and
 // instance type. VM creation on node-local virtualization backends can include
 // image import, guest-agent boot, networking, port mapping, and password setup.

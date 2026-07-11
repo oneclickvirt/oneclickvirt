@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -364,7 +365,7 @@ func (s *ProviderConfigService) LoadProviderConfigFromFile(providerUUID string) 
 
 // ExportAllConfigs 导出所有Provider配置到指定目录
 func (s *ProviderConfigService) ExportAllConfigs(exportDir string) error {
-	if err := os.MkdirAll(exportDir, 0755); err != nil {
+	if err := os.MkdirAll(exportDir, 0700); err != nil {
 		return fmt.Errorf("创建导出目录失败: %w", err)
 	}
 
@@ -407,8 +408,8 @@ func (s *ProviderConfigService) ExportAllConfigs(exportDir string) error {
 			continue
 		}
 
-		exportPath := filepath.Join(exportDir, fmt.Sprintf("%s_%s%s", provider.Name, provider.Type, ConfigFileSuffix))
-		if err := os.WriteFile(exportPath, backupData, 0644); err != nil {
+		exportPath := providerExportPath(exportDir, provider)
+		if err := os.WriteFile(exportPath, backupData, 0600); err != nil {
 			global.APP_LOG.Warn("导出配置失败",
 				zap.String("provider", provider.Name),
 				zap.String("path", exportPath),
@@ -426,7 +427,7 @@ func (s *ProviderConfigService) ExportAllConfigs(exportDir string) error {
 
 // ExportProviderConfigs 导出指定Provider配置到指定目录
 func (s *ProviderConfigService) ExportProviderConfigs(exportDir string, providerIDs []uint) error {
-	if err := os.MkdirAll(exportDir, 0755); err != nil {
+	if err := os.MkdirAll(exportDir, 0700); err != nil {
 		return fmt.Errorf("创建导出目录失败: %w", err)
 	}
 
@@ -469,8 +470,8 @@ func (s *ProviderConfigService) ExportProviderConfigs(exportDir string, provider
 			continue
 		}
 
-		exportPath := filepath.Join(exportDir, fmt.Sprintf("%s_%s%s", provider.Name, provider.Type, ConfigFileSuffix))
-		if err := os.WriteFile(exportPath, backupData, 0644); err != nil {
+		exportPath := providerExportPath(exportDir, provider)
+		if err := os.WriteFile(exportPath, backupData, 0600); err != nil {
 			global.APP_LOG.Warn("导出配置失败",
 				zap.String("provider", provider.Name),
 				zap.String("path", exportPath),
@@ -484,6 +485,30 @@ func (s *ProviderConfigService) ExportProviderConfigs(exportDir string, provider
 	}
 
 	return nil
+}
+
+func providerExportPath(exportDir string, provider providerModel.Provider) string {
+	sanitize := func(value, fallback string) string {
+		value = strings.Map(func(r rune) rune {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+				return r
+			default:
+				return '_'
+			}
+		}, value)
+		value = strings.Trim(value, ".")
+		if value == "" {
+			value = fallback
+		}
+		if len(value) > 96 {
+			value = value[:96]
+		}
+		return value
+	}
+	name := sanitize(provider.Name, "provider")
+	providerType := sanitize(provider.Type, "unknown")
+	return filepath.Join(exportDir, fmt.Sprintf("%d_%s_%s%s", provider.ID, name, providerType, ConfigFileSuffix))
 }
 
 // CleanupProviderConfig 清理Provider配置文件

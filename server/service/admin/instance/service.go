@@ -671,53 +671,6 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 	return nil
 }
 
-func (s *Service) BatchInstanceAction(req admin.BatchInstanceActionRequest, ownerAdminID uint) admin.BatchInstanceActionResponse {
-	response := admin.BatchInstanceActionResponse{
-		Action:  req.Action,
-		Total:   len(req.InstanceIDs),
-		Results: make([]admin.BatchInstanceActionResult, 0, len(req.InstanceIDs)),
-	}
-	seen := make(map[uint]struct{}, len(req.InstanceIDs))
-	for _, instanceID := range req.InstanceIDs {
-		if instanceID == 0 {
-			response.FailCount++
-			response.Results = append(response.Results, admin.BatchInstanceActionResult{
-				InstanceID: instanceID,
-				Success:    false,
-				Error:      "无效的实例ID",
-			})
-			continue
-		}
-		if _, exists := seen[instanceID]; exists {
-			response.FailCount++
-			response.Results = append(response.Results, admin.BatchInstanceActionResult{
-				InstanceID: instanceID,
-				Success:    false,
-				Error:      "实例ID重复",
-			})
-			continue
-		}
-		seen[instanceID] = struct{}{}
-
-		if err := s.InstanceAction(instanceID, admin.InstanceActionRequest{Action: req.Action}, ownerAdminID); err != nil {
-			response.FailCount++
-			response.Results = append(response.Results, admin.BatchInstanceActionResult{
-				InstanceID: instanceID,
-				Success:    false,
-				Error:      err.Error(),
-			})
-			continue
-		}
-		response.SuccessCount++
-		response.Results = append(response.Results, admin.BatchInstanceActionResult{
-			InstanceID: instanceID,
-			Success:    true,
-			Message:    "操作已提交",
-		})
-	}
-	return response
-}
-
 func (s *Service) checkInstanceOwnerAdmin(instance *providerModel.Instance, ownerAdminID uint) error {
 	if ownerAdminID == 0 {
 		return nil

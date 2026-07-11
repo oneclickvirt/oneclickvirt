@@ -505,13 +505,11 @@ func (s *SchedulerService) cleanupRetentionData() {
 		return
 	}
 	if stats.AuditLogs > 0 ||
-		stats.PmacctTrafficRecords > 0 ||
 		stats.InstanceTrafficHistories > 0 ||
 		stats.ProviderTrafficHistories > 0 ||
 		stats.UserTrafficHistories > 0 {
 		global.APP_LOG.Debug("数据库保留策略清理统计",
 			zap.Int64("auditLogs", stats.AuditLogs),
-			zap.Int64("pmacctTrafficRecords", stats.PmacctTrafficRecords),
 			zap.Int64("instanceTrafficHistories", stats.InstanceTrafficHistories),
 			zap.Int64("providerTrafficHistories", stats.ProviderTrafficHistories),
 			zap.Int64("userTrafficHistories", stats.UserTrafficHistories))

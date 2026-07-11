@@ -24,6 +24,10 @@ func SaveHardwareReport(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	authCtx, ok := middleware.GetAuthContext(c)
 	if !ok {
@@ -62,6 +66,10 @@ func GetHardwareTestReport(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
 
 	svc := adminProviderService.NewService()
 	report, err := svc.GetHardwareTestReport(c.Request.Context(), uint(providerID))
@@ -84,6 +92,10 @@ func DeleteHardwareReport(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 

@@ -3,7 +3,7 @@ package traffic
 import (
 	"context"
 	"fmt"
-	"strings"
+	"sort"
 	"time"
 
 	"oneclickvirt/global"
@@ -14,6 +14,7 @@ import (
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // LimitService 流量统计查询服务
@@ -56,60 +57,24 @@ func (s *LimitService) getUserMonthlyTrafficFromPmacct(userID uint) (int64, erro
 	return int64(stats.ActualUsageMB), nil
 }
 
-// getProviderMonthlyTrafficFromPmacct 从聚合表获取Provider当月流量使用量
-// 使用provider_traffic_histories聚合表，大幅提升性能
+// getProviderMonthlyTrafficFromPmacct 通过 QueryService 查询 Provider 当月流量。
 func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int64, error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
-	// 首先检查Provider是否启用了流量统计
-	var p provider.Provider
-	if err := global.APP_DB.Select("enable_traffic_control, traffic_count_mode, traffic_multiplier").First(&p, providerID).Error; err != nil {
-		return 0, fmt.Errorf("获取Provider信息失败: %w", err)
-	}
-
-	// 如果未启用流量统计，返回0
-	if !p.EnableTrafficControl {
-		return 0, nil
-	}
-
-	// 使用聚合表查询，性能大幅提升
-	// day=0,hour=0 表示月度汇总数据
-	var totalTrafficMB float64
-	query := `
-		SELECT COALESCE(SUM(
-			CASE 
-				WHEN ? = 'out' THEN ith.traffic_out * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
-				WHEN ? = 'in' THEN ith.traffic_in * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
-				ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN ? > 0 THEN ? ELSE 1.0 END
-			END
-		), 0) as total_traffic_mb
-		FROM instance_traffic_histories ith
-		WHERE ith.provider_id = ?
-		  AND ith.year = ?
-		  AND ith.month = ?
-		  AND ith.day = 0
-		  AND ith.hour = 0
-		  AND ith.deleted_at IS NULL
-	`
-
-	err := global.APP_DB.Raw(query,
-		p.TrafficCountMode, p.TrafficMultiplier, p.TrafficMultiplier,
-		p.TrafficCountMode, p.TrafficMultiplier, p.TrafficMultiplier,
-		p.TrafficMultiplier, p.TrafficMultiplier,
-		providerID, year, month).Scan(&totalTrafficMB).Error
+	stats, err := NewQueryService().GetProviderMonthlyTraffic(providerID, year, month)
 	if err != nil {
-		return 0, fmt.Errorf("获取Provider月度流量失败: %w", err)
+		return 0, err
 	}
 
 	global.APP_LOG.Debug("计算Provider pmacct月度流量",
 		zap.Uint("providerID", providerID),
 		zap.Int("year", year),
 		zap.Int("month", month),
-		zap.Float64("totalTrafficMB", totalTrafficMB))
+		zap.Float64("totalTrafficMB", stats.ActualUsageMB))
 
-	return int64(totalTrafficMB), nil
+	return int64(stats.ActualUsageMB), nil
 }
 
 // GetUserTrafficUsageWithPmacct 获取用户流量使用情况（基于pmacct数据）
@@ -136,9 +101,15 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 			"is_limited":              false,
 			"reset_time":              nil,
 			"history":                 []map[string]interface{}{},
+			"rx_bytes":                int64(0),
+			"tx_bytes":                int64(0),
+			"total_bytes":             int64(0),
 			"traffic_control_enabled": false, // 标记流量统计已禁用
 			"formatted": map[string]string{
 				"current_usage": "0 MB",
+				"rx":            "0 B",
+				"tx":            "0 B",
+				"total":         "0 B",
 				"total_limit":   "无限制",
 			},
 		}, nil
@@ -194,9 +165,15 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 		"reset_time":              resetAt,
 		"history":                 history,
 		"traffic_control_enabled": true, // 标记流量统计已启用
+		"rx_bytes":                currentCycleStats.RxBytes,
+		"tx_bytes":                currentCycleStats.TxBytes,
+		"total_bytes":             currentCycleStats.TotalBytes,
 		"formatted": map[string]string{
 			"current_usage": utils.FormatMB(float64(currentMonthUsageMB)),
 			"total_limit":   utils.FormatMB(float64(u.TotalTraffic)),
+			"rx":            utils.FormatBytes(currentCycleStats.RxBytes),
+			"tx":            utils.FormatBytes(currentCycleStats.TxBytes),
+			"total":         utils.FormatBytes(currentCycleStats.TotalBytes),
 		},
 	}, nil
 }
@@ -232,79 +209,27 @@ func (s *LimitService) getUserYearlyTrafficFromPmacct(userID uint) (int64, error
 		return 0, nil
 	}
 
-	// 批量获取 Provider 流量模式配置（一次查询）
-	type cfgRow struct {
-		InstanceID        uint
-		TrafficCountMode  string
-		TrafficMultiplier float64
-	}
-	var cfgRows []cfgRow
-	if err := global.APP_DB.Unscoped().Table("instances i").
-		Joins("INNER JOIN providers p ON i.provider_id = p.id").
-		Select("i.id as instance_id, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
-		Where("i.id IN ?", instanceIDs).
-		Find(&cfgRows).Error; err != nil {
-		return 0, fmt.Errorf("批量查询Provider配置失败: %w", err)
-	}
-	type cfg struct {
-		Mode string
-		Mult float64
-	}
-	cfgMap := make(map[uint]cfg, len(cfgRows))
-	for _, r := range cfgRows {
-		cfgMap[r.InstanceID] = cfg{Mode: r.TrafficCountMode, Mult: r.TrafficMultiplier}
-	}
-
-	// 一次性加载全年原始记录，按 (instance_id, month, timestamp) 排序
-	type yearRec struct {
-		InstanceID uint
-		Month      int
-		RxBytes    int64
-		TxBytes    int64
-	}
-	var allRecs []yearRec
-	if err := global.APP_DB.Table("pmacct_traffic_records").
-		Select("instance_id, month, rx_bytes, tx_bytes").
-		Where("instance_id IN ? AND year = ?", instanceIDs, currentYear).
-		Order("instance_id ASC, month ASC, timestamp ASC").
-		Find(&allRecs).Error; err != nil {
-		return 0, fmt.Errorf("加载年度流量原始记录失败: %w", err)
-	}
-
-	// 按 (instance_id, month) 分组，每组做分段求和，最后汇总
-	type groupKey struct {
-		InstanceID uint
-		Month      int
-	}
-	type groupBuf struct{ records []rawTrafficRecord }
-	groups := make(map[groupKey]*groupBuf, len(allRecs)/10+1)
-	for _, r := range allRecs {
-		k := groupKey{r.InstanceID, r.Month}
-		g := groups[k]
-		if g == nil {
-			g = &groupBuf{}
-			groups[k] = g
-		}
-		g.records = append(g.records, rawTrafficRecord{RxBytes: r.RxBytes, TxBytes: r.TxBytes})
+	qs := NewQueryService()
+	start := time.Date(currentYear, time.January, 1, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(1, 0, 0)
+	statsMap, err := qs.computeBatchTrafficInWindow(instanceIDs, start, end)
+	if err != nil {
+		return 0, fmt.Errorf("计算年度流量失败: %w", err)
 	}
 
 	var totalMB float64
-	qs := NewQueryService()
-	for k, g := range groups {
-		rx, tx := computeSegmentTraffic(g.records)
-		c := cfgMap[k.InstanceID]
-		// calculateActualUsage 接受字节数，返回 MB
-		totalMB += qs.calculateActualUsage(rx, tx, c.Mode, c.Mult)
+	for _, stats := range statsMap {
+		totalMB += stats.ActualUsageMB
 	}
 
 	return int64(totalMB), nil
 }
 
-// getUserTrafficHistoryFromPmacct 从聚合表获取用户流量历史
-// 使用user_traffic_histories聚合表，大幅提升性能
+// getUserTrafficHistoryFromPmacct 通过 QueryService 按月重新计算用户流量历史。
 func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) ([]map[string]interface{}, error) {
 	now := time.Now()
 	history := make([]map[string]interface{}, 0, months)
+	queryService := NewQueryService()
 
 	// 获取最近N个月的数据
 	for i := 0; i < months; i++ {
@@ -312,41 +237,19 @@ func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) 
 		year := targetTime.Year()
 		month := int(targetTime.Month())
 
-		// 使用聚合表查询用户月度流量，考虑不同provider的流量模式
-		// 直接通过 ith.provider_id 关联 providers 表，不依赖 instances 表
-		// 这样已删除实例的流量也能被正确统计
-		var monthlyTraffic float64
-		err := global.APP_DB.Raw(`
-			SELECT COALESCE(SUM(
-				CASE 
-					WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-					WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-					ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-				END
-			), 0)
-			FROM instance_traffic_histories ith
-			INNER JOIN providers p ON ith.provider_id = p.id
-			WHERE ith.user_id = ?
-			  AND ith.year = ?
-			  AND ith.month = ?
-			  AND ith.day = 0
-			  AND ith.hour = 0
-			  AND p.enable_traffic_control = true
-			  AND ith.deleted_at IS NULL
-		`, userID, year, month).Scan(&monthlyTraffic).Error
-
+		stats, err := queryService.GetUserMonthlyTraffic(userID, year, month)
 		if err != nil {
-			global.APP_LOG.Warn("查询月度流量失败",
+			global.APP_LOG.Warn("计算月度流量失败",
 				zap.Int("year", year),
 				zap.Int("month", month),
 				zap.Error(err))
-			monthlyTraffic = 0
+			stats = &TrafficStats{}
 		}
 
 		history = append(history, map[string]interface{}{
 			"year":       year,
 			"month":      month,
-			"traffic_mb": monthlyTraffic, // MB单位
+			"traffic_mb": stats.ActualUsageMB, // MB单位
 			"date":       fmt.Sprintf("%d-%02d", year, month),
 		})
 	}
@@ -355,33 +258,54 @@ func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) 
 }
 
 // GetSystemTrafficStats 获取系统全局流量统计
-func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
+func (s *LimitService) GetSystemTrafficStats(ownerAdminIDs ...uint) (map[string]interface{}, error) {
 	// 获取当前时间
 	now := time.Now()
 	year, month, _ := now.Date()
+	ownerAdminID := uint(0)
+	if len(ownerAdminIDs) > 0 {
+		ownerAdminID = ownerAdminIDs[0]
+	}
 
-	// 获取系统总流量（使用 instance_traffic_histories 月度汇总，已正确处理 pmacct 重启分段）
-	// day=0, hour=0 为月度汇总记录
-	var totalTraffic dashboardModel.TrafficStats
-
-	err := global.APP_DB.Raw(`
-		SELECT 
-			COALESCE(SUM(traffic_in), 0) * 1048576 as total_rx,
-			COALESCE(SUM(traffic_out), 0) * 1048576 as total_tx,
-			COALESCE(SUM(traffic_in + traffic_out), 0) * 1048576 as total_bytes
-		FROM instance_traffic_histories
-		WHERE year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
-	`, year, int(month)).Scan(&totalTraffic).Error
-
+	// 使用当前周期实时聚合，避免月度缓存未刷新导致概览和限额判断不一致。
+	var providerIDs []uint
+	providerQuery := global.APP_DB.Table("providers").
+		Where("enable_traffic_control = ?", true)
+	if ownerAdminID > 0 {
+		providerQuery = providerQuery.Where("owner_admin_id = ?", ownerAdminID)
+	}
+	err := providerQuery.
+		Pluck("id", &providerIDs).Error
 	if err != nil {
-		return nil, fmt.Errorf("获取系统总流量失败: %w", err)
+		return nil, fmt.Errorf("query traffic-enabled providers failed: %w", err)
+	}
+
+	queryService := NewQueryService()
+	providerStats, err := queryService.BatchGetProvidersCurrentCycleTraffic(providerIDs)
+	if err != nil {
+		return nil, fmt.Errorf("query system traffic failed: %w", err)
+	}
+	var totalTraffic dashboardModel.TrafficStats
+	for _, stats := range providerStats {
+		totalTraffic.TotalRx += float64(stats.RxBytes)
+		totalTraffic.TotalTx += float64(stats.TxBytes)
+		totalTraffic.TotalBytes += float64(stats.TotalBytes)
 	}
 
 	// 获取用户数量和受限用户数量
 	var userCounts dashboardModel.UserCountStats
 
-	err = global.APP_DB.Table("users").
-		Select("COUNT(*) as total_users, SUM(CASE WHEN traffic_limited = true THEN 1 ELSE 0 END) as limited_users").
+	userCountQuery := global.APP_DB.Table("users").Where("users.deleted_at IS NULL")
+	if ownerAdminID > 0 {
+		userCountQuery = userCountQuery.
+			Joins("INNER JOIN instances ON instances.user_id = users.id AND instances.deleted_at IS NULL").
+			Joins("INNER JOIN providers ON providers.id = instances.provider_id AND providers.owner_admin_id = ?", ownerAdminID).
+			Select("COUNT(DISTINCT users.id) as total_users, COUNT(DISTINCT CASE WHEN users.traffic_limited = true THEN users.id END) as limited_users")
+	} else {
+		userCountQuery = userCountQuery.
+			Select("COUNT(*) as total_users, SUM(CASE WHEN traffic_limited = true THEN 1 ELSE 0 END) as limited_users")
+	}
+	err = userCountQuery.
 		Scan(&userCounts).Error
 
 	if err != nil {
@@ -391,7 +315,11 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 	// 获取Provider数量和受限Provider数量
 	var providerCounts dashboardModel.ProviderCountStats
 
-	err = global.APP_DB.Table("providers").
+	providerCountQuery := global.APP_DB.Table("providers")
+	if ownerAdminID > 0 {
+		providerCountQuery = providerCountQuery.Where("owner_admin_id = ?", ownerAdminID)
+	}
+	err = providerCountQuery.
 		Select("COUNT(*) as total_providers, SUM(CASE WHEN traffic_limited = true THEN 1 ELSE 0 END) as limited_providers").
 		Scan(&providerCounts).Error
 
@@ -401,13 +329,20 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 
 	// 获取实例数量（排除软删除的实例）
 	var instanceCount int64
-	err = global.APP_DB.Model(&provider.Instance{}).Count(&instanceCount).Error
+	instanceCountQuery := global.APP_DB.Model(&provider.Instance{})
+	if ownerAdminID > 0 {
+		instanceCountQuery = instanceCountQuery.
+			Joins("INNER JOIN providers ON providers.id = instances.provider_id").
+			Where("providers.owner_admin_id = ?", ownerAdminID)
+	}
+	err = instanceCountQuery.Count(&instanceCount).Error
 	if err != nil {
 		return nil, fmt.Errorf("获取实例数量失败: %w", err)
 	}
 
 	result := map[string]interface{}{
-		"period": fmt.Sprintf("%d-%02d", year, month),
+		"period":      fmt.Sprintf("%d-%02d", year, month),
+		"period_type": "current_cycle",
 		"traffic": map[string]interface{}{
 			"total_rx":    totalTraffic.TotalRx,
 			"total_tx":    totalTraffic.TotalTx,
@@ -511,131 +446,130 @@ func (s *LimitService) GetProviderTrafficUsageWithPmacct(providerID uint) (map[s
 }
 
 // GetUsersTrafficRanking 获取用户流量排行榜
-func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nickname string) ([]map[string]interface{}, int64, error) {
-	// 获取当前月份
-	now := time.Now()
-	year, month, _ := now.Date()
-
-	// 查询用户本月流量使用排行
-	type UserTrafficRank struct {
-		UserID     uint       `gorm:"column:user_id"`
-		Username   string     `gorm:"column:username"`
-		Nickname   string     `gorm:"column:nickname"`
-		MonthUsage float64    `gorm:"column:month_usage"`
-		TotalLimit int64      `gorm:"column:total_limit"`
-		IsLimited  bool       `gorm:"column:is_limited"`
-		ResetTime  *time.Time `gorm:"column:reset_time"`
+func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nickname string, ownerAdminIDs ...uint) ([]map[string]interface{}, int64, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 10
+	}
+	ownerAdminID := uint(0)
+	if len(ownerAdminIDs) > 0 {
+		ownerAdminID = ownerAdminIDs[0]
 	}
 
-	var rankings []UserTrafficRank
-	var total int64
+	type userTrafficRow struct {
+		UserID     uint   `gorm:"column:user_id"`
+		Username   string `gorm:"column:username"`
+		Nickname   string `gorm:"column:nickname"`
+		TotalLimit int64  `gorm:"column:total_limit"`
+		IsLimited  bool   `gorm:"column:is_limited"`
+	}
 
-	// 构建查询条件
-	whereConditions := []string{}
-	whereArgs := []interface{}{}
-
+	query := global.APP_DB.Table("users u").
+		Select("u.id as user_id, u.username, u.nickname, u.total_traffic as total_limit, u.traffic_limited as is_limited").
+		Where("u.deleted_at IS NULL")
+	if ownerAdminID > 0 {
+		query = query.Where(`EXISTS (
+			SELECT 1
+			FROM instances scoped_instances
+			INNER JOIN providers scoped_providers ON scoped_providers.id = scoped_instances.provider_id
+			WHERE scoped_instances.user_id = u.id
+			  AND scoped_instances.deleted_at IS NULL
+			  AND scoped_providers.owner_admin_id = ?
+		)`, ownerAdminID)
+	}
 	if username != "" {
-		whereConditions = append(whereConditions, "u.username LIKE ?")
-		whereArgs = append(whereArgs, "%"+username+"%")
+		query = query.Where("u.username LIKE ?", "%"+username+"%")
 	}
 	if nickname != "" {
-		whereConditions = append(whereConditions, "u.nickname LIKE ?")
-		whereArgs = append(whereArgs, "%"+nickname+"%")
+		query = query.Where("u.nickname LIKE ?", "%"+nickname+"%")
 	}
 
-	whereClause := ""
-	if len(whereConditions) > 0 {
-		whereClause = " AND " + strings.Join(whereConditions, " AND ")
+	var users []userTrafficRow
+	if err := query.Find(&users).Error; err != nil {
+		return nil, 0, fmt.Errorf("query traffic ranking users failed: %w", err)
+	}
+	total := int64(len(users))
+	if len(users) == 0 {
+		return []map[string]interface{}{}, 0, nil
 	}
 
-	// 先获取总数 - 简化查询，只统计用户表
-	countQuery := `
-		SELECT COUNT(*)
-		FROM users u
-		WHERE 1=1` + whereClause
-
-	err := global.APP_DB.Raw(countQuery, whereArgs...).Scan(&total).Error
+	userIDs := make([]uint, 0, len(users))
+	for _, u := range users {
+		userIDs = append(userIDs, u.UserID)
+	}
+	// Ranking must use each instance's provider-specific current cycle. A
+	// natural-month query would rank users incorrectly when providers use a
+	// custom traffic reset day.
+	queryService := NewQueryService()
+	statsMap, err := queryService.BatchGetUsersCurrentCycleTrafficForOwner(userIDs, ownerAdminID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("获取用户流量总数失败: %w", err)
+		return nil, 0, fmt.Errorf("query monthly traffic ranking failed: %w", err)
 	}
 
-	// 构建分页查询
-	// 使用instance_traffic_histories聚合表，避免复杂的实时计算
-	// day=0,hour=0 表示月度汇总数据
+	sort.SliceStable(users, func(i, j int) bool {
+		left := 0.0
+		if stats := statsMap[users[i].UserID]; stats != nil {
+			left = stats.ActualUsageMB
+		}
+		right := 0.0
+		if stats := statsMap[users[j].UserID]; stats != nil {
+			right = stats.ActualUsageMB
+		}
+		return left > right
+	})
+
 	offset := (page - 1) * pageSize
-
-	// 查询用户月度流量汇总，关联providers表获取流量模式和倍率
-	// 直接使用instance_traffic_histories表按user_id聚合
-	// 注意：instance_traffic_histories 表中 traffic_in/traffic_out/total_used 已经是 MB 单位
-	// 使用 ith.provider_id 直接关联 providers 表，不再依赖 instances 表
-	// 这样已删除实例的流量也能被正确统计（与用户仪表盘一致）
-	query := `
-		SELECT 
-			u.id as user_id,
-			u.username,
-			u.nickname,
-			COALESCE(traffic_data.month_usage, 0) as month_usage,
-			u.total_traffic as total_limit,
-			u.traffic_limited as is_limited,
-			u.traffic_reset_at as reset_time
-		FROM users u
-		LEFT JOIN (
-			SELECT 
-				ith.user_id,
-				SUM(
-					CASE 
-						WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-						WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-						ELSE (ith.traffic_in + ith.traffic_out) * CASE WHEN p.traffic_multiplier > 0 THEN p.traffic_multiplier ELSE 1.0 END
-					END
-				) as month_usage
-			FROM instance_traffic_histories ith
-			INNER JOIN providers p ON ith.provider_id = p.id
-			WHERE ith.year = ?
-			  AND ith.month = ?
-			  AND ith.day = 0
-			  AND ith.hour = 0
-			  AND p.enable_traffic_control = true
-			  AND ith.deleted_at IS NULL
-			GROUP BY ith.user_id
-		) traffic_data ON u.id = traffic_data.user_id
-		WHERE 1=1` + whereClause + `
-		ORDER BY month_usage DESC
-		LIMIT ? OFFSET ?
-	`
-
-	queryArgs := append([]interface{}{year, int(month)}, whereArgs...)
-	queryArgs = append(queryArgs, pageSize, offset)
-
-	err = global.APP_DB.Raw(query, queryArgs...).Scan(&rankings).Error
+	if offset >= len(users) {
+		return []map[string]interface{}{}, total, nil
+	}
+	end := offset + pageSize
+	if end > len(users) {
+		end = len(users)
+	}
+	pageUserIDs := make([]uint, 0, end-offset)
+	for _, row := range users[offset:end] {
+		pageUserIDs = append(pageUserIDs, row.UserID)
+	}
+	resetTimes, err := queryService.BatchGetUsersNextTrafficResetTime(pageUserIDs, ownerAdminID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("获取用户流量排行失败: %w", err)
+		return nil, 0, fmt.Errorf("query traffic reset times failed: %w", err)
 	}
 
-	// 格式化结果
-	result := make([]map[string]interface{}, 0, len(rankings))
-	// 计算起始排名
-	startRank := (page - 1) * pageSize
-	for i, rank := range rankings {
-		var usagePercent float64 = 0
-		if rank.TotalLimit > 0 {
-			// rank.MonthUsage 和 rank.TotalLimit 都是 MB 单位，直接计算百分比
-			usagePercent = (rank.MonthUsage / float64(rank.TotalLimit)) * 100
+	result := make([]map[string]interface{}, 0, end-offset)
+	for i, row := range users[offset:end] {
+		stats := statsMap[row.UserID]
+		monthUsage := 0.0
+		rxBytes, txBytes, totalBytes := int64(0), int64(0), int64(0)
+		if stats != nil {
+			monthUsage = stats.ActualUsageMB
+			rxBytes = stats.RxBytes
+			txBytes = stats.TxBytes
+			totalBytes = stats.TotalBytes
+		}
+
+		var usagePercent float64
+		if row.TotalLimit > 0 {
+			usagePercent = monthUsage / float64(row.TotalLimit) * 100
 		}
 
 		result = append(result, map[string]interface{}{
-			"rank":          startRank + i + 1,
-			"user_id":       rank.UserID,
-			"username":      rank.Username,
-			"nickname":      rank.Nickname,
-			"month_usage":   rank.MonthUsage, // 保持 MB 单位，由前端格式化
-			"total_limit":   rank.TotalLimit,
+			"rank":          offset + i + 1,
+			"user_id":       row.UserID,
+			"username":      row.Username,
+			"nickname":      row.Nickname,
+			"month_usage":   monthUsage,
+			"total_limit":   row.TotalLimit,
 			"usage_percent": usagePercent,
-			"is_limited":    rank.IsLimited,
-			"reset_time":    rank.ResetTime,
+			"is_limited":    row.IsLimited,
+			"reset_time":    resetTimes[row.UserID],
+			"rx_bytes":      rxBytes,
+			"tx_bytes":      txBytes,
+			"total_bytes":   totalBytes,
 			"formatted": map[string]string{
-				"month_usage": utils.FormatMB(float64(rank.MonthUsage)),
-				"total_limit": utils.FormatMB(float64(rank.TotalLimit)),
+				"month_usage": utils.FormatMB(monthUsage),
+				"total_limit": utils.FormatMB(float64(row.TotalLimit)),
 			},
 		})
 	}
@@ -645,42 +579,57 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 
 // SetUserTrafficLimit 设置用户流量限制
 func (s *LimitService) SetUserTrafficLimit(userID uint, reason string) error {
-	if err := global.APP_DB.Model(&user.User{}).
-		Where("id = ?", userID).
-		Updates(map[string]interface{}{
-			"traffic_limited": true,
-			"updated_at":      time.Now(),
-		}).Error; err != nil {
-		return err
-	}
-	return global.APP_DB.Model(&provider.Instance{}).
-		Where("user_id = ? AND deleted_at IS NULL AND status NOT IN ? AND traffic_limit_reason <> ?", userID, []string{"deleted", "deleting"}, "provider").
-		Updates(map[string]interface{}{
-			"traffic_limited":      true,
-			"traffic_limit_reason": "user",
-			"traffic_stopped":      false,
-			"traffic_stopped_at":   nil,
-			"updated_at":           time.Now(),
-		}).Error
+	now := time.Now()
+	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&user.User{}).
+			Where("id = ?", userID).
+			Updates(map[string]interface{}{
+				"traffic_limited": true,
+				"updated_at":      now,
+			}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&provider.Instance{}).
+			Where("user_id = ? AND deleted_at IS NULL AND status NOT IN ? AND traffic_limit_reason <> ?", userID, []string{"deleted", "deleting"}, "provider").
+			Updates(map[string]interface{}{
+				"traffic_limited":      true,
+				"traffic_limit_reason": "user",
+				"traffic_stopped":      false,
+				"traffic_stopped_at":   nil,
+				"updated_at":           now,
+			}).Error
+	})
 }
 
 // RemoveUserTrafficLimit 解除用户流量限制
 func (s *LimitService) RemoveUserTrafficLimit(userID uint) error {
-	if err := global.APP_DB.Model(&user.User{}).
-		Where("id = ?", userID).
-		Updates(map[string]interface{}{
-			"traffic_limited": false,
-			"updated_at":      time.Now(),
-		}).Error; err != nil {
-		return err
-	}
-	if err := global.APP_DB.Model(&provider.Instance{}).
-		Where("user_id = ? AND traffic_limit_reason = ?", userID, "user").
-		Updates(map[string]interface{}{
-			"traffic_limited":      false,
-			"traffic_limit_reason": "",
-			"updated_at":           time.Now(),
-		}).Error; err != nil {
+	now := time.Now()
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&user.User{}).
+			Where("id = ?", userID).
+			Updates(map[string]interface{}{
+				"traffic_limited": false,
+				"updated_at":      now,
+			}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&provider.Instance{}).
+			Where("user_id = ? AND traffic_limit_reason = ?", userID, "user").
+			Updates(map[string]interface{}{
+				"traffic_limited":      false,
+				"traffic_limit_reason": "",
+				"updated_at":           now,
+			}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&provider.Instance{}).
+			Where("user_id = ? AND traffic_limit_reason = ? AND frozen_reason = ?", userID, "", "traffic_limit").
+			Updates(map[string]interface{}{
+				"is_frozen":     false,
+				"frozen_reason": "",
+				"frozen_at":     nil,
+			}).Error
+	}); err != nil {
 		return err
 	}
 	return NewThreeTierLimitService().RecoverTrafficStoppedInstances(context.Background())
@@ -688,42 +637,57 @@ func (s *LimitService) RemoveUserTrafficLimit(userID uint) error {
 
 // SetProviderTrafficLimit 设置Provider流量限制
 func (s *LimitService) SetProviderTrafficLimit(providerID uint, reason string) error {
-	if err := global.APP_DB.Model(&provider.Provider{}).
-		Where("id = ?", providerID).
-		Updates(map[string]interface{}{
-			"traffic_limited": true,
-			"updated_at":      time.Now(),
-		}).Error; err != nil {
-		return err
-	}
-	return global.APP_DB.Model(&provider.Instance{}).
-		Where("provider_id = ? AND deleted_at IS NULL AND status NOT IN ?", providerID, []string{"deleted", "deleting"}).
-		Updates(map[string]interface{}{
-			"traffic_limited":      true,
-			"traffic_limit_reason": "provider",
-			"traffic_stopped":      false,
-			"traffic_stopped_at":   nil,
-			"updated_at":           time.Now(),
-		}).Error
+	now := time.Now()
+	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&provider.Provider{}).
+			Where("id = ?", providerID).
+			Updates(map[string]interface{}{
+				"traffic_limited": true,
+				"updated_at":      now,
+			}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&provider.Instance{}).
+			Where("provider_id = ? AND deleted_at IS NULL AND status NOT IN ?", providerID, []string{"deleted", "deleting"}).
+			Updates(map[string]interface{}{
+				"traffic_limited":      true,
+				"traffic_limit_reason": "provider",
+				"traffic_stopped":      false,
+				"traffic_stopped_at":   nil,
+				"updated_at":           now,
+			}).Error
+	})
 }
 
 // RemoveProviderTrafficLimit 解除Provider流量限制
 func (s *LimitService) RemoveProviderTrafficLimit(providerID uint) error {
-	if err := global.APP_DB.Model(&provider.Provider{}).
-		Where("id = ?", providerID).
-		Updates(map[string]interface{}{
-			"traffic_limited": false,
-			"updated_at":      time.Now(),
-		}).Error; err != nil {
-		return err
-	}
-	if err := global.APP_DB.Model(&provider.Instance{}).
-		Where("provider_id = ? AND traffic_limit_reason = ?", providerID, "provider").
-		Updates(map[string]interface{}{
-			"traffic_limited":      false,
-			"traffic_limit_reason": "",
-			"updated_at":           time.Now(),
-		}).Error; err != nil {
+	now := time.Now()
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&provider.Provider{}).
+			Where("id = ?", providerID).
+			Updates(map[string]interface{}{
+				"traffic_limited": false,
+				"updated_at":      now,
+			}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&provider.Instance{}).
+			Where("provider_id = ? AND traffic_limit_reason = ?", providerID, "provider").
+			Updates(map[string]interface{}{
+				"traffic_limited":      false,
+				"traffic_limit_reason": "",
+				"updated_at":           now,
+			}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&provider.Instance{}).
+			Where("provider_id = ? AND traffic_limit_reason = ? AND frozen_reason = ?", providerID, "", "traffic_limit").
+			Updates(map[string]interface{}{
+				"is_frozen":     false,
+				"frozen_reason": "",
+				"frozen_at":     nil,
+			}).Error
+	}); err != nil {
 		return err
 	}
 	return NewThreeTierLimitService().RecoverTrafficStoppedInstances(context.Background())

@@ -363,13 +363,12 @@ alice_platform_wait_ssh() {
     log_info "[alice] Waiting for SSH on ${ip} (max ${max}s)..."
     while [[ $elapsed -lt $max ]]; do
         local ssh_err
-        ssh_err=$(ssh -i "${PLATFORM_SSH_KEY_FILE}" \
+        if ssh_err=$(ssh -i "${PLATFORM_SSH_KEY_FILE}" \
                -o StrictHostKeyChecking=no \
                -o UserKnownHostsFile=/dev/null \
                -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
                -o BatchMode=yes \
-               "${ssh_user}@${ip}" "echo ok" 2>&1)
-        if [[ $? -eq 0 ]]; then
+               "${ssh_user}@${ip}" "echo ok" 2>&1); then
             log_success "[alice] SSH ready on ${ip}"
             return 0
         fi

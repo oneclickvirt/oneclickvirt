@@ -11,12 +11,13 @@ import (
 	firewallModel "oneclickvirt/model/firewall"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
-	"oneclickvirt/service/agent"
+	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/taskgate"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Service struct{}
@@ -199,8 +200,8 @@ func (s *Service) UpdateRule(id uint, req *firewallModel.UpdateBlockRuleRequest)
 	if err := global.APP_DB.First(&rule, id).Error; err != nil {
 		return nil, err
 	}
-	if req.Name != "" {
-		name := strings.TrimSpace(req.Name)
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
 		if name == "" {
 			return nil, commonModel.NewError(commonModel.CodeValidationError, "规则名称不能为空")
 		}
@@ -218,8 +219,8 @@ func (s *Service) UpdateRule(id uint, req *firewallModel.UpdateBlockRuleRequest)
 		}
 		rule.Name = name
 	}
-	if req.Description != "" {
-		description := strings.TrimSpace(req.Description)
+	if req.Description != nil {
+		description := strings.TrimSpace(*req.Description)
 		if len(description) > 512 {
 			return nil, commonModel.NewError(commonModel.CodeValidationError, "规则描述长度不能超过512")
 		}
@@ -242,18 +243,43 @@ func (s *Service) UpdateRule(id uint, req *firewallModel.UpdateBlockRuleRequest)
 	if err := global.APP_DB.Save(&rule).Error; err != nil {
 		return nil, err
 	}
+	var applications []firewallModel.BlockRuleApplication
+	if err := global.APP_DB.Where("rule_id = ?", rule.ID).Find(&applications).Error; err != nil {
+		return nil, err
+	}
+	providerIDs, err := s.resolveApplicationProviders(applications)
+	if err != nil {
+		return nil, err
+	}
+	if len(providerIDs) > 0 {
+		go s.resyncProviders(context.Background(), providerIDs)
+	}
 	return &rule, nil
 }
 
 // DeleteRule deletes a block rule and all its applications.
 func (s *Service) DeleteRule(id uint) error {
+	var applications []firewallModel.BlockRuleApplication
+	if err := global.APP_DB.Where("rule_id = ?", id).Find(&applications).Error; err != nil {
+		return err
+	}
+	providerIDs, err := s.resolveApplicationProviders(applications)
+	if err != nil {
+		return err
+	}
 	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		if err := tx.Where("rule_id = ?", id).Delete(&firewallModel.BlockRuleApplication{}).Error; err != nil {
+	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("rule_id = ?", id).Delete(&firewallModel.BlockRuleApplication{}).Error; err != nil {
 			return err
 		}
 		return tx.Delete(&firewallModel.BlockRule{}, id).Error
-	})
+	}); err != nil {
+		return err
+	}
+	if len(providerIDs) > 0 {
+		go s.resyncProviders(context.Background(), providerIDs)
+	}
+	return nil
 }
 
 // ApplyRules applies block rules to targets and executes them on the agent.
@@ -262,12 +288,28 @@ func (s *Service) ApplyRules(ctx context.Context, req *firewallModel.ApplyBlockR
 		return nil, err
 	}
 
+	req.RuleIDs = uniqueIDs(req.RuleIDs)
+	req.TargetIDs = uniqueIDs(req.TargetIDs)
+	if len(req.RuleIDs) == 0 {
+		return nil, commonModel.NewError(commonModel.CodeValidationError, "规则ID不能为空")
+	}
+	if req.Scope != "global" && len(req.TargetIDs) == 0 {
+		return nil, commonModel.NewError(commonModel.CodeValidationError, "目标ID不能为空")
+	}
+	targetCount := len(req.TargetIDs)
+	if req.Scope == "global" {
+		targetCount = 1
+	}
+	if len(req.RuleIDs)*targetCount > 5000 {
+		return nil, commonModel.NewError(commonModel.CodeTooLarge, "单次最多创建5000条规则应用")
+	}
+
 	var rules []firewallModel.BlockRule
 	if err := global.APP_DB.Where("id IN ? AND enabled = ?", req.RuleIDs, true).Find(&rules).Error; err != nil {
 		return nil, fmt.Errorf("load rules: %w", err)
 	}
-	if len(rules) == 0 {
-		return nil, fmt.Errorf("no enabled rules found")
+	if len(rules) != len(req.RuleIDs) {
+		return nil, commonModel.NewError(commonModel.CodeValidationError, "部分规则不存在或未启用")
 	}
 
 	providerIDs, err := s.resolveTargetProviders(req)
@@ -275,64 +317,57 @@ func (s *Service) ApplyRules(ctx context.Context, req *firewallModel.ApplyBlockR
 		return nil, err
 	}
 
-	// Pre-resolve all target names before entering the transaction
 	targetIDs := req.TargetIDs
 	if req.Scope == "global" {
 		targetIDs = []uint{0}
 	}
-	targetNameMap := make(map[uint]string, len(targetIDs))
-	for _, tid := range targetIDs {
-		targetNameMap[tid] = s.resolveTargetName(req.Scope, tid)
-	}
-
-	dbService := database.GetDatabaseService()
-	var applications []firewallModel.BlockRuleApplication
-	ipVersion := req.IPVersion
-	if ipVersion == "" {
-		ipVersion = "both"
-	}
-	err = dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-		for _, rule := range rules {
-			for _, targetID := range targetIDs {
-				var existing firewallModel.BlockRuleApplication
-				err := tx.Where("rule_id = ? AND scope = ? AND target_id = ?", rule.ID, req.Scope, targetID).
-					First(&existing).Error
-				if err == nil {
-					existing.Status = "pending"
-					existing.IPVersion = ipVersion
-					if err := tx.Save(&existing).Error; err != nil {
-						return err
-					}
-					applications = append(applications, existing)
-					continue
-				}
-				app := firewallModel.BlockRuleApplication{
-					RuleID:     rule.ID,
-					Scope:      req.Scope,
-					TargetID:   targetID,
-					TargetName: targetNameMap[targetID],
-					Status:     "pending",
-					IPVersion:  ipVersion,
-				}
-				if err := tx.Create(&app).Error; err != nil {
-					return err
-				}
-				applications = append(applications, app)
-			}
-		}
-		return nil
-	})
+	targetNameMap, err := s.resolveTargetNames(req.Scope, targetIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	go func() {
-		appIDs := make([]uint, 0, len(applications))
-		for _, a := range applications {
-			appIDs = append(appIDs, a.ID)
+	ipVersion := req.IPVersion
+	if ipVersion == "" {
+		ipVersion = "both"
+	}
+	applications := make([]firewallModel.BlockRuleApplication, 0, len(rules)*len(targetIDs))
+	for _, rule := range rules {
+		for _, targetID := range targetIDs {
+			applications = append(applications, firewallModel.BlockRuleApplication{
+				RuleID:     rule.ID,
+				Scope:      req.Scope,
+				TargetID:   targetID,
+				TargetName: targetNameMap[targetID],
+				Status:     "pending",
+				IPVersion:  ipVersion,
+			})
 		}
-		s.executeRulesOnProviders(context.Background(), rules, providerIDs, appIDs, ipVersion)
-	}()
+	}
+
+	db := global.APP_DB.WithContext(ctx)
+	if err := db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "rule_id"}, {Name: "scope"}, {Name: "target_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"status", "ip_version", "target_name"}),
+	}).CreateInBatches(&applications, 200).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Where("rule_id IN ? AND scope = ? AND target_id IN ?", req.RuleIDs, req.Scope, targetIDs).
+		Order("rule_id, target_id").
+		Find(&applications).Error; err != nil {
+		return nil, err
+	}
+
+	if len(providerIDs) == 0 {
+		appIDs := make(map[uint]struct{}, len(applications))
+		for _, application := range applications {
+			appIDs[application.ID] = struct{}{}
+		}
+		if err := updateApplicationStatuses(appIDs, nil); err != nil {
+			return nil, err
+		}
+	} else {
+		go s.resyncProviders(context.Background(), providerIDs)
+	}
 	return applications, nil
 }
 
@@ -343,20 +378,38 @@ func (s *Service) RemoveApplications(ctx context.Context, req *firewallModel.Rem
 	}
 
 	var apps []firewallModel.BlockRuleApplication
-	if err := global.APP_DB.Where("id IN ?", req.ApplicationIDs).Find(&apps).Error; err != nil {
+	applicationIDs := uniqueIDs(req.ApplicationIDs)
+	if len(applicationIDs) == 0 {
+		return commonModel.NewError(commonModel.CodeValidationError, "应用ID不能为空")
+	}
+	if err := global.APP_DB.Where("id IN ?", applicationIDs).Find(&apps).Error; err != nil {
 		return err
 	}
-	if err := global.APP_DB.Where("id IN ?", req.ApplicationIDs).Delete(&firewallModel.BlockRuleApplication{}).Error; err != nil {
+	if len(apps) != len(applicationIDs) {
+		return commonModel.NewError(commonModel.CodeNotFound, "部分规则应用不存在")
+	}
+	providerIDs, err := s.resolveApplicationProviders(apps)
+	if err != nil {
 		return err
 	}
-	go s.resyncAllProviders(context.Background())
+	if err := global.APP_DB.Unscoped().Where("id IN ?", applicationIDs).Delete(&firewallModel.BlockRuleApplication{}).Error; err != nil {
+		return err
+	}
+	if len(providerIDs) > 0 {
+		go s.resyncProviders(context.Background(), providerIDs)
+	}
 	return nil
 }
 
 // ListApplications returns all rule applications, optionally filtered by rule ID.
-func (s *Service) ListApplications(ruleID uint) ([]firewallModel.BlockRuleApplication, error) {
+func (s *Service) ListApplications(ruleID, ownerAdminID uint) ([]firewallModel.BlockRuleApplication, error) {
 	var apps []firewallModel.BlockRuleApplication
 	db := global.APP_DB
+	if ownerAdminID > 0 {
+		providerIDs := global.APP_DB.Model(&providerModel.Provider{}).Select("id").Where("owner_admin_id = ?", ownerAdminID)
+		instanceIDs := global.APP_DB.Model(&providerModel.Instance{}).Select("id").Where("provider_id IN (?)", providerIDs)
+		db = db.Where("scope = 'global' OR (scope = 'provider' AND target_id IN (?)) OR (scope = 'instance' AND target_id IN (?))", providerIDs, instanceIDs)
+	}
 	if ruleID > 0 {
 		db = db.Where("rule_id = ?", ruleID)
 	}
@@ -412,7 +465,7 @@ func (s *Service) GetProviderBlockStatus(providerID uint) ([]map[string]interfac
 }
 
 // GetAgentEnabledProviders returns providers with agent monitoring enabled (excluding deleted providers).
-func (s *Service) GetAgentEnabledProviders() ([]map[string]interface{}, error) {
+func (s *Service) GetAgentEnabledProviders(ownerAdminID uint) ([]map[string]interface{}, error) {
 	var configs []monitoringModel.MonitoringConfig
 	if err := global.APP_DB.Where("agent_installed = ? AND monitoring_mode = ?", true, "agent").
 		Select("provider_id").Find(&configs).Error; err != nil {
@@ -427,8 +480,11 @@ func (s *Service) GetAgentEnabledProviders() ([]map[string]interface{}, error) {
 		candidateIDs = append(candidateIDs, c.ProviderID)
 	}
 	var providers []providerModel.Provider
-	if err := global.APP_DB.Where("id IN ?", candidateIDs).
-		Select("id, name").Find(&providers).Error; err != nil {
+	providerQuery := global.APP_DB.Where("id IN ?", candidateIDs)
+	if ownerAdminID > 0 {
+		providerQuery = providerQuery.Where("owner_admin_id = ?", ownerAdminID)
+	}
+	if err := providerQuery.Select("id, name").Find(&providers).Error; err != nil {
 		return nil, err
 	}
 	result := make([]map[string]interface{}, 0, len(providers))
@@ -445,24 +501,15 @@ func (s *Service) GetAgentEnabledProviders() ([]map[string]interface{}, error) {
 func (s *Service) resolveTargetProviders(req *firewallModel.ApplyBlockRuleRequest) ([]uint, error) {
 	switch req.Scope {
 	case "global":
-		var configs []monitoringModel.MonitoringConfig
-		if err := global.APP_DB.Where("agent_installed = ? AND monitoring_mode = ?", true, "agent").Find(&configs).Error; err != nil {
-			return nil, err
-		}
-		if len(configs) == 0 {
-			return []uint{}, nil
-		}
-		candidateIDs := make([]uint, 0, len(configs))
-		for _, c := range configs {
-			candidateIDs = append(candidateIDs, c.ProviderID)
-		}
-		var existingIDs []uint
+		var providerIDs []uint
 		if err := global.APP_DB.Model(&providerModel.Provider{}).
-			Where("id IN ?", candidateIDs).
-			Pluck("id", &existingIDs).Error; err != nil {
+			Joins("JOIN monitoring_configs ON monitoring_configs.provider_id = providers.id").
+			Where("monitoring_configs.agent_installed = ? AND monitoring_configs.monitoring_mode = ?", true, "agent").
+			Distinct().
+			Pluck("providers.id", &providerIDs).Error; err != nil {
 			return nil, err
 		}
-		return existingIDs, nil
+		return providerIDs, nil
 	case "provider":
 		return req.TargetIDs, nil
 	case "instance":
@@ -495,183 +542,58 @@ func (s *Service) resolveTargetProviders(req *firewallModel.ApplyBlockRuleReques
 	return nil, fmt.Errorf("unknown scope: %s", req.Scope)
 }
 
-func (s *Service) resolveTargetName(scope string, targetID uint) string {
+func (s *Service) resolveTargetNames(scope string, targetIDs []uint) (map[uint]string, error) {
+	names := make(map[uint]string, len(targetIDs))
 	switch scope {
 	case "global":
-		return "All Nodes"
+		names[0] = "All Nodes"
 	case "provider":
-		var p providerModel.Provider
-		if err := global.APP_DB.Select("name").First(&p, targetID).Error; err == nil {
-			return p.Name
+		var providers []providerModel.Provider
+		if err := global.APP_DB.Select("id, name").Where("id IN ?", targetIDs).Find(&providers).Error; err != nil {
+			return nil, err
+		}
+		for _, provider := range providers {
+			names[provider.ID] = provider.Name
 		}
 	case "instance":
-		var inst providerModel.Instance
-		if err := global.APP_DB.Select("name").First(&inst, targetID).Error; err == nil {
-			return inst.Name
+		var instances []providerModel.Instance
+		if err := global.APP_DB.Select("id, name").Where("id IN ?", targetIDs).Find(&instances).Error; err != nil {
+			return nil, err
+		}
+		for _, instance := range instances {
+			names[instance.ID] = instance.Name
 		}
 	case "user":
-		return fmt.Sprintf("User #%d", targetID)
+		var users []userModel.User
+		if err := global.APP_DB.Select("id, username").Where("id IN ?", targetIDs).Find(&users).Error; err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			names[user.ID] = user.Username
+		}
+	default:
+		return nil, commonModel.NewError(commonModel.CodeValidationError, "无效的规则范围")
 	}
-	return ""
+	if len(names) != len(targetIDs) {
+		return nil, commonModel.NewError(commonModel.CodeNotFound, "部分规则目标不存在")
+	}
+	return names, nil
 }
 
-// executeRulesOnProviders sends block rules to all affected provider agents.
-func (s *Service) executeRulesOnProviders(ctx context.Context, rules []firewallModel.BlockRule, providerIDs []uint, appIDs []uint, ipVersion string) {
-	allStrings := make([]string, 0)
-	for _, rule := range rules {
-		var strs []string
-		if err := json.Unmarshal([]byte(rule.Strings), &strs); err != nil {
+func uniqueIDs(ids []uint) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	result := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
 			continue
 		}
-		allStrings = append(allStrings, strs...)
-	}
-	for _, providerID := range providerIDs {
-		s.applyBlockRulesToProvider(ctx, providerID, allStrings, appIDs, ipVersion)
-	}
-}
-
-// applyBlockRulesToProvider sends the accumulated block strings to a single provider's agent.
-func (s *Service) applyBlockRulesToProvider(ctx context.Context, providerID uint, blockStrings []string, appIDs []uint, ipVersion string) {
-	var config monitoringModel.MonitoringConfig
-	if err := global.APP_DB.Where("provider_id = ?", providerID).First(&config).Error; err != nil {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Warn("block rules: no monitoring config for provider",
-				zap.Uint("provider_id", providerID))
-		}
-		return
-	}
-	if !config.AgentInstalled || config.MonitoringMode != "agent" {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Warn("block rules: agent not installed or not in agent mode",
-				zap.Uint("provider_id", providerID))
-		}
-		return
-	}
-
-	var p providerModel.Provider
-	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
-		return
-	}
-	host := p.Endpoint
-	if host == "" {
-		host = p.PortIP
-	}
-	if host == "" {
-		if p.ConnectionType == "agent" {
-			host = "127.0.0.1" // loopback fallback; calls are routed through WS fallback in GetClient
-		} else {
-			return
-		}
-	}
-	port := config.AgentPort
-	if port == 0 {
-		port = agent.AgentPort
-	}
-	client := agent.GetClient(providerID, host, port, config.AgentToken)
-	if err := client.ApplyBlockRules(blockStrings, ipVersion); err != nil {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Error("failed to apply block rules to agent",
-				zap.Uint("provider_id", providerID),
-				zap.Error(err))
-		}
-		if len(appIDs) > 0 {
-			global.APP_DB.Model(&firewallModel.BlockRuleApplication{}).
-				Where("id IN ?", appIDs).
-				Updates(map[string]interface{}{"status": "failed"})
-		}
-	} else {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Info("block rules applied to agent",
-				zap.Uint("provider_id", providerID),
-				zap.Int("rule_count", len(blockStrings)))
-		}
-		if len(appIDs) > 0 {
-			global.APP_DB.Model(&firewallModel.BlockRuleApplication{}).
-				Where("id IN ?", appIDs).
-				Updates(map[string]interface{}{"status": "applied"})
-		}
-	}
-}
-
-// resyncAllProviders collects all active rules and re-applies to all providers.
-func (s *Service) resyncAllProviders(ctx context.Context) {
-	var apps []firewallModel.BlockRuleApplication
-	if err := global.APP_DB.Find(&apps).Error; err != nil {
-		return
-	}
-	ruleIDs := make(map[uint]bool)
-	// Determine most permissive ip_version across all applications
-	ipVersionSet := make(map[string]bool)
-	for _, app := range apps {
-		ruleIDs[app.RuleID] = true
-		v := app.IPVersion
-		if v == "" {
-			v = "both"
-		}
-		ipVersionSet[v] = true
-	}
-	if len(ruleIDs) == 0 {
-		return
-	}
-	// If any app uses "both", use "both"; otherwise merge ipv4+ipv6=both
-	ipVersion := "both"
-	if !ipVersionSet["both"] {
-		hasV4 := ipVersionSet["ipv4"]
-		hasV6 := ipVersionSet["ipv6"]
-		if hasV4 && hasV6 {
-			ipVersion = "both"
-		} else if hasV4 {
-			ipVersion = "ipv4"
-		} else if hasV6 {
-			ipVersion = "ipv6"
-		}
-	}
-
-	ids := make([]uint, 0, len(ruleIDs))
-	for id := range ruleIDs {
-		ids = append(ids, id)
-	}
-
-	var rules []firewallModel.BlockRule
-	if err := global.APP_DB.Where("id IN ? AND enabled = ?", ids, true).Find(&rules).Error; err != nil {
-		return
-	}
-	allStrings := make([]string, 0)
-	for _, rule := range rules {
-		var strs []string
-		if err := json.Unmarshal([]byte(rule.Strings), &strs); err != nil {
+		if _, exists := seen[id]; exists {
 			continue
 		}
-		allStrings = append(allStrings, strs...)
+		seen[id] = struct{}{}
+		result = append(result, id)
 	}
-
-	var configs []monitoringModel.MonitoringConfig
-	if err := global.APP_DB.Where("agent_installed = ? AND monitoring_mode = ?", true, "agent").Find(&configs).Error; err != nil {
-		return
-	}
-	// Filter out providers that no longer exist
-	candidateIDs := make([]uint, 0, len(configs))
-	for _, config := range configs {
-		candidateIDs = append(candidateIDs, config.ProviderID)
-	}
-	if len(candidateIDs) == 0 {
-		return
-	}
-	var existingIDs []uint
-	if err := global.APP_DB.Model(&providerModel.Provider{}).
-		Where("id IN ?", candidateIDs).
-		Pluck("id", &existingIDs).Error; err != nil {
-		return
-	}
-	existingSet := make(map[uint]bool, len(existingIDs))
-	for _, id := range existingIDs {
-		existingSet[id] = true
-	}
-	for _, config := range configs {
-		if existingSet[config.ProviderID] {
-			s.applyBlockRulesToProvider(ctx, config.ProviderID, allStrings, nil, ipVersion)
-		}
-	}
+	return result
 }
 
 // --- Exported helper functions for cross-service use ---
@@ -679,7 +601,11 @@ func (s *Service) resyncAllProviders(ctx context.Context) {
 // CleanupInstanceApplications removes all block rule applications targeting a specific instance
 // and resyncs all provider agents to update actual firewall rules.
 func CleanupInstanceApplications(instanceID uint) {
-	result := global.APP_DB.Where("scope = ? AND target_id = ?", "instance", instanceID).
+	var applications []firewallModel.BlockRuleApplication
+	_ = global.APP_DB.Where("scope = ? AND target_id = ?", "instance", instanceID).Find(&applications).Error
+	svc := &Service{}
+	providerIDs, _ := svc.resolveApplicationProviders(applications)
+	result := global.APP_DB.Unscoped().Where("scope = ? AND target_id = ?", "instance", instanceID).
 		Delete(&firewallModel.BlockRuleApplication{})
 	if result.Error != nil {
 		if global.APP_LOG != nil {
@@ -695,8 +621,7 @@ func CleanupInstanceApplications(instanceID uint) {
 				zap.Uint("instance_id", instanceID),
 				zap.Int64("count", result.RowsAffected))
 		}
-		svc := &Service{}
-		go svc.resyncAllProviders(context.Background())
+		go svc.resyncProviders(context.Background(), providerIDs)
 	}
 }
 
@@ -705,14 +630,14 @@ func CleanupInstanceApplications(instanceID uint) {
 func CleanupProviderApplications(providerID uint, instanceIDs []uint) {
 	var totalAffected int64
 
-	result := global.APP_DB.Where("scope = ? AND target_id = ?", "provider", providerID).
+	result := global.APP_DB.Unscoped().Where("scope = ? AND target_id = ?", "provider", providerID).
 		Delete(&firewallModel.BlockRuleApplication{})
 	if result.Error == nil {
 		totalAffected += result.RowsAffected
 	}
 
 	if len(instanceIDs) > 0 {
-		result = global.APP_DB.Where("scope = ? AND target_id IN ?", "instance", instanceIDs).
+		result = global.APP_DB.Unscoped().Where("scope = ? AND target_id IN ?", "instance", instanceIDs).
 			Delete(&firewallModel.BlockRuleApplication{})
 		if result.Error == nil {
 			totalAffected += result.RowsAffected
@@ -726,7 +651,7 @@ func CleanupProviderApplications(providerID uint, instanceIDs []uint) {
 				zap.Int64("count", totalAffected))
 		}
 		svc := &Service{}
-		go svc.resyncAllProviders(context.Background())
+		go svc.resyncProviders(context.Background(), []uint{providerID})
 	}
 }
 

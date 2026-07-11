@@ -50,20 +50,20 @@ parse_modules() {
         local start; start=$(echo "$input" | cut -d- -f1 | sed 's/^0*//')
         local end_val; end_val=$(echo "$input" | cut -d- -f2 | sed 's/^0*//')
         for ((i=start; i<=end_val; i++)); do
-            modules+=($(printf "%02d" "$i"))
+            modules+=("$(printf "%02d" "$i")")
         done
     elif [[ "$input" == *,* ]]; then
         IFS=',' read -ra parts <<< "$input"
         for p in "${parts[@]}"; do
-            modules+=($(printf "%02d" "$(echo "$p" | sed 's/^0*//')"))
+            modules+=("$(printf "%02d" "$(echo "$p" | sed 's/^0*//')")")
         done
     else
-        modules+=($(printf "%02d" "$(echo "$input" | sed 's/^0*//')"))
+        modules+=("$(printf "%02d" "$(echo "$input" | sed 's/^0*//')")")
     fi
     echo "${modules[@]}"
 }
 
-MODULES=($(parse_modules "$MODULE_INPUT"))
+read -r -a MODULES <<< "$(parse_modules "$MODULE_INPUT")"
 if [[ ${#MODULES[@]} -eq 0 ]]; then
     log_error "No test modules selected for input: ${MODULE_INPUT}"
     exit 1
@@ -211,9 +211,11 @@ MODULE_COUNT=${#MODULES[@]}
 MODULE_IDX=0
 for mod in "${MODULES[@]}"; do
     MODULE_IDX=$((MODULE_IDX + 1))
-    mod_file="${MODULES_DIR}/${mod}_*.sh"
-    mod_files=(${mod_file})
-    if [[ ! -f "${mod_files[0]}" ]]; then
+    mod_files=()
+    for mod_file in "${MODULES_DIR}/${mod}_"*.sh; do
+        [[ -f "$mod_file" ]] && mod_files+=("$mod_file")
+    done
+    if [[ ${#mod_files[@]} -eq 0 ]]; then
         log_warning "Module ${mod} not found, skipping"
         continue
     fi

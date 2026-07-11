@@ -104,11 +104,12 @@
         <el-table-column
           prop="code"
           :label="$t('admin.inviteCodes.code')"
+          min-width="130"
         />
         <el-table-column
           prop="maxUses"
           :label="$t('admin.inviteCodes.maxUses')"
-          width="120"
+          min-width="130"
         >
           <template #default="scope">
             {{ scope.row.maxUses === 0 ? $t('admin.inviteCodes.unlimited') : scope.row.maxUses }}

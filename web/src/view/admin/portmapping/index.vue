@@ -180,7 +180,7 @@
         <el-table-column
           prop="providerName"
           :label="$t('admin.portMapping.provider')"
-          width="120"
+          min-width="160"
         />
         <el-table-column
           prop="publicIP"
@@ -205,7 +205,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('admin.portMapping.internalPort')"
-          width="140"
+          min-width="150"
         >
           <template #default="{ row }">
             <span v-if="row.portType === 'batch' && row.portCount && row.portCount > 1">
@@ -217,7 +217,7 @@
         <el-table-column
           prop="protocol"
           :label="$t('admin.portMapping.protocol')"
-          width="100"
+          min-width="110"
         >
           <template #default="{ row }">
             <el-tag
@@ -247,12 +247,12 @@
         <el-table-column
           prop="description"
           :label="$t('common.description')"
-          width="120"
+          min-width="130"
         />
         <el-table-column
           prop="isIPv6"
           :label="$t('admin.portMapping.labelIPv6')"
-          width="80"
+          min-width="100"
         >
           <template #default="{ row }">
             <el-tag :type="row.isIPv6 ? 'success' : 'info'">
@@ -412,7 +412,7 @@
           <el-table-column
             prop="providerName"
             :label="$t('admin.portMapping.provider')"
-            width="140"
+            min-width="160"
           />
           <el-table-column
             prop="instanceName"
@@ -430,12 +430,12 @@
           <el-table-column
             prop="guestPort"
             :label="$t('admin.portMapping.internalPort')"
-            width="120"
+            min-width="150"
           />
           <el-table-column
             prop="protocol"
             :label="$t('admin.portMapping.protocol')"
-            width="90"
+            min-width="110"
           />
           <el-table-column
             prop="portType"

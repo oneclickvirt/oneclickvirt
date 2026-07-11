@@ -344,11 +344,15 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  min-width: 0;
   
   > span {
     font-size: 18px;
     font-weight: 600;
     color: var(--text-color-primary);
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -356,6 +360,13 @@ onMounted(() => {
   display: flex;
   gap: 10px;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.header-actions .el-button {
+  margin-left: 0;
 }
 
 .filter-container {
@@ -617,6 +628,21 @@ onMounted(() => {
   border-radius: 6px;
   border: 1px solid var(--border-color);
   transition: all 0.3s;
+}
+
+@media (max-width: 768px) {
+  .card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
+  }
+
+  .header-actions .el-button {
+    flex: 1 1 140px;
+  }
 }
 
 .level-config-card:hover {
