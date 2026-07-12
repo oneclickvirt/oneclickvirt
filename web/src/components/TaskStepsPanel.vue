@@ -184,6 +184,12 @@ const TASK_STEP_SEQUENCES = {
     'step.syncProviderPortMappings',
     'step.generatingReport'
   ],
+  'repair-port-mappings': [
+    'step.parseTaskData',
+    'step.getProviderInfo',
+    'step.repairingPortMappings',
+    'step.updatingPortStatus'
+  ],
   'snapshot-create': [
     'snapshot.taskStarted',
     'snapshot.buildCommand',

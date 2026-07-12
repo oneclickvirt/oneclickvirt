@@ -13,6 +13,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ControllerPortForwardFunc 是启动控制端端口转发的函数类型。
@@ -186,6 +187,12 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	if mappingType == "" {
 		mappingType = "node"
 	}
+	if mappingType == "controller" && portCount != 1 {
+		return 0, nil, fmt.Errorf("控制端转发仅支持单端口映射，请将端口数量设为1")
+	}
+	if mappingType == "controller" && req.Protocol != "tcp" {
+		return 0, nil, fmt.Errorf("控制端转发仅支持TCP协议")
+	}
 
 	// 分配主机端口（起始端口）
 	hostPort := req.HostPort
@@ -213,16 +220,16 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 			}
 			// 检查控制端端口是否已被占用。pending/deleting 期间监听器或恢复流程可能仍在运行，
 			// 不能把这些端口重新分配给其他控制端转发。
-			var occupiedPorts []int
-			err := global.APP_DB.Model(&provider.Port{}).
-				Where("mapping_type = 'controller' AND host_port BETWEEN ? AND ? AND status IN ?",
-					hostPort, hostPort+portCount-1, []string{"active", "pending", "deleting"}).
-				Pluck("host_port", &occupiedPorts).Error
+			var occupiedRecords []provider.Port
+			err := global.APP_DB.
+				Where("mapping_type = 'controller' AND host_port <= ?", hostPort+portCount-1).
+				Select("host_port", "host_port_end", "port_count").
+				Find(&occupiedRecords).Error
 			if err != nil {
 				return 0, nil, fmt.Errorf("检查控制端端口占用失败: %v", err)
 			}
-			if len(occupiedPorts) > 0 {
-				return 0, nil, fmt.Errorf("控制端端口段中有端口已被占用: %v", occupiedPorts)
+			if conflicts := hostPortRangeConflicts(occupiedRecords, hostPort, hostPort+portCount-1); len(conflicts) > 0 {
+				return 0, nil, fmt.Errorf("控制端端口段中有端口已被占用: %v", conflicts)
 			}
 		}
 	} else {
@@ -256,17 +263,9 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 					hostPort, hostPortEnd, providerInfo.PortRangeEnd)
 			}
 
-			// 批量检查指定的端口段是否可用
-			var occupiedPorts []int
-			err := global.APP_DB.Model(&provider.Port{}).
-				Where("provider_id = ? AND host_port BETWEEN ? AND ? AND status = 'active'",
-					providerInfo.ID, hostPort, hostPort+portCount-1).
-				Pluck("host_port", &occupiedPorts).Error
-			if err != nil {
-				return 0, nil, fmt.Errorf("检查端口占用失败: %v", err)
-			}
-			if len(occupiedPorts) > 0 {
-				return 0, nil, fmt.Errorf("端口段中有端口已被占用: %v", occupiedPorts)
+			availablePorts, _ := s.batchCheckPortsAvailability(&providerInfo, hostPort, hostPort+portCount-1)
+			if len(availablePorts) != portCount {
+				return 0, nil, fmt.Errorf("端口段 %d-%d 中存在已占用端口", hostPort, hostPort+portCount-1)
 			}
 		}
 	}
@@ -308,7 +307,31 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		InternalHost:  internalHost,
 	}
 
-	if err := global.APP_DB.Create(&port).Error; err != nil {
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		var lockedProvider provider.Provider
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", providerInfo.ID).First(&lockedProvider).Error; err != nil {
+			return fmt.Errorf("锁定Provider失败: %w", err)
+		}
+
+		var occupiedRecords []provider.Port
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("host_port <= ?", hostPort+portCount-1)
+		if mappingType == "controller" {
+			query = query.Where("mapping_type = 'controller'")
+		} else {
+			if hostPort < lockedProvider.PortRangeStart || hostPort+portCount-1 > lockedProvider.PortRangeEnd {
+				return fmt.Errorf("%w: Provider端口范围在创建期间发生变化，请重试", ErrPortRangeValidation)
+			}
+			query = query.Where("provider_id = ?", providerInfo.ID).
+				Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'")
+		}
+		if err := query.Select("host_port", "host_port_end", "port_count").Find(&occupiedRecords).Error; err != nil {
+			return fmt.Errorf("复核端口占用失败: %w", err)
+		}
+		if conflicts := hostPortRangeConflicts(occupiedRecords, hostPort, hostPort+portCount-1); len(conflicts) > 0 {
+			return fmt.Errorf("端口段中有端口已被并发占用: %v", conflicts)
+		}
+		return tx.Create(&port).Error
+	}); err != nil {
 		global.APP_LOG.Error("创建端口映射数据库记录失败", zap.Error(err))
 		return 0, nil, fmt.Errorf("创建端口映射失败: %v", err)
 	}
@@ -461,9 +484,34 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		defer controllerPortAllocateMu.Unlock()
 	}
 
-	// 使用事务确保端口分配的原子性，防止并发创建时的端口冲突
+	// 节点实际端口探测可能包含 SSH 建连和系统命令，必须在数据库事务外完成。
+	var scannedAvailablePorts []int
+	if !useControllerMapping {
+		scannedAvailablePorts, _ = s.batchCheckPortsAvailability(
+			&providerInfo,
+			providerInfo.PortRangeStart,
+			providerInfo.PortRangeEnd,
+		)
+		if len(scannedAvailablePorts) < defaultPortCount {
+			return fmt.Errorf("节点可用端口不足: 需要%d个端口, 当前探测到%d个", defaultPortCount, len(scannedAvailablePorts))
+		}
+	}
+
+	// 短事务仅负责锁定、二次数据库校验和批量写入，不执行远程操作。
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		var createdPorts []provider.Port
+		var lockedProvider provider.Provider
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", providerID).First(&lockedProvider).Error; err != nil {
+			return fmt.Errorf("锁定Provider失败: %w", err)
+		}
+		if lockedProvider.ConnectionType != providerInfo.ConnectionType ||
+			lockedProvider.PortIP != providerInfo.PortIP ||
+			lockedProvider.NetworkType != providerInfo.NetworkType ||
+			lockedProvider.PortRangeStart != providerInfo.PortRangeStart ||
+			lockedProvider.PortRangeEnd != providerInfo.PortRangeEnd {
+			return fmt.Errorf("Provider端口配置在分配期间发生变化，请重试")
+		}
+		providerInfo = lockedProvider
 
 		var startPort int
 		var allocatedPorts []int
@@ -478,8 +526,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 				allocatedPorts[i] = startPort + i
 			}
 		} else {
-			// 分配连续的端口区间，确保所有端口都可用（数据库+实际占用检测）
-			startPort, allocatedPorts, err = s.allocateConsecutivePortsInTx(tx, &providerInfo, defaultPortCount)
+			startPort, allocatedPorts, err = s.allocateConsecutivePortsInTx(tx, &providerInfo, defaultPortCount, scannedAvailablePorts)
 			if err != nil {
 				return fmt.Errorf("分配连续端口区间失败: %v", err)
 			}
@@ -488,14 +535,20 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		// 确定映射类型：agent模式且无PortIP/no_port_mapping时使用控制端转发
 		mappingType := "node"
 		internalHost := ""
+		mappingProtocol := "both"
 		if useControllerMapping {
 			// Agent模式且无PortIP -> 控制端隧道内穿映射
 			mappingType = "controller"
 			// 获取实例的私有IP作为隧道目标
 			var instance provider.Instance
-			if err := tx.Where("id = ?", instanceID).Select("private_ip").First(&instance).Error; err == nil {
-				internalHost = instance.PrivateIP
+			if err := tx.Where("id = ?", instanceID).Select("private_ip").First(&instance).Error; err != nil {
+				return fmt.Errorf("查询控制端转发目标实例失败: %w", err)
 			}
+			internalHost = instance.PrivateIP
+			if internalHost == "" {
+				return fmt.Errorf("控制端转发目标实例缺少内网IP")
+			}
+			mappingProtocol = "tcp"
 		}
 
 		sshHostPort := 0
@@ -516,7 +569,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 				ProviderID:    providerID,
 				HostPort:      hostPort,
 				GuestPort:     guestPort,
-				Protocol:      "both",
+				Protocol:      mappingProtocol,
 				Description:   description,
 				Status:        "active",
 				IsSSH:         guestPort == requiredFixedSSHPort,
@@ -534,7 +587,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 
 		// 更新实例的SSH端口
 		if err := tx.Model(&provider.Instance{}).Where("id = ?", instanceID).Update("ssh_port", sshHostPort).Error; err != nil {
-			global.APP_LOG.Warn("更新实例SSH端口失败", zap.Error(err))
+			return fmt.Errorf("更新实例SSH端口失败: %w", err)
 		}
 
 		// 批量创建剩余普通映射。默认使用 host port 作为 guest port；
@@ -560,7 +613,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 				ProviderID:    providerID,
 				HostPort:      port,
 				GuestPort:     guestPort,
-				Protocol:      "both",
+				Protocol:      mappingProtocol,
 				Description:   fmt.Sprintf("端口%d", guestPort),
 				Status:        "active",
 				IsSSH:         false,
@@ -586,7 +639,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 				nextPort = providerInfo.PortRangeStart
 			}
 			if err := tx.Model(&provider.Provider{}).Where("id = ?", providerID).Update("next_available_port", nextPort).Error; err != nil {
-				global.APP_LOG.Warn("更新NextAvailablePort失败", zap.Error(err))
+				return fmt.Errorf("更新NextAvailablePort失败: %w", err)
 			}
 		}
 

@@ -30,6 +30,20 @@
                 {{ $t('admin.portMapping.syncPortMappings') }}
               </el-button>
             </el-tooltip>
+            <el-tooltip
+              :content="$t('admin.portMapping.repairPortMappingsTooltip')"
+              placement="bottom"
+            >
+              <el-button
+                type="danger"
+                plain
+                :icon="RefreshRight"
+                :loading="repairPreviewLoading"
+                @click="handleRepairPortMappings"
+              >
+                {{ $t('admin.portMapping.repairPortMappings') }}
+              </el-button>
+            </el-tooltip>
           </div>
         </div>
       </template>
@@ -468,6 +482,274 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="repairPreviewVisible"
+      :title="$t('admin.portMapping.repairPreviewTitle')"
+      width="min(920px, 94vw)"
+      append-to-body
+    >
+      <el-alert
+        type="error"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 14px;"
+      >
+        <template #title>
+          {{ $t('admin.portMapping.repairWarningTitle') }}
+        </template>
+        <div class="repair-warning-text">
+          {{ $t('admin.portMapping.repairWarning') }}
+        </div>
+      </el-alert>
+
+      <el-descriptions
+        v-if="!isCompactRepair"
+        :column="4"
+        border
+        class="repair-summary"
+      >
+        <el-descriptions-item :label="$t('admin.portMapping.repairProviders')">
+          {{ repairPreview.providerCount || 0 }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="$t('admin.portMapping.repairRecords')">
+          {{ repairPreview.candidateCount || 0 }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="$t('admin.portMapping.repairRules')">
+          {{ repairPreview.ruleCount || 0 }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="$t('admin.portMapping.repairRestarts')">
+          {{ repairPreview.requiresInstanceRestartCount || 0 }}
+        </el-descriptions-item>
+      </el-descriptions>
+
+      <div
+        v-else
+        class="repair-summary-mobile"
+      >
+        <div class="repair-summary-mobile-item">
+          <span>{{ $t('admin.portMapping.repairProviders') }}</span>
+          <strong>{{ repairPreview.providerCount || 0 }}</strong>
+        </div>
+        <div class="repair-summary-mobile-item">
+          <span>{{ $t('admin.portMapping.repairRecords') }}</span>
+          <strong>{{ repairPreview.candidateCount || 0 }}</strong>
+        </div>
+        <div class="repair-summary-mobile-item">
+          <span>{{ $t('admin.portMapping.repairRules') }}</span>
+          <strong>{{ repairPreview.ruleCount || 0 }}</strong>
+        </div>
+        <div class="repair-summary-mobile-item">
+          <span>{{ $t('admin.portMapping.repairRestarts') }}</span>
+          <strong>{{ repairPreview.requiresInstanceRestartCount || 0 }}</strong>
+        </div>
+      </div>
+
+      <div
+        v-if="repairCandidates.length > 0"
+        class="sync-preview-toolbar"
+      >
+        <el-button
+          size="small"
+          @click="toggleAllRepairCandidates"
+        >
+          {{ allRepairSelected ? $t('admin.portMapping.syncUnselectAll') : $t('admin.portMapping.syncSelectAll') }}
+        </el-button>
+        <el-text type="info">
+          {{ $t('admin.portMapping.repairSelectedCount', { selected: selectedRepairPortIds.length, total: repairCandidates.length }) }}
+        </el-text>
+      </div>
+
+      <el-checkbox-group v-model="selectedRepairPortIds">
+        <el-table
+          v-if="!isCompactRepair"
+          :data="repairCandidates"
+          max-height="360"
+          border
+        >
+          <el-table-column
+            width="52"
+            align="center"
+          >
+            <template #default="{ row }">
+              <el-checkbox :value="row.portId" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="providerName"
+            :label="$t('admin.portMapping.provider')"
+            min-width="140"
+          />
+          <el-table-column
+            prop="instanceName"
+            :label="$t('admin.portMapping.instanceName')"
+            min-width="150"
+          />
+          <el-table-column
+            :label="$t('admin.portMapping.publicPort')"
+            min-width="130"
+          >
+            <template #default="{ row }">
+              {{ row.hostPortEnd > 0 ? `${row.hostPort}-${row.hostPortEnd}` : row.hostPort }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="$t('admin.portMapping.internalPort')"
+            min-width="130"
+          >
+            <template #default="{ row }">
+              {{ row.guestPortEnd > 0 ? `${row.guestPort}-${row.guestPortEnd}` : row.guestPort }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="protocol"
+            :label="$t('admin.portMapping.protocol')"
+            width="90"
+          />
+          <el-table-column
+            :label="$t('admin.portMapping.repairImpact')"
+            min-width="135"
+          >
+            <template #default="{ row }">
+              <el-tag
+                v-if="row.requiresInstanceRestart"
+                type="danger"
+                size="small"
+              >
+                {{ $t('admin.portMapping.repairRestartRequired') }}
+              </el-tag>
+              <el-tag
+                v-else
+                type="warning"
+                size="small"
+              >
+                {{ $t('admin.portMapping.repairRewriteRule') }}
+              </el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div
+          v-else
+          class="repair-mobile-list"
+        >
+          <el-checkbox
+            v-for="row in repairCandidates"
+            :key="row.portId"
+            :value="row.portId"
+            class="repair-mobile-item"
+          >
+            <div class="repair-mobile-content">
+              <div class="repair-mobile-heading">
+                <strong>{{ row.providerName }}</strong>
+                <span>{{ row.instanceName }}</span>
+              </div>
+              <div class="repair-mobile-route">
+                <span>
+                  <small>{{ $t('admin.portMapping.publicPort') }}</small>
+                  <strong>{{ row.hostPortEnd > 0 ? `${row.hostPort}-${row.hostPortEnd}` : row.hostPort }}</strong>
+                </span>
+                <span>
+                  <small>{{ $t('admin.portMapping.internalPort') }}</small>
+                  <strong>{{ row.guestPortEnd > 0 ? `${row.guestPort}-${row.guestPortEnd}` : row.guestPort }}</strong>
+                </span>
+              </div>
+              <div class="repair-mobile-meta">
+                <span>{{ String(row.protocol || '-').toUpperCase() }}</span>
+                <el-tag
+                  v-if="row.requiresInstanceRestart"
+                  type="danger"
+                  size="small"
+                >
+                  {{ $t('admin.portMapping.repairRestartRequired') }}
+                </el-tag>
+                <el-tag
+                  v-else
+                  type="warning"
+                  size="small"
+                >
+                  {{ $t('admin.portMapping.repairRewriteRule') }}
+                </el-tag>
+              </div>
+            </div>
+          </el-checkbox>
+        </div>
+      </el-checkbox-group>
+
+      <el-collapse
+        v-if="repairSkipped.length > 0"
+        class="repair-skipped"
+      >
+        <el-collapse-item name="skipped">
+          <template #title>
+            {{ $t('admin.portMapping.repairSkippedTitle', { count: repairSkipped.length }) }}
+          </template>
+          <el-table
+            v-if="!isCompactRepair"
+            :data="repairSkipped"
+            max-height="220"
+            size="small"
+          >
+            <el-table-column
+              prop="providerName"
+              :label="$t('admin.portMapping.provider')"
+              min-width="130"
+            />
+            <el-table-column
+              prop="instanceName"
+              :label="$t('admin.portMapping.instanceName')"
+              min-width="140"
+            />
+            <el-table-column
+              prop="hostPort"
+              :label="$t('admin.portMapping.publicPort')"
+              width="110"
+            />
+            <el-table-column
+              :label="$t('admin.portMapping.repairSkipReason')"
+              min-width="220"
+            >
+              <template #default="{ row }">
+                {{ formatRepairSkipReason(row.reason) }}
+              </template>
+            </el-table-column>
+          </el-table>
+          <div
+            v-else
+            class="repair-skipped-mobile"
+          >
+            <div
+              v-for="row in repairSkipped"
+              :key="row.portId"
+              class="repair-skipped-mobile-item"
+            >
+              <div>
+                <strong>{{ row.providerName }}</strong>
+                <span>{{ row.instanceName || '-' }}</span>
+              </div>
+              <div>
+                <span>{{ $t('admin.portMapping.publicPort') }}: {{ row.hostPort }}</span>
+                <span>{{ formatRepairSkipReason(row.reason) }}</span>
+              </div>
+            </div>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="repairPreviewVisible = false">{{ $t('common.cancel') }}</el-button>
+          <el-button
+            type="danger"
+            :loading="repairSubmitting"
+            :disabled="selectedRepairPortIds.length === 0"
+            @click="confirmRepairPortMappings"
+          >
+            {{ $t('admin.portMapping.repairExecuteSelected') }}
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+
     <!-- 手动添加端口对话框 -->
     <el-dialog
       v-model="addDialogVisible"
@@ -547,7 +829,7 @@
               v-else-if="supportedInstances.length === 0 && instances.length > 0"
               style="color: #e6a23c;"
             >
-              ⚠️ {{ $t('admin.portMapping.noSupportedInstances') }}（{{ $t('admin.portMapping.instancesLoadedButNotSupported', { count: instances.length }) }}）
+              {{ $t('admin.portMapping.noSupportedInstances') }}（{{ $t('admin.portMapping.instancesLoadedButNotSupported', { count: instances.length }) }}）
             </span>
             <span
               v-else
@@ -588,12 +870,13 @@
             :min="1"
             :max="100"
             :controls="true"
+            :disabled="addForm.mappingType === 'controller'"
             :placeholder="$t('admin.portMapping.portCountPlaceholder')"
             style="width: 100%"
             @change="updatePortRange"
           />
           <div style="color: #909399; font-size: 12px; margin-top: 5px;">
-            {{ $t('admin.portMapping.portCountHint') }}
+            {{ addForm.mappingType === 'controller' ? $t('admin.portMapping.controllerSinglePortHint') : $t('admin.portMapping.portCountHint') }}
           </div>
           <div
             v-if="portRangePreview"
@@ -641,7 +924,7 @@
             v-if="portCheckResult && portCheckResult.suggestion"
             style="color: #e6a23c; font-size: 12px; margin-top: 3px;"
           >
-            💡 {{ portCheckResult.suggestion }}
+            {{ portCheckResult.suggestion }}
           </div>
         </el-form-item>
         
@@ -649,7 +932,10 @@
           :label="$t('admin.portMapping.protocol')"
           prop="protocol"
         >
-          <el-radio-group v-model="addForm.protocol">
+          <el-radio-group
+            v-model="addForm.protocol"
+            :disabled="addForm.mappingType === 'controller'"
+          >
             <el-radio label="tcp">
               {{ $t('admin.portMapping.protocolTCP') }}
             </el-radio>
@@ -660,6 +946,12 @@
               {{ $t('admin.portMapping.protocolBoth') }}
             </el-radio>
           </el-radio-group>
+          <div
+            v-if="addForm.mappingType === 'controller'"
+            style="color: #909399; font-size: 12px; margin-top: 5px;"
+          >
+            {{ $t('admin.portMapping.controllerTcpHint') }}
+          </div>
         </el-form-item>
 
         <!-- 映射模式：节点侧 / 控制端转发 -->
@@ -732,9 +1024,9 @@
 
 
 <script setup>
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Loading, Search, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import { Loading, Search, CircleCheck, CircleClose, RefreshRight } from '@element-plus/icons-vue'
 import { usePortMappingManagement } from './composables/usePortMappingManagement'
 
 const {
@@ -742,6 +1034,8 @@ const {
   selectedPortMappings, searchForm,
   syncPreviewVisible, syncPreviewLoading, syncSubmitting,
   selectedSyncPortIds, syncCandidates, unhealthySyncProviders, allSyncSelected,
+  repairPreviewVisible, repairPreviewLoading, repairSubmitting, repairPreview,
+  selectedRepairPortIds, repairCandidates, repairSkipped, allRepairSelected,
   addDialogVisible, addFormRef, addLoading, addForm, addRules,
   checkingPort, portCheckResult,
   supportedInstances, selectedInstanceProvider, portRangePreview, portMappingHint,
@@ -753,18 +1047,30 @@ const {
   deletePortMappingHandler, batchDeleteDirect,
   formatTime, openAddDialog, onInstanceChange, submitAdd,
   handleSyncPortMappings, confirmSyncPortMappings, toggleAllSyncCandidates, formatSyncReason, filterInstances,
+  handleRepairPortMappings, confirmRepairPortMappings, toggleAllRepairCandidates, formatRepairSkipReason,
   updatePortRange, checkPortAvailabilityDebounced, checkPortAvailability,
   cleanupAutoRefresh,
   t
 } = usePortMappingManagement()
 
+const isCompactRepair = ref(false)
+let compactRepairMediaQuery
+
+const updateCompactRepair = (event) => {
+  isCompactRepair.value = event.matches
+}
+
 onMounted(() => {
+  compactRepairMediaQuery = window.matchMedia('(max-width: 600px)')
+  isCompactRepair.value = compactRepairMediaQuery.matches
+  compactRepairMediaQuery.addEventListener('change', updateCompactRepair)
   loadProviders()
   loadInstances()
   loadPortMappings()
 })
 
 onUnmounted(() => {
+  compactRepairMediaQuery?.removeEventListener('change', updateCompactRepair)
   cleanupAutoRefresh()
 })
 
@@ -796,6 +1102,7 @@ const handleAddDialogClose = (done) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   
   > span {
     font-size: 18px;
@@ -808,6 +1115,8 @@ const handleAddDialogClose = (done) => {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .search-bar {
@@ -835,6 +1144,182 @@ const handleAddDialogClose = (done) => {
 .sync-error-list {
   margin-top: 6px;
   line-height: 1.6;
+}
+
+.repair-warning-text {
+  line-height: 1.6;
+}
+
+.repair-summary {
+  margin-bottom: 14px;
+}
+
+.repair-summary-mobile {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 14px;
+  border-top: 1px solid var(--border-color);
+  border-left: 1px solid var(--border-color);
+}
+
+.repair-summary-mobile-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.repair-summary-mobile-item span {
+  min-width: 0;
+  color: var(--text-color-secondary);
+}
+
+.repair-summary-mobile-item strong {
+  flex: 0 0 auto;
+  color: var(--text-color-primary);
+}
+
+.repair-mobile-list {
+  display: grid;
+  gap: 10px;
+}
+
+.repair-mobile-item {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.repair-mobile-item :deep(.el-checkbox__input) {
+  margin-top: 3px;
+}
+
+.repair-mobile-item :deep(.el-checkbox__label) {
+  flex: 1;
+  min-width: 0;
+  padding-left: 10px;
+  white-space: normal;
+}
+
+.repair-mobile-content {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.repair-mobile-heading,
+.repair-mobile-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.repair-mobile-heading strong,
+.repair-mobile-heading span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.repair-mobile-heading span {
+  color: var(--text-color-secondary);
+  text-align: right;
+}
+
+.repair-mobile-route {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.repair-mobile-route > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.repair-mobile-route small {
+  color: var(--text-color-secondary);
+}
+
+.repair-mobile-route strong {
+  overflow-wrap: anywhere;
+}
+
+.repair-mobile-meta > span:first-child {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.repair-skipped-mobile {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.repair-skipped-mobile-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.repair-skipped-mobile-item > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.repair-skipped-mobile-item span {
+  min-width: 0;
+  color: var(--text-color-secondary);
+  overflow-wrap: anywhere;
+}
+
+.repair-skipped {
+  margin-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .card-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .repair-warning-text {
+    font-size: 13px;
+  }
+
+  .sync-preview-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .dialog-footer {
+    width: 100%;
+  }
+
+  .dialog-footer .el-button {
+    flex: 1;
+    min-width: 0;
+  }
 }
 </style>
 

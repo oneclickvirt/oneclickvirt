@@ -15,9 +15,10 @@ import (
 
 var controllerPortAllocateMu sync.Mutex
 
-// allocateConsecutivePortsInTx 在事务中分配连续的端口区间
+// allocateConsecutivePortsInTx 从事务外已探测可用的端口中分配连续区间。
+// 调用方必须先锁定 Provider 行，避免同一 Provider 的默认端口分配并发冲突。
 // 返回: 起始端口, 分配的端口列表, 错误
-func (s *PortMappingService) allocateConsecutivePortsInTx(tx *gorm.DB, providerInfo *provider.Provider, count int) (int, []int, error) {
+func (s *PortMappingService) allocateConsecutivePortsInTx(tx *gorm.DB, providerInfo *provider.Provider, count int, scannedAvailablePorts []int) (int, []int, error) {
 	rangeStart := providerInfo.PortRangeStart
 	rangeEnd := providerInfo.PortRangeEnd
 
@@ -32,18 +33,29 @@ func (s *PortMappingService) allocateConsecutivePortsInTx(tx *gorm.DB, providerI
 		startSearchPort = rangeStart
 	}
 
-	// 批量检查整个范围内的端口可用性
-	availablePorts, _ := s.batchCheckPortsAvailability(providerInfo, rangeStart, rangeEnd)
-
-	// 构建可用端口集合以便快速查找
+	// 系统端口探测可能涉及 SSH，必须在事务外完成。事务内只合并最新数据库占用状态。
 	availableSet := make(map[int]bool)
-	for _, port := range availablePorts {
-		availableSet[port] = true
+	for _, port := range scannedAvailablePorts {
+		if port >= rangeStart && port <= rangeEnd {
+			availableSet[port] = true
+		}
 	}
 
-	global.APP_LOG.Debug("批量检查端口可用性完成",
+	var occupiedRecords []provider.Port
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("provider_id = ? AND host_port <= ?", providerInfo.ID, rangeEnd).
+		Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+		Select("host_port", "host_port_end", "port_count").
+		Find(&occupiedRecords).Error; err != nil {
+		return 0, nil, fmt.Errorf("查询已占用端口失败: %w", err)
+	}
+	for port := range collectOccupiedHostPorts(occupiedRecords, rangeStart, rangeEnd) {
+		delete(availableSet, port)
+	}
+
+	global.APP_LOG.Debug("合并事务外端口探测与数据库占用完成",
 		zap.Int("总范围", rangeEnd-rangeStart+1),
-		zap.Int("可用端口数", len(availablePorts)),
+		zap.Int("可用端口数", len(availableSet)),
 		zap.Int("需要端口数", count))
 
 	// 查找连续可用的端口段
@@ -76,27 +88,15 @@ func (s *PortMappingService) allocateConsecutivePortsInTx(tx *gorm.DB, providerI
 				}
 			}
 
-			// 如果找到了连续的可用端口区间
+			// Provider 行已由调用方锁定，当前事务内不会有第二个默认分配器越过该游标。
 			if allAvailable {
-				// 在事务中一次性批量确认，使用 LOCK IN SHARE MODE 防止并发幻读
-				var conflictCount int64
-				if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
-					Model(&provider.Port{}).
-					Where("provider_id = ? AND host_port IN ?", providerInfo.ID, ports).
-					Count(&conflictCount).Error; err != nil {
-					// DB 错误视为冲突，放弃本次候选区间，继续搜索
-					break
-				}
-
-				if conflictCount == 0 {
-					global.APP_LOG.Debug("成功分配连续端口区间",
-						zap.Uint("providerId", providerInfo.ID),
-						zap.Int("startPort", startPort),
-						zap.Int("endPort", startPort+count-1),
-						zap.Int("count", count),
-						zap.Ints("ports", ports))
-					return startPort, ports, nil
-				}
+				global.APP_LOG.Debug("成功分配连续端口区间",
+					zap.Uint("providerId", providerInfo.ID),
+					zap.Int("startPort", startPort),
+					zap.Int("endPort", startPort+count-1),
+					zap.Int("count", count),
+					zap.Ints("ports", ports))
+				return startPort, ports, nil
 			}
 		}
 	}
@@ -122,16 +122,18 @@ func (s *PortMappingService) allocateHostPort(providerID uint, rangeStart, range
 
 	// 一次性查询该Provider所有端口，构建已用端口集合
 	// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
-	var usedPorts []int
-	if err := global.APP_DB.Model(&provider.Port{}).
+	var usedRecords []provider.Port
+	if err := global.APP_DB.
 		Where("provider_id = ?", providerID).
-		Pluck("host_port", &usedPorts).Error; err != nil && err != gorm.ErrRecordNotFound {
+		Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+		Select("host_port", "host_port_end", "port_count").
+		Find(&usedRecords).Error; err != nil && err != gorm.ErrRecordNotFound {
 		return 0, fmt.Errorf("查询已用端口失败: %v", err)
 	}
 
 	// 构建已用端口的快速查找集合
 	usedPortSet := make(map[int]bool)
-	for _, port := range usedPorts {
+	for port := range collectOccupiedHostPorts(usedRecords, rangeStart, rangeEnd) {
 		usedPortSet[port] = true
 	}
 
@@ -174,8 +176,10 @@ func (s *PortMappingService) allocateHostPort(providerID uint, rangeStart, range
 		// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
 		var existingPort provider.Port
 		err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
-			Where("provider_id = ? AND host_port = ?",
-				providerID, candidatePort).First(&existingPort).Error
+			Where("provider_id = ? AND host_port <= ?", providerID, candidatePort).
+			Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+			Where("CASE WHEN host_port_end > 0 THEN host_port_end WHEN port_count > 1 THEN host_port + port_count - 1 ELSE host_port END >= ?", candidatePort).
+			First(&existingPort).Error
 
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return fmt.Errorf("检查端口失败: %v", err)
@@ -238,15 +242,17 @@ func (s *PortMappingService) allocateHostPortWithRetry(providerID uint, rangeSta
 	}
 
 	// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
-	var usedPorts []int
-	if err := global.APP_DB.Model(&provider.Port{}).
+	var usedRecords []provider.Port
+	if err := global.APP_DB.
 		Where("provider_id = ?", providerID).
-		Pluck("host_port", &usedPorts).Error; err != nil && err != gorm.ErrRecordNotFound {
+		Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+		Select("host_port", "host_port_end", "port_count").
+		Find(&usedRecords).Error; err != nil && err != gorm.ErrRecordNotFound {
 		return 0, fmt.Errorf("查询已用端口失败: %v", err)
 	}
 
 	usedPortSet := make(map[int]bool)
-	for _, port := range usedPorts {
+	for port := range collectOccupiedHostPorts(usedRecords, rangeStart, rangeEnd) {
 		usedPortSet[port] = true
 	}
 
@@ -283,8 +289,10 @@ func (s *PortMappingService) allocateHostPortWithRetry(providerID uint, rangeSta
 
 		// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
 		var existingPort provider.Port
-		err := tx.Where("provider_id = ? AND host_port = ?",
-			providerID, candidatePort).First(&existingPort).Error
+		err := tx.Where("provider_id = ? AND host_port <= ?", providerID, candidatePort).
+			Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+			Where("CASE WHEN host_port_end > 0 THEN host_port_end WHEN port_count > 1 THEN host_port + port_count - 1 ELSE host_port END >= ?", candidatePort).
+			First(&existingPort).Error
 
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return fmt.Errorf("检查端口失败: %v", err)
@@ -322,11 +330,6 @@ func (s *PortMappingService) allocateConsecutivePorts(providerID uint, rangeStar
 		return 0, fmt.Errorf("端口数量必须大于0")
 	}
 
-	if portCount == 1 {
-		// 单个端口直接使用原来的方法
-		return s.allocateHostPort(providerID, rangeStart, rangeEnd)
-	}
-
 	var providerInfo provider.Provider
 	if err := global.APP_DB.Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
 		return 0, fmt.Errorf("Provider不存在: %v", err)
@@ -337,94 +340,27 @@ func (s *PortMappingService) allocateConsecutivePorts(providerID uint, rangeStar
 		return 0, fmt.Errorf("所需端口数量(%d)超出可用范围", portCount)
 	}
 
-	// 使用批量检测获取所有可用端口
+	// SSH/系统端口探测在事务外完成，事务内只锁定 Provider、合并最新数据库占用并更新游标。
 	availablePorts, _ := s.batchCheckPortsAvailability(&providerInfo, rangeStart, rangeEnd)
-
-	// 构建可用端口集合
-	availableSet := make(map[int]bool)
-	for _, port := range availablePorts {
-		availableSet[port] = true
-	}
-
-	global.APP_LOG.Debug("批量端口检查完成",
-		zap.Int("总端口数", rangeEnd-rangeStart+1),
-		zap.Int("可用端口数", len(availablePorts)),
-		zap.Int("需要端口数", portCount))
-
-	// 查找连续可用的端口段
-	startPort := providerInfo.NextAvailablePort
-	if startPort < rangeStart {
-		startPort = rangeStart
-	}
-
-	// 辅助函数：检查从某个端口开始的连续端口是否都可用
-	isConsecutiveAvailable := func(start int) bool {
-		if start+portCount-1 > rangeEnd {
-			return false
-		}
-		for i := 0; i < portCount; i++ {
-			if !availableSet[start+i] {
-				return false
-			}
-		}
-		return true
-	}
-
-	// 从NextAvailablePort开始查找
-	var candidateStart int
-	found := false
-
-	for port := startPort; port <= rangeEnd-portCount+1; port++ {
-		if isConsecutiveAvailable(port) {
-			candidateStart = port
-			found = true
-			break
-		}
-	}
-
-	// 如果从当前位置到结束都没找到，从范围开始重新查找
-	if !found && startPort > rangeStart {
-		for port := rangeStart; port < startPort && port <= rangeEnd-portCount+1; port++ {
-			if isConsecutiveAvailable(port) {
-				candidateStart = port
-				found = true
-				break
-			}
-		}
-	}
-
-	if !found {
+	if len(availablePorts) < portCount {
 		return 0, fmt.Errorf("无法找到%d个连续可用端口", portCount)
 	}
 
-	// 使用事务确保端口段分配的原子性
 	var allocatedPort int
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		// 锁定Provider行
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
 			return fmt.Errorf("Provider不存在: %v", err)
 		}
-
-		// 再次确认端口段可用（防止并发冲突）
-		// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
-		for i := 0; i < portCount; i++ {
-			checkPort := candidateStart + i
-			var existingPort provider.Port
-			err := tx.Where("provider_id = ? AND host_port = ?",
-				providerID, checkPort).First(&existingPort).Error
-
-			if err != nil && err != gorm.ErrRecordNotFound {
-				return fmt.Errorf("检查端口%d失败: %v", checkPort, err)
-			}
-
-			if err == nil {
-				return fmt.Errorf("端口%d已被占用", checkPort)
-			}
+		if providerInfo.PortRangeStart != rangeStart || providerInfo.PortRangeEnd != rangeEnd {
+			return fmt.Errorf("Provider端口范围在分配期间发生变化，请重试")
 		}
 
-		// 更新NextAvailablePort
-		allocatedPort = candidateStart
-		nextPort := candidateStart + portCount
+		startPort, _, allocateErr := s.allocateConsecutivePortsInTx(tx, &providerInfo, portCount, availablePorts)
+		if allocateErr != nil {
+			return allocateErr
+		}
+		allocatedPort = startPort
+		nextPort := startPort + portCount
 		if nextPort > rangeEnd {
 			nextPort = rangeStart
 		}
@@ -492,17 +428,19 @@ func (s *PortMappingService) allocateControllerPortWithDB(db *gorm.DB, providerI
 		return 0, fmt.Errorf("端口数量必须大于0")
 	}
 
-	// 获取所有控制端转发模式的已用端口
-	var usedPorts []int
-	if err := db.Model(&provider.Port{}).
-		Where("mapping_type = 'controller' AND status IN ? AND host_port BETWEEN ? AND ?", []string{"active", "pending", "deleting"}, rangeStart, rangeEnd).
-		Pluck("host_port", &usedPorts).Error; err != nil {
+	// 获取所有控制端转发模式的已用端口段。历史数据可能包含端口段，
+	// 因此不能只比较每条记录的起始端口。
+	var usedRecords []provider.Port
+	if err := db.
+		Where("mapping_type = 'controller' AND host_port <= ?", rangeEnd).
+		Select("host_port", "host_port_end", "port_count").
+		Find(&usedRecords).Error; err != nil {
 		return 0, fmt.Errorf("查询控制端端口占用失败: %v", err)
 	}
 
 	usedSet := make(map[int]bool)
-	for _, p := range usedPorts {
-		usedSet[p] = true
+	for port := range collectOccupiedHostPorts(usedRecords, rangeStart, rangeEnd) {
+		usedSet[port] = true
 	}
 
 	// 查找连续可用端口段

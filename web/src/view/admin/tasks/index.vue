@@ -211,6 +211,10 @@
                 value="sync-port-mappings"
               />
               <el-option
+                :label="$t('admin.tasks.taskTypeRepairPortMappings')"
+                value="repair-port-mappings"
+              />
+              <el-option
                 :label="$t('admin.tasks.taskTypeCreateRedemptionInstance')"
                 value="create_redemption_instance"
               />

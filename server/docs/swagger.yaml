@@ -358,6 +358,12 @@ definitions:
         maximum: 65535
         minimum: 1
         type: integer
+      mappingType:
+        description: 映射位置，默认节点侧
+        enum:
+        - node
+        - controller
+        type: string
       portCount:
         description: 端口数量（默认1，检查端口段时使用）
         maximum: 1500
@@ -563,6 +569,9 @@ definitions:
         type: string
       mappingType:
         description: '"node"（默认）或 "controller"（控制端转发）'
+        enum:
+        - node
+        - controller
         type: string
       portCount:
         description: 端口数量，默认1（单端口），最多1500个
@@ -691,6 +700,21 @@ definitions:
         maximum: 65535
         minimum: 1024
         type: integer
+    type: object
+  admin.RepairPortMappingsRequest:
+    properties:
+      confirmation:
+        type: string
+      dryRun:
+        type: boolean
+      portIds:
+        items:
+          type: integer
+        type: array
+      providerIds:
+        items:
+          type: integer
+        type: array
     type: object
   admin.ResetInstancePasswordRequest:
     type: object
@@ -4841,6 +4865,50 @@ paths:
       summary: 批量删除端口映射
       tags:
       - 端口映射管理
+  /admin/port-mappings/repair:
+    post:
+      consumes:
+      - application/json
+      description: 预览或创建后台任务，将控制端数据库中的端口映射重新应用到节点。执行时必须提供确认词 REBUILD。
+      parameters:
+      - description: 修复参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/admin.RepairPortMappingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/common.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/common.Response'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 按数据库记录重建端口转发
+      tags:
+      - Admin-Port-Mapping
   /admin/port-mappings/sync:
     post:
       consumes:

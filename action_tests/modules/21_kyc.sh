@@ -12,10 +12,16 @@ run_module_21() {
     fi
 
     # ---- User KYC status (initially empty) ----
-    test_api "Get user KYC status" "GET" "/api/v1/user/kyc" "200" "" "$group" "$USER_TOKEN"
+    local initial_kyc; initial_kyc=$(test_api "Get user KYC status" "GET" "/api/v1/user/kyc" "200" "" "$group" "$USER_TOKEN")
+    local initial_status; initial_status=$(safe_jq "$initial_kyc" '.data.status // "none"' 'none')
+    local initial_kyc_id; initial_kyc_id=$(safe_jq "$initial_kyc" '.data.id // empty' '')
 
     # ---- Submit KYC (field names: realName, idNumber) ----
-    local submit_resp; submit_resp=$(test_api "Submit KYC" "POST" "/api/v1/user/kyc" "200|201" \
+    local submit_expected="200|201"
+    if [[ "$initial_status" == "pending" || "$initial_status" == "approved" ]]; then
+        submit_expected="400|409"
+    fi
+    local submit_resp; submit_resp=$(test_api "Submit KYC" "POST" "/api/v1/user/kyc" "$submit_expected" \
         '{"realName":"Test User","idNumber":"110101199001011234"}' \
         "$group" "$USER_TOKEN")
 
@@ -31,11 +37,17 @@ run_module_21() {
     # ---- Admin list KYC submissions ----
     local kyc_list; kyc_list=$(test_api "Admin KYC list" "GET" "/api/v1/admin/kyc?page=1&pageSize=10" "200" \
         "" "$group" "$ADMIN_TOKEN")
-    local kyc_id; kyc_id=$(echo "$kyc_list" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+    local kyc_id; kyc_id=$(safe_jq "$submit_resp" '.data.id // empty' '')
+    [[ -z "$kyc_id" ]] && kyc_id="$initial_kyc_id"
+    [[ -z "$kyc_id" ]] && kyc_id=$(safe_jq "$kyc_list" '.data.list[0].id // empty' '')
+    local review_expected="200"
+    if [[ "$initial_status" == "approved" && -z "$(safe_jq "$submit_resp" '.data.id // empty' '')" ]]; then
+        review_expected="400|409"
+    fi
 
     # ---- Admin review KYC ----
     if [[ -n "$kyc_id" ]]; then
-        test_api "Admin approve KYC" "PUT" "/api/v1/admin/kyc/${kyc_id}/review" "200" \
+        test_api "Admin approve KYC" "PUT" "/api/v1/admin/kyc/${kyc_id}/review" "$review_expected" \
             '{"approved":true,"rejectReason":""}' "$group" "$ADMIN_TOKEN"
 
         # ---- Review already-reviewed KYC ----
@@ -61,9 +73,9 @@ run_module_21() {
         test_api "User2 own KYC status" "GET" "/api/v1/user/kyc" "200" "" "$group" "$USER_TOKEN2"
     fi
 
-    # ---- Normal admin can access KYC ----
+    # ---- KYC records contain global identity data and remain super-admin only ----
     if [[ -n "$NORMAL_ADMIN_TOKEN" ]]; then
-        test_api "Normal admin KYC list" "GET" "/api/v1/admin/kyc?page=1&pageSize=10" "200" "" "$group" "$NORMAL_ADMIN_TOKEN"
+        test_api "Normal admin KYC list (403)" "GET" "/api/v1/admin/kyc?page=1&pageSize=10" "403" "" "$group" "$NORMAL_ADMIN_TOKEN"
     fi
 
     # ---- Negative: Submit KYC with XSS in fields ----

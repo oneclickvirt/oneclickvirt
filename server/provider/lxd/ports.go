@@ -641,17 +641,22 @@ func (l *LXDProvider) removePortMapping(instanceName string, hostPort int, proto
 
 // removeDeviceProxyMapping 移除LXD device proxy映射
 func (l *LXDProvider) removeDeviceProxyMapping(instanceName string, hostPort int, protocol string) error {
-	deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
-
-	removeCmd := fmt.Sprintf("lxc config device remove %s %s", shellSingleQuote(instanceName), shellSingleQuote(deviceName))
-	_, err := l.sshClient.Execute(removeCmd)
-	if err != nil {
-		return fmt.Errorf("移除proxy设备失败: %w", err)
+	protocols := []string{protocol}
+	if protocol == "both" {
+		protocols = []string{"tcp", "udp"}
+	}
+	for _, proto := range protocols {
+		deviceName := fmt.Sprintf("proxy-%s-%d", proto, hostPort)
+		removeCmd := fmt.Sprintf("lxc config device remove %s %s 2>/dev/null || true", shellSingleQuote(instanceName), shellSingleQuote(deviceName))
+		if _, err := l.sshClient.Execute(removeCmd); err != nil {
+			return fmt.Errorf("移除proxy设备失败: %w", err)
+		}
 	}
 
 	global.APP_LOG.Debug("Device proxy端口映射移除成功",
 		zap.String("instance", instanceName),
-		zap.String("device", deviceName))
+		zap.Int("hostPort", hostPort),
+		zap.String("protocol", protocol))
 
 	return nil
 }

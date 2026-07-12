@@ -46,6 +46,7 @@ export default {
   taskTypeCreatePortMapping: "Create Port Mapping",
   taskTypeDeletePortMapping: "Delete Port Mapping",
   taskTypeSyncPortMappings: "Sync Port Mappings",
+  taskTypeRepairPortMappings: "Rebuild Port Forwarding",
   taskTypeCreateRedemptionInstance: "Redeem Code Instance",
   taskTypeSnapshotCreate: "Create Snapshot",
   taskTypeSnapshotDelete: "Delete Snapshot",
@@ -165,6 +166,7 @@ export default {
     updatingPortStatus: "Updating port status",
     deletingPortMappingInfo: "Deleting port mapping record",
     syncProviderPortMappings: "Syncing port mappings for node {name}",
+    repairingPortMappings: "Rebuilding port forwarding from database records",
     generatingReport: "Sync complete, generating report"
   },
   monitorSync: {

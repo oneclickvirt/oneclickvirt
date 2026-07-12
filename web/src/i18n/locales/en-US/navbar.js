@@ -8,6 +8,7 @@ export default {
   confirmLogout: 'Are you sure you want to logout?',
   tip: 'Tip',
   switchLanguage: 'Switch Language',
+  toggleSidebar: 'Open or close sidebar',
   languageSwitched: 'Language switched',
   switchTheme: 'Switch Theme',
   darkMode: 'Dark Mode',

@@ -87,6 +87,7 @@ export function useInstanceFormatters() {
       'create-port-mapping': t('user.tasks.taskTypeCreatePortMapping'),
       'delete-port-mapping': t('user.tasks.taskTypeDeletePortMapping'),
       'sync-port-mappings': t('user.tasks.taskTypeSyncPortMappings'),
+      'repair-port-mappings': t('user.tasks.taskTypeRepairPortMappings'),
       'snapshot-create': t('user.tasks.taskTypeSnapshotCreate'),
       'snapshot-delete': t('user.tasks.taskTypeSnapshotDelete'),
       'snapshot-restore': t('user.tasks.taskTypeSnapshotRestore'),

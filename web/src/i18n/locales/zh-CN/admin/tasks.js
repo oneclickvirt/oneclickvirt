@@ -46,6 +46,7 @@ export default {
   taskTypeCreatePortMapping: "创建端口映射",
   taskTypeDeletePortMapping: "删除端口映射",
   taskTypeSyncPortMappings: "同步端口映射",
+  taskTypeRepairPortMappings: "重建端口转发",
   taskTypeCreateRedemptionInstance: "兑换开设实例",
   taskTypeSnapshotCreate: "创建快照",
   taskTypeSnapshotDelete: "删除快照",
@@ -165,6 +166,7 @@ export default {
     updatingPortStatus: "正在更新端口状态",
     deletingPortMappingInfo: "正在删除端口映射记录",
     syncProviderPortMappings: "正在同步节点 {name} 的端口映射",
+    repairingPortMappings: "正在按数据库记录重建端口转发",
     generatingReport: "同步完成，正在生成报告"
   },
   monitorSync: {

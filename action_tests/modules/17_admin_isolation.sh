@@ -15,7 +15,7 @@ run_module_17() {
     test_api "Normal admin dashboard" "GET" "/api/v1/admin/dashboard" "200" "" "$group" "$NORMAL_ADMIN_TOKEN"
 
     # -- Normal admin provider isolation (no providers yet for this admin) --
-    local na_prov; na_prov=$(test_api "Normal admin providers" "GET" "/api/v1/admin/providers?page=1&pageSize=10" "200" "" "$group" "$NORMAL_ADMIN_TOKEN")
+    test_api "Normal admin providers" "GET" "/api/v1/admin/providers?page=1&pageSize=10" "200" "" "$group" "$NORMAL_ADMIN_TOKEN" >/dev/null
 
     # -- Normal admin instance isolation --
     test_api "Normal admin instances" "GET" "/api/v1/admin/instances?page=1&pageSize=10" "200" "" "$group" "$NORMAL_ADMIN_TOKEN"
@@ -63,8 +63,8 @@ run_module_17() {
     # -- Normal admin traffic access --
     test_api "Normal admin -> traffic overview" "GET" "/api/v1/admin/traffic/overview" "200" "" "$group" "$NORMAL_ADMIN_TOKEN"
 
-    # -- Normal admin KYC access --
-    test_api "Normal admin -> KYC list" "GET" "/api/v1/admin/kyc?page=1&pageSize=10" "200" "" "$group" "$NORMAL_ADMIN_TOKEN"
+    # -- KYC records contain global identity data and remain super-admin only --
+    test_api "Normal admin -> KYC list (403)" "GET" "/api/v1/admin/kyc?page=1&pageSize=10" "403" "" "$group" "$NORMAL_ADMIN_TOKEN"
 
     # -- Normal admin cannot transfer instances --
     test_api "Normal admin -> transfer (403)" "POST" "/api/v1/admin/instances/transfer" "403" \

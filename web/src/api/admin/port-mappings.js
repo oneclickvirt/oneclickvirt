@@ -43,6 +43,15 @@ export const syncPortMappings = (data) => {
   })
 }
 
+// 按控制端数据库记录预览或重建节点侧端口转发规则
+export const repairPortMappings = (data) => {
+  return request({
+    url: '/v1/admin/port-mappings/repair',
+    method: 'post',
+    data
+  })
+}
+
 // 检查端口可用性
 export const checkPortAvailable = (data) => {
   return request({

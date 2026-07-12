@@ -2,6 +2,7 @@ package resources
 
 import (
 	"fmt"
+	"net"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
@@ -13,6 +14,49 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+func (s *PortMappingService) CheckControllerPortAvailability(req admin.CheckPortAvailabilityRequest) (*admin.CheckPortAvailabilityResponse, error) {
+	portCount := req.PortCount
+	if portCount == 0 {
+		portCount = 1
+	}
+	if portCount != 1 {
+		return nil, fmt.Errorf("控制端转发仅支持检查单个端口")
+	}
+	if req.Protocol != "tcp" {
+		return nil, fmt.Errorf("控制端转发仅支持TCP协议")
+	}
+
+	response := &admin.CheckPortAvailabilityResponse{
+		AvailablePorts:   []int{},
+		UnavailablePorts: []int{},
+		PortRange:        strconv.Itoa(req.HostPort),
+	}
+	var occupiedRecords []provider.Port
+	if err := global.APP_DB.
+		Where("mapping_type = 'controller' AND host_port <= ?", req.HostPort).
+		Select("host_port", "host_port_end", "port_count").
+		Find(&occupiedRecords).Error; err != nil {
+		return nil, fmt.Errorf("查询控制端端口占用失败: %w", err)
+	}
+	if len(hostPortRangeConflicts(occupiedRecords, req.HostPort, req.HostPort)) > 0 {
+		response.UnavailablePorts = []int{req.HostPort}
+		response.Message = fmt.Sprintf("控制端端口 %d 已被映射记录占用", req.HostPort)
+		return response, nil
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", req.HostPort))
+	if err != nil {
+		response.UnavailablePorts = []int{req.HostPort}
+		response.Message = fmt.Sprintf("控制端端口 %d 已被系统进程占用", req.HostPort)
+		return response, nil
+	}
+	_ = listener.Close()
+	response.Available = true
+	response.AvailablePorts = []int{req.HostPort}
+	response.Message = fmt.Sprintf("控制端TCP端口 %d 可用", req.HostPort)
+	return response, nil
+}
 
 // CheckPortAvailability 统一的端口可用性检测服务
 // 支持单个端口和端口段的批量检测，返回详细的检测结果
@@ -202,9 +246,11 @@ func (s *PortMappingService) GetPortConflictDetails(providerID uint, port int) (
 	// 查询数据库中的端口占用情况
 	var existingPort provider.Port
 	dbConflict := false
-	// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
-	if err := global.APP_DB.Where("provider_id = ? AND host_port = ?",
-		providerID, port).First(&existingPort).Error; err == nil {
+	if err := global.APP_DB.
+		Where("provider_id = ? AND host_port <= ?", providerID, port).
+		Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+		Where("CASE WHEN host_port_end > 0 THEN host_port_end WHEN port_count > 1 THEN host_port + port_count - 1 ELSE host_port END >= ?", port).
+		Order("host_port DESC").First(&existingPort).Error; err == nil {
 		dbConflict = true
 	}
 
@@ -315,24 +361,22 @@ func (s *PortMappingService) batchCheckPortsAvailability(providerInfo *provider.
 		portsToCheck = append(portsToCheck, port)
 	}
 
-	// 2. 批量查询数据库中已占用的端口（一次查询）
-	// 必须使用 Unscoped() 包含软删除记录：unique index idx_provider_host_port 在 (provider_id, host_port)
-	// 上，软删除行（deleted_at IS NOT NULL）仍然占用唯一键槽位，会导致 INSERT 时出现 Duplicate entry。
-	// 若不使用 Unscoped，GORM 默认添加 AND deleted_at IS NULL 会漏掉这些残留记录，
-	// 使可用性检查误报"可用"，最终在写入时触发重复键错误。
+	// 2. 批量查询数据库中已占用的节点侧端口段（一次查询）。控制端转发
+	// 使用主控监听端口，不应占用 Provider 节点端口池。
 	dbOccupiedPorts := make(map[int]bool)
 	var dbPorts []provider.Port
-	err := global.APP_DB.Unscoped().Where("provider_id = ? AND host_port >= ? AND host_port <= ?",
-		providerInfo.ID, startPort, endPort).
-		Select("host_port").
+	err := global.APP_DB.
+		Where("provider_id = ? AND host_port <= ?", providerInfo.ID, endPort).
+		Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+		Select("host_port", "host_port_end", "port_count").
 		Find(&dbPorts).Error
 
 	if err != nil && err != gorm.ErrRecordNotFound {
 		global.APP_LOG.Warn("批量查询数据库端口占用失败", zap.Error(err))
 	}
 
-	for _, p := range dbPorts {
-		dbOccupiedPorts[p.HostPort] = true
+	for port := range collectOccupiedHostPorts(dbPorts, startPort, endPort) {
+		dbOccupiedPorts[port] = true
 	}
 
 	global.APP_LOG.Debug("数据库端口占用查询完成",

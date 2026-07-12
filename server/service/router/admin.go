@@ -127,6 +127,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.DELETE("/port-mappings/:id", admin.DeletePortMapping)
 		NormalAdminGroup.POST("/port-mappings/batch-delete", admin.BatchDeletePortMapping)
 		NormalAdminGroup.POST("/port-mappings/sync", admin.SyncPortMappings)
+		NormalAdminGroup.POST("/port-mappings/repair", admin.RepairPortMappings)
 		NormalAdminGroup.POST("/ports/check", admin.CheckPortAvailability)
 		NormalAdminGroup.PUT("/providers/:id/port-config", admin.UpdateProviderPortConfig)
 		NormalAdminGroup.GET("/providers/:id/port-usage", admin.GetProviderPortUsage)

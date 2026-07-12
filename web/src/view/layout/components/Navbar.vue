@@ -5,6 +5,8 @@
       <el-button
         class="hamburger-btn"
         :icon="Menu"
+        :title="t('navbar.toggleSidebar')"
+        :aria-label="t('navbar.toggleSidebar')"
         circle
         @click="toggleSidebar"
       />

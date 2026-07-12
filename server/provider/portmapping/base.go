@@ -104,7 +104,9 @@ func (bp *BaseProvider) AllocatePort(ctx context.Context, providerID uint, prefe
 		// 循环查找可用端口
 		for port := nextPort; port <= endPort; port++ {
 			if bp.isPortAvailableInTx(tx, providerID, port) {
-				bp.updateNextAvailablePortInTx(tx, providerID, port+1)
+				if err := bp.updateNextAvailablePortInTx(tx, providerID, port+1); err != nil {
+					return err
+				}
 				allocatedPort = port
 				return nil
 			}
@@ -113,7 +115,9 @@ func (bp *BaseProvider) AllocatePort(ctx context.Context, providerID uint, prefe
 		// 如果从nextPort到endPort没有找到，从startPort到nextPort再找一遍
 		for port := startPort; port < nextPort; port++ {
 			if bp.isPortAvailableInTx(tx, providerID, port) {
-				bp.updateNextAvailablePortInTx(tx, providerID, port+1)
+				if err := bp.updateNextAvailablePortInTx(tx, providerID, port+1); err != nil {
+					return err
+				}
 				allocatedPort = port
 				return nil
 			}
@@ -131,18 +135,20 @@ func (bp *BaseProvider) AllocatePort(ctx context.Context, providerID uint, prefe
 // isPortAvailableInTx 在已有事务中检查端口是否可用（使用 LOCK IN SHARE MODE 防止幻读）
 func (bp *BaseProvider) isPortAvailableInTx(tx *gorm.DB, providerID uint, port int) bool {
 	var count int64
-	tx.Model(&provider.Port{}).
+	result := tx.Model(&provider.Port{}).
 		Clauses(clause.Locking{Strength: "SHARE"}).
-		Where("provider_id = ? AND host_port = ? AND status = 'active'", providerID, port).
+		Where("provider_id = ? AND host_port <= ?", providerID, port).
+		Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+		Where("CASE WHEN host_port_end > 0 THEN host_port_end WHEN port_count > 1 THEN host_port + port_count - 1 ELSE host_port END >= ?", port).
 		Count(&count)
-	return count == 0
+	return result.Error == nil && count == 0
 }
 
 // updateNextAvailablePortInTx 在已有事务中更新下一个可用端口
-func (bp *BaseProvider) updateNextAvailablePortInTx(tx *gorm.DB, providerID uint, nextPort int) {
-	tx.Model(&provider.Provider{}).
+func (bp *BaseProvider) updateNextAvailablePortInTx(tx *gorm.DB, providerID uint, nextPort int) error {
+	return tx.Model(&provider.Provider{}).
 		Where("id = ?", providerID).
-		Update("next_available_port", nextPort)
+		Update("next_available_port", nextPort).Error
 }
 
 // ToDBModel 转换为数据库模型

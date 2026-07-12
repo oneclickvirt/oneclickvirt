@@ -90,6 +90,10 @@
               value="sync-port-mappings"
             />
             <el-option
+              :label="t('user.tasks.taskTypeRepairPortMappings')"
+              value="repair-port-mappings"
+            />
+            <el-option
               :label="t('user.tasks.taskTypeSnapshotCreate')"
               value="snapshot-create"
             />

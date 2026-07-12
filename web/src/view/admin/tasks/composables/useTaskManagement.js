@@ -297,6 +297,7 @@ export function useTaskManagement() {
       'create-port-mapping': t('admin.tasks.taskTypeCreatePortMapping'),
       'delete-port-mapping': t('admin.tasks.taskTypeDeletePortMapping'),
       'sync-port-mappings': t('admin.tasks.taskTypeSyncPortMappings'),
+      'repair-port-mappings': t('admin.tasks.taskTypeRepairPortMappings'),
       'create_redemption_instance': t('admin.tasks.taskTypeCreateRedemptionInstance'),
       'snapshot-create': t('admin.tasks.taskTypeSnapshotCreate'),
       'snapshot-delete': t('admin.tasks.taskTypeSnapshotDelete'),

@@ -8,6 +8,7 @@ export default {
   confirmLogout: '确定注销并退出系统吗？',
   tip: '提示',
   switchLanguage: '切换语言',
+  toggleSidebar: '展开或收起侧边栏',
   languageSwitched: '语言已切换',
   switchTheme: '切换主题',
   darkMode: '暗色模式',
