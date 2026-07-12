@@ -125,6 +125,8 @@ func (s *TaskService) executeTaskLogic(ctx context.Context, task *adminModel.Tas
 		return s.executeDeletePortMappingTask(ctx, task)
 	case "sync-port-mappings":
 		return s.executeSyncPortMappingsTask(ctx, task)
+	case "repair-port-mappings":
+		return s.executeRepairPortMappingsTask(ctx, task)
 	case "snapshot-create", "snapshot-delete", "snapshot-restore":
 		service := &snapshotSvc.Service{}
 		return service.ExecuteSnapshotAdminTask(ctx, task)

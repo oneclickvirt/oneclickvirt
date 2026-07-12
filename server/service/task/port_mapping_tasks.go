@@ -10,7 +10,6 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider/incus"
 	"oneclickvirt/provider/lxd"
-	"oneclickvirt/provider/portmapping"
 	"oneclickvirt/provider/proxmox"
 	agentSvc "oneclickvirt/service/agent"
 	provider2 "oneclickvirt/service/provider"
@@ -306,34 +305,11 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		return nil
 	}
 
-	// 非 controller 模式：使用 portmapping manager 在节点侧创建规则
-
-	// 使用 portmapping manager 添加端口映射
-	manager := portmapping.NewManager(&portmapping.ManagerConfig{
-		DefaultMappingMethod: localIPv4PortMappingMethod,
-	})
-
-	// 确定使用的 portmapping provider 类型
-	portMappingType := localProviderType
-	if portMappingType == "proxmox" || portMappingType == "proxmoxve" || portMappingType == "kubevirt" || portMappingType == "qemu" || utils.IsVMOnlyProvider(portMappingType) {
-		portMappingType = "iptables"
-	}
-
-	portReq := &portmapping.PortMappingRequest{
-		InstanceID:    fmt.Sprintf("%d", instance.ID),
-		ProviderID:    localProviderID,
-		Protocol:      port.Protocol,
-		HostPort:      port.HostPort,
-		GuestPort:     port.GuestPort,
-		Description:   port.Description,
-		MappingMethod: localIPv4PortMappingMethod,
-	}
-
-	// 执行端口映射添加 (70%)
+	// 非 controller 模式：直接把现有数据库记录应用到节点，避免 Provider
+	// 适配器额外插入一条临时端口记录。该入口也会完整展开端口段。
 	s.updateTaskProgress(task.ID, 70, "step.configuringRemotePortMapping")
-
-	result, err := manager.CreatePortMapping(ctx, portMappingType, portReq)
-	if err != nil {
+	applier := newPortMappingApplier(ctx, prov, &providerInfo)
+	if err := applier.Apply(&instance, &port, false); err != nil {
 		global.APP_LOG.Error("添加端口映射失败",
 			zap.Uint("taskId", task.ID),
 			zap.Uint("portId", port.ID),
@@ -346,74 +322,20 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 
 		return fmt.Errorf("添加端口映射失败: %v", err)
 	}
-
-	// Provider 会创建一条新的数据库记录，需要删除它并更新原有的记录
-	if result.ID != 0 && result.ID != port.ID {
-		// 删除 provider 创建的重复记录
-		if err := global.APP_DB.Unscoped().Delete(&providerModel.Port{}, result.ID).Error; err != nil {
-			global.APP_LOG.Warn("删除重复端口记录失败",
-				zap.Uint("duplicatePortId", result.ID),
-				zap.Error(err))
-		}
-		global.APP_LOG.Debug("删除 provider 创建的重复端口记录",
-			zap.Uint("duplicatePortId", result.ID),
-			zap.Uint("originalPortId", port.ID))
-	}
-
-	// 对于 LXD/Incus/Proxmox，还需要在远程服务器上通过 SSH 创建节点侧端口映射 (85%)
-	if localProviderType == "lxd" || localProviderType == "incus" || localProviderType == "proxmox" || localProviderType == "proxmoxve" {
-		s.updateTaskProgress(task.ID, 85, "step.applyingRemotePortMapping")
-
-		// 调用 provider 层的方法在远程服务器上创建实际映射（使用最新获取的内网IP）
-		switch localProviderType {
-		case "lxd":
-			lxdProv, ok := prov.(*lxd.LXDProvider)
-			if !ok {
-				return fmt.Errorf("Provider类型断言失败")
-			}
-			// 调用内部方法创建端口映射，使用最新的内网IP
-			err = lxdProv.SetupPortMappingWithIP(ctx, instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
-
-		case "incus":
-			incusProv, ok := prov.(*incus.IncusProvider)
-			if !ok {
-				return fmt.Errorf("Provider类型断言失败")
-			}
-			// 调用内部方法创建端口映射，使用最新的内网IP
-			err = incusProv.SetupPortMappingWithIP(ctx, instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
-
-		case "proxmox", "proxmoxve":
-			proxmoxProv, ok := prov.(*proxmox.ProxmoxProvider)
-			if !ok {
-				return fmt.Errorf("Provider类型断言失败")
-			}
-			// 调用内部方法创建端口映射，使用最新的内网IP
-			err = proxmoxProv.SetupPortMappingWithIP(ctx, instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
-		}
-
-		if err != nil {
-			global.APP_LOG.Error("在远程服务器上创建端口映射失败",
-				zap.Uint("taskId", task.ID),
-				zap.Uint("portId", port.ID),
-				zap.Error(err))
-			// 更新端口状态为失败
-			global.APP_DB.Model(&port).Update("status", "failed")
-			return fmt.Errorf("在远程服务器上创建端口映射失败: %v", err)
-		}
-
-		global.APP_LOG.Info("已在远程服务器上应用端口映射",
-			zap.Uint("portId", port.ID),
-			zap.String("providerType", localProviderType))
-	}
-	// Docker/Podman/Containerd 非 controller 模式：portmapping manager 已处理，无需额外操作
+	applier.Finish()
+	s.updateTaskProgress(task.ID, 85, "step.applyingRemotePortMapping")
 
 	// 更新进度 (92%)
 	s.updateTaskProgress(task.ID, 92, "step.updatingPortStatus")
 
 	// 更新端口状态为active
+	mappingMethod := port.MappingMethod
+	if mappingMethod == "" {
+		mappingMethod = localIPv4PortMappingMethod
+	}
 	if err := global.APP_DB.Model(&port).Updates(map[string]interface{}{
 		"status":         "active",
-		"mapping_method": result.MappingMethod,
+		"mapping_method": mappingMethod,
 	}).Error; err != nil {
 		global.APP_LOG.Error("更新端口状态失败", zap.Error(err))
 		return fmt.Errorf("更新端口状态失败: %v", err)
@@ -505,81 +427,25 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 			zap.Error(err))
 		providerDeleteSuccess = false
 	} else {
-		// 复制副本避免共享状态，立即创建Provider字段的本地副本
-		localProviderID := providerInfo.ID
-		localProviderType := providerInfo.Type
-		localIPv4PortMappingMethod := providerInfo.IPv4PortMappingMethod
-
 		// 只有Provider存在时才尝试从远程删除 (50%)
 		s.updateTaskProgress(task.ID, 50, "step.deletingPortMappingInfo")
-
-		// 使用 portmapping manager 删除端口映射
-		manager := portmapping.NewManager(&portmapping.ManagerConfig{
-			DefaultMappingMethod: localIPv4PortMappingMethod,
-		})
-
-		portMappingType := localProviderType
-		if portMappingType == "proxmox" || portMappingType == "proxmoxve" || portMappingType == "kubevirt" || portMappingType == "qemu" || utils.IsVMOnlyProvider(portMappingType) {
-			portMappingType = "iptables"
-		}
-
-		deleteReq := &portmapping.DeletePortMappingRequest{
-			ID:         port.ID,
-			InstanceID: fmt.Sprintf("%d", instance.ID),
-		}
-
-		if err := manager.DeletePortMapping(ctx, portMappingType, deleteReq); err != nil {
-			global.APP_LOG.Warn("从portmapping manager删除端口映射失败",
-				zap.Uint("portId", port.ID),
-				zap.Int("hostPort", port.HostPort),
+		providerApiService := &provider2.ProviderApiService{}
+		prov, _, err := providerApiService.GetProviderByID(providerInfo.ID)
+		if err != nil {
+			global.APP_LOG.Warn("获取Provider实例失败，跳过远程删除",
+				zap.Uint("providerId", providerInfo.ID),
 				zap.Error(err))
 			providerDeleteSuccess = false
-			// 继续执行，不阻止数据库记录删除
-		}
-
-		// 对于 LXD/Incus，还需要在远程服务器上实际删除 proxy device (70%)
-		if (localProviderType == "lxd" || localProviderType == "incus") && instance.Name != "" {
-			s.updateTaskProgress(task.ID, 70, "step.deletingPortMappingInfo")
-
-			// 获取 Provider 实例
-			providerApiService := &provider2.ProviderApiService{}
-			prov, _, err := providerApiService.GetProviderByID(localProviderID)
-			if err != nil {
-				global.APP_LOG.Warn("获取Provider实例失败，跳过远程删除",
-					zap.Uint("providerId", localProviderID),
-					zap.Error(err))
+		} else {
+			applier := newPortMappingApplier(ctx, prov, &providerInfo)
+			if deleteErr := applier.Remove(&instance, &port); deleteErr != nil {
+				global.APP_LOG.Warn("从远程服务器删除端口映射失败",
+					zap.Uint("portId", port.ID),
+					zap.String("providerType", providerInfo.Type),
+					zap.Error(deleteErr))
 				providerDeleteSuccess = false
-			} else {
-				// 调用 provider 层的方法在远程服务器上删除实际映射
-				var deleteErr error
-				switch localProviderType {
-				case "lxd":
-					if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
-						deleteErr = lxdProv.RemovePortMapping(instance.Name, port.HostPort, port.Protocol, localIPv4PortMappingMethod)
-					} else {
-						deleteErr = fmt.Errorf("Provider类型断言失败")
-					}
-
-				case "incus":
-					if incusProv, ok := prov.(*incus.IncusProvider); ok {
-						deleteErr = incusProv.RemovePortMapping(instance.Name, port.HostPort, port.Protocol, localIPv4PortMappingMethod)
-					} else {
-						deleteErr = fmt.Errorf("Provider类型断言失败")
-					}
-				}
-
-				if deleteErr != nil {
-					global.APP_LOG.Warn("从远程服务器删除端口映射失败",
-						zap.Uint("portId", port.ID),
-						zap.String("providerType", localProviderType),
-						zap.Error(deleteErr))
-					providerDeleteSuccess = false
-				} else {
-					global.APP_LOG.Info("已从远程服务器删除端口映射",
-						zap.Uint("portId", port.ID),
-						zap.String("providerType", localProviderType))
-				}
 			}
+			applier.Finish()
 		}
 	}
 

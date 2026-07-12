@@ -4,12 +4,12 @@
 
 | Metric | Value |
 |---|---:|
-| Registered route calls | 363 |
-| Comparable route literals | 360 |
-| Approx. covered route literals | 304 |
-| Approx. route literal coverage | 84.44% |
-| Distinct test paths | 496 |
-| Test endpoint call sites | 1092 |
+| Registered route calls | 364 |
+| Comparable route literals | 361 |
+| Approx. covered route literals | 305 |
+| Approx. route literal coverage | 84.49% |
+| Distinct test paths | 497 |
+| Test endpoint call sites | 1099 |
 | High-risk jq lines | 0 |
 | Pipe risk lines | 0 |
 | Workflow findings | 0 |
@@ -21,7 +21,7 @@
 | Method | Routes | Tests |
 |---|---:|---:|
 | GET | 188 | 525 |
-| POST | 117 | 391 |
+| POST | 118 | 398 |
 | PUT | 33 | 109 |
 | DELETE | 25 | 66 |
 | PATCH | 0 | 1 |
@@ -45,18 +45,18 @@
 - `POST /providers/import-csv` at `server/service/router/admin.go:66`
 - `POST /providers/:id/cleanup-orphans` at `server/service/router/admin.go:82`
 - `POST /configuration-tasks/:id/cancel` at `server/service/router/admin.go:114`
-- `GET /providers/:id/monitoring/sync/latest` at `server/service/router/admin.go:166`
-- `GET /providers/:id/monitoring/sync/:taskId` at `server/service/router/admin.go:167`
-- `POST /domains/sync-proxies` at `server/service/router/admin.go:197`
-- `POST /domains/:id/sync` at `server/service/router/admin.go:199`
-- `POST /system-images/sync` at `server/service/router/admin.go:238`
-- `PUT /users/:id/reset-password-notify` at `server/service/router/admin.go:253`
-- `GET /monitoring/logs` at `server/service/router/admin.go:283`
-- `GET /monitoring/provider` at `server/service/router/admin.go:284`
-- `GET /logs/read` at `server/service/router/admin.go:296`
-- `POST /logs/cleanup` at `server/service/router/admin.go:297`
-- `POST /storage/init` at `server/service/router/admin.go:301`
-- `POST /storage/cleanup` at `server/service/router/admin.go:302`
+- `GET /providers/:id/monitoring/sync/latest` at `server/service/router/admin.go:167`
+- `GET /providers/:id/monitoring/sync/:taskId` at `server/service/router/admin.go:168`
+- `POST /domains/sync-proxies` at `server/service/router/admin.go:198`
+- `POST /domains/:id/sync` at `server/service/router/admin.go:200`
+- `POST /system-images/sync` at `server/service/router/admin.go:239`
+- `PUT /users/:id/reset-password-notify` at `server/service/router/admin.go:254`
+- `GET /monitoring/logs` at `server/service/router/admin.go:284`
+- `GET /monitoring/provider` at `server/service/router/admin.go:285`
+- `GET /logs/read` at `server/service/router/admin.go:297`
+- `POST /logs/cleanup` at `server/service/router/admin.go:298`
+- `POST /storage/init` at `server/service/router/admin.go:302`
+- `POST /storage/cleanup` at `server/service/router/admin.go:303`
 - `GET callback` at `server/service/router/oauth2.go:18`
 - `POST /instances/:name/start` at `server/service/router/provider.go:46`
 - `POST /instances/:name/stop` at `server/service/router/provider.go:47`

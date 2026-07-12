@@ -17,6 +17,9 @@ LIGHTNODE_PACKAGE_CODE="${LIGHTNODE_PACKAGE_CODE:-}"
 LIGHTNODE_PACKAGE_TIER="${LIGHTNODE_PACKAGE_TIER:-3}"
 LIGHTNODE_TARGET_CPU="${LIGHTNODE_TARGET_CPU:-2}"
 LIGHTNODE_TARGET_MEMORY_MB="${LIGHTNODE_TARGET_MEMORY_MB:-4096}"
+LIGHTNODE_STRICT_RECOMMENDED_SPEC="${LIGHTNODE_STRICT_RECOMMENDED_SPEC:-true}"
+LIGHTNODE_LIST_PARALLELISM="${LIGHTNODE_LIST_PARALLELISM:-6}"
+LIGHTNODE_LIST_PAGE_SIZE="${LIGHTNODE_LIST_PAGE_SIZE:-50}"
 
 # ============================================================================
 # Low-level API helpers
@@ -61,7 +64,8 @@ lightnode_get_async_task() {
 
 lightnode_list_instances_raw() {
     local region="${1:-${LIGHTNODE_REGION}}" zone="${2:-${LIGHTNODE_ZONE}}"
-    lightnode_request "GET" "/instance/list?regionCode=${region}&zoneCode=${zone}"
+    local page="${3:-1}" page_size="${4:-50}"
+    lightnode_request "GET" "/instance/list?page=${page}&pageSize=${page_size}&regionCode=${region}&zoneCode=${zone}"
 }
 
 # ============================================================================
@@ -99,15 +103,18 @@ _lightnode_get_default_package() {
     local target_cpu="${LIGHTNODE_TARGET_CPU:-2}"
     local target_memory="${LIGHTNODE_TARGET_MEMORY_MB:-4096}"
     local tier="${LIGHTNODE_PACKAGE_TIER:-3}"
+    local strict="${LIGHTNODE_STRICT_RECOMMENDED_SPEC:-true}"
     [[ "$target_cpu" =~ ^[0-9]+$ ]] || target_cpu=2
     [[ "$target_memory" =~ ^[0-9]+$ ]] || target_memory=4096
     [[ "$tier" =~ ^[0-9]+$ && "$tier" -gt 0 ]] || tier=3
+    [[ "$strict" == "true" || "$strict" == "false" ]] || strict=true
 
     local package_code
     package_code=$(printf '%s' "$body" | jq -r 2>/dev/null \
         --arg region "${LIGHTNODE_REGION}" \
         --arg zone "${LIGHTNODE_ZONE}" \
         --arg explicit "${LIGHTNODE_PACKAGE_CODE}" \
+        --arg strict "$strict" \
         --argjson target_cpu "$target_cpu" \
         --argjson target_memory "$target_memory" \
         --argjson tier "$tier" '
@@ -135,34 +142,33 @@ def memory_mb:
           end
       end
   end;
-def package_text:
-  [.packageName?, .name?, .displayName?, .description?, .spec?, .packageCode?]
-  | map(tostring | ascii_downcase)
-  | join(" ");
 def region_match:
   ($region == "" or ((has("regionCode") or has("region")) | not) or ((.regionCode // .region // "") == $region));
 def zone_match:
   ($zone == "" or ((has("zoneCode") or has("zone")) | not) or ((.zoneCode // .zone // "") == $zone));
-def text_matches_target:
-  ((package_text | test("2\\s*(c|cpu|core|cores|核).*4\\s*(g|gb|gib|内存)")) or
-   (package_text | test("4\\s*(g|gb|gib|内存).*2\\s*(c|cpu|core|cores|核)")));
 (package_list | map(select(region_match and zone_match))) as $pkgs
 | if $explicit != "" then
-    ($pkgs | map(select(package_code == $explicit))[0] | package_code)
+    ($pkgs
+      | map(select(package_code == $explicit))
+      | map(select(($strict != "true") or ((cpu_cores == $target_cpu) and (memory_mb == $target_memory))))
+      | .[0]
+      | package_code)
   else
     (($pkgs | map(select((cpu_cores == $target_cpu) and (memory_mb == $target_memory)))[0] | package_code) //
-     ($pkgs | map(select(text_matches_target))[0] | package_code) //
-     ($pkgs[($tier - 1)] | package_code) //
-     ($pkgs[0] | package_code) //
+     (if $strict != "true" then (($pkgs[($tier - 1)] | package_code) // ($pkgs[0] | package_code)) else null end) //
      empty)
   end
 ') || package_code=""
 
-    if [[ -z "$package_code" && -n "${LIGHTNODE_PACKAGE_CODE}" ]]; then
-        log_error "[lightnode] Configured LIGHTNODE_PACKAGE_CODE is unavailable in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}"
+    if [[ -z "$package_code" ]]; then
+        if [[ -n "${LIGHTNODE_PACKAGE_CODE}" ]]; then
+            log_error "[lightnode] Configured LIGHTNODE_PACKAGE_CODE is unavailable or does not match ${target_cpu}C/${target_memory}MB in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}"
+        else
+            log_error "[lightnode] Required ${target_cpu}C/${target_memory}MB package is unavailable in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}; refusing to fall back to a smaller instance"
+        fi
         return 1
     fi
-    [[ -n "$package_code" ]] && log_info "[lightnode] Using package=${package_code} (target=${target_cpu}C/${target_memory}MB tier=${tier})"
+    log_info "[lightnode] Using package=${package_code} (required=${target_cpu}C/${target_memory}MB tier=${tier}, strict=${strict})"
     echo "$package_code"
 }
 
@@ -243,7 +249,7 @@ lightnode_platform_init() {
 }
 
 lightnode_platform_create_instance() {
-    local env_type="$1" hours="${2:-8}"
+    local env_type="$1"
     log_info "[lightnode] Creating instance: env=${env_type}"
     local package_code; package_code=$(_lightnode_get_default_package)
     [[ -z "$package_code" ]] && { log_error "[lightnode] No packages available"; return 1; }
@@ -258,7 +264,8 @@ lightnode_platform_create_instance() {
     local name_prefix="${PLATFORM_INSTANCE_NAME_PREFIX:-ci-test-${env_type}}"
     name_prefix=$(printf '%s' "$name_prefix" | tr -c 'A-Za-z0-9-' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
     [[ -z "$name_prefix" ]] && name_prefix="ci-test"
-    local instance_name="${name_prefix}-$(date +%Y%m%d%H%M%S)-$$"
+    local instance_name
+    instance_name="${name_prefix}-$(date +%Y%m%d%H%M%S)-$$"
     local data="{\"packageConfig\":{\"packageCode\":\"${package_code}\",\"regionCode\":\"${LIGHTNODE_REGION}\",\"zoneCode\":\"${LIGHTNODE_ZONE}\",\"instanceName\":\"${instance_name}\",\"imageResourceUUID\":\"${image_uuid}\",${ssh_key_uuid}\"password\":\"${LIGHTNODE_PASSWORD}\"}}"
     local resp; resp=$(lightnode_request "POST" "/instance/create" "$data")
     local body; body=$(lightnode_parse_body "${resp}")
@@ -310,10 +317,25 @@ lightnode_platform_reinstall_instance() {
     local id="$1" os_name="${2:-debian}"
     log_info "[lightnode] Reinstalling instance ${id} with ${os_name}..."
 
-    # LightNode requires the instance to be in STOPPED state before reinstall.
-    # Check current status and force-stop if needed.
     local chk_resp; chk_resp=$(lightnode_get_instance_detail "${id}")
     local chk_body; chk_body=$(lightnode_parse_body "${chk_resp}")
+    local chk_code; chk_code=$(lightnode_parse_code "${chk_resp}")
+    if [[ "$chk_code" != "200" && "$chk_code" != "202" ]]; then
+        log_error "[lightnode] Cannot verify existing instance ${id} before reinstall (HTTP ${chk_code})"
+        return 1
+    fi
+
+    if [[ "${LIGHTNODE_STRICT_RECOMMENDED_SPEC:-true}" == "true" ]]; then
+        local required_package current_package
+        required_package=$(_lightnode_get_default_package) || return 1
+        current_package=$(echo "$chk_body" | jq -r '.instance.packageCode // .instance.packageConfig.packageCode // empty' 2>/dev/null)
+        if [[ -z "$current_package" || "$current_package" != "$required_package" ]]; then
+            log_warning "[lightnode] Existing instance ${id} package '${current_package:-unknown}' does not match required package '${required_package}'; refusing to reuse it"
+            return 1
+        fi
+    fi
+
+    # LightNode requires the instance to be in STOPPED state before reinstall.
     local cur_status; cur_status=$(echo "$chk_body" | jq -r '.instance.ecsStatus // empty' 2>/dev/null)
     if [[ "$cur_status" != "STOPPED" && "$cur_status" != "stopped" ]]; then
         log_info "[lightnode] Instance ${id} status='${cur_status}', force-stopping before reinstall..."
@@ -352,9 +374,97 @@ lightnode_platform_reinstall_instance() {
 }
 
 lightnode_platform_list_instances() {
-    local resp; resp=$(lightnode_list_instances_raw)
-    local body; body=$(lightnode_parse_body "${resp}")
-    echo "$body" | jq -c '[.instances[]? | {instance_id: .ecsResourceUUID, ipv4: .publicIpAddress, status: .ecsStatus}]' 2>/dev/null
+    local regions_resp regions_body regions_code
+    regions_resp=$(lightnode_get_regions)
+    regions_body=$(lightnode_parse_body "$regions_resp")
+    regions_code=$(lightnode_parse_code "$regions_resp")
+    if [[ "$regions_code" != "200" && "$regions_code" != "202" ]]; then
+        log_error "[lightnode] Failed to enumerate regions while listing account instances (HTTP ${regions_code})"
+        return 1
+    fi
+
+    local tmp_dir pair_file
+    tmp_dir=$(mktemp -d /tmp/lightnode_instances_XXXXXX)
+    pair_file="${tmp_dir}/regions.tsv"
+    printf '%s' "$regions_body" | jq -r '.regions[]? | [.regionCode, (.zones[]?.zoneCode // "")] | @tsv' 2>/dev/null > "$pair_file"
+
+    local parallelism="${LIGHTNODE_LIST_PARALLELISM:-6}"
+    [[ "$parallelism" =~ ^[0-9]+$ && "$parallelism" -gt 0 ]] || parallelism=6
+    local page_size="${LIGHTNODE_LIST_PAGE_SIZE:-50}"
+    [[ "$page_size" =~ ^[0-9]+$ && "$page_size" -gt 0 && "$page_size" -le 50 ]] || page_size=50
+    local index=0 batch_count=0 failed=0 region zone pid
+    local pids=()
+    while IFS=$'\t' read -r region zone; do
+        [[ -n "$region" && -n "$zone" ]] || continue
+        index=$((index + 1))
+        (
+            zone_dir="${tmp_dir}/zone-${index}"
+            mkdir -p "$zone_dir"
+            local_resp=$(lightnode_list_instances_raw "$region" "$zone" 1 "$page_size")
+            local_code=$(lightnode_parse_code "$local_resp")
+            if [[ "$local_code" != "200" && "$local_code" != "202" ]]; then
+                exit 1
+            fi
+            local_body=$(lightnode_parse_body "$local_resp")
+            printf '%s' "$local_body" > "${zone_dir}/1.json"
+            row_count=$(printf '%s' "$local_body" | jq -r '(.rowCount // (.instances | length) // 0) | tonumber? // 0' 2>/dev/null)
+            [[ "$row_count" =~ ^[0-9]+$ ]] || exit 1
+            page_count=$(((row_count + page_size - 1) / page_size))
+            [[ "$page_count" -gt 0 ]] || page_count=1
+            for ((page = 2; page <= page_count; page++)); do
+                local_resp=$(lightnode_list_instances_raw "$region" "$zone" "$page" "$page_size")
+                local_code=$(lightnode_parse_code "$local_resp")
+                if [[ "$local_code" != "200" && "$local_code" != "202" ]]; then
+                    exit 1
+                fi
+                lightnode_parse_body "$local_resp" > "${zone_dir}/${page}.json"
+            done
+            if ! jq -cs '{instances: [.[] | .instances[]?]}' "${zone_dir}"/*.json > "${tmp_dir}/page-${index}.json" 2>/dev/null; then
+                exit 1
+            fi
+            rm -rf "$zone_dir"
+        ) &
+        pids+=("$!")
+        batch_count=$((batch_count + 1))
+        if [[ "$batch_count" -ge "$parallelism" ]]; then
+            for pid in "${pids[@]}"; do
+                wait "$pid" || failed=1
+            done
+            pids=()
+            batch_count=0
+        fi
+    done < "$pair_file"
+    for pid in "${pids[@]}"; do
+        wait "$pid" || failed=1
+    done
+
+    if [[ "$failed" -ne 0 ]]; then
+        rm -rf "$tmp_dir"
+        log_error "[lightnode] Failed to list instances from one or more regions; refusing to use a partial account view"
+        return 1
+    fi
+
+    local page_files=("${tmp_dir}"/page-*.json)
+    if [[ ! -e "${page_files[0]}" ]]; then
+        rm -rf "$tmp_dir"
+        printf '[]\n'
+        return 0
+    fi
+
+    jq -cs 2>/dev/null '[.[] | .instances[]? | {
+        instance_id: .ecsResourceUUID,
+        ipv4: .publicIpAddress,
+        status: .ecsStatus,
+        name: .instanceName,
+        region: .regionCode,
+        zone: .zoneCode,
+        package_code: .packageCode,
+        cpu: (.cpu // .cpuCore // .cpuCores),
+        memory: (.memory // .memoryMB // .memoryMb)
+    }]' "${page_files[@]}"
+    local result=$?
+    rm -rf "$tmp_dir"
+    return "$result"
 }
 
 lightnode_platform_ssh_exec() {

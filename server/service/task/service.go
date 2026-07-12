@@ -47,6 +47,7 @@ type TaskService struct {
 	dbService      *database.DatabaseService
 	contextManager *TaskContextManager  // 任务上下文管理器
 	poolManager    *ProviderPoolManager // Provider工作池管理器
+	repairSubmitMu sync.Mutex           // 端口映射修复提交互斥，避免同一Provider重复入队
 	shutdown       chan struct{}        // 系统关闭信号
 	wg             sync.WaitGroup       // 用于等待所有goroutine完成
 	ctx            context.Context      // 服务级别的context

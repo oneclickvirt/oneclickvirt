@@ -2751,6 +2751,75 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/port-mappings/repair": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "预览或创建后台任务，将控制端数据库中的端口映射重新应用到节点。执行时必须提供确认词 REBUILD。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin-Port-Mapping"
+                ],
+                "summary": "按数据库记录重建端口转发",
+                "parameters": [
+                    {
+                        "description": "修复参数",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.RepairPortMappingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/port-mappings/sync": {
             "post": {
                 "security": [
@@ -12358,6 +12427,14 @@ const docTemplate = `{
                     "maximum": 65535,
                     "minimum": 1
                 },
+                "mappingType": {
+                    "description": "映射位置，默认节点侧",
+                    "type": "string",
+                    "enum": [
+                        "node",
+                        "controller"
+                    ]
+                },
                 "portCount": {
                     "description": "端口数量（默认1，检查端口段时使用）",
                     "type": "integer",
@@ -12651,7 +12728,11 @@ const docTemplate = `{
                 },
                 "mappingType": {
                     "description": "\"node\"（默认）或 \"controller\"（控制端转发）",
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "node",
+                        "controller"
+                    ]
                 },
                 "portCount": {
                     "description": "端口数量，默认1（单端口），最多1500个",
@@ -12826,6 +12907,29 @@ const docTemplate = `{
                     "type": "integer",
                     "maximum": 65535,
                     "minimum": 1024
+                }
+            }
+        },
+        "admin.RepairPortMappingsRequest": {
+            "type": "object",
+            "properties": {
+                "confirmation": {
+                    "type": "string"
+                },
+                "dryRun": {
+                    "type": "boolean"
+                },
+                "portIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "providerIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 }
             }
         },

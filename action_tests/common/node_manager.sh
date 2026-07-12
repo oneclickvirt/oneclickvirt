@@ -214,6 +214,22 @@ find_local_env_install_script() {
     local candidates=()
 
     case "$env" in
+        docker)
+            [[ -n "${DOCKER_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${DOCKER_INSTALL_SCRIPT_LOCAL_PATH}")
+            candidates+=(
+                "/Volumes/Additional/个人数据/GitHub/docker/scripts/dockerinstall.sh"
+                "${SCRIPT_DIR}/../../../docker/scripts/dockerinstall.sh"
+                "${SCRIPT_DIR}/../../../../../docker/scripts/dockerinstall.sh"
+            )
+            ;;
+        lxd)
+            [[ -n "${LXD_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${LXD_INSTALL_SCRIPT_LOCAL_PATH}")
+            candidates+=(
+                "/Volumes/Additional/个人数据/GitHub/lxd/scripts/lxdinstall.sh"
+                "${SCRIPT_DIR}/../../../lxd/scripts/lxdinstall.sh"
+                "${SCRIPT_DIR}/../../../../../lxd/scripts/lxdinstall.sh"
+            )
+            ;;
         proxmoxve)
             [[ -n "${PVE_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${PVE_INSTALL_SCRIPT_LOCAL_PATH}")
             candidates+=(
@@ -230,6 +246,22 @@ find_local_env_install_script() {
                 "${SCRIPT_DIR}/../../../../../incus/scripts/incus_install.sh"
             )
             ;;
+		podman)
+			[[ -n "${PODMAN_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${PODMAN_INSTALL_SCRIPT_LOCAL_PATH}")
+			candidates+=(
+				"/Volumes/Additional/个人数据/GitHub/podman/podmaninstall.sh"
+				"${SCRIPT_DIR}/../../../podman/podmaninstall.sh"
+				"${SCRIPT_DIR}/../../../../../podman/podmaninstall.sh"
+			)
+			;;
+		containerd)
+			[[ -n "${CONTAINERD_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${CONTAINERD_INSTALL_SCRIPT_LOCAL_PATH}")
+			candidates+=(
+				"/Volumes/Additional/个人数据/GitHub/containerd/containerdinstall.sh"
+				"${SCRIPT_DIR}/../../../containerd/containerdinstall.sh"
+				"${SCRIPT_DIR}/../../../../../containerd/containerdinstall.sh"
+			)
+			;;
 		kubevirt)
 			[[ -n "${KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH:-}" ]] && candidates+=("${KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH}")
 			candidates+=(
@@ -354,12 +386,8 @@ install_env() {
             env_prefix="DEBIAN_FRONTEND=noninteractive"
             ;;
     esac
-    local env_install_cmd=""
-	if [[ "$env" == "incus" || "$env" == "qemu" ]]; then
-		env_install_cmd=$(build_env_install_command "$env" "$url" "$noninteractive_prefix" "$env_prefix") || return 1
-	else
-		env_install_cmd="${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh"
-	fi
+	local env_install_cmd=""
+	env_install_cmd=$(build_env_install_command "$env" "$url" "$noninteractive_prefix" "$env_prefix") || return 1
 
     if [[ "$env" == "proxmoxve" ]]; then
         log_info "PVE install step 1/3: installing PVE kernel (reboot required)..."

@@ -27,6 +27,7 @@
 | `create-port-mapping` | 创建端口映射 | 10 分钟 |
 | `delete-port-mapping` | 删除端口映射 | 5 分钟 |
 | `sync-port-mappings` | 同步节点端口映射 | 30 分钟 |
+| `repair-port-mappings` | 按数据库记录重建端口转发 | 30 分钟 |
 | `snapshot-create` / `snapshot-delete` / `snapshot-restore` | 快照创建、删除、恢复 | 30 分钟 |
 | `monitor-sync` | Provider 监控器同步与陈旧监控清理 | 30 分钟 |
 | `agent-deploy` | 部署监控 Agent | 30 分钟 |

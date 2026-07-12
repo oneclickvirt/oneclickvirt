@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -45,13 +46,35 @@ func GetMonitoringConfig(c *gin.Context) {
 
 // UpdateMonitoringConfigRequest is the request body for updating monitoring config.
 type UpdateMonitoringConfigRequest struct {
-	MonitoringMode          string `json:"monitoring_mode"`
-	AgentPort               int    `json:"agent_port"`
-	CollectInterval         int    `json:"collect_interval"`
-	ResourceCollectInterval int    `json:"resource_collect_interval"`
-	ExtraExcludeCIDRsV4     string `json:"extra_exclude_cidrs_v4"`
-	ExtraExcludeCIDRsV6     string `json:"extra_exclude_cidrs_v6"`
-	TrafficCollectMethod    string `json:"traffic_collect_method"` // "nft" or "ipt"
+	MonitoringMode          *string `json:"monitoring_mode"`
+	AgentPort               *int    `json:"agent_port"`
+	CollectInterval         *int    `json:"collect_interval"`
+	ResourceCollectInterval *int    `json:"resource_collect_interval"`
+	ExtraExcludeCIDRsV4     *string `json:"extra_exclude_cidrs_v4"`
+	ExtraExcludeCIDRsV6     *string `json:"extra_exclude_cidrs_v6"`
+	TrafficCollectMethod    *string `json:"traffic_collect_method"` // "nft" or "ipt"
+}
+
+func (req UpdateMonitoringConfigRequest) validate() error {
+	if req.MonitoringMode != nil {
+		validModes := map[string]bool{"agent": true, "pmacct": true}
+		if !validModes[*req.MonitoringMode] {
+			return fmt.Errorf("无效的监控模式")
+		}
+	}
+	if req.AgentPort != nil && (*req.AgentPort < 1 || *req.AgentPort > 65535) {
+		return fmt.Errorf("Agent端口必须在1-65535之间")
+	}
+	if req.CollectInterval != nil && (*req.CollectInterval < 1 || *req.CollectInterval > 86400) {
+		return fmt.Errorf("流量采集间隔必须在1-86400秒之间")
+	}
+	if req.ResourceCollectInterval != nil && (*req.ResourceCollectInterval < 10 || *req.ResourceCollectInterval > 86400) {
+		return fmt.Errorf("资源采集间隔必须在10-86400秒之间")
+	}
+	if req.TrafficCollectMethod != nil && *req.TrafficCollectMethod != "nft" && *req.TrafficCollectMethod != "ipt" {
+		return fmt.Errorf("无效的流量采集方式")
+	}
+	return nil
 }
 
 // UpdateMonitoringConfig godoc
@@ -82,20 +105,8 @@ func UpdateMonitoringConfig(c *gin.Context) {
 		return
 	}
 
-	// Validate monitoring mode
-	validModes := map[string]bool{"agent": true, "passive": true, "": true}
-	if !validModes[req.MonitoringMode] {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的监控模式"))
-		return
-	}
-
-	// Reject non-positive intervals and negative port
-	if req.CollectInterval < 0 || req.ResourceCollectInterval < 0 || req.AgentPort < 0 {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "配置值不能为负数"))
-		return
-	}
-	if req.AgentPort > 65535 || req.CollectInterval > 86400 || req.ResourceCollectInterval > 86400 {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "端口或采集间隔超出允许范围"))
+	if err := req.validate(); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
 
@@ -106,22 +117,26 @@ func UpdateMonitoringConfig(c *gin.Context) {
 	}
 
 	// Update fields
-	if req.MonitoringMode != "" {
-		config.MonitoringMode = req.MonitoringMode
+	if req.MonitoringMode != nil {
+		config.MonitoringMode = *req.MonitoringMode
 	}
-	if req.AgentPort > 0 {
-		config.AgentPort = req.AgentPort
+	if req.AgentPort != nil {
+		config.AgentPort = *req.AgentPort
 	}
-	if req.CollectInterval > 0 {
-		config.CollectInterval = req.CollectInterval
+	if req.CollectInterval != nil {
+		config.CollectInterval = *req.CollectInterval
 	}
-	if req.ResourceCollectInterval > 0 {
-		config.ResourceCollectInterval = req.ResourceCollectInterval
+	if req.ResourceCollectInterval != nil {
+		config.ResourceCollectInterval = *req.ResourceCollectInterval
 	}
-	config.ExtraExcludeCIDRsV4 = req.ExtraExcludeCIDRsV4
-	config.ExtraExcludeCIDRsV6 = req.ExtraExcludeCIDRsV6
-	if req.TrafficCollectMethod == "nft" || req.TrafficCollectMethod == "ipt" {
-		config.TrafficCollectMethod = req.TrafficCollectMethod
+	if req.ExtraExcludeCIDRsV4 != nil {
+		config.ExtraExcludeCIDRsV4 = *req.ExtraExcludeCIDRsV4
+	}
+	if req.ExtraExcludeCIDRsV6 != nil {
+		config.ExtraExcludeCIDRsV6 = *req.ExtraExcludeCIDRsV6
+	}
+	if req.TrafficCollectMethod != nil {
+		config.TrafficCollectMethod = *req.TrafficCollectMethod
 	}
 
 	if err := global.APP_DB.Save(config).Error; err != nil {

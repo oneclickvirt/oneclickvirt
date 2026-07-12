@@ -1,11 +1,11 @@
 {
   "summary": {
-    "Registered route calls": 363,
-    "Comparable route literals": 360,
-    "Approx. covered route literals": 304,
-    "Approx. route literal coverage": "84.44%",
-    "Distinct test paths": 496,
-    "Test endpoint call sites": 1092,
+    "Registered route calls": 364,
+    "Comparable route literals": 361,
+    "Approx. covered route literals": 305,
+    "Approx. route literal coverage": "84.49%",
+    "Distinct test paths": 497,
+    "Test endpoint call sites": 1099,
     "High-risk jq lines": 0,
     "Pipe risk lines": 0,
     "Workflow findings": 0,
@@ -14,14 +14,14 @@
   },
   "route_methods": {
     "GET": 188,
-    "POST": 117,
+    "POST": 118,
     "PUT": 33,
     "DELETE": 25
   },
   "test_methods": {
     "GET": 525,
     "DELETE": 66,
-    "POST": 391,
+    "POST": 398,
     "PUT": 109,
     "PATCH": 1
   },
@@ -132,73 +132,73 @@
       "method": "GET",
       "path": "/providers/:id/monitoring/sync/latest",
       "file": "server/service/router/admin.go",
-      "line": 166
+      "line": 167
     },
     {
       "method": "GET",
       "path": "/providers/:id/monitoring/sync/:taskId",
       "file": "server/service/router/admin.go",
-      "line": 167
+      "line": 168
     },
     {
       "method": "POST",
       "path": "/domains/sync-proxies",
       "file": "server/service/router/admin.go",
-      "line": 197
+      "line": 198
     },
     {
       "method": "POST",
       "path": "/domains/:id/sync",
       "file": "server/service/router/admin.go",
-      "line": 199
+      "line": 200
     },
     {
       "method": "POST",
       "path": "/system-images/sync",
       "file": "server/service/router/admin.go",
-      "line": 238
+      "line": 239
     },
     {
       "method": "PUT",
       "path": "/users/:id/reset-password-notify",
       "file": "server/service/router/admin.go",
-      "line": 253
+      "line": 254
     },
     {
       "method": "GET",
       "path": "/monitoring/logs",
       "file": "server/service/router/admin.go",
-      "line": 283
+      "line": 284
     },
     {
       "method": "GET",
       "path": "/monitoring/provider",
       "file": "server/service/router/admin.go",
-      "line": 284
+      "line": 285
     },
     {
       "method": "GET",
       "path": "/logs/read",
       "file": "server/service/router/admin.go",
-      "line": 296
+      "line": 297
     },
     {
       "method": "POST",
       "path": "/logs/cleanup",
       "file": "server/service/router/admin.go",
-      "line": 297
+      "line": 298
     },
     {
       "method": "POST",
       "path": "/storage/init",
       "file": "server/service/router/admin.go",
-      "line": 301
+      "line": 302
     },
     {
       "method": "POST",
       "path": "/storage/cleanup",
       "file": "server/service/router/admin.go",
-      "line": 302
+      "line": 303
     },
     {
       "method": "GET",

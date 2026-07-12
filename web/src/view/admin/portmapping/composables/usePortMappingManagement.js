@@ -1,4 +1,4 @@
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { 
@@ -9,7 +9,8 @@ import {
   checkPortAvailable,
   getProviderList,
   getAllInstances,
-  syncPortMappings
+  syncPortMappings,
+  repairPortMappings
 } from '@/api/admin'
 import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
 
@@ -33,6 +34,11 @@ export function usePortMappingManagement() {
   const syncSubmitting = ref(false)
   const syncPreview = ref({ providers: [], candidateCount: 0 })
   const selectedSyncPortIds = ref([])
+  const repairPreviewVisible = ref(false)
+  const repairPreviewLoading = ref(false)
+  const repairSubmitting = ref(false)
+  const repairPreview = ref({ providers: [], candidateCount: 0, skippedCount: 0 })
+  const selectedRepairPortIds = ref([])
 
   const syncCandidates = computed(() => {
     const providersPreview = syncPreview.value.providers || []
@@ -44,6 +50,21 @@ export function usePortMappingManagement() {
   })
   const unhealthySyncProviders = computed(() => (syncPreview.value.providers || []).filter(provider => !provider.healthy))
   const allSyncSelected = computed(() => syncCandidates.value.length > 0 && selectedSyncPortIds.value.length === syncCandidates.value.length)
+  const repairCandidates = computed(() => (repairPreview.value.providers || []).flatMap(provider => (
+    provider.candidates || []
+  ).map(candidate => ({
+    ...candidate,
+    providerName: candidate.providerName || provider.providerName,
+    providerId: candidate.providerId || provider.providerId
+  }))))
+  const repairSkipped = computed(() => (repairPreview.value.providers || []).flatMap(provider => (
+    provider.skipped || []
+  ).map(item => ({
+    ...item,
+    providerName: item.providerName || provider.providerName,
+    providerId: item.providerId || provider.providerId
+  }))))
+  const allRepairSelected = computed(() => repairCandidates.value.length > 0 && selectedRepairPortIds.value.length === repairCandidates.value.length)
 
   const searchForm = reactive({ keyword: '', providerId: '', protocol: '', status: '' })
 
@@ -51,6 +72,14 @@ export function usePortMappingManagement() {
   const addFormRef = ref()
   const addLoading = ref(false)
   const addForm = reactive({ instanceId: '', guestPort: null, hostPort: 0, portCount: 1, protocol: 'both', description: '', mappingType: 'node', internalHost: '' })
+
+  watch(() => addForm.mappingType, (mappingType) => {
+    if (mappingType === 'controller') {
+      addForm.portCount = 1
+      addForm.protocol = 'tcp'
+    }
+    portCheckResult.value = null
+  })
 
   const checkingPort = ref(false)
   const portCheckResult = ref(null)
@@ -150,7 +179,7 @@ export function usePortMappingManagement() {
     checkingPort.value = true
     portCheckResult.value = null
     try {
-      const response = await checkPortAvailable({ providerId: selectedInstance.providerId, hostPort: addForm.hostPort, protocol: addForm.protocol, portCount })
+      const response = await checkPortAvailable({ providerId: selectedInstance.providerId, hostPort: addForm.hostPort, protocol: addForm.protocol, portCount, mappingType: addForm.mappingType || 'node' })
       if ((response.code === 200) && response.data) {
         const data = response.data
         portCheckResult.value = {
@@ -277,6 +306,8 @@ export function usePortMappingManagement() {
         const providerType = getInstanceProviderType(instance)?.toLowerCase()
         if (CONTROLLER_ONLY_PROVIDER_TYPES.includes(providerType)) {
           addForm.mappingType = 'controller'
+          addForm.portCount = 1
+          addForm.protocol = 'tcp'
         }
       }
     }
@@ -295,6 +326,10 @@ export function usePortMappingManagement() {
           ElMessage.error(t('admin.portMapping.dockerOnlyController'))
           return
         }
+      }
+      if (addForm.mappingType === 'controller' && (addForm.portCount !== 1 || addForm.protocol !== 'tcp')) {
+        ElMessage.error(t('admin.portMapping.controllerSingleTcpOnly'))
+        return
       }
       // 验证支持的 Provider 类型
       if (!PORT_MAPPING_PROVIDER_TYPES.includes(providerType)) { ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported')); return }
@@ -365,6 +400,102 @@ export function usePortMappingManagement() {
     return reason || '-'
   }
 
+  const handleRepairPortMappings = async () => {
+    repairPreviewLoading.value = true
+    try {
+      const response = await repairPortMappings({ dryRun: true })
+      repairPreview.value = response.data || { providers: [], candidateCount: 0, skippedCount: 0 }
+      selectedRepairPortIds.value = repairCandidates.value.map(item => item.portId)
+      if (!repairPreview.value.candidateCount && !repairPreview.value.skippedCount) {
+        ElMessage.success(t('admin.portMapping.repairPreviewEmpty'))
+        return
+      }
+      repairPreviewVisible.value = true
+    } catch (error) {
+      if (error !== 'cancel') ElMessage.error(error.message || t('admin.portMapping.repairFailed'))
+    } finally {
+      repairPreviewLoading.value = false
+    }
+  }
+
+  const toggleAllRepairCandidates = () => {
+    if (allRepairSelected.value) selectedRepairPortIds.value = []
+    else selectedRepairPortIds.value = repairCandidates.value.map(item => item.portId)
+  }
+
+  const confirmRepairPortMappings = async () => {
+    if (selectedRepairPortIds.value.length === 0) {
+      ElMessage.warning(t('admin.portMapping.repairSelectAtLeastOne'))
+      return
+    }
+    repairSubmitting.value = true
+    try {
+      const selectedSet = new Set(selectedRepairPortIds.value)
+      const selected = repairCandidates.value.filter(item => selectedSet.has(item.portId))
+      const restartCount = new Set(selected.filter(item => item.requiresInstanceRestart).map(item => item.instanceId)).size
+      await ElMessageBox.confirm(
+        t('admin.portMapping.repairFirstConfirm', {
+          count: selectedRepairPortIds.value.length,
+          restarts: restartCount
+        }),
+        t('admin.portMapping.repairConfirmTitle'),
+        { confirmButtonText: t('admin.portMapping.repairContinue'), cancelButtonText: t('common.cancel'), type: 'warning' }
+      )
+      await ElMessageBox.prompt(
+        t('admin.portMapping.repairSecondConfirm'),
+        t('admin.portMapping.repairSecondConfirmTitle'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          inputPlaceholder: 'REBUILD',
+          inputPattern: /^REBUILD$/,
+          inputErrorMessage: t('admin.portMapping.repairConfirmationMismatch'),
+          type: 'error'
+        }
+      )
+      const providerIds = [...new Set(selected.map(item => item.providerId).filter(Boolean))]
+      const response = await repairPortMappings({
+        providerIds,
+        portIds: selectedRepairPortIds.value,
+        confirmation: 'REBUILD'
+      })
+      const failedCount = response.data?.failedCount || 0
+      if (failedCount > 0) {
+        ElMessage.warning(t('admin.portMapping.repairTasksPartial', {
+          success: response.data?.taskCount || 0,
+          failed: failedCount
+        }))
+      } else {
+        ElMessage.success(t('admin.portMapping.repairTasksCreated', { count: response.data?.taskCount || 0 }))
+      }
+      repairPreviewVisible.value = false
+      setTimeout(() => loadPortMappings(), 1000)
+    } catch (error) {
+      if (error !== 'cancel') ElMessage.error(error.message || t('admin.portMapping.repairFailed'))
+    } finally {
+      repairSubmitting.value = false
+    }
+  }
+
+  const formatRepairSkipReason = (reason) => {
+    const keyByReason = {
+      provider_unavailable: 'repairSkipProviderUnavailable',
+      status_not_repairable: 'repairSkipStatus',
+      instance_missing: 'repairSkipInstanceMissing',
+      instance_busy: 'repairSkipInstanceBusy',
+      instance_unavailable: 'repairSkipInstanceUnavailable',
+      controller_range_unsupported: 'repairSkipControllerRange',
+      controller_protocol_unsupported: 'repairSkipControllerProtocol',
+      target_missing: 'repairSkipTargetMissing',
+      mapping_type_unsupported: 'repairSkipMappingType',
+      network_mode_has_no_node_mapping: 'repairSkipNetworkMode',
+      container_not_running: 'repairSkipContainerStopped',
+      native_mapping_not_repairable: 'repairSkipNative'
+    }
+    const key = keyByReason[reason]
+    return key ? t(`admin.portMapping.${key}`) : (reason || '-')
+  }
+
   const cleanupAutoRefresh = () => {
     if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null }
   }
@@ -374,6 +505,8 @@ export function usePortMappingManagement() {
     selectedPortMappings, searchForm,
     syncPreviewVisible, syncPreviewLoading, syncSubmitting, syncPreview,
     selectedSyncPortIds, syncCandidates, unhealthySyncProviders, allSyncSelected,
+    repairPreviewVisible, repairPreviewLoading, repairSubmitting, repairPreview,
+    selectedRepairPortIds, repairCandidates, repairSkipped, allRepairSelected,
     addDialogVisible, addFormRef, addLoading, addForm, addRules,
     checkingPort, portCheckResult,
     supportedInstances, selectedInstanceProvider, portRangePreview, portMappingHint,
@@ -384,7 +517,8 @@ export function usePortMappingManagement() {
     handleSelectionChange, handleSizeChange, handleCurrentChange,
     deletePortMappingHandler, batchDeleteDirect,
     formatTime, openAddDialog, onInstanceChange, submitAdd,
-    handleSyncPortMappings, confirmSyncPortMappings, toggleAllSyncCandidates, formatSyncReason, filterInstances,
+    handleSyncPortMappings, confirmSyncPortMappings, toggleAllSyncCandidates, formatSyncReason,
+    handleRepairPortMappings, confirmRepairPortMappings, toggleAllRepairCandidates, formatRepairSkipReason, filterInstances,
     updatePortRange, checkPortAvailabilityDebounced,
     checkPortAvailability: checkPortAvailabilityFn,
     cleanupAutoRefresh,

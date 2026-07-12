@@ -642,7 +642,13 @@ func CheckPortAvailability(c *gin.Context) {
 	}
 
 	portMappingService := resources.PortMappingService{}
-	response, err := portMappingService.CheckPortAvailability(req)
+	var response *admin.CheckPortAvailabilityResponse
+	var err error
+	if req.MappingType == "controller" {
+		response, err = portMappingService.CheckControllerPortAvailability(req)
+	} else {
+		response, err = portMappingService.CheckPortAvailability(req)
+	}
 	if err != nil {
 		global.APP_LOG.Error("检查端口可用性失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -699,6 +705,10 @@ func SyncPortMappings(c *gin.Context) {
 
 	// 创建同步任务（为每个Provider创建独立任务）
 	taskService := task.GetTaskService()
+	if taskService == nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnavailable, "任务服务正在初始化，请稍后重试"))
+		return
+	}
 	if req.DryRun {
 		preview, err := taskService.PreviewSyncPortMappings(c.Request.Context(), &req, middleware.GetOwnerAdminID(c))
 		if err != nil {

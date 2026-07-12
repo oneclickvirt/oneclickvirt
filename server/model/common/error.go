@@ -165,6 +165,7 @@ func ClassifyError(err error) *AppError {
 	// Validation / bad request patterns
 	if strings.Contains(msg, "参数") || strings.Contains(msg, "无效") ||
 		strings.Contains(msg, "格式错误") || strings.Contains(msg, "不能为空") ||
+		strings.Contains(msg, "必须") || strings.Contains(msg, "至少") ||
 		strings.Contains(msg, "尚未完成") || strings.Contains(msg, "不支持") ||
 		strings.Contains(msg, "仅支持") || strings.Contains(msg, "未启用") ||
 		strings.Contains(msg, "未配置") ||

@@ -173,17 +173,29 @@ try_create_with_fallback() {
             # --- Enforce max-1 invariant ---
             # List all existing instances; delete every one beyond the first.
             local existing="[]"
-            existing=$(platform_dispatch "$platform" "list_instances" 2>/dev/null) || existing="[]"
+            if ! existing=$(platform_dispatch "$platform" "list_instances" 2>/dev/null); then
+                log_error "[${platform}] Unable to obtain a complete instance inventory; refusing to create another instance"
+                all_resource_exhausted=false
+                continue
+            fi
             log_debug "[${platform}] list_instances raw: ${existing}"
             local all_ids=()
             mapfile -t all_ids < <(echo "$existing" | jq -r '.[].instance_id // empty' 2>/dev/null)
             local inst_count=${#all_ids[@]}
             if [[ $inst_count -gt 1 ]]; then
                 log_warning "[${platform}] Found ${inst_count} instances — enforcing max-1, deleting $((inst_count - 1)) extra(s)..."
+                local cleanup_failed=false
                 for (( _i=1; _i<inst_count; _i++ )); do
                     log_info "[${platform}] Deleting extra instance ${all_ids[$_i]}..."
-                    platform_dispatch "$platform" "delete_instance" "${all_ids[$_i]}" 2>/dev/null || true
+                    if ! platform_dispatch "$platform" "delete_instance" "${all_ids[$_i]}" 2>/dev/null; then
+                        log_error "[${platform}] Failed to delete extra instance ${all_ids[$_i]}"
+                        cleanup_failed=true
+                    fi
                 done
+                if [[ "$cleanup_failed" == "true" ]]; then
+                    all_resource_exhausted=false
+                    continue
+                fi
             fi
             [[ $inst_count -ge 1 ]] && keep_id="${all_ids[0]}"
         fi

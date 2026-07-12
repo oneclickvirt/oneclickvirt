@@ -37,10 +37,10 @@ RUN BUILD_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "docker") && \
 FROM debian:12-slim
 ARG TARGETARCH
 
-# Install only nginx and supervisor (no database)
+# Install runtime services and the tools required by HTTPS requests and HEALTHCHECK.
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        procps nginx supervisor && \
+        ca-certificates procps nginx supervisor wget && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

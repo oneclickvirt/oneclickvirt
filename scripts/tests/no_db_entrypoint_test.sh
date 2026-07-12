@@ -5,6 +5,7 @@ set -Eeuo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENTRYPOINT="${REPO_ROOT}/deploy/no-db-entrypoint.sh"
 DEFAULT_CONFIG_SOURCE="${REPO_ROOT}/server/config.yaml"
+NO_DB_DOCKERFILE="${REPO_ROOT}/Dockerfile.no-db"
 
 assert_contains() {
     local file="$1"
@@ -84,8 +85,14 @@ test_frontend_url_updates_persisted_config_and_proxy_scheme() (
     assert_contains "${NGINX_CONFIG}" 'proxy_set_header X-Forwarded-Proto https;'
 )
 
+test_healthcheck_runtime_dependencies_are_installed() {
+    assert_contains "${NO_DB_DOCKERFILE}" "ca-certificates procps nginx supervisor wget"
+    assert_contains "${NO_DB_DOCKERFILE}" "CMD wget --quiet"
+}
+
 test_persistent_config_survives_restart
 test_explicit_config_mount_remains_authoritative
 test_frontend_url_updates_persisted_config_and_proxy_scheme
+test_healthcheck_runtime_dependencies_are_installed
 
 echo "no-db entrypoint tests passed"

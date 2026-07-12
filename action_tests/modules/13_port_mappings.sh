@@ -23,7 +23,7 @@ run_module_13() {
     # -- Create port mapping (requires instance; accept 400 if no instances exist) --
     local pm; pm=$(test_api "Create port mapping" "POST" "/api/v1/admin/port-mappings" "200|400" \
         "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$group")
-    local pm_id; pm_id=$(echo "$pm" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    local pm_id; pm_id=$(echo "$pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
 
     # -- Create port mapping with mappingType=node (explicit) --
     test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "200|400" \
@@ -32,7 +32,14 @@ run_module_13() {
     # -- Create port mapping with mappingType=controller --
     local ctrl_pm; ctrl_pm=$(test_api "Create port mapping (controller type)" "POST" "/api/v1/admin/port-mappings" "200|400|500" \
         "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group")
-    local ctrl_pm_id; ctrl_pm_id=$(echo "$ctrl_pm" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    local ctrl_pm_id; ctrl_pm_id=$(echo "$ctrl_pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
+
+    test_api "Check controller TCP port" "POST" "/api/v1/admin/ports/check" "200" \
+        "{\"providerId\":${PROVIDER_ID},\"hostPort\":25222,\"portCount\":1,\"protocol\":\"tcp\",\"mappingType\":\"controller\"}" "$group"
+    test_api "Controller mapping rejects UDP" "POST" "/api/v1/admin/port-mappings" "400" \
+        "{\"instanceId\":${inst_for_pm},\"guestPort\":53,\"protocol\":\"udp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group"
+    test_api "Controller mapping rejects port range" "POST" "/api/v1/admin/port-mappings" "400" \
+        "{\"instanceId\":${inst_for_pm},\"guestPort\":8000,\"portCount\":2,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group"
 
     # -- Verify mappingType field in list response --
     local pm_list; pm_list=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
@@ -118,6 +125,14 @@ run_module_13() {
     test_api "Sync port mappings" "POST" "/api/v1/admin/port-mappings/sync" "200|400|404" \
         "{\"providerIds\":[${PROVIDER_ID}]}" "$group"
 
+    # -- Forward repair: preview is read-only; execution requires server-side second confirmation --
+    test_api "Repair port mappings preview" "POST" "/api/v1/admin/port-mappings/repair" "200" \
+        "{\"providerIds\":[${PROVIDER_ID}],\"dryRun\":true}" "$group"
+    test_api "Repair mappings (missing confirmation)" "POST" "/api/v1/admin/port-mappings/repair" "400" \
+        '{"portIds":[]}' "$group"
+    test_api "Repair mappings (empty selection)" "POST" "/api/v1/admin/port-mappings/repair" "400" \
+        '{"portIds":[],"confirmation":"REBUILD"}' "$group"
+
     # -- User port mappings --
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "User port mappings" "GET" "/api/v1/user/port-mappings" "200" "" "$group" "$USER_TOKEN"
@@ -134,7 +149,7 @@ run_module_13() {
     # -- Batch delete --
     local batch_ids; batch_ids=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/port-mappings?page=1&pageSize=50" 2>/dev/null | \
-        jq -c '[.data.list[]?.id // .data.list[]?.ID] | map(select(. != null))' 2>/dev/null)
+        jq -c '[.data.list[]? | select((.isAutomatic == false) and ((.portType == "manual") or (.portType == "batch"))) | (.id // .ID)] | map(select(. != null))' 2>/dev/null)
     if [[ -n "$batch_ids" && "$batch_ids" != "[]" && "$batch_ids" != "null" ]]; then
         test_api "Batch delete mappings" "POST" "/api/v1/admin/port-mappings/batch-delete" "200" \
             "{\"ids\":${batch_ids}}" "$group"
@@ -168,5 +183,7 @@ run_module_13() {
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "User -> create mapping (403)" "POST" "/api/v1/admin/port-mappings" "401|403" \
             '{"instanceId":1,"guestPort":22,"protocol":"tcp","hostPort":25001}' "$group" "$USER_TOKEN"
+        test_api "User -> repair mappings (403)" "POST" "/api/v1/admin/port-mappings/repair" "401|403" \
+            '{"dryRun":true}' "$group" "$USER_TOKEN"
     fi
 }

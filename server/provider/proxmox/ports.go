@@ -430,3 +430,8 @@ func (p *ProxmoxProvider) getInstancePrivateIP(ctx context.Context, instanceName
 func (p *ProxmoxProvider) SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
 	return p.setupPortMappingWithIP(ctx, instanceName, hostPort, guestPort, protocol, method, instanceIP)
 }
+
+// RemovePortMapping removes a node-side mapping before it is rebuilt.
+func (p *ProxmoxProvider) RemovePortMapping(ctx context.Context, instanceName string, hostPort int, protocol, method string) error {
+	return p.removePortMapping(ctx, instanceName, hostPort, protocol, method)
+}

@@ -15,8 +15,11 @@ import (
 func (s *PortMappingService) isGenericPortAvailable(providerInfo *provider.Provider, port int) bool {
 	// 首先检查数据库中是否已经有端口映射记录
 	var existingMapping provider.Port
-	err := global.APP_DB.Where("provider_id = ? AND host_port = ? AND status = ?",
-		providerInfo.ID, port, "active").First(&existingMapping).Error
+	err := global.APP_DB.
+		Where("provider_id = ? AND host_port <= ?", providerInfo.ID, port).
+		Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+		Where("CASE WHEN host_port_end > 0 THEN host_port_end WHEN port_count > 1 THEN host_port + port_count - 1 ELSE host_port END >= ?", port).
+		First(&existingMapping).Error
 
 	if err == nil {
 		// 如果数据库中已有活跃的端口映射，则认为端口不可用
@@ -89,8 +92,11 @@ func (s *PortMappingService) isPortAvailableOnProvider(providerInfo *provider.Pr
 func (s *PortMappingService) isDockerPortAvailable(providerInfo *provider.Provider, port int) bool {
 	// 首先检查数据库记录
 	var existingMapping provider.Port
-	err := global.APP_DB.Where("provider_id = ? AND host_port = ? AND status = ?",
-		providerInfo.ID, port, "active").First(&existingMapping).Error
+	err := global.APP_DB.
+		Where("provider_id = ? AND host_port <= ?", providerInfo.ID, port).
+		Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
+		Where("CASE WHEN host_port_end > 0 THEN host_port_end WHEN port_count > 1 THEN host_port + port_count - 1 ELSE host_port END >= ?", port).
+		First(&existingMapping).Error
 	if err == nil {
 		// 数据库中已有活跃的端口映射
 		return false

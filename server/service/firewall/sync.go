@@ -241,7 +241,7 @@ func (s *Service) loadProviderAgentTargets(ctx context.Context, providerIDs []ui
 		Select(`providers.id AS provider_id, providers.endpoint, providers.port_ip, providers.connection_type,
 			configs.agent_token, configs.agent_port, configs.agent_installed, configs.monitoring_mode`).
 		Joins("LEFT JOIN monitoring_configs AS configs ON configs.provider_id = providers.id AND configs.deleted_at IS NULL").
-		Where("providers.deleted_at IS NULL AND providers.id IN ?", providerIDs).
+		Where("providers.id IN ?", providerIDs).
 		Find(&rows).Error
 	if err != nil {
 		return nil, err

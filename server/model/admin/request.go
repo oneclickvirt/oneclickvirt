@@ -556,13 +556,13 @@ type PortMappingListRequest struct {
 // CreatePortMappingRequest 创建端口映射请求（支持单个端口和端口段批量添加，仅支持 LXD/Incus/PVE）
 type CreatePortMappingRequest struct {
 	InstanceID   uint   `json:"instanceId" binding:"required"`
-	GuestPort    int    `json:"guestPort" binding:"required,min=1,max=65535"`   // 起始端口
-	PortCount    int    `json:"portCount" binding:"min=1,max=1500"`             // 端口数量，默认1（单端口），最多1500个
-	Protocol     string `json:"protocol" binding:"required,oneof=tcp udp both"` // 协议类型
-	Description  string `json:"description"`                                    // 端口用途描述
-	HostPort     int    `json:"hostPort"`                                       // 可选，不指定则自动分配，指定时作为起始端口
-	MappingType  string `json:"mappingType"`                                    // "node"（默认）或 "controller"（控制端转发）
-	InternalHost string `json:"internalHost"`                                   // 控制端转发目标地址（容器IP）
+	GuestPort    int    `json:"guestPort" binding:"required,min=1,max=65535"`          // 起始端口
+	PortCount    int    `json:"portCount" binding:"omitempty,min=1,max=1500"`          // 端口数量，默认1（单端口），最多1500个
+	Protocol     string `json:"protocol" binding:"required,oneof=tcp udp both"`        // 协议类型
+	Description  string `json:"description"`                                           // 端口用途描述
+	HostPort     int    `json:"hostPort"`                                              // 可选，不指定则自动分配，指定时作为起始端口
+	MappingType  string `json:"mappingType" binding:"omitempty,oneof=node controller"` // "node"（默认）或 "controller"（控制端转发）
+	InternalHost string `json:"internalHost"`                                          // 控制端转发目标地址（容器IP）
 }
 
 // BatchDeletePortMappingRequest 批量删除端口映射请求（仅支持删除手动添加的端口）
@@ -744,10 +744,11 @@ type SyncPortMappingsPreviewResponse struct {
 
 // CheckPortAvailabilityRequest 检查端口可用性请求
 type CheckPortAvailabilityRequest struct {
-	ProviderID uint   `json:"providerId" binding:"required"`                  // Provider ID
-	HostPort   int    `json:"hostPort" binding:"required,min=1,max=65535"`    // 要检查的主机端口（起始端口）
-	PortCount  int    `json:"portCount" binding:"min=1,max=1500"`             // 端口数量（默认1，检查端口段时使用）
-	Protocol   string `json:"protocol" binding:"required,oneof=tcp udp both"` // 协议类型
+	ProviderID  uint   `json:"providerId" binding:"required"`                         // Provider ID
+	HostPort    int    `json:"hostPort" binding:"required,min=1,max=65535"`           // 要检查的主机端口（起始端口）
+	PortCount   int    `json:"portCount" binding:"omitempty,min=1,max=1500"`          // 端口数量（默认1，检查端口段时使用）
+	Protocol    string `json:"protocol" binding:"required,oneof=tcp udp both"`        // 协议类型
+	MappingType string `json:"mappingType" binding:"omitempty,oneof=node controller"` // 映射位置，默认节点侧
 }
 
 // CheckPortAvailabilityResponse 端口可用性检查响应

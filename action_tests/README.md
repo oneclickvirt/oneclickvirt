@@ -10,7 +10,7 @@
 
 ## 架构设计
 
-测试采用双节点架构，单线程顺序执行（不使用矩阵并发），每次仅测试一个平台：
+测试采用双节点架构。单个虚拟化环境内的模块按顺序执行；选择 `all` 时默认最多并发运行 2 个相互隔离的环境，每个环境独占并清理自己的 Worker：
 
 | 节点 | 用途 | 说明 |
 |------|------|------|
@@ -58,7 +58,7 @@ action_tests/
     10_instances.sh        # 实例生命周期（创建、单实例/批量操作、重建、密码重置、异步任务、转移、删除）
     11_monitoring.sh       # 监控配置与代理部署（部署、卸载、同步、反向测试）
     12_traffic.sh          # 流量管理（统计、限制、同步、清理、排行、反向测试）
-    13_port_mappings.sh    # 端口映射管理（CRUD、端口可用性检查、同步）
+    13_port_mappings.sh    # 端口映射管理（CRUD、端口可用性检查、反向同步、数据库记录重建规则）
     14_block_rules.sh      # 防火墙阻断规则（CRUD、应用、移除、IPv4/IPv6）
     15_domains.sh          # 域名绑定管理（CRUD、多用户隔离）
     16_freeze.sh           # 冻结管理（节点与实例的过期、手动冻结、级联冻结/解冻）
@@ -98,9 +98,9 @@ action_tests/
 
 ## 核心特性
 
-### 顺序执行
+### 受控并发
 
-所有测试模块按编号顺序执行，不使用矩阵并发。每次运行仅测试一个虚拟化平台，避免资源竞争和状态干扰。
+单个环境中的测试模块仍按编号顺序执行，避免状态互相污染。GitHub Actions 选择 `all` 时通过矩阵受控并发，默认并发度为 2；每个任务启用隔离实例模式，不会枚举后删除其他并发任务创建的节点。测试报告发布带并发重试，避免多个环境同时更新 `gh-pages` 时丢失结果。
 
 ### 模块间状态管理
 
@@ -150,6 +150,7 @@ LXD/Incus 等环境在 CI 中依赖远程镜像站、DNS 和 Worker 出网能力
 | `modules` | 运行的模块（`all`/`01-10`/`01,03,05`） | `all` |
 | `node_hours` | 节点存续时间（小时） | `8` |
 | `skip_instance_delete` | 测试后保留实例不销毁（月付/预付平台建议开启） | `false` |
+| `max_parallel` | 选择 `all` 时的最大环境并发数 | `2` |
 
 ### 本地运行
 
@@ -171,10 +172,13 @@ export PLATFORM_ALICE_ENABLED=true
 export PLATFORM_LIGHTNODE_ENABLED=true
 export ALICE_CLIENT_ID="..."
 export LIGHTNODE_TOKEN="your_token"
-# LightNode 默认按第 3 档/2C/4G 选套餐；可用明确 package code 覆盖。
+# LightNode 默认严格使用第 3 档 2C/4G；目标套餐不存在时直接失败，不会降级到低配。
 export LIGHTNODE_PACKAGE_TIER=3
 export LIGHTNODE_TARGET_CPU=2
 export LIGHTNODE_TARGET_MEMORY_MB=4096
+export LIGHTNODE_STRICT_RECOMMENDED_SPEC=true
+# 本地并发运行时，每个进程创建并只清理自己的 LightNode 实例。
+export ACTION_TEST_PARALLEL_LOCAL=true
 # 本地联调安装脚本改动时可覆盖远端 main 版本
 export INCUS_INSTALL_SCRIPT_LOCAL_PATH="/Volumes/Additional/个人数据/GitHub/incus/scripts/incus_install.sh"
 export PVE_INSTALL_SCRIPT_LOCAL_PATH="/Volumes/Additional/个人数据/GitHub/pve/scripts/install_pve.sh"
