@@ -80,6 +80,7 @@ type HealthConfig struct {
 	TokenID       string `json:"token_id"`
 	CertPath      string `json:"cert_path"`
 	KeyPath       string `json:"key_path"`
+	CACertPath    string `json:"ca_cert_path"`
 	CertContent   string `json:"cert_content"` // 证书内容（优先于CertPath）
 	KeyContent    string `json:"key_content"`  // 私钥内容（优先于KeyPath）
 
@@ -115,6 +116,7 @@ func (c HealthConfig) DeepCopy() HealthConfig {
 		TokenID:        c.TokenID,
 		CertPath:       c.CertPath,
 		KeyPath:        c.KeyPath,
+		CACertPath:     c.CACertPath,
 		CertContent:    c.CertContent,
 		KeyContent:     c.KeyContent,
 		Timeout:        c.Timeout,

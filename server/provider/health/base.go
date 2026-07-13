@@ -3,9 +3,11 @@ package health
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -44,11 +46,22 @@ func createOptimizedHTTPClient(config HealthConfig) *http.Client {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	// 如果使用HTTPS且配置了跳过TLS验证，则设置InsecureSkipVerify
-	if config.APIScheme == "https" && config.SkipTLSVerify {
-		transport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true,
+	if config.APIScheme == "https" {
+		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+		if config.SkipTLSVerify {
+			tlsConfig.InsecureSkipVerify = true // #nosec G402 -- compatibility fallback when no CA is configured
+		} else if config.CACertPath != "" {
+			if caPEM, err := os.ReadFile(config.CACertPath); err == nil {
+				roots, poolErr := x509.SystemCertPool()
+				if poolErr != nil || roots == nil {
+					roots = x509.NewCertPool()
+				}
+				if roots.AppendCertsFromPEM(caPEM) {
+					tlsConfig.RootCAs = roots
+				}
+			}
 		}
+		transport.TLSClientConfig = tlsConfig
 	}
 
 	// 注册到Transport清理管理器（防止内存泄漏）

@@ -85,10 +85,11 @@ type DiscoveredAccelerator struct {
 // DiscoveredInstance 发现的实例信息结构体
 type DiscoveredInstance struct {
 	// 基本标识
-	UUID         string `json:"uuid"`         // 实例唯一标识
-	Name         string `json:"name"`         // 实例名称
-	Status       string `json:"status"`       // 实例状态（running, stopped等）
-	InstanceType string `json:"instanceType"` // 实例类型（container或vm）
+	UUID               string `json:"uuid"`               // 发现结果的稳定唯一标识
+	ProviderInstanceID string `json:"providerInstanceId"` // 虚拟化平台上的原始实例ID（如 Proxmox VMID/CTID）
+	Name               string `json:"name"`               // 实例名称
+	Status             string `json:"status"`             // 实例状态（running, stopped等）
+	InstanceType       string `json:"instanceType"`       // 实例类型（container或vm）
 
 	// 资源配置
 	CPU    int   `json:"cpu"`    // CPU核心数

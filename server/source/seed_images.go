@@ -325,7 +325,7 @@ func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
 			continue
 		}
 
-		imageStatus := defaultSystemImageStatus(imageInfo.OSType)
+		imageStatus := defaultSystemImageStatus(imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.OSType)
 		minMemoryMB, minDiskMB := getMinHardwareRequirements(imageInfo.OSType, imageInfo.InstanceType)
 		useCDN := isGitHubURL(imageInfo.URL)
 
@@ -448,7 +448,18 @@ func appendSystemImageIfNew(images *[]system.SystemImage, keys map[string]bool, 
 	return true
 }
 
-func defaultSystemImageStatus(osType string) string {
+func defaultSystemImageStatus(providerType, instanceType, osType string) string {
+	// The published LXD Alpine VM archives currently boot without a usable
+	// lxd-agent.  They can be imported and started, but the provider cannot run
+	// the commands required to finish instance configuration.  Keep those
+	// images visible for administrators to opt into, but do not advertise them
+	// as active defaults on a fresh installation.
+	if strings.EqualFold(providerType, "lxd") &&
+		strings.EqualFold(instanceType, "vm") &&
+		utils.NormalizeOSType(osType) == "alpine" {
+		return "inactive"
+	}
+
 	switch utils.NormalizeOSType(osType) {
 	case "debian", "alpine":
 		return "active"

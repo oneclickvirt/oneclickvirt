@@ -500,6 +500,9 @@ type Instance struct {
 }
 
 func (i *Instance) BeforeCreate(tx *gorm.DB) error {
+	// UUID is the controller-local public identity. Remote hypervisor identity
+	// (for example a Proxmox VMID/CTID) belongs in ProviderVMID and must be used
+	// for discovery/import reconciliation instead of relying on this value.
 	i.UUID = uuid.New().String()
 	return nil
 }
@@ -644,6 +647,7 @@ type ProviderNodeConfig struct {
 	TokenID               string   `json:"token_id"`    // API Token ID，用于ProxmoxVE等 (USER@REALM!TOKENID)
 	CertPath              string   `json:"cert_path"`
 	KeyPath               string   `json:"key_path"`
+	CACertPath            string   `json:"ca_cert_path"`        // API服务端CA证书路径（可选）
 	Country               string   `json:"country"`             // Provider所在国家，用于CDN选择
 	City                  string   `json:"city"`                // Provider所在城市（可选）
 	Architecture          string   `json:"architecture"`        // 架构类型，如amd64, arm64等

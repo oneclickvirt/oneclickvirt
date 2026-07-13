@@ -124,7 +124,7 @@ jobs:
           set -euo pipefail
           errors=0
           for f in action_tests/modules/*.sh action_tests/common/*.sh action_tests/common/platforms/*.sh \
-                   action_tests/run_module.sh action_tests/run_env_test.sh; do
+                   action_tests/run_module.sh action_tests/run_env_test.sh scripts/tests/*.sh; do
             [[ -f "$f" ]] || continue
             if ! bash -n "$f" 2>/tmp/bash_syntax_err.txt; then
               echo "::error file=${f}::Bash syntax error in ${f}:"
@@ -137,6 +137,9 @@ jobs:
             exit 1
           fi
           echo "All bash scripts passed syntax check."
+
+      - name: Test provider image selection policy
+        run: bash scripts/tests/provider_image_selection_test.sh
 
       - name: Verify generated Swagger docs
         working-directory: ./server
@@ -373,6 +376,9 @@ jobs:
           NODE_HOURS: ${{ inputs.node_hours }}
           EXECUTION_RULE: ${{ inputs.execution_rule }}
           TEST_IMAGES: 'alpine,debian'
+          PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE: '1'
+          PROVIDER_IMAGE_TASK_MAX_WAIT: '2400'
+          PROVIDER_IMAGE_STATUS_MAX_WAIT: '600'
           ADMIN_USER: admin
           ADMIN_PASS: ${{ env.CI_ADMIN_PASSWORD }}
           DB_USER: root

@@ -311,6 +311,50 @@ ENV_INSTALL_CMD
     printf '%s\n' "${noninteractive_prefix} curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh"
 }
 
+build_pve_aux_command() {
+    local kind="$1" url="$2" command_prefix="$3"
+    local candidate="" local_script=""
+    local candidates=()
+    case "$kind" in
+        backend)
+            [[ -n "${PVE_BUILD_BACKEND_LOCAL_PATH:-}" ]] && candidates+=("${PVE_BUILD_BACKEND_LOCAL_PATH}")
+            candidates+=(
+                "/Volumes/Additional/个人数据/GitHub/pve/scripts/build_backend.sh"
+                "${SCRIPT_DIR}/../../../pve/scripts/build_backend.sh"
+                "${SCRIPT_DIR}/../../../../../pve/scripts/build_backend.sh"
+            )
+            ;;
+        nat)
+            [[ -n "${PVE_BUILD_NAT_LOCAL_PATH:-}" ]] && candidates+=("${PVE_BUILD_NAT_LOCAL_PATH}")
+            candidates+=(
+                "/Volumes/Additional/个人数据/GitHub/pve/scripts/build_nat_network.sh"
+                "${SCRIPT_DIR}/../../../pve/scripts/build_nat_network.sh"
+                "${SCRIPT_DIR}/../../../../../pve/scripts/build_nat_network.sh"
+            )
+            ;;
+        *) return 1 ;;
+    esac
+    for candidate in "${candidates[@]}"; do
+        if [[ -n "$candidate" && -f "$candidate" ]]; then
+            local_script="$candidate"
+            break
+        fi
+    done
+    if [[ -n "$local_script" ]]; then
+        local payload
+        payload=$(gzip -c "$local_script" | base64 | tr -d '\n') || return 1
+        log_info "Using local PVE ${kind} script: ${local_script}"
+        cat <<PVE_AUX_CMD
+${command_prefix} cat > /tmp/pve-${kind}.sh.gz.b64 <<'PVE_AUX_B64'
+${payload}
+PVE_AUX_B64
+base64 -d /tmp/pve-${kind}.sh.gz.b64 | gzip -dc > /tmp/pve-${kind}.sh && rm -f /tmp/pve-${kind}.sh.gz.b64 && chmod +x /tmp/pve-${kind}.sh && ${command_prefix} bash /tmp/pve-${kind}.sh
+PVE_AUX_CMD
+        return 0
+    fi
+    printf '%s\n' "${command_prefix} curl -sSL '${url}' | bash"
+}
+
 install_env() {
     local id="$1" ip="$2" env="$3"
     log_section "Installing ${env} environment on worker node"
@@ -341,13 +385,25 @@ install_env() {
         log_error "PVE_MAIN_INTERFACE must contain only letters, numbers, dots, underscores, or hyphens"
         return 1
     fi
+    if [[ -n "${PVE_NAT_SUBNET:-}" && ! "${PVE_NAT_SUBNET}" =~ ^([0-9]{1,3}\.){3}0/24$ ]]; then
+        log_error "PVE_NAT_SUBNET must be an IPv4 /24 network ending in .0"
+        return 1
+    fi
     local pve_env_prefix="DEBIAN_FRONTEND=noninteractive noninteractive=true USE_PRIVATE_IP=${pve_use_private_ip} PVE_HOSTNAME=${pve_hostname}"
     if [[ -n "$pve_main_interface" ]]; then
         pve_env_prefix+=" PVE_MAIN_INTERFACE=${pve_main_interface}"
     fi
     local pve_install_cmd=""
+    local pve_backend_cmd=""
+    local pve_nat_cmd=""
     if [[ "$env" == "proxmoxve" ]]; then
         pve_install_cmd=$(build_env_install_command "$env" "$url" "$noninteractive_prefix" "$pve_env_prefix") || return 1
+        pve_backend_cmd=$(build_pve_aux_command backend "$PVE_BUILD_BACKEND" "$noninteractive_prefix") || return 1
+        local pve_nat_prefix="$noninteractive_prefix"
+        if [[ -n "${PVE_NAT_SUBNET:-}" ]]; then
+            pve_nat_prefix+=" PVE_NAT_SUBNET=${PVE_NAT_SUBNET}"
+        fi
+        pve_nat_cmd=$(build_pve_aux_command nat "$PVE_BUILD_NAT" "$pve_nat_prefix") || return 1
     fi
     if declare -f platform_validate_worker_resources >/dev/null 2>&1; then
         platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}" || return 75
@@ -401,9 +457,9 @@ install_env() {
         log_info "PVE install step 2/3: completing PVE configuration after reboot..."
         platform_exec_and_wait "${ip}" "${pve_install_cmd}" "$pve_wait" || return 75
         log_info "PVE install step 3a/3: configuring backend bridge..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_BACKEND}' | bash" "$install_wait" || return 75
+        platform_exec_and_wait "${ip}" "${pve_backend_cmd}" "$install_wait" || return 75
         log_info "PVE install step 3b/3: building NAT IPv4 network..."
-        platform_exec_and_wait "${ip}" "${noninteractive_prefix} curl -sSL '${PVE_BUILD_NAT}' | bash" "$install_wait" || return 75
+        platform_exec_and_wait "${ip}" "${pve_nat_cmd}" "$install_wait" || return 75
     elif [[ "$env" == "kubevirt" ]]; then
         # kubevirt needs K3s + KubeVirt + CDI, single-pass install (no reboot needed)
         # K3s + KubeVirt + CDI typically takes 60-120 minutes; use 7200s (2h) to be safe
@@ -448,7 +504,22 @@ verify_worker_runtime() {
             verify_cmd="command -v incus >/dev/null 2>&1 && incus info >/dev/null 2>&1"
             ;;
         proxmoxve)
-            verify_cmd="command -v pvesh >/dev/null 2>&1 && command -v pct >/dev/null 2>&1 && command -v qm >/dev/null 2>&1"
+            verify_cmd=$(cat <<'VERIFY_PROXMOXVE'
+set -u
+node_name="$(hostname -s)"
+command -v pvesh >/dev/null 2>&1
+command -v pct >/dev/null 2>&1
+command -v qm >/dev/null 2>&1
+mountpoint -q /etc/pve
+test -d "/etc/pve/nodes/${node_name}/lxc"
+test -d "/etc/pve/nodes/${node_name}/qemu-server"
+systemctl is-active --quiet pve-cluster
+systemctl is-active --quiet pvedaemon
+systemctl is-active --quiet pveproxy
+ss -lnt 2>/dev/null | grep -q ':8006 '
+curl -ksS --connect-timeout 3 --max-time 10 https://127.0.0.1:8006/api2/json/version >/dev/null
+VERIFY_PROXMOXVE
+)
             ;;
         qemu)
             verify_cmd="command -v virsh >/dev/null 2>&1 && (systemctl is-active --quiet libvirtd || systemctl is-active --quiet virtqemud)"
@@ -559,7 +630,10 @@ prepare_dirty_node() {
             platform_exec_and_wait "${ip}" "incus launch images:debian/12 pre-existing-1" 120
             ;;
         proxmoxve)
-            log_info "Proxmox pre-population skipped (requires manual template)"
+            # A stopped, diskless QEMU definition is sufficient for discovery and
+            # import coverage. It avoids image downloads while exercising the same
+            # PVE 8/9 cluster resource API as a normal VM.
+            platform_exec_and_wait "${ip}" "qm status 990 >/dev/null 2>&1 || qm create 990 --name pre-existing-vm --memory 512 --cores 1 --ostype l26" 120
             ;;
         qemu)
             log_info "QEMU pre-population skipped (requires VM images)"

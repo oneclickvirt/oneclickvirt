@@ -155,6 +155,7 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 		Password:              dbProvider.Password,
 		PrivateKey:            dbProvider.SSHKey,
 		Token:                 dbProvider.Token,
+		CACertPath:            dbProvider.CACertPath,
 		UUID:                  dbProvider.UUID,
 		Country:               dbProvider.Country,
 		City:                  dbProvider.City,
@@ -249,8 +250,9 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 			}
 		}
 		ps.providers[dbProvider.ID] = prov
-		// 同步检测架构，确保后续实例创建使用正确的架构（ARM 节点不会误用 amd64 镜像）
-		detectAndUpdateArchitecture(dbProvider.ID, prov)
+		// Agent 可能尚未建立 WebSocket 连接。不能在加载路径中调用 IsConnected
+		// 或同步执行 uname：两者都会等待 Agent 重连并阻塞 Provider 更新接口。
+		// 这里保留数据库中的架构，待 Agent 上线后由正常的同步/部署流程刷新。
 		global.APP_LOG.Info("Agent模式节点加载完成",
 			zap.String("name", dbProvider.Name),
 			zap.Uint("id", dbProvider.ID),

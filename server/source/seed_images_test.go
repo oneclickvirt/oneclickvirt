@@ -68,6 +68,29 @@ func TestDockerRuntimeImagesDefaultInactiveAndHighRequirement(t *testing.T) {
 	}
 }
 
+func TestLXDAlpineVMDefaultsInactiveWhileSupportedImagesStayActive(t *testing.T) {
+	images := buildDesiredSystemImages([]string{
+		"https://github.com/oneclickvirt/lxd_images/releases/download/kvm_images/alpine_3.19_3.19_amd64_cloud_kvm.zip",
+		"https://github.com/oneclickvirt/lxd_images/releases/download/alpine/alpine_3.21_3.21_amd64_cloud.zip",
+		"https://github.com/oneclickvirt/lxd_images/releases/download/kvm_images/debian_12_bookworm_amd64_cloud_kvm.zip",
+	})
+
+	statuses := map[string]string{}
+	for _, img := range images {
+		statuses[img.ProviderType+"/"+img.InstanceType+"/"+img.OSType] = img.Status
+	}
+
+	if got := statuses["lxd/vm/alpine"]; got != "inactive" {
+		t.Fatalf("lxd/vm/alpine status = %q, want inactive", got)
+	}
+	if got := statuses["lxd/container/alpine"]; got != "active" {
+		t.Fatalf("lxd/container/alpine status = %q, want active", got)
+	}
+	if got := statuses["lxd/vm/debian"]; got != "active" {
+		t.Fatalf("lxd/vm/debian status = %q, want active", got)
+	}
+}
+
 func TestParseInstallerImageURLs(t *testing.T) {
 	tests := []struct {
 		url          string

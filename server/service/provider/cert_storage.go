@@ -152,9 +152,9 @@ func (cs *CertService) autoConfigureProxmox(provider *provider.Provider) error {
 	// 2. 获取Token信息
 	tokenInfo, err := cs.getProxmoxTokenFromRemote(provider, username, tokenId)
 	if err != nil {
-		global.APP_LOG.Warn("无法获取Proxmox Token信息，但配置可能已成功",
+		global.APP_LOG.Warn("无法获取Proxmox Token信息",
 			zap.String("error", utils.TruncateString(err.Error(), 200)))
-		return nil
+		return fmt.Errorf("获取Proxmox Token信息失败: %w", err)
 	}
 
 	// 3. 构建API端点
@@ -283,8 +283,8 @@ func (cs *CertService) autoConfigureProxmoxWithStream(provider *provider.Provide
 	outputChan <- "第3步: 获取生成的Token信息"
 	tokenInfo, err := cs.getProxmoxTokenFromRemote(provider, username, tokenId)
 	if err != nil {
-		outputChan <- fmt.Sprintf("⚠️ 无法获取Token信息，但配置可能已成功: %s", err.Error())
-		return nil
+		outputChan <- fmt.Sprintf("❌ 无法获取Token信息: %s", err.Error())
+		return fmt.Errorf("获取Proxmox Token信息失败: %w", err)
 	}
 	outputChan <- fmt.Sprintf("✅ Token信息获取成功: %s", tokenInfo.TokenID)
 
@@ -427,7 +427,7 @@ func (cs *CertService) getProxmoxTokenFromRemote(provider *provider.Provider, us
 	}
 	defer sshClient.Close()
 
-	output, err := sshClient.Execute("cat /tmp/oneclickvirt-proxmox-config 2>/dev/null || echo 'FILE_NOT_FOUND'")
+	output, err := sshClient.Execute("if [ -f /tmp/oneclickvirt-proxmox-config ]; then cat /tmp/oneclickvirt-proxmox-config; rc=$?; rm -f /tmp/oneclickvirt-proxmox-config; exit $rc; else echo 'FILE_NOT_FOUND'; fi")
 	if err != nil || strings.Contains(output, "FILE_NOT_FOUND") {
 		return nil, fmt.Errorf("无法读取配置文件")
 	}

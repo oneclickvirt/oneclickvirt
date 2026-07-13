@@ -56,9 +56,13 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 
 	updateProgress(20, "准备镜像和资源...")
 
-	// 确保必要的镜像存在（传入上层已设置的 ImageURL，避免冗余 DB 查询）
-	if err := p.prepareImage(ctx, config.Image, config.InstanceType, config.ImageURL, config.UseCDN); err != nil {
-		return fmt.Errorf("准备镜像失败: %w", err)
+	// 容器创建直接消费 /var/lib/vz/template/cache 中的模板，因此在这里准备。
+	// VM 创建路径会按镜像类型自行准备 /root/qcow 或 ISO；提前调用 prepareImage
+	// 会把同一 qcow2 额外下载到 /var/lib/vz/template/iso，造成数百 MB 的重复下载。
+	if config.InstanceType == "container" {
+		if err := p.prepareImage(ctx, config.Image, config.InstanceType, config.ImageURL, config.UseCDN); err != nil {
+			return fmt.Errorf("准备镜像失败: %w", err)
+		}
 	}
 
 	updateProgress(40, "创建虚拟机配置...")

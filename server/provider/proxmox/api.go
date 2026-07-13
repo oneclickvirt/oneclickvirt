@@ -152,9 +152,12 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 
 	updateProgress(20, "准备镜像和资源...")
 
-	// 确保必要的镜像存在（通过SSH准备镜像，因为API和SSH使用相同的文件系统；传入上层已设置的 ImageURL）
-	if err := p.prepareImage(ctx, config.Image, config.InstanceType, config.ImageURL, config.UseCDN); err != nil {
-		return fmt.Errorf("准备镜像失败: %w", err)
+	// 容器创建直接使用模板缓存；VM/API 创建路径会自行准备 qcow2 或 ISO。
+	// 避免在两个不同目录中重复下载同一个 VM 镜像。
+	if config.InstanceType == "container" {
+		if err := p.prepareImage(ctx, config.Image, config.InstanceType, config.ImageURL, config.UseCDN); err != nil {
+			return fmt.Errorf("准备镜像失败: %w", err)
+		}
 	}
 
 	updateProgress(40, "通过API创建实例配置...")

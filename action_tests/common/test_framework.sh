@@ -411,6 +411,11 @@ TEST_INSTANCE_ID="${TEST_INSTANCE_ID:-}"
 EXECUTION_RULE="${EXECUTION_RULE:-auto}"
 # Image filter: comma-separated OS names to test (default: alpine,debian; "all" = test everything)
 TEST_IMAGES="${TEST_IMAGES:-alpine,debian}"
+# Module 29 samples the newest stable image from each requested OS/type pair by
+# default. Set this to 0 for an exhaustive image matrix.
+PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE="${PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE:-1}"
+PROVIDER_IMAGE_TASK_MAX_WAIT="${PROVIDER_IMAGE_TASK_MAX_WAIT:-2400}"
+PROVIDER_IMAGE_STATUS_MAX_WAIT="${PROVIDER_IMAGE_STATUS_MAX_WAIT:-600}"
 # Path to the server directory; set by deploy_master_local() in node_manager.sh
 MASTER_SERVER_DIR="${MASTER_SERVER_DIR:-}"
 # Instance and provider configuration tasks can legitimately wait in queue or
