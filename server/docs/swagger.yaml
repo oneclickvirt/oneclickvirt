@@ -1663,7 +1663,7 @@ definitions:
         description: 实例创建时间
         type: string
       discoveredData:
-        description: 发现时的原始数据（JSON格式，用于调试和审计）
+        description: 发现时的脱敏原始数据（JSON格式，用于调试和审计）
         type: string
       disk:
         description: 磁盘大小（MB）
@@ -1696,7 +1696,7 @@ definitions:
         description: 基础字段
         type: integer
       image:
-        description: 使用的镜像名称
+        description: 使用的镜像名称（多容器场景可包含多个镜像）
         type: string
       importedAt:
         description: 导入时间
@@ -1770,7 +1770,7 @@ definitions:
         description: 关联的Provider ID（与name组合唯一）
         type: integer
       providerVmId:
-        description: 虚拟化平台的实例ID（Proxmox VMID/CTID或远端实例名），用于接口检测
+        description: 虚拟化平台的可操作实例ID（VMID、容器ID、VMX路径或远端实例名）
         type: string
       publicIP:
         description: 公网IPv4地址
@@ -1962,23 +1962,6 @@ definitions:
       writeIoLimit:
         description: 磁盘写入速率限制
         type: string
-    type: object
-  provider.CleanupOrphanResult:
-    properties:
-      deletedCount:
-        description: 成功删除数量
-        type: integer
-      failedCount:
-        description: 删除失败数量
-        type: integer
-      orphans:
-        description: 所有孤儿实例详情
-        items:
-          $ref: '#/definitions/provider.RemoteOrphanInfo'
-        type: array
-      totalOrphans:
-        description: 发现的孤儿实例总数
-        type: integer
     type: object
   provider.DiscoveredAccelerator:
     properties:
@@ -2231,27 +2214,6 @@ definitions:
       totalRemote:
         description: 远程总实例数
         type: integer
-    type: object
-  provider.RemoteOrphanInfo:
-    properties:
-      deleted:
-        description: 是否成功删除
-        type: boolean
-      error:
-        description: 删除失败原因
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      status:
-        description: 远程实例状态
-        type: string
-      type:
-        description: container / vm
-        type: string
-      uuid:
-        type: string
     type: object
   resource.ResourceReservation:
     properties:
@@ -5262,7 +5224,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: 强制单向同步：删除远程服务器上存在但数据库中不存在的实例（主控数据库为权威来源，需双重确认）
+      description: 创建后台任务，强制单向删除远程服务器上存在但数据库中不存在的实例（主控数据库为权威来源，需双重确认）
       parameters:
       - description: Provider ID
         in: path
@@ -5273,14 +5235,9 @@ paths:
       - application/json
       responses:
         "200":
-          description: 清理完成
+          description: 清理任务已提交
           schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/provider.CleanupOrphanResult'
-              type: object
+            $ref: '#/definitions/common.Response'
         "400":
           description: 请求参数错误
           schema:
@@ -5516,6 +5473,9 @@ paths:
       summary: 通过粘贴板URL保存Provider硬件报告
       tags:
       - Admin-Provider
+  /admin/providers/{id}/health-check-task:
+    post:
+      responses: {}
   /admin/providers/{id}/import:
     post:
       consumes:
@@ -6096,6 +6056,9 @@ paths:
       summary: 检查实例同步
       tags:
       - Provider管理
+  /admin/providers/{id}/sync-instances:
+    post:
+      responses: {}
   /admin/providers/{provider_id}/traffic/history:
     get:
       consumes:
