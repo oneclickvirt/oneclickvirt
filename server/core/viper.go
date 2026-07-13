@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -144,7 +145,7 @@ func applyEnvOverrides(v *viper.Viper) {
 	}
 	for envName, configKey := range envToKey {
 		if value, exists := os.LookupEnv(envName); exists {
-			value = strings.TrimSpace(value)
+			value = normalizeDeploymentEnvValue(envName, value)
 			// Deployment tools often declare optional variables as empty strings.
 			// Treating those as authoritative erased a persisted no-db connection
 			// during image replacement, so only non-empty values override YAML.
@@ -153,6 +154,29 @@ func applyEnvOverrides(v *viper.Viper) {
 			}
 		}
 	}
+}
+
+// normalizeDeploymentEnvValue accepts the values produced by normal shell and
+// Compose quoting, while also repairing a common deployment mistake where the
+// quote characters themselves are persisted in Docker's environment (for
+// example DB_PORT='"3306"'). Those literal quotes otherwise reach the MySQL
+// DSN and turn the port into tcp/"3306", breaking every restart even though
+// the persisted YAML is correct.
+func normalizeDeploymentEnvValue(name, value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) < 2 || name == "DB_PASSWORD" {
+		return value
+	}
+
+	if value[0] == '"' && value[len(value)-1] == '"' {
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			return strings.TrimSpace(unquoted)
+		}
+	}
+	if value[0] == '\'' && value[len(value)-1] == '\'' {
+		return strings.TrimSpace(value[1 : len(value)-1])
+	}
+	return value
 }
 
 // generateSecureJWTKey 生成一个随机 256 位十六进制字符串作为 JWT 签名密钒。

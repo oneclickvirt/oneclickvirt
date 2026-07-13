@@ -93,7 +93,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 			uuidMap[uuid] = true
 		}
 		for _, inst := range discoveryResult.DiscoveredInstances {
-			if uuidMap[inst.UUID] || uuidMap[inst.Name] {
+			if uuidMap[inst.UUID] || uuidMap[inst.ProviderInstanceID] || uuidMap[inst.Name] {
 				instancesToImport = append(instancesToImport, inst)
 			}
 		}
@@ -109,16 +109,9 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 	// 4. 检查已存在的实例（避免重复导入）
 	var existingInstances []providerModel.Instance
 	if err := global.APP_DB.Where("provider_id = ?", options.ProviderID).
-		Select("uuid", "name", "ssh_port", "port_range_start", "port_range_end").
+		Select("uuid", "name", "provider_vm_id", "ssh_port", "port_range_start", "port_range_end").
 		Find(&existingInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询已有实例失败: %w", err)
-	}
-
-	existingUUIDs := make(map[string]bool)
-	existingNames := make(map[string]bool)
-	for _, inst := range existingInstances {
-		existingUUIDs[inst.UUID] = true
-		existingNames[inst.Name] = true
 	}
 
 	// 5. 获取已占用的端口范围（用于检测冲突）
@@ -158,7 +151,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 
 		for _, discovered := range instancesToImport {
 			// 检查是否已存在
-			if existingUUIDs[discovered.UUID] || existingNames[discovered.Name] {
+			if hasMatchingDBInstance(providerInfo.Type, discovered, existingInstances) {
 				result.SkippedCount++
 				result.ImportedDetails = append(result.ImportedDetails, ImportedInstanceInfo{
 					UUID:   discovered.UUID,
@@ -262,6 +255,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				SSHPort:      discovered.SSHPort,
 				OSType:       discovered.OSType,
 				UserID:       adminUserID,
+				ProviderVMID: discovered.ProviderInstanceID,
 				// 导入相关字段
 				IsImported:         true,
 				ImportedAt:         &now,
@@ -287,6 +281,9 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 			} else {
 				result.SuccessCount++
 				importDetail.InstanceID = instance.ID
+				// 立即纳入本次导入的重复检查，防止异常的重复发现行
+				// 在同一事务中创建两条记录。
+				existingInstances = append(existingInstances, instance)
 
 				// 创建端口映射记录
 				if err := s.createImportedPortMappings(tx, &discovered, instance.ID, options.ProviderID); err != nil {

@@ -2,8 +2,12 @@ package proxmox
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -113,6 +117,7 @@ func NewProxmoxProvider() provider.Provider {
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: 10 * time.Second,
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 	// 注册到清理管理器（自动去重）
 	provider.GetTransportCleanupManager().RegisterTransport(transport)
@@ -143,6 +148,10 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 	p.config = config
 	p.providerUUID = config.UUID // 存储Provider UUID
 	p.providerID = config.ID     // 存储providerID
+	p.normalizeTokenConfig()
+	if err := p.configureAPITLS(p.config); err != nil {
+		return err
+	}
 
 	// 初始化网桥名称缓存（从NodeConfig中读取，避免重复查询数据库）
 	p.initBridgeNames(config)
@@ -156,6 +165,7 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 	if err := p.loadTokenFromFiles(); err != nil {
 		global.APP_LOG.Warn("从本地文件加载token失败，使用配置值", zap.Error(err))
 	}
+	p.normalizeTokenConfig()
 
 	// 如果本地文件没有 Token，尝试从 NodeConfig 的扩展配置中解析
 	if !p.hasAPIAccess() {
@@ -192,6 +202,9 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 
 	p.sshClient.SetExecutor(client)
 	p.connected = true
+	if config.NodeInstallType != "third_party" {
+		p.detectScriptNATSubnet()
+	}
 
 	// 获取节点名：优先使用配置中的HostName（数据库存储的），否则动态获取
 	if config.HostName != "" {
@@ -217,20 +230,21 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 
 	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
 	healthConfig := health.HealthConfig{
-		Host:          config.Host,
-		Port:          config.Port,
-		Username:      config.Username,
-		Password:      config.Password,
-		PrivateKey:    config.PrivateKey,
+		Host:          p.config.Host,
+		Port:          p.config.Port,
+		Username:      p.config.Username,
+		Password:      p.config.Password,
+		PrivateKey:    p.config.PrivateKey,
 		APIEnabled:    p.hasAPIAccess(),
 		APIPort:       8006,
 		APIScheme:     "https",
 		SSHEnabled:    true,
-		SkipTLSVerify: true, // Proxmox通常使用自签名证书，需要跳过TLS验证
+		SkipTLSVerify: p.config.CACertPath == "",
+		CACertPath:    p.config.CACertPath,
 		Timeout:       30 * time.Second,
 		ServiceChecks: []string{"pvestatd", "pvedaemon", "pveproxy"},
-		Token:         config.Token,
-		TokenID:       config.TokenID,
+		Token:         p.config.Token,
+		TokenID:       p.config.TokenID,
 	}
 
 	zapLogger, _ := zap.NewProduction()
@@ -258,6 +272,10 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 	p.config = config
 	p.providerUUID = config.UUID
 	p.providerID = config.ID
+	p.normalizeTokenConfig()
+	if err := p.configureAPITLS(p.config); err != nil {
+		return err
+	}
 	p.sshClient.SetExecutor(executor)
 	p.connected = true
 	p.healthChecker = nil
@@ -272,6 +290,10 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 
 	// Agent 模式下 getNodeName 和 getProxmoxVersion 改为异步，
 	// 避免因 Agent 尚未建立 WebSocket 连接而阻塞 Provider 加载
+	if config.NodeInstallType != "third_party" {
+		go p.detectScriptNATSubnet()
+	}
+
 	go func() {
 		if err := p.getNodeName(context.Background()); err != nil {
 			global.APP_LOG.Warn("Agent模式下Proxmox节点名获取失败", zap.Error(err))
@@ -291,6 +313,31 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 		zap.String("name", config.Name),
 		zap.String("type", config.Type),
 		zap.String("node", utils.TruncateString(p.node, 32)))
+	return nil
+}
+
+func (p *ProxmoxProvider) configureAPITLS(config provider.NodeConfig) error {
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	caPath := strings.TrimSpace(config.CACertPath)
+	if caPath == "" {
+		// A stock PVE node uses a self-signed certificate. Keep compatibility
+		// only when the administrator has not supplied trust material.
+		tlsConfig.InsecureSkipVerify = true // #nosec G402
+	} else {
+		caPEM, err := os.ReadFile(caPath)
+		if err != nil {
+			return fmt.Errorf("读取Proxmox API CA证书失败: %w", err)
+		}
+		roots, err := x509.SystemCertPool()
+		if err != nil || roots == nil {
+			roots = x509.NewCertPool()
+		}
+		if !roots.AppendCertsFromPEM(caPEM) {
+			return fmt.Errorf("Proxmox API CA证书不包含有效PEM证书")
+		}
+		tlsConfig.RootCAs = roots
+	}
+	p.transport.TLSClientConfig = tlsConfig
 	return nil
 }
 
@@ -382,6 +429,8 @@ func (p *ProxmoxProvider) GetVersion() string {
 // 脚本安装(script)时使用固定的 vmbr0/vmbr1/vmbr2；
 // 第三方安装(third_party)时使用配置值，若配置为空则回退到默认值。
 func (p *ProxmoxProvider) initBridgeNames(config provider.NodeConfig) {
+	p.internalIPPrefix = ""
+	p.internalGateway = ""
 	if config.NodeInstallType == "third_party" {
 		p.bridgeNAT = config.BridgeNAT
 		if p.bridgeNAT == "" {
@@ -393,24 +442,15 @@ func (p *ProxmoxProvider) initBridgeNames(config provider.NodeConfig) {
 		}
 		p.bridgeDedicatedV6 = config.BridgeDedicatedV6 // 可以为空（表示无独立IPv6桥）
 
-		// 解析 NATSubnet CIDR，提取IP前缀和网关地址
-		// 格式应为 x.x.x.0/prefix，取前3个octet作为前缀，.1作为网关
-		if config.NATSubnet != "" {
-			subnetIP := config.NATSubnet
-			if idx := strings.Index(subnetIP, "/"); idx > 0 {
-				subnetIP = subnetIP[:idx]
-			}
-			parts := strings.Split(subnetIP, ".")
-			if len(parts) == 4 {
-				p.internalIPPrefix = strings.Join(parts[:3], ".")
-				p.internalGateway = p.internalIPPrefix + ".1"
-			}
-		}
 	} else {
 		// 脚本安装或未指定：使用标准 vmbr 命名
 		p.bridgeNAT = "vmbr1"
 		p.bridgeDedicatedV4 = "vmbr0"
 		p.bridgeDedicatedV6 = "vmbr2"
+	}
+	if config.NodeInstallType == "third_party" && config.NATSubnet != "" && !p.applyNATSubnet(config.NATSubnet) {
+		global.APP_LOG.Warn("忽略无效的Proxmox NAT网段",
+			zap.String("natSubnet", config.NATSubnet))
 	}
 	// 回退到包级常量（未配置或脚本安装时）
 	if p.internalIPPrefix == "" {
@@ -426,6 +466,37 @@ func (p *ProxmoxProvider) initBridgeNames(config provider.NodeConfig) {
 		zap.String("bridgeDedicatedV6", p.bridgeDedicatedV6),
 		zap.String("internalIPPrefix", p.internalIPPrefix),
 		zap.String("internalGateway", p.internalGateway))
+}
+
+// applyNATSubnet updates the cached guest prefix. Proxmox guest allocation is
+// currently /24-based, so reject wider/narrower networks instead of silently
+// producing addresses outside the configured subnet.
+func (p *ProxmoxProvider) applyNATSubnet(cidr string) bool {
+	ip, network, err := net.ParseCIDR(strings.TrimSpace(cidr))
+	if err != nil || ip.To4() == nil {
+		return false
+	}
+	ones, bits := network.Mask.Size()
+	if bits != 32 || ones != 24 || !ip.Equal(network.IP) {
+		return false
+	}
+	octets := network.IP.To4()
+	p.internalIPPrefix = fmt.Sprintf("%d.%d.%d", octets[0], octets[1], octets[2])
+	p.internalGateway = p.internalIPPrefix + ".1"
+	return true
+}
+
+func (p *ProxmoxProvider) detectScriptNATSubnet() {
+	output, err := p.sshClient.Execute("cat /usr/local/bin/pve_nat_subnet 2>/dev/null")
+	if err != nil {
+		return
+	}
+	cidr := strings.TrimSpace(output)
+	if p.applyNATSubnet(cidr) {
+		global.APP_LOG.Info("检测到脚本安装的Proxmox NAT网段", zap.String("natSubnet", cidr))
+	} else if cidr != "" {
+		global.APP_LOG.Warn("远端Proxmox NAT网段文件无效", zap.String("natSubnet", cidr))
+	}
 }
 
 // getBridgeName 返回指定类型的网桥名称

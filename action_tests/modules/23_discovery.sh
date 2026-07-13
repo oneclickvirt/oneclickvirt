@@ -17,27 +17,47 @@ run_module_23() {
     # The run_env_test.sh should have called prepare_dirty_node() before this runs,
     # which creates pre-existing containers/instances on the worker node.
 
-    # ---- Discover existing instances on provider (may fail if provider not connected) ----
+    # ---- Discover existing instances on provider ----
     local discover_resp; discover_resp=$(test_api "Discover instances" "POST" \
-        "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200|400|500" '' "$group" "$ADMIN_TOKEN")
+        "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" '' "$group" "$ADMIN_TOKEN")
+    if [[ "$ENV_TYPE" == "proxmoxve" ]]; then
+        test_api_json_value "Discover pre-existing PVE VM" "POST" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
+            '.data.discoveredInstances | map(select(.providerInstanceId == "990" and .instanceType == "vm")) | length' "1" \
+            '' "$group" "$ADMIN_TOKEN"
+        test_api_json_value "Auto-imported PVE VM keeps VMID" "GET" \
+            "/api/v1/admin/instances?page=1&pageSize=50" "200" \
+            '[.. | objects | select(.providerVmId? == "990" and .isImported? == true)] | length' "1" \
+            '' "$group" "$ADMIN_TOKEN"
+    fi
 
     # ---- Get orphaned instances (instances on node but not in DB) ----
     local orphaned_resp; orphaned_resp=$(test_api "Get orphaned instances" "GET" \
-        "/api/v1/admin/providers/${PROVIDER_ID}/orphaned" "200|400|500" '' "$group" "$ADMIN_TOKEN")
+        "/api/v1/admin/providers/${PROVIDER_ID}/orphaned" "200" '' "$group" "$ADMIN_TOKEN")
 
     # ---- Sync check (compare DB state vs actual node state) ----
-    test_api "Sync check" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/sync-check" "200|400|500" \
+    test_api "Sync check" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/sync-check" "200" \
         '' "$group" "$ADMIN_TOKEN"
 
     # ---- Import discovered instances ----
-    # Parse discovered instance names from the response
-    local instance_names; instance_names=$(echo "$discover_resp" | grep -o '"name":"[^"]*"' | head -3 | cut -d'"' -f4)
+    # Import by the provider discovery UUID. Names are display values and may be
+    # duplicated or synthesized for unnamed PVE guests.
+    local instance_uuids
+    if [[ "$ENV_TYPE" == "proxmoxve" ]]; then
+        # A non-clean PVE node may contain arbitrary older guests. Import the
+        # fixture created by prepare_dirty_node instead of relying on API order.
+        instance_uuids=$(echo "$discover_resp" | jq -r \
+            '.data.discoveredInstances[]? | select(.providerInstanceId == "990" and .instanceType == "vm") | .uuid' \
+            2>/dev/null | head -1)
+    else
+        instance_uuids=$(echo "$discover_resp" | jq -r '.data.discoveredInstances[]?.uuid // empty' 2>/dev/null | head -3)
+    fi
 
-    if [[ -n "$instance_names" ]]; then
-        local first_name; first_name=$(echo "$instance_names" | head -1)
+    if [[ -n "$instance_uuids" ]]; then
+        local first_uuid; first_uuid=$(echo "$instance_uuids" | head -1)
         local import_resp; import_resp=$(test_api "Import discovered instance" "POST" \
             "/api/v1/admin/providers/${PROVIDER_ID}/import" "200" \
-            '{"instanceUuids":["'"$first_name"'"]}' "$group" "$ADMIN_TOKEN")
+            '{"instanceUuids":["'"$first_uuid"'"]}' "$group" "$ADMIN_TOKEN")
 
         # ---- Verify imported instance appears in instance list ----
         test_api "List after import" "GET" "/api/v1/admin/instances?page=1&pageSize=50" "200" \
@@ -45,7 +65,7 @@ run_module_23() {
 
         # ---- Import again (should handle gracefully) ----
         test_api "Re-import same instance" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200|400|409" \
-            '{"instanceUuids":["'"$first_name"'"]}' "$group" "$ADMIN_TOKEN"
+            '{"instanceUuids":["'"$first_uuid"'"]}' "$group" "$ADMIN_TOKEN"
     else
         log_info "No discovered instances to import (worker may not have pre-existing instances)"
     fi

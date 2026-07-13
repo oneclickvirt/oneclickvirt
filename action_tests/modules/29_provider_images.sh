@@ -42,6 +42,73 @@ _m29_create_instance_nonfatal() {
     return 1
 }
 
+_m29_select_candidates() {
+    local images_json="$1" provider_arch="$2"
+    local max_per_family_type="${PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE:-1}"
+    [[ "$max_per_family_type" =~ ^[0-9]+$ ]] || max_per_family_type=1
+
+    local selected
+    if ! selected=$(jq 2>/dev/null -c \
+        --arg test_images "${TEST_IMAGES:-alpine,debian}" \
+        --arg provider_arch "$provider_arch" \
+        --arg instance_types "${INSTANCE_TYPES:-both}" \
+        --argjson max_per_family_type "$max_per_family_type" '
+        def image_name:
+            (.image // .name // .url // "" | tostring);
+        def image_type:
+            (.instanceType // .instance_type // "" | tostring | ascii_downcase) as $declared
+            | if $declared != "" and $declared != "null" then $declared
+              else ((image_name + " " + (.tag // "" | tostring)) | ascii_downcase) as $hint
+              | if ($hint | test("(kvm|qcow2|\\.img|\\.raw|\\.iso|(^|[-_/ ])vm([-_/ ]|$))")) then "vm" else "container" end
+              end;
+        def image_arch:
+            (.architecture // $provider_arch // "" | tostring | ascii_downcase);
+        def patterns:
+            ($test_images | split(",") | map(ascii_downcase | gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)));
+        def matches_patterns($name):
+            ($test_images | ascii_downcase) == "all" or any(patterns[]; ($name | ascii_downcase | contains(.)));
+        def image_family($name):
+            (.osType // .os_type // "" | tostring | ascii_downcase) as $declared
+            | if $declared != "" and $declared != "null" then $declared
+              else ([patterns[] | select(($name | ascii_downcase | contains(.)))] | first)
+                // (try (($name | ascii_downcase) | capture("(?<family>[a-z][a-z0-9]*)").family) catch "unknown")
+              end;
+        def version_key($name):
+            (.osVersion // .os_version // "" | tostring) as $declared
+            | ([($declared + " " + $name) | scan("[0-9]+(?:\\.[0-9]+){0,3}")] | first // "")
+            | split(".") | map(tonumber) | . + [0, 0, 0, 0] | .[:4];
+
+        [to_entries[]
+            | .value as $entry
+            | ($entry | image_name) as $name
+            | ($entry | image_type) as $type
+            | ($entry | image_arch) as $arch
+            | select($name != "")
+            | select($arch == "" or $arch == $provider_arch)
+            | select($instance_types == "both" or $instance_types == $type)
+            | select(matches_patterns($name))
+            | {
+                entry: $entry,
+                name: $name,
+                type: $type,
+                arch: $arch,
+                family: ($entry | image_family($name)),
+                stable_rank: (if ($name | ascii_downcase | contains("edge")) then 0 else 1 end),
+                version_key: ($entry | version_key($name))
+              }
+        ]
+        | sort_by(.type, .family, .stable_rank, .version_key, .name)
+        | group_by(.type, .family)
+        | map(reverse | if $max_per_family_type > 0 then .[:$max_per_family_type] else . end)
+        | (add // [])
+        | sort_by(.type, .family, .name)
+    ' <<< "$images_json"); then
+        log_warning "Unable to select provider image candidates from API response"
+        return 1
+    fi
+    printf '%s\n' "$selected"
+}
+
 run_module_29() {
     report_add_section "29 - Provider Image Testing"
     local group="provider_images"
@@ -93,32 +160,39 @@ run_module_29() {
         return 0
     }
 
-    # -- Test each unique image (deduplicate by name) --
+    local selected_images_json
+    if ! selected_images_json=$(_m29_select_candidates "$images_json" "$provider_arch"); then
+        chain_break "$group" "Failed to select representative provider images"
+        return 0
+    fi
+    local selected_image_count
+    selected_image_count=$(echo "$selected_images_json" | jq 'length' 2>/dev/null)
+    [[ "$selected_image_count" =~ ^[0-9]+$ ]] || selected_image_count=0
+    log_info "Selected ${selected_image_count}/${image_count} image(s) for execution (max per OS/type=${PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE}; 0 means exhaustive)"
+
+    if [[ "$selected_image_count" -eq 0 ]]; then
+        log_warning "No images matched TEST_IMAGES=${TEST_IMAGES}, INSTANCE_TYPES=${INSTANCE_TYPES}, arch=${provider_arch}"
+        chain_break "$group" "No matching images available for testing"
+        return 0
+    fi
+
+    # -- Test each selected unique image --
     local tested=0 passed=0 failed=0 skipped=0 consecutive_fails=0 max_consecutive_fails=3
     declare -A seen_images   # track which image names we've already tested
 
-    for idx in $(seq 0 $((image_count - 1))); do
+    for idx in $(seq 0 $((selected_image_count - 1))); do
         # Early termination: if N consecutive images fail creation, the provider
         # likely has a systemic issue and further attempts are futile.
         if [[ $consecutive_fails -ge $max_consecutive_fails ]]; then
-            log_warning "Too many consecutive image creation failures (${consecutive_fails}/${max_consecutive_fails}); skipping remaining ${image_count} images"
+            log_warning "Too many consecutive image creation failures (${consecutive_fails}/${max_consecutive_fails}); skipping remaining selected images"
             break
         fi
 
-        local img_entry; img_entry=$(echo "$images_json" | jq -c ".[$idx]" 2>/dev/null)
-        # Try different field names for image identifier
-        local img_name; img_name=$(echo "$img_entry" | jq -r '.image // .name // .url // empty' 2>/dev/null)
-        local img_type; img_type=$(echo "$img_entry" | jq -r '.instanceType // .instance_type // empty' 2>/dev/null)
-        if [[ -z "$img_type" || "$img_type" == "null" ]]; then
-            local img_tag; img_tag=$(echo "$img_entry" | jq -r '.tag // empty' 2>/dev/null)
-            local img_hint="${img_name,,} ${img_tag,,}"
-            if [[ "$img_hint" =~ \.(qcow2|img|raw|iso)([[:space:]]|$) || "$img_hint" =~ (^|[[:space:]])(disk|qcow2)([[:space:]]|$) ]]; then
-                img_type="vm"
-            else
-                img_type="container"
-            fi
-        fi
-        local img_arch; img_arch=$(echo "$img_entry" | jq -r '.architecture // empty' 2>/dev/null)
+        local selected_entry; selected_entry=$(echo "$selected_images_json" | jq -c ".[$idx]" 2>/dev/null)
+        local img_entry; img_entry=$(echo "$selected_entry" | jq -c '.entry' 2>/dev/null)
+        local img_name; img_name=$(echo "$selected_entry" | jq -r '.name // empty' 2>/dev/null)
+        local img_type; img_type=$(echo "$selected_entry" | jq -r '.type // empty' 2>/dev/null)
+        local img_arch; img_arch=$(echo "$selected_entry" | jq -r '.arch // empty' 2>/dev/null)
 
         if [[ -z "$img_name" ]]; then
             log_warning "Skipping image at index ${idx}: no name/identifier"
@@ -131,30 +205,12 @@ run_module_29() {
             continue
         fi
 
-        # Skip images whose architecture doesn't match the provider's
-        if [[ -n "$img_arch" && "$img_arch" != "null" && "$img_arch" != "$provider_arch" ]]; then
-            log_debug "Skipping image ${img_name} (arch=${img_arch} != provider arch=${provider_arch})"
-            continue
-        fi
-
-        # Skip images not matching current instance type config
-        if ! should_test_type "$img_type"; then
-            log_debug "Skipping ${img_type} image: ${img_name} (not testing ${img_type})"
-            continue
-        fi
-
-        # Skip images not matching TEST_IMAGES filter (default: alpine,debian)
-        if ! should_test_image "$img_name"; then
-            log_debug "Skipping image: ${img_name} (not in TEST_IMAGES=${TEST_IMAGES})"
-            continue
-        fi
-
         # Mark as seen before testing so we never repeat
         seen_images[$img_name]=1
         tested=$((tested + 1))
         local test_label="Image[${tested}]: ${img_name} (${img_type}, arch=${img_arch:-${provider_arch}})"
         log_info "Testing: ${test_label}"
-        if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} before ${test_label}" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10; then
+        if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} before ${test_label}" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 10; then
             _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
                 "provider still had active tasks before image creation; avoiding overlapping provider operations" \
                 "idle provider task queue" "busy"
@@ -185,13 +241,13 @@ run_module_29() {
         if [[ -n "$task_id" ]]; then
             log_info "Waiting for optional creation task: ${task_id}"
             local task_result task_ok=true
-            task_result=$(wait_task_complete_nonfatal "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10) || task_ok=false
+            task_result=$(wait_task_complete_nonfatal "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 10) || task_ok=false
             inst_id=$(echo "$task_result" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
             if [[ "$task_ok" != "true" ]]; then
                 local task_status task_error
                 task_status=$(echo "$task_result" | jq -r '.data.status // "failed"' 2>/dev/null)
                 task_error=$(echo "$task_result" | jq -r '.data.errorMessage // .data.error_message // .message // .msg // empty' 2>/dev/null)
-                [[ -n "$inst_id" ]] && delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 2>/dev/null || true
+                [[ -n "$inst_id" ]] && delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 2>/dev/null || true
                 _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
                     "provider creation task ended with status=${task_status:-failed}; ${task_error:-skipping this image}" \
                     "completed task with instance id" "task=${task_id}"
@@ -221,11 +277,11 @@ run_module_29() {
         log_info "Created instance ${inst_id} with image ${img_name}"
 
         # -- Wait for instance to reach running state --
-        if ! wait_instance_status_nonfatal "$inst_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "image-test instance ${inst_id}" > /dev/null; then
+        if ! wait_instance_status_nonfatal "$inst_id" "running" "$PROVIDER_IMAGE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "image-test instance ${inst_id}" > /dev/null; then
             _m29_record_skip "Run ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
                 "instance did not reach running state; provider/image combination is unavailable in this run" \
                 "running" "not-running"
-            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 2>/dev/null || true
+            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 2>/dev/null || true
             consecutive_fails=$((consecutive_fails + 1))
             continue
         fi
@@ -246,13 +302,13 @@ run_module_29() {
         else
             _m29_record_skip "Verify ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
                 "created image-test instance could not be read back" "200" "${verify_code:-empty}"
-            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 2>/dev/null || true
+            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 2>/dev/null || true
             continue
         fi
 
         # -- Delete instance --
         log_info "Deleting instance ${inst_id}..."
-        if delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT"; then
+        if delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT"; then
             log_success "Deleted instance ${inst_id} (image: ${img_name})"
             _record_result "Delete ${test_label}" "DELETE" "/api/v1/admin/instances/${inst_id}" "PASS" "200" "200" "" "$group"
         else
@@ -275,7 +331,7 @@ run_module_29() {
                 "instance still exists after delete verification; another cleanup attempt was issued" \
                 "404" "200"
             # Force cleanup to prevent disk full
-            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 2>/dev/null || true
+            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 2>/dev/null || true
         fi
     done
 

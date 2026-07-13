@@ -14807,6 +14807,10 @@ const docTemplate = `{
                     "description": "网络配置",
                     "type": "string"
                 },
+                "providerInstanceId": {
+                    "description": "虚拟化平台上的原始实例ID（如 Proxmox VMID/CTID）",
+                    "type": "string"
+                },
                 "publicIP": {
                     "description": "公网IPv4地址",
                     "type": "string"
@@ -14876,6 +14880,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "providerName": {
+                    "type": "string"
+                },
+                "providerType": {
                     "type": "string"
                 },
                 "totalCount": {

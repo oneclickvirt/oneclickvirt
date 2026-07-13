@@ -4,8 +4,8 @@
     "Comparable route literals": 361,
     "Approx. covered route literals": 305,
     "Approx. route literal coverage": "84.49%",
-    "Distinct test paths": 497,
-    "Test endpoint call sites": 1099,
+    "Distinct test paths": 498,
+    "Test endpoint call sites": 1105,
     "High-risk jq lines": 0,
     "Pipe risk lines": 0,
     "Workflow findings": 0,
@@ -19,9 +19,9 @@
     "DELETE": 25
   },
   "test_methods": {
-    "GET": 525,
+    "GET": 529,
     "DELETE": 66,
-    "POST": 398,
+    "POST": 400,
     "PUT": 109,
     "PATCH": 1
   },

@@ -131,6 +131,15 @@ func (p *KubeVirtProvider) sshSetK3sContainerPassword(ctx context.Context, insta
 	if err != nil {
 		return fmt.Errorf("KubeVirt container chpasswd failed: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 300))
 	}
+	if output, err = p.sshClient.Execute(kubeVirtPersistContainerPasswordCommand(Namespace, name, password)); err != nil {
+		return fmt.Errorf("KubeVirt container password persistence failed: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 300))
+	}
+	rolloutOutput, rolloutErr := p.sshClient.Execute(fmt.Sprintf(
+		"kubectl rollout status deployment/%s -n %s --timeout=180s 2>&1",
+		shellSingleQuote(name), shellSingleQuote(Namespace)))
+	if rolloutErr != nil {
+		return fmt.Errorf("KubeVirt container password rollout failed: %w; output: %s", rolloutErr, utils.TruncateString(strings.TrimSpace(rolloutOutput), 500))
+	}
 
 	sshPort, err := p.kubeVirtContainerSSHNodePort(name)
 	if err != nil {
@@ -195,6 +204,15 @@ func kubeVirtK3sChpasswdCommand(namespace, podName, password string) string {
 	return fmt.Sprintf(
 		"printf 'root:%%s\\n' %s | kubectl exec -i -n %s %s -- chpasswd 2>&1",
 		shellSingleQuote(password), shellSingleQuote(namespace), shellSingleQuote(podName))
+}
+
+func kubeVirtPersistContainerPasswordCommand(namespace, deploymentName, password string) string {
+	password = strings.ReplaceAll(strings.ReplaceAll(password, "\r", ""), "\n", "")
+	strategyPatch := `{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}`
+	return fmt.Sprintf("kubectl patch deployment/%s -n %s --type=merge -p %s >/dev/null 2>&1 && kubectl set env deployment/%s -n %s %s --overwrite 2>&1",
+		shellSingleQuote(deploymentName), shellSingleQuote(namespace), shellSingleQuote(strategyPatch),
+		shellSingleQuote(deploymentName), shellSingleQuote(namespace),
+		shellSingleQuote("ONECLICKVIRT_ROOT_PASSWORD="+password))
 }
 
 func (p *KubeVirtProvider) kubeVirtContainerSSHNodePort(instanceID string) (int, error) {

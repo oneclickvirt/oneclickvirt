@@ -155,7 +155,7 @@ func (p *KubeVirtProvider) sshCreateK3sContainer(ctx context.Context, config pro
 	ports := parseKubeVirtContainerPorts(config.Ports)
 	containerPortsYAML := buildKubeVirtContainerPortsYAML(ports)
 	resourcesYAML := buildKubeVirtContainerResourcesYAML(cpu, memoryMB)
-	startupScript := buildKubeVirtContainerStartupScript(password)
+	startupScript := buildKubeVirtContainerStartupScript()
 	deploymentYAML := fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -167,6 +167,8 @@ metadata:
     oneclickvirt.io/type: container
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: %s
@@ -182,11 +184,14 @@ spec:
         - name: main
           image: %s
           imagePullPolicy: IfNotPresent
+          env:
+            - name: ONECLICKVIRT_ROOT_PASSWORD
+              value: %s
           command: ["/bin/sh", "-c"]
           args:
             - |
 %s%s%s`, yamlDoubleQuote(name), yamlDoubleQuote(Namespace), yamlDoubleQuote(name), yamlDoubleQuote(name),
-		yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(imageRef),
+		yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(imageRef), yamlDoubleQuote(password),
 		indentBlock(startupScript, 14), containerPortsYAML, resourcesYAML)
 
 	updateProgress(45, "创建K3s Deployment")
@@ -398,10 +403,9 @@ func buildKubeVirtContainerResourcesYAML(cpu string, memoryMB int) string {
               memory: %s`, yamlDoubleQuote(requestMemory), yamlDoubleQuote(cpu), yamlDoubleQuote(limitMemory))
 }
 
-func buildKubeVirtContainerStartupScript(password string) string {
-	password = strings.ReplaceAll(strings.ReplaceAll(password, "\r", ""), "\n", "")
-	return fmt.Sprintf(`set +e
-printf 'root:%s\n' | chpasswd 2>/dev/null || true
+func buildKubeVirtContainerStartupScript() string {
+	return `set +e
+printf 'root:%s\n' "${ONECLICKVIRT_ROOT_PASSWORD:-password}" | chpasswd 2>/dev/null || true
 sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
 sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
 mkdir -p /run/sshd /var/run/sshd 2>/dev/null || true
@@ -410,7 +414,7 @@ if command -v sshd >/dev/null 2>&1; then
 elif command -v dropbear >/dev/null 2>&1; then
   dropbear -F -E || dropbear || true
 fi
-tail -f /dev/null`, strings.ReplaceAll(password, "'", "'\\''"))
+tail -f /dev/null`
 }
 
 func buildKubeVirtContainerServiceYAML(name string, ports []kubeVirtContainerPort) string {

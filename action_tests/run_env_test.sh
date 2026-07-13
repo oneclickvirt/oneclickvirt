@@ -226,6 +226,10 @@ if ! verify_worker_runtime "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE"; then
         log_error "KubeVirt/CDI runtime prerequisites are incomplete; treating as transient infrastructure failure"
         record_harness_skip_and_exit "KubeVirt/CDI runtime prerequisites are incomplete after install; see full-output.log for kubectl diagnostics"
     fi
+    log_error "${ENV_TYPE} runtime prerequisites are incomplete after installation"
+    record_fail_result "Worker runtime verification (${ENV_TYPE})" "HARNESS" "verify_worker_runtime" "ready" "not ready" \
+        "Required runtime services or state are unavailable after installation" "infrastructure"
+    exit 1
 fi
 worker_arch_raw=$(platform_ssh_exec "$WORKER_IP" "uname -m 2>/dev/null || echo unknown" 30 2>/dev/null | tr -d '\r' | tail -1 || true)
 case "$worker_arch_raw" in

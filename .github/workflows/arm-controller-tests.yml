@@ -20,6 +20,78 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  arm-docker-lifecycle-test:
+    name: "ARM64 Docker Install, Restart and Upgrade"
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Resolve Go version
+        id: go-version
+        run: |
+          set -euo pipefail
+          GO_VERSION="$(awk '/^go / {print $2; exit}' server/go.mod)"
+          [[ "${GO_VERSION}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          echo "value=${GO_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Validate lifecycle test syntax
+        run: bash -n deploy/no-db-entrypoint.sh scripts/tests/no_db_entrypoint_test.sh scripts/tests/docker_arm_lifecycle_test.sh
+
+      - name: Run no-db entrypoint unit tests
+        run: bash scripts/tests/no_db_entrypoint_test.sh
+
+      - name: Pull released ARM64 images for upgrade boundaries
+        run: |
+          docker pull oneclickvirt/oneclickvirt:latest
+          docker pull oneclickvirt/oneclickvirt:no-db
+
+      - name: Build ARM64 all-in-one image for runtime tests
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/arm64
+          load: true
+          push: false
+          tags: oneclickvirt-ci:arm64-allinone
+          build-args: |
+            GO_VERSION=${{ steps.go-version.outputs.value }}
+            SERVER_VERSION=ci-arm-lifecycle
+          cache-from: type=gha,scope=arm-runtime-allinone
+          cache-to: type=gha,mode=max,scope=arm-runtime-allinone
+
+      - name: Build ARM64 no-db image for runtime tests
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.no-db
+          platforms: linux/arm64
+          load: true
+          push: false
+          tags: oneclickvirt-ci:arm64-no-db
+          build-args: |
+            GO_VERSION=${{ steps.go-version.outputs.value }}
+            SERVER_VERSION=ci-arm-lifecycle
+          cache-from: type=gha,scope=arm-runtime-no-db
+          cache-to: type=gha,mode=max,scope=arm-runtime-no-db
+
+      - name: Test ARM64 install, restart and image replacement boundaries
+        env:
+          ALLINONE_BASE_IMAGE: oneclickvirt/oneclickvirt:latest
+          NO_DB_BASE_IMAGE: oneclickvirt/oneclickvirt:no-db
+          ALLINONE_IMAGE: oneclickvirt-ci:arm64-allinone
+          NO_DB_IMAGE: oneclickvirt-ci:arm64-no-db
+          EXPECTED_ARCH: arm64
+        run: bash scripts/tests/docker_arm_lifecycle_test.sh
+
   arm-controller-test:
     name: "ARM64 Controller Tests"
     runs-on: ubuntu-24.04-arm

@@ -400,7 +400,7 @@ func (p *ProxmoxProvider) getInstancePrivateIP(ctx context.Context, instanceName
 			// 找到匹配的实例，从字段中提取IP
 			for i, field := range fields {
 				// 查找IP地址模式
-				if strings.Contains(field, "172.16.1.") {
+				if strings.Contains(field, p.internalIPPrefix+".") {
 					return field, nil
 				}
 				// 如果是最后一个字段，可能包含IP信息
@@ -418,7 +418,7 @@ func (p *ProxmoxProvider) getInstancePrivateIP(ctx context.Context, instanceName
 		// 根据vmid构造IP地址
 		var vmidInt int
 		if n, err := fmt.Sscanf(vmid, "%d", &vmidInt); n == 1 && err == nil {
-			return fmt.Sprintf("172.16.1.%d", vmidInt), nil
+			return p.vmidToInternalIP(vmidInt), nil
 		}
 	}
 

@@ -21,7 +21,11 @@ func (p *ProxmoxProvider) getUsedInternalIPs(ctx context.Context) (map[string]bo
 
 	// 从 iptables DNAT 规则中提取所有目标内网IP
 	// 这是最准确的方法，因为只要有端口映射就必定在 iptables 中
-	cmd := fmt.Sprintf("iptables -t nat -L PREROUTING -n | grep -oP '%s\\.\\d+' | sort -u", InternalIPPrefix)
+	prefix := p.internalIPPrefix
+	if prefix == "" {
+		prefix = InternalIPPrefix
+	}
+	cmd := fmt.Sprintf("iptables -t nat -L PREROUTING -n | grep -oP '%s\\.\\d+' | sort -u", prefix)
 	output, err := p.sshClient.Execute(cmd)
 	if err != nil {
 		global.APP_LOG.Error("获取iptables规则失败",

@@ -520,13 +520,6 @@ fi
 apt install jq -y >/dev/null 2>&1 || true
 echo "✅ Proxmox VE环境检查通过"
 
-# 删除现有Token（可选，谨慎）
-for user in $(pveum user list --output-format=json | jq -r '.[].userid'); do
-  for token in $(pveum user token list $user --output-format=json | jq -r '.[].tokenid'); do
-    pveum user token delete $user $token
-  done
-done
-
 echo "检查用户是否存在..."
 if pveum user list 2>/dev/null | grep -q "%s@pve$"; then
 	echo "✅ 用户 %s@pve 已存在"
@@ -563,7 +556,7 @@ if [ -z "$token_secret" ] || [ "$token_secret" == "null" ]; then
 	exit 1
 fi
 
-echo "✅ 成功获取Token密钥: ${token_secret:0:8}..."
+echo "✅ 成功获取Token密钥"
 
 echo "保存Token信息..."
 cat > /tmp/oneclickvirt-proxmox-config << EOF
@@ -574,9 +567,6 @@ EOF
 
 chmod 600 /tmp/oneclickvirt-proxmox-config
 echo "✅ Token信息已保存到 /tmp/oneclickvirt-proxmox-config"
-
-echo "配置信息："
-cat /tmp/oneclickvirt-proxmox-config
 
 echo "✅ Provider UUID: %s"
 echo "✅ Token ID: %s@pve!%s"

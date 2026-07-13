@@ -120,6 +120,8 @@ LXD/Incus 等环境在 CI 中依赖远程镜像站、DNS 和 Worker 出网能力
 
 `26_instance_types.sh` 在创建 container/VM 类型实例前会等待同一 Provider 的活跃任务队列清空；创建任务默认最多等待 `INSTANCE_TYPE_TASK_MAX_WAIT=1800` 秒（不会低于 `INSTANCE_TASK_MAX_WAIT`）。如果任务在超时后仍处于 `pending`、`running`、`processing`、`queued` 或 `cancelling`，测试会先调用管理员取消接口并记录为可恢复的 `SKIP`，避免在创建任务仍运行时删除实例导致后续 `record not found`。
 
+`29_provider_images.sh` 将 `TEST_IMAGES` 视为操作系统家族过滤器。默认会为每个匹配的“操作系统家族 + 实例类型”只选择版本最高的稳定镜像，避免同一次环境测试把 Alpine/Debian 的全部历史版本逐一创建并耗尽 Action 时限。可通过 `PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE` 调整每组样本数；设置为 `0` 时恢复完整镜像矩阵。该模块使用独立的 `PROVIDER_IMAGE_TASK_MAX_WAIT` 和 `PROVIDER_IMAGE_STATUS_MAX_WAIT`，不会继承面向安装/配置任务的超长通用等待预算。
+
 ### 错误日志捕获
 
 当测试用例失败时，框架自动从 Master 节点的 OneClickVirt 服务容器中捕获时间相关的日志：
@@ -345,6 +347,7 @@ GitHub Actions 会自动安装所需依赖。
 | `LIGHTNODE_PACKAGE_CODE` | 可选，指定后直接使用该 LightNode 套餐 code |
 | `PVE_USE_PRIVATE_IP` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `false`，避免双网卡宿主重启后写入私网地址和公网网关的组合 |
 | `PVE_MAIN_INTERFACE` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `eth1`，对应 LightNode 公网默认路由网口 |
+| `PVE_NAT_SUBNET` | 可选的 ProxmoxVE NAT `/24` 网段（必须以 `.0/24` 结尾）；未设置时安装脚本会避开宿主机现有路由自动选择，并将结果持久化供 Provider 与 PVE 创建脚本复用 |
 | `PVE_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 ProxmoxVE installer 调试路径；未设置时自动探测同级 `pve` 仓库 |
 | `INCUS_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 Incus installer 调试路径；未设置时自动探测同级 `incus` 仓库 |
 | `KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 KubeVirt installer 调试路径；未设置时自动探测同级 `kubevirt` 仓库 |

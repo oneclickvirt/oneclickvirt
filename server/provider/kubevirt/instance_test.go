@@ -89,3 +89,13 @@ func TestKubeVirtContainerResourcesUseSmallRequestsAndConfiguredLimits(t *testin
 		}
 	}
 }
+
+func TestKubeVirtContainerStartupUsesPersistentPasswordEnvironment(t *testing.T) {
+	script := buildKubeVirtContainerStartupScript()
+	if !strings.Contains(script, `${ONECLICKVIRT_ROOT_PASSWORD:-password}`) {
+		t.Fatalf("container startup script should read the persisted password environment variable:\n%s", script)
+	}
+	if strings.Contains(script, "Passw0rd!") {
+		t.Fatalf("container startup script should not embed a concrete password:\n%s", script)
+	}
+}

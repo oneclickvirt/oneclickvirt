@@ -5,12 +5,40 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
+	systemModel "oneclickvirt/model/system"
 
 	"go.uber.org/zap"
 )
+
+// normalizeTokenConfig accepts both the in-memory representation
+// (TokenID + secret) and the persisted representation (TokenID=secret).
+// ProviderConfigService stores the latter in the database, while the Proxmox
+// Authorization header needs the two components separately.
+func (p *ProxmoxProvider) normalizeTokenConfig() {
+	tokenID := strings.TrimSpace(p.config.TokenID)
+	token := strings.TrimSpace(p.config.Token)
+	if token == "" {
+		return
+	}
+
+	if tokenID != "" {
+		prefix := tokenID + "="
+		if strings.HasPrefix(token, prefix) {
+			p.config.Token = strings.TrimSpace(strings.TrimPrefix(token, prefix))
+		}
+		return
+	}
+
+	parts := strings.SplitN(token, "=", 2)
+	if len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != "" {
+		p.config.TokenID = strings.TrimSpace(parts[0])
+		p.config.Token = strings.TrimSpace(parts[1])
+	}
+}
 
 // TokenInfo 用于存储 Proxmox Token 信息
 type TokenInfo struct {
@@ -26,8 +54,10 @@ func (p *ProxmoxProvider) saveTokenToFiles(tokenID, tokenSecret string) error {
 		return fmt.Errorf("provider UUID is empty")
 	}
 
-	// 创建 certs 目录
-	certsDir := "certs"
+	// ProviderConfigService persists token files under the shared storage tree.
+	// Use the same path here so tokens survive container restarts and can be
+	// reloaded from the mounted storage volume.
+	certsDir := filepath.Join(systemModel.DefaultStorageDir, systemModel.CertsDir)
 	if err := os.MkdirAll(certsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create certs directory: %w", err)
 	}
@@ -66,7 +96,7 @@ func (p *ProxmoxProvider) loadTokenFromFiles() error {
 		return fmt.Errorf("provider UUID is empty")
 	}
 
-	tokenPath := filepath.Join("certs", fmt.Sprintf("%s.token", p.providerUUID))
+	tokenPath := filepath.Join(systemModel.DefaultStorageDir, systemModel.CertsDir, fmt.Sprintf("%s.token", p.providerUUID))
 
 	// 检查文件是否存在
 	if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
@@ -123,5 +153,5 @@ func (p *ProxmoxProvider) GetTokenPath() string {
 	if p.providerUUID == "" {
 		return ""
 	}
-	return filepath.Join("certs", fmt.Sprintf("%s.token", p.providerUUID))
+	return filepath.Join(systemModel.DefaultStorageDir, systemModel.CertsDir, fmt.Sprintf("%s.token", p.providerUUID))
 }

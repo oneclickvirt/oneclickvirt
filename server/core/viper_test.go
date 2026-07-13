@@ -67,3 +67,31 @@ func TestApplyEnvOverridesIgnoresEmptyDeploymentVariables(t *testing.T) {
 		t.Fatalf("system.addr = %q, want 20562", got)
 	}
 }
+
+func TestApplyEnvOverridesRemovesLiteralDeploymentQuotes(t *testing.T) {
+	t.Setenv("DB_HOST", "'db.internal'")
+	t.Setenv("DB_PORT", `"3306"`)
+	t.Setenv("DB_NAME", `"oneclickvirt"`)
+	t.Setenv("DB_USER", "'root'")
+	t.Setenv("DB_PASSWORD", `"literal-password-quotes-are-valid"`)
+	t.Setenv("DB_TYPE", `"mariadb"`)
+	t.Setenv("SERVER_PORT", "'8888'")
+
+	v := viper.New()
+	applyEnvOverrides(v)
+
+	expected := map[string]string{
+		"mysql.path":     "db.internal",
+		"mysql.port":     "3306",
+		"mysql.db-name":  "oneclickvirt",
+		"mysql.username": "root",
+		"mysql.password": `"literal-password-quotes-are-valid"`,
+		"system.db-type": "mariadb",
+		"system.addr":    "8888",
+	}
+	for key, want := range expected {
+		if got := v.GetString(key); got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+}

@@ -52,3 +52,21 @@ func TestKubeVirtK3sChpasswdCommandUsesKubectlStdin(t *testing.T) {
 		t.Fatalf("command should pipe chpasswd input directly, got %q", cmd)
 	}
 }
+
+func TestKubeVirtPersistContainerPasswordCommandUpdatesDeploymentEnv(t *testing.T) {
+	cmd := kubeVirtPersistContainerPasswordCommand("kubevirt-vms", "ct-abc-123", "NewPass123!\n")
+	for _, want := range []string{
+		"kubectl patch deployment/'ct-abc-123' -n 'kubevirt-vms' --type=merge",
+		`'{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'`,
+		"kubectl set env deployment/'ct-abc-123' -n 'kubevirt-vms'",
+		"'ONECLICKVIRT_ROOT_PASSWORD=NewPass123!'",
+		"--overwrite",
+	} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("command %q does not contain %q", cmd, want)
+		}
+	}
+	if strings.Contains(cmd, "\n") {
+		t.Fatalf("password persistence command should strip newlines, got %q", cmd)
+	}
+}

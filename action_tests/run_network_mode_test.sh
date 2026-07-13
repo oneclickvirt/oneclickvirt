@@ -144,9 +144,12 @@ _reinstall_worker() {
 
     log_section "Re-installing ${env} on reinstalled worker (${WORKER_IP})"
     install_env "$worker_id" "$WORKER_IP" "$env" || {
-        log_warning "Environment re-installation had issues (continuing anyway)"
+        log_warning "Environment re-installation command reported issues; checking runtime state"
     }
-    verify_worker_runtime "$worker_id" "$WORKER_IP" "$env" || true
+    if ! verify_worker_runtime "$worker_id" "$WORKER_IP" "$env"; then
+        log_error "${env} runtime is not ready after OS reinstall"
+        return 1
+    fi
     return 0
 }
 
@@ -498,9 +501,14 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
         log_info "First mapping method — installing ${ENV_TYPE} on worker (${WORKER_IP})"
         wait_for_apt_lock "${WORKER_IP}" 60 240 10
         install_env "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || {
-            log_warning "env install had issues, continuing"
+            log_warning "env install command reported issues; checking runtime state"
         }
-        verify_worker_runtime "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || true
+        if ! verify_worker_runtime "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}"; then
+            log_error "${ENV_TYPE} runtime is not ready for method ${mapping_method}"
+            METHOD_RESULT["$mapping_method"]="FAIL"
+            OVERALL_PASS=false
+            continue
+        fi
     else
         # Subsequent iterations: delete provider, reinstall OS, reinstall env
         log_section "Switching mapping method → reinstalling worker"
@@ -523,9 +531,14 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
             log_warning "WORKER_ID not set — cannot reinstall; attempting env reinstall only"
             wait_for_apt_lock "${WORKER_IP}" 60 240 10
             install_env "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || {
-                log_warning "env install had issues, continuing"
+                log_warning "env install command reported issues; checking runtime state"
             }
-            verify_worker_runtime "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || true
+            if ! verify_worker_runtime "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}"; then
+                log_error "${ENV_TYPE} runtime is not ready for method ${mapping_method}"
+                METHOD_RESULT["$mapping_method"]="FAIL"
+                OVERALL_PASS=false
+                continue
+            fi
         fi
     fi
 

@@ -82,7 +82,7 @@ run_module_09() {
     if [[ -z "$PROVIDER_ID" ]]; then
         log_info "Creating provider with executionRule=${EXECUTION_RULE}"
         local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
-            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group")
+            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"discoverMode\":true,\"autoImport\":true,\"autoAdjustQuota\":true,\"importedInstanceOwner\":\"admin\",${auth_payload}}" "$group")
         
         # Debug: log the response
         log_debug "Provider creation response: ${pr}"
@@ -277,8 +277,27 @@ run_module_09() {
         local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "200|400|500" \
             "{\"providerId\":${PROVIDER_ID}}" "$group")
         local ac_task; ac_task=$(echo "$ac" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
+        local auto_config_task_required=false
+        case "$ENV_TYPE" in
+            lxd|incus|proxmox|proxmoxve) auto_config_task_required=true ;;
+        esac
         if [[ -n "$ac_task" ]]; then
-            wait_configuration_task_complete_nonfatal "$ac_task" "$ADMIN_TOKEN" "$CONFIG_TASK_MAX_WAIT" 10 || true
+            local ac_result=""
+            if ac_result=$(wait_configuration_task_complete_nonfatal "$ac_task" "$ADMIN_TOKEN" "$CONFIG_TASK_MAX_WAIT" 10); then
+                TOTAL_TESTS=$((TOTAL_TESTS + 1))
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+                log_success "Auto configure task completion"
+                report_add_pass "Auto configure task completion" "GET" "/api/v1/admin/configuration-tasks/${ac_task}"
+                _record_result "Auto configure task completion" "GET" "/api/v1/admin/configuration-tasks/${ac_task}" "PASS" "completed" "completed" "" "$group"
+            else
+                local ac_status
+                ac_status=$(safe_jq "$ac_result" '.data.status // "unknown"' 'unknown')
+                record_fail_result "Auto configure task completion" "GET" "/api/v1/admin/configuration-tasks/${ac_task}" "completed" "$ac_status" "$ac_result" "$group"
+            fi
+        elif [[ "$auto_config_task_required" == "true" ]]; then
+            record_fail_result "Auto configure task creation" "POST" "/api/v1/admin/providers/auto-configure" "task id" "missing" "$ac" "$group"
+        else
+            log_info "Auto-configure task is unsupported for ${ENV_TYPE}; no task ID expected"
         fi
     else
         log_info "Skipping auto-configure for ssh_only execution rule"

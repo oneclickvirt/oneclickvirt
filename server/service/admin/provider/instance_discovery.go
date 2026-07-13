@@ -17,6 +17,7 @@ import (
 type DiscoveryResult struct {
 	ProviderID          uint                          `json:"providerId"`
 	ProviderName        string                        `json:"providerName"`
+	ProviderType        string                        `json:"providerType"`
 	DiscoveredInstances []provider.DiscoveredInstance `json:"discoveredInstances"`
 	TotalCount          int                           `json:"totalCount"`
 	AlreadyManaged      int                           `json:"alreadyManaged"` // 已纳管的实例数
@@ -47,6 +48,7 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 		return &DiscoveryResult{
 			ProviderID:   providerID,
 			ProviderName: providerInfo.Name,
+			ProviderType: providerInfo.Type,
 			DiscoveredAt: time.Now(),
 			Error:        err.Error(),
 		}, fmt.Errorf("发现实例失败: %w", err)
@@ -59,22 +61,29 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 	// 获取当前数据库中该provider的所有实例
 	var existingInstances []providerModel.Instance
 	if err := global.APP_DB.Where("provider_id = ?", providerID).
-		Select("uuid", "name").
+		Select("id", "uuid", "name", "provider_vm_id").
 		Find(&existingInstances).Error; err != nil {
 		global.APP_LOG.Warn("查询已有实例失败", zap.Error(err))
 	}
 
-	// 创建已有实例的映射（用UUID和名称双重匹配）
-	existingUUIDs := make(map[string]bool)
-	existingNames := make(map[string]bool)
-	for _, inst := range existingInstances {
-		existingUUIDs[inst.UUID] = true
-		existingNames[inst.Name] = true
+	// 为旧版导入记录回填Proxmox VMID/CTID。首次仍可按UUID/名称兼容匹配，
+	// 回填后guest即使改名，后续发现也会继续识别为同一实例。
+	matches := matchDiscoveredAndDBInstances(providerInfo.Type, discoveredInstances, existingInstances)
+	for _, backfill := range providerInstanceIDBackfills(providerInfo.Type, discoveredInstances, existingInstances, matches) {
+		update := global.APP_DB.Model(&providerModel.Instance{}).
+			Where("id = ? AND (provider_vm_id IS NULL OR provider_vm_id = '')", backfill.InstanceID).
+			Update("provider_vm_id", backfill.ProviderInstanceID)
+		if update.Error != nil {
+			global.APP_LOG.Warn("回填实例ProviderVMID失败",
+				zap.Uint("instanceId", backfill.InstanceID),
+				zap.String("providerVmId", backfill.ProviderInstanceID),
+				zap.Error(update.Error))
+		}
 	}
 
 	// 统计
-	for _, discovered := range discoveredInstances {
-		if existingUUIDs[discovered.UUID] || existingNames[discovered.Name] {
+	for remoteIndex := range discoveredInstances {
+		if _, managed := matches.RemoteToDB[remoteIndex]; managed {
 			alreadyManaged++
 		} else {
 			newInstances++
@@ -84,6 +93,7 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 	result := &DiscoveryResult{
 		ProviderID:          providerID,
 		ProviderName:        providerInfo.Name,
+		ProviderType:        providerInfo.Type,
 		DiscoveredInstances: discoveredInstances,
 		TotalCount:          len(discoveredInstances),
 		AlreadyManaged:      alreadyManaged,
@@ -115,21 +125,14 @@ func (s *Service) GetOrphanedInstances(ctx context.Context, providerID uint) ([]
 	// 获取当前数据库中该provider的所有实例
 	var existingInstances []providerModel.Instance
 	if err := global.APP_DB.Where("provider_id = ?", providerID).
-		Select("uuid", "name").
+		Select("uuid", "name", "provider_vm_id").
 		Find(&existingInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询已有实例失败: %w", err)
 	}
 
-	existingUUIDs := make(map[string]bool)
-	existingNames := make(map[string]bool)
-	for _, inst := range existingInstances {
-		existingUUIDs[inst.UUID] = true
-		existingNames[inst.Name] = true
-	}
-
 	// 筛选未纳管实例
 	for _, discovered := range result.DiscoveredInstances {
-		if !existingUUIDs[discovered.UUID] && !existingNames[discovered.Name] {
+		if !hasMatchingDBInstance(result.ProviderType, discovered, existingInstances) {
 			orphanedInstances = append(orphanedInstances, discovered)
 		}
 	}
@@ -154,31 +157,14 @@ func (s *Service) CompareInstancesWithRemote(ctx context.Context, providerID uin
 	// 2. 获取数据库中的实例
 	var dbInstances []providerModel.Instance
 	if err := global.APP_DB.Where("provider_id = ?", providerID).
-		Select("id", "uuid", "name", "status", "is_imported").
+		Select("id", "uuid", "name", "status", "is_imported", "provider_vm_id").
 		Find(&dbInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询数据库实例失败: %w", err)
 	}
 
-	// 3. 创建映射用于比较
-	remoteInstanceMap := make(map[string]*provider.DiscoveredInstance)
-	for i := range discoveryResult.DiscoveredInstances {
-		inst := &discoveryResult.DiscoveredInstances[i]
-		remoteInstanceMap[inst.UUID] = inst
-		// 也用名称作为备用键
-		if inst.UUID == "" {
-			remoteInstanceMap[inst.Name] = inst
-		}
-	}
-
-	dbInstanceMap := make(map[string]*providerModel.Instance)
-	for i := range dbInstances {
-		inst := &dbInstances[i]
-		dbInstanceMap[inst.UUID] = inst
-		// 也用名称作为备用键
-		if inst.UUID == "" {
-			dbInstanceMap[inst.Name] = inst
-		}
-	}
+	// 3. 以Provider远端身份优先建立一对一匹配。Proxmox使用VMID/CTID，
+	// 因此guest改名不会被误判为一新一删两个实例。
+	matches := matchDiscoveredAndDBInstances(discoveryResult.ProviderType, discoveryResult.DiscoveredInstances, dbInstances)
 
 	// 4. 分析变化
 	var newInstances []provider.DiscoveredInstance
@@ -186,31 +172,31 @@ func (s *Service) CompareInstancesWithRemote(ctx context.Context, providerID uin
 	var changedInstances []InstanceChange
 
 	// 检测新增实例
-	for uuid, remoteInst := range remoteInstanceMap {
-		if _, exists := dbInstanceMap[uuid]; !exists {
-			newInstances = append(newInstances, *remoteInst)
+	for remoteIndex := range discoveryResult.DiscoveredInstances {
+		if _, exists := matches.RemoteToDB[remoteIndex]; !exists {
+			newInstances = append(newInstances, discoveryResult.DiscoveredInstances[remoteIndex])
 		}
 	}
 
 	// 检测删除的实例
-	for uuid, dbInst := range dbInstanceMap {
-		if _, exists := remoteInstanceMap[uuid]; !exists {
-			deletedInstances = append(deletedInstances, *dbInst)
+	for dbIndex := range dbInstances {
+		if _, exists := matches.DBToRemote[dbIndex]; !exists {
+			deletedInstances = append(deletedInstances, dbInstances[dbIndex])
 		}
 	}
 
 	// 检测状态变化的实例
-	for uuid, remoteInst := range remoteInstanceMap {
-		if dbInst, exists := dbInstanceMap[uuid]; exists {
-			if dbInst.Status != remoteInst.Status {
-				changedInstances = append(changedInstances, InstanceChange{
-					InstanceID: dbInst.ID,
-					UUID:       dbInst.UUID,
-					Name:       dbInst.Name,
-					OldStatus:  dbInst.Status,
-					NewStatus:  remoteInst.Status,
-				})
-			}
+	for remoteIndex, dbIndex := range matches.RemoteToDB {
+		remoteInst := discoveryResult.DiscoveredInstances[remoteIndex]
+		dbInst := dbInstances[dbIndex]
+		if dbInst.Status != remoteInst.Status {
+			changedInstances = append(changedInstances, InstanceChange{
+				InstanceID: dbInst.ID,
+				UUID:       dbInst.UUID,
+				Name:       dbInst.Name,
+				OldStatus:  dbInst.Status,
+				NewStatus:  remoteInst.Status,
+			})
 		}
 	}
 
@@ -300,34 +286,17 @@ func (s *Service) CleanupOrphanInstances(ctx context.Context, providerID uint) (
 	// 4. 获取数据库中该Provider的所有实例
 	var dbInstances []providerModel.Instance
 	if err := global.APP_DB.Where("provider_id = ?", providerID).
-		Select("id", "uuid", "name", "instance_type", "status").
+		Select("id", "uuid", "name", "instance_type", "status", "provider_vm_id").
 		Find(&dbInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询数据库实例失败: %w", err)
 	}
 
-	// 5. 构建数据库实例映射（用于快速查找）
-	dbUUIDs := make(map[string]bool)
-	dbNames := make(map[string]bool)
-	for _, inst := range dbInstances {
-		if inst.UUID != "" {
-			dbUUIDs[inst.UUID] = true
-		}
-		if inst.Name != "" {
-			dbNames[inst.Name] = true
-		}
-	}
-
-	// 6. 识别远程孤儿实例（存在于远程但不在数据库中）
+	// 5. 识别远程孤儿实例（存在于远程但不在数据库中）
 	var orphans []RemoteOrphanInfo
 	for _, remote := range discoveredInstances {
-		// 通过UUID或名称匹配，如果数据库中没有则为孤儿
-		if !dbUUIDs[remote.UUID] && !dbNames[remote.Name] {
-			orphanID := remote.UUID
-			if orphanID == "" {
-				orphanID = remote.Name
-			}
+		if !hasMatchingDBInstance(providerInfo.Type, remote, dbInstances) {
 			orphans = append(orphans, RemoteOrphanInfo{
-				ID:     orphanID,
+				ID:     discoveredInstanceDeleteID(providerInfo.Type, remote),
 				Name:   remote.Name,
 				UUID:   remote.UUID,
 				Type:   remote.InstanceType,

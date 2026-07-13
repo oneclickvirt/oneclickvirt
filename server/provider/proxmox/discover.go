@@ -1,18 +1,42 @@
 package proxmox
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"strconv"
 	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
 
-// DiscoverInstances 发现Proxmox provider上的所有虚拟机和容器
+const maxProxmoxDiscoveryResponseSize = 16 << 20
+
+type proxmoxDiscoveredResource struct {
+	ID       string          `json:"id"`
+	Node     string          `json:"node"`
+	Name     string          `json:"name"`
+	Status   string          `json:"status"`
+	Type     string          `json:"type"`
+	VMID     int64           `json:"vmid"`
+	CPUs     float64         `json:"cpus"`
+	MaxCPU   float64         `json:"maxcpu"`
+	MaxMem   int64           `json:"maxmem"`
+	MaxDisk  int64           `json:"maxdisk"`
+	Template json.RawMessage `json:"template"`
+}
+
+// DiscoverInstances discovers every QEMU VM and LXC container on a Proxmox
+// node/cluster. API errors are only eligible for SSH fallback in auto mode;
+// ssh_only must never try the API merely because a token happens to exist.
 func (p *ProxmoxProvider) DiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {
 	if !p.connected {
 		return nil, fmt.Errorf("not connected")
@@ -20,8 +44,7 @@ func (p *ProxmoxProvider) DiscoverInstances(ctx context.Context) ([]provider.Dis
 
 	global.APP_LOG.Debug("开始发现Proxmox实例", zap.String("provider", p.config.Name))
 
-	// Proxmox主要通过API访问，但也支持SSH备份
-	if p.hasAPIAccess() {
+	if p.shouldUseAPI() {
 		instances, err := p.apiDiscoverInstances(ctx)
 		if err == nil {
 			global.APP_LOG.Debug("Proxmox API发现实例成功",
@@ -34,266 +57,198 @@ func (p *ProxmoxProvider) DiscoverInstances(ctx context.Context) ([]provider.Dis
 		}
 	}
 
-	// 回退到SSH方式
+	if !p.shouldUseSSH() {
+		return nil, fmt.Errorf("执行规则不允许使用SSH发现实例")
+	}
 	return p.sshDiscoverInstances(ctx)
 }
 
-// apiDiscoverInstances 通过Proxmox API发现实例
+// apiDiscoverInstances uses the cluster resource endpoint so PVE 8/9 and
+// multi-node clusters are handled in one request. A denied or malformed
+// response is returned as an error instead of being mistaken for an empty
+// clean node.
 func (p *ProxmoxProvider) apiDiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {
-	// 获取所有节点
-	nodesURL := fmt.Sprintf("https://%s:8006/api2/json/nodes", p.config.Host)
-	nodesResp, err := p.makeAPIRequest(ctx, "GET", nodesURL, nil)
+	resourcesURL := fmt.Sprintf("https://%s:8006/api2/json/cluster/resources?type=vm", p.config.Host)
+	resp, err := p.makeAPIRequest(ctx, http.MethodGet, resourcesURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("获取节点列表失败: %w", err)
+		return nil, fmt.Errorf("获取Proxmox集群实例失败: %w", err)
 	}
 
-	var nodesData struct {
-		Data []struct {
-			Node string `json:"node"`
-		} `json:"data"`
+	resources, err := parseProxmoxResourceEnvelope(resp)
+	if err != nil {
+		return nil, fmt.Errorf("解析Proxmox集群实例失败: %w", err)
 	}
-
-	if err := json.Unmarshal(nodesResp, &nodesData); err != nil {
-		return nil, fmt.Errorf("解析节点列表失败: %w", err)
-	}
-
-	var discoveredInstances []provider.DiscoveredInstance
-
-	// 遍历每个节点，获取VMs和Containers
-	for _, nodeInfo := range nodesData.Data {
-		nodeName := nodeInfo.Node
-
-		// 获取QEMU VMs
-		vmsURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu", p.config.Host, nodeName)
-		vmsResp, err := p.makeAPIRequest(ctx, "GET", vmsURL, nil)
-		if err != nil {
-			global.APP_LOG.Warn("获取VM列表失败", zap.String("node", nodeName), zap.Error(err))
-		} else {
-			vms, err := p.parseVMsResponse(vmsResp, nodeName)
-			if err == nil {
-				discoveredInstances = append(discoveredInstances, vms...)
-			}
-		}
-
-		// 获取LXC Containers
-		lxcURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc", p.config.Host, nodeName)
-		lxcResp, err := p.makeAPIRequest(ctx, "GET", lxcURL, nil)
-		if err != nil {
-			global.APP_LOG.Warn("获取LXC列表失败", zap.String("node", nodeName), zap.Error(err))
-		} else {
-			lxcs, err := p.parseLXCsResponse(lxcResp, nodeName)
-			if err == nil {
-				discoveredInstances = append(discoveredInstances, lxcs...)
-			}
-		}
-	}
-
-	return discoveredInstances, nil
+	return p.convertDiscoveredResources(resources)
 }
 
-// sshDiscoverInstances 通过SSH命令发现实例
+// sshDiscoverInstances uses the same cluster resource data as the API path.
+// pvesh is available on all supported PVE releases and includes both QEMU and
+// LXC resources, avoiding the old incomplete `pct config` parser.
 func (p *ProxmoxProvider) sshDiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {
 	if !p.sshClient.HasExecutor() {
 		return nil, fmt.Errorf("SSH client not initialized")
 	}
-
-	var discoveredInstances []provider.DiscoveredInstance
-
-	// 获取所有QEMU VMs
-	vmsCmd := "pvesh get /cluster/resources --type vm --output-format json"
-	vmsOutput, err := p.sshClient.Execute(vmsCmd)
-	if err != nil {
-		global.APP_LOG.Warn("SSH获取VMs失败", zap.Error(err))
-	} else {
-		vms, err := p.parseResourcesJSON(vmsOutput, "qemu")
-		if err == nil {
-			discoveredInstances = append(discoveredInstances, vms...)
-		}
-	}
-
-	// 获取所有LXC容器（如果pvesh命令失败，尝试pct list）
-	lxcsCmd := "pct list | tail -n +2 | awk '{print $1}' | xargs -I {} pct config {}"
-	lxcsOutput, err := p.sshClient.Execute(lxcsCmd)
-	if err != nil {
-		global.APP_LOG.Warn("SSH获取LXCs失败", zap.Error(err))
-	} else {
-		lxcs, err := p.parsePctConfigs(lxcsOutput)
-		if err == nil {
-			discoveredInstances = append(discoveredInstances, lxcs...)
-		}
-	}
-
-	global.APP_LOG.Debug("Proxmox SSH发现实例完成",
-		zap.String("provider", p.config.Name),
-		zap.Int("count", len(discoveredInstances)))
-
-	return discoveredInstances, nil
-}
-
-// 辅助函数
-
-func (p *ProxmoxProvider) parseVMsResponse(respData []byte, nodeName string) ([]provider.DiscoveredInstance, error) {
-	var vmsData struct {
-		Data []struct {
-			VMID    int64  `json:"vmid"`
-			Name    string `json:"name"`
-			Status  string `json:"status"`
-			CPUs    int    `json:"cpus"`
-			Mem     int64  `json:"mem"`
-			MaxMem  int64  `json:"maxmem"`
-			MaxDisk int64  `json:"maxdisk"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal(respData, &vmsData); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	var instances []provider.DiscoveredInstance
-	for _, vm := range vmsData.Data {
-		discovered := provider.DiscoveredInstance{
-			UUID:         fmt.Sprintf("proxmox-vm-%d", vm.VMID),
-			Name:         vm.Name,
-			Status:       p.mapProxmoxStatus(vm.Status),
-			InstanceType: "vm",
-			CPU:          vm.CPUs,
-			Memory:       vm.MaxMem / 1024 / 1024,  // 字节转MB
-			Disk:         vm.MaxDisk / 1024 / 1024, // 字节转MB
-			SSHPort:      22,
-			RawData:      vm,
-		}
-
-		if discovered.CPU == 0 {
-			discovered.CPU = 1
-		}
-		if discovered.Memory == 0 {
-			discovered.Memory = 512
-		}
-		if discovered.Disk == 0 {
-			discovered.Disk = 10240
-		}
-
-		instances = append(instances, discovered)
+	output, err := p.sshClient.Execute("pvesh get /cluster/resources --type vm --output-format json")
+	if err != nil {
+		return nil, fmt.Errorf("SSH获取Proxmox实例失败: %w", err)
 	}
 
+	instances, err := p.parseResourcesJSON(output)
+	if err != nil {
+		return nil, fmt.Errorf("SSH解析Proxmox实例失败: %w", err)
+	}
+	global.APP_LOG.Debug("Proxmox SSH发现实例完成",
+		zap.String("provider", p.config.Name),
+		zap.Int("count", len(instances)))
 	return instances, nil
+}
+
+func (p *ProxmoxProvider) parseVMsResponse(respData []byte, nodeName string) ([]provider.DiscoveredInstance, error) {
+	var payload struct {
+		Data []proxmoxDiscoveredResource `json:"data"`
+	}
+	if err := json.Unmarshal(respData, &payload); err != nil {
+		return nil, err
+	}
+	for index := range payload.Data {
+		payload.Data[index].Type = "qemu"
+		if payload.Data[index].Node == "" {
+			payload.Data[index].Node = nodeName
+		}
+	}
+	return p.convertDiscoveredResources(payload.Data)
 }
 
 func (p *ProxmoxProvider) parseLXCsResponse(respData []byte, nodeName string) ([]provider.DiscoveredInstance, error) {
-	var lxcData struct {
-		Data []struct {
-			VMID    int64  `json:"vmid"`
-			Name    string `json:"name"`
-			Status  string `json:"status"`
-			CPUs    int    `json:"cpus"`
-			Mem     int64  `json:"mem"`
-			MaxMem  int64  `json:"maxmem"`
-			MaxDisk int64  `json:"maxdisk"`
-		} `json:"data"`
+	var payload struct {
+		Data []proxmoxDiscoveredResource `json:"data"`
 	}
-
-	if err := json.Unmarshal(respData, &lxcData); err != nil {
+	if err := json.Unmarshal(respData, &payload); err != nil {
 		return nil, err
 	}
-
-	var instances []provider.DiscoveredInstance
-	for _, lxc := range lxcData.Data {
-		discovered := provider.DiscoveredInstance{
-			UUID:         fmt.Sprintf("proxmox-lxc-%d", lxc.VMID),
-			Name:         lxc.Name,
-			Status:       p.mapProxmoxStatus(lxc.Status),
-			InstanceType: "container",
-			CPU:          lxc.CPUs,
-			Memory:       lxc.MaxMem / 1024 / 1024,
-			Disk:         lxc.MaxDisk / 1024 / 1024,
-			SSHPort:      22,
-			RawData:      lxc,
+	for index := range payload.Data {
+		payload.Data[index].Type = "lxc"
+		if payload.Data[index].Node == "" {
+			payload.Data[index].Node = nodeName
 		}
-
-		if discovered.CPU == 0 {
-			discovered.CPU = 1
-		}
-		if discovered.Memory == 0 {
-			discovered.Memory = 512
-		}
-		if discovered.Disk == 0 {
-			discovered.Disk = 10240
-		}
-
-		instances = append(instances, discovered)
 	}
-
-	return instances, nil
+	return p.convertDiscoveredResources(payload.Data)
 }
 
-func (p *ProxmoxProvider) parseResourcesJSON(jsonOutput, instanceType string) ([]provider.DiscoveredInstance, error) {
-	var resources []struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		Status  string `json:"status"`
-		Type    string `json:"type"`
-		VMID    int64  `json:"vmid"`
-		CPUs    int    `json:"cpu"`
-		MaxMem  int64  `json:"maxmem"`
-		MaxDisk int64  `json:"maxdisk"`
-	}
-
-	if err := json.Unmarshal([]byte(jsonOutput), &resources); err != nil {
+func (p *ProxmoxProvider) parseResourcesJSON(jsonOutput string) ([]provider.DiscoveredInstance, error) {
+	var resources []proxmoxDiscoveredResource
+	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &resources); err != nil {
 		return nil, err
 	}
+	return p.convertDiscoveredResources(resources)
+}
 
-	var instances []provider.DiscoveredInstance
-	for _, res := range resources {
-		if res.Type != instanceType && res.Type != "lxc" {
+func parseProxmoxResourceEnvelope(data []byte) ([]proxmoxDiscoveredResource, error) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil, err
+	}
+	rawData, exists := envelope["data"]
+	if !exists || len(bytes.TrimSpace(rawData)) == 0 || bytes.Equal(bytes.TrimSpace(rawData), []byte("null")) {
+		return nil, fmt.Errorf("Proxmox API响应缺少data数组")
+	}
+	var resources []proxmoxDiscoveredResource
+	if err := json.Unmarshal(rawData, &resources); err != nil {
+		return nil, fmt.Errorf("Proxmox API data必须是数组: %w", err)
+	}
+	return resources, nil
+}
+
+func parseProxmoxTemplateFlag(raw json.RawMessage) (bool, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" || trimmed == "0" || trimmed == "false" || trimmed == `"0"` || trimmed == `"false"` {
+		return false, nil
+	}
+	if trimmed == "1" || trimmed == "true" || trimmed == `"1"` || trimmed == `"true"` {
+		return true, nil
+	}
+	return false, fmt.Errorf("无效的template标记: %s", utils.TruncateString(trimmed, 32))
+}
+
+func (p *ProxmoxProvider) convertDiscoveredResources(resources []proxmoxDiscoveredResource) ([]provider.DiscoveredInstance, error) {
+	instances := make([]provider.DiscoveredInstance, 0, len(resources))
+	for _, resource := range resources {
+		isTemplate, err := parseProxmoxTemplateFlag(resource.Template)
+		if err != nil {
+			return nil, fmt.Errorf("Proxmox资源 %q: %w", resource.ID, err)
+		}
+		if isTemplate {
 			continue
 		}
 
-		discovered := provider.DiscoveredInstance{
-			UUID:         fmt.Sprintf("proxmox-%s-%d", res.Type, res.VMID),
-			Name:         res.Name,
-			Status:       p.mapProxmoxStatus(res.Status),
-			InstanceType: p.mapProxmoxType(res.Type),
-			CPU:          res.CPUs,
-			Memory:       res.MaxMem / 1024 / 1024,
-			Disk:         res.MaxDisk / 1024 / 1024,
-			SSHPort:      22,
-			RawData:      res,
+		if resource.Type != "qemu" && resource.Type != "vm" && resource.Type != "lxc" {
+			return nil, fmt.Errorf("Proxmox资源 %q 包含未知实例类型 %q", resource.ID, resource.Type)
+		}
+		instanceType := p.mapProxmoxType(resource.Type)
+
+		remoteID := strconv.FormatInt(resource.VMID, 10)
+		if resource.VMID <= 0 {
+			return nil, fmt.Errorf("Proxmox资源 %q 缺少有效vmid", resource.ID)
+		}
+		name := strings.TrimSpace(resource.Name)
+		if name == "" {
+			if instanceType == "vm" {
+				name = "vm-" + remoteID
+			} else {
+				name = "ct-" + remoteID
+			}
 		}
 
-		if discovered.CPU == 0 {
-			discovered.CPU = 1
+		cpu := int(math.Ceil(resource.MaxCPU))
+		if cpu <= 0 {
+			cpu = int(math.Ceil(resource.CPUs))
 		}
-		if discovered.Memory == 0 {
-			discovered.Memory = 512
+		if cpu <= 0 {
+			cpu = 1
 		}
-		if discovered.Disk == 0 {
-			discovered.Disk = 10240
+		memory := resource.MaxMem / 1024 / 1024
+		if memory <= 0 {
+			memory = 512
+		}
+		disk := resource.MaxDisk / 1024 / 1024
+		if disk <= 0 {
+			disk = 10240
 		}
 
-		instances = append(instances, discovered)
+		canonicalType := "lxc"
+		if instanceType == "vm" {
+			canonicalType = "vm"
+		}
+		instances = append(instances, provider.DiscoveredInstance{
+			UUID:               fmt.Sprintf("proxmox-%s-%s", canonicalType, remoteID),
+			ProviderInstanceID: remoteID,
+			Name:               name,
+			Status:             p.mapProxmoxStatus(resource.Status),
+			InstanceType:       instanceType,
+			CPU:                cpu,
+			Memory:             memory,
+			Disk:               disk,
+			SSHPort:            22,
+			RawData:            resource,
+		})
 	}
-
-	return instances, nil
-}
-
-func (p *ProxmoxProvider) parsePctConfigs(output string) ([]provider.DiscoveredInstance, error) {
-	// 简单解析pct config输出（格式为key: value）
-	var instances []provider.DiscoveredInstance
-	// 这个函数的实现比较复杂，暂时返回空列表
-	// 实际生产中应该解析每个容器的配置
 	return instances, nil
 }
 
 func (p *ProxmoxProvider) mapProxmoxStatus(status string) string {
-	switch strings.ToLower(status) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "running":
 		return "running"
 	case "stopped":
 		return "stopped"
-	case "paused":
+	case "paused", "suspended":
 		return "paused"
 	default:
-		return status
+		return strings.ToLower(strings.TrimSpace(status))
 	}
 }
 
@@ -305,8 +260,34 @@ func (p *ProxmoxProvider) mapProxmoxType(proxmoxType string) string {
 }
 
 func (p *ProxmoxProvider) makeAPIRequest(ctx context.Context, method, url string, body []byte) ([]byte, error) {
-	// 这个方法应该在proxmox.go或api.go中已经存在
-	// 如果不存在，需要实现HTTP请求逻辑
-	// 暂时返回错误，提示需要实现
-	return nil, fmt.Errorf("makeAPIRequest需要在ProxmoxProvider中实现")
+	var requestBody io.Reader
+	if len(body) > 0 {
+		requestBody = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("创建Proxmox API请求失败: %w", err)
+	}
+	p.setAPIAuth(req)
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := p.apiClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Proxmox API请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxProxmoxDiscoveryResponseSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("读取Proxmox API响应失败: %w", err)
+	}
+	if len(data) > maxProxmoxDiscoveryResponseSize {
+		return nil, fmt.Errorf("Proxmox API响应超过%d字节限制", maxProxmoxDiscoveryResponseSize)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("Proxmox API返回HTTP %d: %s", resp.StatusCode, utils.TruncateString(strings.TrimSpace(string(data)), 500))
+	}
+	return data, nil
 }
