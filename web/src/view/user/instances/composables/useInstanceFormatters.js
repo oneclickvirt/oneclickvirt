@@ -71,7 +71,9 @@ export function useInstanceFormatters() {
       'provider-instance-sync': t('user.tasks.taskTypeProviderInstanceSync'),
       'provider-orphan-cleanup': t('user.tasks.taskTypeProviderOrphanCleanup'),
       'provider-health-check': t('user.tasks.taskTypeProviderHealthCheck'),
-      'provider-io-limit-sync': t('user.tasks.taskTypeProviderIOLimitSync')
+      'provider-io-limit-sync': t('user.tasks.taskTypeProviderIOLimitSync'),
+      'provider-runtime-reload': t('user.tasks.taskTypeProviderRuntimeReload'),
+      'provider-delete': t('user.tasks.taskTypeProviderDelete')
     }
     return taskTypes[task.taskType] || t('user.instanceDetail.taskTitleDefault')
   }
@@ -105,7 +107,9 @@ export function useInstanceFormatters() {
       'provider-instance-sync': t('user.tasks.taskTypeProviderInstanceSync'),
       'provider-orphan-cleanup': t('user.tasks.taskTypeProviderOrphanCleanup'),
       'provider-health-check': t('user.tasks.taskTypeProviderHealthCheck'),
-      'provider-io-limit-sync': t('user.tasks.taskTypeProviderIOLimitSync')
+      'provider-io-limit-sync': t('user.tasks.taskTypeProviderIOLimitSync'),
+      'provider-runtime-reload': t('user.tasks.taskTypeProviderRuntimeReload'),
+      'provider-delete': t('user.tasks.taskTypeProviderDelete')
     }
     return taskTypes[taskType] || t('user.instanceDetail.taskDefault')
   }

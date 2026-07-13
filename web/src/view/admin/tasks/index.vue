@@ -274,6 +274,14 @@
                 :label="$t('admin.tasks.taskTypeProviderIOLimitSync')"
                 value="provider-io-limit-sync"
               />
+              <el-option
+                :label="$t('admin.tasks.taskTypeProviderRuntimeReload')"
+                value="provider-runtime-reload"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeProviderDelete')"
+                value="provider-delete"
+              />
             </el-select>
           </el-form-item>
           <el-form-item>

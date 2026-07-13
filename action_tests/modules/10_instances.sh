@@ -30,13 +30,13 @@ run_module_10() {
 
     # -- Health check before instance creation --
     log_info "Verifying provider health before instance tests..."
-    if ! test_api_retry "Provider health (pre-instance)" "POST" \
-        "/api/v1/admin/providers/${PROVIDER_ID}/health-check" "200" '{}' 3 10 "$group" >/dev/null; then
+    if ! ensure_provider_health_ready "$PROVIDER_ID" "$ADMIN_TOKEN" "$INSTANCE_HEALTH_SETTLE_SECONDS"; then
+        record_fail_result "Provider health (pre-instance)" "POST" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/health-check-task" "completed task" "failed" \
+            "Provider health task failed before instance lifecycle" "$group"
         chain_break "$group" "Provider health check failed, cannot create instances"
         return 1
     fi
-    log_info "Provider health check triggered; waiting ${INSTANCE_HEALTH_SETTLE_SECONDS}s before instance creation..."
-    sleep "$INSTANCE_HEALTH_SETTLE_SECONDS"
 
     # -- Admin instance list --
     test_api "Admin instance list" "GET" "/api/v1/admin/instances?page=1&pageSize=10" "200" "" "$group"

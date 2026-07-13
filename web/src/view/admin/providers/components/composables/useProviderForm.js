@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getCountriesByRegion, getCountryByName, getLocalizedRegion } from '@/utils/countries'
-import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI, getProviderDetail, checkProviderHealth as checkProviderHealthAPI } from '@/api/admin'
+import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI, getProviderDetail } from '@/api/admin'
 import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
 import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits } from '@/utils/levels'
 
@@ -548,7 +548,9 @@ export function useProviderForm(props, emit) {
     if (!formData.value.id) return
     checkingAgentStatus.value = true
     try {
-      await checkProviderHealthAPI(formData.value.id, { forceRefresh: true })
+      // Agent runtime status is supplied directly by Provider detail from the
+      // live WebSocket hub. Do not launch or wait for a full remote health scan
+      // merely to refresh this lightweight status indicator.
       const res = await getProviderDetail(formData.value.id)
       if (res.data) {
         Object.assign(formData.value, {

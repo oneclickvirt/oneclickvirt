@@ -1,10 +1,11 @@
 package admin
 
 import (
-	"oneclickvirt/middleware"
 	"strconv"
 
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
+	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	adminProvider "oneclickvirt/service/admin/provider"
 
@@ -13,6 +14,14 @@ import (
 )
 
 // QueueProviderInstanceSync 将非纯净节点实例同步挂入管理员任务池。
+// @Summary 提交节点实例同步任务
+// @Description 为已开启非纯净节点发现的Provider创建持久化后台同步任务
+// @Tags Provider管理
+// @Security BearerAuth
+// @Param id path int true "Provider ID"
+// @Success 200 {object} common.Response{data=adminModel.Task} "同步任务已提交"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 409 {object} common.Response "已有同类任务"
 // @Router /admin/providers/{id}/sync-instances [post]
 func QueueProviderInstanceSync(c *gin.Context) {
 	providerID, err := parseOwnedProviderID(c)
@@ -30,10 +39,19 @@ func QueueProviderInstanceSync(c *gin.Context) {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
-	common.ResponseSuccess(c, created, "实例同步任务已提交，请在管理员任务列表查看进度")
+	respondQueuedProviderTask(c, created, "实例同步任务已提交，请在管理员任务列表查看进度")
 }
 
 // QueueProviderHealthCheck 将可能触发远端探测和资源同步的健康检查挂入任务池。
+// @Summary 提交Provider健康检查任务
+// @Description 创建持久化后台任务执行远端健康探测与资源刷新
+// @Tags Provider管理
+// @Security BearerAuth
+// @Param id path int true "Provider ID"
+// @Success 200 {object} common.Response{data=adminModel.Task} "健康检查任务已提交"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 404 {object} common.Response "Provider不存在"
+// @Failure 409 {object} common.Response "已有同类任务"
 // @Router /admin/providers/{id}/health-check-task [post]
 func QueueProviderHealthCheck(c *gin.Context) {
 	providerID, err := parseOwnedProviderID(c)
@@ -51,7 +69,11 @@ func QueueProviderHealthCheck(c *gin.Context) {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
-	common.ResponseSuccess(c, created, "健康检查任务已提交，请在管理员任务列表查看进度")
+	respondQueuedProviderTask(c, created, "健康检查任务已提交，请在管理员任务列表查看进度")
+}
+
+func respondQueuedProviderTask(c *gin.Context, created *adminModel.Task, message string) {
+	common.ResponseSuccess(c, created, message)
 }
 
 func parseOwnedProviderID(c *gin.Context) (uint, error) {

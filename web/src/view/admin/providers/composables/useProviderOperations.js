@@ -103,7 +103,7 @@ export function useProviderOperations() {
       })
 
       await deleteProvider(id)
-      ElMessage.success(t('admin.providers.serverDeleteSuccess'))
+      ElMessage.success(t('admin.providers.providerDeleteTaskQueued'))
       return true
     } catch (error) {
       if (error !== 'cancel') {
@@ -163,10 +163,10 @@ export function useProviderOperations() {
       loadingInstance.close()
 
       if (failCount === 0) {
-        ElMessage.success(t('admin.providers.batchDeleteSuccess', { count: successCount }))
+        ElMessage.success(t('admin.providers.batchDeleteTasksQueued', { count: successCount }))
       } else {
         ElMessageBox.alert(
-          `${t('admin.providers.batchDeletePartialSuccess', { success: successCount, fail: failCount })}<br><br>${errors.join('<br>')}`,
+          `${t('admin.providers.batchDeleteTaskPartial', { success: successCount, fail: failCount })}<br><br>${errors.join('<br>')}`,
           t('admin.providers.batchOperationResult'),
           {
             dangerouslyUseHTMLString: true,

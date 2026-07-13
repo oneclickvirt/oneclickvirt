@@ -62,6 +62,8 @@ export default {
   taskTypeProviderOrphanCleanup: "Clean Orphan Instances",
   taskTypeProviderHealthCheck: "Provider Health Check",
   taskTypeProviderIOLimitSync: "Sync Instance IO Limits",
+  taskTypeProviderRuntimeReload: "Reload Provider Runtime",
+  taskTypeProviderDelete: "Delete Provider",
   statusPending: "Pending",
   statusProcessing: "Processing",
   statusRunning: "Running",

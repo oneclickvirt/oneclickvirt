@@ -143,8 +143,10 @@ run_module_23() {
     fi
 
     # ---- Post-import health check ----
-    test_api "Provider health after import" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/health-check" "200" \
-        '' "$group" "$ADMIN_TOKEN"
+    if ! ensure_provider_health_ready "$PROVIDER_ID" "$ADMIN_TOKEN" 0; then
+        record_fail_result "Provider health after import" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/health-check-task" \
+            "completed task" "failed" "Provider health task failed after import" "$group"
+    fi
 
     # ---- Negative: Import with missing body ----
     test_api "Import missing body" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "400" \

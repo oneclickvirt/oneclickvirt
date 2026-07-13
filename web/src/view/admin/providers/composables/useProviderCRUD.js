@@ -265,7 +265,7 @@ export function useProviderCRUD() {
 
       try {
         await deleteProvider(provider.id, false)
-        ElMessage.success(t('admin.providers.serverDeleteSuccess'))
+        ElMessage.success(t('admin.providers.providerDeleteTaskQueued'))
       } finally {
         loadingInstance.close()
       }
@@ -306,7 +306,7 @@ export function useProviderCRUD() {
 
       try {
         await deleteProvider(provider.id, true)
-        ElMessage.success(t('admin.providers.serverDeleteSuccess'))
+        ElMessage.success(t('admin.providers.providerDeleteTaskQueued'))
       } finally {
         loadingInstance.close()
       }
@@ -435,7 +435,7 @@ export function useProviderCRUD() {
 
     if (failCount === 0) {
       ElMessage.success(
-        t('admin.providers.batchDeleteSuccess', { count: successCount })
+        t('admin.providers.batchDeleteTasksQueued', { count: successCount })
       )
     } else {
       const resultHtml = `

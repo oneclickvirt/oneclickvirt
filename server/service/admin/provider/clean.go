@@ -28,13 +28,27 @@ import (
 // forceDelete=false: 正常删除，先删除节点上所有实例（实际删除宿主机资源），再清理数据库
 // forceDelete=true: 强制删除，仅清理数据库记录，不触碰宿主机上的实际实例
 func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
+	return s.deleteProviderWithTaskContext(context.Background(), providerID, forceDelete, 0)
+}
+
+// deleteProviderWithTaskContext is the cancellable implementation used by the
+// persistent Provider deletion task. preserveTaskID keeps the currently
+// executing task as an audit record while all other Provider-owned tasks are
+// removed with the node.
+func (s *Service) deleteProviderWithTaskContext(ctx context.Context, providerID uint, forceDelete bool, preserveTaskID uint) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	global.APP_LOG.Info("开始删除Provider及其所有关联数据",
 		zap.Uint("providerID", providerID),
 		zap.Bool("forceDelete", forceDelete))
 
 	// 检查Provider是否存在
 	var existingProvider providerModel.Provider
-	if err := global.APP_DB.First(&existingProvider, providerID).Error; err != nil {
+	if err := global.APP_DB.WithContext(ctx).First(&existingProvider, providerID).Error; err != nil {
 		return fmt.Errorf("提供商不存在")
 	}
 
@@ -45,7 +59,7 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 
 		// 获取所有非删除状态的实例
 		var instances []providerModel.Instance
-		global.APP_DB.Where("provider_id = ? AND status != ?", providerID, "deleted").
+		global.APP_DB.WithContext(ctx).Where("provider_id = ? AND status != ?", providerID, "deleted").
 			Find(&instances)
 
 		if len(instances) > 0 {
@@ -89,8 +103,8 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 					continue
 				}
 
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				err := providerApiService.DeleteInstanceByProviderID(ctx, providerID, inst.Name)
+				instanceCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+				err := providerApiService.DeleteInstanceByProviderID(instanceCtx, providerID, inst.Name)
 				cancel()
 				if err != nil {
 					errMsg := fmt.Sprintf("实例 %s(ID:%d, 状态:%s): %v", inst.Name, inst.ID, inst.Status, err)
@@ -139,7 +153,7 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 		// 强制删除模式：仅清理数据库，不触碰宿主机
 		// ==========================================
 		var instanceCount int64
-		global.APP_DB.Model(&providerModel.Instance{}).
+		global.APP_DB.WithContext(ctx).Model(&providerModel.Instance{}).
 			Where("provider_id = ?", providerID).
 			Count(&instanceCount)
 		if instanceCount > 0 {
@@ -155,12 +169,12 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 
 	// 获取所有关联的实例ID（包括软删除的）
 	var instanceIDs []uint
-	global.APP_DB.Unscoped().Model(&providerModel.Instance{}).
+	global.APP_DB.WithContext(ctx).Unscoped().Model(&providerModel.Instance{}).
 		Where("provider_id = ?", providerID).
 		Pluck("id", &instanceIDs)
 
 	var controllerPortIDs []uint
-	if err := global.APP_DB.Model(&providerModel.Port{}).
+	if err := global.APP_DB.WithContext(ctx).Model(&providerModel.Port{}).
 		Where("provider_id = ? AND mapping_type = ?", providerID, "controller").
 		Pluck("id", &controllerPortIDs).Error; err != nil {
 		global.APP_LOG.Warn("查询Provider控制端端口转发失败",
@@ -172,7 +186,7 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 	}
 
 	var providerDomains []domainModel.Domain
-	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&providerDomains).Error; err != nil {
+	if err := global.APP_DB.WithContext(ctx).Where("provider_id = ?", providerID).Find(&providerDomains).Error; err != nil {
 		global.APP_LOG.Warn("查询Provider域名绑定失败",
 			zap.Uint("providerID", providerID),
 			zap.Error(err))
@@ -182,7 +196,7 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 	}
 
 	dbService := database.GetDatabaseService()
-	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		// 1. 硬删除所有关联的端口映射（包括软删除的）
 		portResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&providerModel.Port{})
 		if portResult.Error != nil {
@@ -196,7 +210,11 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 		}
 
 		// 2. 硬删除所有关联的任务（包括软删除的）
-		taskResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&admin.Task{})
+		taskQuery := tx.Unscoped().Where("provider_id = ?", providerID)
+		if preserveTaskID > 0 {
+			taskQuery = taskQuery.Where("id <> ?", preserveTaskID)
+		}
+		taskResult := taskQuery.Delete(&admin.Task{})
 		if taskResult.Error != nil {
 			global.APP_LOG.Error("删除Provider任务失败", zap.Error(taskResult.Error))
 			return taskResult.Error
@@ -205,6 +223,16 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 			global.APP_LOG.Debug("成功删除Provider任务",
 				zap.Uint("providerID", providerID),
 				zap.Int64("count", taskResult.RowsAffected))
+		}
+		if preserveTaskID > 0 {
+			// Detach the running delete task before removing the Provider. The
+			// worker will mark this audit record completed after the handler
+			// returns, and no dangling foreign key remains.
+			if err := tx.Unscoped().Model(&admin.Task{}).Where("id = ?", preserveTaskID).
+				Update("provider_id", nil).Error; err != nil {
+				global.APP_LOG.Error("保留Provider删除任务失败", zap.Error(err))
+				return err
+			}
 		}
 
 		// 3. 硬删除配置任务（包括软删除的）
@@ -304,7 +332,7 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 	s.batchCleanupProviderTrafficData(providerID, instanceIDs)
 
 	// 8. 立即清理所有相关资源（防止内存泄漏）
-	s.cleanupAllProviderResources(providerID)
+	s.cleanupAllProviderResources(providerID, preserveTaskID > 0)
 
 	// 9. 删除本地证书和配置备份文件
 	s.cleanupProviderLocalFiles(&existingProvider)
@@ -337,7 +365,7 @@ func (s *Service) cleanupProviderLocalFiles(p *providerModel.Provider) {
 
 // cleanupAllProviderResources 清理Provider的所有相关资源（防止内存泄漏）
 // 清理顺序：先断开连接 -> 清理缓存 -> 清理工作池 -> 清理状态 -> 清理Transport
-func (s *Service) cleanupAllProviderResources(providerID uint) {
+func (s *Service) cleanupAllProviderResources(providerID uint, preserveRunningDeleteTask bool) {
 	global.APP_LOG.Info("开始清理Provider的所有内存资源", zap.Uint("providerID", providerID))
 
 	// 1. 先断开Agent及其隧道资源，避免Provider删除后仍有WebSocket/端口转发写入。
@@ -361,9 +389,14 @@ func (s *Service) cleanupAllProviderResources(providerID uint) {
 	global.APP_LOG.Debug("Provider已移除", zap.Uint("providerID", providerID))
 
 	// 4. 清理任务工作池及其所有相关的sync.Map（同步清理pools、lastAccess、createdAt）
-	if taskService := task.GetTaskService(); taskService != nil {
+	if taskService := task.GetTaskService(); taskService != nil && !preserveRunningDeleteTask {
 		taskService.DeleteProviderPool(providerID)
 		global.APP_LOG.Debug("任务工作池已清理", zap.Uint("providerID", providerID))
+	} else if preserveRunningDeleteTask {
+		// Do not cancel the worker context that is about to mark the detached
+		// deletion audit task completed. The periodic deleted-Provider pool
+		// cleanup removes this now-idle pool shortly afterwards.
+		global.APP_LOG.Debug("延迟清理Provider任务工作池，等待删除任务落终态", zap.Uint("providerID", providerID))
 	}
 
 	// 5. 清理监控状态（同步清理providerStateManager和lastResetTime）

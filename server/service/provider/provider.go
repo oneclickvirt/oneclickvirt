@@ -36,8 +36,9 @@ type LocalConnector interface {
 
 // ProviderService 管理已配置的Provider实例
 type ProviderService struct {
-	providers map[uint]provider.Provider // key: provider ID, value: provider instance
-	mutex     sync.RWMutex
+	providers     map[uint]provider.Provider // key: provider ID, value: provider instance
+	mutex         sync.RWMutex
+	operationLock sync.Map // provider ID -> *sync.Mutex; remote I/O must never hold the global map lock
 }
 
 var (
@@ -89,7 +90,7 @@ func (ps *ProviderService) InitializeProviders() error {
 		}
 	}
 
-	global.APP_LOG.Info("Providers初始化完成", zap.Int("total", len(dbProviders)), zap.Int("loaded", len(ps.providers)))
+	global.APP_LOG.Info("Providers初始化完成", zap.Int("total", len(dbProviders)), zap.Int("loaded", len(ps.ListProviders())))
 	return nil
 }
 
@@ -101,8 +102,17 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 // LoadProviderWithOptions 加载单个Provider（支持选项）
 // allowFrozen: 是否允许加载冻结的Provider（用于删除等特定操作）
 func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Provider, allowFrozen bool) error {
-	ps.mutex.Lock()
-	defer ps.mutex.Unlock()
+	operationLock := ps.providerOperationMutex(dbProvider.ID)
+	operationLock.Lock()
+	defer operationLock.Unlock()
+	return ps.loadProviderWithOptionsLocked(dbProvider, allowFrozen)
+}
+
+// loadProviderWithOptionsLocked performs a load while the provider-scoped
+// operation lock is held. Network connection and architecture detection happen
+// outside the global providers-map lock so one unreachable node cannot block
+// every other Provider or API lookup.
+func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerModel.Provider, allowFrozen bool) error {
 
 	// 检查Provider是否过期或冻结
 	if dbProvider.IsFrozen && !allowFrozen {
@@ -124,7 +134,10 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 	}
 
 	// 检查Provider是否已加载
-	if _, exists := ps.providers[dbProvider.ID]; exists {
+	ps.mutex.RLock()
+	_, exists := ps.providers[dbProvider.ID]
+	ps.mutex.RUnlock()
+	if exists {
 		global.APP_LOG.Debug("Provider已加载，跳过重复加载", zap.String("name", dbProvider.Name), zap.Uint("id", dbProvider.ID))
 		return nil
 	}
@@ -249,7 +262,9 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 				}
 			}
 		}
+		ps.mutex.Lock()
 		ps.providers[dbProvider.ID] = prov
+		ps.mutex.Unlock()
 		// Agent 可能尚未建立 WebSocket 连接。不能在加载路径中调用 IsConnected
 		// 或同步执行 uname：两者都会等待 Agent 重连并阻塞 Provider 更新接口。
 		// 这里保留数据库中的架构，待 Agent 上线后由正常的同步/部署流程刷新。
@@ -274,7 +289,9 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 			return err
 		}
 		detectAndUpdateArchitecture(dbProvider.ID, prov)
+		ps.mutex.Lock()
 		ps.providers[dbProvider.ID] = prov
+		ps.mutex.Unlock()
 		global.APP_LOG.Info("本机模式Provider加载成功",
 			zap.String("name", dbProvider.Name),
 			zap.Uint("id", dbProvider.ID),
@@ -304,9 +321,10 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 	// 连接成功后同步检测节点架构，确保 ARM 节点不会因为默认 amd64 而无法使用
 	detectAndUpdateArchitecture(dbProvider.ID, prov)
 
-	// 存储Provider实例（使用ID作为key）
-	// 此时已经持有ps.mutex.Lock()，不需要再次加锁
+	// 存储Provider实例（使用ID作为key）。远端连接阶段没有持有全局锁。
+	ps.mutex.Lock()
 	ps.providers[dbProvider.ID] = prov
+	ps.mutex.Unlock()
 
 	global.APP_LOG.Info("Provider加载成功",
 		zap.String("name", dbProvider.Name),
@@ -342,35 +360,84 @@ func (ps *ProviderService) GetProvider(name string) (provider.Provider, bool) {
 
 // ReloadProvider 重新加载指定的Provider
 func (ps *ProviderService) ReloadProvider(providerID uint) error {
+	return ps.ReloadProviderContext(context.Background(), providerID)
+}
+
+// ReloadProviderContext refreshes a Provider while respecting the task
+// deadline. Individual Provider Connect implementations use SSHConnectTimeout,
+// so clamp that value to the remaining context budget before dialing.
+func (ps *ProviderService) ReloadProviderContext(ctx context.Context, providerID uint) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var dbProvider providerModel.Provider
 	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
 		return err
 	}
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		remainingSeconds := int((remaining + time.Second - 1) / time.Second)
+		if remainingSeconds < 1 {
+			remainingSeconds = 1
+		}
+		if dbProvider.SSHConnectTimeout <= 0 || dbProvider.SSHConnectTimeout > remainingSeconds {
+			dbProvider.SSHConnectTimeout = remainingSeconds
+		}
+	}
+
+	operationLock := ps.providerOperationMutex(providerID)
+	operationLock.Lock()
+	defer operationLock.Unlock()
 
 	// 断开旧连接
-	ps.RemoveProvider(providerID)
+	ps.removeProviderLocked(providerID)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// 重新加载
-	return ps.LoadProvider(dbProvider)
+	return ps.loadProviderWithOptionsLocked(dbProvider, false)
 }
 
 // RemoveProvider 移除Provider并清理资源
 func (ps *ProviderService) RemoveProvider(providerID uint) {
+	operationLock := ps.providerOperationMutex(providerID)
+	operationLock.Lock()
+	defer operationLock.Unlock()
+	ps.removeProviderLocked(providerID)
+}
+
+func (ps *ProviderService) providerOperationMutex(providerID uint) *sync.Mutex {
+	value, _ := ps.operationLock.LoadOrStore(providerID, &sync.Mutex{})
+	return value.(*sync.Mutex)
+}
+
+// removeProviderLocked removes the map entry before performing remote cleanup.
+// The caller holds only the provider-scoped operation lock, so a slow
+// Disconnect cannot stall unrelated Provider lookups or reloads.
+func (ps *ProviderService) removeProviderLocked(providerID uint) {
 	ps.mutex.Lock()
-	defer ps.mutex.Unlock()
+	prov, exists := ps.providers[providerID]
+	if exists {
+		delete(ps.providers, providerID)
+	}
+	ps.mutex.Unlock()
 
-	if prov, exists := ps.providers[providerID]; exists {
+	if exists {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
 		if err := prov.Disconnect(ctx); err != nil {
 			global.APP_LOG.Warn("断开Provider连接失败",
 				zap.Uint("id", providerID),
 				zap.String("name", prov.GetName()),
 				zap.Error(err))
 		}
-
-		delete(ps.providers, providerID)
+		cancel()
 
 		global.APP_LOG.Info("Provider已移除并清理资源",
 			zap.Uint("id", providerID),

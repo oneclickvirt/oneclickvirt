@@ -348,7 +348,7 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 	}
 
 	storageChanged := provider.StoragePool != originalStoragePool || provider.StoragePoolPath != originalStoragePoolPath
-	refreshRuntimeProviderAfterHealthCheck(localProviderID, localProviderName, provider.ConnectionType, provider.Status, provider.SSHStatus, forceRefresh, storageChanged, originalStoragePool, provider.StoragePool, originalStoragePoolPath, provider.StoragePoolPath)
+	refreshRuntimeProviderAfterHealthCheck(ctx, localProviderID, localProviderName, provider.ConnectionType, provider.Status, provider.SSHStatus, forceRefresh, storageChanged, originalStoragePool, provider.StoragePool, originalStoragePoolPath, provider.StoragePoolPath)
 
 	// 如果健康检查有错误，返回该错误（这样前端可以获取具体错误信息）
 	return err
@@ -358,7 +358,7 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 // with an explicit health check. Health checks use independent SSH/Agent probes and update DB
 // state first; without this reload, stale cached providers can remain disconnected and keep
 // returning "Provider不可用" even after the node has passed a manual health check.
-func refreshRuntimeProviderAfterHealthCheck(providerID uint, providerName, connectionType, status, sshStatus string, forceRefresh, storageChanged bool, oldPool, newPool, oldPoolPath, newPoolPath string) {
+func refreshRuntimeProviderAfterHealthCheck(ctx context.Context, providerID uint, providerName, connectionType, status, sshStatus string, forceRefresh, storageChanged bool, oldPool, newPool, oldPoolPath, newPoolPath string) {
 	providerSvc := provider2.GetProviderService()
 
 	if status == "inactive" {
@@ -382,7 +382,7 @@ func refreshRuntimeProviderAfterHealthCheck(providerID uint, providerName, conne
 		return
 	}
 
-	if reloadErr := providerSvc.ReloadProvider(providerID); reloadErr != nil {
+	if reloadErr := providerSvc.ReloadProviderContext(ctx, providerID); reloadErr != nil {
 		global.APP_LOG.Warn("Provider健康检查后运行时缓存刷新失败，新状态将在下次重连后生效",
 			zap.Uint("providerID", providerID),
 			zap.String("provider", providerName),
