@@ -425,6 +425,7 @@ INSTANCE_STATUS_MAX_WAIT="${INSTANCE_STATUS_MAX_WAIT:-1800}"
 CONFIG_TASK_MAX_WAIT="${CONFIG_TASK_MAX_WAIT:-3600}"
 INSTANCE_HEALTH_SETTLE_SECONDS="${INSTANCE_HEALTH_SETTLE_SECONDS:-30}"
 INSTANCE_OPERATION_SETTLE_SECONDS="${INSTANCE_OPERATION_SETTLE_SECONDS:-3}"
+ACTION_TEST_API_TIMEOUT="${ACTION_TEST_API_TIMEOUT:-180}"
 
 # -- JSON result collector for HTML report --
 declare -a TEST_RESULTS_JSON=()
@@ -443,7 +444,11 @@ test_api() {
         _record_result "$name" "$method" "$url" "SKIP" "" "" "${CHAIN_BROKEN[$group]}" "$group"
         return 1
     fi
-    local args=(-s -w "\n%{http_code}" --max-time 180
+    local request_timeout="${ACTION_TEST_API_TIMEOUT:-180}"
+    if [[ ! "$request_timeout" =~ ^[0-9]+$ || "$request_timeout" -lt 1 || "$request_timeout" -gt 3600 ]]; then
+        request_timeout=180
+    fi
+    local args=(-s -w "\n%{http_code}" --max-time "$request_timeout"
         -H "Content-Type: application/json" -X "${method}")
     [[ -n "$token" ]] && args+=(-H "Authorization: Bearer ${token}")
     [[ -n "$data" ]] && args+=(-d "$data")
@@ -532,7 +537,11 @@ test_api_json_value() {
         return 1
     fi
 
-    local args=(-s -w "\n%{http_code}" --max-time 120 -H "Content-Type: application/json" -X "${method}")
+    local request_timeout="${ACTION_TEST_API_TIMEOUT:-120}"
+    if [[ ! "$request_timeout" =~ ^[0-9]+$ || "$request_timeout" -lt 1 || "$request_timeout" -gt 3600 ]]; then
+        request_timeout=120
+    fi
+    local args=(-s -w "\n%{http_code}" --max-time "$request_timeout" -H "Content-Type: application/json" -X "${method}")
     [[ -n "$token" ]] && args+=(-H "Authorization: Bearer ${token}")
     [[ -n "$data" ]] && args+=(-d "$data")
 
@@ -986,12 +995,12 @@ ensure_provider_health_ready() {
         return 1
     fi
 
-    log_info "Triggering provider ${provider_id} health check before instance operation..."
-    local resp; resp=$(curl -s -w "\n%{http_code}" --max-time 120 \
+    log_info "Queueing provider ${provider_id} health check before instance operation..."
+    local resp; resp=$(curl -s -w "\n%{http_code}" --max-time 30 \
         -H "Authorization: Bearer ${token}" \
         -H "Content-Type: application/json" \
         -X POST -d '{}' \
-        "${SERVER_URL}/api/v1/admin/providers/${provider_id}/health-check" 2>/dev/null) || true
+        "${SERVER_URL}/api/v1/admin/providers/${provider_id}/health-check-task" 2>/dev/null) || true
     local http_code; http_code=$(echo "$resp" | tail -1)
     local body; body=$(echo "$resp" | sed '$d')
     local api_code; api_code=$(safe_jq "$body" '-r .code // empty' '')
@@ -1002,8 +1011,53 @@ ensure_provider_health_ready() {
         return 1
     fi
 
-    log_info "Provider health check completed; waiting ${settle_seconds}s before creating/operating instances..."
+    local task_id; task_id=$(safe_jq "$body" '-r .data.id // empty' '')
+    if [[ -z "$task_id" ]]; then
+        log_warning "Provider ${provider_id} health check did not return a task ID"
+        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+        return 1
+    fi
+
+    local task_result
+    if ! task_result=$(wait_task_complete "$SERVER_URL" "$task_id" "$token" 900 5); then
+        log_warning "Provider ${provider_id} health task ${task_id} failed"
+        echo "$task_result" | jq '.' 2>/dev/null || echo "$task_result"
+        return 1
+    fi
+
+    log_info "Provider health task completed; waiting ${settle_seconds}s before creating/operating instances..."
     sleep "$settle_seconds"
+    return 0
+}
+
+# Provider deletion is a persistent administrator task. Queue it and wait for
+# terminal completion so later modules do not race stale names/endpoints left by
+# a still-running cleanup task.
+delete_provider_and_wait() {
+    local provider_id="$1"
+    local label="$2"
+    local group="$3"
+    local token="${4:-$ADMIN_TOKEN}"
+    local force="${5:-true}"
+    local suffix=""
+    [[ "$force" == "true" ]] && suffix="?force=true"
+
+    local response
+    response=$(ACTION_TEST_API_TIMEOUT=30 test_api "Queue ${label} delete" "DELETE" \
+        "/api/v1/admin/providers/${provider_id}${suffix}" "200" "" "$group" "$token") || return 1
+    local task_id
+    task_id=$(safe_jq "$response" '-r .data.id // empty' '')
+    if [[ -z "$task_id" ]]; then
+        record_fail_result "Queue ${label} delete" "DELETE" "/api/v1/admin/providers/${provider_id}${suffix}" \
+            "task ID" "missing" "Provider delete response did not include an admin task ID" "$group"
+        return 1
+    fi
+    local task_result
+    if ! task_result=$(wait_task_complete "$SERVER_URL" "$task_id" "$token" 7200 5); then
+        record_fail_result "${label} delete task" "GET" "/api/v1/admin/tasks/${task_id}" \
+            "completed task" "failed" "Provider delete task did not complete: ${task_result}" "$group"
+        return 1
+    fi
     return 0
 }
 

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 	"sort"
@@ -19,6 +20,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var instanceImportLocks sync.Map
@@ -106,7 +108,8 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 		// 导入所有新发现的实例
 		instancesToImport = discoveryResult.DiscoveredInstances
 	} else {
-		// 仅导入指定身份。UUID是首选；兼容远端ID和名称，但拒绝歧义名称。
+		// 仅导入指定身份。UUID是首选；兼容远端ID和名称，重名时按稳定
+		// 排序选择一个，其余重复资源在后续批次去重中记为 skipped。
 		var selectionErr error
 		instancesToImport, selectionErr = selectDiscoveredInstances(discoveryResult.DiscoveredInstances, options.InstanceUUIDs)
 		if selectionErr != nil {
@@ -142,6 +145,29 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 		Select("id", "uuid", "name", "provider_vm_id", "private_ip", "ipv6_address", "ssh_port", "port_range_start", "port_range_end").
 		Find(&existingInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询已有实例失败: %w", err)
+	}
+	// UUID is globally unique, including soft-deleted history rows. Query the
+	// exact database constraint scope before starting the transaction so stale
+	// history or an earlier automatic import becomes a deterministic skip rather
+	// than rolling the whole batch back with a duplicate-key error.
+	existingByUUID := make(map[string]providerModel.Instance)
+	candidateUUIDs := make([]string, 0, len(instancesToImport))
+	for _, discovered := range instancesToImport {
+		if normalized := normalizeImportedInstanceUUID(discovered.UUID); normalized != "" {
+			candidateUUIDs = append(candidateUUIDs, normalized)
+		}
+	}
+	if len(candidateUUIDs) > 0 {
+		var uuidOwners []providerModel.Instance
+		if err := global.APP_DB.Unscoped().
+			Select("id", "uuid", "name", "provider_id", "deleted_at").
+			Where("LOWER(uuid) IN ?", candidateUUIDs).
+			Find(&uuidOwners).Error; err != nil {
+			return nil, fmt.Errorf("查询已有实例UUID失败: %w", err)
+		}
+		for _, owner := range uuidOwners {
+			existingByUUID[normalizeImportedInstanceUUID(owner.UUID)] = owner
+		}
 	}
 
 	// 5. 获取已占用的端口范围（用于检测冲突）
@@ -208,7 +234,18 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 
 	// 7. 批量导入实例（使用事务）
 	err = global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		for _, discovered := range instancesToImport {
+		for importIndex, discovered := range instancesToImport {
+			if owner, exists := existingByUUID[normalizeImportedInstanceUUID(discovered.UUID)]; exists {
+				result.SkippedCount++
+				reason := fmt.Sprintf("实例UUID已由实例 %s(ID:%d) 占用，已保留现有实例", owner.Name, owner.ID)
+				if owner.DeletedAt.Valid {
+					reason = fmt.Sprintf("实例UUID已由历史实例 %s(ID:%d) 占用，已跳过重复资源", owner.Name, owner.ID)
+				}
+				result.ImportedDetails = append(result.ImportedDetails, ImportedInstanceInfo{
+					UUID: discovered.UUID, Name: discovered.Name, InstanceID: owner.ID, Status: "skipped", Error: reason,
+				})
+				continue
+			}
 			// 检查是否已存在
 			if hasMatchingDBInstance(providerInfo.Type, discovered, existingInstances) {
 				result.SkippedCount++
@@ -333,7 +370,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 			}
 
 			instance := providerModel.Instance{
-				UUID:         discovered.UUID,
+				UUID:         normalizeImportedInstanceUUID(discovered.UUID),
 				Name:         discovered.Name,
 				Provider:     providerInfo.Name,
 				ProviderID:   options.ProviderID,
@@ -364,44 +401,82 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				NetworkType:  providerInfo.NetworkType, // 继承Provider的网络类型
 			}
 
-			if err := tx.Create(&instance).Error; err != nil {
-				return fmt.Errorf("创建导入实例 %s 失败: %w", discovered.Name, err)
+			// Isolate every discovered instance with a savepoint. A concurrent
+			// name/UUID/port winner or a malformed auxiliary record must reject
+			// only this item, never roll back unrelated imports in the same batch.
+			savepoint := fmt.Sprintf("instance_import_%d", importIndex)
+			if savepointErr := tx.SavePoint(savepoint).Error; savepointErr != nil {
+				return fmt.Errorf("创建实例导入保存点失败: %w", savepointErr)
+			}
+			createResult := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&instance)
+			if createResult.Error != nil {
+				if rollbackErr := rollbackImportedInstance(tx, savepoint); rollbackErr != nil {
+					return rollbackErr
+				}
+				result.FailedCount++
+				importDetail.Status = "failed"
+				importDetail.Error = fmt.Sprintf("创建实例记录失败: %v", createResult.Error)
+				result.Errors = append(result.Errors, fmt.Sprintf("导入实例 %s 失败: %v", discovered.Name, createResult.Error))
+				result.ImportedDetails = append(result.ImportedDetails, importDetail)
+				continue
+			} else if createResult.RowsAffected == 0 || instance.ID == 0 {
+				// A different controller process may have imported the same UUID/name
+				// after the preflight query. The database keeps the first winner while
+				// the rest of this discovery batch continues normally.
+				result.SkippedCount++
+				importDetail.Status = "skipped"
+				importDetail.Error = "数据库中已有相同名称或实例UUID，已保留先写入的实例"
+				result.ImportedDetails = append(result.ImportedDetails, importDetail)
+				continue
 			} else {
 				// 创建端口映射记录
 				if err := s.createImportedPortMappings(tx, &discovered, instance.ID, options.ProviderID, conflictPortSet); err != nil {
-					return fmt.Errorf("为导入实例 %s 创建端口映射失败: %w", discovered.Name, err)
+					if rollbackErr := rollbackImportedInstance(tx, savepoint); rollbackErr != nil {
+						return rollbackErr
+					}
+					importDetail.Error = fmt.Sprintf("关联端口资源写入失败: %v", err)
+					if isDuplicateImportResourceError(err) {
+						result.SkippedCount++
+						importDetail.Status = "skipped"
+						importDetail.Error = "关联端口已由另一实例占用，已保留先写入的实例"
+					} else {
+						result.FailedCount++
+						importDetail.Status = "failed"
+						result.Errors = append(result.Errors, fmt.Sprintf("导入实例 %s 失败: %v", discovered.Name, err))
+					}
+					result.ImportedDetails = append(result.ImportedDetails, importDetail)
+					continue
 				}
-				result.SuccessCount++
-				importDetail.InstanceID = instance.ID
-				// 立即纳入本次导入的重复检查，防止异常的重复发现行
-				// 在同一事务中创建两条记录。
-				existingInstances = append(existingInstances, instance)
 
 				// 为导入的实例自动生成 ORI 前缀兑换码（一对一绑定，状态直接为 pending_use）
 				const oriCharset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 				var oriCode string
+				var redemptionErr error
 				for oriAttempt := 0; oriAttempt < 10; oriAttempt++ {
 					buf := make([]byte, 13)
-					ok := true
 					for j := range buf {
 						n, randErr := rand.Int(rand.Reader, big.NewInt(int64(len(oriCharset))))
 						if randErr != nil {
-							ok = false
+							redemptionErr = fmt.Errorf("生成ORI兑换码随机值失败: %w", randErr)
 							break
 						}
 						buf[j] = oriCharset[n.Int64()]
 					}
-					if !ok {
+					if redemptionErr != nil {
 						break
 					}
 					candidate := "ORI" + string(buf)
 					var existingOriCode systemModel.RedemptionCode
-					if tx.Where("code = ?", candidate).First(&existingOriCode).Error != nil {
+					lookupErr := tx.Where("code = ?", candidate).First(&existingOriCode).Error
+					if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
 						oriCode = candidate
+						break
+					} else if lookupErr != nil {
+						redemptionErr = fmt.Errorf("检查ORI兑换码唯一性失败: %w", lookupErr)
 						break
 					}
 				}
-				if oriCode != "" {
+				if redemptionErr == nil && oriCode != "" {
 					instanceType := discovered.InstanceType
 					if instanceType == "" {
 						instanceType = "container"
@@ -419,15 +494,33 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 						GpuDeviceIds: gpuDeviceIDs,
 					}
 					if createCodeErr := tx.Create(&oriRedemptionCode).Error; createCodeErr != nil {
-						return fmt.Errorf("为导入实例 %s 创建ORI兑换码失败: %w", discovered.Name, createCodeErr)
+						redemptionErr = fmt.Errorf("创建ORI兑换码失败: %w", createCodeErr)
 					} else {
 						global.APP_LOG.Debug("为导入实例自动生成ORI兑换码",
 							zap.Uint("instanceId", instance.ID),
 							zap.Uint("redemptionCodeID", oriRedemptionCode.ID))
 					}
-				} else {
-					return fmt.Errorf("无法为导入实例 %s 生成唯一ORI兑换码", discovered.Name)
+				} else if redemptionErr == nil {
+					redemptionErr = fmt.Errorf("无法生成唯一ORI兑换码")
 				}
+				if redemptionErr != nil {
+					if rollbackErr := rollbackImportedInstance(tx, savepoint); rollbackErr != nil {
+						return rollbackErr
+					}
+					result.FailedCount++
+					importDetail.Status = "failed"
+					importDetail.Error = redemptionErr.Error()
+					result.Errors = append(result.Errors, fmt.Sprintf("导入实例 %s 失败: %v", discovered.Name, redemptionErr))
+					result.ImportedDetails = append(result.ImportedDetails, importDetail)
+					continue
+				}
+
+				result.SuccessCount++
+				importDetail.InstanceID = instance.ID
+				// 立即纳入本次导入的重复检查，防止异常的重复发现行
+				// 在同一事务中创建两条记录。
+				existingInstances = append(existingInstances, instance)
+				existingByUUID[normalizeImportedInstanceUUID(instance.UUID)] = instance
 
 				// 标记端口为已占用
 				if discovered.SSHPort > 0 && !conflictPortSet[discovered.SSHPort] {
@@ -661,6 +754,25 @@ func selectDiscoveredInstances(instances []provider.DiscoveredInstance, selector
 		}
 	}
 	return selected, nil
+}
+
+func normalizeImportedInstanceUUID(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func rollbackImportedInstance(tx *gorm.DB, savepoint string) error {
+	if err := tx.RollbackTo(savepoint).Error; err != nil {
+		return fmt.Errorf("回滚失败的实例导入项失败: %w", err)
+	}
+	return nil
+}
+
+func isDuplicateImportResourceError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "duplicate") || strings.Contains(lower, "unique constraint") || strings.Contains(lower, "unique key")
 }
 
 func deduplicateDiscoveredInstances(instances []provider.DiscoveredInstance) ([]provider.DiscoveredInstance, []duplicateDiscoveredInstance) {

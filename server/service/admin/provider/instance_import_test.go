@@ -1,11 +1,32 @@
 package provider
 
 import (
+	"errors"
 	"testing"
 
 	providerModel "oneclickvirt/model/provider"
 	providerCore "oneclickvirt/provider"
 )
+
+func TestNormalizeImportedInstanceUUIDMatchesDatabaseIdentity(t *testing.T) {
+	if got := normalizeImportedInstanceUUID("  B12DF9C1-18BB-52E4-B509-471524819DF7  "); got != "b12df9c1-18bb-52e4-b509-471524819df7" {
+		t.Fatalf("normalized UUID = %q", got)
+	}
+}
+
+func TestDuplicateImportResourceErrorClassification(t *testing.T) {
+	for _, message := range []string{
+		"Error 1062: Duplicate entry '22022' for key 'idx_provider_host_port'",
+		"UNIQUE constraint failed: ports.provider_id, ports.host_port",
+	} {
+		if !isDuplicateImportResourceError(errors.New(message)) {
+			t.Fatalf("duplicate resource error was not classified: %s", message)
+		}
+	}
+	if isDuplicateImportResourceError(errors.New("connection reset")) {
+		t.Fatal("unrelated database error was classified as duplicate")
+	}
+}
 
 func TestSelectDiscoveredInstancesRejectsMissingAndSelectsOneAmbiguousName(t *testing.T) {
 	instances := []providerCore.DiscoveredInstance{

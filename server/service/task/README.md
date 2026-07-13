@@ -34,6 +34,10 @@
 | `agent-uninstall` | 卸载监控 Agent | 10 分钟 |
 | `traffic-monitor-enable` / `traffic-monitor-disable` / `traffic-monitor-detect` | 批量启停或探测流量监控 | 30 分钟 |
 | `provider-image-cleanup` | 清理节点运行时镜像或本地镜像缓存 | 30 分钟 |
+| `provider-instance-sync` / `provider-orphan-cleanup` | 非纯净节点实例同步与孤儿清理 | 30 / 60 分钟 |
+| `provider-health-check` / `provider-io-limit-sync` | 节点巡检与实例 IO 限速同步 | 15 / 10 分钟 |
+| `provider-runtime-reload` | Provider 配置更新后的运行时连接刷新 | 5 分钟 |
+| `provider-delete` | Provider 级联/强制删除（完成后保留脱离节点的审计任务） | 120 分钟 |
 
 默认超时来自 `utils.GetDefaultTaskTimeout`；部分监控、Agent 和清理类任务在创建时会显式传入更贴合场景的超时与预计执行时长。
 

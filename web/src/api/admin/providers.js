@@ -1,5 +1,5 @@
 import request from '@/utils/request'
-import { healthCheckRequest, createLongTimeoutRequest } from '@/utils/longTimeoutRequest'
+import { createLongTimeoutRequest } from '@/utils/longTimeoutRequest'
 
 export const getProviderList = (params) => {
   return request({
@@ -120,7 +120,7 @@ export const generateProviderCert = (id) => {
 }
 
 export const checkProviderHealth = (id) => {
-  return healthCheckRequest({
+  return request({
     url: `/v1/admin/providers/${id}/health-check`,
     method: 'post'
   })

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -168,53 +167,22 @@ func GetProviderDetail(c *gin.Context) {
 	common.ResponseSuccess(c, resp)
 }
 
-// CheckProviderHealth 检查Provider健康状态
+// CheckProviderHealth 保留旧健康检查路由，实际提交持久化后台任务。
+// @Summary 提交Provider健康检查任务（兼容路由）
+// @Description 兼容旧客户端；远端健康探测在管理员任务池中执行，请通过任务列表查看结果
+// @Tags Provider管理
+// @Security BearerAuth
+// @Param id path int true "Provider ID"
+// @Success 200 {object} common.Response{data=admin.Task} "健康检查任务已提交"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 404 {object} common.Response "Provider不存在"
+// @Failure 409 {object} common.Response "已有同类任务"
+// @Router /admin/providers/{id}/health-check [post]
 func CheckProviderHealth(c *gin.Context) {
-	providerIDStr := c.Param("id")
-	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "无效的Provider ID"))
-		return
-	}
-
-	ownerAdminID := middleware.GetOwnerAdminID(c)
-	if ownerAdminID > 0 {
-		if err := adminProvider.CheckProviderOwnership(uint(providerID), ownerAdminID); err != nil {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
-			return
-		}
-	}
-
-	forceRefresh := c.DefaultQuery("forceRefresh", "true") == "true"
-
-	providerService := adminProvider.NewService()
-	err = providerService.CheckProviderHealthWithOptions(uint(providerID), forceRefresh)
-	if err != nil {
-		errorMsg := "健康检查失败"
-		if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "i/o timeout") {
-			errorMsg = "健康检查超时，请检查网络连接或服务器状态"
-		} else if strings.Contains(err.Error(), "connection refused") {
-			errorMsg = "无法连接到服务器，请检查服务器状态和网络配置"
-		} else if strings.Contains(err.Error(), "handshake failed") {
-			errorMsg = "SSH握手失败，请检查认证信息和服务器配置"
-		} else if strings.Contains(err.Error(), "不存在") {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
-			return
-		} else {
-			errorMsg = "健康检查失败: " + err.Error()
-		}
-
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, errorMsg))
-		return
-	}
-
-	status, err := providerService.GetProviderStatus(uint(providerID))
-	if err != nil {
-		common.ResponseWithError(c, common.ClassifyError(err))
-		return
-	}
-
-	common.ResponseSuccess(c, status, "健康检查完成")
+	// Keep the legacy route as an alias, but never perform remote SSH/API probes
+	// in the HTTP request. Callers receive the persistent admin task and can
+	// observe its terminal result from the task list.
+	QueueProviderHealthCheck(c)
 }
 
 // GetProviderStatus 获取Provider状态详情

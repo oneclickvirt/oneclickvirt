@@ -9,7 +9,6 @@ import (
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	adminProvider "oneclickvirt/service/admin/provider"
-	"oneclickvirt/service/provider"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -105,13 +104,22 @@ func UpdateProvider(c *gin.Context) {
 		return
 	}
 
-	if err := provider.GetProviderService().ReloadProvider(req.ID); err != nil {
-		global.APP_LOG.Warn("Provider缓存刷新失败，新配置将在下次重启后生效",
-			zap.Uint("providerID", req.ID),
-			zap.Error(err))
+	var responseData interface{}
+	message := "更新提供商成功，运行时连接刷新任务已提交"
+	requestUserID, userErr := getUserIDFromContext(c)
+	if userErr != nil {
+		global.APP_LOG.Warn("Provider配置已保存，但无法识别运行时刷新任务管理员",
+			zap.Uint("providerID", req.ID), zap.Error(userErr))
+		message = "更新提供商成功，但运行时连接刷新任务未能入队"
+	} else if reloadTask, taskErr := providerService.CreateRuntimeReloadTask(req.ID, requestUserID); taskErr != nil {
+		global.APP_LOG.Warn("Provider配置已保存，但运行时刷新任务入队失败",
+			zap.Uint("providerID", req.ID), zap.Error(taskErr))
+		message = "更新提供商成功，但运行时连接刷新任务入队失败"
+	} else {
+		responseData = map[string]interface{}{"runtimeReloadTask": reloadTask}
 	}
 
-	common.ResponseSuccess(c, nil, "更新提供商成功")
+	common.ResponseSuccess(c, responseData, message)
 }
 
 // DeleteProvider 删除提供商
@@ -133,14 +141,19 @@ func DeleteProvider(c *gin.Context) {
 		}
 	}
 
+	requestUserID, err := getUserIDFromContext(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "无法识别当前管理员"))
+		return
+	}
 	providerService := adminProvider.NewService()
-	err = providerService.DeleteProvider(uint(providerID), forceDelete)
+	deleteTask, err := providerService.CreateDeleteTask(uint(providerID), requestUserID, forceDelete)
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
-	common.ResponseSuccess(c, nil, "删除提供商成功")
+	common.ResponseSuccess(c, deleteTask, "Provider删除任务已提交，请在管理员任务列表查看进度")
 }
 
 // FreezeProvider 冻结提供商

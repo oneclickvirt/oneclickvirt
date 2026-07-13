@@ -97,6 +97,10 @@ run_module_30() {
         else
             log_warning "Provider connectionType restoration may have failed: expected '${orig_ct}', got '${restored_ct}'"
         fi
+        if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} connection-mode restore" "$ADMIN_TOKEN" 300 5; then
+            chain_break "$group" "Provider runtime reload did not settle after connection-mode restore"
+            return 1
+        fi
     fi
 
     # =========================================================
@@ -148,69 +152,33 @@ run_module_30() {
         test_api "Agent provider monitoring status" "GET" "/api/v1/admin/providers/${agent_pid}/monitoring/status" "200|400" "" "$group"
 
         # -- Switch from agent back to ssh mode (requires full SSH connection info) --
+        # The worker's only SSH listener is port 22. Container host mappings such
+        # as 22022 are not alternate host SSH listeners and must never be tried
+        # here. The primary Provider normally owns WORKER_IP:22, so a fast 409 is
+        # a valid duplicate-endpoint result; Section A already covers a successful
+        # same-Provider agent->ssh transition using the real endpoint.
         local switch_endpoint="${WORKER_IP}"
         local switch_port=22
         if [[ -n "$switch_endpoint" ]]; then
-            local providers_resp; providers_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-                "${SERVER_URL}/api/v1/admin/providers?page=1&pageSize=200" 2>/dev/null)
-            local endpoint_conflict; endpoint_conflict=$(echo "$providers_resp" | jq -r 2>/dev/null \
-                --arg endpoint "$switch_endpoint" \
-                --arg self_id "$agent_pid" \
-                --argjson ssh_port "$switch_port" \
-                'def p: (.sshPort // .ssh_port // 22 | tonumber? // 22);
-                 def e: (.endpoint // .host // "");
-                 if any((.data.list // .data.items // .data // [])[]?; ((.id // .ID | tostring) != $self_id) and (e == $endpoint) and (p == $ssh_port)) then "yes" else "no" end')
-            if [[ "$endpoint_conflict" == "yes" ]]; then
-                for candidate_port in 22022 22023 22024 22025 22026 22027 22028 22029; do
-                    local port_conflict; port_conflict=$(echo "$providers_resp" | jq -r 2>/dev/null \
-                        --arg endpoint "$switch_endpoint" \
-                        --arg self_id "$agent_pid" \
-                        --argjson ssh_port "$candidate_port" \
-                        'def p: (.sshPort // .ssh_port // 22 | tonumber? // 22);
-                         def e: (.endpoint // .host // "");
-                         if any((.data.list // .data.items // .data // [])[]?; ((.id // .ID | tostring) != $self_id) and (e == $endpoint) and (p == $ssh_port)) then "yes" else "no" end')
-                    if [[ "$port_conflict" != "yes" ]]; then
-                        switch_port="$candidate_port"
-                        break
-                    fi
-                done
-                log_info "Switch agent->ssh uses non-conflicting endpoint tuple: ${switch_endpoint}:${switch_port}"
-            fi
-
-            # If collision still happens due backend-side normalization, retry with alternative ports.
             local switch_payload=''
             if [[ "$use_worker_key" == "true" || ( -z "$worker_pass" && -n "$worker_key" ) ]]; then
-                local escaped_switch_key; escaped_switch_key=$(echo "$worker_key" | jq -Rsa .)
-                switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${switch_port},\"username\":\"root\",\"password\":\"\",\"sshKey\":${escaped_switch_key}}"
+                switch_payload=$(jq -cn --arg endpoint "$switch_endpoint" --arg key "$worker_key" --argjson port "$switch_port" \
+                    '{connectionType:"ssh",endpoint:$endpoint,sshPort:$port,username:"root",password:"",sshKey:$key}')
             elif [[ -n "$worker_pass" ]]; then
-                switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${switch_port},\"username\":\"root\",\"password\":\"${worker_pass}\",\"sshKey\":\"\"}"
+                switch_payload=$(jq -cn --arg endpoint "$switch_endpoint" --arg password "$worker_pass" --argjson port "$switch_port" \
+                    '{connectionType:"ssh",endpoint:$endpoint,sshPort:$port,username:"root",password:$password,sshKey:""}')
             fi
             if [[ -n "$switch_payload" ]]; then
                 local switch_resp=''
                 local switch_code=''
-                local switched_ok=0
-                local try_port=''
-                for try_port in "$switch_port" 22022 22023 22024 22025 22026 22027 22028 22029; do
-                    if [[ "$try_port" != "$switch_port" ]]; then
-                        if [[ "$use_worker_key" == "true" || ( -z "$worker_pass" && -n "$worker_key" ) ]]; then
-                            local escaped_switch_key_retry; escaped_switch_key_retry=$(echo "$worker_key" | jq -Rsa .)
-                            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${try_port},\"username\":\"root\",\"password\":\"\",\"sshKey\":${escaped_switch_key_retry}}"
-                        else
-                            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${try_port},\"username\":\"root\",\"password\":\"${worker_pass}\",\"sshKey\":\"\"}"
-                        fi
+                switch_resp=$(ACTION_TEST_API_TIMEOUT=30 test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200|409" \
+                    "$switch_payload" "$group")
+                switch_code=$(echo "$switch_resp" | jq -r '.code // empty' 2>/dev/null)
+                if [[ "$switch_code" == "200" ]]; then
+                    if ! wait_provider_active_tasks_idle "$agent_pid" "switched provider ${agent_pid} runtime reload" "$ADMIN_TOKEN" 300 5; then
+                        record_fail_result "Switched provider runtime reload" "GET" "/api/v1/admin/tasks" \
+                            "no active tasks" "timeout" "Provider reload task did not settle before auto-configure" "$group"
                     fi
-                    switch_resp=$(test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200|409" \
-                        "$switch_payload" "$group")
-                    switch_code=$(echo "$switch_resp" | jq -r '.code // empty' 2>/dev/null)
-                    if [[ "$switch_code" == "200" ]]; then
-                        switched_ok=1
-                        switch_port="$try_port"
-                        break
-                    fi
-                    log_warning "Switch agent->ssh conflict on ${switch_endpoint}:${try_port}, trying next port"
-                done
-
-                if [[ "$switched_ok" -eq 1 ]]; then
                     # Run task-based configure flow after a successful switch to ssh mode.
                     local sw_ac_resp; sw_ac_resp=$(test_api "Auto-configure switched provider" "POST" \
                         "/api/v1/admin/providers/auto-configure" "200|400|500" \
@@ -221,8 +189,7 @@ run_module_30() {
                         wait_configuration_task_complete_nonfatal "$sw_ac_task" "$ADMIN_TOKEN" "$CONFIG_TASK_MAX_WAIT" 10 > /dev/null 2>&1 || true
                     fi
                 else
-                    test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200" \
-                        "$switch_payload" "$group"
+                    log_info "Worker SSH endpoint ${switch_endpoint}:22 is already owned; duplicate tuple was rejected without trying unrelated container ports"
                 fi
             else
                 log_warning "Skipping agent->ssh switch test because no SSH credentials are available"
@@ -230,7 +197,8 @@ run_module_30() {
         fi
 
         # -- Cleanup --
-        test_api "Delete agent-mode provider" "DELETE" "/api/v1/admin/providers/${agent_pid}" "200" "" "$group"
+        wait_provider_active_tasks_idle "$agent_pid" "agent-mode provider ${agent_pid} before cleanup" "$ADMIN_TOKEN" 180 5 || true
+        delete_provider_and_wait "$agent_pid" "agent-mode provider" "$group" "$ADMIN_TOKEN" true
     else
         log_warning "Could not create agent-mode provider for full test (may be 409 conflict)"
     fi
@@ -240,7 +208,7 @@ run_module_30() {
     # =========================================================
 
     # -- Enable GPU on existing provider --
-    test_api "Enable GPU on provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+    ACTION_TEST_API_TIMEOUT=30 test_api "Enable GPU on provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
         '{"gpuEnabled":true,"gpuDeviceIds":"0,1"}' "$group"
 
     # -- Verify gpuEnabled persisted --
@@ -260,8 +228,12 @@ run_module_30() {
     fi
 
     # -- Disable GPU --
-    test_api "Disable GPU on provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+    ACTION_TEST_API_TIMEOUT=30 test_api "Disable GPU on provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
         '{"gpuEnabled":false,"gpuDeviceIds":""}' "$group"
+    if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} GPU updates" "$ADMIN_TOKEN" 300 5; then
+        record_fail_result "Provider runtime reload after GPU updates" "GET" "/api/v1/admin/tasks" \
+            "no active tasks" "timeout" "Provider reload task did not settle" "$group"
+    fi
 
     # =========================================================
     # Section D: LXD/Incus-specific GPU & Container Features

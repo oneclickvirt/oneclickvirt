@@ -277,6 +277,15 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 	// 但如果Provider实际上是active状态且未冻结，应该允许任务继续执行
 	// 删除、停止及管理员维护任务即使Provider不可用也要允许尝试连接和修复。
 	providerUnavailableAllowed := taskAllowedWhenProviderUnavailable(task.TaskType)
+	if provider.Status == "deleting" && !taskAllowedWhenProviderDeleting(task.TaskType) {
+		global.APP_LOG.Warn("Provider deletion is pending, cancelling non-delete task",
+			zap.Uint("provider_id", *task.ProviderID),
+			zap.String("provider_name", provider.Name),
+			zap.String("task_type", task.TaskType),
+			zap.Uint("task_id", task.ID))
+		s.taskService.CancelTaskByAdmin(task.ID, "Provider deletion is pending")
+		return
+	}
 	if provider.IsFrozen && !providerUnavailableAllowed {
 		global.APP_LOG.Warn("Provider is frozen, cancelling task",
 			zap.Uint("provider_id", *task.ProviderID),
@@ -368,11 +377,16 @@ func taskAllowedWhenProviderUnavailable(taskType string) bool {
 	switch taskType {
 	case "delete", "stop",
 		"provider-instance-sync", "provider-orphan-cleanup",
-		"provider-health-check", "provider-io-limit-sync":
+		"provider-health-check", "provider-io-limit-sync", "provider-runtime-reload",
+		"provider-delete":
 		return true
 	default:
 		return false
 	}
+}
+
+func taskAllowedWhenProviderDeleting(taskType string) bool {
+	return taskType == "provider-delete"
 }
 
 // GetSchedulerStats 获取调度器统计信息

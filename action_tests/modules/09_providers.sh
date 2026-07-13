@@ -262,7 +262,7 @@ run_module_09() {
             "{\"name\":\"ci-proxmox-thirdparty\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload},\"nodeInstallType\":\"third_party\",\"bridgeNAT\":\"vmbr1\",\"bridgeDedicatedV4\":\"vmbr0\",\"bridgeDedicatedV6\":\"\",\"natSubnet\":\"172.16.1.0/24\"}" "$group")
         local tp_pid; tp_pid=$(echo "$tp_create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         if [[ -n "$tp_pid" ]]; then
-            test_api "Delete third_party test provider" "DELETE" "/api/v1/admin/providers/${tp_pid}" "200" "" "$group"
+            delete_provider_and_wait "$tp_pid" "third_party test provider" "$group" "$ADMIN_TOKEN" true
         fi
     fi
 
@@ -304,8 +304,10 @@ run_module_09() {
     fi
 
     # -- Health check --
-    test_api_retry "Provider health check" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/health-check" "200" \
-        '{}' 3 10 "$group"
+    if ! ensure_provider_health_ready "$PROVIDER_ID" "$ADMIN_TOKEN" 0; then
+        record_fail_result "Provider health check" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/health-check-task" \
+            "completed task" "failed" "Provider health task did not complete" "$group"
+    fi
 
     # -- Provider status --
     test_api "Provider status" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group"
@@ -519,7 +521,7 @@ EOF
     fi
 
     rm -f "$csv_import_file"
-    test_api "Delete CSV imported provider" "DELETE" "/api/v1/admin/providers/${csv_created_id}" "200" "" "$group"
+    delete_provider_and_wait "$csv_created_id" "CSV imported provider" "$group" "$ADMIN_TOKEN" true
 
     # -- Provider API routes --
     test_api "Provider API list" "GET" "/api/v1/providers" "200" "" "$group"
@@ -543,7 +545,7 @@ EOF
         else
             log_warning "isPureNode mismatch: expected true, got '${is_pure}'"
         fi
-        test_api "Delete isPureNode provider" "DELETE" "/api/v1/admin/providers/${pure_pid}" "200" "" "$group"
+        delete_provider_and_wait "$pure_pid" "isPureNode provider" "$group" "$ADMIN_TOKEN" true
     fi
 
     # -- gpuEnabled field: update provider with gpuEnabled=true --
@@ -601,7 +603,7 @@ EOF
         local key_pid; key_pid=$(echo "$key_provider" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         if [[ -n "$key_pid" ]]; then
             test_api "Key provider status" "GET" "/api/v1/admin/providers/${key_pid}/status" "200" "" "$group"
-            test_api "Delete key provider" "DELETE" "/api/v1/admin/providers/${key_pid}" "200" "" "$group"
+            delete_provider_and_wait "$key_pid" "key provider" "$group" "$ADMIN_TOKEN" true
         fi
     fi
 
@@ -615,7 +617,7 @@ EOF
         '{"name":"invalid-port-provider","type":"docker","endpoint":"192.0.2.1","sshPort":99999,"username":"root","password":"test"}' "$group")
     local inv_port_id; inv_port_id=$(echo "$inv_port_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
     if [[ -n "$inv_port_id" ]]; then
-        test_api "Delete invalid-port provider" "DELETE" "/api/v1/admin/providers/${inv_port_id}" "200" "" "$group"
+        delete_provider_and_wait "$inv_port_id" "invalid-port provider" "$group" "$ADMIN_TOKEN" true
     fi
 
     # Get nonexistent provider

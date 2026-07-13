@@ -13,9 +13,11 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
+	runtimeProvider "oneclickvirt/service/provider"
 	"oneclickvirt/service/task"
 	"oneclickvirt/utils"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -26,6 +28,8 @@ const (
 	taskTypeProviderOrphanCleanup = "provider-orphan-cleanup"
 	taskTypeProviderHealthCheck   = "provider-health-check"
 	taskTypeProviderIOLimitSync   = "provider-io-limit-sync"
+	taskTypeProviderRuntimeReload = "provider-runtime-reload"
+	taskTypeProviderDelete        = "provider-delete"
 )
 
 type InstanceSyncTaskOptions struct {
@@ -37,6 +41,7 @@ type InstanceSyncTaskOptions struct {
 type providerTaskPayload struct {
 	InstanceSyncTaskOptions
 	ForceRefresh bool `json:"forceRefresh,omitempty"`
+	ForceDelete  bool `json:"forceDelete,omitempty"`
 }
 
 func init() {
@@ -44,6 +49,8 @@ func init() {
 	task.RegisterExternalTaskHandler(taskTypeProviderOrphanCleanup, executeProviderOrphanCleanupTask)
 	task.RegisterExternalTaskHandler(taskTypeProviderHealthCheck, executeProviderHealthCheckTask)
 	task.RegisterExternalTaskHandler(taskTypeProviderIOLimitSync, executeProviderIOLimitSyncTask)
+	task.RegisterExternalTaskHandler(taskTypeProviderRuntimeReload, executeProviderRuntimeReloadTask)
+	task.RegisterExternalTaskHandler(taskTypeProviderDelete, executeProviderDeleteTask)
 }
 
 func (s *Service) CreateInstanceSyncTask(providerID, requestedBy uint, options InstanceSyncTaskOptions) (*adminModel.Task, error) {
@@ -102,11 +109,41 @@ func (s *Service) CreateOrphanCleanupTask(providerID, requestedBy uint) (*adminM
 }
 
 func (s *Service) CreateHealthCheckTask(providerID, requestedBy uint, forceRefresh bool) (*adminModel.Task, error) {
+	var count int64
+	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", providerID).Count(&count).Error; err != nil {
+		return nil, fmt.Errorf("检查Provider失败: %w", err)
+	}
+	if count == 0 {
+		return nil, common.NewError(common.CodeNotFound, "Provider不存在")
+	}
 	return createUniqueProviderTask(providerID, requestedBy, taskTypeProviderHealthCheck, providerTaskPayload{ForceRefresh: forceRefresh}, 900)
 }
 
 func (s *Service) CreateIOLimitSyncTask(providerID, requestedBy uint) (*adminModel.Task, error) {
 	return createUniqueProviderTask(providerID, requestedBy, taskTypeProviderIOLimitSync, providerTaskPayload{}, 600)
+}
+
+// CreateRuntimeReloadTask refreshes the in-memory Provider connection after a
+// configuration update. A pending task reads the latest DB row when it starts,
+// so it can be reused. If one is already processing/running, a new pending task is
+// queued behind it to guarantee rapid successive edits converge to the newest
+// configuration without blocking the HTTP request on SSH.
+func (s *Service) CreateRuntimeReloadTask(providerID, requestedBy uint) (*adminModel.Task, error) {
+	return createConvergentProviderTask(providerID, requestedBy, taskTypeProviderRuntimeReload, providerTaskPayload{}, 300)
+}
+
+// CreateDeleteTask queues both cascade and database-only deletion. Cascade
+// deletion may perform one remote delete per instance and must never execute in
+// the HTTP request that submitted it.
+func (s *Service) CreateDeleteTask(providerID, requestedBy uint, forceDelete bool) (*adminModel.Task, error) {
+	var count int64
+	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", providerID).Count(&count).Error; err != nil {
+		return nil, fmt.Errorf("检查Provider失败: %w", err)
+	}
+	if count == 0 {
+		return nil, common.NewError(common.CodeNotFound, "Provider不存在")
+	}
+	return createUniqueProviderTask(providerID, requestedBy, taskTypeProviderDelete, providerTaskPayload{ForceDelete: forceDelete}, 7200)
 }
 
 func (s *Service) CreateTrafficMonitorToggleTask(providerID uint, enabled bool) (*adminModel.Task, error) {
@@ -187,6 +224,44 @@ func createUniqueProviderTask(providerID, requestedBy uint, taskType string, pay
 		global.APP_SCHEDULER.TriggerTaskProcessing()
 	}
 	return created, nil
+}
+
+func createConvergentProviderTask(providerID, requestedBy uint, taskType string, payload providerTaskPayload, timeout int) (*adminModel.Task, error) {
+	providerTaskCreateMu.Lock()
+	defer providerTaskCreateMu.Unlock()
+	if providerID == 0 || requestedBy == 0 {
+		return nil, common.NewError(common.CodeValidationError, "后台任务参数无效")
+	}
+	var queued adminModel.Task
+	// Only a not-yet-started task is safe to reuse: it will read the latest DB
+	// row when it eventually runs. A processing/running task may already have
+	// captured the previous configuration, so a new pending task must be queued
+	// behind it to converge rapid successive edits.
+	err := global.APP_DB.Where("provider_id = ? AND task_type = ? AND status = ?", providerID, taskType,
+		convergentTaskReusableStatus()).Order("id DESC").First(&queued).Error
+	if err == nil {
+		return &queued, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("检查待执行后台任务失败: %w", err)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("序列化后台任务参数失败: %w", err)
+	}
+	providerIDCopy := providerID
+	created, err := task.GetTaskService().CreateTask(requestedBy, &providerIDCopy, nil, taskType, string(data), timeout)
+	if err != nil {
+		return nil, err
+	}
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
+	return created, nil
+}
+
+func convergentTaskReusableStatus() string {
+	return "pending"
 }
 
 func resolveProviderTaskUserID(preferred uint) (uint, error) {
@@ -306,6 +381,112 @@ func executeProviderIOLimitSyncTask(ctx context.Context, adminTask *adminModel.T
 	}
 	utils.UpdateTaskProgress(adminTask.ID, 100, "实例IO限速同步完成")
 	return nil
+}
+
+func executeProviderRuntimeReloadTask(ctx context.Context, adminTask *adminModel.Task) error {
+	providerID, err := providerIDFromTask(adminTask)
+	if err != nil {
+		return err
+	}
+	utils.UpdateTaskProgress(adminTask.ID, 10, "开始刷新节点运行时连接")
+	if err := runtimeProvider.GetProviderService().ReloadProviderContext(ctx, providerID); err != nil {
+		return fmt.Errorf("刷新节点运行时连接失败: %w", err)
+	}
+	utils.UpdateTaskProgress(adminTask.ID, 100, "节点运行时连接已刷新")
+	return nil
+}
+
+func executeProviderDeleteTask(ctx context.Context, adminTask *adminModel.Task) error {
+	providerID, err := providerIDFromTask(adminTask)
+	if err != nil {
+		return err
+	}
+	var payload providerTaskPayload
+	if strings.TrimSpace(adminTask.TaskData) != "" {
+		if err := json.Unmarshal([]byte(adminTask.TaskData), &payload); err != nil {
+			return fmt.Errorf("解析Provider删除任务参数失败: %w", err)
+		}
+	}
+
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("id", "name", "status").First(&provider, providerID).Error; err != nil {
+		return fmt.Errorf("读取待删除Provider失败: %w", err)
+	}
+	originalStatus := provider.Status
+	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", providerID).Update("status", "deleting").Error; err != nil {
+		return fmt.Errorf("标记Provider删除状态失败: %w", err)
+	}
+	deletionSucceeded := false
+	defer func() {
+		if deletionSucceeded {
+			return
+		}
+		// A failed/cancelled delete must not strand the node in a state that
+		// rejects every later operation. Do not recreate a Provider that was
+		// actually removed before a late cleanup error.
+		_ = global.APP_DB.Model(&providerModel.Provider{}).
+			Where("id = ? AND status = ?", providerID, "deleting").
+			Update("status", originalStatus).Error
+	}()
+
+	utils.UpdateTaskProgress(adminTask.ID, 5, "等待节点上的其他任务结束")
+	if err := waitForOtherProviderTasks(ctx, providerID, adminTask.ID); err != nil {
+		return err
+	}
+	mode := "级联删除远端实例并清理节点"
+	if payload.ForceDelete {
+		mode = "仅清理节点数据库记录"
+	}
+	utils.UpdateTaskProgress(adminTask.ID, 15, mode)
+	if err := NewService().deleteProviderWithTaskContext(ctx, providerID, payload.ForceDelete, adminTask.ID); err != nil {
+		return err
+	}
+	deletionSucceeded = true
+	utils.UpdateTaskProgress(adminTask.ID, 100, fmt.Sprintf("节点 %s 删除完成", provider.Name))
+	return nil
+}
+
+func waitForOtherProviderTasks(ctx context.Context, providerID, currentTaskID uint) error {
+	// A task already marked processing may still be sitting in this same
+	// Provider pool behind the exclusive delete task. Waiting for it would
+	// deadlock a single-worker pool, so cancel queued work first through the
+	// normal task service (which also releases reservations/transitional state).
+	var queued []adminModel.Task
+	if err := global.APP_DB.Select("id").
+		Where("provider_id = ? AND id <> ? AND status IN ?", providerID, currentTaskID,
+			[]string{"pending", "processing"}).
+		Find(&queued).Error; err != nil {
+		return fmt.Errorf("查询节点排队任务失败: %w", err)
+	}
+	for _, queuedTask := range queued {
+		if err := task.GetTaskService().CancelTaskByAdmin(queuedTask.ID, "Provider deletion is pending"); err != nil {
+			// The worker may have moved processing -> running between the query
+			// and cancellation. The loop below then waits for its real terminal
+			// state, so only log this race instead of failing deletion immediately.
+			global.APP_LOG.Debug("取消Provider排队任务时状态已变化",
+				zap.Uint("providerID", providerID), zap.Uint("taskID", queuedTask.ID), zap.Error(err))
+		}
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		var activeCount int64
+		if err := global.APP_DB.Model(&adminModel.Task{}).
+			Where("provider_id = ? AND id <> ? AND status IN ?", providerID, currentTaskID,
+				[]string{"processing", "running", "cancelling"}).
+			Count(&activeCount).Error; err != nil {
+			return fmt.Errorf("检查节点活跃任务失败: %w", err)
+		}
+		if activeCount == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("等待节点其他任务结束失败: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func providerIDFromTask(adminTask *adminModel.Task) (uint, error) {
