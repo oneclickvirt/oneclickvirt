@@ -20,12 +20,12 @@ import (
 )
 
 func init() {
-	// 注册 Agent 连接回调：当 Agent 模式节点上线后，自动执行延迟的实例发现与导入。
+	// 注册 Agent 连接回调：当 Agent 模式节点上线后，将延迟同步持久化到管理员任务池。
 	agentService.OnAgentConnected = func(providerID uint) {
 		svc := &Service{}
-		// 从 DB 读取发现参数（已在 triggerPendingDiscovery 中清除了 pending_discovery 标记）
+		// 从 DB 读取发现参数（已在 triggerPendingDiscovery 中清除了 pending_discovery 标记）。
 		var p providerModel.Provider
-		if err := global.APP_DB.Select("discovery_owner_user_id, discovery_auto_import, discovery_auto_adjust").
+		if err := global.APP_DB.Select("instance_discovery_enabled, discovery_owner_user_id, discovery_auto_import, discovery_auto_adjust, owner_admin_id").
 			Where("id = ?", providerID).First(&p).Error; err != nil {
 			global.APP_LOG.Warn("OnAgentConnected: 查询 Provider 发现参数失败",
 				zap.Uint("providerID", providerID), zap.Error(err))
@@ -33,9 +33,29 @@ func init() {
 		}
 		ownerUserID := p.DiscoveryOwnerUserID
 		if ownerUserID == 0 {
-			ownerUserID = 1 // 默认管理员
+			var err error
+			ownerUserID, err = resolveProviderTaskUserID(0)
+			if err != nil {
+				global.APP_LOG.Error("Agent连接后无法确定实例同步管理员", zap.Uint("providerID", providerID), zap.Error(err))
+				return
+			}
 		}
-		svc.discoverAndImportInstances(providerID, p.DiscoveryAutoImport, p.DiscoveryAutoAdjust, ownerUserID)
+		if !p.InstanceDiscoveryEnabled {
+			return
+		}
+		taskUserID, err := resolveProviderTaskUserID(p.OwnerAdminID)
+		if err != nil {
+			global.APP_LOG.Error("Agent连接后无法确定实例同步任务管理员", zap.Uint("providerID", providerID), zap.Error(err))
+			return
+		}
+		if _, err := svc.CreateInstanceSyncTask(providerID, taskUserID, InstanceSyncTaskOptions{
+			AutoImport:      p.DiscoveryAutoImport,
+			AutoAdjustQuota: p.DiscoveryAutoAdjust,
+			AdminUserID:     ownerUserID,
+		}); err != nil {
+			global.APP_LOG.Error("Agent连接后创建实例同步任务失败",
+				zap.Uint("providerID", providerID), zap.Error(err))
+		}
 	}
 }
 
@@ -175,36 +195,39 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	}
 
 	provider := providerModel.Provider{
-		Name:                  req.Name,
-		Description:           req.Description,
-		Type:                  providerType,
-		Endpoint:              normalizedEndpoint,
-		PortIP:                req.PortIP,
-		SSHPort:               normalizedSSHPort,
-		Username:              providerUsername,
-		Password:              req.Password,
-		SSHKey:                req.SSHKey,
-		Token:                 req.Token,
-		Config:                req.Config,
-		Region:                req.Region,
-		Country:               req.Country,
-		CountryCode:           req.CountryCode,
-		City:                  req.City,
-		Architecture:          req.Architecture,
-		ContainerEnabled:      containerEnabled,
-		VirtualMachineEnabled: vmEnabled,
-		TotalQuota:            req.TotalQuota,
-		AllowClaim:            req.AllowClaim,
-		RedeemCodeOnly:        req.RedeemCodeOnly,
-		Status:                "active",
-		ExpiresAt:             expiresAt,
-		IsFrozen:              false,
-		MaxContainerInstances: req.MaxContainerInstances,
-		MaxVMInstances:        req.MaxVMInstances,
-		AllowConcurrentTasks:  req.AllowConcurrentTasks,
-		MaxConcurrentTasks:    req.MaxConcurrentTasks,
-		TaskPollInterval:      req.TaskPollInterval,
-		EnableTaskPolling:     req.EnableTaskPolling,
+		Name:                     req.Name,
+		Description:              req.Description,
+		Type:                     providerType,
+		Endpoint:                 normalizedEndpoint,
+		PortIP:                   req.PortIP,
+		SSHPort:                  normalizedSSHPort,
+		Username:                 providerUsername,
+		Password:                 req.Password,
+		SSHKey:                   req.SSHKey,
+		Token:                    req.Token,
+		Config:                   req.Config,
+		Region:                   req.Region,
+		Country:                  req.Country,
+		CountryCode:              req.CountryCode,
+		City:                     req.City,
+		Architecture:             req.Architecture,
+		ContainerEnabled:         containerEnabled,
+		VirtualMachineEnabled:    vmEnabled,
+		TotalQuota:               req.TotalQuota,
+		AllowClaim:               req.AllowClaim,
+		RedeemCodeOnly:           req.RedeemCodeOnly,
+		Status:                   "active",
+		ExpiresAt:                expiresAt,
+		IsFrozen:                 false,
+		MaxContainerInstances:    req.MaxContainerInstances,
+		MaxVMInstances:           req.MaxVMInstances,
+		AllowConcurrentTasks:     req.AllowConcurrentTasks,
+		MaxConcurrentTasks:       req.MaxConcurrentTasks,
+		TaskPollInterval:         req.TaskPollInterval,
+		EnableTaskPolling:        req.EnableTaskPolling,
+		InstanceDiscoveryEnabled: req.DiscoverMode,
+		DiscoveryAutoImport:      req.AutoImport,
+		DiscoveryAutoAdjust:      req.AutoAdjustQuota,
 		// 存储配置（所有Provider类型通用）
 		StoragePool: req.StoragePool,
 		// StoragePoolPath 将在健康检查时自动检测并填充
@@ -484,27 +507,27 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		zap.String("type", req.Type),
 		zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)))
 
-	// LXD/Incus 节点录入后立即做一次强制资源/存储同步。
-	// 这一步会保留可用的原 storagePool；如果原值为空、local/default 占位符或远端不存在，
-	// 会自动改成远端实际存在的 pool，并刷新运行时缓存，避免刚录入后马上创建实例时使用旧配置。
+	// LXD/Incus 节点录入后的强制资源/存储同步可能执行远端命令，必须进入
+	// 持久化任务池，避免创建请求等待数分钟或进程重启后丢失执行状态。
 	if provider.ConnectionType == "ssh" && isLXDOrIncusProvider(provider.Type) {
-		if err := s.CheckProviderHealthWithOptions(provider.ID, true); err != nil {
-			global.APP_LOG.Warn("Provider创建后自动同步LXD/Incus存储配置失败，节点已保存，可稍后手动健康检查重试",
-				zap.Uint("providerID", provider.ID),
-				zap.String("provider", provider.Name),
-				zap.String("type", provider.Type),
-				zap.Error(err))
-		} else if err := global.APP_DB.First(&provider, provider.ID).Error; err != nil {
-			global.APP_LOG.Warn("Provider创建后重新读取已纠正配置失败",
-				zap.Uint("providerID", provider.ID),
-				zap.Error(err))
+		if taskUserID, err := resolveProviderTaskUserID(ownerAdminID); err != nil {
+			global.APP_LOG.Warn("Provider已创建，但无法确定健康检查任务管理员", zap.Uint("providerID", provider.ID), zap.Error(err))
+		} else if _, err := s.CreateHealthCheckTask(provider.ID, taskUserID, true); err != nil {
+			global.APP_LOG.Warn("Provider已创建，但LXD/Incus资源同步任务入队失败，可在操作菜单中重试",
+				zap.Uint("providerID", provider.ID), zap.Error(err))
 		}
 	}
 
 	// 如果启用了实例发现模式，则在创建成功后执行实例发现和导入
 	if req.DiscoverMode {
 		// 解析导入实例的所有者用户ID
-		var ownerUserID uint = 1 // 默认为管理员（ID=1）
+		taskUserID, ownerErr := resolveProviderTaskUserID(ownerAdminID)
+		if ownerErr != nil {
+			global.APP_LOG.Warn("Provider已创建，但无法确定导入实例所有者，实例同步未入队",
+				zap.Uint("providerId", provider.ID), zap.Error(ownerErr))
+			return &provider, nil
+		}
+		ownerUserID := taskUserID
 		if req.ImportedInstanceOwner != nil && *req.ImportedInstanceOwner != "" {
 			// 根据用户名查询用户ID
 			var user struct {
@@ -514,20 +537,27 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 				global.APP_LOG.Warn("导入实例所有者用户不存在，使用默认管理员",
 					zap.String("username", *req.ImportedInstanceOwner),
 					zap.Error(err))
-				ownerUserID = 1
+				// 保留上面解析出的当前/首个管理员作为安全默认值。
 			} else {
 				ownerUserID = user.ID
 			}
+		}
+		provider.DiscoveryOwnerUserID = ownerUserID
+		provider.DiscoveryAutoImport = req.AutoImport
+		provider.DiscoveryAutoAdjust = req.AutoAdjustQuota
+		if err := global.APP_DB.Model(&provider).Updates(map[string]interface{}{
+			"discovery_owner_user_id": ownerUserID,
+			"discovery_auto_import":   req.AutoImport,
+			"discovery_auto_adjust":   req.AutoAdjustQuota,
+		}).Error; err != nil {
+			global.APP_LOG.Warn("保存实例同步配置失败", zap.Uint("providerId", provider.ID), zap.Error(err))
 		}
 
 		if provider.ConnectionType == "agent" {
 			// Agent 模式：Agent 尚未连接，延迟到 Agent 上线后再执行发现与导入。
 			// 将发现参数写入 Provider 记录，由 AgentHub.Register 在 Agent 连接后触发。
 			if err := global.APP_DB.Model(&provider).Updates(map[string]interface{}{
-				"pending_discovery":       true,
-				"discovery_owner_user_id": ownerUserID,
-				"discovery_auto_import":   req.AutoImport,
-				"discovery_auto_adjust":   req.AutoAdjustQuota,
+				"pending_discovery": true,
 			}).Error; err != nil {
 				global.APP_LOG.Warn("设置Agent模式延迟发现标记失败",
 					zap.Uint("providerId", provider.ID),
@@ -539,81 +569,23 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 					zap.Uint("ownerUserID", ownerUserID))
 			}
 		} else {
-			// SSH 模式：立即可连接，直接异步执行发现和导入
-			global.APP_LOG.Info("Provider创建成功，开始发现实例",
+			// SSH/local 模式：立即创建持久化后台任务，避免裸 goroutine 丢失状态。
+			global.APP_LOG.Info("Provider创建成功，实例同步任务准备入队",
 				zap.String("provider", req.Name),
 				zap.Uint("providerId", provider.ID),
 				zap.Bool("autoImport", req.AutoImport),
 				zap.Uint("ownerUserID", ownerUserID))
 
-			go s.discoverAndImportInstances(provider.ID, req.AutoImport, req.AutoAdjustQuota, ownerUserID)
+			if _, err := s.CreateInstanceSyncTask(provider.ID, taskUserID, InstanceSyncTaskOptions{
+				AutoImport:      req.AutoImport,
+				AutoAdjustQuota: req.AutoAdjustQuota,
+				AdminUserID:     ownerUserID,
+			}); err != nil {
+				global.APP_LOG.Warn("Provider已创建，但实例同步任务入队失败，可在操作菜单中重试",
+					zap.Uint("providerId", provider.ID), zap.Error(err))
+			}
 		}
 	}
 
 	return &provider, nil
-}
-
-// discoverAndImportInstances 发现并导入实例（异步执行）
-func (s *Service) discoverAndImportInstances(providerID uint, autoImport, autoAdjustQuota bool, adminUserID uint) {
-	ctx := context.Background()
-
-	// 等待一小段时间确保Provider连接已建立
-	time.Sleep(5 * time.Second)
-
-	// 执行实例发现（agent模式下连接刚建立时增加重试）
-	var (
-		discoveryResult *DiscoveryResult
-		err             error
-	)
-	for attempt := 1; attempt <= 3; attempt++ {
-		discoveryResult, err = s.DiscoverProviderInstances(ctx, providerID)
-		if err == nil {
-			break
-		}
-		global.APP_LOG.Warn("Provider实例发现失败，准备重试",
-			zap.Uint("providerId", providerID),
-			zap.Int("attempt", attempt),
-			zap.Error(err))
-		if attempt < 3 {
-			time.Sleep(3 * time.Second)
-		}
-	}
-	if err != nil {
-		global.APP_LOG.Error("Provider实例发现失败",
-			zap.Uint("providerId", providerID),
-			zap.Error(err))
-		return
-	}
-
-	global.APP_LOG.Info("Provider实例发现完成",
-		zap.Uint("providerId", providerID),
-		zap.Int("totalInstances", discoveryResult.TotalCount),
-		zap.Int("newInstances", discoveryResult.NewInstances),
-		zap.Int("alreadyManaged", discoveryResult.AlreadyManaged))
-
-	// 如果启用了自动导入且有新实例，执行导入
-	if autoImport && discoveryResult.NewInstances > 0 {
-		importOptions := ImportOptions{
-			ProviderID:      providerID,
-			InstanceUUIDs:   nil, // 导入所有新实例
-			AdminUserID:     adminUserID,
-			AutoAdjustQuota: autoAdjustQuota,
-			MarkConflicts:   true,
-		}
-
-		importResult, err := s.ImportDiscoveredInstances(ctx, importOptions)
-		if err != nil {
-			global.APP_LOG.Error("Provider实例导入失败",
-				zap.Uint("providerId", providerID),
-				zap.Error(err))
-			return
-		}
-
-		global.APP_LOG.Info("Provider实例导入完成",
-			zap.Uint("providerId", providerID),
-			zap.Int("attempted", importResult.TotalAttempted),
-			zap.Int("success", importResult.SuccessCount),
-			zap.Int("failed", importResult.FailedCount),
-			zap.Int("portConflicts", importResult.PortConflicts))
-	}
 }

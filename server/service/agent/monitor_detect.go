@@ -81,7 +81,7 @@ func (s *MonitorService) detectInstanceInterfaces(
 		// Resolve the actual Proxmox VMID (not the DB primary key).
 		vmid := vmidHint
 		if vmid == "" {
-			pvmInst, err := providerInstance.GetInstance(s.ctx, instance.Name)
+			pvmInst, err := providerInstance.GetInstance(s.ctx, instance.ProviderInstanceIdentifier())
 			if err != nil {
 				return nil, fmt.Errorf("get proxmox vmid for %s: %w", instance.Name, err)
 			}
@@ -476,7 +476,7 @@ func (s *MonitorService) detectBothInterfaces(
 	case "proxmox":
 		vmid := vmidHint
 		if vmid == "" {
-			pvmInst, err := providerInstance.GetInstance(s.ctx, instance.Name)
+			pvmInst, err := providerInstance.GetInstance(s.ctx, instance.ProviderInstanceIdentifier())
 			if err != nil {
 				return nil, fmt.Errorf("get proxmox vmid for %s: %w", instance.Name, err)
 			}

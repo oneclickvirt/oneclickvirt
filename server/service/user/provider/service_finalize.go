@@ -154,7 +154,7 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 			case "proxmox", "proxmoxve":
 				s.gatherProxmoxNetworkInfo(ctx, providerInstance, instance, &dbProvider, instanceUpdates)
 			case "qemu", "vmware", "virtualbox", "multipass", "vagrant":
-				if vmInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && vmInstance != nil {
+				if vmInstance, err := providerInstance.GetInstance(ctx, instance.ProviderInstanceIdentifier()); err == nil && vmInstance != nil {
 					if vmInstance.PrivateIP != "" {
 						instanceUpdates["private_ip"] = vmInstance.PrivateIP
 					} else if vmInstance.IP != "" {
@@ -199,7 +199,7 @@ func (s *Service) gatherProxmoxNetworkInfo(ctx context.Context, providerInstance
 		GetInstance(ctx context.Context, instanceID string) (*provider.Instance, error)
 	}
 	if pxProvider, ok := providerInstance.(proxmoxWithGet); ok {
-		if proxmoxInstance, err := pxProvider.GetInstance(ctx, instance.Name); err == nil && proxmoxInstance != nil {
+		if proxmoxInstance, err := pxProvider.GetInstance(ctx, instance.ProviderInstanceIdentifier()); err == nil && proxmoxInstance != nil {
 			ip := proxmoxInstance.IP
 			if ip == "" {
 				ip = proxmoxInstance.PrivateIP

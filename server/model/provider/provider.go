@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -322,11 +323,13 @@ type Provider struct {
 	AgentRemoteIP    string     `json:"agentRemoteIP" gorm:"size:64"`               // Agent 连接来源 IP（WebSocket 连接的 RemoteAddr）
 	AgentVersion     string     `json:"agentVersion" gorm:"size:32;default:''"`     // Agent 上报的版本号
 
-	// Agent 模式延迟实例发现（Agent 连接后才触发，避免创建时 Agent 尚未连接导致失败）
-	PendingDiscovery     bool `json:"pendingDiscovery" gorm:"default:false"`   // 是否有待执行的实例发现与导入
-	DiscoveryOwnerUserID uint `json:"discoveryOwnerUserId" gorm:"default:0"`   // 发现实例的归属用户 ID
-	DiscoveryAutoImport  bool `json:"discoveryAutoImport" gorm:"default:true"` // 发现时是否自动导入
-	DiscoveryAutoAdjust  bool `json:"discoveryAutoAdjust" gorm:"default:true"` // 发现时是否自动调整配额
+	// 非纯净节点实例发现配置。InstanceDiscoveryEnabled 是持久能力开关；
+	// PendingDiscovery 仅表示 Agent 尚未连接时仍有一次待入队的后台任务。
+	InstanceDiscoveryEnabled bool `json:"instanceDiscoveryEnabled" gorm:"default:false;index"` // 录入时是否声明为非纯净节点
+	PendingDiscovery         bool `json:"pendingDiscovery" gorm:"default:false"`               // 是否有待入队的实例同步任务
+	DiscoveryOwnerUserID     uint `json:"discoveryOwnerUserId" gorm:"default:0"`               // 发现实例的归属用户 ID
+	DiscoveryAutoImport      bool `json:"discoveryAutoImport" gorm:"default:true"`             // 发现时是否自动导入
+	DiscoveryAutoAdjust      bool `json:"discoveryAutoAdjust" gorm:"default:true"`             // 发现时是否自动调整配额
 }
 
 type AdminGroupSetting struct {
@@ -431,10 +434,10 @@ type Instance struct {
 	// 基本信息
 	// 添加覆盖索引，包含常用查询字段
 	Name         string `json:"name" gorm:"uniqueIndex:idx_instance_name_provider,priority:1;not null;size:128"`                                                         // 实例名称（与provider_id组合唯一）
-	Provider     string `json:"provider" gorm:"not null;size:32;index:idx_provider_name"`                                                                                // Provider名称
+	Provider     string `json:"provider" gorm:"not null;size:64;index:idx_provider_name"`                                                                                // Provider名称
 	ProviderID   uint   `json:"providerId" gorm:"uniqueIndex:idx_instance_name_provider,priority:2;index:idx_provider_id;index:idx_provider_status,priority:1;not null"` // 关联的Provider ID（与name组合唯一）
 	Status       string `json:"status" gorm:"size:32;index:idx_status;index:idx_provider_status,priority:2"`                                                             // 实例状态：creating, running, stopped, failed等
-	Image        string `json:"image" gorm:"size:128"`                                                                                                                   // 使用的镜像名称
+	Image        string `json:"image" gorm:"size:512"`                                                                                                                   // 使用的镜像名称（多容器场景可包含多个镜像）
 	InstanceType string `json:"instance_type" gorm:"size:16;default:container;index:idx_instance_type"`                                                                  // 实例类型：container, vm
 
 	// 资源配置
@@ -470,7 +473,7 @@ type Instance struct {
 	TrafficStoppedAt   *time.Time `json:"trafficStoppedAt"`                                   // 流量策略自动停机时间
 	PmacctInterfaceV4  string     `json:"pmacctInterfaceV4" gorm:"size:32"`                   // pmacct 监控的IPv4网络接口名称
 	PmacctInterfaceV6  string     `json:"pmacctInterfaceV6" gorm:"size:32"`                   // pmacct 监控的IPv6网络接口名称
-	ProviderVMID       string     `json:"providerVmId" gorm:"column:provider_vm_id;size:128"` // 虚拟化平台的实例ID（Proxmox VMID/CTID或远端实例名），用于接口检测
+	ProviderVMID       string     `json:"providerVmId" gorm:"column:provider_vm_id;size:512"` // 虚拟化平台的可操作实例ID（VMID、容器ID、VMX路径或远端实例名）
 
 	// 生命周期和冻结管理
 	ExpiresAt       *time.Time `json:"expiresAt" gorm:"index:idx_expires_at;column:expires_at"` // 实例到期时间（默认与节点同步，手动设置优先级更高）
@@ -496,15 +499,25 @@ type Instance struct {
 	ImportedAt         *time.Time `json:"importedAt"`                                         // 导入时间
 	HasPortConflict    bool       `json:"hasPortConflict" gorm:"default:false"`               // 是否存在端口冲突
 	PortConflictDetail string     `json:"portConflictDetail" gorm:"type:text"`                // 端口冲突详情（JSON格式记录冲突端口信息）
-	DiscoveredData     string     `json:"discoveredData" gorm:"type:text"`                    // 发现时的原始数据（JSON格式，用于调试和审计）
+	DiscoveredData     string     `json:"discoveredData" gorm:"type:longtext"`                // 发现时的脱敏原始数据（JSON格式，用于调试和审计）
 }
 
 func (i *Instance) BeforeCreate(tx *gorm.DB) error {
-	// UUID is the controller-local public identity. Remote hypervisor identity
-	// (for example a Proxmox VMID/CTID) belongs in ProviderVMID and must be used
-	// for discovery/import reconciliation instead of relying on this value.
-	i.UUID = uuid.New().String()
+	// Normal instance creation leaves UUID empty and receives a fresh controller
+	// identity. Discovery/import supplies a provider-scoped deterministic UUID so
+	// repeated scans remain stable without exposing or globally colliding remote
+	// runtime identifiers.
+	if strings.TrimSpace(i.UUID) == "" {
+		i.UUID = uuid.New().String()
+	}
 	return nil
+}
+
+func (i Instance) ProviderInstanceIdentifier() string {
+	if value := strings.TrimSpace(i.ProviderVMID); value != "" {
+		return value
+	}
+	return i.Name
 }
 
 // Port 端口映射模型

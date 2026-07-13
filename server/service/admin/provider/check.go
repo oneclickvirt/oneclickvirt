@@ -25,17 +25,6 @@ func isLXDOrIncusProvider(providerType string) bool {
 	return pt == "lxd" || pt == "incus"
 }
 
-// CheckProviderHealthAsync 异步检查Provider健康状态
-func (s *Service) CheckProviderHealthAsync(providerID uint) {
-	go func() {
-		if err := s.CheckProviderHealth(providerID); err != nil {
-			global.APP_LOG.Warn("异步健康检查失败",
-				zap.Uint("providerID", providerID),
-				zap.Error(err))
-		}
-	}()
-}
-
 // CheckProviderHealth 检查Provider健康状态（默认不强制刷新，仅首次同步）
 func (s *Service) CheckProviderHealth(providerID uint) error {
 	return s.CheckProviderHealthWithOptions(providerID, false)
@@ -43,6 +32,14 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 
 // CheckProviderHealthWithOptions 检查Provider健康状态，支持选择是否强制刷新资源
 func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh bool) error {
+	return s.CheckProviderHealthWithOptionsContext(context.Background(), providerID, forceRefresh)
+}
+
+// CheckProviderHealthWithOptionsContext 供持久化任务传入可取消上下文。
+func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, providerID uint, forceRefresh bool) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var provider providerModel.Provider
 	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
 		return fmt.Errorf("Provider不存在")
@@ -67,8 +64,6 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 	originalStoragePoolPath := provider.StoragePoolPath
 
 	now := time.Now()
-	ctx := context.Background()
-
 	// Agent 模式：仅按 Agent WebSocket 链路判断；与 SSH 节点使用不同健康检测语义。
 	if provider.ConnectionType == "agent" {
 		hub := agentService.GetHub()

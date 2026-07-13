@@ -2,7 +2,6 @@ package task
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"oneclickvirt/global"
@@ -139,6 +138,6 @@ func (s *TaskService) executeTaskLogic(ctx context.Context, task *adminModel.Tas
 	case "provider-image-cleanup":
 		return s.executeProviderImageCleanupTask(ctx, task)
 	default:
-		return fmt.Errorf("未知的任务类型: %s", task.TaskType)
+		return executeExternalTaskHandler(ctx, task)
 	}
 }

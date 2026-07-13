@@ -162,14 +162,14 @@
               clearable
               style="width: 120px"
             >
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeCreate')"
-	                value="create"
-	              />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeCreateInstance')"
-	                value="create_instance"
-	              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeCreate')"
+                value="create"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeCreateInstance')"
+                value="create_instance"
+              />
               <el-option
                 :label="$t('admin.tasks.taskTypeStart')"
                 value="start"
@@ -182,14 +182,14 @@
                 :label="$t('admin.tasks.taskTypeRestart')"
                 value="restart"
               />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeReset')"
-	                value="reset"
-	              />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeRebuild')"
-	                value="rebuild"
-	              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeReset')"
+                value="reset"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeRebuild')"
+                value="rebuild"
+              />
               <el-option
                 :label="$t('admin.tasks.taskTypeDelete')"
                 value="delete"
@@ -226,39 +226,55 @@
                 :label="$t('admin.tasks.taskTypeSnapshotDelete')"
                 value="snapshot-delete"
               />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeSnapshotRestore')"
-	                value="snapshot-restore"
-	              />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeMonitorSync')"
-	                value="monitor-sync"
-	              />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeAgentDeploy')"
-	                value="agent-deploy"
-	              />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeAgentUninstall')"
-	                value="agent-uninstall"
-	              />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeTrafficMonitorEnable')"
-	                value="traffic-monitor-enable"
-	              />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeTrafficMonitorDisable')"
-	                value="traffic-monitor-disable"
-	              />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeTrafficMonitorDetect')"
-	                value="traffic-monitor-detect"
-	              />
-	              <el-option
-	                :label="$t('admin.tasks.taskTypeProviderImageCleanup')"
-	                value="provider-image-cleanup"
-	              />
-	            </el-select>
+              <el-option
+                :label="$t('admin.tasks.taskTypeSnapshotRestore')"
+                value="snapshot-restore"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeMonitorSync')"
+                value="monitor-sync"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeAgentDeploy')"
+                value="agent-deploy"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeAgentUninstall')"
+                value="agent-uninstall"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeTrafficMonitorEnable')"
+                value="traffic-monitor-enable"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeTrafficMonitorDisable')"
+                value="traffic-monitor-disable"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeTrafficMonitorDetect')"
+                value="traffic-monitor-detect"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeProviderImageCleanup')"
+                value="provider-image-cleanup"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeProviderInstanceSync')"
+                value="provider-instance-sync"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeProviderOrphanCleanup')"
+                value="provider-orphan-cleanup"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeProviderHealthCheck')"
+                value="provider-health-check"
+              />
+              <el-option
+                :label="$t('admin.tasks.taskTypeProviderIOLimitSync')"
+                value="provider-io-limit-sync"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item>
             <el-select

@@ -79,12 +79,14 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.POST("/providers/:id/import", admin.ImportProviderInstances)
 		NormalAdminGroup.GET("/providers/:id/orphaned", admin.GetOrphanedInstances)
 		NormalAdminGroup.POST("/providers/:id/sync-check", admin.CheckInstanceSync)
+		NormalAdminGroup.POST("/providers/:id/sync-instances", admin.QueueProviderInstanceSync)
 		NormalAdminGroup.POST("/providers/:id/cleanup-orphans", admin.CleanupOrphanInstances)
 
 		// 证书管理
 		NormalAdminGroup.POST("/providers/:id/generate-cert", admin.GenerateProviderCert)
 		NormalAdminGroup.POST("/providers/:id/auto-configure-stream", admin.AutoConfigureProviderStream)
 		NormalAdminGroup.POST("/providers/:id/health-check", admin.CheckProviderHealth)
+		NormalAdminGroup.POST("/providers/:id/health-check-task", admin.QueueProviderHealthCheck)
 		NormalAdminGroup.GET("/providers/:id/status", admin.GetProviderStatus)
 		NormalAdminGroup.GET("/providers/:id/detect-gpus", admin.DetectGPUs)
 		NormalAdminGroup.GET("/providers/:id/stopped-containers", admin.GetStoppedContainers)

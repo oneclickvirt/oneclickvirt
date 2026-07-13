@@ -67,7 +67,11 @@ export function useInstanceFormatters() {
       'traffic-monitor-enable': t('user.tasks.taskTypeTrafficMonitorEnable'),
       'traffic-monitor-disable': t('user.tasks.taskTypeTrafficMonitorDisable'),
       'traffic-monitor-detect': t('user.tasks.taskTypeTrafficMonitorDetect'),
-      'provider-image-cleanup': t('user.tasks.taskTypeProviderImageCleanup')
+      'provider-image-cleanup': t('user.tasks.taskTypeProviderImageCleanup'),
+      'provider-instance-sync': t('user.tasks.taskTypeProviderInstanceSync'),
+      'provider-orphan-cleanup': t('user.tasks.taskTypeProviderOrphanCleanup'),
+      'provider-health-check': t('user.tasks.taskTypeProviderHealthCheck'),
+      'provider-io-limit-sync': t('user.tasks.taskTypeProviderIOLimitSync')
     }
     return taskTypes[task.taskType] || t('user.instanceDetail.taskTitleDefault')
   }
@@ -97,7 +101,11 @@ export function useInstanceFormatters() {
       'traffic-monitor-enable': t('user.tasks.taskTypeTrafficMonitorEnable'),
       'traffic-monitor-disable': t('user.tasks.taskTypeTrafficMonitorDisable'),
       'traffic-monitor-detect': t('user.tasks.taskTypeTrafficMonitorDetect'),
-      'provider-image-cleanup': t('user.tasks.taskTypeProviderImageCleanup')
+      'provider-image-cleanup': t('user.tasks.taskTypeProviderImageCleanup'),
+      'provider-instance-sync': t('user.tasks.taskTypeProviderInstanceSync'),
+      'provider-orphan-cleanup': t('user.tasks.taskTypeProviderOrphanCleanup'),
+      'provider-health-check': t('user.tasks.taskTypeProviderHealthCheck'),
+      'provider-io-limit-sync': t('user.tasks.taskTypeProviderIOLimitSync')
     }
     return taskTypes[taskType] || t('user.instanceDetail.taskDefault')
   }

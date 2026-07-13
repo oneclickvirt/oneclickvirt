@@ -228,7 +228,7 @@ func (s *Service) ensureInstanceRunnableAfterCreate(ctx context.Context, instanc
 		return fmt.Errorf("Provider %d 未连接，无法确认实例 %s 创建后状态", providerID, instance.Name)
 	}
 
-	actual, err := providerInstance.GetInstance(ctx, instance.Name)
+	actual, err := providerInstance.GetInstance(ctx, instance.ProviderInstanceIdentifier())
 	if err != nil {
 		return fmt.Errorf("创建后获取实例 %s 状态失败: %w", instance.Name, err)
 	}
@@ -362,7 +362,7 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 				}
 			}
 		case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
-			if actualInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && actualInstance != nil {
+			if actualInstance, err := providerInstance.GetInstance(ctx, instance.ProviderInstanceIdentifier()); err == nil && actualInstance != nil {
 				if actualInstance.PrivateIP != "" {
 					updates["private_ip"] = actualInstance.PrivateIP
 				} else if actualInstance.IP != "" {

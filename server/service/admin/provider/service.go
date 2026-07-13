@@ -117,6 +117,7 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 		TotalCount     int64
 		ContainerCount int64
 		VMCount        int64
+		ImportedCount  int64
 	}
 	var instanceCounts []InstanceCountResult
 	if len(providerIDs) > 0 {
@@ -124,7 +125,8 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 			Select(`provider_id,
 				COUNT(*) as total_count,
 				SUM(CASE WHEN instance_type = 'container' THEN 1 ELSE 0 END) as container_count,
-				SUM(CASE WHEN instance_type = 'vm' THEN 1 ELSE 0 END) as vm_count`).
+				SUM(CASE WHEN instance_type = 'vm' THEN 1 ELSE 0 END) as vm_count,
+				SUM(CASE WHEN is_imported = true OR imported_at IS NOT NULL THEN 1 ELSE 0 END) as imported_count`).
 			Where("provider_id IN ?", providerIDs).
 			Group("provider_id").
 			Scan(&instanceCounts)
@@ -176,6 +178,10 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 	for _, provider := range providers {
 		// 从映射表中获取统计数据
 		instanceCount := instanceCountMap[provider.ID]
+		// 兼容升级前尚无持久开关的节点：只要已有导入实例，就可继续使用同步入口。
+		if !provider.InstanceDiscoveryEnabled && instanceCount.ImportedCount > 0 {
+			provider.InstanceDiscoveryEnabled = true
+		}
 		runningTasksCount := taskCountMap[provider.ID]
 		usedTraffic := trafficUsageMap[provider.ID]
 

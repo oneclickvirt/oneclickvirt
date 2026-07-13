@@ -1,7 +1,7 @@
 package admin
 
 import (
-	"context"
+	"oneclickvirt/middleware"
 	"strconv"
 
 	"oneclickvirt/global"
@@ -11,6 +11,61 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
+// QueueProviderInstanceSync 将非纯净节点实例同步挂入管理员任务池。
+// @Router /admin/providers/{id}/sync-instances [post]
+func QueueProviderInstanceSync(c *gin.Context) {
+	providerID, err := parseOwnedProviderID(c)
+	if err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "无法识别当前管理员"))
+		return
+	}
+	created, err := adminProvider.NewService().CreateConfiguredInstanceSyncTask(providerID, userID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, created, "实例同步任务已提交，请在管理员任务列表查看进度")
+}
+
+// QueueProviderHealthCheck 将可能触发远端探测和资源同步的健康检查挂入任务池。
+// @Router /admin/providers/{id}/health-check-task [post]
+func QueueProviderHealthCheck(c *gin.Context) {
+	providerID, err := parseOwnedProviderID(c)
+	if err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "无法识别当前管理员"))
+		return
+	}
+	created, err := adminProvider.NewService().CreateHealthCheckTask(providerID, userID, true)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, created, "健康检查任务已提交，请在管理员任务列表查看进度")
+}
+
+func parseOwnedProviderID(c *gin.Context) (uint, error) {
+	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil || providerID == 0 {
+		return 0, common.NewError(common.CodeValidationError, "Provider ID无效")
+	}
+	if ownerAdminID := middleware.GetOwnerAdminID(c); ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(providerID), ownerAdminID); err != nil {
+			return 0, common.NewError(common.CodeForbidden, "无权操作该Provider")
+		}
+	}
+	return uint(providerID), nil
+}
 
 // DiscoverProviderInstances 发现Provider上的实例
 // @Summary 发现Provider实例
@@ -37,7 +92,7 @@ func DiscoverProviderInstances(c *gin.Context) {
 	}
 
 	providerService := adminProvider.NewService()
-	result, err := providerService.DiscoverProviderInstances(context.Background(), uint(providerID))
+	result, err := providerService.DiscoverProviderInstances(c.Request.Context(), uint(providerID))
 	if err != nil {
 		global.APP_LOG.Error("发现Provider实例失败",
 			zap.Uint64("providerId", providerID),
@@ -95,7 +150,7 @@ func ImportProviderInstances(c *gin.Context) {
 	}
 
 	providerService := adminProvider.NewService()
-	result, err := providerService.ImportDiscoveredInstances(context.Background(), importOptions)
+	result, err := providerService.ImportDiscoveredInstances(c.Request.Context(), importOptions)
 	if err != nil {
 		global.APP_LOG.Error("导入Provider实例失败",
 			zap.Uint64("providerId", providerID),
@@ -132,7 +187,7 @@ func GetOrphanedInstances(c *gin.Context) {
 	}
 
 	providerService := adminProvider.NewService()
-	orphanedInstances, err := providerService.GetOrphanedInstances(context.Background(), uint(providerID))
+	orphanedInstances, err := providerService.GetOrphanedInstances(c.Request.Context(), uint(providerID))
 	if err != nil {
 		global.APP_LOG.Error("获取未纳管实例失败",
 			zap.Uint64("providerId", providerID),
@@ -172,7 +227,7 @@ func CheckInstanceSync(c *gin.Context) {
 	}
 
 	providerService := adminProvider.NewService()
-	report, err := providerService.CompareInstancesWithRemote(context.Background(), uint(providerID))
+	report, err := providerService.CompareInstancesWithRemote(c.Request.Context(), uint(providerID))
 	if err != nil {
 		global.APP_LOG.Error("检查实例同步失败",
 			zap.Uint64("providerId", providerID),
@@ -186,37 +241,31 @@ func CheckInstanceSync(c *gin.Context) {
 
 // CleanupOrphanInstances 强制单向同步：删除远程孤儿实例
 // @Summary 清理孤儿实例
-// @Description 强制单向同步：删除远程服务器上存在但数据库中不存在的实例（主控数据库为权威来源，需双重确认）
+// @Description 创建后台任务，强制单向删除远程服务器上存在但数据库中不存在的实例（主控数据库为权威来源，需双重确认）
 // @Tags Provider管理
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "Provider ID"
-// @Success 200 {object} common.Response{data=adminProvider.CleanupOrphanResult} "清理完成"
+// @Success 200 {object} common.Response "清理任务已提交"
 // @Failure 400 {object} common.Response "请求参数错误"
 // @Failure 500 {object} common.Response "服务器内部错误"
 // @Router /admin/providers/{id}/cleanup-orphans [post]
 func CleanupOrphanInstances(c *gin.Context) {
-	providerIDStr := c.Param("id")
-	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
+	providerID, err := parseOwnedProviderID(c)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
-		return
-	}
-	if err := ensureProviderOwner(c, uint(providerID)); err != nil {
 		common.ResponseWithError(c, err)
 		return
 	}
-
-	providerService := adminProvider.NewService()
-	result, err := providerService.CleanupOrphanInstances(context.Background(), uint(providerID))
+	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		global.APP_LOG.Error("清理远程孤儿实例失败",
-			zap.Uint64("providerId", providerID),
-			zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "无法识别当前管理员"))
+		return
+	}
+	created, err := adminProvider.NewService().CreateOrphanCleanupTask(providerID, userID)
+	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
-
-	common.ResponseSuccess(c, result, "清理完成")
+	common.ResponseSuccess(c, created, "孤儿实例清理任务已提交，请在管理员任务列表查看进度")
 }

@@ -71,6 +71,14 @@ func (s *TaskService) calculateEstimatedDuration(taskType string, instanceType s
 		return 300 // 5分钟 - 快照操作可能触发远端命令
 	case "provider-image-cleanup":
 		return 300 // 5分钟 - 节点镜像/缓存批量清理
+	case "provider-instance-sync":
+		return 300 // 5分钟 - 扫描非纯净节点并导入实例
+	case "provider-orphan-cleanup":
+		return 600 // 10分钟 - 扫描并逐个清理远端孤儿实例
+	case "provider-health-check":
+		return 180 // 3分钟 - 远端连通性与资源同步
+	case "provider-io-limit-sync":
+		return 120 // 2分钟 - 批量同步实例IO限速
 	default:
 		return 120 // 默认2分钟 - 保守估计
 	}

@@ -43,6 +43,9 @@ export default function useProviderTableActions(emit) {
       case 'health-check':
         emit('health-check', currentRow.value.id)
         break
+      case 'sync-instances':
+        emit('sync-instances', currentRow.value)
+        break
       case 'set-expiry':
         emit('set-expiry', currentRow.value)
         break

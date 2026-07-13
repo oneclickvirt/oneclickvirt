@@ -84,6 +84,9 @@ func applyExtendedCSVToCreateReq(req *admin.CreateProviderRequest, values map[st
 		{"allowConcurrentTasks", func(v bool) { req.AllowConcurrentTasks = v }},
 		{"enableTaskPolling", func(v bool) { req.EnableTaskPolling = v }},
 		{"trafficQuotaVisible", func(v bool) { req.TrafficQuotaVisible = boolPtr(v) }},
+		{"instanceDiscoveryEnabled", func(v bool) { req.DiscoverMode = v }},
+		{"discoveryAutoImport", func(v bool) { req.AutoImport = v }},
+		{"discoveryAutoAdjust", func(v bool) { req.AutoAdjustQuota = v }},
 	} {
 		if err := applyCSVBoolField(values, field.key, field.set); err != nil {
 			return err
@@ -178,6 +181,9 @@ func applyExtendedCSVToUpdateReq(req *admin.UpdateProviderRequest, values map[st
 		{"allowConcurrentTasks", func(v bool) { req.AllowConcurrentTasks = v }},
 		{"enableTaskPolling", func(v bool) { req.EnableTaskPolling = v }},
 		{"trafficQuotaVisible", func(v bool) { req.TrafficQuotaVisible = boolPtr(v) }},
+		{"instanceDiscoveryEnabled", func(v bool) { req.DiscoverMode = boolPtr(v) }},
+		{"discoveryAutoImport", func(v bool) { req.AutoImport = boolPtr(v) }},
+		{"discoveryAutoAdjust", func(v bool) { req.AutoAdjustQuota = boolPtr(v) }},
 	} {
 		if err := applyCSVBoolField(values, field.key, field.set); err != nil {
 			return err

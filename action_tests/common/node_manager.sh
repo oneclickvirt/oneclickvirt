@@ -614,20 +614,22 @@ prepare_dirty_node() {
     log_section "Preparing non-clean worker node for discovery tests"
     case "$env" in
         docker)
-            platform_exec_and_wait "${ip}" "docker run -d --name pre_existing_1 alpine sleep 3600" 120
-            platform_exec_and_wait "${ip}" "docker run -d --name pre_existing_2 debian:12 sleep 3600" 120
+            platform_exec_and_wait "${ip}" "docker run -d --name pre_existing_1 -e API_TOKEN=dirty-node-secret -p 22022:22/tcp -p 28080:80/tcp alpine sleep 3600" 120
+            platform_exec_and_wait "${ip}" "docker run -d --name pre_existing_2 debian:12 sleep 3600 && docker stop pre_existing_2" 120
             ;;
         podman)
-            platform_exec_and_wait "${ip}" "podman run -d --name pre_existing_1 docker.io/library/alpine sleep 3600" 120
+            platform_exec_and_wait "${ip}" "podman run -d --name pre_existing_1 -e API_TOKEN=dirty-node-secret -p 22022:22/tcp docker.io/library/alpine sleep 3600" 120
             ;;
         containerd)
-            platform_exec_and_wait "${ip}" "ctr images pull docker.io/library/alpine:latest && ctr run -d docker.io/library/alpine:latest pre_existing_1 sleep 3600" 120
+            platform_exec_and_wait "${ip}" "nerdctl run -d --name pre_existing_1 -e API_TOKEN=dirty-node-secret -p 22022:22/tcp docker.io/library/alpine:latest sleep 3600" 120
             ;;
         lxd)
             platform_exec_and_wait "${ip}" "lxc launch images:debian/12 pre-existing-1" 120
+            platform_exec_and_wait "${ip}" "lxc info pre-existing-vm >/dev/null 2>&1 || lxc init images:debian/12 pre-existing-vm --vm" 300 || true
             ;;
         incus)
             platform_exec_and_wait "${ip}" "incus launch images:debian/12 pre-existing-1" 120
+            platform_exec_and_wait "${ip}" "incus info pre-existing-vm >/dev/null 2>&1 || incus init images:debian/12 pre-existing-vm --vm" 300 || true
             ;;
         proxmoxve)
             # A stopped, diskless QEMU definition is sufficient for discovery and
@@ -636,10 +638,11 @@ prepare_dirty_node() {
             platform_exec_and_wait "${ip}" "qm status 990 >/dev/null 2>&1 || qm create 990 --name pre-existing-vm --memory 512 --cores 1 --ostype l26" 120
             ;;
         qemu)
-            log_info "QEMU pre-population skipped (requires VM images)"
+            platform_exec_and_wait "${ip}" "virsh dominfo pre-existing-vm >/dev/null 2>&1 || printf '%s' '<domain type=\"kvm\"><name>pre-existing-vm</name><memory unit=\"MiB\">512</memory><vcpu>1</vcpu><os><type arch=\"x86_64\">hvm</type></os></domain>' | virsh define /dev/stdin" 120
+            platform_exec_and_wait "${ip}" "virsh -c lxc:/// dominfo pre-existing-container >/dev/null 2>&1 || { mkdir -p /tmp/oneclickvirt-ci-lxc-rootfs; emulator=\$(command -v libvirt_lxc 2>/dev/null || echo /usr/libexec/libvirt_lxc); printf '%s' \"<domain type='lxc'><name>pre-existing-container</name><memory unit='MiB'>256</memory><vcpu>1</vcpu><os><type>exe</type><init>/bin/sh</init></os><devices><emulator>\${emulator}</emulator><filesystem type='mount'><source dir='/tmp/oneclickvirt-ci-lxc-rootfs'/><target dir='/'/></filesystem></devices></domain>\" | virsh -c lxc:/// define /dev/stdin; }" 120 || true
             ;;
         kubevirt)
-            log_info "KubeVirt pre-population skipped (requires VM manifests)"
+            platform_exec_and_wait "${ip}" "kubectl create namespace kubevirt-vms >/dev/null 2>&1 || true; printf '%s' '{\"apiVersion\":\"kubevirt.io/v1\",\"kind\":\"VirtualMachine\",\"metadata\":{\"name\":\"pre-existing-vm\",\"namespace\":\"kubevirt-vms\"},\"spec\":{\"running\":false,\"template\":{\"metadata\":{\"labels\":{\"kubevirt.io/domain\":\"pre-existing-vm\"}},\"spec\":{\"domain\":{\"devices\":{},\"resources\":{\"requests\":{\"memory\":\"512Mi\"}}},\"terminationGracePeriodSeconds\":0}}}}' | kubectl apply -f -; printf '%s' '{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"name\":\"pre-existing-container\",\"namespace\":\"kubevirt-vms\",\"labels\":{\"oneclickvirt.io/type\":\"container\"}},\"spec\":{\"replicas\":0,\"selector\":{\"matchLabels\":{\"app\":\"pre-existing-container\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"pre-existing-container\",\"oneclickvirt.io/type\":\"container\"}},\"spec\":{\"containers\":[{\"name\":\"main\",\"image\":\"busybox:latest\"}]}}}}' | kubectl apply -f -" 120
             ;;
     esac
 }
