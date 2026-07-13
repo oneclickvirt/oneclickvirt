@@ -3448,7 +3448,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "强制单向同步：删除远程服务器上存在但数据库中不存在的实例（主控数据库为权威来源，需双重确认）",
+                "description": "创建后台任务，强制单向删除远程服务器上存在但数据库中不存在的实例（主控数据库为权威来源，需双重确认）",
                 "consumes": [
                     "application/json"
                 ],
@@ -3470,21 +3470,9 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "清理完成",
+                        "description": "清理任务已提交",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/provider.CleanupOrphanResult"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/common.Response"
                         }
                     },
                     "400": {
@@ -3849,6 +3837,11 @@ const docTemplate = `{
                         }
                     }
                 }
+            }
+        },
+        "/admin/providers/{id}/health-check-task": {
+            "post": {
+                "responses": {}
             }
         },
         "/admin/providers/{id}/import": {
@@ -4753,6 +4746,11 @@ const docTemplate = `{
                         }
                     }
                 }
+            }
+        },
+        "/admin/providers/{id}/sync-instances": {
+            "post": {
+                "responses": {}
             }
         },
         "/admin/providers/{provider_id}/traffic/history": {
@@ -14277,7 +14275,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "discoveredData": {
-                    "description": "发现时的原始数据（JSON格式，用于调试和审计）",
+                    "description": "发现时的脱敏原始数据（JSON格式，用于调试和审计）",
                     "type": "string"
                 },
                 "disk": {
@@ -14321,7 +14319,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "image": {
-                    "description": "使用的镜像名称",
+                    "description": "使用的镜像名称（多容器场景可包含多个镜像）",
                     "type": "string"
                 },
                 "importedAt": {
@@ -14417,7 +14415,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "providerVmId": {
-                    "description": "虚拟化平台的实例ID（Proxmox VMID/CTID或远端实例名），用于接口检测",
+                    "description": "虚拟化平台的可操作实例ID（VMID、容器ID、VMX路径或远端实例名）",
                     "type": "string"
                 },
                 "publicIP": {
@@ -14675,30 +14673,6 @@ const docTemplate = `{
                 "writeIoLimit": {
                     "description": "磁盘写入速率限制",
                     "type": "string"
-                }
-            }
-        },
-        "provider.CleanupOrphanResult": {
-            "type": "object",
-            "properties": {
-                "deletedCount": {
-                    "description": "成功删除数量",
-                    "type": "integer"
-                },
-                "failedCount": {
-                    "description": "删除失败数量",
-                    "type": "integer"
-                },
-                "orphans": {
-                    "description": "所有孤儿实例详情",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/provider.RemoteOrphanInfo"
-                    }
-                },
-                "totalOrphans": {
-                    "description": "发现的孤儿实例总数",
-                    "type": "integer"
                 }
             }
         },
@@ -15057,36 +15031,6 @@ const docTemplate = `{
                 "totalRemote": {
                     "description": "远程总实例数",
                     "type": "integer"
-                }
-            }
-        },
-        "provider.RemoteOrphanInfo": {
-            "type": "object",
-            "properties": {
-                "deleted": {
-                    "description": "是否成功删除",
-                    "type": "boolean"
-                },
-                "error": {
-                    "description": "删除失败原因",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "status": {
-                    "description": "远程实例状态",
-                    "type": "string"
-                },
-                "type": {
-                    "description": "container / vm",
-                    "type": "string"
-                },
-                "uuid": {
-                    "type": "string"
                 }
             }
         },
