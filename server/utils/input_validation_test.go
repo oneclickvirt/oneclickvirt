@@ -48,6 +48,27 @@ func TestValidateOptionalEmail(t *testing.T) {
 	}
 }
 
+func TestContainsSQLInjectionPatternAllowsBase64URLTokens(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "share token containing double dash", input: "/api/v1/public/instance-shares/yft4IHFtl4utv5YthjYgXDP-pvpaBlVddQdwao7s--g", want: false},
+		{name: "token ending in double dash", input: "/api/v1/public/instance-shares/valid-token--", want: false},
+		{name: "boolean sql expression", input: "name=' OR 1=1 --", want: true},
+		{name: "sql comment followed by whitespace", input: "name=value-- comment", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ContainsSQLInjectionPattern(tt.input); got != tt.want {
+				t.Fatalf("ContainsSQLInjectionPattern(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsValidLXDInstanceName(t *testing.T) {
 	tests := []struct {
 		name string
