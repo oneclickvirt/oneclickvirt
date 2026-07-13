@@ -9,7 +9,11 @@ import (
 	"unicode/utf8"
 )
 
-var sqlInjectionPattern = regexp.MustCompile(`(?i)(union\s+select|drop\s+table|delete\s+from|insert\s+into|update\s+set|exec\s*\(|\bor\s+1\s*=\s*1\b|--|/\*|\*/)`)
+// MySQL's double-dash comment marker requires trailing whitespace. Matching every
+// bare "--" rejects valid base64url identifiers (for example public share
+// tokens), while the higher-signal SQL expressions below still catch encoded
+// payloads such as "OR 1=1 --".
+var sqlInjectionPattern = regexp.MustCompile(`(?i)(union\s+select|drop\s+table|delete\s+from|insert\s+into|update\s+set|exec\s*\(|\bor\s+1\s*=\s*1\b|--[[:space:]]|/\*|\*/)`)
 
 // ContainsSQLInjectionPattern reports whether the input contains common SQL injection markers.
 func ContainsSQLInjectionPattern(input string) bool {

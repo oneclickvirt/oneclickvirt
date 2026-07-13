@@ -2,10 +2,15 @@ package provider
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	providerModel "oneclickvirt/model/provider"
 	providerCore "oneclickvirt/provider"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 func TestNormalizeImportedInstanceUUIDMatchesDatabaseIdentity(t *testing.T) {
@@ -82,5 +87,68 @@ func TestConflictingExistingInstanceResourceKeepsManagedWinner(t *testing.T) {
 	}
 	if reason := conflictingExistingInstanceResource(providerCore.DiscoveredInstance{PrivateIP: "10.0.0.3"}, existing); reason != "" {
 		t.Fatalf("unique resource rejected: %s", reason)
+	}
+}
+
+func TestHistoricalImportOwnerCanOnlyBeRestoredOnSameProvider(t *testing.T) {
+	deletedAt := time.Now()
+	tests := []struct {
+		name       string
+		owner      providerModel.Instance
+		providerID uint
+		want       bool
+	}{
+		{
+			name:       "same provider tombstone",
+			owner:      providerModel.Instance{ProviderID: 7, DeletedAt: gorm.DeletedAt{Time: deletedAt, Valid: true}},
+			providerID: 7,
+			want:       true,
+		},
+		{
+			name:       "active owner",
+			owner:      providerModel.Instance{ProviderID: 7},
+			providerID: 7,
+			want:       false,
+		},
+		{
+			name:       "different provider tombstone",
+			owner:      providerModel.Instance{ProviderID: 8, DeletedAt: gorm.DeletedAt{Time: deletedAt, Valid: true}},
+			providerID: 7,
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := canRestoreHistoricalImportedInstance(tt.owner, tt.providerID); got != tt.want {
+				t.Fatalf("canRestoreHistoricalImportedInstance() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRestoreHistoricalImportedInstanceClearsTombstoneAtomically(t *testing.T) {
+	db, err := gorm.Open(mysql.New(mysql.Config{
+		DSN:                       "gorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True&loc=Local",
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true, SkipDefaultTransaction: true})
+	if err != nil {
+		t.Fatalf("open dry-run database: %v", err)
+	}
+
+	instance := providerModel.Instance{ID: 12, UUID: "provider-scoped-uuid", Name: "restored", ProviderID: 7}
+	result := restoreHistoricalImportedInstance(db, &instance, 12)
+	if result.Error != nil {
+		t.Fatalf("build restore update: %v", result.Error)
+	}
+	statement := result.Statement.SQL.String()
+	if !strings.Contains(statement, "`deleted_at`=") {
+		t.Fatalf("restore update does not clear deleted_at: %s", statement)
+	}
+	if !strings.Contains(statement, "id = ? AND deleted_at IS NOT NULL") {
+		t.Fatalf("restore update is not guarded by the tombstone state: %s", statement)
+	}
+	if strings.Contains(statement, "`created_at`=") || strings.Contains(statement, "`id`=") {
+		t.Fatalf("restore update overwrites immutable identity fields: %s", statement)
 	}
 }

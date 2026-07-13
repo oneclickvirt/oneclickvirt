@@ -122,7 +122,20 @@ func UpdateProvider(c *gin.Context) {
 	common.ResponseSuccess(c, responseData, message)
 }
 
-// DeleteProvider 删除提供商
+// DeleteProvider 将Provider删除操作提交到管理员后台任务。
+// @Summary 提交Provider删除任务
+// @Description 创建持久化后台任务清理Provider及其关联资源；force=true时允许强制清理
+// @Tags Provider管理
+// @Security BearerAuth
+// @Param id path int true "Provider ID"
+// @Param force query bool false "是否强制删除" default(false)
+// @Success 200 {object} common.Response{data=admin.Task} "Provider删除任务已提交"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 401 {object} common.Response "未认证"
+// @Failure 403 {object} common.Response "无权操作该Provider"
+// @Failure 404 {object} common.Response "Provider不存在"
+// @Failure 409 {object} common.Response "已有冲突任务或任务池暂停接收"
+// @Router /admin/providers/{id} [delete]
 func DeleteProvider(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)

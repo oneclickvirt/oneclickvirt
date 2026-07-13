@@ -147,9 +147,9 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 		return nil, fmt.Errorf("查询已有实例失败: %w", err)
 	}
 	// UUID is globally unique, including soft-deleted history rows. Query the
-	// exact database constraint scope before starting the transaction so stale
-	// history or an earlier automatic import becomes a deterministic skip rather
-	// than rolling the whole batch back with a duplicate-key error.
+	// exact database constraint scope before starting the transaction: active or
+	// cross-Provider owners remain deterministic skips, while a tombstone owned
+	// by this Provider can be restored if the remote instance still exists.
 	existingByUUID := make(map[string]providerModel.Instance)
 	candidateUUIDs := make([]string, 0, len(instancesToImport))
 	for _, discovered := range instancesToImport {
@@ -235,16 +235,23 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 	// 7. 批量导入实例（使用事务）
 	err = global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		for importIndex, discovered := range instancesToImport {
-			if owner, exists := existingByUUID[normalizeImportedInstanceUUID(discovered.UUID)]; exists {
-				result.SkippedCount++
-				reason := fmt.Sprintf("实例UUID已由实例 %s(ID:%d) 占用，已保留现有实例", owner.Name, owner.ID)
-				if owner.DeletedAt.Valid {
-					reason = fmt.Sprintf("实例UUID已由历史实例 %s(ID:%d) 占用，已跳过重复资源", owner.Name, owner.ID)
+			normalizedUUID := normalizeImportedInstanceUUID(discovered.UUID)
+			var historicalOwner *providerModel.Instance
+			if owner, exists := existingByUUID[normalizedUUID]; exists {
+				if canRestoreHistoricalImportedInstance(owner, options.ProviderID) {
+					ownerCopy := owner
+					historicalOwner = &ownerCopy
+				} else {
+					result.SkippedCount++
+					reason := fmt.Sprintf("实例UUID已由实例 %s(ID:%d) 占用，已保留现有实例", owner.Name, owner.ID)
+					if owner.DeletedAt.Valid {
+						reason = fmt.Sprintf("实例UUID已由其他Provider的历史实例 %s(ID:%d) 占用，已跳过重复资源", owner.Name, owner.ID)
+					}
+					result.ImportedDetails = append(result.ImportedDetails, ImportedInstanceInfo{
+						UUID: discovered.UUID, Name: discovered.Name, InstanceID: owner.ID, Status: "skipped", Error: reason,
+					})
+					continue
 				}
-				result.ImportedDetails = append(result.ImportedDetails, ImportedInstanceInfo{
-					UUID: discovered.UUID, Name: discovered.Name, InstanceID: owner.ID, Status: "skipped", Error: reason,
-				})
-				continue
 			}
 			// 检查是否已存在
 			if hasMatchingDBInstance(providerInfo.Type, discovered, existingInstances) {
@@ -408,21 +415,37 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 			if savepointErr := tx.SavePoint(savepoint).Error; savepointErr != nil {
 				return fmt.Errorf("创建实例导入保存点失败: %w", savepointErr)
 			}
-			createResult := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&instance)
-			if createResult.Error != nil {
+			var persistResult *gorm.DB
+			if historicalOwner != nil {
+				// The remote instance still exists but its controller row was soft
+				// deleted. Reuse that globally unique UUID/ID and refresh it as a new
+				// import. The savepoint restores the tombstone if any auxiliary write
+				// fails later in this item.
+				instance.ID = historicalOwner.ID
+				persistResult = restoreHistoricalImportedInstance(tx, &instance, historicalOwner.ID)
+			} else {
+				persistResult = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&instance)
+			}
+			if persistResult.Error != nil {
 				if rollbackErr := rollbackImportedInstance(tx, savepoint); rollbackErr != nil {
 					return rollbackErr
 				}
-				result.FailedCount++
-				importDetail.Status = "failed"
-				importDetail.Error = fmt.Sprintf("创建实例记录失败: %v", createResult.Error)
-				result.Errors = append(result.Errors, fmt.Sprintf("导入实例 %s 失败: %v", discovered.Name, createResult.Error))
+				if isDuplicateImportResourceError(persistResult.Error) {
+					result.SkippedCount++
+					importDetail.Status = "skipped"
+					importDetail.Error = "数据库中已有相同名称或实例UUID，已保留先写入的实例"
+				} else {
+					result.FailedCount++
+					importDetail.Status = "failed"
+					importDetail.Error = fmt.Sprintf("写入实例记录失败: %v", persistResult.Error)
+					result.Errors = append(result.Errors, fmt.Sprintf("导入实例 %s 失败: %v", discovered.Name, persistResult.Error))
+				}
 				result.ImportedDetails = append(result.ImportedDetails, importDetail)
 				continue
-			} else if createResult.RowsAffected == 0 || instance.ID == 0 {
+			} else if persistResult.RowsAffected == 0 || instance.ID == 0 {
 				// A different controller process may have imported the same UUID/name
-				// after the preflight query. The database keeps the first winner while
-				// the rest of this discovery batch continues normally.
+				// or restored the same tombstone after the preflight query. The database
+				// keeps the first winner while the rest of this batch continues normally.
 				result.SkippedCount++
 				importDetail.Status = "skipped"
 				importDetail.Error = "数据库中已有相同名称或实例UUID，已保留先写入的实例"
@@ -540,6 +563,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				global.APP_LOG.Debug("实例导入成功",
 					zap.String("name", discovered.Name),
 					zap.Uint("instanceId", instance.ID),
+					zap.Bool("restoredHistoricalRecord", historicalOwner != nil),
 					zap.Bool("hasPortConflict", hasPortConflict))
 			}
 
@@ -758,6 +782,18 @@ func selectDiscoveredInstances(instances []provider.DiscoveredInstance, selector
 
 func normalizeImportedInstanceUUID(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func canRestoreHistoricalImportedInstance(owner providerModel.Instance, providerID uint) bool {
+	return owner.DeletedAt.Valid && owner.ProviderID == providerID
+}
+
+func restoreHistoricalImportedInstance(tx *gorm.DB, instance *providerModel.Instance, historicalID uint) *gorm.DB {
+	return tx.Unscoped().Model(&providerModel.Instance{}).
+		Where("id = ? AND deleted_at IS NOT NULL", historicalID).
+		Select("*").
+		Omit("id", "created_at").
+		Updates(instance)
 }
 
 func rollbackImportedInstance(tx *gorm.DB, savepoint string) error {
