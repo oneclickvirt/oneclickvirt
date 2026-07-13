@@ -126,6 +126,21 @@ export const checkProviderHealth = (id) => {
   })
 }
 
+// 管理页面使用持久化后台任务执行健康检查，避免长时间占用 HTTP 请求。
+export const queueProviderHealthCheck = (id) => {
+  return request({
+    url: `/v1/admin/providers/${id}/health-check-task`,
+    method: 'post'
+  })
+}
+
+export const syncProviderInstances = (id) => {
+  return request({
+    url: `/v1/admin/providers/${id}/sync-instances`,
+    method: 'post'
+  })
+}
+
 export const getProviderStatus = (id) => {
   return request({
     url: `/v1/admin/providers/${id}/status`,
@@ -297,7 +312,6 @@ export const deleteHardwareReport = (providerId) => {
 export const cleanupOrphanInstances = (id) => {
   return request({
     url: `/v1/admin/providers/${id}/cleanup-orphans`,
-    method: 'post',
-    timeout: 300000 // 5分钟超时，可能需要删除多个实例
+    method: 'post'
   })
 }

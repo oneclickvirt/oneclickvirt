@@ -13,6 +13,13 @@ run_module_23() {
         return 1
     fi
 
+    # Provider录入后的健康检查和首次非纯净节点同步现在都是持久化后台任务。
+    # 等待同一Provider队列稳定后再断言导入结果，避免依赖裸goroutine时序。
+    if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} initial discovery" "$ADMIN_TOKEN" 600 5; then
+        chain_break "$group" "Initial provider background tasks did not settle"
+        return 1
+    fi
+
     # ---- Check if dirty node preparation was done ----
     # The run_env_test.sh should have called prepare_dirty_node() before this runs,
     # which creates pre-existing containers/instances on the worker node.
@@ -20,6 +27,10 @@ run_module_23() {
     # ---- Discover existing instances on provider ----
     local discover_resp; discover_resp=$(test_api "Discover instances" "POST" \
         "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" '' "$group" "$ADMIN_TOKEN")
+    test_api_json_value "Discovered identities are normalized" "POST" \
+        "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
+        '[.data.discoveredInstances[]? | select((.uuid // "") == "" or (.providerInstanceId // "") == "" or ((.instanceType != "vm") and (.instanceType != "container")))] | length' "0" \
+        '' "$group" "$ADMIN_TOKEN"
     if [[ "$ENV_TYPE" == "proxmoxve" ]]; then
         test_api_json_value "Discover pre-existing PVE VM" "POST" \
             "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
@@ -28,6 +39,15 @@ run_module_23() {
         test_api_json_value "Auto-imported PVE VM keeps VMID" "GET" \
             "/api/v1/admin/instances?page=1&pageSize=50" "200" \
             '[.. | objects | select(.providerVmId? == "990" and .isImported? == true)] | length' "1" \
+            '' "$group" "$ADMIN_TOKEN"
+    elif [[ "$ENV_TYPE" == "lxd" || "$ENV_TYPE" == "incus" || "$ENV_TYPE" == "qemu" || "$ENV_TYPE" == "kubevirt" ]]; then
+        test_api_json_value "Discover pre-existing container" "POST" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
+            'any(.data.discoveredInstances[]?; .instanceType == "container")' "true" \
+            '' "$group" "$ADMIN_TOKEN"
+        test_api_json_value "Discover pre-existing VM" "POST" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
+            'any(.data.discoveredInstances[]?; .instanceType == "vm")' "true" \
             '' "$group" "$ADMIN_TOKEN"
     fi
 
@@ -44,30 +64,60 @@ run_module_23() {
     # duplicated or synthesized for unnamed PVE guests.
     local instance_uuids
     if [[ "$ENV_TYPE" == "proxmoxve" ]]; then
-        # A non-clean PVE node may contain arbitrary older guests. Import the
-        # fixture created by prepare_dirty_node instead of relying on API order.
-        instance_uuids=$(echo "$discover_resp" | jq -r \
-            '.data.discoveredInstances[]? | select(.providerInstanceId == "990" and .instanceType == "vm") | .uuid' \
+        instance_uuids=$(echo "$orphaned_resp" | jq -r \
+            '.data.orphanedInstances[]? | select(.providerInstanceId == "990" and .instanceType == "vm") | .uuid' \
             2>/dev/null | head -1)
+    elif [[ "$ENV_TYPE" == "docker" || "$ENV_TYPE" == "podman" || "$ENV_TYPE" == "containerd" ]]; then
+        instance_uuids=$(echo "$orphaned_resp" | jq -r '.data.orphanedInstances[]? | select(.name == "pre_existing_1") | .uuid' 2>/dev/null | head -1)
     else
-        instance_uuids=$(echo "$discover_resp" | jq -r '.data.discoveredInstances[]?.uuid // empty' 2>/dev/null | head -3)
+        instance_uuids=$(echo "$orphaned_resp" | jq -r '.data.orphanedInstances[]?.uuid // empty' 2>/dev/null | head -3)
     fi
 
     if [[ -n "$instance_uuids" ]]; then
         local first_uuid; first_uuid=$(echo "$instance_uuids" | head -1)
-        local import_resp; import_resp=$(test_api "Import discovered instance" "POST" \
+        test_api_json_value "Import discovered instance" "POST" \
             "/api/v1/admin/providers/${PROVIDER_ID}/import" "200" \
-            '{"instanceUuids":["'"$first_uuid"'"]}' "$group" "$ADMIN_TOKEN")
+            '.data.successCount' "1" \
+            '{"instanceUuids":["'"$first_uuid"'"]}' "$group" "$ADMIN_TOKEN"
 
         # ---- Verify imported instance appears in instance list ----
         test_api "List after import" "GET" "/api/v1/admin/instances?page=1&pageSize=50" "200" \
             '' "$group" "$ADMIN_TOKEN"
-
         # ---- Import again (should handle gracefully) ----
-        test_api "Re-import same instance" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200|400|409" \
-            '{"instanceUuids":["'"$first_uuid"'"]}' "$group" "$ADMIN_TOKEN"
+        test_api_json_value "Re-import same instance" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200" \
+            '.data.skippedCount' "1" '{"instanceUuids":["'"$first_uuid"'"]}' "$group" "$ADMIN_TOKEN"
     else
-        log_info "No discovered instances to import (worker may not have pre-existing instances)"
+        # Auto-import may already have claimed every dirty-node fixture. Verify
+        # that explicitly importing an already-managed discovery is idempotent.
+        local managed_uuid
+        managed_uuid=$(echo "$discover_resp" | jq -r '.data.discoveredInstances[0].uuid // empty' 2>/dev/null)
+        if [[ -n "$managed_uuid" ]]; then
+            test_api_json_value "Import already-managed instance" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200" \
+                '.data.skippedCount' "1" '{"instanceUuids":["'"$managed_uuid"'"]}' "$group" "$ADMIN_TOKEN"
+        else
+            log_info "No discovered instances to import (worker may not have pre-existing instances)"
+        fi
+    fi
+
+    if [[ "$ENV_TYPE" == "docker" || "$ENV_TYPE" == "podman" || "$ENV_TYPE" == "containerd" ]]; then
+        test_api_json_value "Imported discovery data is redacted" "GET" \
+            "/api/v1/admin/instances?page=1&pageSize=50" "200" \
+            '[.. | strings | select(contains("dirty-node-secret"))] | length' "0" \
+            '' "$group" "$ADMIN_TOKEN"
+    fi
+
+    # ---- Manual sync button backend: must queue a visible admin task ----
+    local sync_task_resp sync_task_id sync_task_result
+    sync_task_resp=$(test_api "Queue instance sync task" "POST" \
+        "/api/v1/admin/providers/${PROVIDER_ID}/sync-instances" "200" '' "$group" "$ADMIN_TOKEN")
+    sync_task_id=$(echo "$sync_task_resp" | jq -r '.data.id // empty' 2>/dev/null)
+    if [[ -n "$sync_task_id" ]]; then
+        sync_task_result=$(wait_task_complete "$SERVER_URL" "$sync_task_id" "$ADMIN_TOKEN" 600 5) || true
+        record_task_terminal_result "Instance sync background" "GET" \
+            "/api/v1/admin/tasks/${sync_task_id}" "$sync_task_result" "$group" || true
+    else
+        record_fail_result "Queue instance sync task" "POST" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/sync-instances" "task id" "missing" "$sync_task_resp" "$group"
     fi
 
     # ---- Import with empty list ----
@@ -75,7 +125,7 @@ run_module_23() {
         '{"instanceUuids":[]}' "$group" "$ADMIN_TOKEN"
 
     # ---- Import nonexistent instance UUID ----
-    test_api "Import nonexistent name" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200|400|500" \
+    test_api "Import nonexistent UUID" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "400" \
         '{"instanceUuids":["nonexistent_instance_xyz"]}' "$group" "$ADMIN_TOKEN"
 
     # ---- Discovery on nonexistent provider ----

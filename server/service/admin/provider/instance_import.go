@@ -3,12 +3,15 @@ package provider
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"math/big"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/provider"
@@ -17,6 +20,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+var instanceImportLocks sync.Map
 
 // ImportOptions 导入选项
 type ImportOptions struct {
@@ -53,8 +58,22 @@ type ImportedInstanceInfo struct {
 	Error           string `json:"error,omitempty"`
 }
 
+type duplicateDiscoveredInstance struct {
+	Instance provider.DiscoveredInstance
+	Reason   string
+}
+
 // ImportDiscoveredInstances 导入发现的实例
 func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportOptions) (*ImportResult, error) {
+	lockValue, _ := instanceImportLocks.LoadOrStore(options.ProviderID, make(chan struct{}, 1))
+	providerLock := lockValue.(chan struct{})
+	select {
+	case providerLock <- struct{}{}:
+		defer func() { <-providerLock }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	global.APP_LOG.Info("开始导入实例",
 		zap.Uint("providerId", options.ProviderID),
 		zap.Int("uuidCount", len(options.InstanceUUIDs)),
@@ -87,42 +106,78 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 		// 导入所有新发现的实例
 		instancesToImport = discoveryResult.DiscoveredInstances
 	} else {
-		// 仅导入指定UUID的实例
-		uuidMap := make(map[string]bool)
-		for _, uuid := range options.InstanceUUIDs {
-			uuidMap[uuid] = true
-		}
-		for _, inst := range discoveryResult.DiscoveredInstances {
-			if uuidMap[inst.UUID] || uuidMap[inst.ProviderInstanceID] || uuidMap[inst.Name] {
-				instancesToImport = append(instancesToImport, inst)
-			}
+		// 仅导入指定身份。UUID是首选；兼容远端ID和名称，但拒绝歧义名称。
+		var selectionErr error
+		instancesToImport, selectionErr = selectDiscoveredInstances(discoveryResult.DiscoveredInstances, options.InstanceUUIDs)
+		if selectionErr != nil {
+			return nil, common.NewError(common.CodeValidationError, selectionErr.Error())
 		}
 	}
 
 	result.TotalAttempted = len(instancesToImport)
 
 	if result.TotalAttempted == 0 {
-		global.APP_LOG.Debug("没有需要导入的实例")
-		return result, nil
+		if len(options.InstanceUUIDs) == 0 {
+			return result, nil
+		}
+		return nil, common.NewError(common.CodeValidationError, "指定的实例未在当前发现结果中找到")
+	}
+
+	// 发现器、远端脏数据或兼容 API 可能返回重复行。按稳定顺序仅保留一个
+	// 实例；名称、远端身份、私网地址、IPv6 或宿主机端口任一冲突时，
+	// 后续行只记为 skipped，避免数据库唯一约束让整批事务回滚。
+	var duplicates []duplicateDiscoveredInstance
+	instancesToImport, duplicates = deduplicateDiscoveredInstances(instancesToImport)
+	for _, duplicate := range duplicates {
+		result.SkippedCount++
+		result.ImportedDetails = append(result.ImportedDetails, ImportedInstanceInfo{
+			UUID: duplicate.Instance.UUID, Name: duplicate.Instance.Name,
+			Status: "skipped", Error: duplicate.Reason,
+		})
 	}
 
 	// 4. 检查已存在的实例（避免重复导入）
 	var existingInstances []providerModel.Instance
 	if err := global.APP_DB.Where("provider_id = ?", options.ProviderID).
-		Select("uuid", "name", "provider_vm_id", "ssh_port", "port_range_start", "port_range_end").
+		Select("id", "uuid", "name", "provider_vm_id", "private_ip", "ipv6_address", "ssh_port", "port_range_start", "port_range_end").
 		Find(&existingInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询已有实例失败: %w", err)
 	}
 
 	// 5. 获取已占用的端口范围（用于检测冲突）
 	occupiedPorts := make(map[int]bool)
+	instancesWithPortRows := make(map[uint]bool)
+	var existingPorts []providerModel.Port
+	if err := global.APP_DB.Where("provider_id = ?", options.ProviderID).
+		Select("instance_id", "host_port", "host_port_end").Find(&existingPorts).Error; err != nil {
+		return nil, fmt.Errorf("查询已有端口映射失败: %w", err)
+	}
+	for _, port := range existingPorts {
+		instancesWithPortRows[port.InstanceID] = true
+		end := port.HostPortEnd
+		if end < port.HostPort {
+			end = port.HostPort
+		}
+		for value := port.HostPort; value <= end && value <= 65535; value++ {
+			if validDiscoveredPort(value) {
+				occupiedPorts[value] = true
+			}
+		}
+	}
 	for _, inst := range existingInstances {
-		if inst.SSHPort > 0 {
+		// 22 通常是实例自身独立 IP 上的客体端口，不是 Provider 宿主机端口。
+		// 只有非 22 的 SSH 转发端口或显式 Port 行才参与全局占用判断。
+		if inst.SSHPort > 0 && inst.SSHPort != 22 {
 			occupiedPorts[inst.SSHPort] = true
 		}
-		for port := inst.PortRangeStart; port <= inst.PortRangeEnd; port++ {
-			if port > 0 {
-				occupiedPorts[port] = true
+		// Legacy rows may only carry an allocated range and have no normalized
+		// Port rows. Preserve that reservation without treating gaps between
+		// modern sparse mappings as occupied.
+		if !instancesWithPortRows[inst.ID] {
+			for port := inst.PortRangeStart; port <= inst.PortRangeEnd && port <= 65535; port++ {
+				if port > 0 {
+					occupiedPorts[port] = true
+				}
 			}
 		}
 	}
@@ -138,17 +193,21 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 			Where("user_type IN ?", []string{"admin", "super_admin"}).
 			Select("id").
 			First(&adminUser).Error; err != nil {
-			global.APP_LOG.Warn("未找到管理员用户，将使用用户ID 1", zap.Error(err))
-			adminUserID = 1
+			return nil, common.NewError(common.CodeValidationError, "未找到可接收导入实例的管理员用户")
 		} else {
 			adminUserID = adminUser.ID
+		}
+	} else {
+		var adminUser struct {
+			ID uint
+		}
+		if err := global.APP_DB.Table("users").Where("id = ?", adminUserID).Select("id").First(&adminUser).Error; err != nil {
+			return nil, common.NewError(common.CodeValidationError, "指定的实例所有者不存在")
 		}
 	}
 
 	// 7. 批量导入实例（使用事务）
 	err = global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		var totalCPU, totalMemory, totalDisk int64
-
 		for _, discovered := range instancesToImport {
 			// 检查是否已存在
 			if hasMatchingDBInstance(providerInfo.Type, discovered, existingInstances) {
@@ -158,6 +217,20 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 					Name:   discovered.Name,
 					Status: "skipped",
 					Error:  "实例已存在",
+				})
+				continue
+			}
+			if hasConflictingInstanceName(providerInfo.Type, discovered, existingInstances) {
+				result.SkippedCount++
+				result.ImportedDetails = append(result.ImportedDetails, ImportedInstanceInfo{
+					UUID: discovered.UUID, Name: discovered.Name, Status: "skipped", Error: "同一Provider已存在同名实例，已保留现有实例",
+				})
+				continue
+			}
+			if reason := conflictingExistingInstanceResource(discovered, existingInstances); reason != "" {
+				result.SkippedCount++
+				result.ImportedDetails = append(result.ImportedDetails, ImportedInstanceInfo{
+					UUID: discovered.UUID, Name: discovered.Name, Status: "skipped", Error: reason,
 				})
 				continue
 			}
@@ -172,33 +245,54 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 
 			// 检测端口冲突
 			hasPortConflict := false
-			conflictPorts := []int{}
-			if discovered.SSHPort > 0 && occupiedPorts[discovered.SSHPort] {
+			conflictPortSet := make(map[int]bool)
+			if discovered.SSHPort > 0 && discovered.SSHPort != 22 && occupiedPorts[discovered.SSHPort] {
 				hasPortConflict = true
-				conflictPorts = append(conflictPorts, discovered.SSHPort)
+				conflictPortSet[discovered.SSHPort] = true
 			}
-			for _, port := range discovered.ExtraPorts {
+			seenMappingHosts := make(map[int]provider.DiscoveredPortMapping)
+			for _, mapping := range discovered.PortMappings {
+				port := mapping.HostPort
 				if occupiedPorts[port] {
 					hasPortConflict = true
-					conflictPorts = append(conflictPorts, port)
+					conflictPortSet[port] = true
+				}
+				if previous, exists := seenMappingHosts[port]; exists && (previous.GuestPort != mapping.GuestPort || previous.Protocol != mapping.Protocol) {
+					hasPortConflict = true
+					conflictPortSet[port] = true
+				} else {
+					seenMappingHosts[port] = mapping
 				}
 			}
+			for _, port := range discovered.ExtraPorts {
+				if validDiscoveredPort(port) && occupiedPorts[port] {
+					hasPortConflict = true
+					conflictPortSet[port] = true
+				}
+			}
+			conflictPorts := sortedPortSet(conflictPortSet)
 
-			var conflictDetail string
 			if hasPortConflict {
 				result.PortConflicts++
-				conflictBytes, _ := json.Marshal(map[string]interface{}{
-					"conflictPorts": conflictPorts,
-					"sshPort":       discovered.SSHPort,
-					"extraPorts":    discovered.ExtraPorts,
-				})
-				conflictDetail = string(conflictBytes)
-				importDetail.HasPortConflict = true
+				result.SkippedCount++
+				importDetail.Status = "skipped"
+				importDetail.Error = fmt.Sprintf("宿主机端口与已选/已纳管实例重复，已保留先出现的实例: %v", conflictPorts)
+				importDetail.HasPortConflict = options.MarkConflicts
 				importDetail.ConflictDetail = fmt.Sprintf("端口冲突: %v", conflictPorts)
+				result.ImportedDetails = append(result.ImportedDetails, importDetail)
+				continue
 			}
 
 			// 序列化原始数据
-			rawDataBytes, _ := json.Marshal(discovered.RawData)
+			rawData, rawDataErr := marshalSanitizedDiscoveredData(discovered.RawData)
+			if rawDataErr != nil {
+				result.FailedCount++
+				importDetail.Status = "failed"
+				importDetail.Error = "发现数据无法安全序列化"
+				result.Errors = append(result.Errors, fmt.Sprintf("导入实例 %s 失败: %v", discovered.Name, rawDataErr))
+				result.ImportedDetails = append(result.ImportedDetails, importDetail)
+				continue
+			}
 			supportsAccelerators := utils.SupportsLXDContainerOptions(providerInfo.Type, discovered.InstanceType)
 			gpuEnabled := discovered.GpuEnabled && supportsAccelerators
 			gpuDeviceIDs := ""
@@ -259,9 +353,9 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				// 导入相关字段
 				IsImported:         true,
 				ImportedAt:         &now,
-				HasPortConflict:    hasPortConflict,
-				PortConflictDetail: conflictDetail,
-				DiscoveredData:     string(rawDataBytes),
+				HasPortConflict:    false,
+				PortConflictDetail: "",
+				DiscoveredData:     rawData,
 				// GPU/NPU配置
 				GpuEnabled:   gpuEnabled,
 				GpuDeviceIds: gpuDeviceIDs,
@@ -271,26 +365,17 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 			}
 
 			if err := tx.Create(&instance).Error; err != nil {
-				result.FailedCount++
-				importDetail.Status = "failed"
-				importDetail.Error = err.Error()
-				result.Errors = append(result.Errors, fmt.Sprintf("导入实例 %s 失败: %v", discovered.Name, err))
-				global.APP_LOG.Warn("创建实例记录失败",
-					zap.String("name", discovered.Name),
-					zap.Error(err))
+				return fmt.Errorf("创建导入实例 %s 失败: %w", discovered.Name, err)
 			} else {
+				// 创建端口映射记录
+				if err := s.createImportedPortMappings(tx, &discovered, instance.ID, options.ProviderID, conflictPortSet); err != nil {
+					return fmt.Errorf("为导入实例 %s 创建端口映射失败: %w", discovered.Name, err)
+				}
 				result.SuccessCount++
 				importDetail.InstanceID = instance.ID
 				// 立即纳入本次导入的重复检查，防止异常的重复发现行
 				// 在同一事务中创建两条记录。
 				existingInstances = append(existingInstances, instance)
-
-				// 创建端口映射记录
-				if err := s.createImportedPortMappings(tx, &discovered, instance.ID, options.ProviderID); err != nil {
-					global.APP_LOG.Warn("为导入实例创建端口映射失败",
-						zap.Uint("instanceId", instance.ID),
-						zap.Error(err))
-				}
 
 				// 为导入的实例自动生成 ORI 前缀兑换码（一对一绑定，状态直接为 pending_use）
 				const oriCharset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -334,30 +419,29 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 						GpuDeviceIds: gpuDeviceIDs,
 					}
 					if createCodeErr := tx.Create(&oriRedemptionCode).Error; createCodeErr != nil {
-						global.APP_LOG.Warn("为导入实例创建ORI兑换码失败",
-							zap.Uint("instanceId", instance.ID),
-							zap.Error(createCodeErr))
+						return fmt.Errorf("为导入实例 %s 创建ORI兑换码失败: %w", discovered.Name, createCodeErr)
 					} else {
 						global.APP_LOG.Debug("为导入实例自动生成ORI兑换码",
 							zap.Uint("instanceId", instance.ID),
 							zap.Uint("redemptionCodeID", oriRedemptionCode.ID))
 					}
 				} else {
-					global.APP_LOG.Warn("无法为导入实例生成唯一ORI兑换码",
-						zap.Uint("instanceId", instance.ID))
+					return fmt.Errorf("无法为导入实例 %s 生成唯一ORI兑换码", discovered.Name)
 				}
-
-				// 累计资源占用（仅计入限制的资源类型）
-				totalCPU += int64(importCPU)
-				totalMemory += importMemory
-				totalDisk += importDisk
 
 				// 标记端口为已占用
-				if discovered.SSHPort > 0 {
+				if discovered.SSHPort > 0 && !conflictPortSet[discovered.SSHPort] {
 					occupiedPorts[discovered.SSHPort] = true
 				}
+				for _, mapping := range discovered.PortMappings {
+					if !conflictPortSet[mapping.HostPort] {
+						occupiedPorts[mapping.HostPort] = true
+					}
+				}
 				for _, port := range discovered.ExtraPorts {
-					occupiedPorts[port] = true
+					if validDiscoveredPort(port) {
+						occupiedPorts[port] = true
+					}
 				}
 
 				global.APP_LOG.Debug("实例导入成功",
@@ -377,10 +461,12 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				UsedMemory int64
 				UsedDisk   int64
 			}
-			tx.Model(&providerModel.Instance{}).
+			if err := tx.Model(&providerModel.Instance{}).
 				Where("provider_id = ?", options.ProviderID).
 				Select("COALESCE(SUM(cpu), 0) as used_cpu, COALESCE(SUM(memory), 0) as used_memory, COALESCE(SUM(disk), 0) as used_disk").
-				Scan(&currentUsage)
+				Scan(&currentUsage).Error; err != nil {
+				return fmt.Errorf("统计Provider资源使用量失败: %w", err)
+			}
 
 			// 更新Provider的quota和使用量
 			updates := map[string]interface{}{
@@ -457,7 +543,7 @@ func (s *Service) RemoveImportedInstancesMark(ctx context.Context, instanceIDs [
 }
 
 // createImportedPortMappings 为导入的实例创建端口映射记录
-func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.DiscoveredInstance, instanceID, providerID uint) error {
+func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.DiscoveredInstance, instanceID, providerID uint, skipHostPorts map[int]bool) error {
 	if len(discovered.PortMappings) == 0 && discovered.SSHPort <= 0 {
 		return nil
 	}
@@ -466,7 +552,12 @@ func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.D
 	var portRangeStart, portRangeEnd int
 
 	if len(discovered.PortMappings) > 0 {
+		seenHostPorts := make(map[int]bool)
 		for _, pm := range discovered.PortMappings {
+			if skipHostPorts[pm.HostPort] || seenHostPorts[pm.HostPort] || !validDiscoveredPort(pm.HostPort) || !validDiscoveredPort(pm.GuestPort) {
+				continue
+			}
+			seenHostPorts[pm.HostPort] = true
 			protocol := pm.Protocol
 			if protocol == "" {
 				protocol = "both"
@@ -497,7 +588,7 @@ func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.D
 				portRangeEnd = pm.HostPort
 			}
 		}
-	} else if discovered.SSHPort > 0 && discovered.SSHPort != 22 {
+	} else if discovered.SSHPort > 0 && discovered.SSHPort != 22 && !skipHostPorts[discovered.SSHPort] {
 		// 只有SSH端口信息，没有完整的端口映射
 		ports = append(ports, providerModel.Port{
 			InstanceID:  instanceID,
@@ -539,4 +630,136 @@ func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.D
 	}
 
 	return nil
+}
+
+func selectDiscoveredInstances(instances []provider.DiscoveredInstance, selectors []string) ([]provider.DiscoveredInstance, error) {
+	selected := make([]provider.DiscoveredInstance, 0, len(selectors))
+	seen := make(map[string]bool)
+	for _, rawSelector := range selectors {
+		selector := strings.TrimSpace(rawSelector)
+		if selector == "" {
+			return nil, fmt.Errorf("instanceUuids 不能包含空值")
+		}
+		matches := make([]provider.DiscoveredInstance, 0, 1)
+		for _, instance := range instances {
+			if selector == instance.UUID || selector == instance.ProviderInstanceID || selector == instance.Name {
+				matches = append(matches, instance)
+			}
+		}
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("未发现指定实例: %s", selector)
+		}
+		// 非纯净节点可能存在重名行。发现结果已经稳定排序，兼容名称选择器时
+		// 确定性选择第一条，剩余重复项由批次去重逻辑记录为 skipped。
+		key := matches[0].UUID
+		if key == "" {
+			key = matches[0].ProviderInstanceID + "\x00" + matches[0].Name
+		}
+		if !seen[key] {
+			seen[key] = true
+			selected = append(selected, matches[0])
+		}
+	}
+	return selected, nil
+}
+
+func deduplicateDiscoveredInstances(instances []provider.DiscoveredInstance) ([]provider.DiscoveredInstance, []duplicateDiscoveredInstance) {
+	ordered := append([]provider.DiscoveredInstance(nil), instances...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return discoveredInstanceCanonicalKey(ordered[i]) < discoveredInstanceCanonicalKey(ordered[j])
+	})
+	owners := make(map[string]string)
+	kept := make([]provider.DiscoveredInstance, 0, len(ordered))
+	duplicates := make([]duplicateDiscoveredInstance, 0)
+	for _, instance := range ordered {
+		keys := discoveredInstanceConflictKeys(instance)
+		var reason string
+		for _, key := range keys {
+			if owner, exists := owners[key]; exists {
+				reason = fmt.Sprintf("发现资源重复（%s），已保留实例 %s", strings.ReplaceAll(key, "\x00", ":"), owner)
+				break
+			}
+		}
+		if reason != "" {
+			duplicates = append(duplicates, duplicateDiscoveredInstance{Instance: instance, Reason: reason})
+			continue
+		}
+		owner := instance.Name
+		if owner == "" {
+			owner = instance.ProviderInstanceID
+		}
+		for _, key := range keys {
+			owners[key] = owner
+		}
+		kept = append(kept, instance)
+	}
+	return kept, duplicates
+}
+
+func discoveredInstanceConflictKeys(instance provider.DiscoveredInstance) []string {
+	keys := make([]string, 0, 8+len(instance.PortMappings))
+	appendKey := func(kind, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			keys = append(keys, kind+"\x00"+strings.ToLower(value))
+		}
+	}
+	appendKey("uuid", instance.UUID)
+	appendKey("remote-id", instance.ProviderInstanceID)
+	appendKey("name", instance.Name)
+	appendKey("private-ip", instance.PrivateIP)
+	appendKey("ipv6", instance.IPv6Address)
+	portSet := make(map[int]struct{})
+	if validDiscoveredPort(instance.SSHPort) && instance.SSHPort != 22 {
+		portSet[instance.SSHPort] = struct{}{}
+	}
+	for _, mapping := range instance.PortMappings {
+		if validDiscoveredPort(mapping.HostPort) {
+			portSet[mapping.HostPort] = struct{}{}
+		}
+	}
+	for _, port := range instance.ExtraPorts {
+		if validDiscoveredPort(port) {
+			portSet[port] = struct{}{}
+		}
+	}
+	ports := make([]int, 0, len(portSet))
+	for port := range portSet {
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	for _, port := range ports {
+		keys = append(keys, fmt.Sprintf("host-port\x00%d", port))
+	}
+	return keys
+}
+
+func hasConflictingInstanceName(providerType string, discovered provider.DiscoveredInstance, existing []providerModel.Instance) bool {
+	for _, instance := range existing {
+		if strings.EqualFold(strings.TrimSpace(instance.Name), strings.TrimSpace(discovered.Name)) && !discoveredInstanceMatchesDB(providerType, discovered, instance) {
+			return true
+		}
+	}
+	return false
+}
+
+func conflictingExistingInstanceResource(discovered provider.DiscoveredInstance, existing []providerModel.Instance) string {
+	for _, instance := range existing {
+		if discovered.PrivateIP != "" && instance.PrivateIP != "" && discovered.PrivateIP == instance.PrivateIP {
+			return fmt.Sprintf("私网IP与已纳管实例 %s 重复，已保留现有实例", instance.Name)
+		}
+		if discovered.IPv6Address != "" && instance.IPv6Address != "" && strings.EqualFold(discovered.IPv6Address, instance.IPv6Address) {
+			return fmt.Sprintf("IPv6地址与已纳管实例 %s 重复，已保留现有实例", instance.Name)
+		}
+	}
+	return ""
+}
+
+func sortedPortSet(values map[int]bool) []int {
+	ports := make([]int, 0, len(values))
+	for port := range values {
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	return ports
 }

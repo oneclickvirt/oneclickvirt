@@ -889,6 +889,15 @@ export default {
   execTimeout: "超时（秒）",
   execNoOutput: "（无输出）",
 
+  syncInstances: "同步实例",
+  syncInstancesTaskQueued: "实例同步任务已提交，请在管理员任务列表查看进度",
+  syncInstancesFailed: "提交实例同步任务失败",
+  healthCheckTaskQueued: "健康检查任务已提交，请在管理员任务列表查看进度",
+  batchHealthCheck: "批量启动巡检",
+  batchHealthCheckConfirm: "确定为已选中的 {count} 个节点创建健康巡检后台任务吗？",
+  batchHealthCheckQueued: "巡检任务提交完成：成功 {success} 个，失败 {failed} 个。请在管理员任务列表查看进度。",
+  batchHealthCheckResult: "批量巡检提交结果",
+
   // 强制单向同步 - 清理远程孤儿实例
   cleanupOrphans: "强制同步清理",
   cleanupOrphansWarning: "⚠️ <strong>危险操作</strong><br><br>将对节点 <strong>{name}</strong>（{host}）执行强制单向同步：<br><br>• 扫描远程服务器上的所有实例<br>• <span style='color: #F56C6C;'><strong>删除远程服务器上存在但主控数据库中不存在的实例</strong></span><br>• 主控数据库中的实例不受影响<br><br><strong>此操作不可恢复，请谨慎执行！</strong>",
@@ -902,4 +911,5 @@ export default {
   cleanupOrphansDeleted: "已成功删除",
   cleanupOrphansFailedCount: "删除失败数",
   cleanupOrphansFailed: "清理远程孤儿实例失败",
+  cleanupOrphansTaskQueued: "孤儿实例清理任务已提交，请在管理员任务列表查看进度",
 }

@@ -280,14 +280,8 @@ jobs:
                 TYPES="container"
               fi
               ;;
-            lxd|incus|proxmoxve)
+            lxd|incus|proxmoxve|kubevirt|qemu)
               # Supports both container and vm
-              ;;
-            kubevirt|qemu)
-              if [[ "$TYPES" == "container" || "$TYPES" == "both" ]]; then
-                echo "::warning::Platform '${ENV}' only supports VMs. Auto-correcting instance_types to 'vm'."
-                TYPES="vm"
-              fi
               ;;
             *)
               echo "::error::Unknown platform: ${ENV}"

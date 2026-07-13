@@ -48,9 +48,6 @@ import ProviderActionsDialog from './ProviderActionsDialog.vue'
 import ProviderPasteUrlDialog from './ProviderPasteUrlDialog.vue'
 import ProviderRemoteDialog from './ProviderRemoteDialog.vue'
 import useProviderTableActions from './useProviderTableActions'
-import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
-
 defineProps({
   loading: {
     type: Boolean,
@@ -80,9 +77,11 @@ const emit = defineEmits([
   'auto-configure',
   'traffic-monitor',
   'health-check',
+  'sync-instances',
   'set-expiry',
   'freeze',
   'unfreeze',
+  'cleanup-orphans',
   'delete',
   'size-change',
   'page-change'

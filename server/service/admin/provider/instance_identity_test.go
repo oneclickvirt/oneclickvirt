@@ -24,7 +24,7 @@ func TestProxmoxIdentityMatchesVMIDAcrossGuestRename(t *testing.T) {
 	}
 }
 
-func TestImportedProxmoxInstanceRediscoveryUsesVMIDAfterLocalUUIDHook(t *testing.T) {
+func TestImportedProxmoxInstancePreservesScopedUUIDAndUsesVMID(t *testing.T) {
 	remoteAtImport := providerCore.DiscoveredInstance{
 		UUID:               "proxmox-vm-120",
 		ProviderInstanceID: "120",
@@ -38,8 +38,8 @@ func TestImportedProxmoxInstanceRediscoveryUsesVMIDAfterLocalUUIDHook(t *testing
 	if err := imported.BeforeCreate(nil); err != nil {
 		t.Fatalf("BeforeCreate failed: %v", err)
 	}
-	if imported.UUID == remoteAtImport.UUID {
-		t.Fatal("model hook should keep the controller UUID independent from the discovery UUID")
+	if imported.UUID != remoteAtImport.UUID {
+		t.Fatal("model hook must preserve the provider-scoped discovery UUID")
 	}
 
 	remoteAfterRename := providerCore.DiscoveredInstance{
@@ -49,6 +49,40 @@ func TestImportedProxmoxInstanceRediscoveryUsesVMIDAfterLocalUUIDHook(t *testing
 	}
 	if !discoveredInstanceMatchesDB("proxmox", remoteAfterRename, imported) {
 		t.Fatal("re-discovery must match the imported row by VMID despite local UUID generation and guest rename")
+	}
+}
+
+func TestNonProxmoxIdentityUsesRemoteIDBeforeReusedName(t *testing.T) {
+	db := providerModel.Instance{UUID: "local", Name: "reused", ProviderVMID: "container-a"}
+	remote := providerCore.DiscoveredInstance{UUID: "scoped", Name: "reused", ProviderInstanceID: "container-b"}
+	if discoveredInstanceMatchesDB("docker", remote, db) {
+		t.Fatal("different container IDs must not match merely because names are reused")
+	}
+}
+
+func TestNonProxmoxLegacyNameFallbackAndBackfill(t *testing.T) {
+	dbInstances := []providerModel.Instance{{ID: 8, UUID: "legacy-local", Name: "legacy-container"}}
+	remoteInstances := []providerCore.DiscoveredInstance{{UUID: "scoped", Name: "legacy-container", ProviderInstanceID: "sha256:abc"}}
+	matches := matchDiscoveredAndDBInstances("docker", remoteInstances, dbInstances)
+	if matches.RemoteToDB[0] != 0 {
+		t.Fatalf("legacy row was not matched: %#v", matches)
+	}
+	backfills := providerInstanceIDBackfills("docker", remoteInstances, dbInstances, matches)
+	if len(backfills) != 1 || backfills[0].ProviderInstanceID != "sha256:abc" {
+		t.Fatalf("legacy remote ID was not backfilled: %#v", backfills)
+	}
+}
+
+func TestCreatedContainerNameIdentityUpgradesToRuntimeID(t *testing.T) {
+	dbInstances := []providerModel.Instance{{ID: 9, UUID: "local", Name: "guest", ProviderVMID: "guest"}}
+	remoteInstances := []providerCore.DiscoveredInstance{{UUID: "scoped", Name: "guest", ProviderInstanceID: "container-sha"}}
+	matches := matchDiscoveredAndDBInstances("docker", remoteInstances, dbInstances)
+	if matches.RemoteToDB[0] != 0 {
+		t.Fatalf("name-based legacy identity was not matched: %#v", matches)
+	}
+	backfills := providerInstanceIDBackfills("docker", remoteInstances, dbInstances, matches)
+	if len(backfills) != 1 || backfills[0].PreviousProviderInstanceID != "guest" || backfills[0].ProviderInstanceID != "container-sha" {
+		t.Fatalf("runtime identity upgrade missing: %#v", backfills)
 	}
 }
 

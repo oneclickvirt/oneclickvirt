@@ -36,6 +36,15 @@
       </el-button>
 
       <el-button
+        v-if="canSyncProviderInstances(row)"
+        class="action-button"
+        type="success"
+        @click="$emit('action', 'sync-instances')"
+      >
+        {{ $t('admin.providers.syncInstances') }}
+      </el-button>
+
+      <el-button
         class="action-button"
         type="info"
         @click="$emit('action', 'set-expiry')"
@@ -97,8 +106,7 @@
 </template>
 
 <script setup>
-import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
+import { canSyncProviderInstances } from '@/utils/providerDiscovery'
 
 defineProps({
   visible: { type: Boolean, default: false },

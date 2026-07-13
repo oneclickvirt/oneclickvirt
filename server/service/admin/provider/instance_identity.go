@@ -15,8 +15,9 @@ type instanceMatchSet struct {
 }
 
 type providerInstanceIDBackfill struct {
-	InstanceID         uint
-	ProviderInstanceID string
+	InstanceID                 uint
+	ProviderInstanceID         string
+	PreviousProviderInstanceID string
 }
 
 func isProxmoxProviderType(providerType string) bool {
@@ -36,12 +37,19 @@ func isProxmoxProviderType(providerType string) bool {
 // have a VMID, a mismatch is authoritative and must not fall through to name
 // matching (names can be reused).
 func discoveredInstanceMatchesDB(providerType string, remote providerCore.DiscoveredInstance, db providerModel.Instance) bool {
-	if isProxmoxProviderType(providerType) {
-		remoteID := strings.TrimSpace(remote.ProviderInstanceID)
-		dbID := strings.TrimSpace(db.ProviderVMID)
-		if remoteID != "" && dbID != "" {
-			return remoteID == dbID
+	remoteID := strings.TrimSpace(remote.ProviderInstanceID)
+	dbID := strings.TrimSpace(db.ProviderVMID)
+	if remoteID != "" && dbID != "" {
+		if remoteID == dbID {
+			return true
 		}
+		// Older generic create flows stored the remote name in provider_vm_id.
+		// Permit a one-time name match so discovery can upgrade it to the
+		// runtime-native ID. Arbitrary conflicting IDs remain authoritative.
+		if !isProxmoxProviderType(providerType) && strings.TrimSpace(db.Name) != "" && dbID == strings.TrimSpace(db.Name) && strings.TrimSpace(remote.Name) == strings.TrimSpace(db.Name) {
+			return true
+		}
+		return false
 	}
 
 	remoteUUID := strings.TrimSpace(remote.UUID)
@@ -75,22 +83,20 @@ func matchDiscoveredAndDBInstances(providerType string, remoteInstances []provid
 
 	// Match stable Proxmox identities first. This ensures a legacy name match
 	// cannot consume a row that has an exact VMID counterpart later in the list.
-	if isProxmoxProviderType(providerType) {
-		for remoteIndex := range remoteInstances {
-			remoteID := strings.TrimSpace(remoteInstances[remoteIndex].ProviderInstanceID)
-			if remoteID == "" {
+	for remoteIndex := range remoteInstances {
+		remoteID := strings.TrimSpace(remoteInstances[remoteIndex].ProviderInstanceID)
+		if remoteID == "" {
+			continue
+		}
+		for dbIndex := range dbInstances {
+			if _, used := matches.DBToRemote[dbIndex]; used {
 				continue
 			}
-			for dbIndex := range dbInstances {
-				if _, used := matches.DBToRemote[dbIndex]; used {
-					continue
-				}
-				dbID := strings.TrimSpace(dbInstances[dbIndex].ProviderVMID)
-				if dbID != "" && remoteID == dbID {
-					matches.RemoteToDB[remoteIndex] = dbIndex
-					matches.DBToRemote[dbIndex] = remoteIndex
-					break
-				}
+			dbID := strings.TrimSpace(dbInstances[dbIndex].ProviderVMID)
+			if dbID != "" && remoteID == dbID {
+				matches.RemoteToDB[remoteIndex] = dbIndex
+				matches.DBToRemote[dbIndex] = remoteIndex
+				break
 			}
 		}
 	}
@@ -116,14 +122,10 @@ func matchDiscoveredAndDBInstances(providerType string, remoteInstances []provid
 	return matches
 }
 
-// providerInstanceIDBackfills upgrades legacy Proxmox rows after they have
+// providerInstanceIDBackfills upgrades legacy imported rows after they have
 // been safely paired through the UUID/name compatibility path. Once backfilled,
 // subsequent discovery remains stable even if the guest is renamed.
 func providerInstanceIDBackfills(providerType string, remoteInstances []providerCore.DiscoveredInstance, dbInstances []providerModel.Instance, matches instanceMatchSet) []providerInstanceIDBackfill {
-	if !isProxmoxProviderType(providerType) {
-		return nil
-	}
-
 	backfills := make([]providerInstanceIDBackfill, 0)
 	for remoteIndex, dbIndex := range matches.RemoteToDB {
 		if remoteIndex < 0 || remoteIndex >= len(remoteInstances) || dbIndex < 0 || dbIndex >= len(dbInstances) {
@@ -131,22 +133,25 @@ func providerInstanceIDBackfills(providerType string, remoteInstances []provider
 		}
 		dbInstance := dbInstances[dbIndex]
 		remoteID := strings.TrimSpace(remoteInstances[remoteIndex].ProviderInstanceID)
-		if dbInstance.ID == 0 || strings.TrimSpace(dbInstance.ProviderVMID) != "" || remoteID == "" {
+		currentID := strings.TrimSpace(dbInstance.ProviderVMID)
+		if dbInstance.ID == 0 || remoteID == "" || currentID == remoteID {
+			continue
+		}
+		if currentID != "" && currentID != strings.TrimSpace(dbInstance.Name) {
 			continue
 		}
 		backfills = append(backfills, providerInstanceIDBackfill{
-			InstanceID:         dbInstance.ID,
-			ProviderInstanceID: remoteID,
+			InstanceID:                 dbInstance.ID,
+			ProviderInstanceID:         remoteID,
+			PreviousProviderInstanceID: currentID,
 		})
 	}
 	return backfills
 }
 
 func discoveredInstanceDeleteID(providerType string, remote providerCore.DiscoveredInstance) string {
-	if isProxmoxProviderType(providerType) {
-		if remoteID := strings.TrimSpace(remote.ProviderInstanceID); remoteID != "" {
-			return remoteID
-		}
+	if remoteID := strings.TrimSpace(remote.ProviderInstanceID); remoteID != "" {
+		return remoteID
 	}
 	if remoteUUID := strings.TrimSpace(remote.UUID); remoteUUID != "" {
 		return remoteUUID

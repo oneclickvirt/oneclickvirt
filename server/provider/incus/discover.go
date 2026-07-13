@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -64,13 +67,14 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 	var response struct {
 		Type     string `json:"type"`
 		Metadata []struct {
-			Name           string                 `json:"name"`
-			Status         string                 `json:"status"`
-			Type           string                 `json:"type"`
-			Config         map[string]string      `json:"config"`
-			Devices        map[string]interface{} `json:"devices"`
-			ExpandedConfig map[string]string      `json:"expanded_config"`
-			State          *struct {
+			Name            string                 `json:"name"`
+			Status          string                 `json:"status"`
+			Type            string                 `json:"type"`
+			Config          map[string]string      `json:"config"`
+			Devices         map[string]interface{} `json:"devices"`
+			ExpandedDevices map[string]interface{} `json:"expanded_devices"`
+			ExpandedConfig  map[string]string      `json:"expanded_config"`
+			State           *struct {
 				Network map[string]struct {
 					Addresses []struct {
 						Family  string `json:"family"`
@@ -90,24 +94,31 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 	var discoveredInstances []provider.DiscoveredInstance
 
 	for _, inst := range response.Metadata {
+		effectiveConfig := inst.Config
+		if len(inst.ExpandedConfig) > 0 {
+			effectiveConfig = inst.ExpandedConfig
+		}
+		effectiveDevices := inst.Devices
+		if len(inst.ExpandedDevices) > 0 {
+			effectiveDevices = inst.ExpandedDevices
+		}
 		discovered := provider.DiscoveredInstance{
-			Name:         inst.Name,
-			Status:       i.mapIncusStatus(inst.Status),
-			InstanceType: i.mapIncusType(inst.Type),
-			RawData:      inst,
+			Name:               inst.Name,
+			ProviderInstanceID: inst.Name,
+			Status:             i.mapIncusStatus(inst.Status),
+			InstanceType:       i.mapIncusType(inst.Type),
+			RawData:            inst,
 		}
 
 		// 解析资源配置
-		if cpuLimit, ok := inst.ExpandedConfig["limits.cpu"]; ok {
-			if cpu, err := strconv.Atoi(cpuLimit); err == nil {
-				discovered.CPU = cpu
-			}
+		if cpuLimit, ok := effectiveConfig["limits.cpu"]; ok {
+			discovered.CPU = utils.ParseCPUCount(cpuLimit)
 		}
 		if discovered.CPU == 0 {
 			discovered.CPU = 1
 		}
 
-		if memLimit, ok := inst.ExpandedConfig["limits.memory"]; ok {
+		if memLimit, ok := effectiveConfig["limits.memory"]; ok {
 			discovered.Memory = i.parseMemoryLimit(memLimit)
 		}
 		if discovered.Memory == 0 {
@@ -115,7 +126,7 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 		}
 
 		// 解析磁盘大小
-		if rootDevice, ok := inst.Devices["root"].(map[string]interface{}); ok {
+		if rootDevice, ok := effectiveDevices["root"].(map[string]interface{}); ok {
 			if size, ok := rootDevice["size"].(string); ok {
 				discovered.Disk = i.parseDiskSize(size)
 			}
@@ -125,11 +136,17 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 		}
 
 		// 解析容器设备中的GPU/NPU配置
-		discovered.GpuEnabled, discovered.GpuDeviceIds, discovered.NpuEnabled, discovered.NpuDeviceIds, discovered.Accelerators = parseIncusInstanceAccelerators(inst.Devices)
+		discovered.GpuEnabled, discovered.GpuDeviceIds, discovered.NpuEnabled, discovered.NpuDeviceIds, discovered.Accelerators = parseIncusInstanceAccelerators(effectiveDevices)
 
 		// 解析网络信息
 		if inst.State != nil && inst.State.Network != nil {
-			for netName, netInfo := range inst.State.Network {
+			networkNames := make([]string, 0, len(inst.State.Network))
+			for netName := range inst.State.Network {
+				networkNames = append(networkNames, netName)
+			}
+			sort.Strings(networkNames)
+			for _, netName := range networkNames {
+				netInfo := inst.State.Network[netName]
 				if netName == "lo" {
 					continue
 				}
@@ -139,7 +156,7 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 				}
 
 				for _, addr := range netInfo.Addresses {
-					if addr.Scope != "global" && addr.Scope != "link" {
+					if addr.Scope != "global" {
 						continue
 					}
 					if addr.Family == "inet" && discovered.PrivateIP == "" {
@@ -153,10 +170,10 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 		}
 
 		// 镜像信息
-		if image, ok := inst.Config["image.description"]; ok {
+		if image, ok := effectiveConfig["image.description"]; ok {
 			discovered.Image = image
 		}
-		if osType, ok := inst.Config["image.os"]; ok {
+		if osType, ok := effectiveConfig["image.os"]; ok {
 			discovered.OSType = osType
 		}
 
@@ -165,7 +182,7 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 		// 解析 proxy 设备中的端口映射
 		var portMappings []provider.DiscoveredPortMapping
 		var extraPorts []int
-		for devName, devData := range inst.Devices {
+		for devName, devData := range effectiveDevices {
 			if devName == "root" {
 				continue
 			}
@@ -201,7 +218,7 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 		discovered.ExtraPorts = extraPorts
 		discovered.PortMappings = portMappings
 
-		if uuid, ok := inst.Config["volatile.uuid"]; ok {
+		if uuid, ok := effectiveConfig["volatile.uuid"]; ok {
 			discovered.UUID = uuid
 		} else {
 			discovered.UUID = fmt.Sprintf("incus-%s-%s", i.config.Name, inst.Name)
@@ -226,12 +243,14 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 	}
 
 	var instances []struct {
-		Name    string                 `json:"name"`
-		Status  string                 `json:"status"`
-		Type    string                 `json:"type"`
-		Config  map[string]string      `json:"config"`
-		Devices map[string]interface{} `json:"devices"`
-		State   *struct {
+		Name            string                 `json:"name"`
+		Status          string                 `json:"status"`
+		Type            string                 `json:"type"`
+		Config          map[string]string      `json:"config"`
+		Devices         map[string]interface{} `json:"devices"`
+		ExpandedDevices map[string]interface{} `json:"expanded_devices"`
+		ExpandedConfig  map[string]string      `json:"expanded_config"`
+		State           *struct {
 			Network map[string]struct {
 				Addresses []struct {
 					Family  string `json:"family"`
@@ -250,23 +269,30 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 	var discoveredInstances []provider.DiscoveredInstance
 
 	for _, inst := range instances {
+		effectiveConfig := inst.Config
+		if len(inst.ExpandedConfig) > 0 {
+			effectiveConfig = inst.ExpandedConfig
+		}
+		effectiveDevices := inst.Devices
+		if len(inst.ExpandedDevices) > 0 {
+			effectiveDevices = inst.ExpandedDevices
+		}
 		discovered := provider.DiscoveredInstance{
-			Name:         inst.Name,
-			Status:       i.mapIncusStatus(inst.Status),
-			InstanceType: i.mapIncusType(inst.Type),
-			RawData:      inst,
+			Name:               inst.Name,
+			ProviderInstanceID: inst.Name,
+			Status:             i.mapIncusStatus(inst.Status),
+			InstanceType:       i.mapIncusType(inst.Type),
+			RawData:            inst,
 		}
 
-		if cpuLimit, ok := inst.Config["limits.cpu"]; ok {
-			if cpu, err := strconv.Atoi(cpuLimit); err == nil {
-				discovered.CPU = cpu
-			}
+		if cpuLimit, ok := effectiveConfig["limits.cpu"]; ok {
+			discovered.CPU = utils.ParseCPUCount(cpuLimit)
 		}
 		if discovered.CPU == 0 {
 			discovered.CPU = 1
 		}
 
-		if memLimit, ok := inst.Config["limits.memory"]; ok {
+		if memLimit, ok := effectiveConfig["limits.memory"]; ok {
 			discovered.Memory = i.parseMemoryLimit(memLimit)
 		}
 		if discovered.Memory == 0 {
@@ -274,11 +300,25 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 		}
 
 		// 解析容器设备中的GPU/NPU配置
-		discovered.GpuEnabled, discovered.GpuDeviceIds, discovered.NpuEnabled, discovered.NpuDeviceIds, discovered.Accelerators = parseIncusInstanceAccelerators(inst.Devices)
+		if rootDevice, ok := effectiveDevices["root"].(map[string]interface{}); ok {
+			if size, ok := rootDevice["size"].(string); ok {
+				discovered.Disk = i.parseDiskSize(size)
+			}
+		}
+		if discovered.Disk == 0 {
+			discovered.Disk = 10240
+		}
+		discovered.GpuEnabled, discovered.GpuDeviceIds, discovered.NpuEnabled, discovered.NpuDeviceIds, discovered.Accelerators = parseIncusInstanceAccelerators(effectiveDevices)
 
 		// 网络信息
 		if inst.State != nil && inst.State.Network != nil {
-			for netName, netInfo := range inst.State.Network {
+			networkNames := make([]string, 0, len(inst.State.Network))
+			for netName := range inst.State.Network {
+				networkNames = append(networkNames, netName)
+			}
+			sort.Strings(networkNames)
+			for _, netName := range networkNames {
+				netInfo := inst.State.Network[netName]
 				if netName == "lo" {
 					continue
 				}
@@ -288,7 +328,7 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 				}
 
 				for _, addr := range netInfo.Addresses {
-					if addr.Scope != "global" && addr.Scope != "link" {
+					if addr.Scope != "global" {
 						continue
 					}
 					if addr.Family == "inet" && discovered.PrivateIP == "" {
@@ -301,10 +341,10 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 			}
 		}
 
-		if image, ok := inst.Config["image.description"]; ok {
+		if image, ok := effectiveConfig["image.description"]; ok {
 			discovered.Image = image
 		}
-		if osType, ok := inst.Config["image.os"]; ok {
+		if osType, ok := effectiveConfig["image.os"]; ok {
 			discovered.OSType = osType
 		}
 
@@ -313,7 +353,7 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 		// 解析 proxy 设备中的端口映射
 		var portMappings []provider.DiscoveredPortMapping
 		var extraPorts []int
-		for devName, devData := range inst.Devices {
+		for devName, devData := range effectiveDevices {
 			if devName == "root" {
 				continue
 			}
@@ -349,7 +389,7 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 		discovered.ExtraPorts = extraPorts
 		discovered.PortMappings = portMappings
 
-		if uuid, ok := inst.Config["volatile.uuid"]; ok {
+		if uuid, ok := effectiveConfig["volatile.uuid"]; ok {
 			discovered.UUID = uuid
 		} else {
 			discovered.UUID = fmt.Sprintf("incus-%s-%s", i.config.Name, inst.Name)
@@ -398,8 +438,8 @@ func (i *IncusProvider) parseMemoryLimit(memStr string) int64 {
 		memStr = strings.TrimSuffix(memStr, "T")
 	}
 
-	if value, err := strconv.ParseInt(memStr, 10, 64); err == nil {
-		return value * multiplier
+	if value, err := strconv.ParseFloat(memStr, 64); err == nil {
+		return int64(value * float64(multiplier))
 	}
 
 	return 0
@@ -421,8 +461,8 @@ func (i *IncusProvider) parseDiskSize(sizeStr string) int64 {
 		sizeStr = strings.TrimSuffix(sizeStr, "T")
 	}
 
-	if value, err := strconv.ParseInt(sizeStr, 10, 64); err == nil {
-		return value * multiplier
+	if value, err := strconv.ParseFloat(sizeStr, 64); err == nil {
+		return int64(value * float64(multiplier))
 	}
 
 	return 0
@@ -431,13 +471,19 @@ func (i *IncusProvider) parseDiskSize(sizeStr string) int64 {
 // parseProxyAddress 解析 Incus proxy 设备地址，格式如 "tcp:0.0.0.0:8080" 或 "udp:127.0.0.1:22"
 // 返回 (port, protocol)
 func (i *IncusProvider) parseProxyAddress(addr string) (int, string) {
-	parts := strings.SplitN(addr, ":", 3)
-	if len(parts) < 3 {
+	protocol, endpoint, ok := strings.Cut(strings.TrimSpace(addr), ":")
+	if !ok {
 		return 0, "tcp"
 	}
-	protocol := strings.ToLower(parts[0])
-	portStr := parts[len(parts)-1]
-	port, err := strconv.Atoi(portStr)
+	protocol = strings.ToLower(protocol)
+	_, portStr, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		portStr = endpoint
+		if index := strings.LastIndex(endpoint, ":"); index >= 0 {
+			portStr = endpoint[index+1:]
+		}
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(portStr))
 	if err != nil {
 		return 0, protocol
 	}

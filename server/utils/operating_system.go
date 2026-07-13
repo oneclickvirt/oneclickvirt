@@ -66,7 +66,7 @@ func matchKnownOSType(value string) string {
 		{[]string{"oraclelinux", "oracle-linux", "oracle"}, "oracle"},
 		{[]string{"ubuntu"}, "ubuntu"},
 		{[]string{"debian"}, "debian"},
-		{[]string{"alpine"}, "alpine"},
+		{[]string{"alpinelinux", "alpine-linux", "alpine"}, "alpine"},
 		{[]string{"fedora"}, "fedora"},
 		{[]string{"centos", "cent-os"}, "centos"},
 		{[]string{"gentoo"}, "gentoo"},
@@ -77,10 +77,35 @@ func matchKnownOSType(value string) string {
 	}
 	for _, alias := range aliases {
 		for _, pattern := range alias.patterns {
-			if value == pattern || strings.HasPrefix(value, pattern+"-") || strings.Contains(value, "-"+pattern+"-") || strings.HasSuffix(value, "-"+pattern) {
+			if matchesOSPattern(value, pattern) {
 				return alias.canonical
 			}
 		}
 	}
 	return ""
+}
+
+func matchesOSPattern(value, pattern string) bool {
+	if value == pattern || strings.HasPrefix(value, pattern+"-") || strings.Contains(value, "-"+pattern+"-") || strings.HasSuffix(value, "-"+pattern) {
+		return true
+	}
+
+	// Several published qcow2 images use compact names such as debian12,
+	// ubuntu24 and almalinux9. Accept a version digit immediately after a
+	// known OS token while retaining the existing token-boundary checks so
+	// unrelated words that merely contain an OS alias are not classified.
+	for start := 0; start < len(value); {
+		index := strings.Index(value[start:], pattern)
+		if index < 0 {
+			return false
+		}
+		index += start
+		beforeBoundary := index == 0 || value[index-1] == '-'
+		after := index + len(pattern)
+		if beforeBoundary && after < len(value) && value[after] >= '0' && value[after] <= '9' {
+			return true
+		}
+		start = index + 1
+	}
+	return false
 }

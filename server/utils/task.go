@@ -247,16 +247,20 @@ func MarkTaskFailed(taskID uint, errorMessage string) {
 // GetDefaultTaskTimeout 获取默认任务超时时间（秒）
 func GetDefaultTaskTimeout(taskType string) int {
 	timeouts := map[string]int{
-		"create":               1800, // 30分钟
-		"start":                300,  // 5分钟
-		"stop":                 300,  // 5分钟
-		"restart":              600,  // 10分钟
-		"reset":                1200, // 20分钟
-		"delete":               1800, // 30分钟 - 删除操作需要更长时间处理重试和清理
-		"create-port-mapping":  600,  // 10分钟
-		"delete-port-mapping":  300,  // 5分钟
-		"repair-port-mappings": 1800, // 30分钟
-		"reset-password":       600,  // 10分钟
+		"create":                  1800, // 30分钟
+		"start":                   300,  // 5分钟
+		"stop":                    300,  // 5分钟
+		"restart":                 600,  // 10分钟
+		"reset":                   1200, // 20分钟
+		"delete":                  1800, // 30分钟 - 删除操作需要更长时间处理重试和清理
+		"create-port-mapping":     600,  // 10分钟
+		"delete-port-mapping":     300,  // 5分钟
+		"repair-port-mappings":    1800, // 30分钟
+		"reset-password":          600,  // 10分钟
+		"provider-instance-sync":  1800,
+		"provider-orphan-cleanup": 3600,
+		"provider-health-check":   900,
+		"provider-io-limit-sync":  600,
 	}
 
 	if timeout, exists := timeouts[taskType]; exists {
@@ -297,8 +301,14 @@ func GetEstimatedTaskDuration(taskType, instanceType string) int {
 		return 600
 	case "reset-password":
 		return 30
-	case "monitor-sync", "traffic-monitor-enable", "traffic-monitor-disable", "traffic-monitor-detect", "snapshot-create", "snapshot-delete", "snapshot-restore", "provider-image-cleanup":
+	case "monitor-sync", "traffic-monitor-enable", "traffic-monitor-disable", "traffic-monitor-detect", "snapshot-create", "snapshot-delete", "snapshot-restore", "provider-image-cleanup", "provider-instance-sync":
 		return 300
+	case "provider-orphan-cleanup":
+		return 600
+	case "provider-health-check":
+		return 180
+	case "provider-io-limit-sync":
+		return 120
 	case "agent-deploy":
 		return 600
 	case "agent-uninstall":

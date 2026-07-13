@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -26,7 +28,7 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 	}
 
 	// 使用docker inspect命令获取所有容器的详细信息
-	cmd := fmt.Sprintf("%s ps -a --format '{{.ID}}' | xargs -r %s inspect", d.runtime.CLI, d.runtime.CLI)
+	cmd := fmt.Sprintf("ids=$(%s ps -a --format '{{.ID}}'); [ -z \"$ids\" ] || %s inspect $ids", d.runtime.CLI, d.runtime.CLI)
 	output, err := d.sshClient.Execute(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("执行SSH命令失败: %w", err)
@@ -52,8 +54,9 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 			Labels   map[string]string `json:"Labels"`
 		} `json:"Config"`
 		HostConfig struct {
-			NanoCpus     int64 `json:"NanoCpus"`
-			Memory       int64 `json:"Memory"`
+			NanoCpus     int64  `json:"NanoCpus"`
+			Memory       int64  `json:"Memory"`
+			CpusetCpus   string `json:"CpusetCpus"`
 			PortBindings map[string][]struct {
 				HostIP   string `json:"HostIp"`
 				HostPort string `json:"HostPort"`
@@ -82,17 +85,21 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 
 	for _, container := range containers {
 		discovered := provider.DiscoveredInstance{
-			UUID:         container.ID,
-			Name:         strings.TrimPrefix(container.Name, "/"),
-			Status:       d.mapDockerStatus(container.State.Status, container.State.Running, container.State.Paused),
-			InstanceType: "container", // Docker只支持容器
-			Image:        container.Config.Image,
-			RawData:      container,
+			UUID:               container.ID,
+			ProviderInstanceID: container.ID,
+			Name:               strings.TrimPrefix(container.Name, "/"),
+			Status:             d.mapDockerStatus(container.State.Status, container.State.Running, container.State.Paused),
+			InstanceType:       "container", // Docker只支持容器
+			Image:              container.Config.Image,
+			RawData:            container,
 		}
 
 		// 解析CPU配置（NanoCPUs转换为核心数）
 		if container.HostConfig.NanoCpus > 0 {
-			discovered.CPU = int(container.HostConfig.NanoCpus / 1000000000)
+			discovered.CPU = int((container.HostConfig.NanoCpus + 999999999) / 1000000000)
+		}
+		if discovered.CPU == 0 {
+			discovered.CPU = utils.ParseCPUCount(container.HostConfig.CpusetCpus)
 		}
 		if discovered.CPU == 0 {
 			discovered.CPU = 1
@@ -111,7 +118,13 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 
 		// 解析网络信息
 		var extraPorts []int
-		for netName, netInfo := range container.NetworkSettings.Networks {
+		networkNames := make([]string, 0, len(container.NetworkSettings.Networks))
+		for netName := range container.NetworkSettings.Networks {
+			networkNames = append(networkNames, netName)
+		}
+		sort.Strings(networkNames)
+		for _, netName := range networkNames {
+			netInfo := container.NetworkSettings.Networks[netName]
 			if netName == "none" {
 				continue
 			}
@@ -135,19 +148,21 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 				portNum := d.parsePortNumber(containerPort)
 				protocol := d.parsePortProtocol(containerPort)
 				if portNum > 0 {
-					if hostPort, err := strconv.Atoi(bindings[0].HostPort); err == nil {
-						isSSH := strings.HasPrefix(containerPort, "22/")
-						if isSSH && !sshPortFound {
-							discovered.SSHPort = hostPort
-							sshPortFound = true
+					for _, binding := range bindings {
+						if hostPort, err := strconv.Atoi(binding.HostPort); err == nil {
+							isSSH := strings.HasPrefix(containerPort, "22/")
+							if isSSH && !sshPortFound {
+								discovered.SSHPort = hostPort
+								sshPortFound = true
+							}
+							extraPorts = append(extraPorts, hostPort)
+							portMappings = append(portMappings, provider.DiscoveredPortMapping{
+								HostPort:  hostPort,
+								GuestPort: portNum,
+								Protocol:  protocol,
+								IsSSH:     isSSH,
+							})
 						}
-						extraPorts = append(extraPorts, hostPort)
-						portMappings = append(portMappings, provider.DiscoveredPortMapping{
-							HostPort:  hostPort,
-							GuestPort: portNum,
-							Protocol:  protocol,
-							IsSSH:     isSSH,
-						})
 					}
 				}
 			}

@@ -11,7 +11,6 @@ import (
 	"oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
-	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
@@ -616,7 +615,12 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 	// 实例发现与导入配置更新
 	if req.DiscoverMode != nil {
-		provider.PendingDiscovery = *req.DiscoverMode
+		provider.InstanceDiscoveryEnabled = *req.DiscoverMode
+		if !*req.DiscoverMode {
+			provider.PendingDiscovery = false
+		} else if provider.ConnectionType == "agent" {
+			provider.PendingDiscovery = true
+		}
 	}
 	if req.AutoImport != nil {
 		provider.DiscoveryAutoImport = *req.AutoImport
@@ -647,6 +651,10 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	// 检测连接类型是否发生变化，需要在事务提交后清理缓存
 	connectionTypeChanged := (req.ConnectionType == "agent" || req.ConnectionType == "ssh" || req.ConnectionType == "local") &&
 		originalConnectionType != "" && originalConnectionType != req.ConnectionType
+	if provider.ConnectionType == "agent" && provider.InstanceDiscoveryEnabled &&
+		((req.DiscoverMode != nil && *req.DiscoverMode) || connectionTypeChanged) {
+		provider.PendingDiscovery = true
+	}
 	if provider.ConnectionType == "agent" {
 		provider.EnableTrafficControl = true
 		provider.EnableResourceMonitoring = true
@@ -739,11 +747,6 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 				zap.Time("newExpiresAt", *provider.ExpiresAt))
 		}
 
-		// 如果流量统计开关发生变化，触发后台任务处理监控配置
-		if trafficControlChanged {
-			go s.handleTrafficControlToggle(provider.ID, provider.EnableTrafficControl)
-		}
-
 		return nil
 	})
 
@@ -768,129 +771,17 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		agentService.RemoveClient(req.ID)
 	}
 	if providerIOLimitsChanged(originalProviderForIOLimits, provider) {
-		go s.syncProviderIOLimits(provider.ID)
+		if userID, err := resolveProviderTaskUserID(provider.OwnerAdminID); err != nil {
+			global.APP_LOG.Warn("无法确定IO限速同步任务管理员", zap.Uint("providerID", provider.ID), zap.Error(err))
+		} else if _, err := s.CreateIOLimitSyncTask(provider.ID, userID); err != nil {
+			global.APP_LOG.Warn("IO限速同步任务入队失败，可重新保存节点配置后重试", zap.Uint("providerID", provider.ID), zap.Error(err))
+		}
+	}
+	if trafficControlChanged {
+		if _, err := s.CreateTrafficMonitorToggleTask(provider.ID, provider.EnableTrafficControl); err != nil {
+			global.APP_LOG.Warn("流量监控切换任务入队失败，可在监控管理中重试", zap.Uint("providerID", provider.ID), zap.Error(err))
+		}
 	}
 
 	return nil
 }
-
-// handleTrafficControlToggle 处理流量统计开关切换（后台任务）
-// 当Provider的EnableTrafficControl从false->true或true->false时调用
-func (s *Service) handleTrafficControlToggle(providerID uint, enabled bool) {
-	defer func() {
-		if r := recover(); r != nil {
-			global.APP_LOG.Error("处理流量统计开关切换时发生panic",
-				zap.Uint("providerID", providerID),
-				zap.Bool("enabled", enabled),
-				zap.Any("panic", r))
-		}
-	}()
-
-	global.APP_LOG.Info("开始处理Provider流量统计开关切换",
-		zap.Uint("providerID", providerID),
-		zap.Bool("enabled", enabled))
-
-	// 获取Provider信息（预加载，避免循环中重复查询）
-	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
-		global.APP_LOG.Error("查询Provider失败",
-			zap.Uint("providerID", providerID),
-			zap.Error(err))
-		return
-	}
-
-	// 获取该Provider下所有活跃实例（预加载所有字段）
-	var instances []providerModel.Instance
-	if err := global.APP_DB.Where("provider_id = ? AND status NOT IN (?)",
-		providerID, []string{"deleted", "deleting"}).Find(&instances).Error; err != nil {
-		global.APP_LOG.Error("查询Provider实例失败",
-			zap.Uint("providerID", providerID),
-			zap.Error(err))
-		return
-	}
-
-	if len(instances) == 0 {
-		global.APP_LOG.Debug("Provider没有活跃实例，无需处理",
-			zap.Uint("providerID", providerID))
-		return
-	}
-
-	// 使用统一的流量监控管理器
-	trafficMonitorManager := traffic_monitor.GetManager()
-
-	// 创建带超时的context
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
-	if enabled {
-		// 启用流量统计：为所有运行中实例初始化监控
-		global.APP_LOG.Info("启用流量统计，开始为实例初始化监控",
-			zap.Uint("providerID", providerID),
-			zap.Int("instanceCount", len(instances)))
-
-		successCount := 0
-		failCount := 0
-		skippedCount := 0
-
-		for _, instance := range instances {
-			// 只为运行中的实例初始化监控
-			if instance.Status != "running" {
-				global.APP_LOG.Debug("跳过非运行状态实例",
-					zap.Uint("instanceID", instance.ID),
-					zap.String("status", instance.Status))
-				skippedCount++
-				continue
-			}
-
-			// 使用统一的流量监控管理器
-			if err := trafficMonitorManager.AttachMonitor(ctx, instance.ID); err != nil {
-				global.APP_LOG.Warn("初始化实例监控失败",
-					zap.Uint("instanceID", instance.ID),
-					zap.String("instanceName", instance.Name),
-					zap.Error(err))
-				failCount++
-			} else {
-				global.APP_LOG.Debug("实例监控初始化成功",
-					zap.Uint("instanceID", instance.ID),
-					zap.String("instanceName", instance.Name))
-				successCount++
-			}
-		}
-
-		global.APP_LOG.Info("Provider流量统计启用处理完成",
-			zap.Uint("providerID", providerID),
-			zap.Int("成功", successCount),
-			zap.Int("失败", failCount),
-			zap.Int("跳过", skippedCount))
-
-	} else {
-		// 禁用流量统计：清理所有实例的监控
-		global.APP_LOG.Info("禁用流量统计，开始清理实例监控",
-			zap.Uint("providerID", providerID),
-			zap.Int("instanceCount", len(instances)))
-
-		successCount := 0
-		failCount := 0
-
-		for _, instance := range instances {
-			// 使用统一的流量监控管理器清理监控
-			if err := trafficMonitorManager.DetachMonitor(ctx, instance.ID); err != nil {
-				global.APP_LOG.Warn("清理实例监控失败",
-					zap.Uint("instanceID", instance.ID),
-					zap.String("instanceName", instance.Name),
-					zap.Error(err))
-				failCount++
-			} else {
-				global.APP_LOG.Debug("实例监控清理成功",
-					zap.Uint("instanceID", instance.ID),
-					zap.String("instanceName", instance.Name))
-				successCount++
-			}
-		}
-
-		global.APP_LOG.Info("Provider流量统计禁用处理完成",
-			zap.Uint("providerID", providerID),
-			zap.Int("成功", successCount),
-			zap.Int("失败", failCount))
-	}
-} // FreezeProvider 冻结Provider

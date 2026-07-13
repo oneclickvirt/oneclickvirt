@@ -7,7 +7,8 @@ import {
   freezeProvider,
   unfreezeProvider,
   setProviderExpiry,
-  checkProviderHealth,
+  queueProviderHealthCheck,
+  syncProviderInstances,
   exportProvidersCSV,
   importProvidersCSV,
   cleanupOrphanInstances
@@ -20,6 +21,7 @@ export function useProviderCRUD() {
   const providers = ref([])
   const selectedProviders = ref([])
   const loading = ref(false)
+  const batchHealthSubmitting = ref(false)
   const currentPage = ref(1)
   const pageSize = ref(10)
   const total = ref(0)
@@ -544,6 +546,60 @@ export function useProviderCRUD() {
     }
   }
 
+  const handleBatchHealthCheck = async () => {
+    const selected = [...selectedProviders.value]
+    if (selected.length === 0 || batchHealthSubmitting.value) return
+
+    try {
+      await ElMessageBox.confirm(
+        t('admin.providers.batchHealthCheckConfirm', { count: selected.length }),
+        t('admin.providers.batchHealthCheck'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'info'
+        }
+      )
+    } catch (error) {
+      if (error !== 'cancel' && error !== 'close') {
+        ElMessage.error(error?.message || t('common.failed'))
+      }
+      return
+    }
+
+    batchHealthSubmitting.value = true
+    try {
+      const results = await Promise.all(selected.map(async provider => {
+        try {
+          await queueProviderHealthCheck(provider.id)
+          return { provider, success: true }
+        } catch (error) {
+          return {
+            provider,
+            success: false,
+            error: error?.response?.data?.msg || error?.message || t('common.failed')
+          }
+        }
+      }))
+      const failures = results.filter(item => !item.success)
+      const successCount = results.length - failures.length
+
+      if (failures.length === 0) {
+        ElMessage.success(t('admin.providers.batchHealthCheckQueued', { success: successCount, failed: 0 }))
+      } else {
+        const details = failures.map(item => `${item.provider.name}: ${item.error}`).join('\n')
+        await ElMessageBox.alert(
+          `${t('admin.providers.batchHealthCheckQueued', { success: successCount, failed: failures.length })}\n\n${details}`,
+          t('admin.providers.batchHealthCheckResult'),
+          { type: successCount > 0 ? 'warning' : 'error' }
+        )
+      }
+      await loadProviders()
+    } finally {
+      batchHealthSubmitting.value = false
+    }
+  }
+
   const handleSetProviderExpiry = async (provider) => {
     try {
       const { value: expiresAt } = await ElMessageBox.prompt(
@@ -612,29 +668,24 @@ export function useProviderCRUD() {
   }
 
   const checkHealth = async (providerId) => {
-    const loadingMessage = ElMessage({
-      message: t('admin.providers.validation.healthChecking'),
-      type: 'info',
-      duration: 0,
-      showClose: false
-    })
     try {
-      const result = await checkProviderHealth(providerId)
-      loadingMessage.close()
-      if (result.code === 200) {
-        ElMessage.success(t('admin.providers.healthCheckComplete'))
-        await loadProviders()
-      } else {
-        ElMessage.error(result.msg || result.message || t('admin.providers.healthCheckFailed'))
-      }
+      await queueProviderHealthCheck(providerId)
+      ElMessage.success(t('admin.providers.healthCheckTaskQueued'))
+      await loadProviders()
     } catch (error) {
-      loadingMessage.close()
-      let errorMsg = t('admin.providers.healthCheckFailed')
-      if (error.message?.includes('timeout')) {
-        errorMsg = t('admin.providers.healthCheckTimeout')
-      } else if (error.message) {
-        errorMsg = t('admin.providers.healthCheckFailed') + ': ' + error.message
-      }
+      const errorMsg = error?.response?.data?.msg || error?.message || t('admin.providers.healthCheckFailed')
+      ElMessage.error(errorMsg)
+    }
+  }
+
+  const syncInstances = async (provider) => {
+    if (!provider?.instanceDiscoveryEnabled) return
+    try {
+      await syncProviderInstances(provider.id)
+      ElMessage.success(t('admin.providers.syncInstancesTaskQueued'))
+      await loadProviders()
+    } catch (error) {
+      const errorMsg = error?.response?.data?.msg || error?.message || t('admin.providers.syncInstancesFailed')
       ElMessage.error(errorMsg)
     }
   }
@@ -667,50 +718,9 @@ export function useProviderCRUD() {
         type: 'error'
       })
 
-      // 执行清理
-      const loadingInstance = ElLoading.service({
-        lock: true,
-        text: t('admin.providers.cleanupOrphansRunning'),
-        background: 'rgba(0, 0, 0, 0.7)'
-      })
-
-      try {
-        const response = await cleanupOrphanInstances(provider.id)
-        const result = response.data || response
-        loadingInstance.close()
-
-        if (result.totalOrphans === 0) {
-          ElMessage.info(t('admin.providers.cleanupOrphansNoOrphans'))
-        } else {
-          const resultHtml = `
-            <div>
-              <p>${t('admin.providers.cleanupOrphansResult')}</p>
-              <p style="color:#E6A23C;">${t('admin.providers.cleanupOrphansTotal')}: ${result.totalOrphans}</p>
-              <p style="color:#67C23A;">${t('admin.providers.cleanupOrphansDeleted')}: ${result.deletedCount}</p>
-              ${result.failedCount > 0
-                ? `<p style="color:#F56C6C;">${t('admin.providers.cleanupOrphansFailedCount')}: ${result.failedCount}</p>`
-                : ''}
-              ${result.orphans?.length > 0
-                ? `<div style="margin-top:10px;max-height:200px;overflow-y:auto;">
-                    ${result.orphans.map(o =>
-                      `<p style="font-size:12px;color:${o.deleted ? '#67C23A' : '#F56C6C'};">
-                        ${o.deleted ? '✓' : '✗'} ${o.name || o.id} (${o.type || 'unknown'})
-                        ${o.error ? ` - ${o.error}` : ''}
-                      </p>`
-                    ).join('')}
-                  </div>`
-                : ''}
-            </div>`
-          ElMessageBox.alert(resultHtml, t('admin.providers.cleanupOrphans'), {
-            dangerouslyUseHTMLString: true,
-            confirmButtonText: t('common.confirm')
-          })
-        }
-        await loadProviders()
-      } catch (error) {
-        loadingInstance.close()
-        throw error
-      }
+      await cleanupOrphanInstances(provider.id)
+      ElMessage.success(t('admin.providers.cleanupOrphansTaskQueued'))
+      await loadProviders()
     } catch (error) {
       if (error !== 'cancel') {
         const errorMsg = error?.response?.data?.msg || error?.message || t('common.failed')
@@ -723,6 +733,7 @@ export function useProviderCRUD() {
     providers,
     selectedProviders,
     loading,
+    batchHealthSubmitting,
     currentPage,
     pageSize,
     total,
@@ -736,10 +747,12 @@ export function useProviderCRUD() {
     handleDeleteProvider,
     handleBatchDelete,
     handleBatchFreeze,
+    handleBatchHealthCheck,
     handleSetProviderExpiry,
     freezeServer,
     unfreezeServer,
     checkHealth,
+    syncInstances,
     handleExportCSV,
     handleImportCSV,
     cleanupOrphans

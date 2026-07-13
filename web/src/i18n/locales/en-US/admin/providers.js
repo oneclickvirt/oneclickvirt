@@ -890,6 +890,15 @@ export default {
   execTimeout: "Timeout (s)",
   execNoOutput: "(no output)",
 
+  syncInstances: "Sync Instances",
+  syncInstancesTaskQueued: "Instance sync task queued. View progress in Admin Tasks.",
+  syncInstancesFailed: "Failed to queue instance sync task",
+  healthCheckTaskQueued: "Health check task queued. View progress in Admin Tasks.",
+  batchHealthCheck: "Start Batch Inspection",
+  batchHealthCheckConfirm: "Queue health inspection tasks for the {count} selected providers?",
+  batchHealthCheckQueued: "Inspection tasks submitted: {success} succeeded, {failed} failed. View progress in Admin Tasks.",
+  batchHealthCheckResult: "Batch Inspection Submission",
+
   // Force sync cleanup - remote orphan instance cleanup
   cleanupOrphans: "Force Sync Cleanup",
   cleanupOrphansWarning: "⚠️ <strong>Dangerous Operation</strong><br><br>This will perform a forced one-way sync on node <strong>{name}</strong> ({host}):<br><br>• Scan all instances on the remote server<br>• <span style='color: #F56C6C;'><strong>Delete instances on the remote server that do NOT exist in the master database</strong></span><br>• Instances in the master database will NOT be affected<br><br><strong>This operation is irreversible. Proceed with caution!</strong>",
@@ -903,4 +912,5 @@ export default {
   cleanupOrphansDeleted: "Successfully deleted",
   cleanupOrphansFailedCount: "Failed to delete",
   cleanupOrphansFailed: "Failed to clean up orphan instances",
+  cleanupOrphansTaskQueued: "Orphan cleanup task queued. View progress in Admin Tasks.",
 }

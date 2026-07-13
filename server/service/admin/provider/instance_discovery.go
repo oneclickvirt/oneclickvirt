@@ -53,6 +53,7 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 			Error:        err.Error(),
 		}, fmt.Errorf("发现实例失败: %w", err)
 	}
+	discoveredInstances = normalizeDiscoveredInstances(providerID, providerInfo.Type, discoveredInstances)
 
 	// 4. 统计已纳管和新实例
 	alreadyManaged := 0
@@ -71,7 +72,7 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 	matches := matchDiscoveredAndDBInstances(providerInfo.Type, discoveredInstances, existingInstances)
 	for _, backfill := range providerInstanceIDBackfills(providerInfo.Type, discoveredInstances, existingInstances, matches) {
 		update := global.APP_DB.Model(&providerModel.Instance{}).
-			Where("id = ? AND (provider_vm_id IS NULL OR provider_vm_id = '')", backfill.InstanceID).
+			Where("id = ? AND (provider_vm_id IS NULL OR provider_vm_id = '' OR provider_vm_id = ?)", backfill.InstanceID, backfill.PreviousProviderInstanceID).
 			Update("provider_vm_id", backfill.ProviderInstanceID)
 		if update.Error != nil {
 			global.APP_LOG.Warn("回填实例ProviderVMID失败",

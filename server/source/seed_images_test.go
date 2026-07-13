@@ -140,6 +140,31 @@ func TestParseInstallerImageURLs(t *testing.T) {
 	}
 }
 
+func TestParseCompactVersionQcow2ImageURLs(t *testing.T) {
+	tests := map[string]string{
+		"almalinux8":         "almalinux",
+		"alpinelinux_stable": "alpine",
+		"centos10-stream":    "centos",
+		"debian12":           "debian",
+		"fedora34":           "fedora",
+		"rockylinux9":        "rockylinux",
+		"ubuntu24":           "ubuntu",
+	}
+
+	for name, wantOS := range tests {
+		for _, repository := range []string{"pve_kvm_images", "kvm_images"} {
+			imageURL := "https://github.com/oneclickvirt/" + repository + "/releases/download/images/" + name + ".qcow2"
+			got := parseImageURL(imageURL)
+			if got == nil {
+				t.Fatalf("parseImageURL(%q) returned nil", imageURL)
+			}
+			if got.OSType != wantOS {
+				t.Errorf("parseImageURL(%q).OSType = %q, want %q", imageURL, got.OSType, wantOS)
+			}
+		}
+	}
+}
+
 func TestOrdinaryWindowsInstallerAddsLXDAndIncusVMImages(t *testing.T) {
 	images := buildDesiredSystemImages([]string{
 		"https://download.testip.xyz/windows/zh-cn_windows_server_2019_x64_dvd_19d65722.iso",

@@ -23,16 +23,17 @@ func providerIOLimitsChanged(before providerModel.Provider, after providerModel.
 		before.VMWriteIOLimit != after.VMWriteIOLimit
 }
 
-func (s *Service) syncProviderIOLimits(providerID uint) {
+func (s *Service) syncProviderIOLimitsWithContext(parent context.Context, providerID uint) (resultErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			global.APP_LOG.Error("同步Provider IO限速时发生panic",
 				zap.Uint("providerID", providerID),
 				zap.Any("panic", r))
+			resultErr = fmt.Errorf("同步Provider IO限速发生异常: %v", r)
 		}
 	}()
 	if global.APP_DB == nil {
-		return
+		return fmt.Errorf("数据库未初始化")
 	}
 
 	var dbProvider providerModel.Provider
@@ -40,7 +41,7 @@ func (s *Service) syncProviderIOLimits(providerID uint) {
 		global.APP_LOG.Warn("同步Provider IO限速失败：节点不存在",
 			zap.Uint("providerID", providerID),
 			zap.Error(err))
-		return
+		return fmt.Errorf("节点不存在: %w", err)
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(dbProvider.Type))
@@ -48,7 +49,7 @@ func (s *Service) syncProviderIOLimits(providerID uint) {
 		global.APP_LOG.Info("Provider类型暂不支持动态同步IO限速，已跳过",
 			zap.Uint("providerID", providerID),
 			zap.String("type", providerType))
-		return
+		return nil
 	}
 
 	var instances []providerModel.Instance
@@ -59,10 +60,10 @@ func (s *Service) syncProviderIOLimits(providerID uint) {
 		global.APP_LOG.Warn("查询Provider实例以同步IO限速失败",
 			zap.Uint("providerID", providerID),
 			zap.Error(err))
-		return
+		return fmt.Errorf("查询实例失败: %w", err)
 	}
 	if len(instances) == 0 {
-		return
+		return nil
 	}
 
 	api := &providerService.ProviderApiService{}
@@ -71,10 +72,10 @@ func (s *Service) syncProviderIOLimits(providerID uint) {
 		global.APP_LOG.Warn("同步Provider IO限速失败：节点不可连接",
 			zap.Uint("providerID", providerID),
 			zap.Error(err))
-		return
+		return fmt.Errorf("节点不可连接: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 
 	successCount := 0
@@ -109,6 +110,13 @@ func (s *Service) syncProviderIOLimits(providerID uint) {
 		zap.Int("success", successCount),
 		zap.Int("failed", failCount),
 		zap.Int("skipped", skippedCount))
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if failCount > 0 {
+		return fmt.Errorf("%d 个实例IO限速同步失败", failCount)
+	}
+	return nil
 }
 
 func limitsForInstanceType(dbProvider providerModel.Provider, instanceType string) (string, string) {

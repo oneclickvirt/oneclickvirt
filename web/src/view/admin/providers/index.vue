@@ -8,6 +8,14 @@
             <!-- 批量操作按钮组 - 仅在选中时显示 -->
             <template v-if="selectedProviders.length > 0">
               <el-button
+                type="success"
+                :icon="CircleCheck"
+                :loading="batchHealthSubmitting"
+                @click="handleBatchHealthCheck"
+              >
+                {{ $t('admin.providers.batchHealthCheck') }} ({{ selectedProviders.length }})
+              </el-button>
+              <el-button
                 type="danger"
                 :icon="Delete"
                 @click="handleBatchDelete"
@@ -71,6 +79,7 @@
         @auto-configure="autoConfigureAPI"
         @traffic-monitor="handleEnableTrafficMonitor"
         @health-check="checkHealth"
+        @sync-instances="syncInstances"
         @set-expiry="handleSetProviderExpiry"
         @freeze="freezeServer"
         @unfreeze="unfreezeServer"
@@ -147,7 +156,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { Search, Delete, Lock, Upload, Download } from '@element-plus/icons-vue'
+import { Search, Delete, Lock, Upload, Download, CircleCheck } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import SearchFilter from './components/SearchFilter.vue'
 import ConfigDialog from './components/ConfigDialog.vue'
@@ -165,13 +174,13 @@ import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/p
 const { t } = useI18n()
 
 const {
-  providers, selectedProviders, loading,
+  providers, selectedProviders, loading, batchHealthSubmitting,
   currentPage, pageSize, total, searchForm,
   loadProviders, handleSearch, handleReset,
   handleSizeChange, handleCurrentChange, handleSelectionChange,
-  handleDeleteProvider, handleBatchDelete, handleBatchFreeze,
+  handleDeleteProvider, handleBatchDelete, handleBatchFreeze, handleBatchHealthCheck,
   handleSetProviderExpiry, freezeServer, unfreezeServer, checkHealth,
-  handleExportCSV, handleImportCSV, cleanupOrphans
+  handleExportCSV, handleImportCSV, cleanupOrphans, syncInstances
 } = useProviderCRUD()
 
 const importCsvInput = ref(null)

@@ -387,12 +387,13 @@ func (p *VMwareProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 	result := make([]provider.DiscoveredInstance, 0, len(instances))
 	for _, inst := range instances {
 		result = append(result, provider.DiscoveredInstance{
-			UUID:         inst.ID,
-			Name:         inst.Name,
-			Status:       inst.Status,
-			InstanceType: "vm",
-			Image:        inst.Image,
-			RawData:      inst.Metadata,
+			UUID:               inst.ID,
+			ProviderInstanceID: inst.ID,
+			Name:               inst.Name,
+			Status:             inst.Status,
+			InstanceType:       "vm",
+			Image:              inst.Image,
+			RawData:            inst.Metadata,
 		})
 	}
 	return result, nil

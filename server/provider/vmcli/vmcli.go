@@ -350,12 +350,13 @@ func (p *Provider) DiscoverInstances(ctx context.Context) ([]rootProvider.Discov
 	result := make([]rootProvider.DiscoveredInstance, 0, len(instances))
 	for _, inst := range instances {
 		result = append(result, rootProvider.DiscoveredInstance{
-			UUID:         inst.ID,
-			Name:         inst.Name,
-			Status:       inst.Status,
-			InstanceType: "vm",
-			Image:        inst.Image,
-			RawData:      inst.Metadata,
+			UUID:               inst.ID,
+			ProviderInstanceID: inst.ID,
+			Name:               inst.Name,
+			Status:             inst.Status,
+			InstanceType:       "vm",
+			Image:              inst.Image,
+			RawData:            inst.Metadata,
 		})
 	}
 	return result, nil

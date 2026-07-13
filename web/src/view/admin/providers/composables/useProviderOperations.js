@@ -8,7 +8,7 @@ import {
   deleteProvider,
   freezeProvider,
   unfreezeProvider,
-  checkProviderHealth,
+  queueProviderHealthCheck,
   autoConfigureProvider,
   getConfigurationTaskDetail
 } from '@/api/admin'
@@ -298,45 +298,11 @@ export function useProviderOperations() {
 
   // 健康检查
   const checkHealth = async (providerId) => {
-    const loadingInstance = ElLoading.service({
-      lock: true,
-      text: t('admin.providers.healthChecking'),
-      background: 'rgba(0, 0, 0, 0.7)'
-    })
-
     try {
-      const response = await checkProviderHealth(providerId)
-      loadingInstance.close()
-
-      if (response.code === 200) {
-        const result = response.data
-        const statusMessages = []
-
-        if (result.apiStatus === 'online') {
-          statusMessages.push('✅ ' + t('admin.providers.apiStatusOnline'))
-        } else {
-          statusMessages.push('❌ ' + t('admin.providers.apiStatusOffline') + ': ' + (result.apiError || t('common.unknown')))
-        }
-
-        if (result.sshStatus === 'online') {
-          statusMessages.push('✅ ' + t('admin.providers.sshStatusOnline'))
-        } else {
-          statusMessages.push('❌ ' + t('admin.providers.sshStatusOffline') + ': ' + (result.sshError || t('common.unknown')))
-        }
-
-        ElMessageBox.alert(
-          statusMessages.join('<br>'),
-          t('admin.providers.healthCheckResult'),
-          {
-            dangerouslyUseHTMLString: true,
-            type: (result.apiStatus === 'online' && result.sshStatus === 'online') ? 'success' : 'error'
-          }
-        )
-      }
-
+      const response = await queueProviderHealthCheck(providerId)
+      ElMessage.success(t('admin.providers.healthCheckTaskQueued'))
       return response
     } catch (error) {
-      loadingInstance.close()
       const errorMsg = error?.response?.data?.msg || error?.message || t('admin.providers.healthCheckFailed')
       ElMessage.error(errorMsg)
       throw error

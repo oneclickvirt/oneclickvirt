@@ -101,6 +101,9 @@ var providerCSVHeaders = []string{
 	"bridgeDedicatedV4",
 	"bridgeDedicatedV6",
 	"natSubnet",
+	"instanceDiscoveryEnabled",
+	"discoveryAutoImport",
+	"discoveryAutoAdjust",
 }
 
 type ImportProvidersCSVResult struct {
@@ -338,6 +341,9 @@ func updateReqFromProvider(p providerModel.Provider) admin.UpdateProviderRequest
 		BridgeDedicatedV4:        p.BridgeDedicatedV4,
 		BridgeDedicatedV6:        p.BridgeDedicatedV6,
 		NATSubnet:                p.NATSubnet,
+		DiscoverMode:             boolPtr(p.InstanceDiscoveryEnabled),
+		AutoImport:               boolPtr(p.DiscoveryAutoImport),
+		AutoAdjustQuota:          boolPtr(p.DiscoveryAutoAdjust),
 	}
 }
 
@@ -737,6 +743,9 @@ func (s *Service) ExportProvidersCSV(ownerAdminID uint, providerIDs []uint) ([]b
 			p.BridgeDedicatedV4,
 			p.BridgeDedicatedV6,
 			p.NATSubnet,
+			strconv.FormatBool(p.InstanceDiscoveryEnabled),
+			strconv.FormatBool(p.DiscoveryAutoImport),
+			strconv.FormatBool(p.DiscoveryAutoAdjust),
 		}
 		if err := writer.Write(row); err != nil {
 			return nil, err

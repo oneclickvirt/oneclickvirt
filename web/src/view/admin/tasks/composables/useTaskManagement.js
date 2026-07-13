@@ -308,7 +308,11 @@ export function useTaskManagement() {
       'traffic-monitor-enable': t('admin.tasks.taskTypeTrafficMonitorEnable'),
       'traffic-monitor-disable': t('admin.tasks.taskTypeTrafficMonitorDisable'),
       'traffic-monitor-detect': t('admin.tasks.taskTypeTrafficMonitorDetect'),
-      'provider-image-cleanup': t('admin.tasks.taskTypeProviderImageCleanup')
+      'provider-image-cleanup': t('admin.tasks.taskTypeProviderImageCleanup'),
+      'provider-instance-sync': t('admin.tasks.taskTypeProviderInstanceSync'),
+      'provider-orphan-cleanup': t('admin.tasks.taskTypeProviderOrphanCleanup'),
+      'provider-health-check': t('admin.tasks.taskTypeProviderHealthCheck'),
+      'provider-io-limit-sync': t('admin.tasks.taskTypeProviderIOLimitSync')
     }
     return typeMap[type] || type
   }
