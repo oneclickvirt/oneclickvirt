@@ -1,0 +1,52 @@
+name: Sync source to CNB master
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-cnb-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync-source:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout full source history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate CNB credentials
+        env:
+          CNB_PUSH_USERNAME: ${{ secrets.CNB_PUSH_USERNAME }}
+          CNB_PUSH_TOKEN: ${{ secrets.CNB_PUSH_TOKEN }}
+        run: |
+          if [ -z "${CNB_PUSH_USERNAME}" ]; then
+            echo "::error::Repository secret CNB_PUSH_USERNAME is not configured."
+            exit 1
+          fi
+          if [ -z "${CNB_PUSH_TOKEN}" ]; then
+            echo "::error::Repository secret CNB_PUSH_TOKEN is not configured."
+            exit 1
+          fi
+
+      - name: Push source only to CNB
+        env:
+          CNB_PUSH_USERNAME: ${{ secrets.CNB_PUSH_USERNAME }}
+          CNB_PUSH_TOKEN: ${{ secrets.CNB_PUSH_TOKEN }}
+          CNB_REPOSITORY_URL: https://cnb.cool/oneclickvirt/oneclickvirt
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          git remote add cnb "${CNB_REPOSITORY_URL}"
+          git -c credential.helper='!f() { test "$1" = get || exit 0; printf "%s\n" "username=${CNB_PUSH_USERNAME}" "password=${CNB_PUSH_TOKEN}"; }; f' \
+            push --force cnb HEAD:refs/heads/main
