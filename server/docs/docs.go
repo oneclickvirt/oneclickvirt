@@ -3839,9 +3839,126 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/providers/{id}/health-check": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "兼容旧客户端；远端健康探测在管理员任务池中执行，请通过任务列表查看结果",
+                "tags": [
+                    "Provider管理"
+                ],
+                "summary": "提交Provider健康检查任务（兼容路由）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "健康检查任务已提交",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.Task"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Provider不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "已有同类任务",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/providers/{id}/health-check-task": {
             "post": {
-                "responses": {}
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "创建持久化后台任务执行远端健康探测与资源刷新",
+                "tags": [
+                    "Provider管理"
+                ],
+                "summary": "提交Provider健康检查任务",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "健康检查任务已提交",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.Task"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Provider不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "已有同类任务",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
             }
         },
         "/admin/providers/{id}/import": {
@@ -4750,7 +4867,57 @@ const docTemplate = `{
         },
         "/admin/providers/{id}/sync-instances": {
             "post": {
-                "responses": {}
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "为已开启非纯净节点发现的Provider创建持久化后台同步任务",
+                "tags": [
+                    "Provider管理"
+                ],
+                "summary": "提交节点实例同步任务",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "同步任务已提交",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.Task"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "已有同类任务",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
             }
         },
         "/admin/providers/{provider_id}/traffic/history": {
@@ -12985,6 +13152,119 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.Task": {
+            "type": "object",
+            "properties": {
+                "canForceStop": {
+                    "description": "控制标志",
+                    "type": "boolean"
+                },
+                "cancelReason": {
+                    "description": "任务取消的原因",
+                    "type": "string"
+                },
+                "completedAt": {
+                    "description": "任务完成时间",
+                    "type": "string"
+                },
+                "createdAt": {
+                    "description": "任务创建时间",
+                    "type": "string"
+                },
+                "errorMessage": {
+                    "description": "错误和状态信息",
+                    "type": "string"
+                },
+                "estimatedDuration": {
+                    "description": "预计执行时长（秒）",
+                    "type": "integer"
+                },
+                "id": {
+                    "description": "基础字段",
+                    "type": "integer"
+                },
+                "instanceId": {
+                    "description": "关联的实例ID（可选，用于实例相关任务）",
+                    "type": "integer"
+                },
+                "isForceStoppable": {
+                    "description": "是否允许被强制停止",
+                    "type": "boolean"
+                },
+                "preallocatedBandwidth": {
+                    "description": "预分配的带宽(Mbps)",
+                    "type": "integer"
+                },
+                "preallocatedCpu": {
+                    "description": "预分配的实例配置信息（用于显示和排队估算）",
+                    "type": "integer"
+                },
+                "preallocatedDisk": {
+                    "description": "预分配的磁盘(MB)",
+                    "type": "integer"
+                },
+                "preallocatedMemory": {
+                    "description": "预分配的内存(MB)",
+                    "type": "integer"
+                },
+                "progress": {
+                    "description": "任务执行进度百分比（0-100）",
+                    "type": "integer"
+                },
+                "progressLogs": {
+                    "description": "进度日志（每次调用 UpdateTaskProgress 时追加，JSON 格式）",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "关联对象",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/oneclickvirt_model_provider.Provider"
+                        }
+                    ]
+                },
+                "providerId": {
+                    "description": "执行任务的Provider ID（可为空）",
+                    "type": "integer"
+                },
+                "startedAt": {
+                    "description": "时间信息",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "任务状态：pending, processing, running, completed, failed, cancelling, cancelled, timeout",
+                    "type": "string"
+                },
+                "statusMessage": {
+                    "description": "当前状态的描述信息",
+                    "type": "string"
+                },
+                "taskData": {
+                    "description": "任务执行所需的数据（JSON格式）",
+                    "type": "string"
+                },
+                "taskType": {
+                    "description": "任务基本信息",
+                    "type": "string"
+                },
+                "timeoutDuration": {
+                    "description": "任务超时时间（秒，默认30分钟）",
+                    "type": "integer"
+                },
+                "updatedAt": {
+                    "description": "任务更新时间",
+                    "type": "string"
+                },
+                "userId": {
+                    "description": "关联信息",
+                    "type": "integer"
+                },
+                "uuid": {
+                    "description": "任务唯一标识符",
+                    "type": "string"
+                }
+            }
+        },
         "admin.TaskPoolControlRequest": {
             "type": "object",
             "properties": {
@@ -14468,6 +14748,654 @@ const docTemplate = `{
                 },
                 "uuid": {
                     "description": "实例唯一标识符",
+                    "type": "string"
+                }
+            }
+        },
+        "oneclickvirt_model_provider.Provider": {
+            "type": "object",
+            "properties": {
+                "agentConnectedAt": {
+                    "description": "Agent 本次连接建立时间（用于计算在线时长）",
+                    "type": "string"
+                },
+                "agentHostname": {
+                    "description": "Agent 上报的主机名",
+                    "type": "string"
+                },
+                "agentLastSeen": {
+                    "description": "Agent 最后心跳时间",
+                    "type": "string"
+                },
+                "agentRemoteIP": {
+                    "description": "Agent 连接来源 IP（WebSocket 连接的 RemoteAddr）",
+                    "type": "string"
+                },
+                "agentStatus": {
+                    "description": "Agent 在线状态：online / offline",
+                    "type": "string"
+                },
+                "agentVersion": {
+                    "description": "Agent 上报的版本号",
+                    "type": "string"
+                },
+                "allowClaim": {
+                    "description": "是否允许用户使用此Provider",
+                    "type": "boolean"
+                },
+                "allowConcurrentTasks": {
+                    "description": "并发控制配置",
+                    "type": "boolean"
+                },
+                "apiStatus": {
+                    "description": "API连接状态：online, offline, unknown",
+                    "type": "string"
+                },
+                "architecture": {
+                    "description": "CPU架构：amd64, arm64, s390x等",
+                    "type": "string"
+                },
+                "autoConfigured": {
+                    "description": "是否已经自动配置完成",
+                    "type": "boolean"
+                },
+                "availableCpuCores": {
+                    "description": "可用资源统计（动态计算得出）",
+                    "type": "integer"
+                },
+                "availableMemory": {
+                    "description": "可用的内存大小（NodeMemoryTotal - UsedMemory）",
+                    "type": "integer"
+                },
+                "bridgeDedicatedV4": {
+                    "description": "独立IPv4网桥，仅proxmox+third_party时使用，对应vmbr0",
+                    "type": "string"
+                },
+                "bridgeDedicatedV6": {
+                    "description": "独立IPv6网桥，仅proxmox+third_party时使用，对应vmbr2，可留空",
+                    "type": "string"
+                },
+                "bridgeNAT": {
+                    "description": "NAT网桥（v4/v6 NAT），仅proxmox+third_party时使用，对应vmbr1",
+                    "type": "string"
+                },
+                "caCertPath": {
+                    "description": "CA证书文件路径",
+                    "type": "string"
+                },
+                "certFingerprint": {
+                    "description": "证书指纹",
+                    "type": "string"
+                },
+                "certPath": {
+                    "description": "证书相关字段（用于TLS连接）",
+                    "type": "string"
+                },
+                "city": {
+                    "description": "城市（可选）",
+                    "type": "string"
+                },
+                "config": {
+                    "description": "额外配置信息（JSON格式）",
+                    "type": "string"
+                },
+                "configBackupPath": {
+                    "description": "配置备份文件路径",
+                    "type": "string"
+                },
+                "configVersion": {
+                    "description": "配置版本号",
+                    "type": "integer"
+                },
+                "connectionType": {
+                    "description": "连接模式（agent 由 Rust Agent 主动连回控制端，local 直接管理本机 libvirt/QEMU）",
+                    "type": "string"
+                },
+                "containerAllowNesting": {
+                    "description": "容器嵌套：允许在容器内运行容器",
+                    "type": "boolean"
+                },
+                "containerCount": {
+                    "description": "当前运行的容器实例数量（缓存值，定期更新）",
+                    "type": "integer"
+                },
+                "containerCpuAllowance": {
+                    "description": "CPU限制：例如 \"100%\" 或 \"50%\"",
+                    "type": "string"
+                },
+                "containerDiskIoLimit": {
+                    "description": "磁盘IO限制：例如 \"10MB\" 或 \"100iops\"",
+                    "type": "string"
+                },
+                "containerEnableLxcfs": {
+                    "description": "LXCFS资源视图：显示真实资源限制",
+                    "type": "boolean"
+                },
+                "containerLimitCpu": {
+                    "description": "容器资源配额管理配置（Provider层面）\n这些配置决定该资源是否计入Provider总量预算，不影响实例创建时的资源参数设置\nfalse=允许超分配（不计入总量），true=严格限制（计入总量）",
+                    "type": "boolean"
+                },
+                "containerLimitDisk": {
+                    "description": "容器硬盘是否计入Provider总量预算，默认true（严格限制）",
+                    "type": "boolean"
+                },
+                "containerLimitMemory": {
+                    "description": "容器内存是否计入Provider总量预算，默认false（允许超分配）",
+                    "type": "boolean"
+                },
+                "containerMaxProcesses": {
+                    "description": "最大进程数：0表示不限制",
+                    "type": "integer"
+                },
+                "containerMemorySwap": {
+                    "description": "内存交换：允许使用swap空间",
+                    "type": "boolean"
+                },
+                "containerPrivileged": {
+                    "description": "容器特殊配置选项（仅适用于 LXD 和 Incus 的容器实例）",
+                    "type": "boolean"
+                },
+                "containerReadIoLimit": {
+                    "description": "磁盘读写 I/O 速率限制（Provider 默认值，按实例类型区分；空值表示不限制，后端 best-effort 应用）",
+                    "type": "string"
+                },
+                "containerWriteIoLimit": {
+                    "description": "容器写速率限制，如 \"50MB\"",
+                    "type": "string"
+                },
+                "container_enabled": {
+                    "description": "功能支持",
+                    "type": "boolean"
+                },
+                "countCacheExpiry": {
+                    "description": "数量缓存过期时间（避免频繁查询数据库）",
+                    "type": "string"
+                },
+                "country": {
+                    "description": "国家",
+                    "type": "string"
+                },
+                "countryCode": {
+                    "description": "国家代码",
+                    "type": "string"
+                },
+                "createdAt": {
+                    "description": "创建时间",
+                    "type": "string"
+                },
+                "defaultInboundBandwidth": {
+                    "description": "带宽配置（Mbps为单位）",
+                    "type": "integer"
+                },
+                "defaultOutboundBandwidth": {
+                    "description": "默认出站带宽限制（Mbps）",
+                    "type": "integer"
+                },
+                "defaultPortCount": {
+                    "description": "端口映射配置",
+                    "type": "integer"
+                },
+                "description": {
+                    "description": "Provider描述（管理员备注）",
+                    "type": "string"
+                },
+                "discoveryAutoAdjust": {
+                    "description": "发现时是否自动调整配额",
+                    "type": "boolean"
+                },
+                "discoveryAutoImport": {
+                    "description": "发现时是否自动导入",
+                    "type": "boolean"
+                },
+                "discoveryOwnerUserId": {
+                    "description": "发现实例的归属用户 ID",
+                    "type": "integer"
+                },
+                "enableCheckin": {
+                    "description": "签到续期开关（高级配置）",
+                    "type": "boolean"
+                },
+                "enableDomainBinding": {
+                    "description": "域名绑定开关（高级配置）",
+                    "type": "boolean"
+                },
+                "enableResourceMonitoring": {
+                    "description": "是否启用硬件资源监控（CPU/内存/磁盘），默认不启用",
+                    "type": "boolean"
+                },
+                "enableTaskPolling": {
+                    "description": "是否启用任务轮询机制",
+                    "type": "boolean"
+                },
+                "enableTrafficControl": {
+                    "description": "流量管理（MB为单位）",
+                    "type": "boolean"
+                },
+                "enableVNC": {
+                    "description": "WebVNC 高级配置：默认关闭。仅对支持图形控制台的VM类Provider显示WebVNC按钮。",
+                    "type": "boolean"
+                },
+                "endpoint": {
+                    "description": "SSH连接端点地址",
+                    "type": "string"
+                },
+                "executionRule": {
+                    "description": "操作执行配置",
+                    "type": "string"
+                },
+                "expiresAt": {
+                    "description": "Provider过期时间",
+                    "type": "string"
+                },
+                "fixedPorts": {
+                    "description": "固定实例内端口，宿主机端口仍从端口池分配；22 强制保留",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "frozenAt": {
+                    "description": "冻结时间",
+                    "type": "string"
+                },
+                "frozenReason": {
+                    "description": "冻结原因",
+                    "type": "string"
+                },
+                "gpuDeviceIds": {
+                    "description": "GPU设备ID列表（逗号分隔的PCI ID，如\"0,1\"），为空则附加所有GPU",
+                    "type": "string"
+                },
+                "gpuEnabled": {
+                    "description": "GPU直通配置（仅适用于 LXD 和 Incus 节点）",
+                    "type": "boolean"
+                },
+                "gpuInfo": {
+                    "description": "缓存GPU/NPU检测结果（JSON数组），供前端展示选择，免去每次检测",
+                    "type": "string"
+                },
+                "groupDescription": {
+                    "description": "分组描述(Markdown源码，由前端/接口渲染为安全HTML)",
+                    "type": "string"
+                },
+                "groupId": {
+                    "description": "所属节点分组ID（0=未分组）",
+                    "type": "integer"
+                },
+                "groupName": {
+                    "description": "分组名称(普通管理员可自定义)",
+                    "type": "string"
+                },
+                "hostName": {
+                    "description": "节点标识信息（用于区分多个hostname相同的节点）",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "基础字段",
+                    "type": "integer"
+                },
+                "instanceDiscoveryEnabled": {
+                    "description": "非纯净节点实例发现配置。InstanceDiscoveryEnabled 是持久能力开关；\nPendingDiscovery 仅表示 Agent 尚未连接时仍有一次待入队的后台任务。",
+                    "type": "boolean"
+                },
+                "instanceExpiryAction": {
+                    "description": "实例到期处置策略",
+                    "type": "string"
+                },
+                "instanceExpiryExtendDays": {
+                    "description": "到期延期天数，仅extend模式生效",
+                    "type": "integer"
+                },
+                "ipv4PortMappingMethod": {
+                    "description": "端口映射配置",
+                    "type": "string"
+                },
+                "ipv6PortMappingMethod": {
+                    "description": "IPv6端口映射方式：device_proxy, iptables, native",
+                    "type": "string"
+                },
+                "isFrozen": {
+                    "description": "是否被冻结（冻结后无法使用，除了删除操作）",
+                    "type": "boolean"
+                },
+                "isManualExpiry": {
+                    "description": "是否手动设置了过期时间",
+                    "type": "boolean"
+                },
+                "keyPath": {
+                    "description": "客户端私钥文件路径",
+                    "type": "string"
+                },
+                "lastApiCheck": {
+                    "description": "最后一次API健康检查时间",
+                    "type": "string"
+                },
+                "lastConfigUpdate": {
+                    "description": "最后一次配置更新时间",
+                    "type": "string"
+                },
+                "lastSshCheck": {
+                    "description": "最后一次SSH健康检查时间",
+                    "type": "string"
+                },
+                "levelLimits": {
+                    "description": "节点级别的等级限制配置（JSON格式存储）\n用于限制该节点上不同等级用户能创建的最大资源，与全局等级配置类似但仅对当前节点生效\n该字段会与用户全局等级限制进行比较，取两者的最小值作为实际限制",
+                    "type": "string"
+                },
+                "maxConcurrentTasks": {
+                    "description": "最大并发任务数量",
+                    "type": "integer"
+                },
+                "maxContainerInstances": {
+                    "description": "实例数量限制配置",
+                    "type": "integer"
+                },
+                "maxInboundBandwidth": {
+                    "description": "最大入站带宽限制（Mbps）",
+                    "type": "integer"
+                },
+                "maxOutboundBandwidth": {
+                    "description": "最大出站带宽限制（Mbps）",
+                    "type": "integer"
+                },
+                "maxTraffic": {
+                    "description": "最大流量限制（默认1TB=1048576MB）",
+                    "type": "integer"
+                },
+                "maxVMInstances": {
+                    "description": "最大虚拟机实例数量（0表示无限制）",
+                    "type": "integer"
+                },
+                "name": {
+                    "description": "基本信息\nname已有uniqueIndex，type添加索引",
+                    "type": "string"
+                },
+                "natSubnet": {
+                    "description": "NAT内网网段（CIDR，如 172.16.1.0/24），仅proxmox+third_party时使用",
+                    "type": "string"
+                },
+                "networkType": {
+                    "description": "网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only",
+                    "type": "string"
+                },
+                "nextAvailablePort": {
+                    "description": "下一个可用端口",
+                    "type": "integer"
+                },
+                "nodeCpuCores": {
+                    "description": "节点硬件资源信息（通过SSH查询获得）",
+                    "type": "integer"
+                },
+                "nodeDiskTotal": {
+                    "description": "节点总磁盘空间（MB）",
+                    "type": "integer"
+                },
+                "nodeInstallType": {
+                    "description": "Proxmox 网桥配置（NodeInstallType == \"third_party\" 时生效，否则使用脚本安装的默认值）\n脚本安装(script)时固定使用：vmbr0(独立IPv4), vmbr1(NAT), vmbr2(独立IPv6)",
+                    "type": "string"
+                },
+                "nodeMemoryPhysicalTotal": {
+                    "description": "节点物理内存大小（MB，不含Swap）",
+                    "type": "integer"
+                },
+                "nodeMemorySwapTotal": {
+                    "description": "节点Swap大小（MB）",
+                    "type": "integer"
+                },
+                "nodeMemoryTotal": {
+                    "description": "节点总内存大小（MB）",
+                    "type": "integer"
+                },
+                "ownerAdminId": {
+                    "description": "普通管理员归属",
+                    "type": "integer"
+                },
+                "pendingDiscovery": {
+                    "description": "是否有待入队的实例同步任务",
+                    "type": "boolean"
+                },
+                "portIP": {
+                    "description": "端口映射使用的公网IP（非必填，若为空则使用Endpoint）",
+                    "type": "string"
+                },
+                "portRangeEnd": {
+                    "description": "端口映射范围结束",
+                    "type": "integer"
+                },
+                "portRangeStart": {
+                    "description": "端口映射范围起始",
+                    "type": "integer"
+                },
+                "proxyAutoSync": {
+                    "description": "是否自动同步证书到节点",
+                    "type": "boolean"
+                },
+                "proxyEnableHttp": {
+                    "description": "是否启用HTTP反向代理",
+                    "type": "boolean"
+                },
+                "proxyEnableHttps": {
+                    "description": "是否启用HTTPS反向代理",
+                    "type": "boolean"
+                },
+                "proxyHttpPort": {
+                    "description": "域名反向代理高级配置",
+                    "type": "integer"
+                },
+                "proxyHttpsPort": {
+                    "description": "HTTPS反向代理监听端口(默认443)",
+                    "type": "integer"
+                },
+                "proxySyncedAt": {
+                    "description": "证书最后同步时间",
+                    "type": "string"
+                },
+                "proxyTlsCertPath": {
+                    "description": "TLS证书文件路径(节点上的绝对路径)",
+                    "type": "string"
+                },
+                "proxyTlsKeyPath": {
+                    "description": "TLS私钥文件路径(节点上的绝对路径)",
+                    "type": "string"
+                },
+                "pveKvmAvailable": {
+                    "description": "Proxmox节点是否支持KVM硬件加速（nil=未知，true=支持，false=不支持/仅QEMU软件模拟）",
+                    "type": "boolean"
+                },
+                "redeemCodeOnly": {
+                    "description": "是否仅支持兑换码兑换（开启后用户申请界面隐藏常规配置表单）",
+                    "type": "boolean"
+                },
+                "region": {
+                    "description": "地区",
+                    "type": "string"
+                },
+                "resourceSynced": {
+                    "description": "资源信息是否已同步",
+                    "type": "boolean"
+                },
+                "resourceSyncedAt": {
+                    "description": "资源信息最后同步时间",
+                    "type": "string"
+                },
+                "sshConnectTimeout": {
+                    "description": "SSH连接配置",
+                    "type": "integer"
+                },
+                "sshExecuteTimeout": {
+                    "description": "SSH命令执行超时时间（秒），默认300秒",
+                    "type": "integer"
+                },
+                "sshPort": {
+                    "description": "SSH连接端口",
+                    "type": "integer"
+                },
+                "sshStatus": {
+                    "description": "SSH连接状态：online, offline, unknown",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "状态和地理信息",
+                    "type": "string"
+                },
+                "storagePool": {
+                    "description": "存储配置（所有Provider类型通用）",
+                    "type": "string"
+                },
+                "storagePoolPath": {
+                    "description": "存储池实际挂载路径，用于准确获取硬盘大小",
+                    "type": "string"
+                },
+                "supported_types": {
+                    "description": "支持的实例类型列表",
+                    "type": "string"
+                },
+                "taskPollInterval": {
+                    "description": "任务调度配置",
+                    "type": "integer"
+                },
+                "totalQuota": {
+                    "description": "总配额（传统字段，兼容性保留）",
+                    "type": "integer"
+                },
+                "trafficAutoResetBatchSize": {
+                    "description": "流量自动重置批量大小，默认10个",
+                    "type": "integer"
+                },
+                "trafficAutoResetInterval": {
+                    "description": "流量自动重置检查间隔（秒），默认1800秒（30分钟）",
+                    "type": "integer"
+                },
+                "trafficCollectBatchSize": {
+                    "description": "流量采集批量大小，默认10个",
+                    "type": "integer"
+                },
+                "trafficCollectInterval": {
+                    "description": "流量采集间隔（秒），采集后自动统计，默认300秒（5分钟）",
+                    "type": "integer"
+                },
+                "trafficCountMode": {
+                    "description": "流量统计模式：both(双向), out(仅出向), in(仅入向)",
+                    "type": "string"
+                },
+                "trafficLimitCheckBatchSize": {
+                    "description": "流量限制检测批量大小，默认10个",
+                    "type": "integer"
+                },
+                "trafficLimitCheckInterval": {
+                    "description": "流量限制检测间隔（秒），默认600秒（10分钟）",
+                    "type": "integer"
+                },
+                "trafficLimited": {
+                    "description": "是否因流量超限被限制",
+                    "type": "boolean"
+                },
+                "trafficMultiplier": {
+                    "description": "流量计费倍率（例如：入向0.5倍，出向1倍）",
+                    "type": "number"
+                },
+                "trafficOverLimitAction": {
+                    "description": "流量超限动作",
+                    "type": "string"
+                },
+                "trafficQuotaVisible": {
+                    "description": "用户侧是否显示流量额度与用量",
+                    "type": "boolean"
+                },
+                "trafficResetAt": {
+                    "description": "流量重置时间",
+                    "type": "string"
+                },
+                "trafficResetDay": {
+                    "description": "每月流量重置日期，nil/0表示每月1日自然月重置",
+                    "type": "integer"
+                },
+                "trafficSpeedLimitKbps": {
+                    "description": "限速值(Kbps), 仅speed_limit模式生效",
+                    "type": "integer"
+                },
+                "trafficStatsMode": {
+                    "description": "流量统计性能配置",
+                    "type": "string"
+                },
+                "trafficSyncMethod": {
+                    "description": "流量同步方式：pmacct(传统SSH采集), agent(Rust Agent采集)",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Provider类型：docker, podman, containerd, orbstack, lxd, incus, proxmox, qemu, kubevirt, vmware",
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "description": "更新时间",
+                    "type": "string"
+                },
+                "usedCpuCores": {
+                    "description": "资源占用统计（基于实际创建的实例计算）",
+                    "type": "integer"
+                },
+                "usedDisk": {
+                    "description": "已占用的磁盘空间（MB）",
+                    "type": "integer"
+                },
+                "usedInstances": {
+                    "description": "已使用的实例总数（ContainerCount + VMCount）",
+                    "type": "integer"
+                },
+                "usedMemory": {
+                    "description": "已占用的内存大小（MB）",
+                    "type": "integer"
+                },
+                "usedQuota": {
+                    "description": "配额管理",
+                    "type": "integer"
+                },
+                "username": {
+                    "description": "SSH连接用户名",
+                    "type": "string"
+                },
+                "uuid": {
+                    "description": "唯一标识符",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "虚拟化平台版本（如Proxmox版本）",
+                    "type": "string"
+                },
+                "vmCount": {
+                    "description": "当前运行的虚拟机实例数量（缓存值，定期更新）",
+                    "type": "integer"
+                },
+                "vmLimitCpu": {
+                    "description": "虚拟机资源配额管理配置（Provider层面）\n这些配置决定该资源是否计入Provider总量预算，不影响实例创建时的资源参数设置\nfalse=允许超分配（不计入总量），true=严格限制（计入总量）",
+                    "type": "boolean"
+                },
+                "vmLimitDisk": {
+                    "description": "虚拟机硬盘是否计入Provider总量预算，默认true（严格限制）",
+                    "type": "boolean"
+                },
+                "vmLimitMemory": {
+                    "description": "虚拟机内存是否计入Provider总量预算，默认true（严格限制）",
+                    "type": "boolean"
+                },
+                "vmReadIoLimit": {
+                    "description": "虚拟机读速率限制，如 \"50MB\"",
+                    "type": "string"
+                },
+                "vmWriteIoLimit": {
+                    "description": "虚拟机写速率限制，如 \"50MB\"",
+                    "type": "string"
+                },
+                "vm_enabled": {
+                    "description": "是否支持虚拟机实例",
+                    "type": "boolean"
+                },
+                "vncBasePort": {
+                    "description": "直连VNC端口基准，默认5900；实际端口可由实例发现数据覆盖",
+                    "type": "integer"
+                },
+                "vncHost": {
+                    "description": "可选VNC宿主地址，留空使用Provider Endpoint/PortIP",
                     "type": "string"
                 }
             }
