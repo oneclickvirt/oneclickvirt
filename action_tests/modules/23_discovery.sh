@@ -31,24 +31,40 @@ run_module_23() {
         "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
         '[.data.discoveredInstances[]? | select((.uuid // "") == "" or (.providerInstanceId // "") == "" or ((.instanceType != "vm") and (.instanceType != "container")))] | length' "0" \
         '' "$group" "$ADMIN_TOKEN"
-    if [[ "$ENV_TYPE" == "proxmoxve" ]]; then
-        test_api_json_value "Discover pre-existing PVE VM" "POST" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
-            '.data.discoveredInstances | map(select(.providerInstanceId == "990" and .instanceType == "vm")) | length' "1" \
-            '' "$group" "$ADMIN_TOKEN"
-        test_api_json_value "Auto-imported PVE VM keeps VMID" "GET" \
-            "/api/v1/admin/instances?page=1&pageSize=50" "200" \
-            '[.. | objects | select(.providerVmId? == "990" and .isImported? == true)] | length' "1" \
-            '' "$group" "$ADMIN_TOKEN"
-    elif [[ "$ENV_TYPE" == "lxd" || "$ENV_TYPE" == "incus" || "$ENV_TYPE" == "qemu" || "$ENV_TYPE" == "kubevirt" ]]; then
-        test_api_json_value "Discover pre-existing container" "POST" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
-            'any(.data.discoveredInstances[]?; .instanceType == "container")' "true" \
-            '' "$group" "$ADMIN_TOKEN"
-        test_api_json_value "Discover pre-existing VM" "POST" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
-            'any(.data.discoveredInstances[]?; .instanceType == "vm")' "true" \
-            '' "$group" "$ADMIN_TOKEN"
+    if [[ "${DIRTY_NODE_CONTAINER_EXPECTED:-false}" == "true" ]]; then
+        if [[ "${DIRTY_NODE_CONTAINER_READY:-false}" == "true" && -n "${DIRTY_NODE_CONTAINER_NAME:-}" ]]; then
+            test_api_json_value "Discover exact pre-existing container" "POST" \
+                "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
+                '.data.discoveredInstances | map(select(.name == "'"${DIRTY_NODE_CONTAINER_NAME}"'" and .instanceType == "container")) | length' "1" \
+                '' "$group" "$ADMIN_TOKEN"
+        else
+            record_skip_result "Discover exact pre-existing container" "POST" \
+                "/api/v1/admin/providers/${PROVIDER_ID}/discover" \
+                "The deterministic container fixture was not available" "$group"
+        fi
+    fi
+    if [[ "${DIRTY_NODE_VM_EXPECTED:-false}" == "true" ]]; then
+        if [[ "${DIRTY_NODE_VM_READY:-false}" == "true" ]]; then
+            if [[ "$ENV_TYPE" == "proxmoxve" ]]; then
+                test_api_json_value "Discover exact pre-existing PVE VM" "POST" \
+                    "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
+                    '.data.discoveredInstances | map(select(.providerInstanceId == "'"${DIRTY_NODE_VM_PROVIDER_ID:-990}"'" and .instanceType == "vm")) | length' "1" \
+                    '' "$group" "$ADMIN_TOKEN"
+                test_api_json_value "Auto-imported PVE VM keeps VMID" "GET" \
+                    "/api/v1/admin/instances?page=1&pageSize=50" "200" \
+                    '[.. | objects | select(.providerVmId? == "'"${DIRTY_NODE_VM_PROVIDER_ID:-990}"'" and .isImported? == true)] | length' "1" \
+                    '' "$group" "$ADMIN_TOKEN"
+            elif [[ -n "${DIRTY_NODE_VM_NAME:-}" ]]; then
+                test_api_json_value "Discover exact pre-existing VM" "POST" \
+                    "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
+                    '.data.discoveredInstances | map(select(.name == "'"${DIRTY_NODE_VM_NAME}"'" and .instanceType == "vm")) | length' "1" \
+                    '' "$group" "$ADMIN_TOKEN"
+            fi
+        else
+            record_skip_result "Discover exact pre-existing VM" "POST" \
+                "/api/v1/admin/providers/${PROVIDER_ID}/discover" \
+                "The deterministic VM fixture was not available" "$group"
+        fi
     fi
 
     # ---- Get orphaned instances (instances on node but not in DB) ----
@@ -63,14 +79,19 @@ run_module_23() {
     # Import by the provider discovery UUID. Names are display values and may be
     # duplicated or synthesized for unnamed PVE guests.
     local instance_uuids
-    if [[ "$ENV_TYPE" == "proxmoxve" ]]; then
+    if [[ "$ENV_TYPE" == "proxmoxve" && "${DIRTY_NODE_VM_READY:-false}" == "true" ]]; then
         instance_uuids=$(echo "$orphaned_resp" | jq -r \
-            '.data.orphanedInstances[]? | select(.providerInstanceId == "990" and .instanceType == "vm") | .uuid' \
-            2>/dev/null | head -1)
-    elif [[ "$ENV_TYPE" == "docker" || "$ENV_TYPE" == "podman" || "$ENV_TYPE" == "containerd" ]]; then
-        instance_uuids=$(echo "$orphaned_resp" | jq -r '.data.orphanedInstances[]? | select(.name == "pre_existing_1") | .uuid' 2>/dev/null | head -1)
+            --arg provider_id "${DIRTY_NODE_VM_PROVIDER_ID:-990}" \
+            '.data.orphanedInstances[]? | select(.providerInstanceId == $provider_id and .instanceType == "vm") | .uuid' \
+            2>/dev/null | head -1 || true)
+    elif [[ "${DIRTY_NODE_CONTAINER_READY:-false}" == "true" || "${DIRTY_NODE_VM_READY:-false}" == "true" ]]; then
+        instance_uuids=$(echo "$orphaned_resp" | jq -r \
+            --arg container_name "${DIRTY_NODE_CONTAINER_NAME:-}" \
+            --arg vm_name "${DIRTY_NODE_VM_NAME:-}" \
+            '.data.orphanedInstances[]? | select((($container_name != "") and .name == $container_name and .instanceType == "container") or (($vm_name != "") and .name == $vm_name and .instanceType == "vm")) | .uuid' \
+            2>/dev/null | head -3 || true)
     else
-        instance_uuids=$(echo "$orphaned_resp" | jq -r '.data.orphanedInstances[]?.uuid // empty' 2>/dev/null | head -3)
+        instance_uuids=""
     fi
 
     if [[ -n "$instance_uuids" ]]; then
@@ -90,7 +111,18 @@ run_module_23() {
         # Auto-import may already have claimed every dirty-node fixture. Verify
         # that explicitly importing an already-managed discovery is idempotent.
         local managed_uuid
-        managed_uuid=$(echo "$discover_resp" | jq -r '.data.discoveredInstances[0].uuid // empty' 2>/dev/null)
+        if [[ "$ENV_TYPE" == "proxmoxve" && "${DIRTY_NODE_VM_READY:-false}" == "true" ]]; then
+            managed_uuid=$(echo "$discover_resp" | jq -r \
+                --arg provider_id "${DIRTY_NODE_VM_PROVIDER_ID:-990}" \
+                '.data.discoveredInstances[]? | select(.providerInstanceId == $provider_id and .instanceType == "vm") | .uuid' \
+                2>/dev/null | head -1 || true)
+        else
+            managed_uuid=$(echo "$discover_resp" | jq -r \
+                --arg container_name "${DIRTY_NODE_CONTAINER_NAME:-}" \
+                --arg vm_name "${DIRTY_NODE_VM_NAME:-}" \
+                '.data.discoveredInstances[]? | select((($container_name != "") and .name == $container_name and .instanceType == "container") or (($vm_name != "") and .name == $vm_name and .instanceType == "vm")) | .uuid' \
+                2>/dev/null | head -1 || true)
+        fi
         if [[ -n "$managed_uuid" ]]; then
             test_api_json_value "Import already-managed instance" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200" \
                 '.data.skippedCount' "1" '{"instanceUuids":["'"$managed_uuid"'"]}' "$group" "$ADMIN_TOKEN"
