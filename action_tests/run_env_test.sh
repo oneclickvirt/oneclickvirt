@@ -218,10 +218,21 @@ log_info "Waiting for cloud-init on worker node (handled by wait_for_apt_lock)..
 # Phase 3: Install virtualization environment on worker
 # =============================================================
 log_section "Phase 3: Install ${ENV_TYPE} on worker node"
-install_env "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || {
+install_rc=0
+install_env "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || install_rc=$?
+if (( install_rc != 0 )); then
     log_warning "Environment installation may have issues, continuing..."
-}
-if ! verify_worker_runtime "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE"; then
+fi
+if (( install_rc == 75 )); then
+    record_harness_skip_and_exit "${ENV_TYPE} installation lost required worker connectivity or hit a transient infrastructure failure"
+fi
+
+runtime_rc=0
+verify_worker_runtime "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || runtime_rc=$?
+if (( runtime_rc != 0 )); then
+    if (( runtime_rc == 75 )); then
+        record_harness_skip_and_exit "Worker SSH became unavailable while verifying the ${ENV_TYPE} runtime after installation"
+    fi
     if [[ "$ENV_TYPE" == "kubevirt" ]]; then
         log_error "KubeVirt/CDI runtime prerequisites are incomplete; treating as transient infrastructure failure"
         record_harness_skip_and_exit "KubeVirt/CDI runtime prerequisites are incomplete after install; see full-output.log for kubectl diagnostics"
@@ -249,9 +260,18 @@ fi
 # Phase 4: Prepare dirty node for discovery tests
 # =============================================================
 log_section "Phase 4: Prepare worker with pre-existing instances"
-prepare_dirty_node "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || {
+dirty_node_rc=0
+prepare_dirty_node "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || dirty_node_rc=$?
+if (( dirty_node_rc != 0 )); then
     log_warning "Dirty node preparation had issues, continuing..."
-}
+fi
+if (( dirty_node_rc == 75 )); then
+    record_harness_skip_and_exit "No deterministic pre-existing ${ENV_TYPE} instance fixture could be prepared on the worker"
+fi
+if (( dirty_node_rc != 0 )); then
+    record_skip_result "Partial dirty-node fixture preparation (${ENV_TYPE})" "HARNESS" "prepare_dirty_node" \
+        "Only the successfully prepared instance types will be asserted" "infrastructure"
+fi
 
 # =============================================================
 # Phase 5: Set server URL (master already deployed on runner in Phase 1)

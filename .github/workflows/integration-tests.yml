@@ -141,6 +141,9 @@ jobs:
       - name: Test provider image selection policy
         run: bash scripts/tests/provider_image_selection_test.sh
 
+      - name: Test action harness failure classification
+        run: bash scripts/tests/action_harness_classification_test.sh
+
       - name: Verify generated Swagger docs
         working-directory: ./server
         run: |
