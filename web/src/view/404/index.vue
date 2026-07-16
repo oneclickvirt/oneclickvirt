@@ -62,7 +62,7 @@ const goBack = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 50%, #f0f9ff 100%);
+  background: var(--auth-page-bg);
   padding: 20px;
   padding-bottom: calc(20px + env(safe-area-inset-bottom));
   position: relative;
@@ -73,8 +73,8 @@ const goBack = () => {
   position: absolute;
   inset: 0;
   background-image:
-    radial-gradient(circle at 30% 20%, rgba(34, 197, 94, 0.06) 0%, transparent 50%),
-    radial-gradient(circle at 70% 80%, rgba(59, 130, 246, 0.05) 0%, transparent 50%);
+    radial-gradient(circle at 30% 20%, var(--accent-soft-bg) 0%, transparent 50%),
+    radial-gradient(circle at 70% 80%, color-mix(in srgb, var(--info-color) 6%, transparent) 0%, transparent 50%);
 }
 
 .not-found-content {
@@ -99,13 +99,13 @@ const goBack = () => {
 .shape {
   position: absolute;
   border-radius: 50%;
-  opacity: 0.15;
+  opacity: var(--decorative-shape-opacity);
 }
 
 .shape-1 {
   width: 180px;
   height: 180px;
-  background: #22c55e;
+  background: var(--primary-color-light);
   top: -20px;
   left: -30px;
   animation: float 6s ease-in-out infinite;
@@ -114,7 +114,7 @@ const goBack = () => {
 .shape-2 {
   width: 120px;
   height: 120px;
-  background: #3b82f6;
+  background: var(--info-color);
   bottom: -10px;
   right: -20px;
   animation: float 8s ease-in-out infinite reverse;
@@ -123,7 +123,7 @@ const goBack = () => {
 .shape-3 {
   width: 80px;
   height: 80px;
-  background: #f59e0b;
+  background: var(--warning-color);
   top: 10px;
   right: 20px;
   animation: float 5s ease-in-out infinite 1s;
@@ -137,7 +137,7 @@ const goBack = () => {
 .error-code {
   font-size: 140px;
   font-weight: 800;
-  background: linear-gradient(135deg, #16a34a, #22c55e, #4ade80);
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-color-light), var(--primary-color-lighter));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -149,14 +149,14 @@ const goBack = () => {
 
 .error-title {
   font-size: 28px;
-  color: #111827;
+  color: var(--text-color-primary);
   margin: 0 0 12px;
   font-weight: 700;
 }
 
 .error-message {
   font-size: 16px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   margin: 0 0 28px;
   line-height: 1.6;
 }
@@ -168,13 +168,13 @@ const goBack = () => {
 }
 
 :deep(.el-button--primary) {
-  background: #16a34a;
-  border-color: #16a34a;
+  background: var(--primary-color);
+  border-color: var(--primary-color);
 }
 
 :deep(.el-button--primary:hover) {
-  background: #15803d;
-  border-color: #15803d;
+  background: var(--primary-color-dark);
+  border-color: var(--primary-color-dark);
 }
 
 @media (max-width: 640px) {

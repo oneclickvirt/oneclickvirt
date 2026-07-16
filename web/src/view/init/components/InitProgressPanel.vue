@@ -102,7 +102,7 @@ const emit = defineEmits(['retry', 'goHome'])
 .progress-title {
   font-size: 16px;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-color-primary);
 }
 
 .progress-bar {
@@ -121,24 +121,24 @@ const emit = defineEmits(['retry', 'goHome'])
   gap: 10px;
   padding: 8px 12px;
   border-radius: 10px;
-  background: #f9fafb;
-  border: 1px solid #f3f4f6;
+  background: var(--subtle-bg);
+  border: 1px solid var(--border-color);
   transition: background 0.2s;
 }
 
 .progress-step.step-success {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
+  background: var(--success-bg);
+  border-color: color-mix(in srgb, var(--success-color) 32%, transparent);
 }
 
 .progress-step.step-failed {
-  background: #fef2f2;
-  border-color: #fecaca;
+  background: var(--error-bg);
+  border-color: color-mix(in srgb, var(--error-color) 32%, transparent);
 }
 
 .progress-step.step-in_progress {
-  background: #fffbeb;
-  border-color: #fed7aa;
+  background: var(--warning-bg);
+  border-color: color-mix(in srgb, var(--warning-color) 32%, transparent);
 }
 
 .step-icon {
@@ -151,12 +151,12 @@ const emit = defineEmits(['retry', 'goHome'])
 .step-name {
   flex: 1;
   font-size: 14px;
-  color: #374151;
+  color: var(--text-color-primary);
 }
 
 .step-error {
   font-size: 12px;
-  color: #ef4444;
+  color: var(--error-color);
   max-width: 200px;
   text-align: right;
 }

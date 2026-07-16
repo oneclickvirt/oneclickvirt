@@ -92,7 +92,7 @@ onMounted(async () => {
 <style lang="scss" scoped>
 .app-footer {
   width: 100%;
-  background-color: var(--bg-color-secondary);
+  background-color: var(--footer-bg, var(--bg-color-secondary));
   border-top: 1px solid var(--border-color);
   padding: 9px 0;
   margin-top: auto;
@@ -144,12 +144,12 @@ onMounted(async () => {
   gap: 4px;
   max-width: 100%;
   font-size: 13px;
-  color: var(--primary-color);
+  color: var(--footer-link-color, var(--primary-color));
   text-decoration: none;
   transition: var(--transition-all);
 
   &:hover {
-    color: var(--primary-color-dark);
+    color: var(--footer-link-hover-color, var(--primary-color-dark));
   }
 }
 
@@ -165,7 +165,7 @@ onMounted(async () => {
   max-width: 100%;
   min-width: 0;
   font-size: 12px;
-  color: var(--text-color-placeholder);
+  color: var(--text-color-tertiary);
   font-family: monospace;
   line-height: 1.5;
   overflow-wrap: anywhere;
