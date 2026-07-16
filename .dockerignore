@@ -39,9 +39,10 @@ docker-compose.yaml
 # Docs
 *.md
 
-# Deploy configs (only the no-db runtime entrypoint is part of the image)
+# Deploy configs (runtime entrypoints are part of their respective images)
 deploy/*
 !deploy/no-db-entrypoint.sh
+!deploy/all-in-one-entrypoint.sh
 
 # Misc
 copy_project.sh

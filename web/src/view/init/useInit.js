@@ -6,6 +6,7 @@ import { post, get } from '@/utils/request'
 import { checkSystemInit, getInitProgress } from '@/api/init'
 import { containsUnsafeUsernameContent } from '@/utils/validate'
 import { resetInitCache } from '@/router/guards'
+import { getInitErrorMessage } from './initError'
 
 export default function useInit() {
   const router = useRouter()
@@ -293,6 +294,11 @@ export default function useInit() {
             setTimeout(() => router.push('/home'), 1500)
           } else if (data.status === 'failed') {
             stopProgressPolling()
+            const failedStep = Array.isArray(data.steps)
+              ? data.steps.find(step => step?.status === 'failed')
+              : null
+            const reason = data.error_msg || failedStep?.message
+            ElMessage.error(getInitErrorMessage({ message: reason }, t('init.messages.initFailed')))
           }
         }
       } catch {
@@ -513,13 +519,13 @@ export default function useInit() {
         loading.value = false
         startProgressPolling()
       } else {
-        ElMessage.error(response.msg || t('init.messages.initFailed'))
+        ElMessage.error(getInitErrorMessage(response, t('init.messages.initFailed')))
         loading.value = false
         startPolling()
       }
     } catch (error) {
       console.error(t('init.messages.initFailed') + ':', error)
-      ElMessage.error(t('init.messages.initRetry'))
+      ElMessage.error(getInitErrorMessage(error, t('init.messages.initRetry')))
       loading.value = false
       startPolling()
     }

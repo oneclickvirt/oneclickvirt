@@ -26,7 +26,7 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 
 	// 初始化防火墙管理器用于端口发现
 	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
-	fwMgr.DetectBackend(FWBackendFile)
+	rulesByIP := fwMgr.DiscoverAllDNATRules()
 
 	var discovered []provider.DiscoveredInstance
 	targets := []struct {
@@ -84,8 +84,8 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 			}
 			inst.PrivateIP = p.getVMIPAddress(ctx, name)
 			if inst.PrivateIP != "" {
-				for _, rule := range fwMgr.DiscoverDNATRules(inst.PrivateIP) {
-					inst.PortMappings = append(inst.PortMappings, provider.DiscoveredPortMapping{HostPort: rule.HostPort, GuestPort: rule.GuestPort, Protocol: rule.Protocol, IsSSH: rule.IsSSH})
+				for _, rule := range rulesByIP[inst.PrivateIP] {
+					inst.PortMappings = append(inst.PortMappings, provider.DiscoveredPortMapping{HostPort: rule.HostPort, GuestPort: rule.GuestPort, Protocol: rule.Protocol, IsSSH: rule.IsSSH, MappingMethod: "iptables"})
 					if rule.IsSSH {
 						inst.SSHPort = rule.HostPort
 					} else {

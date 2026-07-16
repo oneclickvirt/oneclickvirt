@@ -53,6 +53,7 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 			Error:        err.Error(),
 		}, fmt.Errorf("发现实例失败: %w", err)
 	}
+	discoveredInstances = enrichDiscoveredFirewallMappings(ctx, providerInstance, discoveredInstances)
 	discoveredInstances = normalizeDiscoveredInstances(providerID, providerInfo.Type, discoveredInstances)
 
 	// 4. 统计已纳管和新实例

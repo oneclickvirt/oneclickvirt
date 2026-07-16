@@ -498,12 +498,13 @@ func (s *TaskService) executeRepairPortMappingsTask(ctx context.Context, task *a
 			return err
 		}
 		instance := plan.instances[instanceID]
+		providerInstanceID := instance.ProviderInstanceIdentifier()
 		loaded, loadErr := loadProvider()
 		if loadErr == nil {
-			loadErr = loaded.RestartInstance(ctx, instance.Name)
+			loadErr = loaded.RestartInstance(ctx, providerInstanceID)
 		}
 		if loadErr == nil {
-			loadErr = verifyContainerRuntimePortMappings(ctx, loaded, providerInfo.Type, instance.Name, instancePorts)
+			loadErr = verifyContainerRuntimePortMappings(ctx, loaded, providerInfo.Type, providerInstanceID, instancePorts)
 		}
 		for _, port := range instancePorts {
 			if loadErr != nil {

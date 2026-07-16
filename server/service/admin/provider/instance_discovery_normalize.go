@@ -149,13 +149,17 @@ func normalizeDiscoveredPorts(mappings []providerCore.DiscoveredPortMapping, ssh
 			continue
 		}
 		mapping.Protocol = normalizeDiscoveredProtocol(mapping.Protocol)
+		mapping.MappingMethod = normalizeDiscoveredMappingMethod(mapping.MappingMethod)
 		key := mappingKey{host: mapping.HostPort, guest: mapping.GuestPort, ssh: mapping.IsSSH || mapping.GuestPort == 22}
 		mapping.IsSSH = key.ssh
 		if existing, ok := byKey[key]; ok {
 			if existing.Protocol != mapping.Protocol {
 				existing.Protocol = "both"
-				byKey[key] = existing
 			}
+			if existing.MappingMethod == "" {
+				existing.MappingMethod = mapping.MappingMethod
+			}
+			byKey[key] = existing
 			continue
 		}
 		byKey[key] = mapping
@@ -202,6 +206,19 @@ func normalizeDiscoveredPorts(mappings []providerCore.DiscoveredPortMapping, ssh
 	}
 	sort.Ints(extras)
 	return result, sshPort, extras
+}
+
+func normalizeDiscoveredMappingMethod(method string) string {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "device_proxy", "proxy":
+		return "device_proxy"
+	case "iptables", "nft", "nftables", "firewall":
+		return "iptables"
+	case "native":
+		return "native"
+	default:
+		return ""
+	}
 }
 
 func validDiscoveredPort(port int) bool {
