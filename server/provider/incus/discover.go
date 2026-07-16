@@ -208,10 +208,8 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 				}
 				extraPorts = append(extraPorts, hostPort)
 				portMappings = append(portMappings, provider.DiscoveredPortMapping{
-					HostPort:  hostPort,
-					GuestPort: guestPort,
-					Protocol:  hostProto,
-					IsSSH:     isSSH,
+					HostPort: hostPort, GuestPort: guestPort, Protocol: hostProto,
+					IsSSH: isSSH, MappingMethod: "device_proxy",
 				})
 			}
 		}
@@ -379,10 +377,8 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 				}
 				extraPorts = append(extraPorts, hostPort)
 				portMappings = append(portMappings, provider.DiscoveredPortMapping{
-					HostPort:  hostPort,
-					GuestPort: guestPort,
-					Protocol:  hostProto,
-					IsSSH:     isSSH,
+					HostPort: hostPort, GuestPort: guestPort, Protocol: hostProto,
+					IsSSH: isSSH, MappingMethod: "device_proxy",
 				})
 			}
 		}

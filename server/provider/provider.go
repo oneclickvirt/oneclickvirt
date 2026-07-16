@@ -66,10 +66,11 @@ type Provider interface {
 
 // DiscoveredPortMapping 发现的端口映射信息
 type DiscoveredPortMapping struct {
-	HostPort  int    `json:"hostPort"`  // 宿主机端口
-	GuestPort int    `json:"guestPort"` // 容器/虚拟机内部端口
-	Protocol  string `json:"protocol"`  // tcp, udp, both
-	IsSSH     bool   `json:"isSsh"`     // 是否为SSH端口
+	HostPort      int    `json:"hostPort"`      // 宿主机端口
+	GuestPort     int    `json:"guestPort"`     // 容器/虚拟机内部端口
+	Protocol      string `json:"protocol"`      // tcp, udp, both
+	IsSSH         bool   `json:"isSsh"`         // 是否为SSH端口
+	MappingMethod string `json:"mappingMethod"` // native, device_proxy, iptables
 }
 
 // DiscoveredAccelerator 发现到的加速设备信息（GPU/NPU）

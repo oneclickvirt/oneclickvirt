@@ -104,7 +104,7 @@ func (s *Service) deleteProviderWithTaskContext(ctx context.Context, providerID 
 				}
 
 				instanceCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-				err := providerApiService.DeleteInstanceByProviderID(instanceCtx, providerID, inst.Name)
+				err := providerApiService.DeleteInstanceByProviderID(instanceCtx, providerID, inst.ProviderInstanceIdentifier())
 				cancel()
 				if err != nil {
 					errMsg := fmt.Sprintf("实例 %s(ID:%d, 状态:%s): %v", inst.Name, inst.ID, inst.Status, err)

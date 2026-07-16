@@ -228,10 +228,8 @@ func (l *LXDProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Disc
 				}
 				proxyExtraPorts = append(proxyExtraPorts, hostPort)
 				portMappings = append(portMappings, provider.DiscoveredPortMapping{
-					HostPort:  hostPort,
-					GuestPort: guestPort,
-					Protocol:  hostProto,
-					IsSSH:     isSSH,
+					HostPort: hostPort, GuestPort: guestPort, Protocol: hostProto,
+					IsSSH: isSSH, MappingMethod: "device_proxy",
 				})
 			}
 		}
@@ -406,10 +404,8 @@ func (l *LXDProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Disc
 				}
 				sshProxyExtraPorts = append(sshProxyExtraPorts, hostPort)
 				sshPortMappings = append(sshPortMappings, provider.DiscoveredPortMapping{
-					HostPort:  hostPort,
-					GuestPort: guestPort,
-					Protocol:  hostProto,
-					IsSSH:     isSSH,
+					HostPort: hostPort, GuestPort: guestPort, Protocol: hostProto,
+					IsSSH: isSSH, MappingMethod: "device_proxy",
 				})
 			}
 		}

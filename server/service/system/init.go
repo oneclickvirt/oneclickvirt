@@ -37,6 +37,43 @@ import (
 // InitService 初始化服务
 type InitService struct{}
 
+// ResolveDatabaseConfigCredentials reuses the already loaded deployment
+// password when the initialization form leaves it blank. All-in-one images can
+// generate and persist an internal password, and no-db images commonly receive
+// it through DB_PASSWORD; neither secret should need to be exposed back to the
+// browser. The fallback is deliberately restricted to the exact configured
+// endpoint and account so a blank password for another server never borrows a
+// credential accidentally.
+func ResolveDatabaseConfigCredentials(dbConfig config.DatabaseConfig) config.DatabaseConfig {
+	if dbConfig.Password != "" {
+		return dbConfig
+	}
+
+	current := global.GetAppConfig().Mysql
+	currentPort, err := strconv.Atoi(strings.TrimSpace(current.Port))
+	if err != nil {
+		return dbConfig
+	}
+
+	if normalizeDatabaseHost(dbConfig.Host) == normalizeDatabaseHost(current.Path) &&
+		dbConfig.Port == currentPort &&
+		dbConfig.Database == current.Dbname &&
+		dbConfig.Username == current.Username {
+		dbConfig.Password = current.Password
+	}
+	return dbConfig
+}
+
+func normalizeDatabaseHost(host string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	switch host {
+	case "localhost", "::1", "[::1]":
+		return "127.0.0.1"
+	default:
+		return host
+	}
+}
+
 // CheckDatabaseConnection 检查数据库连接状态
 func (s *InitService) CheckDatabaseConnection() error {
 	if global.APP_DB == nil {
@@ -57,6 +94,7 @@ func (s *InitService) CheckDatabaseConnection() error {
 
 // TestDatabaseConnection 测试数据库连接（不需要全局DB连接）
 func (s *InitService) TestDatabaseConnection(config config.DatabaseConfig) error {
+	config = ResolveDatabaseConfigCredentials(config)
 	if config.Type != "mysql" && config.Type != "mariadb" {
 		return fmt.Errorf("不支持的数据库类型: %s，仅支持mysql和mariadb", config.Type)
 	}
@@ -233,6 +271,7 @@ func (s *InitService) AutoMigrateTables() error {
 
 // EnsureDatabase 确保数据库和表结构存在
 func (s *InitService) EnsureDatabase(dbConfig config.DatabaseConfig) error {
+	dbConfig = ResolveDatabaseConfigCredentials(dbConfig)
 	// 更新数据库配置
 	if err := s.UpdateDatabaseConfig(dbConfig); err != nil {
 		return fmt.Errorf("更新数据库配置失败: %v", err)
@@ -276,6 +315,7 @@ func applyMysqlConfigToGlobal(dbConfig config.DatabaseConfig) {
 }
 
 func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error {
+	dbConfig = ResolveDatabaseConfigCredentials(dbConfig)
 	// 使用 ConfigManager 来更新配置，保持原有格式
 	cm := configManager.GetConfigManager()
 	if cm != nil {

@@ -13,6 +13,7 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
+	"oneclickvirt/provider/firewall"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -47,6 +48,7 @@ func (p *ProxmoxProvider) DiscoverInstances(ctx context.Context) ([]provider.Dis
 	if p.shouldUseAPI() {
 		instances, err := p.apiDiscoverInstances(ctx)
 		if err == nil {
+			instances = p.enrichDiscoveredInstances(ctx, instances)
 			global.APP_LOG.Debug("Proxmox API发现实例成功",
 				zap.String("provider", p.config.Name),
 				zap.Int("count", len(instances)))
@@ -101,10 +103,73 @@ func (p *ProxmoxProvider) sshDiscoverInstances(ctx context.Context) ([]provider.
 	if err != nil {
 		return nil, fmt.Errorf("SSH解析Proxmox实例失败: %w", err)
 	}
+	instances = p.enrichDiscoveredInstances(ctx, instances)
 	global.APP_LOG.Debug("Proxmox SSH发现实例完成",
 		zap.String("provider", p.config.Name),
 		zap.Int("count", len(instances)))
 	return instances, nil
+}
+
+// enrichDiscoveredInstances fills runtime addresses and imports DNAT mappings
+// from both nftables and iptables. Discovery remains usable when an individual
+// guest has no agent/IP information: the default VMID-derived address is only
+// accepted when firewall rules actually target it.
+func (p *ProxmoxProvider) enrichDiscoveredInstances(ctx context.Context, instances []provider.DiscoveredInstance) []provider.DiscoveredInstance {
+	if !p.shouldUseSSH() || !p.sshClient.HasExecutor() {
+		return instances
+	}
+
+	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
+	rulesByIP := fwMgr.DiscoverAllDNATRules()
+	for index := range instances {
+		if err := ctx.Err(); err != nil {
+			break
+		}
+		instance := &instances[index]
+		vmid := strings.TrimSpace(instance.ProviderInstanceID)
+		if vmid == "" {
+			continue
+		}
+
+		if ip, err := p.getInstanceIPAddress(ctx, vmid, instance.InstanceType); err == nil {
+			instance.PrivateIP = strings.TrimSpace(ip)
+		}
+		candidateIPs := make([]string, 0, 2)
+		if instance.PrivateIP != "" {
+			candidateIPs = append(candidateIPs, instance.PrivateIP)
+		}
+		if instance.PrivateIP == "" {
+			numericVMID, err := strconv.Atoi(vmid)
+			if err != nil {
+				continue
+			}
+			inferredIP := p.vmidToInternalIP(numericVMID)
+			if inferredIP != "" {
+				candidateIPs = append(candidateIPs, inferredIP)
+			}
+		}
+
+		for _, candidateIP := range candidateIPs {
+			rules := rulesByIP[candidateIP]
+			if len(rules) == 0 {
+				continue
+			}
+			if instance.PrivateIP == "" {
+				instance.PrivateIP = candidateIP
+			}
+			for _, rule := range rules {
+				instance.PortMappings = append(instance.PortMappings, provider.DiscoveredPortMapping{
+					HostPort: rule.HostPort, GuestPort: rule.GuestPort, Protocol: rule.Protocol, IsSSH: rule.IsSSH, MappingMethod: "iptables",
+				})
+				if rule.IsSSH {
+					instance.SSHPort = rule.HostPort
+				} else {
+					instance.ExtraPorts = append(instance.ExtraPorts, rule.HostPort)
+				}
+			}
+		}
+	}
+	return instances
 }
 
 func (p *ProxmoxProvider) parseVMsResponse(respData []byte, nodeName string) ([]provider.DiscoveredInstance, error) {

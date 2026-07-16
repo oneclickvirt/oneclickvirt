@@ -18,7 +18,9 @@ ALLINONE_CONTAINER="ocv-arm-allinone-${RUN_ID}"
 NO_DB_VOLUME="ocv-arm-nodb-storage-${RUN_ID}"
 ALLINONE_DB_VOLUME="ocv-arm-allinone-db-${RUN_ID}"
 ALLINONE_STORAGE_VOLUME="ocv-arm-allinone-storage-${RUN_ID}"
-DB_PASSWORD="ArmLifecycleDb12345"
+# Include Supervisor-sensitive punctuation so the all-in-one image proves that
+# database credentials are inherited safely instead of interpolated into INI.
+DB_PASSWORD='ArmLifecycle!Db12,@%Q'
 
 cleanup() {
     docker rm -f \

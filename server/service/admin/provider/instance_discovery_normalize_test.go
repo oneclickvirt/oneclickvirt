@@ -25,13 +25,16 @@ func TestNormalizeDiscoveredInstancesScopesStableIdentity(t *testing.T) {
 
 func TestNormalizeDiscoveredPortsValidatesDeduplicatesAndMergesProtocols(t *testing.T) {
 	mappings, sshPort, extras := normalizeDiscoveredPorts([]providerCore.DiscoveredPortMapping{
-		{HostPort: 2200, GuestPort: 22, Protocol: "tcp", IsSSH: true},
+		{HostPort: 2200, GuestPort: 22, Protocol: "tcp", IsSSH: true, MappingMethod: "nftables"},
 		{HostPort: 2200, GuestPort: 22, Protocol: "udp", IsSSH: true},
 		{HostPort: 8080, GuestPort: 80, Protocol: "tcp"},
 		{HostPort: 70000, GuestPort: 80, Protocol: "tcp"},
 	}, 70000, []int{8080, 0, 8080})
 	if len(mappings) != 2 || mappings[0].Protocol != "both" {
 		t.Fatalf("unexpected mappings: %#v", mappings)
+	}
+	if mappings[0].MappingMethod != "iptables" {
+		t.Fatalf("mapping method not normalized: %#v", mappings[0])
 	}
 	if sshPort != 2200 || len(extras) != 1 || extras[0] != 8080 {
 		t.Fatalf("unexpected ports: ssh=%d extras=%v", sshPort, extras)

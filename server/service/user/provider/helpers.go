@@ -122,7 +122,7 @@ func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
 	defer cancel()
 
 	providerApiService := &providerService.ProviderApiService{}
-	if err := providerApiService.DeleteInstanceByProviderID(cleanupCtx, instance.ProviderID, instance.Name); err != nil {
+	if err := providerApiService.DeleteInstanceByProviderID(cleanupCtx, instance.ProviderID, instance.ProviderInstanceIdentifier()); err != nil {
 		global.APP_LOG.Warn("直接清理失败实例时Provider删除失败，继续清理本地记录",
 			zap.Uint("instanceId", instance.ID),
 			zap.String("instanceName", instance.Name),

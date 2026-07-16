@@ -3,6 +3,7 @@ package proxmox
 import (
 	"context"
 	"encoding/pem"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,6 +45,42 @@ func (discoveryTestExecutor) IsHealthy() bool                                 { 
 func (discoveryTestExecutor) Reconnect() error                                { return nil }
 func (discoveryTestExecutor) Close() error                                    { return nil }
 
+type mappingDiscoveryExecutor struct {
+	targetIP string
+}
+
+func (e mappingDiscoveryExecutor) Execute(command string) (string, error) {
+	switch {
+	case strings.Contains(command, "nft -a list ruleset"):
+		return "tcp dport 22022 dnat to " + e.targetIP + ":22\n", nil
+	case strings.Contains(command, "iptables-save -t nat"):
+		return "-A PREROUTING -p tcp --dport 22022 -j DNAT --to-destination " + e.targetIP + ":22\n" +
+			"-A PREROUTING -p udp --dport 22022 -j DNAT --to-destination " + e.targetIP + ":22\n", nil
+	case strings.Contains(command, "ping -c"):
+		return "unreachable\n", nil
+	case strings.Contains(command, "qm config"), strings.Contains(command, "qm guest cmd"):
+		return "", errors.New("guest has no reported address")
+	default:
+		return "", nil
+	}
+}
+func (e mappingDiscoveryExecutor) ExecuteWithTimeout(command string, _ time.Duration) (string, error) {
+	return e.Execute(command)
+}
+func (e mappingDiscoveryExecutor) ExecuteWithLogging(command, _ string) (string, error) {
+	return e.Execute(command)
+}
+func (e mappingDiscoveryExecutor) ExecuteRaw(command string, _ time.Duration) (string, error) {
+	return e.Execute(command)
+}
+func (mappingDiscoveryExecutor) ExecuteViaTempScript(string, []string, time.Duration) (string, error) {
+	return "", nil
+}
+func (mappingDiscoveryExecutor) UploadContent(string, string, os.FileMode) error { return nil }
+func (mappingDiscoveryExecutor) IsHealthy() bool                                 { return true }
+func (mappingDiscoveryExecutor) Reconnect() error                                { return nil }
+func (mappingDiscoveryExecutor) Close() error                                    { return nil }
+
 func TestParseResourcesJSONPVE9(t *testing.T) {
 	p := &ProxmoxProvider{}
 	got, err := p.parseResourcesJSON(`[
@@ -68,6 +105,35 @@ func TestParseResourcesJSONPVE9(t *testing.T) {
 	ct := got[1]
 	if ct.UUID != "proxmox-lxc-121" || ct.ProviderInstanceID != "121" || ct.Name != "ct-121" || ct.InstanceType != "container" {
 		t.Fatalf("unexpected LXC identity: %+v", ct)
+	}
+}
+
+func TestEnrichDiscoveredInstancesUsesFirewallWhenGuestIPUnavailable(t *testing.T) {
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.connected = true
+	p.config.ExecutionRule = "auto"
+	targetIP := p.vmidToInternalIP(120)
+	p.sshClient.SetExecutor(mappingDiscoveryExecutor{targetIP: targetIP})
+
+	instances := []providerCore.DiscoveredInstance{{
+		ProviderInstanceID: "120", Name: "odd / duplicate name", InstanceType: "vm", Status: "stopped",
+	}}
+	got := p.enrichDiscoveredInstances(context.Background(), instances)
+	if len(got) != 1 || got[0].PrivateIP != targetIP {
+		t.Fatalf("firewall target did not recover private IP: %#v", got)
+	}
+	if len(got[0].PortMappings) != 2 {
+		t.Fatalf("nft/iptables rules were not merged and deduplicated: %#v", got[0].PortMappings)
+	}
+	protocols := map[string]bool{}
+	for _, mapping := range got[0].PortMappings {
+		protocols[mapping.Protocol] = true
+		if mapping.HostPort != 22022 || mapping.GuestPort != 22 || !mapping.IsSSH {
+			t.Fatalf("unexpected mapping: %#v", mapping)
+		}
+	}
+	if !protocols["tcp"] || !protocols["udp"] {
+		t.Fatalf("protocols = %#v, want tcp+udp", protocols)
 	}
 }
 

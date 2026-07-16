@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math/big"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -127,7 +129,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 	}
 
 	// 发现器、远端脏数据或兼容 API 可能返回重复行。按稳定顺序仅保留一个
-	// 实例；名称、远端身份、私网地址、IPv6 或宿主机端口任一冲突时，
+	// 实例；远端身份、私网地址、IPv6 或宿主机端口任一冲突时，
 	// 后续行只记为 skipped，避免数据库唯一约束让整批事务回滚。
 	var duplicates []duplicateDiscoveredInstance
 	instancesToImport, duplicates = deduplicateDiscoveredInstances(instancesToImport)
@@ -146,6 +148,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 		Find(&existingInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询已有实例失败: %w", err)
 	}
+	prepareImportedInstanceNames(providerInfo.Type, instancesToImport, existingInstances)
 	// UUID is globally unique, including soft-deleted history rows. Query the
 	// exact database constraint scope before starting the transaction: active or
 	// cross-Provider owners remain deterministic skips, while a tombstone owned
@@ -453,7 +456,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				continue
 			} else {
 				// 创建端口映射记录
-				if err := s.createImportedPortMappings(tx, &discovered, instance.ID, options.ProviderID, conflictPortSet); err != nil {
+				if err := s.createImportedPortMappings(tx, &discovered, instance.ID, options.ProviderID, providerInfo.IPv4PortMappingMethod, conflictPortSet); err != nil {
 					if rollbackErr := rollbackImportedInstance(tx, savepoint); rollbackErr != nil {
 						return rollbackErr
 					}
@@ -660,7 +663,7 @@ func (s *Service) RemoveImportedInstancesMark(ctx context.Context, instanceIDs [
 }
 
 // createImportedPortMappings 为导入的实例创建端口映射记录
-func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.DiscoveredInstance, instanceID, providerID uint, skipHostPorts map[int]bool) error {
+func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.DiscoveredInstance, instanceID, providerID uint, defaultMappingMethod string, skipHostPorts map[int]bool) error {
 	if len(discovered.PortMappings) == 0 && discovered.SSHPort <= 0 {
 		return nil
 	}
@@ -679,16 +682,18 @@ func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.D
 			if protocol == "" {
 				protocol = "both"
 			}
+			mappingMethod := resolveImportedMappingMethod(pm.MappingMethod, defaultMappingMethod)
 			port := providerModel.Port{
-				InstanceID:  instanceID,
-				ProviderID:  providerID,
-				HostPort:    pm.HostPort,
-				GuestPort:   pm.GuestPort,
-				Protocol:    protocol,
-				Status:      "active",
-				IsSSH:       pm.IsSSH,
-				IsAutomatic: true,
-				PortType:    "range_mapped",
+				InstanceID:    instanceID,
+				ProviderID:    providerID,
+				HostPort:      pm.HostPort,
+				GuestPort:     pm.GuestPort,
+				Protocol:      protocol,
+				Status:        "active",
+				IsSSH:         pm.IsSSH,
+				IsAutomatic:   true,
+				PortType:      "range_mapped",
+				MappingMethod: mappingMethod,
 			}
 			if pm.IsSSH {
 				port.Description = "SSH"
@@ -708,16 +713,17 @@ func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.D
 	} else if discovered.SSHPort > 0 && discovered.SSHPort != 22 && !skipHostPorts[discovered.SSHPort] {
 		// 只有SSH端口信息，没有完整的端口映射
 		ports = append(ports, providerModel.Port{
-			InstanceID:  instanceID,
-			ProviderID:  providerID,
-			HostPort:    discovered.SSHPort,
-			GuestPort:   22,
-			Protocol:    "both",
-			Status:      "active",
-			IsSSH:       true,
-			IsAutomatic: true,
-			PortType:    "range_mapped",
-			Description: "SSH",
+			InstanceID:    instanceID,
+			ProviderID:    providerID,
+			HostPort:      discovered.SSHPort,
+			GuestPort:     22,
+			Protocol:      "both",
+			Status:        "active",
+			IsSSH:         true,
+			IsAutomatic:   true,
+			PortType:      "range_mapped",
+			Description:   "SSH",
+			MappingMethod: resolveImportedMappingMethod("", defaultMappingMethod),
 		})
 		portRangeStart = discovered.SSHPort
 		portRangeEnd = discovered.SSHPort
@@ -747,6 +753,16 @@ func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.D
 	}
 
 	return nil
+}
+
+func resolveImportedMappingMethod(discoveredMethod, defaultMethod string) string {
+	if method := normalizeDiscoveredMappingMethod(discoveredMethod); method != "" {
+		return method
+	}
+	if method := normalizeDiscoveredMappingMethod(defaultMethod); method != "" {
+		return method
+	}
+	return "native"
 }
 
 func selectDiscoveredInstances(instances []provider.DiscoveredInstance, selectors []string) ([]provider.DiscoveredInstance, error) {
@@ -854,7 +870,13 @@ func discoveredInstanceConflictKeys(instance provider.DiscoveredInstance) []stri
 	}
 	appendKey("uuid", instance.UUID)
 	appendKey("remote-id", instance.ProviderInstanceID)
-	appendKey("name", instance.Name)
+	// A display name is not a durable remote identity. PVE and several other
+	// platforms permit duplicate or otherwise awkward names; those resources
+	// remain distinct when they have different native IDs and receive stable
+	// controller-side aliases before persistence.
+	if strings.TrimSpace(instance.UUID) == "" && strings.TrimSpace(instance.ProviderInstanceID) == "" {
+		appendKey("name", instance.Name)
+	}
 	appendKey("private-ip", instance.PrivateIP)
 	appendKey("ipv6", instance.IPv6Address)
 	portSet := make(map[int]struct{})
@@ -880,6 +902,100 @@ func discoveredInstanceConflictKeys(instance provider.DiscoveredInstance) []stri
 		keys = append(keys, fmt.Sprintf("host-port\x00%d", port))
 	}
 	return keys
+}
+
+func prepareImportedInstanceNames(providerType string, instances []provider.DiscoveredInstance, existing []providerModel.Instance) {
+	reserved := make(map[string]struct{}, len(existing)+len(instances))
+	for _, instance := range existing {
+		if name := strings.ToLower(strings.TrimSpace(instance.Name)); name != "" {
+			reserved[name] = struct{}{}
+		}
+	}
+	for index := range instances {
+		// Preserve the original name for legacy matching. Managed instances are
+		// skipped later and must not be renamed before that compatibility check.
+		if hasMatchingDBInstance(providerType, instances[index], existing) {
+			continue
+		}
+		base := sanitizeImportedInstanceName(instances[index])
+		candidate := base
+		if _, exists := reserved[strings.ToLower(candidate)]; exists {
+			suffix := importedInstanceNameSuffix(instances[index])
+			candidate = appendImportedNameSuffix(base, suffix)
+			for ordinal := 2; ; ordinal++ {
+				if _, collision := reserved[strings.ToLower(candidate)]; !collision {
+					break
+				}
+				candidate = appendImportedNameSuffix(base, fmt.Sprintf("%s-%d", suffix, ordinal))
+			}
+		}
+		instances[index].Name = candidate
+		reserved[strings.ToLower(candidate)] = struct{}{}
+	}
+}
+
+func sanitizeImportedInstanceName(instance provider.DiscoveredInstance) string {
+	var builder strings.Builder
+	lastSeparator := false
+	for _, r := range strings.TrimSpace(instance.Name) {
+		allowed := r < unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '_' || r == '-')
+		if allowed {
+			builder.WriteRune(r)
+			lastSeparator = false
+			continue
+		}
+		if !lastSeparator && builder.Len() > 0 {
+			builder.WriteByte('-')
+			lastSeparator = true
+		}
+	}
+	name := strings.Trim(builder.String(), "._-")
+	if name == "" {
+		kind := strings.ToLower(strings.TrimSpace(instance.InstanceType))
+		if kind != "vm" {
+			kind = "ct"
+		}
+		name = kind + "-" + importedInstanceNameSuffix(instance)
+	}
+	if len(name) > 128 {
+		name = strings.TrimRight(name[:128], "._-")
+	}
+	if name == "" {
+		name = "instance-" + importedInstanceNameSuffix(instance)
+	}
+	return name
+}
+
+func importedInstanceNameSuffix(instance provider.DiscoveredInstance) string {
+	remoteID := strings.Trim(utils.SanitizeShellArg(strings.TrimSpace(instance.ProviderInstanceID)), "._-")
+	if remoteID != "" && len(remoteID) <= 24 {
+		return remoteID
+	}
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		strings.TrimSpace(instance.ProviderInstanceID),
+		strings.TrimSpace(instance.UUID),
+		strings.TrimSpace(instance.InstanceType),
+		strings.TrimSpace(instance.Name),
+	}, "\x00")))
+	return fmt.Sprintf("%x", sum[:4])
+}
+
+func appendImportedNameSuffix(base, suffix string) string {
+	suffix = strings.Trim(utils.SanitizeShellArg(suffix), "._-")
+	if suffix == "" {
+		suffix = "imported"
+	}
+	maxBaseLength := 128 - len(suffix) - 1
+	if maxBaseLength < 1 {
+		maxBaseLength = 1
+	}
+	if len(base) > maxBaseLength {
+		base = strings.TrimRight(base[:maxBaseLength], "._-")
+	}
+	if base == "" {
+		base = "i"
+	}
+	return base + "-" + suffix
 }
 
 func hasConflictingInstanceName(providerType string, discovered provider.DiscoveredInstance, existing []providerModel.Instance) bool {

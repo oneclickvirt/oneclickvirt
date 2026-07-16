@@ -638,6 +638,7 @@ func (s *TaskService) removePortMappingsFromNode(ctx context.Context, provInstan
 	// LXD/Incus：额外通过 SSH 调用 RemovePortMapping 清理 proxy device 规则
 	// （Proxmox 的 iptables 规则已由 portmapping manager 的 iptables provider 处理，无需额外调用）
 	if providerType == "lxd" || providerType == "incus" {
+		providerInstanceID := instance.ProviderInstanceIdentifier()
 		for _, p := range ports {
 			if p.MappingType == "controller" {
 				continue
@@ -646,11 +647,11 @@ func (s *TaskService) removePortMappingsFromNode(ctx context.Context, provInstan
 			switch providerType {
 			case "lxd":
 				if lxdProv, ok := provInstance.(*lxd.LXDProvider); ok {
-					removeErr = lxdProv.RemovePortMapping(instance.Name, p.HostPort, p.Protocol, prov.IPv4PortMappingMethod)
+					removeErr = lxdProv.RemovePortMapping(providerInstanceID, p.HostPort, p.Protocol, prov.IPv4PortMappingMethod)
 				}
 			case "incus":
 				if incusProv, ok := provInstance.(*incus.IncusProvider); ok {
-					removeErr = incusProv.RemovePortMapping(instance.Name, p.HostPort, p.Protocol, prov.IPv4PortMappingMethod)
+					removeErr = incusProv.RemovePortMapping(providerInstanceID, p.HostPort, p.Protocol, prov.IPv4PortMappingMethod)
 				}
 			}
 			if removeErr != nil {

@@ -2,6 +2,10 @@ package firewall
 
 import (
 	"fmt"
+	"net"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -478,60 +482,256 @@ func (m *Manager) saveIptablesRules() {
 
 // DiscoverDNATRules 发现指向指定 IP 的所有 DNAT 规则，返回 (hostPort, guestPort, protocol, isSSH) 列表
 func (m *Manager) DiscoverDNATRules(vmIP string) []DiscoveredRule {
-	if m.backend == BackendNft {
-		return m.discoverNftDNAT(vmIP)
+	nftOutput, iptablesOutput := m.readDNATRuleset()
+	if ip := normalizeRuleIP(vmIP); ip != "" {
+		return ParseDNATRules(nftOutput, iptablesOutput)[ip]
 	}
-	return m.discoverIptablesDNAT(vmIP)
+	return ParseDNATRulesForIdentifier(nftOutput, iptablesOutput, vmIP)
 }
 
 // DiscoveredRule 发现的 DNAT 规则
 type DiscoveredRule struct {
+	TargetIP  string
 	HostPort  int
 	GuestPort int
 	Protocol  string
 	IsSSH     bool
 }
 
-func (m *Manager) discoverNftDNAT(vmIP string) []DiscoveredRule {
-	output, err := m.sshClient.Execute(fmt.Sprintf(
-		"nft -a list chain ip %s prerouting 2>/dev/null | grep '%s'", m.tableName, vmIP))
-	if err != nil {
+// DiscoverAllDNATRules scans both nftables and iptables instead of trusting the
+// selected write backend. Hosts commonly have nft installed while legacy or
+// Docker/PVE rules still live behind iptables-nft, and third-party rules may be
+// stored in a table other than the one managed by OneClickVirt.
+func (m *Manager) DiscoverAllDNATRules() map[string][]DiscoveredRule {
+	nftOutput, iptablesOutput := m.readDNATRuleset()
+	return ParseDNATRules(nftOutput, iptablesOutput)
+}
+
+func (m *Manager) readDNATRuleset() (string, string) {
+	nftOutput, _ := m.sshClient.Execute("nft -a list ruleset 2>/dev/null || true")
+	iptablesOutput, _ := m.sshClient.Execute("iptables-save -t nat 2>/dev/null || iptables -t nat -S 2>/dev/null || iptables -t nat -L PREROUTING -n 2>/dev/null || true")
+	return nftOutput, iptablesOutput
+}
+
+const maxDiscoveredPortRange = 4096
+
+var (
+	nftDNATTargetPattern = regexp.MustCompile(`(?i)\bdnat(?:\s+ip)?\s+to\s+([0-9]+(?:\.[0-9]+){3})(?::([0-9]+)(?:-([0-9]+))?)?`)
+	nftDPortPattern      = regexp.MustCompile(`(?i)\bdport\s+(?:\{\s*)?([0-9][0-9,\-\s]*)(?:\})?`)
+	iptDNATTargetPattern = regexp.MustCompile(`(?i)(?:--to-destination|--to)\s+([0-9]+(?:\.[0-9]+){3})(?::([0-9]+)(?:-([0-9]+))?)?`)
+	iptListTargetPattern = regexp.MustCompile(`(?i)\bto:([0-9]+(?:\.[0-9]+){3})(?::([0-9]+)(?:-([0-9]+))?)?`)
+	iptDPortPattern      = regexp.MustCompile(`(?i)--dports?\s+([0-9][0-9,:-]*)`)
+	iptListDPortPattern  = regexp.MustCompile(`(?i)\bdpt:([0-9]+(?:[:-][0-9]+)?)`)
+	protocolPattern      = regexp.MustCompile(`(?i)(?:^|\s)(?:-p\s+)?(tcp|udp)(?:\s|$)`)
+	ruleCommentPattern   = regexp.MustCompile(`(?i)(?:\bcomment\s+|--comment\s+)(?:"([^"]*)"|'([^']*)'|([^\s#]+))`)
+)
+
+// ParseDNATRulesForIdentifier recovers rules associated with an instance
+// comment when the caller has no guest IP yet. This keeps KubeVirt and legacy
+// nft rules discoverable without reverting to substring grep matching.
+func ParseDNATRulesForIdentifier(nftOutput, iptablesOutput, identifier string) []DiscoveredRule {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
 		return nil
 	}
+	filter := func(output string) string {
+		matched := make([]string, 0)
+		for _, line := range strings.Split(output, "\n") {
+			if ruleCommentMatchesIdentifier(line, identifier) {
+				matched = append(matched, line)
+			}
+		}
+		return strings.Join(matched, "\n")
+	}
+	rulesByIP := ParseDNATRules(filter(nftOutput), filter(iptablesOutput))
+	rules := make([]DiscoveredRule, 0)
+	for _, ipRules := range rulesByIP {
+		rules = append(rules, ipRules...)
+	}
+	sort.Slice(rules, func(i, j int) bool {
+		if rules[i].HostPort != rules[j].HostPort {
+			return rules[i].HostPort < rules[j].HostPort
+		}
+		if rules[i].GuestPort != rules[j].GuestPort {
+			return rules[i].GuestPort < rules[j].GuestPort
+		}
+		if rules[i].Protocol != rules[j].Protocol {
+			return rules[i].Protocol < rules[j].Protocol
+		}
+		return rules[i].TargetIP < rules[j].TargetIP
+	})
+	return rules
+}
 
-	var rules []DiscoveredRule
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+func ruleCommentMatchesIdentifier(line, identifier string) bool {
+	for _, match := range ruleCommentPattern.FindAllStringSubmatch(line, -1) {
+		comment := ""
+		for index := 1; index < len(match); index++ {
+			if match[index] != "" {
+				comment = match[index]
+				break
+			}
 		}
-		rule := parseNftDNATLine(line, vmIP)
-		if rule != nil {
-			rules = append(rules, *rule)
+		if comment == identifier || comment == "vm:"+identifier || comment == "inst:"+identifier || strings.HasPrefix(comment, "pm:"+identifier+":") {
+			return true
 		}
+	}
+	return false
+}
+
+// ParseDNATRules parses nft list-ruleset and iptables-save/-S/-L output. It is
+// intentionally table/chain-name agnostic so imported instances also recover
+// mappings created by older versions or external tooling.
+func ParseDNATRules(nftOutput, iptablesOutput string) map[string][]DiscoveredRule {
+	result := make(map[string][]DiscoveredRule)
+	seen := make(map[string]struct{})
+	appendRules := func(rules []DiscoveredRule) {
+		for _, rule := range rules {
+			rule.TargetIP = normalizeRuleIP(rule.TargetIP)
+			if rule.TargetIP == "" || rule.HostPort <= 0 || rule.HostPort > 65535 || rule.GuestPort <= 0 || rule.GuestPort > 65535 {
+				continue
+			}
+			if rule.Protocol != "udp" {
+				rule.Protocol = "tcp"
+			}
+			rule.IsSSH = rule.GuestPort == 22
+			key := fmt.Sprintf("%s\x00%d\x00%d\x00%s", rule.TargetIP, rule.HostPort, rule.GuestPort, rule.Protocol)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			result[rule.TargetIP] = append(result[rule.TargetIP], rule)
+		}
+	}
+
+	for _, line := range strings.Split(nftOutput, "\n") {
+		appendRules(parseNftDNATRulesLine(strings.TrimSpace(line)))
+	}
+	for _, line := range strings.Split(iptablesOutput, "\n") {
+		appendRules(parseIptablesDNATRulesLine(strings.TrimSpace(line)))
+	}
+	for ip := range result {
+		sort.Slice(result[ip], func(i, j int) bool {
+			if result[ip][i].HostPort != result[ip][j].HostPort {
+				return result[ip][i].HostPort < result[ip][j].HostPort
+			}
+			if result[ip][i].GuestPort != result[ip][j].GuestPort {
+				return result[ip][i].GuestPort < result[ip][j].GuestPort
+			}
+			return result[ip][i].Protocol < result[ip][j].Protocol
+		})
+	}
+	return result
+}
+
+func parseNftDNATRulesLine(line string) []DiscoveredRule {
+	if line == "" || !strings.Contains(strings.ToLower(line), "dnat") {
+		return nil
+	}
+	target := nftDNATTargetPattern.FindStringSubmatch(line)
+	if len(target) == 0 {
+		return nil
+	}
+	dnatIndex := strings.Index(strings.ToLower(line), "dnat")
+	portMatch := nftDPortPattern.FindStringSubmatch(line[:dnatIndex])
+	if len(portMatch) == 0 {
+		return nil
+	}
+	hostPorts := expandPortSpec(portMatch[1])
+	return buildDiscoveredRules(target[1], hostPorts, target[2], target[3], discoverProtocol(line))
+}
+
+func parseIptablesDNATRulesLine(line string) []DiscoveredRule {
+	if line == "" || !strings.Contains(strings.ToUpper(line), "DNAT") {
+		return nil
+	}
+	target := iptDNATTargetPattern.FindStringSubmatch(line)
+	if len(target) == 0 {
+		target = iptListTargetPattern.FindStringSubmatch(line)
+	}
+	if len(target) == 0 {
+		return nil
+	}
+	portMatch := iptDPortPattern.FindStringSubmatch(line)
+	if len(portMatch) == 0 {
+		portMatch = iptListDPortPattern.FindStringSubmatch(line)
+	}
+	if len(portMatch) == 0 {
+		return nil
+	}
+	hostPorts := expandPortSpec(strings.ReplaceAll(portMatch[1], ":", "-"))
+	return buildDiscoveredRules(target[1], hostPorts, target[2], target[3], discoverProtocol(line))
+}
+
+func buildDiscoveredRules(targetIP string, hostPorts []int, guestStartText, guestEndText, protocol string) []DiscoveredRule {
+	if len(hostPorts) == 0 {
+		return nil
+	}
+	guestStart, _ := strconv.Atoi(guestStartText)
+	guestEnd, _ := strconv.Atoi(guestEndText)
+	rules := make([]DiscoveredRule, 0, len(hostPorts))
+	for index, hostPort := range hostPorts {
+		guestPort := guestStart
+		switch {
+		case guestStart == 0:
+			guestPort = hostPort
+		case guestEnd >= guestStart && len(hostPorts) == guestEnd-guestStart+1:
+			guestPort = guestStart + index
+		}
+		rules = append(rules, DiscoveredRule{TargetIP: targetIP, HostPort: hostPort, GuestPort: guestPort, Protocol: protocol})
 	}
 	return rules
 }
 
-func (m *Manager) discoverIptablesDNAT(vmIP string) []DiscoveredRule {
-	output, err := m.sshClient.Execute(fmt.Sprintf(
-		"iptables -t nat -L PREROUTING -n 2>/dev/null | grep 'DNAT' | grep '%s'", vmIP))
-	if err != nil {
+func expandPortSpec(spec string) []int {
+	spec = strings.NewReplacer("{", "", "}", "", " ", "", "\t", "").Replace(spec)
+	if spec == "" {
 		return nil
 	}
-
-	var rules []DiscoveredRule
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	ports := make([]int, 0)
+	seen := make(map[int]struct{})
+	for _, item := range strings.Split(spec, ",") {
+		if item == "" {
 			continue
 		}
-		rule := parseIptablesDNATLine(line, vmIP)
-		if rule != nil {
-			rules = append(rules, *rule)
+		startText, endText, ranged := strings.Cut(item, "-")
+		start, err := strconv.Atoi(startText)
+		if err != nil || start <= 0 || start > 65535 {
+			continue
+		}
+		end := start
+		if ranged {
+			parsedEnd, parseErr := strconv.Atoi(endText)
+			if parseErr != nil || parsedEnd < start || parsedEnd > 65535 || parsedEnd-start+1 > maxDiscoveredPortRange {
+				continue
+			}
+			end = parsedEnd
+		}
+		for port := start; port <= end && len(ports) < maxDiscoveredPortRange; port++ {
+			if _, exists := seen[port]; exists {
+				continue
+			}
+			seen[port] = struct{}{}
+			ports = append(ports, port)
 		}
 	}
-	return rules
+	return ports
+}
+
+func discoverProtocol(line string) string {
+	match := protocolPattern.FindStringSubmatch(line)
+	if len(match) > 1 && strings.EqualFold(match[1], "udp") {
+		return "udp"
+	}
+	return "tcp"
+}
+
+func normalizeRuleIP(value string) string {
+	value = strings.TrimSpace(strings.Trim(value, "[]"))
+	if ip := net.ParseIP(value); ip != nil && ip.To4() != nil {
+		return ip.String()
+	}
+	return ""
 }
 
 // --- helpers ---
@@ -558,101 +758,4 @@ func parseHandles(output string) []string {
 		}
 	}
 	return handles
-}
-
-// parseNftDNATLine 解析 nft DNAT 规则行
-// 格式示例: "tcp dport 25001 dnat to 192.168.122.2:22 comment \"vm:vm1\" # handle 5"
-func parseNftDNATLine(line, vmIP string) *DiscoveredRule {
-	if !strings.Contains(line, "dnat") {
-		return nil
-	}
-
-	rule := &DiscoveredRule{Protocol: "tcp"}
-
-	if strings.Contains(line, "udp") {
-		rule.Protocol = "udp"
-	}
-
-	// 提取 dport
-	if idx := strings.Index(line, "dport "); idx >= 0 {
-		rest := line[idx+6:]
-		fields := strings.Fields(rest)
-		if len(fields) > 0 {
-			fmt.Sscanf(fields[0], "%d", &rule.HostPort)
-		}
-	}
-
-	// 提取 dnat to IP:port
-	if idx := strings.Index(line, "dnat to "); idx >= 0 {
-		rest := line[idx+8:]
-		fields := strings.Fields(rest)
-		if len(fields) > 0 {
-			target := fields[0]
-			parts := strings.Split(target, ":")
-			if len(parts) == 2 {
-				fmt.Sscanf(parts[1], "%d", &rule.GuestPort)
-			} else {
-				// identity mapping (no :port means same as host port)
-				rule.GuestPort = rule.HostPort
-			}
-		}
-	}
-
-	if rule.HostPort == 0 {
-		return nil
-	}
-	if rule.GuestPort == 0 {
-		rule.GuestPort = rule.HostPort
-	}
-
-	if rule.GuestPort == 22 {
-		rule.IsSSH = true
-	}
-
-	return rule
-}
-
-// parseIptablesDNATLine 解析 iptables DNAT 规则行
-// 格式: DNAT tcp -- 0.0.0.0/0 0.0.0.0/0 tcp dpt:10022 to:192.168.122.2:22
-func parseIptablesDNATLine(line, vmIP string) *DiscoveredRule {
-	if !strings.Contains(line, "DNAT") {
-		return nil
-	}
-
-	rule := &DiscoveredRule{Protocol: "tcp"}
-
-	if strings.Contains(line, "udp") {
-		rule.Protocol = "udp"
-	}
-
-	// 提取 dpt:
-	if idx := strings.Index(line, "dpt:"); idx >= 0 {
-		portStr := line[idx+4:]
-		fields := strings.Fields(portStr)
-		if len(fields) > 0 {
-			fmt.Sscanf(fields[0], "%d", &rule.HostPort)
-		}
-	}
-
-	// 提取 to:IP:port
-	if idx := strings.Index(line, "to:"); idx >= 0 {
-		target := line[idx+3:]
-		fields := strings.Fields(target)
-		if len(fields) > 0 {
-			parts := strings.Split(fields[0], ":")
-			if len(parts) == 2 {
-				fmt.Sscanf(parts[1], "%d", &rule.GuestPort)
-			}
-		}
-	}
-
-	if rule.HostPort == 0 || rule.GuestPort == 0 {
-		return nil
-	}
-
-	if rule.GuestPort == 22 {
-		rule.IsSSH = true
-	}
-
-	return rule
 }

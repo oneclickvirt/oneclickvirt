@@ -195,13 +195,14 @@ func (a *portMappingApplier) Remove(instance *providerModel.Instance, port *prov
 }
 
 func (a *portMappingApplier) removeEndpoint(instance *providerModel.Instance, port *providerModel.Port, endpoint portEndpoint, method string) error {
+	providerInstanceID := instance.ProviderInstanceIdentifier()
 	switch providerInstance := a.providerInstance.(type) {
 	case *lxdProvider.LXDProvider:
-		return providerInstance.RemovePortMapping(instance.Name, endpoint.host, port.Protocol, method)
+		return providerInstance.RemovePortMapping(providerInstanceID, endpoint.host, port.Protocol, method)
 	case *incusProvider.IncusProvider:
-		return providerInstance.RemovePortMapping(instance.Name, endpoint.host, port.Protocol, method)
+		return providerInstance.RemovePortMapping(providerInstanceID, endpoint.host, port.Protocol, method)
 	case *proxmoxProvider.ProxmoxProvider:
-		return providerInstance.RemovePortMapping(a.ctx, instance.Name, endpoint.host, port.Protocol, method)
+		return providerInstance.RemovePortMapping(a.ctx, providerInstanceID, endpoint.host, port.Protocol, method)
 	default:
 		manager, err := a.getFirewallManager()
 		if err != nil {
@@ -216,22 +217,23 @@ func (a *portMappingApplier) removeEndpoint(instance *providerModel.Instance, po
 }
 
 func (a *portMappingApplier) applyEndpoint(instance *providerModel.Instance, port *providerModel.Port, endpoint portEndpoint, method string, replace bool) error {
+	providerInstanceID := instance.ProviderInstanceIdentifier()
 	switch providerInstance := a.providerInstance.(type) {
 	case *lxdProvider.LXDProvider:
 		if replace {
-			_ = providerInstance.RemovePortMapping(instance.Name, endpoint.host, port.Protocol, method)
+			_ = providerInstance.RemovePortMapping(providerInstanceID, endpoint.host, port.Protocol, method)
 		}
-		return providerInstance.SetupPortMappingWithIP(a.ctx, instance.Name, endpoint.host, endpoint.guest, port.Protocol, method, instance.PrivateIP)
+		return providerInstance.SetupPortMappingWithIP(a.ctx, providerInstanceID, endpoint.host, endpoint.guest, port.Protocol, method, instance.PrivateIP)
 	case *incusProvider.IncusProvider:
 		if replace {
-			_ = providerInstance.RemovePortMapping(instance.Name, endpoint.host, port.Protocol, method)
+			_ = providerInstance.RemovePortMapping(providerInstanceID, endpoint.host, port.Protocol, method)
 		}
-		return providerInstance.SetupPortMappingWithIP(a.ctx, instance.Name, endpoint.host, endpoint.guest, port.Protocol, method, instance.PrivateIP)
+		return providerInstance.SetupPortMappingWithIP(a.ctx, providerInstanceID, endpoint.host, endpoint.guest, port.Protocol, method, instance.PrivateIP)
 	case *proxmoxProvider.ProxmoxProvider:
 		if replace {
-			_ = providerInstance.RemovePortMapping(a.ctx, instance.Name, endpoint.host, port.Protocol, method)
+			_ = providerInstance.RemovePortMapping(a.ctx, providerInstanceID, endpoint.host, port.Protocol, method)
 		}
-		return providerInstance.SetupPortMappingWithIP(a.ctx, instance.Name, endpoint.host, endpoint.guest, port.Protocol, method, instance.PrivateIP)
+		return providerInstance.SetupPortMappingWithIP(a.ctx, providerInstanceID, endpoint.host, endpoint.guest, port.Protocol, method, instance.PrivateIP)
 	default:
 		manager, err := a.getFirewallManager()
 		if err != nil {

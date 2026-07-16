@@ -19,6 +19,15 @@ func TestNormalizeImportedInstanceUUIDMatchesDatabaseIdentity(t *testing.T) {
 	}
 }
 
+func TestResolveImportedMappingMethodPrefersDiscoveredFirewallBackend(t *testing.T) {
+	if got := resolveImportedMappingMethod("nft", "device_proxy"); got != "iptables" {
+		t.Fatalf("mapping method = %q, want iptables", got)
+	}
+	if got := resolveImportedMappingMethod("", "device_proxy"); got != "device_proxy" {
+		t.Fatalf("fallback mapping method = %q", got)
+	}
+}
+
 func TestDuplicateImportResourceErrorClassification(t *testing.T) {
 	for _, message := range []string{
 		"Error 1062: Duplicate entry '22022' for key 'idx_provider_host_port'",
@@ -59,11 +68,56 @@ func TestDeduplicateDiscoveredInstancesKeepsOneForAnyManagedResourceConflict(t *
 		{UUID: "uuid-d", ProviderInstanceID: "id-d", Name: "delta", PrivateIP: "10.0.0.2", SSHPort: 2202},
 	}
 	kept, duplicates := deduplicateDiscoveredInstances(instances)
-	if len(kept) != 1 || kept[0].Name != "alpha" {
-		t.Fatalf("stable first winner not kept: %#v", kept)
+	if len(kept) != 2 || kept[0].ProviderInstanceID != "id-a" || kept[1].ProviderInstanceID != "id-c" {
+		t.Fatalf("stable resource winners not kept: %#v", kept)
 	}
-	if len(duplicates) != 3 {
-		t.Fatalf("duplicates=%d, want 3: %#v", len(duplicates), duplicates)
+	if len(duplicates) != 2 {
+		t.Fatalf("duplicates=%d, want 2: %#v", len(duplicates), duplicates)
+	}
+}
+
+func TestDeduplicateDiscoveredInstancesKeepsSameNameWithDistinctRemoteIDs(t *testing.T) {
+	instances := []providerCore.DiscoveredInstance{
+		{UUID: "uuid-120", ProviderInstanceID: "120", Name: "duplicated name", InstanceType: "vm"},
+		{UUID: "uuid-121", ProviderInstanceID: "121", Name: "duplicated name", InstanceType: "vm"},
+	}
+	kept, duplicates := deduplicateDiscoveredInstances(instances)
+	if len(kept) != 2 || len(duplicates) != 0 {
+		t.Fatalf("distinct remote resources were collapsed: kept=%#v duplicates=%#v", kept, duplicates)
+	}
+}
+
+func TestPrepareImportedInstanceNamesGeneratesStableSafeAliases(t *testing.T) {
+	original := []providerCore.DiscoveredInstance{
+		{UUID: "uuid-120", ProviderInstanceID: "120", Name: "  bad / name !!  ", InstanceType: "vm"},
+		{UUID: "uuid-121", ProviderInstanceID: "121", Name: "bad---name", InstanceType: "vm"},
+		{UUID: "uuid-122", ProviderInstanceID: "122", Name: "bad / name !!", InstanceType: "vm"},
+	}
+	first := append([]providerCore.DiscoveredInstance(nil), original...)
+	second := append([]providerCore.DiscoveredInstance(nil), original...)
+	existing := []providerModel.Instance{{Name: "bad-name", ProviderVMID: "999"}}
+	prepareImportedInstanceNames("proxmox", first, existing)
+	prepareImportedInstanceNames("proxmox", second, existing)
+
+	seen := map[string]bool{"bad-name": true}
+	for index := range first {
+		if first[index].Name != second[index].Name {
+			t.Fatalf("alias is not stable: first=%q second=%q", first[index].Name, second[index].Name)
+		}
+		if first[index].ProviderInstanceID != original[index].ProviderInstanceID {
+			t.Fatalf("remote operation ID changed: %#v", first[index])
+		}
+		if strings.ContainsAny(first[index].Name, " /!") || len(first[index].Name) > 128 {
+			t.Fatalf("unsafe alias generated: %q", first[index].Name)
+		}
+		key := strings.ToLower(first[index].Name)
+		if seen[key] {
+			t.Fatalf("duplicate alias generated: %q in %#v", first[index].Name, first)
+		}
+		seen[key] = true
+	}
+	if first[0].Name != "bad-name-120" || first[2].Name != "bad-name-122" {
+		t.Fatalf("expected VMID-based aliases, got %#v", first)
 	}
 }
 
