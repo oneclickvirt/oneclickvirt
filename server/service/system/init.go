@@ -291,19 +291,25 @@ func (s *InitService) EnsureDatabase(dbConfig config.DatabaseConfig) error {
 }
 
 // UpdateDatabaseConfig 更新数据库配置
-// applyMysqlConfigToGlobal 将 MySQL 配置直接写入 global.APP_CONFIG，
+// applyDatabaseConfigToGlobal 将数据库启动配置直接写入 global.APP_CONFIG，
 // 确保后续 Gorm() 调用可以读取到最新配置，不依赖 ConfigManager 回调。
-func applyMysqlConfigToGlobal(dbConfig config.DatabaseConfig) {
+// ConfigManager 有意忽略 system/mysql 等启动级配置，因此这里必须显式同步。
+func applyDatabaseConfigToGlobal(dbConfig config.DatabaseConfig) {
+	appCfg := global.GetAppConfig()
+	appCfg.System.DbType = dbConfig.Type
+
 	if dbConfig.Type != "mysql" && dbConfig.Type != "mariadb" {
+		global.SetAppConfig(appCfg)
 		return
 	}
-	appCfg := global.GetAppConfig()
 	appCfg.Mysql.Path = dbConfig.Host
 	appCfg.Mysql.Port = strconv.Itoa(dbConfig.Port)
 	appCfg.Mysql.Dbname = dbConfig.Database
 	appCfg.Mysql.Username = dbConfig.Username
 	appCfg.Mysql.Password = dbConfig.Password
 	appCfg.Mysql.Config = "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27"
+	appCfg.Mysql.Prefix = ""
+	appCfg.Mysql.Singular = false
 	appCfg.Mysql.Engine = "InnoDB"
 	appCfg.Mysql.MaxIdleConns = 10
 	appCfg.Mysql.MaxOpenConns = 100
@@ -314,45 +320,17 @@ func applyMysqlConfigToGlobal(dbConfig config.DatabaseConfig) {
 	global.SetAppConfig(appCfg)
 }
 
+// UpdateDatabaseConfig 更新数据库配置。数据库连接参数是启动级配置，
+// 只能持久化到 YAML，不能通过 ConfigManager 的运行时 API 修改。
 func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error {
 	dbConfig = ResolveDatabaseConfigCredentials(dbConfig)
-	// 使用 ConfigManager 来更新配置，保持原有格式
-	cm := configManager.GetConfigManager()
-	if cm != nil {
-		// 使用 ConfigManager 更新配置
-		updates := make(map[string]interface{})
-
-		// 更新系统配置
-		updates["system.db-type"] = dbConfig.Type
-
-		// 对于MySQL和MariaDB，都使用相同的配置结构
-		if dbConfig.Type == "mysql" || dbConfig.Type == "mariadb" {
-			updates["mysql.path"] = dbConfig.Host
-			updates["mysql.port"] = strconv.Itoa(dbConfig.Port)
-			updates["mysql.db-name"] = dbConfig.Database
-			updates["mysql.username"] = dbConfig.Username
-			updates["mysql.password"] = dbConfig.Password
-			updates["mysql.config"] = "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27"
-			updates["mysql.prefix"] = ""
-			updates["mysql.singular"] = false
-			updates["mysql.engine"] = "InnoDB"
-			updates["mysql.max-idle-conns"] = 10
-			updates["mysql.max-open-conns"] = 100
-			updates["mysql.log-mode"] = "error"
-			updates["mysql.log-zap"] = false
-			updates["mysql.max-lifetime"] = 3600
-			updates["mysql.auto-create"] = true
-		}
-
-		if err := cm.UpdateConfig(updates); err != nil {
-			return err
-		}
-		// ConfigManager 的回调不同步 mysql 节点到 global.APP_CONFIG，需要手动同步
-		applyMysqlConfigToGlobal(dbConfig)
-		return nil
+	if dbConfig.Type != "mysql" && dbConfig.Type != "mariadb" {
+		return fmt.Errorf("不支持的数据库类型: %s，仅支持mysql和mariadb", dbConfig.Type)
 	}
 
-	// 降级方案：直接操作文件（保持向后兼容）
+	// 数据库连接参数属于系统级启动配置。ConfigManager.UpdateConfig 明确禁止
+	// 修改这些键，而且它可能仍绑定在切换前的数据库上，因此初始化流程必须直接
+	// 更新 config.yaml，不能通过运行时配置 API 绕过该安全边界。
 	configPath := "./config.yaml"
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
@@ -365,37 +343,33 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 		return fmt.Errorf("解析配置文件失败: %v", err)
 	}
 
-	// 更新系统配置
-	if err := updateYAMLNodeValue(&node, "system.db-type", dbConfig.Type); err != nil {
-		global.APP_LOG.Warn("更新 system.db-type 失败", zap.Error(err))
+	// 自动检测配置文件中使用的键名（mysql 或 mariadb）
+	mysqlKey := detectMysqlKey(&node)
+	updates := []struct {
+		key   string
+		value interface{}
+	}{
+		{key: "system.db-type", value: dbConfig.Type},
+		{key: mysqlKey + ".path", value: dbConfig.Host},
+		{key: mysqlKey + ".port", value: strconv.Itoa(dbConfig.Port)},
+		{key: mysqlKey + ".db-name", value: dbConfig.Database},
+		{key: mysqlKey + ".username", value: dbConfig.Username},
+		{key: mysqlKey + ".password", value: dbConfig.Password},
+		{key: mysqlKey + ".config", value: "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27"},
+		{key: mysqlKey + ".prefix", value: ""},
+		{key: mysqlKey + ".singular", value: false},
+		{key: mysqlKey + ".engine", value: "InnoDB"},
+		{key: mysqlKey + ".max-idle-conns", value: 10},
+		{key: mysqlKey + ".max-open-conns", value: 100},
+		{key: mysqlKey + ".log-mode", value: "error"},
+		{key: mysqlKey + ".log-zap", value: false},
+		{key: mysqlKey + ".max-lifetime", value: 3600},
+		{key: mysqlKey + ".auto-create", value: true},
 	}
 
-	// 对于MySQL和MariaDB，更新配置
-	if dbConfig.Type == "mysql" || dbConfig.Type == "mariadb" {
-		// 自动检测配置文件中使用的键名（mysql 或 mariadb）
-		mysqlKey := detectMysqlKey(&node)
-		mysqlUpdates := map[string]interface{}{
-			mysqlKey + ".path":           dbConfig.Host,
-			mysqlKey + ".port":           strconv.Itoa(dbConfig.Port),
-			mysqlKey + ".db-name":        dbConfig.Database,
-			mysqlKey + ".username":       dbConfig.Username,
-			mysqlKey + ".password":       dbConfig.Password,
-			mysqlKey + ".config":         "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27",
-			mysqlKey + ".prefix":         "",
-			mysqlKey + ".singular":       false,
-			mysqlKey + ".engine":         "InnoDB",
-			mysqlKey + ".max-idle-conns": 10,
-			mysqlKey + ".max-open-conns": 100,
-			mysqlKey + ".log-mode":       "error",
-			mysqlKey + ".log-zap":        false,
-			mysqlKey + ".max-lifetime":   3600,
-			mysqlKey + ".auto-create":    true,
-		}
-
-		for key, value := range mysqlUpdates {
-			if err := updateYAMLNodeValue(&node, key, value); err != nil {
-				global.APP_LOG.Warn("更新配置失败", zap.String("key", key), zap.Error(err))
-			}
+	for _, update := range updates {
+		if err := updateYAMLNodeValue(&node, update.key, update.value); err != nil {
+			return fmt.Errorf("更新配置 %s 失败: %v", update.key, err)
 		}
 	}
 
@@ -407,8 +381,10 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 
 	// 备份原配置文件
 	backupPath := configPath + ".backup"
-	if err := os.WriteFile(backupPath, configData, 0644); err != nil {
+	if err := os.WriteFile(backupPath, configData, 0600); err != nil {
 		global.APP_LOG.Debug("备份配置文件失败", zap.String("error", utils.FormatError(err)))
+	} else if err := os.Chmod(backupPath, 0600); err != nil {
+		global.APP_LOG.Debug("收紧配置备份文件权限失败", zap.String("error", utils.FormatError(err)))
 	}
 
 	// 写入新配置
@@ -421,13 +397,9 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 		zap.Int("port", dbConfig.Port),
 		zap.String("database", dbConfig.Database))
 
-	// 立即重新加载配置到内存
-	if err := s.reloadConfig(); err != nil {
-		global.APP_LOG.Warn("重新加载配置失败", zap.Error(err))
-		// 不返回错误，因为配置文件已经写入成功
-	}
-	// 确保 global.APP_CONFIG.Mysql 已更新（reloadConfig 通过 CM 回调可能不同步 mysql 节点）
-	applyMysqlConfigToGlobal(dbConfig)
+	// 直接更新启动级内存配置。此处不能调用 ConfigManager.ReloadFromYAML，
+	// 否则会把业务配置写入切换前的数据库，甚至在其 DB 句柄为空时触发 panic。
+	applyDatabaseConfigToGlobal(dbConfig)
 
 	return nil
 }
@@ -442,14 +414,18 @@ func detectMysqlKey(node *yaml.Node) string {
 	if root.Kind != yaml.MappingNode {
 		return "mysql"
 	}
+	foundMariaDB := false
 	for i := 0; i < len(root.Content); i += 2 {
 		keyNode := root.Content[i]
-		if keyNode.Value == "mariadb" {
-			return "mariadb"
-		}
 		if keyNode.Value == "mysql" {
 			return "mysql"
 		}
+		if keyNode.Value == "mariadb" {
+			foundMariaDB = true
+		}
+	}
+	if foundMariaDB {
+		return "mariadb"
 	}
 	return "mysql"
 }
@@ -490,7 +466,23 @@ func updateYAMLNodeValue(node *yaml.Node, path string, value interface{}) error 
 		}
 
 		if !found {
-			return fmt.Errorf("key not found: %s", key)
+			keyNode := &yaml.Node{
+				Kind:  yaml.ScalarNode,
+				Tag:   "!!str",
+				Value: key,
+			}
+			if i == len(keys)-1 {
+				valueNode := &yaml.Node{}
+				if err := setYAMLNodeValue(valueNode, value); err != nil {
+					return err
+				}
+				current.Content = append(current.Content, keyNode, valueNode)
+				return nil
+			}
+
+			mappingNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			current.Content = append(current.Content, keyNode, mappingNode)
+			current = mappingNode
 		}
 	}
 
@@ -509,16 +501,10 @@ func setYAMLNodeValue(node *yaml.Node, value interface{}) error {
 
 	switch v := value.(type) {
 	case string:
-		// 空字符串使用null表示
-		if v == "" {
-			node.Kind = yaml.ScalarNode
-			node.Tag = "!!null"
-			node.Value = ""
-		} else {
-			node.Kind = yaml.ScalarNode
-			node.Tag = "!!str"
-			node.Value = v
-		}
+		node.Kind = yaml.ScalarNode
+		node.Style = 0
+		node.Tag = "!!str"
+		node.Value = v
 	case int:
 		node.Kind = yaml.ScalarNode
 		node.Style = 0
@@ -581,11 +567,6 @@ func setYAMLNodeValue(node *yaml.Node, value interface{}) error {
 
 // ReinitializeDatabase 重新初始化数据库连接
 func (s *InitService) ReinitializeDatabase() error {
-	// 强制重新加载配置文件到 global.APP_CONFIG
-	if err := s.reloadConfig(); err != nil {
-		global.APP_LOG.Warn("重新加载配置失败，尝试从文件直接读取", zap.Error(err))
-	}
-
 	// 读取配置文件获取最新的数据库配置
 	configPath := "./config.yaml"
 	configData, err := os.ReadFile(configPath)
