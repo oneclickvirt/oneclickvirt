@@ -23,7 +23,7 @@
         >
           <el-icon
             :size="50"
-            color="#f56c6c"
+            color="var(--error-color)"
           >
             <CircleClose />
           </el-icon>
@@ -44,7 +44,7 @@
         >
           <el-icon
             :size="50"
-            color="#67c23a"
+            color="var(--success-color)"
           >
             <CircleCheck />
           </el-icon>
@@ -140,6 +140,9 @@ const goToLogin = () => {
   .callback-card {
     width: min(400px, 100%);
     text-align: center;
+    background: var(--card-bg);
+    border-color: var(--border-color);
+    box-shadow: var(--box-shadow-heavy);
     
     .loading-container,
     .error-container,
@@ -153,19 +156,19 @@ const goToLogin = () => {
       p {
         font-size: 16px;
         margin: 20px 0;
-        color: #606266;
+        color: var(--text-color-primary);
       }
       
       .loading-text {
-        color: #16a34a;
+        color: var(--accent-text-color);
       }
       
       .error-text {
-        color: #f56c6c;
+        color: var(--error-color);
       }
       
       .success-text {
-        color: #67c23a;
+        color: var(--success-color);
       }
     }
     

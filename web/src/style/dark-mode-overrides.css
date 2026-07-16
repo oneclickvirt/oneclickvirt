@@ -266,8 +266,19 @@ html.dark .el-sub-menu__title:hover {
 }
 
 /* =============================================
-   portmapping 页面 inline style 文字颜色
+   常见 inline style 文字 / 背景颜色
    ============================================= */
+html.dark [style*="color: #303133"],
+html.dark [style*="color:#303133"] {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark [style*="color: #606266"],
+html.dark [style*="color:#606266"],
+html.dark [style*="color: #666"],
+html.dark [style*="color:#666"],
+html.dark [style*="color: #666666"],
+html.dark [style*="color:#666666"],
 html.dark [style*="color: #909399"],
 html.dark [style*="color:#909399"] {
   color: var(--text-color-tertiary) !important;
@@ -278,17 +289,67 @@ html.dark [style*="color:#e6a23c"] {
   color: #f59e0b !important;
 }
 
+html.dark [style*="background: #f5f7fa"],
+html.dark [style*="background:#f5f7fa"],
+html.dark [style*="background-color: #f5f7fa"],
+html.dark [style*="background-color:#f5f7fa"],
+html.dark [style*="background: #f0f0f0"],
+html.dark [style*="background:#f0f0f0"],
+html.dark [style*="background-color: #f0f0f0"],
+html.dark [style*="background-color:#f0f0f0"] {
+  background: var(--neutral-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+html.dark [style*="background: #fef0f0"],
+html.dark [style*="background:#fef0f0"],
+html.dark [style*="background-color: #fef0f0"],
+html.dark [style*="background-color:#fef0f0"] {
+  background: var(--error-bg) !important;
+  border-color: color-mix(in srgb, var(--error-color) 34%, transparent) !important;
+}
+
 /* =============================================
-   全局文本颜色补丁（#303133, #606266, #5a5e66 等）
-   通过选择器覆盖 Element Plus 默认深色文字
+   Element Plus 统计文本
+   不要全局覆盖 .el-text/.el-link，否则会抹掉 success/info/danger 语义色。
    ============================================= */
 html.dark .el-statistic__head,
 html.dark .el-statistic .el-statistic__number {
   color: var(--text-color-primary) !important;
 }
 
-html.dark .el-text,
-html.dark .el-link {
+html.dark .loading-container,
+html.dark .loading-text,
+html.dark .form-tip,
+html.dark .form-hint,
+html.dark .tip-text,
+html.dark .help-text,
+html.dark .description-text,
+html.dark .empty-description,
+html.dark .tokens-summary,
+html.dark .username,
+html.dark .resource-number-label,
+html.dark .resource-number-separator,
+html.dark .stat-label,
+html.dark .gpu-actions-label,
+html.dark .gpu-batch-actions,
+html.dark .gpu-empty-tip,
+html.dark .location-country,
+html.dark .location-city,
+html.dark .status-prefix,
+html.dark .separator,
+html.dark .quota-text,
+html.dark .captcha-loading,
+html.dark .version-info,
+html.dark .update-info,
+html.dark .meta-info,
+html.dark .sub-text,
+html.dark .hint-text {
+  color: var(--text-color-tertiary) !important;
+}
+
+html.dark .card-header,
+html.dark .user-info h2 {
   color: var(--text-color-primary) !important;
 }
 
@@ -296,84 +357,94 @@ html.dark .el-link {
    SSH 终端管理器 - 弹窗及最小化窗口
    ============================================= */
 html.dark .ssh-dialog-header {
-  background-color: #1a2332 !important;
-  border-bottom-color: rgba(22, 163, 74, 0.2) !important;
+  background-color: var(--surface-elevated) !important;
+  border-bottom-color: var(--border-color) !important;
 }
 
 html.dark .ssh-dialog-title,
 html.dark .remote-title {
-  color: #e2e8f0 !important;
+  color: var(--text-color-primary) !important;
 }
 
 html.dark .ssh-dialog-actions .el-button,
 html.dark .remote-actions .el-button,
 html.dark .view-buttons .el-button {
-  background-color: #1e293b !important;
-  color: #e2e8f0 !important;
-  border-color: rgba(22, 163, 74, 0.3) !important;
+  background-color: var(--surface-input) !important;
+  color: var(--text-color-primary) !important;
+  border-color: var(--border-color) !important;
 }
 
 html.dark .ssh-dialog-actions .el-button:hover,
 html.dark .remote-actions .el-button:hover,
 html.dark .view-buttons .el-button:hover {
-  background-color: #2d3f52 !important;
-  border-color: rgba(22, 163, 74, 0.5) !important;
+  background-color: var(--bg-color-hover) !important;
+  border-color: var(--border-color-hover) !important;
 }
 
 html.dark .ssh-minimized-container {
-  background-color: #1e293b !important;
-  border-color: rgba(22, 163, 74, 0.25) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+  background-color: var(--surface-elevated) !important;
+  border-color: var(--border-color) !important;
+  box-shadow: var(--box-shadow-medium) !important;
 }
 
 html.dark .ssh-minimized-header {
-  background-color: #1e293b !important;
-  color: #e2e8f0 !important;
+  background-color: var(--surface-elevated) !important;
+  color: var(--text-color-primary) !important;
 }
 
 html.dark .ssh-minimized-header .close-btn {
-  color: #94a3b8 !important;
+  color: var(--text-color-tertiary) !important;
 }
 
 html.dark .ssh-minimized-header .close-btn:hover {
-  color: #e2e8f0 !important;
-  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-color-primary) !important;
+  background-color: var(--bg-color-hover) !important;
 }
 
 html.dark .ssh-terminal-dialog .el-dialog__header {
-  border-bottom-color: rgba(22, 163, 74, 0.2) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+html.dark .command-text {
+  background: var(--neutral-bg) !important;
+  color: var(--text-color-primary) !important;
+  border: 1px solid var(--border-color-light) !important;
 }
 
 /* =============================================
    Sidebar Logo 暗色模式
    ============================================= */
 html.dark .sidebar-logo {
-  background: #052e16 !important; /* 暗绿色品牌色，适配暗色主题 */
-  border-bottom: 1px solid rgba(22, 163, 74, 0.2) !important;
+  background: var(--bg-color-sidebar-logo) !important;
+  border-bottom: 1px solid var(--border-color) !important;
 }
 
 /* =============================================
    Navbar 暗色模式
    ============================================= */
 html.dark .navbar {
-  background: rgba(15, 23, 42, 0.95) !important;
-  border-bottom-color: rgba(22, 163, 74, 0.15) !important;
+  background: var(--surface-header) !important;
+  border-bottom-color: var(--border-color) !important;
 }
 
 /* =============================================
    init 页面
    ============================================= */
-html.dark .init-container {
-  background: var(--bg-color-primary) !important;
+html.dark .init-page {
+  background: var(--auth-page-bg) !important;
 }
 
-html.dark .init-form {
-  background: var(--bg-color-secondary) !important;
+html.dark .init-card {
+  background: var(--card-bg) !important;
   border-color: var(--border-color) !important;
 }
 
-html.dark .form-header h2 {
+html.dark .init-header h1 {
   color: var(--text-color-primary) !important;
+}
+
+html.dark .init-header p {
+  color: var(--text-color-secondary) !important;
 }
 
 /* =============================================
@@ -398,39 +469,77 @@ html.dark .auth-header .nav-link {
 
 html.dark .auth-header .nav-link:hover {
   background: var(--bg-color-hover) !important;
-  color: var(--primary-color) !important;
+  color: var(--accent-text-color) !important;
+}
+
+html.dark .auth-header .nav-link.home-btn,
+html.dark .home-header .nav-link.primary {
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-color-light)) !important;
+  color: var(--text-color-white) !important;
+  border-color: transparent !important;
+  box-shadow: 0 4px 15px var(--primary-color-shadow) !important;
+}
+
+html.dark .auth-header .nav-link.home-btn:hover,
+html.dark .home-header .nav-link.primary:hover {
+  background: linear-gradient(135deg, var(--primary-color-dark), var(--primary-color)) !important;
+  color: var(--text-color-white) !important;
+  border-color: transparent !important;
+  box-shadow: 0 6px 20px var(--primary-color-shadow-hover) !important;
 }
 
 /* 表单卡片 */
 html.dark .login-form,
 html.dark .register-form,
-html.dark .forgot-form,
-html.dark .admin-login-form {
+html.dark .forgot-password-form,
+html.dark .admin-login-container .login-form {
   background: var(--card-bg) !important;
   border-color: var(--border-color) !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 4px 20px rgba(0, 0, 0, 0.15) !important;
+  box-shadow: var(--box-shadow-heavy) !important;
+}
+
+html.dark .registration-disabled .el-card {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  box-shadow: var(--box-shadow-heavy) !important;
 }
 
 /* 表单内文字 */
-html.dark .login-form .tips,
-html.dark .register-form .tips,
-html.dark .forgot-form .tips,
-html.dark .admin-login-form .tips {
+html.dark .login-header p,
+html.dark .register-header p,
+html.dark .forgot-password-form > p,
+html.dark .registration-disabled p {
   color: var(--text-color-secondary) !important;
 }
 
 html.dark .login-form .forgot-link,
 html.dark .login-form .admin-link,
 html.dark .register-form a,
-html.dark .forgot-form a {
-  color: var(--primary-color) !important;
+html.dark .forgot-password-form a,
+html.dark .admin-login-container .back-link {
+  color: var(--accent-text-color) !important;
+}
+
+html.dark .login-form .forgot-link:hover,
+html.dark .login-form .admin-link:hover,
+html.dark .register-form a:hover,
+html.dark .forgot-password-form a:hover,
+html.dark .admin-login-container .back-link:hover {
+  color: var(--accent-text-color-hover) !important;
 }
 
 html.dark .login-form .form-footer,
 html.dark .register-form .form-footer,
-html.dark .forgot-form .form-footer {
+html.dark .forgot-password-form .form-footer,
+html.dark .admin-login-container .form-footer {
   color: var(--text-color-secondary) !important;
   border-top-color: var(--border-color) !important;
+}
+
+html.dark .login-form .oauth2-button {
+  background: var(--surface-input) !important;
+  color: var(--text-color-primary) !important;
+  border-color: var(--border-color) !important;
 }
 
 /* captcha / code input 背景 */
@@ -460,36 +569,46 @@ html.dark .home-header .nav-menu a {
 html.dark .home-header .nav-link:hover,
 html.dark .home-header .nav-menu a:hover {
   background: var(--bg-color-hover) !important;
-  color: var(--primary-color) !important;
+  color: var(--accent-text-color) !important;
+}
+
+html.dark .home-header .nav-link.primary,
+html.dark .home-header .nav-link.primary:hover {
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-color-light)) !important;
+  color: var(--text-color-white) !important;
+  border-color: transparent !important;
+}
+
+html.dark .home-header .nav-link.primary:hover {
+  background: linear-gradient(135deg, var(--primary-color-dark), var(--primary-color)) !important;
+  box-shadow: 0 6px 20px var(--primary-color-shadow-hover) !important;
 }
 
 /* 首页各 section 内文字 */
 html.dark .hero-title,
-html.dark .section-title,
-html.dark .platform-name,
-html.dark .feature-title,
-html.dark .stat-title,
-html.dark .announcement-title,
-html.dark .announcement-item-title {
+html.dark .section-header h2,
+html.dark .preview-card h3,
+html.dark .platform-item h3,
+html.dark .platform-card-name,
+html.dark .announcement-header h3 {
   color: var(--text-color-primary) !important;
 }
 
-html.dark .hero-subtitle,
-html.dark .section-desc,
-html.dark .platform-desc,
-html.dark .feature-desc,
-html.dark .stat-desc,
-html.dark .announcement-desc,
+html.dark .hero-description,
+html.dark .section-header p,
+html.dark .preview-card p,
+html.dark .platform-item p,
+html.dark .platform-card-repo,
+html.dark .announcement-content,
 html.dark .announcement-date {
   color: var(--text-color-secondary) !important;
 }
 
-/* 首页 stats 卡片 */
-html.dark .stats-section,
-html.dark .stat-card,
-html.dark .announcement-card,
-html.dark .feature-card,
-html.dark .platform-card {
+/* 首页内容卡片 */
+html.dark .preview-card,
+html.dark .platform-item,
+html.dark .carousel-platform-card,
+html.dark .announcement-item {
   background: var(--bg-color-secondary) !important;
   border-color: var(--border-color) !important;
   color: var(--text-color-primary) !important;
@@ -498,8 +617,8 @@ html.dark .platform-card {
 /* =============================================
    oauth2-callback 页面
    ============================================= */
-html.dark .oauth2-callback-container,
-html.dark .callback-container {
+html.dark .oauth2-callback-page,
+html.dark .oauth2-callback-container {
   background: var(--auth-page-bg) !important;
 }
 
@@ -508,8 +627,26 @@ html.dark .callback-card {
   border-color: var(--border-color) !important;
 }
 
-html.dark .callback-message,
-html.dark .callback-title {
+html.dark .callback-card p {
   color: var(--text-color-primary) !important;
 }
 
+html.dark .callback-card .loading-text {
+  color: var(--accent-text-color) !important;
+}
+
+html.dark .callback-card .error-text {
+  color: var(--error-color) !important;
+}
+
+html.dark .callback-card .success-text {
+  color: var(--success-color) !important;
+}
+
+html.dark .el-result__title p {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-result__subtitle p {
+  color: var(--text-color-secondary) !important;
+}

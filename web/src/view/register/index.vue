@@ -46,7 +46,7 @@
         <div class="disabled-content">
           <el-icon
             size="60"
-            color="#e6a23c"
+            color="var(--warning-color)"
           >
             <Warning />
           </el-icon>
@@ -449,8 +449,8 @@ onMounted(async () => {
   background: var(--auth-header-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  box-shadow: 0 2px 20px rgba(22, 163, 74, 0.1);
-  border-bottom: 1px solid rgba(22, 163, 74, 0.1);
+  box-shadow: var(--box-shadow-light);
+  border-bottom: 1px solid var(--border-color);
   padding-top: env(safe-area-inset-top);
 }
 
@@ -479,10 +479,10 @@ onMounted(async () => {
 
 .logo h1 {
   font-size: 24px;
-  color: #16a34a;
+  color: var(--primary-color);
   margin: 0;
   font-weight: 700;
-  background: linear-gradient(135deg, #16a34a, #22c55e);
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-color-light));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -519,22 +519,22 @@ onMounted(async () => {
 }
 
 .nav-link:hover {
-  background: rgba(22, 163, 74, 0.1);
-  color: #16a34a;
+  background: var(--primary-color-bg-hover);
+  color: var(--accent-text-color);
   transform: translateY(-2px);
 }
 
 .nav-link.home-btn {
-  background: linear-gradient(135deg, #16a34a, #22c55e);
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-color-light));
   color: white;
   border: none;
-  box-shadow: 0 4px 15px rgba(22, 163, 74, 0.3);
+  box-shadow: 0 4px 15px var(--primary-color-shadow);
 }
 
 .nav-link.home-btn:hover {
-  background: linear-gradient(135deg, #15803d, #16a34a);
+  background: linear-gradient(135deg, var(--primary-color-dark), var(--primary-color));
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.4);
+  box-shadow: 0 6px 20px var(--primary-color-shadow-hover);
 }
 
 .register-form {
@@ -545,13 +545,19 @@ onMounted(async () => {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 20px;
-  box-shadow: 0 20px 60px rgba(22, 163, 74, 0.12), 0 4px 20px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(22, 163, 74, 0.1);
+  box-shadow: var(--box-shadow-heavy);
+  border: 1px solid var(--border-color);
 }
 
 .registration-disabled {
   width: min(500px, calc(100% - 32px));
   margin: 32px auto;
+}
+
+.registration-disabled :deep(.el-card) {
+  background: var(--card-bg);
+  border-color: var(--border-color);
+  box-shadow: var(--box-shadow-heavy);
 }
 
 .disabled-content {
@@ -560,13 +566,13 @@ onMounted(async () => {
 }
 
 .disabled-content h2 {
-  color: #e6a23c;
+  color: var(--warning-color);
   margin: 20px 0;
   font-size: 24px;
 }
 
 .disabled-content p {
-  color: #666;
+  color: var(--text-color-secondary);
   margin-bottom: 30px;
   font-size: 16px;
   line-height: 1.5;
@@ -581,7 +587,7 @@ onMounted(async () => {
   font-size: 26px;
   font-weight: 700;
   margin-bottom: 10px;
-  background: linear-gradient(135deg, #16a34a, #22c55e);
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-color-light));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -589,18 +595,23 @@ onMounted(async () => {
 
 .register-header p {
   font-size: 14px;
-  color: #909399;
+  color: var(--text-color-secondary);
 }
 
 .form-footer {
   text-align: center;
   margin-top: 20px;
+  color: var(--text-color-secondary);
 }
 
 .form-footer a {
-  color: #16a34a;
+  color: var(--accent-text-color);
   text-decoration: none;
   font-weight: 500;
+}
+
+.form-footer a:hover {
+  color: var(--accent-text-color-hover);
 }
 
 .captcha-container {
@@ -629,7 +640,7 @@ onMounted(async () => {
 
 .captcha-loading {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-color-tertiary);
 }
 
 .password-hint {
