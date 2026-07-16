@@ -15829,6 +15829,10 @@ const docTemplate = `{
                     "description": "是否为SSH端口",
                     "type": "boolean"
                 },
+                "mappingMethod": {
+                    "description": "native, device_proxy, iptables",
+                    "type": "string"
+                },
                 "protocol": {
                     "description": "tcp, udp, both",
                     "type": "string"
