@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENTRYPOINT="${REPO_ROOT}/deploy/no-db-entrypoint.sh"
 DEFAULT_CONFIG_SOURCE="${REPO_ROOT}/server/config.yaml"
 NO_DB_DOCKERFILE="${REPO_ROOT}/Dockerfile.no-db"
+LIFECYCLE_CONFIG_PREPARER="${REPO_ROOT}/scripts/tests/prepare_no_db_lifecycle_config.sh"
 
 assert_contains() {
     local file="$1"
@@ -90,9 +91,37 @@ test_healthcheck_runtime_dependencies_are_installed() {
     assert_contains "${NO_DB_DOCKERFILE}" "CMD wget --quiet"
 }
 
+test_lifecycle_config_uses_single_password_source() (
+    local temp_dir source_config target_config missing_key_config test_password
+    temp_dir="$(mktemp -d)"
+    trap 'rm -rf "${temp_dir}"' EXIT
+    source_config="${temp_dir}/source.yaml"
+    target_config="${temp_dir}/target.yaml"
+    test_password='Lifecycle!Db12,@%Q&|"quoted"\path'
+    cp "${DEFAULT_CONFIG_SOURCE}" "${source_config}"
+
+    TEST_DB_PASSWORD="${test_password}" bash "${LIFECYCLE_CONFIG_PREPARER}" \
+        "${source_config}" "${target_config}"
+
+    assert_contains "${target_config}" 'db-type: mariadb'
+    assert_contains "${target_config}" 'path: ocv-db'
+    assert_contains "${target_config}" 'port: "3306"'
+    assert_contains "${target_config}" 'password: "Lifecycle!Db12,@%Q&|\"quoted\"\\path"'
+    [[ "$(stat -f '%Lp' "${target_config}" 2>/dev/null || stat -c '%a' "${target_config}")" == "600" ]]
+
+    missing_key_config="${temp_dir}/missing-password.yaml"
+    sed '/^[[:space:]]*password:/d' "${source_config}" >"${missing_key_config}"
+    if TEST_DB_PASSWORD="${test_password}" bash "${LIFECYCLE_CONFIG_PREPARER}" \
+        "${missing_key_config}" "${temp_dir}/should-not-succeed.yaml" 2>/dev/null; then
+        echo "Lifecycle config preparation unexpectedly accepted a missing mysql.password key" >&2
+        exit 1
+    fi
+)
+
 test_persistent_config_survives_restart
 test_explicit_config_mount_remains_authoritative
 test_frontend_url_updates_persisted_config_and_proxy_scheme
 test_healthcheck_runtime_dependencies_are_installed
+test_lifecycle_config_uses_single_password_source
 
 echo "no-db entrypoint tests passed"

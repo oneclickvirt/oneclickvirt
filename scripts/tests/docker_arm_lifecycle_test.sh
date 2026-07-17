@@ -8,6 +8,8 @@ ALLINONE_BASE_IMAGE="${ALLINONE_BASE_IMAGE:-${ALLINONE_IMAGE}}"
 NO_DB_BASE_IMAGE="${NO_DB_BASE_IMAGE:-${NO_DB_IMAGE}}"
 EXPECTED_ARCH="${EXPECTED_ARCH:-arm64}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-240}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+NO_DB_CONFIG_PREPARER="${ROOT_DIR}/scripts/tests/prepare_no_db_lifecycle_config.sh"
 
 RUN_ID="${GITHUB_RUN_ID:-local}-$$"
 RUN_ID="${RUN_ID//[^a-zA-Z0-9_.-]/-}"
@@ -40,8 +42,12 @@ fail() {
     docker ps -a --filter "name=${RUN_ID}" >&2 || true
     for container in "${NO_DB_CONTAINER}" "${ALLINONE_CONTAINER}" "${DB_CONTAINER}"; do
         if docker inspect "${container}" >/dev/null 2>&1; then
-            echo "=== ${container} logs ===" >&2
-            docker logs --tail 150 "${container}" >&2 || true
+            echo "=== ${container} state ===" >&2
+            docker inspect --format '{{json .State}}' "${container}" >&2 || true
+            echo "=== ${container} relevant logs ===" >&2
+            docker logs "${container}" 2>&1 \
+                | grep -Eai 'error|fail|database|mysql|maria|connect|denied|health|refused' \
+                | tail -200 >&2 || true
         fi
     done
     exit 1
@@ -58,7 +64,7 @@ published_port() {
 }
 
 wait_http() {
-    local container="$1" path="$2" deadline port code
+    local container="$1" path="$2" deadline port code response body last_body=""
     deadline=$((SECONDS + WAIT_TIMEOUT))
     while (( SECONDS < deadline )); do
         if ! docker inspect "${container}" >/dev/null 2>&1; then
@@ -68,13 +74,17 @@ wait_http() {
             fail "container ${container} stopped while waiting for ${path}"
         fi
         port="$(published_port "${container}")"
-        code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${port}${path}" 2>/dev/null || true)"
+        response="$(curl -sS -w $'\n%{http_code}' --max-time 5 "http://127.0.0.1:${port}${path}" 2>/dev/null || true)"
+        code="${response##*$'\n'}"
+        body="${response%$'\n'*}"
+        last_body="${body//${DB_PASSWORD}/[REDACTED]}"
+        last_body="$(printf '%s' "${last_body}" | tr '\r\n' ' ' | cut -c1-800)"
         if [[ "${code}" == "200" ]]; then
             return 0
         fi
         sleep 2
     done
-    fail "${container} did not return HTTP 200 for ${path} within ${WAIT_TIMEOUT}s"
+    fail "${container} did not return HTTP 200 for ${path} within ${WAIT_TIMEOUT}s; last status=${code:-none}; response=${last_body:-empty}"
 }
 
 wait_database() {
@@ -100,6 +110,8 @@ assert_persisted_no_db_connection() {
         docker exec "${NO_DB_CONTAINER}" grep -Fq "${expected}" /app/storage/config.yaml \
             || fail "persisted no-db config lost expected value: ${expected}"
     done
+    docker exec "${NO_DB_CONTAINER}" grep -Fq "password: \"${DB_PASSWORD}\"" /app/storage/config.yaml \
+        || fail "persisted no-db config does not contain the lifecycle database password"
     [[ "$(docker exec "${NO_DB_CONTAINER}" readlink -f /app/config.yaml)" == "/app/storage/config.yaml" ]] \
         || fail "no-db active config is not linked to persistent storage"
 }
@@ -139,16 +151,22 @@ test_no_db_restart_and_upgrade() {
     echo "Testing ARM64 no-db restart and image replacement with blank DB_* environment values..."
     docker volume create "${NO_DB_VOLUME}" >/dev/null
 
-    docker run --rm -v "${NO_DB_VOLUME}:/storage" "${NO_DB_BASE_IMAGE}" bash -Eeuo pipefail -c '
-        cp /app/config.yaml.default /storage/config.yaml
-        sed -i "/^system:/,/^[^[:space:]]/ s/^[[:space:]]*db-type:.*/    db-type: mariadb/" /storage/config.yaml
-        sed -i "/^mysql:/,/^[^[:space:]]/ s/^[[:space:]]*path:.*/    path: ocv-db/" /storage/config.yaml
-        sed -i "/^mysql:/,/^[^[:space:]]/ s/^[[:space:]]*port:.*/    port: \"3306\"/" /storage/config.yaml
-        sed -i "/^mysql:/,/^[^[:space:]]/ s/^[[:space:]]*db-name:.*/    db-name: oneclickvirt/" /storage/config.yaml
-        sed -i "/^mysql:/,/^[^[:space:]]/ s/^[[:space:]]*username:.*/    username: root/" /storage/config.yaml
-        sed -i "/^mysql:/,/^[^[:space:]]/ s/^[[:space:]]*password:.*/    password: ArmLifecycleDb12345/" /storage/config.yaml
-        chmod 600 /storage/config.yaml
-    '
+    docker run --rm -i \
+        -e TEST_DB_PASSWORD="${DB_PASSWORD}" \
+        -v "${NO_DB_VOLUME}:/storage" \
+        "${NO_DB_BASE_IMAGE}" \
+        bash -s -- /app/config.yaml.default /storage/config.yaml <"${NO_DB_CONFIG_PREPARER}"
+    docker run --rm \
+        -e TEST_DB_PASSWORD="${DB_PASSWORD}" \
+        -v "${NO_DB_VOLUME}:/storage" \
+        "${NO_DB_BASE_IMAGE}" \
+        sh -Eeuc '
+            test -s /storage/config.yaml
+            grep -Fq "    db-type: mariadb" /storage/config.yaml
+            grep -Fq "    path: ocv-db" /storage/config.yaml
+            grep -Fq "    port: \"3306\"" /storage/config.yaml
+            grep -Fq "    password: \"${TEST_DB_PASSWORD}\"" /storage/config.yaml
+        ' || fail "no-db lifecycle config was not written to the persistent volume"
 
     start_no_db_container "${NO_DB_BASE_IMAGE}"
     wait_http "${NO_DB_CONTAINER}" /api/v1/health
@@ -209,6 +227,7 @@ test_allinone_restart_and_upgrade() {
 
 command -v docker >/dev/null 2>&1 || fail "docker is required"
 command -v curl >/dev/null 2>&1 || fail "curl is required"
+[[ -s "${NO_DB_CONFIG_PREPARER}" ]] || fail "no-db lifecycle config preparer is missing"
 assert_image_arch "${ALLINONE_IMAGE}"
 assert_image_arch "${NO_DB_IMAGE}"
 assert_image_arch "${ALLINONE_BASE_IMAGE}"
