@@ -7,6 +7,7 @@ import { checkSystemInit, getInitProgress } from '@/api/init'
 import { containsUnsafeUsernameContent } from '@/utils/validate'
 import { resetInitCache } from '@/router/guards'
 import { getInitErrorMessage } from './initError'
+import { INIT_STEPS, fillInitDefaults } from './initDefaults'
 
 export default function useInit() {
   const router = useRouter()
@@ -51,7 +52,7 @@ export default function useInit() {
     return map[progressStatus.value] || progressStatus.value
   })
 
-  const steps = ['database', 'admin', 'user']
+  const steps = INIT_STEPS
   const stepIndex = computed(() => steps.indexOf(activeTab.value))
 
   const nextStep = () => {
@@ -413,20 +414,18 @@ export default function useInit() {
   }
 
   const fillDefaultData = () => {
-    const adminPassword = generateSetupPassword()
-    const userPassword = generateSetupPassword()
-
-    // 填入默认数据，密码每次随机生成
-    initForm.admin.username = 'admin'
-    initForm.admin.password = adminPassword
-    initForm.admin.confirmPassword = adminPassword
-    initForm.admin.email = 'admin@spiritlhl.net'
-    initForm.user.username = 'testuser'
-    initForm.user.password = userPassword
-    initForm.user.confirmPassword = userPassword
-    initForm.user.email = 'user@spiritlhl.net'
-    initForm.user.enabled = false
-    ElMessage.success(t('init.messages.defaultsFilled'))
+    const changed = fillInitDefaults({
+      activeStep: activeTab.value,
+      databaseForm,
+      initForm,
+      recommendedDatabaseType: dbRecommendation.value?.type,
+      generatePassword: generateSetupPassword
+    })
+    if (changed) {
+      ElMessage.success(t('init.messages.defaultsFilled'))
+    } else {
+      ElMessage.info(t('init.messages.defaultsUnchanged'))
+    }
   }
 
   const testDatabaseConnection = async () => {

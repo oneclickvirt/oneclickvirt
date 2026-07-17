@@ -75,7 +75,8 @@ export default {
     dbUsernameRequired: '请输入数据库用户名'
   },
   messages: {
-    defaultsFilled: '已填入默认信息',
+    defaultsFilled: '已填入当前及后续步骤的空白信息，前序配置保持不变',
+    defaultsUnchanged: '当前及后续步骤没有可填入的空白信息',
     formNotReady: '数据库配置表单未准备好',
     dbConnSuccess: '数据库连接成功',
     dbTestSuccess: '数据库连接测试成功',
