@@ -43,7 +43,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Validate lifecycle test syntax
-        run: bash -n deploy/no-db-entrypoint.sh scripts/tests/no_db_entrypoint_test.sh scripts/tests/docker_arm_lifecycle_test.sh
+        run: bash -n deploy/no-db-entrypoint.sh scripts/tests/prepare_no_db_lifecycle_config.sh scripts/tests/no_db_entrypoint_test.sh scripts/tests/docker_arm_lifecycle_test.sh
 
       - name: Run no-db entrypoint unit tests
         run: bash scripts/tests/no_db_entrypoint_test.sh
