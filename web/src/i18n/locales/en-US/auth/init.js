@@ -75,7 +75,8 @@ export default {
     dbUsernameRequired: 'Please enter database username'
   },
   messages: {
-    defaultsFilled: 'Default information filled',
+    defaultsFilled: 'Filled blank fields in this and later steps; previous settings were preserved',
+    defaultsUnchanged: 'There are no blank fields to fill in this or later steps',
     formNotReady: 'Database configuration form not ready',
     dbConnSuccess: 'Database connection successful',
     dbTestSuccess: 'Database connection test successful',
