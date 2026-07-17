@@ -17,6 +17,22 @@ assert_contains() {
     fi
 }
 
+assert_file_mode() {
+    local file="$1" expected="$2" actual
+    if actual="$(stat -c '%a' "${file}" 2>/dev/null)"; then
+        :
+    elif actual="$(stat -f '%Lp' "${file}" 2>/dev/null)"; then
+        :
+    else
+        echo "Could not determine permissions for ${file}" >&2
+        return 1
+    fi
+    if [[ "${actual}" != "${expected}" ]]; then
+        echo "Expected ${file} permissions to be ${expected}, got ${actual}" >&2
+        return 1
+    fi
+}
+
 test_persistent_config_survives_restart() (
     local temp_dir
     temp_dir="$(mktemp -d)"
@@ -107,7 +123,7 @@ test_lifecycle_config_uses_single_password_source() (
     assert_contains "${target_config}" 'path: ocv-db'
     assert_contains "${target_config}" 'port: "3306"'
     assert_contains "${target_config}" 'password: "Lifecycle!Db12,@%Q&|\"quoted\"\\path"'
-    [[ "$(stat -f '%Lp' "${target_config}" 2>/dev/null || stat -c '%a' "${target_config}")" == "600" ]]
+    assert_file_mode "${target_config}" 600
 
     missing_key_config="${temp_dir}/missing-password.yaml"
     sed '/^[[:space:]]*password:/d' "${source_config}" >"${missing_key_config}"
