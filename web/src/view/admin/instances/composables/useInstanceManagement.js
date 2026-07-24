@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { getAllInstances, adminInstanceAction, adminBatchInstanceAction, resetInstancePassword, getAdminInstanceNewPassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList, createAdminInstanceShare } from '@/api/admin'
 import { adminTransferInstance } from '@/api/features'
 import { useSSHStore } from '@/pinia/modules/ssh'
-import { copyToClipboard } from '@/utils/clipboard'
 import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
 import { canOpenInstanceDetail, getInstanceBusyMessage, isInstanceBusy } from '@/utils/instance-status'
 
@@ -16,8 +15,10 @@ export function useInstanceManagement() {
   const loading = ref(false)
   const detailDialogVisible = ref(false)
   const actionDialogVisible = ref(false)
+  const egressDialogVisible = ref(false)
   const selectedInstance = ref(null)
   const actionInstance = ref(null)
+  const egressInstance = ref(null)
   const actionLoading = ref(false)
   const showPassword = ref(false)
   const selectedInstances = ref([])
@@ -105,6 +106,13 @@ export function useInstanceManagement() {
     if (!warnInstanceBlocked(instance)) return
     actionInstance.value = instance
     actionDialogVisible.value = true
+  }
+
+  const showEgressDialog = (instance) => {
+    if (!warnInstanceBlocked(instance)) return
+    egressInstance.value = instance
+    actionDialogVisible.value = false
+    egressDialogVisible.value = true
   }
 
   const pollForAdminNewPassword = (instanceId, taskId) => {
@@ -434,12 +442,12 @@ export function useInstanceManagement() {
   }
 
   return {
-    instances, loading, detailDialogVisible, actionDialogVisible,
-    selectedInstance, actionInstance, actionLoading, showPassword,
+    instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible,
+    selectedInstance, actionInstance, egressInstance, actionLoading, showPassword,
     selectedInstances, transferDialogVisible, transferLoading, transferForm, tableRef,
     filters, pagination,
     loadInstances, handleSearch, handleReset, handleSizeChange, handleCurrentChange,
-    viewInstanceDetail, showActionDialog, performAction,
+    viewInstanceDetail, showActionDialog, showEgressDialog, performAction,
     getStatusType, getStatusText, formatDate, formatMemory, formatDisk, formatTraffic,
     isExpired, isExpiringSoon, openSSHTerminal,
     handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,

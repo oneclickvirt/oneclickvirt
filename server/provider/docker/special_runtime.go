@@ -33,18 +33,40 @@ func (d *DockerProvider) sshCreateSpecialRuntimeInstance(ctx context.Context, co
 		return true, fmt.Errorf("容器名称格式无效: %s", config.Name)
 	}
 
+	networkType := d.config.NetworkType
+	if config.Metadata != nil {
+		if metaNetworkType, ok := config.Metadata["network_type"]; ok {
+			networkType = metaNetworkType
+		}
+	}
+	staticIPv6 := ""
+	if config.Metadata != nil {
+		staticIPv6 = config.Metadata["static_ipv6"]
+	}
+	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
+	networkSelection, err := utils.ResolveContainerNetwork(
+		networkType,
+		staticIPv6,
+		d.runtime.IPv4Network,
+		d.runtime.IPv6Network,
+		hasIPv6 && d.checkIPv6NetworkAvailable(),
+	)
+	if err != nil {
+		return true, err
+	}
+	networkFlags := dockerNetworkOptionFlags(networkSelection)
+
 	updateProgress(18, "准备特殊运行时镜像...")
 	cleanupCmd := fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(config.Name))
 	_, _ = d.sshClient.Execute(cleanupCmd)
 
-	var err error
 	switch specialImage.Kind {
 	case "windows":
-		err = d.createDockerWindowsRuntime(config, specialImage, updateProgress)
+		err = d.createDockerWindowsRuntime(config, specialImage, networkFlags, updateProgress)
 	case "android":
-		err = d.createDockerAndroidRuntime(config, specialImage, updateProgress)
+		err = d.createDockerAndroidRuntime(config, specialImage, networkFlags, updateProgress)
 	case "macos":
-		err = d.createDockerMacOSRuntime(config, specialImage, updateProgress)
+		err = d.createDockerMacOSRuntime(config, specialImage, networkFlags, updateProgress)
 	default:
 		err = fmt.Errorf("不支持的特殊 Docker 运行时镜像类型: %s", specialImage.Kind)
 	}
@@ -130,7 +152,7 @@ func detectDockerSpecialRuntimeImage(config provider.InstanceConfig) (*dockerSpe
 	}
 }
 
-func (d *DockerProvider) createDockerWindowsRuntime(config provider.InstanceConfig, image *dockerSpecialRuntimeImage, updateProgress func(int, string)) error {
+func (d *DockerProvider) createDockerWindowsRuntime(config provider.InstanceConfig, image *dockerSpecialRuntimeImage, networkFlags string, updateProgress func(int, string)) error {
 	updateProgress(30, "拉取Windows运行时镜像...")
 	if output, err := d.sshClient.ExecuteWithTimeout(fmt.Sprintf("%s pull %s", d.runtime.CLI, shellSingleQuote(image.Image)), 60*time.Minute); err != nil {
 		return fmt.Errorf("拉取Windows镜像失败: %w; output: %s", err, utils.TruncateString(output, 1000))
@@ -141,9 +163,10 @@ func (d *DockerProvider) createDockerWindowsRuntime(config provider.InstanceConf
 		rdpPort = selectFirstMappedHostPort(config.Ports, 33896)
 	}
 
-	cmd := fmt.Sprintf("%s run -d --name %s --privileged=true --device=/dev/kvm --device=/dev/net/tun --cap-add=NET_ADMIN --cap-add=SYS_ADMIN%s -p %s %s /sbin/init",
+	cmd := fmt.Sprintf("%s run -d --name %s%s --privileged=true --device=/dev/kvm --device=/dev/net/tun --cap-add=NET_ADMIN --cap-add=SYS_ADMIN%s -p %s %s /sbin/init",
 		d.runtime.CLI,
 		shellSingleQuote(config.Name),
+		networkFlags,
 		dockerSpecialResourceFlags(config),
 		shellSingleQuote(fmt.Sprintf("0.0.0.0:%d:3389/tcp", rdpPort)),
 		shellSingleQuote(image.Image))
@@ -165,7 +188,7 @@ func (d *DockerProvider) createDockerWindowsRuntime(config provider.InstanceConf
 	return nil
 }
 
-func (d *DockerProvider) createDockerAndroidRuntime(config provider.InstanceConfig, image *dockerSpecialRuntimeImage, updateProgress func(int, string)) error {
+func (d *DockerProvider) createDockerAndroidRuntime(config provider.InstanceConfig, image *dockerSpecialRuntimeImage, networkFlags string, updateProgress func(int, string)) error {
 	updateProgress(30, "拉取Android运行时镜像...")
 	if output, err := d.sshClient.ExecuteWithTimeout(fmt.Sprintf("%s pull %s", d.runtime.CLI, shellSingleQuote(image.Image)), 60*time.Minute); err != nil {
 		return fmt.Errorf("拉取Android镜像失败: %w; output: %s", err, utils.TruncateString(output, 1000))
@@ -176,9 +199,10 @@ func (d *DockerProvider) createDockerAndroidRuntime(config provider.InstanceConf
 		adbPort = selectFirstMappedHostPort(config.Ports, 5555)
 	}
 
-	cmd := fmt.Sprintf("%s run -d --name %s --privileged%s -p %s %s androidboot.redroid_width=720 androidboot.redroid_height=1280 androidboot.redroid_dpi=320",
+	cmd := fmt.Sprintf("%s run -d --name %s%s --privileged%s -p %s %s androidboot.redroid_width=720 androidboot.redroid_height=1280 androidboot.redroid_dpi=320",
 		d.runtime.CLI,
 		shellSingleQuote(config.Name),
+		networkFlags,
 		dockerSpecialResourceFlags(config),
 		shellSingleQuote(fmt.Sprintf("0.0.0.0:%d:5555/tcp", adbPort)),
 		shellSingleQuote(image.Image))
@@ -191,7 +215,7 @@ func (d *DockerProvider) createDockerAndroidRuntime(config provider.InstanceConf
 	return nil
 }
 
-func (d *DockerProvider) createDockerMacOSRuntime(config provider.InstanceConfig, image *dockerSpecialRuntimeImage, updateProgress func(int, string)) error {
+func (d *DockerProvider) createDockerMacOSRuntime(config provider.InstanceConfig, image *dockerSpecialRuntimeImage, networkFlags string, updateProgress func(int, string)) error {
 	updateProgress(30, "拉取macOS运行时镜像...")
 	if output, err := d.sshClient.ExecuteWithTimeout(fmt.Sprintf("%s pull %s", d.runtime.CLI, shellSingleQuote(image.Image)), 60*time.Minute); err != nil {
 		return fmt.Errorf("拉取macOS镜像失败: %w; output: %s", err, utils.TruncateString(output, 1000))
@@ -207,9 +231,10 @@ func (d *DockerProvider) createDockerMacOSRuntime(config provider.InstanceConfig
 	}
 
 	envFlags := dockerSpecialMacOSEnvFlags(config, image.Version)
-	cmd := fmt.Sprintf("%s run -d --name %s --privileged --device=/dev/kvm --device=/dev/net/tun --cap-add=NET_ADMIN%s%s -p %s -p %s %s",
+	cmd := fmt.Sprintf("%s run -d --name %s%s --privileged --device=/dev/kvm --device=/dev/net/tun --cap-add=NET_ADMIN%s%s -p %s -p %s %s",
 		d.runtime.CLI,
 		shellSingleQuote(config.Name),
+		networkFlags,
 		dockerSpecialResourceFlags(config),
 		envFlags,
 		shellSingleQuote(fmt.Sprintf("0.0.0.0:%d:8006/tcp", webPort)),

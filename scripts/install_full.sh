@@ -1661,9 +1661,8 @@ install_application() {
         log_error "Extracted archive did not contain server-allinone binary." "解压后的归档中未找到 server-allinone 二进制。"
         return 1
     fi
-    cp "$server_bin" "$SERVER_DIR/"
-    local SERVER_BIN
-    SERVER_BIN="${SERVER_DIR}/$(basename "$server_bin")"
+    local SERVER_BIN="${SERVER_DIR}/oneclickvirt-server"
+    cp "$server_bin" "$SERVER_BIN"
     chmod +x "$SERVER_BIN"
 
     # Download web dist

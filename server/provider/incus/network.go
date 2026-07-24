@@ -195,6 +195,15 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 
 // configureInstanceNetwork 配置实例网络
 func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig) error {
+	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only"
+	requestedIPv6 := ""
+	if config.Metadata != nil {
+		requestedIPv6 = config.Metadata["static_ipv6"]
+	}
+	if strings.TrimSpace(requestedIPv6) != "" && !hasIPv6 {
+		return fmt.Errorf("已分配静态IPv6，但实例网络类型 %s 未启用IPv6", networkConfig.NetworkType)
+	}
+
 	// 对于独立IPv4模式，预先检查并确保该IPv4地址已绑定到宿主机网络接口
 	if networkConfig.NetworkType == "dedicated_ipv4" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" {
 		if config.Metadata != nil {
@@ -221,6 +230,11 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 		}
 		global.APP_LOG.Debug("使用现有网络配置继续",
 			zap.String("instanceName", config.Name))
+		if hasIPv6 {
+			if err := i.configureIPv6Network(ctx, config.Name, true, networkConfig.IPv6PortMappingMethod, requestedIPv6); err != nil {
+				return fmt.Errorf("使用现有网络配置静态IPv6失败: %w", err)
+			}
+		}
 		return nil
 	}
 
@@ -286,10 +300,9 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 	}
 
 	// 配置IPv6网络（如果启用）
-	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only"
 	if hasIPv6 {
-		if err := i.configureIPv6Network(ctx, config.Name, hasIPv6, networkConfig.IPv6PortMappingMethod); err != nil {
-			global.APP_LOG.Warn("配置IPv6网络失败", zap.Error(err))
+		if err := i.configureIPv6Network(ctx, config.Name, hasIPv6, networkConfig.IPv6PortMappingMethod, requestedIPv6); err != nil {
+			return fmt.Errorf("配置IPv6网络失败: %w", err)
 		}
 	}
 

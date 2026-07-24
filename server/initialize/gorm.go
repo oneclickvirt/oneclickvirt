@@ -119,16 +119,18 @@ func RegisterTables(db *gorm.DB) {
 		&oauth2Model.OAuth2Provider{}, // OAuth2提供商配置表
 
 		// 实例相关表
-		&providerModel.Instance{},          // 虚拟机/容器实例表
-		&providerModel.Provider{},          // 服务提供商配置表
-		&providerModel.AdminGroupSetting{}, // 管理员分组设置表
-		&providerModel.Port{},              // 端口映射表
-		&providerModel.ProviderIPv4Pool{},  // IPv4地址池表（dedicated_ipv4类型服务商）
-		&providerModel.InstanceShareLink{}, // 临时实例授权分享表
-		&providerModel.InstanceSnapshot{},  // 实例快照表
-		&providerModel.SnapshotSchedule{},  // 实例计划快照表
-		&providerModel.SnapshotTask{},      // 实例快照后台任务表
-		&adminModel.Task{},                 // 用户任务表
+		&providerModel.Instance{},           // 虚拟机/容器实例表
+		&providerModel.Provider{},           // 服务提供商配置表
+		&providerModel.AdminGroupSetting{},  // 管理员分组设置表
+		&providerModel.Port{},               // 端口映射表
+		&providerModel.ProviderIPv4Pool{},   // IPv4地址池表（dedicated_ipv4类型服务商）
+		&providerModel.ProviderIPv6Pool{},   // IPv6地址池表（支持离散地址和CIDR范围）
+		&providerModel.ProviderIPv6Tunnel{}, // Provider宿主机IPv6隧道配置
+		&providerModel.InstanceShareLink{},  // 临时实例授权分享表
+		&providerModel.InstanceSnapshot{},   // 实例快照表
+		&providerModel.SnapshotSchedule{},   // 实例计划快照表
+		&providerModel.SnapshotTask{},       // 实例快照后台任务表
+		&adminModel.Task{},                  // 用户任务表
 
 		// 资源管理表
 		&resourceModel.ResourceReservation{}, // 资源预留表
@@ -170,10 +172,12 @@ func RegisterTables(db *gorm.DB) {
 		&monitoringModel.UserTrafficHistory{},     // 用户流量历史表
 		&monitoringModel.PerformanceMetric{},      // 性能指标历史表
 		// Agent监控表
-		&monitoringModel.AgentMonitor{},     // Agent监控映射表
-		&monitoringModel.ResourceMetric{},   // 资源监控数据表（24小时保留）
-		&monitoringModel.MonitoringConfig{}, // Provider监控配置表
-		&monitoringModel.MonitorSyncTask{},  // Provider监控同步后台任务表
+		&monitoringModel.AgentMonitor{},         // Agent监控映射表
+		&monitoringModel.ResourceMetric{},       // 资源监控数据表（24小时保留）
+		&monitoringModel.MonitoringConfig{},     // Provider监控配置表
+		&monitoringModel.MonitorSyncTask{},      // Provider监控同步后台任务表
+		&monitoringModel.EgressDesiredProfile{}, // 独立出口控制端期望配置
+		&monitoringModel.EgressDesiredBinding{}, // 独立出口控制端实例绑定
 		// 防火墙/滥用屏蔽表
 		&firewallModel.BlockRule{},            // 屏蔽规则表
 		&firewallModel.BlockRuleApplication{}, // 屏蔽规则应用记录表

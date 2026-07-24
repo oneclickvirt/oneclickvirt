@@ -79,6 +79,7 @@
       >
         <MappingTab
           v-model="formData"
+          @provider-updated="handleProviderUpdated"
         />
       </el-tab-pane>
 
@@ -135,7 +136,6 @@
           v-model="formData"
         />
       </el-tab-pane>
-
     </el-tabs>
     
     <template #footer>
@@ -188,7 +188,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:visible', 'submit', 'cancel', 'reset-level-limits'])
+const emit = defineEmits(['update:visible', 'submit', 'cancel', 'reset-level-limits', 'provider-updated'])
 
 const {
   dialogVisible,
@@ -196,8 +196,6 @@ const {
   basicInfoTabRef,
   formData,
   rules,
-  isAgentMode,
-  hasAgentMappedNetworking,
   groupedCountries,
   showHardwareConfigTab,
   testingConnection,
@@ -214,11 +212,17 @@ const {
   handleGenerateAgentSecret,
   handleExecCommand,
   handleCheckAgentStatus,
+  acknowledgePersistedFields,
   handleResetLevelLimits,
   handleSubmit,
   handleBeforeClose,
   handleClose
 } = useProviderForm(props, emit)
+
+const handleProviderUpdated = (updates) => {
+  acknowledgePersistedFields(updates)
+  emit('provider-updated', updates)
+}
 </script>
 
 <style scoped>

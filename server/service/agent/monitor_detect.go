@@ -3,16 +3,24 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+func parseDetectedInterface(output string) (string, error) {
+	iface, err := utils.ParseNetworkInterfaceOutput(output)
+	if err != nil {
+		return "", fmt.Errorf("invalid interface output: %w", err)
+	}
+	return iface, nil
+}
 
 // isIPv6Capable reports whether the given network type includes IPv6.
 func isIPv6Capable(networkType string) bool {
@@ -162,9 +170,9 @@ exit 1
 		return "", fmt.Errorf("detect veth for %s: %w (output: %s)", instanceName, err, output)
 	}
 
-	iface := strings.TrimSpace(output)
-	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
-		return "", fmt.Errorf("detect veth for %s: %s", instanceName, iface)
+	iface, parseErr := parseDetectedInterface(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("detect veth for %s: %w", instanceName, parseErr)
 	}
 	return iface, nil
 }
@@ -226,9 +234,9 @@ exit 1
 		return "", fmt.Errorf("detect veth for %s: %w", instanceName, err)
 	}
 
-	iface := strings.TrimSpace(output)
-	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
-		return "", fmt.Errorf("detect veth for %s: %s", instanceName, iface)
+	iface, parseErr := parseDetectedInterface(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("detect veth for %s: %w", instanceName, parseErr)
 	}
 	return iface, nil
 }
@@ -260,9 +268,9 @@ exit 1
 		return "", fmt.Errorf("detect proxmox iface for %s: %w", instanceName, err)
 	}
 
-	iface := strings.TrimSpace(output)
-	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
-		return "", fmt.Errorf("detect proxmox iface for %s: %s", instanceName, iface)
+	iface, parseErr := parseDetectedInterface(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("detect proxmox iface for %s: %w", instanceName, parseErr)
 	}
 	return iface, nil
 }
@@ -295,9 +303,9 @@ exit 1
 		return "", fmt.Errorf("detect proxmox IPv6 iface for %s: %w", instanceName, err)
 	}
 
-	iface := strings.TrimSpace(output)
-	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
-		return "", fmt.Errorf("detect proxmox IPv6 iface for %s: %s", instanceName, iface)
+	iface, parseErr := parseDetectedInterface(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("detect proxmox IPv6 iface for %s: %w", instanceName, parseErr)
 	}
 	return iface, nil
 }
@@ -323,9 +331,9 @@ exit 1
 		return "", fmt.Errorf("detect qemu iface for %s: %w", instanceName, err)
 	}
 
-	iface := strings.TrimSpace(output)
-	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
-		return "", fmt.Errorf("detect qemu iface for %s: %s", instanceName, iface)
+	iface, parseErr := parseDetectedInterface(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("detect qemu iface for %s: %w", instanceName, parseErr)
 	}
 	return iface, nil
 }
@@ -368,9 +376,9 @@ exit 1
 		return "", fmt.Errorf("detect kubevirt iface for %s: %w", instanceName, err)
 	}
 
-	iface := strings.TrimSpace(output)
-	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
-		return "", fmt.Errorf("detect kubevirt iface for %s: %s", instanceName, iface)
+	iface, parseErr := parseDetectedInterface(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("detect kubevirt iface for %s: %w", instanceName, parseErr)
 	}
 	return iface, nil
 }

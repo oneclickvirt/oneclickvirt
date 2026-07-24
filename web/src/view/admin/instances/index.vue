@@ -597,6 +597,15 @@
           <el-icon><RefreshRight /></el-icon>
           {{ $t('admin.instances.resetSystem') }}
         </el-button>
+        <el-button
+          type="primary"
+          :disabled="isInstanceBusy(actionInstance)"
+          style="width: 100%; margin-bottom: 10px;"
+          @click="showEgressDialog(actionInstance)"
+        >
+          <el-icon><Connection /></el-icon>
+          {{ $t('admin.instances.egressAction') }}
+        </el-button>
         <el-divider />
         <el-button
           type="info"
@@ -636,6 +645,12 @@
         </el-button>
       </div>
     </el-dialog>
+
+    <EgressDialog
+      v-model="egressDialogVisible"
+      :instance="egressInstance"
+      @updated="loadInstances"
+    />
 
     <!-- 转移实例对话框 -->
     <el-dialog
@@ -694,17 +709,19 @@ import {
   RefreshRight, 
   Lock, 
   Delete,
-  Link
+  Link,
+  Connection
 } from '@element-plus/icons-vue'
 import { useInstanceManagement } from './composables/useInstanceManagement'
+import EgressDialog from './components/EgressDialog.vue'
 
 const {
-  instances, loading, detailDialogVisible, actionDialogVisible,
-  selectedInstance, actionInstance, actionLoading, showPassword,
+  instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible,
+  selectedInstance, actionInstance, egressInstance, actionLoading, showPassword,
   selectedInstances, transferDialogVisible, transferLoading, transferForm, tableRef,
   filters, pagination,
   loadInstances, handleSearch, handleReset, handleSizeChange, handleCurrentChange,
-  viewInstanceDetail, showActionDialog, performAction,
+  viewInstanceDetail, showActionDialog, showEgressDialog, performAction,
   getStatusType, getStatusText, formatDate, formatMemory, formatDisk, formatTraffic,
   isExpired, isExpiringSoon, openSSHTerminal,
   handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,

@@ -31,6 +31,21 @@ pub(super) struct ExecRespPayload {
     pub(super) exit_code: i32,
 }
 
+/// Restricted in-process API request. The body stays in the authenticated
+/// WebSocket frame and is never passed through a shell or process argument.
+#[derive(Deserialize)]
+pub(super) struct ApiReqPayload {
+    pub(super) method: String,
+    pub(super) path: String,
+    pub(super) body: Option<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+pub(super) struct ApiRespPayload {
+    pub(super) status: u16,
+    pub(super) body: serde_json::Value,
+}
+
 /// Payload sent in the initial `info` frame.
 #[derive(Serialize, Debug)]
 pub(super) struct InfoPayload {

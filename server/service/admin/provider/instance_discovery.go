@@ -53,6 +53,10 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 			Error:        err.Error(),
 		}, fmt.Errorf("发现实例失败: %w", err)
 	}
+	// Credentials and port allocations left by the supported shell projects are
+	// collected before this result is returned or an import transaction starts.
+	// The enrichment uses one bounded remote read per runtime, not per instance.
+	discoveredInstances = s.enrichDiscoveredInstanceMetadata(ctx, providerInfo.Type, providerInstance, discoveredInstances)
 	discoveredInstances = enrichDiscoveredFirewallMappings(ctx, providerInstance, discoveredInstances)
 	discoveredInstances = normalizeDiscoveredInstances(providerID, providerInfo.Type, discoveredInstances)
 

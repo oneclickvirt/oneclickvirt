@@ -100,8 +100,8 @@ fi
 
 		vethOutput, err := d.sshClient.Execute(vethCmd)
 		if err == nil {
-			vethInterface := utils.CleanCommandOutput(vethOutput)
-			if vethInterface != "" {
+			vethInterface, parseErr := utils.ParseNetworkInterfaceOutput(vethOutput)
+			if parseErr == nil {
 				if instance.Metadata == nil {
 					instance.Metadata = make(map[string]string)
 				}
@@ -117,8 +117,8 @@ fi
 			cmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 			output, err := d.sshClient.Execute(cmd)
 			if err == nil {
-				ipAddress := strings.TrimSpace(output)
-				if ipAddress != "" && ipAddress != "<no value>" {
+				ipAddress, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+				if parseErr == nil {
 					instance.PrivateIP = ipAddress
 					instance.IP = ipAddress
 					global.APP_LOG.Debug("通过默认网络获取到容器IP地址",
@@ -136,8 +136,8 @@ fi
 			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 			output, err = d.sshClient.Execute(cmd)
 			if err == nil {
-				ipv6Address := strings.TrimSpace(output)
-				if ipv6Address != "" && ipv6Address != "<no value>" {
+				ipv6Address, parseErr := utils.ParseSingleIPv6AddressOutput(output)
+				if parseErr == nil {
 					instance.IPv6Address = ipv6Address
 					global.APP_LOG.Debug("获取到容器IPv6地址",
 						zap.String("instance", instance.Name),
@@ -351,9 +351,23 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		}
 	}
 
-	hasIPv6 := networkType == "nat_ipv4_ipv6" || networkType == "dedicated_ipv4_ipv6" || networkType == "ipv6_only"
-	if hasIPv6 && d.checkIPv6NetworkAvailable() {
-		cmd += fmt.Sprintf(" --network=%s", shellSingleQuote(d.runtime.IPv6Network))
+	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
+	staticIPv6 := ""
+	if config.Metadata != nil {
+		staticIPv6 = strings.TrimSpace(config.Metadata["static_ipv6"])
+	}
+	networkSelection, err := utils.ResolveContainerNetwork(
+		networkType,
+		staticIPv6,
+		d.runtime.IPv4Network,
+		d.runtime.IPv6Network,
+		hasIPv6 && d.checkIPv6NetworkAvailable(),
+	)
+	if err != nil {
+		return err
+	}
+	cmd = appendDockerNetworkOptions(cmd, networkSelection)
+	if networkSelection.IPv6 {
 		global.APP_LOG.Debug("启用IPv6网络",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("provider", d.config.Name))
@@ -362,10 +376,6 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			global.APP_LOG.Warn("Provider配置启用IPv6但 IPv6 网络不可用",
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.String("provider", d.config.Name))
-		}
-		// 如果运行时指定了 IPv4 网络（如 podman-net / containerd-net），显式指定
-		if d.runtime.IPv4Network != "" {
-			cmd += fmt.Sprintf(" --network=%s", shellSingleQuote(d.runtime.IPv4Network))
 		}
 	}
 
@@ -695,6 +705,20 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(100, "Docker实例创建完成")
 	global.APP_LOG.Info("容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+func appendDockerNetworkOptions(command string, selection utils.ContainerNetworkSelection) string {
+	if selection.Network != "" {
+		command += fmt.Sprintf(" --network=%s", shellSingleQuote(selection.Network))
+	}
+	if selection.StaticIPv6 != "" {
+		command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
+	}
+	return command
+}
+
+func dockerNetworkOptionFlags(selection utils.ContainerNetworkSelection) string {
+	return appendDockerNetworkOptions("", selection)
 }
 
 func dockerManagedImageName(image string) string {

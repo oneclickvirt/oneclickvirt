@@ -193,6 +193,8 @@ func (s *InitService) AutoMigrateTables() error {
 		&providerModel.AdminGroupSetting{},
 		&providerModel.Port{},
 		&providerModel.ProviderIPv4Pool{},
+		&providerModel.ProviderIPv6Pool{},
+		&providerModel.ProviderIPv6Tunnel{},
 		&providerModel.InstanceShareLink{},
 		&providerModel.InstanceSnapshot{},
 		&providerModel.SnapshotSchedule{},
@@ -240,6 +242,8 @@ func (s *InitService) AutoMigrateTables() error {
 		&monitoringModel.AgentMonitor{},
 		&monitoringModel.ResourceMetric{},
 		&monitoringModel.MonitoringConfig{},
+		&monitoringModel.EgressDesiredProfile{},
+		&monitoringModel.EgressDesiredBinding{},
 
 		// 防火墙/滥用屏蔽表
 		&firewallModel.BlockRule{},

@@ -26,7 +26,10 @@ func (i *IncusProvider) getInstanceType(instanceName string) (string, error) {
 		return "", fmt.Errorf("获取实例类型失败: %w", err)
 	}
 
-	instanceType := utils.CleanCommandOutput(output)
+	instanceType, parseErr := utils.ParseSingleCommandToken(output)
+	if parseErr != nil || (instanceType != "container" && instanceType != "virtual-machine") {
+		return "", fmt.Errorf("实例类型输出无效")
+	}
 	global.APP_LOG.Debug("检测到实例类型",
 		zap.String("instanceName", instanceName),
 		zap.String("type", instanceType))
@@ -82,8 +85,11 @@ func (i *IncusProvider) getVMInstanceIP(instanceName string) (string, error) {
 			}
 			output, err := client.Execute(cmd)
 
-			if err == nil && strings.TrimSpace(output) != "" {
-				vmIP := strings.TrimSpace(output)
+			if err == nil {
+				vmIP, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+				if parseErr != nil {
+					continue
+				}
 				global.APP_LOG.Debug("虚拟机IPv4地址获取成功",
 					zap.String("instanceName", instanceName),
 					zap.String("interface", iface),
@@ -129,8 +135,12 @@ func (i *IncusProvider) getContainerInstanceIP(instanceName string) (string, err
 		}
 		output, err := client.Execute(cmd)
 
-		if err == nil && strings.TrimSpace(output) != "" {
-			containerIP := strings.TrimSpace(output)
+		if err == nil {
+			containerIP, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+			if parseErr != nil {
+				delay *= 2
+				continue
+			}
 			global.APP_LOG.Debug("容器IPv4地址获取成功",
 				zap.String("instanceName", instanceName),
 				zap.String("ip", containerIP),
@@ -198,8 +208,7 @@ func (i *IncusProvider) getInstanceIPGeneric(instanceName string) (string, error
 						}
 
 						// 验证是否是有效的IPv4地址
-						parts := strings.Split(addr, ".")
-						if len(parts) == 4 {
+						if ip := net.ParseIP(addr); ip != nil && ip.To4() != nil {
 							global.APP_LOG.Debug("通过incus list找到有效IP地址",
 								zap.String("instanceName", instanceName),
 								zap.String("ip", addr),
@@ -277,9 +286,9 @@ func (i *IncusProvider) getHostIP() (string, error) {
 		return "", fmt.Errorf("获取主机IP失败: %w", err)
 	}
 
-	hostIP := strings.TrimSpace(output)
-	if hostIP == "" {
-		return "", fmt.Errorf("主机IP为空")
+	hostIP, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("主机IP输出无效: %w", parseErr)
 	}
 
 	global.APP_LOG.Info("从宿主机获取到IP地址",

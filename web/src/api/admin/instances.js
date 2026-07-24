@@ -53,6 +53,45 @@ export const adminBatchInstanceAction = (instanceIds, action) => {
   })
 }
 
+export const getInstanceEgress = (id) => {
+  return request({
+    url: `/v1/admin/instances/${id}/egress`,
+    method: 'get'
+  })
+}
+
+export const bindInstanceEgress = (id, data) => {
+  return instanceOperationRequest({
+    url: `/v1/admin/instances/${id}/egress`,
+    method: 'put',
+    data
+  })
+}
+
+export const unbindInstanceEgress = (id, apply = true) => {
+  return instanceOperationRequest({
+    url: `/v1/admin/instances/${id}/egress`,
+    method: 'delete',
+    params: { apply }
+  })
+}
+
+export const reconcileInstanceEgress = (id, apply = true) => {
+  return instanceOperationRequest({
+    url: `/v1/admin/instances/${id}/egress/reconcile`,
+    method: 'post',
+    data: { apply }
+  })
+}
+
+export const ensureInstanceEgressDependencies = (id, packageSet = 'wireguard') => {
+  return instanceOperationRequest({
+    url: `/v1/admin/instances/${id}/egress/dependencies`,
+    method: 'post',
+    data: { package_set: packageSet }
+  })
+}
+
 export const createAdminInstanceShare = (id, data) => {
   return request({
     url: `/v1/admin/instances/${id}/share-links`,

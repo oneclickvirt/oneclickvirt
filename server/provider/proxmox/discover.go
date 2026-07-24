@@ -8,8 +8,10 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
@@ -20,6 +22,8 @@ import (
 )
 
 const maxProxmoxDiscoveryResponseSize = 16 << 20
+const maxProxmoxMetadataWorkers = 8
+const maxProxmoxMetadataBatchSize = 64
 
 type proxmoxDiscoveredResource struct {
 	ID       string          `json:"id"`
@@ -33,6 +37,21 @@ type proxmoxDiscoveredResource struct {
 	MaxMem   int64           `json:"maxmem"`
 	MaxDisk  int64           `json:"maxdisk"`
 	Template json.RawMessage `json:"template"`
+	// Description is populated by the per-guest config endpoint. PVE shell
+	// projects store their import record in the config header/description.
+	Description string `json:"description,omitempty"`
+}
+
+type proxmoxBatchCommand struct {
+	Path   string         `json:"path"`
+	Method string         `json:"method"`
+	Args   map[string]any `json:"args,omitempty"`
+}
+
+type proxmoxBatchCommandResult struct {
+	Status  int             `json:"status"`
+	Data    json.RawMessage `json:"data"`
+	Message string          `json:"message"`
 }
 
 // DiscoverInstances discovers every QEMU VM and LXC container on a Proxmox
@@ -80,7 +99,237 @@ func (p *ProxmoxProvider) apiDiscoverInstances(ctx context.Context) ([]provider.
 	if err != nil {
 		return nil, fmt.Errorf("解析Proxmox集群实例失败: %w", err)
 	}
+	resources = p.enrichAPIResourceDescriptions(ctx, resources)
 	return p.convertDiscoveredResources(resources)
+}
+
+// enrichAPIResourceDescriptions covers api_only nodes where the controller
+// cannot read /etc/pve over SSH. PVE's node execute endpoint can batch config
+// reads, so discovery normally needs one request per node and fixed-size batch.
+// Older/denied execute endpoints fall back to bounded individual reads so
+// metadata required by WebSSH is still imported whenever permissions allow it.
+func (p *ProxmoxProvider) enrichAPIResourceDescriptions(ctx context.Context, resources []proxmoxDiscoveredResource) []proxmoxDiscoveredResource {
+	groups := make(map[string][]int)
+	for index := range resources {
+		if strings.TrimSpace(resources[index].Description) != "" || resources[index].VMID <= 0 {
+			continue
+		}
+		node := strings.TrimSpace(resources[index].Node)
+		if node == "" {
+			continue
+		}
+		groups[node] = append(groups[node], index)
+	}
+	if len(groups) == 0 {
+		return resources
+	}
+
+	type metadataBatchJob struct {
+		node    string
+		indexes []int
+	}
+	type metadataBatchResult struct {
+		descriptions map[int]string
+		retry        []int
+	}
+
+	jobs := make([]metadataBatchJob, 0)
+	for node, indexes := range groups {
+		for start := 0; start < len(indexes); start += maxProxmoxMetadataBatchSize {
+			end := min(start+maxProxmoxMetadataBatchSize, len(indexes))
+			jobs = append(jobs, metadataBatchJob{node: node, indexes: indexes[start:end]})
+		}
+	}
+
+	jobQueue := make(chan metadataBatchJob)
+	results := make(chan metadataBatchResult, len(jobs))
+	workerCount := min(len(jobs), maxProxmoxMetadataWorkers)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for job := range jobQueue {
+				if ctx.Err() != nil {
+					continue
+				}
+				descriptions, retry, err := p.fetchAPIResourceDescriptionsBatch(ctx, job.node, job.indexes, resources)
+				if err != nil {
+					retry = append([]int(nil), job.indexes...)
+				}
+				results <- metadataBatchResult{descriptions: descriptions, retry: retry}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobQueue)
+		for _, job := range jobs {
+			select {
+			case jobQueue <- job:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	workers.Wait()
+	close(results)
+
+	retry := make([]int, 0)
+	for result := range results {
+		for index, description := range result.descriptions {
+			resources[index].Description = description
+		}
+		retry = append(retry, result.retry...)
+	}
+	p.enrichAPIResourceDescriptionsIndividually(ctx, resources, retry)
+	return resources
+}
+
+func (p *ProxmoxProvider) fetchAPIResourceDescriptionsBatch(
+	ctx context.Context,
+	node string,
+	indexes []int,
+	resources []proxmoxDiscoveredResource,
+) (map[int]string, []int, error) {
+	commands := make([]proxmoxBatchCommand, 0, len(indexes))
+	commandIndexes := make([]int, 0, len(indexes))
+	retry := make([]int, 0)
+	for _, index := range indexes {
+		kind, err := normalizeProxmoxResourceKind(resources[index].Type)
+		if err != nil {
+			retry = append(retry, index)
+			continue
+		}
+		commands = append(commands, proxmoxBatchCommand{
+			Path:   fmt.Sprintf("%s/%d/config", kind, resources[index].VMID),
+			Method: http.MethodGet,
+		})
+		commandIndexes = append(commandIndexes, index)
+	}
+	if len(commands) == 0 {
+		return nil, retry, nil
+	}
+
+	commandsJSON, err := json.Marshal(commands)
+	if err != nil {
+		return nil, indexes, fmt.Errorf("编码Proxmox批量元数据命令失败: %w", err)
+	}
+	body, err := json.Marshal(map[string]string{"commands": string(commandsJSON)})
+	if err != nil {
+		return nil, indexes, fmt.Errorf("编码Proxmox批量元数据请求失败: %w", err)
+	}
+	executeURL := fmt.Sprintf(
+		"https://%s:8006/api2/json/nodes/%s/execute",
+		p.config.Host,
+		url.PathEscape(strings.TrimSpace(node)),
+	)
+	response, err := p.makeAPIRequest(ctx, http.MethodPost, executeURL, body)
+	if err != nil {
+		return nil, indexes, err
+	}
+	var payload struct {
+		Data []proxmoxBatchCommandResult `json:"data"`
+	}
+	if err := json.Unmarshal(response, &payload); err != nil {
+		return nil, indexes, fmt.Errorf("解析Proxmox批量元数据响应失败: %w", err)
+	}
+	if len(payload.Data) != len(commandIndexes) {
+		return nil, indexes, fmt.Errorf("Proxmox批量元数据响应数量异常: got %d want %d", len(payload.Data), len(commandIndexes))
+	}
+
+	descriptions := make(map[int]string, len(commandIndexes))
+	for commandIndex, result := range payload.Data {
+		resourceIndex := commandIndexes[commandIndex]
+		if result.Status < http.StatusOK || result.Status >= http.StatusMultipleChoices {
+			retry = append(retry, resourceIndex)
+			continue
+		}
+		var config struct {
+			Description string `json:"description"`
+		}
+		if len(result.Data) == 0 || string(result.Data) == "null" || json.Unmarshal(result.Data, &config) != nil {
+			retry = append(retry, resourceIndex)
+			continue
+		}
+		descriptions[resourceIndex] = strings.TrimSpace(config.Description)
+	}
+	return descriptions, retry, nil
+}
+
+func (p *ProxmoxProvider) enrichAPIResourceDescriptionsIndividually(ctx context.Context, resources []proxmoxDiscoveredResource, indexes []int) {
+	workerCount := min(len(indexes), maxProxmoxMetadataWorkers)
+	if workerCount == 0 {
+		return
+	}
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				if ctx.Err() != nil || strings.TrimSpace(resources[index].Description) != "" {
+					continue
+				}
+				if description, err := p.fetchAPIResourceDescription(ctx, resources[index]); err == nil {
+					resources[index].Description = description
+				}
+			}
+		}()
+	}
+
+enqueue:
+	for _, index := range indexes {
+		select {
+		case jobs <- index:
+		case <-ctx.Done():
+			break enqueue
+		}
+	}
+	close(jobs)
+	workers.Wait()
+}
+
+func (p *ProxmoxProvider) fetchAPIResourceDescription(ctx context.Context, resource proxmoxDiscoveredResource) (string, error) {
+	if resource.VMID <= 0 || strings.TrimSpace(resource.Node) == "" {
+		return "", fmt.Errorf("Proxmox资源缺少节点或vmid")
+	}
+	kind, err := normalizeProxmoxResourceKind(resource.Type)
+	if err != nil {
+		return "", err
+	}
+	configURL := fmt.Sprintf(
+		"https://%s:8006/api2/json/nodes/%s/%s/%d/config",
+		p.config.Host,
+		url.PathEscape(strings.TrimSpace(resource.Node)),
+		kind,
+		resource.VMID,
+	)
+	response, err := p.makeAPIRequest(ctx, http.MethodGet, configURL, nil)
+	if err != nil {
+		return "", err
+	}
+	var payload struct {
+		Data struct {
+			Description string `json:"description"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response, &payload); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(payload.Data.Description), nil
+}
+
+func normalizeProxmoxResourceKind(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "qemu", "vm":
+		return "qemu", nil
+	case "lxc":
+		return "lxc", nil
+	default:
+		return "", fmt.Errorf("未知的Proxmox实例类型")
+	}
 }
 
 // sshDiscoverInstances uses the same cluster resource data as the API path.

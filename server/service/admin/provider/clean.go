@@ -14,6 +14,7 @@ import (
 	"oneclickvirt/service/database"
 	domainService "oneclickvirt/service/domain"
 	"oneclickvirt/service/firewall"
+	ipv6TunnelService "oneclickvirt/service/ipv6tunnel"
 	"oneclickvirt/service/pmacct"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/task"
@@ -161,6 +162,32 @@ func (s *Service) deleteProviderWithTaskContext(ctx context.Context, providerID 
 				zap.Uint("providerID", providerID),
 				zap.Int64("instanceCount", instanceCount))
 		}
+		var egressBindingCount int64
+		if err := global.APP_DB.WithContext(ctx).Model(&monitoring.EgressDesiredBinding{}).
+			Where("provider_id = ?", providerID).Count(&egressBindingCount).Error; err != nil {
+			return fmt.Errorf("检查Provider出口绑定失败: %w", err)
+		}
+		if egressBindingCount > 0 {
+			global.APP_LOG.Warn("强制删除不会清理宿主机出口规则、策略路由或隧道，需手动处理",
+				zap.Uint("providerID", providerID),
+				zap.Int64("egressBindingCount", egressBindingCount))
+		}
+	}
+
+	if !forceDelete {
+		// Instances have already been removed from the host. Clear the Agent's
+		// provider-local policy routes, nftables rules and managed tunnels before
+		// deleting controller desired state. Any failure aborts normal deletion;
+		// force deletion remains the explicit database-only escape hatch.
+		if err := agentService.NewInstanceEgressService(global.APP_DB).
+			CleanupProviderEgress(ctx, providerID); err != nil {
+			return fmt.Errorf("清理Provider宿主机出口状态失败: %w。请恢复Agent后重试，或使用强制删除并手动清理宿主机规则", err)
+		}
+	}
+	// IPv6 tunnel cleanup is one batched remote command. Force deletion only
+	// removes controller state and deliberately leaves the host untouched.
+	if err := ipv6TunnelService.NewService().CleanupProviderRemote(ctx, providerID, forceDelete); err != nil {
+		return fmt.Errorf("清理Provider IPv6隧道失败: %w", err)
 	}
 
 	// ==========================================
@@ -247,7 +274,37 @@ func (s *Service) deleteProviderWithTaskContext(ctx context.Context, providerID 
 				zap.Int64("count", configTaskResult.RowsAffected))
 		}
 
-		// 4. 硬删除所有实例记录（包括软删除的）
+		// 4. 硬删除控制端的出口期望状态。正常删除已在事务外
+		// 确认Agent端规则清理；强制删除则只删除记录并明确保留宿主机风险。
+		if err := tx.Unscoped().Where("provider_id = ?", providerID).
+			Delete(&monitoring.EgressDesiredBinding{}).Error; err != nil {
+			global.APP_LOG.Error("删除Provider出口绑定期望状态失败", zap.Error(err))
+			return err
+		}
+		if err := tx.Unscoped().Where("provider_id = ?", providerID).
+			Delete(&monitoring.EgressDesiredProfile{}).Error; err != nil {
+			global.APP_LOG.Error("删除Provider出口配置期望状态失败", zap.Error(err))
+			return err
+		}
+
+		// 5. 硬删除Provider地址池，包括已分配、软删除和待退役记录。
+		if err := tx.Unscoped().Where("provider_id = ?", providerID).
+			Delete(&providerModel.ProviderIPv4Pool{}).Error; err != nil {
+			global.APP_LOG.Error("删除Provider IPv4地址池失败", zap.Error(err))
+			return err
+		}
+		if err := tx.Unscoped().Where("provider_id = ?", providerID).
+			Delete(&providerModel.ProviderIPv6Pool{}).Error; err != nil {
+			global.APP_LOG.Error("删除Provider IPv6地址池失败", zap.Error(err))
+			return err
+		}
+		if err := tx.Unscoped().Where("provider_id = ?", providerID).
+			Delete(&providerModel.ProviderIPv6Tunnel{}).Error; err != nil {
+			global.APP_LOG.Error("删除Provider IPv6隧道记录失败", zap.Error(err))
+			return err
+		}
+
+		// 6. 硬删除所有实例记录（包括软删除的）
 		instanceResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&providerModel.Instance{})
 		if instanceResult.Error != nil {
 			global.APP_LOG.Error("删除Provider实例记录失败", zap.Error(instanceResult.Error))

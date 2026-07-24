@@ -106,6 +106,7 @@
       @submit="handleProviderFormSubmit"
       @cancel="cancelAddServer"
       @reset-level-limits="resetLevelLimitsToDefault"
+      @provider-updated="handleProviderUpdated"
     />
 
     <!-- 自动配置结果对话框 -->
@@ -203,6 +204,11 @@ const {
   resetLevelLimitsToDefault, cancelAddServer,
   editProvider, submitAddServer
 } = useProviderForm(loadProviders)
+
+const handleProviderUpdated = async (updates = {}) => {
+  Object.assign(addProviderForm, updates)
+  await loadProviders()
+}
 
 const showModeSelectDialog = ref(false)
 

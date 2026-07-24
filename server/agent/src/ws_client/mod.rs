@@ -6,6 +6,7 @@ mod handler;
 mod shell;
 mod types;
 
+use axum::Router;
 use regex;
 use std::io;
 use std::time::Duration;
@@ -41,7 +42,7 @@ const BROWSER_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KH
 
 use handler::handle_connection;
 
-pub async fn run_ws_client(ws_url: String, secret: String) {
+pub async fn run_ws_client(ws_url: String, secret: String, api_router: Router, api_token: String) {
     // Strip any sensitive query params from the URL for security.
     // The secret is transmitted via Authorization header instead.
     let clean_url = strip_secret_params(&ws_url);
@@ -90,7 +91,10 @@ pub async fn run_ws_client(ws_url: String, secret: String) {
                     try_set_keepalive_on_maybe_tls(&ws_stream);
                     info!("WebSocket connected to controller");
                     delay_secs = 2;
-                    if let Err(e) = handle_connection(ws_stream, &secret).await {
+                    if let Err(e) =
+                        handle_connection(ws_stream, &secret, api_router.clone(), api_token.clone())
+                            .await
+                    {
                         warn!(error = %e, "WebSocket connection closed with error");
                     } else {
                         info!("WebSocket connection closed normally");
@@ -119,7 +123,10 @@ pub async fn run_ws_client(ws_url: String, secret: String) {
                 Ok(ws_stream) => {
                     info!("WebSocket connected to controller");
                     delay_secs = 2;
-                    if let Err(e) = handle_connection(ws_stream, &secret).await {
+                    if let Err(e) =
+                        handle_connection(ws_stream, &secret, api_router.clone(), api_token.clone())
+                            .await
+                    {
                         warn!(error = %e, "WebSocket connection closed with error");
                     } else {
                         info!("WebSocket connection closed normally");

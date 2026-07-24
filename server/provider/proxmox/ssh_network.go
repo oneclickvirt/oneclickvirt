@@ -54,6 +54,9 @@ func (p *ProxmoxProvider) configureContainerNetwork(ctx context.Context, vmid in
 	if hasIPv6 {
 		// 配置IPv6网络（会根据NetworkType自动处理IPv4+IPv6或纯IPv6）
 		if err := p.configureInstanceIPv6(ctx, vmid, config, "container"); err != nil {
+			if requestedProxmoxIPv6(config) != "" {
+				return fmt.Errorf("配置控制面静态IPv6失败: %w", err)
+			}
 			global.APP_LOG.Warn("配置容器IPv6失败，回退到IPv4-only", zap.Int("vmid", vmid), zap.Error(err))
 			// IPv6配置失败，回退到IPv4-only配置
 			hasIPv6 = false
@@ -108,6 +111,9 @@ func (p *ProxmoxProvider) configureVMNetwork(ctx context.Context, vmid int, conf
 	if hasIPv6 {
 		// 配置IPv6网络（会根据NetworkType自动处理IPv4+IPv6或纯IPv6）
 		if err := p.configureInstanceIPv6(ctx, vmid, config, "vm"); err != nil {
+			if requestedProxmoxIPv6(config) != "" {
+				return fmt.Errorf("配置控制面静态IPv6失败: %w", err)
+			}
 			global.APP_LOG.Warn("配置虚拟机IPv6失败，回退到IPv4-only", zap.Int("vmid", vmid), zap.Error(err))
 			// IPv6配置失败，回退到IPv4-only配置
 			hasIPv6 = false

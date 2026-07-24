@@ -187,8 +187,24 @@ type ErrorResponse struct {
 // ---- API Methods ----
 
 func (c *Client) doRequest(method, path string, body interface{}, result interface{}) error {
+	requestTimeout := 35 * time.Second
+	if path == "/api/v1/egress/state" {
+		requestTimeout = 5 * time.Minute
+	}
+	// New egress endpoints can carry private tunnel material. Agent-mode nodes
+	// must use the provider-bound typed WebSocket frame: HTTP-first could hit a
+	// different localhost Agent, while the legacy curl fallback exposes JSON in
+	// a shell process argument.
+	if c.isAgentMode && strings.HasPrefix(path, "/api/v1/egress/") {
+		conn, ok := GetHub().GetConn(c.providerID)
+		if !ok || conn == nil {
+			return fmt.Errorf("agent not connected for provider %d", c.providerID)
+		}
+		return conn.CallAPI(method, path, body, result, requestTimeout)
+	}
+
 	// Try HTTP first
-	err := c.doHTTPRequest(method, path, body, result)
+	err := c.doHTTPRequestWithTimeout(method, path, body, result, requestTimeout)
 	if err == nil {
 		return nil
 	}
@@ -215,6 +231,10 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 
 // doHTTPRequest performs the actual HTTP call.
 func (c *Client) doHTTPRequest(method, path string, body interface{}, result interface{}) error {
+	return c.doHTTPRequestWithTimeout(method, path, body, result, 0)
+}
+
+func (c *Client) doHTTPRequestWithTimeout(method, path string, body interface{}, result interface{}, timeout time.Duration) error {
 	var reqBody io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -232,7 +252,13 @@ func (c *Client) doHTTPRequest(method, path string, body interface{}, result int
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-token", c.token)
 
-	resp, err := c.httpClient.Do(req)
+	httpClient := c.httpClient
+	if timeout > 0 && httpClient.Timeout != timeout {
+		clone := *httpClient
+		clone.Timeout = timeout
+		httpClient = &clone
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("http request to %s failed: %w", url, err)
 	}
@@ -594,6 +620,271 @@ func (c *Client) RemoveDomainProxy(domain string) error {
 func (c *Client) ListDomainProxies() (*ListDomainProxiesResponse, error) {
 	var resp ListDomainProxiesResponse
 	if err := c.doRequest("GET", "/api/v1/domain-proxy", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ---- Transparent Egress API ----
+
+// EgressCapabilities describes the host-side prerequisites reported by the
+// Rust Agent.  A controller must treat Supported=false or ApplyEnabled=false
+// as a hard stop and must not fall back to the node's default route.
+type EgressCapabilities struct {
+	Supported           bool     `json:"supported"`
+	Mode                string   `json:"mode"`
+	RunningAsRoot       bool     `json:"running_as_root"`
+	IPAvailable         bool     `json:"ip_available"`
+	NFTAvailable        bool     `json:"nft_available"`
+	WireguardAvailable  bool     `json:"wireguard_available"`
+	CurlAvailable       bool     `json:"curl_available"`
+	IPv4Forwarding      bool     `json:"ipv4_forwarding"`
+	IPv6Forwarding      bool     `json:"ipv6_forwarding"`
+	ApplyEnabled        bool     `json:"apply_enabled"`
+	AutoInstallEnabled  bool     `json:"auto_install_enabled"`
+	PackageManager      *string  `json:"package_manager,omitempty"`
+	MissingDependencies []string `json:"missing_dependencies,omitempty"`
+	CheckedAt           int64    `json:"checked_at"`
+	Reasons             []string `json:"reasons"`
+}
+
+type EgressProfile struct {
+	ID              string                 `json:"id"`
+	Mode            string                 `json:"mode"`
+	TunnelType      string                 `json:"tunnel_type"`
+	TunnelInterface string                 `json:"tunnel_interface"`
+	Gateway         *string                `json:"gateway,omitempty"`
+	RouteTable      uint32                 `json:"route_table"`
+	Mark            uint32                 `json:"mark"`
+	PublicIPv4      *string                `json:"public_ipv4,omitempty"`
+	PublicIPv6      *string                `json:"public_ipv6,omitempty"`
+	Enabled         bool                   `json:"enabled"`
+	FailClosed      bool                   `json:"fail_closed"`
+	Status          string                 `json:"status"`
+	LastError       *string                `json:"last_error,omitempty"`
+	WireGuard       *EgressWireGuardStatus `json:"wireguard,omitempty"`
+	TunnelReady     bool                   `json:"tunnel_ready"`
+	LastHandshakeAt *int64                 `json:"last_handshake_at,omitempty"`
+	UpdatedAt       int64                  `json:"updated_at"`
+}
+
+// EgressWireGuardStatus is safe to return to the controller: it only reports
+// whether key material is configured and never contains private key bytes.
+type EgressWireGuardStatus struct {
+	Managed                bool     `json:"managed"`
+	PeerPublicKey          *string  `json:"peer_public_key,omitempty"`
+	Endpoint               *string  `json:"endpoint,omitempty"`
+	Addresses              []string `json:"addresses,omitempty"`
+	AllowedIPs             []string `json:"allowed_ips,omitempty"`
+	PersistentKeepalive    uint16   `json:"persistent_keepalive"`
+	MTU                    uint16   `json:"mtu"`
+	PrivateKeyConfigured   bool     `json:"private_key_configured"`
+	PresharedKeyConfigured bool     `json:"preshared_key_configured"`
+}
+
+type EgressProfileRequest struct {
+	ID              string                  `json:"id"`
+	Mode            string                  `json:"mode"`
+	TunnelType      string                  `json:"tunnel_type,omitempty"`
+	TunnelInterface string                  `json:"tunnel_interface"`
+	Gateway         *string                 `json:"gateway,omitempty"`
+	RouteTable      uint32                  `json:"route_table,omitempty"`
+	Mark            uint32                  `json:"mark,omitempty"`
+	PublicIPv4      *string                 `json:"public_ipv4,omitempty"`
+	PublicIPv6      *string                 `json:"public_ipv6,omitempty"`
+	Enabled         *bool                   `json:"enabled,omitempty"`
+	FailClosed      *bool                   `json:"fail_closed,omitempty"`
+	WireGuard       *EgressWireGuardRequest `json:"wireguard,omitempty"`
+}
+
+// EgressWireGuardRequest contains write-only WireGuard material. Agent
+// responses intentionally do not expose this structure, so private and
+// preshared keys cannot be reflected back through controller APIs.
+type EgressWireGuardRequest struct {
+	Managed             *bool    `json:"managed,omitempty"`
+	PrivateKey          string   `json:"private_key,omitempty"`
+	PeerPublicKey       string   `json:"peer_public_key,omitempty"`
+	PresharedKey        string   `json:"preshared_key,omitempty"`
+	Endpoint            string   `json:"endpoint,omitempty"`
+	Addresses           []string `json:"addresses,omitempty"`
+	AllowedIPs          []string `json:"allowed_ips,omitempty"`
+	PersistentKeepalive *uint16  `json:"persistent_keepalive,omitempty"`
+	MTU                 *uint16  `json:"mtu,omitempty"`
+}
+
+type EgressProfileDeleteRequest struct {
+	ID string `json:"id"`
+}
+
+type EgressProfilesResponse struct {
+	Profiles []EgressProfile `json:"profiles"`
+	Total    int             `json:"total"`
+}
+
+type EgressBinding struct {
+	InstanceID          string   `json:"instance_id"`
+	ProfileID           string   `json:"profile_id"`
+	Source              string   `json:"source"`
+	Sources             []string `json:"sources,omitempty"`
+	Interface           *string  `json:"interface,omitempty"`
+	InterfaceV4         *string  `json:"interface_v4,omitempty"`
+	InterfaceV6         *string  `json:"interface_v6,omitempty"`
+	Enabled             bool     `json:"enabled"`
+	State               string   `json:"state"`
+	LastError           *string  `json:"last_error,omitempty"`
+	FailClosedEnforced  *bool    `json:"fail_closed_enforced,omitempty"`
+	TrafficBytesIn      uint64   `json:"traffic_bytes_in,omitempty"`
+	TrafficBytesOut     uint64   `json:"traffic_bytes_out,omitempty"`
+	TrafficBytesDropped uint64   `json:"traffic_bytes_dropped,omitempty"`
+	UpdatedAt           int64    `json:"updated_at"`
+}
+
+type EgressBindingRequest struct {
+	InstanceID  string   `json:"instance_id"`
+	ProfileID   string   `json:"profile_id"`
+	Source      string   `json:"source"`
+	Sources     []string `json:"sources,omitempty"`
+	Interface   *string  `json:"interface,omitempty"`
+	InterfaceV4 *string  `json:"interface_v4,omitempty"`
+	InterfaceV6 *string  `json:"interface_v6,omitempty"`
+	Enabled     *bool    `json:"enabled,omitempty"`
+}
+
+type EgressBindingDeleteRequest struct {
+	InstanceID string `json:"instance_id"`
+}
+
+type EgressBindingsResponse struct {
+	Bindings []EgressBinding `json:"bindings"`
+	Total    int             `json:"total"`
+}
+
+type EgressReconcileRequest struct {
+	Apply bool `json:"apply,omitempty"`
+}
+
+type EgressStateRequest struct {
+	Profiles []EgressProfileRequest `json:"profiles"`
+	Bindings []EgressBindingRequest `json:"bindings"`
+	Apply    bool                   `json:"apply,omitempty"`
+}
+
+type EgressStateResponse struct {
+	ProfileCount int                     `json:"profile_count"`
+	BindingCount int                     `json:"binding_count"`
+	Reconcile    EgressReconcileResponse `json:"reconcile"`
+}
+
+type EgressRoutePlan struct {
+	InstanceID string   `json:"instance_id"`
+	ProfileID  string   `json:"profile_id"`
+	Status     string   `json:"status"`
+	Commands   []string `json:"commands"`
+	Error      *string  `json:"error,omitempty"`
+}
+
+type EgressReconcileResponse struct {
+	Applied      bool               `json:"applied"`
+	FailClosed   bool               `json:"fail_closed"`
+	Capabilities EgressCapabilities `json:"capabilities"`
+	Plans        []EgressRoutePlan  `json:"plans"`
+	Errors       []string           `json:"errors,omitempty"`
+}
+
+type EgressDependencyEnsureRequest struct {
+	PackageSet string `json:"package_set,omitempty"`
+}
+
+type EgressDependencyEnsureResponse struct {
+	Attempted      bool               `json:"attempted"`
+	Installed      bool               `json:"installed"`
+	PackageSet     string             `json:"package_set"`
+	PackageManager *string            `json:"package_manager,omitempty"`
+	Capabilities   EgressCapabilities `json:"capabilities"`
+	Message        string             `json:"message,omitempty"`
+}
+
+// GetEgressCapabilities returns host prerequisites without changing state.
+func (c *Client) GetEgressCapabilities() (*EgressCapabilities, error) {
+	var resp EgressCapabilities
+	if err := c.doRequest("GET", "/api/v1/egress/capabilities", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ListEgressProfiles returns the agent's persisted desired egress profiles.
+func (c *Client) ListEgressProfiles() (*EgressProfilesResponse, error) {
+	var resp EgressProfilesResponse
+	if err := c.doRequest("GET", "/api/v1/egress/profiles", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// PutEgressProfile creates or updates one profile and resets it to pending.
+func (c *Client) PutEgressProfile(req EgressProfileRequest) (*EgressProfile, error) {
+	var resp EgressProfile
+	if err := c.doRequest("PUT", "/api/v1/egress/profiles", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) DeleteEgressProfile(id string) error {
+	var resp map[string]interface{}
+	return c.doRequest("DELETE", "/api/v1/egress/profiles", EgressProfileDeleteRequest{ID: id}, &resp)
+}
+
+func (c *Client) ListEgressBindings() (*EgressBindingsResponse, error) {
+	var resp EgressBindingsResponse
+	if err := c.doRequest("GET", "/api/v1/egress/bindings", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// PutEgressBinding creates or updates the source identity for one instance.
+func (c *Client) PutEgressBinding(req EgressBindingRequest) (*EgressBinding, error) {
+	var resp EgressBinding
+	if err := c.doRequest("PUT", "/api/v1/egress/bindings", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) DeleteEgressBinding(instanceID string) error {
+	var resp map[string]interface{}
+	return c.doRequest("DELETE", "/api/v1/egress/bindings", EgressBindingDeleteRequest{InstanceID: instanceID}, &resp)
+}
+
+// ReplaceEgressState atomically replaces all controller-owned egress desired
+// state on one Agent and reconciles the host data plane exactly once.
+func (c *Client) ReplaceEgressState(req EgressStateRequest) (*EgressStateResponse, error) {
+	var resp EgressStateResponse
+	if err := c.doRequest("PUT", "/api/v1/egress/state", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ReconcileEgress requests a dry-run plan by default.  The Rust Agent only
+// marks routes active after a future audited data-plane adapter applies them;
+// callers must inspect Applied/FailClosed and every plan status.
+func (c *Client) ReconcileEgress(apply bool) (*EgressReconcileResponse, error) {
+	var resp EgressReconcileResponse
+	if err := c.doRequest("POST", "/api/v1/egress/reconcile", EgressReconcileRequest{Apply: apply}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// EnsureEgressDependencies asks the Agent to install/check only its declared
+// native or WireGuard prerequisites. The Agent is responsible for package
+// manager selection and idempotence; no shell command is accepted here.
+func (c *Client) EnsureEgressDependencies(packageSet string) (*EgressDependencyEnsureResponse, error) {
+	var resp EgressDependencyEnsureResponse
+	if err := c.doRequest("POST", "/api/v1/egress/dependencies/ensure", EgressDependencyEnsureRequest{PackageSet: packageSet}, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

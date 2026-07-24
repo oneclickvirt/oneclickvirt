@@ -345,6 +345,53 @@ run_module_09() {
 
     test_api "Clear IPv4 pool" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv4-pool" "200" "" "$group"
 
+    # -- IPv6 pool: discrete addresses and tiny prefixes must not be expanded --
+    test_api "Reset IPv6 pool before coverage" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "200" "" "$group"
+    test_api_json_value "Set IPv6 discrete address and /127" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "200" \
+        '.data.addedCount' "2" \
+        '{"addresses":"2001:db8:ffff::100\n2001:db8:ffff:1::/127"}' "$group" >/dev/null
+    test_api_json_value "IPv6 tiny-prefix capacity" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "200" \
+        '.data.stats.availableExact' "3" "" "$group" >/dev/null
+
+    local ipv6_pool_resp; ipv6_pool_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" 2>/dev/null)
+    local ipv6_range_entry_id; ipv6_range_entry_id=$(echo "$ipv6_pool_resp" | \
+        jq -r '.data.list[]? | select(.is_range == true) | .id' 2>/dev/null | head -1)
+    if [[ -n "$ipv6_range_entry_id" ]]; then
+        test_api "Delete IPv6 range entry" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool/${ipv6_range_entry_id}" "200" "" "$group"
+    else
+        record_fail_result "Delete IPv6 range entry" "DELETE" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool/:entry_id" "range entry id" "missing" \
+            "$ipv6_pool_resp" "$group"
+    fi
+
+    test_api "Reject polluted IPv6 pool input" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "400" \
+        '{"addresses":"inet6-prefix: not-an-ip\nvalid_lft forever preferred_lft forever"}' "$group"
+    test_api "Clear IPv6 address-file path" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"ipv6AddressFilePath":""}' "$group"
+    test_api "IPv6 file sync requires configured path" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool/sync" "400" \
+        '{}' "$group"
+    test_api "Clear IPv6 pool" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "200" "" "$group"
+
+    # -- IPv6 tunnel API contract. Keep the test tunnel disabled so the Action
+    # never changes the worker's live IPv6 route or creates a host interface. --
+    local ipv6_tunnel_resp; ipv6_tunnel_resp=$(test_api "Create disabled IPv6 tunnel" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels" "200" \
+        '{"name":"CI disabled tunnel","mode":"sit","interfaceName":"ocv6ci0","localIpv4":"192.0.2.10","remoteIpv4":"198.51.100.1","localIpv6":"2001:db8:100::2/64","remoteIpv6":"2001:db8:100::1","routedCidr":"2001:db8:101::/64","mtu":1480,"ttl":255,"routeMetric":100,"defaultRoute":false,"enabled":false}' "$group")
+    local ipv6_tunnel_id; ipv6_tunnel_id=$(echo "$ipv6_tunnel_resp" | jq -r '.data.id // empty' 2>/dev/null)
+    test_api "List IPv6 tunnels" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels" "200" "" "$group"
+    if [[ -n "$ipv6_tunnel_id" ]]; then
+        test_api "Update disabled IPv6 tunnel" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels/${ipv6_tunnel_id}" "200" \
+            '{"name":"CI disabled tunnel updated","mode":"sit","interfaceName":"ocv6ci0","localIpv4":"192.0.2.10","remoteIpv4":"198.51.100.1","localIpv6":"2001:db8:100::2/64","remoteIpv6":"2001:db8:100::1","routedCidr":"2001:db8:102::/64","mtu":1480,"ttl":255,"routeMetric":101,"defaultRoute":false}' "$group"
+        test_api "Check disabled IPv6 tunnel" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels/check" "200" '{}' "$group"
+        test_api "Disable inactive IPv6 tunnel" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels/${ipv6_tunnel_id}/disable" "200" '{}' "$group"
+        test_api "Delete disabled IPv6 tunnel" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels/${ipv6_tunnel_id}" "200" "" "$group"
+    else
+        record_fail_result "IPv6 tunnel lifecycle" "POST" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels" "tunnel id" "missing" \
+            "$ipv6_tunnel_resp" "$group"
+    fi
+    test_api "Enable nonexistent IPv6 tunnel" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels/999999999/enable" "400|404" '{}' "$group"
+
     # -- Configuration tasks --
     test_api "Configuration tasks" "GET" "/api/v1/admin/configuration-tasks?page=1&pageSize=10" "200" "" "$group"
 

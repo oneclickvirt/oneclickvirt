@@ -488,11 +488,11 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 	}
 
 	// 解析输出
-	output = strings.TrimSpace(output)
-	if output == "" {
+	output, parseErr := utils.ParseSingleCommandToken(output)
+	if parseErr != nil {
 		global.APP_LOG.Debug("Docker inspect返回空输出",
 			zap.String("id", utils.TruncateString(id, 32)))
-		return nil, fmt.Errorf("instance not found")
+		return nil, fmt.Errorf("invalid Docker inspect output: %w", parseErr)
 	}
 
 	// 按|分割字段
@@ -541,8 +541,8 @@ func (d *DockerProvider) enrichInstanceWithNetworkInfo(instance *provider.Instan
 	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 	output, err := d.sshClient.Execute(cmd)
 	if err == nil {
-		ipAddress := strings.TrimSpace(output)
-		if ipAddress != "" && ipAddress != "<no value>" {
+		ipAddress, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+		if parseErr == nil {
 			instance.PrivateIP = ipAddress
 			instance.IP = ipAddress // 保持向后兼容
 			global.APP_LOG.Debug("获取到容器内网IP地址",
@@ -570,8 +570,8 @@ fi
 
 	vethOutput, err := d.sshClient.Execute(vethCmd)
 	if err == nil {
-		vethInterface := utils.CleanCommandOutput(vethOutput)
-		if vethInterface != "" {
+		vethInterface, parseErr := utils.ParseNetworkInterfaceOutput(vethOutput)
+		if parseErr == nil {
 			if instance.Metadata == nil {
 				instance.Metadata = make(map[string]string)
 			}
@@ -587,8 +587,8 @@ fi
 		cmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 		output, err := d.sshClient.Execute(cmd)
 		if err == nil {
-			ipAddress := strings.TrimSpace(output)
-			if ipAddress != "" && ipAddress != "<no value>" {
+			ipAddress, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+			if parseErr == nil {
 				instance.PrivateIP = ipAddress
 				instance.IP = ipAddress
 				global.APP_LOG.Debug("通过默认网络获取到容器IP地址",
@@ -606,8 +606,8 @@ fi
 		cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 		output, err = d.sshClient.Execute(cmd)
 		if err == nil {
-			ipv6Address := strings.TrimSpace(output)
-			if ipv6Address != "" && ipv6Address != "<no value>" {
+			ipv6Address, parseErr := utils.ParseSingleIPv6AddressOutput(output)
+			if parseErr == nil {
 				instance.IPv6Address = ipv6Address
 				global.APP_LOG.Debug("获取到容器IPv6地址",
 					zap.String("instance", instance.Name),

@@ -199,12 +199,15 @@ type Provider struct {
 	VMLimitDisk   bool `json:"vmLimitDisk" gorm:"default:true"`   // 虚拟机硬盘是否计入Provider总量预算，默认true（严格限制）
 
 	// 端口映射配置
-	DefaultPortCount  int    `json:"defaultPortCount" gorm:"default:10"`                   // 每个实例默认映射端口数量
-	PortRangeStart    int    `json:"portRangeStart" gorm:"default:10000"`                  // 端口映射范围起始
-	PortRangeEnd      int    `json:"portRangeEnd" gorm:"default:65535"`                    // 端口映射范围结束
-	NextAvailablePort int    `json:"nextAvailablePort" gorm:"default:10000"`               // 下一个可用端口
-	FixedPorts        []int  `json:"fixedPorts" gorm:"serializer:json;type:text"`          // 固定实例内端口，宿主机端口仍从端口池分配；22 强制保留
-	NetworkType       string `json:"networkType" gorm:"default:nat_ipv4;size:32;not null"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	DefaultPortCount         int        `json:"defaultPortCount" gorm:"default:10"`                   // 每个实例默认映射端口数量
+	PortRangeStart           int        `json:"portRangeStart" gorm:"default:10000"`                  // 端口映射范围起始
+	PortRangeEnd             int        `json:"portRangeEnd" gorm:"default:65535"`                    // 端口映射范围结束
+	NextAvailablePort        int        `json:"nextAvailablePort" gorm:"default:10000"`               // 下一个可用端口
+	FixedPorts               []int      `json:"fixedPorts" gorm:"serializer:json;type:text"`          // 固定实例内端口，宿主机端口仍从端口池分配；22 强制保留
+	NetworkType              string     `json:"networkType" gorm:"default:nat_ipv4;size:32;not null"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	IPv6AddressFilePath      string     `json:"ipv6AddressFilePath" gorm:"size:512"`                  // 节点侧IPv6地址/CIDR文件；为空时使用主控地址池或自动探测
+	IPv6AddressFileSyncedAt  *time.Time `json:"ipv6AddressFileSyncedAt"`                              // 节点IPv6地址文件最近成功同步时间
+	IPv6AddressFileSyncError string     `json:"ipv6AddressFileSyncError" gorm:"size:1024"`            // 最近同步错误；成功后清空
 
 	// 带宽配置（Mbps为单位）
 	DefaultInboundBandwidth  int `json:"defaultInboundBandwidth" gorm:"default:300"`  // 默认入站带宽限制（Mbps）
@@ -456,6 +459,10 @@ type Instance struct {
 	PortRangeStart int    `json:"portRangeStart"`                              // 端口映射范围起始
 	PortRangeEnd   int    `json:"portRangeEnd"`                                // 端口映射范围结束
 	NetworkType    string `json:"networkType" gorm:"size:32;default:nat_ipv4"` // 创建时继承的网络类型（用于reset时恢复IPv6配置）
+	// EgressProfileID binds this instance to a node-side transparent egress
+	// profile.  The Rust Agent treats the binding as desired state and keeps
+	// traffic fail-closed until the host route plan is reconciled successfully.
+	EgressProfileID string `json:"egressProfileId,omitempty" gorm:"size:128;index"`
 
 	// 访问凭据
 	Username string `json:"username" gorm:"size:64"`  // 登录用户名

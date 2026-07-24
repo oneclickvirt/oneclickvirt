@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	monitoringModel "oneclickvirt/model/monitoring"
@@ -25,6 +26,7 @@ func OnInstanceCreated(ctx context.Context, db *gorm.DB, instanceID uint) {
 		}
 		return
 	}
+	defer scheduleEgressRefresh(db, instanceID, true)
 
 	// Get the connected provider; needed for both interface detection and monitoring.
 	providerInstance, provErr := providerService.GetProviderInstanceByID(instance.ProviderID)
@@ -78,6 +80,16 @@ func OnInstanceDeleted(ctx context.Context, db *gorm.DB, instanceID uint) {
 	if err := db.WithContext(ctx).Unscoped().First(&instance, instanceID).Error; err != nil {
 		return
 	}
+	// Remove the node-side binding before the instance row is soft-deleted so
+	// stale source rules cannot survive a later instance-ID reuse.
+	if strings.TrimSpace(instance.EgressProfileID) != "" {
+		egressCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if _, err := NewInstanceEgressService(db).Unbind(egressCtx, instanceID, true); err != nil && global.APP_LOG != nil {
+			global.APP_LOG.Warn("agent lifecycle: failed to clean instance egress binding",
+				zap.Uint("instance_id", instanceID), zap.Error(err))
+		}
+		cancel()
+	}
 
 	config, err := GetMonitoringConfig(db.WithContext(ctx), instance.ProviderID)
 	if err != nil || config.MonitoringMode != "agent" || !config.AgentInstalled {
@@ -100,6 +112,7 @@ func OnInstanceRebuilt(ctx context.Context, db *gorm.DB, instanceID uint) {
 	if err := db.WithContext(ctx).First(&instance, instanceID).Error; err != nil {
 		return
 	}
+	defer scheduleEgressRefresh(db, instanceID, true)
 
 	providerInstance, provErr := providerService.GetProviderInstanceByID(instance.ProviderID)
 
@@ -146,7 +159,7 @@ func OnInstanceStarted(ctx context.Context, db *gorm.DB, instanceID uint) {
 	if err := db.WithContext(ctx).First(&instance, instanceID).Error; err != nil {
 		return
 	}
-
+	defer scheduleEgressRefresh(db, instanceID, true)
 	// 刷新控制端端口转发的 InternalHost（实例重启后IP可能已变更）
 	go refreshControllerPortHosts(db, instanceID)
 
@@ -196,6 +209,23 @@ func OnInstanceStarted(ctx context.Context, db *gorm.DB, instanceID uint) {
 
 	_ = db.WithContext(ctx).First(&instance, instanceID)
 	updateInstanceInterfaces(ctx, db, &instance, monitor)
+}
+
+// scheduleEgressRefresh runs after lifecycle handlers have persisted newly
+// detected interfaces. It intentionally uses a detached bounded context so a
+// cancelled task cannot leave the node binding pointing at a stale veth.
+func scheduleEgressRefresh(db *gorm.DB, instanceID uint, apply bool) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if db == nil {
+			return
+		}
+		if err := NewInstanceEgressService(db).RefreshBinding(ctx, instanceID, apply); err != nil && global.APP_LOG != nil {
+			global.APP_LOG.Debug("agent lifecycle: egress refresh skipped or failed",
+				zap.Uint("instance_id", instanceID), zap.Error(err))
+		}
+	}()
 }
 
 // updateInstanceInterfaces updates the PmacctInterfaceV4/V6 fields on the instance

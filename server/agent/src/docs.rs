@@ -74,6 +74,24 @@ impl Modify for SecurityAddon {
             crate::models::RemoveDomainProxyResponse,
             crate::models::DomainProxyItem,
             crate::models::ListDomainProxiesResponse,
+            crate::egress::HostCapabilities,
+            crate::egress::WireGuardConfigRequest,
+            crate::egress::WireGuardStatus,
+            crate::egress::EgressProfile,
+            crate::egress::EgressProfileRequest,
+            crate::egress::EgressProfileDeleteRequest,
+            crate::egress::ListProfilesResponse,
+            crate::egress::EgressBindingRequest,
+            crate::egress::EgressBindingDeleteRequest,
+            crate::egress::EgressBinding,
+            crate::egress::ListBindingsResponse,
+            crate::egress::ReplaceStateRequest,
+            crate::egress::ReplaceStateResponse,
+            crate::egress::ReconcileRequest,
+            crate::egress::RoutePlan,
+            crate::egress::ReconcileResponse,
+            crate::egress::DependencyEnsureRequest,
+            crate::egress::DependencyEnsureResponse,
             crate::resource::ResourceSnapshot,
             crate::resource::ProviderKind,
             crate::error::ErrorResponse
@@ -84,7 +102,8 @@ impl Modify for SecurityAddon {
         (name = "VM Traffic", description = "VM traffic monitor APIs"),
         (name = "Resource Monitoring", description = "Instance resource monitoring APIs"),
         (name = "Block Rules", description = "Network block rule management APIs"),
-        (name = "Domain Proxy", description = "Domain reverse proxy management APIs")
+        (name = "Domain Proxy", description = "Domain reverse proxy management APIs"),
+        (name = "Transparent Egress", description = "Per-instance transparent egress desired-state and route planning APIs")
     )
 )]
 pub struct ApiDoc;

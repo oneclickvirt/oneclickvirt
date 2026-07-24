@@ -343,9 +343,13 @@ func (i *IncusProvider) CreateInstance(ctx context.Context, config provider.Inst
 		return fmt.Errorf("not connected")
 	}
 
+	forceSSHStaticIPv6 := hasRequestedStaticIPv6(config)
+	if forceSSHStaticIPv6 && !i.shouldUseSSH() {
+		return fmt.Errorf("Incus控制面静态IPv6当前需要SSH网络配置路径，api_only无法安全消费已分配地址")
+	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := i.shouldUseWindowsInstallerSSH(ctx, &config)
-	if i.shouldUseAPI() && !forceSSHInstaller {
+	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHStaticIPv6 {
 		if err := i.apiCreateInstance(ctx, config); err == nil {
 			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -372,9 +376,13 @@ func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config p
 		return fmt.Errorf("not connected")
 	}
 
+	forceSSHStaticIPv6 := hasRequestedStaticIPv6(config)
+	if forceSSHStaticIPv6 && !i.shouldUseSSH() {
+		return fmt.Errorf("Incus控制面静态IPv6当前需要SSH网络配置路径，api_only无法安全消费已分配地址")
+	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := i.shouldUseWindowsInstallerSSH(ctx, &config)
-	if i.shouldUseAPI() && !forceSSHInstaller {
+	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHStaticIPv6 {
 		if err := i.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
 			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -393,6 +401,10 @@ func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config p
 	}
 
 	return i.sshCreateInstanceWithProgress(ctx, config, progressCallback)
+}
+
+func hasRequestedStaticIPv6(config provider.InstanceConfig) bool {
+	return config.Metadata != nil && strings.TrimSpace(config.Metadata["static_ipv6"]) != ""
 }
 
 func (i *IncusProvider) StartInstance(ctx context.Context, id string) error {

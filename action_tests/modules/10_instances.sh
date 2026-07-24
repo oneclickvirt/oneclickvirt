@@ -136,6 +136,16 @@ run_module_10() {
                 container_created=true
                 container_name=$(echo "$detail" | jq -r '.data.name // empty' 2>/dev/null)
 
+                # -- Transparent egress API coverage (non-destructive paths only) --
+                test_api "Container egress status" "GET" "/api/v1/admin/instances/${container_id}/egress" "200" "" "$group"
+                test_api "Reject unsafe egress fallback" "PUT" "/api/v1/admin/instances/${container_id}/egress" "400" \
+                    '{"profile":{"id":"action-test","mode":"native","tunnel_type":"wireguard","tunnel_interface":"wg-action-test","route_table":100,"mark":100,"fail_closed":false},"source":"192.0.2.10","interface":"action-test0","apply":false}' "$group"
+                test_api "Reject invalid egress dependency set" "POST" "/api/v1/admin/instances/${container_id}/egress/dependencies" "400" \
+                    '{"package_set":"invalid"}' "$group"
+                test_api "Reject invalid egress reconcile body" "POST" "/api/v1/admin/instances/${container_id}/egress/reconcile" "400" \
+                    '{"apply":"invalid"}' "$group"
+                test_api "Reject invalid egress unbind apply flag" "DELETE" "/api/v1/admin/instances/${container_id}/egress?apply=invalid" "400" "" "$group"
+
                 # -- Config validation --
                 TOTAL_TESTS=$((TOTAL_TESTS + 1))
                 local d_cpu; d_cpu=$(echo "$detail" | jq -r '.data.cpu // empty' 2>/dev/null)

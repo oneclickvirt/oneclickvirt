@@ -10,9 +10,11 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/ipv6pool"
 	"oneclickvirt/service/resources"
 	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -193,6 +195,13 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	if err != nil {
 		return nil, err
 	}
+	normalizedIPv6FilePath := strings.TrimSpace(req.IPv6AddressFilePath)
+	if normalizedIPv6FilePath != "" {
+		normalizedIPv6FilePath, err = ipv6pool.ValidateNodeFilePath(normalizedIPv6FilePath)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	provider := providerModel.Provider{
 		Name:                     req.Name,
@@ -252,11 +261,12 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		VNCBasePort:         req.VNCBasePort,
 		VNCHost:             req.VNCHost,
 		// 端口映射配置
-		DefaultPortCount: req.DefaultPortCount,
-		PortRangeStart:   req.PortRangeStart,
-		PortRangeEnd:     req.PortRangeEnd,
-		FixedPorts:       req.FixedPorts,
-		NetworkType:      req.NetworkType,
+		DefaultPortCount:    req.DefaultPortCount,
+		PortRangeStart:      req.PortRangeStart,
+		PortRangeEnd:        req.PortRangeEnd,
+		FixedPorts:          req.FixedPorts,
+		NetworkType:         req.NetworkType,
+		IPv6AddressFilePath: normalizedIPv6FilePath,
 		// 带宽配置
 		DefaultInboundBandwidth:  req.DefaultInboundBandwidth,
 		DefaultOutboundBandwidth: req.DefaultOutboundBandwidth,

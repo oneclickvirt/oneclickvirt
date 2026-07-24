@@ -16,14 +16,8 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	global.APP_LOG.Debug("开始配置网络设备IPv6",
 		zap.String("container", config.ContainerName))
 
-	// 安装sipcalc
-	if err := i.installSipcalc(ctx); err != nil {
-		return "", fmt.Errorf("安装sipcalc失败: %w", err)
-	}
-
 	// 获取本机IPv6网络信息
-	hostIPv6, err := i.checkIPv6(ctx)
-	if err != nil {
+	if _, err := i.checkIPv6(ctx); err != nil {
 		return "", fmt.Errorf("检查IPv6失败: %w", err)
 	}
 
@@ -36,67 +30,64 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	output, err := i.sshClient.Execute(heIPv6Check)
 	if err == nil && strings.TrimSpace(output) == "found" {
 		ipv6NetworkName = "he-ipv6"
-		cmd := fmt.Sprintf("ip -6 addr show %s | grep -E \"%s/24|%s/48|%s/64|%s/80|%s/96|%s/112\" | grep global | awk '{print $2}'",
-			shellSingleQuote(ipv6NetworkName), hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6, hostIPv6)
+		cmd := fmt.Sprintf("ip -6 addr show dev %s scope global | awk '$1==\"inet6\" {print $2; exit}'",
+			shellSingleQuote(ipv6NetworkName))
 		output, err := i.sshClient.Execute(cmd)
 		if err == nil {
-			ipNetworkGam = strings.TrimSpace(output)
+			ipNetworkGam = output
 		}
 	} else {
 		// 获取默认网络接口
-		cmd := "ls /sys/class/net/ | grep -v \"$(ls /sys/devices/virtual/net/)\""
+		cmd := "ls /sys/class/net/ | grep -v \"$(ls /sys/devices/virtual/net/)\" | head -n 1"
 		output, err := i.sshClient.Execute(cmd)
 		if err != nil {
 			return "", fmt.Errorf("获取网络接口失败: %w", err)
 		}
-		// 清理输出，移除所有空白字符和回车符
-		ipv6NetworkName = utils.CleanCommandOutput(output)
+		ipv6NetworkName, err = utils.ParseNetworkInterfaceOutput(output)
+		if err != nil {
+			return "", fmt.Errorf("解析网络接口名称失败: %w", err)
+		}
 
-		cmd = fmt.Sprintf("ip -6 addr show %s | grep global | awk '{print $2}' | head -n 1", shellSingleQuote(ipv6NetworkName))
+		cmd = fmt.Sprintf("ip -6 addr show dev %s scope global | awk '$1==\"inet6\" {print $2; exit}'", shellSingleQuote(ipv6NetworkName))
 		output, err = i.sshClient.Execute(cmd)
 		if err == nil {
-			ipNetworkGam = strings.TrimSpace(output)
+			ipNetworkGam = output
 		}
 	}
 
-	if ipNetworkGam == "" {
-		return "", fmt.Errorf("无法获取本地IPv6网络配置")
-	}
-
-	global.APP_LOG.Debug("本地IPv6地址", zap.String("address", ipNetworkGam))
-
-	// 配置系统参数
-	sysctlConfigs := []string{
-		fmt.Sprintf("net.ipv6.conf.%s.proxy_ndp=1", ipv6NetworkName),
-		"net.ipv6.conf.all.forwarding=1",
-		"net.ipv6.conf.all.proxy_ndp=1",
-	}
-
-	for _, sysctlConfig := range sysctlConfigs {
-		i.updateSysctl(ctx, sysctlConfig)
-	}
-
-	// 重新加载sysctl配置（忽略不存在的参数错误）
-	i.sshClient.Execute("sysctl -p 2>&1 | grep -v 'cannot stat' || true")
-
-	// 使用sipcalc计算IPv6地址
-	sipcalcCmd := fmt.Sprintf("sipcalc %s | grep \"Compressed address\" | awk '{print $4}' | awk -F: '{NF--; print}' OFS=:", ipNetworkGam)
-	output, err = i.sshClient.Execute(sipcalcCmd)
+	network, err := utils.ParseSingleIPv6NetworkOutput(ipNetworkGam, 64)
 	if err != nil {
-		return "", fmt.Errorf("计算IPv6地址失败: %w", err)
+		return "", fmt.Errorf("无法获取本地IPv6网络配置: %w", err)
 	}
 
-	ipv6Prefix := strings.TrimSpace(output) + ":"
+	global.APP_LOG.Debug("本地IPv6网络", zap.String("network", network.CIDR()))
 
-	// 生成随机后缀
-	randBitsCmd := "od -An -N2 -t x1 /dev/urandom | tr -d ' '"
-	output, err = i.sshClient.Execute(randBitsCmd)
-	if err != nil {
-		return "", fmt.Errorf("生成随机数失败: %w", err)
+	if err := i.configureIPv6Sysctls(ipv6NetworkName); err != nil {
+		return "", fmt.Errorf("配置IPv6 sysctl失败: %w", err)
 	}
 
-	randBits := strings.TrimSpace(output)
-	containerIPv6 := ipv6Prefix + randBits
+	containerIPv6 := ""
+	if strings.TrimSpace(config.ContainerIPv6) != "" {
+		containerIPv6, err = utils.NormalizeIPv6Address(config.ContainerIPv6)
+		if err != nil {
+			return "", fmt.Errorf("静态IPv6地址无效: %w", err)
+		}
+	} else {
+		// 只使用经过解析的网络地址，不把远端命令的多行诊断文本拼进前缀。
+		randBitsCmd := "od -An -N2 -t x1 /dev/urandom | tr -d '[:space:]'"
+		output, err = i.sshClient.Execute(randBitsCmd)
+		if err != nil {
+			return "", fmt.Errorf("生成随机数失败: %w", err)
+		}
+		randBits, parseErr := utils.ParseHexUint64(output)
+		if parseErr != nil {
+			return "", fmt.Errorf("解析随机数失败: %w", parseErr)
+		}
+		containerIPv6, err = utils.IPv6AddressWithSuffix(network, randBits)
+		if err != nil {
+			return "", fmt.Errorf("生成容器IPv6地址失败: %w", err)
+		}
+	}
 
 	global.APP_LOG.Debug("生成容器IPv6地址",
 		zap.String("container", config.ContainerName),
@@ -107,9 +98,17 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	i.sshClient.Execute(stopCmd)
 	time.Sleep(3 * time.Second)
 
-	// IPv6网络设备
-	deviceCmd := fmt.Sprintf("incus config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s",
-		shellSingleQuote(config.ContainerName), shellSingleQuote(ipv6NetworkName), shellSingleQuote(containerIPv6))
+	instanceArg := shellSingleQuote(config.ContainerName)
+	parentArg := shellSingleQuote(ipv6NetworkName)
+	addressArg := shellSingleQuote(containerIPv6)
+	deviceCmd := fmt.Sprintf(`set -eu
+if incus config device get %s eth1 type >/dev/null 2>&1; then
+  incus config device set %s eth1 nictype routed
+  incus config device set %s eth1 parent %s
+  incus config device set %s eth1 ipv6.address %s
+else
+  incus config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s
+fi`, instanceArg, instanceArg, instanceArg, parentArg, instanceArg, addressArg, instanceArg, parentArg, addressArg)
 	_, err = i.sshClient.Execute(deviceCmd)
 	if err != nil {
 		return "", fmt.Errorf("添加IPv6网络设备失败: %w", err)
@@ -154,43 +153,32 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	return containerIPv6, nil
 }
 
-// updateSysctl 更新sysctl配置
-func (i *IncusProvider) updateSysctl(ctx context.Context, sysctlConfig string) error {
-	parts := strings.Split(sysctlConfig, "=")
-	if len(parts) != 2 {
-		return fmt.Errorf("无效的sysctl配置: %s", sysctlConfig)
+// configureIPv6Sysctls writes one clean, dedicated sysctl file. The
+// interface-specific key is persisted only when its procfs knob exists.
+func (i *IncusProvider) configureIPv6Sysctls(interfaceName string) error {
+	if strings.TrimSpace(interfaceName) == "" || utils.SanitizeShellArg(interfaceName) != interfaceName {
+		return fmt.Errorf("无效的IPv6网络接口: %q", interfaceName)
 	}
-
-	key := parts[0]
-	value := parts[1]
-
-	// 目标配置文件
-	customConf := "/etc/sysctl.d/99-custom.conf"
-
-	// 创建目录
-	i.sshClient.Execute("mkdir -p /etc/sysctl.d")
-
-	// 检查和更新配置文件
-	checkCmd := fmt.Sprintf("grep -q \"^%s\" %s 2>/dev/null", sysctlConfig, customConf)
-	_, err := i.sshClient.Execute(checkCmd)
-	if err != nil {
-		// 配置不存在，添加它
-		addCmd := fmt.Sprintf("echo \"%s\" >> %s", sysctlConfig, customConf)
-		i.sshClient.Execute(addCmd)
-	}
-
-	// 检查/etc/sysctl.conf并同步更新
-	checkSysctlCmd := fmt.Sprintf("grep -q \"^%s\" /etc/sysctl.conf 2>/dev/null", sysctlConfig)
-	_, err = i.sshClient.Execute(checkSysctlCmd)
-	if err != nil {
-		// 在/etc/sysctl.conf中不存在，添加
-		addSysctlCmd := fmt.Sprintf("echo \"%s\" >> /etc/sysctl.conf", sysctlConfig)
-		i.sshClient.Execute(addSysctlCmd)
-	}
-
-	// 立即应用配置
-	applyCmd := fmt.Sprintf("sysctl -w \"%s=%s\"", key, value)
-	_, err = i.sshClient.Execute(applyCmd)
+	quotedInterface := shellSingleQuote(interfaceName)
+	command := fmt.Sprintf(`set -eu
+conf=/etc/sysctl.d/99-oneclickvirt-ipv6.conf
+mkdir -p /etc/sysctl.d
+tmp="${conf}.tmp.$$"
+{
+  printf 'net.ipv6.conf.all.forwarding=1\n'
+  printf 'net.ipv6.conf.all.proxy_ndp=1\n'
+  if [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then
+    printf 'net.ipv6.conf.%%s.proxy_ndp=1\n' %s
+  fi
+} > "$tmp"
+chmod 0644 "$tmp"
+mv "$tmp" "$conf"
+sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
+sysctl -w net.ipv6.conf.all.proxy_ndp=1 >/dev/null
+if [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then
+  sysctl -w "net.ipv6.conf.%s.proxy_ndp=1" >/dev/null
+fi`, quotedInterface, quotedInterface, quotedInterface, interfaceName)
+	_, err := i.sshClient.Execute(command)
 	return err
 }
 
@@ -216,8 +204,12 @@ func (i *IncusProvider) handleIPv6Gateway(ctx context.Context, interfaceName str
 	delIPCmd := fmt.Sprintf("ip -6 addr show dev %s | awk '/inet6 fe80/ {print $2}'", interfaceName)
 	output, err := i.sshClient.Execute(delIPCmd)
 	if err == nil {
-		delIP := strings.TrimSpace(output)
-		if delIP != "" {
+		delIP, parseErr := utils.ParseSingleIPv6AddressOutput(output)
+		if parseErr != nil {
+			if strings.TrimSpace(output) != "" {
+				global.APP_LOG.Warn("解析待删除的链路本地IPv6地址失败", zap.Error(parseErr))
+			}
+		} else {
 			// 删除地址
 			deleteCmd := fmt.Sprintf("ip addr del %s dev %s", delIP, interfaceName)
 			i.sshClient.Execute(deleteCmd)
@@ -240,7 +232,7 @@ func (i *IncusProvider) handleIPv6Gateway(ctx context.Context, interfaceName str
 }
 
 // configureIPv6Network 主要的IPv6网络配置函数
-func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName string, enableIPv6 bool, portMappingMethod string) error {
+func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName string, enableIPv6 bool, portMappingMethod, requestedIPv6 string) error {
 	if !enableIPv6 {
 		global.APP_LOG.Debug("IPv6未启用，跳过IPv6配置", zap.String("container", containerName))
 		return nil
@@ -253,10 +245,7 @@ func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName 
 	// 首先检查宿主机是否有公网IPv6地址
 	hostIPv6, err := i.checkIPv6(ctx)
 	if err != nil {
-		global.APP_LOG.Warn("宿主机不支持IPv6，自动跳过IPv6配置",
-			zap.String("container", containerName),
-			zap.Error(err))
-		return nil // 宿主机不支持IPv6时，静默跳过IPv6配置，不返回错误
+		return fmt.Errorf("宿主机IPv6环境不可用: %w", err)
 	}
 
 	global.APP_LOG.Debug("宿主机IPv6环境检查通过",
@@ -273,6 +262,7 @@ func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName 
 	// 创建IPv6配置，根据端口映射方式选择IPv6配置方式
 	config := IPv6Config{
 		ContainerName:    containerName,
+		ContainerIPv6:    requestedIPv6,
 		Gateway:          gatewayInfo,
 		UseNetworkDevice: portMappingMethod == "device_proxy", // device_proxy使用网络设备方式
 		UseIptables:      portMappingMethod == "iptables",     // iptables使用iptables方式
@@ -300,9 +290,11 @@ func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName 
 		}
 	}
 
-	// 保存IPv6地址到文件
-	saveCmd := fmt.Sprintf("echo \"%s\" >> %s_v6", containerIPv6, containerName)
-	i.sshClient.Execute(saveCmd)
+	// 保存单一的规范地址，避免重试时产生多行污染。
+	saveCmd := fmt.Sprintf("printf '%%s\\n' %s > %s", shellSingleQuote(containerIPv6), shellSingleQuote(containerName+"_v6"))
+	if _, err := i.sshClient.Execute(saveCmd); err != nil {
+		return fmt.Errorf("保存实例IPv6地址失败: %w", err)
+	}
 
 	global.APP_LOG.Info("IPv6网络配置完成",
 		zap.String("container", containerName),
@@ -353,21 +345,11 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 	if err != nil {
 		return "", fmt.Errorf("获取IPv6子网前缀失败: %w", err)
 	}
-
-	// 获取IPv6子网长度
-	ipv6LengthCmd := "ip addr show | awk '/inet6.*scope global/ { print $2 }' | head -n 1"
-	output, err := i.sshClient.Execute(ipv6LengthCmd)
+	network, err := utils.ParseIPv6Network(subnetPrefix, 64)
 	if err != nil {
-		return "", fmt.Errorf("获取IPv6子网长度失败: %w", err)
+		return "", fmt.Errorf("解析IPv6子网失败: %w", err)
 	}
-
-	ipv6AddressWithLength := utils.CleanCommandOutput(output)
-	if !strings.Contains(ipv6AddressWithLength, "/") {
-		return "", fmt.Errorf("查询不到IPv6的子网大小")
-	}
-
-	parts := strings.Split(ipv6AddressWithLength, "/")
-	ipv6Length := parts[1]
+	ipv6Length := fmt.Sprintf("%d", network.PrefixLen)
 
 	// 获取网络接口名称
 	interfaceCmd := "lshw -C network | awk '/logical name:/{print $3}' | head -1"
@@ -376,9 +358,9 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		interfaceCmd = "ip route | grep default | awk '{print $5}' | head -1"
 		interfaceOutput, _ = i.sshClient.Execute(interfaceCmd)
 	}
-	interfaceName := utils.CleanCommandOutput(interfaceOutput)
-	if interfaceName == "" {
-		return "", fmt.Errorf("无法获取网络接口名称")
+	interfaceName, parseErr := utils.ParseNetworkInterfaceOutput(interfaceOutput)
+	if parseErr != nil {
+		return "", fmt.Errorf("无法获取网络接口名称: %w", parseErr)
 	}
 
 	global.APP_LOG.Debug("网络配置信息",
@@ -387,50 +369,25 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		zap.String("ipv6Length", ipv6Length),
 		zap.String("containerIPv6", containerIPv6))
 
-	// 查找可用的IPv6地址
 	var mappedIPv6 string
-	for idx := 3; idx <= 65535; idx++ {
-		testIPv6 := fmt.Sprintf("%s%d", subnetPrefix, idx)
-
-		// 跳过容器本身的地址
-		if testIPv6 == containerIPv6 {
-			continue
+	if strings.TrimSpace(config.ContainerIPv6) != "" {
+		mappedIPv6, err = utils.NormalizeIPv6Address(config.ContainerIPv6)
+		if err != nil {
+			return "", fmt.Errorf("静态IPv6地址无效: %w", err)
 		}
-
-		// 检查地址是否已被使用
-		checkAddrCmd := fmt.Sprintf("ip -6 addr show dev %s | grep -qw %s", interfaceName, testIPv6)
-		_, err := i.sshClient.Execute(checkAddrCmd)
-		if err == nil {
-			// 地址已被使用，继续下一个
-			continue
+		ipv6Length = "128"
+	} else {
+		snapshotCmd := fmt.Sprintf("{ ip -6 addr show dev %s; ip -6 neigh show dev %s; ip6tables -t nat -S PREROUTING; } 2>/dev/null || true", shellSingleQuote(interfaceName), shellSingleQuote(interfaceName))
+		snapshot, snapshotErr := i.sshClient.Execute(snapshotCmd)
+		if snapshotErr != nil {
+			return "", fmt.Errorf("读取IPv6占用快照失败: %w", snapshotErr)
 		}
-
-		// 检查地址是否可以ping通
-		pingCmd := fmt.Sprintf("ping6 -c1 -w1 -q %s", testIPv6)
-		_, err = i.sshClient.Execute(pingCmd)
-		if err == nil {
-			// 地址能ping通，说明已被占用
-			global.APP_LOG.Debug("IPv6地址已被占用", zap.String("ipv6", testIPv6))
-			continue
+		occupied := utils.ExtractIPv6Addresses(snapshot)
+		occupied = append(occupied, containerIPv6)
+		mappedIPv6, err = utils.FirstAvailableIPv6(network, occupied, 3, 65533)
+		if err != nil {
+			return "", fmt.Errorf("无可用IPv6地址，不进行自动映射: %w", err)
 		}
-
-		// 检查firewall或iptables规则
-		var checkRuleCmd string
-		if useFirewalld {
-			checkRuleCmd = fmt.Sprintf("firewall-cmd --direct --query-rule ipv6 nat PREROUTING 0 -d %s -j DNAT --to-destination %s", testIPv6, containerIPv6)
-		} else {
-			checkRuleCmd = fmt.Sprintf("ip6tables -t nat -C PREROUTING -d %s -j DNAT --to-destination %s 2>/dev/null", testIPv6, containerIPv6)
-		}
-		_, err = i.sshClient.Execute(checkRuleCmd)
-		if err == nil {
-			// 规则已存在
-			continue
-		}
-
-		// 找到可用地址
-		mappedIPv6 = testIPv6
-		global.APP_LOG.Debug("找到可用IPv6地址", zap.String("ipv6", mappedIPv6))
-		break
 	}
 
 	if mappedIPv6 == "" {
@@ -438,7 +395,7 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 	}
 
 	// IPv6地址到接口
-	addAddrCmd := fmt.Sprintf("ip addr add %s/%s dev %s", mappedIPv6, ipv6Length, interfaceName)
+	addAddrCmd := fmt.Sprintf("ip -6 addr replace %s/%s dev %s", shellSingleQuote(mappedIPv6), ipv6Length, shellSingleQuote(interfaceName))
 	_, err = i.sshClient.Execute(addAddrCmd)
 	if err != nil {
 		return "", fmt.Errorf("添加IPv6地址失败: %w", err)
@@ -451,7 +408,7 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		time.Sleep(3 * time.Second)
 
 		// firewalld直接规则
-		natRuleCmd := fmt.Sprintf("firewall-cmd --permanent --direct --add-rule ipv6 nat PREROUTING 0 -d %s -j DNAT --to-destination %s", mappedIPv6, containerIPv6)
+		natRuleCmd := fmt.Sprintf("firewall-cmd --direct --query-rule ipv6 nat PREROUTING 0 -d %s -j DNAT --to-destination %s >/dev/null 2>&1 || firewall-cmd --permanent --direct --add-rule ipv6 nat PREROUTING 0 -d %s -j DNAT --to-destination %s", shellSingleQuote(mappedIPv6), shellSingleQuote(containerIPv6), shellSingleQuote(mappedIPv6), shellSingleQuote(containerIPv6))
 		_, err = i.sshClient.Execute(natRuleCmd)
 		if err != nil {
 			return "", fmt.Errorf("添加firewalld NAT规则失败: %w", err)
@@ -464,7 +421,7 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		}
 	} else {
 		// ip6tables NAT规则
-		natRuleCmd := fmt.Sprintf("ip6tables -t nat -A PREROUTING -d %s -j DNAT --to-destination %s", mappedIPv6, containerIPv6)
+		natRuleCmd := fmt.Sprintf("ip6tables -t nat -C PREROUTING -d %s -j DNAT --to-destination %s 2>/dev/null || ip6tables -t nat -A PREROUTING -d %s -j DNAT --to-destination %s", shellSingleQuote(mappedIPv6), shellSingleQuote(containerIPv6), shellSingleQuote(mappedIPv6), shellSingleQuote(containerIPv6))
 		_, err = i.sshClient.Execute(natRuleCmd)
 		if err != nil {
 			return "", fmt.Errorf("添加ip6tables NAT规则失败: %w", err)
@@ -474,13 +431,13 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 	// 设置持久化服务和脚本
 	err = i.setupPersistenceServiceIncus(ctx)
 	if err != nil {
-		global.APP_LOG.Warn("设置持久化服务失败", zap.Error(err))
+		return "", fmt.Errorf("设置IPv6规则持久化服务失败: %w", err)
 	}
 
 	// 保存规则
 	err = i.saveNetfilterRules(ctx, useFirewalld)
 	if err != nil {
-		global.APP_LOG.Warn("保存防火墙规则失败", zap.Error(err))
+		return "", fmt.Errorf("保存IPv6防火墙规则失败: %w", err)
 	}
 
 	// 测试连通性

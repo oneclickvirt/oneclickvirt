@@ -23,6 +23,7 @@ func newAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *Age
 		conn:          conn,
 		remoteAddr:    remoteAddr,
 		pending:       make(map[string]chan execResponsePayload),
+		apiPending:    make(map[string]chan apiResponsePayload),
 		fmPending:     make(map[string]chan fmRawResp),
 		shellSessions: make(map[string]*AgentShellSession),
 		noiseStop:     make(chan struct{}),
@@ -57,6 +58,9 @@ func (a *AgentConn) closeAllSessions() {
 	for id := range a.pending {
 		delete(a.pending, id)
 	}
+	for id := range a.apiPending {
+		delete(a.apiPending, id)
+	}
 
 	// 清理 pending fm 请求
 	for id, ch := range a.fmPending {
@@ -65,6 +69,67 @@ func (a *AgentConn) closeAllSessions() {
 		default:
 		}
 		delete(a.fmPending, id)
+	}
+}
+
+// CallAPI sends an allow-listed Agent API request without involving a shell.
+// In particular, WireGuard key material remains inside the authenticated
+// WebSocket frame and cannot appear in ps output or command-execution logs.
+func (a *AgentConn) CallAPI(method, path string, body interface{}, result interface{}, timeout time.Duration) error {
+	var rawBody json.RawMessage
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal typed Agent API request: %w", err)
+		}
+		rawBody = encoded
+	}
+
+	reqID := randomID()
+	respCh := make(chan apiResponsePayload, 1)
+	a.mu.Lock()
+	a.apiPending[reqID] = respCh
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.apiPending, reqID)
+		a.mu.Unlock()
+	}()
+
+	payload, err := json.Marshal(apiRequestPayload{Method: method, Path: path, Body: rawBody})
+	if err != nil {
+		return fmt.Errorf("marshal typed Agent API envelope: %w", err)
+	}
+	frame, err := json.Marshal(wsMessage{Type: msgTypeAPIRequest, ID: reqID, Payload: payload})
+	if err != nil {
+		return fmt.Errorf("marshal typed Agent API frame: %w", err)
+	}
+	if err := a.writeTextMessage(frame, 10*time.Second); err != nil {
+		return fmt.Errorf("send typed Agent API request: %w", err)
+	}
+
+	select {
+	case resp := <-respCh:
+		if resp.Status < 200 || resp.Status >= 300 {
+			var apiErr ErrorResponse
+			if json.Unmarshal(resp.Body, &apiErr) == nil && apiErr.Error != "" {
+				return fmt.Errorf("agent API error (status %d): %s", resp.Status, apiErr.Error)
+			}
+			return fmt.Errorf("agent API error (status %d)", resp.Status)
+		}
+		if result != nil {
+			if len(resp.Body) == 0 {
+				return fmt.Errorf("typed Agent API returned an empty response")
+			}
+			if err := json.Unmarshal(resp.Body, result); err != nil {
+				return fmt.Errorf("decode typed Agent API response: %w", err)
+			}
+		}
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("typed Agent API request timed out after %s", timeout)
+	case <-a.doneCh:
+		return fmt.Errorf("agent connection closed")
 	}
 }
 
