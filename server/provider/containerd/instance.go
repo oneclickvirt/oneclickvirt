@@ -92,8 +92,8 @@ fi
 `, shellSingleQuote(instance.Name), cliName)
 		vethOutput, err := c.sshClient.Execute(vethCmd)
 		if err == nil {
-			vethInterface := utils.CleanCommandOutput(vethOutput)
-			if vethInterface != "" {
+			vethInterface, parseErr := utils.ParseNetworkInterfaceOutput(vethOutput)
+			if parseErr == nil {
 				if instance.Metadata == nil {
 					instance.Metadata = make(map[string]string)
 				}
@@ -105,8 +105,8 @@ fi
 			fallbackCmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, shellSingleQuote(instance.Name))
 			fallbackOutput, fallbackErr := c.sshClient.Execute(fallbackCmd)
 			if fallbackErr == nil {
-				ipAddress := strings.TrimSpace(fallbackOutput)
-				if ipAddress != "" && ipAddress != "<no value>" {
+				ipAddress, parseErr := utils.ParseSingleIPv4AddressOutput(fallbackOutput)
+				if parseErr == nil {
 					instance.PrivateIP = ipAddress
 					instance.IP = ipAddress
 				}
@@ -119,8 +119,8 @@ fi
 			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", cliName, shellSingleQuote(instance.Name))
 			output, err = c.sshClient.Execute(cmd)
 			if err == nil {
-				ipv6Address := strings.TrimSpace(output)
-				if ipv6Address != "" && ipv6Address != "<no value>" {
+				ipv6Address, parseErr := utils.ParseSingleIPv6AddressOutput(output)
+				if parseErr == nil {
 					instance.IPv6Address = ipv6Address
 				}
 			}
@@ -277,12 +277,22 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		}
 	}
 
-	hasIPv6 := networkType == "nat_ipv4_ipv6" || networkType == "dedicated_ipv4_ipv6" || networkType == "ipv6_only"
-	if hasIPv6 && c.checkIPv6NetworkAvailable() {
-		cmd += fmt.Sprintf(" --network=%s", shellSingleQuote(ipv6Network))
-	} else {
-		cmd += fmt.Sprintf(" --network=%s", shellSingleQuote(ipv4Network))
+	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
+	staticIPv6 := ""
+	if config.Metadata != nil {
+		staticIPv6 = strings.TrimSpace(config.Metadata["static_ipv6"])
 	}
+	networkSelection, err := utils.ResolveContainerNetwork(
+		networkType,
+		staticIPv6,
+		ipv4Network,
+		ipv6Network,
+		hasIPv6 && c.checkIPv6NetworkAvailable(),
+	)
+	if err != nil {
+		return err
+	}
+	cmd = appendContainerdNetworkOptions(cmd, networkSelection)
 
 	if networkType == "dedicated_ipv4" || networkType == "dedicated_ipv4_ipv6" {
 		if config.Metadata != nil {
@@ -520,6 +530,16 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	updateProgress(100, "Containerd实例创建完成")
 	global.APP_LOG.Info("Containerd容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+func appendContainerdNetworkOptions(command string, selection utils.ContainerNetworkSelection) string {
+	if selection.Network != "" {
+		command += fmt.Sprintf(" --network=%s", shellSingleQuote(selection.Network))
+	}
+	if selection.StaticIPv6 != "" {
+		command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
+	}
+	return command
 }
 
 func containerdManagedImageName(image string) string {

@@ -226,9 +226,12 @@ func (p *KubeVirtProvider) kubeVirtContainerSSHNodePort(instanceID string) (int,
 	if err != nil {
 		return 0, err
 	}
-	sshPort := strings.TrimSpace(output)
+	sshPort, tokenErr := utils.ParseSingleCommandToken(output)
+	if tokenErr != nil {
+		return 0, fmt.Errorf("invalid SSH nodePort output for KubeVirt container %s: %w", instanceID, tokenErr)
+	}
 	port, parseErr := strconv.Atoi(sshPort)
-	if sshPort == "" || parseErr != nil || port <= 0 {
+	if parseErr != nil || port <= 0 || port > 65535 {
 		return 0, fmt.Errorf("invalid SSH nodePort for KubeVirt container %s: %q", instanceID, sshPort)
 	}
 	return port, nil

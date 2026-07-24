@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -491,7 +492,13 @@ func (p *ProxmoxProvider) detectScriptNATSubnet() {
 	if err != nil {
 		return
 	}
-	cidr := strings.TrimSpace(output)
+	cidr, parseErr := utils.ParseSingleCommandToken(output)
+	if parseErr != nil {
+		if strings.TrimSpace(output) != "" {
+			global.APP_LOG.Warn("远端Proxmox NAT网段文件输出无效", zap.Error(parseErr))
+		}
+		return
+	}
 	if p.applyNATSubnet(cidr) {
 		global.APP_LOG.Info("检测到脚本安装的Proxmox NAT网段", zap.String("natSubnet", cidr))
 	} else if cidr != "" {
@@ -678,20 +685,36 @@ func (p *ProxmoxProvider) parseInstanceInfo(ctx context.Context, instanceName st
 
 	// 如果数据库查询失败，尝试通过SSH命令查询
 	// 先检查是否是容器
-	checkContainerCmd := fmt.Sprintf("pct list | grep -w '%s' | awk '{print $1}'", instanceName)
+	checkContainerCmd := fmt.Sprintf("pct list | awk -v name=%s '$3 == name {print $1; exit}'", shellSingleQuote(instanceName))
 	output, err := p.sshClient.Execute(checkContainerCmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		return strings.TrimSpace(output), "container", nil
+	if err == nil {
+		if vmid, parseErr := parseProxmoxVMIDOutput(output); parseErr == nil {
+			return vmid, "container", nil
+		}
 	}
 
 	// 再检查是否是虚拟机
-	checkVMCmd := fmt.Sprintf("qm list | grep -w '%s' | awk '{print $1}'", instanceName)
+	checkVMCmd := fmt.Sprintf("qm list | awk -v name=%s '$2 == name {print $1; exit}'", shellSingleQuote(instanceName))
 	output, err = p.sshClient.Execute(checkVMCmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		return strings.TrimSpace(output), "vm", nil
+	if err == nil {
+		if vmid, parseErr := parseProxmoxVMIDOutput(output); parseErr == nil {
+			return vmid, "vm", nil
+		}
 	}
 
 	return "", "", fmt.Errorf("instance %s not found", instanceName)
+}
+
+func parseProxmoxVMIDOutput(output string) (string, error) {
+	vmid, err := utils.ParseSingleCommandToken(output)
+	if err != nil {
+		return "", err
+	}
+	value, err := strconv.Atoi(vmid)
+	if err != nil || value <= 0 {
+		return "", fmt.Errorf("invalid Proxmox VMID output: %q", vmid)
+	}
+	return strconv.Itoa(value), nil
 }
 
 // shouldFallbackToSSH 根据执行规则判断 API失败时是否可以回退到SSH

@@ -3,7 +3,6 @@ package pmacct
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -99,16 +98,9 @@ echo "eth0"  # 使用默认值作为后备
 		return "eth0", nil // 返回默认值而不是错误
 	}
 
-	networkInterface := utils.CleanCommandOutput(output)
-	if networkInterface == "" {
-		global.APP_LOG.Warn("检测到空接口名，使用默认值eth0")
-		return "eth0", nil
-	}
-
-	// 验证接口名称格式（只包含字母、数字、下划线、点、短横线）
-	if matched, _ := regexp.MatchString(`^[a-zA-Z0-9._-]+$`, networkInterface); !matched {
-		global.APP_LOG.Warn("检测到的接口名称格式不正确，使用默认值eth0",
-			zap.String("detected", networkInterface))
+	networkInterface, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	if parseErr != nil {
+		global.APP_LOG.Warn("检测到的接口输出不是合法单值，使用默认值eth0", zap.Error(parseErr))
 		return "eth0", nil
 	}
 
@@ -136,8 +128,8 @@ func (s *Service) verifyInterfaceExists(providerInstance provider.Provider, inte
 		return false
 	}
 
-	output = utils.CleanCommandOutput(output)
-	exists := strings.Contains(output, "EXISTS")
+	status, parseErr := utils.ParseSingleCommandToken(output)
+	exists := parseErr == nil && status == "EXISTS"
 
 	if !exists {
 		global.APP_LOG.Warn("网络接口已不存在",
@@ -284,17 +276,9 @@ exit 1
 		return "", fmt.Errorf("failed to execute veth detection command: %w", err)
 	}
 
-	vethName := utils.CleanCommandOutput(output)
-	if vethName == "" || strings.HasPrefix(vethName, "ERROR:") {
-		return "", fmt.Errorf("无法检测容器 %s 的veth接口: %s", instanceName, vethName)
-	}
-
-	// 验证网络接口名称格式（允许 veth、eth、cali、br 等各种前缀）
-	if matched, _ := regexp.MatchString(`^[a-zA-Z][a-zA-Z0-9._-]*$`, vethName); !matched {
-		global.APP_LOG.Warn("检测到的网络接口名称格式不正确",
-			zap.String("instance", instanceName),
-			zap.String("detected", vethName))
-		return "", fmt.Errorf("invalid network interface name: %s", vethName)
+	vethName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("无法检测容器 %s 的veth接口: %w", instanceName, parseErr)
 	}
 
 	global.APP_LOG.Debug("成功检测到容器veth接口",

@@ -144,6 +144,9 @@ jobs:
       - name: Test action harness failure classification
         run: bash scripts/tests/action_harness_classification_test.sh
 
+      - name: Test installer lifecycle commands
+        run: bash scripts/tests/install_lifecycle_commands_test.sh
+
       - name: Verify generated Swagger docs
         working-directory: ./server
         run: |

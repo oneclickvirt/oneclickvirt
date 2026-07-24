@@ -16,6 +16,7 @@ import (
 	systemModel "oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/provider"
+	ipv6PoolService "oneclickvirt/service/ipv6pool"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/utils"
@@ -415,6 +416,48 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instance.ID),
 				zap.Error(allocErr))
+		}
+	}
+
+	// Allocate a configured IPv6 address before any remote provider call. The
+	// selected address is passed through metadata; no SSH/API work is held in a
+	// database transaction.
+	if localProviderNetworkType == "nat_ipv4_ipv6" || localProviderNetworkType == "dedicated_ipv4_ipv6" || localProviderNetworkType == "ipv6_only" {
+		poolService := ipv6PoolService.NewService()
+		nodeFileConfigured := strings.TrimSpace(dbProvider.IPv6AddressFilePath) != ""
+		// When a node-side file is configured, synchronize it exactly once before
+		// allocation. A configured file is an explicit source of truth; stale
+		// controller entries must not silently be used when it cannot be read.
+		if nodeFileConfigured {
+			if _, syncErr := poolService.SyncProviderFile(ctx, localProviderID); syncErr != nil {
+				return fmt.Errorf("同步节点IPv6地址文件失败: %w", syncErr)
+			}
+		}
+		hasConfiguredPool, poolErr := poolService.HasConfiguredPool(localProviderID)
+		if poolErr != nil {
+			return fmt.Errorf("检查IPv6地址池失败: %w", poolErr)
+		}
+		// An empty configured node file is an explicit empty pool, not permission
+		// to fall back to an unmanaged provider-selected address.
+		hasConfiguredPool = hasConfiguredPool || nodeFileConfigured
+		if hasConfiguredPool && !ipv6PoolService.SupportsStaticIPv6(localProviderType) {
+			return fmt.Errorf("Provider类型 %s 当前网络后端不支持控制面静态IPv6分配；QEMU/KubeVirt等环境需要可声明静态地址的CNI或网桥", localProviderType)
+		}
+		allocatedIPv6 := ""
+		var allocErr error
+		if hasConfiguredPool {
+			allocatedIPv6, allocErr = poolService.AllocateIPv6Address(localProviderID, instance.ID)
+		}
+		if allocErr == nil && allocatedIPv6 != "" {
+			instanceConfig.Metadata["static_ipv6"] = allocatedIPv6
+			if dbErr := global.APP_DB.Model(instance).Update("public_ipv6", allocatedIPv6).Error; dbErr != nil {
+				global.APP_LOG.Warn("预设实例public_ipv6失败", zap.Uint("taskId", task.ID), zap.Uint("instanceId", instance.ID), zap.Error(dbErr))
+			}
+			global.APP_LOG.Debug("从 IPv6 池分配地址成功", zap.Uint("taskId", task.ID), zap.Uint("instanceId", instance.ID), zap.String("allocatedIPv6", allocatedIPv6))
+		} else if allocErr != nil {
+			// Explicit pools fail closed. Falling back here would leak a different
+			// node-assigned address and desynchronize controller state.
+			return fmt.Errorf("IPv6地址池已配置但无法分配地址: %w", allocErr)
 		}
 	}
 

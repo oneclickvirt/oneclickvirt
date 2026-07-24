@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -13,6 +14,7 @@ import (
 	userModel "oneclickvirt/model/user"
 	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/ipv6pool"
 	"oneclickvirt/service/resources"
 	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
@@ -353,6 +355,17 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 	if req.NetworkType != "" {
 		provider.NetworkType = req.NetworkType
+	}
+	if updateProviderRequestHasField(req, "ipv6AddressFilePath") {
+		filePath := strings.TrimSpace(req.IPv6AddressFilePath)
+		if filePath != "" {
+			var err error
+			filePath, err = ipv6pool.ValidateNodeFilePath(filePath)
+			if err != nil {
+				return err
+			}
+		}
+		provider.IPv6AddressFilePath = filePath
 	}
 	// 带宽配置更新
 	if req.DefaultInboundBandwidth > 0 {

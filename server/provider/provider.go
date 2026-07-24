@@ -105,13 +105,15 @@ type DiscoveredInstance struct {
 	Accelerators []DiscoveredAccelerator `json:"accelerators"`
 
 	// 网络配置
-	PrivateIP    string                  `json:"privateIP"`    // 内网IPv4地址
-	PublicIP     string                  `json:"publicIP"`     // 公网IPv4地址
-	IPv6Address  string                  `json:"ipv6Address"`  // IPv6地址
-	SSHPort      int                     `json:"sshPort"`      // SSH端口
-	ExtraPorts   []int                   `json:"extraPorts"`   // 其他开放端口（向后兼容）
-	PortMappings []DiscoveredPortMapping `json:"portMappings"` // 完整的端口映射信息
-	MACAddress   string                  `json:"macAddress"`   // MAC地址
+	PrivateIP    string                  `json:"privateIP"`          // 内网IPv4地址
+	PublicIP     string                  `json:"publicIP"`           // 公网IPv4地址
+	IPv6Address  string                  `json:"ipv6Address"`        // IPv6地址
+	SSHPort      int                     `json:"sshPort"`            // SSH端口
+	Username     string                  `json:"username,omitempty"` // 导入时可用的SSH用户名
+	Password     string                  `json:"-"`                  // 仅用于导入，绝不返回发现接口
+	ExtraPorts   []int                   `json:"extraPorts"`         // 其他开放端口（向后兼容）
+	PortMappings []DiscoveredPortMapping `json:"portMappings"`       // 完整的端口映射信息
+	MACAddress   string                  `json:"macAddress"`         // MAC地址
 
 	// 系统信息
 	Image  string `json:"image"`  // 使用的镜像

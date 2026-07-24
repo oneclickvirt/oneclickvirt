@@ -117,6 +117,9 @@ func ResolveInstanceSSHTarget(instance *providerModel.Instance) (*SSHAccessTarge
 					target.Host = instance.PublicIP
 				} else {
 					target.Host = instance.PrivateIP
+					if strings.TrimSpace(target.Host) == "" {
+						target.Host = instance.IPv6Address
+					}
 				}
 			}
 			target.Port = sshPortMapping.HostPort
@@ -139,6 +142,8 @@ func ResolveInstanceSSHTarget(instance *providerModel.Instance) (*SSHAccessTarge
 			if hasProvider && provider.ConnectionType == "agent" {
 				target.UseAgentTunnel = true
 			}
+		} else if instance.IPv6Address != "" {
+			target.Host = instance.IPv6Address
 		}
 		target.Port = instance.SSHPort
 		if target.Port == 0 {

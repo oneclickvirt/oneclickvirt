@@ -126,22 +126,21 @@ func (l *LXDProvider) GetInstanceIPv6(instanceName string) (string, error) {
 		return "", fmt.Errorf("获取IPv6地址失败: %w", err)
 	}
 
-	ipv6 := utils.CleanCommandOutput(ipv6Output)
-	if ipv6 == "" {
+	ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(ipv6Output)
+	if parseErr != nil {
 		return "", fmt.Errorf("实例未分配IPv6地址")
 	}
-
 	return ipv6, nil
 }
 
 // GetInstancePublicIPv6 获取实例的公网IPv6地址
 func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error) {
 	// 尝试从保存的IPv6文件中读取公网IPv6地址
-	publicIPv6Cmd := fmt.Sprintf("cat %s 2>/dev/null | tail -1", shellSingleQuote(instanceName+"_v6"))
+	publicIPv6Cmd := fmt.Sprintf("cat %s 2>/dev/null", shellSingleQuote(instanceName+"_v6"))
 	publicIPv6Output, err := l.sshClient.Execute(publicIPv6Cmd)
 	if err == nil {
-		publicIPv6 := utils.CleanCommandOutput(publicIPv6Output)
-		if publicIPv6 != "" && !l.isPrivateIPv6(publicIPv6) {
+		publicIPv6, parseErr := utils.ParseSingleIPv6AddressOutput(publicIPv6Output)
+		if parseErr == nil && !l.isPrivateIPv6(publicIPv6) {
 			global.APP_LOG.Debug("从文件获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
 				zap.String("publicIPv6", publicIPv6))
@@ -153,8 +152,8 @@ func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error)
 	eth1Cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth1.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
 	eth1Output, err := l.sshClient.Execute(eth1Cmd)
 	if err == nil {
-		eth1IPv6 := utils.CleanCommandOutput(eth1Output)
-		if eth1IPv6 != "" && !l.isPrivateIPv6(eth1IPv6) {
+		eth1IPv6, parseErr := utils.ParseSingleIPv6AddressOutput(eth1Output)
+		if parseErr == nil && !l.isPrivateIPv6(eth1IPv6) {
 			global.APP_LOG.Debug("从eth1获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
 				zap.String("publicIPv6", eth1IPv6))
@@ -247,8 +246,7 @@ func (l *LXDProvider) checkIPv6(ctx context.Context) (string, error) {
 	cmd := "ip -6 addr show | grep global | awk '{print length, $2}' | sort -nr | head -n 1 | awk '{print $2}' | cut -d '/' -f1"
 	output, err := l.sshClient.Execute(cmd)
 	if err == nil {
-		ipv6 := strings.TrimSpace(output)
-		if !l.isPrivateIPv6(ipv6) {
+		if ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(output); parseErr == nil && !l.isPrivateIPv6(ipv6) {
 			global.APP_LOG.Debug("从本地接口获取到IPv6地址", zap.String("ipv6", ipv6))
 			return ipv6, nil
 		}
@@ -267,8 +265,7 @@ func (l *LXDProvider) checkIPv6(ctx context.Context) (string, error) {
 		cmd := fmt.Sprintf("curl -sLk6m8 '%s' | tr -d '[:space:]'", endpoint)
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil {
-			ipv6 := strings.TrimSpace(output)
-			if ipv6 != "" && !strings.Contains(output, "error") && !l.isPrivateIPv6(ipv6) {
+			if ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(output); parseErr == nil && !l.isPrivateIPv6(ipv6) {
 				global.APP_LOG.Debug("通过API获取到IPv6地址",
 					zap.String("endpoint", endpoint),
 					zap.String("ipv6", ipv6))
@@ -289,8 +286,8 @@ func (l *LXDProvider) getContainerIPv6(ctx context.Context, containerName string
 		return "", fmt.Errorf("获取容器IPv6地址失败: %w", err)
 	}
 
-	ipv6 := strings.TrimSpace(output)
-	if ipv6 == "" || ipv6 == "null" {
+	ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(output)
+	if parseErr != nil {
 		return "", fmt.Errorf("容器无内网IPv6地址")
 	}
 
@@ -302,18 +299,18 @@ func (l *LXDProvider) getContainerIPv6(ctx context.Context, containerName string
 
 // getHostIPv6Prefix 获取宿主机IPv6子网前缀
 func (l *LXDProvider) getHostIPv6Prefix(ctx context.Context) (string, error) {
-	cmd := "ip -6 addr show | grep -E 'inet6.*global' | awk '{print $2}' | awk -F'/' '{print $1}' | head -n 1 | cut -d ':' -f1-5"
+	cmd := "ip -6 addr show scope global | awk '$1==\"inet6\" {print $2; exit}'"
 	output, err := l.sshClient.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取IPv6子网前缀失败: %w", err)
 	}
 
-	prefix := strings.TrimSpace(output)
-	if prefix == "" {
-		return "", fmt.Errorf("无IPv6子网")
+	network, err := utils.ParseSingleIPv6NetworkOutput(output, 64)
+	if err != nil {
+		return "", fmt.Errorf("无IPv6子网: %w", err)
 	}
 
-	prefix = prefix + ":"
+	prefix := network.CIDR()
 	global.APP_LOG.Debug("获取到IPv6子网前缀", zap.String("prefix", prefix))
 	return prefix, nil
 }
@@ -326,28 +323,19 @@ func (l *LXDProvider) getIPv6GatewayInfo(ctx context.Context) (string, error) {
 		return "N", fmt.Errorf("获取IPv6网关信息失败: %w", err)
 	}
 
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	var gateway string
-
-	if len(lines) == 1 {
-		gateway = lines[0]
-	} else if len(lines) >= 2 {
-		// 优先选择非fe80的网关
-		for _, line := range lines {
-			if !strings.HasPrefix(line, "fe80") {
-				gateway = line
-				break
-			}
-		}
-		if gateway == "" {
-			gateway = lines[0]
+	gateways, parseErr := utils.ParseIPv6AddressLines(output)
+	if parseErr != nil {
+		return "N", fmt.Errorf("IPv6网关输出无效: %w", parseErr)
+	}
+	if len(gateways) == 0 {
+		return "N", nil
+	}
+	for _, gateway := range gateways {
+		if !strings.HasPrefix(gateway, "fe80:") {
+			return "N", nil
 		}
 	}
-
-	if strings.HasPrefix(gateway, "fe80") {
-		return "Y", nil
-	}
-	return "N", nil
+	return "Y", nil
 }
 
 // installSipcalc 安装sipcalc工具

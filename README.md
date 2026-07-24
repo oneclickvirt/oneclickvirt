@@ -58,9 +58,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `oneclickvirt/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `oneclickvirt/oneclickvirt:20260717` | All-in-one version with specific date | Fixed version requirement |
+| `oneclickvirt/oneclickvirt:20260702` | All-in-one version with specific date | Fixed version requirement |
 | `oneclickvirt/oneclickvirt:no-db` | Standalone database version | Without database |
-| `oneclickvirt/oneclickvirt:no-db-20260717` | Standalone database version with date | Without database |
+| `oneclickvirt/oneclickvirt:no-db-20260702` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -252,7 +252,22 @@ bash install_full.sh --version v1.2.3 --db-wait-timeout 300
 bash install_full.sh --db-type mysql --no-db-fallback
 ```
 
-The installer requires at least 20 GB free disk and 4 GB memory by default. It writes the generated database password to the final installation summary; save it before closing the terminal.
+The installer requires at least 10 GB of free disk space and 2 GB of combined memory and swap by default. It writes the generated database password to the final installation summary; save it before closing the terminal.
+
+After installation, download the standard installer to manage OneClickVirt deployments that use a systemd service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install.sh -o install.sh
+chmod +x install.sh
+
+./install.sh status
+./install.sh logs --lines 200
+./install.sh logs --follow
+./install.sh upgrade
+./install.sh uninstall
+```
+
+`uninstall` removes the service, program, and web files while retaining `config.yaml` and `storage`; `uninstall --purge` removes the entire application directory. Neither mode removes the database, reverse proxy, or TLS certificates because other applications may share them. Non-interactive uninstall also requires `--yes`.
 
 </details>
 

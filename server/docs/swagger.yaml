@@ -668,6 +668,16 @@ definitions:
     required:
     - action
     type: object
+  admin.InstanceEgressDependencyRequest:
+    properties:
+      package_set:
+        type: string
+    type: object
+  admin.InstanceEgressReconcileRequest:
+    properties:
+      apply:
+        type: boolean
+    type: object
   admin.ProviderPortConfigRequest:
     properties:
       defaultPortCount:
@@ -1041,6 +1051,79 @@ definitions:
         minimum: 0
         type: integer
     type: object
+  agent.EgressProfileRequest:
+    properties:
+      enabled:
+        type: boolean
+      fail_closed:
+        type: boolean
+      gateway:
+        type: string
+      id:
+        type: string
+      mark:
+        type: integer
+      mode:
+        type: string
+      public_ipv4:
+        type: string
+      public_ipv6:
+        type: string
+      route_table:
+        type: integer
+      tunnel_interface:
+        type: string
+      tunnel_type:
+        type: string
+      wireguard:
+        $ref: '#/definitions/agent.EgressWireGuardRequest'
+    type: object
+  agent.EgressWireGuardRequest:
+    properties:
+      addresses:
+        items:
+          type: string
+        type: array
+      allowed_ips:
+        items:
+          type: string
+        type: array
+      endpoint:
+        type: string
+      managed:
+        type: boolean
+      mtu:
+        type: integer
+      peer_public_key:
+        type: string
+      persistent_keepalive:
+        type: integer
+      preshared_key:
+        type: string
+      private_key:
+        type: string
+    type: object
+  agent.InstanceEgressBindRequest:
+    properties:
+      apply:
+        type: boolean
+      enabled:
+        type: boolean
+      interface:
+        type: string
+      interface_v4:
+        type: string
+      interface_v6:
+        type: string
+      profile:
+        $ref: '#/definitions/agent.EgressProfileRequest'
+      source:
+        type: string
+      sources:
+        items:
+          type: string
+        type: array
+    type: object
   auth.ApiTokenCreateRequest:
     properties:
       expireDays:
@@ -1292,6 +1375,62 @@ definitions:
     required:
     - config
     - scope
+    type: object
+  ipv6tunnel.Config:
+    properties:
+      defaultRoute:
+        type: boolean
+      interfaceName:
+        type: string
+      localIpv4:
+        type: string
+      localIpv6:
+        type: string
+      mode:
+        type: string
+      mtu:
+        type: integer
+      name:
+        type: string
+      remoteIpv4:
+        type: string
+      remoteIpv6:
+        type: string
+      routeMetric:
+        type: integer
+      routedCidr:
+        type: string
+      ttl:
+        type: integer
+    type: object
+  ipv6tunnel.CreateRequest:
+    properties:
+      defaultRoute:
+        type: boolean
+      enabled:
+        type: boolean
+      interfaceName:
+        type: string
+      localIpv4:
+        type: string
+      localIpv6:
+        type: string
+      mode:
+        type: string
+      mtu:
+        type: integer
+      name:
+        type: string
+      remoteIpv4:
+        type: string
+      remoteIpv6:
+        type: string
+      routeMetric:
+        type: integer
+      routedCidr:
+        type: string
+      ttl:
+        type: integer
     type: object
   log.LogFileInfo:
     properties:
@@ -1751,6 +1890,12 @@ definitions:
       disk:
         description: 磁盘大小（MB）
         type: integer
+      egressProfileId:
+        description: |-
+          EgressProfileID binds this instance to a node-side transparent egress
+          profile.  The Rust Agent treats the binding as desired state and keeps
+          traffic fail-closed until the host route plan is reconciled successfully.
+        type: string
       expiresAt:
         description: 生命周期和冻结管理
         type: string
@@ -2124,6 +2269,15 @@ definitions:
         type: integer
       ipv4PortMappingMethod:
         description: 端口映射配置
+        type: string
+      ipv6AddressFilePath:
+        description: 节点侧IPv6地址/CIDR文件；为空时使用主控地址池或自动探测
+        type: string
+      ipv6AddressFileSyncError:
+        description: 最近同步错误；成功后清空
+        type: string
+      ipv6AddressFileSyncedAt:
+        description: 节点IPv6地址文件最近成功同步时间
         type: string
       ipv6PortMappingMethod:
         description: IPv6端口映射方式：device_proxy, iptables, native
@@ -2637,6 +2791,9 @@ definitions:
         type: integer
       status:
         description: 实例状态（running, stopped等）
+        type: string
+      username:
+        description: 导入时可用的SSH用户名
         type: string
       uuid:
         description: 基本标识
@@ -4394,6 +4551,178 @@ paths:
       summary: 管理员执行实例操作
       tags:
       - 管理员管理
+  /admin/instances/{id}/egress:
+    delete:
+      description: 持久化待清理标记，删除Agent绑定并重新协调
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - default: true
+        description: 是否立即应用
+        in: query
+        name: apply
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解绑结果
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数或节点配置错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权访问实例
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 解除实例独立出口
+      tags:
+      - 管理员/实例
+    get:
+      description: 返回节点能力、脱敏配置、绑定、fail-closed执行状态和流量计数
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数或配置错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权访问实例
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例独立出口状态
+      tags:
+      - 管理员/实例
+    put:
+      consumes:
+      - application/json
+      description: 保存控制端期望状态，下发节点Agent并执行fail-closed协调
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 出口配置与绑定
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/agent.InstanceEgressBindRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 配置已保存
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 请求、网络模式或Agent能力不支持
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权访问实例
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 设置实例独立出口
+      tags:
+      - 管理员/实例
+  /admin/instances/{id}/egress/dependencies:
+    post:
+      consumes:
+      - application/json
+      description: 在已启用自动安装保护的节点Agent上安装native或WireGuard依赖集
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 依赖集（native或wireguard）
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.InstanceEgressDependencyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 依赖安装与能力检查结果
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 依赖集或Agent安装保护无效
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权访问实例
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 安装实例出口依赖
+      tags:
+      - 管理员/实例
+  /admin/instances/{id}/egress/reconcile:
+    post:
+      consumes:
+      - application/json
+      description: 从控制端期望状态恢复Agent配置并返回路由计划结果
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 协调参数
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.InstanceEgressReconcileRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 协调结果
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数或期望状态错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权访问实例
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 协调实例独立出口
+      tags:
+      - 管理员/实例
   /admin/instances/{id}/monitoring/resources:
     get:
       description: 获取指定实例的CPU/内存资源监控指标
@@ -5818,7 +6147,7 @@ paths:
         required: true
         type: integer
       - default: false
-        description: 是否强制删除
+        description: 是否强制删除；仅清理数据库，宿主机实例、出口规则和隧道可能残留
         in: query
         name: force
         type: boolean
@@ -6316,6 +6645,280 @@ paths:
       security:
       - BearerAuth: []
       summary: 删除单个IPv4地址
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv6-pool:
+    delete:
+      description: 清空指定服务商地址池中所有未分配的IPv6地址和无绑定网段
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 清空成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 清空未分配IPv6地址
+      tags:
+      - 服务商管理
+    get:
+      description: 管理员获取指定服务商的IPv6地址池（分页）
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 100
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取IPv6地址池
+      tags:
+      - 服务商管理
+    post:
+      description: 向指定服务商的IPv6地址池中追加离散地址或CIDR网段
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: IPv6地址或CIDR列表
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: 设置成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 设置IPv6地址池
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv6-pool/{entry_id}:
+    delete:
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 地址条目ID
+        in: path
+        name: entry_id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除单个IPv6地址条目
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv6-pool/sync:
+    post:
+      description: 读取指定服务商节点上的IPv6地址文件并与主控地址池对账
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 可选的节点IPv6文件绝对路径
+        in: body
+        name: body
+        schema:
+          type: object
+      responses:
+        "200":
+          description: 同步成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 同步节点IPv6地址文件
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv6-tunnels:
+    get:
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider IPv6隧道
+      tags:
+      - 服务商管理
+    post:
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: IPv6隧道配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ipv6tunnel.CreateRequest'
+      responses:
+        "200":
+          description: 创建成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 新增Provider IPv6隧道
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv6-tunnels/{tunnel_id}:
+    delete:
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 隧道ID
+        in: path
+        name: tunnel_id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除Provider IPv6隧道
+      tags:
+      - 服务商管理
+    put:
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 隧道ID
+        in: path
+        name: tunnel_id
+        required: true
+        type: integer
+      - description: IPv6隧道配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ipv6tunnel.Config'
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新Provider IPv6隧道
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv6-tunnels/{tunnel_id}/disable:
+    post:
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 隧道ID
+        in: path
+        name: tunnel_id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 禁用成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 禁用Provider IPv6隧道
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv6-tunnels/{tunnel_id}/enable:
+    post:
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 隧道ID
+        in: path
+        name: tunnel_id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 启用成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 启用Provider IPv6隧道
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv6-tunnels/check:
+    post:
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 检查完成
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 检查Provider IPv6隧道状态
       tags:
       - 服务商管理
   /admin/providers/{id}/monitoring/agent:

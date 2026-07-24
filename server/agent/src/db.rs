@@ -61,6 +61,10 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
     )
     .map_err(|e| ApiError::internal(format!("sqlite table init error: {e}")))?;
 
+    // Egress desired-state tables are independent from traffic-monitor data
+    // and are initialized in one bounded batch during agent startup.
+    crate::egress::init_db(conn)?;
+
     Ok(())
 }
 

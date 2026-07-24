@@ -27,7 +27,10 @@ func (l *LXDProvider) getInstanceType(instanceName string) (string, error) {
 		return "", fmt.Errorf("获取实例类型失败: %w", err)
 	}
 
-	instanceType := utils.CleanCommandOutput(output)
+	instanceType, parseErr := utils.ParseSingleCommandToken(output)
+	if parseErr != nil || (instanceType != "container" && instanceType != "virtual-machine") {
+		return "", fmt.Errorf("实例类型输出无效")
+	}
 	global.APP_LOG.Debug("检测到实例类型",
 		zap.String("instanceName", instanceName),
 		zap.String("type", instanceType))
@@ -83,8 +86,11 @@ func (l *LXDProvider) getVMInstanceIP(instanceName string) (string, error) {
 			cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.%s.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", shellSingleQuote(instanceName), iface)
 			output, err := client.Execute(cmd)
 
-			if err == nil && strings.TrimSpace(output) != "" {
-				vmIP := strings.TrimSpace(output)
+			if err == nil {
+				vmIP, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+				if parseErr != nil {
+					continue
+				}
 				global.APP_LOG.Debug("虚拟机IPv4地址获取成功",
 					zap.String("instanceName", instanceName),
 					zap.String("interface", iface),
@@ -130,8 +136,12 @@ func (l *LXDProvider) getContainerInstanceIP(instanceName string) (string, error
 		cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
 		output, err := client.Execute(cmd)
 
-		if err == nil && strings.TrimSpace(output) != "" {
-			containerIP := strings.TrimSpace(output)
+		if err == nil {
+			containerIP, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+			if parseErr != nil {
+				delay *= 2
+				continue
+			}
 			global.APP_LOG.Debug("容器IPv4地址获取成功",
 				zap.String("instanceName", instanceName),
 				zap.String("ip", containerIP),
@@ -195,8 +205,7 @@ func (l *LXDProvider) getInstanceIPGeneric(instanceName string) (string, error) 
 				}
 
 				// 验证是否是有效的IPv4地址
-				parts := strings.Split(addr, ".")
-				if len(parts) == 4 {
+				if ip := net.ParseIP(addr); ip != nil && ip.To4() != nil {
 					global.APP_LOG.Debug("找到有效IP地址",
 						zap.String("instanceName", instanceName),
 						zap.String("ip", addr))
@@ -261,9 +270,9 @@ func (l *LXDProvider) getHostIP() (string, error) {
 		return "", fmt.Errorf("获取主机IP失败: %w", err)
 	}
 
-	hostIP := strings.TrimSpace(output)
-	if hostIP == "" {
-		return "", fmt.Errorf("主机IP地址为空")
+	hostIP, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("主机IP地址输出无效: %w", parseErr)
 	}
 
 	global.APP_LOG.Info("从宿主机获取到IP地址",
@@ -292,9 +301,9 @@ func (l *LXDProvider) GetVethInterfaceName(instanceName string) (string, error) 
 		return "", fmt.Errorf("获取veth接口名称失败: %w", err)
 	}
 
-	vethName := utils.CleanCommandOutput(output)
-	if vethName == "" {
-		return "", fmt.Errorf("未找到veth接口名称")
+	vethName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("veth接口名称输出无效: %w", parseErr)
 	}
 
 	global.APP_LOG.Debug("获取到veth接口名称",
@@ -319,10 +328,13 @@ func (l *LXDProvider) GetVethInterfaceNameV6(instanceName string) (string, error
 		return "", fmt.Errorf("获取veth接口名称(IPv6)失败: %w", err)
 	}
 
-	vethName := utils.CleanCommandOutput(output)
-	if vethName == "" {
+	if strings.TrimSpace(output) == "" {
 		// 如果没有eth1，可能使用eth0，返回eth0的veth接口
 		return l.GetVethInterfaceName(instanceName)
+	}
+	vethName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("IPv6 veth接口名称输出无效: %w", parseErr)
 	}
 
 	global.APP_LOG.Debug("获取到veth接口名称(IPv6)",

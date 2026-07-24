@@ -348,9 +348,13 @@ func (l *LXDProvider) CreateInstance(ctx context.Context, config provider.Instan
 		return fmt.Errorf("not connected")
 	}
 
+	forceSSHStaticIPv6 := hasRequestedStaticIPv6(config)
+	if forceSSHStaticIPv6 && !l.shouldUseSSH() {
+		return fmt.Errorf("LXD控制面静态IPv6当前需要SSH网络配置路径，api_only无法安全消费已分配地址")
+	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := l.shouldUseWindowsInstallerSSH(ctx, &config)
-	if l.shouldUseAPI() && !forceSSHInstaller {
+	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHStaticIPv6 {
 		if err := l.apiCreateInstance(ctx, config); err == nil {
 			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -377,9 +381,13 @@ func (l *LXDProvider) CreateInstanceWithProgress(ctx context.Context, config pro
 		return fmt.Errorf("not connected")
 	}
 
+	forceSSHStaticIPv6 := hasRequestedStaticIPv6(config)
+	if forceSSHStaticIPv6 && !l.shouldUseSSH() {
+		return fmt.Errorf("LXD控制面静态IPv6当前需要SSH网络配置路径，api_only无法安全消费已分配地址")
+	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := l.shouldUseWindowsInstallerSSH(ctx, &config)
-	if l.shouldUseAPI() && !forceSSHInstaller {
+	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHStaticIPv6 {
 		if err := l.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
 			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -399,6 +407,10 @@ func (l *LXDProvider) CreateInstanceWithProgress(ctx context.Context, config pro
 
 	// SSH 方式
 	return l.sshCreateInstanceWithProgress(ctx, config, progressCallback)
+}
+
+func hasRequestedStaticIPv6(config provider.InstanceConfig) bool {
+	return config.Metadata != nil && strings.TrimSpace(config.Metadata["static_ipv6"]) != ""
 }
 
 func (l *LXDProvider) StartInstance(ctx context.Context, id string) error {

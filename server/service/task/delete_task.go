@@ -15,6 +15,7 @@ import (
 	"oneclickvirt/service/database"
 	domainService "oneclickvirt/service/domain"
 	"oneclickvirt/service/firewall"
+	ipv6PoolService "oneclickvirt/service/ipv6pool"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
@@ -42,6 +43,9 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, taskReq.InstanceId).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if releaseErr := ipv6PoolService.NewService().ReleaseIPv6(taskReq.InstanceId); releaseErr != nil {
+				return fmt.Errorf("清理已删除实例的IPv6池绑定失败: %w", releaseErr)
+			}
 			// 实例已不存在，标记任务完成
 			stateManager := GetTaskStateManager()
 			if err := stateManager.CompleteMainTask(task.ID, true, "实例已不存在，删除任务完成", nil); err != nil {
@@ -353,6 +357,12 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instanceID))
 		}
+	}
+	// Release by binding rather than current provider network mode. An admin may
+	// switch the provider back to IPv4-only before deleting an older IPv6 instance.
+	releaseErr := ipv6PoolService.NewService().ReleaseIPv6(instanceID)
+	if releaseErr != nil {
+		return fmt.Errorf("释放IPv6池地址失败: %w", releaseErr)
 	}
 
 	// 标记任务完成

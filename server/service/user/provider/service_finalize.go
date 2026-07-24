@@ -15,6 +15,7 @@ import (
 	"oneclickvirt/provider/lxd"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
+	ipv6PoolService "oneclickvirt/service/ipv6pool"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
@@ -317,6 +318,9 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				global.APP_LOG.Warn("释放失败实例IPv4池地址失败",
 					zap.Uint("instanceId", instance.ID),
 					zap.Error(err))
+			}
+			if err := ipv6PoolService.NewService().ReleaseIPv6WithDB(tx, instance.ID); err != nil {
+				return fmt.Errorf("释放失败实例IPv6池地址失败: %w", err)
 			}
 
 			// 更新任务状态为失败；若管理员已强制取消，保留取消终态。

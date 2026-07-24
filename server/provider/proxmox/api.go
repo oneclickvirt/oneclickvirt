@@ -177,6 +177,9 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 
 	// 配置网络
 	if err := p.configureInstanceNetwork(ctx, vmid, config); err != nil {
+		if requestedProxmoxIPv6(config) != "" {
+			return fmt.Errorf("配置控制面静态IPv6网络失败: %w", err)
+		}
 		global.APP_LOG.Warn("网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
 	}
 

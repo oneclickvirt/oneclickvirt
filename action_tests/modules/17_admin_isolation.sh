@@ -33,11 +33,17 @@ run_module_17() {
             "{\"instanceIds\":[${isolation_instance_id}],\"action\":\"start\"}" "$group" "$NORMAL_ADMIN_TOKEN" >/dev/null
         test_api "Normal admin -> foreign password result (403)" "GET" "/api/v1/admin/instances/${isolation_instance_id}/password/999999" "403|404" \
             "" "$group" "$NORMAL_ADMIN_TOKEN"
+        test_api "Normal admin -> foreign egress status (403)" "GET" "/api/v1/admin/instances/${isolation_instance_id}/egress" "403|404" \
+            "" "$group" "$NORMAL_ADMIN_TOKEN"
+        test_api "Normal admin -> foreign egress mutation blocked before validation (403)" "PUT" "/api/v1/admin/instances/${isolation_instance_id}/egress" "403|404" \
+            '{"profile":{}}' "$group" "$NORMAL_ADMIN_TOKEN"
     elif [[ -n "$isolation_instance_id" ]]; then
         record_skip_result "Normal admin -> foreign instance detail (403)" "GET" "/api/v1/admin/instances/${isolation_instance_id}" "test instance is no longer available" "$group"
         record_skip_result "Normal admin -> foreign instance action blocked before validation (403)" "POST" "/api/v1/admin/instances/${isolation_instance_id}/action" "test instance is no longer available" "$group"
         record_skip_result "Normal admin -> foreign batch action blocked before validation" "POST" "/api/v1/admin/instances/batch-action" "test instance is no longer available" "$group"
         record_skip_result "Normal admin -> foreign password result (403)" "GET" "/api/v1/admin/instances/${isolation_instance_id}/password/999999" "test instance is no longer available" "$group"
+        record_skip_result "Normal admin -> foreign egress status (403)" "GET" "/api/v1/admin/instances/${isolation_instance_id}/egress" "test instance is no longer available" "$group"
+        record_skip_result "Normal admin -> foreign egress mutation blocked before validation (403)" "PUT" "/api/v1/admin/instances/${isolation_instance_id}/egress" "test instance is no longer available" "$group"
     fi
 
     # -- Super admin sees all providers --

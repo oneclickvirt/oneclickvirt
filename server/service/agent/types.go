@@ -46,6 +46,8 @@ type AgentRuntimeHealth struct {
 const (
 	msgTypeExecRequest  = "exec_req"  // 控制端 → Agent: 执行命令
 	msgTypeExecResponse = "exec_resp" // Agent → 控制端: 命令结果
+	msgTypeAPIRequest   = "api_req"   // 控制端 → Agent: 受限的结构化本地 API 请求
+	msgTypeAPIResponse  = "api_resp"  // Agent → 控制端: 结构化本地 API 响应
 	msgTypePing         = "ping"      // 控制端 → Agent: 心跳
 	msgTypePong         = "pong"      // Agent → 控制端: 心跳应答
 	msgTypeInfo         = "info"      // Agent → 控制端: 上报自身信息
@@ -84,6 +86,20 @@ type execResponsePayload struct {
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
 	Error    string `json:"error,omitempty"`
+}
+
+// apiRequestPayload is deliberately separate from execRequestPayload. Secret
+// egress configuration must travel in the authenticated WebSocket payload and
+// must never be embedded in a shell command or process argument.
+type apiRequestPayload struct {
+	Method string          `json:"method"`
+	Path   string          `json:"path"`
+	Body   json.RawMessage `json:"body,omitempty"`
+}
+
+type apiResponsePayload struct {
+	Status int             `json:"status"`
+	Body   json.RawMessage `json:"body,omitempty"`
 }
 
 type infoPayload struct {
@@ -144,6 +160,7 @@ type AgentConn struct {
 	mu            sync.Mutex
 	writeMu       sync.Mutex
 	pending       map[string]chan execResponsePayload // reqID → response channel
+	apiPending    map[string]chan apiResponsePayload  // reqID → typed API response channel
 	fmPending     map[string]chan fmRawResp           // reqID → fm response channel
 	shellSessions map[string]*AgentShellSession
 	pingFailCount int           // 连续 ping 失败计数（用于检测连接僵死）

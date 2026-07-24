@@ -128,7 +128,7 @@ func UpdateProvider(c *gin.Context) {
 // @Tags Provider管理
 // @Security BearerAuth
 // @Param id path int true "Provider ID"
-// @Param force query bool false "是否强制删除" default(false)
+// @Param force query bool false "是否强制删除；仅清理数据库，宿主机实例、出口规则和隧道可能残留" default(false)
 // @Success 200 {object} common.Response{data=admin.Task} "Provider删除任务已提交"
 // @Failure 400 {object} common.Response "请求参数错误"
 // @Failure 401 {object} common.Response "未认证"

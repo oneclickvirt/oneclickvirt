@@ -3,6 +3,7 @@ mod auth;
 mod collector;
 mod db;
 mod docs;
+mod egress;
 mod error;
 mod fm;
 mod handlers;
@@ -17,7 +18,7 @@ mod ws_client;
 use app_state::AppState;
 use axum::{
     Router, middleware,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use collector::start_collector;
 use db::init_db;
@@ -170,6 +171,9 @@ async fn main() {
         cert_store: cert_store.clone(),
     };
 
+    // Restore persisted native egress before accepting controller requests.
+    // The reconciler is guarded by ONECLICKVIRT_EGRESS_APPLY and fail-closed.
+    egress::reconcile_startup(state.clone()).await;
     start_collector(state.clone());
 
     // Check for agent WebSocket client mode (reverse connect / NAT traversal).
@@ -207,6 +211,7 @@ async fn main() {
 
         // Build API router (same routes as standalone mode)
         let api_router = build_api_router(state.clone());
+        let ws_api_router = api_router.clone();
 
         // Bind HTTP API on localhost only for security (only the agent itself
         // needs to reach it via curl in exec_req commands from the controller).
@@ -233,7 +238,7 @@ async fn main() {
         }
 
         info!(url = %clean_url, "starting agent WebSocket client (secret sent via headers)");
-        ws_client::run_ws_client(clean_url, secret).await;
+        ws_client::run_ws_client(clean_url, secret, ws_api_router, api_token.clone()).await;
         return;
     }
 
@@ -462,6 +467,25 @@ fn build_api_router(state: AppState) -> Router {
                 .delete(handlers::remove_domain_proxy)
                 .get(handlers::list_domain_proxies),
         )
+        .route("/api/v1/egress/capabilities", get(egress::capabilities))
+        .route(
+            "/api/v1/egress/dependencies/ensure",
+            post(egress::ensure_dependencies),
+        )
+        .route(
+            "/api/v1/egress/profiles",
+            get(egress::list_profiles)
+                .put(egress::put_profile)
+                .delete(egress::delete_profile),
+        )
+        .route(
+            "/api/v1/egress/bindings",
+            get(egress::list_bindings)
+                .put(egress::put_binding)
+                .delete(egress::delete_binding),
+        )
+        .route("/api/v1/egress/state", put(egress::replace_state))
+        .route("/api/v1/egress/reconcile", post(egress::reconcile))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_token,

@@ -79,11 +79,12 @@ type CreateProviderRequest struct {
 	// 操作执行配置
 	ExecutionRule string `json:"executionRule" binding:"omitempty,oneof=auto api_only ssh_only"` // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
 	// 端口映射配置
-	DefaultPortCount int    `json:"defaultPortCount"`                                                                                                          // 每个实例默认映射端口数量，默认10
-	PortRangeStart   int    `json:"portRangeStart"`                                                                                                            // 端口映射范围起始，默认10000
-	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                                              // 端口映射范围结束，默认65535
-	FixedPorts       []int  `json:"fixedPorts"`                                                                                                                // 固定实例内端口，22强制保留
-	NetworkType      string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only, no_port_mapping
+	DefaultPortCount    int    `json:"defaultPortCount"`                                                                                                          // 每个实例默认映射端口数量，默认10
+	PortRangeStart      int    `json:"portRangeStart"`                                                                                                            // 端口映射范围起始，默认10000
+	PortRangeEnd        int    `json:"portRangeEnd"`                                                                                                              // 端口映射范围结束，默认65535
+	FixedPorts          []int  `json:"fixedPorts"`                                                                                                                // 固定实例内端口，22强制保留
+	NetworkType         string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only, no_port_mapping
+	IPv6AddressFilePath string `json:"ipv6AddressFilePath"`                                                                                                       // 节点侧IPv6地址/CIDR文件路径
 	// Proxmox 网桥配置（NodeInstallType == "third_party" 时生效）
 	NodeInstallType   string `json:"nodeInstallType"`   // 节点安装类型：script（本项目脚本安装）, third_party（第三方安装）
 	BridgeNAT         string `json:"bridgeNAT"`         // NAT网桥（替代vmbr1），仅proxmox+third_party时生效
@@ -212,11 +213,12 @@ type UpdateProviderRequest struct {
 	// 操作执行配置
 	ExecutionRule string `json:"executionRule" binding:"omitempty,oneof=auto api_only ssh_only"` // 操作轮转规则
 	// 端口映射配置
-	DefaultPortCount int    `json:"defaultPortCount"`                                                                                                          // 每个实例默认映射端口数量，默认10
-	PortRangeStart   int    `json:"portRangeStart"`                                                                                                            // 端口映射范围起始，默认10000
-	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                                              // 端口映射范围结束，默认65535
-	FixedPorts       []int  `json:"fixedPorts"`                                                                                                                // 固定实例内端口，22强制保留
-	NetworkType      string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"` // 网络配置类型
+	DefaultPortCount    int    `json:"defaultPortCount"`                                                                                                          // 每个实例默认映射端口数量，默认10
+	PortRangeStart      int    `json:"portRangeStart"`                                                                                                            // 端口映射范围起始，默认10000
+	PortRangeEnd        int    `json:"portRangeEnd"`                                                                                                              // 端口映射范围结束，默认65535
+	FixedPorts          []int  `json:"fixedPorts"`                                                                                                                // 固定实例内端口，22强制保留
+	NetworkType         string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"` // 网络配置类型
+	IPv6AddressFilePath string `json:"ipv6AddressFilePath"`                                                                                                       // 节点侧IPv6地址/CIDR文件路径；支持显式清空
 	// 带宽配置
 	DefaultInboundBandwidth  int `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
 	DefaultOutboundBandwidth int `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）

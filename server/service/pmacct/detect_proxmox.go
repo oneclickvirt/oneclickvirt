@@ -74,13 +74,16 @@ exit 0
 		return "", fmt.Errorf("failed to execute Proxmox IPv6 interface detection: %w", err)
 	}
 
-	interfaceName := utils.CleanCommandOutput(output)
-	if interfaceName == "" {
+	if strings.TrimSpace(output) == "" {
 		// 未找到IPv6接口（无i1接口），这不是错误，正常返回空字符串
 		global.APP_LOG.Debug("Proxmox实例无IPv6网络接口(i1)",
 			zap.String("instance", instanceName),
 			zap.String("instanceID", instanceID))
 		return "", nil
+	}
+	interfaceName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("invalid Proxmox IPv6 interface output: %w", parseErr)
 	}
 
 	// 验证接口名称格式（必须是i1结尾）
@@ -176,9 +179,9 @@ exit 1
 		return "", fmt.Errorf("failed to execute Proxmox interface detection: %w", err)
 	}
 
-	interfaceName := utils.CleanCommandOutput(output)
-	if interfaceName == "" || strings.HasPrefix(interfaceName, "ERROR:") {
-		return "", fmt.Errorf("无法检测Proxmox实例 %s (ID: %s) 的网络接口: %s", instanceName, instanceID, interfaceName)
+	interfaceName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("无法检测Proxmox实例 %s (ID: %s) 的网络接口: %w", instanceName, instanceID, parseErr)
 	}
 
 	// 验证接口名称格式
@@ -251,9 +254,9 @@ exit 1
 		return "", fmt.Errorf("failed to detect interface by MAC: %w", err)
 	}
 
-	interfaceName := utils.CleanCommandOutput(output)
-	if interfaceName == "" || strings.HasPrefix(interfaceName, "ERROR:") {
-		return "", fmt.Errorf("无法通过MAC地址 %s 找到接口", macAddress)
+	interfaceName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("无法通过MAC地址 %s 找到接口: %w", macAddress, parseErr)
 	}
 
 	global.APP_LOG.Debug("通过MAC地址成功检测到网络接口",
@@ -505,9 +508,9 @@ func (s *Service) detectQEMUNetworkInterface(providerInstance provider.Provider,
 		return "", fmt.Errorf("detect qemu interface for %s: %w", instanceName, err)
 	}
 
-	iface := strings.TrimSpace(output)
-	if iface == "" {
-		return "", fmt.Errorf("no interface found for QEMU VM %s", instanceName)
+	iface, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("invalid interface output for QEMU VM %s: %w", instanceName, parseErr)
 	}
 
 	global.APP_LOG.Debug("检测到QEMU VM网络接口",
@@ -547,9 +550,9 @@ exit 1
 		return "", fmt.Errorf("detect kubevirt interface for %s: %w", instanceName, err)
 	}
 
-	iface := strings.TrimSpace(output)
-	if iface == "" {
-		return "", fmt.Errorf("no interface found for KubeVirt VM %s", instanceName)
+	iface, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	if parseErr != nil {
+		return "", fmt.Errorf("invalid interface output for KubeVirt VM %s: %w", instanceName, parseErr)
 	}
 
 	global.APP_LOG.Debug("检测到KubeVirt VM网络接口",

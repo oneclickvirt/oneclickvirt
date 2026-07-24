@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/pem"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,12 @@ import (
 )
 
 type discoveryTestExecutor struct{}
+
+type discoveryRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn discoveryRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
 
 func (discoveryTestExecutor) Execute(command string) (string, error) {
 	if strings.Contains(command, "hostname") {
@@ -105,6 +113,114 @@ func TestParseResourcesJSONPVE9(t *testing.T) {
 	ct := got[1]
 	if ct.UUID != "proxmox-lxc-121" || ct.ProviderInstanceID != "121" || ct.Name != "ct-121" || ct.InstanceType != "container" {
 		t.Fatalf("unexpected LXC identity: %+v", ct)
+	}
+}
+
+func TestAPIDiscoveryBatchesGuestDescriptionsByNodeWithoutSSH(t *testing.T) {
+	responses := map[string]string{
+		"/api2/json/cluster/resources": `{"data":[
+			{"id":"qemu/120","node":"pve-a","name":"existing-vm","status":"running","type":"qemu","vmid":120,"maxcpu":2,"maxmem":1073741824,"maxdisk":8589934592},
+			{"id":"lxc/121","node":"pve-a","name":"existing-ct","status":"stopped","type":"lxc","vmid":121,"maxcpu":1,"maxmem":536870912,"maxdisk":4294967296}
+		]}`,
+		"/api2/json/nodes/pve-a/execute": `{"data":[
+			{"status":200,"data":{"description":"# 用户名-username admin\n# 密码-password VMSecret\n# SSH端口 22001"}},
+			{"status":200,"data":{"description":"# root密码-password CTSecret\n# SSH端口 22002"}}
+		]}`,
+	}
+	var requestCount atomic.Int32
+	var directConfigReads atomic.Int32
+	client := &http.Client{Transport: discoveryRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requestCount.Add(1)
+		if strings.HasSuffix(request.URL.Path, "/config") {
+			directConfigReads.Add(1)
+		}
+		if strings.HasSuffix(request.URL.Path, "/execute") {
+			requestBody, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Errorf("read execute request: %v", err)
+			}
+			bodyText := string(requestBody)
+			if !strings.Contains(bodyText, `qemu/120/config`) || !strings.Contains(bodyText, `lxc/121/config`) {
+				t.Errorf("execute request does not contain both guest configs: %s", bodyText)
+			}
+		}
+		body, ok := responses[request.URL.Path]
+		status := http.StatusOK
+		if !ok {
+			status = http.StatusNotFound
+			body = `{"data":null}`
+		}
+		return &http.Response{
+			StatusCode: status,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    request,
+		}, nil
+	})}
+	p := &ProxmoxProvider{
+		config:    nodeConfigForDiscoveryTest("user@pve!token", "secret"),
+		apiClient: client,
+	}
+
+	instances, err := p.apiDiscoverInstances(context.Background())
+	if err != nil {
+		t.Fatalf("apiDiscoverInstances() error = %v", err)
+	}
+	if len(instances) != 2 {
+		t.Fatalf("instances = %#v, want two guests", instances)
+	}
+	for _, instance := range instances {
+		resource, ok := instance.RawData.(proxmoxDiscoveredResource)
+		if !ok || !strings.Contains(resource.Description, "密码-password") {
+			t.Fatalf("guest %s description was not enriched: %#v", instance.ProviderInstanceID, instance.RawData)
+		}
+	}
+	if requestCount.Load() != 2 || directConfigReads.Load() != 0 {
+		t.Fatalf("requests = %d direct config reads = %d, want cluster + one node batch", requestCount.Load(), directConfigReads.Load())
+	}
+}
+
+func TestAPIDiscoveryFallsBackWhenNodeBatchIsDenied(t *testing.T) {
+	responses := map[string]string{
+		"/api2/json/cluster/resources": `{"data":[
+			{"id":"qemu/120","node":"pve-a","name":"existing-vm","status":"running","type":"qemu","vmid":120,"maxcpu":2,"maxmem":1073741824,"maxdisk":8589934592}
+		]}`,
+		"/api2/json/nodes/pve-a/qemu/120/config": `{"data":{"description":"# 用户名-username admin\n# 密码-password VMSecret\n# SSH端口 22001"}}`,
+	}
+	client := &http.Client{Transport: discoveryRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/api2/json/nodes/pve-a/execute" {
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"data":null}`)),
+				Request:    request,
+			}, nil
+		}
+		body, ok := responses[request.URL.Path]
+		status := http.StatusOK
+		if !ok {
+			status = http.StatusNotFound
+			body = `{"data":null}`
+		}
+		return &http.Response{
+			StatusCode: status,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    request,
+		}, nil
+	})}
+	p := &ProxmoxProvider{
+		config:    nodeConfigForDiscoveryTest("user@pve!token", "secret"),
+		apiClient: client,
+	}
+
+	instances, err := p.apiDiscoverInstances(context.Background())
+	if err != nil {
+		t.Fatalf("apiDiscoverInstances() error = %v", err)
+	}
+	resource, ok := instances[0].RawData.(proxmoxDiscoveredResource)
+	if !ok || !strings.Contains(resource.Description, "VMSecret") {
+		t.Fatalf("individual fallback did not preserve metadata: %#v", instances)
 	}
 }
 

@@ -5,6 +5,10 @@
 VERSION="" 
 REPO="oneclickvirt/oneclickvirt"
 BASE_URL=""
+MANAGED_INSTALL_ROOT="${ONECLICKVIRT_INSTALL_ROOT:-/opt/oneclickvirt}"
+MANAGED_SERVICE_FILE="${ONECLICKVIRT_SERVICE_FILE:-/etc/systemd/system/oneclickvirt.service}"
+MANAGED_CLI_LINK="${ONECLICKVIRT_CLI_LINK:-/usr/local/bin/oneclickvirt}"
+MANAGED_SERVICE_NAME="${ONECLICKVIRT_SERVICE_NAME:-oneclickvirt}"
 cdn_urls="https://cdn0.spiritlhl.top/ http://cdn3.spiritlhl.net/ http://cdn1.spiritlhl.net/ http://cdn2.spiritlhl.net/"
 cdn_success_url=""
 github_api_urls=(
@@ -555,9 +559,12 @@ create_readme() {
 - 重启服务: systemctl restart oneclickvirt
 - 开机自启: systemctl enable oneclickvirt
 - 禁用自启: systemctl disable oneclickvirt
-- 查看状态: systemctl status oneclickvirt
-- 查看日志: journalctl -u oneclickvirt -f
+- 查看状态: bash install.sh status
+- 查看日志: bash install.sh logs
+- 持续查看日志: bash install.sh logs --follow
 - 查看最近日志: journalctl -u oneclickvirt --since "1 hour ago"
+- 卸载应用并保留配置和存储: bash install.sh uninstall
+- 完全删除应用目录: bash install.sh uninstall --purge
 
 ## 直接运行
 - oneclickvirt
@@ -635,9 +642,19 @@ create_symlink() {
 }
 
 upgrade_server() {
+    local legacy_binary=""
     if [ ! -f "/opt/oneclickvirt/server/oneclickvirt-server" ]; then
+        legacy_binary=$(find /opt/oneclickvirt/server -maxdepth 1 -type f \
+            \( -name 'server-allinone-*' -o -name 'server-linux-*' \) 2>/dev/null | head -n1)
+    fi
+
+    if [ ! -f "/opt/oneclickvirt/server/oneclickvirt-server" ] && [ -z "$legacy_binary" ]; then
         log_error "No existing installation was detected; please use the install command for a fresh setup." "未检测到已安装版本，请使用 install 选项进行全新安装。"
         exit 1
+    fi
+
+    if [ -n "$legacy_binary" ]; then
+        log_info "Detected a legacy full-installer binary; it will be migrated during upgrade." "检测到旧版一键安装二进制，升级时将自动迁移。"
     fi
     
     log_info "Starting upgrade to version: $VERSION" "开始升级到版本: $VERSION"
@@ -653,6 +670,16 @@ upgrade_server() {
     # 升级服务器二进制文件
     log_info "Upgrading server binary..." "正在升级服务器二进制文件..."
     install_server
+
+    if [ -n "$legacy_binary" ]; then
+        local service_file="/etc/systemd/system/oneclickvirt.service"
+        if [ -f "$service_file" ]; then
+            sed -i.bak "s|^ExecStart=.*|ExecStart=/opt/oneclickvirt/server/oneclickvirt-server|" "$service_file"
+            rm -f "${service_file}.bak"
+            systemctl daemon-reload
+        fi
+        rm -f "$legacy_binary"
+    fi
     
     # 升级Web文件 - 先删除旧文件，再解压新文件
     log_info "Upgrading web assets..." "正在升级 Web 应用文件..."
@@ -694,6 +721,130 @@ upgrade_server() {
     if [ "$service_was_running" = false ]; then
         log_warning "The service was not auto-started; start it manually with: systemctl start oneclickvirt" "服务未自动启动，请手动执行: systemctl start oneclickvirt"
     fi
+}
+
+show_service_status() {
+    if ! command -v systemctl >/dev/null 2>&1; then
+        log_error "systemctl is required to inspect this installation." "查看此安装的状态需要 systemctl。"
+        return 1
+    fi
+
+    systemctl status "$MANAGED_SERVICE_NAME" --no-pager
+}
+
+show_service_logs() {
+    local lines=100
+    local follow=false
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -f|--follow)
+                follow=true
+                shift
+                ;;
+            -n|--lines)
+                if [ $# -lt 2 ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                    log_error "--lines requires a non-negative integer." "--lines 需要一个非负整数。"
+                    return 1
+                fi
+                lines="$2"
+                shift 2
+                ;;
+            *)
+                log_error "Unknown logs option: $1" "未知的日志选项: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    if ! command -v journalctl >/dev/null 2>&1; then
+        log_error "journalctl is required to inspect this installation's logs." "查看此安装的日志需要 journalctl。"
+        return 1
+    fi
+
+    if [ "$follow" = true ]; then
+        journalctl -u "$MANAGED_SERVICE_NAME" -n "$lines" -f
+    else
+        journalctl -u "$MANAGED_SERVICE_NAME" -n "$lines" --no-pager
+    fi
+}
+
+uninstall_server() {
+    local assume_yes=false
+    local purge=false
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -y|--yes)
+                assume_yes=true
+                shift
+                ;;
+            --purge)
+                purge=true
+                shift
+                ;;
+            *)
+                log_error "Unknown uninstall option: $1" "未知的卸载选项: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    case "$MANAGED_INSTALL_ROOT" in
+        ""|/)
+            log_error "Refusing to uninstall from an unsafe installation root: '$MANAGED_INSTALL_ROOT'." "拒绝从不安全的安装根目录卸载: '$MANAGED_INSTALL_ROOT'。"
+            return 1
+            ;;
+    esac
+
+    if [ "$assume_yes" != true ]; then
+        if [ "${noninteractive:-false}" = "true" ]; then
+            log_error "Non-interactive uninstall requires --yes." "无交互卸载必须指定 --yes。"
+            return 1
+        fi
+
+        local prompt="Remove the OneClickVirt application"
+        [ "$purge" = true ] && prompt="$prompt and all files under $MANAGED_INSTALL_ROOT"
+        printf "%s? [y/N]: " "$prompt"
+        local confirmation
+        read -r confirmation
+        case "$confirmation" in
+            [Yy]|[Yy][Ee][Ss]) ;;
+            *)
+                log_info "Uninstall cancelled." "已取消卸载。"
+                return 0
+                ;;
+        esac
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl disable --now "$MANAGED_SERVICE_NAME" >/dev/null 2>&1 || true
+    fi
+    rm -f "$MANAGED_SERVICE_FILE" "$MANAGED_CLI_LINK"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl reset-failed "$MANAGED_SERVICE_NAME" >/dev/null 2>&1 || true
+    fi
+
+    if [ "$purge" = true ]; then
+        rm -rf "$MANAGED_INSTALL_ROOT"
+        log_success "OneClickVirt and its application directory were removed." "OneClickVirt 及其应用目录已删除。"
+    else
+        rm -f \
+            "$MANAGED_INSTALL_ROOT/server/oneclickvirt-server" \
+            "$MANAGED_INSTALL_ROOT/server/readme.md"
+        find "$MANAGED_INSTALL_ROOT/server" -maxdepth 1 -type f \
+            \( -name 'server-allinone-*' -o -name 'server-linux-*' \) -delete 2>/dev/null || true
+        rm -rf "$MANAGED_INSTALL_ROOT/web"
+        log_success "OneClickVirt was uninstalled; configuration and storage were preserved under $MANAGED_INSTALL_ROOT/server/." \
+            "OneClickVirt 已卸载；配置和存储仍保留在 $MANAGED_INSTALL_ROOT/server/ 下。"
+    fi
+
+    if [ -n "${WEB_PATH:-}" ] && [ "${WEB_PATH}" != "$MANAGED_INSTALL_ROOT/web" ]; then
+        log_warning "The custom web path was not removed: ${WEB_PATH}" "自定义 Web 路径未删除: ${WEB_PATH}"
+    fi
+    log_warning "Database, reverse-proxy, and TLS resources were not removed because they may be shared." \
+        "数据库、反向代理和 TLS 资源可能被共用，因此未被删除。"
 }
 
 check_system_resources() {
@@ -814,6 +965,12 @@ Commands:
     env         仅检查和准备环境
     upgrade     Upgrade an existing installation
     upgrade     升级已安装版本
+    status      Show service status
+    status      查看服务状态
+    logs        Show service logs (supports --lines N and --follow)
+    logs        查看服务日志（支持 --lines N 和 --follow）
+    uninstall   Remove the application (supports --yes and --purge)
+    uninstall   卸载应用（支持 --yes 和 --purge）
     help        Show this help message
     help        显示此帮助信息
 
@@ -829,6 +986,11 @@ Examples / 示例:
     bash install.sh                                      # Install latest / 安装最新版
     bash install.sh env                                  # Environment check / 环境检查
     bash install.sh upgrade                              # Upgrade / 升级
+    bash install.sh status                               # Service status / 服务状态
+    bash install.sh logs --lines 200                     # Recent logs / 最近日志
+    bash install.sh logs --follow                        # Follow logs / 持续查看日志
+    bash install.sh uninstall                            # Keep config and storage / 保留配置和存储
+    bash install.sh uninstall --purge                    # Remove application data / 删除应用数据
     CN=true bash install.sh                              # Use CN mirrors / 使用中国镜像
     noninteractive=true bash install.sh                  # Non-interactive / 非交互
     FORCE_INSTALL=true bash install.sh                   # Skip resource check / 跳过资源检查
@@ -902,6 +1064,18 @@ main() {
                 log_info "Detected WEB_PATH from environment: $custom_web_path" "检测到环境变量 WEB_PATH: $custom_web_path"
             fi
             upgrade_server
+            ;;
+        "status")
+            show_service_status
+            ;;
+        "logs")
+            shift
+            show_service_logs "$@"
+            ;;
+        "uninstall"|"remove")
+            check_root
+            shift
+            uninstall_server "$@"
             ;;
         "help"|"-h"|"--help")
             show_help

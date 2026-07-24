@@ -356,6 +356,19 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 				ac.mu.Unlock()
 			}
 
+		case msgTypeAPIResponse:
+			var resp apiResponsePayload
+			if err := json.Unmarshal(msg.Payload, &resp); err == nil {
+				ac.mu.Lock()
+				if ch, ok := ac.apiPending[msg.ID]; ok {
+					select {
+					case ch <- resp:
+					default:
+					}
+				}
+				ac.mu.Unlock()
+			}
+
 		case msgTypePong:
 			ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
 

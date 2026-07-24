@@ -1,4 +1,9 @@
 // WebSocket connection handler for the agent WebSocket client.
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Method, Request, header},
+};
 use futures_util::{SinkExt, StreamExt};
 use rand;
 use std::collections::HashMap;
@@ -9,6 +14,7 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::sync::{Mutex, Semaphore, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
+use tower::ServiceExt;
 use tracing::{info, warn};
 
 use super::shell::{open_shell_session, pty_kill, pty_resize};
@@ -21,6 +27,8 @@ use crate::tunnel::{
 pub(super) async fn handle_connection<S>(
     ws_stream: tokio_tungstenite::WebSocketStream<S>,
     secret: &str,
+    api_router: Router,
+    api_token: String,
 ) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -89,6 +97,7 @@ where
     // spawning an unbounded number of processes when the controller sends
     // many commands in rapid succession.
     let exec_permits: Arc<Semaphore> = Arc::new(Semaphore::new(10));
+    let api_permits: Arc<Semaphore> = Arc::new(Semaphore::new(8));
 
     // Limit concurrent tunnel open operations to 20 to prevent resource
     // exhaustion (file descriptors, memory, CPU) when the controller rapidly
@@ -326,6 +335,53 @@ where
                                     ws_tx_hi_clone.send(resp_msg),
                                 )
                                 .await;
+                            }
+                        });
+                    }
+                    "api_req" => {
+                        let req_id = frame.id.clone().unwrap_or_default();
+                        let request = frame.payload.and_then(|payload| {
+                            serde_json::from_value::<ApiReqPayload>(payload).ok()
+                        });
+                        let router = api_router.clone();
+                        let token = api_token.clone();
+                        let tx = ws_tx_hi.clone();
+                        let permits = api_permits.clone();
+                        tokio::spawn(async move {
+                            let response = match request {
+                                Some(request) => match tokio::time::timeout(
+                                    Duration::from_secs(10),
+                                    permits.acquire_owned(),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(_permit)) => {
+                                        dispatch_api_request(router, &token, request).await
+                                    }
+                                    _ => ApiRespPayload {
+                                        status: 429,
+                                        body: serde_json::json!({"error": "Agent API concurrency limit exceeded"}),
+                                    },
+                                },
+                                None => ApiRespPayload {
+                                    status: 400,
+                                    body: serde_json::json!({"error": "invalid Agent API request"}),
+                                },
+                            };
+                            let frame = WsFrame {
+                                msg_type: "api_resp".to_string(),
+                                id: Some(req_id),
+                                payload: serde_json::to_value(response).ok(),
+                            };
+                            if let Ok(text) = serde_json::to_string(&frame) {
+                                let message = Message::Text(text.into());
+                                if tx.try_send(message.clone()).is_err() {
+                                    let _ = tokio::time::timeout(
+                                        Duration::from_secs(10),
+                                        tx.send(message),
+                                    )
+                                    .await;
+                                }
                             }
                         });
                     }
@@ -644,4 +700,81 @@ where
         Some(e) => Err(e),
         None => Ok(()),
     }
+}
+
+fn allowed_api_request(method: &Method, path: &str) -> bool {
+    matches!(
+        (method.as_str(), path),
+        ("GET", "/api/v1/egress/capabilities")
+            | ("POST", "/api/v1/egress/dependencies/ensure")
+            | ("GET", "/api/v1/egress/profiles")
+            | ("PUT", "/api/v1/egress/profiles")
+            | ("DELETE", "/api/v1/egress/profiles")
+            | ("GET", "/api/v1/egress/bindings")
+            | ("PUT", "/api/v1/egress/bindings")
+            | ("DELETE", "/api/v1/egress/bindings")
+            | ("PUT", "/api/v1/egress/state")
+            | ("POST", "/api/v1/egress/reconcile")
+    )
+}
+
+async fn dispatch_api_request(
+    router: Router,
+    token: &str,
+    request: ApiReqPayload,
+) -> ApiRespPayload {
+    let method = match Method::from_bytes(request.method.as_bytes()) {
+        Ok(method) if allowed_api_request(&method, &request.path) => method,
+        _ => {
+            return ApiRespPayload {
+                status: 403,
+                body: serde_json::json!({"error": "Agent API route is not allowed"}),
+            };
+        }
+    };
+    let body = match request.body {
+        Some(body) => match serde_json::to_vec(&body) {
+            Ok(body) if body.len() <= 1024 * 1024 => body,
+            Ok(_) => {
+                return ApiRespPayload {
+                    status: 413,
+                    body: serde_json::json!({"error": "Agent API request body is too large"}),
+                };
+            }
+            Err(_) => {
+                return ApiRespPayload {
+                    status: 400,
+                    body: serde_json::json!({"error": "invalid Agent API request body"}),
+                };
+            }
+        },
+        None => Vec::new(),
+    };
+    let request = match Request::builder()
+        .method(method)
+        .uri(request.path)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-token", token)
+        .body(Body::from(body))
+    {
+        Ok(request) => request,
+        Err(_) => {
+            return ApiRespPayload {
+                status: 400,
+                body: serde_json::json!({"error": "invalid Agent API request"}),
+            };
+        }
+    };
+    let response = match router.oneshot(request).await {
+        Ok(response) => response,
+        Err(error) => match error {},
+    };
+    let status = response.status().as_u16();
+    let body = match to_bytes(response.into_body(), 4 * 1024 * 1024).await {
+        Ok(bytes) if bytes.is_empty() => serde_json::Value::Null,
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| serde_json::json!({"error": "Agent API returned invalid JSON"})),
+        Err(_) => serde_json::json!({"error": "Agent API response body is too large"}),
+    };
+    ApiRespPayload { status, body }
 }

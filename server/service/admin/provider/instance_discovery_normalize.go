@@ -70,6 +70,7 @@ func normalizeDiscoveredInstances(providerID uint, providerType string, instance
 		instance.IPv6Address = normalizeDiscoveredIP(instance.IPv6Address)
 		instance.OSType = utils.NormalizeOSType(instance.OSType)
 		instance.PortMappings, instance.SSHPort, instance.ExtraPorts = normalizeDiscoveredPorts(instance.PortMappings, instance.SSHPort, instance.ExtraPorts)
+		instance.RawData = sanitizeDiscoveredRawData(instance.RawData)
 		result = append(result, instance)
 	}
 	sort.SliceStable(result, func(i, j int) bool {
@@ -257,6 +258,23 @@ func marshalSanitizedDiscoveredData(raw interface{}) (string, error) {
 	return string(sanitized), nil
 }
 
+// sanitizeDiscoveredRawData keeps provider diagnostics useful without exposing
+// credentials through the discovery endpoint before an administrator imports it.
+func sanitizeDiscoveredRawData(raw interface{}) interface{} {
+	if raw == nil {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var decoded interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil
+	}
+	return redactDiscoveredValue(decoded)
+}
+
 func redactDiscoveredValue(value interface{}) interface{} {
 	switch typed := value.(type) {
 	case map[string]interface{}:
@@ -290,6 +308,9 @@ func isSensitiveDiscoveryKey(key string) bool {
 	key = strings.ToLower(strings.TrimSpace(key))
 	replacer := strings.NewReplacer("_", "", "-", "", ".", "", " ", "")
 	key = replacer.Replace(key)
+	if key == "userdescription" || key == "description" {
+		return true
+	}
 	for _, fragment := range []string{"password", "passwd", "token", "secret", "privatekey", "authorization", "userdata", "apikey", "accesskey"} {
 		if strings.Contains(key, fragment) {
 			return true

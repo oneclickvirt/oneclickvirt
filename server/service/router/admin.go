@@ -36,6 +36,12 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.POST("/instances/:id/action", admin.AdminInstanceAction)
 		NormalAdminGroup.PUT("/instances/:id/reset-password", admin.ResetInstancePassword)
 		NormalAdminGroup.GET("/instances/:id/password/:taskId", admin.GetInstanceNewPassword)
+		// 实例独立出口（透明代理）
+		NormalAdminGroup.GET("/instances/:id/egress", admin.GetInstanceEgress)
+		NormalAdminGroup.PUT("/instances/:id/egress", admin.BindInstanceEgress)
+		NormalAdminGroup.DELETE("/instances/:id/egress", admin.UnbindInstanceEgress)
+		NormalAdminGroup.POST("/instances/:id/egress/reconcile", admin.ReconcileInstanceEgress)
+		NormalAdminGroup.POST("/instances/:id/egress/dependencies", admin.EnsureInstanceEgressDependencies)
 		NormalAdminGroup.GET("/snapshots/overview", admin.GetSnapshotOverview)
 		NormalAdminGroup.GET("/snapshots", admin.GetSnapshotList)
 		NormalAdminGroup.GET("/snapshot-tasks/:id", admin.GetSnapshotTask)
@@ -140,6 +146,19 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.POST("/providers/:id/ipv4-pool", admin.SetProviderIPv4Pool)
 		NormalAdminGroup.DELETE("/providers/:id/ipv4-pool", admin.ClearProviderIPv4Pool)
 		NormalAdminGroup.DELETE("/providers/:id/ipv4-pool/:entry_id", admin.DeleteProviderIPv4PoolEntry)
+		// IPv6地址池管理（支持离散地址和任意前缀范围）
+		NormalAdminGroup.GET("/providers/:id/ipv6-pool", admin.GetProviderIPv6Pool)
+		NormalAdminGroup.POST("/providers/:id/ipv6-pool", admin.SetProviderIPv6Pool)
+		NormalAdminGroup.POST("/providers/:id/ipv6-pool/sync", admin.SyncProviderIPv6Pool)
+		NormalAdminGroup.DELETE("/providers/:id/ipv6-pool", admin.ClearProviderIPv6Pool)
+		NormalAdminGroup.DELETE("/providers/:id/ipv6-pool/:entry_id", admin.DeleteProviderIPv6PoolEntry)
+		NormalAdminGroup.GET("/providers/:id/ipv6-tunnels", admin.GetProviderIPv6Tunnels)
+		NormalAdminGroup.POST("/providers/:id/ipv6-tunnels", admin.CreateProviderIPv6Tunnel)
+		NormalAdminGroup.POST("/providers/:id/ipv6-tunnels/check", admin.CheckProviderIPv6Tunnels)
+		NormalAdminGroup.PUT("/providers/:id/ipv6-tunnels/:tunnel_id", admin.UpdateProviderIPv6Tunnel)
+		NormalAdminGroup.POST("/providers/:id/ipv6-tunnels/:tunnel_id/enable", admin.EnableProviderIPv6Tunnel)
+		NormalAdminGroup.POST("/providers/:id/ipv6-tunnels/:tunnel_id/disable", admin.DisableProviderIPv6Tunnel)
+		NormalAdminGroup.DELETE("/providers/:id/ipv6-tunnels/:tunnel_id", admin.DeleteProviderIPv6Tunnel)
 
 		// 流量管理API
 		adminTrafficAPI := &traffic.AdminTrafficAPI{}

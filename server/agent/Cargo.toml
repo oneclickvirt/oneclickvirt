@@ -24,7 +24,7 @@ hyper = { version = "1", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2", "tokio"] }
 hyper-rustls = { version = "0.27", features = ["http1", "http2", "webpki-roots", "ring"] }
 http-body-util = "0.1"
-tower = "0.5"
+tower = { version = "0.5", features = ["util"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["ring"] }

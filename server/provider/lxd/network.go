@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -28,6 +29,13 @@ type NetworkConfig struct {
 func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig) error {
 	// 检查是否启用IPv6
 	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only"
+	requestedIPv6 := ""
+	if config.Metadata != nil {
+		requestedIPv6 = config.Metadata["static_ipv6"]
+	}
+	if strings.TrimSpace(requestedIPv6) != "" && !hasIPv6 {
+		return fmt.Errorf("已分配静态IPv6，但实例网络类型 %s 未启用IPv6", networkConfig.NetworkType)
+	}
 
 	global.APP_LOG.Debug("LXD网络配置IPv6检测",
 		zap.String("instanceName", config.Name),
@@ -60,6 +68,11 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		}
 		global.APP_LOG.Debug("使用现有网络配置继续",
 			zap.String("instanceName", config.Name))
+		if hasIPv6 {
+			if err := l.configureIPv6Network(ctx, config.Name, true, networkConfig.IPv6PortMappingMethod, requestedIPv6); err != nil {
+				return fmt.Errorf("使用现有网络配置静态IPv6失败: %w", err)
+			}
+		}
 		return nil
 	}
 
@@ -135,8 +148,8 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 			zap.String("instanceName", config.Name),
 			zap.String("ipv6PortMappingMethod", networkConfig.IPv6PortMappingMethod))
 
-		if err := l.configureIPv6Network(ctx, config.Name, hasIPv6, networkConfig.IPv6PortMappingMethod); err != nil {
-			global.APP_LOG.Warn("配置IPv6网络失败", zap.Error(err))
+		if err := l.configureIPv6Network(ctx, config.Name, hasIPv6, networkConfig.IPv6PortMappingMethod, requestedIPv6); err != nil {
+			return fmt.Errorf("配置IPv6网络失败: %w", err)
 		}
 	} else {
 		global.APP_LOG.Debug("IPv6未启用，跳过IPv6网络配置",

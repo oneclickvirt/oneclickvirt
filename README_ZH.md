@@ -58,9 +58,9 @@
 | 镜像标签 | 说明 | 适用场景 |
 |---------|------|---------|
 | `oneclickvirt/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
-| `oneclickvirt/oneclickvirt:20260717` | 一体化版本特定日期版本 | 需要固定版本 |
+| `oneclickvirt/oneclickvirt:20260702` | 一体化版本特定日期版本 | 需要固定版本 |
 | `oneclickvirt/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
-| `oneclickvirt/oneclickvirt:no-db-20260717` | 独立数据库版本特定日期 | 不内置数据库 |
+| `oneclickvirt/oneclickvirt:no-db-20260702` | 独立数据库版本特定日期 | 不内置数据库 |
 
 所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
 
@@ -252,7 +252,22 @@ bash install_full.sh --version v1.2.3 --db-wait-timeout 300
 bash install_full.sh --db-type mysql --no-db-fallback
 ```
 
-安装脚本默认要求至少 20 GB 可用磁盘和 4 GB 内存。生成的数据库密码会在安装摘要中输出，请在关闭终端前保存。
+安装脚本默认要求至少 10 GB 可用磁盘和 2 GB 内存（内存与 Swap 合计）。生成的数据库密码会在安装摘要中输出，请在关闭终端前保存。
+
+安装完成后，可下载通用安装脚本管理 systemd 服务方式部署的 OneClickVirt：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install.sh -o install.sh
+chmod +x install.sh
+
+./install.sh status
+./install.sh logs --lines 200
+./install.sh logs --follow
+./install.sh upgrade
+./install.sh uninstall
+```
+
+`uninstall` 默认删除服务、程序和 Web 文件，但保留 `config.yaml` 与 `storage`；`uninstall --purge` 会删除整个应用目录。两种卸载方式都不会删除可能与其他应用共用的数据库、反向代理或 TLS 证书。无交互卸载必须额外指定 `--yes`。
 
 </details>
 

@@ -18,6 +18,7 @@ import (
 	domainService "oneclickvirt/service/domain"
 	"oneclickvirt/service/firewall"
 	"oneclickvirt/service/interfaces"
+	ipv6PoolService "oneclickvirt/service/ipv6pool"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/utils"
@@ -238,6 +239,9 @@ func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
 		global.APP_LOG.Warn("直接清理失败实例IPv4池地址失败",
 			zap.Uint("instanceId", instance.ID),
 			zap.Error(err))
+	}
+	if err := ipv6PoolService.NewService().ReleaseIPv6(instance.ID); err != nil {
+		return fmt.Errorf("直接清理失败实例IPv6池地址失败: %w", err)
 	}
 
 	domainSvc.RemoveDomainProxies(instanceDomains)

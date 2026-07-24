@@ -394,6 +394,8 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				PublicIP:     discovered.PublicIP,
 				IPv6Address:  discovered.IPv6Address,
 				SSHPort:      discovered.SSHPort,
+				Username:     discovered.Username,
+				Password:     discovered.Password,
 				OSType:       discovered.OSType,
 				UserID:       adminUserID,
 				ProviderVMID: discovered.ProviderInstanceID,
