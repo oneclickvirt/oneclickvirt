@@ -42,7 +42,7 @@ jobs:
     - name: Build monitoring agent (AMD64)
       working-directory: ./server/agent
       run: |
-        cargo build --release --target x86_64-unknown-linux-musl
+        cargo build --locked --release --target x86_64-unknown-linux-musl
         cp target/x86_64-unknown-linux-musl/release/oneclickvirt-agent oneclickvirt-agent-linux-amd64
 
     - name: Upload AMD64 agent artifact
@@ -82,7 +82,7 @@ jobs:
     - name: Build monitoring agent (ARM64)
       working-directory: ./server/agent
       run: |
-        cargo build --release --target aarch64-unknown-linux-musl
+        cargo build --locked --release --target aarch64-unknown-linux-musl
         cp target/aarch64-unknown-linux-musl/release/oneclickvirt-agent oneclickvirt-agent-linux-arm64
 
     - name: Upload ARM64 agent artifact
