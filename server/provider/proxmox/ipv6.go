@@ -29,7 +29,7 @@ type proxmoxIPv6Mode struct {
 }
 
 func cleanIPv6Value(raw string) string {
-	network, err := utils.ParseSingleIPv6NetworkOutput(raw, 128)
+	network, err := utils.ParseFirstIPv6NetworkOutput(raw, 128)
 	if err != nil {
 		return ""
 	}
@@ -247,7 +247,7 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_check_ipv6")
 		if err == nil {
 			info.HostIPv6Address = cleanIPv6Value(output)
-			if network, parseErr := utils.ParseSingleIPv6NetworkOutput(output, 64); parseErr == nil {
+			if network, parseErr := utils.ParseFirstIPv6NetworkOutput(output, 64); parseErr == nil {
 				info.Network = network
 				info.HostIPv6Address = network.Address.String()
 				info.IPv6AddressPrefix = network.NetworkAddress().String()
@@ -260,7 +260,7 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_prefixlen ]"); err == nil {
 		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_prefixlen")
 		if err == nil {
-			parsed, parseErr := utils.ParseIPv6PrefixLengthOutput(output)
+			parsed, parseErr := utils.ParseFirstIPv6PrefixLengthOutput(output)
 			if parseErr == nil {
 				info.IPv6PrefixLen = strconv.Itoa(parsed)
 				if info.HostIPv6Address != "" {
@@ -630,6 +630,8 @@ func (p *ProxmoxProvider) getAvailableVmbr1IPv6(ctx context.Context) (string, er
 		return "", fmt.Errorf("没有可用的IPv6地址")
 	}
 
+	// This is a persisted allocation file, not a noisy probe. Validate every
+	// non-empty line so a corrupted pool cannot be silently treated as valid.
 	availableNetworks, parseErr := utils.ParseIPv6NetworkLines(output, 128)
 	if parseErr != nil {
 		return "", fmt.Errorf("IPv6地址文件包含无效内容: %w", parseErr)
@@ -745,7 +747,7 @@ func (p *ProxmoxProvider) GetInstancePublicIPv6(ctx context.Context, instanceNam
 	publicIPv6Cmd := fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(instanceName+"_v6"))
 	publicIPv6Output, err := p.sshClient.Execute(publicIPv6Cmd)
 	if err == nil {
-		publicIPv6, parseErr := utils.ParseSingleIPv6AddressOutput(publicIPv6Output)
+		publicIPv6, parseErr := utils.ParseFirstIPv6AddressOutput(publicIPv6Output)
 		if parseErr == nil && !p.isPrivateIPv6(publicIPv6) {
 			global.APP_LOG.Debug("从文件获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
@@ -768,7 +770,7 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		cmd = fmt.Sprintf("pct config %s | grep -E 'net[0-9]+:.*ip6=' | sed -n 's/.*ip6=\\([^/,[:space:]]*\\).*/\\1/p' | head -1", vmid)
 		output, err := p.sshClient.Execute(cmd)
 		if err == nil {
-			if ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(output); parseErr == nil {
+			if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
 				return ipv6, nil
 			}
 		}
@@ -781,7 +783,7 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		cmd = fmt.Sprintf("qm config %s | grep -E 'ipconfig[0-9]+:.*ip6=' | sed -n 's/.*ip6=\\([^/,[:space:]]*\\).*/\\1/p' | head -1", vmid)
 		output, err := p.sshClient.Execute(cmd)
 		if err == nil {
-			if ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(output); parseErr == nil {
+			if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
 				return ipv6, nil
 			}
 		}
@@ -790,7 +792,7 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		cmd = fmt.Sprintf("qm guest cmd %s network-get-interfaces 2>/dev/null | grep -o '\"ip-address\":[[:space:]]*\"[^\"]*:' | sed 's/.*\"\\([^\"]*\\)\".*/\\1/' | head -1 || true", vmid)
 		output, err = p.sshClient.Execute(cmd)
 		if err == nil {
-			if ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(output); parseErr == nil {
+			if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
 				return ipv6, nil
 			}
 		}
@@ -804,7 +806,7 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		return "", err
 	}
 
-	ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(output)
+	ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("no valid IPv6 address found for %s %s: %w", instanceType, vmid, parseErr)
 	}
@@ -854,7 +856,7 @@ func (p *ProxmoxProvider) getNATMappedIPv6(ctx context.Context, vmid string) (st
 	cmd := fmt.Sprintf("grep -E 'DNAT.*2001:db8:1::%s' /usr/local/bin/ipv6_nat_rules.sh 2>/dev/null | grep -oP '\\-d\\s+\\K[^\\s]+' | head -1 || true", vmid)
 	output, err := p.sshClient.Execute(cmd)
 	if err == nil {
-		if ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(output); parseErr == nil {
+		if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
 			return ipv6, nil
 		}
 	}
@@ -863,7 +865,7 @@ func (p *ProxmoxProvider) getNATMappedIPv6(ctx context.Context, vmid string) (st
 	cmd = fmt.Sprintf("ip6tables -t nat -L PREROUTING -n | grep 'DNAT.*2001:db8:1::%s' | awk '{print $4}' | head -1 || true", vmid)
 	output, err = p.sshClient.Execute(cmd)
 	if err == nil {
-		if ipv6, parseErr := utils.ParseSingleIPv6AddressOutput(output); parseErr == nil {
+		if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
 			return ipv6, nil
 		}
 	}

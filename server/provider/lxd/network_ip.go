@@ -27,8 +27,10 @@ func (l *LXDProvider) getInstanceType(instanceName string) (string, error) {
 		return "", fmt.Errorf("获取实例类型失败: %w", err)
 	}
 
-	instanceType, parseErr := utils.ParseSingleCommandToken(output)
-	if parseErr != nil || (instanceType != "container" && instanceType != "virtual-machine") {
+	instanceType, parseErr := utils.ParseFirstCommandLineMatching(output, func(value string) bool {
+		return value == "container" || value == "virtual-machine"
+	})
+	if parseErr != nil {
 		return "", fmt.Errorf("实例类型输出无效")
 	}
 	global.APP_LOG.Debug("检测到实例类型",
@@ -87,7 +89,7 @@ func (l *LXDProvider) getVMInstanceIP(instanceName string) (string, error) {
 			output, err := client.Execute(cmd)
 
 			if err == nil {
-				vmIP, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+				vmIP, parseErr := utils.ParseFirstIPv4AddressOutput(output)
 				if parseErr != nil {
 					continue
 				}
@@ -137,7 +139,7 @@ func (l *LXDProvider) getContainerInstanceIP(instanceName string) (string, error
 		output, err := client.Execute(cmd)
 
 		if err == nil {
-			containerIP, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+			containerIP, parseErr := utils.ParseFirstIPv4AddressOutput(output)
 			if parseErr != nil {
 				delay *= 2
 				continue
@@ -270,7 +272,7 @@ func (l *LXDProvider) getHostIP() (string, error) {
 		return "", fmt.Errorf("获取主机IP失败: %w", err)
 	}
 
-	hostIP, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+	hostIP, parseErr := utils.ParseFirstIPv4AddressOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("主机IP地址输出无效: %w", parseErr)
 	}
@@ -301,7 +303,7 @@ func (l *LXDProvider) GetVethInterfaceName(instanceName string) (string, error) 
 		return "", fmt.Errorf("获取veth接口名称失败: %w", err)
 	}
 
-	vethName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	vethName, parseErr := utils.ParseFirstNetworkInterfaceOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("veth接口名称输出无效: %w", parseErr)
 	}
@@ -332,7 +334,7 @@ func (l *LXDProvider) GetVethInterfaceNameV6(instanceName string) (string, error
 		// 如果没有eth1，可能使用eth0，返回eth0的veth接口
 		return l.GetVethInterfaceName(instanceName)
 	}
-	vethName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	vethName, parseErr := utils.ParseFirstNetworkInterfaceOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("IPv6 veth接口名称输出无效: %w", parseErr)
 	}

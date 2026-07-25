@@ -100,6 +100,15 @@ func (s *SyncTriggerService) TriggerInstanceTrafficSync(instanceID uint, reason 
 				zap.Error(err))
 			return
 		}
+		if inst.UserID == 0 {
+			// Imported or administrator-owned instances may intentionally have no
+			// user binding. They can still be monitored, but user-level limits do
+			// not apply and must not produce a misleading record-not-found warning.
+			global.APP_LOG.Debug("同步实例流量跳过：实例未绑定用户",
+				zap.Uint("instanceID", instanceID),
+				zap.String("reason", reason))
+			return
+		}
 
 		// 检查实例所属用户的流量限制（三层限制会自动覆盖实例层级）
 		if _, err := s.checkUserTrafficLimitWithContext(ctx, inst.UserID); err != nil {

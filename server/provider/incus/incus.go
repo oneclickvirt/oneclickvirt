@@ -67,6 +67,13 @@ func (i *IncusProvider) GetSupportedInstanceTypes() []string {
 func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
 	i.config = config
 	i.providerID = config.ID // 存储providerID
+	i.connected = false
+	i.sshClient.ClearExecutor()
+	if i.transport != nil {
+		// A failed reconnect must not retain a certificate from a previous
+		// configuration and accidentally keep API mode enabled.
+		i.transport.TLSClientConfig = nil
+	}
 
 	// Transport 已在 NewIncusProvider 中创建，现在关联providerID
 	if i.transport != nil && i.providerID > 0 {
@@ -130,7 +137,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 		Username:      config.Username,
 		Password:      config.Password,
 		PrivateKey:    config.PrivateKey,
-		APIEnabled:    config.CertPath != "" && config.KeyPath != "",
+		APIEnabled:    i.hasAPIAccess(),
 		APIPort:       8443,
 		APIScheme:     "https",
 		SSHEnabled:    true,
@@ -160,6 +167,9 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 func (i *IncusProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	i.config = config
 	i.providerID = config.ID
+	if i.transport != nil {
+		i.transport.TLSClientConfig = nil
+	}
 	if i.transport != nil && i.providerID > 0 {
 		provider.GetTransportCleanupManager().RegisterTransportWithProvider(i.transport, i.providerID)
 	}
@@ -599,7 +609,7 @@ func (i *IncusProvider) ExecuteSSHCommand(ctx context.Context, command string) (
 
 // 检查是否有 API 访问权限
 func (i *IncusProvider) hasAPIAccess() bool {
-	return i.config.CertPath != "" && i.config.KeyPath != ""
+	return i.transport != nil && i.transport.TLSClientConfig != nil
 }
 
 // shouldUseAPI 根据执行规则判断是否应该使用API

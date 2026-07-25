@@ -69,9 +69,10 @@ func (i *IncusProvider) configureNetworkLimits(instanceName string, networkConfi
 	cmd := fmt.Sprintf("incus config show %s | grep -A5 \"devices:\" | grep \"type: nic\" -B3 | grep \"^  \" | head -n1 | sed 's/://g'", shellSingleQuote(instanceName))
 	output, err := i.sshClient.Execute(cmd)
 	var targetInterface string
-	if err == nil && utils.CleanCommandOutput(output) != "" {
-		targetInterface = utils.CleanCommandOutput(output)
-	} else {
+	if err == nil {
+		targetInterface, _ = utils.ParseFirstNetworkInterfaceOutput(output)
+	}
+	if targetInterface == "" {
 		targetInterface = "eth0" // 默认接口
 	}
 
@@ -190,8 +191,8 @@ func (i *IncusProvider) setIPAddressBinding(instanceName, instanceIP string) err
 	cmd := fmt.Sprintf("incus config show %s | grep -A5 \"devices:\" | grep \"type: nic\" -B3 | grep \"^  \" | head -n1 | sed 's/://g'", shellSingleQuote(instanceName))
 	output, err := i.sshClient.Execute(cmd)
 	var targetInterface string
-	if err == nil && utils.CleanCommandOutput(output) != "" {
-		targetInterface = utils.CleanCommandOutput(output)
+	if err == nil {
+		targetInterface, _ = utils.ParseFirstNetworkInterfaceOutput(output)
 	}
 
 	// 如果没有找到网络接口，默认尝试eth0

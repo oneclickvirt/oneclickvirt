@@ -92,7 +92,7 @@ fi
 `, shellSingleQuote(instance.Name), cliName)
 		vethOutput, err := c.sshClient.Execute(vethCmd)
 		if err == nil {
-			vethInterface, parseErr := utils.ParseNetworkInterfaceOutput(vethOutput)
+			vethInterface, parseErr := utils.ParseFirstNetworkInterfaceOutput(vethOutput)
 			if parseErr == nil {
 				if instance.Metadata == nil {
 					instance.Metadata = make(map[string]string)
@@ -105,7 +105,7 @@ fi
 			fallbackCmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, shellSingleQuote(instance.Name))
 			fallbackOutput, fallbackErr := c.sshClient.Execute(fallbackCmd)
 			if fallbackErr == nil {
-				ipAddress, parseErr := utils.ParseSingleIPv4AddressOutput(fallbackOutput)
+				ipAddress, parseErr := utils.ParseFirstIPv4AddressOutput(fallbackOutput)
 				if parseErr == nil {
 					instance.PrivateIP = ipAddress
 					instance.IP = ipAddress
@@ -119,7 +119,7 @@ fi
 			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", cliName, shellSingleQuote(instance.Name))
 			output, err = c.sshClient.Execute(cmd)
 			if err == nil {
-				ipv6Address, parseErr := utils.ParseSingleIPv6AddressOutput(output)
+				ipv6Address, parseErr := utils.ParseFirstIPv6AddressOutput(output)
 				if parseErr == nil {
 					instance.IPv6Address = ipv6Address
 				}

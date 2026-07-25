@@ -136,6 +136,23 @@ func ExtractFirstIPv6Network(output string, defaultPrefix int) (IPv6Network, err
 	return networks[0], nil
 }
 
+// ParseFirstIPv6NetworkOutput parses the first valid IPv6 address/CIDR from
+// command output. Remote probes can return warnings, progress text, or more
+// than one line even when the command is expected to print one value. Each
+// line/token is validated independently; invalid candidates are skipped and
+// the original output is never passed on to a shell command.
+func ParseFirstIPv6NetworkOutput(output string, defaultPrefix int) (IPv6Network, error) {
+	for _, line := range commandOutputLines(output) {
+		if isDiagnosticCommandLine(line) {
+			continue
+		}
+		if network, err := ExtractFirstIPv6Network(line, defaultPrefix); err == nil {
+			return network, nil
+		}
+	}
+	return IPv6Network{}, fmt.Errorf("输出中未找到有效的IPv6地址")
+}
+
 // ParseSingleCommandToken accepts exactly one non-empty token from command
 // output. Leading and trailing transport whitespace is allowed, but embedded
 // whitespace, extra lines and control characters are rejected so diagnostics
@@ -151,6 +168,23 @@ func ParseSingleCommandToken(output string) (string, error) {
 		return "", fmt.Errorf("命令输出必须是单行单值")
 	}
 	return token, nil
+}
+
+// ParseFirstCommandLineMatching validates command output one line at a time
+// and returns the first line accepted by validate. It is for remote probes
+// whose PTY or agent transport may prepend diagnostics. Persisted files and
+// user-supplied values should continue to use strict parsers.
+func ParseFirstCommandLineMatching(output string, validate func(string) bool) (string, error) {
+	if validate == nil {
+		return "", fmt.Errorf("命令输出校验器为空")
+	}
+	for _, line := range commandOutputLines(output) {
+		token, err := ParseSingleCommandToken(line)
+		if err == nil && validate(token) {
+			return token, nil
+		}
+	}
+	return "", fmt.Errorf("输出中未找到符合要求的单行值")
 }
 
 // ParseSingleIPv6NetworkOutput parses exactly one IPv6 address or CIDR from
@@ -189,6 +223,31 @@ func ParseSingleIPv6AddressOutput(output string) (string, error) {
 	return ip.To16().String(), nil
 }
 
+// ParseFirstIPv6AddressOutput parses the first valid host IPv6 address from
+// noisy command output. Both bare addresses and address/prefix tokens are
+// accepted because ip(8), guest agents, and JSON filters do not all use the
+// same representation.
+func ParseFirstIPv6AddressOutput(output string) (string, error) {
+	for _, line := range commandOutputLines(output) {
+		if isDiagnosticCommandLine(line) {
+			continue
+		}
+		for _, candidate := range splitIPv6Candidates(line) {
+			candidate = cleanIPv6Token(candidate)
+			if slash := strings.IndexByte(candidate, '/'); slash >= 0 {
+				if _, network, err := net.ParseCIDR(candidate); err != nil || network == nil || network.IP.To16() == nil || network.IP.To4() != nil {
+					continue
+				}
+				candidate = candidate[:slash]
+			}
+			if address, err := ParseSingleIPv6AddressOutput(candidate); err == nil {
+				return address, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("输出中未找到有效的IPv6地址")
+}
+
 // ParseSingleIPv4AddressOutput parses exactly one bare IPv4 host address from
 // command output. It rejects CIDRs and surrounding diagnostics for the same
 // reason as ParseSingleIPv6AddressOutput.
@@ -205,6 +264,29 @@ func ParseSingleIPv4AddressOutput(output string) (string, error) {
 		return "", fmt.Errorf("无效的IPv4地址: %q", token)
 	}
 	return ip.To4().String(), nil
+}
+
+// ParseFirstIPv4AddressOutput parses the first valid host IPv4 address from
+// noisy command output. A CIDR suffix is accepted and removed after the
+// complete candidate has been validated as IPv4.
+func ParseFirstIPv4AddressOutput(output string) (string, error) {
+	for _, line := range commandOutputLines(output) {
+		if isDiagnosticCommandLine(line) {
+			continue
+		}
+		for _, candidate := range splitIPv4Candidates(line) {
+			if slash := strings.IndexByte(candidate, '/'); slash >= 0 {
+				if _, _, err := net.ParseCIDR(candidate); err != nil {
+					continue
+				}
+				candidate = candidate[:slash]
+			}
+			if address, err := ParseSingleIPv4AddressOutput(candidate); err == nil {
+				return address, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("输出中未找到有效的IPv4地址")
 }
 
 // ParseIPv6NetworkLines parses a command output where every non-empty line
@@ -281,6 +363,18 @@ func ParseIPv6PrefixLengthOutput(output string) (int, error) {
 	return prefix, nil
 }
 
+// ParseFirstIPv6PrefixLengthOutput parses the first valid decimal prefix
+// length from noisy command output. It is intended for remote probes only;
+// files and user input should continue to use ParseIPv6PrefixLengthOutput.
+func ParseFirstIPv6PrefixLengthOutput(output string) (int, error) {
+	for _, candidate := range commandOutputLines(output) {
+		if prefix, err := ParseIPv6PrefixLengthOutput(candidate); err == nil {
+			return prefix, nil
+		}
+	}
+	return 0, fmt.Errorf("输出中未找到有效的IPv6前缀长度")
+}
+
 // ParseNetworkInterfaceOutput validates one Linux interface name returned by
 // a remote command. The conservative character set matches the interface
 // names generated and supported by this project and prevents diagnostics or
@@ -305,6 +399,21 @@ func ParseNetworkInterfaceOutput(output string) (string, error) {
 		}
 	}
 	return name, nil
+}
+
+// ParseFirstNetworkInterfaceOutput parses the first valid Linux interface
+// name from noisy probe output. Strict ParseNetworkInterfaceOutput remains the
+// parser for values that will be persisted or used as explicit configuration.
+func ParseFirstNetworkInterfaceOutput(output string) (string, error) {
+	for _, candidate := range commandOutputLines(output) {
+		if isDiagnosticCommandLine(candidate) {
+			continue
+		}
+		if name, err := ParseNetworkInterfaceOutput(candidate); err == nil {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("输出中未找到有效的网络接口名称")
 }
 
 // ExtractIPv6Addresses returns canonical host addresses from noisy command
@@ -485,6 +594,38 @@ func splitIPv6Candidates(output string) []string {
 			(char >= 'A' && char <= 'F')
 		return !isHex && char != ':' && char != '/' && char != '%'
 	})
+}
+
+func splitIPv4Candidates(output string) []string {
+	return strings.FieldsFunc(output, func(char rune) bool {
+		return !((char >= '0' && char <= '9') || char == '.' || char == '/')
+	})
+}
+
+func commandOutputLines(output string) []string {
+	normalized := strings.ReplaceAll(output, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
+}
+
+func isDiagnosticCommandLine(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	for _, prefix := range []string{
+		"warning", "warn", "error", "debug", "info", "notice",
+		"retry", "retrying", "attempting", "failed", "failure",
+	} {
+		if lower == prefix || strings.HasPrefix(lower, prefix+":") || strings.HasPrefix(lower, prefix+" ") {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneIPv6(ip net.IP) net.IP {

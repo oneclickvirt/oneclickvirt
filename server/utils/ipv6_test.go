@@ -200,6 +200,21 @@ func TestParseSingleIPv6NetworkOutputRejectsPollution(t *testing.T) {
 	}
 }
 
+func TestParseFirstIPv6NetworkOutputSkipsNoisyLines(t *testing.T) {
+	output := "warning: probing host network\r\ninvalid-value\ninet6 2001:db8:1::42/80 scope global\n2001:db8:2::1/64"
+	network, err := ParseFirstIPv6NetworkOutput(output, 64)
+	if err != nil {
+		t.Fatalf("ParseFirstIPv6NetworkOutput() error = %v", err)
+	}
+	if network.Address.String() != "2001:db8:1::42" || network.PrefixLen != 80 {
+		t.Fatalf("network = %#v", network)
+	}
+
+	if _, err := ParseFirstIPv6NetworkOutput("warning only\nnot-an-address", 64); err == nil {
+		t.Fatal("ParseFirstIPv6NetworkOutput() accepted output without an IPv6 address")
+	}
+}
+
 func TestParseSingleIPv6AddressOutputRequiresBareAddress(t *testing.T) {
 	address, err := ParseSingleIPv6AddressOutput("2001:0db8::1\r\n")
 	if err != nil || address != "2001:db8::1" {
@@ -214,6 +229,30 @@ func TestParseSingleIPv6AddressOutputRequiresBareAddress(t *testing.T) {
 		if _, err := ParseSingleIPv6AddressOutput(output); err == nil {
 			t.Fatalf("ParseSingleIPv6AddressOutput(%q) accepted polluted output", output)
 		}
+	}
+}
+
+func TestParseFirstIPv6AddressOutputSkipsNoisyLines(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{name: "bare address", output: "warning: retrying\n2001:0db8::7\n", want: "2001:db8::7"},
+		{name: "ip output", output: "diagnostic text\ninet6 2001:db8::8/64 scope global", want: "2001:db8::8"},
+		{name: "multiple addresses", output: "2001:db8::9\n2001:db8::10", want: "2001:db8::9"},
+		{name: "ignore address in warning", output: "warning: endpoint 2001:db8::dead failed\n2001:db8::11", want: "2001:db8::11"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			address, err := ParseFirstIPv6AddressOutput(test.output)
+			if err != nil || address != test.want {
+				t.Fatalf("ParseFirstIPv6AddressOutput() = %q, %v; want %q", address, err, test.want)
+			}
+		})
+	}
+
+	if _, err := ParseFirstIPv6AddressOutput("warning only\n2001:db8::1/129\n192.0.2.1"); err == nil {
+		t.Fatal("ParseFirstIPv6AddressOutput() accepted output without an IPv6 address")
 	}
 }
 
@@ -233,6 +272,25 @@ func TestParseSingleIPv4AddressOutputRejectsPollution(t *testing.T) {
 		if _, err := ParseSingleIPv4AddressOutput(output); err == nil {
 			t.Fatalf("ParseSingleIPv4AddressOutput(%q) accepted polluted output", output)
 		}
+	}
+}
+
+func TestParseFirstIPv4AddressOutputSkipsNoisyLines(t *testing.T) {
+	for _, test := range []struct {
+		output string
+		want   string
+	}{
+		{output: "warning: retrying\n192.0.2.10\n", want: "192.0.2.10"},
+		{output: "diagnostic text\ninet 198.51.100.20/24 scope global", want: "198.51.100.20"},
+		{output: "error: endpoint 203.0.113.1 failed\n198.51.100.21", want: "198.51.100.21"},
+	} {
+		address, err := ParseFirstIPv4AddressOutput(test.output)
+		if err != nil || address != test.want {
+			t.Fatalf("ParseFirstIPv4AddressOutput(%q) = %q, %v; want %q", test.output, address, err, test.want)
+		}
+	}
+	if _, err := ParseFirstIPv4AddressOutput("warning only\n999.0.2.1"); err == nil {
+		t.Fatal("ParseFirstIPv4AddressOutput() accepted output without an IPv4 address")
 	}
 }
 
@@ -279,5 +337,37 @@ func TestStrictCommandMetadataParsersRejectPollution(t *testing.T) {
 		if _, err := ParseNetworkInterfaceOutput(output); err == nil {
 			t.Fatalf("ParseNetworkInterfaceOutput(%q) accepted polluted output", output)
 		}
+	}
+}
+
+func TestParseFirstCommandLineMatchingSkipsDiagnostics(t *testing.T) {
+	value, err := ParseFirstCommandLineMatching("warning: retrying\r\ninvalid value\nvirtual-machine\ncontainer", func(candidate string) bool {
+		return candidate == "container" || candidate == "virtual-machine"
+	})
+	if err != nil || value != "virtual-machine" {
+		t.Fatalf("ParseFirstCommandLineMatching() = %q, %v", value, err)
+	}
+	if _, err := ParseFirstCommandLineMatching("warning only\ninvalid value", func(candidate string) bool {
+		return candidate == "container"
+	}); err == nil {
+		t.Fatal("ParseFirstCommandLineMatching() accepted output without a valid line")
+	}
+}
+
+func TestProbeMetadataParsersTryEachLine(t *testing.T) {
+	prefix, err := ParseFirstIPv6PrefixLengthOutput("warning: fallback\nnot-a-prefix\n80\n")
+	if err != nil || prefix != 80 {
+		t.Fatalf("ParseFirstIPv6PrefixLengthOutput() = %d, %v", prefix, err)
+	}
+	if _, err := ParseFirstIPv6PrefixLengthOutput("warning includes 64 here\n129"); err == nil {
+		t.Fatal("ParseFirstIPv6PrefixLengthOutput() accepted an invalid line")
+	}
+
+	name, err := ParseFirstNetworkInterfaceOutput("warning\nwarning: probing interfaces\ninvalid interface\nenp1s0.100\n")
+	if err != nil || name != "enp1s0.100" {
+		t.Fatalf("ParseFirstNetworkInterfaceOutput() = %q, %v", name, err)
+	}
+	if _, err := ParseFirstNetworkInterfaceOutput("warning: no interface\nthis interface is invalid"); err == nil {
+		t.Fatal("ParseFirstNetworkInterfaceOutput() accepted an invalid line")
 	}
 }

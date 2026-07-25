@@ -77,10 +77,10 @@ func (l *LXDProvider) configureNetworkLimits(instanceName string, networkConfig 
 		lines := strings.Split(output, "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
-			if line == "eth0:" || strings.HasPrefix(line, "eth0 ") {
+			if line == "eth0" || line == "eth0:" || strings.HasPrefix(line, "eth0 ") {
 				targetInterface = "eth0"
 				break
-			} else if line == "enp5s0:" || strings.HasPrefix(line, "enp5s0 ") {
+			} else if line == "enp5s0" || line == "enp5s0:" || strings.HasPrefix(line, "enp5s0 ") {
 				targetInterface = "enp5s0"
 				break
 			}
@@ -154,10 +154,10 @@ func (l *LXDProvider) setIPAddressBinding(instanceName, instanceIP string) error
 		lines := strings.Split(output, "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
-			if line == "eth0:" || strings.HasPrefix(line, "eth0 ") {
+			if line == "eth0" || line == "eth0:" || strings.HasPrefix(line, "eth0 ") {
 				targetInterface = "eth0"
 				break
-			} else if line == "enp5s0:" || strings.HasPrefix(line, "enp5s0 ") {
+			} else if line == "enp5s0" || line == "enp5s0:" || strings.HasPrefix(line, "enp5s0 ") {
 				targetInterface = "enp5s0"
 				break
 			}

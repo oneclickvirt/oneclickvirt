@@ -67,6 +67,13 @@ func (l *LXDProvider) GetSupportedInstanceTypes() []string {
 func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
 	l.config = config
 	l.providerID = config.ID // 存储providerID
+	l.connected = false
+	l.sshClient.ClearExecutor()
+	if l.transport != nil {
+		// A failed reconnect must not retain a certificate from a previous
+		// configuration and accidentally keep API mode enabled.
+		l.transport.TLSClientConfig = nil
+	}
 
 	// Transport 已在 NewLXDProvider 中创建，现在关联providerID
 	if l.transport != nil && l.providerID > 0 {
@@ -133,7 +140,7 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 		Username:      config.Username,
 		Password:      config.Password,
 		PrivateKey:    config.PrivateKey,
-		APIEnabled:    config.CertPath != "" && config.KeyPath != "",
+		APIEnabled:    l.hasAPIAccess(),
 		APIPort:       8443,
 		APIScheme:     "https",
 		SSHEnabled:    true,
@@ -164,6 +171,9 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 func (l *LXDProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	l.config = config
 	l.providerID = config.ID
+	if l.transport != nil {
+		l.transport.TLSClientConfig = nil
+	}
 	if l.transport != nil && l.providerID > 0 {
 		provider.GetTransportCleanupManager().RegisterTransportWithProvider(l.transport, l.providerID)
 	}
@@ -609,7 +619,7 @@ func (l *LXDProvider) ExecuteSSHCommand(ctx context.Context, command string) (st
 
 // 检查是否有 API 访问权限
 func (l *LXDProvider) hasAPIAccess() bool {
-	return l.config.CertPath != "" && l.config.KeyPath != ""
+	return l.transport != nil && l.transport.TLSClientConfig != nil
 }
 
 // shouldUseAPI 根据执行规则判断是否应该使用API

@@ -43,7 +43,7 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		if err != nil {
 			return "", fmt.Errorf("获取网络接口失败: %w", err)
 		}
-		ipv6NetworkName, err = utils.ParseNetworkInterfaceOutput(output)
+		ipv6NetworkName, err = utils.ParseFirstNetworkInterfaceOutput(output)
 		if err != nil {
 			return "", fmt.Errorf("解析网络接口名称失败: %w", err)
 		}
@@ -55,7 +55,7 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		}
 	}
 
-	network, err := utils.ParseSingleIPv6NetworkOutput(ipNetworkGam, 64)
+	network, err := utils.ParseFirstIPv6NetworkOutput(ipNetworkGam, 64)
 	if err != nil {
 		return "", fmt.Errorf("无法获取本地IPv6网络配置: %w", err)
 	}
@@ -213,7 +213,7 @@ func (l *LXDProvider) handleIPv6Gateway(ctx context.Context, interfaceName strin
 	delIPCmd := fmt.Sprintf("ip -6 addr show dev %s | awk '/inet6 fe80/ {print $2}'", interfaceName)
 	output, err := l.sshClient.Execute(delIPCmd)
 	if err == nil {
-		delIP, parseErr := utils.ParseSingleIPv6AddressOutput(output)
+		delIP, parseErr := utils.ParseFirstIPv6AddressOutput(output)
 		if parseErr != nil {
 			if strings.TrimSpace(output) != "" {
 				global.APP_LOG.Warn("解析待删除的链路本地IPv6地址失败", zap.Error(parseErr))
@@ -346,7 +346,7 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 		interfaceCmd = "ip route | grep default | awk '{print $5}' | head -1"
 		interfaceOutput, _ = l.sshClient.Execute(interfaceCmd)
 	}
-	interfaceName, parseErr := utils.ParseNetworkInterfaceOutput(interfaceOutput)
+	interfaceName, parseErr := utils.ParseFirstNetworkInterfaceOutput(interfaceOutput)
 	if parseErr != nil {
 		return "", fmt.Errorf("无法获取网络接口名称: %w", parseErr)
 	}

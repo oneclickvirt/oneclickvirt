@@ -98,7 +98,7 @@ echo "eth0"  # 使用默认值作为后备
 		return "eth0", nil // 返回默认值而不是错误
 	}
 
-	networkInterface, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	networkInterface, parseErr := utils.ParseFirstNetworkInterfaceOutput(output)
 	if parseErr != nil {
 		global.APP_LOG.Warn("检测到的接口输出不是合法单值，使用默认值eth0", zap.Error(parseErr))
 		return "eth0", nil
@@ -128,7 +128,9 @@ func (s *Service) verifyInterfaceExists(providerInstance provider.Provider, inte
 		return false
 	}
 
-	status, parseErr := utils.ParseSingleCommandToken(output)
+	status, parseErr := utils.ParseFirstCommandLineMatching(output, func(value string) bool {
+		return value == "EXISTS" || value == "NOT_FOUND"
+	})
 	exists := parseErr == nil && status == "EXISTS"
 
 	if !exists {
@@ -276,7 +278,7 @@ exit 1
 		return "", fmt.Errorf("failed to execute veth detection command: %w", err)
 	}
 
-	vethName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	vethName, parseErr := utils.ParseFirstNetworkInterfaceOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("无法检测容器 %s 的veth接口: %w", instanceName, parseErr)
 	}

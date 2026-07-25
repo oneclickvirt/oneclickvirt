@@ -104,8 +104,10 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 			"virsh -c qemu:///system domblklist %s 2>/dev/null | grep -E '\\.(qcow2|img|raw)' | awk '{print $2}'",
 			shellSingleQuote(instanceID)))
 		if err == nil {
-			diskPath, parseErr := utils.ParseSingleCommandToken(output)
-			if parseErr == nil && strings.HasPrefix(diskPath, "/") {
+			diskPath, parseErr := utils.ParseFirstCommandLineMatching(output, func(value string) bool {
+				return strings.HasPrefix(value, "/")
+			})
+			if parseErr == nil {
 				output, err := p.sshClient.Execute(fmt.Sprintf(
 					"virt-customize -a %s --root-password %s 2>&1",
 					shellSingleQuote(diskPath),
