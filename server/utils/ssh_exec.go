@@ -465,9 +465,15 @@ func (c *SSHClient) ExecuteViaTempScript(scriptContent string, args []string, ti
 
 	// 执行脚本
 	output, execErr := c.ExecuteRaw(execCmd, timeout)
+	// BuildTempScript redirects diagnostics to SCRIPT_PATH.log. Read it before
+	// cleanup so callers can classify capability errors and report the actual
+	// guest failure instead of only "Process exited with status 1".
+	if logOutput, logErr := c.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", shellEscape(tmpPath+".log")), 10*time.Second); logErr == nil && logOutput != "" {
+		output = logOutput
+	}
 
 	// 清理临时文件（非阻塞）
-	c.ExecuteRaw(fmt.Sprintf("rm -f %s %s.marker %s.log 2>/dev/null", tmpPath, tmpPath, tmpPath), 10*time.Second)
+	c.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", shellEscape(tmpPath), shellEscape(tmpPath+".marker"), shellEscape(tmpPath+".log")), 10*time.Second)
 
 	if execErr != nil {
 		return output, fmt.Errorf("temp script execution failed: %w", execErr)

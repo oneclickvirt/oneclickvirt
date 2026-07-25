@@ -44,6 +44,15 @@ func (s *ProviderConfigService) SaveProviderConfig(provider *providerModel.Provi
 	provider.ConfigVersion++
 	provider.AutoConfigured = true
 
+	// Materialize certificate content at the canonical storage path before
+	// serializing authConfig. Otherwise the database keeps the generator's
+	// temporary relative certs/<uuid> path while only storage/certs is persisted.
+	if authConfig.Certificate != nil {
+		if err := s.ensureCertificateFiles(provider.UUID, authConfig.Certificate); err != nil {
+			return fmt.Errorf("保存证书文件失败: %w", err)
+		}
+	}
+
 	// 1. 序列化认证配置并保存到数据库
 	authConfigJSON, err := json.Marshal(authConfig)
 	if err != nil {
@@ -77,6 +86,96 @@ func (s *ProviderConfigService) SaveProviderConfig(provider *providerModel.Provi
 		zap.String("type", provider.Type),
 		zap.Int("version", provider.ConfigVersion))
 
+	return nil
+}
+
+func (s *ProviderConfigService) ensureCertificateFiles(providerUUID string, cert *providerModel.CertConfig) error {
+	if cert == nil {
+		return nil
+	}
+	if strings.TrimSpace(providerUUID) == "" {
+		return fmt.Errorf("Provider UUID为空")
+	}
+	if err := s.ensureDirectories(); err != nil {
+		return err
+	}
+
+	canonicalCertPath := filepath.Join(storageService.GetCertsPath(), fmt.Sprintf("%s.crt", providerUUID))
+	canonicalKeyPath := filepath.Join(storageService.GetCertsPath(), fmt.Sprintf("%s.key", providerUUID))
+	resolvedCertPath, err := materializeCredentialFile(canonicalCertPath, cert.CertPath, cert.CertContent, 0644)
+	if err != nil {
+		return fmt.Errorf("保存证书文件失败: %w", err)
+	}
+	resolvedKeyPath, err := materializeCredentialFile(canonicalKeyPath, cert.KeyPath, cert.KeyContent, 0600)
+	if err != nil {
+		return fmt.Errorf("保存私钥文件失败: %w", err)
+	}
+
+	// Only publish the canonical pair after both files are available. This
+	// prevents a half-updated authConfig from being serialized on failure.
+	cert.CertPath = resolvedCertPath
+	cert.KeyPath = resolvedKeyPath
+
+	return nil
+}
+
+func materializeCredentialFile(canonicalPath, configuredPath, content string, mode os.FileMode) (string, error) {
+	data := []byte(content)
+	configuredPath = strings.TrimSpace(configuredPath)
+
+	if len(data) == 0 && configuredPath != "" && filepath.Clean(configuredPath) != filepath.Clean(canonicalPath) {
+		var err error
+		data, err = os.ReadFile(configuredPath)
+		if err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("读取来源文件 %s 失败: %w", configuredPath, err)
+		}
+	}
+
+	if len(data) == 0 {
+		info, err := os.Stat(canonicalPath)
+		if err != nil {
+			if configuredPath == "" {
+				return "", fmt.Errorf("文件内容为空且规范文件不存在: %s", canonicalPath)
+			}
+			return "", fmt.Errorf("来源文件 %s 和规范文件 %s 均不存在", configuredPath, canonicalPath)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("规范路径不是普通文件: %s", canonicalPath)
+		}
+		if err := os.Chmod(canonicalPath, mode); err != nil {
+			return "", fmt.Errorf("设置文件权限失败: %w", err)
+		}
+		return canonicalPath, nil
+	}
+
+	if err := writeCredentialFileAtomically(canonicalPath, data, mode); err != nil {
+		return "", err
+	}
+	return canonicalPath, nil
+}
+
+func writeCredentialFileAtomically(path string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".credential-*")
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return fmt.Errorf("设置临时文件权限失败: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("写入临时文件失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("替换规范文件失败: %w", err)
+	}
 	return nil
 }
 

@@ -706,7 +706,10 @@ func (p *ProxmoxProvider) parseInstanceInfo(ctx context.Context, instanceName st
 }
 
 func parseProxmoxVMIDOutput(output string) (string, error) {
-	vmid, err := utils.ParseSingleCommandToken(output)
+	vmid, err := utils.ParseFirstCommandLineMatching(output, func(value string) bool {
+		parsed, parseErr := strconv.Atoi(value)
+		return parseErr == nil && parsed > 0
+	})
 	if err != nil {
 		return "", err
 	}

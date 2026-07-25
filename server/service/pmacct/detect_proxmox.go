@@ -81,7 +81,7 @@ exit 0
 			zap.String("instanceID", instanceID))
 		return "", nil
 	}
-	interfaceName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	interfaceName, parseErr := utils.ParseFirstNetworkInterfaceOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("invalid Proxmox IPv6 interface output: %w", parseErr)
 	}
@@ -179,7 +179,7 @@ exit 1
 		return "", fmt.Errorf("failed to execute Proxmox interface detection: %w", err)
 	}
 
-	interfaceName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	interfaceName, parseErr := utils.ParseFirstNetworkInterfaceOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("无法检测Proxmox实例 %s (ID: %s) 的网络接口: %w", instanceName, instanceID, parseErr)
 	}
@@ -254,7 +254,7 @@ exit 1
 		return "", fmt.Errorf("failed to detect interface by MAC: %w", err)
 	}
 
-	interfaceName, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	interfaceName, parseErr := utils.ParseFirstNetworkInterfaceOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("无法通过MAC地址 %s 找到接口: %w", macAddress, parseErr)
 	}
@@ -508,7 +508,7 @@ func (s *Service) detectQEMUNetworkInterface(providerInstance provider.Provider,
 		return "", fmt.Errorf("detect qemu interface for %s: %w", instanceName, err)
 	}
 
-	iface, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	iface, parseErr := utils.ParseFirstNetworkInterfaceOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("invalid interface output for QEMU VM %s: %w", instanceName, parseErr)
 	}
@@ -550,7 +550,7 @@ exit 1
 		return "", fmt.Errorf("detect kubevirt interface for %s: %w", instanceName, err)
 	}
 
-	iface, parseErr := utils.ParseNetworkInterfaceOutput(output)
+	iface, parseErr := utils.ParseFirstNetworkInterfaceOutput(output)
 	if parseErr != nil {
 		return "", fmt.Errorf("invalid interface output for KubeVirt VM %s: %w", instanceName, parseErr)
 	}

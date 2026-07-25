@@ -15,7 +15,7 @@ import (
 )
 
 func parseDetectedInterface(output string) (string, error) {
-	iface, err := utils.ParseNetworkInterfaceOutput(output)
+	iface, err := utils.ParseFirstNetworkInterfaceOutput(output)
 	if err != nil {
 		return "", fmt.Errorf("invalid interface output: %w", err)
 	}

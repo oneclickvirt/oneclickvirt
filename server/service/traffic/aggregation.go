@@ -137,9 +137,8 @@ func (s *AggregationService) saveBatchToCacheWithInfo(
 	for instanceID, stats := range statsMap {
 		info, exists := instanceInfoMap[instanceID]
 		if !exists {
-			global.APP_LOG.Warn("实例信息不存在",
+			global.APP_LOG.Debug("跳过无实例记录的历史流量",
 				zap.Uint("instance_id", instanceID))
-			errCount++
 			continue
 		}
 		rows = append(rows, batchRow{
@@ -346,7 +345,7 @@ func (s *AggregationService) AggregateDailyTraffic(year, month, day int) error {
 	for _, instanceID := range instanceIDs {
 		instanceInfo, exists := instanceInfoMap[instanceID]
 		if !exists {
-			global.APP_LOG.Warn("实例信息不存在",
+			global.APP_LOG.Debug("跳过无实例记录的历史流量",
 				zap.Uint("instance_id", instanceID))
 			continue
 		}

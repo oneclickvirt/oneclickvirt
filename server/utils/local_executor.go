@@ -59,7 +59,11 @@ func (e *LocalShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 		return "", err
 	}
 	path := tmp.Name()
-	defer os.Remove(path)
+	defer func() {
+		os.Remove(path)
+		os.Remove(path + ".marker")
+		os.Remove(path + ".log")
+	}()
 	if _, err := tmp.WriteString(scriptContent); err != nil {
 		tmp.Close()
 		return "", err
@@ -75,7 +79,11 @@ func (e *LocalShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 	for _, arg := range args {
 		quotedArgs = append(quotedArgs, shellQuote(arg))
 	}
-	return e.ExecuteWithTimeout(strings.Join(quotedArgs, " "), timeout)
+	output, execErr := e.ExecuteWithTimeout(strings.Join(quotedArgs, " "), timeout)
+	if logOutput, readErr := os.ReadFile(path + ".log"); readErr == nil && len(logOutput) > 0 {
+		output = string(logOutput)
+	}
+	return output, execErr
 }
 
 func (e *LocalShellExecutor) UploadContent(content, remotePath string, perm os.FileMode) error {

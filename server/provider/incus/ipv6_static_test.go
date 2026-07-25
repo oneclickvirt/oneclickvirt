@@ -13,11 +13,22 @@ import (
 
 type recordingIncusIPv6Executor struct {
 	commands []string
+	outputs  []string
+	errors   []error
 }
 
 func (e *recordingIncusIPv6Executor) Execute(command string) (string, error) {
 	e.commands = append(e.commands, command)
-	return "", nil
+	index := len(e.commands) - 1
+	var output string
+	var err error
+	if index < len(e.outputs) {
+		output = e.outputs[index]
+	}
+	if index < len(e.errors) {
+		err = e.errors[index]
+	}
+	return output, err
 }
 func (e *recordingIncusIPv6Executor) ExecuteWithTimeout(command string, _ time.Duration) (string, error) {
 	return e.Execute(command)

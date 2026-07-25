@@ -211,6 +211,8 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerMode
 		GpuDeviceIds:          dbProvider.GpuDeviceIds,
 	}
 
+	var certificateConfig *providerModel.CertConfig
+
 	// 如果Provider已自动配置，尝试加载完整配置
 	if dbProvider.AutoConfigured && dbProvider.AuthConfig != "" {
 		configService := &ProviderConfigService{}
@@ -218,8 +220,7 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerMode
 		if err == nil {
 			// 使用配置中的信息
 			if authConfig.Certificate != nil {
-				config.CertPath = authConfig.Certificate.CertPath
-				config.KeyPath = authConfig.Certificate.KeyPath
+				certificateConfig = authConfig.Certificate
 			}
 			if authConfig.Token != nil {
 				config.Token = fmt.Sprintf("%s=%s", authConfig.Token.TokenID, authConfig.Token.TokenSecret)
@@ -228,14 +229,35 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerMode
 			global.APP_LOG.Warn("加载Provider配置失败，使用数据库字段",
 				zap.String("provider", dbProvider.Name),
 				zap.Error(err))
-			// 回退到数据库字段
-			config.CertPath = dbProvider.CertPath
-			config.KeyPath = dbProvider.KeyPath
 		}
-	} else {
-		// 使用数据库字段
-		config.CertPath = dbProvider.CertPath
-		config.KeyPath = dbProvider.KeyPath
+	}
+
+	if certificateConfig == nil && (dbProvider.CertPath != "" || dbProvider.KeyPath != "" || dbProvider.CertContent != "" || dbProvider.KeyContent != "") {
+		certificateConfig = &providerModel.CertConfig{
+			CertPath:    dbProvider.CertPath,
+			KeyPath:     dbProvider.KeyPath,
+			CertContent: dbProvider.CertContent,
+			KeyContent:  dbProvider.KeyContent,
+		}
+	}
+	if certificateConfig != nil {
+		if certificateConfig.CertContent == "" {
+			certificateConfig.CertContent = dbProvider.CertContent
+		}
+		if certificateConfig.KeyContent == "" {
+			certificateConfig.KeyContent = dbProvider.KeyContent
+		}
+		configService := &ProviderConfigService{}
+		if materializeErr := configService.ensureCertificateFiles(dbProvider.UUID, certificateConfig); materializeErr != nil {
+			// Leave both paths empty so the provider cleanly uses SSH and does not
+			// emit a second misleading "certificate file not found" warning.
+			global.APP_LOG.Warn("恢复Provider证书文件失败，将仅使用SSH",
+				zap.String("provider", dbProvider.Name),
+				zap.Error(materializeErr))
+		} else {
+			config.CertPath = certificateConfig.CertPath
+			config.KeyPath = certificateConfig.KeyPath
+		}
 	}
 
 	// 对于Proxmox，设置TokenID

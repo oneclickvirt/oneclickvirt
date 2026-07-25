@@ -74,6 +74,16 @@ LOG_FILE="${SCRIPT_PATH}.log"
 
 exec > "$LOG_FILE" 2>&1
 
+run_with_timeout() {
+    duration="$1"
+    command_text="$2"
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$duration" bash -c "$command_text"
+    else
+        bash -c "$command_text"
+    fi
+}
+
 echo "=== $(date) Temp script started ==="
 `
 	if cfg.PrimaryCmd != "" {
@@ -83,13 +93,14 @@ echo "[primary] running command..."
 read -r -d '' PRIMARY_CMD << 'ENDOFCMD'
 %s
 ENDOFCMD
-if timeout %d eval "$PRIMARY_CMD"; then
+if run_with_timeout %d "$PRIMARY_CMD"; then
     echo "%s"
     echo "%s" > "$MARKER_FILE"
     echo "=== $(date) SUCCESS via primary ==="
     exit 0
+else
+    PRIMARY_RC=$?
 fi
-PRIMARY_RC=$?
 echo "[primary] failed with exit code $PRIMARY_RC"
 `, cfg.PrimaryCmd, timeout, marker, marker)
 	}
@@ -101,13 +112,14 @@ echo "[fallback] running command..."
 read -r -d '' FALLBACK_CMD << 'ENDOFCMD'
 %s
 ENDOFCMD
-if eval "$FALLBACK_CMD"; then
+if bash -c "$FALLBACK_CMD"; then
     echo "%s"
     echo "%s" > "$MARKER_FILE"
     echo "=== $(date) SUCCESS via fallback ==="
     exit 0
+else
+    FALLBACK_RC=$?
 fi
-FALLBACK_RC=$?
 echo "[fallback] failed with exit code $FALLBACK_RC"
 `, cfg.FallbackCmd, marker, marker)
 	}

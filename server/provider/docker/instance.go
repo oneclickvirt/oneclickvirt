@@ -100,7 +100,7 @@ fi
 
 		vethOutput, err := d.sshClient.Execute(vethCmd)
 		if err == nil {
-			vethInterface, parseErr := utils.ParseNetworkInterfaceOutput(vethOutput)
+			vethInterface, parseErr := utils.ParseFirstNetworkInterfaceOutput(vethOutput)
 			if parseErr == nil {
 				if instance.Metadata == nil {
 					instance.Metadata = make(map[string]string)
@@ -117,7 +117,7 @@ fi
 			cmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 			output, err := d.sshClient.Execute(cmd)
 			if err == nil {
-				ipAddress, parseErr := utils.ParseSingleIPv4AddressOutput(output)
+				ipAddress, parseErr := utils.ParseFirstIPv4AddressOutput(output)
 				if parseErr == nil {
 					instance.PrivateIP = ipAddress
 					instance.IP = ipAddress
@@ -136,7 +136,7 @@ fi
 			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
 			output, err = d.sshClient.Execute(cmd)
 			if err == nil {
-				ipv6Address, parseErr := utils.ParseSingleIPv6AddressOutput(output)
+				ipv6Address, parseErr := utils.ParseFirstIPv6AddressOutput(output)
 				if parseErr == nil {
 					instance.IPv6Address = ipv6Address
 					global.APP_LOG.Debug("获取到容器IPv6地址",

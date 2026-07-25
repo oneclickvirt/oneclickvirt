@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildTempScriptIncludesExtendedPath(t *testing.T) {
@@ -15,5 +17,31 @@ func TestBuildTempScriptIncludesExtendedPath(t *testing.T) {
 	}
 	if !strings.Contains(script, "/snap/bin") {
 		t.Fatalf("temp script PATH must include snap binaries for LXD")
+	}
+}
+
+func TestBuildGuestSSHRecoveryScriptSyntaxAndCoverage(t *testing.T) {
+	script := BuildGuestSSHRecoveryScript()
+	for _, required := range []string{"dropbear", "PasswordAuthentication", "PermitRootLogin", "ONECLICKVIRT_SSH_READY"} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("recovery script is missing %q", required)
+		}
+	}
+	check := exec.Command("sh", "-n")
+	check.Stdin = strings.NewReader(script)
+	if output, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("recovery script syntax error: %v: %s", err, output)
+	}
+}
+
+func TestLocalExecuteViaTempScriptReturnsRedirectedLogAndCleansFiles(t *testing.T) {
+	executor := NewLocalShellExecutor(5 * time.Second)
+	script := BuildTempScript(TempScriptConfig{PrimaryCmd: "echo guest-diagnostic >&2; exit 23"})
+	output, err := executor.ExecuteViaTempScript(script, nil, 5*time.Second)
+	if err == nil {
+		t.Fatal("ExecuteViaTempScript() succeeded for a failing script")
+	}
+	if !strings.Contains(output, "guest-diagnostic") || !strings.Contains(output, "failed with exit code 23") {
+		t.Fatalf("ExecuteViaTempScript() output = %q", output)
 	}
 }

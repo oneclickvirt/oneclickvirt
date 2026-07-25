@@ -322,6 +322,8 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 
 	// 生成随机密码
 	password := i.generateRandomPassword()
+	var sshSetupErr error
+	var sshSetupOutput string
 
 	// 根据系统类型选择脚本
 	var scriptName string
@@ -342,16 +344,16 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 	scriptPath := fmt.Sprintf("/usr/local/bin/%s", scriptName)
 	// 检查脚本是否存在
 	if !i.isRemoteFileValid(scriptPath) {
-		global.APP_LOG.Warn("SSH脚本不存在，仅设置密码不配置SSH",
+		sshSetupErr = fmt.Errorf("宿主机SSH脚本不存在或无效: %s", scriptPath)
+		global.APP_LOG.Debug("SSH脚本不可用，将在设置密码后尝试内置恢复",
 			zap.String("scriptPath", scriptPath))
-		// 即使脚本不存在，也要设置密码
 	} else {
 		time.Sleep(3 * time.Second)
 		// 复制脚本到实例（宿主机文件操作，直接执行即可）
 		copyCmd := fmt.Sprintf("incus file push %s %s/root/", shellSingleQuote(scriptPath), shellSingleQuote(config.Name))
-		_, err = i.sshClient.Execute(copyCmd)
+		sshSetupOutput, err = i.sshClient.Execute(copyCmd)
 		if err != nil {
-			global.APP_LOG.Warn("复制SSH脚本到实例失败，仅设置密码", zap.Error(err))
+			sshSetupErr = fmt.Errorf("复制SSH脚本到实例失败: %w", err)
 		} else {
 			// 设置脚本权限并执行 - 使用临时脚本方式以确保 agent 模式下稳定执行
 			// 构建包含 chmod + SSH 脚本执行的临时脚本
@@ -363,13 +365,7 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 				TimeoutSeconds: 60,
 				SuccessMarker:  "PASSWORD_OK",
 			})
-			_, scriptErr := i.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
-			if scriptErr != nil {
-				global.APP_LOG.Warn("执行SSH配置脚本失败，将使用直接设置密码",
-					zap.String("instanceName", config.Name),
-					zap.String("scriptName", scriptName),
-					zap.Error(scriptErr))
-			}
+			sshSetupOutput, sshSetupErr = i.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
 			time.Sleep(3 * time.Second)
 		}
 	}
@@ -380,12 +376,30 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 		FallbackCmd:    buildIncusChpasswdCommand(config.Name, password),
 		TimeoutSeconds: 60,
 	})
-	_, err = i.sshClient.ExecuteViaTempScript(directPasswordScript, nil, 180*time.Second)
+	passwordOutput, err := i.sshClient.ExecuteViaTempScript(directPasswordScript, nil, 180*time.Second)
 	if err != nil {
 		global.APP_LOG.Error("设置实例密码失败",
 			zap.String("instanceName", config.Name),
+			zap.String("output", utils.TruncateString(strings.ReplaceAll(passwordOutput, password, "[redacted]"), 800)),
 			zap.Error(err))
 		return fmt.Errorf("设置实例密码失败: %w", err)
+	}
+
+	if sshSetupErr != nil {
+		recoveryOutput, recoveryErr := i.recoverGuestSSHService(config.Name)
+		if recoveryErr != nil {
+			global.APP_LOG.Warn("SSH配置脚本失败且内置恢复未成功，实例密码已设置但WebSSH可能不可用",
+				zap.String("instanceName", config.Name),
+				zap.String("scriptName", scriptName),
+				zap.String("scriptOutput", utils.TruncateString(strings.ReplaceAll(sshSetupOutput, password, "[redacted]"), 1000)),
+				zap.String("recoveryOutput", utils.TruncateString(recoveryOutput, 1000)),
+				zap.Error(sshSetupErr),
+				zap.NamedError("recoveryError", recoveryErr))
+		} else {
+			global.APP_LOG.Info("SSH配置脚本失败后内置恢复成功",
+				zap.String("instanceName", config.Name),
+				zap.String("scriptName", scriptName))
+		}
 	}
 
 	// 清理历史记录 - 非阻塞式，如果失败不影响整体流程
