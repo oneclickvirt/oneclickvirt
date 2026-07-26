@@ -2,13 +2,17 @@ package incus
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"oneclickvirt/global"
 	"oneclickvirt/provider"
 	"oneclickvirt/utils"
+
+	"go.uber.org/zap"
 )
 
 type recordingIncusIPv6Executor struct {
@@ -85,5 +89,62 @@ func TestIncusConfigureIPv6SysctlsUsesDedicatedGuardedFile(t *testing.T) {
 		if !strings.Contains(command, fragment) {
 			t.Fatalf("command missing %q: %s", fragment, command)
 		}
+	}
+}
+
+func TestIncusNetworkDeviceIPv6ErrorIncludesProbeDetails(t *testing.T) {
+	if global.APP_LOG == nil {
+		global.APP_LOG = zap.NewNop()
+	}
+	executor := &recordingIncusIPv6Executor{outputs: []string{
+		"2606:4700::1111",
+		"not_found",
+		"eth0",
+		"probe diagnostic\nnot-an-ipv6",
+	}}
+	incusProvider := &IncusProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+
+	_, err := incusProvider.setupNetworkDeviceIPv6(context.Background(), IPv6Config{ContainerName: "guest"})
+	if err == nil {
+		t.Fatal("setupNetworkDeviceIPv6() succeeded without a host IPv6 CIDR")
+	}
+	for _, fragment := range []string{
+		"interface=eth0",
+		"command=ip -6 addr show dev 'eth0'",
+		"output=probe diagnostic\\nnot-an-ipv6",
+	} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("setupNetworkDeviceIPv6() error %q missing %q", err, fragment)
+		}
+	}
+}
+
+func TestIncusStaticIPv6SkipsMissingHostCIDRAndParsesNoisyTunnelProbe(t *testing.T) {
+	if global.APP_LOG == nil {
+		global.APP_LOG = zap.NewNop()
+	}
+	executor := &recordingIncusIPv6Executor{
+		outputs: []string{
+			"2606:4700::1111",
+			"warning: transport diagnostic\nfound",
+			"",
+			"sysctl failed",
+		},
+		errors: []error{nil, nil, nil, errors.New("stop after sysctl")},
+	}
+	incusProvider := &IncusProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+
+	_, err := incusProvider.setupNetworkDeviceIPv6(context.Background(), IPv6Config{
+		ContainerName: "guest",
+		ContainerIPv6: "2606:4700::1234",
+	})
+	if err == nil || !strings.Contains(err.Error(), "配置IPv6 sysctl失败") {
+		t.Fatalf("setupNetworkDeviceIPv6() error = %v, want post-probe sysctl failure", err)
+	}
+	if strings.Contains(err.Error(), "无法获取本地IPv6网络配置") {
+		t.Fatalf("static IPv6 still required a host CIDR: %v", err)
+	}
+	if len(executor.commands) < 3 || !strings.Contains(executor.commands[2], "he-ipv6") {
+		t.Fatalf("noisy tunnel probe did not select he-ipv6: %#v", executor.commands)
 	}
 }
