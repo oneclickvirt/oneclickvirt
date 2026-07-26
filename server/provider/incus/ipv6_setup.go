@@ -12,6 +12,14 @@ import (
 	"go.uber.org/zap"
 )
 
+func summarizeIPv6ProbeOutput(output string) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return "<empty>"
+	}
+	return utils.SanitizeUserInput(output)
+}
+
 func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Config) (string, error) {
 	global.APP_LOG.Debug("开始配置网络设备IPv6",
 		zap.String("container", config.ContainerName))
@@ -24,55 +32,96 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	// 确定IPv6网络接口
 	var ipv6NetworkName string
 	var ipNetworkGam string
+	var networkProbeCommand string
+	var networkProbeOutput string
+	var networkProbeErr error
 
 	// 检查是否有he-ipv6接口
 	heIPv6Check := "ip -f inet6 addr | grep -q 'he-ipv6' && echo 'found' || echo 'not_found'"
 	output, err := i.sshClient.Execute(heIPv6Check)
-	if err == nil && strings.TrimSpace(output) == "found" {
+	heIPv6Status, heIPv6ParseErr := utils.ParseFirstCommandLineMatching(output, func(value string) bool {
+		return value == "found" || value == "not_found"
+	})
+	if err == nil && heIPv6ParseErr == nil && heIPv6Status == "found" {
 		ipv6NetworkName = "he-ipv6"
 		cmd := fmt.Sprintf("ip -6 addr show dev %s scope global | awk '$1==\"inet6\" {print $2; exit}'",
 			shellSingleQuote(ipv6NetworkName))
-		output, err := i.sshClient.Execute(cmd)
-		if err == nil {
-			ipNetworkGam = output
+		networkProbeCommand = cmd
+		networkProbeOutput, networkProbeErr = i.sshClient.Execute(cmd)
+		if networkProbeErr == nil {
+			ipNetworkGam = networkProbeOutput
 		}
 	} else {
-		// 获取默认网络接口
-		cmd := "ls /sys/class/net/ | grep -v \"$(ls /sys/devices/virtual/net/)\" | head -n 1"
+		// Prefer the interface carrying the IPv6 default route. The first
+		// physical interface is often IPv4-only while a tunnel (for example
+		// sit0/he-ipv6) carries the configured IPv6 pool.
+		cmd := `iface="$(ip -6 route show default 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="dev" && i<NF) {print $(i+1); exit}}')"
+if [ -z "$iface" ]; then
+  iface="$(ip -o -6 addr show scope global 2>/dev/null | awk 'NR==1 {print $2}')"
+fi
+if [ -z "$iface" ]; then
+  iface="$(ls /sys/class/net/ | grep -v "$(ls /sys/devices/virtual/net/)" | head -n 1)"
+fi
+printf '%s\n' "$iface"`
 		output, err := i.sshClient.Execute(cmd)
 		if err != nil {
-			return "", fmt.Errorf("获取网络接口失败: %w", err)
+			return "", fmt.Errorf("获取网络接口失败: output=%s: %w", summarizeIPv6ProbeOutput(output), err)
 		}
 		ipv6NetworkName, err = utils.ParseFirstNetworkInterfaceOutput(output)
 		if err != nil {
-			return "", fmt.Errorf("解析网络接口名称失败: %w", err)
+			return "", fmt.Errorf("解析网络接口名称失败: output=%s: %w", summarizeIPv6ProbeOutput(output), err)
 		}
 
 		cmd = fmt.Sprintf("ip -6 addr show dev %s scope global | awk '$1==\"inet6\" {print $2; exit}'", shellSingleQuote(ipv6NetworkName))
-		output, err = i.sshClient.Execute(cmd)
-		if err == nil {
-			ipNetworkGam = output
+		networkProbeCommand = cmd
+		networkProbeOutput, networkProbeErr = i.sshClient.Execute(cmd)
+		if networkProbeErr == nil {
+			ipNetworkGam = networkProbeOutput
 		}
 	}
 
-	network, err := utils.ParseFirstIPv6NetworkOutput(ipNetworkGam, 64)
-	if err != nil {
-		return "", fmt.Errorf("无法获取本地IPv6网络配置: %w", err)
+	requestedIPv6 := strings.TrimSpace(config.ContainerIPv6)
+	containerIPv6 := ""
+	if requestedIPv6 != "" {
+		containerIPv6, err = utils.NormalizeIPv6Address(requestedIPv6)
+		if err != nil {
+			return "", fmt.Errorf("静态IPv6地址无效: %w", err)
+		}
 	}
-
-	global.APP_LOG.Debug("本地IPv6网络", zap.String("network", network.CIDR()))
+	var network utils.IPv6Network
+	if requestedIPv6 == "" {
+		if networkProbeErr != nil {
+			return "", fmt.Errorf("获取本地IPv6网络配置命令失败: interface=%s command=%s output=%s: %w",
+				ipv6NetworkName, networkProbeCommand, summarizeIPv6ProbeOutput(networkProbeOutput), networkProbeErr)
+		}
+		network, err = utils.ParseFirstIPv6NetworkOutput(ipNetworkGam, 64)
+		if err != nil {
+			return "", fmt.Errorf("无法获取本地IPv6网络配置: interface=%s command=%s output=%s: %w",
+				ipv6NetworkName, networkProbeCommand, summarizeIPv6ProbeOutput(networkProbeOutput), err)
+		}
+		global.APP_LOG.Debug("本地IPv6网络", zap.String("network", network.CIDR()))
+	} else if networkProbeErr != nil || strings.TrimSpace(ipNetworkGam) == "" {
+		global.APP_LOG.Debug("已提供静态IPv6地址，跳过宿主机接口地址解析失败",
+			zap.String("interface", ipv6NetworkName),
+			zap.String("command", networkProbeCommand),
+			zap.String("output", summarizeIPv6ProbeOutput(networkProbeOutput)),
+			zap.Error(networkProbeErr))
+	} else if discovered, parseErr := utils.ParseFirstIPv6NetworkOutput(ipNetworkGam, 64); parseErr == nil {
+		global.APP_LOG.Debug("检测到宿主机IPv6网络（静态地址模式）",
+			zap.String("network", discovered.CIDR()))
+	} else {
+		global.APP_LOG.Debug("静态IPv6地址模式跳过宿主机IPv6网络解析",
+			zap.String("interface", ipv6NetworkName),
+			zap.String("command", networkProbeCommand),
+			zap.String("output", summarizeIPv6ProbeOutput(networkProbeOutput)),
+			zap.Error(parseErr))
+	}
 
 	if err := i.configureIPv6Sysctls(ipv6NetworkName); err != nil {
 		return "", fmt.Errorf("配置IPv6 sysctl失败: %w", err)
 	}
 
-	containerIPv6 := ""
-	if strings.TrimSpace(config.ContainerIPv6) != "" {
-		containerIPv6, err = utils.NormalizeIPv6Address(config.ContainerIPv6)
-		if err != nil {
-			return "", fmt.Errorf("静态IPv6地址无效: %w", err)
-		}
-	} else {
+	if requestedIPv6 == "" {
 		// 只使用经过解析的网络地址，不把远端命令的多行诊断文本拼进前缀。
 		randBitsCmd := "od -An -N2 -t x1 /dev/urandom | tr -d '[:space:]'"
 		output, err = i.sshClient.Execute(randBitsCmd)
@@ -109,9 +158,9 @@ if incus config device get %s eth1 type >/dev/null 2>&1; then
 else
   incus config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s
 fi`, instanceArg, instanceArg, instanceArg, parentArg, instanceArg, addressArg, instanceArg, parentArg, addressArg)
-	_, err = i.sshClient.Execute(deviceCmd)
+	deviceOutput, err := i.sshClient.Execute(deviceCmd)
 	if err != nil {
-		return "", fmt.Errorf("添加IPv6网络设备失败: %w", err)
+		return "", fmt.Errorf("添加IPv6网络设备失败: output=%s: %w", summarizeIPv6ProbeOutput(deviceOutput), err)
 	}
 
 	time.Sleep(3 * time.Second)
@@ -121,9 +170,9 @@ fi`, instanceArg, instanceArg, instanceArg, parentArg, instanceArg, addressArg, 
 
 	// 启动容器
 	startCmd := fmt.Sprintf("incus start %s", shellSingleQuote(config.ContainerName))
-	_, err = i.sshClient.Execute(startCmd)
+	startOutput, err := i.sshClient.Execute(startCmd)
 	if err != nil {
-		return "", fmt.Errorf("启动容器失败: %w", err)
+		return "", fmt.Errorf("启动容器失败: output=%s: %w", summarizeIPv6ProbeOutput(startOutput), err)
 	}
 
 	// 等待容器网络就绪后再进行后续配置
