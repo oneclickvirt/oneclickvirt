@@ -58,15 +58,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `oneclickvirt/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-<<<<<<< Updated upstream
-| `oneclickvirt/oneclickvirt:20260726` | All-in-one version with specific date | Fixed version requirement |
-| `oneclickvirt/oneclickvirt:no-db` | Standalone database version | Without database |
-| `oneclickvirt/oneclickvirt:no-db-20260726` | Standalone database version with date | Without database |
-=======
 | `oneclickvirt/oneclickvirt:20260702` | All-in-one version with specific date | Fixed version requirement |
 | `oneclickvirt/oneclickvirt:no-db` | Standalone database version | Without database |
 | `oneclickvirt/oneclickvirt:no-db-20260702` | Standalone database version with date | Without database |
->>>>>>> Stashed changes
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
