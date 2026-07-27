@@ -58,9 +58,15 @@
 | 镜像标签 | 说明 | 适用场景 |
 |---------|------|---------|
 | `oneclickvirt/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
+<<<<<<< Updated upstream
 | `oneclickvirt/oneclickvirt:20260726` | 一体化版本特定日期版本 | 需要固定版本 |
 | `oneclickvirt/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
 | `oneclickvirt/oneclickvirt:no-db-20260726` | 独立数据库版本特定日期 | 不内置数据库 |
+=======
+| `oneclickvirt/oneclickvirt:20260702` | 一体化版本特定日期版本 | 需要固定版本 |
+| `oneclickvirt/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
+| `oneclickvirt/oneclickvirt:no-db-20260702` | 独立数据库版本特定日期 | 不内置数据库 |
+>>>>>>> Stashed changes
 
 所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
 
@@ -404,10 +410,6 @@ go run main.go
   &nbsp;&nbsp;
   <a href="https://linux.do/">
     <img src="https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png" alt="Linux DO" height="44">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
-    <img src="https://www.jtti.cc/static/images/common/article_logo.png" alt="Jtti.cc" height="44">
   </a>
 </p>
 
