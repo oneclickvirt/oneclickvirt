@@ -109,6 +109,20 @@ fn current_config_tag() -> &'static String {
     })
 }
 
+fn binding_config_tag(addresses: &[String], families: &[String]) -> String {
+    let mut normalized = addresses.to_vec();
+    normalized.sort();
+    let mut normalized_families = families.to_vec();
+    normalized_families.sort();
+    let combined = format!(
+        "{}|{}|{}",
+        current_config_tag(),
+        normalized_families.join(","),
+        normalized.join(",")
+    );
+    format!("{:x}", fnv1a_64(combined.as_bytes()))
+}
+
 fn run_nft(args: &[&str]) -> Result<std::process::Output, ApiError> {
     Command::new("nft")
         .args(args)
@@ -225,16 +239,27 @@ fn interface_aliases(interface: &str) -> Vec<String> {
     aliases
 }
 
-fn expected_rule_count(scope: Scope, alias_count: usize, has_inner_ip: bool) -> usize {
+fn expected_rule_count(
+    scope: Scope,
+    alias_count: usize,
+    addresses: &[String],
+    families: &[String],
+) -> usize {
     match scope.tag {
         "inet" => {
-            if has_inner_ip {
-                // Per-IP: 2 rules per alias (inbound to _in counter + outbound to _out counter)
-                alias_count * 2
-            } else {
-                // Fallback: 4 rules per alias (IPv4 in/out + IPv6 in/out)
-                alias_count * 4
-            }
+            let expects_v4 = families.is_empty() || families.iter().any(|family| family == "ipv4");
+            let expects_v6 = families.is_empty() || families.iter().any(|family| family == "ipv6");
+            let v4_count = addresses
+                .iter()
+                .filter(|address| !address.contains(':'))
+                .count();
+            let v6_count = addresses
+                .iter()
+                .filter(|address| address.contains(':'))
+                .count();
+            let rules_per_alias = (if expects_v4 { v4_count.max(1) * 2 } else { 0 })
+                + (if expects_v6 { v6_count.max(1) * 2 } else { 0 });
+            alias_count * rules_per_alias
         }
         _ => 0,
     }
@@ -390,7 +415,8 @@ mod tests {
             "counter_in",
             "counter_out",
             "veth123",
-            Some("172.16.0.2"),
+            &["172.16.0.2".to_string()],
+            &["ipv4".to_string()],
         )
         .expect("script should build");
 
@@ -402,13 +428,52 @@ mod tests {
 
     #[test]
     fn fallback_rules_keep_same_directionality() {
-        let script =
-            build_rules_for_counter(SCOPE_INET, "counter_in", "counter_out", "tap101i0", None)
-                .expect("script should build");
+        let script = build_rules_for_counter(
+            SCOPE_INET,
+            "counter_in",
+            "counter_out",
+            "tap101i0",
+            &[],
+            &["ipv4".to_string(), "ipv6".to_string()],
+        )
+        .expect("script should build");
 
         assert!(script.contains("oifname \"tap101i0\" ip daddr !="));
         assert!(script.contains("iifname \"tap101i0\" ip saddr !="));
         assert!(script.contains("oifname \"tap101i0\" ip6 daddr !="));
         assert!(script.contains("iifname \"tap101i0\" ip6 saddr !="));
+    }
+
+    #[test]
+    fn dual_stack_rules_include_both_families() {
+        let script = build_rules_for_counter(
+            SCOPE_INET,
+            "counter_in",
+            "counter_out",
+            "veth123",
+            &["10.0.0.2".to_string(), "2001:db8::2".to_string()],
+            &["ipv4".to_string(), "ipv6".to_string()],
+        )
+        .expect("script should build");
+
+        assert!(script.contains("ip daddr 10.0.0.2"));
+        assert!(script.contains("ip6 daddr 2001:db8::2"));
+    }
+
+    #[test]
+    fn missing_ipv6_address_uses_family_fallback_rule() {
+        let script = build_rules_for_counter(
+            SCOPE_INET,
+            "counter_in",
+            "counter_out",
+            "veth123",
+            &["10.0.0.2".to_string()],
+            &["ipv4".to_string(), "ipv6".to_string()],
+        )
+        .expect("script should build");
+
+        assert!(script.contains("ip daddr 10.0.0.2"));
+        assert!(script.contains("oifname \"veth123\" ip6 daddr !="));
+        assert!(script.contains("iifname \"veth123\" ip6 saddr !="));
     }
 }

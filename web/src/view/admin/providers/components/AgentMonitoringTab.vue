@@ -382,6 +382,25 @@
         </template>
       </el-table-column>
       <el-table-column
+        :label="$t('admin.providers.monitorHealth')"
+        min-width="120"
+      >
+        <template #default="{ row }">
+          <el-tooltip
+            :disabled="!row.health_error"
+            :content="row.health_error"
+            placement="top"
+          >
+            <el-tag
+              :type="healthTagType(row.health_status)"
+              size="small"
+            >
+              {{ healthStatusText(row.health_status) }}
+            </el-tag>
+          </el-tooltip>
+        </template>
+      </el-table-column>
+      <el-table-column
         :label="$t('admin.providers.lastSync')"
         width="160"
       >
@@ -408,7 +427,7 @@
   <el-dialog
     v-model="localShowAgentMonitors"
     :title="$t('admin.providers.agentMonitorsList')"
-    width="800px"
+    width="1000px"
     append-to-body
   >
     <el-table
@@ -453,6 +472,25 @@
       >
         <template #default="{ row }">
           {{ row.provider_kind || '-' }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.monitorHealth')"
+        min-width="130"
+      >
+        <template #default="{ row }">
+          <el-tooltip
+            :disabled="!monitorHealthDetail(row)"
+            :content="monitorHealthDetail(row)"
+            placement="top"
+          >
+            <el-tag
+              :type="healthTagType(row.health_status)"
+              size="small"
+            >
+              {{ healthStatusText(row.health_status) }}
+            </el-tag>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column
@@ -559,6 +597,26 @@ function formatBytes(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+function healthTagType(status) {
+  if (status === 'healthy') return 'success'
+  if (status === 'unhealthy') return 'danger'
+  return 'warning'
+}
+
+function healthStatusText(status) {
+  if (status === 'healthy') return t('admin.providers.monitorHealthy')
+  if (status === 'unhealthy') return t('admin.providers.monitorUnhealthy')
+  return t('admin.providers.monitorUnknown')
+}
+
+function monitorHealthDetail(row) {
+  if (row.health_error) return row.health_error
+  if (Array.isArray(row.missing_interfaces) && row.missing_interfaces.length > 0) {
+    return `${t('admin.providers.missingInterfaces')}: ${row.missing_interfaces.join(', ')}`
+  }
+  return ''
 }
 </script>
 

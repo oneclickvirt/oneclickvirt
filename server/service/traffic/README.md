@@ -121,13 +121,38 @@ Agent 支持两种流量采集方式，通过 `TRAFFIC_COLLECT_METHOD` 环境变
 ### Agent 采集配置
 
 - **流量采集间隔**：默认 5 秒，通过 `TRAFFIC_COLLECT_INTERVAL` 配置
+- **流量采集批次**：默认每轮 512 个 active interface，通过 `TRAFFIC_COLLECT_BATCH_SIZE` 配置
+- **规则自愈间隔/批次**：默认 60 秒、每轮 128 个 monitor，通过 `TRAFFIC_RECONCILE_INTERVAL` / `TRAFFIC_RECONCILE_BATCH_SIZE` 配置
+- **启动恢复批次**：默认 API 启动前同步恢复 32 个 monitor，通过 `TRAFFIC_BOOTSTRAP_BATCH_SIZE` 配置；剩余项由启动后首轮后台自愈继续恢复
 - **资源采集间隔**：默认 30 秒，通过 `RESOURCE_COLLECT_INTERVAL` 配置
+- **资源采集批次**：默认每轮 16 个 monitor，通过 `RESOURCE_COLLECT_BATCH_SIZE` 配置
 
 管理面板可实时修改节点监控配置，修改后服务器自动同步 `.env` 到远端 Agent 并重启服务。
 
 ### 网卡变更
 
-实例重建/重启导致网卡变更时，通过 Agent 的 `update` 接口更新接口信息，**不会重置**之前的流量和资源记录。
+实例重建/宿主机重启导致 veth/tap 变化时，Agent 保留 `monitors.bindings` desired state（接口、期望协议族、已知地址），但会从 `interface_states` active state 移除不存在的旧接口并报告 unhealthy。即使双栈实例的某个地址尚未回填，也会依据 `families` 创建对应协议族的接口级兜底规则。主控每约 5 分钟错峰检查一次 Agent `/list`，仅对 unhealthy、missing 或元数据漂移的实例重新探测 Provider；正常实例不执行逐实例 SSH/API 探测。更新接口前 Agent 会先结算旧 counter 的未落库增量，因此不会因为规则重建直接丢掉已计数流量。
+
+主控后台自愈使用以下保护：
+
+- 同一 Provider 的流量同步、资源同步和接口自愈串行执行。
+- 全局最多同时处理 4 个 Provider；超过槽位的任务延后，不创建无界 goroutine。
+- 单次后台最多修复 8 个实例；仍有 deferred 项时约 30 秒后继续，失败时按 1/2/4/.../30 分钟指数退避。
+- 每轮先批量加载实例和监控映射，并只调用一次 Agent `/list`；Agent 不可达时整节点退避，不退化为逐实例探测。
+
+### 双栈与 Provider 矩阵
+
+- Docker、Podman、Containerd、OrbStack、QEMU/libvirt、KubeVirt 的单 NIC 双栈合并在同一 binding。
+- LXD、Incus 和 Proxmox 的双 NIC 模式按 IPv4/IPv6 分离 binding；单 NIC 双栈自动合并。
+- 不支持可靠 host 接口探测的 Provider 明确返回 unsupported，不允许假成功。
+- 主控同时保留旧 `interface` / `inner_ip` 字段，支持滚动升级；新版健康自愈依赖 Agent 返回 `bindings`、`healthy` 和 `missing_interfaces`。
+
+### 数据库与并发边界
+
+- Agent 采集使用一次 active-state 批量快照，锁外读取 nft/iptables，再以 CAS 短事务批量回写，消除 SQLite 查询 N+1。
+- 资源最新点通过 `/api/v1/resources/batch` 一次读取，主控不再逐实例请求。
+- 主控流量写入按最多 25 个 monitor 的短事务分批，一次 `SELECT ... FOR UPDATE` 锁定批内 tracking 快照并比较旧累计值，随后批量更新 tracking、小时历史和原始记录，防止重试/重叠造成重复计费；实例月汇总移到事务外按 200 个实例批量幂等重算，用户汇总同样使用批量 SQL。
+- Provider/SSH/Agent/nft/iptables 外部调用均不放在数据库事务内。
 
 ## 倍率应用示例
 

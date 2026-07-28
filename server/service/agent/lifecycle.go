@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"net"
 	"strings"
 	"time"
 
@@ -228,32 +229,24 @@ func scheduleEgressRefresh(db *gorm.DB, instanceID uint, apply bool) {
 	}()
 }
 
-// updateInstanceInterfaces updates the PmacctInterfaceV4/V6 fields on the instance
-// from the detected agent monitor interfaces. monitor.Interfaces is a comma-separated
-// list where index 0 is the IPv4 interface and index 1 (if present) is the IPv6 interface.
+// updateInstanceInterfaces updates the cached host interfaces from typed traffic bindings.
+// Legacy comma-separated monitor data remains supported during rolling upgrades.
 func updateInstanceInterfaces(ctx context.Context, db *gorm.DB, instance *providerModel.Instance, monitor *monitoringModel.AgentMonitor) {
-	if monitor == nil || monitor.Interfaces == "" {
+	if monitor == nil {
 		return
 	}
-
-	parts := strings.Split(monitor.Interfaces, ",")
+	ifaceV4, ifaceV6 := resolveMonitorBindingInterfaces(instance, monitor)
 	updates := map[string]interface{}{}
 
-	ifaceV4 := strings.TrimSpace(parts[0])
 	if ifaceV4 != "" && instance.PmacctInterfaceV4 != ifaceV4 {
 		updates["pmacct_interface_v4"] = ifaceV4
+	} else if ifaceV4 == "" && instance.PmacctInterfaceV4 != "" && instance.NetworkType == "ipv6_only" {
+		updates["pmacct_interface_v4"] = ""
 	}
 
-	// Only set V6 from an explicit second interface entry in the monitor.
-	// Do NOT fall back to V4 here: DetectAndSaveInstanceInterfaces is the
-	// authoritative path for V6 and may have already stored a distinct veth.
-	// Overwriting with V4 would corrupt the V6 field for IPv6-capable instances.
-	if len(parts) >= 2 {
-		ifaceV6 := strings.TrimSpace(parts[1])
-		if instance.PmacctInterfaceV6 != ifaceV6 {
-			updates["pmacct_interface_v6"] = ifaceV6
-		}
-	} else if instance.PmacctInterfaceV6 != "" {
+	if isIPv6Capable(instance.NetworkType) && instance.PmacctInterfaceV6 != ifaceV6 {
+		updates["pmacct_interface_v6"] = ifaceV6
+	} else if !isIPv6Capable(instance.NetworkType) && instance.PmacctInterfaceV6 != "" {
 		updates["pmacct_interface_v6"] = ""
 	}
 
@@ -265,13 +258,73 @@ func updateInstanceInterfaces(ctx context.Context, db *gorm.DB, instance *provid
 					zap.Error(err))
 			}
 		} else {
+			instance.PmacctInterfaceV4 = ifaceV4
+			instance.PmacctInterfaceV6 = ifaceV6
 			if global.APP_LOG != nil {
 				global.APP_LOG.Debug("updated instance network interfaces",
 					zap.Uint("instance_id", instance.ID),
-					zap.String("v4", ifaceV4))
+					zap.String("v4", ifaceV4),
+					zap.String("v6", ifaceV6))
 			}
 		}
 	}
+}
+
+func resolveMonitorBindingInterfaces(instance *providerModel.Instance, monitor *monitoringModel.AgentMonitor) (string, string) {
+	bindings := unmarshalTrafficBindings(monitor.Bindings)
+	parts := normalizeMonitorInterfaces(monitor.Interfaces)
+	ifaceV4 := ""
+	ifaceV6 := ""
+
+	for _, binding := range bindings {
+		for _, family := range binding.Families {
+			switch family {
+			case trafficFamilyIPv4:
+				if ifaceV4 == "" {
+					ifaceV4 = binding.Interface
+				}
+			case trafficFamilyIPv6:
+				if ifaceV6 == "" {
+					ifaceV6 = binding.Interface
+				}
+			}
+		}
+		for _, address := range binding.Addresses {
+			ip := net.ParseIP(address)
+			if ip == nil {
+				continue
+			}
+			if ip.To4() != nil && ifaceV4 == "" {
+				ifaceV4 = binding.Interface
+			}
+			if ip.To4() == nil && ifaceV6 == "" {
+				ifaceV6 = binding.Interface
+			}
+		}
+	}
+	if ifaceV4 == "" && instance.NetworkType != "ipv6_only" && len(bindings) > 0 {
+		ifaceV4 = bindings[0].Interface
+	}
+	if ifaceV6 == "" && isIPv6Capable(instance.NetworkType) && len(bindings) > 0 {
+		if len(bindings) > 1 {
+			ifaceV6 = bindings[1].Interface
+		} else {
+			ifaceV6 = bindings[0].Interface
+		}
+	}
+	if len(bindings) == 0 {
+		if len(parts) > 0 && instance.NetworkType != "ipv6_only" {
+			ifaceV4 = parts[0]
+		}
+		if isIPv6Capable(instance.NetworkType) {
+			if len(parts) > 1 {
+				ifaceV6 = parts[1]
+			} else if len(parts) > 0 {
+				ifaceV6 = parts[0]
+			}
+		}
+	}
+	return ifaceV4, ifaceV6
 }
 
 // refreshControllerPortHosts 刷新实例控制端端口转发的 IP 型目标地址，

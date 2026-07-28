@@ -91,7 +91,12 @@ Agent 模式下，控制端会在 Provider 删除、重载或连接参数变化�
 | `API_TOKEN` | 是 | 认证令牌。所有 API 请求必须在 `x-token` 请求头中包含此值。 |
 | `TRAFFIC_COLLECT_METHOD` | 否 | 流量采集方式：`nft`（默认，使用 nftables）或 `ipt`（使用 iptables）。 |
 | `TRAFFIC_COLLECT_INTERVAL` | 否 | 流量采集间隔，单位秒（默认：`5`）。 |
+| `TRAFFIC_COLLECT_BATCH_SIZE` | 否 | 每轮最多读取的活动接口计数器数（默认：`512`），用于限制大节点采集压力。 |
+| `TRAFFIC_RECONCILE_INTERVAL` | 否 | desired/active 规则自愈间隔，单位秒（默认：`60`）。 |
+| `TRAFFIC_RECONCILE_BATCH_SIZE` | 否 | 每轮最多自愈的监控器数（默认：`128`），防止重启后同时重建全部规则。 |
+| `TRAFFIC_BOOTSTRAP_BATCH_SIZE` | 否 | API 启动前同步恢复的监控器上限（默认：`32`）；其余监控器由启动后首轮有界自愈继续恢复。 |
 | `RESOURCE_COLLECT_INTERVAL` | 否 | 资源采集间隔，单位秒（默认：`30`）。 |
+| `RESOURCE_COLLECT_BATCH_SIZE` | 否 | 每轮最多探测的资源监控器数（默认：`16`）。 |
 | `ENABLE_REVERSE_PROXY` | 否 | 是否启用反向代理功能（默认：`false`）。设为 `true` 才会启动反向代理服务器。 |
 | `PROXY_HTTP_ADDR` | 否 | HTTP 反向代理监听地址（如：`0.0.0.0:80`）。仅当 `ENABLE_REVERSE_PROXY=true` 时生效。 |
 | `PROXY_HTTPS_ADDR` | 否 | HTTPS 反向代理监听地址（如：`0.0.0.0:443`）。需同时配置证书。 |
@@ -208,8 +213,8 @@ src/
 
 ### 数据库表结构
 
-- **monitors**：监控器主表，存储接口列表、累计流量（总计/入站/出站）、provider_kind、instance_name、inner_ip
-- **interface_states**：各接口的计数器状态（last_counter_in/out，用于增量计算）
+- **monitors**：监控器 desired state，保存 `bindings`（接口、期望协议族及 IPv4/IPv6 地址列表）、兼容字段、累计流量和实例元数据
+- **interface_states**：当前已成功激活的 active state，仅保存存在且规则可读的接口及 last_counter_in/out
 - **resource_metrics**：资源监控历史数据（CPU/内存/磁盘），按 monitor_id + timestamp 索引
 - **domain_proxies**：域名反向代理记录，存储域名、内部 IP:Port、协议、SSL 开关
 
@@ -247,16 +252,40 @@ src/
 
 ### 采集流程
 
-流量计数器按配置的间隔（默认每 5 秒）读取计数器值，计算增量并累积到 SQLite 数据库中。采集逻辑统一处理两种模式，根据 `traffic_collect_method` 调用 `nft::read_external_bytes` 或 `ipt::read_external_bytes`。
+流量计数器按配置的间隔（默认每 5 秒）分批读取，计算增量并累积到 SQLite。每轮先一次读取 active state 快照，释放 SQLite mutex 后执行 nft/iptables 命令，最后用带旧计数器条件的短事务批量回写；不会对每个监控器单独查询，也不会在数据库事务中执行外部命令。
+
+### desired/active 自愈
+
+- `monitors.bindings` 是主控下发的 desired state，接口暂时不存在时仍保留。
+- `interface_states` 只记录已经成功创建并可读取规则的 active state。
+- Agent 启动和周期自愈都会跳过已消失的旧 veth/tap，不会为不存在的接口恢复规则；同时会清除对应 active state，让 `/api/v1/list` 返回 `unhealthy` 和 `missing_interfaces`。
+- nft/iptables 规则被外部脚本清空或配置标签变化时，周期自愈会在重建前读取旧 counter、重建后读取新基线，再用 CAS 短事务结算增量；规则重置不会直接吞掉已计数流量。
+- 规则操作由独立 mutex 串行化，SQLite 锁只用于批量快照和短事务，避免采集、更新、自愈互相覆盖。
+- 启动阶段默认只同步恢复 32 个 monitor，后台自愈在首轮立即继续按批次恢复，避免大节点重启时集中执行规则命令。
 
 ### 网卡变更处理
 
 当实例重建或使用新网络接口重启时：
 
-1. 管理服务器调用 `POST /api/v1/update` 传入新的接口名称
-2. 旧的规则和计数器被移除，创建新的
-3. 累积的 `total_bytes` 值被保留（不会重置）
-4. 如果检测到计数器被重置（当前值 < 上次值），仅将当前值作为增量添加，防止产生负数差值
+1. `/api/v1/list` 根据 desired/active 差异报告旧接口 missing/unhealthy。
+2. 主控仅对异常实例重新探测 Provider 接口，并调用 `POST /api/v1/update` 下发新的 `bindings`。
+3. Agent 在重建规则前先结算旧 active counter 尚未写入的增量，再短事务替换 active state。
+4. 旧规则在数据库事务之外删除，累计 `total_bytes` 与资源历史保持不变。
+5. 如果检测到计数器被重置（当前值 < 上次值），仅将当前值作为增量添加，防止负数和超大差值。
+
+### Provider 接口适配
+
+| 节点类型 | 接口绑定策略 |
+|---|---|
+| Docker / Podman / Containerd / OrbStack | 单 host veth，IPv4/IPv6 地址合并到同一 binding |
+| LXD / Incus | eth0/eth1 对应 host veth；单 NIC 双栈时合并，双 NIC 时按地址族分离 |
+| Proxmox LXC / QEMU | `veth/tap<vmid>i0` 与可选 `i1`，分别绑定 IPv4/IPv6 |
+| QEMU/libvirt | `virsh domiflist` 探测 vnet/tap，单接口双栈合并 |
+| KubeVirt | 从 virt-launcher Pod 网络命名空间定位 host veth/tap，单接口双栈合并 |
+
+未实现可靠 host 接口探测的 Provider 会明确返回 unsupported，不会写入“成功但不可计数”的监控记录。
+
+`ipt` 模式为每个方向建立“私网排除 RETURN + 显式无终止计数规则”，支持同一接口多个 IPv4/IPv6 地址；自愈会核对链规则数量、地址过滤规则和父链跳转，GC 会按 `iptables -S` 的真实 `-i/-o` 规则精确删除旧 veth/tap 引用。
 
 ### 接口别名（nft 模式）
 
@@ -440,6 +469,10 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
 ```json
 {
   "interface": ["veth1001i0", "veth1001i1"],
+  "bindings": [
+    {"interface": "veth1001i0", "families": ["ipv4"], "addresses": ["172.17.0.3"]},
+    {"interface": "veth1001i1", "families": ["ipv6"], "addresses": ["2001:db8::3"]}
+  ],
   "provider_kind": "docker",
   "instance_name": "my-container"
 }
@@ -448,6 +481,7 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `interface` | string / string[] | 是 | 监控的网络接口名称 |
+| `bindings` | object[] | 否 | 新版接口—协议族—地址列表 desired state；`families` 可在地址尚未回填时保持 IPv4/IPv6 计数意图，旧客户端可继续只传 `interface`/`inner_ip` |
 | `provider_kind` | string | 否 | 虚拟化类型：docker/podman/containerd/lxd/incus/proxmox |
 | `instance_name` | string | 否 | 实例名称（配合 provider_kind 启用资源采集） |
 | `inner_ip` | string | 否 | 实例内网 IP（用于按 IP 精确过滤流量） |
@@ -456,7 +490,8 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
 ```json
 {
   "id": 1,
-  "interface": ["veth1001i0"]
+  "interface": ["veth1001i0"],
+  "bindings": [{"interface": "veth1001i0", "families": ["ipv4"], "addresses": ["172.17.0.3"]}]
 }
 ```
 
@@ -469,6 +504,10 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
 {
   "id": 1,
   "new_interface": ["veth1001i0", "veth1001i1"],
+  "bindings": [
+    {"interface": "veth1001i0", "families": ["ipv4"], "addresses": ["172.17.0.3"]},
+    {"interface": "veth1001i1", "families": ["ipv6"], "addresses": ["2001:db8::3"]}
+  ],
   "provider_kind": "proxmox",
   "instance_name": "1001",
   "inner_ip": "172.17.0.3"
@@ -479,7 +518,11 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
 ```json
 {
   "id": 1,
-  "interface": ["veth1001i0", "veth1001i1"]
+  "interface": ["veth1001i0", "veth1001i1"],
+  "bindings": [
+    {"interface": "veth1001i0", "families": ["ipv4"], "addresses": ["172.17.0.3"]},
+    {"interface": "veth1001i1", "families": ["ipv6"], "addresses": ["2001:db8::3"]}
+  ]
 }
 ```
 
@@ -500,6 +543,20 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
   "id": 1,
   "deleted": true
 }
+```
+
+### POST /api/v1/delete/batch
+
+有界批量删除监控器及其关联规则，每次最多 100 个 ID。Agent 在短 SQLite 事务中删除 desired/active state，再在事务外串行清理 nftables/iptables 规则。
+
+**请求：**
+```json
+{"ids": [1, 2, 3]}
+```
+
+**响应：**
+```json
+{"deleted_ids": [1, 2, 3], "total": 3}
 ```
 
 ### POST /api/v1/info
@@ -535,6 +592,35 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
 {
   "id": 1,
   "limit": 288
+}
+```
+
+### POST /api/v1/resources/batch
+
+一次返回最多 1000 个监控器的最新资源点。主控使用该接口替代逐实例 `/resources` 请求，避免 HTTP N+1。
+
+**请求：**
+```json
+{"ids": [1, 2, 3]}
+```
+
+**响应：**
+```json
+{
+  "resources": [
+    {
+      "id": 1,
+      "data": {
+        "timestamp": 1711929600,
+        "cpu_percent": 15.3,
+        "memory_used": 134217728,
+        "memory_total": 536870912,
+        "disk_used": 1073741824,
+        "disk_total": 10737418240
+      }
+    }
+  ],
+  "total": 1
 }
 ```
 
@@ -587,6 +673,11 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
     {
       "id": 1,
       "interface": ["veth1001i0"],
+      "bindings": [{"interface": "veth1001i0", "families": ["ipv4", "ipv6"], "addresses": ["172.17.0.3", "2001:db8::3"]}],
+      "active_interfaces": ["veth1001i0"],
+      "missing_interfaces": [],
+      "healthy": true,
+      "health_error": null,
       "provider_kind": "docker",
       "instance_name": "my-container",
       "total_bytes": 1073741824,
