@@ -3,12 +3,18 @@ package constant
 // ServerVersion is the current version of the oneclickvirt server.
 const ServerVersion = "0.3.0"
 
+// AgentReleaseVersion is the release tag used when downloading the Agent.
+// Official builds rewrite ServerVersion to the release tag, so this value
+// follows the controller release without conflating it with Agent API
+// compatibility.
+const AgentReleaseVersion = ServerVersion
+
 // CompatibleAgentVersion is the minimum agent version compatible with this server.
 // The version comparison normalises a leading "v" prefix and uses semantic
 // versioning rules (agentVersion >= CompatibleAgentVersion).  Older agents
 // that predate the version-tracking feature report an empty string and are
 // always considered compatible.
-const CompatibleAgentVersion = "0.2.0"
+const CompatibleAgentVersion = "0.4.0"
 
 // Build verification - these are set at compile time via ldflags in CI/CD
 // Official builds will have these set; unofficial builds will show "unofficial"

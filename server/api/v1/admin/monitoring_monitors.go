@@ -437,28 +437,46 @@ func ListAgentMonitors(c *gin.Context) {
 	}
 
 	type EnrichedMonitorItem struct {
-		ID              int64    `json:"id"`
-		Interface       []string `json:"interface"`
-		ProviderKind    *string  `json:"provider_kind"`
-		InstanceName    *string  `json:"instance_name"`
-		TotalBytes      uint64   `json:"total_bytes"`
-		TotalBytesIn    uint64   `json:"total_bytes_in"`
-		TotalBytesOut   uint64   `json:"total_bytes_out"`
-		UpdatedAt       int64    `json:"updated_at"`
-		InstanceDeleted bool     `json:"instance_deleted"`
+		ID                int64                         `json:"id"`
+		Interface         []string                      `json:"interface"`
+		Bindings          []agentService.TrafficBinding `json:"bindings,omitempty"`
+		ActiveInterfaces  []string                      `json:"active_interfaces,omitempty"`
+		MissingInterfaces []string                      `json:"missing_interfaces,omitempty"`
+		ProviderKind      *string                       `json:"provider_kind"`
+		InstanceName      *string                       `json:"instance_name"`
+		TotalBytes        uint64                        `json:"total_bytes"`
+		TotalBytesIn      uint64                        `json:"total_bytes_in"`
+		TotalBytesOut     uint64                        `json:"total_bytes_out"`
+		UpdatedAt         int64                         `json:"updated_at"`
+		InstanceDeleted   bool                          `json:"instance_deleted"`
+		HealthStatus      string                        `json:"health_status"`
+		HealthError       string                        `json:"health_error,omitempty"`
 	}
 
 	enriched := make([]EnrichedMonitorItem, 0, len(monitors))
 	for _, m := range monitors {
+		healthStatus := "unknown"
+		if m.Healthy != nil {
+			if *m.Healthy {
+				healthStatus = "healthy"
+			} else {
+				healthStatus = "unhealthy"
+			}
+		}
 		item := EnrichedMonitorItem{
-			ID:            m.ID,
-			Interface:     m.Interface,
-			ProviderKind:  m.ProviderKind,
-			InstanceName:  m.InstanceName,
-			TotalBytes:    m.TotalBytes,
-			TotalBytesIn:  m.TotalBytesIn,
-			TotalBytesOut: m.TotalBytesOut,
-			UpdatedAt:     m.UpdatedAt,
+			ID:                m.ID,
+			Interface:         m.Interface,
+			Bindings:          m.Bindings,
+			ActiveInterfaces:  m.ActiveInterfaces,
+			MissingInterfaces: m.MissingInterfaces,
+			ProviderKind:      m.ProviderKind,
+			InstanceName:      m.InstanceName,
+			TotalBytes:        m.TotalBytes,
+			TotalBytesIn:      m.TotalBytesIn,
+			TotalBytesOut:     m.TotalBytesOut,
+			UpdatedAt:         m.UpdatedAt,
+			HealthStatus:      healthStatus,
+			HealthError:       m.HealthError,
 		}
 		if info, ok := infoMap[m.ID]; ok {
 			item.TotalBytes = info.UsedTraffic
@@ -523,15 +541,18 @@ func listAgentMonitorsFromDB(c *gin.Context, providerID uint, page, pageSize int
 	}
 
 	type EnrichedMonitorItem struct {
-		ID              int64    `json:"id"`
-		Interface       []string `json:"interface"`
-		ProviderKind    *string  `json:"provider_kind"`
-		InstanceName    *string  `json:"instance_name"`
-		TotalBytes      uint64   `json:"total_bytes"`
-		TotalBytesIn    uint64   `json:"total_bytes_in"`
-		TotalBytesOut   uint64   `json:"total_bytes_out"`
-		UpdatedAt       int64    `json:"updated_at"`
-		InstanceDeleted bool     `json:"instance_deleted"`
+		ID              int64                         `json:"id"`
+		Interface       []string                      `json:"interface"`
+		Bindings        []agentService.TrafficBinding `json:"bindings,omitempty"`
+		ProviderKind    *string                       `json:"provider_kind"`
+		InstanceName    *string                       `json:"instance_name"`
+		TotalBytes      uint64                        `json:"total_bytes"`
+		TotalBytesIn    uint64                        `json:"total_bytes_in"`
+		TotalBytesOut   uint64                        `json:"total_bytes_out"`
+		UpdatedAt       int64                         `json:"updated_at"`
+		InstanceDeleted bool                          `json:"instance_deleted"`
+		HealthStatus    string                        `json:"health_status"`
+		HealthError     string                        `json:"health_error,omitempty"`
 	}
 
 	enriched := make([]EnrichedMonitorItem, 0, len(monitors))
@@ -542,9 +563,12 @@ func listAgentMonitorsFromDB(c *gin.Context, providerID uint, page, pageSize int
 		}
 		pk := m.ProviderKind
 		in := m.InstanceName
+		var bindings []agentService.TrafficBinding
+		_ = json.Unmarshal([]byte(m.Bindings), &bindings)
 		item := EnrichedMonitorItem{
 			ID:              m.AgentMonitorID,
 			Interface:       ifaces,
+			Bindings:        bindings,
 			ProviderKind:    &pk,
 			InstanceName:    &in,
 			TotalBytes:      m.LastTrafficBytesIn + m.LastTrafficBytesOut,
@@ -552,6 +576,8 @@ func listAgentMonitorsFromDB(c *gin.Context, providerID uint, page, pageSize int
 			TotalBytesOut:   m.LastTrafficBytesOut,
 			UpdatedAt:       m.LastSyncAt.Unix(),
 			InstanceDeleted: !activeInstanceIDs[m.InstanceID],
+			HealthStatus:    m.HealthStatus,
+			HealthError:     m.HealthError,
 		}
 		enriched = append(enriched, item)
 	}

@@ -80,28 +80,38 @@ func RemoveClient(providerID uint) {
 // ---- Request/Response types ----
 
 type AddRequest struct {
-	Interface    interface{} `json:"interface"` // string or []string
-	ProviderKind string      `json:"provider_kind,omitempty"`
-	InstanceName string      `json:"instance_name,omitempty"`
-	InnerIP      string      `json:"inner_ip,omitempty"`
+	Interface    interface{}      `json:"interface"` // string or []string
+	Bindings     []TrafficBinding `json:"bindings,omitempty"`
+	ProviderKind string           `json:"provider_kind,omitempty"`
+	InstanceName string           `json:"instance_name,omitempty"`
+	InnerIP      string           `json:"inner_ip,omitempty"`
 }
 
 type AddResponse struct {
-	ID        int64    `json:"id"`
-	Interface []string `json:"interface"`
+	ID                int64            `json:"id"`
+	Interface         []string         `json:"interface"`
+	Bindings          []TrafficBinding `json:"bindings,omitempty"`
+	Healthy           *bool            `json:"healthy,omitempty"`
+	MissingInterfaces []string         `json:"missing_interfaces,omitempty"`
+	HealthError       string           `json:"health_error,omitempty"`
 }
 
 type UpdateRequest struct {
-	ID           int64       `json:"id"`
-	NewInterface interface{} `json:"new_interface"` // string or []string
-	ProviderKind string      `json:"provider_kind,omitempty"`
-	InstanceName string      `json:"instance_name,omitempty"`
-	InnerIP      string      `json:"inner_ip"`
+	ID           int64            `json:"id"`
+	NewInterface interface{}      `json:"new_interface"` // string or []string
+	Bindings     []TrafficBinding `json:"bindings,omitempty"`
+	ProviderKind string           `json:"provider_kind,omitempty"`
+	InstanceName string           `json:"instance_name,omitempty"`
+	InnerIP      string           `json:"inner_ip"`
 }
 
 type UpdateResponse struct {
-	ID        int64    `json:"id"`
-	Interface []string `json:"interface"`
+	ID                int64            `json:"id"`
+	Interface         []string         `json:"interface"`
+	Bindings          []TrafficBinding `json:"bindings,omitempty"`
+	Healthy           *bool            `json:"healthy,omitempty"`
+	MissingInterfaces []string         `json:"missing_interfaces,omitempty"`
+	HealthError       string           `json:"health_error,omitempty"`
 }
 
 type DeleteRequest struct {
@@ -111,6 +121,15 @@ type DeleteRequest struct {
 type DeleteResponse struct {
 	ID      int64 `json:"id"`
 	Deleted bool  `json:"deleted"`
+}
+
+type BatchDeleteRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+type BatchDeleteResponse struct {
+	DeletedIDs []int64 `json:"deleted_ids"`
+	Total      int     `json:"total"`
 }
 
 type InfoRequest struct {
@@ -155,6 +174,20 @@ type ResourceQueryResponse struct {
 	Data []ResourceDataPoint `json:"data"`
 }
 
+type BatchResourceQueryRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+type BatchResourceItem struct {
+	ID   int64             `json:"id"`
+	Data ResourceDataPoint `json:"data"`
+}
+
+type BatchResourceQueryResponse struct {
+	Resources []BatchResourceItem `json:"resources"`
+	Total     int                 `json:"total"`
+}
+
 type CleanupRequest struct {
 	MaxUpdateTime string `json:"max_update_time"`
 }
@@ -165,14 +198,19 @@ type CleanupResponse struct {
 }
 
 type ListMonitorItem struct {
-	ID            int64    `json:"id"`
-	Interface     []string `json:"interface"`
-	ProviderKind  *string  `json:"provider_kind"`
-	InstanceName  *string  `json:"instance_name"`
-	TotalBytes    uint64   `json:"total_bytes"`
-	TotalBytesIn  uint64   `json:"total_bytes_in"`
-	TotalBytesOut uint64   `json:"total_bytes_out"`
-	UpdatedAt     int64    `json:"updated_at"`
+	ID                int64            `json:"id"`
+	Interface         []string         `json:"interface"`
+	ProviderKind      *string          `json:"provider_kind"`
+	InstanceName      *string          `json:"instance_name"`
+	TotalBytes        uint64           `json:"total_bytes"`
+	TotalBytesIn      uint64           `json:"total_bytes_in"`
+	TotalBytesOut     uint64           `json:"total_bytes_out"`
+	UpdatedAt         int64            `json:"updated_at"`
+	Bindings          []TrafficBinding `json:"bindings,omitempty"`
+	ActiveInterfaces  []string         `json:"active_interfaces,omitempty"`
+	MissingInterfaces []string         `json:"missing_interfaces,omitempty"`
+	Healthy           *bool            `json:"healthy,omitempty"`
+	HealthError       string           `json:"health_error,omitempty"`
 }
 
 type ListMonitorsResponse struct {
@@ -360,7 +398,8 @@ func (c *Client) doWSRequest(method, path string, body interface{}, result inter
 }
 
 // AddMonitor creates a new monitor on the agent for the given interfaces.
-func (c *Client) AddMonitor(interfaces []string, providerKind, instanceName, innerIP string) (*AddResponse, error) {
+func (c *Client) AddMonitor(bindings []TrafficBinding, providerKind, instanceName string) (*AddResponse, error) {
+	interfaces := bindingsInterfaces(bindings)
 	var iface interface{}
 	if len(interfaces) == 1 {
 		iface = interfaces[0]
@@ -369,9 +408,10 @@ func (c *Client) AddMonitor(interfaces []string, providerKind, instanceName, inn
 	}
 	req := AddRequest{
 		Interface:    iface,
+		Bindings:     normalizeTrafficBindings(bindings),
 		ProviderKind: providerKind,
 		InstanceName: instanceName,
-		InnerIP:      innerIP,
+		InnerIP:      bindingsLegacyInnerIP(bindings),
 	}
 	var resp AddResponse
 	if err := c.doRequest("POST", "/api/v1/add", req, &resp); err != nil {
@@ -381,7 +421,8 @@ func (c *Client) AddMonitor(interfaces []string, providerKind, instanceName, inn
 }
 
 // UpdateMonitor updates the interfaces for an existing monitor.
-func (c *Client) UpdateMonitor(id int64, interfaces []string, providerKind, instanceName, innerIP string) (*UpdateResponse, error) {
+func (c *Client) UpdateMonitor(id int64, bindings []TrafficBinding, providerKind, instanceName string) (*UpdateResponse, error) {
+	interfaces := bindingsInterfaces(bindings)
 	var iface interface{}
 	if len(interfaces) == 1 {
 		iface = interfaces[0]
@@ -391,9 +432,10 @@ func (c *Client) UpdateMonitor(id int64, interfaces []string, providerKind, inst
 	req := UpdateRequest{
 		ID:           id,
 		NewInterface: iface,
+		Bindings:     normalizeTrafficBindings(bindings),
 		ProviderKind: providerKind,
 		InstanceName: instanceName,
-		InnerIP:      innerIP,
+		InnerIP:      bindingsLegacyInnerIP(bindings),
 	}
 	var resp UpdateResponse
 	if err := c.doRequest("POST", "/api/v1/update", req, &resp); err != nil {
@@ -410,6 +452,23 @@ func (c *Client) DeleteMonitor(id int64) (*DeleteResponse, error) {
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// BatchDeleteMonitors deletes monitors through bounded Agent requests.
+func (c *Client) BatchDeleteMonitors(ids []int64) ([]int64, error) {
+	deletedIDs := make([]int64, 0, len(ids))
+	for start := 0; start < len(ids); start += 100 {
+		end := start + 100
+		if end > len(ids) {
+			end = len(ids)
+		}
+		var response BatchDeleteResponse
+		if err := c.doRequest("POST", "/api/v1/delete/batch", BatchDeleteRequest{IDs: ids[start:end]}, &response); err != nil {
+			return deletedIDs, err
+		}
+		deletedIDs = append(deletedIDs, response.DeletedIDs...)
+	}
+	return deletedIDs, nil
 }
 
 // GetInfo returns the current traffic info for a monitor.
@@ -430,6 +489,26 @@ func (c *Client) GetResources(id int64, limit int64) (*ResourceQueryResponse, er
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// BatchGetLatestResources returns the latest resource point for each monitor in one request.
+func (c *Client) BatchGetLatestResources(ids []int64) (map[int64]ResourceDataPoint, error) {
+	result := make(map[int64]ResourceDataPoint, len(ids))
+	for start := 0; start < len(ids); start += 1000 {
+		end := start + 1000
+		if end > len(ids) {
+			end = len(ids)
+		}
+		var response BatchResourceQueryResponse
+		request := BatchResourceQueryRequest{IDs: ids[start:end]}
+		if err := c.doRequest("POST", "/api/v1/resources/batch", request, &response); err != nil {
+			return nil, err
+		}
+		for _, item := range response.Resources {
+			result[item.ID] = item.Data
+		}
+	}
+	return result, nil
 }
 
 // Cleanup removes stale monitors from the agent.
@@ -492,14 +571,20 @@ func (c *Client) BatchGetInfo(ids []int64) (map[int64]*InfoResponse, error) {
 		return results, nil
 	}
 
-	req := BatchInfoRequest{IDs: uniqueIDs}
-	var resp BatchInfoResponse
-	if err := c.doRequest("POST", "/api/v1/batch-info", req, &resp); err != nil {
-		return nil, err
-	}
-	for i := range resp.Monitors {
-		info := resp.Monitors[i]
-		results[info.ID] = &info
+	for start := 0; start < len(uniqueIDs); start += 1000 {
+		end := start + 1000
+		if end > len(uniqueIDs) {
+			end = len(uniqueIDs)
+		}
+		req := BatchInfoRequest{IDs: uniqueIDs[start:end]}
+		var resp BatchInfoResponse
+		if err := c.doRequest("POST", "/api/v1/batch-info", req, &resp); err != nil {
+			return nil, err
+		}
+		for i := range resp.Monitors {
+			info := resp.Monitors[i]
+			results[info.ID] = &info
+		}
 	}
 	return results, nil
 }

@@ -19,8 +19,12 @@ type AgentMonitor struct {
 	// AgentMonitorID is the ID returned by the agent's /api/v1/add endpoint.
 	AgentMonitorID int64  `gorm:"not null" json:"agent_monitor_id"`
 	Interfaces     string `gorm:"type:text" json:"interfaces"`
-	ProviderKind   string `gorm:"size:32" json:"provider_kind"`
-	InstanceName   string `gorm:"size:255" json:"instance_name"`
+	// Bindings stores the versioned interface-to-address mapping sent to the Agent.
+	// It remains JSON text so older databases can be migrated by GORM without a
+	// separate join table or per-binding queries.
+	Bindings     string `gorm:"type:text" json:"bindings"`
+	ProviderKind string `gorm:"size:32" json:"provider_kind"`
+	InstanceName string `gorm:"size:255" json:"instance_name"`
 	// InnerIP is passed to the agent for per-IP filtering on shared bridges/NAT.
 	InnerIP string `gorm:"size:64" json:"inner_ip"`
 	// LastTrafficBytes is the last known total_bytes from the agent.
@@ -30,8 +34,11 @@ type AgentMonitor struct {
 	// LastTrafficBytesOut is the last known total_bytes_out (outbound) from the agent.
 	LastTrafficBytesOut uint64 `gorm:"not null;default:0" json:"last_traffic_bytes_out"`
 	// LastSyncAt tracks when traffic was last synced from the agent.
-	LastSyncAt time.Time `gorm:"index" json:"last_sync_at"`
-	IsEnabled  bool      `gorm:"not null;default:true" json:"is_enabled"`
+	LastSyncAt   time.Time  `gorm:"index" json:"last_sync_at"`
+	IsEnabled    bool       `gorm:"not null;default:true" json:"is_enabled"`
+	HealthStatus string     `gorm:"size:16;not null;default:unknown;index" json:"health_status"`
+	HealthError  string     `gorm:"type:text" json:"health_error"`
+	LastHealthAt *time.Time `json:"last_health_at"`
 }
 
 func (AgentMonitor) TableName() string {

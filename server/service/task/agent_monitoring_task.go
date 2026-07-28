@@ -86,7 +86,7 @@ func (s *TaskService) executeAgentMonitoringTask(ctx context.Context, task *admi
 
 func (s *TaskService) executeAgentDeployTask(ctx context.Context, taskID uint, providerID uint, version string) error {
 	if version == "" {
-		version = constant.CompatibleAgentVersion
+		version = constant.AgentReleaseVersion
 	}
 	utils.UpdateTaskProgress(taskID, 5, "agent.deployStarted")
 

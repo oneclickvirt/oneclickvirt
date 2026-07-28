@@ -1,10 +1,10 @@
-use crate::error::ApiError;
+use crate::{error::ApiError, traffic::parse_persisted_bindings};
 use rusqlite::Connection;
 use serde_json::Value;
 use std::collections::HashSet;
 use tracing::{debug, info, warn};
 
-use super::counter::ensure_counter;
+use super::counter::{ensure_counter, read_external_bytes};
 use super::{
     SCOPES, Scope, counter_name_in, counter_name_out, ensure_base_objects, is_not_found,
     remove_counter_by_name, run_nft,
@@ -109,7 +109,7 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
     }
 }
 
-pub fn bootstrap_from_db(conn: &Connection) -> Result<(), ApiError> {
+pub fn bootstrap_from_db(conn: &Connection, batch_size: usize) -> Result<(), ApiError> {
     let mut success_scopes = 0usize;
     let mut last_error: Option<String> = None;
     for scope in SCOPES {
@@ -134,31 +134,60 @@ pub fn bootstrap_from_db(conn: &Connection) -> Result<(), ApiError> {
     }
 
     let mut stmt = conn
-        .prepare("SELECT s.monitor_id, s.interface, m.inner_ip FROM interface_states s LEFT JOIN monitors m ON s.monitor_id = m.id")
+        .prepare("SELECT id, interfaces, bindings, inner_ip FROM monitors ORDER BY id LIMIT ?1")
         .map_err(|e| ApiError::internal(format!("prepare bootstrap query error: {e}")))?;
     let rows = stmt
-        .query_map([], |row| {
+        .query_map([batch_size.max(1) as i64], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
             ))
         })
         .map_err(|e| ApiError::internal(format!("bootstrap query error: {e}")))?;
 
     let mut count = 0usize;
     for row in rows {
-        let (monitor_id, interface, inner_ip) =
+        let (monitor_id, interfaces_json, bindings_json, inner_ip) =
             row.map_err(|e| ApiError::internal(format!("bootstrap row error: {e}")))?;
-        if let Err(err) = ensure_counter(monitor_id, &interface, inner_ip.as_deref()) {
-            warn!(
+        for binding in
+            parse_persisted_bindings(&bindings_json, &interfaces_json, inner_ip.as_deref())
+        {
+            if let Err(err) = ensure_counter(
                 monitor_id,
-                interface,
-                error = %err.message,
-                "bootstrap failed to ensure nft counter"
-            );
-        } else {
-            count += 1;
+                &binding.interface,
+                &binding.addresses,
+                &binding.families,
+            ) {
+                let _ = conn.execute(
+                    "DELETE FROM interface_states WHERE monitor_id = ?1 AND interface = ?2",
+                    rusqlite::params![monitor_id, binding.interface],
+                );
+                warn!(
+                    monitor_id,
+                    interface = binding.interface,
+                    error = %err.message,
+                    "bootstrap failed to ensure nft counter"
+                );
+                continue;
+            }
+            if let Some((base_in, base_out)) = read_external_bytes(monitor_id, &binding.interface) {
+                conn.execute(
+                    "INSERT INTO interface_states \
+                     (monitor_id, interface, last_counter_in, last_counter_out) \
+                     VALUES (?1, ?2, ?3, ?4) \
+                     ON CONFLICT(monitor_id, interface) DO NOTHING",
+                    rusqlite::params![monitor_id, binding.interface, base_in, base_out],
+                )
+                .map_err(|e| ApiError::internal(format!("bootstrap activate state error: {e}")))?;
+                count += 1;
+            } else {
+                let _ = conn.execute(
+                    "DELETE FROM interface_states WHERE monitor_id = ?1 AND interface = ?2",
+                    rusqlite::params![monitor_id, binding.interface],
+                );
+            }
         }
     }
     debug!(count, "nft bootstrap ensured counters");

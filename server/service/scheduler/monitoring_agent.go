@@ -8,9 +8,64 @@ import (
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
+	providerService "oneclickvirt/service/provider"
 
 	"go.uber.org/zap"
 )
+
+const backgroundMonitorRepairLimit = 8
+
+type agentReconcileSchedule struct {
+	Failures int
+	NextRun  time.Time
+}
+
+func agentReconcileSuccessDelay(providerID uint) time.Duration {
+	jitterSeconds := (uint64(providerID) * 2654435761) % 60
+	return 5*time.Minute + time.Duration(jitterSeconds)*time.Second
+}
+
+func (s *MonitoringSchedulerService) agentReconcileDue(providerID uint, now time.Time) bool {
+	value, ok := s.agentReconcileState.Load(providerID)
+	if !ok {
+		return true
+	}
+	schedule, ok := value.(agentReconcileSchedule)
+	return !ok || !now.Before(schedule.NextRun)
+}
+
+func (s *MonitoringSchedulerService) finishAgentReconcile(providerID uint, success, deferred bool) {
+	now := time.Now()
+	if success {
+		delay := agentReconcileSuccessDelay(providerID)
+		if deferred {
+			delay = 30*time.Second + time.Duration(providerID%15)*time.Second
+		}
+		s.agentReconcileState.Store(providerID, agentReconcileSchedule{
+			NextRun: now.Add(delay),
+		})
+		return
+	}
+
+	failures := 1
+	if value, ok := s.agentReconcileState.Load(providerID); ok {
+		if previous, valid := value.(agentReconcileSchedule); valid {
+			failures = previous.Failures + 1
+		}
+	}
+	shift := failures - 1
+	if shift > 5 {
+		shift = 5
+	}
+	delay := time.Minute * time.Duration(1<<shift)
+	if delay > 30*time.Minute {
+		delay = 30 * time.Minute
+	}
+	s.agentReconcileState.Store(providerID, agentReconcileSchedule{
+		Failures: failures,
+		NextRun:  now.Add(delay),
+	})
+}
 
 func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 	defer s.wg.Done()
@@ -120,7 +175,13 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 					continue
 				}
 
-				if !s.tryStartAgentTrafficSync(cfg.ProviderID) {
+				if !s.tryAcquireAgentWorkSlot() {
+					global.APP_LOG.Debug("agent work slots full, defer traffic sync",
+						zap.Uint("provider_id", cfg.ProviderID))
+					continue
+				}
+				if !s.tryStartAgentProviderWork(cfg.ProviderID) {
+					s.releaseAgentWorkSlot()
 					global.APP_LOG.Debug("agent traffic sync already running, skip overlapping run",
 						zap.Uint("provider_id", cfg.ProviderID))
 					continue
@@ -131,7 +192,8 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 				s.wg.Add(1)
 				go func(providerID uint, config monitoringModel.MonitoringConfig) {
 					defer s.wg.Done()
-					defer s.finishAgentTrafficSync(providerID)
+					defer s.releaseAgentWorkSlot()
+					defer s.finishAgentProviderWork(providerID)
 					defer func() {
 						if r := recover(); r != nil {
 							global.APP_LOG.Error("agent traffic sync panic",
@@ -246,7 +308,13 @@ func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Co
 					continue
 				}
 
-				if !s.tryStartAgentResourceSync(cfg.ProviderID) {
+				if !s.tryAcquireAgentWorkSlot() {
+					global.APP_LOG.Debug("agent work slots full, defer resource sync",
+						zap.Uint("provider_id", cfg.ProviderID))
+					continue
+				}
+				if !s.tryStartAgentProviderWork(cfg.ProviderID) {
+					s.releaseAgentWorkSlot()
 					global.APP_LOG.Debug("agent resource sync already running, skip overlapping run",
 						zap.Uint("provider_id", cfg.ProviderID))
 					continue
@@ -257,7 +325,8 @@ func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Co
 				s.wg.Add(1)
 				go func(providerID uint, config monitoringModel.MonitoringConfig) {
 					defer s.wg.Done()
-					defer s.finishAgentResourceSync(providerID)
+					defer s.releaseAgentWorkSlot()
+					defer s.finishAgentProviderWork(providerID)
 					defer func() {
 						if r := recover(); r != nil {
 							global.APP_LOG.Error("agent resource sync panic",
@@ -292,6 +361,146 @@ func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Co
 						}
 					}
 				}(cfg.ProviderID, cfg)
+			}
+		}
+	}
+}
+
+// startAgentMonitorReconciliation periodically compares controller metadata with the
+// Agent's desired/active binding health and only probes provider interfaces on drift.
+func (s *MonitoringSchedulerService) startAgentMonitorReconciliation(ctx context.Context) {
+	defer s.wg.Done()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			global.APP_LOG.Error("agent monitor reconciliation panic",
+				zap.Any("panic", recovered),
+				zap.Stack("stack"))
+		}
+		global.APP_LOG.Info("agent monitor reconciliation stopped")
+	}()
+
+	global.APP_LOG.Info("starting agent monitor reconciliation")
+	for global.APP_DB == nil {
+		timer := time.NewTimer(10 * time.Second)
+		select {
+		case <-s.stopChan:
+			timer.Stop()
+			return
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			var configs []monitoringModel.MonitoringConfig
+			if err := global.APP_DB.Where("monitoring_mode = ? AND agent_installed = ?", "agent", true).
+				Find(&configs).Error; err != nil {
+				global.APP_LOG.Error("query agent reconcile configs failed", zap.Error(err))
+				continue
+			}
+			if len(configs) == 0 {
+				continue
+			}
+
+			providerIDs := make([]uint, 0, len(configs))
+			for _, config := range configs {
+				providerIDs = append(providerIDs, config.ProviderID)
+			}
+			var providers []providerModel.Provider
+			if err := global.APP_DB.Select("id", "enable_traffic_control", "traffic_sync_method").
+				Where("id IN ?", providerIDs).Find(&providers).Error; err != nil {
+				global.APP_LOG.Error("query providers for agent reconcile failed", zap.Error(err))
+				continue
+			}
+			providerByID := make(map[uint]providerModel.Provider, len(providers))
+			for _, providerRecord := range providers {
+				providerByID[providerRecord.ID] = providerRecord
+			}
+
+			now := time.Now()
+			for _, config := range configs {
+				providerRecord, exists := providerByID[config.ProviderID]
+				if !exists || !providerRecord.EnableTrafficControl || providerRecord.TrafficSyncMethod != "agent" {
+					continue
+				}
+				if !s.agentReconcileDue(config.ProviderID, now) {
+					continue
+				}
+				if !s.tryAcquireAgentWorkSlot() {
+					continue
+				}
+				if !s.tryStartAgentProviderWork(config.ProviderID) {
+					s.releaseAgentWorkSlot()
+					continue
+				}
+
+				s.wg.Add(1)
+				go func(providerID uint, monitoringConfig monitoringModel.MonitoringConfig) {
+					defer s.wg.Done()
+					defer s.releaseAgentWorkSlot()
+					defer s.finishAgentProviderWork(providerID)
+					success := false
+					deferred := false
+					defer func() {
+						s.finishAgentReconcile(providerID, success, deferred)
+						if recovered := recover(); recovered != nil {
+							global.APP_LOG.Error("provider agent monitor reconciliation panic",
+								zap.Uint("provider_id", providerID),
+								zap.Any("panic", recovered),
+								zap.Stack("stack"))
+						}
+					}()
+
+					baseCtx, baseCancel := context.WithCancel(ctx)
+					go func() {
+						select {
+						case <-s.stopChan:
+							baseCancel()
+						case <-baseCtx.Done():
+						}
+					}()
+					reconcileCtx, cancel := context.WithTimeout(baseCtx, 6*time.Minute)
+					defer func() { cancel(); baseCancel() }()
+
+					providerInstance, err := providerService.GetProviderInstanceByID(providerID)
+					if err != nil {
+						global.APP_LOG.Warn("agent monitor reconcile provider unavailable",
+							zap.Uint("provider_id", providerID),
+							zap.Error(err))
+						return
+					}
+					monitorService := agentService.NewMonitorService(reconcileCtx, global.APP_DB)
+					summary, err := monitorService.ReconcileMonitorsForProvider(
+						providerInstance,
+						providerID,
+						&monitoringConfig,
+						backgroundMonitorRepairLimit,
+					)
+					if err != nil {
+						global.APP_LOG.Warn("agent monitor reconciliation failed",
+							zap.Uint("provider_id", providerID),
+							zap.Error(err))
+						return
+					}
+					success = summary.Failed == 0
+					deferred = summary.Deferred > 0
+					global.APP_LOG.Debug("agent monitor reconciliation completed",
+						zap.Uint("provider_id", providerID),
+						zap.Int("created", summary.Created),
+						zap.Int("updated", summary.Updated),
+						zap.Int("deferred", summary.Deferred),
+						zap.Int("failed", summary.Failed))
+				}(config.ProviderID, config)
 			}
 		}
 	}

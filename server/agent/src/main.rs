@@ -12,6 +12,7 @@ mod models;
 mod nft;
 mod proxy;
 mod resource;
+mod traffic;
 mod tunnel;
 mod ws_client;
 
@@ -33,8 +34,22 @@ use url;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+fn version_requested<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .any(|arg| matches!(arg.as_ref(), "--version" | "-V"))
+}
+
 #[tokio::main]
 async fn main() {
+    if version_requested(std::env::args().skip(1)) {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     // Install rustls crypto provider BEFORE any TLS-related operations.
     // rustls 0.23 requires an explicit crypto provider; without this,
     // any wss:// connection (tokio-tungstenite via rustls) will panic with:
@@ -67,10 +82,30 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(5);
+    let traffic_collect_batch_size: usize = env::var("TRAFFIC_COLLECT_BATCH_SIZE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(512);
+    let traffic_reconcile_interval: u64 = env::var("TRAFFIC_RECONCILE_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+    let traffic_reconcile_batch_size: usize = env::var("TRAFFIC_RECONCILE_BATCH_SIZE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(128);
+    let traffic_bootstrap_batch_size: usize = env::var("TRAFFIC_BOOTSTRAP_BATCH_SIZE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(32);
     let resource_collect_interval: u64 = env::var("RESOURCE_COLLECT_INTERVAL")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(30);
+    let resource_collect_batch_size: usize = env::var("RESOURCE_COLLECT_BATCH_SIZE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(16);
 
     let traffic_collect_method =
         env::var("TRAFFIC_COLLECT_METHOD").unwrap_or_else(|_| "nft".to_string());
@@ -83,7 +118,12 @@ async fn main() {
 
     info!(
         traffic_collect_interval,
+        traffic_collect_batch_size,
+        traffic_reconcile_interval,
+        traffic_reconcile_batch_size,
+        traffic_bootstrap_batch_size,
         resource_collect_interval,
+        resource_collect_batch_size,
         %traffic_collect_method,
         enable_proxy,
         "collection intervals and proxy status configured"
@@ -96,7 +136,7 @@ async fn main() {
 
     if traffic_collect_method == "ipt" {
         info!("using iptables for traffic collection");
-        if let Err(err) = ipt::bootstrap_from_db(&conn) {
+        if let Err(err) = ipt::bootstrap_from_db(&conn, traffic_bootstrap_batch_size) {
             warn!(
                 error = %err.message,
                 "failed to bootstrap iptables counters"
@@ -110,7 +150,7 @@ async fn main() {
         }
     } else {
         info!("using nftables for traffic collection");
-        if let Err(err) = nft::bootstrap_from_db(&conn) {
+        if let Err(err) = nft::bootstrap_from_db(&conn, traffic_bootstrap_batch_size) {
             warn!(
                 error = %err.message,
                 "failed to bootstrap nft counters, external traffic stats may be unavailable until fixed"
@@ -135,9 +175,14 @@ async fn main() {
     let proxy_routes = {
         let temp_state = AppState {
             conn: Arc::new(Mutex::new(conn)),
+            traffic_operation_lock: Arc::new(Mutex::new(())),
             api_token: api_token.clone(),
             traffic_collect_interval,
+            traffic_collect_batch_size,
+            traffic_reconcile_interval,
+            traffic_reconcile_batch_size,
             resource_collect_interval,
+            resource_collect_batch_size,
             traffic_collect_method: traffic_collect_method.clone(),
             proxy_routes: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             cert_store: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
@@ -163,9 +208,14 @@ async fn main() {
     let conn = Connection::open("traffic.db").expect("failed to open sqlite database");
     let state = AppState {
         conn: Arc::new(Mutex::new(conn)),
+        traffic_operation_lock: Arc::new(Mutex::new(())),
         api_token: api_token.clone(),
         traffic_collect_interval,
+        traffic_collect_batch_size,
+        traffic_reconcile_interval,
+        traffic_reconcile_batch_size,
         resource_collect_interval,
+        resource_collect_batch_size,
         traffic_collect_method: traffic_collect_method.clone(),
         proxy_routes: proxy_routes.clone(),
         cert_store: cert_store.clone(),
@@ -450,10 +500,18 @@ fn build_api_router(state: AppState) -> Router {
         .route("/api/v1/add", post(handlers::add_monitor))
         .route("/api/v1/update", post(handlers::update_monitor))
         .route("/api/v1/delete", post(handlers::delete_monitor))
+        .route(
+            "/api/v1/delete/batch",
+            post(handlers::batch_delete_monitors),
+        )
         .route("/api/v1/info", post(handlers::info_monitor))
         .route("/api/v1/batch-info", post(handlers::batch_info_monitor))
         .route("/api/v1/cleanup", post(handlers::cleanup_monitor))
         .route("/api/v1/resources", post(handlers::query_resources))
+        .route(
+            "/api/v1/resources/batch",
+            post(handlers::batch_query_resources),
+        )
         .route("/api/v1/list", get(handlers::list_monitors))
         .route(
             "/api/v1/block-rules",
@@ -715,4 +773,16 @@ fn strip_secret_from_url(url: &str) -> String {
     let cleaned = cleaned.replace("?&", "?");
     let cleaned = cleaned.trim_end_matches('?').to_string();
     cleaned
+}
+
+#[cfg(test)]
+mod tests {
+    use super::version_requested;
+
+    #[test]
+    fn version_flag_is_detected_without_starting_the_agent() {
+        assert!(version_requested(["--version"]));
+        assert!(version_requested(["-V"]));
+        assert!(!version_requested(["--ws-url", "ws://127.0.0.1"]));
+    }
 }

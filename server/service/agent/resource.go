@@ -62,39 +62,34 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 	}
 	client := GetClientWithMode(providerID, endpoint, port, config.AgentToken, p.ConnectionType == "agent")
 
-	// Collect all metrics from agent first (HTTP calls without DB)
+	monitorIDs := make([]int64, 0, len(monitors))
+	monitorByAgentID := make(map[int64]*monitoringModel.AgentMonitor, len(monitors))
+	for index := range monitors {
+		monitorIDs = append(monitorIDs, monitors[index].AgentMonitorID)
+		monitorByAgentID[monitors[index].AgentMonitorID] = &monitors[index]
+	}
+	latestByMonitor, err := client.BatchGetLatestResources(monitorIDs)
+	if err != nil {
+		return fmt.Errorf("batch fetch resources from agent: %w", err)
+	}
+
+	// Convert the single Agent batch response into controller metrics without DB access.
 	var pendingMetrics []monitoringModel.ResourceMetric
-	for i := range monitors {
-		monitor := &monitors[i]
-
-		// Fetch latest resource data from agent (limit 1 for latest only)
-		resp, err := client.GetResources(monitor.AgentMonitorID, 1)
-		if err != nil {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("fetch resources from agent failed",
-					zap.Uint("instance_id", monitor.InstanceID),
-					zap.Int64("agent_monitor_id", monitor.AgentMonitorID),
-					zap.Error(err))
-			}
+	for agentMonitorID, dataPoint := range latestByMonitor {
+		monitor := monitorByAgentID[agentMonitorID]
+		if monitor == nil {
 			continue
 		}
-
-		if len(resp.Data) == 0 {
-			continue
-		}
-
-		// Store the latest data point
-		dp := resp.Data[0]
 		pendingMetrics = append(pendingMetrics, monitoringModel.ResourceMetric{
 			InstanceID:  monitor.InstanceID,
 			ProviderID:  monitor.ProviderID,
 			UserID:      monitor.UserID,
-			Timestamp:   time.Unix(dp.Timestamp, 0),
-			CPUPercent:  dp.CPUPercent,
-			MemoryUsed:  dp.MemoryUsed,
-			MemoryTotal: dp.MemoryTotal,
-			DiskUsed:    dp.DiskUsed,
-			DiskTotal:   dp.DiskTotal,
+			Timestamp:   time.Unix(dataPoint.Timestamp, 0),
+			CPUPercent:  dataPoint.CPUPercent,
+			MemoryUsed:  dataPoint.MemoryUsed,
+			MemoryTotal: dataPoint.MemoryTotal,
+			DiskUsed:    dataPoint.DiskUsed,
+			DiskTotal:   dataPoint.DiskTotal,
 		})
 	}
 
@@ -121,10 +116,12 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 		InstanceID uint
 		Timestamp  time.Time
 	}
-	s.db.Model(&monitoringModel.ResourceMetric{}).
+	if err := s.db.Model(&monitoringModel.ResourceMetric{}).
 		Select("instance_id, timestamp").
 		Where("instance_id IN ? AND timestamp IN ?", instanceIDs, timestamps).
-		Scan(&existingMetrics)
+		Scan(&existingMetrics).Error; err != nil {
+		return fmt.Errorf("batch check existing resource metrics: %w", err)
+	}
 	for _, em := range existingMetrics {
 		existingSet[dupKey{em.InstanceID, em.Timestamp}] = true
 	}
@@ -144,6 +141,7 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 					zap.Int("count", len(newMetrics)),
 					zap.Error(err))
 			}
+			return fmt.Errorf("batch save resource metrics: %w", err)
 		}
 	}
 

@@ -19,6 +19,7 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
             provider_kind TEXT,
             instance_name TEXT,
             inner_ip TEXT,
+            bindings TEXT NOT NULL DEFAULT '[]',
             updated_at INTEGER NOT NULL
         );
 
@@ -61,10 +62,41 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
     )
     .map_err(|e| ApiError::internal(format!("sqlite table init error: {e}")))?;
 
+    ensure_column(
+        conn,
+        "monitors",
+        "bindings",
+        "ALTER TABLE monitors ADD COLUMN bindings TEXT NOT NULL DEFAULT '[]'",
+    )?;
+
     // Egress desired-state tables are independent from traffic-monitor data
     // and are initialized in one bounded batch during agent startup.
     crate::egress::init_db(conn)?;
 
+    Ok(())
+}
+
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    alter_sql: &str,
+) -> Result<(), ApiError> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|e| ApiError::internal(format!("prepare {table} schema query error: {e}")))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| ApiError::internal(format!("query {table} schema error: {e}")))?;
+    for row in rows {
+        if row.map_err(|e| ApiError::internal(format!("read {table} schema row error: {e}")))?
+            == column
+        {
+            return Ok(());
+        }
+    }
+    conn.execute(alter_sql, [])
+        .map_err(|e| ApiError::internal(format!("add {table}.{column} error: {e}")))?;
     Ok(())
 }
 

@@ -19,7 +19,7 @@ import (
 )
 
 // DeployAgentRequest is the request body for deploying the agent.
-// Version is optional; when omitted the server's compatible agent version is used.
+// Version is optional; when omitted the controller's release tag is used.
 type DeployAgentRequest struct {
 	Version string `json:"version"`
 }
@@ -56,7 +56,7 @@ func DeployAgent(c *gin.Context) {
 	var req DeployAgentRequest
 	_ = c.ShouldBindJSON(&req)
 	if req.Version == "" {
-		req.Version = constant.CompatibleAgentVersion
+		req.Version = constant.AgentReleaseVersion
 	}
 
 	task, err := taskService.CreateAgentMonitoringAdminTask(uint(providerID), middleware.GetOwnerAdminID(c), "agent-deploy", req.Version)

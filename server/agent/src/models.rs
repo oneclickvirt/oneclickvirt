@@ -1,9 +1,20 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema, PartialEq, Eq)]
+pub struct TrafficBinding {
+    pub interface: String,
+    #[serde(default)]
+    pub addresses: Vec<String>,
+    #[serde(default)]
+    pub families: Vec<String>,
+}
+
 #[derive(Deserialize, ToSchema)]
 pub struct AddRequest {
     pub interface: InterfaceInput,
+    #[serde(default)]
+    pub bindings: Vec<TrafficBinding>,
     /// Provider type hint for resource monitoring: docker/podman/containerd/lxd/incus/proxmox
     pub provider_kind: Option<String>,
     /// Instance name on the provider host (container/VM name or VMID for proxmox)
@@ -16,6 +27,8 @@ pub struct AddRequest {
 pub struct UpdateRequest {
     pub id: i64,
     pub new_interface: InterfaceInput,
+    #[serde(default)]
+    pub bindings: Vec<TrafficBinding>,
     pub provider_kind: Option<String>,
     pub instance_name: Option<String>,
     /// Inner IP address of the instance for per-IP traffic filtering
@@ -25,6 +38,11 @@ pub struct UpdateRequest {
 #[derive(Deserialize, ToSchema)]
 pub struct DeleteRequest {
     pub id: i64,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct BatchDeleteRequest {
+    pub ids: Vec<i64>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -50,6 +68,11 @@ pub struct ResourceQueryRequest {
 }
 
 #[derive(Deserialize, ToSchema)]
+pub struct BatchResourceQueryRequest {
+    pub ids: Vec<i64>,
+}
+
+#[derive(Deserialize, ToSchema)]
 #[serde(untagged)]
 pub enum InterfaceInput {
     One(String),
@@ -69,18 +92,32 @@ impl InterfaceInput {
 pub struct AddResponse {
     pub id: i64,
     pub interface: Vec<String>,
+    pub bindings: Vec<TrafficBinding>,
+    pub healthy: bool,
+    pub missing_interfaces: Vec<String>,
+    pub health_error: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
 pub struct UpdateResponse {
     pub id: i64,
     pub interface: Vec<String>,
+    pub bindings: Vec<TrafficBinding>,
+    pub healthy: bool,
+    pub missing_interfaces: Vec<String>,
+    pub health_error: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
 pub struct DeleteResponse {
     pub id: i64,
     pub deleted: bool,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct BatchDeleteResponse {
+    pub deleted_ids: Vec<i64>,
+    pub total: usize,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -123,6 +160,18 @@ pub struct ResourceQueryResponse {
 }
 
 #[derive(Serialize, ToSchema)]
+pub struct BatchResourceItem {
+    pub id: i64,
+    pub data: ResourceDataPoint,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct BatchResourceQueryResponse {
+    pub resources: Vec<BatchResourceItem>,
+    pub total: usize,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct ListMonitorItem {
     pub id: i64,
     pub interface: Vec<String>,
@@ -132,6 +181,11 @@ pub struct ListMonitorItem {
     pub total_bytes_in: u64,
     pub total_bytes_out: u64,
     pub updated_at: i64,
+    pub bindings: Vec<TrafficBinding>,
+    pub active_interfaces: Vec<String>,
+    pub missing_interfaces: Vec<String>,
+    pub healthy: bool,
+    pub health_error: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]

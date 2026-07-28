@@ -1,4 +1,4 @@
-use crate::error::ApiError;
+use crate::{error::ApiError, traffic::parse_persisted_bindings};
 use rusqlite::Connection;
 use std::{collections::HashSet, env, fs, path::Path, process::Command, sync::OnceLock};
 use tracing::{debug, info, warn};
@@ -33,8 +33,8 @@ const DEFAULT_EXCLUDE_V6: &[&str] = &[
 
 static EXCLUDE_V4: OnceLock<Vec<String>> = OnceLock::new();
 static EXCLUDE_V6: OnceLock<Vec<String>> = OnceLock::new();
-static HAS_IPTABLES: OnceLock<bool> = OnceLock::new();
-static HAS_IP6TABLES: OnceLock<bool> = OnceLock::new();
+static HAS_IPTABLES: OnceLock<()> = OnceLock::new();
+static HAS_IP6TABLES: OnceLock<()> = OnceLock::new();
 
 fn parse_env_cidrs(var_name: &str) -> Vec<String> {
     env::var(var_name)
@@ -66,30 +66,42 @@ fn exclude_v6() -> &'static Vec<String> {
 }
 
 fn has_iptables() -> bool {
-    *HAS_IPTABLES.get_or_init(|| {
-        Command::new("iptables")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    })
+    if HAS_IPTABLES.get().is_some() {
+        return true;
+    }
+    let available = Command::new("iptables")
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if available {
+        let _ = HAS_IPTABLES.set(());
+    }
+    available
 }
 
 fn has_ip6tables() -> bool {
-    *HAS_IP6TABLES.get_or_init(|| {
-        Command::new("ip6tables")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    })
+    if HAS_IP6TABLES.get().is_some() {
+        return true;
+    }
+    let available = Command::new("ip6tables")
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if available {
+        let _ = HAS_IP6TABLES.set(());
+    }
+    available
 }
 
 const CHAIN_FORWARD: &str = "VM_TRAFFIC_FWD";
 const CHAIN_FORWARD_V6: &str = "VM_TRAFFIC_FWD6";
+const COUNT_RULE_COMMENT: &str = "oneclickvirt-traffic-count";
 
 fn run_ipt(program: &str, args: &[&str]) -> Result<std::process::Output, ApiError> {
     Command::new(program)
+        .args(["-w", "5"])
         .args(args)
         .output()
         .map_err(|e| ApiError::internal(format!("failed to run {program} {:?}: {e}", args)))
@@ -174,31 +186,182 @@ fn ensure_chain_ipt(program: &str, chain: &str) -> Result<(), ApiError> {
 
 fn ensure_forward_jump_ipt(program: &str, chain: &str) -> Result<(), ApiError> {
     ensure_chain_ipt(program, chain)?;
-    let out = run_ipt(program, &["-C", "FORWARD", "-j", chain]);
-    match out {
-        Ok(o) if o.status.success() => return Ok(()),
-        _ => {}
+    ensure_jump_rule_shape(program, "FORWARD", chain, &[vec!["-j", chain]], true)
+}
+
+fn command_failure(program: &str, args: &[&str], output: &std::process::Output) -> ApiError {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    ApiError::internal(format!(
+        "{program} {:?} failed with status {}: {}",
+        args,
+        output.status,
+        stderr.trim()
+    ))
+}
+
+fn rules_targeting_chain(
+    program: &str,
+    parent_chain: &str,
+    target_chain: &str,
+) -> Result<Vec<Vec<String>>, ApiError> {
+    let args = ["-S", parent_chain];
+    let output = run_ipt(program, &args)?;
+    if !output.status.success() {
+        return Err(command_failure(program, &args, &output));
     }
-    let out = run_ipt(program, &["-I", "FORWARD", "-j", chain])?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(ApiError::internal(format!(
-            "failed to add FORWARD jump to {chain}: {}",
-            stderr.trim()
-        )));
+    Ok(parse_rules_targeting_chain(
+        &String::from_utf8_lossy(&output.stdout),
+        parent_chain,
+        target_chain,
+    ))
+}
+
+fn parse_rules_targeting_chain(
+    output: &str,
+    parent_chain: &str,
+    target_chain: &str,
+) -> Vec<Vec<String>> {
+    let mut rules = Vec::new();
+    for line in output.lines() {
+        let tokens = line.split_whitespace().collect::<Vec<_>>();
+        if tokens.len() < 4 || tokens[0] != "-A" || tokens[1] != parent_chain {
+            continue;
+        }
+        let targets_chain = tokens.windows(2).any(|window| {
+            (window[0] == "-j" || window[0] == "--jump") && window[1] == target_chain
+        });
+        if targets_chain {
+            rules.push(
+                tokens[2..]
+                    .iter()
+                    .map(|token| (*token).to_string())
+                    .collect(),
+            );
+        }
+    }
+    rules
+}
+
+fn remove_jump_rules_to_chain(
+    program: &str,
+    parent_chain: &str,
+    target_chain: &str,
+) -> Result<usize, ApiError> {
+    let rules = rules_targeting_chain(program, parent_chain, target_chain)?;
+    for rule in &rules {
+        let mut owned_args = vec!["-D".to_string(), parent_chain.to_string()];
+        owned_args.extend(rule.iter().cloned());
+        let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
+        let output = run_ipt(program, &args)?;
+        if !output.status.success() {
+            return Err(command_failure(program, &args, &output));
+        }
+    }
+    Ok(rules.len())
+}
+
+fn ensure_jump_rule_shape(
+    program: &str,
+    parent_chain: &str,
+    target_chain: &str,
+    expected_rules: &[Vec<&str>],
+    insert: bool,
+) -> Result<(), ApiError> {
+    let actual = rules_targeting_chain(program, parent_chain, target_chain)?;
+    let mut healthy = actual.len() == expected_rules.len();
+    if healthy {
+        for rule in expected_rules {
+            if !rule_exists(program, parent_chain, rule)? {
+                healthy = false;
+                break;
+            }
+        }
+    }
+    if healthy {
+        return Ok(());
+    }
+    remove_jump_rules_to_chain(program, parent_chain, target_chain)?;
+    if insert {
+        for rule in expected_rules.iter().rev() {
+            let mut add_args = vec!["-I", parent_chain];
+            add_args.extend_from_slice(rule);
+            let output = run_ipt(program, &add_args)?;
+            if !output.status.success() {
+                return Err(command_failure(program, &add_args, &output));
+            }
+        }
+    } else {
+        for rule in expected_rules {
+            let mut add_args = vec!["-A", parent_chain];
+            add_args.extend_from_slice(rule);
+            let output = run_ipt(program, &add_args)?;
+            if !output.status.success() {
+                return Err(command_failure(program, &add_args, &output));
+            }
+        }
     }
     Ok(())
 }
 
-fn add_rule_if_missing(program: &str, chain: &str, args: &[&str]) {
-    let mut check_args = vec!["-C", chain];
-    check_args.extend_from_slice(args);
-    let check = run_ipt(program, &check_args);
-    if check.is_err() || !check.unwrap().status.success() {
+fn add_rule_if_missing(program: &str, chain: &str, args: &[&str]) -> Result<(), ApiError> {
+    if !rule_exists(program, chain, args)? {
         let mut add_args = vec!["-A", chain];
         add_args.extend_from_slice(args);
-        let _ = run_ipt(program, &add_args);
+        let output = run_ipt(program, &add_args)?;
+        if !output.status.success() {
+            return Err(command_failure(program, &add_args, &output));
+        }
     }
+    Ok(())
+}
+
+fn rule_exists(program: &str, chain: &str, args: &[&str]) -> Result<bool, ApiError> {
+    let mut check_args = vec!["-C", chain];
+    check_args.extend_from_slice(args);
+    let output = run_ipt(program, &check_args)?;
+    if output.status.success() {
+        return Ok(true);
+    }
+    if output.status.code() == Some(1) {
+        return Ok(false);
+    }
+    Err(command_failure(program, &check_args, &output))
+}
+
+fn chain_rule_count(program: &str, chain: &str) -> Result<usize, ApiError> {
+    let args = ["-S", chain];
+    let output = run_ipt(program, &args)?;
+    if !output.status.success() {
+        return Err(command_failure(program, &args, &output));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.trim_start().starts_with("-A "))
+        .count())
+}
+
+fn ensure_chain_rule_shape(
+    program: &str,
+    chain: &str,
+    expected_rules: &[Vec<&str>],
+) -> Result<(), ApiError> {
+    let mut healthy = chain_rule_count(program, chain)? == expected_rules.len();
+    if healthy {
+        for rule in expected_rules {
+            if !rule_exists(program, chain, rule)? {
+                healthy = false;
+                break;
+            }
+        }
+    }
+    if !healthy {
+        let args = ["-F", chain];
+        let output = run_ipt(program, &args)?;
+        if !output.status.success() {
+            return Err(command_failure(program, &args, &output));
+        }
+    }
+    Ok(())
 }
 
 fn setup_v4_chain(
@@ -206,7 +369,7 @@ fn setup_v4_chain(
     interface: &str,
     cin: &str,
     cout: &str,
-    inner_ip: Option<&str>,
+    addresses: &[String],
 ) -> Result<(), ApiError> {
     ensure_forward_jump_ipt("iptables", CHAIN_FORWARD)?;
     ensure_chain_ipt("iptables", cin)?;
@@ -215,37 +378,85 @@ fn setup_v4_chain(
     let aliases = interface_aliases(interface);
     let excludes = exclude_v4();
 
-    for alias in &aliases {
-        // Jump from CHAIN_FORWARD to per-monitor chains
-        add_rule_if_missing("iptables", CHAIN_FORWARD, &["-o", alias, "-j", cin]);
-        add_rule_if_missing("iptables", CHAIN_FORWARD, &["-i", alias, "-j", cout]);
-    }
+    let expected_in_jumps = aliases
+        .iter()
+        .map(|alias| vec!["-o", alias.as_str(), "-j", cin])
+        .collect::<Vec<_>>();
+    let expected_out_jumps = aliases
+        .iter()
+        .map(|alias| vec!["-i", alias.as_str(), "-j", cout])
+        .collect::<Vec<_>>();
+    ensure_jump_rule_shape("iptables", CHAIN_FORWARD, cin, &expected_in_jumps, false)?;
+    ensure_jump_rule_shape("iptables", CHAIN_FORWARD, cout, &expected_out_jumps, false)?;
 
-    // Add exclusion RETURN rules
-    match inner_ip {
-        Some(ip) if !ip.contains(':') => {
-            // Per-IP filtering: inbound chain counts traffic TO inner_ip from non-private sources
-            for cidr in excludes.iter() {
-                add_rule_if_missing("iptables", cin, &["-s", cidr, "-j", "RETURN"]);
-            }
-            // Only count traffic destined for this specific IP
-            add_rule_if_missing("iptables", cin, &["!", "-d", ip, "-j", "RETURN"]);
-
-            // Outbound chain: counts traffic FROM inner_ip to non-private destinations
-            for cidr in excludes.iter() {
-                add_rule_if_missing("iptables", cout, &["-d", cidr, "-j", "RETURN"]);
-            }
-            // Only count traffic from this specific IP
-            add_rule_if_missing("iptables", cout, &["!", "-s", ip, "-j", "RETURN"]);
+    let mut expected_in = excludes
+        .iter()
+        .map(|cidr| vec!["-s", cidr.as_str(), "-j", "RETURN"])
+        .collect::<Vec<_>>();
+    let mut expected_out = excludes
+        .iter()
+        .map(|cidr| vec!["-d", cidr.as_str(), "-j", "RETURN"])
+        .collect::<Vec<_>>();
+    let family_addresses = addresses
+        .iter()
+        .filter(|address| !address.contains(':'))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    if family_addresses.is_empty() {
+        expected_in.push(vec!["-m", "comment", "--comment", COUNT_RULE_COMMENT]);
+        expected_out.push(vec!["-m", "comment", "--comment", COUNT_RULE_COMMENT]);
+    } else {
+        for ip in &family_addresses {
+            expected_in.push(vec![
+                "-d",
+                *ip,
+                "-m",
+                "comment",
+                "--comment",
+                COUNT_RULE_COMMENT,
+            ]);
+            expected_out.push(vec![
+                "-s",
+                *ip,
+                "-m",
+                "comment",
+                "--comment",
+                COUNT_RULE_COMMENT,
+            ]);
         }
-        _ => {
-            // Interface-based counting: exclude private ranges
-            for cidr in excludes.iter() {
-                add_rule_if_missing("iptables", cin, &["-s", cidr, "-j", "RETURN"]);
-            }
-            for cidr in excludes.iter() {
-                add_rule_if_missing("iptables", cout, &["-d", cidr, "-j", "RETURN"]);
-            }
+    }
+    ensure_chain_rule_shape("iptables", cin, &expected_in)?;
+    ensure_chain_rule_shape("iptables", cout, &expected_out)?;
+
+    for cidr in excludes.iter() {
+        add_rule_if_missing("iptables", cin, &["-s", cidr, "-j", "RETURN"])?;
+    }
+    for cidr in excludes.iter() {
+        add_rule_if_missing("iptables", cout, &["-d", cidr, "-j", "RETURN"])?;
+    }
+    if family_addresses.is_empty() {
+        add_rule_if_missing(
+            "iptables",
+            cin,
+            &["-m", "comment", "--comment", COUNT_RULE_COMMENT],
+        )?;
+        add_rule_if_missing(
+            "iptables",
+            cout,
+            &["-m", "comment", "--comment", COUNT_RULE_COMMENT],
+        )?;
+    } else {
+        for ip in family_addresses {
+            add_rule_if_missing(
+                "iptables",
+                cin,
+                &["-d", ip, "-m", "comment", "--comment", COUNT_RULE_COMMENT],
+            )?;
+            add_rule_if_missing(
+                "iptables",
+                cout,
+                &["-s", ip, "-m", "comment", "--comment", COUNT_RULE_COMMENT],
+            )?;
         }
     }
 
@@ -257,7 +468,7 @@ fn setup_v6_chain(
     interface: &str,
     cin6: &str,
     cout6: &str,
-    inner_ip: Option<&str>,
+    addresses: &[String],
 ) -> Result<(), ApiError> {
     if !has_ip6tables() {
         debug!("ip6tables not available, skipping IPv6 traffic monitoring");
@@ -270,30 +481,97 @@ fn setup_v6_chain(
     let aliases = interface_aliases(interface);
     let excludes = exclude_v6();
 
-    for alias in &aliases {
-        add_rule_if_missing("ip6tables", CHAIN_FORWARD_V6, &["-o", alias, "-j", cin6]);
-        add_rule_if_missing("ip6tables", CHAIN_FORWARD_V6, &["-i", alias, "-j", cout6]);
-    }
+    let expected_in_jumps = aliases
+        .iter()
+        .map(|alias| vec!["-o", alias.as_str(), "-j", cin6])
+        .collect::<Vec<_>>();
+    let expected_out_jumps = aliases
+        .iter()
+        .map(|alias| vec!["-i", alias.as_str(), "-j", cout6])
+        .collect::<Vec<_>>();
+    ensure_jump_rule_shape(
+        "ip6tables",
+        CHAIN_FORWARD_V6,
+        cin6,
+        &expected_in_jumps,
+        false,
+    )?;
+    ensure_jump_rule_shape(
+        "ip6tables",
+        CHAIN_FORWARD_V6,
+        cout6,
+        &expected_out_jumps,
+        false,
+    )?;
 
-    match inner_ip {
-        Some(ip) if ip.contains(':') => {
-            // Per-IPv6 filtering
-            for cidr in excludes.iter() {
-                add_rule_if_missing("ip6tables", cin6, &["-s", cidr, "-j", "RETURN"]);
-            }
-            add_rule_if_missing("ip6tables", cin6, &["!", "-d", ip, "-j", "RETURN"]);
-            for cidr in excludes.iter() {
-                add_rule_if_missing("ip6tables", cout6, &["-d", cidr, "-j", "RETURN"]);
-            }
-            add_rule_if_missing("ip6tables", cout6, &["!", "-s", ip, "-j", "RETURN"]);
+    let mut expected_in = excludes
+        .iter()
+        .map(|cidr| vec!["-s", cidr.as_str(), "-j", "RETURN"])
+        .collect::<Vec<_>>();
+    let mut expected_out = excludes
+        .iter()
+        .map(|cidr| vec!["-d", cidr.as_str(), "-j", "RETURN"])
+        .collect::<Vec<_>>();
+    let family_addresses = addresses
+        .iter()
+        .filter(|address| address.contains(':'))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    if family_addresses.is_empty() {
+        expected_in.push(vec!["-m", "comment", "--comment", COUNT_RULE_COMMENT]);
+        expected_out.push(vec!["-m", "comment", "--comment", COUNT_RULE_COMMENT]);
+    } else {
+        for ip in &family_addresses {
+            expected_in.push(vec![
+                "-d",
+                *ip,
+                "-m",
+                "comment",
+                "--comment",
+                COUNT_RULE_COMMENT,
+            ]);
+            expected_out.push(vec![
+                "-s",
+                *ip,
+                "-m",
+                "comment",
+                "--comment",
+                COUNT_RULE_COMMENT,
+            ]);
         }
-        _ => {
-            for cidr in excludes.iter() {
-                add_rule_if_missing("ip6tables", cin6, &["-s", cidr, "-j", "RETURN"]);
-            }
-            for cidr in excludes.iter() {
-                add_rule_if_missing("ip6tables", cout6, &["-d", cidr, "-j", "RETURN"]);
-            }
+    }
+    ensure_chain_rule_shape("ip6tables", cin6, &expected_in)?;
+    ensure_chain_rule_shape("ip6tables", cout6, &expected_out)?;
+
+    for cidr in excludes.iter() {
+        add_rule_if_missing("ip6tables", cin6, &["-s", cidr, "-j", "RETURN"])?;
+    }
+    for cidr in excludes.iter() {
+        add_rule_if_missing("ip6tables", cout6, &["-d", cidr, "-j", "RETURN"])?;
+    }
+    if family_addresses.is_empty() {
+        add_rule_if_missing(
+            "ip6tables",
+            cin6,
+            &["-m", "comment", "--comment", COUNT_RULE_COMMENT],
+        )?;
+        add_rule_if_missing(
+            "ip6tables",
+            cout6,
+            &["-m", "comment", "--comment", COUNT_RULE_COMMENT],
+        )?;
+    } else {
+        for ip in family_addresses {
+            add_rule_if_missing(
+                "ip6tables",
+                cin6,
+                &["-d", ip, "-m", "comment", "--comment", COUNT_RULE_COMMENT],
+            )?;
+            add_rule_if_missing(
+                "ip6tables",
+                cout6,
+                &["-s", ip, "-m", "comment", "--comment", COUNT_RULE_COMMENT],
+            )?;
         }
     }
 
@@ -304,10 +582,23 @@ fn setup_v6_chain(
 pub fn ensure_counter(
     monitor_id: i64,
     interface: &str,
-    inner_ip: Option<&str>,
+    addresses: &[String],
+    families: &[String],
 ) -> Result<(), ApiError> {
-    if !has_iptables() {
+    let expects_v4 = families.is_empty() || families.iter().any(|family| family == "ipv4");
+    let expects_v6 = families.is_empty() || families.iter().any(|family| family == "ipv6");
+    if expects_v4 && !has_iptables() {
         return Err(ApiError::internal("iptables not available"));
+    }
+    if expects_v6 && !has_ip6tables() {
+        return Err(ApiError::internal(
+            "ip6tables not available for an IPv6 traffic binding",
+        ));
+    }
+    if !crate::traffic::interface_exists(interface) {
+        return Err(ApiError::internal(format!(
+            "interface {interface} does not exist"
+        )));
     }
 
     let cin = chain_name_in(monitor_id, interface);
@@ -315,8 +606,12 @@ pub fn ensure_counter(
     let cin6 = chain_name_in6(monitor_id, interface);
     let cout6 = chain_name_out6(monitor_id, interface);
 
-    setup_v4_chain(monitor_id, interface, &cin, &cout, inner_ip)?;
-    setup_v6_chain(monitor_id, interface, &cin6, &cout6, inner_ip)?;
+    if has_iptables() {
+        setup_v4_chain(monitor_id, interface, &cin, &cout, addresses)?;
+    }
+    if has_ip6tables() {
+        setup_v6_chain(monitor_id, interface, &cin6, &cout6, addresses)?;
+    }
 
     Ok(())
 }
@@ -362,10 +657,13 @@ fn read_chain_bytes(program: &str, chain: &str) -> Result<u64, ApiError> {
         return Err(ApiError::internal("chain not found"));
     }
 
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    Ok(parse_chain_bytes(&String::from_utf8_lossy(&out.stdout)))
+}
+
+fn parse_chain_bytes(output: &str) -> u64 {
     let mut total_all: u64 = 0;
     let mut total_return: u64 = 0;
-    for line in stdout.lines() {
+    for line in output.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("Chain ") || trimmed.starts_with("pkts") || trimmed.is_empty() {
             continue;
@@ -380,7 +678,7 @@ fn read_chain_bytes(program: &str, chain: &str) -> Result<u64, ApiError> {
             }
         }
     }
-    Ok(total_all.saturating_sub(total_return))
+    total_all.saturating_sub(total_return)
 }
 
 /// Read traffic bytes from iptables+ip6tables chain counters.
@@ -421,7 +719,7 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64
     }
 }
 
-pub fn bootstrap_from_db(conn: &Connection) -> Result<(), ApiError> {
+pub fn bootstrap_from_db(conn: &Connection, batch_size: usize) -> Result<(), ApiError> {
     if !has_iptables() {
         return Err(ApiError::internal(
             "iptables not available, cannot bootstrap",
@@ -433,31 +731,60 @@ pub fn bootstrap_from_db(conn: &Connection) -> Result<(), ApiError> {
     }
 
     let mut stmt = conn
-        .prepare("SELECT s.monitor_id, s.interface, m.inner_ip FROM interface_states s LEFT JOIN monitors m ON s.monitor_id = m.id")
+        .prepare("SELECT id, interfaces, bindings, inner_ip FROM monitors ORDER BY id LIMIT ?1")
         .map_err(|e| ApiError::internal(format!("prepare bootstrap query error: {e}")))?;
     let rows = stmt
-        .query_map([], |row| {
+        .query_map([batch_size.max(1) as i64], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
             ))
         })
         .map_err(|e| ApiError::internal(format!("bootstrap query error: {e}")))?;
 
     let mut count = 0usize;
     for row in rows {
-        let (monitor_id, interface, inner_ip) =
+        let (monitor_id, interfaces_json, bindings_json, inner_ip) =
             row.map_err(|e| ApiError::internal(format!("bootstrap row error: {e}")))?;
-        if let Err(err) = ensure_counter(monitor_id, &interface, inner_ip.as_deref()) {
-            warn!(
+        for binding in
+            parse_persisted_bindings(&bindings_json, &interfaces_json, inner_ip.as_deref())
+        {
+            if let Err(err) = ensure_counter(
                 monitor_id,
-                interface,
-                error = %err.message,
-                "bootstrap failed to ensure iptables counter"
-            );
-        } else {
-            count += 1;
+                &binding.interface,
+                &binding.addresses,
+                &binding.families,
+            ) {
+                let _ = conn.execute(
+                    "DELETE FROM interface_states WHERE monitor_id = ?1 AND interface = ?2",
+                    rusqlite::params![monitor_id, binding.interface],
+                );
+                warn!(
+                    monitor_id,
+                    interface = binding.interface,
+                    error = %err.message,
+                    "bootstrap failed to ensure iptables counter"
+                );
+                continue;
+            }
+            if let Some((base_in, base_out)) = read_external_bytes(monitor_id, &binding.interface) {
+                conn.execute(
+                    "INSERT INTO interface_states \
+                     (monitor_id, interface, last_counter_in, last_counter_out) \
+                     VALUES (?1, ?2, ?3, ?4) \
+                     ON CONFLICT(monitor_id, interface) DO NOTHING",
+                    rusqlite::params![monitor_id, binding.interface, base_in, base_out],
+                )
+                .map_err(|e| ApiError::internal(format!("bootstrap activate state error: {e}")))?;
+                count += 1;
+            } else {
+                let _ = conn.execute(
+                    "DELETE FROM interface_states WHERE monitor_id = ?1 AND interface = ?2",
+                    rusqlite::params![monitor_id, binding.interface],
+                );
+            }
         }
     }
     debug!(count, "iptables bootstrap ensured counters");
@@ -506,6 +833,7 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
     }
 
     let mut removed = 0usize;
+    let mut last_error: Option<String> = None;
 
     // Cleanup IPv4 orphans
     if has_iptables() {
@@ -514,10 +842,24 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
         let existing: HashSet<String> = existing_in.union(&existing_out).cloned().collect();
 
         for chain in existing.difference(&expected_v4) {
-            let _ = run_iptables(&["-D", CHAIN_FORWARD, "-j", chain]);
-            let _ = run_iptables(&["-F", chain]);
-            let _ = run_iptables(&["-X", chain]);
-            removed += 1;
+            let result = (|| -> Result<(), ApiError> {
+                remove_jump_rules_to_chain("iptables", CHAIN_FORWARD, chain)?;
+                for action in ["-F", "-X"] {
+                    let args = [action, chain.as_str()];
+                    let output = run_iptables(&args)?;
+                    if !output.status.success() {
+                        return Err(command_failure("iptables", &args, &output));
+                    }
+                }
+                Ok(())
+            })();
+            match result {
+                Ok(()) => removed += 1,
+                Err(err) => {
+                    last_error = Some(err.message.clone());
+                    warn!(chain, error = %err.message, "failed to garbage-collect orphan iptables chain");
+                }
+            }
         }
     }
 
@@ -528,10 +870,24 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
         let existing6: HashSet<String> = existing_in6.union(&existing_out6).cloned().collect();
 
         for chain in existing6.difference(&expected_v6) {
-            let _ = run_ip6tables(&["-D", CHAIN_FORWARD_V6, "-j", chain]);
-            let _ = run_ip6tables(&["-F", chain]);
-            let _ = run_ip6tables(&["-X", chain]);
-            removed += 1;
+            let result = (|| -> Result<(), ApiError> {
+                remove_jump_rules_to_chain("ip6tables", CHAIN_FORWARD_V6, chain)?;
+                for action in ["-F", "-X"] {
+                    let args = [action, chain.as_str()];
+                    let output = run_ip6tables(&args)?;
+                    if !output.status.success() {
+                        return Err(command_failure("ip6tables", &args, &output));
+                    }
+                }
+                Ok(())
+            })();
+            match result {
+                Ok(()) => removed += 1,
+                Err(err) => {
+                    last_error = Some(err.message.clone());
+                    warn!(chain, error = %err.message, "failed to garbage-collect orphan ip6tables chain");
+                }
+            }
         }
     }
 
@@ -540,6 +896,13 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
             removed,
             "garbage-collected orphan iptables/ip6tables chains"
         );
+    }
+    if removed == 0 {
+        if let Some(error) = last_error {
+            return Err(ApiError::internal(format!(
+                "iptables orphan GC made no progress: {error}"
+            )));
+        }
     }
     Ok(removed)
 }
@@ -719,5 +1082,40 @@ pub fn restore_block_rules() {
             ip_version, "restored persisted block rules on startup (iptables)"
         ),
         Err(e) => warn!(error = %e.message, "failed to restore block rules on startup (iptables)"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_chain_bytes, parse_rules_targeting_chain};
+
+    #[test]
+    fn parses_counter_only_rule_bytes_after_exclusions() {
+        let output = r#"
+Chain VM_IN_1 (1 references)
+ pkts bytes target     prot opt in     out     source               destination
+   10  1000 RETURN     all  --  *      *       10.0.0.0/8           0.0.0.0/0
+    5   500            all  --  *      *       0.0.0.0/0            203.0.113.2        /* oneclickvirt-traffic-count */
+"#;
+        assert_eq!(parse_chain_bytes(output), 500);
+    }
+
+    #[test]
+    fn parses_interface_scoped_jump_rules_for_gc() {
+        let output = r#"
+-N VM_TRAFFIC_FWD
+-A VM_TRAFFIC_FWD -o veth-old -j VM_IN_7_deadbeef
+-A VM_TRAFFIC_FWD -i veth-old -j VM_OUT_7_deadbeef
+-A VM_TRAFFIC_FWD -o veth-live -j VM_IN_8_feedface
+"#;
+        assert_eq!(
+            parse_rules_targeting_chain(output, "VM_TRAFFIC_FWD", "VM_IN_7_deadbeef"),
+            vec![vec![
+                "-o".to_string(),
+                "veth-old".to_string(),
+                "-j".to_string(),
+                "VM_IN_7_deadbeef".to_string(),
+            ]]
+        );
     }
 }
