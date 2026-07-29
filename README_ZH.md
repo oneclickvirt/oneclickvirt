@@ -405,6 +405,10 @@ go run main.go
   <a href="https://linux.do/">
     <img src="https://cdn3.ldstatic.com/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png" alt="Linux DO" height="44">
   </a>
+  &nbsp;&nbsp;
+  <a href="https://www.jtti.cc/zh/activity/special-offer.html?z=oneclickvirt">
+    <img src="https://www.jtti.cc/static/images/common/article_logo.png" alt="Jtti.cc" height="44">
+  </a>
 </p>
 
 ## LICENSE
