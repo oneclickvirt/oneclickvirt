@@ -13617,6 +13617,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/common.Response"
                         }
                     },
+                    "409": {
+                        "description": "Provider资源或配额不足",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
                     "500": {
                         "description": "创建实例失败",
                         "schema": {
@@ -16420,6 +16426,12 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "用户未登录",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Provider资源或用户配额不足",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }

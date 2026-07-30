@@ -63,7 +63,7 @@ run_module_26() {
         fi
 
         # Create container instance
-        local ct_resp; ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201|400" \
+        local ct_resp; ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201|400|409" \
             "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-ct\",\"instance_type\":\"container\",\"image\":\"${ct_image}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000}" \
             "$group" "$ADMIN_TOKEN")
         local ct_task; ct_task=$(echo "$ct_resp" | jq -r '.data.task_id // .data.taskId // empty' 2>/dev/null)
@@ -162,7 +162,7 @@ run_module_26() {
         fi
 
         # Create VM instance
-        local vm_resp; vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201|400" \
+        local vm_resp; vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201|400|409" \
             "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-vm\",\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000}" \
             "$group" "$ADMIN_TOKEN")
         local vm_task; vm_task=$(echo "$vm_resp" | jq -r '.data.task_id // .data.taskId // empty' 2>/dev/null)
@@ -182,6 +182,9 @@ run_module_26() {
                 vm_id=$(echo "$vm_task_resp" | jq -r '.data.instance_id // .data.instanceId // .data.result.id // empty' 2>/dev/null)
                 if is_infrastructure_failure_detail "$vm_task_resp"; then
                     local vm_infra_detail; vm_infra_detail=$(echo "$vm_task_resp" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$vm_task_resp")
+                    if is_vm_runtime_infrastructure_failure_detail "$vm_task_resp"; then
+                        mark_vm_runtime_infrastructure_unavailable "$vm_infra_detail"
+                    fi
                     record_skip_result "Create type-test VM task (infrastructure)" "GET" "/api/v1/admin/tasks/${vm_task}" "${vm_infra_detail}" "$group"
                 else
                     local vm_task_actual; vm_task_actual=$(safe_jq "$vm_task_resp" '.data.status // .message // .msg // "failed"' 'failed')
@@ -228,6 +231,9 @@ run_module_26() {
         # Re-enable
         test_api "Re-enable all perms" "PUT" "/api/v1/admin/instance-type-permissions" "200|400" \
             '{"minLevelForContainer":1,"minLevelForVM":1,"minLevelForDeleteContainer":1,"minLevelForDeleteVM":1,"minLevelForResetContainer":1,"minLevelForResetVM":1}' "$group" "$ADMIN_TOKEN"
+    elif should_test_type "vm" && [[ -n "${VM_RUNTIME_INFRA_UNAVAILABLE_REASON:-}" ]]; then
+        record_skip_result "VM-specific operations" "HARNESS" "env_supports_vm" \
+            "${VM_RUNTIME_INFRA_UNAVAILABLE_REASON}" "$group"
     fi
 
     # ---- User-side type permission check ----

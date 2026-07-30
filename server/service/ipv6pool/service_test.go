@@ -257,6 +257,102 @@ func TestAllocateIPv6AddressSkipsMoreThanLegacyWindowLimitWithoutRetry(t *testin
 	}
 }
 
+func TestClearUnallocatedPreservesOnlyAllocatedBindingsAndTheirRanges(t *testing.T) {
+	db := setupIPv6PoolTestDB(t)
+	service := NewService()
+	var deleteStatements []string
+	if err := db.Callback().Delete().After("gorm:delete").Register("test:capture_ipv6_pool_deletes", func(tx *gorm.DB) {
+		deleteStatements = append(deleteStatements, tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...))
+	}); err != nil {
+		t.Fatalf("register delete SQL capture: %v", err)
+	}
+
+	allocatedInstanceID := uint(901)
+	allocatedDiscrete := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8::901", PrefixLength: 128,
+		IsAllocated: true, InstanceID: &allocatedInstanceID, Source: SourceManual,
+	}
+	unallocatedDiscrete := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8::902", PrefixLength: 128, Source: SourceManual,
+	}
+	protectedRange := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:1::/126", PrefixLength: 126,
+		IsRange: true, RangeNext: "2001:db8:1::3", Source: SourceManual,
+	}
+	emptyRange := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:2::/126", PrefixLength: 126,
+		IsRange: true, RangeNext: "2001:db8:2::", Source: SourceManual,
+	}
+	releasedOnlyRange := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:3::/126", PrefixLength: 126,
+		IsRange: true, RangeNext: "2001:db8:3::2", Source: SourceManual,
+	}
+	otherProviderEntry := providerModel.ProviderIPv6Pool{
+		ProviderID: 2, Address: "2001:db8:ffff::1", PrefixLength: 128, Source: SourceManual,
+	}
+	for _, entry := range []*providerModel.ProviderIPv6Pool{
+		&allocatedDiscrete, &unallocatedDiscrete, &protectedRange, &emptyRange, &releasedOnlyRange, &otherProviderEntry,
+	} {
+		if err := db.Create(entry).Error; err != nil {
+			t.Fatalf("create IPv6 pool entry: %v", err)
+		}
+	}
+
+	allocatedRangeInstanceID := uint(903)
+	allocatedChild := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:1::1", PrefixLength: 128,
+		ParentID: &protectedRange.ID, IsAllocated: true, InstanceID: &allocatedRangeInstanceID, Source: SourceRangeChild,
+	}
+	releasedProtectedChild := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:1::2", PrefixLength: 128,
+		ParentID: &protectedRange.ID, Source: SourceRangeChild,
+	}
+	releasedOnlyChild := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:3::1", PrefixLength: 128,
+		ParentID: &releasedOnlyRange.ID, Source: SourceRangeChild,
+	}
+	for _, entry := range []*providerModel.ProviderIPv6Pool{&allocatedChild, &releasedProtectedChild, &releasedOnlyChild} {
+		if err := db.Create(entry).Error; err != nil {
+			t.Fatalf("create IPv6 range child: %v", err)
+		}
+	}
+
+	deleted, err := service.ClearUnallocated(1)
+	if err != nil {
+		t.Fatalf("ClearUnallocated() error = %v", err)
+	}
+	if deleted != 5 {
+		t.Fatalf("ClearUnallocated() deleted = %d, want 5", deleted)
+	}
+	if len(deleteStatements) != 2 {
+		t.Fatalf("ClearUnallocated() issued %d delete statements, want 2: %#v", len(deleteStatements), deleteStatements)
+	}
+	for _, statement := range deleteStatements {
+		if strings.Contains(strings.ToUpper(statement), "SELECT") {
+			t.Fatalf("ClearUnallocated() generated a delete subquery incompatible with MySQL 1093: %s", statement)
+		}
+	}
+
+	for _, id := range []uint{allocatedDiscrete.ID, protectedRange.ID, allocatedChild.ID, otherProviderEntry.ID} {
+		var count int64
+		if err := db.Model(&providerModel.ProviderIPv6Pool{}).Where("id = ?", id).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("preserved IPv6 pool entry %d count = %d, want 1", id, count)
+		}
+	}
+	for _, id := range []uint{unallocatedDiscrete.ID, emptyRange.ID, releasedOnlyRange.ID, releasedProtectedChild.ID, releasedOnlyChild.ID} {
+		var count int64
+		if err := db.Model(&providerModel.ProviderIPv6Pool{}).Where("id = ?", id).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("cleared IPv6 pool entry %d count = %d, want 0", id, count)
+		}
+	}
+}
+
 func TestValidateNodeFilePathRejectsNonCanonicalOrControlContent(t *testing.T) {
 	for _, value := range []string{"relative/pool.txt", "/etc/../tmp/pool.txt", "/etc/oneclickvirt/pool\n.txt"} {
 		if _, err := ValidateNodeFilePath(value); err == nil {

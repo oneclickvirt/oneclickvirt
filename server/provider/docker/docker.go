@@ -487,30 +487,15 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
 
-	// PTY/Agent may prepend diagnostics; accept only a structurally valid
-	// inspect record and ignore unrelated lines.
-	output, parseErr := utils.ParseFirstCommandLineMatching(output, func(value string) bool {
-		fields := strings.Split(value, "|")
-		return len(fields) >= 4 && strings.TrimSpace(fields[0]) != "" && strings.TrimSpace(fields[3]) != ""
-	})
+	record, parseErr := utils.ParseContainerInspectOutput(output)
 	if parseErr != nil {
 		global.APP_LOG.Debug("Docker inspect返回空输出",
 			zap.String("id", utils.TruncateString(id, 32)))
 		return nil, fmt.Errorf("invalid Docker inspect output: %w", parseErr)
 	}
 
-	// 按|分割字段
-	fields := strings.Split(output, "|")
-	if len(fields) < 4 {
-		global.APP_LOG.Error("Docker inspect输出格式不正确",
-			zap.String("id", utils.TruncateString(id, 32)),
-			zap.String("output", utils.TruncateString(output, 200)),
-			zap.Int("fields_count", len(fields)))
-		return nil, fmt.Errorf("invalid instance data: unexpected format")
-	}
-
 	status := "unknown"
-	statusField := strings.ToLower(fields[1])
+	statusField := strings.ToLower(record.Status)
 	if strings.Contains(statusField, "running") {
 		status = "running"
 	} else if strings.Contains(statusField, "exited") {
@@ -520,10 +505,10 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 	}
 
 	instance := &provider.Instance{
-		ID:     fields[3],
-		Name:   strings.TrimPrefix(fields[0], "/"),
+		ID:     record.ID,
+		Name:   strings.TrimPrefix(record.Name, "/"),
 		Status: status,
-		Image:  fields[2],
+		Image:  record.Image,
 	}
 
 	// 补充网络信息（IP地址和IPv6）

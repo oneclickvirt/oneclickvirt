@@ -375,21 +375,13 @@ func (p *PodmanProvider) GetInstance(ctx context.Context, id string) (*provider.
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
 
-	output, parseErr := utils.ParseFirstCommandLineMatching(output, func(value string) bool {
-		fields := strings.Split(value, "|")
-		return len(fields) >= 4 && strings.TrimSpace(fields[0]) != "" && strings.TrimSpace(fields[3]) != ""
-	})
+	record, parseErr := utils.ParseContainerInspectOutput(output)
 	if parseErr != nil {
 		return nil, fmt.Errorf("invalid Podman inspect output: %w", parseErr)
 	}
 
-	fields := strings.Split(output, "|")
-	if len(fields) < 4 {
-		return nil, fmt.Errorf("invalid instance data: unexpected format")
-	}
-
 	status := "unknown"
-	statusField := strings.ToLower(fields[1])
+	statusField := strings.ToLower(record.Status)
 	if strings.Contains(statusField, "running") {
 		status = "running"
 	} else if strings.Contains(statusField, "exited") {
@@ -399,10 +391,10 @@ func (p *PodmanProvider) GetInstance(ctx context.Context, id string) (*provider.
 	}
 
 	instance := &provider.Instance{
-		ID:     fields[3],
-		Name:   strings.TrimPrefix(fields[0], "/"),
+		ID:     record.ID,
+		Name:   strings.TrimPrefix(record.Name, "/"),
 		Status: status,
-		Image:  fields[2],
+		Image:  record.Image,
 	}
 
 	if status == "running" {

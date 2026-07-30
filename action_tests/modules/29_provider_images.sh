@@ -210,6 +210,11 @@ run_module_29() {
         tested=$((tested + 1))
         local test_label="Image[${tested}]: ${img_name} (${img_type}, arch=${img_arch:-${provider_arch}})"
         log_info "Testing: ${test_label}"
+        if [[ "$img_type" == "vm" && -n "${VM_RUNTIME_INFRA_UNAVAILABLE_REASON:-}" ]]; then
+            _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
+                "${VM_RUNTIME_INFRA_UNAVAILABLE_REASON}" "available VM runtime" "unavailable"
+            continue
+        fi
         if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} before ${test_label}" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 10; then
             _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
                 "provider still had active tasks before image creation; avoiding overlapping provider operations" \
@@ -247,6 +252,9 @@ run_module_29() {
                 local task_status task_error
                 task_status=$(echo "$task_result" | jq -r '.data.status // "failed"' 2>/dev/null)
                 task_error=$(echo "$task_result" | jq -r '.data.errorMessage // .data.error_message // .message // .msg // empty' 2>/dev/null)
+                if [[ "$img_type" == "vm" ]] && is_vm_runtime_infrastructure_failure_detail "$task_result"; then
+                    mark_vm_runtime_infrastructure_unavailable "${task_error:-VM runtime prerequisite unavailable}"
+                fi
                 [[ -n "$inst_id" ]] && delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 2>/dev/null || true
                 _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
                     "provider creation task ended with status=${task_status:-failed}; ${task_error:-skipping this image}" \
