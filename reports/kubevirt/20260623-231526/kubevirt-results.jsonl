@@ -1,1 +1,0 @@
-{"name":"Harness infrastructure skip (kubevirt)","method":"HARNESS","url":"run_env_test.sh","status":"SKIP","expected":"","actual":"","detail":"KubeVirt/CDI runtime prerequisites are incomplete after install; see full-output.log for kubectl diagnostics","group":"infrastructure","timestamp":"2026-06-23T23:12:57","error_logs":"","request_payload":""}
