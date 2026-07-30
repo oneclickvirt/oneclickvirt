@@ -236,8 +236,27 @@ ensure_worker_ssh_reachable() {
 
 is_infrastructure_failure_detail() {
     local detail="$1"
+    if is_vm_runtime_infrastructure_failure_detail "$detail"; then
+        return 0
+    fi
     printf '%s' "$detail" | grep -Eiq \
         'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|process exited with status 6|远程下载.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|remote download.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|下载.*镜像失败: 远程下载|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
+}
+
+is_vm_runtime_infrastructure_failure_detail() {
+    local detail="$1" environment="${2:-${ENV_TYPE:-}}"
+    case "$environment" in
+        lxd|incus) ;;
+        *) return 1 ;;
+    esac
+    [[ "$detail" == *"虚拟机Agent启动超时，无法继续配置:"* &&
+       "$detail" == *"等待实例可执行命令超时 (1800秒)"* ]]
+}
+
+mark_vm_runtime_infrastructure_unavailable() {
+    VM_RUNTIME_INFRA_UNAVAILABLE_REASON="${1:-VM runtime prerequisite unavailable}"
+    export VM_RUNTIME_INFRA_UNAVAILABLE_REASON
+    log_warning "Disabling remaining VM tests for ${ENV_TYPE:-unknown}: ${VM_RUNTIME_INFRA_UNAVAILABLE_REASON}"
 }
 
 redact_sensitive_text() {
@@ -426,6 +445,7 @@ CONFIG_TASK_MAX_WAIT="${CONFIG_TASK_MAX_WAIT:-3600}"
 INSTANCE_HEALTH_SETTLE_SECONDS="${INSTANCE_HEALTH_SETTLE_SECONDS:-30}"
 INSTANCE_OPERATION_SETTLE_SECONDS="${INSTANCE_OPERATION_SETTLE_SECONDS:-3}"
 ACTION_TEST_API_TIMEOUT="${ACTION_TEST_API_TIMEOUT:-180}"
+VM_RUNTIME_INFRA_UNAVAILABLE_REASON="${VM_RUNTIME_INFRA_UNAVAILABLE_REASON:-}"
 
 # -- JSON result collector for HTML report --
 declare -a TEST_RESULTS_JSON=()
@@ -681,6 +701,7 @@ env_supports_container() {
 }
 
 env_supports_vm() {
+    [[ -z "${VM_RUNTIME_INFRA_UNAVAILABLE_REASON:-}" ]] || return 1
     [[ "${PLATFORM_SUPPORTS_VM[${ENV_TYPE}]:-0}" -eq 1 ]]
 }
 

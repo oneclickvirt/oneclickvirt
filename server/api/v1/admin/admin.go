@@ -119,6 +119,7 @@ func GetInstanceDetail(c *gin.Context) {
 // @Security BearerAuth
 // @Success 200 {object} common.Response{data=object} "创建实例成功"
 // @Failure 400 {object} common.Response "参数错误"
+// @Failure 409 {object} common.Response "Provider资源或配额不足"
 // @Failure 500 {object} common.Response "创建实例失败"
 // @Router /admin/instances [post]
 
@@ -130,6 +131,7 @@ func GetInstanceDetail(c *gin.Context) {
 // @Security BearerAuth
 // @Success 200 {object} common.Response{data=object} "创建实例成功"
 // @Failure 400 {object} common.Response "参数错误"
+// @Failure 409 {object} common.Response "Provider资源或配额不足"
 // @Failure 500 {object} common.Response "创建实例失败"
 // @Router /providers/{id}/instances [post]
 func CreateInstance(c *gin.Context) {

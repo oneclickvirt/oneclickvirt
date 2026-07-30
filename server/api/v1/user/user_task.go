@@ -99,6 +99,7 @@ func CancelUserTask(c *gin.Context) {
 // @Success 200 {object} common.Response{data=object} "任务创建成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 401 {object} common.Response "用户未登录"
+// @Failure 409 {object} common.Response "Provider资源或用户配额不足"
 // @Failure 500 {object} common.Response "创建失败"
 // @Router /user/instances [post]
 func CreateUserInstance(c *gin.Context) {

@@ -145,7 +145,8 @@ func ClassifyError(err error) *AppError {
 		strings.Contains(msg, "已被绑定") || strings.Contains(msg, "已通过") ||
 		strings.Contains(msg, "正在进行") || strings.Contains(msg, "正在创建") ||
 		strings.Contains(msg, "正在删除") || strings.Contains(msg, "正在操作") ||
-		strings.Contains(msg, "操作进行中") ||
+		strings.Contains(msg, "操作进行中") || strings.Contains(msg, "资源不足") ||
+		strings.Contains(msg, "配额不足") || strings.Contains(msg, "数量已达上限") ||
 		strings.Contains(lower, "already exists") || strings.Contains(lower, "duplicate") ||
 		strings.Contains(lower, "conflict") {
 		return NewError(CodeConflict, msg)

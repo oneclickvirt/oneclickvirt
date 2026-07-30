@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # shellcheck source=../../action_tests/common/node_manager.sh
 source "${ROOT_DIR}/action_tests/common/node_manager.sh"
+# shellcheck source=../../action_tests/common/test_framework.sh
+source "${ROOT_DIR}/action_tests/common/test_framework.sh"
 
 fail() {
     echo "action harness classification test failed: $*" >&2
@@ -87,6 +89,29 @@ runtime_rc=0
 verify_worker_runtime worker-id 192.0.2.10 docker || runtime_rc=$?
 [[ "$runtime_rc" == "0" ]] || fail "healthy worker runtime check should pass, got ${runtime_rc}"
 
+vm_agent_timeout='Provider创建实例失败: 虚拟机Agent启动超时，无法继续配置: 等待实例可执行命令超时 (1800秒)'
+ENV_TYPE=incus
+is_infrastructure_failure_detail "$vm_agent_timeout" ||
+    fail "Incus VM agent startup timeout should be classified as infrastructure"
+ENV_TYPE=lxd
+is_infrastructure_failure_detail "$vm_agent_timeout" ||
+    fail "LXD VM agent startup timeout should be classified as infrastructure"
+ENV_TYPE=docker
+if is_infrastructure_failure_detail "$vm_agent_timeout"; then
+    fail "Docker must not inherit the LXD/Incus VM timeout classification"
+fi
+ENV_TYPE=incus
+if is_infrastructure_failure_detail '等待实例可执行命令超时 (30秒)'; then
+    fail "generic or short instance timeout must remain a product failure"
+fi
+mark_vm_runtime_infrastructure_unavailable "$vm_agent_timeout"
+if env_supports_vm; then
+    fail "VM runtime circuit breaker did not disable subsequent VM tests"
+fi
+VM_RUNTIME_INFRA_UNAVAILABLE_REASON=""
+ENV_TYPE=lxd
+env_supports_vm || fail "clearing the VM runtime circuit breaker did not restore the provider capability"
+
 DISCOVERY_MODULE="${ROOT_DIR}/action_tests/modules/23_discovery.sh"
 ! grep -Fq 'any(.data.discoveredInstances' "$DISCOVERY_MODULE" ||
     fail "discovery module still accepts an arbitrary container or VM"
@@ -104,6 +129,8 @@ grep -Fq 'runtime_rc == 75' "$RUN_ENV_TEST" ||
     fail "the environment orchestrator does not preserve transient runtime status 75"
 grep -Fq 'dirty_node_rc == 75' "$RUN_ENV_TEST" ||
     fail "the environment orchestrator does not classify missing fixtures as infrastructure"
+grep -Fq 'ACTION_TEST_QEMU_CONTAINER_CPU' "$RUN_ENV_TEST" ||
+    fail "QEMU container sizing does not leave capacity for the VM matrix"
 
 INTEGRATION_WORKFLOW="${ROOT_DIR}/.github/workflows/integration-tests.yml"
 grep -Fq 'bash scripts/tests/action_harness_classification_test.sh' "$INTEGRATION_WORKFLOW" ||

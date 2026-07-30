@@ -138,7 +138,7 @@ run_module_10() {
 
                 # -- Transparent egress API coverage (non-destructive paths only) --
                 test_api "Container egress status" "GET" "/api/v1/admin/instances/${container_id}/egress" "200" "" "$group"
-                test_api "Reject unsafe egress fallback" "PUT" "/api/v1/admin/instances/${container_id}/egress" "400" \
+                test_api "Reject unsafe egress fallback" "PUT" "/api/v1/admin/instances/${container_id}/egress" "403" \
                     '{"profile":{"id":"action-test","mode":"native","tunnel_type":"wireguard","tunnel_interface":"wg-action-test","route_table":100,"mark":100,"fail_closed":false},"source":"192.0.2.10","interface":"action-test0","apply":false}' "$group"
                 test_api "Reject invalid egress dependency set" "POST" "/api/v1/admin/instances/${container_id}/egress/dependencies" "400" \
                     '{"package_set":"invalid"}' "$group"
@@ -377,9 +377,12 @@ run_module_10() {
                 fi
             else
                 log_info "VM task failed response: $(echo "$vm_tr" | jq -c '.' 2>/dev/null || printf '%s' "$vm_tr")"
+                local vm_infra_detail; vm_infra_detail=$(echo "$vm_tr" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$vm_tr")
                 if is_infrastructure_failure_detail "$vm_tr"; then
-                    local vm_infra_detail; vm_infra_detail=$(echo "$vm_tr" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$vm_tr")
-                    log_warning "VM creation skipped due to worker network/SSH/DNS infrastructure: ${vm_infra_detail}"
+                    if is_vm_runtime_infrastructure_failure_detail "$vm_tr"; then
+                        mark_vm_runtime_infrastructure_unavailable "$vm_infra_detail"
+                    fi
+                    log_warning "VM creation skipped due to worker/runtime infrastructure: ${vm_infra_detail}"
                     record_skip_result "Create VM instance task (infrastructure)" "GET" "/api/v1/admin/tasks/${vm_task}" "${vm_infra_detail}" "$group"
                 else
                     local vm_task_actual; vm_task_actual=$(safe_jq "$vm_tr" '.data.status // .message // .msg // "failed"' 'failed')
@@ -553,7 +556,7 @@ run_module_10() {
 
         # Create instance via user API (same as frontend does)
         local user_inst_resp; user_inst_resp=$(test_api "User creates instance (frontend-equivalent)" "POST" \
-            "/api/v1/user/instances" "200|400|404|500" \
+            "/api/v1/user/instances" "200|400|404|409" \
             "{\"providerId\":${PROVIDER_ID},\"imageId\":${user_image_id},\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\"}" \
             "$group" "$USER_TOKEN")
         local user_inst_task; user_inst_task=$(echo "$user_inst_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)

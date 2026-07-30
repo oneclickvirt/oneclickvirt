@@ -22,16 +22,24 @@ func (s *Service) ClearUnallocated(providerID uint) (int64, error) {
 			Clauses(clause.Locking{Strength: "UPDATE"}).First(&lockedProvider).Error; err != nil {
 			return fmt.Errorf("锁定Provider IPv6地址池清理失败: %w", err)
 		}
+		var protectedRangeIDs []uint
+		if err := tx.Model(&providerModel.ProviderIPv6Pool{}).
+			Distinct("parent_id").
+			Where("provider_id = ? AND parent_id IS NOT NULL AND is_allocated = ? AND deleted_at IS NULL", providerID, true).
+			Pluck("parent_id", &protectedRangeIDs).Error; err != nil {
+			return fmt.Errorf("读取已分配IPv6范围失败: %w", err)
+		}
 		result := tx.Where("provider_id = ? AND is_allocated = ? AND deleted_at IS NULL AND is_range = ?", providerID, false, false).
 			Delete(&providerModel.ProviderIPv6Pool{})
 		if result.Error != nil {
 			return result.Error
 		}
 		deleted += result.RowsAffected
-		result = tx.Where("provider_id = ? AND is_range = ? AND deleted_at IS NULL AND id NOT IN (?)", providerID, true,
-			tx.Model(&providerModel.ProviderIPv6Pool{}).Select("parent_id").
-				Where("provider_id = ? AND parent_id IS NOT NULL AND is_allocated = ? AND deleted_at IS NULL", providerID, true)).
-			Delete(&providerModel.ProviderIPv6Pool{})
+		rangeDelete := tx.Where("provider_id = ? AND is_range = ? AND deleted_at IS NULL", providerID, true)
+		if len(protectedRangeIDs) > 0 {
+			rangeDelete = rangeDelete.Where("id NOT IN ?", protectedRangeIDs)
+		}
+		result = rangeDelete.Delete(&providerModel.ProviderIPv6Pool{})
 		if result.Error != nil {
 			return result.Error
 		}
