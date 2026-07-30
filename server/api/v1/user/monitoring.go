@@ -15,6 +15,17 @@ import (
 )
 
 // GetInstanceResourceMonitoring returns resource monitoring data for a user's instance.
+
+// @Summary 获取实例 资源 监控ing
+// @Description 获取获取实例 资源 监控ing
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取实例 资源 监控ing成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取实例 资源 监控ing失败"
+// @Router /user/instances/{id}/monitoring/resources [get]
 func GetInstanceResourceMonitoring(c *gin.Context) {
 	userID, err := middleware.GetUserIDFromContext(c)
 	if err != nil {
@@ -73,6 +84,17 @@ func GetInstanceResourceMonitoring(c *gin.Context) {
 }
 
 // GetInstanceMonitoringStatus returns monitoring status for a user's instance.
+
+// @Summary 获取实例 监控ing 状态
+// @Description 获取获取实例 监控ing 状态
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取实例 监控ing 状态成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取实例 监控ing 状态失败"
+// @Router /user/instances/{id}/monitoring/status [get]
 func GetInstanceMonitoringStatus(c *gin.Context) {
 	userID, err := middleware.GetUserIDFromContext(c)
 	if err != nil {

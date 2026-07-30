@@ -34,7 +34,7 @@ var wsUpgrader = websocket.Upgrader{
 //	@Description	Rust Agent 通过此端点主动连回控制端，支持内网穿透模式
 //	@Tags			agent
 //	@Param			secret	query	string	true	"Agent 鉴权密钥"
-//	@Router			/v1/ws/agent [get]
+//	@Router			/ws/agent [get]
 func AgentWebSocket(c *gin.Context) {
 	// 1. Query params (legacy, kept for backward compatibility)
 	secret := c.Query("secret")

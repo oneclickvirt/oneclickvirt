@@ -33,7 +33,7 @@ func HealthCheck(c *gin.Context) {
 		dbHealthy = false
 		dbError = err.Error()
 		if global.APP_LOG != nil {
-			global.APP_LOG.Error("数据库健康检查失败", zap.Error(err))
+			global.APP_LOG.Debug("数据库健康检查未通过", zap.Error(err))
 		}
 	}
 
@@ -44,6 +44,7 @@ func HealthCheck(c *gin.Context) {
 		"healthy": dbHealthy,
 		"error":   dbError,
 		"stats":   dbStats,
+		"manager": global.GetDBManagerStats(),
 	}
 
 	// 系统信息

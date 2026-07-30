@@ -11,6 +11,17 @@ import (
 )
 
 // UserInstanceVNCInfo returns whether WebVNC is available for a user's VM.
+
+// @Summary 用户 实例 VNC 信息
+// @Description 获取用户 实例 VNC 信息
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "用户 实例 VNC 信息成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "用户 实例 VNC 信息失败"
+// @Router /user/instances/{id}/vnc [get]
 func UserInstanceVNCInfo(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -35,6 +46,17 @@ func UserInstanceVNCInfo(c *gin.Context) {
 }
 
 // UserInstanceVNCWebSocket proxies a VNC TCP stream to WebSocket for noVNC.
+
+// @Summary 用户 实例 VNC Web Socket
+// @Description 获取用户 实例 VNC Web Socket
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "用户 实例 VNC Web Socket成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "用户 实例 VNC Web Socket失败"
+// @Router /user/instances/{id}/vnc/ws [get]
 func UserInstanceVNCWebSocket(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {

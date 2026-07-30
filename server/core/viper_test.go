@@ -1,10 +1,79 @@
 package core
 
 import (
+	"strings"
 	"testing"
+
+	appConfig "oneclickvirt/config"
 
 	"github.com/spf13/viper"
 )
+
+func TestNormalizeDatabaseConfigReplacesExplicitBlankValues(t *testing.T) {
+	v := viper.New()
+	setDefaults(v)
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(`
+system:
+  db-type: ""
+mysql:
+  path: ""
+  port: " "
+  config: ""
+  db-name: ""
+  username: ""
+  password: ""
+  engine: ""
+  max-idle-conns: 0
+  max-open-conns: -1
+  max-lifetime: 0
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	var cfg appConfig.Server
+	if err := v.Unmarshal(&cfg); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	normalizeDatabaseConfig(&cfg)
+
+	expectedStrings := map[string]string{
+		"system.db-type": cfg.System.DbType,
+		"mysql.path":     cfg.Mysql.Path,
+		"mysql.port":     cfg.Mysql.Port,
+		"mysql.db-name":  cfg.Mysql.Dbname,
+		"mysql.username": cfg.Mysql.Username,
+		"mysql.engine":   cfg.Mysql.Engine,
+	}
+	expectedValues := map[string]string{
+		"system.db-type": "mysql",
+		"mysql.path":     "127.0.0.1",
+		"mysql.port":     "3306",
+		"mysql.db-name":  "oneclickvirt",
+		"mysql.username": "root",
+		"mysql.engine":   "InnoDB",
+	}
+	for key, got := range expectedStrings {
+		if want := expectedValues[key]; got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+	if got := cfg.Mysql.Password; got != "" {
+		t.Fatalf("mysql.password = %q, want an intentionally blank password", got)
+	}
+	if got := cfg.Mysql.MaxIdleConns; got != 20 {
+		t.Fatalf("mysql.max-idle-conns = %d, want 20", got)
+	}
+	if got := cfg.Mysql.MaxOpenConns; got != 200 {
+		t.Fatalf("mysql.max-open-conns = %d, want 200", got)
+	}
+	if got := cfg.Mysql.MaxLifetime; got != 1800 {
+		t.Fatalf("mysql.max-lifetime = %d, want 1800", got)
+	}
+	if got := v.GetString("mysql.path"); got != "" {
+		t.Fatalf("normalization mutated Viper precedence: mysql.path = %q", got)
+	}
+}
 
 func TestApplyEnvOverridesDatabaseConfig(t *testing.T) {
 	t.Setenv("DB_HOST", "db.internal")

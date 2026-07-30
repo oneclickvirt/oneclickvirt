@@ -100,6 +100,17 @@ func acquireAdminTerminal(providerID uint) (ctx context.Context, release func())
 
 // AdminProviderTerminal 管理员远程连接 Provider 的 WebSocket 终端
 // 鉴权由 RequireNormalAdmin() 中间件保证
+
+// @Summary 管理员 Provider 终端
+// @Description 获取管理员 Provider 终端
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "管理员 Provider 终端成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "管理员 Provider 终端失败"
+// @Router /admin/providers/{id}/terminal [get]
 func AdminProviderTerminal(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)

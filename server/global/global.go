@@ -167,6 +167,8 @@ type DBManagerStats struct {
 	HeartbeatActive   bool   `json:"heartbeat_active"`
 	MaxReconnectRetry int    `json:"max_reconnect_retry"`
 	ReconnectInterval string `json:"reconnect_interval"`
+	LastError         string `json:"last_error,omitempty"`
+	LastErrorAt       string `json:"last_error_at,omitempty"`
 }
 
 // GetAppConfig returns a consistent snapshot of the application configuration.
@@ -181,6 +183,19 @@ func GetAppConfig() config.Server {
 // SetAppConfig atomically replaces the global application configuration (copy-on-write).
 func SetAppConfig(cfg config.Server) {
 	APP_CONFIG.Store(&cfg)
+}
+
+func GetDBManagerStats() *DBManagerStats {
+	stats := APP_DB_MANAGER_STATS.Load()
+	if stats == nil {
+		return nil
+	}
+	copyOfStats := *stats
+	return &copyOfStats
+}
+
+func SetDBManagerStats(stats DBManagerStats) {
+	APP_DB_MANAGER_STATS.Store(&stats)
 }
 
 var (
@@ -203,6 +218,6 @@ var (
 	APP_SHUTDOWN_CONTEXT          context.Context                         // 系统关闭上下文
 	APP_SHUTDOWN_CANCEL           context.CancelFunc                      // 系统关闭取消函数
 	APP_JWT_SECRET                string                                  // JWT密钥（从数据库加载，重启后保持不变）
-	APP_DB_MANAGER_STATS          *DBManagerStats                         // 数据库管理器统计信息（由DatabaseManager定期更新）
+	APP_DB_MANAGER_STATS          atomic.Pointer[DBManagerStats]          // 数据库管理器统计信息（由DatabaseManager定期更新）
 	APP_INIT_PROGRESS             = &InitProgress{Status: InitStatusIdle} // 系统初始化进度追踪
 )

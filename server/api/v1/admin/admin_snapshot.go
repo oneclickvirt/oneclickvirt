@@ -13,6 +13,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// @Summary 获取快照 概览
+// @Description 获取获取快照 概览
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取快照 概览成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取快照 概览失败"
+// @Router /admin/snapshots/overview [get]
 func GetSnapshotOverview(c *gin.Context) {
 	service := &snapshotSvc.Service{}
 	data, err := service.OverviewForAdmin(middleware.GetOwnerAdminID(c))
@@ -23,6 +33,18 @@ func GetSnapshotOverview(c *gin.Context) {
 	common.ResponseSuccess(c, data)
 }
 
+// @Summary 获取快照 列表
+// @Description 获取获取快照 列表
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param page query int false "页码" default(1)
+// @Param pageSize query int false "每页数量" default(10)
+// @Success 200 {object} common.Response{data=object} "获取快照 列表成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取快照 列表失败"
+// @Router /admin/snapshots [get]
 func GetSnapshotList(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
@@ -45,6 +67,16 @@ func GetSnapshotList(c *gin.Context) {
 	common.ResponseSuccessWithPagination(c, list, total, filter.Page, filter.PageSize)
 }
 
+// @Summary 获取实例 快照s
+// @Description 获取获取实例 快照s
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取实例 快照s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取实例 快照s失败"
+// @Router /admin/instances/{id}/snapshots [get]
 func GetInstanceSnapshots(c *gin.Context) {
 	instanceID, ok := parsePathUint(c, "id")
 	if !ok {
@@ -61,6 +93,16 @@ func GetInstanceSnapshots(c *gin.Context) {
 	common.ResponseSuccessWithPagination(c, list, total, page, pageSize)
 }
 
+// @Summary 获取快照 任务
+// @Description 获取获取快照 任务
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取快照 任务成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取快照 任务失败"
+// @Router /admin/snapshot-tasks/{id} [get]
 func GetSnapshotTask(c *gin.Context) {
 	taskID, ok := parsePathUint(c, "id")
 	if !ok {
@@ -75,6 +117,16 @@ func GetSnapshotTask(c *gin.Context) {
 	common.ResponseSuccess(c, task)
 }
 
+// @Summary 创建实例 快照
+// @Description 创建创建实例 快照
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建实例 快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建实例 快照失败"
+// @Router /admin/instances/{id}/snapshots [post]
 func CreateInstanceSnapshot(c *gin.Context) {
 	instanceID, ok := parsePathUint(c, "id")
 	if !ok {
@@ -94,6 +146,16 @@ func CreateInstanceSnapshot(c *gin.Context) {
 	common.ResponseSuccess(c, result, "快照创建任务已提交")
 }
 
+// @Summary 批量Create 实例 快照s
+// @Description 创建批量Create 实例 快照s
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "批量Create 实例 快照s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "批量Create 实例 快照s失败"
+// @Router /admin/snapshot-batches [post]
 func BatchCreateInstanceSnapshots(c *gin.Context) {
 	var req snapshotSvc.BatchSnapshotRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -109,6 +171,16 @@ func BatchCreateInstanceSnapshots(c *gin.Context) {
 	common.ResponseSuccess(c, result, "快照创建任务已提交")
 }
 
+// @Summary 删除快照
+// @Description 删除删除快照
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除快照失败"
+// @Router /admin/snapshots/{id} [delete]
 func DeleteSnapshot(c *gin.Context) {
 	snapshotID, ok := parsePathUint(c, "id")
 	if !ok {
@@ -123,6 +195,16 @@ func DeleteSnapshot(c *gin.Context) {
 	common.ResponseSuccess(c, result, "快照删除任务已提交")
 }
 
+// @Summary 恢复快照
+// @Description 创建恢复快照
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "恢复快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "恢复快照失败"
+// @Router /admin/snapshots/{id}/restore [post]
 func RestoreSnapshot(c *gin.Context) {
 	snapshotID, ok := parsePathUint(c, "id")
 	if !ok {
@@ -137,6 +219,16 @@ func RestoreSnapshot(c *gin.Context) {
 	common.ResponseSuccess(c, result, "快照恢复任务已提交")
 }
 
+// @Summary 下载快照
+// @Description 获取下载快照
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "下载快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "下载快照失败"
+// @Router /admin/snapshots/download/{id} [get]
 func DownloadSnapshot(c *gin.Context) {
 	if err := taskgate.EnsureAccepting(); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -157,6 +249,16 @@ func DownloadSnapshot(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
 }
 
+// @Summary 获取快照 计划s
+// @Description 获取获取快照 计划s
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取快照 计划s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取快照 计划s失败"
+// @Router /admin/snapshot-schedules [get]
 func GetSnapshotSchedules(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
@@ -169,6 +271,16 @@ func GetSnapshotSchedules(c *gin.Context) {
 	common.ResponseSuccessWithPagination(c, list, total, page, pageSize)
 }
 
+// @Summary 创建快照 计划
+// @Description 创建创建快照 计划
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建快照 计划成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建快照 计划失败"
+// @Router /admin/snapshot-schedules [post]
 func CreateSnapshotSchedule(c *gin.Context) {
 	var req snapshotSvc.ScheduleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -184,6 +296,16 @@ func CreateSnapshotSchedule(c *gin.Context) {
 	common.ResponseSuccess(c, schedule)
 }
 
+// @Summary 更新快照 计划
+// @Description 更新更新快照 计划
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "更新快照 计划成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "更新快照 计划失败"
+// @Router /admin/snapshot-schedules/{id} [put]
 func UpdateSnapshotSchedule(c *gin.Context) {
 	id, ok := parsePathUint(c, "id")
 	if !ok {
@@ -203,6 +325,16 @@ func UpdateSnapshotSchedule(c *gin.Context) {
 	common.ResponseSuccess(c, schedule)
 }
 
+// @Summary 删除快照 计划
+// @Description 删除删除快照 计划
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除快照 计划成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除快照 计划失败"
+// @Router /admin/snapshot-schedules/{id} [delete]
 func DeleteSnapshotSchedule(c *gin.Context) {
 	id, ok := parsePathUint(c, "id")
 	if !ok {

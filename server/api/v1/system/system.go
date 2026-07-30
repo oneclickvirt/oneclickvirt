@@ -19,6 +19,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// @Summary 获取系统公告
+// @Description 获取获取系统公告
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取系统公告成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取系统公告失败"
+// @Router /public/announcements [get]
 func GetAnnouncement(c *gin.Context) {
 	// 获取查询参数
 	announcementType := c.Query("type") // homepage, topbar 或者为空获取所有
@@ -50,6 +59,26 @@ func GetUsers(c *gin.Context) {
 	common.ResponseSuccessWithPagination(c, users, total, req.Page, req.PageSize)
 }
 
+// @Summary 获取Providers
+// @Description 获取获取Providers
+// @Tags Provider管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Providers成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Providers失败"
+// @Router /providers [get]
+// @Summary 获取Providers
+// @Description 获取获取Providers
+// @Tags 系统管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Providers成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Providers失败"
+// @Router /resources/virtualization/providers [get]
 func GetProviders(c *gin.Context) {
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
@@ -112,6 +141,16 @@ func GetAllInstances(c *gin.Context) {
 	})
 }
 
+// @Summary 管理员 实例 操作
+// @Description 创建管理员 实例 操作
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "管理员 实例 操作成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "管理员 实例 操作失败"
+// @Router /admin/instances/{id}/action [post]
 func AdminInstanceAction(c *gin.Context) {
 	instanceIDStr := c.Param("id")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)

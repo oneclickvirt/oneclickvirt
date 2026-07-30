@@ -15,6 +15,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// @Summary 获取Provider 列表
+// @Description 获取获取Provider 列表
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Provider 列表成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Provider 列表失败"
+// @Router /admin/providers [get]
 func GetProviderList(c *gin.Context) {
 	var req admin.ProviderListRequest
 	req.Page = 1
@@ -42,6 +52,17 @@ func GetProviderList(c *gin.Context) {
 }
 
 // CreateProvider 创建提供商
+
+// @Summary 创建Provider
+// @Description 创建创建Provider
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建Provider成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建Provider失败"
+// @Router /admin/providers [post]
 func CreateProvider(c *gin.Context) {
 	var req admin.CreateProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -60,6 +81,17 @@ func CreateProvider(c *gin.Context) {
 }
 
 // UpdateProvider 更新提供商
+
+// @Summary 更新Provider
+// @Description 更新更新Provider
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "更新Provider成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "更新Provider失败"
+// @Router /admin/providers/{id} [put]
 func UpdateProvider(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
@@ -170,6 +202,17 @@ func DeleteProvider(c *gin.Context) {
 }
 
 // FreezeProvider 冻结提供商
+
+// @Summary 冻结Provider
+// @Description 创建冻结Provider
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "冻结Provider成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "冻结Provider失败"
+// @Router /admin/providers/freeze [post]
 func FreezeProvider(c *gin.Context) {
 	var req admin.FreezeProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -191,6 +234,17 @@ func FreezeProvider(c *gin.Context) {
 }
 
 // UnfreezeProvider 解冻提供商
+
+// @Summary 解冻Provider
+// @Description 创建解冻Provider
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "解冻Provider成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "解冻Provider失败"
+// @Router /admin/providers/unfreeze [post]
 func UnfreezeProvider(c *gin.Context) {
 	var req admin.UnfreezeProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

@@ -38,6 +38,17 @@ func parseProviderIDs(idsRaw string) ([]uint, error) {
 }
 
 // ExportProvidersCSV 导出节点CSV
+
+// @Summary 导出Providers CSV
+// @Description 获取导出Providers CSV
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "导出Providers CSV成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "导出Providers CSV失败"
+// @Router /admin/providers/export-csv [get]
 func ExportProvidersCSV(c *gin.Context) {
 	if err := taskgate.EnsureAccepting(); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -63,6 +74,17 @@ func ExportProvidersCSV(c *gin.Context) {
 }
 
 // ImportProvidersCSV 导入节点CSV（新增或按标识更新）
+
+// @Summary 导入Providers CSV
+// @Description 创建导入Providers CSV
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "导入Providers CSV成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "导入Providers CSV失败"
+// @Router /admin/providers/import-csv [post]
 func ImportProvidersCSV(c *gin.Context) {
 	if err := taskgate.EnsureAccepting(); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))

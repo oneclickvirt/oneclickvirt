@@ -25,6 +25,17 @@ import (
 )
 
 // GenerateProviderCert 为Provider生成证书或配置
+
+// @Summary 生成Provider 证书
+// @Description 创建生成Provider 证书
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "生成Provider 证书成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "生成Provider 证书失败"
+// @Router /admin/providers/{id}/generate-cert [post]
 func GenerateProviderCert(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -54,6 +65,17 @@ func GenerateProviderCert(c *gin.Context) {
 }
 
 // AutoConfigureProviderStream 实时自动配置Provider (SSE streaming)
+
+// @Summary 自动配置Provider Stream
+// @Description 创建自动配置Provider Stream
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "自动配置Provider Stream成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "自动配置Provider Stream失败"
+// @Router /admin/providers/{id}/auto-configure-stream [post]
 func AutoConfigureProviderStream(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -128,6 +150,17 @@ func AutoConfigureProviderStream(c *gin.Context) {
 }
 
 // GetProviderDetail 获取单个Provider详情（含 Agent 状态字段）
+
+// @Summary 获取Provider 详情
+// @Description 获取获取Provider 详情
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Provider 详情成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Provider 详情失败"
+// @Router /admin/providers/{id} [get]
 func GetProviderDetail(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
@@ -186,6 +219,28 @@ func CheckProviderHealth(c *gin.Context) {
 }
 
 // GetProviderStatus 获取Provider状态详情
+
+// @Summary 获取Provider 状态
+// @Description 获取获取Provider 状态
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Provider 状态成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Provider 状态失败"
+// @Router /admin/providers/{id}/status [get]
+
+// @Summary 获取Provider 状态
+// @Description 获取获取Provider 状态
+// @Tags Provider管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Provider 状态成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Provider 状态失败"
+// @Router /providers/{id}/status [get]
 func GetProviderStatus(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -213,6 +268,17 @@ func GetProviderStatus(c *gin.Context) {
 }
 
 // ExportProviderConfigs 导出所有Provider配置
+
+// @Summary 导出Provider 配置s
+// @Description 创建导出Provider 配置s
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "导出Provider 配置s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "导出Provider 配置s失败"
+// @Router /admin/providers/export-configs [post]
 func ExportProviderConfigs(c *gin.Context) {
 	if err := taskgate.EnsureAccepting(); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -339,6 +405,17 @@ func TestSSHConnection(c *gin.Context) {
 }
 
 // CheckProviderName 检查Provider名称是否已存在
+
+// @Summary 检查Provider Name
+// @Description 获取检查Provider Name
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "检查Provider Name成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "检查Provider Name失败"
+// @Router /admin/providers/check-name [get]
 func CheckProviderName(c *gin.Context) {
 	name := c.Query("name")
 	if name == "" {
@@ -370,6 +447,17 @@ func CheckProviderName(c *gin.Context) {
 }
 
 // CheckProviderEndpoint 检查Provider SSH地址和端口是否已存在
+
+// @Summary 检查Provider Endpoint
+// @Description 获取检查Provider Endpoint
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "检查Provider Endpoint成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "检查Provider Endpoint失败"
+// @Router /admin/providers/check-endpoint [get]
 func CheckProviderEndpoint(c *gin.Context) {
 	endpoint := c.Query("endpoint")
 	if endpoint == "" {

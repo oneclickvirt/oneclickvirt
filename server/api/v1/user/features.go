@@ -18,6 +18,17 @@ import (
 // ============ 域名绑定 ============
 
 // GetUserDomains 获取用户域名列表
+
+// @Summary 获取用户 域名s
+// @Description 获取获取用户 域名s
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取用户 域名s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取用户 域名s失败"
+// @Router /user/domains [get]
 func GetUserDomains(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -36,6 +47,17 @@ func GetUserDomains(c *gin.Context) {
 }
 
 // CreateUserDomain 用户绑定域名
+
+// @Summary 创建用户 域名
+// @Description 创建创建用户 域名
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建用户 域名成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建用户 域名失败"
+// @Router /user/domains [post]
 func CreateUserDomain(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -59,6 +81,17 @@ func CreateUserDomain(c *gin.Context) {
 }
 
 // DeleteUserDomain 用户删除域名绑定
+
+// @Summary 删除用户 域名
+// @Description 删除删除用户 域名
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除用户 域名成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除用户 域名失败"
+// @Router /user/domains/{id} [delete]
 func DeleteUserDomain(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -81,6 +114,17 @@ func DeleteUserDomain(c *gin.Context) {
 }
 
 // UpdateUserDomain 用户更新域名绑定
+
+// @Summary 更新用户 域名
+// @Description 更新更新用户 域名
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "更新用户 域名成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "更新用户 域名失败"
+// @Router /user/domains/{id} [put]
 func UpdateUserDomain(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -111,6 +155,17 @@ func UpdateUserDomain(c *gin.Context) {
 // ============ KYC实名认证 ============
 
 // GetUserKYC 获取用户KYC状态
+
+// @Summary 获取用户 实名认证
+// @Description 获取获取用户 实名认证
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取用户 实名认证成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取用户 实名认证失败"
+// @Router /user/kyc [get]
 func GetUserKYC(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -135,6 +190,17 @@ func GetUserKYC(c *gin.Context) {
 }
 
 // SubmitUserKYC 提交实名认证
+
+// @Summary 提交用户 实名认证
+// @Description 创建提交用户 实名认证
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "提交用户 实名认证成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "提交用户 实名认证失败"
+// @Router /user/kyc [post]
 func SubmitUserKYC(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -164,6 +230,17 @@ func SubmitUserKYC(c *gin.Context) {
 }
 
 // SubmitAlipayKYC 通过支付宝人脸发起认证
+
+// @Summary 提交Alipay 实名认证
+// @Description 创建提交Alipay 实名认证
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "提交Alipay 实名认证成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "提交Alipay 实名认证失败"
+// @Router /user/kyc/alipay [post]
 func SubmitAlipayKYC(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -187,6 +264,17 @@ func SubmitAlipayKYC(c *gin.Context) {
 }
 
 // QueryAlipayKYCResult 查询支付宝认证结果
+
+// @Summary 查询Alipay 实名认证 Result
+// @Description 获取查询Alipay 实名认证 Result
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "查询Alipay 实名认证 Result成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "查询Alipay 实名认证 Result失败"
+// @Router /user/kyc/alipay/result [get]
 func QueryAlipayKYCResult(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -206,6 +294,17 @@ func QueryAlipayKYCResult(c *gin.Context) {
 // ============ 签到续期 ============
 
 // GetEligibleCheckinInstances 获取当前用户可签到续期的实例
+
+// @Summary 获取Eligible 签到 实例s
+// @Description 获取获取Eligible 签到 实例s
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Eligible 签到 实例s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Eligible 签到 实例s失败"
+// @Router /user/checkin/eligible-instances [get]
 func GetEligibleCheckinInstances(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {

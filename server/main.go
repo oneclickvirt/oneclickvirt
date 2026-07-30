@@ -8,6 +8,7 @@ import (
 	_ "time/tzdata" // 嵌入时区数据，确保 Alpine/无 tzdata 环境（如 Docker）中 Asia/Shanghai 可用
 
 	systemAPI "oneclickvirt/api/v1/system"
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/initialize"
 	"oneclickvirt/mcp"
@@ -50,6 +51,15 @@ import (
 // @name Authorization
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version", "--version", "-v":
+			fmt.Printf("oneclickvirt %s commit=%s build_time=%s official=%t\n",
+				constant.DisplayVersion(), constant.BuildCommit, constant.BuildTime, constant.IsOfficialBuild())
+			return
+		}
+	}
+
 	// Check for MCP subcommand before full initialization
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
 		// MCP mode: lightweight init (no DB, no full server)

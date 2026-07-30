@@ -11,6 +11,17 @@ import (
 var freezeService = admin.NewFreezeManagementService()
 
 // SetUserExpiry 设置用户过期时间
+
+// @Summary 设置用户 Expiry
+// @Description 创建设置用户 Expiry
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "设置用户 Expiry成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "设置用户 Expiry失败"
+// @Router /admin/users/set-expiry [post]
 func SetUserExpiry(c *gin.Context) {
 	var req adminModel.SetUserExpiryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -26,6 +37,17 @@ func SetUserExpiry(c *gin.Context) {
 }
 
 // SetProviderExpiry 设置Provider过期时间
+
+// @Summary 设置Provider Expiry
+// @Description 创建设置Provider Expiry
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "设置Provider Expiry成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "设置Provider Expiry失败"
+// @Router /admin/providers/set-expiry [post]
 func SetProviderExpiry(c *gin.Context) {
 	var req adminModel.SetProviderExpiryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -46,6 +68,17 @@ func SetProviderExpiry(c *gin.Context) {
 }
 
 // SetInstanceExpiry 设置实例过期时间
+
+// @Summary 设置实例 Expiry
+// @Description 创建设置实例 Expiry
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "设置实例 Expiry成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "设置实例 Expiry失败"
+// @Router /admin/instances/set-expiry [post]
 func SetInstanceExpiry(c *gin.Context) {
 	var req adminModel.SetInstanceExpiryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -66,6 +99,17 @@ func SetInstanceExpiry(c *gin.Context) {
 }
 
 // FreezeProviderManual 手动冻结Provider
+
+// @Summary 冻结Provider Manual
+// @Description 创建冻结Provider Manual
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "冻结Provider Manual成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "冻结Provider Manual失败"
+// @Router /admin/providers/freeze-manual [post]
 func FreezeProviderManual(c *gin.Context) {
 	var req adminModel.FreezeProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -86,6 +130,17 @@ func FreezeProviderManual(c *gin.Context) {
 }
 
 // FreezeInstance 手动冻结实例
+
+// @Summary 冻结实例
+// @Description 创建冻结实例
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "冻结实例成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "冻结实例失败"
+// @Router /admin/instances/freeze [post]
 func FreezeInstance(c *gin.Context) {
 	var req adminModel.FreezeInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -106,6 +161,17 @@ func FreezeInstance(c *gin.Context) {
 }
 
 // UnfreezeProviderManual 解冻Provider
+
+// @Summary 解冻Provider Manual
+// @Description 创建解冻Provider Manual
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "解冻Provider Manual成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "解冻Provider Manual失败"
+// @Router /admin/providers/unfreeze-manual [post]
 func UnfreezeProviderManual(c *gin.Context) {
 	var req adminModel.UnfreezeProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -126,6 +192,17 @@ func UnfreezeProviderManual(c *gin.Context) {
 }
 
 // UnfreezeInstance 解冻实例
+
+// @Summary 解冻实例
+// @Description 创建解冻实例
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "解冻实例成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "解冻实例失败"
+// @Router /admin/instances/unfreeze [post]
 func UnfreezeInstance(c *gin.Context) {
 	var req adminModel.UnfreezeInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

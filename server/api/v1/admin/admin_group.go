@@ -228,6 +228,16 @@ func assignProvidersToGroup(tx *gorm.DB, group providerModel.AdminGroupSetting, 
 	}).Error
 }
 
+// @Summary 获取管理员 组s
+// @Description 获取获取管理员 组s
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取管理员 组s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取管理员 组s失败"
+// @Router /admin/groups [get]
 func GetAdminGroups(c *gin.Context) {
 	ownerAdminID := middleware.GetOwnerAdminID(c)
 	payload, err := loadAdminGroupsPayload(ownerAdminID)
@@ -239,6 +249,16 @@ func GetAdminGroups(c *gin.Context) {
 	common.ResponseSuccess(c, payload, "获取成功")
 }
 
+// @Summary 创建管理员 组
+// @Description 创建创建管理员 组
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建管理员 组成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建管理员 组失败"
+// @Router /admin/groups [post]
 func CreateAdminGroup(c *gin.Context) {
 	var req AdminGroupInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -264,6 +284,16 @@ func CreateAdminGroup(c *gin.Context) {
 	common.ResponseSuccess(c, AdminGroupResponse{ID: group.ID, GroupName: group.GroupName, GroupDescription: group.GroupDescription, GroupDescriptionHTML: utils.MarkdownToSafeHTML(group.GroupDescription)}, "创建成功")
 }
 
+// @Summary 更新管理员 组
+// @Description 更新更新管理员 组
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "更新管理员 组成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "更新管理员 组失败"
+// @Router /admin/groups/{id} [put]
 func UpdateAdminGroup(c *gin.Context) {
 	id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil || id64 == 0 {
@@ -302,6 +332,16 @@ func UpdateAdminGroup(c *gin.Context) {
 	common.ResponseSuccess(c, nil, "更新成功")
 }
 
+// @Summary 删除管理员 组
+// @Description 删除删除管理员 组
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除管理员 组成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除管理员 组失败"
+// @Router /admin/groups/{id} [delete]
 func DeleteAdminGroup(c *gin.Context) {
 	id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil || id64 == 0 {
@@ -331,6 +371,17 @@ func DeleteAdminGroup(c *gin.Context) {
 }
 
 // GetAdminGroupInfo 兼容旧单分组接口：返回第一个分组。
+
+// @Summary 获取管理员 组 信息
+// @Description 获取获取管理员 组 信息
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取管理员 组 信息成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取管理员 组 信息失败"
+// @Router /admin/group-info [get]
 func GetAdminGroupInfo(c *gin.Context) {
 	ownerAdminID := middleware.GetOwnerAdminID(c)
 	payload, err := loadAdminGroupsPayload(ownerAdminID)
@@ -347,6 +398,17 @@ func GetAdminGroupInfo(c *gin.Context) {
 }
 
 // UpdateAdminGroupInfo 兼容旧单分组接口：无分组时创建第一个分组，否则更新第一个分组并应用到全部节点。
+
+// @Summary 更新管理员 组 信息
+// @Description 更新更新管理员 组 信息
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "更新管理员 组 信息成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "更新管理员 组 信息失败"
+// @Router /admin/group-info [put]
 func UpdateAdminGroupInfo(c *gin.Context) {
 	var req AdminGroupInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

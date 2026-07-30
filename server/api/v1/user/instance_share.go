@@ -14,6 +14,17 @@ type createInstanceShareRequest struct {
 }
 
 // CreateUserInstanceShare 创建用户实例临时分享链接
+
+// @Summary 创建用户 实例 共享
+// @Description 创建创建用户 实例 共享
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建用户 实例 共享成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建用户 实例 共享失败"
+// @Router /user/instances/{id}/share-links [post]
 func CreateUserInstanceShare(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {

@@ -27,6 +27,17 @@ type localRuntimeCheck struct {
 }
 
 // DetectLocalProvider performs a read-only capability check for local libvirt/QEMU mode.
+
+// @Summary 检测Local Provider
+// @Description 获取检测Local Provider
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "检测Local Provider成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "检测Local Provider失败"
+// @Router /admin/providers/local/detect [get]
 func DetectLocalProvider(c *gin.Context) {
 	commands := map[string]localCommandCheck{
 		"virsh":              lookupLocalCommand("virsh"),

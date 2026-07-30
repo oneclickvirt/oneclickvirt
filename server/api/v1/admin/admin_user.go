@@ -106,6 +106,16 @@ func CreateUser(c *gin.Context) {
 	common.ResponseSuccess(c, nil, "创建用户成功")
 }
 
+// @Summary 更新用户
+// @Description 更新更新用户
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "更新用户成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "更新用户失败"
+// @Router /admin/users/{id} [put]
 func UpdateUser(c *gin.Context) {
 	userIDStr := c.Param("id")
 	userID, err := strconv.ParseUint(userIDStr, 10, 32)
@@ -140,6 +150,16 @@ func UpdateUser(c *gin.Context) {
 	common.ResponseSuccess(c, nil, "更新用户成功")
 }
 
+// @Summary 删除用户
+// @Description 删除删除用户
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除用户成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除用户失败"
+// @Router /admin/users/{id} [delete]
 func DeleteUser(c *gin.Context) {
 	// 只有管理员可以删除用户
 	if !requireAdminOnly(c) {

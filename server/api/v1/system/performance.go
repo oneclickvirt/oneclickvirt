@@ -103,6 +103,17 @@ type PerformanceHistory struct {
 }
 
 // GetPerformanceMetrics 获取实时性能指标
+
+// @Summary 获取性能 指标
+// @Description 获取获取性能 指标
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取性能 指标成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取性能 指标失败"
+// @Router /admin/performance/metrics [get]
 func GetPerformanceMetrics(c *gin.Context) {
 	metrics := collectPerformanceMetrics()
 
@@ -110,6 +121,17 @@ func GetPerformanceMetrics(c *gin.Context) {
 }
 
 // GetPerformanceHistory 获取性能历史数据
+
+// @Summary 获取性能 历史
+// @Description 获取获取性能 历史
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取性能 历史成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取性能 历史失败"
+// @Router /admin/performance/history [get]
 func GetPerformanceHistory(c *gin.Context) {
 	// 从查询参数获取时间范围
 	durationStr := c.DefaultQuery("duration", "1h") // 默认1小时
@@ -189,7 +211,7 @@ func collectPerformanceMetrics() *PerformanceMetrics {
 	}
 
 	// 收集数据库管理器状态
-	if dbManagerStats := global.APP_DB_MANAGER_STATS; dbManagerStats != nil {
+	if dbManagerStats := global.GetDBManagerStats(); dbManagerStats != nil {
 		metrics.DBManagerStats = &DBManagerStats{
 			Connected:         dbManagerStats.Connected,
 			Reconnecting:      dbManagerStats.Reconnecting,

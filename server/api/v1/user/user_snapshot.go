@@ -13,6 +13,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// @Summary 获取用户 实例 快照s
+// @Description 获取获取用户 实例 快照s
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取用户 实例 快照s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取用户 实例 快照s失败"
+// @Router /user/instances/{id}/snapshots [get]
 func GetUserInstanceSnapshots(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -34,6 +44,16 @@ func GetUserInstanceSnapshots(c *gin.Context) {
 	common.ResponseSuccessWithPagination(c, list, total, page, pageSize)
 }
 
+// @Summary 创建用户 实例 快照
+// @Description 创建创建用户 实例 快照
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建用户 实例 快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建用户 实例 快照失败"
+// @Router /user/instances/{id}/snapshots [post]
 func CreateUserInstanceSnapshot(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -58,6 +78,16 @@ func CreateUserInstanceSnapshot(c *gin.Context) {
 	common.ResponseSuccess(c, result, "快照创建任务已提交")
 }
 
+// @Summary 删除用户 快照
+// @Description 删除删除用户 快照
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除用户 快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除用户 快照失败"
+// @Router /user/snapshots/{id} [delete]
 func DeleteUserSnapshot(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -77,6 +107,16 @@ func DeleteUserSnapshot(c *gin.Context) {
 	common.ResponseSuccess(c, result, "快照删除任务已提交")
 }
 
+// @Summary 恢复用户 快照
+// @Description 创建恢复用户 快照
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "恢复用户 快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "恢复用户 快照失败"
+// @Router /user/snapshots/{id}/restore [post]
 func RestoreUserSnapshot(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -96,6 +136,16 @@ func RestoreUserSnapshot(c *gin.Context) {
 	common.ResponseSuccess(c, result, "快照恢复任务已提交")
 }
 
+// @Summary 下载用户 快照
+// @Description 获取下载用户 快照
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "下载用户 快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "下载用户 快照失败"
+// @Router /user/snapshots/{id}/download [get]
 func DownloadUserSnapshot(c *gin.Context) {
 	if err := taskgate.EnsureAccepting(); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -121,6 +171,16 @@ func DownloadUserSnapshot(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
 }
 
+// @Summary 上传用户 快照
+// @Description 创建上传用户 快照
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "上传用户 快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "上传用户 快照失败"
+// @Router /user/instances/{id}/snapshots/upload [post]
 func UploadUserSnapshot(c *gin.Context) {
 	if err := taskgate.EnsureAccepting(); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
