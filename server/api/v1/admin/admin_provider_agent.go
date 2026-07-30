@@ -30,7 +30,7 @@ import (
 //	@Tags			admin/providers
 //	@Param			id	path	int	true	"Provider ID"
 //	@Produce		json
-//	@Router			/v1/admin/providers/{id}/agent-secret [post]
+//	@Router			/admin/providers/{id}/agent-secret [post]
 func GenerateAgentSecret(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -145,7 +145,7 @@ func GenerateAgentSecret(c *gin.Context) {
 //	@Tags			admin/providers
 //	@Param			id	path	int	true	"Provider ID"
 //	@Produce		json
-//	@Router			/v1/admin/providers/{id}/stopped-containers [get]
+//	@Router			/admin/providers/{id}/stopped-containers [get]
 func GetStoppedContainers(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -314,7 +314,7 @@ func GetStoppedContainers(c *gin.Context) {
 //	@Param			id		path	int		true	"Provider ID"
 //	@Param			command	body	string	true	"命令（JSON: {\"command\":\"...\",\"timeout\":30}）"
 //	@Produce		json
-//	@Router			/v1/admin/providers/{id}/exec [post]
+//	@Router			/admin/providers/{id}/exec [post]
 func ExecOnProvider(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)

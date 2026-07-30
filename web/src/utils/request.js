@@ -2,6 +2,7 @@ import axios from 'axios'
 import { ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/pinia/modules/user'
 import { errorHandler } from './errorHandler'
+import { notifyApiVersionMismatch } from './apiCompatibility'
 
 const service = axios.create({
   baseURL: import.meta.env.VITE_BASE_API,
@@ -167,6 +168,8 @@ service.interceptors.response.use(
       
       return service(config)
     }
+
+    notifyApiVersionMismatch(error)
     
     // 使用统一错误处理，但不自动显示错误消息
     const errorInfo = errorHandler.handleApiError(error, {

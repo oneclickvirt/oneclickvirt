@@ -150,6 +150,17 @@ func GetSystemImageList(c *gin.Context) {
 }
 
 // SyncSystemImages 手动同步系统镜像，补齐初始化定义中缺失的镜像。
+
+// @Summary 同步System 镜像s
+// @Description 创建同步System 镜像s
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "同步System 镜像s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "同步System 镜像s失败"
+// @Router /admin/system-images/sync [post]
 func SyncSystemImages(c *gin.Context) {
 	if err := taskgate.EnsureAccepting(); err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -288,6 +299,17 @@ func CreateSystemImage(c *gin.Context) {
 }
 
 // UpdateSystemImage 更新系统镜像
+
+// @Summary 更新System 镜像
+// @Description 更新更新System 镜像
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "更新System 镜像成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "更新System 镜像失败"
+// @Router /admin/system-images/{id} [put]
 func UpdateSystemImage(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -426,6 +448,17 @@ func UpdateSystemImage(c *gin.Context) {
 }
 
 // DeleteSystemImage 删除系统镜像
+
+// @Summary 删除System 镜像
+// @Description 删除删除System 镜像
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除System 镜像成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除System 镜像失败"
+// @Router /admin/system-images/{id} [delete]
 func DeleteSystemImage(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -457,6 +490,17 @@ func DeleteSystemImage(c *gin.Context) {
 }
 
 // BatchDeleteSystemImages 批量删除系统镜像
+
+// @Summary 批量Delete System 镜像s
+// @Description 创建批量Delete System 镜像s
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "批量Delete System 镜像s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "批量Delete System 镜像s失败"
+// @Router /admin/system-images/batch-delete [post]
 func BatchDeleteSystemImages(c *gin.Context) {
 	var req struct {
 		IDs []uint `json:"ids" binding:"required,min=1"`
@@ -476,6 +520,17 @@ func BatchDeleteSystemImages(c *gin.Context) {
 }
 
 // BatchUpdateSystemImageStatus 批量更新系统镜像状态
+
+// @Summary 批量Update System 镜像 状态
+// @Description 更新批量Update System 镜像 状态
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "批量Update System 镜像 状态成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "批量Update System 镜像 状态失败"
+// @Router /admin/system-images/batch-status [put]
 func BatchUpdateSystemImageStatus(c *gin.Context) {
 	var req struct {
 		IDs    []uint `json:"ids" binding:"required,min=1"`
@@ -500,6 +555,16 @@ func BatchUpdateSystemImageStatus(c *gin.Context) {
 }
 
 // GetAvailableSystemImages 获取可用的系统镜像（用于实例创建）
+
+// @Summary 获取可用系统镜像
+// @Description 获取获取可用系统镜像
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取可用系统镜像成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取可用系统镜像失败"
+// @Router /public/system-images/available [get]
 func GetAvailableSystemImages(c *gin.Context) {
 	providerType := c.Query("providerType")
 	instanceType := c.Query("instanceType")

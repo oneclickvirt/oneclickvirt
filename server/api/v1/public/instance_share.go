@@ -106,6 +106,15 @@ func ensureSharedInstanceUsable(instance *providerModel.Instance, action string)
 	return nil
 }
 
+// @Summary 获取共享d 实例 详情
+// @Description 获取获取共享d 实例 详情
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取共享d 实例 详情成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取共享d 实例 详情失败"
+// @Router /public/instance-shares/{token} [get]
 func GetSharedInstanceDetail(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -119,6 +128,15 @@ func GetSharedInstanceDetail(c *gin.Context) {
 	common.ResponseSuccess(c, detail)
 }
 
+// @Summary 共享d 实例 操作
+// @Description 创建共享d 实例 操作
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "共享d 实例 操作成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "共享d 实例 操作失败"
+// @Router /public/instance-shares/{token}/action [post]
 func SharedInstanceAction(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -159,6 +177,15 @@ func SharedInstanceAction(c *gin.Context) {
 	common.ResponseSuccess(c, nil, "操作已提交")
 }
 
+// @Summary Reset 共享d 实例 密码
+// @Description 更新Reset 共享d 实例 密码
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "Reset 共享d 实例 密码成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "Reset 共享d 实例 密码失败"
+// @Router /public/instance-shares/{token}/reset-password [put]
 func ResetSharedInstancePassword(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -185,6 +212,15 @@ func ResetSharedInstancePassword(c *gin.Context) {
 	common.ResponseSuccess(c, userModel.ResetInstancePasswordResponse{TaskID: taskID}, "密码重置任务创建成功")
 }
 
+// @Summary 获取共享d 实例 New 密码
+// @Description 获取获取共享d 实例 New 密码
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取共享d 实例 New 密码成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取共享d 实例 New 密码失败"
+// @Router /public/instance-shares/{token}/password/{taskId} [get]
 func GetSharedInstanceNewPassword(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -203,6 +239,15 @@ func GetSharedInstanceNewPassword(c *gin.Context) {
 	common.ResponseSuccess(c, userModel.GetInstancePasswordResponse{NewPassword: password, ResetTime: resetTime}, "获取新密码成功")
 }
 
+// @Summary 获取共享d 实例 镜像s
+// @Description 获取获取共享d 实例 镜像s
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取共享d 实例 镜像s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取共享d 实例 镜像s失败"
+// @Router /public/instance-shares/{token}/images/filtered [get]
 func GetSharedInstanceImages(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -216,6 +261,15 @@ func GetSharedInstanceImages(c *gin.Context) {
 	common.ResponseSuccess(c, images)
 }
 
+// @Summary 获取共享d 实例 Ports
+// @Description 获取获取共享d 实例 Ports
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取共享d 实例 Ports成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取共享d 实例 Ports失败"
+// @Router /public/instance-shares/{token}/ports [get]
 func GetSharedInstancePorts(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -278,6 +332,15 @@ func GetSharedInstancePorts(c *gin.Context) {
 	})
 }
 
+// @Summary 获取共享d 实例 监控ing
+// @Description 获取获取共享d 实例 监控ing
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取共享d 实例 监控ing成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取共享d 实例 监控ing失败"
+// @Router /public/instance-shares/{token}/monitoring [get]
 func GetSharedInstanceMonitoring(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -291,6 +354,15 @@ func GetSharedInstanceMonitoring(c *gin.Context) {
 	common.ResponseSuccess(c, monitoring)
 }
 
+// @Summary 获取共享d 实例 资源 监控ing
+// @Description 获取获取共享d 实例 资源 监控ing
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取共享d 实例 资源 监控ing成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取共享d 实例 资源 监控ing失败"
+// @Router /public/instance-shares/{token}/monitoring/resources [get]
 func GetSharedInstanceResourceMonitoring(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -325,6 +397,15 @@ func GetSharedInstanceResourceMonitoring(c *gin.Context) {
 	})
 }
 
+// @Summary 获取共享d 实例 流量 详情
+// @Description 获取获取共享d 实例 流量 详情
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取共享d 实例 流量 详情成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取共享d 实例 流量 详情失败"
+// @Router /public/instance-shares/{token}/traffic/detail [get]
 func GetSharedInstanceTrafficDetail(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -343,6 +424,15 @@ func GetSharedInstanceTrafficDetail(c *gin.Context) {
 	common.ResponseSuccess(c, detail, "获取流量详情成功")
 }
 
+// @Summary 获取共享d 实例 快照s
+// @Description 获取获取共享d 实例 快照s
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取共享d 实例 快照s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取共享d 实例 快照s失败"
+// @Router /public/instance-shares/{token}/snapshots [get]
 func GetSharedInstanceSnapshots(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -369,6 +459,15 @@ func GetSharedInstanceSnapshots(c *gin.Context) {
 	})
 }
 
+// @Summary 下载共享d 快照
+// @Description 获取下载共享d 快照
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "下载共享d 快照成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "下载共享d 快照失败"
+// @Router /public/instance-shares/{token}/snapshots/{snapshotId}/download [get]
 func DownloadSharedSnapshot(c *gin.Context) {
 	_, instance, ok := loadSharedInstance(c)
 	if !ok {
@@ -394,6 +493,15 @@ func DownloadSharedSnapshot(c *gin.Context) {
 	c.Data(200, "application/json; charset=utf-8", payload)
 }
 
+// @Summary 共享d SSH Web Socket
+// @Description 获取共享d SSH Web Socket
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "共享d SSH Web Socket成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "共享d SSH Web Socket失败"
+// @Router /public/instance-shares/{token}/ssh [get]
 func SharedSSHWebSocket(c *gin.Context) {
 	if _, _, ok := loadSharedInstance(c); !ok {
 		return
@@ -401,6 +509,15 @@ func SharedSSHWebSocket(c *gin.Context) {
 	userAPI.SSHWebSocket(c)
 }
 
+// @Summary 共享d 执行 Web Socket
+// @Description 获取共享d 执行 Web Socket
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "共享d 执行 Web Socket成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "共享d 执行 Web Socket失败"
+// @Router /public/instance-shares/{token}/exec [get]
 func SharedExecWebSocket(c *gin.Context) {
 	if _, _, ok := loadSharedInstance(c); !ok {
 		return
@@ -408,6 +525,15 @@ func SharedExecWebSocket(c *gin.Context) {
 	userAPI.ExecWebSocket(c)
 }
 
+// @Summary 共享d SFTP 列表
+// @Description 获取共享d SFTP 列表
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "共享d SFTP 列表成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "共享d SFTP 列表失败"
+// @Router /public/instance-shares/{token}/sftp/list [get]
 func SharedSFTPList(c *gin.Context) {
 	if _, _, ok := loadSharedInstance(c); !ok {
 		return
@@ -415,6 +541,15 @@ func SharedSFTPList(c *gin.Context) {
 	userAPI.UserSFTPList(c)
 }
 
+// @Summary 共享d SFTP Download
+// @Description 获取共享d SFTP Download
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "共享d SFTP Download成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "共享d SFTP Download失败"
+// @Router /public/instance-shares/{token}/sftp/download [get]
 func SharedSFTPDownload(c *gin.Context) {
 	if _, _, ok := loadSharedInstance(c); !ok {
 		return
@@ -422,6 +557,15 @@ func SharedSFTPDownload(c *gin.Context) {
 	userAPI.UserSFTPDownload(c)
 }
 
+// @Summary 共享d SFTP Upload
+// @Description 创建共享d SFTP Upload
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "共享d SFTP Upload成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "共享d SFTP Upload失败"
+// @Router /public/instance-shares/{token}/sftp/upload [post]
 func SharedSFTPUpload(c *gin.Context) {
 	if _, _, ok := loadSharedInstance(c); !ok {
 		return
@@ -429,6 +573,15 @@ func SharedSFTPUpload(c *gin.Context) {
 	userAPI.UserSFTPUpload(c)
 }
 
+// @Summary 共享d SFTP Upload 状态
+// @Description 获取共享d SFTP Upload 状态
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "共享d SFTP Upload 状态成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "共享d SFTP Upload 状态失败"
+// @Router /public/instance-shares/{token}/sftp/upload/status [get]
 func SharedSFTPUploadStatus(c *gin.Context) {
 	if _, _, ok := loadSharedInstance(c); !ok {
 		return
@@ -436,6 +589,15 @@ func SharedSFTPUploadStatus(c *gin.Context) {
 	userAPI.UserSFTPUploadStatus(c)
 }
 
+// @Summary 共享d SFTP Upload Abort
+// @Description 创建共享d SFTP Upload Abort
+// @Tags 公开接口
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "共享d SFTP Upload Abort成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "共享d SFTP Upload Abort失败"
+// @Router /public/instance-shares/{token}/sftp/upload/abort [post]
 func SharedSFTPUploadAbort(c *gin.Context) {
 	if _, _, ok := loadSharedInstance(c); !ok {
 		return

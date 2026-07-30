@@ -82,4 +82,59 @@ prepare_installation
 uninstall_server --yes --purge
 test ! -e "$ONECLICKVIRT_INSTALL_ROOT"
 
+mkdir -p "$ONECLICKVIRT_INSTALL_ROOT/server"
+cat > "$MANAGED_ENV_FILE" <<'EOF'
+CUSTOM_FLAG="keep"
+DB_HOST="old.internal"
+EOF
+export DB_HOST="db.internal"
+export DB_PASSWORD='test"pass\value'
+persist_runtime_environment ""
+grep -Fxq 'CUSTOM_FLAG="keep"' "$MANAGED_ENV_FILE"
+grep -Fxq 'DB_HOST="db.internal"' "$MANAGED_ENV_FILE"
+grep -Fxq 'DB_PASSWORD="test\"pass\\value"' "$MANAGED_ENV_FILE"
+test "$(grep -c '^DB_HOST=' "$MANAGED_ENV_FILE")" -eq 1
+env_mode=$(stat -c '%a' "$MANAGED_ENV_FILE" 2>/dev/null || stat -f '%Lp' "$MANAGED_ENV_FILE")
+test "$env_mode" = "600"
+
+create_systemd_service
+test "$(grep -c '^WorkingDirectory=' "$ONECLICKVIRT_SERVICE_FILE")" -eq 1
+grep -Fxq "WorkingDirectory=$ONECLICKVIRT_INSTALL_ROOT/server" "$ONECLICKVIRT_SERVICE_FILE"
+grep -Fxq "EnvironmentFile=-$MANAGED_ENV_FILE" "$ONECLICKVIRT_SERVICE_FILE"
+
+prepare_installation
+export noninteractive=true
+unset FORCE_REINSTALL CONFIRM_REINSTALL
+set +e
+confirm_existing_install_action >/dev/null 2>&1
+confirm_status=$?
+set -e
+test "$confirm_status" -eq 2
+
+export FORCE_REINSTALL=true
+unset CONFIRM_REINSTALL
+set +e
+confirm_existing_install_action >/dev/null 2>&1
+confirm_status=$?
+set -e
+test "$confirm_status" -eq 2
+
+export CONFIRM_REINSTALL=REINSTALL
+confirm_existing_install_action >/dev/null 2>&1
+
+printf '' > "$TEST_CALLS/main"
+check_root() { :; }
+env_check() { printf '%s\n' env_check >> "$TEST_CALLS/main"; }
+upgrade_server() { printf '%s\n' upgrade_server >> "$TEST_CALLS/main"; }
+install_server() { printf '%s\n' install_server >> "$TEST_CALLS/main"; }
+install_web() { printf '%s\n' install_web >> "$TEST_CALLS/main"; }
+unset FORCE_REINSTALL CONFIRM_REINSTALL
+main install
+grep -Fxq 'env_check' "$TEST_CALLS/main"
+grep -Fxq 'upgrade_server' "$TEST_CALLS/main"
+if grep -Fxq 'install_server' "$TEST_CALLS/main"; then
+    echo "existing non-interactive install did not switch to upgrade" >&2
+    exit 1
+fi
+
 echo "install lifecycle command tests passed"

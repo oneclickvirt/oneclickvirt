@@ -28,6 +28,17 @@ type LogDatesResponse struct {
 }
 
 // GetLogDates 列出所有可用的日志日期目录及根目录日志文件
+
+// @Summary 获取日志 Dates
+// @Description 获取获取日志 Dates
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取日志 Dates成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取日志 Dates失败"
+// @Router /admin/logs/dates [get]
 func GetLogDates(c *gin.Context) {
 	entries, err := os.ReadDir(logBaseDir)
 	if err != nil {
@@ -78,6 +89,17 @@ func GetLogDates(c *gin.Context) {
 //   - date  日期字符串（如 "2026-02-26"）；为空时表示根目录日志
 //   - file  日志文件名（有 date 时填级别如 "error"；无 date 时填完整文件名如 "server.log"）
 //   - tail  从末尾读取的行数，默认 200，最大 5000
+
+// @Summary 获取日志 Content
+// @Description 获取获取日志 Content
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取日志 Content成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取日志 Content失败"
+// @Router /admin/logs/content [get]
 func GetLogContent(c *gin.Context) {
 	date := strings.TrimSpace(c.Query("date"))
 	file := strings.TrimSpace(c.Query("file"))

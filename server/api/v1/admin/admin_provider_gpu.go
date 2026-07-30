@@ -39,6 +39,17 @@ var normalizedPCIBusRegex = regexp.MustCompile(`(?i)([0-9a-f]{4}:[0-9a-f]{2}:[0-
 
 // DetectGPUs 检测Provider节点上的GPU/NPU设备
 // 支持SSH与Agent模式，优先使用lxc/incus资源信息并结合nvidia-smi/lspci/npu-smi等多源检测
+
+// @Summary 检测GP Us
+// @Description 获取检测GP Us
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "检测GP Us成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "检测GP Us失败"
+// @Router /admin/providers/{id}/detect-gpus [get]
 func DetectGPUs(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)

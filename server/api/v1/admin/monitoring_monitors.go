@@ -181,6 +181,16 @@ func SyncProviderMonitors(c *gin.Context) {
 	common.ResponseSuccess(c, buildMonitorSyncTaskResponse(&task), "同步任务已提交")
 }
 
+// @Summary 获取Provider 监控 Sync 任务
+// @Description 获取获取Provider 监控 Sync 任务
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Provider 监控 Sync 任务成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Provider 监控 Sync 任务失败"
+// @Router /admin/providers/{id}/monitoring/sync/{taskId} [get]
 func GetProviderMonitorSyncTask(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -205,6 +215,16 @@ func GetProviderMonitorSyncTask(c *gin.Context) {
 	common.ResponseSuccess(c, buildMonitorSyncTaskResponse(&task))
 }
 
+// @Summary 获取Latest Provider 监控 Sync 任务
+// @Description 获取获取Latest Provider 监控 Sync 任务
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Latest Provider 监控 Sync 任务成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Latest Provider 监控 Sync 任务失败"
+// @Router /admin/providers/{id}/monitoring/sync/latest [get]
 func GetLatestProviderMonitorSyncTask(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {

@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"oneclickvirt/api/v1/admin"
 	"oneclickvirt/api/v1/public"
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	authModel "oneclickvirt/model/auth"
+	"oneclickvirt/model/common"
 	"oneclickvirt/utils"
 	"strings"
 
@@ -23,6 +25,29 @@ func isAPIPath(path string) bool {
 	return strings.HasPrefix(path, "/api/") ||
 		strings.HasPrefix(path, "/swagger/") ||
 		path == "/health"
+}
+
+func apiNotFoundHandler(c *gin.Context) {
+	c.JSON(http.StatusNotFound, gin.H{
+		"code":           common.CodeNotFound,
+		"msg":            "API endpoint not found",
+		"message":        "API endpoint not found",
+		"data":           nil,
+		"method":         c.Request.Method,
+		"path":           c.Request.URL.Path,
+		"server_version": constant.DisplayVersion(),
+		"build_commit":   constant.BuildCommit,
+		"api_contract":   constant.APIContractVersion,
+	})
+}
+
+func buildMetadataHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-OneClickVirt-Version", constant.DisplayVersion())
+		c.Header("X-OneClickVirt-Commit", constant.BuildCommit)
+		c.Header("X-OneClickVirt-API-Contract", constant.APIContractVersion)
+		c.Next()
+	}
 }
 
 func appendHeaderList(values []string, header string) []string {
@@ -189,6 +214,7 @@ func corsPreflightFallback(allowedMethods []string, allowedHeaders []string, isA
 func SetupRouter() *gin.Engine {
 	// 禁用 gin.Default() 内置的 Logger 和 Recovery，改用自定义中间件
 	Router := gin.New()
+	Router.Use(buildMetadataHeaders())
 
 	// 信任所有上游代理（用于反向代理和 Cloudflare Tunnel）
 	// nil 表示信任所有代理，可正确解析 X-Forwarded-For、X-Real-IP 等头

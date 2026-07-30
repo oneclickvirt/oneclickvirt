@@ -15,6 +15,17 @@ type createInstanceShareRequest struct {
 }
 
 // CreateAdminInstanceShare 创建管理员实例临时分享链接
+
+// @Summary 创建管理员 实例 共享
+// @Description 创建创建管理员 实例 共享
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建管理员 实例 共享成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建管理员 实例 共享失败"
+// @Router /admin/instances/{id}/share-links [post]
 func CreateAdminInstanceShare(c *gin.Context) {
 	userID, err := middleware.GetUserIDFromContext(c)
 	if err != nil {

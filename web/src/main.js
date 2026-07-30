@@ -15,9 +15,11 @@ import App from './App.vue'
 import { initUserStatusMonitor } from '@/utils/userStatusMonitor'
 import i18n from './i18n'
 import { getPublicSystemConfig } from '@/api/public'
+import { getBuildInfo } from '@/api/features'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useThemeStore } from '@/pinia/modules/theme'
 import { useFeatureStore } from '@/pinia/modules/feature'
+import { notifyApiContractMismatch } from '@/utils/apiCompatibility'
 
 const app = createApp(App)
 app.config.productionTip = false
@@ -54,6 +56,15 @@ const initLanguage = async () => {
   i18n.global.locale.value = effectiveLanguage
 }
 
+const checkApiCompatibility = async () => {
+  try {
+    const buildInfo = await getBuildInfo()
+    notifyApiContractMismatch(buildInfo)
+  } catch {
+    return
+  }
+}
+
 // 初始化语言设置后再挂载应用
 initLanguage().then(() => {
   // 初始化主题设置
@@ -68,6 +79,7 @@ initLanguage().then(() => {
   initUserStatusMonitor()
   
   app.mount('#app')
+  checkApiCompatibility()
 })
 
 export default app

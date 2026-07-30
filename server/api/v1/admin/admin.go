@@ -110,6 +110,28 @@ func GetInstanceDetail(c *gin.Context) {
 }
 
 // CreateInstance 创建实例
+
+// @Summary 创建实例
+// @Description 创建创建实例
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建实例成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建实例失败"
+// @Router /admin/instances [post]
+
+// @Summary 创建实例
+// @Description 创建创建实例
+// @Tags Provider管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建实例成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建实例失败"
+// @Router /providers/{id}/instances [post]
 func CreateInstance(c *gin.Context) {
 	var req admin.CreateInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -161,6 +183,16 @@ func CreateInstance(c *gin.Context) {
 	}, "创建实例任务已创建")
 }
 
+// @Summary 更新实例
+// @Description 更新更新实例
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "更新实例成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "更新实例失败"
+// @Router /admin/instances/{id} [put]
 func UpdateInstance(c *gin.Context) {
 	instanceIDStr := c.Param("id")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
@@ -212,6 +244,26 @@ func UpdateInstance(c *gin.Context) {
 	common.ResponseSuccess(c, nil, "更新实例成功")
 }
 
+// @Summary 删除实例
+// @Description 删除删除实例
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除实例成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除实例失败"
+// @Router /admin/instances/{id} [delete]
+// @Summary 删除实例
+// @Description 删除删除实例
+// @Tags Provider管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除实例成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除实例失败"
+// @Router /providers/{id}/instances/{name} [delete]
 func DeleteInstance(c *gin.Context) {
 	instanceIDStr := c.Param("id")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)

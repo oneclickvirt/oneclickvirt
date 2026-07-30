@@ -16,6 +16,19 @@ import (
 const maxBlockRuleRequestIDs = 5000
 
 // GetBlockRules returns all block rules.
+
+// @Summary 获取屏蔽规则s
+// @Description 获取获取屏蔽规则s
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param page query int false "页码" default(1)
+// @Param pageSize query int false "每页数量" default(10)
+// @Success 200 {object} common.Response{data=object} "获取屏蔽规则s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取屏蔽规则s失败"
+// @Router /admin/block-rules [get]
 func GetBlockRules(c *gin.Context) {
 	svc := &firewallService.Service{}
 	rules, err := svc.ListRules()
@@ -28,6 +41,17 @@ func GetBlockRules(c *gin.Context) {
 }
 
 // GetBlockRule returns a single block rule.
+
+// @Summary 获取屏蔽规则
+// @Description 获取获取屏蔽规则
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取屏蔽规则成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取屏蔽规则失败"
+// @Router /admin/block-rules/{id} [get]
 func GetBlockRule(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -44,6 +68,17 @@ func GetBlockRule(c *gin.Context) {
 }
 
 // CreateBlockRule creates a new block rule.
+
+// @Summary 创建屏蔽规则
+// @Description 创建创建屏蔽规则
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "创建屏蔽规则成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "创建屏蔽规则失败"
+// @Router /admin/block-rules [post]
 func CreateBlockRule(c *gin.Context) {
 	var req firewallModel.CreateBlockRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -61,6 +96,17 @@ func CreateBlockRule(c *gin.Context) {
 }
 
 // UpdateBlockRule updates an existing block rule.
+
+// @Summary 更新屏蔽规则
+// @Description 更新更新屏蔽规则
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "更新屏蔽规则成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "更新屏蔽规则失败"
+// @Router /admin/block-rules/{id} [put]
 func UpdateBlockRule(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -83,6 +129,17 @@ func UpdateBlockRule(c *gin.Context) {
 }
 
 // DeleteBlockRule deletes a block rule.
+
+// @Summary 删除屏蔽规则
+// @Description 删除删除屏蔽规则
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "删除屏蔽规则成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除屏蔽规则失败"
+// @Router /admin/block-rules/{id} [delete]
 func DeleteBlockRule(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -99,6 +156,17 @@ func DeleteBlockRule(c *gin.Context) {
 }
 
 // ApplyBlockRules applies block rules to targets.
+
+// @Summary 应用屏蔽规则s
+// @Description 创建应用屏蔽规则s
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "应用屏蔽规则s成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "应用屏蔽规则s失败"
+// @Router /admin/block-rules/apply [post]
 func ApplyBlockRules(c *gin.Context) {
 	var req firewallModel.ApplyBlockRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -164,6 +232,17 @@ func ApplyBlockRules(c *gin.Context) {
 }
 
 // RemoveBlockRuleApplications removes applied rules.
+
+// @Summary Remove 屏蔽规则 Applications
+// @Description 创建Remove 屏蔽规则 Applications
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "Remove 屏蔽规则 Applications成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "Remove 屏蔽规则 Applications失败"
+// @Router /admin/block-rules/remove [post]
 func RemoveBlockRuleApplications(c *gin.Context) {
 	var req firewallModel.RemoveBlockRuleApplicationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -238,6 +317,17 @@ func RemoveBlockRuleApplications(c *gin.Context) {
 }
 
 // GetBlockRuleApplications returns all rule applications.
+
+// @Summary 获取屏蔽规则 Applications
+// @Description 获取获取屏蔽规则 Applications
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取屏蔽规则 Applications成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取屏蔽规则 Applications失败"
+// @Router /admin/block-rules/applications [get]
 func GetBlockRuleApplications(c *gin.Context) {
 	ruleIDStr := c.Query("rule_id")
 	var ruleID uint
@@ -260,6 +350,17 @@ func GetBlockRuleApplications(c *gin.Context) {
 }
 
 // GetProviderBlockStatus returns which rules are applied to a specific provider.
+
+// @Summary 获取Provider Block 状态
+// @Description 获取获取Provider Block 状态
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Provider Block 状态成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Provider Block 状态失败"
+// @Router /admin/providers/{id}/block-status [get]
 func GetProviderBlockStatus(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -280,6 +381,17 @@ func GetProviderBlockStatus(c *gin.Context) {
 }
 
 // GetAgentEnabledProviders returns provider IDs with agent monitoring enabled.
+
+// @Summary 获取Agent Enabled Providers
+// @Description 获取获取Agent Enabled Providers
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=object} "获取Agent Enabled Providers成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "获取Agent Enabled Providers失败"
+// @Router /admin/block-rules/agent-providers [get]
 func GetAgentEnabledProviders(c *gin.Context) {
 	svc := &firewallService.Service{}
 	ids, err := svc.GetAgentEnabledProviders(middleware.GetOwnerAdminID(c))

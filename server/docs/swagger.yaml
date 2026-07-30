@@ -4177,6 +4177,284 @@ paths:
       summary: 管理员批量删除API Token
       tags:
       - API Token管理
+  /admin/block-rules:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取屏蔽规则s
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取屏蔽规则s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取屏蔽规则s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取屏蔽规则s
+      tags:
+      - 管理员管理
+    post:
+      consumes:
+      - application/json
+      description: 创建创建屏蔽规则
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建屏蔽规则成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建屏蔽规则失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建屏蔽规则
+      tags:
+      - 管理员管理
+  /admin/block-rules/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除删除屏蔽规则
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除屏蔽规则成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除屏蔽规则失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除屏蔽规则
+      tags:
+      - 管理员管理
+    get:
+      consumes:
+      - application/json
+      description: 获取获取屏蔽规则
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取屏蔽规则成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取屏蔽规则失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取屏蔽规则
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新更新屏蔽规则
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新屏蔽规则成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新屏蔽规则失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新屏蔽规则
+      tags:
+      - 管理员管理
+  /admin/block-rules/agent-providers:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取Agent Enabled Providers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取Agent Enabled Providers成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Agent Enabled Providers失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Agent Enabled Providers
+      tags:
+      - 管理员管理
+  /admin/block-rules/applications:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取屏蔽规则 Applications
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取屏蔽规则 Applications成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取屏蔽规则 Applications失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取屏蔽规则 Applications
+      tags:
+      - 管理员管理
+  /admin/block-rules/apply:
+    post:
+      consumes:
+      - application/json
+      description: 创建应用屏蔽规则s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 应用屏蔽规则s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 应用屏蔽规则s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 应用屏蔽规则s
+      tags:
+      - 管理员管理
+  /admin/block-rules/remove:
+    post:
+      consumes:
+      - application/json
+      description: 创建Remove 屏蔽规则 Applications
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Remove 屏蔽规则 Applications成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: Remove 屏蔽规则 Applications失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: Remove 屏蔽规则 Applications
+      tags:
+      - 管理员管理
   /admin/configuration-tasks:
     get:
       consumes:
@@ -4352,6 +4630,332 @@ paths:
       summary: 数据库统计信息
       tags:
       - Health
+  /admin/domains:
+    get:
+      consumes:
+      - application/json
+      description: 获取管理员 Get 域名s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Get 域名s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Get 域名s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Get 域名s
+      tags:
+      - 管理员管理
+  /admin/domains/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除管理员 Delete 域名
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Delete 域名成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Delete 域名失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Delete 域名
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新管理员 Update 域名
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Update 域名成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Update 域名失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Update 域名
+      tags:
+      - 管理员管理
+  /admin/domains/{id}/sync:
+    post:
+      consumes:
+      - application/json
+      description: 创建管理员 Sync 域名 Proxy
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Sync 域名 Proxy成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Sync 域名 Proxy失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Sync 域名 Proxy
+      tags:
+      - 管理员管理
+  /admin/domains/sync-proxies:
+    post:
+      consumes:
+      - application/json
+      description: 创建管理员 Sync 域名 Proxies
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Sync 域名 Proxies成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Sync 域名 Proxies失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Sync 域名 Proxies
+      tags:
+      - 管理员管理
+  /admin/group-info:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取管理员 组 信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取管理员 组 信息成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取管理员 组 信息失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取管理员 组 信息
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新更新管理员 组 信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新管理员 组 信息成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新管理员 组 信息失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新管理员 组 信息
+      tags:
+      - 管理员管理
+  /admin/groups:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取管理员 组s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取管理员 组s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取管理员 组s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取管理员 组s
+      tags:
+      - 管理员管理
+    post:
+      consumes:
+      - application/json
+      description: 创建创建管理员 组
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建管理员 组成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建管理员 组失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建管理员 组
+      tags:
+      - 管理员管理
+  /admin/groups/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除删除管理员 组
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除管理员 组成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除管理员 组失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除管理员 组
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新更新管理员 组
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新管理员 组成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新管理员 组失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新管理员 组
+      tags:
+      - 管理员管理
   /admin/instance-type-permissions:
     get:
       consumes:
@@ -4471,6 +5075,41 @@ paths:
       tags:
       - 管理员管理
   /admin/instances/{id}:
+    delete:
+      consumes:
+      - application/json
+      - application/json
+      description: |-
+        删除删除实例
+        删除删除实例
+      produces:
+      - application/json
+      - application/json
+      responses:
+        "200":
+          description: 删除实例成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除实例失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      summary: 删除实例
+      tags:
+      - 管理员管理
+      - Provider管理
     get:
       consumes:
       - application/json
@@ -4506,49 +5145,63 @@ paths:
       summary: 获取实例详情
       tags:
       - 管理员管理
-  /admin/instances/{id}/action:
-    post:
+    put:
       consumes:
       - application/json
-      description: 管理员对实例执行启动、停止、重启等操作
-      parameters:
-      - description: 实例ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: 操作请求参数
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/admin.InstanceActionRequest'
+      description: 更新更新实例
       produces:
       - application/json
       responses:
         "200":
-          description: 操作成功
+          description: 更新实例成功
           schema:
-            $ref: '#/definitions/common.Response'
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
         "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "403":
-          description: 权限不足
-          schema:
-            $ref: '#/definitions/common.Response'
-        "404":
-          description: 实例不存在
+          description: 参数错误
           schema:
             $ref: '#/definitions/common.Response'
         "500":
-          description: 服务器内部错误
+          description: 更新实例失败
           schema:
             $ref: '#/definitions/common.Response'
       security:
       - BearerAuth: []
-      summary: 管理员执行实例操作
+      summary: 更新实例
+      tags:
+      - 管理员管理
+  /admin/instances/{id}/action:
+    post:
+      consumes:
+      - application/json
+      description: 创建管理员 实例 操作
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 实例 操作成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 实例 操作失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 实例 操作
       tags:
       - 管理员管理
   /admin/instances/{id}/egress:
@@ -5020,6 +5673,95 @@ paths:
       summary: 管理员实例SFTP上传状态
       tags:
       - 管理员/实例
+  /admin/instances/{id}/share-links:
+    post:
+      consumes:
+      - application/json
+      description: 创建创建管理员 实例 共享
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建管理员 实例 共享成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建管理员 实例 共享失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建管理员 实例 共享
+      tags:
+      - 管理员管理
+  /admin/instances/{id}/snapshots:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取实例 快照s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取实例 快照s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取实例 快照s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例 快照s
+      tags:
+      - 管理员管理
+    post:
+      consumes:
+      - application/json
+      description: 创建创建实例 快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建实例 快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建实例 快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建实例 快照
+      tags:
+      - 管理员管理
   /admin/instances/{id}/ssh:
     get:
       consumes:
@@ -5092,6 +5834,126 @@ paths:
       security:
       - BearerAuth: []
       summary: 管理员批量执行实例操作
+      tags:
+      - 管理员管理
+  /admin/instances/freeze:
+    post:
+      consumes:
+      - application/json
+      description: 创建冻结实例
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 冻结实例成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 冻结实例失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 冻结实例
+      tags:
+      - 管理员管理
+  /admin/instances/set-expiry:
+    post:
+      consumes:
+      - application/json
+      description: 创建设置实例 Expiry
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 设置实例 Expiry成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 设置实例 Expiry失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 设置实例 Expiry
+      tags:
+      - 管理员管理
+  /admin/instances/transfer:
+    post:
+      consumes:
+      - application/json
+      description: 创建管理员 Transfer 实例
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Transfer 实例成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Transfer 实例失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Transfer 实例
+      tags:
+      - 管理员管理
+  /admin/instances/unfreeze:
+    post:
+      consumes:
+      - application/json
+      description: 创建解冻实例
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解冻实例成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 解冻实例失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 解冻实例
       tags:
       - 管理员管理
   /admin/invite-codes:
@@ -5312,6 +6174,66 @@ paths:
       summary: 批量生成邀请码
       tags:
       - 邀请码管理
+  /admin/kyc:
+    get:
+      consumes:
+      - application/json
+      description: 获取管理员 Get 实名认证 列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Get 实名认证 列表成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Get 实名认证 列表失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Get 实名认证 列表
+      tags:
+      - 管理员管理
+  /admin/kyc/{id}/review:
+    put:
+      consumes:
+      - application/json
+      description: 更新管理员 Review 实名认证
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Review 实名认证成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Review 实名认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Review 实名认证
+      tags:
+      - 管理员管理
   /admin/logs/cleanup:
     post:
       consumes:
@@ -5329,6 +6251,66 @@ paths:
       summary: 清理旧日志文件
       tags:
       - System
+  /admin/logs/content:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取日志 Content
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取日志 Content成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取日志 Content失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取日志 Content
+      tags:
+      - 管理员管理
+  /admin/logs/dates:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取日志 Dates
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取日志 Dates成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取日志 Dates失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取日志 Dates
+      tags:
+      - 管理员管理
   /admin/logs/files:
     get:
       consumes:
@@ -5593,6 +6575,66 @@ paths:
       summary: 获取系统统计信息
       tags:
       - 系统监控
+  /admin/performance/history:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取性能 历史
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取性能 历史成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取性能 历史失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取性能 历史
+      tags:
+      - 管理员管理
+  /admin/performance/metrics:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取性能 指标
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取性能 指标成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取性能 指标失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取性能 指标
+      tags:
+      - 管理员管理
   /admin/port-mappings:
     get:
       consumes:
@@ -6137,6 +7179,65 @@ paths:
       summary: 获取流量监控任务详情
       tags:
       - 流量监控管理
+  /admin/providers:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取Provider 列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取Provider 列表成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Provider 列表失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider 列表
+      tags:
+      - 管理员管理
+    post:
+      consumes:
+      - application/json
+      description: 创建创建Provider
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建Provider成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建Provider失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建Provider
+      tags:
+      - 管理员管理
   /admin/providers/{id}:
     delete:
       description: 创建持久化后台任务清理Provider及其关联资源；force=true时允许强制清理
@@ -6186,6 +7287,198 @@ paths:
       summary: 提交Provider删除任务
       tags:
       - Provider管理
+    get:
+      consumes:
+      - application/json
+      description: 获取获取Provider 详情
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取Provider 详情成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Provider 详情失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider 详情
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新更新Provider
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新Provider成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新Provider失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新Provider
+      tags:
+      - 管理员管理
+  /admin/providers/{id}/agent-secret:
+    post:
+      description: 为 agent 连接模式的 Provider 生成新的鉴权密钥（仅首次），后续调用只返回已有密钥。密钥一旦创建即写死，需删除Provider重建才能刷新。
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      summary: 生成或获取 Provider 的 Agent 密钥
+      tags:
+      - admin/providers
+  /admin/providers/{id}/auto-configure-stream:
+    post:
+      consumes:
+      - application/json
+      description: 创建自动配置Provider Stream
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 自动配置Provider Stream成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 自动配置Provider Stream失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 自动配置Provider Stream
+      tags:
+      - 管理员管理
+  /admin/providers/{id}/block-status:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取Provider Block 状态
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取Provider Block 状态成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Provider Block 状态失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider Block 状态
+      tags:
+      - 管理员管理
+  /admin/providers/{id}/checkin-config:
+    get:
+      consumes:
+      - application/json
+      description: 获取管理员 Get 签到 配置
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Get 签到 配置成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Get 签到 配置失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Get 签到 配置
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新管理员 Update 签到 配置
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Update 签到 配置成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Update 签到 配置失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Update 签到 配置
+      tags:
+      - 管理员管理
   /admin/providers/{id}/cleanup-orphans:
     post:
       consumes:
@@ -6217,6 +7510,36 @@ paths:
       summary: 清理孤儿实例
       tags:
       - Provider管理
+  /admin/providers/{id}/detect-gpus:
+    get:
+      consumes:
+      - application/json
+      description: 获取检测GP Us
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 检测GP Us成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 检测GP Us失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 检测GP Us
+      tags:
+      - 管理员管理
   /admin/providers/{id}/discover:
     post:
       consumes:
@@ -6253,6 +7576,86 @@ paths:
       summary: 发现Provider实例
       tags:
       - Provider管理
+  /admin/providers/{id}/domain-config:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取域名 配置
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取域名 配置成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取域名 配置失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取域名 配置
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新更新域名 配置
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新域名 配置成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新域名 配置失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新域名 配置
+      tags:
+      - 管理员管理
+  /admin/providers/{id}/exec:
+    post:
+      description: 通过 SSH（SSH模式）或 Agent WebSocket（Agent模式）在节点上执行 shell 命令
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: '命令（JSON: {\'
+        in: body
+        name: command
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses: {}
+      summary: 在 Provider 节点上执行命令
+      tags:
+      - admin/providers
   /admin/providers/{id}/fm/download:
     get:
       description: 通过 Agent 控制通道下载节点上的文件（Agent 模式专用）
@@ -6381,6 +7784,36 @@ paths:
       summary: 管理员 Agent 节点文件上传
       tags:
       - 管理员/Provider
+  /admin/providers/{id}/generate-cert:
+    post:
+      consumes:
+      - application/json
+      description: 创建生成Provider 证书
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 生成Provider 证书成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 生成Provider 证书失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 生成Provider 证书
+      tags:
+      - 管理员管理
   /admin/providers/{id}/hardware-report:
     delete:
       parameters:
@@ -7140,6 +8573,66 @@ paths:
       summary: 同步节点监控器
       tags:
       - 管理员/节点
+  /admin/providers/{id}/monitoring/sync/{taskId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取Provider 监控 Sync 任务
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取Provider 监控 Sync 任务成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Provider 监控 Sync 任务失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider 监控 Sync 任务
+      tags:
+      - 管理员管理
+  /admin/providers/{id}/monitoring/sync/latest:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取Latest Provider 监控 Sync 任务
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取Latest Provider 监控 Sync 任务成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Latest Provider 监控 Sync 任务失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Latest Provider 监控 Sync 任务
+      tags:
+      - 管理员管理
   /admin/providers/{id}/orphaned:
     get:
       consumes:
@@ -7329,6 +8822,21 @@ paths:
       summary: 管理员节点SFTP上传状态
       tags:
       - 管理员/Provider
+  /admin/providers/{id}/stopped-containers:
+    get:
+      description: 通过SSH或Agent连接到LXD/Incus/Docker/Podman/Containerd/Orbstack节点，返回可作为复制源的容器名称列表
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      summary: 获取节点上可用于复制模式的源容器列表
+      tags:
+      - admin/providers
   /admin/providers/{id}/sync-check:
     post:
       consumes:
@@ -7397,6 +8905,36 @@ paths:
       summary: 提交节点实例同步任务
       tags:
       - Provider管理
+  /admin/providers/{id}/terminal:
+    get:
+      consumes:
+      - application/json
+      description: 获取管理员 Provider 终端
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 Provider 终端成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 Provider 终端失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 Provider 终端
+      tags:
+      - 管理员管理
   /admin/providers/{provider_id}/traffic/history:
     get:
       consumes:
@@ -7449,6 +8987,366 @@ paths:
       summary: 获取Provider流量历史
       tags:
       - 流量管理-管理员
+  /admin/providers/check-endpoint:
+    get:
+      consumes:
+      - application/json
+      description: 获取检查Provider Endpoint
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 检查Provider Endpoint成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 检查Provider Endpoint失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 检查Provider Endpoint
+      tags:
+      - 管理员管理
+  /admin/providers/check-name:
+    get:
+      consumes:
+      - application/json
+      description: 获取检查Provider Name
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 检查Provider Name成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 检查Provider Name失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 检查Provider Name
+      tags:
+      - 管理员管理
+  /admin/providers/export-configs:
+    post:
+      consumes:
+      - application/json
+      description: 创建导出Provider 配置s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 导出Provider 配置s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 导出Provider 配置s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 导出Provider 配置s
+      tags:
+      - 管理员管理
+  /admin/providers/export-csv:
+    get:
+      consumes:
+      - application/json
+      description: 获取导出Providers CSV
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 导出Providers CSV成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 导出Providers CSV失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 导出Providers CSV
+      tags:
+      - 管理员管理
+  /admin/providers/freeze:
+    post:
+      consumes:
+      - application/json
+      description: 创建冻结Provider
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 冻结Provider成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 冻结Provider失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 冻结Provider
+      tags:
+      - 管理员管理
+  /admin/providers/freeze-manual:
+    post:
+      consumes:
+      - application/json
+      description: 创建冻结Provider Manual
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 冻结Provider Manual成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 冻结Provider Manual失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 冻结Provider Manual
+      tags:
+      - 管理员管理
+  /admin/providers/import-csv:
+    post:
+      consumes:
+      - application/json
+      description: 创建导入Providers CSV
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 导入Providers CSV成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 导入Providers CSV失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 导入Providers CSV
+      tags:
+      - 管理员管理
+  /admin/providers/local/detect:
+    get:
+      consumes:
+      - application/json
+      description: 获取检测Local Provider
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 检测Local Provider成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 检测Local Provider失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 检测Local Provider
+      tags:
+      - 管理员管理
+  /admin/providers/set-expiry:
+    post:
+      consumes:
+      - application/json
+      description: 创建设置Provider Expiry
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 设置Provider Expiry成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 设置Provider Expiry失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 设置Provider Expiry
+      tags:
+      - 管理员管理
+  /admin/providers/unfreeze:
+    post:
+      consumes:
+      - application/json
+      description: 创建解冻Provider
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解冻Provider成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 解冻Provider失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 解冻Provider
+      tags:
+      - 管理员管理
+  /admin/providers/unfreeze-manual:
+    post:
+      consumes:
+      - application/json
+      description: 创建解冻Provider Manual
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解冻Provider Manual成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 解冻Provider Manual失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 解冻Provider Manual
+      tags:
+      - 管理员管理
+  /admin/quota/users/{userId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取用户 配额 信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取用户 配额 信息成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取用户 配额 信息失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取用户 配额 信息
+      tags:
+      - 管理员管理
   /admin/redemption-codes:
     get:
       consumes:
@@ -7561,6 +9459,345 @@ paths:
       summary: 导出兑换码
       tags:
       - 兑换码管理
+  /admin/snapshot-batches:
+    post:
+      consumes:
+      - application/json
+      description: 创建批量Create 实例 快照s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 批量Create 实例 快照s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 批量Create 实例 快照s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量Create 实例 快照s
+      tags:
+      - 管理员管理
+  /admin/snapshot-schedules:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取快照 计划s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取快照 计划s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取快照 计划s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取快照 计划s
+      tags:
+      - 管理员管理
+    post:
+      consumes:
+      - application/json
+      description: 创建创建快照 计划
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建快照 计划成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建快照 计划失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建快照 计划
+      tags:
+      - 管理员管理
+  /admin/snapshot-schedules/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除删除快照 计划
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除快照 计划成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除快照 计划失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除快照 计划
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新更新快照 计划
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新快照 计划成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新快照 计划失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新快照 计划
+      tags:
+      - 管理员管理
+  /admin/snapshot-tasks/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取快照 任务
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取快照 任务成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取快照 任务失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取快照 任务
+      tags:
+      - 管理员管理
+  /admin/snapshots:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取快照 列表
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取快照 列表成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取快照 列表失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取快照 列表
+      tags:
+      - 管理员管理
+  /admin/snapshots/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除删除快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除快照
+      tags:
+      - 管理员管理
+  /admin/snapshots/{id}/restore:
+    post:
+      consumes:
+      - application/json
+      description: 创建恢复快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 恢复快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 恢复快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 恢复快照
+      tags:
+      - 管理员管理
+  /admin/snapshots/download/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 获取下载快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 下载快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 下载快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 下载快照
+      tags:
+      - 管理员管理
+  /admin/snapshots/overview:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取快照 概览
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取快照 概览成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取快照 概览失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取快照 概览
+      tags:
+      - 管理员管理
   /admin/storage/cleanup:
     post:
       consumes:
@@ -7737,6 +9974,155 @@ paths:
       summary: 创建系统镜像
       tags:
       - 系统镜像管理
+  /admin/system-images/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除删除System 镜像
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除System 镜像成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除System 镜像失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除System 镜像
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新更新System 镜像
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新System 镜像成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新System 镜像失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新System 镜像
+      tags:
+      - 管理员管理
+  /admin/system-images/batch-delete:
+    post:
+      consumes:
+      - application/json
+      description: 创建批量Delete System 镜像s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 批量Delete System 镜像s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 批量Delete System 镜像s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量Delete System 镜像s
+      tags:
+      - 管理员管理
+  /admin/system-images/batch-status:
+    put:
+      consumes:
+      - application/json
+      description: 更新批量Update System 镜像 状态
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 批量Update System 镜像 状态成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 批量Update System 镜像 状态失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量Update System 镜像 状态
+      tags:
+      - 管理员管理
+  /admin/system-images/sync:
+    post:
+      consumes:
+      - application/json
+      description: 创建同步System 镜像s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 同步System 镜像s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 同步System 镜像s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 同步System 镜像s
+      tags:
+      - 管理员管理
   /admin/tasks:
     get:
       consumes:
@@ -8469,6 +10855,65 @@ paths:
       summary: 创建用户
       tags:
       - 管理员管理
+  /admin/users/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除删除用户
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除用户成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除用户失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除用户
+      tags:
+      - 管理员管理
+    put:
+      consumes:
+      - application/json
+      description: 更新更新用户
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新用户成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新用户失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新用户
+      tags:
+      - 管理员管理
   /admin/users/{id}/level:
     put:
       consumes:
@@ -8504,6 +10949,36 @@ paths:
       security:
       - BearerAuth: []
       summary: 更新用户等级
+      tags:
+      - 管理员管理
+  /admin/users/{id}/login-as:
+    post:
+      consumes:
+      - application/json
+      description: 创建管理员 日志in As 用户
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 管理员 日志in As 用户成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 管理员 日志in As 用户失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员 日志in As 用户
       tags:
       - 管理员管理
   /admin/users/{id}/reset-password:
@@ -8724,6 +11199,36 @@ paths:
       security:
       - BearerAuth: []
       summary: 管理员批量更新用户状态
+      tags:
+      - 管理员管理
+  /admin/users/set-expiry:
+    post:
+      consumes:
+      - application/json
+      description: 创建设置用户 Expiry
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 设置用户 Expiry成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 设置用户 Expiry失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 设置用户 Expiry
       tags:
       - 管理员管理
   /auth/captcha:
@@ -9543,6 +12048,166 @@ paths:
       summary: 连接虚拟化Provider
       tags:
       - 虚拟化管理
+  /providers:
+    get:
+      consumes:
+      - application/json
+      - application/json
+      description: |-
+        获取获取Providers
+        获取获取Providers
+      produces:
+      - application/json
+      - application/json
+      responses:
+        "200":
+          description: 获取Providers成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Providers失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      summary: 获取Providers
+      tags:
+      - Provider管理
+      - 系统管理
+  /providers/{id}/instances:
+    post:
+      consumes:
+      - application/json
+      description: 创建创建实例
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建实例成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建实例失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建实例
+      tags:
+      - Provider管理
+  /providers/{id}/instances/{name}:
+    delete:
+      consumes:
+      - application/json
+      - application/json
+      description: |-
+        删除删除实例
+        删除删除实例
+      produces:
+      - application/json
+      - application/json
+      responses:
+        "200":
+          description: 删除实例成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除实例失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      summary: 删除实例
+      tags:
+      - 管理员管理
+      - Provider管理
+  /providers/{id}/status:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取Provider 状态
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取Provider 状态成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Provider 状态失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider 状态
+      tags:
+      - Provider管理
+  /public/announcements:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取系统公告
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取系统公告成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取系统公告失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取系统公告
+      tags:
+      - 公开接口
   /public/init:
     post:
       consumes:
@@ -9606,6 +12271,510 @@ paths:
       summary: 检查系统初始化状态
       tags:
       - 系统初始化
+  /public/instance-shares/{token}:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取共享d 实例 详情
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取共享d 实例 详情成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取共享d 实例 详情失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取共享d 实例 详情
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/action:
+    post:
+      consumes:
+      - application/json
+      description: 创建共享d 实例 操作
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 共享d 实例 操作成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 共享d 实例 操作失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 共享d 实例 操作
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/exec:
+    get:
+      consumes:
+      - application/json
+      description: 获取共享d 执行 Web Socket
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 共享d 执行 Web Socket成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 共享d 执行 Web Socket失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 共享d 执行 Web Socket
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/images/filtered:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取共享d 实例 镜像s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取共享d 实例 镜像s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取共享d 实例 镜像s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取共享d 实例 镜像s
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/monitoring:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取共享d 实例 监控ing
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取共享d 实例 监控ing成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取共享d 实例 监控ing失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取共享d 实例 监控ing
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/monitoring/resources:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取共享d 实例 资源 监控ing
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取共享d 实例 资源 监控ing成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取共享d 实例 资源 监控ing失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取共享d 实例 资源 监控ing
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/password/{taskId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取共享d 实例 New 密码
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取共享d 实例 New 密码成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取共享d 实例 New 密码失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取共享d 实例 New 密码
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/ports:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取共享d 实例 Ports
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取共享d 实例 Ports成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取共享d 实例 Ports失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取共享d 实例 Ports
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/reset-password:
+    put:
+      consumes:
+      - application/json
+      description: 更新Reset 共享d 实例 密码
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Reset 共享d 实例 密码成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: Reset 共享d 实例 密码失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: Reset 共享d 实例 密码
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/sftp/download:
+    get:
+      consumes:
+      - application/json
+      description: 获取共享d SFTP Download
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 共享d SFTP Download成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 共享d SFTP Download失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 共享d SFTP Download
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/sftp/list:
+    get:
+      consumes:
+      - application/json
+      description: 获取共享d SFTP 列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 共享d SFTP 列表成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 共享d SFTP 列表失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 共享d SFTP 列表
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/sftp/upload:
+    post:
+      consumes:
+      - application/json
+      description: 创建共享d SFTP Upload
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 共享d SFTP Upload成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 共享d SFTP Upload失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 共享d SFTP Upload
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/sftp/upload/abort:
+    post:
+      consumes:
+      - application/json
+      description: 创建共享d SFTP Upload Abort
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 共享d SFTP Upload Abort成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 共享d SFTP Upload Abort失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 共享d SFTP Upload Abort
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/sftp/upload/status:
+    get:
+      consumes:
+      - application/json
+      description: 获取共享d SFTP Upload 状态
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 共享d SFTP Upload 状态成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 共享d SFTP Upload 状态失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 共享d SFTP Upload 状态
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/snapshots:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取共享d 实例 快照s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取共享d 实例 快照s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取共享d 实例 快照s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取共享d 实例 快照s
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/snapshots/{snapshotId}/download:
+    get:
+      consumes:
+      - application/json
+      description: 获取下载共享d 快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 下载共享d 快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 下载共享d 快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 下载共享d 快照
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/ssh:
+    get:
+      consumes:
+      - application/json
+      description: 获取共享d SSH Web Socket
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 共享d SSH Web Socket成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 共享d SSH Web Socket失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 共享d SSH Web Socket
+      tags:
+      - 公开接口
+  /public/instance-shares/{token}/traffic/detail:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取共享d 实例 流量 详情
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取共享d 实例 流量 详情成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取共享d 实例 流量 详情失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取共享d 实例 流量 详情
+      tags:
+      - 公开接口
   /public/oauth2/providers:
     get:
       consumes:
@@ -9705,6 +12874,34 @@ paths:
       summary: 获取公开的系统配置信息
       tags:
       - 系统配置
+  /public/system-images/available:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取可用系统镜像
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取可用系统镜像成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取可用系统镜像失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取可用系统镜像
+      tags:
+      - 公开接口
   /public/test-db-connection:
     post:
       consumes:
@@ -9735,6 +12932,42 @@ paths:
       summary: 测试数据库连接
       tags:
       - 系统初始化
+  /resources/virtualization/providers:
+    get:
+      consumes:
+      - application/json
+      - application/json
+      description: |-
+        获取获取Providers
+        获取获取Providers
+      produces:
+      - application/json
+      - application/json
+      responses:
+        "200":
+          description: 获取Providers成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Providers失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      summary: 获取Providers
+      tags:
+      - Provider管理
+      - 系统管理
   /user/active-reservations:
     get:
       consumes:
@@ -10012,6 +13245,36 @@ paths:
       summary: 获取签到验证挑战
       tags:
       - 用户/签到续期
+  /user/checkin/eligible-instances:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取Eligible 签到 实例s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取Eligible 签到 实例s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取Eligible 签到 实例s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Eligible 签到 实例s
+      tags:
+      - 用户管理
   /user/checkin/records:
     get:
       consumes:
@@ -10118,6 +13381,124 @@ paths:
       security:
       - BearerAuth: []
       summary: 获取用户仪表板
+      tags:
+      - 用户管理
+  /user/domains:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取用户 域名s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取用户 域名s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取用户 域名s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取用户 域名s
+      tags:
+      - 用户管理
+    post:
+      consumes:
+      - application/json
+      description: 创建创建用户 域名
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建用户 域名成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建用户 域名失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建用户 域名
+      tags:
+      - 用户管理
+  /user/domains/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除删除用户 域名
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除用户 域名成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除用户 域名失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除用户 域名
+      tags:
+      - 用户管理
+    put:
+      consumes:
+      - application/json
+      description: 更新更新用户 域名
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新用户 域名成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新用户 域名失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新用户 域名
       tags:
       - 用户管理
   /user/images:
@@ -10533,6 +13914,66 @@ paths:
       summary: 获取实例监控数据
       tags:
       - 用户管理
+  /user/instances/{id}/monitoring/resources:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取实例 资源 监控ing
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取实例 资源 监控ing成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取实例 资源 监控ing失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例 资源 监控ing
+      tags:
+      - 用户管理
+  /user/instances/{id}/monitoring/status:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取实例 监控ing 状态
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取实例 监控ing 状态成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取实例 监控ing 状态失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例 监控ing 状态
+      tags:
+      - 用户管理
   /user/instances/{id}/password/{taskId}:
     get:
       consumes:
@@ -10822,6 +14263,125 @@ paths:
       summary: 用户实例SFTP上传状态
       tags:
       - 用户/实例
+  /user/instances/{id}/share-links:
+    post:
+      consumes:
+      - application/json
+      description: 创建创建用户 实例 共享
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建用户 实例 共享成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建用户 实例 共享失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建用户 实例 共享
+      tags:
+      - 用户管理
+  /user/instances/{id}/snapshots:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取用户 实例 快照s
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取用户 实例 快照s成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取用户 实例 快照s失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取用户 实例 快照s
+      tags:
+      - 用户管理
+    post:
+      consumes:
+      - application/json
+      description: 创建创建用户 实例 快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建用户 实例 快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建用户 实例 快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建用户 实例 快照
+      tags:
+      - 用户管理
+  /user/instances/{id}/snapshots/upload:
+    post:
+      consumes:
+      - application/json
+      description: 创建上传用户 快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 上传用户 快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 上传用户 快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 上传用户 快照
+      tags:
+      - 用户管理
   /user/instances/{id}/ssh:
     get:
       consumes:
@@ -10859,6 +14419,66 @@ paths:
       summary: WebSocket SSH连接
       tags:
       - 用户/实例
+  /user/instances/{id}/vnc:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户 实例 VNC 信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 用户 实例 VNC 信息成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 用户 实例 VNC 信息失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 用户 实例 VNC 信息
+      tags:
+      - 用户管理
+  /user/instances/{id}/vnc/ws:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户 实例 VNC Web Socket
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 用户 实例 VNC Web Socket成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 用户 实例 VNC Web Socket失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 用户 实例 VNC Web Socket
+      tags:
+      - 用户管理
   /user/instances/{instance_id}/pmacct/query:
     get:
       consumes:
@@ -11083,6 +14703,125 @@ paths:
       security:
       - BearerAuth: []
       summary: 批量实例操作
+      tags:
+      - 用户管理
+  /user/kyc:
+    get:
+      consumes:
+      - application/json
+      description: 获取获取用户 实名认证
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取用户 实名认证成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取用户 实名认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取用户 实名认证
+      tags:
+      - 用户管理
+    post:
+      consumes:
+      - application/json
+      description: 创建提交用户 实名认证
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 提交用户 实名认证成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 提交用户 实名认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 提交用户 实名认证
+      tags:
+      - 用户管理
+  /user/kyc/alipay:
+    post:
+      consumes:
+      - application/json
+      description: 创建提交Alipay 实名认证
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 提交Alipay 实名认证成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 提交Alipay 实名认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 提交Alipay 实名认证
+      tags:
+      - 用户管理
+  /user/kyc/alipay/result:
+    get:
+      consumes:
+      - application/json
+      description: 获取查询Alipay 实名认证 Result
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 查询Alipay 实名认证 Result成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 查询Alipay 实名认证 Result失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 查询Alipay 实名认证 Result
       tags:
       - 用户管理
   /user/limits:
@@ -11493,6 +15232,96 @@ paths:
       summary: 申领资源
       tags:
       - 用户管理
+  /user/snapshots/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除删除用户 快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除用户 快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除用户 快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除用户 快照
+      tags:
+      - 用户管理
+  /user/snapshots/{id}/download:
+    get:
+      consumes:
+      - application/json
+      description: 获取下载用户 快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 下载用户 快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 下载用户 快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 下载用户 快照
+      tags:
+      - 用户管理
+  /user/snapshots/{id}/restore:
+    post:
+      consumes:
+      - application/json
+      description: 创建恢复用户 快照
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 恢复用户 快照成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 恢复用户 快照失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 恢复用户 快照
+      tags:
+      - 用户管理
   /user/tasks:
     get:
       consumes:
@@ -11729,58 +15558,7 @@ paths:
       summary: 获取原始pmacct数据
       tags:
       - 用户流量
-  /v1/admin/providers/{id}/agent-secret:
-    post:
-      description: 为 agent 连接模式的 Provider 生成新的鉴权密钥（仅首次），后续调用只返回已有密钥。密钥一旦创建即写死，需删除Provider重建才能刷新。
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses: {}
-      summary: 生成或获取 Provider 的 Agent 密钥
-      tags:
-      - admin/providers
-  /v1/admin/providers/{id}/exec:
-    post:
-      description: 通过 SSH（SSH模式）或 Agent WebSocket（Agent模式）在节点上执行 shell 命令
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: '命令（JSON: {\'
-        in: body
-        name: command
-        required: true
-        schema:
-          type: string
-      produces:
-      - application/json
-      responses: {}
-      summary: 在 Provider 节点上执行命令
-      tags:
-      - admin/providers
-  /v1/admin/providers/{id}/stopped-containers:
-    get:
-      description: 通过SSH或Agent连接到LXD/Incus/Docker/Podman/Containerd/Orbstack节点，返回可作为复制源的容器名称列表
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses: {}
-      summary: 获取节点上可用于复制模式的源容器列表
-      tags:
-      - admin/providers
-  /v1/ws/agent:
+  /ws/agent:
     get:
       description: Rust Agent 通过此端点主动连回控制端，支持内网穿透模式
       parameters:
