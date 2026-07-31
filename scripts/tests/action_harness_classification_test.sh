@@ -136,4 +136,17 @@ INTEGRATION_WORKFLOW="${ROOT_DIR}/.github/workflows/integration-tests.yml"
 grep -Fq 'bash scripts/tests/action_harness_classification_test.sh' "$INTEGRATION_WORKFLOW" ||
     fail "the harness regression test is not enforced by the integration workflow"
 
+RESULTS_FILE=$(mktemp)
+init_results_file "$RESULTS_FILE"
+captured_result=$(record_fail_result "captured failure" "GET" "/captured" "200" "500" "body" "subshell" 2>/dev/null)
+[[ -z "$captured_result" ]] || fail "record_fail_result unexpectedly wrote response data"
+[[ "$(jq -r 'select(.name == "captured failure" and .status == "FAIL") | 1' "$RESULTS_FILE")" == "1" ]] ||
+    fail "a failure recorded inside command substitution was lost from JSONL"
+rm -f "$RESULTS_FILE"
+
+RUN_MODULE="${ROOT_DIR}/action_tests/run_module.sh"
+if grep -Fq 'for _result_json in "${TEST_RESULTS_JSON[@]}"' "$RUN_MODULE"; then
+    fail "run_module still overwrites authoritative JSONL from its parent-shell array"
+fi
+
 echo "action harness classification tests passed"

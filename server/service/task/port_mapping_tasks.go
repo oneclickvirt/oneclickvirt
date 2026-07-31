@@ -21,6 +21,13 @@ import (
 
 // CreateSyncPortMappingsTask 创建同步端口映射任务（为每个Provider创建独立任务）
 func (s *TaskService) CreateSyncPortMappingsTask(userID uint, req *adminModel.SyncPortMappingsTaskRequest, ownerAdminID uint) ([]*adminModel.Task, error) {
+	if req == nil {
+		return nil, fmt.Errorf("同步参数不能为空")
+	}
+	if len(req.IncludedPortIDs) == 0 {
+		return nil, fmt.Errorf("必须先预览并选择至少一条端口映射")
+	}
+
 	// 获取需要同步的Provider列表
 	if len(req.ProviderIDs) == 0 && len(req.IncludedPortIDs) > 0 {
 		if err := global.APP_DB.Model(&providerModel.Port{}).

@@ -122,8 +122,24 @@ run_module_13() {
         "{\"instanceId\":${inst_for_pm},\"guestPort\":0,\"protocol\":\"tcp\"}" "$group"
 
     # -- Sync port mappings --
-    test_api "Sync port mappings" "POST" "/api/v1/admin/port-mappings/sync" "200|400|404" \
-        "{\"providerIds\":[${PROVIDER_ID}]}" "$group"
+    local sync_resp="" sync_payload='{"dryRun":true}'
+    if [[ -n "$pm_id" && "$pm_id" =~ ^[0-9]+$ ]]; then
+        sync_payload="{\"providerIds\":[${PROVIDER_ID}],\"includedPortIds\":[${pm_id}]}"
+    fi
+    sync_resp=$(test_api "Sync port mappings" "POST" "/api/v1/admin/port-mappings/sync" "200|400|404" \
+        "$sync_payload" "$group")
+    if [[ "$(echo "$sync_resp" | jq -r '.code // empty' 2>/dev/null)" == "200" ]]; then
+        local sync_task_id sync_task_resp
+        while IFS= read -r sync_task_id; do
+            [[ -n "$sync_task_id" ]] || continue
+            sync_task_resp=""
+            wait_task_complete "$SERVER_URL" "$sync_task_id" "$ADMIN_TOKEN" "${PORT_MAPPING_TASK_MAX_WAIT:-600}" 5 > /dev/null 2>&1 || true
+            sync_task_resp=$(curl -s --max-time 20 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                "${SERVER_URL}/api/v1/admin/tasks/${sync_task_id}" 2>/dev/null) || true
+            record_task_terminal_result "Sync port mappings task" "GET" \
+                "/api/v1/admin/tasks/${sync_task_id}" "$sync_task_resp" "$group" || true
+        done < <(echo "$sync_resp" | jq -r '.data.tasks[]?.id // .data.tasks[]?.ID // empty' 2>/dev/null)
+    fi
 
     # -- Forward repair: preview is read-only; execution requires server-side second confirmation --
     test_api "Repair port mappings preview" "POST" "/api/v1/admin/port-mappings/repair" "200" \

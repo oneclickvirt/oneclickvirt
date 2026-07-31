@@ -708,7 +708,7 @@ type DeletePortMappingTaskRequest struct {
 type SyncPortMappingsTaskRequest struct {
 	ProviderIDs     []uint `json:"providerIds,omitempty"`     // 指定要同步的Provider IDs（为空则同步所有）
 	DryRun          bool   `json:"dryRun,omitempty"`          // 仅生成预览，不创建同步任务
-	IncludedPortIDs []uint `json:"includedPortIds,omitempty"` // 预览后确认删除的端口ID；为空表示执行完整同步
+	IncludedPortIDs []uint `json:"includedPortIds,omitempty"` // 预览后确认删除的端口ID；执行同步时必填
 	ExcludedPortIDs []uint `json:"excludedPortIds,omitempty"` // 预览后取消勾选的端口ID
 }
 

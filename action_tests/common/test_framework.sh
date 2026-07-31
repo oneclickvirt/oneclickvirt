@@ -1685,10 +1685,7 @@ report_add_skip() {
 report_finalize() {
     [[ -z "$REPORT_FILE" ]] && return
 
-    # When tests ran in a subprocess (e.g. run_env_test.sh → run_module.sh),
-    # the in-memory counters may be zero.  Fall back to counting from the JSONL
-    # results file which is always written to disk.
-    if [[ $TOTAL_TESTS -eq 0 && -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" ]]; then
+    if [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" ]]; then
         local _jsonl_total=0 _jsonl_pass=0 _jsonl_fail=0 _jsonl_skip=0
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue

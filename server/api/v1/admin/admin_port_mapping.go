@@ -660,7 +660,7 @@ func CheckPortAvailability(c *gin.Context) {
 
 // SyncPortMappings godoc
 // @Summary 同步端口映射
-// @Description 创建一个后台任务，检测并清理孤立的端口映射（实例已删除但数据库记录仍存在）。为每个Provider创建独立的同步任务
+// @Description 先使用 dryRun 预览，再提交 includedPortIds 创建后台任务，检测并清理孤立的端口映射。为每个Provider创建独立的同步任务
 // @Tags Admin-Port-Mapping
 // @Accept json
 // @Produce json

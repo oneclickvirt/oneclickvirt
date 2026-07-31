@@ -176,6 +176,7 @@ func ClassifyError(err error) *AppError {
 		strings.Contains(msg, "不满足") || strings.Contains(msg, "密码") ||
 		strings.Contains(msg, "不允许") || strings.Contains(msg, "不能") ||
 		strings.Contains(msg, "已被使用") ||
+		strings.Contains(msg, "所选镜像不可用") || strings.Contains(msg, "镜像不可用") ||
 		strings.Contains(lower, "invalid") || strings.Contains(lower, "required") ||
 		strings.Contains(lower, "validation") || strings.Contains(lower, "too long") ||
 		strings.Contains(lower, "exceeded") || strings.Contains(lower, "frozen") ||

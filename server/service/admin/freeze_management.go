@@ -303,11 +303,18 @@ func (s *FreezeManagementService) UnfreezeProvider(providerID uint) error {
 
 // UnfreezeInstance 解冻实例
 func (s *FreezeManagementService) UnfreezeInstance(instanceID uint) error {
-	return global.APP_DB.Model(&provider.Instance{}).
+	result := global.APP_DB.Model(&provider.Instance{}).
 		Where("id = ?", instanceID).
 		Updates(map[string]interface{}{
 			"is_frozen":     false,
 			"frozen_at":     nil,
 			"frozen_reason": "",
-		}).Error
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("实例不存在")
+	}
+	return nil
 }
