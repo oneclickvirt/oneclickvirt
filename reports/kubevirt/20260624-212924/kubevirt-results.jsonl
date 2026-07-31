@@ -1,1 +1,0 @@
-{"name":"Worker node provisioning","method":"HARNESS","url":"create_test_node","status":"SKIP","expected":"","actual":"","detail":"No usable worker node satisfied kubevirt infrastructure requirements","group":"infrastructure","timestamp":"2026-06-24T21:29:23","error_logs":"","request_payload":""}
