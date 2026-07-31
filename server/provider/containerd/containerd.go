@@ -370,7 +370,7 @@ func (c *ContainerdProvider) GetInstance(ctx context.Context, id string) (*provi
 		return nil, fmt.Errorf("not connected")
 	}
 
-	output, err := c.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}|{{.Created}}'", cliName, shellSingleQuote(id)), "CONTAINERD_INSPECT")
+	output, err := c.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.ID}}'", cliName, shellSingleQuote(id)), "CONTAINERD_INSPECT")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
