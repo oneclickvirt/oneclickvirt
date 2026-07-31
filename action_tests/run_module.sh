@@ -255,15 +255,6 @@ for mod in "${MODULES[@]}"; do
     fi
 done
 
-# Summary
-if [[ -n "${RESULTS_FILE:-}" && ${#TEST_RESULTS_JSON[@]} -gt 0 ]]; then
-    : > "$RESULTS_FILE"
-    for _result_json in "${TEST_RESULTS_JSON[@]}"; do
-        [[ -n "${_result_json:-}" ]] || continue
-        printf '%s\n' "$_result_json" >> "$RESULTS_FILE"
-    done
-fi
-
 report_finalize
 
 # Generate HTML report if we have a results file and are not delegating to parent

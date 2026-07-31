@@ -534,32 +534,26 @@ run_module_10() {
         if ! env_supports_container && env_supports_vm; then
             user_image_instance_type="vm"
         fi
-        local sys_images; sys_images=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-            "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=20" 2>/dev/null)
-        # Try alpine + matching provider/type/arch first for container platforms,
-        # debian first for VM-only platforms, then any matching provider/type/arch.
-        local user_image_id; user_image_id=$(echo "$sys_images" | jq -r --arg pt "$user_img_provider_type" --arg arch "$user_provider_arch" \
-            --arg it "$user_image_instance_type" \
-            '.data.list[]? | select(.osType=="alpine" and .status=="active" and .providerType==$pt and .instanceType==$it and (.architecture==$arch or $arch=="")) | .id' 2>/dev/null | head -1)
-        [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && \
-            user_image_id=$(echo "$sys_images" | jq -r --arg pt "$user_img_provider_type" --arg arch "$user_provider_arch" \
-            --arg it "$user_image_instance_type" \
-            '.data.list[]? | select(.osType=="debian" and .status=="active" and .providerType==$pt and .instanceType==$it and (.architecture==$arch or $arch=="")) | .id' 2>/dev/null | head -1)
-        [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && \
-            user_image_id=$(echo "$sys_images" | jq -r --arg pt "$user_img_provider_type" --arg arch "$user_provider_arch" \
-            --arg it "$user_image_instance_type" \
-            '.data.list[]? | select(.status=="active" and .providerType==$pt and .instanceType==$it and (.architecture==$arch or $arch=="")) | .id' 2>/dev/null | head -1)
-        [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && \
-            user_image_id=$(echo "$sys_images" | jq -r '.data.list[0].id // .data[0].id // empty' 2>/dev/null)
-        [[ -z "$user_image_id" || "$user_image_id" == "null" ]] && user_image_id=1
-        log_info "Using system image ID=${user_image_id} (${user_img_provider_type}/${user_image_instance_type}/${user_provider_arch}) for user instance creation test"
-
-        # Create instance via user API (same as frontend does)
-        local user_inst_resp; user_inst_resp=$(test_api "User creates instance (frontend-equivalent)" "POST" \
-            "/api/v1/user/instances" "200|400|404|409" \
-            "{\"providerId\":${PROVIDER_ID},\"imageId\":${user_image_id},\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\"}" \
-            "$group" "$USER_TOKEN")
-        local user_inst_task; user_inst_task=$(echo "$user_inst_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
+        local filtered_user_images; filtered_user_images=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${USER_TOKEN}" \
+            "${SERVER_URL}/api/v1/user/images/filtered?provider_id=${PROVIDER_ID}&instance_type=${user_image_instance_type}" 2>/dev/null)
+        local user_image_id; user_image_id=$(echo "$filtered_user_images" | jq -r --arg arch "$user_provider_arch" \
+            '[.data[]? | select((.isActive == true or .status == "active") and (.architecture == $arch or $arch == ""))] |
+             (map(select((.osType // "") == "alpine")) + map(select((.osType // "") == "debian")) + .) |
+             .[0].id // empty' 2>/dev/null)
+        local user_inst_resp="" user_inst_task=""
+        if [[ -n "$user_image_id" && "$user_image_id" != "null" ]]; then
+            log_info "Using filtered user image ID=${user_image_id} (${user_img_provider_type}/${user_image_instance_type}/${user_provider_arch}) for user instance creation test"
+            user_inst_resp=$(test_api "User creates instance (frontend-equivalent)" "POST" \
+                "/api/v1/user/instances" "200|400|404|409" \
+                "{\"providerId\":${PROVIDER_ID},\"imageId\":${user_image_id},\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\"}" \
+                "$group" "$USER_TOKEN")
+            user_inst_task=$(echo "$user_inst_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
+        else
+            record_skip_result "User creates instance (frontend-equivalent)" "POST" \
+                "/api/v1/user/instances" "no active image available from user filtered-image endpoint" "$group"
+            log_warning "No active user image is available for ${user_img_provider_type}/${user_image_instance_type}/${user_provider_arch}; skipping creation request"
+        fi
         local user_inst_id=""
 
         # Wait for task if async

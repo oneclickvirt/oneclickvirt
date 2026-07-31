@@ -39,3 +39,10 @@ func TestClassifyErrorTreatsCapacityRejectionsAsConflict(t *testing.T) {
 		})
 	}
 }
+
+func TestClassifyErrorTreatsUnavailableSelectedImageAsBadRequest(t *testing.T) {
+	err := ClassifyError(errors.New("所选镜像不可用"))
+	if err.Code != CodeBadRequest {
+		t.Fatalf("ClassifyError(image unavailable) code = %d, want %d", err.Code, CodeBadRequest)
+	}
+}

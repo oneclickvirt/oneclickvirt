@@ -4900,7 +4900,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "创建一个后台任务，检测并清理孤立的端口映射（实例已删除但数据库记录仍存在）。为每个Provider创建独立的同步任务",
+                "description": "先使用 dryRun 预览，再提交 includedPortIds 创建后台任务，检测并清理孤立的端口映射。为每个Provider创建独立的同步任务",
                 "consumes": [
                     "application/json"
                 ],
@@ -20450,7 +20450,7 @@ const docTemplate = `{
                     }
                 },
                 "includedPortIds": {
-                    "description": "预览后确认删除的端口ID；为空表示执行完整同步",
+                    "description": "预览后确认删除的端口ID；执行同步时必填",
                     "type": "array",
                     "items": {
                         "type": "integer"
