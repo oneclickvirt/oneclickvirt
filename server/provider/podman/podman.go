@@ -370,7 +370,7 @@ func (p *PodmanProvider) GetInstance(ctx context.Context, id string) (*provider.
 		return nil, fmt.Errorf("not connected")
 	}
 
-	output, err := p.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}|{{.Created}}'", cliName, shellSingleQuote(id)), "PODMAN_INSPECT")
+	output, err := p.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}'", cliName, shellSingleQuote(id)), "PODMAN_INSPECT")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}

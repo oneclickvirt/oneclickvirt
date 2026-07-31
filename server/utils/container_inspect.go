@@ -21,7 +21,7 @@ func ParseContainerInspectOutput(output string) (ContainerInspectRecord, error) 
 			continue
 		}
 		fields := strings.Split(line, "|")
-		if len(fields) != 5 {
+		if len(fields) != 4 && len(fields) != 5 {
 			continue
 		}
 
@@ -35,9 +35,15 @@ func ParseContainerInspectOutput(output string) (ContainerInspectRecord, error) 
 			}
 			values[index] = value
 		}
-		created := strings.TrimSpace(fields[4])
-		if !valid || created == "" || strings.IndexFunc(created, unicode.IsControl) >= 0 {
+		if !valid {
 			continue
+		}
+		created := ""
+		if len(fields) == 5 {
+			created = strings.TrimSpace(fields[4])
+			if strings.IndexFunc(created, unicode.IsControl) >= 0 {
+				continue
+			}
 		}
 
 		record := ContainerInspectRecord{

@@ -479,7 +479,7 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 	}
 
 	// 使用简单的分隔符格式获取信息，避免table格式的解析问题
-	output, err := d.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}|{{.Created}}'", d.runtime.CLI, shellSingleQuote(id)), "DOCKER_INSPECT")
+	output, err := d.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}'", d.runtime.CLI, shellSingleQuote(id)), "DOCKER_INSPECT")
 	if err != nil {
 		global.APP_LOG.Debug("Docker inspect命令执行失败",
 			zap.String("id", utils.TruncateString(id, 32)),
