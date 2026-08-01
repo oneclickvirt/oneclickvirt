@@ -1,0 +1,1 @@
+{"name":"Worker node provisioning","method":"HARNESS","url":"create_test_node","status":"SKIP","expected":"","actual":"","detail":"No usable worker node satisfied lxd infrastructure requirements","group":"infrastructure","timestamp":"2026-08-01T05:13:06","error_logs":"","request_payload":""}
