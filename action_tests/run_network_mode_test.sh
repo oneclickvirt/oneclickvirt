@@ -340,7 +340,9 @@ log_section "Network Mode Test: ENV_TYPE=${ENV_TYPE}"
 
 # Validate instance type early
 export INSTANCE_TYPES; INSTANCE_TYPES=$(_resolve_instance_type "$ENV_TYPE" "$RAW_INSTANCE_TYPE")
+configure_action_test_resources_for_env "$ENV_TYPE"
 log_info "Resolved instance type: ${INSTANCE_TYPES}"
+log_info "Instance size: container=${ACTION_TEST_CONTAINER_CPU}C/${ACTION_TEST_CONTAINER_MEMORY}MB/${ACTION_TEST_CONTAINER_DISK}G vm=${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
 
 # Get supported mapping methods
 read -r -a MAPPING_METHODS <<< "$(_get_supported_mapping_methods "$ENV_TYPE")"

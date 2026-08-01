@@ -174,7 +174,7 @@ export PLATFORM_ALICE_ENABLED=true
 export PLATFORM_LIGHTNODE_ENABLED=true
 export ALICE_CLIENT_ID="..."
 export LIGHTNODE_TOKEN="your_token"
-# LightNode 默认严格使用第 3 档 2C/4G；目标套餐不存在时直接失败，不会降级到低配。
+# LightNode 基线为 2C/4G；混合容器/VM 环境会按峰值自动提高到至少 4C/8G。
 export LIGHTNODE_PACKAGE_TIER=3
 export LIGHTNODE_TARGET_CPU=2
 export LIGHTNODE_TARGET_MEMORY_MB=4096
@@ -342,9 +342,9 @@ GitHub Actions 会自动安装所需依赖。
 | `LIGHTNODE_PRIVATE_KEY` | SSH 私钥完整内容，含 `-----BEGIN ... PRIVATE KEY-----` 头尾 |
 | `LIGHTNODE_SSH_KEY_UUID` | LightNode 账户中已上传 SSH 公钥的 UUID（在 LightNode 控制台 SSH Keys 页面查看） |
 | `LIGHTNODE_PACKAGE_TIER` | 默认 `3`，自动选套餐时优先使用第 3 档 |
-| `LIGHTNODE_TARGET_CPU` | 默认 `2`，优先匹配 2 核套餐 |
-| `LIGHTNODE_TARGET_MEMORY_MB` | 默认 `4096`，优先匹配 4G 内存套餐 |
-| `LIGHTNODE_PACKAGE_CODE` | 可选，指定后直接使用该 LightNode 套餐 code |
+| `LIGHTNODE_TARGET_CPU` | 默认 `2`；混合容器/VM 环境会按测试峰值自动提高到至少 `4`，显式更大值不会被降低 |
+| `LIGHTNODE_TARGET_MEMORY_MB` | 默认 `4096`；混合容器/VM 环境会按测试峰值自动提高到至少 `8192`，显式更大值不会被降低 |
+| `LIGHTNODE_PACKAGE_CODE` | 可选，指定后仍会校验套餐不小于当前环境的峰值预算，不足则在创建前失败 |
 | `PVE_USE_PRIVATE_IP` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `false`，避免双网卡宿主重启后写入私网地址和公网网关的组合 |
 | `PVE_MAIN_INTERFACE` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `eth1`，对应 LightNode 公网默认路由网口 |
 | `PVE_NAT_SUBNET` | 可选的 ProxmoxVE NAT `/24` 网段（必须以 `.0/24` 结尾）；未设置时安装脚本会避开宿主机现有路由自动选择，并将结果持久化供 Provider 与 PVE 创建脚本复用 |
@@ -362,21 +362,35 @@ GitHub Actions 会自动安装所需依赖。
 | `ACTION_TEST_VM_CPU` | `2` |
 | `ACTION_TEST_VM_MEMORY` | `4096` |
 | `ACTION_TEST_VM_DISK` | `20` |
+| `ACTION_TEST_KUBEVIRT_CONTAINER_CPU` | `1`（仅 KubeVirt，覆盖 `ACTION_TEST_CONTAINER_CPU`） |
+| `ACTION_TEST_KUBEVIRT_CONTAINER_MEMORY` | `1024`（仅 KubeVirt） |
+| `ACTION_TEST_KUBEVIRT_CONTAINER_DISK` | `8`（仅 KubeVirt） |
 | `ACTION_TEST_KUBEVIRT_VM_CPU` | `1`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_CPU`） |
-| `ACTION_TEST_KUBEVIRT_VM_MEMORY` | `512`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_MEMORY`；2C/4G LightNode Worker 上更容易调度） |
+| `ACTION_TEST_KUBEVIRT_VM_MEMORY` | `512`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_MEMORY`） |
 | `ACTION_TEST_KUBEVIRT_VM_DISK` | `8`（仅 KubeVirt，覆盖 `ACTION_TEST_VM_DISK`） |
+| `ACTION_TEST_LXD_CONTAINER_CPU` / `ACTION_TEST_INCUS_CONTAINER_CPU` | `1` |
+| `ACTION_TEST_LXD_CONTAINER_MEMORY` / `ACTION_TEST_INCUS_CONTAINER_MEMORY` | `1024` |
+| `ACTION_TEST_LXD_CONTAINER_DISK` / `ACTION_TEST_INCUS_CONTAINER_DISK` | `20` |
 | `ACTION_TEST_LXD_VM_CPU` | `1`（仅 LXD，覆盖 `ACTION_TEST_VM_CPU`） |
 | `ACTION_TEST_LXD_VM_MEMORY` | `1024`（仅 LXD，覆盖 `ACTION_TEST_VM_MEMORY`） |
 | `ACTION_TEST_LXD_VM_DISK` | `20`（仅 LXD，覆盖 `ACTION_TEST_VM_DISK`） |
 | `ACTION_TEST_INCUS_VM_CPU` | `1`（仅 Incus，覆盖 `ACTION_TEST_VM_CPU`） |
 | `ACTION_TEST_INCUS_VM_MEMORY` | `1024`（仅 Incus，覆盖 `ACTION_TEST_VM_MEMORY`） |
 | `ACTION_TEST_INCUS_VM_DISK` | `20`（仅 Incus，覆盖 `ACTION_TEST_VM_DISK`） |
+| `ACTION_TEST_PROXMOXVE_CONTAINER_CPU` | `1`（仅 ProxmoxVE，覆盖 `ACTION_TEST_CONTAINER_CPU`） |
+| `ACTION_TEST_PROXMOXVE_CONTAINER_MEMORY` | `1024`（仅 ProxmoxVE） |
+| `ACTION_TEST_PROXMOXVE_CONTAINER_DISK` | `8`（仅 ProxmoxVE） |
 | `ACTION_TEST_PROXMOXVE_VM_CPU` | `1`（仅 ProxmoxVE，覆盖 `ACTION_TEST_VM_CPU`） |
 | `ACTION_TEST_PROXMOXVE_VM_MEMORY` | `1024`（仅 ProxmoxVE，覆盖 `ACTION_TEST_VM_MEMORY`） |
 | `ACTION_TEST_PROXMOXVE_VM_DISK` | `8`（仅 ProxmoxVE，覆盖 `ACTION_TEST_VM_DISK`） |
+| `ACTION_TEST_QEMU_CONTAINER_CPU` | `1`（仅 QEMU，覆盖 `ACTION_TEST_CONTAINER_CPU`） |
+| `ACTION_TEST_QEMU_CONTAINER_MEMORY` | `1024`（仅 QEMU） |
+| `ACTION_TEST_QEMU_CONTAINER_DISK` | `8`（仅 QEMU） |
 | `ACTION_TEST_QEMU_VM_CPU` | `1`（仅 QEMU，覆盖 `ACTION_TEST_VM_CPU`） |
 | `ACTION_TEST_QEMU_VM_MEMORY` | `1024`（仅 QEMU，覆盖 `ACTION_TEST_VM_MEMORY`） |
 | `ACTION_TEST_QEMU_VM_DISK` | `8`（仅 QEMU，覆盖 `ACTION_TEST_VM_DISK`） |
+
+`lxd`、`incus`、`proxmoxve`、`qemu`、`kubevirt` 会在创建后及安装后按实际峰值占用复核 CPU、内存、磁盘和 KVM。`both` 默认预算包含最多两个 discovery fixture、保留的基准容器以及待创建 VM，因此最低为 4C/8GB；单一 `container` 或 `vm` 测试只准备对应夹具并使用较低预算。
 
 **Vultr**
 

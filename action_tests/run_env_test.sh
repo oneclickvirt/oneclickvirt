@@ -41,43 +41,9 @@ NODE_HOURS="${NODE_HOURS:-8}"
 MASTER_PORT="${MASTER_PORT:-8888}"
 EXIT_CODE=0
 
-case "$ENV_TYPE" in
-    kubevirt)
-        export WORKER_SWAP_MB="${KUBEVIRT_WORKER_SWAP_MB:-4096}"
-        export ACTION_TEST_VM_CPU="${ACTION_TEST_KUBEVIRT_VM_CPU:-1}"
-        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_KUBEVIRT_VM_MEMORY:-512}"
-        export ACTION_TEST_VM_DISK="${ACTION_TEST_KUBEVIRT_VM_DISK:-${ACTION_TEST_VM_DISK:-8}}"
-        log_info "KubeVirt VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
-        ;;
-    lxd)
-        export ACTION_TEST_VM_CPU="${ACTION_TEST_LXD_VM_CPU:-1}"
-        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_LXD_VM_MEMORY:-1024}"
-        export ACTION_TEST_VM_DISK="${ACTION_TEST_LXD_VM_DISK:-${ACTION_TEST_VM_DISK:-20}}"
-        log_info "LXD VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
-        ;;
-    incus)
-        export ACTION_TEST_VM_CPU="${ACTION_TEST_INCUS_VM_CPU:-1}"
-        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_INCUS_VM_MEMORY:-1024}"
-        export ACTION_TEST_VM_DISK="${ACTION_TEST_INCUS_VM_DISK:-${ACTION_TEST_VM_DISK:-20}}"
-        log_info "Incus VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
-        ;;
-    proxmoxve)
-        export ACTION_TEST_VM_CPU="${ACTION_TEST_PROXMOXVE_VM_CPU:-1}"
-        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_PROXMOXVE_VM_MEMORY:-1024}"
-        export ACTION_TEST_VM_DISK="${ACTION_TEST_PROXMOXVE_VM_DISK:-${ACTION_TEST_VM_DISK:-8}}"
-        log_info "ProxmoxVE VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
-        ;;
-    qemu)
-        export ACTION_TEST_CONTAINER_CPU="${ACTION_TEST_QEMU_CONTAINER_CPU:-1}"
-        export ACTION_TEST_CONTAINER_MEMORY="${ACTION_TEST_QEMU_CONTAINER_MEMORY:-1024}"
-        export ACTION_TEST_CONTAINER_DISK="${ACTION_TEST_QEMU_CONTAINER_DISK:-8}"
-        export ACTION_TEST_VM_CPU="${ACTION_TEST_QEMU_VM_CPU:-1}"
-        export ACTION_TEST_VM_MEMORY="${ACTION_TEST_QEMU_VM_MEMORY:-1024}"
-        export ACTION_TEST_VM_DISK="${ACTION_TEST_QEMU_VM_DISK:-${ACTION_TEST_VM_DISK:-8}}"
-        log_info "QEMU container test size: ${ACTION_TEST_CONTAINER_CPU}C/${ACTION_TEST_CONTAINER_MEMORY}MB/${ACTION_TEST_CONTAINER_DISK}G"
-        log_info "QEMU VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
-        ;;
-esac
+configure_action_test_resources_for_env "$ENV_TYPE"
+log_info "Container test size: ${ACTION_TEST_CONTAINER_CPU}C/${ACTION_TEST_CONTAINER_MEMORY}MB/${ACTION_TEST_CONTAINER_DISK}G"
+log_info "VM test size: ${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
 
 # =============================================================
 # Phase 0: Validate platform and instance types
@@ -235,7 +201,7 @@ runtime_rc=0
 verify_worker_runtime "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || runtime_rc=$?
 if (( runtime_rc != 0 )); then
     if (( runtime_rc == 75 )); then
-        record_harness_skip_and_exit "Worker SSH became unavailable while verifying the ${ENV_TYPE} runtime after installation"
+        record_harness_skip_and_exit "Worker runtime verification lost connectivity or the worker fell below the ${ENV_TYPE}/${INSTANCE_TYPES} peak resource budget"
     fi
     if [[ "$ENV_TYPE" == "kubevirt" ]]; then
         log_error "KubeVirt/CDI runtime prerequisites are incomplete; treating as transient infrastructure failure"
@@ -265,7 +231,7 @@ fi
 # =============================================================
 log_section "Phase 4: Prepare worker with pre-existing instances"
 dirty_node_rc=0
-prepare_dirty_node "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || dirty_node_rc=$?
+prepare_dirty_node "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" "$INSTANCE_TYPES" || dirty_node_rc=$?
 if (( dirty_node_rc != 0 )); then
     log_warning "Dirty node preparation had issues, continuing..."
 fi

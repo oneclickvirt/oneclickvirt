@@ -83,7 +83,81 @@ PLATFORM_LAST_ERROR=""
 
 env_needs_worker_resource_check() {
     local env_type="$1"
-    [[ "$env_type" == "kubevirt" ]]
+    case "$env_type" in
+        lxd|incus|proxmoxve|qemu|kubevirt) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+worker_resource_requirements() {
+    local env_type="$1" instance_types="${2:-${INSTANCE_TYPES:-both}}"
+    local min_cpu=1 min_mem_mb=2048 min_disk_gb=20 require_kvm=false
+    local container_cpu="${ACTION_TEST_CONTAINER_CPU:-2}"
+    local container_memory="${ACTION_TEST_CONTAINER_MEMORY:-2048}"
+    local container_disk="${ACTION_TEST_CONTAINER_DISK:-20}"
+    local vm_cpu="${ACTION_TEST_VM_CPU:-2}"
+    local vm_memory="${ACTION_TEST_VM_MEMORY:-4096}"
+    local vm_disk="${ACTION_TEST_VM_DISK:-20}"
+
+    [[ "$container_cpu" =~ ^[0-9]+$ ]] || container_cpu=2
+    [[ "$container_memory" =~ ^[0-9]+$ ]] || container_memory=2048
+    [[ "$container_disk" =~ ^[0-9]+$ ]] || container_disk=20
+    [[ "$vm_cpu" =~ ^[0-9]+$ ]] || vm_cpu=2
+    [[ "$vm_memory" =~ ^[0-9]+$ ]] || vm_memory=4096
+    [[ "$vm_disk" =~ ^[0-9]+$ ]] || vm_disk=20
+
+    if env_needs_worker_resource_check "$env_type"; then
+        case "$instance_types" in
+            container)
+                min_cpu=$((1 + container_cpu))
+                min_mem_mb=$((256 + container_memory + 512))
+                min_disk_gb=$((container_disk + 4))
+                ;;
+            vm)
+                min_cpu=$((1 + vm_cpu))
+                min_mem_mb=$((512 + vm_memory + 512))
+                min_disk_gb=$((vm_disk + 4))
+                require_kvm=true
+                ;;
+            *)
+                min_cpu=$((2 + container_cpu + vm_cpu))
+                min_mem_mb=$((256 + 512 + container_memory + vm_memory + 512))
+                min_disk_gb=$((container_disk + vm_disk + 4))
+                require_kvm=true
+                ;;
+        esac
+        (( min_cpu < 2 )) && min_cpu=2
+        (( min_mem_mb < 4096 )) && min_mem_mb=4096
+        (( min_disk_gb < 20 )) && min_disk_gb=20
+        if [[ "$instance_types" == "both" && "$min_mem_mb" -lt 8192 ]]; then
+            min_mem_mb=8192
+        fi
+    fi
+
+    local env_prefix="${env_type^^}"
+    local cpu_override_name="${env_prefix}_MIN_WORKER_CPU_CORES"
+    local memory_override_name="${env_prefix}_MIN_WORKER_MEMORY_MB"
+    local disk_override_name="${env_prefix}_MIN_WORKER_DISK_GB"
+    local cpu_override="${!cpu_override_name:-0}"
+    local memory_override="${!memory_override_name:-0}"
+    local disk_override="${!disk_override_name:-0}"
+    local generic_cpu_override="${ACTION_TEST_MIN_WORKER_CPU_CORES:-0}"
+    local generic_memory_override="${ACTION_TEST_MIN_WORKER_MEMORY_MB:-0}"
+    local generic_disk_override="${ACTION_TEST_MIN_WORKER_DISK_GB:-0}"
+    [[ "$cpu_override" =~ ^[0-9]+$ ]] || cpu_override=0
+    [[ "$memory_override" =~ ^[0-9]+$ ]] || memory_override=0
+    [[ "$disk_override" =~ ^[0-9]+$ ]] || disk_override=0
+    [[ "$generic_cpu_override" =~ ^[0-9]+$ ]] || generic_cpu_override=0
+    [[ "$generic_memory_override" =~ ^[0-9]+$ ]] || generic_memory_override=0
+    [[ "$generic_disk_override" =~ ^[0-9]+$ ]] || generic_disk_override=0
+    (( cpu_override > min_cpu )) && min_cpu="$cpu_override"
+    (( memory_override > min_mem_mb )) && min_mem_mb="$memory_override"
+    (( disk_override > min_disk_gb )) && min_disk_gb="$disk_override"
+    (( generic_cpu_override > min_cpu )) && min_cpu="$generic_cpu_override"
+    (( generic_memory_override > min_mem_mb )) && min_mem_mb="$generic_memory_override"
+    (( generic_disk_override > min_disk_gb )) && min_disk_gb="$generic_disk_override"
+
+    printf '%s %s %s %s\n' "$min_cpu" "$min_mem_mb" "$min_disk_gb" "$require_kvm"
 }
 
 platform_validate_worker_resources() {
@@ -92,9 +166,17 @@ platform_validate_worker_resources() {
         return 0
     fi
 
-    local min_mem_mb="${KUBEVIRT_MIN_WORKER_MEMORY_MB:-3072}"
-    local min_cpu="${KUBEVIRT_MIN_WORKER_CPU_CORES:-2}"
-    local min_disk_gb="${KUBEVIRT_MIN_WORKER_DISK_GB:-20}"
+    local min_cpu nominal_mem_mb min_mem_mb min_disk_gb require_kvm
+    read -r min_cpu nominal_mem_mb min_disk_gb require_kvm < <(worker_resource_requirements "$env_type")
+    if [[ "$platform" == "lightnode" ]]; then
+        local lightnode_cpu="${LIGHTNODE_TARGET_CPU:-0}"
+        local lightnode_memory="${LIGHTNODE_TARGET_MEMORY_MB:-0}"
+        [[ "$lightnode_cpu" =~ ^[0-9]+$ ]] || lightnode_cpu=0
+        [[ "$lightnode_memory" =~ ^[0-9]+$ ]] || lightnode_memory=0
+        (( lightnode_cpu > min_cpu )) && min_cpu="$lightnode_cpu"
+        (( lightnode_memory > nominal_mem_mb )) && nominal_mem_mb="$lightnode_memory"
+    fi
+    min_mem_mb=$((nominal_mem_mb - nominal_mem_mb / 16))
     local check_cmd
     check_cmd=$(cat <<RESOURCE_CHECK
 set -u
@@ -119,7 +201,7 @@ if [ "\${disk_gb}" -lt "${min_disk_gb}" ]; then
     echo "WORKER_RESOURCE_INSUFFICIENT: disk_gb=\${disk_gb} required>=${min_disk_gb}"
     exit 42
 fi
-if [ ! -e /dev/kvm ]; then
+if [ "${require_kvm}" = "true" ] && [ ! -e /dev/kvm ]; then
     echo "WORKER_RESOURCE_INSUFFICIENT: /dev/kvm missing"
     exit 42
 fi
@@ -127,7 +209,9 @@ exit 0
 RESOURCE_CHECK
 )
 
-    log_info "Checking worker resources for ${env_type} on ${platform} (memory>=${min_mem_mb}MB cpu>=${min_cpu} disk>=${min_disk_gb}GB /dev/kvm required)..."
+    local kvm_requirement="not required"
+    [[ "$require_kvm" == "true" ]] && kvm_requirement="required"
+    log_info "Checking worker resources for ${env_type}/${INSTANCE_TYPES:-both} on ${platform} (memory>=${min_mem_mb}MB from ${nominal_mem_mb}MB nominal, cpu>=${min_cpu}, disk>=${min_disk_gb}GB, /dev/kvm ${kvm_requirement})..."
     local output
     if output=$(platform_ssh_exec "$ip" "$check_cmd" 90 2>&1); then
         [[ -n "$output" ]] && printf '%s\n' "$output" >&2
@@ -291,7 +375,7 @@ try_create_with_fallback() {
             log_error "[${platform}] create_instance failed (exit=${exit_code}). Raw output: ${result:-<empty>}"
         fi
         # Track whether this failure was resource exhaustion or something else
-        if [[ "${PLATFORM_LAST_ERROR:-}" != "resource_exhausted" ]]; then
+        if [[ "$exit_code" -ne 75 && "${PLATFORM_LAST_ERROR:-}" != "resource_exhausted" ]]; then
             all_resource_exhausted=false
         fi
         log_warning "Platform '${platform}' exhausted, trying next..."
