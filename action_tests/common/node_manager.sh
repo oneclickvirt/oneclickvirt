@@ -599,6 +599,11 @@ VERIFY_KUBEVIRT
     log_info "Verifying ${env} runtime on worker..."
     local verify_output=""
     if verify_output=$(platform_exec_and_wait "${ip}" "${verify_cmd}" "$verify_timeout" 2>&1); then
+        if declare -f platform_validate_worker_resources >/dev/null 2>&1 && \
+           ! platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}"; then
+            log_warning "${env} runtime is ready, but the worker no longer satisfies its peak resource budget"
+            return 75
+        fi
         log_success "${env} runtime verified on worker"
         [[ "${DEBUG:-0}" == "1" && -n "$verify_output" ]] && printf '%s\n' "$verify_output" >&2
         return 0
@@ -623,8 +628,16 @@ VERIFY_KUBEVIRT
 # testing. Readiness is exported per instance type so discovery assertions never
 # pass because an unrelated instance happened to have the same broad type.
 prepare_dirty_node() {
-    local id="$1" ip="$2" env="$3"
+    local id="$1" ip="$2" env="$3" requested_types="${4:-${INSTANCE_TYPES:-both}}"
     local expected_fixtures=0 ready_fixtures=0
+    local prepare_container=false prepare_vm=false
+
+    case "$requested_types" in
+        both) prepare_container=true; prepare_vm=true ;;
+        container) prepare_container=true ;;
+        vm) prepare_vm=true ;;
+        *) log_error "Unsupported dirty-node instance type selection: ${requested_types}"; return 75 ;;
+    esac
 
     export DIRTY_NODE_CONTAINER_READY=false
     export DIRTY_NODE_VM_READY=false
@@ -667,79 +680,101 @@ prepare_dirty_node() {
             fi
             ;;
         lxd)
-            expected_fixtures=2
-            DIRTY_NODE_CONTAINER_EXPECTED=true
-            DIRTY_NODE_VM_EXPECTED=true
             # Discovery only needs instance definitions. Empty, stopped
             # definitions avoid coupling this test to a public image server.
-            if platform_exec_and_wait "${ip}" "lxc info pre-existing-1 >/dev/null 2>&1 || lxc init pre-existing-1 --empty" 120; then
-                DIRTY_NODE_CONTAINER_READY=true
-                DIRTY_NODE_CONTAINER_NAME="pre-existing-1"
-                ready_fixtures=$((ready_fixtures + 1))
+            if [[ "$prepare_container" == "true" ]]; then
+                expected_fixtures=$((expected_fixtures + 1))
+                DIRTY_NODE_CONTAINER_EXPECTED=true
+                if platform_exec_and_wait "${ip}" "lxc info pre-existing-1 >/dev/null 2>&1 || lxc init pre-existing-1 --empty -c limits.cpu=1 -c limits.memory=256MiB" 120; then
+                    DIRTY_NODE_CONTAINER_READY=true
+                    DIRTY_NODE_CONTAINER_NAME="pre-existing-1"
+                    ready_fixtures=$((ready_fixtures + 1))
+                fi
             fi
-            if platform_exec_and_wait "${ip}" "lxc info pre-existing-vm >/dev/null 2>&1 || lxc init pre-existing-vm --empty --vm -c limits.cpu=1 -c limits.memory=512MiB" 180; then
-                DIRTY_NODE_VM_READY=true
-                DIRTY_NODE_VM_NAME="pre-existing-vm"
-                ready_fixtures=$((ready_fixtures + 1))
+            if [[ "$prepare_vm" == "true" ]]; then
+                expected_fixtures=$((expected_fixtures + 1))
+                DIRTY_NODE_VM_EXPECTED=true
+                if platform_exec_and_wait "${ip}" "lxc info pre-existing-vm >/dev/null 2>&1 || lxc init pre-existing-vm --empty --vm -c limits.cpu=1 -c limits.memory=512MiB" 180; then
+                    DIRTY_NODE_VM_READY=true
+                    DIRTY_NODE_VM_NAME="pre-existing-vm"
+                    ready_fixtures=$((ready_fixtures + 1))
+                fi
             fi
             ;;
         incus)
-            expected_fixtures=2
-            DIRTY_NODE_CONTAINER_EXPECTED=true
-            DIRTY_NODE_VM_EXPECTED=true
-            if platform_exec_and_wait "${ip}" "incus info pre-existing-1 >/dev/null 2>&1 || incus init pre-existing-1 --empty" 120; then
-                DIRTY_NODE_CONTAINER_READY=true
-                DIRTY_NODE_CONTAINER_NAME="pre-existing-1"
-                ready_fixtures=$((ready_fixtures + 1))
+            if [[ "$prepare_container" == "true" ]]; then
+                expected_fixtures=$((expected_fixtures + 1))
+                DIRTY_NODE_CONTAINER_EXPECTED=true
+                if platform_exec_and_wait "${ip}" "incus info pre-existing-1 >/dev/null 2>&1 || incus init pre-existing-1 --empty -c limits.cpu=1 -c limits.memory=256MiB" 120; then
+                    DIRTY_NODE_CONTAINER_READY=true
+                    DIRTY_NODE_CONTAINER_NAME="pre-existing-1"
+                    ready_fixtures=$((ready_fixtures + 1))
+                fi
             fi
-            if platform_exec_and_wait "${ip}" "incus info pre-existing-vm >/dev/null 2>&1 || incus init pre-existing-vm --empty --vm -c limits.cpu=1 -c limits.memory=512MiB" 180; then
-                DIRTY_NODE_VM_READY=true
-                DIRTY_NODE_VM_NAME="pre-existing-vm"
-                ready_fixtures=$((ready_fixtures + 1))
+            if [[ "$prepare_vm" == "true" ]]; then
+                expected_fixtures=$((expected_fixtures + 1))
+                DIRTY_NODE_VM_EXPECTED=true
+                if platform_exec_and_wait "${ip}" "incus info pre-existing-vm >/dev/null 2>&1 || incus init pre-existing-vm --empty --vm -c limits.cpu=1 -c limits.memory=512MiB" 180; then
+                    DIRTY_NODE_VM_READY=true
+                    DIRTY_NODE_VM_NAME="pre-existing-vm"
+                    ready_fixtures=$((ready_fixtures + 1))
+                fi
             fi
             ;;
         proxmoxve)
-            expected_fixtures=1
-            DIRTY_NODE_VM_EXPECTED=true
             # A stopped, diskless QEMU definition is sufficient for discovery and
             # import coverage. It avoids image downloads while exercising the same
             # PVE 8/9 cluster resource API as a normal VM.
-            if platform_exec_and_wait "${ip}" "qm status 990 >/dev/null 2>&1 || qm create 990 --name pre-existing-vm --memory 512 --cores 1 --ostype l26" 120; then
-                DIRTY_NODE_VM_READY=true
-                DIRTY_NODE_VM_NAME="pre-existing-vm"
-                DIRTY_NODE_VM_PROVIDER_ID="990"
-                ready_fixtures=$((ready_fixtures + 1))
+            if [[ "$prepare_vm" == "true" ]]; then
+                expected_fixtures=1
+                DIRTY_NODE_VM_EXPECTED=true
+                if platform_exec_and_wait "${ip}" "qm status 990 >/dev/null 2>&1 || qm create 990 --name pre-existing-vm --memory 512 --cores 1 --ostype l26" 120; then
+                    DIRTY_NODE_VM_READY=true
+                    DIRTY_NODE_VM_NAME="pre-existing-vm"
+                    DIRTY_NODE_VM_PROVIDER_ID="990"
+                    ready_fixtures=$((ready_fixtures + 1))
+                fi
             fi
             ;;
         qemu)
-            expected_fixtures=2
-            DIRTY_NODE_CONTAINER_EXPECTED=true
-            DIRTY_NODE_VM_EXPECTED=true
-            if platform_exec_and_wait "${ip}" "virsh dominfo pre-existing-vm >/dev/null 2>&1 || printf '%s' '<domain type=\"kvm\"><name>pre-existing-vm</name><memory unit=\"MiB\">512</memory><vcpu>1</vcpu><os><type arch=\"x86_64\">hvm</type></os></domain>' | virsh define /dev/stdin" 120; then
-                DIRTY_NODE_VM_READY=true
-                DIRTY_NODE_VM_NAME="pre-existing-vm"
-                ready_fixtures=$((ready_fixtures + 1))
+            if [[ "$prepare_vm" == "true" ]]; then
+                expected_fixtures=$((expected_fixtures + 1))
+                DIRTY_NODE_VM_EXPECTED=true
+                if platform_exec_and_wait "${ip}" "virsh dominfo pre-existing-vm >/dev/null 2>&1 || printf '%s' '<domain type=\"kvm\"><name>pre-existing-vm</name><memory unit=\"MiB\">512</memory><vcpu>1</vcpu><os><type arch=\"x86_64\">hvm</type></os></domain>' | virsh define /dev/stdin" 120; then
+                    DIRTY_NODE_VM_READY=true
+                    DIRTY_NODE_VM_NAME="pre-existing-vm"
+                    ready_fixtures=$((ready_fixtures + 1))
+                fi
             fi
-            if platform_exec_and_wait "${ip}" "virsh -c lxc:/// dominfo pre-existing-container >/dev/null 2>&1 || { mkdir -p /tmp/oneclickvirt-ci-lxc-rootfs; emulator=\$(command -v libvirt_lxc 2>/dev/null || echo /usr/libexec/libvirt_lxc); printf '%s' \"<domain type='lxc'><name>pre-existing-container</name><memory unit='MiB'>256</memory><vcpu>1</vcpu><os><type>exe</type><init>/bin/sh</init></os><devices><emulator>\${emulator}</emulator><filesystem type='mount'><source dir='/tmp/oneclickvirt-ci-lxc-rootfs'/><target dir='/'/></filesystem></devices></domain>\" | virsh -c lxc:/// define /dev/stdin; }" 120; then
-                DIRTY_NODE_CONTAINER_READY=true
-                DIRTY_NODE_CONTAINER_NAME="pre-existing-container"
-                ready_fixtures=$((ready_fixtures + 1))
+            if [[ "$prepare_container" == "true" ]]; then
+                expected_fixtures=$((expected_fixtures + 1))
+                DIRTY_NODE_CONTAINER_EXPECTED=true
+                if platform_exec_and_wait "${ip}" "virsh -c lxc:/// dominfo pre-existing-container >/dev/null 2>&1 || { mkdir -p /tmp/oneclickvirt-ci-lxc-rootfs; emulator=\$(command -v libvirt_lxc 2>/dev/null || echo /usr/libexec/libvirt_lxc); printf '%s' \"<domain type='lxc'><name>pre-existing-container</name><memory unit='MiB'>256</memory><vcpu>1</vcpu><os><type>exe</type><init>/bin/sh</init></os><devices><emulator>\${emulator}</emulator><filesystem type='mount'><source dir='/tmp/oneclickvirt-ci-lxc-rootfs'/><target dir='/'/></filesystem></devices></domain>\" | virsh -c lxc:/// define /dev/stdin; }" 120; then
+                    DIRTY_NODE_CONTAINER_READY=true
+                    DIRTY_NODE_CONTAINER_NAME="pre-existing-container"
+                    ready_fixtures=$((ready_fixtures + 1))
+                fi
             fi
             ;;
         kubevirt)
-            expected_fixtures=2
-            DIRTY_NODE_CONTAINER_EXPECTED=true
-            DIRTY_NODE_VM_EXPECTED=true
             platform_exec_and_wait "${ip}" "kubectl create namespace kubevirt-vms >/dev/null 2>&1 || true" 60 || true
-            if platform_exec_and_wait "${ip}" "printf '%s' '{\"apiVersion\":\"kubevirt.io/v1\",\"kind\":\"VirtualMachine\",\"metadata\":{\"name\":\"pre-existing-vm\",\"namespace\":\"kubevirt-vms\"},\"spec\":{\"running\":false,\"template\":{\"metadata\":{\"labels\":{\"kubevirt.io/domain\":\"pre-existing-vm\"}},\"spec\":{\"domain\":{\"devices\":{},\"resources\":{\"requests\":{\"memory\":\"512Mi\"}}},\"terminationGracePeriodSeconds\":0}}}}' | kubectl apply -f -" 120; then
-                DIRTY_NODE_VM_READY=true
-                DIRTY_NODE_VM_NAME="pre-existing-vm"
-                ready_fixtures=$((ready_fixtures + 1))
+            if [[ "$prepare_vm" == "true" ]]; then
+                expected_fixtures=$((expected_fixtures + 1))
+                DIRTY_NODE_VM_EXPECTED=true
+                if platform_exec_and_wait "${ip}" "printf '%s' '{\"apiVersion\":\"kubevirt.io/v1\",\"kind\":\"VirtualMachine\",\"metadata\":{\"name\":\"pre-existing-vm\",\"namespace\":\"kubevirt-vms\"},\"spec\":{\"running\":false,\"template\":{\"metadata\":{\"labels\":{\"kubevirt.io/domain\":\"pre-existing-vm\"}},\"spec\":{\"domain\":{\"cpu\":{\"cores\":1},\"devices\":{},\"resources\":{\"requests\":{\"memory\":\"512Mi\"}}},\"terminationGracePeriodSeconds\":0}}}}' | kubectl apply -f -" 120; then
+                    DIRTY_NODE_VM_READY=true
+                    DIRTY_NODE_VM_NAME="pre-existing-vm"
+                    ready_fixtures=$((ready_fixtures + 1))
+                fi
             fi
-            if platform_exec_and_wait "${ip}" "printf '%s' '{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"name\":\"pre-existing-container\",\"namespace\":\"kubevirt-vms\",\"labels\":{\"oneclickvirt.io/type\":\"container\"}},\"spec\":{\"replicas\":0,\"selector\":{\"matchLabels\":{\"app\":\"pre-existing-container\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"pre-existing-container\",\"oneclickvirt.io/type\":\"container\"}},\"spec\":{\"containers\":[{\"name\":\"main\",\"image\":\"busybox:latest\"}]}}}}' | kubectl apply -f -" 120; then
-                DIRTY_NODE_CONTAINER_READY=true
-                DIRTY_NODE_CONTAINER_NAME="pre-existing-container"
-                ready_fixtures=$((ready_fixtures + 1))
+            if [[ "$prepare_container" == "true" ]]; then
+                expected_fixtures=$((expected_fixtures + 1))
+                DIRTY_NODE_CONTAINER_EXPECTED=true
+                if platform_exec_and_wait "${ip}" "printf '%s' '{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"name\":\"pre-existing-container\",\"namespace\":\"kubevirt-vms\",\"labels\":{\"oneclickvirt.io/type\":\"container\"}},\"spec\":{\"replicas\":0,\"selector\":{\"matchLabels\":{\"app\":\"pre-existing-container\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"pre-existing-container\",\"oneclickvirt.io/type\":\"container\"}},\"spec\":{\"containers\":[{\"name\":\"main\",\"image\":\"busybox:latest\",\"resources\":{\"requests\":{\"cpu\":\"1\",\"memory\":\"256Mi\"}}}]}}}}' | kubectl apply -f -" 120; then
+                    DIRTY_NODE_CONTAINER_READY=true
+                    DIRTY_NODE_CONTAINER_NAME="pre-existing-container"
+                    ready_fixtures=$((ready_fixtures + 1))
+                fi
             fi
             ;;
         *)

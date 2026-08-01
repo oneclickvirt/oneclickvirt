@@ -57,6 +57,97 @@ assert_offline_empty_fixtures() {
 assert_offline_empty_fixtures lxd lxc
 assert_offline_empty_fixtures incus incus
 
+MOCK_EXEC_MODE="success"
+CAPTURED_COMMANDS=()
+prepare_dirty_node worker-id 192.0.2.10 lxd container || fail "LXD container-only fixture preparation failed"
+[[ "$DIRTY_NODE_CONTAINER_EXPECTED" == "true" && "$DIRTY_NODE_VM_EXPECTED" == "false" ]] ||
+    fail "LXD container-only run prepared the wrong fixture types"
+! printf '%s\n' "${CAPTURED_COMMANDS[@]}" | grep -Fq 'pre-existing-vm' ||
+    fail "LXD container-only run still prepared a VM fixture"
+
+CAPTURED_COMMANDS=()
+prepare_dirty_node worker-id 192.0.2.10 lxd vm || fail "LXD VM-only fixture preparation failed"
+[[ "$DIRTY_NODE_CONTAINER_EXPECTED" == "false" && "$DIRTY_NODE_VM_EXPECTED" == "true" ]] ||
+    fail "LXD VM-only run prepared the wrong fixture types"
+! printf '%s\n' "${CAPTURED_COMMANDS[@]}" | grep -Fq 'pre-existing-1' ||
+    fail "LXD VM-only run still prepared a container fixture"
+
+assert_worker_budget() {
+    local env="$1" types="$2" expected_cpu="$3" expected_memory="$4" expected_disk="$5" expected_kvm="$6"
+    local actual_cpu actual_memory actual_disk actual_kvm
+    configure_action_test_resources_for_env "$env"
+    INSTANCE_TYPES="$types"
+    read -r actual_cpu actual_memory actual_disk actual_kvm < <(worker_resource_requirements "$env" "$types")
+    [[ "$actual_cpu" == "$expected_cpu" ]] || fail "${env}/${types} CPU budget ${actual_cpu}, expected ${expected_cpu}"
+    [[ "$actual_memory" == "$expected_memory" ]] || fail "${env}/${types} memory budget ${actual_memory}, expected ${expected_memory}"
+    [[ "$actual_disk" == "$expected_disk" ]] || fail "${env}/${types} disk budget ${actual_disk}, expected ${expected_disk}"
+    [[ "$actual_kvm" == "$expected_kvm" ]] || fail "${env}/${types} KVM requirement ${actual_kvm}, expected ${expected_kvm}"
+}
+
+assert_worker_budget qemu both 4 8192 20 true
+assert_worker_budget kubevirt both 4 8192 20 true
+assert_worker_budget lxd both 4 8192 44 true
+assert_worker_budget incus both 4 8192 44 true
+assert_worker_budget proxmoxve both 4 8192 20 true
+assert_worker_budget qemu container 2 4096 20 false
+assert_worker_budget qemu vm 2 4096 20 true
+
+for nested_env in lxd incus proxmoxve qemu kubevirt; do
+    env_needs_worker_resource_check "$nested_env" || fail "${nested_env} bypasses worker resource validation"
+done
+if env_needs_worker_resource_check docker; then
+    fail "Docker should not require nested-virtualization worker validation"
+fi
+
+lightnode_get_packages() {
+    printf '%s\n200\n' '{"packages":[{"packageCode":"small","cpu":2,"memory":4},{"packageCode":"peak","cpu":4,"memory":8},{"packageCode":"large","cpu":8,"memory":16}]}'
+}
+LIGHTNODE_REGION="test-region"
+LIGHTNODE_ZONE="test-zone"
+ENV_TYPE="qemu"
+INSTANCE_TYPES="both"
+configure_action_test_resources_for_env "$ENV_TYPE"
+LIGHTNODE_PACKAGE_CODE=""
+LIGHTNODE_TARGET_CPU=2
+LIGHTNODE_TARGET_MEMORY_MB=4096
+LIGHTNODE_STRICT_RECOMMENDED_SPEC=true
+[[ "$(_lightnode_get_default_package)" == "peak" ]] || fail "LightNode did not raise qemu/both to the 4C/8GB package"
+LIGHTNODE_TARGET_CPU=8
+LIGHTNODE_TARGET_MEMORY_MB=16384
+[[ "$(_lightnode_get_default_package)" == "large" ]] || fail "LightNode downgraded an explicit larger worker target"
+LIGHTNODE_TARGET_CPU=6
+LIGHTNODE_TARGET_MEMORY_MB=12288
+LIGHTNODE_STRICT_RECOMMENDED_SPEC=false
+[[ "$(_lightnode_get_default_package)" == "large" ]] || fail "LightNode non-strict selection fell below a larger worker target"
+LIGHTNODE_STRICT_RECOMMENDED_SPEC=true
+LIGHTNODE_PACKAGE_CODE="small"
+LIGHTNODE_TARGET_CPU=2
+LIGHTNODE_TARGET_MEMORY_MB=4096
+if _lightnode_get_default_package >/dev/null 2>&1; then
+    fail "LightNode accepted an explicit package below the qemu/both peak budget"
+fi
+LIGHTNODE_PACKAGE_CODE="large"
+[[ "$(_lightnode_get_default_package)" == "large" ]] || fail "LightNode rejected an explicit package above the peak budget"
+LIGHTNODE_PACKAGE_CODE=""
+
+RESOURCE_COMMAND_FILE=$(mktemp)
+MOCK_RESOURCE_CHECK_RESULT=0
+platform_ssh_exec() {
+    local _ip="$1" command="$2" _timeout="${3:-}"
+    printf '%s\n' "$command" > "$RESOURCE_COMMAND_FILE"
+    printf '%s\n' 'WORKER_RESOURCE_CHECK mocked'
+    return "$MOCK_RESOURCE_CHECK_RESULT"
+}
+platform_validate_worker_resources qemu 192.0.2.10 lightnode >/dev/null 2>&1 || fail "valid qemu/both worker check was rejected"
+grep -Fq 'required>=4' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not enforce the 4 CPU peak budget"
+grep -Fq 'required>=7680' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not allow only nominal-memory virtualization overhead"
+grep -Fq '/dev/kvm missing' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not enforce nested virtualization"
+MOCK_RESOURCE_CHECK_RESULT=1
+resource_check_rc=0
+platform_validate_worker_resources qemu 192.0.2.10 lightnode >/dev/null 2>&1 || resource_check_rc=$?
+[[ "$resource_check_rc" == "75" ]] || fail "insufficient worker resources should return infrastructure status 75"
+rm -f "$RESOURCE_COMMAND_FILE"
+
 MOCK_EXEC_MODE="selective"
 MOCK_FAIL_MATCH="pre-existing-vm"
 CAPTURED_COMMANDS=()
@@ -129,8 +220,14 @@ grep -Fq 'runtime_rc == 75' "$RUN_ENV_TEST" ||
     fail "the environment orchestrator does not preserve transient runtime status 75"
 grep -Fq 'dirty_node_rc == 75' "$RUN_ENV_TEST" ||
     fail "the environment orchestrator does not classify missing fixtures as infrastructure"
-grep -Fq 'ACTION_TEST_QEMU_CONTAINER_CPU' "$RUN_ENV_TEST" ||
-    fail "QEMU container sizing does not leave capacity for the VM matrix"
+grep -Fq 'configure_action_test_resources_for_env "$ENV_TYPE"' "$RUN_ENV_TEST" ||
+    fail "the environment orchestrator does not apply provider-specific instance sizing"
+NODE_MANAGER="${ROOT_DIR}/action_tests/common/node_manager.sh"
+grep -Fq 'platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}"' "$NODE_MANAGER" ||
+    fail "runtime verification does not recheck the worker peak resource budget"
+NETWORK_MODE_TEST="${ROOT_DIR}/action_tests/run_network_mode_test.sh"
+grep -Fq 'configure_action_test_resources_for_env "$ENV_TYPE"' "$NETWORK_MODE_TEST" ||
+    fail "the network-mode worker path does not apply provider-specific instance sizing"
 
 INTEGRATION_WORKFLOW="${ROOT_DIR}/.github/workflows/integration-tests.yml"
 grep -Fq 'bash scripts/tests/action_harness_classification_test.sh' "$INTEGRATION_WORKFLOW" ||

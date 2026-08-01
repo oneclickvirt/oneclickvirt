@@ -108,6 +108,15 @@ _lightnode_get_default_package() {
     [[ "$target_memory" =~ ^[0-9]+$ ]] || target_memory=4096
     [[ "$tier" =~ ^[0-9]+$ && "$tier" -gt 0 ]] || tier=3
     [[ "$strict" == "true" || "$strict" == "false" ]] || strict=true
+    if declare -f worker_resource_requirements >/dev/null 2>&1; then
+        local required_cpu required_memory _required_disk _require_kvm
+        read -r required_cpu required_memory _required_disk _require_kvm < <(worker_resource_requirements "${ENV_TYPE:-docker}")
+        if (( required_cpu > target_cpu || required_memory > target_memory )); then
+            (( required_cpu > target_cpu )) && target_cpu="$required_cpu"
+            (( required_memory > target_memory )) && target_memory="$required_memory"
+            log_info "[lightnode] Raised package floor for ${ENV_TYPE:-docker}/${INSTANCE_TYPES:-both} to ${target_cpu}C/${target_memory}MB"
+        fi
+    fi
 
     local package_code
     package_code=$(printf '%s' "$body" | jq -r 2>/dev/null \
@@ -150,23 +159,23 @@ def zone_match:
 | if $explicit != "" then
     ($pkgs
       | map(select(package_code == $explicit))
-      | map(select(($strict != "true") or ((cpu_cores == $target_cpu) and (memory_mb == $target_memory))))
+      | map(select((cpu_cores >= $target_cpu) and (memory_mb >= $target_memory)))
       | .[0]
       | package_code)
   else
     (($pkgs | map(select((cpu_cores == $target_cpu) and (memory_mb == $target_memory)))[0] | package_code) //
-     (if $strict != "true" then (($pkgs[($tier - 1)] | package_code) // ($pkgs[0] | package_code)) else null end) //
+     (if $strict != "true" then ($pkgs | map(select((cpu_cores >= $target_cpu) and (memory_mb >= $target_memory))) | sort_by(cpu_cores, memory_mb) | ((.[($tier - 1)] // .[0]) | package_code)) else null end) //
      empty)
   end
 ') || package_code=""
 
     if [[ -z "$package_code" ]]; then
         if [[ -n "${LIGHTNODE_PACKAGE_CODE}" ]]; then
-            log_error "[lightnode] Configured LIGHTNODE_PACKAGE_CODE is unavailable or does not match ${target_cpu}C/${target_memory}MB in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}"
+            log_error "[lightnode] Configured LIGHTNODE_PACKAGE_CODE is unavailable or smaller than ${target_cpu}C/${target_memory}MB in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}"
         else
             log_error "[lightnode] Required ${target_cpu}C/${target_memory}MB package is unavailable in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}; refusing to fall back to a smaller instance"
         fi
-        return 1
+        return 75
     fi
     log_info "[lightnode] Using package=${package_code} (required=${target_cpu}C/${target_memory}MB tier=${tier}, strict=${strict})"
     echo "$package_code"
@@ -251,8 +260,14 @@ lightnode_platform_init() {
 lightnode_platform_create_instance() {
     local env_type="$1"
     log_info "[lightnode] Creating instance: env=${env_type}"
-    local package_code; package_code=$(_lightnode_get_default_package)
-    [[ -z "$package_code" ]] && { log_error "[lightnode] No packages available"; return 1; }
+    local package_code package_rc=0
+    package_code=$(_lightnode_get_default_package) || package_rc=$?
+    if (( package_rc != 0 )) || [[ -z "$package_code" ]]; then
+        PLATFORM_LAST_ERROR="resource_exhausted"
+        log_error "[lightnode] No package satisfies the worker resource budget"
+        (( package_rc == 0 )) && package_rc=75
+        return "$package_rc"
+    fi
     local os_name="debian"
     [[ "${env_type}" == "lxd" ]] && os_name="ubuntu"
     local image_uuid; image_uuid=$(_lightnode_get_image_uuid "${os_name}")
