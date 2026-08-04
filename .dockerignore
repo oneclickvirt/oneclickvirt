@@ -43,6 +43,7 @@ docker-compose.yaml
 deploy/*
 !deploy/no-db-entrypoint.sh
 !deploy/all-in-one-entrypoint.sh
+!deploy/default.conf
 
 # Misc
 copy_project.sh
