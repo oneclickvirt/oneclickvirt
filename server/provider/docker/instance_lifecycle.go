@@ -32,7 +32,7 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 			zap.String("status", status))
 	} else if strings.Contains(status, "running") {
 		global.APP_LOG.Debug("容器已在运行", zap.String("id", utils.TruncateString(id, 32)))
-		return nil
+		return d.restoreRoutedIPv6AfterStart(id)
 	}
 
 	global.APP_LOG.Debug("开始启动Docker实例",
@@ -70,10 +70,10 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 			if currentStatus == "running" {
 				// 容器已经启动，再等待额外的时间确保服务完全就绪
 				time.Sleep(2 * time.Second)
-				global.APP_LOG.Debug("容器已成功启动并就绪",
-					zap.String("id", utils.TruncateString(id, 32)),
-					zap.Duration("wait_time", time.Since(startTime)))
-				return nil
+					global.APP_LOG.Debug("容器已成功启动并就绪",
+						zap.String("id", utils.TruncateString(id, 32)),
+						zap.Duration("wait_time", time.Since(startTime)))
+					return d.restoreRoutedIPv6AfterStart(id)
 			}
 		}
 
@@ -149,10 +149,10 @@ func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) erro
 			if repairErr := d.repairIptablesChains(""); repairErr != nil {
 				return fmt.Errorf("failed to repair Docker iptables chains before restart retry: %w; original output: %s", repairErr, utils.TruncateString(strings.TrimSpace(output), 8000))
 			}
-			output, err = d.sshClient.Execute(restartCmd)
-			if err == nil {
-				global.APP_LOG.Info("Docker实例重启在iptables修复后成功", zap.String("id", utils.TruncateString(id, 32)))
-				return nil
+				output, err = d.sshClient.Execute(restartCmd)
+				if err == nil {
+					global.APP_LOG.Info("Docker实例重启在iptables修复后成功", zap.String("id", utils.TruncateString(id, 32)))
+					return d.restoreRoutedIPv6AfterStart(id)
 			}
 		}
 		global.APP_LOG.Error("Docker实例重启失败",
@@ -164,7 +164,7 @@ func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) erro
 	}
 
 	global.APP_LOG.Info("Docker实例重启成功", zap.String("id", utils.TruncateString(id, 32)))
-	return nil
+	return d.restoreRoutedIPv6AfterStart(id)
 }
 
 func isDockerIptablesChainError(output string) bool {

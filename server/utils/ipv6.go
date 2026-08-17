@@ -15,13 +15,34 @@ type IPv6Network struct {
 	PrefixLen int
 }
 
+// RoutedIPv6BridgeName is shared by the tunnel host setup and provider
+// backends. It is intentionally short enough for Linux interface names.
+const RoutedIPv6BridgeName = "oneclickvirt6"
+
 // ContainerNetworkSelection is the resolved runtime network attachment for a
 // container. StaticIPv6 is canonical and is only populated for an IPv6
 // selection.
 type ContainerNetworkSelection struct {
-	Network    string
-	StaticIPv6 string
-	IPv6       bool
+	// Network is the network passed to the initial runtime create command.
+	// AdditionalNetworks are connected after the container exists. Keeping the
+	// two phases explicit is required for NAT IPv4 + routed IPv6: the runtime's
+	// default network must remain the IPv4 gateway while the IPv6 macvlan is
+	// attached to the tunnel bridge.
+	Network               string
+	AdditionalNetworks    []string
+	StaticIPv6            string
+	IPv6Network           string
+	RoutedCIDR            string
+	RoutedGateway         string
+	RoutedBridge          string
+	RoutedTunnelID        uint
+	RoutedTunnelInterface string
+	IPv6                  bool
+	// RoutedVeth means IPv6 is attached after container creation with a veth
+	// pair into the managed tunnel bridge. Docker-like macvlan networks cannot
+	// reach a gateway hosted on their parent interface, so a normal bridge veth
+	// is required for routed tunnel prefixes.
+	RoutedVeth bool
 }
 
 // NetworkTypeHasIPv6 reports whether the control-plane network type requires
@@ -54,9 +75,10 @@ func ResolveContainerNetwork(networkType, staticIPv6, ipv4Network, ipv6Network s
 
 	if hasIPv6 && ipv6NetworkAvailable {
 		return ContainerNetworkSelection{
-			Network:    ipv6Network,
-			StaticIPv6: normalizedIPv6,
-			IPv6:       true,
+			Network:     ipv6Network,
+			StaticIPv6:  normalizedIPv6,
+			IPv6Network: ipv6Network,
+			IPv6:        true,
 		}, nil
 	}
 	if normalizedIPv6 != "" {

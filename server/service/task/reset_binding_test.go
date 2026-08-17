@@ -7,6 +7,7 @@ import (
 
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	ipv6PoolService "oneclickvirt/service/ipv6pool"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -96,5 +97,55 @@ func TestTransferResetEgressBindingInTxRejectsPendingDelete(t *testing.T) {
 	}
 	if unchanged.InstanceID != 21 || !unchanged.PendingDelete {
 		t.Fatalf("pending binding changed: %#v", unchanged)
+	}
+}
+
+func TestApplyIPv6AllocationMetadataPreservesRoutedFields(t *testing.T) {
+	metadata := map[string]string{"network_type": "nat_ipv4_ipv6"}
+	applyIPv6AllocationMetadata(metadata, ipv6PoolService.IPv6AllocationMetadata{
+		Address: "2001:db8::2", CIDR: "2001:db8::/126", Gateway: "2001:db8::1", Bridge: "oneclickvirt6", TunnelID: 17, TunnelInterface: "he-ipv6",
+	})
+	for key, want := range map[string]string{
+		"static_ipv6":                  "2001:db8::2",
+		"static_ipv6_cidr":             "2001:db8::/126",
+		"static_ipv6_gateway":          "2001:db8::1",
+		"static_ipv6_bridge":           "oneclickvirt6",
+		"static_ipv6_tunnel_id":        "17",
+		"static_ipv6_tunnel_interface": "he-ipv6",
+		"static_ipv6_network":          "2001:db8::/126",
+	} {
+		if got := metadata[key]; got != want {
+			t.Fatalf("metadata[%q] = %q, want %q", key, got, want)
+		}
+	}
+
+	native := map[string]string{}
+	applyIPv6AllocationMetadata(native, ipv6PoolService.IPv6AllocationMetadata{Address: "2001:db8::30"})
+	if native["static_ipv6"] != "2001:db8::30" || len(native) != 1 {
+		t.Fatalf("native metadata = %#v", native)
+	}
+}
+
+func TestValidateResetRoutedIPv6RejectsMissingOrLegacyTunnelMetadata(t *testing.T) {
+	valid := ipv6PoolService.IPv6AllocationMetadata{
+		Address: "2001:db8::2", CIDR: "2001:db8::/126", Gateway: "2001:db8::1",
+		Bridge: "oneclickvirt6", TunnelID: 17, TunnelInterface: "he-ipv6",
+	}
+	if err := validateResetRoutedIPv6("qemu", "nat_ipv4_ipv6", "2001:db8::2", valid); err != nil {
+		t.Fatalf("valid routed reset unexpectedly failed: %v", err)
+	}
+	if err := validateResetRoutedIPv6("qemu", "nat_ipv4_ipv6", "", valid); err == nil || !strings.Contains(err.Error(), "缺少可迁移") {
+		t.Fatalf("missing allocation error = %v", err)
+	}
+	legacy := valid
+	legacy.CIDR = ""
+	if err := validateResetRoutedIPv6("virtualbox", "nat_ipv4_ipv6", "2001:db8::2", legacy); err == nil || !strings.Contains(err.Error(), "缺少隧道路由") {
+		t.Fatalf("legacy pool error = %v", err)
+	}
+	if err := validateResetRoutedIPv6("vmware", "nat_ipv4", "2001:db8::2", legacy); err == nil {
+		t.Fatal("stale routed allocation must not be silently discarded during reset")
+	}
+	if err := validateResetRoutedIPv6("proxmox", "nat_ipv4_ipv6", "", ipv6PoolService.IPv6AllocationMetadata{}); err != nil {
+		t.Fatalf("native IPv6 backend should retain its existing reset behavior: %v", err)
 	}
 }

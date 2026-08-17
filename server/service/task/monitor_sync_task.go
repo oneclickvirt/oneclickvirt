@@ -38,7 +38,11 @@ func (s *TaskService) executeMonitorSyncTask(ctx context.Context, task *adminMod
 	now := time.Now()
 	_ = global.APP_DB.Model(&monitoringModel.MonitorSyncTask{}).
 		Where("id = ?", data.MonitorSyncTaskID).
-		Updates(map[string]interface{}{"status": "running", "started_at": &now, "admin_task_id": task.ID}).Error
+		Updates(map[string]interface{}{
+			"status":        monitoringModel.MonitorSyncTaskStatusRunning,
+			"started_at":    &now,
+			"admin_task_id": task.ID,
+		}).Error
 
 	finish := func(status string, summary *agentService.MonitorSyncSummary, taskErr error) error {
 		if summary == nil {
@@ -80,18 +84,18 @@ func (s *TaskService) executeMonitorSyncTask(ctx context.Context, task *adminMod
 
 	var config monitoringModel.MonitoringConfig
 	if err := global.APP_DB.Where("provider_id = ?", data.ProviderID).First(&config).Error; err != nil {
-		return finish("failed", &agentService.MonitorSyncSummary{Failed: 1}, fmt.Errorf("读取监控配置失败: %w", err))
+		return finish(monitoringModel.MonitorSyncTaskStatusFailed, &agentService.MonitorSyncSummary{Failed: 1}, fmt.Errorf("读取监控配置失败: %w", err))
 	}
 	providerInstance, err := providerService.GetProviderInstanceByID(data.ProviderID)
 	if err != nil {
-		return finish("failed", &agentService.MonitorSyncSummary{Failed: 1}, fmt.Errorf("Provider未连接: %w", err))
+		return finish(monitoringModel.MonitorSyncTaskStatusFailed, &agentService.MonitorSyncSummary{Failed: 1}, fmt.Errorf("Provider未连接: %w", err))
 	}
 
 	utils.UpdateTaskProgress(task.ID, 20, "monitorSync.ensureMonitors")
 	monitorSvc := agentService.NewMonitorService(ctx, global.APP_DB)
 	summary, err := monitorSvc.EnsureMonitorsForProvider(providerInstance, data.ProviderID, &config)
 	if err != nil {
-		return finish("failed", summary, err)
+		return finish(monitoringModel.MonitorSyncTaskStatusFailed, summary, err)
 	}
 
 	utils.UpdateTaskProgress(task.ID, 80, "monitorSync.cleanupStale")
@@ -104,9 +108,9 @@ func (s *TaskService) executeMonitorSyncTask(ctx context.Context, task *adminMod
 	}
 
 	if cleanupErr != nil {
-		return finish("failed", summary, cleanupErr)
+		return finish(monitoringModel.MonitorSyncTaskStatusFailed, summary, cleanupErr)
 	}
-	return finish("success", summary, nil)
+	return finish(monitoringModel.MonitorSyncTaskStatusCompleted, summary, nil)
 }
 
 // CreateMonitorSyncAdminTask creates a user-visible task-list task for a monitor

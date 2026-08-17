@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// UserTrafficService 用户流量服务 - 提供基于 pmacct 的流量查询
+// UserTrafficService 用户流量服务 - 提供统一原始流量记录的查询。
 type UserTrafficService struct {
 	queryService *QueryService
 	limitService *LimitService
@@ -68,6 +68,14 @@ func (s *UserTrafficService) fetchUserTrafficOverview(userID uint) (map[string]i
 	if err != nil {
 		global.APP_LOG.Warn("检查Provider流量统计状态失败", zap.Error(err))
 	}
+	dataSource := trafficDataSourceNone
+	if hasEnabledTrafficControl {
+		dataSource, err = trafficDataSourceForUser(userID)
+		if err != nil {
+			global.APP_LOG.Warn("查询用户流量采集来源失败", zap.Uint("userID", userID), zap.Error(err))
+			dataSource = trafficDataSourceNone
+		}
+	}
 
 	// 如果所有Provider都禁用了流量统计，返回无限制状态
 	if !hasEnabledTrafficControl {
@@ -78,7 +86,7 @@ func (s *UserTrafficService) fetchUserTrafficOverview(userID uint) (map[string]i
 			"usage_percent":           float64(0),
 			"is_limited":              false,
 			"traffic_control_enabled": false,
-			"data_source":             "none",
+			"data_source":             dataSource,
 			"rx_bytes":                int64(0),
 			"tx_bytes":                int64(0),
 			"total_bytes":             int64(0),
@@ -124,7 +132,7 @@ func (s *UserTrafficService) fetchUserTrafficOverview(userID uint) (map[string]i
 		"is_limited":              u.TrafficLimited,
 		"reset_time":              resetAt,
 		"traffic_control_enabled": true,
-		"data_source":             "pmacct_realtime",
+		"data_source":             dataSource,
 		"rx_bytes":                stats.RxBytes,
 		"tx_bytes":                stats.TxBytes,
 		"total_bytes":             stats.TotalBytes,
@@ -219,7 +227,7 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 
 	// 获取Provider配置
 	var prov provider.Provider
-	if err := global.APP_DB.Select("id, enable_traffic_control, traffic_count_mode, traffic_multiplier").
+	if err := global.APP_DB.Select("id, enable_traffic_control, traffic_count_mode, traffic_multiplier, traffic_sync_method").
 		First(&prov, instance.ProviderID).Error; err != nil {
 		return nil, fmt.Errorf("查询Provider配置失败: %w", err)
 	}
@@ -231,6 +239,7 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 			"instance_name":           instance.Name,
 			"mapped_ip":               mappedIP,
 			"traffic_control_enabled": false,
+			"data_source":             trafficDataSourceForProvider(prov),
 			"current_month_usage_mb":  float64(0),
 			"rx_bytes":                int64(0),
 			"tx_bytes":                int64(0),
@@ -280,6 +289,7 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 		"total_bytes":             stats.TotalBytes,
 		"traffic_count_mode":      prov.TrafficCountMode,
 		"traffic_multiplier":      prov.TrafficMultiplier,
+		"data_source":             trafficDataSourceForProvider(prov),
 		"interfaces":              interfaces,
 		"year":                    now.Year(),
 		"month":                   int(now.Month()),

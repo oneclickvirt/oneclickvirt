@@ -331,7 +331,8 @@ export const deleteProviderIPv6PoolEntry = (providerId, entryId) => {
 export const getProviderIPv6Tunnels = (providerId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/ipv6-tunnels`,
-    method: 'get'
+    method: 'get',
+    suppressApiVersionMismatch: true
   })
 }
 
@@ -340,7 +341,8 @@ export const createProviderIPv6Tunnel = (providerId, data) => {
     url: `/v1/admin/providers/${providerId}/ipv6-tunnels`,
     method: 'post',
     data,
-    timeout: 120000
+    timeout: 120000,
+    suppressApiVersionMismatch: true
   })
 }
 
@@ -349,7 +351,8 @@ export const updateProviderIPv6Tunnel = (providerId, tunnelId, data) => {
     url: `/v1/admin/providers/${providerId}/ipv6-tunnels/${tunnelId}`,
     method: 'put',
     data,
-    timeout: 120000
+    timeout: 120000,
+    suppressApiVersionMismatch: true
   })
 }
 
@@ -357,7 +360,8 @@ export const enableProviderIPv6Tunnel = (providerId, tunnelId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/ipv6-tunnels/${tunnelId}/enable`,
     method: 'post',
-    timeout: 120000
+    timeout: 120000,
+    suppressApiVersionMismatch: true
   })
 }
 
@@ -365,7 +369,8 @@ export const disableProviderIPv6Tunnel = (providerId, tunnelId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/ipv6-tunnels/${tunnelId}/disable`,
     method: 'post',
-    timeout: 120000
+    timeout: 120000,
+    suppressApiVersionMismatch: true
   })
 }
 
@@ -373,7 +378,8 @@ export const checkProviderIPv6Tunnels = (providerId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/ipv6-tunnels/check`,
     method: 'post',
-    timeout: 120000
+    timeout: 120000,
+    suppressApiVersionMismatch: true
   })
 }
 
@@ -381,7 +387,18 @@ export const deleteProviderIPv6Tunnel = (providerId, tunnelId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/ipv6-tunnels/${tunnelId}`,
     method: 'delete',
-    timeout: 120000
+    timeout: 120000,
+    suppressApiVersionMismatch: true
+  })
+}
+
+export const detectProviderIPv6TunnelLocalIPv4 = (providerId, remoteIpv4 = '') => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/ipv6-tunnels/detect-local-ipv4`,
+    method: 'post',
+    data: { remoteIpv4 },
+    timeout: 30000,
+    suppressApiVersionMismatch: true
   })
 }
 

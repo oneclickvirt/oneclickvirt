@@ -232,6 +232,15 @@ func (p *VMwareProvider) CreateInstanceWithProgress(ctx context.Context, config 
 	if strings.TrimSpace(config.Name) == "" {
 		return fmt.Errorf("instance name is required")
 	}
+	ipv6Plan, err := provider.ResolveRoutedIPv6VMPlan(config, "vmware")
+	if err != nil {
+		return err
+	}
+	if ipv6Plan.Routed != nil {
+		if err := p.preflightRoutedIPv6(ipv6Plan); err != nil {
+			return err
+		}
+	}
 
 	updateProgress(progress, 10, "preparing VMware template")
 	src := p.resolveTemplatePath(config)
@@ -254,6 +263,12 @@ func (p *VMwareProvider) CreateInstanceWithProgress(ctx context.Context, config 
 			return fmt.Errorf("failed to clone VMware template: %w; fallback failed: %v; output: %s", err, copyErr, utils.TruncateString(copyOut, 500))
 		}
 	}
+	if ipv6Plan.Routed != nil {
+		if err := p.configureRoutedIPv6(exec, dst, config, ipv6Plan); err != nil {
+			p.cleanupRoutedIPv6VM(exec, dst, config.Name)
+			return err
+		}
+	}
 
 	updateProgress(progress, 65, "applying VMware resource settings")
 	if err := p.applyResourceSettings(exec, dst, config); err != nil {
@@ -262,6 +277,9 @@ func (p *VMwareProvider) CreateInstanceWithProgress(ctx context.Context, config 
 
 	updateProgress(progress, 85, "starting VMware instance")
 	if err := p.StartInstance(ctx, dst); err != nil {
+		if ipv6Plan.Routed != nil {
+			p.cleanupRoutedIPv6VM(exec, dst, config.Name)
+		}
 		return err
 	}
 	updateProgress(progress, 100, "VMware instance created")
@@ -297,7 +315,11 @@ func (p *VMwareProvider) DeleteInstance(ctx context.Context, id string) error {
 		return err
 	}
 	_ = p.StopInstance(ctx, vmx)
-	cmd := fmt.Sprintf("vmrun deleteVM %s 2>/dev/null || rm -rf %s", shellQuote(vmx), shellQuote(path.Dir(vmx)))
+	cmd := fmt.Sprintf(`seed="$(awk -F'"' '/^ide1:1.fileName = /{print $2; exit}' %s 2>/dev/null || true)"
+vmrun deleteVM %s 2>/dev/null || rm -rf %s
+case "$seed" in
+  %s/.oneclickvirt-ipv6-seeds/*) rm -f -- "$seed" ;;
+esac`, shellQuote(vmx), shellQuote(vmx), shellQuote(path.Dir(vmx)), shellQuote(p.libraryPath()))
 	_, err = exec.ExecuteWithTimeout(cmd, 5*time.Minute)
 	return err
 }

@@ -15,6 +15,7 @@ import {
   clearProviderMonitors,
   listAgentMonitors
 } from '@/api/admin'
+import { isMonitorSyncActive, isMonitorSyncFailed, isMonitorSyncTerminal } from './monitorSyncStatus'
 
 export function useMonitoringManagement(props, emit) {
   const { t } = useI18n()
@@ -318,12 +319,8 @@ export function useMonitoringManagement(props, emit) {
       const res = await getProviderMonitorSyncTask(props.provider.id, taskId)
       if (res.code === 200 && res.data) {
         syncTask.value = res.data
-        if (res.data.status === 'completed') {
-          await finishSyncTask(res.data, false)
-          return
-        }
-        if (res.data.status === 'failed') {
-          await finishSyncTask(res.data, true)
+        if (isMonitorSyncTerminal(res.data.status)) {
+          await finishSyncTask(res.data, isMonitorSyncFailed(res.data.status))
           return
         }
       }
@@ -342,16 +339,16 @@ export function useMonitoringManagement(props, emit) {
       if (res.code === 200) {
         const task = res.data || {}
         syncTask.value = task
-        if (task.task_id && (task.status === 'pending' || task.status === 'running')) {
+        if (task.task_id && isMonitorSyncActive(task.status)) {
           ElMessage.info(t('admin.providers.syncMonitorsSuccess'))
           pollSyncTask(task.task_id)
           return
         }
-        await finishSyncTask(task, task.status === 'failed')
+        await finishSyncTask(task, isMonitorSyncFailed(task.status))
       } else { ElMessage.error(res.msg || t('admin.providers.syncMonitorsFailed')) }
     } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.syncMonitorsFailed')) }
     finally {
-      if (!syncTask.value?.task_id || !['pending', 'running'].includes(syncTask.value.status)) {
+      if (!syncTask.value?.task_id || !isMonitorSyncActive(syncTask.value.status)) {
         syncLoading.value = false
       }
     }

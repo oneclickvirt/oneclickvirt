@@ -130,6 +130,16 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-Port $server_port;' >> /etc/nginx/nginx.conf && \
     echo '        }' >> /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {' >> /etc/nginx/nginx.conf && \
+    echo '            try_files $uri =404;' >> /etc/nginx/nginx.conf && \
+    echo '            add_header Cache-Control "public, max-age=604800, immutable";' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        location = /index.html {' >> /etc/nginx/nginx.conf && \
+    echo '            try_files $uri =404;' >> /etc/nginx/nginx.conf && \
+    echo '            add_header Cache-Control "no-cache, no-store, must-revalidate" always;' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location / {' >> /etc/nginx/nginx.conf && \
     echo '            try_files $uri $uri/ /index.html;' >> /etc/nginx/nginx.conf && \
     echo '        }' >> /etc/nginx/nginx.conf && \

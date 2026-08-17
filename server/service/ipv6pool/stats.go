@@ -6,7 +6,6 @@ import (
 	"net"
 	"strings"
 
-	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 )
 
@@ -19,30 +18,36 @@ func (s *Service) GetPoolStats(providerID uint) (total, allocated, available int
 }
 
 func (s *Service) GetPoolStatsDetail(providerID uint) (PoolStats, error) {
+	db := s.database()
+	if db == nil {
+		return PoolStats{}, fmt.Errorf("数据库连接不可用")
+	}
 	var aggregate struct {
 		Entries       int64
 		Materialized  int64
 		Ranges        int64
 		OpenRanges    int64
 		PendingRetire int64
+		Reserved      int64
 		Allocated     int64
 		Reusable      int64
 	}
-	if err := global.APP_DB.Model(&providerModel.ProviderIPv6Pool{}).
+	if err := db.Model(&providerModel.ProviderIPv6Pool{}).
 		Select(`COUNT(*) AS entries,
 COALESCE(SUM(CASE WHEN is_range = 0 THEN 1 ELSE 0 END), 0) AS materialized,
 COALESCE(SUM(CASE WHEN is_range = 1 THEN 1 ELSE 0 END), 0) AS ranges,
 COALESCE(SUM(CASE WHEN is_range = 1 AND pending_retire = 0 AND range_next <> '' THEN 1 ELSE 0 END), 0) AS open_ranges,
 COALESCE(SUM(CASE WHEN pending_retire = 1 THEN 1 ELSE 0 END), 0) AS pending_retire,
-COALESCE(SUM(CASE WHEN is_range = 0 AND is_allocated = 1 THEN 1 ELSE 0 END), 0) AS allocated,
-COALESCE(SUM(CASE WHEN is_range = 0 AND is_allocated = 0 AND pending_retire = 0 THEN 1 ELSE 0 END), 0) AS reusable`).
+COALESCE(SUM(CASE WHEN is_reserved = 1 THEN 1 ELSE 0 END), 0) AS reserved,
+COALESCE(SUM(CASE WHEN is_range = 0 AND is_reserved = 0 AND is_allocated = 1 THEN 1 ELSE 0 END), 0) AS allocated,
+COALESCE(SUM(CASE WHEN is_range = 0 AND is_reserved = 0 AND is_allocated = 0 AND pending_retire = 0 THEN 1 ELSE 0 END), 0) AS reusable`).
 		Where("provider_id = ? AND deleted_at IS NULL", providerID).Scan(&aggregate).Error; err != nil {
 		return PoolStats{}, err
 	}
 
 	var openRanges []providerModel.ProviderIPv6Pool
-	if err := global.APP_DB.Select("address", "range_next").
-		Where("provider_id = ? AND is_range = ? AND pending_retire = ? AND range_next <> '' AND deleted_at IS NULL", providerID, true, false).
+	if err := db.Select("address", "range_next").
+		Where("provider_id = ? AND is_range = ? AND is_reserved = ? AND pending_retire = ? AND range_next <> '' AND deleted_at IS NULL", providerID, true, false, false).
 		Find(&openRanges).Error; err != nil {
 		return PoolStats{}, err
 	}
@@ -63,7 +68,7 @@ COALESCE(SUM(CASE WHEN is_range = 0 AND is_allocated = 0 AND pending_retire = 0 
 	}
 	return PoolStats{
 		Entries: aggregate.Entries, Materialized: aggregate.Materialized,
-		Ranges: aggregate.Ranges, OpenRanges: aggregate.OpenRanges,
+		Ranges: aggregate.Ranges, OpenRanges: aggregate.OpenRanges, Reserved: aggregate.Reserved,
 		PendingRetire: aggregate.PendingRetire, Allocated: aggregate.Allocated, Reusable: aggregate.Reusable,
 		Available: numericAvailable, AvailableExact: available.String(),
 		AvailableSaturated: saturated,

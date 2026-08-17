@@ -220,7 +220,6 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	// 3. 删除关联的Service (NodePort)
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc %s -n %s 2>/dev/null", shellSingleQuote(id+"-ssh"), shellSingleQuote(Namespace)))
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc %s -n %s 2>/dev/null", shellSingleQuote(id+"-ports"), shellSingleQuote(Namespace)))
-
 	// 4. 删除关联的 DataVolume 和 PVC
 	// DataVolume 名称为 {id}-dv（与创建时保持一致），删除 DataVolume 后 CDI 会同步删除其 PVC
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s --ignore-not-found=true 2>/dev/null", shellSingleQuote(id+"-dv"), shellSingleQuote(Namespace)))
@@ -250,6 +249,9 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	output, err := p.sshClient.Execute(fmt.Sprintf(
 		"kubectl get vm %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
 	if err != nil || strings.Contains(output, "NotFound") || strings.Contains(output, "not found") {
+		// Multus may still read the NAD while tearing down the launcher pod. Only
+		// remove the per-instance definition after the VM object is gone.
+		p.deleteRoutedKubeVirtNADByInstance(id)
 		global.APP_LOG.Info("KubeVirt虚拟机删除成功", zap.String("id", utils.TruncateString(id, 32)))
 		return nil
 	}

@@ -21,7 +21,7 @@ func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) er
 
 	status := strings.ToLower(strings.TrimSpace(statusOutput))
 	if strings.Contains(status, "running") {
-		return nil
+		return c.restoreRoutedIPv6AfterStart(id)
 	}
 
 	startCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(id))
@@ -48,7 +48,7 @@ func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) er
 			currentStatus := strings.ToLower(strings.TrimSpace(statusOutput))
 			if currentStatus == "running" {
 				time.Sleep(2 * time.Second)
-				return nil
+				return c.restoreRoutedIPv6AfterStart(id)
 			}
 		}
 	}
@@ -95,7 +95,7 @@ func (c *ContainerdProvider) sshRestartInstance(ctx context.Context, id string) 
 		return fmt.Errorf("failed to restart container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 	global.APP_LOG.Info("Containerd实例重启成功", zap.String("id", utils.TruncateString(id, 32)))
-	return nil
+	return c.restoreRoutedIPv6AfterStart(id)
 }
 
 // sshDeleteInstance 删除实例 - 多重删除策略

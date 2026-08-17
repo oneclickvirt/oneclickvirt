@@ -77,6 +77,11 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 	diskFormatted := convertDiskFormat(config.Disk)
 
 	// 构造API请求创建容器
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+	if err := p.preflightIPv6Create(ctx, config, networkConfig.NetworkType); err != nil {
+		return err
+	}
+
 	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc", p.config.Host, p.node)
 
 	payload := map[string]interface{}{
@@ -106,21 +111,19 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 
 	resp, err := p.apiClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("执行API请求失败: %w", err)
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("执行创建容器API请求失败: %w", err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		var respData map[string]interface{}
 		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("创建容器失败: status %d, response: %v", resp.StatusCode, respData)
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("创建容器失败: status %d, response: %v", resp.StatusCode, respData))
 	}
 
 	updateProgress(70, "配置容器网络...")
 
 	// 解析网络配置获取带宽限制
-	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
-
 	// 配置网络（使用VMID到IP的映射函数，包含带宽限制）
 	userIP := p.vmidToInternalIP(vmid)
 	netConfigURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%d/config", p.config.Host, p.node, vmid)
@@ -142,22 +145,24 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 
 	netJsonData, err := json.Marshal(netPayload)
 	if err != nil {
-		global.APP_LOG.Warn("序列化网络配置失败", zap.Error(err))
-		return nil
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("序列化容器网络配置失败: %w", err))
 	}
 	netReq, err := http.NewRequestWithContext(ctx, "PUT", netConfigURL, strings.NewReader(string(netJsonData)))
 	if err != nil {
-		global.APP_LOG.Warn("创建网络配置请求失败", zap.Error(err))
-		return nil
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("创建容器网络配置请求失败: %w", err))
 	}
 	netReq.Header.Set("Content-Type", "application/json")
 	p.setAPIAuth(netReq)
 
 	netResp, err := p.apiClient.Do(netReq)
 	if err != nil {
-		global.APP_LOG.Warn("配置容器网络失败", zap.Error(err))
-	} else {
-		netResp.Body.Close()
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置容器网络失败: %w", err))
+	}
+	defer netResp.Body.Close()
+	if netResp.StatusCode != http.StatusOK {
+		var respData map[string]interface{}
+		json.NewDecoder(netResp.Body).Decode(&respData)
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置容器网络失败: status %d, response: %v", netResp.StatusCode, respData))
 	}
 
 	updateProgress(80, "启动容器...")
@@ -256,12 +261,14 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 
 	// 获取网络配置用于带宽限制与IPv6网卡判断
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
-	hasIPv6 := hasProxmoxIPv6(networkConfig.NetworkType)
+	if err := p.preflightIPv6Create(ctx, config, networkConfig.NetworkType); err != nil {
+		return err
+	}
 	var net1Bridge string
-	if hasIPv6 {
-		ipv6Mode, err := p.resolveProxmoxIPv6ModeForCreate(ctx)
+	if proxmoxVMUsesIPv6SecondNIC(networkConfig.NetworkType) {
+		ipv6Mode, err := p.resolveProxmoxIPv6ModeForConfig(ctx, config)
 		if err != nil {
-			if networkConfig.NetworkType == "ipv6_only" {
+			if networkConfig.NetworkType == "ipv6_only" || requestedProxmoxIPv6(config) != "" {
 				return fmt.Errorf("IPv6环境检查失败（ipv6_only模式要求IPv6环境）: %w", err)
 			}
 			global.APP_LOG.Warn("获取IPv6信息失败，将先创建单网卡虚拟机，后续网络配置会回退",
@@ -328,14 +335,14 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 
 	resp, err := p.apiClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("执行API请求失败: %w", err)
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("执行创建虚拟机API请求失败: %w", err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		var respData map[string]interface{}
 		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("创建虚拟机失败: status %d, response: %v", resp.StatusCode, respData)
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("创建虚拟机失败: status %d, response: %v", resp.StatusCode, respData))
 	}
 
 	updateProgress(60, "导入磁盘镜像...")
@@ -351,7 +358,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	importCmd := fmt.Sprintf("qm importdisk %d %s %s", vmid, localImagePath, storage)
 	_, err = p.sshClient.Execute(importCmd)
 	if err != nil {
-		return fmt.Errorf("导入磁盘失败: %w", err)
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("导入磁盘失败: %w", err))
 	}
 
 	updateProgress(70, "配置虚拟机磁盘和启动...")

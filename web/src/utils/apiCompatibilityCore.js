@@ -1,4 +1,4 @@
-export const expectedApiContract = '2026-07-29.1'
+export const expectedApiContract = '2026-08-16.1'
 
 export function isUnmatchedApiRoute(error) {
   if (Number(error?.response?.status) !== 404) return false

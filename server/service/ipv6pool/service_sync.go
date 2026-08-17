@@ -35,6 +35,17 @@ type nodeFileReader func(context.Context, uint, string) (string, error)
 
 type Service struct {
 	readNodeFile nodeFileReader
+	db           *gorm.DB
+}
+
+// database returns the connection owned by this service. Keeping the fallback
+// to the process-global handle preserves the existing constructor contract,
+// while embedded workflows and tests can use an isolated database safely.
+func (s *Service) database() *gorm.DB {
+	if s != nil && s.db != nil {
+		return s.db
+	}
+	return global.APP_DB
 }
 
 type SyncResult struct {
@@ -61,6 +72,7 @@ type PoolStats struct {
 	Ranges             int64  `json:"ranges"`
 	OpenRanges         int64  `json:"openRanges"`
 	PendingRetire      int64  `json:"pendingRetire"`
+	Reserved           int64  `json:"reserved"`
 	Allocated          int64  `json:"allocated"`
 	Reusable           int64  `json:"reusable"`
 	Available          int64  `json:"available"`
@@ -69,17 +81,35 @@ type PoolStats struct {
 }
 
 func NewService() *Service {
-	return &Service{readNodeFile: readProviderNodeFile}
+	return &Service{readNodeFile: readProviderNodeFile, db: global.APP_DB}
+}
+
+// NewServiceWithDB is used by embedded workflows and tests that keep their own
+// short-lived database connection instead of the process-global controller DB.
+func NewServiceWithDB(db *gorm.DB) *Service {
+	return &Service{readNodeFile: readProviderNodeFile, db: db}
 }
 
 // SupportsStaticIPv6 reports providers whose current create path can consume
-// a controller-selected address. QEMU's default libvirt NAT and KubeVirt's pod
-// CNI cannot safely accept an arbitrary routed address without additional
-// network/gateway data, so they are intentionally excluded instead of silently
-// discarding the allocation.
+// a controller-selected address. VM backends that need a routed bridge are
+// included here so tunnel-backed pools can be allocated before their own
+// capability preflight rejects an incompatible host.
 func SupportsStaticIPv6(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "lxd", "incus", "proxmox", "proxmoxve", "docker", "podman", "containerd", "orbstack":
+	case "lxd", "incus", "proxmox", "proxmoxve", "docker", "podman", "containerd", "orbstack", "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
+		return true
+	default:
+		return false
+	}
+}
+
+// RequiresRoutedStaticIPv6 identifies providers whose guest network cannot
+// safely consume a bare controller pool address. Callers should require a
+// non-empty allocation CIDR for these providers and release an incompatible
+// allocation before making any remote mutation.
+func RequiresRoutedStaticIPv6(providerType string) bool {
+	switch strings.ToLower(strings.TrimSpace(providerType)) {
+	case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
 		return true
 	default:
 		return false
@@ -88,7 +118,11 @@ func SupportsStaticIPv6(providerType string) bool {
 
 func (s *Service) HasConfiguredPool(providerID uint) (bool, error) {
 	var count int64
-	err := global.APP_DB.Model(&providerModel.ProviderIPv6Pool{}).
+	db := s.database()
+	if db == nil {
+		return false, fmt.Errorf("数据库连接不可用")
+	}
+	err := db.Model(&providerModel.ProviderIPv6Pool{}).
 		Where("provider_id = ? AND parent_id IS NULL AND pending_retire = ? AND deleted_at IS NULL", providerID, false).
 		Count(&count).Error
 	return count > 0, err
@@ -97,7 +131,11 @@ func (s *Service) HasConfiguredPool(providerID uint) (bool, error) {
 func (s *Service) GetIPv6Pool(providerID uint, page, pageSize int) ([]providerModel.ProviderIPv6Pool, int64, error) {
 	var entries []providerModel.ProviderIPv6Pool
 	var total int64
-	query := global.APP_DB.Model(&providerModel.ProviderIPv6Pool{}).
+	db := s.database()
+	if db == nil {
+		return nil, 0, fmt.Errorf("数据库连接不可用")
+	}
+	query := db.Model(&providerModel.ProviderIPv6Pool{}).
 		Where("provider_id = ? AND deleted_at IS NULL", providerID)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -121,11 +159,18 @@ func (s *Service) SetIPv6Pool(providerID uint, text string) (added, invalid []st
 		return nil, invalid, err
 	}
 
-	err = global.APP_DB.Transaction(func(tx *gorm.DB) error {
+	db := s.database()
+	if db == nil {
+		return nil, invalid, fmt.Errorf("数据库连接不可用")
+	}
+	err = db.Transaction(func(tx *gorm.DB) error {
 		var lockedProvider providerModel.Provider
-		if err := tx.Select("id").Where("id = ?", providerID).
+		if err := tx.Select("id", "type").Where("id = ?", providerID).
 			Clauses(clause.Locking{Strength: "UPDATE"}).First(&lockedProvider).Error; err != nil {
 			return fmt.Errorf("锁定Provider IPv6地址池失败: %w", err)
+		}
+		if RequiresRoutedStaticIPv6(lockedProvider.Type) {
+			return fmt.Errorf("Provider类型 %s 仅支持由IPv6隧道自动管理的路由前缀，不能手工配置静态IPv6地址池", lockedProvider.Type)
 		}
 		var existing []providerModel.ProviderIPv6Pool
 		if err := tx.Unscoped().Where("provider_id = ? AND parent_id IS NULL", providerID).Find(&existing).Error; err != nil {
@@ -146,6 +191,9 @@ func (s *Service) SetIPv6Pool(providerID uint, text string) (added, invalid []st
 				toCreate = append(toCreate, entry)
 				added = append(added, entry.Address)
 				continue
+			}
+			if old.TunnelID != nil || old.Source == SourceTunnel {
+				return fmt.Errorf("地址 %s 由IPv6隧道自动管理，不能通过手工地址池覆盖", entry.Address)
 			}
 			if old.DeletedAt != nil && !old.IsAllocated {
 				toRestore = append(toRestore, old.ID)
@@ -201,8 +249,15 @@ func (s *Service) SetIPv6Pool(providerID uint, text string) (added, invalid []st
 func (s *Service) SyncProviderFile(ctx context.Context, providerID uint, pathOverride ...string) (SyncResult, error) {
 	result := SyncResult{}
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Select("id", "ipv6_address_file_path").First(&dbProvider, providerID).Error; err != nil {
+	db := s.database()
+	if db == nil {
+		return result, fmt.Errorf("数据库连接不可用")
+	}
+	if err := db.Select("id", "type", "ipv6_address_file_path").First(&dbProvider, providerID).Error; err != nil {
 		return result, fmt.Errorf("读取Provider IPv6文件配置失败: %w", err)
+	}
+	if RequiresRoutedStaticIPv6(dbProvider.Type) {
+		return result, fmt.Errorf("Provider类型 %s 仅支持由IPv6隧道自动管理的路由前缀，不能同步节点静态IPv6地址文件", dbProvider.Type)
 	}
 	rawPath := dbProvider.IPv6AddressFilePath
 	if len(pathOverride) > 0 {
@@ -215,7 +270,7 @@ func (s *Service) SyncProviderFile(ctx context.Context, providerID uint, pathOve
 	}
 	result.Path = filePath
 	if len(pathOverride) > 0 && filePath != strings.TrimSpace(dbProvider.IPv6AddressFilePath) {
-		if err := global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", providerID).
+		if err := db.Model(&providerModel.Provider{}).Where("id = ?", providerID).
 			Update("ipv6_address_file_path", filePath).Error; err != nil {
 			return result, fmt.Errorf("保存节点IPv6地址文件路径失败: %w", err)
 		}
@@ -289,7 +344,11 @@ func (s *Service) reconcileNodeFile(providerID uint, desired []providerModel.Pro
 		desiredByAddress[entry.Address] = entry
 	}
 
-	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+	db := s.database()
+	if db == nil {
+		return fmt.Errorf("数据库连接不可用")
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
 		var lockedProvider providerModel.Provider
 		if err := tx.Select("id").Where("id = ?", providerID).
 			Clauses(clause.Locking{Strength: "UPDATE"}).First(&lockedProvider).Error; err != nil {
@@ -425,7 +484,11 @@ func (s *Service) recordSyncError(providerID uint, syncErr error) {
 	if len(message) > 1000 {
 		message = message[:1000]
 	}
-	_ = global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", providerID).
+	db := s.database()
+	if db == nil {
+		return
+	}
+	_ = db.Model(&providerModel.Provider{}).Where("id = ?", providerID).
 		Update("ipv6_address_file_sync_error", message).Error
 }
 

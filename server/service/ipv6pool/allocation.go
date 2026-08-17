@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 
 	"gorm.io/gorm"
@@ -16,7 +15,11 @@ import (
 
 func (s *Service) ClearUnallocated(providerID uint) (int64, error) {
 	var deleted int64
-	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+	db := s.database()
+	if db == nil {
+		return 0, fmt.Errorf("数据库连接不可用")
+	}
+	err := db.Transaction(func(tx *gorm.DB) error {
 		var lockedProvider providerModel.Provider
 		if err := tx.Select("id").Where("id = ?", providerID).
 			Clauses(clause.Locking{Strength: "UPDATE"}).First(&lockedProvider).Error; err != nil {
@@ -29,13 +32,13 @@ func (s *Service) ClearUnallocated(providerID uint) (int64, error) {
 			Pluck("parent_id", &protectedRangeIDs).Error; err != nil {
 			return fmt.Errorf("读取已分配IPv6范围失败: %w", err)
 		}
-		result := tx.Where("provider_id = ? AND is_allocated = ? AND deleted_at IS NULL AND is_range = ?", providerID, false, false).
+		result := tx.Where("provider_id = ? AND is_allocated = ? AND is_reserved = ? AND tunnel_id IS NULL AND deleted_at IS NULL AND is_range = ?", providerID, false, false, false).
 			Delete(&providerModel.ProviderIPv6Pool{})
 		if result.Error != nil {
 			return result.Error
 		}
 		deleted += result.RowsAffected
-		rangeDelete := tx.Where("provider_id = ? AND is_range = ? AND deleted_at IS NULL", providerID, true)
+		rangeDelete := tx.Where("provider_id = ? AND is_range = ? AND source <> ? AND tunnel_id IS NULL AND deleted_at IS NULL", providerID, true, SourceTunnel)
 		if len(protectedRangeIDs) > 0 {
 			rangeDelete = rangeDelete.Where("id NOT IN ?", protectedRangeIDs)
 		}
@@ -50,7 +53,11 @@ func (s *Service) ClearUnallocated(providerID uint) (int64, error) {
 }
 
 func (s *Service) DeleteAddress(providerID, entryID uint) error {
-	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+	db := s.database()
+	if db == nil {
+		return fmt.Errorf("数据库连接不可用")
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
 		var lockedProvider providerModel.Provider
 		if err := tx.Select("id").Where("id = ?", providerID).
 			Clauses(clause.Locking{Strength: "UPDATE"}).First(&lockedProvider).Error; err != nil {
@@ -59,6 +66,12 @@ func (s *Service) DeleteAddress(providerID, entryID uint) error {
 		var entry providerModel.ProviderIPv6Pool
 		if err := tx.Where("id = ? AND provider_id = ? AND deleted_at IS NULL", entryID, providerID).First(&entry).Error; err != nil {
 			return fmt.Errorf("地址不存在")
+		}
+		if entry.IsReserved {
+			return fmt.Errorf("IPv6网关保留地址不可删除")
+		}
+		if entry.TunnelID != nil || entry.Source == SourceTunnel {
+			return fmt.Errorf("隧道自动管理的IPv6地址池请通过隧道生命周期修改")
 		}
 		if entry.IsAllocated {
 			return fmt.Errorf("地址已分配，无法删除")
@@ -86,11 +99,15 @@ func (s *Service) DeleteAddress(providerID, entryID uint) error {
 // an existing binding for idempotent task retries and reuses released children
 // before advancing a range cursor.
 func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, error) {
+	db := s.database()
+	if db == nil {
+		return "", fmt.Errorf("数据库连接不可用")
+	}
 	for {
 		var allocated string
 		advancedCursor := false
 		exhausted := false
-		err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		err := db.Transaction(func(tx *gorm.DB) error {
 			// This short provider-row lock serializes allocation with pool sync and
 			// makes same-instance retries deterministic without holding any remote I/O.
 			var lockedProvider providerModel.Provider
@@ -100,7 +117,7 @@ func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, erro
 			}
 
 			var existing providerModel.ProviderIPv6Pool
-			existingResult := tx.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND deleted_at IS NULL", providerID, instanceID, true).
+			existingResult := tx.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND is_reserved = ? AND deleted_at IS NULL", providerID, instanceID, true, false).
 				Order("id ASC").First(&existing)
 			if existingResult.Error == nil {
 				allocated = existing.Address
@@ -113,11 +130,11 @@ func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, erro
 			// Released discrete rows and materialized range children are reused
 			// before a range cursor advances.
 			var entry providerModel.ProviderIPv6Pool
-			query := tx.Where("provider_id = ? AND is_allocated = ? AND is_range = ? AND pending_retire = ? AND deleted_at IS NULL", providerID, false, false, false).
+			query := tx.Where("provider_id = ? AND is_allocated = ? AND is_reserved = ? AND is_range = ? AND pending_retire = ? AND deleted_at IS NULL", providerID, false, false, false, false).
 				Order("id ASC").First(&entry)
 			if query.Error == nil {
 				update := tx.Model(&providerModel.ProviderIPv6Pool{}).
-					Where("id = ? AND is_allocated = ? AND pending_retire = ?", entry.ID, false, false).
+					Where("id = ? AND is_allocated = ? AND is_reserved = ? AND pending_retire = ?", entry.ID, false, false, false).
 					Updates(map[string]interface{}{"is_allocated": true, "instance_id": instanceID})
 				if update.Error != nil {
 					return fmt.Errorf("分配IPv6地址失败: %w", update.Error)
@@ -133,7 +150,7 @@ func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, erro
 			}
 
 			var source providerModel.ProviderIPv6Pool
-			rangeResult := tx.Where("provider_id = ? AND is_range = ? AND pending_retire = ? AND range_next <> '' AND deleted_at IS NULL", providerID, true, false).
+			rangeResult := tx.Where("provider_id = ? AND is_range = ? AND is_reserved = ? AND pending_retire = ? AND range_next <> '' AND deleted_at IS NULL", providerID, true, false, false).
 				Order("id ASC").Clauses(clause.Locking{Strength: "UPDATE"}).First(&source)
 			if errors.Is(rangeResult.Error, gorm.ErrRecordNotFound) {
 				exhausted = true
@@ -176,7 +193,7 @@ func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, erro
 				child := providerModel.ProviderIPv6Pool{
 					ProviderID: providerID, Address: candidate, PrefixLength: 128,
 					ParentID: &source.ID, IsAllocated: true, InstanceID: &instanceID,
-					Source: SourceRangeChild,
+					TunnelID: source.TunnelID, Source: SourceRangeChild,
 				}
 				createResult := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&child)
 				if createResult.Error != nil {
@@ -188,7 +205,7 @@ func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, erro
 					// A defensive fallback for a concurrent unique-key winner. The
 					// provider lock normally makes this path unreachable.
 					var concurrent providerModel.ProviderIPv6Pool
-					if err := tx.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND deleted_at IS NULL", providerID, instanceID, true).
+					if err := tx.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND is_reserved = ? AND deleted_at IS NULL", providerID, instanceID, true, false).
 						First(&concurrent).Error; err == nil {
 						allocated = concurrent.Address
 					} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -241,14 +258,14 @@ func (s *Service) TransferIPv6BindingWithDB(tx *gorm.DB, providerID, oldInstance
 	}
 
 	var target providerModel.ProviderIPv6Pool
-	targetResult := tx.Where("instance_id = ? AND is_allocated = ? AND deleted_at IS NULL", newInstanceID, true).
+	targetResult := tx.Where("instance_id = ? AND is_allocated = ? AND is_reserved = ? AND deleted_at IS NULL", newInstanceID, true, false).
 		Clauses(clause.Locking{Strength: "UPDATE"}).First(&target)
 	if targetResult.Error == nil {
 		if target.ProviderID != providerID {
 			return "", fmt.Errorf("新实例已绑定其他Provider的IPv6地址")
 		}
 		var source providerModel.ProviderIPv6Pool
-		sourceResult := tx.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND deleted_at IS NULL", providerID, oldInstanceID, true).
+		sourceResult := tx.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND is_reserved = ? AND deleted_at IS NULL", providerID, oldInstanceID, true, false).
 			Clauses(clause.Locking{Strength: "UPDATE"}).First(&source)
 		if sourceResult.Error == nil && source.ID != target.ID {
 			return "", fmt.Errorf("新旧实例同时存在IPv6地址绑定，拒绝不明确的迁移")
@@ -263,7 +280,7 @@ func (s *Service) TransferIPv6BindingWithDB(tx *gorm.DB, providerID, oldInstance
 	}
 
 	var source providerModel.ProviderIPv6Pool
-	sourceResult := tx.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND deleted_at IS NULL", providerID, oldInstanceID, true).
+	sourceResult := tx.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND is_reserved = ? AND deleted_at IS NULL", providerID, oldInstanceID, true, false).
 		Clauses(clause.Locking{Strength: "UPDATE"}).First(&source)
 	if errors.Is(sourceResult.Error, gorm.ErrRecordNotFound) {
 		return "", nil
@@ -306,7 +323,11 @@ func ipv6RangeCandidateWindow(source providerModel.ProviderIPv6Pool, limit int) 
 }
 
 func (s *Service) ReleaseIPv6(instanceID uint) error {
-	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+	db := s.database()
+	if db == nil {
+		return fmt.Errorf("数据库连接不可用")
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
 		return s.ReleaseIPv6WithDB(tx, instanceID)
 	})
 }
@@ -321,7 +342,7 @@ func (s *Service) ReleaseIPv6WithDB(tx *gorm.DB, instanceID uint) error {
 
 	var providerIDs []uint
 	if err := tx.Model(&providerModel.ProviderIPv6Pool{}).
-		Where("instance_id = ? AND is_allocated = ? AND deleted_at IS NULL", instanceID, true).
+		Where("instance_id = ? AND is_allocated = ? AND is_reserved = ? AND deleted_at IS NULL", instanceID, true, false).
 		Distinct("provider_id").Pluck("provider_id", &providerIDs).Error; err != nil {
 		return fmt.Errorf("查询IPv6地址绑定失败: %w", err)
 	}
@@ -336,7 +357,7 @@ func (s *Service) ReleaseIPv6WithDB(tx *gorm.DB, instanceID uint) error {
 	}
 
 	var bindings []providerModel.ProviderIPv6Pool
-	if err := tx.Where("instance_id = ? AND is_allocated = ? AND deleted_at IS NULL", instanceID, true).
+	if err := tx.Where("instance_id = ? AND is_allocated = ? AND is_reserved = ? AND deleted_at IS NULL", instanceID, true, false).
 		Order("id ASC").Clauses(clause.Locking{Strength: "UPDATE"}).Find(&bindings).Error; err != nil {
 		return fmt.Errorf("锁定IPv6地址绑定失败: %w", err)
 	}
@@ -356,7 +377,7 @@ func (s *Service) ReleaseIPv6WithDB(tx *gorm.DB, instanceID uint) error {
 
 		if !purge {
 			if err := tx.Model(&providerModel.ProviderIPv6Pool{}).
-				Where("id = ? AND is_allocated = ?", binding.ID, true).
+				Where("id = ? AND is_allocated = ? AND is_reserved = ?", binding.ID, true, false).
 				Updates(map[string]interface{}{"is_allocated": false, "instance_id": nil}).Error; err != nil {
 				return fmt.Errorf("释放IPv6地址失败: %w", err)
 			}
@@ -389,8 +410,12 @@ func (s *Service) ReleaseIPv6WithDB(tx *gorm.DB, instanceID uint) error {
 }
 
 func (s *Service) GetAllocatedAddress(instanceID uint) (string, error) {
+	db := s.database()
+	if db == nil {
+		return "", fmt.Errorf("数据库连接不可用")
+	}
 	var entry providerModel.ProviderIPv6Pool
-	err := global.APP_DB.Where("instance_id = ? AND is_allocated = ? AND deleted_at IS NULL", instanceID, true).
+	err := db.Where("instance_id = ? AND is_allocated = ? AND is_reserved = ? AND deleted_at IS NULL", instanceID, true, false).
 		Order("id ASC").First(&entry).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", nil

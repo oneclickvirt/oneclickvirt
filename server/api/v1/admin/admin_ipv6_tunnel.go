@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"encoding/json"
+	"errors"
+	"io"
 	"strconv"
 
 	"oneclickvirt/model/common"
@@ -51,7 +54,7 @@ func CreateProviderIPv6Tunnel(c *gin.Context) {
 	}
 	tunnel, err := ipv6tunnel.NewService().Create(c.Request.Context(), providerID, request)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		responseIPv6TunnelError(c, err)
 		return
 	}
 	common.ResponseSuccess(c, tunnel, "创建成功")
@@ -79,7 +82,7 @@ func UpdateProviderIPv6Tunnel(c *gin.Context) {
 	}
 	tunnel, err := ipv6tunnel.NewService().Update(c.Request.Context(), providerID, tunnelID, request)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		responseIPv6TunnelError(c, err)
 		return
 	}
 	common.ResponseSuccess(c, tunnel, "更新成功")
@@ -117,7 +120,7 @@ func setProviderIPv6TunnelEnabled(c *gin.Context, enabled bool) {
 	}
 	tunnel, err := ipv6tunnel.NewService().SetEnabled(c.Request.Context(), providerID, tunnelID, enabled)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		responseIPv6TunnelError(c, err)
 		return
 	}
 	message := "禁用成功"
@@ -141,7 +144,7 @@ func CheckProviderIPv6Tunnels(c *gin.Context) {
 	}
 	tunnels, err := ipv6tunnel.NewService().CheckAll(c.Request.Context(), providerID)
 	if err != nil {
-		common.ResponseWithError(c, common.ClassifyError(err))
+		responseIPv6TunnelError(c, err)
 		return
 	}
 	common.ResponseSuccess(c, gin.H{"list": tunnels}, "检查完成")
@@ -161,10 +164,49 @@ func DeleteProviderIPv6Tunnel(c *gin.Context) {
 		return
 	}
 	if err := ipv6tunnel.NewService().Delete(c.Request.Context(), providerID, tunnelID); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		responseIPv6TunnelError(c, err)
 		return
 	}
 	common.ResponseSuccess(c, nil, "删除成功")
+}
+
+// DetectProviderIPv6TunnelLocalIPv4 reads the route-selected IPv4 source from
+// the node. NAT-backed nodes can correctly return a private address here.
+// @Summary 自动识别IPv6隧道客户端IPv4
+// @Description 按隧道服务端IPv4查询节点路由的src字段；未提供服务端时查询默认IPv4出站路由。
+// @Tags 服务商管理
+// @Security BearerAuth
+// @Param id path int true "服务商ID"
+// @Param body body ipv6tunnel.DetectLocalIPv4Request false "可选的隧道服务端IPv4"
+// @Success 200 {object} common.Response "识别成功"
+// @Router /admin/providers/{id}/ipv6-tunnels/detect-local-ipv4 [post]
+func DetectProviderIPv6TunnelLocalIPv4(c *gin.Context) {
+	providerID, ok := ownedIPv6TunnelProvider(c)
+	if !ok {
+		return
+	}
+	var request ipv6tunnel.DetectLocalIPv4Request
+	if err := json.NewDecoder(c.Request.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
+		return
+	}
+	detection, err := ipv6tunnel.NewService().DetectLocalIPv4(c.Request.Context(), providerID, request.RemoteIPv4)
+	if err != nil {
+		responseIPv6TunnelError(c, err)
+		return
+	}
+	common.ResponseSuccess(c, detection, "客户端IPv4识别成功")
+}
+
+func responseIPv6TunnelError(c *gin.Context, err error) {
+	if ipv6tunnel.IsRemoteCommandError(err) {
+		// A CDN can replace an origin 502 page with its own generic gateway
+		// response, hiding the node diagnostics that an operator needs. 424 is
+		// the accurate dependency-failure status and preserves the JSON details.
+		common.ResponseWithError(c, common.NewErrorWithMessage(common.CodeFailedDependency, "IPv6隧道节点操作失败", err.Error()))
+		return
+	}
+	common.ResponseWithError(c, common.ClassifyError(err))
 }
 
 func ownedIPv6TunnelProvider(c *gin.Context) (uint, bool) {

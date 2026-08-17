@@ -25,6 +25,10 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 	if strings.TrimSpace(config.ImageURL) == "" {
 		return fmt.Errorf("QEMU/LXC container requires a rootfs image URL")
 	}
+	ipv6Plan, err := p.preflightQEMUIPv6(config)
+	if err != nil {
+		return err
+	}
 
 	name := qemuSafeFileComponent(config.Name)
 	rootfs := fmt.Sprintf("%s/%s/rootfs", LXCBaseDir, name)
@@ -116,29 +120,47 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 		return fmt.Errorf("failed to generate MAC address: %w", err)
 	}
 	containerMAC := strings.TrimSpace(macOutput)
-	p.ipMu.Lock()
-	containerIP, err := p.allocateIP()
-	if err != nil {
+	routedMAC := ""
+	if ipv6Plan.Routed != nil {
+		routedMACOutput, macErr := p.sshClient.Execute("printf '52:54:%02x:%02x:%02x:%02x\n' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256))")
+		if macErr != nil {
+			return fmt.Errorf("生成隧道IPv6网卡MAC地址失败: %w", macErr)
+		}
+		routedMAC = strings.TrimSpace(routedMACOutput)
+	}
+	containerIP := ""
+	if !ipv6Plan.IPv6Only {
+		p.ipMu.Lock()
+		containerIP, err = p.allocateIP()
+		if err != nil {
+			p.ipMu.Unlock()
+			return fmt.Errorf("failed to allocate LXC IP: %w", err)
+		}
+		p.setupDHCPReservation(config.Name, containerMAC, containerIP)
 		p.ipMu.Unlock()
-		return fmt.Errorf("failed to allocate LXC IP: %w", err)
 	}
-	p.setupDHCPReservation(config.Name, containerMAC, containerIP)
-	p.ipMu.Unlock()
-
-	updateProgress(55, "配置端口转发")
-	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
-	if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
-		return fmt.Errorf("防火墙后端检测失败: %w", err)
-	}
-	if err := fwMgr.InitTable(); err != nil {
-		return fmt.Errorf("防火墙初始化失败: %w", err)
-	}
-	if sshPort > 0 {
-		if err := fwMgr.AddDNAT(config.Name, containerIP, sshPort, startPort, endPort); err != nil {
-			return fmt.Errorf("端口转发规则添加失败: %w", err)
+	if ipv6Plan.Routed != nil {
+		if err := p.configureLXCIPv6Rootfs(rootfs, *ipv6Plan.Routed, routedMAC); err != nil {
+			return err
 		}
 	}
-	fwMgr.SaveRules()
+
+	updateProgress(55, "配置端口转发")
+	if !ipv6Plan.IPv6Only {
+		fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
+		if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
+			return fmt.Errorf("防火墙后端检测失败: %w", err)
+		}
+		if err := fwMgr.InitTable(); err != nil {
+			return fmt.Errorf("防火墙初始化失败: %w", err)
+		}
+		if sshPort > 0 {
+			if err := fwMgr.AddDNAT(config.Name, containerIP, sshPort, startPort, endPort); err != nil {
+				return fmt.Errorf("端口转发规则添加失败: %w", err)
+			}
+		}
+		fwMgr.SaveRules()
+	}
 
 	updateProgress(70, "定义 libvirt-lxc 容器")
 	xmlPath := fmt.Sprintf("/tmp/oneclickvirt-lxc-%s.xml", name)
@@ -147,6 +169,23 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 	emulator := strings.TrimSpace(emulatorOutput)
 	if emulator == "" {
 		emulator = "/usr/libexec/libvirt_lxc"
+	}
+	routedInterface := ""
+	if ipv6Plan.Routed != nil {
+		routedInterface = fmt.Sprintf(`
+	    <interface type='bridge'>
+	      <mac address='%s'/>
+	      <source bridge='%s'/>
+	      <model type='virtio'/>
+	    </interface>`, xmlEscape(routedMAC), xmlEscape(ipv6Plan.Routed.Bridge))
+	}
+	primaryInterface := fmt.Sprintf(`
+	    <interface type='network'>
+	      <mac address='%s'/>
+	      <source network='default'/>
+	    </interface>`, xmlEscape(containerMAC))
+	if ipv6Plan.IPv6Only {
+		primaryInterface = ""
 	}
 	xml := fmt.Sprintf(`<domain type='lxc'>
   <name>%s</name>
@@ -166,14 +205,11 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
       <source dir='%s'/>
       <target dir='/'/>
     </filesystem>
-    <interface type='network'>
-      <mac address='%s'/>
-      <source network='default'/>
-    </interface>
-    <console type='pty'/>
-  </devices>
+	%s%s
+	    <console type='pty'/>
+	  </devices>
 </domain>
-`, xmlEscape(config.Name), memoryMB, memoryMB, cpu, xmlEscape(emulator), xmlEscape(rootfs), xmlEscape(containerMAC))
+`, xmlEscape(config.Name), memoryMB, memoryMB, cpu, xmlEscape(emulator), xmlEscape(rootfs), primaryInterface, routedInterface)
 	if err := p.sshClient.UploadContent(xml, xmlPath, 0600); err != nil {
 		return fmt.Errorf("failed to upload LXC XML: %w", err)
 	}
@@ -188,6 +224,13 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 	if output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// start %s 2>&1", shellSingleQuote(config.Name))); err != nil {
 		p.sshDeleteLXCContainer(context.Background(), config.Name)
 		return fmt.Errorf("failed to start LXC container: %s, %w", utils.TruncateString(output, 500), err)
+	}
+	if ipv6Plan.Routed != nil {
+		enterCommand := fmt.Sprintf("virsh -c lxc:/// lxc-enter-namespace %s -- /usr/local/sbin/oneclickvirt-routed-ipv6 2>&1", shellSingleQuote(config.Name))
+		if output, enterErr := p.sshClient.Execute(enterCommand); enterErr != nil {
+			p.sshDeleteLXCContainer(context.Background(), config.Name)
+			return fmt.Errorf("应用libvirt-lxc隧道IPv6地址失败: %s: %w", utils.TruncateString(strings.TrimSpace(output), 1000), enterErr)
+		}
 	}
 	p.applyLibvirtIOLimits(ctx, "lxc:///", config.Name, "", config)
 	p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// autostart %s 2>/dev/null || true", shellSingleQuote(config.Name)))

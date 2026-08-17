@@ -148,3 +148,34 @@ func TestIncusStaticIPv6SkipsMissingHostCIDRAndParsesNoisyTunnelProbe(t *testing
 		t.Fatalf("noisy tunnel probe did not select he-ipv6: %#v", executor.commands)
 	}
 }
+
+func TestIncusRoutedIPv6ChecksManagedBridgeAndProtectsExistingEth1(t *testing.T) {
+	executor := &recordingIncusIPv6Executor{
+		errors:  []error{nil, nil, errors.New("existing device is unrelated")},
+		outputs: []string{"", "", "existing eth1"},
+	}
+	incusProvider := &IncusProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+	_, err := incusProvider.setupRoutedNetworkDeviceIPv6(IPv6Config{
+		ContainerName: "guest", ContainerIPv6: "2001:db8::2",
+		RoutedCIDR: "2001:db8::/126", RoutedGateway: "2001:db8::1", RoutedBridge: "oneclickvirt6", RoutedTunnelInterface: "he-ipv6",
+	})
+	if err == nil || !strings.Contains(err.Error(), "existing device is unrelated") {
+		t.Fatalf("setupRoutedNetworkDeviceIPv6() error = %v", err)
+	}
+	if len(executor.commands) != 3 {
+		t.Fatalf("commands = %#v, want host check, stop, and guarded device command", executor.commands)
+	}
+	for _, fragment := range []string{"ip -d link show dev 'oneclickvirt6'", "routed IPv6 bridge gateway is missing", "net.ipv6.conf.he-ipv6.forwarding", "net.ipv6.conf.oneclickvirt6.forwarding"} {
+		if !strings.Contains(executor.commands[0], fragment) {
+			t.Fatalf("host check missing %q: %s", fragment, executor.commands[0])
+		}
+	}
+	for _, fragment := range []string{"existing_type=", "refusing to replace existing eth1", "ipv6.gateway true", "ipv6.gateway=true"} {
+		if !strings.Contains(executor.commands[2], fragment) {
+			t.Fatalf("device command missing %q: %s", fragment, executor.commands[2])
+		}
+	}
+	if strings.Contains(executor.commands[2], "eth1 nictype routed") || strings.Contains(executor.commands[2], "eth1 parent 'oneclickvirt6'") {
+		t.Fatalf("device command overwrites an existing eth1: %s", executor.commands[2])
+	}
+}

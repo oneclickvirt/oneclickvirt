@@ -144,15 +144,18 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	// 获取网络类型配置
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+	if err := p.preflightIPv6Create(ctx, config, networkConfig.NetworkType); err != nil {
+		return err
+	}
 	hasIPv6 := hasProxmoxIPv6(networkConfig.NetworkType)
 
 	// 根据NetworkType选择第二个网络桥接
 	// 仅在配置了IPv6时才添加第二个网络接口
 	var net1Bridge string
-	if hasIPv6 {
-		ipv6Mode, err := p.resolveProxmoxIPv6ModeForCreate(ctx)
+	if proxmoxVMUsesIPv6SecondNIC(networkConfig.NetworkType) {
+		ipv6Mode, err := p.resolveProxmoxIPv6ModeForConfig(ctx, config)
 		if err != nil {
-			if networkConfig.NetworkType == "ipv6_only" {
+			if networkConfig.NetworkType == "ipv6_only" || requestedProxmoxIPv6(config) != "" {
 				return fmt.Errorf("IPv6环境检查失败（ipv6_only模式要求IPv6环境）: %w", err)
 			}
 			global.APP_LOG.Warn("获取IPv6信息失败",
@@ -169,6 +172,9 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 			global.APP_LOG.Warn("未检测到可用IPv6网桥，将使用单网络接口",
 				zap.String("networkType", networkConfig.NetworkType))
 		}
+	} else if hasIPv6 {
+		global.APP_LOG.Debug("IPv6-only虚拟机将在最终网络配置阶段使用net0",
+			zap.String("networkType", networkConfig.NetworkType))
 	} else {
 		// 纯IPv4模式，只使用NAT网桥
 		net1Bridge = ""

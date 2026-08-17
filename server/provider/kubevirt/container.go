@@ -125,6 +125,20 @@ func (p *KubeVirtProvider) sshCreateK3sContainer(ctx context.Context, config pro
 	if name == "" {
 		return fmt.Errorf("invalid container name: %s", config.Name)
 	}
+	ipv6Plan, err := p.preflightKubeVirtIPv6(config)
+	if err != nil {
+		return err
+	}
+	if ipv6Plan.NetworkType == "ipv6_only" {
+		return fmt.Errorf("KubeVirt Kubernetes 容器始终需要集群主 CNI，当前不支持严格的 ipv6_only；请使用 nat_ipv4_ipv6 或 KubeVirt 虚拟机")
+	}
+	nadReady := false
+	creationSucceeded := false
+	defer func() {
+		if !creationSucceeded && nadReady {
+			p.deleteRoutedKubeVirtNAD(ipv6Plan)
+		}
+	}()
 	updateProgress(5, "开始创建KubeVirt容器")
 
 	cpu := strings.TrimSpace(config.CPU)
@@ -145,6 +159,18 @@ func (p *KubeVirtProvider) sshCreateK3sContainer(ctx context.Context, config pro
 	updateProgress(10, "确保K3s命名空间存在")
 	p.sshClient.Execute(fmt.Sprintf("kubectl create namespace %s 2>/dev/null || true", shellSingleQuote(Namespace)))
 	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", shellSingleQuote(VMLogDir)))
+	if ipv6Plan.Routed != nil {
+		nadYAML, nadErr := kubeVirtRoutedNADYAML(ipv6Plan)
+		if nadErr != nil {
+			return nadErr
+		}
+		updateProgress(15, "创建Multus隧道IPv6网络")
+		nadCmd := fmt.Sprintf("cat << 'NADEOF' | kubectl apply -f - 2>&1\n%s\nNADEOF", nadYAML)
+		if output, applyErr := p.sshClient.Execute(nadCmd); applyErr != nil {
+			return fmt.Errorf("创建KubeVirt容器隧道IPv6网络失败: %w (kubectl output: %s)", applyErr, utils.TruncateString(strings.TrimSpace(output), 2000))
+		}
+		nadReady = true
+	}
 
 	updateProgress(20, "准备容器镜像")
 	imageRef, err := p.prepareK3sContainerImage(ctx, config, name, updateProgress)
@@ -153,46 +179,7 @@ func (p *KubeVirtProvider) sshCreateK3sContainer(ctx context.Context, config pro
 	}
 
 	ports := parseKubeVirtContainerPorts(config.Ports)
-	containerPortsYAML := buildKubeVirtContainerPortsYAML(ports)
-	resourcesYAML := buildKubeVirtContainerResourcesYAML(cpu, memoryMB)
-	startupScript := buildKubeVirtContainerStartupScript()
-	deploymentYAML := fmt.Sprintf(`apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: %s
-  namespace: %s
-  labels:
-    app: %s
-    oneclickvirt.io/instance: %s
-    oneclickvirt.io/type: container
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app: %s
-      oneclickvirt.io/instance: %s
-  template:
-    metadata:
-      labels:
-        app: %s
-        oneclickvirt.io/instance: %s
-        oneclickvirt.io/type: container
-    spec:
-      containers:
-        - name: main
-          image: %s
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: ONECLICKVIRT_ROOT_PASSWORD
-              value: %s
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-%s%s%s`, yamlDoubleQuote(name), yamlDoubleQuote(Namespace), yamlDoubleQuote(name), yamlDoubleQuote(name),
-		yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(imageRef), yamlDoubleQuote(password),
-		indentBlock(startupScript, 14), containerPortsYAML, resourcesYAML)
+	deploymentYAML := kubeVirtContainerDeploymentYAML(name, imageRef, password, cpu, memoryMB, ports, ipv6Plan)
 
 	updateProgress(45, "创建K3s Deployment")
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete deploy %s -n %s --ignore-not-found=true 2>/dev/null", shellSingleQuote(name), shellSingleQuote(Namespace)))
@@ -226,6 +213,7 @@ spec:
 
 	logLine := fmt.Sprintf("%s %s %s", name, "***", imageRef)
 	p.sshClient.Execute(fmt.Sprintf("printf '%%s\\n' %s >> /root/vmlog", shellSingleQuote(logLine)))
+	creationSucceeded = true
 	updateProgress(100, "KubeVirt容器创建完成")
 	return nil
 }
@@ -403,6 +391,59 @@ func buildKubeVirtContainerResourcesYAML(cpu string, memoryMB int) string {
               memory: %s`, yamlDoubleQuote(requestMemory), yamlDoubleQuote(cpu), yamlDoubleQuote(limitMemory))
 }
 
+// kubeVirtContainerDeploymentYAML keeps the optional Multus annotation and
+// node selector structurally aligned with the Pod template. It is separate
+// from the remote create flow so malformed YAML is caught in unit tests.
+func kubeVirtContainerDeploymentYAML(name, imageRef, password, cpu string, memoryMB int, ports []kubeVirtContainerPort, plan routedKubeVirtIPv6Plan) string {
+	containerPortsYAML := buildKubeVirtContainerPortsYAML(ports)
+	resourcesYAML := buildKubeVirtContainerResourcesYAML(cpu, memoryMB)
+	podAnnotations := ""
+	if annotation := kubeVirtRoutedNetworkAnnotation(plan); annotation != "" {
+		podAnnotations = fmt.Sprintf("\n      annotations:\n        k8s.v1.cni.cncf.io/networks: %s", yamlDoubleQuote(annotation))
+	}
+	nodeSelector := ""
+	if plan.Routed != nil && plan.NodeName != "" {
+		nodeSelector = fmt.Sprintf("      nodeSelector:\n        kubernetes.io/hostname: %s\n", yamlDoubleQuote(plan.NodeName))
+	}
+	return fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app: %s
+    oneclickvirt.io/instance: %s
+    oneclickvirt.io/type: container
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: %s
+      oneclickvirt.io/instance: %s
+  template:
+    metadata:
+      labels:
+        app: %s
+        oneclickvirt.io/instance: %s
+        oneclickvirt.io/type: container%s
+    spec:
+%s      containers:
+        - name: main
+          image: %s
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ONECLICKVIRT_ROOT_PASSWORD
+              value: %s
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+%s%s%s`, yamlDoubleQuote(name), yamlDoubleQuote(Namespace), yamlDoubleQuote(name), yamlDoubleQuote(name),
+		yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(name), yamlDoubleQuote(name), podAnnotations, nodeSelector, yamlDoubleQuote(imageRef), yamlDoubleQuote(password),
+		indentBlock(buildKubeVirtContainerStartupScript(), 14), containerPortsYAML, resourcesYAML)
+}
+
 func buildKubeVirtContainerStartupScript() string {
 	return `set +e
 printf 'root:%s\n' "${ONECLICKVIRT_ROOT_PASSWORD:-password}" | chpasswd 2>/dev/null || true
@@ -552,6 +593,7 @@ func (p *KubeVirtProvider) sshDeleteK3sContainer(ctx context.Context, id string)
 	}
 	output, err := p.sshClient.Execute(fmt.Sprintf("kubectl get deploy %s -n %s 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)))
 	if err != nil || strings.Contains(output, "NotFound") || strings.Contains(output, "not found") {
+		p.deleteRoutedKubeVirtNADByInstance(name)
 		global.APP_LOG.Info("KubeVirt容器删除成功", zap.String("id", utils.TruncateString(id, 32)))
 		return nil
 	}

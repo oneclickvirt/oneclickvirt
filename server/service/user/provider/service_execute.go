@@ -26,6 +26,17 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// validateProviderIPv6Network rejects configurations that the selected
+// provider cannot materialize inside a guest. This runs before any provider
+// connection or remote mutation, so an unsupported backend can never report a
+// successful IPv6 instance while silently creating an IPv4-only guest.
+func validateProviderIPv6Network(providerType, networkType string) error {
+	if !utils.NetworkTypeHasIPv6(networkType) || ipv6PoolService.SupportsStaticIPv6(providerType) {
+		return nil
+	}
+	return fmt.Errorf("Provider类型 %s 当前不支持实例IPv6网络配置；请选择支持静态IPv6分配的节点类型或改用IPv4网络类型", providerType)
+}
+
 // executeProviderCreation 阶段2: Provider创建实例 (30% -> 60%)，根据ExecutionRule自动选择API或SSH
 func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.Task, instance *providerModel.Instance) error {
 	global.APP_LOG.Debug("开始Provider创建实例阶段", zap.Uint("taskId", task.ID))
@@ -74,6 +85,9 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	localProviderIPv4PortMappingMethod := dbProvider.IPv4PortMappingMethod
 	localProviderIPv6PortMappingMethod := dbProvider.IPv6PortMappingMethod
 	localProviderNetworkType := dbProvider.NetworkType
+	if err := validateProviderIPv6Network(localProviderType, localProviderNetworkType); err != nil {
+		return err
+	}
 
 	// 检查Provider是否过期或冻结
 	if localProviderIsFrozen {
@@ -440,6 +454,9 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		// An empty configured node file is an explicit empty pool, not permission
 		// to fall back to an unmanaged provider-selected address.
 		hasConfiguredPool = hasConfiguredPool || nodeFileConfigured
+		if ipv6PoolService.RequiresRoutedStaticIPv6(localProviderType) && !hasConfiguredPool {
+			return fmt.Errorf("Provider类型 %s 的IPv6网络必须使用已启用的IPv6隧道路由地址池；请先在节点IPv6隧道面板创建并启用路由前缀", localProviderType)
+		}
 		if hasConfiguredPool && !ipv6PoolService.SupportsStaticIPv6(localProviderType) {
 			return fmt.Errorf("Provider类型 %s 当前网络后端不支持控制面静态IPv6分配；QEMU/KubeVirt等环境需要可声明静态地址的CNI或网桥", localProviderType)
 		}
@@ -450,6 +467,32 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		}
 		if allocErr == nil && allocatedIPv6 != "" {
 			instanceConfig.Metadata["static_ipv6"] = allocatedIPv6
+			releaseAllocatedIPv6 := func(cause error) error {
+				if releaseErr := poolService.ReleaseIPv6(instance.ID); releaseErr != nil {
+					global.APP_LOG.Error("创建前校验失败后释放IPv6地址失败", zap.Uint("instanceId", instance.ID), zap.Error(releaseErr))
+				}
+				return cause
+			}
+			// This is a single bounded join after allocation, not a per-provider
+			// probe. Native pools intentionally leave the routed fields empty.
+			allocationMetadata, metadataErr := poolService.GetAllocationMetadata(localProviderID, instance.ID)
+			if metadataErr != nil {
+				return releaseAllocatedIPv6(fmt.Errorf("读取已分配IPv6路由信息失败: %w", metadataErr))
+			}
+			if allocationMetadata.Address != "" && allocationMetadata.Address != allocatedIPv6 {
+				return releaseAllocatedIPv6(fmt.Errorf("已分配IPv6地址与路由元数据不一致"))
+			}
+			if ipv6PoolService.RequiresRoutedStaticIPv6(localProviderType) && strings.TrimSpace(allocationMetadata.CIDR) == "" {
+				return releaseAllocatedIPv6(fmt.Errorf("Provider类型 %s 需要隧道路由IPv6前缀、网关和网桥，当前IPv6地址池不是隧道地址池", localProviderType))
+			}
+			if allocationMetadata.CIDR != "" {
+				instanceConfig.Metadata["static_ipv6_cidr"] = allocationMetadata.CIDR
+				instanceConfig.Metadata["static_ipv6_gateway"] = allocationMetadata.Gateway
+				instanceConfig.Metadata["static_ipv6_bridge"] = allocationMetadata.Bridge
+				instanceConfig.Metadata["static_ipv6_tunnel_id"] = strconv.FormatUint(uint64(allocationMetadata.TunnelID), 10)
+				instanceConfig.Metadata["static_ipv6_tunnel_interface"] = allocationMetadata.TunnelInterface
+				instanceConfig.Metadata["static_ipv6_network"] = allocationMetadata.CIDR
+			}
 			if dbErr := global.APP_DB.Model(instance).Update("public_ipv6", allocatedIPv6).Error; dbErr != nil {
 				global.APP_LOG.Warn("预设实例public_ipv6失败", zap.Uint("taskId", task.ID), zap.Uint("instanceId", instance.ID), zap.Error(dbErr))
 			}

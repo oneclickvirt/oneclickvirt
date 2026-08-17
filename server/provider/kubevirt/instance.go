@@ -161,6 +161,10 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 	}
 
 	updateProgress(5, "开始创建KubeVirt虚拟机")
+	ipv6Plan, err := p.preflightKubeVirtIPv6(config)
+	if err != nil {
+		return err
+	}
 
 	// 解析资源配置
 	cpu, _ := strconv.Atoi(config.CPU)
@@ -228,6 +232,17 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 	if err != nil {
 		return err
 	}
+	if ipv6Plan.Routed != nil {
+		nadYAML, nadErr := kubeVirtRoutedNADYAML(ipv6Plan)
+		if nadErr != nil {
+			return nadErr
+		}
+		updateProgress(27, "创建Multus隧道IPv6网络")
+		nadCmd := fmt.Sprintf("cat << 'NADEOF' | kubectl apply -f - 2>&1\n%s\nNADEOF", nadYAML)
+		if output, applyErr := p.sshClient.Execute(nadCmd); applyErr != nil {
+			return fmt.Errorf("创建KubeVirt隧道IPv6网络失败: %w (kubectl output: %s)", applyErr, utils.TruncateString(strings.TrimSpace(output), 2000))
+		}
+	}
 
 	// 使用 CDI DataVolume 代替空 PVC，CDI 会自动从 HTTP URL 下载镜像到 PVC
 	dvName := fmt.Sprintf("%s-dv", config.Name)
@@ -239,6 +254,7 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 	dvCmd := fmt.Sprintf("cat << 'DVEOF' | kubectl apply -f - 2>&1\n%s\nDVEOF", dvYAML)
 	output, err := p.sshClient.Execute(dvCmd)
 	if err != nil {
+		p.deleteRoutedKubeVirtNAD(ipv6Plan)
 		global.APP_LOG.Error("DataVolume创建失败",
 			zap.String("name", config.Name),
 			zap.String("output", utils.TruncateString(output, 500)),
@@ -248,59 +264,9 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 
 	updateProgress(30, "创建 VirtualMachine 资源")
 
-	// 构建 VirtualMachine YAML。local-path 等 WaitForFirstConsumer 存储类需要先有 VM 消费者，
+	// local-path 等 WaitForFirstConsumer 存储类需要先有 VM 消费者，
 	// DataVolume/PVC 才会绑定并开始导入。
-	vmYAML := fmt.Sprintf(`apiVersion: kubevirt.io/v1
-kind: VirtualMachine
-metadata:
-  name: %s
-  namespace: %s
-  labels:
-    kubevirt.io/vm: %s
-    app: kubevirt-vm
-spec:
-  running: true
-  template:
-    metadata:
-      labels:
-        kubevirt.io/vm: %s
-        app: kubevirt-vm
-    spec:
-      domain:
-        cpu:
-          cores: %d
-        resources:
-          requests:
-            memory: %s
-        devices:
-          disks:
-            - name: datavolumedisk
-              disk:
-                bus: virtio
-              bootOrder: 1
-            - name: cloudinitdisk
-              disk:
-                bus: virtio
-          interfaces:
-            - name: default
-              masquerade: {}
-          rng: {}
-      networks:
-        - name: default
-          pod: {}
-      terminationGracePeriodSeconds: 30
-      volumes:
-        - name: datavolumedisk
-          dataVolume:
-            name: %s
-        - name: cloudinitdisk
-          cloudInitNoCloud:
-            userData: |
-%s`,
-		yamlDoubleQuote(config.Name), yamlDoubleQuote(Namespace), yamlDoubleQuote(config.Name), yamlDoubleQuote(config.Name),
-		cpu,
-		yamlDoubleQuote(fmt.Sprintf("%dMi", memoryMB)),
-		yamlDoubleQuote(dvName), indentBlock(kubeVirtVMCloudInitUserData(config.Name, password), 14))
+	vmYAML := kubeVirtVMYAML(config.Name, cpu, memoryMB, dvName, password, ipv6Plan)
 
 	vmCmd := fmt.Sprintf("cat << 'VMEOF' | kubectl apply -f - 2>&1\n%s\nVMEOF", vmYAML)
 	output, err = p.sshClient.Execute(vmCmd)
@@ -311,6 +277,7 @@ spec:
 			zap.Error(err))
 		// 清理 DataVolume
 		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s 2>/dev/null || true", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
+		p.deleteRoutedKubeVirtNAD(ipv6Plan)
 		return fmt.Errorf("failed to create VM: %w; kubectl output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
@@ -326,6 +293,7 @@ spec:
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.Error(cleanupErr))
 		}
+		p.deleteRoutedKubeVirtNAD(ipv6Plan)
 		return err
 	}
 
@@ -395,6 +363,7 @@ spec:
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.Error(cleanupErr))
 		}
+		p.deleteRoutedKubeVirtNAD(ipv6Plan)
 		return fmt.Errorf("VM '%s' did not reach Running state within 180 seconds; diagnostics: %s", config.Name, utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 	}
 

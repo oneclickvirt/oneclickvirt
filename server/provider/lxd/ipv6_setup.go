@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/provider"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -204,6 +205,59 @@ fi`, instanceArg, instanceArg, instanceArg, parentArg, instanceArg, addressArg, 
 	return containerIPv6, nil
 }
 
+func (l *LXDProvider) setupRoutedNetworkDeviceIPv6(config IPv6Config) (string, error) {
+	routed, present, err := provider.ResolveRoutedIPv6(provider.InstanceConfig{Metadata: map[string]string{
+		"static_ipv6":                  config.ContainerIPv6,
+		"static_ipv6_cidr":             config.RoutedCIDR,
+		"static_ipv6_gateway":          config.RoutedGateway,
+		"static_ipv6_bridge":           config.RoutedBridge,
+		"static_ipv6_tunnel_interface": config.RoutedTunnelInterface,
+	}})
+	if err != nil {
+		return "", fmt.Errorf("隧道路由IPv6配置无效: %w", err)
+	}
+	if !present {
+		return "", fmt.Errorf("隧道路由IPv6缺少地址、前缀、网关或网桥")
+	}
+	checkCmd := routed.HostCheckCommand()
+	if output, checkErr := l.sshClient.Execute(checkCmd); checkErr != nil {
+		return "", fmt.Errorf("隧道路由IPv6网桥未就绪: output=%s: %w", summarizeIPv6ProbeOutput(output), checkErr)
+	}
+	name := shellSingleQuote(config.ContainerName)
+	bridge := shellSingleQuote(routed.Bridge)
+	addressArg := shellSingleQuote(routed.Address)
+	l.sshClient.Execute(fmt.Sprintf("lxc stop %s", name))
+	deviceCmd := fmt.Sprintf(`set -eu
+if lxc config device get %s eth1 type >/dev/null 2>&1; then
+  existing_type="$(lxc config device get %s eth1 type)"
+  existing_nictype="$(lxc config device get %s eth1 nictype)"
+  existing_parent="$(lxc config device get %s eth1 parent)"
+  existing_address="$(lxc config device get %s eth1 ipv6.address)"
+  if [ "$existing_type" != nic ] || [ "$existing_nictype" != routed ] || [ "$existing_parent" != %s ] || [ "$existing_address" != %s ]; then
+    printf 'refusing to replace existing eth1: type=%%s nictype=%%s parent=%%s ipv6.address=%%s\n' "$existing_type" "$existing_nictype" "$existing_parent" "$existing_address" >&2
+    exit 1
+  fi
+  lxc config device set %s eth1 ipv6.gateway true
+else
+  lxc config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s ipv6.gateway=true
+fi`, name, name, name, name, name, bridge, addressArg, name, name, bridge, addressArg)
+	if output, deviceErr := l.sshClient.Execute(deviceCmd); deviceErr != nil {
+		return "", fmt.Errorf("添加隧道路由IPv6网络设备失败: output=%s: %w", summarizeIPv6ProbeOutput(output), deviceErr)
+	}
+	startOutput, startErr := l.sshClient.Execute(fmt.Sprintf("lxc start %s", name))
+	if startErr != nil {
+		return "", fmt.Errorf("启动隧道路由IPv6实例失败: output=%s: %w", summarizeIPv6ProbeOutput(startOutput), startErr)
+	}
+	if config.InstanceType == "vm" {
+		if waitErr := l.waitForVMNetworkReady(config.ContainerName); waitErr != nil {
+			global.APP_LOG.Warn("等待LXD VM隧道IPv6网络就绪超时", zap.Error(waitErr))
+		}
+	} else if waitErr := l.waitForContainerNetworkReady(config.ContainerName); waitErr != nil {
+		global.APP_LOG.Warn("等待LXD容器隧道IPv6网络就绪超时", zap.Error(waitErr))
+	}
+	return routed.Address, nil
+}
+
 // configureIPv6Sysctls writes one clean, dedicated sysctl file. The
 // interface-specific key is persisted only when its procfs knob exists, so a
 // missing/renamed interface can never poison /etc/sysctl.conf.
@@ -290,7 +344,7 @@ func (l *LXDProvider) handleIPv6Gateway(ctx context.Context, interfaceName strin
 }
 
 // configureIPv6Network 主要的IPv6网络配置函数
-func (l *LXDProvider) configureIPv6Network(ctx context.Context, containerName string, enableIPv6 bool, portMappingMethod, requestedIPv6 string) error {
+func (l *LXDProvider) configureIPv6Network(ctx context.Context, containerName string, enableIPv6 bool, portMappingMethod, requestedIPv6 string, routed *provider.RoutedIPv6Config, instanceType string) error {
 	if !enableIPv6 {
 		global.APP_LOG.Debug("IPv6未启用，跳过IPv6配置", zap.String("container", containerName))
 		return nil
@@ -299,6 +353,29 @@ func (l *LXDProvider) configureIPv6Network(ctx context.Context, containerName st
 	global.APP_LOG.Debug("开始配置IPv6网络",
 		zap.String("container", containerName),
 		zap.String("portMappingMethod", portMappingMethod))
+	if routed != nil {
+		if portMappingMethod == "iptables" {
+			global.APP_LOG.Warn("隧道独立IPv6不使用iptables NAT，改用routed网络设备", zap.String("container", containerName))
+		}
+		routedConfig := IPv6Config{
+			ContainerName: containerName, ContainerIPv6: requestedIPv6,
+			HostIPv6Prefix: routed.CIDR, IPv6Length: routed.Prefix,
+			Interface: routed.Bridge, Gateway: routed.Gateway,
+			UseNetworkDevice: true, RoutedCIDR: routed.CIDR,
+			RoutedGateway: routed.Gateway, RoutedBridge: routed.Bridge,
+			RoutedTunnelInterface: routed.TunnelInterface,
+			InstanceType:          instanceType,
+		}
+		containerIPv6, err := l.setupRoutedNetworkDeviceIPv6(routedConfig)
+		if err != nil {
+			return err
+		}
+		saveCmd := fmt.Sprintf("printf '%%s\\n' %s > %s", shellSingleQuote(containerIPv6), shellSingleQuote(containerName+"_v6"))
+		if _, err := l.sshClient.Execute(saveCmd); err != nil {
+			return fmt.Errorf("保存实例IPv6地址失败: %w", err)
+		}
+		return nil
+	}
 
 	// 首先检查宿主机是否有公网IPv6地址
 	hostIPv6, err := l.checkIPv6(ctx)

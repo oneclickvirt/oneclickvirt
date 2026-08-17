@@ -12,6 +12,26 @@ let initStatusChecked = false
 let needsInit = false
 const INIT_CHECK_INTERVAL = 5 * 60 * 1000 // Re-check every 5 minutes
 let lastInitCheck = 0
+const DYNAMIC_IMPORT_RELOAD_KEY = 'ocv:dynamic-import-reload'
+
+function isDynamicImportFailure(error) {
+  const message = String(error?.message || error || '')
+  return /failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module/i.test(message)
+}
+
+function reloadAfterDynamicImportFailure() {
+  try {
+    if (sessionStorage.getItem(DYNAMIC_IMPORT_RELOAD_KEY)) {
+      sessionStorage.removeItem(DYNAMIC_IMPORT_RELOAD_KEY)
+      return false
+    }
+    sessionStorage.setItem(DYNAMIC_IMPORT_RELOAD_KEY, '1')
+    window.location.reload()
+    return true
+  } catch {
+    return false
+  }
+}
 
 // resetInitCache 供初始化成功后的页面调用，强制下次路由守卫重新查询初始化状态
 export function resetInitCache() {
@@ -43,7 +63,20 @@ export function setupRouterGuards(router) {
   router.onError((error) => {
     NProgress.done()
     console.error('路由加载失败:', error)
+    if (isDynamicImportFailure(error) && reloadAfterDynamicImportFailure()) {
+      return
+    }
     ElMessage.error(i18n.global.t('common.loadFailed'))
+  })
+
+  router.afterEach((_to, _from, failure) => {
+    if (!failure) {
+      try {
+        sessionStorage.removeItem(DYNAMIC_IMPORT_RELOAD_KEY)
+      } catch {
+        // Storage can be unavailable in restrictive browser contexts.
+      }
+    }
   })
 
   // 定义白名单（放在最前面，供所有逻辑使用）

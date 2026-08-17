@@ -30,8 +30,8 @@
               {{ trafficData.instance_id }}
             </el-descriptions-item>
             <el-descriptions-item :label="t('user.traffic.detail.dataSource')">
-              <el-tag type="success">
-                {{ t('user.traffic.detail.realtimeData') }}
+              <el-tag :type="dataSourceTagType(trafficData.data_source)">
+                {{ dataSourceLabel(trafficData.data_source) }}
               </el-tag>
             </el-descriptions-item>
           </el-descriptions>
@@ -272,6 +272,23 @@ const getTrafficCountModeText = (mode) => {
   }
   return modes[mode] || mode || '-'
 }
+
+const dataSourceLabel = (source) => {
+  const key = {
+    agent: 'dataSourceAgent',
+    pmacct: 'dataSourcePmacct',
+    mixed: 'dataSourceMixed',
+    none: 'dataSourceNone'
+  }[source] || 'dataSourceNone'
+  return t(`user.traffic.detail.${key}`)
+}
+
+const dataSourceTagType = source => ({
+  agent: 'success',
+  pmacct: 'warning',
+  mixed: 'primary',
+  none: 'info'
+}[source] || 'info')
 
 const formatBytes = (bytes) => {
   if (!bytes || bytes === 0) return '0 B'

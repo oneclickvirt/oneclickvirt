@@ -169,7 +169,9 @@ service.interceptors.response.use(
       return service(config)
     }
 
-    notifyApiVersionMismatch(error)
+    if (!config?.suppressApiVersionMismatch) {
+      notifyApiVersionMismatch(error)
+    }
     
     // 使用统一错误处理，但不自动显示错误消息
     const errorInfo = errorHandler.handleApiError(error, {

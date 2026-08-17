@@ -29,6 +29,12 @@ type NetworkConfig struct {
 func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig) error {
 	// 检查是否启用IPv6
 	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only"
+	var routedIPv6 *provider.RoutedIPv6Config
+	if routed, present, err := provider.ResolveRoutedIPv6(config); err != nil {
+		return err
+	} else if present {
+		routedIPv6 = &routed
+	}
 	requestedIPv6 := ""
 	if config.Metadata != nil {
 		requestedIPv6 = config.Metadata["static_ipv6"]
@@ -69,7 +75,7 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		global.APP_LOG.Debug("使用现有网络配置继续",
 			zap.String("instanceName", config.Name))
 		if hasIPv6 {
-			if err := l.configureIPv6Network(ctx, config.Name, true, networkConfig.IPv6PortMappingMethod, requestedIPv6); err != nil {
+			if err := l.configureIPv6Network(ctx, config.Name, true, networkConfig.IPv6PortMappingMethod, requestedIPv6, routedIPv6, config.InstanceType); err != nil {
 				return fmt.Errorf("使用现有网络配置静态IPv6失败: %w", err)
 			}
 		}
@@ -148,7 +154,7 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 			zap.String("instanceName", config.Name),
 			zap.String("ipv6PortMappingMethod", networkConfig.IPv6PortMappingMethod))
 
-		if err := l.configureIPv6Network(ctx, config.Name, hasIPv6, networkConfig.IPv6PortMappingMethod, requestedIPv6); err != nil {
+		if err := l.configureIPv6Network(ctx, config.Name, hasIPv6, networkConfig.IPv6PortMappingMethod, requestedIPv6, routedIPv6, config.InstanceType); err != nil {
 			return fmt.Errorf("配置IPv6网络失败: %w", err)
 		}
 	} else {
