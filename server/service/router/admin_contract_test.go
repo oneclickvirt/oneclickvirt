@@ -23,6 +23,7 @@ func TestAdminRouteContract(t *testing.T) {
 		"POST /api/v1/admin/providers/:id/health-check-task",
 		"GET /api/v1/admin/providers/:id/ipv6-pool",
 		"GET /api/v1/admin/providers/:id/ipv6-tunnels",
+		"POST /api/v1/admin/providers/:id/ipv6-tunnels/detect-local-ipv4",
 		"POST /api/v1/admin/port-mappings/repair",
 	}
 	for _, route := range required {

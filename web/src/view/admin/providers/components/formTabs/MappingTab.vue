@@ -147,6 +147,7 @@
         <el-option
           :label="$t('admin.providers.natIPv4IPv6')"
           value="nat_ipv4_ipv6"
+          :disabled="!supportsStaticIPv6"
         />
         <el-option
           :label="$t('admin.providers.dedicatedIPv4')"
@@ -155,10 +156,12 @@
         <el-option
           :label="$t('admin.providers.dedicatedIPv4IPv6')"
           value="dedicated_ipv4_ipv6"
+          :disabled="!supportsStaticIPv6"
         />
         <el-option
           :label="$t('admin.providers.ipv6Only')"
           value="ipv6_only"
+          :disabled="!supportsStaticIPv6 || !supportsIPv6Only"
         />
         <el-option
           :label="$t('admin.providers.noPortMapping')"
@@ -177,6 +180,15 @@
         {{ $t('admin.providers.networkTypeTip') }}
       </el-text>
     </div>
+    <el-alert
+      v-if="hasIPv6Network && !supportsStaticIPv6"
+      :title="$t('admin.providers.ipv6Pool.networkTypeUnsupported')"
+      :description="$t('admin.providers.ipv6Pool.networkTypeUnsupportedTip', { type: modelValue.type || '-' })"
+      type="error"
+      :closable="false"
+      show-icon
+      style="margin: -4px 0 16px 120px;"
+    />
     <!-- 无端口映射模式特殊提示 -->
     <div
       v-if="modelValue.networkType === 'no_port_mapping'"
@@ -569,6 +581,7 @@ import { useI18n } from 'vue-i18n'
 import IPv4PoolPanel from './IPv4PoolPanel.vue'
 import IPv6PoolPanel from './IPv6PoolPanel.vue'
 import IPv6TunnelPanel from './IPv6TunnelPanel.vue'
+import { supportsIPv6OnlyProvider, supportsStaticIPv6Provider } from '@/utils/ipv6Capabilities'
 import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
 
 const props = defineProps({
@@ -582,6 +595,9 @@ const emit = defineEmits(['provider-updated'])
 const { t } = useI18n()
 const REQUIRED_FIXED_PORT = 22
 const commonFixedPorts = [22, 80, 443, 8080, 8443, 3306, 5432, 6379, 27017]
+const supportsStaticIPv6 = computed(() => supportsStaticIPv6Provider(props.modelValue.type))
+const supportsIPv6Only = computed(() => supportsIPv6OnlyProvider(props.modelValue.type))
+const hasIPv6Network = computed(() => ['nat_ipv4_ipv6', 'dedicated_ipv4_ipv6', 'ipv6_only'].includes(props.modelValue.networkType))
 
 const normalizeFixedPorts = (ports = []) => {
   const values = Array.isArray(ports) ? ports : []

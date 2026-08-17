@@ -92,6 +92,16 @@ func (MonitorSyncTask) TableName() string {
 	return "monitor_sync_tasks"
 }
 
+// MonitorSyncTask status values are consumed by both the task worker and the
+// admin polling endpoint. Keep the successful terminal state stable so the UI
+// never mistakes a completed reconciliation for a running one.
+const (
+	MonitorSyncTaskStatusPending   = "pending"
+	MonitorSyncTaskStatusRunning   = "running"
+	MonitorSyncTaskStatusCompleted = "completed"
+	MonitorSyncTaskStatusFailed    = "failed"
+)
+
 // MonitoringConfig stores the monitoring configuration for a provider.
 type MonitoringConfig struct {
 	ID         uint           `gorm:"primarykey" json:"id"`

@@ -398,8 +398,8 @@
             {{ selectedUserTraffic.user_id }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.traffic.dataSource')">
-            <el-tag type="success">
-              {{ $t('admin.traffic.pmacctRealtime') }}
+            <el-tag :type="dataSourceTagType(selectedUserTraffic.data_source)">
+              {{ dataSourceLabel(selectedUserTraffic.data_source) }}
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.traffic.currentCycleUsage')">
@@ -509,7 +509,7 @@ const {
   viewUserTraffic, limitUser, unlimitUser, submitLimitAction,
   syncUserTrafficData, syncUserTrafficFromDetail, syncAllTrafficData,
   clearUserTraffic,
-  formatBytes, formatTrafficMB, formatDate, getRankTagType, getUsageColor,
+  formatBytes, formatTrafficMB, formatDate, getRankTagType, getUsageColor, dataSourceLabel, dataSourceTagType,
   t
 } = useTrafficManagement()
 

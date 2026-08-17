@@ -1,13 +1,12 @@
 package admin
 
 import (
-	"context"
 	"strconv"
 	"time"
 
 	"oneclickvirt/model/common"
 	"oneclickvirt/service/taskgate"
-	"oneclickvirt/service/traffic"
+	trafficmanual "oneclickvirt/service/trafficmanual"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,7 +44,7 @@ func SyncInstanceTraffic(c *gin.Context) {
 	}
 
 	// 触发同步
-	syncTrigger := traffic.NewSyncTriggerService()
+	syncTrigger := trafficmanual.NewSyncService()
 	syncTrigger.TriggerInstanceTrafficSync(uint(instanceID), "管理员手动触发")
 	go func() {
 		_ = syncTrigger.Shutdown(30 * time.Minute)
@@ -87,7 +86,7 @@ func SyncUserTraffic(c *gin.Context) {
 	}
 
 	// 触发同步
-	syncTrigger := traffic.NewSyncTriggerService()
+	syncTrigger := trafficmanual.NewSyncService()
 	syncTrigger.TriggerUserTrafficSync(uint(userID), "管理员手动触发")
 	go func() {
 		_ = syncTrigger.Shutdown(30 * time.Minute)
@@ -129,7 +128,7 @@ func SyncProviderTraffic(c *gin.Context) {
 	}
 
 	// 触发同步
-	syncTrigger := traffic.NewSyncTriggerService()
+	syncTrigger := trafficmanual.NewSyncService()
 	syncTrigger.TriggerProviderTrafficSync(uint(providerID), "管理员手动触发")
 	go func() {
 		_ = syncTrigger.Shutdown(30 * time.Minute)
@@ -160,15 +159,11 @@ func SyncAllTraffic(c *gin.Context) {
 		return
 	}
 
-	// 触发全系统流量同步，带超时控制
+	// 手动同步需要先拉取 Agent 的最新计数，再做三层级限额检查。
+	syncTrigger := trafficmanual.NewSyncService()
+	syncTrigger.TriggerAllTrafficSync("管理员手动触发")
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-
-		threeTierService := traffic.NewThreeTierLimitService()
-		if err := threeTierService.CheckAllTrafficLimits(ctx); err != nil {
-			// 错误会在服务内部记录日志
-		}
+		_ = syncTrigger.Shutdown(30 * time.Minute)
 	}()
 
 	common.ResponseSuccess(c, nil, "全系统流量同步已触发")

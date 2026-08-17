@@ -2,12 +2,10 @@ package ipv6tunnel
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,8 +14,8 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	ipv6poolService "oneclickvirt/service/ipv6pool"
 	runtimeProvider "oneclickvirt/service/provider"
-	"oneclickvirt/utils"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -64,11 +62,16 @@ type Service struct {
 }
 
 type checkState struct {
-	UnitEnabled bool
-	UnitActive  bool
-	LinkPresent bool
-	AddressOK   bool
-	RouteOK     bool
+	UnitEnabled     bool
+	UnitActive      bool
+	LinkPresent     bool
+	AddressOK       bool
+	RouteOK         bool
+	NetworkConfigOK bool
+	GatewayOK       bool
+	RoutedOK        bool
+	ForwardingOK    bool
+	PolicyRouteOK   bool
 }
 
 func NewService() *Service {
@@ -116,17 +119,30 @@ func (s *Service) Create(ctx context.Context, providerID uint, request CreateReq
 	if err != nil {
 		return nil, err
 	}
-	config, err := normalizeConfig(request.Config)
-	if err != nil {
+	if err := ensureProviderExists(db, providerID); err != nil {
 		return nil, err
 	}
-	if err := ensureProviderExists(db, providerID); err != nil {
+	// Validate every user-controlled field before the remote probe. The probe is
+	// intentionally outside a database transaction, so a slow or unavailable
+	// node can never hold database locks.
+	config, err := normalizeConfigBase(request.Config)
+	if err != nil {
 		return nil, err
 	}
 	if err := ensureInterfaceAvailable(db, providerID, config.Interface, 0); err != nil {
 		return nil, err
 	}
-
+	if config.LocalIPv4 == "" {
+		detection, detectErr := s.detectLocalIPv4(ctx, providerID, config.RemoteIPv4)
+		if detectErr != nil {
+			return nil, detectErr
+		}
+		config.LocalIPv4 = detection.LocalIPv4
+	}
+	config, err = normalizeConfigLocalIPv4(config)
+	if err != nil {
+		return nil, err
+	}
 	tunnel := config.toModel(providerID)
 	tunnel.Enabled = request.Enabled
 	if request.Enabled {
@@ -148,6 +164,15 @@ func (s *Service) Create(ctx context.Context, providerID uint, request CreateReq
 		_ = db.First(&tunnel, tunnel.ID).Error
 		return &tunnel, err
 	}
+	if err := ipv6poolService.NewServiceWithDB(db).SyncTunnelPool(providerID, tunnel.ID, tunnel.RoutedCIDR, true); err != nil {
+		rollbackErr := s.disableRemote(ctx, tunnel)
+		combined := fmt.Errorf("隧道已在节点应用，但IPv6地址池同步失败: %w", err)
+		if rollbackErr != nil {
+			combined = fmt.Errorf("%v；回滚节点隧道失败: %w", combined, rollbackErr)
+		}
+		_ = s.recordState(tunnel.ID, providerModel.IPv6TunnelStatusError, combined)
+		return &tunnel, combined
+	}
 	if err := s.recordState(tunnel.ID, providerModel.IPv6TunnelStatusActive, nil); err != nil {
 		return &tunnel, fmt.Errorf("节点隧道已生效但状态保存失败: %w", err)
 	}
@@ -168,14 +193,24 @@ func (s *Service) Update(ctx context.Context, providerID, tunnelID uint, request
 	if err := db.Where("id = ? AND provider_id = ?", tunnelID, providerID).First(&current).Error; err != nil {
 		return nil, tunnelLookupError(err)
 	}
-	config, err := normalizeConfig(request)
+	config, err := normalizeConfigBase(request)
 	if err != nil {
 		return nil, err
 	}
 	if err := ensureInterfaceAvailable(db, providerID, config.Interface, tunnelID); err != nil {
 		return nil, err
 	}
-
+	if config.LocalIPv4 == "" {
+		detection, detectErr := s.detectLocalIPv4(ctx, providerID, config.RemoteIPv4)
+		if detectErr != nil {
+			return nil, detectErr
+		}
+		config.LocalIPv4 = detection.LocalIPv4
+	}
+	config, err = normalizeConfigLocalIPv4(config)
+	if err != nil {
+		return nil, err
+	}
 	candidate := config.toModel(providerID)
 	candidate.ID = current.ID
 	candidate.CreatedAt = current.CreatedAt
@@ -189,6 +224,20 @@ func (s *Service) Update(ctx context.Context, providerID, tunnelID uint, request
 		candidate.LastError = ""
 		if err := db.Save(&candidate).Error; err != nil {
 			return nil, fmt.Errorf("更新IPv6隧道失败: %w", err)
+		}
+		// A previous disable can have completed on the host while a short DB
+		// reconciliation failed. Updating an inactive tunnel is a natural repair
+		// point: retire the old managed pool so its prefix cannot be allocated
+		// until this tunnel is explicitly enabled again.
+		if err := ipv6poolService.NewServiceWithDB(db).SyncTunnelPool(providerID, tunnelID, "", false); err != nil {
+			candidate.Status = providerModel.IPv6TunnelStatusError
+			candidate.LastError = limitError(err)
+			now := time.Now()
+			candidate.LastCheckedAt = &now
+			if saveErr := db.Save(&candidate).Error; saveErr != nil {
+				return &candidate, fmt.Errorf("更新IPv6隧道后退休旧地址池失败且状态保存失败: %v; %w", saveErr, err)
+			}
+			return &candidate, fmt.Errorf("更新未启用IPv6隧道后退休旧地址池失败: %w", err)
 		}
 		return &candidate, nil
 	}
@@ -209,6 +258,20 @@ func (s *Service) Update(ctx context.Context, providerID, tunnelID uint, request
 			return &candidate, fmt.Errorf("应用新隧道失败且恢复数据库配置失败: %v; %w", saveErr, err)
 		}
 		return &current, err
+	}
+	if err := ipv6poolService.NewServiceWithDB(db).SyncTunnelPool(providerID, candidate.ID, candidate.RoutedCIDR, true); err != nil {
+		rollbackErr := s.applyRemote(ctx, current)
+		current.Status = providerModel.IPv6TunnelStatusError
+		current.LastError = limitError(fmt.Errorf("新隧道已在节点应用，但IPv6地址池同步失败: %v", err))
+		now := time.Now()
+		current.LastCheckedAt = &now
+		if saveErr := db.Save(&current).Error; saveErr != nil {
+			return &current, fmt.Errorf("IPv6地址池同步失败且恢复数据库配置失败: %v; %w", saveErr, err)
+		}
+		if rollbackErr != nil {
+			return &current, fmt.Errorf("IPv6地址池同步失败，且回滚节点隧道失败: %v; %w", rollbackErr, err)
+		}
+		return &current, fmt.Errorf("IPv6地址池同步失败，已恢复节点隧道: %w", err)
 	}
 	candidate.Status = providerModel.IPv6TunnelStatusActive
 	candidate.LastError = ""
@@ -233,6 +296,13 @@ func (s *Service) SetEnabled(ctx context.Context, providerID, tunnelID uint, ena
 	if err := db.Where("id = ? AND provider_id = ?", tunnelID, providerID).First(&tunnel).Error; err != nil {
 		return nil, tunnelLookupError(err)
 	}
+	if enabled {
+		if _, modeErr := normalizeTunnelMode(tunnel.Mode); modeErr != nil {
+			_ = s.recordState(tunnel.ID, providerModel.IPv6TunnelStatusError, modeErr)
+			_ = db.First(&tunnel, tunnel.ID).Error
+			return &tunnel, modeErr
+		}
+	}
 	if tunnel.Enabled == enabled && ((enabled && tunnel.Status == providerModel.IPv6TunnelStatusActive) || (!enabled && tunnel.Status == providerModel.IPv6TunnelStatusInactive)) {
 		return &tunnel, nil
 	}
@@ -254,6 +324,22 @@ func (s *Service) SetEnabled(ctx context.Context, providerID, tunnelID uint, ena
 		}
 		_ = db.First(&tunnel, tunnel.ID).Error
 		return &tunnel, err
+	}
+	if enabled {
+		if poolErr := ipv6poolService.NewServiceWithDB(db).SyncTunnelPool(providerID, tunnel.ID, tunnel.RoutedCIDR, true); poolErr != nil {
+			rollbackErr := s.disableRemote(ctx, tunnel)
+			combined := fmt.Errorf("启用隧道成功但IPv6地址池同步失败: %w", poolErr)
+			if rollbackErr != nil {
+				combined = fmt.Errorf("%v；回滚节点隧道失败: %w", combined, rollbackErr)
+			}
+			_ = s.recordState(tunnel.ID, providerModel.IPv6TunnelStatusError, combined)
+			return &tunnel, combined
+		}
+	} else if poolErr := ipv6poolService.NewServiceWithDB(db).SyncTunnelPool(providerID, tunnel.ID, tunnel.RoutedCIDR, false); poolErr != nil {
+		// The remote tunnel is already disabled. Keep the desired state and expose
+		// the pool-retirement failure instead of pretending cleanup completed.
+		_ = s.recordState(tunnel.ID, providerModel.IPv6TunnelStatusError, poolErr)
+		return &tunnel, fmt.Errorf("禁用隧道成功但IPv6地址池退休失败: %w", poolErr)
 	}
 	status := providerModel.IPv6TunnelStatusInactive
 	if enabled {
@@ -279,8 +365,9 @@ func (s *Service) CheckAll(ctx context.Context, providerID uint) ([]providerMode
 	}
 	output, err := s.run(ctx, providerID, buildCheckCommand(tunnels))
 	if err != nil {
-		s.recordProviderError(providerID, err)
-		return nil, fmt.Errorf("检查IPv6隧道状态失败: %w", err)
+		remoteErr := newRemoteCommandError("检查IPv6隧道状态失败", output, err)
+		s.recordProviderError(providerID, remoteErr)
+		return nil, remoteErr
 	}
 	states := parseCheckOutput(output)
 	db, _ := s.database()
@@ -318,6 +405,10 @@ func (s *Service) Delete(ctx context.Context, providerID, tunnelID uint) error {
 		_ = s.recordState(tunnel.ID, providerModel.IPv6TunnelStatusError, err)
 		return err
 	}
+	if err := ipv6poolService.NewServiceWithDB(db).SyncTunnelPool(providerID, tunnel.ID, tunnel.RoutedCIDR, false); err != nil {
+		_ = s.recordState(tunnel.ID, providerModel.IPv6TunnelStatusError, err)
+		return fmt.Errorf("节点隧道已删除但IPv6地址池清理失败: %w", err)
+	}
 	if err := db.Delete(&providerModel.ProviderIPv6Tunnel{}, tunnel.ID).Error; err != nil {
 		return fmt.Errorf("节点隧道已删除但数据库记录清理失败: %w", err)
 	}
@@ -348,17 +439,27 @@ func (s *Service) CleanupProviderRemote(ctx context.Context, providerID uint, fo
 }
 
 func (s *Service) applyRemote(ctx context.Context, tunnel providerModel.ProviderIPv6Tunnel) error {
-	_, err := s.run(ctx, tunnel.ProviderID, buildApplyCommand(tunnel))
+	mode, err := normalizeTunnelMode(tunnel.Mode)
 	if err != nil {
-		return fmt.Errorf("应用IPv6隧道失败: %w", err)
+		return err
+	}
+	if strings.TrimSpace(tunnel.RoutedCIDR) != "" {
+		if _, _, err := tunnelPolicyRouteParameters(tunnel.ID); err != nil {
+			return fmt.Errorf("路由IPv6网段策略路由不可用: %w", err)
+		}
+	}
+	tunnel.Mode = mode
+	output, err := s.run(ctx, tunnel.ProviderID, buildApplyCommand(tunnel))
+	if err != nil {
+		return newRemoteCommandError("应用IPv6隧道失败", output, err)
 	}
 	return nil
 }
 
 func (s *Service) disableRemote(ctx context.Context, tunnel providerModel.ProviderIPv6Tunnel) error {
-	_, err := s.run(ctx, tunnel.ProviderID, buildDisableCommand(tunnel))
+	output, err := s.run(ctx, tunnel.ProviderID, buildDisableCommand(tunnel))
 	if err != nil {
-		return fmt.Errorf("禁用IPv6隧道失败: %w", err)
+		return newRemoteCommandError("禁用IPv6隧道失败", output, err)
 	}
 	return nil
 }
@@ -367,9 +468,9 @@ func (s *Service) deleteRemote(ctx context.Context, tunnels []providerModel.Prov
 	if len(tunnels) == 0 {
 		return nil
 	}
-	_, err := s.run(ctx, tunnels[0].ProviderID, buildDeleteCommand(tunnels))
+	output, err := s.run(ctx, tunnels[0].ProviderID, buildDeleteCommand(tunnels))
 	if err != nil {
-		return fmt.Errorf("删除节点IPv6隧道失败: %w", err)
+		return newRemoteCommandError("删除节点IPv6隧道失败", output, err)
 	}
 	return nil
 }
@@ -410,6 +511,17 @@ func (s *Service) recordProviderError(providerID uint, stateErr error) {
 }
 
 func normalizeConfig(input Config) (Config, error) {
+	config, err := normalizeConfigBase(input)
+	if err != nil {
+		return Config{}, err
+	}
+	return normalizeConfigLocalIPv4(config)
+}
+
+// normalizeConfigBase validates the full tunnel configuration except the
+// client IPv4. Create and update can fill that value from the node's route
+// source after this safe local validation has completed.
+func normalizeConfigBase(input Config) (Config, error) {
 	config := input
 	config.Name = strings.TrimSpace(config.Name)
 	config.Mode = strings.ToLower(strings.TrimSpace(config.Mode))
@@ -432,24 +544,19 @@ func normalizeConfig(input Config) (Config, error) {
 	if !namePattern.MatchString(config.Name) {
 		return Config{}, fmt.Errorf("隧道名称仅支持1至64位字母、数字、空格、点、下划线和连字符")
 	}
-	if config.Mode != "sit" && config.Mode != "gre" {
-		return Config{}, fmt.Errorf("隧道模式仅支持sit或gre")
+	mode, err := normalizeTunnelMode(config.Mode)
+	if err != nil {
+		return Config{}, err
 	}
+	config.Mode = mode
 	if !interfacePattern.MatchString(config.Interface) || config.Interface == "lo" {
 		return Config{}, fmt.Errorf("接口名必须是1至15位Linux接口名且不能为lo")
-	}
-	local4, err := normalizeIPv4(config.LocalIPv4)
-	if err != nil {
-		return Config{}, fmt.Errorf("本地IPv4无效: %w", err)
 	}
 	remote4, err := normalizeIPv4(config.RemoteIPv4)
 	if err != nil {
 		return Config{}, fmt.Errorf("远端IPv4无效: %w", err)
 	}
-	if local4 == remote4 {
-		return Config{}, fmt.Errorf("本地IPv4和远端IPv4不能相同")
-	}
-	config.LocalIPv4, config.RemoteIPv4 = local4, remote4
+	config.RemoteIPv4 = remote4
 
 	local6, err := normalizeIPv6CIDR(config.LocalIPv6)
 	if err != nil {
@@ -466,6 +573,9 @@ func normalizeConfig(input Config) (Config, error) {
 			return Config{}, fmt.Errorf("路由IPv6网段无效: %w", err)
 		}
 		config.RoutedCIDR = routed
+		if _, _, _, _, err := ipv6poolService.RoutedPrefixDetails(config.RoutedCIDR); err != nil {
+			return Config{}, fmt.Errorf("路由IPv6网段不可分配: %w", err)
+		}
 	}
 	if config.MTU == 0 {
 		config.MTU = defaultMTU
@@ -486,6 +596,33 @@ func normalizeConfig(input Config) (Config, error) {
 		return Config{}, fmt.Errorf("路由优先级必须在1到32766之间")
 	}
 	return config, nil
+}
+
+func normalizeConfigLocalIPv4(config Config) (Config, error) {
+	local4, err := normalizeIPv4(config.LocalIPv4)
+	if err != nil {
+		return Config{}, fmt.Errorf("本地IPv4无效: %w", err)
+	}
+	if local4 == config.RemoteIPv4 {
+		return Config{}, fmt.Errorf("本地IPv4和远端IPv4不能相同")
+	}
+	config.LocalIPv4 = local4
+	return config, nil
+}
+
+// normalizeTunnelMode accepts common 6in4 labels from tunnel providers while
+// rejecting IPIP, whose IPv4-only payload cannot carry the routed IPv6 prefix.
+func normalizeTunnelMode(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "sit", "6in4", "v4tunnel":
+		return "sit", nil
+	case "gre":
+		return "gre", nil
+	case "ipip":
+		return "", fmt.Errorf("IPIP仅承载IPv4，不能用于IPv6隧道；请使用SIT/6in4或GRE")
+	default:
+		return "", fmt.Errorf("隧道模式仅支持SIT/6in4或GRE")
+	}
 }
 
 func (c Config) toModel(providerID uint) providerModel.ProviderIPv6Tunnel {
@@ -583,224 +720,11 @@ func tunnelLookupError(err error) error {
 	return fmt.Errorf("读取IPv6隧道失败: %w", err)
 }
 
-func unitName(id uint) string {
-	return fmt.Sprintf("oneclickvirt-ipv6-tunnel-%d.service", id)
-}
-
-func scriptPath(id uint) string {
-	return fmt.Sprintf("/etc/oneclickvirt/ipv6-tunnels/%d.sh", id)
-}
-
-func buildApplyCommand(tunnel providerModel.ProviderIPv6Tunnel) string {
-	unit := unitName(tunnel.ID)
-	script := scriptPath(tunnel.ID)
-	unitPath := "/etc/systemd/system/" + unit
-	unitContent := fmt.Sprintf(`[Unit]
-Description=OneClickVirt managed IPv6 tunnel %d
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=%s up
-ExecStop=%s down
-TimeoutStartSec=45
-TimeoutStopSec=30
-
-[Install]
-WantedBy=multi-user.target
-`, tunnel.ID, script, script)
-	scriptContent := renderTunnelScript(tunnel)
-	unit64 := base64.StdEncoding.EncodeToString([]byte(unitContent))
-	script64 := base64.StdEncoding.EncodeToString([]byte(scriptContent))
-
-	return fmt.Sprintf(`set -eu
-if [ "$(id -u)" -ne 0 ]; then echo 'root privileges are required' >&2; exit 1; fi
-if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd is required for persistent IPv6 tunnels' >&2; exit 1; fi
-install_pkg() {
-  package="$1"
-  if command -v apt-get >/dev/null 2>&1; then DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y "$package"
-  elif command -v dnf >/dev/null 2>&1; then dnf install -y "$package"
-  elif command -v yum >/dev/null 2>&1; then yum install -y "$package"
-  elif command -v apk >/dev/null 2>&1; then apk add --no-cache "$package"
-  else echo "cannot install required package: $package" >&2; return 1; fi
-}
-install_iproute() {
-  if command -v dnf >/dev/null 2>&1; then dnf install -y iproute
-  elif command -v yum >/dev/null 2>&1; then yum install -y iproute
-  else install_pkg iproute2; fi
-}
-command -v ip >/dev/null 2>&1 || install_iproute
-command -v base64 >/dev/null 2>&1 || install_pkg coreutils
-mkdir -p /etc/oneclickvirt/ipv6-tunnels
-unit=%s
-unit_path=%s
-script_path=%s
-if ip link show dev %s >/dev/null 2>&1 && [ ! -f "$unit_path" ] && [ ! -f "$script_path" ]; then
-  echo 'refusing to replace an unmanaged network interface' >&2
-  exit 1
-fi
-unit_backup="${unit_path}.oneclickvirt-backup.$$"
-script_backup="${script_path}.oneclickvirt-backup.$$"
-had_unit=0; had_script=0; was_active=0
-[ -f "$unit_path" ] && { cp -p "$unit_path" "$unit_backup"; had_unit=1; }
-[ -f "$script_path" ] && { cp -p "$script_path" "$script_backup"; had_script=1; }
-systemctl is-active --quiet "$unit" && was_active=1 || true
-rollback() {
-  rc=$?
-  trap - EXIT
-  systemctl stop "$unit" >/dev/null 2>&1 || true
-  if [ "$had_unit" -eq 1 ]; then mv -f "$unit_backup" "$unit_path"; else rm -f "$unit_path" "$unit_backup"; fi
-  if [ "$had_script" -eq 1 ]; then mv -f "$script_backup" "$script_path"; else rm -f "$script_path" "$script_backup"; fi
-  systemctl daemon-reload >/dev/null 2>&1 || true
-  if [ "$was_active" -eq 1 ]; then systemctl enable --now "$unit" >/dev/null 2>&1 || true; else systemctl disable "$unit" >/dev/null 2>&1 || true; fi
-  exit "$rc"
-}
-trap rollback EXIT
-systemctl stop "$unit" >/dev/null 2>&1 || true
-printf '%%s' %s | base64 -d > "${unit_path}.tmp.$$"
-printf '%%s' %s | base64 -d > "${script_path}.tmp.$$"
-chmod 0644 "${unit_path}.tmp.$$"
-chmod 0700 "${script_path}.tmp.$$"
-mv -f "${unit_path}.tmp.$$" "$unit_path"
-mv -f "${script_path}.tmp.$$" "$script_path"
-systemctl daemon-reload
-systemctl enable "$unit" >/dev/null
-systemctl start "$unit"
-"$script_path" status
-rm -f "$unit_backup" "$script_backup"
-trap - EXIT
-printf 'applied\n'
-`, utils.ShellSingleQuote(unit), utils.ShellSingleQuote(unitPath), utils.ShellSingleQuote(script), utils.ShellSingleQuote(tunnel.Interface),
-		utils.ShellSingleQuote(unit64), utils.ShellSingleQuote(script64))
-}
-
-func renderTunnelScript(tunnel providerModel.ProviderIPv6Tunnel) string {
-	module := "sit"
-	if tunnel.Mode == "gre" {
-		module = "ip_gre"
-	}
-	defaultUp := ""
-	defaultDown := ""
-	routeStatus := ":"
-	if tunnel.DefaultRoute {
-		defaultUp = fmt.Sprintf("ip -6 route replace default via %s dev \"$IFACE\" metric %d\n", utils.ShellSingleQuote(tunnel.RemoteIPv6), tunnel.RouteMetric)
-		defaultDown = fmt.Sprintf("ip -6 route del default via %s dev \"$IFACE\" metric %d >/dev/null 2>&1 || true\n", utils.ShellSingleQuote(tunnel.RemoteIPv6), tunnel.RouteMetric)
-		routeStatus = "route_line=\" $(ip -6 route get 2001:4860:4860::8888 2>/dev/null) \"\nprintf '%s\\n' \"$route_line\" | grep -F \" dev $IFACE \" >/dev/null"
-	}
-	return fmt.Sprintf(`#!/bin/sh
-set -eu
-IFACE=%s
-case "${1:-}" in
-  up)
-    command -v modprobe >/dev/null 2>&1 && modprobe %s >/dev/null 2>&1 || true
-    ip link show dev "$IFACE" >/dev/null 2>&1 && ip link delete "$IFACE" || true
-    ip tunnel add "$IFACE" mode %s remote %s local %s ttl %d
-    ip link set dev "$IFACE" mtu %d up
-    ip -6 addr replace %s dev "$IFACE"
-    ip -6 route replace %s/128 dev "$IFACE" metric %d
-%s    ;;
-  down)
-%s    ip link show dev "$IFACE" >/dev/null 2>&1 && ip link delete "$IFACE" || true
-    ;;
-  status)
-    ip link show dev "$IFACE" >/dev/null
-    ip -o -6 addr show dev "$IFACE" | awk '{print $4}' | grep -Fx %s >/dev/null
-    %s
-    ;;
-  *)
-    echo 'usage: tunnel-script {up|down|status}' >&2
-    exit 2
-    ;;
-esac
-`, utils.ShellSingleQuote(tunnel.Interface), module, tunnel.Mode,
-		utils.ShellSingleQuote(tunnel.RemoteIPv4), utils.ShellSingleQuote(tunnel.LocalIPv4), tunnel.TTL,
-		tunnel.MTU, utils.ShellSingleQuote(tunnel.LocalIPv6), utils.ShellSingleQuote(tunnel.RemoteIPv6), tunnel.RouteMetric,
-		defaultUp, defaultDown, utils.ShellSingleQuote(tunnel.LocalIPv6), routeStatus)
-}
-
-func buildDisableCommand(tunnel providerModel.ProviderIPv6Tunnel) string {
-	unit := unitName(tunnel.ID)
-	return fmt.Sprintf(`set -eu
-if [ "$(id -u)" -ne 0 ]; then echo 'root privileges are required' >&2; exit 1; fi
-command -v systemctl >/dev/null 2>&1 || { echo 'systemd is unavailable' >&2; exit 1; }
-command -v ip >/dev/null 2>&1 || { echo 'iproute2 is unavailable' >&2; exit 1; }
-unit=%s
-unit_path=%s
-script_path=%s
-if ip link show dev %s >/dev/null 2>&1 && [ ! -f "$unit_path" ] && [ ! -f "$script_path" ] && ! systemctl cat "$unit" >/dev/null 2>&1; then
-  echo 'refusing to delete an unmanaged network interface' >&2
-  exit 1
-fi
-systemctl disable --now "$unit" >/dev/null 2>&1 || true
-ip link show dev %s >/dev/null 2>&1 && ip link delete %s || true
-if systemctl is-active --quiet "$unit" || ip link show dev %s >/dev/null 2>&1; then
-  echo 'tunnel remained active after disable' >&2
-  exit 1
-fi
-printf 'disabled\n'
-`, utils.ShellSingleQuote(unit), utils.ShellSingleQuote("/etc/systemd/system/"+unit), utils.ShellSingleQuote(scriptPath(tunnel.ID)),
-		utils.ShellSingleQuote(tunnel.Interface), utils.ShellSingleQuote(tunnel.Interface), utils.ShellSingleQuote(tunnel.Interface), utils.ShellSingleQuote(tunnel.Interface))
-}
-
-func buildDeleteCommand(tunnels []providerModel.ProviderIPv6Tunnel) string {
-	ordered := append([]providerModel.ProviderIPv6Tunnel(nil), tunnels...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
-	var builder strings.Builder
-	builder.WriteString("set -eu\nif [ \"$(id -u)\" -ne 0 ]; then echo 'root privileges are required' >&2; exit 1; fi\ncommand -v systemctl >/dev/null 2>&1 || { echo 'systemd is unavailable' >&2; exit 1; }\ncommand -v ip >/dev/null 2>&1 || { echo 'iproute2 is unavailable' >&2; exit 1; }\n")
-	// Validate ownership for every interface before deleting any of them. This
-	// prevents a stale DB row from deleting a physical interface that later
-	// reused the same name.
-	for _, tunnel := range ordered {
-		fmt.Fprintf(&builder, "if ip link show dev %s >/dev/null 2>&1 && [ ! -f %s ] && [ ! -f %s ] && ! systemctl cat %s >/dev/null 2>&1; then echo %s >&2; exit 1; fi\n",
-			utils.ShellSingleQuote(tunnel.Interface), utils.ShellSingleQuote("/etc/systemd/system/"+unitName(tunnel.ID)),
-			utils.ShellSingleQuote(scriptPath(tunnel.ID)), utils.ShellSingleQuote(unitName(tunnel.ID)),
-			utils.ShellSingleQuote(fmt.Sprintf("refusing to delete unmanaged interface %s", tunnel.Interface)))
-	}
-	for _, tunnel := range ordered {
-		fmt.Fprintf(&builder, "systemctl disable --now %s >/dev/null 2>&1 || true\n", utils.ShellSingleQuote(unitName(tunnel.ID)))
-		fmt.Fprintf(&builder, "ip link show dev %s >/dev/null 2>&1 && ip link delete %s || true\n", utils.ShellSingleQuote(tunnel.Interface), utils.ShellSingleQuote(tunnel.Interface))
-		fmt.Fprintf(&builder, "rm -f -- %s %s\n", utils.ShellSingleQuote("/etc/systemd/system/"+unitName(tunnel.ID)), utils.ShellSingleQuote(scriptPath(tunnel.ID)))
-	}
-	builder.WriteString("systemctl daemon-reload\n")
-	for _, tunnel := range ordered {
-		fmt.Fprintf(&builder, "if systemctl is-active --quiet %s || ip link show dev %s >/dev/null 2>&1 || [ -e %s ] || [ -e %s ]; then echo %s >&2; exit 1; fi\n",
-			utils.ShellSingleQuote(unitName(tunnel.ID)), utils.ShellSingleQuote(tunnel.Interface),
-			utils.ShellSingleQuote("/etc/systemd/system/"+unitName(tunnel.ID)), utils.ShellSingleQuote(scriptPath(tunnel.ID)),
-			utils.ShellSingleQuote(fmt.Sprintf("IPv6 tunnel %d cleanup is incomplete", tunnel.ID)))
-	}
-	builder.WriteString("printf 'deleted\\n'\n")
-	return builder.String()
-}
-
-func buildCheckCommand(tunnels []providerModel.ProviderIPv6Tunnel) string {
-	ordered := append([]providerModel.ProviderIPv6Tunnel(nil), tunnels...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
-	var builder strings.Builder
-	builder.WriteString("set -u\ncommand -v systemctl >/dev/null 2>&1 || { echo 'systemd is unavailable' >&2; exit 1; }\ncommand -v ip >/dev/null 2>&1 || { echo 'iproute2 is unavailable' >&2; exit 1; }\n")
-	for _, tunnel := range ordered {
-		unit := utils.ShellSingleQuote(unitName(tunnel.ID))
-		iface := utils.ShellSingleQuote(tunnel.Interface)
-		address := utils.ShellSingleQuote(tunnel.LocalIPv6)
-		fmt.Fprintf(&builder, "enabled=0; active=0; link=0; address=0; route=1\n")
-		fmt.Fprintf(&builder, "systemctl is-enabled --quiet %s >/dev/null 2>&1 && enabled=1 || true\n", unit)
-		fmt.Fprintf(&builder, "systemctl is-active --quiet %s >/dev/null 2>&1 && active=1 || true\n", unit)
-		fmt.Fprintf(&builder, "ip link show dev %s >/dev/null 2>&1 && link=1 || true\n", iface)
-		fmt.Fprintf(&builder, "if [ \"$link\" -eq 1 ]; then ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1 && address=1 || true; fi\n", iface, address)
-		if tunnel.DefaultRoute {
-			fmt.Fprintf(&builder, "route=0; route_line=\" $(ip -6 route get 2001:4860:4860::8888 2>/dev/null || true) \"; printf '%%s\\n' \"$route_line\" | grep -F %s >/dev/null 2>&1 && route=1 || true\n", utils.ShellSingleQuote(" dev "+tunnel.Interface+" "))
-		}
-		fmt.Fprintf(&builder, "printf 'TUNNEL|%d|%%s|%%s|%%s|%%s|%%s\\n' \"$enabled\" \"$active\" \"$link\" \"$address\" \"$route\"\n", tunnel.ID)
-	}
-	return builder.String()
-}
-
 func parseCheckOutput(output string) map[uint]checkState {
 	states := make(map[uint]checkState)
 	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
 		parts := strings.Split(strings.TrimSpace(line), "|")
-		if len(parts) != 7 || parts[0] != "TUNNEL" {
+		if (len(parts) != 9 && len(parts) != 11 && len(parts) != 12) || parts[0] != "TUNNEL" {
 			continue
 		}
 		id, err := strconv.ParseUint(parts[1], 10, 64)
@@ -808,7 +732,7 @@ func parseCheckOutput(output string) map[uint]checkState {
 			continue
 		}
 		valid := true
-		values := make([]bool, 5)
+		values := make([]bool, 10)
 		for index, raw := range parts[2:] {
 			if raw == "1" {
 				values[index] = true
@@ -817,7 +741,13 @@ func parseCheckOutput(output string) map[uint]checkState {
 			}
 		}
 		if valid {
-			states[uint(id)] = checkState{UnitEnabled: values[0], UnitActive: values[1], LinkPresent: values[2], AddressOK: values[3], RouteOK: values[4]}
+			state := checkState{UnitEnabled: values[0], UnitActive: values[1], LinkPresent: values[2], AddressOK: values[3], RouteOK: values[4], NetworkConfigOK: values[5], GatewayOK: values[6], RoutedOK: true, ForwardingOK: true, PolicyRouteOK: true}
+			if len(parts) == 11 {
+				state.RoutedOK, state.ForwardingOK = values[7], values[8]
+			} else if len(parts) == 12 {
+				state.RoutedOK, state.ForwardingOK, state.PolicyRouteOK = values[7], values[8], values[9]
+			}
+			states[uint(id)] = state
 		}
 	}
 	return states
@@ -833,10 +763,14 @@ func classifyState(tunnel providerModel.ProviderIPv6Tunnel, state checkState, fo
 		}
 		return providerModel.IPv6TunnelStatusError, "隧道期望禁用，但节点上仍有启用状态、活动unit或网络接口"
 	}
-	if state.UnitEnabled && state.UnitActive && state.LinkPresent && state.AddressOK && state.RouteOK {
+	if _, err := normalizeTunnelMode(tunnel.Mode); err != nil {
+		return providerModel.IPv6TunnelStatusError, limitError(err)
+	}
+	routedOK := strings.TrimSpace(tunnel.RoutedCIDR) == "" || (state.RoutedOK && state.ForwardingOK && state.PolicyRouteOK)
+	if state.UnitEnabled && state.UnitActive && state.LinkPresent && state.AddressOK && state.RouteOK && state.NetworkConfigOK && state.GatewayOK && routedOK {
 		return providerModel.IPv6TunnelStatusActive, ""
 	}
-	missing := make([]string, 0, 5)
+	missing := make([]string, 0, 7)
 	if !state.UnitEnabled {
 		missing = append(missing, "unit未启用")
 	}
@@ -851,6 +785,21 @@ func classifyState(tunnel providerModel.ProviderIPv6Tunnel, state checkState, fo
 	}
 	if !state.RouteOK {
 		missing = append(missing, "默认IPv6流量未选择该隧道")
+	}
+	if !state.NetworkConfigOK {
+		missing = append(missing, "networkd持久配置缺失")
+	}
+	if !state.GatewayOK {
+		missing = append(missing, "IPv6隧道网关不可达")
+	}
+	if strings.TrimSpace(tunnel.RoutedCIDR) != "" && !state.RoutedOK {
+		missing = append(missing, "独立IPv6路由桥或路由缺失")
+	}
+	if strings.TrimSpace(tunnel.RoutedCIDR) != "" && !state.ForwardingOK {
+		missing = append(missing, "IPv6 forwarding未完整开启（需要all、default、隧道接口和路由桥）")
+	}
+	if strings.TrimSpace(tunnel.RoutedCIDR) != "" && !state.PolicyRouteOK {
+		missing = append(missing, "独立IPv6源地址策略路由缺失或未选择隧道接口")
 	}
 	return providerModel.IPv6TunnelStatusError, strings.Join(missing, "；")
 }

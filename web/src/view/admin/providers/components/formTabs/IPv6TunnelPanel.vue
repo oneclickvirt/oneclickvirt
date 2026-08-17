@@ -236,13 +236,42 @@
           >
             <el-form-item
               :label="$t('admin.providers.ipv6Pool.tunnelLocalIpv4')"
-              prop="localIpv4"
             >
               <el-input
                 v-model="form.localIpv4"
-                placeholder="192.0.2.10"
-              />
+                :placeholder="$t('admin.providers.ipv6Pool.tunnelLocalIpv4Placeholder')"
+              >
+                <template #append>
+                  <el-button
+                    :loading="detectingLocalIpv4"
+                    :disabled="!providerId"
+                    @click="detectLocalIPv4({ interactive: true })"
+                  >
+                    {{ $t('admin.providers.ipv6Pool.tunnelDetectLocalIpv4') }}
+                  </el-button>
+                </template>
+              </el-input>
+              <el-text
+                size="small"
+                type="info"
+                class="local-ipv4-tip"
+              >
+                {{ $t('admin.providers.ipv6Pool.tunnelLocalIpv4Tip') }}
+              </el-text>
             </el-form-item>
+          </el-col>
+          <el-col
+            v-if="detectionError"
+            :span="24"
+          >
+            <el-alert
+              :title="$t('admin.providers.ipv6Pool.tunnelDetectFailed')"
+              :description="detectionError"
+              type="warning"
+              :closable="false"
+              show-icon
+              class="tunnel-detect-error"
+            />
           </el-col>
           <el-col
             :xs="24"
@@ -383,7 +412,6 @@ const rules = {
   name: [requiredRule],
   mode: [requiredRule],
   interfaceName: [requiredRule],
-  localIpv4: [requiredRule],
   remoteIpv4: [requiredRule],
   localIpv6: [requiredRule],
   remoteIpv6: [requiredRule]
@@ -396,8 +424,11 @@ const {
   editingTunnel,
   form,
   isBusy,
+  detectingLocalIpv4,
+  detectionError,
   openCreate,
   openEdit,
+  detectLocalIPv4,
   submit: persistTunnel,
   toggle,
   check,
@@ -459,6 +490,23 @@ const statusText = status => ({
 
 .route-tip {
   margin-left: 10px;
+}
+
+.local-ipv4-tip {
+  display: block;
+  margin-top: 6px;
+  line-height: 1.35;
+}
+
+.tunnel-detect-error {
+  margin-bottom: 14px;
+}
+
+:global(.ipv6-tunnel-error-dialog .el-message-box__message) {
+  max-height: 45vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 @media (max-width: 768px) {

@@ -24,19 +24,28 @@
         show-icon
         style="margin-bottom: 16px;"
       />
+      <el-alert
+        v-else-if="requiresRoutedStaticIPv6"
+        type="info"
+        :title="$t('admin.providers.ipv6Pool.routedAllocationRequired')"
+        :description="$t('admin.providers.ipv6Pool.routedAllocationRequiredTip', { type: modelValue.type || '-' })"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px;"
+      />
       <el-form-item :label="$t('admin.providers.ipv6Pool.filePath')">
         <div class="ipv6-file-config">
           <el-input
             v-model="modelValue.ipv6AddressFilePath"
             :placeholder="$t('admin.providers.ipv6Pool.filePathPlaceholder')"
-            :disabled="!supportsStaticIPv6"
+            :disabled="!canManageStaticIPv6Pool"
             clearable
           />
           <div class="ipv6-file-actions">
             <el-button
               :icon="DocumentChecked"
               :loading="ipv6FileSaving"
-              :disabled="!supportsStaticIPv6 || ipv6FileSyncing"
+              :disabled="!canManageStaticIPv6Pool || ipv6FileSyncing"
               @click="saveIPv6FilePath"
             >
               {{ $t('admin.providers.ipv6Pool.fileSaveBtn') }}
@@ -61,7 +70,7 @@
               type="primary"
               :icon="Refresh"
               :loading="ipv6FileSyncing"
-              :disabled="!supportsStaticIPv6 || !hasIPv6FilePath || ipv6FileSaving"
+              :disabled="!canManageStaticIPv6Pool || !hasIPv6FilePath || ipv6FileSaving"
               @click="syncIPv6File"
             >
               {{ $t('admin.providers.ipv6Pool.syncBtn') }}
@@ -173,13 +182,13 @@
             type="textarea"
             :rows="4"
             :placeholder="$t('admin.providers.ipv6Pool.addressesPlaceholder')"
-            :disabled="!supportsStaticIPv6"
+            :disabled="!canManageStaticIPv6Pool"
           />
           <el-space wrap>
             <el-button
               type="primary"
               :loading="ipv6PoolSaving"
-              :disabled="!supportsStaticIPv6"
+              :disabled="!canManageStaticIPv6Pool"
               @click="addIPv6ToPool"
             >
               {{ $t('admin.providers.ipv6Pool.addBtn') }}
@@ -268,6 +277,7 @@
 import { computed } from 'vue'
 import { Delete, DocumentChecked, Refresh } from '@element-plus/icons-vue'
 import { useIPv6Pool } from './composables/useIPv6Pool'
+import { requiresRoutedStaticIPv6Provider, supportsStaticIPv6Provider } from '@/utils/ipv6Capabilities'
 
 const props = defineProps({
   modelValue: {
@@ -277,10 +287,10 @@ const props = defineProps({
 })
 const emit = defineEmits(['provider-updated'])
 
-// Keep this capability hint aligned with server/service/ipv6pool.SupportsStaticIPv6.
-const STATIC_IPV6_PROVIDER_TYPES = new Set(['lxd', 'incus', 'proxmox', 'proxmoxve', 'docker', 'podman', 'containerd', 'orbstack'])
 const hasIPv6FilePath = computed(() => Boolean(String(props.modelValue.ipv6AddressFilePath || '').trim()))
-const supportsStaticIPv6 = computed(() => STATIC_IPV6_PROVIDER_TYPES.has(String(props.modelValue.type || '').toLowerCase()))
+const supportsStaticIPv6 = computed(() => supportsStaticIPv6Provider(props.modelValue.type))
+const requiresRoutedStaticIPv6 = computed(() => requiresRoutedStaticIPv6Provider(props.modelValue.type))
+const canManageStaticIPv6Pool = computed(() => supportsStaticIPv6.value && !requiresRoutedStaticIPv6.value)
 const syncItemCount = value => Array.isArray(value) ? value.length : '-'
 
 const {

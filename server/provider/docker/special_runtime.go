@@ -44,17 +44,27 @@ func (d *DockerProvider) sshCreateSpecialRuntimeInstance(ctx context.Context, co
 		staticIPv6 = config.Metadata["static_ipv6"]
 	}
 	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
-	networkSelection, err := utils.ResolveContainerNetwork(
-		networkType,
-		staticIPv6,
-		d.runtime.IPv4Network,
-		d.runtime.IPv6Network,
-		hasIPv6 && d.checkIPv6NetworkAvailable(),
-	)
+	networkSelection, routedPresent, err := d.routedNetworkSelection(config, networkType)
+	if !routedPresent {
+		networkSelection, err = utils.ResolveContainerNetwork(
+			networkType,
+			staticIPv6,
+			d.runtime.IPv4Network,
+			d.runtime.IPv6Network,
+			hasIPv6 && d.checkIPv6NetworkAvailable(),
+		)
+	}
 	if err != nil {
 		return true, err
 	}
 	networkFlags := dockerNetworkOptionFlags(networkSelection)
+	if networkSelection.RoutedVeth {
+		labelArgs, labelErr := provider.RoutedIPv6RuntimeLabelArgs(networkSelection)
+		if labelErr != nil {
+			return true, fmt.Errorf("构造隧道路由IPv6运行时标签失败: %w", labelErr)
+		}
+		networkFlags += " " + labelArgs
+	}
 
 	updateProgress(18, "准备特殊运行时镜像...")
 	cleanupCmd := fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(config.Name))
@@ -69,6 +79,9 @@ func (d *DockerProvider) sshCreateSpecialRuntimeInstance(ctx context.Context, co
 		err = d.createDockerMacOSRuntime(config, specialImage, networkFlags, updateProgress)
 	default:
 		err = fmt.Errorf("不支持的特殊 Docker 运行时镜像类型: %s", specialImage.Kind)
+	}
+	if err == nil {
+		err = d.connectDockerAdditionalNetworks(config.Name, networkSelection)
 	}
 	if err != nil {
 		diagnostics := d.collectCreateDiagnostics(config.Name)

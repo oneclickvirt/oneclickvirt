@@ -280,17 +280,30 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	if config.Metadata != nil {
 		staticIPv6 = strings.TrimSpace(config.Metadata["static_ipv6"])
 	}
-	networkSelection, err := utils.ResolveContainerNetwork(
-		networkType,
-		staticIPv6,
-		ipv4Network,
-		ipv6Network,
-		hasIPv6 && p.checkIPv6NetworkAvailable(),
-	)
+	// A controller-assigned routed address must use a network created for the
+	// corresponding tunnel. Falling back to the legacy shared network would
+	// silently lose the routed prefix and leave the instance without IPv6.
+	networkSelection, routedPresent, err := p.routedNetworkSelection(config, networkType)
+	if !routedPresent {
+		networkSelection, err = utils.ResolveContainerNetwork(
+			networkType,
+			staticIPv6,
+			ipv4Network,
+			ipv6Network,
+			hasIPv6 && p.checkIPv6NetworkAvailable(),
+		)
+	}
 	if err != nil {
 		return err
 	}
 	cmd = appendPodmanNetworkOptions(cmd, networkSelection)
+	if networkSelection.RoutedVeth {
+		labelArgs, labelErr := provider.RoutedIPv6RuntimeLabelArgs(networkSelection)
+		if labelErr != nil {
+			return fmt.Errorf("构造隧道路由IPv6运行时标签失败: %w", labelErr)
+		}
+		cmd += " " + labelArgs
+	}
 
 	if networkType == "dedicated_ipv4" || networkType == "dedicated_ipv4_ipv6" {
 		if config.Metadata != nil {
@@ -486,6 +499,9 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			return fmt.Errorf("failed to create container: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 		}
 	}
+	if err := p.connectPodmanAdditionalNetworks(config.Name, networkSelection); err != nil {
+		return err
+	}
 
 	updateProgress(96, "等待容器完全启动...")
 	maxWaitTime := 30 * time.Second
@@ -545,10 +561,46 @@ func appendPodmanNetworkOptions(command string, selection utils.ContainerNetwork
 	if selection.Network != "" {
 		command += fmt.Sprintf(" --network=%s", shellSingleQuote(selection.Network))
 	}
-	if selection.StaticIPv6 != "" {
+	if selection.StaticIPv6 != "" && !selection.RoutedVeth && (selection.IPv6Network == "" || selection.IPv6Network == selection.Network) {
 		command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
 	}
 	return command
+}
+
+func (p *PodmanProvider) connectPodmanAdditionalNetworks(name string, selection utils.ContainerNetworkSelection) error {
+	if selection.RoutedVeth {
+		command, err := provider.RoutedIPv6VethAttachCommand(cliName, name, selection)
+		if err != nil {
+			return fmt.Errorf("构造隧道路由IPv6 veth命令失败: %w", err)
+		}
+		output, execErr := p.sshClient.Execute(command)
+		if execErr == nil {
+			return nil
+		}
+		_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+		diagnostics := p.collectCreateDiagnostics(name)
+		return fmt.Errorf("附加隧道路由IPv6 veth失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+			execErr, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
+	}
+	for _, network := range selection.AdditionalNetworks {
+		if strings.TrimSpace(network) == "" {
+			continue
+		}
+		command := fmt.Sprintf("%s network connect", cliName)
+		if network == selection.IPv6Network && selection.StaticIPv6 != "" {
+			command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
+		}
+		command += fmt.Sprintf(" %s %s", shellSingleQuote(network), shellSingleQuote(name))
+		output, err := p.sshClient.Execute(command)
+		if err == nil {
+			continue
+		}
+		_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+		diagnostics := p.collectCreateDiagnostics(name)
+		return fmt.Errorf("附加隧道路由IPv6网络失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+			err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
+	}
+	return nil
 }
 
 func podmanManagedImageName(image string) string {

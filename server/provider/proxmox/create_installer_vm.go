@@ -101,6 +101,10 @@ func (p *ProxmoxProvider) createInstallerVM(ctx context.Context, vmid int, confi
 	}
 
 	ostype := proxmoxInstallerOSType(imageURL)
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+	if err := p.preflightIPv6Create(ctx, config, networkConfig.NetworkType); err != nil {
+		return err
+	}
 	net0Config := fmt.Sprintf("e1000,bridge=%s,firewall=0", p.getBridgeName("nat"))
 	createCmd := fmt.Sprintf(
 		"qm create %d --agent 0 --cores %s --sockets 1 --cpu %s --memory %s --net0 %s --ostype %s --name %s %s",

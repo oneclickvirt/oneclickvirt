@@ -32,10 +32,10 @@
         <!-- 数据源指示 -->
         <div class="data-source-indicator">
           <el-tag 
-            :type="trafficData.traffic_control_enabled ? 'success' : 'warning'"
+            :type="dataSourceTagType(trafficData.data_source)"
             size="small"
           >
-            {{ trafficData.traffic_control_enabled ? t('user.trafficOverview.pmacctRealtime') : t('user.trafficOverview.basicData') }}
+            {{ dataSourceLabel(trafficData.data_source) }}
           </el-tag>
         </div>
 
@@ -198,6 +198,23 @@ const getProgressColor = (percentage) => {
   if (percentage < 80) return '#e6a23c'
   return '#f56c6c'
 }
+
+const dataSourceLabel = (source) => {
+  const key = {
+    agent: 'dataSourceAgent',
+    pmacct: 'dataSourcePmacct',
+    mixed: 'dataSourceMixed',
+    none: 'dataSourceNone'
+  }[source] || 'dataSourceNone'
+  return t(`user.trafficOverview.${key}`)
+}
+
+const dataSourceTagType = source => ({
+  agent: 'success',
+  pmacct: 'warning',
+  mixed: 'primary',
+  none: 'info'
+}[source] || 'info')
 
 const formatDate = (dateString) => {
   if (!dateString) return t('common.notSet')

@@ -3,6 +3,7 @@ package proxmox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +14,39 @@ import (
 
 	"go.uber.org/zap"
 )
+
+// proxmoxAPICreateMayExistError marks an API create path after PVE may have
+// accepted the request. SSH fallback is safe for read operations, but creating
+// a second guest after an ambiguous POST or a post-create network error is not.
+type proxmoxAPICreateMayExistError struct {
+	VMID int
+	err  error
+}
+
+func (e *proxmoxAPICreateMayExistError) Error() string {
+	return fmt.Sprintf("PVE API 创建可能已生成 VMID %d，已阻止 SSH 回退以避免重复实例: %v", e.VMID, e.err)
+}
+
+func (e *proxmoxAPICreateMayExistError) Unwrap() error { return e.err }
+
+func proxmoxAPICreateMutationError(vmid int, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &proxmoxAPICreateMayExistError{VMID: vmid, err: err}
+}
+
+func proxmoxAPICreateMayHaveMutated(err error) bool {
+	var mutationErr *proxmoxAPICreateMayExistError
+	return errors.As(err, &mutationErr)
+}
+
+// proxmoxAPICreateFallbackBlocked is deliberately separate from the generic
+// API-to-SSH fallback policy. A create error may describe a guest that already
+// exists remotely, so retrying over SSH would create a duplicate VM/CT.
+func proxmoxAPICreateFallbackBlocked(err error) bool {
+	return proxmoxAPICreateMayHaveMutated(err)
+}
 
 // apiListInstances 通过API方式获取Proxmox实例列表
 func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Instance, error) {
@@ -178,7 +212,7 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 	// 配置网络
 	if err := p.configureInstanceNetwork(ctx, vmid, config); err != nil {
 		if requestedProxmoxIPv6(config) != "" {
-			return fmt.Errorf("配置控制面静态IPv6网络失败: %w", err)
+			return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置控制面静态IPv6网络失败: %w", err))
 		}
 		global.APP_LOG.Warn("网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
 	}

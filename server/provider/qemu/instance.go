@@ -170,6 +170,14 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 	updateProgress(5, "开始创建QEMU虚拟机")
 
+	// A controller-assigned IPv6 address is a hard requirement. Validate the
+	// tunnel bridge before creating a disk or libvirt domain so a later network
+	// failure cannot leave an unusable guest behind.
+	ipv6Plan, err := p.preflightQEMUIPv6(config)
+	if err != nil {
+		return err
+	}
+
 	// 预检：确保 QEMU/libvirt 关键命令可用，避免后续命令以 127 失败且错误不明确
 	if _, err := p.sshClient.Execute("command -v virsh >/dev/null 2>&1"); err != nil {
 		return fmt.Errorf("virsh 命令不可用，请确认 provider 节点已安装 libvirt 并在 PATH 中: %w", err)
@@ -275,17 +283,14 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 			zap.String("url", utils.TruncateString(downloadURL, 200)))
 	}
 
-	updateProgress(15, "确保 libvirt default 网络就绪")
+	updateProgress(15, "确保 libvirt 网络就绪")
 
-	// 确保 libvirt default 网络活跃并随宿主机自启动。
-	p.sshClient.Execute("virsh net-start default 2>/dev/null || true")
-	p.sshClient.Execute("virsh net-autostart default 2>/dev/null || true")
-
-	// 获取网桥名称
-	bridgeOutput, _ := p.sshClient.Execute("virsh net-dumpxml default 2>/dev/null | grep '<bridge' | grep -oP 'name=\"\\K[^\"]+' || echo virbr0")
-	bridgeName := strings.TrimSpace(bridgeOutput)
-	if bridgeName == "" {
-		bridgeName = "virbr0"
+	// Routed dual-stack guests keep libvirt's default NAT network as the IPv4
+	// management path and receive a second NIC on the tunnel bridge. IPv6-only
+	// guests use only the routed bridge.
+	if !ipv6Plan.IPv6Only {
+		p.sshClient.Execute("virsh net-start default 2>/dev/null || true")
+		p.sshClient.Execute("virsh net-autostart default 2>/dev/null || true")
 	}
 
 	updateProgress(20, "生成 MAC 地址和分配 IP")
@@ -296,17 +301,28 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 		return fmt.Errorf("failed to generate MAC address: %w", err)
 	}
 	vmMAC := strings.TrimSpace(macOutput)
+	routedMAC := ""
+	if ipv6Plan.Routed != nil {
+		routedMACOutput, macErr := p.sshClient.Execute("printf '52:54:%02x:%02x:%02x:%02x\\n' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256))")
+		if macErr != nil {
+			return fmt.Errorf("生成隧道IPv6网卡MAC地址失败: %w", macErr)
+		}
+		routedMAC = strings.TrimSpace(routedMACOutput)
+	}
 
 	// 分配静态 IP（加锁保证并发安全，从 192.168.122.2 ~ 192.168.122.254 中找空闲的）
-	p.ipMu.Lock()
-	vmIP, err := p.allocateIP()
-	if err != nil {
+	vmIP := ""
+	if !ipv6Plan.IPv6Only {
+		p.ipMu.Lock()
+		vmIP, err = p.allocateIP()
+		if err != nil {
+			p.ipMu.Unlock()
+			return fmt.Errorf("failed to allocate IP: %w", err)
+		}
+		// 立即写入 DHCP 预留，防止并发任务分配到相同IP
+		p.setupDHCPReservation(config.Name, vmMAC, vmIP)
 		p.ipMu.Unlock()
-		return fmt.Errorf("failed to allocate IP: %w", err)
 	}
-	// 立即写入 DHCP 预留，防止并发任务分配到相同IP
-	p.setupDHCPReservation(config.Name, vmMAC, vmIP)
-	p.ipMu.Unlock()
 
 	global.APP_LOG.Info("VM 网络配置",
 		zap.String("name", config.Name),
@@ -327,7 +343,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	updateProgress(40, "创建 cloud-init ISO")
 
 	// 创建 cloud-init 配置和 ISO
-	ciISO, err := p.createCloudInitISO(config.Name, password)
+	ciISO, err := p.createCloudInitISOWithNetwork(config.Name, password, qemuCloudInitNetworkData(ipv6Plan, vmMAC, routedMAC))
 	if err != nil {
 		// 清理磁盘
 		p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(vmDisk)))
@@ -336,25 +352,27 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 	updateProgress(50, "配置端口转发")
 
-	// 配置防火墙端口转发
-	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
-	if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
-		// 清理磁盘和 cloud-init ISO
-		p.sshClient.Execute(fmt.Sprintf("rm -f %s %s", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
-		return fmt.Errorf("防火墙后端检测失败: %w", err)
-	}
-	if err := fwMgr.InitTable(); err != nil {
-		p.sshClient.Execute(fmt.Sprintf("rm -f %s %s", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
-		return fmt.Errorf("防火墙初始化失败: %w", err)
-	}
-	if sshPort > 0 {
-		if err := fwMgr.AddDNAT(config.Name, vmIP, sshPort, startPort, endPort); err != nil {
-			// 端口转发失败是致命错误 —— VM 创建后无法被外部访问
+	// IPv4 NAT port forwarding is independent of the routed IPv6 NIC. An
+	// IPv6-only guest has no IPv4 DNAT target, so leave the firewall untouched.
+	if !ipv6Plan.IPv6Only {
+		fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
+		if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
 			p.sshClient.Execute(fmt.Sprintf("rm -f %s %s", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
-			return fmt.Errorf("端口转发规则添加失败: %w", err)
+			return fmt.Errorf("防火墙后端检测失败: %w", err)
 		}
+		if err := fwMgr.InitTable(); err != nil {
+			p.sshClient.Execute(fmt.Sprintf("rm -f %s %s", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
+			return fmt.Errorf("防火墙初始化失败: %w", err)
+		}
+		if sshPort > 0 && vmIP != "" {
+			if err := fwMgr.AddDNAT(config.Name, vmIP, sshPort, startPort, endPort); err != nil {
+				// 端口转发失败是致命错误 —— VM 创建后无法被外部访问
+				p.sshClient.Execute(fmt.Sprintf("rm -f %s %s", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
+				return fmt.Errorf("端口转发规则添加失败: %w", err)
+			}
+		}
+		fwMgr.SaveRules()
 	}
-	fwMgr.SaveRules()
 
 	updateProgress(65, "部署虚拟机")
 
@@ -375,14 +393,15 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	osVariant := p.getOSVariant(system)
 
 	// 构建 virt-install 命令
+	networkArgs := qemuVirtInstallNetworkArgs(ipv6Plan, vmMAC, routedMAC)
 	virtCmd := fmt.Sprintf(
 		`virt-install --name %s --memory %d --vcpus %d --virt-type %s --import `+
-			`--disk %s --disk %s --network %s --os-variant %s --sysinfo %s `+
+			`--disk %s --disk %s %s --os-variant %s --sysinfo %s `+
 			`--graphics none --serial pty --console %s --noautoconsole 2>&1`,
 		shellSingleQuote(config.Name), memoryMB, cpu, shellSingleQuote(virtType),
 		shellSingleQuote(fmt.Sprintf("path=%s,format=qcow2,bus=virtio,cache=none", vmDisk)),
 		shellSingleQuote(fmt.Sprintf("path=%s,format=raw,bus=virtio,readonly=on", ciISO)),
-		shellSingleQuote(fmt.Sprintf("network=default,mac=%s,model=virtio", vmMAC)),
+		networkArgs,
 		shellSingleQuote(osVariant),
 		shellSingleQuote("type=smbios,system.serial=ds=nocloud"),
 		shellSingleQuote("pty,target_type=serial"))
@@ -399,12 +418,12 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 		p.sshClient.Execute(fmt.Sprintf("test -f %s || qemu-img create -f qcow2 -b %s -F qcow2 %s %dG 2>/dev/null", shellSingleQuote(vmDisk), shellSingleQuote(baseImage), shellSingleQuote(vmDisk), diskGB))
 		retryCmd := fmt.Sprintf(
 			`virt-install --name %s --memory %d --vcpus %d --virt-type %s --import `+
-				`--disk %s --disk %s --network %s --os-variant %s --sysinfo %s `+
+				`--disk %s --disk %s %s --os-variant %s --sysinfo %s `+
 				`--graphics none --serial pty --console %s --noautoconsole 2>&1`,
 			shellSingleQuote(config.Name), memoryMB, cpu, shellSingleQuote(virtType),
 			shellSingleQuote(fmt.Sprintf("path=%s,format=qcow2,bus=virtio,cache=none", vmDisk)),
 			shellSingleQuote(fmt.Sprintf("path=%s,format=raw,bus=virtio,readonly=on", ciISO)),
-			shellSingleQuote(fmt.Sprintf("network=default,mac=%s,model=virtio", vmMAC)),
+			networkArgs,
 			shellSingleQuote("detect=on,require=off"),
 			shellSingleQuote("type=smbios,system.serial=ds=nocloud"),
 			shellSingleQuote("pty,target_type=serial"))
@@ -420,12 +439,12 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 		p.sshClient.Execute(fmt.Sprintf("test -f %s || qemu-img create -f qcow2 -b %s -F qcow2 %s %dG 2>/dev/null", shellSingleQuote(vmDisk), shellSingleQuote(baseImage), shellSingleQuote(vmDisk), diskGB))
 		tcgCmd := fmt.Sprintf(
 			`virt-install --name %s --memory %d --vcpus %d --virt-type qemu --import `+
-				`--disk %s --disk %s --network %s --os-variant %s --sysinfo %s `+
+				`--disk %s --disk %s %s --os-variant %s --sysinfo %s `+
 				`--graphics none --serial pty --console %s --noautoconsole 2>&1`,
 			shellSingleQuote(config.Name), memoryMB, cpu,
 			shellSingleQuote(fmt.Sprintf("path=%s,format=qcow2,bus=virtio,cache=none", vmDisk)),
 			shellSingleQuote(fmt.Sprintf("path=%s,format=raw,bus=virtio,readonly=on", ciISO)),
-			shellSingleQuote(fmt.Sprintf("network=default,mac=%s,model=virtio", vmMAC)),
+			networkArgs,
 			shellSingleQuote("detect=on,require=off"),
 			shellSingleQuote("type=smbios,system.serial=ds=nocloud"),
 			shellSingleQuote("pty,target_type=serial"))
@@ -435,7 +454,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	}
 
 	// 清理临时文件
-	p.sshClient.Execute(fmt.Sprintf("rm -f %s %s 2>/dev/null || true", shellSingleQuote(qemuCloudInitUserDataPath(config.Name)), shellSingleQuote(qemuCloudInitMetaDataPath(config.Name))))
+	p.sshClient.Execute(fmt.Sprintf("rm -f %s %s %s 2>/dev/null || true", shellSingleQuote(qemuCloudInitUserDataPath(config.Name)), shellSingleQuote(qemuCloudInitMetaDataPath(config.Name)), shellSingleQuote(qemuCloudInitNetworkDataPath(config.Name))))
 
 	if virtRC != nil {
 		// 部署失败，清理
@@ -572,10 +591,19 @@ func (p *QEMUProvider) setupDHCPReservation(vmName, vmMAC, vmIP string) {
 
 // createCloudInitISO 创建 cloud-init ISO
 func (p *QEMUProvider) createCloudInitISO(vmName, password string) (string, error) {
+	return p.createCloudInitISOWithNetwork(vmName, password, "")
+}
+
+// createCloudInitISOWithNetwork adds an optional cloud-init network-config.
+// Routed tunnel addresses must be configured inside the guest before its first
+// boot; relying on a post-create SSH command would race cloud-init and would
+// not survive a restart.
+func (p *QEMUProvider) createCloudInitISOWithNetwork(vmName, password, networkData string) (string, error) {
 	artifactName := qemuSafeFileComponent(vmName)
 	ciISO := fmt.Sprintf("%s/vm-%s-cloudinit.iso", ImageDir, artifactName)
 	userDataPath := qemuCloudInitUserDataPath(vmName)
 	metaDataPath := qemuCloudInitMetaDataPath(vmName)
+	networkDataPath := qemuCloudInitNetworkDataPath(vmName)
 	userData := qemuCloudInitUserData(vmName, password)
 
 	// 创建 user-data
@@ -595,28 +623,43 @@ METAEOF`, shellSingleQuote(metaDataPath), qemuSafeFileComponent(vmName), qemuSaf
 		return "", fmt.Errorf("failed to create meta-data: %w", err)
 	}
 
+	networkSetup := ""
+	networkArg := ""
+	networkCopy := ""
+	networkCleanup := ""
+	if strings.TrimSpace(networkData) != "" {
+		networkSetup = fmt.Sprintf("cat > %s << 'NETEOF'\n%s\nNETEOF\n", shellSingleQuote(networkDataPath), networkData)
+		networkArg = " --network-config=" + shellSingleQuote(networkDataPath)
+		networkCopy = fmt.Sprintf("\n  cp %s \"$ci_dir/network-config\"", shellSingleQuote(networkDataPath))
+		networkCleanup = fmt.Sprintf("\nrm -f %s", shellSingleQuote(networkDataPath))
+	}
+
 	// 创建 ISO（优先 cloud-localds，回退到 genisoimage/mkisofs）
 	isoCmd := fmt.Sprintf(
-		`if command -v cloud-localds >/dev/null 2>&1; then
-  cloud-localds %s %s %s
+		`%s
+if command -v cloud-localds >/dev/null 2>&1; then
+  cloud-localds%s %s %s %s
 elif command -v genisoimage >/dev/null 2>&1; then
   ci_dir=%s && mkdir -p "$ci_dir"
   cp %s "$ci_dir/user-data"
   cp %s "$ci_dir/meta-data"
+  %s
   genisoimage -output %s -volid cidata -joliet -rock "$ci_dir" 2>/dev/null
   rm -rf "$ci_dir"
 elif command -v mkisofs >/dev/null 2>&1; then
   ci_dir=%s && mkdir -p "$ci_dir"
   cp %s "$ci_dir/user-data"
   cp %s "$ci_dir/meta-data"
+  %s
   mkisofs -output %s -volid cidata -joliet -rock "$ci_dir" 2>/dev/null
   rm -rf "$ci_dir"
 else
   echo "ERROR: no ISO creation tool found" >&2 && exit 1
-fi`,
-		shellSingleQuote(ciISO), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath),
-		shellSingleQuote("/tmp/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), shellSingleQuote(ciISO),
-		shellSingleQuote("/tmp/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), shellSingleQuote(ciISO))
+fi%s`,
+		networkSetup,
+		networkArg, shellSingleQuote(ciISO), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath),
+		shellSingleQuote("/tmp/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), networkCopy, shellSingleQuote(ciISO),
+		shellSingleQuote("/tmp/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), networkCopy, shellSingleQuote(ciISO), networkCleanup)
 
 	output, err := p.sshClient.Execute(isoCmd)
 	if err != nil {
@@ -758,6 +801,10 @@ func qemuCloudInitUserDataPath(vmName string) string {
 
 func qemuCloudInitMetaDataPath(vmName string) string {
 	return fmt.Sprintf("/tmp/qemu-cloudinit-%s-meta.yaml", qemuSafeFileComponent(vmName))
+}
+
+func qemuCloudInitNetworkDataPath(vmName string) string {
+	return fmt.Sprintf("/tmp/qemu-cloudinit-%s-network.yaml", qemuSafeFileComponent(vmName))
 }
 
 func yamlDoubleQuote(s string) string {

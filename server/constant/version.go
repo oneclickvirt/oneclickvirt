@@ -16,7 +16,7 @@ const AgentReleaseVersion = ServerVersion
 // always considered compatible.
 const CompatibleAgentVersion = "0.4.0"
 
-const APIContractVersion = "2026-07-29.1"
+const APIContractVersion = "2026-08-16.1"
 
 // Build verification - these are set at compile time via ldflags in CI/CD
 // Official builds will have these set; unofficial builds will show "unofficial"

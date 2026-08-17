@@ -15,27 +15,21 @@ import (
 	"oneclickvirt/utils/dbcompat"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// providerTrafficSyncFlights coalesces scheduled, lifecycle, and explicit
+// manual refreshes for the same node. The database claim below remains the
+// correctness guard; this additionally prevents duplicate Agent round trips.
+var providerTrafficSyncFlights singleflight.Group
 
 type trafficUserIDBackfill struct {
 	monitorID  uint
 	instanceID uint
 	oldUserID  uint
 	newUserID  uint
-}
-
-type trafficSyncItem struct {
-	monitor           *monitoringModel.AgentMonitor
-	currentTraffic    uint64
-	currentTrafficIn  uint64
-	currentTrafficOut uint64
-	deltaBytesIn      uint64
-	deltaBytesOut     uint64
-	rxMB              float64
-	txMB              float64
-	alignedTime       time.Time
 }
 
 // SyncService synchronizes traffic data from the agent into MySQL history tables.
@@ -57,6 +51,27 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	if err := s.db.First(&p, providerID).Error; err != nil {
 		return fmt.Errorf("load provider %d: %w", providerID, err)
 	}
+	return s.syncProviderTraffic(&p, config)
+}
+
+// syncProviderTraffic synchronizes a provider that has already been loaded by
+// a batch caller. Keeping the provider lookup outside this method lets manual
+// refreshes avoid a per-provider database lookup before every Agent request.
+func (s *SyncService) syncProviderTraffic(p *providerModel.Provider, config *monitoringModel.MonitoringConfig) error {
+	if p == nil || p.ID == 0 {
+		return fmt.Errorf("invalid provider for agent traffic sync")
+	}
+	if config == nil {
+		return fmt.Errorf("missing monitoring config for provider %d", p.ID)
+	}
+	_, err, _ := providerTrafficSyncFlights.Do(fmt.Sprintf("provider:%d", p.ID), func() (interface{}, error) {
+		return nil, s.syncProviderTrafficOnce(p, config)
+	})
+	return err
+}
+
+func (s *SyncService) syncProviderTrafficOnce(p *providerModel.Provider, config *monitoringModel.MonitoringConfig) error {
+	providerID := p.ID
 
 	if !p.EnableTrafficControl {
 		return nil
@@ -167,53 +182,7 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 			continue
 		}
 		affectedUsers[monitor.UserID] = true
-
-		currentTraffic := info.UsedTraffic
-		currentTrafficIn := info.UsedTrafficIn
-		currentTrafficOut := info.UsedTrafficOut
-
-		var deltaBytesIn, deltaBytesOut uint64
-		if currentTrafficIn >= monitor.LastTrafficBytesIn {
-			deltaBytesIn = currentTrafficIn - monitor.LastTrafficBytesIn
-		} else {
-			deltaBytesIn = currentTrafficIn
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("Agent入站流量计数器重置检测",
-					zap.Uint("instanceID", monitor.InstanceID),
-					zap.Uint64("lastIn", monitor.LastTrafficBytesIn),
-					zap.Uint64("currentIn", currentTrafficIn))
-			}
-		}
-		if currentTrafficOut >= monitor.LastTrafficBytesOut {
-			deltaBytesOut = currentTrafficOut - monitor.LastTrafficBytesOut
-		} else {
-			deltaBytesOut = currentTrafficOut
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("Agent出站流量计数器重置检测",
-					zap.Uint("instanceID", monitor.InstanceID),
-					zap.Uint64("lastOut", monitor.LastTrafficBytesOut),
-					zap.Uint64("currentOut", currentTrafficOut))
-			}
-		}
-
-		// History tables store raw in/out usage. Count mode and multiplier are
-		// applied only when querying usage so agent and pmacct data stay consistent.
-		rxMB := float64(deltaBytesIn) / 1048576.0
-		txMB := float64(deltaBytesOut) / 1048576.0
-		minute := (now.Minute() / 5) * 5
-		alignedTime := time.Date(year, time.Month(month), day, hour, minute, 0, 0, now.Location())
-
-		syncItems = append(syncItems, trafficSyncItem{
-			monitor:           monitor,
-			currentTraffic:    currentTraffic,
-			currentTrafficIn:  currentTrafficIn,
-			currentTrafficOut: currentTrafficOut,
-			deltaBytesIn:      deltaBytesIn,
-			deltaBytesOut:     deltaBytesOut,
-			rxMB:              rxMB,
-			txMB:              txMB,
-			alignedTime:       alignedTime,
-		})
+		syncItems = append(syncItems, buildTrafficSyncItem(monitor, info, now))
 	}
 
 	var firstErr error

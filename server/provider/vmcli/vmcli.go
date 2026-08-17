@@ -243,8 +243,20 @@ func (p *Provider) CreateInstanceWithProgress(ctx context.Context, config rootPr
 	if name == "" {
 		return fmt.Errorf("instance name is required")
 	}
+	ipv6Plan, err := rootProvider.ResolveRoutedIPv6VMPlan(config, p.spec.Type)
+	if err != nil {
+		return err
+	}
+	if ipv6Plan.Routed != nil {
+		if err := p.preflightRoutedIPv6(ipv6Plan); err != nil {
+			return err
+		}
+	}
 	updateProgress(progress, 10, "preparing "+p.spec.DisplayName+" instance")
-	script, timeout := p.createScript(config)
+	script, timeout, err := p.createScript(config, ipv6Plan)
+	if err != nil {
+		return err
+	}
 	updateProgress(progress, 35, "creating "+p.spec.DisplayName+" instance")
 	if out, err := exec.ExecuteWithTimeout(script, timeout); err != nil {
 		return fmt.Errorf("%s create failed: %w; output: %s", p.spec.DisplayName, err, utils.TruncateString(out, 600))
@@ -473,7 +485,7 @@ done
 	}
 }
 
-func (p *Provider) createScript(config rootProvider.InstanceConfig) (string, time.Duration) {
+func (p *Provider) createScript(config rootProvider.InstanceConfig, ipv6Plan rootProvider.RoutedIPv6VMPlan) (string, time.Duration, error) {
 	name := strings.TrimSpace(config.Name)
 	image := strings.TrimSpace(config.Image)
 	if image == "" {
@@ -486,65 +498,19 @@ func (p *Provider) createScript(config rootProvider.InstanceConfig) (string, tim
 
 	switch p.spec.Type {
 	case "virtualbox":
-		return fmt.Sprintf(`
-set -e
-name=%s
-image=%s
-base=%s
-mkdir -p "$base/$name"
-if [ -n "$image" ] && VBoxManage showvminfo "$image" >/dev/null 2>&1; then
-  VBoxManage clonevm "$image" --name "$name" --register
-else
-  VBoxManage createvm --name "$name" --ostype Linux_64 --basefolder "$base" --register
-  VBoxManage modifyvm "$name" --cpus %d --memory %d --nic1 nat
-  VBoxManage createhd --filename "$base/$name/$name.vdi" --size %d
-  VBoxManage storagectl "$name" --name SATA --add sata --controller IntelAhci
-  VBoxManage storageattach "$name" --storagectl SATA --port 0 --device 0 --type hdd --medium "$base/$name/$name.vdi"
-fi
-VBoxManage startvm "$name" --type headless >/dev/null 2>&1 || true
-`, shellQuote(name), shellQuote(image), shellQuote(base), cpu, memoryMB, diskGB*1024), 20 * time.Minute
+		return p.virtualBoxCreateScript(name, image, base, cpu, memoryMB, diskGB, config, ipv6Plan)
 	case "multipass":
 		if image == "" {
 			image = "lts"
 		}
-		return fmt.Sprintf(`
-set -e
-if multipass info %s >/dev/null 2>&1; then
-  echo "multipass instance already exists"
-  exit 1
-fi
-multipass launch %s --name %s --cpus %d --memory %dM --disk %dG
-`, shellQuote(name), shellQuote(image), shellQuote(name), cpu, memoryMB, diskGB), 30 * time.Minute
+		return p.multipassCreateScript(name, image, cpu, memoryMB, diskGB, config, ipv6Plan)
 	case "vagrant":
 		if image == "" {
 			image = "generic/ubuntu2204"
 		}
-		return fmt.Sprintf(`
-set -e
-name=%s
-box=%s
-base=%s
-dir="$base/$name"
-mkdir -p "$dir"
-cat > "$dir/Vagrantfile" <<'VAGRANTFILE'
-Vagrant.configure("2") do |config|
-  config.vm.box = "%s"
-  config.vm.hostname = "%s"
-  config.vm.provider "virtualbox" do |vb|
-    vb.cpus = %d
-    vb.memory = %d
-  end
-  config.vm.provider "libvirt" do |lv|
-    lv.cpus = %d
-    lv.memory = %d
-  end
-end
-VAGRANTFILE
-cd "$dir"
-vagrant up --provider=libvirt || vagrant up --provider=virtualbox || vagrant up
-`, shellQuote(name), shellQuote(image), shellQuote(base), escapeVagrantString(image), escapeVagrantString(name), cpu, memoryMB, cpu, memoryMB), 40 * time.Minute
+		return p.vagrantCreateScript(name, image, base, cpu, memoryMB, config, ipv6Plan)
 	default:
-		return "true", time.Minute
+		return "true", time.Minute, nil
 	}
 }
 
@@ -570,7 +536,12 @@ func (p *Provider) lifecycleScript(id, action string) string {
 		case "stop":
 			return fmt.Sprintf("VBoxManage controlvm %s acpipowerbutton >/dev/null 2>&1 || VBoxManage controlvm %s poweroff", qID, qID)
 		case "delete":
-			return fmt.Sprintf("VBoxManage controlvm %s poweroff >/dev/null 2>&1 || true\nVBoxManage unregistervm %s --delete", qID, qID)
+			return fmt.Sprintf(`seed="$(VBoxManage getextradata %s oneclickvirt.routed-ipv6-seed 2>/dev/null | awk -F': ' '/^Value:/{print $2; exit}' || true)"
+VBoxManage controlvm %s poweroff >/dev/null 2>&1 || true
+VBoxManage unregistervm %s --delete
+case "$seed" in
+  %s/.oneclickvirt-ipv6-seeds/*) rm -f -- "$seed" ;;
+esac`, qID, qID, qID, shellQuote(p.basePath()))
 		}
 	case "multipass":
 		switch action {

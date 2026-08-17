@@ -142,7 +142,10 @@ func SyncProviderMonitors(c *gin.Context) {
 	}
 
 	var running monitoringModel.MonitorSyncTask
-	if err := global.APP_DB.Where("provider_id = ? AND status IN ?", providerID, []string{"pending", "running"}).
+	if err := global.APP_DB.Where("provider_id = ? AND status IN ?", providerID, []string{
+		monitoringModel.MonitorSyncTaskStatusPending,
+		monitoringModel.MonitorSyncTaskStatusRunning,
+	}).
 		Order("id DESC").First(&running).Error; err == nil {
 		common.ResponseSuccess(c, buildMonitorSyncTaskResponse(&running), "已有同步任务正在执行")
 		return
@@ -160,7 +163,7 @@ func SyncProviderMonitors(c *gin.Context) {
 	task := monitoringModel.MonitorSyncTask{
 		ProviderID: uint(providerID),
 		TaskID:     fmt.Sprintf("monitor-sync-%d-%d", providerID, now.UnixNano()),
-		Status:     "pending",
+		Status:     monitoringModel.MonitorSyncTaskStatusPending,
 	}
 	if err := global.APP_DB.Create(&task).Error; err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -169,7 +172,7 @@ func SyncProviderMonitors(c *gin.Context) {
 	adminTask, err := taskService.CreateMonitorSyncAdminTask(uint(providerID), task.ID, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		_ = global.APP_DB.Model(&task).Updates(map[string]interface{}{
-			"status":        "failed",
+			"status":        monitoringModel.MonitorSyncTaskStatusFailed,
 			"error_message": err.Error(),
 			"finished_at":   time.Now(),
 		}).Error
@@ -283,7 +286,7 @@ func buildMonitorSyncTaskResponse(task *monitoringModel.MonitorSyncTask) map[str
 func runProviderMonitorSyncTask(taskID string, providerID uint, config monitoringModel.MonitoringConfig) {
 	now := time.Now()
 	_ = global.APP_DB.Model(&monitoringModel.MonitorSyncTask{}).Where("task_id = ?", taskID).
-		Updates(map[string]interface{}{"status": "running", "started_at": &now}).Error
+		Updates(map[string]interface{}{"status": monitoringModel.MonitorSyncTaskStatusRunning, "started_at": &now}).Error
 
 	finish := func(status string, summary *agentService.MonitorSyncSummary, taskErr error) {
 		if summary == nil {
@@ -317,7 +320,7 @@ func runProviderMonitorSyncTask(taskID string, providerID uint, config monitorin
 
 	providerInstance, err := providerService.GetProviderInstanceByID(providerID)
 	if err != nil {
-		finish("failed", &agentService.MonitorSyncSummary{Failed: 1}, fmt.Errorf("Provider未连接: %w", err))
+		finish(monitoringModel.MonitorSyncTaskStatusFailed, &agentService.MonitorSyncSummary{Failed: 1}, fmt.Errorf("Provider未连接: %w", err))
 		return
 	}
 
@@ -326,7 +329,7 @@ func runProviderMonitorSyncTask(taskID string, providerID uint, config monitorin
 	monitorSvc := agentService.NewMonitorService(ctx, global.APP_DB.Session(&gorm.Session{}))
 	summary, err := monitorSvc.EnsureMonitorsForProvider(providerInstance, providerID, &config)
 	if err != nil {
-		finish("failed", summary, err)
+		finish(monitoringModel.MonitorSyncTaskStatusFailed, summary, err)
 		return
 	}
 
@@ -339,7 +342,7 @@ func runProviderMonitorSyncTask(taskID string, providerID uint, config monitorin
 		summary.Failed++
 	}
 	summary.Cleaned = cleaned
-	finish("completed", summary, nil)
+	finish(monitoringModel.MonitorSyncTaskStatusCompleted, summary, nil)
 }
 
 // ListAgentMonitors godoc

@@ -1,4 +1,4 @@
-import { computed, ref, reactive } from 'vue'
+import { computed, ref, reactive, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { 
@@ -12,6 +12,8 @@ import {
   clearUserTrafficRecords
 } from '@/api/admin'
 import { useUserStore } from '@/pinia/modules/user'
+
+const trafficSyncRefreshDelays = [1500, 2500, 4000, 6000]
 
 export function useTrafficManagement() {
   const { t, locale } = useI18n()
@@ -43,6 +45,9 @@ export function useTrafficManagement() {
   const syncingUsers = ref([])
 
   const limitForm = reactive({ reason: '' })
+  let trafficRefreshTimer = null
+  let resolveTrafficRefreshTimer = null
+  let trafficRefreshGeneration = 0
 
   const limitFormRules = {
     reason: [
@@ -51,23 +56,23 @@ export function useTrafficManagement() {
     ]
   }
 
-  const loadSystemOverview = async () => {
+  const loadSystemOverview = async ({ silent = false } = {}) => {
     overviewLoading.value = true
     try {
       const response = await getSystemTrafficOverview()
       if ((response.code === 200)) {
         systemOverview.value = response.data
-      } else {
+      } else if (!silent) {
         ElMessage.error(`${t('admin.traffic.loadOverviewFailed')}: ${response.msg}`)
       }
     } catch (error) {
-      ElMessage.error(t('admin.traffic.loadOverviewError'))
+      if (!silent) ElMessage.error(t('admin.traffic.loadOverviewError'))
     } finally {
       overviewLoading.value = false
     }
   }
 
-  const loadTrafficRanking = async () => {
+  const loadTrafficRanking = async ({ silent = false } = {}) => {
     rankingLoading.value = true
     try {
       const params = {
@@ -80,11 +85,11 @@ export function useTrafficManagement() {
       if ((response.code === 200)) {
         trafficRanking.value = response.data.rankings || []
         total.value = response.data.total || 0
-      } else {
+      } else if (!silent) {
         ElMessage.error(`${t('admin.traffic.loadRankingFailed')}: ${response.msg}`)
       }
     } catch (error) {
-      ElMessage.error(t('admin.traffic.loadRankingError'))
+      if (!silent) ElMessage.error(t('admin.traffic.loadRankingError'))
     } finally {
       rankingLoading.value = false
     }
@@ -102,7 +107,7 @@ export function useTrafficManagement() {
       await ElMessageBox.confirm(t('admin.traffic.confirmBatchSync', { count: selectedUsers.value.length }), t('common.warning'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       const userIds = selectedUsers.value.map(user => user.user_id)
       const response = await batchSyncUserTraffic({ user_ids: userIds })
-      if ((response.code === 200)) { ElMessage.success(t('admin.traffic.batchSyncSuccess')); setTimeout(() => loadTrafficRanking(), 3000) }
+      if ((response.code === 200)) { ElMessage.success(t('admin.traffic.batchSyncSuccess')); void refreshTrafficAfterSync() }
       else { ElMessage.error(`${t('admin.traffic.batchSyncFailed')}: ${response.msg}`) }
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.traffic.batchSyncError')) }
   }
@@ -129,20 +134,59 @@ export function useTrafficManagement() {
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.traffic.batchUnlimitError')) }
   }
 
-  const viewUserTraffic = async (userId) => {
+  const viewUserTraffic = async (userId, { silent = false } = {}) => {
     userTrafficLoading.value = true
     userTrafficDialogVisible.value = true
     try {
       const response = await getUserTrafficStats(userId)
       if ((response.code === 200)) { selectedUserTraffic.value = response.data }
-      else { ElMessage.error(`${t('admin.traffic.loadUserDetailsFailed')}: ${response.msg}`); userTrafficDialogVisible.value = false }
+      else if (!silent) { ElMessage.error(`${t('admin.traffic.loadUserDetailsFailed')}: ${response.msg}`); userTrafficDialogVisible.value = false }
     } catch (error) {
-      ElMessage.error(t('admin.traffic.loadUserDetailsError')); userTrafficDialogVisible.value = false
+      if (!silent) { ElMessage.error(t('admin.traffic.loadUserDetailsError')); userTrafficDialogVisible.value = false }
     } finally { userTrafficLoading.value = false }
   }
 
   const limitUser = (user) => { selectedUser.value = user; limitAction.value = 'limit'; limitForm.reason = ''; limitDialogVisible.value = true }
   const unlimitUser = (user) => { selectedUser.value = user; limitAction.value = 'unlimit'; limitDialogVisible.value = true }
+
+  const waitForTrafficRefresh = delay => new Promise(resolve => {
+    resolveTrafficRefreshTimer = resolve
+    trafficRefreshTimer = setTimeout(() => {
+      trafficRefreshTimer = null
+      resolveTrafficRefreshTimer = null
+      resolve()
+    }, delay)
+  })
+
+  const cancelTrafficRefresh = () => {
+    trafficRefreshGeneration += 1
+    if (!trafficRefreshTimer) return
+    clearTimeout(trafficRefreshTimer)
+    trafficRefreshTimer = null
+    const resolve = resolveTrafficRefreshTimer
+    resolveTrafficRefreshTimer = null
+    resolve?.()
+  }
+
+  // Agent collection is asynchronous. Refresh a bounded number of times and
+  // cancel obsolete loops so a slow node cannot leave permanent polling behind.
+  const refreshTrafficAfterSync = async (userId = 0) => {
+    cancelTrafficRefresh()
+    const generation = trafficRefreshGeneration
+    for (const delay of trafficSyncRefreshDelays) {
+      await waitForTrafficRefresh(delay)
+      if (generation !== trafficRefreshGeneration) return
+      const refreshes = [
+        loadSystemOverview({ silent: true }),
+        loadTrafficRanking({ silent: true })
+      ]
+      if (userId && userTrafficDialogVisible.value && selectedUserTraffic.value?.user_id === userId) {
+        refreshes.push(viewUserTraffic(userId, { silent: true }))
+      }
+      await Promise.allSettled(refreshes)
+      if (generation !== trafficRefreshGeneration) return
+    }
+  }
 
   const submitLimitAction = async () => {
     if (limitAction.value === 'limit' && !limitForm.reason.trim()) { ElMessage.error(t('admin.traffic.enterLimitReason')); return }
@@ -165,7 +209,7 @@ export function useTrafficManagement() {
     syncingUsers.value.push(userId)
     try {
       const response = await batchSyncUserTraffic({ user_ids: [userId] })
-      if ((response.code === 200)) { ElMessage.success(t('admin.traffic.syncTriggered')); setTimeout(() => loadTrafficRanking(), 3000) }
+      if ((response.code === 200)) { ElMessage.success(t('admin.traffic.syncTriggered')); void refreshTrafficAfterSync(userId) }
       else { ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`) }
     } catch (error) { ElMessage.error(t('admin.traffic.syncError')) }
     finally { const index = syncingUsers.value.indexOf(userId); if (index > -1) syncingUsers.value.splice(index, 1) }
@@ -176,7 +220,7 @@ export function useTrafficManagement() {
     syncingUserDetail.value = true
     try {
       const response = await batchSyncUserTraffic({ user_ids: [selectedUserTraffic.value.user_id] })
-      if ((response.code === 200)) { ElMessage.success(t('admin.traffic.syncTriggered')); setTimeout(async () => { await viewUserTraffic(selectedUserTraffic.value.user_id); loadTrafficRanking() }, 3000) }
+      if ((response.code === 200)) { ElMessage.success(t('admin.traffic.syncTriggered')); void refreshTrafficAfterSync(selectedUserTraffic.value.user_id) }
       else { ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`) }
     } catch (error) { ElMessage.error(t('admin.traffic.syncError')) }
     finally { syncingUserDetail.value = false }
@@ -187,7 +231,7 @@ export function useTrafficManagement() {
     syncingAllTraffic.value = true
     try {
       const response = await syncAllTraffic()
-      if ((response.code === 200)) { ElMessage.success(t('admin.traffic.syncAllTriggered')); setTimeout(() => { loadSystemOverview(); loadTrafficRanking() }, 5000) }
+      if ((response.code === 200)) { ElMessage.success(t('admin.traffic.syncAllTriggered')); void refreshTrafficAfterSync() }
       else { ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`) }
     } catch (error) { ElMessage.error(t('admin.traffic.syncError')) }
     finally { syncingAllTraffic.value = false }
@@ -238,6 +282,27 @@ export function useTrafficManagement() {
     return '#f56c6c'
   }
 
+  const dataSourceLabel = source => {
+    const key = {
+      agent: 'dataSourceAgent',
+      pmacct: 'dataSourcePmacct',
+      mixed: 'dataSourceMixed',
+      none: 'dataSourceNone'
+    }[source] || 'dataSourceNone'
+    return t(`admin.traffic.${key}`)
+  }
+
+  const dataSourceTagType = source => ({
+    agent: 'success',
+    pmacct: 'warning',
+    mixed: 'primary',
+    none: 'info'
+  }[source] || 'info')
+
+  onBeforeUnmount(() => {
+    cancelTrafficRefresh()
+  })
+
   return {
     overviewLoading, systemOverview, syncingAllTraffic, isSuperAdmin,
     rankingLoading, trafficRanking, currentPage, pageSize, total, selectedUsers,
@@ -251,7 +316,7 @@ export function useTrafficManagement() {
     viewUserTraffic, limitUser, unlimitUser, submitLimitAction,
     syncUserTrafficData, syncUserTrafficFromDetail, syncAllTrafficData,
     clearUserTraffic,
-    formatBytes, formatTrafficMB, formatDate, getRankTagType, getUsageColor,
+    formatBytes, formatTrafficMB, formatDate, getRankTagType, getUsageColor, dataSourceLabel, dataSourceTagType,
     t
   }
 }

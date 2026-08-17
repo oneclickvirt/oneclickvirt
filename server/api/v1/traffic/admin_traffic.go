@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/traffic"
+	trafficmanual "oneclickvirt/service/trafficmanual"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -426,10 +427,8 @@ func (api *AdminTrafficAPI) BatchSyncUserTraffic(c *gin.Context) {
 	}
 
 	// 远程采集和流量检查必须在事务外异步执行，避免阻塞HTTP请求和持有数据库锁。
-	syncTrigger := traffic.NewSyncTriggerService()
-	for _, userID := range userIDs {
-		syncTrigger.TriggerUserTrafficSync(userID, "管理员批量手动触发")
-	}
+	syncTrigger := trafficmanual.NewSyncService()
+	syncTrigger.TriggerUsersTrafficSync(userIDs, "管理员批量手动触发")
 	go func() {
 		_ = syncTrigger.Shutdown(30 * time.Minute)
 	}()

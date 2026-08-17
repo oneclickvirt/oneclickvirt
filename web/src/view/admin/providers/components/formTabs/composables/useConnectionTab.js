@@ -3,6 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { detectLocalProvider } from '@/api/admin/providers'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
+import { canProbeWssEndpoint } from './agentWsProbeCore'
 
 export function useConnectionTab(props, emit) {
   const { t } = useI18n()
@@ -86,8 +87,10 @@ export function useConnectionTab(props, emit) {
     const origin = extractWsOrigin(cmd)
     if (!origin) return
 
-    // Only probe if the URL would be wss://
-    if (!origin.wss.startsWith('wss://')) return
+    // Only probe anonymous endpoints. The Agent reverse socket needs a
+    // provider-bound secret in its handshake, so an anonymous browser probe
+    // would always receive 401 even when WSS is healthy.
+    if (!origin.wss.startsWith('wss://') || !canProbeWssEndpoint(origin)) return
 
     probingWSS.value = true
     let resolved = false

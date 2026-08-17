@@ -356,17 +356,27 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	if config.Metadata != nil {
 		staticIPv6 = strings.TrimSpace(config.Metadata["static_ipv6"])
 	}
-	networkSelection, err := utils.ResolveContainerNetwork(
-		networkType,
-		staticIPv6,
-		d.runtime.IPv4Network,
-		d.runtime.IPv6Network,
-		hasIPv6 && d.checkIPv6NetworkAvailable(),
-	)
+	networkSelection, routedPresent, err := d.routedNetworkSelection(config, networkType)
+	if !routedPresent {
+		networkSelection, err = utils.ResolveContainerNetwork(
+			networkType,
+			staticIPv6,
+			d.runtime.IPv4Network,
+			d.runtime.IPv6Network,
+			hasIPv6 && d.checkIPv6NetworkAvailable(),
+		)
+	}
 	if err != nil {
 		return err
 	}
 	cmd = appendDockerNetworkOptions(cmd, networkSelection)
+	if networkSelection.RoutedVeth {
+		labelArgs, labelErr := provider.RoutedIPv6RuntimeLabelArgs(networkSelection)
+		if labelErr != nil {
+			return fmt.Errorf("构造隧道路由IPv6运行时标签失败: %w", labelErr)
+		}
+		cmd += " " + labelArgs
+	}
 	if networkSelection.IPv6 {
 		global.APP_LOG.Debug("启用IPv6网络",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
@@ -624,6 +634,9 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			return fmt.Errorf("failed to create container: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 		}
 	}
+	if err := d.connectDockerAdditionalNetworks(config.Name, networkSelection); err != nil {
+		return err
+	}
 
 	// 等待容器完全启动并验证状态
 	updateProgress(96, "等待容器完全启动...")
@@ -711,7 +724,10 @@ func appendDockerNetworkOptions(command string, selection utils.ContainerNetwork
 	if selection.Network != "" {
 		command += fmt.Sprintf(" --network=%s", shellSingleQuote(selection.Network))
 	}
-	if selection.StaticIPv6 != "" {
+	// An IPv6 address belongs to the initial runtime network only when that
+	// network is itself the IPv6 network. Routed dual-stack allocations are
+	// connected after create so Docker keeps NAT IPv4 as the primary network.
+	if selection.StaticIPv6 != "" && !selection.RoutedVeth && (selection.IPv6Network == "" || selection.IPv6Network == selection.Network) {
 		command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
 	}
 	return command
@@ -719,6 +735,42 @@ func appendDockerNetworkOptions(command string, selection utils.ContainerNetwork
 
 func dockerNetworkOptionFlags(selection utils.ContainerNetworkSelection) string {
 	return appendDockerNetworkOptions("", selection)
+}
+
+func (d *DockerProvider) connectDockerAdditionalNetworks(name string, selection utils.ContainerNetworkSelection) error {
+	if selection.RoutedVeth {
+		command, err := provider.RoutedIPv6VethAttachCommand(d.runtime.CLI, name, selection)
+		if err != nil {
+			return fmt.Errorf("构造隧道路由IPv6 veth命令失败: %w", err)
+		}
+		output, execErr := d.sshClient.Execute(command)
+		if execErr == nil {
+			return nil
+		}
+		_, _ = d.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(name)))
+		diagnostics := d.collectCreateDiagnostics(name)
+		return fmt.Errorf("附加隧道路由IPv6 veth失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+			execErr, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
+	}
+	for _, network := range selection.AdditionalNetworks {
+		if strings.TrimSpace(network) == "" {
+			continue
+		}
+		command := fmt.Sprintf("%s network connect", d.runtime.CLI)
+		if network == selection.IPv6Network && selection.StaticIPv6 != "" {
+			command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
+		}
+		command += fmt.Sprintf(" %s %s", shellSingleQuote(network), shellSingleQuote(name))
+		output, err := d.sshClient.Execute(command)
+		if err == nil {
+			continue
+		}
+		_, _ = d.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(name)))
+		diagnostics := d.collectCreateDiagnostics(name)
+		return fmt.Errorf("附加隧道路由IPv6网络失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+			err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
+	}
+	return nil
 }
 
 func dockerManagedImageName(image string) string {

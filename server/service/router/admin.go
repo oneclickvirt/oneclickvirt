@@ -154,6 +154,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.DELETE("/providers/:id/ipv6-pool/:entry_id", admin.DeleteProviderIPv6PoolEntry)
 		NormalAdminGroup.GET("/providers/:id/ipv6-tunnels", admin.GetProviderIPv6Tunnels)
 		NormalAdminGroup.POST("/providers/:id/ipv6-tunnels", admin.CreateProviderIPv6Tunnel)
+		NormalAdminGroup.POST("/providers/:id/ipv6-tunnels/detect-local-ipv4", admin.DetectProviderIPv6TunnelLocalIPv4)
 		NormalAdminGroup.POST("/providers/:id/ipv6-tunnels/check", admin.CheckProviderIPv6Tunnels)
 		NormalAdminGroup.PUT("/providers/:id/ipv6-tunnels/:tunnel_id", admin.UpdateProviderIPv6Tunnel)
 		NormalAdminGroup.POST("/providers/:id/ipv6-tunnels/:tunnel_id/enable", admin.EnableProviderIPv6Tunnel)

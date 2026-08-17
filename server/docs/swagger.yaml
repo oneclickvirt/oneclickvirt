@@ -1432,6 +1432,11 @@ definitions:
       ttl:
         type: integer
     type: object
+  ipv6tunnel.DetectLocalIPv4Request:
+    properties:
+      remoteIpv4:
+        type: string
+    type: object
   log.LogFileInfo:
     properties:
       date:
@@ -8352,6 +8357,30 @@ paths:
       security:
       - BearerAuth: []
       summary: 检查Provider IPv6隧道状态
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv6-tunnels/detect-local-ipv4:
+    post:
+      description: 按隧道服务端IPv4查询节点路由的src字段；未提供服务端时查询默认IPv4出站路由。
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 可选的隧道服务端IPv4
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/ipv6tunnel.DetectLocalIPv4Request'
+      responses:
+        "200":
+          description: 识别成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 自动识别IPv6隧道客户端IPv4
       tags:
       - 服务商管理
   /admin/providers/{id}/monitoring/agent:

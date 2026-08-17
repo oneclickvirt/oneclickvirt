@@ -62,7 +62,48 @@ type ResetTaskContext struct {
 	NewPrivateIP           string
 	OldAllocatedIPv6       string
 	NewAllocatedIPv6       string
+	NewIPv6Metadata        ipv6PoolService.IPv6AllocationMetadata
 	OldEgressBindingID     uint
+}
+
+func applyIPv6AllocationMetadata(metadata map[string]string, allocation ipv6PoolService.IPv6AllocationMetadata) {
+	if metadata == nil || strings.TrimSpace(allocation.Address) == "" {
+		return
+	}
+	metadata["static_ipv6"] = allocation.Address
+	if strings.TrimSpace(allocation.CIDR) == "" {
+		return
+	}
+	metadata["static_ipv6_cidr"] = allocation.CIDR
+	metadata["static_ipv6_gateway"] = allocation.Gateway
+	metadata["static_ipv6_bridge"] = allocation.Bridge
+	metadata["static_ipv6_tunnel_id"] = fmt.Sprintf("%d", allocation.TunnelID)
+	metadata["static_ipv6_tunnel_interface"] = allocation.TunnelInterface
+	metadata["static_ipv6_network"] = allocation.CIDR
+}
+
+// validateResetRoutedIPv6 verifies the binding that will be moved during a
+// reset before the old guest is removed. Routed-only VM backends cannot turn a
+// legacy standalone pool address into a reachable guest route, so discovering
+// that only after deletion would leave the user without their original guest.
+func validateResetRoutedIPv6(providerType, networkType, allocatedIPv6 string, allocation ipv6PoolService.IPv6AllocationMetadata) error {
+	if !ipv6PoolService.RequiresRoutedStaticIPv6(providerType) {
+		return nil
+	}
+	if !utils.NetworkTypeHasIPv6(networkType) && strings.TrimSpace(allocatedIPv6) == "" {
+		return nil
+	}
+	if strings.TrimSpace(allocatedIPv6) == "" {
+		return fmt.Errorf("Provider类型 %s 的IPv6实例缺少可迁移的隧道路由IPv6地址池绑定，无法安全重建", providerType)
+	}
+	if strings.TrimSpace(allocation.Address) != strings.TrimSpace(allocatedIPv6) {
+		return fmt.Errorf("重建实例IPv6地址与隧道路由元数据不一致")
+	}
+	if strings.TrimSpace(allocation.CIDR) == "" || strings.TrimSpace(allocation.Gateway) == "" ||
+		strings.TrimSpace(allocation.Bridge) == "" || allocation.TunnelID == 0 || strings.TrimSpace(allocation.TunnelInterface) == "" {
+		return fmt.Errorf("Provider类型 %s 的IPv6地址池缺少隧道路由前缀、网关、网桥或接口信息，无法安全重建", providerType)
+	}
+	return nil
 }
 
 func resetReplacementInstance(resetCtx *ResetTaskContext) providerModel.Instance {
@@ -300,8 +341,24 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 	if err != nil {
 		return err
 	}
+	if utils.NetworkTypeHasIPv6(resetCtx.Instance.NetworkType) && !ipv6PoolService.SupportsStaticIPv6(resetCtx.Provider.Type) {
+		return fmt.Errorf("Provider类型 %s 当前不支持实例IPv6网络配置，无法安全重建", resetCtx.Provider.Type)
+	}
 	if resetCtx.OldAllocatedIPv6 != "" && !ipv6PoolService.SupportsStaticIPv6(resetCtx.Provider.Type) {
 		return fmt.Errorf("Provider类型 %s 无法在重建时恢复控制面分配的静态IPv6地址", resetCtx.Provider.Type)
+	}
+	if ipv6PoolService.RequiresRoutedStaticIPv6(resetCtx.Provider.Type) &&
+		(utils.NetworkTypeHasIPv6(resetCtx.Instance.NetworkType) || resetCtx.OldAllocatedIPv6 != "") {
+		// This is one controller-side join before any destructive provider call.
+		// The binding is locked and transferred later in the short replacement
+		// transaction, so this validation never holds a DB transaction over SSH.
+		allocation, metadataErr := ipv6PoolService.NewService().GetAllocationMetadata(resetCtx.Provider.ID, resetCtx.Instance.ID)
+		if metadataErr != nil {
+			return fmt.Errorf("读取重建实例IPv6隧道路由元数据失败: %w", metadataErr)
+		}
+		if err := validateResetRoutedIPv6(resetCtx.Provider.Type, resetCtx.Instance.NetworkType, resetCtx.OldAllocatedIPv6, allocation); err != nil {
+			return err
+		}
 	}
 
 	// 如果无法从taskData解析originalStatus，则使用当前状态作为兜底
@@ -403,8 +460,10 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	// 远程Provider调用始终在事务提交后执行。
 	var newInstance providerModel.Instance
 	allocatedIPv6 := ""
+	allocatedIPv6Metadata := ipv6PoolService.IPv6AllocationMetadata{}
 	err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		allocatedIPv6 = ""
+		allocatedIPv6Metadata = ipv6PoolService.IPv6AllocationMetadata{}
 		portMappingService := resources.PortMappingService{}
 		if err := portMappingService.DeleteInstancePortMappingsInTx(tx, resetCtx.OldInstanceID); err != nil {
 			return fmt.Errorf("删除旧实例端口映射失败: %v", err)
@@ -464,6 +523,19 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 				return fmt.Errorf("保存重建实例IPv6地址失败: %v", err)
 			}
 			newInstance.PublicIPv6 = allocatedIPv6
+			metadata, metadataErr := ipv6PoolService.NewServiceWithDB(tx).GetAllocationMetadata(resetCtx.Provider.ID, newInstance.ID)
+			if metadataErr != nil {
+				return fmt.Errorf("读取重建实例IPv6路由元数据失败: %w", metadataErr)
+			}
+			if metadata.Address != "" && metadata.Address != allocatedIPv6 {
+				return fmt.Errorf("重建实例IPv6地址与路由元数据不一致")
+			}
+			if metadata.Address == "" {
+				// Native pools have no routed parent metadata, but the create
+				// request must still retain the controller-selected address.
+				metadata.Address = allocatedIPv6
+			}
+			allocatedIPv6Metadata = metadata
 		}
 		if err := transferResetEgressBindingInTx(tx, resetCtx.OldEgressBindingID, resetCtx.Provider.ID,
 			resetCtx.OldInstanceID, newInstance.ID); err != nil {
@@ -496,6 +568,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	resetCtx.NewInstanceID = newInstance.ID
 	resetCtx.NewProviderInstanceID = newInstance.ProviderVMID
 	resetCtx.NewAllocatedIPv6 = allocatedIPv6
+	resetCtx.NewIPv6Metadata = allocatedIPv6Metadata
 
 	global.APP_LOG.Info("新实例记录创建完成",
 		zap.Uint("newInstanceId", resetCtx.NewInstanceID),
@@ -527,9 +600,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 		},
 		SystemImageID: resetCtx.SystemImage.ID,
 	}
-	if resetCtx.NewAllocatedIPv6 != "" {
-		createReq.InstanceConfig.Metadata["static_ipv6"] = resetCtx.NewAllocatedIPv6
-	}
+	applyIPv6AllocationMetadata(createReq.InstanceConfig.Metadata, resetCtx.NewIPv6Metadata)
 	if utils.SupportsLXDContainerOptions(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) {
 		createReq.InstanceConfig.Privileged = boolPtr(resetCtx.Provider.ContainerPrivileged)
 		createReq.InstanceConfig.AllowNesting = boolPtr(resetCtx.Provider.ContainerAllowNesting)

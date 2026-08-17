@@ -2,7 +2,9 @@ package traffic
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"oneclickvirt/global"
@@ -129,6 +131,69 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 	}
 
 	return s.checkUserTrafficLimitWithStats(u, enabledProviderCounts[userID], monthlyStats)
+}
+
+// CheckUsersTrafficLimit evaluates a selected user set with batched reads.
+// It is used by explicit multi-user traffic refreshes so a shared node pull is
+// followed by one ownership/count/statistics pass instead of N per-user reads.
+// Any state-changing limit operation still owns its own short transaction.
+func (s *ThreeTierLimitService) CheckUsersTrafficLimit(ctx context.Context, userIDs []uint) error {
+	userIDs = normalizeTrafficUserIDs(userIDs)
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	var users []user.User
+	if err := global.APP_DB.Where("id IN ? AND status = ?", userIDs, 1).Find(&users).Error; err != nil {
+		return fmt.Errorf("获取批量用户信息失败: %w", err)
+	}
+	if len(users) == 0 {
+		return nil
+	}
+
+	enabledProviderCounts, err := s.batchGetEnabledTrafficProviderCounts(userIDs)
+	if err != nil {
+		return fmt.Errorf("批量检查用户Provider流量统计状态失败: %w", err)
+	}
+	statsMap, err := NewQueryService().BatchGetUsersCurrentCycleTraffic(userIDs)
+	if err != nil {
+		return fmt.Errorf("批量获取用户当前流量周期失败: %w", err)
+	}
+
+	var result error
+	for _, u := range users {
+		select {
+		case <-ctx.Done():
+			return errors.Join(result, ctx.Err())
+		default:
+		}
+
+		if _, err := s.checkUserTrafficLimitWithStats(u, enabledProviderCounts[u.ID], statsMap[u.ID]); err != nil {
+			result = errors.Join(result, fmt.Errorf("检查用户 %d 流量限制: %w", u.ID, err))
+			global.APP_LOG.Warn("批量检查用户流量限制失败", zap.Uint("userID", u.ID), zap.Error(err))
+		}
+	}
+	return result
+}
+
+func normalizeTrafficUserIDs(values []uint) []uint {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[uint]struct{}, len(values))
+	result := make([]uint, 0, len(values))
+	for _, value := range values {
+		if value == 0 {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+	return result
 }
 
 func (s *ThreeTierLimitService) batchGetEnabledTrafficProviderCounts(userIDs []uint) (map[uint]int64, error) {

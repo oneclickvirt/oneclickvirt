@@ -476,4 +476,26 @@ mod tests {
         assert!(script.contains("oifname \"veth123\" ip6 daddr !="));
         assert!(script.contains("iifname \"veth123\" ip6 saddr !="));
     }
+
+    #[test]
+    fn routed_ipv6_pve_tap_uses_i1_and_counts_both_directions() {
+        let script = build_rules_for_counter(
+            SCOPE_INET,
+            "counter_in",
+            "counter_out",
+            "tap102i1",
+            &["2001:470:6d:69d::102".to_string()],
+            &["ipv6".to_string()],
+        )
+        .expect("script should build");
+
+        assert!(script.contains(
+            "oifname \"tap102i1\" ip6 saddr != { ::/128, ::1/128, fc00::/7, fe80::/10, ff00::/8, 2001:db8::/32 } ip6 daddr 2001:470:6d:69d::102 counter name counter_in"
+        ));
+        assert!(script.contains(
+            "iifname \"tap102i1\" ip6 saddr 2001:470:6d:69d::102 ip6 daddr != { ::/128, ::1/128, fc00::/7, fe80::/10, ff00::/8, 2001:db8::/32 } counter name counter_out"
+        ));
+        assert!(!script.contains("tap102i0"));
+        assert!(!script.contains(" ip daddr "));
+    }
 }

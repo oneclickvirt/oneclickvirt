@@ -40,6 +40,9 @@ func (p *ProxmoxProvider) CreateInstance(ctx context.Context, config provider.In
 	if !p.connected {
 		return fmt.Errorf("not connected")
 	}
+	if err := p.ensureNATIPv4DataPlane(ctx, config); err != nil {
+		return err
+	}
 
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := p.shouldForceSSHForInstaller(ctx, &config)
@@ -48,6 +51,10 @@ func (p *ProxmoxProvider) CreateInstance(ctx context.Context, config provider.In
 		if err == nil {
 			global.APP_LOG.Debug("Proxmox API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
+		}
+		if proxmoxAPICreateFallbackBlocked(err) {
+			global.APP_LOG.Error("PVE API创建远端状态不确定，禁止SSH回退", zap.Error(err))
+			return err
 		}
 		if fallbackErr := p.ensureSSHBeforeFallback(err, "创建实例"); fallbackErr != nil {
 			return fallbackErr
@@ -66,6 +73,12 @@ func (p *ProxmoxProvider) CreateInstanceWithProgress(ctx context.Context, config
 	if !p.connected {
 		return fmt.Errorf("not connected")
 	}
+	if p.requiresNATIPv4DataPlane(config) && progressCallback != nil {
+		progressCallback(5, "检查PVE NAT IPv4数据面...")
+	}
+	if err := p.ensureNATIPv4DataPlane(ctx, config); err != nil {
+		return err
+	}
 
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := p.shouldForceSSHForInstaller(ctx, &config)
@@ -74,6 +87,10 @@ func (p *ProxmoxProvider) CreateInstanceWithProgress(ctx context.Context, config
 		if err == nil {
 			global.APP_LOG.Debug("Proxmox API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
+		}
+		if proxmoxAPICreateFallbackBlocked(err) {
+			global.APP_LOG.Error("PVE API创建远端状态不确定，禁止SSH回退", zap.Error(err))
+			return err
 		}
 		if fallbackErr := p.ensureSSHBeforeFallback(err, "创建实例"); fallbackErr != nil {
 			return fallbackErr
@@ -172,6 +189,9 @@ func (p *ProxmoxProvider) DeleteInstance(ctx context.Context, id string) error {
 	if p.shouldUseAPI() {
 		err := p.apiDeleteInstance(ctx, id)
 		if err == nil {
+			if reconcileErr := p.reconcileAllRoutedIPv6Neighbors(); reconcileErr != nil {
+				global.APP_LOG.Warn("Proxmox实例已删除，但隧道路由IPv6邻居清理失败", zap.String("id", utils.TruncateString(id, 50)), zap.Error(reconcileErr))
+			}
 			global.APP_LOG.Debug("Proxmox API调用成功 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		}
@@ -185,7 +205,13 @@ func (p *ProxmoxProvider) DeleteInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("执行规则不允许使用SSH")
 	}
 
-	return p.sshDeleteInstance(ctx, id)
+	if err := p.sshDeleteInstance(ctx, id); err != nil {
+		return err
+	}
+	if reconcileErr := p.reconcileAllRoutedIPv6Neighbors(); reconcileErr != nil {
+		global.APP_LOG.Warn("Proxmox实例已删除，但隧道路由IPv6邻居清理失败", zap.String("id", utils.TruncateString(id, 50)), zap.Error(reconcileErr))
+	}
+	return nil
 }
 
 func (p *ProxmoxProvider) GetInstance(ctx context.Context, id string) (*provider.Instance, error) {

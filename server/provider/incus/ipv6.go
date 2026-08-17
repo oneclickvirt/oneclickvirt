@@ -14,14 +14,19 @@ import (
 
 // IPv6Config IPv6配置结构
 type IPv6Config struct {
-	ContainerName    string
-	ContainerIPv6    string
-	HostIPv6Prefix   string
-	IPv6Length       int
-	Interface        string
-	Gateway          string
-	UseIptables      bool
-	UseNetworkDevice bool
+	ContainerName         string
+	ContainerIPv6         string
+	HostIPv6Prefix        string
+	IPv6Length            int
+	Interface             string
+	Gateway               string
+	UseIptables           bool
+	UseNetworkDevice      bool
+	RoutedCIDR            string
+	RoutedGateway         string
+	RoutedBridge          string
+	RoutedTunnelInterface string
+	InstanceType          string
 }
 
 // isPrivateIPv6 检查是否为私有IPv6地址

@@ -80,20 +80,23 @@ func InternalIPToVMIDCandidates(ip string) []int {
 }
 
 type ProxmoxProvider struct {
-	config           provider.NodeConfig
-	sshClient        *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
-	apiClient        *http.Client
-	transport        *http.Transport
-	providerID       uint // 存储providerID用于清理
-	connected        bool
-	node             string // Proxmox 节点名
-	providerUUID     string // Provider UUID，用于查询数据库中的配置
-	healthChecker    health.HealthChecker
-	version          string             // Proxmox VE 版本，用于兼容性判断
-	mu               sync.RWMutex       // 保护并发访问
-	pendingVMIDs     map[int]bool       // 已分配但尚未创建完成的VMID集合，防止并发重复分配
-	imageImportGroup singleflight.Group // 防止同一镜像并发下载
-	kvmUnavailable   bool               // KVM硬件加速不可用时为true（软件模拟qemu64），此时所有等待时间翻倍
+	natDataPlaneGroup singleflight.Group // Coalesces concurrent NAT data-plane reconciliation.
+	natDataPlaneMu    sync.Mutex
+	natDataPlaneReady time.Time
+	config            provider.NodeConfig
+	sshClient         *utils.SafeShellExecutor // 永不为nil，所有方法安全调用
+	apiClient         *http.Client
+	transport         *http.Transport
+	providerID        uint // 存储providerID用于清理
+	connected         bool
+	node              string // Proxmox 节点名
+	providerUUID      string // Provider UUID，用于查询数据库中的配置
+	healthChecker     health.HealthChecker
+	version           string             // Proxmox VE 版本，用于兼容性判断
+	mu                sync.RWMutex       // 保护并发访问
+	pendingVMIDs      map[int]bool       // 已分配但尚未创建完成的VMID集合，防止并发重复分配
+	imageImportGroup  singleflight.Group // 防止同一镜像并发下载
+	kvmUnavailable    bool               // KVM硬件加速不可用时为true（软件模拟qemu64），此时所有等待时间翻倍
 	// 缓存的网桥名称（从NodeConfig加载，避免重复查询数据库）
 	bridgeNAT         string // NAT网桥名（脚本安装=vmbr1，第三方安装=配置值）
 	bridgeDedicatedV4 string // 独立IPv4网桥名（脚本安装=vmbr0，第三方安装=配置值）
@@ -156,6 +159,7 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 
 	// 初始化网桥名称缓存（从NodeConfig中读取，避免重复查询数据库）
 	p.initBridgeNames(config)
+	p.resetNATIPv4DataPlaneCache()
 
 	// 注册transport并关联providerID
 	if p.transport != nil && p.providerID > 0 {
@@ -282,6 +286,7 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 	p.healthChecker = nil
 
 	p.initBridgeNames(config)
+	p.resetNATIPv4DataPlaneCache()
 
 	// 使用配置中的 HostName 作为节点名默认值，避免阻塞
 	p.node = config.HostName

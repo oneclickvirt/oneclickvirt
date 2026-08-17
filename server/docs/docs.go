@@ -7857,6 +7857,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/providers/{id}/ipv6-tunnels/detect-local-ipv4": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "按隧道服务端IPv4查询节点路由的src字段；未提供服务端时查询默认IPv4出站路由。",
+                "tags": [
+                    "服务商管理"
+                ],
+                "summary": "自动识别IPv6隧道客户端IPv4",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "服务商ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "可选的隧道服务端IPv4",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/ipv6tunnel.DetectLocalIPv4Request"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "识别成功",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/providers/{id}/ipv6-tunnels/{tunnel_id}": {
             "put": {
                 "security": [
@@ -21425,6 +21464,14 @@ const docTemplate = `{
                 },
                 "ttl": {
                     "type": "integer"
+                }
+            }
+        },
+        "ipv6tunnel.DetectLocalIPv4Request": {
+            "type": "object",
+            "properties": {
+                "remoteIpv4": {
+                    "type": "string"
                 }
             }
         },

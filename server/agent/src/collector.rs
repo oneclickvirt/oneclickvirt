@@ -712,11 +712,11 @@ pub fn start_collector(state: AppState) {
 mod tests {
     use super::{TrafficStateSnapshot, settled_state_change};
 
-    fn state(last_in: u64, last_out: u64) -> TrafficStateSnapshot {
+    fn state(interface: &str, last_in: u64, last_out: u64) -> TrafficStateSnapshot {
         TrafficStateSnapshot {
             row_id: 1,
             monitor_id: 7,
-            interface: "veth-test".to_string(),
+            interface: interface.to_string(),
             last_counter_in: last_in,
             last_counter_out: last_out,
         }
@@ -724,8 +724,12 @@ mod tests {
 
     #[test]
     fn reconciliation_settles_bytes_across_healthy_rule_check() {
-        let change =
-            settled_state_change(&state(100, 200), Some((150, 260)), Some((170, 290)), false);
+        let change = settled_state_change(
+            &state("veth-test", 100, 200),
+            Some((150, 260)),
+            Some((170, 290)),
+            false,
+        );
         assert_eq!(change.increment_in, 70);
         assert_eq!(change.increment_out, 90);
         assert_eq!((change.base_in, change.base_out), (170, 290));
@@ -733,9 +737,44 @@ mod tests {
 
     #[test]
     fn reconciliation_preserves_pre_reset_bytes_without_double_counting() {
-        let change = settled_state_change(&state(100, 200), Some((150, 260)), Some((5, 7)), false);
+        let change = settled_state_change(
+            &state("veth-test", 100, 200),
+            Some((150, 260)),
+            Some((5, 7)),
+            false,
+        );
         assert_eq!(change.increment_in, 50);
         assert_eq!(change.increment_out, 60);
         assert_eq!((change.base_in, change.base_out), (5, 7));
+    }
+
+    #[test]
+    fn routed_pve_ipv6_reconciliation_settles_the_second_tap() {
+        let change = settled_state_change(
+            &state("tap102i1", 1_040, 1_040),
+            Some((1_560, 1_820)),
+            Some((1_560, 1_820)),
+            false,
+        );
+        assert_eq!(change.interface, "tap102i1");
+        assert_eq!(change.increment_in, 520);
+        assert_eq!(change.increment_out, 780);
+        assert_eq!(change.increment_in + change.increment_out, 1_300);
+    }
+
+    #[test]
+    fn routed_pve_ipv6_counter_recreation_keeps_pre_reset_bytes() {
+        let change = settled_state_change(
+            &state("veth100i1", 2_000, 3_000),
+            Some((2_120, 3_180)),
+            Some((37, 53)),
+            false,
+        );
+        assert_eq!(change.interface, "veth100i1");
+        // Bytes observed before the reset are settled once; the recreated
+        // counter becomes the fresh baseline for the next collection pass.
+        assert_eq!(change.increment_in, 120);
+        assert_eq!(change.increment_out, 180);
+        assert_eq!((change.base_in, change.base_out), (37, 53));
     }
 }

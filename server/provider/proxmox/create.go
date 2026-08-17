@@ -202,6 +202,13 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 
 	updateProgress(50, "创建LXC容器...")
 
+	// Do the required routed/native IPv6 check before pct create. A failed
+	// network setup must never leave an unusable half-created container.
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+	if err := p.preflightIPv6Create(ctx, config, networkConfig.NetworkType); err != nil {
+		return err
+	}
+
 	// 获取存储盘配置 - 从数据库查询Provider记录
 	var providerRecord providerModel.Provider
 	if err := global.APP_DB.Where("id = ?", p.config.ID).First(&providerRecord).Error; err != nil {
@@ -246,7 +253,6 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 
 	// 配置网络（使用VMID到IP的映射函数，充分利用IP地址空间）
 	// 使用 Proxmox 原生的 rate 参数限制带宽
-	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 	userIP := p.vmidToInternalIP(vmid)
 	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=%s,gw=%s", userIP, p.getBridgeName("nat"), p.getInternalGateway())
 

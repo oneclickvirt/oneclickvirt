@@ -33,6 +33,7 @@ func setupIPv6PoolTestDB(t *testing.T) *gorm.DB {
 	sqlDB.SetMaxOpenConns(1)
 	if err := db.Exec(`CREATE TABLE providers (
 		id integer PRIMARY KEY,
+		type text,
 		ipv6_address_file_path text,
 		ipv6_address_file_synced_at datetime,
 		ipv6_address_file_sync_error text,
@@ -40,7 +41,7 @@ func setupIPv6PoolTestDB(t *testing.T) *gorm.DB {
 	)`).Error; err != nil {
 		t.Fatalf("create providers table: %v", err)
 	}
-	if err := db.AutoMigrate(&providerModel.ProviderIPv6Pool{}); err != nil {
+	if err := db.AutoMigrate(&providerModel.ProviderIPv6Pool{}, &providerModel.ProviderIPv6Tunnel{}); err != nil {
 		t.Fatalf("migrate IPv6 pool: %v", err)
 	}
 	if err := db.Exec("INSERT INTO providers (id, ipv6_address_file_path) VALUES (?, ?)", 1, "/etc/oneclickvirt/ipv6-pool.txt").Error; err != nil {
@@ -220,6 +221,66 @@ func TestIPv6RangeCandidateWindowReturnsNextCursor(t *testing.T) {
 	}
 }
 
+func TestRoutedPrefixDetailsReservesGatewayAndSupportsPointToPoint127(t *testing.T) {
+	tests := []struct {
+		cidr        string
+		wantCIDR    string
+		wantGateway string
+		wantFirst   string
+		wantPrefix  int
+	}{
+		{"2001:db8::/126", "2001:db8::/126", "2001:db8::1", "2001:db8::2", 126},
+		{"2001:db8:1::/127", "2001:db8:1::/127", "2001:db8:1::", "2001:db8:1::1", 127},
+	}
+	for _, test := range tests {
+		t.Run(test.cidr, func(t *testing.T) {
+			cidr, gateway, first, prefix, err := RoutedPrefixDetails(test.cidr)
+			if err != nil {
+				t.Fatalf("RoutedPrefixDetails() error = %v", err)
+			}
+			if cidr != test.wantCIDR || gateway != test.wantGateway || first != test.wantFirst || prefix != test.wantPrefix {
+				t.Fatalf("RoutedPrefixDetails() = (%q, %q, %q, %d), want (%q, %q, %q, %d)", cidr, gateway, first, prefix, test.wantCIDR, test.wantGateway, test.wantFirst, test.wantPrefix)
+			}
+		})
+	}
+}
+
+func TestGetAllocationMetadataReturnsTunnelInterface(t *testing.T) {
+	db := setupIPv6PoolTestDB(t)
+	tunnel := providerModel.ProviderIPv6Tunnel{
+		ProviderID: 1, Name: "tunnel", Mode: "sit", Interface: "he-ipv6",
+		LocalIPv4: "192.0.2.2", RemoteIPv4: "198.51.100.2",
+		LocalIPv6: "2001:db8:4::2/64", RemoteIPv6: "2001:db8:4::1",
+		RoutedCIDR: "2001:db8:5::/126", MTU: 1480, TTL: 255, RouteMetric: 100,
+	}
+	if err := db.Create(&tunnel).Error; err != nil {
+		t.Fatalf("create tunnel: %v", err)
+	}
+	parent := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:5::/126", PrefixLength: 126,
+		IsRange: true, RangeNext: "2001:db8:5::3", Source: SourceTunnel, TunnelID: &tunnel.ID,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create tunnel pool: %v", err)
+	}
+	instanceID := uint(91)
+	child := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:5::2", PrefixLength: 128,
+		ParentID: &parent.ID, TunnelID: &tunnel.ID, IsAllocated: true, InstanceID: &instanceID, Source: SourceRangeChild,
+	}
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatalf("create tunnel allocation: %v", err)
+	}
+
+	metadata, err := NewService().GetAllocationMetadata(1, instanceID)
+	if err != nil {
+		t.Fatalf("GetAllocationMetadata() error = %v", err)
+	}
+	if metadata.Address != child.Address || metadata.CIDR != parent.Address || metadata.Gateway != "2001:db8:5::1" || metadata.Bridge != "oneclickvirt6" || metadata.TunnelID != tunnel.ID || metadata.TunnelInterface != "he-ipv6" {
+		t.Fatalf("allocation metadata = %#v", metadata)
+	}
+}
+
 func TestAllocateIPv6AddressSkipsMoreThanLegacyWindowLimitWithoutRetry(t *testing.T) {
 	db := setupIPv6PoolTestDB(t)
 	_, network, err := net.ParseCIDR("2001:db8:3::/112")
@@ -389,17 +450,43 @@ func TestRemainingIPv6RangeCapacityUsesArbitraryPrecision(t *testing.T) {
 }
 
 func TestSupportsStaticIPv6ProviderMatrix(t *testing.T) {
-	supported := []string{"lxd", "incus", "proxmox", "proxmoxve", "docker", "podman", "containerd", "orbstack", " LXD "}
+	supported := []string{"lxd", "incus", "proxmox", "proxmoxve", "docker", "podman", "containerd", "orbstack", "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant", " LXD "}
 	for _, providerType := range supported {
 		if !SupportsStaticIPv6(providerType) {
 			t.Fatalf("SupportsStaticIPv6(%q) = false, want true", providerType)
 		}
 	}
-	unsupported := []string{"qemu", "kubevirt", "libvirt", "openstack", "unknown", ""}
+	unsupported := []string{"libvirt", "openstack", "unknown", ""}
 	for _, providerType := range unsupported {
 		if SupportsStaticIPv6(providerType) {
 			t.Fatalf("SupportsStaticIPv6(%q) = true, want false", providerType)
 		}
+	}
+}
+
+func TestRoutedOnlyProvidersRejectManualIPv6PoolSources(t *testing.T) {
+	for _, providerType := range []string{"qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant"} {
+		t.Run(providerType, func(t *testing.T) {
+			db := setupIPv6PoolTestDB(t)
+			if err := db.Exec("UPDATE providers SET type = ? WHERE id = ?", providerType, 1).Error; err != nil {
+				t.Fatalf("set provider type: %v", err)
+			}
+			service := NewServiceWithDB(db)
+			if _, _, err := service.SetIPv6Pool(1, "2001:db8::10"); err == nil || !strings.Contains(err.Error(), "IPv6隧道") {
+				t.Fatalf("SetIPv6Pool() error = %v, want routed-pool rejection", err)
+			}
+			readCount := 0
+			service.readNodeFile = func(context.Context, uint, string) (string, error) {
+				readCount++
+				return "", nil
+			}
+			if _, err := service.SyncProviderFile(context.Background(), 1); err == nil || !strings.Contains(err.Error(), "IPv6隧道") {
+				t.Fatalf("SyncProviderFile() error = %v, want routed-file rejection", err)
+			}
+			if readCount != 0 {
+				t.Fatalf("node file reader called %d times, want 0", readCount)
+			}
+		})
 	}
 }
 

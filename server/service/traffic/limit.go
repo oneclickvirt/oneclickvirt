@@ -36,7 +36,7 @@ func NewLimitService() *LimitService {
 // getUserMonthlyTrafficFromPmacct 从pmacct数据计算用户当月流量使用量
 // 只统计启用了流量统计的Provider
 // pmacct重启会导致累积值重置，需要检测并分段计算
-func (s *LimitService) getUserMonthlyTrafficFromPmacct(userID uint) (int64, error) {
+func (s *LimitService) getUserMonthlyTrafficFromPmacct(userID uint) (float64, error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
@@ -54,11 +54,11 @@ func (s *LimitService) getUserMonthlyTrafficFromPmacct(userID uint) (int64, erro
 		zap.Int("month", month),
 		zap.Float64("actualUsageMB", stats.ActualUsageMB))
 
-	return int64(stats.ActualUsageMB), nil
+	return stats.ActualUsageMB, nil
 }
 
 // getProviderMonthlyTrafficFromPmacct 通过 QueryService 查询 Provider 当月流量。
-func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int64, error) {
+func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (float64, error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
@@ -74,7 +74,7 @@ func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int
 		zap.Int("month", month),
 		zap.Float64("totalTrafficMB", stats.ActualUsageMB))
 
-	return int64(stats.ActualUsageMB), nil
+	return stats.ActualUsageMB, nil
 }
 
 // GetUserTrafficUsageWithPmacct 获取用户流量使用情况（基于pmacct数据）
@@ -88,6 +88,14 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 	hasEnabledTrafficControl, err := s.hasAnyProviderWithTrafficControlEnabled(userID)
 	if err != nil {
 		global.APP_LOG.Warn("检查Provider流量统计状态失败", zap.Error(err))
+	}
+	dataSource := trafficDataSourceNone
+	if hasEnabledTrafficControl {
+		dataSource, err = trafficDataSourceForUser(userID)
+		if err != nil {
+			global.APP_LOG.Warn("查询用户流量采集来源失败", zap.Uint("userID", userID), zap.Error(err))
+			dataSource = trafficDataSourceNone
+		}
 	}
 
 	// 如果所有Provider都禁用了流量统计，返回无限制状态
@@ -105,6 +113,7 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 			"tx_bytes":                int64(0),
 			"total_bytes":             int64(0),
 			"traffic_control_enabled": false, // 标记流量统计已禁用
+			"data_source":             dataSource,
 			"formatted": map[string]string{
 				"current_usage": "0 MB",
 				"rx":            "0 B",
@@ -128,7 +137,10 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 	if err != nil {
 		return nil, fmt.Errorf("获取当前周期流量使用量失败: %w", err)
 	}
-	currentMonthUsageMB := int64(currentCycleStats.ActualUsageMB)
+	// Keep the fractional MB component. Truncating this value made every
+	// sub-megabyte Agent/pmacct sample appear as 0 B in the detail API while
+	// the ranking (which already preserves float64) showed the real usage.
+	currentMonthUsageMB := currentCycleStats.ActualUsageMB
 	resetAt, err := queryService.GetUserNextTrafficResetTime(userID)
 	if err != nil {
 		global.APP_LOG.Warn("获取用户下一次流量重置时间失败", zap.Uint("userID", userID), zap.Error(err))
@@ -157,7 +169,7 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 
 	return map[string]interface{}{
 		"user_id":                 userID,
-		"current_month_usage":     currentMonthUsageMB, // 返回 MB 单位
+		"current_month_usage":     currentMonthUsageMB, // 返回 MB 单位，保留小数精度
 		"yearly_usage":            yearlyUsage,
 		"total_limit":             u.TotalTraffic,
 		"usage_percent":           usagePercent,
@@ -165,11 +177,12 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 		"reset_time":              resetAt,
 		"history":                 history,
 		"traffic_control_enabled": true, // 标记流量统计已启用
+		"data_source":             dataSource,
 		"rx_bytes":                currentCycleStats.RxBytes,
 		"tx_bytes":                currentCycleStats.TxBytes,
 		"total_bytes":             currentCycleStats.TotalBytes,
 		"formatted": map[string]string{
-			"current_usage": utils.FormatMB(float64(currentMonthUsageMB)),
+			"current_usage": utils.FormatMB(currentMonthUsageMB),
 			"total_limit":   utils.FormatMB(float64(u.TotalTraffic)),
 			"rx":            utils.FormatBytes(currentCycleStats.RxBytes),
 			"tx":            utils.FormatBytes(currentCycleStats.TxBytes),
@@ -183,7 +196,7 @@ func (s *LimitService) hasAnyProviderWithTrafficControlEnabled(userID uint) (boo
 	var count int64
 	err := global.APP_DB.Table("instances").
 		Joins("LEFT JOIN providers ON instances.provider_id = providers.id").
-		Where("instances.user_id = ?", userID).
+		Where("instances.user_id = ? AND instances.deleted_at IS NULL", userID).
 		Where("providers.enable_traffic_control = ?", true).
 		Count(&count).Error
 
@@ -195,7 +208,7 @@ func (s *LimitService) hasAnyProviderWithTrafficControlEnabled(userID uint) (boo
 }
 
 // getUserYearlyTrafficFromPmacct 从pmacct数据获取用户年度流量使用量（O(n) 复杂度）
-func (s *LimitService) getUserYearlyTrafficFromPmacct(userID uint) (int64, error) {
+func (s *LimitService) getUserYearlyTrafficFromPmacct(userID uint) (float64, error) {
 	currentYear := time.Now().Year()
 
 	// 获取用户所有实例 ID（包含软删除），游标分页避免 Limit(1000) 截断
@@ -222,7 +235,7 @@ func (s *LimitService) getUserYearlyTrafficFromPmacct(userID uint) (int64, error
 		totalMB += stats.ActualUsageMB
 	}
 
-	return int64(totalMB), nil
+	return totalMB, nil
 }
 
 // getUserTrafficHistoryFromPmacct 通过 QueryService 按月重新计算用户流量历史。
@@ -268,16 +281,27 @@ func (s *LimitService) GetSystemTrafficStats(ownerAdminIDs ...uint) (map[string]
 	}
 
 	// 使用当前周期实时聚合，避免月度缓存未刷新导致概览和限额判断不一致。
-	var providerIDs []uint
+	type systemTrafficProvider struct {
+		ID                uint   `gorm:"column:id"`
+		TrafficSyncMethod string `gorm:"column:traffic_sync_method"`
+	}
+	var providers []systemTrafficProvider
 	providerQuery := global.APP_DB.Table("providers").
 		Where("enable_traffic_control = ?", true)
 	if ownerAdminID > 0 {
 		providerQuery = providerQuery.Where("owner_admin_id = ?", ownerAdminID)
 	}
 	err := providerQuery.
-		Pluck("id", &providerIDs).Error
+		Select("id, traffic_sync_method").
+		Find(&providers).Error
 	if err != nil {
 		return nil, fmt.Errorf("query traffic-enabled providers failed: %w", err)
+	}
+	providerIDs := make([]uint, 0, len(providers))
+	trafficMethods := make([]string, 0, len(providers))
+	for _, p := range providers {
+		providerIDs = append(providerIDs, p.ID)
+		trafficMethods = append(trafficMethods, p.TrafficSyncMethod)
 	}
 
 	queryService := NewQueryService()
@@ -347,6 +371,7 @@ func (s *LimitService) GetSystemTrafficStats(ownerAdminIDs ...uint) (map[string]
 			"total_rx":    totalTraffic.TotalRx,
 			"total_tx":    totalTraffic.TotalTx,
 			"total_bytes": totalTraffic.TotalBytes,
+			"data_source": trafficDataSourceFromMethods(trafficMethods),
 			"formatted": map[string]string{
 				"total_rx":    utils.FormatBytesFloat(totalTraffic.TotalRx),
 				"total_tx":    utils.FormatBytesFloat(totalTraffic.TotalTx),
@@ -387,7 +412,7 @@ func (s *LimitService) GetProviderTrafficUsageWithPmacct(providerID uint) (map[s
 		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
-	var monthlyTrafficMB int64
+	var monthlyTrafficMB float64
 	// 如果未启用流量统计，流量使用量为0
 	if !p.EnableTrafficControl {
 		monthlyTrafficMB = 0
@@ -400,7 +425,7 @@ func (s *LimitService) GetProviderTrafficUsageWithPmacct(providerID uint) (map[s
 				zap.Error(err))
 			monthlyTrafficMB = 0
 		} else {
-			monthlyTrafficMB = int64(stats.ActualUsageMB)
+			monthlyTrafficMB = stats.ActualUsageMB
 		}
 	}
 
@@ -430,16 +455,16 @@ func (s *LimitService) GetProviderTrafficUsageWithPmacct(providerID uint) (map[s
 		"provider_id":            providerID,
 		"provider_name":          p.Name,
 		"enable_traffic_control": p.EnableTrafficControl, // 添加流量统计开关状态
-		"current_month_usage":    monthlyTrafficMB,       // 返回 MB 单位
+		"current_month_usage":    monthlyTrafficMB,       // 返回 MB 单位，保留小数精度
 		"total_limit":            p.MaxTraffic,
 		"usage_percent":          usagePercent,
 		"is_limited":             p.TrafficLimited,
 		"reset_time":             p.TrafficResetAt,
 		"instance_count":         instanceCount,
 		"limited_instance_count": limitedInstanceCount,
-		"data_source":            "pmacct",
+		"data_source":            trafficDataSourceForProvider(p),
 		"formatted": map[string]string{
-			"current_usage": utils.FormatMB(float64(monthlyTrafficMB)),
+			"current_usage": utils.FormatMB(monthlyTrafficMB),
 			"total_limit":   utils.FormatMB(float64(p.MaxTraffic)),
 		},
 	}, nil
@@ -536,6 +561,13 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 	if err != nil {
 		return nil, 0, fmt.Errorf("query traffic reset times failed: %w", err)
 	}
+	dataSources := defaultTrafficDataSources(pageUserIDs)
+	resolvedDataSources, err := trafficDataSourcesForUsers(pageUserIDs, ownerAdminID)
+	if err != nil {
+		global.APP_LOG.Warn("查询用户流量采集来源失败", zap.Error(err), zap.Int("userCount", len(pageUserIDs)))
+	} else {
+		dataSources = resolvedDataSources
+	}
 
 	result := make([]map[string]interface{}, 0, end-offset)
 	for i, row := range users[offset:end] {
@@ -567,6 +599,7 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 			"rx_bytes":      rxBytes,
 			"tx_bytes":      txBytes,
 			"total_bytes":   totalBytes,
+			"data_source":   dataSources[row.UserID],
 			"formatted": map[string]string{
 				"month_usage": utils.FormatMB(monthUsage),
 				"total_limit": utils.FormatMB(float64(row.TotalLimit)),

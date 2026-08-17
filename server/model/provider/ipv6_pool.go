@@ -14,7 +14,13 @@ type ProviderIPv6Pool struct {
 	IsRange      bool   `json:"is_range" gorm:"default:false;index"`
 	RangeNext    string `json:"range_next" gorm:"size:128"`
 	ParentID     *uint  `json:"parent_id" gorm:"index"`
-	IsAllocated  bool   `json:"is_allocated" gorm:"default:false;index:idx_provider_ipv6,priority:2"`
+	// TunnelID links automatically managed routed prefixes to their host tunnel.
+	// A nullable value keeps manually configured and node-file pools unchanged.
+	TunnelID *uint `json:"tunnel_id" gorm:"index"`
+	// Reserved rows (currently the tunnel bridge gateway) are visible for
+	// auditing but can never be handed to an instance.
+	IsReserved  bool `json:"is_reserved" gorm:"default:false;index"`
+	IsAllocated bool `json:"is_allocated" gorm:"default:false;index:idx_provider_ipv6,priority:2"`
 	// PendingRetire keeps an existing binding visible after its node-file source
 	// removes the address while preventing any new allocation from using it.
 	PendingRetire bool `json:"pending_retire" gorm:"default:false;index"`

@@ -8,6 +8,25 @@ import (
 	rootProvider "oneclickvirt/provider"
 )
 
+func TestValidateProviderIPv6NetworkAcceptsRoutedGuestBackends(t *testing.T) {
+	for _, test := range []struct {
+		providerType string
+		networkType  string
+	}{
+		{providerType: "proxmox", networkType: "nat_ipv4_ipv6"},
+		{providerType: "qemu", networkType: "ipv6_only"},
+		{providerType: "vmware", networkType: "nat_ipv4"},
+		{providerType: "vmware", networkType: "nat_ipv4_ipv6"},
+		{providerType: "virtualbox", networkType: "nat_ipv4_ipv6"},
+		{providerType: "multipass", networkType: "nat_ipv4_ipv6"},
+		{providerType: "vagrant", networkType: "nat_ipv4_ipv6"},
+	} {
+		if err := validateProviderIPv6Network(test.providerType, test.networkType); err != nil {
+			t.Fatalf("validateProviderIPv6Network(%q, %q) error = %v", test.providerType, test.networkType, err)
+		}
+	}
+}
+
 func TestBuildCopyInstanceResourceUpdatesSkipsUnsetLimits(t *testing.T) {
 	updates := buildCopyInstanceResourceUpdates(2, 0, 1024)
 

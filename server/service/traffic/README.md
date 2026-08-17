@@ -43,13 +43,13 @@
 | `instances` | `used_traffic_in` | MB | 实例入站流量（原始数据） |
 | `instances` | `used_traffic_out` | MB | 实例出站流量（原始数据） |
 | `traffic_records` | `traffic_in` / `traffic_out` / `total_used` | MB | 流量记录 |
-| `pmacct_traffic_records` | `rx_bytes` / `tx_bytes` / `total_bytes` | **字节** | 原始监控数据 |
+| `pmacct_traffic_records` | `rx_bytes` / `tx_bytes` / `total_bytes` | **字节** | 统一原始采样；表名兼容历史 pmacct，`provider_type=agent` 表示 Rust Agent 写入 |
 
 ## 流量统计模式
 
 ### 数据存储原则
 
-1. **pmacct_traffic_records**：存储原始数据（字节），**永远不修改**
+1. **pmacct_traffic_records**：存储原始数据（字节），**永远不修改**；它是兼容表名，不代表当前采集器一定是 pmacct
 2. **instances**：存储原始流量（MB），`used_traffic_in/out` 是原始双向数据
 3. **traffic_records**：存储原始流量记录（MB）
 4. **流量模式和倍率**：仅在**查询统计时**应用，不影响原始数据存储
@@ -80,7 +80,7 @@ Provider 可配置 `traffic_reset_day`。空值或 0 表示自然月，当前周
 
 **关键点**：`instance_traffic_histories`、`provider_traffic_histories`、`user_traffic_histories` 中的 `traffic_in`、`traffic_out`、`total_used` 都存原始 MB。`total_used` 必须是 `traffic_in + traffic_out`，不能存已经应用 `traffic_count_mode` 或 `traffic_multiplier` 后的值。
 
-当前实时展示、排行、三层限额判断统一以 `pmacct_traffic_records` 为来源，经 `QueryService` 按窗口前基线和窗口内相邻采样差分计算；`instance_traffic_histories`、`provider_traffic_histories`、`user_traffic_histories` 只作为派生聚合表和历史兼容数据，不能作为唯一实时来源，避免聚合任务未刷新时显示旧值或限额误判。
+当前实时展示、排行、三层限额判断统一以 `pmacct_traffic_records` 为来源，经 `QueryService` 按窗口前基线和窗口内相邻采样差分计算；该兼容表可同时保存 Rust Agent/nft、Rust Agent/iptables 或旧 pmacct 的采样，接口会依据 Provider 的 `traffic_sync_method` 显示实际来源。`instance_traffic_histories`、`provider_traffic_histories`、`user_traffic_histories` 只作为派生聚合表和历史兼容数据，不能作为唯一实时来源，避免聚合任务未刷新时显示旧值或限额误判。
 
 ## 数据流转流程
 
