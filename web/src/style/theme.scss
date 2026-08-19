@@ -139,9 +139,9 @@
   --subtle-bg: #f8fafc;
   --card-bg-solid: #ffffff;
   --card-bg: rgba(255, 255, 255, 0.96);
-  --terminal-bg: #f3f6fb;
-  --terminal-foreground: #1f2937;
-  --terminal-cursor: #16a34a;
+  --terminal-bg: #000000;
+  --terminal-foreground: #d4d4d4;
+  --terminal-cursor: #d4d4d4;
   --auth-page-bg: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
   --auth-header-bg: rgba(255, 255, 255, 0.95);
   --footer-bg: #ffffff;
@@ -874,7 +874,7 @@ html.dark {
   --subtle-bg: #142033;
   --card-bg-solid: #111b2d;
   --card-bg: rgba(17, 27, 45, 0.96);
-  --terminal-bg: #0b1220;
+  --terminal-bg: #000000;
   --terminal-foreground: #d4d4d4;
   --terminal-cursor: #d4d4d4;
   --auth-page-bg:

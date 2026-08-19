@@ -40,6 +40,8 @@ func operationActionLabel(action string) string {
 		return "SFTP文件操作"
 	case "vnc":
 		return "VNC连接"
+	case "console":
+		return "网页控制台连接"
 	case "snapshot-create":
 		return "创建快照"
 	case "snapshot-delete":

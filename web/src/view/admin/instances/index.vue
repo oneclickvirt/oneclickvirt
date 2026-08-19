@@ -534,7 +534,20 @@
             </el-descriptions-item>
           </el-descriptions>
         </div>
-      </div>
+        </div>
+      <template #footer>
+        <el-button
+          type="primary"
+          :loading="accessLoading"
+          @click="showInstanceAccessDialog(selectedInstance)"
+        >
+          <el-icon><EditPen /></el-icon>
+          {{ $t('admin.instances.editAccess') }}
+        </el-button>
+        <el-button @click="detailDialogVisible = false">
+          {{ $t('common.close') }}
+        </el-button>
+      </template>
     </el-dialog>
 
     <!-- 实例操作对话框 -->
@@ -652,6 +665,12 @@
       @updated="loadInstances"
     />
 
+    <InstanceAccessDialog
+      v-model="accessDialogVisible"
+      :instance="accessInstance"
+      @updated="refreshInstanceAccess"
+    />
+
     <!-- 转移实例对话框 -->
     <el-dialog
       v-model="transferDialogVisible"
@@ -710,18 +729,20 @@ import {
   Lock, 
   Delete,
   Link,
-  Connection
+  Connection,
+  EditPen
 } from '@element-plus/icons-vue'
 import { useInstanceManagement } from './composables/useInstanceManagement'
 import EgressDialog from './components/EgressDialog.vue'
+import InstanceAccessDialog from './components/InstanceAccessDialog.vue'
 
 const {
-  instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible,
-  selectedInstance, actionInstance, egressInstance, actionLoading, showPassword,
+  instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible, accessDialogVisible, accessLoading,
+  selectedInstance, actionInstance, egressInstance, accessInstance, actionLoading, showPassword,
   selectedInstances, transferDialogVisible, transferLoading, transferForm, tableRef,
   filters, pagination,
   loadInstances, handleSearch, handleReset, handleSizeChange, handleCurrentChange,
-  viewInstanceDetail, showActionDialog, showEgressDialog, performAction,
+  viewInstanceDetail, showActionDialog, showEgressDialog, showInstanceAccessDialog, refreshInstanceAccess, performAction,
   getStatusType, getStatusText, formatDate, formatMemory, formatDisk, formatTraffic,
   isExpired, isExpiringSoon, openSSHTerminal,
   handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,

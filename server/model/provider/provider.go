@@ -455,6 +455,7 @@ type Instance struct {
 	PublicIP       string `json:"publicIP" gorm:"size:64"`                     // 公网IPv4地址
 	IPv6Address    string `json:"ipv6Address" gorm:"size:128"`                 // 内网IPv6地址
 	PublicIPv6     string `json:"publicIPv6" gorm:"size:128"`                  // 公网IPv6地址
+	SSHHost        string `json:"sshHost" gorm:"size:255"`                     // 管理员可选的SSH目标覆盖地址；为空时沿用既有端口映射/实例IP解析
 	SSHPort        int    `json:"sshPort" gorm:"default:22"`                   // SSH访问端口
 	PortRangeStart int    `json:"portRangeStart"`                              // 端口映射范围起始
 	PortRangeEnd   int    `json:"portRangeEnd"`                                // 端口映射范围结束
@@ -467,6 +468,7 @@ type Instance struct {
 	// 访问凭据
 	Username string `json:"username" gorm:"size:64"`  // 登录用户名
 	Password string `json:"password" gorm:"size:128"` // 登录密码
+	SSHKey   string `json:"-" gorm:"type:text"`       // 实例SSH私钥，仅管理员更新接口可写入
 
 	// 系统信息
 	OSType string `json:"osType" gorm:"size:64"` // 操作系统类型：ubuntu, centos, debian等

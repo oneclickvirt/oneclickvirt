@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,7 +75,7 @@ func ExecWebSocket(c *gin.Context) {
 
 	// Get instance info
 	var instance providerModel.Instance
-	err := global.APP_DB.Select("id", "name", "provider_id", "status", "instance_type", "is_frozen", "frozen_reason", "expires_at").
+	err := global.APP_DB.Select("id", "name", "provider_id", "provider_vm_id", "status", "instance_type", "is_frozen", "frozen_reason", "expires_at").
 		Where("id = ? AND user_id = ?", instanceID, userID).
 		First(&instance).Error
 	if err != nil {
@@ -119,7 +120,7 @@ func ExecWebSocket(c *gin.Context) {
 
 	// Get provider SSH credentials
 	var provider providerModel.Provider
-	if err := global.APP_DB.Select("id", "type", "endpoint", "ssh_port", "username", "password", "ssh_key", "ssh_connect_timeout", "ssh_execute_timeout").
+	if err := global.APP_DB.Select("id", "type", "endpoint", "ssh_port", "username", "password", "ssh_key", "ssh_connect_timeout", "ssh_execute_timeout", "connection_type").
 		First(&provider, instance.ProviderID).Error; err != nil {
 		global.APP_LOG.Error("查询节点失败", zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "节点信息不可用"))
@@ -127,7 +128,7 @@ func ExecWebSocket(c *gin.Context) {
 	}
 
 	// Build exec command
-	execCmd, err := getExecCommand(constant.ProviderType(provider.Type), instance.Name)
+	execCmd, err := getExecCommand(constant.ProviderType(provider.Type), instance.ProviderInstanceIdentifier())
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
@@ -147,6 +148,18 @@ func ExecWebSocket(c *gin.Context) {
 		return
 	}
 	defer ws.Close()
+
+	// Keep the existing SSH path below unchanged. Agent/local providers receive
+	// the same interactive Exec command through their native transport instead
+	// of requiring controller-to-node SSH credentials.
+	switch strings.ToLower(strings.TrimSpace(provider.ConnectionType)) {
+	case "agent":
+		handleAgentExecTerminal(ws, provider.ID, execCmd)
+		return
+	case "local":
+		handleLocalExecTerminal(ws, execCmd)
+		return
+	}
 
 	// Create SSH connection to provider host
 	var sshClient *ssh.Client

@@ -5,7 +5,33 @@ import (
 	"time"
 
 	monitoringModel "oneclickvirt/model/monitoring"
+	providerModel "oneclickvirt/model/provider"
 )
+
+func TestAgentTrafficMappedIPPrefersPublicIPv4AndNeverInterfaceName(t *testing.T) {
+	instance := &providerModel.Instance{
+		PublicIP:    "198.51.100.30",
+		PrivateIP:   "172.16.0.30",
+		PublicIPv6:  "2001:db8::30",
+		IPv6Address: "fd00::30",
+	}
+	monitor := &monitoringModel.AgentMonitor{Interfaces: "tap130i0,tap130i1", InnerIP: "172.16.0.30"}
+	if got := agentTrafficMappedIP(instance, monitor); got != "198.51.100.30" {
+		t.Fatalf("agentTrafficMappedIP() = %q, want public IPv4", got)
+	}
+}
+
+func TestAgentTrafficMappedIPSupportsIPv6OnlyAndFallback(t *testing.T) {
+	if got := agentTrafficMappedIP(&providerModel.Instance{PublicIPv6: "2001:db8::31/64"}, nil); got != "2001:db8::31" {
+		t.Fatalf("IPv6-only mapped IP = %q", got)
+	}
+	if got := agentTrafficMappedIP(nil, &monitoringModel.AgentMonitor{Interfaces: "veth31", InnerIP: "10.0.0.31"}); got != "10.0.0.31" {
+		t.Fatalf("inner IP fallback = %q", got)
+	}
+	if got := agentTrafficMappedIP(nil, &monitoringModel.AgentMonitor{Interfaces: "veth31"}); got != "agent" {
+		t.Fatalf("empty address fallback = %q", got)
+	}
+}
 
 func TestBuildTrafficSyncItemKeepsPVERoutedIPv6CountersConsistent(t *testing.T) {
 	monitor := &monitoringModel.AgentMonitor{

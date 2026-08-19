@@ -125,31 +125,40 @@ func (s *SyncService) syncProviderTrafficOnce(p *providerModel.Provider, config 
 	day := now.Day()
 	hour := now.Hour()
 
-	// Batch-load authoritative instance owners outside the write transactions.
-	type idPair struct {
-		ID     uint
-		UserID uint
+	// Batch-load authoritative owners and display addresses outside write
+	// transactions. The latter keeps Agent samples compatible with historical
+	// pmacct consumers without using host interface names as mapped_ip.
+	type trafficInstanceRecord struct {
+		ID          uint
+		UserID      uint
+		PrivateIP   string
+		PublicIP    string
+		IPv6Address string
+		PublicIPv6  string
 	}
-	var pairs []idPair
-	if err := s.db.Model(&providerModel.Instance{}).Select("id, user_id").Where("id IN ?", instanceIDs).Find(&pairs).Error; err != nil {
-		return fmt.Errorf("batch load instance user_ids: %w", err)
+	var instanceRecords []trafficInstanceRecord
+	if err := s.db.Model(&providerModel.Instance{}).
+		Select("id, user_id, private_ip, public_ip, ipv6_address, public_ipv6").
+		Where("id IN ?", instanceIDs).
+		Find(&instanceRecords).Error; err != nil {
+		return fmt.Errorf("batch load instance traffic identities: %w", err)
 	}
-	instanceUserMap := make(map[uint]uint, len(pairs))
-	for _, pair := range pairs {
-		instanceUserMap[pair.ID] = pair.UserID
+	instanceByID := make(map[uint]trafficInstanceRecord, len(instanceRecords))
+	for _, record := range instanceRecords {
+		instanceByID[record.ID] = record
 	}
 
 	backfills := make([]trafficUserIDBackfill, 0)
 	for i := range monitors {
 		monitor := &monitors[i]
-		if currentUID, ok := instanceUserMap[monitor.InstanceID]; ok && currentUID != monitor.UserID {
+		if record, ok := instanceByID[monitor.InstanceID]; ok && record.UserID != monitor.UserID {
 			backfills = append(backfills, trafficUserIDBackfill{
 				monitorID:  monitor.ID,
 				instanceID: monitor.InstanceID,
 				oldUserID:  monitor.UserID,
-				newUserID:  currentUID,
+				newUserID:  record.UserID,
 			})
-			monitor.UserID = currentUID
+			monitor.UserID = record.UserID
 		}
 	}
 	if len(backfills) > 0 {
@@ -182,7 +191,20 @@ func (s *SyncService) syncProviderTrafficOnce(p *providerModel.Provider, config 
 			continue
 		}
 		affectedUsers[monitor.UserID] = true
-		syncItems = append(syncItems, buildTrafficSyncItem(monitor, info, now))
+		item := buildTrafficSyncItem(monitor, info, now)
+		if record, ok := instanceByID[monitor.InstanceID]; ok {
+			instance := providerModel.Instance{
+				ID:          record.ID,
+				PrivateIP:   record.PrivateIP,
+				PublicIP:    record.PublicIP,
+				IPv6Address: record.IPv6Address,
+				PublicIPv6:  record.PublicIPv6,
+			}
+			item.mappedIP = agentTrafficMappedIP(&instance, monitor)
+		} else {
+			item.mappedIP = agentTrafficMappedIP(nil, monitor)
+		}
+		syncItems = append(syncItems, item)
 	}
 
 	var firstErr error
@@ -442,9 +464,13 @@ func upsertAgentPmacctRecordsBatch(
 			record_time = _new.record_time, updated_at = _new.updated_at`
 	args := make([]interface{}, 0, columns*len(items))
 	for _, item := range items {
+		mappedIP := item.mappedIP
+		if mappedIP == "" {
+			mappedIP = agentTrafficMappedIP(nil, item.monitor)
+		}
 		args = append(args,
 			item.monitor.InstanceID, item.monitor.UserID, item.monitor.ProviderID,
-			item.monitor.Interfaces,
+			mappedIP,
 			int64(item.currentTrafficIn), int64(item.currentTrafficOut), int64(item.currentTraffic),
 			item.alignedTime, year, month, day, hour, item.alignedTime.Minute(),
 			now, now, now,

@@ -166,11 +166,11 @@ chmod 0644 "${unit_path}.tmp.$$"
 mv -f "${script_path}.tmp.$$" "$script_path"
 mv -f "${unit_path}.tmp.$$" "$unit_path"
 systemctl daemon-reload
-systemctl enable "$unit_name" >/dev/null
-if systemctl is-active --quiet "$unit_name"; then
-  "$script_path"
-else
+systemctl enable "$unit_name" >/dev/null 2>&1
+if ! systemctl is-active --quiet "$unit_name"; then
   systemctl start "$unit_name"
 fi
+"$script_path"
+systemctl is-active --quiet "$unit_name"
 `, utils.ShellSingleQuote(scriptPath), utils.ShellSingleQuote(unitName), utils.ShellSingleQuote(unitPath), utils.ShellSingleQuote(script64), utils.ShellSingleQuote(unit64))
 }

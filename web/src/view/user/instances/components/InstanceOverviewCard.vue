@@ -170,7 +170,7 @@
             {{ $t('user.instanceDetail.webSSH') }}
           </el-button>
           <el-button
-            v-if="instance.status === 'running' && instance.instanceType === 'vm' && !shareMode"
+            v-if="instance.status === 'running' && !shareMode"
             type="primary"
             size="small"
             :disabled="operationLocked"
@@ -178,7 +178,7 @@
             @click="$emit('open-vnc')"
           >
             <el-icon><Monitor /></el-icon>
-            {{ $t('user.instanceDetail.webVNC') }}
+            {{ $t('user.instanceDetail.webConsole') }}
           </el-button>
           <el-button
             v-if="!shareMode"

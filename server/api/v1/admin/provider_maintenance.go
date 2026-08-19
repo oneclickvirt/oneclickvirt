@@ -22,6 +22,8 @@ import (
 )
 
 func buildInstanceVNCInfo(instanceID uint, userID uint, admin bool) (gin.H, error) {
+	// Keep the legacy /vnc response and eligibility rules unchanged. New
+	// multi-protocol capabilities are exposed exclusively through /console.
 	if _, _, err := resolveInstanceVNCTarget(instanceID, userID, admin); err != nil {
 		return gin.H{"enabled": false, "reason": err.Error()}, nil
 	}
@@ -55,6 +57,9 @@ func resolveInstanceVNCTarget(instanceID uint, userID uint, admin bool) (string,
 	if !p.EnableVNC {
 		return "", 0, fmt.Errorf("节点未启用WebVNC")
 	}
+	// Keep the legacy VNC host selection byte-for-byte compatible in behavior.
+	// The provider-neutral console resolver has its own normalized transport
+	// handling; this legacy endpoint must not inherit that new behavior.
 	host := strings.TrimSpace(p.VNCHost)
 	if host == "" {
 		host = strings.TrimSpace(p.PortIP)
@@ -90,16 +95,44 @@ func parseVNCDiscoveredPort(raw string) int {
 	if json.Unmarshal([]byte(raw), &obj) != nil {
 		return 0
 	}
-	for _, key := range []string{"vncPort", "vnc_port", "vnc"} {
-		if v, ok := obj[key]; ok {
-			switch x := v.(type) {
-			case float64:
-				return int(x)
-			case string:
-				n, _ := strconv.Atoi(x)
-				return n
+	var parse func(value interface{}) int
+	parse = func(value interface{}) int {
+		switch x := value.(type) {
+		case float64:
+			return int(x)
+		case json.Number:
+			n, _ := strconv.Atoi(string(x))
+			return n
+		case int:
+			return x
+		case string:
+			n, _ := strconv.Atoi(strings.TrimSpace(x))
+			return n
+		case map[string]interface{}:
+			for _, key := range []string{"port", "vncPort", "vnc_port"} {
+				if n := parse(x[key]); n > 0 {
+					return n
+				}
 			}
 		}
+		return 0
+	}
+	for _, key := range []string{"vncPort", "vnc_port", "vnc"} {
+		if n := parse(obj[key]); n > 0 {
+			return n
+		}
+	}
+	console, _ := obj["console"].(map[string]interface{})
+	if console == nil {
+		return 0
+	}
+	for _, key := range []string{"vncPort", "vnc_port", "vnc"} {
+		if n := parse(console[key]); n > 0 {
+			return n
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(fmt.Sprint(console["protocol"])), consoleProtocolVNC) {
+		return parse(console["port"])
 	}
 	return 0
 }

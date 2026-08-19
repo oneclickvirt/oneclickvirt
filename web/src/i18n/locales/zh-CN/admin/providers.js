@@ -726,6 +726,7 @@ export default {
     statusFree: "可用",
     statusAllocated: "已分配",
     statusRange: "地址范围",
+    statusReserved: "保留",
     instance: "实例",
     addSuccess: "IPv6地址已保存",
     addPartial: "IPv6地址已保存，但有 {count} 行无效",

@@ -40,7 +40,7 @@ func getAdminInstanceForSFTP(c *gin.Context) (*providerModel.Instance, error) {
 	}
 
 	var instance providerModel.Instance
-	err := global.APP_DB.Select("id", "name", "provider_id", "status", "private_ip", "public_ip", "ssh_port", "username", "password").
+	err := global.APP_DB.Select("id", "name", "provider_id", "status", "private_ip", "public_ip", "ipv6_address", "public_ipv6", "ssh_host", "ssh_port", "username", "password", "ssh_key").
 		Where("id = ?", instanceID).
 		First(&instance).Error
 	if err != nil {

@@ -96,6 +96,7 @@ type InstanceManageResponse struct {
 	UsedTrafficIn  int64  `json:"usedTrafficIn"`  // 当月入站流量（MB）- 从历史记录查询
 	UsedTrafficOut int64  `json:"usedTrafficOut"` // 当月出站流量（MB）- 从历史记录查询
 	HasSshMapping  bool   `json:"hasSshMapping"`  // 是否有SSH端口映射
+	HasSSHKey      bool   `json:"hasSshKey"`      // 实例是否已保存SSH私钥（私钥内容不返回）
 }
 
 type SystemConfigResponse struct {

@@ -47,6 +47,15 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/user/instances/:id/ssh", user.SSHWebSocket) // WebSocket SSH连接
 		UserGroup.GET("/user/instances/:id/vnc", user.UserInstanceVNCInfo)
 		UserGroup.GET("/user/instances/:id/vnc/ws", user.UserInstanceVNCWebSocket)
+		// Provider-neutral browser console endpoints. The legacy VNC routes above
+		// remain intact for existing noVNC clients; these routes add SPICE and
+		// native-console capabilities without changing Web SSH behavior.
+		UserGroup.GET("/user/instances/:id/console", user.UserInstanceConsoleInfo)
+		UserGroup.POST("/user/instances/:id/console/repair", user.UserInstanceConsoleRepair)
+		UserGroup.GET("/user/instances/:id/console/ws", user.UserInstanceConsoleWebSocket)
+		UserGroup.GET("/user/instances/:id/console/terminal/ws", user.UserInstanceConsoleTerminalWebSocket)
+		UserGroup.GET("/user/instances/:id/console/spice-ws", user.UserInstanceConsoleSpiceWebSocket)
+		UserGroup.GET("/user/instances/:id/console/spice/*path", user.UserInstanceConsoleSpiceAsset)
 		UserGroup.GET("/user/instances/:id/exec", user.ExecWebSocket) // WebSocket Container Exec
 		UserGroup.GET("/user/instances/:id/sftp/list", user.UserSFTPList)
 		UserGroup.GET("/user/instances/:id/sftp/download", user.UserSFTPDownload)

@@ -764,6 +764,146 @@ func TestDeleteFailureKeepsControllerRecord(t *testing.T) {
 	}
 }
 
+func TestDeleteRejectsTunnelWithAllocatedIPv6Binding(t *testing.T) {
+	var calls atomic.Int32
+	service, db := setupTunnelTestService(t, func(_ context.Context, _ uint, _ string) (string, error) {
+		calls.Add(1)
+		return "deleted\n", nil
+	})
+	tunnel := validTunnelConfig().toModel(1)
+	tunnel.Enabled = true
+	tunnel.Status = providerModel.IPv6TunnelStatusActive
+	if err := db.Create(&tunnel).Error; err != nil {
+		t.Fatalf("create tunnel: %v", err)
+	}
+	parent := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:1234:5678::/80", PrefixLength: 80,
+		IsRange: true, RangeNext: "2001:db8:1234:5678::2", TunnelID: &tunnel.ID,
+		Source: ipv6poolService.SourceTunnel,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create tunnel pool: %v", err)
+	}
+	instanceID := uint(73)
+	// Keep TunnelID empty on the child to cover historical bindings that only
+	// reference their tunnel through the range parent.
+	child := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:1234:5678::2", PrefixLength: 128,
+		ParentID: &parent.ID, IsAllocated: true, InstanceID: &instanceID,
+		Source: ipv6poolService.SourceRangeChild,
+	}
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatalf("create allocated binding: %v", err)
+	}
+
+	err := service.Delete(context.Background(), 1, tunnel.ID)
+	if err == nil || !strings.Contains(err.Error(), "仍有 1 个实例地址绑定") {
+		t.Fatalf("Delete() error = %v, want allocated-binding rejection", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("remote calls = %d, want 0", calls.Load())
+	}
+	var storedTunnel providerModel.ProviderIPv6Tunnel
+	if err := db.First(&storedTunnel, tunnel.ID).Error; err != nil {
+		t.Fatalf("load tunnel: %v", err)
+	}
+	if !storedTunnel.Enabled || storedTunnel.Status != providerModel.IPv6TunnelStatusActive {
+		t.Fatalf("allocated delete changed tunnel state: %#v", storedTunnel)
+	}
+	var storedParent providerModel.ProviderIPv6Pool
+	if err := db.First(&storedParent, parent.ID).Error; err != nil {
+		t.Fatalf("load tunnel pool: %v", err)
+	}
+	if storedParent.PendingRetire {
+		t.Fatalf("allocated delete froze tunnel pool: %#v", storedParent)
+	}
+}
+
+func TestDeleteRemovesTunnelConfigurationAndUnallocatedPool(t *testing.T) {
+	var command string
+	service, db := setupTunnelTestService(t, func(_ context.Context, _ uint, remoteCommand string) (string, error) {
+		command = remoteCommand
+		return "deleted\n", nil
+	})
+	tunnel := validTunnelConfig().toModel(1)
+	tunnel.Enabled = true
+	tunnel.Status = providerModel.IPv6TunnelStatusActive
+	if err := db.Create(&tunnel).Error; err != nil {
+		t.Fatalf("create tunnel: %v", err)
+	}
+	pool := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:1234:5678::/80", PrefixLength: 80,
+		IsRange: true, RangeNext: "2001:db8:1234:5678::2", TunnelID: &tunnel.ID,
+		Source: ipv6poolService.SourceTunnel,
+	}
+	if err := db.Create(&pool).Error; err != nil {
+		t.Fatalf("create tunnel pool: %v", err)
+	}
+
+	if err := service.Delete(context.Background(), 1, tunnel.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	for _, fragment := range []string{
+		unitName(tunnel.ID), networkConfigPath(tunnel.ID), pveNeighborScriptPath(tunnel.ID),
+		"reload_networkd", "systemctl daemon-reload",
+	} {
+		if !strings.Contains(command, fragment) {
+			t.Fatalf("delete command missing %q: %s", fragment, command)
+		}
+	}
+	var tunnelCount, poolCount int64
+	if err := db.Model(&providerModel.ProviderIPv6Tunnel{}).Where("id = ?", tunnel.ID).Count(&tunnelCount).Error; err != nil {
+		t.Fatalf("count tunnel: %v", err)
+	}
+	if err := db.Unscoped().Model(&providerModel.ProviderIPv6Pool{}).Where("tunnel_id = ?", tunnel.ID).Count(&poolCount).Error; err != nil {
+		t.Fatalf("count tunnel pool: %v", err)
+	}
+	if tunnelCount != 0 || poolCount != 0 {
+		t.Fatalf("delete left tunnel=%d pool=%d", tunnelCount, poolCount)
+	}
+}
+
+func TestDeleteFailureFreezesUnallocatedTunnelPool(t *testing.T) {
+	service, db := setupTunnelTestService(t, func(_ context.Context, _ uint, _ string) (string, error) {
+		return "", errors.New("node offline")
+	})
+	tunnel := validTunnelConfig().toModel(1)
+	tunnel.Enabled = true
+	tunnel.Status = providerModel.IPv6TunnelStatusActive
+	if err := db.Create(&tunnel).Error; err != nil {
+		t.Fatalf("create tunnel: %v", err)
+	}
+	parent := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:1234:5678::/80", PrefixLength: 80,
+		IsRange: true, RangeNext: "2001:db8:1234:5678::2", TunnelID: &tunnel.ID,
+		Source: ipv6poolService.SourceTunnel,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create tunnel pool: %v", err)
+	}
+
+	if err := service.Delete(context.Background(), 1, tunnel.ID); err == nil {
+		t.Fatal("expected delete error")
+	}
+	var storedTunnel providerModel.ProviderIPv6Tunnel
+	if err := db.First(&storedTunnel, tunnel.ID).Error; err != nil {
+		t.Fatalf("load tunnel: %v", err)
+	}
+	if storedTunnel.Enabled || storedTunnel.Status != providerModel.IPv6TunnelStatusError {
+		t.Fatalf("failed delete state = %#v, want disabled error", storedTunnel)
+	}
+	var storedParent providerModel.ProviderIPv6Pool
+	if err := db.First(&storedParent, parent.ID).Error; err != nil {
+		t.Fatalf("load tunnel pool: %v", err)
+	}
+	if !storedParent.PendingRetire {
+		t.Fatalf("failed delete left tunnel pool allocatable: %#v", storedParent)
+	}
+	if _, err := ipv6poolService.NewServiceWithDB(db).AllocateIPv6Address(1, 74); err == nil {
+		t.Fatal("failed delete left tunnel IPv6 pool allocatable")
+	}
+}
+
 func TestCleanupProviderRemoteBatchesAllTunnels(t *testing.T) {
 	var calls atomic.Int32
 	var command string

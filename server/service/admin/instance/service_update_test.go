@@ -62,6 +62,53 @@ func TestApplyUpdateInstanceRequestAppliesExplicitResourceFields(t *testing.T) {
 	}
 }
 
+func TestApplyUpdateInstanceRequestAppliesExplicitSSHAccessFields(t *testing.T) {
+	oldPassword := "old-password"
+	newPassword := "new-password"
+	newKey := "-----BEGIN PRIVATE KEY-----\nexample\n-----END PRIVATE KEY-----"
+	inst := providerModel.Instance{
+		SSHHost:  "198.51.100.10",
+		SSHPort:  22,
+		Username: "root",
+		Password: oldPassword,
+	}
+	req := admin.UpdateInstanceRequest{
+		ProvidedFields: map[string]bool{
+			"sshHost":  true,
+			"sshPort":  true,
+			"username": true,
+			"password": true,
+			"sshKey":   true,
+		},
+		SSHHost:  "[2001:db8::42]",
+		SSHPort:  22042,
+		Username: "admin",
+		Password: &newPassword,
+		SSHKey:   &newKey,
+	}
+
+	applyUpdateInstanceRequest(&inst, req)
+
+	if inst.SSHHost != "2001:db8::42" || inst.SSHPort != 22042 || inst.Username != "admin" {
+		t.Fatalf("SSH access fields not applied: %#v", inst)
+	}
+	if inst.Password != newPassword || inst.SSHKey != newKey {
+		t.Fatalf("SSH credentials not applied")
+	}
+}
+
+func TestValidateUpdateInstanceAccessFieldsRejectsInvalidHostAndPort(t *testing.T) {
+	for _, req := range []admin.UpdateInstanceRequest{
+		{ProvidedFields: map[string]bool{"sshPort": true}, SSHPort: 65536},
+		{ProvidedFields: map[string]bool{"sshHost": true}, SSHHost: "example.com:2222"},
+		{ProvidedFields: map[string]bool{"sshHost": true}, SSHHost: "https://example.com"},
+	} {
+		if err := validateUpdateInstanceAccessFields(req); err == nil {
+			t.Fatalf("expected validation failure for %#v", req)
+		}
+	}
+}
+
 func TestPreserveProviderIdentifierBeforeRenameCapturesOldName(t *testing.T) {
 	inst := providerModel.Instance{Name: "remote-name"}
 	req := admin.UpdateInstanceRequest{
