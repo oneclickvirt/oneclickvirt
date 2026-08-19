@@ -16,6 +16,53 @@ export const getUserInstanceVNCWsUrl = (instanceId) => {
   return `${protocol}//${host}/api/v1/user/instances/${instanceId}/vnc/ws${query}`
 }
 
+const getUserConsoleWebSocketBase = () => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  let host = window.location.host
+  if (import.meta.env.MODE === 'development' && import.meta.env.VITE_SERVER_PORT) {
+    host = `${window.location.hostname}:${import.meta.env.VITE_SERVER_PORT}`
+  }
+  return `${protocol}//${host}`
+}
+
+const getUserConsoleTokenQuery = () => {
+  const token = sessionStorage.getItem('token') || ''
+  return token ? `token=${encodeURIComponent(token)}` : ''
+}
+
+export const getUserInstanceConsoleInfo = (instanceId) => request({
+  url: `/v1/user/instances/${instanceId}/console`,
+  method: 'get'
+})
+
+export const repairUserInstanceConsole = (instanceId) => request({
+  url: `/v1/user/instances/${instanceId}/console/repair`,
+  method: 'post'
+})
+
+export const getUserInstanceConsoleWsUrl = (instanceId, protocol = '') => {
+  const params = []
+  if (protocol) params.push(`protocol=${encodeURIComponent(protocol)}`)
+  const token = getUserConsoleTokenQuery()
+  if (token) params.push(token)
+  const query = params.length ? `?${params.join('&')}` : ''
+  return `${getUserConsoleWebSocketBase()}/api/v1/user/instances/${instanceId}/console/ws${query}`
+}
+
+export const getUserInstanceConsoleTerminalWsUrl = (instanceId, protocol) => {
+  const params = []
+  if (protocol) params.push(`protocol=${encodeURIComponent(protocol)}`)
+  const token = getUserConsoleTokenQuery()
+  if (token) params.push(token)
+  const query = params.length ? `?${params.join('&')}` : ''
+  return `${getUserConsoleWebSocketBase()}/api/v1/user/instances/${instanceId}/console/terminal/ws${query}`
+}
+
+export const getUserInstanceConsoleSpiceAssetUrl = (instanceId, asset = 'spice_auto.html') => {
+  const wsPath = `/api/v1/user/instances/${instanceId}/console/spice-ws`
+  return `/api/v1/user/instances/${instanceId}/console/spice/${asset}?path=${encodeURIComponent(wsPath)}`
+}
+
 // 用户仪表盘相关
 export function getUserDashboard() {
   return request({

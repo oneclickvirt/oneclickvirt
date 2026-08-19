@@ -79,6 +79,41 @@ export async function copyToClipboard(text, successMessage, errorMessage) {
 }
 
 /**
+ * Read text from the system clipboard.
+ *
+ * Clipboard reads are only available to a focused page in a secure context;
+ * unlike writes, there is no reliable execCommand fallback. Returning null
+ * keeps callers from accidentally sending an incomplete paste to a session.
+ *
+ * @param {string} errorMessage - Message shown when the read fails
+ * @param {string} unavailableMessage - Message shown when the API cannot be used
+ * @returns {Promise<string|null>} - Clipboard text, or null on failure
+ */
+export async function readFromClipboard(errorMessage, unavailableMessage) {
+  if (errorMessage === undefined) errorMessage = t('common.pasteFailed')
+  if (unavailableMessage === undefined) unavailableMessage = t('common.clipboardUnavailable')
+
+  if (typeof navigator === 'undefined'
+    || !navigator.clipboard
+    || typeof navigator.clipboard.readText !== 'function'
+    || typeof window === 'undefined'
+    || !window.isSecureContext) {
+    ElMessage.error(unavailableMessage)
+    return null
+  }
+
+  try {
+    return await navigator.clipboard.readText()
+  } catch (error) {
+    console.error('读取剪贴板失败:', error)
+    if (errorMessage) {
+      ElMessage.error(errorMessage)
+    }
+    return null
+  }
+}
+
+/**
  * 复制对象为JSON字符串
  * 
  * @param {Object} obj - 要复制的对象
@@ -111,6 +146,7 @@ export function isClipboardAvailable() {
 
 export default {
   copyToClipboard,
+  readFromClipboard,
   copyObjectAsJSON,
   isClipboardAvailable
 }

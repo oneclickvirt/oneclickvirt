@@ -416,6 +416,11 @@ type UpdateInstanceRequest struct {
 	Memory         int64           `json:"memory"`
 	Disk           int64           `json:"disk"`
 	Status         string          `json:"status"`
+	SSHHost        string          `json:"sshHost"`
+	SSHPort        int             `json:"sshPort"`
+	Username       string          `json:"username"`
+	Password       *string         `json:"password,omitempty"`
+	SSHKey         *string         `json:"sshKey,omitempty"`
 }
 
 type InstanceListRequest struct {

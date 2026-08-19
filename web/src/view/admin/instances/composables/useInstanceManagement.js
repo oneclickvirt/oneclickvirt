@@ -1,7 +1,7 @@
 import { ref, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { getAllInstances, adminInstanceAction, adminBatchInstanceAction, resetInstancePassword, getAdminInstanceNewPassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList, createAdminInstanceShare } from '@/api/admin'
+import { getAllInstances, getAdminInstance, adminInstanceAction, adminBatchInstanceAction, resetInstancePassword, getAdminInstanceNewPassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList, createAdminInstanceShare } from '@/api/admin'
 import { adminTransferInstance } from '@/api/features'
 import { useSSHStore } from '@/pinia/modules/ssh'
 import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
@@ -16,9 +16,12 @@ export function useInstanceManagement() {
   const detailDialogVisible = ref(false)
   const actionDialogVisible = ref(false)
   const egressDialogVisible = ref(false)
+  const accessDialogVisible = ref(false)
+  const accessLoading = ref(false)
   const selectedInstance = ref(null)
   const actionInstance = ref(null)
   const egressInstance = ref(null)
+  const accessInstance = ref(null)
   const actionLoading = ref(false)
   const showPassword = ref(false)
   const selectedInstances = ref([])
@@ -113,6 +116,33 @@ export function useInstanceManagement() {
     egressInstance.value = instance
     actionDialogVisible.value = false
     egressDialogVisible.value = true
+  }
+
+  const showInstanceAccessDialog = async (instance) => {
+    if (!warnInstanceBlocked(instance, true)) return
+    accessLoading.value = true
+    try {
+      const response = await getAdminInstance(instance.id)
+      accessInstance.value = {
+        ...(response.data || {}),
+        hasSshKey: Boolean(instance.hasSshKey)
+      }
+      accessDialogVisible.value = true
+    } catch (error) {
+      ElMessage.error(error?.fullMessage || error?.userMessage || error?.message || t('admin.instances.editAccessLoadFailed'))
+    } finally {
+      accessLoading.value = false
+    }
+  }
+
+  const refreshInstanceAccess = async () => {
+    const instanceID = accessInstance.value?.id
+    await loadInstances()
+    if (!instanceID) return
+    const refreshed = instances.value.find(item => item.id === instanceID)
+    if (refreshed && selectedInstance.value?.id === instanceID) {
+      selectedInstance.value = refreshed
+    }
   }
 
   const pollForAdminNewPassword = (instanceId, taskId) => {
@@ -442,12 +472,12 @@ export function useInstanceManagement() {
   }
 
   return {
-    instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible,
-    selectedInstance, actionInstance, egressInstance, actionLoading, showPassword,
+    instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible, accessDialogVisible, accessLoading,
+    selectedInstance, actionInstance, egressInstance, accessInstance, actionLoading, showPassword,
     selectedInstances, transferDialogVisible, transferLoading, transferForm, tableRef,
     filters, pagination,
     loadInstances, handleSearch, handleReset, handleSizeChange, handleCurrentChange,
-    viewInstanceDetail, showActionDialog, showEgressDialog, performAction,
+    viewInstanceDetail, showActionDialog, showEgressDialog, showInstanceAccessDialog, refreshInstanceAccess, performAction,
     getStatusType, getStatusText, formatDate, formatMemory, formatDisk, formatTraffic,
     isExpired, isExpiringSoon, openSSHTerminal,
     handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,

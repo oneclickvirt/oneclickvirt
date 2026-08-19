@@ -88,7 +88,7 @@ func SSHWebSocket(c *gin.Context) {
 
 	// 获取实例信息
 	var instance providerModel.Instance
-	err := global.APP_DB.Select("id", "name", "provider_id", "status", "private_ip", "public_ip", "ipv6_address", "public_ipv6", "ssh_port", "username", "password", "is_frozen", "frozen_reason", "expires_at").
+	err := global.APP_DB.Select("id", "name", "provider_id", "status", "private_ip", "public_ip", "ipv6_address", "public_ipv6", "ssh_host", "ssh_port", "username", "password", "ssh_key", "is_frozen", "frozen_reason", "expires_at").
 		Where("id = ? AND user_id = ?", instanceID, userID).
 		First(&instance).Error
 	if err != nil {

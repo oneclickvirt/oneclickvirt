@@ -397,9 +397,9 @@ func (s *Service) Delete(ctx context.Context, providerID, tunnelID uint) error {
 	if err != nil {
 		return err
 	}
-	var tunnel providerModel.ProviderIPv6Tunnel
-	if err := db.Where("id = ? AND provider_id = ?", tunnelID, providerID).First(&tunnel).Error; err != nil {
-		return tunnelLookupError(err)
+	tunnel, err := prepareTunnelDelete(db, providerID, tunnelID)
+	if err != nil {
+		return err
 	}
 	if err := s.deleteRemote(ctx, []providerModel.ProviderIPv6Tunnel{tunnel}); err != nil {
 		_ = s.recordState(tunnel.ID, providerModel.IPv6TunnelStatusError, err)
@@ -413,6 +413,67 @@ func (s *Service) Delete(ctx context.Context, providerID, tunnelID uint) error {
 		return fmt.Errorf("节点隧道已删除但数据库记录清理失败: %w", err)
 	}
 	return nil
+}
+
+// prepareTunnelDelete closes the allocation race before host cleanup.  The
+// Provider row lock is shared with IPv6 allocation, so an allocation which
+// has already started finishes before the binding count is read; after the
+// pool is marked pending-retire, no later allocation can select this tunnel.
+// The remote operation deliberately happens after this short transaction.
+func prepareTunnelDelete(db *gorm.DB, providerID, tunnelID uint) (providerModel.ProviderIPv6Tunnel, error) {
+	var tunnel providerModel.ProviderIPv6Tunnel
+	if db == nil {
+		return tunnel, fmt.Errorf("数据库连接不可用")
+	}
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var provider providerModel.Provider
+		if err := tx.Select("id").Where("id = ?", providerID).
+			Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider).Error; err != nil {
+			return fmt.Errorf("锁定Provider隧道删除失败: %w", err)
+		}
+		if err := tx.Where("id = ? AND provider_id = ?", tunnelID, providerID).First(&tunnel).Error; err != nil {
+			return tunnelLookupError(err)
+		}
+
+		// New materialized children carry TunnelID themselves.  The parent join
+		// also covers bindings created before that metadata was persisted.
+		var allocated int64
+		if err := tx.Table("provider_ipv6_pools AS child").
+			Joins("LEFT JOIN provider_ipv6_pools AS parent ON parent.id = child.parent_id AND parent.deleted_at IS NULL").
+			Where("child.provider_id = ? AND child.is_allocated = ? AND child.is_reserved = ? AND child.deleted_at IS NULL AND (child.tunnel_id = ? OR parent.tunnel_id = ?)", providerID, true, false, tunnelID, tunnelID).
+			Count(&allocated).Error; err != nil {
+			return fmt.Errorf("检查隧道路由IPv6绑定失败: %w", err)
+		}
+		if allocated > 0 {
+			return fmt.Errorf("隧道路由前缀仍有 %d 个实例地址绑定，无法删除；请先释放或迁移实例", allocated)
+		}
+
+		parentIDs := tx.Model(&providerModel.ProviderIPv6Pool{}).
+			Select("id").Where("provider_id = ? AND tunnel_id = ?", providerID, tunnelID)
+		if err := tx.Model(&providerModel.ProviderIPv6Pool{}).
+			Where("provider_id = ? AND deleted_at IS NULL AND (tunnel_id = ? OR parent_id IN (?))", providerID, tunnelID, parentIDs).
+			Update("pending_retire", true).Error; err != nil {
+			return fmt.Errorf("冻结隧道IPv6地址池失败: %w", err)
+		}
+
+		now := time.Now()
+		if err := tx.Model(&providerModel.ProviderIPv6Tunnel{}).Where("id = ?", tunnelID).
+			Updates(map[string]interface{}{
+				"enabled":         false,
+				"status":          providerModel.IPv6TunnelStatusPending,
+				"last_error":      "",
+				"last_checked_at": now,
+			}).Error; err != nil {
+			return fmt.Errorf("保存IPv6隧道删除状态失败: %w", err)
+		}
+		tunnel.Enabled = false
+		tunnel.Status = providerModel.IPv6TunnelStatusPending
+		tunnel.LastError = ""
+		tunnel.LastCheckedAt = &now
+		return nil
+	})
+	return tunnel, err
 }
 
 // CleanupProviderRemote removes every managed host tunnel with a single remote

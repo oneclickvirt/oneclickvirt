@@ -80,6 +80,7 @@ import SFTPPanel from '@/components/SFTPPanel.vue'
 import { Refresh } from '@element-plus/icons-vue'
 import RemoteTerminalToolbar from '@/components/RemoteTerminalToolbar.vue'
 import { applyTerminalTheme } from '@/utils/terminalTheme'
+import { copyToClipboard, readFromClipboard } from '@/utils/clipboard'
 
 const { t } = useI18n()
 
@@ -221,45 +222,30 @@ onBeforeUnmount(() => {
 })
 
 // 复制选中文本到系统剪贴板
-const copySelectionToClipboard = () => {
-  if (!terminal) return
+const copySelectionToClipboard = async () => {
+  if (!terminal) return false
   const selection = terminal.getSelection()
-  if (selection) {
-    try {
-      navigator.clipboard.writeText(selection).catch((err) => {
-        console.error('复制到剪贴板失败:', err)
-      })
-    } catch (error) {
-      const textarea = document.createElement('textarea')
-      textarea.value = selection
-      textarea.style.position = 'fixed'
-      textarea.style.opacity = '0'
-      document.body.appendChild(textarea)
-      textarea.select()
-      try {
-        document.execCommand('copy')
-      } catch (e) {
-        // ignore
-      }
-      document.body.removeChild(textarea)
-    }
-  }
+  return copyToClipboard(
+    selection,
+    t('common.copySuccess'),
+    t('common.copyFailed')
+  )
 }
 
 // 从系统剪贴板粘贴到终端
-const pasteFromClipboard = () => {
-  if (!terminal || !websocket || websocket.readyState !== WebSocket.OPEN) return
-  try {
-    navigator.clipboard.readText().then((text) => {
-      if (websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.send(text)
-      }
-    }).catch((err) => {
-      console.error('从剪贴板读取失败:', err)
-    })
-  } catch (error) {
-    console.error('粘贴失败:', error)
+const pasteFromClipboard = async () => {
+  if (!terminal || !websocket || websocket.readyState !== WebSocket.OPEN) {
+    ElMessage.warning(t('common.connectionClosed'))
+    return false
   }
+  const text = await readFromClipboard(t('common.pasteFailed'))
+  if (text === null) return false
+  if (websocket && websocket.readyState === WebSocket.OPEN) {
+    websocket.send(text)
+    return true
+  }
+  ElMessage.warning(t('common.connectionClosed'))
+  return false
 }
 
 const initTerminal = () => {

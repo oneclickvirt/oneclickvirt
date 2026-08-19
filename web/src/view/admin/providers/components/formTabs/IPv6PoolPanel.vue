@@ -229,10 +229,10 @@
           >
             <template #default="{ row }">
               <el-tag
-                :type="row.is_range ? 'info' : (row.is_allocated ? 'warning' : 'success')"
+                :type="row.is_range || row.is_reserved ? 'info' : (row.is_allocated ? 'warning' : 'success')"
                 size="small"
               >
-                {{ row.is_range ? $t('admin.providers.ipv6Pool.statusRange') : (row.is_allocated ? $t('admin.providers.ipv6Pool.statusAllocated') : $t('admin.providers.ipv6Pool.statusFree')) }}
+                {{ row.is_range ? $t('admin.providers.ipv6Pool.statusRange') : (row.is_reserved ? $t('admin.providers.ipv6Pool.statusReserved') : (row.is_allocated ? $t('admin.providers.ipv6Pool.statusAllocated') : $t('admin.providers.ipv6Pool.statusFree'))) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -251,7 +251,7 @@
           >
             <template #default="{ row }">
               <el-popconfirm
-                v-if="!row.is_allocated && !row.is_range"
+                v-if="!row.is_allocated && !row.is_range && !row.is_reserved"
                 :title="$t('admin.providers.ipv6Pool.deleteConfirm')"
                 @confirm="deleteIPv6Entry(row.id)"
               >

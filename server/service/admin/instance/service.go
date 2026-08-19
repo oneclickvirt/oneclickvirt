@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"oneclickvirt/constant"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
@@ -54,6 +55,45 @@ func applyUpdateInstanceRequest(instance *providerModel.Instance, req admin.Upda
 	if updateInstanceRequestHasField(req, "status") && req.Status != "" {
 		instance.Status = req.Status
 	}
+	if updateInstanceRequestHasField(req, "sshHost") {
+		instance.SSHHost = strings.Trim(strings.TrimSpace(req.SSHHost), "[]")
+	}
+	if updateInstanceRequestHasField(req, "sshPort") && req.SSHPort > 0 {
+		instance.SSHPort = req.SSHPort
+	}
+	if updateInstanceRequestHasField(req, "username") {
+		instance.Username = strings.TrimSpace(req.Username)
+	}
+	if updateInstanceRequestHasField(req, "password") && req.Password != nil {
+		instance.Password = *req.Password
+	}
+	if updateInstanceRequestHasField(req, "sshKey") && req.SSHKey != nil {
+		instance.SSHKey = *req.SSHKey
+	}
+}
+
+func validateUpdateInstanceAccessFields(req admin.UpdateInstanceRequest) error {
+	if updateInstanceRequestHasField(req, "sshPort") && (req.SSHPort < 1 || req.SSHPort > 65535) {
+		return fmt.Errorf("SSH端口必须在 1-65535 之间")
+	}
+	if !updateInstanceRequestHasField(req, "sshHost") {
+		return nil
+	}
+	host := strings.TrimSpace(req.SSHHost)
+	if host == "" {
+		return nil
+	}
+	if strings.Contains(host, "://") || strings.ContainsAny(host, "/\\\r\n\t ") {
+		return fmt.Errorf("SSH地址只能填写主机名或IP地址，端口请单独填写")
+	}
+	if strings.Contains(host, ":") && net.ParseIP(strings.Trim(host, "[]")) == nil {
+		return fmt.Errorf("SSH地址只能填写主机名或IP地址，端口请单独填写")
+	}
+	parsedHost, parsedPort := utils.ParseEndpoint(host, 0)
+	if parsedHost == "" || parsedPort != 0 {
+		return fmt.Errorf("SSH地址只能填写主机名或IP地址，端口请单独填写")
+	}
+	return nil
 }
 
 func preserveProviderIdentifierBeforeRename(instance *providerModel.Instance, req admin.UpdateInstanceRequest) {
@@ -295,6 +335,7 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 			UsedTrafficIn:  0,
 			UsedTrafficOut: 0,
 			HasSshMapping:  false,
+			HasSSHKey:      strings.TrimSpace(instance.SSHKey) != "",
 		}
 
 		// 判断是否有SSH端口映射
@@ -518,6 +559,9 @@ func (s *Service) UpdateInstance(req admin.UpdateInstanceRequest, ownerAdminID .
 	}
 	if constant.IsBusyStatus(instance.Status) {
 		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
+	}
+	if err := validateUpdateInstanceAccessFields(req); err != nil {
+		return err
 	}
 
 	preserveProviderIdentifierBeforeRename(&instance, req)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	auth2 "oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
-	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -141,19 +140,16 @@ func RequireResourcePermission(resource string) gin.HandlerFunc {
 // 2. API Token（Bearer前缀，格式为64位hex）- 用于API编程访问
 // API Token通过后，claims返回nil（API Token无JWT刷新机制）
 func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClaims, error) {
-	// 优先从 Authorization 头获取token
-	token := c.GetHeader("Authorization")
+	// Authorization/query remains the normal path. The limited console cookie
+	// only exists for iframe SPICE assets and their WebSocket, where custom
+	// Authorization headers cannot be attached by the browser.
+	token := requestAuthToken(c)
 	if token == "" {
-		// 如果头中没有，尝试从查询参数获取（用于 WebSocket 连接）
-		token = c.Query("token")
+		token = consoleSessionCookieToken(c)
 	}
 
 	if token == "" {
 		return nil, nil, common.NewError(common.CodeUnauthorized, "未提供认证令牌")
-	}
-
-	if after, ok := strings.CutPrefix(token, "Bearer "); ok {
-		token = after
 	}
 
 	// 尝试API Token验证（64位hex字符串特征：长度64且全为hex字符）

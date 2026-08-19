@@ -253,7 +253,7 @@ const openSSHInNewWindow = (conn) => {
   const sshReconnectingMsg = escapeHtml(t('user.instanceDetail.sshReconnecting'))
   const sshClosedNormallyMsg = escapeHtml(t('user.instanceDetail.sshClosedNormally'))
   const isDarkTheme = document.documentElement.classList.contains('dark')
-  const popupTerminalBg = isDarkTheme ? '#0b1220' : '#f3f6fb'
+  const popupTerminalBg = '#000000'
   const popupHeaderBg = isDarkTheme ? '#162032' : '#ffffff'
   const popupHeaderText = isDarkTheme ? '#e2e8f0' : '#1f2937'
   const popupHeaderBorder = isDarkTheme ? 'rgba(22, 163, 74, 0.2)' : '#e0e0e0'
@@ -423,8 +423,8 @@ const openSSHInNewWindow = (conn) => {
         macOptionClickForcesSelection: true,
         theme: {
           background: '${popupTerminalBg}',
-          foreground: '${isDarkTheme ? '#d4d4d4' : '#1f2937'}',
-          cursor: '${isDarkTheme ? '#d4d4d4' : '#16a34a'}',
+          foreground: '#d4d4d4',
+          cursor: '#d4d4d4',
           black: '#000000',
           red: '#cd3131',
           green: '#0dbc79',

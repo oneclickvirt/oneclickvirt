@@ -3,6 +3,8 @@ package utils
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -100,15 +102,7 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 		Timeout:         config.ConnectTimeout,
 	}
 
-	// 构建连接地址，如果Host已经包含端口则直接使用，否则拼接端口
-	var addr string
-	if strings.Contains(config.Host, ":") {
-		// Host已经包含端口（如 "192.168.1.1:22"），直接使用
-		addr = config.Host
-	} else {
-		// Host不包含端口，拼接端口号
-		addr = fmt.Sprintf("%s:%d", config.Host, config.Port)
-	}
+	addr := buildSSHAddress(config.Host, config.Port)
 
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
@@ -177,6 +171,23 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 	return client, cancel, wg, nil
 }
 
+// buildSSHAddress preserves explicitly configured host:port targets while
+// correctly bracketing IPv6 literals. The previous colon check treated a bare
+// IPv6 address as if it already contained a port.
+func buildSSHAddress(host string, port int) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	if configuredHost, configuredPort, err := net.SplitHostPort(host); err == nil && configuredHost != "" && configuredPort != "" {
+		return net.JoinHostPort(strings.Trim(configuredHost, "[]"), configuredPort)
+	}
+	if port <= 0 {
+		port = 22
+	}
+	return net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
+}
+
 // IsHealthy 检查SSH连接是否健康
 func (c *SSHClient) IsHealthy() bool {
 	if c.client == nil {
@@ -206,6 +217,29 @@ func (c *SSHClient) IsHealthy() bool {
 // 调用者不应该关闭返回的client，它由SSHClient管理
 func (c *SSHClient) GetUnderlyingClient() *ssh.Client {
 	return c.client
+}
+
+// Dial opens a TCP connection to an address reachable from the SSH host.
+// It is used for console protocols whose QEMU endpoint intentionally listens
+// only on the node loopback interface (for example Incus/LXD SPICE sockets
+// exposed by a short-lived websockify process).
+func (c *SSHClient) Dial(network, address string) (net.Conn, error) {
+	if c == nil || c.client == nil {
+		return nil, fmt.Errorf("SSH client is not connected")
+	}
+	if network == "" {
+		network = "tcp"
+	}
+	if !c.IsHealthy() {
+		if err := c.Reconnect(); err != nil {
+			return nil, fmt.Errorf("failed to reconnect SSH before dial: %w", err)
+		}
+	}
+	conn, err := c.client.Dial(network, address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial remote %s: %w", address, err)
+	}
+	return conn, nil
 }
 
 // Close 关闭SSH连接并等待所有goroutine退出
@@ -302,4 +336,3 @@ func (c *SSHClient) Reconnect() error {
 
 	return nil
 }
-

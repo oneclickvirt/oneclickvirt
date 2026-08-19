@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"oneclickvirt/global"
 	coreprovider "oneclickvirt/provider"
+
+	"go.uber.org/zap"
 )
 
 type natDataPlaneExecutor struct {
@@ -116,6 +119,17 @@ func TestBuildNATIPv4DataPlaneCommandUsesGenericEgressAndPersistentUnit(t *testi
 	if !strings.Contains(unit, "Before=pve-guests.service oneclickvirt-agent.service") {
 		t.Fatalf("NAT unit must start before guests and Agent: %s", unit)
 	}
+	for _, want := range []string{
+		"systemctl enable \"$unit_name\" >/dev/null 2>&1",
+		"if ! systemctl is-active --quiet \"$unit_name\"; then",
+		"systemctl start \"$unit_name\"",
+		"\"$script_path\"",
+		"systemctl is-active --quiet \"$unit_name\"",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("NAT install command missing readiness confirmation %q:\n%s", want, command)
+		}
+	}
 	for name, shell := range map[string]string{"install": command, "script": script} {
 		if output, err := exec.Command("sh", "-n", "-c", shell).CombinedOutput(); err != nil {
 			t.Fatalf("%s shell syntax error: %v\n%s", name, err, output)
@@ -124,6 +138,10 @@ func TestBuildNATIPv4DataPlaneCommandUsesGenericEgressAndPersistentUnit(t *testi
 }
 
 func TestEnsureNATIPv4DataPlaneCoalescesConcurrentCreates(t *testing.T) {
+	oldLogger := global.APP_LOG
+	global.APP_LOG = zap.NewNop()
+	t.Cleanup(func() { global.APP_LOG = oldLogger })
+
 	executor := &natDataPlaneExecutor{}
 	p := NewProxmoxProvider().(*ProxmoxProvider)
 	p.sshClient.SetExecutor(executor)

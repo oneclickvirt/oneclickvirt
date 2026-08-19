@@ -24,7 +24,7 @@ const getThemeValue = (styles, key, fallback) => {
 
 export const resolveTerminalTheme = () => {
   const styles = getComputedStyle(document.documentElement)
-  const background = getThemeValue(styles, '--terminal-bg', '#0b1220')
+  const background = getThemeValue(styles, '--terminal-bg', '#000000')
   const foreground = getThemeValue(styles, '--terminal-foreground', '#d4d4d4')
   const cursor = getThemeValue(styles, '--terminal-cursor', foreground)
 

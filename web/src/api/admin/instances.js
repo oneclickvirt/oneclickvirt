@@ -14,6 +14,13 @@ export const getAllInstances = (params) => {
   })
 }
 
+export const getAdminInstance = (id) => {
+  return request({
+    url: `/v1/admin/instances/${id}`,
+    method: 'get'
+  })
+}
+
 export const createInstance = (data) => {
   return instanceOperationRequest({
     url: '/v1/admin/instances',

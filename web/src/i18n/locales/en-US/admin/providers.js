@@ -726,6 +726,7 @@ export default {
     statusFree: "Available",
     statusAllocated: "Allocated",
     statusRange: "Range",
+    statusReserved: "Reserved",
     instance: "Instance",
     addSuccess: "IPv6 addresses saved",
     addPartial: "IPv6 addresses saved, but {count} lines were invalid",
