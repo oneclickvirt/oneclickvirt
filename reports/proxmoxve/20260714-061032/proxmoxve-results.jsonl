@@ -1,1 +1,0 @@
-{"name":"Worker runtime verification (proxmoxve)","method":"HARNESS","url":"verify_worker_runtime","status":"FAIL","expected":"ready","actual":"not ready","detail":"Required runtime services or state are unavailable after installation","group":"infrastructure","timestamp":"2026-07-14T06:09:42","error_logs":"","request_payload":""}

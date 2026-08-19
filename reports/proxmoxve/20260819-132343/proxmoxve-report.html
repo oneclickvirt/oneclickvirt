@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OneClickVirt 集成测试报告 / Integration Test Report</title>
+<style>
+/* ── Theme Variables ── */
+:root {
+  --pass:#22c55e;--fail:#ef4444;--skip:#eab308;--accent:#60a5fa;
+  --bg:#f8fafc;--card:#ffffff;--text:#1e293b;--border:#e2e8f0;--hover:#f1f5f9;
+  --text-muted:#64748b;--code-bg:#f1f5f9;--input-bg:#ffffff;
+  --shadow:0 4px 24px rgba(0,0,0,0.08);
+}
+[data-theme="dark"] {
+  --bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155;--hover:#283548;
+  --text-muted:#94a3b8;--code-bg:#0f172a;--input-bg:#0f172a;
+  --shadow:0 4px 24px rgba(0,0,0,0.3);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;transition:background 0.3s,color 0.3s}
+.container{max-width:1400px;margin:0 auto;padding:1.5rem}
+header{margin-bottom:2rem;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem}
+.header-left{flex:1}
+h1{font-size:1.8rem;margin-bottom:0.3rem;background:linear-gradient(135deg,var(--accent),#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.meta{color:var(--text-muted);font-size:0.9rem}
+.theme-toggle{background:var(--card);border:1px solid var(--border);color:var(--text);padding:0.5rem 1rem;border-radius:8px;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:0.4rem;transition:all 0.2s;box-shadow:var(--shadow)}
+.theme-toggle:hover{border-color:var(--accent);transform:translateY(-1px)}
+.lang-toggle{background:var(--card);border:1px solid var(--border);color:var(--text);padding:0.5rem 1rem;border-radius:8px;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:0.4rem;transition:all 0.2s;box-shadow:var(--shadow)}
+.lang-toggle:hover{border-color:var(--accent);transform:translateY(-1px)}
+.header-btns{display:flex;gap:0.5rem;align-items:flex-start}
+.version-info{display:inline-flex;gap:0.8rem;margin-top:0.3rem;font-size:0.8rem;color:var(--text-muted);font-family:monospace}
+.version-info span{background:var(--hover);padding:2px 8px;border-radius:4px;border:1px solid var(--border)}
+[data-lang="en"] .zh{display:none}
+[data-lang="zh"] .en{display:none}
+.dashboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem;margin-bottom:2rem}
+.stat-card{background:var(--card);border-radius:12px;padding:1.2rem;text-align:center;border:1px solid var(--border);transition:all 0.2s;box-shadow:var(--shadow)}
+.stat-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.stat-card .value{font-size:2.2rem;font-weight:700}
+.stat-card .label{color:var(--text-muted);font-size:0.8rem;margin-top:0.2rem;text-transform:uppercase;letter-spacing:0.05em}
+.stat-card.pass .value{color:var(--pass)}
+.stat-card.fail .value{color:var(--fail)}
+.stat-card.skip .value{color:var(--skip)}
+.stat-card.rate .value{color:var(--accent)}
+.progress-bar{width:100%;height:8px;background:var(--border);border-radius:4px;margin-top:1.5rem;overflow:hidden}
+.progress-bar .fill{height:100%;border-radius:4px;transition:width 0.8s ease}
+.toolbar{display:flex;gap:0.8rem;flex-wrap:wrap;align-items:center;margin-bottom:1.5rem;background:var(--card);padding:1rem;border-radius:12px;border:1px solid var(--border);box-shadow:var(--shadow)}
+.search-box{flex:1;min-width:200px;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:0.5rem 1rem;border-radius:8px;font-size:0.9rem;outline:none;transition:border-color 0.2s}
+.search-box:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(96,165,250,0.15)}
+.search-box::placeholder{color:var(--text-muted)}
+.filter-btn{background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:0.4rem 1rem;border-radius:8px;cursor:pointer;font-size:0.85rem;transition:all 0.2s}
+.filter-btn:hover,.filter-btn.active{background:var(--hover);border-color:var(--accent);color:var(--accent)}
+.filter-btn .count{margin-left:0.3rem;opacity:0.7;font-size:0.75rem}
+.group-select{background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:0.4rem 0.8rem;border-radius:8px;font-size:0.85rem;outline:none;cursor:pointer}
+.section{background:var(--card);border-radius:12px;margin-bottom:1rem;border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow);transition:border-color 0.2s}
+.section:hover{border-color:rgba(96,165,250,0.3)}
+.section-header{padding:0.8rem 1.2rem;background:var(--hover);font-weight:600;cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none;font-size:0.95rem;transition:background 0.2s}
+.section-header:hover{background:var(--border)}
+.section-header .badge-group{display:flex;gap:0.4rem}
+.section-header .mini-badge{font-size:0.7rem;padding:2px 8px;border-radius:4px;font-weight:600}
+.section-header .mini-badge.pass{background:rgba(34,197,94,0.15);color:var(--pass)}
+.section-header .mini-badge.fail{background:rgba(239,68,68,0.15);color:var(--fail)}
+.section-header .mini-badge.skip{background:rgba(234,179,8,0.15);color:var(--skip)}
+.section-body{display:none}
+.section-body.open{display:block}
+.chevron{transition:transform 0.3s;font-size:0.8rem}
+.chevron.open{transform:rotate(180deg)}
+table{width:100%;border-collapse:collapse}
+th{background:var(--hover);padding:0.5rem 1rem;text-align:left;font-size:0.75rem;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.05em;position:sticky;top:0}
+td{padding:0.45rem 1rem;border-top:1px solid var(--border);font-size:0.85rem;vertical-align:top}
+tr.test-row:hover{background:var(--hover)}
+tr.test-row.hidden{display:none}
+.badge{display:inline-block;padding:2px 10px;border-radius:6px;font-size:0.75rem;font-weight:600;min-width:42px;text-align:center}
+.badge.pass{background:rgba(34,197,94,0.15);color:var(--pass)}
+.badge.fail{background:rgba(239,68,68,0.15);color:var(--fail)}
+.badge.skip{background:rgba(234,179,8,0.15);color:var(--skip)}
+.detail-toggle{cursor:pointer;color:var(--accent);font-size:0.78rem;text-decoration:none}
+.detail-toggle:hover{text-decoration:underline}
+.detail-panel{padding:0.8rem 1rem;background:var(--code-bg);font-family:'SF Mono',Consolas,'Liberation Mono',Menlo,monospace;font-size:0.78rem;white-space:pre-wrap;word-break:break-all;overflow:visible;border-top:1px solid var(--border);display:none;line-height:1.5}
+.detail-panel.open{display:block}
+.detail-panel .err-line{color:var(--fail);font-weight:600}
+.detail-panel .warn-line{color:var(--skip)}
+.timestamp{color:var(--text-muted);font-size:0.75rem;font-family:monospace}
+.log-section{background:var(--card);border-radius:12px;margin-top:2rem;border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow)}
+.log-header{padding:0.8rem 1.2rem;background:var(--hover);font-weight:600;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.log-body{display:none;padding:1rem;font-family:monospace;font-size:0.78rem;white-space:pre-wrap;overflow:visible;background:var(--code-bg);line-height:1.5}
+.log-body.open{display:block}
+.copy-btn{background:var(--input-bg);border:1px solid var(--border);color:var(--accent);padding:0.3rem 0.8rem;border-radius:6px;cursor:pointer;font-size:0.75rem;transition:all 0.2s}
+.copy-btn:hover{background:var(--hover);transform:translateY(-1px)}
+/* ── History comparison ── */
+.history-section{background:var(--card);border-radius:12px;margin-bottom:2rem;padding:1.2rem;border:1px solid var(--border);box-shadow:var(--shadow)}
+.history-section h3{font-size:0.95rem;margin-bottom:0.8rem;color:var(--text-muted)}
+.history-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem}
+.history-card{background:var(--hover);border-radius:8px;padding:1rem;border:1px solid var(--border)}
+.history-card .h-name{font-weight:600;font-size:0.85rem;margin-bottom:0.5rem;color:var(--text)}
+.history-card .h-stats{display:flex;gap:0.6rem;font-size:0.8rem;flex-wrap:wrap}
+.history-card .h-stats span{padding:2px 6px;border-radius:4px}
+/* ── Footer ── */
+footer{margin-top:3rem;text-align:center;color:var(--text-muted);font-size:0.8rem;padding:1.5rem;border-top:1px solid var(--border)}
+footer a{color:var(--accent);text-decoration:none}
+footer a:hover{text-decoration:underline}
+kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:0.75rem;font-family:monospace}
+@media(max-width:768px){.container{padding:1rem}.dashboard{grid-template-columns:repeat(2,1fr)}.toolbar{flex-direction:column}.search-box{min-width:100%}header{flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+<div class="header-left">
+<h1><span class="zh">OneClickVirt 集成测试报告</span><span class="en">OneClickVirt Integration Test Report</span></h1>
+<div class="version-info"><span>Server unknown</span><span>Agent unknown</span><span>Ref main</span><span>SHA 8ced5e7f2453</span><span>Run 32246432052.1</span></div>
+<p class="meta"><span class="zh">环境: <strong>proxmoxve</strong> | 工作流: Integration Tests | 生成时间: 2026-08-19 13:22:50 UTC | 快捷键: <kbd>/</kbd> 搜索 <kbd>1-4</kbd> 筛选 <kbd>T</kbd> 主题 <kbd>L</kbd> 语言</span><span class="en">Env: <strong>proxmoxve</strong> | Workflow: Integration Tests | Generated: 2026-08-19 13:22:50 UTC | Keys: <kbd>/</kbd> search <kbd>1-4</kbd> filter <kbd>T</kbd> theme <kbd>L</kbd> lang</span></p>
+</div>
+<div class="header-btns">
+<button class="lang-toggle" onclick="toggleLang()" title="切换中英文 / Toggle Language">
+<span id="langLabel">EN</span>
+</button>
+<button class="theme-toggle" onclick="toggleTheme()" title="切换亮色/暗色主题">
+<span id="themeIcon">☀️</span> <span id="themeLabel"><span class="zh">亮色</span><span class="en">Light</span></span>
+</button>
+</div>
+</header>
+
+<div class="dashboard">
+<div class="stat-card"><div class="value">1</div><div class="label"><span class="zh">总计</span><span class="en">Total</span></div></div>
+<div class="stat-card pass"><div class="value">0</div><div class="label"><span class="zh">通过</span><span class="en">Pass</span></div></div>
+<div class="stat-card fail"><div class="value">0</div><div class="label"><span class="zh">失败</span><span class="en">Fail</span></div></div>
+<div class="stat-card skip"><div class="value">1</div><div class="label"><span class="zh">跳过</span><span class="en">Skip</span></div></div>
+<div class="stat-card rate"><div class="value">0%</div><div class="label"><span class="zh">通过率</span><span class="en">Rate</span></div></div>
+</div>
+<div class="progress-bar"><div class="fill" style="width:0%;background:linear-gradient(90deg,var(--pass),var(--accent))"></div></div>
+<div class="toolbar">
+<input type="text" class="search-box" id="searchBox" placeholder="" />
+<select class="group-select" id="groupFilter" onchange="applyFilters()"><option value="all" class="i18n-all-modules"></option></select>
+<button class="filter-btn active" data-filter="all" onclick="setStatusFilter('all')"><span class="zh">全部</span><span class="en">All</span> <span class="count">1</span></button>
+<button class="filter-btn" data-filter="PASS" onclick="setStatusFilter('PASS')"><span class="zh">通过</span><span class="en">Pass</span> <span class="count">0</span></button>
+<button class="filter-btn" data-filter="FAIL" onclick="setStatusFilter('FAIL')"><span class="zh">失败</span><span class="en">Fail</span> <span class="count">0</span></button>
+<button class="filter-btn" data-filter="SKIP" onclick="setStatusFilter('SKIP')"><span class="zh">跳过</span><span class="en">Skip</span> <span class="count">1</span></button>
+<button class="copy-btn" onclick="copySummary()"><span class="zh">复制摘要</span><span class="en">Copy Summary</span></button>
+</div>
+<div class="section" data-group="infrastructure">
+<div class="section-header" onclick="toggleSection(this)">
+<span>infrastructure</span>
+<div style="display:flex;align-items:center;gap:0.6rem">
+<div class="badge-group">
+<span class="mini-badge skip">1 skip</span>
+</div>
+<span class="chevron">▼</span>
+</div>
+</div>
+<div class="section-body open">
+<table>
+<tr><th><span class="zh">状态</span><span class="en">Status</span></th><th><span class="zh">测试名称</span><span class="en">Test Name</span></th><th><span class="zh">方法</span><span class="en">Method</span></th><th><span class="zh">接口</span><span class="en">Endpoint</span></th><th><span class="zh">时间</span><span class="en">Time</span></th><th><span class="zh">详情</span><span class="en">Details</span></th></tr>
+<tr class="test-row" data-status="SKIP" data-group="infrastructure" data-name="Harness infrastructure skip (proxmoxve)" data-url="run_env_test.sh">
+<td><span class="badge skip">SKIP</span></td>
+<td>Harness infrastructure skip (proxmoxve)</td><td>HARNESS</td><td><code>run_env_test.sh</code></td>
+<td><span class="timestamp">2026-08-19T13:22:50</span></td>
+<td><a class="detail-toggle" onclick="toggleDetail('dp0')"><span class="zh">查看</span><span class="en">View</span></a></td></tr>
+<tr class="test-row detail-row" data-status="SKIP" data-group="infrastructure"><td colspan="6"><div class="detail-panel" id="dp0">proxmoxve installation lost required worker connectivity or hit a transient infrastructure failure</div></td></tr>
+</table></div></div>
+<div class="log-section">
+<div class="log-header" onclick="toggleSection(this)">
+<span><span class="zh">服务日志 (错误/警告)</span><span class="en">Service Logs (Errors/Warnings)</span></span>
+<span class="chevron">▼</span>
+</div>
+<div class="section-body">
+<div class="log-body open">=== Server stdout/stderr (/tmp/oneclickvirt-server-proxmoxve-8888-3189.log) ===
+[STARTUP] 工作目录: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/server-work-proxmoxve-8888-3189
+[GIN-debug] [WARNING] Running in &quot;debug&quot; mode. Switch to &quot;release&quot; mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /health                   --&gt; oneclickvirt/api/v1/public.HealthCheck (10 handlers)
+[GIN-debug] GET    /swagger/*any             --&gt; github.com/swaggo/gin-swagger.CustomWrapHandler.func1 (10 handlers)
+[GIN-debug] GET    /api/health               --&gt; oneclickvirt/api/v1/public.HealthCheck (10 handlers)
+[GIN-debug] GET    /api/v1/health            --&gt; oneclickvirt/api/v1/public.HealthCheck (10 handlers)
+[GIN-debug] GET    /api/v1/public/init/check --&gt; oneclickvirt/api/v1/public.CheckInit (11 handlers)
+[GIN-debug] POST   /api/v1/public/init       --&gt; oneclickvirt/api/v1/public.InitSystem (11 handlers)
+[GIN-debug] GET    /api/v1/public/init-progress --&gt; oneclickvirt/api/v1/public.GetInitProgress (11 handlers)
+[GIN-debug] POST   /api/v1/public/test-db-connection --&gt; oneclickvirt/api/v1/public.TestDatabaseConnection (11 handlers)
+[GIN-debug] GET    /api/v1/public/recommended-db-type --&gt; oneclickvirt/api/v1/public.GetRecommendedDatabaseType (11 handlers)
+[GIN-debug] GET    /api/v1/public/register-config --&gt; oneclickvirt/api/v1/public.GetRegisterConfig (11 handlers)
+[GIN-debug] GET    /api/v1/public/system-config --&gt; oneclickvirt/api/v1/public.GetPublicSystemConfig (11 handlers)
+[GIN-debug] GET    /api/v1/public/version    --&gt; oneclickvirt/api/v1/public.GetVersion (11 handlers)
+[GIN-debug] GET    /api/v1/public/build-info --&gt; oneclickvirt/api/v1/public.GetBuildInfo (11 handlers)
+[GIN-debug] GET    /api/v1/public/agent/install-agent.sh --&gt; oneclickvirt/api/v1/public.DownloadAgentInstaller (11 handlers)
+[GIN-debug] GET    /api/v1/public/agent/releases/:filename --&gt; oneclickvirt/api/v1/public.DownloadAgentRelease (11 handlers)
+[GIN-debug] POST   /api/v1/auth/login        --&gt; oneclickvirt/api/v1/auth.Login (11 handlers)
+[GIN-debug] POST   /api/v1/auth/register     --&gt; oneclickvirt/api/v1/auth.Register (11 handlers)
+[GIN-debug] GET    /api/v1/auth/captcha      --&gt; oneclickvirt/api/v1/auth.GetCaptcha (11 handlers)
+[GIN-debug] POST   /api/v1/auth/send-verify-code --&gt; oneclickvirt/api/v1/auth.SendVerifyCode (11 handlers)
+[GIN-debug] POST   /api/v1/auth/forgot-password --&gt; oneclickvirt/api/v1/auth.ForgotPassword (11 handlers)
+[GIN-debug] POST   /api/v1/auth/reset-password --&gt; oneclickvirt/api/v1/auth.ResetPassword (11 handlers)
+[GIN-debug] POST   /api/v1/auth/logout       --&gt; oneclickvirt/api/v1/auth.Logout (12 handlers)
+[GIN-debug] GET    /api/v1/auth/oauth2/login --&gt; oneclickvirt/api/v1/oauth2.OAuth2Login (11 handlers)
+[GIN-debug] GET    /api/v1/auth/oauth2/callback --&gt; oneclickvirt/api/v1/oauth2.OAuth2Callback (11 handlers)
+[GIN-debug] GET    /api/ping                 --&gt; oneclickvirt/service/router.SetupRouter.func4 (12 handlers)
+[GIN-debug] GET    /api/v1/public/announcements --&gt; oneclickvirt/api/v1/system.GetAnnouncement (12 handlers)
+[GIN-debug] GET    /api/v1/public/stats      --&gt; oneclickvirt/api/v1/public.GetDashboardStats (12 handlers)
+[GIN-debug] GET    /api/v1/public/system-images/available --&gt; oneclickvirt/api/v1/system.GetAvailableSystemImages (12 handlers)
+[GIN-debug] GET    /api/v1/public/providers/:id/hardware-report --&gt; oneclickvirt/api/v1/public.GetProviderHardwareReport (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token --&gt; oneclickvirt/api/v1/public.GetSharedInstanceDetail (12 handlers)
+[GIN-debug] POST   /api/v1/public/instance-shares/:token/action --&gt; oneclickvirt/api/v1/public.SharedInstanceAction (12 handlers)
+[GIN-debug] PUT    /api/v1/public/instance-shares/:token/reset-password --&gt; oneclickvirt/api/v1/public.ResetSharedInstancePassword (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/password/:taskId --&gt; oneclickvirt/api/v1/public.GetSharedInstanceNewPassword (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/images/filtered --&gt; oneclickvirt/api/v1/public.GetSharedInstanceImages (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/ports --&gt; oneclickvirt/api/v1/public.GetSharedInstancePorts (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/monitoring --&gt; oneclickvirt/api/v1/public.GetSharedInstanceMonitoring (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/monitoring/resources --&gt; oneclickvirt/api/v1/public.GetSharedInstanceResourceMonitoring (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/traffic/detail --&gt; oneclickvirt/api/v1/public.GetSharedInstanceTrafficDetail (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/snapshots --&gt; oneclickvirt/api/v1/public.GetSharedInstanceSnapshots (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/snapshots/:snapshotId/download --&gt; oneclickvirt/api/v1/public.DownloadSharedSnapshot (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/ssh --&gt; oneclickvirt/api/v1/public.SharedSSHWebSocket (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/exec --&gt; oneclickvirt/api/v1/public.SharedExecWebSocket (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/sftp/list --&gt; oneclickvirt/api/v1/public.SharedSFTPList (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/sftp/download --&gt; oneclickvirt/api/v1/public.SharedSFTPDownload (12 handlers)
+[GIN-debug] POST   /api/v1/public/instance-shares/:token/sftp/upload --&gt; oneclickvirt/api/v1/public.SharedSFTPUpload (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/sftp/upload/status --&gt; oneclickvirt/api/v1/public.SharedSFTPUploadStatus (12 handlers)
+[GIN-debug] POST   /api/v1/public/instance-shares/:token/sftp/upload/abort --&gt; oneclickvirt/api/v1/public.SharedSFTPUploadAbort (12 handlers)
+[GIN-debug] GET    /api/v1/public/oauth2/providers --&gt; oneclickvirt/api/v1/oauth2.GetEnabledProviders (12 handlers)
+[GIN-debug] GET    /api/v1/config            --&gt; oneclickvirt/api/v1/config.GetUnifiedConfig (13 handlers)
+[GIN-debug] PUT    /api/v1/config            --&gt; oneclickvirt/api/v1/config.UpdateUnifiedConfig (13 handlers)
+[GIN-debug] GET    /api/v1/user/profile      --&gt; oneclickvirt/api/v1/user.GetUserInfo (13 handlers)
+[GIN-debug] PUT    /api/v1/user/profile      --&gt; oneclickvirt/api/v1/user.UpdateProfile (13 handlers)
+[GIN-debug] PUT    /api/v1/user/reset-password --&gt; oneclickvirt/api/v1/user.UserResetPassword (13 handlers)
+[GIN-debug] GET    /api/v1/user/info         --&gt; oneclickvirt/api/v1/user.GetUserInfo (13 handlers)
+[GIN-debug] GET    /api/v1/user/dashboard    --&gt; oneclickvirt/api/v1/user.GetUserDashboard (13 handlers)
+[GIN-debug] GET    /api/v1/user/limits       --&gt; oneclickvirt/api/v1/user.GetUserLimits (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances    --&gt; oneclickvirt/api/v1/user.GetUserInstances (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances    --&gt; oneclickvirt/api/v1/user.CreateUserInstance (14 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id --&gt; oneclickvirt/api/v1/user.GetUserInstanceDetail (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances/:id/share-links --&gt; oneclickvirt/api/v1/user.CreateUserInstanceShare (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/monitoring --&gt; oneclickvirt/api/v1/user.GetInstanceMonitoring (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/monitoring/resources --&gt; oneclickvirt/api/v1/user.GetInstanceResourceMonitoring (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/monitoring/status --&gt; oneclickvirt/api/v1/user.GetInstanceMonitoringStatus (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/pmacct/summary --&gt; oneclickvirt/api/v1/user.GetInstancePmacctSummary (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/pmacct/query --&gt; oneclickvirt/api/v1/user.QueryInstancePmacctData (13 handlers)
+[GIN-debug] PUT    /api/v1/user/instances/:id/reset-password --&gt; oneclickvirt/api/v1/user.ResetInstancePassword (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/password/:taskId --&gt; oneclickvirt/api/v1/user.GetInstanceNewPassword (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/ports --&gt; oneclickvirt/api/v1/user.GetInstancePorts (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/snapshots --&gt; oneclickvirt/api/v1/user.GetUserInstanceSnapshots (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances/:id/snapshots --&gt; oneclickvirt/api/v1/user.CreateUserInstanceSnapshot (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances/:id/snapshots/upload --&gt; oneclickvirt/api/v1/user.UploadUserSnapshot (13 handlers)
+[GIN-debug] POST   /api/v1/user/snapshots/:id/restore --&gt; oneclickvirt/api/v1/user.RestoreUserSnapshot (13 handlers)
+[GIN-debug] DELETE /api/v1/user/snapshots/:id --&gt; oneclickvirt/api/v1/user.DeleteUserSnapshot (13 handlers)
+[GIN-debug] GET    /api/v1/user/snapshots/:id/download --&gt; oneclickvirt/api/v1/user.DownloadUserSnapshot (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/ssh --&gt; oneclickvirt/api/v1/user.SSHWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/vnc --&gt; oneclickvirt/api/v1/user.UserInstanceVNCInfo (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/vnc/ws --&gt; oneclickvirt/api/v1/user.UserInstanceVNCWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleInfo (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances/:id/console/repair --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleRepair (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console/ws --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console/terminal/ws --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleTerminalWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console/spice-ws --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleSpiceWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console/spice/*path --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleSpiceAsset (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/exec --&gt; oneclickvirt/api/v1/user.ExecWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/sftp/list --&gt; oneclickvirt/api/v1/user.UserSFTPList (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/sftp/download --&gt; oneclickvirt/api/v1/user.UserSFTPDownload (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances/:id/sftp/upload --&gt; oneclickvirt/api/v1/user.UserSFTPUpload (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/sftp/upload/status --&gt; oneclickvirt/api/v1/user.UserSFTPUploadStatus (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances/:id/sftp/upload/abort --&gt; oneclickvirt/api/v1/user.UserSFTPUploadAbort (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances/action --&gt; oneclickvirt/api/v1/user.InstanceAction (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances/batch-action --&gt; oneclickvirt/api/v1/user.BatchInstanceAction (13 handlers)
+[GIN-debug] GET    /api/v1/user/port-mappings --&gt; oneclickvirt/api/v1/user.GetUserPortMappings (13 handlers)
+[GIN-debug] GET    /api/v1/user/resources/available --&gt; oneclickvirt/api/v1/user.GetAvailableResources (13 handlers)
+[GIN-debug] POST   /api/v1/user/resources/claim --&gt; oneclickvirt/api/v1/user.ClaimResource (13 handlers)
+[GIN-debug] GET    /api/v1/user/providers/available --&gt; oneclickvirt/api/v1/user.GetAvailableProviders (13 handlers)
+[GIN-debug] GET    /api/v1/user/images       --&gt; oneclickvirt/api/v1/user.GetUserSystemImages (13 handlers)
+[GIN-debug] GET    /api/v1/user/images/filtered --&gt; oneclickvirt/api/v1/user.GetFilteredSystemImages (13 handlers)
+[GIN-debug] GET    /api/v1/user/providers/:id/capabilities --&gt; oneclickvirt/api/v1/user.GetProviderCapabilities (13 handlers)
+[GIN-debug] GET    /api/v1/user/providers/:id/gpus --&gt; oneclickvirt/api/v1/user.GetProviderGPUs (13 handlers)
+[GIN-debug] GET    /api/v1/user/instance-type-permissions --&gt; oneclickvirt/api/v1/user.GetInstanceTypePermissions (13 handlers)
+[GIN-debug] GET    /api/v1/user/instance-config --&gt; oneclickvirt/api/v1/user.GetInstanceConfig (13 handlers)
+[GIN-debug] GET    /api/v1/user/tasks        --&gt; oneclickvirt/api/v1/user.GetUserTasks (13 handlers)
+[GIN-debug] POST   /api/v1/user/tasks/:taskId/cancel --&gt; oneclickvirt/api/v1/user.CancelUserTask (13 handlers)
+[GIN-debug] GET    /api/v1/user/traffic/overview --&gt; oneclickvirt/api/v1/traffic.(*UserTrafficAPI).GetTrafficOverview-fm (13 handlers)
+[GIN-debug] GET    /api/v1/user/traffic/instance/:instanceId --&gt; oneclickvirt/api/v1/traffic.(*UserTrafficAPI).GetInstanceTrafficDetail-fm (13 handlers)
+[GIN-debug] GET    /api/v1/user/traffic/instances --&gt; oneclickvirt/api/v1/traffic.(*UserTrafficAPI).GetInstancesTrafficSummary-fm (13 handlers)
+[GIN-debug] GET    /api/v1/user/traffic/limit-status --&gt; oneclickvirt/api/v1/traffic.(*UserTrafficAPI).GetTrafficLimitStatus-fm (13 handlers)
+[GIN-debug] GET    /api/v1/user/traffic/pmacct/:instanceId --&gt; oneclickvirt/api/v1/traffic.(*UserTrafficAPI).GetPmacctData-fm (13 handlers)
+[GIN-debug] GET    /api/v1/user/traffic/history --&gt; oneclickvirt/api/v1/traffic.(*UserTrafficAPI).GetUserTrafficHistory-fm (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/traffic/history --&gt; oneclickvirt/api/v1/traffic.(*UserTrafficAPI).GetInstanceTrafficHistory-fm (13 handlers)
+[GIN-debug] GET    /api/v1/dashboard/stats   --&gt; oneclickvirt/api/v1/public.GetDashboardStats (13 handlers)
+[GIN-debug] POST   /api/v1/user/redemption-codes/redeem --&gt; oneclickvirt/api/v1/user.RedeemCode (14 handlers)
+[GIN-debug] GET    /api/v1/user/domains      --&gt; oneclickvirt/api/v1/user.GetUserDomains (13 handlers)
+[GIN-debug] POST   /api/v1/user/domains      --&gt; oneclickvirt/api/v1/user.CreateUserDomain (14 handlers)
+[GIN-debug] PUT    /api/v1/user/domains/:id  --&gt; oneclickvirt/api/v1/user.UpdateUserDomain (13 handlers)
+[GIN-debug] DELETE /api/v1/user/domains/:id  --&gt; oneclickvirt/api/v1/user.DeleteUserDomain (13 handlers)
+[GIN-debug] GET    /api/v1/user/kyc          --&gt; oneclickvirt/api/v1/user.GetUserKYC (13 handlers)
+[GIN-debug] POST   /api/v1/user/kyc          --&gt; oneclickvirt/api/v1/user.SubmitUserKYC (13 handlers)
+[GIN-debug] POST   /api/v1/user/kyc/alipay   --&gt; oneclickvirt/api/v1/user.SubmitAlipayKYC (13 handlers)
+[GIN-debug] GET    /api/v1/user/kyc/alipay/result --&gt; oneclickvirt/api/v1/user.QueryAlipayKYCResult (13 handlers)
+[GIN-debug] GET    /api/v1/user/checkin/eligible-instances --&gt; oneclickvirt/api/v1/user.GetEligibleCheckinInstances (13 handlers)
+[GIN-debug] POST   /api/v1/user/checkin/code/:instance_id --&gt; oneclickvirt/api/v1/user.GenerateCheckinCode (13 handlers)
+[GIN-debug] POST   /api/v1/user/checkin      --&gt; oneclickvirt/api/v1/user.DoCheckin (13 handlers)
+[GIN-debug] GET    /api/v1/user/checkin/records --&gt; oneclickvirt/api/v1/user.GetCheckinRecords (13 handlers)
+[GIN-debug] GET    /api/v1/user/checkin/stats --&gt; oneclickvirt/api/v1/user.GetCheckinStats (13 handlers)
+[GIN-debug] POST   /api/v1/user/checkin/batch --&gt; oneclickvirt/api/v1/user.BatchCheckin (13 handlers)
+[GIN-debug] POST   /api/v1/user/checkin/batch-checkin --&gt; oneclickvirt/api/v1/user.BatchCheckin (13 handlers)
+[GIN-debug] POST   /api/v1/user/api-tokens   --&gt; oneclickvirt/api/v1/auth.CreateApiToken (13 handlers)
+[GIN-debug] GET    /api/v1/user/api-tokens   --&gt; oneclickvirt/api/v1/auth.GetApiTokenList (13 handlers)
+[GIN-debug] DELETE /api/v1/user/api-tokens/:id --&gt; oneclickvirt/api/v1/auth.DeleteApiToken (13 handlers)
+[GIN-debug] GET    /api/v1/admin/dashboard   --&gt; oneclickvirt/api/v1/admin.GetAdminDashboard (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances   --&gt; oneclickvirt/api/v1/admin.GetInstanceList (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id --&gt; oneclickvirt/api/v1/admin.GetInstanceDetail (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/snapshots --&gt; oneclickvirt/api/v1/admin.GetInstanceSnapshots (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/:id/snapshots --&gt; oneclickvirt/api/v1/admin.CreateInstanceSnapshot (13 handlers)
+[GIN-debug] POST   /api/v1/admin/snapshot-batches --&gt; oneclickvirt/api/v1/admin.BatchCreateInstanceSnapshots (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/:id/share-links --&gt; oneclickvirt/api/v1/admin.CreateAdminInstanceShare (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances   --&gt; oneclickvirt/api/v1/admin.CreateInstance (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/batch-action --&gt; oneclickvirt/api/v1/admin.AdminBatchInstanceAction (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/instances/:id --&gt; oneclickvirt/api/v1/admin.UpdateInstance (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/instances/:id --&gt; oneclickvirt/api/v1/admin.DeleteInstance (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/:id/action --&gt; oneclickvirt/api/v1/admin.AdminInstanceAction (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/instances/:id/reset-password --&gt; oneclickvirt/api/v1/admin.ResetInstancePassword (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/password/:taskId --&gt; oneclickvirt/api/v1/admin.GetInstanceNewPassword (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/egress --&gt; oneclickvirt/api/v1/admin.GetInstanceEgress (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/instances/:id/egress --&gt; oneclickvirt/api/v1/admin.BindInstanceEgress (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/instances/:id/egress --&gt; oneclickvirt/api/v1/admin.UnbindInstanceEgress (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/:id/egress/reconcile --&gt; oneclickvirt/api/v1/admin.ReconcileInstanceEgress (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/:id/egress/dependencies --&gt; oneclickvirt/api/v1/admin.EnsureInstanceEgressDependencies (13 handlers)
+[GIN-debug] GET    /api/v1/admin/snapshots/overview --&gt; oneclickvirt/api/v1/admin.GetSnapshotOverview (13 handlers)
+[GIN-debug] GET    /api/v1/admin/snapshots   --&gt; oneclickvirt/api/v1/admin.GetSnapshotList (13 handlers)
+[GIN-debug] GET    /api/v1/admin/snapshot-tasks/:id --&gt; oneclickvirt/api/v1/admin.GetSnapshotTask (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/snapshots/:id --&gt; oneclickvirt/api/v1/admin.DeleteSnapshot (13 handlers)
+[GIN-debug] POST   /api/v1/admin/snapshots/:id/restore --&gt; oneclickvirt/api/v1/admin.RestoreSnapshot (13 handlers)
+[GIN-debug] GET    /api/v1/admin/snapshots/download/:id --&gt; oneclickvirt/api/v1/admin.DownloadSnapshot (13 handlers)
+[GIN-debug] GET    /api/v1/admin/snapshot-schedules --&gt; oneclickvirt/api/v1/admin.GetSnapshotSchedules (13 handlers)
+[GIN-debug] POST   /api/v1/admin/snapshot-schedules --&gt; oneclickvirt/api/v1/admin.CreateSnapshotSchedule (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/snapshot-schedules/:id --&gt; oneclickvirt/api/v1/admin.UpdateSnapshotSchedule (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/snapshot-schedules/:id --&gt; oneclickvirt/api/v1/admin.DeleteSnapshotSchedule (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/ssh --&gt; oneclickvirt/api/v1/admin.AdminSSHWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/sftp/list --&gt; oneclickvirt/api/v1/admin.AdminInstanceSFTPList (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/sftp/download --&gt; oneclickvirt/api/v1/admin.AdminInstanceSFTPDownload (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/:id/sftp/upload --&gt; oneclickvirt/api/v1/admin.AdminInstanceSFTPUpload (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/sftp/upload/status --&gt; oneclickvirt/api/v1/admin.AdminInstanceSFTPUploadStatus (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/:id/sftp/upload/abort --&gt; oneclickvirt/api/v1/admin.AdminInstanceSFTPUploadAbort (13 handlers)
+[GIN-debug] GET    /api/v1/admin/redemption-codes --&gt; oneclickvirt/api/v1/admin.GetRedemptionCodeList (13 handlers)
+[GIN-debug] POST   /api/v1/admin/redemption-codes/batch-create --&gt; oneclickvirt/api/v1/admin.BatchCreateRedemptionCodes (13 handlers)
+[GIN-debug] POST   /api/v1/admin/redemption-codes/export --&gt; oneclickvirt/api/v1/admin.ExportRedemptionCodes (13 handlers)
+[GIN-debug] POST   /api/v1/admin/redemption-codes/batch-delete --&gt; oneclickvirt/api/v1/admin.BatchDeleteRedemptionCodes (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers   --&gt; oneclickvirt/api/v1/admin.GetProviderList (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/export-csv --&gt; oneclickvirt/api/v1/admin.ExportProvidersCSV (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/local/detect --&gt; oneclickvirt/api/v1/admin.DetectLocalProvider (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/import-csv --&gt; oneclickvirt/api/v1/admin.ImportProvidersCSV (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers   --&gt; oneclickvirt/api/v1/admin.CreateProvider (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id --&gt; oneclickvirt/api/v1/admin.GetProviderDetail (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/providers/:id --&gt; oneclickvirt/api/v1/admin.UpdateProvider (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id --&gt; oneclickvirt/api/v1/admin.DeleteProvider (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/freeze --&gt; oneclickvirt/api/v1/admin.FreezeProvider (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/unfreeze --&gt; oneclickvirt/api/v1/admin.UnfreezeProvider (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/test-ssh-connection --&gt; oneclickvirt/api/v1/admin.TestSSHConnection (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/check-name --&gt; oneclickvirt/api/v1/admin.CheckProviderName (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/check-endpoint --&gt; oneclickvirt/api/v1/admin.CheckProviderEndpoint (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/discover --&gt; oneclickvirt/api/v1/admin.DiscoverProviderInstances (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/import --&gt; oneclickvirt/api/v1/admin.ImportProviderInstances (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/orphaned --&gt; oneclickvirt/api/v1/admin.GetOrphanedInstances (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/sync-check --&gt; oneclickvirt/api/v1/admin.CheckInstanceSync (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/sync-instances --&gt; oneclickvirt/api/v1/admin.QueueProviderInstanceSync (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/cleanup-orphans --&gt; oneclickvirt/api/v1/admin.CleanupOrphanInstances (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/generate-cert --&gt; oneclickvirt/api/v1/admin.GenerateProviderCert (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/auto-configure-stream --&gt; oneclickvirt/api/v1/admin.AutoConfigureProviderStream (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/health-check --&gt; oneclickvirt/api/v1/admin.CheckProviderHealth (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/health-check-task --&gt; oneclickvirt/api/v1/admin.QueueProviderHealthCheck (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/status --&gt; oneclickvirt/api/v1/admin.GetProviderStatus (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/detect-gpus --&gt; oneclickvirt/api/v1/admin.DetectGPUs (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/stopped-containers --&gt; oneclickvirt/api/v1/admin.GetStoppedContainers (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/agent-secret --&gt; oneclickvirt/api/v1/admin.GenerateAgentSecret (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/agent-secret --&gt; oneclickvirt/api/v1/admin.GenerateAgentSecret (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/exec --&gt; oneclickvirt/api/v1/admin.ExecOnProvider (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/terminal --&gt; oneclickvirt/api/v1/admin.AdminProviderTerminal (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/sftp/list --&gt; oneclickvirt/api/v1/admin.AdminProviderSFTPList (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/sftp/download --&gt; oneclickvirt/api/v1/admin.AdminProviderSFTPDownload (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/sftp/upload --&gt; oneclickvirt/api/v1/admin.AdminProviderSFTPUpload (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/sftp/upload/status --&gt; oneclickvirt/api/v1/admin.AdminProviderSFTPUploadStatus (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/sftp/upload/abort --&gt; oneclickvirt/api/v1/admin.AdminProviderSFTPUploadAbort (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/fm/list --&gt; oneclickvirt/api/v1/admin.AdminProviderFMList (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/fm/download --&gt; oneclickvirt/api/v1/admin.AdminProviderFMDownload (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/fm/upload --&gt; oneclickvirt/api/v1/admin.AdminProviderFMUpload (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id/fm/file --&gt; oneclickvirt/api/v1/admin.AdminProviderFMDelete (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/fm/mkdir --&gt; oneclickvirt/api/v1/admin.AdminProviderFMMkdir (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/export-configs --&gt; oneclickvirt/api/v1/admin.ExportProviderConfigs (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/auto-configure --&gt; oneclickvirt/api/v1/config.AutoConfigureProvider (13 handlers)
+[GIN-debug] GET    /api/v1/admin/configuration-tasks --&gt; oneclickvirt/api/v1/config.GetConfigurationTasks (13 handlers)
+[GIN-debug] GET    /api/v1/admin/configuration-tasks/:id --&gt; oneclickvirt/api/v1/config.GetConfigurationTaskDetail (13 handlers)
+[GIN-debug] POST   /api/v1/admin/configuration-tasks/:id/cancel --&gt; oneclickvirt/api/v1/config.CancelConfigurationTask (13 handlers)
+[GIN-debug] GET    /api/v1/admin/tasks       --&gt; oneclickvirt/api/v1/admin.GetAdminTasks (13 handlers)
+[GIN-debug] GET    /api/v1/admin/tasks/pool-status --&gt; oneclickvirt/api/v1/admin.GetTaskPoolStatus (13 handlers)
+[GIN-debug] POST   /api/v1/admin/tasks/force-stop --&gt; oneclickvirt/api/v1/admin.ForceStopTask (13 handlers)
+[GIN-debug] GET    /api/v1/admin/tasks/stats --&gt; oneclickvirt/api/v1/admin.GetTaskStats (13 handlers)
+[GIN-debug] GET    /api/v1/admin/tasks/overall-stats --&gt; oneclickvirt/api/v1/admin.GetTaskOverallStats (13 handlers)
+[GIN-debug] GET    /api/v1/admin/tasks/:taskId --&gt; oneclickvirt/api/v1/admin.GetTaskDetail (13 handlers)
+[GIN-debug] POST   /api/v1/admin/tasks/:taskId/cancel --&gt; oneclickvirt/api/v1/admin.CancelUserTaskByAdmin (13 handlers)
+[GIN-debug] GET    /api/v1/admin/port-mappings --&gt; oneclickvirt/api/v1/admin.GetPortMappingList (13 handlers)
+[GIN-debug] POST   /api/v1/admin/port-mappings --&gt; oneclickvirt/api/v1/admin.CreatePortMapping (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/port-mappings/:id --&gt; oneclickvirt/api/v1/admin.DeletePortMapping (13 handlers)
+[GIN-debug] POST   /api/v1/admin/port-mappings/batch-delete --&gt; oneclickvirt/api/v1/admin.BatchDeletePortMapping (13 handlers)
+[GIN-debug] POST   /api/v1/admin/port-mappings/sync --&gt; oneclickvirt/api/v1/admin.SyncPortMappings (13 handlers)
+[GIN-debug] POST   /api/v1/admin/port-mappings/repair --&gt; oneclickvirt/api/v1/admin.RepairPortMappings (13 handlers)
+[GIN-debug] POST   /api/v1/admin/ports/check --&gt; oneclickvirt/api/v1/admin.CheckPortAvailability (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/providers/:id/port-config --&gt; oneclickvirt/api/v1/admin.UpdateProviderPortConfig (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/port-usage --&gt; oneclickvirt/api/v1/admin.GetProviderPortUsage (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/port-mappings --&gt; oneclickvirt/api/v1/admin.GetInstancePortMappings (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/ipv4-pool --&gt; oneclickvirt/api/v1/admin.GetProviderIPv4Pool (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/ipv4-pool --&gt; oneclickvirt/api/v1/admin.SetProviderIPv4Pool (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id/ipv4-pool --&gt; oneclickvirt/api/v1/admin.ClearProviderIPv4Pool (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id/ipv4-pool/:entry_id --&gt; oneclickvirt/api/v1/admin.DeleteProviderIPv4PoolEntry (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/ipv6-pool --&gt; oneclickvirt/api/v1/admin.GetProviderIPv6Pool (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-pool --&gt; oneclickvirt/api/v1/admin.SetProviderIPv6Pool (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-pool/sync --&gt; oneclickvirt/api/v1/admin.SyncProviderIPv6Pool (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id/ipv6-pool --&gt; oneclickvirt/api/v1/admin.ClearProviderIPv6Pool (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id/ipv6-pool/:entry_id --&gt; oneclickvirt/api/v1/admin.DeleteProviderIPv6PoolEntry (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/ipv6-tunnels --&gt; oneclickvirt/api/v1/admin.GetProviderIPv6Tunnels (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-tunnels --&gt; oneclickvirt/api/v1/admin.CreateProviderIPv6Tunnel (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-tunnels/detect-local-ipv4 --&gt; oneclickvirt/api/v1/admin.DetectProviderIPv6TunnelLocalIPv4 (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-tunnels/check --&gt; oneclickvirt/api/v1/admin.CheckProviderIPv6Tunnels (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/providers/:id/ipv6-tunnels/:tunnel_id --&gt; oneclickvirt/api/v1/admin.UpdateProviderIPv6Tunnel (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-tunnels/:tunnel_id/enable --&gt; oneclickvirt/api/v1/admin.EnableProviderIPv6Tunnel (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-tunnels/:tunnel_id/disable --&gt; oneclickvirt/api/v1/admin.DisableProviderIPv6Tunnel (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id/ipv6-tunnels/:tunnel_id --&gt; oneclickvirt/api/v1/admin.DeleteProviderIPv6Tunnel (13 handlers)
+[GIN-debug] GET    /api/v1/admin/traffic/overview --&gt; oneclickvirt/api/v1/traffic.(*AdminTrafficAPI).GetSystemTrafficOverview-fm (13 handlers)
+[GIN-debug] GET    /api/v1/admin/traffic/provider/:providerId --&gt; oneclickvirt/api/v1/traffic.(*AdminTrafficAPI).GetProviderTrafficStats-fm (13 handlers)
+[GIN-debug] GET    /api/v1/admin/traffic/user/:userId --&gt; oneclickvirt/api/v1/traffic.(*AdminTrafficAPI).GetUserTrafficStats-fm (13 handlers)
+[GIN-debug] GET    /api/v1/admin/traffic/users/rank --&gt; oneclickvirt/api/v1/traffic.(*AdminTrafficAPI).GetAllUsersTrafficRank-fm (13 handlers)
+[GIN-debug] POST   /api/v1/admin/traffic/manage --&gt; oneclickvirt/api/v1/traffic.(*AdminTrafficAPI).ManageTrafficLimits-fm (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/traffic/history --&gt; oneclickvirt/api/v1/traffic.GetProviderTrafficHistory (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/traffic-monitor --&gt; oneclickvirt/api/v1/admin.TrafficMonitorOperation (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/traffic-monitor/tasks --&gt; oneclickvirt/api/v1/admin.GetTrafficMonitorTaskList (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/traffic-monitor/tasks/:id --&gt; oneclickvirt/api/v1/admin.GetTrafficMonitorTaskDetail (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/traffic-monitor/latest --&gt; oneclickvirt/api/v1/admin.GetLatestTrafficMonitorTask (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/monitoring/config --&gt; oneclickvirt/api/v1/admin.GetMonitoringConfig (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/providers/:id/monitoring/config --&gt; oneclickvirt/api/v1/admin.UpdateMonitoringConfig (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/monitoring/agent --&gt; oneclickvirt/api/v1/admin.DeployAgent (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id/monitoring/agent --&gt; oneclickvirt/api/v1/admin.UninstallAgent (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/monitoring/status --&gt; oneclickvirt/api/v1/admin.GetAgentStatus (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/monitoring/monitors --&gt; oneclickvirt/api/v1/admin.GetProviderMonitors (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/monitoring/sync --&gt; oneclickvirt/api/v1/admin.SyncProviderMonitors (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/monitoring/sync/latest --&gt; oneclickvirt/api/v1/admin.GetLatestProviderMonitorSyncTask (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/monitoring/sync/:taskId --&gt; oneclickvirt/api/v1/admin.GetProviderMonitorSyncTask (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id/monitoring/clear --&gt; oneclickvirt/api/v1/admin.ClearProviderMonitors (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/monitoring/agent-monitors --&gt; oneclickvirt/api/v1/admin.ListAgentMonitors (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/monitoring/resources --&gt; oneclickvirt/api/v1/admin.GetProviderResourceSummary (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/monitoring/resources --&gt; oneclickvirt/api/v1/admin.GetInstanceResources (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/hardware-report --&gt; oneclickvirt/api/v1/admin.SaveHardwareReport (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/hardware-report --&gt; oneclickvirt/api/v1/admin.GetHardwareTestReport (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/providers/:id/hardware-report --&gt; oneclickvirt/api/v1/admin.DeleteHardwareReport (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/set-expiry --&gt; oneclickvirt/api/v1/admin.SetProviderExpiry (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/freeze-manual --&gt; oneclickvirt/api/v1/admin.FreezeProviderManual (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/unfreeze-manual --&gt; oneclickvirt/api/v1/admin.UnfreezeProviderManual (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/set-expiry --&gt; oneclickvirt/api/v1/admin.SetInstanceExpiry (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/freeze --&gt; oneclickvirt/api/v1/admin.FreezeInstance (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/unfreeze --&gt; oneclickvirt/api/v1/admin.UnfreezeInstance (13 handlers)
+[GIN-debug] GET    /api/v1/admin/block-rules --&gt; oneclickvirt/api/v1/admin.GetBlockRules (13 handlers)
+[GIN-debug] GET    /api/v1/admin/block-rules/:id --&gt; oneclickvirt/api/v1/admin.GetBlockRule (13 handlers)
+[GIN-debug] POST   /api/v1/admin/block-rules/apply --&gt; oneclickvirt/api/v1/admin.ApplyBlockRules (13 handlers)
+[GIN-debug] POST   /api/v1/admin/block-rules/remove --&gt; oneclickvirt/api/v1/admin.RemoveBlockRuleApplications (13 handlers)
+[GIN-debug] GET    /api/v1/admin/block-rules/applications --&gt; oneclickvirt/api/v1/admin.GetBlockRuleApplications (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/block-status --&gt; oneclickvirt/api/v1/admin.GetProviderBlockStatus (13 handlers)
+[GIN-debug] GET    /api/v1/admin/block-rules/agent-providers --&gt; oneclickvirt/api/v1/admin.GetAgentEnabledProviders (13 handlers)
+[GIN-debug] GET    /api/v1/admin/domains     --&gt; oneclickvirt/api/v1/admin.AdminGetDomains (13 handlers)
+[GIN-debug] POST   /api/v1/admin/domains/sync-proxies --&gt; oneclickvirt/api/v1/admin.AdminSyncDomainProxies (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/domains/:id --&gt; oneclickvirt/api/v1/admin.AdminUpdateDomain (13 handlers)
+[GIN-debug] POST   /api/v1/admin/domains/:id/sync --&gt; oneclickvirt/api/v1/admin.AdminSyncDomainProxy (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/domains/:id --&gt; oneclickvirt/api/v1/admin.AdminDeleteDomain (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/domain-config --&gt; oneclickvirt/api/v1/admin.GetDomainConfig (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/providers/:id/domain-config --&gt; oneclickvirt/api/v1/admin.UpdateDomainConfig (13 handlers)
+[GIN-debug] GET    /api/v1/admin/providers/:id/checkin-config --&gt; oneclickvirt/api/v1/admin.AdminGetCheckinConfig (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/providers/:id/checkin-config --&gt; oneclickvirt/api/v1/admin.AdminUpdateCheckinConfig (13 handlers)
+[GIN-debug] GET    /api/v1/admin/groups      --&gt; oneclickvirt/api/v1/admin.GetAdminGroups (13 handlers)
+[GIN-debug] POST   /api/v1/admin/groups      --&gt; oneclickvirt/api/v1/admin.CreateAdminGroup (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/groups/:id  --&gt; oneclickvirt/api/v1/admin.UpdateAdminGroup (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/groups/:id  --&gt; oneclickvirt/api/v1/admin.DeleteAdminGroup (13 handlers)
+[GIN-debug] GET    /api/v1/admin/group-info  --&gt; oneclickvirt/api/v1/admin.GetAdminGroupInfo (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/group-info  --&gt; oneclickvirt/api/v1/admin.UpdateAdminGroupInfo (13 handlers)
+[GIN-debug] GET    /api/v1/admin/config      --&gt; oneclickvirt/api/v1/config.GetUnifiedConfig (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/config      --&gt; oneclickvirt/api/v1/config.UpdateUnifiedConfig (13 handlers)
+[GIN-debug] POST   /api/v1/admin/block-rules --&gt; oneclickvirt/api/v1/admin.CreateBlockRule (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/block-rules/:id --&gt; oneclickvirt/api/v1/admin.UpdateBlockRule (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/block-rules/:id --&gt; oneclickvirt/api/v1/admin.DeleteBlockRule (13 handlers)
+[GIN-debug] GET    /api/v1/admin/kyc         --&gt; oneclickvirt/api/v1/admin.AdminGetKYCList (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/kyc/:id/review --&gt; oneclickvirt/api/v1/admin.AdminReviewKYC (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/tasks/pool-status --&gt; oneclickvirt/api/v1/admin.UpdateTaskPoolStatus (13 handlers)
+[GIN-debug] GET    /api/v1/admin/system-images --&gt; oneclickvirt/api/v1/system.GetSystemImageList (13 handlers)
+[GIN-debug] POST   /api/v1/admin/system-images/sync --&gt; oneclickvirt/api/v1/system.SyncSystemImages (13 handlers)
+[GIN-debug] POST   /api/v1/admin/system-images --&gt; oneclickvirt/api/v1/system.CreateSystemImage (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/system-images/:id --&gt; oneclickvirt/api/v1/system.UpdateSystemImage (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/system-images/:id --&gt; oneclickvirt/api/v1/system.DeleteSystemImage (13 handlers)
+[GIN-debug] POST   /api/v1/admin/system-images/batch-delete --&gt; oneclickvirt/api/v1/system.BatchDeleteSystemImages (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/system-images/batch-status --&gt; oneclickvirt/api/v1/system.BatchUpdateSystemImageStatus (13 handlers)
+[GIN-debug] GET    /api/v1/admin/users       --&gt; oneclickvirt/api/v1/admin.GetUserList (13 handlers)
+[GIN-debug] POST   /api/v1/admin/users       --&gt; oneclickvirt/api/v1/admin.CreateUser (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/users/:id   --&gt; oneclickvirt/api/v1/admin.UpdateUser (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/users/:id   --&gt; oneclickvirt/api/v1/admin.DeleteUser (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/users/:id/status --&gt; oneclickvirt/api/v1/admin.UpdateUserStatus (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/users/:id/level --&gt; oneclickvirt/api/v1/admin.UpdateUserLevel (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/users/:id/reset-password --&gt; oneclickvirt/api/v1/admin.ResetUserPassword (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/users/:id/reset-password-notify --&gt; oneclickvirt/api/v1/admin.ResetUserPasswordAndNotify (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/users/batch-level --&gt; oneclickvirt/api/v1/admin.AdminBatchUpdateUserLevel (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/users/batch-status --&gt; oneclickvirt/api/v1/admin.AdminBatchUpdateUserStatus (13 handlers)
+[GIN-debug] POST   /api/v1/admin/users/batch-delete --&gt; oneclickvirt/api/v1/admin.AdminBatchDeleteUsers (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instance-type-permissions --&gt; oneclickvirt/api/v1/admin.GetAdminInstanceTypePermissions (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/instance-type-permissions --&gt; oneclickvirt/api/v1/admin.UpdateAdminInstanceTypePermissions (13 handlers)
+[GIN-debug] GET    /api/v1/admin/invite-codes --&gt; oneclickvirt/api/v1/admin.GetInviteCodeList (13 handlers)
+[GIN-debug] POST   /api/v1/admin/invite-codes --&gt; oneclickvirt/api/v1/admin.CreateInviteCode (13 handlers)
+[GIN-debug] POST   /api/v1/admin/invite-codes/generate --&gt; oneclickvirt/api/v1/admin.GenerateInviteCode (13 handlers)
+[GIN-debug] GET    /api/v1/admin/invite-codes/export --&gt; oneclickvirt/api/v1/admin.ExportInviteCodes (13 handlers)
+[GIN-debug] POST   /api/v1/admin/invite-codes/batch-delete --&gt; oneclickvirt/api/v1/admin.BatchDeleteInviteCodes (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/invite-codes/:id --&gt; oneclickvirt/api/v1/admin.DeleteInviteCode (13 handlers)
+[GIN-debug] GET    /api/v1/admin/announcements --&gt; oneclickvirt/api/v1/admin.GetAnnouncements (13 handlers)
+[GIN-debug] POST   /api/v1/admin/announcements --&gt; oneclickvirt/api/v1/admin.CreateAnnouncement (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/announcements/:id --&gt; oneclickvirt/api/v1/admin.UpdateAnnouncementItem (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/announcements/:id --&gt; oneclickvirt/api/v1/admin.DeleteAnnouncement (13 handlers)
+[GIN-debug] PUT    /api/v1/admin/announcements/batch-status --&gt; oneclickvirt/api/v1/admin.BatchUpdateAnnouncementStatus (13 handlers)
+[GIN-debug] POST   /api/v1/admin/announcements/batch-delete --&gt; oneclickvirt/api/v1/admin.BatchDeleteAnnouncements (13 handlers)
+[GIN-debug] GET    /api/v1/admin/monitoring/system --&gt; oneclickvirt/api/v1/admin.GetAdminDashboard (13 handlers)
+[GIN-debug] GET    /api/v1/admin/monitoring/audit-logs --&gt; oneclickvirt/api/v1/system.GetOperationLogs (13 handlers)
+[GIN-debug] GET    /api/v1/admin/monitoring/metrics --&gt; oneclickvirt/api/v1/system.(*MonitoringApi).GetMetrics-fm (13 handlers)
+[GIN-debug] GET    /api/v1/admin/monitoring/logs --&gt; oneclickvirt/api/v1/system.GetSystemLogs (13 handlers)
+[GIN-debug] GET    /api/v1/admin/monitoring/provider --&gt; oneclickvirt/api/v1/system.GetProviderMonitoring (13 handlers)
+[GIN-debug] GET    /api/v1/admin/monitoring/health --&gt; oneclickvirt/api/v1/system.(*MonitoringApi).GetHealthCheck-fm (13 handlers)
+[GIN-debug] GET    /api/v1/admin/performance/metrics --&gt; oneclickvirt/api/v1/system.GetPerformanceMetrics (13 handlers)
+[GIN-debug] GET    /api/v1/admin/performance/history --&gt; oneclickvirt/api/v1/system.GetPerformanceHistory (13 handlers)
+[GIN-debug] GET    /api/v1/admin/logs/dates  --&gt; oneclickvirt/api/v1/system.GetLogDates (13 handlers)
+[GIN-debug] GET    /api/v1/admin/logs/content --&gt; oneclickvirt/api/v1/system.GetLogContent (13 handlers)
+[GIN-debug] GET    /api/v1/admin/logs/files  --&gt; oneclickvirt/api/v1/system.(*StorageApi).GetLogFiles-fm (13 handlers)
+[GIN-debug] GET    /api/v1/admin/logs/read   --&gt; oneclickvirt/api/v1/system.(*StorageApi).ReadLogFile-fm (13 handlers)
+[GIN-debug] POST   /api/v1/admin/logs/cleanup --&gt; oneclickvirt/api/v1/system.(*StorageApi).CleanupOldLogs-fm (13 handlers)
+[GIN-debug] GET    /api/v1/admin/storage/info --&gt; oneclickvirt/api/v1/system.(*StorageApi).GetStorageInfo-fm (13 handlers)
+[GIN-debug] POST   /api/v1/admin/storage/init --&gt; oneclickvirt/api/v1/system.(*StorageApi).InitializeStorage-fm (13 handlers)
+[GIN-debug] POST   /api/v1/admin/storage/cleanup --&gt; oneclickvirt/api/v1/system.(*StorageApi).CleanupTempFiles-fm (13 handlers)
+[GIN-debug] GET    /api/v1/admin/database/stats --&gt; oneclickvirt/api/v1/public.DatabaseStatsAPI (13 handlers)
+[GIN-debug] GET    /api/v1/admin/quota/users/:userId --&gt; oneclickvirt/api/v1/system.GetUserQuotaInfo (13 handlers)
+[GIN-debug] POST   /api/v1/admin/traffic/batch-manage --&gt; oneclickvirt/api/v1/traffic.(*AdminTrafficAPI).BatchManageTrafficLimits-fm (13 handlers)
+[GIN-debug] POST   /api/v1/admin/traffic/batch-sync --&gt; oneclickvirt/api/v1/traffic.(*AdminTrafficAPI).BatchSyncUserTraffic-fm (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/traffic/user/:userId/clear --&gt; oneclickvirt/api/v1/traffic.(*AdminTrafficAPI).ClearUserTrafficRecords-fm (13 handlers)
+[GIN-debug] POST   /api/v1/admin/traffic/sync/instance/:instance_id --&gt; oneclickvirt/api/v1/admin.SyncInstanceTraffic (13 handlers)
+[GIN-debug] POST   /api/v1/admin/traffic/sync/user/:user_id --&gt; oneclickvirt/api/v1/admin.SyncUserTraffic (13 handlers)
+[GIN-debug] POST   /api/v1/admin/traffic/sync/provider/:provider_id --&gt; oneclickvirt/api/v1/admin.SyncProviderTraffic (13 handlers)
+[GIN-debug] POST   /api/v1/admin/traffic/sync/all --&gt; oneclickvirt/api/v1/admin.SyncAllTraffic (13 handlers)
+[GIN-debug] POST   /api/v1/admin/users/set-expiry --&gt; oneclickvirt/api/v1/admin.SetUserExpiry (13 handlers)
+[GIN-debug] POST   /api/v1/admin/users/:id/login-as --&gt; oneclickvirt/api/v1/admin.AdminLoginAsUser (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/transfer --&gt; oneclickvirt/api/v1/admin.AdminTransferInstance (13 handlers)
+[GIN-debug] GET    /api/v1/admin/api-tokens  --&gt; oneclickvirt/api/v1/auth.AdminGetApiTokenList (13 handlers)
+[GIN-debug] DELETE /api/v1/admin/api-tokens/:id --&gt; oneclickvirt/api/v1/auth.AdminDeleteApiToken (13 handlers)
+[GIN-debug] POST   /api/v1/admin/api-tokens/batch-delete --&gt; oneclickvirt/api/v1/auth.AdminBatchDeleteApiTokens (13 handlers)
+[GIN-debug] GET    /api/v1/oauth2/providers  --&gt; oneclickvirt/api/v1/oauth2.GetProviders (13 handlers)
+[GIN-debug] GET    /api/v1/oauth2/providers/:id --&gt; oneclickvirt/api/v1/oauth2.GetProvider (13 handlers)
+[GIN-debug] POST   /api/v1/oauth2/providers  --&gt; oneclickvirt/api/v1/oauth2.CreateProvider (13 handlers)
+[GIN-debug] PUT    /api/v1/oauth2/providers/:id --&gt; oneclickvirt/api/v1/oauth2.UpdateProvider (13 handlers)
+[GIN-debug] DELETE /api/v1/oauth2/providers/:id --&gt; oneclickvirt/api/v1/oauth2.DeleteProvider (13 handlers)
+[GIN-debug] POST   /api/v1/oauth2/providers/:id/reset-count --&gt; oneclickvirt/api/v1/oauth2.ResetRegistrationCount (13 handlers)
+[GIN-debug] GET    /api/v1/oauth2/presets    --&gt; oneclickvirt/api/v1/oauth2.GetPresets (13 handlers)
+[GIN-debug] GET    /api/v1/oauth2/presets/:name --&gt; oneclickvirt/api/v1/oauth2.GetPreset (13 handlers)
+[GIN-debug] GET    /api/v1/resources/virtualization/providers --&gt; oneclickvirt/api/v1/system.GetProviders (14 handlers)
+[GIN-debug] GET    /api/v1/providers         --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).GetProviders-fm (13 handlers)
+[GIN-debug] POST   /api/v1/providers/connect --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).ConnectProvider-fm (13 handlers)
+[GIN-debug] GET    /api/v1/providers/:id/status --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).GetProviderStatus-fm (13 handlers)
+[GIN-debug] GET    /api/v1/providers/:id/capabilities --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).GetProviderCapabilities-fm (13 handlers)
+[GIN-debug] GET    /api/v1/providers/:id/instances --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).ListInstances-fm (13 handlers)
+[GIN-debug] POST   /api/v1/providers/:id/instances --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).CreateInstance-fm (13 handlers)
+[GIN-debug] GET    /api/v1/providers/:id/instances/:name --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).GetInstance-fm (13 handlers)
+[GIN-debug] POST   /api/v1/providers/:id/instances/:name/start --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).StartInstance-fm (13 handlers)
+[GIN-debug] POST   /api/v1/providers/:id/instances/:name/stop --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).StopInstance-fm (13 handlers)
+[GIN-debug] DELETE /api/v1/providers/:id/instances/:name --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).DeleteInstance-fm (13 handlers)
+[GIN-debug] GET    /api/v1/providers/:id/images --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).ListImages-fm (13 handlers)
+[GIN-debug] POST   /api/v1/providers/:id/images/pull --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).PullImage-fm (13 handlers)
+[GIN-debug] DELETE /api/v1/providers/:id/images/:image --&gt; oneclickvirt/api/v1/provider.(*ProviderApi).DeleteImage-fm (13 handlers)
+[GIN-debug] GET    /api/v1/ws/agent          --&gt; oneclickvirt/api/v1/admin.AgentWebSocket (10 handlers)
+[GIN-debug] GET    /api/ws/agent             --&gt; oneclickvirt/api/v1/admin.AgentWebSocket (10 handlers)
+=== App error log ===
+(not found)
+=== App warn log ===
+[oneclickvirt]2026/08/19 - 12:49:48.217	warn	系统未初始化，运行在待初始化模式</div>
+</div>
+</div>
+<footer>
+<p><span class="zh">OneClickVirt 集成测试报告</span><span class="en">OneClickVirt Integration Test Report</span></p>
+<p><a href="https://github.com/oneclickvirt/oneclickvirt" target="_blank" rel="noopener">github.com/oneclickvirt/oneclickvirt</a></p>
+</footer>
+</div>
+
+<script>
+const TOTAL_VAL='1',PASSED_VAL='0',FAILED_VAL='0',SKIPPED_VAL='1',RATE_VAL='0';
+const HISTORY_DATA=[];
+
+/* ── Theme toggle ── */
+function getTheme(){return localStorage.getItem('ocv-theme')||'light'}
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  document.getElementById('themeIcon').textContent=t==='dark'?'🌙':'☀️';
+  document.getElementById('themeLabel').innerHTML=t==='dark'
+    ? '<span class="zh">暗色</span><span class="en">Dark</span>'
+    : '<span class="zh">亮色</span><span class="en">Light</span>';
+  localStorage.setItem('ocv-theme',t);
+}
+function toggleTheme(){applyTheme(getTheme()==='dark'?'light':'dark')}
+applyTheme(getTheme());
+
+/* ── Language toggle ── */
+function getLang(){return localStorage.getItem('ocv-lang')||'zh'}
+function applyLang(l){
+  document.documentElement.setAttribute('data-lang',l);
+  document.getElementById('langLabel').textContent=l==='zh'?'EN':'中文';
+  document.getElementById('searchBox').placeholder=l==='zh'?'搜索测试名称、接口路径、错误详情... (按 / 聚焦)':'Search test name, endpoint, details... (press / to focus)';
+  document.querySelectorAll('.i18n-all-modules').forEach(el=>{el.textContent=l==='zh'?'所有模块':'All Modules'});
+  localStorage.setItem('ocv-lang',l);
+}
+function toggleLang(){applyLang(getLang()==='zh'?'en':'zh')}
+applyLang(getLang());
+
+/* ── History rendering ── */
+if(HISTORY_DATA.length>0){
+  const grid=document.getElementById('historyGrid');
+  if(grid){
+    // Current report card
+    let html='<div class="history-card" style="border-color:var(--accent)"><div class="h-name"><span class="zh">当前</span><span class="en">Current</span></div><div class="h-stats">';
+    html+=`<span style="color:var(--pass)">✓ ${PASSED_VAL}</span>`;
+    html+=`<span style="color:var(--fail)">✗ ${FAILED_VAL}</span>`;
+    html+=`<span style="color:var(--skip)">○ ${SKIPPED_VAL}</span>`;
+    html+=`<span style="color:var(--accent)">${RATE_VAL}%</span></div></div>`;
+    HISTORY_DATA.forEach(h=>{
+      html+=`<div class="history-card"><div class="h-name">${h.name}</div><div class="h-stats">`;
+      html+=`<span style="color:var(--pass)">✓ ${h.pass}</span>`;
+      html+=`<span style="color:var(--fail)">✗ ${h.fail}</span>`;
+      html+=`<span style="color:var(--skip)">○ ${h.skip}</span>`;
+      html+=`<span style="color:var(--accent)">${h.rate}%</span></div></div>`;
+    });
+    grid.innerHTML=html;
+  }
+}
+
+/* ── Filter & Search ── */
+let currentStatus='all',currentGroup='all',currentSearch='';
+const searchBox=document.getElementById('searchBox');
+const groupFilter=document.getElementById('groupFilter');
+
+// Populate group filter
+const groups=new Set();
+document.querySelectorAll('.section[data-group]').forEach(s=>{groups.add(s.dataset.group)});
+groups.forEach(g=>{const opt=document.createElement('option');opt.value=g;opt.textContent=g;groupFilter.appendChild(opt)});
+
+function setStatusFilter(s){
+  currentStatus=s;
+  document.querySelectorAll('.filter-btn').forEach(b=>{b.classList.toggle('active',b.dataset.filter===s)});
+  applyFilters();
+}
+
+function applyFilters(){
+  currentGroup=groupFilter.value;
+  currentSearch=searchBox.value.toLowerCase();
+  document.querySelectorAll('tr.test-row').forEach(r=>{
+    if(r.classList.contains('detail-row'))return;
+    const st=r.dataset.status||'';
+    const grp=r.dataset.group||'';
+    const name=(r.dataset.name||'').toLowerCase();
+    const url=(r.dataset.url||'').toLowerCase();
+    const text=r.textContent.toLowerCase();
+    let show=true;
+    if(currentStatus!=='all'&&st!==currentStatus)show=false;
+    if(currentGroup!=='all'&&grp!==currentGroup)show=false;
+    if(currentSearch&&!name.includes(currentSearch)&&!url.includes(currentSearch)&&!text.includes(currentSearch))show=false;
+    r.classList.toggle('hidden',!show);
+    const next=r.nextElementSibling;
+    if(next&&next.classList.contains('detail-row'))next.classList.toggle('hidden',!show);
+  });
+  document.querySelectorAll('.section[data-group]').forEach(s=>{
+    s.style.display=(currentGroup!=='all'&&s.dataset.group!==currentGroup)?'none':'';
+  });
+}
+
+searchBox.addEventListener('input',()=>applyFilters());
+
+function toggleSection(el){
+  const body=el.nextElementSibling;
+  const chev=el.querySelector('.chevron');
+  if(body){body.classList.toggle('open');if(chev)chev.classList.toggle('open')}
+}
+
+function toggleDetail(id){const el=document.getElementById(id);if(el)el.classList.toggle('open')}
+
+function copySummary(){
+  const l=getLang();
+  const env=document.querySelector('header strong').textContent;
+  const t=l==='zh'
+    ?`OneClickVirt 测试报告\n环境: ${env}\n总计: ${TOTAL_VAL} | 通过: ${PASSED_VAL} | 失败: ${FAILED_VAL} | 跳过: ${SKIPPED_VAL} | 通过率: ${RATE_VAL}%`
+    :`OneClickVirt Test Report\nEnv: ${env}\nTotal: ${TOTAL_VAL} | Pass: ${PASSED_VAL} | Fail: ${FAILED_VAL} | Skip: ${SKIPPED_VAL} | Rate: ${RATE_VAL}%`;
+  navigator.clipboard.writeText(t).then(()=>alert(l==='zh'?'已复制到剪贴板':'Copied to clipboard')).catch(()=>{});
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  if(e.key==='/'){e.preventDefault();searchBox.focus()}
+  if(e.key==='1')setStatusFilter('all');
+  if(e.key==='2')setStatusFilter('PASS');
+  if(e.key==='3')setStatusFilter('FAIL');
+  if(e.key==='4')setStatusFilter('SKIP');
+  if(e.key==='t'||e.key==='T')toggleTheme();
+  if(e.key==='l'||e.key==='L')toggleLang();
+  if(e.key==='Escape'){searchBox.value='';currentSearch='';applyFilters()}
+});
+
+// Auto-open sections with failures
+document.querySelectorAll('.section').forEach(s=>{
+  if(s.querySelector('.badge.fail')){
+    const body=s.querySelector('.section-body');if(body)body.classList.add('open');
+    const chev=s.querySelector('.chevron');if(chev)chev.classList.add('open');
+  }
+});
+</script>
