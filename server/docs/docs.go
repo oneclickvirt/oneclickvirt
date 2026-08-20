@@ -22270,6 +22270,10 @@ const docTemplate = `{
                     "description": "所在地区",
                     "type": "string"
                 },
+                "sshHost": {
+                    "description": "管理员可选的SSH目标覆盖地址；为空时沿用既有端口映射/实例IP解析",
+                    "type": "string"
+                },
                 "sshPort": {
                     "description": "SSH访问端口",
                     "type": "integer"
