@@ -3,6 +3,8 @@ package middleware
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -29,22 +31,33 @@ func isConsoleSessionCookieRequest(c *gin.Context) bool {
 	if c.Request.Method != http.MethodGet {
 		return false
 	}
-	const prefix = "/api/v1/user/instances/"
 	path := c.Request.URL.Path
-	if !strings.HasPrefix(path, prefix) {
-		return false
+	for _, prefix := range []string{
+		"/api/v1/user/instances/",
+		"/api/v1/admin/instances/",
+	} {
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+		if len(parts) < 3 || parts[1] != "console" {
+			return false
+		}
+		if _, err := strconv.ParseUint(parts[0], 10, 32); err != nil {
+			return false
+		}
+		switch parts[2] {
+		case "ws", "spice-ws":
+			return len(parts) == 3
+		case "terminal":
+			return len(parts) == 4 && parts[3] == "ws"
+		case "spice":
+			return len(parts) >= 4
+		default:
+			return false
+		}
 	}
-	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
-	if len(parts) < 3 || parts[1] != "console" {
-		return false
-	}
-	if _, err := strconv.ParseUint(parts[0], 10, 32); err != nil {
-		return false
-	}
-	if parts[2] == "spice-ws" {
-		return len(parts) == 3
-	}
-	return parts[2] == "spice" && len(parts) >= 4
+	return false
 }
 
 func consoleSessionCookieToken(c *gin.Context) string {
@@ -62,15 +75,39 @@ func consoleSessionCookieSecure(c *gin.Context) bool {
 	if c.Request.TLS != nil {
 		return true
 	}
-	return strings.EqualFold(strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Proto"), ",")[0]), "https")
+	if strings.EqualFold(strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Proto"), ",")[0]), "https") {
+		return true
+	}
+	// A TLS-terminating proxy can legitimately reach the controller over HTTP
+	// and overwrite X-Forwarded-Proto with that internal hop. FRONTEND_URL is
+	// operator-controlled configuration, so it is a safe production fallback
+	// while local HTTP deployments keep a non-Secure cookie.
+	frontendURL, err := url.Parse(strings.TrimSpace(os.Getenv("FRONTEND_URL")))
+	return err == nil && strings.EqualFold(frontendURL.Scheme, "https")
+}
+
+func consoleSessionCookiePath(c *gin.Context, instanceID uint) (string, bool) {
+	path := c.Request.URL.Path
+	if strings.HasPrefix(path, "/api/v1/admin/instances/") {
+		return fmt.Sprintf("/api/v1/admin/instances/%d/console", instanceID), true
+	}
+	if strings.HasPrefix(path, "/api/v1/user/instances/") {
+		return fmt.Sprintf("/api/v1/user/instances/%d/console", instanceID), true
+	}
+	return "", false
 }
 
 // IssueConsoleSessionCookie grants only the browser resources of one instance
-// a short, HttpOnly session. It is accepted only for SPICE assets and its
-// WebSocket endpoint; all normal APIs still require the header/query token.
+// a short, HttpOnly session. It is accepted only for the selected console
+// WebSockets and SPICE assets; all normal APIs still require the header/query
+// token.
 func IssueConsoleSessionCookie(c *gin.Context, instanceID uint) {
 	token := requestAuthToken(c)
 	if token == "" {
+		return
+	}
+	cookiePath, ok := consoleSessionCookiePath(c, instanceID)
+	if !ok {
 		return
 	}
 	c.SetSameSite(http.SameSiteStrictMode)
@@ -78,7 +115,7 @@ func IssueConsoleSessionCookie(c *gin.Context, instanceID uint) {
 		ConsoleSessionCookieName,
 		token,
 		int(consoleSessionLifetime.Seconds()),
-		fmt.Sprintf("/api/v1/user/instances/%d/console", instanceID),
+		cookiePath,
 		"",
 		consoleSessionCookieSecure(c),
 		true,

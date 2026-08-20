@@ -5,10 +5,10 @@ import (
 
 	adminAPI "oneclickvirt/api/v1/admin"
 	"oneclickvirt/model/common"
+	consoleService "oneclickvirt/service/console"
 	trafficService "oneclickvirt/service/traffic"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 )
 
 // UserInstanceConsoleTerminalWebSocket provides a provider-host terminal for
@@ -36,20 +36,20 @@ func UserInstanceConsoleTerminalWebSocket(c *gin.Context) {
 		return
 	}
 
+	ProxyResolvedInstanceConsoleTerminalWebSocket(c, target)
+}
+
+// ProxyResolvedInstanceConsoleTerminalWebSocket upgrades a terminal only
+// after its caller has authenticated and resolved a fixed command. Share-token
+// routes use this hand-off without re-running JWT-only user authentication.
+func ProxyResolvedInstanceConsoleTerminalWebSocket(c *gin.Context, target adminAPI.InstanceConsoleTerminalTarget) {
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}
 	defer ws.Close()
-
-	switch target.ConnectionType {
-	case "agent":
-		handleAgentExecTerminal(ws, target.ProviderID, target.Command)
-	case "local":
-		handleLocalExecTerminal(ws, target.Command)
-	case "ssh":
-		handleSSHCommandTerminal(ws, target.Provider, target.Command)
-	default:
-		_ = ws.WriteMessage(websocket.TextMessage, []byte("节点控制台传输不可用\r\n"))
-	}
+	consoleService.ProxyTerminalWebSocket(ws, consoleService.TerminalTarget{
+		ProviderID: target.ProviderID, ConnectionType: target.ConnectionType,
+		Provider: target.Provider, Command: target.Command, Protocol: target.Protocol,
+	})
 }

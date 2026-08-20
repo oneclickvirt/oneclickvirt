@@ -44,6 +44,7 @@ func consoleTerminalShell() string {
 func consoleTerminalPlans(providerType, instanceType, identifier string) []InstanceConsoleTerminalPlan {
 	providerType = strings.ToLower(strings.TrimSpace(providerType))
 	instanceType = strings.ToLower(strings.TrimSpace(instanceType))
+	isVM := utils.IsVirtualMachineInstanceType(instanceType)
 	identifier = strings.TrimSpace(identifier)
 	if identifier == "" {
 		return nil
@@ -57,7 +58,7 @@ func consoleTerminalPlans(providerType, instanceType, identifier string) []Insta
 		}
 	}
 
-	if instanceType != "vm" {
+	if !isVM {
 		switch providerType {
 		case "docker", "orbstack":
 			return appendContainerPlans("docker")
@@ -142,7 +143,9 @@ func consoleTerminalTransport(p providerModel.Provider) (string, string) {
 			return transport, "节点缺少 SSH 地址或用户名，无法建立宿主机控制台"
 		}
 		return transport, ""
-	case "agent", "local":
+	case "agent":
+		return transport, consoleAgentTransportReason(p.ID)
+	case "local":
 		return transport, ""
 	default:
 		if transport == "" {
@@ -169,7 +172,14 @@ func resolveInstanceConsoleTerminal(instanceID, userID uint, admin bool, protoco
 	if inst.ExpiresAt != nil && inst.ExpiresAt.Before(time.Now()) {
 		return InstanceConsoleTerminalTarget{}, fmt.Errorf("实例已到期，无法进入控制台")
 	}
-	plan, err := ResolveInstanceConsoleTerminalPlan(p.Type, inst.InstanceType, inst.ProviderInstanceIdentifier(), protocol)
+	runtimeID := inst.ProviderInstanceIdentifier()
+	if isProxmoxConsoleProviderType(p.Type) {
+		runtimeID, err = resolveProxmoxConsoleRuntimeID(inst, p)
+		if err != nil {
+			return InstanceConsoleTerminalTarget{}, fmt.Errorf("无法恢复 PVE VMID/CTID: %w", err)
+		}
+	}
+	plan, err := ResolveInstanceConsoleTerminalPlan(p.Type, inst.InstanceType, runtimeID, protocol)
 	if err != nil {
 		return InstanceConsoleTerminalTarget{}, err
 	}
@@ -186,7 +196,7 @@ func resolveInstanceConsoleTerminal(instanceID, userID uint, admin bool, protoco
 		InstanceID:      inst.ID,
 		InstanceName:    inst.Name,
 		InstanceType:    inst.InstanceType,
-		ProviderRuntime: inst.ProviderInstanceIdentifier(),
+		ProviderRuntime: runtimeID,
 	}, nil
 }
 
@@ -194,6 +204,13 @@ func resolveInstanceConsoleTerminal(instanceID, userID uint, admin bool, protoco
 // terminal plan for one user-owned running instance.
 func ResolveInstanceConsoleTerminalForUser(instanceID, userID uint, protocol string) (InstanceConsoleTerminalTarget, error) {
 	return resolveInstanceConsoleTerminal(instanceID, userID, false, protocol)
+}
+
+// ResolveInstanceConsoleTerminalForAdmin resolves a fixed provider-side
+// terminal plan for an administrator-selected instance, including unassigned
+// instances that do not have a customer owner record.
+func ResolveInstanceConsoleTerminalForAdmin(instanceID uint, protocol string) (InstanceConsoleTerminalTarget, error) {
+	return resolveInstanceConsoleTerminal(instanceID, 0, true, protocol)
 }
 
 // ResolveInstanceConsoleTerminalPlan resolves a known provider-side terminal

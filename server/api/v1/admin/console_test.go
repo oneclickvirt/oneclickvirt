@@ -60,6 +60,17 @@ func TestParseDiscoveredConsoleKeepsVNCAndSPICESeparate(t *testing.T) {
 	}
 }
 
+func TestRewriteSpiceHTMLBindsToSelectedConsoleScope(t *testing.T) {
+	body := []byte(`<script>spice_query_var('path', 'websockify')</script>`)
+	rewritten := string(rewriteSpiceHTMLWithWebSocketPath(body, "/api/v1/admin/instances/42/console/spice-ws"))
+	if !strings.Contains(rewritten, "/api/v1/admin/instances/42/console/spice-ws") {
+		t.Fatalf("rewritten SPICE HTML = %q", rewritten)
+	}
+	if strings.Contains(rewritten, "'websockify'") {
+		t.Fatalf("rewritten SPICE HTML retained node websockify path: %q", rewritten)
+	}
+}
+
 func TestValidateNativeConsoleURLRejectsBrowserPathReinterpretation(t *testing.T) {
 	provider := providerModel.Provider{Endpoint: "https://node.example.test:8443"}
 	for _, rawURL := range []string{
@@ -182,6 +193,8 @@ func TestConsoleTargetInfoPrefersAvailableProtocolOverRepairable(t *testing.T) {
 func TestConsoleStateCachesPruneExpiredEntries(t *testing.T) {
 	oldRepairStates := consoleRepairs
 	oldHealthStates := spiceHealthCache
+	oldAssetTargets := spiceAssetTargetCache
+	oldAssetFlights := spiceAssetTargetFlights
 	consoleRepairs = map[uint]consoleRepairState{
 		1: {status: "ready", updatedAt: time.Now().Add(-consoleRepairStateTTL - time.Second)},
 		2: {status: "running", updatedAt: time.Now().Add(-consoleRepairStateTTL - time.Second)},
@@ -190,9 +203,16 @@ func TestConsoleStateCachesPruneExpiredEntries(t *testing.T) {
 		3: {available: true, checkedAt: time.Now().Add(-spiceHealthCacheTTL - time.Second)},
 		4: {available: true, checkedAt: time.Now()},
 	}
+	spiceAssetTargetCache = map[spiceAssetTargetCacheKey]spiceAssetTargetCacheEntry{
+		{instanceID: 5, userID: 7}: {target: consoleTarget{instanceID: 5}, resolvedAt: time.Now().Add(-spiceAssetTargetCacheTTL - time.Second)},
+		{instanceID: 6, userID: 7}: {target: consoleTarget{instanceID: 6}, resolvedAt: time.Now()},
+	}
+	spiceAssetTargetFlights = make(map[spiceAssetTargetCacheKey]*spiceAssetTargetFlight)
 	t.Cleanup(func() {
 		consoleRepairs = oldRepairStates
 		spiceHealthCache = oldHealthStates
+		spiceAssetTargetCache = oldAssetTargets
+		spiceAssetTargetFlights = oldAssetFlights
 	})
 
 	consoleRepairMu.Lock()
@@ -211,6 +231,16 @@ func TestConsoleStateCachesPruneExpiredEntries(t *testing.T) {
 	spiceHealthMu.Unlock()
 	if oldHealthRemains || !freshHealthRemains {
 		t.Fatalf("SPICE health pruning retained expired or removed fresh state: %#v", spiceHealthCache)
+	}
+	if _, cached := cachedSPICEAssetTarget(spiceAssetTargetCacheKey{instanceID: 5, userID: 7}, time.Now()); cached {
+		t.Fatal("expired SPICE asset target remained cached")
+	}
+	if target, cached := cachedSPICEAssetTarget(spiceAssetTargetCacheKey{instanceID: 6, userID: 7}, time.Now()); !cached || target.instanceID != 6 {
+		t.Fatalf("fresh SPICE asset target = (%#v, %v)", target, cached)
+	}
+	invalidateSPICEAssetTargets(6)
+	if _, cached := cachedSPICEAssetTarget(spiceAssetTargetCacheKey{instanceID: 6, userID: 7}, time.Now()); cached {
+		t.Fatal("invalidated SPICE asset target remained cached")
 	}
 }
 
@@ -295,6 +325,13 @@ func TestConsoleTerminalPlansCoverRuntimeAttachNamespaceAndSerial(t *testing.T) 
 	}
 }
 
+func TestConsoleTerminalPlansTreatLegacyVMTypeAsVirtualMachine(t *testing.T) {
+	plans := consoleTerminalPlans("proxmox", " Virtual-Machine ", "100")
+	if len(plans) != 1 || plans[0].Protocol != consoleProtocolSerial || plans[0].Command != "qm terminal '100'" {
+		t.Fatalf("legacy PVE VM plans = %#v, want qm serial console", plans)
+	}
+}
+
 func TestIsTerminalConsoleProtocol(t *testing.T) {
 	for _, protocol := range []string{consoleProtocolExec, consoleProtocolAttach, consoleProtocolNamespace, consoleProtocolSerial} {
 		if !isTerminalConsoleProtocol(protocol) {
@@ -316,7 +353,7 @@ func TestConsoleTerminalTransportRequiresUsableProviderConnection(t *testing.T) 
 		wantReason    bool
 	}{
 		{name: "ssh", provider: providerModel.Provider{ConnectionType: "ssh", Endpoint: "node.example:22", Username: "root"}, wantTransport: "ssh"},
-		{name: "agent", provider: providerModel.Provider{ConnectionType: "agent"}, wantTransport: "agent"},
+		{name: "offline agent", provider: providerModel.Provider{ID: ^uint(0) - 1, ConnectionType: "agent", AgentStatus: "online"}, wantTransport: "agent", wantReason: true},
 		{name: "missing ssh credentials", provider: providerModel.Provider{ConnectionType: "ssh", Endpoint: "node.example"}, wantTransport: "ssh", wantReason: true},
 		{name: "unsupported", provider: providerModel.Provider{ConnectionType: "api"}, wantTransport: "api", wantReason: true},
 	} {

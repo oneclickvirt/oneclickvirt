@@ -109,11 +109,12 @@
     />
 
     <VNCDialog
-      v-if="!isShareMode"
       v-model="showVNCDialog"
       :instance-id="currentInstanceId"
       :instance-name="instance.name"
       :initial-protocol="selectedConsoleProtocol"
+      :scope="isShareMode ? 'share' : 'user'"
+      :share-token="shareToken"
     />
 
     <!-- 重置系统镜像选择对话框 -->

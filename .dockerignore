@@ -44,6 +44,8 @@ deploy/*
 !deploy/no-db-entrypoint.sh
 !deploy/all-in-one-entrypoint.sh
 !deploy/default.conf
+!deploy/all-in-one-nginx.conf
+!deploy/runtime-overlay.dockerfile
 
 # Misc
 copy_project.sh

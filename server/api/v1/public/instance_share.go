@@ -68,7 +68,28 @@ func getPublicControllerAccessHost(c *gin.Context) string {
 }
 
 func loadSharedInstance(c *gin.Context) (*providerModel.InstanceShareLink, *providerModel.Instance, bool) {
-	link, instance, err := shareService.NewInstanceShareService().Validate(c.Param("token"))
+	return loadSharedInstanceWithUsage(c, true)
+}
+
+// loadSharedInstanceReadOnly keeps token validation current for static
+// share-scoped browser resources without counting each asset as a separate
+// interactive share use.
+func loadSharedInstanceReadOnly(c *gin.Context) (*providerModel.InstanceShareLink, *providerModel.Instance, bool) {
+	return loadSharedInstanceWithUsage(c, false)
+}
+
+func loadSharedInstanceWithUsage(c *gin.Context, recordUse bool) (*providerModel.InstanceShareLink, *providerModel.Instance, bool) {
+	service := shareService.NewInstanceShareService()
+	var (
+		link     *providerModel.InstanceShareLink
+		instance *providerModel.Instance
+		err      error
+	)
+	if recordUse {
+		link, instance, err = service.Validate(c.Param("token"))
+	} else {
+		link, instance, err = service.ValidateReadOnly(c.Param("token"))
+	}
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
 		return nil, nil, false

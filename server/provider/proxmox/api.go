@@ -253,6 +253,7 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 			zap.String("name", config.Name),
 			zap.Error(err))
 	}
+	p.persistCreatedRuntimeID(config.Name, vmid)
 
 	updateProgress(100, "Proxmox API实例创建完成")
 

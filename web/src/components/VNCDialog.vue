@@ -23,11 +23,20 @@
           size="small"
           :type="selectedProtocol === capability.protocol ? 'primary' : 'default'"
           :disabled="!capability.available && !capability.repairable && !capability.nativeURL"
+          :title="capability.reason || ''"
           @click="selectProtocol(capability.protocol)"
         >
           {{ protocolLabel(capability.protocol) }}
         </el-button>
       </div>
+
+      <el-alert
+        v-if="!selectedProtocol && capabilities.length"
+        :title="t('user.instanceDetail.consoleSelectProtocol')"
+        type="info"
+        :closable="false"
+        show-icon
+      />
 
       <el-alert
         v-if="selectedCapability && (!selectedCapability.available || selectedCapability.protocol === 'unsupported')"
@@ -57,6 +66,14 @@
           </el-button>
         </div>
       </el-alert>
+
+      <el-alert
+        v-if="selectedCapability?.available && status === 'error' && statusMessage"
+        :title="statusMessage"
+        type="error"
+        :closable="false"
+        show-icon
+      />
 
       <div
         v-if="selectedProtocol === 'vnc' && selectedCapability?.available"
@@ -100,16 +117,25 @@
         v-else-if="selectedProtocol === 'spice' && selectedCapability?.available"
         class="spice-shell"
       >
-        <div class="console-status-hint">
-          {{ t('user.instanceDetail.consoleSpiceHint') }}
-        </div>
-        <iframe
-          :key="spiceAssetUrl"
-          class="spice-frame"
-          :src="spiceAssetUrl"
-          :title="t('user.instanceDetail.consoleSpice')"
-          allow="clipboard-read; clipboard-write"
+        <el-alert
+          v-if="spicePreparing"
+          :title="t('user.instanceDetail.consoleSpicePreparing')"
+          type="info"
+          :closable="false"
+          show-icon
         />
+        <template v-else-if="spiceReady">
+          <div class="console-status-hint">
+            {{ t('user.instanceDetail.consoleSpiceHint') }}
+          </div>
+          <iframe
+            :key="spiceAssetUrl"
+            class="spice-frame"
+            :src="spiceAssetUrl"
+            :title="t('user.instanceDetail.consoleSpice')"
+            allow="clipboard-read; clipboard-write"
+          />
+        </template>
       </div>
 
       <div
@@ -117,8 +143,11 @@
         class="terminal-shell"
       >
         <ConsoleTerminal
+          :key="selectedProtocol"
           :instance-id="instanceId"
           :protocol="selectedProtocol"
+          :scope="scope"
+          :share-token="shareToken"
         />
         <el-button
           v-if="selectedCapability.nativeURL"
@@ -151,22 +180,25 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import RFB from '@novnc/novnc/lib/rfb.js'
 import {
-  getUserInstanceConsoleInfo,
-  getUserInstanceConsoleSpiceAssetUrl,
-  getUserInstanceConsoleWsUrl,
-  repairUserInstanceConsole
-} from '@/api/user'
+  getScopedInstanceConsoleInfo,
+  getScopedInstanceConsoleSpiceAssetUrl,
+  getScopedInstanceConsoleWsUrl,
+  repairScopedInstanceConsole
+} from '@/api/console'
 import VNCShortcutToolbar from '@/components/VNCShortcutToolbar.vue'
 import ConsoleTerminal from '@/components/ConsoleTerminal.vue'
 import { sendVNCShortcut } from '@/utils/vncKeyboard'
 import { copyToClipboard, readFromClipboard } from '@/utils/clipboard'
 import { getTextFromVNCPasteEvent, getVNCClipboardMode } from '@/utils/vncClipboard'
+import { normalizeConsoleCapabilities } from '@/utils/consoleCapabilities'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   instanceId: { type: [Number, String], required: true },
   instanceName: { type: String, default: '' },
-  initialProtocol: { type: String, default: '' }
+  initialProtocol: { type: String, default: '' },
+  scope: { type: String, default: 'user' },
+  shareToken: { type: String, default: '' }
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -181,10 +213,14 @@ const status = ref('idle')
 const statusMessage = ref('')
 const capabilities = ref([])
 const selectedProtocol = ref('')
-let autoRepairStarted = false
 const remoteClipboardText = ref(null)
 const clipboardMode = ref('unknown')
+const spicePreparing = ref(false)
+const spiceReady = ref(false)
 let clipboardCapabilityTimers = []
+let connectionAttempt = 0
+let lastReportedConsoleError = ''
+let capabilityRequest = 0
 
 const hasBrowserClipboardRead = () => typeof navigator !== 'undefined'
   && !!navigator.clipboard
@@ -225,7 +261,12 @@ const title = computed(() => props.instanceName
   : t('user.instanceDetail.webConsole'))
 
 const selectedCapability = computed(() => capabilities.value.find(item => item.protocol === selectedProtocol.value) || null)
-const spiceAssetUrl = computed(() => getUserInstanceConsoleSpiceAssetUrl(props.instanceId))
+const consoleOptions = () => ({
+  scope: props.scope,
+  instanceId: props.instanceId,
+  shareToken: props.shareToken
+})
+const spiceAssetUrl = computed(() => getScopedInstanceConsoleSpiceAssetUrl(consoleOptions()))
 
 const protocolLabel = protocol => {
   const labels = {
@@ -348,6 +389,41 @@ function clearClipboardCapabilityTimers() {
   clipboardCapabilityTimers = []
 }
 
+function reportConsoleError(message, attempt = connectionAttempt) {
+	if (attempt !== connectionAttempt) return
+	const fallback = t('user.instanceDetail.consoleUnavailable')
+	const normalized = String(message || fallback).trim().slice(0, 1200) || fallback
+	status.value = 'error'
+	statusMessage.value = normalized
+	connecting.value = false
+	spicePreparing.value = false
+	spiceReady.value = false
+	if (lastReportedConsoleError !== normalized) {
+		lastReportedConsoleError = normalized
+		ElMessage.error(normalized)
+	}
+}
+
+async function readConsoleResponseError(response) {
+	let text = ''
+	try {
+		text = (await response.text()).trim()
+	} catch {
+		return `${t('user.instanceDetail.consoleSpicePreflightFailed')} (HTTP ${response.status})`
+	}
+	if (text) {
+		try {
+			const parsed = JSON.parse(text)
+			const message = parsed?.details || parsed?.message || parsed?.data?.details || parsed?.data?.message
+			if (message) return String(message).trim().slice(0, 1200)
+		} catch {
+			const plainText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+			if (plainText) return plainText.slice(0, 1200)
+		}
+	}
+	return `${t('user.instanceDetail.consoleSpicePreflightFailed')} (HTTP ${response.status})`
+}
+
 function scheduleClipboardCapabilityRefresh(client) {
   clearClipboardCapabilityTimers()
   clipboardCapabilityTimers = [250, 1000].map(delay => window.setTimeout(() => {
@@ -356,7 +432,9 @@ function scheduleClipboardCapabilityRefresh(client) {
 }
 
 function disconnect() {
-  clearClipboardCapabilityTimers()
+	connectionAttempt += 1
+	capabilityRequest += 1
+	clearClipboardCapabilityTimers()
   if (rfb.value) {
     try {
       rfb.value.disconnect()
@@ -366,106 +444,127 @@ function disconnect() {
     rfb.value = null
   }
   connecting.value = false
-  remoteClipboardText.value = null
-  clipboardMode.value = 'unknown'
-  if (status.value !== 'error') {
+	remoteClipboardText.value = null
+	clipboardMode.value = 'unknown'
+	spicePreparing.value = false
+	spiceReady.value = false
+	if (status.value !== 'error') {
     status.value = 'disconnected'
   }
 }
 
 function setCapabilities(info) {
-  const next = Array.isArray(info?.capabilities) ? info.capabilities : []
-  capabilities.value = next.length
-    ? next
-    : [{ protocol: 'unsupported', available: false, repairable: false, reason: info?.reason || t('user.instanceDetail.consoleUnknownError') }]
-  const preferred = props.initialProtocol || selectedProtocol.value
-  const selected = capabilities.value.find(item => item.protocol === preferred && (item.available || item.repairable)) ||
-    capabilities.value.find(item => item.protocol === 'vnc' && item.available) ||
-    capabilities.value.find(item => item.protocol === 'spice' && (item.available || item.repairable)) ||
-    capabilities.value.find(item => item.available || item.repairable) ||
-    capabilities.value[0]
-  selectedProtocol.value = selected?.protocol || 'unsupported'
+  capabilities.value = normalizeConsoleCapabilities(
+    info,
+    t('user.instanceDetail.consoleUnknownError')
+  )
+  // Fetching capability metadata must not implicitly launch a remote desktop,
+  // terminal, or repair task. The user explicitly chooses a protocol first.
+  selectedProtocol.value = capabilities.value.length === 1 && capabilities.value[0].protocol === 'unsupported'
+    ? 'unsupported'
+    : ''
 }
 
 async function loadConsoleInfo() {
-  loadingCapabilities.value = true
-  try {
-    const res = await getUserInstanceConsoleInfo(props.instanceId)
-    setCapabilities(res.data || {})
-    const capability = selectedCapability.value
-    if (capability?.protocol === 'vnc' && capability.available) {
-      // setCapabilities changes the rendered branch; wait for screenRef to be
-      // mounted before constructing noVNC on the initial dialog open.
-      await nextTick()
-      await connectVNC()
-    } else if (capability?.protocol === 'spice' && capability.repairable && !capability.available && !autoRepairStarted) {
-      autoRepairStarted = true
-      await repairConsole()
-    }
-  } catch (error) {
-    setCapabilities({ reason: error?.fullMessage || error?.userMessage || error?.message || t('user.instanceDetail.consoleUnknownError') })
-    status.value = 'error'
-    statusMessage.value = error?.fullMessage || error?.userMessage || error?.message || t('user.instanceDetail.consoleUnavailable')
-    ElMessage.error(statusMessage.value)
-  } finally {
-    loadingCapabilities.value = false
-  }
+	const request = ++capabilityRequest
+	loadingCapabilities.value = true
+	try {
+		const res = await getScopedInstanceConsoleInfo(consoleOptions())
+		if (request !== capabilityRequest || !props.modelValue) return
+		setCapabilities(res.data || {})
+	} catch (error) {
+		if (request !== capabilityRequest || !props.modelValue) return
+		setCapabilities({ reason: error?.fullMessage || error?.userMessage || error?.message || t('user.instanceDetail.consoleUnknownError') })
+		reportConsoleError(error?.fullMessage || error?.userMessage || error?.message || t('user.instanceDetail.consoleUnavailable'))
+	} finally {
+		if (request === capabilityRequest) loadingCapabilities.value = false
+	}
 }
 
 async function connectVNC() {
-  if (!props.instanceId || !screenRef.value) return
-  disconnect()
-  connecting.value = true
-  status.value = 'connecting'
-  statusMessage.value = ''
-  try {
-    const client = new RFB(screenRef.value, getUserInstanceConsoleWsUrl(props.instanceId, 'vnc'))
+	if (!props.instanceId || !screenRef.value) return
+	disconnect()
+	const attempt = ++connectionAttempt
+	connecting.value = true
+	status.value = 'connecting'
+	statusMessage.value = ''
+	lastReportedConsoleError = ''
+	try {
+		const client = new RFB(screenRef.value, getScopedInstanceConsoleWsUrl(consoleOptions(), 'vnc'))
     client.scaleViewport = true
     client.resizeSession = false
     client.clipViewport = true
-    client.background = '#111827'
-    client.addEventListener('connect', () => {
-      status.value = 'connected'
-      connecting.value = false
+		client.background = '#111827'
+		client.addEventListener('connect', () => {
+			if (attempt !== connectionAttempt) return
+			status.value = 'connected'
+			connecting.value = false
       refreshClipboardMode(client)
       scheduleClipboardCapabilityRefresh(client)
     })
-    client.addEventListener('clipboard', handleRemoteClipboard)
-    client.addEventListener('disconnect', event => {
-      if (status.value !== 'error') {
-        status.value = event.detail?.clean ? 'disconnected' : 'error'
-        statusMessage.value = event.detail?.clean ? '' : t('user.instanceDetail.vncDisconnected')
-      }
-      connecting.value = false
-    })
-    client.addEventListener('securityfailure', event => {
-      status.value = 'error'
-      statusMessage.value = event.detail?.reason || t('user.instanceDetail.vncUnavailable')
-      connecting.value = false
-    })
-    rfb.value = client
-  } catch (error) {
-    status.value = 'error'
-    statusMessage.value = error?.message || t('user.instanceDetail.vncUnavailable')
-  } finally {
-    if (status.value !== 'connecting') {
-      connecting.value = false
-    }
-  }
+		client.addEventListener('clipboard', handleRemoteClipboard)
+		client.addEventListener('disconnect', event => {
+			if (attempt !== connectionAttempt) return
+			if (!event.detail?.clean && status.value !== 'error') {
+				reportConsoleError(event.detail?.reason || event.detail?.message || t('user.instanceDetail.vncDisconnected'), attempt)
+			} else if (status.value !== 'error') {
+				status.value = 'disconnected'
+				statusMessage.value = ''
+			}
+			connecting.value = false
+		})
+		client.addEventListener('securityfailure', event => {
+			reportConsoleError(event.detail?.reason || event.detail?.message || t('user.instanceDetail.vncUnavailable'), attempt)
+		})
+		rfb.value = client
+	} catch (error) {
+		reportConsoleError(error?.message || t('user.instanceDetail.vncUnavailable'), attempt)
+	} finally {
+		if (attempt === connectionAttempt && status.value !== 'connecting') {
+			connecting.value = false
+		}
+	}
+}
+
+async function prepareSPICE() {
+	const attempt = ++connectionAttempt
+	spicePreparing.value = true
+	spiceReady.value = false
+	status.value = 'connecting'
+	statusMessage.value = ''
+	lastReportedConsoleError = ''
+	try {
+		const response = await fetch(spiceAssetUrl.value, {
+			cache: 'no-store',
+			credentials: 'same-origin'
+		})
+		if (!response.ok) {
+			throw new Error(await readConsoleResponseError(response))
+		}
+		if (attempt !== connectionAttempt) return
+		spiceReady.value = true
+		status.value = 'connected'
+	} catch (error) {
+		reportConsoleError(error?.message || t('user.instanceDetail.consoleSpicePreflightFailed'), attempt)
+	} finally {
+		if (attempt === connectionAttempt) {
+			spicePreparing.value = false
+		}
+	}
 }
 
 async function selectProtocol(protocol) {
   const capability = capabilities.value.find(item => item.protocol === protocol)
   if (!capability) return
-  selectedProtocol.value = protocol
-  disconnect()
-  statusMessage.value = ''
-  if (protocol === 'vnc' && capability.available) {
-    await nextTick()
-    await connectVNC()
-  } else if (protocol === 'spice' && capability.repairable && !capability.available) {
-    await repairConsole()
-  }
+	selectedProtocol.value = protocol
+	disconnect()
+	statusMessage.value = ''
+	if (protocol === 'vnc' && capability.available) {
+		await nextTick()
+		await connectVNC()
+	} else if (protocol === 'spice' && capability.available) {
+		await prepareSPICE()
+	}
 }
 
 async function repairConsole() {
@@ -473,16 +572,16 @@ async function repairConsole() {
   repairing.value = true
   statusMessage.value = t('user.instanceDetail.consoleRepairing')
   try {
-    await repairUserInstanceConsole(props.instanceId)
+    await repairScopedInstanceConsole(consoleOptions())
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await new Promise(resolve => window.setTimeout(resolve, 1000))
-      const res = await getUserInstanceConsoleInfo(props.instanceId)
+      const res = await getScopedInstanceConsoleInfo(consoleOptions())
       setCapabilities(res.data || {})
-      const capability = capabilities.value.find(item => item.protocol === 'spice')
-      if (capability?.available) {
-        selectedProtocol.value = 'spice'
-        statusMessage.value = ''
-        return
+		const capability = capabilities.value.find(item => item.protocol === 'spice')
+		if (capability?.available) {
+			selectedProtocol.value = 'spice'
+			await prepareSPICE()
+			return
       }
       if (capability?.repairStatus === 'failed') {
         throw new Error(capability.reason || t('user.instanceDetail.consoleRepairFailed'))
@@ -505,9 +604,8 @@ function openNativeConsole() {
 }
 
 async function connect() {
-  autoRepairStarted = false
   disconnect()
-  status.value = 'connecting'
+  status.value = 'idle'
   statusMessage.value = ''
   await nextTick()
   await loadConsoleInfo()
@@ -520,7 +618,7 @@ watch(() => props.modelValue, async visible => {
   } else {
     disconnect()
   }
-})
+}, { immediate: true })
 
 onBeforeUnmount(disconnect)
 </script>

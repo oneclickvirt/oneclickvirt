@@ -170,7 +170,7 @@
             {{ $t('user.instanceDetail.webSSH') }}
           </el-button>
           <el-button
-            v-if="instance.status === 'running' && !shareMode"
+            v-if="instance.status === 'running'"
             type="primary"
             size="small"
             :disabled="operationLocked"

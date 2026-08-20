@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	spiceHealthCacheTTL     = 10 * time.Second
-	spiceHealthProbeTimeout = 4 * time.Second
+	spiceHealthCacheTTL      = 10 * time.Second
+	spiceHealthProbeTimeout  = 4 * time.Second
+	spiceAssetTargetCacheTTL = 10 * time.Second
 )
 
 func isTerminalConsoleProtocol(protocol string) bool {
@@ -41,11 +42,32 @@ type spiceHealthState struct {
 	checkedAt time.Time
 }
 
+type spiceAssetTargetCacheKey struct {
+	instanceID uint
+	userID     uint
+	admin      bool
+}
+
+type spiceAssetTargetCacheEntry struct {
+	target     consoleTarget
+	resolvedAt time.Time
+}
+
+type spiceAssetTargetFlight struct {
+	done   chan struct{}
+	target consoleTarget
+	err    error
+}
+
 var (
 	spiceHealthMu       sync.Mutex
 	spiceHealthCache    = make(map[uint]spiceHealthState)
 	spiceHealthInFlight = make(map[uint]chan struct{})
 	spiceHealthSlots    = make(chan struct{}, 8)
+
+	spiceAssetTargetMu      sync.Mutex
+	spiceAssetTargetCache   = make(map[spiceAssetTargetCacheKey]spiceAssetTargetCacheEntry)
+	spiceAssetTargetFlights = make(map[spiceAssetTargetCacheKey]*spiceAssetTargetFlight)
 )
 
 func invalidateSPICEHealth(instanceID uint) {
@@ -53,6 +75,76 @@ func invalidateSPICEHealth(instanceID uint) {
 	pruneSPICEHealthLocked(time.Now())
 	delete(spiceHealthCache, instanceID)
 	spiceHealthMu.Unlock()
+	invalidateSPICEAssetTargets(instanceID)
+}
+
+// invalidateSPICEAssetTargets drops only short-lived target metadata. It runs
+// after repair or health invalidation so iframe resources use current records.
+func invalidateSPICEAssetTargets(instanceID uint) {
+	spiceAssetTargetMu.Lock()
+	for key := range spiceAssetTargetCache {
+		if key.instanceID == instanceID {
+			delete(spiceAssetTargetCache, key)
+		}
+	}
+	spiceAssetTargetMu.Unlock()
+}
+
+func cachedSPICEAssetTarget(key spiceAssetTargetCacheKey, now time.Time) (consoleTarget, bool) {
+	spiceAssetTargetMu.Lock()
+	defer spiceAssetTargetMu.Unlock()
+	for cacheKey, entry := range spiceAssetTargetCache {
+		if now.Sub(entry.resolvedAt) > spiceAssetTargetCacheTTL {
+			delete(spiceAssetTargetCache, cacheKey)
+		}
+	}
+	entry, ok := spiceAssetTargetCache[key]
+	if !ok {
+		return consoleTarget{}, false
+	}
+	return entry.target, true
+}
+
+// resolveCachedSPICEAssetTarget avoids resolving instance/provider records for
+// every CSS and JavaScript asset requested by spice-html5. Route handlers still
+// authorize each request before this function runs. Only an available target is
+// cached, and no database or remote operation occurs while a cache lock is held.
+func resolveCachedSPICEAssetTarget(instanceID, userID uint, admin bool) (consoleTarget, error) {
+	key := spiceAssetTargetCacheKey{instanceID: instanceID, userID: userID, admin: admin}
+	if target, ok := cachedSPICEAssetTarget(key, time.Now()); ok {
+		return target, nil
+	}
+
+	spiceAssetTargetMu.Lock()
+	if flight, ok := spiceAssetTargetFlights[key]; ok {
+		spiceAssetTargetMu.Unlock()
+		select {
+		case <-flight.done:
+			if target, cached := cachedSPICEAssetTarget(key, time.Now()); cached {
+				return target, nil
+			}
+			return flight.target, flight.err
+		case <-time.After(spiceHealthProbeTimeout):
+			return consoleTarget{}, fmt.Errorf("SPICE 控制台解析繁忙，请稍后重试")
+		}
+	}
+	flight := &spiceAssetTargetFlight{done: make(chan struct{})}
+	spiceAssetTargetFlights[key] = flight
+	spiceAssetTargetMu.Unlock()
+
+	target, err := resolveInstanceConsoleTargetForProtocol(instanceID, userID, admin, consoleProtocolSPICE)
+	if err == nil && target.available {
+		spiceAssetTargetMu.Lock()
+		spiceAssetTargetCache[key] = spiceAssetTargetCacheEntry{target: target, resolvedAt: time.Now()}
+		spiceAssetTargetMu.Unlock()
+	}
+	spiceAssetTargetMu.Lock()
+	flight.target = target
+	flight.err = err
+	delete(spiceAssetTargetFlights, key)
+	close(flight.done)
+	spiceAssetTargetMu.Unlock()
+	return target, err
 }
 
 // pruneSPICEHealthLocked bounds the short-lived probe cache for controllers
@@ -212,9 +304,17 @@ func proxyInstanceConsoleWebSocket(c *gin.Context, target consoleTarget) {
 		proxySpiceWebSocket(ws, target)
 		return
 	}
+	if target.proxmoxVNC {
+		proxyProxmoxVNCWebSocket(ws, target)
+		return
+	}
 	conn, cleanup, err := openConsoleConn(target)
 	if err != nil {
-		_ = ws.WriteMessage(websocket.TextMessage, []byte(strings.ToUpper(target.protocol)+" 连接失败: "+err.Error()))
+		if target.protocol == consoleProtocolVNC {
+			writeVNCWebSocketFailure(ws, strings.ToUpper(target.protocol)+" 连接失败: "+err.Error())
+		} else {
+			_ = ws.WriteMessage(websocket.TextMessage, []byte(strings.ToUpper(target.protocol)+" 连接失败: "+err.Error()))
+		}
 		return
 	}
 	defer cleanup()
@@ -319,6 +419,12 @@ func proxySpiceWebSocket(panel *websocket.Conn, target consoleTarget) {
 
 func rewriteSpiceHTML(body []byte, instanceID uint) []byte {
 	wsPath := fmt.Sprintf("/api/v1/user/instances/%d/console/spice-ws", instanceID)
+	return rewriteSpiceHTMLWithWebSocketPath(body, wsPath)
+}
+
+// rewriteSpiceHTMLWithWebSocketPath binds node-supplied spice-html5 assets to
+// the already-authorized panel WebSocket for the active console scope.
+func rewriteSpiceHTMLWithWebSocketPath(body []byte, wsPath string) []byte {
 	replacement := fmt.Sprintf("spice_query_var('path', %q)", wsPath)
 	return spicePathPattern.ReplaceAll(body, []byte(replacement))
 }
@@ -360,7 +466,20 @@ func copySafeSpiceResponseHeaders(c *gin.Context, response *http.Response) {
 }
 
 func serveInstanceConsoleSpiceAsset(c *gin.Context, instanceID, userID uint) {
-	target, err := resolveInstanceConsoleTargetForProtocol(instanceID, userID, false, consoleProtocolSPICE)
+	serveInstanceConsoleSpiceAssetWithWebSocketPath(
+		c,
+		instanceID,
+		userID,
+		false,
+		fmt.Sprintf("/api/v1/user/instances/%d/console/spice-ws", instanceID),
+	)
+}
+
+// serveInstanceConsoleSpiceAssetWithWebSocketPath keeps SPICE assets behind
+// the panel while allowing each authenticated scope to use its own WebSocket
+// authorization path. The path is generated by trusted route handlers.
+func serveInstanceConsoleSpiceAssetWithWebSocketPath(c *gin.Context, instanceID, userID uint, admin bool, wsPath string) {
+	target, err := resolveCachedSPICEAssetTarget(instanceID, userID, admin)
 	if err != nil {
 		c.String(http.StatusBadGateway, "控制台不可用: %s", err.Error())
 		return
@@ -406,7 +525,7 @@ func serveInstanceConsoleSpiceAsset(c *gin.Context, instanceID, userID uint) {
 		return
 	}
 	if strings.HasSuffix(clean, ".html") {
-		body = rewriteSpiceHTML(body, instanceID)
+		body = rewriteSpiceHTMLWithWebSocketPath(body, wsPath)
 	}
 	copySafeSpiceResponseHeaders(c, response)
 	c.Writer.Header().Set("Content-Length", strconv.Itoa(len(body)))
@@ -419,19 +538,63 @@ func BuildInstanceConsoleInfoForUser(instanceID, userID uint) (gin.H, error) {
 	return buildInstanceConsoleInfo(instanceID, userID, false)
 }
 
+// BuildInstanceConsoleInfoForAdmin exposes the same provider-neutral
+// capability contract for an administrator-selected instance.
+func BuildInstanceConsoleInfoForAdmin(instanceID uint) (gin.H, error) {
+	return buildInstanceConsoleInfo(instanceID, 0, true)
+}
+
 // RepairInstanceConsoleForUser starts an asynchronous, idempotent SPICE setup.
 func RepairInstanceConsoleForUser(instanceID, userID uint) (gin.H, error) {
 	return startInstanceConsoleRepair(instanceID, userID, false)
 }
 
+// RepairInstanceConsoleForAdmin starts a bounded SPICE setup using admin
+// instance access rather than requiring a customer owner record.
+func RepairInstanceConsoleForAdmin(instanceID uint) (gin.H, error) {
+	return startInstanceConsoleRepair(instanceID, 0, true)
+}
+
 // ProxyInstanceConsoleForUser proxies the selected VNC or SPICE stream.
 func ProxyInstanceConsoleForUser(c *gin.Context, instanceID, userID uint) {
 	protocol := strings.ToLower(strings.TrimSpace(c.Query("protocol")))
+	if protocol == "" {
+		c.String(http.StatusBadRequest, "请先选择控制台协议")
+		return
+	}
 	if isTerminalConsoleProtocol(protocol) {
 		c.String(http.StatusBadRequest, "%s 控制台请使用终端入口，不能通过通用 TCP 控制台 WebSocket 建立", protocol)
 		return
 	}
 	target, err := resolveInstanceConsoleTargetForProtocol(instanceID, userID, false, protocol)
+	if err != nil {
+		c.String(http.StatusBadGateway, "控制台不可用: %s", err.Error())
+		return
+	}
+	if !target.available {
+		c.String(http.StatusBadGateway, "控制台不可用: %s", target.reason)
+		return
+	}
+	if target.protocol != consoleProtocolVNC && target.protocol != consoleProtocolSPICE {
+		c.String(http.StatusBadRequest, "协议 %q 需要使用原生控制台链接，不能通过通用 WebSocket 代理", target.protocol)
+		return
+	}
+	proxyInstanceConsoleWebSocket(c, target)
+}
+
+// ProxyInstanceConsoleForAdmin proxies the explicitly selected VNC/SPICE
+// transport for an administrator-authorized instance.
+func ProxyInstanceConsoleForAdmin(c *gin.Context, instanceID uint) {
+	protocol := strings.ToLower(strings.TrimSpace(c.Query("protocol")))
+	if protocol == "" {
+		c.String(http.StatusBadRequest, "请先选择控制台协议")
+		return
+	}
+	if isTerminalConsoleProtocol(protocol) {
+		c.String(http.StatusBadRequest, "%s 控制台请使用终端入口，不能通过通用 TCP 控制台 WebSocket 建立", protocol)
+		return
+	}
+	target, err := resolveInstanceConsoleTargetForProtocol(instanceID, 0, true, protocol)
 	if err != nil {
 		c.String(http.StatusBadGateway, "控制台不可用: %s", err.Error())
 		return
@@ -461,8 +624,43 @@ func ProxyInstanceConsoleSpiceForUser(c *gin.Context, instanceID, userID uint) {
 	proxyInstanceConsoleWebSocket(c, target)
 }
 
+// ProxyInstanceConsoleSpiceForAdmin proxies the websockify stream for an
+// administrator-authorized SPICE console.
+func ProxyInstanceConsoleSpiceForAdmin(c *gin.Context, instanceID uint) {
+	target, err := resolveInstanceConsoleTargetForProtocol(instanceID, 0, true, consoleProtocolSPICE)
+	if err != nil {
+		c.String(http.StatusBadGateway, "SPICE 控制台不可用: %s", err.Error())
+		return
+	}
+	if !target.available {
+		c.String(http.StatusBadGateway, "SPICE 控制台不可用: %s", target.reason)
+		return
+	}
+	proxyInstanceConsoleWebSocket(c, target)
+}
+
 // ServeInstanceConsoleSpiceAssetForUser serves spice-html5 through the
 // authenticated panel origin, keeping the node console port private.
 func ServeInstanceConsoleSpiceAssetForUser(c *gin.Context, instanceID, userID uint) {
 	serveInstanceConsoleSpiceAsset(c, instanceID, userID)
+}
+
+// ServeInstanceConsoleSpiceAssetForAdmin serves SPICE assets through the
+// administrator console route so iframe resource loads never require a JWT in
+// the URL.
+func ServeInstanceConsoleSpiceAssetForAdmin(c *gin.Context, instanceID uint) {
+	serveInstanceConsoleSpiceAssetWithWebSocketPath(
+		c,
+		instanceID,
+		0,
+		true,
+		fmt.Sprintf("/api/v1/admin/instances/%d/console/spice-ws", instanceID),
+	)
+}
+
+// ServeInstanceConsoleSpiceAssetForScopedUser is used by share-token routes.
+// They validate the token before calling this function and pass a route-owned
+// WebSocket path, retaining strict instance binding without exposing JWTs.
+func ServeInstanceConsoleSpiceAssetForScopedUser(c *gin.Context, instanceID, userID uint, wsPath string) {
+	serveInstanceConsoleSpiceAssetWithWebSocketPath(c, instanceID, userID, false, wsPath)
 }

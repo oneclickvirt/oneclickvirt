@@ -71,6 +71,19 @@ func NormalizeInstanceType(instanceType string) string {
 	return strings.ToLower(strings.TrimSpace(instanceType))
 }
 
+// IsVirtualMachineInstanceType accepts the legacy/provider-specific aliases
+// that can still appear on imported instance records. New records normally
+// use "vm", but console and discovery code must not silently downgrade an
+// existing VM to container behavior when an older value is encountered.
+func IsVirtualMachineInstanceType(instanceType string) bool {
+	switch NormalizeInstanceType(instanceType) {
+	case "vm", "virtual-machine", "virtual_machine", "virtualmachine", "qemu", "kvm":
+		return true
+	default:
+		return false
+	}
+}
+
 func IsLXDIncusProvider(providerType string) bool {
 	switch NormalizeProviderType(providerType) {
 	case "lxd", "incus":

@@ -49,3 +49,16 @@ func TestSystemImageProviderTypeMatchesAliasesAndLists(t *testing.T) {
 		})
 	}
 }
+
+func TestIsVirtualMachineInstanceTypeAcceptsLegacyAliases(t *testing.T) {
+	for _, input := range []string{"vm", " VM ", "virtual-machine", "virtual_machine", "virtualmachine", "qemu", "kvm"} {
+		if !IsVirtualMachineInstanceType(input) {
+			t.Fatalf("IsVirtualMachineInstanceType(%q) = false, want true", input)
+		}
+	}
+	for _, input := range []string{"container", "ct", "lxc", ""} {
+		if IsVirtualMachineInstanceType(input) {
+			t.Fatalf("IsVirtualMachineInstanceType(%q) = true, want false", input)
+		}
+	}
+}

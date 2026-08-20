@@ -54,13 +54,16 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
-import { getUserInstanceConsoleTerminalWsUrl } from '@/api/user'
+import { getScopedInstanceConsoleTerminalWsUrl } from '@/api/console'
 import { copyToClipboard, readFromClipboard } from '@/utils/clipboard'
+import { createSerialConsoleInputFilter } from '@/utils/serialConsoleInput'
 import { applyTerminalTheme } from '@/utils/terminalTheme'
 
 const props = defineProps({
   instanceId: { type: [Number, String], required: true },
-  protocol: { type: String, required: true }
+  protocol: { type: String, required: true },
+  scope: { type: String, default: 'user' },
+  shareToken: { type: String, default: '' }
 })
 
 const { t } = useI18n()
@@ -78,6 +81,34 @@ let resizeObserver = null
 let themeObserver = null
 let intentionallyClosed = false
 let socketFailed = false
+let serialInputFlushTimer = null
+let serialDSRHandler = null
+const serialInputFilter = createSerialConsoleInputFilter()
+
+function clearSerialInputFlushTimer() {
+  if (serialInputFlushTimer !== null) {
+    window.clearTimeout(serialInputFlushTimer)
+    serialInputFlushTimer = null
+  }
+}
+
+function flushPendingSerialInput() {
+  serialInputFlushTimer = null
+  const pending = serialInputFilter.flush()
+  if (pending && websocket?.readyState === WebSocket.OPEN) websocket.send(pending)
+}
+
+function schedulePendingSerialInputFlush() {
+  if (!serialInputFilter.hasPending() || serialInputFlushTimer !== null) return
+  // A lone Escape is valid terminal input. Give a potentially fragmented DSR
+  // response one event turn to finish, then preserve normal Escape behavior.
+  serialInputFlushTimer = window.setTimeout(flushPendingSerialInput, 25)
+}
+
+function filterSerialInput(data) {
+  if (props.protocol !== 'serial' || typeof data !== 'string') return data
+  return serialInputFilter.filter(data)
+}
 
 function hideContextMenu() {
   contextMenu.visible = false
@@ -111,9 +142,14 @@ async function pasteFromClipboard() {
     return
   }
   const text = await readFromClipboard(t('common.pasteFailed'))
-  if (text !== null && websocket?.readyState === WebSocket.OPEN) {
-    websocket.send(text)
-  }
+  if (text !== null) sendTerminalInput(text)
+}
+
+function sendTerminalInput(data) {
+  clearSerialInputFlushTimer()
+  const input = filterSerialInput(data)
+  if (input && websocket?.readyState === WebSocket.OPEN) websocket.send(input)
+  if (props.protocol === 'serial') schedulePendingSerialInputFlush()
 }
 
 function selectAll() {
@@ -176,6 +212,17 @@ function initTerminal() {
   terminal.open(terminalRef.value)
   applyTerminalTheme(terminal)
 
+  if (props.protocol === 'serial') {
+    // PVE's console relay can pass xterm's DSR reply through to a guest getty
+    // as keyboard input. Consume terminal-status queries before xterm creates
+    // a reply; the stream filter remains a fallback for older/browser-specific
+    // input paths.
+    serialDSRHandler = terminal.parser.registerCsiHandler({ final: 'n' }, params => {
+      const status = Number(params[0])
+      return params.length === 1 && (status === 5 || status === 6)
+    })
+  }
+
   terminal.attachCustomKeyEventHandler(event => {
     const ctrlOrCmd = isMac.value ? event.metaKey : event.ctrlKey
     if (ctrlOrCmd && event.shiftKey && event.code === 'KeyC') {
@@ -201,7 +248,7 @@ function initTerminal() {
     return true
   })
   terminal.onData(data => {
-    if (websocket?.readyState === WebSocket.OPEN) websocket.send(data)
+    sendTerminalInput(data)
   })
 
   resizeObserver = new ResizeObserver(sendResize)
@@ -213,13 +260,17 @@ function initTerminal() {
 
 function connect() {
   const token = sessionStorage.getItem('token') || ''
-  if (!token) {
+  if (props.scope !== 'share' && !token) {
     terminal?.writeln(`\x1b[31m${t('user.instanceDetail.consoleTerminalAuthMissing')}\x1b[0m`)
     return
   }
   terminal?.writeln(t('user.instanceDetail.consoleTerminalConnecting'))
   try {
-    websocket = new WebSocket(getUserInstanceConsoleTerminalWsUrl(props.instanceId, props.protocol))
+    websocket = new WebSocket(getScopedInstanceConsoleTerminalWsUrl({
+      scope: props.scope,
+      instanceId: props.instanceId,
+      shareToken: props.shareToken
+    }, props.protocol))
     websocket.binaryType = 'arraybuffer'
     websocket.onopen = () => {
       socketFailed = false
@@ -249,6 +300,10 @@ function connect() {
 
 function cleanup() {
   intentionallyClosed = true
+  clearSerialInputFlushTimer()
+  serialDSRHandler?.dispose()
+  serialDSRHandler = null
+  serialInputFilter.reset()
   stopHeartbeat()
   resizeObserver?.disconnect()
   resizeObserver = null

@@ -179,7 +179,21 @@ func (s *InstanceShareService) create(instance providerModel.Instance, ownerUser
 	}, nil
 }
 
+// Validate records an interactive use of a share link after validating it.
+// Asset-only console requests should use ValidateReadOnly so one iframe load
+// does not increment use_count once for every JavaScript and stylesheet file.
 func (s *InstanceShareService) Validate(token string) (*providerModel.InstanceShareLink, *providerModel.Instance, error) {
+	return s.validate(token, true)
+}
+
+// ValidateReadOnly performs the same current token/revocation/expiry checks
+// without mutating LastUsedAt or UseCount. It is intended for secondary
+// browser resources that are already bound to a validated share route.
+func (s *InstanceShareService) ValidateReadOnly(token string) (*providerModel.InstanceShareLink, *providerModel.Instance, error) {
+	return s.validate(token, false)
+}
+
+func (s *InstanceShareService) validate(token string, recordUse bool) (*providerModel.InstanceShareLink, *providerModel.Instance, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return nil, nil, fmt.Errorf("分享令牌不能为空")
@@ -203,11 +217,13 @@ func (s *InstanceShareService) Validate(token string) (*providerModel.InstanceSh
 	if err := global.APP_DB.First(&instance, link.InstanceID).Error; err != nil {
 		return nil, nil, fmt.Errorf("实例不存在")
 	}
-	_ = global.APP_DB.Model(&providerModel.InstanceShareLink{}).
-		Where("id = ?", link.ID).
-		Updates(map[string]interface{}{
-			"last_used_at": now,
-			"use_count":    gorm.Expr("use_count + ?", 1),
-		}).Error
+	if recordUse {
+		_ = global.APP_DB.Model(&providerModel.InstanceShareLink{}).
+			Where("id = ?", link.ID).
+			Updates(map[string]interface{}{
+				"last_used_at": now,
+				"use_count":    gorm.Expr("use_count + ?", 1),
+			}).Error
+	}
 	return &link, &instance, nil
 }

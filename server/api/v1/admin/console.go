@@ -46,6 +46,8 @@ type consoleTarget struct {
 	reason       string
 	nativeURL    string
 	terminal     bool
+	proxmoxVNC   bool
+	runtimeID    string
 	instanceID   uint
 	provider     providerModel.Provider
 }
@@ -81,6 +83,7 @@ func loadConsoleRecords(instanceID, userID uint, admin bool) (providerModel.Inst
 	if err := global.APP_DB.Select(
 		"id", "type", "endpoint", "port_ip", "ssh_port", "username", "password", "ssh_key",
 		"connection_type", "agent_status", "enable_vnc", "vnc_base_port", "vnc_host",
+		"host_name",
 	).First(&p, inst.ProviderID).Error; err != nil {
 		return inst, p, err
 	}
@@ -284,6 +287,26 @@ func normalizeConsoleTransport(p providerModel.Provider, transport string) strin
 	return ""
 }
 
+// consoleAgentTransportReason verifies the in-memory control channel rather
+// than trusting the persisted agent_status value. The database status can lag
+// briefly during controller restart or a disconnected Agent, while opening a
+// console needs a live connection right now.
+func consoleAgentTransportReason(providerID uint) string {
+	if providerID == 0 {
+		return "节点 Agent 缺少有效节点标识，无法建立宿主机控制台"
+	}
+	hub := agentService.GetHub()
+	health := hub.GetRuntimeHealth(providerID)
+	if !health.Connected || health.Status != "online" {
+		return "节点 Agent 当前离线，无法建立宿主机控制台"
+	}
+	conn, ok := hub.GetConn(providerID)
+	if !ok || conn == nil {
+		return "节点 Agent 控制通道尚未就绪，请稍后重试"
+	}
+	return ""
+}
+
 // normalizeVNCConsoleTransport intentionally keeps legacy VNC behavior: VNC
 // ports configured before the multi-protocol console existed were reachable at
 // the provider endpoint. Only an explicitly discovered transport opts into a
@@ -334,6 +357,20 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 	}
 	if inst.Status != constant.InstanceStatusRunning {
 		return nil, fmt.Errorf("实例未运行")
+	}
+	runtimeID := inst.ProviderInstanceIdentifier()
+	// Imported/legacy records may contain uppercase or whitespace around the
+	// instance type. Console capability selection must use the same normalized
+	// value as provider discovery so a VM is never treated as a container (or
+	// vice versa) merely because of record formatting.
+	instanceType := utils.NormalizeInstanceType(inst.InstanceType)
+	isVM := utils.IsVirtualMachineInstanceType(instanceType)
+	var proxmoxRuntimeErr error
+	if isProxmoxConsoleProviderType(p.Type) {
+		runtimeID, proxmoxRuntimeErr = resolveProxmoxConsoleRuntimeID(inst, p)
+		if proxmoxRuntimeErr == nil {
+			inst.ProviderVMID = runtimeID
+		}
 	}
 	metadata := parseDiscoveredConsole(inst.DiscoveredData)
 	metadata.spiceTransport = normalizeConsoleTransport(p, metadata.spiceTransport)
@@ -401,19 +438,33 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 		}
 		add(target)
 	}
-	for _, plan := range consoleTerminalPlans(p.Type, inst.InstanceType, inst.ProviderInstanceIdentifier()) {
+	terminalID := runtimeID
+	terminalReason := ""
+	if proxmoxRuntimeErr != nil {
+		// Preserve the supported protocol choices, but do not construct a command
+		// from a display name that PVE will reject as a VMID/CTID.
+		terminalID = "unresolved-proxmox-runtime"
+		terminalReason = "无法恢复 PVE VMID/CTID: " + proxmoxRuntimeErr.Error()
+	}
+	for _, plan := range consoleTerminalPlans(p.Type, instanceType, terminalID) {
 		transport, reason := consoleTerminalTransport(p)
+		if terminalReason != "" {
+			reason = terminalReason
+		}
 		add(consoleTarget{
 			protocol: plan.Protocol, transport: transport, terminal: true,
 			available: reason == "", reason: reason,
 			instanceID: instanceID, provider: p,
 		})
 	}
+	if isProxmoxConsoleProviderType(p.Type) && isVM {
+		add(buildProxmoxConsoleVNCTarget(inst, p, runtimeID, proxmoxRuntimeErr))
+	}
 
 	// Incus/LXD VMs expose SPICE through a Unix socket and do not have a stable
 	// TCP VNC port. Mark them repairable so the UI can initialize websockify
 	// with one explicit idempotent action and display the actual remote error.
-	if p.EnableVNC && inst.InstanceType == "vm" && consoleProviderTypeSupportsSPICE(p.Type) && metadata.spicePort == 0 {
+	if p.EnableVNC && isVM && consoleProviderTypeSupportsSPICE(p.Type) && metadata.spicePort == 0 {
 		status, reason := consoleRepairStatus(instanceID)
 		if reason == "" {
 			reason = "未检测到 SPICE 浏览器代理，将自动检查 qemu.spice 并配置 websockify"
@@ -428,7 +479,7 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 	// Existing VNC metadata is honoured for VMs and containers alike. Some
 	// Docker/special-runtime images intentionally provide a graphical VNC port.
 	vncPort := parseVNCDiscoveredPort(inst.DiscoveredData)
-	if p.EnableVNC && vncPort > 0 {
+	if p.EnableVNC && !isProxmoxConsoleProviderType(p.Type) && vncPort > 0 {
 		vncTransport := normalizeVNCConsoleTransport(p, metadata.transport)
 		host := metadata.host
 		if host == "" {
@@ -451,7 +502,7 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 		}
 		add(target)
 	}
-	if p.EnableVNC && inst.InstanceType == "vm" && consoleProviderTypeSupportsVNC(p.Type) {
+	if p.EnableVNC && isVM && !isProxmoxConsoleProviderType(p.Type) && consoleProviderTypeSupportsVNC(p.Type) {
 		vncTransport := normalizeVNCConsoleTransport(p, metadata.transport)
 		base := p.VNCBasePort
 		if base <= 0 {
@@ -595,6 +646,9 @@ func newConsoleExecutor(p providerModel.Provider) (utils.ShellExecutor, func(), 
 		return exec, func() {}, nil
 	}
 	if strings.EqualFold(strings.TrimSpace(p.ConnectionType), "agent") {
+		if reason := consoleAgentTransportReason(p.ID); reason != "" {
+			return nil, nil, fmt.Errorf("%s", reason)
+		}
 		exec := agentService.NewAgentShellExecutor(p.ID, agentService.GetHub())
 		return exec, func() {}, nil
 	}
