@@ -800,7 +800,7 @@ export default {
   // WebVNC configuration
   webVncSettings: "WebVNC Settings",
   enableVNC: "Enable WebVNC",
-  enableVNCTip: "Show WebVNC only for running VM instances. Ensure the controller can reach the node VNC port.",
+  enableVNCTip: "Controls proxying of fixed raw-VNC ports. PVE VMs use native temporary vncproxy and do not require this setting; for other nodes, ensure the controller can reach the VNC port.",
   vncBasePort: "VNC Base Port",
   vncBasePortTip: "When no instance-specific VNC port is discovered, the default target is base port + VMID. Default: 5900.",
   vncHost: "VNC Host",

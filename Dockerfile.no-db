@@ -130,6 +130,13 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-Port $server_port;' >> /etc/nginx/nginx.conf && \
     echo '        }' >> /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        # Never serve dotfiles or fall them back to the SPA.' >> /etc/nginx/nginx.conf && \
+    echo '        location ~ /\.(?!well-known(?:/|$)) {' >> /etc/nginx/nginx.conf && \
+    echo '            deny all;' >> /etc/nginx/nginx.conf && \
+    echo '            access_log off;' >> /etc/nginx/nginx.conf && \
+    echo '            log_not_found off;' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {' >> /etc/nginx/nginx.conf && \
     echo '            try_files $uri =404;' >> /etc/nginx/nginx.conf && \
     echo '            add_header Cache-Control "public, max-age=604800, immutable";' >> /etc/nginx/nginx.conf && \

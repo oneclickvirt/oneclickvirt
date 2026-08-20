@@ -603,13 +603,19 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	global.APP_LOG.Info("Provider创建实例成功", zap.Uint("taskId", task.ID), zap.String("instanceName", instance.Name))
 
 	if strings.TrimSpace(instance.ProviderVMID) == "" {
-		if err := global.APP_DB.Model(instance).Update("provider_vm_id", instance.Name).Error; err != nil {
+		// A provider with a native runtime identifier (notably PVE VMID/CTID)
+		// may have persisted it during creation. Keep the generic name fallback
+		// conditional so it cannot overwrite that authoritative value.
+		result := global.APP_DB.Model(instance).
+			Where("provider_vm_id IS NULL OR provider_vm_id = ''").
+			Update("provider_vm_id", instance.Name)
+		if result.Error != nil {
 			global.APP_LOG.Warn("写入实例远端ID失败",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instance.ID),
 				zap.String("providerInstanceId", instance.Name),
-				zap.Error(err))
-		} else {
+				zap.Error(result.Error))
+		} else if result.RowsAffected > 0 {
 			instance.ProviderVMID = instance.Name
 		}
 	}

@@ -53,6 +53,15 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.PUT("/snapshot-schedules/:id", admin.UpdateSnapshotSchedule)
 		NormalAdminGroup.DELETE("/snapshot-schedules/:id", admin.DeleteSnapshotSchedule)
 		NormalAdminGroup.GET("/instances/:id/ssh", admin.AdminSSHWebSocket)
+		// Provider-neutral console endpoints. Capability lookup is read-only;
+		// VNC, SPICE, and serial sessions are opened only after the selected
+		// protocol is sent back by the administrator UI.
+		NormalAdminGroup.GET("/instances/:id/console", admin.AdminInstanceConsoleInfo)
+		NormalAdminGroup.POST("/instances/:id/console/repair", admin.AdminInstanceConsoleRepair)
+		NormalAdminGroup.GET("/instances/:id/console/ws", admin.AdminInstanceConsoleWebSocket)
+		NormalAdminGroup.GET("/instances/:id/console/terminal/ws", admin.AdminInstanceConsoleTerminalWebSocket)
+		NormalAdminGroup.GET("/instances/:id/console/spice-ws", admin.AdminInstanceConsoleSpiceWebSocket)
+		NormalAdminGroup.GET("/instances/:id/console/spice/*path", admin.AdminInstanceConsoleSpiceAsset)
 		NormalAdminGroup.GET("/instances/:id/sftp/list", admin.AdminInstanceSFTPList)
 		NormalAdminGroup.GET("/instances/:id/sftp/download", admin.AdminInstanceSFTPDownload)
 		NormalAdminGroup.POST("/instances/:id/sftp/upload", admin.AdminInstanceSFTPUpload)

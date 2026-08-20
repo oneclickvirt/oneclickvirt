@@ -102,6 +102,11 @@ func normalizeConsoleProxyTarget(p providerModel.Provider, host, transport strin
 		if !isConsoleLoopbackHost(host) {
 			return "", transport, fmt.Errorf("%s 控制台代理只允许节点本机回环地址", strings.ToUpper(transport))
 		}
+		if transport == "agent" {
+			if reason := consoleAgentTransportReason(p.ID); reason != "" {
+				return "", transport, fmt.Errorf("%s", reason)
+			}
+		}
 		return strings.Trim(strings.TrimSpace(host), "[]"), transport, nil
 	case "direct":
 		for _, trusted := range consoleTrustedURLHosts(p) {

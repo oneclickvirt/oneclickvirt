@@ -800,7 +800,7 @@ export default {
   // WebVNC 配置
   webVncSettings: "WebVNC 设置",
   enableVNC: "启用 WebVNC",
-  enableVNCTip: "仅对运行中的虚拟机实例显示 WebVNC 入口。请确保主控可以访问节点 VNC 端口。",
+  enableVNCTip: "控制原始固定 VNC 端口的代理入口。PVE 虚拟机使用原生临时 vncproxy，无需开启此项；其他节点请确保主控可以访问其 VNC 端口。",
   vncBasePort: "VNC 基准端口",
   vncBasePortTip: "未发现实例专用 VNC 端口时，默认使用基准端口 + VMID；默认 5900。",
   vncHost: "VNC 宿主地址",

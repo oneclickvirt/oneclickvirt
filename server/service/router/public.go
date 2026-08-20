@@ -27,6 +27,14 @@ func InitPublicRouter(Router *gin.RouterGroup) {
 		PublicRouter.GET("instance-shares/:token/traffic/detail", public.GetSharedInstanceTrafficDetail)
 		PublicRouter.GET("instance-shares/:token/snapshots", public.GetSharedInstanceSnapshots)
 		PublicRouter.GET("instance-shares/:token/snapshots/:snapshotId/download", public.DownloadSharedSnapshot)
+		// Shared consoles are token-scoped to the exact shared instance. As in
+		// authenticated views, capability lookup does not start a connection.
+		PublicRouter.GET("instance-shares/:token/console", public.SharedInstanceConsoleInfo)
+		PublicRouter.POST("instance-shares/:token/console/repair", public.SharedInstanceConsoleRepair)
+		PublicRouter.GET("instance-shares/:token/console/ws", public.SharedInstanceConsoleWebSocket)
+		PublicRouter.GET("instance-shares/:token/console/terminal/ws", public.SharedInstanceConsoleTerminalWebSocket)
+		PublicRouter.GET("instance-shares/:token/console/spice-ws", public.SharedInstanceConsoleSpiceWebSocket)
+		PublicRouter.GET("instance-shares/:token/console/spice/*path", public.SharedInstanceConsoleSpiceAsset)
 		PublicRouter.GET("instance-shares/:token/ssh", public.SharedSSHWebSocket)
 		PublicRouter.GET("instance-shares/:token/exec", public.SharedExecWebSocket)
 		PublicRouter.GET("instance-shares/:token/sftp/list", public.SharedSFTPList)

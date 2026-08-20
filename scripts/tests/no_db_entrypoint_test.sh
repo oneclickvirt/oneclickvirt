@@ -107,6 +107,14 @@ test_healthcheck_runtime_dependencies_are_installed() {
     assert_contains "${NO_DB_DOCKERFILE}" "CMD wget --quiet"
 }
 
+test_nginx_configs_block_dotfiles() {
+    local compose_nginx_config="${REPO_ROOT}/deploy/default.conf"
+    assert_contains "${NO_DB_DOCKERFILE}" 'location ~ /\.(?!well-known(?:/|$)) {'
+    assert_contains "${NO_DB_DOCKERFILE}" 'deny all;'
+    assert_contains "${compose_nginx_config}" 'location ~ /\.(?!well-known(?:/|$)) {'
+    assert_contains "${compose_nginx_config}" 'deny all;'
+}
+
 test_lifecycle_config_uses_single_password_source() (
     local temp_dir source_config target_config missing_key_config test_password
     temp_dir="$(mktemp -d)"
@@ -138,6 +146,7 @@ test_persistent_config_survives_restart
 test_explicit_config_mount_remains_authoritative
 test_frontend_url_updates_persisted_config_and_proxy_scheme
 test_healthcheck_runtime_dependencies_are_installed
+test_nginx_configs_block_dotfiles
 test_lifecycle_config_uses_single_password_source
 
 echo "no-db entrypoint tests passed"

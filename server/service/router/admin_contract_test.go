@@ -25,6 +25,12 @@ func TestAdminRouteContract(t *testing.T) {
 		"GET /api/v1/admin/providers/:id/ipv6-tunnels",
 		"POST /api/v1/admin/providers/:id/ipv6-tunnels/detect-local-ipv4",
 		"POST /api/v1/admin/port-mappings/repair",
+		"GET /api/v1/admin/instances/:id/console",
+		"POST /api/v1/admin/instances/:id/console/repair",
+		"GET /api/v1/admin/instances/:id/console/ws",
+		"GET /api/v1/admin/instances/:id/console/terminal/ws",
+		"GET /api/v1/admin/instances/:id/console/spice-ws",
+		"GET /api/v1/admin/instances/:id/console/spice/*path",
 	}
 	for _, route := range required {
 		if _, ok := routes[route]; !ok {

@@ -179,9 +179,8 @@ func UserInstanceConsoleSpiceAsset(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
 		return
 	}
-	if err := trafficService.NewThreeTierLimitService().EnsureUserInstanceOperationAllowed(userID, uint(instanceID), "vnc"); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
-		return
-	}
+	// SPICE assets cannot open a session by themselves. The selected console
+	// WebSocket still performs this operation guard, so skipping it here avoids
+	// one database query for every iframe stylesheet and script request.
 	adminAPI.ServeInstanceConsoleSpiceAssetForUser(c, uint(instanceID), userID)
 }

@@ -40,7 +40,9 @@ FROM debian:12-slim
 ARG TARGETARCH
 
 # Install database and other services based on architecture
-RUN apt-get update && \
+RUN printf '%s\n' '#!/bin/sh' 'exit 101' > /usr/sbin/policy-rc.d && \
+    chmod 755 /usr/sbin/policy-rc.d && \
+    apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         gnupg2 wget lsb-release procps nginx supervisor ca-certificates && \
     if [ "$TARGETARCH" = "amd64" ]; then \
@@ -56,7 +58,8 @@ RUN apt-get update && \
         echo "Installing MariaDB for ARM64..." && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client; \
     fi && \
-    apt-get clean
+    apt-get clean && \
+    rm -f /usr/sbin/policy-rc.d
 
 ENV TZ=Asia/Shanghai \
     SERVER_PORT=8888
@@ -163,6 +166,13 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-Host $http_host;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-Proto $scheme;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-Port $server_port;' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        # Never serve dotfiles or fall them back to the SPA.' >> /etc/nginx/nginx.conf && \
+    echo '        location ~ /\.(?!well-known(?:/|$)) {' >> /etc/nginx/nginx.conf && \
+    echo '            deny all;' >> /etc/nginx/nginx.conf && \
+    echo '            access_log off;' >> /etc/nginx/nginx.conf && \
+    echo '            log_not_found off;' >> /etc/nginx/nginx.conf && \
     echo '        }' >> /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {' >> /etc/nginx/nginx.conf && \

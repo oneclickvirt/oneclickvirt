@@ -125,6 +125,7 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 			zap.String("name", config.Name),
 			zap.Error(err))
 	}
+	p.persistCreatedRuntimeID(config.Name, vmid)
 
 	updateProgress(100, "Proxmox实例创建完成")
 

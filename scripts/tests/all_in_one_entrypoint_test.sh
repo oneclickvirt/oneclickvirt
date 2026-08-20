@@ -5,6 +5,7 @@ set -Eeuo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENTRYPOINT="${REPO_ROOT}/deploy/all-in-one-entrypoint.sh"
 DOCKERFILE="${REPO_ROOT}/Dockerfile"
+RUNTIME_OVERLAY_DOCKERFILE="${REPO_ROOT}/deploy/runtime-overlay.dockerfile"
 
 fail() {
     echo "ERROR: $*" >&2
@@ -68,9 +69,38 @@ test_dockerfile_installs_runtime_entrypoint() {
         || fail ".dockerignore excludes the all-in-one entrypoint"
 }
 
+test_dockerfile_blocks_dotfiles() {
+    grep -Fq 'location ~ /\.(?!well-known(?:/|$)) {' "${DOCKERFILE}" \
+        || fail "Dockerfile does not block dotfile requests before SPA fallback"
+    grep -Fq "deny all;" "${DOCKERFILE}" \
+        || fail "Dockerfile does not deny dotfile requests"
+}
+
+test_dockerfile_defers_database_service_start() {
+    grep -Fq '/usr/sbin/policy-rc.d' "${DOCKERFILE}" \
+        || fail "Dockerfile does not defer database service startup during image build"
+}
+
+test_runtime_overlay_is_available() {
+    grep -Fq 'FROM ${BASE_IMAGE} AS runtime' "${RUNTIME_OVERLAY_DOCKERFILE}" \
+        || fail "runtime overlay does not preserve the existing all-in-one base image"
+    grep -Fq 'COPY deploy/all-in-one-nginx.conf /etc/nginx/nginx.conf' "${RUNTIME_OVERLAY_DOCKERFILE}" \
+        || fail "runtime overlay does not install the hardened nginx configuration"
+    grep -Fq 'ARG BUILD_COMMIT=runtime-overlay' "${RUNTIME_OVERLAY_DOCKERFILE}" \
+        || fail "runtime overlay does not expose a build commit marker"
+    if grep -Fq 'CompatibleAgentVersion = "${SERVER_VERSION}"' "${RUNTIME_OVERLAY_DOCKERFILE}"; then
+        fail "runtime overlay must not replace the Agent compatibility version with a build label"
+    fi
+    grep -Fq '!deploy/all-in-one-nginx.conf' "${REPO_ROOT}/.dockerignore" \
+        || fail ".dockerignore excludes the runtime overlay nginx configuration"
+}
+
 test_password_resolution_and_sync_tracking
 test_sql_password_escaping
 test_existing_database_directory_is_preserved
 test_dockerfile_installs_runtime_entrypoint
+test_dockerfile_blocks_dotfiles
+test_dockerfile_defers_database_service_start
+test_runtime_overlay_is_available
 
 echo "all-in-one entrypoint tests passed"

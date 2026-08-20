@@ -17,11 +17,13 @@ export function useInstanceManagement() {
   const actionDialogVisible = ref(false)
   const egressDialogVisible = ref(false)
   const accessDialogVisible = ref(false)
+  const consoleDialogVisible = ref(false)
   const accessLoading = ref(false)
   const selectedInstance = ref(null)
   const actionInstance = ref(null)
   const egressInstance = ref(null)
   const accessInstance = ref(null)
+  const consoleInstance = ref(null)
   const actionLoading = ref(false)
   const showPassword = ref(false)
   const selectedInstances = ref([])
@@ -274,6 +276,16 @@ export function useInstanceManagement() {
     if (!sshStore.hasConnection(instance.id)) { sshStore.createConnection(instance.id, instance.name, true) } else { sshStore.showConnection(instance.id) }
   }
 
+  const openConsole = (instance) => {
+    if (!warnInstanceBlocked(instance, true)) return
+    if (instance.status !== 'running') {
+      ElMessage.warning(t('admin.instances.instanceNotRunning'))
+      return
+    }
+    consoleInstance.value = instance
+    consoleDialogVisible.value = true
+  }
+
   const handleSelectionChange = (selection) => { selectedInstances.value = selection }
 
   const setBatchOptimisticStatus = (ids, status) => {
@@ -472,14 +484,14 @@ export function useInstanceManagement() {
   }
 
   return {
-    instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible, accessDialogVisible, accessLoading,
-    selectedInstance, actionInstance, egressInstance, accessInstance, actionLoading, showPassword,
+    instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible, accessDialogVisible, consoleDialogVisible, accessLoading,
+    selectedInstance, actionInstance, egressInstance, accessInstance, consoleInstance, actionLoading, showPassword,
     selectedInstances, transferDialogVisible, transferLoading, transferForm, tableRef,
     filters, pagination,
     loadInstances, handleSearch, handleReset, handleSizeChange, handleCurrentChange,
     viewInstanceDetail, showActionDialog, showEgressDialog, showInstanceAccessDialog, refreshInstanceAccess, performAction,
     getStatusType, getStatusText, formatDate, formatMemory, formatDisk, formatTraffic,
-    isExpired, isExpiringSoon, openSSHTerminal,
+    isExpired, isExpiringSoon, openSSHTerminal, openConsole,
     handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,
     showTransferDialog, confirmTransfer, handleWindowResize,
     searchUsers, searchingUsers, userOptions,
