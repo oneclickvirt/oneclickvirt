@@ -1,1 +1,0 @@
-{"name":"Worker node provisioning","method":"HARNESS","url":"create_test_node","status":"SKIP","expected":"","actual":"","detail":"Worker node provisioning failed with exit 1","group":"infrastructure","timestamp":"2026-07-30T08:45:52","error_logs":"","request_payload":""}
