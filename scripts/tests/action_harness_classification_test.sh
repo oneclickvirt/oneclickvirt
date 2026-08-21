@@ -86,8 +86,12 @@ assert_worker_budget() {
 
 assert_worker_budget qemu both 4 8192 20 true
 assert_worker_budget kubevirt both 4 8192 20 true
-assert_worker_budget lxd both 4 8192 44 true
-assert_worker_budget incus both 4 8192 44 true
+assert_worker_budget lxd both 4 8192 41 true
+assert_worker_budget incus both 4 8192 41 true
+assert_worker_budget lxd container 2 4096 21 false
+assert_worker_budget lxd vm 2 4096 21 true
+assert_worker_budget incus container 2 4096 21 false
+assert_worker_budget incus vm 2 4096 21 true
 assert_worker_budget proxmoxve both 4 8192 20 true
 assert_worker_budget qemu container 2 4096 20 false
 assert_worker_budget qemu vm 2 4096 20 true
