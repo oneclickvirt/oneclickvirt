@@ -92,6 +92,16 @@ env_needs_worker_resource_check() {
 worker_resource_requirements() {
     local env_type="$1" instance_types="${2:-${INSTANCE_TYPES:-both}}"
     local min_cpu=1 min_mem_mb=2048 min_disk_gb=20 require_kvm=false
+    # The nested LXD/Incus installers size their storage pool as
+    # (currently-available space - 1 GiB). The resource check measures
+    # *available* space, so its matching storage headroom is 1 GiB; a second
+    # fixed host allowance would reject otherwise usable workers. Keep the
+    # historical 4 GiB allowance for other nested runtimes whose storage
+    # layout is not controlled by those installers.
+    local storage_overhead_gb=4
+    case "$env_type" in
+        lxd|incus) storage_overhead_gb=1 ;;
+    esac
     local container_cpu="${ACTION_TEST_CONTAINER_CPU:-2}"
     local container_memory="${ACTION_TEST_CONTAINER_MEMORY:-2048}"
     local container_disk="${ACTION_TEST_CONTAINER_DISK:-20}"
@@ -111,18 +121,18 @@ worker_resource_requirements() {
             container)
                 min_cpu=$((1 + container_cpu))
                 min_mem_mb=$((256 + container_memory + 512))
-                min_disk_gb=$((container_disk + 4))
+                min_disk_gb=$((container_disk + storage_overhead_gb))
                 ;;
             vm)
                 min_cpu=$((1 + vm_cpu))
                 min_mem_mb=$((512 + vm_memory + 512))
-                min_disk_gb=$((vm_disk + 4))
+                min_disk_gb=$((vm_disk + storage_overhead_gb))
                 require_kvm=true
                 ;;
             *)
                 min_cpu=$((2 + container_cpu + vm_cpu))
                 min_mem_mb=$((256 + 512 + container_memory + vm_memory + 512))
-                min_disk_gb=$((container_disk + vm_disk + 4))
+                min_disk_gb=$((container_disk + vm_disk + storage_overhead_gb))
                 require_kvm=true
                 ;;
         esac

@@ -395,7 +395,7 @@ GitHub Actions 会自动安装所需依赖。
 | `ACTION_TEST_QEMU_VM_MEMORY` | `1024`（仅 QEMU，覆盖 `ACTION_TEST_VM_MEMORY`） |
 | `ACTION_TEST_QEMU_VM_DISK` | `8`（仅 QEMU，覆盖 `ACTION_TEST_VM_DISK`） |
 
-`lxd`、`incus`、`proxmoxve`、`qemu`、`kubevirt` 会在创建后及安装后按实际峰值占用复核 CPU、内存、磁盘和 KVM。`both` 默认预算包含最多两个 discovery fixture、保留的基准容器以及待创建 VM，因此最低为 4C/8GB；单一 `container` 或 `vm` 测试只准备对应夹具并使用较低预算。
+`lxd`、`incus`、`proxmoxve`、`qemu`、`kubevirt` 会在创建后及安装后按实际峰值占用复核 CPU、内存、磁盘和 KVM。`both` 默认预算包含最多两个 discovery fixture、保留的基准容器以及待创建 VM，因此最低为 4C/8GB；单一 `container` 或 `vm` 测试只准备对应夹具并使用较低预算。LXD/Incus 安装器会使用根分区可用空间减 1GB 创建存储池，因此它们的宿主机磁盘门槛按测试磁盘总和加 1GB 计算；其他嵌套运行时保留 4GB 存储余量。
 
 **Vultr**
 
