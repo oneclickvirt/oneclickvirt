@@ -1,0 +1,109 @@
+<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>[0;34m[INFO][0m 07:55:30 Container test size: 1C/1024MB/20G
+[0;34m[INFO][0m 07:55:30 VM test size: 1C/1024MB/20G
+
+[0;36m========== Environment Integration Test: lxd ==========[0m
+
+[0;34m[INFO][0m 07:55:30 Modules: all
+[0;34m[INFO][0m 07:55:30 Instance types: both (requested: both)
+[0;34m[INFO][0m 07:55:30 Execution rule: auto
+[0;34m[INFO][0m 07:55:30 Node hours: 24h
+[0;34m[INFO][0m 07:55:30 Enabled platforms: lightnode
+[0;34m[INFO][0m 07:55:30 Active platform will be selected automatically with fallback
+[0;32m[PASS][0m 07:55:30 Required commands available: jq curl go mysql
+[0;34m[INFO][0m 07:55:30 Resource check skipped (SKIP_RESOURCE_CHECK=true)
+[0;32m[PASS][0m 07:55:30 Port 8888 is available
+[0;34m[INFO][0m 07:55:30 Waiting for MySQL TCP readiness...
+mysqld is alive
+[0;32m[PASS][0m 07:55:31 MySQL ready after 0s
+
+[0;36m========== Phase 1: Deploy master on runner ==========[0m
+
+[0;34m[INFO][0m 07:55:31 Preparing isolated server workdir: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/server-work-lxd-8888-9564
+
+[0;36m========== Deploying master locally on runner from source (port 8888) ==========[0m
+
+[0;34m[INFO][0m 07:55:31 Server directory: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/server-work-lxd-8888-9564
+[0;34m[INFO][0m 07:55:31 Patching config.yaml for CI environment...
+[0;32m[PASS][0m 07:55:31 config.yaml patched
+[0;32m[PASS][0m 07:55:31 CI stub agent assets ready
+[0;34m[INFO][0m 07:55:31 Building server binary...
+[0;32m[PASS][0m 07:55:49 Server binary built
+[0;34m[INFO][0m 07:55:49 Server process started (PID 10546), waiting for startup...
+[0;32m[PASS][0m 07:55:54 Server started and responding (PID 10546, elapsed 5s, HTTP 200)
+[0;32m[PASS][0m 07:55:54 Master deployed locally on runner (port 8888)
+
+[0;36m========== Phase 2: Create worker node ==========[0m
+
+[0;34m[INFO][0m 07:55:54 Creating test node: env=lxd hours=24
+[0;34m[INFO][0m 07:55:54 Enabled platforms (priority order): lightnode
+[0;34m[INFO][0m 07:55:54 === Trying platform: lightnode (attempt 1/2) ===
+[0;34m[INFO][0m 07:55:54 Initializing platform: lightnode
+[0;34m[INFO][0m 07:55:54 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 07:55:55 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 07:55:55 [lightnode] Platform initialized
+[0;32m[PASS][0m 07:55:56 Platform 'lightnode' initialized
+[0;34m[INFO][0m 07:55:56 [lightnode] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 07:55:56 [lightnode] Creating new instance (env=lxd hours=24)...
+[0;34m[INFO][0m 07:55:56 [lightnode] Creating instance: env=lxd
+[0;34m[INFO][0m 07:55:56 [lightnode] Raised package floor for lxd/both to 4C/8192MB
+[0;34m[INFO][0m 07:55:56 [lightnode] Using package=intel-c4m8-bgp-b10-s50-d100 (required=4C/8192MB tier=3, strict=true)
+[0;32m[PASS][0m 07:56:04 [lightnode] Instance creation requested: ecs-140001hoh7me
+[0;34m[INFO][0m 07:56:04 [lightnode] Waiting for async task uy0001hoh7jw (max 1800s)...
+[DEBUG] 07:56:05 [lightnode] Task uy0001hoh7jw: result=RETRY status=PROCESSING
+[DEBUG] 07:56:21 [lightnode] Task uy0001hoh7jw: result=RETRY status=PROCESSING
+[DEBUG] 07:56:37 [lightnode] Task uy0001hoh7jw: result=RETRY status=PROCESSING
+[DEBUG] 07:56:53 [lightnode] Task uy0001hoh7jw: result=RETRY status=PROCESSING
+[DEBUG] 07:57:09 [lightnode] Task uy0001hoh7jw: result=RETRY status=PROCESSING
+[DEBUG] 07:57:25 [lightnode] Task uy0001hoh7jw: result=RETRY status=PROCESSING
+[DEBUG] 07:57:41 [lightnode] Task uy0001hoh7jw: result=RETRY status=PROCESSING
+[DEBUG] 07:57:57 [lightnode] Task uy0001hoh7jw: result=SUCCESS status=FINISHED
+[0;32m[PASS][0m 07:57:57 [lightnode] Task uy0001hoh7jw completed
+[0;32m[PASS][0m 07:57:58 Instance created on 'lightnode': ID=ecs-140001hoh7me IP=149.104.79.16
+[0;34m[INFO][0m 07:57:58 [lightnode] Waiting for SSH on 149.104.79.16 (max 600s)...
+[0;32m[PASS][0m 07:57:59 [lightnode] SSH ready on 149.104.79.16
+[0;34m[INFO][0m 07:57:59 Checking worker resources for lxd/both on lightnode (memory>=7680MB from 8192MB nominal, cpu>=4, disk>=44GB, /dev/kvm required)...
+Warning: Permanently added '149.104.79.16' (ED25519) to the list of known hosts.
+WORKER_RESOURCE_CHECK env=lxd platform=lightnode memory_mb=7941 cpu=4 disk_gb=42 kvm=present
+WORKER_RESOURCE_INSUFFICIENT: disk_gb=42 required>=44
+[1;33m[WARN][0m 07:58:01 Worker resources do not satisfy lxd requirements on lightnode
+[1;33m[WARN][0m 07:58:01 [lightnode] Instance ecs-140001hoh7me does not meet lxd worker requirements; releasing it and trying next platform
+[1;33m[WARN][0m 07:58:51 All enabled platforms are temporarily out of capacity (attempt 1/2)
+[1;33m[WARN][0m 07:58:51 All platforms resource-exhausted on attempt 1/2. Waiting 90s before retry...
+[0;34m[INFO][0m 08:00:21 === Trying platform: lightnode (attempt 2/2) ===
+[0;34m[INFO][0m 08:00:21 Initializing platform: lightnode
+[0;34m[INFO][0m 08:00:22 [lightnode] Platform initialized
+[0;32m[PASS][0m 08:00:22 Platform 'lightnode' initialized
+[0;34m[INFO][0m 08:00:22 [lightnode] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 08:00:22 [lightnode] Creating new instance (env=lxd hours=24)...
+[0;34m[INFO][0m 08:00:22 [lightnode] Creating instance: env=lxd
+[0;34m[INFO][0m 08:00:23 [lightnode] Raised package floor for lxd/both to 4C/8192MB
+[0;34m[INFO][0m 08:00:23 [lightnode] Using package=intel-c4m8-bgp-b10-s50-d100 (required=4C/8192MB tier=3, strict=true)
+[0;32m[PASS][0m 08:00:31 [lightnode] Instance creation requested: ecs-yo0001hohaok
+[0;34m[INFO][0m 08:00:31 [lightnode] Waiting for async task p10001hohatk (max 1800s)...
+[DEBUG] 08:00:32 [lightnode] Task p10001hohatk: result=RETRY status=PROCESSING
+[DEBUG] 08:00:47 [lightnode] Task p10001hohatk: result=RETRY status=PROCESSING
+[DEBUG] 08:01:03 [lightnode] Task p10001hohatk: result=RETRY status=PROCESSING
+[DEBUG] 08:01:19 [lightnode] Task p10001hohatk: result=RETRY status=PROCESSING
+[DEBUG] 08:01:34 [lightnode] Task p10001hohatk: result=RETRY status=PROCESSING
+[DEBUG] 08:01:50 [lightnode] Task p10001hohatk: result=RETRY status=PROCESSING
+[DEBUG] 08:02:06 [lightnode] Task p10001hohatk: result=RETRY status=PROCESSING
+[DEBUG] 08:02:22 [lightnode] Task p10001hohatk: result=RETRY status=PROCESSING
+[DEBUG] 08:02:38 [lightnode] Task p10001hohatk: result=SUCCESS status=FINISHED
+[0;32m[PASS][0m 08:02:38 [lightnode] Task p10001hohatk completed
+[0;32m[PASS][0m 08:02:38 Instance created on 'lightnode': ID=ecs-yo0001hohaok IP=149.104.79.170
+[0;34m[INFO][0m 08:02:38 [lightnode] Waiting for SSH on 149.104.79.170 (max 600s)...
+[0;32m[PASS][0m 08:02:40 [lightnode] SSH ready on 149.104.79.170
+[0;34m[INFO][0m 08:02:40 Checking worker resources for lxd/both on lightnode (memory>=7680MB from 8192MB nominal, cpu>=4, disk>=44GB, /dev/kvm required)...
+Warning: Permanently added '149.104.79.170' (ED25519) to the list of known hosts.
+WORKER_RESOURCE_CHECK env=lxd platform=lightnode memory_mb=7941 cpu=4 disk_gb=42 kvm=present
+WORKER_RESOURCE_INSUFFICIENT: disk_gb=42 required>=44
+[1;33m[WARN][0m 08:02:41 Worker resources do not satisfy lxd requirements on lightnode
+[1;33m[WARN][0m 08:02:41 [lightnode] Instance ecs-yo0001hohaok does not meet lxd worker requirements; releasing it and trying next platform
+[1;33m[WARN][0m 08:03:31 All enabled platforms are temporarily out of capacity (attempt 2/2)
+[1;33m[WARN][0m 08:03:31 All enabled platforms are temporarily out of capacity; treating this as a transient skip
+[1;33m[WARN][0m 08:03:31 No platform has temporary capacity for a test node
+[1;33m[WARN][0m 08:03:31 Worker node provisioning skipped: all cloud platforms are temporarily out of resources
+[1;33m[SKIP][0m 08:03:31 Worker node provisioning: No usable worker node satisfied lxd infrastructure requirements
+[0;34m[INFO][0m 08:03:31 This is a transient infrastructure condition, not a test failure.
+[0;34m[INFO][0m 08:03:31 Re-run the workflow when resources are available, or add more cloud platform accounts.
+[1;33m[SKIP][0m 08:03:31 Harness skipped due to a transient infrastructure condition (exit 75)</pre></body></html>
