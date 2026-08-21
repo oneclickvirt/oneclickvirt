@@ -108,8 +108,8 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <header>
 <div class="header-left">
 <h1><span class="zh">OneClickVirt 集成测试报告</span><span class="en">OneClickVirt Integration Test Report</span></h1>
-<div class="version-info"><span>Server unknown</span><span>Agent unknown</span><span>Ref main</span><span>SHA 535edb7feab1</span><span>Run 30518829738.1</span></div>
-<p class="meta"><span class="zh">环境: <strong>proxmoxve</strong> | 工作流: Integration Tests | 生成时间: 2026-07-30 08:35:39 UTC | 快捷键: <kbd>/</kbd> 搜索 <kbd>1-4</kbd> 筛选 <kbd>T</kbd> 主题 <kbd>L</kbd> 语言</span><span class="en">Env: <strong>proxmoxve</strong> | Workflow: Integration Tests | Generated: 2026-07-30 08:35:39 UTC | Keys: <kbd>/</kbd> search <kbd>1-4</kbd> filter <kbd>T</kbd> theme <kbd>L</kbd> lang</span></p>
+<div class="version-info"><span>Server unknown</span><span>Agent unknown</span><span>Ref main</span><span>SHA b632b2e575f4</span><span>Run 32479802186.1</span></div>
+<p class="meta"><span class="zh">环境: <strong>proxmoxve</strong> | 工作流: Integration Tests | 生成时间: 2026-08-21 15:10:21 UTC | 快捷键: <kbd>/</kbd> 搜索 <kbd>1-4</kbd> 筛选 <kbd>T</kbd> 主题 <kbd>L</kbd> 语言</span><span class="en">Env: <strong>proxmoxve</strong> | Workflow: Integration Tests | Generated: 2026-08-21 15:10:21 UTC | Keys: <kbd>/</kbd> search <kbd>1-4</kbd> filter <kbd>T</kbd> theme <kbd>L</kbd> lang</span></p>
 </div>
 <div class="header-btns">
 <button class="lang-toggle" onclick="toggleLang()" title="切换中英文 / Toggle Language">
@@ -154,7 +154,7 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <tr class="test-row" data-status="SKIP" data-group="infrastructure" data-name="Harness infrastructure skip (proxmoxve)" data-url="run_env_test.sh">
 <td><span class="badge skip">SKIP</span></td>
 <td>Harness infrastructure skip (proxmoxve)</td><td>HARNESS</td><td><code>run_env_test.sh</code></td>
-<td><span class="timestamp">2026-07-30T08:35:39</span></td>
+<td><span class="timestamp">2026-08-21T15:10:20</span></td>
 <td><a class="detail-toggle" onclick="toggleDetail('dp0')"><span class="zh">查看</span><span class="en">View</span></a></td></tr>
 <tr class="test-row detail-row" data-status="SKIP" data-group="infrastructure"><td colspan="6"><div class="detail-panel" id="dp0">proxmoxve installation lost required worker connectivity or hit a transient infrastructure failure</div></td></tr>
 </table></div></div>
@@ -164,8 +164,8 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 <span class="chevron">▼</span>
 </div>
 <div class="section-body">
-<div class="log-body open">=== Server stdout/stderr (/tmp/oneclickvirt-server-proxmoxve-8888-5266.log) ===
-[STARTUP] 工作目录: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/server-work-proxmoxve-8888-5266
+<div class="log-body open">=== Server stdout/stderr (/tmp/oneclickvirt-server-proxmoxve-8888-3376.log) ===
+[STARTUP] 工作目录: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/server-work-proxmoxve-8888-3376
 [GIN-debug] [WARNING] Running in &quot;debug&quot; mode. Switch to &quot;release&quot; mode in production.
  - using env:	export GIN_MODE=release
  - using code:	gin.SetMode(gin.ReleaseMode)
@@ -210,6 +210,12 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 [GIN-debug] GET    /api/v1/public/instance-shares/:token/traffic/detail --&gt; oneclickvirt/api/v1/public.GetSharedInstanceTrafficDetail (12 handlers)
 [GIN-debug] GET    /api/v1/public/instance-shares/:token/snapshots --&gt; oneclickvirt/api/v1/public.GetSharedInstanceSnapshots (12 handlers)
 [GIN-debug] GET    /api/v1/public/instance-shares/:token/snapshots/:snapshotId/download --&gt; oneclickvirt/api/v1/public.DownloadSharedSnapshot (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/console --&gt; oneclickvirt/api/v1/public.SharedInstanceConsoleInfo (12 handlers)
+[GIN-debug] POST   /api/v1/public/instance-shares/:token/console/repair --&gt; oneclickvirt/api/v1/public.SharedInstanceConsoleRepair (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/console/ws --&gt; oneclickvirt/api/v1/public.SharedInstanceConsoleWebSocket (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/console/terminal/ws --&gt; oneclickvirt/api/v1/public.SharedInstanceConsoleTerminalWebSocket (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/console/spice-ws --&gt; oneclickvirt/api/v1/public.SharedInstanceConsoleSpiceWebSocket (12 handlers)
+[GIN-debug] GET    /api/v1/public/instance-shares/:token/console/spice/*path --&gt; oneclickvirt/api/v1/public.SharedInstanceConsoleSpiceAsset (12 handlers)
 [GIN-debug] GET    /api/v1/public/instance-shares/:token/ssh --&gt; oneclickvirt/api/v1/public.SharedSSHWebSocket (12 handlers)
 [GIN-debug] GET    /api/v1/public/instance-shares/:token/exec --&gt; oneclickvirt/api/v1/public.SharedExecWebSocket (12 handlers)
 [GIN-debug] GET    /api/v1/public/instance-shares/:token/sftp/list --&gt; oneclickvirt/api/v1/public.SharedSFTPList (12 handlers)
@@ -247,6 +253,12 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 [GIN-debug] GET    /api/v1/user/instances/:id/ssh --&gt; oneclickvirt/api/v1/user.SSHWebSocket (13 handlers)
 [GIN-debug] GET    /api/v1/user/instances/:id/vnc --&gt; oneclickvirt/api/v1/user.UserInstanceVNCInfo (13 handlers)
 [GIN-debug] GET    /api/v1/user/instances/:id/vnc/ws --&gt; oneclickvirt/api/v1/user.UserInstanceVNCWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleInfo (13 handlers)
+[GIN-debug] POST   /api/v1/user/instances/:id/console/repair --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleRepair (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console/ws --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console/terminal/ws --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleTerminalWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console/spice-ws --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleSpiceWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/user/instances/:id/console/spice/*path --&gt; oneclickvirt/api/v1/user.UserInstanceConsoleSpiceAsset (13 handlers)
 [GIN-debug] GET    /api/v1/user/instances/:id/exec --&gt; oneclickvirt/api/v1/user.ExecWebSocket (13 handlers)
 [GIN-debug] GET    /api/v1/user/instances/:id/sftp/list --&gt; oneclickvirt/api/v1/user.UserSFTPList (13 handlers)
 [GIN-debug] GET    /api/v1/user/instances/:id/sftp/download --&gt; oneclickvirt/api/v1/user.UserSFTPDownload (13 handlers)
@@ -324,6 +336,12 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 [GIN-debug] PUT    /api/v1/admin/snapshot-schedules/:id --&gt; oneclickvirt/api/v1/admin.UpdateSnapshotSchedule (13 handlers)
 [GIN-debug] DELETE /api/v1/admin/snapshot-schedules/:id --&gt; oneclickvirt/api/v1/admin.DeleteSnapshotSchedule (13 handlers)
 [GIN-debug] GET    /api/v1/admin/instances/:id/ssh --&gt; oneclickvirt/api/v1/admin.AdminSSHWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/console --&gt; oneclickvirt/api/v1/admin.AdminInstanceConsoleInfo (13 handlers)
+[GIN-debug] POST   /api/v1/admin/instances/:id/console/repair --&gt; oneclickvirt/api/v1/admin.AdminInstanceConsoleRepair (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/console/ws --&gt; oneclickvirt/api/v1/admin.AdminInstanceConsoleWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/console/terminal/ws --&gt; oneclickvirt/api/v1/admin.AdminInstanceConsoleTerminalWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/console/spice-ws --&gt; oneclickvirt/api/v1/admin.AdminInstanceConsoleSpiceWebSocket (13 handlers)
+[GIN-debug] GET    /api/v1/admin/instances/:id/console/spice/*path --&gt; oneclickvirt/api/v1/admin.AdminInstanceConsoleSpiceAsset (13 handlers)
 [GIN-debug] GET    /api/v1/admin/instances/:id/sftp/list --&gt; oneclickvirt/api/v1/admin.AdminInstanceSFTPList (13 handlers)
 [GIN-debug] GET    /api/v1/admin/instances/:id/sftp/download --&gt; oneclickvirt/api/v1/admin.AdminInstanceSFTPDownload (13 handlers)
 [GIN-debug] POST   /api/v1/admin/instances/:id/sftp/upload --&gt; oneclickvirt/api/v1/admin.AdminInstanceSFTPUpload (13 handlers)
@@ -406,6 +424,7 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 [GIN-debug] DELETE /api/v1/admin/providers/:id/ipv6-pool/:entry_id --&gt; oneclickvirt/api/v1/admin.DeleteProviderIPv6PoolEntry (13 handlers)
 [GIN-debug] GET    /api/v1/admin/providers/:id/ipv6-tunnels --&gt; oneclickvirt/api/v1/admin.GetProviderIPv6Tunnels (13 handlers)
 [GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-tunnels --&gt; oneclickvirt/api/v1/admin.CreateProviderIPv6Tunnel (13 handlers)
+[GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-tunnels/detect-local-ipv4 --&gt; oneclickvirt/api/v1/admin.DetectProviderIPv6TunnelLocalIPv4 (13 handlers)
 [GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-tunnels/check --&gt; oneclickvirt/api/v1/admin.CheckProviderIPv6Tunnels (13 handlers)
 [GIN-debug] PUT    /api/v1/admin/providers/:id/ipv6-tunnels/:tunnel_id --&gt; oneclickvirt/api/v1/admin.UpdateProviderIPv6Tunnel (13 handlers)
 [GIN-debug] POST   /api/v1/admin/providers/:id/ipv6-tunnels/:tunnel_id/enable --&gt; oneclickvirt/api/v1/admin.EnableProviderIPv6Tunnel (13 handlers)
@@ -563,7 +582,7 @@ kbd{background:var(--hover);border:1px solid var(--border);padding:1px 5px;borde
 === App error log ===
 (not found)
 === App warn log ===
-[oneclickvirt]2026/07/30 - 08:01:57.737	warn	系统未初始化，运行在待初始化模式</div>
+[oneclickvirt]2026/08/21 - 14:36:30.914	warn	系统未初始化，运行在待初始化模式</div>
 </div>
 </div>
 <footer>
