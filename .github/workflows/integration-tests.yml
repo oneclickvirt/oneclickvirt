@@ -79,6 +79,11 @@ on:
           - '3'
           - '4'
         default: '2'
+      live_ipv6_tunnel:
+        description: 'Run host-facing IPv6 tunnel lifecycle checks on a dedicated disposable worker (default: disabled)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -143,6 +148,13 @@ jobs:
 
       - name: Test action harness failure classification
         run: bash scripts/tests/action_harness_classification_test.sh
+
+      - name: Test IPv6 tunnel CI isolation
+        run: bash scripts/tests/ipv6_tunnel_ci_isolation_test.sh
+
+      - name: Test IPv6 tunnel and pool contracts
+        working-directory: ./server
+        run: go test ./service/ipv6tunnel ./service/ipv6pool
 
       - name: Test installer lifecycle commands
         run: bash scripts/tests/install_lifecycle_commands_test.sh
@@ -315,6 +327,7 @@ jobs:
           LIGHTNODE_TARGET_MEMORY_MB: "4096"
           LIGHTNODE_STRICT_RECOMMENDED_SPEC: "true"
           PLATFORM_ALLOW_CONCURRENT_INSTANCES: ${{ inputs.environment == 'all' && 'true' || 'false' }}
+          ACTION_TEST_LIVE_IPV6_TUNNEL: ${{ inputs.live_ipv6_tunnel && 'true' || 'false' }}
           ACTION_TEST_CONTAINER_CPU: "2"
           ACTION_TEST_CONTAINER_MEMORY: "2048"
           ACTION_TEST_CONTAINER_DISK: "20"

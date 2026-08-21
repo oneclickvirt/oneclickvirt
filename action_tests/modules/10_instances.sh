@@ -537,10 +537,11 @@ run_module_10() {
         local filtered_user_images; filtered_user_images=$(curl -s --max-time 30 \
             -H "Authorization: Bearer ${USER_TOKEN}" \
             "${SERVER_URL}/api/v1/user/images/filtered?provider_id=${PROVIDER_ID}&instance_type=${user_image_instance_type}" 2>/dev/null)
-        local user_image_id; user_image_id=$(echo "$filtered_user_images" | jq -r --arg arch "$user_provider_arch" \
-            '[.data[]? | select((.isActive == true or .status == "active") and (.architecture == $arch or $arch == ""))] |
-             (map(select((.osType // "") == "alpine")) + map(select((.osType // "") == "debian")) + .) |
-             .[0].id // empty' 2>/dev/null)
+        local user_image_filter
+        # shellcheck disable=SC2016 # jq expands $arch; Bash must preserve it verbatim.
+        user_image_filter='[.data[]? | select((.isActive == true or .status == "active") and (.architecture == $arch or $arch == ""))] | (map(select((.osType // "") == "alpine")) + map(select((.osType // "") == "debian")) + .) | .[0].id // empty'
+        local user_image_id
+        user_image_id=$(printf '%s' "$filtered_user_images" | jq -r --arg arch "$user_provider_arch" "$user_image_filter" 2>/dev/null || true)
         local user_inst_resp="" user_inst_task=""
         if [[ -n "$user_image_id" && "$user_image_id" != "null" ]]; then
             log_info "Using filtered user image ID=${user_image_id} (${user_img_provider_type}/${user_image_instance_type}/${user_provider_arch}) for user instance creation test"

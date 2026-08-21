@@ -258,6 +258,17 @@ func probeSPICEWebsockify(target consoleTarget) (bool, string) {
 }
 
 func openConsoleConn(target consoleTarget) (net.Conn, func(), error) {
+	return openConsoleConnWithTimeout(target, 10*time.Second)
+}
+
+// openConsoleConnWithTimeout keeps direct endpoint fingerprinting bounded
+// without changing the longer timeout used by an interactive browser session.
+// SSH and Agent dialing are still protected by their own connection layers; a
+// caller applies a read/write deadline immediately after the tunnel opens.
+func openConsoleConnWithTimeout(target consoleTarget, timeout time.Duration) (net.Conn, func(), error) {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
 	address := net.JoinHostPort(target.host, strconv.Itoa(target.port))
 	transport := strings.ToLower(strings.TrimSpace(target.transport))
 	if transport == "agent" {
@@ -286,7 +297,7 @@ func openConsoleConn(target consoleTarget) (net.Conn, func(), error) {
 			cleanup()
 		}, err
 	}
-	conn, err := net.DialTimeout("tcp", address, 10*time.Second)
+	conn, err := net.DialTimeout("tcp", address, timeout)
 	return conn, func() {
 		if conn != nil {
 			_ = conn.Close()
@@ -306,6 +317,10 @@ func proxyInstanceConsoleWebSocket(c *gin.Context, target consoleTarget) {
 	}
 	if target.proxmoxVNC {
 		proxyProxmoxVNCWebSocket(ws, target)
+		return
+	}
+	if target.kubeVirtVNC {
+		proxyKubeVirtVNCWebSocket(ws, target)
 		return
 	}
 	conn, cleanup, err := openConsoleConn(target)

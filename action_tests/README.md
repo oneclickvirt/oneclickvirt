@@ -225,6 +225,10 @@ ACTION_TEST_VERBOSE_RESPONSES=1 bash action_tests/run_module.sh 01-05
 python3 action_tests/static_audit.py --root . --output-dir action_tests/reports --strict --min-route-coverage 82
 ```
 
+### IPv6 隧道测试隔离
+
+常规 Action 默认不会调用 IPv6 隧道 API，也不会检查、创建、删除或修改工作节点的隧道配置。隧道状态机、地址池冻结和清理由 Go 契约测试通过假远端执行器覆盖，不依赖 Tunnelbroker 或其他外部隧道服务。只有在专用、可销毁工作节点上显式设置 `ACTION_TEST_LIVE_IPV6_TUNNEL=true`（GitHub Action 的 `live_ipv6_tunnel` 输入）时，才会运行宿主机侧的禁用隧道生命周期检查。
+
 ## 测试报告
 
 测试完成后生成以下报告：
@@ -351,6 +355,7 @@ GitHub Actions 会自动安装所需依赖。
 | `PVE_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 ProxmoxVE installer 调试路径；未设置时自动探测同级 `pve` 仓库 |
 | `INCUS_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 Incus installer 调试路径；未设置时自动探测同级 `incus` 仓库 |
 | `KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 KubeVirt installer 调试路径；未设置时自动探测同级 `kubevirt` 仓库 |
+| `ACTION_TEST_LIVE_IPV6_TUNNEL` | 默认 `false`；仅限专用可销毁工作节点的显式宿主机隧道生命周期检查 |
 
 **Action 实例规格**
 

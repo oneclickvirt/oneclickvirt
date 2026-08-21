@@ -693,7 +693,9 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64
 
     // IPv4
     if has_iptables() {
-        if chain_exists_ipt("iptables", &cin) || chain_exists_ipt("iptables", &cout) {
+        let in_exists = chain_exists_ipt("iptables", &cin);
+        let out_exists = chain_exists_ipt("iptables", &cout);
+        if in_exists && out_exists {
             has_any = true;
             bytes_in = bytes_in.saturating_add(read_chain_bytes("iptables", &cin).unwrap_or(0));
             bytes_out = bytes_out.saturating_add(read_chain_bytes("iptables", &cout).unwrap_or(0));
@@ -704,7 +706,9 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64
     if has_ip6tables() {
         let cin6 = chain_name_in6(monitor_id, interface);
         let cout6 = chain_name_out6(monitor_id, interface);
-        if chain_exists_ipt("ip6tables", &cin6) || chain_exists_ipt("ip6tables", &cout6) {
+        let in_exists = chain_exists_ipt("ip6tables", &cin6);
+        let out_exists = chain_exists_ipt("ip6tables", &cout6);
+        if in_exists && out_exists {
             has_any = true;
             bytes_in = bytes_in.saturating_add(read_chain_bytes("ip6tables", &cin6).unwrap_or(0));
             bytes_out =

@@ -372,7 +372,11 @@ try_create_with_fallback() {
                 log_error "[${platform}] create_instance returned no IP. Raw result: ${result}"
             fi
         else
-            log_error "[${platform}] create_instance failed (exit=${exit_code}). Raw output: ${result:-<empty>}"
+            if [[ "$exit_code" -eq 75 || "${PLATFORM_LAST_ERROR:-}" == "resource_exhausted" ]]; then
+                log_warning "[${platform}] create_instance has no temporary capacity (exit=${exit_code})"
+            else
+                log_error "[${platform}] create_instance failed (exit=${exit_code}). Raw output: ${result:-<empty>}"
+            fi
         fi
         # Track whether this failure was resource exhaustion or something else
         if [[ "$exit_code" -ne 75 && "${PLATFORM_LAST_ERROR:-}" != "resource_exhausted" ]]; then
@@ -380,19 +384,23 @@ try_create_with_fallback() {
         fi
         log_warning "Platform '${platform}' exhausted, trying next..."
     done
-    log_error "All enabled platforms failed to create an instance (attempt ${_attempt}/${_max_attempts})"
+    if [[ "$all_resource_exhausted" == "true" ]]; then
+        log_warning "All enabled platforms are temporarily out of capacity (attempt ${_attempt}/${_max_attempts})"
+    else
+        log_error "All enabled platforms failed to create an instance (attempt ${_attempt}/${_max_attempts})"
+    fi
     # Only retry on full resource exhaustion — non-transient errors don't benefit from retry
     [[ "$all_resource_exhausted" != "true" ]] && break
     done  # end outer retry loop
-    log_error "All enabled platforms failed to create an instance"
     if [[ "$all_resource_exhausted" == "true" ]]; then
         PLATFORM_FAILURE_REASON="resource_exhausted"
-        log_warning "All platform failures were due to resource/capacity exhaustion (transient condition)"
+        log_warning "All enabled platforms are temporarily out of capacity; treating this as a transient skip"
         # Return 75 (EX_TEMPFAIL) so this exit code survives subshell boundaries;
         # the caller cannot rely on PLATFORM_FAILURE_REASON across $() invocations.
         return 75
     else
         PLATFORM_FAILURE_REASON="error"
+        log_error "All enabled platforms failed to create an instance"
     fi
     return 1
 }

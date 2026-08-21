@@ -148,6 +148,8 @@ export default {
   consoleNative: "原生控制台",
   consoleSerial: "串口控制台",
   consoleRdp: "RDP 控制台",
+  consoleSsh: "SSH 客户端连接",
+  consoleTelnet: "Telnet 客户端连接",
   consoleVirtio: "virtio-console",
   consoleVsock: "vsock 通道",
   consoleUnsupported: "控制台不可用",

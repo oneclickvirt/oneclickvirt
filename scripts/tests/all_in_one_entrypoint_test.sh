@@ -81,6 +81,12 @@ test_dockerfile_defers_database_service_start() {
         || fail "Dockerfile does not defer database service startup during image build"
 }
 
+test_dockerfile_preserves_agent_compatibility() {
+    if grep -Fq 'CompatibleAgentVersion' "${DOCKERFILE}"; then
+        fail "Dockerfile must not rewrite the Agent compatibility version with a build label"
+    fi
+}
+
 test_runtime_overlay_is_available() {
     grep -Fq 'FROM ${BASE_IMAGE} AS runtime' "${RUNTIME_OVERLAY_DOCKERFILE}" \
         || fail "runtime overlay does not preserve the existing all-in-one base image"
@@ -101,6 +107,7 @@ test_existing_database_directory_is_preserved
 test_dockerfile_installs_runtime_entrypoint
 test_dockerfile_blocks_dotfiles
 test_dockerfile_defers_database_service_start
+test_dockerfile_preserves_agent_compatibility
 test_runtime_overlay_is_available
 
 echo "all-in-one entrypoint tests passed"

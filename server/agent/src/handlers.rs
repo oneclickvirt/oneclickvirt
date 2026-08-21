@@ -63,6 +63,22 @@ struct StoredCounterState {
     last_counter_out: u64,
 }
 
+fn counter_snapshot_from_read(
+    interface: &str,
+    current: Option<(u64, u64)>,
+) -> Result<CounterSnapshot, String> {
+    let Some((base_in, base_out)) = current else {
+        return Err(format!(
+            "{interface}: counter was configured but could not be read"
+        ));
+    };
+    Ok(CounterSnapshot {
+        interface: interface.to_owned(),
+        base_in,
+        base_out,
+    })
+}
+
 fn read_pending_counter_increments(
     monitor_id: i64,
     states: &[StoredCounterState],
@@ -122,17 +138,19 @@ fn ensure_interface_counters(
             continue;
         }
 
-        let (base_in, base_out) = if use_ipt {
-            ipt::read_external_bytes(monitor_id, interface).unwrap_or((0, 0))
+        // A successful rule mutation is not enough to activate an interface:
+        // the counter must also be readable. Treat an unreadable counter as
+        // unhealthy so the controller/reconciler retries instead of persisting
+        // an apparently healthy (0, 0) active state that can never advance.
+        let current = if use_ipt {
+            ipt::read_external_bytes(monitor_id, interface)
         } else {
-            nft::read_external_bytes(monitor_id, interface).unwrap_or((0, 0))
+            nft::read_external_bytes(monitor_id, interface)
         };
-
-        snapshots.push(CounterSnapshot {
-            interface: interface.clone(),
-            base_in,
-            base_out,
-        });
+        match counter_snapshot_from_read(interface, current) {
+            Ok(snapshot) => snapshots.push(snapshot),
+            Err(error) => errors.push(error),
+        }
     }
 
     (snapshots, errors)
@@ -1415,7 +1433,7 @@ pub async fn remove_domain_proxy(
 
 #[cfg(test)]
 mod tests {
-    use super::{CounterSnapshot, counter_health};
+    use super::{CounterSnapshot, counter_health, counter_snapshot_from_read};
     use crate::models::TrafficBinding;
 
     #[test]
@@ -1441,6 +1459,17 @@ mod tests {
         assert!(!healthy);
         assert_eq!(missing, vec!["veth6".to_string()]);
         assert!(error.unwrap_or_default().contains("veth6"));
+    }
+
+    #[test]
+    fn unreadable_counter_cannot_become_an_active_zero_snapshot() {
+        let error = counter_snapshot_from_read("veth6", None).unwrap_err();
+        assert!(error.contains("veth6"));
+        assert!(error.contains("could not be read"));
+
+        let snapshot = counter_snapshot_from_read("veth6", Some((12, 34))).unwrap();
+        assert_eq!(snapshot.interface, "veth6");
+        assert_eq!((snapshot.base_in, snapshot.base_out), (12, 34));
     }
 }
 

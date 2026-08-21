@@ -29,7 +29,6 @@ type InstanceConsoleTerminalTarget struct {
 	Provider        providerModel.Provider
 	InstanceID      uint
 	InstanceName    string
-	InstanceType    string
 	ProviderRuntime string
 }
 
@@ -41,10 +40,13 @@ func consoleTerminalShell() string {
 	return `sh -c 'cd /root 2>/dev/null || cd /; if command -v bash >/dev/null 2>&1; then exec bash; fi; exec sh'`
 }
 
-func consoleTerminalPlans(providerType, instanceType, identifier string) []InstanceConsoleTerminalPlan {
+// consoleTerminalPlans is retained for direct callers that already possess an
+// observed runtime kind. Production console routes use consoleRuntimeProbe and
+// never pass Instance.InstanceType into this helper.
+func consoleTerminalPlans(providerType, runtimeKind, identifier string) []InstanceConsoleTerminalPlan {
 	providerType = strings.ToLower(strings.TrimSpace(providerType))
-	instanceType = strings.ToLower(strings.TrimSpace(instanceType))
-	isVM := utils.IsVirtualMachineInstanceType(instanceType)
+	runtimeKind = normalizeConsoleRuntimeKind(runtimeKind)
+	isVM := runtimeKind == "vm"
 	identifier = strings.TrimSpace(identifier)
 	if identifier == "" {
 		return nil
@@ -105,6 +107,17 @@ func consoleTerminalPlans(providerType, instanceType, identifier string) []Insta
 	return nil
 }
 
+func normalizeConsoleRuntimeKind(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "vm", "virtual-machine", "virtual_machine", "qemu":
+		return "vm"
+	case "container", "lxc":
+		return "container"
+	default:
+		return ""
+	}
+}
+
 // containerNamespaceTerminalCommand enters only the namespaces belonging to
 // the selected runtime object. The PID is read from the runtime and validated
 // as decimal before nsenter; the browser never supplies a PID or command.
@@ -116,19 +129,56 @@ exec nsenter -t "$PID" -m -u -i -n -p -- %s`, runtime, quotedID, consoleTerminal
 }
 
 func kubeVirtContainerTerminalCommand(identifier string) string {
-	selector := utils.ShellSingleQuote("app=" + identifier)
-	script := fmt.Sprintf(`POD=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get pod -n kubevirt-vms -l %s -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-if [ -z "$POD" ]; then echo "未找到对应的 KubeVirt 容器 Pod" >&2; exit 1; fi
-exec KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl exec -it -n kubevirt-vms "$POD" -- sh`, selector)
+	script := kubeVirtPodLookupSnippet(identifier) + `
+exec KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl exec -it -n kubevirt-vms "$POD" -- sh`
 	return "sh -c " + utils.ShellSingleQuote(script)
 }
 
 func kubeVirtContainerAttachCommand(identifier string) string {
-	selector := utils.ShellSingleQuote("app=" + identifier)
-	script := fmt.Sprintf(`POD=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get pod -n kubevirt-vms -l %s -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-if [ -z "$POD" ]; then echo "未找到对应的 KubeVirt 容器 Pod" >&2; exit 1; fi
-exec KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl attach -it -n kubevirt-vms "$POD"`, selector)
+	script := kubeVirtPodLookupSnippet(identifier) + `
+exec KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl attach -it -n kubevirt-vms "$POD"`
 	return "sh -c " + utils.ShellSingleQuote(script)
+}
+
+// kubeVirtPodLookupSnippet prefers the per-instance controller label and keeps
+// app=<id> only as a compatibility fallback for older node deployments. The
+// runtime probe normally resolves a concrete Pod name before these legacy plans
+// are used, but direct callers retain the same lookup order.
+func kubeVirtPodLookupSnippet(identifier string) string {
+	primary := utils.ShellSingleQuote("oneclickvirt.io/instance=" + identifier)
+	fallback := utils.ShellSingleQuote("app=" + identifier)
+	return fmt.Sprintf(`POD=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get pod -n kubevirt-vms -l %s -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+if [ -z "$POD" ]; then POD=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get pod -n kubevirt-vms -l %s -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); fi
+if [ -z "$POD" ]; then echo "未找到对应的 KubeVirt 容器 Pod" >&2; exit 1; fi`, primary, fallback)
+}
+
+func kubeVirtPodTerminalCommand(podName, shell string) string {
+	quoted := utils.ShellSingleQuote(podName)
+	prefix := "KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl exec -it -n kubevirt-vms " + quoted + " -- "
+	if shell == "cmd" {
+		return prefix + "cmd.exe"
+	}
+	return prefix + consoleTerminalShell()
+}
+
+func kubeVirtPodAttachCommand(podName string) string {
+	return kubeVirtPodAttachCommandForContainer(podName, "")
+}
+
+func kubeVirtPodAttachCommandForContainer(podName, containerName string) string {
+	command := "KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl attach -it -n kubevirt-vms "
+	if containerName = strings.TrimSpace(containerName); containerName != "" {
+		command += "-c " + utils.ShellSingleQuote(containerName) + " "
+	}
+	return command + utils.ShellSingleQuote(podName)
+}
+
+func kubeVirtPodAttachProbeCommand(podName, containerName string) string {
+	command := "KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl attach --stdin=false --tty=false -n kubevirt-vms "
+	if containerName = strings.TrimSpace(containerName); containerName != "" {
+		command += "-c " + utils.ShellSingleQuote(containerName) + " "
+	}
+	return command + utils.ShellSingleQuote(podName)
 }
 
 func consoleTerminalTransport(p providerModel.Provider) (string, string) {
@@ -163,23 +213,29 @@ func resolveInstanceConsoleTerminal(instanceID, userID uint, admin bool, protoco
 	if constant.IsBusyStatus(inst.Status) {
 		return InstanceConsoleTerminalTarget{}, fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", inst.Status)
 	}
-	if inst.Status != constant.InstanceStatusRunning {
-		return InstanceConsoleTerminalTarget{}, fmt.Errorf("实例未运行")
-	}
 	if inst.IsFrozen {
 		return InstanceConsoleTerminalTarget{}, fmt.Errorf("实例已被冻结，无法进入控制台")
 	}
 	if inst.ExpiresAt != nil && inst.ExpiresAt.Before(time.Now()) {
 		return InstanceConsoleTerminalTarget{}, fmt.Errorf("实例已到期，无法进入控制台")
 	}
-	runtimeID := inst.ProviderInstanceIdentifier()
-	if isProxmoxConsoleProviderType(p.Type) {
-		runtimeID, err = resolveProxmoxConsoleRuntimeID(inst, p)
-		if err != nil {
-			return InstanceConsoleTerminalTarget{}, fmt.Errorf("无法恢复 PVE VMID/CTID: %w", err)
+	// Resolve exactly the same short-lived, observed plans used by the console
+	// capability endpoint. Do not regenerate a plan from instance_type here: a
+	// stale import must not make a visible serial/VNC choice execute pct on a
+	// qemu object (or the reverse).
+	probe := resolveConsoleRuntimeProbe(inst, p)
+	// A host-side start/stop can reach the provider before the next controller
+	// sync. Use the observed runtime just as the capability endpoint does, so a
+	// visible terminal option cannot fail solely because its database status is
+	// briefly behind the provider.
+	if inst.Status != constant.InstanceStatusRunning && !(probe.observed && probe.running) {
+		reason := "实例未运行"
+		if probe.reason != "" {
+			reason += "；实际探测: " + probe.reason
 		}
+		return InstanceConsoleTerminalTarget{}, fmt.Errorf("%s", reason)
 	}
-	plan, err := ResolveInstanceConsoleTerminalPlan(p.Type, inst.InstanceType, runtimeID, protocol)
+	plan, err := resolveObservedConsoleTerminalPlan(probe, protocol)
 	if err != nil {
 		return InstanceConsoleTerminalTarget{}, err
 	}
@@ -195,9 +251,24 @@ func resolveInstanceConsoleTerminal(instanceID, userID uint, admin bool, protoco
 		Provider:        p,
 		InstanceID:      inst.ID,
 		InstanceName:    inst.Name,
-		InstanceType:    inst.InstanceType,
-		ProviderRuntime: runtimeID,
+		ProviderRuntime: probe.runtimeID,
 	}, nil
+}
+
+func resolveObservedConsoleTerminalPlan(probe consoleRuntimeProbe, protocol string) (InstanceConsoleTerminalPlan, error) {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "" {
+		return InstanceConsoleTerminalPlan{}, fmt.Errorf("请指定控制台协议")
+	}
+	for _, plan := range probe.terminalPlans {
+		if plan.Protocol == protocol {
+			return plan, nil
+		}
+	}
+	if probe.reason != "" {
+		return InstanceConsoleTerminalPlan{}, fmt.Errorf("当前实例未确认支持 %s 宿主机控制台: %s", protocol, probe.reason)
+	}
+	return InstanceConsoleTerminalPlan{}, fmt.Errorf("当前节点/实例未实际探测到 %s 宿主机控制台", protocol)
 }
 
 // ResolveInstanceConsoleTerminalForUser returns a verified, provider-side
@@ -216,12 +287,12 @@ func ResolveInstanceConsoleTerminalForAdmin(instanceID uint, protocol string) (I
 // ResolveInstanceConsoleTerminalPlan resolves a known provider-side terminal
 // protocol. It is shared by the capability endpoint and the WebSocket handler
 // so a visible option cannot diverge from the executable transport.
-func ResolveInstanceConsoleTerminalPlan(providerType, instanceType, identifier, protocol string) (InstanceConsoleTerminalPlan, error) {
+func ResolveInstanceConsoleTerminalPlan(providerType, runtimeKind, identifier, protocol string) (InstanceConsoleTerminalPlan, error) {
 	protocol = strings.ToLower(strings.TrimSpace(protocol))
 	if protocol == "" {
 		return InstanceConsoleTerminalPlan{}, fmt.Errorf("请指定控制台协议")
 	}
-	for _, plan := range consoleTerminalPlans(providerType, instanceType, identifier) {
+	for _, plan := range consoleTerminalPlans(providerType, runtimeKind, identifier) {
 		if plan.Protocol == protocol {
 			return plan, nil
 		}

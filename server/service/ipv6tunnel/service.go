@@ -449,11 +449,24 @@ func prepareTunnelDelete(db *gorm.DB, providerID, tunnelID uint) (providerModel.
 			return fmt.Errorf("隧道路由前缀仍有 %d 个实例地址绑定，无法删除；请先释放或迁移实例", allocated)
 		}
 
-		parentIDs := tx.Model(&providerModel.ProviderIPv6Pool{}).
-			Select("id").Where("provider_id = ? AND tunnel_id = ?", providerID, tunnelID)
+		// MySQL forbids updating a table while selecting from that same table in a
+		// subquery (error 1093). Read the bounded parent-id set first, then issue
+		// one direct update. Both statements stay inside this short transaction;
+		// no host operation runs while the Provider row is locked.
+		var parentIDs []uint
 		if err := tx.Model(&providerModel.ProviderIPv6Pool{}).
-			Where("provider_id = ? AND deleted_at IS NULL AND (tunnel_id = ? OR parent_id IN (?))", providerID, tunnelID, parentIDs).
-			Update("pending_retire", true).Error; err != nil {
+			Where("provider_id = ? AND tunnel_id = ?", providerID, tunnelID).
+			Pluck("id", &parentIDs).Error; err != nil {
+			return fmt.Errorf("读取隧道IPv6地址池父项失败: %w", err)
+		}
+		poolQuery := tx.Model(&providerModel.ProviderIPv6Pool{}).
+			Where("provider_id = ? AND deleted_at IS NULL", providerID)
+		if len(parentIDs) == 0 {
+			poolQuery = poolQuery.Where("tunnel_id = ?", tunnelID)
+		} else {
+			poolQuery = poolQuery.Where("(tunnel_id = ? OR parent_id IN ?)", tunnelID, parentIDs)
+		}
+		if err := poolQuery.Update("pending_retire", true).Error; err != nil {
 			return fmt.Errorf("冻结隧道IPv6地址池失败: %w", err)
 		}
 
