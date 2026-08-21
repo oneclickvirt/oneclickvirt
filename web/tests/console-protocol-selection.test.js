@@ -19,7 +19,8 @@ test('console capability loading waits for an explicit protocol choice', () => {
   assert.ok(match, 'loadConsoleInfo body should be available')
   assert.doesNotMatch(match[1], /connectVNC\(/)
   assert.doesNotMatch(match[1], /repairConsole\(/)
-  assert.match(component, /selectedProtocol\.value = capabilities\.value\.length === 1/)
+  assert.match(component, /const hasSelectableCapability = capabilities\.value\.some/)
+  assert.match(component, /selectedProtocol\.value = !hasSelectableCapability/)
   assert.match(component, /@click="selectProtocol\(capability\.protocol\)"/)
 })
 
@@ -27,7 +28,25 @@ test('legacy protocol lists still expose every advertised console choice', () =>
   assert.match(component, /normalizeConsoleCapabilities/)
   assert.match(capabilityNormalizer, /const listedProtocols = Array\.isArray\(info\?\.protocols\)/)
   assert.match(capabilityNormalizer, /add\(info\?\.protocol, true\)/)
-  assert.match(component, /selectedProtocol\.value = capabilities\.value\.length === 1/)
+  assert.match(component, /selectedProtocol\.value = !hasSelectableCapability/)
+})
+
+test('unavailable live probes surface their diagnostic without opening a session', () => {
+  const match = component.match(/function setCapabilities\(info\) \{([\s\S]*?)\n}\n\nasync function loadConsoleInfo/)
+  assert.ok(match, 'setCapabilities body should be available')
+  assert.match(match[1], /hasSelectableCapability/)
+  assert.match(match[1], /capabilities\.value\[0\]\?\.protocol/)
+  assert.doesNotMatch(match[1], /connectVNC\(/)
+  assert.doesNotMatch(match[1], /prepareSPICE\(/)
+})
+
+test('an unavailable protocol remains selectable only to show its diagnostic', () => {
+  assert.match(component, /:disabled="loadingCapabilities"/)
+  assert.doesNotMatch(component, /:disabled="!capability\.available/)
+  const match = component.match(/async function selectProtocol\(protocol\) \{([\s\S]*?)\n}\n\nasync function repairConsole/)
+  assert.ok(match, 'selectProtocol body should be available')
+  assert.match(match[1], /protocol === 'vnc' && capability\.available/)
+  assert.match(match[1], /protocol === 'spice' && capability\.available/)
 })
 
 test('selecting VNC is the action that starts noVNC', () => {
@@ -85,4 +104,10 @@ test('admin and shared views expose the same protocol chooser', () => {
   assert.doesNotMatch(instanceDetail, /<VNCDialog\s+v-if="!isShareMode"/)
   assert.match(instanceDetail, /:scope="isShareMode \? 'share' : 'user'"/)
   assert.match(overviewCard, /v-if="instance\.status === 'running'"/)
+})
+
+test('the shared chooser labels detected native SSH without changing Web SSH', () => {
+  assert.match(component, /ssh: t\('user\.instanceDetail\.consoleSsh'\)/)
+  assert.match(component, /telnet: t\('user\.instanceDetail\.consoleTelnet'\)/)
+  assert.match(overviewCard, /<!-- Web SSH按钮 -->/)
 })

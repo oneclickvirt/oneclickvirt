@@ -89,7 +89,9 @@ record_harness_skip_and_exit() {
 # Error handler: capture logs and cleanup on unexpected exit
 _cleanup_on_exit() {
     local exit_code=$?
-    if [[ $exit_code -ne 0 ]]; then
+    if [[ $exit_code -eq 75 ]]; then
+        log_skip "Harness skipped due to a transient infrastructure condition (exit 75)"
+    elif [[ $exit_code -ne 0 ]]; then
         log_error "Script exiting with code ${exit_code}"
         log_info "Capturing service logs for debugging..."
         fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-crash-logs.txt" 2>/dev/null || true
@@ -142,10 +144,10 @@ log_section "Phase 2: Create worker node"
 WORKER_INFO=$(create_test_node "$ENV_TYPE" "$NODE_HOURS") || {
     _worker_rc=$?
     if [[ $_worker_rc -eq 75 ]]; then
-        log_error "Failed to create worker node: all cloud platforms temporarily out of resources"
+        log_warning "Worker node provisioning skipped: all cloud platforms are temporarily out of resources"
         record_skip_result "Worker node provisioning" "HARNESS" "create_test_node" "No usable worker node satisfied ${ENV_TYPE} infrastructure requirements" "infrastructure"
     else
-        log_error "Failed to create worker node (infrastructure failure, exit=${_worker_rc})"
+        log_warning "Worker node provisioning skipped due to an infrastructure failure (exit=${_worker_rc})"
         record_skip_result "Worker node provisioning" "HARNESS" "create_test_node" "Worker node provisioning failed with exit ${_worker_rc}" "infrastructure"
     fi
     log_info "This is a transient infrastructure condition, not a test failure."

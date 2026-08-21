@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static audit for action_tests and API route coverage.
+"""Static audit for action tests, router contracts, and API route coverage.
 
 This script is intentionally conservative: it produces a report by default and
 only exits non-zero when --strict is supplied. It does not call live services.
@@ -24,6 +24,9 @@ METHOD_PATH_RE = re.compile(
     r"[\"'](GET|POST|PUT|DELETE|PATCH)[\"']\s+"
     r"[\"']((?:/api/v1)?/[^\"'\s)]*)[\"']",
     re.S,
+)
+CONTRACT_ROUTE_RE = re.compile(
+    r"[\"'](GET|POST|PUT|DELETE|PATCH)\s+((?:/api/v1)?/[^\"'\s]+)[\"']"
 )
 JQ_INVOKE_RE = re.compile(r"(^|[\s|;&(<`])jq(\s|$)")
 
@@ -85,7 +88,10 @@ def scan_routes(root: Path) -> list[Endpoint]:
 def scan_test_paths(root: Path) -> tuple[list[Endpoint], set[str]]:
     endpoints: list[Endpoint] = []
     paths: set[str] = set()
-    for path in iter_text_files(root, "action_tests/**/*.sh"):
+    # Router contract tests are deterministic registration checks. They cover
+    # routes such as WebSocket/console endpoints that must not be opened by a
+    # disposable integration worker merely to satisfy a static coverage audit.
+    for path in iter_text_files(root, "action_tests/**/*.sh", "server/service/router/**/*_test.go"):
         text = path.read_text(errors="ignore")
         for match in PATH_RE.finditer(text):
             paths.add(match.group(1))
@@ -95,6 +101,10 @@ def scan_test_paths(root: Path) -> tuple[list[Endpoint], set[str]]:
             line_starts.append(match.end())
         for match in METHOD_PATH_RE.finditer(compact):
             line = 1 + sum(1 for start in line_starts if start <= match.start())
+            endpoints.append(Endpoint(match.group(1), match.group(2), rel(path, root), line))
+            paths.add(match.group(2))
+        for match in CONTRACT_ROUTE_RE.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
             endpoints.append(Endpoint(match.group(1), match.group(2), rel(path, root), line))
             paths.add(match.group(2))
     return endpoints, paths

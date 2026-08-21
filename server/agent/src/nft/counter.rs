@@ -299,11 +299,11 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64
     for scope in SCOPES {
         let ci = counter_name_in(scope, monitor_id, interface);
         let co = counter_name_out(scope, monitor_id, interface);
-        let mut scope_ok = false;
+        let mut scope_in = None;
+        let mut scope_out = None;
         match query_counter_bytes(scope, &ci) {
             Ok(Some(bytes)) => {
-                total_in = total_in.saturating_add(bytes);
-                scope_ok = true;
+                scope_in = Some(bytes);
             }
             Ok(None) => {}
             Err(err) => {
@@ -319,8 +319,7 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64
         }
         match query_counter_bytes(scope, &co) {
             Ok(Some(bytes)) => {
-                total_out = total_out.saturating_add(bytes);
-                scope_ok = true;
+                scope_out = Some(bytes);
             }
             Ok(None) => {}
             Err(err) => {
@@ -334,7 +333,12 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64
                 );
             }
         }
-        if scope_ok {
+        // A scope is readable only when both directions exist. Returning a
+        // partial pair would keep an interface active while silently dropping
+        // one direction until a later reconciliation pass.
+        if let (Some(bytes_in), Some(bytes_out)) = (scope_in, scope_out) {
+            total_in = total_in.saturating_add(bytes_in);
+            total_out = total_out.saturating_add(bytes_out);
             has_any_counter = true;
         } else {
             missing_counter_scopes += 1;

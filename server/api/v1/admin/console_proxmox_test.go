@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -87,6 +88,7 @@ func TestProxmoxNativeVNCDoesNotRequireGenericRawVNCSetting(t *testing.T) {
 			EnableVNC:      false,
 		},
 		"100",
+		"pve-a",
 		nil,
 	)
 	if !target.available || !target.proxmoxVNC || target.protocol != consoleProtocolVNC {
@@ -99,10 +101,69 @@ func TestProxmoxAgentVNCRequiresLiveControlChannel(t *testing.T) {
 		providerModel.Instance{ID: 42, InstanceType: "vm"},
 		providerModel.Provider{ID: ^uint(0) - 1, ConnectionType: "agent", AgentStatus: "online"},
 		"100",
+		"pve-a",
 		nil,
 	)
 	if target.available || !strings.Contains(target.reason, "Agent 当前离线") {
 		t.Fatalf("offline Agent PVE VNC target = %#v", target)
+	}
+}
+
+func TestOpenAuthenticatedProxmoxVNCConnRetriesOnlyTransientProxyFailures(t *testing.T) {
+	var (
+		attempts    int
+		cleanups    int
+		pauses      int
+		serverConns []net.Conn
+	)
+	defer func() {
+		for _, conn := range serverConns {
+			_ = conn.Close()
+		}
+	}()
+
+	opener := func(consoleTarget) (net.Conn, func(), string, error) {
+		attempts++
+		client, server := net.Pipe()
+		serverConns = append(serverConns, server)
+		return client, func() {
+			cleanups++
+			_ = client.Close()
+			_ = server.Close()
+		}, "temporary", nil
+	}
+	authenticator := func(net.Conn, string) error {
+		if attempts == 1 {
+			return &net.DNSError{IsTimeout: true}
+		}
+		return nil
+	}
+
+	conn, cleanup, err := openAuthenticatedProxmoxVNCConnWithRetry(
+		consoleTarget{}, 2, opener, authenticator, func(int) { pauses++ },
+	)
+	if err != nil {
+		t.Fatalf("openAuthenticatedProxmoxVNCConnWithRetry() error = %v", err)
+	}
+	if conn == nil || cleanup == nil || attempts != 2 || pauses != 1 || cleanups != 1 {
+		t.Fatalf("retry result conn=%v cleanup=%v attempts=%d pauses=%d cleanups=%d", conn != nil, cleanup != nil, attempts, pauses, cleanups)
+	}
+	cleanup()
+	if cleanups != 2 {
+		t.Fatalf("successful connection cleanup count = %d, want 2", cleanups)
+	}
+
+	attempts = 0
+	cleanups = 0
+	pauses = 0
+	_, _, err = openAuthenticatedProxmoxVNCConnWithRetry(
+		consoleTarget{}, 2, opener, func(net.Conn, string) error { return errors.New("permission denied") }, func(int) { pauses++ },
+	)
+	if err == nil {
+		t.Fatal("permanent proxy authentication failure unexpectedly succeeded")
+	}
+	if attempts != 1 || pauses != 0 || cleanups != 1 {
+		t.Fatalf("permanent error retry state attempts=%d pauses=%d cleanups=%d", attempts, pauses, cleanups)
 	}
 }
 

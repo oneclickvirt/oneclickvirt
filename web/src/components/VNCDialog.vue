@@ -22,7 +22,7 @@
           :key="capability.protocol"
           size="small"
           :type="selectedProtocol === capability.protocol ? 'primary' : 'default'"
-          :disabled="!capability.available && !capability.repairable && !capability.nativeURL"
+          :disabled="loadingCapabilities"
           :title="capability.reason || ''"
           @click="selectProtocol(capability.protocol)"
         >
@@ -57,7 +57,7 @@
             {{ repairing ? t('user.instanceDetail.consoleRepairing') : t('user.instanceDetail.consoleRepair') }}
           </el-button>
           <el-button
-            v-if="selectedCapability.nativeURL"
+            v-if="selectedCapability.nativeURL && selectedCapability.available"
             size="small"
             type="primary"
             @click="openNativeConsole"
@@ -278,6 +278,8 @@ const protocolLabel = protocol => {
     'native-console': t('user.instanceDetail.consoleNative'),
     serial: t('user.instanceDetail.consoleSerial'),
     rdp: t('user.instanceDetail.consoleRdp'),
+    ssh: t('user.instanceDetail.consoleSsh'),
+    telnet: t('user.instanceDetail.consoleTelnet'),
     'virtio-console': t('user.instanceDetail.consoleVirtio'),
     vsock: t('user.instanceDetail.consoleVsock'),
     unsupported: t('user.instanceDetail.consoleUnsupported')
@@ -459,9 +461,15 @@ function setCapabilities(info) {
     t('user.instanceDetail.consoleUnknownError')
   )
   // Fetching capability metadata must not implicitly launch a remote desktop,
-  // terminal, or repair task. The user explicitly chooses a protocol first.
-  selectedProtocol.value = capabilities.value.length === 1 && capabilities.value[0].protocol === 'unsupported'
-    ? 'unsupported'
+  // terminal, or repair task. The user explicitly chooses a usable protocol.
+  // When every detected candidate failed its live check, select the first one
+  // only to surface the server-provided diagnostic instead of leaving a row of
+  // disabled buttons with no visible explanation.
+  const hasSelectableCapability = capabilities.value.some(capability => (
+    capability.available || capability.repairable || capability.nativeURL
+  ))
+  selectedProtocol.value = !hasSelectableCapability
+    ? (capabilities.value[0]?.protocol || '')
     : ''
 }
 

@@ -54,3 +54,13 @@ test('uses an unsupported fallback when the controller returns no protocol data'
     reason: 'unavailable'
   }])
 })
+
+test('retains a live Telnet capability as an explicit native-client choice', () => {
+  const capabilities = normalizeConsoleCapabilities({
+    capabilities: [{ protocol: 'telnet', available: true, nativeURL: 'telnet://node.example.test:2323', terminal: false }]
+  }, 'unknown')
+
+  assert.equal(capabilities.length, 1)
+  assert.equal(capabilities[0].protocol, 'telnet')
+  assert.equal(capabilities[0].nativeURL, 'telnet://node.example.test:2323')
+})

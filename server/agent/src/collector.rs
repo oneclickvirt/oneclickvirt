@@ -495,12 +495,13 @@ async fn reconcile_traffic_batch(
                 );
                 if let Some(active_state) = active_state {
                     let after = read_counter(use_ipt, monitor.id, &binding.interface);
-                    state_changes.push(settled_state_change(
-                        active_state,
-                        before,
-                        after,
-                        after.is_none(),
-                    ));
+                    // A failed ensure means the desired binding is not
+                    // trustworthy, even when one direction/scope is still
+                    // readable. Settle whatever is visible, then drop the
+                    // active state so the next bounded reconciliation retries
+                    // the complete binding instead of reporting it healthy with
+                    // only partial counters.
+                    state_changes.push(settled_state_change(active_state, before, after, true));
                 }
                 continue;
             }
@@ -746,6 +747,19 @@ mod tests {
         assert_eq!(change.increment_in, 50);
         assert_eq!(change.increment_out, 60);
         assert_eq!((change.base_in, change.base_out), (5, 7));
+    }
+
+    #[test]
+    fn failed_rule_reconciliation_settles_visible_bytes_before_deactivation() {
+        let change = settled_state_change(
+            &state("veth-test", 100, 200),
+            Some((150, 260)),
+            Some((170, 290)),
+            true,
+        );
+        assert!(change.deactivate);
+        assert_eq!((change.increment_in, change.increment_out), (70, 90));
+        assert_eq!((change.base_in, change.base_out), (170, 290));
     }
 
     #[test]

@@ -10,6 +10,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/cache"
+	consoleService "oneclickvirt/service/console"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/taskgate"
 	"oneclickvirt/utils"
@@ -203,6 +204,7 @@ func (s *Service) BatchInstanceAction(req adminModel.BatchInstanceActionRequest,
 	for _, instance := range acceptedInstances {
 		cacheService.InvalidateUserCache(instance.UserID)
 		cacheService.InvalidateInstanceCache(instance.ID)
+		consoleService.InvalidateInstanceConsoleCaches(instance.ID)
 	}
 	return response
 }

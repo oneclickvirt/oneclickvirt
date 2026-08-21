@@ -29,7 +29,10 @@ var xssPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(<script[^>]*>)`),
 	regexp.MustCompile(`(?i)(</script>)`),
 	regexp.MustCompile(`(?i)(javascript:)`),
-	regexp.MustCompile(`(?i)(on\w+\s*=)`),
+	// Event-handler attributes must begin at an attribute/query boundary. The
+	// former unbounded `on\w+=` pattern also matched ordinary identifiers such
+	// as `skipConflictCheck`, making a legitimate import option unreachable.
+	regexp.MustCompile("(?i)(?:^|[?&\\s<\"'`])on[a-z0-9_-]+\\s*="),
 	regexp.MustCompile(`(?i)(<iframe[^>]*>)`),
 	regexp.MustCompile(`(?i)(<object[^>]*>)`),
 	regexp.MustCompile(`(?i)(<embed[^>]*>)`),

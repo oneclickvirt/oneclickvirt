@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/service/cache"
+	consoleService "oneclickvirt/service/console"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -35,5 +36,6 @@ func (s *TaskService) invalidateTaskInstanceCaches(taskID uint) {
 	}
 	if task.InstanceID != nil && *task.InstanceID > 0 {
 		cacheService.InvalidateInstanceCache(*task.InstanceID)
+		consoleService.InvalidateInstanceConsoleCaches(*task.InstanceID)
 	}
 }

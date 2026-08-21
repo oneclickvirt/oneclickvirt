@@ -14,6 +14,7 @@ import (
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
+	consoleService "oneclickvirt/service/console"
 	"oneclickvirt/service/database"
 	trafficService "oneclickvirt/service/traffic"
 
@@ -241,9 +242,13 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 
 	// 使用数据库抽象层保存
 	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		return tx.Save(&instance).Error
 	})
+	if err == nil {
+		consoleService.InvalidateInstanceConsoleCaches(instance.ID)
+	}
+	return err
 }
 
 func (s *Service) BatchInstanceAction(userID uint, req userModel.BatchInstanceActionRequest) userModel.BatchInstanceActionResponse {

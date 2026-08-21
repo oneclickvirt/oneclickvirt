@@ -11,8 +11,9 @@ import (
 )
 
 type nativeConsoleTarget struct {
-	protocol string
-	url      string
+	protocol         string
+	url              string
+	instanceEndpoint bool
 }
 
 func normalizeNativeConsoleProtocol(protocol string) string {
@@ -115,12 +116,63 @@ func normalizeConsoleProxyTarget(p providerModel.Provider, host, transport strin
 			}
 		}
 		return "", transport, fmt.Errorf("直连控制台地址不是当前节点的受信任主机")
+	case consoleInstanceEndpointTransport:
+		ip := net.ParseIP(strings.Trim(strings.TrimSpace(host), "[]"))
+		if !isAllowedInstanceConsoleIP(ip) {
+			return "", transport, fmt.Errorf("实例直连控制台地址必须是非回环、非链路本地 IP")
+		}
+		return ip.String(), transport, nil
+	case consolePublicInstanceEndpointTransport:
+		ip := net.ParseIP(strings.Trim(strings.TrimSpace(host), "[]"))
+		if !isPublicConsoleIP(ip) {
+			return "", transport, fmt.Errorf("实例公网控制台地址必须是可路由的公网 IP")
+		}
+		return ip.String(), transport, nil
 	default:
 		if transport == "" {
 			return "", transport, fmt.Errorf("节点未配置控制台传输方式")
 		}
 		return "", transport, fmt.Errorf("不支持的控制台传输方式 %q", transport)
 	}
+}
+
+func isAllowedInstanceConsoleIP(ip net.IP) bool {
+	return ip != nil && !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsMulticast() && !ip.IsLinkLocalUnicast()
+}
+
+// validateNativeConsoleTarget applies the normal node-host restriction to
+// controller metadata. Targets created from a live probe of an instance's own
+// public address are the sole exception: they must still use a supported URL
+// scheme and a literal routable IP, never a hostname or private address.
+func validateNativeConsoleTarget(target nativeConsoleTarget, provider providerModel.Provider) (string, error) {
+	if !target.instanceEndpoint {
+		return validateNativeConsoleURL(target.url, provider)
+	}
+
+	rawURL := strings.TrimSpace(target.url)
+	if rawURL == "" {
+		return "", fmt.Errorf("原生控制台地址为空")
+	}
+	decoded, decodeErr := url.PathUnescape(rawURL)
+	if decodeErr != nil || strings.ContainsRune(rawURL, '\\') || strings.ContainsRune(decoded, '\\') ||
+		strings.ContainsAny(rawURL, "\r\n\t") || strings.ContainsAny(decoded, "\r\n\t") {
+		return "", fmt.Errorf("原生控制台地址包含不安全的路径字符")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed == nil || parsed.User != nil || parsed.Hostname() == "" {
+		return "", fmt.Errorf("实例原生控制台地址格式无效")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	switch scheme {
+	case "https", "http", "spice", "vnc", "rdp", "ssh", "telnet":
+	default:
+		return "", fmt.Errorf("原生控制台协议 %q 不受支持", scheme)
+	}
+	ip := net.ParseIP(strings.Trim(parsed.Hostname(), "[]"))
+	if !isPublicConsoleIP(ip) {
+		return "", fmt.Errorf("实例原生控制台地址必须是可路由的公网 IP")
+	}
+	return rawURL, nil
 }
 
 // validateNativeConsoleURL constrains discovered native console links to the

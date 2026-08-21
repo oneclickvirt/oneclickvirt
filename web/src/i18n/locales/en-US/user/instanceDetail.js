@@ -148,6 +148,8 @@ export default {
   consoleNative: "Native Console",
   consoleSerial: "Serial Console",
   consoleRdp: "RDP Console",
+  consoleSsh: "SSH Client Connection",
+  consoleTelnet: "Telnet Client Connection",
   consoleVirtio: "virtio-console",
   consoleVsock: "vsock channel",
   consoleUnsupported: "Console unavailable",

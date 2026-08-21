@@ -47,7 +47,9 @@ type consoleTarget struct {
 	nativeURL    string
 	terminal     bool
 	proxmoxVNC   bool
+	kubeVirtVNC  bool
 	runtimeID    string
+	runtimeNode  string
 	instanceID   uint
 	provider     providerModel.Provider
 }
@@ -70,7 +72,10 @@ var spicePathPattern = regexp.MustCompile(`spice_query_var\(\s*["']path["']\s*,\
 
 func loadConsoleRecords(instanceID, userID uint, admin bool) (providerModel.Instance, providerModel.Provider, error) {
 	var inst providerModel.Instance
-	query := global.APP_DB.Select("id", "name", "provider_id", "status", "instance_type", "provider_vm_id", "discovered_data", "user_id", "is_frozen", "expires_at")
+	query := global.APP_DB.Select(
+		"id", "name", "provider_id", "status", "provider_vm_id", "discovered_data", "user_id", "is_frozen", "expires_at",
+		"private_ip", "public_ip", "ipv6_address", "public_ipv6", "ssh_host", "ssh_port",
+	)
 	if admin {
 		query = query.Where("id = ?", instanceID)
 	} else {
@@ -83,7 +88,7 @@ func loadConsoleRecords(instanceID, userID uint, admin bool) (providerModel.Inst
 	if err := global.APP_DB.Select(
 		"id", "type", "endpoint", "port_ip", "ssh_port", "username", "password", "ssh_key",
 		"connection_type", "agent_status", "enable_vnc", "vnc_base_port", "vnc_host",
-		"host_name",
+		"host_name", "storage_pool", "storage_pool_path",
 	).First(&p, inst.ProviderID).Error; err != nil {
 		return inst, p, err
 	}
@@ -328,25 +333,6 @@ func consoleProviderTypeSupportsSPICE(providerType string) bool {
 	}
 }
 
-func consoleProviderTypeSupportsVNC(providerType string) bool {
-	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "proxmox", "proxmoxve", "pve", "qemu", "libvirt", "kvm", "kubevirt",
-		"vmware", "virtualbox", "multipass", "vagrant":
-		return true
-	default:
-		return false
-	}
-}
-
-func consoleProviderTypeSupportsExec(providerType string) bool {
-	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "docker", "orbstack", "podman", "containerd", "lxd", "incus":
-		return true
-	default:
-		return false
-	}
-}
-
 func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]consoleTarget, error) {
 	inst, p, err := loadConsoleRecords(instanceID, userID, admin)
 	if err != nil {
@@ -355,26 +341,29 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 	if constant.IsBusyStatus(inst.Status) {
 		return nil, fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", inst.Status)
 	}
-	if inst.Status != constant.InstanceStatusRunning {
-		return nil, fmt.Errorf("实例未运行")
-	}
-	runtimeID := inst.ProviderInstanceIdentifier()
-	// Imported/legacy records may contain uppercase or whitespace around the
-	// instance type. Console capability selection must use the same normalized
-	// value as provider discovery so a VM is never treated as a container (or
-	// vice versa) merely because of record formatting.
-	instanceType := utils.NormalizeInstanceType(inst.InstanceType)
-	isVM := utils.IsVirtualMachineInstanceType(instanceType)
-	var proxmoxRuntimeErr error
-	if isProxmoxConsoleProviderType(p.Type) {
-		runtimeID, proxmoxRuntimeErr = resolveProxmoxConsoleRuntimeID(inst, p)
-		if proxmoxRuntimeErr == nil {
-			inst.ProviderVMID = runtimeID
-		}
-	}
 	metadata := parseDiscoveredConsole(inst.DiscoveredData)
 	metadata.spiceTransport = normalizeConsoleTransport(p, metadata.spiceTransport)
-	targets := make([]consoleTarget, 0, 3)
+	// The runtime probe is the sole source for terminal/PVE/SPICE capability
+	// selection. instance_type remains stored for lifecycle/accounting but must
+	// never hide a real console exposed by an imported or misclassified object.
+	probe := resolveConsoleRuntimeProbe(inst, p)
+	// A controller status can lag an out-of-band start or stop. Do not let that
+	// stale row hide a console that the provider just proved is running, but
+	// retain the normal denial when a live probe cannot establish that fact.
+	if inst.Status != constant.InstanceStatusRunning && !(probe.observed && probe.running) {
+		reason := "实例未运行"
+		if probe.reason != "" {
+			reason += "；实际探测: " + probe.reason
+		}
+		return nil, fmt.Errorf("%s", reason)
+	}
+	runtimeID := strings.TrimSpace(probe.runtimeID)
+	if runtimeID == "" {
+		runtimeID = inst.ProviderInstanceIdentifier()
+	}
+	mappedCandidates := mappedConsoleEndpoints(inst, p)
+	instanceCandidates := collectInstanceConsoleEndpointCandidates(inst, p)
+	targets := make([]consoleTarget, 0, 5)
 	add := func(target consoleTarget) {
 		for index := range targets {
 			existing := &targets[index]
@@ -407,8 +396,8 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 		targets = append(targets, target)
 	}
 
-	for _, native := range metadata.nativeTargets {
-		safeURL, nativeErr := validateNativeConsoleURL(native.url, p)
+	addNative := func(native nativeConsoleTarget) {
+		safeURL, nativeErr := validateNativeConsoleTarget(native, p)
 		target := consoleTarget{
 			protocol: native.protocol, instanceID: instanceID, provider: p,
 		}
@@ -417,10 +406,55 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 		} else {
 			target.nativeURL = safeURL
 			target.available = true
+			target = refreshNativeConsoleTarget(target)
 		}
 		add(target)
 	}
-	if p.EnableVNC && metadata.spicePort > 0 {
+	for _, native := range metadata.nativeTargets {
+		addNative(native)
+	}
+	// A port mapping is not a protocol declaration. Merge the runtime's own
+	// mapping table, dedicated instance addresses, and indexed panel mappings,
+	// then fingerprint every bounded endpoint before adding VNC/RDP/SPICE/SSH.
+	// The merge rotates sources, so a broad port range on one source cannot hide
+	// a real display service on an instance IPv4/IPv6 address. This accepts a
+	// graphical container or an RDP-capable VM on non-standard ports without
+	// trusting a guest-port convention or the stored instance type.
+	candidates := mergeConsoleEndpointCandidates(probe.endpointCandidates, instanceCandidates, mappedCandidates)
+	detected := detectConsoleEndpointCandidates(instanceID, candidates)
+	detectedVNC, detectedNative := detected.vnc, detected.native
+	for _, native := range detectedNative {
+		addNative(native)
+	}
+	for _, native := range probe.nativeTargets {
+		addNative(native)
+	}
+
+	if isProxmoxConsoleProviderType(p.Type) && probe.proxmoxVNCChecked {
+		vncTarget := buildProxmoxConsoleVNCTarget(inst, p, runtimeID, probe.node, nil)
+		if !probe.proxmoxVNC {
+			vncTarget.available = false
+			if probe.proxmoxVNCReason != "" {
+				vncTarget.reason = probe.proxmoxVNCReason
+			}
+		}
+		add(vncTarget)
+	}
+	if probe.kubeVirtVNCChecked {
+		vncTarget := buildKubeVirtConsoleVNCTarget(inst, p, runtimeID)
+		if !probe.kubeVirtVNC {
+			vncTarget.available = false
+			if probe.kubeVirtVNCReason != "" {
+				vncTarget.reason = probe.kubeVirtVNCReason
+			}
+		}
+		add(vncTarget)
+	}
+
+	// Persisted SPICE proxy data must be actively healthy before it is offered.
+	// EnableVNC is an old generic raw-port switch; it is not a runtime fact and
+	// cannot suppress a discovered browser adapter.
+	if metadata.spicePort > 0 {
 		host := metadata.spiceHost
 		if host == "" {
 			host = "127.0.0.1"
@@ -438,33 +472,28 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 		}
 		add(target)
 	}
-	terminalID := runtimeID
-	terminalReason := ""
-	if proxmoxRuntimeErr != nil {
-		// Preserve the supported protocol choices, but do not construct a command
-		// from a display name that PVE will reject as a VMID/CTID.
-		terminalID = "unresolved-proxmox-runtime"
-		terminalReason = "无法恢复 PVE VMID/CTID: " + proxmoxRuntimeErr.Error()
-	}
-	for _, plan := range consoleTerminalPlans(p.Type, instanceType, terminalID) {
+	for _, plan := range probe.terminalPlans {
 		transport, reason := consoleTerminalTransport(p)
-		if terminalReason != "" {
-			reason = terminalReason
-		}
 		add(consoleTarget{
 			protocol: plan.Protocol, transport: transport, terminal: true,
 			available: reason == "", reason: reason,
 			instanceID: instanceID, provider: p,
 		})
 	}
-	if isProxmoxConsoleProviderType(p.Type) && isVM {
-		add(buildProxmoxConsoleVNCTarget(inst, p, runtimeID, proxmoxRuntimeErr))
+	for _, failure := range probe.terminalFailures {
+		if strings.TrimSpace(failure.protocol) == "" {
+			continue
+		}
+		add(consoleTarget{
+			protocol: failure.protocol, available: false, reason: failure.reason,
+			instanceID: instanceID, provider: p,
+		})
 	}
 
-	// Incus/LXD VMs expose SPICE through a Unix socket and do not have a stable
-	// TCP VNC port. Mark them repairable so the UI can initialize websockify
-	// with one explicit idempotent action and display the actual remote error.
-	if p.EnableVNC && isVM && consoleProviderTypeSupportsSPICE(p.Type) && metadata.spicePort == 0 {
+	// LXD/Incus SPICE setup is offered only after the live VM probe finds its
+	// qemu.spice socket. The actual repair stays explicit and idempotent; a
+	// capability GET never starts websockify or installs packages.
+	if probe.spiceRepairable && metadata.spicePort == 0 {
 		status, reason := consoleRepairStatus(instanceID)
 		if reason == "" {
 			reason = "未检测到 SPICE 浏览器代理，将自动检查 qemu.spice 并配置 websockify"
@@ -476,39 +505,64 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 		})
 	}
 
-	// Existing VNC metadata is honoured for VMs and containers alike. Some
-	// Docker/special-runtime images intentionally provide a graphical VNC port.
-	vncPort := parseVNCDiscoveredPort(inst.DiscoveredData)
-	if p.EnableVNC && !isProxmoxConsoleProviderType(p.Type) && vncPort > 0 {
-		vncTransport := normalizeVNCConsoleTransport(p, metadata.transport)
-		host := metadata.host
+	addVNC := func(endpoint consoleDiscoveredEndpoint) {
+		vncTransport := normalizeVNCConsoleTransport(p, endpoint.transport)
+		host := strings.TrimSpace(endpoint.host)
+		// Node discovery commonly reports a VNC listener as 127.0.0.1. An
+		// omitted transport must mean "reach that node through its configured
+		// control channel", not "dial the controller loopback".
+		if host != "" && isConsoleLoopbackHost(host) && strings.TrimSpace(endpoint.transport) == "" {
+			if nodeTransport := normalizeConsoleTransport(p, ""); nodeTransport != "" {
+				vncTransport = nodeTransport
+			}
+		}
 		if host == "" {
 			host = consoleHost(p)
 			if vncTransport == "ssh" || vncTransport == "agent" || vncTransport == "local" {
 				host = "127.0.0.1"
 			}
 		}
-		if host == "" {
-			return nil, fmt.Errorf("已发现 VNC 端口 %d，但节点控制台地址为空", vncPort)
-		}
-		host, transport, targetErr := normalizeConsoleProxyTarget(p, host, vncTransport)
 		target := consoleTarget{
-			protocol: consoleProtocolVNC, host: host, port: vncPort,
-			transport: transport, available: targetErr == nil,
+			protocol: consoleProtocolVNC, host: host, port: endpoint.port,
 			instanceID: instanceID, provider: p,
 		}
-		if targetErr != nil {
-			target.reason = targetErr.Error()
+		if host == "" {
+			target.reason = fmt.Sprintf("已发现 VNC 端口 %d，但节点控制台地址为空", endpoint.port)
+		} else {
+			normalizedHost, transport, targetErr := normalizeConsoleProxyTarget(p, host, vncTransport)
+			target.host = normalizedHost
+			target.transport = transport
+			target.available = targetErr == nil
+			if targetErr != nil {
+				target.reason = targetErr.Error()
+			} else {
+				target = refreshVNCConsoleTarget(target)
+			}
 		}
 		add(target)
 	}
-	if p.EnableVNC && isVM && !isProxmoxConsoleProviderType(p.Type) && consoleProviderTypeSupportsVNC(p.Type) {
+
+	// Metadata and exposed port mappings can describe graphical containers just
+	// as well as VMs. Every candidate gets an RFB health check before it becomes
+	// available, so neither source needs an instance_type gate.
+	if vncPort := parseVNCDiscoveredPort(inst.DiscoveredData); vncPort > 0 {
+		addVNC(consoleDiscoveredEndpoint{protocol: consoleProtocolVNC, host: metadata.host, port: vncPort, transport: metadata.transport})
+	}
+	for _, endpoint := range detectedVNC {
+		addVNC(endpoint)
+	}
+	for _, endpoint := range probe.vncEndpoints {
+		addVNC(endpoint)
+	}
+	// The legacy base-port convention is a last-resort candidate only. It is no
+	// longer limited to rows labelled VM and is shown only after an RFB probe.
+	if p.EnableVNC && !isProxmoxConsoleProviderType(p.Type) {
 		vncTransport := normalizeVNCConsoleTransport(p, metadata.transport)
 		base := p.VNCBasePort
 		if base <= 0 {
 			base = 5900
 		}
-		vmid, _ := strconv.Atoi(strings.TrimSpace(inst.ProviderVMID))
+		vmid, _ := strconv.Atoi(strings.TrimSpace(runtimeID))
 		if vmid > 0 {
 			base += vmid
 		}
@@ -517,22 +571,19 @@ func resolveInstanceConsoleTargets(instanceID, userID uint, admin bool) ([]conso
 			host = "127.0.0.1"
 		}
 		if host != "" && base <= 65535 {
-			host, transport, targetErr := normalizeConsoleProxyTarget(p, host, vncTransport)
-			target := consoleTarget{
-				protocol: consoleProtocolVNC, host: host, port: base,
-				transport: transport, available: targetErr == nil,
-				instanceID: instanceID, provider: p,
-			}
-			if targetErr != nil {
-				target.reason = targetErr.Error()
-			}
-			add(target)
+			addVNC(consoleDiscoveredEndpoint{protocol: consoleProtocolVNC, host: host, port: base, transport: vncTransport})
 		}
 	}
 	if len(targets) == 0 {
 		reason := fmt.Sprintf("%s 节点未提供可用的 VNC、SPICE 或原生控制台", p.Type)
-		if !p.EnableVNC {
-			reason = "节点未启用图形控制台，且未发现可用的原生控制台或容器 Exec"
+		if probe.reason != "" {
+			reason = probe.reason
+		} else if detected.reason != "" {
+			reason = detected.reason
+		} else if probe.spiceReason != "" {
+			reason = probe.spiceReason
+		} else if !p.EnableVNC {
+			reason = "未发现可用的原生控制台、图形控制台或宿主机终端"
 		}
 		return []consoleTarget{{
 			protocol:   consoleProtocolUnsupported,
@@ -674,6 +725,9 @@ func newConsoleExecutor(p providerModel.Provider) (utils.ShellExecutor, func(), 
 }
 
 func spiceSetupCommand(instanceName string, instanceID uint, p providerModel.Provider) string {
+	if !isLXDLikeConsoleInstanceName(instanceName) {
+		return "sh -c " + utils.ShellSingleQuote(`echo "实例运行时标识不适合安全探测 qemu.spice Unix socket" >&2; exit 20`)
+	}
 	name := utils.ShellSingleQuote(instanceName)
 	base := p.VNCBasePort
 	if base < 6000 {
@@ -683,18 +737,9 @@ func spiceSetupCommand(instanceName string, instanceID uint, p providerModel.Pro
 	lines := []string{
 		"set -u",
 		fmt.Sprintf("INSTANCE=%s", name),
-		`SOCKET=""`,
-		`for candidate in "/run/incus/${INSTANCE}/qemu.spice" "/var/lib/incus/containers/${INSTANCE}/qemu.spice" "/var/lib/incus/logs/${INSTANCE}/qemu.spice" "/var/snap/lxd/common/lxd/logs/${INSTANCE}/qemu.spice" "/var/lib/lxd/containers/${INSTANCE}/qemu.spice" "/var/lib/lxd/containers/${INSTANCE}/logs/qemu.spice"; do`,
-		`  if [ -S "$candidate" ]; then SOCKET="$candidate"; break; fi`,
-		`done`,
-		`if [ -z "$SOCKET" ]; then`,
-		`  for root in /run/incus /var/lib/incus /var/snap/lxd/common/lxd/logs /var/lib/lxd/containers; do`,
-		`    if [ -d "$root" ]; then`,
-		`      found=$(find "$root" -path "*/${INSTANCE}/*" -type s -name qemu.spice -print -quit 2>/dev/null || true)`,
-		`      if [ -n "$found" ]; then SOCKET="$found"; break; fi`,
-		`    fi`,
-		`  done`,
-		`fi`,
+	}
+	lines = append(lines, lxdLikeSPICESocketDiscoveryLines()...)
+	lines = append(lines,
 		`if [ -z "$SOCKET" ]; then echo "未找到运行中的 qemu.spice Unix socket（实例可能未启动、不是 VM，或 Incus/LXD 未启用 QEMU 驱动）" >&2; exit 20; fi`,
 		`if ! command -v websockify >/dev/null 2>&1 || ! find /usr/share /usr/local/share -type f -name spice_auto.html -print -quit 2>/dev/null | grep -q .; then`,
 		`  if command -v apt-get >/dev/null 2>&1; then`,
@@ -752,7 +797,7 @@ func spiceSetupCommand(instanceName string, instanceID uint, p providerModel.Pro
 		`printf "%s\t%s\t%s\t%s\n" "$SOCKET" "$WEB_ROOT" "$PORT" "127.0.0.1" > "${STATEFILE}.tmp"; mv -f -- "${STATEFILE}.tmp" "$STATEFILE"`,
 		`for _ in $(seq 1 20); do if (ss -ltn 2>/dev/null || true) | awk '{print $4}' | grep -Eq "[:.]${PORT}$"; then printf 'ONECLICKVIRT_SPICE\t%s\t%s\t%s\t%s\n' "$SOCKET" "$WEB_ROOT" "$PORT" "127.0.0.1"; exit 0; fi; sleep 0.5; done`,
 		`echo "websockify 启动后未监听端口，最近日志：" >&2; tail -n 40 "$LOGFILE" 2>/dev/null || true; exit 25`,
-	}
+	)
 	return strings.Join(lines, "\n")
 }
 
@@ -872,6 +917,8 @@ func runSpiceRepair(instanceID uint, instanceName string, p providerModel.Provid
 		return
 	}
 	invalidateSPICEHealth(instanceID)
+	invalidateConsoleRuntimeProbe(instanceID)
+	invalidateConsoleEndpointProbe(instanceID)
 	setConsoleRepairState(instanceID, "ready", "")
 	if global.APP_LOG != nil {
 		global.APP_LOG.Info("SPICE 浏览器控制台已配置", zap.Uint("instanceID", instanceID), zap.Int("port", port))
@@ -886,11 +933,13 @@ func startInstanceConsoleRepair(instanceID, userID uint, admin bool) (gin.H, err
 	if constant.IsBusyStatus(inst.Status) || inst.Status != constant.InstanceStatusRunning {
 		return nil, fmt.Errorf("实例未处于可修复状态（当前状态：%s）", inst.Status)
 	}
-	if !consoleProviderTypeSupportsSPICE(p.Type) || inst.InstanceType != "vm" {
-		return nil, fmt.Errorf("当前节点/实例没有可自动修复的 SPICE 控制台")
-	}
-	if !p.EnableVNC {
-		return nil, fmt.Errorf("节点未启用图形控制台，请先启用 WebVNC/控制台")
+	probe := resolveConsoleRuntimeProbe(inst, p)
+	if !probe.spiceRepairable {
+		reason := "当前节点/实例未实际探测到可自动修复的 SPICE 控制台"
+		if probe.reason != "" {
+			reason += ": " + probe.reason
+		}
+		return nil, fmt.Errorf("%s", reason)
 	}
 	consoleRepairMu.Lock()
 	pruneConsoleRepairsLocked(time.Now())
@@ -906,6 +955,7 @@ func startInstanceConsoleRepair(instanceID, userID uint, admin bool) (gin.H, err
 	consoleRepairs[instanceID] = consoleRepairState{status: "running", updatedAt: time.Now()}
 	consoleRepairMu.Unlock()
 	invalidateSPICEHealth(instanceID)
+	invalidateConsoleEndpointProbe(instanceID)
 	if !reserveConsoleRepair(p.ID) {
 		setConsoleRepairState(instanceID, "failed", "该节点已有控制台修复任务或修复队列已满，请稍后重试")
 		targets, targetsErr := resolveInstanceConsoleTargets(instanceID, userID, admin)

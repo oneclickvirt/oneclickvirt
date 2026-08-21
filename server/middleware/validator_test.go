@@ -44,3 +44,45 @@ func TestInputValidatorRejectsEncodedBooleanSQLExpression(t *testing.T) {
 		t.Fatalf("encoded SQL expression returned status %d, want %d; body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
 	}
 }
+
+func TestInputValidatorEventHandlerBoundary(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(InputValidator())
+	router.GET("/probe", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "allows ordinary query identifier containing on",
+			path:       "/probe?skipConflictCheck=true",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "rejects event handler query parameter",
+			path:       "/probe?onload=alert(1)",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "rejects encoded event handler attribute",
+			path:       "/probe?name=%20onload%3Dalert(1)",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("path %q returned status %d, want %d; body=%s", test.path, recorder.Code, test.wantStatus, recorder.Body.String())
+			}
+		})
+	}
+}

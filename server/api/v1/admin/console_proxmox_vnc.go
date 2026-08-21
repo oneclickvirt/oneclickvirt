@@ -4,6 +4,7 @@ import (
 	"crypto/des"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,8 +19,9 @@ import (
 )
 
 const (
-	proxmoxVNCSetupTimeout = 15 * time.Second
-	proxmoxVNCDialTimeout  = 5 * time.Second
+	proxmoxVNCSetupTimeout  = 15 * time.Second
+	proxmoxVNCDialTimeout   = 5 * time.Second
+	proxmoxVNCProxyAttempts = 2
 )
 
 type proxmoxVNCProxyResponse struct {
@@ -85,7 +87,11 @@ func parseProxmoxVNCProxyPort(raw json.RawMessage) (int, error) {
 }
 
 func openProxmoxVNCConn(target consoleTarget) (net.Conn, func(), string, error) {
-	command, err := proxmoxVNCProxyCommand(target.provider.HostName, target.runtimeID)
+	node := strings.TrimSpace(target.runtimeNode)
+	// An empty runtime node deliberately lets proxmoxVNCProxyCommand use the
+	// executing PVE node's hostname. Provider.HostName can be an IP/FQDN and is
+	// not necessarily the cluster node name accepted by pvesh.
+	command, err := proxmoxVNCProxyCommand(node, target.runtimeID)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -138,20 +144,110 @@ func openProxmoxVNCConn(target consoleTarget) (net.Conn, func(), string, error) 
 	}, credentials.password, nil
 }
 
+type proxmoxVNCConnOpener func(consoleTarget) (net.Conn, func(), string, error)
+type proxmoxVNCAuthenticator func(net.Conn, string) error
+
+// openAuthenticatedProxmoxVNCConn keeps one short retry around the whole PVE
+// proxy lifecycle. PVE creates an on-demand local proxy for every session;
+// after a recent probe or viewer disconnect its listener can briefly accept a
+// TCP tunnel before the upstream QEMU VNC socket is ready. Retrying a fresh
+// proxy prevents that transient state from being presented as an unavailable
+// capability, while permanent ACL/configuration errors still fail immediately.
+func openAuthenticatedProxmoxVNCConn(target consoleTarget) (net.Conn, func(), error) {
+	return openAuthenticatedProxmoxVNCConnWithRetry(
+		target,
+		proxmoxVNCProxyAttempts,
+		openProxmoxVNCConn,
+		authenticateProxmoxVNC,
+		func(attempt int) { time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond) },
+	)
+}
+
+func openAuthenticatedProxmoxVNCConnWithRetry(
+	target consoleTarget,
+	attempts int,
+	opener proxmoxVNCConnOpener,
+	authenticator proxmoxVNCAuthenticator,
+	pause func(int),
+) (net.Conn, func(), error) {
+	if attempts < 1 {
+		attempts = 1
+	}
+	if opener == nil || authenticator == nil {
+		return nil, nil, fmt.Errorf("PVE VNC 连接器未初始化")
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		conn, cleanup, password, err := opener(target)
+		if err == nil && conn == nil {
+			err = fmt.Errorf("PVE VNC 代理未返回连接")
+		}
+		if err == nil {
+			err = authenticator(conn, password)
+		}
+		if err == nil {
+			return conn, cleanup, nil
+		}
+		if cleanup != nil {
+			cleanup()
+		}
+		lastErr = err
+		if attempt+1 >= attempts || !isRetryableProxmoxVNCError(err) {
+			break
+		}
+		if pause != nil {
+			pause(attempt)
+		}
+	}
+	return nil, nil, fmt.Errorf("PVE VNC 临时代理握手失败: %w", lastErr)
+}
+
+func isRetryableProxmoxVNCError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var networkErr net.Error
+	if errors.As(err, &networkErr) && (networkErr.Timeout() || networkErr.Temporary()) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"connection refused", "connection reset", "broken pipe", "i/o timeout",
+		"unexpected eof", " eof", "no route to host",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// probeProxmoxVNCConnection performs the provider-side VNC setup and the
+// password/RFB negotiation, then closes the short-lived proxy. It is used by
+// the capability endpoint only; no browser WebSocket or framebuffer session is
+// kept open. Keeping this separate from the browser proxy also lets the UI
+// display a precise diagnostic while still requiring an explicit protocol
+// selection before a user session is opened.
+func probeProxmoxVNCConnection(target consoleTarget) (bool, string) {
+	_, cleanup, err := openAuthenticatedProxmoxVNCConn(target)
+	if err != nil {
+		return false, err.Error()
+	}
+	defer cleanup()
+	return true, ""
+}
+
 // proxyProxmoxVNCWebSocket terminates PVE's password-protected VNC handshake
 // on the controller. The browser receives a no-auth RFB handshake, while the
 // short-lived PVE password remains exclusively in server memory.
 func proxyProxmoxVNCWebSocket(panel *websocket.Conn, target consoleTarget) {
-	conn, cleanup, password, err := openProxmoxVNCConn(target)
+	conn, cleanup, err := openAuthenticatedProxmoxVNCConn(target)
 	if err != nil {
 		writeVNCWebSocketFailure(panel, "PVE VNC 连接失败: "+err.Error())
 		return
 	}
 	defer cleanup()
-	if err := authenticateProxmoxVNC(conn, password); err != nil {
-		writeVNCWebSocketFailure(panel, "PVE VNC 认证失败: "+err.Error())
-		return
-	}
 
 	client := &consoleWebSocketReader{ws: panel}
 	if err := establishBrowserVNCHandshake(panel, client); err != nil {

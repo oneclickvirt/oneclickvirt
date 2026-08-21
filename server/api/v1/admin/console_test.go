@@ -91,6 +91,29 @@ func TestValidateNativeConsoleURLRejectsBrowserPathReinterpretation(t *testing.T
 	}
 }
 
+func TestValidateNativeConsoleTargetAcceptsOnlyObservedPublicInstanceIP(t *testing.T) {
+	provider := providerModel.Provider{Endpoint: "https://node.example.test:8443"}
+	observed := nativeConsoleTarget{
+		protocol: "rdp", url: "rdp://198.51.100.42:3389", instanceEndpoint: true,
+	}
+	if got, err := validateNativeConsoleTarget(observed, provider); err != nil || got != observed.url {
+		t.Fatalf("observed public instance target = (%q, %v)", got, err)
+	}
+	for _, rawURL := range []string{
+		"rdp://10.0.0.42:3389",
+		"rdp://node.example.test:3389",
+		"/console",
+		"rdp://user@198.51.100.42:3389",
+	} {
+		if _, err := validateNativeConsoleTarget(nativeConsoleTarget{protocol: "rdp", url: rawURL, instanceEndpoint: true}, provider); err == nil {
+			t.Fatalf("observed instance target %q unexpectedly succeeded", rawURL)
+		}
+	}
+	if _, err := validateNativeConsoleTarget(nativeConsoleTarget{protocol: "rdp", url: "rdp://node.example.test:3389"}, provider); err != nil {
+		t.Fatalf("trusted provider native target rejected: %v", err)
+	}
+}
+
 func TestRefreshSPICEConsoleTargetDetectsStaleMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/spice_auto.html" {
@@ -112,6 +135,41 @@ func TestRefreshSPICEConsoleTargetDetectsStaleMetadata(t *testing.T) {
 	invalidateSPICEHealth(target.instanceID)
 	if got := refreshSPICEConsoleTarget(target); got.available || !got.repairable || got.repairStatus != "stale" || !strings.Contains(got.reason, "健康检查失败") {
 		t.Fatalf("stale SPICE target was not made repairable: %#v", got)
+	}
+}
+
+func TestRefreshNativeHTTPConsoleRequiresLiveEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ready":
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/redirect":
+			http.Redirect(w, r, "https://untrusted.example.test/console", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	ready := refreshNativeConsoleTarget(consoleTarget{
+		protocol: "xpra", nativeURL: server.URL + "/ready", available: true,
+	})
+	if !ready.available || ready.reason != "" {
+		t.Fatalf("protected live HTTP console = %#v", ready)
+	}
+
+	missing := refreshNativeConsoleTarget(consoleTarget{
+		protocol: "xpra", nativeURL: server.URL + "/missing", available: true,
+	})
+	if missing.available || !strings.Contains(missing.reason, "HTTP 404") {
+		t.Fatalf("missing HTTP console = %#v", missing)
+	}
+
+	redirect := refreshNativeConsoleTarget(consoleTarget{
+		protocol: "xpra", nativeURL: server.URL + "/redirect", available: true,
+	})
+	if redirect.available || !strings.Contains(redirect.reason, "HTTP 302") {
+		t.Fatalf("redirect HTTP console = %#v", redirect)
 	}
 }
 
@@ -391,6 +449,18 @@ func TestNormalizeConsoleProxyTargetRejectsUntrustedHosts(t *testing.T) {
 	}
 	if _, _, err := normalizeConsoleProxyTarget(directProvider, "attacker.example", "direct"); err == nil {
 		t.Fatal("direct console proxy unexpectedly accepted an untrusted host")
+	}
+	if host, transport, err := normalizeConsoleProxyTarget(directProvider, "10.0.0.42", consoleInstanceEndpointTransport); err != nil || host != "10.0.0.42" || transport != consoleInstanceEndpointTransport {
+		t.Fatalf("private instance VNC target = (%q, %q, %v)", host, transport, err)
+	}
+	if _, _, err := normalizeConsoleProxyTarget(directProvider, "169.254.169.254", consoleInstanceEndpointTransport); err == nil {
+		t.Fatal("instance console proxy unexpectedly accepted a link-local address")
+	}
+	if host, transport, err := normalizeConsoleProxyTarget(directProvider, "198.51.100.42", consolePublicInstanceEndpointTransport); err != nil || host != "198.51.100.42" || transport != consolePublicInstanceEndpointTransport {
+		t.Fatalf("public instance VNC target = (%q, %q, %v)", host, transport, err)
+	}
+	if _, _, err := normalizeConsoleProxyTarget(directProvider, "10.0.0.42", consolePublicInstanceEndpointTransport); err == nil {
+		t.Fatal("public instance transport unexpectedly accepted private IP")
 	}
 }
 

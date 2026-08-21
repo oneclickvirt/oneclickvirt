@@ -28,8 +28,9 @@ COPY scripts/install_agent.sh /app/install_agent.sh
 RUN mkdir -p assets/agent && cp /app/install_agent.sh assets/agent/install_agent.sh
 RUN go version
 RUN go mod download
-RUN sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${SERVER_VERSION}\"/" constant/version.go && \
-    sed -i "s/const CompatibleAgentVersion = \".*\"/const CompatibleAgentVersion = \"${SERVER_VERSION}\"/" constant/version.go
+# Server release branding must not change the independently maintained Agent
+# protocol compatibility floor.
+RUN sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${SERVER_VERSION}\"/" constant/version.go
 RUN BUILD_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "docker") && \
     BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) && \
     CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -a -installsuffix cgo \

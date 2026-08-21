@@ -22,6 +22,7 @@ import (
 	resourceModel "oneclickvirt/model/resource"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/cache"
+	consoleService "oneclickvirt/service/console"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -568,9 +569,13 @@ func (s *Service) UpdateInstance(req admin.UpdateInstanceRequest, ownerAdminID .
 	applyUpdateInstanceRequest(&instance, req)
 
 	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		return tx.Save(&instance).Error
 	})
+	if err == nil {
+		consoleService.InvalidateInstanceConsoleCaches(instance.ID)
+	}
+	return err
 }
 
 // DeleteInstance 删除实例 - 使用异步任务机制
@@ -632,6 +637,8 @@ func (s *Service) DeleteInstance(instanceID uint, ownerAdminID ...uint) error {
 	// 更新实例状态为删除中
 	if err := global.APP_DB.Model(&instance).Update("status", "deleting").Error; err != nil {
 		global.APP_LOG.Warn("更新实例状态失败", zap.Uint("instanceId", instanceID), zap.Error(err))
+	} else {
+		consoleService.InvalidateInstanceConsoleCaches(instance.ID)
 	}
 
 	global.APP_LOG.Info("管理员创建删除任务成功",
@@ -712,6 +719,7 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 	cacheService := cache.GetUserCacheService()
 	cacheService.InvalidateUserCache(instance.UserID)
 	cacheService.InvalidateInstanceCache(instance.ID)
+	consoleService.InvalidateInstanceConsoleCaches(instance.ID)
 	return nil
 }
 
