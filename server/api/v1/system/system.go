@@ -141,16 +141,8 @@ func GetAllInstances(c *gin.Context) {
 	})
 }
 
-// @Summary 管理员 实例 操作
-// @Description 创建管理员 实例 操作
-// @Tags 管理员管理
-// @Accept json
-// @Produce json
-// @Security BearerAuth
-// @Success 200 {object} common.Response{data=object} "管理员 实例 操作成功"
-// @Failure 400 {object} common.Response "参数错误"
-// @Failure 500 {object} common.Response "管理员 实例 操作失败"
-// @Router /admin/instances/{id}/action [post]
+// AdminInstanceAction is retained for source compatibility with older callers.
+// The active route is documented and registered by api/v1/admin.AdminInstanceAction.
 func AdminInstanceAction(c *gin.Context) {
 	instanceIDStr := c.Param("id")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)

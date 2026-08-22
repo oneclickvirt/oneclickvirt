@@ -2488,7 +2488,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "创建管理员 实例 操作",
+                "description": "管理员对实例执行启动、停止、重启等操作",
                 "consumes": [
                     "application/json"
                 ],
@@ -2498,34 +2498,52 @@ const docTemplate = `{
                 "tags": [
                     "管理员管理"
                 ],
-                "summary": "管理员 实例 操作",
+                "summary": "管理员执行实例操作",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "操作请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.InstanceActionRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
-                        "description": "管理员 实例 操作成功",
+                        "description": "操作成功",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/common.Response"
                         }
                     },
                     "400": {
-                        "description": "参数错误",
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
                     },
                     "500": {
-                        "description": "管理员 实例 操作失败",
+                        "description": "服务器内部错误",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -22268,6 +22286,10 @@ const docTemplate = `{
                 },
                 "region": {
                     "description": "所在地区",
+                    "type": "string"
+                },
+                "sshHost": {
+                    "description": "管理员可选的SSH目标覆盖地址；为空时沿用既有端口映射/实例IP解析",
                     "type": "string"
                 },
                 "sshPort": {
