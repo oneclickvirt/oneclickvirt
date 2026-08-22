@@ -17,6 +17,49 @@ declare -A ENV_INSTALL_SCRIPTS=(
 )
 PVE_BUILD_BACKEND="https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/build_backend.sh"
 PVE_BUILD_NAT="https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/build_nat_network.sh"
+PVE_LAST_JOB_STATE=""
+
+# Network reloads can briefly make SSH appear healthy before dropping it again.
+# Require a small consecutive-success window before a completed mutating job is
+# allowed to advance to a reboot or the next configuration stage.
+pve_wait_for_ssh_stable() {
+    local ip="$1"
+    local max_wait="${2:-${PVE_REMOTE_SSH_STABLE_WAIT:-180}}"
+    local probes="${PVE_REMOTE_STABLE_PROBES:-3}"
+    local interval="${PVE_REMOTE_STABLE_INTERVAL:-5}"
+    local probe_timeout="${PVE_REMOTE_STABLE_PROBE_TIMEOUT:-30}"
+    local elapsed=0 successes=0
+    [[ "$max_wait" =~ ^[0-9]+$ && "$max_wait" -gt 0 ]] || max_wait=180
+    [[ "$probes" =~ ^[0-9]+$ && "$probes" -gt 0 ]] || probes=3
+    [[ "$interval" =~ ^[0-9]+$ && "$interval" -gt 0 ]] || interval=5
+    [[ "$probe_timeout" =~ ^[0-9]+$ && "$probe_timeout" -gt 0 ]] || probe_timeout=30
+
+    while [[ $elapsed -le $max_wait ]]; do
+        if wait_for_ssh "$ip" "$probe_timeout" >/dev/null 2>&1 && \
+           platform_exec_once "$ip" "true" "$probe_timeout" >/dev/null 2>&1; then
+            successes=$((successes + 1))
+            [[ $successes -ge $probes ]] && return 0
+        else
+            successes=0
+        fi
+        [[ $elapsed -eq $max_wait ]] && break
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    return 1
+}
+
+pve_mark_job_completed() {
+    local ip="$1" label="$2" message="${3:-Detached PVE job '${label}' completed}"
+    if ! pve_wait_for_ssh_stable "$ip"; then
+        PVE_LAST_JOB_STATE="completed_unstable"
+        log_error "Detached PVE job '${label}' completed, but SSH did not remain stable before the next stage"
+        return 75
+    fi
+    PVE_LAST_JOB_STATE="completed"
+    log_success "$message"
+    return 0
+}
 
 mysql_root_exec() {
     local db_password="${DB_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
@@ -359,6 +402,308 @@ PVE_AUX_CMD
     printf '%s\n' "${command_prefix} curl -sSL '${url}' | bash"
 }
 
+# Run a PVE installer/bridge script as a detached remote job.  Both the PVE
+# installer and build_nat_network.sh can reload networking, so the SSH session
+# may disappear while the remote process is still doing useful work.  A
+# status file makes completion observable after SSH recovers and prevents the
+# generic SSH retry loop from launching the same mutating script twice.
+pve_run_remote_job() {
+    local ip="$1" command="$2" label="${3:-pve-job}" max_wait="${4:-3600}"
+    local poll_interval="${PVE_REMOTE_POLL_INTERVAL:-10}"
+    local recovery_wait="${PVE_REMOTE_SSH_RECOVERY_WAIT:-600}"
+    local running_grace_wait="${PVE_REMOTE_RUNNING_GRACE_WAIT:-900}"
+    [[ "$max_wait" =~ ^[0-9]+$ && "$max_wait" -gt 0 ]] || max_wait=3600
+    [[ "$poll_interval" =~ ^[0-9]+$ && "$poll_interval" -gt 0 ]] || poll_interval=10
+    [[ "$recovery_wait" =~ ^[0-9]+$ && "$recovery_wait" -gt 0 ]] || recovery_wait=600
+    [[ "$running_grace_wait" =~ ^[0-9]+$ && "$running_grace_wait" -gt 0 ]] || running_grace_wait=900
+
+    local safe_label token state_dir script_file log_file status_file started_file pid_file lock_dir payload
+    safe_label=$(printf '%s' "$label" | tr -c 'A-Za-z0-9_.-' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+    [[ -n "$safe_label" ]] || safe_label="pve-job"
+    token="${safe_label}-$$-$(date +%s)-${RANDOM}"
+    state_dir="/tmp/oneclickvirt-pve-jobs"
+    script_file="${state_dir}/${token}.sh"
+    log_file="${state_dir}/${token}.log"
+    status_file="${state_dir}/${token}.status"
+    started_file="${state_dir}/${token}.started"
+    pid_file="${state_dir}/${token}.pid"
+    lock_dir="${state_dir}/${token}.lock"
+    PVE_LAST_JOB_STATE="unknown"
+    payload=$(printf '%s' "$command" | base64 | tr -d '\n') || return 1
+
+    local launcher
+    launcher=$(printf '%s\n' \
+        "set -o errexit -o nounset" \
+        "mkdir -p ${state_dir}" \
+        "if mkdir ${lock_dir} 2>/dev/null; then" \
+        "  rm -f ${status_file} ${started_file} ${pid_file} ${log_file} ${script_file}" \
+        "  printf '%s' '${payload}' | base64 -d > ${script_file}" \
+        "  chmod 700 ${script_file}" \
+        "  printf '%s\\n' STARTED > ${started_file}" \
+        "  nohup bash -c 'bash ${script_file} >${log_file} 2>&1; rc=\$?; printf \"%s\\n\" \"\$rc\" > ${status_file}.tmp; mv -f ${status_file}.tmp ${status_file}; rm -f ${script_file} ${pid_file}; rmdir ${lock_dir} 2>/dev/null || true' </dev/null >/dev/null 2>&1 &" \
+        "  printf '%s\\n' \"\$!\" > ${pid_file}" \
+        "  printf '%s\\n' STARTED" \
+        "else" \
+        "  if [ -s ${status_file} ]; then cat ${status_file}; else echo RUNNING; fi" \
+        "fi")
+
+    log_info "Starting detached PVE job '${label}' (network may be unavailable while it runs)..."
+    local launch_rc=0
+    platform_exec_once "$ip" "$launcher" 60 >/dev/null 2>&1 || launch_rc=$?
+    if [[ $launch_rc -ne 0 ]]; then
+        log_warning "Detached PVE job '${label}' lost its initial SSH response (exit=${launch_rc}); checking for remote completion"
+    fi
+
+    local elapsed=0 query_output="" state="" query_rc=0 ssh_recovery_attempted=false launch_attempts=1
+    while [[ $elapsed -lt $max_wait ]]; do
+        query_output=""
+        query_rc=0
+        query_output=$(platform_exec_once "$ip" \
+            "if [ -s ${status_file} ]; then cat ${status_file}; elif [ -f ${started_file} ] || [ -d ${lock_dir} ]; then echo RUNNING; else echo NOT_STARTED; fi" \
+            30 2>/dev/null) || query_rc=$?
+        if [[ $query_rc -ne 0 ]]; then
+            if [[ "$ssh_recovery_attempted" == "false" ]]; then
+                ssh_recovery_attempted=true
+                log_info "PVE job '${label}' is not reachable over SSH; waiting up to ${recovery_wait}s for network recovery"
+                if ! wait_for_ssh "$ip" "$recovery_wait" >/dev/null 2>&1; then
+                    log_warning "SSH did not recover while observing PVE job '${label}'"
+                    return 75
+                fi
+                # Count a lost-transport observation against the primary
+                # budget even when the provider's wait helper returns early;
+                # repeated flaps must not create an unbounded polling loop.
+                elapsed=$((elapsed + poll_interval))
+                continue
+            fi
+            sleep "$poll_interval"
+            elapsed=$((elapsed + poll_interval))
+            continue
+        fi
+        ssh_recovery_attempted=false
+        if [[ $query_rc -eq 0 ]]; then
+            state=$(printf '%s\n' "$query_output" | tr -d '\r' | tail -n 1)
+            if [[ "$state" =~ ^[0-9]+$ ]]; then
+                if [[ "$state" -eq 0 ]]; then
+                    pve_mark_job_completed "$ip" "$label" "Detached PVE job '${label}' completed"
+                    return $?
+                fi
+                local remote_log
+                remote_log=$(platform_exec_once "$ip" "tail -80 ${log_file} 2>/dev/null || true" 30 2>/dev/null || true)
+                [[ -n "$remote_log" ]] && log_warning "Detached PVE job '${label}' output:\n${remote_log}"
+                PVE_LAST_JOB_STATE="failed"
+                log_warning "Detached PVE job '${label}' completed with exit=${state}"
+                return 1
+            fi
+            if [[ "$state" == "NOT_STARTED" && $launch_rc -ne 0 ]]; then
+                # The launcher itself did not reach the host.  Give the SSH
+                # endpoint one recovery cycle before classifying it as infra.
+                if wait_for_ssh "$ip" "$recovery_wait" >/dev/null 2>&1; then
+                    launch_attempts=$((launch_attempts + 1))
+                    if [[ "$launch_attempts" -gt 2 ]]; then
+                        log_error "Detached PVE job '${label}' was not started after SSH recovery"
+                        PVE_LAST_JOB_STATE="not_started"
+                        return 75
+                    fi
+                    launch_rc=0
+                    platform_exec_once "$ip" "$launcher" 60 >/dev/null 2>&1 || launch_rc=$?
+                    continue
+                fi
+                PVE_LAST_JOB_STATE="unknown"
+                return 75
+            fi
+        fi
+        sleep "$poll_interval"
+        elapsed=$((elapsed + poll_interval))
+    done
+
+    log_warning "Detached PVE job '${label}' did not expose a completion status within ${max_wait}s; waiting for SSH recovery (${recovery_wait}s)"
+    local final_query_rc=1
+    state="UNKNOWN"
+    if wait_for_ssh "$ip" "$recovery_wait" >/dev/null 2>&1; then
+        final_query_rc=0
+        query_output=$(platform_exec_once "$ip" \
+            "if [ -s ${status_file} ]; then cat ${status_file}; elif [ -f ${started_file} ] || [ -d ${lock_dir} ]; then echo RUNNING; else echo NOT_STARTED; fi" \
+            30 2>/dev/null) || final_query_rc=$?
+        state=$(printf '%s\n' "$query_output" | tr -d '\r' | tail -n 1)
+        if [[ $final_query_rc -eq 0 && "$state" =~ ^[0-9]+$ ]]; then
+            if [[ "$state" -eq 0 ]]; then
+                pve_mark_job_completed "$ip" "$label" "Detached PVE job '${label}' completed after SSH recovery"
+                return $?
+            fi
+            PVE_LAST_JOB_STATE="failed"
+            log_warning "Detached PVE job '${label}' completed after recovery with exit=${state}"
+            return 1
+        fi
+        if [[ $final_query_rc -eq 0 && "$state" == "RUNNING" ]]; then
+            # Never restart a worker while its mutating installer is still
+            # running.  Give a long network reload a separate grace window,
+            # then classify the result as infrastructure if it remains live.
+            local grace_elapsed=0 grace_query_rc grace_state
+            log_warning "Detached PVE job '${label}' is still running after the primary wait; observing for ${running_grace_wait}s before classifying it"
+            while [[ $grace_elapsed -lt $running_grace_wait ]]; do
+                sleep "$poll_interval"
+                grace_elapsed=$((grace_elapsed + poll_interval))
+                grace_query_rc=0
+                query_output=$(platform_exec_once "$ip" \
+                    "if [ -s ${status_file} ]; then cat ${status_file}; elif [ -f ${started_file} ] || [ -d ${lock_dir} ]; then echo RUNNING; else echo UNKNOWN; fi" \
+                    30 2>/dev/null) || grace_query_rc=$?
+                if [[ $grace_query_rc -ne 0 ]]; then
+                    # A second network flap during the grace window should
+                    # consume recovery time, not be mistaken for a completed
+                    # timeout.  Never launch a replacement job here.
+                    wait_for_ssh "$ip" "$recovery_wait" >/dev/null 2>&1 || true
+                    continue
+                fi
+                grace_state=$(printf '%s\n' "$query_output" | tr -d '\r' | tail -n 1)
+                if [[ "$grace_state" =~ ^[0-9]+$ ]]; then
+                    if [[ "$grace_state" -eq 0 ]]; then
+                        pve_mark_job_completed "$ip" "$label" "Detached PVE job '${label}' completed during the extended recovery window"
+                        return $?
+                    fi
+                    PVE_LAST_JOB_STATE="failed"
+                    log_warning "Detached PVE job '${label}' completed during recovery with exit=${grace_state}"
+                    return 1
+                fi
+                [[ "$grace_state" == "RUNNING" ]] || break
+            done
+            PVE_LAST_JOB_STATE="running"
+            log_error "Detached PVE job '${label}' is still running after ${running_grace_wait}s of extended observation; leaving it untouched"
+            return 75
+        fi
+    fi
+
+    # A provider restart is safe only when the launcher failed and the host
+    # explicitly reports that no detached job was started.  An unknown state
+    # is never restarted because the installer may still be changing network
+    # state behind a temporarily unavailable SSH endpoint.
+    if [[ $final_query_rc -eq 0 && "$state" == "NOT_STARTED" && "$launch_rc" -ne 0 && "${PVE_REMOTE_RESTART_ON_LOSS:-true}" == "true" && -n "${ACTIVE_INSTANCE_ID:-}" ]] && \
+       declare -f platform_recover_worker >/dev/null 2>&1; then
+        log_warning "Attempting provider restart for worker transport recovery after PVE job '${label}'"
+        if platform_recover_worker "${ACTIVE_INSTANCE_ID}" "$ip" "$recovery_wait" >/dev/null 2>&1; then
+            query_output=$(platform_exec_once "$ip" \
+                "if [ -s ${status_file} ]; then cat ${status_file}; else echo UNKNOWN; fi" \
+                30 2>/dev/null || true)
+            state=$(printf '%s\n' "$query_output" | tr -d '\r' | tail -n 1)
+            if [[ "$state" == "0" ]]; then
+                pve_mark_job_completed "$ip" "$label" "Detached PVE job '${label}' completed after provider recovery"
+                return $?
+            fi
+        fi
+    fi
+    [[ "$PVE_LAST_JOB_STATE" == "unknown" && "$state" == "NOT_STARTED" ]] && PVE_LAST_JOB_STATE="not_started"
+    log_error "Detached PVE job '${label}' could not be observed after SSH recovery"
+    return 75
+}
+
+pve_check_postcondition() {
+    local ip="$1" kind="$2" check_cmd=""
+    local state_dir="${PVE_STATE_DIR:-/usr/local/bin}"
+    [[ "$state_dir" =~ ^/[A-Za-z0-9._/-]+$ ]] || state_dir="/usr/local/bin"
+    case "$kind" in
+        install)
+            check_cmd='set -o errexit -o nounset
+command -v pvesh >/dev/null 2>&1 && command -v pct >/dev/null 2>&1 && command -v qm >/dev/null 2>&1
+mountpoint -q /etc/pve
+node_name="$(hostname -s)"
+test -d "/etc/pve/nodes/${node_name}/lxc" && test -d "/etc/pve/nodes/${node_name}/qemu-server"
+systemctl is-active --quiet pve-cluster && systemctl is-active --quiet pvedaemon && systemctl is-active --quiet pveproxy
+ss -lnt 2>/dev/null | grep -q ":8006 "
+curl -ksS --connect-timeout 3 --max-time 10 https://127.0.0.1:8006/api2/json/version >/dev/null'
+            ;;
+        backend)
+            check_cmd='test -s /usr/local/bin/build_backend_pve.txt && command -v pvesh >/dev/null 2>&1 && mountpoint -q /etc/pve'
+            ;;
+        nat)
+            # The NAT script persists the selected subnet/gateway and may use
+            # nftables or iptables depending on the host.  Verify all three
+            # layers so a stale interfaces stanza cannot be accepted alone.
+            check_cmd=$(cat <<'NAT_POSTCONDITION'
+set -o errexit -o nounset
+test -r /etc/network/interfaces
+grep -Eq "^[[:space:]]*auto[[:space:]]+vmbr1([[:space:]]|$)" /etc/network/interfaces
+test -s __STATE_DIR__/pve_nat_subnet && test -s __STATE_DIR__/pve_nat_gateway
+nat_subnet="$(tr -d "[:space:]" < __STATE_DIR__/pve_nat_subnet)"
+nat_gateway="$(tr -d "[:space:]" < __STATE_DIR__/pve_nat_gateway)"
+printf "%s" "$nat_subnet" | grep -Eq "^([0-9]{1,3}[.]){3}0/24$"
+printf "%s" "$nat_gateway" | grep -Eq "^([0-9]{1,3}[.]){3}[0-9]{1,3}$"
+ip link show dev vmbr1 2>/dev/null | grep -Eq "(^|[[:space:]])state[[:space:]]+(UP|UNKNOWN)([[:space:]]|$)"
+ip -o -4 addr show dev vmbr1 2>/dev/null | grep -Fq " ${nat_gateway}/24 "
+nat_rule_found=false
+if command -v nft >/dev/null 2>&1 && nft list ruleset >/dev/null 2>&1; then
+    if nft list ruleset 2>/dev/null | grep -F "$nat_subnet" | grep -Fq masquerade; then
+        nat_rule_found=true
+    fi
+fi
+if command -v iptables >/dev/null 2>&1 && iptables -t nat -S POSTROUTING 2>/dev/null | grep -F "$nat_subnet" | grep -Fq MASQUERADE; then
+    nat_rule_found=true
+fi
+test "$nat_rule_found" = true
+NAT_POSTCONDITION
+)
+            check_cmd="${check_cmd//__STATE_DIR__/${state_dir}}"
+            ;;
+        *) return 1 ;;
+    esac
+    platform_exec_once "$ip" "$check_cmd" 90 >/dev/null 2>&1
+}
+
+pve_wait_postcondition() {
+    local ip="$1" kind="$2" max_wait="${PVE_POSTCONDITION_MAX_WAIT:-180}"
+    local interval="${PVE_POSTCONDITION_POLL_INTERVAL:-10}" elapsed=0
+    [[ "$max_wait" =~ ^[0-9]+$ && "$max_wait" -gt 0 ]] || max_wait=180
+    [[ "$interval" =~ ^[0-9]+$ && "$interval" -gt 0 ]] || interval=10
+    while [[ $elapsed -le $max_wait ]]; do
+        pve_check_postcondition "$ip" "$kind" && return 0
+        [[ $elapsed -eq $max_wait ]] && break
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    return 1
+}
+
+pve_reboot_marker_present() {
+    local ip="$1"
+    platform_exec_once "$ip" "test -s /usr/local/bin/reboot_pve.txt" 30 >/dev/null 2>&1
+}
+
+pve_wait_reboot_marker() {
+    local ip="$1" max_wait="${PVE_REBOOT_MARKER_MAX_WAIT:-180}"
+    local interval="${PVE_REBOOT_MARKER_POLL_INTERVAL:-10}" elapsed=0
+    [[ "$max_wait" =~ ^[0-9]+$ && "$max_wait" -gt 0 ]] || max_wait=180
+    [[ "$interval" =~ ^[0-9]+$ && "$interval" -gt 0 ]] || interval=10
+    while [[ $elapsed -le $max_wait ]]; do
+        pve_reboot_marker_present "$ip" && return 0
+        if ! wait_for_ssh "$ip" "$interval" >/dev/null 2>&1; then
+            elapsed=$((elapsed + interval))
+            continue
+        fi
+        [[ $elapsed -eq $max_wait ]] && break
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    return 1
+}
+
+pve_run_job_or_accept_postcondition() {
+    local ip="$1" command="$2" label="$3" kind="$4" max_wait="$5" rc=0
+    PVE_LAST_JOB_STATE="unknown"
+    pve_run_remote_job "$ip" "$command" "$label" "$max_wait" || rc=$?
+    [[ $rc -eq 0 ]] && return 0
+    # A live detached job must never be bypassed by a partial postcondition;
+    # doing so would start the next mutating phase concurrently on the host.
+    # A postcondition can explain a known non-zero completion (for example
+    # build_backend.sh deliberately exits 1 when its durable marker exists),
+    # but it cannot prove anything while the remote job state is unknown or
+    # still running.  In those states, advancing could overlap a network
+    # mutation that is still active.
+    if [[ "${PVE_LAST_JOB_STATE:-unknown}" == "failed" ]] && pve_wait_postcondition "$ip" "$kind"; then
+        log_warning "PVE job '${label}' returned ${rc}, but its ${kind} postcondition is present; continuing"
+        return 0
+    fi
+    [[ $rc -eq 75 ]] && return 75
+    return "$rc"
+}
+
 install_env() {
     local id="$1" ip="$2" env="$3"
     log_section "Installing ${env} environment on worker node"
@@ -451,19 +796,61 @@ install_env() {
 
     if [[ "$env" == "proxmoxve" ]]; then
         log_info "PVE install step 1/3: installing PVE kernel (reboot required)..."
-        platform_exec_and_wait "${ip}" "${pve_install_cmd}" "$pve_wait" || true
-        log_info "Rebooting worker to load PVE kernel..."
-        platform_exec_and_wait "${ip}" "reboot" 10 || true
-        sleep 25
-        wait_for_ssh "${ip}" "$reboot_wait" || return 75
+        # The first pass intentionally exits after writing reboot_pve.txt.  It
+        # can reload networking before that marker is written, so observe it as
+        # a detached job and never restart the installer from an SSH retry.
+        local pve_pre_job_rc=0 pve_reboot_required=true
+        if pve_check_postcondition "${ip}" install; then
+            # A reused worker may already have PVE installed.  The upstream
+            # installer exits early in that case; do not force an unnecessary
+            # reboot or wait forever for a marker that can never be created.
+            pve_reboot_required=false
+            log_info "Existing PVE runtime detected; skipping the pre-reboot installer pass"
+        elif pve_reboot_marker_present "${ip}"; then
+            log_info "PVE installer left its reboot marker from an earlier pass; continuing with the pending reboot"
+        else
+            pve_run_remote_job "${ip}" "${pve_install_cmd}" \
+                "PVE installer pre-reboot" "$pve_wait" || pve_pre_job_rc=$?
+            if pve_reboot_marker_present "${ip}"; then
+                :
+            elif pve_check_postcondition "${ip}" install; then
+                pve_reboot_required=false
+                log_info "PVE installer reported an already-ready runtime; skipping the kernel reboot"
+            else
+                log_error "PVE pre-reboot installer did not leave reboot marker or a ready PVE runtime (exit=${pve_pre_job_rc})"
+                [[ $pve_pre_job_rc -eq 75 ]] && return 75
+                return "${pve_pre_job_rc:-1}"
+            fi
+        fi
+        if [[ "$pve_reboot_required" == "true" ]]; then
+            if ! pve_wait_reboot_marker "${ip}"; then
+                log_error "PVE pre-reboot installer did not expose /usr/local/bin/reboot_pve.txt"
+                return 75
+            fi
+            if ! pve_wait_for_ssh_stable "${ip}" "$reboot_wait"; then
+                log_error "Worker SSH did not stabilize before the PVE kernel reboot"
+                return 75
+            fi
+            log_info "Rebooting worker to load PVE kernel..."
+            platform_exec_once "${ip}" "reboot" 10 || true
+            sleep 25
+            pve_wait_for_ssh_stable "${ip}" "$reboot_wait" || return 75
+        fi
         ensure_worker_swap "${ip}" "worker after PVE reboot" || log_warning "Swap setup after PVE reboot did not complete"
         stabilize_worker_network_for_env "${ip}" "${env}" "worker after PVE reboot" || true
         log_info "PVE install step 2/3: completing PVE configuration after reboot..."
-        platform_exec_and_wait "${ip}" "${pve_install_cmd}" "$pve_wait" || return 75
+        local pve_job_rc=0
+        pve_run_job_or_accept_postcondition "${ip}" "${pve_install_cmd}" \
+            "PVE installer post-reboot" install "$pve_wait" || pve_job_rc=$?
+        (( pve_job_rc == 0 )) || return "$pve_job_rc"
         log_info "PVE install step 3a/3: configuring backend bridge..."
-        platform_exec_and_wait "${ip}" "${pve_backend_cmd}" "$install_wait" || return 75
+        pve_run_job_or_accept_postcondition "${ip}" "${pve_backend_cmd}" \
+            "PVE backend bridge" backend "${install_wait}" || pve_job_rc=$?
+        (( pve_job_rc == 0 )) || return "$pve_job_rc"
         log_info "PVE install step 3b/3: building NAT IPv4 network..."
-        platform_exec_and_wait "${ip}" "${pve_nat_cmd}" "$install_wait" || return 75
+        pve_run_job_or_accept_postcondition "${ip}" "${pve_nat_cmd}" \
+            "PVE NAT network" nat "${install_wait}" || pve_job_rc=$?
+        (( pve_job_rc == 0 )) || return "$pve_job_rc"
     elif [[ "$env" == "kubevirt" ]]; then
         # kubevirt needs K3s + KubeVirt + CDI, single-pass install (no reboot needed)
         # K3s + KubeVirt + CDI typically takes 60-120 minutes; use 7200s (2h) to be safe

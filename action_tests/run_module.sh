@@ -85,14 +85,26 @@ REPORT_DIR="${REPORT_DIR:-${SCRIPT_DIR}/reports}"
 mkdir -p "$REPORT_DIR"
 report_init "${REPORT_DIR}/module-${MODULE_INPUT}.md" "Module ${MODULE_INPUT}"
 
-# Init results file (inherit from parent or create new one)
+# Init results file (inherit from parent or create new one).  The environment
+# harness records preflight checks before invoking this child process; keep
+# that authoritative JSONL history when RESULTS_FILE is inherited instead of
+# truncating it at every execution-rule/module boundary.
+RESULTS_FILE_INHERITED=false
 if [[ -z "${RESULTS_FILE:-}" ]]; then
     RESULTS_FILE="${REPORT_DIR}/module-${MODULE_INPUT}-results.jsonl"
+elif [[ "${RESULTS_FILE_SHARED:-false}" == "true" ]]; then
+    RESULTS_FILE_INHERITED=true
+else
+    # An explicitly supplied file is still a standalone module output unless
+    # the parent harness marks it as shared.
+    RESULTS_FILE_INHERITED=false
 fi
-# Always truncate the active result file at the beginning of this run. Retry
-# wrappers may intentionally roll back intermediate failures; stale JSONL lines
-# must not be allowed to disagree with the in-memory counters and HTML report.
-init_results_file "$RESULTS_FILE"
+if [[ "$RESULTS_FILE_INHERITED" == "true" ]]; then
+    touch "$RESULTS_FILE"
+    TEST_START_TS="${TEST_START_TS:-$(_ts)}"
+else
+    init_results_file "$RESULTS_FILE"
+fi
 
 # Login first
 wait_server_ready "$SERVER_URL" 60 5 || { log_error "Server unreachable"; exit 1; }

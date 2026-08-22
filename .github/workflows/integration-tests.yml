@@ -544,8 +544,14 @@ jobs:
             exit 1
           fi
 
-          # Safely aggregate results - handle empty/corrupt JSONL lines
+          # Safely aggregate results - handle empty/corrupt JSONL lines.  The
+          # harness performs infrastructure/preflight checks, while module
+          # assertions are the product/API checks.  Keep those populations
+          # separate so a worker transport skip is not reported as a module
+          # failure (or as a successful module run).
           total=0 passed=0 failed=0 skipped=0 corrupt=0
+          harness_total=0 harness_passed=0 harness_failed=0 harness_skipped=0
+          module_total=0 module_passed=0 module_failed=0 module_skipped=0
           for f in "${result_files[@]}"; do
             line_no=0
             while IFS= read -r line; do
@@ -557,16 +563,29 @@ jobs:
                 corrupt=$((corrupt + 1))
                 continue
               fi
+              group=$(echo "$line" | jq -r '.group // "default"' 2>/dev/null)
+              [[ -z "$group" || "$group" == "null" ]] && group="default"
               total=$((total + 1))
-              case "$status" in
-                PASS) passed=$((passed + 1)) ;;
-                FAIL) failed=$((failed + 1)) ;;
-                SKIP) skipped=$((skipped + 1)) ;;
-                *) skipped=$((skipped + 1)) ;;
-              esac
+              if [[ "$group" == "HARNESS" ]]; then
+                harness_total=$((harness_total + 1))
+                case "$status" in
+                  PASS) harness_passed=$((harness_passed + 1)); passed=$((passed + 1)) ;;
+                  FAIL) harness_failed=$((harness_failed + 1)); failed=$((failed + 1)) ;;
+                  SKIP) harness_skipped=$((harness_skipped + 1)); skipped=$((skipped + 1)) ;;
+                  *) harness_skipped=$((harness_skipped + 1)); skipped=$((skipped + 1)) ;;
+                esac
+              else
+                module_total=$((module_total + 1))
+                case "$status" in
+                  PASS) module_passed=$((module_passed + 1)); passed=$((passed + 1)) ;;
+                  FAIL) module_failed=$((module_failed + 1)); failed=$((failed + 1)) ;;
+                  SKIP) module_skipped=$((module_skipped + 1)); skipped=$((skipped + 1)) ;;
+                  *) module_skipped=$((module_skipped + 1)); skipped=$((skipped + 1)) ;;
+                esac
+              fi
             done < "$f"
           done
-          executed=$((passed + failed))
+          module_executed=$((module_passed + module_failed))
 
           {
             echo "## Integration Validation"
@@ -575,10 +594,10 @@ jobs:
             echo "|--------|-------|"
             echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
             echo "| Harness Exit Code | ${TEST_EXIT} |"
-            echo "| Total | ${total} |"
-            echo "| Passed | ${passed} |"
-            echo "| Failed | ${failed} |"
-            echo "| Skipped | ${skipped} |"
+            echo "| Harness Checks | total=${harness_total}, pass=${harness_passed}, fail=${harness_failed}, skip=${harness_skipped} |"
+            echo "| Module Assertions | total=${module_total}, pass=${module_passed}, fail=${module_failed}, skip=${module_skipped} |"
+            echo "| Module tests executed | $([[ ${module_executed} -gt 0 ]] && echo yes || echo no) |"
+            echo "| All Results | total=${total}, pass=${passed}, fail=${failed}, skip=${skipped} |"
             echo "| Corrupt JSONL Lines | ${corrupt} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -597,9 +616,12 @@ jobs:
             exit 1
           fi
 
-          if [[ "$executed" -eq 0 ]]; then
-            echo "::warning::All ${skipped} test assertions were skipped; no executable checks ran."
-            # All-skip is a valid result for a limited module run — don't block the Action.
+          if [[ "$module_executed" -eq 0 ]]; then
+            echo "::warning::No module assertions were executed (module total=${module_total}, skipped=${module_skipped}). Harness checks are reported separately; this is not a module failure."
+            {
+              echo ""
+              echo "> Module assertions were not executed in this run; the result set contains harness/preflight checks only."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
           if [[ "$failed" -ne 0 ]]; then

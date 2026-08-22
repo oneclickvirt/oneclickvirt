@@ -56,37 +56,24 @@ log_info "Instance types: ${INSTANCE_TYPES} (requested: ${RAW_INSTANCE_TYPES})"
 log_info "Execution rule: ${EXECUTION_RULE}"
 log_info "Node hours: ${NODE_HOURS}h"
 
-# Preflight: check that at least one platform is enabled and has credentials
-ENABLED_PLATFORMS=$(get_enabled_platforms)
-if [[ -z "${ENABLED_PLATFORMS}" ]]; then
-    log_error "No cloud platforms are enabled."
-    log_error "Set PLATFORM_<NAME>_ENABLED=true and provide the corresponding secrets."
-    log_error "Example: export PLATFORM_ALICE_ENABLED=true ALICE_CLIENT_ID=xxx ALICE_CLIENT_SECRET=xxx"
-    exit 1
-fi
-log_info "Enabled platforms: ${ENABLED_PLATFORMS}"
-log_info "Active platform will be selected automatically with fallback"
-
-preflight_require_commands jq curl go mysql || exit 75
-preflight_check_runner_resources 20 4096 "${SCRIPT_DIR}/.." || exit 75
-preflight_check_port_available "$MASTER_PORT" || exit 75
-wait_for_mysql_ready 90 3 || exit 75
-
-# -- Report & results init --
+# Initialize reports before any preflight can exit.  This keeps successful
+# harness checks and an actionable infrastructure skip in the same JSONL file.
+export RESULTS_FILE="${REPORT_DIR}/${ENV_TYPE}-results.jsonl"
+export RESULTS_FILE_SHARED=true
 report_init "${REPORT_DIR}/${ENV_TYPE}-report.md" "${ENV_TYPE}"
-init_results_file "${REPORT_DIR}/${ENV_TYPE}-results.jsonl"
-
+init_results_file "$RESULTS_FILE"
 CREATED_IDS=""
 
 record_harness_skip_and_exit() {
     local reason="$1"
-    record_skip_result "Harness infrastructure skip (${ENV_TYPE})" "HARNESS" "run_env_test.sh" "$reason" "infrastructure"
-    generate_html_report "${REPORT_DIR}/${ENV_TYPE}-report.html" "${ENV_TYPE}" 2>/dev/null || true
+    record_skip_result "Harness infrastructure skip (${ENV_TYPE})" "HARNESS" "run_env_test.sh" "$reason" "HARNESS"
     report_finalize 2>/dev/null || true
+    generate_html_report "${REPORT_DIR}/${ENV_TYPE}-report.html" "${ENV_TYPE}" 2>/dev/null || true
     exit 75
 }
 
-# Error handler: capture logs and cleanup on unexpected exit
+# Error handler: capture logs and cleanup on unexpected exit.  Install it
+# before preflight so early exits still finalize the report.
 _cleanup_on_exit() {
     local exit_code=$?
     if [[ $exit_code -eq 75 ]]; then
@@ -100,7 +87,6 @@ _cleanup_on_exit() {
         log_info "Cleaning up nodes: ${CREATED_IDS}"
         cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
     fi
-    # Kill the Go server process started by deploy_master_local
     if [[ -f "$SERVER_PID_FILE" ]]; then
         kill "$(cat "$SERVER_PID_FILE")" 2>/dev/null || true
         rm -f "$SERVER_PID_FILE"
@@ -112,6 +98,36 @@ _cleanup_on_exit() {
     report_finalize 2>/dev/null || true
 }
 trap _cleanup_on_exit EXIT
+
+# Preflight: check that at least one platform is enabled and has credentials
+ENABLED_PLATFORMS=$(get_enabled_platforms)
+if [[ -z "${ENABLED_PLATFORMS}" ]]; then
+    record_harness_skip_and_exit "No cloud platforms are enabled or credentials are unavailable"
+fi
+record_pass_result "Platform resolution" "PREFLIGHT" "platforms" "at least one enabled" "$ENABLED_PLATFORMS" "Enabled platforms resolved" "HARNESS"
+log_info "Enabled platforms: ${ENABLED_PLATFORMS}"
+log_info "Active platform will be selected automatically with fallback"
+
+if preflight_require_commands jq curl go mysql; then
+    record_pass_result "Required commands" "PREFLIGHT" "commands" "jq,curl,go,mysql" "available" "All required commands are installed" "HARNESS"
+else
+    record_harness_skip_and_exit "Required command preflight failed"
+fi
+if preflight_check_runner_resources 20 4096 "${SCRIPT_DIR}/.."; then
+    record_pass_result "Runner resources" "PREFLIGHT" "runner" "disk>=20GB,memory>=4096MB" "available" "Runner resource budget satisfied" "HARNESS"
+else
+    record_harness_skip_and_exit "Runner resources are below the harness minimum"
+fi
+if preflight_check_port_available "$MASTER_PORT"; then
+    record_pass_result "Master port availability" "PREFLIGHT" "port:${MASTER_PORT}" "available" "available" "Master service port is free" "HARNESS"
+else
+    record_harness_skip_and_exit "Master service port ${MASTER_PORT} is already in use"
+fi
+if wait_for_mysql_ready 90 3; then
+    record_pass_result "MySQL readiness" "PREFLIGHT" "mysql" "ready" "ready" "MySQL TCP endpoint is ready" "HARNESS"
+else
+    record_harness_skip_and_exit "MySQL did not become ready during preflight"
+fi
 
 # =============================================================
 # Phase 1: Deploy master service on runner (source build + local MySQL)
@@ -145,10 +161,10 @@ WORKER_INFO=$(create_test_node "$ENV_TYPE" "$NODE_HOURS") || {
     _worker_rc=$?
     if [[ $_worker_rc -eq 75 ]]; then
         log_warning "Worker node provisioning skipped: all cloud platforms are temporarily out of resources"
-        record_skip_result "Worker node provisioning" "HARNESS" "create_test_node" "No usable worker node satisfied ${ENV_TYPE} infrastructure requirements" "infrastructure"
+        record_skip_result "Worker node provisioning" "HARNESS" "create_test_node" "No usable worker node satisfied ${ENV_TYPE} infrastructure requirements" "HARNESS"
     else
         log_warning "Worker node provisioning skipped due to an infrastructure failure (exit=${_worker_rc})"
-        record_skip_result "Worker node provisioning" "HARNESS" "create_test_node" "Worker node provisioning failed with exit ${_worker_rc}" "infrastructure"
+        record_skip_result "Worker node provisioning" "HARNESS" "create_test_node" "Worker node provisioning failed with exit ${_worker_rc}" "HARNESS"
     fi
     log_info "This is a transient infrastructure condition, not a test failure."
     log_info "Re-run the workflow when resources are available, or add more cloud platform accounts."
@@ -211,7 +227,7 @@ if (( runtime_rc != 0 )); then
     fi
     log_error "${ENV_TYPE} runtime prerequisites are incomplete after installation"
     record_fail_result "Worker runtime verification (${ENV_TYPE})" "HARNESS" "verify_worker_runtime" "ready" "not ready" \
-        "Required runtime services or state are unavailable after installation" "infrastructure"
+        "Required runtime services or state are unavailable after installation" "HARNESS"
     exit 1
 fi
 worker_arch_raw=$(platform_ssh_exec "$WORKER_IP" "uname -m 2>/dev/null || echo unknown" 30 2>/dev/null | tr -d '\r' | tail -1 || true)
@@ -242,7 +258,7 @@ if (( dirty_node_rc == 75 )); then
 fi
 if (( dirty_node_rc != 0 )); then
     record_skip_result "Partial dirty-node fixture preparation (${ENV_TYPE})" "HARNESS" "prepare_dirty_node" \
-        "Only the successfully prepared instance types will be asserted" "infrastructure"
+        "Only the successfully prepared instance types will be asserted" "HARNESS"
 fi
 
 # =============================================================
@@ -383,6 +399,9 @@ cp "${REPORT_DIR}/${ENV_TYPE}-${_current_rule}-output.log" "${REPORT_DIR}/${ENV_
 # Phase 9: Generate HTML report
 # =============================================================
 log_section "Phase 9: Generate reports"
+# Finalize Markdown/counters before generating the combined HTML report so
+# early harness checks and module assertions have a stable authoritative set.
+report_finalize
 # The per-rule reports were generated inside the loop above.
 # Generate a final combined/summary report using the last run's state (always present).
 generate_html_report "${REPORT_DIR}/${ENV_TYPE}-report.html" "${ENV_TYPE}"
@@ -400,9 +419,6 @@ if [[ -f "$SERVER_PID_FILE" ]]; then
     rm -f "$SERVER_PID_FILE"
 fi
 rm -f "$SERVER_BINARY"
-
-# -- Finalize --
-report_finalize
 
 log_section "Test completed"
 if [[ -f "${RESULTS_FILE:-}" ]]; then
