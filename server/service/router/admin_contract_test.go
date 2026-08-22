@@ -15,8 +15,17 @@ func TestAdminRouteContract(t *testing.T) {
 	InitAdminRouter(engine.Group("/api"))
 
 	routes := make(map[string]struct{})
+	const instanceActionRoute = "POST /api/v1/admin/instances/:id/action"
+	instanceActionRouteCount := 0
 	for _, route := range engine.Routes() {
-		routes[route.Method+" "+route.Path] = struct{}{}
+		routeKey := route.Method + " " + route.Path
+		routes[routeKey] = struct{}{}
+		if routeKey == instanceActionRoute {
+			instanceActionRouteCount++
+		}
+	}
+	if instanceActionRouteCount != 1 {
+		t.Fatalf("instance action route registered %d times, want exactly once", instanceActionRouteCount)
 	}
 
 	required := []string{
