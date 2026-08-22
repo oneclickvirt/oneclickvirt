@@ -432,6 +432,26 @@ platform_delete_instance() {
     platform_dispatch "$platform" "delete_instance" "$instance_id"
 }
 
+# Restart a provider-managed worker without touching database state.  This is
+# used only as a bounded transport recovery step after a host-side network
+# reload; providers that do not expose a restart operation simply return 1.
+platform_restart_instance() {
+    local instance_id="$1"
+    local platform="${ACTIVE_PLATFORM}"
+    [[ -z "$platform" ]] && { log_error "No active platform set"; return 1; }
+    if ! platform_dispatch "$platform" "restart_instance" "$instance_id"; then
+        log_warning "Platform '${platform}' does not provide restart_instance"
+        return 1
+    fi
+}
+
+platform_recover_worker() {
+    local instance_id="$1" ip="$2" max_wait="${3:-300}"
+    [[ -n "$instance_id" && -n "$ip" ]] || return 1
+    platform_restart_instance "$instance_id" || return 1
+    wait_for_ssh "$ip" "$max_wait"
+}
+
 # ============================================================================
 # SSH execution on the active platform
 # ============================================================================
@@ -450,6 +470,17 @@ platform_wait_ssh() {
     local platform="${ACTIVE_PLATFORM}"
     [[ -z "$platform" ]] && { log_error "No active platform set"; return 1; }
     platform_dispatch "$platform" "wait_ssh" "$ip" "$max" "$interval"
+}
+
+# Execute exactly once over SSH.  Long-running installers may deliberately
+# reload networking and close the SSH transport; retrying those commands can
+# start a second installer while the first one is still changing the host.
+# Callers that need retries should use platform_exec_and_wait below.
+platform_exec_once() {
+    local ip="$1" cmd="$2" timeout="${3:-300}"
+    local platform="${ACTIVE_PLATFORM}"
+    [[ -z "$platform" ]] && { log_error "No active platform set"; return 1; }
+    platform_ssh_exec "$ip" "$cmd" "$timeout"
 }
 
 # ============================================================================
@@ -484,7 +515,7 @@ platform_exec_and_wait() {
 
     local attempt rc
     for ((attempt = 1; attempt <= attempts; attempt++)); do
-        platform_ssh_exec "$ip" "$cmd" "$timeout"
+        platform_exec_once "$ip" "$cmd" "$timeout"
         rc=$?
         if [[ $rc -eq 0 ]]; then
             return 0

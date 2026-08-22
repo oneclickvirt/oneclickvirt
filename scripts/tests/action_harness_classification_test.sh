@@ -245,9 +245,104 @@ captured_result=$(record_fail_result "captured failure" "GET" "/captured" "200" 
     fail "a failure recorded inside command substitution was lost from JSONL"
 rm -f "$RESULTS_FILE"
 
+RESULTS_FILE=$(mktemp)
+init_results_file "$RESULTS_FILE"
+record_pass_result "captured pass" "PREFLIGHT" "commands" "available" "available" "pass is persisted" "HARNESS"
+[[ "$(jq -r 'select(.name == "captured pass" and .status == "PASS" and .group == "HARNESS") | 1' "$RESULTS_FILE")" == "1" ]] ||
+    fail "record_pass_result did not persist a HARNESS PASS to JSONL"
+rm -f "$RESULTS_FILE"
+
 RUN_MODULE="${ROOT_DIR}/action_tests/run_module.sh"
 if grep -Fq 'for _result_json in "${TEST_RESULTS_JSON[@]}"' "$RUN_MODULE"; then
     fail "run_module still overwrites authoritative JSONL from its parent-shell array"
 fi
+grep -Fq 'RESULTS_FILE_SHARED' "$RUN_MODULE" || fail "run_module does not preserve shared harness JSONL"
+grep -Fq 'export RESULTS_FILE_SHARED=true' "$RUN_ENV_TEST" || fail "run_env_test does not mark its JSONL as shared"
+
+# PVE network reload resilience regression.  The mock deliberately drops one
+# status query, then lets SSH recover; the mutating launcher must remain
+# single-shot and the detached status must drive completion.
+MOCK_PVE_QUERY_COUNT=0
+MOCK_PVE_LAUNCH_COUNT=0
+MOCK_PVE_STATUS_MODE="recover"
+MOCK_PVE_POSTCONDITION=""
+MOCK_LAST_POSTCONDITION_COMMAND=""
+CAPTURED_COMMANDS=()
+MOCK_PVE_QUERY_FILE=$(mktemp)
+MOCK_PVE_LAUNCH_FILE=$(mktemp)
+MOCK_PVE_POSTCONDITION_FILE=$(mktemp)
+printf '0\n' > "$MOCK_PVE_QUERY_FILE"
+printf '0\n' > "$MOCK_PVE_LAUNCH_FILE"
+platform_exec_once() {
+    local _ip="$1" command="$2" _timeout="${3:-}"
+    CAPTURED_COMMANDS+=("$command")
+    if [[ "$command" == *"mkdir -p /tmp/oneclickvirt-pve-jobs"* ]]; then
+        local launch_count; launch_count=$(cat "$MOCK_PVE_LAUNCH_FILE")
+        launch_count=$((launch_count + 1)); printf '%s\n' "$launch_count" > "$MOCK_PVE_LAUNCH_FILE"
+        printf '%s\n' STARTED
+        return 0
+    fi
+    if [[ "$command" == *"if [ -s "* && "$command" == *".status"* ]]; then
+        local query_count; query_count=$(cat "$MOCK_PVE_QUERY_FILE")
+        query_count=$((query_count + 1)); printf '%s\n' "$query_count" > "$MOCK_PVE_QUERY_FILE"
+        case "$MOCK_PVE_STATUS_MODE:$query_count" in
+            recover:1) return 1 ;;
+            recover:2) printf '%s\n' RUNNING; return 0 ;;
+            recover:*) printf '%s\n' 0; return 0 ;;
+            running:*) printf '%s\n' RUNNING; return 0 ;;
+            failed:*) printf '%s\n' 1; return 0 ;;
+        esac
+    fi
+    if [[ "$command" == *"test -s /usr/local/bin/build_backend_pve.txt"* || "$command" == *"test -r /etc/network/interfaces"* ]]; then
+        printf '%s' "$command" > "$MOCK_PVE_POSTCONDITION_FILE"
+        [[ "$MOCK_PVE_POSTCONDITION" == "backend" && "$command" == *"build_backend_pve.txt"* ]] || [[ "$MOCK_PVE_POSTCONDITION" == "nat" && "$command" == *"pve_nat_subnet"* ]]
+        return
+    fi
+    return 0
+}
+
+export PVE_REMOTE_POLL_INTERVAL=1
+export PVE_REMOTE_SSH_RECOVERY_WAIT=2
+MOCK_SSH_REACHABLE=true
+wait_for_ssh() { [[ "$MOCK_SSH_REACHABLE" == "true" ]]; }
+pve_run_remote_job 192.0.2.10 'echo mutating-pve-command' 'network-reload-regression' 5 || fail "detached PVE job did not complete after temporary SSH loss"
+MOCK_PVE_LAUNCH_COUNT=$(cat "$MOCK_PVE_LAUNCH_FILE")
+MOCK_PVE_QUERY_COUNT=$(cat "$MOCK_PVE_QUERY_FILE")
+[[ "$MOCK_PVE_LAUNCH_COUNT" == "1" ]] || fail "detached PVE job launcher was invoked ${MOCK_PVE_LAUNCH_COUNT} times"
+[[ "$MOCK_PVE_QUERY_COUNT" -ge 3 ]] || fail "detached PVE job status was not polled through recovery"
+
+# build_backend.sh exits 1 when its marker already exists; its durable marker
+# and PVE runtime postcondition should make this an accepted completion.
+MOCK_PVE_STATUS_MODE="failed"
+printf '0\n' > "$MOCK_PVE_QUERY_FILE"
+printf '0\n' > "$MOCK_PVE_LAUNCH_FILE"
+MOCK_PVE_POSTCONDITION="backend"
+pve_run_job_or_accept_postcondition 192.0.2.10 'echo backend' 'backend-marker-regression' backend 5 || fail "backend marker postcondition was not accepted"
+
+# A job that is still RUNNING after the primary and grace windows must remain
+# untouched; a durable postcondition cannot authorize the next mutating phase
+# while the previous one may still be changing network state.
+MOCK_PVE_STATUS_MODE="running"
+printf '0\n' > "$MOCK_PVE_QUERY_FILE"
+printf '0\n' > "$MOCK_PVE_LAUNCH_FILE"
+export PVE_REMOTE_RUNNING_GRACE_WAIT=1
+MOCK_PVE_POSTCONDITION="backend"
+running_rc=0
+pve_run_job_or_accept_postcondition 192.0.2.10 'echo still-running' 'running-job-regression' backend 1 || running_rc=$?
+[[ "$running_rc" == "75" ]] || fail "still-running PVE job was not classified as infrastructure"
+[[ "$PVE_LAST_JOB_STATE" == "running" ]] || fail "still-running PVE job state was not preserved"
+unset PVE_REMOTE_RUNNING_GRACE_WAIT
+
+MOCK_PVE_POSTCONDITION="nat"
+pve_check_postcondition 192.0.2.10 nat || fail "NAT postcondition was rejected by the mock"
+MOCK_LAST_POSTCONDITION_COMMAND=$(cat "$MOCK_PVE_POSTCONDITION_FILE")
+grep -Fq 'pve_nat_subnet' <<<"$MOCK_LAST_POSTCONDITION_COMMAND" || fail "NAT postcondition did not inspect persisted subnet state"
+grep -Fq 'masquerade' <<<"$MOCK_LAST_POSTCONDITION_COMMAND" || fail "NAT postcondition did not inspect masquerade rules"
+
+rm -f "$MOCK_PVE_QUERY_FILE" "$MOCK_PVE_LAUNCH_FILE" "$MOCK_PVE_POSTCONDITION_FILE"
+
+grep -Fq 'record_pass_result "Platform resolution"' "$RUN_ENV_TEST" || fail "preflight PASS results are not recorded"
+grep -Fq '"$group" == "HARNESS"' "$INTEGRATION_WORKFLOW" || fail "workflow does not separate HARNESS results from module assertions"
+grep -Fq 'Module tests executed' "$INTEGRATION_WORKFLOW" || fail "workflow does not state whether module assertions ran"
 
 echo "action harness classification tests passed"

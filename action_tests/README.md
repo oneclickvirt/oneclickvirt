@@ -353,6 +353,11 @@ GitHub Actions 会自动安装所需依赖。
 | `PVE_MAIN_INTERFACE` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `eth1`，对应 LightNode 公网默认路由网口 |
 | `PVE_NAT_SUBNET` | 可选的 ProxmoxVE NAT `/24` 网段（必须以 `.0/24` 结尾）；未设置时安装脚本会避开宿主机现有路由自动选择，并将结果持久化供 Provider 与 PVE 创建脚本复用 |
 | `PVE_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 ProxmoxVE installer 调试路径；未设置时自动探测同级 `pve` 仓库 |
+| `PVE_REMOTE_SSH_RECOVERY_WAIT` | 默认 `600` 秒；PVE 网络重载导致 SSH 暂时断开时，等待连接恢复的上限，不会在此期间重复启动安装脚本 |
+| `PVE_REMOTE_SSH_STABLE_WAIT` | 默认 `180` 秒；作业完成后等待 SSH 连续稳定探测的上限，避免网络刚恢复又抖动时进入下一阶段 |
+| `PVE_REMOTE_STABLE_PROBES` / `PVE_REMOTE_STABLE_INTERVAL` | 默认 `3` 次 / `5` 秒；连续成功的 SSH/远端 `true` 探测窗口 |
+| `PVE_REMOTE_RUNNING_GRACE_WAIT` | 默认 `900` 秒；主轮询超时后若远端作业仍报告 `RUNNING`，继续观察的上限；仍在运行时保持节点不重启并记录为基础设施跳过 |
+| `PVE_POSTCONDITION_MAX_WAIT` | 默认 `180` 秒；PVE 作业返回非零后等待持久完成标记、8006、网桥和 NAT 规则出现的上限 |
 | `INCUS_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 Incus installer 调试路径；未设置时自动探测同级 `incus` 仓库 |
 | `KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 KubeVirt installer 调试路径；未设置时自动探测同级 `kubevirt` 仓库 |
 | `ACTION_TEST_LIVE_IPV6_TUNNEL` | 默认 `false`；仅限专用可销毁工作节点的显式宿主机隧道生命周期检查 |

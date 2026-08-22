@@ -452,6 +452,7 @@ declare -A CHAIN_BROKEN
 REPORT_FILE=""
 RESULTS_FILE="${RESULTS_FILE:-}"
 TEST_START_TS=""
+REPORT_FINALIZED=false
 MASTER_NODE_ID=""
 MASTER_NODE_IP=""
 
@@ -1592,6 +1593,7 @@ init_results_file() {
     RESULTS_FILE="$1"
     : > "$RESULTS_FILE"
     TEST_START_TS=$(_ts)
+    REPORT_FINALIZED=false
 }
 
 # -- Record test result to JSON Lines file --
@@ -1623,6 +1625,15 @@ _record_result() {
 _add_result_json() {
     local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8"
     _record_result "$name" "$method" "$url" "$status" "$expected" "$actual" "$detail" "$group" ""
+}
+
+record_pass_result() {
+    local name="$1" method="$2" url="$3" expected="${4:-}" actual="${5:-}" detail="${6:-}" group="${7:-default}"
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    log_success "${name}"
+    report_add_pass "$name" "$method" "$url"
+    _record_result "$name" "$method" "$url" "PASS" "$expected" "$actual" "$detail" "$group"
 }
 
 record_skip_result() {
@@ -1679,6 +1690,7 @@ ensure_test_instance_available() {
 # -- Markdown report --
 report_init() {
     REPORT_FILE="$1"
+    REPORT_FINALIZED=false
     local env="$2" ts; ts=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
     cat > "$REPORT_FILE" << EOF
 # ${env} Integration Test Report
@@ -1735,6 +1747,7 @@ report_add_skip() {
 
 report_finalize() {
     [[ -z "$REPORT_FILE" ]] && return
+    [[ "$REPORT_FINALIZED" == "true" ]] && return
 
     if [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" ]]; then
         local _jsonl_total=0 _jsonl_pass=0 _jsonl_fail=0 _jsonl_skip=0
@@ -1763,6 +1776,7 @@ report_finalize() {
     rm -f "${REPORT_FILE}.bak"
     echo -e "\n---\n\nCompleted: Total=${TOTAL_TESTS} Passed=${PASSED_TESTS} Failed=${FAILED_TESTS} Skipped=${SKIPPED_TESTS} Rate=${rate}%" >> "$REPORT_FILE"
     log_section "Results: Total=${TOTAL_TESTS} Passed=${PASSED_TESTS} Failed=${FAILED_TESTS} Skipped=${SKIPPED_TESTS} Rate=${rate}%"
+    REPORT_FINALIZED=true
 }
 
 # -- HTML report generation (delegates to report/generate_report.sh) --

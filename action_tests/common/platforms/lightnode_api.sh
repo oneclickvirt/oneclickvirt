@@ -11,6 +11,7 @@ LIGHTNODE_ZONE="${LIGHTNODE_ZONE:-}"
 LIGHTNODE_PASSWORD="${LIGHTNODE_PASSWORD:-CiTest1234!}"
 LIGHTNODE_TASK_MAX_WAIT="${LIGHTNODE_TASK_MAX_WAIT:-3600}"
 LIGHTNODE_STOP_TASK_MAX_WAIT="${LIGHTNODE_STOP_TASK_MAX_WAIT:-900}"
+LIGHTNODE_RESTART_TASK_MAX_WAIT="${LIGHTNODE_RESTART_TASK_MAX_WAIT:-900}"
 LIGHTNODE_CREATE_TASK_MAX_WAIT="${LIGHTNODE_CREATE_TASK_MAX_WAIT:-1800}"
 LIGHTNODE_REINSTALL_TASK_MAX_WAIT="${LIGHTNODE_REINSTALL_TASK_MAX_WAIT:-3600}"
 LIGHTNODE_PACKAGE_CODE="${LIGHTNODE_PACKAGE_CODE:-}"
@@ -325,6 +326,25 @@ lightnode_platform_delete_instance() {
     fi
     local task_uuid; task_uuid=$(echo "$body" | jq -r '.asyncTaskInfo.asyncTaskUUID // empty' 2>/dev/null)
     [[ -n "$task_uuid" ]] && _lightnode_wait_async_task "${task_uuid}" "$LIGHTNODE_STOP_TASK_MAX_WAIT"
+    return 0
+}
+
+lightnode_platform_restart_instance() {
+    local id="$1"
+    [[ -n "$id" ]] || { log_error "[lightnode] restart requires an instance id"; return 1; }
+    log_info "[lightnode] Restarting instance ${id} for transport recovery..."
+    local resp body code task_uuid
+    resp=$(lightnode_request "POST" "/instance/restart" "{\"ecsResourceUUID\":\"${id}\"}") || return 1
+    body=$(lightnode_parse_body "$resp")
+    code=$(lightnode_parse_code "$resp")
+    if [[ "$code" != "200" && "$code" != "202" ]]; then
+        log_error "[lightnode] Restart failed (HTTP ${code}): ${body}"
+        return 1
+    fi
+    task_uuid=$(printf '%s' "$body" | jq -r '.asyncTaskInfo.asyncTaskUUID // .asyncTaskUUID // empty' 2>/dev/null)
+    if [[ -n "$task_uuid" ]]; then
+        _lightnode_wait_async_task "$task_uuid" "$LIGHTNODE_RESTART_TASK_MAX_WAIT" || return 1
+    fi
     return 0
 }
 
