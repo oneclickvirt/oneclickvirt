@@ -210,7 +210,7 @@ jobs:
         BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         BUILD_SIGNATURE="official-github-actions"
         export LDFLAGS="-s -w -extldflags '-static' -X oneclickvirt/constant.BuildCommit=${BUILD_COMMIT} -X oneclickvirt/constant.BuildTime=${BUILD_TIME} -X oneclickvirt/constant.BuildSignature=${BUILD_SIGNATURE}"
-        
+
         # Linux AMD64
         GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o ../build/server-linux-amd64 .
         
@@ -274,6 +274,21 @@ jobs:
         rm server-linux-amd64 server-linux-arm64 server-windows-amd64.exe server-windows-arm64.exe
         rm server-allinone-linux-amd64 server-allinone-linux-arm64 server-allinone-windows-amd64.exe server-allinone-windows-arm64.exe
         rm oneclickvirt-agent-linux-amd64 oneclickvirt-agent-linux-arm64
+
+        # The panel updater verifies its selected release assets against this
+        # manifest before extracting or replacing any local files.
+        sha256sum \
+          server-linux-amd64.tar.gz \
+          server-linux-arm64.tar.gz \
+          server-windows-amd64.zip \
+          server-windows-arm64.zip \
+          server-allinone-linux-amd64.tar.gz \
+          server-allinone-linux-arm64.tar.gz \
+          server-allinone-windows-amd64.zip \
+          server-allinone-windows-arm64.zip \
+          oneclickvirt-agent-linux-amd64.tar.gz \
+          oneclickvirt-agent-linux-arm64.tar.gz \
+          web-dist.zip > SHA256SUMS
         
         ls -lh
 
@@ -309,7 +324,10 @@ jobs:
         
         ### 监控代理（部署到 Provider 节点）
         - \`oneclickvirt-agent-linux-amd64.tar.gz\` - 监控代理 Linux AMD64 版本
-        - \`oneclickvirt-agent-linux-arm64.tar.gz\` - 监控代理 Linux ARM64 版本"
+        - \`oneclickvirt-agent-linux-arm64.tar.gz\` - 监控代理 Linux ARM64 版本
+
+        ### 校验文件
+        - \`SHA256SUMS\` - Release 资产 SHA-256 校验清单"
         
         # Create release with auto-generated notes
         if [ -n "$PREVIOUS_TAG" ]; then
@@ -328,7 +346,8 @@ jobs:
             ./build/server-allinone-windows-arm64.zip \
             ./build/oneclickvirt-agent-linux-amd64.tar.gz \
             ./build/oneclickvirt-agent-linux-arm64.tar.gz \
-            ./build/web-dist.zip
+            ./build/web-dist.zip \
+            ./build/SHA256SUMS
         else
           gh release create "$TAG_NAME" \
             --title "Release $TAG_NAME" \
@@ -344,5 +363,6 @@ jobs:
             ./build/server-allinone-windows-arm64.zip \
             ./build/oneclickvirt-agent-linux-amd64.tar.gz \
             ./build/oneclickvirt-agent-linux-arm64.tar.gz \
-            ./build/web-dist.zip
+            ./build/web-dist.zip \
+            ./build/SHA256SUMS
         fi

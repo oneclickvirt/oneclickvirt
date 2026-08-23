@@ -14,6 +14,18 @@ import (
 
 // InitAdminRouter 管理员路由
 func InitAdminRouter(Router *gin.RouterGroup) {
+	// 版本更新/回退不属于业务任务，不受任务池维护开关影响；仍严格限制为超级管理员。
+	SystemUpdateGroup := Router.Group("/v1/admin/system")
+	SystemUpdateGroup.Use(middleware.RequireSuperAdmin())
+	{
+		SystemUpdateGroup.GET("/check-updates", system.GetUpdateInfo)
+		SystemUpdateGroup.GET("/rollback-versions", system.GetRollbackVersions)
+		SystemUpdateGroup.POST("/update", system.StartUpdate)
+		SystemUpdateGroup.POST("/rollback", system.StartRollback)
+		SystemUpdateGroup.POST("/restart", system.StartRestart)
+		SystemUpdateGroup.GET("/update-status", system.GetUpdateStatus)
+	}
+
 	// 普通管理员和超管都可以访问的路由（level >= 2）
 	NormalAdminGroup := Router.Group("/v1/admin")
 	NormalAdminGroup.Use(middleware.RequireNormalAdmin())

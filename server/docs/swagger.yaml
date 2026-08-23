@@ -3243,6 +3243,13 @@ definitions:
     - target_id
     - type
     type: object
+  update.UpdateRequest:
+    properties:
+      backupId:
+        type: string
+      version:
+        type: string
+    type: object
   user.AvailableProviderResponse:
     properties:
       architecture:
@@ -10170,6 +10177,116 @@ paths:
       summary: 同步System 镜像s
       tags:
       - 管理员管理
+  /admin/system/check-updates:
+    get:
+      description: 根据部署模式返回在线升级能力；Docker、Compose、源码和未知模式仅展示人工命令。
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 查看更新能力和版本
+      tags:
+      - 系统更新
+  /admin/system/restart:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 重启主控服务
+      tags:
+      - 系统更新
+  /admin/system/rollback:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 目标版本
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/update.UpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 在线回退
+      tags:
+      - 系统更新
+  /admin/system/rollback-versions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 查看回退版本
+      tags:
+      - 系统更新
+  /admin/system/update:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 目标版本，留空表示最新版本
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/update.UpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/common.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 在线升级
+      tags:
+      - 系统更新
+  /admin/system/update-status:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 查看更新任务状态
+      tags:
+      - 系统更新
   /admin/tasks:
     get:
       consumes:

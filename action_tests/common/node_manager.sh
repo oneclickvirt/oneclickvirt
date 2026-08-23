@@ -61,6 +61,82 @@ pve_mark_job_completed() {
     return 0
 }
 
+# Some Debian cloud images schedule ifupdown2 through a one-shot systemd unit
+# during the first reboot.  That unit installs the package and reboots again,
+# so SSH can briefly recover before dropping a second time.  Do not start the
+# post-reboot installer pass while that bootstrap unit is still pending.
+pve_wait_for_ifupdown2_bootstrap() {
+    local ip="$1"
+    local max_wait="${2:-${PVE_IFUPDOWN2_BOOTSTRAP_MAX_WAIT:-900}}"
+    local interval="${PVE_IFUPDOWN2_BOOTSTRAP_POLL_INTERVAL:-10}"
+    local recovery_wait="${PVE_REMOTE_SSH_RECOVERY_WAIT:-600}"
+    local elapsed=0 query="" query_rc=0 state="" pending=false logged=false
+    [[ "$max_wait" =~ ^[0-9]+$ && "$max_wait" -gt 0 ]] || max_wait=900
+    [[ "$interval" =~ ^[0-9]+$ && "$interval" -gt 0 ]] || interval=10
+    [[ "$recovery_wait" =~ ^[0-9]+$ && "$recovery_wait" -gt 0 ]] || recovery_wait=600
+
+    while [[ $elapsed -le $max_wait ]]; do
+        query_rc=0
+        query=$(platform_exec_once "$ip" '
+if [ -e /etc/systemd/system/ifupdown2-install.service ] || [ -e /usr/local/bin/install_ifupdown2.sh ]; then
+    echo PENDING
+elif [ -s /usr/local/bin/ifupdown2_installed.txt ]; then
+    echo COMPLETE
+else
+    echo NONE
+fi
+' 30 2>/dev/null) || query_rc=$?
+        if [[ $query_rc -ne 0 ]]; then
+            if [[ "$pending" == true ]]; then
+                log_info "ifupdown2 bootstrap reboot interrupted SSH; waiting up to ${recovery_wait}s for recovery"
+            fi
+            wait_for_ssh "$ip" "$recovery_wait" >/dev/null 2>&1 || {
+                [[ "$pending" == true ]] && log_warning "SSH did not recover while waiting for the ifupdown2 bootstrap reboot"
+                return 75
+            }
+            elapsed=$((elapsed + interval))
+            continue
+        fi
+        state=$(printf '%s\n' "$query" | tr -d '\r' | tail -n 1)
+        case "$state" in
+            COMPLETE)
+                pending=true
+                log_info "ifupdown2 bootstrap completed; waiting for SSH to remain stable"
+                pve_wait_for_ssh_stable "$ip" "$recovery_wait" || return 75
+                return 0
+                ;;
+            PENDING)
+                pending=true
+                if [[ "$logged" == false ]]; then
+                    log_info "Waiting for the scheduled ifupdown2 bootstrap before the PVE post-reboot pass"
+                    logged=true
+                fi
+                ;;
+            NONE)
+                # No bootstrap unit is normal on images that already ship
+                # ifupdown/ifupdown2.  Only a previously observed pending unit
+                # requires the extra stability window.
+                if [[ "$pending" == true ]]; then
+                    pve_wait_for_ssh_stable "$ip" "$recovery_wait" || return 75
+                fi
+                return 0
+                ;;
+            *)
+                log_warning "Unexpected ifupdown2 bootstrap state '${state:-empty}'; continuing to observe"
+                ;;
+        esac
+        [[ $elapsed -eq $max_wait ]] && break
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    if [[ "$pending" == true ]]; then
+        log_warning "ifupdown2 bootstrap did not finish within ${max_wait}s"
+        return 75
+    fi
+    return 0
+}
+
 mysql_root_exec() {
     local db_password="${DB_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
     local args=(-u root -h 127.0.0.1)
@@ -838,6 +914,8 @@ install_env() {
         fi
         ensure_worker_swap "${ip}" "worker after PVE reboot" || log_warning "Swap setup after PVE reboot did not complete"
         stabilize_worker_network_for_env "${ip}" "${env}" "worker after PVE reboot" || true
+        pve_wait_for_ifupdown2_bootstrap "${ip}" "$reboot_wait" || return 75
+        ensure_worker_dns "${ip}" "worker after ifupdown2 bootstrap" || true
         log_info "PVE install step 2/3: completing PVE configuration after reboot..."
         local pve_job_rc=0
         pve_run_job_or_accept_postcondition "${ip}" "${pve_install_cmd}" \

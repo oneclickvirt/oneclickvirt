@@ -29,6 +29,12 @@ func TestAdminRouteContract(t *testing.T) {
 	}
 
 	required := []string{
+		"GET /api/v1/admin/system/check-updates",
+		"GET /api/v1/admin/system/rollback-versions",
+		"POST /api/v1/admin/system/update",
+		"POST /api/v1/admin/system/rollback",
+		"POST /api/v1/admin/system/restart",
+		"GET /api/v1/admin/system/update-status",
 		"POST /api/v1/admin/providers/:id/health-check-task",
 		"GET /api/v1/admin/providers/:id/ipv6-pool",
 		"GET /api/v1/admin/providers/:id/ipv6-tunnels",

@@ -345,4 +345,32 @@ grep -Fq 'record_pass_result "Platform resolution"' "$RUN_ENV_TEST" || fail "pre
 grep -Fq '"$group" == "HARNESS"' "$INTEGRATION_WORKFLOW" || fail "workflow does not separate HARNESS results from module assertions"
 grep -Fq 'Module tests executed' "$INTEGRATION_WORKFLOW" || fail "workflow does not state whether module assertions ran"
 
+# PVE images that do not ship ifupdown can schedule an ifupdown2 bootstrap
+# service.  It may reboot once more after SSH first recovers; the orchestrator
+# must observe that bootstrap before launching the second installer pass.
+MOCK_BOOTSTRAP_FILE=$(mktemp)
+printf '0\n' > "$MOCK_BOOTSTRAP_FILE"
+platform_exec_once() {
+    local _ip="$1" command="$2" _timeout="${3:-}"
+    if [[ "$command" == *"if [ -e /etc/systemd/system/ifupdown2-install.service"* ]]; then
+        local bootstrap_step; bootstrap_step=$(cat "$MOCK_BOOTSTRAP_FILE")
+        bootstrap_step=$((bootstrap_step + 1)); printf '%s\n' "$bootstrap_step" > "$MOCK_BOOTSTRAP_FILE"
+        case "$bootstrap_step" in
+            1) printf '%s\n' PENDING; return 0 ;;
+            2) return 1 ;;
+            *) printf '%s\n' COMPLETE; return 0 ;;
+        esac
+    fi
+    return 0
+}
+sleep() { :; }
+export PVE_IFUPDOWN2_BOOTSTRAP_MAX_WAIT=3
+export PVE_IFUPDOWN2_BOOTSTRAP_POLL_INTERVAL=1
+export PVE_REMOTE_SSH_RECOVERY_WAIT=1
+export PVE_REMOTE_STABLE_PROBES=1
+pve_wait_for_ifupdown2_bootstrap 192.0.2.10 3 || fail "ifupdown2 bootstrap recovery was not observed"
+[[ "$(cat "$MOCK_BOOTSTRAP_FILE")" -ge 3 ]] || fail "ifupdown2 bootstrap was not polled through the transient reboot"
+rm -f "$MOCK_BOOTSTRAP_FILE"
+unset PVE_IFUPDOWN2_BOOTSTRAP_MAX_WAIT PVE_IFUPDOWN2_BOOTSTRAP_POLL_INTERVAL PVE_REMOTE_STABLE_PROBES
+
 echo "action harness classification tests passed"

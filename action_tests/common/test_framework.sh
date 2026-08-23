@@ -830,11 +830,12 @@ wait_db_ready() {
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 "${url}/api/v1/public/init/check" 2>/dev/null) || true
         local need_init; need_init=$(safe_jq "$r" '-r .data.needInit' 'unknown')
-        if [[ "$need_init" == "false" ]]; then
-            log_success "System initialization complete"
+        local ready; ready=$(safe_jq "$r" '-r .data.ready' 'false')
+        if [[ "$need_init" == "false" && "$ready" == "true" ]]; then
+            log_success "System initialization and runtime services complete"
             return 0
         fi
-        log_debug "Init not complete yet (needInit=${need_init}), waiting..."
+        log_debug "Init not complete yet (needInit=${need_init}, ready=${ready}), waiting..."
         sleep "$interval"; elapsed=$((elapsed + interval))
     done
     log_error "System init wait timeout after ${max}s"
