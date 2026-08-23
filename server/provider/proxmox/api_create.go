@@ -18,6 +18,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// proxmoxTemplateVolumeID returns the PVE storage-volume form accepted by the
+// LXC API for an OS template.  Passing the equivalent absolute path is only
+// permitted for root@pam and makes normal API tokens fail with
+// "Only root can pass arbitrary filesystem paths".
+func proxmoxTemplateVolumeID(storage, fileName string) string {
+	storage = strings.TrimSpace(storage)
+	fileName = strings.TrimSpace(fileName)
+	if storage == "" || fileName == "" || fileName == "." {
+		return ""
+	}
+	// The caller must provide a single file name, never a path or a volume ID.
+	if filepath.Base(fileName) != fileName || strings.ContainsAny(storage, "/:\\") || strings.ContainsAny(fileName, "/:\\") {
+		return ""
+	}
+	return fmt.Sprintf("%s:vztmpl/%s", storage, fileName)
+}
+
 // apiCreateContainer 通过API创建LXC容器
 func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, config provider.InstanceConfig, updateProgress func(int, string)) error {
 	updateProgress(50, "通过API创建LXC容器...")
@@ -70,6 +87,17 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 	if storage == "" {
 		storage = "local"
 	}
+	// The template is downloaded into Proxmox's local template cache above.
+	// API callers other than root@pam are not allowed to pass an arbitrary
+	// filesystem path as ostemplate (PVE::Storage::check_volume_access rejects
+	// it).  Use the storage volume form instead; it resolves to
+	// /var/lib/vz/template/cache/<fileName> for the local storage while still
+	// allowing the API token to have the normal Datastore permissions.
+	templateStorage := "local"
+	templateVolume := proxmoxTemplateVolumeID(templateStorage, fileName)
+	if templateVolume == "" {
+		return fmt.Errorf("生成容器模板卷标识失败")
+	}
 
 	// 转换参数格式
 	cpuFormatted := convertCPUFormat(config.CPU)
@@ -86,7 +114,8 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 
 	payload := map[string]interface{}{
 		"vmid":         vmid,
-		"ostemplate":   localImagePath,
+		"storage":      templateStorage,
+		"ostemplate":   templateVolume,
 		"cores":        cpuFormatted,
 		"memory":       memoryFormatted,
 		"swap":         "128",

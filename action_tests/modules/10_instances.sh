@@ -594,7 +594,16 @@ run_module_10() {
     # ==============================
     # Instance Share Link Tests
     # ==============================
-    local share_instance_id="${container_id:-${vm_id:-}}"
+    # The VM lifecycle above deletes its test VM before reaching this section.
+    # Do not reuse that stale ID (it would turn the share precondition into a
+    # false 404). Prefer the retained container, and only use the VM when the
+    # admin detail endpoint confirms it is still present.
+    local share_instance_id=""
+    if [[ -n "$container_id" ]] && ensure_test_instance_available "$ADMIN_TOKEN" "$container_id" "container share test"; then
+        share_instance_id="$container_id"
+    elif [[ -n "$vm_id" ]] && ensure_test_instance_available "$ADMIN_TOKEN" "$vm_id" "VM share test"; then
+        share_instance_id="$vm_id"
+    fi
     if [[ -n "$share_instance_id" ]]; then
         log_info "Testing instance share links with instance ID=${share_instance_id}..."
         local share_group="instances_share"
