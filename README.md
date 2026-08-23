@@ -58,9 +58,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `oneclickvirt/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `oneclickvirt/oneclickvirt:20260822` | All-in-one version with specific date | Fixed version requirement |
+| `oneclickvirt/oneclickvirt:20260728` | All-in-one version with specific date | Fixed version requirement |
 | `oneclickvirt/oneclickvirt:no-db` | Standalone database version | Without database |
-| `oneclickvirt/oneclickvirt:no-db-20260822` | Standalone database version with date | Without database |
+| `oneclickvirt/oneclickvirt:no-db-20260728` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -271,6 +271,33 @@ chmod +x install.sh
 
 </details>
 
+### Controller Version Management
+
+Super administrators can open **Manage updates** in the controller page footer to view the current version, Release candidates, remote rollback versions, local backups, and copyable manual commands.
+
+- The panel can automatically update, roll back, or restart only a Linux systemd installation running as root whose controller binary and applicable Web directory are inside the controlled installation root and are not symlinks. It creates up to five local backups before switching files and attempts to restore controller/Web assets on failure. Database migrations are not rolled back automatically.
+- A Release must provide a `SHA256SUMS` asset. The panel downloads that manifest first, verifies the selected Linux controller archive and, when the deployment manages its controlled static directory, `web-dist.zip`, and only then extracts or changes local files. Older Releases without the manifest are shown as unavailable for automatic application; the existing script remains available for manual recovery.
+- Docker, Docker Compose, and source deployments are never modified by the panel. It displays commands only. This repository's Compose deployment uses `docker compose up -d --build --force-recreate api web` to rebuild API and Web while retaining the `mysql_data` named volume. Custom Docker ports, domains, environment variables, and `no-db` deployments must reuse their original container arguments after exporting them.
+- A reverse proxy is reloaded after a controlled systemd restart only when it is explicitly listed in `ONECLICKVIRT_PROXY_SERVICES`. Release metadata and assets try GitHub, `ONECLICKVIRT_UPDATE_API_ENDPOINTS`, and the configured CDN/API proxy endpoints in order; panel download URLs must use HTTPS.
+
+Common overrides (prefer a controlled service environment file, then restart the service):
+
+| Variable | Purpose |
+| --- | --- |
+| `ONECLICKVIRT_UPDATE_ENABLED=false` | Disables panel update, rollback, and restart actions. |
+| `ONECLICKVIRT_UPDATE_MODE` | Forces `systemd`, `docker`, `compose`, `source`, `embedded`, `unknown`, or `disabled`. Set `compose` explicitly when a Compose container cannot expose a reliable marker. |
+| `ONECLICKVIRT_UPDATE_PROXY` | Comma-separated HTTPS Release-asset/CDN proxy prefixes. |
+| `ONECLICKVIRT_UPDATE_API_ENDPOINTS` | Comma-separated HTTPS GitHub API or API-proxy roots. |
+| `ONECLICKVIRT_UPDATE_REPO` | Release repository; defaults to `oneclickvirt/oneclickvirt`. |
+| `ONECLICKVIRT_UPDATE_FLAVOR` | `standalone` or `allinone`; normally inferred from the installer's `SERVER_ASSET` marker. |
+| `ONECLICKVIRT_UPDATE_WEB` | Explicitly enables or disables replacement of the controlled static Web directory. `install_full.sh` sets this to `true` because it serves `web-dist.zip` through its reverse proxy. |
+| `ONECLICKVIRT_INSTALL_ROOT`, `ONECLICKVIRT_SERVER_BIN`, `ONECLICKVIRT_WEB_DIR` | Controlled install root, controller binary, and managed static Web directory. Automatic mode requires each applicable update target to remain below the install root. |
+| `ONECLICKVIRT_SERVICE_NAME`, `ONECLICKVIRT_SERVICE_FILE` | Controlled systemd service and unit file. |
+| `ONECLICKVIRT_PROXY_SERVICES` | Comma-separated systemd service names such as Nginx, OpenResty, or Caddy to reload after an update/restart. |
+| `ONECLICKVIRT_UPDATE_SCRIPT` | Existing installer path shown in the footer commands tab; when absent, the panel shows a download-and-run command. |
+| `ONECLICKVIRT_UPDATE_HEALTH_PORT` | Local `/api/v1/health` port after restart; defaults to the controller config or `8888`. |
+| `ONECLICKVIRT_UPDATE_ALLOW_UNVERIFIED=true` | Recovery-only opt-out for old Releases without `SHA256SUMS`; do not set it in production. |
+
 ### Method 4: Build from Source
 
 <details>
@@ -328,6 +355,10 @@ Direct source builds of the Go controller behave the same way: local agent asset
 </details>
 
 ## Development and Testing
+
+### Proxmox VE integration checks
+
+The `proxmoxve` integration job uses the installer from [`oneclickvirt/pve`](https://github.com/oneclickvirt/pve). It provisions a disposable worker, runs the installer in detached phases, waits through both the kernel reboot and any scheduled `ifupdown2` bootstrap reboot, then validates the PVE runtime, bridge, NAT state, and controller-facing provider path. A lost worker connection is reported as an infrastructure skip only when the detached job cannot be observed; it is not treated as a passing module assertion. The PVE repository also runs syntax, network regression, and ShellCheck tests for its installer scripts.
 
 <details>
 <summary>View Development Setup</summary>

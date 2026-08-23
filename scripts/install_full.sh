@@ -1442,7 +1442,10 @@ tar_cmd() {
 }
 
 install_oneclickvirt_service() {
-    local bin_path="$1"
+    local bin_path="$1" release_asset="${2:-}" update_flavor="allinone"
+    if [[ "$release_asset" == server-linux-* ]]; then
+        update_flavor="standalone"
+    fi
     mkdir -p "$INSTALL_DIR"
     case "$SERVICE_MANAGER" in
         systemd)
@@ -1455,6 +1458,9 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=${SERVER_DIR}
+Environment=ONECLICKVIRT_UPDATE_FLAVOR=${update_flavor}
+Environment=ONECLICKVIRT_UPDATE_WEB=true
+Environment=ONECLICKVIRT_PROXY_SERVICES=${PROXY}
 ExecStart=${bin_path}
 Restart=on-failure
 RestartSec=5
@@ -1473,6 +1479,9 @@ Requires=${DB_SERVICE}.service
 [Service]
 Type=simple
 WorkingDirectory=${SERVER_DIR}
+Environment=ONECLICKVIRT_UPDATE_FLAVOR=${update_flavor}
+Environment=ONECLICKVIRT_UPDATE_WEB=true
+Environment=ONECLICKVIRT_PROXY_SERVICES=${PROXY}
 ExecStart=${bin_path}
 Restart=on-failure
 RestartSec=5
@@ -1656,9 +1665,10 @@ install_application() {
     mkdir -p "$extract_dir"
     "$TAR_BIN" -xzf "/tmp/${SERVER_FILE}" -C "$extract_dir"
     local server_bin
-    server_bin=$(find "$extract_dir" -type f -name 'server-allinone-*' -print | head -1)
+    server_bin=$(find "$extract_dir" -type f \
+        \( -name 'server-allinone-*' -o -name 'server-linux-*' \) -print | head -1)
     if [[ -z "$server_bin" ]]; then
-        log_error "Extracted archive did not contain server-allinone binary." "解压后的归档中未找到 server-allinone 二进制。"
+        log_error "Extracted archive did not contain a supported server binary." "解压后的归档中未找到受支持的服务端二进制。"
         return 1
     fi
     local SERVER_BIN="${SERVER_DIR}/oneclickvirt-server"
@@ -1721,7 +1731,7 @@ CONFIG_EOF
 
     printf "%s\n" "${VERSION:-unknown}" > "${INSTALL_DIR}/VERSION"
     printf "%s\n" "$SERVER_FILE" > "${INSTALL_DIR}/SERVER_ASSET"
-    install_oneclickvirt_service "$SERVER_BIN"
+    install_oneclickvirt_service "$SERVER_BIN" "$SERVER_FILE"
 
     # Start reverse proxy if configured
     start_proxy_service

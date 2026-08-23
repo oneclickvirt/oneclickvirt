@@ -33,6 +33,27 @@ func GetJWTSecretService() *JWTSecretService {
 	return jwtSecretService
 }
 
+// InitializePersistentJWTSecret loads (or creates) the deployment-wide JWT
+// signing key and publishes it to the process-wide authentication helpers.
+// Keeping this operation in the system service lets first-run initialization
+// and normal startup use exactly the same key lifecycle.
+func InitializePersistentJWTSecret(db *gorm.DB) (string, error) {
+	if db == nil {
+		return "", fmt.Errorf("数据库连接不存在，无法初始化JWT密钥")
+	}
+
+	service := GetJWTSecretService()
+	if err := service.InitializeJWTSecret(db); err != nil {
+		return "", err
+	}
+	key := service.GetSecretKey()
+	if key == "" {
+		return "", fmt.Errorf("JWT密钥初始化后为空")
+	}
+	global.APP_JWT_SECRET = key
+	return key, nil
+}
+
 // InitializeJWTSecret 初始化JWT密钥（系统启动时调用）
 func (s *JWTSecretService) InitializeJWTSecret(db *gorm.DB) error {
 	s.mutex.Lock()

@@ -402,6 +402,8 @@ GitHub Actions 会自动安装所需依赖。
 
 `lxd`、`incus`、`proxmoxve`、`qemu`、`kubevirt` 会在创建后及安装后按实际峰值占用复核 CPU、内存、磁盘和 KVM。`both` 默认预算包含最多两个 discovery fixture、保留的基准容器以及待创建 VM，因此最低为 4C/8GB；单一 `container` 或 `vm` 测试只准备对应夹具并使用较低预算。LXD/Incus 安装器会使用根分区可用空间减 1GB 创建存储池，因此它们的宿主机磁盘门槛按测试磁盘总和加 1GB 计算；其他嵌套运行时保留 4GB 存储余量。
 
+PVE 安装是可观测的分阶段任务：首次执行写入重启标记并安装内核，Action 触发重启后会等待 SSH 连续稳定；对于未预装 `ifupdown` 的 Debian 镜像，PVE 安装器可能在首次启动时由 `ifupdown2-install.service` 安装网络组件并再次重启，测试编排器会等待该服务结束和 SSH 再次稳定后才启动第二阶段，不会并发重复执行安装脚本。可用 `PVE_IFUPDOWN2_BOOTSTRAP_MAX_WAIT`（默认复用重启等待上限）调整观察窗口。
+
 **Vultr**
 
 | 密钥名称 | 值格式 |

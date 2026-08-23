@@ -1,13 +1,16 @@
 package public
 
 import (
+	"fmt"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
 	"oneclickvirt/config"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/system"
-	"runtime"
-	"strconv"
-	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -58,7 +61,9 @@ func CheckInit(c *gin.Context) {
 		if err := system.EnsureSystemInitializedMarker(); err != nil && global.APP_LOG != nil {
 			global.APP_LOG.Warn("补全系统初始化标志文件失败", zap.Error(err))
 		}
-		ready := config.GetConfigManager() != nil && global.CONFIG_MANAGER_READY.Load()
+		ready := config.GetConfigManager() != nil &&
+			global.CONFIG_MANAGER_READY.Load() &&
+			strings.TrimSpace(global.APP_JWT_SECRET) != ""
 		state := "ready"
 		message := "数据库无需初始化"
 		if !ready {
@@ -279,6 +284,15 @@ func InitSystem(c *gin.Context) {
 	if err := initService.EnsureDatabase(dbConfig); err != nil {
 		global.APP_INIT_PROGRESS.FailStep(2, err.Error())
 		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	// The login endpoint remains reachable while the asynchronous post-init
+	// callback starts schedulers and other services. Load the persistent signing
+	// key before creating users so the first token cannot be invalidated by that
+	// callback switching away from the startup fallback key.
+	if _, err := system.InitializePersistentJWTSecret(global.APP_DB); err != nil {
+		global.APP_INIT_PROGRESS.FailStep(2, fmt.Sprintf("JWT密钥初始化失败: %v", err))
+		common.ResponseWithError(c, common.NewError(common.CodeDatabaseError, "JWT密钥初始化失败，请稍后重试"))
 		return
 	}
 	global.APP_INIT_PROGRESS.CompleteStep(2)

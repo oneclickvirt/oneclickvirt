@@ -32,6 +32,18 @@
         <span>{{ t('home.footer.serverVersion') }}</span>
         <span class="footer-version-value">{{ serverVersion }}</span>
       </span>
+      <el-button
+        v-if="isSuperAdmin && serverVersion"
+        link
+        size="small"
+        class="footer-update-button"
+        :title="t('home.footer.manageUpdates')"
+        :aria-label="t('home.footer.manageUpdates')"
+        @click="updateDialogVisible = true"
+      >
+        <el-icon><Tools /></el-icon>
+        <span>{{ t('home.footer.manageUpdates') }}</span>
+      </el-button>
       <a
         v-if="updateAvailable && latestVersion"
         :href="releaseUrl || 'https://github.com/oneclickvirt/oneclickvirt/releases'"
@@ -54,17 +66,24 @@
         {{ t('home.footer.versionFetchFailed') }}
       </span>
     </div>
+    <SystemUpdateDialog v-model="updateDialogVisible" />
   </footer>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSiteStore } from '@/pinia/modules/site'
+import { useUserStore } from '@/pinia/modules/user'
+import { Tools } from '@element-plus/icons-vue'
 import { getServerVersion } from '@/api/public'
+import SystemUpdateDialog from './SystemUpdateDialog.vue'
 
 const { t } = useI18n()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
+const isSuperAdmin = computed(() => userStore.userType === 'admin' && Boolean(userStore.token))
+const updateDialogVisible = ref(false)
 const serverVersion = ref('')
 const latestVersion = ref('')
 const releaseUrl = ref('')
@@ -196,6 +215,17 @@ onMounted(async () => {
   min-width: 0;
   word-break: break-all;
   overflow-wrap: anywhere;
+}
+
+.footer-update-button {
+  min-height: 24px;
+  padding: 0 4px;
+  color: var(--footer-link-color, var(--primary-color));
+  font-size: 12px;
+}
+
+.footer-update-button :deep(.el-icon) {
+  margin-right: 3px;
 }
 
 .footer-version-error {

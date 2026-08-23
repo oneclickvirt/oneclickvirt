@@ -568,6 +568,33 @@ install_web() {
     fi
 }
 
+# Keep a stable installation marker for the in-panel update capability check.
+# The files are informational and do not replace the existing upgrade script.
+write_release_metadata() {
+    local arch asset version_tmp asset_tmp
+    [ -n "${VERSION:-}" ] || return 0
+    arch=$(detect_arch)
+    asset="server-linux-${arch}.tar.gz"
+    mkdir -p "$MANAGED_INSTALL_ROOT" || return 1
+    version_tmp=$(mktemp "${MANAGED_INSTALL_ROOT}/.VERSION.XXXXXX") || return 1
+    asset_tmp=$(mktemp "${MANAGED_INSTALL_ROOT}/.SERVER_ASSET.XXXXXX") || {
+        rm -f "$version_tmp"
+        return 1
+    }
+    if ! printf '%s\n' "$VERSION" > "$version_tmp" || ! printf '%s\n' "$asset" > "$asset_tmp"; then
+        rm -f "$version_tmp" "$asset_tmp"
+        return 1
+    fi
+    chmod 0644 "$version_tmp" "$asset_tmp" || {
+        rm -f "$version_tmp" "$asset_tmp"
+        return 1
+    }
+    if ! mv -f "$version_tmp" "${MANAGED_INSTALL_ROOT}/VERSION" || ! mv -f "$asset_tmp" "${MANAGED_INSTALL_ROOT}/SERVER_ASSET"; then
+        rm -f "$version_tmp" "$asset_tmp"
+        return 1
+    fi
+}
+
 download_config() {
     local config_url="https://raw.githubusercontent.com/${REPO}/${VERSION}/server/config.yaml"
     local config_file="${MANAGED_SERVER_DIR}/config.yaml"
@@ -1077,6 +1104,9 @@ upgrade_server() {
     fi
     rm -f "$binary_backup" "$service_backup" "$managed_dropin_backup"
     rm -rf "$web_backup" "$upgrade_dir"
+    if ! write_release_metadata; then
+        log_warning "Upgrade completed, but the local release metadata could not be recorded." "升级已完成，但无法记录本地发布元数据。"
+    fi
 
     log_success "Upgrade completed successfully." "升级完成！"
     log_info "Version: $VERSION" "版本: $VERSION"
@@ -1430,6 +1460,9 @@ main() {
             create_readme || return 1
             create_systemd_service || return 1
             create_symlink || return 1
+            if ! write_release_metadata; then
+                log_warning "Installation completed, but the local release metadata could not be recorded." "安装已完成，但无法记录本地发布元数据。"
+            fi
             show_info
             ;;
         "upgrade")
