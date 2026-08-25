@@ -31,6 +31,36 @@ func TestParseIPv6NetworkSupportsBareAndAllPrefixLengths(t *testing.T) {
 	}
 }
 
+func TestIsPublicIPv6RejectsNonRoutableAllocationSources(t *testing.T) {
+	for _, address := range []string{
+		"fc12::1",
+		"fd42::1",
+		"fe90::1",
+		"fec0::1",
+		"ff02::1",
+		"::1",
+		"::ffff:192.0.2.1",
+		"64:ff9b::1",
+		"2001:db8::1",
+		"2001::1",
+		"2001:2::1",
+		"2001:10::1",
+		"2001:20::1",
+		"2002::1",
+		"3fff::1",
+		"not-an-ipv6",
+	} {
+		if IsPublicIPv6(address) {
+			t.Fatalf("IsPublicIPv6(%q) = true, want false", address)
+		}
+	}
+	for _, address := range []string{"2606:4700::1111", "2a14:6781:a::9:0:0:1"} {
+		if !IsPublicIPv6(address) {
+			t.Fatalf("IsPublicIPv6(%q) = false, want true", address)
+		}
+	}
+}
+
 func TestResolveContainerNetworkIsFailClosedForStaticIPv6(t *testing.T) {
 	selection, err := ResolveContainerNetwork("nat_ipv4_ipv6", "2001:0db8::42/80", "ipv4-net", "ipv6-net", true)
 	if err != nil {

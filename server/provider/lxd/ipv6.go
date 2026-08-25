@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
@@ -216,71 +215,25 @@ func (l *LXDProvider) ConfigureIPv6Profile(profileName string, enable bool) erro
 
 // isPrivateIPv6 检查是否为私有IPv6地址
 func (l *LXDProvider) isPrivateIPv6(address string) bool {
-	if address == "" || !strings.Contains(address, ":") {
-		return true
-	}
-
-	// 私有IPv6地址范围检查
-	privateRanges := []string{
-		"fe80:",    // 链路本地地址
-		"fc00:",    // 唯一本地地址
-		"fd00:",    // 唯一本地地址
-		"2001:db8", // 文档用途
-		"::1",      // 回环地址
-		"::ffff:",  // IPv4映射地址
-		"2002:",    // 6to4
-		"fd42:",    // Docker等使用的私有地址
-	}
-
-	for _, prefix := range privateRanges {
-		if strings.HasPrefix(address, prefix) {
-			return true
-		}
-	}
-
-	// Teredo 前缀是 2001:0000::/32，不能把所有 2001:* 都视为私有地址。
-	if strings.HasPrefix(address, "2001:0000:") || strings.HasPrefix(address, "2001:0:") {
-		return true
-	}
-	return false
+	return !utils.IsPublicIPv6(address)
 }
 
 // checkIPv6 检查并获取IPv6地址
 func (l *LXDProvider) checkIPv6(ctx context.Context) (string, error) {
-	// 首先尝试从本地网络接口获取全局IPv6地址
-	cmd := "ip -6 addr show | grep global | awk '{print length, $2}' | sort -nr | head -n 1 | awk '{print $2}' | cut -d '/' -f1"
+	// A routed container prefix must be present on this host. An egress API can
+	// report an address owned by an upstream NAT or tunnel and is not valid input
+	// for local IPv6 allocation.
+	cmd := "ip -o -6 addr show scope global 2>/dev/null | awk '$0 !~ / tentative/ {print $4}'"
 	output, err := l.sshClient.Execute(cmd)
 	if err == nil {
-		if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil && !l.isPrivateIPv6(ipv6) {
-			global.APP_LOG.Debug("从本地接口获取到IPv6地址", zap.String("ipv6", ipv6))
-			return ipv6, nil
-		}
-	}
-
-	// 如果本地没有全局IPv6地址，通过API获取
-	apiEndpoints := []string{
-		"ipv6.ip.sb",
-		"https://ipget.net",
-		"ipv6.ping0.cc",
-		"https://api.my-ip.io/ip",
-		"https://ipv6.icanhazip.com",
-	}
-
-	for _, endpoint := range apiEndpoints {
-		cmd := fmt.Sprintf("curl -sLk6m8 '%s' | tr -d '[:space:]'", endpoint)
-		output, err := l.sshClient.Execute(cmd)
-		if err == nil {
-			if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil && !l.isPrivateIPv6(ipv6) {
-				global.APP_LOG.Debug("通过API获取到IPv6地址",
-					zap.String("endpoint", endpoint),
-					zap.String("ipv6", ipv6))
+		for _, ipv6 := range utils.ExtractIPv6Addresses(output) {
+			if !l.isPrivateIPv6(ipv6) {
+				global.APP_LOG.Debug("从本地接口获取到IPv6地址", zap.String("ipv6", ipv6))
 				return ipv6, nil
 			}
 		}
-		time.Sleep(1 * time.Second)
 	}
-
-	return "", fmt.Errorf("无法获取有效的IPv6地址")
+	return "", fmt.Errorf("未检测到本机绑定的有效公网IPv6地址")
 }
 
 // getContainerIPv6 获取容器内网IPv6地址

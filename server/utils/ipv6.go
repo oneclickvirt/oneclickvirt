@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"unicode"
@@ -483,6 +484,39 @@ func NormalizeIPv6Address(value string) (string, error) {
 		return "", fmt.Errorf("无效的IPv6地址")
 	}
 	return ip.To16().String(), nil
+}
+
+var publicIPv6AddressSpace = netip.MustParsePrefix("2000::/3")
+
+var nonPublicIPv6Prefixes = []netip.Prefix{
+	netip.MustParsePrefix("2001::/32"),     // Teredo
+	netip.MustParsePrefix("2001:2::/48"),   // benchmarking
+	netip.MustParsePrefix("2001:10::/28"),  // ORCHID
+	netip.MustParsePrefix("2001:20::/28"),  // ORCHIDv2
+	netip.MustParsePrefix("2001:db8::/32"), // documentation
+	netip.MustParsePrefix("2002::/16"),     // 6to4
+	netip.MustParsePrefix("3fff::/20"),     // documentation
+}
+
+// IsPublicIPv6 reports whether value is a host IPv6 address that is usable as
+// a routed public allocation source. Local, documentation, transition, and
+// malformed values must never be used to create a host bridge network.
+func IsPublicIPv6(value string) bool {
+	normalized, err := NormalizeIPv6Address(value)
+	if err != nil {
+		return false
+	}
+
+	address, err := netip.ParseAddr(normalized)
+	if err != nil || !address.Is6() || !address.IsGlobalUnicast() || address.IsPrivate() || !publicIPv6AddressSpace.Contains(address) {
+		return false
+	}
+	for _, prefix := range nonPublicIPv6Prefixes {
+		if prefix.Contains(address) {
+			return false
+		}
+	}
+	return true
 }
 
 // NetworkAddress returns the canonical network address for the prefix.
