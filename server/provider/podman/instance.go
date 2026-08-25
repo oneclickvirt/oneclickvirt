@@ -275,7 +275,6 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		}
 	}
 
-	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
 	staticIPv6 := ""
 	if config.Metadata != nil {
 		staticIPv6 = strings.TrimSpace(config.Metadata["static_ipv6"])
@@ -285,13 +284,7 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	// silently lose the routed prefix and leave the instance without IPv6.
 	networkSelection, routedPresent, err := p.routedNetworkSelection(config, networkType)
 	if !routedPresent {
-		networkSelection, err = utils.ResolveContainerNetwork(
-			networkType,
-			staticIPv6,
-			ipv4Network,
-			ipv6Network,
-			hasIPv6 && p.checkIPv6NetworkAvailable(),
-		)
+		networkSelection, err = p.resolvePodmanContainerNetwork(networkType, staticIPv6)
 	}
 	if err != nil {
 		return err
@@ -555,6 +548,27 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(100, "Podman实例创建完成")
 	global.APP_LOG.Info("Podman容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+func (p *PodmanProvider) resolvePodmanContainerNetwork(networkType, staticIPv6 string) (utils.ContainerNetworkSelection, error) {
+	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
+	mode := podmanIPv6NetworkModeManaged
+	ipv6Available := false
+	if hasIPv6 {
+		mode, ipv6Available = p.podmanIPv6NetworkAvailability()
+	}
+
+	selection, err := utils.ResolveContainerNetwork(networkType, staticIPv6, ipv4Network, ipv6Network, ipv6Available)
+	if err != nil || !selection.IPv6 || mode != podmanIPv6NetworkModeUnmanaged {
+		return selection, err
+	}
+
+	// Unmanaged Netavark IPv6 has no managed gateway. Keep the primary
+	// attachment on podman-net for IPv4 NAT and published ports, then attach
+	// the public IPv6 network after the container exists.
+	selection.Network = ipv4Network
+	selection.AdditionalNetworks = append(selection.AdditionalNetworks, selection.IPv6Network)
+	return selection, nil
 }
 
 func appendPodmanNetworkOptions(command string, selection utils.ContainerNetworkSelection) string {

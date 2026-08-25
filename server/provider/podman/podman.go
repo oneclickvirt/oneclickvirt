@@ -18,16 +18,22 @@ import (
 )
 
 const (
-	providerType      = "podman"
-	cliName           = "podman"
-	ipv4Network       = "podman-net"
-	ipv4Subnet        = "172.20.0.0/16"
-	ipv6Network       = "podman-ipv6"
-	imageDir          = "/usr/local/bin/podman_ct_images"
-	ipv6CheckFile     = "/usr/local/bin/podman_check_ipv6"
-	storageDriverFile = "/usr/local/bin/podman_storage_driver"
-	scriptRepo        = "oneclickvirt/podman"
-	serviceCheckName  = "podman"
+	providerType        = "podman"
+	cliName             = "podman"
+	ipv4Network         = "podman-net"
+	ipv4Subnet          = "172.20.0.0/16"
+	ipv6Network         = "podman-ipv6"
+	imageDir            = "/usr/local/bin/podman_ct_images"
+	ipv6CheckFile       = "/usr/local/bin/podman_check_ipv6"
+	ipv6NetworkModeFile = "/usr/local/bin/podman_ipv6_network_mode"
+	storageDriverFile   = "/usr/local/bin/podman_storage_driver"
+	scriptRepo          = "oneclickvirt/podman"
+	serviceCheckName    = "podman"
+)
+
+const (
+	podmanIPv6NetworkModeManaged   = "managed"
+	podmanIPv6NetworkModeUnmanaged = "unmanaged"
 )
 
 // PodmanProvider Podman容器运行时Provider（独立实现，不依赖docker包）
@@ -469,24 +475,66 @@ fi
 
 // checkIPv6NetworkAvailable 检查IPv6网络是否可用
 func (p *PodmanProvider) checkIPv6NetworkAvailable() bool {
+	_, available := p.podmanIPv6NetworkAvailability()
+	return available
+}
+
+// podmanIPv6NetworkAvailability validates the installer-owned IPv6 network
+// and reports how containers must attach to it. Older installations have no
+// mode marker, which is the original managed-network behavior.
+func (p *PodmanProvider) podmanIPv6NetworkAvailability() (string, bool) {
 	if !p.connected || !p.sshClient.HasExecutor() {
-		return false
+		return "", false
 	}
 	_, err := p.sshClient.Execute(fmt.Sprintf("%s network inspect %s", cliName, shellSingleQuote(ipv6Network)))
 	if err != nil {
-		return false
+		return "", false
 	}
 	ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", cliName)
 	ndpresponderOutput, err := p.sshClient.Execute(ndpresponderCmd)
 	if err != nil || strings.TrimSpace(ndpresponderOutput) != "running" {
-		return false
+		return "", false
 	}
 	ipv6ConfigCmd := fmt.Sprintf("[ -f %s ] && [ -s %s ] && [ \"$(sed -e '/^[[:space:]]*$/d' %s)\" != \"\" ] && echo 'valid' || echo 'invalid'", ipv6CheckFile, ipv6CheckFile, ipv6CheckFile)
 	ipv6ConfigOutput, err := p.sshClient.Execute(ipv6ConfigCmd)
 	if err != nil || strings.TrimSpace(ipv6ConfigOutput) != "valid" {
-		return false
+		return "", false
 	}
-	return true
+
+	modeCmd := fmt.Sprintf("if [ -s %s ]; then tr -d '[:space:]' < %s; else printf '%s'; fi", shellSingleQuote(ipv6NetworkModeFile), shellSingleQuote(ipv6NetworkModeFile), podmanIPv6NetworkModeManaged)
+	modeOutput, err := p.sshClient.Execute(modeCmd)
+	if err != nil {
+		return "", false
+	}
+	mode, valid := parsePodmanIPv6NetworkMode(modeOutput)
+	if !valid {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("Podman IPv6网络模式无效，已禁用IPv6容器创建",
+				zap.String("mode", utils.TruncateString(strings.TrimSpace(modeOutput), 32)))
+		}
+		return "", false
+	}
+	if mode == podmanIPv6NetworkModeUnmanaged {
+		if _, err := p.sshClient.Execute(fmt.Sprintf("%s network inspect %s", cliName, shellSingleQuote(ipv4Network))); err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("Podman unmanaged IPv6网络缺少IPv4主网络，已禁用IPv6容器创建",
+					zap.Error(err))
+			}
+			return "", false
+		}
+	}
+	return mode, true
+}
+
+func parsePodmanIPv6NetworkMode(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", podmanIPv6NetworkModeManaged:
+		return podmanIPv6NetworkModeManaged, true
+	case podmanIPv6NetworkModeUnmanaged:
+		return podmanIPv6NetworkModeUnmanaged, true
+	default:
+		return "", false
+	}
 }
 
 // ExecuteSSHCommand 执行SSH命令

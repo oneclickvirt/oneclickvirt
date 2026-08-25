@@ -85,7 +85,7 @@ func TestIncusConfigureIPv6SysctlsUsesDedicatedGuardedFile(t *testing.T) {
 	if strings.Contains(command, "/etc/sysctl.conf") {
 		t.Fatalf("command mutates /etc/sysctl.conf: %s", command)
 	}
-	for _, fragment := range []string{"/etc/sysctl.d/99-oneclickvirt-ipv6.conf", "/proc/sys/net/ipv6/conf/", "proxy_ndp"} {
+	for _, fragment := range []string{"/etc/sysctl.d/99-oneclickvirt-ipv6.conf", "/proc/sys/net/ipv6/conf/", "proxy_ndp", "accept_ra=2"} {
 		if !strings.Contains(command, fragment) {
 			t.Fatalf("command missing %q: %s", fragment, command)
 		}
@@ -146,6 +146,37 @@ func TestIncusStaticIPv6SkipsMissingHostCIDRAndParsesNoisyTunnelProbe(t *testing
 	}
 	if len(executor.commands) < 3 || !strings.Contains(executor.commands[2], "he-ipv6") {
 		t.Fatalf("noisy tunnel probe did not select he-ipv6: %#v", executor.commands)
+	}
+}
+
+func TestIncusCheckIPv6RequiresLocallyBoundAddress(t *testing.T) {
+	if global.APP_LOG == nil {
+		global.APP_LOG = zap.NewNop()
+	}
+	executor := &recordingIncusIPv6Executor{outputs: []string{"fd42::1/64\n2606:4700::1111/64\n"}}
+	incusProvider := &IncusProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+
+	got, err := incusProvider.checkIPv6(context.Background())
+	if err != nil || got != "2606:4700::1111" {
+		t.Fatalf("checkIPv6() = (%q, %v), want locally bound public IPv6", got, err)
+	}
+	if len(executor.commands) != 1 || strings.Contains(executor.commands[0], "curl") || !strings.Contains(executor.commands[0], "ip -o -6 addr show scope global") {
+		t.Fatalf("checkIPv6 commands = %#v, want one local interface query", executor.commands)
+	}
+}
+
+func TestIncusCheckIPv6DoesNotFallBackToExternalAddress(t *testing.T) {
+	if global.APP_LOG == nil {
+		global.APP_LOG = zap.NewNop()
+	}
+	executor := &recordingIncusIPv6Executor{outputs: []string{""}}
+	incusProvider := &IncusProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+
+	if _, err := incusProvider.checkIPv6(context.Background()); err == nil || !strings.Contains(err.Error(), "本机绑定") {
+		t.Fatalf("checkIPv6() error = %v, want missing local IPv6 error", err)
+	}
+	if len(executor.commands) != 1 {
+		t.Fatalf("checkIPv6 commands = %#v, want no external fallback", executor.commands)
 	}
 }
 

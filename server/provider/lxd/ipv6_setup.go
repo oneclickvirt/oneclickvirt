@@ -273,6 +273,9 @@ tmp="${conf}.tmp.$$"
 {
   printf 'net.ipv6.conf.all.forwarding=1\n'
   printf 'net.ipv6.conf.all.proxy_ndp=1\n'
+  if [ -e /proc/sys/net/ipv6/conf/%s/accept_ra ]; then
+    printf 'net.ipv6.conf.%%s.accept_ra=2\n' %s
+  fi
   if [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then
     printf 'net.ipv6.conf.%%s.proxy_ndp=1\n' %s
   fi
@@ -281,9 +284,12 @@ chmod 0644 "$tmp"
 mv "$tmp" "$conf"
 sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
 sysctl -w net.ipv6.conf.all.proxy_ndp=1 >/dev/null
+if [ -e /proc/sys/net/ipv6/conf/%s/accept_ra ]; then
+  sysctl -w "net.ipv6.conf.%s.accept_ra=2" >/dev/null
+fi
 if [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then
   sysctl -w "net.ipv6.conf.%s.proxy_ndp=1" >/dev/null
-fi`, quotedInterface, quotedInterface, quotedInterface, interfaceName)
+fi`, quotedInterface, quotedInterface, quotedInterface, quotedInterface, quotedInterface, interfaceName, quotedInterface, interfaceName)
 	_, err := l.sshClient.Execute(command)
 	return err
 }
