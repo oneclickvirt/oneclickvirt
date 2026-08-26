@@ -21,7 +21,7 @@ func (p *PodmanProvider) sshStartInstance(ctx context.Context, id string) error 
 
 	status := strings.ToLower(strings.TrimSpace(statusOutput))
 	if strings.Contains(status, "running") {
-		return p.restoreRoutedIPv6AfterStart(id)
+		return p.restoreIPv6AfterStart(id)
 	}
 
 	startCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(id))
@@ -48,7 +48,7 @@ func (p *PodmanProvider) sshStartInstance(ctx context.Context, id string) error 
 			currentStatus := strings.ToLower(strings.TrimSpace(statusOutput))
 			if currentStatus == "running" {
 				time.Sleep(2 * time.Second)
-				return p.restoreRoutedIPv6AfterStart(id)
+				return p.restoreIPv6AfterStart(id)
 			}
 		}
 	}
@@ -95,7 +95,7 @@ func (p *PodmanProvider) sshRestartInstance(ctx context.Context, id string) erro
 		return fmt.Errorf("failed to restart container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 	global.APP_LOG.Info("Podman实例重启成功", zap.String("id", utils.TruncateString(id, 32)))
-	return p.restoreRoutedIPv6AfterStart(id)
+	return p.restoreIPv6AfterStart(id)
 }
 
 // sshDeleteInstance 删除实例 - 多重删除策略

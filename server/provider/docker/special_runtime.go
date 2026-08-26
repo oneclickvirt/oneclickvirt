@@ -43,16 +43,9 @@ func (d *DockerProvider) sshCreateSpecialRuntimeInstance(ctx context.Context, co
 	if config.Metadata != nil {
 		staticIPv6 = config.Metadata["static_ipv6"]
 	}
-	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
 	networkSelection, routedPresent, err := d.routedNetworkSelection(config, networkType)
 	if !routedPresent {
-		networkSelection, err = utils.ResolveContainerNetwork(
-			networkType,
-			staticIPv6,
-			d.runtime.IPv4Network,
-			d.runtime.IPv6Network,
-			hasIPv6 && d.checkIPv6NetworkAvailable(),
-		)
+		networkSelection, err = d.resolveDockerContainerNetwork(networkType, staticIPv6)
 	}
 	if err != nil {
 		return true, err

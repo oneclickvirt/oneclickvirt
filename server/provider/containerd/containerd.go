@@ -3,6 +3,7 @@ package containerd
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -18,17 +19,31 @@ import (
 )
 
 const (
-	providerType      = "containerd"
-	cliName           = "nerdctl"
-	ipv4Network       = "containerd-net"
-	ipv4Subnet        = "172.21.0.0/16"
-	ipv6Network       = "containerd-ipv6"
-	imageDir          = "/usr/local/bin/containerd_ct_images"
-	ipv6CheckFile     = "/usr/local/bin/containerd_check_ipv6"
-	storageDriverFile = "/usr/local/bin/containerd_storage_driver"
-	scriptRepo        = "oneclickvirt/containerd"
-	serviceCheckName  = "nerdctl"
+	providerType                  = "containerd"
+	cliName                       = "nerdctl"
+	ipv4Network                   = "containerd-net"
+	ipv4Subnet                    = "172.21.0.0/16"
+	ipv6Network                   = "containerd-ipv6"
+	imageDir                      = "/usr/local/bin/containerd_ct_images"
+	ipv6CheckFile                 = "/usr/local/bin/containerd_check_ipv6"
+	storageDriverFile             = "/usr/local/bin/containerd_storage_driver"
+	scriptRepo                    = "oneclickvirt/containerd"
+	serviceCheckName              = "nerdctl"
+	containerdIPv6NetworkModeFile = "/usr/local/bin/containerd_ipv6_network_mode"
+	containerdIPv6SubnetFile      = "/usr/local/bin/containerd_ipv6_subnet"
+	containerdIPv6NetworkModeNAT  = "nat"
 )
+
+func rejectContainerdNAT66PublicStaticIPv6(staticIPv6 string, nat66 bool) error {
+	if !nat66 || strings.TrimSpace(staticIPv6) == "" {
+		return nil
+	}
+	normalized, err := utils.NormalizeIPv6Address(staticIPv6)
+	if err == nil && utils.IsPublicIPv6(normalized) {
+		return fmt.Errorf("节点 Containerd IPv6 当前仅提供 ULA NAT66 出站连接，不能分配公网静态 IPv6 %s", normalized)
+	}
+	return nil
+}
 
 // ContainerdProvider Containerd/nerdctl容器运行时Provider（独立实现，不依赖docker包）
 type ContainerdProvider struct {
@@ -476,6 +491,13 @@ func (c *ContainerdProvider) checkIPv6NetworkAvailable() bool {
 	if err != nil {
 		return false
 	}
+	if c.containerdIPv6NetworkUsesNAT66() {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Debug("Containerd IPv6网络使用 ULA NAT66，跳过公网 NDP responder 检查",
+				zap.String("provider", c.config.Name))
+		}
+		return true
+	}
 	ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", cliName)
 	ndpresponderOutput, err := c.sshClient.Execute(ndpresponderCmd)
 	if err != nil || strings.TrimSpace(ndpresponderOutput) != "running" {
@@ -487,6 +509,36 @@ func (c *ContainerdProvider) checkIPv6NetworkAvailable() bool {
 		return false
 	}
 	return true
+}
+
+func (c *ContainerdProvider) containerdIPv6NetworkUsesNAT66() bool {
+	if !c.connected || c.sshClient == nil {
+		return false
+	}
+	modeOutput, modeErr := c.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null || true", shellSingleQuote(containerdIPv6NetworkModeFile)))
+	if modeErr != nil || !strings.EqualFold(strings.TrimSpace(modeOutput), containerdIPv6NetworkModeNAT) {
+		return false
+	}
+	subnetOutput, subnetErr := c.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null || true", shellSingleQuote(containerdIPv6SubnetFile)))
+	if subnetErr != nil {
+		return false
+	}
+	for _, network := range utils.ExtractIPv6Networks(subnetOutput, 128) {
+		prefix, parseErr := netip.ParsePrefix(network.CIDR())
+		if parseErr == nil && prefix.Bits() == 64 && prefix.Addr().IsPrivate() {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *ContainerdProvider) resolveContainerdNetwork(networkType, staticIPv6 string) (utils.ContainerNetworkSelection, error) {
+	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
+	available := hasIPv6 && c.checkIPv6NetworkAvailable()
+	if err := rejectContainerdNAT66PublicStaticIPv6(staticIPv6, available && c.containerdIPv6NetworkUsesNAT66()); err != nil {
+		return utils.ContainerNetworkSelection{}, err
+	}
+	return utils.ResolveContainerNetwork(networkType, staticIPv6, ipv4Network, ipv6Network, available)
 }
 
 // ExecuteSSHCommand 执行SSH命令

@@ -125,6 +125,16 @@ fi
 				}
 			}
 		}
+
+		// Routed manual mode keeps a ULA on the Podman network while the
+		// installer-owned helper attaches the usable public /128 separately.
+		// Prefer that recorded public address over Podman's internal address.
+		allocationCmd := fmt.Sprintf("awk -v name=%s '$1 == name {print $2; exit}' %s 2>/dev/null", shellSingleQuote(instance.Name), shellSingleQuote(ipv6AllocationFile))
+		if allocationOutput, allocationErr := p.sshClient.Execute(allocationCmd); allocationErr == nil {
+			if ipv6Address, parseErr := utils.ParseFirstIPv6AddressOutput(allocationOutput); parseErr == nil {
+				instance.IPv6Address = ipv6Address
+			}
+		}
 	}
 }
 
@@ -559,7 +569,7 @@ func (p *PodmanProvider) resolvePodmanContainerNetwork(networkType, staticIPv6 s
 	}
 
 	selection, err := utils.ResolveContainerNetwork(networkType, staticIPv6, ipv4Network, ipv6Network, ipv6Available)
-	if err != nil || !selection.IPv6 || mode != podmanIPv6NetworkModeUnmanaged {
+	if err != nil || !selection.IPv6 || (mode != podmanIPv6NetworkModeUnmanaged && mode != podmanIPv6NetworkModeManual) {
 		return selection, err
 	}
 
@@ -568,6 +578,7 @@ func (p *PodmanProvider) resolvePodmanContainerNetwork(networkType, staticIPv6 s
 	// the public IPv6 network after the container exists.
 	selection.Network = ipv4Network
 	selection.AdditionalNetworks = append(selection.AdditionalNetworks, selection.IPv6Network)
+	selection.ManualIPv6 = mode == podmanIPv6NetworkModeManual
 	return selection, nil
 }
 
@@ -575,7 +586,7 @@ func appendPodmanNetworkOptions(command string, selection utils.ContainerNetwork
 	if selection.Network != "" {
 		command += fmt.Sprintf(" --network=%s", shellSingleQuote(selection.Network))
 	}
-	if selection.StaticIPv6 != "" && !selection.RoutedVeth && (selection.IPv6Network == "" || selection.IPv6Network == selection.Network) {
+	if selection.StaticIPv6 != "" && !selection.RoutedVeth && !selection.ManualIPv6 && (selection.IPv6Network == "" || selection.IPv6Network == selection.Network) {
 		command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
 	}
 	return command
@@ -601,7 +612,7 @@ func (p *PodmanProvider) connectPodmanAdditionalNetworks(name string, selection 
 			continue
 		}
 		command := fmt.Sprintf("%s network connect", cliName)
-		if network == selection.IPv6Network && selection.StaticIPv6 != "" {
+		if network == selection.IPv6Network && selection.StaticIPv6 != "" && !selection.ManualIPv6 {
 			command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
 		}
 		command += fmt.Sprintf(" %s %s", shellSingleQuote(network), shellSingleQuote(name))
@@ -613,6 +624,19 @@ func (p *PodmanProvider) connectPodmanAdditionalNetworks(name string, selection 
 		diagnostics := p.collectCreateDiagnostics(name)
 		return fmt.Errorf("附加隧道路由IPv6网络失败，已删除新建容器: %w; output: %s; diagnostics: %s",
 			err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
+	}
+	if selection.ManualIPv6 {
+		helpCommand := fmt.Sprintf("%s %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(name))
+		if selection.StaticIPv6 != "" {
+			helpCommand += fmt.Sprintf(" %s", shellSingleQuote(selection.StaticIPv6))
+		}
+		output, err := p.sshClient.Execute(helpCommand)
+		if err != nil {
+			_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+			diagnostics := p.collectCreateDiagnostics(name)
+			return fmt.Errorf("附加手工路由IPv6失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+				err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
+		}
 	}
 	return nil
 }

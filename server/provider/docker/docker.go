@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,22 @@ var orbstackRuntime = ContainerRuntimeConfig{
 	StorageDriverFile: "/usr/local/bin/orbstack_storage_driver",
 	ScriptRepo:        "oneclickvirt/docker",
 	ServiceCheckName:  "docker",
+}
+
+const (
+	dockerIPv6NetworkModeFile = "/usr/local/bin/docker_ipv6_network_mode"
+	dockerIPv6NetworkModeNAT  = "nat"
+)
+
+func rejectNAT66PublicStaticIPv6(staticIPv6 string, nat66 bool) error {
+	if !nat66 || strings.TrimSpace(staticIPv6) == "" {
+		return nil
+	}
+	normalized, err := utils.NormalizeIPv6Address(staticIPv6)
+	if err == nil && utils.IsPublicIPv6(normalized) {
+		return fmt.Errorf("节点 Docker IPv6 当前仅提供 ULA NAT66 出站连接，不能分配公网静态 IPv6 %s", normalized)
+	}
+	return nil
 }
 
 type DockerProvider struct {
@@ -622,6 +639,12 @@ func (d *DockerProvider) checkIPv6NetworkAvailable() bool {
 		return false
 	}
 
+	if d.dockerIPv6NetworkUsesNAT66() {
+		global.APP_LOG.Debug("Docker IPv6网络使用 ULA NAT66，跳过公网 NDP responder 检查",
+			zap.String("provider", d.config.Name))
+		return true
+	}
+
 	// 检查 ndpresponder 容器是否存在且正在运行
 	ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", d.runtime.CLI)
 	ndpresponderOutput, err := d.sshClient.Execute(ndpresponderCmd)
@@ -652,6 +675,37 @@ func (d *DockerProvider) checkIPv6NetworkAvailable() bool {
 	global.APP_LOG.Debug("IPv6网络检查成功: 所有组件都可用",
 		zap.String("provider", d.config.Name))
 	return true
+}
+
+func (d *DockerProvider) dockerIPv6NetworkUsesNAT66() bool {
+	if d.runtime.ProviderType != "docker" && d.runtime.ProviderType != "orbstack" {
+		return false
+	}
+	modeOutput, modeErr := d.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null || true", shellSingleQuote(dockerIPv6NetworkModeFile)))
+	if modeErr != nil || !strings.EqualFold(strings.TrimSpace(modeOutput), dockerIPv6NetworkModeNAT) {
+		return false
+	}
+	command := fmt.Sprintf("%s network inspect %s --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}'", d.runtime.CLI, shellSingleQuote(d.runtime.IPv6Network))
+	output, err := d.sshClient.Execute(command)
+	if err != nil {
+		return false
+	}
+	for _, network := range utils.ExtractIPv6Networks(output, 128) {
+		prefix, parseErr := netip.ParsePrefix(network.CIDR())
+		if parseErr == nil && prefix.Bits() == 64 && prefix.Addr().IsPrivate() {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *DockerProvider) resolveDockerContainerNetwork(networkType, staticIPv6 string) (utils.ContainerNetworkSelection, error) {
+	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
+	available := hasIPv6 && d.checkIPv6NetworkAvailable()
+	if err := rejectNAT66PublicStaticIPv6(staticIPv6, available && d.dockerIPv6NetworkUsesNAT66()); err != nil {
+		return utils.ContainerNetworkSelection{}, err
+	}
+	return utils.ResolveContainerNetwork(networkType, staticIPv6, d.runtime.IPv4Network, d.runtime.IPv6Network, available)
 }
 
 // ExecuteSSHCommand 执行SSH命令
