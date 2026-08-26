@@ -72,6 +72,16 @@ func (p *PodmanProvider) sshDiscoverInstances(ctx context.Context) ([]provider.D
 	}
 
 	var discoveredInstances []provider.DiscoveredInstance
+	allocationOutput, _ := p.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null || true", shellSingleQuote(ipv6AllocationFile)))
+	manualIPv6 := make(map[string]string)
+	for _, line := range strings.Split(allocationOutput, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			if address, parseErr := utils.ParseFirstIPv6AddressOutput(fields[1]); parseErr == nil {
+				manualIPv6[fields[0]] = address
+			}
+		}
+	}
 
 	for _, container := range containers {
 		discovered := provider.DiscoveredInstance{
@@ -123,6 +133,12 @@ func (p *PodmanProvider) sshDiscoverInstances(ctx context.Context) ([]provider.D
 			if discovered.MACAddress == "" {
 				discovered.MACAddress = netInfo.MacAddress
 			}
+		}
+		// Manual routed mode has an internal ULA in Podman's inspect output and
+		// a separately attached public /128 in the installer allocation file.
+		// The latter is the address callers can actually reach.
+		if manualAddress := manualIPv6[discovered.Name]; manualAddress != "" {
+			discovered.IPv6Address = manualAddress
 		}
 
 		sshPortFound := false

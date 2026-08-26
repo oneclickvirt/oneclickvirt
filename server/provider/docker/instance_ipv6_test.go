@@ -49,3 +49,15 @@ func TestDockerStaticIPv6RunOptions(t *testing.T) {
 		})
 	}
 }
+
+func TestNAT66RejectsPublicStaticIPv6(t *testing.T) {
+	if err := rejectNAT66PublicStaticIPv6("2a14:6781:a::20/64", true); err == nil || !strings.Contains(err.Error(), "ULA NAT66") {
+		t.Fatalf("public static IPv6 on NAT66 = %v, want capability error", err)
+	}
+	if err := rejectNAT66PublicStaticIPv6("fd42:5339:296f:1d00::20", true); err != nil {
+		t.Fatalf("ULA static IPv6 on NAT66 = %v, want nil", err)
+	}
+	if err := rejectNAT66PublicStaticIPv6("2a14:6781:a::20", false); err != nil {
+		t.Fatalf("managed IPv6 must continue accepting a public static address: %v", err)
+	}
+}

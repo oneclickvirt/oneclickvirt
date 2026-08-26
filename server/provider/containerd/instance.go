@@ -277,7 +277,6 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		}
 	}
 
-	hasIPv6 := utils.NetworkTypeHasIPv6(networkType)
 	staticIPv6 := ""
 	if config.Metadata != nil {
 		staticIPv6 = strings.TrimSpace(config.Metadata["static_ipv6"])
@@ -286,13 +285,7 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	// shared legacy CNI network when the routed network cannot be prepared.
 	networkSelection, routedPresent, err := c.routedNetworkSelection(config, networkType)
 	if !routedPresent {
-		networkSelection, err = utils.ResolveContainerNetwork(
-			networkType,
-			staticIPv6,
-			ipv4Network,
-			ipv6Network,
-			hasIPv6 && c.checkIPv6NetworkAvailable(),
-		)
+		networkSelection, err = c.resolveContainerdNetwork(networkType, staticIPv6)
 	}
 	if err != nil {
 		return err

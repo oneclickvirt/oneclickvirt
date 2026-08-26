@@ -26,6 +26,9 @@ const (
 	imageDir            = "/usr/local/bin/podman_ct_images"
 	ipv6CheckFile       = "/usr/local/bin/podman_check_ipv6"
 	ipv6NetworkModeFile = "/usr/local/bin/podman_ipv6_network_mode"
+	ipv6ManualHelper    = "/usr/local/bin/podman-ipv6-attach.sh"
+	ipv6ManualPrefix    = "/usr/local/bin/podman_ipv6_public_prefix"
+	ipv6AllocationFile  = "/usr/local/bin/podman_ipv6_allocations"
 	storageDriverFile   = "/usr/local/bin/podman_storage_driver"
 	scriptRepo          = "oneclickvirt/podman"
 	serviceCheckName    = "podman"
@@ -34,6 +37,7 @@ const (
 const (
 	podmanIPv6NetworkModeManaged   = "managed"
 	podmanIPv6NetworkModeUnmanaged = "unmanaged"
+	podmanIPv6NetworkModeManual    = "manual"
 )
 
 // PodmanProvider Podman容器运行时Provider（独立实现，不依赖docker包）
@@ -523,6 +527,17 @@ func (p *PodmanProvider) podmanIPv6NetworkAvailability() (string, bool) {
 			return "", false
 		}
 	}
+	if mode == podmanIPv6NetworkModeManual {
+		if _, err := p.sshClient.Execute(fmt.Sprintf("test -x %s && test -s %s && test -f %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(ipv6ManualPrefix), shellSingleQuote("/usr/local/bin/podman_ipv6_targets"))); err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("Podman manual IPv6网络缺少路由辅助状态，已禁用IPv6容器创建", zap.Error(err))
+			}
+			return "", false
+		}
+		if _, err := p.sshClient.Execute(fmt.Sprintf("%s network inspect %s", cliName, shellSingleQuote(ipv4Network))); err != nil {
+			return "", false
+		}
+	}
 	return mode, true
 }
 
@@ -532,6 +547,8 @@ func parsePodmanIPv6NetworkMode(value string) (string, bool) {
 		return podmanIPv6NetworkModeManaged, true
 	case podmanIPv6NetworkModeUnmanaged:
 		return podmanIPv6NetworkModeUnmanaged, true
+	case podmanIPv6NetworkModeManual:
+		return podmanIPv6NetworkModeManual, true
 	default:
 		return "", false
 	}

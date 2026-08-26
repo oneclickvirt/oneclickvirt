@@ -49,3 +49,33 @@ func TestContainerdStaticIPv6RunOptions(t *testing.T) {
 		})
 	}
 }
+
+func TestContainerdNAT66RejectsPublicStaticIPv6(t *testing.T) {
+	if err := rejectContainerdNAT66PublicStaticIPv6("2a14:6781:a::20/64", true); err == nil || !strings.Contains(err.Error(), "ULA NAT66") {
+		t.Fatalf("public static IPv6 on NAT66 = %v, want capability error", err)
+	}
+	if err := rejectContainerdNAT66PublicStaticIPv6("fd42:5339:296f:1e00::20", true); err != nil {
+		t.Fatalf("ULA static IPv6 on NAT66 = %v, want nil", err)
+	}
+	if err := rejectContainerdNAT66PublicStaticIPv6("2a14:6781:a::20", false); err != nil {
+		t.Fatalf("managed IPv6 must continue accepting a public static address: %v", err)
+	}
+}
+
+func TestContainerdNAT66NetworkIsAvailableWithoutNDPResponder(t *testing.T) {
+	executor := &routedContainerdExecutor{outputs: []string{"", "nat", "fd42:5339:296f:1e00::/64"}}
+	c := NewContainerdProvider().(*ContainerdProvider)
+	c.connected = true
+	c.sshClient.SetExecutor(executor)
+	if !c.checkIPv6NetworkAvailable() {
+		t.Fatal("installer-managed ULA NAT66 network was not reported as available")
+	}
+	if len(executor.commands) != 3 {
+		t.Fatalf("NAT66 availability commands = %#v, want network and state checks only", executor.commands)
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "ndpresponder") {
+			t.Fatalf("NAT66 availability unexpectedly checked NDP responder: %q", command)
+		}
+	}
+}

@@ -39,6 +39,10 @@ type ContainerNetworkSelection struct {
 	RoutedTunnelID        uint
 	RoutedTunnelInterface string
 	IPv6                  bool
+	// ManualIPv6 means the runtime network only provides an internal link-local
+	// or ULA attachment; the provider must apply the public /128 through its
+	// installer-owned routed-address helper after the container starts.
+	ManualIPv6 bool
 	// RoutedVeth means IPv6 is attached after container creation with a veth
 	// pair into the managed tunnel bridge. Docker-like macvlan networks cannot
 	// reach a gateway hosted on their parent interface, so a normal bridge veth

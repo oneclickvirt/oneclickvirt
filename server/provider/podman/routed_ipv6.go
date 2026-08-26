@@ -66,6 +66,18 @@ func (p *PodmanProvider) restoreRoutedIPv6AfterStart(name string) error {
 	return nil
 }
 
+func (p *PodmanProvider) restoreIPv6AfterStart(name string) error {
+	if _, err := p.sshClient.Execute(fmt.Sprintf("test -x %s && test -f %s && awk -v name=%s '$1 == name {found=1} END {exit found ? 0 : 1}' %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(ipv6AllocationFile), shellSingleQuote(name), shellSingleQuote(ipv6AllocationFile))); err == nil {
+		var output string
+		var attachErr error
+		output, attachErr = p.sshClient.Execute(fmt.Sprintf("%s %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(name)))
+		if attachErr != nil {
+			return fmt.Errorf("恢复手工路由IPv6失败: output=%s: %w", utils.TruncateString(strings.TrimSpace(output), 2000), attachErr)
+		}
+	}
+	return p.restoreRoutedIPv6AfterStart(name)
+}
+
 func (p *PodmanProvider) failRoutedIPv6Restore(name, phase, output string, err error) error {
 	_, _ = p.sshClient.Execute(fmt.Sprintf("%s stop %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
 	return fmt.Errorf("%s隧道路由IPv6失败，已停止实例以避免IPv6配置缺失: output=%s: %w", phase, utils.TruncateString(strings.TrimSpace(output), 4000), err)

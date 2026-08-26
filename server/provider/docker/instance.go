@@ -358,13 +358,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 	networkSelection, routedPresent, err := d.routedNetworkSelection(config, networkType)
 	if !routedPresent {
-		networkSelection, err = utils.ResolveContainerNetwork(
-			networkType,
-			staticIPv6,
-			d.runtime.IPv4Network,
-			d.runtime.IPv6Network,
-			hasIPv6 && d.checkIPv6NetworkAvailable(),
-		)
+		networkSelection, err = d.resolveDockerContainerNetwork(networkType, staticIPv6)
 	}
 	if err != nil {
 		return err
