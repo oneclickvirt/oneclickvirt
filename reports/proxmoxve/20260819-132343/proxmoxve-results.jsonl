@@ -1,1 +1,0 @@
-{"name":"Harness infrastructure skip (proxmoxve)","method":"HARNESS","url":"run_env_test.sh","status":"SKIP","expected":"","actual":"","detail":"proxmoxve installation lost required worker connectivity or hit a transient infrastructure failure","group":"infrastructure","timestamp":"2026-08-19T13:22:50","error_logs":"","request_payload":""}
