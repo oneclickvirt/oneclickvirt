@@ -18,6 +18,7 @@ func TestParsePodmanIPv6NetworkMode(t *testing.T) {
 		{input: "  managed\n", want: podmanIPv6NetworkModeManaged, valid: true},
 		{input: "UNMANAGED", want: podmanIPv6NetworkModeUnmanaged, valid: true},
 		{input: "manual", want: podmanIPv6NetworkModeManual, valid: true},
+		{input: "nat", want: podmanIPv6NetworkModeNAT, valid: true},
 		{input: "unsupported", valid: false},
 	}
 
@@ -28,6 +29,70 @@ func TestParsePodmanIPv6NetworkMode(t *testing.T) {
 				t.Fatalf("parsePodmanIPv6NetworkMode(%q) = (%q, %v), want (%q, %v)", test.input, got, valid, test.want, test.valid)
 			}
 		})
+	}
+}
+
+func TestPodmanNAT66NetworkIsAvailableWithoutNDPResponder(t *testing.T) {
+	executor := &routedPodmanExecutor{outputs: []string{"", "nat", "fd42:5339:296f:1d00::/64"}}
+	p := NewPodmanProvider().(*PodmanProvider)
+	p.connected = true
+	p.sshClient.SetExecutor(executor)
+
+	mode, available := p.podmanIPv6NetworkAvailability()
+	if mode != podmanIPv6NetworkModeNAT || !available {
+		t.Fatalf("podmanIPv6NetworkAvailability() = (%q, %v), want NAT66 availability", mode, available)
+	}
+	if len(executor.commands) != 3 {
+		t.Fatalf("NAT66 availability commands = %#v, want network and state checks only", executor.commands)
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "ndpresponder") {
+			t.Fatalf("NAT66 availability unexpectedly checked NDP responder: %q", command)
+		}
+	}
+}
+
+func TestPodmanNAT66NetworkRequiresULA64(t *testing.T) {
+	executor := &routedPodmanExecutor{outputs: []string{"", "nat", "2a14:6781:a::/64"}}
+	p := NewPodmanProvider().(*PodmanProvider)
+	p.connected = true
+	p.sshClient.SetExecutor(executor)
+
+	mode, available := p.podmanIPv6NetworkAvailability()
+	if mode != "" || available {
+		t.Fatalf("public subnet with NAT66 marker = (%q, %v), want unavailable", mode, available)
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "ndpresponder") {
+			t.Fatalf("invalid NAT66 state unexpectedly fell through to NDP: %q", command)
+		}
+	}
+}
+
+func TestResolvePodmanNAT66RejectsPublicStaticIPv6(t *testing.T) {
+	executor := &routedPodmanExecutor{outputs: []string{"", "nat", "fd42:5339:296f:1d00::/64"}}
+	p := NewPodmanProvider().(*PodmanProvider)
+	p.connected = true
+	p.sshClient.SetExecutor(executor)
+
+	_, err := p.resolvePodmanContainerNetwork("nat_ipv4_ipv6", "2a14:6781:a::20/64")
+	if err == nil || !strings.Contains(err.Error(), "ULA NAT66") {
+		t.Fatalf("public static IPv6 on Podman NAT66 = %v, want capability error", err)
+	}
+}
+
+func TestResolvePodmanNAT66AllowsULAStaticIPv6(t *testing.T) {
+	executor := &routedPodmanExecutor{outputs: []string{"", "nat", "fd42:5339:296f:1d00::/64"}}
+	p := NewPodmanProvider().(*PodmanProvider)
+	p.connected = true
+	p.sshClient.SetExecutor(executor)
+
+	selection, err := p.resolvePodmanContainerNetwork("nat_ipv4_ipv6", "fd42:5339:296f:1d00::20")
+	if err != nil {
+		t.Fatalf("ULA static IPv6 on Podman NAT66 = %v", err)
+	}
+	if selection.Network != ipv6Network || selection.StaticIPv6 != "fd42:5339:296f:1d00::20" {
+		t.Fatalf("unexpected NAT66 selection: %#v", selection)
 	}
 }
 
@@ -67,7 +132,7 @@ func TestPodmanIPv6NetworkAvailabilityRequiresIPv4PrimaryForUnmanagedMode(t *tes
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			executor := &routedPodmanExecutor{
-				outputs: []string{"", "running", "valid", test.mode, ""},
+				outputs: []string{"", test.mode, "running", "valid", "", ""},
 				errors:  test.errors,
 			}
 			p := NewPodmanProvider().(*PodmanProvider)
@@ -92,7 +157,7 @@ func TestPodmanIPv6NetworkAvailabilityRequiresIPv4PrimaryForUnmanagedMode(t *tes
 }
 
 func TestResolvePodmanContainerNetworkUsesDualAttachmentForUnmanagedMode(t *testing.T) {
-	executor := &routedPodmanExecutor{outputs: []string{"", "running", "valid", podmanIPv6NetworkModeUnmanaged, ""}}
+	executor := &routedPodmanExecutor{outputs: []string{"", podmanIPv6NetworkModeUnmanaged, "running", "valid", ""}}
 	p := NewPodmanProvider().(*PodmanProvider)
 	p.connected = true
 	p.sshClient.SetExecutor(executor)

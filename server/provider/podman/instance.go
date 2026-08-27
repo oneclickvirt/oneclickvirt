@@ -567,6 +567,9 @@ func (p *PodmanProvider) resolvePodmanContainerNetwork(networkType, staticIPv6 s
 	if hasIPv6 {
 		mode, ipv6Available = p.podmanIPv6NetworkAvailability()
 	}
+	if err := rejectPodmanNAT66PublicStaticIPv6(staticIPv6, ipv6Available && mode == podmanIPv6NetworkModeNAT); err != nil {
+		return utils.ContainerNetworkSelection{}, err
+	}
 
 	selection, err := utils.ResolveContainerNetwork(networkType, staticIPv6, ipv4Network, ipv6Network, ipv6Available)
 	if err != nil || !selection.IPv6 || (mode != podmanIPv6NetworkModeUnmanaged && mode != podmanIPv6NetworkModeManual) {

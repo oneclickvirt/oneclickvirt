@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -118,5 +119,25 @@ func TestDockerRoutedIPv6OnlyUsesRoutedNetworkAtCreate(t *testing.T) {
 	}
 	if _, err := provider.RoutedIPv6VethAttachCommand("docker", "instance-a", selection); err != nil {
 		t.Fatalf("RoutedIPv6VethAttachCommand() error = %v", err)
+	}
+}
+
+func TestOrbstackRoutedIPv6RejectsMacOSHostBeforeContainerCreation(t *testing.T) {
+	executor := &routedDockerExecutor{
+		outputs: []string{"OrbStack on macOS cannot provide host-routed public IPv6 through the Docker CLI"},
+		errors:  []error{errors.New("remote preflight failed")},
+	}
+	d := NewOrbstackProvider().(*DockerProvider)
+	d.sshClient.SetExecutor(executor)
+	_, present, err := d.routedNetworkSelection(provider.InstanceConfig{Metadata: map[string]string{
+		"static_ipv6":         "2001:db8::2",
+		"static_ipv6_cidr":    "2001:db8::/126",
+		"static_ipv6_gateway": "2001:db8::1",
+	}}, "nat_ipv4_ipv6")
+	if !present || err == nil || !strings.Contains(err.Error(), "OrbStack on macOS") {
+		t.Fatalf("routedNetworkSelection() = present=%v err=%v, want explicit macOS capability error", present, err)
+	}
+	if len(executor.commands) != 1 || !strings.Contains(executor.commands[0], "$(uname -s") {
+		t.Fatalf("OrbStack preflight command = %#v, want Darwin capability guard", executor.commands)
 	}
 }

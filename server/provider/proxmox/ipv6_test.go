@@ -4,12 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"oneclickvirt/global"
+	providerModel "oneclickvirt/model/provider"
 	coreprovider "oneclickvirt/provider"
+	"oneclickvirt/utils"
+
+	"go.uber.org/zap"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 type ipv6CommandExecutor struct {
@@ -50,6 +59,27 @@ func (e *ipv6CommandExecutor) UploadContent(string, string, os.FileMode) error {
 func (e *ipv6CommandExecutor) IsHealthy() bool                                 { return true }
 func (e *ipv6CommandExecutor) Reconnect() error                                { return nil }
 func (e *ipv6CommandExecutor) Close() error                                    { return nil }
+
+func setupProxmoxIPv6CommandTestDB(t *testing.T) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "proxmox-ipv6.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite database: %v", err)
+	}
+	if err := db.AutoMigrate(&providerModel.Provider{}); err != nil {
+		t.Fatalf("migrate provider table: %v", err)
+	}
+	if err := db.Create(&providerModel.Provider{ID: 1, DefaultInboundBandwidth: 300, DefaultOutboundBandwidth: 300}).Error; err != nil {
+		t.Fatalf("seed provider: %v", err)
+	}
+	oldDB, oldLog := global.APP_DB, global.APP_LOG
+	global.APP_DB = db
+	global.APP_LOG = zap.NewNop()
+	t.Cleanup(func() {
+		global.APP_DB = oldDB
+		global.APP_LOG = oldLog
+	})
+}
 
 func TestExecuteIPv6NetworkCommandFallsBackWithoutRate(t *testing.T) {
 	executor := &ipv6CommandExecutor{fail: func(command string) error {
@@ -299,5 +329,206 @@ func TestSetupNATMappingRejectsInvalidAddressBeforeRemoteCommands(t *testing.T) 
 	}
 	if len(executor.commands) != 0 {
 		t.Fatalf("commands = %#v, want no remote commands", executor.commands)
+	}
+}
+
+func TestProxmoxNATIPv6StateUsesPersistedULAAndVMID(t *testing.T) {
+	natConfig, err := parseProxmoxNATIPv6StateOutput("fd42:5339:296f:1f07::/64\tfd42:5339:296f:1f07::1\n")
+	if err != nil {
+		t.Fatalf("parseProxmoxNATIPv6StateOutput() error = %v", err)
+	}
+	if got := natConfig.Network.CIDR(); got != "fd42:5339:296f:1f07::/64" {
+		t.Fatalf("NAT CIDR = %q", got)
+	}
+	if natConfig.Gateway != "fd42:5339:296f:1f07::1" {
+		t.Fatalf("NAT gateway = %q", natConfig.Gateway)
+	}
+	address, err := proxmoxNATIPv6ForVMID(&natConfig, 101)
+	if err != nil || address != "fd42:5339:296f:1f07::65" {
+		t.Fatalf("proxmoxNATIPv6ForVMID() = %q, %v", address, err)
+	}
+}
+
+func TestProxmoxNATIPv6StateRejectsDocumentationAndInvalidPrefixes(t *testing.T) {
+	for _, state := range []string{
+		"2001:db8:1::/64\t2001:db8:1::1",
+		"2605:52c0:2:14b::/64\t2605:52c0:2:14b::1",
+		"fd42:5339:296f:1f07::/112\tfd42:5339:296f:1f07::1",
+		"fd42:5339:296f:1f07::/64\tfd42:5339:296f:1f08::1",
+	} {
+		if _, err := parseProxmoxNATIPv6StateOutput(state); err == nil {
+			t.Fatalf("parseProxmoxNATIPv6StateOutput(%q) unexpectedly succeeded", state)
+		}
+	}
+}
+
+func TestProxmoxNATIPv6BridgeDiscoveryAcceptsULAOnly(t *testing.T) {
+	output := "10: vmbr1    inet6 fd42:5339:296f:1f09::1/64 scope global\n" +
+		"10: vmbr1    inet6 2605:52c0:2:14b::1/64 scope global\n"
+	natConfig, err := parseProxmoxNATIPv6BridgeOutput(output)
+	if err != nil {
+		t.Fatalf("parseProxmoxNATIPv6BridgeOutput() error = %v", err)
+	}
+	if natConfig.Network.CIDR() != "fd42:5339:296f:1f09::/64" || natConfig.Gateway != "fd42:5339:296f:1f09::1" {
+		t.Fatalf("discovered NAT config = %#v", natConfig)
+	}
+}
+
+func TestProxmoxDirectIPv6RejectsHostOnlyPrefix(t *testing.T) {
+	info := &IPv6Info{
+		HostIPv6Address: "2a14:7c0:1002:10f8::1",
+		Network: utils.IPv6Network{
+			Address:   net.ParseIP("2a14:7c0:1002:10f8::1"),
+			PrefixLen: 128,
+		},
+	}
+	if hasDirectProxmoxIPv6Info(info) {
+		t.Fatal("host-only /128 unexpectedly accepted as an automatic direct-allocation prefix")
+	}
+}
+
+func TestProxmoxDirectIPv6AllocationSupportsNonNibblePrefixWithoutHostCollision(t *testing.T) {
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	nonNibble := &IPv6Info{
+		HostIPv6Address: "2a14:7c0:1002:10f8::1",
+		Network: utils.IPv6Network{
+			Address:   net.ParseIP("2a14:7c0:1002:10f8::1"),
+			PrefixLen: 38,
+		},
+	}
+	address, err := p.addressForVMID(nonNibble, 101)
+	if err != nil || address != "2a14:7c0:1000::65" {
+		t.Fatalf("non-nibble addressForVMID() = %q, %v", address, err)
+	}
+
+	hostCollision := &IPv6Info{
+		HostIPv6Address: "2a14:7c0:1002::64",
+		Network: utils.IPv6Network{
+			Address:   net.ParseIP("2a14:7c0:1002::64"),
+			PrefixLen: 118,
+		},
+	}
+	address, err = p.addressForVMID(hostCollision, 100)
+	if err != nil || address != "2a14:7c0:1002::3e8" {
+		t.Fatalf("host collision addressForVMID() = %q, %v", address, err)
+	}
+}
+
+func TestProxmoxDirectIPv6AutomaticAllocationRejectsNarrowPrefix(t *testing.T) {
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	info := &IPv6Info{
+		HostIPv6Address: "2a14:7c0:1002::1",
+		Network: utils.IPv6Network{
+			Address:   net.ParseIP("2a14:7c0:1002::1"),
+			PrefixLen: 119,
+		},
+	}
+	if canAutoAllocateProxmoxIPv6(info) {
+		t.Fatal("/119 direct prefix unexpectedly passed automatic-allocation preflight")
+	}
+	if _, err := p.addressForVMID(info, 100); err == nil {
+		t.Fatal("/119 direct prefix unexpectedly accepted for automatic VMID allocation")
+	}
+}
+
+func TestConfigureProxmoxVMNATIPv6UsesPersistedULA(t *testing.T) {
+	setupProxmoxIPv6CommandTestDB(t)
+	executor := &ipv6CommandExecutor{}
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.config.ID = 1
+	p.sshClient.SetExecutor(executor)
+	natConfig, err := parseProxmoxNATIPv6StateOutput("fd42:5339:296f:1f07::/64\tfd42:5339:296f:1f07::1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := coreprovider.InstanceConfig{Metadata: map[string]string{
+		"network_type": "ipv6_only",
+		"static_ipv6":  "2605:52c0:2:14b::101",
+	}}
+	if err := p.configureVMIPv6(context.Background(), 101, config, "vmbr1", true, &IPv6Info{}, &natConfig, true); err != nil {
+		t.Fatalf("configureVMIPv6() error = %v", err)
+	}
+	joined := strings.Join(executor.commands, "\n")
+	if !strings.Contains(joined, "ip6='fd42:5339:296f:1f07::65/64',gw6='fd42:5339:296f:1f07::1'") || strings.Contains(joined, "2001:db8:1::") {
+		t.Fatalf("VM NAT IPv6 commands did not use persisted ULA:\n%s", joined)
+	}
+}
+
+func TestConfigureProxmoxContainerNATIPv6UsesPersistedULA(t *testing.T) {
+	setupProxmoxIPv6CommandTestDB(t)
+	executor := &ipv6CommandExecutor{}
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.config.ID = 1
+	p.sshClient.SetExecutor(executor)
+	p.bridgeNAT = "vmbr1"
+	natConfig, err := parseProxmoxNATIPv6StateOutput("fd42:5339:296f:1f07::/64\tfd42:5339:296f:1f07::1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := coreprovider.InstanceConfig{Metadata: map[string]string{
+		"network_type": "ipv6_only",
+		"static_ipv6":  "2605:52c0:2:14b::101",
+	}}
+	if err := p.configureContainerIPv6(context.Background(), 101, config, "vmbr1", true, &IPv6Info{}, &natConfig, true); err != nil {
+		t.Fatalf("configureContainerIPv6() error = %v", err)
+	}
+	joined := strings.Join(executor.commands, "\n")
+	if !strings.Contains(joined, "ip6='fd42:5339:296f:1f07::65/64',bridge=vmbr1,gw6='fd42:5339:296f:1f07::1'") || strings.Contains(joined, "2001:db8:1::") {
+		t.Fatalf("container NAT IPv6 commands did not use persisted ULA:\n%s", joined)
+	}
+}
+
+func TestGetNATMappedIPv6UsesPersistedULAAddress(t *testing.T) {
+	executor := &ipv6CommandExecutor{output: func(command string) string {
+		switch {
+		case strings.Contains(command, pveNATIPv6SubnetFile):
+			return "fd42:5339:296f:1f07::/64\tfd42:5339:296f:1f07::1\n"
+		case strings.Contains(command, "grep -F --") && strings.Contains(command, "fd42:5339:296f:1f07::65"):
+			return "ip6tables -t nat -A PREROUTING -d '2605:52c0:2:14b::101' -j DNAT --to-destination 'fd42:5339:296f:1f07::65'\n"
+		default:
+			return ""
+		}
+	}}
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.bridgeNAT = "vmbr1"
+	p.sshClient.SetExecutor(executor)
+
+	address, err := p.getNATMappedIPv6(context.Background(), "101")
+	if err != nil || address != "2605:52c0:2:14b::101" {
+		t.Fatalf("getNATMappedIPv6() = %q, %v", address, err)
+	}
+	joined := strings.Join(executor.commands, "\n")
+	if strings.Contains(joined, "2001:db8:1::") {
+		t.Fatalf("new mapping lookup unexpectedly queried the legacy prefix:\n%s", joined)
+	}
+}
+
+func TestCleanupNATRulesUsesPersistedULAAddress(t *testing.T) {
+	executor := &ipv6CommandExecutor{output: func(command string) string {
+		switch {
+		case strings.Contains(command, pveNATIPv6SubnetFile):
+			return "fd42:5339:296f:1f07::/64\tfd42:5339:296f:1f07::1\n"
+		case strings.Contains(command, "grep -F --") && strings.Contains(command, "fd42:5339:296f:1f07::65"):
+			return "ip6tables -t nat -A PREROUTING -d '2605:52c0:2:14b::101' -j DNAT --to-destination 'fd42:5339:296f:1f07::65'\n"
+		default:
+			return ""
+		}
+	}}
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.bridgeNAT = "vmbr1"
+	p.sshClient.SetExecutor(executor)
+
+	if err := p.cleanupIPv6NATRules(context.Background(), "101"); err != nil {
+		t.Fatalf("cleanupIPv6NATRules() error = %v", err)
+	}
+	joined := strings.Join(executor.commands, "\n")
+	for _, fragment := range []string{
+		"ip6tables -t nat -D PREROUTING -d '2605:52c0:2:14b::101' -j DNAT --to-destination 'fd42:5339:296f:1f07::65'",
+		"ip6tables -t nat -D POSTROUTING -s 'fd42:5339:296f:1f07::65' -j SNAT --to-source '2605:52c0:2:14b::101'",
+		"grep -Fv -- 'fd42:5339:296f:1f07::65'",
+	} {
+		if !strings.Contains(joined, fragment) {
+			t.Fatalf("cleanup commands missing %q:\n%s", fragment, joined)
+		}
 	}
 }
