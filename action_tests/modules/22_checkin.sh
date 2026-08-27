@@ -76,14 +76,14 @@ run_module_22() {
     # ---- Negative: Checkin with SQL injection code ----
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "Checkin SQL injection" "POST" "/api/v1/user/checkin" "400|404" \
-            '{"code":"\" OR 1=1;--","instanceId":1}' "$group" "$USER_TOKEN"
+            '{"code":"\" OR 1=1;--","instanceId":99999}' "$group" "$USER_TOKEN"
     fi
 
     # ---- Negative: Checkin with very long code ----
     if [[ -n "$USER_TOKEN" ]]; then
         local long_code; long_code=$(printf 'A%.0s' {1..500})
         test_api "Checkin long code" "POST" "/api/v1/user/checkin" "400" \
-            "{\"code\":\"${long_code}\",\"instanceId\":1}" "$group" "$USER_TOKEN"
+            "{\"code\":\"${long_code}\",\"instanceId\":99999}" "$group" "$USER_TOKEN"
     fi
 
     # ---- Negative: Get checkin config for nonexistent provider ----

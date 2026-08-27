@@ -3,7 +3,9 @@ package health
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -196,7 +198,7 @@ func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
 		Timeout:         d.config.Timeout,
 	}
 
-	address := fmt.Sprintf("%s:%d", d.config.Host, d.config.Port)
+	address := net.JoinHostPort(utils.ExtractHost(d.config.Host), strconv.Itoa(d.config.Port))
 	// 保存预期的host用于后续验证（避免并发修改）
 	expectedHost := d.config.Host
 	expectedPort := d.config.Port
@@ -251,7 +253,7 @@ func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
 
 // checkAPI 检查Docker API
 func (d *DockerHealthChecker) checkAPI(ctx context.Context) error {
-	url := fmt.Sprintf("%s://%s:%d/version", d.config.APIScheme, d.config.Host, d.config.APIPort)
+	url := utils.BuildEndpointURL(d.config.APIScheme, d.config.Host, d.config.APIPort, "/version")
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

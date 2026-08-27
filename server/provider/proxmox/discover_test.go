@@ -400,5 +400,8 @@ func TestConfigureAPITLSFallsBackOnlyWithoutCA(t *testing.T) {
 }
 
 func nodeConfigForDiscoveryTest(tokenID, token string) providerCore.NodeConfig {
-	return providerCore.NodeConfig{TokenID: tokenID, Token: token}
+	// Keep the fake transport's host explicit.  API URL construction now uses
+	// net.JoinHostPort so a missing host must not silently turn into a valid
+	// request with an empty path (which the transport would report as 404).
+	return providerCore.NodeConfig{Host: "pve.test", TokenID: tokenID, Token: token}
 }

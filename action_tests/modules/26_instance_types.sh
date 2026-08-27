@@ -117,6 +117,9 @@ run_module_26() {
             [[ -n "$ct_delete_resp" ]] && wait_instance_operation_settled "$ct_id" "$ct_delete_resp" "deleted" "delete type-test container ${ct_id}" "$ADMIN_TOKEN" || true
         elif [[ -n "$ct_id" ]]; then
             delete_instance_safe "$ct_id" "$ADMIN_TOKEN" 180 || true
+        else
+            record_skip_result "Container-specific operations" "HARNESS" "create type-test container" \
+                "container creation did not yield a usable instance; dependent checks are skipped" "$group"
         fi
 
         # Disable container permission and verify rejection
@@ -216,6 +219,9 @@ run_module_26() {
             [[ -n "$vm_delete_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_delete_resp" "deleted" "delete type-test VM ${vm_id}" "$ADMIN_TOKEN" || true
         elif [[ -n "$vm_id" ]]; then
             delete_instance_safe "$vm_id" "$ADMIN_TOKEN" 180 || true
+        else
+            record_skip_result "VM-specific operations" "HARNESS" "create type-test VM" \
+                "VM creation did not yield a usable instance; dependent checks are skipped" "$group"
         fi
 
         # Disable VM permission

@@ -187,23 +187,30 @@ def audit_workflows(root: Path) -> list[Finding]:
 
 
 def audit_retry_hygiene(root: Path) -> list[Finding]:
+    """Reject retries around non-idempotent instance creation requests.
+
+    A create request must remain single-shot: if the server accepted the
+    request but the client lost the response, replaying the POST can create a
+    duplicate remote instance.  The previous check incorrectly required a
+    retry and therefore reported the safe implementation while allowing the
+    unsafe one.
+    """
     findings: list[Finding] = []
-    create_instance_re = re.compile(
-        r"\btest_api\s+['\"][^'\"]*Create[^'\"]*['\"]\s+['\"]POST['\"]\s+['\"]"
-        r"/api/v1/admin/instances['\"]\s+['\"]([^'\"]+)['\"]"
+    create_instance_retry_re = re.compile(
+        r"\btest_api_retry\s+['\"][^'\"]*Create[^'\"]*['\"]\s+['\"]POST['\"]\s+['\"]"
+        r"/api/v1/admin/instances['\"]"
     )
     for path in iter_text_files(root, "action_tests/**/*.sh"):
         for idx, line in logical_lines(path.read_text(errors="ignore")):
             stripped = line.strip()
-            if not stripped or stripped.startswith("#") or "test_api_retry" in stripped:
+            if not stripped or stripped.startswith("#"):
                 continue
-            match = create_instance_re.search(stripped)
-            if match and match.group(1) in {"200", "200|201"}:
+            if create_instance_retry_re.search(stripped):
                 findings.append(
                     Finding(
                         rel(path, root),
                         idx,
-                        "create-instance-without-retry",
+                        "non-idempotent-create-retry",
                         stripped,
                     )
                 )

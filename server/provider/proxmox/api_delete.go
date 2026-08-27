@@ -66,21 +66,16 @@ func (p *ProxmoxProvider) apiDeleteVM(ctx context.Context, vmid string, ipAddres
 		global.APP_LOG.Warn("解锁VM失败", zap.String("vmid", vmid), zap.Error(err))
 	}
 
-	// 2. 停止VM
+	// 2. 停止VM。PVE 会返回异步 UPID，必须等待它释放来宾配置锁后再
+	// 检查状态和删除，否则偶发的并发 delete 会再次触发 qemu 配置锁超时。
 	global.APP_LOG.Debug("停止VM", zap.String("vmid", vmid))
-	stopURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/stop", p.config.Host, p.node, vmid)
-	stopReq, err := http.NewRequestWithContext(ctx, "POST", stopURL, nil)
+	stopURL, err := p.apiGuestEndpoint("vm", vmid, "status/stop")
 	if err != nil {
-		return fmt.Errorf("创建停止请求失败: %w", err)
+		return err
 	}
-	p.setAPIAuth(stopReq)
-
-	stopResp, err := p.apiClient.Do(stopReq)
-	if err != nil {
+	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodPost, stopURL, nil, "停止虚拟机"); err != nil {
 		global.APP_LOG.Warn("API停止VM失败，尝试SSH方式", zap.String("vmid", vmid), zap.Error(err))
 		_, _ = p.sshClient.Execute(fmt.Sprintf("qm stop %s 2>/dev/null || true", vmid))
-	} else {
-		stopResp.Body.Close()
 	}
 
 	// 3. 检查VM是否完全停止
@@ -91,21 +86,12 @@ func (p *ProxmoxProvider) apiDeleteVM(ctx context.Context, vmid string, ipAddres
 
 	// 4. 删除VM
 	global.APP_LOG.Debug("销毁VM", zap.String("vmid", vmid))
-	deleteURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s", p.config.Host, p.node, vmid)
-	deleteReq, err := http.NewRequestWithContext(ctx, "DELETE", deleteURL, nil)
+	deleteURL, err := p.apiGuestEndpoint("vm", vmid, "")
 	if err != nil {
-		return fmt.Errorf("创建删除请求失败: %w", err)
+		return err
 	}
-	p.setAPIAuth(deleteReq)
-
-	deleteResp, err := p.apiClient.Do(deleteReq)
-	if err != nil {
+	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodDelete, deleteURL, nil, "删除虚拟机"); err != nil {
 		return fmt.Errorf("API删除VM失败: %w", err)
-	}
-	defer deleteResp.Body.Close()
-
-	if deleteResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API删除VM失败，状态码: %d", deleteResp.StatusCode)
 	}
 
 	// 执行后续清理工作（通过SSH，因为这些操作API通常不支持）
@@ -118,21 +104,15 @@ func (p *ProxmoxProvider) apiDeleteContainer(ctx context.Context, ctid string, i
 		zap.String("ctid", ctid),
 		zap.String("ip", ipAddress))
 
-	// 1. 停止容器
+	// 1. 停止容器，并等待 PVE 的异步任务完成后再继续删除。
 	global.APP_LOG.Debug("停止CT", zap.String("ctid", ctid))
-	stopURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s/status/stop", p.config.Host, p.node, ctid)
-	stopReq, err := http.NewRequestWithContext(ctx, "POST", stopURL, nil)
+	stopURL, err := p.apiGuestEndpoint("container", ctid, "status/stop")
 	if err != nil {
-		return fmt.Errorf("创建停止请求失败: %w", err)
+		return err
 	}
-	p.setAPIAuth(stopReq)
-
-	stopResp, err := p.apiClient.Do(stopReq)
-	if err != nil {
+	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodPost, stopURL, nil, "停止容器"); err != nil {
 		global.APP_LOG.Warn("API停止CT失败，尝试SSH方式", zap.String("ctid", ctid), zap.Error(err))
 		_, _ = p.sshClient.Execute(fmt.Sprintf("pct stop %s 2>/dev/null || true", ctid))
-	} else {
-		stopResp.Body.Close()
 	}
 
 	// 2. 检查容器是否完全停止
@@ -143,21 +123,12 @@ func (p *ProxmoxProvider) apiDeleteContainer(ctx context.Context, ctid string, i
 
 	// 3. 删除容器
 	global.APP_LOG.Debug("销毁CT", zap.String("ctid", ctid))
-	deleteURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s", p.config.Host, p.node, ctid)
-	deleteReq, err := http.NewRequestWithContext(ctx, "DELETE", deleteURL, nil)
+	deleteURL, err := p.apiGuestEndpoint("container", ctid, "")
 	if err != nil {
-		return fmt.Errorf("创建删除请求失败: %w", err)
+		return err
 	}
-	p.setAPIAuth(deleteReq)
-
-	deleteResp, err := p.apiClient.Do(deleteReq)
-	if err != nil {
+	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodDelete, deleteURL, nil, "删除容器"); err != nil {
 		return fmt.Errorf("API删除CT失败: %w", err)
-	}
-	defer deleteResp.Body.Close()
-
-	if deleteResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API删除CT失败，状态码: %d", deleteResp.StatusCode)
 	}
 
 	// 执行后续清理工作（通过SSH）

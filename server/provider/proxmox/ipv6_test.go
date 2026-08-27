@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -204,6 +205,24 @@ func TestProxmoxAPICreateMutationBlocksSSHFallback(t *testing.T) {
 	}
 	if proxmoxAPICreateFallbackBlocked(errors.New("image download failed before POST")) {
 		t.Fatal("pre-create API error unexpectedly blocked SSH fallback")
+	}
+}
+
+func TestProxmoxAPICreateRequestAllowsFallbackForDefinitive4xx(t *testing.T) {
+	rejected := proxmoxAPICreateRequestError(123, &proxmoxAPIResponseError{
+		StatusCode: http.StatusBadRequest,
+		Body:       "invalid parameter",
+	})
+	if proxmoxAPICreateFallbackBlocked(rejected) {
+		t.Fatalf("definitive 4xx create rejection blocked SSH fallback: %v", rejected)
+	}
+
+	ambiguous := proxmoxAPICreateRequestError(123, &proxmoxAPIResponseError{
+		StatusCode: http.StatusBadGateway,
+		Body:       "upstream timeout",
+	})
+	if !proxmoxAPICreateFallbackBlocked(ambiguous) {
+		t.Fatalf("5xx create response did not block SSH fallback: %v", ambiguous)
 	}
 }
 

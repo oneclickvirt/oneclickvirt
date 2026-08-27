@@ -5,6 +5,8 @@
 run_module_15() {
     report_add_section "15 - Domain Management"
     local group="domains"
+    local instance_group="domains_instance"
+    local has_test_instance=false inst_for_domain=""
 
     # -- Admin domain list --
     test_api "Admin domain list" "GET" "/api/v1/admin/domains?page=1&pageSize=10" "200" "" "$group"
@@ -20,35 +22,38 @@ run_module_15() {
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "User domain list" "GET" "/api/v1/user/domains" "200" "" "$group" "$USER_TOKEN"
 
-        local inst_for_domain="${TEST_INSTANCE_ID:-1}"
-
-        # -- Create domain (requires instanceId; may fail if no instances exist) --
-        local d1; d1=$(test_api "Create user domain" "POST" "/api/v1/user/domains" "200|400|404" \
-            "{\"instanceId\":${inst_for_domain},\"domainName\":\"ci-test.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$group" "$USER_TOKEN")
-        local did1; did1=$(echo "$d1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-
-        # -- Create duplicate --
-        test_api "Create duplicate domain" "POST" "/api/v1/user/domains" "400|404|409" \
-            "{\"instanceId\":${inst_for_domain},\"domainName\":\"ci-test.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$group" "$USER_TOKEN"
-
-        # -- Create with invalid domain --
+        # This request validates fields before requiring a live instance.
         test_api "Create invalid domain" "POST" "/api/v1/user/domains" "400" \
             '{"domainName":"","internalPort":80}' "$group" "$USER_TOKEN"
 
-        # -- Edit domain --
-        if [[ -n "$did1" ]]; then
-            test_api "Edit user domain" "PUT" "/api/v1/user/domains/${did1}" "200" \
-                '{"internalPort":8080}' "$group" "$USER_TOKEN"
-        fi
+        if require_test_instance "$instance_group" "Domain instance-dependent tests" "$ADMIN_TOKEN"; then
+            has_test_instance=true
+            inst_for_domain="$TEST_INSTANCE_ID"
 
-        # -- User2 cannot see user1's domain --
-        if [[ -n "$USER_TOKEN2" ]]; then
-            test_api "User2 domain list (isolated)" "GET" "/api/v1/user/domains" "200" "" "$group" "$USER_TOKEN2"
-        fi
+            # -- Create domain --
+            local d1; d1=$(test_api "Create user domain" "POST" "/api/v1/user/domains" "200|400|404" \
+                "{\"instanceId\":${inst_for_domain},\"domainName\":\"ci-test.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$instance_group" "$USER_TOKEN")
+            local did1; did1=$(echo "$d1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
-        # -- Delete domain --
-        if [[ -n "$did1" ]]; then
-            test_api "Delete user domain" "DELETE" "/api/v1/user/domains/${did1}" "200" "" "$group" "$USER_TOKEN"
+            # -- Create duplicate --
+            test_api "Create duplicate domain" "POST" "/api/v1/user/domains" "400|404|409" \
+                "{\"instanceId\":${inst_for_domain},\"domainName\":\"ci-test.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$instance_group" "$USER_TOKEN"
+
+            # -- Edit domain --
+            if [[ -n "$did1" ]]; then
+                test_api "Edit user domain" "PUT" "/api/v1/user/domains/${did1}" "200" \
+                    '{"internalPort":8080}' "$instance_group" "$USER_TOKEN"
+            fi
+
+            # -- User2 cannot see user1's domain --
+            if [[ -n "$USER_TOKEN2" ]]; then
+                test_api "User2 domain list (isolated)" "GET" "/api/v1/user/domains" "200" "" "$instance_group" "$USER_TOKEN2"
+            fi
+
+            # -- Delete domain --
+            if [[ -n "$did1" ]]; then
+                test_api "Delete user domain" "DELETE" "/api/v1/user/domains/${did1}" "200" "" "$instance_group" "$USER_TOKEN"
+            fi
         fi
     fi
 
@@ -69,18 +74,17 @@ run_module_15() {
     fi
 
     # -- Negative: User2 cannot edit/delete user1 domain --
-    if [[ -n "$USER_TOKEN" && -n "$USER_TOKEN2" ]]; then
+    if [[ -n "$USER_TOKEN" && -n "$USER_TOKEN2" && "$has_test_instance" == "true" ]]; then
         # Create a domain for user1
-        local inst_for_d="${TEST_INSTANCE_ID:-1}"
         local d_iso; d_iso=$(test_api "User1 create for isolation" "POST" "/api/v1/user/domains" "200|400|404|409" \
-            "{\"instanceId\":${inst_for_d},\"domainName\":\"iso-test.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$group" "$USER_TOKEN")
+            "{\"instanceId\":${inst_for_domain},\"domainName\":\"iso-test.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$instance_group" "$USER_TOKEN")
         local d_iso_id; d_iso_id=$(echo "$d_iso" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         if [[ -n "$d_iso_id" ]]; then
             test_api "User2 edit user1 domain" "PUT" "/api/v1/user/domains/${d_iso_id}" "400|403|404" \
-                '{"target_port":9999}' "$group" "$USER_TOKEN2"
-            test_api "User2 delete user1 domain" "DELETE" "/api/v1/user/domains/${d_iso_id}" "400|403|404" "" "$group" "$USER_TOKEN2"
+                '{"target_port":9999}' "$instance_group" "$USER_TOKEN2"
+            test_api "User2 delete user1 domain" "DELETE" "/api/v1/user/domains/${d_iso_id}" "400|403|404" "" "$instance_group" "$USER_TOKEN2"
             # Cleanup
-            test_api "Cleanup isolation domain" "DELETE" "/api/v1/user/domains/${d_iso_id}" "200" "" "$group" "$USER_TOKEN"
+            test_api "Cleanup isolation domain" "DELETE" "/api/v1/user/domains/${d_iso_id}" "200" "" "$instance_group" "$USER_TOKEN"
         fi
     fi
 
@@ -88,6 +92,6 @@ run_module_15() {
     if [[ -n "$USER_TOKEN" ]]; then
         local long_domain; long_domain=$(printf 'a%.0s' {1..256})
         test_api "Create long domain" "POST" "/api/v1/user/domains" "400|404" \
-            "{\"instanceId\":1,\"domainName\":\"${long_domain}.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$group" "$USER_TOKEN"
+            "{\"instanceId\":99999,\"domainName\":\"${long_domain}.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$group" "$USER_TOKEN"
     fi
 }

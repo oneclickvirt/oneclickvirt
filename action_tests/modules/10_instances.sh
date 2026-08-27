@@ -74,8 +74,9 @@ run_module_10() {
 
         local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${container_image}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local ir
-        # Use single attempt — 400 validation errors are permanent and not worth retrying
-        if ! ir=$(test_api_retry "Create container instance" "POST" "/api/v1/admin/instances" "200" "$inst_data" 2 10 "$group"); then
+        # Instance creation is deliberately single-shot.  Retrying a POST after
+        # a lost response can create a second remote instance.
+        if ! ir=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200" "$inst_data" "$group"); then
             log_warning "Container instance creation returned non-200; downstream container checks will be skipped"
             ir=""
         fi
@@ -96,7 +97,7 @@ run_module_10() {
                 log_info "Task failed response: $(echo "$task_r" | jq -c '.' 2>/dev/null || printf '%s' "$task_r")"
                 if is_infrastructure_failure_detail "$task_r"; then
                     local infra_detail; infra_detail=$(echo "$task_r" | jq -c '.data.errorMessage // .message // .msg // .' 2>/dev/null || printf '%s' "$task_r")
-                    log_warning "Container creation skipped due to worker network/SSH/DNS infrastructure: ${infra_detail}"
+                    log_warning "Container creation skipped due to transient worker or PVE infrastructure: ${infra_detail}"
                     record_skip_result "Create container instance task (infrastructure)" "GET" "/api/v1/admin/tasks/${maybe_task}" "${infra_detail}" "$group"
                 else
                     local task_actual; task_actual=$(safe_jq "$task_r" '.data.status // .message // .msg // "failed"' 'failed')
@@ -362,7 +363,9 @@ run_module_10() {
 
         local vm_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
         local vr
-        if ! vr=$(test_api_retry "Create VM instance" "POST" "/api/v1/admin/instances" "200" "$vm_data" 2 15 "$group"); then
+        # Keep VM creation single-shot for the same reason as container creation:
+        # a timeout after acceptance must never trigger a duplicate POST.
+        if ! vr=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200" "$vm_data" "$group"); then
             log_warning "VM instance creation returned non-200; downstream VM checks will be skipped"
             vr=""
         fi

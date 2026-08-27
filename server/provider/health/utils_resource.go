@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -82,7 +83,7 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 	}
 
 	// 连接SSH
-	addr := fmt.Sprintf("%s:%d", localHost, localPort)
+	addr := net.JoinHostPort(utils.ExtractHost(localHost), strconv.Itoa(localPort))
 	if phc.logger != nil {
 		phc.logger.Debug("准备连接SSH获取资源信息",
 			zap.Uint("providerID", localProviderID),

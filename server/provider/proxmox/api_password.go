@@ -2,11 +2,10 @@ package proxmox
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
-	"time"
 
 	"oneclickvirt/global"
 
@@ -25,14 +24,9 @@ func (p *ProxmoxProvider) apiSetInstancePassword(ctx context.Context, instanceID
 	}
 
 	// 检查实例状态
-	var statusURL string
-	switch instanceType {
-	case "container":
-		statusURL = fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s/status/current", p.config.Host, p.node, vmid)
-	case "vm":
-		statusURL = fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/current", p.config.Host, p.node, vmid)
-	default:
-		return fmt.Errorf("未知的实例类型: %s", instanceType)
+	statusURL, err := p.apiGuestEndpoint(instanceType, vmid, "status/current")
+	if err != nil {
+		return err
 	}
 
 	statusReq, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
@@ -41,11 +35,20 @@ func (p *ProxmoxProvider) apiSetInstancePassword(ctx context.Context, instanceID
 	}
 	p.setAPIAuth(statusReq)
 
+	if p.apiClient == nil {
+		return fmt.Errorf("查询实例状态失败: PVE API客户端未初始化")
+	}
 	statusResp, err := p.apiClient.Do(statusReq)
 	if err != nil {
 		return fmt.Errorf("查询实例状态失败: %w", err)
 	}
+	if statusResp == nil || statusResp.Body == nil {
+		return fmt.Errorf("查询实例状态失败: PVE API返回空响应")
+	}
 	defer statusResp.Body.Close()
+	if statusResp.StatusCode < http.StatusOK || statusResp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("查询实例状态失败: 状态码 %d", statusResp.StatusCode)
+	}
 
 	var statusResponse map[string]interface{}
 	if err := json.NewDecoder(statusResp.Body).Decode(&statusResponse); err != nil {
@@ -74,11 +77,16 @@ func (p *ProxmoxProvider) apiSetInstancePassword(ctx context.Context, instanceID
 // apiSetContainerPassword 通过API为LXC容器设置密码
 func (p *ProxmoxProvider) apiSetContainerPassword(ctx context.Context, vmid, password string) error {
 	// 使用LXC容器的exec API执行chpasswd命令
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s/exec", p.config.Host, p.node, vmid)
+	url, err := p.apiGuestEndpoint("container", vmid, "exec")
+	if err != nil {
+		return err
+	}
 
-	// 构造执行命令的请求体
+	// PVE 的 exec API 是异步任务。通过 base64 传递完整的 root 凭据，
+	// 避免密码中的引号、空格或 shell 元字符改变命令含义。
+	credential := base64.StdEncoding.EncodeToString([]byte("root:" + password + "\n"))
 	payload := map[string]interface{}{
-		"command": fmt.Sprintf("echo 'root:%s' | chpasswd", password),
+		"command": fmt.Sprintf("printf %s | base64 -d | chpasswd", shellSingleQuote(credential)),
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -86,23 +94,8 @@ func (p *ProxmoxProvider) apiSetContainerPassword(ctx context.Context, vmid, pas
 		return fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
-	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	p.setAPIAuth(req)
-
-	resp, err := p.apiClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("执行API请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("设置容器密码失败: status %d, response: %v", resp.StatusCode, respData)
+	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodPost, url, jsonData, "设置容器密码"); err != nil {
+		return fmt.Errorf("设置容器密码失败: %w", err)
 	}
 
 	global.APP_LOG.Info("通过API成功设置容器密码", zap.String("vmid", vmid))
@@ -112,7 +105,10 @@ func (p *ProxmoxProvider) apiSetContainerPassword(ctx context.Context, vmid, pas
 // apiSetVMPassword 通过API为QEMU虚拟机设置密码
 func (p *ProxmoxProvider) apiSetVMPassword(ctx context.Context, vmid, password string) error {
 	// 使用cloud-init设置密码
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/config", p.config.Host, p.node, vmid)
+	url, err := p.apiGuestEndpoint("vm", vmid, "config")
+	if err != nil {
+		return err
+	}
 
 	// 构造cloud-init密码配置
 	payload := map[string]interface{}{
@@ -124,65 +120,19 @@ func (p *ProxmoxProvider) apiSetVMPassword(ctx context.Context, vmid, password s
 		return fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(jsonData)))
-	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	p.setAPIAuth(req)
-
-	resp, err := p.apiClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("执行API请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("设置虚拟机密码失败: status %d, response: %v", resp.StatusCode, respData)
+	if err := p.submitProxmoxConfigTaskWithRetry(ctx, url, jsonData, "设置虚拟机密码"); err != nil {
+		return fmt.Errorf("设置虚拟机密码失败: %w", err)
 	}
 
 	// 重启虚拟机以应用密码更改
-	restartURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/reboot", p.config.Host, p.node, vmid)
-	restartReq, err := http.NewRequestWithContext(ctx, "POST", restartURL, nil)
+	restartURL, err := p.apiGuestEndpoint("vm", vmid, "status/reboot")
 	if err != nil {
-		global.APP_LOG.Warn("创建重启请求失败", zap.String("vmid", vmid), zap.Error(err))
-		return nil // 密码已设置，重启失败不影响
+		return err
 	}
-	p.setAPIAuth(restartReq)
-
-	restartResp, err := p.apiClient.Do(restartReq)
-	if err != nil {
-		global.APP_LOG.Warn("重启虚拟机失败", zap.String("vmid", vmid), zap.Error(err))
-		return nil // 密码已设置，重启失败不影响
-	}
-	defer restartResp.Body.Close()
-
-	// 等待虚拟机重启完成（最多2分钟），避免任务提前完成而VM仍在重启中
-	global.APP_LOG.Debug("等待虚拟机重启完成", zap.String("vmid", vmid))
-	time.Sleep(p.waitScale(10 * time.Second))
-	statusPollURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/current", p.config.Host, p.node, vmid)
-	for i := 0; i < 22; i++ {
-		time.Sleep(p.waitScale(5 * time.Second))
-		pollReq, pollErr := http.NewRequestWithContext(ctx, "GET", statusPollURL, nil)
-		if pollErr != nil {
-			break
-		}
-		p.setAPIAuth(pollReq)
-		pollResp, pollErr := p.apiClient.Do(pollReq)
-		if pollErr != nil {
-			continue
-		}
-		var pollData map[string]interface{}
-		json.NewDecoder(pollResp.Body).Decode(&pollData)
-		pollResp.Body.Close()
-		if data, ok := pollData["data"].(map[string]interface{}); ok {
-			if status, ok := data["status"].(string); ok && status == "running" {
-				global.APP_LOG.Debug("虚拟机重启完成，已恢复运行", zap.String("vmid", vmid))
-				break
-			}
-		}
+	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodPost, restartURL, nil, "重启虚拟机"); err != nil {
+		global.APP_LOG.Warn("重启虚拟机失败，密码已写入但可能需要手动重启",
+			zap.String("vmid", vmid), zap.Error(err))
+		return nil
 	}
 
 	global.APP_LOG.Info("通过API成功设置虚拟机密码并重启", zap.String("vmid", vmid))

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"strings"
 
 	"oneclickvirt/global"
@@ -15,7 +16,7 @@ import (
 )
 
 func (l *LXDProvider) apiListInstances(ctx context.Context) ([]provider.Instance, error) {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances", l.config.Host)
+	url := l.apiEndpoint("/1.0/instances")
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -126,7 +127,7 @@ func (l *LXDProvider) apiCreateInstanceWithProgress(ctx context.Context, config 
 	}
 
 	// 发送创建请求
-	url := fmt.Sprintf("https://%s:8443/1.0/instances", l.config.Host)
+	url := l.apiEndpoint("/1.0/instances")
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
@@ -137,12 +138,8 @@ func (l *LXDProvider) apiCreateInstanceWithProgress(ctx context.Context, config 
 	if err != nil {
 		return fmt.Errorf("execute API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("failed to create instance via API [%s]: status %d, response: %v", l.formatImageContext(config, ""), resp.StatusCode, respData)
+	if err := l.waitForAPIMutation(ctx, resp, "创建实例"); err != nil {
+		return fmt.Errorf("failed to create instance via API [%s]: %w", l.formatImageContext(config, ""), err)
 	}
 
 	updateProgress(70, "启动实例...")
@@ -174,7 +171,7 @@ func (l *LXDProvider) apiCreateInstanceWithProgress(ctx context.Context, config 
 }
 
 func (l *LXDProvider) apiStartInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s/state", l.config.Host, id)
+	url := l.apiEndpoint("/1.0/instances/" + neturl.PathEscape(id) + "/state")
 	payload := map[string]interface{}{
 		"action": "start",
 	}
@@ -190,17 +187,11 @@ func (l *LXDProvider) apiStartInstance(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to start instance: %d", resp.StatusCode)
-	}
-
-	return nil
+	return l.waitForAPIMutation(ctx, resp, "启动实例")
 }
 
 func (l *LXDProvider) apiStopInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s/state", l.config.Host, id)
+	url := l.apiEndpoint("/1.0/instances/" + neturl.PathEscape(id) + "/state")
 	payload := map[string]interface{}{
 		"action": "stop",
 	}
@@ -216,17 +207,11 @@ func (l *LXDProvider) apiStopInstance(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to stop instance: %d", resp.StatusCode)
-	}
-
-	return nil
+	return l.waitForAPIMutation(ctx, resp, "停止实例")
 }
 
 func (l *LXDProvider) apiRestartInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s/state", l.config.Host, id)
+	url := l.apiEndpoint("/1.0/instances/" + neturl.PathEscape(id) + "/state")
 	payload := map[string]interface{}{
 		"action": "restart",
 	}
@@ -242,17 +227,11 @@ func (l *LXDProvider) apiRestartInstance(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to restart instance: %d", resp.StatusCode)
-	}
-
-	return nil
+	return l.waitForAPIMutation(ctx, resp, "重启实例")
 }
 
 func (l *LXDProvider) apiDeleteInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s", l.config.Host, id)
+	url := l.apiEndpoint("/1.0/instances/" + neturl.PathEscape(id))
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err
@@ -262,17 +241,11 @@ func (l *LXDProvider) apiDeleteInstance(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to delete instance: %d", resp.StatusCode)
-	}
-
-	return nil
+	return l.waitForAPIMutation(ctx, resp, "删除实例")
 }
 
 func (l *LXDProvider) apiListImages(ctx context.Context) ([]provider.Image, error) {
-	url := fmt.Sprintf("https://%s:8443/1.0/images", l.config.Host)
+	url := l.apiEndpoint("/1.0/images")
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -326,7 +299,7 @@ func (l *LXDProvider) apiPullImage(ctx context.Context, image string) error {
 		return fmt.Errorf("marshal pull config failed: %w", err)
 	}
 
-	url := fmt.Sprintf("https://%s:8443/1.0/images", l.config.Host)
+	url := l.apiEndpoint("/1.0/images")
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
@@ -337,12 +310,8 @@ func (l *LXDProvider) apiPullImage(ctx context.Context, image string) error {
 	if err != nil {
 		return fmt.Errorf("execute API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("failed to pull image via API: status %d, response: %v", resp.StatusCode, respData)
+	if err := l.waitForAPIMutation(ctx, resp, "拉取镜像"); err != nil {
+		return err
 	}
 
 	global.APP_LOG.Info("LXD API拉取镜像成功", zap.String("image", utils.TruncateString(image, 100)))
@@ -350,7 +319,7 @@ func (l *LXDProvider) apiPullImage(ctx context.Context, image string) error {
 }
 
 func (l *LXDProvider) apiDeleteImage(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/images/%s", l.config.Host, id)
+	url := l.apiEndpoint("/1.0/images/" + neturl.PathEscape(id))
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err
@@ -360,13 +329,7 @@ func (l *LXDProvider) apiDeleteImage(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to delete image: %d", resp.StatusCode)
-	}
-
-	return nil
+	return l.waitForAPIMutation(ctx, resp, "删除镜像")
 }
 
 // apiSetInstancePassword 通过API设置实例密码
@@ -375,9 +338,9 @@ func (l *LXDProvider) apiSetInstancePassword(ctx context.Context, instanceID, pa
 	// 构造执行命令的请求
 	passwordCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
 	execData := map[string]interface{}{
-		"command":     []string{"sh", "-c", passwordCmd},
-		"wait-for-ws": true,
-		"interactive": false,
+		"command":            []string{"sh", "-c", passwordCmd},
+		"wait-for-websocket": false,
+		"interactive":        false,
 	}
 
 	execDataBytes, err := json.Marshal(execData)
@@ -386,7 +349,7 @@ func (l *LXDProvider) apiSetInstancePassword(ctx context.Context, instanceID, pa
 	}
 
 	// 发送执行请求
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s/exec", l.config.Host, instanceID)
+	url := l.apiEndpoint("/1.0/instances/" + neturl.PathEscape(instanceID) + "/exec")
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(execDataBytes)))
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
@@ -398,10 +361,8 @@ func (l *LXDProvider) apiSetInstancePassword(ctx context.Context, instanceID, pa
 	if err != nil {
 		return fmt.Errorf("execute API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+	if err := l.waitForAPIMutation(ctx, resp, "设置实例密码"); err != nil {
+		return err
 	}
 
 	global.APP_LOG.Info("LXD实例密码设置成功(API)",
@@ -424,7 +385,7 @@ func (l *LXDProvider) apiSetInstanceConfig(ctx context.Context, instanceID strin
 		return fmt.Errorf("marshal config data failed: %w", err)
 	}
 
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s", l.config.Host, instanceID)
+	url := l.apiEndpoint("/1.0/instances/" + neturl.PathEscape(instanceID))
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(jsonData)))
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
@@ -435,12 +396,8 @@ func (l *LXDProvider) apiSetInstanceConfig(ctx context.Context, instanceID strin
 	if err != nil {
 		return fmt.Errorf("execute API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("failed to set instance config via API: status %d, response: %v", resp.StatusCode, respData)
+	if err := l.waitForAPIMutation(ctx, resp, "设置实例配置"); err != nil {
+		return err
 	}
 
 	global.APP_LOG.Info("LXD实例配置设置成功(API)",
@@ -454,7 +411,7 @@ func (l *LXDProvider) apiSetInstanceConfig(ctx context.Context, instanceID strin
 // apiSetInstanceDeviceConfig 通过API设置实例设备配置
 func (l *LXDProvider) apiSetInstanceDeviceConfig(ctx context.Context, instanceID string, deviceName string, key string, value string) error {
 	// 首先获取当前实例配置
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s", l.config.Host, instanceID)
+	url := l.apiEndpoint("/1.0/instances/" + neturl.PathEscape(instanceID))
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("create get request failed: %w", err)
@@ -517,12 +474,8 @@ func (l *LXDProvider) apiSetInstanceDeviceConfig(ctx context.Context, instanceID
 	if err != nil {
 		return fmt.Errorf("execute put API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("failed to set device config via API: status %d, response: %v", resp.StatusCode, respData)
+	if err := l.waitForAPIMutation(ctx, resp, "设置实例设备配置"); err != nil {
+		return err
 	}
 
 	global.APP_LOG.Info("LXD实例设备配置设置成功(API)",

@@ -51,7 +51,7 @@ func (l *LXDProvider) DiscoverInstances(ctx context.Context) ([]provider.Discove
 // apiDiscoverInstances 通过LXD API发现实例
 func (l *LXDProvider) apiDiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {
 	// 获取所有实例的详细信息
-	url := fmt.Sprintf("https://%s:8443/1.0/instances?recursion=2", l.config.Host)
+	url := l.apiEndpoint("/1.0/instances?recursion=2")
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)

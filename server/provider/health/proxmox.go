@@ -3,7 +3,9 @@ package health
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -175,7 +177,7 @@ func (p *ProxmoxHealthChecker) checkSSH(ctx context.Context) error {
 		Timeout:         p.config.Timeout,
 	}
 
-	address := fmt.Sprintf("%s:%d", p.config.Host, p.config.Port)
+	address := net.JoinHostPort(utils.ExtractHost(p.config.Host), strconv.Itoa(p.config.Port))
 	client, err := ssh.Dial("tcp", address, config)
 	if err != nil {
 		return fmt.Errorf("SSH连接失败: %w", err)
@@ -203,7 +205,7 @@ func (p *ProxmoxHealthChecker) checkSSH(ctx context.Context) error {
 // checkAPI 检查Proxmox API
 func (p *ProxmoxHealthChecker) checkAPI(ctx context.Context) error {
 	// Proxmox API标准端口是8006
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes", p.config.Host)
+	url := utils.BuildEndpointURL("https", p.config.Host, 8006, "/api2/json/nodes")
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

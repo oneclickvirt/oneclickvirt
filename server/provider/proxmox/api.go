@@ -36,6 +36,22 @@ func proxmoxAPICreateMutationError(vmid int, err error) error {
 	return &proxmoxAPICreateMayExistError{VMID: vmid, err: err}
 }
 
+// proxmoxAPICreateRequestError is used for the initial create POST.  A clear
+// client-side rejection (4xx) means PVE did not accept the mutation, so the
+// auto execution mode may still safely try the SSH implementation.  Transport
+// failures, 5xx responses, malformed success bodies, and task failures remain
+// ambiguous and are wrapped to prevent a duplicate guest.
+func proxmoxAPICreateRequestError(vmid int, err error) error {
+	if err == nil {
+		return nil
+	}
+	var responseErr *proxmoxAPIResponseError
+	if errors.As(err, &responseErr) && responseErr.StatusCode >= http.StatusBadRequest && responseErr.StatusCode < http.StatusInternalServerError {
+		return err
+	}
+	return proxmoxAPICreateMutationError(vmid, err)
+}
+
 func proxmoxAPICreateMayHaveMutated(err error) bool {
 	var mutationErr *proxmoxAPICreateMayExistError
 	return errors.As(err, &mutationErr)
@@ -53,7 +69,7 @@ func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Inst
 	var instances []provider.Instance
 
 	// 获取虚拟机列表
-	vmURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu", p.config.Host, p.node)
+	vmURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/qemu", p.node))
 	vmReq, err := http.NewRequestWithContext(ctx, "GET", vmURL, nil)
 	if err != nil {
 		return nil, err
@@ -103,7 +119,7 @@ func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Inst
 	}
 
 	// 获取容器列表
-	ctURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc", p.config.Host, p.node)
+	ctURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/lxc", p.node))
 	ctReq, err := http.NewRequestWithContext(ctx, "GET", ctURL, nil)
 	if err != nil {
 		global.APP_LOG.Warn("创建容器请求失败", zap.Error(err))
@@ -273,33 +289,12 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 		return fmt.Errorf("failed to find instance %s: %w", id, err)
 	}
 
-	// 根据实例类型构建正确的URL
-	var url string
-	switch instanceType {
-	case "vm":
-		url = fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/start", p.config.Host, p.node, vmid)
-	case "container":
-		url = fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s/status/start", p.config.Host, p.node, vmid)
-	default:
-		return fmt.Errorf("unknown instance type: %s", instanceType)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	endpoint, err := p.apiGuestEndpoint(instanceType, vmid, "status/start")
 	if err != nil {
 		return err
 	}
-
-	// 设置认证头
-	p.setAPIAuth(req)
-
-	resp, err := p.apiClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to start %s: %d", instanceType, resp.StatusCode)
+	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodPost, endpoint, nil, "启动"+instanceType); err != nil {
+		return fmt.Errorf("启动%s失败: %w", instanceType, err)
 	}
 
 	global.APP_LOG.Debug("已发送启动命令，等待实例启动",
@@ -386,48 +381,32 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 
 // apiStopInstance 通过API方式停止Proxmox实例
 func (p *ProxmoxProvider) apiStopInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/stop", p.config.Host, p.node, id)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to find instance %s: %w", id, err)
+	}
+	endpoint, err := p.apiGuestEndpoint(instanceType, vmid, "status/stop")
 	if err != nil {
 		return err
 	}
-
-	// 设置认证头
-	p.setAPIAuth(req)
-
-	resp, err := p.apiClient.Do(req)
-	if err != nil {
-		return err
+	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodPost, endpoint, nil, "停止"+instanceType); err != nil {
+		return fmt.Errorf("停止%s失败: %w", instanceType, err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to stop VM: %d", resp.StatusCode)
-	}
-
 	return nil
 }
 
 // apiRestartInstance 通过API方式重启Proxmox实例
 func (p *ProxmoxProvider) apiRestartInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/reboot", p.config.Host, p.node, id)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to find instance %s: %w", id, err)
+	}
+	endpoint, err := p.apiGuestEndpoint(instanceType, vmid, "status/reboot")
 	if err != nil {
 		return err
 	}
-
-	// 设置认证头
-	p.setAPIAuth(req)
-
-	resp, err := p.apiClient.Do(req)
-	if err != nil {
-		return err
+	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodPost, endpoint, nil, "重启"+instanceType); err != nil {
+		return fmt.Errorf("重启%s失败: %w", instanceType, err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to restart VM: %d", resp.StatusCode)
-	}
-
 	return nil
 }

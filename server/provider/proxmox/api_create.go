@@ -110,7 +110,7 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 		return err
 	}
 
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc", p.config.Host, p.node)
+	url := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/lxc", p.node))
 
 	payload := map[string]interface{}{
 		"vmid":         vmid,
@@ -131,23 +131,14 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 		return fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
+	upid, err := p.submitProxmoxAPITask(ctx, http.MethodPost, url, jsonData)
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return proxmoxAPICreateRequestError(vmid, fmt.Errorf("执行创建容器API请求失败: %w", err))
 	}
-	req.Header.Set("Content-Type", "application/json")
-	p.setAPIAuth(req)
-
-	resp, err := p.apiClient.Do(req)
-	if err != nil {
-		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("执行创建容器API请求失败: %w", err))
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("创建容器失败: status %d, response: %v", resp.StatusCode, respData))
+	if upid != "" {
+		if err := p.waitForProxmoxAPITask(ctx, upid, "创建容器"); err != nil {
+			return proxmoxAPICreateMutationError(vmid, err)
+		}
 	}
 
 	updateProgress(70, "配置容器网络...")
@@ -155,7 +146,7 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 	// 解析网络配置获取带宽限制
 	// 配置网络（使用VMID到IP的映射函数，包含带宽限制）
 	userIP := p.vmidToInternalIP(vmid)
-	netConfigURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%d/config", p.config.Host, p.node, vmid)
+	netConfigURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/lxc/%d/config", p.node, vmid))
 
 	// 构建网络配置字符串，包含 rate 参数
 	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=%s,gw=%s", userIP, p.getBridgeName("nat"), p.getInternalGateway())
@@ -176,22 +167,8 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 	if err != nil {
 		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("序列化容器网络配置失败: %w", err))
 	}
-	netReq, err := http.NewRequestWithContext(ctx, "PUT", netConfigURL, strings.NewReader(string(netJsonData)))
-	if err != nil {
-		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("创建容器网络配置请求失败: %w", err))
-	}
-	netReq.Header.Set("Content-Type", "application/json")
-	p.setAPIAuth(netReq)
-
-	netResp, err := p.apiClient.Do(netReq)
-	if err != nil {
+	if err := p.submitProxmoxConfigTaskWithRetry(ctx, netConfigURL, netJsonData, "配置容器网络"); err != nil {
 		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置容器网络失败: %w", err))
-	}
-	defer netResp.Body.Close()
-	if netResp.StatusCode != http.StatusOK {
-		var respData map[string]interface{}
-		json.NewDecoder(netResp.Body).Decode(&respData)
-		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置容器网络失败: status %d, response: %v", netResp.StatusCode, respData))
 	}
 
 	updateProgress(80, "启动容器...")
@@ -313,7 +290,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	}
 
 	// 通过API创建虚拟机
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu", p.config.Host, p.node)
+	url := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/qemu", p.node))
 
 	// 根据 PVE 版本决定是否使用 fstrim_cloned_disks 参数
 	agentParam := "1"
@@ -355,23 +332,14 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		return fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
+	upid, err := p.submitProxmoxAPITask(ctx, http.MethodPost, url, jsonData)
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return proxmoxAPICreateRequestError(vmid, fmt.Errorf("执行创建虚拟机API请求失败: %w", err))
 	}
-	req.Header.Set("Content-Type", "application/json")
-	p.setAPIAuth(req)
-
-	resp, err := p.apiClient.Do(req)
-	if err != nil {
-		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("执行创建虚拟机API请求失败: %w", err))
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("创建虚拟机失败: status %d, response: %v", resp.StatusCode, respData))
+	if upid != "" {
+		if err := p.waitForProxmoxAPITask(ctx, upid, "创建虚拟机"); err != nil {
+			return proxmoxAPICreateMutationError(vmid, err)
+		}
 	}
 
 	updateProgress(60, "导入磁盘镜像...")
