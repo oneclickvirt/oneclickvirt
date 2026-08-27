@@ -48,7 +48,7 @@ func (i *IncusProvider) DiscoverInstances(ctx context.Context) ([]provider.Disco
 
 // apiDiscoverInstances 通过Incus API发现实例
 func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances?recursion=2", i.config.Host)
+	url := i.apiEndpoint("/1.0/instances?recursion=2")
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)

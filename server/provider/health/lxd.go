@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -175,7 +177,7 @@ func (l *LXDHealthChecker) checkSSH(ctx context.Context) error {
 		Timeout:         l.config.Timeout,
 	}
 
-	address := fmt.Sprintf("%s:%d", l.config.Host, l.config.Port)
+	address := net.JoinHostPort(utils.ExtractHost(l.config.Host), strconv.Itoa(l.config.Port))
 	client, err := ssh.Dial("tcp", address, config)
 	if err != nil {
 		return fmt.Errorf("SSH连接失败: %w", err)
@@ -203,7 +205,7 @@ func (l *LXDHealthChecker) checkSSH(ctx context.Context) error {
 // checkAPI 检查LXD API
 func (l *LXDHealthChecker) checkAPI(ctx context.Context) error {
 	// LXD API标准端口是8443
-	url := fmt.Sprintf("https://%s:8443/1.0/instances", l.config.Host)
+	url := utils.BuildEndpointURL("https", l.config.Host, 8443, "/1.0/instances")
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

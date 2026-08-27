@@ -199,6 +199,21 @@ ENV_TYPE=incus
 if is_infrastructure_failure_detail '等待实例可执行命令超时 (30秒)'; then
     fail "generic or short instance timeout must remain a product failure"
 fi
+pve_lock_timeout="Provider创建实例失败: 配置容器网络失败: status 500, response: can't lock file '/run/lock/lxc/pve-config-100.lock' - got timeout"
+is_infrastructure_failure_detail "$pve_lock_timeout" ||
+    fail "transient PVE config lock timeout should be classified as infrastructure"
+pve_qemu_lock_timeout="Provider创建实例失败: 配置虚拟机网络失败: can't lock file '/var/lock/qemu-server/lock-100.conf' - got timeout"
+is_infrastructure_failure_detail "$pve_qemu_lock_timeout" ||
+    fail "transient PVE QEMU lock timeout should be classified as infrastructure"
+if is_infrastructure_failure_detail "can't lock file '/var/lock/qemu-server/lock-100.conf': permission denied"; then
+    fail "permanent PVE lock permission errors must remain product failures"
+fi
+if is_infrastructure_failure_detail "another-component lock file '/var/lib/other/resource.lock' - got timeout"; then
+    fail "unrelated lock timeouts must remain product failures"
+fi
+if is_infrastructure_failure_detail "PVE API returned a permanent validation error"; then
+    fail "permanent PVE validation errors must remain product failures"
+fi
 mark_vm_runtime_infrastructure_unavailable "$vm_agent_timeout"
 if env_supports_vm; then
     fail "VM runtime circuit breaker did not disable subsequent VM tests"
@@ -236,6 +251,50 @@ grep -Fq 'configure_action_test_resources_for_env "$ENV_TYPE"' "$NETWORK_MODE_TE
 INTEGRATION_WORKFLOW="${ROOT_DIR}/.github/workflows/integration-tests.yml"
 grep -Fq 'bash scripts/tests/action_harness_classification_test.sh' "$INTEGRATION_WORKFLOW" ||
     fail "the harness regression test is not enforced by the integration workflow"
+PORT_MAPPING_MODULE="${ROOT_DIR}/action_tests/modules/13_port_mappings.sh"
+DOMAIN_MODULE="${ROOT_DIR}/action_tests/modules/15_domains.sh"
+CHECKIN_MODULE="${ROOT_DIR}/action_tests/modules/22_checkin.sh"
+INSTANCE_MODULE="${ROOT_DIR}/action_tests/modules/10_instances.sh"
+! grep -Fq 'TEST_INSTANCE_ID:-1' "$PORT_MAPPING_MODULE" || fail "port mapping module still fabricates instance ID 1"
+! grep -Fq 'TEST_INSTANCE_ID:-1' "$DOMAIN_MODULE" || fail "domain module still fabricates instance ID 1"
+! grep -Eq 'instanceId[^0-9]*1([^0-9]|$)' "$CHECKIN_MODULE" || fail "checkin module still uses a fabricated instance ID 1"
+grep -Fq 'require_test_instance "$instance_group"' "$PORT_MAPPING_MODULE" || fail "port mapping instance prerequisite guard missing"
+grep -Fq 'require_test_instance "$instance_group"' "$DOMAIN_MODULE" || fail "domain instance prerequisite guard missing"
+! grep -Fq 'test_api_retry "Create container instance"' "$INSTANCE_MODULE" || fail "container creation still retries a non-idempotent POST"
+! grep -Fq 'test_api_retry "Create VM instance"' "$INSTANCE_MODULE" || fail "VM creation still retries a non-idempotent POST"
+grep -Fq 'pve-config-' "${ROOT_DIR}/action_tests/common/test_framework.sh" || fail "PVE lock classification is missing"
+
+# Static audit regression: single-shot instance creation is safe, while a
+# retry wrapper around the non-idempotent POST must be rejected.
+python3 - "${ROOT_DIR}/action_tests/static_audit.py" <<'PY' || fail "static audit retry hygiene regression"
+import importlib.util
+import pathlib
+import sys
+import tempfile
+
+audit_path = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("static_audit", audit_path)
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = pathlib.Path(tmp)
+    modules = root / "action_tests" / "modules"
+    modules.mkdir(parents=True)
+    (modules / "safe.sh").write_text(
+        'test_api "Create container instance" "POST" "/api/v1/admin/instances" "200" "{}"\n',
+        encoding="utf-8",
+    )
+    (modules / "unsafe.sh").write_text(
+        'test_api_retry "Create VM instance" "POST" "/api/v1/admin/instances" "200" "{}"\n',
+        encoding="utf-8",
+    )
+    findings = module.audit_retry_hygiene(root)
+    if len(findings) != 1 or findings[0].kind != "non-idempotent-create-retry":
+        raise SystemExit(f"unexpected retry findings: {findings!r}")
+PY
 
 RESULTS_FILE=$(mktemp)
 init_results_file "$RESULTS_FILE"

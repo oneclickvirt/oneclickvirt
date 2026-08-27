@@ -89,7 +89,7 @@ func (p *ProxmoxProvider) DiscoverInstances(ctx context.Context) ([]provider.Dis
 // response is returned as an error instead of being mistaken for an empty
 // clean node.
 func (p *ProxmoxProvider) apiDiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {
-	resourcesURL := fmt.Sprintf("https://%s:8006/api2/json/cluster/resources?type=vm", p.config.Host)
+	resourcesURL := p.apiEndpoint("/api2/json/cluster/resources?type=vm")
 	resp, err := p.makeAPIRequest(ctx, http.MethodGet, resourcesURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("获取Proxmox集群实例失败: %w", err)
@@ -219,11 +219,10 @@ func (p *ProxmoxProvider) fetchAPIResourceDescriptionsBatch(
 	if err != nil {
 		return nil, indexes, fmt.Errorf("编码Proxmox批量元数据请求失败: %w", err)
 	}
-	executeURL := fmt.Sprintf(
-		"https://%s:8006/api2/json/nodes/%s/execute",
-		p.config.Host,
+	executeURL := p.apiEndpoint(fmt.Sprintf(
+		"/api2/json/nodes/%s/execute",
 		url.PathEscape(strings.TrimSpace(node)),
-	)
+	))
 	response, err := p.makeAPIRequest(ctx, http.MethodPost, executeURL, body)
 	if err != nil {
 		return nil, indexes, err
@@ -299,13 +298,12 @@ func (p *ProxmoxProvider) fetchAPIResourceDescription(ctx context.Context, resou
 	if err != nil {
 		return "", err
 	}
-	configURL := fmt.Sprintf(
-		"https://%s:8006/api2/json/nodes/%s/%s/%d/config",
-		p.config.Host,
+	configURL := p.apiEndpoint(fmt.Sprintf(
+		"/api2/json/nodes/%s/%s/%d/config",
 		url.PathEscape(strings.TrimSpace(resource.Node)),
 		kind,
 		resource.VMID,
-	)
+	))
 	response, err := p.makeAPIRequest(ctx, http.MethodGet, configURL, nil)
 	if err != nil {
 		return "", err

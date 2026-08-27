@@ -291,7 +291,7 @@ is_infrastructure_failure_detail() {
         return 0
     fi
     printf '%s' "$detail" | grep -Eiq \
-        'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|process exited with status 6|远程下载.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|remote download.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|下载.*镜像失败: 远程下载|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
+        'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|(can.t|cannot) lock file .*((pve-config-[0-9]+\.lock)|(qemu-server/lock-[0-9]+\.conf)).*(timeout|timed out)|远程下载.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|remote download.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|下载.*镜像失败: 远程下载|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
 }
 
 is_vm_runtime_infrastructure_failure_detail() {
@@ -1685,6 +1685,24 @@ ensure_test_instance_available() {
         TEST_INSTANCE_ID=""
         export TEST_INSTANCE_ID
     fi
+    return 1
+}
+
+require_test_instance() {
+    local group="$1" label="${2:-instance-dependent test}" token="${3:-$ADMIN_TOKEN}"
+    local instance_id="${TEST_INSTANCE_ID:-}"
+    if [[ -z "$instance_id" ]]; then
+        chain_break "$group" "${label} requires an instance created by module 10"
+        record_skip_result "$label" "HARNESS" "TEST_INSTANCE_ID" \
+            "module 10 did not create a usable instance; dependent checks are skipped" "$group"
+        return 1
+    fi
+    if ensure_test_instance_available "$token" "$instance_id" "$label"; then
+        return 0
+    fi
+    chain_break "$group" "${label} requires a currently available instance"
+    record_skip_result "$label" "HARNESS" "/api/v1/admin/instances/${instance_id}" \
+        "the instance created by module 10 is no longer available; dependent checks are skipped" "$group"
     return 1
 }
 

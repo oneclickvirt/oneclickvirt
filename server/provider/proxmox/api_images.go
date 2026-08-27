@@ -11,7 +11,7 @@ import (
 
 // apiListImages 通过API方式获取Proxmox镜像列表
 func (p *ProxmoxProvider) apiListImages(ctx context.Context) ([]provider.Image, error) {
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/storage/local/content", p.config.Host, p.node)
+	url := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/storage/local/content", p.node))
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func (p *ProxmoxProvider) apiPullImage(ctx context.Context, image string) error 
 
 // apiDeleteImage 通过API方式删除Proxmox镜像
 func (p *ProxmoxProvider) apiDeleteImage(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/storage/local/content/%s", p.config.Host, p.node, id)
+	url := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/storage/local/content/%s", p.node, id))
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err

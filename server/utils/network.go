@@ -74,6 +74,29 @@ func ExtractIPFromEndpoint(endpoint string) string {
 	return host
 }
 
+// BuildEndpointURL builds an HTTP(S) URL with a correctly bracketed host.
+// Provider endpoints are commonly stored as bare IPv6 addresses; formatting
+// them with "%s:%d" produces an invalid URL, so always route the host through
+// net.JoinHostPort.  Any port embedded in endpoint is intentionally ignored:
+// callers pass the protocol's API port explicitly, while ParseEndpoint still
+// supplies the normalized host for IPv4, DNS names, bracketed IPv6, and URL
+// forms.
+func BuildEndpointURL(scheme, endpoint string, port int, path string) string {
+	host := ExtractHost(endpoint)
+	if host == "" || port <= 0 || port > 65535 {
+		return ""
+	}
+	scheme = strings.TrimSpace(strings.TrimSuffix(scheme, "://"))
+	if scheme == "" {
+		scheme = "http"
+	}
+	path = strings.TrimSpace(path)
+	if path != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port)) + path
+}
+
 // ValidatePortRange 验证端口范围的合法性（全局统一函数）
 func ValidatePortRange(startPort, portCount int) error {
 	if startPort < 1 || startPort > 65535 {

@@ -518,7 +518,7 @@ jobs:
             if [[ "${TEST_EXIT}" == "75" ]]; then
               _skip_reason="temporary infrastructure/runtime prerequisite failure (EX_TEMPFAIL=75)"
             else
-              _skip_reason="infrastructure failure (harness exited with code ${TEST_EXIT})"
+              _skip_reason="harness exited with code ${TEST_EXIT}"
             fi
             echo "::warning::Integration harness exited non-zero: ${_skip_reason}. Aggregating any JSONL results that were produced."
           fi
@@ -690,7 +690,7 @@ jobs:
           fi
 
           if [[ "${HARNESS_NONZERO}" == "true" ]]; then
-            echo "::warning::Integration harness exited with ${TEST_EXIT} after writing ${total} result(s): ${_skip_reason}. JSONL results were still aggregated above."
+            echo "::warning::Integration harness exited with ${TEST_EXIT} after writing ${total} result(s): ${_skip_reason}. JSONL assertion status above remains authoritative."
           fi
 
       - name: Show integration log on failure

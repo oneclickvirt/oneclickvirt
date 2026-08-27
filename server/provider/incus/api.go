@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"strings"
 
 	"oneclickvirt/global"
@@ -15,7 +16,7 @@ import (
 )
 
 func (i *IncusProvider) apiListInstances(ctx context.Context) ([]provider.Instance, error) {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances?recursion=1", i.config.Host)
+	url := i.apiEndpoint("/1.0/instances?recursion=1")
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -267,7 +268,7 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 	}
 
 	// 发送创建请求
-	url := fmt.Sprintf("https://%s:8443/1.0/instances", i.config.Host)
+	url := i.apiEndpoint("/1.0/instances")
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
@@ -278,12 +279,8 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 	if err != nil {
 		return fmt.Errorf("execute API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("failed to create instance via API [%s]: status %d, response: %v", i.formatImageContext(config, ""), resp.StatusCode, respData)
+	if err := i.waitForAPIMutation(ctx, resp, "创建实例"); err != nil {
+		return fmt.Errorf("failed to create instance via API [%s]: %w", i.formatImageContext(config, ""), err)
 	}
 
 	updateProgress(70, "启动实例...")
@@ -315,7 +312,7 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 }
 
 func (i *IncusProvider) apiStartInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s/state", i.config.Host, id)
+	url := i.apiEndpoint("/1.0/instances/" + neturl.PathEscape(id) + "/state")
 	payload := map[string]interface{}{
 		"action": "start",
 	}
@@ -331,17 +328,11 @@ func (i *IncusProvider) apiStartInstance(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to start instance: %d", resp.StatusCode)
-	}
-
-	return nil
+	return i.waitForAPIMutation(ctx, resp, "启动实例")
 }
 
 func (i *IncusProvider) apiStopInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s/state", i.config.Host, id)
+	url := i.apiEndpoint("/1.0/instances/" + neturl.PathEscape(id) + "/state")
 	payload := map[string]interface{}{
 		"action": "stop",
 	}
@@ -357,17 +348,11 @@ func (i *IncusProvider) apiStopInstance(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to stop instance: %d", resp.StatusCode)
-	}
-
-	return nil
+	return i.waitForAPIMutation(ctx, resp, "停止实例")
 }
 
 func (i *IncusProvider) apiRestartInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s/state", i.config.Host, id)
+	url := i.apiEndpoint("/1.0/instances/" + neturl.PathEscape(id) + "/state")
 	payload := map[string]interface{}{
 		"action": "restart",
 	}
@@ -383,17 +368,11 @@ func (i *IncusProvider) apiRestartInstance(ctx context.Context, id string) error
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to restart instance: %d", resp.StatusCode)
-	}
-
-	return nil
+	return i.waitForAPIMutation(ctx, resp, "重启实例")
 }
 
 func (i *IncusProvider) apiDeleteInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s", i.config.Host, id)
+	url := i.apiEndpoint("/1.0/instances/" + neturl.PathEscape(id))
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err
@@ -403,17 +382,11 @@ func (i *IncusProvider) apiDeleteInstance(ctx context.Context, id string) error 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to delete instance: %d", resp.StatusCode)
-	}
-
-	return nil
+	return i.waitForAPIMutation(ctx, resp, "删除实例")
 }
 
 func (i *IncusProvider) apiListImages(ctx context.Context) ([]provider.Image, error) {
-	url := fmt.Sprintf("https://%s:8443/1.0/images", i.config.Host)
+	url := i.apiEndpoint("/1.0/images")
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -467,7 +440,7 @@ func (i *IncusProvider) apiPullImage(ctx context.Context, image string) error {
 		return fmt.Errorf("marshal pull config failed: %w", err)
 	}
 
-	url := fmt.Sprintf("https://%s:8443/1.0/images", i.config.Host)
+	url := i.apiEndpoint("/1.0/images")
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
@@ -478,12 +451,8 @@ func (i *IncusProvider) apiPullImage(ctx context.Context, image string) error {
 	if err != nil {
 		return fmt.Errorf("execute API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("failed to pull image via API: status %d, response: %v", resp.StatusCode, respData)
+	if err := i.waitForAPIMutation(ctx, resp, "拉取镜像"); err != nil {
+		return err
 	}
 
 	global.APP_LOG.Info("Incus API拉取镜像成功", zap.String("image", utils.TruncateString(image, 100)))
@@ -491,7 +460,7 @@ func (i *IncusProvider) apiPullImage(ctx context.Context, image string) error {
 }
 
 func (i *IncusProvider) apiDeleteImage(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8443/1.0/images/%s", i.config.Host, id)
+	url := i.apiEndpoint("/1.0/images/" + neturl.PathEscape(id))
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err
@@ -501,13 +470,7 @@ func (i *IncusProvider) apiDeleteImage(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("failed to delete image: %d", resp.StatusCode)
-	}
-
-	return nil
+	return i.waitForAPIMutation(ctx, resp, "删除镜像")
 }
 
 // apiSetInstancePassword 通过API设置实例密码
@@ -516,9 +479,9 @@ func (i *IncusProvider) apiSetInstancePassword(ctx context.Context, instanceID, 
 	// 构造执行命令的请求
 	passwordCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
 	execData := map[string]interface{}{
-		"command":     []string{"sh", "-c", passwordCmd},
-		"wait-for-ws": true,
-		"interactive": false,
+		"command":            []string{"sh", "-c", passwordCmd},
+		"wait-for-websocket": false,
+		"interactive":        false,
 	}
 
 	execDataBytes, err := json.Marshal(execData)
@@ -527,7 +490,7 @@ func (i *IncusProvider) apiSetInstancePassword(ctx context.Context, instanceID, 
 	}
 
 	// 发送执行请求
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s/exec", i.config.Host, instanceID)
+	url := i.apiEndpoint("/1.0/instances/" + neturl.PathEscape(instanceID) + "/exec")
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(execDataBytes)))
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
@@ -539,10 +502,8 @@ func (i *IncusProvider) apiSetInstancePassword(ctx context.Context, instanceID, 
 	if err != nil {
 		return fmt.Errorf("execute API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+	if err := i.waitForAPIMutation(ctx, resp, "设置实例密码"); err != nil {
+		return err
 	}
 
 	global.APP_LOG.Info("Incus实例密码设置成功(API)",
@@ -565,7 +526,7 @@ func (i *IncusProvider) apiSetInstanceConfig(ctx context.Context, instanceID str
 		return fmt.Errorf("marshal config data failed: %w", err)
 	}
 
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s", i.config.Host, instanceID)
+	url := i.apiEndpoint("/1.0/instances/" + neturl.PathEscape(instanceID))
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(jsonData)))
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
@@ -576,12 +537,8 @@ func (i *IncusProvider) apiSetInstanceConfig(ctx context.Context, instanceID str
 	if err != nil {
 		return fmt.Errorf("execute API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("failed to set instance config via API: status %d, response: %v", resp.StatusCode, respData)
+	if err := i.waitForAPIMutation(ctx, resp, "设置实例配置"); err != nil {
+		return err
 	}
 
 	global.APP_LOG.Info("Incus实例配置设置成功(API)",
@@ -595,7 +552,7 @@ func (i *IncusProvider) apiSetInstanceConfig(ctx context.Context, instanceID str
 // apiSetInstanceDeviceConfig 通过API设置实例设备配置
 func (i *IncusProvider) apiSetInstanceDeviceConfig(ctx context.Context, instanceID string, deviceName string, key string, value string) error {
 	// 首先获取当前实例配置
-	url := fmt.Sprintf("https://%s:8443/1.0/instances/%s", i.config.Host, instanceID)
+	url := i.apiEndpoint("/1.0/instances/" + neturl.PathEscape(instanceID))
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("create get request failed: %w", err)
@@ -658,12 +615,8 @@ func (i *IncusProvider) apiSetInstanceDeviceConfig(ctx context.Context, instance
 	if err != nil {
 		return fmt.Errorf("execute put API request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		var respData map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&respData)
-		return fmt.Errorf("failed to set device config via API: status %d, response: %v", resp.StatusCode, respData)
+	if err := i.waitForAPIMutation(ctx, resp, "设置实例设备配置"); err != nil {
+		return err
 	}
 
 	global.APP_LOG.Info("Incus实例设备配置设置成功(API)",

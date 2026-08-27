@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -175,7 +177,7 @@ func (i *IncusHealthChecker) checkSSH(ctx context.Context) error {
 		Timeout:         i.config.Timeout,
 	}
 
-	address := fmt.Sprintf("%s:%d", i.config.Host, i.config.Port)
+	address := net.JoinHostPort(utils.ExtractHost(i.config.Host), strconv.Itoa(i.config.Port))
 	client, err := ssh.Dial("tcp", address, config)
 	if err != nil {
 		return fmt.Errorf("SSH连接失败: %w", err)
@@ -203,7 +205,7 @@ func (i *IncusHealthChecker) checkSSH(ctx context.Context) error {
 // checkAPI 检查Incus API
 func (i *IncusHealthChecker) checkAPI(ctx context.Context) error {
 	// Incus API标准端口是8443
-	url := fmt.Sprintf("https://%s:8443/1.0/instances", i.config.Host)
+	url := utils.BuildEndpointURL("https", i.config.Host, 8443, "/1.0/instances")
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

@@ -5,6 +5,7 @@
 run_module_13() {
     report_add_section "13 - Port Mappings"
     local group="port_mappings"
+    local instance_group="port_mappings_instance"
 
     if [[ -z "$PROVIDER_ID" ]]; then
         chain_break "$group" "No provider"
@@ -14,32 +15,11 @@ run_module_13() {
     # -- Admin port mapping list --
     test_api "Port mapping list" "GET" "/api/v1/admin/port-mappings?page=1&pageSize=10" "200" "" "$group"
 
-    local inst_for_pm="${TEST_INSTANCE_ID:-1}"
-
     # -- Check port availability --
     test_api "Check port (available)" "POST" "/api/v1/admin/ports/check" "200" \
         "{\"providerId\":${PROVIDER_ID},\"hostPort\":25000,\"portCount\":1,\"protocol\":\"tcp\"}" "$group"
-
-    # -- Create port mapping (requires instance; accept 400 if no instances exist) --
-    local pm; pm=$(test_api "Create port mapping" "POST" "/api/v1/admin/port-mappings" "200|400" \
-        "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$group")
-    local pm_id; pm_id=$(echo "$pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
-
-    # -- Create port mapping with mappingType=node (explicit) --
-    test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "200|400" \
-        "{\"instanceId\":${inst_for_pm},\"guestPort\":8080,\"protocol\":\"tcp\",\"hostPort\":25080,\"mappingType\":\"node\"}" "$group"
-
-    # -- Create port mapping with mappingType=controller --
-    local ctrl_pm; ctrl_pm=$(test_api "Create port mapping (controller type)" "POST" "/api/v1/admin/port-mappings" "200|400|500" \
-        "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group")
-    local ctrl_pm_id; ctrl_pm_id=$(echo "$ctrl_pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
-
     test_api "Check controller TCP port" "POST" "/api/v1/admin/ports/check" "200" \
         "{\"providerId\":${PROVIDER_ID},\"hostPort\":25222,\"portCount\":1,\"protocol\":\"tcp\",\"mappingType\":\"controller\"}" "$group"
-    test_api "Controller mapping rejects UDP" "POST" "/api/v1/admin/port-mappings" "400" \
-        "{\"instanceId\":${inst_for_pm},\"guestPort\":53,\"protocol\":\"udp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group"
-    test_api "Controller mapping rejects port range" "POST" "/api/v1/admin/port-mappings" "400" \
-        "{\"instanceId\":${inst_for_pm},\"guestPort\":8000,\"portCount\":2,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group"
 
     # -- Verify mappingType field in list response --
     local pm_list; pm_list=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
@@ -51,8 +31,30 @@ run_module_13() {
         log_warning "mappingType field missing from port mapping list (may be empty list)"
     fi
 
-    # -- no_port_mapping networkType: node-side mapping must be rejected --
-    if [[ -n "$PROVIDER_ID" ]]; then
+    local inst_for_pm="" pm_id="" ctrl_pm_id=""
+    if require_test_instance "$instance_group" "Port mapping instance-dependent tests" "$ADMIN_TOKEN"; then
+        inst_for_pm="$TEST_INSTANCE_ID"
+
+        # -- Create port mapping --
+        local pm; pm=$(test_api "Create port mapping" "POST" "/api/v1/admin/port-mappings" "200|400" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$instance_group")
+        pm_id=$(echo "$pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
+
+        # -- Create port mapping with mappingType=node (explicit) --
+        test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "200|400" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":8080,\"protocol\":\"tcp\",\"hostPort\":25080,\"mappingType\":\"node\"}" "$instance_group"
+
+        # -- Create port mapping with mappingType=controller --
+        local ctrl_pm; ctrl_pm=$(test_api "Create port mapping (controller type)" "POST" "/api/v1/admin/port-mappings" "200|400|500" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$instance_group")
+        ctrl_pm_id=$(echo "$ctrl_pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
+
+        test_api "Controller mapping rejects UDP" "POST" "/api/v1/admin/port-mappings" "400" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":53,\"protocol\":\"udp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$instance_group"
+        test_api "Controller mapping rejects port range" "POST" "/api/v1/admin/port-mappings" "400" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":8000,\"portCount\":2,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$instance_group"
+
+        # -- no_port_mapping networkType: node-side mapping must be rejected --
         local expected_controller_host
         expected_controller_host=$(echo "$SERVER_URL" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##; s#:[0-9]+$##')
 
@@ -63,14 +65,14 @@ run_module_13() {
             "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}/port-config" >/dev/null 2>&1 || true
 
         test_api "no_port_mapping blocks node mapping" "POST" "/api/v1/admin/port-mappings" "400" \
-            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25100,\"mappingType\":\"node\"}" "$group"
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25100,\"mappingType\":\"node\"}" "$instance_group"
 
         # controller mode should still be accepted (or 400 if controller func not initialized)
         test_api "no_port_mapping allows controller mapping" "POST" "/api/v1/admin/port-mappings" "200|400|500" \
-            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group"
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$instance_group"
 
         # user-side display should expose controller host in tunnel mode (when user can access the instance)
-        if [[ -n "$USER_TOKEN" && -n "$inst_for_pm" ]]; then
+        if [[ -n "$USER_TOKEN" ]]; then
             local user_ports_resp
             user_ports_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${USER_TOKEN}" \
                 "${SERVER_URL}/api/v1/user/instances/${inst_for_pm}/ports" 2>/dev/null)
@@ -106,20 +108,19 @@ run_module_13() {
             -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" \
             -d '{"portRangeStart":20000,"portRangeEnd":30000,"defaultPortCount":10,"networkType":"nat_ipv4"}' \
             "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}/port-config" >/dev/null 2>&1 || true
+
+        # -- Create duplicate port --
+        test_api "Create duplicate port" "POST" "/api/v1/admin/port-mappings" "400|409" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$instance_group"
+
+        # -- Create with invalid port --
+        test_api "Create invalid port (0)" "POST" "/api/v1/admin/port-mappings" "400" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":0,\"protocol\":\"tcp\"}" "$instance_group"
+        test_api "Create port (out of range)" "POST" "/api/v1/admin/port-mappings" "400" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":70000,\"protocol\":\"tcp\",\"hostPort\":70001}" "$instance_group"
+        test_api "Create port (negative)" "POST" "/api/v1/admin/port-mappings" "400" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":-1,\"protocol\":\"tcp\",\"hostPort\":-1}" "$instance_group"
     fi
-
-    # -- Delete controller port mapping if created --
-    if [[ -n "$ctrl_pm_id" ]]; then
-        test_api "Delete controller port mapping" "DELETE" "/api/v1/admin/port-mappings/${ctrl_pm_id}" "200" "" "$group"
-    fi
-
-    # -- Create duplicate port --
-    test_api "Create duplicate port" "POST" "/api/v1/admin/port-mappings" "400|409" \
-        "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$group"
-
-    # -- Create with invalid port --
-    test_api "Create invalid port (0)" "POST" "/api/v1/admin/port-mappings" "400" \
-        "{\"instanceId\":${inst_for_pm},\"guestPort\":0,\"protocol\":\"tcp\"}" "$group"
 
     # -- Sync port mappings --
     local sync_resp="" sync_payload='{"dryRun":true}'
@@ -154,9 +155,14 @@ run_module_13() {
         test_api "User port mappings" "GET" "/api/v1/user/port-mappings" "200" "" "$group" "$USER_TOKEN"
     fi
 
+    # -- Delete controller port mapping if created --
+    if [[ -n "$ctrl_pm_id" ]]; then
+        test_api "Delete controller port mapping" "DELETE" "/api/v1/admin/port-mappings/${ctrl_pm_id}" "200" "" "$instance_group"
+    fi
+
     # -- Delete single --
     if [[ -n "$pm_id" ]]; then
-        test_api "Delete port mapping" "DELETE" "/api/v1/admin/port-mappings/${pm_id}" "200" "" "$group"
+        test_api "Delete port mapping" "DELETE" "/api/v1/admin/port-mappings/${pm_id}" "200" "" "$instance_group"
     fi
 
     # -- Delete nonexistent --
@@ -170,14 +176,6 @@ run_module_13() {
         test_api "Batch delete mappings" "POST" "/api/v1/admin/port-mappings/batch-delete" "200" \
             "{\"ids\":${batch_ids}}" "$group"
     fi
-
-    # -- Negative: Create with port out of range --
-    test_api "Create port (out of range)" "POST" "/api/v1/admin/port-mappings" "400" \
-        "{\"instanceId\":${inst_for_pm},\"guestPort\":70000,\"protocol\":\"tcp\",\"hostPort\":70001}" "$group"
-
-    # -- Negative: Create with negative port --
-    test_api "Create port (negative)" "POST" "/api/v1/admin/port-mappings" "400" \
-        "{\"instanceId\":${inst_for_pm},\"guestPort\":-1,\"protocol\":\"tcp\",\"hostPort\":-1}" "$group"
 
     # -- Negative: Check port with invalid protocol --
     test_api "Check port (invalid proto)" "POST" "/api/v1/admin/ports/check" "400" \
@@ -198,7 +196,7 @@ run_module_13() {
     # -- Negative: User cannot manage port mappings --
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "User -> create mapping (403)" "POST" "/api/v1/admin/port-mappings" "401|403" \
-            '{"instanceId":1,"guestPort":22,"protocol":"tcp","hostPort":25001}' "$group" "$USER_TOKEN"
+            '{"instanceId":99999,"guestPort":22,"protocol":"tcp","hostPort":25001}' "$group" "$USER_TOKEN"
         test_api "User -> repair mappings (403)" "POST" "/api/v1/admin/port-mappings/repair" "401|403" \
             '{"dryRun":true}' "$group" "$USER_TOKEN"
     fi
