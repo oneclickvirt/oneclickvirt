@@ -61,6 +61,45 @@ func TestIsPublicIPv6RejectsNonRoutableAllocationSources(t *testing.T) {
 	}
 }
 
+func TestSelectPublicIPv6InterfaceNetworkKeepsBridgeAndPrefixTogether(t *testing.T) {
+	output := "2: vmbr0    inet6 2a14:7c0:1002:10f8::1/128 scope global\n" +
+		"4: vmbr2    inet6 2a14:7c0:1002:10f8::1/38 scope global\n" +
+		"5: eth0     inet6 fd42::1/64 scope global\n"
+	selected, err := SelectPublicIPv6InterfaceNetwork(output, "vmbr0", true)
+	if err != nil {
+		t.Fatalf("SelectPublicIPv6InterfaceNetwork() error = %v", err)
+	}
+	if selected.Interface != "vmbr2" || selected.Network.Address.String() != "2a14:7c0:1002:10f8::1" || selected.Network.PrefixLen != 38 {
+		t.Fatalf("selected = %#v, want delegated vmbr2 /38", selected)
+	}
+}
+
+func TestSelectPublicIPv6InterfaceNetworkUsesRouteAndTunnelTieBreakers(t *testing.T) {
+	output := "2: eth0     inet6 2606:4700::10/64 scope global dynamic\n" +
+		"5: he-ipv6  inet6 2001:470:1f14:9::2/64 scope global\n"
+
+	selected, err := SelectPublicIPv6InterfaceNetwork(output, "eth0", true)
+	if err != nil || selected.Interface != "eth0" {
+		t.Fatalf("default-route selection = %#v, %v", selected, err)
+	}
+	selected, err = SelectPublicIPv6InterfaceNetwork(output, "", true)
+	if err != nil || selected.Interface != "he-ipv6" {
+		t.Fatalf("tunnel tie-breaker selection = %#v, %v", selected, err)
+	}
+}
+
+func TestSelectPublicIPv6InterfaceNetworkRejectsOnlyHostAddressForAutomaticAllocation(t *testing.T) {
+	output := "2: eth0 inet6 2606:4700::10/128 scope global\n" +
+		"3: eth1 inet6 2606:4700::11/64 scope global tentative\n"
+	selected, err := SelectPublicIPv6InterfaceNetwork(output, "eth0", false)
+	if err != nil || selected.Interface != "eth0" || selected.Network.PrefixLen != 128 {
+		t.Fatalf("static selection = %#v, %v", selected, err)
+	}
+	if _, err := SelectPublicIPv6InterfaceNetwork(output, "eth0", true); err == nil {
+		t.Fatal("automatic allocation accepted a lone host /128")
+	}
+}
+
 func TestResolveContainerNetworkIsFailClosedForStaticIPv6(t *testing.T) {
 	selection, err := ResolveContainerNetwork("nat_ipv4_ipv6", "2001:0db8::42/80", "ipv4-net", "ipv6-net", true)
 	if err != nil {

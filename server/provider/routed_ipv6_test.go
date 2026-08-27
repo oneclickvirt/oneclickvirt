@@ -27,10 +27,12 @@ func TestResolveRoutedIPv6ValidatesTunnelMetadata(t *testing.T) {
 	}
 }
 
-func TestResolveRoutedIPv6RejectsGatewayOrAddressOutsidePrefix(t *testing.T) {
+func TestResolveRoutedIPv6RejectsInvalidGatewayOrAddressPlacement(t *testing.T) {
 	tests := []map[string]string{
 		{"static_ipv6": "2001:db8:1::2", "static_ipv6_cidr": "2001:db8::/126", "static_ipv6_gateway": "2001:db8::1"},
 		{"static_ipv6": "2001:db8::2", "static_ipv6_cidr": "2001:db8::/127", "static_ipv6_gateway": "2001:db8::1"},
+		{"static_ipv6": "2001:db8::1", "static_ipv6_cidr": "2001:db8::/126", "static_ipv6_gateway": "2001:db8::1"},
+		{"static_ipv6": "2001:db8::", "static_ipv6_cidr": "2001:db8::/126", "static_ipv6_gateway": "2001:db8::1"},
 	}
 	for _, metadata := range tests {
 		_, present, err := ResolveRoutedIPv6(InstanceConfig{Metadata: metadata})
@@ -52,8 +54,16 @@ func TestResolveRoutedIPv6AcceptsPointToPoint127(t *testing.T) {
 	if routed.Prefix != 127 || routed.AddressCIDR() != "2001:db8::1/127" {
 		t.Fatalf("unexpected /127 routed config: %#v", routed)
 	}
-	if command := routed.HostCheckCommand(); !strings.Contains(command, "2001:db8::/127") || !strings.Contains(command, "oneclickvirt6") || !strings.Contains(command, "net.ipv6.conf.all.forwarding") || !strings.Contains(command, "net.ipv6.conf.default.forwarding") || strings.Contains(command, "proxy_ndp") {
+	if command := routed.HostCheckCommand(); !strings.Contains(command, "2001:db8::/127") || !strings.Contains(command, "oneclickvirt6") || !strings.Contains(command, "$(uname -s") || !strings.Contains(command, "requires a Linux node") || !strings.Contains(command, "net.ipv6.conf.all.forwarding") || !strings.Contains(command, "net.ipv6.conf.default.forwarding") || strings.Contains(command, "proxy_ndp") {
 		t.Fatalf("HostCheckCommand() missing routed details: %q", command)
+	}
+	reversed, reversedPresent, reversedErr := ResolveRoutedIPv6(InstanceConfig{Metadata: map[string]string{
+		"static_ipv6":         "2001:db8::",
+		"static_ipv6_cidr":    "2001:db8::/127",
+		"static_ipv6_gateway": "2001:db8::1",
+	}})
+	if reversedErr != nil || !reversedPresent || reversed.AddressCIDR() != "2001:db8::/127" {
+		t.Fatalf("reversed /127 endpoint = %#v, %v, present=%v", reversed, reversedErr, reversedPresent)
 	}
 }
 

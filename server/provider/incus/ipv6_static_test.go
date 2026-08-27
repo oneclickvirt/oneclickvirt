@@ -85,10 +85,13 @@ func TestIncusConfigureIPv6SysctlsUsesDedicatedGuardedFile(t *testing.T) {
 	if strings.Contains(command, "/etc/sysctl.conf") {
 		t.Fatalf("command mutates /etc/sysctl.conf: %s", command)
 	}
-	for _, fragment := range []string{"/etc/sysctl.d/99-oneclickvirt-ipv6.conf", "/proc/sys/net/ipv6/conf/", "proxy_ndp", "accept_ra=2"} {
+	for _, fragment := range []string{"/etc/sysctl.d/99-oneclickvirt-ipv6.conf", "/proc/sys/net/ipv6/conf/", "net.ipv6.conf.eth0.proxy_ndp=1", "net.ipv6.conf.eth0.accept_ra=2", "net.ipv6.conf.all.forwarding=1"} {
 		if !strings.Contains(command, fragment) {
 			t.Fatalf("command missing %q: %s", fragment, command)
 		}
+	}
+	if strings.Contains(command, "net.ipv6.conf.all.proxy_ndp") {
+		t.Fatalf("command enables global NDP proxying: %s", command)
 	}
 }
 
@@ -98,8 +101,7 @@ func TestIncusNetworkDeviceIPv6ErrorIncludesProbeDetails(t *testing.T) {
 	}
 	executor := &recordingIncusIPv6Executor{outputs: []string{
 		"2606:4700::1111",
-		"not_found",
-		"eth0",
+		"probe diagnostic\nnot-an-ipv6",
 		"probe diagnostic\nnot-an-ipv6",
 	}}
 	incusProvider := &IncusProvider{sshClient: utils.NewSafeShellExecutor(executor)}
@@ -109,8 +111,7 @@ func TestIncusNetworkDeviceIPv6ErrorIncludesProbeDetails(t *testing.T) {
 		t.Fatal("setupNetworkDeviceIPv6() succeeded without a host IPv6 CIDR")
 	}
 	for _, fragment := range []string{
-		"interface=eth0",
-		"command=ip -6 addr show dev 'eth0'",
+		"未找到可分配的本机公网IPv6前缀",
 		"output=probe diagnostic\\nnot-an-ipv6",
 	} {
 		if !strings.Contains(err.Error(), fragment) {
@@ -126,8 +127,8 @@ func TestIncusStaticIPv6SkipsMissingHostCIDRAndParsesNoisyTunnelProbe(t *testing
 	executor := &recordingIncusIPv6Executor{
 		outputs: []string{
 			"2606:4700::1111",
-			"warning: transport diagnostic\nfound",
-			"",
+			"warning: transport diagnostic\nhe-ipv6",
+			"7: he-ipv6    inet6 2606:4700::1111/64 scope global",
 			"sysctl failed",
 		},
 		errors: []error{nil, nil, nil, errors.New("stop after sysctl")},
@@ -141,11 +142,26 @@ func TestIncusStaticIPv6SkipsMissingHostCIDRAndParsesNoisyTunnelProbe(t *testing
 	if err == nil || !strings.Contains(err.Error(), "配置IPv6 sysctl失败") {
 		t.Fatalf("setupNetworkDeviceIPv6() error = %v, want post-probe sysctl failure", err)
 	}
-	if strings.Contains(err.Error(), "无法获取本地IPv6网络配置") {
-		t.Fatalf("static IPv6 still required a host CIDR: %v", err)
+	if len(executor.commands) != 4 || !strings.Contains(executor.commands[1], "ip -6 route show default") ||
+		!strings.Contains(executor.commands[2], "ip -o -6 addr show scope global") ||
+		!strings.Contains(executor.commands[3], "net.ipv6.conf.he-ipv6") {
+		t.Fatalf("static IPv6 did not use the paired tunnel network: %#v", executor.commands)
 	}
-	if len(executor.commands) < 3 || !strings.Contains(executor.commands[2], "he-ipv6") {
-		t.Fatalf("noisy tunnel probe did not select he-ipv6: %#v", executor.commands)
+}
+
+func TestIncusSelectHostIPv6InterfaceNetworkPrefersDelegatedBridge(t *testing.T) {
+	executor := &recordingIncusIPv6Executor{outputs: []string{
+		"vmbr0",
+		"2: vmbr0    inet6 2a14:7c0:1002:10f8::1/128 scope global\n" +
+			"4: vmbr2    inet6 2a14:7c0:1002:10f8::1/38 scope global\n",
+	}}
+	incusProvider := &IncusProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+	selected, err := incusProvider.selectHostIPv6InterfaceNetwork(context.Background(), true)
+	if err != nil {
+		t.Fatalf("selectHostIPv6InterfaceNetwork() error = %v", err)
+	}
+	if selected.Interface != "vmbr2" || selected.Network.PrefixLen != 38 {
+		t.Fatalf("selected = %#v, want vmbr2 delegated /38", selected)
 	}
 }
 

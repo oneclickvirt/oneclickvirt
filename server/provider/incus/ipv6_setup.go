@@ -30,92 +30,27 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 		return "", fmt.Errorf("检查IPv6失败: %w", err)
 	}
 
-	// 确定IPv6网络接口
-	var ipv6NetworkName string
-	var ipNetworkGam string
-	var networkProbeCommand string
-	var networkProbeOutput string
-	var networkProbeErr error
-
-	// 检查是否有he-ipv6接口
-	heIPv6Check := "ip -f inet6 addr | grep -q 'he-ipv6' && echo 'found' || echo 'not_found'"
-	output, err := i.sshClient.Execute(heIPv6Check)
-	heIPv6Status, heIPv6ParseErr := utils.ParseFirstCommandLineMatching(output, func(value string) bool {
-		return value == "found" || value == "not_found"
-	})
-	if err == nil && heIPv6ParseErr == nil && heIPv6Status == "found" {
-		ipv6NetworkName = "he-ipv6"
-		cmd := fmt.Sprintf("ip -6 addr show dev %s scope global | awk '$1==\"inet6\" {print $2; exit}'",
-			shellSingleQuote(ipv6NetworkName))
-		networkProbeCommand = cmd
-		networkProbeOutput, networkProbeErr = i.sshClient.Execute(cmd)
-		if networkProbeErr == nil {
-			ipNetworkGam = networkProbeOutput
-		}
-	} else {
-		// Prefer the interface carrying the IPv6 default route. The first
-		// physical interface is often IPv4-only while a tunnel (for example
-		// sit0/he-ipv6) carries the configured IPv6 pool.
-		cmd := `iface="$(ip -6 route show default 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="dev" && i<NF) {print $(i+1); exit}}')"
-if [ -z "$iface" ]; then
-  iface="$(ip -o -6 addr show scope global 2>/dev/null | awk 'NR==1 {print $2}')"
-fi
-if [ -z "$iface" ]; then
-  iface="$(ls /sys/class/net/ | grep -v "$(ls /sys/devices/virtual/net/)" | head -n 1)"
-fi
-printf '%s\n' "$iface"`
-		output, err := i.sshClient.Execute(cmd)
-		if err != nil {
-			return "", fmt.Errorf("获取网络接口失败: output=%s: %w", summarizeIPv6ProbeOutput(output), err)
-		}
-		ipv6NetworkName, err = utils.ParseFirstNetworkInterfaceOutput(output)
-		if err != nil {
-			return "", fmt.Errorf("解析网络接口名称失败: output=%s: %w", summarizeIPv6ProbeOutput(output), err)
-		}
-
-		cmd = fmt.Sprintf("ip -6 addr show dev %s scope global | awk '$1==\"inet6\" {print $2; exit}'", shellSingleQuote(ipv6NetworkName))
-		networkProbeCommand = cmd
-		networkProbeOutput, networkProbeErr = i.sshClient.Execute(cmd)
-		if networkProbeErr == nil {
-			ipNetworkGam = networkProbeOutput
-		}
-	}
-
 	requestedIPv6 := strings.TrimSpace(config.ContainerIPv6)
 	containerIPv6 := ""
 	if requestedIPv6 != "" {
+		var err error
 		containerIPv6, err = utils.NormalizeIPv6Address(requestedIPv6)
 		if err != nil {
 			return "", fmt.Errorf("静态IPv6地址无效: %w", err)
 		}
 	}
-	var network utils.IPv6Network
-	if requestedIPv6 == "" {
-		if networkProbeErr != nil {
-			return "", fmt.Errorf("获取本地IPv6网络配置命令失败: interface=%s command=%s output=%s: %w",
-				ipv6NetworkName, networkProbeCommand, summarizeIPv6ProbeOutput(networkProbeOutput), networkProbeErr)
-		}
-		network, err = utils.ParseFirstIPv6NetworkOutput(ipNetworkGam, 64)
-		if err != nil {
-			return "", fmt.Errorf("无法获取本地IPv6网络配置: interface=%s command=%s output=%s: %w",
-				ipv6NetworkName, networkProbeCommand, summarizeIPv6ProbeOutput(networkProbeOutput), err)
-		}
-		global.APP_LOG.Debug("本地IPv6网络", zap.String("network", network.CIDR()))
-	} else if networkProbeErr != nil || strings.TrimSpace(ipNetworkGam) == "" {
-		global.APP_LOG.Debug("已提供静态IPv6地址，跳过宿主机接口地址解析失败",
-			zap.String("interface", ipv6NetworkName),
-			zap.String("command", networkProbeCommand),
-			zap.String("output", summarizeIPv6ProbeOutput(networkProbeOutput)),
-			zap.Error(networkProbeErr))
-	} else if discovered, parseErr := utils.ParseFirstIPv6NetworkOutput(ipNetworkGam, 64); parseErr == nil {
+
+	selectedNetwork, err := i.selectHostIPv6InterfaceNetwork(ctx, requestedIPv6 == "")
+	if err != nil {
+		return "", fmt.Errorf("无法选择本机IPv6网络接口和前缀: %w", err)
+	}
+	ipv6NetworkName := selectedNetwork.Interface
+	network := selectedNetwork.Network
+	if requestedIPv6 != "" {
 		global.APP_LOG.Debug("检测到宿主机IPv6网络（静态地址模式）",
-			zap.String("network", discovered.CIDR()))
+			zap.String("interface", ipv6NetworkName), zap.String("network", network.CIDR()))
 	} else {
-		global.APP_LOG.Debug("静态IPv6地址模式跳过宿主机IPv6网络解析",
-			zap.String("interface", ipv6NetworkName),
-			zap.String("command", networkProbeCommand),
-			zap.String("output", summarizeIPv6ProbeOutput(networkProbeOutput)),
-			zap.Error(parseErr))
+		global.APP_LOG.Debug("本地IPv6网络", zap.String("interface", ipv6NetworkName), zap.String("network", network.CIDR()))
 	}
 
 	if err := i.configureIPv6Sysctls(ipv6NetworkName); err != nil {
@@ -125,7 +60,7 @@ printf '%s\n' "$iface"`
 	if requestedIPv6 == "" {
 		// 只使用经过解析的网络地址，不把远端命令的多行诊断文本拼进前缀。
 		randBitsCmd := "od -An -N2 -t x1 /dev/urandom | tr -d '[:space:]'"
-		output, err = i.sshClient.Execute(randBitsCmd)
+		output, err := i.sshClient.Execute(randBitsCmd)
 		if err != nil {
 			return "", fmt.Errorf("生成随机数失败: %w", err)
 		}
@@ -256,8 +191,9 @@ fi`, name, name, name, name, name, bridge, addressArg, name, name, bridge, addre
 	return routed.Address, nil
 }
 
-// configureIPv6Sysctls writes one clean, dedicated sysctl file. The
-// interface-specific key is persisted only when its procfs knob exists.
+// configureIPv6Sysctls writes one clean, dedicated sysctl file. Forwarding is
+// global, but RA reception and NDP proxying stay on the selected uplink so a
+// routed instance cannot change unrelated interfaces.
 func (i *IncusProvider) configureIPv6Sysctls(interfaceName string) error {
 	if strings.TrimSpace(interfaceName) == "" || utils.SanitizeShellArg(interfaceName) != interfaceName {
 		return fmt.Errorf("无效的IPv6网络接口: %q", interfaceName)
@@ -268,22 +204,20 @@ conf=/etc/sysctl.d/99-oneclickvirt-ipv6.conf
 mkdir -p /etc/sysctl.d
 tmp="${conf}.tmp.$$"
 {
-  printf 'net.ipv6.conf.all.forwarding=1\n'
-  printf 'net.ipv6.conf.all.proxy_ndp=1\n'
   if [ -e /proc/sys/net/ipv6/conf/%s/accept_ra ]; then
     printf 'net.ipv6.conf.%%s.accept_ra=2\n' %s
   fi
+  printf 'net.ipv6.conf.all.forwarding=1\n'
   if [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then
     printf 'net.ipv6.conf.%%s.proxy_ndp=1\n' %s
   fi
 } > "$tmp"
 chmod 0644 "$tmp"
 mv "$tmp" "$conf"
-sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
-sysctl -w net.ipv6.conf.all.proxy_ndp=1 >/dev/null
 if [ -e /proc/sys/net/ipv6/conf/%s/accept_ra ]; then
   sysctl -w "net.ipv6.conf.%s.accept_ra=2" >/dev/null
 fi
+sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
 if [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then
   sysctl -w "net.ipv6.conf.%s.proxy_ndp=1" >/dev/null
 fi`, quotedInterface, quotedInterface, quotedInterface, quotedInterface, quotedInterface, interfaceName, quotedInterface, interfaceName)
@@ -472,28 +406,17 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		return "", fmt.Errorf("获取容器IPv6地址失败: %w", err)
 	}
 
-	// 获取宿主机IPv6子网前缀
-	subnetPrefix, err := i.getHostIPv6Prefix(ctx)
+	// Keep the selected prefix and interface together. An arbitrary lshw
+	// interface can be IPv4-only or a host-only /128 while a PVE bridge owns
+	// the actual delegated IPv6 pool.
+	selectedNetwork, err := i.selectHostIPv6InterfaceNetwork(ctx, strings.TrimSpace(config.ContainerIPv6) == "")
 	if err != nil {
-		return "", fmt.Errorf("获取IPv6子网前缀失败: %w", err)
+		return "", fmt.Errorf("获取IPv6子网和接口失败: %w", err)
 	}
-	network, err := utils.ParseIPv6Network(subnetPrefix, 64)
-	if err != nil {
-		return "", fmt.Errorf("解析IPv6子网失败: %w", err)
-	}
+	network := selectedNetwork.Network
+	subnetPrefix := network.CIDR()
 	ipv6Length := fmt.Sprintf("%d", network.PrefixLen)
-
-	// 获取网络接口名称
-	interfaceCmd := "lshw -C network | awk '/logical name:/{print $3}' | head -1"
-	interfaceOutput, err := i.sshClient.Execute(interfaceCmd)
-	if err != nil {
-		interfaceCmd = "ip route | grep default | awk '{print $5}' | head -1"
-		interfaceOutput, _ = i.sshClient.Execute(interfaceCmd)
-	}
-	interfaceName, parseErr := utils.ParseFirstNetworkInterfaceOutput(interfaceOutput)
-	if parseErr != nil {
-		return "", fmt.Errorf("无法获取网络接口名称: %w", parseErr)
-	}
+	interfaceName := selectedNetwork.Interface
 
 	global.APP_LOG.Debug("网络配置信息",
 		zap.String("interface", interfaceName),

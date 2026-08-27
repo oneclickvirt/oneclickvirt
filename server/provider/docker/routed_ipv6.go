@@ -16,7 +16,7 @@ func (d *DockerProvider) routedNetworkSelection(config provider.InstanceConfig, 
 	if !utils.NetworkTypeHasIPv6(networkType) {
 		return utils.ContainerNetworkSelection{}, true, fmt.Errorf("已分配隧道路由IPv6，但网络类型 %q 未启用IPv6", strings.TrimSpace(networkType))
 	}
-	if output, execErr := d.sshClient.Execute(routed.HostCheckCommand()); execErr != nil {
+	if output, execErr := d.sshClient.Execute(d.routedIPv6HostCheckCommand(routed)); execErr != nil {
 		return utils.ContainerNetworkSelection{}, true, fmt.Errorf("隧道路由IPv6宿主机前置检查失败: output=%s: %w", utils.TruncateString(strings.TrimSpace(output), 2000), execErr)
 	}
 	selection := utils.ContainerNetworkSelection{
@@ -35,6 +35,21 @@ func (d *DockerProvider) routedNetworkSelection(config provider.InstanceConfig, 
 		selection.Network = "none"
 	}
 	return selection, true, nil
+}
+
+func (d *DockerProvider) routedIPv6HostCheckCommand(routed provider.RoutedIPv6Config) string {
+	command := routed.HostCheckCommand()
+	if d.runtime.ProviderType != "orbstack" {
+		return command
+	}
+	// OrbStack exposes a Docker-compatible client on macOS, but the runtime
+	// network namespace lives in its Linux VM. A macOS-side Docker CLI cannot
+	// attach the host-managed veth or advertise the routed public address.
+	return `if [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
+  echo 'OrbStack on macOS cannot provide host-routed public IPv6 through the Docker CLI; use a Linux node or connect directly to a Linux VM that owns the routed prefix' >&2
+  exit 1
+fi
+` + command
 }
 
 // restoreRoutedIPv6AfterStart recreates the host-managed veth after a runtime

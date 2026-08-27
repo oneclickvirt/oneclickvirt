@@ -57,8 +57,18 @@ func ResolveRoutedIPv6(config InstanceConfig) (RoutedIPv6Config, bool, error) {
 		return RoutedIPv6Config{}, true, fmt.Errorf("隧道路由IPv6前缀无效")
 	}
 	prefix, bits := network.Mask.Size()
-	if bits != 128 || prefix < 1 || prefix > 127 || !network.Contains(net.ParseIP(address)) || !network.Contains(net.ParseIP(gateway)) {
+	addressIP := net.ParseIP(address)
+	gatewayIP := net.ParseIP(gateway)
+	if bits != 128 || prefix < 1 || prefix > 127 || !network.Contains(addressIP) || !network.Contains(gatewayIP) {
 		return RoutedIPv6Config{}, true, fmt.Errorf("隧道路由IPv6地址或网关不属于配置前缀")
+	}
+	if addressIP.Equal(gatewayIP) {
+		return RoutedIPv6Config{}, true, fmt.Errorf("隧道路由IPv6地址不能与网关相同")
+	}
+	// Managed routed prefixes reserve the all-zero address except for RFC 6164
+	// point-to-point /127 links, where both endpoints are usable.
+	if prefix != 127 && addressIP.Equal(network.IP) {
+		return RoutedIPv6Config{}, true, fmt.Errorf("隧道路由IPv6不能分配前缀网络地址")
 	}
 	bridge := strings.TrimSpace(config.Metadata["static_ipv6_bridge"])
 	if bridge == "" {
@@ -89,8 +99,12 @@ func (r RoutedIPv6Config) AddressCIDR() string {
 func (r RoutedIPv6Config) HostCheckCommand() string {
 	addressCIDR := r.Gateway + "/" + strconv.Itoa(r.Prefix)
 	command := fmt.Sprintf(`set -eu
-command -v ip >/dev/null 2>&1 || { echo 'iproute2 is unavailable' >&2; exit 1; }
-ip link show dev %s >/dev/null 2>&1 || { echo 'routed IPv6 bridge is missing' >&2; exit 1; }
+	if [ "$(uname -s 2>/dev/null || true)" != Linux ]; then
+	  echo 'routed IPv6 guest networking requires a Linux node with a managed tunnel bridge; macOS/BSD NDP proxy mode cannot attach a guest interface' >&2
+	  exit 1
+	fi
+	command -v ip >/dev/null 2>&1 || { echo 'iproute2 is unavailable' >&2; exit 1; }
+	ip link show dev %s >/dev/null 2>&1 || { echo 'routed IPv6 bridge is missing' >&2; exit 1; }
 ip -d link show dev %s 2>/dev/null | grep -F 'bridge' >/dev/null || { echo 'routed IPv6 parent is not a bridge' >&2; exit 1; }
 ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null || { echo 'routed IPv6 bridge gateway is missing' >&2; exit 1; }
 ip -6 route show %s | grep -F %s >/dev/null || { echo 'routed IPv6 bridge route is missing' >&2; exit 1; }

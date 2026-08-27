@@ -3,6 +3,7 @@ package podman
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +39,19 @@ const (
 	podmanIPv6NetworkModeManaged   = "managed"
 	podmanIPv6NetworkModeUnmanaged = "unmanaged"
 	podmanIPv6NetworkModeManual    = "manual"
+	podmanIPv6NetworkModeNAT       = "nat"
 )
+
+func rejectPodmanNAT66PublicStaticIPv6(staticIPv6 string, nat66 bool) error {
+	if !nat66 || strings.TrimSpace(staticIPv6) == "" {
+		return nil
+	}
+	normalized, err := utils.NormalizeIPv6Address(staticIPv6)
+	if err == nil && utils.IsPublicIPv6(normalized) {
+		return fmt.Errorf("节点 Podman IPv6 当前仅提供 ULA NAT66 出站连接，不能分配公网静态 IPv6 %s", normalized)
+	}
+	return nil
+}
 
 // PodmanProvider Podman容器运行时Provider（独立实现，不依赖docker包）
 type PodmanProvider struct {
@@ -494,6 +507,23 @@ func (p *PodmanProvider) podmanIPv6NetworkAvailability() (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	mode, valid := p.podmanIPv6NetworkMode()
+	if !valid {
+		return "", false
+	}
+	if mode == podmanIPv6NetworkModeNAT {
+		if !p.podmanIPv6NetworkHasNAT66Subnet() {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("Podman NAT66网络状态无效，已禁用IPv6容器创建")
+			}
+			return "", false
+		}
+		if global.APP_LOG != nil {
+			global.APP_LOG.Debug("Podman IPv6网络使用 ULA NAT66，跳过公网 NDP responder 检查",
+				zap.String("provider", p.config.Name))
+		}
+		return podmanIPv6NetworkModeNAT, true
+	}
 	ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", cliName)
 	ndpresponderOutput, err := p.sshClient.Execute(ndpresponderCmd)
 	if err != nil || strings.TrimSpace(ndpresponderOutput) != "running" {
@@ -502,20 +532,6 @@ func (p *PodmanProvider) podmanIPv6NetworkAvailability() (string, bool) {
 	ipv6ConfigCmd := fmt.Sprintf("[ -f %s ] && [ -s %s ] && [ \"$(sed -e '/^[[:space:]]*$/d' %s)\" != \"\" ] && echo 'valid' || echo 'invalid'", ipv6CheckFile, ipv6CheckFile, ipv6CheckFile)
 	ipv6ConfigOutput, err := p.sshClient.Execute(ipv6ConfigCmd)
 	if err != nil || strings.TrimSpace(ipv6ConfigOutput) != "valid" {
-		return "", false
-	}
-
-	modeCmd := fmt.Sprintf("if [ -s %s ]; then tr -d '[:space:]' < %s; else printf '%s'; fi", shellSingleQuote(ipv6NetworkModeFile), shellSingleQuote(ipv6NetworkModeFile), podmanIPv6NetworkModeManaged)
-	modeOutput, err := p.sshClient.Execute(modeCmd)
-	if err != nil {
-		return "", false
-	}
-	mode, valid := parsePodmanIPv6NetworkMode(modeOutput)
-	if !valid {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Warn("Podman IPv6网络模式无效，已禁用IPv6容器创建",
-				zap.String("mode", utils.TruncateString(strings.TrimSpace(modeOutput), 32)))
-		}
 		return "", false
 	}
 	if mode == podmanIPv6NetworkModeUnmanaged {
@@ -541,6 +557,38 @@ func (p *PodmanProvider) podmanIPv6NetworkAvailability() (string, bool) {
 	return mode, true
 }
 
+func (p *PodmanProvider) podmanIPv6NetworkMode() (string, bool) {
+	modeCmd := fmt.Sprintf("if [ -s %s ]; then tr -d '[:space:]' < %s; else printf '%s'; fi", shellSingleQuote(ipv6NetworkModeFile), shellSingleQuote(ipv6NetworkModeFile), podmanIPv6NetworkModeManaged)
+	modeOutput, err := p.sshClient.Execute(modeCmd)
+	if err != nil {
+		return "", false
+	}
+	mode, valid := parsePodmanIPv6NetworkMode(modeOutput)
+	if !valid && global.APP_LOG != nil {
+		global.APP_LOG.Warn("Podman IPv6网络模式无效，已禁用IPv6容器创建",
+			zap.String("mode", utils.TruncateString(strings.TrimSpace(modeOutput), 32)))
+	}
+	return mode, valid
+}
+
+func (p *PodmanProvider) podmanIPv6NetworkHasNAT66Subnet() bool {
+	if !p.connected || !p.sshClient.HasExecutor() {
+		return false
+	}
+	command := fmt.Sprintf("%s network inspect %s --format '{{range .Subnets}}{{println .Subnet}}{{end}}'", cliName, shellSingleQuote(ipv6Network))
+	output, err := p.sshClient.Execute(command)
+	if err != nil {
+		return false
+	}
+	for _, network := range utils.ExtractIPv6Networks(output, 128) {
+		prefix, parseErr := netip.ParsePrefix(network.CIDR())
+		if parseErr == nil && prefix.Bits() == 64 && prefix.Addr().IsPrivate() {
+			return true
+		}
+	}
+	return false
+}
+
 func parsePodmanIPv6NetworkMode(value string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", podmanIPv6NetworkModeManaged:
@@ -549,6 +597,8 @@ func parsePodmanIPv6NetworkMode(value string) (string, bool) {
 		return podmanIPv6NetworkModeUnmanaged, true
 	case podmanIPv6NetworkModeManual:
 		return podmanIPv6NetworkModeManual, true
+	case podmanIPv6NetworkModeNAT:
+		return podmanIPv6NetworkModeNAT, true
 	default:
 		return "", false
 	}

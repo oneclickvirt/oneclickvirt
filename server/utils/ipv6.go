@@ -16,6 +16,15 @@ type IPv6Network struct {
 	PrefixLen int
 }
 
+// IPv6InterfaceNetwork keeps a host IPv6 CIDR paired with the interface that
+// owns it. Callers must not independently choose an address prefix and an
+// interface: on bridged hosts the default-route interface can have a /128
+// while a separate bridge owns the delegated allocation prefix.
+type IPv6InterfaceNetwork struct {
+	Interface string
+	Network   IPv6Network
+}
+
 // RoutedIPv6BridgeName is shared by the tunnel host setup and provider
 // backends. It is intentionally short enough for Linux interface names.
 const RoutedIPv6BridgeName = "oneclickvirt6"
@@ -178,6 +187,81 @@ func ParseFirstIPv6NetworkOutput(output string, defaultPrefix int) (IPv6Network,
 		}
 	}
 	return IPv6Network{}, fmt.Errorf("输出中未找到有效的IPv6地址")
+}
+
+// SelectPublicIPv6InterfaceNetwork chooses one locally bound global IPv6
+// CIDR from `ip -o -6 addr show scope global` output. Larger delegated pools
+// take precedence over a host-only /128, then the IPv6 default-route
+// interface breaks ties. A named HE tunnel remains the tie-breaker when a
+// host has no default route yet, preserving the established tunnel behavior.
+//
+// When requireAssignable is true, a lone /128 is excluded because automatic
+// allocation must never reuse the host's only public IPv6 address. Static
+// assignments may pass false and still obtain the correct owning interface.
+func SelectPublicIPv6InterfaceNetwork(output, preferredInterface string, requireAssignable bool) (IPv6InterfaceNetwork, error) {
+	preferredInterface = strings.TrimSpace(preferredInterface)
+	if preferredInterface != "" {
+		if parsed, err := ParseNetworkInterfaceOutput(preferredInterface); err == nil {
+			preferredInterface = parsed
+		} else {
+			preferredInterface = ""
+		}
+	}
+
+	var best IPv6InterfaceNetwork
+	found := false
+	for _, line := range commandOutputLines(output) {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[2] != "inet6" || !strings.HasSuffix(fields[0], ":") {
+			continue
+		}
+		if strings.Contains(line, " tentative") {
+			continue
+		}
+		interfaceName, err := ParseNetworkInterfaceOutput(fields[1])
+		if err != nil {
+			continue
+		}
+		network, err := ParseIPv6Network(fields[3], 64)
+		if err != nil || !IsPublicIPv6(network.Address.String()) {
+			continue
+		}
+		if requireAssignable && network.PrefixLen == 128 {
+			continue
+		}
+
+		candidate := IPv6InterfaceNetwork{Interface: interfaceName, Network: network}
+		if !found || betterIPv6InterfaceNetworkCandidate(candidate, best, preferredInterface) {
+			best = candidate
+			found = true
+		}
+	}
+	if !found {
+		if requireAssignable {
+			return IPv6InterfaceNetwork{}, fmt.Errorf("未找到可分配的本机公网IPv6前缀")
+		}
+		return IPv6InterfaceNetwork{}, fmt.Errorf("未找到本机绑定的公网IPv6前缀")
+	}
+	return best, nil
+}
+
+func betterIPv6InterfaceNetworkCandidate(candidate, current IPv6InterfaceNetwork, preferredInterface string) bool {
+	if candidate.Network.PrefixLen != current.Network.PrefixLen {
+		return candidate.Network.PrefixLen < current.Network.PrefixLen
+	}
+	candidatePreferred := candidate.Interface == preferredInterface
+	currentPreferred := current.Interface == preferredInterface
+	if candidatePreferred != currentPreferred {
+		return candidatePreferred
+	}
+	if preferredInterface == "" {
+		candidateTunnel := candidate.Interface == "he-ipv6"
+		currentTunnel := current.Interface == "he-ipv6"
+		if candidateTunnel != currentTunnel {
+			return candidateTunnel
+		}
+	}
+	return false
 }
 
 // ParseSingleCommandToken accepts exactly one non-empty token from command

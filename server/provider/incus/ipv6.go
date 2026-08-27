@@ -33,6 +33,28 @@ func (i *IncusProvider) isPrivateIPv6(address string) bool {
 	return !utils.IsPublicIPv6(address)
 }
 
+// selectHostIPv6InterfaceNetwork keeps the selected address pool paired with
+// its owning interface. This matters on PVE-style hosts where vmbr0 owns an
+// IPv6 /128 default route while vmbr2 carries the delegated allocation prefix.
+func (i *IncusProvider) selectHostIPv6InterfaceNetwork(ctx context.Context, requireAssignable bool) (utils.IPv6InterfaceNetwork, error) {
+	preferredInterface := ""
+	defaultRouteCmd := `ip -6 route show default 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="dev" && i<NF) {print $(i+1); exit}}'`
+	if output, err := i.sshClient.Execute(defaultRouteCmd); err == nil {
+		preferredInterface, _ = utils.ParseFirstNetworkInterfaceOutput(output)
+	}
+
+	addressCmd := "ip -o -6 addr show scope global 2>/dev/null"
+	output, err := i.sshClient.Execute(addressCmd)
+	if err != nil {
+		return utils.IPv6InterfaceNetwork{}, fmt.Errorf("获取本机IPv6接口地址失败: %w", err)
+	}
+	selected, err := utils.SelectPublicIPv6InterfaceNetwork(output, preferredInterface, requireAssignable)
+	if err != nil {
+		return utils.IPv6InterfaceNetwork{}, fmt.Errorf("%w: output=%s", err, utils.SanitizeUserInput(strings.TrimSpace(output)))
+	}
+	return selected, nil
+}
+
 // checkIPv6 检查并获取IPv6地址
 func (i *IncusProvider) checkIPv6(ctx context.Context) (string, error) {
 	// A routed container prefix must be present on this host. An egress API can
@@ -161,18 +183,12 @@ func (i *IncusProvider) GetVethInterfaceNameV6(ctx context.Context, instanceName
 
 // getHostIPv6Prefix 获取宿主机IPv6子网前缀
 func (i *IncusProvider) getHostIPv6Prefix(ctx context.Context) (string, error) {
-	cmd := "ip -6 addr show scope global | awk '$1==\"inet6\" {print $2; exit}'"
-	output, err := i.sshClient.Execute(cmd)
-	if err != nil {
-		return "", fmt.Errorf("获取IPv6子网前缀失败: %w", err)
-	}
-
-	network, err := utils.ParseFirstIPv6NetworkOutput(output, 64)
+	selected, err := i.selectHostIPv6InterfaceNetwork(ctx, false)
 	if err != nil {
 		return "", fmt.Errorf("无IPv6子网: %w", err)
 	}
 
-	prefix := network.CIDR()
+	prefix := selected.Network.CIDR()
 	global.APP_LOG.Debug("获取到IPv6子网前缀", zap.String("prefix", prefix))
 	return prefix, nil
 }
