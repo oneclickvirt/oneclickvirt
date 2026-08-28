@@ -281,6 +281,85 @@ func TestGetAllocationMetadataReturnsTunnelInterface(t *testing.T) {
 	}
 }
 
+func TestGetAllocationMetadataDoesNotTreatNativeRangeAsTunnel(t *testing.T) {
+	db := setupIPv6PoolTestDB(t)
+	parent := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:6::/64", PrefixLength: 64,
+		IsRange: true, RangeNext: "2001:db8:6::", Source: SourceManual,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create native range: %v", err)
+	}
+	instanceID := uint(92)
+	child := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:6::10", PrefixLength: 128,
+		ParentID: &parent.ID, IsAllocated: true, InstanceID: &instanceID, Source: SourceRangeChild,
+	}
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatalf("create native allocation: %v", err)
+	}
+
+	metadata, err := NewService().GetAllocationMetadata(1, instanceID)
+	if err != nil {
+		t.Fatalf("GetAllocationMetadata() error = %v", err)
+	}
+	if metadata.Address != child.Address {
+		t.Fatalf("metadata address = %q, want %q", metadata.Address, child.Address)
+	}
+	if metadata.CIDR != "" || metadata.Gateway != "" || metadata.Bridge != "" || metadata.TunnelID != 0 || metadata.TunnelInterface != "" {
+		t.Fatalf("native range was exposed as routed metadata: %#v", metadata)
+	}
+}
+
+func TestGetAllocationMetadataRestoresLegacyTunnelChildWithoutParent(t *testing.T) {
+	db := setupIPv6PoolTestDB(t)
+	tunnel := providerModel.ProviderIPv6Tunnel{
+		ProviderID: 1, Name: "legacy-tunnel", Mode: "sit", Interface: "he-ipv6",
+		LocalIPv4: "192.0.2.2", RemoteIPv4: "198.51.100.2",
+		LocalIPv6: "2001:db8:7::2/64", RemoteIPv6: "2001:db8:7::1",
+		RoutedCIDR: "2001:db8:8::/126", MTU: 1480, TTL: 255, RouteMetric: 100,
+	}
+	if err := db.Create(&tunnel).Error; err != nil {
+		t.Fatalf("create tunnel: %v", err)
+	}
+	instanceID := uint(93)
+	// Older controller databases can retain an allocated child and its tunnel
+	// reference after its parent row was removed. The allocation must remain
+	// usable through the persisted tunnel configuration instead of looking like
+	// an empty native pool.
+	child := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:8::2", PrefixLength: 128,
+		TunnelID: &tunnel.ID, IsAllocated: true, InstanceID: &instanceID, Source: SourceRangeChild,
+	}
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatalf("create legacy tunnel allocation: %v", err)
+	}
+
+	metadata, err := NewService().GetAllocationMetadata(1, instanceID)
+	if err != nil {
+		t.Fatalf("GetAllocationMetadata() error = %v", err)
+	}
+	if metadata.Address != child.Address || metadata.CIDR != tunnel.RoutedCIDR || metadata.Gateway != "2001:db8:8::1" || metadata.Bridge != "oneclickvirt6" || metadata.TunnelID != tunnel.ID || metadata.TunnelInterface != tunnel.Interface {
+		t.Fatalf("legacy tunnel allocation metadata = %#v", metadata)
+	}
+}
+
+func TestGetAllocationMetadataRejectsTunnelSourceWithoutTunnelID(t *testing.T) {
+	db := setupIPv6PoolTestDB(t)
+	instanceID := uint(94)
+	child := providerModel.ProviderIPv6Pool{
+		ProviderID: 1, Address: "2001:db8:9::2", PrefixLength: 128,
+		IsAllocated: true, InstanceID: &instanceID, Source: SourceTunnel,
+	}
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatalf("create malformed tunnel allocation: %v", err)
+	}
+
+	if _, err := NewService().GetAllocationMetadata(1, instanceID); err == nil || !strings.Contains(err.Error(), "缺少隧道ID") {
+		t.Fatalf("GetAllocationMetadata() error = %v, want missing tunnel ID", err)
+	}
+}
+
 func TestAllocateIPv6AddressSkipsMoreThanLegacyWindowLimitWithoutRetry(t *testing.T) {
 	db := setupIPv6PoolTestDB(t)
 	_, network, err := net.ParseCIDR("2001:db8:3::/112")

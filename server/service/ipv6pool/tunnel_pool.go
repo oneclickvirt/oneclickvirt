@@ -267,9 +267,11 @@ func (s *Service) GetAllocationMetadata(providerID, instanceID uint) (IPv6Alloca
 		ParentCIDR      string `gorm:"column:parent_cidr"`
 		ParentTunnel    *uint  `gorm:"column:parent_tunnel"`
 		TunnelInterface string `gorm:"column:tunnel_interface"`
+		ParentSource    string `gorm:"column:parent_source"`
+		ChildSource     string `gorm:"column:child_source"`
 	}
 	query := db.Table("provider_ipv6_pools AS child").
-		Select("child.address, child.tunnel_id, child.parent_id, parent.address AS parent_cidr, parent.tunnel_id AS parent_tunnel, tunnel.interface AS tunnel_interface").
+		Select("child.address, child.tunnel_id, child.parent_id, parent.address AS parent_cidr, parent.tunnel_id AS parent_tunnel, tunnel.interface AS tunnel_interface, parent.source AS parent_source, child.source AS child_source").
 		Joins("LEFT JOIN provider_ipv6_pools AS parent ON parent.id = child.parent_id").
 		Joins("LEFT JOIN provider_ipv6_tunnels AS tunnel ON tunnel.id = COALESCE(parent.tunnel_id, child.tunnel_id)").
 		Where("child.provider_id = ? AND child.instance_id = ? AND child.is_allocated = ? AND child.is_reserved = ? AND child.deleted_at IS NULL", providerID, instanceID, true, false).
@@ -286,9 +288,38 @@ func (s *Service) GetAllocationMetadata(providerID, instanceID uint) (IPv6Alloca
 	} else if row.TunnelID != nil {
 		metadata.TunnelID = *row.TunnelID
 	}
-	metadata.CIDR = strings.TrimSpace(row.ParentCIDR)
-	if metadata.CIDR == "" || metadata.TunnelID == 0 {
+	metadata.TunnelInterface = strings.TrimSpace(row.TunnelInterface)
+	// A native range child also has a parent CIDR, but that CIDR is only an
+	// allocator boundary.  It must not be copied into provider metadata: doing
+	// so makes the provider interpret a normal /64 (or any other native range)
+	// as a routed tunnel and then reject the empty gateway.  Only rows linked to
+	// an explicitly managed tunnel may expose routed fields.
+	isTunnelAllocation := metadata.TunnelID != 0 ||
+		strings.TrimSpace(row.ParentSource) == SourceTunnel ||
+		strings.TrimSpace(row.ChildSource) == SourceTunnel
+	if !isTunnelAllocation {
 		return metadata, nil
+	}
+	if metadata.TunnelID == 0 {
+		return IPv6AllocationMetadata{}, fmt.Errorf("IPv6隧道地址池缺少隧道ID")
+	}
+	metadata.CIDR = strings.TrimSpace(row.ParentCIDR)
+	if metadata.CIDR == "" {
+		// A legacy child may have retained the tunnel link without a parent row.
+		// Load the model through GORM here instead of naming its historical
+		// `RoutedCIDR` column in raw SQL; this works with both migrated and older
+		// controller databases.
+		var tunnel providerModel.ProviderIPv6Tunnel
+		if err := db.First(&tunnel, metadata.TunnelID).Error; err != nil {
+			return IPv6AllocationMetadata{}, fmt.Errorf("读取IPv6隧道路由配置失败: %w", err)
+		}
+		metadata.CIDR = strings.TrimSpace(tunnel.RoutedCIDR)
+		if metadata.TunnelInterface == "" {
+			metadata.TunnelInterface = strings.TrimSpace(tunnel.Interface)
+		}
+	}
+	if metadata.CIDR == "" {
+		return IPv6AllocationMetadata{}, fmt.Errorf("IPv6隧道地址池缺少路由前缀")
 	}
 	_, gateway, _, _, err := RoutedPrefixDetails(metadata.CIDR)
 	if err != nil {
@@ -296,7 +327,6 @@ func (s *Service) GetAllocationMetadata(providerID, instanceID uint) (IPv6Alloca
 	}
 	metadata.Gateway = gateway
 	metadata.Bridge = utils.RoutedIPv6BridgeName
-	metadata.TunnelInterface = strings.TrimSpace(row.TunnelInterface)
 	if metadata.TunnelInterface == "" {
 		return IPv6AllocationMetadata{}, fmt.Errorf("读取IPv6隧道接口失败")
 	}

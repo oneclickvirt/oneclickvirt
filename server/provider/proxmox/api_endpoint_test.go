@@ -142,6 +142,131 @@ func TestProxmoxLifecycleMutationsUseCorrectGuestResourceAndWait(t *testing.T) {
 	}
 }
 
+type proxmoxKnownStartTransport struct {
+	requests           []string
+	currentStatus      []string
+	startResponseCodes []int
+}
+
+func (t *proxmoxKnownStartTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.requests = append(t.requests, req.Method+" "+req.URL.Path)
+	response := func(payload string) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Request:    req,
+		}, nil
+	}
+	switch {
+	case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/status/current"):
+		status := "running"
+		if len(t.currentStatus) > 0 {
+			status = t.currentStatus[0]
+			t.currentStatus = t.currentStatus[1:]
+		}
+		return response(`{"data":{"status":"` + status + `"}}`)
+	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/status/start"):
+		if len(t.startResponseCodes) > 0 {
+			statusCode := t.startResponseCodes[0]
+			t.startResponseCodes = t.startResponseCodes[1:]
+			if statusCode != http.StatusOK {
+				return &http.Response{
+					StatusCode: statusCode,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"data":null,"message":"can't lock file '/run/lock/lxc/pve-config-100.lock' - got timeout"}`)),
+					Request:    req,
+				}, nil
+			}
+		}
+		return response(`{"data":"UPID:known-start"}`)
+	case req.Method == http.MethodGet && strings.Contains(req.URL.Path, "/tasks/UPID:known-start/status"):
+		return response(`{"data":{"status":"stopped","exitstatus":"OK"}}`)
+	default:
+		return &http.Response{
+			StatusCode: http.StatusNotFound,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"data":null,"message":"unexpected request"}`)),
+			Request:    req,
+		}, nil
+	}
+}
+
+func TestProxmoxKnownLXCStartDoesNotRediscoverNewGuest(t *testing.T) {
+	oldLog := global.APP_LOG
+	global.APP_LOG = zap.NewNop()
+	t.Cleanup(func() { global.APP_LOG = oldLog })
+
+	oldPoll := proxmoxAPITaskPollInterval
+	proxmoxAPITaskPollInterval = 0
+	t.Cleanup(func() { proxmoxAPITaskPollInterval = oldPoll })
+
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.config = providerNodeConfigForEndpointTest("pve.test")
+	p.node = "pve-node"
+	transport := &proxmoxKnownStartTransport{currentStatus: []string{"stopped", "running"}}
+	p.apiClient = &http.Client{Transport: transport}
+	ssh := &ipv6CommandExecutor{}
+	p.sshClient.SetExecutor(ssh)
+
+	if err := p.apiStartKnownInstance(context.Background(), "100", "container"); err != nil {
+		t.Fatalf("apiStartKnownInstance() error = %v", err)
+	}
+	if len(ssh.commands) != 0 {
+		t.Fatalf("apiStartKnownInstance() performed SSH discovery: %v", ssh.commands)
+	}
+	want := []string{
+		"GET /api2/json/nodes/pve-node/lxc/100/status/current",
+		"POST /api2/json/nodes/pve-node/lxc/100/status/start",
+		"GET /api2/json/nodes/pve-node/tasks/UPID:known-start/status",
+		"GET /api2/json/nodes/pve-node/lxc/100/status/current",
+	}
+	if got := strings.Join(transport.requests, ","); got != strings.Join(want, ",") {
+		t.Fatalf("request order = %q, want %q", got, strings.Join(want, ","))
+	}
+}
+
+func TestProxmoxKnownLXCStartRetriesTransientGuestLock(t *testing.T) {
+	oldLog := global.APP_LOG
+	global.APP_LOG = zap.NewNop()
+	t.Cleanup(func() { global.APP_LOG = oldLog })
+
+	oldPoll, oldDelay := proxmoxAPITaskPollInterval, proxmoxAPIConfigLockRetryDelay
+	proxmoxAPITaskPollInterval = 0
+	proxmoxAPIConfigLockRetryDelay = 0
+	t.Cleanup(func() {
+		proxmoxAPITaskPollInterval = oldPoll
+		proxmoxAPIConfigLockRetryDelay = oldDelay
+	})
+
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.config = providerNodeConfigForEndpointTest("pve.test")
+	p.node = "pve-node"
+	transport := &proxmoxKnownStartTransport{
+		currentStatus:      []string{"stopped", "stopped", "running"},
+		startResponseCodes: []int{http.StatusInternalServerError, http.StatusOK},
+	}
+	p.apiClient = &http.Client{Transport: transport}
+	ssh := &ipv6CommandExecutor{}
+	p.sshClient.SetExecutor(ssh)
+
+	if err := p.apiStartKnownInstance(context.Background(), "100", "container"); err != nil {
+		t.Fatalf("apiStartKnownInstance() error = %v", err)
+	}
+	if len(ssh.commands) != 0 {
+		t.Fatalf("apiStartKnownInstance() performed SSH discovery: %v", ssh.commands)
+	}
+	startRequests := 0
+	for _, request := range transport.requests {
+		if request == "POST /api2/json/nodes/pve-node/lxc/100/status/start" {
+			startRequests++
+		}
+	}
+	if startRequests != 2 {
+		t.Fatalf("start requests = %d, want 2 after a transient PVE lock: %v", startRequests, transport.requests)
+	}
+}
+
 func providerNodeConfigForEndpointTest(host string) provider.NodeConfig {
 	return provider.NodeConfig{Host: host}
 }

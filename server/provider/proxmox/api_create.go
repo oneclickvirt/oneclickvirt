@@ -126,6 +126,22 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 		"unprivileged": "1",
 	}
 
+	// PVE holds the per-CT config lock for a short period after its create task
+	// reports completion.  Send the deterministic NAT IPv4 interface as part of
+	// that create request instead of immediately issuing a second /config PUT;
+	// on busy nodes the latter can time out despite a successfully created CT.
+	userIP := p.vmidToInternalIP(vmid)
+	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=%s,gw=%s", userIP, p.getBridgeName("nat"), p.getInternalGateway())
+	if networkConfig.OutSpeed > 0 {
+		// Proxmox rate is MB/s while the controller configuration is Mbps.
+		rateMBps := networkConfig.OutSpeed / 8
+		if rateMBps < 1 {
+			rateMBps = 1
+		}
+		netConfigStr = fmt.Sprintf("%s,rate=%d", netConfigStr, rateMBps)
+	}
+	payload["net0"] = netConfigStr
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("序列化请求失败: %w", err)
@@ -139,36 +155,6 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 		if err := p.waitForProxmoxAPITask(ctx, upid, "创建容器"); err != nil {
 			return proxmoxAPICreateMutationError(vmid, err)
 		}
-	}
-
-	updateProgress(70, "配置容器网络...")
-
-	// 解析网络配置获取带宽限制
-	// 配置网络（使用VMID到IP的映射函数，包含带宽限制）
-	userIP := p.vmidToInternalIP(vmid)
-	netConfigURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/lxc/%d/config", p.node, vmid))
-
-	// 构建网络配置字符串，包含 rate 参数
-	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=%s,gw=%s", userIP, p.getBridgeName("nat"), p.getInternalGateway())
-	if networkConfig.OutSpeed > 0 {
-		// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
-		rateMBps := networkConfig.OutSpeed / 8
-		if rateMBps < 1 {
-			rateMBps = 1 // 最小1MB/s
-		}
-		netConfigStr = fmt.Sprintf("%s,rate=%d", netConfigStr, rateMBps)
-	}
-
-	netPayload := map[string]interface{}{
-		"net0": netConfigStr,
-	}
-
-	netJsonData, err := json.Marshal(netPayload)
-	if err != nil {
-		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("序列化容器网络配置失败: %w", err))
-	}
-	if err := p.submitProxmoxConfigTaskWithRetry(ctx, netConfigURL, netJsonData, "配置容器网络"); err != nil {
-		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置容器网络失败: %w", err))
 	}
 
 	updateProgress(80, "启动容器...")
