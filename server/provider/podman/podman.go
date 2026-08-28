@@ -32,6 +32,7 @@ const (
 	ipv6AllocationFile  = "/usr/local/bin/podman_ipv6_allocations"
 	storageDriverFile   = "/usr/local/bin/podman_storage_driver"
 	scriptRepo          = "oneclickvirt/podman"
+	sshScriptRevision   = "20260828.2"
 	serviceCheckName    = "podman"
 )
 

@@ -10,10 +10,11 @@ import (
 )
 
 type routedPodmanExecutor struct {
-	command  string
-	commands []string
-	outputs  []string
-	errors   []error
+	command     string
+	commands    []string
+	tempScripts []string
+	outputs     []string
+	errors      []error
 }
 
 func (e *routedPodmanExecutor) Execute(command string) (string, error) {
@@ -39,7 +40,8 @@ func (e *routedPodmanExecutor) ExecuteWithLogging(command, _ string) (string, er
 func (e *routedPodmanExecutor) ExecuteRaw(command string, _ time.Duration) (string, error) {
 	return e.Execute(command)
 }
-func (e *routedPodmanExecutor) ExecuteViaTempScript(string, []string, time.Duration) (string, error) {
+func (e *routedPodmanExecutor) ExecuteViaTempScript(script string, _ []string, _ time.Duration) (string, error) {
+	e.tempScripts = append(e.tempScripts, script)
 	return "", nil
 }
 func (e *routedPodmanExecutor) UploadContent(string, string, os.FileMode) error { return nil }

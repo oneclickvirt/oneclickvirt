@@ -71,6 +71,23 @@ func (p *PodmanProvider) isRemoteFileValid(remotePath string) bool {
 	return err == nil
 }
 
+// isRemoteSSHScriptCurrent verifies both executability and the source revision.
+// SSH setup scripts are cached on provider nodes, so accepting any nonempty file
+// leaves already-provisioned nodes on an unsafe implementation after a fix.
+func (p *PodmanProvider) isRemoteSSHScriptCurrent(remotePath string) bool {
+	revisionMarker := "# oneclickvirt-ssh-init-revision: " + sshScriptRevision
+	cmd := fmt.Sprintf(
+		"test -f %s -a -s %s -a -x %s && grep -Fqx %s %s",
+		shellSingleQuote(remotePath),
+		shellSingleQuote(remotePath),
+		shellSingleQuote(remotePath),
+		shellSingleQuote(revisionMarker),
+		shellSingleQuote(remotePath),
+	)
+	_, err := p.sshClient.Execute(cmd)
+	return err == nil
+}
+
 // removeRemoteFile 删除远程文件
 func (p *PodmanProvider) removeRemoteFile(remotePath string) error {
 	_, err := p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(remotePath)))
@@ -95,47 +112,61 @@ func (p *PodmanProvider) downloadFileToRemote(url, remotePath string) error {
 	return nil
 }
 
+func (p *PodmanProvider) refreshRemoteSSHScript(script, scriptPath, downloadURL string) error {
+	global.APP_LOG.Debug("开始下载SSH脚本",
+		zap.String("script", script),
+		zap.String("downloadURL", downloadURL))
+
+	if err := p.downloadFileToRemote(downloadURL, scriptPath); err != nil {
+		return fmt.Errorf("下载SSH脚本 %s 失败: %w", script, err)
+	}
+
+	chmodCmd := fmt.Sprintf("chmod +x %s", shellSingleQuote(scriptPath))
+	if _, err := p.sshClient.Execute(chmodCmd); err != nil {
+		return fmt.Errorf("设置SSH脚本 %s 执行权限失败: %w", script, err)
+	}
+
+	dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", shellSingleQuote(scriptPath))
+	p.sshClient.Execute(dos2unixCmd)
+	return nil
+}
+
 // ensureSSHScriptsAvailable 确保SSH脚本文件在远程服务器上可用
 func (p *PodmanProvider) ensureSSHScriptsAvailable(providerCountry string) error {
 	scriptsDir := "/usr/local/bin"
 	scripts := []string{"ssh_bash.sh", "ssh_sh.sh"}
 
-	allExist := true
-	for _, script := range scripts {
-		if !p.isRemoteFileValid(filepath.Join(scriptsDir, script)) {
-			allExist = false
-			break
-		}
-	}
-
-	if allExist {
-		return nil
-	}
-
 	for _, script := range scripts {
 		scriptPath := filepath.Join(scriptsDir, script)
-		if p.isRemoteFileValid(scriptPath) {
+		if p.isRemoteSSHScriptCurrent(scriptPath) {
 			continue
 		}
+		global.APP_LOG.Info("刷新远程SSH初始化脚本",
+			zap.String("script", script),
+			zap.String("revision", sshScriptRevision))
 
 		baseURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/scripts/", scriptRepo) + script
 		downloadURL := p.getSSHScriptDownloadURL(baseURL, providerCountry)
-
-		global.APP_LOG.Debug("开始下载SSH脚本",
-			zap.String("script", script),
-			zap.String("downloadURL", downloadURL))
-
-		if err := p.downloadFileToRemote(downloadURL, scriptPath); err != nil {
-			return fmt.Errorf("下载SSH脚本 %s 失败: %w", script, err)
+		if err := p.refreshRemoteSSHScript(script, scriptPath, downloadURL); err != nil {
+			return err
+		}
+		if p.isRemoteSSHScriptCurrent(scriptPath) {
+			continue
 		}
 
-		chmodCmd := fmt.Sprintf("chmod +x %s", shellSingleQuote(scriptPath))
-		if _, err := p.sshClient.Execute(chmodCmd); err != nil {
-			return fmt.Errorf("设置SSH脚本 %s 执行权限失败: %w", script, err)
+		if downloadURL != baseURL {
+			global.APP_LOG.Warn("CDN返回的SSH脚本版本过旧，回退到原始地址",
+				zap.String("script", script),
+				zap.String("revision", sshScriptRevision))
+			if err := p.refreshRemoteSSHScript(script, scriptPath, baseURL); err != nil {
+				return err
+			}
+			if p.isRemoteSSHScriptCurrent(scriptPath) {
+				continue
+			}
 		}
 
-		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", shellSingleQuote(scriptPath))
-		p.sshClient.Execute(dos2unixCmd)
+		return fmt.Errorf("SSH脚本 %s 版本不匹配，期望修订 %s", script, sshScriptRevision)
 	}
 
 	return nil
