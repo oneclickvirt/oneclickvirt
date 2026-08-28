@@ -233,9 +233,11 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 		global.APP_LOG.Warn("网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
 	}
 
-	// 启动实例
-	if err := p.apiStartInstance(ctx, fmt.Sprintf("%d", vmid)); err != nil {
-		global.APP_LOG.Warn("启动实例失败", zap.Int("vmid", vmid), zap.Error(err))
+	// 创建接口已经返回了唯一的 VMID 与实例类型。直接使用它们启动，避免
+	// 刚创建的 LXC/QEMU 因 SSH 列表尚未刷新而被误判为不存在；启动失败也
+	// 不能只记录告警后继续，否则调用方会收到“创建成功”但实例仍是 stopped。
+	if err := p.apiStartKnownInstance(ctx, fmt.Sprintf("%d", vmid), config.InstanceType); err != nil {
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("启动已创建实例失败: %w", err))
 	}
 
 	// 虚拟机和容器的带宽限制已在创建时通过 rate 参数配置
@@ -293,7 +295,7 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 	if err != nil {
 		return err
 	}
-	if err := p.submitProxmoxAPITaskAndWait(ctx, http.MethodPost, endpoint, nil, "启动"+instanceType); err != nil {
+	if err := p.submitProxmoxAPITaskAndWaitWithLockRetry(ctx, http.MethodPost, endpoint, nil, "启动"+instanceType); err != nil {
 		return fmt.Errorf("启动%s失败: %w", instanceType, err)
 	}
 
@@ -376,6 +378,91 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 		global.APP_LOG.Debug("等待实例启动",
 			zap.String("vmid", vmid),
 			zap.Duration("elapsed", time.Since(startTime)))
+	}
+}
+
+// apiStartKnownInstance starts a guest whose VMID and type were returned by a
+// successful create request.  It intentionally does not rediscover the guest
+// through `pct list`/`qm list`: PVE may expose a completed create task before
+// those SSH commands observe the new row.
+func (p *ProxmoxProvider) apiStartKnownInstance(ctx context.Context, vmid, instanceType string) error {
+	vmid = strings.TrimSpace(vmid)
+	instanceType = strings.TrimSpace(instanceType)
+	if vmid == "" {
+		return fmt.Errorf("启动PVE实例缺少VMID")
+	}
+
+	status, err := p.apiGuestStatus(ctx, instanceType, vmid)
+	if err != nil {
+		return fmt.Errorf("读取%s %s启动前状态失败: %w", instanceType, vmid, err)
+	}
+	if status == "running" {
+		return nil
+	}
+
+	endpoint, err := p.apiGuestEndpoint(instanceType, vmid, "status/start")
+	if err != nil {
+		return err
+	}
+	if err := p.submitProxmoxAPITaskAndWaitWithLockRetry(ctx, http.MethodPost, endpoint, nil, "启动"+instanceType); err != nil {
+		// A start task can race a concurrent successful start.  Confirm its final
+		// state before returning an error so a running guest is never reported as
+		// failed solely because PVE rejected the duplicate request.
+		if currentStatus, statusErr := p.apiGuestStatus(ctx, instanceType, vmid); statusErr == nil && currentStatus == "running" {
+			return nil
+		}
+		return fmt.Errorf("启动%s失败: %w", instanceType, err)
+	}
+
+	if err := p.waitForAPIGuestRunning(ctx, vmid, instanceType); err != nil {
+		return err
+	}
+	global.APP_LOG.Debug("Proxmox实例已通过API启动",
+		zap.String("vmid", vmid),
+		zap.String("type", instanceType))
+	return nil
+}
+
+func (p *ProxmoxProvider) apiGuestStatus(ctx context.Context, instanceType, vmid string) (string, error) {
+	endpoint, err := p.apiGuestEndpoint(instanceType, vmid, "status/current")
+	if err != nil {
+		return "", err
+	}
+	data, err := p.submitProxmoxAPIRequest(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	var status struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(data, &status); err != nil {
+		return "", fmt.Errorf("解析PVE实例状态失败: %w", err)
+	}
+	status.Status = strings.ToLower(strings.TrimSpace(status.Status))
+	if status.Status == "" {
+		return "", fmt.Errorf("PVE实例状态响应缺少status")
+	}
+	return status.Status, nil
+}
+
+func (p *ProxmoxProvider) waitForAPIGuestRunning(ctx context.Context, vmid, instanceType string) error {
+	waitCtx, cancel := context.WithTimeout(ctx, proxmoxStartWaitTimeout(instanceType))
+	defer cancel()
+
+	for {
+		status, err := p.apiGuestStatus(waitCtx, instanceType, vmid)
+		if err != nil {
+			return fmt.Errorf("查询%s %s启动状态失败: %w", instanceType, vmid, err)
+		}
+		if status == "running" {
+			return nil
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("等待%s %s启动超时（最后状态: %s）: %w", instanceType, vmid, status, waitCtx.Err())
+		case <-time.After(3 * time.Second):
+		}
 	}
 }
 

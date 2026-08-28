@@ -249,12 +249,23 @@ func (p *ProxmoxProvider) submitProxmoxConfigTask(ctx context.Context, endpoint 
 }
 
 func (p *ProxmoxProvider) submitProxmoxConfigTaskWithRetry(ctx context.Context, endpoint string, payload []byte, operation string) error {
-	var lastErr error
-	for attempt := 1; attempt <= proxmoxAPIConfigLockRetryCount; attempt++ {
+	return p.retryProxmoxGuestLock(ctx, operation, func() error {
 		upid, err := p.submitProxmoxConfigTask(ctx, endpoint, payload)
 		if err == nil && upid != "" {
 			err = p.waitForProxmoxAPITask(ctx, upid, operation)
 		}
+		return err
+	})
+}
+
+// retryProxmoxGuestLock retries a mutation only when PVE explicitly reports
+// its short-lived per-guest config lock.  Create, network, and start tasks can
+// all cross this hand-off, while validation and permission failures must still
+// return immediately.
+func (p *ProxmoxProvider) retryProxmoxGuestLock(ctx context.Context, operation string, mutation func() error) error {
+	var lastErr error
+	for attempt := 1; attempt <= proxmoxAPIConfigLockRetryCount; attempt++ {
+		err := mutation()
 		if err == nil {
 			return nil
 		}
@@ -275,4 +286,10 @@ func (p *ProxmoxProvider) submitProxmoxConfigTaskWithRetry(ctx context.Context, 
 		}
 	}
 	return lastErr
+}
+
+func (p *ProxmoxProvider) submitProxmoxAPITaskAndWaitWithLockRetry(ctx context.Context, method, endpoint string, payload []byte, operation string) error {
+	return p.retryProxmoxGuestLock(ctx, operation, func() error {
+		return p.submitProxmoxAPITaskAndWait(ctx, method, endpoint, payload, operation)
+	})
 }

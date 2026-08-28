@@ -202,7 +202,7 @@ func TestAPIContainerSendsTemplateVolumeToProxmox(t *testing.T) {
 	}
 }
 
-func TestAPIContainerWaitsForCreateTaskBeforeConfiguringNetwork(t *testing.T) {
+func TestAPIContainerEmbedsBaseNetworkInCreateRequest(t *testing.T) {
 	db, oldDB, oldLog := newProxmoxAPITestDB(t)
 	global.APP_DB = db
 	global.APP_LOG = zap.NewNop()
@@ -222,6 +222,7 @@ func TestAPIContainerWaitsForCreateTaskBeforeConfiguringNetwork(t *testing.T) {
 
 	provider := NewProxmoxProvider().(*ProxmoxProvider)
 	provider.config = coreprovider.NodeConfig{ID: 1, Host: "pve.test", Architecture: "amd64"}
+	provider.initBridgeNames(provider.config)
 	provider.node = "pve-node"
 	provider.sshClient.SetExecutor(&ipv6CommandExecutor{output: func(command string) string {
 		if strings.Contains(command, "[ -f ") {
@@ -253,9 +254,16 @@ func TestAPIContainerWaitsForCreateTaskBeforeConfiguringNetwork(t *testing.T) {
 	if err := provider.apiCreateContainer(context.Background(), 100, config, func(int, string) {}); err != nil {
 		t.Fatalf("apiCreateContainer() error = %v", err)
 	}
-	wantOrder := []string{"create", "create-status", "create-status", "config"}
+	wantOrder := []string{"create", "create-status", "create-status"}
 	if strings.Join(capture.requestOrder, ",") != strings.Join(wantOrder, ",") {
 		t.Fatalf("request order = %v, want %v", capture.requestOrder, wantOrder)
+	}
+	net0, ok := capture.createPayload["net0"].(string)
+	if !ok || !strings.Contains(net0, "name=eth0,ip=172.16.1.2/24,bridge=vmbr1,gw=172.16.1.1") {
+		t.Fatalf("create net0 = %v, want an embedded vmbr1 NAT configuration", capture.createPayload["net0"])
+	}
+	if capture.configCalls != 0 {
+		t.Fatalf("create path sent %d post-create config mutation(s), want none", capture.configCalls)
 	}
 }
 
@@ -414,7 +422,7 @@ func TestProxmoxConfigTaskRetriesLockReportedByAsyncTask(t *testing.T) {
 	}
 }
 
-func TestAPIContainerRetriesTransientConfigLockAfterCreateCompletes(t *testing.T) {
+func TestAPIContainerCreatesWithNetworkWhenPostCreateConfigWouldLock(t *testing.T) {
 	db, oldDB, oldLog := newProxmoxAPITestDB(t)
 	global.APP_DB = db
 	global.APP_LOG = zap.NewNop()
@@ -441,14 +449,8 @@ func TestAPIContainerRetriesTransientConfigLockAfterCreateCompletes(t *testing.T
 		}
 		return ""
 	}})
-	capture := &proxmoxCreateCaptureTransport{
-		configResponseCodes: []int{http.StatusInternalServerError, http.StatusOK},
-	}
+	capture := &proxmoxCreateCaptureTransport{configResponseCodes: []int{http.StatusInternalServerError}}
 	provider.apiClient = &http.Client{Transport: capture}
-
-	oldDelay := proxmoxAPIConfigLockRetryDelay
-	proxmoxAPIConfigLockRetryDelay = 0
-	t.Cleanup(func() { proxmoxAPIConfigLockRetryDelay = oldDelay })
 
 	config := coreprovider.InstanceConfig{
 		Name:         "retry-config-lock",
@@ -462,8 +464,11 @@ func TestAPIContainerRetriesTransientConfigLockAfterCreateCompletes(t *testing.T
 	if err := provider.apiCreateContainer(context.Background(), 100, config, func(int, string) {}); err != nil {
 		t.Fatalf("apiCreateContainer() error = %v", err)
 	}
-	if capture.configCalls != 2 {
-		t.Fatalf("config call count = %d, want 2 after transient PVE lock", capture.configCalls)
+	if capture.configCalls != 0 {
+		t.Fatalf("config call count = %d, want no post-create config request", capture.configCalls)
+	}
+	if _, ok := capture.createPayload["net0"]; !ok {
+		t.Fatalf("create payload did not include net0: %#v", capture.createPayload)
 	}
 }
 
