@@ -122,6 +122,61 @@ func TestDockerRoutedIPv6OnlyUsesRoutedNetworkAtCreate(t *testing.T) {
 	}
 }
 
+func TestDockerManualIPv6RequiresResponderReadiness(t *testing.T) {
+	tests := []struct {
+		name      string
+		outputs   []string
+		errors    []error
+		available bool
+	}{
+		{
+			name:      "ready marker present",
+			outputs:   []string{"", dockerIPv6NetworkModeManual, "true", "running", "valid", ""},
+			available: true,
+		},
+		{
+			name:      "ready marker absent",
+			outputs:   []string{"", dockerIPv6NetworkModeManual, "true", "running", "valid", ""},
+			errors:    []error{nil, nil, nil, nil, nil, errors.New("responder not ready")},
+			available: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			executor := &routedDockerExecutor{outputs: test.outputs, errors: test.errors}
+			d := NewDockerProvider().(*DockerProvider)
+			d.connected = true
+			d.sshClient.SetExecutor(executor)
+
+			if available := d.checkIPv6NetworkAvailable(); available != test.available {
+				t.Fatalf("checkIPv6NetworkAvailable() = %v, want %v", available, test.available)
+			}
+			if commands := strings.Join(executor.commands, "\n"); !strings.Contains(commands, "docker_ipv6_ndp_ready") {
+				t.Fatalf("manual IPv6 did not check NDP readiness: %#v", executor.commands)
+			}
+		})
+	}
+}
+
+func TestDockerTunnelIPv6SkipsNDPResponder(t *testing.T) {
+	executor := &routedDockerExecutor{
+		outputs: []string{"", dockerIPv6NetworkModeManual, "false", "valid"},
+	}
+	d := NewDockerProvider().(*DockerProvider)
+	d.connected = true
+	d.sshClient.SetExecutor(executor)
+
+	if !d.checkIPv6NetworkAvailable() {
+		t.Fatal("checkIPv6NetworkAvailable() rejected tunnel IPv6 without an NDP responder")
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "inspect -f '{{.State.Status}}' ndpresponder") || strings.Contains(command, "docker_ipv6_ndp_ready") {
+			t.Fatalf("tunnel IPv6 unexpectedly required NDP readiness: %q", command)
+		}
+	}
+}
+
 func TestOrbstackRoutedIPv6RejectsMacOSHostBeforeContainerCreation(t *testing.T) {
 	executor := &routedDockerExecutor{
 		outputs: []string{"OrbStack on macOS cannot provide host-routed public IPv6 through the Docker CLI"},

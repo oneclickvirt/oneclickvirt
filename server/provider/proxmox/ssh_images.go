@@ -14,7 +14,7 @@ import (
 )
 
 func (p *ProxmoxProvider) sshListImages(ctx context.Context) ([]provider.Image, error) {
-	output, err := p.sshClient.Execute(fmt.Sprintf("pvesh get /nodes/%s/storage/local/content --content iso", p.node))
+	output, err := p.sshClient.Execute(fmt.Sprintf("pvesh get /nodes/%s/storage/local/content --content iso", p.nodeName()))
 	if err != nil {
 		return nil, err
 	}

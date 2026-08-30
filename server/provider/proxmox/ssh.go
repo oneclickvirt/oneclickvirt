@@ -119,21 +119,44 @@ func (p *ProxmoxProvider) sshListInstances(ctx context.Context) ([]provider.Inst
 }
 
 func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error {
-	time.Sleep(3 * time.Second) // 等待3秒，确保命令执行环境稳定
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(3 * time.Second):
+	}
 
 	// 先查找实例的VMID和类型
 	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to find instance %s: %w", id, err)
 	}
+	return p.sshStartKnownInstance(ctx, vmid, instanceType)
+}
+
+// sshStartKnownInstance starts a newly created guest by its authoritative
+// VMID and type. PVE can complete a create command before pct/qm list exposes
+// the new row, so rediscovery here can incorrectly report that creation
+// succeeded while leaving the guest stopped.
+func (p *ProxmoxProvider) sshStartKnownInstance(ctx context.Context, vmid, instanceType string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	vmid = strings.TrimSpace(vmid)
+	instanceType = strings.ToLower(strings.TrimSpace(instanceType))
+	numericVMID, err := strconv.Atoi(vmid)
+	if err != nil || numericVMID <= 0 {
+		return fmt.Errorf("invalid Proxmox VMID %q", vmid)
+	}
 
 	// 先检查实例状态
-	var statusCommand string
+	var statusCommand, startCommand string
 	switch instanceType {
 	case "vm":
 		statusCommand = fmt.Sprintf("qm status %s", vmid)
+		startCommand = fmt.Sprintf("qm start %s", vmid)
 	case "container":
 		statusCommand = fmt.Sprintf("pct status %s", vmid)
+		startCommand = fmt.Sprintf("pct start %s", vmid)
 	default:
 		return fmt.Errorf("unknown instance type: %s", instanceType)
 	}
@@ -143,30 +166,19 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 		// 实例已经在运行，等待3秒认为启动成功
 		time.Sleep(3 * time.Second)
 		global.APP_LOG.Debug("Proxmox实例已经在运行",
-			zap.String("id", utils.TruncateString(id, 50)),
+			zap.String("id", vmid),
 			zap.String("vmid", vmid),
 			zap.String("type", instanceType))
 		return nil
 	}
 
-	// 实例未运行，执行启动命令
-	var command string
-	switch instanceType {
-	case "vm":
-		command = fmt.Sprintf("qm start %s", vmid)
-	case "container":
-		command = fmt.Sprintf("pct start %s", vmid)
-	default:
-		return fmt.Errorf("unknown instance type: %s", instanceType)
-	}
-
 	// 执行启动命令
-	startOutput, err := p.sshClient.Execute(command)
+	startOutput, err := p.sshClient.Execute(startCommand)
 	if err != nil {
 		statusAfter, statusErr := p.sshClient.Execute(statusCommand)
 		if statusErr == nil && strings.Contains(statusAfter, "status: running") {
 			global.APP_LOG.Debug("Proxmox启动命令失败后状态已变为运行，继续流程",
-				zap.String("id", utils.TruncateString(id, 50)),
+				zap.String("id", vmid),
 				zap.String("vmid", vmid),
 				zap.String("type", instanceType),
 				zap.String("output", utils.TruncateString(startOutput, 500)))
@@ -176,30 +188,41 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 	}
 
 	global.APP_LOG.Debug("已发送启动命令，等待实例启动",
-		zap.String("id", utils.TruncateString(id, 50)),
+		zap.String("id", vmid),
 		zap.String("vmid", vmid),
 		zap.String("type", instanceType))
 
 	// 等待实例真正启动
 	maxWaitTime := proxmoxStartWaitTimeout(instanceType)
 	checkInterval := 3 * time.Second
+	waitCtx, cancel := context.WithTimeout(ctx, maxWaitTime)
+	defer cancel()
 	startTime := time.Now()
+	lastStatus := strings.TrimSpace(statusOutput)
+	var lastStatusErr error
 
 	for {
-		// 检查是否超时
-		if time.Since(startTime) > maxWaitTime {
-			return fmt.Errorf("等待实例启动超时 (%s)", maxWaitTime)
-		}
-
 		// 等待一段时间后再检查
-		time.Sleep(checkInterval)
+		select {
+		case <-waitCtx.Done():
+			if lastStatus == "" {
+				lastStatus = "unknown"
+			}
+			if lastStatusErr != nil {
+				return fmt.Errorf("等待%s %s启动超时（最后状态: %s，最后查询错误: %v）: %w", instanceType, vmid, lastStatus, lastStatusErr, waitCtx.Err())
+			}
+			return fmt.Errorf("等待%s %s启动超时（最后状态: %s）: %w", instanceType, vmid, lastStatus, waitCtx.Err())
+		case <-time.After(checkInterval):
+		}
 
 		// 检查实例状态
 		statusOutput, err := p.sshClient.Execute(statusCommand)
+		lastStatus = strings.TrimSpace(statusOutput)
+		lastStatusErr = err
 		if err == nil && strings.Contains(statusOutput, "status: running") {
 			// 实例已经启动
 			global.APP_LOG.Debug("Proxmox实例已成功启动",
-				zap.String("id", utils.TruncateString(id, 50)),
+				zap.String("id", vmid),
 				zap.String("vmid", vmid),
 				zap.String("type", instanceType),
 				zap.Duration("wait_time", time.Since(startTime)))

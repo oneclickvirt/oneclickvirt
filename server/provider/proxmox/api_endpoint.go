@@ -29,7 +29,7 @@ func (p *ProxmoxProvider) apiGuestEndpoint(instanceType, vmid, suffix string) (s
 		return "", fmt.Errorf("未知的Proxmox实例类型: %s", instanceType)
 	}
 
-	node := strings.TrimSpace(p.node)
+	node := strings.TrimSpace(p.nodeName())
 	vmid = strings.TrimSpace(vmid)
 	if node == "" || vmid == "" {
 		return "", fmt.Errorf("PVE实例API路径缺少节点或VMID")

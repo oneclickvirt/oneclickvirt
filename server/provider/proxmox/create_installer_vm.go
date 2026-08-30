@@ -149,11 +149,11 @@ func (p *ProxmoxProvider) createInstallerVM(ctx context.Context, vmid int, confi
 		time.Sleep(checkInterval)
 	}
 
-	global.APP_LOG.Warn("安装型虚拟机启动状态检查超时，但创建流程已完成",
-		zap.Int("vmid", vmid),
-		zap.String("imageURL", utils.TruncateString(imageURL, 100)))
-	updateProgress(100, "安装型虚拟机创建完成")
-	return nil
+	statusOutput, statusErr := p.sshClient.Execute(fmt.Sprintf("qm status %d", vmid))
+	if statusErr != nil {
+		return fmt.Errorf("等待安装型虚拟机 %d 启动超时（最后状态查询失败: %v）", vmid, statusErr)
+	}
+	return fmt.Errorf("等待安装型虚拟机 %d 启动超时（最后状态: %s）", vmid, strings.TrimSpace(statusOutput))
 }
 
 func (p *ProxmoxProvider) prepareInstallerISO(imageURL, imageName string, useCDN bool) (string, string, error) {

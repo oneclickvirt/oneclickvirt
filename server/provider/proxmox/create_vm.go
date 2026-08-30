@@ -488,9 +488,11 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	}
 
 	if !vmRunning {
-		global.APP_LOG.Warn("虚拟机启动超时，但继续创建流程",
-			zap.Int("vmid", vmid),
-			zap.Duration("elapsed", time.Since(startTime)))
+		statusOutput, statusErr := p.sshClient.Execute(fmt.Sprintf("qm status %d", vmid))
+		if statusErr != nil {
+			return fmt.Errorf("等待虚拟机 %d 启动超时（最后状态查询失败: %v）", vmid, statusErr)
+		}
+		return fmt.Errorf("等待虚拟机 %d 启动超时（最后状态: %s）", vmid, strings.TrimSpace(statusOutput))
 	}
 
 	updateProgress(98, "检测Guest Agent...")

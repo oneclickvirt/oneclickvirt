@@ -113,11 +113,11 @@ func TestPodmanIPv6NetworkAvailabilityRequiresIPv4PrimaryForUnmanagedMode(t *tes
 		{
 			name:      "unmanaged requires ipv4 primary network",
 			mode:      podmanIPv6NetworkModeUnmanaged,
-			errors:    []error{nil, nil, nil, nil, errors.New("podman-net not found")},
+			errors:    []error{nil, nil, nil, nil, nil, errors.New("podman-net not found")},
 			available: false,
 		},
 		{
-			name:      "manual requires routed helper and ipv4 primary network",
+			name:      "manual requires routed helper responder readiness and ipv4 primary network",
 			mode:      podmanIPv6NetworkModeManual,
 			wantMode:  podmanIPv6NetworkModeManual,
 			available: true,
@@ -132,7 +132,7 @@ func TestPodmanIPv6NetworkAvailabilityRequiresIPv4PrimaryForUnmanagedMode(t *tes
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			executor := &routedPodmanExecutor{
-				outputs: []string{"", test.mode, "running", "valid", "", ""},
+				outputs: []string{"", test.mode, "true", "running", "valid", "", ""},
 				errors:  test.errors,
 			}
 			p := NewPodmanProvider().(*PodmanProvider)
@@ -148,16 +148,71 @@ func TestPodmanIPv6NetworkAvailabilityRequiresIPv4PrimaryForUnmanagedMode(t *tes
 			}
 			if test.mode == podmanIPv6NetworkModeManual {
 				commands := strings.Join(executor.commands, "\n")
-				if !strings.Contains(commands, "podman-ipv6-attach.sh") || !strings.Contains(commands, "network inspect 'podman-net'") {
-					t.Fatalf("manual mode did not verify helper and podman-net: %#v", executor.commands)
+				if !strings.Contains(commands, "podman-ipv6-attach.sh") || !strings.Contains(commands, "podman_ipv6_ndp_ready") || !strings.Contains(commands, "network inspect 'podman-net'") {
+					t.Fatalf("manual mode did not verify helper readiness and podman-net: %#v", executor.commands)
 				}
 			}
 		})
 	}
 }
 
+func TestPodmanManualIPv6RequiresResponderReadiness(t *testing.T) {
+	executor := &routedPodmanExecutor{
+		outputs: []string{"", podmanIPv6NetworkModeManual, "true", "running", "valid", ""},
+		errors:  []error{nil, nil, nil, nil, nil, errors.New("responder not ready")},
+	}
+	p := NewPodmanProvider().(*PodmanProvider)
+	p.connected = true
+	p.sshClient.SetExecutor(executor)
+
+	mode, available := p.podmanIPv6NetworkAvailability()
+	if mode != "" || available {
+		t.Fatalf("manual IPv6 without readiness marker = (%q, %v), want unavailable", mode, available)
+	}
+	if commands := strings.Join(executor.commands, "\n"); !strings.Contains(commands, "podman_ipv6_ndp_ready") {
+		t.Fatalf("manual IPv6 did not check responder readiness: %#v", executor.commands)
+	}
+}
+
+func TestPodmanTunnelIPv6SkipsNDPResponder(t *testing.T) {
+	executor := &routedPodmanExecutor{
+		outputs: []string{"", podmanIPv6NetworkModeManual, "false", "valid", "", ""},
+	}
+	p := NewPodmanProvider().(*PodmanProvider)
+	p.connected = true
+	p.sshClient.SetExecutor(executor)
+
+	mode, available := p.podmanIPv6NetworkAvailability()
+	if mode != podmanIPv6NetworkModeManual || !available {
+		t.Fatalf("tunnel IPv6 availability = (%q, %v), want manual mode without NDP", mode, available)
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "inspect -f '{{.State.Status}}' ndpresponder") || strings.Contains(command, "podman_ipv6_ndp_ready") {
+			t.Fatalf("tunnel IPv6 unexpectedly required NDP readiness: %q", command)
+		}
+	}
+}
+
+func TestPodmanManagedIPv6RequiresNewReadinessMarker(t *testing.T) {
+	executor := &routedPodmanExecutor{
+		outputs: []string{"", podmanIPv6NetworkModeManaged, "true", "running", "valid", ""},
+		errors:  []error{nil, nil, nil, nil, nil, errors.New("responder not ready")},
+	}
+	p := NewPodmanProvider().(*PodmanProvider)
+	p.connected = true
+	p.sshClient.SetExecutor(executor)
+
+	mode, available := p.podmanIPv6NetworkAvailability()
+	if mode != "" || available {
+		t.Fatalf("managed IPv6 without required readiness marker = (%q, %v), want unavailable", mode, available)
+	}
+	if commands := strings.Join(executor.commands, "\n"); !strings.Contains(commands, "podman_ipv6_ndp_ready_required") {
+		t.Fatalf("managed IPv6 did not inspect its readiness requirement: %#v", executor.commands)
+	}
+}
+
 func TestResolvePodmanContainerNetworkUsesDualAttachmentForUnmanagedMode(t *testing.T) {
-	executor := &routedPodmanExecutor{outputs: []string{"", podmanIPv6NetworkModeUnmanaged, "running", "valid", ""}}
+	executor := &routedPodmanExecutor{outputs: []string{"", podmanIPv6NetworkModeUnmanaged, "true", "running", "valid", "", ""}}
 	p := NewPodmanProvider().(*PodmanProvider)
 	p.connected = true
 	p.sshClient.SetExecutor(executor)
