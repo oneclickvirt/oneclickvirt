@@ -147,6 +147,8 @@ type proxmoxKnownStartTransport struct {
 	requests           []string
 	currentStatus      []string
 	startResponseCodes []int
+	startContentTypes  []string
+	startBodies        []string
 }
 
 func (t *proxmoxKnownStartTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -168,6 +170,12 @@ func (t *proxmoxKnownStartTransport) RoundTrip(req *http.Request) (*http.Respons
 		}
 		return response(`{"data":{"status":"` + status + `"}}`)
 	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/status/start"):
+		var body []byte
+		if req.Body != nil {
+			body, _ = io.ReadAll(req.Body)
+		}
+		t.startContentTypes = append(t.startContentTypes, req.Header.Get("Content-Type"))
+		t.startBodies = append(t.startBodies, string(body))
 		if len(t.startResponseCodes) > 0 {
 			statusCode := t.startResponseCodes[0]
 			t.startResponseCodes = t.startResponseCodes[1:]
@@ -224,6 +232,12 @@ func TestProxmoxKnownLXCStartDoesNotRediscoverNewGuest(t *testing.T) {
 	}
 	if got := strings.Join(transport.requests, ","); got != strings.Join(want, ",") {
 		t.Fatalf("request order = %q, want %q", got, strings.Join(want, ","))
+	}
+	if len(transport.startContentTypes) != 1 || transport.startContentTypes[0] != "" {
+		t.Fatalf("start Content-Type = %v, want an empty header", transport.startContentTypes)
+	}
+	if len(transport.startBodies) != 1 || transport.startBodies[0] != "" {
+		t.Fatalf("start body = %q, want an empty body", transport.startBodies)
 	}
 }
 

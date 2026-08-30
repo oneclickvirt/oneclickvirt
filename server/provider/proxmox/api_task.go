@@ -91,11 +91,20 @@ func (p *ProxmoxProvider) submitProxmoxAPIRequest(ctx context.Context, method, e
 	if p.apiClient == nil {
 		return nil, fmt.Errorf("PVE API客户端未初始化")
 	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(payload))
+	var requestBody io.Reader
+	if len(payload) > 0 {
+		requestBody = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, requestBody)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	// PVE decodes an application/json request body eagerly. Lifecycle actions
+	// such as start, stop, and reboot have no payload, so declaring an empty
+	// JSON body makes PVE reject the request before it reaches the action.
+	if len(payload) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	p.setAPIAuth(req)
 
 	resp, err := p.apiClient.Do(req)
