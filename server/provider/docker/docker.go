@@ -58,8 +58,11 @@ var orbstackRuntime = ContainerRuntimeConfig{
 }
 
 const (
-	dockerIPv6NetworkModeFile = "/usr/local/bin/docker_ipv6_network_mode"
-	dockerIPv6NetworkModeNAT  = "nat"
+	dockerIPv6NetworkModeFile   = "/usr/local/bin/docker_ipv6_network_mode"
+	dockerIPv6NetworkModeNAT    = "nat"
+	dockerIPv6NetworkModeManual = "manual"
+	dockerIPv6NDPReadyFile      = "/usr/local/bin/docker_ipv6_ndp_ready"
+	dockerIPv6NDPRequiredFile   = "/usr/local/bin/docker_ipv6_ndp_required"
 )
 
 func rejectNAT66PublicStaticIPv6(staticIPv6 string, nat66 bool) error {
@@ -639,27 +642,31 @@ func (d *DockerProvider) checkIPv6NetworkAvailable() bool {
 		return false
 	}
 
-	if d.dockerIPv6NetworkUsesNAT66() {
+	networkMode := d.dockerIPv6NetworkMode()
+	if d.dockerIPv6NetworkUsesNAT66ForMode(networkMode) {
 		global.APP_LOG.Debug("Docker IPv6网络使用 ULA NAT66，跳过公网 NDP responder 检查",
 			zap.String("provider", d.config.Name))
 		return true
 	}
 
-	// 检查 ndpresponder 容器是否存在且正在运行
-	ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", d.runtime.CLI)
-	ndpresponderOutput, err := d.sshClient.Execute(ndpresponderCmd)
-	if err != nil {
-		global.APP_LOG.Debug("IPv6网络检查: ndpresponder容器不存在",
-			zap.String("provider", d.config.Name))
-		return false
-	}
+	ndpRequired := d.dockerIPv6NDPRequired()
+	if ndpRequired {
+		// 检查 ndpresponder 容器是否存在且正在运行
+		ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", d.runtime.CLI)
+		ndpresponderOutput, err := d.sshClient.Execute(ndpresponderCmd)
+		if err != nil {
+			global.APP_LOG.Debug("IPv6网络检查: ndpresponder容器不存在",
+				zap.String("provider", d.config.Name))
+			return false
+		}
 
-	ndpresponderStatus := strings.TrimSpace(ndpresponderOutput)
-	if ndpresponderStatus != "running" {
-		global.APP_LOG.Debug("IPv6网络检查: ndpresponder容器未运行",
-			zap.String("provider", d.config.Name),
-			zap.String("status", ndpresponderStatus))
-		return false
+		ndpresponderStatus := strings.TrimSpace(ndpresponderOutput)
+		if ndpresponderStatus != "running" {
+			global.APP_LOG.Debug("IPv6网络检查: ndpresponder容器未运行",
+				zap.String("provider", d.config.Name),
+				zap.String("status", ndpresponderStatus))
+			return false
+		}
 	}
 
 	// 检查IPv6地址配置文件是否存在且非空
@@ -671,18 +678,43 @@ func (d *DockerProvider) checkIPv6NetworkAvailable() bool {
 			zap.String("provider", d.config.Name))
 		return false
 	}
+	if networkMode == dockerIPv6NetworkModeManual && ndpRequired {
+		readyCmd := fmt.Sprintf("test -s %s", shellSingleQuote(dockerIPv6NDPReadyFile))
+		if _, err := d.sshClient.Execute(readyCmd); err != nil {
+			global.APP_LOG.Debug("Docker IPv6网络检查: 路由 IPv6 NDP responder 尚未就绪",
+				zap.String("provider", d.config.Name),
+				zap.Error(err))
+			return false
+		}
+	}
 
 	global.APP_LOG.Debug("IPv6网络检查成功: 所有组件都可用",
 		zap.String("provider", d.config.Name))
 	return true
 }
 
-func (d *DockerProvider) dockerIPv6NetworkUsesNAT66() bool {
+func (d *DockerProvider) dockerIPv6NDPRequired() bool {
+	command := fmt.Sprintf("if [ -s %s ]; then tr -d '[:space:]' < %s; else printf true; fi", shellSingleQuote(dockerIPv6NDPRequiredFile), shellSingleQuote(dockerIPv6NDPRequiredFile))
+	output, err := d.sshClient.Execute(command)
+	if err != nil {
+		return true
+	}
+	return !strings.EqualFold(strings.TrimSpace(output), "false")
+}
+
+func (d *DockerProvider) dockerIPv6NetworkMode() string {
+	modeOutput, modeErr := d.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null || true", shellSingleQuote(dockerIPv6NetworkModeFile)))
+	if modeErr != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(modeOutput))
+}
+
+func (d *DockerProvider) dockerIPv6NetworkUsesNAT66ForMode(networkMode string) bool {
 	if d.runtime.ProviderType != "docker" && d.runtime.ProviderType != "orbstack" {
 		return false
 	}
-	modeOutput, modeErr := d.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null || true", shellSingleQuote(dockerIPv6NetworkModeFile)))
-	if modeErr != nil || !strings.EqualFold(strings.TrimSpace(modeOutput), dockerIPv6NetworkModeNAT) {
+	if networkMode != dockerIPv6NetworkModeNAT {
 		return false
 	}
 	command := fmt.Sprintf("%s network inspect %s --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}'", d.runtime.CLI, shellSingleQuote(d.runtime.IPv6Network))
@@ -697,6 +729,10 @@ func (d *DockerProvider) dockerIPv6NetworkUsesNAT66() bool {
 		}
 	}
 	return false
+}
+
+func (d *DockerProvider) dockerIPv6NetworkUsesNAT66() bool {
+	return d.dockerIPv6NetworkUsesNAT66ForMode(d.dockerIPv6NetworkMode())
 }
 
 func (d *DockerProvider) resolveDockerContainerNetwork(networkType, staticIPv6 string) (utils.ContainerNetworkSelection, error) {

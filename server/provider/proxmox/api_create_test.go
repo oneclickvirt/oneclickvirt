@@ -472,6 +472,26 @@ func TestAPIContainerCreatesWithNetworkWhenPostCreateConfigWouldLock(t *testing.
 	}
 }
 
+func TestProxmoxPostCreateNetworkConfigPolicy(t *testing.T) {
+	tests := []struct {
+		networkType string
+		want        bool
+	}{
+		{networkType: "", want: false}, // legacy providers default to NAT IPv4
+		{networkType: "nat_ipv4", want: false},
+		{networkType: " NAT_IPV4 ", want: false},
+		{networkType: "nat_ipv4_ipv6", want: true},
+		{networkType: "dedicated_ipv4", want: true},
+		{networkType: "dedicated_ipv4_ipv6", want: true},
+		{networkType: "ipv6_only", want: true},
+	}
+	for _, test := range tests {
+		if got := proxmoxNeedsPostCreateNetworkConfig(test.networkType); got != test.want {
+			t.Errorf("proxmoxNeedsPostCreateNetworkConfig(%q) = %t, want %t", test.networkType, got, test.want)
+		}
+	}
+}
+
 func newProxmoxAPITestDB(t *testing.T) (*gorm.DB, *gorm.DB, *zap.Logger) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "proxmox-api-task.db")), &gorm.Config{})

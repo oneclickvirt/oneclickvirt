@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
@@ -264,6 +265,32 @@ func TestProxmoxKnownLXCStartRetriesTransientGuestLock(t *testing.T) {
 	}
 	if startRequests != 2 {
 		t.Fatalf("start requests = %d, want 2 after a transient PVE lock: %v", startRequests, transport.requests)
+	}
+}
+
+func TestProxmoxKnownLXCStartFailsWhenGuestRemainsStopped(t *testing.T) {
+	oldLog := global.APP_LOG
+	global.APP_LOG = zap.NewNop()
+	t.Cleanup(func() { global.APP_LOG = oldLog })
+
+	oldPoll := proxmoxAPITaskPollInterval
+	proxmoxAPITaskPollInterval = 0
+	t.Cleanup(func() { proxmoxAPITaskPollInterval = oldPoll })
+
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.config = providerNodeConfigForEndpointTest("pve.test")
+	p.node = "pve-node"
+	transport := &proxmoxKnownStartTransport{currentStatus: []string{"stopped", "stopped"}}
+	p.apiClient = &http.Client{Transport: transport}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	err := p.apiStartKnownInstance(ctx, "100", "container")
+	if err == nil {
+		t.Fatal("apiStartKnownInstance() accepted a guest that remained stopped")
+	}
+	if !strings.Contains(err.Error(), "最后状态: stopped") {
+		t.Fatalf("apiStartKnownInstance() error = %q, want final stopped status", err)
 	}
 }
 

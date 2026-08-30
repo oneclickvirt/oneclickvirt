@@ -136,7 +136,7 @@ func (p *ProxmoxProvider) getProxmoxAPITaskStatus(ctx context.Context, upid stri
 	}
 	endpoint := p.apiEndpoint(fmt.Sprintf(
 		"/api2/json/nodes/%s/tasks/%s/status",
-		url.PathEscape(strings.TrimSpace(p.node)),
+		url.PathEscape(strings.TrimSpace(p.nodeName())),
 		url.PathEscape(strings.TrimSpace(upid)),
 	))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

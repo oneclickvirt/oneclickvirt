@@ -1,6 +1,7 @@
 package containerd
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -77,5 +78,36 @@ func TestContainerdNAT66NetworkIsAvailableWithoutNDPResponder(t *testing.T) {
 		if strings.Contains(command, "ndpresponder") {
 			t.Fatalf("NAT66 availability unexpectedly checked NDP responder: %q", command)
 		}
+	}
+}
+
+func TestContainerdTunnelIPv6SkipsNDPResponder(t *testing.T) {
+	executor := &routedContainerdExecutor{outputs: []string{"", "manual", "false", "valid", ""}}
+	c := NewContainerdProvider().(*ContainerdProvider)
+	c.connected = true
+	c.sshClient.SetExecutor(executor)
+	if !c.checkIPv6NetworkAvailable() {
+		t.Fatal("Containerd tunnel IPv6 was rejected without an NDP responder")
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "inspect -f '{{.State.Status}}' ndpresponder") || strings.Contains(command, "containerd_ipv6_ndp_ready") {
+			t.Fatalf("tunnel IPv6 unexpectedly required NDP readiness: %q", command)
+		}
+	}
+}
+
+func TestContainerdManagedIPv6RequiresNDPReadiness(t *testing.T) {
+	executor := &routedContainerdExecutor{
+		outputs: []string{"", "managed", "true", "running", "valid", ""},
+		errors:  []error{nil, nil, nil, nil, nil, errors.New("responder not ready")},
+	}
+	c := NewContainerdProvider().(*ContainerdProvider)
+	c.connected = true
+	c.sshClient.SetExecutor(executor)
+	if c.checkIPv6NetworkAvailable() {
+		t.Fatal("Containerd accepted IPv6 before the responder readiness marker")
+	}
+	if commands := strings.Join(executor.commands, "\n"); !strings.Contains(commands, "containerd_ipv6_ndp_ready_required") {
+		t.Fatalf("Containerd did not inspect the readiness requirement: %#v", executor.commands)
 	}
 }

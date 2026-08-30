@@ -19,19 +19,22 @@ import (
 )
 
 const (
-	providerType                  = "containerd"
-	cliName                       = "nerdctl"
-	ipv4Network                   = "containerd-net"
-	ipv4Subnet                    = "172.21.0.0/16"
-	ipv6Network                   = "containerd-ipv6"
-	imageDir                      = "/usr/local/bin/containerd_ct_images"
-	ipv6CheckFile                 = "/usr/local/bin/containerd_check_ipv6"
-	storageDriverFile             = "/usr/local/bin/containerd_storage_driver"
-	scriptRepo                    = "oneclickvirt/containerd"
-	serviceCheckName              = "nerdctl"
-	containerdIPv6NetworkModeFile = "/usr/local/bin/containerd_ipv6_network_mode"
-	containerdIPv6SubnetFile      = "/usr/local/bin/containerd_ipv6_subnet"
-	containerdIPv6NetworkModeNAT  = "nat"
+	providerType                       = "containerd"
+	cliName                            = "nerdctl"
+	ipv4Network                        = "containerd-net"
+	ipv4Subnet                         = "172.21.0.0/16"
+	ipv6Network                        = "containerd-ipv6"
+	imageDir                           = "/usr/local/bin/containerd_ct_images"
+	ipv6CheckFile                      = "/usr/local/bin/containerd_check_ipv6"
+	storageDriverFile                  = "/usr/local/bin/containerd_storage_driver"
+	scriptRepo                         = "oneclickvirt/containerd"
+	serviceCheckName                   = "nerdctl"
+	containerdIPv6NetworkModeFile      = "/usr/local/bin/containerd_ipv6_network_mode"
+	containerdIPv6SubnetFile           = "/usr/local/bin/containerd_ipv6_subnet"
+	containerdIPv6NetworkModeNAT       = "nat"
+	containerdIPv6NDPRequiredFile      = "/usr/local/bin/containerd_ipv6_ndp_required"
+	containerdIPv6NDPReadyFile         = "/usr/local/bin/containerd_ipv6_ndp_ready"
+	containerdIPv6NDPReadyRequiredFile = "/usr/local/bin/containerd_ipv6_ndp_ready_required"
 )
 
 func rejectContainerdNAT66PublicStaticIPv6(staticIPv6 string, nat66 bool) error {
@@ -498,17 +501,35 @@ func (c *ContainerdProvider) checkIPv6NetworkAvailable() bool {
 		}
 		return true
 	}
-	ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", cliName)
-	ndpresponderOutput, err := c.sshClient.Execute(ndpresponderCmd)
-	if err != nil || strings.TrimSpace(ndpresponderOutput) != "running" {
-		return false
+	ndpRequired := c.containerdIPv6NDPRequired()
+	if ndpRequired {
+		ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", cliName)
+		ndpresponderOutput, err := c.sshClient.Execute(ndpresponderCmd)
+		if err != nil || strings.TrimSpace(ndpresponderOutput) != "running" {
+			return false
+		}
 	}
 	ipv6ConfigCmd := fmt.Sprintf("[ -f %s ] && [ -s %s ] && [ \"$(sed -e '/^[[:space:]]*$/d' %s)\" != \"\" ] && echo 'valid' || echo 'invalid'", ipv6CheckFile, ipv6CheckFile, ipv6CheckFile)
 	ipv6ConfigOutput, err := c.sshClient.Execute(ipv6ConfigCmd)
 	if err != nil || strings.TrimSpace(ipv6ConfigOutput) != "valid" {
 		return false
 	}
+	if ndpRequired {
+		readyCmd := fmt.Sprintf("if [ \"$(tr -d '[:space:]' < %s 2>/dev/null || true)\" = true ]; then test -s %s; fi", shellSingleQuote(containerdIPv6NDPReadyRequiredFile), shellSingleQuote(containerdIPv6NDPReadyFile))
+		if _, err := c.sshClient.Execute(readyCmd); err != nil {
+			return false
+		}
+	}
 	return true
+}
+
+func (c *ContainerdProvider) containerdIPv6NDPRequired() bool {
+	command := fmt.Sprintf("if [ -s %s ]; then tr -d '[:space:]' < %s; else printf true; fi", shellSingleQuote(containerdIPv6NDPRequiredFile), shellSingleQuote(containerdIPv6NDPRequiredFile))
+	output, err := c.sshClient.Execute(command)
+	if err != nil {
+		return true
+	}
+	return !strings.EqualFold(strings.TrimSpace(output), "false")
 }
 
 func (c *ContainerdProvider) containerdIPv6NetworkUsesNAT66() bool {

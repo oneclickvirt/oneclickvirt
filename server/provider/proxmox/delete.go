@@ -11,7 +11,7 @@ import (
 
 func (p *ProxmoxProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	global.APP_LOG.Debug("开始在Proxmox节点上删除实例（使用SSH）",
-		zap.String("node", p.node),
+		zap.String("node", p.nodeName()),
 		zap.String("host", utils.TruncateString(p.config.Host, 32)),
 		zap.String("instance_id", id))
 	// 查找实例对应的VMID

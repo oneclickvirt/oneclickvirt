@@ -3,6 +3,7 @@ package proxmox
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -22,6 +23,18 @@ type NetworkConfig struct {
 	NetworkType           string // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
 	IPv4PortMappingMethod string // IPv4端口映射方式：iptables, native
 	IPv6PortMappingMethod string // IPv6端口映射方式：iptables, native
+}
+
+// proxmoxNeedsPostCreateNetworkConfig reports whether the high-level create
+// flow still has to mutate a guest's network after the create request.  The
+// ordinary NAT IPv4 interface is embedded in both API and SSH create commands;
+// issuing a second config mutation immediately afterwards races PVE's create
+// lock.  Empty network types are the legacy value and retain the IPv4-only
+// default for backwards compatibility.  Every IPv6 or dedicated mode still
+// needs its follow-up routing/address configuration.
+func proxmoxNeedsPostCreateNetworkConfig(networkType string) bool {
+	networkType = strings.ToLower(strings.TrimSpace(networkType))
+	return networkType != "" && networkType != "nat_ipv4"
 }
 
 // parseNetworkConfigFromInstanceConfig 从实例配置中解析网络配置

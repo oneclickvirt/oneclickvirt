@@ -69,7 +69,7 @@ func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Inst
 	var instances []provider.Instance
 
 	// 获取虚拟机列表
-	vmURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/qemu", p.node))
+	vmURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/qemu", p.nodeName()))
 	vmReq, err := http.NewRequestWithContext(ctx, "GET", vmURL, nil)
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Inst
 	}
 
 	// 获取容器列表
-	ctURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/lxc", p.node))
+	ctURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/lxc", p.nodeName()))
 	ctReq, err := http.NewRequestWithContext(ctx, "GET", ctURL, nil)
 	if err != nil {
 		global.APP_LOG.Warn("创建容器请求失败", zap.Error(err))
@@ -225,12 +225,22 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 
 	updateProgress(90, "配置网络和启动...")
 
-	// 配置网络
-	if err := p.configureInstanceNetwork(ctx, vmid, config); err != nil {
-		if requestedProxmoxIPv6(config) != "" {
-			return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置控制面静态IPv6网络失败: %w", err))
+	// The create implementations already embed the complete NAT IPv4
+	// interface.  A second /config mutation immediately after the create task
+	// races PVE's short-lived per-guest lock and can report a false failure.
+	// IPv6, dedicated, and IPv6-only modes still require their follow-up
+	// address/route configuration.
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+	if proxmoxNeedsPostCreateNetworkConfig(networkConfig.NetworkType) {
+		if err := p.configureInstanceNetwork(ctx, vmid, config); err != nil {
+			if requestedProxmoxIPv6(config) != "" {
+				return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置控制面静态IPv6网络失败: %w", err))
+			}
+			global.APP_LOG.Warn("网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
 		}
-		global.APP_LOG.Warn("网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
+	} else {
+		global.APP_LOG.Debug("普通NAT IPv4网络已在创建请求中配置，跳过重复网络变更",
+			zap.Int("vmid", vmid))
 	}
 
 	// 创建接口已经返回了唯一的 VMID 与实例类型。直接使用它们启动，避免

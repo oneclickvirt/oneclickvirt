@@ -19,21 +19,24 @@ import (
 )
 
 const (
-	providerType        = "podman"
-	cliName             = "podman"
-	ipv4Network         = "podman-net"
-	ipv4Subnet          = "172.20.0.0/16"
-	ipv6Network         = "podman-ipv6"
-	imageDir            = "/usr/local/bin/podman_ct_images"
-	ipv6CheckFile       = "/usr/local/bin/podman_check_ipv6"
-	ipv6NetworkModeFile = "/usr/local/bin/podman_ipv6_network_mode"
-	ipv6ManualHelper    = "/usr/local/bin/podman-ipv6-attach.sh"
-	ipv6ManualPrefix    = "/usr/local/bin/podman_ipv6_public_prefix"
-	ipv6AllocationFile  = "/usr/local/bin/podman_ipv6_allocations"
-	storageDriverFile   = "/usr/local/bin/podman_storage_driver"
-	scriptRepo          = "oneclickvirt/podman"
-	sshScriptRevision   = "20260828.2"
-	serviceCheckName    = "podman"
+	providerType             = "podman"
+	cliName                  = "podman"
+	ipv4Network              = "podman-net"
+	ipv4Subnet               = "172.20.0.0/16"
+	ipv6Network              = "podman-ipv6"
+	imageDir                 = "/usr/local/bin/podman_ct_images"
+	ipv6CheckFile            = "/usr/local/bin/podman_check_ipv6"
+	ipv6NetworkModeFile      = "/usr/local/bin/podman_ipv6_network_mode"
+	ipv6ManualHelper         = "/usr/local/bin/podman-ipv6-attach.sh"
+	ipv6ManualPrefix         = "/usr/local/bin/podman_ipv6_public_prefix"
+	ipv6AllocationFile       = "/usr/local/bin/podman_ipv6_allocations"
+	ipv6NDPReadyFile         = "/usr/local/bin/podman_ipv6_ndp_ready"
+	ipv6NDPRequiredFile      = "/usr/local/bin/podman_ipv6_ndp_required"
+	ipv6NDPReadyRequiredFile = "/usr/local/bin/podman_ipv6_ndp_ready_required"
+	storageDriverFile        = "/usr/local/bin/podman_storage_driver"
+	scriptRepo               = "oneclickvirt/podman"
+	sshScriptRevision        = "20260828.2"
+	serviceCheckName         = "podman"
 )
 
 const (
@@ -525,10 +528,13 @@ func (p *PodmanProvider) podmanIPv6NetworkAvailability() (string, bool) {
 		}
 		return podmanIPv6NetworkModeNAT, true
 	}
-	ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", cliName)
-	ndpresponderOutput, err := p.sshClient.Execute(ndpresponderCmd)
-	if err != nil || strings.TrimSpace(ndpresponderOutput) != "running" {
-		return "", false
+	ndpRequired := p.podmanIPv6NDPRequired()
+	if ndpRequired {
+		ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", cliName)
+		ndpresponderOutput, err := p.sshClient.Execute(ndpresponderCmd)
+		if err != nil || strings.TrimSpace(ndpresponderOutput) != "running" {
+			return "", false
+		}
 	}
 	ipv6ConfigCmd := fmt.Sprintf("[ -f %s ] && [ -s %s ] && [ \"$(sed -e '/^[[:space:]]*$/d' %s)\" != \"\" ] && echo 'valid' || echo 'invalid'", ipv6CheckFile, ipv6CheckFile, ipv6CheckFile)
 	ipv6ConfigOutput, err := p.sshClient.Execute(ipv6ConfigCmd)
@@ -545,17 +551,42 @@ func (p *PodmanProvider) podmanIPv6NetworkAvailability() (string, bool) {
 		}
 	}
 	if mode == podmanIPv6NetworkModeManual {
-		if _, err := p.sshClient.Execute(fmt.Sprintf("test -x %s && test -s %s && test -f %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(ipv6ManualPrefix), shellSingleQuote("/usr/local/bin/podman_ipv6_targets"))); err != nil {
+		manualReadyCheck := ""
+		if ndpRequired {
+			manualReadyCheck = fmt.Sprintf(" && test -s %s", shellSingleQuote(ipv6NDPReadyFile))
+		}
+		manualStateCmd := fmt.Sprintf("test -x %s && test -s %s && test -f %s%s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(ipv6ManualPrefix), shellSingleQuote("/usr/local/bin/podman_ipv6_targets"), manualReadyCheck)
+		if _, err := p.sshClient.Execute(manualStateCmd); err != nil {
 			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("Podman manual IPv6网络缺少路由辅助状态，已禁用IPv6容器创建", zap.Error(err))
+				global.APP_LOG.Warn("Podman manual IPv6网络尚未就绪，已禁用IPv6容器创建", zap.Error(err))
 			}
 			return "", false
 		}
 		if _, err := p.sshClient.Execute(fmt.Sprintf("%s network inspect %s", cliName, shellSingleQuote(ipv4Network))); err != nil {
 			return "", false
 		}
+	} else if ndpRequired {
+		// New installers set this marker after ndpresponder has opened its raw
+		// socket. A missing marker preserves compatibility with older healthy
+		// managed networks that predate the readiness contract.
+		readyCmd := fmt.Sprintf("if [ \"$(tr -d '[:space:]' < %s 2>/dev/null || true)\" = true ]; then test -s %s; fi", shellSingleQuote(ipv6NDPReadyRequiredFile), shellSingleQuote(ipv6NDPReadyFile))
+		if _, err := p.sshClient.Execute(readyCmd); err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("Podman IPv6 NDP responder 尚未就绪，已禁用IPv6容器创建", zap.Error(err))
+			}
+			return "", false
+		}
 	}
 	return mode, true
+}
+
+func (p *PodmanProvider) podmanIPv6NDPRequired() bool {
+	command := fmt.Sprintf("if [ -s %s ]; then tr -d '[:space:]' < %s; else printf true; fi", shellSingleQuote(ipv6NDPRequiredFile), shellSingleQuote(ipv6NDPRequiredFile))
+	output, err := p.sshClient.Execute(command)
+	if err != nil {
+		return true
+	}
+	return !strings.EqualFold(strings.TrimSpace(output), "false")
 }
 
 func (p *PodmanProvider) podmanIPv6NetworkMode() (string, bool) {

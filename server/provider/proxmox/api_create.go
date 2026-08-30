@@ -110,7 +110,7 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 		return err
 	}
 
-	url := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/lxc", p.node))
+	url := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/lxc", p.nodeName()))
 
 	payload := map[string]interface{}{
 		"vmid":         vmid,
@@ -276,7 +276,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	}
 
 	// 通过API创建虚拟机
-	url := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/qemu", p.node))
+	url := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/qemu", p.nodeName()))
 
 	// 根据 PVE 版本决定是否使用 fstrim_cloned_disks 参数
 	agentParam := "1"
@@ -442,8 +442,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	startCmd := fmt.Sprintf("qm start %d", vmid)
 	_, err = p.sshClient.Execute(startCmd)
 	if err != nil {
-		global.APP_LOG.Warn("启动虚拟机失败", zap.Int("vmid", vmid), zap.Error(err))
-		// 不返回错误，继续流程
+		return fmt.Errorf("启动虚拟机失败: %w", err)
 	} else {
 		updateProgress(90, "等待虚拟机启动...")
 
@@ -467,9 +466,11 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		}
 
 		if !vmRunning {
-			global.APP_LOG.Warn("虚拟机启动超时",
-				zap.Int("vmid", vmid),
-				zap.Duration("elapsed", time.Since(startTime)))
+			statusOutput, statusErr := p.sshClient.Execute(fmt.Sprintf("qm status %d", vmid))
+			if statusErr != nil {
+				return fmt.Errorf("等待虚拟机 %d 启动超时（最后状态查询失败: %v）", vmid, statusErr)
+			}
+			return fmt.Errorf("等待虚拟机 %d 启动超时（最后状态: %s）", vmid, strings.TrimSpace(statusOutput))
 		}
 
 		updateProgress(95, "检测Guest Agent...")

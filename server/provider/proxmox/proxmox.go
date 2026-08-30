@@ -213,9 +213,9 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 
 	// 获取节点名：优先使用配置中的HostName（数据库存储的），否则动态获取
 	if config.HostName != "" {
-		p.node = config.HostName
+		p.setNodeName(config.HostName)
 		global.APP_LOG.Debug("使用数据库配置的Proxmox主机名",
-			zap.String("hostName", p.node),
+			zap.String("hostName", p.nodeName()),
 			zap.String("provider", config.Name),
 			zap.String("host", utils.TruncateString(config.Host, 32)))
 	} else {
@@ -224,10 +224,10 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 			global.APP_LOG.Warn("获取主机名失败，使用默认值",
 				zap.Error(err),
 				zap.String("host", utils.TruncateString(config.Host, 32)))
-			p.node = "pve" // 默认节点名
+			p.setNodeName("pve") // 默认节点名
 		} else {
 			global.APP_LOG.Debug("动态获取Proxmox主机名成功",
-				zap.String("hostName", p.node),
+				zap.String("hostName", p.nodeName()),
 				zap.String("provider", config.Name),
 				zap.String("host", utils.TruncateString(config.Host, 32)))
 		}
@@ -265,7 +265,7 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 	global.APP_LOG.Info("Proxmox provider SSH连接成功",
 		zap.String("host", utils.TruncateString(config.Host, 32)),
 		zap.Int("port", config.Port),
-		zap.String("node", utils.TruncateString(p.node, 32)),
+		zap.String("node", utils.TruncateString(p.nodeName(), 32)),
 		zap.String("version", p.version),
 		zap.Bool("supportsFstrim", p.supportsCloneFstrim()),
 		zap.Bool("hasToken", p.hasAPIAccess()))
@@ -289,9 +289,9 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 	p.resetNATIPv4DataPlaneCache()
 
 	// 使用配置中的 HostName 作为节点名默认值，避免阻塞
-	p.node = config.HostName
-	if p.node == "" {
-		p.node = "pve"
+	p.setNodeName(config.HostName)
+	if p.nodeName() == "" {
+		p.setNodeName("pve")
 	}
 
 	// Agent 模式下 getNodeName 和 getProxmoxVersion 改为异步，
@@ -305,7 +305,7 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 			global.APP_LOG.Warn("Agent模式下Proxmox节点名获取失败", zap.Error(err))
 		} else {
 			global.APP_LOG.Debug("Agent模式下Proxmox节点名获取成功",
-				zap.String("node", p.node))
+				zap.String("node", p.nodeName()))
 		}
 	}()
 
@@ -318,7 +318,7 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 	global.APP_LOG.Info("Proxmox provider (Agent模式) 加载完成",
 		zap.String("name", config.Name),
 		zap.String("type", config.Type),
-		zap.String("node", utils.TruncateString(p.node, 32)))
+		zap.String("node", utils.TruncateString(p.nodeName(), 32)))
 	return nil
 }
 
@@ -555,10 +555,22 @@ func (p *ProxmoxProvider) getNodeName(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	p.mu.Lock()
-	p.node = utils.CleanCommandOutput(output)
-	p.mu.Unlock()
+	p.setNodeName(utils.CleanCommandOutput(output))
 	return nil
+}
+
+// nodeName returns a consistent snapshot. Agent mode discovers the node
+// asynchronously, so request paths must not read p.node directly.
+func (p *ProxmoxProvider) nodeName() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.node
+}
+
+func (p *ProxmoxProvider) setNodeName(node string) {
+	p.mu.Lock()
+	p.node = strings.TrimSpace(node)
+	p.mu.Unlock()
 }
 
 // ExecuteSSHCommand 执行SSH命令
@@ -803,7 +815,7 @@ func (p *ProxmoxProvider) getProxmoxVersion() error {
 				p.mu.Unlock()
 				global.APP_LOG.Debug("获取 Proxmox 版本成功",
 					zap.String("version", p.version),
-					zap.String("node", p.node))
+					zap.String("node", p.nodeName()))
 				return nil
 			}
 		}
