@@ -8,7 +8,9 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +26,7 @@ import (
 const maxProxmoxDiscoveryResponseSize = 16 << 20
 const maxProxmoxMetadataWorkers = 8
 const maxProxmoxMetadataBatchSize = 64
+const maxProxmoxRecoveryNetworkBatchSize = 48
 
 type proxmoxDiscoveredResource struct {
 	ID       string          `json:"id"`
@@ -40,6 +43,11 @@ type proxmoxDiscoveredResource struct {
 	// Description is populated by the per-guest config endpoint. PVE shell
 	// projects store their import record in the config header/description.
 	Description string `json:"description,omitempty"`
+	// Recovery-only network fields come from bounded config reads. Keep them
+	// out of normal resource JSON decoding because cluster/resources does not
+	// provide current guest addresses.
+	PrivateIP   string `json:"-"`
+	IPv6Address string `json:"-"`
 }
 
 type proxmoxBatchCommand struct {
@@ -84,6 +92,67 @@ func (p *ProxmoxProvider) DiscoverInstances(ctx context.Context) ([]provider.Dis
 	return p.sshDiscoverInstances(ctx)
 }
 
+// DiscoverInstancesForRecovery avoids import-oriented per-guest enrichment
+// during an outage recovery. API-capable nodes use the PVE node execute
+// endpoint in bounded batches; SSH/Agent nodes use one resource query plus one
+// generated pvesh config command. Neither path falls back to one HTTP/SSH call
+// per guest when optional address metadata is unavailable.
+func (p *ProxmoxProvider) DiscoverInstancesForRecovery(ctx context.Context) ([]provider.DiscoveredInstance, error) {
+	if !p.connected {
+		return nil, fmt.Errorf("not connected")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if p.shouldUseAPI() {
+		instances, err := p.apiDiscoverInstancesForRecovery(ctx)
+		if err == nil {
+			return instances, nil
+		}
+		if fallbackErr := p.ensureSSHBeforeFallback(err, "恢复发现实例"); fallbackErr != nil {
+			return nil, fallbackErr
+		}
+	}
+	if !p.shouldUseSSH() {
+		return nil, fmt.Errorf("执行规则不允许使用SSH发现实例")
+	}
+	return p.sshDiscoverInstancesForRecovery(ctx)
+}
+
+func (p *ProxmoxProvider) apiDiscoverInstancesForRecovery(ctx context.Context) ([]provider.DiscoveredInstance, error) {
+	resourcesURL := p.apiEndpoint("/api2/json/cluster/resources?type=vm")
+	response, err := p.makeAPIRequest(ctx, http.MethodGet, resourcesURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("获取Proxmox集群恢复实例失败: %w", err)
+	}
+	resources, err := parseProxmoxResourceEnvelope(response)
+	if err != nil {
+		return nil, fmt.Errorf("解析Proxmox集群恢复实例失败: %w", err)
+	}
+	p.enrichRecoveryResourceNetworksFromAPI(ctx, resources)
+	return p.convertDiscoveredResources(resources)
+}
+
+func (p *ProxmoxProvider) sshDiscoverInstancesForRecovery(ctx context.Context) ([]provider.DiscoveredInstance, error) {
+	if !p.sshClient.HasExecutor() {
+		return nil, fmt.Errorf("SSH client not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	output, err := p.sshClient.Execute("pvesh get /cluster/resources --type vm --output-format json")
+	if err != nil {
+		return nil, fmt.Errorf("SSH获取Proxmox恢复实例失败: %w", err)
+	}
+	resources, err := parseProxmoxResourcesJSON(output)
+	if err != nil {
+		return nil, fmt.Errorf("SSH解析Proxmox恢复实例失败: %w", err)
+	}
+	p.enrichRecoveryResourceNetworksFromSSH(ctx, resources)
+	return p.convertDiscoveredResources(resources)
+}
+
 // apiDiscoverInstances uses the cluster resource endpoint so PVE 8/9 and
 // multi-node clusters are handled in one request. A denied or malformed
 // response is returned as an error instead of being mistaken for an empty
@@ -101,6 +170,225 @@ func (p *ProxmoxProvider) apiDiscoverInstances(ctx context.Context) ([]provider.
 	}
 	resources = p.enrichAPIResourceDescriptions(ctx, resources)
 	return p.convertDiscoveredResources(resources)
+}
+
+// enrichRecoveryResourceNetworksFromAPI reads only guest config fields needed
+// to repair controller address mappings. The execute endpoint groups up to a
+// fixed number of config reads into one request per PVE node; a denied batch is
+// intentionally treated as missing optional address data rather than causing
+// an individual-request fallback during recovery.
+func (p *ProxmoxProvider) enrichRecoveryResourceNetworksFromAPI(ctx context.Context, resources []proxmoxDiscoveredResource) {
+	groups := make(map[string][]int)
+	for index := range resources {
+		if resources[index].VMID <= 0 || strings.TrimSpace(resources[index].Node) == "" {
+			continue
+		}
+		if _, err := normalizeProxmoxResourceKind(resources[index].Type); err != nil {
+			continue
+		}
+		groups[strings.TrimSpace(resources[index].Node)] = append(groups[strings.TrimSpace(resources[index].Node)], index)
+	}
+	nodes := make([]string, 0, len(groups))
+	for node := range groups {
+		nodes = append(nodes, node)
+	}
+	sort.Strings(nodes)
+	for _, node := range nodes {
+		indexes := groups[node]
+		for start := 0; start < len(indexes); start += maxProxmoxRecoveryNetworkBatchSize {
+			if ctx.Err() != nil {
+				return
+			}
+			end := start + maxProxmoxRecoveryNetworkBatchSize
+			if end > len(indexes) {
+				end = len(indexes)
+			}
+			if err := p.fetchRecoveryResourceNetworksBatch(ctx, node, indexes[start:end], resources); err != nil && global.APP_LOG != nil {
+				global.APP_LOG.Debug("Proxmox恢复批量网络配置读取失败，保留已有地址",
+					zap.String("provider", p.config.Name), zap.String("node", node), zap.Error(err))
+			}
+		}
+	}
+}
+
+func (p *ProxmoxProvider) fetchRecoveryResourceNetworksBatch(
+	ctx context.Context,
+	node string,
+	indexes []int,
+	resources []proxmoxDiscoveredResource,
+) error {
+	commands := make([]proxmoxBatchCommand, 0, len(indexes))
+	commandIndexes := make([]int, 0, len(indexes))
+	for _, index := range indexes {
+		kind, err := normalizeProxmoxResourceKind(resources[index].Type)
+		if err != nil {
+			continue
+		}
+		commands = append(commands, proxmoxBatchCommand{
+			Path:   fmt.Sprintf("%s/%d/config", kind, resources[index].VMID),
+			Method: http.MethodGet,
+		})
+		commandIndexes = append(commandIndexes, index)
+	}
+	if len(commands) == 0 {
+		return nil
+	}
+	commandsJSON, err := json.Marshal(commands)
+	if err != nil {
+		return fmt.Errorf("编码Proxmox恢复批量网络命令失败: %w", err)
+	}
+	body, err := json.Marshal(map[string]string{"commands": string(commandsJSON)})
+	if err != nil {
+		return fmt.Errorf("编码Proxmox恢复批量网络请求失败: %w", err)
+	}
+	executeURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/execute", url.PathEscape(strings.TrimSpace(node))))
+	response, err := p.makeAPIRequest(ctx, http.MethodPost, executeURL, body)
+	if err != nil {
+		return err
+	}
+	var payload struct {
+		Data []proxmoxBatchCommandResult `json:"data"`
+	}
+	if err := json.Unmarshal(response, &payload); err != nil {
+		return fmt.Errorf("解析Proxmox恢复批量网络响应失败: %w", err)
+	}
+	if len(payload.Data) != len(commandIndexes) {
+		return fmt.Errorf("Proxmox恢复批量网络响应数量异常: got %d want %d", len(payload.Data), len(commandIndexes))
+	}
+	for commandIndex, result := range payload.Data {
+		if result.Status < http.StatusOK || result.Status >= http.StatusMultipleChoices || len(result.Data) == 0 {
+			continue
+		}
+		network := parseProxmoxRecoveryNetworkConfig(result.Data)
+		resource := &resources[commandIndexes[commandIndex]]
+		if resource.PrivateIP == "" {
+			resource.PrivateIP = network.PrivateIP
+		}
+		if resource.IPv6Address == "" {
+			resource.IPv6Address = network.IPv6Address
+		}
+	}
+	return nil
+}
+
+// enrichRecoveryResourceNetworksFromSSH performs one bounded host command
+// after the cluster resource query. The command reads only static guest config
+// and emits line-delimited JSON keyed by the resource index, avoiding a fresh
+// controller-to-node SSH round trip for each guest.
+func (p *ProxmoxProvider) enrichRecoveryResourceNetworksFromSSH(ctx context.Context, resources []proxmoxDiscoveredResource) {
+	if !p.shouldUseSSH() || !p.sshClient.HasExecutor() || ctx.Err() != nil {
+		return
+	}
+	var command strings.Builder
+	for index := range resources {
+		resource := resources[index]
+		kind, err := normalizeProxmoxResourceKind(resource.Type)
+		if err != nil || resource.VMID <= 0 || strings.TrimSpace(resource.Node) == "" {
+			continue
+		}
+		path := fmt.Sprintf("/nodes/%s/%s/%d/config", strings.TrimSpace(resource.Node), kind, resource.VMID)
+		fmt.Fprintf(&command,
+			"printf 'OCVREC\\t%d\\t'; pvesh get %s --output-format json 2>/dev/null | tr '\\n' ' '; printf '\\n'\n",
+			index, utils.ShellSingleQuote(path))
+	}
+	if command.Len() == 0 {
+		return
+	}
+	output, err := p.sshClient.Execute(command.String())
+	if err != nil {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Debug("Proxmox恢复SSH批量网络配置读取失败，保留已有地址",
+				zap.String("provider", p.config.Name), zap.Error(err))
+		}
+		return
+	}
+	for _, line := range strings.Split(output, "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), "\t", 3)
+		if len(parts) != 3 || parts[0] != "OCVREC" {
+			continue
+		}
+		index, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil || index < 0 || index >= len(resources) {
+			continue
+		}
+		network := parseProxmoxRecoveryNetworkConfig([]byte(parts[2]))
+		if resources[index].PrivateIP == "" {
+			resources[index].PrivateIP = network.PrivateIP
+		}
+		if resources[index].IPv6Address == "" {
+			resources[index].IPv6Address = network.IPv6Address
+		}
+	}
+}
+
+type proxmoxRecoveryNetwork struct {
+	PrivateIP   string
+	IPv6Address string
+}
+
+func parseProxmoxRecoveryNetworkConfig(raw []byte) proxmoxRecoveryNetwork {
+	var config map[string]interface{}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return proxmoxRecoveryNetwork{}
+	}
+	if nested, ok := config["data"].(map[string]interface{}); ok {
+		config = nested
+	}
+	keys := make([]string, 0, len(config))
+	for key := range config {
+		lowerKey := strings.ToLower(strings.TrimSpace(key))
+		if strings.HasPrefix(lowerKey, "net") || strings.HasPrefix(lowerKey, "ipconfig") {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	network := proxmoxRecoveryNetwork{}
+	for _, key := range keys {
+		value, ok := config[key].(string)
+		if !ok {
+			continue
+		}
+		for _, segment := range strings.Split(value, ",") {
+			name, address, found := strings.Cut(strings.TrimSpace(segment), "=")
+			if !found {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(name)) {
+			case "ip":
+				if network.PrivateIP == "" {
+					network.PrivateIP = normalizeProxmoxRecoveryAddress(address, false)
+				}
+			case "ip6":
+				if network.IPv6Address == "" {
+					network.IPv6Address = normalizeProxmoxRecoveryAddress(address, true)
+				}
+			}
+		}
+	}
+	return network
+}
+
+func normalizeProxmoxRecoveryAddress(raw string, wantV6 bool) string {
+	raw = strings.TrimSpace(strings.Trim(raw, "[]"))
+	if raw == "" || strings.EqualFold(raw, "dhcp") || strings.EqualFold(raw, "auto") {
+		return ""
+	}
+	if prefix, err := netip.ParsePrefix(raw); err == nil {
+		addr := prefix.Addr().Unmap()
+		if addr.Is6() == wantV6 && !addr.IsUnspecified() {
+			return addr.String()
+		}
+		return ""
+	}
+	addr, err := netip.ParseAddr(raw)
+	if err != nil {
+		return ""
+	}
+	addr = addr.Unmap()
+	if addr.Is6() != wantV6 || addr.IsUnspecified() {
+		return ""
+	}
+	return addr.String()
 }
 
 // enrichAPIResourceDescriptions covers api_only nodes where the controller
@@ -452,11 +740,19 @@ func (p *ProxmoxProvider) parseLXCsResponse(respData []byte, nodeName string) ([
 }
 
 func (p *ProxmoxProvider) parseResourcesJSON(jsonOutput string) ([]provider.DiscoveredInstance, error) {
+	resources, err := parseProxmoxResourcesJSON(jsonOutput)
+	if err != nil {
+		return nil, err
+	}
+	return p.convertDiscoveredResources(resources)
+}
+
+func parseProxmoxResourcesJSON(jsonOutput string) ([]proxmoxDiscoveredResource, error) {
 	var resources []proxmoxDiscoveredResource
 	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &resources); err != nil {
 		return nil, err
 	}
-	return p.convertDiscoveredResources(resources)
+	return resources, nil
 }
 
 func parseProxmoxResourceEnvelope(data []byte) ([]proxmoxDiscoveredResource, error) {
@@ -544,8 +840,15 @@ func (p *ProxmoxProvider) convertDiscoveredResources(resources []proxmoxDiscover
 			CPU:                cpu,
 			Memory:             memory,
 			Disk:               disk,
+			PrivateIP:          resource.PrivateIP,
+			IPv6Address:        resource.IPv6Address,
 			SSHPort:            22,
 			RawData:            resource,
+			RuntimeIdentity: &provider.RecoveryInstanceIdentity{
+				Node: strings.TrimSpace(resource.Node),
+				ID:   remoteID,
+				Type: instanceType,
+			},
 		})
 	}
 	return instances, nil

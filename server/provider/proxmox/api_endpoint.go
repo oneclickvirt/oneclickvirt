@@ -19,6 +19,13 @@ func (p *ProxmoxProvider) apiEndpoint(path string) string {
 // escapes the dynamic node/guest path segments.  Keeping this decision in one
 // place prevents container lifecycle calls from accidentally using qemu URLs.
 func (p *ProxmoxProvider) apiGuestEndpoint(instanceType, vmid, suffix string) (string, error) {
+	return p.apiGuestEndpointAtNode(p.nodeName(), instanceType, vmid, suffix)
+}
+
+// apiGuestEndpointAtNode builds a guest endpoint using the node returned by
+// discovery.  This is required for clustered PVE recovery: the controller's
+// configured/default node can differ from the node currently hosting a guest.
+func (p *ProxmoxProvider) apiGuestEndpointAtNode(node, instanceType, vmid, suffix string) (string, error) {
 	var resource string
 	switch strings.ToLower(strings.TrimSpace(instanceType)) {
 	case "vm":
@@ -29,7 +36,7 @@ func (p *ProxmoxProvider) apiGuestEndpoint(instanceType, vmid, suffix string) (s
 		return "", fmt.Errorf("未知的Proxmox实例类型: %s", instanceType)
 	}
 
-	node := strings.TrimSpace(p.nodeName())
+	node = strings.TrimSpace(node)
 	vmid = strings.TrimSpace(vmid)
 	if node == "" || vmid == "" {
 		return "", fmt.Errorf("PVE实例API路径缺少节点或VMID")

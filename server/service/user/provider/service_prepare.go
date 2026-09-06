@@ -159,6 +159,7 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 			InstanceType:       instanceType,
 			UserID:             task.UserID,
 			Status:             "creating",
+			DesiredState:       providerModel.InstanceDesiredStateRunning,
 			Username:           "root",
 			Password:           s.generatePassword(),
 			OSType:             osType,

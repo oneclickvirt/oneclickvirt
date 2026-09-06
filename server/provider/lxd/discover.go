@@ -245,6 +245,9 @@ func (l *LXDProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Disc
 			// 使用名称作为标识
 			discovered.UUID = fmt.Sprintf("lxd-%s-%s", l.config.Name, inst.Name)
 		}
+		discovered.RuntimeIdentity = &provider.RecoveryInstanceIdentity{
+			ID: strings.TrimSpace(discovered.ProviderInstanceID), Type: discovered.InstanceType,
+		}
 
 		discoveredInstances = append(discoveredInstances, discovered)
 	}
@@ -416,6 +419,9 @@ func (l *LXDProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Disc
 			discovered.UUID = uuid
 		} else {
 			discovered.UUID = fmt.Sprintf("lxd-%s-%s", l.config.Name, inst.Name)
+		}
+		discovered.RuntimeIdentity = &provider.RecoveryInstanceIdentity{
+			ID: strings.TrimSpace(discovered.ProviderInstanceID), Type: discovered.InstanceType,
 		}
 
 		discoveredInstances = append(discoveredInstances, discovered)

@@ -17,6 +17,15 @@ const (
 	TrafficStatsModeCustom   = "custom"   // 自定义模式
 )
 
+// InstanceDesiredState is the controller-side lifecycle intent.  Runtime
+// Status is a fact observed from the task system or a provider; DesiredState
+// answers the separate question of whether a recovered node may bring an
+// instance back up automatically.
+const (
+	InstanceDesiredStateRunning = "running"
+	InstanceDesiredStateStopped = "stopped"
+)
+
 // TrafficStatsPreset 流量统计预设配置
 type TrafficStatsPreset struct {
 	SQLiteCollectInterval int // SQLite采集间隔（秒），采集后自动同步统计
@@ -139,6 +148,16 @@ type Provider struct {
 	SSHStatus       string     `json:"sshStatus" gorm:"default:unknown;size:16"` // SSH连接状态：online, offline, unknown
 	LastAPICheck    *time.Time `json:"lastApiCheck"`                             // 最后一次API健康检查时间
 	LastSSHCheck    *time.Time `json:"lastSshCheck"`                             // 最后一次SSH健康检查时间
+
+	// 恢复调度内部状态。离线起点只在节点首次确认 inactive 时写入；恢复任务
+	// 成功完成一次远端核对后清空，避免每轮健康检查都重复探测或重复启动。
+	// LeaseToken / LeaseExpiresAt make the recovery claim cross-controller:
+	// periodic and manually queued recovery can never discover the same node at
+	// the same time, while a stale worker cannot release a newer worker's lease.
+	RecoveryOfflineSince          *time.Time `json:"-" gorm:"column:recovery_offline_since;index:idx_recovery_offline_since"`
+	RecoveryLastRecoveryAttemptAt *time.Time `json:"-" gorm:"column:recovery_last_recovery_attempt_at"`
+	RecoveryLeaseToken            string     `json:"-" gorm:"column:recovery_lease_token;size:36"`
+	RecoveryLeaseExpiresAt        *time.Time `json:"-" gorm:"column:recovery_lease_expires_at;index:idx_recovery_lease_expires_at"`
 
 	// 配置管理字段
 	AuthConfig       string     `json:"-" gorm:"type:text"`                  // 完整认证配置JSON（不返回给前端）
@@ -425,6 +444,16 @@ func (p *Provider) GetAuthMethod() string {
 	return ""
 }
 
+// IsReverseAgent reports whether a Provider uses the controller-facing
+// WebSocket Agent transport. An api_only Provider may still have
+// ConnectionType=agent for historical configuration compatibility, but its
+// lifecycle operations are performed through the provider API and it must not
+// be made to wait for, or repair, a reverse Agent tunnel.
+func (p Provider) IsReverseAgent() bool {
+	return strings.EqualFold(strings.TrimSpace(p.ConnectionType), "agent") &&
+		!strings.EqualFold(strings.TrimSpace(p.ExecutionRule), "api_only")
+}
+
 // Instance 实例模型
 type Instance struct {
 	// 基础字段
@@ -440,6 +469,7 @@ type Instance struct {
 	Provider     string `json:"provider" gorm:"not null;size:64;index:idx_provider_name"`                                                                                // Provider名称
 	ProviderID   uint   `json:"providerId" gorm:"uniqueIndex:idx_instance_name_provider,priority:2;index:idx_provider_id;index:idx_provider_status,priority:1;not null"` // 关联的Provider ID（与name组合唯一）
 	Status       string `json:"status" gorm:"size:32;index:idx_status;index:idx_provider_status,priority:2"`                                                             // 实例状态：creating, running, stopped, failed等
+	DesiredState string `json:"desiredState" gorm:"column:desired_state;size:16;default:stopped"`                                                                        // 持久化运行意图：running / stopped；用于节点恢复时避免误启动手工停机实例
 	Image        string `json:"image" gorm:"size:512"`                                                                                                                   // 使用的镜像名称（多容器场景可包含多个镜像）
 	InstanceType string `json:"instance_type" gorm:"size:16;default:container;index:idx_instance_type"`                                                                  // 实例类型：container, vm
 
@@ -519,7 +549,29 @@ func (i *Instance) BeforeCreate(tx *gorm.DB) error {
 	if strings.TrimSpace(i.UUID) == "" {
 		i.UUID = uuid.New().String()
 	}
+	// A newly discovered/imported runtime must never become eligible for
+	// controller-initiated recovery until an administrator explicitly starts
+	// it.  Normal create flows begin in creating/running intent instead.
+	switch strings.ToLower(strings.TrimSpace(i.DesiredState)) {
+	case InstanceDesiredStateRunning, InstanceDesiredStateStopped:
+		i.DesiredState = strings.ToLower(strings.TrimSpace(i.DesiredState))
+	default:
+		if !i.IsImported && instanceStatusImpliesRunningIntent(i.Status) {
+			i.DesiredState = InstanceDesiredStateRunning
+		} else {
+			i.DesiredState = InstanceDesiredStateStopped
+		}
+	}
 	return nil
+}
+
+func instanceStatusImpliesRunningIntent(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "creating", "running", "starting", "restarting", "traffic_stopped", "expiry_stopped":
+		return true
+	default:
+		return false
+	}
 }
 
 func (i Instance) ProviderInstanceIdentifier() string {

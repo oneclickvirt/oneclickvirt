@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"oneclickvirt/model/provider"
@@ -18,6 +19,46 @@ type NodeConfig = provider.ProviderNodeConfig
 
 // ProgressCallback 进度回调函数类型
 type ProgressCallback func(percentage int, message string)
+
+// RecoveryInstanceIdentity is the provider-side runtime identity captured by
+// an authoritative discovery pass.  It is intentionally credential-free.  A
+// clustered provider may require Node in addition to the guest ID and type;
+// providers without a node concept can leave Node empty and use ID as their
+// stable instance name.
+type RecoveryInstanceIdentity struct {
+	Node string `json:"node,omitempty"`
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
+func (i RecoveryInstanceIdentity) Valid() bool {
+	return strings.TrimSpace(i.ID) != "" && strings.TrimSpace(i.Type) != ""
+}
+
+// KnownRuntimeInstanceStarter is an optional capability used only by the
+// reboot-recovery worker.  It lets a provider consume the identity returned by
+// the same discovery pass instead of rediscovering a guest by name (or falling
+// back to another transport).
+type KnownRuntimeInstanceStarter interface {
+	StartInstanceByRecoveryIdentity(ctx context.Context, identity RecoveryInstanceIdentity) error
+}
+
+// StartInstanceForRecovery starts a guest using its discovered runtime
+// identity.  Providers which do not need a richer capability use the stable ID
+// directly; an empty identity is always rejected so recovery cannot guess a
+// different guest.
+func StartInstanceForRecovery(ctx context.Context, instance Provider, identity RecoveryInstanceIdentity) error {
+	if instance == nil {
+		return fmt.Errorf("恢复启动Provider不可用")
+	}
+	if !identity.Valid() {
+		return fmt.Errorf("恢复启动缺少有效实例运行时身份")
+	}
+	if starter, ok := instance.(KnownRuntimeInstanceStarter); ok {
+		return starter.StartInstanceByRecoveryIdentity(ctx, identity)
+	}
+	return instance.StartInstance(ctx, strings.TrimSpace(identity.ID))
+}
 
 // Provider 统一接口
 type Provider interface {
@@ -62,6 +103,29 @@ type Provider interface {
 
 	// 实例发现（用于纳管已有实例的provider）
 	DiscoverInstances(ctx context.Context) ([]DiscoveredInstance, error)
+}
+
+// RecoveryInstanceDiscoverer is an optional capability for a provider that
+// can return the identity, runtime state, and addresses needed after a node
+// reboot without doing the import-oriented per-guest enrichment work.
+//
+// The normal Provider interface deliberately remains unchanged: providers
+// which do not implement this capability keep their established discovery
+// behaviour. Call DiscoverInstancesForRecovery instead of asserting this
+// interface directly so every provider type remains eligible for recovery.
+type RecoveryInstanceDiscoverer interface {
+	DiscoverInstancesForRecovery(ctx context.Context) ([]DiscoveredInstance, error)
+}
+
+// DiscoverInstancesForRecovery invokes an optimized recovery discovery when a
+// provider supplies one, otherwise it makes exactly one normal discovery call.
+// It centralizes the fallback so SSH, reverse-Agent, and API-backed providers
+// all share the same recovery control flow.
+func DiscoverInstancesForRecovery(ctx context.Context, instance Provider) ([]DiscoveredInstance, error) {
+	if recoveryProvider, ok := instance.(RecoveryInstanceDiscoverer); ok {
+		return recoveryProvider.DiscoverInstancesForRecovery(ctx)
+	}
+	return instance.DiscoverInstances(ctx)
 }
 
 // DiscoveredPortMapping 发现的端口映射信息
@@ -121,6 +185,11 @@ type DiscoveredInstance struct {
 
 	// 原始数据（用于调试）
 	RawData interface{} `json:"rawData"` // provider特定的原始数据
+
+	// RuntimeIdentity is captured during discovery and consumed by the narrow
+	// reboot-recovery start path. It is safe to persist because it contains no
+	// credentials or user secrets.
+	RuntimeIdentity *RecoveryInstanceIdentity `json:"runtimeIdentity,omitempty"`
 }
 
 // Registry Provider 注册表

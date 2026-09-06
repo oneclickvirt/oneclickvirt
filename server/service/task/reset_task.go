@@ -120,6 +120,7 @@ func resetReplacementInstance(resetCtx *ResetTaskContext) providerModel.Instance
 		Bandwidth:       resetCtx.Instance.Bandwidth,
 		UserID:          resetCtx.OriginalUserID,
 		Status:          "creating",
+		DesiredState:    resetCtx.Instance.DesiredState,
 		OSType:          resetCtx.Instance.OSType,
 		NetworkType:     resetCtx.Instance.NetworkType,
 		ExpiresAt:       resetCtx.OriginalExpiresAt,

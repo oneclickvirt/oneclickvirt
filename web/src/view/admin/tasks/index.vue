@@ -279,6 +279,10 @@
                 value="provider-runtime-reload"
               />
               <el-option
+                :label="$t('admin.tasks.taskTypeProviderRecoverySync')"
+                value="provider-recovery-sync"
+              />
+              <el-option
                 :label="$t('admin.tasks.taskTypeProviderDelete')"
                 value="provider-delete"
               />

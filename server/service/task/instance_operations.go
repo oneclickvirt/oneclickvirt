@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	providerCore "oneclickvirt/provider"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	agentLifecycle "oneclickvirt/service/agent"
 	"oneclickvirt/service/interfaces"
@@ -19,7 +20,49 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+var errLifecycleTaskCancelled = errors.New("任务已取消")
+
+// lockLifecycleTaskAndInstance establishes one deterministic linearization
+// point for a lifecycle operation's remote success. Cancellation updates the
+// same task row, so either cancellation wins and the cleanup restores the
+// transition state, or this transaction wins and the operation is committed.
+// This prevents a late provider response from writing desired_state=running
+// after a cancelled start/restart has already been rolled back.
+func lockLifecycleTaskAndInstance(tx *gorm.DB, taskID, instanceID uint, expectedStatuses ...string) (providerModel.Instance, error) {
+	var currentTask adminModel.Task
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id", "status").Where("id = ?", taskID).First(&currentTask).Error; err != nil {
+		return providerModel.Instance{}, err
+	}
+	if currentTask.Status != mainTaskStatusRunning {
+		return providerModel.Instance{}, errLifecycleTaskCancelled
+	}
+
+	var currentInstance providerModel.Instance
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ?", instanceID).First(&currentInstance).Error; err != nil {
+		return providerModel.Instance{}, err
+	}
+	for _, expected := range expectedStatuses {
+		if currentInstance.Status == expected {
+			return currentInstance, nil
+		}
+	}
+	return providerModel.Instance{}, fmt.Errorf("实例状态已变化，当前状态：%s", currentInstance.Status)
+}
+
+func markStartFailureIfTaskRunning(taskID, instanceID uint) error {
+	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		currentInstance, err := lockLifecycleTaskAndInstance(tx, taskID, instanceID, "starting", "creating")
+		if err != nil {
+			return err
+		}
+		return tx.Model(&currentInstance).Update("status", "stopped").Error
+	})
+}
 
 // executeStartInstanceTask 执行启动实例任务
 func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminModel.Task) error {
@@ -75,7 +118,16 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	// 调用Provider启动实例
 	providerApiService := &provider2.ProviderApiService{}
 	providerInstanceID := providerInstanceIdentifier(instance)
-	if err := providerApiService.StartInstanceByProviderID(ctx, localProviderID, providerInstanceID); err != nil {
+	var startErr error
+	if taskReq.Recovery {
+		identity := providerCore.RecoveryInstanceIdentity{
+			Node: taskReq.RecoveryNode, ID: taskReq.RecoveryInstanceID, Type: taskReq.RecoveryInstanceType,
+		}
+		startErr = providerApiService.StartInstanceByProviderIDForRecovery(ctx, localProviderID, identity)
+	} else {
+		startErr = providerApiService.StartInstanceByProviderID(ctx, localProviderID, providerInstanceID)
+	}
+	if err := startErr; err != nil {
 		global.APP_LOG.Error("Provider启动实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
@@ -83,8 +135,15 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 			zap.String("provider", localProviderName),
 			zap.Error(err))
 
-		// 更新实例状态为启动失败
-		global.APP_DB.Model(&instance).Update("status", "stopped")
+		// Preserve the intent recorded when the task was queued. This also keeps
+		// automatic traffic/expiry recovery tasks eligible for a later retry;
+		// explicit cancellation is handled by the cancellation cleanup path. The
+		// task-row lock prevents a late provider error from racing that cleanup.
+		if stateErr := markStartFailureIfTaskRunning(task.ID, instance.ID); stateErr != nil &&
+			!errors.Is(stateErr, errLifecycleTaskCancelled) {
+			global.APP_LOG.Debug("启动失败状态未写回，实例状态已变化",
+				zap.Uint("task_id", task.ID), zap.Uint("instance_id", instance.ID), zap.Error(stateErr))
+		}
 		return fmt.Errorf("启动实例失败: %v", err)
 	}
 
@@ -96,16 +155,19 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 
 	// 在事务中更新实例状态并确认配额（如果需要）
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		// 先获取当前状态
-		var currentInstance providerModel.Instance
-		if err := tx.First(&currentInstance, instance.ID).Error; err != nil {
-			return fmt.Errorf("获取实例信息失败: %v", err)
+		currentInstance, err := lockLifecycleTaskAndInstance(tx, task.ID, instance.ID, "starting", "creating")
+		if err != nil {
+			return fmt.Errorf("启动任务未获准写回实例状态: %w", err)
 		}
 
 		wasCreating := currentInstance.Status == "creating"
 
-		// 更新实例状态为运行中
-		if err := tx.Model(&currentInstance).Update("status", "running").Error; err != nil {
+		// A successfully executed start is explicit controller intent as well as
+		// a runtime fact, so a later node reboot may safely recover it.
+		if err := tx.Model(&currentInstance).Updates(map[string]interface{}{
+			"status":        "running",
+			"desired_state": providerModel.InstanceDesiredStateRunning,
+		}).Error; err != nil {
 			return fmt.Errorf("更新实例状态失败: %v", err)
 		}
 
@@ -180,6 +242,21 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 			return
 		}
 		// 正常超时，继续执行
+
+		// A provider-reboot batch can contain hundreds of starts. Its
+		// authoritative recovery worker performs one provider-level address,
+		// controller-port, and Agent replay after all starts settle. Do not turn
+		// that batch into per-instance SSH/Agent interface detection or monitor
+		// registration from this asynchronous post-start handler.
+		if taskReq.Recovery {
+			s.updateTaskProgress(taskID, 92, "step.initTrafficMonitor")
+			agentLifecycle.ScheduleProviderRecoveryRuntimeNetworkRefresh(global.APP_DB, instance.ProviderID)
+			stateManager := GetTaskStateManager()
+			if err := stateManager.CompleteMainTask(taskID, true, "实例恢复启动成功，节点级网络同步已排队", nil); err != nil {
+				global.APP_LOG.Error("完成恢复启动任务失败", zap.Uint("taskId", taskID), zap.Error(err))
+			}
+			return
+		}
 
 		// 更新进度（从主任务的90%继续，不重复更新90%）
 		s.updateTaskProgress(taskID, 92, "step.initTrafficMonitor")
@@ -337,7 +414,10 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	// 更新进度 (90%)
 	s.updateTaskProgress(task.ID, 90, "step.updatingInstanceStatus")
 
-	// 更新实例状态为已停止
+	// Traffic-limit tasks intentionally mark the row stopped before entering
+	// the worker, so keep this status write compatible with both user stop tasks
+	// (stopping) and those system-managed tasks. User intent is already persisted
+	// at request time; this operation must not overwrite it.
 	if err := global.APP_DB.Model(&instance).Update("status", "stopped").Error; err != nil {
 		global.APP_LOG.Error("更新实例状态失败", zap.Error(err))
 		return fmt.Errorf("更新实例状态失败: %v", err)
@@ -447,16 +527,19 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 
 	// 在事务中更新实例状态并确认配额（如果需要）
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		// 先获取当前状态
-		var currentInstance providerModel.Instance
-		if err := tx.First(&currentInstance, instance.ID).Error; err != nil {
-			return fmt.Errorf("获取实例信息失败: %v", err)
+		currentInstance, err := lockLifecycleTaskAndInstance(tx, task.ID, instance.ID, "restarting")
+		if err != nil {
+			return fmt.Errorf("重启任务未获准写回实例状态: %w", err)
 		}
 
 		wasCreating := currentInstance.Status == "creating"
 
-		// 更新实例状态为运行中
-		if err := tx.Model(&currentInstance).Update("status", "running").Error; err != nil {
+		// A successful restart also reaffirms that this instance is expected to
+		// remain running after a provider-side restart.
+		if err := tx.Model(&currentInstance).Updates(map[string]interface{}{
+			"status":        "running",
+			"desired_state": providerModel.InstanceDesiredStateRunning,
+		}).Error; err != nil {
 			return fmt.Errorf("更新实例状态失败: %v", err)
 		}
 

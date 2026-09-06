@@ -314,6 +314,7 @@ export function useTaskManagement() {
       'provider-health-check': t('admin.tasks.taskTypeProviderHealthCheck'),
       'provider-io-limit-sync': t('admin.tasks.taskTypeProviderIOLimitSync'),
       'provider-runtime-reload': t('admin.tasks.taskTypeProviderRuntimeReload'),
+      'provider-recovery-sync': t('admin.tasks.taskTypeProviderRecoverySync'),
       'provider-delete': t('admin.tasks.taskTypeProviderDelete')
     }
     return typeMap[type] || type

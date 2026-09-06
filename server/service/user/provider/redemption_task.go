@@ -180,6 +180,7 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 			InstanceType:       instanceType,
 			UserID:             0, // 系统用户占位
 			Status:             "creating",
+			DesiredState:       providerModel.InstanceDesiredStateRunning,
 			OSType:             osType,
 			ExpiresAt:          expiredAt,
 			IsManualExpiry:     false,

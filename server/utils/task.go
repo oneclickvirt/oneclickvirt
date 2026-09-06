@@ -262,6 +262,7 @@ func GetDefaultTaskTimeout(taskType string) int {
 		"provider-health-check":   900,
 		"provider-io-limit-sync":  600,
 		"provider-runtime-reload": 300,
+		"provider-recovery-sync":  300,
 		"provider-delete":         7200,
 	}
 
@@ -313,6 +314,8 @@ func GetEstimatedTaskDuration(taskType, instanceType string) int {
 		return 120
 	case "provider-runtime-reload":
 		return 60
+	case "provider-recovery-sync":
+		return 300
 	case "provider-delete":
 		return 900
 	case "agent-deploy":

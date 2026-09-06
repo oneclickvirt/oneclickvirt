@@ -34,6 +34,7 @@ export default {
   taskTypeProviderHealthCheck: "节点健康检查",
   taskTypeProviderIOLimitSync: "同步实例IO限速",
   taskTypeProviderRuntimeReload: "刷新节点运行时连接",
+  taskTypeProviderRecoverySync: "强制恢复同步",
   taskTypeProviderDelete: "删除节点",
   statusPending: "等待中",
   statusProcessing: "处理中",

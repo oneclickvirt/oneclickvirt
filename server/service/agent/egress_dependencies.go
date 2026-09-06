@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"oneclickvirt/global"
-
-	"go.uber.org/zap"
 )
 
 func init() {
@@ -16,20 +13,11 @@ func init() {
 		if global.APP_DB == nil {
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
-		defer cancel()
-		restored, err := NewInstanceEgressService(global.APP_DB).RestoreProviderEgress(ctx, providerID, true)
-		if err != nil {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("Agent重连后恢复独立出口失败",
-					zap.Uint("provider_id", providerID), zap.Error(err))
-			}
-			return
-		}
-		if restored > 0 && global.APP_LOG != nil {
-			global.APP_LOG.Info("Agent重连后独立出口恢复完成",
-				zap.Uint("provider_id", providerID), zap.Int("restored", restored))
-		}
+		// A reconnect, a burst of recovered starts, and network-address repair can
+		// happen together after a node reboot. Route all of them through one
+		// debounced provider-wide replay instead of issuing one Agent request per
+		// event or per instance.
+		ScheduleProviderEgressRefresh(global.APP_DB, providerID, true)
 	})
 }
 

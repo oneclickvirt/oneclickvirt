@@ -34,6 +34,7 @@ export default {
   taskTypeProviderHealthCheck: "Provider Health Check",
   taskTypeProviderIOLimitSync: "Sync Instance IO Limits",
   taskTypeProviderRuntimeReload: "Reload Provider Runtime",
+  taskTypeProviderRecoverySync: "Force Recovery Sync",
   taskTypeProviderDelete: "Delete Provider",
   statusPending: "Pending",
   statusProcessing: "Processing",

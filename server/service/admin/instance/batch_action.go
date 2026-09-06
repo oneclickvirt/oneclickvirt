@@ -187,7 +187,14 @@ func (s *Service) BatchInstanceAction(req adminModel.BatchInstanceActionRequest,
 		if err := tx.CreateInBatches(tasks, 100).Error; err != nil {
 			return err
 		}
-		result := tx.Model(&providerModel.Instance{}).Where("id IN ?", acceptedIDs).Update("status", nextAdminInstanceStatus(req.Action))
+		updates := map[string]interface{}{"status": nextAdminInstanceStatus(req.Action)}
+		switch req.Action {
+		case "start", "restart":
+			updates["desired_state"] = providerModel.InstanceDesiredStateRunning
+		case "stop":
+			updates["desired_state"] = providerModel.InstanceDesiredStateStopped
+		}
+		result := tx.Model(&providerModel.Instance{}).Where("id IN ?", acceptedIDs).Updates(updates)
 		if result.Error != nil {
 			return result.Error
 		}

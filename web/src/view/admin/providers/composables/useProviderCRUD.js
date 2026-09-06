@@ -9,6 +9,7 @@ import {
   setProviderExpiry,
   queueProviderHealthCheck,
   syncProviderInstances,
+  forceProviderRecoverySync,
   exportProvidersCSV,
   importProvidersCSV,
   cleanupOrphanInstances
@@ -690,6 +691,28 @@ export function useProviderCRUD() {
     }
   }
 
+  const forceRecoverySync = async (provider) => {
+    if (!provider?.id) return
+    try {
+      await ElMessageBox.confirm(
+        t('admin.providers.forceRecoverySyncWarning', { name: provider.name || provider.id }),
+        t('admin.providers.forceRecoverySyncTitle'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
+      await forceProviderRecoverySync(provider.id)
+      ElMessage.success(t('admin.providers.forceRecoverySyncTaskQueued'))
+      await loadProviders()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+      const errorMsg = error?.response?.data?.msg || error?.message || t('admin.providers.forceRecoverySyncFailed')
+      ElMessage.error(errorMsg)
+    }
+  }
+
   // 强制单向同步：清理远程孤儿实例（需双重确认）
   const cleanupOrphans = async (provider) => {
     try {
@@ -753,6 +776,7 @@ export function useProviderCRUD() {
     unfreezeServer,
     checkHealth,
     syncInstances,
+    forceRecoverySync,
     handleExportCSV,
     handleImportCSV,
     cleanupOrphans

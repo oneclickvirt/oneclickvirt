@@ -327,6 +327,101 @@ func (s *ProviderConfigService) LoadProviderConfig(providerID uint) (*providerMo
 	return &authConfig, nil
 }
 
+// ProviderAuthConfigFromRecord reconstructs the API credentials from the
+// durable Provider row.  Older rows may have no AuthConfig (or may have been
+// written before the config backup was introduced), so the provider-specific
+// fields remain authoritative fallbacks.  The returned value contains only
+// credentials already stored on the row; it performs no I/O.
+func ProviderAuthConfigFromRecord(record providerModel.Provider) *providerModel.ProviderAuthConfig {
+	auth := &providerModel.ProviderAuthConfig{
+		Type:     record.Type,
+		Endpoint: record.Endpoint,
+		Username: record.Username,
+		Password: record.Password,
+		SSH: &providerModel.SSHConfig{
+			Host:       ExtractHostFromEndpoint(record.Endpoint),
+			Port:       record.SSHPort,
+			Username:   record.Username,
+			Password:   record.Password,
+			KeyContent: record.SSHKey,
+		},
+	}
+
+	if strings.TrimSpace(record.AuthConfig) != "" {
+		var persisted providerModel.ProviderAuthConfig
+		if err := json.Unmarshal([]byte(record.AuthConfig), &persisted); err == nil {
+			if persisted.Type != "" {
+				auth.Type = persisted.Type
+			}
+			if persisted.Endpoint != "" {
+				auth.Endpoint = persisted.Endpoint
+			}
+			if persisted.Username != "" {
+				auth.Username = persisted.Username
+			}
+			if persisted.Password != "" {
+				auth.Password = persisted.Password
+			}
+			if persisted.SSH != nil {
+				auth.SSH = persisted.SSH
+			}
+			auth.Certificate = persisted.Certificate
+			auth.Token = persisted.Token
+		}
+	}
+
+	// Keep row-level certificate content/path as a fallback even when the
+	// serialized AuthConfig is present but incomplete.
+	if auth.Certificate == nil && (record.CertPath != "" || record.KeyPath != "" || record.CertContent != "" || record.KeyContent != "") {
+		auth.Certificate = &providerModel.CertConfig{}
+	}
+	if auth.Certificate != nil {
+		if auth.Certificate.CertPath == "" {
+			auth.Certificate.CertPath = record.CertPath
+		}
+		if auth.Certificate.KeyPath == "" {
+			auth.Certificate.KeyPath = record.KeyPath
+		}
+		if auth.Certificate.CertContent == "" {
+			auth.Certificate.CertContent = record.CertContent
+		}
+		if auth.Certificate.KeyContent == "" {
+			auth.Certificate.KeyContent = record.KeyContent
+		}
+		if auth.Certificate.CertFingerprint == "" {
+			auth.Certificate.CertFingerprint = record.CertFingerprint
+		}
+	}
+
+	// TokenContent is a durable JSON backup.  It is preferred over parsing the
+	// legacy "id=secret" field because a token secret itself may contain '='.
+	if auth.Token == nil && strings.TrimSpace(record.TokenContent) != "" {
+		var token providerModel.TokenConfig
+		if err := json.Unmarshal([]byte(record.TokenContent), &token); err == nil {
+			auth.Token = &token
+		}
+	}
+	if auth.Token == nil && strings.TrimSpace(record.Token) != "" {
+		parts := strings.SplitN(record.Token, "=", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != "" {
+			auth.Token = &providerModel.TokenConfig{
+				TokenID:     strings.TrimSpace(parts[0]),
+				TokenSecret: strings.TrimSpace(parts[1]),
+			}
+		}
+	}
+	if auth.Token != nil {
+		if auth.Token.TokenSecret == "" && strings.TrimSpace(record.Token) != "" {
+			parts := strings.SplitN(record.Token, "=", 2)
+			if len(parts) == 2 {
+				auth.Token.TokenSecret = strings.TrimSpace(parts[1])
+			}
+		}
+	}
+
+	return auth
+}
+
 // SyncConfigsAndCerts 同步configs文件夹和certs文件夹的数据
 func (s *ProviderConfigService) SyncConfigsAndCerts() error {
 	// 确保目录存在

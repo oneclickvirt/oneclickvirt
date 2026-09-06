@@ -3,12 +3,14 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	adminProviderService "oneclickvirt/service/admin/provider"
+	providerRuntimeService "oneclickvirt/service/provider"
 
 	"go.uber.org/zap"
 )
@@ -101,7 +103,7 @@ func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Contex
 	}
 
 	// 缓冲后执行首次检查
-	s.checkAllProvidersHealth()
+	s.checkAllProvidersHealth(ctx)
 
 	// 确保ticker在panic时也能停止，防止goroutine泄漏
 	ticker := time.NewTicker(3 * time.Minute)
@@ -131,16 +133,24 @@ func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Contex
 			}
 			ticker.Reset(newInterval)
 
-			s.checkAllProvidersHealth()
+			s.checkAllProvidersHealth(ctx)
 		}
 	}
 }
 
 // checkAllProvidersHealth 检查所有Provider的健康状态
-func (s *ProviderHealthSchedulerService) checkAllProvidersHealth() {
+func (s *ProviderHealthSchedulerService) checkAllProvidersHealth(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return
+	}
 	// 获取所有需要检查的Provider（非冻结、未过期）
 	var providers []providerModel.Provider
-	err := global.APP_DB.Where("is_frozen = ? AND (expires_at IS NULL OR expires_at > ?)", false, time.Now()).
+	now := time.Now()
+	err := global.APP_DB.WithContext(ctx).Where("is_frozen = ? AND (expires_at IS NULL OR expires_at > ?)", false, now).
+		Where("recovery_lease_expires_at IS NULL OR recovery_lease_expires_at <= ?", now).
 		Find(&providers).Error
 
 	if err != nil {
@@ -170,8 +180,16 @@ func (s *ProviderHealthSchedulerService) checkAllProvidersHealth() {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			for provider := range providerChan {
-				s.checkSingleProviderHealth(provider)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case provider, ok := <-providerChan:
+					if !ok {
+						return
+					}
+					s.checkSingleProviderHealth(ctx, provider)
+				}
 			}
 		}(i)
 	}
@@ -196,7 +214,13 @@ func (s *ProviderHealthSchedulerService) checkAllProvidersHealth() {
 }
 
 // checkSingleProviderHealth 检查单个Provider的健康状态
-func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider providerModel.Provider) {
+func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(parentCtx context.Context, provider providerModel.Provider) {
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	if err := parentCtx.Err(); err != nil {
+		return
+	}
 	// 复制副本避免共享状态，立即创建所有参数的本地副本
 	// 这些变量在整个函数执行期间保持不变
 	providerID := provider.ID
@@ -214,43 +238,38 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 		zap.String("endpoint", providerEndpoint))
 
 	// 添加整体超时控制（2分钟）
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(parentCtx, 2*time.Minute)
 	defer cancel()
 
-	// 直接执行健康检查，带超时控制
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- s.providerService.CheckProviderHealth(providerID)
-	}()
-
-	// 等待结果或超时
-	var err error
-	select {
-	case err = <-errChan:
-		if err != nil {
-			global.APP_LOG.Warn("Provider健康检查执行出错（可能是超时或网络问题）",
-				zap.Uint("provider_id", providerID),
-				zap.String("provider_name", providerName),
-				zap.Error(err))
-		} else {
-			global.APP_LOG.Debug("Provider健康检查执行完成",
-				zap.Uint("provider_id", providerID),
-				zap.String("provider_name", providerName))
-		}
-	case <-ctx.Done():
-		global.APP_LOG.Warn("Provider健康检查超时，强制继续",
+	// Keep the remote operation on this context.  Do not leave an untracked
+	// SSH/API probe running after the scheduler has timed it out or shut down.
+	err := s.providerService.CheckProviderHealthWithOptionsContext(ctx, providerID, false)
+	if err != nil {
+		global.APP_LOG.Warn("Provider健康检查执行出错（可能是超时或网络问题）",
 			zap.Uint("provider_id", providerID),
 			zap.String("provider_name", providerName),
-			zap.Duration("timeout", 2*time.Minute))
-		// 超时也继续处理，因为状态可能部分更新
+			zap.Error(err))
+	} else {
+		global.APP_LOG.Debug("Provider健康检查执行完成",
+			zap.Uint("provider_id", providerID),
+			zap.String("provider_name", providerName))
+	}
+	if ctx.Err() != nil {
+		return
 	}
 
 	// 重新获取Provider以获得最新状态
 	var updatedProvider providerModel.Provider
-	if err := global.APP_DB.First(&updatedProvider, providerID).Error; err != nil {
+	if err := global.APP_DB.WithContext(ctx).First(&updatedProvider, providerID).Error; err != nil {
 		global.APP_LOG.Error("获取更新后的Provider失败", zap.Uint("provider_id", providerID), zap.Error(err))
 		return
 	}
+
+	// Persist the beginning of a real provider outage once.  This makes the
+	// recovery decision survive a controller restart and avoids guessing from a
+	// stale instance status later.  The helper only performs a write at the
+	// inactive/online edge, never on every health probe.
+	s.trackProviderRecoveryWindow(updatedProvider)
 
 	// 检测同类型Provider的hostname冲突（仅记录警告，不做任何处理）
 	if updatedProvider.HostName != "" {
@@ -272,12 +291,12 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 		now := time.Now()
 		// 区分 Agent 模式和 SSH 模式的冻结原因，便于排查和自动恢复逻辑识别
 		var reason string
-		if updatedProvider.ConnectionType == "agent" {
+		if updatedProvider.IsReverseAgent() {
 			reason = fmt.Sprintf("Agent 反向连接连续断开 %d 次（约 %d 分钟），健康检查连续失败，自动冻结", currentFailures, currentFailures*3)
 		} else {
 			reason = fmt.Sprintf("健康检查连续失败 %d 次（约 %d 分钟），自动冻结", currentFailures, currentFailures*3)
 		}
-		if dbErr := global.APP_DB.Model(&providerModel.Provider{}).
+		if dbErr := global.APP_DB.WithContext(ctx).Model(&providerModel.Provider{}).
 			Where("id = ?", providerID).
 			Updates(map[string]interface{}{
 				"is_frozen":     true,
@@ -348,6 +367,37 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 				zap.String("api_status", updatedProvider.APIStatus))
 		}
 	}
+}
+
+// trackProviderRecoveryWindow records the first confirmed inactive state and
+// clears only short outages.  Long outages intentionally retain their marker
+// after the provider becomes reachable so InstanceRecoveryScheduler can do one
+// authoritative remote discovery before deciding whether anything should be
+// started.
+func (s *ProviderHealthSchedulerService) trackProviderRecoveryWindow(provider providerModel.Provider) {
+	if provider.ID == 0 {
+		return
+	}
+	now := time.Now()
+	if provider.IsReverseAgent() {
+		// Agent disconnect/reconnect edges persist this window immediately. While
+		// the Agent is still offline, a transitional health status such as partial
+		// must not erase that edge before the normal inactive state converges.
+		// The Agent-specific helpers also make this stale-snapshot safe if an
+		// administrator changes the Provider to SSH/API while this health check is
+		// still completing.
+		if strings.EqualFold(strings.TrimSpace(provider.AgentStatus), "online") {
+			providerRuntimeService.ClearShortAgentProviderRecoveryWindow(provider.ID, now)
+		} else if provider.Status == "inactive" {
+			providerRuntimeService.RecordAgentProviderRecoveryOffline(provider.ID, now)
+		}
+		return
+	}
+	if provider.Status == "inactive" {
+		providerRuntimeService.RecordProviderRecoveryOffline(provider.ID, now)
+		return
+	}
+	providerRuntimeService.ClearShortProviderRecoveryWindow(provider.ID, now)
 }
 
 // updateProviderAllowClaim 更新Provider的allow_claim字段

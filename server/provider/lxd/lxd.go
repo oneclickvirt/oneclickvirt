@@ -27,6 +27,7 @@ type LXDProvider struct {
 	transport        *http.Transport
 	providerID       uint // 存储providerID用于清理
 	connected        bool
+	apiHealthy       bool // API-only mode has no SSH executor to represent liveness.
 	healthChecker    health.HealthChecker
 	version          string             // LXD 版本
 	mu               sync.RWMutex       // 保护并发访问
@@ -68,6 +69,7 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 	l.config = config
 	l.providerID = config.ID // 存储providerID
 	l.connected = false
+	l.apiHealthy = false
 	l.sshClient.ClearExecutor()
 	if l.transport != nil {
 		// A failed reconnect must not retain a certificate from a previous
@@ -102,6 +104,20 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 	} else {
 		global.APP_LOG.Debug("未找到LXD证书配置，仅使用SSH",
 			zap.String("host", utils.TruncateString(config.Host, 50)))
+	}
+
+	if strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only") {
+		if !l.hasAPIAccess() {
+			return fmt.Errorf("LXD执行规则为api_only，但未配置有效mTLS证书")
+		}
+		if err := l.probeAPIConnection(ctx); err != nil {
+			return fmt.Errorf("LXD API连接失败: %w", err)
+		}
+		l.connected = true
+		l.apiHealthy = true
+		l.healthChecker = l.newAPIOnlyHealthChecker()
+		global.APP_LOG.Info("LXD provider API-only连接成功", zap.String("host", utils.TruncateString(config.Host, 50)))
+		return nil
 	}
 
 	// 设置SSH超时配置
@@ -171,11 +187,29 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 func (l *LXDProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	l.config = config
 	l.providerID = config.ID
+	l.connected = false
+	l.apiHealthy = false
 	if l.transport != nil {
-		l.transport.TLSClientConfig = nil
+		// Preserve mTLS for an API-only Agent provider; ordinary Agent mode does
+		// not use the API transport and clears any stale TLS config.
+		if !strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only") {
+			l.transport.TLSClientConfig = nil
+		}
 	}
 	if l.transport != nil && l.providerID > 0 {
 		provider.GetTransportCleanupManager().RegisterTransportWithProvider(l.transport, l.providerID)
+	}
+	if strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only") {
+		if !l.hasAPIAccess() {
+			return fmt.Errorf("LXD Agent+api_only未配置有效mTLS证书")
+		}
+		if err := l.probeAPIConnection(context.Background()); err != nil {
+			return fmt.Errorf("LXD Agent+api_only API连接失败: %w", err)
+		}
+		l.connected = true
+		l.apiHealthy = true
+		l.healthChecker = l.newAPIOnlyHealthChecker()
+		return nil
 	}
 	l.sshClient.SetExecutor(executor)
 	l.connected = true
@@ -263,15 +297,31 @@ func (l *LXDProvider) Disconnect(ctx context.Context) error {
 	l.transport = nil
 
 	l.connected = false
+	l.apiHealthy = false
 	return nil
 }
 
 func (l *LXDProvider) IsConnected() bool {
+	if strings.EqualFold(strings.TrimSpace(l.config.ExecutionRule), "api_only") {
+		return l.connected && l.apiHealthy
+	}
 	return l.connected && l.sshClient.HasExecutor() && l.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (l *LXDProvider) EnsureConnection() error {
+	if strings.EqualFold(strings.TrimSpace(l.config.ExecutionRule), "api_only") {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := l.probeAPIConnection(ctx); err != nil {
+			l.connected = false
+			l.apiHealthy = false
+			return fmt.Errorf("LXD API重连失败: %w", err)
+		}
+		l.connected = true
+		l.apiHealthy = true
+		return nil
+	}
 	if !l.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
@@ -299,6 +349,19 @@ func (l *LXDProvider) EnsureConnection() error {
 }
 
 func (l *LXDProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
+	if strings.EqualFold(strings.TrimSpace(l.config.ExecutionRule), "api_only") {
+		if l.healthChecker == nil {
+			return nil, fmt.Errorf("LXD API-only健康检查器未初始化")
+		}
+		result, err := l.healthChecker.CheckHealth(ctx)
+		if err == nil {
+			l.apiHealthy = result.APIStatus == "online"
+			l.connected = l.apiHealthy
+		} else {
+			l.apiHealthy = false
+		}
+		return result, err
+	}
 	if l.healthChecker == nil {
 		if !l.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")

@@ -127,6 +127,7 @@ export function useUserTaskManagement() {
       'provider-health-check': t('user.tasks.taskTypeProviderHealthCheck'),
       'provider-io-limit-sync': t('user.tasks.taskTypeProviderIOLimitSync'),
       'provider-runtime-reload': t('user.tasks.taskTypeProviderRuntimeReload'),
+      'provider-recovery-sync': t('user.tasks.taskTypeProviderRecoverySync'),
       'provider-delete': t('user.tasks.taskTypeProviderDelete')
     }
     return typeMap[type] || type

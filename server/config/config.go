@@ -97,6 +97,12 @@ type System struct {
 	EnableInstanceSync    bool `mapstructure:"enable-instance-sync" json:"enable-instance-sync" yaml:"enable-instance-sync"`          // 是否启用实例同步检查，默认false
 	InstanceSyncInterval  int  `mapstructure:"instance-sync-interval" json:"instance-sync-interval" yaml:"instance-sync-interval"`    // 实例同步检查间隔（分钟），默认30分钟
 	ImportedInstanceOwner uint `mapstructure:"imported-instance-owner" json:"imported-instance-owner" yaml:"imported-instance-owner"` // 导入实例的默认所有者用户ID，默认1（管理员）
+
+	// 节点长时间离线后的实例恢复。恢复只处理 desired_state=running 的
+	// 实例，避免将用户主动停止或导入但未启用的实例误拉起。
+	EnableInstanceRecovery         bool `mapstructure:"enable-instance-recovery" json:"enable-instance-recovery" yaml:"enable-instance-recovery"`
+	InstanceRecoveryInterval       int  `mapstructure:"instance-recovery-interval" json:"instance-recovery-interval" yaml:"instance-recovery-interval"`                      // 分钟
+	InstanceRecoveryOfflineMinutes int  `mapstructure:"instance-recovery-offline-minutes" json:"instance-recovery-offline-minutes" yaml:"instance-recovery-offline-minutes"` // 分钟
 }
 
 type JWT struct {

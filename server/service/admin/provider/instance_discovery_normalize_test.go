@@ -60,3 +60,19 @@ func TestMarshalSanitizedDiscoveredDataRedactsSecrets(t *testing.T) {
 		t.Fatalf("non-sensitive data was lost: %s", got)
 	}
 }
+
+func TestHealthAutoRecoveryFrozenReasonDoesNotAuthorizeManualFreeze(t *testing.T) {
+	for _, reason := range []struct {
+		value string
+		want  bool
+	}{
+		{value: "健康检查连续失败 20 次（约 60 分钟），自动冻结", want: true},
+		{value: "Agent 反向连接连续断开 20 次，健康检查连续失败，自动冻结", want: true},
+		{value: "manual", want: false},
+		{value: "expired", want: false},
+	} {
+		if got := isHealthAutoRecoveryFrozenReason(reason.value); got != reason.want {
+			t.Fatalf("isHealthAutoRecoveryFrozenReason(%q) = %v, want %v", reason.value, got, reason.want)
+		}
+	}
+}

@@ -24,17 +24,20 @@ const (
 // - 基础系统设置（如OSS类型、是否使用Redis等）
 var systemLevelConfigKeys = map[string]bool{
 	// System 配置（所有 system.* 都是系统级配置）
-	"system.addr":                       true,
-	"system.db-type":                    true,
-	"system.env":                        true,
-	"system.frontend-url":               true,
-	"system.iplimit-count":              true,
-	"system.iplimit-time":               true,
-	"system.oauth2-state-token-minutes": true,
-	"system.oss-type":                   true,
-	"system.provider-inactive-hours":    true,
-	"system.use-multipoint":             true,
-	"system.use-redis":                  true,
+	"system.addr":                              true,
+	"system.db-type":                           true,
+	"system.env":                               true,
+	"system.frontend-url":                      true,
+	"system.iplimit-count":                     true,
+	"system.iplimit-time":                      true,
+	"system.oauth2-state-token-minutes":        true,
+	"system.oss-type":                          true,
+	"system.provider-inactive-hours":           true,
+	"system.enable-instance-recovery":          true,
+	"system.instance-recovery-interval":        true,
+	"system.instance-recovery-offline-minutes": true,
+	"system.use-multipoint":                    true,
+	"system.use-redis":                         true,
 
 	// MySQL 配置（数据库连接信息，必须在连接数据库前读取）
 	"mysql.path":           true,

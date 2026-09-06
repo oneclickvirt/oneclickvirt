@@ -46,6 +46,9 @@ export default function useProviderTableActions(emit) {
       case 'sync-instances':
         emit('sync-instances', currentRow.value)
         break
+      case 'force-recovery-sync':
+        emit('force-recovery-sync', currentRow.value)
+        break
       case 'set-expiry':
         emit('set-expiry', currentRow.value)
         break

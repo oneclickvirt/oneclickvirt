@@ -159,8 +159,10 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 	global.APP_LOG.Debug("开始Provider实例同步检查")
 
 	var providers []providerModel.Provider
+	now := time.Now()
 	if err := global.APP_DB.Where("status = ? AND is_frozen = ? AND (expires_at IS NULL OR expires_at > ?)",
-		"active", false, time.Now()).
+		"active", false, now).
+		Where("recovery_lease_expires_at IS NULL OR recovery_lease_expires_at <= ?", now).
 		Select("id", "name", "type").
 		Find(&providers).Error; err != nil {
 		global.APP_LOG.Error("查询Provider列表失败", zap.Error(err))

@@ -65,8 +65,8 @@ func GetClient(providerID uint, host string, port int, token string) *Client {
 	isAgent := false
 	if global.APP_DB != nil {
 		var p providerModel.Provider
-		if err := global.APP_DB.Select("connection_type").Where("id = ?", providerID).First(&p).Error; err == nil {
-			isAgent = p.ConnectionType == "agent"
+		if err := global.APP_DB.Select("connection_type", "execution_rule").Where("id = ?", providerID).First(&p).Error; err == nil {
+			isAgent = p.IsReverseAgent()
 		}
 	}
 	return GetClientWithMode(providerID, host, port, token, isAgent)

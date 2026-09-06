@@ -19,9 +19,9 @@ type Task struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`                                                                         // 软删除时间
 
 	// 任务基本信息
-	TaskType string `json:"taskType" gorm:"not null;size:32"`                                                                               // 任务类型：create, start, stop, restart, reset, delete, reset-password
-	Status   string `json:"status" gorm:"default:pending;size:32;index:idx_status_created,priority:1;index:idx_provider_status,priority:2"` // 任务状态：pending, processing, running, completed, failed, cancelling, cancelled, timeout
-	Progress int    `json:"progress" gorm:"default:0"`                                                                                      // 任务执行进度百分比（0-100）
+	TaskType string `json:"taskType" gorm:"not null;size:32;index:idx_provider_instance_task_status,priority:4"`                                                                               // 任务类型：create, start, stop, restart, reset, delete, reset-password
+	Status   string `json:"status" gorm:"default:pending;size:32;index:idx_status_created,priority:1;index:idx_provider_status,priority:2;index:idx_provider_instance_task_status,priority:3"` // 任务状态：pending, processing, running, completed, failed, cancelling, cancelled, timeout
+	Progress int    `json:"progress" gorm:"default:0"`                                                                                                                                         // 任务执行进度百分比（0-100）
 
 	// 错误和状态信息
 	ErrorMessage  string `json:"errorMessage" gorm:"type:text"` // 任务失败时的错误信息
@@ -42,9 +42,9 @@ type Task struct {
 	PreallocatedBandwidth int `json:"preallocatedBandwidth" gorm:"default:0"` // 预分配的带宽(Mbps)
 
 	// 关联信息
-	UserID     uint  `json:"userId" gorm:"index:idx_user_created,priority:1;index:idx_user_status,priority:1"` // 任务所属用户ID
-	ProviderID *uint `json:"providerId" gorm:"index:idx_provider_status,priority:1"`                           // 执行任务的Provider ID（可为空）
-	InstanceID *uint `json:"instanceId"`                                                                       // 关联的实例ID（可选，用于实例相关任务）
+	UserID     uint  `json:"userId" gorm:"index:idx_user_created,priority:1;index:idx_user_status,priority:1"`                          // 任务所属用户ID
+	ProviderID *uint `json:"providerId" gorm:"index:idx_provider_status,priority:1;index:idx_provider_instance_task_status,priority:1"` // 执行任务的Provider ID（可为空）
+	InstanceID *uint `json:"instanceId" gorm:"index:idx_provider_instance_task_status,priority:2"`                                      // 关联的实例ID（可选，用于实例相关任务）
 
 	// 关联对象
 	Provider *providerModel.Provider `json:"provider,omitempty" gorm:"foreignKey:ProviderID"` // 关联的Provider对象

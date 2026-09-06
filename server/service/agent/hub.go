@@ -53,6 +53,9 @@ func GetHub() *AgentHub {
 
 // Register 注册一个新连接并启动读取协程。
 func (h *AgentHub) Register(ac *AgentConn) {
+	if ac == nil {
+		return
+	}
 	h.mu.Lock()
 	// 如果已有旧连接，关闭底层 TCP 连接，触发 readLoop 退出。
 	// 同时记录旧 conn 指针，在锁外进行完整清理，避免 h.mu 持锁时间过长。
@@ -107,6 +110,11 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	now := time.Now()
 	h.markConnected(ac.ProviderID, now)
 	h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
+	// A reconnect within the configured outage window is a transient link flap.
+	// A longer disconnect deliberately keeps its marker for the recovery
+	// scheduler, which will perform one bounded discovery after the Agent is
+	// usable again.
+	providerService.ClearShortAgentProviderRecoveryWindow(ac.ProviderID, now)
 
 	// Agent 重连成功后，如果 Provider 因健康检查连续失败被自动冻结，则自动解冻。
 	// Agent 反向连接成功即证明节点可达，无需等待健康检查周期。
@@ -136,14 +144,22 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	// Agent 重连后恢复该 Provider 的控制端端口转发（内网穿透）
 	// 延迟执行，确保 WebSocket 连接已稳定
 	go func() {
-		time.Sleep(3 * time.Second)
-		RecoverControllerPortForwardsByProvider(ac.ProviderID)
+		if !waitForAgentShutdown(3 * time.Second) {
+			return
+		}
+		if old != nil {
+			RebuildControllerPortForwardsByProvider(ac.ProviderID)
+		} else {
+			EnsureControllerPortForwardsByProvider(ac.ProviderID)
+		}
 	}()
 
 	// Agent 重连后的跨模块配置重放（例如域名反代）。这些 hook 必须幂等，
 	// 用于覆盖 agent 重启、本地 sqlite 丢失、主控重启后重新上线等恢复场景。
 	go func() {
-		time.Sleep(5 * time.Second)
+		if !waitForAgentShutdown(5 * time.Second) {
+			return
+		}
 		runAgentReconnectHooks(ac.ProviderID)
 	}()
 
@@ -155,7 +171,9 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	// 如 GetStoppedContainers/ExecuteSSHCommand 等需要先通过 EnsureProviderConnected
 	// 重新加载的问题）。此处延迟 2 秒确保 Agent WebSocket 连接已稳定。
 	go func() {
-		time.Sleep(2 * time.Second)
+		if !waitForAgentShutdown(2 * time.Second) {
+			return
+		}
 		if _, err := providerService.GetProviderInstanceByID(ac.ProviderID); err != nil {
 			global.APP_LOG.Warn("Agent 重连后加载 Provider 到内存缓存失败",
 				zap.Uint("providerID", ac.ProviderID),
@@ -170,7 +188,9 @@ func (h *AgentHub) Register(ac *AgentConn) {
 // triggerPendingDiscovery 检查 Provider 是否有待处理的实例发现任务，如有则触发。
 func (h *AgentHub) triggerPendingDiscovery(providerID uint) {
 	// 等待资源同步和 WebSocket 连接稳定
-	time.Sleep(5 * time.Second)
+	if !waitForAgentShutdown(5 * time.Second) {
+		return
+	}
 
 	// 检查是否有待处理的发现任务
 	var provider providerModel.Provider
@@ -263,6 +283,10 @@ func (h *AgentHub) unregister(ac *AgentConn) {
 
 	global.APP_LOG.Info("Agent 已断开", zap.Uint("providerID", providerID))
 	h.updateProviderAgentStatus(providerID, "offline", nil, "", "")
+	// Record the Agent edge immediately instead of waiting for two health-check
+	// passes to downgrade active -> partial -> inactive. The conditional update
+	// is idempotent, so duplicate disconnect paths cannot extend the window.
+	providerService.RecordAgentProviderRecoveryOffline(providerID, time.Now())
 	// 清除连接建立时间（离线后无在线时长）
 	if err := global.APP_DB.Model(&providerModel.Provider{}).
 		Where("id = ?", providerID).
@@ -481,7 +505,9 @@ func (h *AgentHub) StartPingLoop() {
 			if interval < 75*time.Second {
 				interval = 75 * time.Second
 			}
-			time.Sleep(interval)
+			if !waitForAgentShutdown(interval) {
+				return
+			}
 
 			h.mu.RLock()
 			conns := make([]*AgentConn, 0, len(h.conns))

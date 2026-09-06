@@ -24,7 +24,7 @@ func (s *InstanceEgressService) GetStatus(ctx context.Context, instanceID uint) 
 		InstanceKey:         instanceEgressKey(instance),
 		ProviderID:          node.ID,
 		ProviderType:        node.Type,
-		AgentInstalled:      config.AgentInstalled || node.ConnectionType == "agent",
+		AgentInstalled:      config.AgentInstalled || node.IsReverseAgent(),
 		ConfiguredProfileID: instance.EgressProfileID,
 		Profiles:            []EgressProfile{},
 		Traffic:             s.loadTraffic(ctx, instance.ID, node.ID),

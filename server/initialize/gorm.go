@@ -202,6 +202,7 @@ func RegisterTables(db *gorm.DB) {
 		return
 	}
 	ensureAuditLogTextCharset(db)
+	backfillInstanceDesiredStates(db)
 	global.APP_LOG.Info("数据库表注册成功")
 
 	// AutoMigrate完成后再确认重复数据（表已存在才安全执行）
@@ -213,6 +214,38 @@ func RegisterTables(db *gorm.DB) {
 	firewallSvc := &firewallService.Service{}
 	if err := firewallSvc.EnsureDefaultRules(); err != nil {
 		global.APP_LOG.Warn("初始化默认屏蔽规则失败（可忽略）", zap.Error(err))
+	}
+}
+
+// backfillInstanceDesiredStates gives pre-existing rows a conservative
+// controller-side lifecycle intent after AutoMigrate adds desired_state.
+// Imported rows deliberately remain stopped until an administrator explicitly
+// starts them.  The two updates are bounded set-based SQL statements, so a
+// large installation is not walked row-by-row during startup.
+func backfillInstanceDesiredStates(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+
+	if err := db.Model(&providerModel.Instance{}).
+		Where("desired_state IS NULL OR desired_state = ?", "").
+		Update("desired_state", providerModel.InstanceDesiredStateStopped).Error; err != nil {
+		global.APP_LOG.Warn("回填实例运行意图默认值失败", zap.Error(err))
+		return
+	}
+
+	result := db.Model(&providerModel.Instance{}).
+		Where("desired_state = ? AND is_imported = ?", providerModel.InstanceDesiredStateStopped, false).
+		Where("(status IN ? OR traffic_stopped = ? OR expiry_stopped = ?)",
+			[]string{"creating", "running", "starting", "restarting", "traffic_stopped", "expiry_stopped"}, true, true).
+		Update("desired_state", providerModel.InstanceDesiredStateRunning)
+	if result.Error != nil {
+		global.APP_LOG.Warn("回填历史实例运行意图失败", zap.Error(result.Error))
+		return
+	}
+	if result.RowsAffected > 0 {
+		global.APP_LOG.Info("已回填历史实例运行意图",
+			zap.Int64("count", result.RowsAffected))
 	}
 }
 

@@ -22,11 +22,14 @@ func getDefaultConfig() config.Server {
 
 	return config.Server{
 		System: config.System{
-			Env:           "public",
-			Addr:          8888,
-			DbType:        defaultDbType,
-			UseMultipoint: false,
-			UseRedis:      false,
+			Env:                            "public",
+			Addr:                           8888,
+			DbType:                         defaultDbType,
+			UseMultipoint:                  false,
+			UseRedis:                       false,
+			EnableInstanceRecovery:         true,
+			InstanceRecoveryInterval:       3,
+			InstanceRecoveryOfflineMinutes: 30,
 		},
 		JWT: config.JWT{
 			// SigningKey 会在 core/viper.go 中自动生成，无需配置

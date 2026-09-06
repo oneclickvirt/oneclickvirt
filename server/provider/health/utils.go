@@ -47,6 +47,15 @@ type TokenInfo interface {
 // CheckProviderHealthWithAuthConfig 根据认证配置执行健康检查
 // 返回: sshStatus, apiStatus, hostName, error
 func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.Context, providerID uint, providerName, providerType, host, username, password, privateKey string, port int, authConfig ProviderAuthConfig) (string, string, string, error) {
+	return phc.CheckProviderHealthWithAuthConfigAndRule(ctx, providerID, providerName, providerType, host, username, password, privateKey, port, authConfig, "auto")
+}
+
+// CheckProviderHealthWithAuthConfigAndRule applies the Provider execution rule
+// to the health probe itself.  api_only never opens SSH or runs SSH service
+// commands; ssh_only never performs an API request.  Keeping this decision at
+// checker construction time also avoids a second probe or a per-instance
+// fallback when the scheduler records the result.
+func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfigAndRule(ctx context.Context, providerID uint, providerName, providerType, host, username, password, privateKey string, port int, authConfig ProviderAuthConfig, executionRule string) (string, string, string, error) {
 	// 复制副本避免共享状态，立即创建所有参数的本地副本
 	localProviderID := providerID
 	localProviderName := providerName
@@ -83,9 +92,12 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 	}
 
 	// 根据认证配置设置具体的认证信息
-	switch localProviderType {
+	switch strings.ToLower(strings.TrimSpace(localProviderType)) {
 	case "lxd", "incus":
-		cert := authConfig.GetCertificate()
+		var cert CertificateInfo
+		if authConfig != nil {
+			cert = authConfig.GetCertificate()
+		}
 		if cert != nil {
 			config.APIPort = 8443
 			config.APIScheme = "https"
@@ -95,8 +107,11 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 			config.KeyContent = cert.GetKeyContent()
 		}
 		config.ServiceChecks = []string{localProviderType}
-	case "proxmox":
-		token := authConfig.GetToken()
+	case "proxmox", "proxmoxve", "pve":
+		var token TokenInfo
+		if authConfig != nil {
+			token = authConfig.GetToken()
+		}
 		if token != nil {
 			config.APIPort = 8006
 			config.APIScheme = "https"
@@ -109,6 +124,30 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 		config.APIPort = 2375
 		config.APIScheme = "http"
 		config.ServiceChecks = []string{"docker"}
+	}
+
+	// The rule is intentionally normalized once.  Unknown/empty values retain
+	// the historical auto behaviour instead of silently disabling both probes.
+	rule := strings.ToLower(strings.TrimSpace(executionRule))
+	if rule != "api_only" && rule != "ssh_only" {
+		rule = "auto"
+	}
+	switch rule {
+	case "api_only":
+		config.SSHEnabled = false
+		config.ServiceChecks = nil
+		// Container CLI providers do not expose a configured API contract in this
+		// health path.  Marking them unsupported is safer than probing a guessed
+		// Docker TCP port when the administrator selected API-only explicitly.
+		switch strings.ToLower(strings.TrimSpace(localProviderType)) {
+		case "lxd", "incus", "proxmox", "proxmoxve", "pve":
+			config.APIEnabled = true
+		default:
+			config.APIEnabled = false
+			return "N/A", "offline", "", fmt.Errorf("Provider类型 %s 不支持api_only健康检查", localProviderType)
+		}
+	case "ssh_only":
+		config.APIEnabled = false
 	}
 
 	// 创建checker前再次记录配置，确保config.Host正确
@@ -128,6 +167,12 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 
 	result, err := checker.CheckHealth(ctx)
 	if err != nil {
+		if rule == "api_only" {
+			return "N/A", "offline", "", err
+		}
+		if rule == "ssh_only" {
+			return "offline", "N/A", "", err
+		}
 		return "offline", "offline", "", err
 	}
 
@@ -145,6 +190,12 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 
 	sshStatus := "unknown"
 	apiStatus := "unknown"
+	if rule == "api_only" {
+		sshStatus = "N/A"
+	}
+	if rule == "ssh_only" {
+		apiStatus = "N/A"
+	}
 	hostName := ""
 	if result.SSHStatus != "" {
 		sshStatus = result.SSHStatus

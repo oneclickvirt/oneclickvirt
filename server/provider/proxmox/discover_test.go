@@ -57,6 +57,38 @@ type mappingDiscoveryExecutor struct {
 	targetIP string
 }
 
+type recoveryDiscoveryExecutor struct {
+	discoveryTestExecutor
+	commands []string
+}
+
+func (e *recoveryDiscoveryExecutor) Execute(command string) (string, error) {
+	e.commands = append(e.commands, command)
+	if strings.Contains(command, "/cluster/resources") {
+		return `[
+			{"id":"qemu/120","node":"pve9","name":"recovered-vm","status":"running","type":"qemu","vmid":120,"maxcpu":2,"maxmem":1073741824,"maxdisk":8589934592},
+			{"id":"lxc/121","node":"pve9","name":"recovered-ct","status":"running","type":"lxc","vmid":121,"maxcpu":1,"maxmem":536870912,"maxdisk":4294967296}
+		]`, nil
+	}
+	if strings.Contains(command, "OCVREC") {
+		return "OCVREC\t0\t{\"net0\":\"name=eth0,bridge=vmbr1,ip=10.42.0.120/24,ip6=2001:db8:42::120/64\"}\n" +
+			"OCVREC\t1\t{\"net0\":\"name=eth0,bridge=vmbr1,ip=10.42.0.121/24\"}\n", nil
+	}
+	return "", nil
+}
+
+func (e *recoveryDiscoveryExecutor) ExecuteWithTimeout(command string, _ time.Duration) (string, error) {
+	return e.Execute(command)
+}
+
+func (e *recoveryDiscoveryExecutor) ExecuteWithLogging(command, _ string) (string, error) {
+	return e.Execute(command)
+}
+
+func (e *recoveryDiscoveryExecutor) ExecuteRaw(command string, _ time.Duration) (string, error) {
+	return e.Execute(command)
+}
+
 func (e mappingDiscoveryExecutor) Execute(command string) (string, error) {
 	switch {
 	case strings.Contains(command, "nft -a list ruleset"):
@@ -177,6 +209,98 @@ func TestAPIDiscoveryBatchesGuestDescriptionsByNodeWithoutSSH(t *testing.T) {
 	}
 	if requestCount.Load() != 2 || directConfigReads.Load() != 0 {
 		t.Fatalf("requests = %d direct config reads = %d, want cluster + one node batch", requestCount.Load(), directConfigReads.Load())
+	}
+}
+
+func TestRecoveryDiscoveryBatchesAPINetworkConfigWithoutPerGuestFallback(t *testing.T) {
+	responses := map[string]string{
+		"/api2/json/cluster/resources": `{"data":[
+			{"id":"qemu/120","node":"pve-a","name":"recovered-vm","status":"running","type":"qemu","vmid":120,"maxcpu":2,"maxmem":1073741824,"maxdisk":8589934592},
+			{"id":"lxc/121","node":"pve-a","name":"recovered-ct","status":"running","type":"lxc","vmid":121,"maxcpu":1,"maxmem":536870912,"maxdisk":4294967296}
+		]}`,
+		"/api2/json/nodes/pve-a/execute": `{"data":[
+			{"status":200,"data":{"net0":"name=eth0,bridge=vmbr1,ip=10.42.0.120/24,ip6=2001:db8:42::120/64"}},
+			{"status":200,"data":{"net0":"name=eth0,bridge=vmbr1,ip=10.42.0.121/24"}}
+		]}`,
+	}
+	var requestCount atomic.Int32
+	var directConfigReads atomic.Int32
+	client := &http.Client{Transport: discoveryRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requestCount.Add(1)
+		if strings.HasSuffix(request.URL.Path, "/config") {
+			directConfigReads.Add(1)
+		}
+		if strings.HasSuffix(request.URL.Path, "/execute") {
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Errorf("read execute request: %v", err)
+			}
+			if !strings.Contains(string(body), `qemu/120/config`) || !strings.Contains(string(body), `lxc/121/config`) {
+				t.Errorf("recovery execute request does not batch both guest configs: %s", body)
+			}
+		}
+		body, ok := responses[request.URL.Path]
+		status := http.StatusOK
+		if !ok {
+			status = http.StatusNotFound
+			body = `{"data":null}`
+		}
+		return &http.Response{
+			StatusCode: status,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    request,
+		}, nil
+	})}
+	p := &ProxmoxProvider{
+		connected: true,
+		config:    nodeConfigForDiscoveryTest("user@pve!token", "secret"),
+		apiClient: client,
+	}
+	p.config.ExecutionRule = "api_only"
+	instances, err := p.DiscoverInstancesForRecovery(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoverInstancesForRecovery() error = %v", err)
+	}
+	if len(instances) != 2 {
+		t.Fatalf("instances = %#v, want two guests", instances)
+	}
+	if instances[0].PrivateIP != "10.42.0.120" || instances[0].IPv6Address != "2001:db8:42::120" {
+		t.Fatalf("VM recovery network = %#v", instances[0])
+	}
+	if instances[1].PrivateIP != "10.42.0.121" || instances[1].IPv6Address != "" {
+		t.Fatalf("LXC recovery network = %#v", instances[1])
+	}
+	if requestCount.Load() != 2 || directConfigReads.Load() != 0 {
+		t.Fatalf("requests = %d direct config reads = %d, want cluster + one bounded execute batch", requestCount.Load(), directConfigReads.Load())
+	}
+}
+
+func TestRecoveryDiscoveryUsesTwoSSHCallsForAllGuestConfigs(t *testing.T) {
+	executor := &recoveryDiscoveryExecutor{}
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.connected = true
+	p.config.ExecutionRule = "ssh_only"
+	p.sshClient.SetExecutor(executor)
+
+	instances, err := p.DiscoverInstancesForRecovery(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoverInstancesForRecovery() error = %v", err)
+	}
+	if len(instances) != 2 {
+		t.Fatalf("instances = %#v, want two guests", instances)
+	}
+	if len(executor.commands) != 2 {
+		t.Fatalf("SSH calls = %d, want cluster resources plus one batched config command", len(executor.commands))
+	}
+	if strings.Contains(executor.commands[1], "qm guest cmd") || strings.Contains(executor.commands[1], "pct exec") {
+		t.Fatalf("recovery config command must not add per-guest runtime probes: %s", executor.commands[1])
+	}
+	if !strings.Contains(executor.commands[1], "qemu/120/config") || !strings.Contains(executor.commands[1], "lxc/121/config") {
+		t.Fatalf("batched SSH config command is missing guests: %s", executor.commands[1])
+	}
+	if instances[0].PrivateIP != "10.42.0.120" || instances[0].IPv6Address != "2001:db8:42::120" {
+		t.Fatalf("VM recovery network = %#v", instances[0])
 	}
 }
 

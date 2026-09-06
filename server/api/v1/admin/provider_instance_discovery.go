@@ -8,6 +8,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	adminProvider "oneclickvirt/service/admin/provider"
+	"oneclickvirt/service/scheduler"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -40,6 +41,36 @@ func QueueProviderInstanceSync(c *gin.Context) {
 		return
 	}
 	respondQueuedProviderTask(c, created, "实例同步任务已提交，请在管理员任务列表查看进度")
+}
+
+// QueueProviderRecoverySync submits an explicit post-reboot recovery task.
+// @Summary 提交节点强制恢复同步任务
+// @Description 一次有界远端发现；仅为明确期望运行且远端已停止的实例入队启动，并重放节点级映射与出口状态
+// @Tags Provider管理
+// @Security BearerAuth
+// @Param id path int true "Provider ID"
+// @Success 200 {object} common.Response{data=adminModel.Task} "强制恢复同步任务已提交"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 404 {object} common.Response "Provider不存在"
+// @Failure 409 {object} common.Response "已有恢复同步任务或恢复租约"
+// @Router /admin/providers/{id}/force-recovery-sync [post]
+func QueueProviderRecoverySync(c *gin.Context) {
+	providerID, err := parseOwnedProviderID(c)
+	if err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "无法识别当前管理员"))
+		return
+	}
+	created, err := scheduler.CreateProviderRecoverySyncTask(providerID, userID)
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	respondQueuedProviderTask(c, created, "强制恢复同步任务已提交，请在管理员任务列表查看进度")
 }
 
 // QueueProviderHealthCheck 将可能触发远端探测和资源同步的健康检查挂入任务池。

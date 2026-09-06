@@ -58,14 +58,21 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 	if localSSHPort == 0 {
 		localSSHPort = 22 // 如果数据库中没有设置SSH端口，使用默认值22
 	}
-	localAutoConfigured := provider.AutoConfigured
-	localAuthConfig := provider.AuthConfig
 	originalStoragePool := provider.StoragePool
 	originalStoragePoolPath := provider.StoragePoolPath
+	connectionType := strings.ToLower(strings.TrimSpace(provider.ConnectionType))
+	executionRule := strings.ToLower(strings.TrimSpace(provider.ExecutionRule))
+	isAPIOnly := executionRule == "api_only"
+	isSSHOnly := executionRule == "ssh_only"
+	isLocal := connectionType == "local"
+	isReverseAgent := connectionType == "agent" && !isAPIOnly
 
 	now := time.Now()
-	// Agent 模式：仅按 Agent WebSocket 链路判断；与 SSH 节点使用不同健康检测语义。
-	if provider.ConnectionType == "agent" {
+	// Ordinary reverse-Agent nodes are healthy only when their WebSocket is
+	// usable. Agent+api_only is intentionally excluded: it is an API Provider
+	// which happens to have an Agent deployment option, not a WebSocket health
+	// contract.
+	if isReverseAgent {
 		hub := agentService.GetHub()
 		conn, ok := hub.GetConn(provider.ID)
 		agentStatus := "offline"
@@ -132,7 +139,9 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 		if agentVersion != "" {
 			updates["version"] = agentVersion
 		}
-		global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", localProviderID).Updates(updates)
+		if dbErr := global.APP_DB.WithContext(ctx).Model(&providerModel.Provider{}).Where("id = ?", localProviderID).Updates(updates).Error; dbErr != nil {
+			return fmt.Errorf("保存Agent Provider状态失败: %w", dbErr)
+		}
 		return nil
 	}
 
@@ -153,44 +162,38 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 	var sshStatus, apiStatus, hostName string
 	var err error
 
-	// 如果Provider已自动配置，可以尝试进行API检查
-	if localAutoConfigured && localAuthConfig != "" {
-		configService := &provider2.ProviderConfigService{}
-		authConfig, configErr := configService.LoadProviderConfig(localProviderID)
-		if configErr == nil {
-			// 添加详细日志，确认传入的参数
-			global.APP_LOG.Debug("调用CheckProviderHealthWithConfig",
-				zap.Uint("providerId", localProviderID),
-				zap.String("providerName", localProviderName),
-				zap.String("providerType", localProviderType),
-				zap.String("host", host),
-				zap.Int("sshPort", localSSHPort),
-				zap.String("endpoint", localEndpoint))
-
-			// 使用认证配置执行完整健康检查（包含API检查），并获取主机名
-			sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfig(
-				ctx, localProviderID, localProviderName, localProviderType, host, localUsername, localPassword, localSSHKey, localSSHPort, authConfig)
-		} else {
-			// 配置加载失败，只进行SSH检查
-			global.APP_LOG.Warn("加载Provider配置失败，仅进行SSH检查",
-				zap.String("provider", localProviderName),
-				zap.Error(configErr))
-
-			if sshErr := healthChecker.CheckSSHConnection(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort); sshErr != nil {
-				sshStatus = "offline"
-			} else {
-				sshStatus = "online"
-			}
-			apiStatus = "unknown"
+	// Local nodes are checked through their local Provider runtime. Do not turn a
+	// controller-local deployment into an SSH dial merely because its endpoint
+	// happens to contain a hostname.
+	switch {
+	case isLocal:
+		sshStatus = "N/A"
+		apiStatus = "N/A"
+		if _, localErr := provider2.EnsureProviderConnected(ctx, localProviderID); localErr != nil {
+			err = fmt.Errorf("本机Provider运行时不可用: %w", localErr)
 		}
-	} else {
-		// 未自动配置的Provider，只进行SSH检查
+	case isAPIOnly:
+		authConfig := provider2.ProviderAuthConfigFromRecord(provider)
+		sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfigAndRule(
+			ctx, localProviderID, localProviderName, localProviderType, host, localUsername, localPassword, localSSHKey, localSSHPort, authConfig, executionRule)
+	case provider.AutoConfigured && strings.TrimSpace(provider.AuthConfig) != "":
+		authConfig := provider2.ProviderAuthConfigFromRecord(provider)
+		sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfigAndRule(
+			ctx, localProviderID, localProviderName, localProviderType, host, localUsername, localPassword, localSSHKey, localSSHPort, authConfig, executionRule)
+	default:
+		// ssh_only and unconfigured auto nodes retain the historical SSH-only
+		// probe. Explicit ssh_only advertises API as not applicable.
 		if sshErr := healthChecker.CheckSSHConnection(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort); sshErr != nil {
 			sshStatus = "offline"
+			err = sshErr
 		} else {
 			sshStatus = "online"
 		}
-		apiStatus = "unknown"
+		if isSSHOnly {
+			apiStatus = "N/A"
+		} else {
+			apiStatus = "unknown"
+		}
 	}
 
 	if err != nil {
@@ -305,11 +308,30 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 	}
 
 	// 更新整体状态
-	if sshStatus == "online" && (apiStatus == "online" || apiStatus == "N/A" || apiStatus == "unknown") {
+	switch {
+	case isLocal:
+		if err == nil {
+			provider.Status = "active"
+		} else {
+			provider.Status = "inactive"
+		}
+	case isAPIOnly:
+		if apiStatus == "online" {
+			provider.Status = "active"
+		} else {
+			provider.Status = "inactive"
+		}
+	case isSSHOnly:
+		if sshStatus == "online" {
+			provider.Status = "active"
+		} else {
+			provider.Status = "inactive"
+		}
+	case sshStatus == "online" && (apiStatus == "online" || apiStatus == "N/A" || apiStatus == "unknown"):
 		provider.Status = "active"
-	} else if sshStatus == "offline" && apiStatus == "offline" {
+	case sshStatus == "offline" && apiStatus == "offline":
 		provider.Status = "inactive"
-	} else {
+	default:
 		provider.Status = "partial" // 部分连接正常
 	}
 
@@ -339,7 +361,7 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 	}
 
 	dbService := database.GetDatabaseService()
-	dbCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	dbCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if dbErr := dbService.ExecuteTransaction(dbCtx, func(tx *gorm.DB) error {
 		return tx.Model(&providerModel.Provider{}).Where("id = ?", provider.ID).Updates(updates).Error
@@ -348,7 +370,7 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 	}
 
 	storageChanged := provider.StoragePool != originalStoragePool || provider.StoragePoolPath != originalStoragePoolPath
-	refreshRuntimeProviderAfterHealthCheck(ctx, localProviderID, localProviderName, provider.ConnectionType, provider.Status, provider.SSHStatus, forceRefresh, storageChanged, originalStoragePool, provider.StoragePool, originalStoragePoolPath, provider.StoragePoolPath)
+	refreshRuntimeProviderAfterHealthCheck(ctx, localProviderID, localProviderName, provider.ConnectionType, provider.ExecutionRule, provider.Status, provider.SSHStatus, provider.APIStatus, forceRefresh, storageChanged, originalStoragePool, provider.StoragePool, originalStoragePoolPath, provider.StoragePoolPath)
 
 	// 如果健康检查有错误，返回该错误（这样前端可以获取具体错误信息）
 	return err
@@ -358,8 +380,13 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 // with an explicit health check. Health checks use independent SSH/Agent probes and update DB
 // state first; without this reload, stale cached providers can remain disconnected and keep
 // returning "Provider不可用" even after the node has passed a manual health check.
-func refreshRuntimeProviderAfterHealthCheck(ctx context.Context, providerID uint, providerName, connectionType, status, sshStatus string, forceRefresh, storageChanged bool, oldPool, newPool, oldPoolPath, newPoolPath string) {
+func refreshRuntimeProviderAfterHealthCheck(ctx context.Context, providerID uint, providerName, connectionType, executionRule, status, sshStatus, apiStatus string, forceRefresh, storageChanged bool, oldPool, newPool, oldPoolPath, newPoolPath string) {
 	providerSvc := provider2.GetProviderService()
+	connectionType = strings.ToLower(strings.TrimSpace(connectionType))
+	executionRule = strings.ToLower(strings.TrimSpace(executionRule))
+	isAPIOnly := executionRule == "api_only"
+	isLocal := connectionType == "local"
+	isReverseAgent := connectionType == "agent" && !isAPIOnly
 
 	if status == "inactive" {
 		providerSvc.RemoveProvider(providerID)
@@ -370,15 +397,19 @@ func refreshRuntimeProviderAfterHealthCheck(ctx context.Context, providerID uint
 	}
 
 	shouldReload := storageChanged || forceRefresh
-	if connectionType == "agent" {
+	if isReverseAgent {
 		shouldReload = true
 	}
 	if !shouldReload {
 		return
 	}
 
-	// SSH 类型只有在 SSH 在线时才重载，避免把一次 API/网络抖动变成缓存清空。
-	if connectionType != "agent" && sshStatus != "online" {
+	// API-only/local/Agent nodes must not be gated by an SSH result. Conversely,
+	// normal SSH nodes only reload after an online SSH check.
+	if isAPIOnly && apiStatus != "online" {
+		return
+	}
+	if !isReverseAgent && !isLocal && !isAPIOnly && sshStatus != "online" {
 		return
 	}
 

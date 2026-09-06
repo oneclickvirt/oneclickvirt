@@ -712,7 +712,14 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 	}
 
 	instance.Status = nextAdminInstanceStatus(req.Action)
-	if err := global.APP_DB.Model(&instance).Update("status", instance.Status).Error; err != nil {
+	updates := map[string]interface{}{"status": instance.Status}
+	switch req.Action {
+	case "start", "restart":
+		updates["desired_state"] = providerModel.InstanceDesiredStateRunning
+	case "stop":
+		updates["desired_state"] = providerModel.InstanceDesiredStateStopped
+	}
+	if err := global.APP_DB.Model(&instance).Updates(updates).Error; err != nil {
 		return fmt.Errorf("更新实例状态失败: %v", err)
 	}
 

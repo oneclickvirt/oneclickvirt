@@ -139,6 +139,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 		}
 
 		instance.Status = constant.InstanceStatusStarting
+		instance.DesiredState = providerModel.InstanceDesiredStateRunning
 	case "stop":
 		if instance.Status != constant.InstanceStatusRunning {
 			return errors.New("实例状态不允许停止")
@@ -159,6 +160,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 		}
 
 		instance.Status = constant.InstanceStatusStopping
+		instance.DesiredState = providerModel.InstanceDesiredStateStopped
 	case "restart":
 		if instance.Status != constant.InstanceStatusRunning {
 			return errors.New("实例状态不允许重启")
@@ -179,6 +181,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 		}
 
 		instance.Status = constant.InstanceStatusRestarting
+		instance.DesiredState = providerModel.InstanceDesiredStateRunning
 	case "reset":
 		if instance.Status != constant.InstanceStatusRunning && instance.Status != constant.InstanceStatusStopped {
 			return errors.New("实例状态不允许重置")

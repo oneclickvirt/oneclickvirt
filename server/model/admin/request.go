@@ -673,6 +673,14 @@ type ExportRedemptionCodesRequest struct {
 type InstanceOperationTaskRequest struct {
 	InstanceId uint `json:"instanceId"`
 	ProviderId uint `json:"providerId"`
+	// Recovery is set only for the durable provider-reboot recovery workflow.
+	// It lets the task worker defer remote post-start work to one Provider-level
+	// reconciliation instead of repeating interface and address discovery for
+	// every guest in the recovered batch.
+	Recovery             bool   `json:"recovery,omitempty"`
+	RecoveryNode         string `json:"recoveryNode,omitempty"`
+	RecoveryInstanceID   string `json:"recoveryInstanceId,omitempty"`
+	RecoveryInstanceType string `json:"recoveryInstanceType,omitempty"`
 }
 
 // DeleteInstanceTaskRequest 删除实例任务数据结构
