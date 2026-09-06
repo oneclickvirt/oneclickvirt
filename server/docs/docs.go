@@ -23563,6 +23563,14 @@ const docTemplate = `{
                 "rawData": {
                     "description": "原始数据（用于调试）"
                 },
+                "runtimeIdentity": {
+                    "description": "RuntimeIdentity is captured during discovery and consumed by the narrow\nreboot-recovery start path. It is safe to persist because it contains no\ncredentials or user secrets.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/provider.RecoveryInstanceIdentity"
+                        }
+                    ]
+                },
                 "sshPort": {
                     "description": "SSH端口",
                     "type": "integer"
@@ -23810,6 +23818,20 @@ const docTemplate = `{
                 "totalRemote": {
                     "description": "远程总实例数",
                     "type": "integer"
+                }
+            }
+        },
+        "provider.RecoveryInstanceIdentity": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "node": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },
