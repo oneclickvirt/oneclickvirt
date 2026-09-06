@@ -2797,6 +2797,13 @@ definitions:
         type: string
       rawData:
         description: 原始数据（用于调试）
+      runtimeIdentity:
+        allOf:
+        - $ref: '#/definitions/provider.RecoveryInstanceIdentity'
+        description: |-
+          RuntimeIdentity is captured during discovery and consumed by the narrow
+          reboot-recovery start path. It is safe to persist because it contains no
+          credentials or user secrets.
       sshPort:
         description: SSH端口
         type: integer
@@ -2970,6 +2977,15 @@ definitions:
       totalRemote:
         description: 远程总实例数
         type: integer
+    type: object
+  provider.RecoveryInstanceIdentity:
+    properties:
+      id:
+        type: string
+      node:
+        type: string
+      type:
+        type: string
     type: object
   resource.ResourceReservation:
     properties:
