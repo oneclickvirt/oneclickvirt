@@ -27,6 +27,7 @@ type IncusProvider struct {
 	transport        *http.Transport // 保存transport以便清理
 	providerID       uint            // 存储providerID用于清理
 	connected        bool
+	apiHealthy       bool // API-only mode has no SSH executor to represent liveness.
 	healthChecker    health.HealthChecker
 	version          string             // Incus 版本
 	mu               sync.RWMutex       // 保护并发访问
@@ -68,6 +69,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 	i.config = config
 	i.providerID = config.ID // 存储providerID
 	i.connected = false
+	i.apiHealthy = false
 	i.sshClient.ClearExecutor()
 	if i.transport != nil {
 		// A failed reconnect must not retain a certificate from a previous
@@ -102,6 +104,20 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 	} else {
 		global.APP_LOG.Debug("未找到Incus证书配置，仅使用SSH",
 			zap.String("host", utils.TruncateString(config.Host, 32)))
+	}
+
+	if strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only") {
+		if !i.hasAPIAccess() {
+			return fmt.Errorf("Incus执行规则为api_only，但未配置有效mTLS证书")
+		}
+		if err := i.probeAPIConnection(ctx); err != nil {
+			return fmt.Errorf("Incus API连接失败: %w", err)
+		}
+		i.connected = true
+		i.apiHealthy = true
+		i.healthChecker = i.newAPIOnlyHealthChecker()
+		global.APP_LOG.Info("Incus provider API-only连接成功", zap.String("host", utils.TruncateString(config.Host, 32)))
+		return nil
 	}
 
 	// 设置SSH超时配置
@@ -167,11 +183,27 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 func (i *IncusProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	i.config = config
 	i.providerID = config.ID
+	i.connected = false
+	i.apiHealthy = false
 	if i.transport != nil {
-		i.transport.TLSClientConfig = nil
+		if !strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only") {
+			i.transport.TLSClientConfig = nil
+		}
 	}
 	if i.transport != nil && i.providerID > 0 {
 		provider.GetTransportCleanupManager().RegisterTransportWithProvider(i.transport, i.providerID)
+	}
+	if strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only") {
+		if !i.hasAPIAccess() {
+			return fmt.Errorf("Incus Agent+api_only未配置有效mTLS证书")
+		}
+		if err := i.probeAPIConnection(context.Background()); err != nil {
+			return fmt.Errorf("Incus Agent+api_only API连接失败: %w", err)
+		}
+		i.connected = true
+		i.apiHealthy = true
+		i.healthChecker = i.newAPIOnlyHealthChecker()
+		return nil
 	}
 	i.sshClient.SetExecutor(executor)
 	i.connected = true
@@ -258,15 +290,31 @@ func (i *IncusProvider) Disconnect(ctx context.Context) error {
 	i.transport = nil
 
 	i.connected = false
+	i.apiHealthy = false
 	return nil
 }
 
 func (i *IncusProvider) IsConnected() bool {
+	if strings.EqualFold(strings.TrimSpace(i.config.ExecutionRule), "api_only") {
+		return i.connected && i.apiHealthy
+	}
 	return i.connected && i.sshClient.HasExecutor() && i.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (i *IncusProvider) EnsureConnection() error {
+	if strings.EqualFold(strings.TrimSpace(i.config.ExecutionRule), "api_only") {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := i.probeAPIConnection(ctx); err != nil {
+			i.connected = false
+			i.apiHealthy = false
+			return fmt.Errorf("Incus API重连失败: %w", err)
+		}
+		i.connected = true
+		i.apiHealthy = true
+		return nil
+	}
 	if !i.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
@@ -294,6 +342,19 @@ func (i *IncusProvider) EnsureConnection() error {
 }
 
 func (i *IncusProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
+	if strings.EqualFold(strings.TrimSpace(i.config.ExecutionRule), "api_only") {
+		if i.healthChecker == nil {
+			return nil, fmt.Errorf("Incus API-only健康检查器未初始化")
+		}
+		result, err := i.healthChecker.CheckHealth(ctx)
+		if err == nil {
+			i.apiHealthy = result.APIStatus == "online"
+			i.connected = i.apiHealthy
+		} else {
+			i.apiHealthy = false
+		}
+		return result, err
+	}
 	if i.healthChecker == nil {
 		if !i.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")

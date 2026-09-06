@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -27,7 +28,7 @@ func OnInstanceCreated(ctx context.Context, db *gorm.DB, instanceID uint) {
 		}
 		return
 	}
-	defer scheduleEgressRefresh(db, instanceID, true)
+	defer ScheduleProviderEgressRefresh(db, instance.ProviderID, true)
 
 	// Get the connected provider; needed for both interface detection and monitoring.
 	providerInstance, provErr := providerService.GetProviderInstanceByID(instance.ProviderID)
@@ -113,7 +114,7 @@ func OnInstanceRebuilt(ctx context.Context, db *gorm.DB, instanceID uint) {
 	if err := db.WithContext(ctx).First(&instance, instanceID).Error; err != nil {
 		return
 	}
-	defer scheduleEgressRefresh(db, instanceID, true)
+	defer ScheduleProviderEgressRefresh(db, instance.ProviderID, true)
 
 	providerInstance, provErr := providerService.GetProviderInstanceByID(instance.ProviderID)
 
@@ -160,9 +161,12 @@ func OnInstanceStarted(ctx context.Context, db *gorm.DB, instanceID uint) {
 	if err := db.WithContext(ctx).First(&instance, instanceID).Error; err != nil {
 		return
 	}
-	defer scheduleEgressRefresh(db, instanceID, true)
-	// 刷新控制端端口转发的 InternalHost（实例重启后IP可能已变更）
-	go refreshControllerPortHosts(db, instanceID)
+	defer ScheduleProviderEgressRefresh(db, instance.ProviderID, true)
+
+	// A reboot can finish many start tasks together. Coalesce their post-start
+	// address discovery *and* controller-port repair by Provider instead of
+	// doing one remote discovery plus two port-table reads per task.
+	ScheduleStartedProviderRuntimeNetworkRefresh(db, instance.ProviderID, instanceID)
 
 	providerInstance, provErr := providerService.GetProviderInstanceByID(instance.ProviderID)
 
@@ -210,23 +214,6 @@ func OnInstanceStarted(ctx context.Context, db *gorm.DB, instanceID uint) {
 
 	_ = db.WithContext(ctx).First(&instance, instanceID)
 	updateInstanceInterfaces(ctx, db, &instance, monitor)
-}
-
-// scheduleEgressRefresh runs after lifecycle handlers have persisted newly
-// detected interfaces. It intentionally uses a detached bounded context so a
-// cancelled task cannot leave the node binding pointing at a stale veth.
-func scheduleEgressRefresh(db *gorm.DB, instanceID uint, apply bool) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if db == nil {
-			return
-		}
-		if err := NewInstanceEgressService(db).RefreshBinding(ctx, instanceID, apply); err != nil && global.APP_LOG != nil {
-			global.APP_LOG.Debug("agent lifecycle: egress refresh skipped or failed",
-				zap.Uint("instance_id", instanceID), zap.Error(err))
-		}
-	}()
 }
 
 // updateInstanceInterfaces updates the cached host interfaces from typed traffic bindings.
@@ -331,80 +318,187 @@ func resolveMonitorBindingInterfaces(instance *providerModel.Instance, monitor *
 // 保留显式配置的主机名，并确保每个控制端端口的 TCP 监听器正在运行。
 // 实例首次创建（IP 刚就绪）或重启（IP 可能变更）时调用。
 func refreshControllerPortHosts(db *gorm.DB, instanceID uint) {
-	var instance providerModel.Instance
-	if err := db.Select("id", "provider_id", "private_ip").First(&instance, instanceID).Error; err != nil {
+	refreshControllerPortHostsForInstances(db, []uint{instanceID})
+}
+
+type controllerPortHostChange struct {
+	Port         providerModel.Port
+	TargetHost   string
+	ShouldUpdate bool
+}
+
+const (
+	// Keep the two reads below SQLite/MySQL bind budgets when one reboot changes
+	// every guest address on a large provider.
+	controllerPortHostInstanceBatchSize = 200
+	controllerPortHostUpdateBatchSize   = 50
+	controllerPortRebindConcurrency     = 4
+)
+
+// refreshControllerPortHostsForInstances batches the database side of an IP
+// rebind for many instances.  A node reboot can change every container's
+// address; querying ports per instance here would turn one discovery into an
+// avoidable N+1 query burst.  Per-port listener restarts remain necessary but
+// occur only for targets that actually changed.
+func refreshControllerPortHostsForInstances(db *gorm.DB, instanceIDs []uint) {
+	if db == nil || len(instanceIDs) == 0 {
 		return
 	}
-	if instance.PrivateIP == "" {
+	// A Provider-wide Agent reconnect can be rebuilding every controller
+	// listener at the same time. Serialize this smaller address-driven repair
+	// with that stop/rebind path so one worker cannot rebind a listener that the
+	// other worker is still tearing down.
+	recoveryMu.Lock()
+	defer recoveryMu.Unlock()
+	uniqueIDs := make([]uint, 0, len(instanceIDs))
+	seen := make(map[uint]struct{}, len(instanceIDs))
+	for _, instanceID := range instanceIDs {
+		if instanceID == 0 {
+			continue
+		}
+		if _, exists := seen[instanceID]; exists {
+			continue
+		}
+		seen[instanceID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, instanceID)
+	}
+	if len(uniqueIDs) == 0 {
 		return
 	}
 
-	// 查询该实例的所有活跃控制端端口转发
-	var ports []providerModel.Port
-	if err := db.Where("instance_id = ? AND mapping_type = ? AND status = ?",
-		instanceID, "controller", "active").Find(&ports).Error; err != nil {
+	var instances []providerModel.Instance
+	if err := db.Select("id", "private_ip").Where("id IN ?", uniqueIDs).Find(&instances).Error; err != nil {
 		if global.APP_LOG != nil {
-			global.APP_LOG.Warn("查询控制端端口转发失败",
-				zap.Uint("instance_id", instanceID), zap.Error(err))
+			global.APP_LOG.Warn("批量查询实例控制端端口目标失败", zap.Error(err))
+		}
+		return
+	}
+	privateIPs := make(map[uint]string, len(instances))
+	for _, instance := range instances {
+		if strings.TrimSpace(instance.PrivateIP) != "" {
+			privateIPs[instance.ID] = instance.PrivateIP
+		}
+	}
+	if len(privateIPs) == 0 {
+		return
+	}
+
+	var ports []providerModel.Port
+	if err := db.Where("instance_id IN ? AND mapping_type = ? AND status = ?", uniqueIDs, "controller", "active").Find(&ports).Error; err != nil {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("批量查询控制端端口转发失败", zap.Error(err))
 		}
 		return
 	}
 
+	changes := make([]controllerPortHostChange, 0, len(ports))
 	for _, port := range ports {
-		targetHost, shouldUpdate := ResolveControllerPortTarget(port.InternalHost, instance.PrivateIP)
+		privateIP := privateIPs[port.InstanceID]
+		if privateIP == "" {
+			continue
+		}
+		targetHost, shouldUpdate := ResolveControllerPortTarget(port.InternalHost, privateIP)
 		if targetHost == "" {
 			continue
 		}
+		changes = append(changes, controllerPortHostChange{Port: port, TargetHost: targetHost, ShouldUpdate: shouldUpdate})
+	}
+	if len(changes) == 0 {
+		return
+	}
 
-		if shouldUpdate {
-			if err := db.Model(&providerModel.Port{}).
-				Where("id = ?", port.ID).
-				Update("internal_host", targetHost).Error; err != nil {
-				if global.APP_LOG != nil {
-					global.APP_LOG.Warn("更新控制端端口转发目标地址失败",
-						zap.Uint("port_id", port.ID), zap.Error(err))
-				}
-			} else if global.APP_LOG != nil {
-				global.APP_LOG.Debug("已更新控制端端口转发目标地址",
-					zap.Uint("port_id", port.ID),
-					zap.String("new_host", targetHost),
-					zap.String("old_host", port.InternalHost))
-			}
-		}
-
-		// 确保控制端监听器正在运行
-		ctrlListenerMu.RLock()
-		_, running := ctrlListeners[port.ID]
-		ctrlListenerMu.RUnlock()
-
-		if !running {
-			// 监听器尚未启动（新端口或服务重启后未恢复），立即启动
-			if err := StartControllerPortForward(port.ID, port.ProviderID, port.HostPort, targetHost, port.GuestPort); err != nil {
-				if global.APP_LOG != nil {
-					global.APP_LOG.Warn("启动控制端端口转发失败",
-						zap.Uint("port_id", port.ID), zap.Error(err))
-				}
-			} else if global.APP_LOG != nil {
-				global.APP_LOG.Info("控制端端口转发已启动",
-					zap.Uint("port_id", port.ID),
-					zap.Int("host_port", port.HostPort),
-					zap.String("target", targetHost))
-			}
-		} else if shouldUpdate {
-			// IP 已变更且监听器仍在运行，需要用新目标地址重启监听器
-			go func(p providerModel.Port, host string) {
-				StopControllerPortForward(p.ID)
-				if err := StartControllerPortForward(p.ID, p.ProviderID, p.HostPort, host, p.GuestPort); err != nil {
-					if global.APP_LOG != nil {
-						global.APP_LOG.Warn("重启控制端端口转发失败",
-							zap.Uint("port_id", p.ID), zap.Error(err))
-					}
-				} else if global.APP_LOG != nil {
-					global.APP_LOG.Info("控制端端口转发已用新IP重启",
-						zap.Uint("port_id", p.ID),
-						zap.String("new_target", host))
-				}
-			}(port, targetHost)
+	updatedPorts := make([]controllerPortHostChange, 0, len(changes))
+	for _, change := range changes {
+		if change.ShouldUpdate {
+			updatedPorts = append(updatedPorts, change)
 		}
 	}
+	persistedUpdates := make(map[uint]struct{}, len(updatedPorts))
+	for start := 0; start < len(updatedPorts); start += controllerPortHostUpdateBatchSize {
+		end := start + controllerPortHostUpdateBatchSize
+		if end > len(updatedPorts) {
+			end = len(updatedPorts)
+		}
+		batch := updatedPorts[start:end]
+		portIDs := make([]uint, 0, len(batch))
+		var builder strings.Builder
+		builder.WriteString("CASE id")
+		args := make([]interface{}, 0, len(batch)*2)
+		for _, change := range batch {
+			portIDs = append(portIDs, change.Port.ID)
+			builder.WriteString(" WHEN ? THEN ?")
+			args = append(args, change.Port.ID, change.TargetHost)
+		}
+		builder.WriteString(" ELSE internal_host END")
+		if err := db.Model(&providerModel.Port{}).Where("id IN ?", portIDs).
+			Update("internal_host", gorm.Expr(builder.String(), args...)).Error; err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("批量更新控制端端口转发目标地址失败", zap.Error(err))
+			}
+			// Do not restart a listener with an unpersisted target. A future
+			// periodic port repair will safely retry it after the DB recovers.
+			continue
+		}
+		for _, change := range batch {
+			persistedUpdates[change.Port.ID] = struct{}{}
+		}
+	}
+
+	ready := make([]controllerPortHostChange, 0, len(changes))
+	for _, change := range changes {
+		if change.ShouldUpdate {
+			if _, persisted := persistedUpdates[change.Port.ID]; !persisted {
+				continue
+			}
+		}
+		ready = append(ready, change)
+	}
+	if len(ready) == 0 {
+		return
+	}
+
+	// Each listener must still be started/rebound independently, but limit that
+	// inevitable local work. The known Port rows avoid a new database lookup per
+	// listener after the two batched reads above.
+	workers := controllerPortRebindConcurrency
+	if workers > len(ready) {
+		workers = len(ready)
+	}
+	jobs := make(chan controllerPortHostChange)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for change := range jobs {
+				running := IsControllerPortForwardRunning(change.Port.ID)
+				var err error
+				if change.ShouldUpdate && running {
+					err = restartControllerPortForwardWithKnownPort(change.Port, change.TargetHost)
+				} else if change.ShouldUpdate || !running {
+					err = startControllerPortForwardWithKnownPort(change.Port, change.TargetHost)
+				}
+				if err != nil {
+					if global.APP_LOG != nil {
+						global.APP_LOG.Warn("启动或重绑控制端端口转发失败",
+							zap.Uint("port_id", change.Port.ID), zap.Error(err))
+					}
+					continue
+				}
+				if change.ShouldUpdate || !running {
+					if global.APP_LOG != nil {
+						global.APP_LOG.Info("控制端端口转发已确认",
+							zap.Uint("port_id", change.Port.ID),
+							zap.String("target", change.TargetHost),
+							zap.Bool("rebound", change.ShouldUpdate))
+					}
+				}
+			}
+		}()
+	}
+	for _, change := range ready {
+		jobs <- change
+	}
+	close(jobs)
+	wg.Wait()
 }

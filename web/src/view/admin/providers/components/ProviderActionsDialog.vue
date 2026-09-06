@@ -46,6 +46,14 @@
 
       <el-button
         class="action-button"
+        type="warning"
+        @click="$emit('action', 'force-recovery-sync')"
+      >
+        {{ $t('admin.providers.forceRecoverySync') }}
+      </el-button>
+
+      <el-button
+        class="action-button"
         type="info"
         @click="$emit('action', 'set-expiry')"
       >
@@ -113,7 +121,13 @@ defineProps({
   row: { type: Object, default: null }
 })
 
-defineEmits(['update:visible', 'action', 'paste-url', 'view-hardware-report'])
+defineEmits([
+  'update:visible',
+  'action',
+  'paste-url',
+  'view-hardware-report',
+  'force-recovery-sync',
+])
 </script>
 
 <style scoped>

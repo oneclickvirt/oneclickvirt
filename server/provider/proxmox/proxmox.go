@@ -89,6 +89,7 @@ type ProxmoxProvider struct {
 	transport         *http.Transport
 	providerID        uint // 存储providerID用于清理
 	connected         bool
+	apiHealthy        bool   // API-only mode has no SSH executor to represent liveness.
 	node              string // Proxmox 节点名
 	providerUUID      string // Provider UUID，用于查询数据库中的配置
 	healthChecker     health.HealthChecker
@@ -150,6 +151,9 @@ func (p *ProxmoxProvider) GetSupportedInstanceTypes() []string {
 
 func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
 	p.config = config
+	p.connected = false
+	p.apiHealthy = false
+	p.sshClient.ClearExecutor()
 	p.providerUUID = config.UUID // 存储Provider UUID
 	p.providerID = config.ID     // 存储providerID
 	p.normalizeTokenConfig()
@@ -171,6 +175,42 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 		global.APP_LOG.Warn("从本地文件加载token失败，使用配置值", zap.Error(err))
 	}
 	p.normalizeTokenConfig()
+
+	// API-only is a strict transport mode. Do not create an SSH client, run
+	// hostname/NAT/version probes, or leave a stale executor from a previous
+	// connection on the provider.
+	if strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only") {
+		if !p.hasAPIAccess() {
+			return fmt.Errorf("Proxmox执行规则为api_only，但未配置有效API Token")
+		}
+		if err := p.probeAPIConnection(ctx); err != nil {
+			return fmt.Errorf("Proxmox API连接失败: %w", err)
+		}
+		p.connected = true
+		p.apiHealthy = true
+		healthConfig := health.HealthConfig{
+			ProviderID:    p.config.ID,
+			ProviderName:  p.config.Name,
+			Host:          p.config.Host,
+			Port:          p.config.Port,
+			APIEnabled:    true,
+			APIPort:       8006,
+			APIScheme:     "https",
+			SSHEnabled:    false,
+			ServiceChecks: nil,
+			SkipTLSVerify: p.config.CACertPath == "",
+			CACertPath:    p.config.CACertPath,
+			Timeout:       10 * time.Second,
+			Token:         p.config.Token,
+			TokenID:       p.config.TokenID,
+		}
+		zapLogger, _ := zap.NewProduction()
+		p.healthChecker = health.NewProxmoxHealthChecker(healthConfig, zapLogger)
+		global.APP_LOG.Info("Proxmox provider API-only连接成功",
+			zap.String("host", utils.TruncateString(config.Host, 32)),
+			zap.String("node", utils.TruncateString(p.nodeName(), 32)))
+		return nil
+	}
 
 	// 如果本地文件没有 Token，尝试从 NodeConfig 的扩展配置中解析
 	if !p.hasAPIAccess() {
@@ -275,11 +315,37 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 
 func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	p.config = config
+	p.connected = false
+	p.apiHealthy = false
 	p.providerUUID = config.UUID
 	p.providerID = config.ID
 	p.normalizeTokenConfig()
 	if err := p.configureAPITLS(p.config); err != nil {
 		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only") {
+		// An Agent transport is not an SSH fallback. API-only Agent providers use
+		// the configured API token exclusively and perform no asynchronous shell
+		// probes during connection.
+		if !p.hasAPIAccess() {
+			return fmt.Errorf("Proxmox Agent+api_only未配置有效API Token")
+		}
+		if err := p.probeAPIConnection(context.Background()); err != nil {
+			return fmt.Errorf("Proxmox Agent+api_only API连接失败: %w", err)
+		}
+		p.connected = true
+		p.apiHealthy = true
+		healthConfig := health.HealthConfig{
+			ProviderID: p.config.ID, ProviderName: p.config.Name,
+			Host: p.config.Host, Port: p.config.Port,
+			APIEnabled: true, APIPort: 8006, APIScheme: "https",
+			SSHEnabled: false, ServiceChecks: nil,
+			SkipTLSVerify: p.config.CACertPath == "", CACertPath: p.config.CACertPath,
+			Timeout: 10 * time.Second, Token: p.config.Token, TokenID: p.config.TokenID,
+		}
+		zapLogger, _ := zap.NewProduction()
+		p.healthChecker = health.NewProxmoxHealthChecker(healthConfig, zapLogger)
+		return nil
 	}
 	p.sshClient.SetExecutor(executor)
 	p.connected = true
@@ -363,15 +429,31 @@ func (p *ProxmoxProvider) Disconnect(ctx context.Context) error {
 	p.transport = nil
 
 	p.connected = false
+	p.apiHealthy = false
 	return nil
 }
 
 func (p *ProxmoxProvider) IsConnected() bool {
+	if strings.EqualFold(strings.TrimSpace(p.config.ExecutionRule), "api_only") {
+		return p.connected && p.apiHealthy
+	}
 	return p.connected && p.sshClient.HasExecutor() && p.sshClient.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (p *ProxmoxProvider) EnsureConnection() error {
+	if strings.EqualFold(strings.TrimSpace(p.config.ExecutionRule), "api_only") {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := p.probeAPIConnection(ctx); err != nil {
+			p.connected = false
+			p.apiHealthy = false
+			return fmt.Errorf("Proxmox API重连失败: %w", err)
+		}
+		p.connected = true
+		p.apiHealthy = true
+		return nil
+	}
 	if !p.sshClient.HasExecutor() {
 		return fmt.Errorf("SSH client not initialized")
 	}
@@ -399,6 +481,19 @@ func (p *ProxmoxProvider) EnsureConnection() error {
 }
 
 func (p *ProxmoxProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
+	if strings.EqualFold(strings.TrimSpace(p.config.ExecutionRule), "api_only") {
+		if p.healthChecker == nil {
+			return nil, fmt.Errorf("Proxmox API-only健康检查器未初始化")
+		}
+		result, err := p.healthChecker.CheckHealth(ctx)
+		if err == nil {
+			p.apiHealthy = result.APIStatus == "online"
+			p.connected = p.apiHealthy
+		} else {
+			p.apiHealthy = false
+		}
+		return result, err
+	}
 	if p.healthChecker == nil {
 		if !p.sshClient.HasExecutor() {
 			return nil, fmt.Errorf("health checker not initialized")

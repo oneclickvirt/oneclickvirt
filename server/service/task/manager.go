@@ -81,6 +81,8 @@ func (s *TaskService) calculateEstimatedDuration(taskType string, instanceType s
 		return 120 // 2分钟 - 批量同步实例IO限速
 	case "provider-runtime-reload":
 		return 60 // 1分钟 - 重新建立节点运行时连接
+	case "provider-recovery-sync":
+		return 300 // 5分钟 - 远端探测最多2分钟，另留Agent/队列收尾余量
 	case "provider-delete":
 		return 900 // 15分钟 - 可能需要逐个删除节点上的远端实例
 	default:

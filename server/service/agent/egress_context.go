@@ -57,14 +57,14 @@ func (s *InstanceEgressService) loadProviderContext(ctx context.Context, provide
 }
 
 func egressClient(node *providerModel.Provider, config *monitoringModel.MonitoringConfig) (*Client, error) {
-	if !config.AgentInstalled && node.ConnectionType != "agent" {
+	if !config.AgentInstalled && !node.IsReverseAgent() {
 		return nil, fmt.Errorf("节点尚未安装Agent")
 	}
 	if strings.TrimSpace(config.AgentToken) == "" {
 		return nil, fmt.Errorf("节点Agent令牌未配置")
 	}
 	host := ResolveAgentHost(node.Endpoint, node.AgentRemoteIP)
-	if host == "" && node.ConnectionType == "agent" {
+	if host == "" && node.IsReverseAgent() {
 		host = "127.0.0.1"
 	}
 	if host == "" {
@@ -74,14 +74,14 @@ func egressClient(node *providerModel.Provider, config *monitoringModel.Monitori
 	if port == 0 {
 		port = AgentPort
 	}
-	return GetClientWithMode(node.ID, host, port, config.AgentToken, node.ConnectionType == "agent"), nil
+	return GetClientWithMode(node.ID, host, port, config.AgentToken, node.IsReverseAgent()), nil
 }
 
 func validateEgressProfileTransport(node *providerModel.Provider, profile *EgressProfileRequest) error {
 	if node == nil || profile == nil {
 		return fmt.Errorf("出口配置传输参数不完整")
 	}
-	if strings.ToLower(strings.TrimSpace(node.ConnectionType)) == "agent" || profile.TunnelType != "wireguard" {
+	if node.IsReverseAgent() || profile.TunnelType != "wireguard" {
 		return nil
 	}
 	if managedWireGuard(profile.WireGuard) {
@@ -91,7 +91,7 @@ func validateEgressProfileTransport(node *providerModel.Provider, profile *Egres
 }
 
 func (s *InstanceEgressService) rejectPersistedManagedWireGuard(ctx context.Context, node *providerModel.Provider, req *InstanceEgressBindRequest) error {
-	if node == nil || req == nil || strings.ToLower(strings.TrimSpace(node.ConnectionType)) == "agent" || req.Profile.TunnelType != "wireguard" {
+	if node == nil || req == nil || node.IsReverseAgent() || req.Profile.TunnelType != "wireguard" {
 		return nil
 	}
 	if managedWireGuard(req.Profile.WireGuard) {

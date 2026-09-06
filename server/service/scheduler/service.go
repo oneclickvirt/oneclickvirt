@@ -378,7 +378,7 @@ func taskAllowedWhenProviderUnavailable(taskType string) bool {
 	case "delete", "stop",
 		"provider-instance-sync", "provider-orphan-cleanup",
 		"provider-health-check", "provider-io-limit-sync", "provider-runtime-reload",
-		"provider-delete":
+		"provider-recovery-sync", "provider-delete":
 		return true
 	default:
 		return false

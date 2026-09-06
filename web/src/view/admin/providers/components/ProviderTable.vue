@@ -78,6 +78,7 @@ const emit = defineEmits([
   'traffic-monitor',
   'health-check',
   'sync-instances',
+  'force-recovery-sync',
   'set-expiry',
   'freeze',
   'unfreeze',

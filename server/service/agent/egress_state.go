@@ -15,6 +15,30 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// A provider state replacement is one Agent request, but its controller-side
+// reads and writes must remain bounded when the provider owns many guests.
+// These limits also stay comfortably below common SQLite/MySQL bind limits.
+const (
+	egressStateReadBatchSize  = 200
+	egressStateWriteBatchSize = 50
+)
+
+// ProviderHasInstalledAgent reports whether an SSH/local Provider has a
+// controller-managed Agent available for provider-wide egress replay.  It is
+// intentionally a single, read-only Provider-level lookup; callers use it to
+// avoid starting a no-op recovery goroutine for nodes without Agent support.
+// Agent connection Providers are handled by their connection type and do not
+// need a monitoring-config row to be considered Agent-capable.
+func ProviderHasInstalledAgent(db *gorm.DB, providerID uint) bool {
+	if db == nil || providerID == 0 {
+		return false
+	}
+	var config monitoringModel.MonitoringConfig
+	return db.Select("agent_installed").
+		Where("provider_id = ?", providerID).
+		First(&config).Error == nil && config.AgentInstalled
+}
+
 func mustJSON(value interface{}) []byte {
 	encoded, _ := json.Marshal(value)
 	return encoded
@@ -60,35 +84,52 @@ func (s *InstanceEgressService) RestoreProviderEgress(ctx context.Context, provi
 	active := make([]monitoringModel.EgressDesiredBinding, 0, len(bindings))
 	pending := make([]monitoringModel.EgressDesiredBinding, 0)
 	instanceIDs := make([]uint, 0, len(bindings))
+	seenInstanceIDs := make(map[uint]struct{}, len(bindings))
 	for i := range bindings {
 		if bindings[i].PendingDelete {
 			pending = append(pending, bindings[i])
 			continue
 		}
 		active = append(active, bindings[i])
+		if bindings[i].InstanceID == 0 {
+			continue
+		}
+		if _, exists := seenInstanceIDs[bindings[i].InstanceID]; exists {
+			continue
+		}
+		seenInstanceIDs[bindings[i].InstanceID] = struct{}{}
 		instanceIDs = append(instanceIDs, bindings[i].InstanceID)
 	}
 
 	instancesByID := make(map[uint]*providerModel.Instance, len(instanceIDs))
 	monitorsByInstanceID := make(map[uint]*monitoringModel.AgentMonitor, len(instanceIDs))
 	if len(instanceIDs) > 0 {
-		var instances []providerModel.Instance
-		if err := s.db.WithContext(ctx).
-			Where("provider_id = ? AND id IN ?", providerID, instanceIDs).
-			Find(&instances).Error; err != nil {
-			return 0, fmt.Errorf("批量读取出口实例失败: %w", err)
-		}
-		for i := range instances {
-			instancesByID[instances[i].ID] = &instances[i]
-		}
-		var monitors []monitoringModel.AgentMonitor
-		if err := s.db.WithContext(ctx).
-			Where("provider_id = ? AND instance_id IN ? AND is_enabled = ?", providerID, instanceIDs, true).
-			Find(&monitors).Error; err != nil {
-			return 0, fmt.Errorf("批量读取出口监控接口失败: %w", err)
-		}
-		for i := range monitors {
-			monitorsByInstanceID[monitors[i].InstanceID] = &monitors[i]
+		for start := 0; start < len(instanceIDs); start += egressStateReadBatchSize {
+			end := start + egressStateReadBatchSize
+			if end > len(instanceIDs) {
+				end = len(instanceIDs)
+			}
+			batchIDs := instanceIDs[start:end]
+
+			var instances []providerModel.Instance
+			if err := s.db.WithContext(ctx).
+				Where("provider_id = ? AND id IN ?", providerID, batchIDs).
+				Find(&instances).Error; err != nil {
+				return 0, fmt.Errorf("批量读取出口实例失败: %w", err)
+			}
+			for i := range instances {
+				instancesByID[instances[i].ID] = &instances[i]
+			}
+
+			var monitors []monitoringModel.AgentMonitor
+			if err := s.db.WithContext(ctx).
+				Where("provider_id = ? AND instance_id IN ? AND is_enabled = ?", providerID, batchIDs, true).
+				Find(&monitors).Error; err != nil {
+				return 0, fmt.Errorf("批量读取出口监控接口失败: %w", err)
+			}
+			for i := range monitors {
+				monitorsByInstanceID[monitors[i].InstanceID] = &monitors[i]
+			}
 		}
 	}
 
@@ -107,6 +148,13 @@ func (s *InstanceEgressService) RestoreProviderEgress(ctx context.Context, provi
 	node, config, err := s.loadProviderContext(ctx, providerID)
 	if err != nil {
 		return 0, fmt.Errorf("读取Provider Agent配置失败: %w", err)
+	}
+	// EgressDesiredState is an Agent protocol. SSH nodes with an installed
+	// Agent remain supported through the direct Agent HTTP client, while SSH,
+	// local, and API-only nodes without Agent support must not trigger a futile
+	// remote replay when an ordinary address sync observes a change.
+	if !node.IsReverseAgent() && !config.AgentInstalled {
+		return 0, nil
 	}
 	profileRequestsByID := make(map[string]EgressProfileRequest)
 	profileOrder := make([]string, 0, len(desiredProfiles))
@@ -187,15 +235,24 @@ func (s *InstanceEgressService) RestoreProviderEgress(ctx context.Context, provi
 		profileRequests = append(profileRequests, profileRequestsByID[profileID])
 	}
 	if len(active) > 0 {
-		result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "id"}},
-			DoUpdates: clause.AssignmentColumns([]string{
-				"instance_key", "sources_json", "explicit_sources_json",
-				"interface", "interface_v4", "interface_v6", "updated_at",
-			}),
-		}).CreateInBatches(&active, 500)
-		if result.Error != nil {
-			return 0, fmt.Errorf("批量更新控制端出口期望状态失败: %w", result.Error)
+		for start := 0; start < len(active); start += egressStateWriteBatchSize {
+			end := start + egressStateWriteBatchSize
+			if end > len(active) {
+				end = len(active)
+			}
+			batch := active[start:end]
+			// Calling CreateInBatches per bounded slice keeps GORM's implicit
+			// transaction short instead of spanning an entire large provider.
+			result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "id"}},
+				DoUpdates: clause.AssignmentColumns([]string{
+					"instance_key", "sources_json", "explicit_sources_json",
+					"interface", "interface_v4", "interface_v6", "updated_at",
+				}),
+			}).CreateInBatches(&batch, egressStateWriteBatchSize)
+			if result.Error != nil {
+				return 0, fmt.Errorf("批量更新控制端出口期望状态失败: %w", result.Error)
+			}
 		}
 	}
 

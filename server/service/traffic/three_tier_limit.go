@@ -139,7 +139,7 @@ func (s *ThreeTierLimitService) batchCreateStartTasks(instances []provider.Insta
 	tasks := make([]*adminModel.Task, 0, len(instances))
 	instanceIDs := make([]uint, 0, len(instances))
 	for _, instance := range instances {
-		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instance.ID, instance.ProviderID)
+		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d,"desiredState":"running"}`, instance.ID, instance.ProviderID)
 		task := &adminModel.Task{
 			TaskType:         "start",
 			Status:           "pending",

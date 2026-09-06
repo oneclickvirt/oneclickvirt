@@ -3,8 +3,10 @@ package agent
 // tunnel_proxy.go — 控制端端口监听池：端口转发启停、恢复及健康修复。
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -34,6 +37,83 @@ var (
 	// recoveryMu 防止同一 Provider 的端口转发恢复操作并发执行
 	recoveryMu sync.Mutex
 )
+
+const (
+	providerControllerRecoveryDebounce = 2 * time.Second
+	providerControllerRecoveryCooldown = 15 * time.Second
+)
+
+// providerControllerRecovery coalesces explicit post-reboot repair requests.
+// A recovery discovery, an Agent reconnect, and a burst of recovered starts
+// can all point at the same Provider. Keep those requests to one bounded
+// controller-forward rebuild instead of repeatedly tearing down live tunnels.
+var providerControllerRecovery = struct {
+	sync.Mutex
+	pending map[uint]bool
+	running map[uint]bool
+	lastRun map[uint]time.Time
+}{
+	pending: make(map[uint]bool),
+	running: make(map[uint]bool),
+	lastRun: make(map[uint]time.Time),
+}
+
+// ScheduleProviderControllerPortForwardRecovery requests a full controller
+// tunnel rebind for one Agent Provider. It is intentionally asynchronous: a
+// manual recovery task must not hold an HTTP worker or a DB transaction while
+// listener shutdown/rebind work happens.
+func ScheduleProviderControllerPortForwardRecovery(providerID uint) {
+	if providerID == 0 || global.APP_DB == nil {
+		return
+	}
+	providerControllerRecovery.Lock()
+	providerControllerRecovery.pending[providerID] = true
+	if providerControllerRecovery.running[providerID] {
+		providerControllerRecovery.Unlock()
+		return
+	}
+	providerControllerRecovery.running[providerID] = true
+	providerControllerRecovery.Unlock()
+
+	go func() {
+		for {
+			providerControllerRecovery.Lock()
+			lastRun := providerControllerRecovery.lastRun[providerID]
+			providerControllerRecovery.Unlock()
+
+			delay := providerControllerRecoveryDebounce
+			if !lastRun.IsZero() {
+				if remaining := providerControllerRecoveryCooldown - time.Since(lastRun); remaining > delay {
+					delay = remaining
+				}
+			}
+			if !waitForAgentShutdown(delay) {
+				providerControllerRecovery.Lock()
+				delete(providerControllerRecovery.pending, providerID)
+				delete(providerControllerRecovery.running, providerID)
+				providerControllerRecovery.Unlock()
+				return
+			}
+
+			providerControllerRecovery.Lock()
+			pending := providerControllerRecovery.pending[providerID]
+			delete(providerControllerRecovery.pending, providerID)
+			providerControllerRecovery.Unlock()
+			if pending {
+				EnsureControllerPortForwardsByProvider(providerID)
+			}
+
+			providerControllerRecovery.Lock()
+			providerControllerRecovery.lastRun[providerID] = time.Now()
+			if !providerControllerRecovery.pending[providerID] {
+				delete(providerControllerRecovery.running, providerID)
+				providerControllerRecovery.Unlock()
+				return
+			}
+			providerControllerRecovery.Unlock()
+		}
+	}()
+}
 
 // ResolveControllerPortTarget resolves the effective target for controller-mode
 // port forwarding. Explicit hostnames are preserved; only empty or IP-style
@@ -72,6 +152,22 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 		port.MappingType != "controller" || (port.Status != "active" && port.Status != "pending") {
 		return fmt.Errorf("controller port %d metadata mismatch or inactive", portID)
 	}
+	return startControllerPortForwardWithKnownPort(port, targetHost)
+}
+
+// startControllerPortForwardWithKnownPort avoids an immediate per-port read
+// when a caller has just loaded and validated a batch of controller mappings.
+// It is intentionally private: public callers must retain the defensive
+// database validation in StartControllerPortForward.
+func startControllerPortForwardWithKnownPort(port providerModel.Port, targetHost string) error {
+	if port.ID == 0 || port.ProviderID == 0 || port.HostPort <= 0 || port.GuestPort <= 0 ||
+		port.MappingType != "controller" || (port.Status != "active" && port.Status != "pending") {
+		return fmt.Errorf("controller port %d metadata mismatch or inactive", port.ID)
+	}
+	portID := port.ID
+	providerID := port.ProviderID
+	listenPort := port.HostPort
+	targetPort := port.GuestPort
 
 	ctrlListenerMu.Lock()
 	if _, exists := ctrlListeners[portID]; exists {
@@ -106,19 +202,24 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 	ctrlListeners[portID] = &controllerListener{listenPort: listenPort, stopCh: stopCh, doneCh: doneCh}
 	ctrlListenerMu.Unlock()
 
-	if err := global.APP_DB.Model(&providerModel.Port{}).
-		Where("id = ?", portID).
-		Updates(map[string]interface{}{
-			"status":         "active",
-			"mapping_method": "controller",
-		}).Error; err != nil {
-		ctrlListenerMu.Lock()
-		delete(ctrlListeners, portID)
-		ctrlListenerMu.Unlock()
-		close(stopCh)
-		close(doneCh)
-		_ = ln.Close()
-		return fmt.Errorf("更新控制端端口状态失败: %w", err)
+	// An already active controller mapping has just been read and validated by
+	// the caller. Avoid turning a provider-wide recovery into one redundant DB
+	// UPDATE per port; pending/misconfigured rows still transition atomically.
+	if port.Status != "active" || port.MappingMethod != "controller" {
+		if err := global.APP_DB.Model(&providerModel.Port{}).
+			Where("id = ?", portID).
+			Updates(map[string]interface{}{
+				"status":         "active",
+				"mapping_method": "controller",
+			}).Error; err != nil {
+			ctrlListenerMu.Lock()
+			delete(ctrlListeners, portID)
+			ctrlListenerMu.Unlock()
+			close(stopCh)
+			close(doneCh)
+			_ = ln.Close()
+			return fmt.Errorf("更新控制端端口状态失败: %w", err)
+		}
 	}
 
 	resolver := func() (string, int, error) {
@@ -181,6 +282,9 @@ func StopControllerPortForward(portID uint) {
 		case <-time.After(5 * time.Second):
 			global.APP_LOG.Warn("等待控制端端口转发停止超时",
 				zap.Uint("portID", portID))
+		case <-agentShutdownContext().Done():
+			global.APP_LOG.Debug("主控关闭，中断等待控制端端口转发停止",
+				zap.Uint("portID", portID))
 		}
 	}
 }
@@ -230,13 +334,17 @@ func RestartControllerPortForward(portID uint, providerID uint, listenPort int, 
 	StopControllerPortForward(portID)
 
 	// 短暂等待以确保操作系统完全释放端口
-	time.Sleep(200 * time.Millisecond)
+	if !waitForAgentShutdown(200 * time.Millisecond) {
+		return context.Canceled
+	}
 
 	// 带重试的启动（处理端口尚未完全释放的情况）
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+			if !waitForAgentShutdown(time.Duration(attempt) * 500 * time.Millisecond) {
+				return context.Canceled
+			}
 		}
 		err := StartControllerPortForward(portID, providerID, listenPort, targetHost, targetPort)
 		if err == nil {
@@ -253,6 +361,39 @@ func RestartControllerPortForward(portID uint, providerID uint, listenPort int, 
 			zap.Int("listenPort", listenPort))
 	}
 	return fmt.Errorf("重启端口转发失败（已重试3次）: %w", lastErr)
+}
+
+// restartControllerPortForwardWithKnownPort is the batch counterpart of
+// RestartControllerPortForward. The mapping row was read as part of the
+// surrounding batch, so it avoids adding a second startup lookup per port
+// while retaining the same bounded bind retry behavior.
+func restartControllerPortForwardWithKnownPort(port providerModel.Port, targetHost string) error {
+	StopControllerPortForward(port.ID)
+	if !waitForAgentShutdown(200 * time.Millisecond) {
+		return context.Canceled
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			if !waitForAgentShutdown(time.Duration(attempt) * 500 * time.Millisecond) {
+				return context.Canceled
+			}
+		}
+		err := startControllerPortForwardWithKnownPort(port, targetHost)
+		if err == nil {
+			return nil
+		}
+		if !strings.Contains(err.Error(), "address already in use") {
+			return err
+		}
+		lastErr = err
+		global.APP_LOG.Debug("端口仍被占用，批量重绑重试中",
+			zap.Uint("portID", port.ID),
+			zap.Int("attempt", attempt+1),
+			zap.Int("listenPort", port.HostPort))
+	}
+	return fmt.Errorf("批量重绑端口转发失败（已重试3次）: %w", lastErr)
 }
 
 // resolveTargetHost 解析控制器端口转发的目标地址。
@@ -296,111 +437,367 @@ func looksLikeIP(s string) bool {
 	return false
 }
 
-// RecoverControllerPortForwardsByProvider 恢复指定 Provider 的所有活跃控制端端口转发。
-// 在 Agent 重连时调用，必须重启所有监听器，确保每个端口都使用同一个新的
-// TunnelManager/AgentConn。不能跳过正在运行的监听器：旧监听器闭包里可能仍持有
-// 断线前的 TunnelManager，导致 tunnel_ack 被全局路由到新 manager 后丢失。
+const (
+	controllerPortRecoveryReadBatchSize  = 200
+	controllerPortRecoveryWriteBatchSize = 50
+	controllerPortRecoveryConcurrency    = 4
+)
+
+// EnsureControllerPortForwardsByProvider restores only missing active/pending
+// controller forwards. Existing listeners are left untouched, which makes
+// periodic checks and a normal Agent reconnect idempotent and non-disruptive.
+// Database reads and target updates are bounded pages; no transaction spans
+// listener work.
+func EnsureControllerPortForwardsByProvider(providerID uint) {
+	if global.APP_DB == nil || providerID == 0 {
+		return
+	}
+	recoveryMu.Lock()
+	defer recoveryMu.Unlock()
+
+	total := 0
+	started := 0
+	skipped := 0
+	var afterID uint
+	for {
+		ports, err := loadControllerRecoveryPortBatch(providerID, afterID)
+		if err != nil {
+			global.APP_LOG.Error("查询待补齐的控制器端口转发失败",
+				zap.Uint("providerID", providerID), zap.Error(err))
+			return
+		}
+		if len(ports) == 0 {
+			break
+		}
+		total += len(ports)
+		targets, err := resolveControllerRecoveryTargets(ports)
+		if err != nil {
+			global.APP_LOG.Warn("批量解析控制器端口转发目标失败",
+				zap.Uint("providerID", providerID), zap.Error(err))
+		}
+		batchStarted, batchSkipped := startControllerRecoveryPortBatch(ports, targets)
+		started += batchStarted
+		skipped += batchSkipped
+		afterID = ports[len(ports)-1].ID
+	}
+	if total > 0 {
+		global.APP_LOG.Info("控制器端口转发补齐完成",
+			zap.Uint("providerID", providerID),
+			zap.Int("started", started), zap.Int("skipped", skipped), zap.Int("total", total))
+	}
+}
+
+// RecoverControllerPortForwardsByProvider is kept as a compatibility entry
+// point for older callers. Recovery is intentionally non-destructive; callers
+// which know that an Agent connection was replaced should use the explicit
+// RebuildControllerPortForwardsByProvider path below.
 func RecoverControllerPortForwardsByProvider(providerID uint) {
+	EnsureControllerPortForwardsByProvider(providerID)
+}
+
+// RebuildControllerPortForwardsByProvider performs the destructive stop and
+// rebind required when an existing Agent connection is replaced. It is never
+// used by periodic health checks, so healthy listeners are not repeatedly torn
+// down during ordinary reconciliation.
+func RebuildControllerPortForwardsByProvider(providerID uint) {
+	if global.APP_DB == nil || providerID == 0 {
+		return
+	}
 	// 互斥：与 StopControllerPortForwardsByProvider 互斥，防止并发操作
 	// 同一 Provider 的监听器导致竞态条件。
 	recoveryMu.Lock()
 	defer recoveryMu.Unlock()
 
-	var ports []providerModel.Port
-	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status IN ?",
-		providerID, "controller", controllerPortRecoverStatuses).Find(&ports).Error; err != nil {
-		global.APP_LOG.Error("查询待恢复的控制器端口转发失败",
-			zap.Uint("providerID", providerID), zap.Error(err))
-		return
-	}
-
-	if len(ports) == 0 {
-		return
-	}
-
-	global.APP_LOG.Info("开始恢复控制器端口转发",
-		zap.Uint("providerID", providerID),
-		zap.Int("count", len(ports)))
-
+	total := 0
 	stopped := 0
-	for _, port := range ports {
-		if IsControllerPortForwardRunning(port.ID) {
-			stopped++
+	var afterID uint
+	for {
+		ports, err := loadControllerRecoveryPortBatch(providerID, afterID)
+		if err != nil {
+			global.APP_LOG.Error("查询待恢复的控制器端口转发失败",
+				zap.Uint("providerID", providerID), zap.Error(err))
+			return
 		}
-		StopControllerPortForward(port.ID)
+		if len(ports) == 0 {
+			break
+		}
+		total += len(ports)
+		stopped += stopControllerRecoveryPortBatch(ports)
+		afterID = ports[len(ports)-1].ID
+	}
+	if total == 0 {
+		return
 	}
 
+	global.APP_LOG.Info("开始重建控制器端口转发",
+		zap.Uint("providerID", providerID), zap.Int("count", total))
 	RemoveTunnelManager(providerID)
-	time.Sleep(200 * time.Millisecond)
+	if !waitForAgentShutdown(200 * time.Millisecond) {
+		return
+	}
 
 	recovered := 0
-	for _, port := range ports {
-		targetHost := resolveTargetHost(&port)
-		if targetHost == "" {
-			global.APP_LOG.Warn("控制器端口转发恢复失败：无目标地址",
-				zap.Uint("portID", port.ID), zap.Uint("instanceID", port.InstanceID))
-			continue
+	skipped := 0
+	afterID = 0
+	for {
+		ports, err := loadControllerRecoveryPortBatch(providerID, afterID)
+		if err != nil {
+			global.APP_LOG.Error("重新查询控制器端口转发失败",
+				zap.Uint("providerID", providerID), zap.Error(err))
+			break
 		}
-
-		if err := StartControllerPortForward(port.ID, port.ProviderID,
-			port.HostPort, targetHost, port.GuestPort); err != nil {
-			global.APP_LOG.Warn("恢复控制器端口转发失败",
-				zap.Uint("portID", port.ID), zap.Error(err))
-		} else {
-			recovered++
+		if len(ports) == 0 {
+			break
 		}
+		targets, err := resolveControllerRecoveryTargets(ports)
+		if err != nil {
+			global.APP_LOG.Warn("批量解析控制器端口转发目标失败",
+				zap.Uint("providerID", providerID), zap.Error(err))
+		}
+		started, omitted := startControllerRecoveryPortBatch(ports, targets)
+		recovered += started
+		skipped += omitted
+		afterID = ports[len(ports)-1].ID
 	}
 
-	global.APP_LOG.Info("控制器端口转发恢复完成",
+	global.APP_LOG.Info("控制器端口转发重建完成",
 		zap.Uint("providerID", providerID),
-		zap.Int("stopped", stopped),
-		zap.Int("recovered", recovered),
-		zap.Int("total", len(ports)))
+		zap.Int("stopped", stopped), zap.Int("recovered", recovered),
+		zap.Int("skipped", skipped), zap.Int("total", total))
+}
+
+func loadControllerRecoveryPortBatch(providerID, afterID uint) ([]providerModel.Port, error) {
+	var ports []providerModel.Port
+	err := global.APP_DB.Model(&providerModel.Port{}).
+		Select("id", "provider_id", "instance_id", "host_port", "guest_port", "mapping_type", "mapping_method", "status", "internal_host").
+		Where("provider_id = ? AND mapping_type = ? AND status IN ? AND id > ?", providerID, "controller", controllerPortRecoverStatuses, afterID).
+		Order("id ASC").
+		Limit(controllerPortRecoveryReadBatchSize).
+		Find(&ports).Error
+	return ports, err
+}
+
+func stopControllerRecoveryPortBatch(ports []providerModel.Port) int {
+	if len(ports) == 0 {
+		return 0
+	}
+	workers := controllerPortRecoveryConcurrency
+	if workers > len(ports) {
+		workers = len(ports)
+	}
+	jobs := make(chan providerModel.Port)
+	var wg sync.WaitGroup
+	var stoppedMu sync.Mutex
+	stopped := 0
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for port := range jobs {
+				if IsControllerPortForwardRunning(port.ID) {
+					stoppedMu.Lock()
+					stopped++
+					stoppedMu.Unlock()
+				}
+				StopControllerPortForward(port.ID)
+			}
+		}()
+	}
+	for _, port := range ports {
+		jobs <- port
+	}
+	close(jobs)
+	wg.Wait()
+	return stopped
+}
+
+// resolveControllerRecoveryTargets reads all runtime addresses needed by a
+// page of controller mappings at once. Explicit hostnames are never replaced;
+// IP-style and empty targets are refreshed from the authoritative instance IP.
+func resolveControllerRecoveryTargets(ports []providerModel.Port) (map[uint]string, error) {
+	targets := make(map[uint]string, len(ports))
+	instanceIDs := make([]uint, 0, len(ports))
+	seenInstanceIDs := make(map[uint]struct{}, len(ports))
+	for _, port := range ports {
+		internalHost := strings.TrimSpace(port.InternalHost)
+		if internalHost != "" && !looksLikeIP(internalHost) {
+			targets[port.ID] = internalHost
+			continue
+		}
+		if port.InstanceID == 0 {
+			if target, _ := ResolveControllerPortTarget(internalHost, ""); target != "" {
+				targets[port.ID] = target
+			}
+			continue
+		}
+		if _, exists := seenInstanceIDs[port.InstanceID]; !exists {
+			seenInstanceIDs[port.InstanceID] = struct{}{}
+			instanceIDs = append(instanceIDs, port.InstanceID)
+		}
+	}
+	if len(instanceIDs) == 0 {
+		return targets, nil
+	}
+
+	var instances []struct {
+		ID        uint
+		PrivateIP string
+	}
+	if err := global.APP_DB.Model(&providerModel.Instance{}).
+		Select("id", "private_ip").
+		Where("id IN ?", instanceIDs).
+		Find(&instances).Error; err != nil {
+		return targets, err
+	}
+	privateIPs := make(map[uint]string, len(instances))
+	for _, instance := range instances {
+		privateIPs[instance.ID] = instance.PrivateIP
+	}
+
+	updates := make(map[uint]string)
+	for _, port := range ports {
+		if _, alreadyResolved := targets[port.ID]; alreadyResolved {
+			continue
+		}
+		target, shouldUpdate := ResolveControllerPortTarget(port.InternalHost, privateIPs[port.InstanceID])
+		if target == "" {
+			continue
+		}
+		targets[port.ID] = target
+		if shouldUpdate {
+			updates[port.ID] = target
+		}
+	}
+	if len(updates) == 0 {
+		return targets, nil
+	}
+	for _, failedPortID := range persistControllerRecoveryTargets(updates) {
+		// Do not start a listener whose new target did not commit. Its dynamic
+		// resolver would otherwise read the stale address and route traffic to
+		// the old guest until the next repair pass.
+		delete(targets, failedPortID)
+	}
+	return targets, nil
+}
+
+func persistControllerRecoveryTargets(updates map[uint]string) []uint {
+	portIDs := make([]uint, 0, len(updates))
+	for portID := range updates {
+		portIDs = append(portIDs, portID)
+	}
+	sort.Slice(portIDs, func(i, j int) bool { return portIDs[i] < portIDs[j] })
+	failed := make([]uint, 0)
+	for start := 0; start < len(portIDs); start += controllerPortRecoveryWriteBatchSize {
+		end := start + controllerPortRecoveryWriteBatchSize
+		if end > len(portIDs) {
+			end = len(portIDs)
+		}
+		batchIDs := portIDs[start:end]
+		var builder strings.Builder
+		builder.WriteString("CASE id")
+		args := make([]interface{}, 0, len(batchIDs)*2)
+		for _, portID := range batchIDs {
+			builder.WriteString(" WHEN ? THEN ?")
+			args = append(args, portID, updates[portID])
+		}
+		builder.WriteString(" ELSE internal_host END")
+		if err := global.APP_DB.Model(&providerModel.Port{}).
+			Where("id IN ?", batchIDs).
+			Update("internal_host", gorm.Expr(builder.String(), args...)).Error; err != nil {
+			global.APP_LOG.Warn("批量更新控制器端口转发目标地址失败", zap.Error(err))
+			failed = append(failed, batchIDs...)
+		}
+	}
+	return failed
+}
+
+func startControllerRecoveryPortBatch(ports []providerModel.Port, targets map[uint]string) (int, int) {
+	workers := controllerPortRecoveryConcurrency
+	if workers > len(ports) {
+		workers = len(ports)
+	}
+	if workers == 0 {
+		return 0, 0
+	}
+	jobs := make(chan providerModel.Port)
+	var wg sync.WaitGroup
+	var resultMu sync.Mutex
+	started := 0
+	skipped := 0
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for port := range jobs {
+				targetHost := targets[port.ID]
+				if targetHost == "" {
+					global.APP_LOG.Warn("控制器端口转发恢复失败：无目标地址",
+						zap.Uint("portID", port.ID), zap.Uint("instanceID", port.InstanceID))
+					resultMu.Lock()
+					skipped++
+					resultMu.Unlock()
+					continue
+				}
+				if err := startControllerPortForwardWithKnownPort(port, targetHost); err != nil {
+					global.APP_LOG.Warn("恢复控制器端口转发失败",
+						zap.Uint("portID", port.ID), zap.Error(err))
+					resultMu.Lock()
+					skipped++
+					resultMu.Unlock()
+					continue
+				}
+				resultMu.Lock()
+				started++
+				resultMu.Unlock()
+			}
+		}()
+	}
+	for _, port := range ports {
+		jobs <- port
+	}
+	close(jobs)
+	wg.Wait()
+	return started, skipped
 }
 
 // RecoverAllControllerPortForwards 恢复所有活跃的控制端端口转发。
 // 在控制端启动时调用，尝试恢复所有之前活跃的控制器端口转发。
 // 对于 Agent 尚未上线的 Provider，监听器会等待 Agent 连接后生效。
 func RecoverAllControllerPortForwards() {
-	var ports []providerModel.Port
-	if err := global.APP_DB.Where("mapping_type = ? AND status IN ?",
-		"controller", controllerPortRecoverStatuses).Find(&ports).Error; err != nil {
-		global.APP_LOG.Error("查询所有待恢复的控制器端口转发失败", zap.Error(err))
+	if global.APP_DB == nil {
 		return
 	}
-
-	if len(ports) == 0 {
+	providerCount := 0
+	var afterProviderID uint
+	for {
+		var rows []struct{ ProviderID uint }
+		if err := global.APP_DB.Model(&providerModel.Port{}).
+			Distinct("provider_id").
+			Select("provider_id").
+			Where("mapping_type = ? AND status IN ? AND provider_id > ?", "controller", controllerPortRecoverStatuses, afterProviderID).
+			Order("provider_id ASC").
+			Limit(controllerPortRecoveryReadBatchSize).
+			Find(&rows).Error; err != nil {
+			global.APP_LOG.Error("查询所有待恢复的控制器端口Provider失败", zap.Error(err))
+			return
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, row := range rows {
+			if row.ProviderID == 0 {
+				continue
+			}
+			providerCount++
+			EnsureControllerPortForwardsByProvider(row.ProviderID)
+		}
+		afterProviderID = rows[len(rows)-1].ProviderID
+	}
+	if providerCount == 0 {
 		global.APP_LOG.Debug("没有需要恢复的控制器端口转发")
 		return
 	}
-
-	global.APP_LOG.Info("开始恢复所有控制器端口转发", zap.Int("count", len(ports)))
-
-	recovered := 0
-	skipped := 0
-	for _, port := range ports {
-		targetHost := resolveTargetHost(&port)
-		if targetHost == "" {
-			global.APP_LOG.Warn("控制器端口转发恢复失败：无目标地址",
-				zap.Uint("portID", port.ID), zap.Uint("instanceID", port.InstanceID))
-			skipped++
-			continue
-		}
-
-		if err := StartControllerPortForward(port.ID, port.ProviderID,
-			port.HostPort, targetHost, port.GuestPort); err != nil {
-			global.APP_LOG.Debug("启动控制器端口转发失败（Agent可能尚未上线）",
-				zap.Uint("portID", port.ID), zap.Uint("providerID", port.ProviderID), zap.Error(err))
-			skipped++
-		} else {
-			recovered++
-		}
-	}
-
-	global.APP_LOG.Info("所有控制器端口转发恢复完成",
-		zap.Int("recovered", recovered),
-		zap.Int("skipped", skipped),
-		zap.Int("total", len(ports)))
+	global.APP_LOG.Info("所有控制器端口转发恢复完成", zap.Int("providers", providerCount))
 }
 
 // portRepairFailCount 跟踪每个端口确认失败的次数，防止无限重试。

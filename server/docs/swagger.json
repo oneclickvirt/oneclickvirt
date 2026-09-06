@@ -7099,6 +7099,67 @@
                 }
             }
         },
+        "/admin/providers/{id}/force-recovery-sync": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "一次有界远端发现；仅为明确期望运行且远端已停止的实例入队启动，并重放节点级映射与出口状态",
+                "tags": [
+                    "Provider管理"
+                ],
+                "summary": "提交节点强制恢复同步任务",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "强制恢复同步任务已提交",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.Task"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Provider不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "已有恢复同步任务或恢复租约",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/providers/{id}/generate-cert": {
             "post": {
                 "security": [
@@ -22307,6 +22368,10 @@
                 },
                 "createdAt": {
                     "description": "实例创建时间",
+                    "type": "string"
+                },
+                "desiredState": {
+                    "description": "持久化运行意图：running / stopped；用于节点恢复时避免误启动手工停机实例",
                     "type": "string"
                 },
                 "discoveredData": {

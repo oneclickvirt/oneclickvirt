@@ -396,13 +396,23 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 // through `pct list`/`qm list`: PVE may expose a completed create task before
 // those SSH commands observe the new row.
 func (p *ProxmoxProvider) apiStartKnownInstance(ctx context.Context, vmid, instanceType string) error {
+	return p.apiStartKnownInstanceAtNode(ctx, p.nodeName(), vmid, instanceType)
+}
+
+// apiStartKnownInstanceAtNode starts a guest using an explicit PVE node. It
+// is reserved for recovery and create paths where the VMID/type were already
+// established by the caller and must not be rediscovered.
+func (p *ProxmoxProvider) apiStartKnownInstanceAtNode(ctx context.Context, node, vmid, instanceType string) error {
 	vmid = strings.TrimSpace(vmid)
 	instanceType = strings.TrimSpace(instanceType)
 	if vmid == "" {
 		return fmt.Errorf("启动PVE实例缺少VMID")
 	}
 
-	status, err := p.apiGuestStatus(ctx, instanceType, vmid)
+	if strings.TrimSpace(node) == "" {
+		return fmt.Errorf("启动PVE实例缺少节点")
+	}
+	status, err := p.apiGuestStatusAtNode(ctx, node, instanceType, vmid)
 	if err != nil {
 		return fmt.Errorf("读取%s %s启动前状态失败: %w", instanceType, vmid, err)
 	}
@@ -410,7 +420,7 @@ func (p *ProxmoxProvider) apiStartKnownInstance(ctx context.Context, vmid, insta
 		return nil
 	}
 
-	endpoint, err := p.apiGuestEndpoint(instanceType, vmid, "status/start")
+	endpoint, err := p.apiGuestEndpointAtNode(node, instanceType, vmid, "status/start")
 	if err != nil {
 		return err
 	}
@@ -418,13 +428,13 @@ func (p *ProxmoxProvider) apiStartKnownInstance(ctx context.Context, vmid, insta
 		// A start task can race a concurrent successful start.  Confirm its final
 		// state before returning an error so a running guest is never reported as
 		// failed solely because PVE rejected the duplicate request.
-		if currentStatus, statusErr := p.apiGuestStatus(ctx, instanceType, vmid); statusErr == nil && currentStatus == "running" {
+		if currentStatus, statusErr := p.apiGuestStatusAtNode(ctx, node, instanceType, vmid); statusErr == nil && currentStatus == "running" {
 			return nil
 		}
 		return fmt.Errorf("启动%s失败: %w", instanceType, err)
 	}
 
-	if err := p.waitForAPIGuestRunning(ctx, vmid, instanceType); err != nil {
+	if err := p.waitForAPIGuestRunningAtNode(ctx, node, vmid, instanceType); err != nil {
 		return err
 	}
 	global.APP_LOG.Debug("Proxmox实例已通过API启动",
@@ -434,7 +444,11 @@ func (p *ProxmoxProvider) apiStartKnownInstance(ctx context.Context, vmid, insta
 }
 
 func (p *ProxmoxProvider) apiGuestStatus(ctx context.Context, instanceType, vmid string) (string, error) {
-	endpoint, err := p.apiGuestEndpoint(instanceType, vmid, "status/current")
+	return p.apiGuestStatusAtNode(ctx, p.nodeName(), instanceType, vmid)
+}
+
+func (p *ProxmoxProvider) apiGuestStatusAtNode(ctx context.Context, node, instanceType, vmid string) (string, error) {
+	endpoint, err := p.apiGuestEndpointAtNode(node, instanceType, vmid, "status/current")
 	if err != nil {
 		return "", err
 	}
@@ -456,11 +470,15 @@ func (p *ProxmoxProvider) apiGuestStatus(ctx context.Context, instanceType, vmid
 }
 
 func (p *ProxmoxProvider) waitForAPIGuestRunning(ctx context.Context, vmid, instanceType string) error {
+	return p.waitForAPIGuestRunningAtNode(ctx, p.nodeName(), vmid, instanceType)
+}
+
+func (p *ProxmoxProvider) waitForAPIGuestRunningAtNode(ctx context.Context, node, vmid, instanceType string) error {
 	waitCtx, cancel := context.WithTimeout(ctx, proxmoxStartWaitTimeout(instanceType))
 	defer cancel()
 
 	for {
-		status, err := p.apiGuestStatus(waitCtx, instanceType, vmid)
+		status, err := p.apiGuestStatusAtNode(waitCtx, node, instanceType, vmid)
 		if err != nil {
 			return fmt.Errorf("查询%s %s启动状态失败: %w", instanceType, vmid, err)
 		}

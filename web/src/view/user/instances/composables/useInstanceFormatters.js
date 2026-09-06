@@ -73,6 +73,7 @@ export function useInstanceFormatters() {
       'provider-health-check': t('user.tasks.taskTypeProviderHealthCheck'),
       'provider-io-limit-sync': t('user.tasks.taskTypeProviderIOLimitSync'),
       'provider-runtime-reload': t('user.tasks.taskTypeProviderRuntimeReload'),
+      'provider-recovery-sync': t('user.tasks.taskTypeProviderRecoverySync'),
       'provider-delete': t('user.tasks.taskTypeProviderDelete')
     }
     return taskTypes[task.taskType] || t('user.instanceDetail.taskTitleDefault')
@@ -109,6 +110,7 @@ export function useInstanceFormatters() {
       'provider-health-check': t('user.tasks.taskTypeProviderHealthCheck'),
       'provider-io-limit-sync': t('user.tasks.taskTypeProviderIOLimitSync'),
       'provider-runtime-reload': t('user.tasks.taskTypeProviderRuntimeReload'),
+      'provider-recovery-sync': t('user.tasks.taskTypeProviderRecoverySync'),
       'provider-delete': t('user.tasks.taskTypeProviderDelete')
     }
     return taskTypes[taskType] || t('user.instanceDetail.taskDefault')

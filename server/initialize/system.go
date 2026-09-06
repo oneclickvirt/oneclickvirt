@@ -383,6 +383,12 @@ func initializeSchedulers() {
 	providerHealthSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
 	lifecycleMgr.Register("ProviderHealthScheduler", providerHealthSchedulerService)
 
+	// 启动节点长时间离线后的实例恢复调度器。它只入队明确期望运行的
+	// stopped 实例，远端探测和主机级修复均在数据库事务之外执行。
+	instanceRecoverySchedulerService := scheduler.NewInstanceRecoverySchedulerService()
+	instanceRecoverySchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
+	lifecycleMgr.Register("InstanceRecoveryScheduler", instanceRecoverySchedulerService)
+
 	// 启动Provider实例同步调度器（使用全局shutdown context确保可以正确关闭）
 	instanceSyncSchedulerService := scheduler.NewInstanceSyncSchedulerService()
 	instanceSyncSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)

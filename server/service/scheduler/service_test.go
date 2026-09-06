@@ -3,7 +3,7 @@ package scheduler
 import "testing"
 
 func TestTaskAllowedWhenProviderUnavailable(t *testing.T) {
-	for _, taskType := range []string{"delete", "stop", "provider-instance-sync", "provider-orphan-cleanup", "provider-health-check", "provider-io-limit-sync", "provider-runtime-reload", "provider-delete"} {
+	for _, taskType := range []string{"delete", "stop", "provider-instance-sync", "provider-orphan-cleanup", "provider-health-check", "provider-io-limit-sync", "provider-runtime-reload", "provider-recovery-sync", "provider-delete"} {
 		if !taskAllowedWhenProviderUnavailable(taskType) {
 			t.Fatalf("maintenance task %q must remain runnable", taskType)
 		}

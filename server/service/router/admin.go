@@ -107,6 +107,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/providers/:id/orphaned", admin.GetOrphanedInstances)
 		NormalAdminGroup.POST("/providers/:id/sync-check", admin.CheckInstanceSync)
 		NormalAdminGroup.POST("/providers/:id/sync-instances", admin.QueueProviderInstanceSync)
+		NormalAdminGroup.POST("/providers/:id/force-recovery-sync", admin.QueueProviderRecoverySync)
 		NormalAdminGroup.POST("/providers/:id/cleanup-orphans", admin.CleanupOrphanInstances)
 
 		// 证书管理

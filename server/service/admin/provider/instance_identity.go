@@ -1,10 +1,13 @@
 package provider
 
 import (
+	"sort"
 	"strings"
 
 	providerModel "oneclickvirt/model/provider"
 	providerCore "oneclickvirt/provider"
+
+	"gorm.io/gorm"
 )
 
 // instanceMatchSet records one-to-one matches between discovered instances and
@@ -18,6 +21,51 @@ type providerInstanceIDBackfill struct {
 	InstanceID                 uint
 	ProviderInstanceID         string
 	PreviousProviderInstanceID string
+}
+
+const providerInstanceIDBackfillBatchSize = 50
+
+// batchBackfillProviderInstanceIDs upgrades legacy identity rows with bounded
+// CASE updates. The caller has already matched each row against one remote
+// identity; keeping the update in a single statement per batch avoids an
+// instance-sized write loop during recovery while retaining the existing
+// provider_vm_id values for rows outside the batch.
+func batchBackfillProviderInstanceIDs(db *gorm.DB, backfills []providerInstanceIDBackfill) error {
+	if db == nil || len(backfills) == 0 {
+		return nil
+	}
+
+	ordered := append([]providerInstanceIDBackfill(nil), backfills...)
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].InstanceID < ordered[j].InstanceID
+	})
+	for start := 0; start < len(ordered); start += providerInstanceIDBackfillBatchSize {
+		end := start + providerInstanceIDBackfillBatchSize
+		if end > len(ordered) {
+			end = len(ordered)
+		}
+		batch := ordered[start:end]
+
+		ids := make([]uint, 0, len(batch))
+		var builder strings.Builder
+		builder.WriteString("CASE id")
+		args := make([]interface{}, 0, len(batch)*3)
+		for _, backfill := range batch {
+			ids = append(ids, backfill.InstanceID)
+			// Keep the legacy guard inside CASE so a concurrent discovery cannot
+			// overwrite a newer ProviderVMID while this bounded batch is writing.
+			builder.WriteString(" WHEN ? THEN CASE WHEN provider_vm_id IS NULL OR provider_vm_id = ? OR provider_vm_id = '' THEN ? ELSE provider_vm_id END")
+			args = append(args, backfill.InstanceID, backfill.PreviousProviderInstanceID, backfill.ProviderInstanceID)
+		}
+		builder.WriteString(" ELSE provider_vm_id END")
+
+		if err := db.Model(&providerModel.Instance{}).
+			Where("id IN ?", ids).
+			Update("provider_vm_id", gorm.Expr(builder.String(), args...)).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func isProxmoxProviderType(providerType string) bool {

@@ -19,6 +19,7 @@ import (
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 func init() {
@@ -92,9 +93,10 @@ func MarkAgentProvidersOfflineOnStartup() {
 	}
 
 	result := global.APP_DB.Model(&providerModel.Provider{}).
-		Where("connection_type = ? AND agent_status = ?", "agent", "online").
+		Where("LOWER(connection_type) = ? AND LOWER(COALESCE(execution_rule, '')) <> ? AND agent_status = ?", "agent", "api_only", "online").
 		Updates(map[string]interface{}{
-			"agent_status": "offline",
+			"agent_status":           "offline",
+			"recovery_offline_since": gorm.Expr("COALESCE(recovery_offline_since, ?)", hubStartupTime),
 		})
 
 	if result.Error != nil {

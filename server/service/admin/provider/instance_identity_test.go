@@ -5,6 +5,9 @@ import (
 
 	providerModel "oneclickvirt/model/provider"
 	providerCore "oneclickvirt/provider"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestProxmoxIdentityMatchesVMIDAcrossGuestRename(t *testing.T) {
@@ -195,5 +198,37 @@ func TestProviderInstanceIDBackfillsDoesNotOverwriteExistingVMID(t *testing.T) {
 
 	if backfills := providerInstanceIDBackfills("proxmox", remoteInstances, dbInstances, matches); len(backfills) != 0 {
 		t.Fatalf("existing VMID must not be overwritten: %#v", backfills)
+	}
+}
+
+func TestBatchBackfillProviderInstanceIDsUsesSetUpdate(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("CREATE TABLE instances (id INTEGER PRIMARY KEY, provider_vm_id TEXT, updated_at datetime, deleted_at datetime)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO instances (id, provider_vm_id) VALUES (1, ''), (2, 'legacy'), (3, 'keep')").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	err = batchBackfillProviderInstanceIDs(db, []providerInstanceIDBackfill{
+		{InstanceID: 2, PreviousProviderInstanceID: "legacy", ProviderInstanceID: "runtime-2"},
+		{InstanceID: 1, ProviderInstanceID: "runtime-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var rows []struct {
+		ID           uint
+		ProviderVMID string
+	}
+	if err := db.Table("instances").Order("id ASC").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 || rows[0].ProviderVMID != "runtime-1" || rows[1].ProviderVMID != "runtime-2" || rows[2].ProviderVMID != "keep" {
+		t.Fatalf("backfilled rows = %#v", rows)
 	}
 }

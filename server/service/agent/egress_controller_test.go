@@ -127,10 +127,35 @@ func TestValidateEgressProfileTransportProtectsManagedSecrets(t *testing.T) {
 	if err := validateEgressProfileTransport(&providerModel.Provider{ConnectionType: "agent"}, profile); err != nil {
 		t.Fatalf("reverse Agent transport should be allowed: %v", err)
 	}
+	if err := validateEgressProfileTransport(&providerModel.Provider{ConnectionType: "agent", ExecutionRule: "api_only"}, profile); err == nil {
+		t.Fatal("api_only Agent must not be treated as a reverse-Agent secret transport")
+	}
 	unmanaged := false
 	profile.WireGuard.Managed = &unmanaged
 	if err := validateEgressProfileTransport(&providerModel.Provider{ConnectionType: "ssh"}, profile); err != nil {
 		t.Fatalf("preconfigured unmanaged WireGuard should be allowed: %v", err)
+	}
+}
+
+func TestEgressClientRequiresInstalledAgentForAPIOnlyProvider(t *testing.T) {
+	node := &providerModel.Provider{
+		ID:             987654,
+		Endpoint:       "127.0.0.1",
+		ConnectionType: "agent",
+		ExecutionRule:  "api_only",
+	}
+	config := &monitoringModel.MonitoringConfig{AgentInstalled: true, AgentToken: "test-token"}
+	client, err := egressClient(node, config)
+	if err != nil {
+		t.Fatalf("installed direct Agent client = %v", err)
+	}
+	if client.isAgentMode {
+		t.Fatal("api_only provider must use the direct Agent client, not WebSocket fallback")
+	}
+
+	config.AgentInstalled = false
+	if _, err := egressClient(node, config); err == nil {
+		t.Fatal("api_only provider without an installed direct Agent must not be treated as Agent-capable")
 	}
 }
 
@@ -159,6 +184,7 @@ func TestDeriveEgressCapabilitiesRequiresProvenProviderDataPlane(t *testing.T) {
 }
 
 func TestRestoreProviderEgressUsesOneBatchAgentRequest(t *testing.T) {
+	bindingCount := egressStateReadBatchSize + 1
 	var requestCount atomic.Int32
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/egress/state", func(w http.ResponseWriter, r *http.Request) {
@@ -175,7 +201,7 @@ func TestRestoreProviderEgressUsesOneBatchAgentRequest(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if len(req.Profiles) != 1 || len(req.Bindings) != 1 || !req.Apply {
+		if len(req.Profiles) != 1 || len(req.Bindings) != bindingCount || !req.Apply {
 			t.Errorf("unexpected replacement request: profiles=%d bindings=%d apply=%v", len(req.Profiles), len(req.Bindings), req.Apply)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -262,32 +288,6 @@ func TestRestoreProviderEgressUsesOneBatchAgentRequest(t *testing.T) {
 	if err := db.Create(&config).Error; err != nil {
 		t.Fatal(err)
 	}
-	instance := providerModel.Instance{
-		ID:                920001,
-		UUID:              "00000000-0000-0000-0000-000000000001",
-		Name:              "batch-instance",
-		Provider:          provider.Name,
-		ProviderID:        provider.ID,
-		Status:            "running",
-		NetworkType:       "nat_ipv4",
-		PrivateIP:         "10.20.0.2",
-		PmacctInterfaceV4: "veth-test",
-		EgressProfileID:   "profile-1",
-	}
-	if err := db.Table("instances").Create(map[string]interface{}{
-		"id":                  instance.ID,
-		"uuid":                instance.UUID,
-		"name":                instance.Name,
-		"provider":            instance.Provider,
-		"provider_id":         instance.ProviderID,
-		"status":              instance.Status,
-		"network_type":        instance.NetworkType,
-		"private_ip":          instance.PrivateIP,
-		"pmacct_interface_v4": instance.PmacctInterfaceV4,
-		"egress_profile_id":   instance.EgressProfileID,
-	}).Error; err != nil {
-		t.Fatal(err)
-	}
 	enabled := true
 	failClosed := true
 	profileRequest := EgressProfileRequest{
@@ -312,17 +312,38 @@ func TestRestoreProviderEgressUsesOneBatchAgentRequest(t *testing.T) {
 	if err := db.Create(&desiredProfile).Error; err != nil {
 		t.Fatal(err)
 	}
-	desiredBinding := monitoringModel.EgressDesiredBinding{
-		InstanceID:          instance.ID,
-		InstanceKey:         instance.UUID,
-		ProviderID:          provider.ID,
-		ProfileID:           profileRequest.ID,
-		SourcesJSON:         `["10.20.0.2/32"]`,
-		ExplicitSourcesJSON: `[]`,
-		InterfaceV4:         "veth-test",
-		Enabled:             true,
+	instanceRows := make([]map[string]interface{}, 0, bindingCount)
+	desiredBindings := make([]monitoringModel.EgressDesiredBinding, 0, bindingCount)
+	for index := 0; index < bindingCount; index++ {
+		instanceID := uint(920001 + index)
+		instanceUUID := fmt.Sprintf("00000000-0000-0000-0000-%012d", index+1)
+		instanceRows = append(instanceRows, map[string]interface{}{
+			"id":                  instanceID,
+			"uuid":                instanceUUID,
+			"name":                fmt.Sprintf("batch-instance-%03d", index),
+			"provider":            provider.Name,
+			"provider_id":         provider.ID,
+			"status":              "running",
+			"network_type":        "nat_ipv4",
+			"private_ip":          "10.20.0.2",
+			"pmacct_interface_v4": "veth-test",
+			"egress_profile_id":   profileRequest.ID,
+		})
+		desiredBindings = append(desiredBindings, monitoringModel.EgressDesiredBinding{
+			InstanceID:          instanceID,
+			InstanceKey:         instanceUUID,
+			ProviderID:          provider.ID,
+			ProfileID:           profileRequest.ID,
+			SourcesJSON:         `["10.20.0.2/32"]`,
+			ExplicitSourcesJSON: `[]`,
+			InterfaceV4:         "veth-test",
+			Enabled:             true,
+		})
 	}
-	if err := db.Create(&desiredBinding).Error; err != nil {
+	if err := db.Table("instances").CreateInBatches(&instanceRows, egressStateWriteBatchSize).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateInBatches(&desiredBindings, egressStateWriteBatchSize).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -330,8 +351,8 @@ func TestRestoreProviderEgressUsesOneBatchAgentRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RestoreProviderEgress returned error: %v", err)
 	}
-	if restored != 1 {
-		t.Fatalf("restored = %d, want 1", restored)
+	if restored != bindingCount {
+		t.Fatalf("restored = %d, want %d", restored, bindingCount)
 	}
 	if got := requestCount.Load(); got != 1 {
 		t.Fatalf("Agent request count = %d, want exactly 1", got)

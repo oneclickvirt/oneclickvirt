@@ -250,6 +250,32 @@ func (s *ProviderApiService) StartInstanceByProviderID(ctx context.Context, prov
 	return nil
 }
 
+// StartInstanceByProviderIDForRecovery is deliberately separate from the
+// ordinary lifecycle API. Recovery carries a discovery-bound runtime identity
+// and must never rediscover by name or silently switch to another transport.
+func (s *ProviderApiService) StartInstanceByProviderIDForRecovery(ctx context.Context, providerID uint, identity provider.RecoveryInstanceIdentity) error {
+	if !identity.Valid() {
+		return fmt.Errorf("恢复启动缺少有效实例运行时身份")
+	}
+	prov, _, err := s.GetProviderByID(providerID)
+	if err != nil {
+		return err
+	}
+	if err := CheckProviderConnection(prov); err != nil {
+		return err
+	}
+	if err := provider.StartInstanceForRecovery(ctx, prov, identity); err != nil {
+		global.APP_LOG.Error("恢复启动实例失败",
+			zap.Uint("providerId", providerID),
+			zap.String("instanceId", identity.ID),
+			zap.String("node", identity.Node),
+			zap.String("type", identity.Type),
+			zap.Error(err))
+		return fmt.Errorf("恢复启动实例失败: %v", err)
+	}
+	return nil
+}
+
 // StopInstanceByProviderID 根据Provider ID停止实例（确保使用正确的Provider）
 func (s *ProviderApiService) StopInstanceByProviderID(ctx context.Context, providerID uint, instanceID string) error {
 	// 使用新的GetProviderByID方法

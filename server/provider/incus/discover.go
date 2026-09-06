@@ -221,6 +221,9 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 		} else {
 			discovered.UUID = fmt.Sprintf("incus-%s-%s", i.config.Name, inst.Name)
 		}
+		discovered.RuntimeIdentity = &provider.RecoveryInstanceIdentity{
+			ID: strings.TrimSpace(discovered.ProviderInstanceID), Type: discovered.InstanceType,
+		}
 
 		discoveredInstances = append(discoveredInstances, discovered)
 	}
@@ -389,6 +392,9 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 			discovered.UUID = uuid
 		} else {
 			discovered.UUID = fmt.Sprintf("incus-%s-%s", i.config.Name, inst.Name)
+		}
+		discovered.RuntimeIdentity = &provider.RecoveryInstanceIdentity{
+			ID: strings.TrimSpace(discovered.ProviderInstanceID), Type: discovered.InstanceType,
 		}
 
 		discoveredInstances = append(discoveredInstances, discovered)

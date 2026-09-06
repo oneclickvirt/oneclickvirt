@@ -141,6 +141,14 @@ export const syncProviderInstances = (id) => {
   })
 }
 
+// 节点重启后的受保护恢复同步：一次有界发现并复用后端恢复租约。
+export const forceProviderRecoverySync = (id) => {
+  return request({
+    url: `/v1/admin/providers/${id}/force-recovery-sync`,
+    method: 'post'
+  })
+}
+
 export const getProviderStatus = (id) => {
   return request({
     url: `/v1/admin/providers/${id}/status`,

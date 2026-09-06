@@ -96,23 +96,39 @@ func (ps *ProviderService) InitializeProviders() error {
 
 // LoadProvider 加载单个Provider
 func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error {
-	return ps.LoadProviderWithOptions(dbProvider, false)
+	return ps.LoadProviderWithOptionsContext(context.Background(), dbProvider, false)
 }
 
 // LoadProviderWithOptions 加载单个Provider（支持选项）
 // allowFrozen: 是否允许加载冻结的Provider（用于删除等特定操作）
 func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Provider, allowFrozen bool) error {
+	return ps.LoadProviderWithOptionsContext(context.Background(), dbProvider, allowFrozen)
+}
+
+// LoadProviderWithOptionsContext loads a Provider while respecting the caller's
+// cancellation and deadline. The provider-scoped lock still serializes reloads
+// for one node, while unrelated Providers remain independent.
+func (ps *ProviderService) LoadProviderWithOptionsContext(ctx context.Context, dbProvider providerModel.Provider, allowFrozen bool) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	operationLock := ps.providerOperationMutex(dbProvider.ID)
 	operationLock.Lock()
 	defer operationLock.Unlock()
-	return ps.loadProviderWithOptionsLocked(dbProvider, allowFrozen)
+	return ps.loadProviderWithOptionsLocked(ctx, dbProvider, allowFrozen)
 }
 
 // loadProviderWithOptionsLocked performs a load while the provider-scoped
 // operation lock is held. Network connection and architecture detection happen
 // outside the global providers-map lock so one unreachable node cannot block
 // every other Provider or API lookup.
-func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerModel.Provider, allowFrozen bool) error {
+func (ps *ProviderService) loadProviderWithOptionsLocked(ctx context.Context, dbProvider providerModel.Provider, allowFrozen bool) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// 检查Provider是否过期或冻结
 	if dbProvider.IsFrozen && !allowFrozen {
@@ -211,34 +227,14 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerMode
 		GpuDeviceIds:          dbProvider.GpuDeviceIds,
 	}
 
-	var certificateConfig *providerModel.CertConfig
-
-	// 如果Provider已自动配置，尝试加载完整配置
-	if dbProvider.AutoConfigured && dbProvider.AuthConfig != "" {
-		configService := &ProviderConfigService{}
-		authConfig, err := configService.LoadProviderConfig(dbProvider.ID)
-		if err == nil {
-			// 使用配置中的信息
-			if authConfig.Certificate != nil {
-				certificateConfig = authConfig.Certificate
-			}
-			if authConfig.Token != nil {
-				config.Token = fmt.Sprintf("%s=%s", authConfig.Token.TokenID, authConfig.Token.TokenSecret)
-			}
-		} else {
-			global.APP_LOG.Warn("加载Provider配置失败，使用数据库字段",
-				zap.String("provider", dbProvider.Name),
-				zap.Error(err))
-		}
-	}
-
-	if certificateConfig == nil && (dbProvider.CertPath != "" || dbProvider.KeyPath != "" || dbProvider.CertContent != "" || dbProvider.KeyContent != "") {
-		certificateConfig = &providerModel.CertConfig{
-			CertPath:    dbProvider.CertPath,
-			KeyPath:     dbProvider.KeyPath,
-			CertContent: dbProvider.CertContent,
-			KeyContent:  dbProvider.KeyContent,
-		}
+	// API credentials must be reconstructed from the durable row for every
+	// loading path.  A reboot recovery can run before a legacy config backup is
+	// available, while token/certificate fields on the Provider row remain the
+	// authoritative fallbacks.
+	authConfig := ProviderAuthConfigFromRecord(dbProvider)
+	certificateConfig := authConfig.Certificate
+	if authConfig.Token != nil && strings.TrimSpace(authConfig.Token.TokenID) != "" {
+		config.Token = fmt.Sprintf("%s=%s", authConfig.Token.TokenID, authConfig.Token.TokenSecret)
 	}
 	if certificateConfig != nil {
 		if certificateConfig.CertContent == "" {
@@ -260,9 +256,15 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerMode
 		}
 	}
 
-	// 对于Proxmox，设置TokenID
-	if (dbProvider.Type == "proxmox" || dbProvider.Type == "proxmoxve") && dbProvider.Username != "" && strings.Contains(dbProvider.Token, "=") {
-		config.TokenID = strings.Split(dbProvider.Token, "=")[0]
+	// 对于Proxmox，TokenID 与 TokenSecret 需要分别保留。优先采用结构化
+	// 凭据，兼容旧行上的 "id=secret" 格式。
+	if dbProvider.Type == "proxmox" || dbProvider.Type == "proxmoxve" || dbProvider.Type == "pve" {
+		if authConfig.Token != nil {
+			config.TokenID = authConfig.Token.TokenID
+		}
+		if config.TokenID == "" && strings.Contains(config.Token, "=") {
+			config.TokenID = strings.SplitN(config.Token, "=", 2)[0]
+		}
 	}
 
 	// 如果端口为0，使用默认端口
@@ -270,19 +272,23 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerMode
 		config.Port = 22
 	}
 
-	if dbProvider.ConnectionType == "agent" {
+	isAPIOnly := strings.EqualFold(strings.TrimSpace(dbProvider.ExecutionRule), "api_only")
+	if dbProvider.ConnectionType == "agent" && !isAPIOnly {
 		// 对于支持 Agent 模式的 Provider（如 Docker/Podman/Containerd），
 		// 注入基于 AgentHub WebSocket 的执行器代替 SSH。
-		if AgentExecutorFactory != nil {
-			if ac, ok := prov.(AgentConnector); ok {
-				executor := AgentExecutorFactory(dbProvider.ID)
-				if err := ac.ConnectAgent(executor, config); err != nil {
-					global.APP_LOG.Warn("Agent模式注入执行器失败，使用未连接状态存储",
-						zap.String("name", dbProvider.Name),
-						zap.Uint("id", dbProvider.ID),
-						zap.Error(err))
-				}
-			}
+		if AgentExecutorFactory == nil {
+			return fmt.Errorf("Agent executor factory is unavailable for provider %d", dbProvider.ID)
+		}
+		ac, ok := prov.(AgentConnector)
+		if !ok {
+			return fmt.Errorf("provider %s does not support Agent connection mode", dbProvider.Type)
+		}
+		executor := AgentExecutorFactory(dbProvider.ID)
+		if executor == nil {
+			return fmt.Errorf("Agent executor is unavailable for provider %d", dbProvider.ID)
+		}
+		if err := ac.ConnectAgent(executor, config); err != nil {
+			return fmt.Errorf("connect provider through Agent: %w", err)
 		}
 		ps.mutex.Lock()
 		ps.providers[dbProvider.ID] = prov
@@ -328,10 +334,10 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerMode
 		connectTimeout = time.Duration(dbProvider.SSHConnectTimeout) * time.Second
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 
-	if err := prov.Connect(ctx, config); err != nil {
+	if err := prov.Connect(connectCtx, config); err != nil {
 		global.APP_LOG.Error("连接Provider失败",
 			zap.String("name", dbProvider.Name),
 			zap.Uint("id", dbProvider.ID),
@@ -340,8 +346,12 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(dbProvider providerMode
 		return err
 	}
 
-	// 连接成功后同步检测节点架构，确保 ARM 节点不会因为默认 amd64 而无法使用
-	detectAndUpdateArchitecture(dbProvider.ID, prov)
+	// api_only Provider must never turn a successful API connection into an SSH
+	// probe just to run uname. Its persisted architecture is refreshed through
+	// its API discovery path instead.
+	if !isAPIOnly {
+		detectAndUpdateArchitecture(dbProvider.ID, prov)
+	}
 
 	// 存储Provider实例（使用ID作为key）。远端连接阶段没有持有全局锁。
 	ps.mutex.Lock()
@@ -396,7 +406,7 @@ func (ps *ProviderService) ReloadProviderContext(ctx context.Context, providerID
 		return err
 	}
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
+	if err := global.APP_DB.WithContext(ctx).First(&dbProvider, providerID).Error; err != nil {
 		return err
 	}
 	if deadline, ok := ctx.Deadline(); ok {
@@ -418,21 +428,30 @@ func (ps *ProviderService) ReloadProviderContext(ctx context.Context, providerID
 	defer operationLock.Unlock()
 
 	// 断开旧连接
-	ps.removeProviderLocked(providerID)
+	ps.removeProviderLockedContext(ctx, providerID)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
 	// 重新加载
-	return ps.loadProviderWithOptionsLocked(dbProvider, false)
+	return ps.loadProviderWithOptionsLocked(ctx, dbProvider, false)
 }
 
 // RemoveProvider 移除Provider并清理资源
 func (ps *ProviderService) RemoveProvider(providerID uint) {
+	ps.RemoveProviderContext(context.Background(), providerID)
+}
+
+// RemoveProviderContext removes a cached Provider without letting a stale
+// disconnect outlive the caller's shutdown or task deadline.
+func (ps *ProviderService) RemoveProviderContext(ctx context.Context, providerID uint) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	operationLock := ps.providerOperationMutex(providerID)
 	operationLock.Lock()
 	defer operationLock.Unlock()
-	ps.removeProviderLocked(providerID)
+	ps.removeProviderLockedContext(ctx, providerID)
 }
 
 func (ps *ProviderService) providerOperationMutex(providerID uint) *sync.Mutex {
@@ -444,6 +463,13 @@ func (ps *ProviderService) providerOperationMutex(providerID uint) *sync.Mutex {
 // The caller holds only the provider-scoped operation lock, so a slow
 // Disconnect cannot stall unrelated Provider lookups or reloads.
 func (ps *ProviderService) removeProviderLocked(providerID uint) {
+	ps.removeProviderLockedContext(context.Background(), providerID)
+}
+
+func (ps *ProviderService) removeProviderLockedContext(ctx context.Context, providerID uint) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ps.mutex.Lock()
 	prov, exists := ps.providers[providerID]
 	if exists {
@@ -452,8 +478,8 @@ func (ps *ProviderService) removeProviderLocked(providerID uint) {
 	ps.mutex.Unlock()
 
 	if exists {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := prov.Disconnect(ctx); err != nil {
+		disconnectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		if err := prov.Disconnect(disconnectCtx); err != nil {
 			global.APP_LOG.Warn("断开Provider连接失败",
 				zap.Uint("id", providerID),
 				zap.String("name", prov.GetName()),

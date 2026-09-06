@@ -80,6 +80,7 @@
         @traffic-monitor="handleEnableTrafficMonitor"
         @health-check="checkHealth"
         @sync-instances="syncInstances"
+        @force-recovery-sync="forceRecoverySync"
         @set-expiry="handleSetProviderExpiry"
         @freeze="freezeServer"
         @unfreeze="unfreezeServer"
@@ -181,7 +182,7 @@ const {
   handleSizeChange, handleCurrentChange, handleSelectionChange,
   handleDeleteProvider, handleBatchDelete, handleBatchFreeze, handleBatchHealthCheck,
   handleSetProviderExpiry, freezeServer, unfreezeServer, checkHealth,
-  handleExportCSV, handleImportCSV, cleanupOrphans, syncInstances
+  handleExportCSV, handleImportCSV, cleanupOrphans, syncInstances, forceRecoverySync
 } = useProviderCRUD()
 
 const importCsvInput = ref(null)

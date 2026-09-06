@@ -19,7 +19,7 @@ func (s *Service) queueExpiryRenewalStart(instanceID, userID, providerID uint) e
 
 	activeTaskStatuses := []string{"pending", "processing", "running", "cancelling"}
 
-	taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instanceID, providerID)
+	taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d,"desiredState":"running"}`, instanceID, providerID)
 	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
 			return err
