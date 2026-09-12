@@ -30,6 +30,8 @@ export default {
   autoResetDescription2: "The new password will be displayed below and sent to your connected communication channels.",
   autoResetDescription3: "Please ensure you have at least one communication channel connected to receive the new password backup.",
   passwordResetSuccess: "Password Reset Successful",
+  passwordResetRequiresLogin: "Your previous login has been revoked. Copy and save the new password before signing in again.",
+  passwordSavedLogin: "Password saved, sign in again",
   newPasswordGenerated: "New password generated, please copy and keep it safe",
   passwordSentToChannel: "New password has been sent to your connected communication channels, please keep it safe",
   resetPassword: "Reset Password",

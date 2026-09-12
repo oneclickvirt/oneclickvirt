@@ -189,10 +189,10 @@ func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClai
 		return nil, nil, common.NewError(common.CodeUnauthorized, "无效的用户信息")
 	}
 
-	// 提取 token 的签发时间（用于检查用户级吸销）
-	var issuedAt time.Time
-	if iat, ok := (*claims)["iat"].(float64); ok {
-		issuedAt = time.Unix(int64(iat), 0)
+	// 保留亚秒精度，避免密码重置后同一秒签发的新 JWT 被误撤销。
+	issuedAt, err := utils.TokenIssuedAt(claims)
+	if err != nil {
+		return nil, nil, common.NewError(common.CodeUnauthorized, "无效的认证令牌签发时间")
 	}
 
 	// 从数据库获取用户当前状态和权限（不依赖JWT中的用户类型）

@@ -18491,7 +18491,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "修改当前用户的登录密码",
+                "description": "修改当前用户的登录密码。成功后撤销此前签发的登录 JWT，客户端须使用新密码重新登录；独立 API Token 不受影响。",
                 "consumes": [
                     "application/json"
                 ],
@@ -18914,7 +18914,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "用户重置自己的登录密码，系统自动生成符合安全策略的新密码，并通过绑定的通信渠道发送",
+                "description": "用户重置自己的登录密码，系统自动生成符合安全策略的新密码，并尝试通过绑定的通信渠道发送。成功后撤销此前签发的登录 JWT，客户端须保存 data.newPassword 并重新登录；独立 API Token 不受影响。通信渠道发送失败但密码已更新时仍返回 200 和新密码。",
                 "consumes": [
                     "application/json"
                 ],
@@ -18938,7 +18938,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "重置成功，新密码已发送到绑定的通信渠道",
+                        "description": "密码已重置，data.newPassword 返回新密码，原登录 JWT 已失效；通信渠道投递结果见消息",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }

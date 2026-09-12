@@ -30,6 +30,8 @@ export default {
   autoResetDescription2: "新密码将显示在下方，并同时发送到您绑定的通信渠道。",
   autoResetDescription3: "请确保您至少绑定了一个通信渠道，以便备份接收新密码。",
   passwordResetSuccess: "密码重置成功",
+  passwordResetRequiresLogin: "原登录状态已失效。请先复制并妥善保存新密码，再重新登录。",
+  passwordSavedLogin: "已保存密码，重新登录",
   newPasswordGenerated: "已为您生成新密码，请复制并安全保管",
   passwordSentToChannel: "新密码已同时发送到您绑定的通信渠道，请妥善保管",
   resetPassword: "重置密码",
