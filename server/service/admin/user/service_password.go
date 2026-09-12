@@ -10,9 +10,11 @@ import (
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 	"oneclickvirt/utils/messaging"
+	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
@@ -56,9 +58,11 @@ func (s *Service) ResetUserPassword(userID uint) (string, error) {
 	}
 
 	// 更新密码
-	if err := global.APP_DB.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+	if err := global.APP_DB.Model(&user).Updates(map[string]interface{}{"password": string(hashedPassword), "tokens_invalidated_at": time.Now()}).Error; err != nil {
 		return "", err
 	}
+
+	cache.GetUserCacheService().InvalidateUserCache(user.ID)
 
 	// 记录操作日志
 	global.APP_LOG.Info("管理员重置用户密码",
@@ -81,7 +85,10 @@ func (s *Service) ResetUserPasswordAndNotify(userID uint) error {
 	}
 
 	// 生成强密码（12位）
-	newPassword := utils.GenerateStrongPassword(12)
+	newPassword, err := utils.GenerateAccountPassword(12, user.Username)
+	if err != nil {
+		return err
+	}
 
 	// 密码强度验证（确保生成的密码符合策略）
 	if err := utils.ValidatePasswordStrength(newPassword, utils.DefaultPasswordPolicy, user.Username); err != nil {
@@ -95,9 +102,11 @@ func (s *Service) ResetUserPasswordAndNotify(userID uint) error {
 	}
 
 	// 更新密码
-	if err := global.APP_DB.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+	if err := global.APP_DB.Model(&user).Updates(map[string]interface{}{"password": string(hashedPassword), "tokens_invalidated_at": time.Now()}).Error; err != nil {
 		return err
 	}
+
+	cache.GetUserCacheService().InvalidateUserCache(user.ID)
 
 	// 发送新密码到用户绑定的通信渠道
 	if err := s.sendPasswordToUser(&user, newPassword); err != nil {

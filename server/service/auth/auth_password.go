@@ -12,6 +12,7 @@ import (
 	"oneclickvirt/model/auth"
 	"oneclickvirt/model/common"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -106,7 +107,7 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 
 	// 原子性事务：检查token有效性 + 删除token + 更新密码
 	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	err = dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 在事务中再次验证并删除token（原子性防止并发重用）
 		result := tx.Where("token = ? AND expires_at > ?", token, time.Now()).Delete(&userModel.PasswordReset{})
 		if result.Error != nil {
@@ -115,8 +116,12 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 		if result.RowsAffected == 0 {
 			return errors.New("重置链接无效或已过期")
 		}
-		return tx.Model(&userModel.User{}).Where("uuid = ?", passwordReset.UserUUID).UpdateColumn("password", string(hashedPassword)).Error
+		return tx.Model(&userModel.User{}).Where("uuid = ?", passwordReset.UserUUID).Updates(map[string]interface{}{"password": string(hashedPassword), "tokens_invalidated_at": time.Now()}).Error
 	})
+	if err == nil {
+		cache.GetUserCacheService().InvalidateUserCache(user.ID)
+	}
+	return err
 }
 
 // ResetPasswordWithToken 使用令牌重置密码（自动生成新密码并发送到用户通信渠道）
@@ -137,7 +142,10 @@ func (s *AuthService) ResetPasswordWithToken(token string) error {
 	}
 
 	// 生成强密码（12位）（事务外执行，避免长事务）
-	newPassword := utils.GenerateStrongPassword(12)
+	newPassword, err := utils.GenerateAccountPassword(12, user.Username)
+	if err != nil {
+		return err
+	}
 	if err := utils.ValidatePasswordStrength(newPassword, utils.DefaultPasswordPolicy, user.Username); err != nil {
 		return err
 	}
@@ -156,10 +164,12 @@ func (s *AuthService) ResetPasswordWithToken(token string) error {
 		if result.RowsAffected == 0 {
 			return errors.New("重置链接无效或已过期")
 		}
-		return tx.Model(&userModel.User{}).Where("uuid = ?", passwordReset.UserUUID).UpdateColumn("password", string(hashedPassword)).Error
+		return tx.Model(&userModel.User{}).Where("uuid = ?", passwordReset.UserUUID).Updates(map[string]interface{}{"password": string(hashedPassword), "tokens_invalidated_at": time.Now()}).Error
 	}); err != nil {
 		return err
 	}
+
+	cache.GetUserCacheService().InvalidateUserCache(user.ID)
 
 	// 发送新密码到用户绑定的通信渠道
 	if err := s.sendPasswordToUser(&user, newPassword); err != nil {
@@ -288,5 +298,9 @@ func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword strin
 		return err
 	}
 	// 更新密码
-	return global.APP_DB.Model(&user).Update("password", string(hashedPassword)).Error
+	if err := global.APP_DB.Model(&user).Updates(map[string]interface{}{"password": string(hashedPassword), "tokens_invalidated_at": time.Now()}).Error; err != nil {
+		return err
+	}
+	cache.GetUserCacheService().InvalidateUserCache(user.ID)
+	return nil
 }

@@ -605,10 +605,12 @@ const openSSHInNewWindow = (conn) => {
       function connectWebSocket() {
         terminal.writeln('${sshConnectingMsg}');
         
-        websocket = new WebSocket('${wsUrl}');
+        const socket = new WebSocket('${wsUrl}');
+        websocket = socket;
         websocket.binaryType = 'arraybuffer';
         
         websocket.onopen = function() {
+          if (websocket !== socket || isIntentionallyClosed) return;
           terminal.writeln('\x1b[32m${sshConnectedMsg}\x1b[0m');
           terminal.focus();
           websocket.send(JSON.stringify({
@@ -620,6 +622,7 @@ const openSSHInNewWindow = (conn) => {
         };
         
         websocket.onmessage = function(event) {
+          if (websocket !== socket || isIntentionallyClosed) return;
           if (event.data instanceof ArrayBuffer) {
             const uint8Array = new Uint8Array(event.data);
             terminal.write(uint8Array);
@@ -629,10 +632,12 @@ const openSSHInNewWindow = (conn) => {
         };
         
         websocket.onerror = function() {
+          if (websocket !== socket || isIntentionallyClosed) return;
           terminal.writeln('\x1b[31m${sshWebSocketErrorMsg}\x1b[0m');
         };
         
         websocket.onclose = function(event) {
+          if (websocket !== socket || isIntentionallyClosed) return;
           stopHeartbeat();
           if (event.code !== 1000) {
             terminal.writeln('\x1b[33m${sshDisconnectedMsg}\x1b[0m');
@@ -641,7 +646,7 @@ const openSSHInNewWindow = (conn) => {
             if (!isIntentionallyClosed) {
               terminal.writeln('\x1b[33m${sshReconnectingMsg}\x1b[0m');
               reconnectTimeout = setTimeout(function() {
-                reconnectSSH();
+                if (websocket === socket && !isIntentionallyClosed) reconnectSSH();
               }, 3000);
             }
           } else {
@@ -649,12 +654,14 @@ const openSSHInNewWindow = (conn) => {
           }
         };
         
-        terminal.onData(function(data) {
-          if (websocket && websocket.readyState === WebSocket.OPEN) {
-            websocket.send(data);
-          }
-        });
       }
+
+      // Bind input once for the terminal lifetime, not once per connection.
+      terminal.onData(function(data) {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+          websocket.send(data);
+        }
+      });
       
       // 重连函数
       window.reconnectSSH = function() {

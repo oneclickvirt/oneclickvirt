@@ -3,6 +3,7 @@
 // exec_req / ping / info / tunnel_open frames.
 
 mod handler;
+mod exec;
 mod shell;
 mod types;
 

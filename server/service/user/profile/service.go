@@ -9,6 +9,7 @@ import (
 	"oneclickvirt/model/auth"
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 	"time"
 
@@ -60,7 +61,11 @@ func (s *Service) ChangePassword(userID uint, oldPassword, newPassword string) e
 		return err
 	}
 
-	return global.APP_DB.Model(&user).Update("password", string(hashedPassword)).Error
+	if err := global.APP_DB.Model(&user).Updates(map[string]interface{}{"password": string(hashedPassword), "tokens_invalidated_at": time.Now()}).Error; err != nil {
+		return err
+	}
+	cache.GetUserCacheService().InvalidateUserCache(user.ID)
+	return nil
 }
 
 // BatchDeleteUsers 批量删除用户

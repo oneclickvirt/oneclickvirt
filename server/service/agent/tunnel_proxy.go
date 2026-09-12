@@ -26,7 +26,10 @@ type controllerListener struct {
 	listenPort int
 	stopCh     chan struct{}
 	doneCh     chan struct{} // closed when the HandleControllerPort goroutine has fully exited
+	stopOnce   sync.Once
 }
+
+func (cl *controllerListener) stop() { cl.stopOnce.Do(func() { close(cl.stopCh) }) }
 
 var controllerPortRecoverStatuses = []string{"active", "pending"}
 
@@ -199,7 +202,8 @@ func startControllerPortForwardWithKnownPort(port providerModel.Port, targetHost
 		close(stopCh)
 		return nil
 	}
-	ctrlListeners[portID] = &controllerListener{listenPort: listenPort, stopCh: stopCh, doneCh: doneCh}
+	listener := &controllerListener{listenPort: listenPort, stopCh: stopCh, doneCh: doneCh}
+	ctrlListeners[portID] = listener
 	ctrlListenerMu.Unlock()
 
 	// An already active controller mapping has just been read and validated by
@@ -213,9 +217,11 @@ func startControllerPortForwardWithKnownPort(port providerModel.Port, targetHost
 				"mapping_method": "controller",
 			}).Error; err != nil {
 			ctrlListenerMu.Lock()
-			delete(ctrlListeners, portID)
+			if ctrlListeners[portID] == listener {
+				delete(ctrlListeners, portID)
+			}
 			ctrlListenerMu.Unlock()
-			close(stopCh)
+			listener.stop()
 			close(doneCh)
 			_ = ln.Close()
 			return fmt.Errorf("更新控制端端口状态失败: %w", err)
@@ -255,7 +261,9 @@ func startControllerPortForwardWithKnownPort(port providerModel.Port, targetHost
 				zap.Uint("portID", portID), zap.Error(err))
 		}
 		ctrlListenerMu.Lock()
-		delete(ctrlListeners, portID)
+		if ctrlListeners[portID] == listener {
+			delete(ctrlListeners, portID)
+		}
 		ctrlListenerMu.Unlock()
 	}()
 
@@ -270,7 +278,7 @@ func StopControllerPortForward(portID uint) {
 	ctrlListenerMu.Lock()
 	cl, ok := ctrlListeners[portID]
 	if ok {
-		close(cl.stopCh)
+		cl.stop()
 		delete(ctrlListeners, portID)
 	}
 	ctrlListenerMu.Unlock()
@@ -531,7 +539,8 @@ func RebuildControllerPortForwardsByProvider(providerID uint) {
 
 	global.APP_LOG.Info("开始重建控制器端口转发",
 		zap.Uint("providerID", providerID), zap.Int("count", total))
-	RemoveTunnelManager(providerID)
+	// Rebinding listeners does not retire temporary WebSSH/SFTP sessions.
+	// Connection replacement owns retirement of the old TunnelManager.
 	if !waitForAgentShutdown(200 * time.Millisecond) {
 		return
 	}

@@ -141,17 +141,45 @@ func NewAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *Age
 // ── 底层写操作 ──────────────────────────────────────────────────────────────
 
 func (a *AgentConn) writeTextMessage(payload []byte, timeout time.Duration) error {
-	a.writeMu.Lock()
-	defer a.writeMu.Unlock()
-	a.conn.SetWriteDeadline(time.Now().Add(timeout))
-	return a.conn.WriteMessage(websocket.TextMessage, payload)
+	return a.writeMessage(websocket.TextMessage, payload, timeout)
 }
 
 func (a *AgentConn) writeBinaryMessage(payload []byte, timeout time.Duration) error {
-	a.writeMu.Lock()
-	defer a.writeMu.Unlock()
-	a.conn.SetWriteDeadline(time.Now().Add(timeout))
-	return a.conn.WriteMessage(websocket.BinaryMessage, payload)
+	return a.writeMessage(websocket.BinaryMessage, payload, timeout)
+}
+
+func (a *AgentConn) writeMessage(kind int, payload []byte, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	a.writeGateOnce.Do(func() { a.writeGate = make(chan struct{}, 1) })
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case a.writeGate <- struct{}{}:
+	case <-a.doneCh:
+		return fmt.Errorf("agent connection closed")
+	case <-timer.C:
+		return fmt.Errorf("agent write queue timed out")
+	}
+	defer func() { <-a.writeGate }()
+	select {
+	case <-a.doneCh:
+		return fmt.Errorf("agent connection closed")
+	default:
+	}
+	if !time.Now().Before(deadline) {
+		return fmt.Errorf("agent write queue timed out")
+	}
+	a.conn.SetWriteDeadline(deadline)
+	err := a.conn.WriteMessage(kind, payload)
+	if err != nil {
+		// Actual Gorilla write failure poisons the transport; unlike queue or
+		// command timeouts, this is a connection-level failure.
+		_ = a.conn.Close()
+	}
+	return err
 }
 
 // ── 命令执行 ────────────────────────────────────────────────────────────────
@@ -213,6 +241,8 @@ func (a *AgentConn) ExecuteWithTimeout(cmd string, timeout time.Duration) (strin
 		}
 		return combined, nil
 	case <-time.After(timeout):
+		cancel, _ := json.Marshal(wsMessage{Type: "exec_cancel", ID: reqID})
+		_ = a.writeTextMessage(cancel, time.Second)
 		return "", fmt.Errorf("执行命令超时（%s）", timeout)
 	case <-a.doneCh:
 		return "", fmt.Errorf("agent 连接已断开")
@@ -222,23 +252,62 @@ func (a *AgentConn) ExecuteWithTimeout(cmd string, timeout time.Duration) (strin
 // ── Shell 会话 ──────────────────────────────────────────────────────────────
 
 func (a *AgentConn) StartShell(cols, rows int) (*AgentShellSession, error) {
+	return a.startShell(cols, rows, "")
+}
+
+// StartExecShell requires the atomic-exec protocol. Old agents ignore this
+// message and time out safely instead of exposing their interactive host shell.
+func (a *AgentConn) StartExecShell(cols, rows int, command string) (*AgentShellSession, error) {
+	if strings.TrimSpace(command) == "" {
+		return nil, fmt.Errorf("empty terminal command")
+	}
+	session, err := a.startShell(cols, rows, command)
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case <-session.ReadyCh:
+		return session, nil
+	case <-session.DoneCh:
+		err = fmt.Errorf("Agent terminal startup failed")
+	case <-a.doneCh:
+		err = fmt.Errorf("Agent disconnected during terminal startup")
+	case <-time.After(10 * time.Second):
+		err = fmt.Errorf("Agent does not support atomic terminal startup or did not respond; upgrade Agent")
+	}
+	_ = a.CloseShell(session.ID)
+	return nil, err
+}
+
+func (a *AgentConn) startShell(cols, rows int, command string) (*AgentShellSession, error) {
 	sessionID := randomID()
 	session := &AgentShellSession{
 		ID:       sessionID,
 		OutputCh: make(chan []byte, 128),
 		DoneCh:   make(chan struct{}),
+		ReadyCh:  make(chan struct{}, 1),
 	}
-	payload, _ := json.Marshal(shellOpenPayload{Cols: cols, Rows: rows})
+	payload, _ := json.Marshal(shellOpenPayload{Cols: cols, Rows: rows, Command: command})
 	msg := wsMessage{Type: msgTypeShellOpen, ID: sessionID, Payload: payload}
+	if command != "" {
+		msg.Type = msgTypeShellExec
+	}
 	raw, _ := json.Marshal(msg)
 
 	a.mu.Lock()
+	select {
+	case <-a.doneCh:
+		a.mu.Unlock()
+		return nil, fmt.Errorf("Agent disconnected")
+	default:
+	}
 	a.shellSessions[sessionID] = session
 	a.mu.Unlock()
 
 	if err := a.writeTextMessage(raw, 10*time.Second); err != nil {
 		a.mu.Lock()
 		delete(a.shellSessions, sessionID)
+		session.safeClose()
 		a.mu.Unlock()
 		return nil, fmt.Errorf("启动 agent shell 失败: %w", err)
 	}

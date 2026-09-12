@@ -62,7 +62,7 @@ var (
 )
 
 // acquireAdminTerminal 获取 Provider 的管理终端使用权。
-// 如果已有活跃终端，会取消旧终端并等待其清理完成（最多 3 秒）。
+// 如果已有活跃终端，会取消旧终端；其清理按 session ID 独立完成。
 // 返回一个 context 和 release 函数，调用方必须在终端结束时调用 release。
 func acquireAdminTerminal(providerID uint) (ctx context.Context, release func()) {
 	adminTerminalMu.Lock()
@@ -70,15 +70,9 @@ func acquireAdminTerminal(providerID uint) (ctx context.Context, release func())
 	// 取消旧的管理终端会话（如果存在）
 	if oldCancel, exists := adminTerminalCancels[providerID]; exists {
 		oldCancel()
-		delete(adminTerminalCancels, providerID)
-		// 递增代数，旧会话可以通过检查代数变化来感知自己被取代
-		adminTerminalGen[providerID]++
-		// 释放锁等待旧会话清理
-		adminTerminalMu.Unlock()
-		// 给旧会话一点时间完成清理（CloseShell 写超时为 3s）
-		time.Sleep(500 * time.Millisecond)
-		adminTerminalMu.Lock()
 	}
+	// Every acquisition gets a unique generation, including after release.
+	adminTerminalGen[providerID]++
 
 	ctx, cancel := context.WithCancel(context.Background())
 	adminTerminalCancels[providerID] = cancel

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::process::Command;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, mpsc, watch};
 use tokio_tungstenite::tungstenite::Message;
 
 use super::types::{ShellHandle, ShellOpenPayload};
@@ -82,7 +82,7 @@ pub(super) fn open_pty(cols: u16, rows: u16) -> Result<(OwnedFd, i32), String> {
 }
 
 /// Resize the PTY window and deliver SIGWINCH to the shell's process group.
-pub(super) fn pty_resize(master_fd: i32, child_pid: u32, cols: u16, rows: u16) {
+pub(super) fn pty_resize(master_fd: i32, _child_pid: u32, cols: u16, rows: u16) {
     unsafe {
         let ws = libc::winsize {
             ws_row: rows,
@@ -91,25 +91,69 @@ pub(super) fn pty_resize(master_fd: i32, child_pid: u32, cols: u16, rows: u16) {
             ws_ypixel: 0,
         };
         libc::ioctl(master_fd, libc::TIOCSWINSZ.into(), &ws);
-        let pgid = libc::getpgid(child_pid as libc::pid_t);
-        if pgid > 0 {
-            libc::killpg(pgid, libc::SIGWINCH);
-        } else {
-            libc::kill(child_pid as libc::pid_t, libc::SIGWINCH);
-        }
+        // TIOCSWINSZ signals the PTY foreground group itself.
     }
 }
 
 /// Kill the shell's entire process group (ensures background jobs also die).
 pub(super) fn pty_kill(child_pid: u32) {
+    if child_pid == 0 {
+        return;
+    }
     unsafe {
-        let pgid = libc::getpgid(child_pid as libc::pid_t);
-        if pgid > 0 {
-            libc::killpg(pgid, libc::SIGKILL);
-        } else {
-            libc::kill(child_pid as libc::pid_t, libc::SIGKILL);
+        // Our children call setsid(): their process group ID is their PID.
+        // Never resolve a recycled PID into an unrelated process group.
+        libc::killpg(child_pid as libc::pid_t, libc::SIGKILL);
+    }
+}
+
+// PTY read boundaries need not coincide with UTF-8 character boundaries.
+fn decode_pty_chunk(pending: &mut Vec<u8>, data: &[u8], eof: bool) -> String {
+    pending.extend_from_slice(data);
+    let mut output = String::new();
+    loop {
+        match std::str::from_utf8(pending) {
+            Ok(text) => {
+                output.push_str(text);
+                pending.clear();
+                break;
+            }
+            Err(error) => {
+                let valid = error.valid_up_to();
+                output.push_str(std::str::from_utf8(&pending[..valid]).unwrap());
+                pending.drain(..valid);
+                match error.error_len() {
+                    Some(len) => {
+                        output.push('\u{fffd}');
+                        pending.drain(..len);
+                    }
+                    None => {
+                        if eof && !pending.is_empty() {
+                            output.push('\u{fffd}');
+                            pending.clear();
+                        }
+                        break;
+                    }
+                }
+            }
         }
     }
+    output
+}
+
+async fn send_shell_output(tx: &mpsc::Sender<Message>, id: &str, data: String) -> bool {
+    if data.is_empty() {
+        return true;
+    }
+    let frame = serde_json::json!({"type":"shell_data", "id":id, "payload":{"data":data}});
+    matches!(
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            tx.send(Message::Text(frame.to_string()))
+        )
+        .await,
+        Ok(Ok(()))
+    )
 }
 
 pub(super) async fn open_shell_session(
@@ -117,7 +161,12 @@ pub(super) async fn open_shell_session(
     payload_val: serde_json::Value,
     ws_tx: mpsc::Sender<Message>,
     shell_sessions: Arc<Mutex<HashMap<String, ShellHandle>>>,
+    permit: Arc<OwnedSemaphorePermit>,
+    command: Option<String>,
 ) -> Result<(), String> {
+    if session_id.is_empty() || shell_sessions.lock().await.contains_key(&session_id) {
+        return Err("empty or duplicate shell session ID".into());
+    }
     let payload: ShellOpenPayload =
         serde_json::from_value(payload_val).unwrap_or(ShellOpenPayload {
             cols: Some(80),
@@ -172,6 +221,12 @@ pub(super) async fn open_shell_session(
         Arc::new(AsyncFd::new(master_owned).map_err(|e| format!("AsyncFd::new: {}", e))?);
 
     let mut cmd = Command::new(&shell);
+    if let Some(command) = command {
+        // Start the command directly; no interactive host shell can receive
+        // tenant input if container startup fails.
+        cmd.arg("-c").arg(format!("exec {}; exit $?", command));
+    }
+    cmd.kill_on_drop(true);
     cmd.env("TERM", "xterm-256color")
         .env("HOME", &work_dir)
         .env("COLUMNS", cols.to_string())
@@ -205,7 +260,7 @@ pub(super) async fn open_shell_session(
     // Using a channel (not per-frame tokio::spawn) guarantees FIFO write order.
     let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(64);
     let write_master = async_master.clone();
-    tokio::spawn(async move {
+    let stdin_task = tokio::spawn(async move {
         while let Some(data) = stdin_rx.recv().await {
             let mut offset = 0;
             while offset < data.len() {
@@ -238,15 +293,25 @@ pub(super) async fn open_shell_session(
         }
     });
 
+    let (cancel, mut cancelled) = watch::channel(false);
+    let task_permit = permit.clone();
     let handle = ShellHandle {
         stdin_tx,
         master: async_master.clone(),
         child_pid,
+        _permit: permit,
+        cancel,
     };
     shell_sessions
         .lock()
         .await
         .insert(session_id.clone(), handle);
+    let ready = serde_json::json!({"type":"shell_ready", "id":session_id});
+    if ws_tx.try_send(Message::Text(ready.to_string())).is_err() {
+        pty_kill(child_pid);
+        shell_sessions.lock().await.remove(&session_id);
+        return Err("shell control queue is full".into());
+    }
 
     // PTY reader: master fd → WebSocket.
     // Reading from the master gives us the shell's combined stdout+stderr.
@@ -254,8 +319,9 @@ pub(super) async fn open_shell_session(
     let read_master = async_master.clone();
     let ws_tx_reader = ws_tx.clone();
     let session_id_reader = session_id.clone();
-    tokio::spawn(async move {
+    let mut reader_task = tokio::spawn(async move {
         let mut buf = vec![0u8; 8192];
+        let mut pending = Vec::new();
         loop {
             let mut guard = match read_master.readable().await {
                 Ok(g) => g,
@@ -278,22 +344,9 @@ pub(super) async fn open_shell_session(
             match result {
                 Ok(Ok(0)) => break,
                 Ok(Ok(n)) => {
-                    let frame = WsFrame {
-                        msg_type: "shell_data".to_string(),
-                        id: Some(session_id_reader.clone()),
-                        payload: Some(serde_json::json!({
-                            "data": String::from_utf8_lossy(&buf[..n]).to_string()
-                        })),
-                    };
-                    if let Ok(text) = serde_json::to_string(&frame) {
-                        let msg = Message::Text(text.into());
-                        if ws_tx_reader.try_send(msg.clone()).is_err() {
-                            let _ = tokio::time::timeout(
-                                Duration::from_secs(3),
-                                ws_tx_reader.send(msg),
-                            )
-                            .await;
-                        }
+                    let output = decode_pty_chunk(&mut pending, &buf[..n], false);
+                    if !send_shell_output(&ws_tx_reader, &session_id_reader, output).await {
+                        return;
                     }
                 }
                 // EIO = shell exited and all slave fds are closed (normal PTY EOF)
@@ -303,21 +356,55 @@ pub(super) async fn open_shell_session(
                 Err(_would_block) => {}
             }
         }
+        let output = decode_pty_chunk(&mut pending, &[], true);
+        let _ = send_shell_output(&ws_tx_reader, &session_id_reader, output).await;
     });
 
     // Child-wait task: detect shell exit and notify the controller.
     let shell_sessions_clone = shell_sessions.clone();
     let ws_tx_clone = ws_tx.clone();
     tokio::spawn(async move {
-        let status = child.wait().await.ok();
+        let _permit = task_permit;
+        let status = tokio::select! {
+            _ = async {
+                if !*cancelled.borrow_and_update() { let _ = cancelled.changed().await; }
+            } => {
+                pty_kill(child_pid);
+                reader_task.abort();
+                let _ = reader_task.await;
+                child.wait().await.ok()
+            }
+            status = child.wait() => {
+                // EOF data must be queued before shell_close. A descendant
+                // retaining the PTY must not hold cleanup forever.
+                if tokio::time::timeout(Duration::from_secs(3), &mut reader_task).await.is_err() {
+                    reader_task.abort();
+                    let _ = reader_task.await;
+                }
+                status.ok()
+            }
+            _ = &mut reader_task => {
+                pty_kill(child_pid);
+                child.wait().await.ok()
+            }
+        };
+        stdin_task.abort();
+        let _ = stdin_task.await;
         // Only send shell_close if the session is still registered (not already
         // closed by an explicit shell_close frame from the controller).
-        if shell_sessions_clone
-            .lock()
-            .await
-            .remove(&session_id)
-            .is_some()
-        {
+        let removed = {
+            let mut sessions = shell_sessions_clone.lock().await;
+            if sessions
+                .get(&session_id)
+                .is_some_and(|h| Arc::ptr_eq(&h.master, &async_master))
+            {
+                sessions.remove(&session_id);
+                true
+            } else {
+                false
+            }
+        };
+        if removed {
             let reason = status
                 .and_then(|s| {
                     s.code()
@@ -340,4 +427,24 @@ pub(super) async fn open_shell_session(
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn utf8_survives_every_pty_chunk_boundary() {
+        let text = "终端输出🙂\r\n";
+        for split in 0..=text.len() {
+            let mut pending = Vec::new();
+            let mut got = decode_pty_chunk(&mut pending, &text.as_bytes()[..split], false);
+            got.push_str(&decode_pty_chunk(
+                &mut pending,
+                &text.as_bytes()[split..],
+                true,
+            ));
+            assert_eq!(got, text);
+            assert!(pending.is_empty());
+        }
+    }
 }

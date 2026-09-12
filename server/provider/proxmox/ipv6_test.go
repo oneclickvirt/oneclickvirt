@@ -83,6 +83,9 @@ func setupProxmoxIPv6CommandTestDB(t *testing.T) {
 }
 
 func TestExecuteIPv6NetworkCommandFallsBackWithoutRate(t *testing.T) {
+	oldLog := global.APP_LOG
+	global.APP_LOG = zap.NewNop()
+	defer func() { global.APP_LOG = oldLog }()
 	executor := &ipv6CommandExecutor{fail: func(command string) error {
 		if strings.Contains(command, "rate=") {
 			return errors.New("unsupported rate")
@@ -227,6 +230,9 @@ func TestProxmoxAPICreateRequestAllowsFallbackForDefinitive4xx(t *testing.T) {
 }
 
 func TestExecuteIPv6NetworkCommandReturnsFallbackFailure(t *testing.T) {
+	oldLog := global.APP_LOG
+	global.APP_LOG = zap.NewNop()
+	defer func() { global.APP_LOG = oldLog }()
 	executor := &ipv6CommandExecutor{
 		fail:   func(string) error { return errors.New("command failed") },
 		output: func(string) string { return "PVE rejected this command" },

@@ -8,20 +8,18 @@ use futures_util::{SinkExt, StreamExt};
 use rand;
 use std::collections::HashMap;
 use std::os::unix::io::AsRawFd;
-use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use tokio::process::Command;
-use tokio::sync::{Mutex, Semaphore, mpsc, oneshot};
+use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 use tower::ServiceExt;
 use tracing::{info, warn};
 
-use super::shell::{open_shell_session, pty_kill, pty_resize};
+use super::shell::{open_shell_session, pty_resize};
 use super::types::*;
 use crate::tunnel::{
-    SessionMap, WsFrame, handle_binary_frame, handle_tunnel_close, handle_tunnel_keepalive,
-    handle_tunnel_open, reject_tunnel_open,
+    SessionMap, WsFrame, handle_binary_frame, handle_tunnel_close, handle_tunnel_eof,
+    handle_tunnel_keepalive, handle_tunnel_open,
 };
 
 pub(super) async fn handle_connection<S>(
@@ -51,7 +49,7 @@ where
     // here breaks the deadlock: the forwarder exits → mpsc channels
     // close → all senders get errors → handle_connection returns →
     // run_ws_client reconnects with backoff.
-    tokio::spawn(async move {
+    let write_task = tokio::spawn(async move {
         loop {
             let msg = match ws_rx_hi.try_recv() {
                 Ok(msg) => Some(msg),
@@ -96,7 +94,12 @@ where
     // Limit concurrent command executions to 10 to prevent the agent from
     // spawning an unbounded number of processes when the controller sends
     // many commands in rapid succession.
-    let exec_permits: Arc<Semaphore> = Arc::new(Semaphore::new(10));
+    static EXEC_PERMITS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    let exec_permits = EXEC_PERMITS
+        .get_or_init(|| Arc::new(Semaphore::new(10)))
+        .clone();
+    let exec_tasks: Arc<Mutex<HashMap<String, watch::Sender<bool>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let api_permits: Arc<Semaphore> = Arc::new(Semaphore::new(8));
 
     // Limit concurrent tunnel open operations to 20 to prevent resource
@@ -108,7 +111,10 @@ where
 
     // Limit concurrent shell sessions to 5 to prevent resource exhaustion
     // when the controller rapidly opens/closes admin terminals.
-    let shell_permits: Arc<Semaphore> = Arc::new(Semaphore::new(5));
+    static SHELL_PERMITS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    let shell_permits = SHELL_PERMITS
+        .get_or_init(|| Arc::new(Semaphore::new(5)))
+        .clone();
 
     // ── Anti-DPI noise sender ───────────────────────────────────────────
     // Periodically sends random-length noise frames ("nop" type) at
@@ -118,7 +124,7 @@ where
     // a fingerprint).  The payload field key is randomised each cycle to
     // prevent structural matching on {"h":"..."}-style patterns.
     let noise_tx = ws_tx_hi.clone();
-    tokio::spawn(async move {
+    let noise_task = tokio::spawn(async move {
         // Randomise field key pool; pick one per cycle.
         const NOISE_KEYS: &[&str] = &["d", "v", "p", "r", "c", "b", "m", "x", "e", "q"];
         loop {
@@ -250,93 +256,115 @@ where
                             .map(|p| p.cmd)
                             .unwrap_or_default();
 
-                        info!(id = %req_id, cmd = %cmd, "executing command from controller");
+                        info!(id = %req_id, "executing command from controller");
 
                         // Spawn command execution in a separate task so the read loop
                         // is never blocked by a slow or hanging command.
                         let ws_tx_hi_clone = ws_tx_hi.clone();
                         let permits = exec_permits.clone();
+                        if req_id.is_empty() || exec_tasks.lock().await.contains_key(&req_id) {
+                            continue;
+                        }
+                        let (cancel, mut cancelled) = watch::channel(false);
+                        exec_tasks.lock().await.insert(req_id.clone(), cancel);
+                        let tasks = exec_tasks.clone();
                         tokio::spawn(async move {
-                            let _permit = match tokio::time::timeout(
-                                Duration::from_secs(10),
-                                permits.acquire_owned(),
-                            )
-                            .await
-                            {
-                                Ok(Ok(permit)) => permit,
-                                _ => {
-                                    let resp_payload = ExecRespPayload {
-                                        stdout: String::new(),
-                                        stderr: "agent exec concurrency limit exceeded".to_string(),
-                                        exit_code: -1,
-                                    };
-                                    let resp_frame = WsFrame {
-                                        msg_type: "exec_resp".to_string(),
-                                        id: Some(req_id.clone()),
-                                        payload: Some(serde_json::to_value(resp_payload).unwrap()),
-                                    };
-                                    if let Ok(resp_text) = serde_json::to_string(&resp_frame) {
-                                        let msg = Message::Text(resp_text.into());
-                                        if ws_tx_hi_clone.try_send(msg.clone()).is_err() {
-                                            let _ = tokio::time::timeout(
-                                                Duration::from_secs(5),
-                                                ws_tx_hi_clone.send(msg),
-                                            )
-                                            .await;
-                                        }
-                                    }
-                                    return;
-                                }
-                            };
-
-                            let output = tokio::time::timeout(
-                                std::time::Duration::from_secs(300),
-                                Command::new("sh")
-                                    .arg("-c")
-                                    .arg(&cmd)
-                                    .stdout(Stdio::piped())
-                                    .stderr(Stdio::piped())
-                                    .output(),
-                            )
-                            .await;
-
-                            let resp_payload = match output {
-                                Ok(Ok(out)) => ExecRespPayload {
-                                    stdout: String::from_utf8_lossy(&out.stdout).to_string(),
-                                    stderr: String::from_utf8_lossy(&out.stderr).to_string(),
-                                    exit_code: out.status.code().unwrap_or(-1),
-                                },
-                                Ok(Err(e)) => ExecRespPayload {
-                                    stdout: String::new(),
-                                    stderr: e.to_string(),
-                                    exit_code: -1,
-                                },
-                                Err(_elapsed) => ExecRespPayload {
-                                    stdout: String::new(),
-                                    stderr: "command execution timed out (300s) on agent"
-                                        .to_string(),
-                                    exit_code: -1,
-                                },
-                            };
-
-                            let resp_frame = WsFrame {
-                                msg_type: "exec_resp".to_string(),
-                                id: Some(req_id.clone()),
-                                payload: Some(serde_json::to_value(resp_payload).unwrap()),
-                            };
-                            let resp_text = serde_json::to_string(&resp_frame)
-                                .unwrap_or_else(|e| format!(r#"{{"type":"exec_resp","id":"{}","payload":{{"stdout":"","stderr":"serialize error: {}","exit_code":-1}}}}"#, req_id, e));
-                            // Non-blocking send for exec response:
-                            // try_send first, fall back to short timeout.
-                            let resp_msg = Message::Text(resp_text.into());
-                            if ws_tx_hi_clone.try_send(resp_msg.clone()).is_err() {
-                                let _ = tokio::time::timeout(
+                            let task_id = req_id.clone();
+                            let work = async move {
+                                let _permit = match tokio::time::timeout(
                                     Duration::from_secs(10),
-                                    ws_tx_hi_clone.send(resp_msg),
+                                    permits.acquire_owned(),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(permit)) => permit,
+                                    _ => {
+                                        let resp_payload = ExecRespPayload {
+                                            stdout: String::new(),
+                                            stderr: "agent exec concurrency limit exceeded"
+                                                .to_string(),
+                                            exit_code: -1,
+                                        };
+                                        let resp_frame = WsFrame {
+                                            msg_type: "exec_resp".to_string(),
+                                            id: Some(req_id.clone()),
+                                            payload: Some(
+                                                serde_json::to_value(resp_payload).unwrap(),
+                                            ),
+                                        };
+                                        if let Ok(resp_text) = serde_json::to_string(&resp_frame) {
+                                            let msg = Message::Text(resp_text.into());
+                                            if ws_tx_hi_clone.try_send(msg.clone()).is_err() {
+                                                let _ = tokio::time::timeout(
+                                                    Duration::from_secs(5),
+                                                    ws_tx_hi_clone.send(msg),
+                                                )
+                                                .await;
+                                            }
+                                        }
+                                        return;
+                                    }
+                                };
+
+                                let output = tokio::time::timeout(
+                                    std::time::Duration::from_secs(300),
+                                    super::exec::execute(&cmd),
                                 )
                                 .await;
+
+                                let resp_payload = match output {
+                                    Ok(Ok(out)) => ExecRespPayload {
+                                        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+                                        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+                                        exit_code: out.status.code().unwrap_or(-1),
+                                    },
+                                    Ok(Err(e)) => ExecRespPayload {
+                                        stdout: String::new(),
+                                        stderr: e.to_string(),
+                                        exit_code: -1,
+                                    },
+                                    Err(_elapsed) => ExecRespPayload {
+                                        stdout: String::new(),
+                                        stderr: "command execution timed out (300s) on agent"
+                                            .to_string(),
+                                        exit_code: -1,
+                                    },
+                                };
+
+                                let resp_frame = WsFrame {
+                                    msg_type: "exec_resp".to_string(),
+                                    id: Some(req_id.clone()),
+                                    payload: Some(serde_json::to_value(resp_payload).unwrap()),
+                                };
+                                let resp_text = serde_json::to_string(&resp_frame)
+                                .unwrap_or_else(|e| format!(r#"{{"type":"exec_resp","id":"{}","payload":{{"stdout":"","stderr":"serialize error: {}","exit_code":-1}}}}"#, req_id, e));
+                                // Non-blocking send for exec response:
+                                // try_send first, fall back to short timeout.
+                                let resp_msg = Message::Text(resp_text.into());
+                                if ws_tx_hi_clone.try_send(resp_msg.clone()).is_err() {
+                                    let _ = tokio::time::timeout(
+                                        Duration::from_secs(10),
+                                        ws_tx_hi_clone.send(resp_msg),
+                                    )
+                                    .await;
+                                }
+                            };
+                            tokio::select! {
+                                biased;
+                                _ = async {
+                                    if !*cancelled.borrow_and_update() { let _ = cancelled.changed().await; }
+                                } => {}
+                                _ = work => {}
                             }
+                            tasks.lock().await.remove(&task_id);
                         });
+                    }
+                    "exec_cancel" => {
+                        if let Some(id) = frame.id {
+                            if let Some(cancel) = exec_tasks.lock().await.get(&id) {
+                                cancel.send_replace(true);
+                            }
+                        }
                     }
                     "api_req" => {
                         let req_id = frame.id.clone().unwrap_or_default();
@@ -439,31 +467,9 @@ where
                             let hi_clone = ws_tx_hi.clone();
                             let lo_clone = ws_tx_lo.clone();
                             let sess_clone = sessions.clone();
-                            let permits = tunnel_permits.clone();
-                            tokio::spawn(async move {
-                                // Acquire a tunnel permit to bound concurrent
-                                // tunnel connections.  If all permits are
-                                // exhausted, the oldest permit holder must
-                                // complete first — this provides natural
-                                // backpressure during rapid toggle sequences.
-                                let _permit = match permits.try_acquire_owned() {
-                                    Ok(p) => p,
-                                    Err(_) => {
-                                        warn!(
-                                            "tunnel permit exhausted, dropping tunnel_open frame"
-                                        );
-                                        reject_tunnel_open(
-                                            payload_val,
-                                            hi_clone,
-                                            "tunnel permit exhausted",
-                                        )
-                                        .await;
-                                        return;
-                                    }
-                                };
-                                handle_tunnel_open(payload_val, hi_clone, lo_clone, sess_clone)
-                                    .await;
-                            });
+                            let permit = tunnel_permits.clone().try_acquire_owned().ok();
+                            handle_tunnel_open(payload_val, hi_clone, lo_clone, sess_clone, permit)
+                                .await;
                         }
                     }
                     "tunnel_close" => {
@@ -471,19 +477,42 @@ where
                             handle_tunnel_close(payload_val, &sessions).await;
                         }
                     }
+                    "tunnel_eof" => {
+                        if let Some(payload) = frame.payload {
+                            handle_tunnel_eof(payload, &sessions).await;
+                        }
+                    }
                     "tunnel_keepalive" => {
                         if let Some(payload_val) = frame.payload {
                             handle_tunnel_keepalive(payload_val, &sessions).await;
                         }
                     }
-                    "shell_open" => {
+                    "shell_open" | "shell_exec" => {
                         let req_id = frame.id.clone().unwrap_or_default();
+                        // Duplicate opens must not close an existing session.
+                        if req_id.is_empty() || shell_sessions.lock().await.contains_key(&req_id) {
+                            continue;
+                        }
                         let payload = frame.payload.unwrap_or_default();
+                        let command = if frame.msg_type == "shell_exec" {
+                            match payload
+                                .get("command")
+                                .and_then(|v| v.as_str())
+                                .filter(|s| !s.trim().is_empty())
+                            {
+                                Some(command) => Some(command.to_owned()),
+                                None => continue,
+                            }
+                        } else {
+                            None
+                        };
                         let ws_tx_hi_clone = ws_tx_hi.clone();
                         let shell_sessions_clone = shell_sessions.clone();
                         let permits = shell_permits.clone();
-                        tokio::spawn(async move {
-                            let _permit = match permits.try_acquire_owned() {
+                        // PTY setup only: register before reading the next frame.
+                        // The long-lived IO tasks are spawned by open_shell_session.
+                        {
+                            let permit = match permits.try_acquire_owned() {
                                 Ok(p) => p,
                                 Err(_) => {
                                     warn!("shell permit exhausted, dropping shell_open frame");
@@ -506,7 +535,7 @@ where
                                             .await;
                                         }
                                     }
-                                    return;
+                                    continue;
                                 }
                             };
                             if let Err(err) = open_shell_session(
@@ -514,6 +543,8 @@ where
                                 payload,
                                 ws_tx_hi_clone.clone(),
                                 shell_sessions_clone,
+                                Arc::new(permit),
+                                command,
                             )
                             .await
                             {
@@ -538,7 +569,7 @@ where
                                     }
                                 }
                             }
-                        });
+                        }
                     }
                     "shell_data" => {
                         let req_id = frame.id.clone().unwrap_or_default();
@@ -550,21 +581,13 @@ where
                                 // The channel preserves FIFO order, so stdin bytes always
                                 // arrive in the same order as WebSocket frames — unlike
                                 // spawning a new task per frame which allows out-of-order writes.
-                                if let Some(handle) =
-                                    shell_sessions.lock().await.get(&req_id).cloned()
-                                {
-                                    let data = payload.data.into_bytes();
-                                    // Non-blocking try_send; fall back to short-timeout send
-                                    // to avoid stalling the WS read loop on a full channel.
-                                    if handle.stdin_tx.try_send(data.clone()).is_err() {
-                                        let tx = handle.stdin_tx.clone();
-                                        tokio::spawn(async move {
-                                            let _ = tokio::time::timeout(
-                                                Duration::from_secs(3),
-                                                tx.send(data),
-                                            )
-                                            .await;
-                                        });
+                                let data = payload.data.into_bytes();
+                                let handle = shell_sessions.lock().await.get(&req_id).cloned();
+                                if let Some(handle) = handle {
+                                    // Never reorder/drop input and keep the shell alive:
+                                    // overload terminates only this session.
+                                    if handle.stdin_tx.try_send(data).is_err() {
+                                        handle.cancel();
                                     }
                                 }
                             }
@@ -595,13 +618,7 @@ where
                         let req_id = frame.id.clone().unwrap_or_default();
                         // Remove session first (prevents child-wait task from sending a duplicate shell_close).
                         if let Some(handle) = shell_sessions.lock().await.remove(&req_id) {
-                            tokio::spawn(async move {
-                                // Kill the entire process group so background jobs also die.
-                                pty_kill(handle.child_pid);
-                                // Dropping the handle closes master fd (stopping the reader task)
-                                // and drops stdin_tx (stopping the writer task).
-                                drop(handle);
-                            });
+                            handle.cancel();
                         }
                     }
                     "nop" => {
@@ -682,7 +699,9 @@ where
     // next controller data frame.
     {
         let mut tunnel_sessions = sessions.lock().await;
-        tunnel_sessions.clear();
+        for (_, session) in tunnel_sessions.drain() {
+            session.cancel();
+        }
     }
 
     // Cleanup: kill all active shell sessions to prevent orphan processes
@@ -690,12 +709,19 @@ where
     {
         let mut sessions_guard = shell_sessions.lock().await;
         for (_, handle) in sessions_guard.drain() {
-            pty_kill(handle.child_pid);
+            handle.cancel();
             // Dropping handle closes stdin_tx (writer task exits) and
             // decrements master Arc (reader task gets EIO and exits).
         }
     }
 
+    for (_, cancel) in exec_tasks.lock().await.drain() {
+        cancel.send_replace(true);
+    }
+    noise_task.abort();
+    write_task.abort();
+    let _ = noise_task.await;
+    let _ = write_task.await;
     match loop_err {
         Some(e) => Err(e),
         None => Ok(()),
@@ -716,6 +742,69 @@ fn allowed_api_request(method: &Method, path: &str) -> bool {
             | ("PUT", "/api/v1/egress/state")
             | ("POST", "/api/v1/egress/reconcile")
     )
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
+
+    #[tokio::test]
+    async fn failed_container_start_never_falls_back_to_host_and_other_sessions_work() {
+        let (agent_io, control_io) = tokio::io::duplex(65536);
+        let agent_ws = WebSocketStream::from_raw_socket(agent_io, Role::Client, None).await;
+        let mut control = WebSocketStream::from_raw_socket(control_io, Role::Server, None).await;
+        let task = tokio::spawn(handle_connection(
+            agent_ws,
+            "test",
+            Router::new(),
+            "test".into(),
+        ));
+        for frame in [
+            serde_json::json!({"type":"shell_exec","id":"a","payload":{"command":"false"}}),
+            serde_json::json!({"type":"shell_data","id":"a","payload":{"data":"printf 'HOST_%s' ESCAPED\n"}}),
+            serde_json::json!({"type":"shell_exec","id":"b","payload":{"command":"cat"}}),
+            serde_json::json!({"type":"shell_data","id":"b","payload":{"data":"SESSION_B_ALIVE\n"}}),
+            serde_json::json!({"type":"exec_req","id":"command","payload":{"command":"printf COMMAND_ALIVE"}}),
+        ] {
+            control
+                .send(Message::Text(frame.to_string()))
+                .await
+                .unwrap();
+        }
+        let observed = tokio::time::timeout(Duration::from_secs(3), async {
+            let (mut a_closed, mut b_alive, mut command_alive) = (false, false, false);
+            while let Some(Ok(Message::Text(text))) = control.next().await {
+                let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
+                let output = frame["payload"]["data"].as_str().unwrap_or("");
+                assert!(
+                    !output.contains("HOST_ESCAPED"),
+                    "tenant input escaped into host shell"
+                );
+                if frame["id"] == "a" && frame["type"] == "shell_close" {
+                    a_closed = true;
+                }
+                if frame["id"] == "b" && output.contains("SESSION_B_ALIVE") {
+                    b_alive = true;
+                }
+                if frame["id"] == "command" && frame["payload"]["stdout"] == "COMMAND_ALIVE" {
+                    command_alive = true;
+                }
+                if a_closed && b_alive && command_alive {
+                    return;
+                }
+            }
+            panic!("connection closed before independent work completed");
+        })
+        .await;
+        control.send(Message::Close(None)).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        observed.unwrap();
+    }
 }
 
 async fn dispatch_api_request(

@@ -161,6 +161,7 @@ func hasRepeatingPattern(password string, maxRepeat int) bool {
 }
 
 // GenerateStrongPassword 生成符合策略的强密码（仅包含数字和大小写英文字母）
+// Kept for instance/admin paths whose contract deliberately uses alphanumerics.
 func GenerateStrongPassword(length int) string {
 	if length < 8 {
 		length = 8
@@ -192,6 +193,29 @@ func GenerateStrongPassword(length int) string {
 	}
 
 	return string(password)
+}
+
+// GenerateAccountPassword honors the login password policy, including special
+// characters. It must not silently fall back to predictable entropy.
+func GenerateAccountPassword(length int, username string) (string, error) {
+	if length < DefaultPasswordPolicy.MinLength {
+		length = DefaultPasswordPolicy.MinLength
+	}
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#%+-_=.?"
+	for attempt := 0; attempt < 128; attempt++ {
+		password := make([]byte, length)
+		for i := range password {
+			n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+			if err != nil {
+				return "", fmt.Errorf("生成安全密码失败: %w", err)
+			}
+			password[i] = alphabet[n.Int64()]
+		}
+		if ValidatePasswordStrength(string(password), DefaultPasswordPolicy, username) == nil {
+			return string(password), nil
+		}
+	}
+	return "", fmt.Errorf("无法生成符合当前策略的密码")
 }
 
 // GenerateInstancePassword 为容器/虚拟机生成随机密码（小写英文开头，后面随机小写英文和数字混合，长度不低于8位）

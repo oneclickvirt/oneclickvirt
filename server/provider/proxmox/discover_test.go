@@ -474,8 +474,10 @@ func TestNormalizeTokenConfigSplitsPersistedValue(t *testing.T) {
 }
 
 func TestConnectAgentNormalizesPersistedToken(t *testing.T) {
+	oldLog := global.APP_LOG
 	global.APP_LOG = zap.NewNop()
 	p := NewProxmoxProvider().(*ProxmoxProvider)
+	defer func() { p.probeWG.Wait(); global.APP_LOG = oldLog }()
 	config := nodeConfigForDiscoveryTest("user@pve!token", "user@pve!token=secret")
 	config.NodeInstallType = "third_party"
 	config.HostName = "pve9"

@@ -19,9 +19,9 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
-use tokio::sync::mpsc;
+use tokio::sync::{OwnedSemaphorePermit, mpsc, watch};
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{info, warn};
+use tracing::warn;
 
 const TUNNEL_KEEPALIVE_INTERVAL_SECS: u64 = 30;
 /// Timeout for TCP connect to target — prevents indefinite hang when target is
@@ -33,10 +33,20 @@ const TUNNEL_CONNECT_TIMEOUT_SECS: u64 = 10;
 const TUNNEL_ACK_SEND_TIMEOUT_SECS: u64 = 5;
 
 /// 一个会话对应的 TCP 写入端（Agent 侧接收控制端的二进制数据并写入本地 TCP）。
-type SessionTx = mpsc::Sender<Vec<u8>>;
+pub struct TunnelSession {
+    id: String,
+    data: mpsc::Sender<Vec<u8>>,
+    cancel: watch::Sender<bool>,
+    ready: std::sync::atomic::AtomicBool,
+}
+impl TunnelSession {
+    pub fn cancel(&self) {
+        self.cancel.send_replace(true);
+    }
+}
 
 /// 全局会话表：connHash → Sender
-pub type SessionMap = Arc<Mutex<HashMap<u64, SessionTx>>>;
+pub type SessionMap = Arc<Mutex<HashMap<u64, Arc<TunnelSession>>>>;
 
 /// 发送 WebSocket 消息的通道（避免 trait object 复杂性）
 pub type WsSink = mpsc::Sender<Message>;
@@ -65,16 +75,6 @@ struct TunnelAckPayload {
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-}
-
-#[derive(Serialize)]
-struct TunnelClosePayload {
-    id: String,
-}
-
-#[derive(Serialize)]
-struct TunnelKeepalivePayload {
-    id: String,
 }
 
 /// FNV-1a 64 位 hash（与 Go 侧 hashString 一致）
@@ -142,222 +142,183 @@ pub async fn reject_tunnel_open(payload_val: serde_json::Value, hi_sink: WsSink,
     }
 }
 
-/// 处理 tunnel_open 帧：建立本地 TCP 连接并开始转发。
-/// `hi_sink` — high-priority control channel (tunnel_ack / tunnel_close).
-/// `data_sink` — low-priority bulk channel (binary data frames).
-///
-/// All potentially-blocking operations use timeouts or try_send to prevent the
-/// tunnel task from hanging indefinitely when the WebSocket write path is
-/// congested (e.g. during rapid toggle of remote connections on the node).
+/// Reserve the ID before returning to the WebSocket reader. The owned task
+/// connects and forwards; close/disconnect can cancel it even before first poll.
 pub async fn handle_tunnel_open(
     payload_val: serde_json::Value,
     hi_sink: WsSink,
     data_sink: WsSink,
     sessions: SessionMap,
+    permit: Option<OwnedSemaphorePermit>,
 ) {
-    let payload: TunnelOpenPayload = match serde_json::from_value(payload_val.clone()) {
-        Ok(p) => p,
-        Err(e) => {
-            warn!(error = %e, "failed to parse tunnel_open payload");
-            reject_tunnel_open(payload_val, hi_sink, "invalid tunnel_open payload").await;
-            return;
-        }
-    };
-
-    let conn_id = payload.id.clone();
-    let conn_hash = fnv1a_64(&conn_id);
-    {
-        let map = sessions.lock().await;
-        if map.contains_key(&conn_hash) {
-            drop(map);
-            warn!(conn_id = %conn_id, "duplicate tunnel_open for active session, acking existing tunnel");
-            if !send_ack_with_timeout(&hi_sink, &conn_id, true, None).await {
-                warn!(conn_id = %conn_id, "failed to ack duplicate tunnel_open");
+    let payload: TunnelOpenPayload =
+        match serde_json::from_value::<TunnelOpenPayload>(payload_val.clone()) {
+            Ok(p) if !p.id.is_empty() => p,
+            _ => {
+                reject_tunnel_open(payload_val, hi_sink, "invalid tunnel_open payload").await;
+                return;
             }
-            return;
-        }
-    }
-
-    // IPv6 addresses must be wrapped in brackets: [::1]:22 vs 127.0.0.1:22
-    let addr = if payload.host.contains(':') {
-        format!("[{}]:{}", payload.host, payload.port)
-    } else {
-        format!("{}:{}", payload.host, payload.port)
-    };
-
-    info!(conn_id = %conn_id, addr = %addr, "opening tunnel to target");
-
-    // 连接目标（带超时，防止目标不可达时无限挂起）
-    let tcp = match tokio::time::timeout(
-        std::time::Duration::from_secs(TUNNEL_CONNECT_TIMEOUT_SECS),
-        TcpStream::connect(&addr),
-    )
-    .await
-    {
-        Ok(Ok(s)) => s,
-        Ok(Err(e)) => {
-            warn!(conn_id = %conn_id, addr = %addr, error = %e, "failed to connect tunnel target");
-            if !send_ack_with_timeout(&hi_sink, &conn_id, false, Some(e.to_string())).await {
-                warn!(conn_id = %conn_id, "failed to send tunnel failure ack");
-            }
-            return;
-        }
-        Err(_elapsed) => {
-            warn!(conn_id = %conn_id, addr = %addr, "tunnel target connect timed out ({TUNNEL_CONNECT_TIMEOUT_SECS}s)");
-            if !send_ack_with_timeout(
-                &hi_sink,
-                &conn_id,
-                false,
-                Some(format!(
-                    "connect timeout after {}s",
-                    TUNNEL_CONNECT_TIMEOUT_SECS
-                )),
-            )
-            .await
-            {
-                warn!(conn_id = %conn_id, "failed to send tunnel timeout ack");
-            }
-            return;
-        }
-    };
-
-    // 控制端 → Agent（二进制帧 → TCP）。先注册 session，再发送成功 ack。
-    // 这样控制端收到 ack 后立即发来的 SSH banner/kex 数据会先进入 mpsc buffer，
-    // 不会落到“ack 已发但 session 尚未加入 map”的短暂空窗。
-    let (data_tx, mut data_rx) = mpsc::channel::<Vec<u8>>(64);
+        };
+    let hash = fnv1a_64(&payload.id);
+    let (tx, rx) = mpsc::channel(64);
+    let (cancel, cancelled) = watch::channel(false);
+    let session = Arc::new(TunnelSession {
+        id: payload.id.clone(),
+        data: tx,
+        cancel,
+        ready: std::sync::atomic::AtomicBool::new(false),
+    });
     {
         let mut map = sessions.lock().await;
-        if map.contains_key(&conn_hash) {
-            warn!(conn_id = %conn_id, "duplicate tunnel_open won race after TCP connect, dropping new TCP");
-            drop(tcp);
+        if let Some(existing) = map.get(&hash) {
+            let same_id = existing.id == payload.id;
+            let ready = existing.ready.load(std::sync::atomic::Ordering::Acquire);
             drop(map);
-            if !send_ack_with_timeout(&hi_sink, &conn_id, true, None).await {
-                warn!(conn_id = %conn_id, "failed to ack duplicate tunnel_open after connect");
+            // Pending duplicates share the original attempt and its eventual ACK.
+            if !same_id {
+                send_ack_with_timeout(
+                    &hi_sink,
+                    &payload.id,
+                    false,
+                    Some("session hash collision".into()),
+                )
+                .await;
+            } else if ready {
+                send_ack_with_timeout(&hi_sink, &payload.id, true, None).await;
             }
             return;
         }
-        map.insert(conn_hash, data_tx);
-    }
-
-    // 回复成功 ack（带超时的阻塞发送）。
-    // 使用带超时的 .await 确保 ACK 真正入队；若 5 秒内写路径仍拥塞，
-    // 则视为连接异常，干净地放弃本次隧道。
-    if !send_ack_with_timeout(&hi_sink, &conn_id, true, None).await {
-        warn!(conn_id = %conn_id, "failed to send tunnel_ack (channel congested or closed), dropping tunnel");
-        {
-            let mut map = sessions.lock().await;
-            map.remove(&conn_hash);
+        if permit.is_none() {
+            drop(map);
+            reject_tunnel_open(payload_val, hi_sink, "tunnel permit exhausted").await;
+            return;
         }
-        drop(tcp);
-        return;
+        map.insert(hash, session.clone());
     }
-
-    let (mut tcp_rx, mut tcp_tx) = tcp.into_split();
-
-    // Agent → 控制端（TCP → 二进制帧 → lo-priority data channel）
-    // Anti-DPI: vary read buffer (8KB-64KB), occasional micro-delay (20% prob).
-    // Uses try_send to avoid blocking — if the data channel is full, drop the
-    // frame and break out, allowing the tunnel to close cleanly rather than
-    // hanging indefinitely.
-    let data_sink_clone = data_sink.clone();
-    let hi_sink_close = hi_sink.clone();
-    let conn_id_clone = conn_id.clone();
-    let sessions_clone = sessions.clone();
     tokio::spawn(async move {
-        let header_arr = conn_hash.to_be_bytes();
-        loop {
-            let buf_size = 8192 + (rand::random::<usize>() % 57344); // 8KB-64KB
-            let mut buf = vec![0u8; buf_size];
-            match tcp_rx.read(&mut buf).await {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    let mut frame = Vec::with_capacity(8 + n);
-                    frame.extend_from_slice(&header_arr);
-                    frame.extend_from_slice(&buf[..n]);
-                    let msg = Message::Binary(frame.into());
-                    // Non-blocking send: if the data channel is full (write path
-                    // congested), drop this frame and abort the tunnel rather than
-                    // blocking the read task indefinitely.
-                    match data_sink_clone.try_send(msg) {
-                        Ok(()) => {}
-                        Err(mpsc::error::TrySendError::Closed(_)) => break,
-                        Err(mpsc::error::TrySendError::Full(_)) => {
-                            warn!(
-                                conn_id = %conn_id_clone,
-                                "tunnel data channel full, dropping frame and closing tunnel"
-                            );
-                            break;
-                        }
-                    }
-                    // Occasional micro-delay (0-3ms, ~20% probability)
-                    if rand::random::<u8>() % 5 == 0 {
-                        let us = (rand::random::<u64>() % 3000) as u64;
-                        tokio::time::sleep(std::time::Duration::from_micros(us)).await;
-                    }
-                }
+        let mut cancelled = cancelled;
+        let work = run_tunnel(&payload, hash, &session, &hi_sink, &data_sink, rx, permit);
+        tokio::pin!(work);
+        tokio::select! {
+            biased;
+            _ = async {
+                if !*cancelled.borrow_and_update() { let _ = cancelled.changed().await; }
+            } => {}
+            _ = &mut work => {}
+        }
+        session.cancel();
+        let mut map = sessions.lock().await;
+        if map
+            .get(&hash)
+            .is_some_and(|current| Arc::ptr_eq(current, &session))
+        {
+            if let Some(session) = map.remove(&hash) {
+                session.cancel();
             }
         }
-        // TCP 读完后发 tunnel_close (non-blocking via hi-priority control channel)
-        let close_payload = TunnelClosePayload {
-            id: conn_id_clone.clone(),
-        };
-        if let Ok(body) = serde_json::to_string(&WsFrame {
-            msg_type: "tunnel_close".to_string(),
-            id: None,
-            payload: serde_json::to_value(close_payload).ok(),
-        }) {
-            let _ = hi_sink_close.try_send(Message::Text(body.into()));
-        }
-        let mut map = sessions_clone.lock().await;
-        map.remove(&conn_hash);
     });
+}
 
-    let sessions_keepalive = sessions.clone();
-    let conn_id_keepalive = conn_id.clone();
-    let hi_sink_keepalive = hi_sink.clone();
-    tokio::spawn(async move {
+async fn run_tunnel(
+    payload: &TunnelOpenPayload,
+    hash: u64,
+    session: &TunnelSession,
+    hi_sink: &WsSink,
+    data_sink: &WsSink,
+    mut incoming: mpsc::Receiver<Vec<u8>>,
+    permit: Option<OwnedSemaphorePermit>,
+) {
+    // Tuple addressing also accepts raw IPv6 without double brackets.
+    let connected = tokio::time::timeout(
+        std::time::Duration::from_secs(TUNNEL_CONNECT_TIMEOUT_SECS),
+        TcpStream::connect((payload.host.as_str(), payload.port)),
+    )
+    .await;
+    let tcp = match connected {
+        Ok(Ok(tcp)) => tcp,
+        result => {
+            let reason = match result {
+                Ok(Err(e)) => e.to_string(),
+                _ => "tunnel connect timeout".to_string(),
+            };
+            send_ack_with_timeout(hi_sink, &payload.id, false, Some(reason)).await;
+            return;
+        }
+    };
+    if !send_ack_with_timeout(hi_sink, &payload.id, true, None).await {
+        return;
+    }
+    session
+        .ready
+        .store(true, std::sync::atomic::Ordering::Release);
+    // This budget limits concurrent TCP opens, not established forwarding
+    // sessions. Keep the original capacity semantics for busy providers.
+    drop(permit);
+    let (mut reader, mut writer) = tcp.into_split();
+    // Both I/O futures belong to this task. Dropping the losing future closes
+    // its TCP half, including a blocked read/write on close or disconnect.
+    let outgoing = async {
+        loop {
+            let mut buf = vec![0u8; 8192 + rand::random::<usize>() % 57344];
+            let n = match reader.read(&mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            let mut frame = Vec::with_capacity(8 + n);
+            frame.extend_from_slice(&hash.to_be_bytes());
+            frame.extend_from_slice(&buf[..n]);
+            if !matches!(
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(15),
+                    data_sink.send(Message::Binary(frame.into())),
+                )
+                .await,
+                Ok(Ok(()))
+            ) {
+                break;
+            }
+            if rand::random::<u8>() % 5 == 0 {
+                tokio::time::sleep(std::time::Duration::from_micros(
+                    rand::random::<u64>() % 3000,
+                ))
+                .await;
+            }
+        }
+    };
+    let inbound = async {
+        while let Some(data) = incoming.recv().await {
+            if data.is_empty() {
+                if writer.shutdown().await.is_err() {
+                    break;
+                }
+                // Peer half-closed its input; keep the response reader alive.
+                std::future::pending::<()>().await;
+            }
+            if writer.write_all(&data).await.is_err() {
+                break;
+            }
+        }
+    };
+    let keepalive = async {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
             TUNNEL_KEEPALIVE_INTERVAL_SECS,
         ));
         loop {
             ticker.tick().await;
-            {
-                let map = sessions_keepalive.lock().await;
-                if !map.contains_key(&conn_hash) {
-                    break;
-                }
-            }
-            let keepalive_payload = TunnelKeepalivePayload {
-                id: conn_id_keepalive.clone(),
-            };
-            if let Ok(body) = serde_json::to_string(&WsFrame {
-                msg_type: "tunnel_keepalive".to_string(),
-                id: None,
-                payload: serde_json::to_value(keepalive_payload).ok(),
-            }) {
-                // Non-blocking send for keepalive — if channel is full, skip
-                // this cycle rather than blocking.
-                if hi_sink_keepalive
-                    .try_send(Message::Text(body.into()))
-                    .is_err()
-                {
-                    break;
-                }
-            }
+            let frame = serde_json::json!({"type":"tunnel_keepalive","payload":{"id":payload.id}});
+            // A skipped keepalive under backpressure is not a broken transport.
+            let _ = hi_sink.try_send(Message::Text(frame.to_string()));
         }
-    });
-
-    // 控制端 → Agent 数据写入 TCP
-    let sessions_clone2 = sessions.clone();
-    tokio::spawn(async move {
-        while let Some(data) = data_rx.recv().await {
-            if tcp_tx.write_all(&data).await.is_err() {
-                break;
-            }
-        }
-        let mut map = sessions_clone2.lock().await;
-        map.remove(&conn_hash);
-    });
+    };
+    tokio::select! { _ = outgoing => {}, _ = inbound => {}, _ = keepalive => {} }
+    // The terminal frame MUST share the data FIFO: hi-priority close can
+    // otherwise overtake the final TCP response already queued in data_sink.
+    let close = serde_json::json!({"type":"tunnel_close","payload":{"id":payload.id}});
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        data_sink.send(Message::Text(close.to_string())),
+    )
+    .await;
 }
 
 /// 处理来自控制端的二进制帧（路由到对应 session）
@@ -368,26 +329,29 @@ pub async fn handle_binary_frame(data: &[u8], sessions: &SessionMap) {
     let hash = u64::from_be_bytes(data[..8].try_into().unwrap_or([0; 8]));
     let payload = data[8..].to_vec();
     let mut map = sessions.lock().await;
-    if let Some(tx) = map.get(&hash) {
-        match tx.try_send(payload) {
+    if let Some(session) = map.get(&hash) {
+        match session.data.try_send(payload) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Closed(_)) => {
-                map.remove(&hash);
+                if let Some(session) = map.remove(&hash) {
+                    session.cancel();
+                }
             }
             Err(mpsc::error::TrySendError::Full(_)) => {
                 warn!(
                     conn_hash = hash,
                     "tunnel inbound buffer full, closing session"
                 );
-                map.remove(&hash);
+                if let Some(session) = map.remove(&hash) {
+                    session.cancel();
+                }
             }
         }
     }
 }
 
 /// 处理 tunnel_close 帧（移除 session）。
-/// 注意：仅移除 session 映射；对应的 spawned tasks 会在下次轮询时
-/// 发现 session 已移除并自然退出。
+/// 显式唤醒连接和 I/O 的取消分支，不等待下一次 TCP 数据。
 pub async fn handle_tunnel_close(payload_val: serde_json::Value, sessions: &SessionMap) {
     #[derive(Deserialize)]
     struct ClosePayload {
@@ -396,10 +360,109 @@ pub async fn handle_tunnel_close(payload_val: serde_json::Value, sessions: &Sess
     if let Ok(p) = serde_json::from_value::<ClosePayload>(payload_val) {
         let hash = fnv1a_64(&p.id);
         let mut map = sessions.lock().await;
-        map.remove(&hash);
+        if let Some(session) = map.remove(&hash) {
+            session.cancel();
+        }
     }
 }
 
 pub async fn handle_tunnel_keepalive(_payload_val: serde_json::Value, _sessions: &SessionMap) {
     // Session-level keepalive: no-op on agent side.
+}
+
+pub async fn handle_tunnel_eof(payload: serde_json::Value, sessions: &SessionMap) {
+    if let Some(id) = payload.get("id").and_then(|id| id.as_str()) {
+        let map = sessions.lock().await;
+        if let Some(session) = map.get(&fnv1a_64(id)) {
+            if session.id == id && session.data.try_send(Vec::new()).is_err() {
+                session.cancel();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::sync::Semaphore;
+
+    #[tokio::test]
+    async fn close_before_connect_task_runs_cancels_reservation() {
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let permits = Arc::new(Semaphore::new(1));
+        let (hi, _hi_rx) = mpsc::channel(8);
+        let (lo, _lo_rx) = mpsc::channel(8);
+        handle_tunnel_open(
+            serde_json::json!({"id":"a","host":"127.0.0.1","port":9}),
+            hi,
+            lo,
+            sessions.clone(),
+            Some(permits.clone().try_acquire_owned().unwrap()),
+        )
+        .await;
+        assert_eq!(sessions.lock().await.len(), 1);
+        handle_tunnel_close(serde_json::json!({"id":"a"}), &sessions).await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while permits.available_permits() != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(sessions.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn tcp_tail_precedes_close_and_releases_session_permit() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let peer = tokio::spawn(async move {
+            let (mut tcp, _) = listener.accept().await.unwrap();
+            tcp.write_all(b"final response").await.unwrap();
+            tcp.shutdown().await.unwrap();
+        });
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let permits = Arc::new(Semaphore::new(1));
+        let (hi, mut hi_rx) = mpsc::channel(8);
+        let (lo, mut lo_rx) = mpsc::channel(8);
+        handle_tunnel_open(
+            serde_json::json!({"id":"tail","host":"127.0.0.1","port":port}),
+            hi,
+            lo,
+            sessions.clone(),
+            Some(permits.clone().try_acquire_owned().unwrap()),
+        )
+        .await;
+        let ack = tokio::time::timeout(Duration::from_secs(1), hi_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(ack.to_text().unwrap().contains("tunnel_ack"));
+        let mut bytes = Vec::new();
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(1), lo_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            match frame {
+                Message::Binary(data) => bytes.extend_from_slice(&data[8..]),
+                Message::Text(text) => {
+                    assert!(text.contains("tunnel_close"));
+                    break;
+                }
+                _ => panic!("unexpected tunnel frame"),
+            }
+        }
+        assert_eq!(bytes, b"final response");
+        peer.await.unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while permits.available_permits() != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(sessions.lock().await.is_empty());
+    }
 }
