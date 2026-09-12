@@ -17,6 +17,11 @@ import (
 
 // UploadContent 上传内容到远程服务器指定路径
 func (c *SSHClient) UploadContent(content, remotePath string, perm os.FileMode) error {
+	endUse, useErr := c.beginUse()
+	if useErr != nil {
+		return useErr
+	}
+	defer endUse()
 	// 检查连接健康状态，如果不健康则尝试重连
 	if !c.IsHealthy() {
 		global.APP_LOG.Warn("SSH连接不健康，尝试重连后上传",
@@ -27,8 +32,15 @@ func (c *SSHClient) UploadContent(content, remotePath string, perm os.FileMode) 
 	}
 
 	// 创建SFTP客户端
-	sftpClient, err := sftp.NewClient(c.client)
+	client := c.GetUnderlyingClient()
+	if client == nil {
+		return fmt.Errorf("SSH client is closed")
+	}
+	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
+		if c.IsHealthy() {
+			return fmt.Errorf("failed to create SFTP session: %w", err)
+		}
 		// 尝试重连后重试一次
 		global.APP_LOG.Warn("SFTP客户端创建失败，尝试重连后重试",
 			zap.String("host", c.config.Host),
@@ -36,7 +48,11 @@ func (c *SSHClient) UploadContent(content, remotePath string, perm os.FileMode) 
 		if reconnErr := c.Reconnect(); reconnErr != nil {
 			return fmt.Errorf("failed to reconnect SSH: %w (original error: %v)", reconnErr, err)
 		}
-		sftpClient, err = sftp.NewClient(c.client)
+		client = c.GetUnderlyingClient()
+		if client == nil {
+			return fmt.Errorf("SSH client is closed")
+		}
+		sftpClient, err = sftp.NewClient(client)
 		if err != nil {
 			return fmt.Errorf("failed to create SFTP client after reconnection: %w", err)
 		}

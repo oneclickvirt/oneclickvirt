@@ -80,6 +80,8 @@ func InternalIPToVMIDCandidates(ip string) []int {
 }
 
 type ProxmoxProvider struct {
+	probeWG           sync.WaitGroup // initial Agent probes; tests/shutdown can join them
+	probeCancel       context.CancelFunc
 	natDataPlaneGroup singleflight.Group // Coalesces concurrent NAT data-plane reconciliation.
 	natDataPlaneMu    sync.Mutex
 	natDataPlaneReady time.Time
@@ -314,6 +316,13 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 }
 
 func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	p.mu.Lock()
+	if p.probeCancel != nil {
+		p.probeCancel()
+	}
+	probeCtx, cancelProbe := context.WithCancel(context.Background())
+	p.probeCancel = cancelProbe
+	p.mu.Unlock()
 	p.config = config
 	p.connected = false
 	p.apiHealthy = false
@@ -363,29 +372,51 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 	// Agent 模式下 getNodeName 和 getProxmoxVersion 改为异步，
 	// 避免因 Agent 尚未建立 WebSocket 连接而阻塞 Provider 加载
 	if config.NodeInstallType != "third_party" {
-		go p.detectScriptNATSubnet()
+		p.startAgentProbe(func() {
+			select {
+			case <-probeCtx.Done():
+				return
+			default:
+			}
+			p.detectScriptNATSubnet()
+		})
 	}
 
-	go func() {
-		if err := p.getNodeName(context.Background()); err != nil {
+	p.startAgentProbe(func() {
+		select {
+		case <-probeCtx.Done():
+			return
+		default:
+		}
+		if err := p.getNodeName(probeCtx); err != nil {
 			global.APP_LOG.Warn("Agent模式下Proxmox节点名获取失败", zap.Error(err))
 		} else {
 			global.APP_LOG.Debug("Agent模式下Proxmox节点名获取成功",
 				zap.String("node", p.nodeName()))
 		}
-	}()
+	})
 
-	go func() {
+	p.startAgentProbe(func() {
+		select {
+		case <-probeCtx.Done():
+			return
+		default:
+		}
 		if err := p.getProxmoxVersion(); err != nil {
 			global.APP_LOG.Warn("Agent模式下Proxmox版本获取失败", zap.Error(err))
 		}
-	}()
+	})
 
 	global.APP_LOG.Info("Proxmox provider (Agent模式) 加载完成",
 		zap.String("name", config.Name),
 		zap.String("type", config.Type),
 		zap.String("node", utils.TruncateString(p.nodeName(), 32)))
 	return nil
+}
+
+func (p *ProxmoxProvider) startAgentProbe(probe func()) {
+	p.probeWG.Add(1)
+	go func() { defer p.probeWG.Done(); probe() }()
 }
 
 func (p *ProxmoxProvider) configureAPITLS(config provider.NodeConfig) error {
@@ -415,8 +446,20 @@ func (p *ProxmoxProvider) configureAPITLS(config provider.NodeConfig) error {
 
 func (p *ProxmoxProvider) Disconnect(ctx context.Context) error {
 	p.mu.Lock()
+	if p.probeCancel != nil {
+		p.probeCancel()
+		p.probeCancel = nil
+	}
 	p.sshClient.Close() // SafeShellExecutor.Close 内部清理executor，无需置nil
 	p.mu.Unlock()
+	probeDone := make(chan struct{})
+	go func() { p.probeWG.Wait(); close(probeDone) }()
+	select {
+	case <-probeDone:
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		global.APP_LOG.Warn("等待 Proxmox Agent 探测退出超时")
+	}
 
 	// 按providerID清理transport
 	if p.providerID > 0 {
@@ -909,7 +952,7 @@ func (p *ProxmoxProvider) getProxmoxVersion() error {
 				p.version = versionStr
 				p.mu.Unlock()
 				global.APP_LOG.Debug("获取 Proxmox 版本成功",
-					zap.String("version", p.version),
+					zap.String("version", versionStr),
 					zap.String("node", p.nodeName()))
 				return nil
 			}
@@ -926,13 +969,14 @@ func (p *ProxmoxProvider) getProxmoxVersion() error {
 
 // supportsCloneFstrim 检查是否支持 fstrim_cloned_disks 参数（PVE 8.0+）
 func (p *ProxmoxProvider) supportsCloneFstrim() bool {
-	if p.version == "" || p.version == "unknown" {
+	version := p.GetVersion()
+	if version == "" || version == "unknown" {
 		// 如果版本未知，为了兼容性，不使用该参数
 		return false
 	}
 
 	// 解析主版本号
-	parts := strings.Split(p.version, ".")
+	parts := strings.Split(version, ".")
 	if len(parts) == 0 {
 		return false
 	}
@@ -942,7 +986,7 @@ func (p *ProxmoxProvider) supportsCloneFstrim() bool {
 	var major int
 	if _, err := fmt.Sscanf(majorStr, "%d", &major); err != nil {
 		global.APP_LOG.Warn("无法解析 Proxmox 主版本号，不使用 fstrim_cloned_disks",
-			zap.String("version", p.version),
+			zap.String("version", version),
 			zap.Error(err))
 		return false
 	}

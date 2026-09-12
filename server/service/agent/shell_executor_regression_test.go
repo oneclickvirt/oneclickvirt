@@ -76,6 +76,13 @@ func startControlRouter(t *testing.T, control *websocket.Conn, ac *AgentConn) {
 			}
 			ac.mu.Lock()
 			switch msg.Type {
+			case msgTypeShellReady:
+				if session := ac.shellSessions[msg.ID]; session != nil {
+					select {
+					case session.ReadyCh <- struct{}{}:
+					default:
+					}
+				}
 			case msgTypeExecResponse:
 				var response execResponsePayload
 				if json.Unmarshal(msg.Payload, &response) == nil {
@@ -213,6 +220,52 @@ func TestAgentCommandTimeoutDoesNotCloseSharedConnection(t *testing.T) {
 	if result.output != "fast-result" {
 		t.Fatalf("command B output = %q", result.output)
 	}
+}
+
+func TestExecShellStartsAtomicallyAndWaitsForReady(t *testing.T) {
+	control, peer, cleanup := newAgentWebSocketPair(t)
+	defer cleanup()
+	ac := newAgentConn(701, control, "test")
+	startControlRouter(t, control, ac)
+	opened := make(chan wsMessage, 1)
+	startAgentSimulator(t, peer, func(msg wsMessage) { opened <- msg })
+	type result struct {
+		session *AgentShellSession
+		err     error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		session, err := ac.StartExecShell(80, 24, "lxc exec tenant -- /bin/sh")
+		resultCh <- result{session, err}
+	}()
+	var frame wsMessage
+	select {
+	case frame = <-opened:
+	case <-time.After(time.Second):
+		t.Fatal("missing shell_exec")
+	}
+	if frame.Type != msgTypeShellExec {
+		t.Fatalf("unsafe non-atomic startup: %s", frame.Type)
+	}
+	var payload shellOpenPayload
+	if err := json.Unmarshal(frame.Payload, &payload); err != nil || payload.Command != "lxc exec tenant -- /bin/sh" {
+		t.Fatalf("unexpected startup payload: %s", frame.Payload)
+	}
+	select {
+	case <-resultCh:
+		t.Fatal("startup returned before ready")
+	default:
+	}
+	sendAgentFrame(t, peer, wsMessage{Type: msgTypeShellReady, ID: frame.ID})
+	select {
+	case got := <-resultCh:
+		if got.err != nil || got.session.ID != frame.ID {
+			t.Fatalf("startup failed: %+v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ready did not release startup")
+	}
+	ac.closeAllSessions()
 }
 
 func TestCloseShellOnlyClosesRequestedSession(t *testing.T) {

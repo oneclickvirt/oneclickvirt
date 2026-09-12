@@ -22,14 +22,39 @@ import (
 // ── AgentHub — 全局单例，管理所有 Agent 连接 ────────────────────────────────
 
 type AgentHub struct {
-	mu    sync.RWMutex
-	conns map[uint]*AgentConn // providerID → AgentConn
+	mu             sync.RWMutex
+	conns          map[uint]*AgentConn // providerID → AgentConn
+	lifecycleLocks sync.Map            // provider ID -> *sync.Mutex; never a global IO lock
 
 	persistMu         sync.Mutex
 	statusPersistMemo map[uint]agentStatusPersistState // providerID -> 最近一次状态持久化信息
 
 	runtimeMu    sync.RWMutex
 	runtimeState map[uint]agentRuntimeState // providerID -> 运行时连接健康状态
+}
+
+func (h *AgentHub) lifecycleLock(providerID uint) *sync.Mutex {
+	lock, _ := h.lifecycleLocks.LoadOrStore(providerID, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
+func (h *AgentHub) withCurrent(ac *AgentConn, fn func()) bool {
+	lock := h.lifecycleLock(ac.ProviderID)
+	lock.Lock()
+	defer lock.Unlock()
+	current, ok := h.GetConn(ac.ProviderID)
+	if !ok || current != ac {
+		return false
+	}
+	fn()
+	return true
+}
+
+func (h *AgentHub) recordInbound(ac *AgentConn, now time.Time) bool {
+	return h.withCurrent(ac, func() {
+		h.markInbound(ac.ProviderID, now)
+		h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
+	})
 }
 
 var (
@@ -56,6 +81,9 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	if ac == nil {
 		return
 	}
+	lock := h.lifecycleLock(ac.ProviderID)
+	lock.Lock()
+	defer lock.Unlock()
 	h.mu.Lock()
 	// 如果已有旧连接，关闭底层 TCP 连接，触发 readLoop 退出。
 	// 同时记录旧 conn 指针，在锁外进行完整清理，避免 h.mu 持锁时间过长。
@@ -64,7 +92,7 @@ func (h *AgentHub) Register(ac *AgentConn) {
 		old = o
 		old.conn.Close()
 	}
-	h.conns[ac.ProviderID] = ac
+	delete(h.conns, ac.ProviderID)
 	h.mu.Unlock()
 
 	// 在锁外清理旧连接的 goroutine 和 pending 操作：
@@ -83,6 +111,14 @@ func (h *AgentHub) Register(ac *AgentConn) {
 
 	// 清理旧的 TunnelManager，确保后续端口转发使用新的 AgentConn
 	RemoveTunnelManager(ac.ProviderID)
+	if old != nil {
+		StopControllerPortForwardsByProvider(ac.ProviderID)
+	}
+	// Publish only after old resources have been removed. Serializing lifecycle
+	// edges prevents old offline writes/cleanup from crossing this publication.
+	h.mu.Lock()
+	h.conns[ac.ProviderID] = ac
+	h.mu.Unlock()
 
 	global.APP_LOG.Info("Agent 已连接",
 		zap.Uint("providerID", ac.ProviderID),
@@ -147,11 +183,7 @@ func (h *AgentHub) Register(ac *AgentConn) {
 		if !waitForAgentShutdown(3 * time.Second) {
 			return
 		}
-		if old != nil {
-			RebuildControllerPortForwardsByProvider(ac.ProviderID)
-		} else {
-			EnsureControllerPortForwardsByProvider(ac.ProviderID)
-		}
+		h.withCurrent(ac, func() { EnsureControllerPortForwardsByProvider(ac.ProviderID) })
 	}()
 
 	// Agent 重连后的跨模块配置重放（例如域名反代）。这些 hook 必须幂等，
@@ -248,6 +280,11 @@ func (h *AgentHub) DisconnectProvider(providerID uint) {
 // unregister 注销连接（同步更新 DB 状态以确保前端立即可见）。
 func (h *AgentHub) unregister(ac *AgentConn) {
 	providerID := ac.ProviderID
+	lock := h.lifecycleLock(providerID)
+	lock.Lock()
+	defer lock.Unlock()
+	// Local resources always belong to ac, even when it has been superseded.
+	defer ac.closeAllSessions()
 
 	h.mu.Lock()
 	current, ok := h.conns[providerID]
@@ -317,8 +354,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 		ac.mu.Lock()
 		ac.pingFailCount = 0
 		ac.mu.Unlock()
-		h.markInbound(ac.ProviderID, now)
-		h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
+		h.recordInbound(ac, now)
 		return nil
 	})
 
@@ -337,8 +373,9 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 		ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
 		now := time.Now()
 		// 仅在收到 Agent 上行帧时续命在线，避免"仅写成功但链路已半断"误判。
-		h.markInbound(ac.ProviderID, now)
-		h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
+		if !h.recordInbound(ac, now) {
+			return
+		}
 
 		// 二进制帧：隧道数据 [8-byte connID hash][payload]
 		if msgType == websocket.BinaryMessage {
@@ -350,7 +387,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			tunnelMgrMu.RLock()
 			mgr, hasMgr := tunnelMgrs[ac.ProviderID]
 			tunnelMgrMu.RUnlock()
-			if hasMgr {
+			if hasMgr && mgr.ac == ac {
 				mgr.DeliverByHash(connHash, payload)
 			}
 			continue
@@ -364,7 +401,6 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 
 		switch msg.Type {
 		case msgTypeExecResponse:
-			h.markInbound(ac.ProviderID, time.Now())
 			var resp execResponsePayload
 			if err := json.Unmarshal(msg.Payload, &resp); err == nil {
 				ac.mu.Lock()
@@ -416,7 +452,9 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 				ac.hostname = info.Hostname
 				ac.mu.Unlock()
 				now := time.Now()
-				go h.updateProviderAgentStatusWithVersion(ac.ProviderID, "online", &now, ac.remoteAddr, info.Hostname, info.Version)
+				go h.withCurrent(ac, func() {
+					h.updateProviderAgentStatusWithVersion(ac.ProviderID, "online", &now, ac.remoteAddr, info.Hostname, info.Version)
+				})
 			}
 
 		case msgTypeTunnelAck:
@@ -425,7 +463,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 				tunnelMgrMu.RLock()
 				mgr, hasMgr := tunnelMgrs[ac.ProviderID]
 				tunnelMgrMu.RUnlock()
-				if hasMgr {
+				if hasMgr && mgr.ac == ac {
 					mgr.DeliverAck(ack)
 				}
 			}
@@ -436,7 +474,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 				tunnelMgrMu.RLock()
 				mgr, hasMgr := tunnelMgrs[ac.ProviderID]
 				tunnelMgrMu.RUnlock()
-				if hasMgr {
+				if hasMgr && mgr.ac == ac {
 					mgr.CloseSession(cl.ConnID)
 				}
 			}
@@ -447,13 +485,21 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 				tunnelMgrMu.RLock()
 				mgr, hasMgr := tunnelMgrs[ac.ProviderID]
 				tunnelMgrMu.RUnlock()
-				if hasMgr {
+				if hasMgr && mgr.ac == ac {
 					mgr.TouchSession(keepalive.ConnID)
 				}
 			}
 
+		case msgTypeShellReady:
+			ac.mu.Lock()
+			if session := ac.shellSessions[msg.ID]; session != nil {
+				select {
+				case session.ReadyCh <- struct{}{}:
+				default:
+				}
+			}
+			ac.mu.Unlock()
 		case msgTypeShellData:
-			h.markInbound(ac.ProviderID, time.Now())
 			var payload shellDataPayload
 			if err := json.Unmarshal(msg.Payload, &payload); err == nil {
 				ac.mu.Lock()

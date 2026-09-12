@@ -3,9 +3,11 @@ package notification
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"oneclickvirt/global"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/utils"
 	"oneclickvirt/utils/messaging"
 
@@ -29,7 +31,10 @@ func (s *Service) ResetPassword(userID uint) (string, error) {
 	}
 
 	// 生成强密码（12位）
-	newPassword := utils.GenerateStrongPassword(12)
+	newPassword, err := utils.GenerateAccountPassword(12, user.Username)
+	if err != nil {
+		return "", err
+	}
 
 	// 密码强度验证（确保生成的密码符合策略）
 	if err := utils.ValidatePasswordStrength(newPassword, utils.DefaultPasswordPolicy, user.Username); err != nil {
@@ -43,9 +48,10 @@ func (s *Service) ResetPassword(userID uint) (string, error) {
 	}
 
 	// 更新密码
-	if err := global.APP_DB.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+	if err := global.APP_DB.Model(&user).Updates(map[string]interface{}{"password": string(hashedPassword), "tokens_invalidated_at": time.Now()}).Error; err != nil {
 		return "", err
 	}
+	cache.GetUserCacheService().InvalidateUserCache(user.ID)
 
 	return newPassword, nil
 }
@@ -58,7 +64,10 @@ func (s *Service) ResetPasswordAndNotify(userID uint) (string, error) {
 	}
 
 	// 生成强密码（12位）
-	newPassword := utils.GenerateStrongPassword(12)
+	newPassword, err := utils.GenerateAccountPassword(12, user.Username)
+	if err != nil {
+		return "", err
+	}
 
 	// 密码强度验证（确保生成的密码符合策略）
 	if err := utils.ValidatePasswordStrength(newPassword, utils.DefaultPasswordPolicy, user.Username); err != nil {
@@ -72,9 +81,10 @@ func (s *Service) ResetPasswordAndNotify(userID uint) (string, error) {
 	}
 
 	// 更新密码
-	if err := global.APP_DB.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+	if err := global.APP_DB.Model(&user).Updates(map[string]interface{}{"password": string(hashedPassword), "tokens_invalidated_at": time.Now()}).Error; err != nil {
 		return "", err
 	}
+	cache.GetUserCacheService().InvalidateUserCache(user.ID)
 
 	// 发送新密码到用户绑定的通信渠道
 	if err := s.sendPasswordToUser(&user, newPassword); err != nil {

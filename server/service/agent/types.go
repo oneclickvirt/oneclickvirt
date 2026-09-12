@@ -52,6 +52,8 @@ const (
 	msgTypePong         = "pong"      // Agent → 控制端: 心跳应答
 	msgTypeInfo         = "info"      // Agent → 控制端: 上报自身信息
 	msgTypeShellOpen    = "shell_open"
+	msgTypeShellExec    = "shell_exec"
+	msgTypeShellReady   = "shell_ready"
 	msgTypeShellData    = "shell_data"
 	msgTypeShellResize  = "shell_resize"
 	msgTypeShellClose   = "shell_close"
@@ -109,8 +111,9 @@ type infoPayload struct {
 }
 
 type shellOpenPayload struct {
-	Cols int `json:"cols"`
-	Rows int `json:"rows"`
+	Cols    int    `json:"cols"`
+	Rows    int    `json:"rows"`
+	Command string `json:"command,omitempty"`
 }
 
 type shellDataPayload struct {
@@ -130,6 +133,7 @@ type AgentShellSession struct {
 	ID       string
 	OutputCh chan []byte
 	DoneCh   chan struct{}
+	ReadyCh  chan struct{}
 	closed   bool // 防止重复关闭 OutputCh 导致 panic
 	closeMu  sync.Mutex
 }
@@ -158,7 +162,8 @@ type AgentConn struct {
 	hostname   string
 
 	mu            sync.Mutex
-	writeMu       sync.Mutex
+	writeGate     chan struct{}
+	writeGateOnce sync.Once
 	pending       map[string]chan execResponsePayload // reqID → response channel
 	apiPending    map[string]chan apiResponsePayload  // reqID → typed API response channel
 	fmPending     map[string]chan fmRawResp           // reqID → fm response channel

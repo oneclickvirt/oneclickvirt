@@ -162,7 +162,7 @@ func handleAgentExecTerminal(ws *websocket.Conn, providerID uint, command, proto
 		return
 	}
 
-	session, err := conn.StartShell(80, 24)
+	session, err := conn.StartExecShell(80, 24, command)
 	if err != nil {
 		_ = ws.WriteMessage(websocket.TextMessage, []byte("启动 Agent Exec 终端失败: "+err.Error()+"\r\n"))
 		return
@@ -177,12 +177,8 @@ func handleAgentExecTerminal(ws *websocket.Conn, providerID uint, command, proto
 	defer cancel()
 	writer := &userExecWriter{ws: ws}
 
-	// Agent opens a host shell. `exec` replaces it with the container process;
-	// the trailing exit closes the shell if command setup itself fails.
-	if err := conn.WriteShellInput(session.ID, []byte("exec "+command+"; exit $?\n")); err != nil {
-		_ = writer.write(ctx, websocket.TextMessage, []byte("启动容器 Exec 失败: "+err.Error()+"\r\n"))
-		return
-	}
+	// Agent has acknowledged atomic process startup. Browser input cannot
+	// arrive at an intermediate interactive host shell.
 
 	var sessionClosed atomic.Bool
 	var wg sync.WaitGroup

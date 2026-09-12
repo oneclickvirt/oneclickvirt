@@ -55,6 +55,7 @@ func NewSSHConnectionPool(maxIdleTime time.Duration, logger *zap.Logger) *SSHCon
 func (p *SSHConnectionPool) GetOrCreate(providerID uint, config SSHConfig) (*SSHClient, error) {
 	// 先尝试获取现有连接（读锁）
 	p.mu.RLock()
+	readLockHeld := true
 	if client, exists := p.conns[providerID]; exists {
 		// 检查配置是否变更
 		oldConfig, configExists := p.configs[providerID]
@@ -62,11 +63,12 @@ func (p *SSHConnectionPool) GetOrCreate(providerID uint, config SSHConfig) (*SSH
 
 		// 检查连接年龄
 		createTime, hasTime := p.lastUsed[providerID]
-		tooOld := hasTime && time.Since(createTime) > p.maxAge
+		tooOld := hasTime && time.Since(createTime) > p.maxAge && !client.inUse()
 
 		// 如果配置未变更且连接健康且未过期，尝试复用
 		if !configChanged && !tooOld && client.IsHealthy() {
 			p.mu.RUnlock()
+			readLockHeld = false
 			p.mu.Lock()
 			// 双重检查：连接可能在读写锁切换窗口期被驱逐
 			recheck, recheckExists := p.conns[providerID]
@@ -97,7 +99,9 @@ func (p *SSHConnectionPool) GetOrCreate(providerID uint, config SSHConfig) (*SSH
 			}
 		}
 	}
-	p.mu.RUnlock()
+	if readLockHeld {
+		p.mu.RUnlock()
+	}
 
 	// 需要创建新连接（写锁）
 	p.mu.Lock()
@@ -109,7 +113,7 @@ func (p *SSHConnectionPool) GetOrCreate(providerID uint, config SSHConfig) (*SSH
 		configChanged := !configExists || !p.isSameConfig(oldConfig, config)
 
 		createTime, hasTime := p.lastUsed[providerID]
-		tooOld := hasTime && time.Since(createTime) > p.maxAge
+		tooOld := hasTime && time.Since(createTime) > p.maxAge && !client.inUse()
 
 		if !configChanged && !tooOld && client.IsHealthy() {
 			p.lastUsed[providerID] = time.Now()
@@ -122,9 +126,12 @@ func (p *SSHConnectionPool) GetOrCreate(providerID uint, config SSHConfig) (*SSH
 	}
 
 	// 检查连接数限制
-	if len(p.conns) >= p.maxConnections {
+	if _, replacing := p.conns[providerID]; !replacing && len(p.conns) >= p.maxConnections {
 		// 达到上限，强制清理最旧的连接
 		p.evictOldestConnection()
+		if len(p.conns) >= p.maxConnections {
+			return nil, fmt.Errorf("SSH connection pool is busy; no idle connection to evict")
+		}
 	}
 
 	// 创建新连接
@@ -135,6 +142,11 @@ func (p *SSHConnectionPool) GetOrCreate(providerID uint, config SSHConfig) (*SSH
 
 	// 关闭旧连接（如果存在）
 	if oldClient, exists := p.conns[providerID]; exists {
+		if p.isSameConfig(p.configs[providerID], config) && oldClient.IsHealthy() && !oldClient.retireIfIdle() {
+			client.Close()
+			p.lastUsed[providerID] = time.Now()
+			return oldClient, nil
+		}
 		oldClient.Close()
 		if p.logger != nil {
 			p.logger.Info("关闭旧SSH连接（配置变更或失效）",
@@ -167,6 +179,9 @@ func (p *SSHConnectionPool) evictOldestConnection() {
 	first := true
 
 	for id, t := range p.lastUsed {
+		if client := p.conns[id]; client == nil || client.inUse() {
+			continue
+		}
 		if first || t.Before(oldestTime) {
 			oldestID = id
 			oldestTime = t
@@ -175,6 +190,9 @@ func (p *SSHConnectionPool) evictOldestConnection() {
 	}
 
 	if client, exists := p.conns[oldestID]; exists {
+		if !client.retireIfIdle() {
+			return
+		}
 		// 在持有写锁的情况下删除所有 Map 中的引用
 		delete(p.conns, oldestID)
 		delete(p.configs, oldestID)
@@ -455,6 +473,9 @@ func (p *SSHConnectionPool) cleanup() {
 		}
 
 		if shouldRemove {
+			if reason != "unhealthy" && !client.retireIfIdle() {
+				continue
+			}
 			toRemove = append(toRemove, providerID)
 			toClose = append(toClose, client)
 			if p.logger != nil {

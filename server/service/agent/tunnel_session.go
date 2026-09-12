@@ -60,7 +60,33 @@ func validateTunnelTarget(targetHost string, targetPort int) (string, bool) {
 	return host, true
 }
 
-func sendTunnelOpenWithRetry(expectedConnID string, sendOpen func() error, ackCh <-chan tunnelAckPayload, maxAttempts int, perAttemptTimeout time.Duration) (tunnelAckPayload, error) {
+func sendTunnelOpenWithRetry(expectedConnID string, sendOpen func() error, ackCh <-chan tunnelAckPayload, maxAttempts int, perAttemptTimeout time.Duration, done ...<-chan struct{}) (tunnelAckPayload, error) {
+	var sessionDone, connectionDone <-chan struct{}
+	if len(done) > 0 {
+		sessionDone = done[0]
+	}
+	if len(done) > 1 {
+		connectionDone = done[1]
+	}
+	cancelled := func() bool {
+		select {
+		case <-sessionDone:
+			return true
+		case <-connectionDone:
+			return true
+		default:
+			return false
+		}
+	}
+	backoff := func() {
+		timer := time.NewTimer(tunnelOpenRetryBackoff)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-sessionDone:
+		case <-connectionDone:
+		}
+	}
 	if maxAttempts <= 0 {
 		maxAttempts = 1
 	}
@@ -70,7 +96,10 @@ func sendTunnelOpenWithRetry(expectedConnID string, sendOpen func() error, ackCh
 	drainAck := func() {
 		for {
 			select {
-			case <-ackCh:
+			case _, ok := <-ackCh:
+				if !ok {
+					return
+				}
 			default:
 				return
 			}
@@ -79,13 +108,16 @@ func sendTunnelOpenWithRetry(expectedConnID string, sendOpen func() error, ackCh
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if cancelled() {
+			return tunnelAckPayload{}, fmt.Errorf("tunnel open cancelled")
+		}
 		// 清空上一次尝试遗留的 ACK，避免陈旧响应干扰当前重试。
 		drainAck()
 
 		if err := sendOpen(); err != nil {
 			lastErr = fmt.Errorf("发送 tunnel_open 失败: %w", err)
 			if attempt < maxAttempts {
-				time.Sleep(tunnelOpenRetryBackoff)
+				backoff()
 			}
 			continue
 		}
@@ -93,7 +125,17 @@ func sendTunnelOpenWithRetry(expectedConnID string, sendOpen func() error, ackCh
 		timer := time.NewTimer(perAttemptTimeout)
 		for {
 			select {
-			case ack := <-ackCh:
+			case <-sessionDone:
+				timer.Stop()
+				return tunnelAckPayload{}, fmt.Errorf("tunnel session closed")
+			case <-connectionDone:
+				timer.Stop()
+				return tunnelAckPayload{}, fmt.Errorf("agent disconnected")
+			case ack, ok := <-ackCh:
+				if !ok {
+					timer.Stop()
+					return tunnelAckPayload{}, fmt.Errorf("tunnel ACK channel closed")
+				}
 				// 仅接收当前 connID 的 ACK，忽略错会话或乱序 ACK。
 				if expectedConnID != "" && ack.ConnID != expectedConnID {
 					continue
@@ -115,7 +157,7 @@ func sendTunnelOpenWithRetry(expectedConnID string, sendOpen func() error, ackCh
 			case <-timer.C:
 				lastErr = fmt.Errorf("等待 tunnel_ack 超时（第 %d/%d 次）", attempt, maxAttempts)
 				if attempt < maxAttempts {
-					time.Sleep(tunnelOpenRetryBackoff)
+					backoff()
 				}
 				goto nextAttempt
 			}

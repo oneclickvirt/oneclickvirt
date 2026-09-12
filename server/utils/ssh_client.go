@@ -32,7 +32,39 @@ type SSHClient struct {
 	keepaliveCancel context.CancelFunc // keepalive goroutine控制
 	keepaliveWg     *sync.WaitGroup    // keepalive goroutine同步（指针避免拷贝）
 	mu              sync.RWMutex       // 保护并发访问
-	closed          bool               // 标记是否已关闭
+	reconnectMu     sync.Mutex
+	observed        *ssh.Client
+	transportDone   <-chan struct{}
+	closed          bool // 标记是否已关闭
+	activeUses      int
+	retiring        bool
+}
+
+func (c *SSHClient) beginUse() (func(), error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.retiring {
+		return nil, fmt.Errorf("SSH client is closed or retiring")
+	}
+	c.activeUses++
+	return func() { c.mu.Lock(); c.activeUses--; c.mu.Unlock() }, nil
+}
+
+func (c *SSHClient) inUse() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.activeUses > 0
+}
+
+// Atomically refuse new users only if no operation currently owns this client.
+func (c *SSHClient) retireIfIdle() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.activeUses > 0 {
+		return false
+	}
+	c.retiring = true
+	return true
 }
 
 func NewSSHClient(config SSHConfig) (*SSHClient, error) {
@@ -104,10 +136,23 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 
 	addr := buildSSHAddress(config.Host, config.Port)
 
-	client, err := ssh.Dial("tcp", addr, sshConfig)
+	// ssh.Dial's Timeout only bounds TCP dialing, not banner/authentication.
+	timeout := config.ConnectTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	tcp, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
+	_ = tcp.SetDeadline(time.Now().Add(timeout))
+	conn, channels, requests, err := ssh.NewClientConn(tcp, addr, sshConfig)
+	if err != nil {
+		tcp.Close()
+		return nil, nil, nil, fmt.Errorf("SSH handshake failed: %w", err)
+	}
+	_ = tcp.SetDeadline(time.Time{})
+	client := ssh.NewClient(conn, channels, requests)
 
 	// 启用 KeepAlive，保持连接活跃，使用context控制生命周期
 	ctx, cancel := context.WithCancel(context.Background())
@@ -146,7 +191,22 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 				}
 
 				// 检查连接状态
-				if _, _, err := client.Conn.SendRequest("keepalive@openssh.com", true, nil); err != nil {
+				result := make(chan error, 1)
+				go func() { _, _, err := client.Conn.SendRequest("keepalive@openssh.com", true, nil); result <- err }()
+				var probeErr error
+				timer := time.NewTimer(10 * time.Second)
+				select {
+				case probeErr = <-result:
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+					// A transport request itself stalled; closing unblocks its waiter.
+					client.Close()
+					return
+				}
+				timer.Stop()
+				if err := probeErr; err != nil {
 					failedCount++
 					global.APP_LOG.Debug("SSH keepalive失败",
 						zap.String("host", config.Host),
@@ -188,61 +248,87 @@ func buildSSHAddress(host string, port int) string {
 	return net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
 }
 
-// IsHealthy 检查SSH连接是否健康
+// IsHealthy observes the transport lifecycle, never opens a session. MaxSessions
+// rejection or disabled SFTP is a request-level error, not a dead connection.
 func (c *SSHClient) IsHealthy() bool {
-	if c.client == nil {
+	if c == nil {
 		return false
 	}
-
-	// 如果最近5秒内检查过，认为是健康的（避免频繁检查）
-	if time.Since(c.lastHealthTime) < 5*time.Second {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.retiring || c.client == nil {
+		return false
+	}
+	if c.observed != c.client {
+		client := c.client
+		done := make(chan struct{})
+		c.observed, c.transportDone = client, done
+		go func() { _ = client.Wait(); close(done) }()
+	}
+	select {
+	case <-c.transportDone:
+		return false
+	default:
 		return true
 	}
-
-	// 尝试创建一个session来测试连接
-	session, err := c.client.NewSession()
-	if err != nil {
-		global.APP_LOG.Warn("SSH连接健康检查失败",
-			zap.String("host", c.config.Host),
-			zap.Error(err))
-		return false
-	}
-	session.Close()
-
-	c.lastHealthTime = time.Now()
-	return true
 }
 
-// GetUnderlyingClient 获取底层的ssh.Client，供其他组件使用（如health checker）
-// 调用者不应该关闭返回的client，它由SSHClient管理
+// GetUnderlyingClient returns a snapshot owned by SSHClient; callers must not close it.
 func (c *SSHClient) GetUnderlyingClient() *ssh.Client {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return nil
+	}
 	return c.client
 }
 
-// Dial opens a TCP connection to an address reachable from the SSH host.
-// It is used for console protocols whose QEMU endpoint intentionally listens
-// only on the node loopback interface (for example Incus/LXD SPICE sockets
-// exposed by a short-lived websockify process).
+func (c *SSHClient) newSession() (*ssh.Session, error) {
+	client := c.GetUnderlyingClient()
+	if client == nil {
+		return nil, fmt.Errorf("SSH client is closed")
+	}
+	return client.NewSession()
+}
+
 func (c *SSHClient) Dial(network, address string) (net.Conn, error) {
-	if c == nil || c.client == nil {
-		return nil, fmt.Errorf("SSH client is not connected")
+	endUse, err := c.beginUse()
+	if err != nil { return nil, err }
+	if !c.IsHealthy() {
+		if err := c.Reconnect(); err != nil {
+			endUse()
+			return nil, err
+		}
+	}
+	client := c.GetUnderlyingClient()
+	if client == nil {
+		endUse()
+		return nil, fmt.Errorf("SSH client is closed")
 	}
 	if network == "" {
 		network = "tcp"
 	}
-	if !c.IsHealthy() {
-		if err := c.Reconnect(); err != nil {
-			return nil, fmt.Errorf("failed to reconnect SSH before dial: %w", err)
-		}
-	}
-	conn, err := c.client.Dial(network, address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial remote %s: %w", address, err)
-	}
-	return conn, nil
+	conn, err := client.Dial(network, address)
+	if err != nil { endUse(); return nil, err }
+	return &leasedSSHConn{Conn: conn, release: endUse}, nil
 }
 
-// Close 关闭SSH连接并等待所有goroutine退出
+type leasedSSHConn struct {
+	net.Conn
+	once sync.Once
+	release func()
+}
+
+func (c *leasedSSHConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(c.release)
+	return err
+}
+
+// Close is terminal: an in-flight reconnect may not resurrect this wrapper.
 func (c *SSHClient) Close() error {
 	c.mu.Lock()
 	if c.closed {
@@ -250,89 +336,66 @@ func (c *SSHClient) Close() error {
 		return nil
 	}
 	c.closed = true
+	client, cancel, wg := c.client, c.keepaliveCancel, c.keepaliveWg
+	c.client, c.keepaliveCancel, c.keepaliveWg = nil, nil, nil
 	c.mu.Unlock()
-
-	// 取消keepalive goroutine
-	if c.keepaliveCancel != nil {
-		c.keepaliveCancel()
+	if cancel != nil {
+		cancel()
 	}
-
-	// 等待keepalive goroutine退出
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		if c.keepaliveWg != nil {
-			c.keepaliveWg.Wait()
-		}
-	}()
-
-	timer := time.NewTimer(3 * time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-done:
-		// goroutine已退出
-		global.APP_LOG.Debug("SSH keepalive goroutine已正常退出",
-			zap.String("host", c.config.Host))
-	case <-timer.C:
-		global.APP_LOG.Warn("SSH keepalive goroutine退出超时，强制继续",
-			zap.String("host", c.config.Host))
-		// 超时也要继续关闭连接，不能阻塞
+	var err error
+	if client != nil {
+		err = client.Close()
 	}
-
-	// 关闭SSH客户端
-	if c.client != nil {
-		return c.client.Close()
-	}
-	return nil
-}
-
-// Reconnect 重新建立SSH连接
-func (c *SSHClient) Reconnect() error {
-	global.APP_LOG.Debug("尝试重新建立SSH连接",
-		zap.String("host", c.config.Host),
-		zap.Int("port", c.config.Port))
-
-	// 关闭旧连接和keepalive goroutine
-	if c.keepaliveCancel != nil {
-		c.keepaliveCancel()
-		// 等待旧的keepalive goroutine退出
+	if wg != nil {
 		done := make(chan struct{})
-		go func() {
-			if c.keepaliveWg != nil {
-				c.keepaliveWg.Wait()
-			}
-			close(done)
-		}()
-
-		timer := time.NewTimer(5 * time.Second)
-		defer timer.Stop()
-
+		go func() { wg.Wait(); close(done) }()
 		select {
 		case <-done:
-		case <-timer.C:
-			global.APP_LOG.Warn("等待旧keepalive goroutine退出超时", zap.String("host", c.config.Host))
+		case <-time.After(3 * time.Second):
 		}
 	}
-	if c.client != nil {
-		c.client.Close()
-	}
+	return err
+}
 
-	// 建立新连接
-	client, keepaliveCancel, keepaliveWg, err := dialSSH(c.config)
+// Reconnect coalesces concurrent recovery and never retires a healthy shared
+// transport because one command could not open a channel.
+func (c *SSHClient) Reconnect() error {
+	if c == nil {
+		return fmt.Errorf("SSH client is nil")
+	}
+	c.reconnectMu.Lock()
+	defer c.reconnectMu.Unlock()
+	if c.IsHealthy() {
+		return nil
+	}
+	c.mu.RLock()
+	closed, old := c.closed, c.client
+	config := c.config
+	c.mu.RUnlock()
+	if closed {
+		return fmt.Errorf("SSH client is closed")
+	}
+	client, cancel, wg, err := dialSSH(config)
 	if err != nil {
 		return fmt.Errorf("failed to reconnect SSH: %w", err)
 	}
-
-	c.client = client
-	c.keepaliveCancel = keepaliveCancel
-	c.keepaliveWg = keepaliveWg
+	c.mu.Lock()
+	if c.closed || c.client != old {
+		c.mu.Unlock()
+		cancel()
+		client.Close()
+		return fmt.Errorf("SSH client was closed or replaced during reconnect")
+	}
+	oldCancel := c.keepaliveCancel
+	c.client, c.keepaliveCancel, c.keepaliveWg = client, cancel, wg
+	c.observed, c.transportDone = nil, nil
 	c.lastHealthTime = time.Now()
-	c.closed = false
-
-	global.APP_LOG.Info("SSH连接重建成功",
-		zap.String("host", c.config.Host),
-		zap.Int("port", c.config.Port))
-
+	c.mu.Unlock()
+	if oldCancel != nil {
+		oldCancel()
+	}
+	if old != nil {
+		old.Close()
+	}
 	return nil
 }

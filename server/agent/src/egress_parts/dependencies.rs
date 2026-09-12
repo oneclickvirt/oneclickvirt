@@ -16,76 +16,131 @@ trait CommandExecutor {
 
 struct SystemExecutor;
 
-impl CommandExecutor for SystemExecutor {
-    fn run(
-        &self,
-        program: &str,
-        args: &[String],
-        input: Option<&str>,
-    ) -> Result<CommandResult, String> {
-        let mut command = Command::new(program);
-        command
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if input.is_some() {
-            command.stdin(Stdio::piped());
-        }
-        let mut child = command
-            .spawn()
-            .map_err(|e| format!("failed to start {program}: {e}"))?;
-        if let (Some(data), Some(stdin)) = (input, child.stdin.as_mut()) {
-            stdin
-                .write_all(data.as_bytes())
-                .map_err(|e| format!("failed to write {program} input: {e}"))?;
-        }
-        drop(child.stdin.take());
-        let mut stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| format!("failed capturing {program} stdout"))?;
-        let mut stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| format!("failed capturing {program} stderr"))?;
-        let stdout_reader = std::thread::spawn(move || {
-            let mut data = Vec::new();
-            let _ = stdout.read_to_end(&mut data);
-            data
-        });
-        let stderr_reader = std::thread::spawn(move || {
-            let mut data = Vec::new();
-            let _ = stderr.read_to_end(&mut data);
-            data
-        });
-        let started = Instant::now();
-        let status = loop {
-            if let Some(status) = child
-                .try_wait()
-                .map_err(|e| format!("failed waiting for {program}: {e}"))?
-            {
-                break status;
-            }
-            if started.elapsed() >= COMMAND_TIMEOUT {
+struct EgressProcessOwner {
+    child: Option<std::process::Child>,
+    finished: bool,
+}
+
+impl Drop for EgressProcessOwner {
+    fn drop(&mut self) {
+        if !self.finished {
+            if let Some(mut child) = self.child.take() {
+                unsafe { libc::killpg(child.id() as libc::pid_t, libc::SIGKILL); }
                 let _ = child.kill();
-                let _ = child.wait();
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
-                return Err(format!("{program} timed out"));
+                // Reap without holding the routing reconciliation worker if
+                // the kernel temporarily leaves a killed process in D-state.
+                std::thread::spawn(move || { let _ = child.wait(); });
+            }
+        }
+    }
+}
+
+fn nonblocking_pipe(fd: std::os::fd::RawFd) -> Result<(), String> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(format!("configuring command pipe: {}", std::io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
+fn drain_command_pipe(reader: &mut impl Read, data: &mut Vec<u8>) -> Result<bool, String> {
+    let mut buf = [0u8; 8192];
+    // Bound each polling turn so continuous output cannot starve the deadline.
+    for _ in 0..64 {
+        match reader.read(&mut buf) {
+            Ok(0) => return Ok(true),
+            Ok(n) => data.extend_from_slice(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(format!("reading command output: {e}")),
+        }
+    }
+    Ok(false)
+}
+
+impl SystemExecutor {
+    fn run_with_timeout(
+        &self, program: &str, args: &[String], input: Option<&str>, timeout: Duration,
+    ) -> Result<CommandResult, String> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::CommandExt;
+        let mut command = Command::new(program);
+        command.args(args).process_group(0).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
+        let child = command.spawn().map_err(|e| format!("failed to start {program}: {e}"))?;
+        let mut owner = EgressProcessOwner { child: Some(child), finished: false };
+        let child = owner.child.as_mut().unwrap();
+        let mut stdin = child.stdin.take();
+        let mut stdout = child.stdout.take().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        nonblocking_pipe(stdout.as_raw_fd())?;
+        nonblocking_pipe(stderr.as_raw_fd())?;
+        if let Some(pipe) = &stdin { nonblocking_pipe(pipe.as_raw_fd())?; }
+        let input = input.unwrap_or("").as_bytes();
+        let (mut input_offset, mut output, mut errors) = (0, Vec::new(), Vec::new());
+        let (mut out_done, mut err_done) = (false, false);
+        let started = Instant::now();
+        loop {
+            if started.elapsed() >= timeout { return Err(format!("{program} timed out")); }
+            if let Some(pipe) = &mut stdin {
+                match pipe.write(&input[input_offset..]) {
+                    Ok(n) => input_offset += n,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(e) => return Err(format!("failed to write {program} input: {e}")),
+                }
+                if input_offset == input.len() { stdin = None; }
+            }
+            if !out_done { out_done = drain_command_pipe(&mut stdout, &mut output)?; }
+            if !err_done { err_done = drain_command_pipe(&mut stderr, &mut errors)?; }
+            // Do not reap the leader before descendants release their pipes;
+            // keeping the PID reserved makes timeout group cleanup ABA-safe.
+            if out_done && err_done {
+                if let Some(status) = owner.child.as_mut().unwrap().try_wait()
+                    .map_err(|e| format!("failed waiting for {program}: {e}"))? {
+                    owner.finished = true;
+                    return Ok(CommandResult {
+                        success: status.success(),
+                        stdout: String::from_utf8_lossy(&output).to_string(),
+                        stderr: String::from_utf8_lossy(&errors).to_string(),
+                    });
+                }
             }
             std::thread::sleep(Duration::from_millis(20));
-        };
-        let stdout = stdout_reader
-            .join()
-            .map_err(|_| format!("failed reading {program} stdout"))?;
-        let stderr = stderr_reader
-            .join()
-            .map_err(|_| format!("failed reading {program} stderr"))?;
-        Ok(CommandResult {
-            success: status.success(),
-            stdout: String::from_utf8_lossy(&stdout).to_string(),
-            stderr: String::from_utf8_lossy(&stderr).to_string(),
-        })
+        }
+    }
+}
+
+impl CommandExecutor for SystemExecutor {
+    fn run(&self, program: &str, args: &[String], input: Option<&str>) -> Result<CommandResult, String> {
+        self.run_with_timeout(program, args, input, COMMAND_TIMEOUT)
+    }
+}
+
+#[cfg(test)]
+mod command_timeout_tests {
+    use super::*;
+
+    #[test]
+    fn inherited_pipe_and_blocked_stdin_cannot_bypass_deadline() {
+        for (script, input) in [
+            ("sleep 10 & exit 0", None),
+            ("sleep 10", Some("x".repeat(1024*1024))),
+        ] {
+            let started = Instant::now();
+            let result = SystemExecutor.run_with_timeout("sh", &["-c".into(), script.into()],
+                input.as_deref(), Duration::from_millis(100));
+            assert!(result.unwrap_err().contains("timed out"));
+            assert!(started.elapsed() < Duration::from_secs(2));
+        }
+    }
+
+    #[test]
+    fn command_input_and_final_output_are_preserved() {
+        let result = SystemExecutor.run_with_timeout("sh", &["-c".into(), "cat; printf tail >&2".into()],
+            Some("input"), Duration::from_secs(2)).unwrap();
+        assert!(result.success);
+        assert_eq!(result.stdout, "input");
+        assert_eq!(result.stderr, "tail");
     }
 }
 

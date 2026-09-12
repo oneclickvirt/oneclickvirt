@@ -341,11 +341,13 @@ const connect = () => {
     : `${protocol}//${host}${apiPath}?token=${encodeURIComponent(token)}`
 
   try {
-    websocket = new WebSocket(wsUrl)
+    const socket = new WebSocket(wsUrl)
+    websocket = socket
     // 设置为接收二进制数据作为 ArrayBuffer
     websocket.binaryType = 'arraybuffer'
 
     websocket.onopen = () => {
+      if (websocket !== socket || !terminal || isIntentionallyClosed) return
       isConnecting = false
       terminal.writeln(`\x1b[32m${t('user.instanceDetail.sshConnected')}\x1b[0m`)
       terminal.focus()
@@ -363,6 +365,7 @@ const connect = () => {
     }
 
     websocket.onmessage = (event) => {
+      if (websocket !== socket || !terminal || isIntentionallyClosed) return
       // 处理二进制数据
       if (event.data instanceof ArrayBuffer) {
         const uint8Array = new Uint8Array(event.data)
@@ -374,6 +377,7 @@ const connect = () => {
     }
 
     websocket.onerror = (error) => {
+      if (websocket !== socket || !terminal || isIntentionallyClosed) return
       console.error('WebSocket错误:', error)
       terminal.writeln(`\x1b[31m${t('user.instanceDetail.sshWebSocketError')}\x1b[0m`)
       ElMessage.error(t('user.instanceDetail.sshConnectionError'))
@@ -382,6 +386,7 @@ const connect = () => {
     }
 
     websocket.onclose = (event) => {
+      if (websocket !== socket || !terminal || isIntentionallyClosed) return
       isConnecting = false
       stopHeartbeat()
       
@@ -402,7 +407,7 @@ const connect = () => {
       if (!isIntentionallyClosed && terminal) {
         terminal.writeln(`\x1b[33m${t('user.instanceDetail.sshReconnecting')}\x1b[0m`)
         reconnectTimeout = setTimeout(() => {
-          reconnect()
+          if (websocket === socket && !isIntentionallyClosed) reconnect()
         }, 3000)
       }
     }
