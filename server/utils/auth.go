@@ -70,12 +70,44 @@ func GenerateToken(userID uint, username, userType string) (string, error) {
 		"user_type": userType,
 		"exp":       now.Add(expiresTime).Unix(),
 		"iat":       now.Unix(),
-		"nbf":       now.Unix(),
-		"jti":       generateTokenID(), // 唯一token ID
+		// Keep standard JWT seconds, but retain exact issuance order for password
+		// revocation. A string avoids JSON float64 losing nanosecond precision.
+		"iat_ns": strconv.FormatInt(now.UnixNano(), 10),
+		"nbf":    now.Unix(),
+		"jti":    generateTokenID(), // 唯一token ID
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(GetJWTKey()))
+}
+
+// TokenIssuedAt returns the signed issuance time used for user-level revocation.
+// Legacy JWTs retain their second precision; malformed new claims fail closed.
+func TokenIssuedAt(claims *jwt.MapClaims) (time.Time, error) {
+	if claims == nil {
+		return time.Time{}, fmt.Errorf("token缺少签发时间")
+	}
+	iat, err := claims.GetIssuedAt()
+	if err != nil || iat == nil || iat.Unix() <= 0 {
+		return time.Time{}, fmt.Errorf("token签发时间无效")
+	}
+	raw, exists := (*claims)["iat_ns"]
+	if !exists {
+		return iat.Time, nil
+	}
+	encoded, ok := raw.(string)
+	if !ok {
+		return time.Time{}, fmt.Errorf("token精确签发时间格式无效")
+	}
+	nanos, err := strconv.ParseInt(encoded, 10, 64)
+	if err != nil || nanos <= 0 {
+		return time.Time{}, fmt.Errorf("token精确签发时间无效")
+	}
+	precise := time.Unix(0, nanos)
+	if precise.Unix() != iat.Unix() {
+		return time.Time{}, fmt.Errorf("token签发时间不一致")
+	}
+	return precise, nil
 }
 
 // ShouldRefreshToken 检查token是否需要刷新（还剩不到1/3有效期）

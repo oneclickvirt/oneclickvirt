@@ -328,7 +328,7 @@ func UpdateProfile(c *gin.Context) {
 
 // ChangePassword 修改密码
 // @Summary 修改密码
-// @Description 修改当前用户的登录密码
+// @Description 修改当前用户的登录密码。成功后撤销此前签发的登录 JWT，客户端须使用新密码重新登录；独立 API Token 不受影响。
 // @Tags 用户管理
 // @Accept json
 // @Produce json
@@ -364,13 +364,13 @@ func ChangePassword(c *gin.Context) {
 
 // UserResetPassword 用户重置自己的密码
 // @Summary 用户重置自己的密码
-// @Description 用户重置自己的登录密码，系统自动生成符合安全策略的新密码，并通过绑定的通信渠道发送
+// @Description 用户重置自己的登录密码，系统自动生成符合安全策略的新密码，并尝试通过绑定的通信渠道发送。成功后撤销此前签发的登录 JWT，客户端须保存 data.newPassword 并重新登录；独立 API Token 不受影响。通信渠道发送失败但密码已更新时仍返回 200 和新密码。
 // @Tags 用户管理
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Param request body user.ResetPasswordRequest true "重置密码请求参数（可为空对象）"
-// @Success 200 {object} common.Response "重置成功，新密码已发送到绑定的通信渠道"
+// @Success 200 {object} common.Response "密码已重置，data.newPassword 返回新密码，原登录 JWT 已失效；通信渠道投递结果见消息"
 // @Failure 401 {object} common.Response "用户未登录"
 // @Failure 500 {object} common.Response "重置失败"
 // @Router /user/reset-password [put]

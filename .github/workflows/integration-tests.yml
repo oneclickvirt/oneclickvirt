@@ -149,6 +149,12 @@ jobs:
       - name: Test action harness failure classification
         run: bash scripts/tests/action_harness_classification_test.sh
 
+      - name: Test password rotation and token isolation
+        run: |
+          bash scripts/tests/user_password_rotation_test.sh
+          cd server
+          go test ./utils ./middleware ./service/auth ./service/user/notification
+
       - name: Test IPv6 tunnel CI isolation
         run: bash scripts/tests/ipv6_tunnel_ci_isolation_test.sh
 

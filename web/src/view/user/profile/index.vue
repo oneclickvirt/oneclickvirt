@@ -214,7 +214,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onActivated, onUnmounted } from 'vue'
+import { h, ref, reactive, onMounted, onActivated, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
@@ -223,6 +224,7 @@ import { updateProfile as updateProfileApi, resetPassword } from '@/api/user'
 
 const { t } = useI18n()
 const userStore = useUserStore()
+const router = useRouter()
 
 // 当前活动标签页
 const activeTab = ref('basic')
@@ -337,25 +339,45 @@ const confirmPasswordReset = async () => {
 // 重置密码
 const resetUserPassword = async () => {
   resetPasswordLoading.value = true
+  let response
   try {
-    const response = await resetPassword()
-    if (response.code === 200) {
-      // 获取返回的新密码
-      if (response.data && response.data.newPassword) {
-        generatedPassword.value = response.data.newPassword
-        ElMessage.success(t('user.profile.passwordResetSuccessWithMessage'))
-      } else {
-        ElMessage.success(response.msg || t('user.profile.passwordResetSuccessDefault'))
-      }
-    } else {
-      ElMessage.error(response.msg || t('user.profile.passwordResetFailed'))
-    }
-  } catch (error) {
-    console.error('Password reset error:', error)
+    response = await resetPassword()
+  } catch {
     ElMessage.error(t('user.profile.passwordResetFailedRetry'))
+    return
   } finally {
     resetPasswordLoading.value = false
   }
+  if (response.code !== 200) {
+    ElMessage.error(response.msg || t('user.profile.passwordResetFailed'))
+    return
+  }
+
+  const loginPath = userStore.isAnyAdmin ? '/admin/login' : '/login'
+  // The server has revoked this JWT. Do not leave the UI using it or call
+  // logout with it. Keep the returned password in a global dialog so a
+  // background 401/navigation cannot erase it before the user saves it.
+  userStore.clearUserData()
+  generatedPassword.value = typeof response.data?.newPassword === 'string' ? response.data.newPassword : ''
+  const message = [h('p', t('user.profile.passwordResetRequiresLogin'))]
+  if (generatedPassword.value) {
+    message.push(h('p', t('user.profile.newPassword')))
+    message.push(h('input', {
+      value: generatedPassword.value, readonly: true,
+      'aria-label': t('user.profile.newPassword'),
+      style: 'width: 100%; box-sizing: border-box; font-family: monospace;',
+      onFocus: event => event.target.select()
+    }))
+    message.push(h('button', { type: 'button', onClick: copyPassword }, t('common.copy')))
+  } else {
+    message.push(h('p', response.msg || t('user.profile.passwordResetSuccessDefault')))
+  }
+  await ElMessageBox.alert(h('div', message), t('user.profile.passwordResetSuccess'), {
+    confirmButtonText: t('user.profile.passwordSavedLogin'),
+    showClose: false, closeOnClickModal: false, closeOnPressEscape: false
+  }).catch(() => {})
+  generatedPassword.value = ''
+  await router.replace(loginPath)
 }
 
 // 复制密码到剪贴板

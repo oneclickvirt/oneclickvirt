@@ -2,6 +2,52 @@
 # Module 18: User Features (user-side comprehensive testing)
 # Dependencies: 02_auth (USER_TOKEN, USER_TOKEN2), 10_instances (TEST_INSTANCE_ID)
 
+# Password rotation invalidates the fixture's JWT. Keep both credentials in
+# sync for all later modules; never hide a stale-token failure by accepting 401.
+reset_and_reauthenticate_test_user() {
+    local group="$1" old_token="$USER_TOKEN" response new_password login_body new_token
+    if ! response=$(test_api "User reset password" "PUT" "/api/v1/user/reset-password" "200" \
+        '{}' "$group" "$old_token"); then
+        USER_TOKEN=""
+        chain_break "$group" "Password reset failed; user authentication state is unknown"
+        return 1
+    fi
+    USER_TOKEN=""
+    new_password=$(jq -er '.data.newPassword | select(type == "string" and length > 0)' <<< "$response" 2>/dev/null) || new_password=""
+    if [[ -z "$new_password" ]]; then
+        record_fail_result "User reset returns new password" "PUT" "/api/v1/user/reset-password" \
+            "nonempty newPassword" "missing" "Reset response did not provide usable credentials" "$group"
+        chain_break "$group" "Cannot reauthenticate after password reset"
+        return 1
+    fi
+    TEST_USER_PASS="$new_password"
+    local revoked=true
+    test_api "Old user token revoked after reset" "GET" "/api/v1/user/profile" "401" \
+        "" "$group" "$old_token" || revoked=false
+    login_body=$(jq -cn --arg username "$TEST_USER" --arg password "$TEST_USER_PASS" \
+        '{username:$username,password:$password}')
+    if ! response=$(test_api_noauth "User login after password reset" "POST" "/api/v1/auth/login" \
+        "200" "$login_body" "$group"); then
+        chain_break "$group" "Login with reset password failed"
+        return 1
+    fi
+    new_token=$(jq -er '.data.token | select(type == "string" and length > 0)' <<< "$response" 2>/dev/null) || new_token=""
+    if [[ -z "$new_token" ]]; then
+        record_fail_result "Reset password login returns token" "POST" "/api/v1/auth/login" \
+            "nonempty token" "missing" "Login response did not provide a JWT" "$group"
+        chain_break "$group" "Cannot restore user authentication"
+        return 1
+    fi
+    USER_TOKEN="$new_token"
+    if ! test_api "New user token works after reset" "GET" "/api/v1/user/profile" "200" \
+        "" "$group" "$USER_TOKEN"; then
+        USER_TOKEN=""
+        chain_break "$group" "Newly issued user token was rejected"
+        return 1
+    fi
+    [[ "$revoked" == true ]]
+}
+
 run_module_18() {
     report_add_section "18 - User Features"
     local group="user_features"
@@ -20,8 +66,7 @@ run_module_18() {
     test_api "Get user limits" "GET" "/api/v1/user/limits" "200" "" "$group" "$USER_TOKEN"
 
     # ---- User password reset (server auto-generates new password) ----
-    test_api "User reset password" "PUT" "/api/v1/user/reset-password" "200|400|404|500" \
-        '{}' "$group" "$USER_TOKEN"
+    reset_and_reauthenticate_test_user "$group" || return 1
 
     # ---- Available resources ----
     test_api "Get available resources" "GET" "/api/v1/user/resources/available" "200" "" "$group" "$USER_TOKEN"
