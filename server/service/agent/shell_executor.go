@@ -142,12 +142,11 @@ func (a *AgentShellExecutor) Execute(command string) (string, error) {
 		return "", err
 	}
 	output, execErr := conn.ExecuteWithTimeout(wrapShellEnv(command), 300*time.Second)
-	if execErr != nil && strings.Contains(execErr.Error(), "执行命令超时") {
-		// 出现执行超时时主动关闭当前 WS 连接，避免“假在线”僵尸连接长期占用。
-		// readLoop 会感知连接关闭并触发 unregister，随后 Agent 自动重连。
-		_ = conn.conn.Close()
-		return output, fmt.Errorf("%w；已主动断开连接并触发重连", execErr)
-	}
+	// ExecuteWithTimeout only times out this request. AgentConn removes the
+	// request from its pending map when it returns, so a late response is
+	// ignored without disturbing other requests that share this connection.
+	// A shared WebSocket is closed only by the hub after an actual transport
+	// failure (read/write/ping), never because one command exceeded its budget.
 	return output, execErr
 }
 
@@ -164,11 +163,9 @@ func (a *AgentShellExecutor) ExecuteWithTimeout(command string, timeout time.Dur
 		return "", err
 	}
 	output, execErr := conn.ExecuteWithTimeout(wrapShellEnv(command), timeout)
-	if execErr != nil && strings.Contains(execErr.Error(), "执行命令超时") {
-		// 与 Execute 保持一致：超时即主动断链，快速自愈。
-		_ = conn.conn.Close()
-		return output, fmt.Errorf("%w；已主动断开连接并触发重连", execErr)
-	}
+	// A request timeout is scoped to this request. Do not close the provider's
+	// shared WebSocket: WebSSH sessions, tunnels, and other Agent commands may
+	// be using it concurrently.
 	return output, execErr
 }
 
@@ -209,10 +206,9 @@ func (a *AgentShellExecutor) ExecuteRaw(command string, timeout time.Duration) (
 		return "", err
 	}
 	output, execErr := conn.ExecuteWithTimeout(command, timeout)
-	if execErr != nil && strings.Contains(execErr.Error(), "执行命令超时") {
-		_ = conn.conn.Close()
-		return output, fmt.Errorf("%w；已主动断开连接并触发重连", execErr)
-	}
+	// ExecuteRaw follows the same per-request timeout semantics as the wrapped
+	// executor. Transport failures are handled by AgentHub's read loop; a
+	// command timeout must not tear down the shared connection.
 	return output, execErr
 }
 
