@@ -1,0 +1,65 @@
+<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>[0;34m[INFO][0m 03:12:38 Container test size: 1C/1024MB/8G
+[0;34m[INFO][0m 03:12:38 VM test size: 1C/1024MB/8G
+
+[0;36m========== Environment Integration Test: qemu ==========[0m
+
+[0;34m[INFO][0m 03:12:38 Modules: all
+[0;34m[INFO][0m 03:12:38 Instance types: both (requested: both)
+[0;34m[INFO][0m 03:12:38 Execution rule: auto
+[0;34m[INFO][0m 03:12:38 Node hours: 24h
+[0;32m[PASS][0m 03:12:38 Platform resolution
+[0;34m[INFO][0m 03:12:38 Enabled platforms: lightnode
+[0;34m[INFO][0m 03:12:38 Active platform will be selected automatically with fallback
+[0;32m[PASS][0m 03:12:38 Required commands available: jq curl go mysql
+[0;32m[PASS][0m 03:12:38 Required commands
+[0;34m[INFO][0m 03:12:38 Resource check skipped (SKIP_RESOURCE_CHECK=true)
+[0;32m[PASS][0m 03:12:38 Runner resources
+[0;32m[PASS][0m 03:12:38 Port 8888 is available
+[0;32m[PASS][0m 03:12:38 Master port availability
+[0;34m[INFO][0m 03:12:38 Waiting for MySQL TCP readiness...
+mysqld is alive
+[0;32m[PASS][0m 03:12:38 MySQL ready after 0s
+[0;32m[PASS][0m 03:12:38 MySQL readiness
+
+[0;36m========== Phase 1: Deploy master on runner ==========[0m
+
+[0;34m[INFO][0m 03:12:38 Preparing isolated server workdir: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/server-work-qemu-8888-4596
+
+[0;36m========== Deploying master locally on runner from source (port 8888) ==========[0m
+
+[0;34m[INFO][0m 03:12:38 Server directory: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/server-work-qemu-8888-4596
+[0;34m[INFO][0m 03:12:38 Patching config.yaml for CI environment...
+[0;32m[PASS][0m 03:12:38 config.yaml patched
+[0;32m[PASS][0m 03:12:38 CI stub agent assets ready
+[0;34m[INFO][0m 03:12:38 Building server binary...
+[0;32m[PASS][0m 03:12:57 Server binary built
+[0;34m[INFO][0m 03:12:57 Server process started (PID 5657), waiting for startup...
+[0;32m[PASS][0m 03:13:02 Server started and responding (PID 5657, elapsed 5s, HTTP 200)
+[0;32m[PASS][0m 03:13:02 Master deployed locally on runner (port 8888)
+
+[0;36m========== Phase 2: Create worker node ==========[0m
+
+[0;34m[INFO][0m 03:13:02 Creating test node: env=qemu hours=24
+[0;34m[INFO][0m 03:13:02 Enabled platforms (priority order): lightnode
+[0;34m[INFO][0m 03:13:02 === Trying platform: lightnode (attempt 1/2) ===
+[0;34m[INFO][0m 03:13:02 Initializing platform: lightnode
+[0;34m[INFO][0m 03:13:02 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 03:13:02 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 03:13:04 [lightnode] Platform initialized
+[0;32m[PASS][0m 03:13:04 Platform 'lightnode' initialized
+[0;34m[INFO][0m 03:13:04 [lightnode] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 03:13:04 [lightnode] Creating new instance (env=qemu hours=24)...
+[0;34m[INFO][0m 03:13:04 [lightnode] Creating instance: env=qemu
+[0;34m[INFO][0m 03:13:04 [lightnode] Raised package floor for qemu/both to 4C/8192MB
+[0;34m[INFO][0m 03:13:04 [lightnode] Using package=intel-c4m8-bgp-b10-s50-d100 (required=4C/8192MB tier=3, strict=true)
+[0;31m[FAIL][0m 03:13:08 [lightnode] Create failed (HTTP 400): {"code":"kpy_front_web_UserSuspendsResourceCreate.Error","message":"Due to frequent resource creation and cancellation activity, new purchases are temporarily unavailable. Please try again in 4 days 18 hours 9 minutes 54 seconds.","requestId":"PYWYpExqxRbmjPjTRRyKRXeNQlBULzNf","timestamp":1789269188891}
+[0;31m[FAIL][0m 03:13:08 [lightnode] create_instance failed (exit=1). Raw output: <empty>
+[1;33m[WARN][0m 03:13:08 Platform 'lightnode' exhausted, trying next...
+[0;31m[FAIL][0m 03:13:08 All enabled platforms failed to create an instance (attempt 1/2)
+[0;31m[FAIL][0m 03:13:08 All enabled platforms failed to create an instance
+[0;31m[FAIL][0m 03:13:09 All platforms failed to create a test node
+[1;33m[WARN][0m 03:13:09 Worker node provisioning skipped due to an infrastructure failure (exit=1)
+[1;33m[SKIP][0m 03:13:09 Worker node provisioning: Worker node provisioning failed with exit 1
+[0;34m[INFO][0m 03:13:09 This is a transient infrastructure condition, not a test failure.
+[0;34m[INFO][0m 03:13:09 Re-run the workflow when resources are available, or add more cloud platform accounts.
+[1;33m[SKIP][0m 03:13:09 Harness skipped due to a transient infrastructure condition (exit 75)</pre></body></html>
