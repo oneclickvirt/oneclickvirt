@@ -642,7 +642,10 @@ EOF
     test_api "Get copyable source containers" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group"
 
     # -- exec: run a command on provider via SSH --
-    test_api "Exec command on provider" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|400|500" \
+    # Provider/agent execution failures are upstream dependency failures and
+    # therefore intentionally return 502 (Bad Gateway), alongside validation
+    # and success responses.
+    test_api "Exec command on provider" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|400|500|502" \
         '{"command":"echo hello","timeout":10}' "$group"
 
     # -- exec: empty command must fail --
