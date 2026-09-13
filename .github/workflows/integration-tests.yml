@@ -149,6 +149,9 @@ jobs:
       - name: Test action harness failure classification
         run: bash scripts/tests/action_harness_classification_test.sh
 
+      - name: Test provider exec status contract
+        run: bash scripts/tests/provider_exec_status_contract_test.sh
+
       - name: Test password rotation and token isolation
         run: |
           bash scripts/tests/user_password_rotation_test.sh

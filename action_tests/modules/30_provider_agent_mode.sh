@@ -263,7 +263,7 @@ run_module_30() {
 
     # -- exec: valid command --
     local exec_resp; exec_resp=$(test_api "Exec: echo hello" "POST" \
-        "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|400|500" \
+        "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|400|500|502" \
         '{"command":"echo hello","timeout":10}' "$group")
     local exec_output; exec_output=$(echo "$exec_resp" | jq -r '.data.output // .data // empty' 2>/dev/null)
     if [[ -n "$exec_output" ]]; then
