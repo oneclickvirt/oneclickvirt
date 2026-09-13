@@ -403,6 +403,9 @@ rm -f "$MOCK_PVE_QUERY_FILE" "$MOCK_PVE_LAUNCH_FILE" "$MOCK_PVE_POSTCONDITION_FI
 grep -Fq 'record_pass_result "Platform resolution"' "$RUN_ENV_TEST" || fail "preflight PASS results are not recorded"
 grep -Fq '"$group" == "HARNESS"' "$INTEGRATION_WORKFLOW" || fail "workflow does not separate HARNESS results from module assertions"
 grep -Fq 'Module tests executed' "$INTEGRATION_WORKFLOW" || fail "workflow does not state whether module assertions ran"
+module_gate=$(awk '/if \[\[ "\$module_executed" -eq 0 \]\]; then/{inside=1} inside{print} inside && /fi/{exit}' "$INTEGRATION_WORKFLOW")
+grep -Fq '::error::No module assertions were executed' <<<"$module_gate" || fail "zero module assertions are not reported as an error"
+grep -Fq 'exit 1' <<<"$module_gate" || fail "zero module assertions do not fail validation"
 
 # PVE images that do not ship ifupdown can schedule an ifupdown2 bootstrap
 # service.  It may reboot once more after SSH first recovers; the orchestrator
