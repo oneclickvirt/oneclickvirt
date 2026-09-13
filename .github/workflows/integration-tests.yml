@@ -626,11 +626,12 @@ jobs:
           fi
 
           if [[ "$module_executed" -eq 0 ]]; then
-            echo "::warning::No module assertions were executed (module total=${module_total}, skipped=${module_skipped}). Harness checks are reported separately; this is not a module failure."
+            echo "::error::No module assertions were executed (module total=${module_total}, skipped=${module_skipped}). The run only completed harness/preflight checks and cannot be reported as a successful integration test."
             {
               echo ""
-              echo "> Module assertions were not executed in this run; the result set contains harness/preflight checks only."
+              echo "> **Integration validation blocked:** no module assertions were executed. The result set contains harness/preflight checks only; resolve the infrastructure/setup condition and rerun."
             } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
 
           if [[ "$failed" -ne 0 ]]; then
