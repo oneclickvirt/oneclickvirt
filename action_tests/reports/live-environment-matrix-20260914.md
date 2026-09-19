@@ -484,7 +484,7 @@ Windows Server 模板与 SystemRescue ISO 不作为这些 Linux 容器运行时�
 - 其余实际根因为：Debian 13 `ip` 输出的 ANSI 颜色码污染 IPv6 前缀解析；managed NAT-v6 错误要求宿主必须有可分配前缀，而 proxy 监听只需宿主可用的公网 `/128`；双栈自动端口在 ULA 尚未生成时同时安装两个地址族 proxy；停止后只依赖相对路径 `*_v6` 文件恢复 guest ULA；以及容器停止后才按 DHCPv6 ULA 回绑 NIC，此时无法再用运行态地址/MAC 唯一匹配设备。
 - 最终顺序为：首先只安装 IPv4 映射，启动 guest 并获取 ULA，运行态将 ULA 固定到精确 NIC 并持久化到实例数据库，然后停止 guest 安装 IPv6 映射；旧临时文件仅作兼容兜底。Incus/LXD 两条路径同步修复，回归覆盖地址族顺序、数据库持久化、ANSI 输出和 `/128` proxy 语义。
 - 验收收尾通过面板 API 删除手工映射与测试容器，恢复 Provider 资源预算开关。最终只读复核显示预算为 `false/false/true`，活动数据库记录与 Incus 运行态均只有原 3 个实例，活动测试端口、任务、proxy 和监听残留均为 0；Hetzner 项目仍只有原有 1 台服务器。
-- 最新源码再次完整执行 `server/go test ./...` 通过；21 个 Python 验收/动作驱动以无缓存内存编译检查通过，Swagger/API 合同同步测试与 `git diff --check` 通过。根目录 `copy_project.sh` 重新执行，主要验收文件与 Swagger 三件套在目标副本中哈希一致；目标副本不含 `__pycache__`/`*.pyc`、`.env` 或运行时 `server/config.yaml`。
+- 最新源码再次完整执行 `server/go test ./...` 通过；21 个 Python 验收/动作驱动以无缓存内存编译检查通过，Swagger/API 合同同步测试与 `git diff --check` 通过。根目录 `copy_project.sh` 重新执行，主要验收文件、Swagger 三件套和已跟踪的默认 `server/config.yaml` 在目标副本中哈希一致；目标副本不含 `__pycache__`/`*.pyc`、`.env` 或运行时数据文件。
 
 ### Hetzner 多系统兼容性实测（2026-09-19）
 
@@ -493,6 +493,12 @@ Windows Server 模板与 SystemRescue ISO 不作为这些 Linux 容器运行时�
 - Debian 12 真实 LXD 首装（非交互）同样通过：snap LXD 5.21.7、btrfs 存储池、默认 profile、`lxdbr0`、两代脚本容器的公网 SSH/DNS/出网/删除/端口复用，以及完整非交互卸载均通过；snap、存储、网桥、挂载和归属防火墙规则均已核对清理。
 - 重装后的临时 root 密码可能在首个非 PTY 登录中处于过期状态；驱动先等待 guest-agent 可用再调用 `reset_password`。显式 `OCV_LIVE_KNOWN_HOSTS` 时不再合并本机旧 `known_hosts`，避免同一 IP 重装后的新 host key 产生假阴性。
 - Rocky 9/10 在当前镜像上未在限定窗口恢复可认证 SSH，记录为“系统访问前置失败”，不是安装器通过或失败结论；Alma、CentOS Stream、Fedora、openSUSE 的后续完整 runtime 验收仍需可用 SSH 入口后执行。该限制不会被基础 IPv6 探测结果覆盖。
+
+### Hetzner 矩阵收尾（2026-09-19）
+
+- Fedora 44 镜像完成基础兼容性前置检查：root SSH、systemd、IPv6 全局地址、默认路由和 `curl --noproxy '*' -6 https://ipv6.ip.sb` 均通过。由于本轮运行窗口已结束，未将该结果扩展为 Incus/LXD、Docker、Podman 或 Containerd 的干净安装验收。
+- openSUSE 16 在当前镜像的限定窗口内未恢复可认证 SSH（`NoValidConnectionsError`），因此没有执行任何安装器、容器创建、卸载或网络断言；该结果只记录为镜像访问前置阻塞，不判定源码或安装器不兼容。
+- 矩阵收尾前通过 Hetzner API 原地将项目内唯一服务器从 openSUSE 16 恢复为 Debian 12，并在新的隔离 host-key 文件下完成严格 root SSH 验证。Debian 12 的 systemd、全局 IPv6、默认路由及 `curl --noproxy '*' -6 https://ipv6.ip.sb` 均通过；最终 API 复核仍为 1 台 running 服务器，未创建或删除服务器。
 
 ### 尚未完成的验收（截至本轮）
 
