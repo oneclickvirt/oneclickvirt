@@ -1,6 +1,8 @@
 // PTY-based shell session management for the agent WebSocket client.
 use std::collections::HashMap;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,49 +13,6 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::types::{ShellHandle, ShellOpenPayload};
 use crate::tunnel::WsFrame;
-
-// Rust's test harness runs tests in this binary concurrently. Several tests
-// below intentionally allocate hundreds of real PTYs, while the lifecycle
-// tests in handler.rs also need real PTYs. Letting those independent stress
-// fixtures overlap can exhaust or heavily delay the host PTY allocator and
-// turn lifecycle assertions into machine-load-dependent failures. The stress
-// test itself remains concurrent; this gate only prevents unrelated PTY tests
-// from competing for the same process/host resource at the same time.
-#[cfg(test)]
-static PTY_TEST_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(test)]
-pub(super) struct PtyTestGuard;
-
-#[cfg(test)]
-impl Drop for PtyTestGuard {
-    fn drop(&mut self) {
-        PTY_TEST_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
-    }
-}
-
-#[cfg(test)]
-pub(super) fn acquire_pty_test_guard() -> PtyTestGuard {
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        if PTY_TEST_ACTIVE
-            .compare_exchange(
-                false,
-                true,
-                std::sync::atomic::Ordering::Acquire,
-                std::sync::atomic::Ordering::Relaxed,
-            )
-            .is_ok()
-        {
-            return PtyTestGuard;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for another PTY-backed test"
-        );
-        std::thread::sleep(Duration::from_millis(1));
-    }
-}
 
 /// Find the best available interactive shell (bash preferred, then zsh, fish, sh as fallback).
 pub(super) fn find_best_shell() -> Option<String> {
@@ -71,6 +30,40 @@ pub(super) fn find_best_shell() -> Option<String> {
         .iter()
         .find(|p| std::path::Path::new(p).exists())
         .map(|s| s.to_string())
+}
+
+fn select_shell_work_dir<F>(home: &Path, is_root: bool, mut is_searchable: F) -> PathBuf
+where
+    F: FnMut(&Path) -> bool,
+{
+    let root_home = Path::new("/root");
+    if is_root && is_searchable(root_home) {
+        return root_home.to_path_buf();
+    }
+    if home.is_absolute() && is_searchable(home) {
+        return home.to_path_buf();
+    }
+    PathBuf::from("/")
+}
+
+fn is_searchable_directory(path: &Path) -> bool {
+    if !path.is_absolute() || !path.is_dir() {
+        return false;
+    }
+    let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // chdir requires search permission. Merely checking is_dir() accepted
+    // /root for an unprivileged Agent and deferred EACCES until spawn().
+    unsafe { libc::access(path.as_ptr(), libc::X_OK) == 0 }
+}
+
+fn shell_work_dir() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"));
+    let is_root = unsafe { libc::geteuid() == 0 };
+    select_shell_work_dir(&home, is_root, is_searchable_directory)
 }
 
 // Linux's ptsname uses shared storage. Different Provider connections can open
@@ -280,17 +273,10 @@ pub(super) async fn open_shell_session(
     let (master_owned, slave) = open_pty(cols, rows)?;
     let shell = find_best_shell()
         .ok_or_else(|| "no usable shell found (tried zsh, fish, bash, sh)".to_string())?;
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    // Resolve the working directory: prefer /root (standard root home), then $HOME,
-    // then / as a final fallback.  This prevents the shell from inheriting the agent
-    // process's working directory (e.g. /opt/oneclickvirt/agent).
-    let work_dir = if std::path::Path::new("/root").is_dir() {
-        "/root".to_string()
-    } else if std::path::Path::new(&home).is_dir() {
-        home.clone()
-    } else {
-        "/".to_string()
-    };
+    // Root sessions prefer /root. Unprivileged Agents must use their own
+    // searchable HOME instead of failing spawn merely because /root exists.
+    // Never inherit the Agent installation directory as a final fallback.
+    let work_dir = shell_work_dir();
 
     // OwnedFd::try_clone atomically sets CLOEXEC on both duplicates. Plain dup
     // leaves an inheritance window while another thread is spawning a command.
@@ -546,8 +532,28 @@ mod tests {
     use tokio::sync::Semaphore;
 
     #[test]
+    fn shell_work_dir_respects_identity_and_searchability() {
+        let runner_home = Path::new("/home/runner");
+
+        let non_root = select_shell_work_dir(runner_home, false, |path| path == runner_home);
+        assert_eq!(non_root, runner_home);
+
+        let root = select_shell_work_dir(runner_home, true, |_| true);
+        assert_eq!(root, Path::new("/root"));
+
+        let root_without_searchable_root =
+            select_shell_work_dir(runner_home, true, |path| path == runner_home);
+        assert_eq!(root_without_searchable_root, runner_home);
+
+        let inaccessible_home = select_shell_work_dir(runner_home, false, |_| false);
+        assert_eq!(inaccessible_home, Path::new("/"));
+
+        let relative_home = select_shell_work_dir(Path::new("relative-home"), false, |_| true);
+        assert_eq!(relative_home, Path::new("/"));
+    }
+
+    #[test]
     fn pty_descriptors_do_not_escape_into_other_commands() {
-        let _pty_test_guard = acquire_pty_test_guard();
         let (master, slave) = open_pty(93, 31).unwrap();
         let duplicate = slave.try_clone().unwrap();
         for descriptor in [&master, &slave, &duplicate] {
@@ -571,7 +577,6 @@ mod tests {
 
     #[test]
     fn unrelated_child_cannot_keep_another_session_pty_open() {
-        let _pty_test_guard = acquire_pty_test_guard();
         let (master, slave) = open_pty(80, 24).unwrap();
         let duplicate = slave.try_clone().unwrap();
         let mut child = std::process::Command::new("sleep")
@@ -601,7 +606,6 @@ mod tests {
 
     #[test]
     fn concurrent_pty_allocations_never_cross_streams() {
-        let _pty_test_guard = acquire_pty_test_guard();
         let start = Arc::new(std::sync::Barrier::new(8));
         std::thread::scope(|scope| {
             let workers: Vec<_> = (0..8)
@@ -686,7 +690,6 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_shell_registration_does_not_overwrite_or_leak() {
-        let _pty_test_guard = acquire_pty_test_guard();
         let sessions = Arc::new(Mutex::new(HashMap::new()));
         let permits = Arc::new(Semaphore::new(2));
         let permit_a = Arc::new(permits.clone().acquire_owned().await.unwrap());
@@ -740,7 +743,6 @@ mod tests {
 
     #[tokio::test]
     async fn full_control_queue_reaps_child_and_releases_permit() {
-        let _pty_test_guard = acquire_pty_test_guard();
         let sessions = Arc::new(Mutex::new(HashMap::new()));
         let permits = Arc::new(Semaphore::new(1));
         let permit = Arc::new(permits.clone().acquire_owned().await.unwrap());
