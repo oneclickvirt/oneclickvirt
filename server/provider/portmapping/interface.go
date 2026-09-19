@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"oneclickvirt/model/provider"
+	"sync"
 )
 
 // PortMappingProvider 端口映射接口，定义不同Provider的端口映射方法
@@ -38,28 +39,41 @@ type PortMappingProvider interface {
 
 // PortMappingRequest 端口映射请求
 type PortMappingRequest struct {
-	InstanceID    string `json:"instanceId"`    // 实例ID
-	ProviderID    uint   `json:"providerId"`    // Provider ID
-	Protocol      string `json:"protocol"`      // 协议: tcp, udp
-	HostPort      int    `json:"hostPort"`      // 主机端口（0表示自动分配）
-	GuestPort     int    `json:"guestPort"`     // 客户端口
+	InstanceID    string `json:"instanceId"` // 实例ID
+	ProviderID    uint   `json:"providerId"` // Provider ID
+	Protocol      string `json:"protocol"`   // 协议: tcp, udp
+	HostPort      int    `json:"hostPort"`   // 主机端口（0表示自动分配）
+	HostPortEnd   int    `json:"hostPortEnd,omitempty"`
+	GuestPort     int    `json:"guestPort"` // 客户端口
+	GuestPortEnd  int    `json:"guestPortEnd,omitempty"`
+	PortCount     int    `json:"portCount,omitempty"`
 	Description   string `json:"description"`   // 描述
 	IPv6Enabled   bool   `json:"ipv6Enabled"`   // 是否启用IPv6
 	IPv6Address   string `json:"ipv6Address"`   // IPv6地址
 	HostIP        string `json:"hostIP"`        // 主机IP（某些情况下需要指定）
 	MappingMethod string `json:"mappingMethod"` // 映射方法: native, iptables, etc.
-	IsSSH         *bool  `json:"isSSH"`         // 是否为SSH端口（可选，如果不提供则根据GuestPort==22判断）
+	MappingType   string `json:"mappingType,omitempty"`
+	InternalHost  string `json:"internalHost,omitempty"`
+	IsSSH         *bool  `json:"isSSH"` // 是否为SSH端口（可选，如果不提供则根据GuestPort==22判断）
 }
 
 // UpdatePortMappingRequest 更新端口映射请求
 type UpdatePortMappingRequest struct {
-	ID          uint   `json:"id"`          // 端口映射ID
-	InstanceID  string `json:"instanceId"`  // 实例ID
-	HostPort    int    `json:"hostPort"`    // 主机端口
-	GuestPort   int    `json:"guestPort"`   // 客户端口
-	Protocol    string `json:"protocol"`    // 协议
-	Description string `json:"description"` // 描述
-	Status      string `json:"status"`      // 状态
+	ID            uint   `json:"id"`         // 端口映射ID
+	InstanceID    string `json:"instanceId"` // 实例ID
+	HostPort      int    `json:"hostPort"`   // 主机端口
+	HostPortEnd   int    `json:"hostPortEnd,omitempty"`
+	GuestPort     int    `json:"guestPort"` // 客户端口
+	GuestPortEnd  int    `json:"guestPortEnd,omitempty"`
+	PortCount     int    `json:"portCount,omitempty"`
+	Protocol      string `json:"protocol"`    // 协议
+	Description   string `json:"description"` // 描述
+	Status        string `json:"status"`      // 状态
+	IPv6Enabled   bool   `json:"ipv6Enabled,omitempty"`
+	IPv6Address   string `json:"ipv6Address,omitempty"`
+	MappingMethod string `json:"mappingMethod,omitempty"`
+	MappingType   string `json:"mappingType,omitempty"`
+	InternalHost  string `json:"internalHost,omitempty"`
 }
 
 // DeletePortMappingRequest 删除端口映射请求
@@ -71,27 +85,34 @@ type DeletePortMappingRequest struct {
 
 // PortMappingResult 端口映射结果
 type PortMappingResult struct {
-	ID            uint   `json:"id"`            // 端口映射ID
-	InstanceID    string `json:"instanceId"`    // 实例ID
-	ProviderID    uint   `json:"providerId"`    // Provider ID
-	Protocol      string `json:"protocol"`      // 协议
-	HostPort      int    `json:"hostPort"`      // 主机端口
-	GuestPort     int    `json:"guestPort"`     // 客户端口
+	ID            uint   `json:"id"`         // 端口映射ID
+	InstanceID    string `json:"instanceId"` // 实例ID
+	ProviderID    uint   `json:"providerId"` // Provider ID
+	Protocol      string `json:"protocol"`   // 协议
+	HostPort      int    `json:"hostPort"`   // 主机端口
+	HostPortEnd   int    `json:"hostPortEnd,omitempty"`
+	GuestPort     int    `json:"guestPort"` // 客户端口
+	GuestPortEnd  int    `json:"guestPortEnd,omitempty"`
+	PortCount     int    `json:"portCount,omitempty"`
 	HostIP        string `json:"hostIP"`        // 主机IP
 	PublicIP      string `json:"publicIP"`      // 公网IP
 	IPv6Address   string `json:"ipv6Address"`   // IPv6地址
+	IPv6Enabled   bool   `json:"ipv6Enabled"`   // 是否启用IPv6映射
 	Status        string `json:"status"`        // 状态: active, inactive
 	Description   string `json:"description"`   // 描述
 	MappingMethod string `json:"mappingMethod"` // 映射方法
-	IsSSH         bool   `json:"isSSH"`         // 是否为SSH端口
-	IsAutomatic   bool   `json:"isAutomatic"`   // 是否自动分配
-	CreatedAt     string `json:"createdAt"`     // 创建时间
-	UpdatedAt     string `json:"updatedAt"`     // 更新时间
+	MappingType   string `json:"mappingType,omitempty"`
+	InternalHost  string `json:"internalHost,omitempty"`
+	IsSSH         bool   `json:"isSSH"`       // 是否为SSH端口
+	IsAutomatic   bool   `json:"isAutomatic"` // 是否自动分配
+	CreatedAt     string `json:"createdAt"`   // 创建时间
+	UpdatedAt     string `json:"updatedAt"`   // 更新时间
 }
 
 // Registry 端口映射Provider注册表
 type Registry struct {
 	providers map[string]func(*ManagerConfig) PortMappingProvider
+	mu        sync.RWMutex
 }
 
 var globalRegistry = &Registry{
@@ -100,12 +121,16 @@ var globalRegistry = &Registry{
 
 // RegisterProvider 注册端口映射Provider
 func RegisterProvider(providerType string, factory func(*ManagerConfig) PortMappingProvider) {
+	globalRegistry.mu.Lock()
+	defer globalRegistry.mu.Unlock()
 	globalRegistry.providers[providerType] = factory
 }
 
 // GetProvider 获取端口映射Provider
 func GetProvider(providerType string) (PortMappingProvider, error) {
+	globalRegistry.mu.RLock()
 	factory, exists := globalRegistry.providers[providerType]
+	globalRegistry.mu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("port mapping provider %s not found", providerType)
 	}
@@ -114,7 +139,9 @@ func GetProvider(providerType string) (PortMappingProvider, error) {
 
 // GetProviderWithConfig 获取端口映射Provider（带配置）
 func GetProviderWithConfig(providerType string, config *ManagerConfig) (PortMappingProvider, error) {
+	globalRegistry.mu.RLock()
 	factory, exists := globalRegistry.providers[providerType]
+	globalRegistry.mu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("port mapping provider %s not found", providerType)
 	}
@@ -123,6 +150,8 @@ func GetProviderWithConfig(providerType string, config *ManagerConfig) (PortMapp
 
 // ListProviders 列出所有注册的端口映射Provider
 func ListProviders() []string {
+	globalRegistry.mu.RLock()
+	defer globalRegistry.mu.RUnlock()
 	var types []string
 	for providerType := range globalRegistry.providers {
 		types = append(types, providerType)
@@ -132,6 +161,8 @@ func ListProviders() []string {
 
 // GetRegisteredProviders 获取所有注册的Provider工厂函数
 func GetRegisteredProviders() map[string]func(*ManagerConfig) PortMappingProvider {
+	globalRegistry.mu.RLock()
+	defer globalRegistry.mu.RUnlock()
 	providers := make(map[string]func(*ManagerConfig) PortMappingProvider)
 	for providerType, factory := range globalRegistry.providers {
 		providers[providerType] = factory

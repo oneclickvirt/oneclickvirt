@@ -74,27 +74,22 @@ func (i *IncusProvider) getVMInstanceIP(instanceName string) (string, error) {
 
 		time.Sleep(time.Duration(delay) * time.Second)
 
-		// 虚拟机通常使用 enp5s0 接口，如果没有则尝试 eth0
-		interfaces := []string{"enp5s0", "eth0"}
-
-		for _, iface := range interfaces {
-			cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.%s.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", shellSingleQuote(instanceName), iface)
-			i.mu.RLock()
-			client := i.sshClient
-			i.mu.RUnlock()
-			if client == nil {
-				return "", fmt.Errorf("SSH client不可用，无法获取虚拟机IP")
-			}
-			output, err := client.Execute(cmd)
-
-			if err == nil {
-				vmIP, parseErr := utils.ParseFirstIPv4AddressOutput(output)
-				if parseErr != nil {
-					continue
-				}
+		// VM interface names vary by image and distro (enp5s0, ens18, eth0,
+		// ...). Enumerate every state.network entry instead of assuming one
+		// device name, otherwise a perfectly healthy VM is reported as having no
+		// address and its port mapping is skipped.
+		cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network // {} | to_entries[] | .value.addresses[]? | select(.family==\"inet\" and (.scope==\"global\" or .scope==\"link\")) | .address' 2>/dev/null", shellSingleQuote(instanceName))
+		i.mu.RLock()
+		client := i.sshClient
+		i.mu.RUnlock()
+		if client == nil {
+			return "", fmt.Errorf("SSH client不可用，无法获取虚拟机IP")
+		}
+		output, err := client.Execute(cmd)
+		if err == nil {
+			if vmIP, parseErr := utils.ParseFirstIPv4AddressOutput(output); parseErr == nil {
 				global.APP_LOG.Debug("虚拟机IPv4地址获取成功",
 					zap.String("instanceName", instanceName),
-					zap.String("interface", iface),
 					zap.String("ip", vmIP),
 					zap.Int("attempt", attempt))
 				return vmIP, nil
@@ -127,8 +122,9 @@ func (i *IncusProvider) getContainerInstanceIP(instanceName string) (string, err
 
 		time.Sleep(time.Duration(delay) * time.Second)
 
-		// 容器通常使用 eth0 接口
-		cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
+		// Container images may rename the first interface. Enumerate all
+		// interfaces and select a usable IPv4 address.
+		cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network // {} | to_entries[] | .value.addresses[]? | select(.family==\"inet\" and (.scope==\"global\" or .scope==\"link\")) | .address' 2>/dev/null", shellSingleQuote(instanceName))
 		i.mu.RLock()
 		client := i.sshClient
 		i.mu.RUnlock()

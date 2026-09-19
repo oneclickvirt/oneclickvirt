@@ -5,7 +5,6 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	authModel "oneclickvirt/model/auth"
 	checkinModel "oneclickvirt/model/checkin"
-	"oneclickvirt/model/config"
 	domainModel "oneclickvirt/model/domain"
 	firewallModel "oneclickvirt/model/firewall"
 	kycModel "oneclickvirt/model/kyc"
@@ -27,29 +26,19 @@ import (
 // Gorm 初始化数据库并产生数据库全局变量
 // 使用DatabaseManager实现连接管理、自动重连和心跳检测
 func Gorm() *gorm.DB {
-	dbType := global.GetAppConfig().System.DbType
+	snapshot := global.GetAppConfig()
+	dbType := snapshot.System.DbType
 	if dbType == "" {
 		dbType = "mysql"
 	}
 
 	// 获取数据库管理器
 	dbManager := GetDatabaseManager()
+	previousDB := global.APP_DB
+	managedPreviousDB := dbManager.GetDB()
 
 	// 初始化数据库连接（包含自动重连和心跳检测）
-	mysqlConfig := config.MysqlConfig{
-		Path:         global.GetAppConfig().Mysql.Path,
-		Port:         global.GetAppConfig().Mysql.Port,
-		Config:       global.GetAppConfig().Mysql.Config,
-		Dbname:       global.GetAppConfig().Mysql.Dbname,
-		Username:     global.GetAppConfig().Mysql.Username,
-		Password:     global.GetAppConfig().Mysql.Password,
-		MaxIdleConns: global.GetAppConfig().Mysql.MaxIdleConns,
-		MaxOpenConns: global.GetAppConfig().Mysql.MaxOpenConns,
-		LogMode:      global.GetAppConfig().Mysql.LogMode,
-		LogZap:       global.GetAppConfig().Mysql.LogZap,
-		MaxLifetime:  global.GetAppConfig().Mysql.MaxLifetime,
-		AutoCreate:   global.GetAppConfig().Mysql.AutoCreate,
-	}
+	mysqlConfig := snapshot.Mysql.ConnectionConfig()
 
 	db, err := dbManager.Initialize(mysqlConfig)
 	if err != nil {
@@ -60,12 +49,21 @@ func Gorm() *gorm.DB {
 	}
 
 	global.APP_LOG.Info("数据库连接成功",
-		zap.String("dbType", dbType),
+		zap.String("dbType", global.GetAppConfig().System.DbType),
 		zap.String("engine", global.GetAppConfig().Mysql.Engine))
 
 	// 提前设置全局 APP_DB，使 RegisterTables 内部调用的服务（如 FixAllDuplicateData）
 	// 能通过 global.APP_DB 访问数据库连接，避免出现「数据库连接不可用」警告
 	global.APP_DB = db
+	// The manager publishes its replacement before this function can update the
+	// global pointer. Retire the old pool only after the pointer is visible so a
+	// live request never receives a closed pool during first-run reinitialization.
+	closeDatabasePool(previousDB, db)
+	if managedPreviousDB != previousDB {
+		// Keep the manager and global hand-off leak-free even if a previous
+		// initialization path temporarily used a different pool.
+		closeDatabasePool(managedPreviousDB, db)
+	}
 
 	// 只有在数据库连接成功时才进行表结构迁移
 	global.APP_LOG.Info("开始数据库表结构自动迁移")

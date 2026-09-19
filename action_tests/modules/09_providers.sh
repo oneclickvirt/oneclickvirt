@@ -67,14 +67,14 @@ run_module_09() {
     local password_ssh_code="" key_ssh_code=""
     if [[ -n "$worker_pass" ]]; then
         local password_ssh_resp=""
-        password_ssh_resp=$(test_api "Test SSH connection (password)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400|500" \
+        password_ssh_resp=$(test_api "Test SSH connection (password)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|infra" \
             "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group") || password_ssh_resp=""
         password_ssh_code=$(echo "$password_ssh_resp" | jq -r '.code // empty' 2>/dev/null || true)
     fi
     if [[ -n "$worker_key" ]]; then
         local escaped_key; escaped_key=$(echo "$worker_key" | jq -Rsa .)
         local key_ssh_resp=""
-        key_ssh_resp=$(test_api "Test SSH connection (key)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400" \
+        key_ssh_resp=$(test_api "Test SSH connection (key)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|infra" \
             "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"sshKey\":${escaped_key}}" "$group") || key_ssh_resp=""
         key_ssh_code=$(echo "$key_ssh_resp" | jq -r '.code // empty' 2>/dev/null || true)
     fi
@@ -316,7 +316,7 @@ run_module_09() {
         sleep 5
 
         # -- Auto configure (task) --
-        local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "200|400|500" \
+        local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "200|infra" \
             "{\"providerId\":${PROVIDER_ID}}" "$group")
         local ac_task; ac_task=$(echo "$ac" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
         local auto_config_task_required=false
@@ -362,7 +362,7 @@ run_module_09() {
             record_skip_result "Generate certificate (sync)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "covered by auto-configure task for ${ENV_TYPE}" "$group"
             ;;
         *)
-            test_api "Generate certificate" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "200|400|404|500" \
+            test_api "Generate certificate" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "200|infra" \
                 '{}' "$group"
             ;;
     esac
@@ -430,7 +430,7 @@ run_module_09() {
     test_api "Configuration tasks" "GET" "/api/v1/admin/configuration-tasks?page=1&pageSize=10" "200" "" "$group"
 
     # -- Hardware report --
-    test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200|400|500" \
+    test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200|infra" \
         '{"pasteUrl":"https://paste.spiritlhl.net/#/show/ENn4E.txt"}' "$group"
     test_api "Save hardware report (invalid URL)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "400" \
         '{"pasteUrl":"https://example.com/some-report.txt"}' "$group"
@@ -608,7 +608,7 @@ EOF
     test_api "Provider API list" "GET" "/api/v1/providers" "200" "" "$group"
     test_api "Provider API status" "GET" "/api/v1/providers/${PROVIDER_ID}/status" "200" "" "$group"
     test_api "Provider API capabilities" "GET" "/api/v1/providers/${PROVIDER_ID}/capabilities" "200" "" "$group"
-    test_api "Provider API images" "GET" "/api/v1/providers/${PROVIDER_ID}/images" "200|400|500" "" "$group"
+    test_api "Provider API images" "GET" "/api/v1/providers/${PROVIDER_ID}/images" "200|infra" "" "$group"
 
     # -- Traffic history --
     test_api "Provider traffic history" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/traffic/history" "200" "" "$group"
@@ -635,17 +635,27 @@ EOF
     test_api "Update provider gpuEnabled off" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
         '{"gpuEnabled":false,"gpuDeviceIds":""}' "$group"
 
-    # -- detect-gpus: SSH-based GPU detection (may fail on non-LXD, accept 400/500) --
-    test_api "Detect provider GPUs" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|400|500" "" "$group"
+    # -- detect-gpus is intentionally a negative capability check outside LXD/Incus.
+    if [[ "$ENV_TYPE" == "lxd" || "$ENV_TYPE" == "incus" ]]; then
+        test_api "Detect provider GPUs" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|infra" "" "$group"
+    else
+        test_api "Detect provider GPUs (unsupported runtime)" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "400" "" "$group"
+    fi
 
     # -- stopped-containers: fetch copyable source containers for supported container runtimes --
-    test_api "Get copyable source containers" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group"
+    case "$ENV_TYPE" in
+        lxd|incus|docker|podman|containerd|orbstack)
+            test_api "Get copyable source containers" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|infra" "" "$group"
+            ;;
+        *)
+            test_api "Get copyable source containers (unsupported runtime)" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "400" "" "$group"
+            ;;
+    esac
 
     # -- exec: run a command on provider via SSH --
-    # Provider/agent execution failures are upstream dependency failures and
-    # therefore intentionally return 502 (Bad Gateway), alongside validation
-    # and success responses.
-    test_api "Exec command on provider" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|400|500|502" \
+    # Provider/agent connection failures are explicit infrastructure skips;
+    # validation/product errors remain failures.
+    test_api "Exec command on provider" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|infra" \
         '{"command":"echo hello","timeout":10}' "$group"
 
     # -- exec: empty command must fail --

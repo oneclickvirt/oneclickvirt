@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,7 +66,7 @@ func NewTunnelManager(ac *AgentConn) *TunnelManager {
 func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost string, targetPort int, stopCh <-chan struct{}) error {
 	return tm.handleControllerPortWithResolver(
 		listenAddr,
-		fmt.Sprintf("%s:%d", targetHost, targetPort),
+		net.JoinHostPort(strings.Trim(strings.TrimSpace(targetHost), "[]"), fmt.Sprintf("%d", targetPort)),
 		func() (string, int, error) {
 			return targetHost, targetPort, nil
 		},

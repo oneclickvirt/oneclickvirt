@@ -2,6 +2,7 @@ package proxmox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -17,9 +18,6 @@ import (
 
 // configureInstancePortMappings 配置实例端口映射
 func (p *ProxmoxProvider) configureInstancePortMappings(ctx context.Context, config provider.InstanceConfig, vmid int) error {
-	// 等待实例完全启动
-	time.Sleep(3 * time.Second)
-
 	global.APP_LOG.Debug("开始配置PVE实例端口映射",
 		zap.String("instance", config.Name),
 		zap.Int("vmid", vmid))
@@ -29,6 +27,29 @@ func (p *ProxmoxProvider) configureInstancePortMappings(ctx context.Context, con
 	if instanceType == "" {
 		instanceType = "vm" // 默认为虚拟机
 	}
+
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+	if networkConfig.NetworkType == "dedicated_ipv4" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only" {
+		return nil
+	}
+
+	// Do not require a guest IP when no mapping was requested.  A freshly
+	// booted VM may legitimately have no guest agent/IP yet, and that must not
+	// turn a no-op port configuration into a failed creation.
+	var instance providerModel.Instance
+	if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, p.config.ID).First(&instance).Error; err != nil {
+		return fmt.Errorf("获取实例信息失败: %w", err)
+	}
+	var requestedMappings []providerModel.Port
+	if err := global.APP_DB.Where("instance_id = ? AND status = 'active'", instance.ID).Find(&requestedMappings).Error; err != nil {
+		return fmt.Errorf("获取端口映射失败: %w", err)
+	}
+	if len(requestedMappings) == 0 {
+		return nil
+	}
+
+	// 等待实例完全启动，仅在确实有端口映射时等待 guest IP。
+	time.Sleep(3 * time.Second)
 
 	// 获取实例的内网IP地址，使用vmid而不是名称
 	vmidStr := fmt.Sprintf("%d", vmid)
@@ -53,9 +74,6 @@ func (p *ProxmoxProvider) configureInstancePortMappings(ctx context.Context, con
 		zap.Int("vmid", vmid),
 		zap.String("instanceIP", instanceIP))
 
-	// 解析网络配置
-	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
-
 	// 调用现有的端口映射配置函数（使用ports.go中的实现）
 	err = p.configurePortMappingsWithIP(ctx, config.Name, networkConfig, instanceIP)
 	if err != nil {
@@ -78,6 +96,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 		zap.String("vmid", vmid),
 		zap.String("instanceType", instanceType))
 
+	var cleanupErrors []string
 	// 1. 查找通过vmid对应的实例名称
 	instances, err := p.ListInstances(ctx)
 	if err != nil {
@@ -118,6 +137,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 							zap.Int("hostPort", port.HostPort),
 							zap.String("protocol", port.Protocol),
 							zap.Error(err))
+						cleanupErrors = append(cleanupErrors, fmt.Sprintf("端口 %d/%s: %v", port.HostPort, port.Protocol, err))
 					} else {
 						global.APP_LOG.Debug("端口映射清理成功",
 							zap.String("instanceName", instanceName),
@@ -143,8 +163,13 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 				global.APP_LOG.Warn("清理推断IP的iptables规则失败",
 					zap.String("inferredIP", inferredIP),
 					zap.Error(err))
+				cleanupErrors = append(cleanupErrors, fmt.Sprintf("推断IP %s: %v", inferredIP, err))
 			}
 		}
+	}
+
+	if len(cleanupErrors) > 0 {
+		return fmt.Errorf("端口映射清理未完成: %s", strings.Join(cleanupErrors, "; "))
 	}
 
 	global.APP_LOG.Debug("实例端口映射清理完成",
@@ -159,9 +184,15 @@ func (p *ProxmoxProvider) cleanupIptablesRulesForIP(ctx context.Context, ipAddre
 	global.APP_LOG.Debug("清理IP地址的防火墙规则", zap.String("ipAddress", ipAddress))
 
 	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
-	fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend")
-	fwMgr.DeleteRulesByIP(ipAddress)
-	fwMgr.SaveRules()
+	if _, err := fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend"); err != nil {
+		return fmt.Errorf("检测防火墙后端失败: %w", err)
+	}
+	if err := fwMgr.DeleteRulesByIP(ipAddress); err != nil {
+		return fmt.Errorf("删除IP转发规则失败: %w", err)
+	}
+	if err := fwMgr.SaveRules(); err != nil {
+		return fmt.Errorf("保存防火墙规则失败: %w", err)
+	}
 
 	return nil
 }
@@ -220,6 +251,7 @@ func (p *ProxmoxProvider) configurePortMappingsWithIP(ctx context.Context, insta
 	}
 
 	// 1. 单独配置SSH端口映射（使用IPv4映射方法）
+	var mappingErrors []error
 	if sshPort != nil {
 		if err := p.setupPortMappingWithIP(ctx, instanceName, sshPort.HostPort, sshPort.GuestPort, sshPort.Protocol, networkConfig.IPv4PortMappingMethod, instanceIP); err != nil {
 			global.APP_LOG.Warn("配置SSH端口映射失败",
@@ -227,6 +259,7 @@ func (p *ProxmoxProvider) configurePortMappingsWithIP(ctx context.Context, insta
 				zap.Int("hostPort", sshPort.HostPort),
 				zap.Int("guestPort", sshPort.GuestPort),
 				zap.Error(err))
+			mappingErrors = append(mappingErrors, fmt.Errorf("SSH %d->%d/%s: %w", sshPort.HostPort, sshPort.GuestPort, sshPort.Protocol, err))
 		}
 	}
 
@@ -238,14 +271,18 @@ func (p *ProxmoxProvider) configurePortMappingsWithIP(ctx context.Context, insta
 				zap.Int("hostPort", port.HostPort),
 				zap.Int("guestPort", port.GuestPort),
 				zap.Error(err))
+			mappingErrors = append(mappingErrors, fmt.Errorf("%d->%d/%s: %w", port.HostPort, port.GuestPort, port.Protocol, err))
 		}
 	}
 
 	// 保存iptables规则
 	if err := p.saveIptablesRules(); err != nil {
 		global.APP_LOG.Warn("保存iptables规则失败", zap.Error(err))
+		mappingErrors = append(mappingErrors, fmt.Errorf("保存防火墙规则: %w", err))
 	}
-
+	if len(mappingErrors) > 0 {
+		return fmt.Errorf("端口映射配置未完成: %w", errors.Join(mappingErrors...))
+	}
 	return nil
 }
 
@@ -374,8 +411,12 @@ func (p *ProxmoxProvider) removeIptablesMapping(ctx context.Context, instanceNam
 // saveIptablesRules 保存防火墙规则
 func (p *ProxmoxProvider) saveIptablesRules() error {
 	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
-	fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend")
-	fwMgr.SaveRules()
+	if _, err := fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend"); err != nil {
+		return fmt.Errorf("检测防火墙后端失败: %w", err)
+	}
+	if err := fwMgr.SaveRules(); err != nil {
+		return fmt.Errorf("保存防火墙规则失败: %w", err)
+	}
 	global.APP_LOG.Debug("防火墙规则保存成功")
 	return nil
 }

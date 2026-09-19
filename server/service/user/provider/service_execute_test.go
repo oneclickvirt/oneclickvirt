@@ -8,6 +8,27 @@ import (
 	rootProvider "oneclickvirt/provider"
 )
 
+func TestUsesControllerIPv6PoolDistinguishesIncusLXDManagedNAT(t *testing.T) {
+	tests := []struct {
+		providerType string
+		networkType  string
+		want         bool
+	}{
+		{providerType: "incus", networkType: "nat_ipv4_ipv6", want: false},
+		{providerType: "LXD", networkType: " NAT_IPV4_IPV6 ", want: false},
+		{providerType: "incus", networkType: "dedicated_ipv4_ipv6", want: true},
+		{providerType: "lxd", networkType: "ipv6_only", want: true},
+		{providerType: "qemu", networkType: "nat_ipv4_ipv6", want: true},
+		{providerType: "proxmox", networkType: "nat_ipv4_ipv6", want: true},
+		{providerType: "incus", networkType: "nat_ipv4", want: false},
+	}
+	for _, test := range tests {
+		if got := usesControllerIPv6Pool(test.providerType, test.networkType); got != test.want {
+			t.Fatalf("usesControllerIPv6Pool(%q, %q) = %t, want %t", test.providerType, test.networkType, got, test.want)
+		}
+	}
+}
+
 func TestValidateProviderIPv6NetworkAcceptsRoutedGuestBackends(t *testing.T) {
 	for _, test := range []struct {
 		providerType string

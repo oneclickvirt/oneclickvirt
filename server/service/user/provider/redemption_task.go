@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"oneclickvirt/constant"
@@ -13,12 +12,9 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
-	"oneclickvirt/provider/incus"
-	lxd "oneclickvirt/provider/lxd"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	ipv6PoolService "oneclickvirt/service/ipv6pool"
-	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	traffic "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
@@ -243,6 +239,12 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		global.APP_LOG.Error("解析兑换码任务数据失败", zap.Uint("taskId", task.ID), zap.Error(err))
 	}
 
+	// Share the normal create endpoint resolution, outside the transaction.
+	// SSH/API calls here can take minutes and must not hold database locks.
+	var instanceUpdates map[string]interface{}
+	if apiError == nil {
+		instanceUpdates, _ = s.gatherInstanceNetworkInfo(ctx, instance)
+	}
 	dbService := database.GetDatabaseService()
 	cancelledDuringFinalize := false
 
@@ -269,9 +271,14 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 				return fmt.Errorf("更新实例状态失败: %v", err)
 			}
 
-			// 清理预分配端口映射
-			portMappingService := &resources.PortMappingService{}
-			_ = portMappingService.DeleteInstancePortMappingsInTx(tx, instance.ID)
+			// 保留端口映射到延迟远端删除完成后再硬删除。LXD/Incus 的
+			// 宿主防火墙清理依赖这些映射详情，过早删除会留下旧规则。
+			if err := tx.Model(&providerModel.Port{}).
+				Where("instance_id = ?", instance.ID).
+				Update("status", "deleting").Error; err != nil {
+				global.APP_LOG.Warn("标记失败兑换实例端口映射清理中失败",
+					zap.Uint("instanceId", instance.ID), zap.Error(err))
+			}
 
 			// 释放节点资源
 			resourceService := &resources.ResourceService{}
@@ -320,114 +327,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			zap.Uint("taskId", task.ID),
 			zap.Uint("instanceId", instance.ID))
 
-		// 构建实例更新数据
-		instanceUpdates := map[string]interface{}{
-			"status":   "running",
-			"username": "root",
-			"ssh_port": 22,
-		}
-
-		// 从 Provider 记录获取公网 IP
-		var dbProvider providerModel.Provider
-		if err := global.APP_DB.First(&dbProvider, instance.ProviderID).Error; err == nil {
-			// agent录入模式+无端口映射模式：不设置公网IP
-			// 因为该模式下的端口转发是通过控制端内网穿透实现的，节点本身没有对外的公网IP
-			if !(dbProvider.ConnectionType == "agent" && dbProvider.NetworkType == "no_port_mapping") {
-				publicIPSource := dbProvider.PortIP
-				if publicIPSource == "" {
-					publicIPSource = dbProvider.Endpoint
-				}
-				if publicIPSource != "" {
-					if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
-						if strings.Count(publicIPSource, ":") > 1 && !strings.HasPrefix(publicIPSource, "[") {
-							instanceUpdates["public_ip"] = publicIPSource
-						} else {
-							instanceUpdates["public_ip"] = publicIPSource[:colonIndex]
-						}
-					} else {
-						instanceUpdates["public_ip"] = publicIPSource
-					}
-				}
-			}
-		}
-
-		// 通过 Provider API 获取实例实际状态和 IP（与 finalizeInstanceCreation 保持一致）
-		actualInstance, getErr := s.getInstanceDetailsAfterCreation(ctx, instance)
-		if getErr != nil {
-			global.APP_LOG.Warn("获取兑换码实例详情失败，使用Provider默认IP",
-				zap.Uint("taskId", task.ID), zap.Error(getErr))
-		} else if actualInstance != nil {
-			if actualInstance.PublicIP != "" {
-				instanceUpdates["public_ip"] = actualInstance.PublicIP
-			}
-			if actualInstance.IPv6Address != "" {
-				instanceUpdates["ipv6_address"] = actualInstance.IPv6Address
-			}
-			instanceUpdates["ssh_port"] = 22
-			if actualInstance.Status != "" {
-				providerStatus := strings.ToLower(actualInstance.Status)
-				if providerStatus == "running" || providerStatus == "active" {
-					instanceUpdates["status"] = "running"
-				} else if providerStatus == "stopped" {
-					instanceUpdates["status"] = "stopped"
-				} else {
-					global.APP_LOG.Warn("Provider返回了非标准状态",
-						zap.String("instanceName", instance.Name),
-						zap.String("providerStatus", actualInstance.Status))
-				}
-			}
-			// 获取各 Provider 类型的内网 IP（LXD / Incus / Proxmox）
-			providerSvc := providerService.GetProviderService()
-			if providerInstance, exists := providerSvc.GetProviderByID(instance.ProviderID); exists {
-				if dbProvider.Type == "lxd" {
-					if lxdProvider, ok := providerInstance.(*lxd.LXDProvider); ok {
-						if ipv4Address, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
-							instanceUpdates["private_ip"] = ipv4Address
-						}
-						if ipv6Address, err := lxdProvider.GetInstanceIPv6(instance.Name); err == nil && ipv6Address != "" {
-							instanceUpdates["ipv6_address"] = ipv6Address
-						}
-						if publicIPv6, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil && publicIPv6 != "" {
-							instanceUpdates["public_ipv6"] = publicIPv6
-						}
-					}
-				} else if dbProvider.Type == "incus" {
-					if incusProvider, ok := providerInstance.(*incus.IncusProvider); ok {
-						if ipv4Address, err := incusProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
-							instanceUpdates["private_ip"] = ipv4Address
-						}
-						if ipv6Address, err := incusProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
-							instanceUpdates["ipv6_address"] = ipv6Address
-						}
-						if publicIPv6, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
-							instanceUpdates["public_ipv6"] = publicIPv6
-						}
-					}
-				} else if dbProvider.Type == "proxmox" || dbProvider.Type == "proxmoxve" {
-					if proxmoxProvider, ok := providerInstance.(interface {
-						GetInstanceIPv4(ctx context.Context, instanceName string) (string, error)
-						GetInstanceIPv6(ctx context.Context, instanceName string) (string, error)
-						GetInstancePublicIPv6(ctx context.Context, instanceName string) (string, error)
-					}); ok {
-						if ipv4Address, err := proxmoxProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
-							instanceUpdates["private_ip"] = ipv4Address
-							if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
-								instanceUpdates["public_ip"] = ipv4Address
-							}
-						}
-						if ipv6Address, err := proxmoxProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
-							instanceUpdates["ipv6_address"] = ipv6Address
-						}
-						if publicIPv6, err := proxmoxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
-							instanceUpdates["public_ipv6"] = publicIPv6
-						}
-					}
-				}
-			}
-		} else {
-			instanceUpdates["ssh_port"] = 22
-		}
-
+		// Remote inspection and SSH mapping lookup completed before this transaction.
 		if err := tx.Model(instance).Updates(instanceUpdates).Error; err != nil {
 			return fmt.Errorf("更新实例信息失败: %v", err)
 		}

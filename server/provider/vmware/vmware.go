@@ -265,7 +265,9 @@ func (p *VMwareProvider) CreateInstanceWithProgress(ctx context.Context, config 
 	}
 	if ipv6Plan.Routed != nil {
 		if err := p.configureRoutedIPv6(exec, dst, config, ipv6Plan); err != nil {
-			p.cleanupRoutedIPv6VM(exec, dst, config.Name)
+			if cleanupErr := p.cleanupRoutedIPv6VM(exec, dst, config.Name); cleanupErr != nil {
+				return fmt.Errorf("%w; cleanup failed: %v", err, cleanupErr)
+			}
 			return err
 		}
 	}
@@ -278,7 +280,9 @@ func (p *VMwareProvider) CreateInstanceWithProgress(ctx context.Context, config 
 	updateProgress(progress, 85, "starting VMware instance")
 	if err := p.StartInstance(ctx, dst); err != nil {
 		if ipv6Plan.Routed != nil {
-			p.cleanupRoutedIPv6VM(exec, dst, config.Name)
+			if cleanupErr := p.cleanupRoutedIPv6VM(exec, dst, config.Name); cleanupErr != nil {
+				return fmt.Errorf("%w; cleanup failed: %v", err, cleanupErr)
+			}
 		}
 		return err
 	}
@@ -314,14 +318,23 @@ func (p *VMwareProvider) DeleteInstance(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	_ = p.StopInstance(ctx, vmx)
+	if stopErr := p.StopInstance(ctx, vmx); stopErr != nil {
+		return fmt.Errorf("停止VMware实例后再删除失败: %w", stopErr)
+	}
 	cmd := fmt.Sprintf(`seed="$(awk -F'"' '/^ide1:1.fileName = /{print $2; exit}' %s 2>/dev/null || true)"
 vmrun deleteVM %s 2>/dev/null || rm -rf %s
 case "$seed" in
   %s/.oneclickvirt-ipv6-seeds/*) rm -f -- "$seed" ;;
 esac`, shellQuote(vmx), shellQuote(vmx), shellQuote(path.Dir(vmx)), shellQuote(p.libraryPath()))
-	_, err = exec.ExecuteWithTimeout(cmd, 5*time.Minute)
-	return err
+	output, err := exec.ExecuteWithTimeout(cmd, 5*time.Minute)
+	if err != nil {
+		return fmt.Errorf("删除VMware实例失败: %s: %w", utils.TruncateString(strings.TrimSpace(output), 1200), err)
+	}
+	verifyOutput, verifyErr := exec.ExecuteWithTimeout(fmt.Sprintf("test ! -e %s && test ! -e %s", shellQuote(vmx), shellQuote(path.Dir(vmx))), 30*time.Second)
+	if verifyErr != nil {
+		return fmt.Errorf("验证VMware实例删除失败: %s: %w", utils.TruncateString(strings.TrimSpace(verifyOutput), 800), verifyErr)
+	}
+	return nil
 }
 
 func (p *VMwareProvider) GetInstance(ctx context.Context, id string) (*provider.Instance, error) {
@@ -546,9 +559,11 @@ cp "$vmx" "$tmp"
 		if diskGB < 1 {
 			diskGB = 1
 		}
-		cmd := fmt.Sprintf("if command -v vmware-vdiskmanager >/dev/null 2>&1; then disk=$(find %s -maxdepth 1 -type f -name '*.vmdk' | head -1); test -n \"$disk\" && vmware-vdiskmanager -x %dGB \"$disk\" || true; fi",
+		cmd := fmt.Sprintf("set -eu; command -v vmware-vdiskmanager >/dev/null 2>&1 || { echo 'vmware-vdiskmanager is required to apply the requested disk size' >&2; exit 1; }; disk=$(find %s -maxdepth 1 -type f -name '*.vmdk' | head -1); test -n \"$disk\" || { echo 'no VMware virtual disk found' >&2; exit 1; }; vmware-vdiskmanager -x %dGB \"$disk\"",
 			shellQuote(path.Dir(vmx)), diskGB)
-		_, _ = exec.ExecuteWithTimeout(cmd, 5*time.Minute)
+		if output, err := exec.ExecuteWithTimeout(cmd, 5*time.Minute); err != nil {
+			return fmt.Errorf("扩容VMware磁盘失败: %s: %w", utils.TruncateString(strings.TrimSpace(output), 1000), err)
+		}
 	}
 	return nil
 }

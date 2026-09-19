@@ -7,6 +7,7 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -64,7 +65,7 @@ fi
 	// 步骤4: 清理临时脚本
 	cleanupCtx, cleanupCancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cleanupCancel()
-	providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", startScriptPath))
+	providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(startScriptPath)))
 
 	global.APP_LOG.Info("pmacct systemd服务配置并启动成功",
 		zap.String("instance", instanceName),
@@ -191,7 +192,7 @@ fi
 	// 步骤4: 清理临时脚本
 	cleanupCtx, cleanupCancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cleanupCancel()
-	providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", enableScriptPath))
+	providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(enableScriptPath)))
 
 	global.APP_LOG.Info("pmacct SysV服务配置并启动成功",
 		zap.String("instance", instanceName),
@@ -283,7 +284,7 @@ fi
 	// 步骤4: 清理临时脚本
 	cleanupCtx, cleanupCancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cleanupCancel()
-	providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", enableScriptPath))
+	providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(enableScriptPath)))
 
 	global.APP_LOG.Info("pmacct OpenRC服务配置并启动成功",
 		zap.String("instance", instanceName),

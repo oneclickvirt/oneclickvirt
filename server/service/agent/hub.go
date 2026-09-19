@@ -78,7 +78,11 @@ func GetHub() *AgentHub {
 
 // Register 注册一个新连接并启动读取协程。
 func (h *AgentHub) Register(ac *AgentConn) {
-	if ac == nil {
+	if ac == nil || ac.conn == nil {
+		if ac != nil && global.APP_LOG != nil {
+			global.APP_LOG.Warn("拒绝注册没有底层 WebSocket 的 Agent 连接",
+				zap.Uint("providerID", ac.ProviderID))
+		}
 		return
 	}
 	lock := h.lifecycleLock(ac.ProviderID)
@@ -90,7 +94,9 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	var old *AgentConn
 	if o, ok := h.conns[ac.ProviderID]; ok {
 		old = o
-		old.conn.Close()
+		if old.conn != nil {
+			_ = old.conn.Close()
+		}
 	}
 	delete(h.conns, ac.ProviderID)
 	h.mu.Unlock()
@@ -271,9 +277,13 @@ func (h *AgentHub) DisconnectProvider(providerID uint) {
 	ac, ok := h.conns[providerID]
 	h.mu.RUnlock()
 	if ok && ac != nil {
-		global.APP_LOG.Info("主动断开 Agent 连接（Provider 配置变更）",
-			zap.Uint("providerID", providerID))
-		ac.conn.Close() // 关闭底层连接，触发 readLoop 退出 -> unregister
+		if global.APP_LOG != nil {
+			global.APP_LOG.Info("主动断开 Agent 连接（Provider 配置变更）",
+				zap.Uint("providerID", providerID))
+		}
+		if ac.conn != nil {
+			_ = ac.conn.Close() // 关闭底层连接，触发 readLoop 退出 -> unregister
+		}
 	}
 }
 
@@ -336,14 +346,21 @@ func (h *AgentHub) unregister(ac *AgentConn) {
 
 // readLoop 持续读取来自 Agent 的消息。
 func (h *AgentHub) readLoop(ac *AgentConn) {
+	if ac == nil || ac.conn == nil {
+		return
+	}
 	defer func() {
 		if r := recover(); r != nil {
-			global.APP_LOG.Error("Agent readLoop panic",
-				zap.Uint("providerID", ac.ProviderID),
-				zap.Any("panic", r),
-				zap.Stack("stack"))
+			if global.APP_LOG != nil {
+				global.APP_LOG.Error("Agent readLoop panic",
+					zap.Uint("providerID", ac.ProviderID),
+					zap.Any("panic", r),
+					zap.Stack("stack"))
+			}
 		}
-		ac.conn.Close()
+		if ac.conn != nil {
+			_ = ac.conn.Close()
+		}
 		h.unregister(ac)
 	}()
 
@@ -443,7 +460,9 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 						if p.AgentSecret != "" && info.Secret != p.AgentSecret {
 							global.APP_LOG.Warn("Agent info 帧 secret 验证失败，断开连接",
 								zap.Uint("providerID", ac.ProviderID))
-							ac.conn.Close()
+							if ac.conn != nil {
+								_ = ac.conn.Close()
+							}
 							return
 						}
 					}
@@ -513,12 +532,11 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			}
 
 		case msgTypeShellClose:
-			ac.mu.Lock()
-			if session, ok := ac.shellSessions[msg.ID]; ok {
-				delete(ac.shellSessions, msg.ID)
-				session.safeClose()
-			}
-			ac.mu.Unlock()
+			// The Agent may close a shell on its own (for example after the PTY
+			// child exits). retireShellSession removes the session immediately;
+			// the read loop must not wait for a per-session writer because this
+			// loop also dispatches responses for every other request.
+			ac.retireShellSession(msg.ID)
 
 		case msgTypeFMListResp, msgTypeFMDownloadResp, msgTypeFMUploadResp,
 			msgTypeFMDeleteResp, msgTypeFMMkdirResp, msgTypeFMError:
@@ -592,7 +610,9 @@ func (h *AgentHub) StartPingLoop() {
 						global.APP_LOG.Error("Agent 连续 ping 失败超过阈值，强制断开",
 							zap.Uint("providerID", ac.ProviderID),
 							zap.Int("consecutiveFailures", failCount))
-						ac.conn.Close()
+						if ac.conn != nil {
+							_ = ac.conn.Close()
+						}
 						h.unregister(ac)
 					}
 					continue

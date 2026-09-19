@@ -260,11 +260,10 @@ func (l *LXDProvider) configureInstanceSecurity(ctx context.Context, config prov
 
 		// 容器安全配置
 		if err := l.setInstanceConfig(ctx, config.Name, "security.nesting", nestingValue); err != nil {
-			if isLXDConfigUnsupportedError(err) {
-				global.APP_LOG.Warn("设置容器嵌套失败，当前节点不支持该配置，已跳过", zap.Error(err))
-			} else {
-				global.APP_LOG.Warn("设置容器嵌套失败", zap.Error(err))
-			}
+			// A requested nesting capability must be visible in the instance
+			// config before creation is reported successful. Otherwise Docker/runc
+			// fails later with misleading permission errors.
+			return fmt.Errorf("设置容器嵌套 security.nesting=%s 失败: %w", nestingValue, err)
 		}
 
 		// CPU优先级配置

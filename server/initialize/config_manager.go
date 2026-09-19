@@ -60,48 +60,56 @@ func syncConfigToGlobal(key string, oldValue, newValue interface{}) error {
 	appConfigWriteMu.Lock()
 	defer appConfigWriteMu.Unlock()
 
-	cfg := global.GetAppConfig() // 取当前快照副本
+	global.UpdateAppConfig(func(cfg *config.Server) {
+		switch key {
+		case "auth":
+			if authConfig, ok := newValue.(map[string]interface{}); ok {
+				syncAuthConfig(cfg, authConfig)
+			}
+		case "invite-code":
+			if inviteConfig, ok := newValue.(map[string]interface{}); ok {
+				syncInviteCodeConfig(cfg, inviteConfig)
+			}
+		case "quota":
+			if quotaConfig, ok := newValue.(map[string]interface{}); ok {
+				syncQuotaConfig(cfg, quotaConfig)
+			}
+		case "system":
+			if systemConfig, ok := newValue.(map[string]interface{}); ok {
+				syncSystemConfig(cfg, systemConfig)
+			}
+		case "jwt":
+			if jwtConfig, ok := newValue.(map[string]interface{}); ok {
+				syncJWTConfig(cfg, jwtConfig)
+			}
+		case "cors":
+			if corsConfig, ok := newValue.(map[string]interface{}); ok {
+				syncCORSConfig(cfg, corsConfig)
+			}
+		case "captcha":
+			if captchaConfig, ok := newValue.(map[string]interface{}); ok {
+				syncCaptchaConfig(cfg, captchaConfig)
+			}
+		case "other":
+			if otherConfig, ok := newValue.(map[string]interface{}); ok {
+				syncOtherConfig(cfg, otherConfig)
+			}
+		case "kyc":
+			if kycConfig, ok := newValue.(map[string]interface{}); ok {
+				syncKYCConfig(cfg, kycConfig)
+			}
+		}
 
-	switch key {
-	case "auth":
-		if authConfig, ok := newValue.(map[string]interface{}); ok {
-			syncAuthConfig(&cfg, authConfig)
-		}
-	case "invite-code":
-		if inviteConfig, ok := newValue.(map[string]interface{}); ok {
-			syncInviteCodeConfig(&cfg, inviteConfig)
-		}
-	case "quota":
-		if quotaConfig, ok := newValue.(map[string]interface{}); ok {
-			syncQuotaConfig(&cfg, quotaConfig)
-		}
-	case "system":
-		if systemConfig, ok := newValue.(map[string]interface{}); ok {
-			syncSystemConfig(&cfg, systemConfig)
-		}
-	case "jwt":
-		if jwtConfig, ok := newValue.(map[string]interface{}); ok {
-			syncJWTConfig(&cfg, jwtConfig)
-		}
-	case "cors":
-		if corsConfig, ok := newValue.(map[string]interface{}); ok {
-			syncCORSConfig(&cfg, corsConfig)
-		}
-	case "captcha":
-		if captchaConfig, ok := newValue.(map[string]interface{}); ok {
-			syncCaptchaConfig(&cfg, captchaConfig)
-		}
-	case "other":
-		if otherConfig, ok := newValue.(map[string]interface{}); ok {
-			syncOtherConfig(&cfg, otherConfig)
-		}
-	case "kyc":
-		if kycConfig, ok := newValue.(map[string]interface{}); ok {
-			syncKYCConfig(&cfg, kycConfig)
+	})
+	// Side effects run once, after the successful CAS publication, not on retries.
+	if key == "kyc" {
+		cfg := global.GetAppConfig()
+		if cfg.KYC.AlipayAppID != "" && cfg.KYC.AlipayPrivateKey != "" {
+			if err := kyc.InitAlipayClient(); err != nil {
+				global.APP_LOG.Error("重新初始化支付宝客户端失败", zap.Error(err))
+			}
 		}
 	}
-
-	global.SetAppConfig(cfg) // 原子写入，读侧立即可见
 	return nil
 }
 
@@ -270,9 +278,8 @@ func syncSystemConfig(cfg *config.Server, systemConfig map[string]interface{}) {
 	} else if v, ok := systemConfig["addr"].(int); ok {
 		cfg.System.Addr = v
 	}
-	if v, ok := systemConfig["db-type"].(string); ok {
-		cfg.System.DbType = v
-	}
+	// Database type is detected from the connected server, not restored from a
+	// historical business-config row belonging to a different deployment.
 	if v, ok := systemConfig["oss-type"].(string); ok {
 		cfg.System.OssType = v
 	}
@@ -391,11 +398,5 @@ func syncKYCConfig(cfg *config.Server, kycConfig map[string]interface{}) {
 	}
 	if v, ok := kycConfig["alipay-public-key"].(string); ok {
 		cfg.KYC.AlipayPublicKey = v
-	}
-	// 重新初始化支付宝客户端
-	if cfg.KYC.AlipayAppID != "" && cfg.KYC.AlipayPrivateKey != "" {
-		if err := kyc.InitAlipayClient(); err != nil {
-			global.APP_LOG.Error("重新初始化支付宝客户端失败", zap.Error(err))
-		}
 	}
 }

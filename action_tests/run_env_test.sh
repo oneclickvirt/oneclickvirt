@@ -30,6 +30,7 @@ if [[ "${ACTION_TEST_PARALLEL_LOCAL:-${PLATFORM_ALLOW_CONCURRENT_INSTANCES:-fals
 fi
 
 source "${COMMON_DIR}/test_framework.sh"
+source "${COMMON_DIR}/result_integrity.sh"
 source "${COMMON_DIR}/node_manager.sh"
 # Restore SCRIPT_DIR: sourced files above set SCRIPT_DIR to their own directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,7 +86,12 @@ _cleanup_on_exit() {
     fi
     if [[ -n "$CREATED_IDS" ]]; then
         log_info "Cleaning up nodes: ${CREATED_IDS}"
-        cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
+        if ! cleanup_all_nodes "$CREATED_IDS" 2>/dev/null; then
+            # Keep CREATED_IDS intact so an EXIT-trap retry can make another
+            # bounded cleanup attempt; never report a failed cleanup as a
+            # successful test run.
+            log_error "Worker cleanup failed; retaining IDs for retry: ${CREATED_IDS}"
+        fi
     fi
     if [[ -f "$SERVER_PID_FILE" ]]; then
         kill "$(cat "$SERVER_PID_FILE")" 2>/dev/null || true
@@ -108,8 +114,13 @@ record_pass_result "Platform resolution" "PREFLIGHT" "platforms" "at least one e
 log_info "Enabled platforms: ${ENABLED_PLATFORMS}"
 log_info "Active platform will be selected automatically with fallback"
 
-if preflight_require_commands jq curl go mysql; then
-    record_pass_result "Required commands" "PREFLIGHT" "commands" "jq,curl,go,mysql" "available" "All required commands are installed" "HARNESS"
+if preflight_require_commands jq curl go; then
+    if command -v mysql >/dev/null 2>&1 || command -v mariadb >/dev/null 2>&1; then
+        record_pass_result "Required commands" "PREFLIGHT" "commands" "jq,curl,go,mysql-or-mariadb" "available" "All required commands are installed" "HARNESS"
+    else
+        log_error "Neither mysql nor mariadb client is installed"
+        record_harness_skip_and_exit "A MySQL-compatible client is required for the local database readiness check"
+    fi
 else
     record_harness_skip_and_exit "Required command preflight failed"
 fi
@@ -209,10 +220,17 @@ log_section "Phase 3: Install ${ENV_TYPE} on worker node"
 install_rc=0
 install_env "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || install_rc=$?
 if (( install_rc != 0 )); then
-    log_warning "Environment installation may have issues, continuing..."
-fi
-if (( install_rc == 75 )); then
-    record_harness_skip_and_exit "${ENV_TYPE} installation lost required worker connectivity or hit a transient infrastructure failure"
+    if (( install_rc == 75 )); then
+        record_harness_skip_and_exit "${ENV_TYPE} installation lost required worker connectivity or hit a transient infrastructure failure"
+    fi
+    # A non-transient installer error means the requested runtime was not
+    # installed. Continuing into runtime/module checks would turn every real
+    # assertion into a misleading SKIP and previously made CI appear to test
+    # an environment that did not exist.
+    record_fail_result "${ENV_TYPE} environment installation" "HARNESS" "install_env" \
+        "installer exit 0" "installer exit ${install_rc}" \
+        "Environment installation failed; runtime and module assertions were not run" "HARNESS"
+    exit 1
 fi
 
 runtime_rc=0
@@ -257,8 +275,14 @@ if (( dirty_node_rc == 75 )); then
     record_harness_skip_and_exit "No deterministic pre-existing ${ENV_TYPE} instance fixture could be prepared on the worker"
 fi
 if (( dirty_node_rc != 0 )); then
-    record_skip_result "Partial dirty-node fixture preparation (${ENV_TYPE})" "HARNESS" "prepare_dirty_node" \
-        "Only the successfully prepared instance types will be asserted" "HARNESS"
+    # A partial fixture is not a supported-feature skip when the caller
+    # requested that instance type. Discovery/import coverage would otherwise
+    # run against one type and silently omit the other, which makes a broad
+    # matrix look complete while testing only a subset of its contract.
+    record_fail_result "Partial dirty-node fixture preparation (${ENV_TYPE})" "HARNESS" "prepare_dirty_node" \
+        "all requested instance types have deterministic fixtures" "only a subset of requested fixtures is ready" \
+        "The requested discovery matrix is incomplete; module assertions were not run" "HARNESS"
+    exit 1
 fi
 
 # =============================================================
@@ -411,8 +435,18 @@ generate_html_report "${REPORT_DIR}/${ENV_TYPE}-report.html" "${ENV_TYPE}"
 # =============================================================
 log_section "Phase 10: Cleanup"
 # Explicit cleanup (trap will also fire but that's OK)
-cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
-CREATED_IDS=""  # Prevent double cleanup in trap
+cleanup_rc=0
+if [[ -n "$CREATED_IDS" ]]; then
+    cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || cleanup_rc=$?
+    if [[ "$cleanup_rc" -ne 0 ]]; then
+        record_fail_result "Worker cleanup" "HARNESS" "cleanup_all_nodes" \
+            "all created worker resources removed" "cleanup exit ${cleanup_rc}" \
+            "Cleanup failed; IDs are retained for the EXIT-trap retry" "HARNESS"
+        EXIT_CODE=1
+    else
+        CREATED_IDS=""  # Prevent double cleanup in trap
+    fi
+fi
 # Kill the Go server process
 if [[ -f "$SERVER_PID_FILE" ]]; then
     kill "$(cat "$SERVER_PID_FILE")" 2>/dev/null || true
@@ -426,10 +460,11 @@ if [[ -f "${RESULTS_FILE:-}" ]]; then
     if [[ "${_jsonl_fail_count:-0}" != "0" ]]; then
         log_error "Detected ${_jsonl_fail_count} failed assertion(s) in ${RESULTS_FILE}"
         EXIT_CODE=1
-    elif [[ $EXIT_CODE -ne 0 ]]; then
-        log_warning "Ignoring non-zero module exit_code=${EXIT_CODE} because ${RESULTS_FILE} contains no failed assertions"
-        EXIT_CODE=0
     fi
+fi
+if ! validate_test_run_results "$EXIT_CODE" "${RESULTS_FILE:-}"; then
+    log_error "Environment execution failed or result records are missing/invalid"
+    EXIT_CODE=1
 fi
 log_info "Exit code: ${EXIT_CODE}"
 if [[ $EXIT_CODE -ne 0 ]]; then

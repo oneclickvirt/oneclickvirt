@@ -98,11 +98,6 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 		if actualInstance.IPv6Address != "" {
 			instanceUpdates["ipv6_address"] = actualInstance.IPv6Address
 		}
-		if shouldDefaultInstanceSSHPortTo22(dbProvider.Type, instance.InstanceType) {
-			instanceUpdates["ssh_port"] = 22
-		} else {
-			applySSHPortFromActiveMapping(instance.ID, instanceUpdates)
-		}
 		if actualInstance.Status != "" {
 			providerStatus := strings.ToLower(actualInstance.Status)
 			if providerStatus == "running" || providerStatus == "active" {
@@ -115,12 +110,10 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 					zap.String("providerStatus", actualInstance.Status))
 			}
 		}
-	} else {
-		if shouldDefaultInstanceSSHPortTo22(dbProvider.Type, instance.InstanceType) {
-			instanceUpdates["ssh_port"] = 22
-		} else {
-			applySSHPortFromActiveMapping(instance.ID, instanceUpdates)
-		}
+	}
+	if err := applyFinalizedSSHPort(global.APP_DB.WithContext(ctx), *instance, dbProvider, instanceUpdates); err != nil {
+		global.APP_LOG.Warn("读取实例SSH映射失败，保留已分配端口",
+			zap.Uint("instanceId", instance.ID), zap.Error(err))
 	}
 
 	// 通过Provider API获取详细的IPv4/IPv6地址（远程调用，必须在事务外）
@@ -136,8 +129,12 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 					if ipv6Address, err := lxdProvider.GetInstanceIPv6(instance.Name); err == nil && ipv6Address != "" {
 						instanceUpdates["ipv6_address"] = ipv6Address
 					}
-					if publicIPv6, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil && publicIPv6 != "" {
-						instanceUpdates["public_ipv6"] = publicIPv6
+					publicIPv6 := ""
+					if candidate, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil {
+						publicIPv6 = candidate
+					}
+					for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+						instanceUpdates[key] = value
 					}
 				}
 			case "incus":
@@ -148,8 +145,12 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 					if ipv6Address, err := incusProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
 						instanceUpdates["ipv6_address"] = ipv6Address
 					}
-					if publicIPv6, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
-						instanceUpdates["public_ipv6"] = publicIPv6
+					publicIPv6 := ""
+					if candidate, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
+						publicIPv6 = candidate
+					}
+					for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+						instanceUpdates[key] = value
 					}
 				}
 			case "proxmox", "proxmoxve":
@@ -186,12 +187,16 @@ func (s *Service) gatherProxmoxNetworkInfo(ctx context.Context, providerInstance
 		if ipv6Address, err := pxProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
 			if dbProvider.NetworkType == "nat_ipv4_ipv6" {
 				instanceUpdates["ipv6_address"] = ipv6Address
-				if publicIPv6, err := pxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
-					instanceUpdates["public_ipv6"] = publicIPv6
-				}
 			} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
 				instanceUpdates["public_ipv6"] = ipv6Address
 			}
+		}
+		publicIPv6 := ""
+		if candidate, err := pxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
+			publicIPv6 = candidate
+		}
+		for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+			instanceUpdates[key] = value
 		}
 		return
 	}
@@ -272,16 +277,14 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				return fmt.Errorf("更新实例状态失败: %v", err)
 			}
 
-			// 清理预分配的端口映射
-			portMappingService := &resources.PortMappingService{}
-			if err := portMappingService.DeleteInstancePortMappingsInTx(tx, instance.ID); err != nil {
-				global.APP_LOG.Warn("清理失败实例端口映射失败",
-					zap.Uint("instanceId", instance.ID),
-					zap.Error(err))
-				// 不返回错误，继续其他清理操作
-			} else {
-				global.APP_LOG.Debug("清理失败实例端口映射成功",
-					zap.Uint("instanceId", instance.ID))
+			// 保留端口映射到延迟远端删除完成后再硬删除。LXD/Incus 的
+			// 宿主防火墙规则需要 guest port 和实例 IP，过早删除数据库行会
+			// 让后续 Provider 删除无法定位旧规则，造成端口复用后的串流量。
+			if err := tx.Model(&providerModel.Port{}).
+				Where("instance_id = ?", instance.ID).
+				Update("status", "deleting").Error; err != nil {
+				global.APP_LOG.Warn("标记失败实例端口映射清理中失败",
+					zap.Uint("instanceId", instance.ID), zap.Error(err))
 			}
 
 			// 释放已分配的Provider资源

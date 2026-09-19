@@ -70,7 +70,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 			tmpPath := localImagePath + ".tmp"
 			output, err := p.downloadRemoteFileWithFallback(downloadURL, systemConfig.ImageURL, tmpPath, localImagePath, 30*time.Minute)
 			if err != nil {
-				p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+				p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 				return nil, fmt.Errorf("下载镜像失败: %s: %w", utils.TruncateString(output, 300), err)
 			}
 			global.APP_LOG.Debug("虚拟机镜像下载完成",
@@ -209,13 +209,13 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		// 双网络接口模式（IPv6）
 		if useRateLimit {
 			createCmd = fmt.Sprintf(
-				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
-				vmid, agentParam, cpuFormatted, cpuType, net0ConfigWithRate, net1Bridge, kvmFlag,
+				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 %s --ostype l26 %s",
+				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0ConfigWithRate), shellSingleQuote(fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)), kvmFlag,
 			)
 		} else {
 			createCmd = fmt.Sprintf(
-				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
-				vmid, agentParam, cpuFormatted, cpuType, net0Config, net1Bridge, kvmFlag,
+				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 %s --ostype l26 %s",
+				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0Config), shellSingleQuote(fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)), kvmFlag,
 			)
 		}
 	} else {
@@ -223,12 +223,12 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		if useRateLimit {
 			createCmd = fmt.Sprintf(
 				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
-				vmid, agentParam, cpuFormatted, cpuType, net0ConfigWithRate, kvmFlag,
+				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0ConfigWithRate), kvmFlag,
 			)
 		} else {
 			createCmd = fmt.Sprintf(
 				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
-				vmid, agentParam, cpuFormatted, cpuType, net0Config, kvmFlag,
+				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0Config), kvmFlag,
 			)
 		}
 	}
@@ -243,13 +243,13 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		// 重新构建不带rate的命令
 		if net1Bridge != "" {
 			createCmd = fmt.Sprintf(
-				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
-				vmid, agentParam, cpuFormatted, cpuType, net0Config, net1Bridge, kvmFlag,
+				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 %s --ostype l26 %s",
+				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0Config), shellSingleQuote(fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)), kvmFlag,
 			)
 		} else {
 			createCmd = fmt.Sprintf(
 				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
-				vmid, agentParam, cpuFormatted, cpuType, net0Config, kvmFlag,
+				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0Config), kvmFlag,
 			)
 		}
 		_, err = p.sshClient.Execute(createCmd)
@@ -269,10 +269,10 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		if err != nil {
 			return fmt.Errorf("设置ARM BIOS失败: %v", err)
 		}
-		importCmd = fmt.Sprintf("qm importdisk %d %s %s", vmid, localImagePath, storage)
+		importCmd = fmt.Sprintf("qm importdisk %d %s %s", vmid, shellSingleQuote(localImagePath), shellSingleQuote(storage))
 	} else {
 		// x86/x64架构
-		importCmd = fmt.Sprintf("qm importdisk %d %s %s", vmid, localImagePath, storage)
+		importCmd = fmt.Sprintf("qm importdisk %d %s %s", vmid, shellSingleQuote(localImagePath), shellSingleQuote(storage))
 	}
 
 	_, err = p.sshClient.Execute(importCmd)
@@ -286,7 +286,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	time.Sleep(p.waitScale(3 * time.Second))
 
 	// 查找导入的磁盘文件（参考脚本逻辑）
-	findDiskCmd := fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid && $1 ~ /\\.raw$/ {print $1}' | tail -n 1", storage, vmid)
+	findDiskCmd := fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid && $1 ~ /\\.raw$/ {print $1}' | tail -n 1", shellSingleQuote(storage), vmid)
 	diskOutput, err := p.sshClient.Execute(findDiskCmd)
 	if err != nil {
 		return fmt.Errorf("查找导入磁盘失败: %v", err)
@@ -295,7 +295,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	volid := strings.TrimSpace(diskOutput)
 	if volid == "" {
 		// 如果没找到.raw文件，查找其他格式
-		findDiskCmd = fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid {print $1}' | tail -n 1", storage, vmid)
+		findDiskCmd = fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid {print $1}' | tail -n 1", shellSingleQuote(storage), vmid)
 		diskOutput, err = p.sshClient.Execute(findDiskCmd)
 		if err != nil {
 			return fmt.Errorf("查找导入磁盘失败: %v", err)
@@ -308,8 +308,8 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	// 设置SCSI磁盘（参考脚本逻辑，优先尝试标准命名）
 	scsiSetCmds := []string{
-		fmt.Sprintf("qm set %d --scsihw virtio-scsi-pci --scsi0 %s:%d/vm-%d-disk-0.raw", vmid, storage, vmid, vmid),
-		fmt.Sprintf("qm set %d --scsihw virtio-scsi-pci --scsi0 %s", vmid, volid),
+		fmt.Sprintf("qm set %d --scsihw virtio-scsi-pci --scsi0 %s", vmid, shellSingleQuote(fmt.Sprintf("%s:%d/vm-%d-disk-0.raw", storage, vmid, vmid))),
+		fmt.Sprintf("qm set %d --scsihw virtio-scsi-pci --scsi0 %s", vmid, shellSingleQuote(volid)),
 	}
 
 	var scsiSetErr error
@@ -338,7 +338,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	}
 
 	// 设置内存
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --memory %s", vmid, memoryFormatted))
+	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --memory %s", vmid, shellSingleQuote(memoryFormatted)))
 	if err != nil {
 		return fmt.Errorf("设置内存失败: %v", err)
 	}
@@ -347,12 +347,12 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	// 配置云初始化磁盘（参考脚本）
 	if systemArch == "aarch64" || systemArch == "armv7l" || systemArch == "armv8" || systemArch == "armv8l" {
-		_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --scsi1 %s:cloudinit", vmid, storage))
+		_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --scsi1 %s", vmid, shellSingleQuote(fmt.Sprintf("%s:cloudinit", storage))))
 	} else {
-		_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ide1 %s:cloudinit", vmid, storage))
+		_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ide1 %s", vmid, shellSingleQuote(fmt.Sprintf("%s:cloudinit", storage))))
 	}
 	if err != nil {
-		global.APP_LOG.Warn("设置云初始化失败", zap.Int("vmid", vmid), zap.Error(err))
+		return fmt.Errorf("设置云初始化失败: %v", err)
 	}
 
 	updateProgress(85, "调整磁盘大小...")
@@ -369,7 +369,10 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		if targetDiskGB > 0 {
 			// 获取当前磁盘大小
 			getCurrentSizeCmd := fmt.Sprintf("qm config %d | grep 'scsi0' | awk -F'size=' '{print $2}' | awk '{print $1}'", vmid)
-			currentSizeOutput, _ := p.sshClient.Execute(getCurrentSizeCmd)
+			currentSizeOutput, currentSizeErr := p.sshClient.Execute(getCurrentSizeCmd)
+			if currentSizeErr != nil {
+				return fmt.Errorf("读取当前磁盘大小失败: %v", currentSizeErr)
+			}
 			currentSize := strings.TrimSpace(currentSizeOutput)
 
 			shouldResize := true
@@ -397,15 +400,15 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 			}
 
 			if shouldResize {
-				resizeCmd := fmt.Sprintf("qm resize %d scsi0 %sG", vmid, diskFormatted)
+				resizeCmd := fmt.Sprintf("qm resize %d scsi0 %s", vmid, shellSingleQuote(diskFormatted+"G"))
 				_, err = p.sshClient.Execute(resizeCmd)
 				if err != nil {
 					// 尝试以MB为单位重试
 					diskMB := targetDiskGB * 1024
-					resizeCmd = fmt.Sprintf("qm resize %d scsi0 %dM", vmid, diskMB)
+					resizeCmd = fmt.Sprintf("qm resize %d scsi0 %s", vmid, shellSingleQuote(fmt.Sprintf("%dM", diskMB)))
 					_, err = p.sshClient.Execute(resizeCmd)
 					if err != nil {
-						global.APP_LOG.Warn("调整磁盘大小失败", zap.Int("vmid", vmid), zap.Error(err))
+						return fmt.Errorf("调整磁盘大小失败: %v", err)
 					}
 				}
 			}
@@ -416,9 +419,9 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	// 配置网络（使用VMID到IP的映射函数，充分利用IP地址空间）
 	userIP := p.vmidToInternalIP(vmid)
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, p.getInternalGateway()))
+	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 %s", vmid, shellSingleQuote(fmt.Sprintf("ip=%s/24,gw=%s", userIP, p.getInternalGateway()))))
 	if err != nil {
-		global.APP_LOG.Warn("设置IP配置失败", zap.Int("vmid", vmid), zap.Error(err))
+		return fmt.Errorf("设置IP配置失败: %v", err)
 	}
 
 	// 设置DNS
@@ -447,13 +450,13 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --cipassword %s --ciuser root", vmid, shellSingleQuote(password)))
 	if err != nil {
-		global.APP_LOG.Warn("设置用户密码失败", zap.Int("vmid", vmid), zap.Error(err))
+		return fmt.Errorf("设置用户密码失败: %v", err)
 	}
 
 	// 设置虚拟机名称，以便后续能够通过名称查找
 	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --name %s", vmid, shellSingleQuote(config.Name)))
 	if err != nil {
-		global.APP_LOG.Warn("设置虚拟机名称失败", zap.Int("vmid", vmid), zap.String("name", config.Name), zap.Error(err))
+		return fmt.Errorf("设置虚拟机名称失败: %v", err)
 	} else {
 		global.APP_LOG.Debug("虚拟机名称设置成功", zap.Int("vmid", vmid), zap.String("name", config.Name))
 	}

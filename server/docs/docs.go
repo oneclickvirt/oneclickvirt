@@ -14111,7 +14111,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "object"
+                            "$ref": "#/definitions/public.InitSystemRequest"
                         }
                     }
                 ],
@@ -15104,7 +15104,7 @@ const docTemplate = `{
         },
         "/public/recommended-db-type": {
             "get": {
-                "description": "根据系统架构获取推荐的数据库类型",
+                "description": "获取已检测的数据库类型或连接协议默认值；实际类型在测试连接、启动和重连时自动检测",
                 "consumes": [
                     "application/json"
                 ],
@@ -15256,7 +15256,7 @@ const docTemplate = `{
         },
         "/public/test-db-connection": {
             "post": {
-                "description": "测试数据库连接是否可用，用于初始化前验证数据库配置",
+                "description": "验证连接并自动检测实际 MySQL/MariaDB 服务端，修复已知跨版本参数错配；不更改凭据或降低 TLS 安全性",
                 "consumes": [
                     "application/json"
                 ],
@@ -15269,20 +15269,32 @@ const docTemplate = `{
                 "summary": "测试数据库连接",
                 "parameters": [
                     {
-                        "description": "数据库连接参数",
+                        "description": "数据库连接参数，类型标签不影响服务端自动检测；留空 sslMode 沿用部署配置",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "object"
+                            "$ref": "#/definitions/public.TestDatabaseConnectionRequest"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "连接成功",
+                        "description": "连接成功，返回实际类型、版本和修复项",
                         "schema": {
-                            "$ref": "#/definitions/common.Response"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dbconnect.Info"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -20490,6 +20502,10 @@ const docTemplate = `{
                     "description": "控制端转发目标地址（容器IP）",
                     "type": "string"
                 },
+                "ipv6Enabled": {
+                    "description": "IPv6Enabled is optional for backwards compatibility. NAT dual-stack\nproviders default to both families; callers can explicitly set false\nwhen they intentionally need an IPv4-only mapping.",
+                    "type": "boolean"
+                },
                 "mappingType": {
                     "description": "\"node\"（默认）或 \"controller\"（控制端转发）",
                     "type": "string",
@@ -21641,6 +21657,23 @@ const docTemplate = `{
                 },
                 "scope": {
                     "description": "public, user, admin",
+                    "type": "string"
+                }
+            }
+        },
+        "dbconnect.Info": {
+            "type": "object",
+            "properties": {
+                "repairs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "type": "string"
+                },
+                "version": {
                     "type": "string"
                 }
             }
@@ -23831,6 +23864,113 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "public.InitSystemRequest": {
+            "type": "object",
+            "required": [
+                "admin",
+                "database"
+            ],
+            "properties": {
+                "admin": {
+                    "type": "object",
+                    "required": [
+                        "email",
+                        "password",
+                        "username"
+                    ],
+                    "properties": {
+                        "email": {
+                            "type": "string"
+                        },
+                        "password": {
+                            "type": "string"
+                        },
+                        "username": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "database": {
+                    "type": "object",
+                    "required": [
+                        "type"
+                    ],
+                    "properties": {
+                        "database": {
+                            "type": "string"
+                        },
+                        "host": {
+                            "type": "string"
+                        },
+                        "password": {
+                            "type": "string"
+                        },
+                        "port": {
+                            "type": "string"
+                        },
+                        "sslMode": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "type": "string"
+                        },
+                        "username": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "user": {
+                    "type": "object",
+                    "properties": {
+                        "email": {
+                            "type": "string"
+                        },
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "password": {
+                            "type": "string"
+                        },
+                        "username": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "public.TestDatabaseConnectionRequest": {
+            "type": "object",
+            "required": [
+                "database",
+                "host",
+                "port",
+                "type",
+                "username"
+            ],
+            "properties": {
+                "database": {
+                    "type": "string"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "string"
+                },
+                "sslMode": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }

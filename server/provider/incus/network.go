@@ -40,11 +40,13 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 
 	// 获取Provider配置信息
 	var providerInfo providerModel.Provider
-	if err := global.APP_DB.Where("id = ?", i.config.ID).First(&providerInfo).Error; err != nil {
-		global.APP_LOG.Warn("无法获取Provider配置，使用默认值",
-			zap.Uint("provider_id", i.config.ID),
-			zap.String("provider", i.config.Name),
-			zap.Error(err))
+	if global.APP_DB != nil {
+		if err := global.APP_DB.Where("id = ?", i.config.ID).First(&providerInfo).Error; err != nil {
+			global.APP_LOG.Warn("无法获取Provider配置，使用默认值",
+				zap.Uint("provider_id", i.config.ID),
+				zap.String("provider", i.config.Name),
+				zap.Error(err))
+		}
 	}
 
 	// 获取Provider默认带宽配置
@@ -237,23 +239,33 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 		global.APP_LOG.Debug("使用现有网络配置继续",
 			zap.String("instanceName", config.Name))
 		if hasIPv6 {
-			if err := i.configureIPv6Network(ctx, config.Name, true, networkConfig.IPv6PortMappingMethod, requestedIPv6, routedIPv6, config.InstanceType); err != nil {
+			if err := i.configureIPv6AndPortMappings(ctx, config, networkConfig, requestedIPv6, routedIPv6); err != nil {
 				return fmt.Errorf("使用现有网络配置静态IPv6失败: %w", err)
 			}
 		}
 		return nil
 	}
 
-	// 获取实例IP地址
-	instanceIP, err := i.getInstanceIP(config.Name)
-	if err != nil {
-		return fmt.Errorf("获取实例IP地址失败: %w", err)
+	// IPv6-only guests intentionally have no IPv4 address. Do not make their
+	// creation depend on an IPv4 DHCP lease; only the IPv4 mapping path needs it.
+	instanceIP := ""
+	var err error
+	if networkConfig.NetworkType != "ipv6_only" {
+		instanceIP, err = i.getInstanceIP(config.Name)
+		if err != nil {
+			return fmt.Errorf("获取实例IPv4地址失败: %w", err)
+		}
 	}
 
-	// 获取主机IP地址
-	hostIP, err := i.getHostIP()
-	if err != nil {
-		return fmt.Errorf("获取主机IP地址失败: %w", err)
+	// IPv6-only mappings use their own IPv6 endpoint and do not need an IPv4
+	// host address. Keep this lookup out of that path so an IPv4-less node can
+	// still create a usable guest.
+	hostIP := ""
+	if networkConfig.NetworkType != "ipv6_only" {
+		hostIP, err = i.getHostIP()
+		if err != nil {
+			return fmt.Errorf("获取主机IPv4地址失败: %w", err)
+		}
 	}
 
 	global.APP_LOG.Debug("开始配置实例网络",
@@ -261,25 +273,30 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 		zap.String("instanceIP", instanceIP),
 		zap.String("hostIP", hostIP))
 
+	// Keep bandwidth configuration before the address override, which may
+	// copy an inherited NIC into the local device list.
+	if err := i.configureNetworkLimits(config.Name, networkConfig); err != nil {
+		global.APP_LOG.Warn("配置网络限速失败", zap.Error(err))
+	}
+	// Read the live NIC address/MAC before stopping. Guest interface names
+	// (such as enp5s0 in a VM) need not match the profile device name.
+	if instanceIP != "" {
+		if err := i.setIPAddressBinding(config.Name, instanceIP); err != nil {
+			global.APP_LOG.Warn("设置IP地址绑定失败", zap.Error(err))
+		}
+	}
 	// 停止实例进行网络配置
 	if err := i.stopInstanceForConfig(config.Name); err != nil {
 		return fmt.Errorf("停止实例进行配置失败: %w", err)
 	}
 
-	// 配置网络限速
-	if err := i.configureNetworkLimits(config.Name, networkConfig); err != nil {
-		global.APP_LOG.Warn("配置网络限速失败", zap.Error(err))
-	}
-
-	// 设置IP地址绑定
-	if err := i.setIPAddressBinding(config.Name, instanceIP); err != nil {
-		global.APP_LOG.Warn("设置IP地址绑定失败", zap.Error(err))
-	}
-
-	// 配置端口映射 - 在实例停止时添加 proxy 设备
-	// LXD/Incus 的 proxy 设备必须在容器停止时添加，然后启动容器时才能正确初始化
-	if err := i.configurePortMappingsWithIP(ctx, config.Name, networkConfig, instanceIP); err != nil {
-		global.APP_LOG.Warn("配置端口映射失败", zap.Error(err))
+	// 配置端口映射 - 在实例停止时添加 proxy 设备。IPv6-only 实例的
+	// IPv6 设备还没有在此阶段创建，先跳过，待 configureIPv6Network
+	// 完成后再读取 eth0/eth1 的实际地址配置映射。
+	if networkConfig.NetworkType != "ipv6_only" {
+		if err := i.configureInitialPortMappingsWithIP(ctx, config.Name, networkConfig, instanceIP); err != nil {
+			return fmt.Errorf("配置端口映射失败: %w", err)
+		}
 	}
 
 	// 启动实例 - 在配置完端口映射后启动，让 proxy 设备正确初始化
@@ -307,7 +324,7 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 
 	// 配置IPv6网络（如果启用）
 	if hasIPv6 {
-		if err := i.configureIPv6Network(ctx, config.Name, hasIPv6, networkConfig.IPv6PortMappingMethod, requestedIPv6, routedIPv6, config.InstanceType); err != nil {
+		if err := i.configureIPv6AndPortMappings(ctx, config, networkConfig, requestedIPv6, routedIPv6); err != nil {
 			return fmt.Errorf("配置IPv6网络失败: %w", err)
 		}
 	}
@@ -316,6 +333,61 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP))
 
+	return nil
+}
+
+// configureIPv6AndPortMappings configures the IPv6 device first and only then
+// adds IPv6 proxy/firewall mappings.  A routed address does not exist before
+// configureIPv6Network. Preserve the existing stop/configure/start sequence
+// for these SSH creation paths; NAT proxies also support hotplug. The same ordering is used after the restart
+// fallback so a transient restart failure cannot silently lose IPv6 mappings.
+func (i *IncusProvider) configureIPv6AndPortMappings(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig, requestedIPv6 string, routed *provider.RoutedIPv6Config) error {
+	if networkConfig.NetworkType == "nat_ipv4_ipv6" && routed == nil {
+		guestIPv6, err := i.configureNATIPv6Network(ctx, config.Name, requestedIPv6)
+		if err != nil {
+			return err
+		}
+		// Port mappings are added while the guest is stopped, when Incus often
+		// reports state.network=null. Persist the observed ULA before that stop
+		// so mapping never depends on a shell working-directory sidecar file.
+		if err := i.persistManagedNATIPv6Target(config.Name, guestIPv6); err != nil {
+			return err
+		}
+	} else {
+		if err := i.configureIPv6Network(ctx, config.Name, true, networkConfig.IPv6PortMappingMethod, requestedIPv6, routed, config.InstanceType); err != nil {
+			return err
+		}
+	}
+	if networkConfig.NetworkType != "nat_ipv4_ipv6" && networkConfig.NetworkType != "ipv6_only" {
+		return nil
+	}
+	if err := i.stopInstanceForConfig(config.Name); err != nil {
+		return fmt.Errorf("停止实例配置IPv6端口映射失败: %w", err)
+	}
+	ipv6Config := networkConfig
+	ipv6Config.NetworkType = "ipv6_only"
+	if err := i.configurePortMappingFamiliesWithIP(ctx, config.Name, ipv6Config, "", false, true); err != nil {
+		return fmt.Errorf("配置IPv6端口映射失败: %w", err)
+	}
+	if err := i.sshStartInstance(config.Name); err != nil {
+		return fmt.Errorf("启动实例完成IPv6端口映射失败: %w", err)
+	}
+	return nil
+}
+
+func (i *IncusProvider) persistManagedNATIPv6Target(instanceName, guestIPv6 string) error {
+	if global.APP_DB == nil {
+		return fmt.Errorf("持久化NAT IPv6实例ULA失败: 数据库未初始化")
+	}
+	result := global.APP_DB.Model(&providerModel.Instance{}).
+		Where("name = ? AND provider_id = ?", instanceName, i.config.ID).
+		Update("ipv6_address", guestIPv6)
+	if result.Error != nil {
+		return fmt.Errorf("持久化NAT IPv6实例ULA失败: %w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("持久化NAT IPv6实例ULA失败: rows=%d", result.RowsAffected)
+	}
 	return nil
 }
 
@@ -370,25 +442,32 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 		}
 	}
 
-	// 尝试获取现有IP地址
-	instanceIP, err := i.getInstanceIP(config.Name)
-	if err != nil {
-		global.APP_LOG.Error("无法获取实例IP地址，跳过网络配置",
-			zap.String("instanceName", config.Name),
-			zap.Error(err))
-		return fmt.Errorf("无法获取实例IP地址: %w", err)
+	// IPv6-only instances may not expose an IPv4 lease at all. Let the port
+	// mapping path resolve their IPv6 address instead of treating that as a
+	// failed network configuration.
+	instanceIP := ""
+	if networkConfig.NetworkType != "ipv6_only" {
+		var err error
+		instanceIP, err = i.getInstanceIP(config.Name)
+		if err != nil {
+			global.APP_LOG.Error("无法获取实例IPv4地址，跳过网络配置",
+				zap.String("instanceName", config.Name), zap.Error(err))
+			return fmt.Errorf("无法获取实例IPv4地址: %w", err)
+		}
 	}
 
 	global.APP_LOG.Debug("成功获取现有实例IP地址",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP))
 
-	// 获取主机IP地址
-	hostIP, err := i.getHostIP()
-	if err != nil {
-		global.APP_LOG.Warn("无法获取主机IP地址，使用默认配置",
-			zap.Error(err))
-		hostIP = "0.0.0.0" // 使用默认值
+	hostIP := ""
+	if networkConfig.NetworkType != "ipv6_only" {
+		var err error
+		hostIP, err = i.getHostIP()
+		if err != nil {
+			global.APP_LOG.Warn("无法获取主机IPv4地址，使用默认配置", zap.Error(err))
+			hostIP = "0.0.0.0"
+		}
 	}
 
 	global.APP_LOG.Debug("使用现有网络配置继续配置",
@@ -401,23 +480,26 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 	global.APP_LOG.Debug("停止实例以配置端口映射",
 		zap.String("instanceName", config.Name))
 
+	if instanceIP != "" {
+		if err := i.setIPAddressBinding(config.Name, instanceIP); err != nil {
+			global.APP_LOG.Warn("设置IP地址绑定失败", zap.Error(err))
+		}
+	}
 	if err := i.stopInstanceForConfig(config.Name); err != nil {
-		global.APP_LOG.Warn("停止实例失败，尝试直接配置",
-			zap.String("instanceName", config.Name),
-			zap.Error(err))
+		return fmt.Errorf("停止实例以配置端口映射失败: %w", err)
 	} else {
-		// 尝试配置端口映射（容器停止状态）
-		if err := i.configurePortMappingsWithIP(ctx, config.Name, networkConfig, instanceIP); err != nil {
-			global.APP_LOG.Warn("配置端口映射失败，但继续",
-				zap.String("instanceName", config.Name),
-				zap.Error(err))
+		// IPv6-only 的目标地址要在 configureIPv6Network 创建 eth1 后才
+		// 可用。正常路径会在该阶段之后重新停止实例并配置 proxy；这里
+		// 也必须保持相同顺序，否则重启失败时会永久漏掉 IPv6 映射。
+		if networkConfig.NetworkType != "ipv6_only" {
+			if err := i.configureInitialPortMappingsWithIP(ctx, config.Name, networkConfig, instanceIP); err != nil {
+				return fmt.Errorf("配置端口映射失败: %w", err)
+			}
 		}
 
 		// 重新启动实例
 		if err := i.sshStartInstance(config.Name); err != nil {
-			global.APP_LOG.Warn("启动实例失败",
-				zap.String("instanceName", config.Name),
-				zap.Error(err))
+			return fmt.Errorf("重新启动实例失败: %w", err)
 		}
 	}
 

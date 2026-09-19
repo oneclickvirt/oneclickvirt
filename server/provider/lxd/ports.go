@@ -1,16 +1,42 @@
 package lxd
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider/firewall"
+	"oneclickvirt/utils"
 	"sort"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+func lxdProxyEndpoint(protocol, address string, port int) string {
+	address = strings.Trim(strings.TrimSpace(address), "[]")
+	if strings.Contains(address, ":") {
+		return fmt.Sprintf("%s:[%s]:%d", protocol, address, port)
+	}
+	return fmt.Sprintf("%s:%s:%d", protocol, address, port)
+}
+
+func lxdProxyEndpointRange(protocol, address string, startPort, endPort int) string {
+	address = strings.Trim(strings.TrimSpace(address), "[]")
+	if strings.Contains(address, ":") {
+		return fmt.Sprintf("%s:[%s]:%d-%d", protocol, address, startPort, endPort)
+	}
+	return fmt.Sprintf("%s:%s:%d-%d", protocol, address, startPort, endPort)
+}
+
+func lxdFamilyLabel(ipv6 bool) string {
+	if ipv6 {
+		return "IPv6"
+	}
+	return "IPv4"
+}
 
 // configurePortMappings 配置端口映射
 func (l *LXDProvider) configurePortMappings(instanceName string, networkConfig NetworkConfig, instanceIP string) error {
@@ -19,12 +45,26 @@ func (l *LXDProvider) configurePortMappings(instanceName string, networkConfig N
 
 // configurePortMappingsWithIP 使用指定的实例IP配置端口映射
 func (l *LXDProvider) configurePortMappingsWithIP(instanceName string, networkConfig NetworkConfig, instanceIP string) error {
-	// 检查是否为独立IP模式或纯IPv6模式，如果是则跳过IPv4端口映射
+	return l.configurePortMappingFamiliesWithIP(instanceName, networkConfig, instanceIP, true, true)
+}
+
+// configureInitialPortMappingsWithIP installs only IPv4 for managed
+// dual-stack NAT. The guest ULA and its IPv6 proxy are created in the second
+// ordered phase after the bridge lease exists.
+func (l *LXDProvider) configureInitialPortMappingsWithIP(instanceName string, networkConfig NetworkConfig, instanceIP string) error {
+	if networkConfig.NetworkType == "nat_ipv4_ipv6" {
+		return l.configurePortMappingFamiliesWithIP(instanceName, networkConfig, instanceIP, true, false)
+	}
+	return l.configurePortMappingsWithIP(instanceName, networkConfig, instanceIP)
+}
+
+func (l *LXDProvider) configurePortMappingFamiliesWithIP(instanceName string, networkConfig NetworkConfig, instanceIP string, includeIPv4, includeIPv6 bool) error {
+	// 独立IPv4模式不需要端口映射；纯IPv6模式必须继续进入IPv6映射
+	// 分支，不能在入口处提前返回。
 	// dedicated_ipv4: 独立IPv4，不需要端口映射
 	// dedicated_ipv4_ipv6: 独立IPv4 + 独立IPv6，不需要端口映射
-	// ipv6_only: 纯IPv6，不允许任何IPv4操作
-	if networkConfig.NetworkType == "dedicated_ipv4" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only" {
-		global.APP_LOG.Debug("独立IP模式或纯IPv6模式，跳过IPv4端口映射配置",
+	if networkConfig.NetworkType == "dedicated_ipv4" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" {
+		global.APP_LOG.Debug("独立IPv4模式，跳过端口映射配置",
 			zap.String("instance", instanceName),
 			zap.String("networkType", networkConfig.NetworkType))
 		return nil
@@ -42,44 +82,124 @@ func (l *LXDProvider) configurePortMappingsWithIP(instanceName string, networkCo
 		return fmt.Errorf("获取端口映射失败: %w", err)
 	}
 
-	if len(portMappings) == 0 {
-		global.APP_LOG.Warn("未找到端口映射配置", zap.String("instance", instanceName))
+	// Controller mappings are handled by the Agent/tunnel service and native
+	// mappings are provided by the guest network. Only node-owned mappings may
+	// create an LXD proxy or firewall rule here.
+	var providerConfig providerModel.Provider
+	if err := global.APP_DB.Select("ipv4_port_mapping_method, ipv6_port_mapping_method").First(&providerConfig, l.config.ID).Error; err != nil {
+		_ = global.APP_DB.Select("ipv4_port_mapping_method").First(&providerConfig, l.config.ID).Error
+	}
+	// Keep the SSH path consistent with the API path. An automatic range row
+	// with IPv6Enabled=true on a dual-stack NAT instance represents two family
+	// mappings; treating it as IPv4-only leaves every IPv6 proxy missing.
+	nodeMappings := make([]providerModel.Port, 0, len(portMappings)*2)
+	for _, port := range portMappings {
+		mappings := providerModel.ExpandPortMappingFamilies(port, networkConfig.NetworkType,
+			normalizeLXDMappingMethod(providerConfig.IPv4PortMappingMethod),
+			normalizeLXDMappingMethod(providerConfig.IPv6PortMappingMethod))
+		for _, mapping := range mappings {
+			ipv6 := mapping.IPv6Enabled || strings.TrimSpace(mapping.IPv6Address) != ""
+			method := normalizeLXDMappingMethod(mapping.MappingMethod)
+			if strings.TrimSpace(mapping.MappingMethod) == "" {
+				if ipv6 {
+					method = normalizeLXDMappingMethod(providerConfig.IPv6PortMappingMethod)
+				} else {
+					method = normalizeLXDMappingMethod(providerConfig.IPv4PortMappingMethod)
+				}
+			}
+			if mapping.MappingType == "controller" || method == "native" {
+				continue
+			}
+			if mapping.HostPort < 1 || mapping.HostPort > 65535 || mapping.GuestPort < 1 || mapping.GuestPort > 65535 {
+				return fmt.Errorf("端口映射 %d -> %d 超出有效范围", mapping.HostPort, mapping.GuestPort)
+			}
+			nodeMappings = append(nodeMappings, mapping)
+		}
+	}
+	if len(nodeMappings) == 0 {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("未找到端口映射配置", zap.String("instance", instanceName))
+		}
 		return nil
 	}
 
-	// 分离SSH端口和其他端口
-	var sshPort *providerModel.Port
-	var otherPorts []providerModel.Port
-
-	for i := range portMappings {
-		if portMappings[i].IsSSH {
-			sshPort = &portMappings[i]
-		} else {
-			otherPorts = append(otherPorts, portMappings[i])
+	usedIptables := false
+	for _, wantIPv6 := range []bool{false, true} {
+		if (wantIPv6 && !includeIPv6) || (!wantIPv6 && !includeIPv4) {
+			continue
+		}
+		familyPorts := make([]providerModel.Port, 0, len(nodeMappings))
+		for _, mapping := range nodeMappings {
+			isIPv6 := mapping.IPv6Enabled || strings.TrimSpace(mapping.IPv6Address) != ""
+			if isIPv6 == wantIPv6 {
+				familyPorts = append(familyPorts, mapping)
+			}
+		}
+		if len(familyPorts) == 0 {
+			continue
+		}
+		methodDefault := networkConfig.IPv4PortMappingMethod
+		targetIP := instanceIP
+		if wantIPv6 {
+			methodDefault = networkConfig.IPv6PortMappingMethod
+			targetIP = strings.TrimSpace(instance.IPv6Address)
+			if targetIP == "" {
+				var err error
+				targetIP, err = l.getIPv6PortMappingTarget(instanceName)
+				if err != nil {
+					return fmt.Errorf("获取IPv6地址失败，无法配置端口映射: %w", err)
+				}
+			}
+		}
+		if targetIP == "" || methodDefault == "" {
+			return fmt.Errorf("端口映射缺少目标地址或映射方式 (ipv6=%t target=%q method=%q)", wantIPv6, targetIP, methodDefault)
+		}
+		sshPorts := make([]providerModel.Port, 0, 1)
+		otherPorts := make([]providerModel.Port, 0, len(familyPorts))
+		for _, mapping := range familyPorts {
+			if mapping.IsSSH {
+				sshPorts = append(sshPorts, mapping)
+			} else {
+				otherPorts = append(otherPorts, mapping)
+			}
+		}
+		for _, sshPort := range sshPorts {
+			method := normalizeLXDMappingMethod(sshPort.MappingMethod)
+			if method == "" {
+				method = normalizeLXDMappingMethod(methodDefault)
+			}
+			if err := l.setupPortMappingWithIP(instanceName, sshPort.HostPort, sshPort.GuestPort, sshPort.Protocol, method, targetIP); err != nil {
+				return fmt.Errorf("配置%s SSH端口映射失败 (host=%d guest=%d): %w", lxdFamilyLabel(wantIPv6), sshPort.HostPort, sshPort.GuestPort, err)
+			}
+			usedIptables = usedIptables || method == "iptables"
+		}
+		if len(otherPorts) > 0 {
+			method := normalizeLXDMappingMethod(otherPorts[0].MappingMethod)
+			if method == "" {
+				method = normalizeLXDMappingMethod(methodDefault)
+			}
+			if err := l.setupPortRangeMappingWithIP(instanceName, otherPorts, method, targetIP); err != nil {
+				return fmt.Errorf("配置%s端口区间映射失败: %w", lxdFamilyLabel(wantIPv6), err)
+			}
+			usedIptables = usedIptables || method == "iptables"
 		}
 	}
-
-	// 1. 单独配置SSH端口映射（使用IPv4映射方法）
-	if sshPort != nil {
-		if err := l.setupPortMappingWithIP(instanceName, sshPort.HostPort, sshPort.GuestPort, sshPort.Protocol, networkConfig.IPv4PortMappingMethod, instanceIP); err != nil {
-			global.APP_LOG.Warn("配置SSH端口映射失败",
-				zap.String("instance", instanceName),
-				zap.Int("hostPort", sshPort.HostPort),
-				zap.Int("guestPort", sshPort.GuestPort),
-				zap.Error(err))
-		}
+	if usedIptables {
+		return l.SaveIptablesRules()
 	}
-
-	// 2. 使用区间映射配置其他端口（主要使用IPv4映射方法）
-	if len(otherPorts) > 0 {
-		if err := l.setupPortRangeMappingWithIP(instanceName, otherPorts, networkConfig.IPv4PortMappingMethod, instanceIP); err != nil {
-			global.APP_LOG.Warn("配置端口区间映射失败",
-				zap.String("instance", instanceName),
-				zap.Error(err))
-		}
-	}
-
 	return nil
+}
+
+// getIPv6PortMappingTarget also reads the controller-owned address file. The
+// file remains available while an instance is stopped, whereas state.network
+// is often empty during the stop/start window used to add proxy devices.
+func (l *LXDProvider) getIPv6PortMappingTarget(instanceName string) (string, error) {
+	if output, err := l.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null", shellSingleQuote(instanceName+"_v6"))); err == nil {
+		if address, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
+			return address, nil
+		}
+	}
+	return l.GetInstanceIPv6(instanceName)
 }
 
 // setupPortRangeMappingWithIP 使用区间映射配置多个端口
@@ -116,20 +236,10 @@ func (l *LXDProvider) setupPortRangeMappingWithIP(instanceName string, ports []p
 
 	// 处理Both端口 - 同时创建TCP和UDP映射
 	if len(bothPorts) > 0 {
-		// 拆分为tcp和udp端口组
-		tcpVersionPorts := make([]providerModel.Port, len(bothPorts))
-		udpVersionPorts := make([]providerModel.Port, len(bothPorts))
-		for i, port := range bothPorts {
-			tcpVersionPorts[i] = port
-			tcpVersionPorts[i].Protocol = "tcp"
-			udpVersionPorts[i] = port
-			udpVersionPorts[i].Protocol = "udp"
-		}
-		if err := l.setupPortRangeByProtocol(instanceName, tcpVersionPorts, "tcp", method, instanceIP); err != nil {
-			return fmt.Errorf("设置TCP端口范围失败: %w", err)
-		}
-		if err := l.setupPortRangeByProtocol(instanceName, udpVersionPorts, "udp", method, instanceIP); err != nil {
-			return fmt.Errorf("设置UDP端口范围失败: %w", err)
+		// Keep each logical both mapping together so its TCP device can be
+		// rolled back when creating the UDP device fails.
+		if err := l.setupPortRangeByProtocol(instanceName, bothPorts, "both", method, instanceIP); err != nil {
+			return fmt.Errorf("设置TCP/UDP端口范围失败: %w", err)
 		}
 	}
 
@@ -194,11 +304,7 @@ func (l *LXDProvider) setupPortRangeByProtocol(instanceName string, ports []prov
 		// 端口不连续或不是1:1映射，逐个设置
 		for _, port := range ports {
 			if err := l.setupPortMappingWithIP(instanceName, port.HostPort, port.GuestPort, port.Protocol, method, instanceIP); err != nil {
-				global.APP_LOG.Warn("设置单个端口映射失败",
-					zap.String("instance", instanceName),
-					zap.Int("hostPort", port.HostPort),
-					zap.Int("guestPort", port.GuestPort),
-					zap.Error(err))
+				return fmt.Errorf("设置单个端口映射失败 (host=%d guest=%d): %w", port.HostPort, port.GuestPort, err)
 			}
 		}
 	}
@@ -214,18 +320,39 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		zap.Int("endPort", endPort),
 		zap.String("protocol", protocol))
 
-	// 获取主机IP地址
-	hostIP, err := l.getHostIP()
+	instanceIP = normalizeLXDMappingIP(instanceIP)
+	if instanceIP == "" {
+		return fmt.Errorf("实例端口映射目标地址无效")
+	}
+	if l.sshClient == nil || !l.sshClient.HasExecutor() {
+		return fmt.Errorf("SSH client不可用，无法固定device proxy目标地址")
+	}
+	if strings.Contains(instanceIP, ":") {
+		if err := utils.SetLXCAddressBinding(l.sshClient, "lxc", instanceName, instanceIP, true); err != nil {
+			return fmt.Errorf("固定实例IPv6地址失败: %w", err)
+		}
+	} else {
+		if err := utils.SetLXCIPv4Binding(l.sshClient, "lxc", instanceName, instanceIP); err != nil {
+			return fmt.Errorf("固定实例IPv4地址失败: %w", err)
+		}
+	}
+
+	// NAT mode also supports VMs and requires a concrete host listener.
+	hostIP, err := l.getNATProxyListenIP(context.Background(), strings.Contains(instanceIP, ":"))
 	if err != nil {
 		return fmt.Errorf("获取主机IP失败: %w", err)
+	}
+	devicePrefix := ""
+	if strings.Contains(instanceIP, ":") {
+		devicePrefix = "v6-"
 	}
 
 	// 如果协议是both，需要创建两个设备（TCP和UDP）
 	if protocol == "both" {
 		// 创建TCP区间映射
-		tcpDeviceName := fmt.Sprintf("tcp-range-%d-%d", startPort, endPort)
-		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
-			shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote("tcp"), shellSingleQuote(hostIP), startPort, endPort, shellSingleQuote("tcp"), shellSingleQuote(instanceIP), startPort, endPort)
+		tcpDeviceName := fmt.Sprintf("%stcp-range-%d-%d", devicePrefix, startPort, endPort)
+		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s connect=%s nat=true",
+			shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote(lxdProxyEndpointRange("tcp", hostIP, startPort, endPort)), shellSingleQuote(lxdProxyEndpointRange("tcp", instanceIP, startPort, endPort)))
 
 		global.APP_LOG.Debug("执行TCP端口区间映射命令",
 			zap.String("command", tcpProxyCmd))
@@ -236,9 +363,9 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		}
 
 		// 创建UDP区间映射
-		udpDeviceName := fmt.Sprintf("udp-range-%d-%d", startPort, endPort)
-		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
-			shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote("udp"), shellSingleQuote(hostIP), startPort, endPort, shellSingleQuote("udp"), shellSingleQuote(instanceIP), startPort, endPort)
+		udpDeviceName := fmt.Sprintf("%sudp-range-%d-%d", devicePrefix, startPort, endPort)
+		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s connect=%s nat=true",
+			shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote(lxdProxyEndpointRange("udp", hostIP, startPort, endPort)), shellSingleQuote(lxdProxyEndpointRange("udp", instanceIP, startPort, endPort)))
 
 		global.APP_LOG.Debug("执行UDP端口区间映射命令",
 			zap.String("command", udpProxyCmd))
@@ -264,12 +391,12 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 			zap.Int("endPort", endPort))
 	} else {
 		// 单一协议
-		deviceName := fmt.Sprintf("%s-range-%d-%d", protocol, startPort, endPort)
+		deviceName := fmt.Sprintf("%s%s-range-%d-%d", devicePrefix, protocol, startPort, endPort)
 
 		// 创建LXD device proxy区间映射
 		// 格式：lxc config device add <instance> <device-name> proxy listen=tcp:<host-ip>:<start-port>-<end-port> connect=tcp:<guest-ip>:<start-port>-<end-port>
-		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
-			shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(protocol), shellSingleQuote(hostIP), startPort, endPort, shellSingleQuote(protocol), shellSingleQuote(instanceIP), startPort, endPort)
+		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s connect=%s nat=true",
+			shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(lxdProxyEndpointRange(protocol, hostIP, startPort, endPort)), shellSingleQuote(lxdProxyEndpointRange(protocol, instanceIP, startPort, endPort)))
 
 		global.APP_LOG.Debug("执行LXD端口区间映射命令",
 			zap.String("command", proxyCmd))
@@ -317,20 +444,35 @@ func (l *LXDProvider) setupNATPortRangeMappingWithIP(instanceName string, startP
 func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, startPort, endPort int, instanceIP string) error {
 	// 从instanceIP中提取纯IP地址（去除接口名称等信息）
 	cleanInstanceIP := strings.TrimSpace(instanceIP)
+	cleanInstanceIP = strings.Trim(cleanInstanceIP, "[]")
 	if strings.Contains(cleanInstanceIP, " ") {
 		cleanInstanceIP = strings.Split(cleanInstanceIP, " ")[0]
 	}
+	if cleanInstanceIP == "" || net.ParseIP(cleanInstanceIP) == nil {
+		return fmt.Errorf("实例IP无效: %q", instanceIP)
+	}
+	if l.sshClient == nil || !l.sshClient.HasExecutor() {
+		return fmt.Errorf("SSH client不可用，无法固定device proxy目标地址")
+	}
+	if strings.Contains(cleanInstanceIP, ":") {
+		if err := utils.SetLXCAddressBinding(l.sshClient, "lxc", instanceName, cleanInstanceIP, true); err != nil {
+			return fmt.Errorf("固定实例IPv6地址失败: %w", err)
+		}
+	} else {
+		if err := utils.SetLXCIPv4Binding(l.sshClient, "lxc", instanceName, cleanInstanceIP); err != nil {
+			return fmt.Errorf("固定实例IPv4地址失败: %w", err)
+		}
+	}
 
 	// 获取主机IP地址
-	hostIP, err := l.getHostIP()
+	hostIP, err := l.getNATProxyListenIP(context.Background(), strings.Contains(cleanInstanceIP, ":"))
 	if err != nil {
 		return fmt.Errorf("获取主机IP失败: %w", err)
 	}
-
-	// 设置TCP端口范围映射 - 使用与buildct.sh脚本相同的格式
+	// Use the guest's reserved address as the explicit NAT destination.
 	tcpDeviceName := "nattcp-ports"
-	tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=tcp:%s:%d-%d connect=tcp:0.0.0.0:%d-%d nat=true",
-		shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote(hostIP), startPort, endPort, startPort, endPort)
+	tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s connect=%s nat=true",
+		shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote(lxdProxyEndpointRange("tcp", hostIP, startPort, endPort)), shellSingleQuote(lxdProxyEndpointRange("tcp", cleanInstanceIP, startPort, endPort)))
 
 	global.APP_LOG.Debug("执行TCP NAT端口范围映射命令",
 		zap.String("command", tcpProxyCmd))
@@ -340,10 +482,10 @@ func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, st
 		return fmt.Errorf("创建TCP NAT端口范围proxy设备失败: %w", err)
 	}
 
-	// 设置UDP端口范围映射 - 使用与buildct.sh脚本相同的格式
+	// UDP 也必须使用同一个真实实例地址，并与 TCP 保持原子回滚语义。
 	udpDeviceName := "natudp-ports"
-	udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=udp:%s:%d-%d connect=udp:0.0.0.0:%d-%d nat=true",
-		shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote(hostIP), startPort, endPort, startPort, endPort)
+	udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s connect=%s nat=true",
+		shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote(lxdProxyEndpointRange("udp", hostIP, startPort, endPort)), shellSingleQuote(lxdProxyEndpointRange("udp", cleanInstanceIP, startPort, endPort)))
 
 	global.APP_LOG.Debug("执行UDP NAT端口范围映射命令",
 		zap.String("command", udpProxyCmd))
@@ -391,6 +533,17 @@ func (l *LXDProvider) setupPortMapping(instanceName string, hostPort, guestPort 
 
 // setupPortMappingWithIP 使用指定的实例IP设置端口映射
 func (l *LXDProvider) setupPortMappingWithIP(instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
+	instanceIP = normalizeLXDMappingIP(instanceIP)
+	if instanceIP == "" {
+		return fmt.Errorf("实例端口映射目标地址无效")
+	}
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "" {
+		protocol = "tcp"
+	}
+	if protocol != "tcp" && protocol != "udp" && protocol != "both" {
+		return fmt.Errorf("不支持的端口协议 %q", protocol)
+	}
 	global.APP_LOG.Debug("设置端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.Int("hostPort", hostPort),
@@ -418,10 +571,20 @@ func (l *LXDProvider) setupPortMappingWithIP(instanceName string, hostPort, gues
 	}
 }
 
+func normalizeLXDMappingIP(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.Contains(value, ":") {
+		if ip, err := utils.ParseFirstIPv6AddressOutput(value); err == nil {
+			return ip
+		}
+	} else if ip, err := utils.ParseFirstIPv4AddressOutput(value); err == nil {
+		return ip
+	}
+	return ""
+}
+
 // setupDeviceProxyMapping 使用LXD device proxy设置端口映射
 func (l *LXDProvider) setupDeviceProxyMapping(instanceName string, hostPort, guestPort int, protocol string) error {
-	deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
-
 	// 获取实例IP，添加重试逻辑
 	var instanceIP string
 	var err error
@@ -447,24 +610,23 @@ func (l *LXDProvider) setupDeviceProxyMapping(instanceName string, hostPort, gue
 		return fmt.Errorf("获取实例IP失败: %w", err)
 	}
 
-	// 创建proxy设备
-	proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%d connect=%s:%d",
-		shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(protocol), hostPort, shellSingleQuote(instanceIP), guestPort)
-
-	_, err = l.sshClient.Execute(proxyCmd)
-	if err != nil {
-		return fmt.Errorf("创建proxy设备失败: %w", err)
-	}
-
-	global.APP_LOG.Debug("Device proxy端口映射设置成功",
-		zap.String("instance", instanceName),
-		zap.String("device", deviceName))
-
-	return nil
+	return l.setupDeviceProxyMappingWithIP(instanceName, hostPort, guestPort, protocol, instanceIP)
 }
 
 // setupDeviceProxyMappingWithIP 使用指定的实例IP设置LXD device proxy端口映射
 func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
+	if l.sshClient == nil || !l.sshClient.HasExecutor() {
+		return fmt.Errorf("SSH client不可用，无法固定device proxy目标地址")
+	}
+	if strings.Contains(instanceIP, ":") {
+		if err := utils.SetLXCAddressBinding(l.sshClient, "lxc", instanceName, instanceIP, true); err != nil {
+			return fmt.Errorf("固定实例IPv6地址失败: %w", err)
+		}
+	} else {
+		if err := utils.SetLXCIPv4Binding(l.sshClient, "lxc", instanceName, instanceIP); err != nil {
+			return fmt.Errorf("固定实例IPv4地址失败: %w", err)
+		}
+	}
 	global.APP_LOG.Debug("设置Device proxy端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.String("protocol", protocol),
@@ -486,17 +648,21 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 	}
 
 	// 获取主机IP地址
-	hostIP, err := l.getHostIP()
+	hostIP, err := l.getNATProxyListenIP(context.Background(), strings.Contains(cleanInstanceIP, ":"))
 	if err != nil {
 		return fmt.Errorf("获取主机IP失败: %w", err)
+	}
+	devicePrefix := "proxy"
+	if strings.Contains(cleanInstanceIP, ":") {
+		devicePrefix = "proxy-v6"
 	}
 
 	// 如果协议是both，需要创建两个设备（TCP和UDP）
 	if protocol == "both" {
 		// 创建TCP设备
-		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d", hostPort)
-		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
-			shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote("tcp"), shellSingleQuote(hostIP), hostPort, shellSingleQuote("tcp"), shellSingleQuote(cleanInstanceIP), guestPort)
+		tcpDeviceName := fmt.Sprintf("%s-tcp-%d", devicePrefix, hostPort)
+		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s connect=%s nat=true",
+			shellSingleQuote(instanceName), shellSingleQuote(tcpDeviceName), shellSingleQuote(lxdProxyEndpoint("tcp", hostIP, hostPort)), shellSingleQuote(lxdProxyEndpoint("tcp", cleanInstanceIP, guestPort)))
 
 		global.APP_LOG.Debug("执行TCP端口映射命令",
 			zap.String("command", tcpProxyCmd))
@@ -507,9 +673,9 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 		}
 
 		// 创建UDP设备
-		udpDeviceName := fmt.Sprintf("proxy-udp-%d", hostPort)
-		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
-			shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote("udp"), shellSingleQuote(hostIP), hostPort, shellSingleQuote("udp"), shellSingleQuote(cleanInstanceIP), guestPort)
+		udpDeviceName := fmt.Sprintf("%s-udp-%d", devicePrefix, hostPort)
+		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s connect=%s nat=true",
+			shellSingleQuote(instanceName), shellSingleQuote(udpDeviceName), shellSingleQuote(lxdProxyEndpoint("udp", hostIP, hostPort)), shellSingleQuote(lxdProxyEndpoint("udp", cleanInstanceIP, guestPort)))
 
 		global.APP_LOG.Debug("执行UDP端口映射命令",
 			zap.String("command", udpProxyCmd))
@@ -533,11 +699,11 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 			zap.String("udpDevice", udpDeviceName))
 	} else {
 		// 单一协议
-		deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
+		deviceName := fmt.Sprintf("%s-%s-%d", devicePrefix, protocol, hostPort)
 
 		// 创建proxy设备 - 使用与buildct.sh脚本相同的格式
-		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
-			shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(protocol), shellSingleQuote(hostIP), hostPort, shellSingleQuote(protocol), shellSingleQuote(cleanInstanceIP), guestPort)
+		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s connect=%s nat=true",
+			shellSingleQuote(instanceName), shellSingleQuote(deviceName), shellSingleQuote(lxdProxyEndpoint(protocol, hostIP, hostPort)), shellSingleQuote(lxdProxyEndpoint(protocol, cleanInstanceIP, guestPort)))
 
 		global.APP_LOG.Debug("执行端口映射命令",
 			zap.String("command", proxyCmd))
@@ -561,25 +727,7 @@ func (l *LXDProvider) setupIptablesMapping(instanceName string, hostPort, guestP
 	if err != nil {
 		return fmt.Errorf("获取实例IP失败: %w", err)
 	}
-
-	fwMgr := firewall.NewManager(l.sshClient, "lxd", "")
-	if _, err := fwMgr.DetectBackend("/usr/local/bin/lxd_fw_backend"); err != nil {
-		return fmt.Errorf("防火墙后端检测失败: %w", err)
-	}
-	if err := fwMgr.InitTable(); err != nil {
-		return fmt.Errorf("防火墙初始化失败: %w", err)
-	}
-
-	comment := fmt.Sprintf("pm:%s:%d:%d", instanceName, hostPort, guestPort)
-	if err := fwMgr.AddSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
-		return fmt.Errorf("添加防火墙规则失败: %w", err)
-	}
-
-	global.APP_LOG.Debug("防火墙端口映射设置成功",
-		zap.String("instance", instanceName),
-		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
-
-	return nil
+	return l.setupIptablesMappingWithIP(instanceName, hostPort, guestPort, protocol, instanceIP)
 }
 
 // setupIptablesMappingWithIP 使用指定的实例IP设置防火墙端口映射（nft优先，iptables回退）
@@ -599,6 +747,9 @@ func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, 
 	}
 
 	comment := fmt.Sprintf("pm:%s:%d:%d", instanceName, hostPort, guestPort)
+	if err := fwMgr.RemoveSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
+		return fmt.Errorf("清理旧防火墙规则失败: %w", err)
+	}
 	if err := fwMgr.AddSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
 		return fmt.Errorf("添加防火墙规则失败: %w", err)
 	}
@@ -614,10 +765,10 @@ func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, 
 // SaveIptablesRules 保存防火墙规则到文件（公开方法）
 func (l *LXDProvider) SaveIptablesRules() error {
 	fwMgr := firewall.NewManager(l.sshClient, "lxd", "")
-	fwMgr.DetectBackend("/usr/local/bin/lxd_fw_backend")
-	fwMgr.SaveRules()
-	global.APP_LOG.Debug("LXD防火墙规则保存成功")
-	return nil
+	if _, err := fwMgr.DetectBackend("/usr/local/bin/lxd_fw_backend"); err != nil {
+		return err
+	}
+	return fwMgr.SaveRules()
 }
 
 // removePortMapping 移除端口映射
@@ -628,15 +779,67 @@ func (l *LXDProvider) removePortMapping(instanceName string, hostPort int, proto
 		zap.String("protocol", protocol),
 		zap.String("method", method))
 
-	switch method {
-	case "device_proxy":
-		return l.removeDeviceProxyMapping(instanceName, hostPort, protocol)
-	case "iptables":
-		return l.removeIptablesMapping(instanceName, hostPort, protocol)
-	default:
-		// 默认使用device proxy方式
-		return l.removeDeviceProxyMapping(instanceName, hostPort, protocol)
+	guestPort, instanceIP := l.lookupPortMappingDetails(instanceName, hostPort, protocol)
+	start, end := l.lookupPortMappingRange(instanceName, hostPort, protocol)
+	return l.removePortMappingWithRange(instanceName, hostPort, guestPort, end, guestPort+end-start, end-start+1, protocol, method, instanceIP)
+}
+
+// lxdRemoveDeviceCommand is idempotent only for an already absent device.
+// A blanket "|| true" hides permission, daemon, and transport-side command
+// failures and leaves a live port mapping behind while the task reports
+// success.
+func lxdRemoveDeviceCommand(instanceName, deviceName string) string {
+	return fmt.Sprintf(`set -eu
+if output=$(lxc config device remove %s %s 2>&1); then
+    exit 0
+fi
+status=$?
+case "$output" in
+    *"not found"*|*"does not exist"*|*"doesn't exist"*|*"No such device"*) exit 0 ;;
+esac
+printf 'lxc device removal failed: %%s\n' "$output" >&2
+exit "$status"`, shellSingleQuote(instanceName), shellSingleQuote(deviceName))
+}
+
+func (l *LXDProvider) removeDeviceProxyRangeMapping(instanceName string, hostPort, hostPortEnd int, protocol string) error {
+	for _, ipv6 := range []bool{false, true} {
+		if err := l.removeDeviceProxyRangeMappingForFamily(instanceName, hostPort, hostPortEnd, protocol, ipv6); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func (l *LXDProvider) removeDeviceProxyRangeMappingForFamily(instanceName string, hostPort, hostPortEnd int, protocol string, ipv6 bool) error {
+	protocols := []string{strings.ToLower(strings.TrimSpace(protocol))}
+	if protocols[0] == "" {
+		protocols[0] = "tcp"
+	}
+	if protocols[0] == "both" {
+		protocols = []string{"tcp", "udp"}
+	}
+	for _, proto := range protocols {
+		prefix, rangePrefix := "proxy-", ""
+		if ipv6 {
+			prefix, rangePrefix = "proxy-v6-", "v6-"
+		}
+		deviceNames := []string{fmt.Sprintf("%s%s-%d", prefix, proto, hostPort)}
+		if hostPortEnd > hostPort {
+			deviceNames = append(deviceNames,
+				fmt.Sprintf("%s%s-range-%d-%d", rangePrefix, proto, hostPort, hostPortEnd),
+				fmt.Sprintf("%s%s-%d-%d", prefix, proto, hostPort, hostPortEnd))
+			if !ipv6 {
+				deviceNames = append(deviceNames, fmt.Sprintf("nat%s-ports", proto))
+			}
+		}
+		for _, deviceName := range deviceNames {
+			cmd := lxdRemoveDeviceCommand(instanceName, deviceName)
+			if _, err := l.sshClient.Execute(cmd); err != nil {
+				return fmt.Errorf("移除proxy设备失败: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 // removeDeviceProxyMapping 移除LXD device proxy映射
@@ -646,10 +849,11 @@ func (l *LXDProvider) removeDeviceProxyMapping(instanceName string, hostPort int
 		protocols = []string{"tcp", "udp"}
 	}
 	for _, proto := range protocols {
-		deviceName := fmt.Sprintf("proxy-%s-%d", proto, hostPort)
-		removeCmd := fmt.Sprintf("lxc config device remove %s %s 2>/dev/null || true", shellSingleQuote(instanceName), shellSingleQuote(deviceName))
-		if _, err := l.sshClient.Execute(removeCmd); err != nil {
-			return fmt.Errorf("移除proxy设备失败: %w", err)
+		for _, deviceName := range []string{fmt.Sprintf("proxy-%s-%d", proto, hostPort), fmt.Sprintf("proxy-v6-%s-%d", proto, hostPort)} {
+			removeCmd := lxdRemoveDeviceCommand(instanceName, deviceName)
+			if _, err := l.sshClient.Execute(removeCmd); err != nil {
+				return fmt.Errorf("移除proxy设备失败: %w", err)
+			}
 		}
 	}
 

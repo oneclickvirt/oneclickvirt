@@ -160,9 +160,22 @@ func CheckPortOpen(host string, port int, timeout time.Duration) bool {
 // ScanPortRange 扫描指定主机的端口范围，返回所有被占用的端口列表
 // 使用并发扫描提高效率
 func ScanPortRange(host string, startPort, endPort int, timeout time.Duration, concurrency int) []int {
+	if startPort < 1 || endPort < startPort || endPort > 65535 {
+		return []int{}
+	}
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	totalPorts := endPort - startPort + 1
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	if concurrency > totalPorts {
+		concurrency = totalPorts
+	}
 	occupiedPorts := make([]int, 0)
 	portChan := make(chan int, concurrency)
-	resultChan := make(chan int, endPort-startPort+1)
+	resultChan := make(chan int, totalPorts)
 
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Duration(endPort-startPort+1))
@@ -212,7 +225,6 @@ func ScanPortRange(host string, startPort, endPort int, timeout time.Duration, c
 	}()
 
 	// 收集结果
-	totalPorts := endPort - startPort + 1
 	timer := time.NewTimer(timeout * time.Duration(totalPorts))
 	defer timer.Stop()
 

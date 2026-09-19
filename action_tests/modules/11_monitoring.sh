@@ -17,7 +17,7 @@ run_module_11() {
         '{"monitoring_mode":"agent","collect_interval":60,"resource_collect_interval":30}' "$group"
 
     # -- Deploy agent (may fail if provider not fully connected) --
-    local da; da=$(test_api_retry "Deploy agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|400|500" \
+    local da; da=$(test_api_retry "Deploy agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|infra" \
         '{}' 3 15 "$group")
     local da_code; da_code=$(safe_jq "$da" '-r .code // empty' '')
     if [[ "$da_code" == "200" ]]; then
@@ -50,26 +50,26 @@ run_module_11() {
     fi
 
     # -- Agent status --
-    test_api_retry "Agent status" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/status" "200|400" \
+    test_api_retry "Agent status" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/status" "200|infra" \
         '' 3 10 "$group"
 
     # -- Provider monitors --
     test_api "Provider monitors" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/monitors" "200" "" "$group"
 
     # -- Agent monitors list --
-    test_api "Agent monitors list" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent-monitors" "200|400|404" "" "$group"
+    test_api "Agent monitors list" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent-monitors" "200|infra" "" "$group"
 
     # -- Resource summary --
-    test_api "Resource summary" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/resources" "200|400" "" "$group"
+    test_api "Resource summary" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/resources" "200|infra" "" "$group"
 
     # -- Sync monitors (may fail if agent not installed) --
-    test_api "Sync monitors" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/sync" "200|400" '{}' "$group"
+    test_api "Sync monitors" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/sync" "200|infra" '{}' "$group"
 
     # -- Clear monitor data --
-    test_api "Clear monitors" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/clear" "200|400" "" "$group"
+    test_api "Clear monitors" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/clear" "200|infra" "" "$group"
 
     # -- Uninstall agent (may fail if not installed) --
-    local ua; ua=$(test_api "Uninstall agent" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|400" "" "$group")
+    local ua; ua=$(test_api "Uninstall agent" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|infra" "" "$group")
     local ua_code; ua_code=$(safe_jq "$ua" '-r .code // empty' '')
     if [[ "$ua_code" == "200" ]]; then
         local ua_task; ua_task=$(safe_jq "$ua" '-r .data.task_id // .data.taskId // .data.id // empty' '')
@@ -99,7 +99,7 @@ run_module_11() {
     fi
 
     # -- Status after uninstall --
-    test_api "Status after uninstall" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/status" "200|400" "" "$group"
+    test_api "Status after uninstall" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/status" "200|infra" "" "$group"
 
     # -- Negative: monitoring on nonexistent provider --
     test_api "Monitoring config (nonexistent)" "GET" "/api/v1/admin/providers/99999/monitoring/config" "200|400|404" "" "$group"

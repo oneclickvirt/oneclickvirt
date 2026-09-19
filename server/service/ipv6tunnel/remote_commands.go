@@ -297,10 +297,12 @@ ensure_routed_network() {
   # conflict from an unmanaged catch-all networkd profile removing its gateway.
   ip -6 addr replace "$ROUTED_GATEWAY/$ROUTED_PREFIX" dev "$BRIDGE" nodad
   ip -6 route replace "$ROUTED_CIDR" dev "$BRIDGE"
-  # all enables forwarding for guest interfaces that already exist; default
-  # makes veth/TAP interfaces created after this tunnel inherit forwarding.
-  # Keep tunnel and bridge entries explicit because networkd can reset them.
-  printf 'net.ipv6.conf.all.forwarding=1\\nnet.ipv6.conf.default.forwarding=1\\nnet.ipv6.conf.%%s.forwarding=1\\nnet.ipv6.conf.%%s.forwarding=1\\n' "$IFACE" "$BRIDGE" > "$SYSCTL_PATH"
+  # all enables forwarding/proxy-NDP for guest interfaces that already exist;
+  # default makes veth/TAP interfaces created after this tunnel inherit
+  # forwarding. Keep tunnel and bridge entries explicit because networkd can
+  # reset them. Incus/LXD routed NIC validation requires the global proxy-NDP
+  # switch even when the bridge is backed by a routed tunnel.
+  printf 'net.ipv6.conf.all.forwarding=1\\nnet.ipv6.conf.default.forwarding=1\\nnet.ipv6.conf.all.proxy_ndp=1\\nnet.ipv6.conf.%%s.forwarding=1\\nnet.ipv6.conf.%%s.proxy_ndp=1\\nnet.ipv6.conf.%%s.forwarding=1\\nnet.ipv6.conf.%%s.proxy_ndp=1\\n' "$IFACE" "$IFACE" "$BRIDGE" "$BRIDGE" > "$SYSCTL_PATH"
   if command -v sysctl >/dev/null 2>&1; then
     sysctl -p "$SYSCTL_PATH" >/dev/null
   fi
@@ -337,8 +339,11 @@ check_routed_forwarding() {
   command -v sysctl >/dev/null 2>&1 || return 1
   [ "$(sysctl -n net.ipv6.conf.all.forwarding 2>/dev/null || echo 0)" = 1 ] || return 1
   [ "$(sysctl -n net.ipv6.conf.default.forwarding 2>/dev/null || echo 0)" = 1 ] || return 1
+  [ "$(sysctl -n net.ipv6.conf.all.proxy_ndp 2>/dev/null || echo 0)" = 1 ] || return 1
   [ "$(sysctl -n "net.ipv6.conf.$IFACE.forwarding" 2>/dev/null || echo 0)" = 1 ] || return 1
+  [ "$(sysctl -n "net.ipv6.conf.$IFACE.proxy_ndp" 2>/dev/null || echo 0)" = 1 ] || return 1
   [ "$(sysctl -n "net.ipv6.conf.$BRIDGE.forwarding" 2>/dev/null || echo 0)" = 1 ] || return 1
+  [ "$(sysctl -n "net.ipv6.conf.$BRIDGE.proxy_ndp" 2>/dev/null || echo 0)" = 1 ] || return 1
 }
 check_routed_policy_route() {
   ip -6 rule show 2>/dev/null | awk -v priority="$POLICY_PRIORITY:" -v cidr="$ROUTED_CIDR" -v table="$POLICY_TABLE" '
@@ -546,7 +551,7 @@ func buildCheckCommand(tunnels []providerModel.ProviderIPv6Tunnel) string {
 			if cidr, gateway, _, prefix, err := ipv6poolService.RoutedPrefixDetails(tunnel.RoutedCIDR); err == nil {
 				bridge := utils.ShellSingleQuote(utils.RoutedIPv6BridgeName)
 				fmt.Fprintf(&builder, "routed=0; forwarding=0; if ip link show dev %s >/dev/null 2>&1 && ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1; then route_line=\" $(ip -6 route show %s 2>/dev/null || true) \"; printf '%%s\\n' \"$route_line\" | grep -F %s >/dev/null 2>&1 && routed=1 || true; fi\n", bridge, bridge, utils.ShellSingleQuote(gateway+fmt.Sprintf("/%d", prefix)), utils.ShellSingleQuote(cidr), utils.ShellSingleQuote(" dev "+utils.RoutedIPv6BridgeName+" "))
-				fmt.Fprintf(&builder, "if command -v sysctl >/dev/null 2>&1 && [ \"$(sysctl -n net.ipv6.conf.all.forwarding 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n net.ipv6.conf.default.forwarding 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ]; then forwarding=1; fi\n", utils.ShellSingleQuote("net.ipv6.conf."+tunnel.Interface+".forwarding"), utils.ShellSingleQuote("net.ipv6.conf."+utils.RoutedIPv6BridgeName+".forwarding"))
+				fmt.Fprintf(&builder, "if command -v sysctl >/dev/null 2>&1 && [ \"$(sysctl -n net.ipv6.conf.all.forwarding 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n net.ipv6.conf.default.forwarding 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n net.ipv6.conf.all.proxy_ndp 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ]; then forwarding=1; fi\n", utils.ShellSingleQuote("net.ipv6.conf."+tunnel.Interface+".forwarding"), utils.ShellSingleQuote("net.ipv6.conf."+tunnel.Interface+".proxy_ndp"), utils.ShellSingleQuote("net.ipv6.conf."+utils.RoutedIPv6BridgeName+".forwarding"), utils.ShellSingleQuote("net.ipv6.conf."+utils.RoutedIPv6BridgeName+".proxy_ndp"), utils.ShellSingleQuote("net.ipv6.conf.all.proxy_ndp"))
 				if policyTable, policyPriority, policyErr := tunnelPolicyRouteParameters(tunnel.ID); policyErr == nil {
 					fmt.Fprintf(&builder, `policy=0
 if [ "$link" -eq 1 ]; then

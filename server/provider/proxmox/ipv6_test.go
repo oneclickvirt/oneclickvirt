@@ -275,7 +275,7 @@ func TestEnsureVMIPv6InterfaceCreatesMissingNIC(t *testing.T) {
 	if err := provider.ensureVMIPv6Interface(101, "oneclickvirt6"); err != nil {
 		t.Fatalf("ensureVMIPv6Interface() error = %v", err)
 	}
-	if len(executor.commands) != 2 || executor.commands[0] != "qm config 101" || !strings.Contains(executor.commands[1], "--net1 virtio,bridge=oneclickvirt6") {
+	if len(executor.commands) != 2 || executor.commands[0] != "qm config 101" || !strings.Contains(strings.ReplaceAll(executor.commands[1], "'", ""), "--net1 virtio,bridge=oneclickvirt6") {
 		t.Fatalf("commands = %#v, want config check then net1 creation", executor.commands)
 	}
 }
@@ -474,7 +474,7 @@ func TestConfigureProxmoxVMNATIPv6UsesPersistedULA(t *testing.T) {
 		t.Fatalf("configureVMIPv6() error = %v", err)
 	}
 	joined := strings.Join(executor.commands, "\n")
-	if !strings.Contains(joined, "ip6='fd42:5339:296f:1f07::65/64',gw6='fd42:5339:296f:1f07::1'") || strings.Contains(joined, "2001:db8:1::") {
+	if !strings.Contains(joined, "fd42:5339:296f:1f07::65/64") || !strings.Contains(joined, "gw6=fd42:5339:296f:1f07::1") || strings.Contains(joined, "2001:db8:1::") {
 		t.Fatalf("VM NAT IPv6 commands did not use persisted ULA:\n%s", joined)
 	}
 }
@@ -498,7 +498,7 @@ func TestConfigureProxmoxContainerNATIPv6UsesPersistedULA(t *testing.T) {
 		t.Fatalf("configureContainerIPv6() error = %v", err)
 	}
 	joined := strings.Join(executor.commands, "\n")
-	if !strings.Contains(joined, "ip6='fd42:5339:296f:1f07::65/64',bridge=vmbr1,gw6='fd42:5339:296f:1f07::1'") || strings.Contains(joined, "2001:db8:1::") {
+	if !strings.Contains(joined, "fd42:5339:296f:1f07::65/64") || !strings.Contains(joined, "bridge=vmbr1") || !strings.Contains(joined, "gw6=fd42:5339:296f:1f07::1") || strings.Contains(joined, "2001:db8:1::") {
 		t.Fatalf("container NAT IPv6 commands did not use persisted ULA:\n%s", joined)
 	}
 }

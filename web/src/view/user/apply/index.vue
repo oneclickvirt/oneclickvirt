@@ -126,7 +126,12 @@
           <template #title>
             <div class="group-title">
               <span>{{ group.name }}</span>
-              <el-tag size="small" type="info">{{ group.providers.length }}</el-tag>
+              <el-tag
+                size="small"
+                type="info"
+              >
+                {{ group.providers.length }}
+              </el-tag>
             </div>
           </template>
           <div
@@ -167,10 +172,16 @@
                   </span>
                 </div>
                 <div class="info-item provider-meta-line">
-                  <el-tag size="small" type="info">
+                  <el-tag
+                    size="small"
+                    type="info"
+                  >
                     {{ t('user.apply.virtualizationType') }}: {{ formatProviderType(provider.type) }}
                   </el-tag>
-                  <el-tag size="small" type="info">
+                  <el-tag
+                    size="small"
+                    type="info"
+                  >
                     {{ t('user.apply.networkMode') }}: {{ formatNetworkType(provider.networkType) }}
                   </el-tag>
                   <el-tag

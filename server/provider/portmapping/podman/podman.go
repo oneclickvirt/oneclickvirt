@@ -53,6 +53,9 @@ func (p *PodmanPortMapping) CreatePortMapping(ctx context.Context, req *portmapp
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
+	if instance.ProviderID != req.ProviderID {
+		return nil, fmt.Errorf("instance does not belong to provider")
+	}
 
 	hostPort := req.HostPort
 	if hostPort == 0 {
@@ -80,6 +83,7 @@ func (p *PodmanPortMapping) CreatePortMapping(ctx context.Context, req *portmapp
 		HostIP:        providerInfo.Endpoint,
 		PublicIP:      p.getPublicIP(providerInfo),
 		IPv6Address:   req.IPv6Address,
+		IPv6Enabled:   req.IPv6Enabled || req.IPv6Address != "",
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: "podman-native",
@@ -112,14 +116,17 @@ func (p *PodmanPortMapping) DeletePortMapping(ctx context.Context, req *portmapp
 		zap.Uint("id", req.ID),
 		zap.String("instanceId", req.InstanceID))
 
-	var portModel provider.Port
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
-		return fmt.Errorf("port mapping not found: %v", err)
+	portModel, err := p.BaseProvider.LoadOwnedPort(req.ID, req.InstanceID, 0)
+	if err != nil {
+		return err
 	}
 
 	instance, err := p.getInstance(req.InstanceID)
 	if err != nil {
 		return fmt.Errorf("failed to get instance: %v", err)
+	}
+	if instance.ProviderID != portModel.ProviderID {
+		return fmt.Errorf("port mapping does not belong to instance provider")
 	}
 
 	if err := p.removePortMapping(ctx, instance, portModel.HostPort, portModel.GuestPort, portModel.Protocol); err != nil {
@@ -129,7 +136,7 @@ func (p *PodmanPortMapping) DeletePortMapping(ctx context.Context, req *portmapp
 		global.APP_LOG.Warn("Failed to remove podman port mapping, but force delete is enabled", zap.Error(err))
 	}
 
-	if err := global.APP_DB.Delete(&portModel).Error; err != nil {
+	if err := global.APP_DB.Delete(portModel).Error; err != nil {
 		return fmt.Errorf("failed to delete port mapping from database: %v", err)
 	}
 
@@ -141,9 +148,9 @@ func (p *PodmanPortMapping) DeletePortMapping(ctx context.Context, req *portmapp
 func (p *PodmanPortMapping) UpdatePortMapping(ctx context.Context, req *portmapping.UpdatePortMappingRequest) (*portmapping.PortMappingResult, error) {
 	global.APP_LOG.Warn("Podman does not support dynamic port mapping updates", zap.Uint("id", req.ID))
 
-	var portModel provider.Port
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
-		return nil, fmt.Errorf("port mapping not found: %v", err)
+	portModel, err := p.BaseProvider.LoadOwnedPort(req.ID, req.InstanceID, 0)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.HostPort != portModel.HostPort || req.GuestPort != portModel.GuestPort || req.Protocol != portModel.Protocol {
@@ -155,11 +162,11 @@ func (p *PodmanPortMapping) UpdatePortMapping(ctx context.Context, req *portmapp
 		"status":      req.Status,
 	}
 
-	if err := global.APP_DB.Model(&portModel).Updates(updates).Error; err != nil {
+	if err := global.APP_DB.Model(portModel).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to update port mapping: %v", err)
 	}
 
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
+	if err := global.APP_DB.First(portModel, req.ID).Error; err != nil {
 		return nil, fmt.Errorf("failed to get updated port mapping: %v", err)
 	}
 
@@ -168,7 +175,7 @@ func (p *PodmanPortMapping) UpdatePortMapping(ctx context.Context, req *portmapp
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
 
-	result := p.BaseProvider.FromDBModel(&portModel)
+	result := p.BaseProvider.FromDBModel(portModel)
 	result.HostIP = providerInfo.Endpoint
 	result.PublicIP = p.getPublicIP(providerInfo)
 	result.MappingMethod = "podman-native"
@@ -279,7 +286,7 @@ func (p *PodmanPortMapping) createPortMapping(ctx context.Context, instance *pro
 		return p.createPortMappingWithTempSSH(ctx, instance, hostPort, guestPort, protocol, providerInfo)
 	}
 
-	checkCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.State.Status}}'", instance.Name)
+	checkCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.State.Status}}'", utils.ShellSingleQuote(instance.Name))
 	status, err := providerInstance.ExecuteSSHCommand(ctx, checkCmd)
 	if err != nil {
 		return fmt.Errorf("failed to check container status: %v", err)
@@ -288,22 +295,22 @@ func (p *PodmanPortMapping) createPortMapping(ctx context.Context, instance *pro
 	status = strings.TrimSpace(strings.ToLower(status))
 
 	if strings.Contains(status, "running") || strings.Contains(status, "exited") {
-		inspectCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+		inspectCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", utils.ShellSingleQuote(instance.Name))
 		configInfo, err := providerInstance.ExecuteSSHCommand(ctx, inspectCmd)
 		if err != nil {
 			return fmt.Errorf("failed to get container config: %v", err)
 		}
 
-		portsCmd := fmt.Sprintf(podmanCLI+" port %s", instance.Name)
+		portsCmd := fmt.Sprintf(podmanCLI+" port %s", utils.ShellSingleQuote(instance.Name))
 		existingPorts, _ := providerInstance.ExecuteSSHCommand(ctx, portsCmd)
 
-		stopCmd := fmt.Sprintf(podmanCLI+" stop %s", instance.Name)
+		stopCmd := fmt.Sprintf(podmanCLI+" stop %s", utils.ShellSingleQuote(instance.Name))
 		_, err = providerInstance.ExecuteSSHCommand(ctx, stopCmd)
 		if err != nil {
 			global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
 		}
 
-		removeCmd := fmt.Sprintf(podmanCLI+" rm %s", instance.Name)
+		removeCmd := fmt.Sprintf(podmanCLI+" rm %s", utils.ShellSingleQuote(instance.Name))
 		_, err = providerInstance.ExecuteSSHCommand(ctx, removeCmd)
 		if err != nil {
 			return fmt.Errorf("failed to remove container: %v", err)
@@ -337,7 +344,7 @@ func (p *PodmanPortMapping) createPortMappingWithTempSSH(ctx context.Context, in
 	}
 	defer sshClient.Close()
 
-	checkCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.State.Status}}'", instance.Name)
+	checkCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.State.Status}}'", utils.ShellSingleQuote(instance.Name))
 	status, err := sshClient.Execute(checkCmd)
 	if err != nil {
 		return fmt.Errorf("failed to check container status: %v", err)
@@ -346,22 +353,22 @@ func (p *PodmanPortMapping) createPortMappingWithTempSSH(ctx context.Context, in
 	status = strings.TrimSpace(strings.ToLower(status))
 
 	if strings.Contains(status, "running") || strings.Contains(status, "exited") {
-		inspectCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+		inspectCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", utils.ShellSingleQuote(instance.Name))
 		configInfo, err := sshClient.Execute(inspectCmd)
 		if err != nil {
 			return fmt.Errorf("failed to get container config: %v", err)
 		}
 
-		portsCmd := fmt.Sprintf(podmanCLI+" port %s", instance.Name)
+		portsCmd := fmt.Sprintf(podmanCLI+" port %s", utils.ShellSingleQuote(instance.Name))
 		existingPorts, _ := sshClient.Execute(portsCmd)
 
-		stopCmd := fmt.Sprintf(podmanCLI+" stop %s", instance.Name)
+		stopCmd := fmt.Sprintf(podmanCLI+" stop %s", utils.ShellSingleQuote(instance.Name))
 		_, err = sshClient.Execute(stopCmd)
 		if err != nil {
 			global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
 		}
 
-		removeCmd := fmt.Sprintf(podmanCLI+" rm %s", instance.Name)
+		removeCmd := fmt.Sprintf(podmanCLI+" rm %s", utils.ShellSingleQuote(instance.Name))
 		_, err = sshClient.Execute(removeCmd)
 		if err != nil {
 			return fmt.Errorf("failed to remove container: %v", err)
@@ -401,24 +408,24 @@ func (p *PodmanPortMapping) removePortMapping(ctx context.Context, instance *pro
 	}
 	defer sshClient.Close()
 
-	inspectCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+	inspectCmd := fmt.Sprintf(podmanCLI+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", utils.ShellSingleQuote(instance.Name))
 	configInfo, err := sshClient.Execute(inspectCmd)
 	if err != nil {
 		return fmt.Errorf("failed to get container config: %v", err)
 	}
 
-	portsCmd := fmt.Sprintf(podmanCLI+" port %s", instance.Name)
+	portsCmd := fmt.Sprintf(podmanCLI+" port %s", utils.ShellSingleQuote(instance.Name))
 	existingPorts, _ := sshClient.Execute(portsCmd)
 
 	filteredPorts := filterPortMappings(existingPorts, hostPort, guestPort, protocol)
 
-	stopCmd := fmt.Sprintf(podmanCLI+" stop %s", instance.Name)
+	stopCmd := fmt.Sprintf(podmanCLI+" stop %s", utils.ShellSingleQuote(instance.Name))
 	_, err = sshClient.Execute(stopCmd)
 	if err != nil {
 		global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
 	}
 
-	removeCmd := fmt.Sprintf(podmanCLI+" rm %s", instance.Name)
+	removeCmd := fmt.Sprintf(podmanCLI+" rm %s", utils.ShellSingleQuote(instance.Name))
 	_, err = sshClient.Execute(removeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to remove container: %v", err)
@@ -489,7 +496,7 @@ func (p *PodmanPortMapping) buildRunCommand(instance *provider.Instance, configI
 	}
 
 	image := configParts[0]
-	cmd := fmt.Sprintf(podmanCLI+" run -d --name %s", instance.Name)
+	cmd := fmt.Sprintf(podmanCLI+" run -d --name %s", utils.ShellSingleQuote(instance.Name))
 	cmd += fmt.Sprintf(" --network=%s", podmanNetwork)
 
 	if len(configParts) >= 3 && configParts[2] != "0" {
@@ -538,7 +545,7 @@ func (p *PodmanPortMapping) buildRunCommandWithFilteredPorts(instance *provider.
 	}
 
 	image := configParts[0]
-	cmd := fmt.Sprintf(podmanCLI+" run -d --name %s", instance.Name)
+	cmd := fmt.Sprintf(podmanCLI+" run -d --name %s", utils.ShellSingleQuote(instance.Name))
 	cmd += fmt.Sprintf(" --network=%s", podmanNetwork)
 
 	if len(configParts) >= 3 && configParts[2] != "0" {

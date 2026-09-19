@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
+import { formatEndpointHostPort, formatEndpointHostForUrl } from '@/utils/endpoint'
 import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
 import { canOpenInstanceDetail, getInstanceBusyMessage, isInstanceBusy } from '@/utils/instance-status'
 import {
@@ -417,16 +418,20 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   }
 
   const formatSSHCommand = (username, ip, port) => {
-    const fullCommand = `ssh ${username || 'root'}@${ip} -p ${port}`
-    if (fullCommand.length <= 40) return fullCommand
-    const truncatedIP = truncateIP(ip, 20)
+    const host = formatEndpointHostForUrl(ip)
+    const fullCommand = `ssh ${username || 'root'}@${host} -p ${port}`
+    // Do not truncate IPv6 literals: removing their closing bracket would
+    // turn a valid copyable command into an invalid host expression.
+    if (host.includes(':') || fullCommand.length <= 40) return fullCommand
+    const truncatedIP = truncateIP(host, 20)
     return `ssh ${username || 'root'}@${truncatedIP} -p ${port}`
   }
 
   const formatIPPort = (ip, port) => {
-    const fullAddress = `${ip}:${port}`
-    if (fullAddress.length <= 30) return fullAddress
-    const truncatedIP = truncateIP(ip, 20)
+    const host = formatEndpointHostForUrl(ip)
+    const fullAddress = formatEndpointHostPort(ip, port)
+    if (host.includes(':') || fullAddress.length <= 30) return fullAddress
+    const truncatedIP = truncateIP(host, 20)
     return `${truncatedIP}:${port}`
   }
 

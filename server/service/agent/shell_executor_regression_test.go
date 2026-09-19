@@ -125,6 +125,43 @@ func sendAgentFrame(t *testing.T, peer *websocket.Conn, msg wsMessage) {
 	}
 }
 
+func TestCallAPITimeoutSendsRequestScopedCancel(t *testing.T) {
+	control, peer, cleanup := newAgentWebSocketPair(t)
+	defer cleanup()
+	ac := newAgentConn(42, control, "test")
+
+	frames := make(chan wsMessage, 2)
+	go func() {
+		for {
+			_, raw, err := peer.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg wsMessage
+			if json.Unmarshal(raw, &msg) == nil {
+				frames <- msg
+			}
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ac.CallAPI("GET", "/api/v1/egress/capabilities", nil, nil, 20*time.Millisecond)
+	}()
+
+	request := <-frames
+	if request.Type != msgTypeAPIRequest || request.ID == "" {
+		t.Fatalf("first frame = %#v, want api request with an ID", request)
+	}
+	cancel := <-frames
+	if cancel.Type != msgTypeAPICancel || cancel.ID != request.ID {
+		t.Fatalf("cancel frame = %#v, want api_cancel for %q", cancel, request.ID)
+	}
+	if err := <-errCh; err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("CallAPI error = %v, want timeout", err)
+	}
+}
+
 func execResponseFrame(t *testing.T, id, output string) wsMessage {
 	t.Helper()
 	payload, err := json.Marshal(execResponsePayload{Stdout: output, ExitCode: 0})
@@ -314,6 +351,12 @@ func TestCloseShellOnlyClosesRequestedSession(t *testing.T) {
 	if err := ac.WriteShellInput(sessionB.ID, []byte("still-alive")); err != nil {
 		t.Fatalf("session B input failed: %v", err)
 	}
+	if err := ac.WriteShellInput(sessionA.ID, []byte("stale")); err == nil {
+		t.Fatal("closed session accepted stale input")
+	}
+	if err := ac.ResizeShell(sessionA.ID, 100, 30); err == nil {
+		t.Fatal("closed session accepted stale resize")
+	}
 	deadline = time.After(time.Second)
 	for {
 		select {
@@ -334,6 +377,199 @@ output:
 		}
 	case <-time.After(time.Second):
 		t.Fatal("session B did not receive output")
+	}
+}
+
+func TestShellInputAndCloseNeverReorderAcrossSessionRetirement(t *testing.T) {
+	control, peer, cleanup := newAgentWebSocketPair(t)
+	defer cleanup()
+	ac := newAgentConn(801, control, "test")
+	frames := make(chan wsMessage, 4)
+	startAgentSimulator(t, peer, func(msg wsMessage) { frames <- msg })
+
+	session := &AgentShellSession{
+		ID:       "ordered-session",
+		OutputCh: make(chan []byte, 1),
+		DoneCh:   make(chan struct{}),
+		ReadyCh:  make(chan struct{}, 1),
+	}
+	ac.mu.Lock()
+	ac.shellSessions[session.ID] = session
+	ac.mu.Unlock()
+
+	// Keep both operations queued at the per-session gate. Whichever operation
+	// wins is valid, but a shell_data frame must never be emitted after the
+	// shell_close frame that retires the same session.
+	session.ioMu.Lock()
+	inputDone := make(chan error, 1)
+	go func() { inputDone <- ac.WriteShellInput(session.ID, []byte("input")) }()
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- ac.CloseShell(session.ID) }()
+	for i := 0; i < 10; i++ {
+		time.Sleep(time.Millisecond)
+	}
+	session.ioMu.Unlock()
+
+	select {
+	case <-inputDone:
+	case <-time.After(time.Second):
+		t.Fatal("shell input did not complete")
+	}
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("shell close did not complete")
+	}
+
+	var observed []wsMessage
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case frame := <-frames:
+			observed = append(observed, frame)
+		case <-deadline:
+			for i, frame := range observed {
+				if frame.Type != msgTypeShellClose {
+					continue
+				}
+				for _, later := range observed[i+1:] {
+					if later.Type == msgTypeShellData && later.ID == session.ID {
+						t.Fatalf("shell_data was emitted after shell_close: %+v", observed)
+					}
+				}
+				return
+			}
+			t.Fatalf("timed out waiting for shell frames: %+v", observed)
+		}
+	}
+}
+
+func TestAgentShellCloseRetiresOnlyMatchingSession(t *testing.T) {
+	control, _, cleanup := newAgentWebSocketPair(t)
+	defer cleanup()
+	ac := newAgentConn(802, control, "test")
+	newSession := func(id string) *AgentShellSession {
+		return &AgentShellSession{ID: id, OutputCh: make(chan []byte, 1), DoneCh: make(chan struct{}), ReadyCh: make(chan struct{}, 1)}
+	}
+	first, second := newSession("remote-close-a"), newSession("remote-close-b")
+	ac.mu.Lock()
+	ac.shellSessions[first.ID] = first
+	ac.shellSessions[second.ID] = second
+	ac.mu.Unlock()
+	// Exercise the same object-identity retirement used by the production
+	// AgentHub read loop when a remote PTY exits.
+	ac.retireShellSession(first.ID)
+
+	select {
+	case <-first.DoneCh:
+	case <-time.After(time.Second):
+		t.Fatal("first shell was not retired")
+	}
+	select {
+	case <-second.DoneCh:
+		t.Fatal("retiring first shell closed second shell")
+	default:
+	}
+	if err := ac.WriteShellInput(second.ID, []byte("still-open")); err != nil {
+		t.Fatalf("second shell input failed after first retirement: %v", err)
+	}
+}
+
+func TestRetireShellSessionDoesNotWaitForWriter(t *testing.T) {
+	control, _, cleanup := newAgentWebSocketPair(t)
+	defer cleanup()
+	ac := newAgentConn(803, control, "test")
+	session := &AgentShellSession{
+		ID:       "blocked-writer-session",
+		OutputCh: make(chan []byte, 1),
+		DoneCh:   make(chan struct{}),
+		ReadyCh:  make(chan struct{}, 1),
+	}
+	ac.mu.Lock()
+	ac.shellSessions[session.ID] = session
+	ac.mu.Unlock()
+
+	// A controller-originated write can legitimately hold this gate while the
+	// shared WebSocket is back-pressured. The Agent read loop must still retire
+	// the remote session promptly so unrelated responses are not stalled.
+	session.ioMu.Lock()
+	retired := make(chan struct{})
+	go func() {
+		ac.retireShellSession(session.ID)
+		close(retired)
+	}()
+	select {
+	case <-retired:
+	case <-time.After(100 * time.Millisecond):
+		session.ioMu.Unlock()
+		t.Fatal("retireShellSession waited for the per-session writer gate")
+	}
+	select {
+	case <-session.DoneCh:
+	default:
+		session.ioMu.Unlock()
+		t.Fatal("retireShellSession did not close the session")
+	}
+	session.ioMu.Unlock()
+	ac.mu.Lock()
+	_, stillPresent := ac.shellSessions[session.ID]
+	ac.mu.Unlock()
+	if stillPresent {
+		t.Fatal("retired shell session remained in the active map")
+	}
+}
+
+func TestCloseShellRejectsStaleSessionWithoutSendingFrame(t *testing.T) {
+	control, peer, cleanup := newAgentWebSocketPair(t)
+	defer cleanup()
+	ac := newAgentConn(9, control, "test")
+	frames := make(chan wsMessage, 2)
+	startAgentSimulator(t, peer, func(msg wsMessage) { frames <- msg })
+	if err := ac.CloseShell("stale-session"); err == nil {
+		t.Fatal("stale shell close unexpectedly succeeded")
+	}
+	select {
+	case frame := <-frames:
+		t.Fatalf("stale close emitted frame: %+v", frame)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestAgentCommandNonPositiveTimeoutUsesSafeDefault(t *testing.T) {
+	control, peer, cleanup := newAgentWebSocketPair(t)
+	defer cleanup()
+	ac := newAgentConn(801, control, "test")
+	startControlRouter(t, control, ac)
+	request := make(chan wsMessage, 1)
+	startAgentSimulator(t, peer, func(msg wsMessage) {
+		if msg.Type == msgTypeExecRequest {
+			request <- msg
+		}
+	})
+	result := make(chan struct {
+		output string
+		err    error
+	}, 1)
+	go func() {
+		output, err := ac.ExecuteWithTimeout("default-timeout", 0)
+		result <- struct {
+			output string
+			err    error
+		}{output, err}
+	}()
+	select {
+	case frame := <-request:
+		sendAgentFrame(t, peer, execResponseFrame(t, frame.ID, "ok"))
+	case <-time.After(time.Second):
+		t.Fatal("command was not sent with non-positive timeout")
+	}
+	select {
+	case got := <-result:
+		if got.err != nil || got.output != "ok" {
+			t.Fatalf("default timeout request failed: output=%q err=%v", got.output, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("default timeout request did not complete")
 	}
 }
 

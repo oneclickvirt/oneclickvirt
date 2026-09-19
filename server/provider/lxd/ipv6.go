@@ -123,8 +123,16 @@ func (l *LXDProvider) disableIPv6(instanceName string) error {
 
 // GetInstanceIPv6 获取实例的内网IPv6地址
 func (l *LXDProvider) GetInstanceIPv6(instanceName string) (string, error) {
+	// The controller-owned allocation survives a stop and is the most reliable
+	// source while a proxy device is being added. It also covers routed eth1
+	// addresses before LXD publishes state.network again.
+	if output, err := l.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null", shellSingleQuote(instanceName+"_v6"))); err == nil {
+		if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
+			return ipv6, nil
+		}
+	}
 	// 获取实例的内网IPv6地址
-	ipv6Cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
+	ipv6Cmd := fmt.Sprintf("lxc list %s --format=json | jq -r '.[0].state.network | to_entries[]?.value.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
 	ipv6Output, err := l.sshClient.Execute(ipv6Cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取IPv6地址失败: %w", err)
@@ -260,7 +268,11 @@ func (l *LXDProvider) checkIPv6(ctx context.Context) (string, error) {
 
 // getContainerIPv6 获取容器内网IPv6地址
 func (l *LXDProvider) getContainerIPv6(ctx context.Context, containerName string) (string, error) {
-	cmd := fmt.Sprintf("lxc list %s --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family==\"inet6\") | select(.scope==\"global\") | .address'", shellSingleQuote(containerName))
+	// A static/routed IPv6 allocation is attached as eth1 while the native
+	// profile address normally lives on eth0.  Looking at eth0 only makes the
+	// IPv6 port-mapping path fail after the device has already been created.
+	// Keep the query local to the instance and accept either interface.
+	cmd := fmt.Sprintf("lxc list %s --format=json | jq -r '.[0].state.network | to_entries[]?.value.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address'", shellSingleQuote(containerName))
 	output, err := l.sshClient.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取容器IPv6地址失败: %w", err)
@@ -387,18 +399,20 @@ func (l *LXDProvider) installSipcalcRHEL(ctx context.Context) error {
 	}
 
 	// 安装rpm包
-	installCmd := fmt.Sprintf("rpm -ivh %s", filename)
+	installCmd := fmt.Sprintf("rpm -ivh %s", shellSingleQuote(filename))
 	_, err = l.sshClient.Execute(installCmd)
 	if err != nil {
 		// 尝试使用dnf/yum安装
-		_, err = l.sshClient.Execute("dnf install -y " + filename)
+		_, err = l.sshClient.Execute("dnf install -y " + shellSingleQuote(filename))
 		if err != nil {
-			_, err = l.sshClient.Execute("yum install -y " + filename)
+			_, err = l.sshClient.Execute("yum install -y " + shellSingleQuote(filename))
 		}
 	}
 
 	// 清理下载的文件
-	l.sshClient.Execute("rm -f " + filename)
+	if _, cleanupErr := l.sshClient.Execute("rm -f " + shellSingleQuote(filename)); err == nil && cleanupErr != nil {
+		return fmt.Errorf("清理sipcalc安装包失败: %w", cleanupErr)
+	}
 
 	return err
 }

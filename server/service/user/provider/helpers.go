@@ -124,10 +124,15 @@ func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
 
 	providerApiService := &providerService.ProviderApiService{}
 	if err := providerApiService.DeleteInstanceByProviderID(cleanupCtx, instance.ProviderID, instance.ProviderInstanceIdentifier()); err != nil {
-		global.APP_LOG.Warn("直接清理失败实例时Provider删除失败，继续清理本地记录",
+		global.APP_LOG.Warn("直接清理失败实例时Provider删除失败，保留本地记录等待重试",
 			zap.Uint("instanceId", instance.ID),
 			zap.String("instanceName", instance.Name),
 			zap.Error(err))
+		// Do not remove the DB instance/port rows after an unconfirmed remote
+		// delete. They carry the guest IP and port details required to retry
+		// LXD/Incus firewall cleanup without risking a stale rule on a recycled
+		// host port.
+		return fmt.Errorf("Provider删除失败，保留失败实例记录以便重试: %w", err)
 	}
 
 	if err := traffic_monitor.GetManager().DetachMonitor(cleanupCtx, instance.ID); err != nil {

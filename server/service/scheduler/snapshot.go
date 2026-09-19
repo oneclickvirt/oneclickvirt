@@ -34,10 +34,11 @@ func (s *SnapshotSchedulerService) Start(ctx context.Context) {
 		return
 	}
 	s.stopChan = make(chan struct{})
+	stopChan := s.stopChan
 	s.isRunning = true
 	s.mu.Unlock()
 	global.APP_LOG.Info("启动计划快照调度器")
-	go s.loop(ctx)
+	go s.loop(ctx, stopChan)
 }
 
 func (s *SnapshotSchedulerService) Stop() {
@@ -47,12 +48,13 @@ func (s *SnapshotSchedulerService) Stop() {
 		return
 	}
 	s.isRunning = false
-	close(s.stopChan)
+	stopChan := s.stopChan
+	close(stopChan)
 	s.mu.Unlock()
 	global.APP_LOG.Info("计划快照调度器已停止")
 }
 
-func (s *SnapshotSchedulerService) loop(ctx context.Context) {
+func (s *SnapshotSchedulerService) loop(ctx context.Context, stopChan <-chan struct{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			global.APP_LOG.Error("计划快照调度器panic", zap.Any("panic", r), zap.Stack("stack"))
@@ -64,7 +66,7 @@ func (s *SnapshotSchedulerService) loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-s.stopChan:
+		case <-stopChan:
 			return
 		case <-ticker.C:
 			if global.APP_DB == nil {

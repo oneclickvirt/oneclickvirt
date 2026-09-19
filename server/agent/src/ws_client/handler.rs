@@ -5,10 +5,9 @@ use axum::{
     http::{Method, Request, header},
 };
 use futures_util::{SinkExt, StreamExt};
-use rand;
 use std::collections::HashMap;
 use std::os::unix::io::AsRawFd;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
@@ -21,6 +20,18 @@ use crate::tunnel::{
     SessionMap, WsFrame, handle_binary_frame, handle_tunnel_close, handle_tunnel_eof,
     handle_tunnel_keepalive, handle_tunnel_open,
 };
+
+struct ConnectionLimits {
+    exec: Arc<Semaphore>,
+    shell: Arc<Semaphore>,
+}
+
+fn new_connection_limits() -> ConnectionLimits {
+    ConnectionLimits {
+        exec: Arc::new(Semaphore::new(10)),
+        shell: Arc::new(Semaphore::new(5)),
+    }
+}
 
 pub(super) async fn handle_connection<S>(
     ws_stream: tokio_tungstenite::WebSocketStream<S>,
@@ -94,11 +105,16 @@ where
     // Limit concurrent command executions to 10 to prevent the agent from
     // spawning an unbounded number of processes when the controller sends
     // many commands in rapid succession.
-    static EXEC_PERMITS: OnceLock<Arc<Semaphore>> = OnceLock::new();
-    let exec_permits = EXEC_PERMITS
-        .get_or_init(|| Arc::new(Semaphore::new(10)))
-        .clone();
+    // Keep admission control scoped to this authenticated WebSocket.  A
+    // process-wide semaphore lets a busy Provider consume the command budget
+    // of unrelated Providers, which turns one node's load into cross-node
+    // timeouts.  Reconnects intentionally get a fresh budget; the old
+    // connection's tasks are cancelled during connection cleanup.
+    let limits = new_connection_limits();
+    let exec_permits = limits.exec.clone();
     let exec_tasks: Arc<Mutex<HashMap<String, watch::Sender<bool>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    let api_tasks: Arc<Mutex<HashMap<String, watch::Sender<bool>>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let api_permits: Arc<Semaphore> = Arc::new(Semaphore::new(8));
 
@@ -111,10 +127,10 @@ where
 
     // Limit concurrent shell sessions to 5 to prevent resource exhaustion
     // when the controller rapidly opens/closes admin terminals.
-    static SHELL_PERMITS: OnceLock<Arc<Semaphore>> = OnceLock::new();
-    let shell_permits = SHELL_PERMITS
-        .get_or_init(|| Arc::new(Semaphore::new(5)))
-        .clone();
+    // Shell sessions have the same per-connection ownership boundary as exec
+    // requests.  Do not let one Provider exhaust the terminal budget of all
+    // other Agent connections in this process.
+    let shell_permits = limits.shell.clone();
 
     // ── Anti-DPI noise sender ───────────────────────────────────────────
     // Periodically sends random-length noise frames ("nop" type) at
@@ -151,7 +167,7 @@ where
                 Ok(t) => t,
                 Err(_) => continue,
             };
-            let msg = Message::Text(text.into());
+            let msg = Message::Text(text);
             // Non-blocking send to avoid stalling the noise task.
             // If the channel is full (write path congested), skip this
             // noise cycle — pong responses already serve as keepalive.
@@ -188,7 +204,7 @@ where
     };
     let info_text = serde_json::to_string(&info_frame).map_err(|e| e.to_string())?;
     ws_tx_hi
-        .send(Message::Text(info_text.into()))
+        .send(Message::Text(info_text))
         .await
         .map_err(|e| e.to_string())?;
 
@@ -293,7 +309,7 @@ where
                                             ),
                                         };
                                         if let Ok(resp_text) = serde_json::to_string(&resp_frame) {
-                                            let msg = Message::Text(resp_text.into());
+                                            let msg = Message::Text(resp_text);
                                             if ws_tx_hi_clone.try_send(msg.clone()).is_err() {
                                                 let _ = tokio::time::timeout(
                                                     Duration::from_secs(5),
@@ -340,7 +356,7 @@ where
                                 .unwrap_or_else(|e| format!(r#"{{"type":"exec_resp","id":"{}","payload":{{"stdout":"","stderr":"serialize error: {}","exit_code":-1}}}}"#, req_id, e));
                                 // Non-blocking send for exec response:
                                 // try_send first, fall back to short timeout.
-                                let resp_msg = Message::Text(resp_text.into());
+                                let resp_msg = Message::Text(resp_text);
                                 if ws_tx_hi_clone.try_send(resp_msg.clone()).is_err() {
                                     let _ = tokio::time::timeout(
                                         Duration::from_secs(10),
@@ -360,14 +376,17 @@ where
                         });
                     }
                     "exec_cancel" => {
-                        if let Some(id) = frame.id {
-                            if let Some(cancel) = exec_tasks.lock().await.get(&id) {
-                                cancel.send_replace(true);
-                            }
+                        if let Some(id) = frame.id
+                            && let Some(cancel) = exec_tasks.lock().await.get(&id)
+                        {
+                            cancel.send_replace(true);
                         }
                     }
                     "api_req" => {
                         let req_id = frame.id.clone().unwrap_or_default();
+                        if req_id.is_empty() || api_tasks.lock().await.contains_key(&req_id) {
+                            continue;
+                        }
                         let request = frame.payload.and_then(|payload| {
                             serde_json::from_value::<ApiReqPayload>(payload).ok()
                         });
@@ -375,43 +394,64 @@ where
                         let token = api_token.clone();
                         let tx = ws_tx_hi.clone();
                         let permits = api_permits.clone();
+                        let (cancel, mut cancelled) = watch::channel(false);
+                        api_tasks.lock().await.insert(req_id.clone(), cancel);
+                        let tasks = api_tasks.clone();
                         tokio::spawn(async move {
-                            let response = match request {
-                                Some(request) => match tokio::time::timeout(
-                                    Duration::from_secs(10),
-                                    permits.acquire_owned(),
-                                )
-                                .await
-                                {
-                                    Ok(Ok(_permit)) => {
-                                        dispatch_api_request(router, &token, request).await
-                                    }
-                                    _ => ApiRespPayload {
-                                        status: 429,
-                                        body: serde_json::json!({"error": "Agent API concurrency limit exceeded"}),
-                                    },
-                                },
-                                None => ApiRespPayload {
-                                    status: 400,
-                                    body: serde_json::json!({"error": "invalid Agent API request"}),
-                                },
-                            };
-                            let frame = WsFrame {
-                                msg_type: "api_resp".to_string(),
-                                id: Some(req_id),
-                                payload: serde_json::to_value(response).ok(),
-                            };
-                            if let Ok(text) = serde_json::to_string(&frame) {
-                                let message = Message::Text(text.into());
-                                if tx.try_send(message.clone()).is_err() {
-                                    let _ = tokio::time::timeout(
+                            let task_id = req_id.clone();
+                            let work = async move {
+                                let response = match request {
+                                    Some(request) => match tokio::time::timeout(
                                         Duration::from_secs(10),
-                                        tx.send(message),
+                                        permits.acquire_owned(),
                                     )
-                                    .await;
+                                    .await
+                                    {
+                                        Ok(Ok(_permit)) => {
+                                            dispatch_api_request(router, &token, request).await
+                                        }
+                                        _ => ApiRespPayload {
+                                            status: 429,
+                                            body: serde_json::json!({"error": "Agent API concurrency limit exceeded"}),
+                                        },
+                                    },
+                                    None => ApiRespPayload {
+                                        status: 400,
+                                        body: serde_json::json!({"error": "invalid Agent API request"}),
+                                    },
+                                };
+                                let frame = WsFrame {
+                                    msg_type: "api_resp".to_string(),
+                                    id: Some(req_id),
+                                    payload: serde_json::to_value(response).ok(),
+                                };
+                                if let Ok(text) = serde_json::to_string(&frame) {
+                                    let message = Message::Text(text);
+                                    if tx.try_send(message.clone()).is_err() {
+                                        let _ = tokio::time::timeout(
+                                            Duration::from_secs(10),
+                                            tx.send(message),
+                                        )
+                                        .await;
+                                    }
                                 }
+                            };
+                            tokio::select! {
+                                biased;
+                                _ = async {
+                                    if !*cancelled.borrow_and_update() { let _ = cancelled.changed().await; }
+                                } => {}
+                                _ = work => {}
                             }
+                            tasks.lock().await.remove(&task_id);
                         });
+                    }
+                    "api_cancel" => {
+                        if let Some(id) = frame.id
+                            && let Some(cancel) = api_tasks.lock().await.get(&id)
+                        {
+                            cancel.send_replace(true);
+                        }
                     }
                     "ping" => {
                         // Spawn pong in a separate task so the jitter sleep never
@@ -449,7 +489,7 @@ where
                                     return;
                                 }
                             };
-                            let pong_msg = Message::Text(pong_text.into());
+                            let pong_msg = Message::Text(pong_text);
                             // Non-blocking try_send; fall back to a short timeout.
                             // Failures here are non-fatal: if the write channel is
                             // closed, the main loop will detect it on the next frame.
@@ -526,7 +566,7 @@ where
                                         ),
                                     };
                                     if let Ok(text) = serde_json::to_string(&close_frame) {
-                                        let msg = Message::Text(text.into());
+                                        let msg = Message::Text(text);
                                         if ws_tx_hi_clone.try_send(msg.clone()).is_err() {
                                             let _ = tokio::time::timeout(
                                                 Duration::from_secs(5),
@@ -559,7 +599,7 @@ where
                                     ),
                                 };
                                 if let Ok(text) = serde_json::to_string(&close_frame) {
-                                    let msg = Message::Text(text.into());
+                                    let msg = Message::Text(text);
                                     if ws_tx_hi_clone.try_send(msg.clone()).is_err() {
                                         let _ = tokio::time::timeout(
                                             Duration::from_secs(5),
@@ -573,45 +613,35 @@ where
                     }
                     "shell_data" => {
                         let req_id = frame.id.clone().unwrap_or_default();
-                        if let Some(payload_val) = frame.payload {
-                            if let Ok(payload) =
+                        if let Some(payload_val) = frame.payload
+                            && let Ok(payload) =
                                 serde_json::from_value::<ShellDataPayload>(payload_val)
-                            {
-                                // Send data to the session's dedicated stdin writer task.
-                                // The channel preserves FIFO order, so stdin bytes always
-                                // arrive in the same order as WebSocket frames — unlike
-                                // spawning a new task per frame which allows out-of-order writes.
-                                let data = payload.data.into_bytes();
-                                let handle = shell_sessions.lock().await.get(&req_id).cloned();
-                                if let Some(handle) = handle {
-                                    // Never reorder/drop input and keep the shell alive:
-                                    // overload terminates only this session.
-                                    if handle.stdin_tx.try_send(data).is_err() {
-                                        handle.cancel();
-                                    }
+                        {
+                            // Send data to the session's dedicated stdin writer task.
+                            // The channel preserves FIFO order, so stdin bytes always
+                            // arrive in the same order as WebSocket frames — unlike
+                            // spawning a new task per frame which allows out-of-order writes.
+                            let data = payload.data.into_bytes();
+                            let handle = shell_sessions.lock().await.get(&req_id).cloned();
+                            if let Some(handle) = handle {
+                                // Never reorder/drop input and keep the shell alive:
+                                // overload terminates only this session.
+                                if handle.stdin_tx.try_send(data).is_err() {
+                                    handle.cancel();
                                 }
                             }
                         }
                     }
                     "shell_resize" => {
                         let req_id = frame.id.clone().unwrap_or_default();
-                        if let Some(payload_val) = frame.payload {
-                            if let Ok(payload) =
+                        if let Some(payload_val) = frame.payload
+                            && let Ok(payload) =
                                 serde_json::from_value::<ShellResizePayload>(payload_val)
-                            {
-                                if let Some(handle) =
-                                    shell_sessions.lock().await.get(&req_id).cloned()
-                                {
-                                    let cols = payload.cols.unwrap_or(80);
-                                    let rows = payload.rows.unwrap_or(24);
-                                    pty_resize(
-                                        handle.master.as_raw_fd(),
-                                        handle.child_pid,
-                                        cols,
-                                        rows,
-                                    );
-                                }
-                            }
+                            && let Some(handle) = shell_sessions.lock().await.get(&req_id).cloned()
+                        {
+                            let cols = payload.cols.unwrap_or(80);
+                            let rows = payload.rows.unwrap_or(24);
+                            pty_resize(handle.master.as_raw_fd(), handle.child_pid, cols, rows);
                         }
                     }
                     "shell_close" => {
@@ -718,6 +748,9 @@ where
     for (_, cancel) in exec_tasks.lock().await.drain() {
         cancel.send_replace(true);
     }
+    for (_, cancel) in api_tasks.lock().await.drain() {
+        cancel.send_replace(true);
+    }
     noise_task.abort();
     write_task.abort();
     let _ = noise_task.await;
@@ -742,69 +775,6 @@ fn allowed_api_request(method: &Method, path: &str) -> bool {
             | ("PUT", "/api/v1/egress/state")
             | ("POST", "/api/v1/egress/reconcile")
     )
-}
-
-#[cfg(test)]
-mod lifecycle_tests {
-    use super::*;
-    use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
-
-    #[tokio::test]
-    async fn failed_container_start_never_falls_back_to_host_and_other_sessions_work() {
-        let (agent_io, control_io) = tokio::io::duplex(65536);
-        let agent_ws = WebSocketStream::from_raw_socket(agent_io, Role::Client, None).await;
-        let mut control = WebSocketStream::from_raw_socket(control_io, Role::Server, None).await;
-        let task = tokio::spawn(handle_connection(
-            agent_ws,
-            "test",
-            Router::new(),
-            "test".into(),
-        ));
-        for frame in [
-            serde_json::json!({"type":"shell_exec","id":"a","payload":{"command":"false"}}),
-            serde_json::json!({"type":"shell_data","id":"a","payload":{"data":"printf 'HOST_%s' ESCAPED\n"}}),
-            serde_json::json!({"type":"shell_exec","id":"b","payload":{"command":"cat"}}),
-            serde_json::json!({"type":"shell_data","id":"b","payload":{"data":"SESSION_B_ALIVE\n"}}),
-            serde_json::json!({"type":"exec_req","id":"command","payload":{"command":"printf COMMAND_ALIVE"}}),
-        ] {
-            control
-                .send(Message::Text(frame.to_string()))
-                .await
-                .unwrap();
-        }
-        let observed = tokio::time::timeout(Duration::from_secs(3), async {
-            let (mut a_closed, mut b_alive, mut command_alive) = (false, false, false);
-            while let Some(Ok(Message::Text(text))) = control.next().await {
-                let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
-                let output = frame["payload"]["data"].as_str().unwrap_or("");
-                assert!(
-                    !output.contains("HOST_ESCAPED"),
-                    "tenant input escaped into host shell"
-                );
-                if frame["id"] == "a" && frame["type"] == "shell_close" {
-                    a_closed = true;
-                }
-                if frame["id"] == "b" && output.contains("SESSION_B_ALIVE") {
-                    b_alive = true;
-                }
-                if frame["id"] == "command" && frame["payload"]["stdout"] == "COMMAND_ALIVE" {
-                    command_alive = true;
-                }
-                if a_closed && b_alive && command_alive {
-                    return;
-                }
-            }
-            panic!("connection closed before independent work completed");
-        })
-        .await;
-        control.send(Message::Close(None)).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(2), task)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        observed.unwrap();
-    }
 }
 
 async fn dispatch_api_request(
@@ -866,4 +836,86 @@ async fn dispatch_api_request(
         Err(_) => serde_json::json!({"error": "Agent API response body is too large"}),
     };
     ApiRespPayload { status, body }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
+
+    #[test]
+    fn admission_limits_are_owned_by_each_connection() {
+        let first = new_connection_limits();
+        let second = new_connection_limits();
+        let first_permits = (0..10)
+            .map(|_| first.exec.clone().try_acquire_owned().unwrap())
+            .collect::<Vec<_>>();
+        assert!(first.exec.clone().try_acquire_owned().is_err());
+        assert!(second.exec.clone().try_acquire_owned().is_ok());
+        drop(first_permits);
+
+        let first_shells = (0..5)
+            .map(|_| first.shell.clone().try_acquire_owned().unwrap())
+            .collect::<Vec<_>>();
+        assert!(first.shell.clone().try_acquire_owned().is_err());
+        assert!(second.shell.clone().try_acquire_owned().is_ok());
+        drop(first_shells);
+    }
+
+    #[tokio::test]
+    async fn failed_container_start_never_falls_back_to_host_and_other_sessions_work() {
+        let (agent_io, control_io) = tokio::io::duplex(65536);
+        let agent_ws = WebSocketStream::from_raw_socket(agent_io, Role::Client, None).await;
+        let mut control = WebSocketStream::from_raw_socket(control_io, Role::Server, None).await;
+        let task = tokio::spawn(handle_connection(
+            agent_ws,
+            "test",
+            Router::new(),
+            "test".into(),
+        ));
+        for frame in [
+            serde_json::json!({"type":"shell_exec","id":"a","payload":{"command":"false"}}),
+            serde_json::json!({"type":"shell_data","id":"a","payload":{"data":"printf 'HOST_%s' ESCAPED\n"}}),
+            serde_json::json!({"type":"shell_exec","id":"b","payload":{"command":"cat"}}),
+            serde_json::json!({"type":"shell_data","id":"b","payload":{"data":"SESSION_B_ALIVE\n"}}),
+            serde_json::json!({"type":"exec_req","id":"command","payload":{"command":"printf COMMAND_ALIVE"}}),
+        ] {
+            control
+                .send(Message::Text(frame.to_string()))
+                .await
+                .unwrap();
+        }
+        let observed = tokio::time::timeout(Duration::from_secs(3), async {
+            let (mut a_closed, mut b_alive, mut command_alive) = (false, false, false);
+            while let Some(Ok(Message::Text(text))) = control.next().await {
+                let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
+                let output = frame["payload"]["data"].as_str().unwrap_or("");
+                assert!(
+                    !output.contains("HOST_ESCAPED"),
+                    "tenant input escaped into host shell"
+                );
+                if frame["id"] == "a" && frame["type"] == "shell_close" {
+                    a_closed = true;
+                }
+                if frame["id"] == "b" && output.contains("SESSION_B_ALIVE") {
+                    b_alive = true;
+                }
+                if frame["id"] == "command" && frame["payload"]["stdout"] == "COMMAND_ALIVE" {
+                    command_alive = true;
+                }
+                if a_closed && b_alive && command_alive {
+                    return;
+                }
+            }
+            panic!("connection closed before independent work completed");
+        })
+        .await;
+        control.send(Message::Close(None)).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        observed.unwrap();
+    }
 }

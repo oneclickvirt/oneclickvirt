@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"oneclickvirt/config"
 	"oneclickvirt/global"
@@ -17,7 +16,7 @@ import (
 
 // 默认配置
 func getDefaultConfig() config.Server {
-	// 根据架构自动检测数据库类型
+	// 仅作为连接前的类型提示；连接后以实际服务端检测结果为准。
 	defaultDbType := detectDatabaseType()
 
 	return config.Server{
@@ -142,6 +141,7 @@ func createDefaultConfigFile(configPath string) error {
 // selectDatabaseType 根据配置中的 DbType 进行合法性校验并必要时自动检测则修正。
 // 注意：该函数在日志系统初始化之前调用，必须使用 fmt 输出。
 func selectDatabaseType(cfg *config.Server) {
+	cfg.System.DbType = config.NormalizeDatabaseType(cfg.System.DbType)
 	switch cfg.System.DbType {
 	case "mysql", "mariadb":
 		if cfg.Mysql.Dbname == "" && !cfg.Mysql.AutoCreate {
@@ -159,18 +159,15 @@ func selectDatabaseType(cfg *config.Server) {
 func detectDatabaseType() string {
 	// 检查环境变量
 	if dbType := os.Getenv("DB_TYPE"); dbType != "" {
-		if dbType == "mysql" || dbType == "mariadb" {
+		dbType = config.NormalizeDatabaseType(dbType)
+		if config.IsSupportedDatabaseType(dbType) {
 			return dbType
 		}
 	}
 
-	// 检查架构来决定默认数据库类型（与Dockerfile中的逻辑一致）
-	arch := runtime.GOARCH
-	if arch == "amd64" {
-		return "mysql"
-	} else {
-		return "mariadb"
-	}
+	// The local CPU architecture says nothing about an external database.
+	// Both engines use this protocol; the actual server is detected on connect.
+	return "mysql"
 }
 
 // 初始化配置
@@ -217,6 +214,9 @@ func InitConfig(configPath ...string) *viper.Viper {
 	// 监听配置文件变化
 	v.WatchConfig()
 	v.OnConfigChange(func(e fsnotify.Event) {
+		if global.CONFIG_MANAGER_READY.Load() {
+			return
+		}
 		fmt.Printf("[CONFIG] 配置文件变更: %s\n", e.Name)
 
 		newConfig := getDefaultConfig()
@@ -226,6 +226,10 @@ func InitConfig(configPath ...string) *viper.Viper {
 		}
 
 		newConfig.Quota.LevelLimits = config.NormalizeLevelLimits(newConfig.Quota.LevelLimits)
+		if err := config.DecodeDatabase(v, &newConfig); err != nil {
+			fmt.Fprintln(os.Stderr, "[CONFIG WARN] 数据库配置解析失败，保持原有配置")
+			return
+		}
 
 		if err := validateConfig(&newConfig); err != nil {
 			fmt.Fprintf(os.Stderr, "[CONFIG WARN] 新配置校验失败: %v，保持原有配置\n", err)
@@ -249,6 +253,10 @@ func InitConfig(configPath ...string) *viper.Viper {
 		global.SetAppConfig(getDefaultConfig())
 	} else {
 		loadedConfig.Quota.LevelLimits = config.NormalizeLevelLimits(loadedConfig.Quota.LevelLimits)
+		if err := config.DecodeDatabase(v, &loadedConfig); err != nil {
+			fmt.Fprintln(os.Stderr, "[CONFIG WARN] 数据库配置解析失败，保持原有配置")
+			return v
+		}
 
 		if err := validateConfig(&loadedConfig); err != nil {
 			fmt.Fprintf(os.Stderr, "[CONFIG ERROR] 配置校验失败: %v，降级为内存默认配置\n", err)

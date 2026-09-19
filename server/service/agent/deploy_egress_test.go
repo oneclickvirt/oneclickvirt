@@ -19,6 +19,38 @@ func TestBuildEnvFileEnablesManagedEgress(t *testing.T) {
 	}
 }
 
+func TestBuildEnvFileQuotesUntrustedValues(t *testing.T) {
+	env := buildEnvFile(&AgentConfig{
+		Token:                "token\"\nINJECTED=yes",
+		TrafficCollectMethod: "nft\\safe",
+		ExtraExcludeCIDRsV4:  "10.0.0.0/8\r\nINJECTED_V4=yes",
+		ProxyTLSCertPath:     "/tmp/cert\"name",
+		ProxyTLSKeyPath:      "/tmp/key",
+		EnableReverseProxy:   true,
+		ProxyEnableHTTPS:     true,
+	})
+	if strings.Contains(env, "\nINJECTED=") || strings.Contains(env, "\nINJECTED_V4=") {
+		t.Fatalf("untrusted values created additional environment entries:\n%s", env)
+	}
+	for _, expected := range []string{
+		`API_TOKEN="token\"\nINJECTED=yes"`,
+		`TRAFFIC_COLLECT_METHOD="nft\\safe"`,
+		`EXTRA_EXCLUDE_CIDRS_V4="10.0.0.0/8\r\nINJECTED_V4=yes"`,
+		`PROXY_TLS_CERT="/tmp/cert\"name"`,
+	} {
+		if !strings.Contains(env, expected) {
+			t.Fatalf("quoted environment value %q missing from:\n%s", expected, env)
+		}
+	}
+}
+
+func TestBuildDeployScriptSanitizesVersionInTempPath(t *testing.T) {
+	script := buildDeployScript(&AgentConfig{Token: "token"}, "../../bad; touch /tmp/pwn", "amd64", nil, "")
+	if strings.Contains(script, "/tmp/ocv_agent_deploy_../../bad") || strings.Contains(script, "/tmp/pwn.sh") {
+		t.Fatalf("unsafe version leaked into generated temp path")
+	}
+}
+
 func TestBuildDeployScriptInstallsFailClosedBootGuard(t *testing.T) {
 	script := buildDeployScript(
 		&AgentConfig{Token: "controller-token"},

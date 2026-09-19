@@ -39,24 +39,31 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		return fmt.Errorf("LXD命令不可用，请确认provider节点已安装lxc并在PATH中: %w", err)
 	}
 
-	// 如果是虚拟机，先检查VM支持
+	// Check the name for both containers and VMs.  Skipping this for VMs can
+	// turn a late init error into an unsafe cleanup of an unrelated instance.
+	updateProgress(10, "检查实例是否已存在...")
+	if exists, err := l.instanceExists(config.Name); err != nil {
+		return fmt.Errorf("检查实例是否存在失败: %w", err)
+	} else if exists {
+		return fmt.Errorf("实例 %s 已存在", config.Name)
+	}
 	if config.InstanceType == "vm" {
-		updateProgress(10, "检查虚拟机支持...")
+		updateProgress(12, "检查虚拟机支持...")
 		if err := l.checkVMSupport(); err != nil {
 			return fmt.Errorf("虚拟机支持检查失败: %w", err)
-		}
-	} else {
-		updateProgress(10, "检查实例是否已存在...")
-		if exists, err := l.instanceExists(config.Name); err != nil {
-			return fmt.Errorf("检查实例是否存在失败: %w", err)
-		} else if exists {
-			return fmt.Errorf("实例 %s 已存在", config.Name)
 		}
 	}
 
 	if l.shouldUseWindowsInstallerSSH(ctx, &config) {
 		updateProgress(15, "处理Windows安装镜像...")
 		return l.createWindowsInstallerVM(ctx, config, progressCallback)
+	}
+
+	// Validate delegated IPv6 capability before init/copy.  Without this
+	// preflight a /128-only host reaches the later network stage, then the
+	// instance is deleted after a predictable prefix-allocation error.
+	if err := l.preflightIPv6Network(ctx, config, l.parseNetworkConfigFromInstanceConfig(config)); err != nil {
+		return fmt.Errorf("IPv6网络预检失败: %w", err)
 	}
 
 	// 在创建之前，处理镜像下载和导入
@@ -223,7 +230,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	// 配置安全设置
 	time.Sleep(6 * time.Second)
 	if err := l.configureInstanceSecurity(ctx, config); err != nil {
-		global.APP_LOG.Warn("配置实例安全设置失败，但继续", zap.Error(err))
+		return fmt.Errorf("配置实例安全设置失败 [%s]: %w", l.formatImageContext(config, ""), err)
 	}
 
 	// 配置GPU直通（仅 LXD/Incus 容器，需要在启动前附加设备）
@@ -277,7 +284,9 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 	updateProgress(65, "配置实例网络...")
 	if err := l.configureInstanceNetworkSettings(ctx, config); err != nil {
-		global.APP_LOG.Warn("配置网络失败", zap.Error(err))
+		// Port mappings are part of the instance's reachability contract. Do not
+		// report success while an advertised SSH/NAT mapping failed to install.
+		return fmt.Errorf("配置网络失败 [%s]: %w", l.formatImageContext(config, ""), err)
 	}
 
 	updateProgress(70, "配置实例系统...")

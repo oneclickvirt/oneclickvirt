@@ -101,9 +101,9 @@ fn write_managed_networks_at(path: &Path, networks: &[IpNetwork]) -> Result<(), 
     file.write_all(content.as_bytes())
         .and_then(|_| file.sync_all())
         .map_err(|e| ApiError::internal(format!("write managed egress source file error: {e}")))?;
-    fs::rename(&temporary, &path)
+    fs::rename(&temporary, path)
         .map_err(|e| ApiError::internal(format!("commit managed egress source file error: {e}")))?;
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
         .map_err(|e| ApiError::internal(format!("secure managed egress source file error: {e}")))?;
     Ok(())
 }
@@ -219,13 +219,11 @@ fn atomic_write_secret(path: &Path, value: &str) -> Result<(), ApiError> {
 
 fn remove_profile_secrets(profile_id: &str) {
     for preshared in [false, true] {
-        if let Ok(path) = secret_path(profile_id, preshared) {
-            if let Err(error) = fs::remove_file(&path) {
-                if error.kind() != std::io::ErrorKind::NotFound {
+        if let Ok(path) = secret_path(profile_id, preshared)
+            && let Err(error) = fs::remove_file(&path)
+                && error.kind() != std::io::ErrorKind::NotFound {
                     warn!(profile_id, path = %path.display(), error = %error, "failed removing egress secret");
                 }
-            }
-        }
     }
 }
 

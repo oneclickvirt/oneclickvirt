@@ -49,6 +49,7 @@ type TaskService struct {
 	poolManager    *ProviderPoolManager // Provider工作池管理器
 	repairSubmitMu sync.Mutex           // 端口映射修复提交互斥，避免同一Provider重复入队
 	shutdown       chan struct{}        // 系统关闭信号
+	shutdownOnce   sync.Once            // 保证并发Shutdown只关闭一次
 	wg             sync.WaitGroup       // 用于等待所有goroutine完成
 	ctx            context.Context      // 服务级别的context
 	cancel         context.CancelFunc   // 服务级别的cancel函数
@@ -215,12 +216,7 @@ func (s *TaskService) Shutdown() {
 	// 进程正在退出时，内存中的工作池不会在重启后保留。
 	// 立即把已进入执行阶段的任务落到终态，避免重启后页面仍显示"执行中"。
 	s.cleanupInterruptedTasks("服务关闭，任务被中断")
-	select {
-	case <-s.shutdown:
-		// 已关闭
-	default:
-		close(s.shutdown)
-	}
+	s.shutdownOnce.Do(func() { close(s.shutdown) })
 
 	// 取消所有任务上下文
 	s.contextManager.CancelAll()

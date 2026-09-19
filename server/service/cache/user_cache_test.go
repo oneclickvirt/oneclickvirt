@@ -106,6 +106,10 @@ func TestUserCacheService_GetOrSet(t *testing.T) {
 	cache := GetUserCacheService()
 
 	key := "getorset_test"
+	// The service is a process-wide singleton; clear the fixture so repeated
+	// runs (`go test -count=N`) do not reuse a value from an earlier iteration.
+	cache.Delete(key)
+	t.Cleanup(func() { cache.Delete(key) })
 	callCount := 0
 
 	// 第一次调用 - 缓存未命中

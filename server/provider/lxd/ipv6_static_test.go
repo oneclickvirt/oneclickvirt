@@ -23,6 +23,9 @@ type recordingLXDIPv6Executor struct {
 
 func (e *recordingLXDIPv6Executor) Execute(command string) (string, error) {
 	e.commands = append(e.commands, command)
+	if len(e.outputs) == 0 && len(e.errors) == 0 && strings.Contains(command, "lxc query ") {
+		return lxdBoundNICFixture, nil
+	}
 	index := len(e.commands) - 1
 	var output string
 	var err error
@@ -72,11 +75,24 @@ func TestLXDHasRequestedStaticIPv6(t *testing.T) {
 	}
 }
 
+func TestLXDNATIPv6RejectsDedicatedAddress(t *testing.T) {
+	provider := &LXDProvider{}
+	if _, err := provider.configureNATIPv6Network(context.Background(), "guest", "2001:db8::10"); err == nil || !strings.Contains(err.Error(), "不接受独立公网IPv6") {
+		t.Fatalf("configureNATIPv6Network() error = %v, want dedicated-address rejection", err)
+	}
+}
+
 func TestLXDConfigureIPv6SysctlsUsesDedicatedGuardedFile(t *testing.T) {
 	executor := &recordingLXDIPv6Executor{}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
 	if err := lxdProvider.configureIPv6Sysctls("eth0"); err != nil {
 		t.Fatalf("configureIPv6Sysctls() error = %v", err)
+	}
+	if len(executor.commands) == 0 {
+		t.Fatal("configureIPv6Sysctls() did not execute a command")
+	}
+	if strings.Contains(executor.commands[len(executor.commands)-1], "conf.'eth0'") || strings.Contains(executor.commands[len(executor.commands)-1], "net.ipv6.conf.'eth0'") {
+		t.Fatalf("configureIPv6Sysctls() generated an invalid quoted sysctl path: %s", executor.commands[len(executor.commands)-1])
 	}
 	if len(executor.commands) != 1 {
 		t.Fatalf("commands = %#v, want one atomic script", executor.commands)
@@ -85,13 +101,41 @@ func TestLXDConfigureIPv6SysctlsUsesDedicatedGuardedFile(t *testing.T) {
 	if strings.Contains(command, "/etc/sysctl.conf") {
 		t.Fatalf("command mutates /etc/sysctl.conf: %s", command)
 	}
-	for _, fragment := range []string{"/etc/sysctl.d/99-oneclickvirt-ipv6.conf", "/proc/sys/net/ipv6/conf/", "net.ipv6.conf.eth0.proxy_ndp=1", "net.ipv6.conf.eth0.accept_ra=2", "net.ipv6.conf.all.forwarding=1"} {
+	for _, fragment := range []string{"/etc/sysctl.d/99-oneclickvirt-ipv6.conf", "/proc/sys/net/ipv6/conf/", "net.ipv6.conf.eth0.proxy_ndp=1", "net.ipv6.conf.eth0.accept_ra=2", "net.ipv6.conf.all.forwarding=1", "net.ipv6.conf.default.forwarding=1", "net.ipv6.conf.all.proxy_ndp=1"} {
 		if !strings.Contains(command, fragment) {
 			t.Fatalf("command missing %q: %s", fragment, command)
 		}
 	}
-	if strings.Contains(command, "net.ipv6.conf.all.proxy_ndp") {
-		t.Fatalf("command enables global NDP proxying: %s", command)
+	if !strings.Contains(command, "sysctl -w net.ipv6.conf.all.proxy_ndp=1") {
+		t.Fatalf("command does not immediately enable runtime-required global NDP proxying: %s", command)
+	}
+}
+
+func TestLXDEnsureBridgeNetfilterIsPersistent(t *testing.T) {
+	executor := &recordingLXDIPv6Executor{}
+	provider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+	if err := provider.ensureBridgeNetfilter(); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.commands) != 1 {
+		t.Fatalf("commands = %#v, want one atomic script", executor.commands)
+	}
+	for _, fragment := range []string{"modprobe br_netfilter", "/sys/module/br_netfilter", "/etc/modules-load.d/oneclickvirt.conf", "br_netfilter"} {
+		if !strings.Contains(executor.commands[0], fragment) {
+			t.Fatalf("bridge netfilter command missing %q: %s", fragment, executor.commands[0])
+		}
+	}
+}
+
+func TestLXDHandleIPv6GatewayPreservesLinkLocal(t *testing.T) {
+	if global.APP_LOG == nil {
+		global.APP_LOG = zap.NewNop()
+	}
+	executor := &recordingLXDIPv6Executor{}
+	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+	lxdProvider.handleIPv6Gateway(context.Background(), "eth0")
+	if len(executor.commands) != 0 {
+		t.Fatalf("handleIPv6Gateway() issued destructive commands: %#v", executor.commands)
 	}
 }
 
@@ -198,8 +242,8 @@ func TestLXDCheckIPv6DoesNotFallBackToExternalAddress(t *testing.T) {
 
 func TestLXDRoutedIPv6ChecksManagedBridgeAndProtectsExistingEth1(t *testing.T) {
 	executor := &recordingLXDIPv6Executor{
-		errors:  []error{nil, nil, errors.New("existing device is unrelated")},
-		outputs: []string{"", "", "existing eth1"},
+		errors:  []error{nil, nil, nil, errors.New("existing device is unrelated")},
+		outputs: []string{"", "", "", "existing eth1"},
 	}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
 	_, err := lxdProvider.setupRoutedNetworkDeviceIPv6(IPv6Config{
@@ -209,20 +253,95 @@ func TestLXDRoutedIPv6ChecksManagedBridgeAndProtectsExistingEth1(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "existing device is unrelated") {
 		t.Fatalf("setupRoutedNetworkDeviceIPv6() error = %v", err)
 	}
-	if len(executor.commands) != 3 {
-		t.Fatalf("commands = %#v, want host check, stop, and guarded device command", executor.commands)
+	if len(executor.commands) != 4 {
+		t.Fatalf("commands = %#v, want sysctl, host check, stop, and guarded device command", executor.commands)
+	}
+	for _, fragment := range []string{"net.ipv6.conf.all.proxy_ndp=1", "net.ipv6.conf.oneclickvirt6.proxy_ndp=1", "net.ipv6.conf.he-ipv6.proxy_ndp=1"} {
+		if !strings.Contains(executor.commands[1], fragment) {
+			t.Fatalf("routed sysctl missing %q: %s", fragment, executor.commands[1])
+		}
 	}
 	for _, fragment := range []string{"ip -d link show dev 'oneclickvirt6'", "routed IPv6 bridge gateway is missing", "net.ipv6.conf.he-ipv6.forwarding", "net.ipv6.conf.oneclickvirt6.forwarding"} {
 		if !strings.Contains(executor.commands[0], fragment) {
-			t.Fatalf("host check missing %q: %s", fragment, executor.commands[0])
+			t.Fatalf("host check missing %q: %s", fragment, executor.commands[1])
 		}
 	}
-	for _, fragment := range []string{"existing_type=", "refusing to replace existing eth1", "ipv6.gateway true", "ipv6.gateway=true"} {
-		if !strings.Contains(executor.commands[2], fragment) {
-			t.Fatalf("device command missing %q: %s", fragment, executor.commands[2])
+	for _, fragment := range []string{"existing_type=", "refusing to replace existing eth1", "ipv6.gateway auto", "ipv6.gateway=auto"} {
+		if !strings.Contains(executor.commands[3], fragment) {
+			t.Fatalf("device command missing %q: %s", fragment, executor.commands[3])
 		}
 	}
-	if strings.Contains(executor.commands[2], "eth1 nictype routed") || strings.Contains(executor.commands[2], "eth1 parent 'oneclickvirt6'") {
-		t.Fatalf("device command overwrites an existing eth1: %s", executor.commands[2])
+	if strings.Contains(executor.commands[3], "ipv6.gateway true") || strings.Contains(executor.commands[3], "ipv6.gateway=true") {
+		t.Fatalf("device command uses invalid boolean IPv6 gateway: %s", executor.commands[3])
+	}
+	if strings.Contains(executor.commands[3], "eth1 nictype routed") || strings.Contains(executor.commands[3], "eth1 parent 'oneclickvirt6'") {
+		t.Fatalf("device command overwrites an existing eth1: %s", executor.commands[3])
+	}
+}
+
+func TestLXDRoutedIPv6PropagatesStopFailureBeforeDeviceMutation(t *testing.T) {
+	executor := &recordingLXDIPv6Executor{
+		outputs: []string{"", "", "stop failed", "RUNNING"},
+		errors:  []error{nil, nil, errors.New("stop failed"), nil},
+	}
+	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+	_, err := lxdProvider.setupRoutedNetworkDeviceIPv6(IPv6Config{
+		ContainerName: "guest", ContainerIPv6: "2001:db8::2",
+		RoutedCIDR: "2001:db8::/126", RoutedGateway: "2001:db8::1", RoutedBridge: "oneclickvirt6", RoutedTunnelInterface: "he-ipv6",
+	})
+	if err == nil || !strings.Contains(err.Error(), "停止隧道路由IPv6实例失败") {
+		t.Fatalf("setupRoutedNetworkDeviceIPv6() error = %v, want stop failure", err)
+	}
+	if len(executor.commands) != 4 {
+		t.Fatalf("commands = %#v, want host check, sysctl, stop, and status check", executor.commands)
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "config device") {
+			t.Fatalf("device mutation ran after stop failure: %s", command)
+		}
+	}
+}
+
+func TestLXDIPv6PersistenceDownloadUsesSafeTemporaryTrap(t *testing.T) {
+	executor := &recordingLXDIPv6Executor{
+		errors: []error{nil, errors.New("missing script"), nil, errors.New("missing service"), nil, nil, nil, nil},
+	}
+	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+	if err := lxdProvider.setupPersistenceService(context.Background()); err != nil {
+		t.Fatalf("setupPersistenceService() error = %v", err)
+	}
+	if len(executor.commands) < 5 {
+		t.Fatalf("commands = %#v, want script and service downloads", executor.commands)
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "trap 'rm -f '/") {
+			t.Fatalf("download command has malformed nested shell quoting: %s", command)
+		}
+	}
+	if !strings.Contains(executor.commands[2], `trap 'rm -f "$tmp"' EXIT`) || !strings.Contains(executor.commands[2], "mv -f \"$tmp\"") {
+		t.Fatalf("script download is not atomic or safely trapped: %s", executor.commands[2])
+	}
+	if !strings.Contains(executor.commands[1], "[ -s '/usr/local/bin/add-ipv6.sh' ]") || !strings.Contains(executor.commands[3], "[ -s '/etc/systemd/system/add-ipv6.service' ]") {
+		t.Fatalf("persistence checks accept empty files: commands=%#v", executor.commands)
+	}
+}
+
+func TestLXDRoutedIPv6SysctlFilesAreScopedPerTunnel(t *testing.T) {
+	executor := &recordingLXDIPv6Executor{}
+	provider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+	if err := provider.configureRoutedIPv6Sysctls("bridge-a", "tunnel-a"); err != nil {
+		t.Fatalf("first routed sysctl repair failed: %v", err)
+	}
+	if err := provider.configureRoutedIPv6Sysctls("bridge-b", "tunnel-b"); err != nil {
+		t.Fatalf("second routed sysctl repair failed: %v", err)
+	}
+	if len(executor.commands) != 2 {
+		t.Fatalf("commands = %d, want two independent repairs", len(executor.commands))
+	}
+	if !strings.Contains(executor.commands[0], "99-oneclickvirt-ipv6-routed-bridge-a-tunnel-a.conf") || strings.Contains(executor.commands[0], "bridge-b-tunnel-b") {
+		t.Fatalf("first repair used an unscoped or shared path: %s", executor.commands[0])
+	}
+	if !strings.Contains(executor.commands[1], "99-oneclickvirt-ipv6-routed-bridge-b-tunnel-b.conf") || strings.Contains(executor.commands[1], "bridge-a-tunnel-a") {
+		t.Fatalf("second repair used an unscoped or shared path: %s", executor.commands[1])
 	}
 }

@@ -200,7 +200,12 @@
           prop="publicIP"
           :label="$t('admin.portMapping.publicIP')"
           width="120"
-        />
+        >
+          <template #default="{ row }">
+            <span v-if="row.isIPv6">{{ row.publicIPv6 || $t('admin.portMapping.publicIPv6Auto') }}</span>
+            <span v-else>{{ row.publicIP || '-' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column
           :label="$t('admin.portMapping.publicPort')"
           width="140"
@@ -844,6 +849,15 @@
           >
             {{ $t('admin.portMapping.currentInstanceProvider') }}: <strong>{{ selectedInstanceProvider }}</strong>
           </div>
+          <el-alert
+            v-if="instances.find(instance => instance.id === addForm.instanceId)?.networkType === 'nat_ipv4_ipv6'"
+            type="info"
+            :closable="false"
+            show-icon
+            style="margin-top: 8px;"
+          >
+            {{ $t('admin.portMapping.ipv6NatHint') }}
+          </el-alert>
         </el-form-item>
         
         <el-form-item

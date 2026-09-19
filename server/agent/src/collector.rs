@@ -79,6 +79,8 @@ struct CounterStateChange {
     deactivate: bool,
 }
 
+type ResourceBatchRow = (i64, Option<String>, Option<String>);
+
 fn counter_increment(previous: u64, current: u64) -> u64 {
     if current >= previous {
         current - previous
@@ -263,7 +265,7 @@ fn load_resource_batch(
     conn: &Connection,
     cursor: i64,
     batch_size: usize,
-) -> Result<Vec<(i64, Option<String>, Option<String>)>, ApiError> {
+) -> Result<Vec<ResourceBatchRow>, ApiError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, provider_kind, instance_name FROM monitors \
@@ -658,7 +660,7 @@ pub fn start_collector(state: AppState) {
                 Err(err) => error!(error = %err.message, "collector iteration failed"),
             }
 
-            if ticks % resource_ticks == 0 {
+            if ticks.is_multiple_of(resource_ticks) {
                 match collect_resource_batch(&state, resource_cursor).await {
                     Ok(cursor) => resource_cursor = cursor,
                     Err(err) => error!(error = %err.message, "resource collection failed"),
@@ -669,7 +671,7 @@ pub fn start_collector(state: AppState) {
                 }
             }
 
-            if ticks == 1 || ticks % reconcile_ticks == 0 {
+            if ticks == 1 || ticks.is_multiple_of(reconcile_ticks) {
                 match reconcile_traffic_batch(&state, use_ipt, reconcile_cursor).await {
                     Ok(cursor) => reconcile_cursor = cursor,
                     Err(err) => error!(error = %err.message, "traffic reconciliation failed"),
@@ -693,7 +695,7 @@ pub fn start_collector(state: AppState) {
                     "auto cleanup removed stale monitors"
                 );
             }
-            if deleted > 0 || ticks % gc_ticks == 0 {
+            if deleted > 0 || ticks.is_multiple_of(gc_ticks) {
                 let _operation_guard = state.traffic_operation_lock.lock().await;
                 match garbage_collect_orphans(use_ipt) {
                     Ok(removed) if removed > 0 => {

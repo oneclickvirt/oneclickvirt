@@ -23,15 +23,14 @@ struct EgressProcessOwner {
 
 impl Drop for EgressProcessOwner {
     fn drop(&mut self) {
-        if !self.finished {
-            if let Some(mut child) = self.child.take() {
+        if !self.finished
+            && let Some(mut child) = self.child.take() {
                 unsafe { libc::killpg(child.id() as libc::pid_t, libc::SIGKILL); }
                 let _ = child.kill();
                 // Reap without holding the routing reconciliation worker if
                 // the kernel temporarily leaves a killed process in D-state.
                 std::thread::spawn(move || { let _ = child.wait(); });
             }
-        }
     }
 }
 
@@ -94,8 +93,8 @@ impl SystemExecutor {
             if !err_done { err_done = drain_command_pipe(&mut stderr, &mut errors)?; }
             // Do not reap the leader before descendants release their pipes;
             // keeping the PID reserved makes timeout group cleanup ABA-safe.
-            if out_done && err_done {
-                if let Some(status) = owner.child.as_mut().unwrap().try_wait()
+            if out_done && err_done
+                && let Some(status) = owner.child.as_mut().unwrap().try_wait()
                     .map_err(|e| format!("failed waiting for {program}: {e}"))? {
                     owner.finished = true;
                     return Ok(CommandResult {
@@ -104,7 +103,6 @@ impl SystemExecutor {
                         stderr: String::from_utf8_lossy(&errors).to_string(),
                     });
                 }
-            }
             std::thread::sleep(Duration::from_millis(20));
         }
     }
@@ -206,13 +204,12 @@ fn ensure_kernel_prerequisites(profiles: &[ProfileRow], bindings: &[BindingRow])
             }
         }
     }
-    if has_v6 {
-        if let Err(error) =
+    if has_v6
+        && let Err(error) =
             write_proc_flag(Path::new("/proc/sys/net/ipv6/conf/all/forwarding"), "1")
         {
             errors.push(error);
         }
-    }
     let profile_map: HashMap<&str, &EgressProfile> = profiles
         .iter()
         .map(|row| (row.profile.id.as_str(), &row.profile))

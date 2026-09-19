@@ -151,12 +151,12 @@ fn interface_aliases(interface: &str) -> Vec<String> {
     let mut aliases = Vec::new();
     aliases.push(interface.to_string());
     let master_link = format!("/sys/class/net/{interface}/master");
-    if let Ok(target) = fs::read_link(master_link) {
-        if let Some(name) = Path::new(&target).file_name().and_then(|x| x.to_str()) {
-            if !name.is_empty() && !aliases.iter().any(|v| v == name) {
-                aliases.push(name.to_string());
-            }
-        }
+    if let Ok(target) = fs::read_link(master_link)
+        && let Some(name) = Path::new(&target).file_name().and_then(|x| x.to_str())
+        && !name.is_empty()
+        && !aliases.iter().any(|v| v == name)
+    {
+        aliases.push(name.to_string());
     }
     aliases
 }
@@ -669,12 +669,12 @@ fn parse_chain_bytes(output: &str) -> u64 {
             continue;
         }
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
-        if parts.len() >= 3 {
-            if let Ok(bytes) = parts[1].parse::<u64>() {
-                total_all += bytes;
-                if parts[2] == "RETURN" {
-                    total_return += bytes;
-                }
+        if parts.len() >= 3
+            && let Ok(bytes) = parts[1].parse::<u64>()
+        {
+            total_all += bytes;
+            if parts[2] == "RETURN" {
+                total_return += bytes;
             }
         }
     }
@@ -804,12 +804,11 @@ fn collect_existing_chains(program: &str, prefix: &str) -> HashSet<String> {
     let mut chains = HashSet::new();
     for line in stdout.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with(&format!("Chain {prefix}")) {
-            if let Some(name) = trimmed.strip_prefix("Chain ") {
-                if let Some(chain) = name.split_whitespace().next() {
-                    chains.insert(chain.to_string());
-                }
-            }
+        if trimmed.starts_with(&format!("Chain {prefix}"))
+            && let Some(name) = trimmed.strip_prefix("Chain ")
+            && let Some(chain) = name.split_whitespace().next()
+        {
+            chains.insert(chain.to_string());
         }
     }
     chains
@@ -901,12 +900,12 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
             "garbage-collected orphan iptables/ip6tables chains"
         );
     }
-    if removed == 0 {
-        if let Some(error) = last_error {
-            return Err(ApiError::internal(format!(
-                "iptables orphan GC made no progress: {error}"
-            )));
-        }
+    if removed == 0
+        && let Some(error) = last_error
+    {
+        return Err(ApiError::internal(format!(
+            "iptables orphan GC made no progress: {error}"
+        )));
     }
     Ok(removed)
 }

@@ -154,34 +154,31 @@ fn host_inventory(executor: &impl CommandExecutor) -> HostInventory {
     };
     if command_available("wg") {
         let args = vec!["show".to_string(), "interfaces".to_string()];
-        if let Ok(result) = executor.run("wg", &args, None) {
-            if result.success {
+        if let Ok(result) = executor.run("wg", &args, None)
+            && result.success {
                 inventory
                     .wireguard_interfaces
                     .extend(result.stdout.split_whitespace().map(str::to_string));
             }
-        }
         let args = vec![
             "show".to_string(),
             "all".to_string(),
             "latest-handshakes".to_string(),
         ];
-        if let Ok(result) = executor.run("wg", &args, None) {
-            if result.success {
+        if let Ok(result) = executor.run("wg", &args, None)
+            && result.success {
                 for line in result.stdout.lines() {
                     let fields: Vec<&str> = line.split_whitespace().collect();
-                    if fields.len() >= 3 {
-                        if let Ok(timestamp) = fields[2].parse::<i64>() {
+                    if fields.len() >= 3
+                        && let Ok(timestamp) = fields[2].parse::<i64>() {
                             inventory
                                 .handshakes
                                 .entry(fields[0].to_string())
                                 .and_modify(|current| *current = (*current).max(timestamp))
                                 .or_insert(timestamp);
                         }
-                    }
                 }
             }
-        }
     }
     inventory
 }

@@ -497,14 +497,13 @@ fn cleanup_runtime_profile(
             "table".to_string(),
             runtime.route_table.to_string(),
         ];
-        if let Ok(result) = executor.run("ip", &rule_args, None) {
-            if !result.success
+        if let Ok(result) = executor.run("ip", &rule_args, None)
+            && !result.success
                 && !result.stderr.contains("No such")
                 && !result.stderr.contains("Cannot find")
             {
                 errors.push(concise_error(&result, "remove stale egress rule"));
             }
-        }
         let route_args = vec![
             family.ip_flag().to_string(),
             "route".to_string(),
@@ -513,14 +512,13 @@ fn cleanup_runtime_profile(
             runtime.route_table.to_string(),
             "default".to_string(),
         ];
-        if let Ok(result) = executor.run("ip", &route_args, None) {
-            if !result.success
+        if let Ok(result) = executor.run("ip", &route_args, None)
+            && !result.success
                 && !result.stderr.contains("No such")
                 && !result.stderr.contains("Cannot find")
             {
                 errors.push(concise_error(&result, "remove stale egress route"));
             }
-        }
     }
     if delete_interface && runtime.managed_interface {
         let args = vec![
@@ -529,14 +527,13 @@ fn cleanup_runtime_profile(
             "dev".to_string(),
             runtime.tunnel_interface.clone(),
         ];
-        if let Ok(result) = executor.run("ip", &args, None) {
-            if !result.success
+        if let Ok(result) = executor.run("ip", &args, None)
+            && !result.success
                 && !result.stderr.contains("does not exist")
                 && !result.stderr.contains("Cannot find")
             {
                 errors.push(concise_error(&result, "remove stale WireGuard interface"));
             }
-        }
     }
     if errors.is_empty() {
         Ok(())

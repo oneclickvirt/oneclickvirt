@@ -78,7 +78,9 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 	updateProgress(10, "准备 default 网络和容器目录")
 	p.sshClient.Execute("virsh -c qemu:///system net-start default 2>/dev/null || true")
 	p.sshClient.Execute("virsh -c qemu:///system net-autostart default 2>/dev/null || true")
-	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s %s", shellSingleQuote(rootfs), shellSingleQuote(imageDir)))
+	if output, err := p.sshClient.Execute(fmt.Sprintf("mkdir -p %s %s 2>&1", shellSingleQuote(rootfs), shellSingleQuote(imageDir))); err != nil {
+		return fmt.Errorf("failed to prepare LXC directories: %s, %w", utils.TruncateString(strings.TrimSpace(output), 300), err)
+	}
 
 	updateProgress(15, "获取 LXC 根文件系统镜像")
 	checkOutput, _ := p.sshClient.Execute(fmt.Sprintf("test -s %s && echo exists", shellSingleQuote(imageFile)))
@@ -113,7 +115,14 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 
 	updateProgress(45, "配置容器账户和网络")
 	if password != "" {
-		p.sshClient.Execute(fmt.Sprintf("chroot %s /bin/sh -c %s 2>/dev/null || true", shellSingleQuote(rootfs), shellSingleQuote("echo root:"+password+" | chpasswd")))
+		// Password configuration is part of the connection contract.  Do not
+		// report a usable container when chpasswd failed (and never interpolate
+		// the password as shell syntax).
+		passwordCmd := qemuLXCPasswordCommand(rootfs, password)
+		if output, passwordErr := p.sshClient.Execute(passwordCmd); passwordErr != nil {
+			_, _ = p.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(fmt.Sprintf("%s/%s", LXCBaseDir, name))))
+			return fmt.Errorf("failed to set LXC root password: %s, %w", utils.TruncateString(strings.TrimSpace(output), 500), passwordErr)
+		}
 	}
 	macOutput, err := p.sshClient.Execute("printf '52:54:%02x:%02x:%02x:%02x\n' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256))")
 	if err != nil {
@@ -136,7 +145,10 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 			p.ipMu.Unlock()
 			return fmt.Errorf("failed to allocate LXC IP: %w", err)
 		}
-		p.setupDHCPReservation(config.Name, containerMAC, containerIP)
+		if err := p.setupDHCPReservation(config.Name, containerMAC, containerIP); err != nil {
+			p.ipMu.Unlock()
+			return fmt.Errorf("failed to reserve LXC IP %s: %w", containerIP, err)
+		}
 		p.ipMu.Unlock()
 	}
 	if ipv6Plan.Routed != nil {
@@ -159,7 +171,9 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 				return fmt.Errorf("端口转发规则添加失败: %w", err)
 			}
 		}
-		fwMgr.SaveRules()
+		if err := fwMgr.SaveRules(); err != nil {
+			return fmt.Errorf("保存端口转发规则失败: %w", err)
+		}
 	}
 
 	updateProgress(70, "定义 libvirt-lxc 容器")
@@ -243,6 +257,14 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 	return nil
 }
 
+// qemuLXCPasswordCommand keeps the credential in stdin rather than shell
+// syntax.  This also handles passwords containing quotes, whitespace, or
+// command-substitution characters without changing the command being run.
+func qemuLXCPasswordCommand(rootfs, password string) string {
+	return fmt.Sprintf("printf '%%s\\n' %s | chroot %s /bin/sh -c %s 2>&1",
+		shellSingleQuote("root:"+password), shellSingleQuote(rootfs), shellSingleQuote("chpasswd"))
+}
+
 func (p *QEMUProvider) isLXCInstance(id string) bool {
 	_, err := p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// dominfo %s >/dev/null 2>&1", shellSingleQuote(id)))
 	return err == nil
@@ -250,23 +272,43 @@ func (p *QEMUProvider) isLXCInstance(id string) bool {
 
 func (p *QEMUProvider) sshDeleteLXCContainer(ctx context.Context, id string) error {
 	global.APP_LOG.Info("开始删除QEMU/LXC容器", zap.String("id", utils.TruncateString(id, 32)))
-	p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// destroy %s 2>/dev/null || true", shellSingleQuote(id)))
+	if output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// destroy %s 2>&1", shellSingleQuote(id))); err != nil && !qemuDomainAlreadyGone(output, err) && !qemuDomainNotRunning(output, err) {
+		return fmt.Errorf("停止QEMU/LXC容器失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
 	containerIP := p.getVMIPAddress(ctx, id)
 	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
-	if _, err := fwMgr.DetectBackend(FWBackendFile); err == nil {
-		if fwMgr.GetBackend() == firewall.BackendNft {
-			fwMgr.DeleteRulesByComment(fmt.Sprintf("vm:%s", id))
-		}
-		if containerIP != "" {
-			fwMgr.DeleteRulesByIP(containerIP)
-		}
-		fwMgr.SaveRules()
+	if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
+		return fmt.Errorf("删除实例前检测防火墙失败: %w", err)
 	}
-	p.removeDHCPReservation(id, containerIP)
-	p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// undefine %s 2>/dev/null || true", shellSingleQuote(id)))
-	p.sshClient.Execute(fmt.Sprintf("rm -rf %s 2>/dev/null || true", shellSingleQuote(fmt.Sprintf("%s/%s", LXCBaseDir, qemuSafeFileComponent(id)))))
+	if err := fwMgr.DeleteRulesByComment(fmt.Sprintf("vm:%s", id)); err != nil {
+		return fmt.Errorf("删除实例前清理所属防火墙规则失败: %w", err)
+	}
+	if containerIP != "" {
+		if err := fwMgr.DeleteRulesByIP(containerIP); err != nil {
+			return fmt.Errorf("删除实例前清理旧版防火墙规则失败: %w", err)
+		}
+	}
+	if err := fwMgr.SaveRules(); err != nil {
+		return fmt.Errorf("删除实例前保存防火墙规则失败: %w", err)
+	}
+	if err := p.removeDHCPReservation(id, containerIP); err != nil {
+		return err
+	}
+	if output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// undefine %s 2>&1", shellSingleQuote(id))); err != nil && !qemuDomainAlreadyGone(output, err) {
+		return fmt.Errorf("删除QEMU/LXC容器定义失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
+	if output, err := p.sshClient.Execute(fmt.Sprintf("rm -rf %s 2>&1", shellSingleQuote(fmt.Sprintf("%s/%s", LXCBaseDir, qemuSafeFileComponent(id))))); err != nil {
+		return fmt.Errorf("清理QEMU/LXC容器文件失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
 	p.sshClient.Execute(fmt.Sprintf("grep -v '^%s ' %s > %s.tmp 2>/dev/null && mv %s.tmp %s 2>/dev/null || true", utils.SanitizeShellArg(id), VMLogDir, VMLogDir, VMLogDir, VMLogDir))
-	return nil
+	output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// dominfo %s 2>&1", shellSingleQuote(id)))
+	if qemuDomainAlreadyGone(output, err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("验证QEMU/LXC容器删除状态失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
+	return fmt.Errorf("QEMU/LXC容器 %s still exists after deletion", id)
 }
 
 func qemuIsGitHubURL(rawURL string) bool {

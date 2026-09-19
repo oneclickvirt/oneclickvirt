@@ -75,27 +75,20 @@ func (l *LXDProvider) getVMInstanceIP(instanceName string) (string, error) {
 
 		time.Sleep(time.Duration(delay) * time.Second)
 
-		// 虚拟机通常使用 enp5s0 接口，如果没有则尝试 eth0
-		interfaces := []string{"enp5s0", "eth0"}
-
-		for _, iface := range interfaces {
-			l.mu.RLock()
-			client := l.sshClient
-			l.mu.RUnlock()
-			if client == nil {
-				return "", fmt.Errorf("SSH client不可用，无法获取虚拟机IP")
-			}
-			cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.%s.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", shellSingleQuote(instanceName), iface)
-			output, err := client.Execute(cmd)
-
-			if err == nil {
-				vmIP, parseErr := utils.ParseFirstIPv4AddressOutput(output)
-				if parseErr != nil {
-					continue
-				}
+		// VM interface names vary by image and distro. Enumerate every
+		// state.network entry rather than assuming enp5s0/eth0.
+		l.mu.RLock()
+		client := l.sshClient
+		l.mu.RUnlock()
+		if client == nil {
+			return "", fmt.Errorf("SSH client不可用，无法获取虚拟机IP")
+		}
+		cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network // {} | to_entries[] | .value.addresses[]? | select(.family==\"inet\" and (.scope==\"global\" or .scope==\"link\")) | .address' 2>/dev/null", shellSingleQuote(instanceName))
+		output, err := client.Execute(cmd)
+		if err == nil {
+			if vmIP, parseErr := utils.ParseFirstIPv4AddressOutput(output); parseErr == nil {
 				global.APP_LOG.Debug("虚拟机IPv4地址获取成功",
 					zap.String("instanceName", instanceName),
-					zap.String("interface", iface),
 					zap.String("ip", vmIP),
 					zap.Int("attempt", attempt))
 				return vmIP, nil
@@ -128,14 +121,14 @@ func (l *LXDProvider) getContainerInstanceIP(instanceName string) (string, error
 
 		time.Sleep(time.Duration(delay) * time.Second)
 
-		// 容器通常使用 eth0 接口
+		// Container images may rename the first interface; inspect all entries.
 		l.mu.RLock()
 		client := l.sshClient
 		l.mu.RUnlock()
 		if client == nil {
 			return "", fmt.Errorf("SSH client不可用，无法获取容器IP")
 		}
-		cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
+		cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network // {} | to_entries[] | .value.addresses[]? | select(.family==\"inet\" and (.scope==\"global\" or .scope==\"link\")) | .address' 2>/dev/null", shellSingleQuote(instanceName))
 		output, err := client.Execute(cmd)
 
 		if err == nil {
@@ -284,6 +277,23 @@ func (l *LXDProvider) getHostIP() (string, error) {
 
 // GetInstanceIPv4 获取实例的内网IPv4地址
 func (l *LXDProvider) GetInstanceIPv4(ctx context.Context, instanceName string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if strings.EqualFold(strings.TrimSpace(l.config.ExecutionRule), "api_only") {
+		if l.apiClient == nil {
+			return "", fmt.Errorf("API客户端不可用")
+		}
+		state, err := l.apiGetInstanceResource(ctx, instanceName, "/state")
+		if err != nil {
+			return "", err
+		}
+		ip := l.apiInstanceIPv4(state)
+		if ip == "" {
+			return "", fmt.Errorf("实例尚未获得IPv4地址")
+		}
+		return ip, nil
+	}
 	// 复用已有的getInstanceIP方法来获取内网IPv4地址
 	return l.getInstanceIP(instanceName)
 }

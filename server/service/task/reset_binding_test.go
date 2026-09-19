@@ -1,6 +1,7 @@
 package task
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -42,10 +43,15 @@ func TestResetReplacementInstancePreservesLogicalNetworkIdentity(t *testing.T) {
 }
 
 func TestTransferResetEgressBindingInTxMovesOnlyActiveBinding(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:reset_egress_active?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:reset_egress_active_%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(&monitoringModel.EgressDesiredBinding{}); err != nil {
 		t.Fatal(err)
 	}
@@ -71,10 +77,15 @@ func TestTransferResetEgressBindingInTxMovesOnlyActiveBinding(t *testing.T) {
 }
 
 func TestTransferResetEgressBindingInTxRejectsPendingDelete(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:reset_egress_pending?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:reset_egress_pending_%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(&monitoringModel.EgressDesiredBinding{}); err != nil {
 		t.Fatal(err)
 	}

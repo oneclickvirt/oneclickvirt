@@ -15,6 +15,11 @@ awk '
 ' "$ROOT_DIR/scripts/install_agent.sh" > "$GUARD"
 chmod +x "$GUARD"
 bash -n "$GUARD"
+sh -n "$ROOT_DIR/scripts/install_agent.sh"
+if grep -Eq '^[[:space:]]*local[[:space:]]' "$ROOT_DIR/scripts/install_agent.sh"; then
+  echo "install_agent.sh still uses non-POSIX local declarations despite its /bin/sh contract" >&2
+  exit 1
+fi
 
 # Service launchers must consume the restricted environment file and must not
 # put the WebSocket credential back into process arguments.
@@ -31,6 +36,10 @@ grep -Fq 'RequiredBy=network-pre.target' "$ROOT_DIR/scripts/install_agent.sh"
 grep -Fq 'Before=network-pre.target network.target network-online.target' "$ROOT_DIR/scripts/install_agent.sh"
 grep -Fq '# X-Start-Before:    docker containerd crio libvirtd lxc lxd incus pve-guests kubelet' "$ROOT_DIR/scripts/install_agent.sh"
 grep -Fq 'before docker containerd crio podman libvirtd lxc lxd incus kubelet' "$ROOT_DIR/scripts/install_agent.sh"
+if grep -Fq 'releases/download/${V}/${BIN}" 2>/dev/null || true' "$ROOT_DIR/scripts/install_agent.sh"; then
+  echo "agent release fallback still ignores a failed download" >&2
+  exit 1
+fi
 grep -Fq '.route("/api/v1/egress/state", put(egress::replace_state))' "$ROOT_DIR/server/agent/src/main.rs"
 grep -Fq '| ("PUT", "/api/v1/egress/state")' "$ROOT_DIR/server/agent/src/ws_client/handler.rs"
 

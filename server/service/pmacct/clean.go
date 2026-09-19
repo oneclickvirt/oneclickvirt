@@ -109,6 +109,9 @@ func (s *Service) cleanupPmacctOnHostWithContext(ctx context.Context, instanceID
 	}
 
 	instanceName := instance.Name
+	if err := validatePmacctInstanceName(instanceName); err != nil {
+		return err
+	}
 	serviceName := fmt.Sprintf("pmacctd-%s", instanceName)
 	configDir := fmt.Sprintf("/var/lib/pmacct/%s", instanceName)
 
@@ -275,7 +278,7 @@ echo "=== pmacct 资源清理完成: %s ==="
 		zap.String("scriptPath", scriptPath))
 
 	// 执行清理脚本（使用更长的超时时间）
-	output, err := sshClient.Execute(fmt.Sprintf("bash %s 2>&1", scriptPath))
+	output, err := sshClient.Execute(fmt.Sprintf("bash %s 2>&1", utils.ShellSingleQuote(scriptPath)))
 
 	// 记录详细的输出日志
 	global.APP_LOG.Info("清理脚本执行完成",
@@ -299,9 +302,9 @@ echo "=== pmacct 资源清理完成: %s ==="
 		name    string
 		command string
 	}{
-		{"systemd服务", fmt.Sprintf("systemctl list-units --all --type=service --full --no-pager | grep '%s.service' || echo 'NOT_FOUND'", serviceName)},
-		{"进程", fmt.Sprintf("pgrep -f 'pmacctd.*%s' || echo 'NOT_FOUND'", instanceName)},
-		{"配置目录", fmt.Sprintf("test -d '%s' && echo 'EXISTS' || echo 'NOT_FOUND'", configDir)},
+		{"systemd服务", fmt.Sprintf("systemctl list-units --all --type=service --full --no-pager | grep -F -- %s || echo 'NOT_FOUND'", utils.ShellSingleQuote(serviceName+".service"))},
+		{"进程", fmt.Sprintf("pgrep -f %s || echo 'NOT_FOUND'", utils.ShellSingleQuote("pmacctd.*"+instanceName))},
+		{"配置目录", fmt.Sprintf("test -d %s && echo 'EXISTS' || echo 'NOT_FOUND'", utils.ShellSingleQuote(configDir))},
 	}
 
 	for _, vc := range verifyCommands {
@@ -321,7 +324,7 @@ echo "=== pmacct 资源清理完成: %s ==="
 	}
 
 	// 删除临时脚本
-	cleanupOutput, cleanupErr := sshClient.Execute(fmt.Sprintf("rm -f %s", scriptPath))
+	cleanupOutput, cleanupErr := sshClient.Execute(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(scriptPath)))
 	if cleanupErr != nil {
 		global.APP_LOG.Debug("删除临时脚本失败（可忽略）",
 			zap.String("scriptPath", scriptPath),
@@ -344,6 +347,9 @@ func (s *Service) ResetPmacctDaemon(instanceID uint) error {
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		return fmt.Errorf("failed to find instance: %w", err)
+	}
+	if err := validatePmacctInstanceName(instance.Name); err != nil {
+		return err
 	}
 
 	var monitor monitoringModel.PmacctMonitor

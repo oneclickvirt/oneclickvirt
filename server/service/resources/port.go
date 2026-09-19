@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"oneclickvirt/constant"
@@ -31,6 +32,26 @@ var (
 )
 
 type PortMappingService struct{}
+
+func resolveManualIPv6Enabled(networkType, mappingType string, requested *bool) bool {
+	// Provider settings may come from older installations or hand-edited
+	// configuration files. Normalize them before applying the family contract;
+	// otherwise a harmless space/case difference silently turns a requested
+	// dual-stack mapping into IPv4-only.
+	networkType = strings.ToLower(strings.TrimSpace(networkType))
+	mappingType = strings.ToLower(strings.TrimSpace(mappingType))
+	if mappingType == "" {
+		mappingType = "node"
+	}
+	enabled := networkType == "nat_ipv4_ipv6"
+	if requested != nil {
+		enabled = *requested
+	}
+	if mappingType == "controller" || networkType != "nat_ipv4_ipv6" {
+		return false
+	}
+	return enabled
+}
 
 func ensureInstanceReadyForPortMapping(instance provider.Instance) error {
 	if constant.IsBusyStatus(instance.Status) {
@@ -222,7 +243,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 			// 不能把这些端口重新分配给其他控制端转发。
 			var occupiedRecords []provider.Port
 			err := global.APP_DB.
-				Where("mapping_type = 'controller' AND host_port <= ?", hostPort+portCount-1).
+				Where("(mapping_type = 'controller' OR provider_id = ?) AND host_port <= ?", providerInfo.ID, hostPort+portCount-1).
 				Select("host_port", "host_port_end", "port_count").
 				Find(&occupiedRecords).Error
 			if err != nil {
@@ -279,6 +300,14 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	}
 
 	internalHost := req.InternalHost
+	// Controller forwarding currently owns one TCP listener on the control
+	// plane; it is not a node-side dual-family proxy. Never persist an IPv6
+	// flag that the controller path cannot apply.
+	ipv6Enabled := resolveManualIPv6Enabled(providerInfo.NetworkType, mappingType, req.IPv6Enabled)
+	mappingMethod := strings.TrimSpace(providerInfo.IPv4PortMappingMethod)
+	if mappingMethod == "" {
+		mappingMethod = "device_proxy"
+	}
 
 	// 创建数据库记录（状态为 pending）
 	// 根据端口数量决定 PortType: 单端口为 manual，多端口段为 batch
@@ -301,8 +330,8 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		IsSSH:         req.GuestPort == 22,
 		IsAutomatic:   false,
 		PortType:      portTypeValue,
-		IPv6Enabled:   false,
-		MappingMethod: providerInfo.IPv4PortMappingMethod,
+		IPv6Enabled:   ipv6Enabled,
+		MappingMethod: mappingMethod,
 		MappingType:   mappingType,
 		InternalHost:  internalHost,
 	}
@@ -316,7 +345,10 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		var occupiedRecords []provider.Port
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("host_port <= ?", hostPort+portCount-1)
 		if mappingType == "controller" {
-			query = query.Where("mapping_type = 'controller'")
+			// Controller listeners are global, while node mappings only conflict
+			// with a controller row from the same Provider because the database
+			// uniqueness contract is provider_id + host_port.
+			query = query.Where("mapping_type = 'controller' OR provider_id = ?", providerInfo.ID)
 		} else {
 			if hostPort < lockedProvider.PortRangeStart || hostPort+portCount-1 > lockedProvider.PortRangeEnd {
 				return fmt.Errorf("%w: Provider端口范围在创建期间发生变化，请重试", ErrPortRangeValidation)
@@ -439,10 +471,29 @@ func (s *PortMappingService) UpdateProviderPortConfig(providerID uint, req admin
 
 // CreateDefaultPortMappings 为实例创建默认端口映射
 func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, providerID uint) error {
+	return s.createDefaultPortMappings(context.Background(), instanceID, providerID, "", "active")
+}
+
+// ReserveDefaultPortMappingsForReset records intent before remote creation;
+// the restore task alone promotes these reservations after verifying rules.
+func (s *PortMappingService) ReserveDefaultPortMappingsForReset(ctx context.Context, instanceID, providerID uint, networkType string) error {
+	return s.createDefaultPortMappings(ctx, instanceID, providerID, networkType, "restoring")
+}
+
+func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, instanceID, providerID uint, networkType, initialStatus string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	db := global.APP_DB.WithContext(ctx)
 	// 获取Provider配置
 	var providerInfo provider.Provider
-	if err := global.APP_DB.Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
+	if err := db.Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
 		return fmt.Errorf("Provider不存在")
+	}
+
+	configuredNetworkType := providerInfo.NetworkType
+	if networkType != "" {
+		providerInfo.NetworkType = networkType
 	}
 
 	useControllerMapping := providerInfo.ConnectionType == "agent" && providerInfo.PortIP == ""
@@ -498,7 +549,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 	}
 
 	// 短事务仅负责锁定、二次数据库校验和批量写入，不执行远程操作。
-	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
 		var createdPorts []provider.Port
 		var lockedProvider provider.Provider
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", providerID).First(&lockedProvider).Error; err != nil {
@@ -506,10 +557,13 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		}
 		if lockedProvider.ConnectionType != providerInfo.ConnectionType ||
 			lockedProvider.PortIP != providerInfo.PortIP ||
-			lockedProvider.NetworkType != providerInfo.NetworkType ||
+			lockedProvider.NetworkType != configuredNetworkType ||
 			lockedProvider.PortRangeStart != providerInfo.PortRangeStart ||
 			lockedProvider.PortRangeEnd != providerInfo.PortRangeEnd {
 			return fmt.Errorf("Provider端口配置在分配期间发生变化，请重试")
+		}
+		if networkType != "" {
+			lockedProvider.NetworkType = networkType
 		}
 		providerInfo = lockedProvider
 
@@ -571,7 +625,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 				GuestPort:     guestPort,
 				Protocol:      mappingProtocol,
 				Description:   description,
-				Status:        "active",
+				Status:        initialStatus,
 				IsSSH:         guestPort == requiredFixedSSHPort,
 				IsAutomatic:   true,
 				PortType:      "range_mapped",
@@ -586,8 +640,10 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		}
 
 		// 更新实例的SSH端口
-		if err := tx.Model(&provider.Instance{}).Where("id = ?", instanceID).Update("ssh_port", sshHostPort).Error; err != nil {
-			return fmt.Errorf("更新实例SSH端口失败: %w", err)
+		if initialStatus == "active" {
+			if err := tx.Model(&provider.Instance{}).Where("id = ?", instanceID).Update("ssh_port", sshHostPort).Error; err != nil {
+				return fmt.Errorf("更新实例SSH端口失败: %w", err)
+			}
 		}
 
 		// 批量创建剩余普通映射。默认使用 host port 作为 guest port；
@@ -615,7 +671,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 				GuestPort:     guestPort,
 				Protocol:      mappingProtocol,
 				Description:   fmt.Sprintf("端口%d", guestPort),
-				Status:        "active",
+				Status:        initialStatus,
 				IsSSH:         false,
 				IsAutomatic:   true,
 				PortType:      "range_mapped",

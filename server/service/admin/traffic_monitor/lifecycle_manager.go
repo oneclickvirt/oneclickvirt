@@ -13,6 +13,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 	"oneclickvirt/service/pmacct"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -177,7 +178,7 @@ func (m *LifecycleManager) batchCheckPmacctProcesses(providerInstance provider.P
 	for _, name := range instanceNames {
 		scriptContent += fmt.Sprintf("check_service_status \"pmacctd-%s\" \"%s\"\n", name, name)
 	}
-	scriptContent += fmt.Sprintf("\nrm -f %s\n", scriptPath) // 脚本执行完自动删除
+	scriptContent += fmt.Sprintf("\nrm -f %s\n", utils.ShellSingleQuote(scriptPath)) // 脚本执行完自动删除
 
 	// 上传脚本
 	if err := m.uploadScriptViaSFTP(providerInstance, scriptContent, scriptPath); err != nil {
@@ -189,13 +190,13 @@ func (m *LifecycleManager) batchCheckPmacctProcesses(providerInstance provider.P
 	execCtx, execCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer execCancel()
 
-	output, err := providerInstance.ExecuteSSHCommand(execCtx, fmt.Sprintf("bash %s", scriptPath))
+	output, err := providerInstance.ExecuteSSHCommand(execCtx, fmt.Sprintf("bash %s", utils.ShellSingleQuote(scriptPath)))
 	if err != nil {
 		global.APP_LOG.Warn("批量检查pmacct服务失败", zap.Error(err))
 		// 尝试手动清理脚本（以防自动清理失败）
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
-		providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", scriptPath))
+		providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(scriptPath)))
 		return resultMap
 	}
 
@@ -225,7 +226,8 @@ func (m *LifecycleManager) uploadScriptViaSFTP(providerInstance provider.Provide
 
 	// 转义特殊字符
 	escapedContent := strings.ReplaceAll(content, "'", "'\\''")
-	cmd := fmt.Sprintf("echo '%s' > %s && chmod +x %s", escapedContent, remotePath, remotePath)
+	quotedRemotePath := utils.ShellSingleQuote(remotePath)
+	cmd := fmt.Sprintf("echo '%s' > %s && chmod +x %s", escapedContent, quotedRemotePath, quotedRemotePath)
 
 	_, err := providerInstance.ExecuteSSHCommand(ctx, cmd)
 	return err

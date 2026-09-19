@@ -79,6 +79,7 @@ export default {
   rangePort: "Range",
   instanceName: "Instance Name",
   publicIP: "Public IP",
+  publicIPv6Auto: "Auto-detected on node",
   publicPort: "Public Port",
   internalPort: "Internal Port",
   protocol: "Protocol",
@@ -156,6 +157,7 @@ export default {
   mappingModeNode: "Node-side Mapping",
   mappingModeController: "Controller Forwarding (NAT Traversal)",
   mappingModeTip: "Node-side: LXD/Incus/PVE or VM nodes apply port forwarding rules. Controller: controller listens on the port and forwards via Agent WebSocket tunnel — suitable when the node has no public IP.",
+  ipv6NatHint: "This instance uses NAT IPv4 + IPv6: do not enter an IPv6 address or /64 here. Enter only the guest and public ports; IPv6 uses the node's public IPv6 and the same public port to forward to the guest ULA. Use Dedicated IPv6/IPv6-only mode for a directly reachable guest IPv6.",
   internalHost: "Target Container Address",
   internalHostPlaceholder: "Leave empty to use instance private IP",
   internalHostTip: "Target address for controller forwarding (container IP or name). Leave empty to use the instance's private IP."

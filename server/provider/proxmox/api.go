@@ -233,10 +233,7 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 	if proxmoxNeedsPostCreateNetworkConfig(networkConfig.NetworkType) {
 		if err := p.configureInstanceNetwork(ctx, vmid, config); err != nil {
-			if requestedProxmoxIPv6(config) != "" {
-				return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置控制面静态IPv6网络失败: %w", err))
-			}
-			global.APP_LOG.Warn("网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
+			return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置实例网络失败: %w", err))
 		}
 	} else {
 		global.APP_LOG.Debug("普通NAT IPv4网络已在创建请求中配置，跳过重复网络变更",
@@ -255,13 +252,13 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 	// 配置端口映射
 	updateProgress(91, "配置端口映射...")
 	if err := p.configureInstancePortMappings(ctx, config, vmid); err != nil {
-		global.APP_LOG.Warn("配置端口映射失败", zap.Error(err))
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置端口映射失败: %w", err))
 	}
 
 	// 配置SSH密码
 	updateProgress(92, "配置SSH密码...")
 	if err := p.configureInstanceSSHPasswordByVMID(ctx, vmid, config); err != nil {
-		global.APP_LOG.Warn("配置SSH密码失败", zap.Error(err))
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("配置SSH密码失败: %w", err))
 	}
 
 	// 初始化pmacct流量监控

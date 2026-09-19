@@ -164,7 +164,7 @@
                 >
                   {{ row.protocol || 'http' }}
                 </el-tag>
-                <span class="target-text">{{ row.internalIP }}:{{ row.internalPort }}</span>
+                <span class="target-text">{{ formatEndpointHostPort(row.internalIP, row.internalPort) }}</span>
               </template>
             </el-table-column>
             <el-table-column
@@ -184,7 +184,9 @@
                     :content="row.errorMsg"
                     placement="top"
                   >
-                    <el-icon class="error-icon"><Warning /></el-icon>
+                    <el-icon class="error-icon">
+                      <Warning />
+                    </el-icon>
                   </el-tooltip>
                 </div>
               </template>
@@ -530,6 +532,7 @@ import {
   updateDomainConfig
 } from '@/api/features'
 import { getAllInstances, getProviderList } from '@/api/admin'
+import { formatEndpointHostPort } from '@/utils/endpoint'
 
 const { t, locale } = useI18n()
 

@@ -53,21 +53,20 @@ run_module_08() {
     test_api "Image list" "GET" "/api/v1/admin/system-images?page=1&pageSize=10" "200" "" "$group"
 
     # -- Create images with REAL GitHub release URLs --
-    # Accept 200|400|409: freshly initialized databases may already contain seeded
-    # images with the same provider/type/arch/url. Treat that as idempotent rather
-    # than failing ARM controller-only tests.
+    # A duplicate seeded image is idempotent (409); validation or download
+    # failures must remain visible instead of becoming a silent skip.
     # The image IDs extracted below are used for downstream edit/batch/delete tests
     # which are already guarded with [[ -n "$iidN" ]].
-    local i1; i1=$(test_api "Create image (debian)" "POST" "/api/v1/admin/system-images" "200|400|409" \
+    local i1; i1=$(test_api "Create image (debian)" "POST" "/api/v1/admin/system-images" "200|409|infra" \
         "{\"name\":\"ci-debian-12\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${debian_url}\",\"description\":\"CI test debian image\",\"osType\":\"debian\",\"osVersion\":\"12\",\"minMemoryMB\":128,\"minDiskMB\":512}" "$group")
     local iid1; iid1=$(echo "$i1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
-    local i2; i2=$(test_api "Create image (ubuntu)" "POST" "/api/v1/admin/system-images" "200|400|409" \
+    local i2; i2=$(test_api "Create image (ubuntu)" "POST" "/api/v1/admin/system-images" "200|409|infra" \
         "{\"name\":\"ci-ubuntu-22.04\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${ubuntu_url}\",\"description\":\"CI test ubuntu image\",\"osType\":\"ubuntu\",\"osVersion\":\"22.04\",\"minMemoryMB\":128,\"minDiskMB\":512}" "$group")
     local iid2; iid2=$(echo "$i2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     # Alpine image: smallest (~5MB), preferred for instance creation tests
-    local i3; i3=$(test_api "Create image (alpine)" "POST" "/api/v1/admin/system-images" "200|400|409" \
+    local i3; i3=$(test_api "Create image (alpine)" "POST" "/api/v1/admin/system-images" "200|409|infra" \
         "{\"name\":\"ci-alpine-3.19\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${alpine_url}\",\"description\":\"CI test alpine image (small, for creation tests)\",\"osType\":\"alpine\",\"osVersion\":\"3.19\",\"minMemoryMB\":64,\"minDiskMB\":256}" "$group")
     local iid3; iid3=$(echo "$i3" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
@@ -89,7 +88,7 @@ run_module_08() {
             ;;
     esac
     if [[ -n "$vm_img_url" ]]; then
-        test_api "Create VM image (${vm_img_provider_type})" "POST" "/api/v1/admin/system-images" "200|400|409" \
+        test_api "Create VM image (${vm_img_provider_type})" "POST" "/api/v1/admin/system-images" "200|409|infra" \
             "{\"name\":\"ci-debian-12-${vm_img_provider_type}-vm\",\"providerType\":\"${vm_img_provider_type}\",\"instanceType\":\"vm\",\"architecture\":\"${test_arch}\",\"url\":\"${vm_img_url}\",\"description\":\"CI test ${vm_img_provider_type} VM image\",\"osType\":\"debian\",\"osVersion\":\"12\",\"minMemoryMB\":256,\"minDiskMB\":2048}" "$group"
     else
         log_info "Skipping VM image creation for providerType=${vm_img_provider_type}"
@@ -137,7 +136,7 @@ run_module_08() {
             tmp_url="https://github.com/oneclickvirt/${qemu_lxc_repo:-lxc_amd64_images}/releases/download/alpine/ci_temp_${unique_suffix}_${lxd_arch}_cloud.tar.xz"
             ;;
     esac
-    local tmp_img; tmp_img=$(test_api "Create temp image for delete test" "POST" "/api/v1/admin/system-images" "200|400|409" \
+    local tmp_img; tmp_img=$(test_api "Create temp image for delete test" "POST" "/api/v1/admin/system-images" "200|409|infra" \
         "{\"name\":\"ci-temp-for-delete-${unique_suffix}\",\"providerType\":\"${img_provider_type}\",\"instanceType\":\"container\",\"architecture\":\"${test_arch}\",\"url\":\"${tmp_url}\",\"description\":\"temp for delete test\",\"osType\":\"temp\",\"osVersion\":\"1\",\"minMemoryMB\":64,\"minDiskMB\":64}" "$group")
     local tmp_iid; tmp_iid=$(echo "$tmp_img" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
     if [[ -n "$tmp_iid" ]]; then

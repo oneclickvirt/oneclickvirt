@@ -62,14 +62,15 @@ func (m *LifecycleManager) Register(name string, service interface{}) {
 // ShutdownAll 关闭所有已注册的服务（按注册顺序的逆序）
 func (m *LifecycleManager) ShutdownAll(timeout time.Duration) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	services := append([]serviceEntry(nil), m.services...)
+	m.mu.RUnlock()
 
 	global.APP_LOG.Info("开始关闭所有已注册服务",
-		zap.Int("count", len(m.services)))
+		zap.Int("count", len(services)))
 
 	// 逆序关闭（后注册的先关闭）
-	for i := len(m.services) - 1; i >= 0; i-- {
-		entry := m.services[i]
+	for i := len(services) - 1; i >= 0; i-- {
+		entry := services[i]
 
 		global.APP_LOG.Debug("正在关闭服务",
 			zap.String("name", entry.name))

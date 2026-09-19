@@ -2,20 +2,18 @@
 // The controller acts as WebSocket server; the agent connects back and handles
 // exec_req / ping / info / tunnel_open frames.
 
-mod handler;
 mod exec;
+mod handler;
 mod shell;
 mod types;
 
 use axum::Router;
-use regex;
 use std::io;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::{ClientRequestBuilder, http::Uri};
 use tokio_tungstenite::{client_async, connect_async};
 use tracing::{info, warn};
-use url;
 
 /// Derive a browser-like Origin header value from a WebSocket URL.
 /// wss://host:port/path → https://host:port

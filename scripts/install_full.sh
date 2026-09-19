@@ -7,7 +7,8 @@
 # ==============================================================================
 set -uo pipefail
 
-export NONINTERACTIVE="${NONINTERACTIVE:-false}"
+export noninteractive="${noninteractive:-${NONINTERACTIVE:-false}}"
+export NONINTERACTIVE="$noninteractive"
 VERSION=""
 REPO="oneclickvirt/oneclickvirt"
 BASE_URL=""
@@ -24,13 +25,23 @@ KERNEL_NAME="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
 PKG_MANAGER=""
 SERVICE_MANAGER="none"
 DB_SERVICE=""
-MYSQL_CNF_DIR="/etc/mysql/conf.d"
+MYSQL_CNF_DIR="${MYSQL_CNF_DIR:-/etc/mysql/conf.d}"
+DB_CONFIG_SOURCE="${DB_CONFIG_SOURCE:-}"
+DB_CONFIG_SOURCE_PATH=""
+DB_CONFIG_SOURCE_EPHEMERAL="false"
+DB_CONFIG_CHANGED="false"
 NGINX_CONF_DIR="/etc/nginx/conf.d"
 CADDY_CONFIG_DIR="/etc/caddy"
 CADDY_LOG_DIR="/var/log/caddy"
 DOWNLOAD_RETRIES="${DOWNLOAD_RETRIES:-4}"
 DB_WAIT_TIMEOUT="${DB_WAIT_TIMEOUT:-180}"
 AUTO_DB_FALLBACK="${AUTO_DB_FALLBACK:-true}"
+# Service-unit roots are overridable for isolated tests and staging installs.
+# Production defaults retain the native locations on each supported OS.
+SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+OPENRC_INIT_DIR="${OPENRC_INIT_DIR:-/etc/init.d}"
+FREEBSD_RC_DIR="${FREEBSD_RC_DIR:-/usr/local/etc/rc.d}"
+SYSV_INIT_DIR="${SYSV_INIT_DIR:-/etc/init.d}"
 
 # ---- Color helpers ----
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -52,6 +63,8 @@ json_escape() {
     s=${s//$'\n'/\\n}
     s=${s//$'\r'/\\r}
     s=${s//$'\t'/\\t}
+    s=${s//$'\b'/\\b}
+    s=${s//$'\f'/\\f}
     printf "%s" "$s"
 }
 
@@ -168,7 +181,7 @@ PROXY="caddy"
 DOMAIN=""
 EMAIL=""
 TLS_METHOD="letsencrypt"
-NONINTERACTIVE="false"
+NONINTERACTIVE="${noninteractive:-false}"
 FORCE_INSTALL="false"
 INSTALL_VERSION=""
 DOMAIN_PROTO_DETECTED=""
@@ -203,6 +216,20 @@ normalize_domain() {
     DOMAIN="${DOMAIN%/}"
 }
 
+# Domain text is embedded directly in Caddyfile/Nginx configuration. Reject
+# control characters and configuration delimiters before any template is
+# rendered; otherwise a malformed CLI/env value could inject directives or
+# silently produce an unreachable proxy. Colons remain allowed for IPv6
+# literals and optional host:port forms handled by the proxy itself.
+validate_domain() {
+    local value="${1:-}"
+    if [[ -z "$value" || "$value" == *$'\n'* || "$value" == *$'\r'* || "$value" == *$'\t'* || "$value" =~ [\{\}\;\#\"\\] || "$value" == */* ]]; then
+        log_error "Domain must be a non-empty host/IP without whitespace or configuration delimiters." \
+            "域名必须是非空主机名/IP，不能包含空白或配置分隔符。"
+        return 1
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --db-type)       DB_TYPE="$2"; shift 2 ;;
@@ -227,6 +254,25 @@ while [[ $# -gt 0 ]]; do
         *) log_error "Unknown option: $1" "未知选项: $1"; usage ;;
     esac
 done
+
+# Engine labels are hints only. Normalize spelling before validation and again
+# after the interactive prompt so `MYSQL`, `MariaDB`, and accidental padding do
+# not bypass the live server detection path.
+normalize_db_type() {
+    DB_TYPE="$(printf '%s' "${DB_TYPE:-}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+}
+validate_db_type() {
+    case "${DB_TYPE:-}" in
+        mysql|mariadb) return 0 ;;
+        *)
+            log_error "Unsupported database type '${DB_TYPE:-}' (use mysql or mariadb)." \
+                "不支持的数据库类型 '${DB_TYPE:-}'（请使用 mysql 或 mariadb）。"
+            return 1
+            ;;
+    esac
+}
+normalize_db_type
+validate_db_type || exit 1
 
 # Apply protocol-detected TLS from --domain prefix (only if --tls not explicitly set)
 if [[ "$TLS_EXPLICIT" != "true" && -n "$DOMAIN_PROTO_DETECTED" ]]; then
@@ -579,7 +625,7 @@ service_enable() {
         openrc) rc-update add "$name" default >/dev/null 2>&1 ;;
         rcctl) rcctl enable "$name" >/dev/null 2>&1 ;;
         freebsd-service)
-            sysrc "${name}_enable=YES" >/dev/null 2>&1 || true
+            sysrc "${name}_enable=YES" >/dev/null 2>&1
             ;;
         sysv-service|none) return 0 ;;
     esac
@@ -698,46 +744,325 @@ db_admin_client() {
 }
 
 db_ping() {
-    local admin
-    admin=$(db_admin_client 2>/dev/null || true)
-    if [[ -n "$admin" ]]; then
-        "$admin" ping --silent >/dev/null 2>&1 && return 0
-        "$admin" -u root ping --silent >/dev/null 2>&1 && return 0
-        if [[ -n "${DB_PASSWORD:-}" ]]; then
-            "$admin" -u root -p"${DB_PASSWORD}" ping --silent >/dev/null 2>&1 && return 0
-            "$admin" -h 127.0.0.1 -u root -p"${DB_PASSWORD}" ping --silent >/dev/null 2>&1 && return 0
-        fi
-    fi
+    db_query_root 'SELECT 1' >/dev/null 2>&1
+}
 
-    local client
-    client=$(db_client 2>/dev/null || true)
-    if [[ -n "$client" ]]; then
-        "$client" -e "SELECT 1" >/dev/null 2>&1 && return 0
-        "$client" -u root -e "SELECT 1" >/dev/null 2>&1 && return 0
+# mysqladmin ping reports success even for Access denied. Readiness and detection
+# require an authenticated query against this local daemon, not a client label.
+db_query_root() {
+    local sql="$1" client preferred
+    preferred=$(db_client 2>/dev/null || true)
+    [[ -z "$preferred" ]] && return 1
+
+    # Package managers frequently install both mysql and mariadb client names,
+    # and a stale engine hint can select a compatibility binary that is not
+    # usable on this host.  Try the preferred client first, then the other
+    # available client against the same authenticated socket/TCP endpoint.  A
+    # client label is never evidence of the server engine.
+    local -a clients=("$preferred")
+    [[ "$preferred" == mysql ]] || clients+=(mysql)
+    [[ "$preferred" == mariadb ]] || clients+=(mariadb)
+    for client in "${clients[@]}"; do
+        have_cmd "$client" || continue
+        printf '%s\n' "$sql" | "$client" --protocol=socket --connect-timeout=5 -u root -N -B 2>/dev/null && return 0
         if [[ -n "${DB_PASSWORD:-}" ]]; then
-            "$client" -u root -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1 && return 0
-            "$client" -h 127.0.0.1 -u root -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1 && return 0
+            printf '%s\n' "$sql" | MYSQL_PWD="$DB_PASSWORD" "$client" --protocol=socket --connect-timeout=5 -u root -N -B 2>/dev/null && return 0
+            printf '%s\n' "$sql" | MYSQL_PWD="$DB_PASSWORD" "$client" --protocol=tcp -h 127.0.0.1 --connect-timeout=5 -u root -N -B 2>/dev/null && return 0
         fi
-    fi
+    done
     return 1
 }
 
 db_exec_root() {
-    local sql="$1" client
-    client=$(db_client 2>/dev/null || true)
-    [[ -z "$client" ]] && return 1
+    # sql_escape uses SQL-standard doubled quotes. Scope this to the temporary
+    # admin session so literal backslashes survive either engine's defaults.
+    # The global mode and application runtime sessions remain unchanged.
+    db_query_root "SET SESSION sql_mode=CONCAT_WS(',', NULLIF(@@SESSION.sql_mode, ''), 'NO_BACKSLASH_ESCAPES'); $1" >/dev/null
+}
 
-    "$client" -e "$sql" >/dev/null 2>&1 && return 0
-    "$client" -u root -e "$sql" >/dev/null 2>&1 && return 0
-    if [[ -n "${DB_PASSWORD:-}" ]]; then
-        "$client" -u root -p"${DB_PASSWORD}" -e "$sql" >/dev/null 2>&1 && return 0
-        "$client" -h 127.0.0.1 -u root -p"${DB_PASSWORD}" -e "$sql" >/dev/null 2>&1 && return 0
+detect_installed_database() {
+    local version daemon
+
+    # A configured label or the presence/order of client binaries is not
+    # authoritative.  Probe the local server first, because distributions can
+    # leave both compatibility clients installed while only one daemon owns the
+    # data directory.  db_query_root uses an authenticated SELECT and therefore
+    # cannot mistake mysqladmin's unauthenticated ping for a live server.
+    if version=$(db_query_root 'SELECT VERSION()' 2>/dev/null); then
+        case "$version" in
+            *MariaDB*|*mariadb*) DB_TYPE="mariadb" ;;
+            *) DB_TYPE="mysql" ;;
+        esac
+        return 0
+    fi
+
+    # If the daemon is installed but stopped, a single unambiguous binary is a
+    # safe hint; configure_database will start its service and probe again.  If
+    # both engines are installed and the server cannot be queried, refuse to
+    # guess: selecting the wrong service could apply credentials/configuration to
+    # the wrong data directory.
+    local -a candidates=()
+    for daemon in mariadbd mysqld; do
+        have_cmd "$daemon" || continue
+        if ! version=$("$daemon" --no-defaults --version 2>/dev/null) || [[ -z "$version" ]]; then
+            log_error "An installed database daemon could not report its version; refusing to install or start another engine." \
+                "已安装的数据库服务端无法报告版本，拒绝安装或启动其他引擎。"
+            return 2
+        fi
+        case "$version" in
+            *MariaDB*|*mariadb*) candidates+=("mariadb") ;;
+            *) candidates+=("mysql") ;;
+        esac
+    done
+    # A MariaDB compatibility alias may expose both names for the same daemon.
+    if ((${#candidates[@]} > 0)); then
+        local first="${candidates[0]}" candidate
+        for candidate in "${candidates[@]:1}"; do
+            [[ "$candidate" == "$first" ]] || {
+                log_error "Both MySQL and MariaDB daemons are installed but no authenticated server could be detected; refusing to guess the data directory." \
+                    "同时检测到 MySQL 和 MariaDB，但无法通过认证查询确定正在使用的服务端，拒绝猜测数据目录。"
+                # Distinguish a safety refusal from "nothing installed yet".
+                # A data marker alone cannot prove which system service owns
+                # the daemon: unlike the embedded entrypoint, this installer
+                # starts distribution-provided services, not a daemon path.
+                return 2
+            }
+        done
+        DB_TYPE="$first"
+        return 0
     fi
     return 1
 }
 
+database_datadir_has_data() {
+    local directory
+    for directory in /var/lib/mysql /var/db/mysql; do
+        if [[ -d "$directory" && -n "$(find "$directory" -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+database_datadir_engine_hint() {
+    local directory marker maria=false mysql=false
+    for directory in /var/lib/mysql /var/db/mysql; do
+        [[ -d "$directory" ]] || continue
+        if [[ -f "$directory/aria_log_control" ]]; then
+            maria=true
+        else
+            for marker in "$directory"/aria_log.*; do
+                if [[ -e "$marker" ]]; then
+                    maria=true
+                    break
+                fi
+            done
+        fi
+        if [[ -f "$directory/mysql.ibd" || -d "$directory/#innodb_redo" ]]; then
+            mysql=true
+        fi
+    done
+    if [[ "$maria" == true && "$mysql" == false ]]; then
+        printf '%s\n' mariadb
+    elif [[ "$mysql" == true && "$maria" == false ]]; then
+        printf '%s\n' mysql
+    else
+        return 1
+    fi
+}
+
+database_fallback_is_safe() {
+    # Never install another engine over an existing daemon or data directory.
+    ! have_cmd mysqld && ! have_cmd mariadbd && ! database_datadir_has_data
+}
+
 database_process_running() {
     pgrep -x mysqld >/dev/null 2>&1 || pgrep -x mariadbd >/dev/null 2>&1 || pgrep -f '[m]ysqld_safe|[m]ariadbd-safe' >/dev/null 2>&1
+}
+
+# Locate the version-matched database configuration shipped with the project.
+# A release may contain only this installer, so fall back to the raw file for
+# the selected release/tag.  The caller owns the returned temporary file.
+database_config_source() {
+    local candidate raw_ref temp
+    DB_CONFIG_SOURCE_PATH=""
+    DB_CONFIG_SOURCE_EPHEMERAL="false"
+    if [[ -n "${DB_CONFIG_SOURCE:-}" ]]; then
+        if [[ "$DB_CONFIG_SOURCE" != /* || "$DB_CONFIG_SOURCE" == *$'\n'* || "$DB_CONFIG_SOURCE" == *$'\r'* ]]; then
+            log_error "DB_CONFIG_SOURCE must be an absolute path without control characters." \
+                "DB_CONFIG_SOURCE 必须是不含控制字符的绝对路径。"
+            return 1
+        fi
+        if [[ ! -r "$DB_CONFIG_SOURCE" || ! -s "$DB_CONFIG_SOURCE" ]]; then
+            log_error "Configured DB_CONFIG_SOURCE is not a readable, non-empty file: ${DB_CONFIG_SOURCE}" \
+                "配置的 DB_CONFIG_SOURCE 不是可读取的非空文件: ${DB_CONFIG_SOURCE}"
+            return 1
+        fi
+        DB_CONFIG_SOURCE_PATH="$DB_CONFIG_SOURCE"
+        return 0
+    fi
+    for candidate in \
+        "${SCRIPT_DIR}/../deploy/my.cnf" \
+        "${SCRIPT_DIR}/deploy/my.cnf" \
+        "${INSTALL_DIR}/deploy/my.cnf" \
+        "/opt/oneclickvirt/deploy/my.cnf"; do
+        if [[ -r "$candidate" && -s "$candidate" ]]; then
+            DB_CONFIG_SOURCE_PATH="$candidate"
+            return 0
+        fi
+    done
+    have_cmd curl || {
+        log_error "deploy/my.cnf was not found and curl is unavailable; refusing to start an unconfigured database." \
+            "未找到 deploy/my.cnf 且 curl 不可用，拒绝启动未配置的数据库。"
+        return 1
+    }
+    # Database setup runs before release assets are resolved, so prefer the
+    # explicitly requested version when VERSION is not populated yet.
+    raw_ref="${VERSION:-${INSTALL_VERSION:-main}}"
+    temp=$(mktemp "${TMPDIR:-/tmp}/oneclickvirt-my.cnf.XXXXXX") || return 1
+    if ! curl -fsSL --connect-timeout 15 --max-time 120 \
+        "https://raw.githubusercontent.com/${REPO}/${raw_ref}/deploy/my.cnf" -o "$temp" || [[ ! -s "$temp" ]]; then
+        rm -f "$temp"
+        log_error "Unable to download deploy/my.cnf for ${raw_ref}; refusing to continue." \
+            "无法下载 ${raw_ref} 对应的 deploy/my.cnf，拒绝继续。"
+        return 1
+    fi
+    DB_CONFIG_SOURCE_PATH="$temp"
+    DB_CONFIG_SOURCE_EPHEMERAL="true"
+    return 0
+}
+
+database_daemon_binary() {
+    case "$DB_TYPE" in
+        mariadb)
+            if have_cmd mariadbd; then command -v mariadbd; return 0; fi
+            if have_cmd mysqld; then command -v mysqld; return 0; fi
+            ;;
+        mysql)
+            if have_cmd mysqld; then command -v mysqld; return 0; fi
+            if have_cmd mariadbd; then command -v mariadbd; return 0; fi
+            ;;
+    esac
+    return 1
+}
+
+# Render the shared config without touching its source.  Only options known to
+# differ between engines are translated; all other user/project settings are
+# kept verbatim so an unsupported security option cannot be silently dropped.
+render_database_config() {
+    local source="$1" target="$2"
+    awk -v engine="$DB_TYPE" '
+        /^[[:space:]]*[#;]/ { print; next }
+        {
+            line=$0
+            key=line; sub(/=.*/, "", key); gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            normalized=key; sub(/^loose-/, "", normalized); gsub(/-/, "_", normalized)
+            if (engine == "mariadb" && normalized == "innodb_redo_log_capacity") {
+                sub(/^[[:space:]]*[^=]+/, "innodb_log_file_size", line)
+            } else if (engine == "mysql" && normalized == "innodb_log_file_size") {
+                value=line; sub(/^[^=]*=/, "", value)
+                sub(/^[[:space:]]*[^=]+/, "loose-innodb_log_file_size", line)
+                print line
+                print "loose-innodb_redo_log_capacity=" value
+                next
+            } else if (engine == "mysql" && normalized == "innodb_redo_log_capacity") {
+                if (key !~ /^loose-/) sub(/^[[:space:]]*/, "loose-", line)
+            } else if (engine == "mysql" && normalized ~ /^query_cache_(type|size)$/) {
+                if (key !~ /^loose-/) sub(/^[[:space:]]*/, "loose-", line)
+            } else if (engine == "mariadb" && normalized ~ /^query_cache_(type|size)$/) {
+                sub(/^[[:space:]]*loose-/, "", line)
+            }
+            print line
+        }
+    ' "$source" > "$target" || return 1
+    # Bare-metal installs use a loopback application connection.  The shared
+    # Compose file intentionally binds 0.0.0.0 for the API container, but that
+    # would expose a host database to the network.  A final section makes the
+    # local-only policy deterministic even when the source contains a bind
+    # directive earlier in the file.
+    printf '\n[mysqld]\nbind-address=127.0.0.1\n' >> "$target" || return 1
+}
+
+# Apply the project defaults as a drop-in file.  Existing distro/admin files
+# are never overwritten.  The candidate is syntax-checked by the actual daemon
+# before an atomic rename; a prior drop-in is copied to a timestamped backup.
+apply_database_config() {
+    local source temp daemon target backup stamp
+    DB_CONFIG_CHANGED="false"
+    if [[ "$MYSQL_CNF_DIR" != /* || "$MYSQL_CNF_DIR" == *$'\n'* || "$MYSQL_CNF_DIR" == *$'\r'* ]]; then
+        log_error "MYSQL_CNF_DIR must be an absolute path without control characters." \
+            "MYSQL_CNF_DIR 必须是不含控制字符的绝对路径。"
+        return 1
+    fi
+    database_config_source || return 1
+    source="$DB_CONFIG_SOURCE_PATH"
+    target="${MYSQL_CNF_DIR%/}/oneclickvirt.cnf"
+    if [[ -L "$target" ]]; then
+        log_error "Refusing to overwrite symlinked database drop-in: ${target}" \
+            "拒绝覆盖符号链接数据库配置: ${target}"
+        [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+        return 1
+    fi
+    mkdir -p "$MYSQL_CNF_DIR" || {
+        [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+        return 1
+    }
+    temp=$(mktemp "${MYSQL_CNF_DIR%/}/.oneclickvirt.cnf.tmp.XXXXXX") || {
+        [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+        return 1
+    }
+    if ! render_database_config "$source" "$temp"; then
+        rm -f "$temp"
+        [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+        return 1
+    fi
+    daemon=$(database_daemon_binary 2>/dev/null || true)
+    if [[ -z "$daemon" ]]; then
+        log_error "No ${DB_TYPE} database daemon is available to validate configuration." \
+            "没有可用于校验 ${DB_TYPE} 配置的数据库服务端。"
+        rm -f "$temp"
+        [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+        return 1
+    fi
+    if ! "$daemon" --defaults-file="$temp" --verbose --help >/dev/null 2>&1; then
+        log_error "Database configuration is invalid for detected ${DB_TYPE}; existing files were preserved." \
+            "检测到的 ${DB_TYPE} 数据库配置无效，已保留现有文件。"
+        rm -f "$temp"
+        [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+        return 1
+    fi
+    chmod 0644 "$temp" || {
+        rm -f "$temp"
+        [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+        return 1
+    }
+    chown root:root "$temp" 2>/dev/null || true
+    if [[ -e "$target" ]] && cmp -s "$temp" "$target"; then
+        rm -f "$temp"
+        [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+        log_info "Database drop-in already up to date: ${target}" "数据库配置已是最新: ${target}"
+        return 0
+    fi
+    if [[ -e "$target" ]]; then
+        stamp="$(date +%s 2>/dev/null || printf '%s' 0).$$"
+        backup="${target}.bak.${stamp}"
+        cp -p "$target" "$backup" || {
+            log_error "Unable to preserve the previous database drop-in (${target}); refusing replacement." \
+                "无法保留旧数据库配置（${target}），拒绝替换。"
+            rm -f "$temp"
+            [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+            return 1
+        }
+    fi
+    if ! mv -f "$temp" "$target"; then
+        rm -f "$temp"
+        [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+        return 1
+    fi
+    [[ "$DB_CONFIG_SOURCE_EPHEMERAL" == true ]] && rm -f "$source"
+    DB_CONFIG_CHANGED="true"
+    log_success "Database drop-in installed: ${target}" "数据库配置已安装: ${target}"
+    return 0
 }
 
 wait_for_database_ready() {
@@ -751,7 +1076,10 @@ wait_for_database_ready() {
 
         if ! database_process_running || [[ "$last_start" -ge 20 ]]; then
             log_warning "Database is not ready, attempting to start ${DB_SERVICE:-$DB_TYPE}..." "数据库尚未就绪，正在尝试启动 ${DB_SERVICE:-$DB_TYPE}..."
-            [[ -n "$DB_SERVICE" ]] && service_start "$DB_SERVICE" >/dev/null 2>&1 || true
+            if [[ -n "$DB_SERVICE" ]] && ! service_start "$DB_SERVICE" >/dev/null 2>&1; then
+                log_warning "Database service start attempt failed; will retry until the readiness deadline." \
+                    "数据库服务启动尝试失败，将在就绪截止时间前继续重试。"
+            fi
             last_start=0
         fi
 
@@ -919,6 +1247,7 @@ install_mysql() {
         amzn|ol|opencloudos)
             if ! pkg_install mysql-server mysql; then
                 [[ "$AUTO_DB_FALLBACK" != "true" ]] && return 1
+                database_fallback_is_safe || return 1
                 log_warning "MySQL package install failed; falling back to MariaDB." "MySQL 包安装失败，回退到 MariaDB。"
                 DB_TYPE="mariadb"
                 pkg_install mariadb-server mariadb || return 1
@@ -926,6 +1255,7 @@ install_mysql() {
             ;;
         *)
             if [[ "$AUTO_DB_FALLBACK" == "true" ]]; then
+                database_fallback_is_safe || return 1
                 log_warning "MySQL auto-install is not mapped for ${OS}; falling back to MariaDB." "未针对 ${OS} 映射 MySQL 自动安装，回退到 MariaDB。"
                 DB_TYPE="mariadb"
                 install_mariadb
@@ -974,39 +1304,118 @@ install_mariadb() {
 }
 
 initialize_database_datadir() {
+    local data_hint
+    data_hint="$(database_datadir_engine_hint 2>/dev/null || true)"
+    if [[ -n "$data_hint" && "$data_hint" != "$DB_TYPE" ]]; then
+        log_error "Database data appears to belong to ${data_hint}, but the selected daemon is ${DB_TYPE}; refusing cross-engine startup." \
+            "数据库数据目录疑似属于 ${data_hint}，当前选择的服务端是 ${DB_TYPE}，拒绝跨引擎启动。"
+        return 1
+    fi
+    if [[ ! -d /var/lib/mysql/mysql && ! -d /var/db/mysql/mysql ]] && database_datadir_has_data; then
+        log_error "Database data exists without system tables; refusing automatic reinitialization." "数据库已有数据但缺少系统表，拒绝自动重新初始化。"
+        return 1
+    fi
     case "$OS_FAMILY:$DB_TYPE" in
         arch:mariadb)
             if [[ ! -d /var/lib/mysql/mysql ]] && have_cmd mariadb-install-db; then
                 log_info "Initializing MariaDB data directory..." "正在初始化 MariaDB 数据目录..."
-                mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql >/dev/null 2>&1 || true
+                if ! mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql >/dev/null 2>&1; then
+                    log_error "MariaDB data directory initialization failed." "MariaDB 数据目录初始化失败。"
+                    return 1
+                fi
             fi
             ;;
         alpine:mariadb)
             if [[ ! -d /var/lib/mysql/mysql ]]; then
                 log_info "Initializing MariaDB data directory..." "正在初始化 MariaDB 数据目录..."
-                /etc/init.d/mariadb setup >/dev/null 2>&1 || mysql_install_db --user=mysql --datadir=/var/lib/mysql >/dev/null 2>&1 || true
+                if ! /etc/init.d/mariadb setup >/dev/null 2>&1 &&
+                   ! mysql_install_db --user=mysql --datadir=/var/lib/mysql >/dev/null 2>&1; then
+                    log_error "MariaDB data directory initialization failed." "MariaDB 数据目录初始化失败。"
+                    return 1
+                fi
             fi
             ;;
         bsd:mariadb|bsd:mysql)
             # BSD rc scripts normally initialize on first start; keep this hook for package variants.
-            [[ -d /var/db/mysql/mysql ]] || service "${DB_SERVICE:-mysql-server}" initdb >/dev/null 2>&1 || true
+            if [[ ! -d /var/db/mysql/mysql ]] &&
+               ! service "${DB_SERVICE:-mysql-server}" initdb >/dev/null 2>&1; then
+                log_error "Database data directory initialization failed." "数据库数据目录初始化失败。"
+                return 1
+            fi
             ;;
     esac
+
+    if [[ "$DB_TYPE" == "mariadb" || "$DB_TYPE" == "mysql" ]] &&
+       [[ ! -d /var/lib/mysql/mysql && ! -d /var/db/mysql/mysql ]]; then
+        log_error "Database initialization completed without creating system tables." \
+            "数据库初始化完成但未生成系统表。"
+        return 1
+    fi
 }
 
 configure_database() {
     log_info "Configuring database..." "正在配置数据库..."
+
+    # The caller may have loaded a stale mysql/mariadb hint from YAML or an
+    # environment variable.  Resolve the daemon/data owner before the
+    # pre-start safety check, otherwise a healthy MariaDB installation can be
+    # rejected merely because it was labelled mysql.  Ambiguous dual-engine
+    # hosts still fail closed in detect_installed_database.
+    local requested_db_type="$DB_TYPE"
+    if detect_installed_database; then
+        if [[ "$requested_db_type" != "$DB_TYPE" ]]; then
+            log_warning "Database hint ${requested_db_type} does not match the detected ${DB_TYPE}; using the detected engine." \
+                "数据库配置标签 ${requested_db_type} 与实际检测到的 ${DB_TYPE} 不一致，将使用实际服务端。"
+        fi
+    else
+        log_error "Cannot safely determine the database daemon; configuration and service startup were not attempted." \
+            "无法安全确认数据库服务端，未执行配置或启动服务。"
+        return 1
+    fi
 
     if [[ -z "$DB_PASSWORD" ]]; then
         DB_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 24)
     fi
 
     select_db_service
-    initialize_database_datadir
-    service_enable "$DB_SERVICE" || true
-    service_start "$DB_SERVICE" >/dev/null 2>&1 || true
+    initialize_database_datadir || return 1
+    # Install the version-matched project defaults only after the real daemon
+    # has been identified.  A syntax check against that daemon prevents a
+    # MySQL/MariaDB config mix-up from taking the service down.
+    apply_database_config || return 1
+    # A native service manager is part of the local database contract: if the
+    # unit cannot be enabled or a changed configuration cannot be reloaded,
+    # continuing would leave a healthy-looking install running stale settings.
+    # Hosts without a service manager retain the foreground/process fallback.
+    if [[ "$SERVICE_MANAGER" != "none" ]] && ! service_enable "$DB_SERVICE"; then
+        log_error "Failed to enable the ${DB_TYPE} database service (${DB_SERVICE})." \
+            "无法启用 ${DB_TYPE} 数据库服务（${DB_SERVICE}）。"
+        return 1
+    fi
+    if [[ "$SERVICE_MANAGER" != "none" ]]; then
+        if [[ "$DB_CONFIG_CHANGED" == "true" ]] && service_is_active "$DB_SERVICE"; then
+            if ! service_reload_or_restart "$DB_SERVICE" >/dev/null 2>&1 &&
+               ! service_start "$DB_SERVICE" >/dev/null 2>&1; then
+                log_error "Failed to reload or restart the ${DB_TYPE} database service after applying configuration." \
+                    "应用配置后无法重载或重启 ${DB_TYPE} 数据库服务。"
+                return 1
+            fi
+        elif ! service_is_active "$DB_SERVICE" && ! service_start "$DB_SERVICE" >/dev/null 2>&1; then
+            log_error "Failed to start the ${DB_TYPE} database service (${DB_SERVICE})." \
+                "无法启动 ${DB_TYPE} 数据库服务（${DB_SERVICE}）。"
+            return 1
+        fi
+    fi
     sleep 3
     wait_for_database_ready "$DB_WAIT_TIMEOUT" 5 || return 1
+
+    local actual_version
+    actual_version=$(db_query_root 'SELECT VERSION()') || return 1
+    case "$actual_version" in
+        *MariaDB*|*mariadb*) DB_TYPE="mariadb" ;;
+        *) DB_TYPE="mysql" ;;
+    esac
+    log_info "Detected database server: ${DB_TYPE}" "已检测实际数据库服务端: ${DB_TYPE}"
 
     local DB_NAME="oneclickvirt"
     local DB_USER="oneclickvirt"
@@ -1016,6 +1425,8 @@ configure_database() {
         CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
         CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
         CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD_SQL}';
+        ALTER USER '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD_SQL}';
+        ALTER USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD_SQL}';
         GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'127.0.0.1';
         GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';
         FLUSH PRIVILEGES;
@@ -1045,7 +1456,21 @@ configure_database() {
 }
 
 install_local_database() {
-    local requested_db="$DB_TYPE"
+    local requested_db="$DB_TYPE" detection_rc
+    if detect_installed_database; then
+        log_info "Using existing database daemon: ${DB_TYPE}" "复用现有数据库服务端: ${DB_TYPE}"
+        configure_database
+        return $?
+    else
+        detection_rc=$?
+        if ((detection_rc == 2)); then
+            return 1
+        fi
+    fi
+    if database_datadir_has_data; then
+        log_error "Existing database data requires the matching engine; refusing package fallback." "检测到已有数据库数据，请使用对应引擎，禁止自动跨引擎接管。"
+        return 1
+    fi
     case "$DB_TYPE" in
         mysql) install_mysql ;;
         mariadb) install_mariadb ;;
@@ -1055,7 +1480,7 @@ install_local_database() {
         return 0
     fi
 
-    if [[ "$AUTO_DB_FALLBACK" == "true" && "$requested_db" == "mysql" && "$DB_TYPE" != "mariadb" ]]; then
+    if [[ "$AUTO_DB_FALLBACK" == "true" && "$requested_db" == "mysql" && "$DB_TYPE" != "mariadb" ]] && database_fallback_is_safe; then
         log_warning "MySQL did not become usable; retrying with MariaDB-compatible backend." "MySQL 未能可用，正在使用 MariaDB 兼容后端重试。"
         DB_TYPE="mariadb"
         install_mariadb || return 1
@@ -1078,12 +1503,15 @@ install_caddy() {
         log_error "Failed to download Caddy for ${caddy_os}/$(detect_arch)." "下载 ${caddy_os}/$(detect_arch) 的 Caddy 失败。"
         return 1
     }
-    chmod +x /usr/local/bin/caddy
-    mkdir -p "$CADDY_CONFIG_DIR" "$CADDY_LOG_DIR" "$INSTALL_DIR"
+    if ! chmod +x /usr/local/bin/caddy || ! mkdir -p "$CADDY_CONFIG_DIR" "$CADDY_LOG_DIR" "$INSTALL_DIR"; then
+        log_error "Failed to prepare the Caddy installation." "准备 Caddy 安装失败。"
+        return 1
+    fi
 
     case "$SERVICE_MANAGER" in
         systemd)
-            cat > /etc/systemd/system/caddy.service << EOF
+            mkdir -p "$SYSTEMD_UNIT_DIR" || return 1
+            if ! cat > "${SYSTEMD_UNIT_DIR}/caddy.service" << EOF
 [Unit]
 Description=Caddy Web Server
 After=network.target
@@ -1095,10 +1523,18 @@ LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target
 EOF
-            systemctl daemon-reload 2>/dev/null || true
+            then
+                log_error "Unable to write the Caddy systemd unit." "无法写入 Caddy systemd 服务单元。"
+                return 1
+            fi
+            if ! systemctl daemon-reload >/dev/null 2>&1; then
+                log_error "systemd daemon-reload failed for Caddy." "Caddy 的 systemd daemon-reload 失败。"
+                return 1
+            fi
             ;;
         openrc)
-            cat > /etc/init.d/caddy << EOF
+            mkdir -p "$OPENRC_INIT_DIR" || return 1
+            if ! cat > "${OPENRC_INIT_DIR}/caddy" << EOF
 #!/sbin/openrc-run
 name="Caddy Web Server"
 command="/usr/local/bin/caddy"
@@ -1107,10 +1543,15 @@ command_background="yes"
 pidfile="/run/caddy.pid"
 depend() { need net; }
 EOF
-            chmod +x /etc/init.d/caddy
+            then
+                log_error "Unable to write the Caddy OpenRC script." "无法写入 Caddy OpenRC 脚本。"
+                return 1
+            fi
+            chmod +x "${OPENRC_INIT_DIR}/caddy" || return 1
             ;;
         freebsd-service)
-            cat > /usr/local/etc/rc.d/caddy << EOF
+            mkdir -p "$FREEBSD_RC_DIR" || return 1
+            if ! cat > "${FREEBSD_RC_DIR}/caddy" << EOF
 #!/bin/sh
 # PROVIDE: caddy
 # REQUIRE: NETWORKING
@@ -1125,10 +1566,15 @@ load_rc_config \$name
 : \${caddy_enable:=YES}
 run_rc_command "\$1"
 EOF
-            chmod +x /usr/local/etc/rc.d/caddy
+            then
+                log_error "Unable to write the Caddy rc.d script." "无法写入 Caddy rc.d 脚本。"
+                return 1
+            fi
+            chmod +x "${FREEBSD_RC_DIR}/caddy" || return 1
             ;;
         sysv-service)
-            cat > /etc/init.d/caddy << EOF
+            mkdir -p "$SYSV_INIT_DIR" || return 1
+            if ! cat > "${SYSV_INIT_DIR}/caddy" << EOF
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          caddy
@@ -1157,15 +1603,23 @@ case "\$1" in
   *) echo "Usage: \$0 {start|stop|restart|status}"; exit 1 ;;
 esac
 EOF
-            chmod +x /etc/init.d/caddy
+            then
+                log_error "Unable to write the Caddy SysV init script." "无法写入 Caddy SysV init 脚本。"
+                return 1
+            fi
+            chmod +x "${SYSV_INIT_DIR}/caddy" || return 1
             ;;
         rcctl|none)
-            cat > "${INSTALL_DIR}/start-caddy.sh" << EOF
+            if ! cat > "${INSTALL_DIR}/start-caddy.sh" << EOF
 #!/bin/sh
 nohup /usr/local/bin/caddy run --config "${CADDY_CONFIG_DIR}/Caddyfile" > "${CADDY_LOG_DIR}/caddy.log" 2>&1 &
 echo \$! > "${INSTALL_DIR}/caddy.pid"
 EOF
-            chmod +x "${INSTALL_DIR}/start-caddy.sh"
+            then
+                log_error "Unable to write the Caddy launcher script." "无法写入 Caddy 启动脚本。"
+                return 1
+            fi
+            chmod +x "${INSTALL_DIR}/start-caddy.sh" || return 1
             ;;
         *)
             log_warning "Caddy service file not created for service manager ${SERVICE_MANAGER}; it can be started manually." \
@@ -1195,8 +1649,11 @@ configure_caddy() {
             ;;
     esac
 
-    mkdir -p "$CADDY_CONFIG_DIR" "$CADDY_LOG_DIR"
-    cat > "${CADDY_CONFIG_DIR}/Caddyfile" << CADDY_EOF
+    if ! mkdir -p "$CADDY_CONFIG_DIR" "$CADDY_LOG_DIR"; then
+        log_error "Unable to create Caddy configuration/log directories." "无法创建 Caddy 配置或日志目录。"
+        return 1
+    fi
+    if ! cat > "${CADDY_CONFIG_DIR}/Caddyfile" << CADDY_EOF
 # OneClickVirt Caddy Configuration
 # Generated by install_full.sh
 
@@ -1240,6 +1697,10 @@ ${scheme_prefix}${DOMAIN} {
     }
 }
 CADDY_EOF
+    then
+        log_error "Unable to write the Caddy configuration." "无法写入 Caddy 配置。"
+        return 1
+    fi
     log_success "Caddy configuration written to ${CADDY_CONFIG_DIR}/Caddyfile" "Caddy 配置已写入 ${CADDY_CONFIG_DIR}/Caddyfile"
 }
 
@@ -1259,14 +1720,14 @@ install_nginx() {
 configure_nginx() {
     local NGINX_CONF
     if [[ "$OS_FAMILY" == "debian" ]]; then
-        mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+        mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled || return 1
         NGINX_CONF="/etc/nginx/sites-available/oneclickvirt"
     else
-        mkdir -p "$NGINX_CONF_DIR"
+        mkdir -p "$NGINX_CONF_DIR" || return 1
         NGINX_CONF="${NGINX_CONF_DIR}/oneclickvirt.conf"
     fi
 
-    cat > "$NGINX_CONF" << NGINX_EOF
+    if ! cat > "$NGINX_CONF" << NGINX_EOF
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -1315,9 +1776,20 @@ server {
     }
 }
 NGINX_EOF
+    then
+        log_error "Unable to write the Nginx configuration: ${NGINX_CONF}" "无法写入 Nginx 配置: ${NGINX_CONF}"
+        return 1
+    fi
+    if [[ ! -s "$NGINX_CONF" ]]; then
+        log_error "Unable to write the Nginx configuration: ${NGINX_CONF}" "无法写入 Nginx 配置: ${NGINX_CONF}"
+        return 1
+    fi
 
     if [[ "$OS_FAMILY" == "debian" ]]; then
-        ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/oneclickvirt 2>/dev/null || true
+        if ! ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/oneclickvirt; then
+            log_error "Unable to enable the OneClickVirt Nginx site." "无法启用 OneClickVirt Nginx 站点。"
+            return 1
+        fi
         rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
     fi
 
@@ -1446,11 +1918,15 @@ install_oneclickvirt_service() {
     if [[ "$release_asset" == server-linux-* ]]; then
         update_flavor="standalone"
     fi
-    mkdir -p "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR" || return 1
     case "$SERVICE_MANAGER" in
         systemd)
+            mkdir -p "$SYSTEMD_UNIT_DIR" || {
+                log_error "Failed to create the systemd unit directory." "创建 systemd 服务单元目录失败。"
+                return 1
+            }
             if [[ "$EXTERNAL_DB" == "true" ]]; then
-                cat > /etc/systemd/system/oneclickvirt.service << SERV_EOF
+                if ! cat > "${SYSTEMD_UNIT_DIR}/oneclickvirt.service" << SERV_EOF
 [Unit]
 Description=OneClickVirt Server
 After=network.target
@@ -1469,8 +1945,12 @@ LimitNOFILE=65536
 [Install]
 WantedBy=multi-user.target
 SERV_EOF
+                then
+                    log_error "Failed to write the systemd unit." "写入 systemd 服务单元失败。"
+                    return 1
+                fi
             else
-                cat > /etc/systemd/system/oneclickvirt.service << SERV_EOF
+                if ! cat > "${SYSTEMD_UNIT_DIR}/oneclickvirt.service" << SERV_EOF
 [Unit]
 Description=OneClickVirt Server
 After=network.target ${DB_SERVICE}.service
@@ -1490,12 +1970,26 @@ LimitNOFILE=65536
 [Install]
 WantedBy=multi-user.target
 SERV_EOF
+                then
+                    log_error "Failed to write the systemd unit." "写入 systemd 服务单元失败。"
+                    return 1
+                fi
             fi
-            systemctl daemon-reload
-            service_enable oneclickvirt
+            if ! systemctl daemon-reload >/dev/null 2>&1; then
+                log_error "systemd daemon-reload failed." "systemd daemon-reload 失败。"
+                return 1
+            fi
+            if ! service_enable oneclickvirt; then
+                log_error "Failed to enable the OneClickVirt service." "启用 OneClickVirt 服务失败。"
+                return 1
+            fi
             ;;
         openrc)
-            cat > /etc/init.d/oneclickvirt << SERV_EOF
+            mkdir -p "$OPENRC_INIT_DIR" || {
+                log_error "Failed to create the OpenRC init directory." "创建 OpenRC 启动目录失败。"
+                return 1
+            }
+            if ! cat > "${OPENRC_INIT_DIR}/oneclickvirt" << SERV_EOF
 #!/sbin/openrc-run
 name="OneClickVirt Server"
 command="${bin_path}"
@@ -1509,11 +2003,21 @@ depend() {
     after ${DB_SERVICE:-}
 }
 SERV_EOF
-            chmod +x /etc/init.d/oneclickvirt
-            service_enable oneclickvirt
+            then
+                log_error "Failed to write the OpenRC service script." "写入 OpenRC 服务脚本失败。"
+                return 1
+            fi
+            if ! chmod +x "${OPENRC_INIT_DIR}/oneclickvirt" || ! service_enable oneclickvirt; then
+                log_error "Failed to install or enable the OpenRC service." "安装或启用 OpenRC 服务失败。"
+                return 1
+            fi
             ;;
         freebsd-service)
-            cat > /usr/local/etc/rc.d/oneclickvirt << SERV_EOF
+            mkdir -p "$FREEBSD_RC_DIR" || {
+                log_error "Failed to create the FreeBSD rc.d directory." "创建 FreeBSD rc.d 目录失败。"
+                return 1
+            }
+            if ! cat > "${FREEBSD_RC_DIR}/oneclickvirt" << SERV_EOF
 #!/bin/sh
 # PROVIDE: oneclickvirt
 # REQUIRE: NETWORKING ${DB_SERVICE:-}
@@ -1536,11 +2040,21 @@ load_rc_config \$name
 : \${oneclickvirt_enable:=YES}
 run_rc_command "\$1"
 SERV_EOF
-            chmod +x /usr/local/etc/rc.d/oneclickvirt
-            service_enable oneclickvirt
+            then
+                log_error "Failed to write the FreeBSD rc.d script." "写入 FreeBSD rc.d 脚本失败。"
+                return 1
+            fi
+            if ! chmod +x "${FREEBSD_RC_DIR}/oneclickvirt" || ! service_enable oneclickvirt; then
+                log_error "Failed to install or enable the FreeBSD service." "安装或启用 FreeBSD 服务失败。"
+                return 1
+            fi
             ;;
         sysv-service)
-            cat > /etc/init.d/oneclickvirt << SERV_EOF
+            mkdir -p "$SYSV_INIT_DIR" || {
+                log_error "Failed to create the SysV init directory." "创建 SysV 启动目录失败。"
+                return 1
+            }
+            if ! cat > "${SYSV_INIT_DIR}/oneclickvirt" << SERV_EOF
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          oneclickvirt
@@ -1570,16 +2084,30 @@ case "\$1" in
   *) echo "Usage: \$0 {start|stop|restart|status}"; exit 1 ;;
 esac
 SERV_EOF
-            chmod +x /etc/init.d/oneclickvirt
+            then
+                log_error "Failed to write the SysV init script." "写入 SysV 启动脚本失败。"
+                return 1
+            fi
+            if ! chmod +x "${SYSV_INIT_DIR}/oneclickvirt"; then
+                log_error "Failed to make the SysV init script executable." "无法将 SysV 启动脚本设为可执行。"
+                return 1
+            fi
             ;;
         none|rcctl)
-            cat > "${INSTALL_DIR}/start-oneclickvirt.sh" << SERV_EOF
+            if ! cat > "${INSTALL_DIR}/start-oneclickvirt.sh" << SERV_EOF
 #!/bin/sh
 cd "${SERVER_DIR}" || exit 1
 nohup "${bin_path}" > "${INSTALL_DIR}/oneclickvirt.log" 2>&1 &
 echo \$! > "${INSTALL_DIR}/oneclickvirt.pid"
 SERV_EOF
-            chmod +x "${INSTALL_DIR}/start-oneclickvirt.sh"
+            then
+                log_error "Failed to write the OneClickVirt start script." "写入 OneClickVirt 启动脚本失败。"
+                return 1
+            fi
+            if ! chmod +x "${INSTALL_DIR}/start-oneclickvirt.sh"; then
+                log_error "Failed to make the OneClickVirt start script executable." "无法将 OneClickVirt 启动脚本设为可执行。"
+                return 1
+            fi
             log_warning "No fully supported service manager detected; created ${INSTALL_DIR}/start-oneclickvirt.sh" \
                 "未检测到完整支持的服务管理器；已创建 ${INSTALL_DIR}/start-oneclickvirt.sh"
             ;;
@@ -1589,37 +2117,150 @@ SERV_EOF
 start_oneclickvirt_service() {
     case "$SERVICE_MANAGER" in
         none|rcctl)
-            "${INSTALL_DIR}/start-oneclickvirt.sh"
+            if ! "${INSTALL_DIR}/start-oneclickvirt.sh"; then
+                return 1
+            fi
+            local pid_file="${INSTALL_DIR}/oneclickvirt.pid" pid
+            if [[ ! -s "$pid_file" ]] || ! pid=$(cat "$pid_file") || [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+                log_error "OneClickVirt start script did not leave a live process." "OneClickVirt 启动脚本未留下存活进程。"
+                return 1
+            fi
             ;;
         *)
-            service_restart oneclickvirt || service_start oneclickvirt
+            if ! service_restart oneclickvirt 2>/dev/null && ! service_start oneclickvirt 2>/dev/null; then
+                log_error "Service manager failed to start OneClickVirt." "服务管理器启动 OneClickVirt 失败。"
+                return 1
+            fi
+            local attempt
+            for attempt in 1 2 3 4 5; do
+                service_is_active oneclickvirt && return 0
+                sleep 1
+            done
+            log_error "OneClickVirt is not active after start." "OneClickVirt 启动后未处于 active 状态。"
+            return 1
             ;;
     esac
 }
 
 start_proxy_service() {
+    local pid_file pid attempt
     case "$PROXY" in
         caddy)
             if [[ "$SERVICE_MANAGER" == "none" || "$SERVICE_MANAGER" == "rcctl" ]]; then
-                [[ -x "${INSTALL_DIR}/start-caddy.sh" ]] && "${INSTALL_DIR}/start-caddy.sh" || true
+                if [[ ! -x "${INSTALL_DIR}/start-caddy.sh" ]] || ! "${INSTALL_DIR}/start-caddy.sh"; then
+                    log_error "Unable to start Caddy with the generated launcher." "无法通过生成的启动脚本启动 Caddy。"
+                    return 1
+                fi
+                pid_file="${INSTALL_DIR}/caddy.pid"
             else
-                service_enable caddy 2>/dev/null || true
-                service_restart caddy 2>/dev/null || service_start caddy 2>/dev/null || true
+                service_enable caddy 2>/dev/null || {
+                    log_error "Unable to enable the Caddy service." "无法启用 Caddy 服务。"
+                    return 1
+                }
+                service_restart caddy 2>/dev/null || service_start caddy 2>/dev/null || {
+                    log_error "Unable to start the Caddy service." "无法启动 Caddy 服务。"
+                    return 1
+                }
+                for attempt in 1 2 3 4 5; do
+                    service_is_active caddy && return 0
+                    sleep 1
+                done
+                log_error "Caddy is not active after start." "Caddy 启动后未处于 active 状态。"
+                return 1
             fi
             ;;
         nginx|openresty)
             if [[ "$SERVICE_MANAGER" == "none" || "$SERVICE_MANAGER" == "rcctl" ]]; then
                 if have_cmd "$PROXY"; then
-                    "$PROXY" -t >/dev/null 2>&1 && "$PROXY" -s reload >/dev/null 2>&1 || "$PROXY" >/dev/null 2>&1 || true
+                    "$PROXY" -t >/dev/null 2>&1 || return 1
+                    "$PROXY" -s reload >/dev/null 2>&1 || "$PROXY" >/dev/null 2>&1 || return 1
                 elif have_cmd nginx; then
-                    nginx -t >/dev/null 2>&1 && nginx -s reload >/dev/null 2>&1 || nginx >/dev/null 2>&1 || true
+                    nginx -t >/dev/null 2>&1 || return 1
+                    nginx -s reload >/dev/null 2>&1 || nginx >/dev/null 2>&1 || return 1
+                else
+                    log_error "Nginx/OpenResty binary is unavailable." "Nginx/OpenResty 可执行文件不可用。"
+                    return 1
                 fi
             else
-                service_enable "$PROXY" 2>/dev/null || true
-                service_restart "$PROXY" 2>/dev/null || service_start "$PROXY" 2>/dev/null || true
+                service_enable "$PROXY" 2>/dev/null || {
+                    log_error "Unable to enable the ${PROXY} service." "无法启用 ${PROXY} 服务。"
+                    return 1
+                }
+                service_restart "$PROXY" 2>/dev/null || service_start "$PROXY" 2>/dev/null || {
+                    log_error "Unable to start the ${PROXY} service." "无法启动 ${PROXY} 服务。"
+                    return 1
+                }
+                for attempt in 1 2 3 4 5; do
+                    service_is_active "$PROXY" && return 0
+                    sleep 1
+                done
+                log_error "${PROXY} is not active after start." "${PROXY} 启动后未处于 active 状态。"
+                return 1
             fi
             ;;
+        *)
+            log_error "Unsupported reverse proxy: ${PROXY}" "不支持的反向代理: ${PROXY}"
+            return 1
     esac
+    # Launchers used without a native service manager must leave a live process.
+    if [[ -n "${pid_file:-}" ]]; then
+        if [[ ! -s "$pid_file" ]] || ! pid=$(cat "$pid_file") || [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+            log_error "${PROXY} launcher did not leave a live process." "${PROXY} 启动脚本未留下存活进程。"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+write_application_config() {
+    # JSON string escapes are also valid inside YAML double-quoted scalars.
+    local _yaml_db_password
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        _yaml_db_password=$(json_escape "$DB_PASS_EXT")
+    else
+        _yaml_db_password=$(json_escape "$DB_PASSWORD")
+    fi
+    local _db_host _db_port _db_name _db_user
+    if [[ "$EXTERNAL_DB" == "true" ]]; then
+        _db_host="${DB_HOST:-127.0.0.1}"
+        _db_port="${DB_PORT:-3306}"
+        _db_name="${DB_NAME_EXT:-oneclickvirt}"
+        _db_user="${DB_USER_EXT:-oneclickvirt}"
+    else
+        _db_host="127.0.0.1"
+        _db_port="3306"
+        _db_name="oneclickvirt"
+        _db_user="oneclickvirt"
+    fi
+    (umask 077; cat > "${SERVER_DIR}/config.yaml" << CONFIG_EOF
+system:
+  env: public
+  addr: 8888
+  db-type: "$(json_escape "$DB_TYPE")"
+jwt:
+  signing-key: "$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+  expires-time: 7d
+  buffer-time: 1d
+  issuer: oneclickvirt
+mysql:
+  path: "$(json_escape "$_db_host")"
+  port: "$(json_escape "$_db_port")"
+  db-name: "$(json_escape "$_db_name")"
+  username: "$(json_escape "$_db_user")"
+  password: "${_yaml_db_password}"
+  config: charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27
+  max-idle-conns: "10"
+  max-open-conns: "100"
+  log-mode: error
+  log-zap: "false"
+  max-lifetime: "3600"
+  auto-create: "true"
+CONFIG_EOF
+    ) || return 1
+    if ! chmod 600 "${SERVER_DIR}/config.yaml"; then
+        log_error "Unable to protect the application configuration." "无法保护应用配置文件。"
+        return 1
+    fi
 }
 
 install_application() {
@@ -1631,7 +2272,10 @@ install_application() {
         return 1
     }
 
-    mkdir -p "$SERVER_DIR" "$WEB_DIR"
+    if ! mkdir -p "$SERVER_DIR" "$WEB_DIR"; then
+        log_error "Unable to create application directories." "无法创建应用目录。"
+        return 1
+    fi
 
     local candidates=(
         "server-allinone-${ASSET_OS}-${ARCH}.tar.gz"
@@ -1661,9 +2305,16 @@ install_application() {
     fi
 
     local extract_dir="/tmp/oneclickvirt-server-${VERSION:-unknown}-$$"
-    rm -rf "$extract_dir"
-    mkdir -p "$extract_dir"
-    "$TAR_BIN" -xzf "/tmp/${SERVER_FILE}" -C "$extract_dir"
+    if ! rm -rf "$extract_dir" || ! mkdir -p "$extract_dir"; then
+        log_error "Unable to prepare the temporary extraction directory." "无法准备临时解压目录。"
+        return 1
+    fi
+    if ! "$TAR_BIN" -xzf "/tmp/${SERVER_FILE}" -C "$extract_dir"; then
+        log_error "Failed to extract ${SERVER_FILE}; refusing to install a partial application." \
+            "解压 ${SERVER_FILE} 失败，拒绝安装不完整的应用。"
+        rm -rf "$extract_dir"
+        return 1
+    fi
     local server_bin
     server_bin=$(find "$extract_dir" -type f \
         \( -name 'server-allinone-*' -o -name 'server-linux-*' \) -print | head -1)
@@ -1672,8 +2323,12 @@ install_application() {
         return 1
     fi
     local SERVER_BIN="${SERVER_DIR}/oneclickvirt-server"
-    cp "$server_bin" "$SERVER_BIN"
-    chmod +x "$SERVER_BIN"
+    if ! cp "$server_bin" "$SERVER_BIN" || ! chmod +x "$SERVER_BIN"; then
+        log_error "Failed to install the server binary at ${SERVER_BIN}." \
+            "无法将服务端二进制安装到 ${SERVER_BIN}。"
+        rm -rf "$extract_dir"
+        return 1
+    fi
 
     # Download web dist
     local WEB_FILE="web-dist.zip"
@@ -1682,63 +2337,46 @@ install_application() {
         log_warning "Failed to download web-dist.zip (all-in-one server embeds frontend)" "下载 web-dist.zip 失败（all-in-one 服务器已内置前端）"
     }
     if [[ -f "/tmp/${WEB_FILE}" ]]; then
-        unzip -o "/tmp/${WEB_FILE}" -d "$WEB_DIR" 2>/dev/null || true
+        if ! unzip -o "/tmp/${WEB_FILE}" -d "$WEB_DIR" >/dev/null 2>&1; then
+            log_warning "web-dist.zip could not be extracted; the all-in-one binary may still provide the embedded frontend." \
+                "web-dist.zip 解压失败；all-in-one 二进制可能仍会提供内置前端。"
+        fi
     fi
 
-    # Create config.yaml (password YAML-safe: wrap in quotes, escape special chars)
-    local _yaml_db_password
-    if [[ "$EXTERNAL_DB" == "true" ]]; then
-        _yaml_db_password=$(printf '%s' "$DB_PASS_EXT" | sed 's/"/\\"/g')
-    else
-        _yaml_db_password=$(printf '%s' "$DB_PASSWORD" | sed 's/"/\\"/g')
-    fi
-    local _db_host _db_port _db_name _db_user
-    if [[ "$EXTERNAL_DB" == "true" ]]; then
-        _db_host="${DB_HOST:-127.0.0.1}"
-        _db_port="${DB_PORT:-3306}"
-        _db_name="${DB_NAME_EXT:-oneclickvirt}"
-        _db_user="${DB_USER_EXT:-oneclickvirt}"
-    else
-        _db_host="127.0.0.1"
-        _db_port="3306"
-        _db_name="oneclickvirt"
-        _db_user="oneclickvirt"
-    fi
-    cat > "${SERVER_DIR}/config.yaml" << CONFIG_EOF
-system:
-  env: public
-  addr: 8888
-  db-type: ${DB_TYPE}
-jwt:
-  signing-key: "$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
-  expires-time: 7d
-  buffer-time: 1d
-  issuer: oneclickvirt
-mysql:
-  path: ${_db_host}
-  port: "${_db_port}"
-  db-name: ${_db_name}
-  username: ${_db_user}
-  password: "${_yaml_db_password}"
-  config: charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27
-  max-idle-conns: "10"
-  max-open-conns: "100"
-  log-mode: error
-  log-zap: "false"
-  max-lifetime: "3600"
-  auto-create: "true"
-CONFIG_EOF
+    write_application_config || return 1
 
-    printf "%s\n" "${VERSION:-unknown}" > "${INSTALL_DIR}/VERSION"
-    printf "%s\n" "$SERVER_FILE" > "${INSTALL_DIR}/SERVER_ASSET"
-    install_oneclickvirt_service "$SERVER_BIN" "$SERVER_FILE"
+    if ! printf "%s\n" "${VERSION:-unknown}" > "${INSTALL_DIR}/VERSION" ||
+       ! printf "%s\n" "$SERVER_FILE" > "${INSTALL_DIR}/SERVER_ASSET"; then
+        log_error "Failed to write installation metadata." "写入安装元数据失败。"
+        rm -rf "$extract_dir"
+        rm -f "/tmp/${SERVER_FILE}" "/tmp/${WEB_FILE}"
+        return 1
+    fi
+    if ! install_oneclickvirt_service "$SERVER_BIN" "$SERVER_FILE"; then
+        log_error "Failed to install the OneClickVirt service." "安装 OneClickVirt 服务失败。"
+        rm -rf "$extract_dir"
+        rm -f "/tmp/${SERVER_FILE}" "/tmp/${WEB_FILE}"
+        return 1
+    fi
 
-    # Start reverse proxy if configured
-    start_proxy_service
+    # Start reverse proxy if configured. A proxy that failed to start leaves
+    # the freshly installed panel unreachable, so treat this as a fatal
+    # installation error instead of reporting a misleading success.
+    if ! start_proxy_service; then
+        log_error "Failed to start the reverse proxy; installation aborted." "反向代理启动失败，安装中止。"
+        rm -rf "$extract_dir"
+        rm -f "/tmp/${SERVER_FILE}" "/tmp/${WEB_FILE}"
+        return 1
+    fi
 
     # Start the server
     log_info "Starting OneClickVirt service..." "正在启动 OneClickVirt 服务..."
-    start_oneclickvirt_service
+    if ! start_oneclickvirt_service; then
+        log_error "Failed to start the OneClickVirt service." "OneClickVirt 服务启动失败。"
+        rm -rf "$extract_dir"
+        rm -f "/tmp/${SERVER_FILE}" "/tmp/${WEB_FILE}"
+        return 1
+    fi
     sleep 3
 
     log_success "Service start requested, waiting for API health endpoint..." "已请求启动服务，正在等待 API 健康端点..."
@@ -1786,6 +2424,8 @@ main() {
 
         read -r -p "Database type / 数据库类型 [mysql/mariadb] (default/默认: ${DB_TYPE}): " _db
         [[ -n "$_db" ]] && DB_TYPE="$_db"
+        normalize_db_type
+        validate_db_type || exit 1
 
         read -r -p "Reverse proxy / 反向代理 [caddy/nginx/openresty] (default/默认: ${PROXY}): " _px
         [[ -n "$_px" ]] && PROXY="$_px"
@@ -1937,6 +2577,7 @@ main() {
         fi
     fi
     DOMAIN="${DOMAIN:-localhost}"
+    validate_domain "$DOMAIN" || exit 1
 
     echo ""
     echo -e "${CYAN}--- Installation Summary / 安装摘要 ---${NC}"
@@ -2054,7 +2695,7 @@ main() {
 
     # Save credentials
     if [[ "$EXTERNAL_DB" == "true" ]]; then
-        cat > "${INSTALL_DIR}/.credentials" << CRED
+        if ! cat > "${INSTALL_DIR}/.credentials" << CRED
 Database: ${DB_TYPE} (EXTERNAL)
 DB Host: ${DB_HOST}:${DB_PORT}
 DB Name: ${DB_NAME_EXT}
@@ -2064,8 +2705,12 @@ Admin Username: ${ADMIN_USER}
 Admin Password: ${ADMIN_PASS}
 URL: ${_display_url}
 CRED
+        then
+            log_error "Unable to save installation credentials." "无法保存安装凭据。"
+            return 1
+        fi
     else
-        cat > "${INSTALL_DIR}/.credentials" << CRED
+        if ! cat > "${INSTALL_DIR}/.credentials" << CRED
 Database: ${DB_TYPE}
 Database Name: oneclickvirt
 Database User: oneclickvirt
@@ -2074,9 +2719,18 @@ Admin Username: ${ADMIN_USER}
 Admin Password: ${ADMIN_PASS}
 URL: ${_display_url}
 CRED
+        then
+            log_error "Unable to save installation credentials." "无法保存安装凭据。"
+            return 1
+        fi
     fi
-    chmod 600 "${INSTALL_DIR}/.credentials"
+    if ! chmod 600 "${INSTALL_DIR}/.credentials"; then
+        log_error "Unable to protect the installation credentials." "无法保护安装凭据文件。"
+        return 1
+    fi
     log_info "Credentials saved to ${INSTALL_DIR}/.credentials" "凭据已保存至 ${INSTALL_DIR}/.credentials"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-}" == "$0" || -z "${BASH_SOURCE[0]:-}" ]]; then
+    main "$@"
+fi

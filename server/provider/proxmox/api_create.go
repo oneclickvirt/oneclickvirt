@@ -334,11 +334,11 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	if systemArch == "aarch64" || systemArch == "armv7l" || systemArch == "armv8" || systemArch == "armv8l" {
 		_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --bios ovmf", vmid))
 		if err != nil {
-			global.APP_LOG.Warn("设置ARM BIOS失败", zap.Error(err))
+			return fmt.Errorf("设置ARM BIOS失败: %w", err)
 		}
 	}
 
-	importCmd := fmt.Sprintf("qm importdisk %d %s %s", vmid, localImagePath, storage)
+	importCmd := fmt.Sprintf("qm importdisk %d %s %s", vmid, shellSingleQuote(localImagePath), shellSingleQuote(storage))
 	_, err = p.sshClient.Execute(importCmd)
 	if err != nil {
 		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("导入磁盘失败: %w", err))
@@ -351,28 +351,45 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	time.Sleep(p.waitScale(3 * time.Second))
 
 	// 查找并设置磁盘
-	findDiskCmd := fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid && $1 ~ /\\.raw$/ {print $1}' | tail -n 1", storage, vmid)
-	diskOutput, _ := p.sshClient.Execute(findDiskCmd)
+	findDiskCmd := fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid && $1 ~ /\\.raw$/ {print $1}' | tail -n 1", shellSingleQuote(storage), vmid)
+	diskOutput, findErr := p.sshClient.Execute(findDiskCmd)
+	if findErr != nil {
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("查找导入磁盘失败: %w", findErr))
+	}
 	volid := strings.TrimSpace(diskOutput)
 
 	if volid == "" {
-		findDiskCmd = fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid {print $1}' | tail -n 1", storage, vmid)
-		diskOutput, _ = p.sshClient.Execute(findDiskCmd)
+		findDiskCmd = fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid {print $1}' | tail -n 1", shellSingleQuote(storage), vmid)
+		diskOutput, findErr = p.sshClient.Execute(findDiskCmd)
+		if findErr != nil {
+			return proxmoxAPICreateMutationError(vmid, fmt.Errorf("查找导入磁盘失败: %w", findErr))
+		}
 		volid = strings.TrimSpace(diskOutput)
 	}
 
-	if volid != "" {
-		_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --scsihw virtio-scsi-pci --scsi0 %s", vmid, volid))
+	if volid == "" {
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("找不到VM %d导入的磁盘卷", vmid))
+	}
+	if _, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --scsihw virtio-scsi-pci --scsi0 %s", vmid, shellSingleQuote(volid))); err != nil {
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("设置VM磁盘失败: %w", err))
 	}
 
-	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --bootdisk scsi0", vmid))
-	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --boot order=scsi0", vmid))
+	if _, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --bootdisk scsi0", vmid)); err != nil {
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("设置VM启动磁盘失败: %w", err))
+	}
+	if _, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --boot order=scsi0", vmid)); err != nil {
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("设置VM启动顺序失败: %w", err))
+	}
 
 	// 配置云初始化
 	if systemArch == "aarch64" || systemArch == "armv7l" || systemArch == "armv8" || systemArch == "armv8l" {
-		_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --scsi1 %s:cloudinit", vmid, storage))
+		if _, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --scsi1 %s", vmid, shellSingleQuote(fmt.Sprintf("%s:cloudinit", storage)))); err != nil {
+			return proxmoxAPICreateMutationError(vmid, fmt.Errorf("设置ARM云初始化磁盘失败: %w", err))
+		}
 	} else {
-		_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ide1 %s:cloudinit", vmid, storage))
+		if _, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ide1 %s", vmid, shellSingleQuote(fmt.Sprintf("%s:cloudinit", storage)))); err != nil {
+			return proxmoxAPICreateMutationError(vmid, fmt.Errorf("设置云初始化磁盘失败: %w", err))
+		}
 	}
 
 	// 调整磁盘大小
@@ -388,7 +405,10 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		if targetDiskGB > 0 {
 			// 获取当前磁盘大小
 			getCurrentSizeCmd := fmt.Sprintf("qm config %d | grep 'scsi0' | awk -F'size=' '{print $2}' | awk '{print $1}'", vmid)
-			currentSizeOutput, _ := p.sshClient.Execute(getCurrentSizeCmd)
+			currentSizeOutput, currentSizeErr := p.sshClient.Execute(getCurrentSizeCmd)
+			if currentSizeErr != nil {
+				return proxmoxAPICreateMutationError(vmid, fmt.Errorf("读取VM当前磁盘大小失败: %w", currentSizeErr))
+			}
 			currentSize := strings.TrimSpace(currentSizeOutput)
 
 			shouldResize := true
@@ -416,7 +436,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 			}
 
 			if shouldResize {
-				resizeCmd := fmt.Sprintf("qm resize %d scsi0 %sG", vmid, diskFormatted)
+				resizeCmd := fmt.Sprintf("qm resize %d scsi0 %s", vmid, shellSingleQuote(diskFormatted+"G"))
 				_, err := p.sshClient.Execute(resizeCmd)
 				if err != nil {
 					// 尝试以MB为单位重试
@@ -424,7 +444,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 					resizeCmd = fmt.Sprintf("qm resize %d scsi0 %dM", vmid, diskMB)
 					_, err = p.sshClient.Execute(resizeCmd)
 					if err != nil {
-						global.APP_LOG.Warn("调整磁盘大小失败", zap.Int("vmid", vmid), zap.Error(err))
+						return proxmoxAPICreateMutationError(vmid, fmt.Errorf("调整VM磁盘大小失败: %w", err))
 					}
 				}
 			}
@@ -433,7 +453,9 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 
 	// 配置IP（使用VMID到IP的映射函数）
 	userIP := p.vmidToInternalIP(vmid)
-	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, p.getInternalGateway()))
+	if _, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 %s", vmid, shellSingleQuote(fmt.Sprintf("ip=%s/24,gw=%s", userIP, p.getInternalGateway())))); err != nil {
+		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("设置VM IPv4网络配置失败: %w", err))
+	}
 
 	updateProgress(80, "虚拟机配置完成...")
 

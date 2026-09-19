@@ -2,14 +2,19 @@ package task
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	adminModel "oneclickvirt/model/admin"
 )
 
 func TestExternalTaskHandlerDispatch(t *testing.T) {
-	const taskType = "test-external-dispatch"
+	// The registry is intentionally process-scoped and has no unregister API in
+	// production.  Use a per-run type so `go test -count=N` does not collide
+	// with the handler left by the previous iteration.
+	taskType := fmt.Sprintf("test-external-dispatch-%d", time.Now().UnixNano())
 	called := false
 	RegisterExternalTaskHandler(taskType, func(_ context.Context, task *adminModel.Task) error {
 		called = task.TaskType == taskType

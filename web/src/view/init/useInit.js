@@ -8,6 +8,7 @@ import { containsUnsafeUsernameContent } from '@/utils/validate'
 import { resetInitCache } from '@/router/guards'
 import { getInitErrorMessage } from './initError'
 import { INIT_STEPS, fillInitDefaults } from './initDefaults'
+import { applyDetectedDatabaseType, databaseRequestMatches, fillDatabasePort } from './databaseDetection'
 
 export default function useInit() {
   const router = useRouter()
@@ -331,9 +332,7 @@ export default function useInit() {
   // 数据库类型变化处理
   const onDatabaseTypeChange = (type) => {
     // 根据数据库类型调整默认端口
-    if (type === 'mysql' || type === 'mariadb') {
-      databaseForm.port = '3306'
-    }
+    fillDatabasePort(databaseForm, type)
   }
 
   // 自动检测数据库类型
@@ -352,23 +351,7 @@ export default function useInit() {
       console.warn(t('init.debug.recommendedDbFailed'), error)
     }
     
-    // 如果API调用失败，回退到客户端检测
-    const platform = navigator.platform.toLowerCase()
-    
-    // 简单的架构检测逻辑
-    if (platform.includes('arm') || platform.includes('aarch64')) {
-      return {
-        type: 'mariadb',
-        reason: t('init.debug.armRecommendMariadb'),
-        architecture: 'ARM64'
-      }
-    } else if (platform.includes('x86') || platform.includes('intel') || platform.includes('amd64')) {
-      return {
-        type: 'mysql', 
-        reason: t('init.debug.amdRecommendMysql'),
-        architecture: 'AMD64'
-      }
-    }
+    // Browser architecture cannot identify a remote database server.
     
     // 默认使用MySQL
     return {
@@ -429,6 +412,9 @@ export default function useInit() {
   }
 
   const testDatabaseConnection = async () => {
+    if (testingConnection.value) return
+    testingConnection.value = true
+    let testData
     try {
       // 先验证数据库表单
       if (!databaseFormRef.value) {
@@ -438,11 +424,10 @@ export default function useInit() {
       
       await databaseFormRef.value.validate()
       
-      testingConnection.value = true
       connectionTestResult.value = null
       
       // 发送测试连接请求
-      const testData = {
+      testData = {
         type: databaseForm.type,
         host: databaseForm.host,
         port: databaseForm.port,
@@ -452,11 +437,22 @@ export default function useInit() {
       }
       
       const response = await post('/v1/public/test-db-connection', testData)
+      // A slow probe belongs to its request snapshot, not a newly edited form.
+      if (!databaseRequestMatches(databaseForm, testData)) return
       
       if (response.code === 200) {
+        const detectedType = response.data?.type
+        if (applyDetectedDatabaseType(databaseForm, response.data)) {
+          dbRecommendation.value = {
+            ...dbRecommendation.value,
+            type: detectedType,
+            reason: t('init.database.autoDetectHint')
+          }
+        }
         connectionTestResult.value = {
           success: true,
-          message: '✅ ' + t('init.messages.dbConnSuccess')
+          message: '✅ ' + t('init.messages.dbConnSuccess') +
+            (response.data?.version ? ` (${detectedType} ${response.data.version})` : '')
         }
         ElMessage.success(t('init.messages.dbTestSuccess'))
       } else {
@@ -467,6 +463,7 @@ export default function useInit() {
         ElMessage.error(response.msg || t('init.messages.dbTestFailed'))
       }
     } catch (error) {
+      if (testData && !databaseRequestMatches(databaseForm, testData)) return
       console.error(t('init.messages.dbTestFailed') + ':', error)
       connectionTestResult.value = {
         success: false,

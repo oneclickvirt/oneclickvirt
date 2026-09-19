@@ -428,11 +428,13 @@ func (s *PortMappingService) allocateControllerPortWithDB(db *gorm.DB, providerI
 		return 0, fmt.Errorf("端口数量必须大于0")
 	}
 
-	// 获取所有控制端转发模式的已用端口段。历史数据可能包含端口段，
-	// 因此不能只比较每条记录的起始端口。
+	// 获取所有控制端转发模式的已用端口段。控制端监听在控制器上是全局
+	// 资源；同一 Provider 的节点映射也必须计入，因为 Port 表的唯一约束
+	// 是 provider_id + host_port。历史数据可能包含端口段，因此不能只
+	// 比较每条记录的起始端口。
 	var usedRecords []provider.Port
 	if err := db.
-		Where("mapping_type = 'controller' AND host_port <= ?", rangeEnd).
+		Where("(mapping_type = 'controller' OR provider_id = ?) AND host_port <= ?", providerID, rangeEnd).
 		Select("host_port", "host_port_end", "port_count").
 		Find(&usedRecords).Error; err != nil {
 		return 0, fmt.Errorf("查询控制端端口占用失败: %v", err)

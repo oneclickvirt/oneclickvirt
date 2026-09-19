@@ -38,12 +38,13 @@ func (s *ControllerPortHealthSchedulerService) Start(ctx context.Context) {
 		return
 	}
 	s.stopChan = make(chan struct{})
+	stopChan := s.stopChan
 	s.isRunning = true
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("启动控制端端口转发健康检查调度器")
 
-	go s.run(ctx)
+	go s.run(ctx, stopChan)
 }
 
 // Stop 停止控制端端口转发健康检查调度器。
@@ -54,10 +55,11 @@ func (s *ControllerPortHealthSchedulerService) Stop() {
 		return
 	}
 	s.isRunning = false
+	stopChan := s.stopChan
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止控制端端口转发健康检查调度器")
-	close(s.stopChan)
+	close(stopChan)
 }
 
 // IsRunning 检查调度器是否正在运行。
@@ -68,7 +70,7 @@ func (s *ControllerPortHealthSchedulerService) IsRunning() bool {
 }
 
 // run 运行定期检查循环。
-func (s *ControllerPortHealthSchedulerService) run(ctx context.Context) {
+func (s *ControllerPortHealthSchedulerService) run(ctx context.Context, stopChan <-chan struct{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			global.APP_LOG.Error("控制端端口转发健康检查 goroutine panic",
@@ -86,7 +88,7 @@ func (s *ControllerPortHealthSchedulerService) run(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 		return
-	case <-s.stopChan:
+	case <-stopChan:
 		return
 	case <-time.After(initialDelay):
 	}
@@ -99,7 +101,7 @@ func (s *ControllerPortHealthSchedulerService) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-s.stopChan:
+		case <-stopChan:
 			return
 		case <-ticker.C:
 			s.runHealthCheck()

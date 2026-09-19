@@ -50,13 +50,14 @@ func (s *ProviderHealthSchedulerService) Start(ctx context.Context) {
 		return
 	}
 	s.stopChan = make(chan struct{}) // 每次启动时重建，防止复用已关闭的channel
+	stopChan := s.stopChan
 	s.isRunning = true
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("启动Provider健康检查调度器")
 
 	// 启动定期健康检查任务
-	go s.startHealthCheckTask(ctx)
+	go s.startHealthCheckTask(ctx, stopChan)
 }
 
 // Stop 停止健康检查调度器
@@ -67,10 +68,11 @@ func (s *ProviderHealthSchedulerService) Stop() {
 		return
 	}
 	s.isRunning = false
+	stopChan := s.stopChan
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止Provider健康检查调度器")
-	close(s.stopChan)
+	close(stopChan)
 }
 
 // IsRunning 检查调度器是否正在运行
@@ -81,7 +83,7 @@ func (s *ProviderHealthSchedulerService) IsRunning() bool {
 }
 
 // startHealthCheckTask 启动自适应健康检查任务
-func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Context) {
+func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Context, stopChan <-chan struct{}) {
 	// defer recover 必须在函数最开始注册，才能保护首次执行（含首次调用checkAllProvidersHealth）
 	defer func() {
 		if r := recover(); r != nil {
@@ -97,7 +99,7 @@ func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Contex
 	select {
 	case <-ctx.Done():
 		return
-	case <-s.stopChan:
+	case <-stopChan:
 		return
 	case <-time.After(startupGrace):
 	}
@@ -113,7 +115,7 @@ func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Contex
 		select {
 		case <-ctx.Done():
 			return
-		case <-s.stopChan:
+		case <-stopChan:
 			return
 		case <-ticker.C:
 			// 动态调整检查间隔

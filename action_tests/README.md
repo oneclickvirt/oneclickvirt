@@ -8,6 +8,8 @@
 
 报告支持中英双语切换、亮色/暗色主题切换，标题下方显示当前测试对应的主控版本、Agent 版本、Git ref/SHA、GitHub Actions run id 和 workflow 信息。
 
+专用节点的当前源码面板、真实 Rust Agent 和独立 WebSSH 验收入口见 [真实环境验收说明](../scripts/tests/LIVE_ACCEPTANCE.md)。这些入口与默认 CI 组件测试分别记录，缺少真实环境不计为通过。
+
 ## 架构设计
 
 测试采用双节点架构。单个虚拟化环境内的模块按顺序执行；选择 `all` 时默认最多并发运行 2 个相互隔离的环境，每个环境独占并清理自己的 Worker：
@@ -117,6 +119,8 @@ action_tests/
 实例创建任务会优先等待返回的 `task_id`/`taskId` 完成；启动、停止、重启、删除等实例操作 API 可能只返回“操作已提交”，此时测试框架会按实例 ID 轮询管理员任务列表，等待同一实例的活跃任务队列清空后再断言最终状态，避免操作刚提交就立刻触发下一步导致误判。
 
 LXD/Incus 等环境在 CI 中依赖远程镜像站、DNS 和 Worker 出网能力。测试框架会把 `Temporary failure resolving`、`curl: (6)`、`lookup images.lxd.canonical.com ... [::1]:53`、远程镜像下载失败、Worker SSH 不可达等明确的基础设施问题记录为 `SKIP`，并继续清理已创建的半成品实例；接口返回格式错误、权限错误、业务状态错误仍会记录为 `FAIL`。
+
+正向 API 断言可以把期望状态写成 `200|infra`（或 `200|201|infra`）。其中 `infra` 不是任意 4xx/5xx 的别名：只有响应正文明确匹配远端连接、DNS、镜像下载或节点不可达等基础设施诊断时才记录 `SKIP`；普通参数、权限和业务错误仍然记录 `FAIL`，不会被当作测试通过。
 
 `26_instance_types.sh` 在创建 container/VM 类型实例前会等待同一 Provider 的活跃任务队列清空；创建任务默认最多等待 `INSTANCE_TYPE_TASK_MAX_WAIT=1800` 秒（不会低于 `INSTANCE_TASK_MAX_WAIT`）。如果任务在超时后仍处于 `pending`、`running`、`processing`、`queued` 或 `cancelling`，测试会先调用管理员取消接口并记录为可恢复的 `SKIP`，避免在创建任务仍运行时删除实例导致后续 `record not found`。
 
@@ -328,6 +332,8 @@ GitHub Actions 会自动安装所需依赖。
 | 密钥名称 | 值格式 | 必需 |
 |---------|--------|------|
 | `TEST_ADMIN_PASS` | 任意字符串密码，默认 `Admin123!@#` | 否 |
+| `REMOTE_STRICT_HOST_KEY` | 设为 `yes`/`true` 后，`action_tests/common/remote.py` 拒绝未知 SSH 主机密钥；适用于已预登记的节点 | 否 |
+| `REMOTE_KNOWN_HOSTS` | Paramiko SSH 信任文件路径；设置后自动启用严格校验，未知或变更指纹直接失败 | 否 |
 
 **Alice/Ephemera**（默认平台）
 
@@ -361,6 +367,9 @@ GitHub Actions 会自动安装所需依赖。
 | `INCUS_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 Incus installer 调试路径；未设置时自动探测同级 `incus` 仓库 |
 | `KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 KubeVirt installer 调试路径；未设置时自动探测同级 `kubevirt` 仓库 |
 | `ACTION_TEST_LIVE_IPV6_TUNNEL` | 默认 `false`；仅限专用可销毁工作节点的显式宿主机隧道生命周期检查 |
+| `OCV_LIVE_NETWORK_TYPE` | live 面板验收网络模式：`nat_ipv4`、`ipv6_only` 或 `nat_ipv4_ipv6` |
+| `OCV_LIVE_IPV6` | 设为 `yes` 后对 IPv6 模式执行容器出网、独立公网 HTTP 与严格 SSH 验收；缺条件直接失败 |
+| `OCV_WEBSSH_SOURCE_IPV6` | WebSSH 通过 IPv6 登录时的实际 SSH 来源地址，不能填写网页服务 IPv4 |
 
 **Action 实例规格**
 

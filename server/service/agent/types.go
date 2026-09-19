@@ -25,6 +25,9 @@ const (
 type agentStatusPersistState struct {
 	status      string
 	lastPersist time.Time
+	remoteIP    string
+	hostname    string
+	version     string
 }
 
 type agentRuntimeState struct {
@@ -44,13 +47,14 @@ type AgentRuntimeHealth struct {
 // ── 消息协议（文本帧 JSON） ─────────────────────────────────────────────────
 
 const (
-	msgTypeExecRequest  = "exec_req"  // 控制端 → Agent: 执行命令
-	msgTypeExecResponse = "exec_resp" // Agent → 控制端: 命令结果
-	msgTypeAPIRequest   = "api_req"   // 控制端 → Agent: 受限的结构化本地 API 请求
-	msgTypeAPIResponse  = "api_resp"  // Agent → 控制端: 结构化本地 API 响应
-	msgTypePing         = "ping"      // 控制端 → Agent: 心跳
-	msgTypePong         = "pong"      // Agent → 控制端: 心跳应答
-	msgTypeInfo         = "info"      // Agent → 控制端: 上报自身信息
+	msgTypeExecRequest  = "exec_req"   // 控制端 → Agent: 执行命令
+	msgTypeExecResponse = "exec_resp"  // Agent → 控制端: 命令结果
+	msgTypeAPIRequest   = "api_req"    // 控制端 → Agent: 受限的结构化本地 API 请求
+	msgTypeAPIResponse  = "api_resp"   // Agent → 控制端: 结构化本地 API 响应
+	msgTypeAPICancel    = "api_cancel" // 控制端 → Agent: 取消当前结构化 API 请求
+	msgTypePing         = "ping"       // 控制端 → Agent: 心跳
+	msgTypePong         = "pong"       // Agent → 控制端: 心跳应答
+	msgTypeInfo         = "info"       // Agent → 控制端: 上报自身信息
 	msgTypeShellOpen    = "shell_open"
 	msgTypeShellExec    = "shell_exec"
 	msgTypeShellReady   = "shell_ready"
@@ -136,6 +140,11 @@ type AgentShellSession struct {
 	ReadyCh  chan struct{}
 	closed   bool // 防止重复关闭 OutputCh 导致 panic
 	closeMu  sync.Mutex
+	// ioMu serializes controller-originated shell frames with shell_close.
+	// Without this per-session gate, a stale input/resize event could pass the
+	// map lookup just before CloseShell removes the session and be written after
+	// the close frame (or after a future session reused the same ID).
+	ioMu sync.Mutex
 }
 
 // safeClose 安全关闭会话通道，可多次调用不会 panic。
@@ -161,17 +170,19 @@ type AgentConn struct {
 	remoteAddr string
 	hostname   string
 
-	mu            sync.Mutex
-	writeGate     chan struct{}
-	writeGateOnce sync.Once
-	pending       map[string]chan execResponsePayload // reqID → response channel
-	apiPending    map[string]chan apiResponsePayload  // reqID → typed API response channel
-	fmPending     map[string]chan fmRawResp           // reqID → fm response channel
-	shellSessions map[string]*AgentShellSession
-	pingFailCount int           // 连续 ping 失败计数（用于检测连接僵死）
-	noiseStop     chan struct{} // 关闭时停止 noise 帧发送
-	wsPingStop    chan struct{} // 关闭时停止 WebSocket 协议层 ping
-	doneCh        chan struct{} // WS 断开时关闭，通知所有等待中的 exec/shell 操作立即返回
+	mu             sync.Mutex
+	writeGate      chan struct{}
+	writeGateOnce  sync.Once
+	pending        map[string]chan execResponsePayload // reqID → response channel
+	apiPending     map[string]chan apiResponsePayload  // reqID → typed API response channel
+	fmPending      map[string]chan fmRawResp           // reqID → fm response channel
+	shellSessions  map[string]*AgentShellSession
+	pingFailCount  int           // 连续 ping 失败计数（用于检测连接僵死）
+	noiseStop      chan struct{} // 关闭时停止 noise 帧发送
+	noiseStopOnce  sync.Once
+	wsPingStop     chan struct{} // 关闭时停止 WebSocket 协议层 ping
+	wsPingStopOnce sync.Once
+	doneCh         chan struct{} // WS 断开时关闭，通知所有等待中的 exec/shell 操作立即返回
 }
 
 // ── FM 消息 Payload 类型 ─────────────────────────────────────────────────────

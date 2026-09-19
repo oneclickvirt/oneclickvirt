@@ -165,7 +165,10 @@ func (p *QEMUProvider) RestartInstance(ctx context.Context, id string) error {
 		global.APP_LOG.Warn("QEMU虚拟机reboot失败，尝试destroy+start",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 500)))
-		p.sshClient.Execute(fmt.Sprintf("virsh -c %s destroy %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
+		destroyOutput, destroyErr := p.sshClient.Execute(fmt.Sprintf("virsh -c %s destroy %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id)))
+		if destroyErr != nil && !qemuDomainAlreadyGone(destroyOutput, destroyErr) && !qemuDomainNotRunning(destroyOutput, destroyErr) {
+			return fmt.Errorf("failed to restart %s: reboot failed: %w; destroy fallback failed: %v; output: %s", kind, err, destroyErr, utils.TruncateString(strings.TrimSpace(destroyOutput), 1000))
+		}
 		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
 			return fmt.Errorf("waiting before fallback start cancelled: %w", err)
 		}
@@ -226,49 +229,85 @@ func (p *QEMUProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	global.APP_LOG.Info("开始删除QEMU虚拟机", zap.String("id", utils.TruncateString(id, 32)))
 
 	// 1. 停止VM
-	p.sshClient.Execute(fmt.Sprintf("virsh destroy %s 2>/dev/null", shellSingleQuote(id)))
-	time.Sleep(1 * time.Second)
+	if output, err := p.sshClient.Execute(fmt.Sprintf("virsh destroy %s 2>&1", shellSingleQuote(id))); err != nil && !qemuDomainAlreadyGone(output, err) && !qemuDomainNotRunning(output, err) {
+		return fmt.Errorf("停止QEMU虚拟机失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
+	if err := sleepWithContext(ctx, time.Second); err != nil {
+		return fmt.Errorf("等待QEMU虚拟机停止被取消: %w", err)
+	}
 
 	// 2. 获取VM的内网IP（在undefine之前，因为之后信息丢失）
 	vmIP := p.getVMIPAddress(ctx, id)
 
 	// 3. 清理防火墙规则
 	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
-	if _, err := fwMgr.DetectBackend(FWBackendFile); err == nil {
-		// nft 后端：通过 comment 精确删除
-		if fwMgr.GetBackend() == firewall.BackendNft {
-			fwMgr.DeleteRulesByComment(fmt.Sprintf("vm:%s", id))
+	if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
+		return fmt.Errorf("删除实例前检测防火墙失败: %w", err)
+	}
+	if err := fwMgr.DeleteRulesByComment(fmt.Sprintf("vm:%s", id)); err != nil {
+		return fmt.Errorf("删除实例前清理所属防火墙规则失败: %w", err)
+	}
+	if vmIP != "" {
+		if err := fwMgr.DeleteRulesByIP(vmIP); err != nil {
+			return fmt.Errorf("删除实例前清理旧版防火墙规则失败: %w", err)
 		}
-		// 同时通过 IP 清理（兼容）
-		if vmIP != "" {
-			fwMgr.DeleteRulesByIP(vmIP)
-		}
-		fwMgr.SaveRules()
+	}
+	if err := fwMgr.SaveRules(); err != nil {
+		return fmt.Errorf("删除实例前保存防火墙规则失败: %w", err)
 	}
 
 	// 4. 删除 DHCP 预留
-	p.removeDHCPReservation(id, vmIP)
+	if err := p.removeDHCPReservation(id, vmIP); err != nil {
+		return err
+	}
 
 	// 5. 删除VM定义和磁盘
-	p.sshClient.Execute(fmt.Sprintf("virsh undefine %s --remove-all-storage 2>/dev/null || virsh undefine %s 2>/dev/null || true", shellSingleQuote(id), shellSingleQuote(id)))
+	if output, err := p.sshClient.Execute(fmt.Sprintf("virsh undefine %s --remove-all-storage 2>&1", shellSingleQuote(id))); err != nil {
+		if qemuDomainAlreadyGone(output, err) {
+			// Idempotent delete: the domain was already removed.
+		} else if fallbackOutput, fallbackErr := p.sshClient.Execute(fmt.Sprintf("virsh undefine %s 2>&1", shellSingleQuote(id))); fallbackErr != nil && !qemuDomainAlreadyGone(fallbackOutput, fallbackErr) {
+			return fmt.Errorf("删除QEMU虚拟机定义失败: %w (output: %s; fallback: %s)", fallbackErr, utils.TruncateString(strings.TrimSpace(fallbackOutput), 1000), utils.TruncateString(strings.TrimSpace(output), 1000))
+		}
+	}
 
 	// 6. 清除残留文件
 	artifactName := qemuSafeFileComponent(id)
-	p.sshClient.Execute(fmt.Sprintf("rm -f %s %s 2>/dev/null",
+	if output, err := p.sshClient.Execute(fmt.Sprintf("rm -f %s %s 2>&1",
 		shellSingleQuote(fmt.Sprintf("%s/vm-%s.qcow2", ImageDir, artifactName)),
-		shellSingleQuote(fmt.Sprintf("%s/vm-%s-cloudinit.iso", ImageDir, artifactName))))
+		shellSingleQuote(fmt.Sprintf("%s/vm-%s-cloudinit.iso", ImageDir, artifactName)))); err != nil {
+		return fmt.Errorf("清理QEMU虚拟机文件失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
 
 	// 7. 清理 vmlog 记录
 	p.sshClient.Execute(fmt.Sprintf("grep -v '^%s ' /root/vmlog > /root/vmlog.tmp && mv /root/vmlog.tmp /root/vmlog 2>/dev/null || true", utils.SanitizeShellArg(id)))
 
 	// 验证删除
 	output, err := p.sshClient.Execute(fmt.Sprintf("virsh dominfo %s 2>&1", shellSingleQuote(id)))
-	if err != nil || strings.Contains(output, "Domain not found") || strings.Contains(output, "failed to get domain") {
+	if qemuDomainAlreadyGone(output, err) {
 		global.APP_LOG.Info("QEMU虚拟机删除成功", zap.String("id", utils.TruncateString(id, 32)))
 		return nil
 	}
+	if err != nil {
+		return fmt.Errorf("验证QEMU虚拟机删除状态失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
 
 	return fmt.Errorf("VM %s still exists after deletion", id)
+}
+
+func qemuDomainAlreadyGone(output string, err error) bool {
+	text := strings.ToLower(strings.TrimSpace(output))
+	if err != nil {
+		text += "\n" + strings.ToLower(err.Error())
+	}
+	return strings.Contains(text, "domain not found") || strings.Contains(text, "failed to get domain") || strings.Contains(text, "no domain with matching") || strings.Contains(text, "domain does not exist")
+}
+
+func qemuDomainNotRunning(output string, err error) bool {
+	text := strings.ToLower(strings.TrimSpace(output))
+	if err != nil {
+		text += "\n" + strings.ToLower(err.Error())
+	}
+	return strings.Contains(text, "domain is not running") || strings.Contains(text, "is not running") || strings.Contains(text, "already inactive")
 }
 
 func sleepWithContext(ctx context.Context, duration time.Duration) error {
@@ -289,7 +328,7 @@ func sleepWithContext(ctx context.Context, duration time.Duration) error {
 }
 
 // removeDHCPReservation 删除 DHCP 预留
-func (p *QEMUProvider) removeDHCPReservation(vmName, vmIP string) {
+func (p *QEMUProvider) removeDHCPReservation(vmName, vmIP string) error {
 	// 从 libvirt 网络 XML 获取预留信息
 	dhcpMAC, _ := p.sshClient.Execute(fmt.Sprintf(
 		"virsh net-dumpxml default 2>/dev/null | grep -F %s | grep -oP \"mac='[^']+\" | cut -d\"'\" -f2",
@@ -302,9 +341,17 @@ func (p *QEMUProvider) removeDHCPReservation(vmName, vmIP string) {
 
 	if dhcpMAC != "" && dhcpIP != "" {
 		hostXML := fmt.Sprintf("<host mac='%s' name='%s' ip='%s' />", dhcpMAC, vmName, dhcpIP)
-		p.sshClient.Execute(fmt.Sprintf(
-			"virsh net-update default delete ip-dhcp-host %s --live --config 2>/dev/null || "+
-				"virsh net-update default delete ip-dhcp-host %s --config 2>/dev/null || true",
-			shellSingleQuote(hostXML), shellSingleQuote(hostXML)))
+		output, err := p.sshClient.Execute(fmt.Sprintf(
+			"virsh net-update default delete ip-dhcp-host %s --live --config 2>&1",
+			shellSingleQuote(hostXML)))
+		if err != nil {
+			fallbackOutput, fallbackErr := p.sshClient.Execute(fmt.Sprintf(
+				"virsh net-update default delete ip-dhcp-host %s --config 2>&1",
+				shellSingleQuote(hostXML)))
+			if fallbackErr != nil && !qemuDomainAlreadyGone(fallbackOutput, fallbackErr) {
+				return fmt.Errorf("删除QEMU DHCP预留失败: %w (output: %s; fallback: %s)", fallbackErr, utils.TruncateString(strings.TrimSpace(fallbackOutput), 1000), utils.TruncateString(strings.TrimSpace(output), 1000))
+			}
+		}
 	}
+	return nil
 }

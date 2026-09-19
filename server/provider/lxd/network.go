@@ -75,23 +75,33 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		global.APP_LOG.Debug("使用现有网络配置继续",
 			zap.String("instanceName", config.Name))
 		if hasIPv6 {
-			if err := l.configureIPv6Network(ctx, config.Name, true, networkConfig.IPv6PortMappingMethod, requestedIPv6, routedIPv6, config.InstanceType); err != nil {
+			if err := l.configureIPv6AndPortMappings(ctx, config, networkConfig, requestedIPv6, routedIPv6); err != nil {
 				return fmt.Errorf("使用现有网络配置静态IPv6失败: %w", err)
 			}
 		}
 		return nil
 	}
 
-	// 获取实例IP地址
-	instanceIP, err := l.getInstanceIP(config.Name)
-	if err != nil {
-		return fmt.Errorf("获取实例IP地址失败: %w", err)
+	// IPv6-only guests intentionally have no IPv4 address. Do not make their
+	// creation depend on an IPv4 DHCP lease; only the IPv4 mapping path needs it.
+	instanceIP := ""
+	var err error
+	if networkConfig.NetworkType != "ipv6_only" {
+		instanceIP, err = l.getInstanceIP(config.Name)
+		if err != nil {
+			return fmt.Errorf("获取实例IPv4地址失败: %w", err)
+		}
 	}
 
-	// 获取主机IP地址
-	hostIP, err := l.getHostIP()
-	if err != nil {
-		return fmt.Errorf("获取主机IP地址失败: %w", err)
+	// IPv6-only mappings use their own IPv6 endpoint and do not need an IPv4
+	// host address. Keep this lookup out of that path so an IPv4-less node can
+	// still create a usable guest.
+	hostIP := ""
+	if networkConfig.NetworkType != "ipv6_only" {
+		hostIP, err = l.getHostIP()
+		if err != nil {
+			return fmt.Errorf("获取主机IPv4地址失败: %w", err)
+		}
 	}
 
 	global.APP_LOG.Debug("开始配置实例网络",
@@ -99,25 +109,30 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		zap.String("instanceIP", instanceIP),
 		zap.String("hostIP", hostIP))
 
+	// Keep bandwidth configuration before the address override, which may
+	// copy an inherited NIC into the local device list.
+	if err := l.configureNetworkLimits(config.Name, networkConfig); err != nil {
+		global.APP_LOG.Warn("配置网络限速失败", zap.Error(err))
+	}
+	// Read the live NIC address/MAC before stopping. Guest interface names
+	// (such as enp5s0 in a VM) need not match the profile device name.
+	if instanceIP != "" {
+		if err := l.setIPAddressBinding(config.Name, instanceIP); err != nil {
+			global.APP_LOG.Warn("设置IP地址绑定失败", zap.Error(err))
+		}
+	}
 	// 停止实例进行网络配置
 	if err := l.stopInstanceForConfig(config.Name); err != nil {
 		return fmt.Errorf("停止实例进行配置失败: %w", err)
 	}
 
-	// 配置网络限速
-	if err := l.configureNetworkLimits(config.Name, networkConfig); err != nil {
-		global.APP_LOG.Warn("配置网络限速失败", zap.Error(err))
-	}
-
-	// 设置IP地址绑定
-	if err := l.setIPAddressBinding(config.Name, instanceIP); err != nil {
-		global.APP_LOG.Warn("设置IP地址绑定失败", zap.Error(err))
-	}
-
-	// 配置端口映射 - 在实例停止时添加 proxy 设备
-	// LXD 的 proxy 设备必须在容器停止时添加，然后启动容器时才能正确初始化
-	if err := l.configurePortMappingsWithIP(config.Name, networkConfig, instanceIP); err != nil {
-		global.APP_LOG.Warn("配置端口映射失败", zap.Error(err))
+	// 配置端口映射 - 在实例停止时添加 proxy 设备。IPv6-only 实例的
+	// IPv6 设备还没有在此阶段创建，先跳过，待 configureIPv6Network
+	// 完成后再读取 eth0/eth1 的实际地址配置映射。
+	if networkConfig.NetworkType != "ipv6_only" {
+		if err := l.configureInitialPortMappingsWithIP(config.Name, networkConfig, instanceIP); err != nil {
+			return fmt.Errorf("配置端口映射失败: %w", err)
+		}
 	}
 
 	// 启动实例 - 在配置完端口映射后启动，让 proxy 设备正确初始化
@@ -154,7 +169,7 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 			zap.String("instanceName", config.Name),
 			zap.String("ipv6PortMappingMethod", networkConfig.IPv6PortMappingMethod))
 
-		if err := l.configureIPv6Network(ctx, config.Name, hasIPv6, networkConfig.IPv6PortMappingMethod, requestedIPv6, routedIPv6, config.InstanceType); err != nil {
+		if err := l.configureIPv6AndPortMappings(ctx, config, networkConfig, requestedIPv6, routedIPv6); err != nil {
 			return fmt.Errorf("配置IPv6网络失败: %w", err)
 		}
 	} else {
@@ -166,6 +181,63 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP))
 
+	return nil
+}
+
+// configureIPv6AndPortMappings keeps the IPv6 address allocation and proxy
+// creation ordered.  The address is only available after the routed device is
+// attached. This SSH creation path retains its stop/configure/start sequence;
+// NAT proxy devices themselves also support hotplug.
+func (l *LXDProvider) configureIPv6AndPortMappings(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig, requestedIPv6 string, routed *provider.RoutedIPv6Config) error {
+	if networkConfig.NetworkType == "nat_ipv4_ipv6" && routed == nil {
+		guestIPv6, err := l.configureNATIPv6Network(ctx, config.Name, requestedIPv6)
+		if err != nil {
+			return err
+		}
+		// LXD state.network may be null during the stop used to attach proxy
+		// devices. Persist the observed ULA before that transition.
+		if err := l.persistManagedNATIPv6Target(config.Name, guestIPv6); err != nil {
+			return err
+		}
+	} else {
+		if err := l.configureIPv6Network(ctx, config.Name, true, networkConfig.IPv6PortMappingMethod, requestedIPv6, routed, config.InstanceType); err != nil {
+			return err
+		}
+	}
+	if networkConfig.NetworkType != "nat_ipv4_ipv6" && networkConfig.NetworkType != "ipv6_only" {
+		return nil
+	}
+	if err := l.stopInstanceForConfig(config.Name); err != nil {
+		return fmt.Errorf("停止实例配置IPv6端口映射失败: %w", err)
+	}
+	ipv6Config := networkConfig
+	ipv6Config.NetworkType = "ipv6_only"
+	if err := l.configurePortMappingFamiliesWithIP(config.Name, ipv6Config, "", false, true); err != nil {
+		return fmt.Errorf("配置IPv6端口映射失败: %w", err)
+	}
+	// This function is reached from the SSH network-configuration path. Keep
+	// the final start on that same transport: an API transport can be present
+	// but temporarily unhealthy, and routing this one step through it would
+	// turn a recoverable SSH create into a failed task.
+	if err := l.sshStartInstance(ctx, config.Name); err != nil {
+		return fmt.Errorf("启动实例完成IPv6端口映射失败: %w", err)
+	}
+	return nil
+}
+
+func (l *LXDProvider) persistManagedNATIPv6Target(instanceName, guestIPv6 string) error {
+	if global.APP_DB == nil {
+		return fmt.Errorf("持久化NAT IPv6实例ULA失败: 数据库未初始化")
+	}
+	result := global.APP_DB.Model(&providerModel.Instance{}).
+		Where("name = ? AND provider_id = ?", instanceName, l.config.ID).
+		Update("ipv6_address", guestIPv6)
+	if result.Error != nil {
+		return fmt.Errorf("持久化NAT IPv6实例ULA失败: %w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("持久化NAT IPv6实例ULA失败: rows=%d", result.RowsAffected)
+	}
 	return nil
 }
 
@@ -191,11 +263,13 @@ func (l *LXDProvider) parseNetworkConfigFromInstanceConfig(config provider.Insta
 
 	// 获取Provider配置信息
 	var providerInfo providerModel.Provider
-	if err := global.APP_DB.Where("id = ?", l.config.ID).First(&providerInfo).Error; err != nil {
-		global.APP_LOG.Warn("无法获取Provider配置，使用默认值",
-			zap.Uint("provider_id", l.config.ID),
-			zap.String("provider", l.config.Name),
-			zap.Error(err))
+	if global.APP_DB != nil {
+		if err := global.APP_DB.Where("id = ?", l.config.ID).First(&providerInfo).Error; err != nil {
+			global.APP_LOG.Warn("无法获取Provider配置，使用默认值",
+				zap.Uint("provider_id", l.config.ID),
+				zap.String("provider", l.config.Name),
+				zap.Error(err))
+		}
 	}
 
 	// 设置默认的IPv4和IPv6端口映射方法（如果Provider配置为空则使用默认值）

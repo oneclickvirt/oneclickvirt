@@ -136,7 +136,7 @@ _github_reachable() {
 
 # Pre-check which CDN mirrors are actually available (only called when GitHub is down)
 _check_cdn_available() {
-  local test_url="https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/.back/test"
+  test_url="https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/.back/test"
   printf '%s' "" > /tmp/ocv_working_cdns
   for cdn in $CDN_URLS; do
     if curl -sL -k --max-time 6 "${cdn}/${test_url}" 2>/dev/null | grep -q "success"; then
@@ -153,13 +153,13 @@ TMP_FILE="${INSTALL_DIR}/${BINARY_NAME}.tmp"
 
 # _dl_progress shows an animated progress bar while a download runs in background
 _dl_progress() {
-  local out="$1" total="$2" pid="$3" shown=0
+  out="$1" total="$2" pid="$3" shown=0
   # Strip leading zeros to avoid octal interpretation (e.g. Content-Length "06293879")
   total=$(echo "$total" | sed 's/^0*//')
   [ -z "$total" ] && total=0
   while kill -0 "$pid" 2>/dev/null; do
     if [ -f "$out" ]; then
-      local cur=0
+      cur=0
       cur=$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out" 2>/dev/null)
       cur=$(printf '%s' "$cur" | tr -d '\r\n ' | grep -o '[0-9]*' | head -1)
       cur=${cur:-0}
@@ -167,10 +167,10 @@ _dl_progress() {
       cur=$(echo "$cur" | sed 's/^0*//')
       [ -z "$cur" ] && cur=0
       if [ "$total" -gt 0 ] && [ "$cur" -gt 0 ]; then
-        local pct=$((cur * 100 / total))
+        pct=$((cur * 100 / total))
         [ "$pct" -gt 100 ] && pct=100
         if [ "$pct" -gt "$shown" ]; then
-          local bar="" filled=$((pct / 2)) i=0
+          bar="" filled=$((pct / 2)) i=0
           while [ $i -lt $filled ]; do bar="${bar}#"; i=$((i+1)); done
           while [ $i -lt 50 ]; do bar="${bar}."; i=$((i+1)); done
           printf "\r [%-50s] %3d%%" "$bar" "$pct"
@@ -189,8 +189,8 @@ _dl_progress() {
 
 # download_one attempts a single URL with curl → wget fallback, showing progress
 download_one() {
-  local url="$1"
-  local total=0
+  url="$1"
+  total=0
   total=$(curl -sIkL --connect-timeout 10 "$url" 2>/dev/null | grep -i 'Content-Length' | awk '{print $2}' | tr -d '\r\n ' | grep -o '[0-9]*' | tail -1)
   total=${total:-0}
   [ -z "$total" ] && total=0
@@ -198,16 +198,18 @@ download_one() {
   total=$(echo "$total" | sed 's/^0*//')
   [ -z "$total" ] && total=0
 
-  # Try curl — check file existence rather than exit code (some servers return non-zero on valid downloads)
+  # A non-zero downloader status means the transfer was not verified, even if
+  # a partial file was left behind. Never publish that partial artifact.
   curl -fsSL --connect-timeout 20 --max-time 300 -o "$TMP_FILE" "$url" 2>/dev/null &
-  local dl_pid=$!
+  dl_pid=$!
   _dl_progress "$TMP_FILE" "$total" "$dl_pid" &
-  local mon_pid=$!
-  wait "$dl_pid" 2>/dev/null
+  mon_pid=$!
+  dl_rc=0
+  wait "$dl_pid" 2>/dev/null || dl_rc=$?
   wait "$mon_pid" 2>/dev/null
   # Validate: file must exist, be non-empty, and not start with '<' (HTML error page)
-  if [ -s "$TMP_FILE" ]; then
-    local first_byte
+  if [ "$dl_rc" -eq 0 ] && [ -s "$TMP_FILE" ]; then
+    first_byte
     first_byte=$(dd if="$TMP_FILE" bs=1 count=1 2>/dev/null)
     if [ "$first_byte" != "<" ]; then
       return 0
@@ -223,9 +225,10 @@ download_one() {
     dl_pid=$!
     _dl_progress "$TMP_FILE" "$total" "$dl_pid" &
     mon_pid=$!
-    wait "$dl_pid" 2>/dev/null
+    dl_rc=0
+    wait "$dl_pid" 2>/dev/null || dl_rc=$?
     wait "$mon_pid" 2>/dev/null
-    if [ -s "$TMP_FILE" ]; then
+    if [ "$dl_rc" -eq 0 ] && [ -s "$TMP_FILE" ]; then
       return 0
     fi
   fi
@@ -271,7 +274,7 @@ else
   # GitHub failed — check if GitHub is reachable, try CDN only if it's not
   if [ "$DOWNLOADED" -eq 0 ] && ! _github_reachable && _check_cdn_available; then
     log_warning "GitHub is unreachable, switching to CDN mirrors..." "GitHub 不可达，正在切换到 CDN 镜像..."
-    for CDN in $(cat /tmp/ocv_working_cdns); do
+    while IFS= read -r CDN; do
       CDN_TARGET="${CDN}/${GITHUB_URL}"
       rm -f "$TMP_FILE"
       if download_one "$CDN_TARGET" && [ -s "$TMP_FILE" ]; then
@@ -279,7 +282,7 @@ else
         DOWNLOADED=1
         break
       fi
-    done
+    done < /tmp/ocv_working_cdns
     rm -f /tmp/ocv_working_cdns
   fi
 
@@ -517,7 +520,7 @@ _upgrade() {
   else
   REPO="oneclickvirt/oneclickvirt"
   for API in https://api.github.com https://githubapi.spiritlhl.workers.dev https://githubapi.spiritlhl.top; do
-    local response
+    response
     response=$(curl -sL --connect-timeout 10 --max-time 30 "${API}/repos/${REPO}/releases/latest" 2>/dev/null)
     V=$(printf '%s' "$response" | grep -o '"tag_name": *"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"')
     [ -n "$V" ] && break
@@ -533,7 +536,12 @@ _upgrade() {
     fi
   done
   if [ "$DOWNLOADED" -eq 0 ]; then
-    curl -fsSL --connect-timeout 20 --max-time 180 -o "$TMP" "https://github.com/${REPO}/releases/download/${V}/${BIN}" 2>/dev/null || true
+    if ! curl -fsSL --connect-timeout 20 --max-time 180 -o "$TMP" "https://github.com/${REPO}/releases/download/${V}/${BIN}" 2>/dev/null || [ ! -s "$TMP" ]; then
+      rm -f "$TMP"
+      echo "[ocv] Download failed"
+      echo "[ocv] 下载失败"
+      exit 1
+    fi
   fi
   [ ! -s "$TMP" ] && echo "[ocv] Download failed" && echo "[ocv] 下载失败" && exit 1
   fi
@@ -726,10 +734,22 @@ SyslogIdentifier=${SERVICE_NAME}
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl daemon-reload
-    systemctl enable oneclickvirt-egress-guard.service
-    systemctl enable "$SERVICE_NAME"
-    systemctl start "$SERVICE_NAME"
+    systemctl daemon-reload || {
+      log_error "Failed to reload systemd after installing the Agent unit." "安装 Agent 单元后重新加载 systemd 失败。"
+      return 1
+    }
+    systemctl enable oneclickvirt-egress-guard.service || {
+      log_error "Failed to enable the Agent egress guard." "启用 Agent 出站防护服务失败。"
+      return 1
+    }
+    systemctl enable "$SERVICE_NAME" || {
+      log_error "Failed to enable the Agent service." "启用 Agent 服务失败。"
+      return 1
+    }
+    systemctl start "$SERVICE_NAME" || {
+      log_error "Failed to start the Agent service." "启动 Agent 服务失败。"
+      return 1
+    }
     sleep 2
     if systemctl is-active --quiet "$SERVICE_NAME"; then
       log_success "Agent service started successfully (systemd)." "Agent 服务已启动（systemd）。"
@@ -791,7 +811,10 @@ case "\$1" in
   start)
     echo "Starting ${SERVICE_NAME}..."
     echo "正在启动 ${SERVICE_NAME}..."
-    [ ! -x \$EGRESS_GUARD ] || \$EGRESS_GUARD
+    if [ -x "\$EGRESS_GUARD" ] && ! "\$EGRESS_GUARD"; then
+      echo "Egress guard refused to start ${SERVICE_NAME}" >&2
+      exit 1
+    fi
     nohup \$BIN >>\$LOGFILE 2>&1 &
     echo \$! > \$PIDFILE
     ;;
@@ -814,14 +837,14 @@ case "\$1" in
     ;;
 esac
 EOF
-    chmod +x "/etc/init.d/${SERVICE_NAME}"
+    chmod +x "/etc/init.d/${SERVICE_NAME}" || return 1
     if command -v update-rc.d >/dev/null 2>&1; then
-      update-rc.d "$SERVICE_NAME" defaults
+      update-rc.d "$SERVICE_NAME" defaults || return 1
     elif command -v chkconfig >/dev/null 2>&1; then
-      chkconfig --add "$SERVICE_NAME"
-      chkconfig "$SERVICE_NAME" on
+      chkconfig --add "$SERVICE_NAME" || return 1
+      chkconfig "$SERVICE_NAME" on || return 1
     fi
-    "/etc/init.d/${SERVICE_NAME}" start
+    "/etc/init.d/${SERVICE_NAME}" start || return 1
     sleep 2
     if "/etc/init.d/${SERVICE_NAME}" status | grep -q "Running"; then
       log_success "Agent service started successfully (SysV init)." "Agent 服务已启动（SysV init）。"
@@ -878,9 +901,9 @@ start_pre() {
   /usr/local/bin/oneclickvirt-egress-boot-guard
 }
 EOF
-    chmod +x "/etc/init.d/${SERVICE_NAME}"
-    rc-update add "$SERVICE_NAME" default
-    rc-service "$SERVICE_NAME" start
+    chmod +x "/etc/init.d/${SERVICE_NAME}" || return 1
+    rc-update add "$SERVICE_NAME" default || return 1
+    rc-service "$SERVICE_NAME" start || return 1
     sleep 2
     if rc-service "$SERVICE_NAME" status 2>/dev/null; then
       log_success "Agent service started successfully (OpenRC)." "Agent 服务已启动（OpenRC）。"

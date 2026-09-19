@@ -91,11 +91,12 @@ func (i *IncusProvider) configureInstanceSecurity(ctx context.Context, config pr
 
 		// 容器安全配置
 		if err := i.setInstanceConfig(ctx, config.Name, "security.nesting", nestingValue); err != nil {
-			if isIncusConfigUnsupportedError(err) {
-				global.APP_LOG.Warn("设置容器嵌套失败，当前节点不支持该配置，已跳过", zap.Error(err))
-			} else {
-				global.APP_LOG.Warn("设置容器嵌套失败", zap.Error(err))
-			}
+			// security.nesting is the explicit container capability requested by
+			// the provider. Treat a failed write as a create failure; otherwise a
+			// Docker-in-Docker instance is reported as ready while the kernel still
+			// rejects nested operations. The error text retains the unsupported-key
+			// detail for nodes whose Incus build cannot provide the feature.
+			return fmt.Errorf("设置容器嵌套 security.nesting=%s 失败: %w", nestingValue, err)
 		}
 
 		// CPU优先级配置

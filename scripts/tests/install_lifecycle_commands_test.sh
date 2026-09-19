@@ -27,6 +27,23 @@ export TEST_CALLS="$TMP_DIR/calls"
 # shellcheck source=../install.sh
 source "$ROOT_DIR/scripts/install.sh"
 
+if (MANAGED_INSTALL_ROOT=/; validate_install_paths >/dev/null 2>&1); then
+    echo "path validation accepted an unsafe installation root" >&2
+    exit 1
+fi
+if (MANAGED_SERVER_DIR=/; validate_install_paths >/dev/null 2>&1); then
+    echo "path validation accepted an unsafe server directory" >&2
+    exit 1
+fi
+if (custom_web_path=relative/web; validate_install_paths >/dev/null 2>&1); then
+    echo "path validation accepted a relative web path" >&2
+    exit 1
+fi
+if (custom_web_path="$ONECLICKVIRT_INSTALL_ROOT"; validate_install_paths >/dev/null 2>&1); then
+    echo "path validation accepted a web path equal to the install root" >&2
+    exit 1
+fi
+
 prepare_installation() {
     mkdir -p \
         "$ONECLICKVIRT_INSTALL_ROOT/server/storage" \
@@ -75,6 +92,10 @@ fi
 
 if (export MANAGED_INSTALL_ROOT=/; uninstall_server --yes >/dev/null 2>&1); then
     echo "uninstall accepted an unsafe installation root" >&2
+    exit 1
+fi
+if (export MANAGED_INSTALL_ROOT=relative-root; uninstall_server --yes >/dev/null 2>&1); then
+    echo "uninstall accepted a relative installation root" >&2
     exit 1
 fi
 

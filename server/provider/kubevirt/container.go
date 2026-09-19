@@ -585,17 +585,26 @@ func (p *KubeVirtProvider) sshDeleteK3sContainer(ctx context.Context, id string)
 		return fmt.Errorf("invalid container name: %s", id)
 	}
 	global.APP_LOG.Info("开始删除KubeVirt容器", zap.String("id", utils.TruncateString(id, 32)))
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete deploy %s -n %s --ignore-not-found=true 2>/dev/null", shellSingleQuote(name), shellSingleQuote(Namespace)))
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc %s -n %s --ignore-not-found=true 2>/dev/null", shellSingleQuote(name+"-ports"), shellSingleQuote(Namespace)))
+	if err := p.deleteKubeVirtResource(fmt.Sprintf("kubectl delete deploy %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)), "删除KubeVirt容器Deployment"); err != nil {
+		return err
+	}
+	if err := p.deleteKubeVirtResource(fmt.Sprintf("kubectl delete svc %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name+"-ports"), shellSingleQuote(Namespace)), "删除KubeVirt容器Service"); err != nil {
+		return err
+	}
 	p.sshClient.Execute(fmt.Sprintf("grep -Fv %s /root/vmlog > /root/vmlog.tmp 2>/dev/null && mv /root/vmlog.tmp /root/vmlog || true", shellSingleQuote(name+" ")))
 	if err := sleepWithContext(ctx, 2*time.Second); err != nil {
 		return fmt.Errorf("waiting after deleting KubeVirt container cancelled: %w", err)
 	}
 	output, err := p.sshClient.Execute(fmt.Sprintf("kubectl get deploy %s -n %s 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)))
-	if err != nil || strings.Contains(output, "NotFound") || strings.Contains(output, "not found") {
-		p.deleteRoutedKubeVirtNADByInstance(name)
+	if kubeVirtNotFound(output, err) {
+		if cleanupErr := p.deleteRoutedKubeVirtNADByInstance(name); cleanupErr != nil {
+			return cleanupErr
+		}
 		global.APP_LOG.Info("KubeVirt容器删除成功", zap.String("id", utils.TruncateString(id, 32)))
 		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("验证KubeVirt容器删除状态失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}
 	return fmt.Errorf("KubeVirt container %s still exists after deletion", id)
 }

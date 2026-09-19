@@ -254,11 +254,13 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 				}
 
 				tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(config.Image), shellSingleQuote(imageNameWithPrefix))
-				if _, tagErr := p.sshClient.Execute(tagCmd); tagErr != nil {
+				if tagOutput, tagErr := p.sshClient.Execute(tagCmd); tagErr != nil {
 					global.APP_LOG.Warn("Podman镜像打标失败",
 						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
 						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
+						zap.String("output", utils.TruncateString(tagOutput, 500)),
 						zap.Error(tagErr))
+					return fmt.Errorf("registry镜像打标失败: %w; output: %s", tagErr, utils.TruncateString(strings.TrimSpace(tagOutput), 2000))
 				}
 				registryFallback = true
 				updateProgress(55, "原始镜像拉取并打标完成")

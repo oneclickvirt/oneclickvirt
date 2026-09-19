@@ -328,14 +328,15 @@ func (cs *CertService) executeScriptViaSFTP(provider *provider.Provider, script,
 	}
 
 	// 使用带日志记录的执行方法处理复杂命令
-	executeCommand := fmt.Sprintf("chmod +x %s && %s", remotePath, remotePath)
+	quotedRemotePath := utils.ShellSingleQuote(remotePath)
+	executeCommand := fmt.Sprintf("chmod +x %s && %s", quotedRemotePath, quotedRemotePath)
 	_, err = sshClient.ExecuteWithLogging(executeCommand, "CERT_SCRIPT")
 	if err != nil {
 		return fmt.Errorf("执行脚本失败: %w", err)
 	}
 
 	// 清理临时文件
-	sshClient.Execute(fmt.Sprintf("rm -f %s", remotePath))
+	sshClient.Execute(fmt.Sprintf("rm -f %s", quotedRemotePath))
 	return nil
 }
 
@@ -365,7 +366,12 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 	err = sshClient.UploadContent(script, remotePath, 0755)
 	if err != nil && strings.Contains(err.Error(), "permission denied") {
 		// 如果直接上传/tmp失败，尝试上传到用户home目录
-		userRemotePath := fmt.Sprintf("~/%s", filename)
+		homeOutput, homeErr := sshClient.Execute("printf '%s' \"$HOME\"")
+		if homeErr != nil || strings.TrimSpace(homeOutput) == "" {
+			outputChan <- "❌ 无法确定远程用户目录"
+			return fmt.Errorf("无法确定远程用户目录: %w", homeErr)
+		}
+		userRemotePath := fmt.Sprintf("%s/%s", strings.TrimRight(strings.TrimSpace(homeOutput), "/"), filename)
 		outputChan <- fmt.Sprintf("⚠️ /tmp目录权限不足，尝试上传到用户目录: %s", userRemotePath)
 
 		if err := sshClient.UploadContent(script, userRemotePath, 0755); err != nil {
@@ -374,7 +380,7 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 		}
 
 		// 使用sudo移动到/tmp
-		moveCmd := fmt.Sprintf("sudo mv %s %s && sudo chmod 755 %s", userRemotePath, remotePath, remotePath)
+		moveCmd := fmt.Sprintf("sudo mv %s %s && sudo chmod 755 %s", utils.ShellSingleQuote(userRemotePath), utils.ShellSingleQuote(remotePath), utils.ShellSingleQuote(remotePath))
 		if _, err := sshClient.Execute(moveCmd); err != nil {
 			outputChan <- fmt.Sprintf("❌ 移动脚本到/tmp失败: %s", err.Error())
 			// 如果移动失败，直接使用用户目录的脚本
@@ -389,7 +395,8 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 	outputChan <- "✅ 脚本上传成功"
 
 	outputChan <- "执行配置脚本..."
-	executeCommand := fmt.Sprintf("chmod +x %s && %s", remotePath, remotePath)
+	quotedRemotePath := utils.ShellSingleQuote(remotePath)
+	executeCommand := fmt.Sprintf("chmod +x %s && %s", quotedRemotePath, quotedRemotePath)
 	output, err := sshClient.ExecuteWithLogging(executeCommand, "CERT_SCRIPT_STREAM")
 
 	lines := strings.Split(output, "\n")
@@ -405,7 +412,7 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 	}
 
 	outputChan <- "✅ 配置脚本执行完成"
-	sshClient.Execute(fmt.Sprintf("rm -f %s", remotePath))
+	sshClient.Execute(fmt.Sprintf("rm -f %s", quotedRemotePath))
 	return nil
 }
 

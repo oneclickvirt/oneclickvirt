@@ -14,7 +14,7 @@ import (
 )
 
 func (p *ProxmoxProvider) sshListImages(ctx context.Context) ([]provider.Image, error) {
-	output, err := p.sshClient.Execute(fmt.Sprintf("pvesh get /nodes/%s/storage/local/content --content iso", p.nodeName()))
+	output, err := p.sshClient.Execute(fmt.Sprintf("pvesh get %s --content iso", shellSingleQuote("/nodes/"+p.nodeName()+"/storage/local/content")))
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +60,10 @@ func (p *ProxmoxProvider) sshPullImageToPath(ctx context.Context, imageURL, imag
 	fileName := p.extractFileName(imageURL)
 	if imageName != "" {
 		fileName = imageName
+	}
+	fileName = strings.TrimSpace(fileName)
+	if fileName == "" || fileName == "." || fileName == ".." || strings.ContainsAny(fileName, "/\\\x00") {
+		return "", fmt.Errorf("invalid Proxmox image name %q", fileName)
 	}
 
 	remotePath := fmt.Sprintf("%s/%s", downloadDir, fileName)
@@ -120,7 +124,11 @@ func (p *ProxmoxProvider) extractFileName(url string) string {
 }
 
 func (p *ProxmoxProvider) sshDeleteImage(ctx context.Context, id string) error {
-	_, err := p.sshClient.Execute(fmt.Sprintf("rm -f /var/lib/vz/template/iso/%s", id))
+	id = strings.TrimSpace(id)
+	if id == "" || id == "." || id == ".." || strings.ContainsAny(id, "/\\\x00") {
+		return fmt.Errorf("invalid Proxmox image id %q", id)
+	}
+	_, err := p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote("/var/lib/vz/template/iso/"+id)))
 	if err != nil {
 		return fmt.Errorf("failed to delete image: %w", err)
 	}

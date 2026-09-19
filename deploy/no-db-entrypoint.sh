@@ -65,6 +65,7 @@ configure_frontend_url() {
     # A TLS-terminating reverse proxy reaches this container over HTTP. Use the
     # public URL to preserve the original scheme without adding duplicate headers.
     if [[ "${FRONTEND_URL}" == https://* ]]; then
+        # shellcheck disable=SC2016 # sed must receive the literal nginx $scheme variable.
         sed_in_place 's|proxy_set_header X-Forwarded-Proto \$scheme;|proxy_set_header X-Forwarded-Proto https;|g' "${NGINX_CONFIG}"
     fi
 }

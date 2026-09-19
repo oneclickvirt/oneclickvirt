@@ -2,6 +2,7 @@ package podman
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"oneclickvirt/global"
@@ -19,14 +20,14 @@ func (p *PodmanProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 	if idx := strings.IndexByte(cleanIP, '/'); idx != -1 {
 		cleanIP = cleanIP[:idx]
 	}
-	if cleanIP == "" {
-		return nil
+	if parsed := net.ParseIP(cleanIP); parsed == nil || parsed.To4() == nil {
+		return fmt.Errorf("无效的独立IPv4地址: %s", cleanIP)
 	}
 
 	global.APP_LOG.Debug("检查独立IPv4是否已绑定到宿主机网络接口",
 		zap.String("ip", cleanIP))
 
-	checkCmd := fmt.Sprintf("ip addr show | grep -w '%s'", cleanIP)
+	checkCmd := fmt.Sprintf("ip addr show | grep -w %s", shellSingleQuote(cleanIP))
 	output, err := p.sshClient.Execute(checkCmd)
 	if err == nil && strings.Contains(output, cleanIP) {
 		return nil
@@ -44,7 +45,7 @@ func (p *PodmanProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 		primaryIface = strings.TrimSpace(fallbackOutput)
 	}
 
-	addCmd := fmt.Sprintf("ip addr add %s/32 dev %s", cleanIP, primaryIface)
+	addCmd := fmt.Sprintf("ip addr add %s/32 dev %s", shellSingleQuote(cleanIP), shellSingleQuote(primaryIface))
 	if _, addErr := p.sshClient.Execute(addCmd); addErr != nil {
 		output2, checkErr2 := p.sshClient.Execute(checkCmd)
 		if checkErr2 == nil && strings.Contains(output2, cleanIP) {

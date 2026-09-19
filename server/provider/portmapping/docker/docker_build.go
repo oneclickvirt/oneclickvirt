@@ -40,7 +40,7 @@ func (d *DockerPortMapping) createDockerPortMapping(ctx context.Context, instanc
 		zap.String("providerName", providerInfo.Name))
 
 	// 检查容器是否存在
-	checkCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.State.Status}}'", instance.Name)
+	checkCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.State.Status}}'", utils.ShellSingleQuote(instance.Name))
 	status, err := providerInstance.ExecuteSSHCommand(ctx, checkCmd)
 	if err != nil {
 		return fmt.Errorf("failed to check container status: %v", err)
@@ -51,24 +51,24 @@ func (d *DockerPortMapping) createDockerPortMapping(ctx context.Context, instanc
 	// Docker不支持动态端口映射，需要重新创建容器
 	if strings.Contains(status, "running") || strings.Contains(status, "exited") {
 		// 获取现有容器的配置
-		inspectCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+		inspectCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", utils.ShellSingleQuote(instance.Name))
 		configInfo, err := providerInstance.ExecuteSSHCommand(ctx, inspectCmd)
 		if err != nil {
 			return fmt.Errorf("failed to get container config: %v", err)
 		}
 
 		// 获取现有的端口映射
-		portsCmd := fmt.Sprintf(d.cli()+" port %s", instance.Name)
+		portsCmd := fmt.Sprintf(d.cli()+" port %s", utils.ShellSingleQuote(instance.Name))
 		existingPorts, _ := providerInstance.ExecuteSSHCommand(ctx, portsCmd)
 
 		// 停止并删除现有容器
-		stopCmd := fmt.Sprintf(d.cli()+" stop %s", instance.Name)
+		stopCmd := fmt.Sprintf(d.cli()+" stop %s", utils.ShellSingleQuote(instance.Name))
 		_, err = providerInstance.ExecuteSSHCommand(ctx, stopCmd)
 		if err != nil {
 			global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
 		}
 
-		removeCmd := fmt.Sprintf(d.cli()+" rm %s", instance.Name)
+		removeCmd := fmt.Sprintf(d.cli()+" rm %s", utils.ShellSingleQuote(instance.Name))
 		_, err = providerInstance.ExecuteSSHCommand(ctx, removeCmd)
 		if err != nil {
 			return fmt.Errorf("failed to remove container: %v", err)
@@ -113,7 +113,7 @@ func (d *DockerPortMapping) createDockerPortMappingWithTempSSH(ctx context.Conte
 	defer sshClient.Close()
 
 	// 检查容器是否存在
-	checkCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.State.Status}}'", instance.Name)
+	checkCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.State.Status}}'", utils.ShellSingleQuote(instance.Name))
 	status, err := sshClient.Execute(checkCmd)
 	if err != nil {
 		return fmt.Errorf("failed to check container status: %v", err)
@@ -124,24 +124,24 @@ func (d *DockerPortMapping) createDockerPortMappingWithTempSSH(ctx context.Conte
 	// Docker不支持动态端口映射，需要重新创建容器
 	if strings.Contains(status, "running") || strings.Contains(status, "exited") {
 		// 获取现有容器的配置
-		inspectCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+		inspectCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", utils.ShellSingleQuote(instance.Name))
 		configInfo, err := sshClient.Execute(inspectCmd)
 		if err != nil {
 			return fmt.Errorf("failed to get container config: %v", err)
 		}
 
 		// 获取现有的端口映射
-		portsCmd := fmt.Sprintf(d.cli()+" port %s", instance.Name)
+		portsCmd := fmt.Sprintf(d.cli()+" port %s", utils.ShellSingleQuote(instance.Name))
 		existingPorts, _ := sshClient.Execute(portsCmd)
 
 		// 停止并删除现有容器
-		stopCmd := fmt.Sprintf(d.cli()+" stop %s", instance.Name)
+		stopCmd := fmt.Sprintf(d.cli()+" stop %s", utils.ShellSingleQuote(instance.Name))
 		_, err = sshClient.Execute(stopCmd)
 		if err != nil {
 			global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
 		}
 
-		removeCmd := fmt.Sprintf(d.cli()+" rm %s", instance.Name)
+		removeCmd := fmt.Sprintf(d.cli()+" rm %s", utils.ShellSingleQuote(instance.Name))
 		_, err = sshClient.Execute(removeCmd)
 		if err != nil {
 			return fmt.Errorf("failed to remove container: %v", err)
@@ -226,7 +226,7 @@ func (d *DockerPortMapping) buildDockerRunCommand(instance *provider.Instance, c
 	image := configParts[0]
 
 	// 构建基础命令
-	cmd := fmt.Sprintf(d.cli()+" run -d --name %s", instance.Name)
+	cmd := fmt.Sprintf(d.cli()+" run -d --name %s", utils.ShellSingleQuote(instance.Name))
 
 	// 网络配置（podman/containerd需要明确指定自定义网络，否则重建后丢失网络配置）
 	if networkName := d.containerNetworkName(); networkName != "" {
@@ -311,27 +311,27 @@ func (d *DockerPortMapping) removeDockerPortMapping(ctx context.Context, instanc
 
 	// Docker不支持动态移除端口映射，需要重新创建容器（不包含该端口映射）
 	// 获取现有容器的配置
-	inspectCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+	inspectCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", utils.ShellSingleQuote(instance.Name))
 	configInfo, err := sshClient.Execute(inspectCmd)
 	if err != nil {
 		return fmt.Errorf("failed to get container config: %v", err)
 	}
 
 	// 获取现有的端口映射（排除要删除的）
-	portsCmd := fmt.Sprintf(d.cli()+" port %s", instance.Name)
+	portsCmd := fmt.Sprintf(d.cli()+" port %s", utils.ShellSingleQuote(instance.Name))
 	existingPorts, _ := sshClient.Execute(portsCmd)
 
 	// 过滤掉要删除的端口映射
 	filteredPorts := d.filterPortMappings(existingPorts, hostPort, guestPort, protocol)
 
 	// 停止并删除现有容器
-	stopCmd := fmt.Sprintf(d.cli()+" stop %s", instance.Name)
+	stopCmd := fmt.Sprintf(d.cli()+" stop %s", utils.ShellSingleQuote(instance.Name))
 	_, err = sshClient.Execute(stopCmd)
 	if err != nil {
 		global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
 	}
 
-	removeCmd := fmt.Sprintf(d.cli()+" rm %s", instance.Name)
+	removeCmd := fmt.Sprintf(d.cli()+" rm %s", utils.ShellSingleQuote(instance.Name))
 	_, err = sshClient.Execute(removeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to remove container: %v", err)
@@ -418,7 +418,7 @@ func (d *DockerPortMapping) buildDockerRunCommandWithFilteredPorts(instance *pro
 	image := configParts[0]
 
 	// 构建基础命令
-	cmd := fmt.Sprintf(d.cli()+" run -d --name %s", instance.Name)
+	cmd := fmt.Sprintf(d.cli()+" run -d --name %s", utils.ShellSingleQuote(instance.Name))
 
 	// 网络配置（podman/containerd需要明确指定自定义网络，否则重建后丢失网络配置）
 	if networkName := d.containerNetworkName(); networkName != "" {

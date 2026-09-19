@@ -283,7 +283,6 @@ jobs:
       
       - name: Login to GitHub Container Registry
         id: login-ghcr
-        continue-on-error: true
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -425,7 +424,6 @@ jobs:
       
       - name: Login to GitHub Container Registry
         id: login-ghcr
-        continue-on-error: true
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -553,7 +551,6 @@ jobs:
       
       - name: Login to GitHub Container Registry
         id: login-ghcr
-        continue-on-error: true
         uses: docker/login-action@v4
         with:
           registry: ghcr.io

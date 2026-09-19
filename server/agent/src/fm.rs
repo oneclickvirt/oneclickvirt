@@ -98,7 +98,7 @@ async fn send_fm_frame(ws_tx: &mpsc::Sender<Message>, frame: WsFrame) {
             return;
         }
     };
-    let msg = Message::Text(text.into());
+    let msg = Message::Text(text);
     if ws_tx.try_send(msg.clone()).is_err() {
         let _ = tokio::time::timeout(
             Duration::from_secs(FM_RESPONSE_SEND_TIMEOUT_SECS),
@@ -309,13 +309,12 @@ pub async fn handle_fm_upload(
         send_fm_error(&ws_tx, &req_id, "upload size mismatch").await;
         return;
     }
-    if let Some(parent) = Path::new(&p.path).parent() {
-        if !parent.as_os_str().is_empty() {
-            if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                send_fm_error(&ws_tx, &req_id, &format!("create parent dir failed: {e}")).await;
-                return;
-            }
-        }
+    if let Some(parent) = Path::new(&p.path).parent()
+        && !parent.as_os_str().is_empty()
+        && let Err(e) = tokio::fs::create_dir_all(parent).await
+    {
+        send_fm_error(&ws_tx, &req_id, &format!("create parent dir failed: {e}")).await;
+        return;
     }
     match tokio::fs::write(&p.path, &data).await {
         Ok(_) => send_fm_ok(&ws_tx, "fm_upload_resp", &req_id, &FMOkRespPayload {}).await,

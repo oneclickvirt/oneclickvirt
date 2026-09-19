@@ -647,7 +647,7 @@ func (p *ProxmoxProvider) ensureVMIPv6Interface(vmid int, bridgeName string) err
 		break
 	}
 
-	netCommand := fmt.Sprintf("qm set %d --net1 virtio,bridge=%s,firewall=0", vmid, bridgeName)
+	netCommand := fmt.Sprintf("qm set %d --net1 %s", vmid, shellSingleQuote(fmt.Sprintf("virtio,bridge=%s,firewall=0", bridgeName)))
 	return p.executeIPv6NetworkCommand(netCommand, "", "添加虚拟机IPv6 net1接口失败")
 }
 
@@ -679,16 +679,16 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 				net0Config = fmt.Sprintf("%s,rate=%d", net0ConfigBase, rateMBps)
 			}
 
-			net0Cmd := fmt.Sprintf("qm set %d --net0 %s", vmid, net0Config)
+			net0Cmd := fmt.Sprintf("qm set %d --net0 %s", vmid, shellSingleQuote(net0Config))
 			fallbackCmd := ""
 			if networkConfig.OutSpeed > 0 {
-				fallbackCmd = fmt.Sprintf("qm set %d --net0 %s", vmid, net0ConfigBase)
+				fallbackCmd = fmt.Sprintf("qm set %d --net0 %s", vmid, shellSingleQuote(net0ConfigBase))
 			}
 			if err := p.executeIPv6NetworkCommand(net0Cmd, fallbackCmd, "配置虚拟机IPv6-only net0接口失败"); err != nil {
 				return err
 			}
 
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig0 ip6='%s/64',gw6='%s'", vmid, vmInternalIPv6, natConfig.Gateway)
+			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig0 %s", vmid, shellSingleQuote(fmt.Sprintf("ip6=%s/64,gw6=%s", vmInternalIPv6, natConfig.Gateway)))
 			if err := p.executeIPv6NetworkCommand(ipv6Cmd, "", "配置虚拟机IPv6 cloud-init失败"); err != nil {
 				return err
 			}
@@ -698,7 +698,7 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 				return err
 			}
 
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig1 ip6='%s/64',gw6='%s'", vmid, vmInternalIPv6, natConfig.Gateway)
+			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig1 %s", vmid, shellSingleQuote(fmt.Sprintf("ip6=%s/64,gw6=%s", vmInternalIPv6, natConfig.Gateway)))
 			if err := p.executeIPv6NetworkCommand(ipv6Cmd, "", "配置虚拟机IPv6 cloud-init失败"); err != nil {
 				return err
 			}
@@ -753,16 +753,16 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 				net0Config = fmt.Sprintf("%s,rate=%d", net0ConfigBase, rateMBps)
 			}
 
-			net0Cmd := fmt.Sprintf("qm set %d --net0 %s", vmid, net0Config)
+			net0Cmd := fmt.Sprintf("qm set %d --net0 %s", vmid, shellSingleQuote(net0Config))
 			fallbackCmd := ""
 			if networkConfig.OutSpeed > 0 {
-				fallbackCmd = fmt.Sprintf("qm set %d --net0 %s", vmid, net0ConfigBase)
+				fallbackCmd = fmt.Sprintf("qm set %d --net0 %s", vmid, shellSingleQuote(net0ConfigBase))
 			}
 			if err := p.executeIPv6NetworkCommand(net0Cmd, fallbackCmd, "配置虚拟机IPv6-only net0接口失败"); err != nil {
 				return err
 			}
 
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig0 ip6='%s',gw6='%s'", vmid, vmIPv6CIDR, gateway)
+			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig0 %s", vmid, shellSingleQuote(fmt.Sprintf("ip6=%s,gw6=%s", vmIPv6CIDR, gateway)))
 			if err := p.executeIPv6NetworkCommand(ipv6Cmd, "", "配置虚拟机IPv6 cloud-init失败"); err != nil {
 				return err
 			}
@@ -772,7 +772,7 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 				return err
 			}
 
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig1 ip6='%s',gw6='%s'", vmid, vmIPv6CIDR, gateway)
+			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig1 %s", vmid, shellSingleQuote(fmt.Sprintf("ip6=%s,gw6=%s", vmIPv6CIDR, gateway)))
 			if err := p.executeIPv6NetworkCommand(ipv6Cmd, "", "配置虚拟机IPv6 cloud-init失败"); err != nil {
 				return err
 			}
@@ -798,7 +798,7 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 
 		if ipv6Only {
 			// IPv6-only: net0为IPv6
-			net0ConfigBase := fmt.Sprintf("name=eth0,ip6='%s/64',bridge=%s,gw6='%s'", vmInternalIPv6, bridgeName, natConfig.Gateway)
+			net0ConfigBase := fmt.Sprintf("name=eth0,ip6=%s/64,bridge=%s,gw6=%s", vmInternalIPv6, bridgeName, natConfig.Gateway)
 			net0ConfigStr := net0ConfigBase
 			if networkConfig.OutSpeed > 0 {
 				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
@@ -808,10 +808,10 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 				}
 				net0ConfigStr = fmt.Sprintf("%s,rate=%d", net0ConfigStr, rateMBps)
 			}
-			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
+			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, shellSingleQuote(net0ConfigStr))
 			fallbackCmd := ""
 			if networkConfig.OutSpeed > 0 {
-				fallbackCmd = fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigBase)
+				fallbackCmd = fmt.Sprintf("pct set %d --net0 %s", vmid, shellSingleQuote(net0ConfigBase))
 			}
 			if err := p.executeIPv6NetworkCommand(net0Cmd, fallbackCmd, "配置容器IPv6-only接口失败"); err != nil {
 				return err
@@ -829,17 +829,17 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 				}
 				net0ConfigStr = fmt.Sprintf("%s,rate=%d", net0ConfigStr, rateMBps)
 			}
-			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
+			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, shellSingleQuote(net0ConfigStr))
 			fallbackCmd := ""
 			if networkConfig.OutSpeed > 0 {
-				fallbackCmd = fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigBase)
+				fallbackCmd = fmt.Sprintf("pct set %d --net0 %s", vmid, shellSingleQuote(net0ConfigBase))
 			}
 			if err := p.executeIPv6NetworkCommand(net0Cmd, fallbackCmd, "配置容器IPv4 net0接口失败"); err != nil {
 				return err
 			}
 
 			// net1 不需要 rate 限制，因为 rate 已在 net0 上配置
-			net1Cmd := fmt.Sprintf("pct set %d --net1 name=eth1,ip6='%s/64',bridge=%s,gw6='%s'", vmid, vmInternalIPv6, bridgeName, natConfig.Gateway)
+			net1Cmd := fmt.Sprintf("pct set %d --net1 %s", vmid, shellSingleQuote(fmt.Sprintf("name=eth1,ip6=%s/64,bridge=%s,gw6=%s", vmInternalIPv6, bridgeName, natConfig.Gateway)))
 			if err := p.executeIPv6NetworkCommand(net1Cmd, "", "配置容器IPv6 net1接口失败"); err != nil {
 				return err
 			}
@@ -892,7 +892,7 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 
 		if ipv6Only {
 			// IPv6-only: net0为IPv6
-			net0ConfigBase := fmt.Sprintf("name=eth0,ip6='%s',bridge=%s,gw6='%s'", vmIPv6CIDR, bridgeName, gateway)
+			net0ConfigBase := fmt.Sprintf("name=eth0,ip6=%s,bridge=%s,gw6=%s", vmIPv6CIDR, bridgeName, gateway)
 			net0ConfigStr := net0ConfigBase
 			if networkConfig.OutSpeed > 0 {
 				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
@@ -902,10 +902,10 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 				}
 				net0ConfigStr = fmt.Sprintf("%s,rate=%d", net0ConfigStr, rateMBps)
 			}
-			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
+			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, shellSingleQuote(net0ConfigStr))
 			fallbackCmd := ""
 			if networkConfig.OutSpeed > 0 {
-				fallbackCmd = fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigBase)
+				fallbackCmd = fmt.Sprintf("pct set %d --net0 %s", vmid, shellSingleQuote(net0ConfigBase))
 			}
 			if err := p.executeIPv6NetworkCommand(net0Cmd, fallbackCmd, "配置容器IPv6-only接口失败"); err != nil {
 				return err
@@ -924,17 +924,17 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 				}
 				net0ConfigStr = fmt.Sprintf("%s,rate=%d", net0ConfigStr, rateMBps)
 			}
-			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
+			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, shellSingleQuote(net0ConfigStr))
 			fallbackCmd := ""
 			if networkConfig.OutSpeed > 0 {
-				fallbackCmd = fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigBase)
+				fallbackCmd = fmt.Sprintf("pct set %d --net0 %s", vmid, shellSingleQuote(net0ConfigBase))
 			}
 			if err := p.executeIPv6NetworkCommand(net0Cmd, fallbackCmd, "配置容器IPv4 net0接口失败"); err != nil {
 				return err
 			}
 
 			// net1 不需要 rate 限制，因为 rate 已在 net0 上配置
-			net1Cmd := fmt.Sprintf("pct set %d --net1 name=eth1,ip6='%s',bridge=%s,gw6='%s'", vmid, vmIPv6CIDR, bridgeName, gateway)
+			net1Cmd := fmt.Sprintf("pct set %d --net1 %s", vmid, shellSingleQuote(fmt.Sprintf("name=eth1,ip6=%s,bridge=%s,gw6=%s", vmIPv6CIDR, bridgeName, gateway)))
 			if err := p.executeIPv6NetworkCommand(net1Cmd, "", "配置容器IPv6 net1接口失败"); err != nil {
 				return err
 			}
@@ -961,7 +961,7 @@ func (p *ProxmoxProvider) getAvailableVmbr1IPv6(ctx context.Context) (string, er
 	usedIPsFile := "/usr/local/bin/pve_used_vmbr1_ips.txt"
 
 	// 读取可用的IPv6地址
-	output, err := p.sshClient.Execute(fmt.Sprintf("cat '%s' 2>/dev/null || true", appendedFile))
+	output, err := p.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null || true", utils.ShellSingleQuote(appendedFile)))
 	if err != nil || strings.TrimSpace(output) == "" {
 		return "", fmt.Errorf("没有可用的IPv6地址")
 	}
@@ -974,7 +974,7 @@ func (p *ProxmoxProvider) getAvailableVmbr1IPv6(ctx context.Context) (string, er
 	}
 
 	// 读取已使用的IPv6地址
-	usedOutput, usedErr := p.sshClient.Execute(fmt.Sprintf("cat '%s' 2>/dev/null || true", usedIPsFile))
+	usedOutput, usedErr := p.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null || true", utils.ShellSingleQuote(usedIPsFile)))
 	if usedErr != nil {
 		return "", fmt.Errorf("读取已使用IPv6地址失败: %w", usedErr)
 	}

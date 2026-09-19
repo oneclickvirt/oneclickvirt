@@ -27,7 +27,7 @@ run_module_27() {
     # ---- Auto-configure provider (creates a task) ----
     if [[ -n "$PROVIDER_ID" ]]; then
         local auto_resp; auto_resp=$(test_api "Auto-configure provider" "POST" \
-            "/api/v1/admin/providers/auto-configure" "200|201|400|500" \
+            "/api/v1/admin/providers/auto-configure" "200|201|infra" \
             '{"providerId":'"$PROVIDER_ID"'}' "$group" "$ADMIN_TOKEN")
         local cfg_task; cfg_task=$(echo "$auto_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
 
@@ -44,7 +44,7 @@ run_module_27() {
             '{"provider_ids":[]}' "$group" "$ADMIN_TOKEN"
 
         # ---- Hardware report ----
-        test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200|400|409|500" \
+        test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200|infra" \
             '{"pasteUrl":"https://paste.spiritlhl.net/#/show/ENn4E.txt"}' "$group" "$ADMIN_TOKEN"
         test_api "Save hardware report (invalid URL)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "400" \
             '{"pasteUrl":"https://example.com/badreport.txt"}' "$group" "$ADMIN_TOKEN"

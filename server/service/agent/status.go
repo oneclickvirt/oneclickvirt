@@ -113,12 +113,20 @@ func (h *AgentHub) updateProviderAgentStatus(providerID uint, status string, las
 func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status string, lastSeen *time.Time, remoteAddr string, hostname string, version string) {
 	now := time.Now()
 	shouldPersist := true
+	remoteIP := remoteAddr
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		remoteIP = host
+	}
 
-	// 对 online 心跳做持久化节流：状态不变且未到窗口期时跳过 DB 写。
+	// Throttle repeated heartbeats, but persist new info immediately. Register
+	// records online before the first info frame supplies hostname and version.
 	if status == "online" {
 		h.persistMu.Lock()
 		memo, ok := h.statusPersistMemo[providerID]
-		shouldPersist = !ok || memo.status != status || now.Sub(memo.lastPersist) >= heartbeatPersistInterval
+		metadataChanged := (remoteIP != "" && memo.remoteIP != remoteIP) ||
+			(hostname != "" && memo.hostname != hostname) ||
+			(version != "" && memo.version != version)
+		shouldPersist = !ok || memo.status != status || metadataChanged || now.Sub(memo.lastPersist) >= heartbeatPersistInterval
 		h.persistMu.Unlock()
 		if !shouldPersist {
 			return
@@ -128,19 +136,11 @@ func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status 
 	updates := map[string]interface{}{
 		"agent_status": status,
 	}
-	remoteIP := ""
 	if lastSeen != nil {
 		updates["agent_last_seen"] = lastSeen
 	}
-	if remoteAddr != "" {
-		// 只保存 IP 部分
-		if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
-			updates["agent_remote_ip"] = host
-			remoteIP = host
-		} else {
-			updates["agent_remote_ip"] = remoteAddr
-			remoteIP = remoteAddr
-		}
+	if remoteIP != "" {
+		updates["agent_remote_ip"] = remoteIP
 	}
 	if hostname != "" {
 		updates["agent_hostname"] = hostname
@@ -156,7 +156,18 @@ func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status 
 	}
 
 	h.persistMu.Lock()
-	h.statusPersistMemo[providerID] = agentStatusPersistState{status: status, lastPersist: now}
+	memo := h.statusPersistMemo[providerID]
+	memo.status, memo.lastPersist = status, now
+	if remoteIP != "" {
+		memo.remoteIP = remoteIP
+	}
+	if hostname != "" {
+		memo.hostname = hostname
+	}
+	if version != "" {
+		memo.version = version
+	}
+	h.statusPersistMemo[providerID] = memo
 	h.persistMu.Unlock()
 
 	if status == "online" && remoteIP != "" {

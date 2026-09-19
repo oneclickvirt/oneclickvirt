@@ -36,7 +36,11 @@ run() {
     if [ "$DRY_RUN" = "true" ]; then
         return 0
     fi
-    as_root "$@"
+    if [ "$1" = "brew" ]; then
+        "$@"
+    else
+        as_root "$@"
+    fi
 }
 
 detect_pm() {
@@ -55,44 +59,44 @@ install_packages() {
 
     case "$pm" in
         apt-get)
-            [ "$SKIP_UPDATE" = "true" ] || run apt-get update -y
+            [ "$SKIP_UPDATE" = "true" ] || run apt-get update -y || return 1
             [ "$INSTALL_QEMU" = "true" ] && packages+=(qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients virtinst bridge-utils dnsmasq)
-            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxc-templates uidmap)
+            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxc-templates libvirt-daemon-system libvirt-clients libvirt-daemon-driver-lxc uidmap)
             [ "${#packages[@]}" -gt 0 ] || { log "no packages selected"; return 0; }
             run apt-get install -y "${packages[@]}"
             ;;
         dnf)
-            [ "$SKIP_UPDATE" = "true" ] || run dnf makecache -y
+            [ "$SKIP_UPDATE" = "true" ] || run dnf makecache -y || return 1
             [ "$INSTALL_QEMU" = "true" ] && packages+=(qemu-kvm qemu-img libvirt libvirt-daemon-kvm virt-install bridge-utils dnsmasq)
-            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxc-templates)
+            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxc-templates libvirt-client libvirt-daemon-driver-lxc)
             [ "${#packages[@]}" -gt 0 ] || { log "no packages selected"; return 0; }
             run dnf install -y "${packages[@]}"
             ;;
         yum)
-            [ "$SKIP_UPDATE" = "true" ] || run yum makecache -y
+            [ "$SKIP_UPDATE" = "true" ] || run yum makecache -y || return 1
             [ "$INSTALL_QEMU" = "true" ] && packages+=(qemu-kvm qemu-img libvirt libvirt-daemon-kvm virt-install bridge-utils dnsmasq)
-            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxc-templates)
+            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxc-templates libvirt-client libvirt-daemon-driver-lxc)
             [ "${#packages[@]}" -gt 0 ] || { log "no packages selected"; return 0; }
             run yum install -y "${packages[@]}"
             ;;
         zypper)
-            [ "$SKIP_UPDATE" = "true" ] || run zypper --non-interactive refresh
+            [ "$SKIP_UPDATE" = "true" ] || run zypper --non-interactive refresh || return 1
             [ "$INSTALL_QEMU" = "true" ] && packages+=(qemu-kvm qemu-tools libvirt libvirt-client virt-install bridge-utils dnsmasq)
-            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxcfs)
+            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxcfs libvirt libvirt-client)
             [ "${#packages[@]}" -gt 0 ] || { log "no packages selected"; return 0; }
             run zypper --non-interactive install -y "${packages[@]}"
             ;;
         pacman)
-            [ "$SKIP_UPDATE" = "true" ] || run pacman -Sy --noconfirm
+            [ "$SKIP_UPDATE" = "true" ] || run pacman -Sy --noconfirm || return 1
             [ "$INSTALL_QEMU" = "true" ] && packages+=(qemu-base qemu-img libvirt virt-install bridge-utils dnsmasq)
-            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxcfs)
+            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxcfs libvirt)
             [ "${#packages[@]}" -gt 0 ] || { log "no packages selected"; return 0; }
             run pacman -S --needed --noconfirm "${packages[@]}"
             ;;
         apk)
-            [ "$SKIP_UPDATE" = "true" ] || run apk update
+            [ "$SKIP_UPDATE" = "true" ] || run apk update || return 1
             [ "$INSTALL_QEMU" = "true" ] && packages+=(qemu-system-x86_64 qemu-img libvirt libvirt-client bridge-utils dnsmasq)
-            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxc-templates)
+            [ "$INSTALL_LXC" = "true" ] && packages+=(lxc lxc-templates libvirt libvirt-client)
             [ "${#packages[@]}" -gt 0 ] || { log "no packages selected"; return 0; }
             run apk add --no-cache "${packages[@]}"
             ;;
@@ -109,35 +113,121 @@ install_packages() {
     esac
 }
 
+systemd_unit_exists() {
+    local state
+    state=$(systemctl show --property=LoadState --value "$1" 2>/dev/null) || return 1
+    [ -n "$state" ] && [ "$state" != "not-found" ]
+}
+
+enable_systemd_daemon() {
+    local daemon="$1"
+    if systemd_unit_exists "$daemon.socket"; then
+        run systemctl enable --now "$daemon.socket"
+    elif systemd_unit_exists "$daemon.service"; then
+        run systemctl enable --now "$daemon.service"
+    else
+        log "no unit found for $daemon"
+        return 1
+    fi
+}
+
 enable_services() {
     [ "$START_SERVICES" = "true" ] || return 0
+    [ "$INSTALL_QEMU" = "true" ] || [ "$INSTALL_LXC" = "true" ] || return 0
+    if [ "$DRY_RUN" = "true" ]; then
+        log "dry run: service discovery will run after packages are installed"
+        return 0
+    fi
+    local svc modular=true
+    local drivers=()
+    [ "$INSTALL_QEMU" = "true" ] && drivers+=(virtqemud)
+    [ "$INSTALL_LXC" = "true" ] && drivers+=(virtlxcd)
     if have_cmd systemctl; then
-        for svc in libvirtd virtqemud virtlogd virtlockd lxc-net; do
-            if systemctl list-unit-files "$svc.service" >/dev/null 2>&1; then
-                run systemctl enable --now "$svc.service" || true
+        # Monolithic and modular libvirt daemons must not be started together.
+        # Keep an active monolithic installation, otherwise prefer the selected
+        # drivers' socket units when the distribution provides them all.
+        if systemctl is-active --quiet libvirtd.service || systemctl is-active --quiet libvirtd.socket; then
+            enable_systemd_daemon libvirtd || return 1
+            return 0
+        fi
+        for svc in "${drivers[@]}"; do
+            if ! systemd_unit_exists "$svc.socket" && ! systemd_unit_exists "$svc.service"; then
+                modular=false
             fi
+        done
+        if ! $modular; then
+            for svc in virtqemud virtlxcd; do
+                if systemctl is-active --quiet "$svc.service" || systemctl is-active --quiet "$svc.socket"; then
+                    log "modular libvirt is active but a selected driver is missing; install that driver before continuing"
+                    return 1
+                fi
+            done
+            enable_systemd_daemon libvirtd || return 1
+            return 0
+        fi
+        for svc in virtlogd virtlockd virtnetworkd virtstoraged virtnodedevd virtnwfilterd virtsecretd; do
+            if systemd_unit_exists "$svc.socket" || systemd_unit_exists "$svc.service"; then
+                enable_systemd_daemon "$svc" || return 1
+            fi
+        done
+        for svc in "${drivers[@]}"; do
+            enable_systemd_daemon "$svc" || return 1
         done
     elif have_cmd rc-service; then
-        for svc in libvirtd virtqemud lxc; do
-            if rc-service "$svc" status >/dev/null 2>&1; then
-                run rc-update add "$svc" default || true
-                run rc-service "$svc" start || true
-            fi
+        if rc-service --exists libvirtd; then
+            drivers=(libvirtd)
+        fi
+        for svc in "${drivers[@]}"; do
+            rc-service --exists "$svc" || { log "no OpenRC service for $svc"; return 1; }
+            run rc-update add "$svc" default || return 1
+            run rc-service "$svc" start || return 1
         done
     else
-        log "service manager not detected; start libvirt/LXC services manually if needed"
+        log "service manager not detected; cannot verify libvirt/LXC runtime"
+        return 1
+    fi
+}
+
+verify_runtime() {
+    [ "$DRY_RUN" = "true" ] && return 0
+    [ "$START_SERVICES" = "true" ] || return 0
+    local output
+    if [ "$INSTALL_QEMU" = "true" ]; then
+        output="$(as_root virsh -c qemu:///system uri 2>&1)" || {
+            log "libvirt QEMU runtime is unavailable: $output"
+            return 1
+        }
+    fi
+    if [ "$INSTALL_LXC" = "true" ]; then
+        output="$(as_root virsh -c lxc:/// uri 2>&1)" || {
+            log "libvirt LXC runtime is unavailable: $output"
+            return 1
+        }
     fi
 }
 
 main() {
     local pm
+    if [ "$INSTALL_QEMU" != "true" ] && [ "$INSTALL_LXC" != "true" ]; then
+        log "no runtimes selected"
+        return 0
+    fi
     if ! pm="$(detect_pm)"; then
         log "no supported package manager found"
         exit 1
     fi
     log "package manager: $pm"
-    install_packages "$pm"
-    enable_services
+    install_packages "$pm" || return 1
+    if [ "$pm" = brew ]; then
+        log "Homebrew dependencies installed; Linux host services are not configured on macOS"
+        return 0
+    fi
+    enable_services || return 1
+    verify_runtime || return 1
+    if [ "$START_SERVICES" != "true" ]; then
+        log "packages installed; service startup and runtime verification disabled by START_SERVICES"
+        return 0
+    fi
     log "installation step completed; run: bash scripts/local.sh"
 }
 

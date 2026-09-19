@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -31,11 +32,19 @@ var (
 	clientPool = sync.Map{} // providerID -> *Client
 )
 
+func agentBaseURL(host string, port int) string {
+	// Provider hosts may be IPv4, IPv6, or already bracketed IPv6 literals.
+	// JoinHostPort is deliberately used here instead of string concatenation so
+	// the cached client and every request use a valid URL for both families.
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
+}
+
 func GetClientWithMode(providerID uint, host string, port int, token string, isAgentMode bool) *Client {
 	key := fmt.Sprintf("%d", providerID)
+	expected := agentBaseURL(host, port)
 	if v, ok := clientPool.Load(key); ok {
 		c := v.(*Client)
-		expected := fmt.Sprintf("http://%s:%d", host, port)
 		if c.baseURL == expected && c.token == token && c.isAgentMode == isAgentMode {
 			return c
 		}
@@ -48,7 +57,7 @@ func GetClientWithMode(providerID uint, host string, port int, token string, isA
 	}
 
 	c := &Client{
-		baseURL:     fmt.Sprintf("http://%s:%d", host, port),
+		baseURL:     expected,
 		token:       token,
 		httpClient:  utils.GetHTTPClientWithTimeout(30 * time.Second),
 		providerID:  providerID,

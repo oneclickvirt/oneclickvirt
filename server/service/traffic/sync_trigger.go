@@ -21,6 +21,8 @@ type SyncTriggerService struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
+	workMu           sync.Mutex
+	stopping         bool
 }
 
 func NewSyncTriggerService() *SyncTriggerService {
@@ -34,6 +36,14 @@ func NewSyncTriggerService() *SyncTriggerService {
 
 // Shutdown waits for already-triggered work before cancelling its context.
 func (s *SyncTriggerService) Shutdown(timeout time.Duration) error {
+	s.workMu.Lock()
+	if s.stopping {
+		s.workMu.Unlock()
+		return nil
+	}
+	s.stopping = true
+	s.workMu.Unlock()
+
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -59,7 +69,9 @@ func (s *SyncTriggerService) Shutdown(timeout time.Duration) error {
 // TriggerInstanceTrafficSync only evaluates limits. It intentionally avoids a
 // provider-wide remote Agent pull on lifecycle events.
 func (s *SyncTriggerService) TriggerInstanceTrafficSync(instanceID uint, reason string) {
-	s.wg.Add(1)
+	if !s.beginWork() {
+		return
+	}
 	go func() {
 		defer s.wg.Done()
 		defer func() {
@@ -105,7 +117,9 @@ func (s *SyncTriggerService) TriggerInstanceTrafficSync(instanceID uint, reason 
 }
 
 func (s *SyncTriggerService) TriggerUserTrafficSync(userID uint, reason string) {
-	s.wg.Add(1)
+	if !s.beginWork() {
+		return
+	}
 	go func() {
 		defer s.wg.Done()
 		defer func() {
@@ -143,7 +157,9 @@ func (s *SyncTriggerService) checkUserTrafficLimitWithContext(ctx context.Contex
 }
 
 func (s *SyncTriggerService) TriggerProviderTrafficSync(providerID uint, reason string) {
-	s.wg.Add(1)
+	if !s.beginWork() {
+		return
+	}
 	go func() {
 		defer s.wg.Done()
 		defer func() {
@@ -193,7 +209,9 @@ func (s *SyncTriggerService) checkProviderTrafficLimitWithContext(ctx context.Co
 }
 
 func (s *SyncTriggerService) TriggerDelayedInstanceTrafficSync(instanceID uint, delay time.Duration, reason string) {
-	s.wg.Add(1)
+	if !s.beginWork() {
+		return
+	}
 	go func() {
 		defer s.wg.Done()
 		defer func() {
@@ -212,4 +230,14 @@ func (s *SyncTriggerService) TriggerDelayedInstanceTrafficSync(instanceID uint, 
 			return
 		}
 	}()
+}
+
+func (s *SyncTriggerService) beginWork() bool {
+	s.workMu.Lock()
+	defer s.workMu.Unlock()
+	if s.stopping {
+		return false
+	}
+	s.wg.Add(1)
+	return true
 }

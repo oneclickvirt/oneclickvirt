@@ -25,6 +25,8 @@ type SyncService struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
+	workMu           sync.Mutex
+	stopping         bool
 }
 
 func NewSyncService() *SyncService {
@@ -37,6 +39,14 @@ func NewSyncService() *SyncService {
 }
 
 func (s *SyncService) Shutdown(timeout time.Duration) error {
+	s.workMu.Lock()
+	if s.stopping {
+		s.workMu.Unlock()
+		return nil
+	}
+	s.stopping = true
+	s.workMu.Unlock()
+
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -55,7 +65,9 @@ func (s *SyncService) Shutdown(timeout time.Duration) error {
 }
 
 func (s *SyncService) TriggerInstanceTrafficSync(instanceID uint, reason string) {
-	s.wg.Add(1)
+	if !s.beginWork() {
+		return
+	}
 	go func() {
 		defer s.wg.Done()
 		defer s.logPanic("手动实例流量同步", reason)
@@ -81,7 +93,9 @@ func (s *SyncService) TriggerInstanceTrafficSync(instanceID uint, reason string)
 }
 
 func (s *SyncService) TriggerUserTrafficSync(userID uint, reason string) {
-	s.wg.Add(1)
+	if !s.beginWork() {
+		return
+	}
 	go func() {
 		defer s.wg.Done()
 		defer s.logPanic("手动用户流量同步", reason)
@@ -108,7 +122,9 @@ func (s *SyncService) TriggerUsersTrafficSync(userIDs []uint, reason string) {
 	if len(userIDs) == 0 {
 		return
 	}
-	s.wg.Add(1)
+	if !s.beginWork() {
+		return
+	}
 	go func() {
 		defer s.wg.Done()
 		defer s.logPanic("批量用户流量同步", reason)
@@ -128,7 +144,9 @@ func (s *SyncService) TriggerUsersTrafficSync(userIDs []uint, reason string) {
 }
 
 func (s *SyncService) TriggerProviderTrafficSync(providerID uint, reason string) {
-	s.wg.Add(1)
+	if !s.beginWork() {
+		return
+	}
 	go func() {
 		defer s.wg.Done()
 		defer s.logPanic("手动Provider流量同步", reason)
@@ -151,7 +169,9 @@ func (s *SyncService) TriggerProviderTrafficSync(providerID uint, reason string)
 }
 
 func (s *SyncService) TriggerAllTrafficSync(reason string) {
-	s.wg.Add(1)
+	if !s.beginWork() {
+		return
+	}
 	go func() {
 		defer s.wg.Done()
 		defer s.logPanic("手动全系统流量同步", reason)
@@ -165,6 +185,16 @@ func (s *SyncService) TriggerAllTrafficSync(reason string) {
 			global.APP_LOG.Error("手动全系统流量同步失败：限额检查失败", zap.Error(err))
 		}
 	}()
+}
+
+func (s *SyncService) beginWork() bool {
+	s.workMu.Lock()
+	defer s.workMu.Unlock()
+	if s.stopping {
+		return false
+	}
+	s.wg.Add(1)
+	return true
 }
 
 func (s *SyncService) syncAgentOrLog(ctx context.Context, providerIDs []uint, operation, reason string) {

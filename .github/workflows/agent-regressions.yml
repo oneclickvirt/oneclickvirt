@@ -1,0 +1,81 @@
+name: Agent lifecycle regressions
+
+on:
+  push:
+    paths:
+      - 'server/agent/**'
+      - 'server/service/agent/**'
+      - 'server/service/console/**'
+      - 'server/api/v1/admin/*terminal*.go'
+      - 'server/go.mod'
+      - 'server/go.sum'
+      - '.github/workflows/agent-regressions.yml'
+  pull_request:
+    paths:
+      - 'server/agent/**'
+      - 'server/service/agent/**'
+      - 'server/service/console/**'
+      - 'server/api/v1/admin/*terminal*.go'
+      - 'server/go.mod'
+      - 'server/go.sum'
+      - '.github/workflows/agent-regressions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: agent-regressions-${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  controller:
+    name: Go controller Agent lifecycle race tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Test shared Agent connection and terminal lifecycle with race detection
+        run: go test -count=1 -race ./service/agent ./service/console ./api/v1/admin
+      - name: Vet controller Agent and terminal packages
+        run: go vet ./service/agent ./service/console ./api/v1/admin
+
+  test:
+    name: Real PTY and Agent tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: server/agent
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run all native Agent tests
+        run: cargo test --locked --all-targets
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Run strict Agent clippy checks
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Install Linux release target dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add x86_64-unknown-linux-musl
+      - name: Run all tests against the Linux musl release target
+        if: runner.os == 'Linux'
+        run: cargo test --locked --all-targets --target x86_64-unknown-linux-musl

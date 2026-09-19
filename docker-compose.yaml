@@ -46,7 +46,7 @@ services:
     container_name: mysql
     restart: always
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env before running docker compose}
       MYSQL_DATABASE: oneclickvirt

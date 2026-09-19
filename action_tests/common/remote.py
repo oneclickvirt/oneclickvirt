@@ -1,18 +1,58 @@
 #!/usr/bin/env python3
 """Remote SSH execution helper for testing QEMU scripts."""
 import argparse
+import codecs
 import os
-import paramiko
+try:
+    import paramiko
+except ImportError:  # SSH is an optional action-test dependency.
+    paramiko = None
 import sys
 import time
 
 # Default connection parameters (can be overridden via env vars or CLI flags)
 HOST = os.environ.get("REMOTE_HOST", "")
-PORT = int(os.environ.get("REMOTE_PORT", "22"))
+PORT = 22
 USER = os.environ.get("REMOTE_USER", "root")
 PASS = os.environ.get("REMOTE_PASS", "")
 # Optional SSH private key file path; takes priority over password when set
 KEY_FILE = os.environ.get("REMOTE_KEY_FILE", "")
+
+
+def _configured_port():
+    """Parse REMOTE_PORT only when a remote operation is actually requested."""
+    raw = os.environ.get("REMOTE_PORT", "22").strip()
+    try:
+        port = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("REMOTE_PORT must be an integer between 1 and 65535") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("REMOTE_PORT must be an integer between 1 and 65535")
+    return port
+
+
+def _configure_host_keys(client):
+    """Load optional trust material and choose an explicit host-key policy."""
+    if paramiko is None:
+        raise RuntimeError("Missing optional dependency: install scripts/tests/requirements-live.txt")
+    # Provider-created instances do not have a trusted key until they are
+    # reached for the first time, so keep the historical permissive default
+    # for that path.  Destructive/live callers can opt into strict checking by
+    # setting REMOTE_STRICT_HOST_KEY=yes or by supplying REMOTE_KNOWN_HOSTS.
+    # Supplying a known_hosts file implicitly enables strict mode so a typo or
+    # changed host key fails closed instead of silently accepting a new key.
+    known_hosts = os.environ.get("REMOTE_KNOWN_HOSTS", "").strip()
+    strict_host_key = os.environ.get("REMOTE_STRICT_HOST_KEY", "").strip().lower() in {
+        "1", "true", "yes", "on"
+    } or bool(known_hosts)
+    client.load_system_host_keys()
+    if known_hosts:
+        if not os.path.isfile(known_hosts):
+            raise RuntimeError(f"REMOTE_KNOWN_HOSTS does not exist: {known_hosts}")
+        client.load_host_keys(known_hosts)
+    client.set_missing_host_key_policy(
+        paramiko.RejectPolicy() if strict_host_key else paramiko.AutoAddPolicy()
+    )
 
 
 def _make_client(host=None, port=None, user=None, password=None,
@@ -27,14 +67,16 @@ def _make_client(host=None, port=None, user=None, password=None,
       3. No credentials supplied – let paramiko try the SSH agent / ~/.ssh keys
          as a last resort (useful for interactive/dev environments).
     """
+    if paramiko is None:
+        raise RuntimeError("Missing optional dependency: install scripts/tests/requirements-live.txt")
     h = host or HOST
-    p = port if port is not None else PORT
+    p = port if port is not None else _configured_port()
     u = user or USER
     pw = password if password is not None else PASS
     kf = key_filename if key_filename is not None else (KEY_FILE if KEY_FILE else None)
 
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    _configure_host_keys(client)
 
     if kf and os.path.isfile(kf):
         # Load key explicitly to handle both legacy RSA PEM (-----BEGIN RSA PRIVATE KEY-----)
@@ -106,46 +148,107 @@ def _make_client(host=None, port=None, user=None, password=None,
             allow_agent=True,
             timeout=connect_timeout,
         )
+    keep_ssh_alive(client)
     return client
+
+
+def keep_ssh_alive(client, interval=15):
+    """Keep idle control transports usable while a separate API task runs.
+
+    This does not retry commands or hide a disconnected transport. Command
+    deadlines still belong to _collect_output and close only their channel.
+    """
+    if interval <= 0:
+        raise ValueError("SSH keepalive interval must be positive")
+    transport = client.get_transport()
+    if transport is None or not transport.is_active():
+        raise RuntimeError("SSH transport is not connected")
+    transport.set_keepalive(interval)
+
+
+def _collect_output(channel, timeout, stream=False, *, on_output=None, capture=True):
+    """Drain both SSH streams before waiting for exit status.
+
+    SSH shares a finite receive window between stdout and stderr. Waiting for
+    the process first, or draining only stdout, deadlocks verbose installers.
+    A monotonic deadline also bounds commands that keep producing output.
+    Interactive callers can handle decoded (stream_index, text) chunks through
+    on_output and disable capture to avoid retaining entire installer logs.
+    """
+    if timeout <= 0:
+        raise ValueError("SSH command timeout must be positive")
+    deadline = time.monotonic() + timeout
+    chunks = [[], []]
+    decoders = [codecs.getincrementaldecoder("utf-8")("replace") for _ in range(2)]
+    streams = [sys.stdout, sys.stderr]
+
+    def append(index, data, final=False):
+        value = decoders[index].decode(data, final=final)
+        if value:
+            if capture:
+                chunks[index].append(value)
+            if stream:
+                print(value, end="", file=streams[index], flush=True)
+            if on_output is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"SSH command exceeded {timeout:g} seconds")
+                # A PTY response also uses the finite SSH window. Bound a
+                # callback's sendall if the peer stops consuming stdin.
+                channel.settimeout(remaining)
+                on_output(index, value)
+
+    while True:
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"SSH command exceeded {timeout:g} seconds")
+        received = False
+        # Bound each turn so a continuously busy stream cannot starve the
+        # other stream or the deadline check.
+        if channel.recv_ready():
+            append(0, channel.recv(65536))
+            received = True
+        if channel.recv_stderr_ready():
+            append(1, channel.recv_stderr(65536))
+            received = True
+        # A server can send exit-status before EOF. Wait until all output has
+        # arrived, and do not interpret a closed transport as exit code zero.
+        if (channel.eof_received or channel.closed) and not (
+                channel.recv_ready() or channel.recv_stderr_ready()):
+            if channel.exit_status_ready():
+                break
+        if not received:
+            time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+
+    for index in range(2):
+        append(index, b"", final=True)
+    return "".join(chunks[0]), "".join(chunks[1]), channel.recv_exit_status()
+
+
+def _run_command(cmd, timeout, host, port, user, password, key_filename, stream):
+    if timeout <= 0:
+        raise ValueError("SSH command timeout must be positive")
+    client = _make_client(host=host, port=port, user=user, password=password,
+                          key_filename=key_filename)
+    try:
+        stdin, stdout, _ = client.exec_command(cmd, timeout=timeout)
+        # These helpers are noninteractive; commands waiting for stdin must
+        # receive EOF instead of hanging until the command deadline.
+        stdin.channel.shutdown_write()
+        return _collect_output(stdout.channel, timeout, stream)
+    finally:
+        client.close()
 
 
 def ssh_exec(cmd, timeout=120, host=None, port=None, user=None, password=None,
              key_filename=None):
     """Execute command on remote server, return (stdout, stderr, exit_code)."""
-    client = _make_client(host=host, port=port, user=user, password=password,
-                          key_filename=key_filename)
-    stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-    exit_code = stdout.channel.recv_exit_status()
-    out = stdout.read().decode('utf-8', errors='replace')
-    err = stderr.read().decode('utf-8', errors='replace')
-    client.close()
-    return out, err, exit_code
+    return _run_command(cmd, timeout, host, port, user, password, key_filename, False)
 
 
 def ssh_exec_stream(cmd, timeout=600, host=None, port=None, user=None, password=None,
                     key_filename=None):
     """Execute command with streaming output."""
-    client = _make_client(host=host, port=port, user=user, password=password,
-                          key_filename=key_filename)
-    stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-
-    output = []
-    while not stdout.channel.exit_status_ready():
-        if stdout.channel.recv_ready():
-            chunk = stdout.channel.recv(4096).decode('utf-8', errors='replace')
-            print(chunk, end='', flush=True)
-            output.append(chunk)
-        time.sleep(0.1)
-    # Read remaining
-    remaining = stdout.read().decode('utf-8', errors='replace')
-    if remaining:
-        print(remaining, end='', flush=True)
-        output.append(remaining)
-
-    err = stderr.read().decode('utf-8', errors='replace')
-    exit_code = stdout.channel.recv_exit_status()
-    client.close()
-    return ''.join(output), err, exit_code
+    return _run_command(cmd, timeout, host, port, user, password, key_filename, True)
 
 
 def scp_upload(local_path, remote_path, host=None, port=None, user=None, password=None,
@@ -180,7 +283,7 @@ def speedtest_download(urls, min_mb=1, time_limit=60,
     if none succeed.
     """
     h = host or HOST
-    p = port if port is not None else PORT
+    p = port if port is not None else _configured_port()
     u = user or USER
     pw = password if password is not None else PASS
     kf = key_filename if key_filename is not None else (KEY_FILE if KEY_FILE else None)
@@ -220,7 +323,12 @@ if __name__ == "__main__":
         description="Remote SSH execution helper - run a command on a remote host."
     )
     parser.add_argument("--host", default=HOST, help="Remote host (default: REMOTE_HOST env)")
-    parser.add_argument("--port", type=int, default=PORT, help="SSH port (default: REMOTE_PORT env or 22)")
+    try:
+        default_port = _configured_port()
+    except ValueError as exc:
+        parser.error(str(exc))
+    parser.add_argument("--port", type=int, default=default_port,
+                        help="SSH port (default: REMOTE_PORT env or 22)")
     parser.add_argument("--user", default=USER, help="SSH username (default: REMOTE_USER env or root)")
     parser.add_argument("--password", default=PASS, help="SSH password (default: REMOTE_PASS env)")
     parser.add_argument("--key-file", default=KEY_FILE,
@@ -258,8 +366,8 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"SSH connection failed: {exc}", file=sys.stderr)
         sys.exit(1)
-    if out:
+    if out and not args.stream:
         print(out, end='')
-    if err:
+    if err and not args.stream:
         print(err, end='', file=sys.stderr)
     sys.exit(rc)

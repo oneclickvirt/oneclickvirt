@@ -97,7 +97,8 @@ RUN echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
     echo 'skip-name-resolve' >> /etc/mysql/conf.d/custom.cnf && \
     echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
     echo 'innodb_buffer_pool_size=256M' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'innodb_log_file_size=64M' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'loose-innodb_log_file_size=64M' >> /etc/mysql/conf.d/custom.cnf && \
+    echo 'loose-innodb_redo_log_capacity=256M' >> /etc/mysql/conf.d/custom.cnf && \
     echo 'loose-binlog_expire_logs_seconds=259200' >> /etc/mysql/conf.d/custom.cnf && \
     echo 'loose-expire_logs_days=3' >> /etc/mysql/conf.d/custom.cnf && \
     echo 'max_binlog_size=256M' >> /etc/mysql/conf.d/custom.cnf && \

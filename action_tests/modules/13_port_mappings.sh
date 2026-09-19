@@ -36,16 +36,42 @@ run_module_13() {
         inst_for_pm="$TEST_INSTANCE_ID"
 
         # -- Create port mapping --
-        local pm; pm=$(test_api "Create port mapping" "POST" "/api/v1/admin/port-mappings" "200|400" \
-            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$instance_group")
+        # This is a positive mapping assertion. A 4xx here is not a feature
+        # skip: the instance and provider already passed their readiness
+        # gates, so it must remain a recorded failure.
+        test_api "Check port for manual mapping" "POST" "/api/v1/admin/ports/check" "200" \
+            "{\"providerId\":${PROVIDER_ID},\"hostPort\":25001,\"portCount\":1,\"protocol\":\"tcp\"}" "$instance_group" >/dev/null
+        local pm="" pm_request_ok=true
+        if pm=$(test_api "Create port mapping" "POST" "/api/v1/admin/port-mappings" "200" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$instance_group"); then
+            pm_request_ok=true
+        else
+            pm_request_ok=false
+        fi
         pm_id=$(echo "$pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
+        if [[ "$pm_request_ok" == "true" && -z "$pm_id" ]]; then
+            record_fail_result "Create port mapping result" "POST" \
+                "/api/v1/admin/port-mappings" "mapping id" "missing" "$pm" "$instance_group"
+        fi
 
         # -- Create port mapping with mappingType=node (explicit) --
-        test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "200|400" \
-            "{\"instanceId\":${inst_for_pm},\"guestPort\":8080,\"protocol\":\"tcp\",\"hostPort\":25080,\"mappingType\":\"node\"}" "$instance_group"
+        test_api "Check port for explicit node mapping" "POST" "/api/v1/admin/ports/check" "200" \
+            "{\"providerId\":${PROVIDER_ID},\"hostPort\":25080,\"portCount\":1,\"protocol\":\"tcp\"}" "$instance_group" >/dev/null
+        local node_pm="" node_pm_request_ok=true node_pm_id=""
+        if node_pm=$(test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "200" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":8080,\"protocol\":\"tcp\",\"hostPort\":25080,\"mappingType\":\"node\"}" "$instance_group"); then
+            node_pm_request_ok=true
+        else
+            node_pm_request_ok=false
+        fi
+        node_pm_id=$(echo "$node_pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
+        if [[ "$node_pm_request_ok" == "true" && -z "$node_pm_id" ]]; then
+            record_fail_result "Create port mapping (node type) result" "POST" \
+                "/api/v1/admin/port-mappings" "mapping id" "missing" "$node_pm" "$instance_group"
+        fi
 
         # -- Create port mapping with mappingType=controller --
-        local ctrl_pm; ctrl_pm=$(test_api "Create port mapping (controller type)" "POST" "/api/v1/admin/port-mappings" "200|400|500" \
+        local ctrl_pm; ctrl_pm=$(test_api "Create port mapping (controller type)" "POST" "/api/v1/admin/port-mappings" "200|infra" \
             "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$instance_group")
         ctrl_pm_id=$(echo "$ctrl_pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
 
@@ -68,7 +94,7 @@ run_module_13() {
             "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25100,\"mappingType\":\"node\"}" "$instance_group"
 
         # controller mode should still be accepted (or 400 if controller func not initialized)
-        test_api "no_port_mapping allows controller mapping" "POST" "/api/v1/admin/port-mappings" "200|400|500" \
+        test_api "no_port_mapping allows controller mapping" "POST" "/api/v1/admin/port-mappings" "200|infra" \
             "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$instance_group"
 
         # user-side display should expose controller host in tunnel mode (when user can access the instance)
@@ -127,7 +153,7 @@ run_module_13() {
     if [[ -n "$pm_id" && "$pm_id" =~ ^[0-9]+$ ]]; then
         sync_payload="{\"providerIds\":[${PROVIDER_ID}],\"includedPortIds\":[${pm_id}]}"
     fi
-    sync_resp=$(test_api "Sync port mappings" "POST" "/api/v1/admin/port-mappings/sync" "200|400|404" \
+    sync_resp=$(test_api "Sync port mappings" "POST" "/api/v1/admin/port-mappings/sync" "200|infra" \
         "$sync_payload" "$group")
     if [[ "$(echo "$sync_resp" | jq -r '.code // empty' 2>/dev/null)" == "200" ]]; then
         local sync_task_id sync_task_resp
@@ -163,6 +189,9 @@ run_module_13() {
     # -- Delete single --
     if [[ -n "$pm_id" ]]; then
         test_api "Delete port mapping" "DELETE" "/api/v1/admin/port-mappings/${pm_id}" "200" "" "$instance_group"
+    fi
+    if [[ -n "${node_pm_id:-}" ]]; then
+        test_api "Delete node port mapping" "DELETE" "/api/v1/admin/port-mappings/${node_pm_id}" "200" "" "$instance_group"
     fi
 
     # -- Delete nonexistent --

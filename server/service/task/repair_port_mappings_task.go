@@ -553,7 +553,16 @@ func (s *TaskService) executeRepairPortMappingsTask(ctx context.Context, task *a
 		s.updateTaskProgress(task.ID, 15+processed*70/total, "step.repairingPortMappings")
 	}
 	if applier != nil {
-		applier.Finish()
+		if err := applier.Finish(); err != nil {
+			for _, port := range regularPorts {
+				if port.MappingType != "controller" {
+					if _, ok := successful[port.ID]; ok {
+						delete(successful, port.ID)
+						failed[port.ID] = fmt.Sprintf("保存防火墙规则失败: %v", err)
+					}
+				}
+			}
+		}
 	}
 
 	successIDs := make([]uint, 0, len(successful))

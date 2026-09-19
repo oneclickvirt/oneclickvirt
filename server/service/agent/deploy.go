@@ -61,7 +61,7 @@ func (c *AgentConfig) resourceInterval() int {
 
 func buildEnvFile(cfg *AgentConfig) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("API_TOKEN=%s\n", cfg.Token))
+	sb.WriteString(fmt.Sprintf("API_TOKEN=%s\n", systemdEnvironmentValue(cfg.Token)))
 	sb.WriteString(fmt.Sprintf("TRAFFIC_COLLECT_INTERVAL=%d\n", cfg.trafficInterval()))
 	sb.WriteString(fmt.Sprintf("RESOURCE_COLLECT_INTERVAL=%d\n", cfg.resourceInterval()))
 	sb.WriteString("RUST_LOG=info\n")
@@ -69,12 +69,12 @@ func buildEnvFile(cfg *AgentConfig) string {
 	if method == "" {
 		method = "nft"
 	}
-	sb.WriteString(fmt.Sprintf("TRAFFIC_COLLECT_METHOD=%s\n", method))
+	sb.WriteString(fmt.Sprintf("TRAFFIC_COLLECT_METHOD=%s\n", systemdEnvironmentValue(method)))
 	if cfg.ExtraExcludeCIDRsV4 != "" {
-		sb.WriteString(fmt.Sprintf("EXTRA_EXCLUDE_CIDRS_V4=%s\n", cfg.ExtraExcludeCIDRsV4))
+		sb.WriteString(fmt.Sprintf("EXTRA_EXCLUDE_CIDRS_V4=%s\n", systemdEnvironmentValue(cfg.ExtraExcludeCIDRsV4)))
 	}
 	if cfg.ExtraExcludeCIDRsV6 != "" {
-		sb.WriteString(fmt.Sprintf("EXTRA_EXCLUDE_CIDRS_V6=%s\n", cfg.ExtraExcludeCIDRsV6))
+		sb.WriteString(fmt.Sprintf("EXTRA_EXCLUDE_CIDRS_V6=%s\n", systemdEnvironmentValue(cfg.ExtraExcludeCIDRsV6)))
 	}
 	// Transparent egress uses only a fixed, audited dependency set.  The
 	// agent still reports missing kernel capabilities separately; this flag
@@ -102,15 +102,44 @@ func buildEnvFile(cfg *AgentConfig) string {
 			}
 			sb.WriteString(fmt.Sprintf("PROXY_HTTPS_ADDR=0.0.0.0:%d\n", httpsPort))
 			if cfg.ProxyTLSCertPath != "" {
-				sb.WriteString(fmt.Sprintf("PROXY_TLS_CERT=%s\n", cfg.ProxyTLSCertPath))
+				sb.WriteString(fmt.Sprintf("PROXY_TLS_CERT=%s\n", systemdEnvironmentValue(cfg.ProxyTLSCertPath)))
 			}
 			if cfg.ProxyTLSKeyPath != "" {
-				sb.WriteString(fmt.Sprintf("PROXY_TLS_KEY=%s\n", cfg.ProxyTLSKeyPath))
+				sb.WriteString(fmt.Sprintf("PROXY_TLS_KEY=%s\n", systemdEnvironmentValue(cfg.ProxyTLSKeyPath)))
 			}
 		}
 	}
 
 	return sb.String()
+}
+
+// systemdEnvironmentValue writes a value in the quoted EnvironmentFile form.
+// Values originate from provider/user configuration, so newlines and control
+// characters must never be allowed to create additional environment entries.
+func systemdEnvironmentValue(value string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				continue
+			}
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // buildDeployScript generates a self-contained bash deploy script for the agent.
@@ -459,10 +488,14 @@ func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provid
 
 	// Upload via printf + base64 decode, then execute, then clean up regardless of outcome.
 	// Using a unique tmp file to avoid collisions on concurrent deploys.
-	tmpScript := fmt.Sprintf("/tmp/ocv_agent_deploy_%s.sh", version)
+	safeVersion := utils.SanitizeShellArg(version)
+	if safeVersion == "" {
+		safeVersion = "unknown"
+	}
+	tmpScript := fmt.Sprintf("/tmp/ocv_agent_deploy_%s.sh", safeVersion)
 	uploadAndRun := fmt.Sprintf(
 		`printf '%%s' '%s' | base64 -d > %s && chmod +x %s && %s; RC=$?; rm -f %s; exit $RC`,
-		scriptB64, tmpScript, tmpScript, tmpScript, tmpScript,
+		scriptB64, utils.ShellSingleQuote(tmpScript), utils.ShellSingleQuote(tmpScript), utils.ShellSingleQuote(tmpScript), utils.ShellSingleQuote(tmpScript),
 	)
 
 	deployCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)

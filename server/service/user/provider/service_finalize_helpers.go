@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -16,27 +17,72 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
+	"gorm.io/gorm"
 )
 
-func shouldDefaultInstanceSSHPortTo22(providerType, instanceType string) bool {
-	providerType = utils.NormalizeProviderType(providerType)
-	return !utils.IsDockerFamilyProvider(providerType) &&
-		!utils.UsesContainerRuntimePorts(providerType, instanceType) &&
-		!utils.UsesVMPositionalPorts(providerType, instanceType)
+// storesGuestPublicIPv6 reports whether the instance itself owns a routable
+// IPv6 address.  nat_ipv4_ipv6 deliberately uses a ULA guest address and a
+// node-side IPv6 DNAT/proxy; persisting the node's shared IPv6 in
+// instances.public_ipv6 makes the UI and traffic binding claim that the guest
+// is directly reachable and can route traffic incorrectly.
+func storesGuestPublicIPv6(networkType string) bool {
+	switch strings.ToLower(strings.TrimSpace(networkType)) {
+	case "dedicated_ipv4_ipv6", "ipv6_only":
+		return true
+	default:
+		return false
+	}
 }
 
-func applySSHPortFromActiveMapping(instanceID uint, instanceUpdates map[string]interface{}) bool {
+func publicIPv6Update(networkType, value string) map[string]interface{} {
+	if !storesGuestPublicIPv6(networkType) {
+		// NAT modes must actively clear a stale host address, including when the
+		// current probe cannot find a guest public address.
+		return map[string]interface{}{"public_ipv6": ""}
+	}
+	if strings.TrimSpace(value) != "" {
+		return map[string]interface{}{"public_ipv6": strings.TrimSpace(value)}
+	}
+	// A routed guest's probe may be temporarily unavailable. Do not erase a
+	// known-good address and make the instance look unconfigured on a transient
+	// provider/API failure; the next successful reconciliation will refresh it.
+	return nil
+}
+
+// The advertised SSH endpoint follows the active mapping for every provider.
+// Incus/LXD also expose NAT ports; defaulting these providers to 22 sends a
+// guest password to the node's SSH daemon instead of the container.
+func applyFinalizedSSHPort(db *gorm.DB, instance providerModel.Instance, dbProvider providerModel.Provider, instanceUpdates map[string]interface{}) error {
+	if db == nil {
+		return fmt.Errorf("数据库不可用，保留实例SSH端口")
+	}
 	var sshPortMapping providerModel.Port
-	if err := global.APP_DB.
-		Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).
-		First(&sshPortMapping).Error; err != nil {
-		return false
+	err := db.Where("instance_id = ? AND is_ssh = ? AND status = ? AND protocol IN ?",
+		instance.ID, true, "active", []string{"tcp", "both"}).First(&sshPortMapping).Error
+	if err == nil {
+		if sshPortMapping.HostPort < 1 || sshPortMapping.HostPort > 65535 {
+			return fmt.Errorf("SSH映射端口无效: %d", sshPortMapping.HostPort)
+		}
+		instanceUpdates["ssh_port"] = sshPortMapping.HostPort
+		return nil
 	}
-	if sshPortMapping.HostPort <= 0 {
-		return false
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
 	}
-	instanceUpdates["ssh_port"] = sshPortMapping.HostPort
-	return true
+	// Keep an existing reservation or custom guest port if the mapping is not
+	// active yet. Only a direct network with no known port gets the default.
+	if instance.SSHPort > 0 {
+		return nil
+	}
+	networkType := instance.NetworkType
+	if networkType == "" {
+		networkType = dbProvider.NetworkType
+	}
+	switch networkType {
+	case "dedicated_ipv4", "dedicated_ipv4_ipv6", "ipv6_only", "no_port_mapping":
+		instanceUpdates["ssh_port"] = 22
+	}
+	return nil
 }
 
 // waitForInstanceSSHReady 智能等待实例SSH服务就绪
@@ -326,8 +372,12 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 				if ipv6, err := lxdProvider.GetInstanceIPv6(instance.Name); err == nil && ipv6 != "" {
 					updates["ipv6_address"] = ipv6
 				}
-				if publicIPv6, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil && publicIPv6 != "" {
-					updates["public_ipv6"] = publicIPv6
+				publicIPv6 := ""
+				if candidate, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil {
+					publicIPv6 = candidate
+				}
+				for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+					updates[key] = value
 				}
 			}
 		case "incus":
@@ -338,8 +388,12 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 				if ipv6, err := incusProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6 != "" {
 					updates["ipv6_address"] = ipv6
 				}
-				if publicIPv6, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
-					updates["public_ipv6"] = publicIPv6
+				publicIPv6 := ""
+				if candidate, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
+					publicIPv6 = candidate
+				}
+				for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+					updates[key] = value
 				}
 			}
 		case "proxmox", "proxmoxve":
@@ -357,8 +411,12 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 				if ipv6, err := proxmoxProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6 != "" {
 					updates["ipv6_address"] = ipv6
 				}
-				if publicIPv6, err := proxmoxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
-					updates["public_ipv6"] = publicIPv6
+				publicIPv6 := ""
+				if candidate, err := proxmoxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
+					publicIPv6 = candidate
+				}
+				for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+					updates[key] = value
 				}
 			}
 		case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":

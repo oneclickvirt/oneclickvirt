@@ -144,14 +144,14 @@
             >
               <span
                 class="command-text"
-                :title="`ssh ${instance.username || 'root'}@${instance.publicIP} -p ${row.hostPort}`"
+                :title="formatSSHCommand(instance.username, instance.publicIP, row.hostPort)"
               >
                 {{ formatSSHCommand(instance.username, instance.publicIP, row.hostPort) }}
               </span>
               <el-button
                 size="small"
                 text
-                @click="$emit('copy', `ssh ${instance.username || 'root'}@${instance.publicIP} -p ${row.hostPort}`)"
+                @click="$emit('copy', formatSSHCommand(instance.username, instance.publicIP, row.hostPort))"
               >
                 {{ $t('user.instanceDetail.copy') }}
               </el-button>
@@ -163,14 +163,14 @@
             >
               <span
                 class="command-text"
-                :title="`${instance.publicIP}:${row.hostPort}`"
+                :title="formatIPPort(instance.publicIP, row.hostPort)"
               >
                 {{ formatIPPort(instance.publicIP, row.hostPort) }}
               </span>
               <el-button
                 size="small"
                 text
-                @click="$emit('copy', `${instance.publicIP}:${row.hostPort}`)"
+                @click="$emit('copy', formatIPPort(instance.publicIP, row.hostPort))"
               >
                 {{ $t('user.instanceDetail.copy') }}
               </el-button>
@@ -190,8 +190,7 @@
 </template>
 
 <script setup>
-import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
+import { formatEndpointHostPort, formatEndpointHostForUrl } from '@/utils/endpoint'
 
 defineProps({
   instance: { type: Object, required: true },
@@ -202,11 +201,11 @@ defineEmits(['refresh', 'copy'])
 
 const formatSSHCommand = (username, ip, port) => {
   const user = username || 'root'
-  const host = ip || ''
+  const host = formatEndpointHostForUrl(ip)
   return `ssh ${user}@${host} -p ${port}`
 }
 
 const formatIPPort = (ip, port) => {
-  return `${ip || ''}:${port}`
+  return formatEndpointHostPort(ip, port)
 }
 </script>

@@ -17,12 +17,28 @@ package utils
 //	/opt/bin        — 可选软件包路径
 const StandardExtendedPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/var/lib/snapd/snap/bin:/opt/bin"
 
+// Sourcing another shell's rc can terminate a non-interactive shell on a syntax
+// error, even when followed by `|| true`. Load only the current shell's files.
+const systemShellRCScript = "if [ -n \"${BASH_VERSION:-}\" ]; then " +
+	"[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc >/dev/null 2>&1 || true; " +
+	"[ -f /etc/bashrc ] && . /etc/bashrc >/dev/null 2>&1 || true; " +
+	"elif [ -n \"${ZSH_VERSION:-}\" ]; then " +
+	"[ -f /etc/zsh/zprofile ] && . /etc/zsh/zprofile >/dev/null 2>&1 || true; " +
+	"[ -f /etc/zsh/zshrc ] && . /etc/zsh/zshrc >/dev/null 2>&1 || true; fi; "
+
+const userShellRCScript = "if [ -n \"${BASH_VERSION:-}\" ]; then " +
+	"[ -f ~/.bash_profile ] && . ~/.bash_profile >/dev/null 2>&1 || true; " +
+	"[ -f ~/.bashrc ] && . ~/.bashrc >/dev/null 2>&1 || true; " +
+	"elif [ -n \"${ZSH_VERSION:-}\" ]; then " +
+	"[ -f ~/.zprofile ] && . ~/.zprofile >/dev/null 2>&1 || true; " +
+	"[ -f ~/.zshrc ] && . ~/.zshrc >/dev/null 2>&1 || true; fi; "
+
 // envLoadScript 是完整的环境加载 shell 脚本片段。
 // 设计原则：
 //  1. 使用 POSIX 兼容语法（. 而非 source），兼容 sh/bash/zsh
 //  2. 设置 LC_ALL=C.UTF-8 防止 locale 编码问题和警告噪音
 //  3. 设置 PS1 伪装交互式 shell，绕过 bashrc 中 [[ $- != *i* ]] 守卫
-//  4. 加载所有可能的系统级和用户级环境文件，静默失败不中断
+//  4. 加载系统级和用户级环境文件，shell 专属 rc 仅由对应 shell 加载
 //  5. 加载顺序：系统级 → 用户级 → PATH 补全
 //
 // 加载的环境文件清单：
@@ -54,20 +70,12 @@ const envLoadScript = "" +
 	"[ -f /etc/environment ] && . /etc/environment 2>/dev/null || true; " +
 	"[ -f /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true; " +
 	"[ -d /etc/profile.d ] && for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\" >/dev/null 2>&1 || true; done 2>/dev/null || true; " +
-	// 3. bash 系统级 rc（Debian/Ubuntu 和 RHEL/CentOS）
-	"[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc >/dev/null 2>&1 || true; " +
-	"[ -f /etc/bashrc ] && . /etc/bashrc >/dev/null 2>&1 || true; " +
-	// 4. zsh 系统级配置（如果存在，尽力加载）
-	"[ -f /etc/zsh/zprofile ] && . /etc/zsh/zprofile >/dev/null 2>&1 || true; " +
-	"[ -f /etc/zsh/zshrc ] && . /etc/zsh/zshrc >/dev/null 2>&1 || true; " +
+	// 3. 只加载当前 shell 对应的系统 rc。
+	systemShellRCScript +
 	// 5. POSIX 用户 profile
 	"[ -f ~/.profile ] && . ~/.profile >/dev/null 2>&1 || true; " +
-	// 6. bash 用户级配置（PS1 已伪装交互式，所以 bashrc 不会因非交互而退出）
-	"[ -f ~/.bash_profile ] && . ~/.bash_profile >/dev/null 2>&1 || true; " +
-	"[ -f ~/.bashrc ] && . ~/.bashrc >/dev/null 2>&1 || true; " +
-	// 7. zsh 用户级配置（尽力加载，zsh 语法在 sh 下可能报错，静默忽略）
-	"[ -f ~/.zprofile ] && . ~/.zprofile >/dev/null 2>&1 || true; " +
-	"[ -f ~/.zshrc ] && . ~/.zshrc >/dev/null 2>&1 || true; " +
+	// 6. 只加载当前 shell 对应的用户 rc。
+	userShellRCScript +
 	// 8. systemd 用户环境片段（较新的 systemd 版本支持）
 	"[ -d ~/.config/environment.d ] && for f in ~/.config/environment.d/*.conf; do [ -r \"$f\" ] && . \"$f\" >/dev/null 2>&1 || true; done 2>/dev/null || true; " +
 	// 9. 最终 PATH：StandardExtendedPath 前置 + 继承现有 PATH
@@ -81,11 +89,10 @@ func BuildEnvCommand(command string) string {
 
 // BuildEnvCommandNoUser 构建环境命令包装前缀（仅系统级配置）。
 // 适用于 Agent WebSocket 代理执行场景：
-//   - 避免加载 ~/.bashrc 中可能的长时间运行命令（如 `fortune`, `neofetch` 等）
-//   - 避免 zsh 语法在 sh 下产生过多警告噪音
-//   - 仅加载系统级文件和 POSIX 用户 profile（~/.profile 不含交互式命令）
+//   - 不加载任何用户 profile/rc，它们可能包含交互命令或再加载其他 rc
+//   - 只加载实际 shell 对应的系统 rc，避免 bash/zsh 语法使 sh 提前退出
+//   - 保留系统环境、profile 扩展和 snap 等标准 PATH
 func BuildEnvCommandNoUser(command string) string {
-	// 仅加载系统级 + POSIX 用户 profile（不含 bashrc/zshrc）
 	return "" +
 		// 安全 locale
 		"export LC_ALL=C.UTF-8 LANG=C.UTF-8 LANGUAGE=C.UTF-8 2>/dev/null || true; " +
@@ -93,15 +100,7 @@ func BuildEnvCommandNoUser(command string) string {
 		"[ -f /etc/environment ] && . /etc/environment 2>/dev/null || true; " +
 		"[ -f /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true; " +
 		"[ -d /etc/profile.d ] && for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\" >/dev/null 2>&1 || true; done 2>/dev/null || true; " +
-		"[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc >/dev/null 2>&1 || true; " +
-		"[ -f /etc/bashrc ] && . /etc/bashrc >/dev/null 2>&1 || true; " +
-		"[ -f /etc/zsh/zprofile ] && . /etc/zsh/zprofile >/dev/null 2>&1 || true; " +
-		"[ -f /etc/zsh/zshrc ] && . /etc/zsh/zshrc >/dev/null 2>&1 || true; " +
-		// POSIX 用户 profile（不含 bashrc/zshrc，避免交互式命令）
-		"[ -f ~/.profile ] && . ~/.profile >/dev/null 2>&1 || true; " +
-		"[ -f ~/.bash_profile ] && . ~/.bash_profile >/dev/null 2>&1 || true; " +
-		// systemd 用户环境
-		"[ -d ~/.config/environment.d ] && for f in ~/.config/environment.d/*.conf; do [ -r \"$f\" ] && . \"$f\" >/dev/null 2>&1 || true; done 2>/dev/null || true; " +
+		systemShellRCScript +
 		// 最终 PATH
 		"export PATH=" + StandardExtendedPath + "${PATH:+:$PATH}; " +
 		command
@@ -109,20 +108,4 @@ func BuildEnvCommandNoUser(command string) string {
 
 // EnvPrefixShell 返回仅包含环境加载的 shell 前缀（不含命令）。
 // 用于需要自定义后续命令的场景。使用完整的环境加载（含用户级）。
-const EnvPrefixShell = "" +
-	"export LC_ALL=C.UTF-8 LANG=C.UTF-8 LANGUAGE=C.UTF-8 2>/dev/null || true; " +
-	"export PS1='$ ' 2>/dev/null || true; " +
-	"[ -f /etc/environment ] && . /etc/environment 2>/dev/null || true; " +
-	"[ -f /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true; " +
-	"[ -d /etc/profile.d ] && for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\" >/dev/null 2>&1 || true; done 2>/dev/null || true; " +
-	"[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc >/dev/null 2>&1 || true; " +
-	"[ -f /etc/bashrc ] && . /etc/bashrc >/dev/null 2>&1 || true; " +
-	"[ -f /etc/zsh/zprofile ] && . /etc/zsh/zprofile >/dev/null 2>&1 || true; " +
-	"[ -f /etc/zsh/zshrc ] && . /etc/zsh/zshrc >/dev/null 2>&1 || true; " +
-	"[ -f ~/.profile ] && . ~/.profile >/dev/null 2>&1 || true; " +
-	"[ -f ~/.bash_profile ] && . ~/.bash_profile >/dev/null 2>&1 || true; " +
-	"[ -f ~/.bashrc ] && . ~/.bashrc >/dev/null 2>&1 || true; " +
-	"[ -f ~/.zprofile ] && . ~/.zprofile >/dev/null 2>&1 || true; " +
-	"[ -f ~/.zshrc ] && . ~/.zshrc >/dev/null 2>&1 || true; " +
-	"[ -d ~/.config/environment.d ] && for f in ~/.config/environment.d/*.conf; do [ -r \"$f\" ] && . \"$f\" >/dev/null 2>&1 || true; done 2>/dev/null || true; " +
-	"export PATH=" + StandardExtendedPath + "${PATH:+:$PATH}; "
+const EnvPrefixShell = envLoadScript

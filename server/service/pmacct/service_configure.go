@@ -17,6 +17,9 @@ import (
 // bpfIPv4/bpfIPv6: BPF过滤器使用的IP（容器用内网IP，虚拟机用公网IP）
 // publicIPv4/publicIPv6: 记录用的公网IP（用于数据库存储和显示）
 func (s *Service) configurePmacctForIPs(providerInstance provider.Provider, instanceName, bpfIPv4, bpfIPv6, publicIPv4, publicIPv6 string) error {
+	if err := validatePmacctInstanceName(instanceName); err != nil {
+		return err
+	}
 	global.APP_LOG.Debug("配置pmacct监控",
 		zap.String("instance", instanceName),
 		zap.String("bpfIPv4", bpfIPv4),

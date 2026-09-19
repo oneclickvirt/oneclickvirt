@@ -237,7 +237,7 @@ fi
 	// 清理临时脚本
 	cleanupCtx, cleanupCancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cleanupCancel()
-	providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", scriptPath))
+	providerInstance.ExecuteSSHCommand(cleanupCtx, fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(scriptPath)))
 
 	global.APP_LOG.Info("pmacct数据库表结构初始化成功",
 		zap.String("dbPath", dbPath),

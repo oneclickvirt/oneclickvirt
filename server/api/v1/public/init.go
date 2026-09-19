@@ -17,10 +17,44 @@ import (
 	configModel "oneclickvirt/model/config"
 	"oneclickvirt/source"
 	"oneclickvirt/utils"
+	"oneclickvirt/utils/dbconnect"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
+type TestDatabaseConnectionRequest struct {
+	Type     string `json:"type" binding:"required"`
+	Host     string `json:"host" binding:"required"`
+	Port     string `json:"port" binding:"required"`
+	Database string `json:"database" binding:"required"`
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password"`
+	SSLMode  string `json:"sslMode"`
+}
+
+type InitSystemRequest struct {
+	Admin struct {
+		Username string `json:"username" binding:"required"`
+		Password string `json:"password" binding:"required"`
+		Email    string `json:"email" binding:"required"`
+	} `json:"admin" binding:"required"`
+	User struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Email    string `json:"email"`
+		Enabled  bool   `json:"enabled"`
+	} `json:"user"`
+	Database struct {
+		Type     string `json:"type" binding:"required"`
+		Host     string `json:"host"`
+		Port     string `json:"port"`
+		Database string `json:"database"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		SSLMode  string `json:"sslMode"`
+	} `json:"database" binding:"required"`
+}
 
 // CheckInit 检查系统初始化状态
 // @Summary 检查系统初始化状态
@@ -92,24 +126,17 @@ func CheckInit(c *gin.Context) {
 
 // TestDatabaseConnection 测试数据库连接
 // @Summary 测试数据库连接
-// @Description 测试数据库连接是否可用，用于初始化前验证数据库配置
+// @Description 验证连接并自动检测实际 MySQL/MariaDB 服务端，修复已知跨版本参数错配；不更改凭据或降低 TLS 安全性
 // @Tags 系统初始化
 // @Accept json
 // @Produce json
-// @Param request body object true "数据库连接参数"
-// @Success 200 {object} common.Response "连接成功"
+// @Param request body TestDatabaseConnectionRequest true "数据库连接参数，类型标签不影响服务端自动检测；留空 sslMode 沿用部署配置"
+// @Success 200 {object} common.Response{data=dbconnect.Info} "连接成功，返回实际类型、版本和修复项"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 500 {object} common.Response "连接失败"
 // @Router /public/test-db-connection [post]
 func TestDatabaseConnection(c *gin.Context) {
-	var req struct {
-		Type     string `json:"type" binding:"required"`
-		Host     string `json:"host" binding:"required"`
-		Port     string `json:"port" binding:"required"`
-		Database string `json:"database" binding:"required"`
-		Username string `json:"username" binding:"required"`
-		Password string `json:"password"`
-	}
+	var req TestDatabaseConnectionRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		global.APP_LOG.Warn("数据库连接测试参数错误", zap.Error(err))
@@ -118,7 +145,8 @@ func TestDatabaseConnection(c *gin.Context) {
 	}
 
 	// 支持MySQL和MariaDB
-	if req.Type != "mysql" && req.Type != "mariadb" {
+	req.Type = config.NormalizeDatabaseType(req.Type)
+	if !config.IsSupportedDatabaseType(req.Type) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "仅支持MySQL和MariaDB数据库"))
 		return
 	}
@@ -140,9 +168,12 @@ func TestDatabaseConnection(c *gin.Context) {
 		Database: req.Database,
 		Username: req.Username,
 		Password: req.Password,
+		SSLMode:  req.SSLMode,
 	}
 
-	if err := initService.TestDatabaseConnection(dbConfig); err != nil {
+	var detected dbconnect.Info
+	detected, err = initService.DetectDatabaseConnection(dbConfig)
+	if err != nil {
 		global.APP_LOG.Warn("数据库连接测试失败",
 			zap.String("host", req.Host),
 			zap.String("port", req.Port),
@@ -159,7 +190,7 @@ func TestDatabaseConnection(c *gin.Context) {
 		zap.String("database", req.Database),
 		zap.String("username", req.Username))
 
-	common.ResponseSuccess(c, nil, "数据库连接测试成功")
+	common.ResponseSuccess(c, detected, "数据库连接测试成功")
 }
 
 // InitSystem 初始化系统
@@ -168,33 +199,13 @@ func TestDatabaseConnection(c *gin.Context) {
 // @Tags 系统初始化
 // @Accept json
 // @Produce json
-// @Param request body object true "初始化请求参数"
+// @Param request body InitSystemRequest true "初始化请求参数"
 // @Success 200 {object} common.Response "初始化成功"
 // @Failure 400 {object} common.Response "参数错误或系统已初始化"
 // @Failure 500 {object} common.Response "初始化失败"
 // @Router /public/init [post]
 func InitSystem(c *gin.Context) {
-	var req struct {
-		Admin struct {
-			Username string `json:"username" binding:"required"`
-			Password string `json:"password" binding:"required"`
-			Email    string `json:"email" binding:"required"`
-		} `json:"admin" binding:"required"`
-		User struct {
-			Username string `json:"username"`
-			Password string `json:"password"`
-			Email    string `json:"email"`
-			Enabled  bool   `json:"enabled"`
-		} `json:"user"`
-		Database struct {
-			Type     string `json:"type" binding:"required"`
-			Host     string `json:"host"`
-			Port     string `json:"port"`
-			Database string `json:"database"`
-			Username string `json:"username"`
-			Password string `json:"password"`
-		} `json:"database" binding:"required"`
-	}
+	var req InitSystemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
@@ -229,12 +240,13 @@ func InitSystem(c *gin.Context) {
 
 	// 创建数据库配置
 	dbConfig := configModel.DatabaseConfig{
-		Type:     req.Database.Type,
+		Type:     config.NormalizeDatabaseType(req.Database.Type),
 		Host:     req.Database.Host,
 		Port:     port,
 		Database: req.Database.Database,
 		Username: req.Database.Username,
 		Password: req.Database.Password,
+		SSLMode:  req.Database.SSLMode,
 	}
 
 	// 初始化服务
@@ -531,24 +543,19 @@ func GetPublicSystemConfig(c *gin.Context) {
 
 // GetRecommendedDatabaseType 获取推荐的数据库类型
 // @Summary 获取推荐的数据库类型
-// @Description 根据系统架构获取推荐的数据库类型
+// @Description 获取已检测的数据库类型或连接协议默认值；实际类型在测试连接、启动和重连时自动检测
 // @Tags 系统初始化
 // @Accept json
 // @Produce json
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Router /public/recommended-db-type [get]
 func GetRecommendedDatabaseType(c *gin.Context) {
-	var recommendedType string
-	var reason string
-
 	arch := runtime.GOARCH
-	if arch == "amd64" {
+	recommendedType := global.GetAppConfig().System.DbType
+	if recommendedType != "mysql" && recommendedType != "mariadb" {
 		recommendedType = "mysql"
-		reason = "AMD64架构推荐使用MySQL以获得最佳性能"
-	} else {
-		recommendedType = "mariadb"
-		reason = "ARM64架构推荐使用MariaDB以获得更好的兼容性"
 	}
+	reason := "MySQL/MariaDB 使用相同连接协议，连接时自动检测实际服务端，无需按面板架构选择"
 
 	response := map[string]interface{}{
 		"recommendedType": recommendedType,

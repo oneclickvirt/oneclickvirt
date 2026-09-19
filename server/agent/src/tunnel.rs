@@ -12,7 +12,6 @@
 // Anti-DPI: buffer size varies per read (8KB-64KB), occasional micro-delays
 // (0-3ms, ~20% probability) to break fixed-size/fixed-interval signatures.
 
-use rand;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -113,7 +112,7 @@ async fn send_ack_with_timeout(
     matches!(
         tokio::time::timeout(
             std::time::Duration::from_secs(TUNNEL_ACK_SEND_TIMEOUT_SECS),
-            ws_sink.send(Message::Text(text.into())),
+            ws_sink.send(Message::Text(text)),
         )
         .await,
         Ok(Ok(()))
@@ -211,10 +210,9 @@ pub async fn handle_tunnel_open(
         if map
             .get(&hash)
             .is_some_and(|current| Arc::ptr_eq(current, &session))
+            && let Some(session) = map.remove(&hash)
         {
-            if let Some(session) = map.remove(&hash) {
-                session.cancel();
-            }
+            session.cancel();
         }
     });
 }
@@ -270,14 +268,14 @@ async fn run_tunnel(
             if !matches!(
                 tokio::time::timeout(
                     std::time::Duration::from_secs(15),
-                    data_sink.send(Message::Binary(frame.into())),
+                    data_sink.send(Message::Binary(frame)),
                 )
                 .await,
                 Ok(Ok(()))
             ) {
                 break;
             }
-            if rand::random::<u8>() % 5 == 0 {
+            if rand::random::<u8>().is_multiple_of(5) {
                 tokio::time::sleep(std::time::Duration::from_micros(
                     rand::random::<u64>() % 3000,
                 ))
@@ -360,7 +358,13 @@ pub async fn handle_tunnel_close(payload_val: serde_json::Value, sessions: &Sess
     if let Ok(p) = serde_json::from_value::<ClosePayload>(payload_val) {
         let hash = fnv1a_64(&p.id);
         let mut map = sessions.lock().await;
-        if let Some(session) = map.remove(&hash) {
+        // The wire frame carries the full ID, while the map is indexed by a
+        // compact hash for binary routing. Verify the ID before removal so a
+        // hash collision or stale close frame cannot terminate another
+        // tunnel session.
+        if map.get(&hash).is_some_and(|session| session.id == p.id)
+            && let Some(session) = map.remove(&hash)
+        {
             session.cancel();
         }
     }
@@ -373,10 +377,11 @@ pub async fn handle_tunnel_keepalive(_payload_val: serde_json::Value, _sessions:
 pub async fn handle_tunnel_eof(payload: serde_json::Value, sessions: &SessionMap) {
     if let Some(id) = payload.get("id").and_then(|id| id.as_str()) {
         let map = sessions.lock().await;
-        if let Some(session) = map.get(&fnv1a_64(id)) {
-            if session.id == id && session.data.try_send(Vec::new()).is_err() {
-                session.cancel();
-            }
+        if let Some(session) = map.get(&fnv1a_64(id))
+            && session.id == id
+            && session.data.try_send(Vec::new()).is_err()
+        {
+            session.cancel();
         }
     }
 }
@@ -464,5 +469,34 @@ mod lifecycle_tests {
         .await
         .unwrap();
         assert!(sessions.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stale_or_colliding_close_id_cannot_remove_another_session() {
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let (data, _data_rx) = mpsc::channel(1);
+        let (cancel, _cancelled) = watch::channel(false);
+        let session = Arc::new(TunnelSession {
+            id: "real-session".to_string(),
+            data,
+            cancel,
+            ready: std::sync::atomic::AtomicBool::new(true),
+        });
+
+        // Model a hash collision/stale map entry without relying on finding a
+        // natural FNV collision in the test process.
+        sessions
+            .lock()
+            .await
+            .insert(fnv1a_64("forged-session"), session.clone());
+        handle_tunnel_close(serde_json::json!({"id":"forged-session"}), &sessions).await;
+        assert!(
+            sessions
+                .lock()
+                .await
+                .values()
+                .any(|item| Arc::ptr_eq(item, &session))
+        );
+        sessions.lock().await.clear();
     }
 }

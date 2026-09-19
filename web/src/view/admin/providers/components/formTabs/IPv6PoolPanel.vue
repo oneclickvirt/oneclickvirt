@@ -1,6 +1,22 @@
 <template>
   <!-- IPv6 地址池/节点地址文件同步。范围按需分配，不会在前端展开。 -->
-  <template v-if="modelValue.networkType === 'nat_ipv4_ipv6' || modelValue.networkType === 'dedicated_ipv4_ipv6' || modelValue.networkType === 'ipv6_only'">
+  <template v-if="managedIPv6NAT">
+    <el-divider
+      content-position="left"
+      style="margin-top: 24px;"
+    >
+      <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.ipv6Pool.managedNatTitle') }}</span>
+    </el-divider>
+    <el-alert
+      type="info"
+      :closable="false"
+      :title="$t('admin.providers.ipv6Pool.managedNatTitle')"
+      :description="$t('admin.providers.ipv6Pool.managedNatTip')"
+      show-icon
+      style="margin-bottom: 16px;"
+    />
+  </template>
+  <template v-else-if="usesStaticIPv6Pool">
     <el-divider
       content-position="left"
       style="margin-top: 24px;"
@@ -278,6 +294,7 @@ import { computed } from 'vue'
 import { Delete, DocumentChecked, Refresh } from '@element-plus/icons-vue'
 import { useIPv6Pool } from './composables/useIPv6Pool'
 import { requiresRoutedStaticIPv6Provider, supportsStaticIPv6Provider } from '@/utils/ipv6Capabilities'
+import { usesControllerIPv6Pool, usesManagedIPv6NAT } from '@/utils/networkType'
 
 const props = defineProps({
   modelValue: {
@@ -288,6 +305,8 @@ const props = defineProps({
 const emit = defineEmits(['provider-updated'])
 
 const hasIPv6FilePath = computed(() => Boolean(String(props.modelValue.ipv6AddressFilePath || '').trim()))
+const managedIPv6NAT = computed(() => usesManagedIPv6NAT(props.modelValue.type, props.modelValue.networkType))
+const usesStaticIPv6Pool = computed(() => usesControllerIPv6Pool(props.modelValue.type, props.modelValue.networkType))
 const supportsStaticIPv6 = computed(() => supportsStaticIPv6Provider(props.modelValue.type))
 const requiresRoutedStaticIPv6 = computed(() => requiresRoutedStaticIPv6Provider(props.modelValue.type))
 const canManageStaticIPv6Pool = computed(() => supportsStaticIPv6.value && !requiresRoutedStaticIPv6.value)

@@ -6,16 +6,34 @@
       </template>
 
       <!-- 已通过 -->
-      <el-result v-if="kycStatus === 'approved'" icon="success" :title="t('user.kyc.statusApproved')" :sub-title="t('user.kyc.alreadyVerified')" />
+      <el-result
+        v-if="kycStatus === 'approved'"
+        icon="success"
+        :title="t('user.kyc.statusApproved')"
+        :sub-title="t('user.kyc.alreadyVerified')"
+      />
 
       <!-- 审核中(手动) -->
-      <el-result v-else-if="kycStatus === 'pending' && kycRecord?.method === 'manual'" icon="warning" :title="t('user.kyc.statusPending')" :sub-title="t('user.kyc.pendingReview')" />
+      <el-result
+        v-else-if="kycStatus === 'pending' && kycRecord?.method === 'manual'"
+        icon="warning"
+        :title="t('user.kyc.statusPending')"
+        :sub-title="t('user.kyc.pendingReview')"
+      />
 
       <!-- 审核中(支付宝) — 可查询结果 -->
       <div v-else-if="kycStatus === 'pending' && kycRecord?.method === 'alipay'">
-        <el-result icon="warning" :title="t('user.kyc.statusPending')" :sub-title="t('user.kyc.alipayPendingTip')" />
+        <el-result
+          icon="warning"
+          :title="t('user.kyc.statusPending')"
+          :sub-title="t('user.kyc.alipayPendingTip')"
+        />
         <div style="text-align: center; margin-top: 16px;">
-          <el-button type="primary" :loading="queryLoading" @click="handleQueryAlipay">
+          <el-button
+            type="primary"
+            :loading="queryLoading"
+            @click="handleQueryAlipay"
+          >
             {{ t('user.kyc.queryAlipayResult') }}
           </el-button>
         </div>
@@ -23,14 +41,33 @@
 
       <!-- 已拒绝 -->
       <div v-else-if="kycStatus === 'rejected'">
-        <el-alert type="error" :title="t('user.kyc.statusRejected')" :description="kycRecord?.rejectReason" show-icon :closable="false" style="margin-bottom: 20px;" />
-        <kyc-form-component :kyc-method="kycMethodConfig" @submitted="fetchKYC" />
+        <el-alert
+          type="error"
+          :title="t('user.kyc.statusRejected')"
+          :description="kycRecord?.rejectReason"
+          show-icon
+          :closable="false"
+          style="margin-bottom: 20px;"
+        />
+        <kyc-form-component
+          :kyc-method="kycMethodConfig"
+          @submitted="fetchKYC"
+        />
       </div>
 
       <!-- 未认证 -->
       <div v-else>
-        <el-alert type="info" :title="t('user.kyc.statusNone')" show-icon :closable="false" style="margin-bottom: 20px;" />
-        <kyc-form-component :kyc-method="kycMethodConfig" @submitted="fetchKYC" />
+        <el-alert
+          type="info"
+          :title="t('user.kyc.statusNone')"
+          show-icon
+          :closable="false"
+          style="margin-bottom: 20px;"
+        />
+        <kyc-form-component
+          :kyc-method="kycMethodConfig"
+          @submitted="fetchKYC"
+        />
       </div>
     </el-card>
   </div>

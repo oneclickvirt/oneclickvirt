@@ -76,6 +76,9 @@ func (a *AgentConn) closeAllSessions() {
 // In particular, WireGuard key material remains inside the authenticated
 // WebSocket frame and cannot appear in ps output or command-execution logs.
 func (a *AgentConn) CallAPI(method, path string, body interface{}, result interface{}, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
 	var rawBody json.RawMessage
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -127,6 +130,10 @@ func (a *AgentConn) CallAPI(method, path string, body interface{}, result interf
 		}
 		return nil
 	case <-time.After(timeout):
+		cancel, _ := json.Marshal(wsMessage{Type: msgTypeAPICancel, ID: reqID})
+		// Cancellation is request-scoped. A congested write path must not turn
+		// an API deadline into a Provider-wide WebSocket close.
+		_ = a.writeTextMessage(cancel, time.Second)
 		return fmt.Errorf("typed Agent API request timed out after %s", timeout)
 	case <-a.doneCh:
 		return fmt.Errorf("agent connection closed")
@@ -149,6 +156,9 @@ func (a *AgentConn) writeBinaryMessage(payload []byte, timeout time.Duration) er
 }
 
 func (a *AgentConn) writeMessage(kind int, payload []byte, timeout time.Duration) error {
+	if a == nil || a.conn == nil {
+		return fmt.Errorf("agent websocket is unavailable")
+	}
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
@@ -201,6 +211,9 @@ var agentEnvPrefix = "export PATH=\"" + utils.StandardExtendedPath + ":$PATH\"; 
 // ExecuteWithTimeout 带自定义超时的命令执行。
 // 命令会自动添加完整的系统 PATH 前缀。
 func (a *AgentConn) ExecuteWithTimeout(cmd string, timeout time.Duration) (string, error) {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
 	// 为 Agent 侧添加完整 PATH 环境，确保 snap 等非标准路径下的命令可被发现
 	cmd = agentEnvPrefix + cmd
 
@@ -294,28 +307,41 @@ func (a *AgentConn) startShell(cols, rows int, command string) (*AgentShellSessi
 	}
 	raw, _ := json.Marshal(msg)
 
+	// Acquire the per-session gate before publishing the session in the map.
+	// Otherwise CloseShell could observe the new entry, send shell_close, and
+	// remove it before this goroutine gets a chance to write shell_open.
+	session.ioMu.Lock()
 	a.mu.Lock()
 	select {
 	case <-a.doneCh:
 		a.mu.Unlock()
+		session.ioMu.Unlock()
 		return nil, fmt.Errorf("Agent disconnected")
 	default:
 	}
 	a.shellSessions[sessionID] = session
 	a.mu.Unlock()
 
+	// Serialize the initial shell_open with any close/input/resize operation.
 	if err := a.writeTextMessage(raw, 10*time.Second); err != nil {
+		session.ioMu.Unlock()
 		a.mu.Lock()
 		delete(a.shellSessions, sessionID)
 		session.safeClose()
 		a.mu.Unlock()
 		return nil, fmt.Errorf("启动 agent shell 失败: %w", err)
 	}
+	session.ioMu.Unlock()
 
 	return session, nil
 }
 
 func (a *AgentConn) WriteShellInput(sessionID string, data []byte) error {
+	session, err := a.lockShellSessionForIO(sessionID)
+	if err != nil {
+		return err
+	}
+	defer session.ioMu.Unlock()
 	payload, _ := json.Marshal(shellDataPayload{Data: string(data)})
 	msg := wsMessage{Type: msgTypeShellData, ID: sessionID, Payload: payload}
 	raw, _ := json.Marshal(msg)
@@ -326,6 +352,11 @@ func (a *AgentConn) WriteShellInput(sessionID string, data []byte) error {
 }
 
 func (a *AgentConn) ResizeShell(sessionID string, cols, rows int) error {
+	session, err := a.lockShellSessionForIO(sessionID)
+	if err != nil {
+		return err
+	}
+	defer session.ioMu.Unlock()
 	payload, _ := json.Marshal(shellResizePayload{Cols: cols, Rows: rows})
 	msg := wsMessage{Type: msgTypeShellResize, ID: sessionID, Payload: payload}
 	raw, _ := json.Marshal(msg)
@@ -335,14 +366,86 @@ func (a *AgentConn) ResizeShell(sessionID string, cols, rows int) error {
 	return nil
 }
 
+// lockShellSessionForIO prevents stale browser events from being sent after a
+// session has already been closed. The per-session lock is held by the caller
+// until its frame has been written, so CloseShell cannot overtake an input or
+// resize frame that already passed the active-session check.
+func (a *AgentConn) lockShellSessionForIO(sessionID string) (*AgentShellSession, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, fmt.Errorf("shell session ID is empty")
+	}
+	a.mu.Lock()
+	session, ok := a.shellSessions[sessionID]
+	connectionClosed := false
+	select {
+	case <-a.doneCh:
+		connectionClosed = true
+	default:
+	}
+	a.mu.Unlock()
+	if !ok {
+		if connectionClosed {
+			return nil, fmt.Errorf("agent connection closed")
+		}
+		return nil, fmt.Errorf("shell session %q is not active", sessionID)
+	}
+	session.ioMu.Lock()
+	session.closeMu.Lock()
+	closed := session.closed
+	session.closeMu.Unlock()
+	if closed {
+		session.ioMu.Unlock()
+		return nil, fmt.Errorf("shell session %q is not active", sessionID)
+	}
+	select {
+	case <-a.doneCh:
+		session.ioMu.Unlock()
+		return nil, fmt.Errorf("agent connection closed")
+	default:
+		return session, nil
+	}
+}
+
 func (a *AgentConn) CloseShell(sessionID string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("shell session ID is empty")
+	}
+	// Do not emit a late close frame for a session that this connection no
+	// longer owns.  Browser reconnects can deliver stale cleanup events after
+	// the session was already retired; sending them would be able to terminate
+	// a future session if an ID were ever reused.
+	a.mu.Lock()
+	session, active := a.shellSessions[sessionID]
+	connectionClosed := false
+	select {
+	case <-a.doneCh:
+		connectionClosed = true
+	default:
+	}
+	a.mu.Unlock()
+	if !active {
+		if connectionClosed {
+			return fmt.Errorf("agent connection closed")
+		}
+		return fmt.Errorf("shell session %q is not active", sessionID)
+	}
+	session.ioMu.Lock()
+	defer session.ioMu.Unlock()
+	// A concurrent connection teardown or another CloseShell may have removed
+	// this exact session while we waited for the per-session gate.
+	a.mu.Lock()
+	current, stillActive := a.shellSessions[sessionID]
+	a.mu.Unlock()
+	if !stillActive || current != session {
+		return fmt.Errorf("shell session %q is not active", sessionID)
+	}
 	payload, _ := json.Marshal(shellClosePayload{})
 	msg := wsMessage{Type: msgTypeShellClose, ID: sessionID, Payload: payload}
 	raw, _ := json.Marshal(msg)
 	// 使用较短的写超时（3秒），避免清理操作长时间阻塞新会话的建立
 	err := a.writeTextMessage(raw, 3*time.Second)
 	a.mu.Lock()
-	if session, ok := a.shellSessions[sessionID]; ok {
+	if current, ok := a.shellSessions[sessionID]; ok && current == session {
 		delete(a.shellSessions, sessionID)
 		session.safeClose()
 	}
@@ -351,6 +454,29 @@ func (a *AgentConn) CloseShell(sessionID string) error {
 		return fmt.Errorf("关闭 shell 会话失败: %w", err)
 	}
 	return nil
+}
+
+// retireShellSession removes a session after the Agent reports shell_close.
+// It is separate from CloseShell because the remote side has already closed
+// its PTY and no controller shell_close frame should be sent back. Object
+// identity prevents an old close notification from retiring a newer session
+// that happens to reuse the same ID; retirement itself is deliberately
+// non-blocking so the shared Agent read loop remains responsive.
+func (a *AgentConn) retireShellSession(sessionID string) {
+	a.mu.Lock()
+	session := a.shellSessions[sessionID]
+	if session != nil {
+		// The read loop owns this callback. Never wait for the per-session
+		// writer gate here: a controller write may be blocked on the shared
+		// WebSocket, and waiting would stall responses for every other request
+		// on this Agent connection. Removing the object under a.mu prevents new
+		// writes; an already-held writer may finish or fail independently.
+		if current, ok := a.shellSessions[sessionID]; ok && current == session {
+			delete(a.shellSessions, sessionID)
+			session.safeClose()
+		}
+	}
+	a.mu.Unlock()
 }
 
 // ── Anti-DPI Noise 循环 ────────────────────────────────────────────────────
@@ -368,6 +494,9 @@ func (a *AgentConn) CloseShell(sessionID string) error {
 // (no escaping), producing invalid JSON.  We hex-encode noise bytes into a
 // {"<key>":"<hex>"} wrapper, with <key> randomly chosen from a small pool.
 func (a *AgentConn) StartNoiseLoop() {
+	if a == nil || a.conn == nil {
+		return
+	}
 	// Field key pool — same set as the agent side.
 	noiseKeys := []string{"d", "v", "p", "r", "c", "b", "m", "x", "e", "q"}
 	go func() {
@@ -416,11 +545,10 @@ func (a *AgentConn) StartNoiseLoop() {
 
 // StopNoiseLoop signals the noise goroutine to exit.
 func (a *AgentConn) StopNoiseLoop() {
-	select {
-	case <-a.noiseStop:
-	default:
-		close(a.noiseStop)
+	if a == nil {
+		return
 	}
+	a.noiseStopOnce.Do(func() { close(a.noiseStop) })
 }
 
 // ── WebSocket 协议层 Ping 循环 ──────────────────────────────────────────────
@@ -443,6 +571,9 @@ func (a *AgentConn) StopNoiseLoop() {
 // writeTextMessage's SetWriteDeadline+WriteMessage sequence and could
 // prematurely truncate an in-progress data write's deadline.
 func (a *AgentConn) StartWSPingLoop() {
+	if a == nil || a.conn == nil {
+		return
+	}
 	go func() {
 		for {
 			select {
@@ -469,14 +600,18 @@ func (a *AgentConn) StartWSPingLoop() {
 				failCount := a.pingFailCount
 				a.mu.Unlock()
 
-				global.APP_LOG.Warn("WebSocket protocol ping failed",
-					zap.Uint("providerID", a.ProviderID),
-					zap.Int("consecutiveFailures", failCount),
-					zap.Error(err))
-				if failCount >= 3 {
-					global.APP_LOG.Error("WebSocket protocol ping 连续失败超过阈值，强制断开",
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("WebSocket protocol ping failed",
 						zap.Uint("providerID", a.ProviderID),
-						zap.Int("consecutiveFailures", failCount))
+						zap.Int("consecutiveFailures", failCount),
+						zap.Error(err))
+				}
+				if failCount >= 3 {
+					if global.APP_LOG != nil {
+						global.APP_LOG.Error("WebSocket protocol ping 连续失败超过阈值，强制断开",
+							zap.Uint("providerID", a.ProviderID),
+							zap.Int("consecutiveFailures", failCount))
+					}
 					a.conn.Close()
 					return
 				}
@@ -492,9 +627,8 @@ func (a *AgentConn) StartWSPingLoop() {
 
 // StopWSPingLoop signals the WebSocket ping goroutine to exit.
 func (a *AgentConn) StopWSPingLoop() {
-	select {
-	case <-a.wsPingStop:
-	default:
-		close(a.wsPingStop)
+	if a == nil {
+		return
 	}
+	a.wsPingStopOnce.Do(func() { close(a.wsPingStop) })
 }

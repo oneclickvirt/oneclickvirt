@@ -10,6 +10,7 @@ EXPECTED_ARCH="${EXPECTED_ARCH:-arm64}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-240}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NO_DB_CONFIG_PREPARER="${ROOT_DIR}/scripts/tests/prepare_no_db_lifecycle_config.sh"
+EXPECTED_AGENT_VERSION="$(sed -n 's/^const CompatibleAgentVersion = "\([^"]*\)"$/\1/p' "${ROOT_DIR}/server/constant/version.go")"
 
 RUN_ID="${GITHUB_RUN_ID:-local}-$$"
 RUN_ID="${RUN_ID//[^a-zA-Z0-9_.-]/-}"
@@ -74,7 +75,10 @@ wait_http() {
             fail "container ${container} stopped while waiting for ${path}"
         fi
         port="$(published_port "${container}")"
-        response="$(curl -sS -w $'\n%{http_code}' --max-time 5 "http://127.0.0.1:${port}${path}" 2>/dev/null || true)"
+        # Local CI probes must not inherit an HTTP(S)_PROXY setting from the
+        # runner.  A proxy can return its own 503 while the container is
+        # healthy, which turns a successful lifecycle into a false failure.
+        response="$(curl --noproxy '*' -sS -w $'\n%{http_code}' --max-time 5 "http://127.0.0.1:${port}${path}" 2>/dev/null || true)"
         code="${response##*$'\n'}"
         body="${response%$'\n'*}"
         last_body="${body//${DB_PASSWORD}/[REDACTED]}"
@@ -97,6 +101,17 @@ wait_database() {
         sleep 2
     done
     fail "external MariaDB did not become ready within ${WAIT_TIMEOUT}s"
+}
+
+assert_agent_compatibility_version() {
+    local container="$1" response actual port
+    port="$(published_port "${container}")"
+    response="$(curl --noproxy '*' -fsS --max-time 15 "http://127.0.0.1:${port}/api/v1/public/version")" \
+        || fail "${container} version endpoint is unavailable"
+    actual="$(printf '%s' "${response}" | jq -er '.data.compatible_agent_version')" \
+        || fail "${container} did not report the Agent compatibility version"
+    [[ "${actual}" == "${EXPECTED_AGENT_VERSION}" ]] \
+        || fail "${container} Agent compatibility version was rewritten by the image build: ${actual}, expected ${EXPECTED_AGENT_VERSION}"
 }
 
 assert_persisted_no_db_connection() {
@@ -180,6 +195,7 @@ test_no_db_restart_and_upgrade() {
     start_no_db_container "${NO_DB_IMAGE}" literal-quotes
     wait_http "${NO_DB_CONTAINER}" /api/v1/health
     assert_persisted_no_db_connection
+    assert_agent_compatibility_version "${NO_DB_CONTAINER}"
 }
 
 start_allinone_container() {
@@ -223,11 +239,14 @@ test_allinone_restart_and_upgrade() {
     start_allinone_container "${ALLINONE_IMAGE}"
     wait_http "${ALLINONE_CONTAINER}" /api/v1/health
     assert_allinone_marker
+    assert_agent_compatibility_version "${ALLINONE_CONTAINER}"
 }
 
 command -v docker >/dev/null 2>&1 || fail "docker is required"
 command -v curl >/dev/null 2>&1 || fail "curl is required"
+command -v jq >/dev/null 2>&1 || fail "jq is required"
 [[ -s "${NO_DB_CONFIG_PREPARER}" ]] || fail "no-db lifecycle config preparer is missing"
+[[ -n "${EXPECTED_AGENT_VERSION}" ]] || fail "source Agent compatibility version is missing"
 assert_image_arch "${ALLINONE_IMAGE}"
 assert_image_arch "${NO_DB_IMAGE}"
 assert_image_arch "${ALLINONE_BASE_IMAGE}"

@@ -135,6 +135,14 @@ def audit_shell(root: Path) -> tuple[list[Finding], list[Finding]]:
                     or "jq -cn" in line
                     or "2>/dev/null" in line
                     or "|| true" in line
+                    # Validation queries intentionally fail the current stage.
+                    # Keep their diagnostics instead of requiring stderr to
+                    # be discarded just to satisfy this heuristic.
+                    or re.search(r"\|\|\s*(?:return|exit)\s+[1-9][0-9]*\b", line) is not None
+                    or re.search(r"^\s*(?:if|elif|while|until)\s+(?:!\s+)?jq\b", line) is not None
+                    # Command substitutions are also safe when the assignment
+                    # immediately propagates jq's status to the current stage.
+                    or re.search(r"\$\([^\n]*\bjq\b[^\n]*\)\s*\|\|\s*(?:return|exit)\s+[1-9][0-9]*\b", line) is not None
                 )
                 if not guarded:
                     jq_findings.append(Finding(rel(path, root), idx, "unguarded-jq", stripped))

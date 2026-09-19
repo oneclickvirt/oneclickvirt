@@ -1,28 +1,28 @@
 {
   "summary": {
-    "Registered route calls": 408,
-    "Comparable route literals": 405,
+    "Registered route calls": 409,
+    "Comparable route literals": 406,
     "Approx. covered route literals": 343,
-    "Approx. route literal coverage": "84.69%",
-    "Distinct test paths": 536,
-    "Test endpoint call sites": 1168,
+    "Approx. route literal coverage": "84.48%",
+    "Distinct test paths": 537,
+    "Test endpoint call sites": 1185,
     "High-risk jq lines": 0,
     "Pipe risk lines": 0,
     "Workflow findings": 0,
     "Retry hygiene findings": 0,
-    "Minimum route literal coverage": "82.0%"
+    "Minimum route literal coverage": "not enforced"
   },
   "route_methods": {
     "GET": 209,
-    "POST": 135,
+    "POST": 136,
     "PUT": 35,
     "DELETE": 29
   },
   "test_methods": {
-    "GET": 555,
-    "DELETE": 68,
-    "POST": 431,
-    "PUT": 113,
+    "GET": 560,
+    "DELETE": 69,
+    "POST": 441,
+    "PUT": 114,
     "PATCH": 1
   },
   "uncovered_sample": [
@@ -118,87 +118,93 @@
     },
     {
       "method": "POST",
-      "path": "/providers/:id/cleanup-orphans",
+      "path": "/providers/:id/force-recovery-sync",
       "file": "server/service/router/admin.go",
       "line": 110
     },
     {
       "method": "POST",
+      "path": "/providers/:id/cleanup-orphans",
+      "file": "server/service/router/admin.go",
+      "line": 111
+    },
+    {
+      "method": "POST",
       "path": "/configuration-tasks/:id/cancel",
       "file": "server/service/router/admin.go",
-      "line": 143
+      "line": 144
     },
     {
       "method": "GET",
       "path": "/providers/:id/monitoring/sync/latest",
       "file": "server/service/router/admin.go",
-      "line": 210
+      "line": 211
     },
     {
       "method": "GET",
       "path": "/providers/:id/monitoring/sync/:taskId",
       "file": "server/service/router/admin.go",
-      "line": 211
+      "line": 212
     },
     {
       "method": "POST",
       "path": "/domains/sync-proxies",
       "file": "server/service/router/admin.go",
-      "line": 241
+      "line": 242
     },
     {
       "method": "POST",
       "path": "/domains/:id/sync",
       "file": "server/service/router/admin.go",
-      "line": 243
+      "line": 244
     },
     {
       "method": "POST",
       "path": "/system-images/sync",
       "file": "server/service/router/admin.go",
-      "line": 282
+      "line": 283
     },
     {
       "method": "PUT",
       "path": "/users/:id/reset-password-notify",
       "file": "server/service/router/admin.go",
-      "line": 297
+      "line": 298
     },
     {
       "method": "GET",
       "path": "/monitoring/logs",
       "file": "server/service/router/admin.go",
-      "line": 327
+      "line": 328
     },
     {
       "method": "GET",
       "path": "/monitoring/provider",
       "file": "server/service/router/admin.go",
-      "line": 328
+      "line": 329
     },
     {
       "method": "GET",
       "path": "/logs/read",
       "file": "server/service/router/admin.go",
-      "line": 340
+      "line": 341
     },
     {
       "method": "POST",
       "path": "/logs/cleanup",
       "file": "server/service/router/admin.go",
-      "line": 341
+      "line": 342
     },
     {
       "method": "POST",
       "path": "/storage/init",
       "file": "server/service/router/admin.go",
-      "line": 345
+      "line": 346
     },
     {
       "method": "POST",
       "path": "/storage/cleanup",
       "file": "server/service/router/admin.go",
-      "line": 346
+      "line": 347
     },
     {
       "method": "GET",

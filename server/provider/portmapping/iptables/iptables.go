@@ -56,6 +56,9 @@ func (i *IptablesPortMapping) CreatePortMapping(ctx context.Context, req *portma
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
+	if instance.ProviderID != req.ProviderID {
+		return nil, fmt.Errorf("instance does not belong to provider")
+	}
 
 	// 分配端口
 	hostPort := req.HostPort
@@ -87,6 +90,7 @@ func (i *IptablesPortMapping) CreatePortMapping(ctx context.Context, req *portma
 		HostIP:        providerInfo.Endpoint,
 		PublicIP:      i.getPublicIP(providerInfo),
 		IPv6Address:   req.IPv6Address,
+		IPv6Enabled:   req.IPv6Enabled || req.IPv6Address != "",
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: "iptables-nat",
@@ -122,15 +126,18 @@ func (i *IptablesPortMapping) DeletePortMapping(ctx context.Context, req *portma
 		zap.String("instanceId", req.InstanceID))
 
 	// 获取端口映射信息
-	var portModel provider.Port
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
-		return fmt.Errorf("port mapping not found: %v", err)
+	portModel, err := i.BaseProvider.LoadOwnedPort(req.ID, req.InstanceID, 0)
+	if err != nil {
+		return err
 	}
 
 	// 获取实例信息
 	instance, err := i.getInstance(req.InstanceID)
 	if err != nil {
 		return fmt.Errorf("failed to get instance: %v", err)
+	}
+	if instance.ProviderID != portModel.ProviderID {
+		return fmt.Errorf("port mapping does not belong to instance provider")
 	}
 
 	// 删除iptables rule
@@ -142,7 +149,7 @@ func (i *IptablesPortMapping) DeletePortMapping(ctx context.Context, req *portma
 	}
 
 	// 从数据库删除
-	if err := global.APP_DB.Delete(&portModel).Error; err != nil {
+	if err := global.APP_DB.Delete(portModel).Error; err != nil {
 		return fmt.Errorf("failed to delete port mapping from database: %v", err)
 	}
 
@@ -155,9 +162,9 @@ func (i *IptablesPortMapping) UpdatePortMapping(ctx context.Context, req *portma
 	global.APP_LOG.Info("Updating iptables port mapping", zap.Uint("id", req.ID))
 
 	// 获取现有端口映射
-	var portModel provider.Port
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
-		return nil, fmt.Errorf("port mapping not found: %v", err)
+	portModel, err := i.BaseProvider.LoadOwnedPort(req.ID, req.InstanceID, 0)
+	if err != nil {
+		return nil, err
 	}
 
 	// 获取实例信息
@@ -194,16 +201,16 @@ func (i *IptablesPortMapping) UpdatePortMapping(ctx context.Context, req *portma
 		"status":      req.Status,
 	}
 
-	if err := global.APP_DB.Model(&portModel).Updates(updates).Error; err != nil {
+	if err := global.APP_DB.Model(portModel).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to update port mapping: %v", err)
 	}
 
 	// 重新获取更新后的记录
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
+	if err := global.APP_DB.First(portModel, req.ID).Error; err != nil {
 		return nil, fmt.Errorf("failed to get updated port mapping: %v", err)
 	}
 
-	result := i.BaseProvider.FromDBModel(&portModel)
+	result := i.BaseProvider.FromDBModel(portModel)
 	result.HostIP = providerInfo.Endpoint
 	result.PublicIP = i.getPublicIP(providerInfo)
 	result.MappingMethod = "iptables-nat"
@@ -325,7 +332,9 @@ func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *
 		return fmt.Errorf("failed to add DNAT rule: %v", err)
 	}
 
-	fwMgr.SaveRules()
+	if err := fwMgr.SaveRules(); err != nil {
+		return fmt.Errorf("persist firewall rules: %w", err)
+	}
 
 	global.APP_LOG.Debug("Successfully created firewall rules",
 		zap.String("instance", instance.Name),
@@ -365,13 +374,17 @@ func (i *IptablesPortMapping) removeIptablesRule(ctx context.Context, instance *
 
 	tableName := i.getTableName(providerInfo)
 	fwMgr := firewall.NewManager(sshClient, tableName, "")
-	fwMgr.DetectBackend(i.getMarkerFile(providerInfo))
-
-	if err := fwMgr.RemoveSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
-		global.APP_LOG.Warn("Failed to remove DNAT rule", zap.Error(err))
+	if _, err := fwMgr.DetectBackend(i.getMarkerFile(providerInfo)); err != nil {
+		return fmt.Errorf("detect firewall backend: %w", err)
 	}
 
-	fwMgr.SaveRules()
+	if err := fwMgr.RemoveSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
+		return fmt.Errorf("remove DNAT rule: %w", err)
+	}
+
+	if err := fwMgr.SaveRules(); err != nil {
+		return fmt.Errorf("persist firewall rules: %w", err)
+	}
 
 	global.APP_LOG.Debug("Successfully removed firewall rules",
 		zap.String("instance", instance.Name),

@@ -437,7 +437,7 @@
         size="small"
         type="info"
       >
-        {{ $t('admin.providers.ipv6PortMappingMethodTip') }}
+        {{ $t(managedIPv6NAT ? 'admin.providers.ipv6ManagedNatMappingTip' : 'admin.providers.ipv6PortMappingMethodTip') }}
       </el-text>
     </div>
 
@@ -583,6 +583,7 @@ import IPv6PoolPanel from './IPv6PoolPanel.vue'
 import IPv6TunnelPanel from './IPv6TunnelPanel.vue'
 import { supportsIPv6OnlyProvider, supportsStaticIPv6Provider } from '@/utils/ipv6Capabilities'
 import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
+import { usesManagedIPv6NAT } from '@/utils/networkType'
 
 const props = defineProps({
   modelValue: {
@@ -598,6 +599,7 @@ const commonFixedPorts = [22, 80, 443, 8080, 8443, 3306, 5432, 6379, 27017]
 const supportsStaticIPv6 = computed(() => supportsStaticIPv6Provider(props.modelValue.type))
 const supportsIPv6Only = computed(() => supportsIPv6OnlyProvider(props.modelValue.type))
 const hasIPv6Network = computed(() => ['nat_ipv4_ipv6', 'dedicated_ipv4_ipv6', 'ipv6_only'].includes(props.modelValue.networkType))
+const managedIPv6NAT = computed(() => usesManagedIPv6NAT(props.modelValue.type, props.modelValue.networkType))
 
 const normalizeFixedPorts = (ports = []) => {
   const values = Array.isArray(ports) ? ports : []

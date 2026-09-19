@@ -72,6 +72,46 @@ prepare_dirty_node worker-id 192.0.2.10 lxd vm || fail "LXD VM-only fixture prep
 ! printf '%s\n' "${CAPTURED_COMMANDS[@]}" | grep -Fq 'pre-existing-1' ||
     fail "LXD VM-only run still prepared a container fixture"
 
+CAPTURED_COMMANDS=()
+prepare_dirty_node worker-id 192.0.2.10 proxmoxve both || fail "PVE both-fixture preparation failed"
+[[ "$DIRTY_NODE_CONTAINER_EXPECTED" == "true" && "$DIRTY_NODE_VM_EXPECTED" == "true" ]] ||
+    fail "PVE both run did not mark both fixture types as expected"
+[[ "$DIRTY_NODE_CONTAINER_READY" == "true" && "$DIRTY_NODE_VM_READY" == "true" ]] ||
+    fail "PVE both run did not mark both fixtures ready"
+grep -Fq 'pct create "$ctid"' <(printf '%s\n' "${CAPTURED_COMMANDS[@]}") ||
+    fail "PVE both run did not prepare an LXC fixture"
+
+CAPTURED_COMMANDS=()
+prepare_dirty_node worker-id 192.0.2.10 proxmoxve container || fail "PVE container-only fixture preparation failed"
+[[ "$DIRTY_NODE_CONTAINER_EXPECTED" == "true" && "$DIRTY_NODE_VM_EXPECTED" == "false" ]] ||
+    fail "PVE container-only run prepared the wrong fixture types"
+[[ "$DIRTY_NODE_CONTAINER_READY" == "true" && "$DIRTY_NODE_VM_READY" == "false" ]] ||
+    fail "PVE container-only run did not mark the LXC fixture ready"
+grep -Fq 'pct create "$ctid"' <(printf '%s\n' "${CAPTURED_COMMANDS[@]}") ||
+    fail "PVE container-only run did not prepare an LXC fixture"
+
+CAPTURED_COMMANDS=()
+prepare_dirty_node worker-id 192.0.2.10 proxmoxve vm || fail "PVE VM-only fixture preparation failed"
+[[ "$DIRTY_NODE_CONTAINER_EXPECTED" == "false" && "$DIRTY_NODE_VM_EXPECTED" == "true" ]] ||
+    fail "PVE VM-only run prepared the wrong fixture types"
+[[ "$DIRTY_NODE_CONTAINER_READY" == "false" && "$DIRTY_NODE_VM_READY" == "true" ]] ||
+    fail "PVE VM-only run did not mark the QEMU fixture ready"
+! printf '%s\n' "${CAPTURED_COMMANDS[@]}" | grep -Fq 'pct create "$ctid"' ||
+    fail "PVE VM-only run still prepared an LXC fixture"
+
+# A reserved fixture ID must never claim or overwrite an unrelated guest.
+MOCK_EXEC_MODE="selective"
+MOCK_FAIL_MATCH="qm status 990"
+occupied_rc=0
+prepare_dirty_node worker-id 192.0.2.10 proxmoxve vm || occupied_rc=$?
+[[ "$occupied_rc" == "75" ]] || fail "occupied PVE VMID was not classified as unavailable"
+MOCK_FAIL_MATCH="pct status \"\$ctid\""
+occupied_rc=0
+prepare_dirty_node worker-id 192.0.2.10 proxmoxve container || occupied_rc=$?
+[[ "$occupied_rc" == "75" ]] || fail "occupied PVE CTID was not classified as unavailable"
+MOCK_EXEC_MODE="success"
+MOCK_FAIL_MATCH=""
+
 assert_worker_budget() {
     local env="$1" types="$2" expected_cpu="$3" expected_memory="$4" expected_disk="$5" expected_kvm="$6"
     local actual_cpu actual_memory actual_disk actual_kvm
@@ -223,6 +263,7 @@ ENV_TYPE=lxd
 env_supports_vm || fail "clearing the VM runtime circuit breaker did not restore the provider capability"
 
 DISCOVERY_MODULE="${ROOT_DIR}/action_tests/modules/23_discovery.sh"
+NODE_MANAGER="${ROOT_DIR}/action_tests/common/node_manager.sh"
 ! grep -Fq 'any(.data.discoveredInstances' "$DISCOVERY_MODULE" ||
     fail "discovery module still accepts an arbitrary container or VM"
 grep -Fq 'Discover exact pre-existing container' "$DISCOVERY_MODULE" ||
@@ -231,22 +272,81 @@ grep -Fq 'Discover exact pre-existing VM' "$DISCOVERY_MODULE" ||
     fail "exact VM fixture assertion missing"
 grep -Fq -- '--arg container_name' "$DISCOVERY_MODULE" ||
     fail "fixture-specific import selection missing"
+grep -Fq 'Discover exact pre-existing PVE container' "$DISCOVERY_MODULE" ||
+    fail "PVE container discovery assertion missing"
+grep -Fq 'Auto-imported PVE container keeps CTID' "$DISCOVERY_MODULE" ||
+    fail "PVE container import assertion missing"
+grep -Fq -- '--arg container_id' "$DISCOVERY_MODULE" ||
+    fail "PVE container orphan/import selection missing"
+grep -Fq 'DIRTY_NODE_CONTAINER_PROVIDER_ID="991"' "$NODE_MANAGER" ||
+    fail "PVE LXC fixture does not expose a deterministic CTID"
+grep -Fq 'pct create "$ctid"' "$NODE_MANAGER" ||
+    fail "PVE dirty-node fixture does not create an LXC"
 
 RUN_ENV_TEST="${ROOT_DIR}/action_tests/run_env_test.sh"
 grep -Fq 'install_rc == 75' "$RUN_ENV_TEST" ||
     fail "the environment orchestrator does not preserve transient installer status 75"
+grep -Fq 'environment installation" "HARNESS" "install_env"' "$RUN_ENV_TEST" ||
+    fail "the environment orchestrator does not record non-transient installer failures"
+! grep -Fq 'Environment installation may have issues, continuing' "$RUN_ENV_TEST" ||
+    fail "the environment orchestrator continues module tests after a failed installation"
 grep -Fq 'runtime_rc == 75' "$RUN_ENV_TEST" ||
     fail "the environment orchestrator does not preserve transient runtime status 75"
 grep -Fq 'dirty_node_rc == 75' "$RUN_ENV_TEST" ||
     fail "the environment orchestrator does not classify missing fixtures as infrastructure"
+grep -Fq 'Partial dirty-node fixture preparation' "$RUN_ENV_TEST" ||
+    fail "the environment orchestrator does not record partial fixture failures"
+grep -Fq 'all requested instance types have deterministic fixtures' "$RUN_ENV_TEST" ||
+    fail "partial dirty-node fixtures are still treated as a feature skip"
+grep -Fq 'Worker cleanup' "$RUN_ENV_TEST" ||
+    fail "environment cleanup failures are not recorded as harness failures"
+grep -Fq 'retaining IDs for retry' "$RUN_ENV_TEST" ||
+    fail "environment cleanup does not retain failed worker IDs for retry"
 grep -Fq 'configure_action_test_resources_for_env "$ENV_TYPE"' "$RUN_ENV_TEST" ||
     fail "the environment orchestrator does not apply provider-specific instance sizing"
-NODE_MANAGER="${ROOT_DIR}/action_tests/common/node_manager.sh"
 grep -Fq 'platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}"' "$NODE_MANAGER" ||
     fail "runtime verification does not recheck the worker peak resource budget"
 NETWORK_MODE_TEST="${ROOT_DIR}/action_tests/run_network_mode_test.sh"
 grep -Fq 'configure_action_test_resources_for_env "$ENV_TYPE"' "$NETWORK_MODE_TEST" ||
     fail "the network-mode worker path does not apply provider-specific instance sizing"
+grep -Fq 'log_error "Some network mode tests FAILED' "$NETWORK_MODE_TEST" ||
+    fail "network-mode failures are not surfaced as errors"
+grep -Fq '    exit 1' "$NETWORK_MODE_TEST" ||
+    fail "network-mode matrix still exits successfully after failures"
+grep -Fq 'Instance ${inst_id} did not reach running state' "$NETWORK_MODE_TEST" ||
+    fail "network-mode instance readiness failure is still treated as success"
+! grep -Fq 'wait_instance_status "$inst_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "network-mode instance ${inst_id}" > /dev/null || true' "$NETWORK_MODE_TEST" ||
+    fail "network-mode instance readiness failure is swallowed"
+grep -Fq '_auto_configure_provider "$PROVIDER_ID"' "$NETWORK_MODE_TEST" ||
+    fail "network-mode provider auto-configure gate is missing"
+grep -Fq 'Auto-configure failed for provider ${PROVIDER_ID}' "$NETWORK_MODE_TEST" ||
+    fail "network-mode auto-configure failure is not classified as a method failure"
+! grep -Fq 'Auto-configure had issues' "$NETWORK_MODE_TEST" ||
+    fail "network-mode auto-configure still downgrades a required failure to a warning"
+grep -Fq 'Failed to delete test instance ${TEST_INSTANCE_ID}' "$NETWORK_MODE_TEST" ||
+    fail "network-mode cleanup failures are not surfaced"
+! grep -Fq 'auto-configure-stream' "$NETWORK_MODE_TEST" ||
+    fail "network-mode still starts a short-lived stream and a second mutating config task"
+grep -Fq 'cleanup_failed=true' "$NETWORK_MODE_TEST" ||
+    fail "provider cleanup does not retain deletion failures"
+grep -Fq '[[ "$cleanup_failed" == "true" ]] && return 1' "$NETWORK_MODE_TEST" ||
+    fail "provider cleanup failure is not returned to callers"
+grep -Fq 'wait_task_complete "$SERVER_URL" "$del_task"' "$NETWORK_MODE_TEST" ||
+    fail "provider deletion task is not awaited before the next network-mode iteration"
+grep -Fq 'Previous provider cleanup failed; refusing to start method=${mapping_method}' "$NETWORK_MODE_TEST" ||
+    fail "network-mode matrix advances after failed previous-provider cleanup"
+grep -Fq 'Final provider cleanup failed' "$NETWORK_MODE_TEST" ||
+    fail "network-mode final provider cleanup failure is not part of overall result"
+grep -Fq 'Environment installation failed for method' "$NETWORK_MODE_TEST" ||
+    fail "network-mode continues after a failed first environment installation"
+grep -Fq 'Environment re-installation failed for method' "$NETWORK_MODE_TEST" ||
+    fail "network-mode continues after a failed environment re-installation"
+grep -Fq 'Worker reinstall failed for method' "$NETWORK_MODE_TEST" ||
+    fail "network-mode does not record a failed worker reinstall"
+grep -Fq 'Provider cleanup failed after instance creation failure' "$NETWORK_MODE_TEST" ||
+    fail "network-mode swallows provider cleanup after instance failure"
+grep -Fq 'Worker cleanup failed; retaining IDs for diagnosis' "$NETWORK_MODE_TEST" ||
+    fail "network-mode cleanup failure is not surfaced by the EXIT trap"
 
 INTEGRATION_WORKFLOW="${ROOT_DIR}/.github/workflows/integration-tests.yml"
 grep -Fq 'bash scripts/tests/action_harness_classification_test.sh' "$INTEGRATION_WORKFLOW" ||
@@ -291,6 +391,15 @@ with tempfile.TemporaryDirectory() as tmp:
         'test_api_retry "Create VM instance" "POST" "/api/v1/admin/instances" "200" "{}"\n',
         encoding="utf-8",
     )
+    (modules / "jq-validation.sh").write_text(
+        'value=$(jq -r ".value" <<< "$response") || return 1\n'
+        'if ! jq -e ".ready" <<< "$response"; then return 1; fi\n'
+        'unhandled=$(jq -r ".value" <<< "$response")\n',
+        encoding="utf-8",
+    )
+    jq_findings, _ = module.audit_shell(root)
+    if len(jq_findings) != 1 or "unhandled=" not in jq_findings[0].detail:
+        raise AssertionError(f"jq failure handling was misclassified: {jq_findings!r}")
     findings = module.audit_retry_hygiene(root)
     if len(findings) != 1 or findings[0].kind != "non-idempotent-create-retry":
         raise SystemExit(f"unexpected retry findings: {findings!r}")

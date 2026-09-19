@@ -66,6 +66,22 @@ run_module_23() {
                 "The deterministic VM fixture was not available" "$group"
         fi
     fi
+    if [[ "$ENV_TYPE" == "proxmoxve" && "${DIRTY_NODE_CONTAINER_EXPECTED:-false}" == "true" ]]; then
+        if [[ "${DIRTY_NODE_CONTAINER_READY:-false}" == "true" && -n "${DIRTY_NODE_CONTAINER_PROVIDER_ID:-}" ]]; then
+            test_api_json_value "Discover exact pre-existing PVE container" "POST" \
+                "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200" \
+                '.data.discoveredInstances | map(select(.providerInstanceId == "'"${DIRTY_NODE_CONTAINER_PROVIDER_ID}"'" and .instanceType == "container" and .name == "'"${DIRTY_NODE_CONTAINER_NAME}"'")) | length' "1" \
+                '' "$group" "$ADMIN_TOKEN"
+            test_api_json_value "Auto-imported PVE container keeps CTID" "GET" \
+                "/api/v1/admin/instances?page=1&pageSize=50" "200" \
+                '[.. | objects | select(.providerVmId? == "'"${DIRTY_NODE_CONTAINER_PROVIDER_ID}"'" and .isImported? == true)] | length' "1" \
+                '' "$group" "$ADMIN_TOKEN"
+        else
+            record_skip_result "Discover exact pre-existing PVE container" "POST" \
+                "/api/v1/admin/providers/${PROVIDER_ID}/discover" \
+                "The deterministic PVE LXC fixture was not available" "$group"
+        fi
+    fi
 
     # ---- Get orphaned instances (instances on node but not in DB) ----
     local orphaned_resp; orphaned_resp=$(test_api "Get orphaned instances" "GET" \
@@ -79,11 +95,12 @@ run_module_23() {
     # Import by the provider discovery UUID. Names are display values and may be
     # duplicated or synthesized for unnamed PVE guests.
     local instance_uuids
-    if [[ "$ENV_TYPE" == "proxmoxve" && "${DIRTY_NODE_VM_READY:-false}" == "true" ]]; then
+    if [[ "$ENV_TYPE" == "proxmoxve" && ( "${DIRTY_NODE_VM_READY:-false}" == "true" || "${DIRTY_NODE_CONTAINER_READY:-false}" == "true" ) ]]; then
         instance_uuids=$(echo "$orphaned_resp" | jq -r \
             --arg provider_id "${DIRTY_NODE_VM_PROVIDER_ID:-990}" \
-            '.data.orphanedInstances[]? | select(.providerInstanceId == $provider_id and .instanceType == "vm") | .uuid' \
-            2>/dev/null | head -1 || true)
+            --arg container_id "${DIRTY_NODE_CONTAINER_PROVIDER_ID:-991}" \
+            '.data.orphanedInstances[]? | select((.providerInstanceId == $provider_id and .instanceType == "vm") or (.providerInstanceId == $container_id and .instanceType == "container")) | .uuid' \
+            2>/dev/null | head -3 || true)
     elif [[ "${DIRTY_NODE_CONTAINER_READY:-false}" == "true" || "${DIRTY_NODE_VM_READY:-false}" == "true" ]]; then
         instance_uuids=$(echo "$orphaned_resp" | jq -r \
             --arg container_name "${DIRTY_NODE_CONTAINER_NAME:-}" \
@@ -95,11 +112,15 @@ run_module_23() {
     fi
 
     if [[ -n "$instance_uuids" ]]; then
-        local first_uuid; first_uuid=$(echo "$instance_uuids" | head -1)
-        test_api_json_value "Import discovered instance" "POST" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/import" "200" \
-            '.data.successCount' "1" \
-            '{"instanceUuids":["'"$first_uuid"'"]}' "$group" "$ADMIN_TOKEN"
+        local first_uuid="" current_uuid
+        while IFS= read -r current_uuid; do
+            [[ -z "$current_uuid" ]] && continue
+            [[ -z "$first_uuid" ]] && first_uuid="$current_uuid"
+            test_api_json_value "Import discovered instance ${current_uuid}" "POST" \
+                "/api/v1/admin/providers/${PROVIDER_ID}/import" "200" \
+                '.data.successCount' "1" \
+                '{"instanceUuids":["'"$current_uuid"'"]}' "$group" "$ADMIN_TOKEN"
+        done <<< "$instance_uuids"
 
         # ---- Verify imported instance appears in instance list ----
         test_api "List after import" "GET" "/api/v1/admin/instances?page=1&pageSize=50" "200" \
@@ -111,10 +132,11 @@ run_module_23() {
         # Auto-import may already have claimed every dirty-node fixture. Verify
         # that explicitly importing an already-managed discovery is idempotent.
         local managed_uuid
-        if [[ "$ENV_TYPE" == "proxmoxve" && "${DIRTY_NODE_VM_READY:-false}" == "true" ]]; then
+        if [[ "$ENV_TYPE" == "proxmoxve" && ( "${DIRTY_NODE_VM_READY:-false}" == "true" || "${DIRTY_NODE_CONTAINER_READY:-false}" == "true" ) ]]; then
             managed_uuid=$(echo "$discover_resp" | jq -r \
                 --arg provider_id "${DIRTY_NODE_VM_PROVIDER_ID:-990}" \
-                '.data.discoveredInstances[]? | select(.providerInstanceId == $provider_id and .instanceType == "vm") | .uuid' \
+                --arg container_id "${DIRTY_NODE_CONTAINER_PROVIDER_ID:-991}" \
+                '.data.discoveredInstances[]? | select((.providerInstanceId == $provider_id and .instanceType == "vm") or (.providerInstanceId == $container_id and .instanceType == "container")) | .uuid' \
                 2>/dev/null | head -1 || true)
         else
             managed_uuid=$(echo "$discover_resp" | jq -r \

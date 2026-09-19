@@ -100,6 +100,35 @@ func TestSelectPublicIPv6InterfaceNetworkRejectsOnlyHostAddressForAutomaticAlloc
 	}
 }
 
+func TestSelectPublicIPv6InterfaceNetworkAcceptsColoredRemoteOutput(t *testing.T) {
+	output := "2: ens3 inet6 \x1b[34m2607:9d00:2000:45::35b0:f1cd\x1b[0m/64 scope global\\\n"
+	selected, err := SelectPublicIPv6InterfaceNetwork(output, "ens3", true)
+	if err != nil {
+		t.Fatalf("SelectPublicIPv6InterfaceNetwork() error = %v", err)
+	}
+	if selected.Interface != "ens3" || selected.Network.Address.String() != "2607:9d00:2000:45::35b0:f1cd" || selected.Network.PrefixLen != 64 {
+		t.Fatalf("selected = %#v", selected)
+	}
+}
+
+func TestHostIPv6PrefixMustBeAssignableKeepsManagedNATOnHostAddress(t *testing.T) {
+	for _, test := range []struct {
+		networkType string
+		requested   string
+		want        bool
+	}{
+		{networkType: "nat_ipv4_ipv6", want: false},
+		{networkType: "nat_ipv4_ipv6", requested: "2001:db8::2", want: false},
+		{networkType: "dedicated_ipv4_ipv6", want: true},
+		{networkType: "ipv6_only", want: true},
+		{networkType: "dedicated_ipv4_ipv6", requested: "2001:db8::2", want: false},
+	} {
+		if got := HostIPv6PrefixMustBeAssignable(test.networkType, test.requested); got != test.want {
+			t.Fatalf("HostIPv6PrefixMustBeAssignable(%q, %q) = %t, want %t", test.networkType, test.requested, got, test.want)
+		}
+	}
+}
+
 func TestResolveContainerNetworkIsFailClosedForStaticIPv6(t *testing.T) {
 	selection, err := ResolveContainerNetwork("nat_ipv4_ipv6", "2001:0db8::42/80", "ipv4-net", "ipv6-net", true)
 	if err != nil {

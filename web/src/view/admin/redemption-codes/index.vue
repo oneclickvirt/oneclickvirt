@@ -283,11 +283,11 @@
           prop="sourceContainer"
         >
           <el-select
+            :key="'src-cnt-' + stoppedContainerOptions.length"
             v-model="createForm.sourceContainer"
             :placeholder="stoppedContainersLoading ? t('admin.redemptionCodes.loadingContainers') : t('admin.redemptionCodes.sourceContainerPlaceholder')"
             style="width: 100%"
             :loading="stoppedContainersLoading"
-            :key="'src-cnt-' + stoppedContainerOptions.length"
             class="source-container-select"
             popper-class="source-container-popper"
           >

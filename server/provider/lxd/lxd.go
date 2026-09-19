@@ -3,6 +3,7 @@ package lxd
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"oneclickvirt/global"
+	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 	"oneclickvirt/provider/health"
 	"oneclickvirt/utils"
@@ -421,18 +423,22 @@ func (l *LXDProvider) CreateInstance(ctx context.Context, config provider.Instan
 		return fmt.Errorf("not connected")
 	}
 
-	forceSSHStaticIPv6 := hasRequestedStaticIPv6(config)
-	if forceSSHStaticIPv6 && !l.shouldUseSSH() {
-		return fmt.Errorf("LXD控制面静态IPv6当前需要SSH网络配置路径，api_only无法安全消费已分配地址")
+	forceSSHIPv6 := requiresSSHIPv6Network(config, l.config.ID)
+	if forceSSHIPv6 && !l.shouldUseSSH() {
+		return fmt.Errorf("LXD控制面IPv6网络配置当前需要SSH路径，api_only无法安全配置IPv6地址和端口映射")
 	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := l.shouldUseWindowsInstallerSSH(ctx, &config)
-	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHStaticIPv6 {
+	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 {
 		if err := l.apiCreateInstance(ctx, config); err == nil {
 			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
+			var committedErr *apiCreateCommittedError
+			if errors.As(err, &committedErr) {
+				return err
+			}
 
 			if fallbackErr := l.ensureSSHBeforeFallback(err, "创建实例"); fallbackErr != nil {
 				return fallbackErr
@@ -454,18 +460,22 @@ func (l *LXDProvider) CreateInstanceWithProgress(ctx context.Context, config pro
 		return fmt.Errorf("not connected")
 	}
 
-	forceSSHStaticIPv6 := hasRequestedStaticIPv6(config)
-	if forceSSHStaticIPv6 && !l.shouldUseSSH() {
-		return fmt.Errorf("LXD控制面静态IPv6当前需要SSH网络配置路径，api_only无法安全消费已分配地址")
+	forceSSHIPv6 := requiresSSHIPv6Network(config, l.config.ID)
+	if forceSSHIPv6 && !l.shouldUseSSH() {
+		return fmt.Errorf("LXD控制面IPv6网络配置当前需要SSH路径，api_only无法安全配置IPv6地址和端口映射")
 	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := l.shouldUseWindowsInstallerSSH(ctx, &config)
-	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHStaticIPv6 {
+	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 {
 		if err := l.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
 			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
+			var committedErr *apiCreateCommittedError
+			if errors.As(err, &committedErr) {
+				return err
+			}
 
 			if fallbackErr := l.ensureSSHBeforeFallback(err, "创建实例"); fallbackErr != nil {
 				return fallbackErr
@@ -484,6 +494,25 @@ func (l *LXDProvider) CreateInstanceWithProgress(ctx context.Context, config pro
 
 func hasRequestedStaticIPv6(config provider.InstanceConfig) bool {
 	return config.Metadata != nil && strings.TrimSpace(config.Metadata["static_ipv6"]) != ""
+}
+
+func requiresSSHIPv6Network(config provider.InstanceConfig, providerID uint) bool {
+	networkType := ""
+	if config.Metadata != nil {
+		networkType = strings.TrimSpace(config.Metadata["network_type"])
+	}
+	if networkType == "" && global.APP_DB != nil && providerID > 0 {
+		var providerConfig providerModel.Provider
+		if err := global.APP_DB.Select("network_type").First(&providerConfig, providerID).Error; err == nil {
+			networkType = strings.TrimSpace(providerConfig.NetworkType)
+		}
+	}
+	switch networkType {
+	case "nat_ipv4_ipv6", "dedicated_ipv4_ipv6", "ipv6_only":
+		return true
+	default:
+		return hasRequestedStaticIPv6(config)
+	}
 }
 
 func (l *LXDProvider) StartInstance(ctx context.Context, id string) error {
@@ -573,6 +602,12 @@ func (l *LXDProvider) RestartInstance(ctx context.Context, id string) error {
 func (l *LXDProvider) DeleteInstance(ctx context.Context, id string) error {
 	if !l.connected {
 		return fmt.Errorf("not connected")
+	}
+
+	// Host firewall rules survive removal of the LXD instance. Clean them while
+	// the controller still has the instance IP and guest-port mapping.
+	if err := l.cleanupInstancePortMappings(ctx, id); err != nil {
+		return fmt.Errorf("删除LXD实例前清理端口映射失败: %w", err)
 	}
 
 	// 根据执行规则判断使用哪种方式
@@ -751,12 +786,30 @@ func (l *LXDProvider) ensureSSHBeforeFallback(apiErr error, operation string) er
 
 // SetupPortMappingWithIP 公开的方法：在远程服务器上创建端口映射（用于手动添加端口）
 func (l *LXDProvider) SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(l.config.ExecutionRule), "api_only") {
+		port := providerModel.Port{HostPort: hostPort, GuestPort: guestPort, Protocol: protocol, MappingMethod: method}
+		if strings.Contains(instanceIP, ":") {
+			port.IPv6Enabled, port.IPv6Address = true, instanceIP
+		}
+		return l.ConfigurePortMappingsAPI(ctx, instanceName, []providerModel.Port{port})
+	}
 	return l.setupPortMappingWithIP(instanceName, hostPort, guestPort, protocol, method, instanceIP)
 }
 
 // RemovePortMapping 公开的方法：从远程服务器上删除端口映射（用于手动删除端口）
 func (l *LXDProvider) RemovePortMapping(instanceName string, hostPort int, protocol string, method string) error {
 	return l.removePortMapping(instanceName, hostPort, protocol, method)
+}
+
+// RemovePortMappingWithDetails removes a mapping when the controller already
+// has the guest and range information. This is used by cleanup tasks after a
+// port row or its instance has been soft-deleted and therefore cannot be
+// recovered by a normal database lookup.
+func (l *LXDProvider) RemovePortMappingWithDetails(instanceName string, hostPort, guestPort, hostPortEnd, guestPortEnd, portCount int, protocol, method, instanceIP string) error {
+	return l.removePortMappingWithRange(instanceName, hostPort, guestPort, hostPortEnd, guestPortEnd, portCount, protocol, method, instanceIP)
 }
 
 func init() {

@@ -113,7 +113,7 @@ func (i *IncusProvider) sshListInstances() ([]provider.Instance, error) {
 				}
 
 				// 补充逻辑2：如果原有逻辑获取到的IPv6是ULA地址，尝试从 eth1 获取公网IPv6
-				if instance.IPv6Address != "" && strings.HasPrefix(instance.IPv6Address, "fd") {
+				if instance.IPv6Address != "" && !utils.IsPublicIPv6(instance.IPv6Address) {
 					// 当前IPv6是ULA地址，尝试从eth1获取公网IPv6
 					if eth1, ok := network["eth1"].(map[string]interface{}); ok {
 						if addresses, ok := eth1["addresses"].([]interface{}); ok {
@@ -123,7 +123,7 @@ func (i *IncusProvider) sshListInstances() ([]provider.Instance, error) {
 									scope, _ := addrMap["scope"].(string)
 									address, _ := addrMap["address"].(string)
 
-									if family == "inet6" && scope == "global" && !strings.HasPrefix(address, "fd") {
+									if family == "inet6" && scope == "global" && utils.IsPublicIPv6(address) {
 										instance.IPv6Address = address
 										global.APP_LOG.Debug("从eth1替换为公网IPv6地址",
 											zap.String("instance", name),
@@ -146,7 +146,7 @@ func (i *IncusProvider) sshListInstances() ([]provider.Instance, error) {
 
 									if family == "inet6" && scope == "global" {
 										// 优先使用非ULA地址
-										if !strings.HasPrefix(address, "fd") {
+										if utils.IsPublicIPv6(address) {
 											instance.IPv6Address = address
 											global.APP_LOG.Debug("从eth1补充获取到公网IPv6地址",
 												zap.String("instance", name),
@@ -225,24 +225,33 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		return fmt.Errorf("实例配置验证失败: %w", err)
 	}
 
-	// 如果是虚拟机，先检查VM支持
+	// All instance types must pass the name check.  Previously the VM branch
+	// skipped it, so a late init failure could be mistaken for a newly-created
+	// VM and trigger cleanup against an unrelated existing instance.
+	updateProgress(10, "检查实例是否已存在...")
+	if exists, err := i.instanceExists(config.Name); err != nil {
+		return fmt.Errorf("检查实例是否存在失败: %w", err)
+	} else if exists {
+		return fmt.Errorf("实例 %s 已存在", config.Name)
+	}
+	// If it is a virtual machine, check host support after the name check.
 	if config.InstanceType == "vm" {
-		updateProgress(10, "检查虚拟机支持...")
+		updateProgress(12, "检查虚拟机支持...")
 		if err := i.checkVMSupport(); err != nil {
 			return fmt.Errorf("虚拟机支持检查失败: %w", err)
-		}
-	} else {
-		updateProgress(10, "检查实例是否已存在...")
-		if exists, err := i.instanceExists(config.Name); err != nil {
-			return fmt.Errorf("检查实例是否存在失败: %w", err)
-		} else if exists {
-			return fmt.Errorf("实例 %s 已存在", config.Name)
 		}
 	}
 
 	if i.shouldUseWindowsInstallerSSH(ctx, &config) {
 		updateProgress(15, "处理Windows安装镜像...")
 		return i.createWindowsInstallerVM(ctx, config, progressCallback)
+	}
+
+	// Validate delegated IPv6 capability before init/copy.  Without this
+	// preflight a /128-only host reaches the later network stage, then the
+	// instance is deleted after a predictable prefix-allocation error.
+	if err := i.preflightIPv6Network(ctx, config, i.parseNetworkConfigFromInstanceConfig(config)); err != nil {
+		return fmt.Errorf("IPv6网络预检失败: %w", err)
 	}
 
 	updateProgress(15, "处理镜像下载和导入...")
@@ -347,7 +356,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	updateProgress(45, "配置实例安全设置...")
 	// 配置安全设置
 	if err := i.configureInstanceSecurity(ctx, config); err != nil {
-		global.APP_LOG.Warn("配置实例安全设置失败，但继续", zap.Error(err))
+		return fmt.Errorf("配置实例安全设置失败 [%s]: %w", i.formatImageContext(config, ""), err)
 	}
 
 	// 配置GPU直通（仅 LXD/Incus 容器，需要在启动前附加设备）
@@ -413,7 +422,10 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 
 	updateProgress(70, "配置实例网络...")
 	if err := i.configureInstanceNetworkSettings(ctx, config); err != nil {
-		global.APP_LOG.Warn("配置网络失败", zap.Error(err))
+		// Network configuration contains the advertised SSH/port mappings. A
+		// successful instance create without those mappings is an unreachable
+		// instance and must enter the normal failure/rollback path.
+		return fmt.Errorf("配置网络失败 [%s]: %w", i.formatImageContext(config, ""), err)
 	}
 
 	updateProgress(75, "配置实例系统...")

@@ -13,6 +13,7 @@ import {
   repairPortMappings
 } from '@/api/admin'
 import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
+import { resolveInstanceNetworkType } from '@/utils/networkType'
 
 export function usePortMappingManagement() {
   const { t } = useI18n()
@@ -334,7 +335,19 @@ export function usePortMappingManagement() {
       // 验证支持的 Provider 类型
       if (!PORT_MAPPING_PROVIDER_TYPES.includes(providerType)) { ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported')); return }
       addLoading.value = true
-      const data = { instanceId: addForm.instanceId, guestPort: addForm.guestPort, hostPort: addForm.hostPort || 0, portCount: addForm.portCount || 1, protocol: addForm.protocol, description: addForm.description, mappingType: addForm.mappingType || 'node', internalHost: addForm.internalHost || '' }
+      const data = {
+        instanceId: addForm.instanceId,
+        guestPort: addForm.guestPort,
+        hostPort: addForm.hostPort || 0,
+        portCount: addForm.portCount || 1,
+        protocol: addForm.protocol,
+        description: addForm.description,
+        mappingType: addForm.mappingType || 'node',
+        internalHost: addForm.internalHost || '',
+        // NAT v4+v6 uses the same host port for both families. Dedicated and
+        // IPv6-only providers do not need a node-side mapping record here.
+        ipv6Enabled: resolveInstanceNetworkType(instance, providers.value) === 'nat_ipv4_ipv6'
+      }
       await createPortMapping(data)
       if (data.portCount > 1) ElMessage.success(t('admin.portMapping.batchAddPortTaskCreated', { count: data.portCount }))
       else ElMessage.success(t('admin.portMapping.addPortTaskCreated'))

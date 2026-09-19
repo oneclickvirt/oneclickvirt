@@ -2,7 +2,10 @@ package task
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -10,6 +13,7 @@ import (
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
+	providerCore "oneclickvirt/provider"
 	"oneclickvirt/provider/portmapping"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	agentLifecycle "oneclickvirt/service/agent"
@@ -22,226 +26,193 @@ import (
 	"gorm.io/gorm"
 )
 
-// resetTask_RestorePortMappings 阶段7: 恢复端口映射（直接创建，不使用任务系统）
+// resetTask_RestorePortMappings restores already-reserved rows. Remote work is
+// outside transactions, and only verified mappings become active.
 func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
 	s.updateTaskProgress(task.ID, 88, "step.restoringPortMappings")
-
-	// 对于LXD/Incus，等待实例获取IP地址
-	if resetCtx.Provider.Type == "lxd" || resetCtx.Provider.Type == "incus" {
-		if resetCtx.NewPrivateIP == "" {
-			providerApiService := &provider2.ProviderApiService{}
-			prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID)
-			if err == nil {
-				// 尝试获取IP，最多等待30秒
-				for attempt := 1; attempt <= 10; attempt++ {
-					ip := getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, resetCtx.OldInstanceName)
-					if ip != "" {
-						resetCtx.NewPrivateIP = ip
-						global.APP_LOG.Debug("实例IP获取成功",
-							zap.String("instanceName", resetCtx.OldInstanceName),
-							zap.String("ip", ip),
-							zap.Int("attempt", attempt))
-						break
-					}
-					if attempt < 10 {
-						time.Sleep(3 * time.Second)
-					}
-				}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var allPorts []providerModel.Port
+	if err := global.APP_DB.WithContext(ctx).Where("instance_id = ? AND provider_id = ?", resetCtx.NewInstanceID, resetCtx.Provider.ID).Order("id").Find(&allPorts).Error; err != nil {
+		return fmt.Errorf("读取重建端口占用失败: %w", err)
+	}
+	if len(allPorts) == 0 && len(resetCtx.OldPortMappings) > 0 {
+		return fmt.Errorf("重建端口预留丢失，拒绝覆盖可能已被其他实例占用的端口")
+	}
+	if len(allPorts) == 0 {
+		networkType := resetCtx.Instance.NetworkType
+		if networkType == "" {
+			networkType = resetCtx.Provider.NetworkType
+		}
+		switch networkType {
+		case "dedicated_ipv4", "dedicated_ipv4_ipv6", "ipv6_only", "no_port_mapping":
+			return nil
+		}
+		// Only controller-mode defaults may legitimately be deferred until
+		// now: their private target address is known only after guest creation.
+		if resetCtx.Provider.ConnectionType == "agent" && resetCtx.Provider.PortIP == "" && resetCtx.NewPrivateIP == "" {
+			prov, _, err := (&provider2.ProviderApiService{}).GetProviderByID(resetCtx.Provider.ID)
+			if err != nil {
+				return err
 			}
-
+			resetCtx.NewPrivateIP = getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, resetCtx.OldInstanceName)
 			if resetCtx.NewPrivateIP == "" {
-				global.APP_LOG.Warn("无法获取实例IP地址，端口映射可能失败",
-					zap.String("instanceName", resetCtx.OldInstanceName))
+				return fmt.Errorf("控制端默认映射缺少重建实例地址")
+			}
+			if err := global.APP_DB.WithContext(ctx).Model(&providerModel.Instance{}).Where("id = ?", resetCtx.NewInstanceID).Update("private_ip", resetCtx.NewPrivateIP).Error; err != nil {
+				return err
 			}
 		}
-
-		// 更新实例的内网IP到数据库
-		if resetCtx.NewPrivateIP != "" {
-			s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-				return tx.Model(&providerModel.Instance{}).Where("id = ?", resetCtx.NewInstanceID).
-					Update("private_ip", resetCtx.NewPrivateIP).Error
-			})
+		if err := (&resources.PortMappingService{}).ReserveDefaultPortMappingsForReset(ctx, resetCtx.NewInstanceID, resetCtx.Provider.ID, networkType); err != nil {
+			return fmt.Errorf("创建重建默认端口失败: %w", err)
+		}
+		if err := global.APP_DB.WithContext(ctx).Where("instance_id = ? AND provider_id = ?", resetCtx.NewInstanceID, resetCtx.Provider.ID).Find(&allPorts).Error; err != nil {
+			return err
 		}
 	}
-
-	// 如果没有旧端口映射，创建默认端口
-	if len(resetCtx.OldPortMappings) == 0 {
-		portMappingService := &resources.PortMappingService{}
-		if err := portMappingService.CreateDefaultPortMappings(resetCtx.NewInstanceID, resetCtx.Provider.ID); err != nil {
-			global.APP_LOG.Warn("创建默认端口映射失败", zap.Error(err))
+	var ports []providerModel.Port
+	for _, port := range allPorts {
+		if port.Status == "restoring" {
+			ports = append(ports, port)
 		}
-		return nil
 	}
+	if len(ports) == 0 {
+		return nil // Preserve intentionally inactive/failed mappings.
+	}
+	prov, _, loadErr := (&provider2.ProviderApiService{}).GetProviderByID(resetCtx.Provider.ID)
+	if loadErr != nil {
+		return errors.Join(loadErr, s.persistResetPortResults(ctx, resetCtx, ports, nil, loadErr))
+	}
+	return s.restoreReservedPortMappings(ctx, prov, resetCtx, ports)
+}
 
-	// 恢复端口映射
-	successCount := 0
-	failCount := 0
-
-	// Docker类型：端口映射已在创建时设置，只需创建数据库记录
-	// 容器类Provider和 VM-only Provider 的端口映射已在创建时设置，只需创建数据库记录。
-	if utils.UsesContainerRuntimePorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) ||
-		utils.UsesVMPositionalPorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) {
-		for _, oldPort := range resetCtx.OldPortMappings {
-			var createdPort providerModel.Port
-			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-				internalHost := oldPort.InternalHost
-				if oldPort.MappingType == "controller" {
-					internalHost, _ = agentLifecycle.ResolveControllerPortTarget(oldPort.InternalHost, resetCtx.NewPrivateIP)
-				}
-				newPort := providerModel.Port{
-					InstanceID:    resetCtx.NewInstanceID,
-					ProviderID:    resetCtx.Provider.ID,
-					HostPort:      oldPort.HostPort,
-					HostPortEnd:   oldPort.HostPortEnd,
-					GuestPort:     oldPort.GuestPort,
-					GuestPortEnd:  oldPort.GuestPortEnd,
-					PortCount:     oldPort.PortCount,
-					Protocol:      oldPort.Protocol,
-					Description:   oldPort.Description,
-					Status:        "active",
-					IsSSH:         oldPort.IsSSH,
-					IsAutomatic:   oldPort.IsAutomatic,
-					PortType:      oldPort.PortType,
-					MappingMethod: oldPort.MappingMethod,
-					IPv6Enabled:   oldPort.IPv6Enabled,
-					MappingType:   oldPort.MappingType,
-					InternalHost:  internalHost,
-				}
-				if err := tx.Create(&newPort).Error; err != nil {
-					return err
-				}
-				createdPort = newPort
-				return nil
-			})
-
-			if err != nil {
-				global.APP_LOG.Warn("创建端口映射数据库记录失败",
-					zap.Int("hostPort", oldPort.HostPort),
-					zap.Error(err))
-				failCount++
-			} else {
-				successCount++
-				// 控制端转发类型：启动 TCP 监听转发
-				if oldPort.MappingType == "controller" && createdPort.InternalHost != "" {
-					if fwErr := agentLifecycle.StartControllerPortForward(
-						createdPort.ID, resetCtx.Provider.ID,
-						createdPort.HostPort, createdPort.InternalHost, createdPort.GuestPort,
-					); fwErr != nil {
-						global.APP_LOG.Warn("重置后启动控制端端口转发失败",
-							zap.Uint("portID", createdPort.ID), zap.Error(fwErr))
-					}
-				}
-			}
+func (s *TaskService) restoreReservedPortMappings(ctx context.Context, prov providerCore.Provider, resetCtx *ResetTaskContext, ports []providerModel.Port) error {
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, s.persistResetPortResults(ctx, resetCtx, ports, nil, err))
+	}
+	name := resetCtx.NewProviderInstanceID
+	if name == "" {
+		name = resetCtx.OldInstanceName
+	}
+	// Only look up IPv4 when it is actually needed; IPv6-only/native mappings
+	// must not wait for a lease they will never receive.
+	needIPv4 := false
+	for _, port := range ports {
+		if port.MappingType == "controller" && (strings.TrimSpace(port.InternalHost) == "" || net.ParseIP(strings.Trim(port.InternalHost, "[]")) != nil) {
+			needIPv4 = true
 		}
-	} else {
-		// LXD/Incus/Proxmox：需要先创建数据库记录，然后在远程服务器上配置实际的端口映射
-		// Step 1: 先创建所有端口映射的数据库记录，并对控制端转发类型启动监听器
-		var controllerPorts []providerModel.Port // 已创建的控制端端口，待启动转发
-		for _, oldPort := range resetCtx.OldPortMappings {
-			var createdPort providerModel.Port
-			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-				internalHost := oldPort.InternalHost
-				if oldPort.MappingType == "controller" {
-					internalHost, _ = agentLifecycle.ResolveControllerPortTarget(oldPort.InternalHost, resetCtx.NewPrivateIP)
-				}
-				newPort := providerModel.Port{
-					InstanceID:    resetCtx.NewInstanceID,
-					ProviderID:    resetCtx.Provider.ID,
-					HostPort:      oldPort.HostPort,
-					HostPortEnd:   oldPort.HostPortEnd,
-					GuestPort:     oldPort.GuestPort,
-					GuestPortEnd:  oldPort.GuestPortEnd,
-					PortCount:     oldPort.PortCount,
-					Protocol:      oldPort.Protocol,
-					Description:   oldPort.Description,
-					Status:        "active",
-					IsSSH:         oldPort.IsSSH,
-					IsAutomatic:   oldPort.IsAutomatic,
-					PortType:      oldPort.PortType,
-					MappingMethod: oldPort.MappingMethod,
-					IPv6Enabled:   oldPort.IPv6Enabled,
-					MappingType:   oldPort.MappingType,
-					InternalHost:  internalHost,
-				}
-				if err := tx.Create(&newPort).Error; err != nil {
-					return err
-				}
-				createdPort = newPort
-				return nil
-			})
-
-			if err != nil {
-				global.APP_LOG.Warn("创建端口映射数据库记录失败",
-					zap.Int("hostPort", oldPort.HostPort),
-					zap.Error(err))
-				failCount++
-			} else {
-				// 收集控制端转发类型的端口，用于后续启动转发
-				if oldPort.MappingType == "controller" {
-					controllerPorts = append(controllerPorts, createdPort)
-				}
-			}
-		}
-
-		// 启动控制端端口转发（在节点侧端口映射配置之前，独立执行）
-		for _, cp := range controllerPorts {
-			if cp.InternalHost == "" {
+	}
+	if needIPv4 && resetCtx.NewPrivateIP == "" {
+		resetCtx.NewPrivateIP = getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, name)
+	}
+	failures := make(map[uint]error)
+	var nodePorts, controllerPorts []providerModel.Port
+	for _, port := range ports {
+		if port.MappingType == "controller" {
+			if _, err := expandPortEndpoints(port); err != nil || effectivePortCount(port) != 1 || !strings.EqualFold(port.Protocol, "tcp") {
+				failures[port.ID] = fmt.Errorf("控制端端口 %d 必须是单个TCP映射", port.HostPort)
 				continue
 			}
-			if fwErr := agentLifecycle.StartControllerPortForward(
-				cp.ID, resetCtx.Provider.ID,
-				cp.HostPort, cp.InternalHost, cp.GuestPort,
-			); fwErr != nil {
-				global.APP_LOG.Warn("重置后启动控制端端口转发失败",
-					zap.Uint("portID", cp.ID), zap.Error(fwErr))
+			target := port.InternalHost
+			if strings.TrimSpace(target) == "" || net.ParseIP(strings.Trim(target, "[]")) != nil {
+				target = resetCtx.NewPrivateIP // Never fall back to a deleted guest IP.
 			}
-		}
-
-		// Step 2: 调用 Provider 层的方法，在远程服务器上实际配置端口映射（proxy device）
-		// 注意：控制端转发类型的端口已在上方处理，configureProviderPortMappings 会跳过它们
-		providerApiService := &provider2.ProviderApiService{}
-		prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID)
-		if err != nil {
-			global.APP_LOG.Warn("获取Provider实例失败，无法配置远程端口映射", zap.Error(err))
+			if target == "" {
+				failures[port.ID] = fmt.Errorf("控制端端口 %d 缺少重建后的目标地址", port.HostPort)
+				continue
+			}
+			port.InternalHost = target
+			controllerPorts = append(controllerPorts, port)
 		} else {
-			// 调用 Provider 层的端口映射配置方法
-			if err := s.configureProviderPortMappings(ctx, prov, resetCtx); err != nil {
-				global.APP_LOG.Warn("配置Provider端口映射失败", zap.Error(err))
-				// 端口映射配置失败不阻塞重置流程，已创建的数据库记录保留
-			} else {
-				// 非控制端端口的成功数量（控制端端口已单独统计在 controllerPorts 中）
-				nodeSideCount := 0
-				for _, op := range resetCtx.OldPortMappings {
-					if op.MappingType != "controller" {
-						nodeSideCount++
-					}
+			nodePorts = append(nodePorts, port)
+		}
+	}
+	var nodeErr error
+	if len(nodePorts) > 0 {
+		if utils.UsesContainerRuntimePorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) {
+			nodeErr = verifyContainerRuntimePortMappings(ctx, prov, resetCtx.Provider.Type, name, nodePorts)
+			if nodeErr != nil {
+				for _, port := range nodePorts {
+					failures[port.ID] = nodeErr
 				}
-				successCount += nodeSideCount + len(controllerPorts)
-				global.APP_LOG.Info("Provider端口映射配置成功",
-					zap.Int("portCount", successCount))
+			}
+		} else if !utils.UsesVMPositionalPorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) {
+			copyCtx := *resetCtx
+			copyCtx.OldPortMappings = nodePorts
+			nodeFailures, err := s.configureProviderPortMappingsDetailed(ctx, prov, &copyCtx)
+			resetCtx.NewPrivateIP = copyCtx.NewPrivateIP
+			resetCtx.NewGuestIPv6 = copyCtx.NewGuestIPv6
+			nodeErr = err
+			for _, port := range nodePorts {
+				if failure := nodeFailures[port.ID]; failure != nil {
+					failures[port.ID] = failure
+				} else if nodeFailures == nil && err != nil {
+					failures[port.ID] = err
+				}
 			}
 		}
 	}
+	controllerFailures := agentLifecycle.RestoreControllerPortForwards(ctx, resetCtx.NewInstanceID, resetCtx.Provider.ID, controllerPorts)
+	for id, err := range controllerFailures {
+		failures[id] = err
+	}
+	var errs []error
+	if nodeErr != nil {
+		errs = append(errs, nodeErr)
+	}
+	for _, err := range failures {
+		errs = append(errs, err)
+	}
+	applyErr := errors.Join(errs...)
+	return errors.Join(applyErr, s.persistResetPortResults(ctx, resetCtx, ports, failures, nil))
+}
 
-	// 更新SSH端口
-	s.dbService.ExecuteQuery(ctx, func() error {
-		var sshPort providerModel.Port
-		if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'",
-			resetCtx.NewInstanceID).First(&sshPort).Error; err == nil {
-			global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", resetCtx.NewInstanceID).
-				Update("ssh_port", sshPort.HostPort)
+// Persist in two bounded batches, not one transaction/update per mapping.
+// Cancellation still needs a short independent transaction to record outcomes.
+func (s *TaskService) persistResetPortResults(ctx context.Context, resetCtx *ResetTaskContext, ports []providerModel.Port, failures map[uint]error, allFailed error) error {
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	var activeIDs, failedIDs []uint
+	sshPort := 22
+	for _, port := range ports {
+		if allFailed != nil || failures[port.ID] != nil {
+			failedIDs = append(failedIDs, port.ID)
 		} else {
-			global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", resetCtx.NewInstanceID).
-				Update("ssh_port", 22)
+			activeIDs = append(activeIDs, port.ID)
+			if port.IsSSH {
+				sshPort = port.HostPort
+			}
 		}
-		return nil
+	}
+	return s.dbService.ExecuteTransaction(saveCtx, func(tx *gorm.DB) error {
+		for _, group := range []struct {
+			ids    []uint
+			status string
+		}{{activeIDs, "active"}, {failedIDs, "failed"}} {
+			if len(group.ids) == 0 {
+				continue
+			}
+			if err := tx.Model(&providerModel.Port{}).Where("id IN ? AND instance_id = ? AND provider_id = ? AND status IN ?", group.ids, resetCtx.NewInstanceID, resetCtx.Provider.ID, []string{"restoring", "pending", "active"}).Update("status", group.status).Error; err != nil {
+				return fmt.Errorf("保存重建端口状态失败: %w", err)
+			}
+		}
+		updates := map[string]interface{}{"ssh_port": sshPort}
+		if resetCtx.NewPrivateIP != "" {
+			updates["private_ip"] = resetCtx.NewPrivateIP
+		}
+		if resetCtx.NewGuestIPv6 != "" {
+			updates["ipv6_address"] = resetCtx.NewGuestIPv6
+			// Empty addresses on legacy automatic rows mean dual-stack. Only
+			// replace an explicit binding that pointed at the deleted guest.
+			if resetCtx.Instance.IPv6Address != "" {
+				if err := tx.Model(&providerModel.Port{}).Where("instance_id = ? AND provider_id = ? AND ipv6_address = ?", resetCtx.NewInstanceID, resetCtx.Provider.ID, resetCtx.Instance.IPv6Address).Update("ipv6_address", resetCtx.NewGuestIPv6).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return tx.Model(&providerModel.Instance{}).Where("id = ? AND provider_id = ?", resetCtx.NewInstanceID, resetCtx.Provider.ID).Updates(updates).Error
 	})
-
-	global.APP_LOG.Info("端口映射恢复完成",
-		zap.Int("成功", successCount),
-		zap.Int("失败", failCount))
-
-	return nil
 }
 
 // createPortMappingDirect 直接创建端口映射（绕过任务系统）
@@ -397,143 +368,166 @@ func (s *TaskService) resetTask_ReinitializeMonitoring(ctx context.Context, task
 
 // configureProviderPortMappings 配置Provider层的端口映射（实际在远程服务器上创建proxy device）
 func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov interface{}, resetCtx *ResetTaskContext) error {
-	// 获取实例的内网IP
-	instanceIP := resetCtx.NewPrivateIP
-	if instanceIP == "" {
-		instanceIP = getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, resetCtx.OldInstanceName)
+	_, err := s.configureProviderPortMappingsDetailed(ctx, prov, resetCtx)
+	return err
+}
+
+func (s *TaskService) configureProviderPortMappingsDetailed(ctx context.Context, prov interface{}, resetCtx *ResetTaskContext) (map[uint]error, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-
-	if instanceIP == "" {
-		return fmt.Errorf("无法获取实例内网IP，跳过端口映射配置")
+	if resetCtx == nil {
+		return nil, fmt.Errorf("重建上下文为空")
 	}
-
-	global.APP_LOG.Debug("开始配置Provider端口映射",
-		zap.String("instanceName", resetCtx.OldInstanceName),
-		zap.String("instanceIP", instanceIP),
-		zap.String("providerType", resetCtx.Provider.Type),
-		zap.Int("portCount", len(resetCtx.OldPortMappings)))
-
-	// 根据Provider类型调用相应的端口映射配置方法
-	// 注意：这里直接使用反射调用内部方法，因为 configurePortMappingsWithIP 是私有方法
-	// 通过 SetupPortMappingWithIP 公开方法来逐个配置端口
-	switch resetCtx.Provider.Type {
-	case "incus":
-		// 导入 incus provider
-		incusProv, ok := prov.(interface {
-			SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error
-		})
-		if !ok {
-			return fmt.Errorf("Provider类型断言失败: incus")
-		}
-
-		// 逐个配置端口映射（跳过控制端转发类型，已由 resetTask_RestorePortMappings 处理）
-		for _, port := range resetCtx.OldPortMappings {
-			if port.MappingType == "controller" {
-				continue
-			}
-			if err := incusProv.SetupPortMappingWithIP(ctx, resetCtx.OldInstanceName, port.HostPort, port.GuestPort, port.Protocol, resetCtx.Provider.IPv4PortMappingMethod, instanceIP); err != nil {
-				global.APP_LOG.Warn("配置Incus端口映射失败",
-					zap.Int("hostPort", port.HostPort),
-					zap.Int("guestPort", port.GuestPort),
-					zap.Error(err))
-				// 继续配置其他端口
-			}
-		}
-
-		// 保存防火墙规则（nft 和 iptables 两种后端都需要保存以确保重启后规则持久化）
-		if provWithSave, ok := prov.(interface {
-			SaveIptablesRules() error
-		}); ok {
-			if err := provWithSave.SaveIptablesRules(); err != nil {
-				global.APP_LOG.Warn("保存Incus防火墙规则失败，重启后可能丢失", zap.Error(err))
-			} else {
-				global.APP_LOG.Debug("Incus防火墙规则已保存")
-			}
-		}
-
-		return nil
-
-	case "lxd":
-		// 导入 lxd provider
-		lxdProv, ok := prov.(interface {
-			SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error
-		})
-		if !ok {
-			return fmt.Errorf("Provider类型断言失败: lxd")
-		}
-
-		// 逐个配置端口映射（跳过控制端转发类型，已由 resetTask_RestorePortMappings 处理）
-		for _, port := range resetCtx.OldPortMappings {
-			if port.MappingType == "controller" {
-				continue
-			}
-			if err := lxdProv.SetupPortMappingWithIP(ctx, resetCtx.OldInstanceName, port.HostPort, port.GuestPort, port.Protocol, resetCtx.Provider.IPv4PortMappingMethod, instanceIP); err != nil {
-				global.APP_LOG.Warn("配置LXD端口映射失败",
-					zap.Int("hostPort", port.HostPort),
-					zap.Int("guestPort", port.GuestPort),
-					zap.Error(err))
-				// 继续配置其他端口
-			}
-		}
-
-		// 保存防火墙规则（nft 和 iptables 两种后端都需要保存以确保重启后规则持久化）
-		if provWithSave, ok := prov.(interface {
-			SaveIptablesRules() error
-		}); ok {
-			if err := provWithSave.SaveIptablesRules(); err != nil {
-				global.APP_LOG.Warn("保存LXD防火墙规则失败，重启后可能丢失", zap.Error(err))
-			} else {
-				global.APP_LOG.Debug("LXD防火墙规则已保存")
-			}
-		}
-
-		return nil
-
-	case "proxmox":
-		// Proxmox 使用 iptables，通过 SetupPortMappingWithIP 在远程服务器上创建端口映射规则
-		// 注意：数据库记录已在 Step 1 中创建，此处仅配置 iptables 规则
-		proxmoxProv, ok := prov.(interface {
-			SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error
-		})
-		if !ok {
-			return fmt.Errorf("Provider类型断言失败: proxmox")
-		}
-
-		// 逐个配置端口映射（跳过控制端转发类型，已由 resetTask_RestorePortMappings 处理）
-		for _, port := range resetCtx.OldPortMappings {
-			if port.MappingType == "controller" {
-				continue
-			}
-			if err := proxmoxProv.SetupPortMappingWithIP(ctx, resetCtx.OldInstanceName, port.HostPort, port.GuestPort, port.Protocol, resetCtx.Provider.IPv4PortMappingMethod, instanceIP); err != nil {
-				global.APP_LOG.Warn("配置Proxmox端口映射失败",
-					zap.Int("hostPort", port.HostPort),
-					zap.Int("guestPort", port.GuestPort),
-					zap.Error(err))
-				// 继续配置其他端口
-			}
-		}
-
-		// 保存iptables规则到 /etc/iptables/rules.v4
-		if provWithSave, ok := prov.(interface {
-			SaveIptablesRules() error
-		}); ok {
-			if err := provWithSave.SaveIptablesRules(); err != nil {
-				global.APP_LOG.Warn("保存iptables规则失败，重启后可能丢失", zap.Error(err))
-			} else {
-				global.APP_LOG.Debug("iptables规则已保存到 /etc/iptables/rules.v4")
-			}
-		}
-
-		return nil
-
+	switch utils.NormalizeProviderType(resetCtx.Provider.Type) {
+	case "incus", "lxd", "proxmox":
 	default:
-		// docker/podman/containerd/qemu/kubevirt不需要配置Provider层端口映射
-		// 容器类Provider的端口已在创建时通过-p标志绑定
-		// QEMU/KubeVirt的端口已在创建时通过shell脚本设置iptables规则
-		global.APP_LOG.Debug("Provider类型不需要额外的端口映射配置",
-			zap.String("providerType", resetCtx.Provider.Type))
-		return nil
+		// These runtimes bind ports during creation, not in this restoration step.
+		return nil, nil
 	}
+	networkType := resetCtx.Instance.NetworkType
+	if networkType == "" {
+		networkType = resetCtx.Provider.NetworkType
+	}
+	var mappings []providerModel.Port
+	for _, port := range resetCtx.OldPortMappings {
+		for _, mapping := range providerModel.ExpandPortMappingFamilies(port, networkType,
+			resetCtx.Provider.IPv4PortMappingMethod, resetCtx.Provider.IPv6PortMappingMethod) {
+			mapping.MappingMethod = normalizePortMappingMethod(mapping.MappingMethod)
+			if mapping.MappingType == "controller" || mapping.MappingMethod == "native" {
+				continue
+			}
+			if mapping.MappingMethod == "" {
+				mapping.MappingMethod = "device_proxy"
+				if utils.NormalizeProviderType(resetCtx.Provider.Type) == "proxmox" {
+					mapping.MappingMethod = "iptables"
+				}
+			}
+			if _, err := expandPortEndpoints(mapping); err != nil {
+				return nil, fmt.Errorf("重建端口 %d 配置无效: %w", mapping.HostPort, err)
+			}
+			mapping.Protocol = strings.ToLower(strings.TrimSpace(mapping.Protocol))
+			if mapping.Protocol == "" {
+				mapping.Protocol = "tcp"
+			}
+			if mapping.Protocol != "tcp" && mapping.Protocol != "udp" && mapping.Protocol != "both" {
+				return nil, fmt.Errorf("重建端口 %d 协议无效: %q", mapping.HostPort, mapping.Protocol)
+			}
+			mappings = append(mappings, mapping)
+		}
+	}
+	if len(mappings) == 0 {
+		return nil, nil
+	}
+	instanceName := resetCtx.NewProviderInstanceID
+	if strings.TrimSpace(instanceName) == "" {
+		instanceName = resetCtx.OldInstanceName
+	}
+	if strings.EqualFold(strings.TrimSpace(resetCtx.Provider.ExecutionRule), "api_only") && (resetCtx.Provider.Type == "incus" || resetCtx.Provider.Type == "lxd") {
+		batch, ok := prov.(interface {
+			ConfigurePortMappingsAPI(context.Context, string, []providerModel.Port) error
+		})
+		if !ok {
+			return nil, fmt.Errorf("Provider不支持API重建端口映射")
+		}
+		for index := range mappings {
+			if mappings[index].IPv6Address == resetCtx.Instance.IPv6Address {
+				mappings[index].IPv6Address = ""
+			}
+		}
+		return nil, batch.ConfigurePortMappingsAPI(ctx, instanceName, mappings)
+	}
+	setter, ok := prov.(interface {
+		SetupPortMappingWithIP(context.Context, string, int, int, string, string, string) error
+	})
+	if !ok {
+		return nil, fmt.Errorf("Provider不支持重建端口映射: %s", resetCtx.Provider.Type)
+	}
+	// Cache both success and failure once per family. Never fall back to the old
+	// guest IP or use IPv6 for a missing IPv4 lease after the guest was replaced.
+	ipv4, ipv6 := strings.TrimSpace(resetCtx.NewPrivateIP), ""
+	ipv4Read, ipv6Read := ipv4 != "", false
+	var failures []error
+	failedPorts := make(map[uint]error)
+	failPort := func(id uint, err error) {
+		failedPorts[id] = errors.Join(failedPorts[id], err)
+		failures = append(failures, err)
+	}
+	needsSave := false
+	for _, port := range mappings {
+		if err := ctx.Err(); err != nil {
+			failPort(port.ID, err)
+			continue
+		}
+		isIPv6 := port.IPv6Enabled || strings.TrimSpace(port.IPv6Address) != ""
+		target := strings.TrimSpace(port.IPv6Address)
+		if isIPv6 {
+			if target == "" || target == strings.TrimSpace(resetCtx.Instance.IPv6Address) {
+				if !ipv6Read {
+					ipv6 = getResetInstanceIPv6(ctx, prov, instanceName)
+					ipv6Read = true
+					resetCtx.NewGuestIPv6 = ipv6
+				}
+				target = ipv6
+			}
+		} else {
+			if !ipv4Read {
+				ipv4 = getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, instanceName)
+				ipv4Read = true
+				resetCtx.NewPrivateIP = ipv4
+			}
+			target = ipv4
+		}
+		ip := net.ParseIP(strings.Trim(strings.TrimSpace(target), "[]"))
+		if ip == nil || !ip.IsGlobalUnicast() || ip.IsLoopback() || (ip.To4() == nil) != isIPv6 {
+			failPort(port.ID, fmt.Errorf("重建端口 %d 缺少对应地址族的有效实例地址", port.HostPort))
+			continue
+		}
+		endpoints, _ := expandPortEndpoints(port) // Validated before any remote I/O.
+		for _, endpoint := range endpoints {
+			if err := ctx.Err(); err != nil {
+				failPort(port.ID, err)
+				break
+			}
+			// A failed setup may have partially installed rules, so persist once
+			// even on partial failure while retaining the original error.
+			needsSave = needsSave || port.MappingMethod == "iptables"
+			if err := setter.SetupPortMappingWithIP(ctx, instanceName, endpoint.host, endpoint.guest, port.Protocol, port.MappingMethod, ip.String()); err != nil {
+				failPort(port.ID, fmt.Errorf("重建端口 %d -> %d 配置失败: %w", endpoint.host, endpoint.guest, err))
+			}
+		}
+	}
+	if needsSave {
+		if saver, ok := prov.(interface{ SaveIptablesRules() error }); ok {
+			if err := saver.SaveIptablesRules(); err != nil {
+				for _, port := range mappings {
+					if port.MappingMethod == "iptables" {
+						failPort(port.ID, fmt.Errorf("保存重建防火墙规则失败: %w", err))
+					}
+				}
+			}
+		}
+	}
+	return failedPorts, errors.Join(failures...)
+}
+
+// LXD has a legacy context-free IPv6 getter; Incus and other providers use
+// context-aware getters. Neither path may reuse the deleted guest's address.
+func getResetInstanceIPv6(ctx context.Context, prov interface{}, name string) string {
+	if getter, ok := prov.(interface {
+		GetInstanceIPv6(context.Context, string) (string, error)
+	}); ok {
+		address, err := getter.GetInstanceIPv6(ctx, name)
+		if err == nil {
+			return strings.TrimSpace(address)
+		}
+	} else if getter, ok := prov.(interface{ GetInstanceIPv6(string) (string, error) }); ok {
+		address, err := getter.GetInstanceIPv6(name)
+		if err == nil {
+			return strings.TrimSpace(address)
+		}
+	}
+	return ""
 }
 
 // 辅助函数：获取实例内网IP

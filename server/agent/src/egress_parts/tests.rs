@@ -3,6 +3,8 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
+    type RecordedCall = (String, Vec<String>, Option<String>);
+
     fn capabilities() -> HostCapabilities {
         HostCapabilities {
             supported: true,
@@ -308,7 +310,7 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingExecutor {
-        calls: Mutex<Vec<(String, Vec<String>, Option<String>)>>,
+        calls: Mutex<Vec<RecordedCall>>,
     }
 
     impl CommandExecutor for RecordingExecutor {
@@ -345,7 +347,7 @@ mod tests {
 
     #[derive(Default)]
     struct PublicIpMismatchExecutor {
-        calls: Mutex<Vec<(String, Vec<String>, Option<String>)>>,
+        calls: Mutex<Vec<RecordedCall>>,
     }
 
     impl CommandExecutor for PublicIpMismatchExecutor {
@@ -510,7 +512,7 @@ mod tests {
     }
 
     struct MidProfileFailureExecutor {
-        calls: Mutex<Vec<(String, Vec<String>, Option<String>)>>,
+        calls: Mutex<Vec<RecordedCall>>,
         failed: Mutex<bool>,
         fail_cleanup: bool,
     }

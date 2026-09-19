@@ -2,6 +2,12 @@
 # from https://github.com/oneclickvirt/oneclickvirt
 # 2026.07.29
 
+# Keep the two installer entry points interoperable. The documented canonical
+# variable is lowercase for historical compatibility, while NONINTERACTIVE is
+# accepted as an alias by deployments that use the full installer.
+noninteractive="${noninteractive:-${NONINTERACTIVE:-false}}"
+export noninteractive NONINTERACTIVE="${noninteractive}"
+
 VERSION="" 
 REPO="oneclickvirt/oneclickvirt"
 BASE_URL=""
@@ -62,6 +68,30 @@ managed_web_path() {
     else
         printf '%s' "${ONECLICKVIRT_WEB_DIR:-${MANAGED_INSTALL_ROOT}/web}"
     fi
+}
+
+validate_install_paths() {
+    local web_path
+    web_path=$(managed_web_path)
+    for path in "$MANAGED_INSTALL_ROOT" "$MANAGED_SERVER_DIR" "$web_path"; do
+        case "$path" in
+            ""|/|*[[:cntrl:]]*)
+                log_error "Refusing an unsafe installation path: '$path'." "拒绝使用不安全的安装路径: '$path'。"
+                return 1
+                ;;
+            /*) ;;
+            *)
+                log_error "Installation paths must be absolute: '$path'." "安装路径必须是绝对路径: '$path'。"
+                return 1
+                ;;
+        esac
+    done
+    if [ "$web_path" = "$MANAGED_INSTALL_ROOT" ] || [ "$web_path" = "$MANAGED_SERVER_DIR" ]; then
+        log_error "The web path must not replace the application or server directory." \
+            "Web 路径不能替代应用目录或服务端目录。"
+        return 1
+    fi
+    return 0
 }
 
 confirm_existing_install_action() {
@@ -364,6 +394,8 @@ download_file() {
     local max_retries=3
     local retry_count=0
     local total_size=0
+    local attempt_output
+    attempt_output=$(mktemp "${output}.part.XXXXXX") || return 1
 
     # Get file size from headers
     total_size=$(curl -sIkL --connect-timeout 10 "$url" 2>/dev/null | grep -i 'Content-Length' | awk '{print $2}' | tr -d '\r\n ' | grep -o '[0-9]*' | tail -1)
@@ -406,26 +438,30 @@ download_file() {
     
     while [ $retry_count -lt $max_retries ]; do
         echo ""
-        curl -L --connect-timeout 20 --max-time 600 -o "$output" "$url" 2>/dev/null &
+        rm -f -- "$attempt_output"
+        curl -fL --connect-timeout 20 --max-time 600 -o "$attempt_output" "$url" 2>/dev/null &
         local dl_pid=$!
-        _dl_progress "$output" "$total_size" "$dl_pid" &
+        _dl_progress "$attempt_output" "$total_size" "$dl_pid" &
         local mon_pid=$!
-        wait "$dl_pid" 2>/dev/null
+        local dl_rc=0
+        wait "$dl_pid" 2>/dev/null || dl_rc=$?
         wait "$mon_pid" 2>/dev/null
-        if [ -s "$output" ]; then
+        if [ "$dl_rc" -eq 0 ] && [ -s "$attempt_output" ] && mv -f -- "$attempt_output" "$output"; then
             return 0
         fi
 
-        rm -f "$output"
-        wget -T 20 -t 3 -O "$output" "$url" 2>/dev/null &
+        rm -f -- "$attempt_output"
+        wget -T 20 -t 3 -O "$attempt_output" "$url" 2>/dev/null &
         dl_pid=$!
-        _dl_progress "$output" "$total_size" "$dl_pid" &
+        _dl_progress "$attempt_output" "$total_size" "$dl_pid" &
         mon_pid=$!
-        wait "$dl_pid" 2>/dev/null
+        dl_rc=0
+        wait "$dl_pid" 2>/dev/null || dl_rc=$?
         wait "$mon_pid" 2>/dev/null
-        if [ -s "$output" ]; then
+        if [ "$dl_rc" -eq 0 ] && [ -s "$attempt_output" ] && mv -f -- "$attempt_output" "$output"; then
             return 0
         fi
+        rm -f -- "$attempt_output"
         
         retry_count=$((retry_count + 1))
         log_warning "Download failed, retrying (${retry_count}/${max_retries}): $url" "下载失败，正在重试 (${retry_count}/${max_retries}): $url"
@@ -433,15 +469,20 @@ download_file() {
     done
     
     log_error "Download failed: $url" "下载失败: $url"
+    rm -f -- "$attempt_output"
     return 1
 }
 
 create_directories() {
+    validate_install_paths || return 1
     local dirs=("$MANAGED_INSTALL_ROOT" "$MANAGED_SERVER_DIR" "$(managed_web_path)")
     
     for dir in "${dirs[@]}"; do
         if [ ! -d "$dir" ]; then
-            mkdir -p "$dir"
+            if ! mkdir -p "$dir"; then
+                log_error "Unable to create installation directory: $dir" "无法创建安装目录: $dir"
+                return 1
+            fi
             log_info "Creating directory: $dir" "正在创建目录: $dir"
         fi
     done
@@ -454,10 +495,14 @@ install_server() {
     local filename="server-linux-${arch}.tar.gz"
     local download_url
     local work_dir
+    validate_install_paths || return 1
     work_dir=$(mktemp -d "${MANAGED_INSTALL_ROOT}/.server-download.XXXXXX") || return 1
     local temp_file="${work_dir}/${filename}"
     local extract_dir="${work_dir}/extract"
-    mkdir -p "$extract_dir" "$target_dir"
+    if ! mkdir -p "$extract_dir" "$target_dir"; then
+        rm -rf "$work_dir"
+        return 1
+    fi
     
     if [ -n "$cdn_success_url" ]; then
         download_url="${cdn_success_url}${BASE_URL}/${filename}"
@@ -517,6 +562,11 @@ install_web() {
     local filename="web-dist.zip"
     local download_url
     local work_dir
+    validate_install_paths || return 1
+    if [ "$web_path" = "$MANAGED_INSTALL_ROOT" ] || [ "$web_path" = "$MANAGED_SERVER_DIR" ]; then
+        log_error "Refusing to install web assets into a managed parent directory." "拒绝将 Web 文件安装到受管父目录。"
+        return 1
+    fi
     work_dir=$(mktemp -d "${MANAGED_INSTALL_ROOT}/.web-download.XXXXXX") || return 1
     local temp_file="${work_dir}/${filename}"
     if [ -n "$cdn_success_url" ]; then
@@ -525,7 +575,10 @@ install_web() {
         download_url="${BASE_URL}/${filename}"
     fi
     log_info "Using web path: $web_path" "使用 Web 路径: $web_path"
-    mkdir -p "$web_path"
+    if ! mkdir -p "$web_path"; then
+        rm -rf "$work_dir"
+        return 1
+    fi
     
     log_info "Downloading web assets..." "正在下载 Web 应用文件..."
     log_info "Download URL: $download_url" "下载链接: $download_url"
@@ -542,7 +595,9 @@ install_web() {
     if command -v unzip &> /dev/null; then
         if unzip -q -o "$temp_file" -d "$web_path/"; then
             rm -rf "$work_dir"
-            chmod 0755 "$web_path/"
+            if ! chmod 0755 "$web_path/"; then
+                return 1
+            fi
             log_success "Web assets installed successfully: $web_path" "Web 应用文件安装完成: $web_path"
         else
             log_error "Extraction failed." "解压失败。"
@@ -554,11 +609,14 @@ install_web() {
         log_info "Installing unzip..." "正在安装 unzip..."
         if ! ${INSTALL_CMD} unzip 2>/dev/null; then
             log_error "Failed to install unzip; skipping web asset installation." "unzip 安装失败，跳过 Web 文件安装。"
+            rm -rf "$work_dir"
             return 1
         fi
         if unzip -q -o "$temp_file" -d "$web_path/"; then
             rm -rf "$work_dir"
-            chmod 0755 "$web_path/"
+            if ! chmod 0755 "$web_path/"; then
+                return 1
+            fi
             log_success "Web assets installed successfully: $web_path" "Web 应用文件安装完成: $web_path"
         else
             log_error "Extraction failed." "解压失败。"
@@ -609,11 +667,17 @@ download_config() {
     log_info "Downloading configuration file..." "正在下载配置文件..."
     log_info "Download URL: $download_url" "下载链接: $download_url"
     
-    mkdir -p "$MANAGED_SERVER_DIR"
+    validate_install_paths || return 1
+    if ! mkdir -p "$MANAGED_SERVER_DIR"; then
+        return 1
+    fi
     local next_config
     next_config=$(mktemp "${MANAGED_SERVER_DIR}/.config.yaml.XXXXXX") || return 1
     if download_file "$download_url" "$next_config"; then
-        chmod 0644 "$next_config"
+        if ! chmod 0644 "$next_config"; then
+            rm -f "$next_config"
+            return 1
+        fi
         if ! mv -f "$next_config" "$config_file"; then
             rm -f "$next_config"
             return 1
@@ -913,12 +977,19 @@ upgrade_server() {
 
     local web_path
     web_path=$(managed_web_path)
-    mkdir -p "$MANAGED_INSTALL_ROOT" "$MANAGED_SERVER_DIR" "$(dirname "$web_path")"
+    validate_install_paths || return 1
+    if ! mkdir -p "$MANAGED_INSTALL_ROOT" "$MANAGED_SERVER_DIR" "$(dirname "$web_path")"; then
+        log_error "Unable to prepare upgrade directories." "无法准备升级目录。"
+        return 1
+    fi
     local upgrade_dir
     upgrade_dir=$(mktemp -d "${MANAGED_INSTALL_ROOT}/.upgrade.XXXXXX") || return 1
     local staged_server_dir="${upgrade_dir}/server"
     local staged_web_dir="${upgrade_dir}/web"
-    mkdir -p "$staged_server_dir" "$staged_web_dir"
+    if ! mkdir -p "$staged_server_dir" "$staged_web_dir"; then
+        rm -rf "$upgrade_dir"
+        return 1
+    fi
 
     log_info "Staging the new controller binary and web assets before downtime..." "正在停机前暂存新主控和 Web 文件..."
     if ! install_server "$staged_server_dir" || ! install_web "$staged_web_dir"; then
@@ -1187,6 +1258,7 @@ uninstall_server() {
             return 1
             ;;
     esac
+    validate_install_paths || return 1
 
     if [ "$assume_yes" != true ]; then
         if [ "${noninteractive:-false}" = "true" ]; then
@@ -1397,6 +1469,7 @@ EOF
 main() {
     # 从环境变量读取自定义Web路径
     custom_web_path="${WEB_PATH:-}"
+    validate_install_paths || return 1
     
     case "${1:-install}" in
         "env")
@@ -1447,6 +1520,7 @@ main() {
             elif [ -n "$custom_web_path" ]; then
                 log_info "Detected WEB_PATH from environment: $custom_web_path" "检测到环境变量 WEB_PATH: $custom_web_path"
             fi
+            validate_install_paths || return 1
             create_directories || return 1
             running_pids=$(find_running_server_pids | sort -u | tr '\n' ' ')
             persist_runtime_environment "$running_pids" || return 1

@@ -157,6 +157,15 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			zap.String("provider", localProviderName),
 			zap.Int("maxRetries", maxRetries),
 			zap.Error(lastErr))
+		// Keep the instance and its port rows intact when the remote delete did
+		// not reach a confirmed success. LXD/Incus host firewall rules outlive a
+		// container, so deleting the database rows here would make a later retry
+		// unable to identify and remove stale DNAT rules. The task remains failed
+		// and can be retried with the original provider/port metadata.
+		if lastErr == nil {
+			lastErr = fmt.Errorf("provider deletion failed without an error")
+		}
+		return fmt.Errorf("Provider删除实例失败，保留实例及端口记录以便重试: %w", lastErr)
 	}
 
 	// 更新进度 (80%)

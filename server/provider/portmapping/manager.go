@@ -3,6 +3,7 @@ package portmapping
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -21,6 +22,7 @@ func canonicalProviderType(providerType string) string {
 type Manager struct {
 	config    *ManagerConfig
 	providers map[string]func(*ManagerConfig) PortMappingProvider
+	mu        sync.RWMutex
 }
 
 // NewManager 创建端口映射管理器
@@ -33,36 +35,54 @@ func NewManager(config *ManagerConfig) *Manager {
 
 // RegisterProvider 注册Provider到管理器
 func (m *Manager) RegisterProvider(providerType string, factory func(*ManagerConfig) PortMappingProvider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.providers[providerType] = factory
 }
 
 // GetProvider 从管理器获取Provider
 func (m *Manager) GetProvider(providerType string) (PortMappingProvider, error) {
+	m.mu.RLock()
 	factory, exists := m.providers[providerType]
+	config := m.config
+	canonicalType := canonicalProviderType(providerType)
+	var mappedFactory func(*ManagerConfig) PortMappingProvider
+	var mapped bool
+	if !exists && canonicalType != providerType {
+		mappedFactory, mapped = m.providers[canonicalType]
+	}
+	m.mu.RUnlock()
 	if !exists {
-		canonicalType := canonicalProviderType(providerType)
 		if canonicalType != providerType {
-			if mappedFactory, ok := m.providers[canonicalType]; ok {
-				return mappedFactory(m.config), nil
+			if mapped {
+				return mappedFactory(config), nil
 			}
-			return GetProviderWithConfig(canonicalType, m.config)
+			return GetProviderWithConfig(canonicalType, config)
 		}
 		// 尝试从全局注册表获取
-		return GetProviderWithConfig(providerType, m.config)
+		return GetProviderWithConfig(providerType, config)
 	}
-	return factory(m.config), nil
+	return factory(config), nil
 }
 
 // CreatePortMapping 创建端口映射（统一入口）
 func (m *Manager) CreatePortMapping(ctx context.Context, providerType string, req *PortMappingRequest) (*PortMappingResult, error) {
+	if req == nil {
+		return nil, fmt.Errorf("port mapping request is nil")
+	}
 	provider, err := m.GetProvider(providerType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
 
 	// 如果没有指定映射方法，使用默认方法
-	if req.MappingMethod == "" && m.config != nil {
-		req.MappingMethod = m.config.DefaultMappingMethod
+	if req.MappingMethod == "" {
+		m.mu.RLock()
+		config := m.config
+		m.mu.RUnlock()
+		if config != nil {
+			req.MappingMethod = config.DefaultMappingMethod
+		}
 	}
 
 	return provider.CreatePortMapping(ctx, req)
@@ -70,6 +90,9 @@ func (m *Manager) CreatePortMapping(ctx context.Context, providerType string, re
 
 // DeletePortMapping 删除端口映射（统一入口）
 func (m *Manager) DeletePortMapping(ctx context.Context, providerType string, req *DeletePortMappingRequest) error {
+	if req == nil {
+		return fmt.Errorf("port mapping delete request is nil")
+	}
 	provider, err := m.GetProvider(providerType)
 	if err != nil {
 		return fmt.Errorf("failed to get provider: %v", err)
@@ -80,6 +103,9 @@ func (m *Manager) DeletePortMapping(ctx context.Context, providerType string, re
 
 // UpdatePortMapping 更新端口映射（统一入口）
 func (m *Manager) UpdatePortMapping(ctx context.Context, providerType string, req *UpdatePortMappingRequest) (*PortMappingResult, error) {
+	if req == nil {
+		return nil, fmt.Errorf("port mapping update request is nil")
+	}
 	provider, err := m.GetProvider(providerType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %v", err)
@@ -105,13 +131,15 @@ func (m *Manager) ListPortMappings(ctx context.Context, providerType string, ins
 
 // GetSupportedProviders 获取支持的Provider类型列表
 func (m *Manager) GetSupportedProviders() []string {
+	m.mu.RLock()
 	var providers []string
 	for providerType := range m.providers {
 		providers = append(providers, providerType)
 	}
+	m.mu.RUnlock()
 
 	// 也包括全局注册的Provider
-	for providerType := range globalRegistry.providers {
+	for _, providerType := range ListProviders() {
 		found := false
 		for _, p := range providers {
 			if p == providerType {
@@ -155,6 +183,13 @@ func (m *Manager) GetProviderCapabilities(providerType string) map[string]interf
 			"error":            err.Error(),
 		}
 	}
+	if provider == nil {
+		return map[string]interface{}{
+			"available":        false,
+			"supports_dynamic": false,
+			"error":            fmt.Sprintf("provider %s returned nil", providerType),
+		}
+	}
 
 	capabilities := map[string]interface{}{
 		"available":        true,
@@ -195,10 +230,14 @@ func (m *Manager) GetProviderCapabilities(providerType string) map[string]interf
 
 // GetStats 获取端口映射统计信息
 func (m *Manager) GetStats() map[string]interface{} {
+	m.mu.RLock()
+	localProviderCount := len(m.providers)
+	config := m.config
+	m.mu.RUnlock()
 	stats := map[string]interface{}{
-		"total_providers": len(m.providers),
+		"total_providers": localProviderCount,
 		"supported_types": m.GetSupportedProviders(),
-		"config":          m.config,
+		"config":          config,
 	}
 
 	// 统计每种Provider的使用情况和能力

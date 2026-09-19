@@ -545,8 +545,10 @@ func TestNetworkdConfigAndTunnelCommandsProtectPersistentNetworkState(t *testing
 			t.Fatalf("tunnel script does not persist dynamic guest forwarding %q: %s", fragment, script)
 		}
 	}
-	if strings.Contains(script, "proxy_ndp") {
-		t.Fatalf("tunnel script must not enable proxy NDP: %s", script)
+	for _, fragment := range []string{"net.ipv6.conf.all.proxy_ndp=1", "net.ipv6.conf.%s.proxy_ndp=1", "net.ipv6.conf.$IFACE.proxy_ndp"} {
+		if !strings.Contains(script, fragment) {
+			t.Fatalf("tunnel script must enable routed proxy NDP %q: %s", fragment, script)
+		}
 	}
 	check := buildCheckCommand([]providerModel.ProviderIPv6Tunnel{tunnel})
 	for _, fragment := range []string{"net.ipv6.conf.all.forwarding", "net.ipv6.conf.default.forwarding", "net.ipv6.conf.he-ipv6.forwarding", "net.ipv6.conf.oneclickvirt6.forwarding"} {
@@ -554,8 +556,10 @@ func TestNetworkdConfigAndTunnelCommandsProtectPersistentNetworkState(t *testing
 			t.Fatalf("tunnel check missing scoped forwarding %q: %s", fragment, check)
 		}
 	}
-	if strings.Contains(check, "proxy_ndp") {
-		t.Fatalf("tunnel check must not read proxy NDP settings: %s", check)
+	for _, fragment := range []string{"net.ipv6.conf.all.proxy_ndp", "proxy_ndp'", "net.ipv6.conf.oneclickvirt6.proxy_ndp"} {
+		if !strings.Contains(check, fragment) {
+			t.Fatalf("tunnel check must read proxy NDP setting %q: %s", fragment, check)
+		}
 	}
 	deleteCommand := buildDeleteCommand([]providerModel.ProviderIPv6Tunnel{tunnel})
 	if !strings.Contains(deleteCommand, networkConfigPath(tunnel.ID)) || !strings.Contains(deleteCommand, "reload_networkd") {

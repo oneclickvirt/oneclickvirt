@@ -7,6 +7,7 @@ import (
 
 	"oneclickvirt/global"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 )
@@ -114,7 +115,7 @@ func (c *SSHClient) executeCommandWithCustomTimeout(command string, timeout time
 	select {
 	case <-done:
 		if execErr != nil {
-			return string(output), fmt.Errorf("command execution failed: %w", execErr)
+			return string(output), fmt.Errorf("command execution failed: %w; output: %s", execErr, TruncateString(string(output), 2000))
 		}
 		return string(output), nil
 	case <-timeoutTimer.C:
@@ -169,7 +170,7 @@ func (c *SSHClient) executeCommand(command string) (string, error) {
 					zap.Error(execErr),
 					zap.String("output", string(output)))
 			}
-			return string(output), fmt.Errorf("command execution failed: %w", execErr)
+			return string(output), fmt.Errorf("command execution failed: %w; output: %s", execErr, TruncateString(string(output), 2000))
 		}
 		return string(output), nil
 	case <-timeoutTimer.C:
@@ -474,7 +475,9 @@ func (c *SSHClient) ExecuteViaTempScript(scriptContent string, args []string, ti
 	}
 	defer endUse()
 	// 生成唯一的临时文件路径
-	tmpPath := fmt.Sprintf("/tmp/oneclickvirt_exec_%d.sh", time.Now().UnixNano())
+	// UUID paths keep concurrent temporary scripts, marker files and logs
+	// isolated even when calls start within the same clock tick.
+	tmpPath := fmt.Sprintf("/tmp/oneclickvirt_exec_%s.sh", uuid.NewString())
 
 	// 上传脚本
 	if err := c.UploadContent(scriptContent, tmpPath, 0755); err != nil {

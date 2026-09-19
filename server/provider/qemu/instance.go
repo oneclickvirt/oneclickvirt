@@ -233,7 +233,9 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	updateProgress(10, "确保镜像存在")
 
 	// 确保目录存在
-	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s %s", shellSingleQuote(ImageDir), shellSingleQuote(VMLogDir)))
+	if output, err := p.sshClient.Execute(fmt.Sprintf("mkdir -p %s %s 2>&1", shellSingleQuote(ImageDir), shellSingleQuote(VMLogDir))); err != nil {
+		return fmt.Errorf("failed to prepare QEMU directories: %s, %w", utils.TruncateString(strings.TrimSpace(output), 300), err)
+	}
 
 	// 确保基础镜像存在，如果不存在则从 seed 数据库中的 URL 下载
 	baseImage := fmt.Sprintf("%s/%s.qcow2", ImageDir, system)
@@ -320,7 +322,10 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 			return fmt.Errorf("failed to allocate IP: %w", err)
 		}
 		// 立即写入 DHCP 预留，防止并发任务分配到相同IP
-		p.setupDHCPReservation(config.Name, vmMAC, vmIP)
+		if err := p.setupDHCPReservation(config.Name, vmMAC, vmIP); err != nil {
+			p.ipMu.Unlock()
+			return fmt.Errorf("failed to reserve VM IP %s: %w", vmIP, err)
+		}
 		p.ipMu.Unlock()
 	}
 
@@ -371,7 +376,9 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 				return fmt.Errorf("端口转发规则添加失败: %w", err)
 			}
 		}
-		fwMgr.SaveRules()
+		if err := fwMgr.SaveRules(); err != nil {
+			return fmt.Errorf("保存端口转发规则失败: %w", err)
+		}
 	}
 
 	updateProgress(65, "部署虚拟机")
@@ -556,10 +563,10 @@ func (p *QEMUProvider) allocateIP() (string, error) {
 }
 
 // setupDHCPReservation 在 libvirt default 网络中设置 DHCP 固定分配
-func (p *QEMUProvider) setupDHCPReservation(vmName, vmMAC, vmIP string) {
+func (p *QEMUProvider) setupDHCPReservation(vmName, vmMAC, vmIP string) error {
 	// 先删除旧记录
 	currentHostXML := fmt.Sprintf("<host mac='%s' name='%s' ip='%s' />", vmMAC, vmName, vmIP)
-	p.sshClient.Execute(fmt.Sprintf(
+	_, _ = p.sshClient.Execute(fmt.Sprintf(
 		"virsh net-update default delete ip-dhcp-host %s --live --config 2>/dev/null || true",
 		shellSingleQuote(currentHostXML)))
 
@@ -575,7 +582,7 @@ func (p *QEMUProvider) setupDHCPReservation(vmName, vmMAC, vmIP string) {
 		oldIP = strings.TrimSpace(oldIP)
 		if oldIP != "" {
 			oldHostXML := fmt.Sprintf("<host mac='%s' name='%s' ip='%s' />", oldMAC, vmName, oldIP)
-			p.sshClient.Execute(fmt.Sprintf(
+			_, _ = p.sshClient.Execute(fmt.Sprintf(
 				"virsh net-update default delete ip-dhcp-host %s --live --config 2>/dev/null || "+
 					"virsh net-update default delete ip-dhcp-host %s --config 2>/dev/null || true",
 				shellSingleQuote(oldHostXML), shellSingleQuote(oldHostXML)))
@@ -583,10 +590,14 @@ func (p *QEMUProvider) setupDHCPReservation(vmName, vmMAC, vmIP string) {
 	}
 
 	// 添加新记录
-	p.sshClient.Execute(fmt.Sprintf(
+	output, err := p.sshClient.Execute(fmt.Sprintf(
 		"virsh net-update default add ip-dhcp-host %s --live --config 2>/dev/null || "+
-			"virsh net-update default add ip-dhcp-host %s --config 2>/dev/null || true",
+			"virsh net-update default add ip-dhcp-host %s --config 2>&1",
 		shellSingleQuote(currentHostXML), shellSingleQuote(currentHostXML)))
+	if err != nil {
+		return fmt.Errorf("添加DHCP预留失败: %s: %w", utils.TruncateString(strings.TrimSpace(output), 500), err)
+	}
+	return nil
 }
 
 // createCloudInitISO 创建 cloud-init ISO

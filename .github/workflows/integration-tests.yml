@@ -95,6 +95,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  debian-runtime-readiness:
+    name: Debian 12 jq 1.6 runtime readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Reject empty and malformed runtime responses with jq 1.6
+        run: |
+          docker run --rm -v "$PWD:/work:ro" -w /work debian:12 bash -c '
+            set -euo pipefail
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends jq
+            jq --version
+            bash scripts/tests/non_pve_initialization_test.sh
+          '
+
+  firewall-regressions:
+    name: Real Linux firewall regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 'stable'
+          cache-dependency-path: server/go.sum
+      - name: Test dual-stack cleanup and Incus/LXD port reuse
+        run: bash scripts/tests/firewall_integration_test.sh
+
   integration-test:
     name: "Test: ${{ matrix.environment }}"
     runs-on: ubuntu-latest
@@ -122,7 +153,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq curl sshpass python3 python3-pip mysql-client
-          pip3 install --quiet paramiko
+          pip3 install --quiet paramiko websocket-client
 
       - name: Validate bash syntax of test scripts
         run: |
@@ -147,7 +178,31 @@ jobs:
         run: bash scripts/tests/provider_image_selection_test.sh
 
       - name: Test action harness failure classification
-        run: bash scripts/tests/action_harness_classification_test.sh
+        run: |
+          bash scripts/tests/action_harness_classification_test.sh
+          bash scripts/tests/http_status_contract_test.sh
+          bash scripts/tests/instance_creation_result_gate_test.sh
+          bash scripts/tests/port_mapping_result_gate_test.sh
+          bash scripts/tests/result_integrity_test.sh
+          bash scripts/tests/module_runner_integrity_test.sh
+          bash scripts/tests/workflow_result_gate_test.sh
+
+      - name: Test real SSH output flow control and command deadlines
+        run: |
+          python3 scripts/tests/remote_ssh_io_test.py
+          python3 scripts/tests/webssh_external_probe_test.py
+          python3 scripts/tests/live_node_shell_test.py
+          python3 scripts/tests/live_uninstall_prompts_test.py
+          python3 scripts/tests/live_nested_docker_test.py
+          python3 scripts/tests/live_install_storage_test.py
+
+      - name: Test disposable panel volume cleanup with real Docker
+        run: python3 scripts/tests/live_panel_cleanup_test.py --docker
+
+      - name: Non-PVE installer failure and readiness regressions
+        run: |
+          bash scripts/tests/non_pve_initialization_test.sh
+          bash scripts/tests/local_install_modes_test.sh
 
       - name: Test provider exec status contract
         run: bash scripts/tests/provider_exec_status_contract_test.sh
@@ -161,12 +216,17 @@ jobs:
       - name: Test IPv6 tunnel CI isolation
         run: bash scripts/tests/ipv6_tunnel_ci_isolation_test.sh
 
+      - name: Test IPv6 acceptance cleanup safety
+        run: bash scripts/tests/ipv6_acceptance_cleanup_test.sh
+
       - name: Test IPv6 tunnel and pool contracts
         working-directory: ./server
         run: go test ./service/ipv6tunnel ./service/ipv6pool
 
       - name: Test installer lifecycle commands
-        run: bash scripts/tests/install_lifecycle_commands_test.sh
+        run: |
+          bash scripts/tests/install_lifecycle_commands_test.sh
+          bash scripts/tests/download_atomic_test.sh
 
       - name: Verify generated Swagger docs
         working-directory: ./server
@@ -179,20 +239,22 @@ jobs:
           echo "Swagger docs are up to date."
 
       - name: Run action test static audit
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p action_tests/reports
           audit_exit=0
           python3 action_tests/static_audit.py --root . --output-dir action_tests/reports --strict --min-route-coverage 82 || audit_exit=$?
           if [[ "${audit_exit}" != "0" ]]; then
-            echo "::warning::Action test static audit reported advisory findings (exit ${audit_exit}); integration result status is decided by JSONL FAIL counts."
+            echo "::error::Action test static audit found blocking findings (exit ${audit_exit}); integration tests cannot proceed."
           fi
           {
             echo "## Action Test Static Audit"
             echo ""
             sed -n '1,40p' action_tests/reports/static-audit.md
           } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${audit_exit}" != "0" ]]; then
+            exit "${audit_exit}"
+          fi
 
       - name: Resolve usable cloud platforms
         id: resolve-platforms
@@ -503,7 +565,10 @@ jobs:
             fi
           fi
 
-          # Always exit 0 - test failures are captured in reports/artifacts, not as step failure
+          # Keep the reports/artifacts even when the harness fails, but expose
+          # the real status to the validation step.  Returning success here
+          # used to let an aborted or empty run look like a green workflow when
+          # the follow-up step itself was skipped or never received its output.
           exit 0
 
       - name: Validate integration test results
@@ -514,10 +579,13 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
-          # If the run-tests step was skipped/aborted before setting its output, treat as skip.
+          # If the run-tests step was skipped/aborted before setting its output,
+          # this is an incomplete run, not a feature skip.  A green workflow
+          # must never be produced without an authoritative harness status.
           if [[ -z "${TEST_EXIT:-}" ]]; then
-            echo "::warning::Test step did not produce an exit code — it may have been skipped or aborted early. Check workflow logs."
-            exit 0
+            echo "::error::Test step did not produce an exit code — it was skipped or aborted before results were finalized."
+            [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
+            exit 1
           fi
 
           HARNESS_NONZERO=false
@@ -535,7 +603,7 @@ jobs:
           result_files=(action_tests/reports/*.jsonl)
           if [[ ${#result_files[@]} -eq 0 ]]; then
             if [[ "${HARNESS_NONZERO}" == "true" ]]; then
-              echo "::warning::Integration tests did not produce JSONL results after ${_skip_reason}."
+              echo "::error::Integration tests did not produce JSONL results after ${_skip_reason}."
               {
                 echo "## Integration Validation"
                 echo ""
@@ -543,10 +611,10 @@ jobs:
                 echo "|--------|-------|"
                 echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
                 echo "| Harness Exit Code | ${TEST_EXIT} |"
-                echo "| Status | SKIPPED (${_skip_reason}; no JSONL results) |"
+                echo "| Status | INCOMPLETE (${_skip_reason}; no JSONL results) |"
               } >> "$GITHUB_STEP_SUMMARY"
               [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
-              exit 0
+              exit 1
             fi
             echo "::error::Integration tests did not produce any JSONL result files."
             [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
@@ -581,7 +649,10 @@ jobs:
                   PASS) harness_passed=$((harness_passed + 1)); passed=$((passed + 1)) ;;
                   FAIL) harness_failed=$((harness_failed + 1)); failed=$((failed + 1)) ;;
                   SKIP) harness_skipped=$((harness_skipped + 1)); skipped=$((skipped + 1)) ;;
-                  *) harness_skipped=$((harness_skipped + 1)); skipped=$((skipped + 1)) ;;
+                  *)
+                    echo "::error file=${f},line=${line_no}::Unknown JSONL result status '${status}'"
+                    corrupt=$((corrupt + 1))
+                    ;;
                 esac
               else
                 module_total=$((module_total + 1))
@@ -589,7 +660,10 @@ jobs:
                   PASS) module_passed=$((module_passed + 1)); passed=$((passed + 1)) ;;
                   FAIL) module_failed=$((module_failed + 1)); failed=$((failed + 1)) ;;
                   SKIP) module_skipped=$((module_skipped + 1)); skipped=$((skipped + 1)) ;;
-                  *) module_skipped=$((module_skipped + 1)); skipped=$((skipped + 1)) ;;
+                  *)
+                    echo "::error file=${f},line=${line_no}::Unknown JSONL result status '${status}'"
+                    corrupt=$((corrupt + 1))
+                    ;;
                 esac
               fi
             done < "$f"
@@ -617,9 +691,9 @@ jobs:
 
           if [[ "$total" -eq 0 ]]; then
             if [[ "${HARNESS_NONZERO}" == "true" ]]; then
-              echo "::warning::Integration tests produced an empty result set after ${_skip_reason}."
+              echo "::error::Integration tests produced an empty result set after ${_skip_reason}."
               [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
-              exit 0
+              exit 1
             fi
             echo "::error::Integration tests produced an empty result set."
             exit 1

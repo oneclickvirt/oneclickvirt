@@ -4,26 +4,26 @@
 
 | Metric | Value |
 |---|---:|
-| Registered route calls | 408 |
-| Comparable route literals | 405 |
+| Registered route calls | 409 |
+| Comparable route literals | 406 |
 | Approx. covered route literals | 343 |
-| Approx. route literal coverage | 84.69% |
-| Distinct test paths | 536 |
-| Test endpoint call sites | 1168 |
+| Approx. route literal coverage | 84.48% |
+| Distinct test paths | 537 |
+| Test endpoint call sites | 1185 |
 | High-risk jq lines | 0 |
 | Pipe risk lines | 0 |
 | Workflow findings | 0 |
 | Retry hygiene findings | 0 |
-| Minimum route literal coverage | 82.0% |
+| Minimum route literal coverage | not enforced |
 
 ## HTTP Method Coverage
 
 | Method | Routes | Tests |
 |---|---:|---:|
-| GET | 209 | 555 |
-| POST | 135 | 431 |
-| PUT | 35 | 113 |
-| DELETE | 29 | 68 |
+| GET | 209 | 560 |
+| POST | 136 | 441 |
+| PUT | 35 | 114 |
+| DELETE | 29 | 69 |
 | PATCH | 0 | 1 |
 
 ## Uncovered Route Literals (sample)
@@ -43,20 +43,21 @@
 - `DELETE /snapshot-schedules/:id` at `server/service/router/admin.go:66`
 - `GET /providers/local/detect` at `server/service/router/admin.go:92`
 - `POST /providers/import-csv` at `server/service/router/admin.go:93`
-- `POST /providers/:id/cleanup-orphans` at `server/service/router/admin.go:110`
-- `POST /configuration-tasks/:id/cancel` at `server/service/router/admin.go:143`
-- `GET /providers/:id/monitoring/sync/latest` at `server/service/router/admin.go:210`
-- `GET /providers/:id/monitoring/sync/:taskId` at `server/service/router/admin.go:211`
-- `POST /domains/sync-proxies` at `server/service/router/admin.go:241`
-- `POST /domains/:id/sync` at `server/service/router/admin.go:243`
-- `POST /system-images/sync` at `server/service/router/admin.go:282`
-- `PUT /users/:id/reset-password-notify` at `server/service/router/admin.go:297`
-- `GET /monitoring/logs` at `server/service/router/admin.go:327`
-- `GET /monitoring/provider` at `server/service/router/admin.go:328`
-- `GET /logs/read` at `server/service/router/admin.go:340`
-- `POST /logs/cleanup` at `server/service/router/admin.go:341`
-- `POST /storage/init` at `server/service/router/admin.go:345`
-- `POST /storage/cleanup` at `server/service/router/admin.go:346`
+- `POST /providers/:id/force-recovery-sync` at `server/service/router/admin.go:110`
+- `POST /providers/:id/cleanup-orphans` at `server/service/router/admin.go:111`
+- `POST /configuration-tasks/:id/cancel` at `server/service/router/admin.go:144`
+- `GET /providers/:id/monitoring/sync/latest` at `server/service/router/admin.go:211`
+- `GET /providers/:id/monitoring/sync/:taskId` at `server/service/router/admin.go:212`
+- `POST /domains/sync-proxies` at `server/service/router/admin.go:242`
+- `POST /domains/:id/sync` at `server/service/router/admin.go:244`
+- `POST /system-images/sync` at `server/service/router/admin.go:283`
+- `PUT /users/:id/reset-password-notify` at `server/service/router/admin.go:298`
+- `GET /monitoring/logs` at `server/service/router/admin.go:328`
+- `GET /monitoring/provider` at `server/service/router/admin.go:329`
+- `GET /logs/read` at `server/service/router/admin.go:341`
+- `POST /logs/cleanup` at `server/service/router/admin.go:342`
+- `POST /storage/init` at `server/service/router/admin.go:346`
+- `POST /storage/cleanup` at `server/service/router/admin.go:347`
 - `GET callback` at `server/service/router/oauth2.go:18`
 - `POST /instances/:name/start` at `server/service/router/provider.go:46`
 - `POST /instances/:name/stop` at `server/service/router/provider.go:47`
@@ -77,7 +78,6 @@
 - `GET /v1/ws/agent` at `server/service/router/setup.go:390`
 - `GET /user/instances/:id/snapshots` at `server/service/router/user.go:41`
 - `POST /user/instances/:id/snapshots` at `server/service/router/user.go:42`
-- `POST /user/instances/:id/snapshots/upload` at `server/service/router/user.go:43`
 
 ## Unguarded jq Findings
 

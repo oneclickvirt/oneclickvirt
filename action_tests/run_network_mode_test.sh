@@ -92,6 +92,7 @@ _delete_ocv_provider() {
     [[ -z "$provider_id" ]] && return 0
 
     log_info "Cleaning up OCV provider ${provider_id}..."
+    local cleanup_failed=false
 
     # Delete all instances belonging to this provider (gracefully ignore errors)
     local inst_resp; inst_resp=$(curl -s --max-time 30 \
@@ -100,10 +101,10 @@ _delete_ocv_provider() {
     local inst_ids; inst_ids=$(echo "$inst_resp" | jq -r '.data.list[]?.id // empty' 2>/dev/null)
     for iid in $inst_ids; do
         log_info "  Deleting instance ${iid}..."
-        curl -s --max-time 60 -X DELETE \
-            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-            "${SERVER_URL}/api/v1/admin/instances/${iid}" >/dev/null 2>&1 || true
-        sleep 3
+        if ! delete_instance_safe "$iid" "$ADMIN_TOKEN" "${INSTANCE_TASK_MAX_WAIT:-900}" >/dev/null 2>&1; then
+            log_warning "  Instance ${iid} did not finish deletion"
+            cleanup_failed=true
+        fi
     done
 
     # Now delete the provider
@@ -112,11 +113,31 @@ _delete_ocv_provider() {
         "${SERVER_URL}/api/v1/admin/providers/${provider_id}" 2>/dev/null) || true
     local del_code; del_code=$(echo "$del" | tail -1)
     local del_body; del_body=$(echo "$del" | sed '$d')
-    if [[ "$del_code" == "200" ]]; then
-        log_success "Provider ${provider_id} deleted from OCV"
+    if [[ "$del_code" =~ ^2[0-9][0-9]$ || "$del_code" == "404" ]]; then
+        if [[ "$del_code" =~ ^2[0-9][0-9]$ ]]; then
+            local del_task; del_task=$(safe_jq "$del_body" '-r .data.id // .data.task_id // empty' '')
+            if [[ -n "$del_task" ]]; then
+                log_info "Provider ${provider_id} deletion task ${del_task} submitted; waiting for completion"
+                local del_task_resp
+                if ! del_task_resp=$(wait_task_complete "$SERVER_URL" "$del_task" "$ADMIN_TOKEN" "${PROVIDER_DELETE_TASK_MAX_WAIT:-1800}" 5); then
+                    log_warning "Provider ${provider_id} deletion task ${del_task} did not complete"
+                    [[ -n "$del_task_resp" ]] && printf '%s\n' "$del_task_resp" >&2
+                    cleanup_failed=true
+                else
+                    log_success "Provider ${provider_id} deleted from OCV"
+                fi
+            else
+                log_success "Provider ${provider_id} deleted from OCV"
+            fi
+        else
+            log_success "Provider ${provider_id} already absent from OCV"
+        fi
     else
         log_warning "Provider ${provider_id} delete returned HTTP ${del_code}: ${del_body}"
+        cleanup_failed=true
     fi
+    [[ "$cleanup_failed" == "true" ]] && return 1
+    return 0
 }
 
 # ============================================================================
@@ -143,9 +164,12 @@ _reinstall_worker() {
     }
 
     log_section "Re-installing ${env} on reinstalled worker (${WORKER_IP})"
-    install_env "$worker_id" "$WORKER_IP" "$env" || {
-        log_warning "Environment re-installation command reported issues; checking runtime state"
-    }
+    local install_rc=0
+    install_env "$worker_id" "$WORKER_IP" "$env" || install_rc=$?
+    if [[ "$install_rc" -ne 0 ]]; then
+        log_error "Environment re-installation failed for ${env} (exit=${install_rc})"
+        return "$install_rc"
+    fi
     if ! verify_worker_runtime "$worker_id" "$WORKER_IP" "$env"; then
         log_error "${env} runtime is not ready after OS reinstall"
         return 1
@@ -229,30 +253,55 @@ ${auth_payload}}" \
 }
 
 # ============================================================================
-# Helper: run auto-configure on a provider and wait for completion (best-effort)
+# Helper: run auto-configure on a provider and wait for completion.
+#
+# The stream endpoint executes the configuration in the HTTP request context.
+# Calling it with a short curl timeout and then starting the task endpoint as a
+# second pass can cancel the first run and/or run two mutating configurations
+# concurrently.  Use the persistent task endpoint as the single source of
+# truth instead.  Provider types which do not implement auto-configuration are
+# explicitly skipped; their health check below remains the readiness gate.
 # ============================================================================
 _auto_configure_provider() {
     local provider_id="$1"
-    log_info "Auto-configuring provider ${provider_id}..."
+    case "$ENV_TYPE" in
+        lxd|incus|proxmox|proxmoxve) ;;
+        *)
+            log_info "Auto-configure is not supported for ${ENV_TYPE}; using provider health as the readiness gate"
+            return 0
+            ;;
+    esac
 
-    # Streaming autoconfigure (preferred)
-    curl -s --max-time 120 \
-        -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -X POST -d '{}' \
-        "${SERVER_URL}/api/v1/admin/providers/${provider_id}/auto-configure-stream" >/dev/null 2>&1 || true
-    sleep 5
-
-    # Task-based autoconfigure
-    local ac_resp; ac_resp=$(curl -s --max-time 60 \
+    log_info "Auto-configuring provider ${provider_id} via persistent task..."
+    local ac_resp ac_curl_rc=0
+    ac_resp=$(curl -sS -w "\n%{http_code}" --max-time 60 \
         -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         -H "Content-Type: application/json" \
         -X POST -d "{\"providerId\":${provider_id}}" \
-        "${SERVER_URL}/api/v1/admin/providers/auto-configure" 2>/dev/null) || true
-    local ac_task; ac_task=$(echo "$ac_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
-    if [[ -n "$ac_task" ]]; then
-        wait_configuration_task_complete_nonfatal "$ac_task" "$ADMIN_TOKEN" "$CONFIG_TASK_MAX_WAIT" 10 >/dev/null 2>&1 || true
+        "${SERVER_URL}/api/v1/admin/providers/auto-configure" 2>/dev/null) || ac_curl_rc=$?
+    if [[ "$ac_curl_rc" -ne 0 ]]; then
+        log_error "Auto-configure request failed for provider ${provider_id} (curl=${ac_curl_rc})"
+        return 1
     fi
+    local ac_http; ac_http=$(echo "$ac_resp" | tail -1)
+    local ac_body; ac_body=$(echo "$ac_resp" | sed '$d')
+    local ac_code; ac_code=$(safe_jq "$ac_body" '-r .code // empty' '')
+    if [[ ! "$ac_http" =~ ^2[0-9][0-9]$ || ( -n "$ac_code" && "$ac_code" != "200" ) ]]; then
+        log_error "Auto-configure returned HTTP=${ac_http:-unknown} code=${ac_code:-unknown}: ${ac_body}"
+        return 1
+    fi
+    local ac_task; ac_task=$(safe_jq "$ac_body" '-r .data.taskId // .data.task_id // empty' '')
+    if [[ -z "$ac_task" ]]; then
+        log_error "Auto-configure response did not include a task ID: ${ac_body}"
+        return 1
+    fi
+    local task_resp
+    if ! task_resp=$(wait_configuration_task_complete_nonfatal "$ac_task" "$ADMIN_TOKEN" "$CONFIG_TASK_MAX_WAIT" 10); then
+        log_error "Auto-configure task ${ac_task} did not complete successfully"
+        [[ -n "$task_resp" ]] && printf '%s\n' "$task_resp" >&2
+        return 1
+    fi
+    return 0
 }
 
 # ============================================================================
@@ -313,7 +362,12 @@ _create_test_instance() {
         return 1
     fi
 
-    wait_instance_status "$inst_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "network-mode instance ${inst_id}" > /dev/null || true
+    if ! wait_instance_status "$inst_id" "running" "$INSTANCE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "network-mode instance ${inst_id}" > /dev/null; then
+        log_error "Instance ${inst_id} did not reach running state"
+        delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" >/dev/null 2>&1 || \
+            log_warning "Failed to clean up non-running instance ${inst_id}"
+        return 1
+    fi
     log_success "Instance created: ID=${inst_id}"
     echo "$inst_id"
 }
@@ -471,9 +525,19 @@ _network_test_cleanup() {
     fi
     # Delete worker node if we created it
     if [[ -n "$CREATED_IDS" ]]; then
-        cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
+        if ! cleanup_all_nodes "$CREATED_IDS" 2>/dev/null; then
+            log_error "Worker cleanup failed; retaining IDs for diagnosis: ${CREATED_IDS}"
+            record_fail_result "Worker cleanup" "HARNESS" "cleanup_all_nodes" \
+                "all created worker resources removed" "cleanup failed" \
+                "Cleanup failed after network-mode tests" "network_mode"
+            exit_code=1
+        else
+            CREATED_IDS=""
+        fi
     fi
     report_finalize 2>/dev/null || true
+    trap - EXIT
+    exit "$exit_code"
 }
 trap _network_test_cleanup EXIT
 
@@ -485,6 +549,7 @@ if [[ "$BASELINE_GUARD_FAILED" == "true" ]]; then
     OVERALL_PASS=false
 fi
 declare -A METHOD_RESULT  # method -> PASS|FAIL
+PREV_MAPPING_METHOD=""
 
 for mapping_method in "${MAPPING_METHODS[@]}"; do
     log_section "Testing mapping method: ${mapping_method} (ENV_TYPE=${ENV_TYPE})"
@@ -502,9 +567,17 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
         # First iteration: install env on the (freshly created or provided) worker
         log_info "First mapping method — installing ${ENV_TYPE} on worker (${WORKER_IP})"
         wait_for_apt_lock "${WORKER_IP}" 60 240 10
-        install_env "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || {
-            log_warning "env install command reported issues; checking runtime state"
-        }
+        install_rc=0
+        install_env "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || install_rc=$?
+        if [[ "$install_rc" -ne 0 ]]; then
+            log_error "Environment installation failed for method ${mapping_method} (exit=${install_rc})"
+            record_fail_result "${ENV_TYPE} environment installation (${mapping_method})" "HARNESS" "install_env" \
+                "installer exit 0" "installer exit ${install_rc}" \
+                "Environment installation failed; this mapping method was not executed" "network_mode"
+            METHOD_RESULT["$mapping_method"]="FAIL"
+            OVERALL_PASS=false
+            continue
+        fi
         if ! verify_worker_runtime "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}"; then
             log_error "${ENV_TYPE} runtime is not ready for method ${mapping_method}"
             METHOD_RESULT["$mapping_method"]="FAIL"
@@ -517,24 +590,45 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
 
         # Delete the OCV provider from the previous round (if any)
         if [[ -n "${PREV_PROVIDER_ID:-}" ]]; then
-            _delete_ocv_provider "$PREV_PROVIDER_ID" || log_warning "Provider deletion had issues"
+            if ! _delete_ocv_provider "$PREV_PROVIDER_ID"; then
+                log_error "Previous provider cleanup failed; refusing to start method=${mapping_method}"
+                [[ -n "$PREV_MAPPING_METHOD" ]] && METHOD_RESULT["$PREV_MAPPING_METHOD"]="FAIL"
+                METHOD_RESULT["$mapping_method"]="FAIL"
+                OVERALL_PASS=false
+                break
+            fi
+            PREV_PROVIDER_ID=""
+            PREV_MAPPING_METHOD=""
         fi
 
         # Reinstall OS and virtualization env on the worker node
         if [[ -n "${WORKER_ID:-}" ]]; then
-            _reinstall_worker "$WORKER_ID" "$WORKER_IP" "$ENV_TYPE" || {
+            reinstall_rc=0
+            _reinstall_worker "$WORKER_ID" "$WORKER_IP" "$ENV_TYPE" || reinstall_rc=$?
+            if [[ "$reinstall_rc" -ne 0 ]]; then
                 log_error "Worker reinstall failed for method ${mapping_method}"
+                record_fail_result "${ENV_TYPE} worker reinstall (${mapping_method})" "HARNESS" "_reinstall_worker" \
+                    "OS and environment reinstall exit 0" "reinstall exit ${reinstall_rc}" \
+                    "Worker reinstall failed; this mapping method was not executed" "network_mode"
                 METHOD_PASS=false
                 METHOD_RESULT["$mapping_method"]="FAIL"
                 OVERALL_PASS=false
                 continue
-            }
+            fi
         else
             log_warning "WORKER_ID not set — cannot reinstall; attempting env reinstall only"
             wait_for_apt_lock "${WORKER_IP}" 60 240 10
-            install_env "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || {
-                log_warning "env install command reported issues; checking runtime state"
-            }
+            install_rc=0
+            install_env "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}" || install_rc=$?
+            if [[ "$install_rc" -ne 0 ]]; then
+                log_error "Environment re-installation failed for method ${mapping_method} (exit=${install_rc})"
+                record_fail_result "${ENV_TYPE} environment re-installation (${mapping_method})" "HARNESS" "install_env" \
+                    "installer exit 0" "installer exit ${install_rc}" \
+                    "Environment re-installation failed; this mapping method was not executed" "network_mode"
+                METHOD_RESULT["$mapping_method"]="FAIL"
+                OVERALL_PASS=false
+                continue
+            fi
             if ! verify_worker_runtime "${WORKER_ID:-none}" "${WORKER_IP}" "${ENV_TYPE}"; then
                 log_error "${ENV_TYPE} runtime is not ready for method ${mapping_method}"
                 METHOD_RESULT["$mapping_method"]="FAIL"
@@ -556,11 +650,19 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
     }
     export PROVIDER_ID
     PREV_PROVIDER_ID="$PROVIDER_ID"
+    PREV_MAPPING_METHOD="$mapping_method"
 
     # -----------------------------------------------------------------------
     # Step C: Auto-configure the provider (set up network, port ranges, etc.)
     # -----------------------------------------------------------------------
-    _auto_configure_provider "$PROVIDER_ID" || log_warning "Auto-configure had issues"
+    if ! _auto_configure_provider "$PROVIDER_ID"; then
+        log_error "Auto-configure failed for provider ${PROVIDER_ID} (method=${mapping_method})"
+        _delete_ocv_provider "$PROVIDER_ID" || log_warning "Provider cleanup after auto-configure failure had issues"
+        PREV_PROVIDER_ID=""
+        METHOD_RESULT["$mapping_method"]="FAIL"
+        OVERALL_PASS=false
+        continue
+    fi
 
     # -----------------------------------------------------------------------
     # Step D: Create a test instance
@@ -571,7 +673,12 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
 
     TEST_INSTANCE_ID=$(_create_test_instance "$PROVIDER_ID" "$local_inst_type") || {
         log_error "Instance creation failed (method=${mapping_method})"
-        _delete_ocv_provider "$PROVIDER_ID"
+        if ! _delete_ocv_provider "$PROVIDER_ID"; then
+            log_error "Provider cleanup failed after instance creation failure (method=${mapping_method})"
+            record_fail_result "Provider cleanup after instance failure (${mapping_method})" "HARNESS" "_delete_ocv_provider" \
+                "provider removed and deletion task completed" "cleanup failed" \
+                "Residual provider state may affect later mapping methods" "network_mode"
+        fi
         PREV_PROVIDER_ID=""
         METHOD_RESULT["$mapping_method"]="FAIL"
         OVERALL_PASS=false
@@ -597,14 +704,22 @@ for mapping_method in "${MAPPING_METHODS[@]}"; do
     # -----------------------------------------------------------------------
     if [[ -n "$TEST_INSTANCE_ID" ]]; then
         log_info "Deleting test instance ${TEST_INSTANCE_ID}..."
-        delete_instance_safe "$TEST_INSTANCE_ID" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" >/dev/null 2>&1 || true
+        if ! delete_instance_safe "$TEST_INSTANCE_ID" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" >/dev/null 2>&1; then
+            log_error "Failed to delete test instance ${TEST_INSTANCE_ID}"
+            METHOD_RESULT["$mapping_method"]="FAIL"
+            OVERALL_PASS=false
+        fi
     fi
 
 done  # end of mapping method loop
 
 # Clean up the last provider
 if [[ -n "${PREV_PROVIDER_ID:-}" ]]; then
-    _delete_ocv_provider "$PREV_PROVIDER_ID" || true
+    if ! _delete_ocv_provider "$PREV_PROVIDER_ID"; then
+        log_error "Final provider cleanup failed"
+        [[ -n "$PREV_MAPPING_METHOD" ]] && METHOD_RESULT["$PREV_MAPPING_METHOD"]="FAIL"
+        OVERALL_PASS=false
+    fi
 fi
 
 # ============================================================================
@@ -626,7 +741,7 @@ if [[ "$OVERALL_PASS" == "true" ]]; then
     log_success "All network mode tests PASSED"
     exit 0
 else
-    log_warning "Some network mode tests FAILED (see report for details)"
-    # Exit 0 to avoid failing the CI job; test failures are captured in reports
-    exit 0
+    log_error "Some network mode tests FAILED (see report for details)"
+    # Preserve the report, but propagate the matrix failure to CI and callers.
+    exit 1
 fi

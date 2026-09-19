@@ -27,6 +27,19 @@ pub struct ProxyTarget {
     pub protocol: String,
 }
 
+fn upstream_authority(host: &str, port: u16) -> String {
+    let host = host.trim();
+    let host = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(host);
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
 pub type ProxyRoutes = Arc<RwLock<HashMap<String, ProxyTarget>>>;
 
 /// Thread-safe cert store for per-domain TLS certificates (uses std RwLock for sync ResolvesServerCert)
@@ -43,10 +56,10 @@ impl ResolvesServerCert for DomainCertResolver {
     fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
         if let Some(domain) = client_hello.server_name() {
             let domain = domain.to_lowercase();
-            if let Ok(certs) = self.domain_certs.read() {
-                if let Some(cert) = certs.get(&domain) {
-                    return Some(cert.clone());
-                }
+            if let Ok(certs) = self.domain_certs.read()
+                && let Some(cert) = certs.get(&domain)
+            {
+                return Some(cert.clone());
             }
         }
         self.default_cert.clone()
@@ -109,20 +122,18 @@ pub fn load_domain_certs_from_db(
         }
     };
 
-    for row in rows {
-        if let Ok((domain, cert_pem, key_pem)) = row {
-            let domain = domain.trim().to_lowercase();
-            if domain.is_empty() {
-                continue;
+    for (domain, cert_pem, key_pem) in rows.flatten() {
+        let domain = domain.trim().to_lowercase();
+        if domain.is_empty() {
+            continue;
+        }
+        match parse_certified_key(&cert_pem, &key_pem) {
+            Ok(ck) => {
+                info!(domain = %domain, "loaded domain certificate");
+                certs.insert(domain, Arc::new(ck));
             }
-            match parse_certified_key(&cert_pem, &key_pem) {
-                Ok(ck) => {
-                    info!(domain = %domain, "loaded domain certificate");
-                    certs.insert(domain, Arc::new(ck));
-                }
-                Err(e) => {
-                    warn!(domain = %domain, error = %e, "failed to parse domain certificate");
-                }
+            Err(e) => {
+                warn!(domain = %domain, error = %e, "failed to parse domain certificate");
             }
         }
     }
@@ -197,7 +208,28 @@ pub async fn get_route(routes: &ProxyRoutes, domain: &str) -> Option<ProxyTarget
 pub async fn proxy_handler(
     Host(host): Host,
     State(routes): State<ProxyRoutes>,
+    req: Request,
+) -> Response {
+    proxy_handler_with_scheme(host, routes, req, "http").await
+}
+
+/// HTTPS listener entry point. The listener is selected before this handler is
+/// invoked, so the forwarded scheme must be supplied explicitly rather than
+/// inferred from the request URI (which is usually origin-form and has no
+/// scheme component).
+pub async fn proxy_https_handler(
+    Host(host): Host,
+    State(routes): State<ProxyRoutes>,
+    req: Request,
+) -> Response {
+    proxy_handler_with_scheme(host, routes, req, "https").await
+}
+
+async fn proxy_handler_with_scheme(
+    host: String,
+    routes: ProxyRoutes,
     mut req: Request,
+    forwarded_proto: &'static str,
 ) -> Response {
     // Extract domain from Host header (remove port if present)
     let domain = host.split(':').next().unwrap_or(&host).to_lowercase();
@@ -219,8 +251,9 @@ pub async fn proxy_handler(
 
     // Build upstream URL
     let upstream_url = format!(
-        "{}://{}:{}",
-        target.protocol, target.internal_ip, target.internal_port
+        "{}://{}",
+        target.protocol,
+        upstream_authority(&target.internal_ip, target.internal_port)
     );
 
     // Parse the request URI and build the full upstream path
@@ -244,7 +277,7 @@ pub async fn proxy_handler(
     *req.uri_mut() = upstream_uri.clone();
 
     // Update Host header to match upstream
-    if let Ok(authority) = format!("{}:{}", target.internal_ip, target.internal_port).parse() {
+    if let Ok(authority) = upstream_authority(&target.internal_ip, target.internal_port).parse() {
         req.headers_mut().insert(hyper::header::HOST, authority);
     }
 
@@ -256,7 +289,7 @@ pub async fn proxy_handler(
     );
     headers.insert(
         "X-Forwarded-Proto",
-        HeaderValue::from_static("http"), // TODO: detect if HTTPS
+        HeaderValue::from_static(forwarded_proto),
     );
 
     // Create HTTP client
@@ -282,5 +315,33 @@ pub async fn proxy_handler(
             )
                 .into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::upstream_authority;
+    use hyper::Uri;
+
+    #[test]
+    fn formats_ipv4_hostname_and_ipv6_authorities() {
+        assert_eq!(upstream_authority("192.0.2.10", 8080), "192.0.2.10:8080");
+        assert_eq!(
+            upstream_authority("backend.internal", 8080),
+            "backend.internal:8080"
+        );
+        assert_eq!(
+            upstream_authority("2001:db8::10", 8080),
+            "[2001:db8::10]:8080"
+        );
+        assert_eq!(
+            upstream_authority("[2001:db8::10]", 8443),
+            "[2001:db8::10]:8443"
+        );
+        let uri: Uri = format!("http://{}", upstream_authority("2001:db8::10", 8080))
+            .parse()
+            .expect("IPv6 upstream authority must produce a valid URI");
+        assert_eq!(uri.host(), Some("[2001:db8::10]"));
+        assert_eq!(uri.port_u16(), Some(8080));
     }
 }

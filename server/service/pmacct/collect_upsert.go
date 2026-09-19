@@ -177,7 +177,7 @@ func (s *Service) execBatchUpsert(tx *gorm.DB, batch []monitoringModel.PmacctTra
 	}
 
 	var insertSQL string
-	if dbcompat.UseRowAlias() {
+	if dbcompat.UseRowAlias(tx) {
 		insertSQL = fmt.Sprintf(`
 			INSERT INTO pmacct_traffic_records 
 			(instance_id, user_id, provider_id, provider_type, mapped_ip, 

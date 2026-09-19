@@ -24,13 +24,11 @@ use axum::{
 use collector::start_collector;
 use db::init_db;
 use docs::ApiDoc;
-use regex;
 use rusqlite::Connection;
 use std::{env, fs, io::BufReader, net::SocketAddr, path::Path, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
-use url;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -338,8 +336,11 @@ async fn main() {
         let cert_path = env::var("PROXY_TLS_CERT").ok();
         let key_path = env::var("PROXY_TLS_KEY").ok();
 
-        let proxy_router = Router::new()
+        let proxy_http_router = Router::new()
             .fallback(proxy::proxy_handler)
+            .with_state(proxy_routes.clone());
+        let proxy_https_router = Router::new()
+            .fallback(proxy::proxy_https_handler)
             .with_state(proxy_routes);
 
         // Start proxy servers based on configuration
@@ -355,7 +356,7 @@ async fn main() {
                     _ = api_server => {
                         warn!("API server stopped unexpectedly");
                     }
-                    result = axum::serve(listener, proxy_router) => {
+                    result = axum::serve(listener, proxy_http_router) => {
                         if let Err(e) = result {
                             error!(error = %e, "HTTP proxy server error");
                         }
@@ -372,7 +373,7 @@ async fn main() {
                                 warn!("API server stopped unexpectedly");
                             }
                             result = axum_server::bind_rustls(https_addr, tls_config)
-                                .serve(proxy_router.into_make_service()) => {
+                                .serve(proxy_https_router.into_make_service()) => {
                                 if let Err(e) = result {
                                     error!(error = %e, "HTTPS proxy server error");
                                 }
@@ -393,7 +394,7 @@ async fn main() {
                     .await
                     .expect("failed to bind HTTP proxy server");
 
-                let http_router = proxy_router.clone();
+                let http_router = proxy_http_router.clone();
                 let http_server = tokio::spawn(async move {
                     axum::serve(http_listener, http_router)
                         .await
@@ -410,7 +411,7 @@ async fn main() {
                                 warn!("HTTP proxy server stopped unexpectedly");
                             }
                             result = axum_server::bind_rustls(https_addr, tls_config)
-                                .serve(proxy_router.into_make_service()) => {
+                                .serve(proxy_https_router.into_make_service()) => {
                                 if let Err(e) = result {
                                     error!(error = %e, "HTTPS proxy server error");
                                 }
@@ -437,8 +438,7 @@ async fn main() {
                     .ok()
                     .and_then(|s| s.parse().ok());
 
-                if https_addr_for_sni.is_some() {
-                    let https_addr = https_addr_for_sni.unwrap();
+                if let Some(https_addr) = https_addr_for_sni {
                     info!(%https_addr, "starting HTTPS reverse proxy with SNI-only certs (no default cert)");
                     let tls_config = load_tls_config_sni_only(cert_store.clone());
 
@@ -446,7 +446,7 @@ async fn main() {
                     let http_listener = tokio::net::TcpListener::bind(http_addr)
                         .await
                         .expect("failed to bind HTTP proxy server");
-                    let http_router = proxy_router.clone();
+                    let http_router = proxy_http_router.clone();
                     let http_server = tokio::spawn(async move {
                         axum::serve(http_listener, http_router)
                             .await
@@ -461,7 +461,7 @@ async fn main() {
                             warn!("HTTP proxy server stopped unexpectedly");
                         }
                         result = axum_server::bind_rustls(https_addr, tls_config)
-                            .serve(proxy_router.into_make_service()) => {
+                            .serve(proxy_https_router.into_make_service()) => {
                             if let Err(e) = result {
                                 error!(error = %e, "HTTPS proxy server error");
                             }
@@ -481,7 +481,7 @@ async fn main() {
                         _ = api_server => {
                             warn!("API server stopped unexpectedly");
                         }
-                        result = axum::serve(listener, proxy_router) => {
+                        result = axum::serve(listener, proxy_http_router) => {
                             if let Err(e) = result {
                                 error!(error = %e, "HTTP proxy server error");
                             }
@@ -771,8 +771,7 @@ fn strip_secret_from_url(url: &str) -> String {
     let cleaned = re.replace_all(url, "");
     // Fix double `?&` → `?` or trailing `?`
     let cleaned = cleaned.replace("?&", "?");
-    let cleaned = cleaned.trim_end_matches('?').to_string();
-    cleaned
+    cleaned.trim_end_matches('?').to_string()
 }
 
 #[cfg(test)]

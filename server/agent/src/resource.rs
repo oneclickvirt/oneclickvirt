@@ -19,15 +19,16 @@ const AGENT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbi
 /// are all available — exactly the same behavior as SSH command execution in Go.
 ///
 /// Key design:
-///   - LC_ALL=C.UTF-8 prevents locale warnings and encoding issues
-///   - PS1='$ ' fakes interactive shell to bypass bashrc [[ $- != *i* ]] guards
-///   - Loads: /etc/environment, /etc/profile, /etc/profile.d/*.sh,
-///            /etc/bash.bashrc, /etc/bashrc, /etc/zsh/zprofile, /etc/zsh/zshrc,
-///            ~/.profile, ~/.bash_profile, ~/.bashrc, ~/.zprofile, ~/.zshrc,
-///            ~/.config/environment.d/*.conf
-///   - Final PATH: AGENT_PATH prepended + inherited PATH
-/// NOTE: concat! only accepts string literals, so AGENT_PATH is inlined here.
-/// See AGENT_PATH constant above for the canonical path list (kept in sync with Go).
+/// - LC_ALL=C.UTF-8 prevents locale warnings and encoding issues.
+/// - PS1='$ ' fakes an interactive shell to bypass bashrc `[[ $- != *i* ]]` guards.
+/// - Loads `/etc/environment`, `/etc/profile`, `/etc/profile.d/*.sh`,
+///   `/etc/bash.bashrc`, `/etc/bashrc`, `/etc/zsh/zprofile`, `/etc/zsh/zshrc`,
+///   `~/.profile`, `~/.bash_profile`, `~/.bashrc`, `~/.zprofile`, `~/.zshrc`,
+///   and `~/.config/environment.d/*.conf`.
+/// - Final PATH: AGENT_PATH prepended to the inherited PATH.
+///
+/// NOTE: `concat!` only accepts string literals, so AGENT_PATH is inlined here.
+/// See the AGENT_PATH constant above for the canonical path list (kept in sync with Go).
 const AGENT_ENV_PREFIX: &str = concat!(
     "export LC_ALL=C.UTF-8 LANG=C.UTF-8 LANGUAGE=C.UTF-8 2>/dev/null || true; ",
     "export PS1='$ ' 2>/dev/null || true; ",
@@ -173,16 +174,16 @@ fn get_oci_disk(runtime: &str, name: &str) -> (u64, u64) {
         "{runtime} inspect --size --format '{{{{json .}}}}' {name}"
     ));
 
-    if let Ok(out) = out {
-        if out.status.success() {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-                // SizeRw = writable layer size, SizeRootFs = total size
-                let used = v.get("SizeRw").and_then(|v| v.as_u64()).unwrap_or(0);
-                let total = v.get("SizeRootFs").and_then(|v| v.as_u64()).unwrap_or(0);
-                if total > 0 {
-                    return (used, total);
-                }
+    if let Ok(out) = out
+        && out.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+            // SizeRw = writable layer size, SizeRootFs = total size
+            let used = v.get("SizeRw").and_then(|v| v.as_u64()).unwrap_or(0);
+            let total = v.get("SizeRootFs").and_then(|v| v.as_u64()).unwrap_or(0);
+            if total > 0 {
+                return (used, total);
             }
         }
     }
@@ -232,17 +233,17 @@ fn collect_cgroup_stats(name: &str) -> Result<ResourceSnapshot, ApiError> {
 /// Get disk usage for containerd via `ctr snapshots usage`.
 fn get_containerd_disk(name: &str) -> (u64, u64) {
     let out = run_with_env(&format!("ctr -n default snapshots usage {name}"));
-    if let Ok(out) = out {
-        if out.status.success() {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            // Output format: "KEY    SIZE    INODES\n<key>  <size>  <inodes>"
-            for line in stdout.lines().skip(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    let used = parse_size_string(parts[1]);
-                    if used > 0 {
-                        return (used, 0);
-                    }
+    if let Ok(out) = out
+        && out.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        // Output format: "KEY    SIZE    INODES\n<key>  <size>  <inodes>"
+        for line in stdout.lines().skip(1) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let used = parse_size_string(parts[1]);
+                if used > 0 {
+                    return (used, 0);
                 }
             }
         }
@@ -373,54 +374,50 @@ fn collect_lxc(cli: &str, name: &str) -> Result<ResourceSnapshot, ApiError> {
                 }
             }
         }
-        if in_cpu {
-            if let Some(val) = extract_value_after(trimmed, "CPU usage (in seconds):") {
-                cpu_seconds = val.trim().parse::<f64>().unwrap_or(0.0);
-            }
+        if in_cpu && let Some(val) = extract_value_after(trimmed, "CPU usage (in seconds):") {
+            cpu_seconds = val.trim().parse::<f64>().unwrap_or(0.0);
         }
-        if in_disk {
-            if let Some(val) = extract_value_after(trimmed, "root:") {
-                disk_used = parse_size_string(&val);
-            }
+        if in_disk && let Some(val) = extract_value_after(trimmed, "root:") {
+            disk_used = parse_size_string(&val);
         }
     }
 
     // Get memory limit from config
     let config_out = run_with_env(&format!("{cli} config show {name}"));
-    if let Ok(config_out) = config_out {
-        if config_out.status.success() {
-            let config_str = String::from_utf8_lossy(&config_out.stdout);
-            for line in config_str.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with("limits.memory:") {
-                    if let Some(val) = trimmed.strip_prefix("limits.memory:") {
-                        mem_total = parse_size_string(val.trim());
-                    }
-                }
+    if let Ok(config_out) = config_out
+        && config_out.status.success()
+    {
+        let config_str = String::from_utf8_lossy(&config_out.stdout);
+        for line in config_str.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("limits.memory:")
+                && let Some(val) = trimmed.strip_prefix("limits.memory:")
+            {
+                mem_total = parse_size_string(val.trim());
             }
         }
     }
 
     // Get disk limit
     let storage_out = run_with_env(&format!("{cli} config device show {name}"));
-    if let Ok(storage_out) = storage_out {
-        if storage_out.status.success() {
-            let storage_str = String::from_utf8_lossy(&storage_out.stdout);
-            for line in storage_str.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with("size:") {
-                    if let Some(val) = trimmed.strip_prefix("size:") {
-                        let disk_total_val = parse_size_string(val.trim());
-                        if disk_total_val > 0 {
-                            return Ok(ResourceSnapshot {
-                                cpu_percent: 0.0, // CPU % needs delta computation
-                                memory_used: mem_used,
-                                memory_total: mem_total,
-                                disk_used,
-                                disk_total: disk_total_val,
-                            });
-                        }
-                    }
+    if let Ok(storage_out) = storage_out
+        && storage_out.status.success()
+    {
+        let storage_str = String::from_utf8_lossy(&storage_out.stdout);
+        for line in storage_str.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("size:")
+                && let Some(val) = trimmed.strip_prefix("size:")
+            {
+                let disk_total_val = parse_size_string(val.trim());
+                if disk_total_val > 0 {
+                    return Ok(ResourceSnapshot {
+                        cpu_percent: 0.0, // CPU % needs delta computation
+                        memory_used: mem_used,
+                        memory_total: mem_total,
+                        disk_used,
+                        disk_total: disk_total_val,
+                    });
                 }
             }
         }
@@ -452,30 +449,30 @@ fn collect_proxmox(vmid: &str) -> Result<ResourceSnapshot, ApiError> {
             "pvesh get /nodes/{node}/{kind}/{vmid}/status/current --output-format json"
         ));
 
-        if let Ok(out) = out {
-            if out.status.success() {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-                    let data = if v.get("data").is_some() {
-                        v.get("data").unwrap()
-                    } else {
-                        &v
-                    };
+        if let Ok(out) = out
+            && out.status.success()
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+                let data = if v.get("data").is_some() {
+                    v.get("data").unwrap()
+                } else {
+                    &v
+                };
 
-                    let cpu = data.get("cpu").and_then(|v| v.as_f64()).unwrap_or(0.0) * 100.0;
-                    let mem_used = data.get("mem").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let mem_total = data.get("maxmem").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let disk_used = data.get("disk").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let disk_total = data.get("maxdisk").and_then(|v| v.as_u64()).unwrap_or(0);
+                let cpu = data.get("cpu").and_then(|v| v.as_f64()).unwrap_or(0.0) * 100.0;
+                let mem_used = data.get("mem").and_then(|v| v.as_u64()).unwrap_or(0);
+                let mem_total = data.get("maxmem").and_then(|v| v.as_u64()).unwrap_or(0);
+                let disk_used = data.get("disk").and_then(|v| v.as_u64()).unwrap_or(0);
+                let disk_total = data.get("maxdisk").and_then(|v| v.as_u64()).unwrap_or(0);
 
-                    return Ok(ResourceSnapshot {
-                        cpu_percent: cpu,
-                        memory_used: mem_used,
-                        memory_total: mem_total,
-                        disk_used,
-                        disk_total,
-                    });
-                }
+                return Ok(ResourceSnapshot {
+                    cpu_percent: cpu,
+                    memory_used: mem_used,
+                    memory_total: mem_total,
+                    disk_used,
+                    disk_total,
+                });
             }
         }
     }
@@ -590,9 +587,6 @@ fn parse_size_string(s: &str) -> u64 {
 }
 
 fn extract_value_after(line: &str, prefix: &str) -> Option<String> {
-    if let Some(pos) = line.find(prefix) {
-        Some(line[pos + prefix.len()..].trim().to_owned())
-    } else {
-        None
-    }
+    line.find(prefix)
+        .map(|pos| line[pos + prefix.len()..].trim().to_owned())
 }

@@ -4,41 +4,105 @@
       <template #header>
         <div class="card-header">
           <div>
-            <div class="title">{{ t('admin.group.title') }}</div>
-            <div class="subtitle">使用分组控制普通用户申请领取页的节点展示；描述支持 Markdown，并会安全渲染部分 HTML。</div>
+            <div class="title">
+              {{ t('admin.group.title') }}
+            </div>
+            <div class="subtitle">
+              使用分组控制普通用户申请领取页的节点展示；描述支持 Markdown，并会安全渲染部分 HTML。
+            </div>
           </div>
-          <el-button type="primary" @click="openCreateDialog">新增分组</el-button>
+          <el-button
+            type="primary"
+            @click="openCreateDialog"
+          >
+            新增分组
+          </el-button>
         </div>
       </template>
 
-      <el-table v-loading="loading" :data="groups" stripe>
-        <el-table-column prop="groupName" label="分组名称" min-width="150" />
-        <el-table-column label="分组描述" min-width="260">
+      <el-table
+        v-loading="loading"
+        :data="groups"
+        stripe
+      >
+        <el-table-column
+          prop="groupName"
+          label="分组名称"
+          min-width="150"
+        />
+        <el-table-column
+          label="分组描述"
+          min-width="260"
+        >
           <template #default="{ row }">
-            <div v-if="row.groupDescriptionHtml" class="description-preview" v-html="row.groupDescriptionHtml" />
-            <el-text v-else type="info">未填写</el-text>
+            <div
+              v-if="row.groupDescriptionHtml"
+              class="description-preview"
+              v-html="row.groupDescriptionHtml"
+            />
+            <el-text
+              v-else
+              type="info"
+            >
+              未填写
+            </el-text>
           </template>
         </el-table-column>
-        <el-table-column label="节点" min-width="260">
+        <el-table-column
+          label="节点"
+          min-width="260"
+        >
           <template #default="{ row }">
             <el-space wrap>
-              <el-tag v-for="provider in row.providers" :key="provider.id" size="small">
+              <el-tag
+                v-for="provider in row.providers"
+                :key="provider.id"
+                size="small"
+              >
                 {{ provider.name }}
               </el-tag>
-              <el-text v-if="!row.providers?.length" type="info">暂无节点</el-text>
+              <el-text
+                v-if="!row.providers?.length"
+                type="info"
+              >
+                暂无节点
+              </el-text>
             </el-space>
           </template>
         </el-table-column>
-        <el-table-column prop="providerCount" label="节点数量" width="100" />
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column
+          prop="providerCount"
+          label="节点数量"
+          width="100"
+        />
+        <el-table-column
+          label="操作"
+          width="180"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button text type="primary" @click="openEditDialog(row)">编辑</el-button>
-            <el-button text type="danger" @click="deleteGroup(row)">删除</el-button>
+            <el-button
+              text
+              type="primary"
+              @click="openEditDialog(row)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              text
+              type="danger"
+              @click="deleteGroup(row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="!loading && groups.length === 0" description="暂无分组，点击右上角新增分组后再勾选节点" />
+      <el-empty
+        v-if="!loading && groups.length === 0"
+        description="暂无分组，点击右上角新增分组后再勾选节点"
+      />
     </el-card>
 
     <el-dialog
@@ -48,9 +112,20 @@
       destroy-on-close
       @closed="resetDialog"
     >
-      <el-form :model="form" label-width="110px">
-        <el-form-item label="分组名称" required>
-          <el-input v-model="form.groupName" maxlength="64" show-word-limit placeholder="例如：香港高性能 / 免费体验 / 美国节点" />
+      <el-form
+        :model="form"
+        label-width="110px"
+      >
+        <el-form-item
+          label="分组名称"
+          required
+        >
+          <el-input
+            v-model="form.groupName"
+            maxlength="64"
+            show-word-limit
+            placeholder="例如：香港高性能 / 免费体验 / 美国节点"
+          />
         </el-form-item>
         <el-form-item label="分组描述">
           <el-input
@@ -61,10 +136,18 @@
             show-word-limit
             placeholder="支持 Markdown，例如：**注意事项**、列表、链接；也可使用部分安全 HTML 标签"
           />
-          <div class="form-item-hint">建议用 Markdown 编写说明，会像 GitHub 一样渲染常用标题、列表、粗体、链接与部分安全 HTML。</div>
+          <div class="form-item-hint">
+            建议用 Markdown 编写说明，会像 GitHub 一样渲染常用标题、列表、粗体、链接与部分安全 HTML。
+          </div>
         </el-form-item>
-        <el-form-item label="预览" v-if="descriptionPreview">
-          <div class="description-preview full" v-html="descriptionPreview" />
+        <el-form-item
+          v-if="descriptionPreview"
+          label="预览"
+        >
+          <div
+            class="description-preview full"
+            v-html="descriptionPreview"
+          />
         </el-form-item>
         <el-form-item label="包含节点">
           <el-table
@@ -74,26 +157,70 @@
             row-key="id"
             @selection-change="onProviderSelectionChange"
           >
-            <el-table-column type="selection" width="48" :selectable="canSelectProvider" />
-            <el-table-column prop="name" label="节点名称" min-width="180" />
-            <el-table-column prop="type" label="类型" width="100" />
-            <el-table-column prop="status" label="状态" width="100" />
-            <el-table-column label="当前分组" min-width="140">
+            <el-table-column
+              type="selection"
+              width="48"
+              :selectable="canSelectProvider"
+            />
+            <el-table-column
+              prop="name"
+              label="节点名称"
+              min-width="180"
+            />
+            <el-table-column
+              prop="type"
+              label="类型"
+              width="100"
+            />
+            <el-table-column
+              prop="status"
+              label="状态"
+              width="100"
+            />
+            <el-table-column
+              label="当前分组"
+              min-width="140"
+            >
               <template #default="{ row }">
-                <el-tag v-if="row.groupId && row.groupId !== editingGroup?.id" type="warning" size="small">
+                <el-tag
+                  v-if="row.groupId && row.groupId !== editingGroup?.id"
+                  type="warning"
+                  size="small"
+                >
                   {{ row.groupName || '其他分组' }}
                 </el-tag>
-                <el-tag v-else-if="row.groupId === editingGroup?.id" type="success" size="small">本分组</el-tag>
-                <el-text v-else type="info">未分组</el-text>
+                <el-tag
+                  v-else-if="row.groupId === editingGroup?.id"
+                  type="success"
+                  size="small"
+                >
+                  本分组
+                </el-tag>
+                <el-text
+                  v-else
+                  type="info"
+                >
+                  未分组
+                </el-text>
               </template>
             </el-table-column>
           </el-table>
-          <div class="form-item-hint">一个节点同一时间只属于一个分组；保存后会自动从原分组移出。</div>
+          <div class="form-item-hint">
+            一个节点同一时间只属于一个分组；保存后会自动从原分组移出。
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveGroup">保存</el-button>
+        <el-button @click="dialogVisible = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="saving"
+          @click="saveGroup"
+        >
+          保存
+        </el-button>
       </template>
     </el-dialog>
   </div>

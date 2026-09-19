@@ -211,33 +211,51 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	global.APP_LOG.Info("开始删除KubeVirt虚拟机", zap.String("id", utils.TruncateString(id, 32)))
 
 	// 1. 停止VM
-	p.sshClient.Execute(withKubeVirtKubeconfig(fmt.Sprintf("virtctl stop %s -n %s 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace))))
-	time.Sleep(2 * time.Second)
+	if output, err := p.sshClient.Execute(withKubeVirtKubeconfig(fmt.Sprintf("virtctl stop %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))); err != nil && !kubeVirtNotFound(output, err) {
+		return fmt.Errorf("停止KubeVirt虚拟机失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
+	if err := sleepWithContext(ctx, 2*time.Second); err != nil {
+		return fmt.Errorf("等待KubeVirt虚拟机停止被取消: %w", err)
+	}
+
+	// Clean owned host rules before deleting the VM and its identifying data.
+	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, "")
+	if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
+		return fmt.Errorf("删除实例前检测防火墙失败: %w", err)
+	}
+	if err := fwMgr.DeleteRulesByComment(fmt.Sprintf("vm:%s", id)); err != nil {
+		return fmt.Errorf("删除实例前清理防火墙失败: %w", err)
+	}
+	if err := fwMgr.SaveRules(); err != nil {
+		return fmt.Errorf("删除实例前保存防火墙失败: %w", err)
+	}
 
 	// 2. 删除VM资源
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete vm %s -n %s --grace-period=30 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
+	if err := p.deleteKubeVirtResource(fmt.Sprintf("kubectl delete vm %s -n %s --grace-period=30 --ignore-not-found=true 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)), "删除VM"); err != nil {
+		return err
+	}
 
 	// 3. 删除关联的Service (NodePort)
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc %s -n %s 2>/dev/null", shellSingleQuote(id+"-ssh"), shellSingleQuote(Namespace)))
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete svc %s -n %s 2>/dev/null", shellSingleQuote(id+"-ports"), shellSingleQuote(Namespace)))
+	for _, resource := range []struct{ kind, name string }{{"SSH Service", id + "-ssh"}, {"端口 Service", id + "-ports"}} {
+		if err := p.deleteKubeVirtResource(fmt.Sprintf("kubectl delete svc %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(resource.name), shellSingleQuote(Namespace)), "删除"+resource.kind); err != nil {
+			return err
+		}
+	}
 	// 4. 删除关联的 DataVolume 和 PVC
 	// DataVolume 名称为 {id}-dv（与创建时保持一致），删除 DataVolume 后 CDI 会同步删除其 PVC
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume %s -n %s --ignore-not-found=true 2>/dev/null", shellSingleQuote(id+"-dv"), shellSingleQuote(Namespace)))
-	// 兼容旧版本/手动创建的 PVC：尝试删除多种命名格式
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc -n %s -l %s 2>/dev/null", shellSingleQuote(Namespace), shellSingleQuote("vm.kubevirt.io/name="+id)))
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc %s -n %s 2>/dev/null", shellSingleQuote(id+"-dv"), shellSingleQuote(Namespace)))
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc %s -n %s 2>/dev/null", shellSingleQuote(id+"-disk"), shellSingleQuote(Namespace)))
-
-	// 5. 通过firewall.Manager清理防火墙规则（nft优先，iptables回退）
-	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, "")
-	backend, _ := fwMgr.DetectBackend(FWBackendFile)
-	if backend == "nft" {
-		fwMgr.DeleteRulesByComment(fmt.Sprintf("vm:%s", id))
-	} else {
-		// iptables backend: use comment-based deletion (same comment format)
-		fwMgr.DeleteRulesByComment(fmt.Sprintf("vm:%s", id))
+	if err := p.deleteKubeVirtResource(fmt.Sprintf("kubectl delete datavolume %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(id+"-dv"), shellSingleQuote(Namespace)), "删除DataVolume"); err != nil {
+		return err
 	}
-	fwMgr.SaveRules()
+	// 兼容旧版本/手动创建的 PVC：尝试删除多种命名格式
+	for _, command := range []string{
+		fmt.Sprintf("kubectl delete pvc -n %s -l %s --ignore-not-found=true 2>&1", shellSingleQuote(Namespace), shellSingleQuote("vm.kubevirt.io/name="+id)),
+		fmt.Sprintf("kubectl delete pvc %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(id+"-dv"), shellSingleQuote(Namespace)),
+		fmt.Sprintf("kubectl delete pvc %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(id+"-disk"), shellSingleQuote(Namespace)),
+	} {
+		if err := p.deleteKubeVirtResource(command, "删除PVC"); err != nil {
+			return err
+		}
+	}
 
 	// 6. 清理vmlog
 	p.sshClient.Execute(fmt.Sprintf("grep -Fv %s /root/vmlog > /root/vmlog.tmp 2>/dev/null && mv /root/vmlog.tmp /root/vmlog || true", shellSingleQuote(id+" ")))
@@ -248,15 +266,41 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	// 验证
 	output, err := p.sshClient.Execute(fmt.Sprintf(
 		"kubectl get vm %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))
-	if err != nil || strings.Contains(output, "NotFound") || strings.Contains(output, "not found") {
+	if kubeVirtNotFound(output, err) {
 		// Multus may still read the NAD while tearing down the launcher pod. Only
 		// remove the per-instance definition after the VM object is gone.
-		p.deleteRoutedKubeVirtNADByInstance(id)
+		if cleanupErr := p.deleteRoutedKubeVirtNADByInstance(id); cleanupErr != nil {
+			return cleanupErr
+		}
 		global.APP_LOG.Info("KubeVirt虚拟机删除成功", zap.String("id", utils.TruncateString(id, 32)))
 		return nil
 	}
 
+	if err != nil {
+		return fmt.Errorf("验证KubeVirt虚拟机删除状态失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
 	return fmt.Errorf("VM %s still exists after deletion", id)
+}
+
+func kubeVirtNotFound(output string, err error) bool {
+	text := strings.ToLower(strings.TrimSpace(output))
+	if err != nil {
+		text += "\n" + strings.ToLower(err.Error())
+	}
+	for _, transportMarker := range []string{"connection refused", "unable to connect", "i/o timeout", "dial tcp", "tls handshake timeout", "context deadline exceeded", "server is currently unable"} {
+		if strings.Contains(text, transportMarker) {
+			return false
+		}
+	}
+	return strings.Contains(text, "notfound") || strings.Contains(text, "not found") || strings.Contains(text, "does not exist")
+}
+
+func (p *KubeVirtProvider) deleteKubeVirtResource(command, description string) error {
+	output, err := p.sshClient.Execute(command)
+	if err != nil && !kubeVirtNotFound(output, err) {
+		return fmt.Errorf("%s失败: %w (output: %s)", description, err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
+	return nil
 }
 
 func sleepWithContext(ctx context.Context, duration time.Duration) error {

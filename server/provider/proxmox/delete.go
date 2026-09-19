@@ -84,7 +84,8 @@ func (p *ProxmoxProvider) handleVMDeletion(ctx context.Context, vmid string, ipA
 	// 4. 清理端口映射 - 在停止VM之后清理，确保实例已停止
 	if err := p.cleanupInstancePortMappings(ctx, vmid, "vm"); err != nil {
 		global.APP_LOG.Warn("清理VM端口映射失败", zap.String("vmid", vmid), zap.Error(err))
-		// 端口映射清理失败不应该阻止VM删除，继续执行
+		// 端口映射失败时保留实例，避免删除后无法再定位遗留规则。
+		return fmt.Errorf("删除VM前清理端口映射失败: %w", err)
 	}
 
 	// 5. 删除VM
@@ -148,7 +149,8 @@ func (p *ProxmoxProvider) handleCTDeletion(ctx context.Context, ctid string, ipA
 	// 3. 清理端口映射 - 在停止CT之后清理，确保实例已停止
 	if err := p.cleanupInstancePortMappings(ctx, ctid, "container"); err != nil {
 		global.APP_LOG.Warn("清理CT端口映射失败", zap.String("ctid", ctid), zap.Error(err))
-		// 端口映射清理失败不应该阻止CT删除，继续执行
+		// 端口映射失败时保留实例，避免删除后无法再定位遗留规则。
+		return fmt.Errorf("删除CT前清理端口映射失败: %w", err)
 	}
 
 	// 4. 删除容器

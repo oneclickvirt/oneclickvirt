@@ -246,9 +246,18 @@
           {{ localDetectionResult.available ? $t('admin.providers.localDetectSuccess') : $t('admin.providers.localDetectFailed') }}
         </template>
         <div class="local-detect-summary">
-          <span>{{ $t('admin.providers.localDetectKvm') }}: <el-tag size="small" :type="localDetectionResult.kvmAvailable ? 'success' : 'warning'">{{ formatLocalDetectStatus(localDetectionResult.kvmAvailable) }}</el-tag></span>
-          <span>{{ $t('admin.providers.localDetectQemu') }}: <el-tag size="small" :type="localDetectionResult.qemuAvailable ? 'success' : 'danger'">{{ formatLocalDetectStatus(localDetectionResult.qemuAvailable) }}</el-tag></span>
-          <span>{{ $t('admin.providers.localDetectLxc') }}: <el-tag size="small" :type="localDetectionResult.lxcAvailable ? 'success' : 'warning'">{{ formatLocalDetectStatus(localDetectionResult.lxcAvailable) }}</el-tag></span>
+          <span>{{ $t('admin.providers.localDetectKvm') }}: <el-tag
+            size="small"
+            :type="localDetectionResult.kvmAvailable ? 'success' : 'warning'"
+          >{{ formatLocalDetectStatus(localDetectionResult.kvmAvailable) }}</el-tag></span>
+          <span>{{ $t('admin.providers.localDetectQemu') }}: <el-tag
+            size="small"
+            :type="localDetectionResult.qemuAvailable ? 'success' : 'danger'"
+          >{{ formatLocalDetectStatus(localDetectionResult.qemuAvailable) }}</el-tag></span>
+          <span>{{ $t('admin.providers.localDetectLxc') }}: <el-tag
+            size="small"
+            :type="localDetectionResult.lxcAvailable ? 'success' : 'warning'"
+          >{{ formatLocalDetectStatus(localDetectionResult.lxcAvailable) }}</el-tag></span>
         </div>
         <div
           v-if="localCommandChecks.length"

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -28,6 +29,8 @@ type IPv6InterfaceNetwork struct {
 // RoutedIPv6BridgeName is shared by the tunnel host setup and provider
 // backends. It is intentionally short enough for Linux interface names.
 const RoutedIPv6BridgeName = "oneclickvirt6"
+
+var terminalCSISequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
 
 // ContainerNetworkSelection is the resolved runtime network attachment for a
 // container. StaticIPv6 is canonical and is only populated for an IPv6
@@ -68,6 +71,14 @@ func NetworkTypeHasIPv6(networkType string) bool {
 	default:
 		return false
 	}
+}
+
+// HostIPv6PrefixMustBeAssignable reports whether a provider must discover a
+// host prefix with spare addresses. Managed NAT-v6 only publishes the host's
+// own IPv6 through per-port proxies, so a valid host /128 is sufficient and
+// must not be mistaken for a guest allocation pool.
+func HostIPv6PrefixMustBeAssignable(networkType, requestedIPv6 string) bool {
+	return strings.TrimSpace(requestedIPv6) == "" && strings.TrimSpace(networkType) != "nat_ipv4_ipv6"
 }
 
 // ResolveContainerNetwork prevents an allocated static IPv6 address from
@@ -211,6 +222,10 @@ func SelectPublicIPv6InterfaceNetwork(output, preferredInterface string, require
 	var best IPv6InterfaceNetwork
 	found := false
 	for _, line := range commandOutputLines(output) {
+		// iproute2 may emit colors when a remote PTY or COLORFGBG is present.
+		// Strip only standard CSI sequences before token validation; otherwise a
+		// perfectly valid address such as ESC[34m2001:...ESC[0m is rejected.
+		line = terminalCSISequence.ReplaceAllString(line, "")
 		fields := strings.Fields(line)
 		if len(fields) < 4 || fields[2] != "inet6" || !strings.HasSuffix(fields[0], ":") {
 			continue

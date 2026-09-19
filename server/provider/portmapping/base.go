@@ -65,9 +65,15 @@ func (bp *BaseProvider) GetAvailablePortRange(ctx context.Context) (startPort, e
 // 调用方在收到端口后仍须立即执行 DB.Create(portModel)；Port 表上的
 // uniqueIndex:idx_provider_host_port 作为最终兜底保障。
 func (bp *BaseProvider) AllocatePort(ctx context.Context, providerID uint, preferredPort int) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if global.APP_DB == nil {
+		return 0, fmt.Errorf("database is unavailable")
+	}
 	var allocatedPort int
 
-	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+	err := global.APP_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 锁定 Provider 行，序列化同一节点的端口分配
 		var providerInfo provider.Provider
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -82,6 +88,9 @@ func (bp *BaseProvider) AllocatePort(ctx context.Context, providerID uint, prefe
 		}
 		if endPort == 0 {
 			endPort = 65535
+		}
+		if err := bp.ValidatePortRange(ctx, startPort, endPort); err != nil {
+			return err
 		}
 
 		// 如果指定了首选端口，先检查是否可用
@@ -103,6 +112,9 @@ func (bp *BaseProvider) AllocatePort(ctx context.Context, providerID uint, prefe
 
 		// 循环查找可用端口
 		for port := nextPort; port <= endPort; port++ {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if bp.isPortAvailableInTx(tx, providerID, port) {
 				if err := bp.updateNextAvailablePortInTx(tx, providerID, port+1); err != nil {
 					return err
@@ -114,6 +126,9 @@ func (bp *BaseProvider) AllocatePort(ctx context.Context, providerID uint, prefe
 
 		// 如果从nextPort到endPort没有找到，从startPort到nextPort再找一遍
 		for port := startPort; port < nextPort; port++ {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if bp.isPortAvailableInTx(tx, providerID, port) {
 				if err := bp.updateNextAvailablePortInTx(tx, providerID, port+1); err != nil {
 					return err
@@ -138,7 +153,6 @@ func (bp *BaseProvider) isPortAvailableInTx(tx *gorm.DB, providerID uint, port i
 	result := tx.Model(&provider.Port{}).
 		Clauses(clause.Locking{Strength: "SHARE"}).
 		Where("provider_id = ? AND host_port <= ?", providerID, port).
-		Where("mapping_type IS NULL OR mapping_type = '' OR mapping_type <> 'controller'").
 		Where("CASE WHEN host_port_end > 0 THEN host_port_end WHEN port_count > 1 THEN host_port + port_count - 1 ELSE host_port END >= ?", port).
 		Count(&count)
 	return result.Error == nil && count == 0
@@ -154,21 +168,32 @@ func (bp *BaseProvider) updateNextAvailablePortInTx(tx *gorm.DB, providerID uint
 // ToDBModel 转换为数据库模型
 func (bp *BaseProvider) ToDBModel(result *PortMappingResult) *provider.Port {
 	now := time.Now()
+	portCount := result.PortCount
+	if portCount <= 0 {
+		portCount = 1
+	}
 
 	port := &provider.Port{
-		ID:          result.ID,
-		InstanceID:  parseUint(result.InstanceID),
-		ProviderID:  result.ProviderID,
-		HostPort:    result.HostPort,
-		GuestPort:   result.GuestPort,
-		Protocol:    result.Protocol,
-		Status:      result.Status,
-		Description: result.Description,
-		IsSSH:       result.IsSSH,
-		IsAutomatic: result.IsAutomatic,
-		IPv6Enabled: result.IPv6Address != "",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:            result.ID,
+		InstanceID:    parseUint(result.InstanceID),
+		ProviderID:    result.ProviderID,
+		HostPort:      result.HostPort,
+		HostPortEnd:   result.HostPortEnd,
+		GuestPort:     result.GuestPort,
+		GuestPortEnd:  result.GuestPortEnd,
+		PortCount:     portCount,
+		Protocol:      result.Protocol,
+		Status:        result.Status,
+		Description:   result.Description,
+		IsSSH:         result.IsSSH,
+		IsAutomatic:   result.IsAutomatic,
+		IPv6Enabled:   result.IPv6Enabled || result.IPv6Address != "",
+		IPv6Address:   result.IPv6Address,
+		MappingMethod: result.MappingMethod,
+		MappingType:   result.MappingType,
+		InternalHost:  result.InternalHost,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	// 如果有创建时间字符串，尝试解析
@@ -188,6 +213,18 @@ func (bp *BaseProvider) ToDBModel(result *PortMappingResult) *provider.Port {
 
 // FromDBModel 从数据库模型转换
 func (bp *BaseProvider) FromDBModel(port *provider.Port) *PortMappingResult {
+	if port == nil {
+		return nil
+	}
+	portCount := port.PortCount
+	if portCount <= 0 {
+		portCount = 1
+	}
+	mappingMethod := port.MappingMethod
+	if mappingMethod == "" {
+		mappingMethod = "native"
+	}
+	ipv6Address := port.IPv6Address
 	return &PortMappingResult{
 		ID:            port.ID,
 		InstanceID:    fmt.Sprintf("%d", port.InstanceID),
@@ -195,16 +232,66 @@ func (bp *BaseProvider) FromDBModel(port *provider.Port) *PortMappingResult {
 		Protocol:      port.Protocol,
 		HostPort:      port.HostPort,
 		GuestPort:     port.GuestPort,
+		HostPortEnd:   port.HostPortEnd,
+		GuestPortEnd:  port.GuestPortEnd,
+		PortCount:     portCount,
 		HostIP:        "", // Port模型中没有HostIP字段，需要从Provider获取
 		PublicIP:      "", // Port模型中没有PublicIP字段，需要从Provider获取
 		Status:        port.Status,
 		Description:   port.Description,
-		MappingMethod: "native", // 默认为原生方法
+		IPv6Address:   ipv6Address,
+		IPv6Enabled:   port.IPv6Enabled,
+		MappingMethod: mappingMethod,
+		MappingType:   port.MappingType,
+		InternalHost:  port.InternalHost,
 		IsSSH:         port.IsSSH,
 		IsAutomatic:   port.IsAutomatic,
 		CreatedAt:     port.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     port.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+// LoadOwnedPort loads a mapping only when it belongs to the requested
+// instance and provider. The legacy provider adapters are also callable from
+// reset/compatibility paths, so an ID-only lookup is not sufficient here.
+func (bp *BaseProvider) LoadOwnedPort(id uint, instanceID string, providerID uint) (*provider.Port, error) {
+	if global.APP_DB == nil {
+		return nil, fmt.Errorf("database is unavailable")
+	}
+	instanceNumeric, err := strconv.ParseUint(instanceID, 10, 32)
+	if err != nil || instanceNumeric == 0 {
+		return nil, fmt.Errorf("invalid instance ID: %s", instanceID)
+	}
+	var port provider.Port
+	query := global.APP_DB.Where("id = ? AND instance_id = ?", id, uint(instanceNumeric))
+	if providerID > 0 {
+		query = query.Where("provider_id = ?", providerID)
+	}
+	if err := query.First(&port).Error; err != nil {
+		return nil, fmt.Errorf("port mapping not found for instance %s: %w", instanceID, err)
+	}
+	return &port, nil
+}
+
+// ValidateMappingRange validates both single-port and contiguous range
+// requests. Zero end/count values are accepted as the single-port form.
+func ValidateMappingRange(hostPort, hostPortEnd, guestPort, guestPortEnd, portCount int) error {
+	if hostPort < 1 || hostPort > 65535 || guestPort < 1 || guestPort > 65535 {
+		return fmt.Errorf("invalid port range")
+	}
+	if portCount <= 0 {
+		portCount = 1
+	}
+	if portCount > 1500 || hostPort+portCount-1 > 65535 || guestPort+portCount-1 > 65535 {
+		return fmt.Errorf("port range exceeds allowed limits")
+	}
+	if hostPortEnd > 0 && hostPortEnd != hostPort+portCount-1 {
+		return fmt.Errorf("host port range does not match port count")
+	}
+	if guestPortEnd > 0 && guestPortEnd != guestPort+portCount-1 {
+		return fmt.Errorf("guest port range does not match port count")
+	}
+	return nil
 }
 
 // Cleanup 清理资源

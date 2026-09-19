@@ -9,6 +9,7 @@ import {
   syncProviderIPv6Pool,
   updateProvider
 } from '@/api/admin'
+import { usesControllerIPv6Pool } from '@/utils/networkType'
 
 export function useIPv6Pool(props, onProviderUpdated = () => {}) {
   const { t, locale } = useI18n()
@@ -142,13 +143,11 @@ export function useIPv6Pool(props, onProviderUpdated = () => {}) {
     }
   }
 
-  watch(() => props.modelValue.id, (id, previousId) => {
-    if (id !== previousId) ipv6SyncResult.value = null
-    if (id) loadIPv6Pool()
-  }, { immediate: true })
-  watch(() => props.modelValue.networkType, (networkType) => {
-    if (['nat_ipv4_ipv6', 'dedicated_ipv4_ipv6', 'ipv6_only'].includes(networkType) && props.modelValue.id) loadIPv6Pool()
-  })
+  watch(() => [props.modelValue.id, props.modelValue.type, props.modelValue.networkType],
+    ([id, providerType, networkType], previous = []) => {
+      if (id !== previous[0]) ipv6SyncResult.value = null
+      if (id && usesControllerIPv6Pool(providerType, networkType)) loadIPv6Pool()
+    }, { immediate: true })
 
   return {
     ipv6PoolEntries,

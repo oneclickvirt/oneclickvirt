@@ -104,7 +104,11 @@ grep -Fx %s "$vmx" >/dev/null
 	return nil
 }
 
-func (p *VMwareProvider) cleanupRoutedIPv6VM(exec utils.ShellExecutor, vmx, instanceName string) {
+func (p *VMwareProvider) cleanupRoutedIPv6VM(exec utils.ShellExecutor, vmx, instanceName string) error {
 	seedPath := path.Join(p.libraryPath(), ".oneclickvirt-ipv6-seeds", provider.RoutedIPv6VMSeedFileName("vmware", instanceName))
-	_, _ = exec.ExecuteWithTimeout(fmt.Sprintf("vmrun deleteVM %s 2>/dev/null || rm -rf %s; rm -f -- %s", shellQuote(vmx), shellQuote(path.Dir(vmx)), shellQuote(seedPath)), 5*time.Minute)
+	output, err := exec.ExecuteWithTimeout(fmt.Sprintf("vmrun deleteVM %s 2>/dev/null || rm -rf %s; rm -f -- %s", shellQuote(vmx), shellQuote(path.Dir(vmx)), shellQuote(seedPath)), 5*time.Minute)
+	if err != nil {
+		return fmt.Errorf("清理VMware隧道路由IPv6实例失败: %s: %w", utils.TruncateString(strings.TrimSpace(output), 1200), err)
+	}
+	return nil
 }

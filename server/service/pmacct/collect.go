@@ -7,6 +7,7 @@ import (
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	providerService "oneclickvirt/service/provider"
+	"oneclickvirt/utils"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,12 @@ type trafficData struct {
 // 参数：预加载的instance和monitor数据
 // 策略：固定查询最近30分钟，MySQL自动去重累加
 func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, monitor *monitoringModel.PmacctMonitor) error {
+	if instance == nil {
+		return fmt.Errorf("instance is nil")
+	}
+	if err := validatePmacctInstanceName(instance.Name); err != nil {
+		return err
+	}
 	instanceID := instance.ID
 
 	// 获取provider记录（用于验证和缓存刷新）
@@ -85,7 +92,7 @@ func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, mon
 	}
 
 	// 检查 SQLite 文件是否存在
-	checkCmd := fmt.Sprintf("test -f %s && echo 'exists' || echo 'not_found'", dbPath)
+	checkCmd := fmt.Sprintf("test -f %s && echo 'exists' || echo 'not_found'", utils.ShellSingleQuote(dbPath))
 	ctx1, cancel1 := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel1()
 
@@ -115,10 +122,18 @@ func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, mon
 	// 构建IP列表和WHERE条件（避免空字符串导致的匹配错误）
 	var ipList []string
 	if queryIPv4 != "" {
-		ipList = append(ipList, queryIPv4)
+		normalized, err := normalizePmacctQueryIP(queryIPv4)
+		if err != nil {
+			return fmt.Errorf("invalid monitored IPv4 address: %w", err)
+		}
+		ipList = append(ipList, normalized)
 	}
 	if queryIPv6 != "" {
-		ipList = append(ipList, queryIPv6)
+		normalized, err := normalizePmacctQueryIP(queryIPv6)
+		if err != nil {
+			return fmt.Errorf("invalid monitored IPv6 address: %w", err)
+		}
+		ipList = append(ipList, normalized)
 	}
 
 	// 构建SQL IN子句
@@ -183,7 +198,7 @@ SELECT
 FROM time_slots
 ORDER BY timestamp
 LIMIT 10000;
-"`, dbPath,
+"`, utils.ShellSingleQuote(dbPath),
 		ipInClause, ipInClause,
 		ipInClause, ipInClause,
 		ipInClause, ipInClause)

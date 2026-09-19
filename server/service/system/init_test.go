@@ -2,16 +2,40 @@ package system
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	appConfig "oneclickvirt/config"
 	"oneclickvirt/global"
 	configModel "oneclickvirt/model/config"
+	"oneclickvirt/utils/dbconnect"
 
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
+
+func TestDatabaseConfigWritePreservesPersistentSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target, link := filepath.Join(dir, "persisted.yml"), filepath.Join(dir, "config.yml")
+	if err := os.WriteFile(target, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeDatabaseConfigFile(link, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(link)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("persistent configuration symlink was replaced")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "new" {
+		t.Fatal("persistent target was not updated")
+	}
+}
 
 func useTemporaryConfigDirectory(t *testing.T, content string) string {
 	t.Helper()
@@ -65,6 +89,25 @@ func TestResolveDatabaseConfigCredentialsUsesLoadedDeploymentPassword(t *testing
 	resolved := ResolveDatabaseConfigCredentials(request)
 	if resolved.Password != configured.Mysql.Password {
 		t.Fatalf("resolved password = %q, want loaded deployment password", resolved.Password)
+	}
+}
+
+func TestDatabaseRequestConfigNormalizesEngineHint(t *testing.T) {
+	oldConfig := global.GetAppConfig()
+	t.Cleanup(func() { global.SetAppConfig(oldConfig) })
+	global.SetAppConfig(appConfig.Server{Mysql: appConfig.Mysql{Config: dbconnect.DefaultParams}})
+	m, err := databaseRequestConfig(configModel.DatabaseConfig{
+		Type: "  MariaDB ", Host: "127.0.0.1", Port: 3306,
+		Database: "oneclickvirt", Username: "root",
+	})
+	if err != nil {
+		t.Fatalf("databaseRequestConfig rejected a normalized engine hint: %v", err)
+	}
+	if m.Path != "127.0.0.1" || m.Port != "3306" {
+		t.Fatalf("database request was not preserved: %+v", m)
+	}
+	if _, err := databaseRequestConfig(configModel.DatabaseConfig{Type: "postgres"}); err == nil {
+		t.Fatal("unknown database engine was accepted")
 	}
 }
 
@@ -213,6 +256,125 @@ func TestUpdateDatabaseConfigKeepsLegacyMariaDBSection(t *testing.T) {
 	}
 	if mariaDB["path"] != databaseConfig.Host || mariaDB["port"] != "3307" || mariaDB["db-name"] != databaseConfig.Database {
 		t.Fatalf("legacy mariadb section was not updated correctly: %#v", mariaDB)
+	}
+}
+
+func TestPersistDetectedDatabaseConfigRepairsHintAndOptionsWithoutMixingSections(t *testing.T) {
+	useTestLogger(t)
+	useTemporaryConfigDirectory(t, "system:\n  db-type: mysql\nmysql:\n  path: db.internal\n  port: '3306'\n  db-name: oneclickvirt\n  username: ocv\n  password: private\n  config: charset=utf8mb4\n  max-open-conns: 17\nmariadb:\n  path: wrong.internal\n  password: must-not-be-copied\n")
+
+	oldConfig, oldVP := global.GetAppConfig(), global.APP_VP
+	t.Cleanup(func() {
+		global.SetAppConfig(oldConfig)
+		global.APP_VP = oldVP
+	})
+	source := configModel.MysqlConfig{Path: "db.internal", Port: "3306", Dbname: "oneclickvirt", Username: "ocv", Password: "private", Config: "charset=utf8mb4"}
+	global.SetAppConfig(appConfig.Server{System: appConfig.System{DbType: "mysql"}, Mysql: appConfig.Mysql{
+		Path: source.Path, Port: source.Port, Dbname: source.Dbname, Username: source.Username, Password: source.Password, Config: source.Config,
+	}})
+	global.APP_VP = nil
+
+	info := dbconnect.Info{Type: "mariadb", Params: "charset=utf8mb4&tx_isolation=%27READ-COMMITTED%27", Repairs: []string{"transaction_isolation -> tx_isolation"}}
+	if err := (&InitService{}).PersistDetectedDatabaseConfig(source, "mysql", info); err != nil {
+		t.Fatalf("PersistDetectedDatabaseConfig returned error: %v", err)
+	}
+
+	data, err := os.ReadFile("config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updated map[string]interface{}
+	if err := yaml.Unmarshal(data, &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated["system"].(map[string]interface{})["db-type"] != "mariadb" {
+		t.Fatalf("database type was not repaired: %#v", updated["system"])
+	}
+	mysqlSection := updated["mysql"].(map[string]interface{})
+	if mysqlSection["config"] != info.Params || mysqlSection["password"] != "private" || mysqlSection["max-open-conns"].(int) != 17 {
+		t.Fatalf("mysql section was not repaired without losing tuning: %#v", mysqlSection)
+	}
+	mariaSection := updated["mariadb"].(map[string]interface{})
+	if mariaSection["path"] != "wrong.internal" || mariaSection["password"] != "must-not-be-copied" {
+		t.Fatalf("legacy section was mixed into the canonical section: %#v", mariaSection)
+	}
+	backupInfo, err := os.Stat("config.yaml.backup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backupInfo.Mode().Perm() != 0600 {
+		t.Fatalf("repair backup mode = %o, want 600", backupInfo.Mode().Perm())
+	}
+}
+
+func TestPersistDetectedDatabaseConfigRepairsMissingOrNonCanonicalEngineHint(t *testing.T) {
+	useTestLogger(t)
+	for _, tc := range []struct {
+		name, yaml, want string
+	}{
+		{
+			name: "missing-system-hint",
+			yaml: "mysql:\n  path: db.internal\n  port: '3306'\n  db-name: oneclickvirt\n  username: ocv\n  password: private\n",
+			want: "mysql",
+		},
+		{
+			name: "uppercase-hint",
+			yaml: "system:\n  db-type: MYSQL\nmysql:\n  path: db.internal\n  port: '3306'\n  db-name: oneclickvirt\n  username: ocv\n  password: private\n",
+			want: "mysql",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			useTemporaryConfigDirectory(t, tc.yaml)
+			oldConfig, oldVP := global.GetAppConfig(), global.APP_VP
+			t.Cleanup(func() {
+				global.SetAppConfig(oldConfig)
+				global.APP_VP = oldVP
+			})
+			source := configModel.MysqlConfig{Path: "db.internal", Port: "3306", Dbname: "oneclickvirt", Username: "ocv", Password: "private", Config: dbconnect.DefaultParams}
+			global.SetAppConfig(appConfig.Server{System: appConfig.System{DbType: "mysql"}, Mysql: appConfig.Mysql{
+				Path: source.Path, Port: source.Port, Dbname: source.Dbname, Username: source.Username, Password: source.Password, Config: source.Config,
+			}})
+			global.APP_VP = nil
+			if err := (&InitService{}).PersistDetectedDatabaseConfig(source, "mysql", dbconnect.Info{Type: "mysql", Params: source.Config}); err != nil {
+				t.Fatalf("PersistDetectedDatabaseConfig returned error: %v", err)
+			}
+			data, err := os.ReadFile("config.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var updated map[string]interface{}
+			if err := yaml.Unmarshal(data, &updated); err != nil {
+				t.Fatal(err)
+			}
+			system, ok := updated["system"].(map[string]interface{})
+			if !ok || system["db-type"] != tc.want {
+				t.Fatalf("database type was not normalized: %#v", updated["system"])
+			}
+		})
+	}
+}
+
+func TestPersistDetectedDatabaseConfigIgnoresStaleProbe(t *testing.T) {
+	useTestLogger(t)
+	useTemporaryConfigDirectory(t, "system:\n  db-type: mysql\nmysql:\n  path: db-a\n  port: '3306'\n  db-name: oneclickvirt\n  username: ocv\n  password: private\n  config: charset=utf8mb4\n")
+
+	oldConfig, oldVP := global.GetAppConfig(), global.APP_VP
+	t.Cleanup(func() {
+		global.SetAppConfig(oldConfig)
+		global.APP_VP = oldVP
+	})
+	source := configModel.MysqlConfig{Path: "db-a", Port: "3306", Dbname: "oneclickvirt", Username: "ocv", Password: "private", Config: "charset=utf8mb4"}
+	global.SetAppConfig(appConfig.Server{System: appConfig.System{DbType: "mysql"}, Mysql: appConfig.Mysql{Path: "db-b", Port: "3306", Dbname: "oneclickvirt", Username: "ocv", Password: "new", Config: source.Config}})
+	global.APP_VP = nil
+	if err := (&InitService{}).PersistDetectedDatabaseConfig(source, "mysql", dbconnect.Info{Type: "mariadb", Params: "repaired", Repairs: []string{"tx"}}); err != nil {
+		t.Fatalf("stale probe returned error: %v", err)
+	}
+	data, err := os.ReadFile("config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "mariadb") || strings.Contains(string(data), "repaired") {
+		t.Fatal("stale probe rewrote the newer configuration")
 	}
 }
 

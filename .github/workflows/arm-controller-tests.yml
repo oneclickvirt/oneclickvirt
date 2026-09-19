@@ -376,31 +376,38 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
-          # If the run-tests step was skipped/aborted before setting its output, treat as skip.
+          # A skipped/aborted run has no authoritative exit code and must not
+          # be reported as a successful ARM validation.
           if [[ -z "${TEST_EXIT:-}" ]]; then
-            echo "::warning::ARM controller test step did not produce an exit code — it may have been skipped or aborted. Check workflow logs."
-            exit 0
+            echo "::error::ARM controller test step did not produce an exit code — it was skipped or aborted before results were finalized."
+            {
+              echo "## ARM Controller Validation"
+              echo ""
+              echo "| Status | INCOMPLETE (missing test exit code) |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
 
-          # Any non-zero harness exit code is an infrastructure failure, not a test logic failure.
-          # Treat as a skip/warning so transient issues don't permanently block the Action.
+          # A non-zero harness exit is an incomplete/failed validation. Keep
+          # the diagnostic distinction in the summary, but never turn it into
+          # a green workflow or a synthetic SKIP result.
           if [[ "${TEST_EXIT}" != "0" ]]; then
             if [[ "${TEST_EXIT}" == "75" ]]; then
-              _skip_reason="infrastructure temporarily unavailable (resource exhaustion)"
+              _failure_reason="infrastructure temporarily unavailable (resource exhaustion)"
             else
-              _skip_reason="infrastructure failure (harness exited with code ${TEST_EXIT})"
+              _failure_reason="infrastructure failure (harness exited with code ${TEST_EXIT})"
             fi
-            echo "::warning::ARM controller tests skipped: ${_skip_reason}. Re-run when infrastructure is available."
+            echo "::error::ARM controller validation incomplete: ${_failure_reason}. Re-run when infrastructure is available."
             {
               echo "## ARM Controller Validation"
               echo ""
               echo "| Metric | Value |"
               echo "|--------|-------|"
               echo "| Harness Exit Code | ${TEST_EXIT} |"
-              echo "| Status | SKIPPED (${_skip_reason}) |"
+              echo "| Status | INCOMPLETE (${_failure_reason}) |"
             } >> "$GITHUB_STEP_SUMMARY"
             [[ -f action_tests/reports/arm-controller-output.log ]] && tail -50 action_tests/reports/arm-controller-output.log || true
-            exit 0
+            exit 1
           fi
 
           result_file="action_tests/reports/arm-controller-results.jsonl"
@@ -413,13 +420,21 @@ jobs:
           total=0 passed=0 failed=0 skipped=0
           while IFS= read -r line; do
             [[ -z "$line" ]] && continue
-            status=$(echo "$line" | jq -r '.status // "UNKNOWN"' 2>/dev/null) || status="UNKNOWN"
+            if ! status=$(jq -er '.status | strings' <<<"$line" 2>/dev/null); then
+              echo "::error::ARM controller result contains invalid JSON or a non-string status: ${line:0:300}"
+              failed=$((failed + 1))
+              total=$((total + 1))
+              continue
+            fi
             total=$((total + 1))
             case "$status" in
               PASS) passed=$((passed + 1)) ;;
               FAIL) failed=$((failed + 1)) ;;
               SKIP) skipped=$((skipped + 1)) ;;
-              *) skipped=$((skipped + 1)) ;;
+              *)
+                echo "::error::ARM controller result contains unknown status: ${status}"
+                failed=$((failed + 1))
+                ;;
             esac
           done < "$result_file"
           executed=$((passed + failed))
@@ -442,8 +457,8 @@ jobs:
           fi
 
           if [[ "$executed" -eq 0 ]]; then
-            echo "::warning::All ${skipped} ARM controller test assertions were skipped; no executable checks ran."
-            # All-skip is valid for a limited module run — don't block the Action.
+            echo "::error::All ${skipped} ARM controller test assertions were skipped; no executable checks ran."
+            exit 1
           fi
 
           if [[ "$failed" -ne 0 ]]; then

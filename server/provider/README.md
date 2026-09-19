@@ -299,8 +299,13 @@ Provider 支持三种执行规则，控制操作的执行方式：
 - **后端检测**：通过 marker 文件自动识别当前节点的防火墙后端
 - **nftables 模式**：每个 Provider 独立的 nft 表（qemu/kubevirt/proxmox/incus/lxd）
 - **iptables 模式**：传统 iptables DNAT 规则，通过 comment 追踪规则
-- **持久化**：nftables 规则保存到 `/etc/nftables.d/{table}.nft`，iptables 使用 `iptables-save`
-- **主要 API**：`AddDNAT`, `AddSingleDNAT`, `RemoveSingleDNAT`, `DeleteRulesByComment`, `DeleteRulesByIP`, `DiscoverDNATRules`, `SaveRules`
+- **清理边界**：单个映射按地址族、协议、端口和精确归属清理；缺失客户机 IP 时需要完整归属注释，未标记的旧规则不按宿主端口猜测删除。删除后复查，实际错误向调用方返回。
+- **持久化**：IPv4/IPv6 原生 nft 表一起保存到 `/etc/nftables.d/{table}.nft`，同时保存可用的 `iptables-save` / `ip6tables-save` 规则。先读取完整快照，再原子替换各文件；`SaveRules` 返回读写错误。仅有兼容后端规则时不启用无关的 nft 服务。
+- **发行版启动路径**：每次保存只读取一次节点 `os-release`，按 ID/ID_LIKE 选择 Debian、RPM、Arch 或 Alpine 的标准启动文件，未知发行版保留历史默认路径。已有快照权限、属主和符号链接保持，新文件权限 600；不再用第二次全局 save 覆盖原子快照。可选恢复服务仅尝试 enable，不 start/reload；缺少服务仍告警，不能据此宣称重启恢复已验证。自定义 service override/rules_file 需要另行核对。
+- **初始化归属**：初始化缓存属于单个 Manager，不使用可复用内存地址作为全局键。同一 Manager 的并发初始化串行化；复用前在一次远程请求中核对三条必要链，表或链丢失时重新初始化。锁仅保护该 Manager 的初始化，不宣称协调外部管理员或其他进程的防火墙变更。
+- **主要 API**：`AddDNAT`, `AddSingleDNAT`, `RemoveSingleDNAT`, `RemoveSingleDNATForFamily`, `DeleteRulesByComment`, `DeleteRulesByCommentForFamily`, `DeleteRulesByIP`, `DiscoverDNATRules`, `SaveRules`
+
+`DeleteRulesByComment` 用于删除实例的完整归属，涵盖两个地址族；单个映射的更新与回滚应使用显式地址族的方法。运行 `bash scripts/tests/firewall_integration_test.sh` 可在专用 Docker 网络命名空间验证原生 nft、iptables-nft 和 iptables-legacy，缺少运行条件会失败而非跳过。
 
 ### health/
 

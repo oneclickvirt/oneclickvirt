@@ -356,11 +356,9 @@ async fn reconcile_state_locked(
         outcome_for_dry_run()
     };
     if outcome.nft_replaced && outcome.profile_errors.is_empty() && outcome.global_errors.is_empty()
-    {
-        if let Err(error) = clear_boot_quarantine(&SystemExecutor) {
+        && let Err(error) = clear_boot_quarantine(&SystemExecutor) {
             outcome.global_errors.push(error);
         }
-    }
     // Health failures are hard profile errors inside apply_prepared. A profile
     // is never activated merely because its interface exists.
     let profile_warnings: HashMap<String, String> = HashMap::new();
@@ -472,12 +470,11 @@ pub async fn reconcile_startup(state: AppState) {
             }
         }
     };
-    if !startup_networks.is_empty() {
-        if let Err(error) = install_staging_quarantine(&SystemExecutor, &startup_networks) {
+    if !startup_networks.is_empty()
+        && let Err(error) = install_staging_quarantine(&SystemExecutor, &startup_networks) {
             warn!(%error, "startup egress quarantine failed; reconciliation is not allowed to activate traffic");
             return;
         }
-    }
     if !env_enabled(APPLY_ENV) {
         warn!("startup egress apply guard is disabled; managed sources remain quarantined");
         return;

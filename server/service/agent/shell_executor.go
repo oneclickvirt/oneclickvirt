@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -218,8 +220,13 @@ func (a *AgentShellExecutor) ExecuteRaw(command string, timeout time.Duration) (
 // for any command that enters a container or VM (e.g., lxc exec, incus exec,
 // docker exec, pct exec, qm guest exec).
 func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []string, timeout time.Duration) (string, error) {
-	ts := time.Now().UnixNano()
-	tmpPath := fmt.Sprintf("/tmp/oneclickvirt_exec_%d.sh", ts)
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	// UUID paths avoid collisions when concurrent callers happen to observe the
+	// same clock tick. A collision would mix script, marker, and log files and
+	// could make one caller report another caller's result.
+	tmpPath := fmt.Sprintf("/tmp/oneclickvirt_exec_%s.sh", uuid.NewString())
 	markerPath := tmpPath + ".marker"
 	logPath := tmpPath + ".log"
 
@@ -240,14 +247,27 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 
 	// Execute via nohup (detached from WebSocket) so long-running container/VM entry
 	// commands don't block or timeout the WebSocket connection.
-	startCmd := fmt.Sprintf("nohup bash %s%s > %s 2>&1 & echo $!", tmpPath, argStr, logPath)
+	// Start the script in its own process group when setsid is available. A
+	// timeout must terminate the complete operation (including lxc/incus/docker
+	// children), not only the wrapper shell. The fallback remains compatible
+	// with minimal systems that do not ship setsid; the negative-PID kill below
+	// simply becomes a no-op when no dedicated group exists.
+	startCmd := fmt.Sprintf("if command -v setsid >/dev/null 2>&1; then nohup setsid bash %s%s > %s 2>&1 & else nohup bash %s%s > %s 2>&1 & fi; echo $!",
+		utils.ShellSingleQuote(tmpPath), argStr, utils.ShellSingleQuote(logPath),
+		utils.ShellSingleQuote(tmpPath), argStr, utils.ShellSingleQuote(logPath))
 	pidOutput, err := a.ExecuteRaw(startCmd, 15*time.Second)
 	if err != nil {
 		// Cleanup even on start failure
-		a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+		a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
 		return "", fmt.Errorf("启动 temp 脚本失败: %w", err)
 	}
-	pid := strings.TrimSpace(pidOutput)
+	pid, err := parseAgentPID(pidOutput)
+	if err != nil {
+		// Never interpolate untrusted Agent output into a follow-up shell
+		// command when the start response is malformed.
+		_, _ = a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
+		return "", fmt.Errorf("启动 temp 脚本失败: %w", err)
+	}
 	if global.APP_LOG != nil {
 		global.APP_LOG.Debug("Temp 脚本已启动",
 			zap.String("pid", pid),
@@ -260,33 +280,49 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 	pollInterval := 2 * time.Second
 	lastLogSize := 0
 	for time.Now().Before(deadline) {
-		time.Sleep(pollInterval)
+		// Do not overshoot very short caller deadlines by an unconditional
+		// two-second sleep. The remote probe calls below have their own bounded
+		// timeouts; this sleep only schedules the next poll.
+		sleepFor := pollInterval
+		if remaining := time.Until(deadline); remaining < sleepFor {
+			sleepFor = remaining
+		}
+		if sleepFor > 0 {
+			time.Sleep(sleepFor)
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
 
 		// Check if the script process is still alive
 		aliveOutput, _ := a.ExecuteRaw(fmt.Sprintf("kill -0 %s 2>/dev/null && echo alive || echo dead", pid), 10*time.Second)
 		alive := strings.TrimSpace(aliveOutput) == "alive"
 
 		// Read marker file
-		markerOutput, markerErr := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", markerPath), 10*time.Second)
+		markerOutput, markerErr := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(markerPath)), 10*time.Second)
 		if markerErr == nil {
 			marker := strings.TrimSpace(markerOutput)
 			if marker == "PASSWORD_OK" || marker == "TEMP_SCRIPT_OK" {
 				// Success! Read the full log
-				logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", logPath), 15*time.Second)
-				a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+				logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
+				a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
 				return logOutput, nil
 			}
 			if marker == "TEMP_SCRIPT_FAILED" || marker == "PASSWORD_FAIL" {
-				logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", logPath), 15*time.Second)
-				a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+				logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
+				a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
 				return logOutput, fmt.Errorf("temp script reported failure")
 			}
 		}
 
 		// If process died without writing marker, it crashed
 		if !alive {
-			logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", logPath), 15*time.Second)
-			a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+			// The wrapper may have exited while a descendant still owns the
+			// operation. Best-effort group cleanup keeps a failed script from
+			// leaking a container/VM command into a later request.
+			a.terminateTempScript(pid)
+			logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
+			a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
 			if logOutput != "" {
 				return logOutput, fmt.Errorf("temp script exited unexpectedly (PID %s)", pid)
 			}
@@ -295,7 +331,7 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 
 		// Log progress for long-running scripts
 		if global.APP_LOG != nil && pollInterval >= 10*time.Second {
-			logOutput, _ := a.ExecuteRaw(fmt.Sprintf("wc -c < %s 2>/dev/null || echo 0", logPath), 10*time.Second)
+			logOutput, _ := a.ExecuteRaw(fmt.Sprintf("wc -c < %s 2>/dev/null || echo 0", utils.ShellSingleQuote(logPath)), 10*time.Second)
 			logSize := 0
 			fmt.Sscanf(strings.TrimSpace(logOutput), "%d", &logSize)
 			if logSize > lastLogSize {
@@ -314,10 +350,18 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 	}
 
 	// Timeout - kill the script and read partial output
-	a.ExecuteRaw(fmt.Sprintf("kill -9 %s 2>/dev/null || true", pid), 10*time.Second)
-	logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", logPath), 15*time.Second)
-	a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+	a.terminateTempScript(pid)
+	logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
+	a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
 	return logOutput, fmt.Errorf("temp script execution timeout after %v (PID %s)", timeout, pid)
+}
+
+func (a *AgentShellExecutor) terminateTempScript(pid string) {
+	// pid is normalized by parseAgentPID before reaching this method. Kill the
+	// process group first, then the leader as a fallback for systems without
+	// setsid. Never interpolate raw Agent output here.
+	command := fmt.Sprintf("kill -TERM -- -%s 2>/dev/null || true; kill -TERM %s 2>/dev/null || true; sleep 1; kill -KILL -- -%s 2>/dev/null || true; kill -KILL %s 2>/dev/null || true", pid, pid, pid, pid)
+	_, _ = a.ExecuteRaw(command, 10*time.Second)
 }
 
 // shellEscapeArg escapes a shell argument using single quotes.
@@ -329,13 +373,22 @@ func shellEscapeArg(s string) string {
 	return "'" + escaped + "'"
 }
 
+func parseAgentPID(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	pid, err := strconv.Atoi(value)
+	if err != nil || pid <= 0 {
+		return "", fmt.Errorf("Agent returned an invalid process ID")
+	}
+	return strconv.Itoa(pid), nil
+}
+
 // UploadContent writes file content to the remote agent host using a base64 round-trip.
 func (a *AgentShellExecutor) UploadContent(content, remotePath string, perm os.FileMode) error {
 	directory := filepath.Dir(remotePath)
 	encodedContent := base64.StdEncoding.EncodeToString([]byte(content))
 	command := fmt.Sprintf(
-		"mkdir -p %q && base64 -d > %q <<'EOF'\n%s\nEOF\nchmod %o %q",
-		directory, remotePath, encodedContent, perm, remotePath,
+		"mkdir -p %s && base64 -d > %s <<'EOF'\n%s\nEOF\nchmod %o %s",
+		utils.ShellSingleQuote(directory), utils.ShellSingleQuote(remotePath), encodedContent, perm, utils.ShellSingleQuote(remotePath),
 	)
 	_, err := a.ExecuteWithTimeout(command, 300*time.Second)
 	return err

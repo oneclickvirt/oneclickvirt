@@ -488,7 +488,7 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 	valuesLine := strings.Join(valueFields, " ")
 
 	// 使用echo写入，完全模拟shell行为
-	writeValuesCmd := fmt.Sprintf("echo '%s' > %s", valuesLine, tmpDataFile)
+	writeValuesCmd := fmt.Sprintf("printf '%%s\\n' %s > %s", shellSingleQuote(valuesLine), shellSingleQuote(tmpDataFile))
 	_, err := p.sshClient.Execute(writeValuesCmd)
 	if err != nil {
 		return fmt.Errorf("写入数据文件失败: %w", err)
@@ -499,14 +499,14 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 
 	// 使用echo逐行写入格式化内容
 	var formatCommands []string
-	formatCommands = append(formatCommands, fmt.Sprintf("> %s", tmpFormatFile)) // 清空文件
+	formatCommands = append(formatCommands, fmt.Sprintf("> %s", shellSingleQuote(tmpFormatFile))) // 清空文件
 
 	for i := 0; i < len(dataFields); i++ {
 		// 每个字段占两行：字段名+值，然后空行
 		formatCommands = append(formatCommands,
-			fmt.Sprintf("echo '%s %s' >> %s", dataFields[i], valueFields[i], tmpFormatFile))
+			fmt.Sprintf("printf '%%s\\n' %s >> %s", shellSingleQuote(dataFields[i]+" "+valueFields[i]), shellSingleQuote(tmpFormatFile)))
 		formatCommands = append(formatCommands,
-			fmt.Sprintf("echo '' >> %s", tmpFormatFile))
+			fmt.Sprintf("printf '\\n' >> %s", shellSingleQuote(tmpFormatFile)))
 	}
 
 	// 执行格式化命令
@@ -518,29 +518,29 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 	}
 
 	// 4. 给每行添加 # 注释符（完全模拟 sed -i 's/^/# /' ）
-	sedCmd := fmt.Sprintf("sed -i 's/^/# /' %s", tmpFormatFile)
+	sedCmd := fmt.Sprintf("sed -i 's/^/# /' %s", shellSingleQuote(tmpFormatFile))
 	_, err = p.sshClient.Execute(sedCmd)
 	if err != nil {
 		return fmt.Errorf("添加注释符失败: %w", err)
 	}
 
 	// 5. 追加原配置文件内容（完全模拟 cat configPath >> tmpFile）
-	catCmd := fmt.Sprintf("cat %s >> %s", configPath, tmpFormatFile)
+	catCmd := fmt.Sprintf("cat %s >> %s", shellSingleQuote(configPath), shellSingleQuote(tmpFormatFile))
 	_, err = p.sshClient.Execute(catCmd)
 	if err != nil {
 		return fmt.Errorf("追加配置文件失败: %w", err)
 	}
 
 	// 6. 替换原配置文件（完全模拟 cp tmpFile configPath）
-	cpCmd := fmt.Sprintf("cp %s %s", tmpFormatFile, configPath)
+	cpCmd := fmt.Sprintf("cp %s %s", shellSingleQuote(tmpFormatFile), shellSingleQuote(configPath))
 	_, err = p.sshClient.Execute(cpCmd)
 	if err != nil {
 		return fmt.Errorf("替换配置文件失败: %w", err)
 	}
 
 	// 7. 清理临时文件（完全模拟 rm -rf）
-	p.sshClient.Execute(fmt.Sprintf("rm -rf %s", tmpFormatFile))
-	p.sshClient.Execute(fmt.Sprintf("rm -rf %s", tmpDataFile))
+	p.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(tmpFormatFile)))
+	p.sshClient.Execute(fmt.Sprintf("rm -rf %s", shellSingleQuote(tmpDataFile)))
 
 	global.APP_LOG.Debug("成功更新Proxmox实例notes",
 		zap.Int("vmid", vmid),

@@ -80,6 +80,9 @@ var systemLevelConfigKeys = map[string]bool{
 
 // isSystemLevelConfig 检查是否为系统级配置（启动必需，必须来自YAML）
 func isSystemLevelConfig(key string) bool {
+	if strings.HasPrefix(key, "mariadb.") {
+		key = "mysql." + strings.TrimPrefix(key, "mariadb.")
+	}
 	return systemLevelConfigKeys[key]
 }
 

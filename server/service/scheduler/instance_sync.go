@@ -76,6 +76,7 @@ func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 		return
 	}
 	s.stopChan = make(chan struct{})
+	stopChan := s.stopChan
 	s.isRunning = true
 	s.mu.Unlock()
 
@@ -83,7 +84,7 @@ func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 		zap.Int("syncInterval", global.GetAppConfig().System.InstanceSyncInterval),
 		zap.Int("requiredConfirmations", requiredConfirmations))
 
-	go s.startSyncTask(ctx)
+	go s.startSyncTask(ctx, stopChan)
 }
 
 // Stop 停止实例同步调度器
@@ -94,10 +95,11 @@ func (s *InstanceSyncSchedulerService) Stop() {
 		return
 	}
 	s.isRunning = false
+	stopChan := s.stopChan
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止Provider实例同步调度器")
-	close(s.stopChan)
+	close(stopChan)
 }
 
 // IsRunning 检查调度器是否正在运行
@@ -108,7 +110,7 @@ func (s *InstanceSyncSchedulerService) IsRunning() bool {
 }
 
 // startSyncTask 启动实例同步任务
-func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
+func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context, stopChan <-chan struct{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			global.APP_LOG.Error("Provider实例同步goroutine panic",
@@ -136,7 +138,7 @@ func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-s.stopChan:
+		case <-stopChan:
 			return
 		case <-ticker.C:
 			if global.APP_DB == nil {

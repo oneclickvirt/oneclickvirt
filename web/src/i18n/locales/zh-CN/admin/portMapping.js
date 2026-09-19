@@ -79,6 +79,7 @@ export default {
   rangePort: "区间映射",
   instanceName: "实例名称",
   publicIP: "公网IP",
+  publicIPv6Auto: "节点自动探测",
   publicPort: "公网端口",
   internalPort: "内部端口",
   protocol: "协议",
@@ -156,6 +157,7 @@ export default {
   mappingModeNode: "节点侧映射",
   mappingModeController: "控制端转发（内网穿透）",
   mappingModeTip: "节点侧映射：由节点上的 LXD/Incus/PVE 或 VM 节点执行端口转发规则；控制端转发：由控制端监听端口并通过 Agent WebSocket 隧道转发，适用于节点无公网IP场景。",
+  ipv6NatHint: "当前实例为 NAT IPv4 + IPv6：这里不要填写 IPv6 地址或 /64。只填写内部端口和公网端口；IPv6 会使用节点公网 IPv6 加同一公网端口转发到实例的 ULA 地址。要让实例直接拥有公网 IPv6，请改用独立 IPv6/纯 IPv6 模式。",
   internalHost: "目标容器地址",
   internalHostPlaceholder: "留空则自动使用实例私有IP",
   internalHostTip: "控制端转发的目标地址（容器IP或名称），留空则自动使用实例私有IP。"

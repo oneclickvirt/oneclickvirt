@@ -275,17 +275,25 @@ spec:
 		primaryNetwork, routedNetwork, yamlDoubleQuote(dvName), indentBlock(kubeVirtVMCloudInitUserData(name, password), 14), networkData)
 }
 
-func (p *KubeVirtProvider) deleteRoutedKubeVirtNAD(plan routedKubeVirtIPv6Plan) {
+func (p *KubeVirtProvider) deleteRoutedKubeVirtNAD(plan routedKubeVirtIPv6Plan) error {
 	if plan.NADName == "" {
-		return
+		return nil
 	}
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete network-attachment-definition %s -n %s --ignore-not-found=true 2>/dev/null || true", shellSingleQuote(plan.NADName), shellSingleQuote(Namespace)))
+	output, err := p.sshClient.Execute(fmt.Sprintf("kubectl delete network-attachment-definition %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(plan.NADName), shellSingleQuote(Namespace)))
+	if err != nil && !kubeVirtNotFound(output, err) {
+		return fmt.Errorf("删除KubeVirt隧道网络 %s 失败: %w (output: %s)", plan.NADName, err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
+	return nil
 }
 
-func (p *KubeVirtProvider) deleteRoutedKubeVirtNADByInstance(id string) {
+func (p *KubeVirtProvider) deleteRoutedKubeVirtNADByInstance(id string) error {
 	name := k8sResourceName(id)
 	if name == "" {
-		return
+		return nil
 	}
-	p.sshClient.Execute(fmt.Sprintf("kubectl delete network-attachment-definition %s-v6 -n %s --ignore-not-found=true 2>/dev/null || true", shellSingleQuote(name), shellSingleQuote(Namespace)))
+	output, err := p.sshClient.Execute(fmt.Sprintf("kubectl delete network-attachment-definition %s-v6 -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)))
+	if err != nil && !kubeVirtNotFound(output, err) {
+		return fmt.Errorf("删除KubeVirt实例隧道网络 %s-v6 失败: %w (output: %s)", name, err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
+	return nil
 }

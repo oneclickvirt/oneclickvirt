@@ -122,6 +122,9 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	if err := global.APP_DB.First(&port, taskReq.PortID).Error; err != nil {
 		return fmt.Errorf("端口映射记录不存在")
 	}
+	if err := validatePortTaskOwnership(task, port, taskReq.InstanceID, taskReq.ProviderID); err != nil {
+		return err
+	}
 
 	// 更新进度 (20%)
 	s.updateTaskProgress(task.ID, 20, "step.getInstanceInfo")
@@ -329,7 +332,10 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 
 		return fmt.Errorf("添加端口映射失败: %v", err)
 	}
-	applier.Finish()
+	if err := applier.Finish(); err != nil {
+		global.APP_DB.Model(&port).Update("status", "failed")
+		return fmt.Errorf("保存端口映射规则失败: %w", err)
+	}
 	s.updateTaskProgress(task.ID, 85, "step.applyingRemotePortMapping")
 
 	// 更新进度 (92%)
@@ -397,12 +403,19 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		return fmt.Errorf("获取端口映射记录失败: %v", err)
 	}
 
+	if err := validatePortTaskOwnership(task, port, taskReq.InstanceID, taskReq.ProviderID); err != nil {
+		return err
+	}
+
 	// 更新进度 (25%)
 	s.updateTaskProgress(task.ID, 25, "step.getInstanceInfo")
 
 	// 获取实例信息（可能实例已被删除）
 	var instance providerModel.Instance
-	if err := global.APP_DB.First(&instance, port.InstanceID).Error; err != nil {
+	if err := global.APP_DB.Unscoped().First(&instance, port.InstanceID).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("读取端口所属实例失败: %w", err)
+		}
 		global.APP_LOG.Warn("实例不存在，继续删除端口映射记录",
 			zap.Uint("instanceId", port.InstanceID),
 			zap.Error(err))
@@ -429,6 +442,9 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 	var providerInfo providerModel.Provider
 	providerDeleteSuccess := true
 	if err := global.APP_DB.First(&providerInfo, port.ProviderID).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("读取端口所属Provider失败: %w", err)
+		}
 		global.APP_LOG.Warn("Provider不存在，仅删除端口映射数据库记录",
 			zap.Uint("providerId", port.ProviderID),
 			zap.Error(err))
@@ -437,12 +453,9 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		// 只有Provider存在时才尝试从远程删除 (50%)
 		s.updateTaskProgress(task.ID, 50, "step.deletingPortMappingInfo")
 		providerApiService := &provider2.ProviderApiService{}
-		prov, _, err := providerApiService.GetProviderByID(providerInfo.ID)
+		prov, _, err := providerApiService.GetProviderByIDForOperation(providerInfo.ID, "delete")
 		if err != nil {
-			global.APP_LOG.Warn("获取Provider实例失败，跳过远程删除",
-				zap.Uint("providerId", providerInfo.ID),
-				zap.Error(err))
-			providerDeleteSuccess = false
+			return fmt.Errorf("连接节点失败，保留端口记录供重试: %w", err)
 		} else {
 			applier := newPortMappingApplier(ctx, prov, &providerInfo)
 			if deleteErr := applier.Remove(&instance, &port); deleteErr != nil {
@@ -450,9 +463,11 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 					zap.Uint("portId", port.ID),
 					zap.String("providerType", providerInfo.Type),
 					zap.Error(deleteErr))
-				providerDeleteSuccess = false
+				return fmt.Errorf("远程规则清理失败，保留端口记录供重试: %w", deleteErr)
 			}
-			applier.Finish()
+			if err := applier.Finish(); err != nil {
+				return fmt.Errorf("保存规则失败，保留端口记录供重试: %w", err)
+			}
 		}
 	}
 

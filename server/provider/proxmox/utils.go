@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,17 @@ func (p *ProxmoxProvider) getDownloadURL(originalURL string, useCDN bool) string
 // shellSingleQuote 将任意字符串安全包裹为 shell 单引号字面量。
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+var safeProxmoxConfigValue = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
+
+// shellConfigValue keeps the traditional compact command form for normal PVE
+// bridge/storage names while quoting unusual configured values safely.
+func shellConfigValue(value string) string {
+	if safeProxmoxConfigValue.MatchString(value) {
+		return value
+	}
+	return shellSingleQuote(value)
 }
 
 func (p *ProxmoxProvider) downloadRemoteFile(url, tmpPath, dstPath string, timeout time.Duration) (string, error) {
@@ -224,7 +236,7 @@ func (p *ProxmoxProvider) safeRemove(ctx context.Context, path string) error {
 	}
 
 	// 检查路径是否存在
-	checkCmd := fmt.Sprintf("[ -e '%s' ]", path)
+	checkCmd := fmt.Sprintf("[ -e %s ]", shellSingleQuote(path))
 	_, err := p.sshClient.Execute(checkCmd)
 	if err != nil {
 		// 路径不存在，无需删除
@@ -232,7 +244,7 @@ func (p *ProxmoxProvider) safeRemove(ctx context.Context, path string) error {
 	}
 
 	global.APP_LOG.Debug("删除路径", zap.String("path", path))
-	removeCmd := fmt.Sprintf("rm -rf '%s'", path)
+	removeCmd := fmt.Sprintf("rm -rf %s", shellSingleQuote(path))
 	_, err = p.sshClient.Execute(removeCmd)
 	return err
 }
@@ -328,7 +340,7 @@ func (p *ProxmoxProvider) cleanupVMFiles(ctx context.Context, vmid string) error
 		}
 
 		// 列出存储中与该VM相关的卷
-		listVolCmd := fmt.Sprintf("pvesm list '%s' | awk -v vmid='%s' '$5 == vmid {print $1}'", storage, vmid)
+		listVolCmd := fmt.Sprintf("pvesm list %s | awk -v vmid=%s '$5 == vmid {print $1}'", shellSingleQuote(storage), shellSingleQuote(vmid))
 		volOutput, err := p.sshClient.Execute(listVolCmd)
 		if err != nil {
 			global.APP_LOG.Warn("列出存储卷失败", zap.String("storage", storage), zap.Error(err))
@@ -343,7 +355,7 @@ func (p *ProxmoxProvider) cleanupVMFiles(ctx context.Context, vmid string) error
 			}
 
 			// 获取卷路径并删除
-			pathCmd := fmt.Sprintf("pvesm path '%s' 2>/dev/null || true", volid)
+			pathCmd := fmt.Sprintf("pvesm path %s 2>/dev/null || true", shellSingleQuote(volid))
 			volPath, _ := p.sshClient.Execute(pathCmd)
 			volPath = strings.TrimSpace(volPath)
 
@@ -386,7 +398,7 @@ func (p *ProxmoxProvider) cleanupCTFiles(ctx context.Context, ctid string) error
 		}
 
 		// 列出存储中与该CT相关的卷
-		listVolCmd := fmt.Sprintf("pvesm list '%s' | awk -v ctid='%s' '$5 == ctid {print $1}'", storage, ctid)
+		listVolCmd := fmt.Sprintf("pvesm list %s | awk -v ctid=%s '$5 == ctid {print $1}'", shellSingleQuote(storage), shellSingleQuote(ctid))
 		volOutput, err := p.sshClient.Execute(listVolCmd)
 		if err != nil {
 			global.APP_LOG.Warn("列出存储卷失败", zap.String("storage", storage), zap.Error(err))
@@ -401,7 +413,7 @@ func (p *ProxmoxProvider) cleanupCTFiles(ctx context.Context, ctid string) error
 			}
 
 			// 获取卷路径并删除
-			pathCmd := fmt.Sprintf("pvesm path '%s' 2>/dev/null || true", volid)
+			pathCmd := fmt.Sprintf("pvesm path %s 2>/dev/null || true", shellSingleQuote(volid))
 			volPath, _ := p.sshClient.Execute(pathCmd)
 			volPath = strings.TrimSpace(volPath)
 
@@ -460,7 +472,7 @@ func (p *ProxmoxProvider) rebuildIPTablesRules(ctx context.Context) error {
 	global.APP_LOG.Debug("重建iptables规则")
 
 	// 应用规则文件
-	restoreCmd := fmt.Sprintf("cat '%s' | iptables-restore", rulesFile)
+	restoreCmd := fmt.Sprintf("cat %s | iptables-restore", shellSingleQuote(rulesFile))
 	_, err := p.sshClient.Execute(restoreCmd)
 	return err
 }

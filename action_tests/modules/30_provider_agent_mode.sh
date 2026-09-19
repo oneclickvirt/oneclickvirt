@@ -149,7 +149,7 @@ run_module_30() {
             '{"connectionType":"agent","name":"ci-agent-mode-provider-updated"}' "$group"
 
         # -- Agent monitoring status should be queryable even without SSH endpoint --
-        test_api "Agent provider monitoring status" "GET" "/api/v1/admin/providers/${agent_pid}/monitoring/status" "200|400" "" "$group"
+        test_api "Agent provider monitoring status" "GET" "/api/v1/admin/providers/${agent_pid}/monitoring/status" "200|infra" "" "$group"
 
         # -- Switch from agent back to ssh mode (requires full SSH connection info) --
         # The worker's only SSH listener is port 22. Container host mappings such
@@ -181,7 +181,7 @@ run_module_30() {
                     fi
                     # Run task-based configure flow after a successful switch to ssh mode.
                     local sw_ac_resp; sw_ac_resp=$(test_api "Auto-configure switched provider" "POST" \
-                        "/api/v1/admin/providers/auto-configure" "200|400|500" \
+                        "/api/v1/admin/providers/auto-configure" "200|infra" \
                         "{\"providerId\":${agent_pid}}" "$group")
                     local sw_ac_task; sw_ac_task=$(echo "$sw_ac_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
                     if [[ -n "$sw_ac_task" ]]; then
@@ -242,19 +242,19 @@ run_module_30() {
     if [[ "$ENV_TYPE" == "lxd" || "$ENV_TYPE" == "incus" ]]; then
         # -- detect-gpus via SSH --
         test_api "Detect GPUs (LXD/Incus)" "GET" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|400|500" "" "$group"
+            "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|infra" "" "$group"
 
         # -- Get copyable source containers for copy mode source selection --
         local stopped_resp; stopped_resp=$(test_api "Get copyable source containers" "GET" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group")
+            "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|infra" "" "$group")
         local containers; containers=$(echo "$stopped_resp" | jq -r '.data.containers | length' 2>/dev/null)
         log_info "Source containers available for copy mode: ${containers:-0}"
     else
         # Non-LXD/Incus: endpoints should return graceful error
-        test_api "Detect GPUs (non-LXD: expect 400/500)" "GET" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|400|500" "" "$group"
-        test_api "Source containers (unsupported provider: expect 400/500)" "GET" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group"
+        test_api "Detect GPUs (non-LXD: expect 400)" "GET" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "400" "" "$group"
+        test_api "Source containers (unsupported provider: expect 400)" "GET" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "400" "" "$group"
     fi
 
     # =========================================================
@@ -263,7 +263,7 @@ run_module_30() {
 
     # -- exec: valid command --
     local exec_resp; exec_resp=$(test_api "Exec: echo hello" "POST" \
-        "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|400|500|502" \
+        "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|infra" \
         '{"command":"echo hello","timeout":10}' "$group")
     local exec_output; exec_output=$(echo "$exec_resp" | jq -r '.data.output // .data // empty' 2>/dev/null)
     if [[ -n "$exec_output" ]]; then

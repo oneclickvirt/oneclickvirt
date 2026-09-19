@@ -283,7 +283,7 @@ func openSSHClientViaAgentTunnel(target *SSHAccessTarget, host string, port int,
 		handshakeTimeout = 20 * time.Second
 	}
 	_ = tunnelConn.SetDeadline(time.Now().Add(handshakeTimeout))
-	sshConn, chans, reqs, err := ssh.NewClientConn(tunnelConn, fmt.Sprintf("%s:%d", host, port), sshConfig)
+	sshConn, chans, reqs, err := ssh.NewClientConn(tunnelConn, net.JoinHostPort(strings.Trim(host, "[]"), fmt.Sprintf("%d", port)), sshConfig)
 	if err != nil {
 		tunnelConn.Close()
 		return nil, fmt.Errorf("通过 agent 隧道建立 SSH 连接失败: %w", err)

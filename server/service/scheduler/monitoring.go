@@ -28,6 +28,7 @@ type MonitoringSchedulerService struct {
 	pmacctService        PmacctServiceInterface
 	stopChan             chan struct{}
 	isRunning            bool
+	stopping             bool
 	wg                   sync.WaitGroup        // 追踪所有后台goroutine
 	providerStateManager *ProviderStateManager // Provider状态管理器
 	lastResetTime        sync.Map              // map[uint]time.Time - pmacct重置时间记录
@@ -53,7 +54,7 @@ func NewMonitoringSchedulerService(pmacctService PmacctServiceInterface) *Monito
 // Start 启动监控调度器
 func (s *MonitoringSchedulerService) Start(ctx context.Context) {
 	s.mu.Lock()
-	if s.isRunning {
+	if s.isRunning || s.stopping {
 		s.mu.Unlock()
 		global.APP_LOG.Warn("监控调度器已在运行中")
 		return
@@ -91,11 +92,19 @@ func (s *MonitoringSchedulerService) Stop() {
 		s.mu.Unlock()
 		return
 	}
-	s.isRunning = false
+	if s.stopping {
+		s.mu.Unlock()
+		return
+	}
+	stopChan := s.stopChan
+	s.stopping = true
+	// Keep isRunning true until all workers have exited. This prevents a
+	// concurrent Start from replacing stopChan while Stop is still waiting;
+	// workers must observe and drain the generation being stopped.
+	close(stopChan)
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止监控调度器")
-	close(s.stopChan)
 
 	// 等待所有goroutine完成（最多30秒）
 	done := make(chan struct{})
@@ -110,8 +119,22 @@ func (s *MonitoringSchedulerService) Stop() {
 	select {
 	case <-done:
 		global.APP_LOG.Info("监控调度器所有后台任务已完成")
+		s.mu.Lock()
+		s.isRunning = false
+		s.stopping = false
+		s.mu.Unlock()
 	case <-timer.C:
 		global.APP_LOG.Warn("监控调度器关闭超时，可能有goroutine未完成")
+		// Do not admit a new generation while old workers are still alive. The
+		// workers currently observe the closed channel through the shared field;
+		// replacing it here would strand them on the next Start.
+		go func() {
+			<-done
+			s.mu.Lock()
+			s.isRunning = false
+			s.stopping = false
+			s.mu.Unlock()
+		}()
 	}
 }
 

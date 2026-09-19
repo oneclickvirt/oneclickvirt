@@ -152,7 +152,7 @@ func (l *LXDProvider) enrichInstancesWithIPAddresses(instances *[]provider.Insta
 				}
 
 				// 补充逻辑2：处理IPv6地址，优先使用公网IPv6
-				if instance.IPv6Address != "" && strings.HasPrefix(instance.IPv6Address, "fd") {
+				if instance.IPv6Address != "" && !utils.IsPublicIPv6(instance.IPv6Address) {
 					// 当前IPv6是ULA地址，尝试从eth1获取公网IPv6
 					if eth1, ok := network["eth1"].(map[string]interface{}); ok {
 						if addresses, ok := eth1["addresses"].([]interface{}); ok {
@@ -162,7 +162,7 @@ func (l *LXDProvider) enrichInstancesWithIPAddresses(instances *[]provider.Insta
 									scope, _ := addrMap["scope"].(string)
 									address, _ := addrMap["address"].(string)
 
-									if family == "inet6" && scope == "global" && !strings.HasPrefix(address, "fd") {
+									if family == "inet6" && scope == "global" && utils.IsPublicIPv6(address) {
 										instance.IPv6Address = address
 										global.APP_LOG.Debug("从eth1替换为公网IPv6地址",
 											zap.String("instance", instance.Name),
@@ -184,7 +184,7 @@ func (l *LXDProvider) enrichInstancesWithIPAddresses(instances *[]provider.Insta
 									address, _ := addrMap["address"].(string)
 
 									if family == "inet6" && scope == "global" {
-										if !strings.HasPrefix(address, "fd") {
+										if utils.IsPublicIPv6(address) {
 											instance.IPv6Address = address
 											global.APP_LOG.Debug("从eth1补充获取到公网IPv6地址",
 												zap.String("instance", instance.Name),

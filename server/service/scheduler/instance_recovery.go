@@ -65,6 +65,7 @@ func (s *InstanceRecoverySchedulerService) Start(ctx context.Context) {
 		return
 	}
 	s.stopChan = make(chan struct{})
+	stopChan := s.stopChan
 	s.isRunning = true
 	s.mu.Unlock()
 
@@ -72,7 +73,7 @@ func (s *InstanceRecoverySchedulerService) Start(ctx context.Context) {
 		zap.Duration("interval", settings.Interval),
 		zap.Duration("offline_threshold", settings.OfflineThreshold),
 		zap.Int("provider_batch_size", instanceRecoveryProviderBatchSize))
-	go s.run(ctx)
+	go s.run(ctx, stopChan)
 }
 
 func (s *InstanceRecoverySchedulerService) Stop() {
@@ -82,8 +83,9 @@ func (s *InstanceRecoverySchedulerService) Stop() {
 		return
 	}
 	s.isRunning = false
+	stopChan := s.stopChan
 	s.mu.Unlock()
-	close(s.stopChan)
+	close(stopChan)
 }
 
 func (s *InstanceRecoverySchedulerService) IsRunning() bool {
@@ -92,7 +94,7 @@ func (s *InstanceRecoverySchedulerService) IsRunning() bool {
 	return s.isRunning
 }
 
-func (s *InstanceRecoverySchedulerService) run(ctx context.Context) {
+func (s *InstanceRecoverySchedulerService) run(ctx context.Context, stopChan <-chan struct{}) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			global.APP_LOG.Error("实例恢复调度器 panic", zap.Any("panic", recovered), zap.Stack("stack"))
@@ -105,7 +107,7 @@ func (s *InstanceRecoverySchedulerService) run(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 		return
-	case <-s.stopChan:
+	case <-stopChan:
 		return
 	case <-startupTimer.C:
 	}
@@ -120,7 +122,7 @@ func (s *InstanceRecoverySchedulerService) run(ctx context.Context) {
 		case <-ctx.Done():
 			timer.Stop()
 			return
-		case <-s.stopChan:
+		case <-stopChan:
 			timer.Stop()
 			return
 		case <-timer.C:

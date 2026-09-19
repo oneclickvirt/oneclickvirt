@@ -3,6 +3,7 @@ package incus
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"oneclickvirt/global"
+	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 	"oneclickvirt/provider/health"
 	"oneclickvirt/utils"
@@ -414,18 +416,22 @@ func (i *IncusProvider) CreateInstance(ctx context.Context, config provider.Inst
 		return fmt.Errorf("not connected")
 	}
 
-	forceSSHStaticIPv6 := hasRequestedStaticIPv6(config)
-	if forceSSHStaticIPv6 && !i.shouldUseSSH() {
-		return fmt.Errorf("Incus控制面静态IPv6当前需要SSH网络配置路径，api_only无法安全消费已分配地址")
+	forceSSHIPv6 := requiresSSHIPv6Network(config, i.config.ID)
+	if forceSSHIPv6 && !i.shouldUseSSH() {
+		return fmt.Errorf("Incus控制面IPv6网络配置当前需要SSH路径，api_only无法安全配置IPv6地址和端口映射")
 	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := i.shouldUseWindowsInstallerSSH(ctx, &config)
-	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHStaticIPv6 {
+	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 {
 		if err := i.apiCreateInstance(ctx, config); err == nil {
 			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
+			var committedErr *apiCreateCommittedError
+			if errors.As(err, &committedErr) {
+				return err
+			}
 
 			if fallbackErr := i.ensureSSHBeforeFallback(err, "创建实例"); fallbackErr != nil {
 				return fallbackErr
@@ -447,18 +453,22 @@ func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config p
 		return fmt.Errorf("not connected")
 	}
 
-	forceSSHStaticIPv6 := hasRequestedStaticIPv6(config)
-	if forceSSHStaticIPv6 && !i.shouldUseSSH() {
-		return fmt.Errorf("Incus控制面静态IPv6当前需要SSH网络配置路径，api_only无法安全消费已分配地址")
+	forceSSHIPv6 := requiresSSHIPv6Network(config, i.config.ID)
+	if forceSSHIPv6 && !i.shouldUseSSH() {
+		return fmt.Errorf("Incus控制面IPv6网络配置当前需要SSH路径，api_only无法安全配置IPv6地址和端口映射")
 	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := i.shouldUseWindowsInstallerSSH(ctx, &config)
-	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHStaticIPv6 {
+	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 {
 		if err := i.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
 			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
+			var committedErr *apiCreateCommittedError
+			if errors.As(err, &committedErr) {
+				return err
+			}
 
 			if fallbackErr := i.ensureSSHBeforeFallback(err, "创建实例"); fallbackErr != nil {
 				return fallbackErr
@@ -476,6 +486,25 @@ func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config p
 
 func hasRequestedStaticIPv6(config provider.InstanceConfig) bool {
 	return config.Metadata != nil && strings.TrimSpace(config.Metadata["static_ipv6"]) != ""
+}
+
+func requiresSSHIPv6Network(config provider.InstanceConfig, providerID uint) bool {
+	networkType := ""
+	if config.Metadata != nil {
+		networkType = strings.TrimSpace(config.Metadata["network_type"])
+	}
+	if networkType == "" && global.APP_DB != nil && providerID > 0 {
+		var providerConfig providerModel.Provider
+		if err := global.APP_DB.Select("network_type").First(&providerConfig, providerID).Error; err == nil {
+			networkType = strings.TrimSpace(providerConfig.NetworkType)
+		}
+	}
+	switch networkType {
+	case "nat_ipv4_ipv6", "dedicated_ipv4_ipv6", "ipv6_only":
+		return true
+	default:
+		return hasRequestedStaticIPv6(config)
+	}
 }
 
 func (i *IncusProvider) StartInstance(ctx context.Context, id string) error {
@@ -562,6 +591,13 @@ func (i *IncusProvider) RestartInstance(ctx context.Context, id string) error {
 func (i *IncusProvider) DeleteInstance(ctx context.Context, id string) error {
 	if !i.connected {
 		return fmt.Errorf("not connected")
+	}
+
+	// Host firewall rules outlive the Incus instance. Remove the rules while
+	// the database still contains the instance IP/guest-port mapping, before
+	// the API or SSH delete makes that information impossible to resolve.
+	if err := i.cleanupInstancePortMappings(ctx, id); err != nil {
+		return fmt.Errorf("删除Incus实例前清理端口映射失败: %w", err)
 	}
 
 	// 根据执行规则判断使用哪种方式
@@ -739,12 +775,30 @@ func (i *IncusProvider) ensureSSHBeforeFallback(apiErr error, operation string) 
 
 // SetupPortMappingWithIP 公开的方法：在远程服务器上创建端口映射（用于手动添加端口）
 func (i *IncusProvider) SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(i.config.ExecutionRule), "api_only") {
+		port := providerModel.Port{HostPort: hostPort, GuestPort: guestPort, Protocol: protocol, MappingMethod: method}
+		if strings.Contains(instanceIP, ":") {
+			port.IPv6Enabled, port.IPv6Address = true, instanceIP
+		}
+		return i.ConfigurePortMappingsAPI(ctx, instanceName, []providerModel.Port{port})
+	}
 	return i.setupPortMappingWithIP(instanceName, hostPort, guestPort, protocol, method, instanceIP)
 }
 
 // RemovePortMapping 公开的方法：从远程服务器上删除端口映射（用于手动删除端口）
 func (i *IncusProvider) RemovePortMapping(instanceName string, hostPort int, protocol string, method string) error {
 	return i.removePortMapping(instanceName, hostPort, protocol, method)
+}
+
+// RemovePortMappingWithDetails removes a mapping when the controller already
+// has the guest and range information. This is used by cleanup tasks after a
+// port row or its instance has been soft-deleted and therefore cannot be
+// recovered by a normal database lookup.
+func (i *IncusProvider) RemovePortMappingWithDetails(instanceName string, hostPort, guestPort, hostPortEnd, guestPortEnd, portCount int, protocol, method, instanceIP string) error {
+	return i.removePortMappingWithRange(instanceName, hostPort, guestPort, hostPortEnd, guestPortEnd, portCount, protocol, method, instanceIP)
 }
 
 func init() {

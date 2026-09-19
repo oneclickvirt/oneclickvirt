@@ -37,6 +37,15 @@ func validateProviderIPv6Network(providerType, networkType string) error {
 	return fmt.Errorf("Provider类型 %s 当前不支持实例IPv6网络配置；请选择支持静态IPv6分配的节点类型或改用IPv4网络类型", providerType)
 }
 
+func usesControllerIPv6Pool(providerType, networkType string) bool {
+	providerType = strings.ToLower(strings.TrimSpace(providerType))
+	networkType = strings.ToLower(strings.TrimSpace(networkType))
+	if networkType != "nat_ipv4_ipv6" && networkType != "dedicated_ipv4_ipv6" && networkType != "ipv6_only" {
+		return false
+	}
+	return networkType != "nat_ipv4_ipv6" || (providerType != "incus" && providerType != "lxd")
+}
+
 // executeProviderCreation 阶段2: Provider创建实例 (30% -> 60%)，根据ExecutionRule自动选择API或SSH
 func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.Task, instance *providerModel.Instance) error {
 	global.APP_LOG.Debug("开始Provider创建实例阶段", zap.Uint("taskId", task.ID))
@@ -435,8 +444,12 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 
 	// Allocate a configured IPv6 address before any remote provider call. The
 	// selected address is passed through metadata; no SSH/API work is held in a
-	// database transaction.
-	if localProviderNetworkType == "nat_ipv4_ipv6" || localProviderNetworkType == "dedicated_ipv4_ipv6" || localProviderNetworkType == "ipv6_only" {
+	// database transaction. Incus/LXD dual-stack NAT is deliberately excluded:
+	// those backends keep the guest on a ULA bridge and expose it through the
+	// node's public IPv6 proxy. Passing a /64 pool allocation as static_ipv6 is
+	// rejected by configureNATIPv6Network and used to make every create roll
+	// back whenever an operator had configured the otherwise-visible pool UI.
+	if usesControllerIPv6Pool(localProviderType, localProviderNetworkType) {
 		poolService := ipv6PoolService.NewService()
 		nodeFileConfigured := strings.TrimSpace(dbProvider.IPv6AddressFilePath) != ""
 		// When a node-side file is configured, synchronize it exactly once before

@@ -570,6 +570,10 @@ type CreatePortMappingRequest struct {
 	HostPort     int    `json:"hostPort"`                                              // 可选，不指定则自动分配，指定时作为起始端口
 	MappingType  string `json:"mappingType" binding:"omitempty,oneof=node controller"` // "node"（默认）或 "controller"（控制端转发）
 	InternalHost string `json:"internalHost"`                                          // 控制端转发目标地址（容器IP）
+	// IPv6Enabled is optional for backwards compatibility. NAT dual-stack
+	// providers default to both families; callers can explicitly set false
+	// when they intentionally need an IPv4-only mapping.
+	IPv6Enabled *bool `json:"ipv6Enabled,omitempty"`
 }
 
 // BatchDeletePortMappingRequest 批量删除端口映射请求（仅支持删除手动添加的端口）

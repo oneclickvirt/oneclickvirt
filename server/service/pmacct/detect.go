@@ -110,12 +110,16 @@ echo "eth0"  # 使用默认值作为后备
 // verifyInterfaceExists 验证网络接口是否存在于宿主机上
 // 用于检查数据库中保存的网卡是否仍然有效（避免容器重启后网卡名变化）
 func (s *Service) verifyInterfaceExists(providerInstance provider.Provider, interfaceName string) bool {
-	if interfaceName == "" {
+	validatedInterface, parseErr := utils.ParseNetworkInterfaceOutput(interfaceName)
+	if parseErr != nil {
+		global.APP_LOG.Warn("网络接口名称无效，拒绝执行存在性检查",
+			zap.String("interface", interfaceName),
+			zap.Error(parseErr))
 		return false
 	}
 
 	// 执行快速检查命令
-	checkCmd := fmt.Sprintf("ip link show %s >/dev/null 2>&1 && echo 'EXISTS' || echo 'NOT_FOUND'", interfaceName)
+	checkCmd := fmt.Sprintf("ip link show %s >/dev/null 2>&1 && echo 'EXISTS' || echo 'NOT_FOUND'", utils.ShellSingleQuote(validatedInterface))
 
 	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 	defer cancel()
@@ -123,7 +127,7 @@ func (s *Service) verifyInterfaceExists(providerInstance provider.Provider, inte
 	output, err := providerInstance.ExecuteSSHCommand(ctx, checkCmd)
 	if err != nil {
 		global.APP_LOG.Warn("验证网络接口存在性时执行命令失败",
-			zap.String("interface", interfaceName),
+			zap.String("interface", validatedInterface),
 			zap.Error(err))
 		return false
 	}
@@ -135,7 +139,7 @@ func (s *Service) verifyInterfaceExists(providerInstance provider.Provider, inte
 
 	if !exists {
 		global.APP_LOG.Warn("网络接口已不存在",
-			zap.String("interface", interfaceName))
+			zap.String("interface", validatedInterface))
 	}
 
 	return exists

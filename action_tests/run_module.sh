@@ -13,6 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 COMMON_DIR="${SCRIPT_DIR}/common"
 
+source "${COMMON_DIR}/result_integrity.sh"
 source "${COMMON_DIR}/test_framework.sh"
 source "${COMMON_DIR}/node_manager.sh"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -228,10 +229,16 @@ for mod in "${MODULES[@]}"; do
         [[ -f "$mod_file" ]] && mod_files+=("$mod_file")
     done
     if [[ ${#mod_files[@]} -eq 0 ]]; then
-        log_warning "Module ${mod} not found, skipping"
+        log_error "Requested module ${mod} not found"
+        record_module_harness_failure "module-${mod}-missing" "Requested module file does not exist"
+        EXIT_CODE=1
         continue
     fi
-    source "${mod_files[0]}"
+    if ! source "${mod_files[0]}"; then
+        record_module_harness_failure "module-${mod}-load" "Module source failed"
+        EXIT_CODE=1
+        continue
+    fi
     func_name="run_module_${mod}"
     if declare -f "$func_name" > /dev/null 2>&1; then
         log_section "Running module ${mod} (${MODULE_IDX}/${MODULE_COUNT})"
@@ -242,9 +249,11 @@ for mod in "${MODULES[@]}"; do
         # Save state before module
         save_base_state 2>/dev/null || true
         local_start_ts=$(_ts)
+        module_records_before=$(wc -l < "$RESULTS_FILE" | tr -d ' ')
         if ! "$func_name"; then
             EXIT_CODE=1
             log_error "Module ${mod} failed"
+            record_module_harness_failure "module-${mod}-exit" "Module returned nonzero; assertion records cannot override this failure"
             # Capture service logs at the time of failure
             if [[ -n "${MASTER_NODE_ID:-}" ]] && declare -F capture_service_logs > /dev/null 2>&1; then
                 log_info "Capturing service logs for module ${mod} failure..."
@@ -258,12 +267,17 @@ for mod in "${MODULES[@]}"; do
                 fi
             fi
         fi
+        if ! module_recorded_results "$RESULTS_FILE" "$module_records_before"; then
+            record_module_harness_failure "module-${mod}-empty" "Module returned without recording any assertions or explicit skips"
+            EXIT_CODE=1
+        fi
         # Restore safe state (captcha off, permissions normal, instances unfrozen)
         _restore_safe_state
         # Restore state after module to prevent cross-module contamination
         restore_base_state 2>/dev/null || true
     else
-        log_warning "Module ${mod} has no entry function ${func_name}"
+        record_module_harness_failure "module-${mod}-entry" "Module has no entry function ${func_name}"
+        EXIT_CODE=1
     fi
 done
 
@@ -285,10 +299,11 @@ if [[ -f "${RESULTS_FILE:-}" ]]; then
     if [[ "${_jsonl_fail_count:-0}" != "0" ]]; then
         log_error "Detected ${_jsonl_fail_count} failed assertion(s) in ${RESULTS_FILE}"
         EXIT_CODE=1
-    elif [[ $EXIT_CODE -ne 0 ]]; then
-        log_warning "Ignoring non-zero module exit_code=${EXIT_CODE} because ${RESULTS_FILE} contains no failed assertions"
-        EXIT_CODE=0
     fi
+fi
+if ! validate_test_run_results "$EXIT_CODE" "${RESULTS_FILE:-}"; then
+    log_error "Module execution failed or result records are missing/invalid"
+    EXIT_CODE=1
 fi
 if [[ $EXIT_CODE -ne 0 ]]; then
     log_warning "Some modules had failures (exit_code=${EXIT_CODE}), see reports for details"

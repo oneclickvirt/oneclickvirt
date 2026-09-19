@@ -175,8 +175,9 @@ func (s *AggregationService) saveBatchToCacheWithInfo(
 	}
 
 	valuesClause := strings.Join(placeholders, ", ")
+	database := global.APP_DB
 	var sql string
-	if dbcompat.UseRowAlias() {
+	if dbcompat.UseRowAlias(database) {
 		// MySQL 9.0+: row-alias syntax (VALUES() removed)
 		sql = `INSERT INTO instance_traffic_histories
 			(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used,
@@ -211,7 +212,7 @@ func (s *AggregationService) saveBatchToCacheWithInfo(
 		ctx = context.Background()
 	}
 	if err := utils.RetryableDBOperation(ctx, func() error {
-		return global.APP_DB.Exec(sql, args...).Error
+		return database.Exec(sql, args...).Error
 	}, 8); err != nil {
 		global.APP_LOG.Error("批量保存流量缓存失败",
 			zap.Error(err),

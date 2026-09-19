@@ -12,16 +12,21 @@ set -euo pipefail
 export LC_ALL=C.UTF-8 LANG=C.UTF-8 LANGUAGE=C.UTF-8 2>/dev/null || true
 export PATH=%s${PATH:+:$PATH}
 
-url=%s
-tmp=%s
-dst=%s
+	url=%s
+	tmp_base=%s
+	dst=%s
 
 log() {
   printf '[download] %%s\n' "$*" >&2
 }
 
-mkdir -p "$(dirname "$dst")"
-rm -f "$tmp"
+	mkdir -p "$(dirname "$dst")"
+# Every invocation gets its own remote temporary file.  A fixed dst.tmp
+# allows concurrent image/script downloads to remove or publish one another's
+# partial content before the final atomic rename.
+tmp="$(mktemp "${tmp_base}.XXXXXX")"
+trap 'rm -f -- "$tmp"' EXIT
+	rm -f -- "$tmp"
 last_rc=1
 
 try_curl() {

@@ -21,6 +21,59 @@ func summarizeIPv6ProbeOutput(output string) string {
 	return utils.SanitizeUserInput(output)
 }
 
+// configureNATIPv6Network keeps NAT IPv4+IPv6 instances on the managed
+// bridge.  The node public IPv6 is used by the proxy mapping; a routed /128
+// would require upstream NDP for an address that many providers do not route.
+func (l *LXDProvider) configureNATIPv6Network(ctx context.Context, containerName, requestedIPv6 string) (string, error) {
+	if strings.TrimSpace(requestedIPv6) != "" {
+		return "", fmt.Errorf("NAT IPv6实例不接受独立公网IPv6地址，请使用独立IPv6或纯IPv6网络类型")
+	}
+	selected, err := l.selectHostIPv6InterfaceNetwork(ctx, false)
+	if err != nil {
+		return "", fmt.Errorf("宿主机IPv6网络不可用: %w", err)
+	}
+	if err := l.configureIPv6Sysctls(selected.Interface); err != nil {
+		return "", fmt.Errorf("配置NAT IPv6宿主机sysctl失败: %w", err)
+	}
+	// LXD's IPv6 bridge NAT/proxy path depends on bridge netfilter.  Load and
+	// persist it before mutating the network so a minimal VPS kernel cannot
+	// report a successful configuration while silently dropping forwarded IPv6.
+	if err := l.ensureBridgeNetfilter(); err != nil {
+		return "", fmt.Errorf("配置NAT IPv6 bridge netfilter失败: %w", err)
+	}
+	bridgeCmd := fmt.Sprintf(`set -eu
+bridge="$(lxc config show %s --expanded | awk '/^  eth0:/{seen=1; next} seen && /^    network:/{print $2; exit} seen && /^[^ ]/{seen=0}')"
+[ -n "$bridge" ]
+address="$(lxc network get "$bridge" ipv6.address 2>/dev/null || true)"
+if [ -z "$address" ] || [ "$address" = "none" ]; then lxc network set "$bridge" ipv6.address auto; fi
+if [ "$(lxc network get "$bridge" ipv6.dhcp 2>/dev/null || true)" != "true" ]; then lxc network set "$bridge" ipv6.dhcp true; fi
+if [ "$(lxc network get "$bridge" ipv6.nat 2>/dev/null || true)" != "true" ]; then lxc network set "$bridge" ipv6.nat true; fi`, shellSingleQuote(containerName))
+	if output, execErr := l.sshClient.Execute(bridgeCmd); execErr != nil {
+		return "", fmt.Errorf("初始化LXD NAT IPv6网桥失败: output=%s: %w", summarizeIPv6ProbeOutput(output), execErr)
+	}
+	if err := l.sshStartInstance(ctx, containerName); err != nil {
+		return "", fmt.Errorf("启动NAT IPv6实例失败: %w", err)
+	}
+	if err := l.waitForContainerNetworkReady(containerName); err != nil {
+		return "", fmt.Errorf("NAT IPv6实例网桥地址未就绪: %w", err)
+	}
+	guestIPv6, err := l.getContainerIPv6(ctx, containerName)
+	if err != nil {
+		return "", fmt.Errorf("获取NAT IPv6实例ULA失败: %w", err)
+	}
+	// Fix the DHCPv6 lease onto its exact NIC before the stop used to add
+	// proxy devices. A stopped LXD instance has no usable state.network map for
+	// address/MAC matching, but an existing static binding is self-identifying.
+	if err := utils.SetLXCAddressBinding(l.sshClient, "lxc", containerName, guestIPv6, true); err != nil {
+		return "", fmt.Errorf("固定NAT IPv6实例ULA失败: %w", err)
+	}
+	saveCmd := fmt.Sprintf("printf '%%s\\n' %s > %s", shellSingleQuote(guestIPv6), shellSingleQuote(containerName+"_v6"))
+	if output, execErr := l.sshClient.Execute(saveCmd); execErr != nil {
+		return "", fmt.Errorf("保存NAT IPv6实例地址失败: output=%s: %w", summarizeIPv6ProbeOutput(output), execErr)
+	}
+	return guestIPv6, nil
+}
+
 func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Config) (string, error) {
 	global.APP_LOG.Debug("开始配置网络设备IPv6",
 		zap.String("container", config.ContainerName))
@@ -56,6 +109,9 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 	if err := l.configureIPv6Sysctls(ipv6NetworkName); err != nil {
 		return "", fmt.Errorf("配置IPv6 sysctl失败: %w", err)
 	}
+	if err := l.ensureBridgeNetfilter(); err != nil {
+		return "", fmt.Errorf("IPv6 bridge netfilter不可用: %w", err)
+	}
 
 	if requestedIPv6 == "" {
 		// 只使用经过解析的网络地址，不把远端命令的多行诊断文本拼进前缀。
@@ -78,9 +134,13 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		zap.String("container", config.ContainerName),
 		zap.String("ipv6", containerIPv6))
 
-	// 停止容器
-	stopCmd := fmt.Sprintf("lxc stop %s", shellSingleQuote(config.ContainerName))
-	l.sshClient.Execute(stopCmd)
+	// Stop through the state-aware helper.  A plain ignored `lxc stop` can
+	// leave a running instance untouched while the device mutation continues,
+	// producing a half-applied network configuration.  The helper tolerates an
+	// already stopped instance but propagates transport and runtime failures.
+	if err := l.sshStopInstance(ctx, config.ContainerName); err != nil {
+		return "", fmt.Errorf("停止容器进行IPv6配置失败: %w", err)
+	}
 	time.Sleep(3 * time.Second)
 
 	// Add once, then update in place on task retries. This avoids turning an
@@ -90,12 +150,24 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 	addressArg := shellSingleQuote(containerIPv6)
 	deviceCmd := fmt.Sprintf(`set -eu
 if lxc config device get %s eth1 type >/dev/null 2>&1; then
-  lxc config device set %s eth1 nictype routed
-  lxc config device set %s eth1 parent %s
-  lxc config device set %s eth1 ipv6.address %s
+  existing_type="$(lxc config device get %s eth1 type)"
+  existing_nictype="$(lxc config device get %s eth1 nictype 2>/dev/null || true)"
+  if [ "$existing_type" != "nic" ] || [ "$existing_nictype" != "routed" ]; then
+    printf 'refusing to replace existing eth1: type=%%s nictype=%%s\n' "$existing_type" "$existing_nictype" >&2
+    exit 1
+  fi
+  if ! { \
+    lxc config device set %s eth1 nictype routed && \
+    lxc config device set %s eth1 parent %s && \
+	  lxc config device set %s eth1 ipv6.address %s && \
+	  lxc config device set %s eth1 ipv6.gateway auto; \
+  }; then
+    # Profile-inherited devices may require a local override.
+    lxc config device override %s eth1 nictype=routed parent=%s ipv6.address=%s ipv6.gateway=auto
+  fi
 else
-  lxc config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s
-fi`, instanceArg, instanceArg, instanceArg, parentArg, instanceArg, addressArg, instanceArg, parentArg, addressArg)
+	  lxc config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s ipv6.gateway=auto
+fi`, instanceArg, instanceArg, instanceArg, instanceArg, instanceArg, parentArg, instanceArg, addressArg, instanceArg, instanceArg, parentArg, addressArg, instanceArg, parentArg, addressArg)
 	deviceOutput, err := l.sshClient.Execute(deviceCmd)
 	if err != nil {
 		return "", fmt.Errorf("添加IPv6网络设备失败: output=%s: %w", summarizeIPv6ProbeOutput(deviceOutput), err)
@@ -127,17 +199,38 @@ fi`, instanceArg, instanceArg, instanceArg, parentArg, instanceArg, addressArg, 
 		l.handleIPv6Gateway(ctx, ipv6NetworkName)
 	}
 
-	// 设置IPv6连通性检查的cron任务
-	cronCmd := "*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb"
-	checkCronCmd := fmt.Sprintf("crontab -l | grep -q '%s'", cronCmd)
-	_, err = l.sshClient.Execute(checkCronCmd)
-	if err != nil {
-		// cron任务不存在，添加它
-		addCronCmd := fmt.Sprintf("echo '%s' | crontab -", cronCmd)
-		l.sshClient.Execute(addCronCmd)
+	// This optional path refresh must not replace unrelated host cron jobs.
+	if _, err := l.sshClient.Execute(utils.IPv6KeepaliveInstallCommand()); err != nil {
+		global.APP_LOG.Warn("安装独立IPv6保活任务失败，保留现有计划任务", zap.Error(err))
 	}
 
 	return containerIPv6, nil
+}
+
+func (l *LXDProvider) ensureBridgeNetfilter() error {
+	command := `set -eu
+if [ ! -d /sys/module/br_netfilter ]; then
+  if ! command -v modprobe >/dev/null 2>&1 || ! modprobe br_netfilter 2>/dev/null; then
+    printf '%s\n' 'br_netfilter kernel module is unavailable' >&2
+    exit 1
+  fi
+fi
+test -d /sys/module/br_netfilter
+mkdir -p /etc/modules-load.d
+conf=/etc/modules-load.d/oneclickvirt.conf
+tmp="${conf}.tmp.$$"
+if [ -f "$conf" ]; then
+  cp "$conf" "$tmp"
+else
+  : > "$tmp"
+fi
+if ! grep -qxF br_netfilter "$tmp" 2>/dev/null; then
+  printf '%s\n' br_netfilter >> "$tmp"
+fi
+chmod 0644 "$tmp"
+mv -f "$tmp" "$conf"`
+	_, err := l.sshClient.Execute(command)
+	return err
 }
 
 func (l *LXDProvider) setupRoutedNetworkDeviceIPv6(config IPv6Config) (string, error) {
@@ -158,10 +251,19 @@ func (l *LXDProvider) setupRoutedNetworkDeviceIPv6(config IPv6Config) (string, e
 	if output, checkErr := l.sshClient.Execute(checkCmd); checkErr != nil {
 		return "", fmt.Errorf("隧道路由IPv6网桥未就绪: output=%s: %w", summarizeIPv6ProbeOutput(output), checkErr)
 	}
+	// LXD/Incus routed NIC validation requires host-wide proxy-NDP.  Tunnel
+	// bridges are provisioned outside the native IPv6 path, so repair the full
+	// routed sysctl set after the platform/bridge check and before attaching the
+	// guest device.
+	if err := l.configureRoutedIPv6Sysctls(routed.Bridge, routed.TunnelInterface); err != nil {
+		return "", fmt.Errorf("配置隧道路由IPv6 sysctl失败: %w", err)
+	}
 	name := shellSingleQuote(config.ContainerName)
 	bridge := shellSingleQuote(routed.Bridge)
 	addressArg := shellSingleQuote(routed.Address)
-	l.sshClient.Execute(fmt.Sprintf("lxc stop %s", name))
+	if err := l.sshStopInstance(context.Background(), config.ContainerName); err != nil {
+		return "", fmt.Errorf("停止隧道路由IPv6实例失败: %w", err)
+	}
 	deviceCmd := fmt.Sprintf(`set -eu
 if lxc config device get %s eth1 type >/dev/null 2>&1; then
   existing_type="$(lxc config device get %s eth1 type)"
@@ -172,14 +274,16 @@ if lxc config device get %s eth1 type >/dev/null 2>&1; then
     printf 'refusing to replace existing eth1: type=%%s nictype=%%s parent=%%s ipv6.address=%%s\n' "$existing_type" "$existing_nictype" "$existing_parent" "$existing_address" >&2
     exit 1
   fi
-  lxc config device set %s eth1 ipv6.gateway true
+	  if ! lxc config device set %s eth1 ipv6.gateway auto 2>/dev/null; then
+	    lxc config device override %s eth1 nictype=routed parent=%s ipv6.address=%s ipv6.gateway=auto
+	  fi
 else
-  lxc config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s ipv6.gateway=true
-fi`, name, name, name, name, name, bridge, addressArg, name, name, bridge, addressArg)
+	  lxc config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s ipv6.gateway=auto
+fi`, name, name, name, name, name, bridge, addressArg, name, name, bridge, addressArg, name, bridge, addressArg)
 	if output, deviceErr := l.sshClient.Execute(deviceCmd); deviceErr != nil {
 		return "", fmt.Errorf("添加隧道路由IPv6网络设备失败: output=%s: %w", summarizeIPv6ProbeOutput(output), deviceErr)
 	}
-	startOutput, startErr := l.sshClient.Execute(fmt.Sprintf("lxc start %s", name))
+	startOutput, startErr := l.sshClient.Execute(fmt.Sprintf("lxc start %s", shellSingleQuote(config.ContainerName)))
 	if startErr != nil {
 		return "", fmt.Errorf("启动隧道路由IPv6实例失败: output=%s: %w", summarizeIPv6ProbeOutput(startOutput), startErr)
 	}
@@ -194,35 +298,65 @@ fi`, name, name, name, name, name, bridge, addressArg, name, name, bridge, addre
 }
 
 // configureIPv6Sysctls writes one clean, dedicated sysctl file. Forwarding is
-// global, but RA reception and NDP proxying stay on the selected uplink so a
-// routed instance cannot change unrelated interfaces.
+// global and Incus/LXD requires the global proxy_ndp switch before it can
+// start a routed NIC. The selected uplink is configured explicitly as well;
+// enabling only that interface makes the runtime reject the routed device.
 func (l *LXDProvider) configureIPv6Sysctls(interfaceName string) error {
 	if strings.TrimSpace(interfaceName) == "" || utils.SanitizeShellArg(interfaceName) != interfaceName {
 		return fmt.Errorf("无效的IPv6网络接口: %q", interfaceName)
 	}
-	quotedInterface := shellSingleQuote(interfaceName)
 	command := fmt.Sprintf(`set -eu
 conf=/etc/sysctl.d/99-oneclickvirt-ipv6.conf
 mkdir -p /etc/sysctl.d
 tmp="${conf}.tmp.$$"
 {
-  if [ -e /proc/sys/net/ipv6/conf/%s/accept_ra ]; then
-    printf 'net.ipv6.conf.%%s.accept_ra=2\n' %s
+  if [ -e "/proc/sys/net/ipv6/conf/%s/accept_ra" ]; then
+    printf 'net.ipv6.conf.%%s.accept_ra=2\n' "%s"
   fi
-  printf 'net.ipv6.conf.all.forwarding=1\n'
-  if [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then
-    printf 'net.ipv6.conf.%%s.proxy_ndp=1\n' %s
+	  printf 'net.ipv6.conf.all.forwarding=1\n'
+	  printf 'net.ipv6.conf.default.forwarding=1\n'
+  printf 'net.ipv6.conf.all.proxy_ndp=1\n'
+  if [ -e "/proc/sys/net/ipv6/conf/%s/proxy_ndp" ]; then
+    printf 'net.ipv6.conf.%%s.proxy_ndp=1\n' "%s"
   fi
 } > "$tmp"
 chmod 0644 "$tmp"
 mv "$tmp" "$conf"
-if [ -e /proc/sys/net/ipv6/conf/%s/accept_ra ]; then
+if [ -e "/proc/sys/net/ipv6/conf/%s/accept_ra" ]; then
   sysctl -w "net.ipv6.conf.%s.accept_ra=2" >/dev/null
 fi
-sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
-if [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then
+	sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
+	sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null
+sysctl -w net.ipv6.conf.all.proxy_ndp=1 >/dev/null
+if [ -e "/proc/sys/net/ipv6/conf/%s/proxy_ndp" ]; then
   sysctl -w "net.ipv6.conf.%s.proxy_ndp=1" >/dev/null
-fi`, quotedInterface, quotedInterface, quotedInterface, quotedInterface, quotedInterface, interfaceName, quotedInterface, interfaceName)
+fi`, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName)
+	_, err := l.sshClient.Execute(command)
+	return err
+}
+
+// configureRoutedIPv6Sysctls repairs both persistent and live settings used by
+// a tunnel-owned bridge without overwriting the native uplink configuration.
+func (l *LXDProvider) configureRoutedIPv6Sysctls(bridge, tunnel string) error {
+	if strings.TrimSpace(bridge) == "" || utils.SanitizeShellArg(bridge) != bridge {
+		return fmt.Errorf("无效的IPv6网桥: %q", bridge)
+	}
+	if strings.TrimSpace(tunnel) != "" && (utils.SanitizeShellArg(tunnel) != tunnel || tunnel == "lo") {
+		return fmt.Errorf("无效的IPv6隧道接口: %q", tunnel)
+	}
+	bridgeQ, tunnelQ := shellSingleQuote(bridge), shellSingleQuote(tunnel)
+	fileSuffix := bridge
+	if tunnel != "" {
+		fileSuffix += "-" + tunnel
+	}
+	confPath := shellSingleQuote("/etc/sysctl.d/99-oneclickvirt-ipv6-routed-" + fileSuffix + ".conf")
+	lines := fmt.Sprintf("net.ipv6.conf.%s.forwarding=1\\nnet.ipv6.conf.%s.proxy_ndp=1\\n", bridge, bridge)
+	runtime := fmt.Sprintf("if [ -e /proc/sys/net/ipv6/conf/%s/forwarding ]; then sysctl -w net.ipv6.conf.%s.forwarding=1 >/dev/null; fi\\nif [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then sysctl -w net.ipv6.conf.%s.proxy_ndp=1 >/dev/null; fi\\n", bridgeQ, bridgeQ, bridgeQ, bridgeQ)
+	if tunnel != "" {
+		lines += fmt.Sprintf("net.ipv6.conf.%s.forwarding=1\\nnet.ipv6.conf.%s.proxy_ndp=1\\n", tunnel, tunnel)
+		runtime += fmt.Sprintf("if [ -e /proc/sys/net/ipv6/conf/%s/forwarding ]; then sysctl -w net.ipv6.conf.%s.forwarding=1 >/dev/null; fi\\nif [ -e /proc/sys/net/ipv6/conf/%s/proxy_ndp ]; then sysctl -w net.ipv6.conf.%s.proxy_ndp=1 >/dev/null; fi\\n", tunnelQ, tunnelQ, tunnelQ, tunnelQ)
+	}
+	command := fmt.Sprintf("set -eu\\nconf=%s\\nmkdir -p /etc/sysctl.d\\ntmp=\"${conf}.tmp.$$\"\\nprintf 'net.ipv6.conf.all.forwarding=1\\nnet.ipv6.conf.default.forwarding=1\\nnet.ipv6.conf.all.proxy_ndp=1\\n%s' > \"$tmp\"\\nchmod 0644 \"$tmp\"\\nmv -f \"$tmp\" \"$conf\"\\nsysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null\\nsysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null\\nsysctl -w net.ipv6.conf.all.proxy_ndp=1 >/dev/null\\n%s", confPath, lines, runtime)
 	_, err := l.sshClient.Execute(command)
 	return err
 }
@@ -251,35 +385,11 @@ func (l *LXDProvider) configureFirewallForIPv6(ctx context.Context, interfaceNam
 
 // handleIPv6Gateway 处理IPv6网关配置
 func (l *LXDProvider) handleIPv6Gateway(ctx context.Context, interfaceName string) {
-	// 获取并删除fe80地址
-	delIPCmd := fmt.Sprintf("ip -6 addr show dev %s | awk '/inet6 fe80/ {print $2}'", interfaceName)
-	output, err := l.sshClient.Execute(delIPCmd)
-	if err == nil {
-		delIP, parseErr := utils.ParseFirstIPv6AddressOutput(output)
-		if parseErr != nil {
-			if strings.TrimSpace(output) != "" {
-				global.APP_LOG.Warn("解析待删除的链路本地IPv6地址失败", zap.Error(parseErr))
-			}
-		} else {
-			// 删除地址
-			deleteCmd := fmt.Sprintf("ip addr del %s dev %s", delIP, interfaceName)
-			l.sshClient.Execute(deleteCmd)
-
-			// 创建删除脚本
-			scriptContent := fmt.Sprintf("#!/bin/bash\nip addr del %s dev %s", delIP, interfaceName)
-			createScriptCmd := fmt.Sprintf("echo '%s' > /usr/local/bin/remove_route.sh", scriptContent)
-			l.sshClient.Execute(createScriptCmd)
-			l.sshClient.Execute("chmod 777 /usr/local/bin/remove_route.sh")
-
-			// 到crontab
-			checkCronCmd := "crontab -l | grep -q '/usr/local/bin/remove_route.sh'"
-			_, err := l.sshClient.Execute(checkCronCmd)
-			if err != nil {
-				addCronCmd := "echo '@reboot /usr/local/bin/remove_route.sh' | crontab -"
-				l.sshClient.Execute(addCronCmd)
-			}
-		}
-	}
+	// A link-local address is required by routed NICs and router
+	// advertisements. Retain it even when the default route uses a global
+	// gateway; deleting it breaks the container's IPv6 route and also leaves a
+	// destructive reboot helper behind.
+	global.APP_LOG.Debug("保留IPv6链路本地网关地址", zap.String("interface", interfaceName))
 }
 
 // configureIPv6Network 主要的IPv6网络配置函数
@@ -498,34 +608,36 @@ func (l *LXDProvider) setupPersistenceService(ctx context.Context) error {
 
 	// 下载add-ipv6.sh脚本
 	scriptPath := "/usr/local/bin/add-ipv6.sh"
-	checkScriptCmd := fmt.Sprintf("[ -f %s ]", scriptPath)
+	checkScriptCmd := fmt.Sprintf("[ -s %s ]", shellSingleQuote(scriptPath))
 	_, err := l.sshClient.Execute(checkScriptCmd)
 	if err != nil {
 		scriptUrl := cdnSuccessUrl + "https://raw.githubusercontent.com/oneclickvirt/lxd/main/scripts/add-ipv6.sh"
-		downloadCmd := fmt.Sprintf("wget '%s' -O %s", scriptUrl, scriptPath)
-		_, err := l.sshClient.Execute(downloadCmd)
-		if err != nil {
-			global.APP_LOG.Warn("下载add-ipv6.sh脚本失败", zap.Error(err))
-		} else {
-			l.sshClient.Execute(fmt.Sprintf("chmod +x %s", scriptPath))
+		tmpPath := scriptPath + ".tmp.$$"
+		downloadCmd := fmt.Sprintf("set -eu; tmp=%s; trap 'rm -f \"$tmp\"' EXIT; wget '%s' -O \"$tmp\"; chmod 0755 \"$tmp\"; mv -f \"$tmp\" %s", shellSingleQuote(tmpPath), scriptUrl, shellSingleQuote(scriptPath))
+		if _, err := l.sshClient.Execute(downloadCmd); err != nil {
+			return fmt.Errorf("下载并安装add-ipv6.sh失败: %w", err)
 		}
 	}
 
 	// 下载add-ipv6.service服务文件
 	servicePath := "/etc/systemd/system/add-ipv6.service"
-	checkServiceCmd := fmt.Sprintf("[ -f %s ]", servicePath)
+	checkServiceCmd := fmt.Sprintf("[ -s %s ]", shellSingleQuote(servicePath))
 	_, err = l.sshClient.Execute(checkServiceCmd)
 	if err != nil {
 		serviceUrl := cdnSuccessUrl + "https://raw.githubusercontent.com/oneclickvirt/lxd/main/scripts/add-ipv6.service"
-		downloadCmd := fmt.Sprintf("wget '%s' -O %s", serviceUrl, servicePath)
-		_, err := l.sshClient.Execute(downloadCmd)
-		if err != nil {
-			global.APP_LOG.Warn("下载add-ipv6.service服务文件失败", zap.Error(err))
-		} else {
-			l.sshClient.Execute(fmt.Sprintf("chmod +x %s", servicePath))
-			l.sshClient.Execute("systemctl daemon-reload")
-			l.sshClient.Execute("systemctl enable add-ipv6.service")
-			l.sshClient.Execute("systemctl start add-ipv6.service")
+		tmpPath := servicePath + ".tmp.$$"
+		downloadCmd := fmt.Sprintf("set -eu; tmp=%s; trap 'rm -f \"$tmp\"' EXIT; wget '%s' -O \"$tmp\"; chmod 0644 \"$tmp\"; mv -f \"$tmp\" %s", shellSingleQuote(tmpPath), serviceUrl, shellSingleQuote(servicePath))
+		if _, err := l.sshClient.Execute(downloadCmd); err != nil {
+			return fmt.Errorf("下载并安装add-ipv6.service失败: %w", err)
+		}
+		if _, err := l.sshClient.Execute("systemctl daemon-reload"); err != nil {
+			return fmt.Errorf("重新加载IPv6 systemd服务失败: %w", err)
+		}
+		if _, err := l.sshClient.Execute("systemctl enable add-ipv6.service"); err != nil {
+			return fmt.Errorf("启用IPv6持久化服务失败: %w", err)
+		}
+		if _, err := l.sshClient.Execute("systemctl start add-ipv6.service"); err != nil {
+			return fmt.Errorf("启动IPv6持久化服务失败: %w", err)
 		}
 	}
 
@@ -535,10 +647,14 @@ func (l *LXDProvider) setupPersistenceService(ctx context.Context) error {
 // saveIp6tablesRules 保存ip6tables规则
 func (l *LXDProvider) saveIp6tablesRules(ctx context.Context) error {
 	// 创建iptables目录
-	l.sshClient.Execute("mkdir -p /etc/iptables")
+	if _, err := l.sshClient.Execute("mkdir -p /etc/iptables"); err != nil {
+		return fmt.Errorf("创建iptables规则目录失败: %w", err)
+	}
 
 	// 创建规则文件
-	l.sshClient.Execute("touch /etc/iptables/rules.v6")
+	if _, err := l.sshClient.Execute("touch /etc/iptables/rules.v6"); err != nil {
+		return fmt.Errorf("创建IPv6规则文件失败: %w", err)
+	}
 
 	// 保存当前规则
 	_, err := l.sshClient.Execute("ip6tables-save > /etc/iptables/rules.v6")
@@ -549,9 +665,15 @@ func (l *LXDProvider) saveIp6tablesRules(ctx context.Context) error {
 	// 检查netfilter-persistent是否可用
 	_, err = l.sshClient.Execute("command -v netfilter-persistent")
 	if err == nil {
-		l.sshClient.Execute("netfilter-persistent save")
-		l.sshClient.Execute("netfilter-persistent reload")
-		l.sshClient.Execute("service netfilter-persistent restart")
+		if _, err = l.sshClient.Execute("netfilter-persistent save"); err != nil {
+			return fmt.Errorf("持久化IPv6规则失败: %w", err)
+		}
+		if _, err = l.sshClient.Execute("netfilter-persistent reload"); err != nil {
+			return fmt.Errorf("重新加载IPv6规则失败: %w", err)
+		}
+		if _, err = l.sshClient.Execute("service netfilter-persistent restart"); err != nil {
+			return fmt.Errorf("重启IPv6规则服务失败: %w", err)
+		}
 	}
 
 	return nil

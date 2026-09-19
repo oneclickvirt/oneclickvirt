@@ -299,11 +299,13 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 				// 打标为 oneclickvirt_ 前缀以匹配后续流程
 				tagCmd := fmt.Sprintf("%s tag %s %s", d.runtime.CLI, shellSingleQuote(config.Image), shellSingleQuote(imageNameWithPrefix))
-				if _, tagErr := d.sshClient.Execute(tagCmd); tagErr != nil {
+				if tagOutput, tagErr := d.sshClient.Execute(tagCmd); tagErr != nil {
 					global.APP_LOG.Warn("镜像打标失败，后续流程可能使用原始镜像名",
 						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
 						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
+						zap.String("output", utils.TruncateString(tagOutput, 500)),
 						zap.Error(tagErr))
+					return fmt.Errorf("registry镜像打标失败: %w; output: %s", tagErr, utils.TruncateString(strings.TrimSpace(tagOutput), 2000))
 				}
 				registryFallback = true // 原始镜像无持久进程，后续 docker run 需附加 keep-alive
 				updateProgress(55, "原始镜像拉取并打标完成")

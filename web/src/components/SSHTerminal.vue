@@ -15,16 +15,25 @@
         @click.stop
         @contextmenu.prevent
       >
-        <div class="menu-item" @click="handleCopy">
+        <div
+          class="menu-item"
+          @click="handleCopy"
+        >
           <span class="menu-label">{{ t('common.copy') }}</span>
           <span class="menu-shortcut">{{ copyShortcut }}</span>
         </div>
-        <div class="menu-item" @click="handlePaste">
+        <div
+          class="menu-item"
+          @click="handlePaste"
+        >
           <span class="menu-label">{{ t('common.paste') }}</span>
           <span class="menu-shortcut">{{ pasteShortcut }}</span>
         </div>
         <div class="menu-divider" />
-        <div class="menu-item" @click="handleSelectAll">
+        <div
+          class="menu-item"
+          @click="handleSelectAll"
+        >
           <span class="menu-label">{{ t('common.selectAll') }}</span>
         </div>
       </div>

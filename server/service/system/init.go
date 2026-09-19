@@ -1,11 +1,17 @@
 package system
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
-	"regexp"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -24,18 +30,21 @@ import (
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/utils"
 	"oneclickvirt/utils/dbcompat"
+	"oneclickvirt/utils/dbconnect"
 
 	configManager "oneclickvirt/config"
 
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
-	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 // InitService 初始化服务
 type InitService struct{}
+
+var databaseConfigFileMu sync.Mutex
 
 // ResolveDatabaseConfigCredentials reuses the already loaded deployment
 // password when the initialization form leaves it blank. All-in-one images can
@@ -92,80 +101,61 @@ func (s *InitService) CheckDatabaseConnection() error {
 	return nil
 }
 
-// TestDatabaseConnection 测试数据库连接（不需要全局DB连接）
-func (s *InitService) TestDatabaseConnection(config config.DatabaseConfig) error {
-	config = ResolveDatabaseConfigCredentials(config)
-	if config.Type != "mysql" && config.Type != "mariadb" {
-		return fmt.Errorf("不支持的数据库类型: %s，仅支持mysql和mariadb", config.Type)
+// TestDatabaseConnection validates the same options used at startup and recovery.
+func (s *InitService) TestDatabaseConnection(dbConfig config.DatabaseConfig) error {
+	_, err := s.DetectDatabaseConnection(dbConfig)
+	return err
+}
+
+// DetectDatabaseConnection returns only safe server metadata, never credentials.
+func (s *InitService) DetectDatabaseConnection(dbConfig config.DatabaseConfig) (dbconnect.Info, error) {
+	dbConfig = ResolveDatabaseConfigCredentials(dbConfig)
+	m, err := databaseRequestConfig(dbConfig)
+	if err != nil {
+		return dbconnect.Info{}, err
 	}
-
-	// 构建DSN，先不指定数据库名
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8mb4&parseTime=True&loc=Local&time_zone=%%27%%2B08%%3A00%%27",
-		config.Username, config.Password, config.Host, config.Port)
-
-	// 尝试连接数据库服务器（MySQL或MariaDB使用相同的连接方式）
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+	db, info, err := dbconnect.Open(context.Background(), m, &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		return fmt.Errorf("连接%s服务器失败: %v", config.Type, err)
+		return info, err
 	}
-
-	// 测试连接
-	sqlDB, err := db.DB()
-	if err != nil {
-		return fmt.Errorf("获取数据库实例失败: %v", err)
+	pool, err := db.DB()
+	if err == nil {
+		pool.Close()
 	}
-	defer sqlDB.Close()
+	return info, err
+}
 
-	if err := sqlDB.Ping(); err != nil {
-		return fmt.Errorf("数据库连接测试失败: %v", err)
+func databaseRequestConfig(dbConfig config.DatabaseConfig) (config.MysqlConfig, error) {
+	m := global.GetAppConfig().Mysql.ConnectionConfig()
+	dbConfig.Type = configManager.NormalizeDatabaseType(dbConfig.Type)
+	if !configManager.IsSupportedDatabaseType(dbConfig.Type) {
+		return m, fmt.Errorf("不支持的数据库类型: %s，仅支持mysql和mariadb", dbConfig.Type)
 	}
-
-	// 检查数据库是否存在，如果不存在则创建
-	// Validate database name to prevent SQL injection (DDL cannot use parameterized queries)
-	validDBName := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
-	if !validDBName.MatchString(config.Database) {
-		return fmt.Errorf("非法数据库名称: %s", config.Database)
+	m.Path, m.Port, m.Dbname = dbConfig.Host, strconv.Itoa(dbConfig.Port), dbConfig.Database
+	m.Username, m.Password, m.AutoCreate = dbConfig.Username, dbConfig.Password, true
+	if m.Config == "" {
+		m.Config = dbconnect.DefaultParams
 	}
-
-	var count int64
-	err = db.Raw("SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?", config.Database).Scan(&count).Error
-	if err != nil {
-		return fmt.Errorf("检查数据库是否存在失败: %v", err)
-	}
-
-	if count == 0 {
-		// 数据库不存在，尝试创建
-		err = db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci", config.Database)).Error
+	if dbConfig.SSLMode != "" {
+		params, err := url.ParseQuery(m.Config)
 		if err != nil {
-			return fmt.Errorf("创建数据库失败: %v", err)
+			return m, fmt.Errorf("数据库高级连接参数格式错误")
 		}
-		global.APP_LOG.Info("数据库不存在，已自动创建", zap.String("database", config.Database))
+		switch dbConfig.SSLMode {
+		case "true", "require", "verify-full":
+			params.Set("tls", "true")
+		case "false", "disable":
+			params.Set("tls", "false")
+		case "skip-verify", "preferred":
+			params.Set("tls", dbConfig.SSLMode)
+		default:
+			return m, fmt.Errorf("不支持的数据库 TLS 模式")
+		}
+		m.Config = params.Encode()
 	}
-
-	// 测试连接到具体数据库
-	dsnWithDB := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&time_zone=%%27%%2B08%%3A00%%27",
-		config.Username, config.Password, config.Host, config.Port, config.Database)
-
-	dbWithDB, err := gorm.Open(mysql.Open(dsnWithDB), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
-	if err != nil {
-		return fmt.Errorf("连接到数据库失败: %v", err)
-	}
-
-	sqlDBWithDB, err := dbWithDB.DB()
-	if err != nil {
-		return fmt.Errorf("获取数据库实例失败: %v", err)
-	}
-	defer sqlDBWithDB.Close()
-
-	if err := sqlDBWithDB.Ping(); err != nil {
-		return fmt.Errorf("数据库连接测试失败: %v", err)
-	}
-
-	return nil
+	return m, nil
 }
 
 // AutoMigrateTables 自动迁移所有表结构
@@ -276,8 +266,13 @@ func (s *InitService) AutoMigrateTables() error {
 // EnsureDatabase 确保数据库和表结构存在
 func (s *InitService) EnsureDatabase(dbConfig config.DatabaseConfig) error {
 	dbConfig = ResolveDatabaseConfigCredentials(dbConfig)
+	info, err := s.DetectDatabaseConnection(dbConfig)
+	if err != nil {
+		return err
+	}
+	dbConfig.Type = info.Type
 	// 更新数据库配置
-	if err := s.UpdateDatabaseConfig(dbConfig); err != nil {
+	if err := s.updateDatabaseConfig(dbConfig, info.Params); err != nil {
 		return fmt.Errorf("更新数据库配置失败: %v", err)
 	}
 
@@ -294,48 +289,111 @@ func (s *InitService) EnsureDatabase(dbConfig config.DatabaseConfig) error {
 	return nil
 }
 
-// UpdateDatabaseConfig 更新数据库配置
-// applyDatabaseConfigToGlobal 将数据库启动配置直接写入 global.APP_CONFIG，
-// 确保后续 Gorm() 调用可以读取到最新配置，不依赖 ConfigManager 回调。
-// ConfigManager 有意忽略 system/mysql 等启动级配置，因此这里必须显式同步。
-func applyDatabaseConfigToGlobal(dbConfig config.DatabaseConfig) {
-	appCfg := global.GetAppConfig()
-	appCfg.System.DbType = dbConfig.Type
-
-	if dbConfig.Type != "mysql" && dbConfig.Type != "mariadb" {
-		global.SetAppConfig(appCfg)
-		return
-	}
-	appCfg.Mysql.Path = dbConfig.Host
-	appCfg.Mysql.Port = strconv.Itoa(dbConfig.Port)
-	appCfg.Mysql.Dbname = dbConfig.Database
-	appCfg.Mysql.Username = dbConfig.Username
-	appCfg.Mysql.Password = dbConfig.Password
-	appCfg.Mysql.Config = "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27"
-	appCfg.Mysql.Prefix = ""
-	appCfg.Mysql.Singular = false
-	appCfg.Mysql.Engine = "InnoDB"
-	appCfg.Mysql.MaxIdleConns = 10
-	appCfg.Mysql.MaxOpenConns = 100
-	appCfg.Mysql.LogMode = "error"
-	appCfg.Mysql.LogZap = false
-	appCfg.Mysql.MaxLifetime = 3600
-	appCfg.Mysql.AutoCreate = true
-	global.SetAppConfig(appCfg)
-}
-
 // UpdateDatabaseConfig 更新数据库配置。数据库连接参数是启动级配置，
 // 只能持久化到 YAML，不能通过 ConfigManager 的运行时 API 修改。
 func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error {
+	return s.updateDatabaseConfig(dbConfig, "")
+}
+
+// PersistDetectedDatabaseConfig writes only the engine label and connection
+// options that the server probe actually repaired.  Startup and reconnects
+// must be able to correct a stale mysql/mariadb hint without copying a second
+// section's credentials or overwriting user tuning.  A missing config file is
+// normal for environment-only deployments and is therefore ignored.
+func (s *InitService) PersistDetectedDatabaseConfig(source config.MysqlConfig, configuredType string, info dbconnect.Info) error {
+	actualType := strings.ToLower(strings.TrimSpace(info.Type))
+	if actualType != "mysql" && actualType != "mariadb" {
+		return fmt.Errorf("数据库探测返回了不支持的类型: %s", info.Type)
+	}
+	configuredType = strings.ToLower(strings.TrimSpace(configuredType))
+	// A reconnect may finish after another request has switched the endpoint.
+	// Never let that stale probe rewrite the newer deployment configuration.
+	current := global.GetAppConfig().Mysql
+	if strings.TrimSpace(current.Path) != strings.TrimSpace(source.Path) ||
+		strings.TrimSpace(current.Port) != strings.TrimSpace(source.Port) ||
+		current.Dbname != source.Dbname || current.Username != source.Username ||
+		current.Password != source.Password ||
+		(current.Config != source.Config && current.Config != info.Params) {
+		return nil
+	}
+
+	databaseConfigFileMu.Lock()
+	defer databaseConfigFileMu.Unlock()
+
+	configPath := databaseConfigPath()
+	configData, err := os.ReadFile(configPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil // DB_* environment variables are the complete deployment config.
+	}
+	if err != nil {
+		return fmt.Errorf("读取数据库配置文件失败: %w", err)
+	}
+
+	var node yaml.Node
+	if err := yaml.Unmarshal(configData, &node); err != nil {
+		return fmt.Errorf("解析数据库配置文件失败: %w", err)
+	}
+	section := detectMysqlKey(&node)
+	changed := false
+	if configuredType != actualType || !yamlHasPath(&node, "system.db-type") || yamlScalarValue(&node, "system.db-type") != actualType {
+		if err := updateYAMLNodeValue(&node, "system.db-type", actualType); err != nil {
+			return fmt.Errorf("更新数据库类型失败: %w", err)
+		}
+		changed = true
+	}
+	if len(info.Repairs) != 0 && strings.TrimSpace(info.Params) != "" && yamlScalarValue(&node, section+".config") != info.Params {
+		if err := updateYAMLNodeValue(&node, section+".config", info.Params); err != nil {
+			return fmt.Errorf("更新数据库兼容参数失败: %w", err)
+		}
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+
+	newConfigData, err := yaml.Marshal(&node)
+	if err != nil {
+		return fmt.Errorf("序列化数据库配置失败: %w", err)
+	}
+	// Keep one recoverable copy before an automatic repair.  Do not replace an
+	// existing backup on every heartbeat/reconnect; it remains the last known
+	// pre-repair configuration.
+	backupPath := configPath + ".backup"
+	if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
+		if err := os.WriteFile(backupPath, configData, 0600); err != nil {
+			return fmt.Errorf("备份数据库配置失败: %w", err)
+		}
+		_ = os.Chmod(backupPath, 0600)
+	}
+	if err := writeDatabaseConfigFile(configPath, newConfigData); err != nil {
+		return fmt.Errorf("写入修复后的数据库配置失败: %w", err)
+	}
+
+	// Keep Viper's in-memory precedence aligned with the atomic file update.
+	// The global copy was already reconciled by GormMysqlWithInfo; this avoids a
+	// delayed fsnotify event reintroducing the stale hint during startup.
+	if global.APP_VP != nil {
+		global.APP_VP.Set("system.db-type", actualType)
+		if len(info.Repairs) != 0 && strings.TrimSpace(info.Params) != "" {
+			global.APP_VP.Set(section+".config", info.Params)
+		}
+	}
+	return nil
+}
+
+func (s *InitService) updateDatabaseConfig(dbConfig config.DatabaseConfig, detectedParams string) error {
+	databaseConfigFileMu.Lock()
+	defer databaseConfigFileMu.Unlock()
 	dbConfig = ResolveDatabaseConfigCredentials(dbConfig)
-	if dbConfig.Type != "mysql" && dbConfig.Type != "mariadb" {
+	dbConfig.Type = configManager.NormalizeDatabaseType(dbConfig.Type)
+	if !configManager.IsSupportedDatabaseType(dbConfig.Type) {
 		return fmt.Errorf("不支持的数据库类型: %s，仅支持mysql和mariadb", dbConfig.Type)
 	}
 
 	// 数据库连接参数属于系统级启动配置。ConfigManager.UpdateConfig 明确禁止
 	// 修改这些键，而且它可能仍绑定在切换前的数据库上，因此初始化流程必须直接
 	// 更新 config.yaml，不能通过运行时配置 API 绕过该安全边界。
-	configPath := "./config.yaml"
+	configPath := databaseConfigPath()
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("读取配置文件失败: %v", err)
@@ -372,6 +430,23 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 	}
 
 	for _, update := range updates {
+		// Do not overwrite user tuning, timeout or TLS options with form defaults.
+		if strings.HasPrefix(update.key, mysqlKey+".") {
+			field := strings.TrimPrefix(update.key, mysqlKey+".")
+			switch field {
+			case "path", "port", "db-name", "username", "password":
+			case "config":
+				if detectedParams != "" {
+					update.value = detectedParams
+				} else if yamlHasPath(&node, update.key) {
+					continue
+				}
+			default:
+				if yamlHasPath(&node, update.key) {
+					continue
+				}
+			}
+		}
 		if err := updateYAMLNodeValue(&node, update.key, update.value); err != nil {
 			return fmt.Errorf("更新配置 %s 失败: %v", update.key, err)
 		}
@@ -392,7 +467,7 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 	}
 
 	// 写入新配置
-	if err := os.WriteFile(configPath, newConfigData, 0644); err != nil {
+	if err := writeDatabaseConfigFile(configPath, newConfigData); err != nil {
 		return fmt.Errorf("写入配置文件失败: %v", err)
 	}
 
@@ -403,7 +478,9 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 
 	// 直接更新启动级内存配置。此处不能调用 ConfigManager.ReloadFromYAML，
 	// 否则会把业务配置写入切换前的数据库，甚至在其 DB 句柄为空时触发 panic。
-	applyDatabaseConfigToGlobal(dbConfig)
+	if err := loadDatabaseSettings(newConfigData); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -569,94 +646,183 @@ func setYAMLNodeValue(node *yaml.Node, value interface{}) error {
 	return nil
 }
 
-// ReinitializeDatabase 重新初始化数据库连接
+// ReinitializeDatabase uses the same decoding and connection path as startup.
 func (s *InitService) ReinitializeDatabase() error {
-	// 读取配置文件获取最新的数据库配置
-	configPath := "./config.yaml"
-	configData, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(databaseConfigPath())
 	if err != nil {
-		return fmt.Errorf("读取配置文件失败: %v", err)
+		return fmt.Errorf("读取配置文件失败: %w", err)
 	}
-
-	var c map[string]interface{}
-	if err := yaml.Unmarshal(configData, &c); err != nil {
-		return fmt.Errorf("解析配置文件失败: %v", err)
+	cfg, err := readDatabaseSettings(data)
+	if err != nil {
+		return err
 	}
-
-	// 获取 MySQL 配置（兼容 mysql 和 mariadb 两种键名）
-	mysqlConfig, ok := c["mysql"].(map[string]interface{})
-	if !ok {
-		// 向后兼容：部分旧版 install_full.sh 可能写入 mariadb 键名
-		mysqlConfig, ok = c["mariadb"].(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("MySQL配置不存在")
-		}
-		global.APP_LOG.Warn("配置文件使用 'mariadb' 键名，已自动兼容；建议将键名改为 'mysql' 以匹配规范")
-	}
-
-	// 提取配置信息
-	host, _ := mysqlConfig["path"].(string)
-	dbname, _ := mysqlConfig["db-name"].(string)
-	username, _ := mysqlConfig["username"].(string)
-	password, _ := mysqlConfig["password"].(string)
-	config, _ := mysqlConfig["config"].(string)
-
-	// 记录读取到的数据库配置，用于调试
-	global.APP_LOG.Debug("从配置文件读取到的数据库配置",
-		zap.String("host", host),
-		zap.String("dbname", dbname),
-		zap.String("username", username))
-
-	// 处理端口字段，支持字符串和数字两种类型
-	var portStr string
-	if portVal, exists := mysqlConfig["port"]; exists {
-		switch v := portVal.(type) {
-		case string:
-			portStr = v
-		case int:
-			portStr = fmt.Sprintf("%d", v)
-		case float64:
-			portStr = fmt.Sprintf("%.0f", v)
-		default:
-			portStr = "3306" // 默认端口
-		}
-	} else {
-		portStr = "3306" // 默认端口
-	}
-
-	// 如果端口为空，设置默认值
-	if portStr == "" {
-		portStr = "3306"
-	}
-
-	if host == "" || username == "" || dbname == "" {
-		return fmt.Errorf("数据库配置不完整")
-	}
-
-	// 构建DSN并连接数据库
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?%s",
-		username, password, host, portStr, dbname, config)
-
-	mysqlDriverConfig := mysql.Config{
-		DSN:                       dsn,
-		DefaultStringSize:         191,
-		SkipInitializeWithVersion: false,
-	}
-
-	gormConfig := &gorm.Config{
+	m := cfg.Mysql.ConnectionConfig()
+	db, info, err := dbconnect.Open(context.Background(), m, &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
-	}
-
-	db, err := gorm.Open(mysql.New(mysqlDriverConfig), gormConfig)
+	})
 	if err != nil {
-		return fmt.Errorf("重新连接数据库失败: %v", err)
+		return fmt.Errorf("重新连接数据库失败: %w", err)
 	}
-
-	// 更新全局数据库连接
+	configuredType := cfg.System.DbType
+	cfg.System.DbType, cfg.Mysql.Config = info.Type, info.Params
+	global.UpdateAppConfig(func(current *configManager.Server) {
+		current.Mysql, current.System.DbType = cfg.Mysql, cfg.System.DbType
+	})
+	// Reinitialization is also a configuration entry point. Persist the engine
+	// detected by the validated connection and any compatibility parameters so
+	// the next process start does not repeat a stale MySQL/MariaDB mismatch.
+	if repairErr := s.PersistDetectedDatabaseConfig(m, configuredType, info); repairErr != nil && global.APP_LOG != nil {
+		global.APP_LOG.Warn("数据库已重连，但自动持久化引擎兼容修复失败", zap.Error(repairErr))
+	}
+	// The initialization page can replace the endpoint while the process is
+	// already serving requests. Publish the replacement to the connection
+	// manager at the same point as APP_DB, so the next heartbeat cannot mistake
+	// the retired pool for the current endpoint. The manager closes its own old
+	// pool; if startup was running without a manager, close the previous global
+	// pool here instead.
+	previousDB := global.APP_DB
 	global.APP_DB = db
-	global.APP_LOG.Info("数据库连接已更新")
-
+	var managedPrevious *gorm.DB
+	if adopter := global.APP_DB_CONNECTION_ADOPTER; adopter != nil {
+		managedPrevious = adopter.AdoptConnection(db)
+	}
+	if previousDB != nil && previousDB != db && previousDB != managedPrevious {
+		if previousPool, poolErr := previousDB.DB(); poolErr == nil {
+			if closeErr := previousPool.Close(); closeErr != nil && global.APP_LOG != nil {
+				global.APP_LOG.Warn("关闭旧数据库连接失败", zap.Error(closeErr))
+			}
+		}
+	}
+	if global.APP_LOG != nil {
+		global.APP_LOG.Info("数据库连接已更新", zap.String("type", info.Type),
+			zap.String("version", info.Version), zap.Strings("repairs", info.Repairs))
+	}
 	return nil
+}
+
+func databaseConfigPath() string {
+	if global.APP_VP != nil && global.APP_VP.ConfigFileUsed() != "" {
+		return global.APP_VP.ConfigFileUsed()
+	}
+	for _, name := range []string{"config.yaml", "config.yml"} {
+		if _, err := os.Stat(name); err == nil {
+			return name
+		}
+	}
+	return "config.yaml"
+}
+
+func readDatabaseSettings(data []byte) (configManager.Server, error) {
+	var cfg configManager.Server
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
+		return cfg, fmt.Errorf("解析配置文件失败: %w", err)
+	}
+	if len(v.GetStringMap("mysql")) == 0 && len(v.GetStringMap("mariadb")) == 0 && os.Getenv("DB_HOST") == "" {
+		return cfg, fmt.Errorf("数据库配置不完整")
+	}
+	v.SetDefault("mysql.auto-create", true)
+	if err := v.Unmarshal(&cfg); err != nil {
+		return cfg, fmt.Errorf("解析配置文件失败: %w", err)
+	}
+	if err := configManager.DecodeDatabase(v, &cfg); err != nil {
+		return cfg, fmt.Errorf("解析数据库配置失败: %w", err)
+	}
+	return cfg, nil
+}
+
+func loadDatabaseSettings(data []byte) error {
+	cfg, err := readDatabaseSettings(data)
+	if err != nil {
+		return err
+	}
+	global.UpdateAppConfig(func(current *configManager.Server) {
+		current.Mysql, current.System.DbType = cfg.Mysql, cfg.System.DbType
+	})
+	return nil
+}
+
+func yamlHasPath(node *yaml.Node, path string) bool {
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+	for _, part := range strings.Split(path, ".") {
+		var child *yaml.Node
+		for i := 0; node.Kind == yaml.MappingNode && i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == part {
+				child = node.Content[i+1]
+				break
+			}
+		}
+		if child == nil {
+			return false
+		}
+		node = child
+	}
+	return true
+}
+
+func yamlScalarValue(node *yaml.Node, path string) string {
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+	for _, part := range strings.Split(path, ".") {
+		var child *yaml.Node
+		for i := 0; node.Kind == yaml.MappingNode && i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == part {
+				child = node.Content[i+1]
+				break
+			}
+		}
+		if child == nil {
+			return ""
+		}
+		node = child
+	}
+	if node.Kind != yaml.ScalarNode {
+		return ""
+	}
+	return node.Value
+}
+
+func writeDatabaseConfigFile(path string, data []byte) error {
+	// No-db images symlink /app/config.yaml into persistent storage. Replacing
+	// that symlink would appear to save successfully, then lose the change on
+	// container replacement. Atomically replace its destination instead.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	path = resolved
+	f, err := os.CreateTemp(filepath.Dir(path), ".database-config-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if _, err = f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(name, path); err == nil {
+		return nil
+	}
+	// Docker may bind-mount the individual YAML file. It cannot be replaced by
+	// rename; preserve that mount and write it in place only for this errno.
+	if errors.Is(err, syscall.EBUSY) {
+		if err = os.WriteFile(path, data, 0600); err == nil {
+			err = os.Chmod(path, 0600)
+		}
+	}
+	return err
 }
 
 // reloadConfig 重新加载配置文件到 global.APP_CONFIG
@@ -665,7 +831,7 @@ func (s *InitService) ReinitializeDatabase() error {
 // 2. 通过 ConfigManager 回调同步到 global.APP_CONFIG
 // 3. 清除配置修改标志（因为现在 YAML 是最新的）
 func (s *InitService) reloadConfig() error {
-	configPath := "./config.yaml"
+	configPath := databaseConfigPath()
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("读取配置文件失败: %v", err)
@@ -682,6 +848,11 @@ func (s *InitService) reloadConfig() error {
 	if err := yaml.Unmarshal(configData, &tempConfig); err != nil {
 		return fmt.Errorf("解析配置文件失败: %v", err)
 	}
+	databaseCfg, err := readDatabaseSettings(configData)
+	if err != nil {
+		return err
+	}
+	tempConfig.Mysql, tempConfig.System.DbType = databaseCfg.Mysql, databaseCfg.System.DbType
 
 	// 使用 ConfigManager 重新加载配置
 	// 这样可以确保：

@@ -50,7 +50,7 @@ func (phc *ProviderHealthChecker) detectProxmoxStoragePath(client *ssh.Client, s
 	}
 
 	// 使用pvesm命令查询存储池路径
-	cmd := fmt.Sprintf("pvesm path %s: 2>/dev/null | head -1", storagePoolName)
+	cmd := fmt.Sprintf("pvesm path %s 2>/dev/null | head -1", storageShellQuote(storagePoolName+":"))
 	output, err := phc.executeSSHCommand(client, cmd)
 	if err == nil && utils.CleanCommandOutput(output) != "" {
 		path := utils.CleanCommandOutput(output)
@@ -68,7 +68,7 @@ func (phc *ProviderHealthChecker) detectProxmoxStoragePath(client *ssh.Client, s
 	}
 
 	// 如果pvesm命令失败，尝试从配置文件读取
-	cmd = fmt.Sprintf("grep -A 10 \"^%s:\" /etc/pve/storage.cfg 2>/dev/null | grep -E '^\\s+path' | awk '{print $2}' | head -1", storagePoolName)
+	cmd = fmt.Sprintf("grep -A 10 -- %s /etc/pve/storage.cfg 2>/dev/null | grep -E '^\\s+path' | awk '{print $2}' | head -1", storageShellQuote("^"+storagePoolName+":"))
 	output, err = phc.executeSSHCommand(client, cmd)
 	if err == nil && utils.CleanCommandOutput(output) != "" {
 		path := utils.CleanCommandOutput(output)

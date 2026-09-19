@@ -511,14 +511,14 @@ pub async fn update_monitor(
 
     let new_set: HashSet<String> = interfaces.iter().cloned().collect();
     for old in old_interfaces {
-        if !new_set.contains(&old) {
-            if let Err(err) = if use_ipt {
+        if !new_set.contains(&old)
+            && let Err(err) = if use_ipt {
                 ipt::remove_counter(id, &old)
             } else {
                 nft::remove_counter(id, &old)
-            } {
-                warn!(id, interface = old, error = %err.message, "failed to remove old counter rules after update");
             }
+        {
+            warn!(id, interface = old, error = %err.message, "failed to remove old counter rules after update");
         }
     }
 
@@ -835,8 +835,7 @@ pub async fn batch_info_monitor(
         ));
     }
 
-    let placeholders = std::iter::repeat("?")
-        .take(ids.len())
+    let placeholders = std::iter::repeat_n("?", ids.len())
         .collect::<Vec<_>>()
         .join(",");
     let sql = format!(

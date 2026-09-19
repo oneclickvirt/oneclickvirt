@@ -46,6 +46,13 @@ func (l *LXDPortMapping) CreatePortMapping(ctx context.Context, req *portmapping
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
+	instance, err := l.getInstance(req.InstanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get instance: %v", err)
+	}
+	if instance.ProviderID != req.ProviderID {
+		return nil, fmt.Errorf("instance does not belong to provider")
+	}
 
 	// 分配端口
 	hostPort := req.HostPort
@@ -72,12 +79,18 @@ func (l *LXDPortMapping) CreatePortMapping(ctx context.Context, req *portmapping
 		Protocol:      req.Protocol,
 		HostPort:      hostPort,
 		GuestPort:     req.GuestPort,
+		HostPortEnd:   req.HostPortEnd,
+		GuestPortEnd:  req.GuestPortEnd,
+		PortCount:     normalizedPortCount(req.PortCount),
 		HostIP:        providerInfo.Endpoint,
 		PublicIP:      l.getPublicIP(providerInfo),
 		IPv6Address:   req.IPv6Address,
+		IPv6Enabled:   req.IPv6Enabled || req.IPv6Address != "",
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: l.determineMappingMethod(req, providerInfo),
+		MappingType:   defaultMappingType(req.MappingType),
+		InternalHost:  req.InternalHost,
 		IsSSH:         isSSH,
 		IsAutomatic:   req.HostPort == 0,
 	}
@@ -108,15 +121,15 @@ func (l *LXDPortMapping) DeletePortMapping(ctx context.Context, req *portmapping
 		zap.String("instanceId", req.InstanceID))
 
 	// 获取端口映射信息
-	var portModel provider.Port
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
-		return fmt.Errorf("port mapping not found: %v", err)
+	portModel, err := l.BaseProvider.LoadOwnedPort(req.ID, req.InstanceID, 0)
+	if err != nil {
+		return err
 	}
 
 	// LXD proxy device的删除由provider层处理，这里只管理数据库记录
 
 	// 从数据库删除
-	if err := global.APP_DB.Delete(&portModel).Error; err != nil {
+	if err := global.APP_DB.Delete(portModel).Error; err != nil {
 		return fmt.Errorf("failed to delete port mapping from database: %v", err)
 	}
 
@@ -129,9 +142,9 @@ func (l *LXDPortMapping) UpdatePortMapping(ctx context.Context, req *portmapping
 	global.APP_LOG.Info("Updating LXD port mapping", zap.Uint("id", req.ID))
 
 	// 获取现有端口映射
-	var portModel provider.Port
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
-		return nil, fmt.Errorf("port mapping not found: %v", err)
+	portModel, err := l.BaseProvider.LoadOwnedPort(req.ID, req.InstanceID, 0)
+	if err != nil {
+		return nil, err
 	}
 
 	// 获取Provider信息
@@ -144,27 +157,61 @@ func (l *LXDPortMapping) UpdatePortMapping(ctx context.Context, req *portmapping
 	// 这里只更新数据库记录
 
 	// 更新数据库记录
+	if req.Protocol == "" {
+		req.Protocol = portModel.Protocol
+	}
+	if req.Status == "" {
+		req.Status = portModel.Status
+	}
+	if req.MappingMethod == "" {
+		req.MappingMethod = portModel.MappingMethod
+	}
+	if req.MappingType == "" {
+		req.MappingType = portModel.MappingType
+	}
+	if req.PortCount == 0 {
+		req.PortCount = normalizedPortCount(portModel.PortCount)
+	}
+	if req.HostPortEnd == 0 && portModel.HostPortEnd > 0 {
+		req.HostPortEnd = portModel.HostPortEnd
+	}
+	if req.GuestPortEnd == 0 && portModel.GuestPortEnd > 0 {
+		req.GuestPortEnd = portModel.GuestPortEnd
+	}
+	if req.IPv6Address == "" && portModel.IPv6Address != "" {
+		req.IPv6Address = portModel.IPv6Address
+	}
+	if err := l.validateUpdateRequest(req); err != nil {
+		return nil, err
+	}
 	updates := map[string]interface{}{
-		"host_port":   req.HostPort,
-		"guest_port":  req.GuestPort,
-		"protocol":    req.Protocol,
-		"description": req.Description,
-		"status":      req.Status,
+		"host_port":      req.HostPort,
+		"host_port_end":  req.HostPortEnd,
+		"guest_port":     req.GuestPort,
+		"guest_port_end": req.GuestPortEnd,
+		"port_count":     normalizedPortCount(req.PortCount),
+		"protocol":       req.Protocol,
+		"description":    req.Description,
+		"status":         req.Status,
+		"ipv6_enabled":   req.IPv6Enabled,
+		"ipv6_address":   req.IPv6Address,
+		"mapping_method": req.MappingMethod,
+		"mapping_type":   req.MappingType,
+		"internal_host":  req.InternalHost,
 	}
 
-	if err := global.APP_DB.Model(&portModel).Updates(updates).Error; err != nil {
+	if err := global.APP_DB.Model(portModel).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to update port mapping: %v", err)
 	}
 
 	// 重新获取更新后的记录
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
+	if err := global.APP_DB.First(portModel, req.ID).Error; err != nil {
 		return nil, fmt.Errorf("failed to get updated port mapping: %v", err)
 	}
 
-	result := l.BaseProvider.FromDBModel(&portModel)
+	result := l.BaseProvider.FromDBModel(portModel)
 	result.HostIP = providerInfo.Endpoint
 	result.PublicIP = l.getPublicIP(providerInfo)
-	result.MappingMethod = "lxd-proxy"
 
 	global.APP_LOG.Info("LXD port mapping updated successfully", zap.Uint("id", req.ID))
 	return result, nil
@@ -177,13 +224,18 @@ func (l *LXDPortMapping) ListPortMappings(ctx context.Context, instanceID string
 		return nil, fmt.Errorf("failed to list port mappings: %v", err)
 	}
 
+	providerCache := make(map[uint]*provider.Provider)
 	var results []*portmapping.PortMappingResult
 	for _, port := range ports {
 		result := l.BaseProvider.FromDBModel(&port)
-		result.MappingMethod = "lxd-proxy"
 
 		// 获取Provider信息以填充IP地址
-		if providerInfo, err := l.getProvider(port.ProviderID); err == nil {
+		providerInfo, ok := providerCache[port.ProviderID]
+		if !ok {
+			providerInfo, _ = l.getProvider(port.ProviderID)
+			providerCache[port.ProviderID] = providerInfo
+		}
+		if providerInfo != nil {
 			result.HostIP = providerInfo.Endpoint
 			result.PublicIP = l.getPublicIP(providerInfo)
 		}
@@ -205,10 +257,42 @@ func (l *LXDPortMapping) validateRequest(req *portmapping.PortMappingRequest) er
 	if req.HostPort < 0 || req.HostPort > 65535 {
 		return fmt.Errorf("invalid host port: %d", req.HostPort)
 	}
+	if req.PortCount == 0 {
+		req.PortCount = 1
+	}
+	if req.HostPort == 0 && req.PortCount > 1 {
+		return fmt.Errorf("automatic allocation of port ranges is not supported by the legacy adapter")
+	}
+	if req.HostPort == 0 {
+		req.HostPortEnd = 0
+	} else if err := portmapping.ValidateMappingRange(req.HostPort, req.HostPortEnd, req.GuestPort, req.GuestPortEnd, req.PortCount); err != nil {
+		return err
+	}
 	if req.Protocol == "" {
 		req.Protocol = "tcp"
 	}
 	return portmapping.ValidateProtocol(req.Protocol)
+}
+
+func (l *LXDPortMapping) validateUpdateRequest(req *portmapping.UpdatePortMappingRequest) error {
+	if err := portmapping.ValidateProtocol(req.Protocol); err != nil {
+		return err
+	}
+	return portmapping.ValidateMappingRange(req.HostPort, req.HostPortEnd, req.GuestPort, req.GuestPortEnd, req.PortCount)
+}
+
+func normalizedPortCount(count int) int {
+	if count <= 0 {
+		return 1
+	}
+	return count
+}
+
+func defaultMappingType(mappingType string) string {
+	if mappingType == "" {
+		return "node"
+	}
+	return mappingType
 }
 
 // getInstance 获取实例信息

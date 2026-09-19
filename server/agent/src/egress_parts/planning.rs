@@ -20,14 +20,13 @@ fn collect_nft_counters(value: &Value, counters: &mut HashMap<String, u64>) {
             .iter()
             .for_each(|value| collect_nft_counters(value, counters)),
         Value::Object(object) => {
-            if let Some(Value::Object(counter)) = object.get("counter") {
-                if let (Some(name), Some(bytes)) = (
+            if let Some(Value::Object(counter)) = object.get("counter")
+                && let (Some(name), Some(bytes)) = (
                     counter.get("name").and_then(Value::as_str),
                     counter.get("bytes").and_then(Value::as_u64),
                 ) {
                     counters.insert(name.to_string(), bytes);
                 }
-            }
             object
                 .values()
                 .for_each(|value| collect_nft_counters(value, counters));

@@ -136,6 +136,10 @@ func (p *ProxmoxProvider) imageExists(imageName string) bool {
 
 // downloadImageToRemote 在远程服务器上下载镜像
 func (p *ProxmoxProvider) downloadImageToRemote(ctx context.Context, imageURL, imageName string) (string, error) {
+	imageName = strings.TrimSpace(imageName)
+	if imageName == "" || imageName == "." || imageName == ".." || strings.ContainsAny(imageName, "/\\\x00") {
+		return "", fmt.Errorf("invalid Proxmox image name %q", imageName)
+	}
 	// 根据文件类型确定下载目录
 	var targetDir string
 	if strings.HasSuffix(imageName, ".iso") {
@@ -261,7 +265,7 @@ func (p *ProxmoxProvider) prepareImage(ctx context.Context, imageName, instanceT
 			zap.String("image", imageName))
 
 		// 检查VM ISO文件是否存在
-		checkCmd := fmt.Sprintf("ls /var/lib/vz/template/iso/ | grep -i %s", imageName)
+		checkCmd := fmt.Sprintf("ls /var/lib/vz/template/iso/ | grep -F -i -- %s", shellSingleQuote(imageName))
 
 		output, err := p.sshClient.Execute(checkCmd)
 		if err != nil || strings.TrimSpace(output) == "" {

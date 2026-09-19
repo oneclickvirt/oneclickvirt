@@ -2,6 +2,7 @@ package initialize
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"oneclickvirt/global"
 	databaseConfig "oneclickvirt/model/config"
 
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -23,6 +25,37 @@ func TestDatabaseManagerNotifiesConnectionRestoredHandler(t *testing.T) {
 	dm.notifyConnectionRestored(wantDB)
 	if gotDB != wantDB {
 		t.Fatalf("handler received %p, want %p", gotDB, wantDB)
+	}
+}
+
+func TestDatabaseManagerAdoptsValidatedConnectionAndClosesPreviousPool(t *testing.T) {
+	oldDB, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:database-manager-old-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open old database: %v", err)
+	}
+	newDB, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:database-manager-new-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open new database: %v", err)
+	}
+	newSQL, err := newDB.DB()
+	if err != nil {
+		t.Fatalf("get new database pool: %v", err)
+	}
+	t.Cleanup(func() { _ = newSQL.Close() })
+
+	dm := &DatabaseManager{db: oldDB}
+	if previous := dm.AdoptConnection(newDB); previous != oldDB {
+		t.Fatalf("AdoptConnection returned %p, want old pool %p", previous, oldDB)
+	}
+	if dm.GetDB() != newDB {
+		t.Fatal("manager did not publish the adopted connection")
+	}
+	oldSQL, err := oldDB.DB()
+	if err != nil {
+		t.Fatalf("get old database pool: %v", err)
+	}
+	if err := oldSQL.Ping(); err == nil {
+		t.Fatal("old database pool remained usable after adoption")
 	}
 }
 

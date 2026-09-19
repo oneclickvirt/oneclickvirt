@@ -1,0 +1,45 @@
+name: Database compatibility
+
+on:
+  push:
+    paths: ['server/**', 'deploy/**', 'scripts/**', 'Dockerfile', 'docker-compose.yaml', '.github/workflows/database-compat.yml']
+  pull_request:
+    paths: ['server/**', 'deploy/**', 'scripts/**', 'Dockerfile', 'docker-compose.yaml', '.github/workflows/database-compat.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: database-compat-${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  real-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['mysql:8.0', 'mysql:8.4', 'mysql:9', 'mariadb:10.11', 'mariadb:11.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Unit and installation safety regressions
+        run: |
+          (cd server && go test -count=1 -race ./config ./core ./global ./utils/dbconnect ./utils/dbcompat ./service/system ./initialize/...)
+          bash scripts/tests/all_in_one_entrypoint_test.sh
+          bash scripts/tests/database_config_apply_test.sh
+          bash scripts/tests/database_install_safety_test.sh
+      - name: Real engine, wrong config, initialization and persistent restart
+        env:
+          OCV_TEST_DB_IMAGES: ${{ matrix.image }}
+        run: |
+          bash scripts/tests/database_compat_integration_test.sh
+          bash scripts/tests/embedded_database_integration_test.sh

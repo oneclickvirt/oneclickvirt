@@ -28,6 +28,13 @@ func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage strin
 		"status":       status,
 		"completed_at": &now,
 	}
+	// A terminal successful task is complete even when the last optional
+	// post-processing step reported 90/98%.  Leaving that value behind makes
+	// the UI show a finished task as permanently in progress and causes polling
+	// clients to wait forever.  Failed tasks keep their last diagnostic progress.
+	if success {
+		updates["progress"] = 100
+	}
 	if !success && errorMessage != "" {
 		updates["error_message"] = errorMessage
 	}

@@ -3,6 +3,7 @@ package lxd
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -128,105 +129,19 @@ func (l *LXDProvider) configureNetworkLimits(instanceName string, networkConfig 
 
 // setIPAddressBinding 设置IP地址绑定
 func (l *LXDProvider) setIPAddressBinding(instanceName, instanceIP string) error {
-	// 清理IP地址，移除接口名称和其他信息
-	cleanIP := strings.TrimSpace(instanceIP)
-	// 提取纯IP地址（移除接口名称等）
-	if strings.Contains(cleanIP, "(") {
-		cleanIP = strings.TrimSpace(strings.Split(cleanIP, "(")[0])
+	if l.sshClient == nil {
+		return fmt.Errorf("SSH client不可用，无法固定实例IP地址")
 	}
-	// 移除可能的端口号和其他后缀
-	if strings.Contains(cleanIP, "/") {
-		cleanIP = strings.Split(cleanIP, "/")[0]
-	}
-
-	global.APP_LOG.Debug("设置IP地址绑定",
-		zap.String("instanceName", instanceName),
-		zap.String("originalIP", instanceIP),
-		zap.String("cleanIP", cleanIP))
-
-	// 获取实例的网络接口列表，智能选择接口
-	interfaceListCmd := fmt.Sprintf("lxc config device list %s", shellSingleQuote(instanceName))
-	output, err := l.sshClient.Execute(interfaceListCmd)
-
-	var targetInterface string
-	if err == nil {
-		// 从输出中找到网络接口
-		lines := strings.Split(output, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "eth0" || line == "eth0:" || strings.HasPrefix(line, "eth0 ") {
-				targetInterface = "eth0"
-				break
-			} else if line == "enp5s0" || line == "enp5s0:" || strings.HasPrefix(line, "enp5s0 ") {
-				targetInterface = "enp5s0"
-				break
-			}
-		}
-	}
-
-	// 如果没有找到网络接口，默认尝试eth0
-	if targetInterface == "" {
-		targetInterface = "eth0"
-		global.APP_LOG.Warn("未找到网络接口，默认使用eth0", zap.String("instanceName", instanceName))
-	}
-
-	// 尝试设置IP地址绑定（优先 key=value 新语法，失败回退 legacy）
-	cmd := fmt.Sprintf("lxc config device set %s %s ipv4.address=%s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
-	_, err = l.sshClient.Execute(cmd)
-	if err != nil {
-		legacyCmd := fmt.Sprintf("lxc config device set %s %s ipv4.address %s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
-		if _, legacyErr := l.sshClient.Execute(legacyCmd); legacyErr == nil {
-			global.APP_LOG.Debug("IP地址绑定通过legacy语法成功",
-				zap.String("instanceName", instanceName),
-				zap.String("interface", targetInterface),
-				zap.String("cleanIP", cleanIP))
-			return nil
-		}
-
-		global.APP_LOG.Debug("device set失败，尝试override方式",
-			zap.String("interface", targetInterface),
-			zap.Error(err))
-
-		// 尝试override方式
-		cmd = fmt.Sprintf("lxc config device override %s %s ipv4.address=%s", shellSingleQuote(instanceName), shellSingleQuote(targetInterface), shellSingleQuote(cleanIP))
-		_, err = l.sshClient.Execute(cmd)
-		if err != nil {
-			// 如果不是eth0，最后尝试eth0
-			if targetInterface != "eth0" {
-				global.APP_LOG.Debug("主接口override失败，尝试eth0",
-					zap.String("interface", targetInterface),
-					zap.Error(err))
-
-				cmd = fmt.Sprintf("lxc config device override %s eth0 ipv4.address=%s", shellSingleQuote(instanceName), shellSingleQuote(cleanIP))
-				_, err = l.sshClient.Execute(cmd)
-				if err != nil {
-					global.APP_LOG.Warn("IP地址绑定失败，继续执行",
-						zap.String("finalCommand", cmd),
-						zap.Error(err))
-					return nil // 不阻止流程继续
-				}
-				targetInterface = "eth0"
-			} else {
-				global.APP_LOG.Warn("IP地址绑定失败，继续执行",
-					zap.String("finalCommand", cmd),
-					zap.Error(err))
-				return nil // 不阻止流程继续
-			}
-		}
-	}
-
-	global.APP_LOG.Debug("IP地址绑定成功",
-		zap.String("instanceName", instanceName),
-		zap.String("interface", targetInterface),
-		zap.String("cleanIP", cleanIP))
-
-	return nil
+	return utils.SetLXCIPv4Binding(l.sshClient, "lxc", instanceName, instanceIP)
 }
 
 // getBandwidthFromProvider 从Provider配置获取带宽设置，并结合用户等级限制
 func (l *LXDProvider) getBandwidthFromProvider(userLevel int) (inSpeed, outSpeed int, err error) {
 	// 获取Provider信息
 	var providerInfo providerModel.Provider
+	if global.APP_DB == nil {
+		return 300, 300, nil
+	}
 	if err := global.APP_DB.Where("id = ?", l.config.ID).First(&providerInfo).Error; err != nil {
 		// 如果获取Provider失败，使用默认值
 		global.APP_LOG.Warn("无法获取Provider配置，使用默认带宽",
@@ -349,25 +264,32 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(ctx context.Context, config pr
 		}
 	}
 
-	// 尝试获取现有IP地址
-	instanceIP, err := l.getInstanceIP(config.Name)
-	if err != nil {
-		global.APP_LOG.Warn("无法获取实例IP地址，跳过网络配置",
-			zap.String("instanceName", config.Name),
-			zap.Error(err))
-		return fmt.Errorf("无法获取实例IP地址: %w", err)
+	// IPv6-only instances may not expose an IPv4 lease at all. Let the port
+	// mapping path resolve their IPv6 address instead of treating that as a
+	// failed network configuration.
+	instanceIP := ""
+	if networkConfig.NetworkType != "ipv6_only" {
+		var err error
+		instanceIP, err = l.getInstanceIP(config.Name)
+		if err != nil {
+			global.APP_LOG.Warn("无法获取实例IPv4地址，跳过网络配置",
+				zap.String("instanceName", config.Name), zap.Error(err))
+			return fmt.Errorf("无法获取实例IPv4地址: %w", err)
+		}
 	}
 
 	global.APP_LOG.Debug("成功获取现有实例IP地址",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP))
 
-	// 获取主机IP地址
-	hostIP, err := l.getHostIP()
-	if err != nil {
-		global.APP_LOG.Warn("无法获取主机IP地址，使用默认配置",
-			zap.Error(err))
-		hostIP = "0.0.0.0" // 使用默认值
+	hostIP := ""
+	if networkConfig.NetworkType != "ipv6_only" {
+		var err error
+		hostIP, err = l.getHostIP()
+		if err != nil {
+			global.APP_LOG.Warn("无法获取主机IPv4地址，使用默认配置", zap.Error(err))
+			hostIP = "0.0.0.0"
+		}
 	}
 
 	global.APP_LOG.Debug("使用现有网络配置继续配置",
@@ -380,23 +302,26 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(ctx context.Context, config pr
 	global.APP_LOG.Debug("停止实例以配置端口映射",
 		zap.String("instanceName", config.Name))
 
+	if instanceIP != "" {
+		if err := l.setIPAddressBinding(config.Name, instanceIP); err != nil {
+			global.APP_LOG.Warn("设置IP地址绑定失败", zap.Error(err))
+		}
+	}
 	if err := l.stopInstanceForConfig(config.Name); err != nil {
-		global.APP_LOG.Warn("停止实例失败，尝试直接配置",
-			zap.String("instanceName", config.Name),
-			zap.Error(err))
+		return fmt.Errorf("停止实例以配置端口映射失败: %w", err)
 	} else {
-		// 尝试配置端口映射（容器停止状态）
-		if err := l.configurePortMappingsWithIP(config.Name, networkConfig, instanceIP); err != nil {
-			global.APP_LOG.Warn("配置端口映射失败，但继续",
-				zap.String("instanceName", config.Name),
-				zap.Error(err))
+		// IPv6-only 的目标地址要在 configureIPv6Network 创建 eth1 后才
+		// 可用。正常路径会在该阶段之后重新停止实例并配置 proxy；这里
+		// 也必须保持相同顺序，否则重启失败时会永久漏掉 IPv6 映射。
+		if networkConfig.NetworkType != "ipv6_only" {
+			if err := l.configureInitialPortMappingsWithIP(config.Name, networkConfig, instanceIP); err != nil {
+				return fmt.Errorf("配置端口映射失败: %w", err)
+			}
 		}
 
 		// 重新启动实例
 		if err := l.StartInstance(ctx, config.Name); err != nil {
-			global.APP_LOG.Warn("启动实例失败",
-				zap.String("instanceName", config.Name),
-				zap.Error(err))
+			return fmt.Errorf("重新启动实例失败: %w", err)
 		}
 	}
 
@@ -423,15 +348,15 @@ func (l *LXDProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 	if idx := strings.IndexByte(cleanIP, '/'); idx != -1 {
 		cleanIP = cleanIP[:idx]
 	}
-	if cleanIP == "" {
-		return nil
+	if parsed := net.ParseIP(cleanIP); parsed == nil || parsed.To4() == nil {
+		return fmt.Errorf("无效的独立IPv4地址: %s", cleanIP)
 	}
 
 	global.APP_LOG.Debug("检查独立IPv4是否已绑定到宿主机网络接口",
 		zap.String("ip", cleanIP))
 
 	// 检查该 IP 是否已绑定到宿主机的任意网络接口
-	checkCmd := fmt.Sprintf("ip addr show | grep -w '%s'", cleanIP)
+	checkCmd := fmt.Sprintf("ip addr show | grep -w %s", shellSingleQuote(cleanIP))
 	output, err := l.sshClient.Execute(checkCmd)
 	if err == nil && strings.Contains(output, cleanIP) {
 		global.APP_LOG.Debug("独立IPv4已绑定到宿主机接口，无需添加",
@@ -457,7 +382,7 @@ func (l *LXDProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 	}
 
 	// 以 /32 方式将独立 IPv4 添加到宿主机接口（路由模式，适合绝大多数云服务器场景）
-	addCmd := fmt.Sprintf("ip addr add %s/32 dev %s", cleanIP, primaryIface)
+	addCmd := fmt.Sprintf("ip addr add %s/32 dev %s", shellSingleQuote(cleanIP), shellSingleQuote(primaryIface))
 	if _, addErr := l.sshClient.Execute(addCmd); addErr != nil {
 		// 并发场景下可能已被其他操作添加，再次确认
 		output2, checkErr2 := l.sshClient.Execute(checkCmd)

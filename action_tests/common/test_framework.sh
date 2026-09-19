@@ -3,6 +3,32 @@
 set -uo pipefail
 export noninteractive=true
 
+# Action tests frequently start the API locally.  A developer/CI environment
+# may export HTTP(S)_PROXY, which must not turn requests to the local test
+# server into remote proxy traffic (and false 503/connection failures).  Keep
+# proxy handling for remote endpoints unchanged by extending the standard
+# curl bypass lists only with loopback hosts.
+_append_loopback_no_proxy() {
+    local current="${1:-}"
+    case ",${current}," in
+        *,localhost,*) ;;
+        *) current="${current:+${current},}localhost" ;;
+    esac
+    case ",${current}," in
+        *,127.0.0.1,*) ;;
+        *) current="${current},127.0.0.1" ;;
+    esac
+    case ",${current}," in
+        *,::1,*) ;;
+        *) current="${current},::1" ;;
+    esac
+    printf '%s' "$current"
+}
+
+NO_PROXY="$(_append_loopback_no_proxy "${NO_PROXY:-}")"
+no_proxy="$(_append_loopback_no_proxy "${no_proxy:-}")"
+export NO_PROXY no_proxy
+
 ACTION_TEST_CONTAINER_CPU="${ACTION_TEST_CONTAINER_CPU:-2}"
 ACTION_TEST_CONTAINER_MEMORY="${ACTION_TEST_CONTAINER_MEMORY:-2048}"
 ACTION_TEST_CONTAINER_DISK="${ACTION_TEST_CONTAINER_DISK:-20}"
@@ -291,7 +317,7 @@ is_infrastructure_failure_detail() {
         return 0
     fi
     printf '%s' "$detail" | grep -Eiq \
-        'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|(can.t|cannot) lock file .*((pve-config-[0-9]+\.lock)|(qemu-server/lock-[0-9]+\.conf)).*(timeout|timed out)|远程下载.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|remote download.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|下载.*镜像失败: 远程下载|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found'
+        'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|(can.t|cannot) lock file .*((pve-config-[0-9]+\.lock)|(qemu-server/lock-[0-9]+\.conf)).*(timeout|timed out)|远程下载.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|remote download.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|下载.*镜像失败: 远程下载|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found|SSH.*(连接|connect).*(失败|failed|超时|timeout|拒绝|refused)|(远程|Provider|provider|节点|Worker|worker).*连接.*(失败|failed|超时|timeout|拒绝|refused)|agent.*(offline|unreachable|未连接)|provider.*(unreachable|offline)'
 }
 
 is_vm_runtime_infrastructure_failure_detail() {
@@ -427,16 +453,26 @@ preflight_check_port_available() {
 wait_for_mysql_ready() {
     local timeout="${1:-60}" interval="${2:-5}" elapsed=0
     local db_password="${DB_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
-    local mysql_args=(-h 127.0.0.1 -u root)
-    [[ -n "$db_password" ]] && mysql_args+=("-p${db_password}")
-    log_info "Waiting for MySQL TCP readiness..."
+    local client=""
+    if command -v mysql >/dev/null 2>&1; then
+        client="mysql"
+    elif command -v mariadb >/dev/null 2>&1; then
+        client="mariadb"
+    fi
+    if [[ -z "$client" ]]; then
+        log_error "Neither mysql nor mariadb client is installed"
+        return 1
+    fi
+    log_info "Waiting for authenticated MySQL/MariaDB TCP readiness..."
     while [[ $elapsed -lt $timeout ]]; do
-        if command -v mysqladmin >/dev/null 2>&1 && mysqladmin "${mysql_args[@]}" ping --silent 2>/dev/null; then
-            log_success "MySQL ready after ${elapsed}s"
-            return 0
-        fi
-        if command -v mysql >/dev/null 2>&1 && mysql "${mysql_args[@]}" -e "SELECT 1;" >/dev/null 2>&1; then
-            log_success "MySQL ready after ${elapsed}s"
+        # mysqladmin ping may return success for a live server even when the
+        # supplied password is wrong.  The harness must prove the same
+        # authenticated query path the application uses; MYSQL_PWD keeps
+        # credentials out of the process argument list and supports all
+        # punctuation in test passwords.
+        if MYSQL_PWD="$db_password" "$client" --protocol=tcp -h 127.0.0.1 \
+            --connect-timeout=5 -u root -e "SELECT 1;" >/dev/null 2>&1; then
+            log_success "MySQL/MariaDB ready after ${elapsed}s"
             return 0
         fi
         sleep "$interval"
@@ -528,11 +564,25 @@ test_api() {
     local code; code=$(echo "$resp" | tail -1)
     local body; body=$(echo "$resp" | sed '$d')
     sleep 0.3
-    # Support pipe-separated expected codes (e.g. "200|201|400")
+    # Support pipe-separated expected codes (e.g. "200|201").  The special
+    # `infra` token is deliberately narrower than accepting arbitrary 4xx/5xx:
+    # it only permits a non-2xx response when the response body matches a
+    # known remote/infrastructure failure.  Such a result is recorded as SKIP,
+    # never PASS, so a validation or product error cannot hide in a tolerant
+    # integration matrix.
     local match=false
+    local infra_match=false
     IFS='|' read -ra exp_codes <<< "$expected"
     for ec in "${exp_codes[@]}"; do
-        [[ "$code" == "$ec" ]] && { match=true; break; }
+        if [[ "$code" == "$ec" ]]; then
+            match=true
+            break
+        fi
+        if [[ "$ec" == "infra" && "$code" =~ ^[45][0-9][0-9]$ ]] && is_infrastructure_failure_detail "$body"; then
+            match=true
+            infra_match=true
+            break
+        fi
     done
     if [[ "$match" == "false" ]]; then
         FAILED_TESTS=$((FAILED_TESTS + 1))
@@ -544,6 +594,14 @@ test_api() {
         report_add_fail "$name" "$method" "$url" "$data" "$expected" "$code" "$body"
         _record_result "$name" "$method" "$url" "FAIL" "$expected" "$code" "$body" "$group" "$error_logs" "$data"
         return 1
+    fi
+    if [[ "$infra_match" == "true" ]]; then
+        SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
+        log_skip "${name} (infrastructure: HTTP ${code})"
+        report_add_skip "$name" "$method" "$url" "remote/infrastructure failure: HTTP ${code}"
+        _record_result "$name" "$method" "$url" "SKIP" "$expected" "$code" "remote/infrastructure failure" "$group"
+        emit_test_response "$body"
+        return 0
     fi
     PASSED_TESTS=$((PASSED_TESTS + 1))
     log_success "${name}"

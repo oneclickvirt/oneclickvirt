@@ -60,6 +60,7 @@ type ResetTaskContext struct {
 	NewProviderInstanceID  string
 	NewPassword            string
 	NewPrivateIP           string
+	NewGuestIPv6           string
 	OldAllocatedIPv6       string
 	NewAllocatedIPv6       string
 	NewIPv6Metadata        ipv6PoolService.IPv6AllocationMetadata
@@ -162,6 +163,19 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 	}
 
 	var resetCtx ResetTaskContext
+	defer func() {
+		if resetCtx.NewInstanceID == 0 {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		// Creation or cancellation can exit before restoration. Keep the
+		// allocation, but make unfinished rows visible to the repair workflow.
+		if err := global.APP_DB.WithContext(cleanupCtx).Model(&providerModel.Port{}).
+			Where("instance_id = ? AND provider_id = ? AND status = ?", resetCtx.NewInstanceID, resetCtx.Provider.ID, "restoring").Update("status", "failed").Error; err != nil {
+			global.APP_LOG.Error("重建未完成端口状态清理失败", zap.Error(err))
+		}
+	}()
 
 	// 当任务context被取消时（超时/强制停止），确保新实例不会卡在creating状态
 	// 使用独立的background context执行清理，避免被取消的ctx影响
@@ -219,15 +233,20 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 	}
 
 	// 阶段7: 恢复端口映射（使用端口映射服务）
-	if err := s.resetTask_RestorePortMappings(ctx, task, &resetCtx); err != nil {
-		// 端口映射失败不影响重置流程
-		global.APP_LOG.Warn("重置系统：端口映射恢复部分失败", zap.Error(err))
+	portRestoreErr := s.resetTask_RestorePortMappings(ctx, task, &resetCtx)
+	if portRestoreErr != nil {
+		// Keep the replacement guest and continue monitoring, but do not report
+		// a fully successful reset when its connectivity could not be restored.
+		global.APP_LOG.Warn("重置系统：端口映射恢复部分失败", zap.Error(portRestoreErr))
 	}
 
 	// 阶段8: 重新初始化监控
 	if err := s.resetTask_ReinitializeMonitoring(ctx, task, &resetCtx); err != nil {
 		// 监控初始化失败不影响重置流程
 		global.APP_LOG.Warn("重置系统：监控初始化失败", zap.Error(err))
+	}
+	if portRestoreErr != nil {
+		return fmt.Errorf("实例已重建，但端口映射恢复失败（保留实例及端口占用供修复）: %w", portRestoreErr)
 	}
 
 	s.updateTaskProgress(task.ID, 100, "step.resetCompleted")
@@ -333,7 +352,7 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 		// 4. 查询端口映射（包含status='active'的）
 		if err := global.APP_DB.Where("instance_id = ? AND status = ?", resetCtx.Instance.ID, "active").
 			Find(&resetCtx.OldPortMappings).Error; err != nil {
-			global.APP_LOG.Warn("获取旧端口映射失败", zap.Error(err))
+			return fmt.Errorf("获取旧端口映射失败，不能安全重建: %w", err)
 		}
 
 		return nil
@@ -370,6 +389,11 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 	}
 
 	// 保存必要信息
+	if utils.UsesContainerRuntimePorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) {
+		if _, err := resetRuntimePortBindings(resetCtx.OldPortMappings); err != nil {
+			return err
+		}
+	}
 	resetCtx.OldInstanceID = resetCtx.Instance.ID
 	resetCtx.OldInstanceName = resetCtx.Instance.Name
 	resetCtx.OldProviderInstanceID = providerInstanceIdentifier(resetCtx.Instance)
@@ -465,9 +489,11 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		allocatedIPv6 = ""
 		allocatedIPv6Metadata = ipv6PoolService.IPv6AllocationMetadata{}
-		portMappingService := resources.PortMappingService{}
-		if err := portMappingService.DeleteInstancePortMappingsInTx(tx, resetCtx.OldInstanceID); err != nil {
-			return fmt.Errorf("删除旧实例端口映射失败: %v", err)
+		// Serialize with port allocators before replacing either instance. Port
+		// rows are transferred below, never released during the remote create.
+		var lockedProvider providerModel.Provider
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&lockedProvider, resetCtx.Provider.ID).Error; err != nil {
+			return fmt.Errorf("锁定重建Provider失败: %w", err)
 		}
 
 		resourceService := &resources.ResourceService{}
@@ -507,6 +533,9 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 
 		if err := tx.Create(&newInstance).Error; err != nil {
 			return fmt.Errorf("创建新实例记录失败: %v", err)
+		}
+		if err := transferResetPortMappingsInTx(tx, resetCtx, newInstance.ID); err != nil {
+			return err
 		}
 
 		var transferErr error
@@ -570,6 +599,29 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	resetCtx.NewProviderInstanceID = newInstance.ProviderVMID
 	resetCtx.NewAllocatedIPv6 = allocatedIPv6
 	resetCtx.NewIPv6Metadata = allocatedIPv6Metadata
+	// Runtime -p bindings must exist before creation; restarting Docker does
+	// not add bindings that were absent from its original create request.
+	if len(resetCtx.OldPortMappings) == 0 && !(resetCtx.Provider.ConnectionType == "agent" && resetCtx.Provider.PortIP == "") {
+		var reservedCount int64
+		if err := global.APP_DB.WithContext(ctx).Model(&providerModel.Port{}).Where("instance_id = ?", newInstance.ID).Count(&reservedCount).Error; err != nil {
+			return err
+		}
+		if reservedCount == 0 {
+			if err := (&resources.PortMappingService{}).ReserveDefaultPortMappingsForReset(ctx, newInstance.ID, resetCtx.Provider.ID, resetCtx.Instance.NetworkType); err != nil {
+				return err
+			}
+			if err := global.APP_DB.WithContext(ctx).Where("instance_id = ? AND status = ?", newInstance.ID, "restoring").Find(&resetCtx.OldPortMappings).Error; err != nil {
+				return err
+			}
+		}
+	}
+	// Listener shutdown can wait for in-flight tunnels, so it must happen
+	// after the database transaction has committed, never inside it.
+	for _, port := range resetCtx.OldPortMappings {
+		if port.MappingType == "controller" && resources.StopControllerPortForwardFunc != nil {
+			resources.StopControllerPortForwardFunc(port.ID)
+		}
+	}
 
 	global.APP_LOG.Info("新实例记录创建完成",
 		zap.Uint("newInstanceId", resetCtx.NewInstanceID),
@@ -623,17 +675,10 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 
 	// 容器类Provider（docker/podman/containerd）端口映射特殊处理
 	// 这些Provider通过 -p 标志在创建时绑定端口，需要将端口信息写入创建请求
-	if utils.UsesContainerRuntimePorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) && len(resetCtx.OldPortMappings) > 0 {
-		var ports []string
-		for _, oldPort := range resetCtx.OldPortMappings {
-			if oldPort.Protocol == "both" {
-				ports = append(ports,
-					fmt.Sprintf("0.0.0.0:%d:%d/tcp", oldPort.HostPort, oldPort.GuestPort),
-					fmt.Sprintf("0.0.0.0:%d:%d/udp", oldPort.HostPort, oldPort.GuestPort))
-			} else {
-				ports = append(ports,
-					fmt.Sprintf("0.0.0.0:%d:%d/%s", oldPort.HostPort, oldPort.GuestPort, oldPort.Protocol))
-			}
+	if utils.UsesContainerRuntimePorts(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) {
+		ports, err := resetRuntimePortBindings(resetCtx.OldPortMappings)
+		if err != nil {
+			return err
 		}
 		createReq.InstanceConfig.Ports = ports
 	}

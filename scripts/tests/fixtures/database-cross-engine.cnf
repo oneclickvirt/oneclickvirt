@@ -1,0 +1,17 @@
+[mysqld]
+user=mysql
+datadir=/var/lib/mysql
+socket=/var/run/mysqld/mysqld.sock
+pid-file=/var/run/mysqld/mysqld.pid
+bind-address=127.0.0.1
+port=3306
+character-set-server=utf8mb4
+collation-server=utf8mb4_unicode_ci
+innodb_buffer_pool_size=128M
+innodb_redo_log_capacity=128M
+query_cache_type=0
+query_cache_size=0
+sql_mode=STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION,NO_BACKSLASH_ESCAPES
+
+[client]
+default-character-set=utf8mb4

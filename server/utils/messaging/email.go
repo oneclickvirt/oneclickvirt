@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+func smtpAddress(host string, port int) string {
+	return net.JoinHostPort(strings.Trim(strings.TrimSpace(host), "[]"), fmt.Sprintf("%d", port))
+}
+
 // SendEmail sends an HTML email via SMTP.
 func SendEmail(smtpHost string, smtpPort int, username, password, to, subject, htmlBody string) error {
 	if smtpHost == "" {
@@ -18,7 +22,8 @@ func SendEmail(smtpHost string, smtpPort int, username, password, to, subject, h
 		return fmt.Errorf("收件人为空")
 	}
 
-	addr := fmt.Sprintf("%s:%d", smtpHost, smtpPort)
+	host := strings.Trim(strings.TrimSpace(smtpHost), "[]")
+	addr := smtpAddress(host, smtpPort)
 
 	// Build RFC 822 message
 	var msg strings.Builder
@@ -33,7 +38,7 @@ func SendEmail(smtpHost string, smtpPort int, username, password, to, subject, h
 
 	// Try STARTTLS on port 587, direct TLS on 465, plain on 25
 	if smtpPort == 465 {
-		return sendEmailDirectTLS(addr, smtpHost, username, password, to, msg.String())
+		return sendEmailDirectTLS(addr, host, username, password, to, msg.String())
 	}
 
 	// STARTTLS / plain

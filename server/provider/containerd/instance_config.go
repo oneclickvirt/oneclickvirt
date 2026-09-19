@@ -20,7 +20,7 @@ import (
 // checkStorageDriver 检查Containerd存储驱动并判断是否支持硬盘大小限制
 // 注意：nerdctl 不支持 --storage-opt 参数，始终返回 false
 func (c *ContainerdProvider) checkStorageDriver() (bool, string, error) {
-	cacheCmd := fmt.Sprintf("cat %s 2>/dev/null || echo ''", storageDriverFile)
+	cacheCmd := fmt.Sprintf("cat %s 2>/dev/null || echo ''", shellSingleQuote(storageDriverFile))
 	cacheOutput, _ := c.sshClient.Execute(cacheCmd)
 	driver := strings.TrimSpace(cacheOutput)
 

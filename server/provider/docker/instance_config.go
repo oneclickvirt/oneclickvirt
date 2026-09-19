@@ -20,7 +20,7 @@ import (
 // checkStorageDriver 检查Docker存储驱动并判断是否支持硬盘大小限制
 func (d *DockerProvider) checkStorageDriver() (bool, string, error) {
 	// 首先尝试从缓存文件读取存储驱动信息
-	cacheCmd := fmt.Sprintf("cat %s 2>/dev/null || echo ''", d.runtime.StorageDriverFile)
+	cacheCmd := fmt.Sprintf("cat %s 2>/dev/null || echo ''", shellSingleQuote(d.runtime.StorageDriverFile))
 	cacheOutput, _ := d.sshClient.Execute(cacheCmd)
 	storageDriver := strings.TrimSpace(cacheOutput)
 

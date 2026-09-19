@@ -587,7 +587,7 @@ func (s *TaskService) removeNodeSidePortMappingsBestEffort(ctx context.Context, 
 // removePortMappingsFromNode 从节点侧移除指定实例的端口映射规则。
 // 处理逻辑与 executeDeletePortMappingTask 保持一致：
 //   - controller 模式：由 StopControllerPortForwardFunc 处理（调用者负责）
-//   - 非 controller 模式：通过 portmapping manager 删除，LXD/Incus 额外调用 RemovePortMapping
+//   - 非 controller 模式：通过 portmapping manager 删除；LXD/Incus 直接调用带地址族的 RemovePortMapping
 func (s *TaskService) removePortMappingsFromNode(ctx context.Context, provInstance provider.Provider, prov *providerModel.Provider, instance *providerModel.Instance, ports []providerModel.Port) {
 	if provInstance == nil || instance == nil || instance.Name == "" {
 		return
@@ -606,23 +606,27 @@ func (s *TaskService) removePortMappingsFromNode(ctx context.Context, provInstan
 		}
 	}
 
-	// 通过 portmapping manager 删除节点侧规则（处理 Docker/Podman/Containerd/iptables 等）
-	manager := portmapping.NewManager(&portmapping.ManagerConfig{
-		DefaultMappingMethod: prov.IPv4PortMappingMethod,
-	})
-	for _, p := range ports {
-		if p.MappingType == "controller" {
-			continue // controller 模式已在上面处理
-		}
-		deleteReq := &portmapping.DeletePortMappingRequest{
-			ID:         p.ID,
-			InstanceID: fmt.Sprintf("%d", instance.ID),
-		}
-		if err := manager.DeletePortMapping(ctx, portMappingType, deleteReq); err != nil {
-			global.APP_LOG.Warn("portmapping manager 删除端口映射失败",
-				zap.Uint("portId", p.ID),
-				zap.Int("hostPort", p.HostPort),
-				zap.Error(err))
+	// 通过 portmapping manager 删除 Docker/Podman/Containerd/iptables 等
+	// 节点侧规则。Incus/LXD 的旧适配器只负责数据库兼容层，不应先删库再
+	// 清理 proxy device；这两类 Provider 在下方统一走带地址族的远端清理。
+	if providerType != "lxd" && providerType != "incus" {
+		manager := portmapping.NewManager(&portmapping.ManagerConfig{
+			DefaultMappingMethod: prov.IPv4PortMappingMethod,
+		})
+		for _, p := range ports {
+			if p.MappingType == "controller" {
+				continue // controller 模式已在上面处理
+			}
+			deleteReq := &portmapping.DeletePortMappingRequest{
+				ID:         p.ID,
+				InstanceID: fmt.Sprintf("%d", instance.ID),
+			}
+			if err := manager.DeletePortMapping(ctx, portMappingType, deleteReq); err != nil {
+				global.APP_LOG.Warn("portmapping manager 删除端口映射失败",
+					zap.Uint("portId", p.ID),
+					zap.Int("hostPort", p.HostPort),
+					zap.Error(err))
+			}
 		}
 	}
 
@@ -630,19 +634,37 @@ func (s *TaskService) removePortMappingsFromNode(ctx context.Context, provInstan
 	// （Proxmox 的 iptables 规则已由 portmapping manager 的 iptables provider 处理，无需额外调用）
 	if providerType == "lxd" || providerType == "incus" {
 		providerInstanceID := instance.ProviderInstanceIdentifier()
+		var nodeMappings []providerModel.Port
 		for _, p := range ports {
+			nodeMappings = append(nodeMappings, providerModel.ExpandPortMappingFamilies(p, prov.NetworkType, prov.IPv4PortMappingMethod, prov.IPv6PortMappingMethod)...)
+		}
+		for _, p := range nodeMappings {
 			if p.MappingType == "controller" {
 				continue
 			}
 			var removeErr error
+			mappingMethod := p.MappingMethod
+			if strings.TrimSpace(mappingMethod) == "" {
+				if p.IPv6Enabled || strings.TrimSpace(p.IPv6Address) != "" || strings.TrimSpace(instance.PrivateIP) == "" {
+					mappingMethod = prov.IPv6PortMappingMethod
+				} else {
+					mappingMethod = prov.IPv4PortMappingMethod
+				}
+			}
+			targetAddress, _, targetErr := mappingTarget(instance, &p)
+			if targetErr != nil {
+				global.APP_LOG.Warn("节点侧端口映射缺少可用目标地址，跳过清理",
+					zap.Uint("portId", p.ID), zap.Error(targetErr))
+				continue
+			}
 			switch providerType {
 			case "lxd":
 				if lxdProv, ok := provInstance.(*lxd.LXDProvider); ok {
-					removeErr = lxdProv.RemovePortMapping(providerInstanceID, p.HostPort, p.Protocol, prov.IPv4PortMappingMethod)
+					removeErr = lxdProv.RemovePortMappingWithDetails(providerInstanceID, p.HostPort, p.GuestPort, p.HostPortEnd, p.GuestPortEnd, p.PortCount, p.Protocol, mappingMethod, targetAddress)
 				}
 			case "incus":
 				if incusProv, ok := provInstance.(*incus.IncusProvider); ok {
-					removeErr = incusProv.RemovePortMapping(providerInstanceID, p.HostPort, p.Protocol, prov.IPv4PortMappingMethod)
+					removeErr = incusProv.RemovePortMappingWithDetails(providerInstanceID, p.HostPort, p.GuestPort, p.HostPortEnd, p.GuestPortEnd, p.PortCount, p.Protocol, mappingMethod, targetAddress)
 				}
 			}
 			if removeErr != nil {

@@ -15,12 +15,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// tableInitCache prevents redundant SSH round-trips for InitTable on the same
-// (sshClient, tableName) pair. The table persists on the remote host for the
-// lifetime of the process, so one successful InitTable per connection is enough.
-// Key: fmt.Sprintf("%p:%s", sshClient, tableName), Value: struct{}{}
-var tableInitCache sync.Map
-
 // Backend 防火墙后端类型
 type Backend string
 
@@ -36,6 +30,16 @@ type Manager struct {
 	tableName string // nft table 名称，如 "qemu" "kubevirt" "docker"
 	subnet    string // 内网网段，如 "192.168.122.0/24"
 	detected  bool
+	initMu    sync.Mutex
+	// Cache belongs to this manager, never a recyclable address in a global
+	// map. Check remote chains before reuse because a daemon/host can restart.
+	nftInitialized bool
+}
+
+var managedCommentName = regexp.MustCompile(`^[a-zA-Z0-9._:-]{1,128}$`)
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 // NewManager 创建防火墙管理器
@@ -58,7 +62,7 @@ func (m *Manager) DetectBackend(markerFile string) (Backend, error) {
 
 	// 1. 从标记文件读取
 	if markerFile != "" {
-		output, err := m.sshClient.Execute(fmt.Sprintf("cat '%s' 2>/dev/null", markerFile))
+		output, err := m.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(markerFile)))
 		if err == nil {
 			b := strings.TrimSpace(output)
 			if b == "nft" || b == "iptables" {
@@ -94,27 +98,42 @@ func (m *Manager) GetBackend() Backend {
 
 // InitTable 初始化 nft table / iptables 基础规则
 func (m *Manager) InitTable() error {
+	m.initMu.Lock()
+	defer m.initMu.Unlock()
 	if !m.detected {
 		return fmt.Errorf("firewall backend not detected, call DetectBackend first")
+	}
+	if !managedTableName.MatchString(m.tableName) {
+		return fmt.Errorf("invalid firewall table name %q", m.tableName)
+	}
+	if m.subnet != "" {
+		parsed, _, err := net.ParseCIDR(strings.TrimSpace(m.subnet))
+		if err != nil || parsed.To4() == nil {
+			return fmt.Errorf("invalid IPv4 firewall subnet %q", m.subnet)
+		}
+		m.subnet = strings.TrimSpace(m.subnet)
 	}
 
 	if m.backend == BackendIptables {
 		return m.initIptablesBase()
 	}
 
-	// nft: avoid re-running 5 SSH commands on every port mapping call.
-	// The table/chain persists on the remote host, so one successful init
-	// per (SSH connection, table name) pair per process is sufficient.
-	cacheKey := fmt.Sprintf("%p:%s", m.sshClient, m.tableName)
-	if _, ok := tableInitCache.Load(cacheKey); ok {
-		return nil
+	if m.nftInitialized {
+		if output, err := m.sshClient.Execute(m.nftChainProbe()); err == nil && strings.TrimSpace(output) == "ok" {
+			return nil
+		}
+		m.nftInitialized = false
 	}
 
 	if err := m.initNftTable(); err != nil {
 		return err
 	}
-	tableInitCache.Store(cacheKey, struct{}{})
+	m.nftInitialized = true
 	return nil
+}
+
+func (m *Manager) nftChainProbe() string {
+	return fmt.Sprintf("nft list chain ip %s prerouting >/dev/null 2>&1 && nft list chain ip %s postrouting >/dev/null 2>&1 && nft list chain ip %s forward >/dev/null 2>&1 && echo 'ok'", m.tableName, m.tableName, m.tableName)
 }
 
 func (m *Manager) initNftTable() error {
@@ -126,16 +145,16 @@ func (m *Manager) initNftTable() error {
 	}
 
 	for _, cmd := range cmds {
-		if _, err := m.sshClient.Execute(cmd); err != nil {
+		if _, err := m.sshClient.Execute(cmd); err != nil && global.APP_LOG != nil {
 			global.APP_LOG.Warn("nft init command failed", zap.String("cmd", utils.TruncateString(cmd, 200)), zap.Error(err))
 		}
 	}
 
-	// 验证 prerouting chain 已创建成功，这是 DNAT 规则的必要前提
-	verifyCmd := fmt.Sprintf("nft list chain ip %s prerouting >/dev/null 2>&1 && echo 'ok'", m.tableName)
+	// All chains are required; a partially initialized table is not ready.
+	verifyCmd := m.nftChainProbe()
 	verifyOutput, verifyErr := m.sshClient.Execute(verifyCmd)
 	if verifyErr != nil || strings.TrimSpace(verifyOutput) != "ok" {
-		return fmt.Errorf("nft prerouting chain verification failed for table %s: init commands may have silently failed (check nft/kernel support)", m.tableName)
+		return fmt.Errorf("nft chain verification failed for table %s: init commands may have silently failed (check nft/kernel support)", m.tableName)
 	}
 
 	// 添加基础 NAT/FORWARD 规则（仅在 subnet 非空时）
@@ -155,7 +174,7 @@ func (m *Manager) initNftTable() error {
 				m.tableName, m.subnet, m.tableName, m.subnet),
 		}
 		for _, cmd := range baseCmds {
-			if _, err := m.sshClient.Execute(cmd); err != nil {
+			if _, err := m.sshClient.Execute(cmd); err != nil && global.APP_LOG != nil {
 				global.APP_LOG.Warn("nft base rule failed", zap.String("cmd", utils.TruncateString(cmd, 200)), zap.Error(err))
 			}
 		}
@@ -198,10 +217,27 @@ func (m *Manager) initIptablesBase() error {
 // sshPort: SSH 映射的宿主机端口 → 转到 vmIP:22
 // startPort, endPort: 端口范围映射（宿主机端口 identity 转发到 vmIP 对应端口）
 func (m *Manager) AddDNAT(vmName, vmIP string, sshPort, startPort, endPort int) error {
+	if !managedTableName.MatchString(m.tableName) {
+		return fmt.Errorf("invalid firewall table name %q", m.tableName)
+	}
+	address := net.ParseIP(normalizeFirewallIP(vmIP))
+	if address == nil || address.To4() == nil {
+		return fmt.Errorf("invalid IPv4 DNAT target %q", vmIP)
+	}
+	if !managedCommentName.MatchString(vmName) {
+		return fmt.Errorf("invalid DNAT instance name %q", vmName)
+	}
+	if sshPort < 1 || sshPort > 65535 {
+		return fmt.Errorf("invalid SSH port %d", sshPort)
+	}
+	if (startPort == 0) != (endPort == 0) || startPort < 0 || endPort < 0 || startPort > 65535 || endPort > 65535 || (startPort > 0 && startPort > endPort) {
+		return fmt.Errorf("invalid DNAT port range %d-%d", startPort, endPort)
+	}
+	vmIP = address.To4().String()
 	if m.backend == BackendNft {
 		return m.addDNATNft(vmName, vmIP, sshPort, startPort, endPort)
 	}
-	return m.addDNATIptables(vmIP, sshPort, startPort, endPort)
+	return m.addDNATIptables(vmName, vmIP, sshPort, startPort, endPort)
 }
 
 func (m *Manager) addDNATNft(vmName, vmIP string, sshPort, startPort, endPort int) error {
@@ -233,19 +269,20 @@ func (m *Manager) addDNATNft(vmName, vmIP string, sshPort, startPort, endPort in
 	return nil
 }
 
-func (m *Manager) addDNATIptables(vmIP string, sshPort, startPort, endPort int) error {
+func (m *Manager) addDNATIptables(vmName, vmIP string, sshPort, startPort, endPort int) error {
+	owner := shellQuote("vm:" + vmName)
 	cmds := []string{
 		// SSH DNAT tcp + udp
-		fmt.Sprintf("iptables -t nat -I PREROUTING -p tcp --dport %d -j DNAT --to %s:22", sshPort, vmIP),
-		fmt.Sprintf("iptables -t nat -I PREROUTING -p udp --dport %d -j DNAT --to %s:22", sshPort, vmIP),
+		fmt.Sprintf("iptables -t nat -I PREROUTING -p tcp --dport %d -m comment --comment %s -j DNAT --to %s:22", sshPort, owner, vmIP),
+		fmt.Sprintf("iptables -t nat -I PREROUTING -p udp --dport %d -m comment --comment %s -j DNAT --to %s:22", sshPort, owner, vmIP),
 	}
 
 	// 端口范围
 	if startPort > 0 && endPort > 0 && startPort <= endPort {
 		for port := startPort; port <= endPort; port++ {
 			cmds = append(cmds,
-				fmt.Sprintf("iptables -t nat -I PREROUTING -p tcp --dport %d -j DNAT --to %s:%d", port, vmIP, port),
-				fmt.Sprintf("iptables -t nat -I PREROUTING -p udp --dport %d -j DNAT --to %s:%d", port, vmIP, port),
+				fmt.Sprintf("iptables -t nat -I PREROUTING -p tcp --dport %d -m comment --comment %s -j DNAT --to %s:%d", port, owner, vmIP, port),
+				fmt.Sprintf("iptables -t nat -I PREROUTING -p udp --dport %d -m comment --comment %s -j DNAT --to %s:%d", port, owner, vmIP, port),
 			)
 		}
 	}
@@ -263,221 +300,200 @@ func (m *Manager) addDNATIptables(vmIP string, sshPort, startPort, endPort int) 
 // hostPort → instanceIP:guestPort, protocol = "tcp"/"udp"/"both"
 // comment: nft comment（如 "vm:xxx" 或 "inst:xxx"），为空则不添加 comment
 func (m *Manager) AddSingleDNAT(instanceIP string, hostPort, guestPort int, protocol, comment string) error {
+	if !managedTableName.MatchString(m.tableName) {
+		return fmt.Errorf("invalid firewall table name %q", m.tableName)
+	}
+	address := net.ParseIP(normalizeFirewallIP(instanceIP))
+	if address == nil {
+		return fmt.Errorf("无效的端口映射目标地址 %q", instanceIP)
+	}
+	if hostPort < 1 || hostPort > 65535 || guestPort < 1 || guestPort > 65535 {
+		return fmt.Errorf("无效的端口映射范围")
+	}
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol != "" && protocol != "tcp" && protocol != "udp" && protocol != "both" {
+		return fmt.Errorf("无效的端口映射协议 %q", protocol)
+	}
+	instanceIP = address.String()
+	if isIPv6Address(instanceIP) {
+		return m.addSingleDNATIPv6(instanceIP, hostPort, guestPort, protocol, comment)
+	}
 	protocols := expandProtocol(protocol)
+	commentArgs := ""
+	if strings.TrimSpace(comment) != "" {
+		commentArgs = fmt.Sprintf(" -m comment --comment %s", shellQuote(comment))
+	}
 
+	if m.backend == BackendNft {
+		return m.addSingleDNATNft(instanceIP, hostPort, guestPort, protocol, comment, false)
+	}
 	for _, proto := range protocols {
-		if m.backend == BackendNft {
-			// 使用单引号包裹整个nft表达式，确保双引号的comment值不被SSH shell解析
-			if comment != "" {
-				cmd := fmt.Sprintf("nft 'add rule ip %s prerouting %s dport %d dnat to %s:%d comment \"%s\"'",
-					m.tableName, proto, hostPort, instanceIP, guestPort, comment)
-				if _, err := m.sshClient.Execute(cmd); err != nil {
-					return fmt.Errorf("nft add DNAT failed: %w", err)
-				}
-			} else {
-				cmd := fmt.Sprintf("nft 'add rule ip %s prerouting %s dport %d dnat to %s:%d'",
-					m.tableName, proto, hostPort, instanceIP, guestPort)
-				if _, err := m.sshClient.Execute(cmd); err != nil {
-					return fmt.Errorf("nft add DNAT failed: %w", err)
-				}
-			}
-		} else {
-			cmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
-				proto, hostPort, instanceIP, guestPort)
-			if _, err := m.sshClient.Execute(cmd); err != nil {
-				return fmt.Errorf("iptables add DNAT failed: %w", err)
-			}
-			// FORWARD
-			fwd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
-				proto, instanceIP, guestPort)
-			if _, err := m.sshClient.Execute(fwd); err != nil {
-				global.APP_LOG.Warn("iptables FORWARD failed", zap.Error(err))
-			}
-			// MASQUERADE
-			masq := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
-				proto, instanceIP, guestPort)
-			if _, err := m.sshClient.Execute(masq); err != nil {
-				global.APP_LOG.Warn("iptables MASQUERADE failed", zap.Error(err))
-			}
+		cmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d%s -j DNAT --to-destination %s:%d",
+			proto, hostPort, commentArgs, instanceIP, guestPort)
+		if _, err := m.sshClient.Execute(cmd); err != nil {
+			return fmt.Errorf("iptables add DNAT failed: %w", err)
+		}
+		// FORWARD
+		fwd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d%s -j ACCEPT",
+			proto, instanceIP, guestPort, commentArgs)
+		if _, err := m.sshClient.Execute(fwd); err != nil {
+			global.APP_LOG.Warn("iptables FORWARD failed", zap.Error(err))
+		}
+		// MASQUERADE
+		masq := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d%s -j MASQUERADE",
+			proto, instanceIP, guestPort, commentArgs)
+		if _, err := m.sshClient.Execute(masq); err != nil {
+			global.APP_LOG.Warn("iptables MASQUERADE failed", zap.Error(err))
 		}
 	}
 	return nil
 }
 
-// RemoveSingleDNAT 删除单个端口映射
+// RemoveSingleDNAT deletes a mapping in the target address family. Call
+// RemoveSingleDNATForFamily when a failed create has no saved target address.
 func (m *Manager) RemoveSingleDNAT(instanceIP string, hostPort, guestPort int, protocol, comment string) error {
-	protocols := expandProtocol(protocol)
+	return m.RemoveSingleDNATForFamily(instanceIP, hostPort, guestPort, protocol, comment, isIPv6Address(instanceIP))
+}
 
-	for _, proto := range protocols {
-		if m.backend == BackendNft {
-			// 通过 handle 删除匹配的规则
-			searchCmd := fmt.Sprintf(
-				"nft -a list chain ip %s prerouting 2>/dev/null | grep 'dport %d.*dnat to %s:%d' | grep -oP '# handle \\K[0-9]+'",
-				m.tableName, hostPort, instanceIP, guestPort)
-			output, err := m.sshClient.Execute(searchCmd)
-			if err == nil {
-				for _, handle := range parseHandles(output) {
-					m.sshClient.Execute(fmt.Sprintf("nft delete rule ip %s prerouting handle %s 2>/dev/null || true", m.tableName, handle))
-				}
-			}
-		} else {
-			// iptables: 精确删除 3 条规则
-			cmds := []string{
-				fmt.Sprintf("iptables -t nat -D PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d 2>/dev/null || true",
-					proto, hostPort, instanceIP, guestPort),
-				fmt.Sprintf("iptables -D FORWARD -p %s -d %s --dport %d -j ACCEPT 2>/dev/null || true",
-					proto, instanceIP, guestPort),
-				fmt.Sprintf("iptables -t nat -D POSTROUTING -p %s -s %s --sport %d -j MASQUERADE 2>/dev/null || true",
-					proto, instanceIP, guestPort),
-			}
-			for _, cmd := range cmds {
-				m.sshClient.Execute(cmd)
+func normalizeFirewallIP(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, "[]")
+	if slash := strings.IndexByte(value, '/'); slash >= 0 {
+		value = value[:slash]
+	}
+	return strings.TrimSpace(value)
+}
+
+func isIPv6Address(value string) bool {
+	parsed := net.ParseIP(normalizeFirewallIP(value))
+	return parsed != nil && parsed.To4() == nil
+}
+
+func ip6Target(value string, port int) string {
+	return fmt.Sprintf("[%s]:%d", normalizeFirewallIP(value), port)
+}
+
+// addSingleDNATIPv6 uses ip6tables for IPv6 targets even when the selected
+// write backend is nftables.  This keeps the existing IPv4 nft table intact
+// and works on both legacy iptables and iptables-nft installations, while
+// avoiding accidental IPv4 `table ip` rules for an IPv6 guest.
+func (m *Manager) addSingleDNATIPv6(instanceIP string, hostPort, guestPort int, protocol, comment string) error {
+	if !isIPv6Address(instanceIP) {
+		return fmt.Errorf("invalid IPv6 target %q", instanceIP)
+	}
+	// nft-only hosts (common on recent minimal distributions) may not ship the
+	// ip6tables compatibility binary. Keep IPv6 mappings usable by using a
+	// dedicated ip6 nft table when that capability is absent.
+	if _, err := m.sshClient.Execute("command -v ip6tables >/dev/null 2>&1"); err != nil {
+		return m.addSingleDNATIPv6Nft(instanceIP, hostPort, guestPort, protocol, comment)
+	}
+	commentArgs := ""
+	if strings.TrimSpace(comment) != "" {
+		commentArgs = fmt.Sprintf(" -m comment --comment %s", shellQuote(comment))
+	}
+	for _, proto := range expandProtocol(protocol) {
+		commands := []string{
+			fmt.Sprintf("ip6tables -t nat -A PREROUTING -p %s --dport %d%s -j DNAT --to-destination %s", proto, hostPort, commentArgs, ip6Target(instanceIP, guestPort)),
+			fmt.Sprintf("ip6tables -A FORWARD -p %s -d %s --dport %d%s -j ACCEPT", proto, normalizeFirewallIP(instanceIP), guestPort, commentArgs),
+			fmt.Sprintf("ip6tables -t nat -A POSTROUTING -p %s -s %s --sport %d%s -j MASQUERADE", proto, normalizeFirewallIP(instanceIP), guestPort, commentArgs),
+		}
+		for _, command := range commands {
+			if _, err := m.sshClient.Execute(command); err != nil {
+				return fmt.Errorf("ip6tables add DNAT failed: %w", err)
 			}
 		}
 	}
 	return nil
 }
 
-// DeleteRulesByComment 删除 nft 表中指定 comment 的所有规则
-// 仅在 nft 后端有效；iptables 后端使用 DeleteRulesByIP
+func (m *Manager) ipv6NftTable() string {
+	name := strings.TrimSpace(m.tableName)
+	if name == "" {
+		name = "portmap"
+	}
+	return name + "6"
+}
+
+func (m *Manager) ensureIPv6NftTable() error {
+	table := m.ipv6NftTable()
+	commands := []string{
+		fmt.Sprintf("nft 'add table ip6 %s' 2>/dev/null || true", table),
+		fmt.Sprintf("nft 'add chain ip6 %s prerouting { type nat hook prerouting priority dstnat; policy accept; }' 2>/dev/null || true", table),
+		fmt.Sprintf("nft 'add chain ip6 %s postrouting { type nat hook postrouting priority srcnat; policy accept; }' 2>/dev/null || true", table),
+		fmt.Sprintf("nft 'add chain ip6 %s forward { type filter hook forward priority 0; policy accept; }' 2>/dev/null || true", table),
+	}
+	for _, command := range commands {
+		if _, err := m.sshClient.Execute(command); err != nil {
+			return fmt.Errorf("初始化IPv6 nft表失败: %w", err)
+		}
+	}
+	verify := fmt.Sprintf("nft list chain ip6 %s prerouting >/dev/null 2>&1 && echo ok", table)
+	output, err := m.sshClient.Execute(verify)
+	if err != nil || strings.TrimSpace(output) != "ok" {
+		return fmt.Errorf("IPv6 nft prerouting链不可用")
+	}
+	return nil
+}
+
+func (m *Manager) addSingleDNATIPv6Nft(instanceIP string, hostPort, guestPort int, protocol, comment string) error {
+	if _, err := m.sshClient.Execute("command -v nft >/dev/null 2>&1"); err != nil {
+		return fmt.Errorf("IPv6映射需要ip6tables或nft")
+	}
+	if err := m.ensureIPv6NftTable(); err != nil {
+		return err
+	}
+	return m.addSingleDNATNft(instanceIP, hostPort, guestPort, protocol, comment, true)
+}
+
+// DeleteRulesByComment removes an exact owner in both address families.
+// Individual port updates must use the family-specific cleanup methods.
 func (m *Manager) DeleteRulesByComment(comment string) error {
-	if m.backend != BackendNft {
+	if err := m.DeleteRulesByCommentForFamily(comment, false); err != nil {
+		return err
+	}
+	// IPv4-only legacy installations need not provide an IPv6 rules tool.
+	output, err := m.sshClient.Execute("if command -v nft >/dev/null 2>&1 || command -v ip6tables >/dev/null 2>&1; then echo present; else echo absent; fi")
+	if err != nil {
+		return fmt.Errorf("检测IPv6防火墙工具失败: %w", err)
+	}
+	if strings.TrimSpace(output) == "absent" {
 		return nil
 	}
-
-	chains := []string{"prerouting", "postrouting", "forward"}
-	for _, chain := range chains {
-		searchCmd := fmt.Sprintf(
-			"nft -a list chain ip %s %s 2>/dev/null | grep '\"%s\"' | grep -oP '# handle \\K[0-9]+'",
-			m.tableName, chain, comment)
-		output, err := m.sshClient.Execute(searchCmd)
-		if err != nil {
-			continue
-		}
-		for _, handle := range parseHandles(output) {
-			m.sshClient.Execute(fmt.Sprintf("nft delete rule ip %s %s handle %s 2>/dev/null || true", m.tableName, chain, handle))
-		}
+	if strings.TrimSpace(output) != "present" {
+		return fmt.Errorf("无效的IPv6防火墙工具检测响应")
 	}
-	return nil
+	return m.DeleteRulesByCommentForFamily(comment, true)
 }
 
-// DeleteRulesByIP 删除所有指向指定 IP 的转发规则
-func (m *Manager) DeleteRulesByIP(ip string) error {
-	if ip == "" {
+// DeleteRulesByIP deletes only rules referring to the exact guest address.
+// Subnets, negated matches and textual address prefixes are not ownership.
+func (m *Manager) DeleteRulesByIP(address string) error {
+	if strings.TrimSpace(address) == "" {
 		return nil
 	}
-
-	if m.backend == BackendNft {
-		return m.deleteNftRulesByIP(ip)
+	ip := net.ParseIP(normalizeFirewallIP(address))
+	if ip == nil {
+		return fmt.Errorf("无效的实例地址 %q", address)
 	}
-	return m.deleteIptablesRulesByIP(ip)
-}
-
-func (m *Manager) deleteNftRulesByIP(ip string) error {
-	chains := []string{"prerouting", "postrouting", "forward"}
-	for _, chain := range chains {
-		searchCmd := fmt.Sprintf(
-			"nft -a list chain ip %s %s 2>/dev/null | grep '%s' | grep -oP '# handle \\K[0-9]+'",
-			m.tableName, chain, ip)
-		output, err := m.sshClient.Execute(searchCmd)
-		if err != nil {
-			continue
+	ipv6 := ip.To4() == nil
+	rules, err := m.readCleanupRules(ipv6)
+	if err != nil {
+		return err
+	}
+	return m.removeSelectedRules(ipv6, func(rule cleanupRule) bool {
+		if !rule.legacySafe {
+			return false
 		}
-		for _, handle := range parseHandles(output) {
-			m.sshClient.Execute(fmt.Sprintf("nft delete rule ip %s %s handle %s 2>/dev/null || true", m.tableName, chain, handle))
+		switch rule.action {
+		case "DNAT":
+			return rule.dnatIP == ip.String()
+		case "ACCEPT":
+			return rule.destination == ip.String()
+		case "MASQUERADE":
+			return rule.source == ip.String()
 		}
-	}
-	return nil
-}
-
-func (m *Manager) deleteIptablesRulesByIP(ip string) error {
-	const maxIterations = 100
-
-	// PREROUTING DNAT rules
-	for i := 0; i < maxIterations; i++ {
-		output, err := m.sshClient.Execute(fmt.Sprintf(
-			"iptables -t nat -S PREROUTING 2>/dev/null | grep 'DNAT.*%s[:/]' | head -1", ip))
-		if err != nil || strings.TrimSpace(output) == "" {
-			break
-		}
-		rule := strings.TrimSpace(output)
-		deleteRule := strings.Replace(rule, "-A PREROUTING", "-D PREROUTING", 1)
-		if _, err := m.sshClient.Execute(fmt.Sprintf("iptables -t nat %s 2>/dev/null", deleteRule)); err != nil {
-			break
-		}
-	}
-
-	// FORWARD rules
-	for i := 0; i < maxIterations; i++ {
-		output, err := m.sshClient.Execute(fmt.Sprintf(
-			"iptables -S FORWARD 2>/dev/null | grep -- '-d %s' | head -1", ip))
-		if err != nil || strings.TrimSpace(output) == "" {
-			break
-		}
-		rule := strings.TrimSpace(output)
-		deleteRule := strings.Replace(rule, "-A FORWARD", "-D FORWARD", 1)
-		if _, err := m.sshClient.Execute(fmt.Sprintf("iptables %s 2>/dev/null", deleteRule)); err != nil {
-			break
-		}
-	}
-
-	// POSTROUTING MASQUERADE rules
-	for i := 0; i < maxIterations; i++ {
-		output, err := m.sshClient.Execute(fmt.Sprintf(
-			"iptables -t nat -S POSTROUTING 2>/dev/null | grep '%s' | grep MASQUERADE | head -1", ip))
-		if err != nil || strings.TrimSpace(output) == "" {
-			break
-		}
-		rule := strings.TrimSpace(output)
-		deleteRule := strings.Replace(rule, "-A POSTROUTING", "-D POSTROUTING", 1)
-		if _, err := m.sshClient.Execute(fmt.Sprintf("iptables -t nat %s 2>/dev/null", deleteRule)); err != nil {
-			break
-		}
-	}
-
-	return nil
-}
-
-// SaveRules 持久化防火墙规则
-func (m *Manager) SaveRules() {
-	if m.backend == BackendNft {
-		m.saveNftRules()
-	} else {
-		m.saveIptablesRules()
-	}
-}
-
-func (m *Manager) saveNftRules() {
-	cmds := []string{
-		"mkdir -p /etc/nftables.d",
-		fmt.Sprintf(`{
-echo "# VM port forwarding - managed by oneclickvirt"
-echo "table ip %s"
-echo "delete table ip %s"
-nft list table ip %s
-} > /etc/nftables.d/%s.nft 2>/dev/null || true`, m.tableName, m.tableName, m.tableName, m.tableName),
-		// Ensure /etc/nftables.conf includes our rules directory so they survive host reboots
-		`grep -q 'include.*nftables\.d' /etc/nftables.conf 2>/dev/null || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf 2>/dev/null || true`,
-		// Also enable and start nftables service so the config is loaded on boot
-		`systemctl is-enabled nftables >/dev/null 2>&1 || systemctl enable nftables >/dev/null 2>&1 || true`,
-	}
-	for _, cmd := range cmds {
-		m.sshClient.Execute(cmd)
-	}
-}
-
-func (m *Manager) saveIptablesRules() {
-	cmds := []string{
-		"mkdir -p /etc/iptables",
-		"iptables-save > /etc/iptables/rules.v4 2>/dev/null || true",
-		"ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true",
-		"service iptables save 2>/dev/null || true",
-		"service ip6tables save 2>/dev/null || true",
-		"netfilter-persistent save 2>/dev/null || true",
-	}
-	for _, cmd := range cmds {
-		m.sshClient.Execute(cmd)
-	}
+		return false
+	}, rules)
 }
 
 // DiscoverDNATRules 发现指向指定 IP 的所有 DNAT 规则，返回 (hostPort, guestPort, protocol, isSSH) 列表

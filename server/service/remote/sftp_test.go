@@ -3,6 +3,7 @@ package remote
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -11,12 +12,23 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestResolveImportedInstanceSSHTargetUsesDiscoveredMappingAndCredentials(t *testing.T) {
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+func openSFTPTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := fmt.Sprintf("file:sftp_%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get test database pool: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return db
+}
+
+func TestResolveImportedInstanceSSHTargetUsesDiscoveredMappingAndCredentials(t *testing.T) {
+	db := openSFTPTestDB(t)
 	if err := db.AutoMigrate(&providerModel.Provider{}, &providerModel.Port{}); err != nil {
 		t.Fatalf("migrate test database: %v", err)
 	}
@@ -69,11 +81,7 @@ func TestResolveImportedInstanceSSHTargetUsesDiscoveredMappingAndCredentials(t *
 }
 
 func TestResolveImportedIPv6OnlyInstanceSSHTarget(t *testing.T) {
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open test database: %v", err)
-	}
+	db := openSFTPTestDB(t)
 	if err := db.AutoMigrate(&providerModel.Provider{}, &providerModel.Port{}); err != nil {
 		t.Fatalf("migrate test database: %v", err)
 	}
@@ -102,11 +110,7 @@ func TestResolveImportedIPv6OnlyInstanceSSHTarget(t *testing.T) {
 }
 
 func TestResolveInstanceSSHTargetUsesManualHostAndPrivateKey(t *testing.T) {
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open test database: %v", err)
-	}
+	db := openSFTPTestDB(t)
 	if err := db.AutoMigrate(&providerModel.Provider{}, &providerModel.Port{}); err != nil {
 		t.Fatalf("migrate test database: %v", err)
 	}
@@ -145,11 +149,7 @@ func TestResolveInstanceSSHTargetUsesManualHostAndPrivateKey(t *testing.T) {
 }
 
 func TestResolveInstanceSSHTargetUsesManualHostForAgentFallback(t *testing.T) {
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open test database: %v", err)
-	}
+	db := openSFTPTestDB(t)
 	if err := db.AutoMigrate(&providerModel.Provider{}, &providerModel.Port{}); err != nil {
 		t.Fatalf("migrate test database: %v", err)
 	}
@@ -175,11 +175,7 @@ func TestResolveInstanceSSHTargetUsesManualHostForAgentFallback(t *testing.T) {
 }
 
 func TestResolveInstanceSSHTargetManualOverrideWinsOverActiveMapping(t *testing.T) {
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open test database: %v", err)
-	}
+	db := openSFTPTestDB(t)
 	if err := db.AutoMigrate(&providerModel.Provider{}, &providerModel.Port{}); err != nil {
 		t.Fatalf("migrate test database: %v", err)
 	}

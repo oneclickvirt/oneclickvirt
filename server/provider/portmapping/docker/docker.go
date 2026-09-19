@@ -112,6 +112,9 @@ func (d *DockerPortMapping) CreatePortMapping(ctx context.Context, req *portmapp
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
+	if instance.ProviderID != req.ProviderID {
+		return nil, fmt.Errorf("instance does not belong to provider")
+	}
 
 	// 分配端口
 	hostPort := req.HostPort
@@ -143,6 +146,7 @@ func (d *DockerPortMapping) CreatePortMapping(ctx context.Context, req *portmapp
 		HostIP:        providerInfo.Endpoint, // 使用Provider的endpoint作为主机IP
 		PublicIP:      d.getPublicIP(providerInfo),
 		IPv6Address:   req.IPv6Address,
+		IPv6Enabled:   req.IPv6Enabled || req.IPv6Address != "",
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: "docker-native",
@@ -178,15 +182,18 @@ func (d *DockerPortMapping) DeletePortMapping(ctx context.Context, req *portmapp
 		zap.String("instanceId", req.InstanceID))
 
 	// 获取端口映射信息
-	var portModel provider.Port
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
-		return fmt.Errorf("port mapping not found: %v", err)
+	portModel, err := d.BaseProvider.LoadOwnedPort(req.ID, req.InstanceID, 0)
+	if err != nil {
+		return err
 	}
 
 	// 获取实例信息
 	instance, err := d.getInstance(req.InstanceID)
 	if err != nil {
 		return fmt.Errorf("failed to get instance: %v", err)
+	}
+	if instance.ProviderID != portModel.ProviderID {
+		return fmt.Errorf("port mapping does not belong to instance provider")
 	}
 
 	// 删除Docker端口映射
@@ -198,7 +205,7 @@ func (d *DockerPortMapping) DeletePortMapping(ctx context.Context, req *portmapp
 	}
 
 	// 从数据库删除
-	if err := global.APP_DB.Delete(&portModel).Error; err != nil {
+	if err := global.APP_DB.Delete(portModel).Error; err != nil {
 		return fmt.Errorf("failed to delete port mapping from database: %v", err)
 	}
 
@@ -211,9 +218,9 @@ func (d *DockerPortMapping) UpdatePortMapping(ctx context.Context, req *portmapp
 	global.APP_LOG.Warn("Docker does not support dynamic port mapping updates", zap.Uint("id", req.ID))
 
 	// 获取现有端口映射
-	var portModel provider.Port
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
-		return nil, fmt.Errorf("port mapping not found: %v", err)
+	portModel, err := d.BaseProvider.LoadOwnedPort(req.ID, req.InstanceID, 0)
+	if err != nil {
+		return nil, err
 	}
 
 	// 检查是否尝试修改端口配置
@@ -227,12 +234,12 @@ func (d *DockerPortMapping) UpdatePortMapping(ctx context.Context, req *portmapp
 		"status":      req.Status,
 	}
 
-	if err := global.APP_DB.Model(&portModel).Updates(updates).Error; err != nil {
+	if err := global.APP_DB.Model(portModel).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to update port mapping: %v", err)
 	}
 
 	// 重新获取更新后的记录
-	if err := global.APP_DB.First(&portModel, req.ID).Error; err != nil {
+	if err := global.APP_DB.First(portModel, req.ID).Error; err != nil {
 		return nil, fmt.Errorf("failed to get updated port mapping: %v", err)
 	}
 
@@ -242,7 +249,7 @@ func (d *DockerPortMapping) UpdatePortMapping(ctx context.Context, req *portmapp
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
 
-	result := d.BaseProvider.FromDBModel(&portModel)
+	result := d.BaseProvider.FromDBModel(portModel)
 	result.HostIP = providerInfo.Endpoint
 	result.PublicIP = d.getPublicIP(providerInfo)
 	result.MappingMethod = "docker-native"

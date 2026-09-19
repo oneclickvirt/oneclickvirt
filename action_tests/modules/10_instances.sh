@@ -195,7 +195,7 @@ run_module_10() {
 
             # -- Reset password --
             local known_test_pw="NewContPass123!"
-            local rp; rp=$(test_api "Reset container password" "PUT" "/api/v1/admin/instances/${container_id}/reset-password" "200|400|500" \
+            local rp; rp=$(test_api "Reset container password" "PUT" "/api/v1/admin/instances/${container_id}/reset-password" "200|infra" \
                 "{\"password\":\"${known_test_pw}\"}" "$group")
             export TEST_INSTANCE_PASSWORD="${known_test_pw}"
             local rp_task; rp_task=$(echo "$rp" | jq -r '.data.task_id // .data.taskId // .data.id // empty' 2>/dev/null)
@@ -248,11 +248,12 @@ run_module_10() {
             fi
 
             # -- Rebuild --
-            local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200|400|500" \
+            local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200|infra" \
                 "{\"action\":\"rebuild\",\"image\":\"${container_image}\"}" "$group")
             log_info "Rebuild response: $(echo "$rb_resp" | jq -c '.' 2>/dev/null || printf '%s' "$rb_resp")"
             # Only proceed with rebuild wait if the server returned 200 (success).
-            # A 400/500 means the rebuild was rejected or failed immediately; skip the wait.
+            # Infrastructure failures are already recorded as SKIP by test_api;
+            # validation/product failures remain recorded as FAIL.
             local rb_code; rb_code=$(echo "$rb_resp" | jq -r '.code // empty' 2>/dev/null)
             if [[ "$rb_code" == "200" ]]; then
                 local rb_task; rb_task=$(echo "$rb_resp" | jq -r '.data.task_id // .data.taskId // .data.id // empty' 2>/dev/null)
