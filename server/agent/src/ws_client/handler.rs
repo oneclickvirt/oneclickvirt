@@ -841,6 +841,7 @@ async fn dispatch_api_request(
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+    use crate::ws_client::shell::acquire_pty_test_guard;
     use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
 
     #[test]
@@ -864,6 +865,7 @@ mod lifecycle_tests {
 
     #[tokio::test]
     async fn failed_container_start_never_falls_back_to_host_and_other_sessions_work() {
+        let _pty_test_guard = acquire_pty_test_guard();
         let (agent_io, control_io) = tokio::io::duplex(65536);
         let agent_ws = WebSocketStream::from_raw_socket(agent_io, Role::Client, None).await;
         let mut control = WebSocketStream::from_raw_socket(control_io, Role::Server, None).await;
@@ -885,7 +887,7 @@ mod lifecycle_tests {
                 .await
                 .unwrap();
         }
-        let observed = tokio::time::timeout(Duration::from_secs(3), async {
+        let observed = tokio::time::timeout(Duration::from_secs(10), async {
             let (mut a_closed, mut b_alive, mut command_alive) = (false, false, false);
             while let Some(Ok(Message::Text(text))) = control.next().await {
                 let frame: serde_json::Value = serde_json::from_str(&text).unwrap();

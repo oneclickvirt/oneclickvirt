@@ -12,6 +12,49 @@ use tokio_tungstenite::tungstenite::Message;
 use super::types::{ShellHandle, ShellOpenPayload};
 use crate::tunnel::WsFrame;
 
+// Rust's test harness runs tests in this binary concurrently. Several tests
+// below intentionally allocate hundreds of real PTYs, while the lifecycle
+// tests in handler.rs also need real PTYs. Letting those independent stress
+// fixtures overlap can exhaust or heavily delay the host PTY allocator and
+// turn lifecycle assertions into machine-load-dependent failures. The stress
+// test itself remains concurrent; this gate only prevents unrelated PTY tests
+// from competing for the same process/host resource at the same time.
+#[cfg(test)]
+static PTY_TEST_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+pub(super) struct PtyTestGuard;
+
+#[cfg(test)]
+impl Drop for PtyTestGuard {
+    fn drop(&mut self) {
+        PTY_TEST_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+pub(super) fn acquire_pty_test_guard() -> PtyTestGuard {
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if PTY_TEST_ACTIVE
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::Acquire,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_ok()
+        {
+            return PtyTestGuard;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for another PTY-backed test"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
 /// Find the best available interactive shell (bash preferred, then zsh, fish, sh as fallback).
 pub(super) fn find_best_shell() -> Option<String> {
     let candidates = [
@@ -504,6 +547,7 @@ mod tests {
 
     #[test]
     fn pty_descriptors_do_not_escape_into_other_commands() {
+        let _pty_test_guard = acquire_pty_test_guard();
         let (master, slave) = open_pty(93, 31).unwrap();
         let duplicate = slave.try_clone().unwrap();
         for descriptor in [&master, &slave, &duplicate] {
@@ -527,6 +571,7 @@ mod tests {
 
     #[test]
     fn unrelated_child_cannot_keep_another_session_pty_open() {
+        let _pty_test_guard = acquire_pty_test_guard();
         let (master, slave) = open_pty(80, 24).unwrap();
         let duplicate = slave.try_clone().unwrap();
         let mut child = std::process::Command::new("sleep")
@@ -556,6 +601,7 @@ mod tests {
 
     #[test]
     fn concurrent_pty_allocations_never_cross_streams() {
+        let _pty_test_guard = acquire_pty_test_guard();
         let start = Arc::new(std::sync::Barrier::new(8));
         std::thread::scope(|scope| {
             let workers: Vec<_> = (0..8)
@@ -640,6 +686,7 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_shell_registration_does_not_overwrite_or_leak() {
+        let _pty_test_guard = acquire_pty_test_guard();
         let sessions = Arc::new(Mutex::new(HashMap::new()));
         let permits = Arc::new(Semaphore::new(2));
         let permit_a = Arc::new(permits.clone().acquire_owned().await.unwrap());
@@ -664,7 +711,11 @@ mod tests {
             None,
         );
         let (first_result, second_result) = tokio::join!(first, second);
-        assert_ne!(first_result.is_ok(), second_result.is_ok());
+        assert_ne!(
+            first_result.is_ok(),
+            second_result.is_ok(),
+            "exactly one concurrent registration must succeed: first={first_result:?}, second={second_result:?}"
+        );
         let duplicate_error = [first_result.as_ref().err(), second_result.as_ref().err()]
             .into_iter()
             .flatten()
@@ -675,13 +726,21 @@ mod tests {
         if let Some(handle) = sessions.lock().await.remove("replayed-session") {
             let _ = handle.cancel.send(true);
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(sessions.lock().await.is_empty());
-        assert_eq!(permits.available_permits(), 2);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if sessions.lock().await.is_empty() && permits.available_permits() == 2 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("cancelled duplicate-session fixture did not release its permit");
     }
 
     #[tokio::test]
     async fn full_control_queue_reaps_child_and_releases_permit() {
+        let _pty_test_guard = acquire_pty_test_guard();
         let sessions = Arc::new(Mutex::new(HashMap::new()));
         let permits = Arc::new(Semaphore::new(1));
         let permit = Arc::new(permits.clone().acquire_owned().await.unwrap());
