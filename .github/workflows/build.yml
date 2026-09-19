@@ -2,6 +2,12 @@ name: Build and Release oneclickvirt
 
 on:
   workflow_dispatch:
+  # A deliberately named tag is the non-interactive release trigger used by
+  # maintainers without a browser session. Ordinary tags do not start a
+  # release, so an accidental version tag cannot publish a second artifact.
+  push:
+    tags:
+      - 'release-trigger-*'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
