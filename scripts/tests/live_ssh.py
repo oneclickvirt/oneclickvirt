@@ -17,13 +17,18 @@ def strict_node_client():
     if paramiko is None:
         raise RuntimeError("Missing optional dependency: install scripts/tests/requirements-live.txt")
     client = paramiko.SSHClient()
-    client.load_system_host_keys()
     explicit = os.environ.get("OCV_LIVE_KNOWN_HOSTS", "").strip()
     if explicit:
         path = Path(explicit).expanduser()
         if not path.is_file():
             raise RuntimeError("OCV_LIVE_KNOWN_HOSTS must point to an existing known_hosts file")
+        # A disposable node is deliberately rebuilt in place.  Its host key
+        # must be taken exclusively from the per-run file; merging the
+        # operator's system known_hosts first can leave an old key for the
+        # same address and turn a valid rebuild into a false BadHostKeyError.
         client.load_host_keys(str(path))
+    else:
+        client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.RejectPolicy())
     return client
 

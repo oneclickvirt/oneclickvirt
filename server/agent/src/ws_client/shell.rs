@@ -66,6 +66,19 @@ fn shell_work_dir() -> PathBuf {
     select_shell_work_dir(&home, is_root, is_searchable_directory)
 }
 
+// libc exposes the ioctl request type differently for Linux glibc/musl and
+// BSD/macOS. Keep the conversion at this platform boundary so both the Linux
+// CI runner and native macOS builds use the ABI's exact request type.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+unsafe fn set_controlling_terminal() -> libc::c_int {
+    unsafe { libc::ioctl(0, libc::TIOCSCTTY, 1 as libc::c_int) }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+unsafe fn set_controlling_terminal() -> libc::c_int {
+    unsafe { libc::ioctl(0, libc::TIOCSCTTY as libc::c_ulong, 1 as libc::c_int) }
+}
+
 // Linux's ptsname uses shared storage. Different Provider connections can open
 // PTYs concurrently, so each lookup must own its buffer until open completes.
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -320,7 +333,7 @@ pub(super) async fn open_shell_session(
                 return Err(std::io::Error::last_os_error());
             }
             // fd 0 is the slave PTY after dup2; set as controlling terminal.
-            if libc::ioctl(0, libc::TIOCSCTTY as libc::c_ulong, 1 as libc::c_int) < 0 {
+            if set_controlling_terminal() < 0 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())
