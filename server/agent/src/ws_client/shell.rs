@@ -320,7 +320,7 @@ pub(super) async fn open_shell_session(
                 return Err(std::io::Error::last_os_error());
             }
             // fd 0 is the slave PTY after dup2; set as controlling terminal.
-            if libc::ioctl(0, libc::TIOCSCTTY.into(), 1 as libc::c_int) < 0 {
+            if libc::ioctl(0, libc::TIOCSCTTY as libc::c_ulong, 1 as libc::c_int) < 0 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())
