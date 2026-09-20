@@ -117,7 +117,7 @@ Incus/LXD 的 panel_scripts/panel_init.sh 主要是已有运行时的接入配�
 
 在 macOS 工作站重新执行了 LXD/Incus 两个仓库的全部 42 个本地 Shell 回归：36 个通过，6 个明确标记为环境门控（macOS 没有 Linux `flock` 或网络 namespace 权限），没有源码失败。锁测试和 Linux namespace 测试不再以无诊断的退出码 1 结束；现在会输出 `SKIP` 并返回 75，调用方可以区分环境不可用与断言失败。随后在 Debian 12 容器中实际运行 LXD/Incus 的四个锁测试，全部通过；在带隔离网络 namespace 的特权 Debian 12 容器中，LXD/Incus 两套真实 nftables、iptables-nft、iptables-legacy、NAT 与 routed IPv6 测试也全部通过。其他 Docker、Podman、Containerd、QEMU、KubeVirt、PVE 仓库的 26 个本地回归也全部通过。所有涉及脚本均重新做 Bash 语法检查和 diff 检查。
 
-本次修改保存在面板和七个安装脚本仓库，尚未提交或推送。面板按用户要求通过根目录 copy_project.sh 同步到 /Volumes/Additional/个人数据/temp/oneclickvirt，并逐文件核对修改文件、新文件和三份 Swagger 输出；该脚本不负责同步或发布同级安装仓库。本地安装脚本修改需要发布后才能被在线下载入口使用。
+本次修改保存在面板和七个安装脚本仓库，尚未提交或推送。面板已同步到公开镜像工作树，并逐文件核对修改文件、新文件和三份 Swagger 输出；该同步不负责同级安装仓库的发布。本地安装脚本修改需要发布后才能被在线下载入口使用。
 
 没有在用户已恢复使用的节点执行重装、卸载、清空防火墙或删除实例。真实验收仍需要可达的专用测试节点：完成安装和重启后，分别创建容器与 VM，检查 DHCP、出网、SSH 端口、删除重建后的映射回收、容器嵌套 Docker，再用两个会话测试 WebSSH 与普通命令并发。
 

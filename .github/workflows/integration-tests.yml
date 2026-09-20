@@ -228,6 +228,9 @@ jobs:
           bash scripts/tests/install_lifecycle_commands_test.sh
           bash scripts/tests/download_atomic_test.sh
 
+      - name: Verify default config source consistency
+        run: bash scripts/tests/config_source_consistency_test.sh
+
       - name: Verify generated Swagger docs
         working-directory: ./server
         run: |

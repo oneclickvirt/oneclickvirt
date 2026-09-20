@@ -8,6 +8,9 @@ in the output; successful runs delete their guests and isolated local panel.
 This covers the token API, not interactive UI or clean-OS installation.
 OCV_LIVE_CONNECTION=agent additionally requires OCV_AGENT_BINARY and exercises
 the real Rust Agent, concurrent commands/WebSSH, traffic counters and restart.
+OCV_LIVE_BOOTSTRAP_SSH=yes installs a real guest SSH daemon and probe tools in
+minimal base images that intentionally do not ship sshd (for example images:
+debian/12); it does not replace the panel's instance creation or networking.
 """
 import json
 import os
@@ -53,6 +56,9 @@ def main():
     runtime = os.environ.get("OCV_LIVE_RUNTIME", "incus")
     connection = os.environ.get("OCV_LIVE_CONNECTION", "ssh")
     nested_docker = os.environ.get("OCV_LIVE_NESTED_DOCKER", "no")
+    bootstrap_ssh = os.environ.get("OCV_LIVE_BOOTSTRAP_SSH", "no")
+    if bootstrap_ssh not in ("yes", "no"):
+        raise SystemExit("OCV_LIVE_BOOTSTRAP_SSH must be yes/no")
     if nested_docker not in ("yes", "no"):
         raise SystemExit("OCV_LIVE_NESTED_DOCKER must be yes/no")
     network_type = os.environ.get("OCV_LIVE_NETWORK_TYPE", "nat_ipv4")
@@ -99,10 +105,10 @@ def main():
     keep_ssh_alive(node)
 
 
-    def remote(command):
-        stdin, stdout, stderr = node.exec_command(node_command(command), timeout=120)
+    def remote(command, timeout=120):
+        stdin, stdout, stderr = node.exec_command(node_command(command), timeout=timeout)
         stdin.channel.shutdown_write()
-        output, error, status = _collect_output(stdout.channel, 120)
+        output, error, status = _collect_output(stdout.channel, timeout)
         if status:
             raise RuntimeError("remote command failed: " + error[:1200])
         return output.strip()
@@ -110,6 +116,102 @@ def main():
 
     def docker(*args):
         return subprocess.check_output(["docker", *args], text=True).strip()
+
+
+    prepared_image = ""
+
+
+    def prepare_ssh_image():
+        nonlocal prepared_image
+        if bootstrap_ssh != "yes":
+            return image
+        base_name = run_id + "-ssh-base"
+        alias = run_id + "-ssh-image"
+        install = """set -eu
+if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq openssh-server curl python3 iproute2
+elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y openssh-server curl python3 iproute
+elif command -v yum >/dev/null 2>&1; then
+    yum install -y openssh-server curl python3 iproute
+elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache openssh curl python3 iproute2
+else
+    echo 'no supported package manager for SSH image preparation' >&2
+    exit 1
+fi
+mkdir -p /run/sshd
+ssh-keygen -A
+if [ -f /etc/ssh/sshd_config ]; then
+    sed -ri 's/^[#[:space:]]*PermitRootLogin[[:space:]].*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    sed -ri 's/^[#[:space:]]*PasswordAuthentication[[:space:]].*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+fi
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
+elif command -v rc-update >/dev/null 2>&1; then
+    rc-update add sshd default 2>/dev/null || true
+fi
+"""
+        remote(cli + " launch " + shlex.quote(image) + " " + shlex.quote(base_name) + " --quiet", timeout=600)
+        try:
+            remote(cli + " exec " + shlex.quote(base_name) + " -- sh -ceu " + shlex.quote(install), timeout=600)
+            remote(cli + " stop " + shlex.quote(base_name) + " --force", timeout=180)
+            remote(cli + " publish " + shlex.quote(base_name) + " --alias " + shlex.quote(alias), timeout=600)
+            prepared_image = alias
+            log("Prepared temporary SSH-enabled image: " + alias)
+            return alias
+        finally:
+            remote(cli + " delete " + shlex.quote(base_name) + " --force", timeout=180)
+
+
+    def cleanup_prepared_image():
+        nonlocal prepared_image
+        if prepared_image:
+            remote(cli + " image delete " + shlex.quote(prepared_image), timeout=180)
+            log("Removed temporary SSH-enabled image: " + prepared_image)
+            prepared_image = ""
+
+
+    def bootstrap_guest_ssh(name, password):
+        if bootstrap_ssh != "yes" or prepared_image:
+            return
+        # Keep this explicit and image-neutral. The panel still owns instance
+        # creation; this only supplies the SSH/probe packages absent from
+        # minimal cloud/container images used for network acceptance.
+        script = """set -eu
+if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq openssh-server curl python3 iproute2
+elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y openssh-server curl python3 iproute
+elif command -v yum >/dev/null 2>&1; then
+    yum install -y openssh-server curl python3 iproute
+elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache openssh curl python3 iproute2
+else
+    echo 'no supported package manager for SSH bootstrap' >&2
+    exit 1
+fi
+mkdir -p /run/sshd
+ssh-keygen -A
+if [ -f /etc/ssh/sshd_config ]; then
+    sed -ri 's/^[#[:space:]]*PermitRootLogin[[:space:]].*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    sed -ri 's/^[#[:space:]]*PasswordAuthentication[[:space:]].*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+fi
+printf '%s\\n' ROOT_PASSWORD | chpasswd
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
+    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+fi
+if ! pgrep -x sshd >/dev/null 2>&1; then
+    /usr/sbin/sshd
+fi
+""".replace("ROOT_PASSWORD", shlex.quote("root:" + password))
+        remote(cli + " exec " + shlex.quote(name) + " -- sh -ceu " + shlex.quote(script))
+        log("Bootstrapped guest SSH and IPv6 probe tools: " + name)
 
 
     def api(method, path, body=None, allow_error=False):
@@ -160,6 +262,7 @@ def main():
             existing = remote(f"ss -H -lntup 'sport = :{port}'; nft list ruleset 2>/dev/null | grep -w {port} || true; iptables-save -t nat 2>/dev/null | grep -w {port} || true")
             if existing:
                 raise RuntimeError("reserved live test port is occupied: " + str(port))
+        guest_image = prepare_ssh_image()
         docker("run", "-d", "--name", container, "--label", "ocv.live.run=" + run_id,
                "-p", "127.0.0.1::80", "-e", "MYSQL_ROOT_PASSWORD=" + db_password,
                panel_image)
@@ -238,7 +341,7 @@ def main():
                 raise RuntimeError("test instance name already exists")
             task = wait_task(api("POST", "/admin/instances", {
                 "name": name, "provider_id": provider_id, "instance_type": "container",
-                "image": image,
+                "image": guest_image,
                 "cpu": 1, "memory": 512 if nested_docker == "yes" else 256, "disk": 3, "bandwidth": 100,
                 "network_type": network_type}), "create generation " + str(generation))
             instance_id = task.get("instanceId", task.get("instance_id"))
@@ -253,6 +356,7 @@ def main():
                 raise RuntimeError("panel did not return SSH connection details")
             if int(ssh_port) not in ports:
                 raise RuntimeError("panel SSH endpoint escaped the reserved NAT port range")
+            bootstrap_guest_ssh(name, password)
             guest_keys = remote(
                 cli + " exec " + shlex.quote(name)
                 + " -- sh -c " + shlex.quote(
@@ -279,7 +383,7 @@ def main():
                         log("Creating a second live guest for cross-container session isolation: " + sibling_name)
                         sibling_task = wait_task(api("POST", "/admin/instances", {
                             "name": sibling_name, "provider_id": provider_id, "instance_type": "container",
-                            "image": image, "cpu": 1, "memory": 256, "disk": 3, "bandwidth": 100,
+                            "image": guest_image, "cpu": 1, "memory": 256, "disk": 3, "bandwidth": 100,
                             "network_type": network_type}), "create sibling")
                         sibling_id = sibling_task.get("instanceId", sibling_task.get("instance_id"))
                         sibling_detail = api("GET", "/admin/instances/" + str(sibling_id))
@@ -288,6 +392,7 @@ def main():
                         sibling_port = int(sibling_detail["sshPort"])
                         if sibling_port not in ports or sibling_port == int(ssh_port):
                             raise RuntimeError("sibling SSH port overlaps the original guest")
+                        bootstrap_guest_ssh(sibling_name, sibling_detail["password"])
                         sibling_keys = remote(
                             cli + " exec " + shlex.quote(sibling_name)
                             + " -- sh -c " + shlex.quote(
@@ -392,8 +497,14 @@ def main():
         if agent_fixture:
             agent_fixture.cleanup()
             agent_fixture = None
+        cleanup_prepared_image()
         success = True
     finally:
+        if prepared_image:
+            try:
+                cleanup_prepared_image()
+            except Exception as cleanup_error:
+                log("WARNING: temporary image cleanup failed: " + str(cleanup_error))
         node.close()
         if success:
             remove_owned_panel(docker, container, run_id)

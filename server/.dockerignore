@@ -1,0 +1,9 @@
+# Runtime and compiler output are not needed to build the standalone server.
+agent/target/
+storage/
+oneclickvirt
+*.db
+*.sqlite
+*.log
+.DS_Store
+.git/

@@ -234,7 +234,7 @@ Windows Server 模板与 SystemRescue ISO 不作为这些 Linux 容器运行时�
 - 两仓库完整真实内核测试启用 `OCV_TEST_FIREWALLD=true` 后退出 0，保留全部既有 nft/iptables-nft/iptables-legacy 断言，新增实际 firewalld NAT、IPv6 源地址保持、其他网桥保留、重复调用、NAT 禁用、reload、迁移到 nft、在线/离线 NAT 和 trusted 清理。运行于隔离 Linux mount/network namespace，不是真实公网 IPv6或宿主 OS 重启验收。
 - 新增 firewalld 故障注入、防火墙阶段真实进程互斥和发行版持久化回归，均通过并接入原 CI；两仓库原 Shell 回归、创建脚本进程锁、ShellCheck 错误级及 diff 检查通过。没有减少原用例或把模拟测试算成远端环境通过。
 - 四份中英文安装文档及主仓库 `LIVE_ACCEPTANCE.md` 已更新；文档站 `npm run check`、`npm run build` 通过（10.49 秒）。此次未修改 Go/Rust/API 定义，Swagger 沿用此前已生成文件。
-- 临时容器 `ocv-firewalld-20260917-01` 已精确删除并确认不存在；用户其他容器保留。根目录 `copy_project.sh` 已执行成功，主报告及 `LIVE_ACCEPTANCE.md` 与目标副本逐字节一致。Firefox 再次核对授权 VM 页面，仍显示 Debian-13-Trixie；尚未提交 OS 重装。
+- 临时容器 `ocv-firewalld-20260917-01` 已精确删除并确认不存在；用户其他容器保留。主报告及 `LIVE_ACCEPTANCE.md` 已同步到公开镜像工作树并逐字节核对一致。Firefox 再次核对授权 VM 页面，仍显示 Debian-13-Trixie；尚未提交 OS 重装。
 
 ### nftables 启动持久化路径与失败传播（2026-09-17）
 
@@ -407,7 +407,7 @@ Windows Server 模板与 SystemRescue ISO 不作为这些 Linux 容器运行时�
 
 ### 本轮验证边界（2026-09-18）
 
-- `go test ./...`、`go vet ./...`、Rust `cargo test --workspace`（55/55，含重复 shell ID、控制队列满回收、PTY errno 重试与隧道关闭 ID 校验）、文档站 `npm run check`/`npm run build`、防火墙双后端隔离集成和可执行 Shell 回归均通过；根目录 `copy_project.sh` 已再次执行并核对新增文件同步到 `/Volumes/Additional/个人数据/temp/oneclickvirt`。
+- `go test ./...`、`go vet ./...`、Rust `cargo test --workspace`（55/55，含重复 shell ID、控制队列满回收、PTY errno 重试与隧道关闭 ID 校验）、文档站 `npm run check`/`npm run build`、防火墙双后端隔离集成和可执行 Shell 回归均通过；新增文件已同步到公开镜像工作树并核对一致。
 - 本轮针对 Rust Agent 的 clippy 机械告警完成修复（冗余导入、无效转换、可折叠条件、类型别名和文档列表格式），`cargo clippy --workspace --all-targets --all-features -- -D warnings`、`cargo fmt --all -- --check` 与 `cargo test --locked --all-targets` 均通过；未改变 Agent 会话、PTY 或网络生命周期语义。`ipv6_external_acceptance_test.sh` 仍因明确要求独立外部凭据而未执行，属于环境前置，不计通过。`embedded_database_live_test.sh` 已在隔离 ARM64 Docker 容器中完成双引擎实测，结果见上节。
 - Agent 回归工作流已加入同等的格式检查和 `cargo clippy --workspace --all-targets --all-features -- -D warnings` 门禁，避免后续提交重新引入已清零的编译器/风格阻断项。
 - Live 验收契约测试在隔离 Python 虚拟环境安装 `paramiko` 后 43/43 通过；集成工作流同时补装 `websocket-client`，确保 Agent/WebSSH 分支不会因测试依赖缺失而在导入阶段失败。
@@ -452,7 +452,7 @@ Windows Server 模板与 SystemRescue ISO 不作为这些 Linux 容器运行时�
 - Rust Agent `cargo test --workspace --locked --all-targets` 为 57/57，`cargo fmt --all -- --check` 和 `cargo clippy --workspace --all-targets --all-features -- -D warnings` 均通过。
 - 前端 `npm run test:unit` 为 75/75、0 skip；`npm run build` 成功，仅保留既有大 chunk 体积提示。
 - 所有本地脚本/隔离容器回归（数据库双引擎、ARM 生命周期、防火墙 nft/iptables 双后端、Incus/LXD、安装卸载、IPv6 清理、工作流门禁）均退出 0。`static_audit.py --strict` 为 0 高风险 jq、0 管道风险、0 workflow/retry 发现；ShellCheck 仍有测试夹具和平台适配层的既有 warning/info，不构成运行时失败。
-- 根目录 `copy_project.sh` 已执行；关键 Python 驱动、SSH helper、验收报告与目标 `/Volumes/Additional/个人数据/temp/oneclickvirt` 逐文件 `cmp` 一致。
+- 关键 Python 驱动、SSH helper 和验收报告已同步到公开镜像工作树，并逐文件 `cmp` 一致。
 - `REMOTE_PORT` 的非法值不再在 SSH helper 导入阶段阻断测试发现；真实连接时仍 fail-closed，CLI 继续在参数解析阶段给出明确错误。带 `REMOTE_PORT=not-a-port` 的完整 SSH 回归 13/13 通过，完整 Python discovery 仍为 45/45。
 - 重新执行相邻脚本仓库回归：Incus 23 个测试入口中 20 个退出 0，3 个仅因 macOS 缺少 Linux `flock` 或网络 namespace 权限返回标准环境码 75；LXD 22 个入口中 19 个退出 0，3 个同样是标准环境码 75。两仓库的初始化、存储池保留、双栈 IPv6、防火墙持久化/失败传播、实例归属回滚、非交互模式和卸载清理均无失败；ECS 的 `noninteractive` 统一开关测试通过。此前同步的 Linux CI 门槛仍需在 Linux runner 实际执行，不能将 macOS 的环境码当作通过。
 - 文档仓库 `/Volumes/Additional/个人数据/GitHub/oneclickvirt.github.io` 的 `npm run check` 与 `npm run build` 均通过；中英文环境模式、数据库兼容和容器安装文档链接/locale/元数据保持一致。
@@ -465,7 +465,7 @@ Windows Server 模板与 SystemRescue ISO 不作为这些 Linux 容器运行时�
 - 复查 Incus/LXD 全部 IPv6 构建、容器/虚拟机脚本、面板修改脚本及 Incus CPU 监控脚本，发现多处仍通过 `crontab -l | crontab -` 读改写计划任务。宿主 IPv6 保活现在统一写入独立 `/etc/cron.d/oneclickvirt-ipv6`，带 `root` 用户字段；写入使用锁、临时文件和原子 `mv`，保留已有内容，拒绝 cron 目录、目标文件、锁目录和锁文件符号链接，重复调用幂等，不再读写 root 用户 crontab。
 - 容器内的 IPv6 保活入口也改为独立 `/etc/cron.d/oneclickvirt-ipv6`，使用 `/run/lock` 下的有限等待目录锁和原子更新；没有 cron.d 的 Alpine/OpenWrt 等镜像将跳过这个可选保活，不因不支持的 cron 布局阻断实例开设；恶意符号链接和非普通目标文件仍 fail-closed。Incus CPU 监控脚本的安装/卸载任务也改为独立 cron.d 文件，并在自有文件含自定义内容时拒绝删除。
 - 新增 Incus/LXD `ipv6_cron_d_test.sh`：既有任务保留、重复幂等、8 路并发只产生一条任务、目标/目录/锁符号链接拒绝；Debian 12 隔离容器通过。两仓库全量 Shell 回归在补齐 `iproute2/nftables/procps` 后通过，真实 nftables、iptables-nft、iptables-legacy、NAT 和 routed IPv6 命名空间测试均通过。
-- 主仓库移除 IPv6 keepalive 命令中不再使用的 `crontab` 依赖，并拒绝 `/etc/cron.d`、`/run/lock` 父目录符号链接；Go IPv6 keepalive 测试覆盖 Linux `flock`、macOS 文件锁兼容、cron 目录/锁目录/目标文件边界，主仓库 Go 全量、race、vet，Rust 57/57、clippy，前端 75/75 与生产构建均通过。`copy_project.sh` 已在本轮修改后重新执行并逐文件校验。
+- 主仓库移除 IPv6 keepalive 命令中不再使用的 `crontab` 依赖，并拒绝 `/etc/cron.d`、`/run/lock` 父目录符号链接；Go IPv6 keepalive 测试覆盖 Linux `flock`、macOS 文件锁兼容、cron 目录/锁目录/目标文件边界，主仓库 Go 全量、race、vet，Rust 57/57、clippy，前端 75/75 与生产构建均通过。本轮修改已重新同步到公开镜像工作树并逐文件校验。
 - 生产节点只读连接未执行：`192.3.64.219:1777` TCP 可达，但当前 live ED25519 指纹与本地受信 `known_hosts` 不一致；未绕过主机密钥校验，也未使用凭据进行未验证主机登录。公网 IPv6、面板生命周期和真实重装仍保持外部验收阻塞。
 
 ### 生产节点与 Hetzner 公网 IPv6/NAT 实测（2026-09-19）
@@ -484,7 +484,7 @@ Windows Server 模板与 SystemRescue ISO 不作为这些 Linux 容器运行时�
 - 其余实际根因为：Debian 13 `ip` 输出的 ANSI 颜色码污染 IPv6 前缀解析；managed NAT-v6 错误要求宿主必须有可分配前缀，而 proxy 监听只需宿主可用的公网 `/128`；双栈自动端口在 ULA 尚未生成时同时安装两个地址族 proxy；停止后只依赖相对路径 `*_v6` 文件恢复 guest ULA；以及容器停止后才按 DHCPv6 ULA 回绑 NIC，此时无法再用运行态地址/MAC 唯一匹配设备。
 - 最终顺序为：首先只安装 IPv4 映射，启动 guest 并获取 ULA，运行态将 ULA 固定到精确 NIC 并持久化到实例数据库，然后停止 guest 安装 IPv6 映射；旧临时文件仅作兼容兜底。Incus/LXD 两条路径同步修复，回归覆盖地址族顺序、数据库持久化、ANSI 输出和 `/128` proxy 语义。
 - 验收收尾通过面板 API 删除手工映射与测试容器，恢复 Provider 资源预算开关。最终只读复核显示预算为 `false/false/true`，活动数据库记录与 Incus 运行态均只有原 3 个实例，活动测试端口、任务、proxy 和监听残留均为 0；Hetzner 项目仍只有原有 1 台服务器。
-- 最新源码再次完整执行 `server/go test ./...` 通过；21 个 Python 验收/动作驱动以无缓存内存编译检查通过，Swagger/API 合同同步测试与 `git diff --check` 通过。根目录 `copy_project.sh` 重新执行，主要验收文件、Swagger 三件套和已跟踪的默认 `server/config.yaml` 在目标副本中哈希一致；目标副本不含 `__pycache__`/`*.pyc`、`.env` 或运行时数据文件。
+- 最新源码再次完整执行 `server/go test ./...` 通过；21 个 Python 验收/动作驱动以无缓存内存编译检查通过，Swagger/API 合同同步测试与 `git diff --check` 通过。主要验收文件、Swagger 三件套和已跟踪的默认 `server/config.yaml` 已同步到公开镜像工作树并校验哈希一致；目标副本不含 `__pycache__`/`*.pyc`、`.env` 或运行时数据文件。
 
 ### Hetzner 多系统兼容性实测（2026-09-19）
 
