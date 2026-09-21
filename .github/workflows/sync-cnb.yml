@@ -69,7 +69,7 @@ jobs:
             commit -m "sync: public source snapshot ${source_commit}"
           printf 'CNB_EXPORT_COMMIT=%s\n' "$(git rev-parse HEAD)" >> "${GITHUB_ENV}"
 
-      - name: Push source only to CNB master
+      - name: Replace CNB public branches
         env:
           CNB_PUSH_USERNAME: ${{ secrets.CNB_PUSH_USERNAME }}
           CNB_PUSH_TOKEN: ${{ secrets.CNB_PUSH_TOKEN }}
@@ -78,4 +78,6 @@ jobs:
         run: |
           git remote add cnb "${CNB_REPOSITORY_URL}"
           git -c credential.helper='!f() { test "$1" = get || exit 0; printf "%s\n" "username=${CNB_PUSH_USERNAME}" "password=${CNB_PUSH_TOKEN}"; }; f' \
-            push --force cnb "${CNB_EXPORT_COMMIT}:refs/heads/master"
+            push --force cnb \
+              "${CNB_EXPORT_COMMIT}:refs/heads/main" \
+              "${CNB_EXPORT_COMMIT}:refs/heads/master"
