@@ -324,36 +324,45 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	} else {
 		instanceID = instance.ID
 
-		// 获取并更新实例的PrivateIP（确保pmacct配置使用正确的内网IP）
-		updateProgress(78, "获取实例内网IP...")
-		if privateIP, err := l.GetInstanceIPv4(ctx, config.Name); err == nil && privateIP != "" {
-			// 更新数据库中的PrivateIP
-			if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
-				global.APP_LOG.Debug("已更新LXD实例内网IP",
-					zap.String("instanceName", config.Name),
-					zap.String("privateIP", privateIP))
+		if instance.NetworkType == "ipv6_only" {
+			if err := global.APP_DB.Model(&instance).Updates(map[string]interface{}{
+				"private_ip": "", "pmacct_interface_v4": "",
+			}).Error; err != nil {
+				global.APP_LOG.Warn("清理IPv6-only实例IPv4信息失败", zap.Error(err))
 			}
 		} else {
-			global.APP_LOG.Warn("获取LXD实例内网IP失败，pmacct可能使用公网IP",
-				zap.String("instanceName", config.Name),
-				zap.Error(err))
+			// 获取并更新实例的PrivateIP（确保pmacct配置使用正确的内网IP）
+			updateProgress(78, "获取实例内网IP...")
+			if privateIP, err := l.GetInstanceIPv4(ctx, config.Name); err == nil && privateIP != "" {
+				if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
+					global.APP_LOG.Debug("已更新LXD实例内网IP",
+						zap.String("instanceName", config.Name),
+						zap.String("privateIP", privateIP))
+				}
+			} else {
+				global.APP_LOG.Warn("获取LXD实例内网IP失败，pmacct可能使用公网IP",
+					zap.String("instanceName", config.Name),
+					zap.Error(err))
+			}
 		}
 
 		// 获取并更新实例的网络接口信息（对于容器类型）
 		if config.InstanceType != "vm" {
 			updateProgress(79, "获取网络接口信息...")
 
-			// 获取IPv4的veth接口
-			if vethV4, err := l.GetVethInterfaceName(config.Name); err == nil && vethV4 != "" {
-				if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v4", vethV4).Error; err == nil {
-					global.APP_LOG.Debug("已更新LXD实例IPv4网络接口",
+			if instance.NetworkType != "ipv6_only" {
+				// 获取IPv4的veth接口
+				if vethV4, err := l.GetVethInterfaceName(config.Name); err == nil && vethV4 != "" {
+					if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v4", vethV4).Error; err == nil {
+						global.APP_LOG.Debug("已更新LXD实例IPv4网络接口",
+							zap.String("instanceName", config.Name),
+							zap.String("interfaceV4", vethV4))
+					}
+				} else {
+					global.APP_LOG.Debug("未获取到IPv4网络接口",
 						zap.String("instanceName", config.Name),
-						zap.String("interfaceV4", vethV4))
+						zap.Error(err))
 				}
-			} else {
-				global.APP_LOG.Debug("未获取到IPv4网络接口",
-					zap.String("instanceName", config.Name),
-					zap.Error(err))
 			}
 
 			// 仅当网络类型包含IPv6时才检测V6的veth接口

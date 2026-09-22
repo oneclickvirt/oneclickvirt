@@ -489,7 +489,8 @@ func (c *SSHClient) ExecuteViaTempScript(scriptContent string, args []string, ti
 	for _, arg := range args {
 		argStr += " " + shellEscape(arg)
 	}
-	execCmd := fmt.Sprintf("bash %s%s", tmpPath, argStr)
+	interpreter := TempScriptInterpreter(scriptContent)
+	execCmd := fmt.Sprintf("%s %s%s", shellEscape(interpreter), shellEscape(tmpPath), argStr)
 
 	// 执行脚本
 	output, execErr := c.ExecuteRaw(execCmd, timeout)

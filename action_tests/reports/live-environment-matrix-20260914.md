@@ -2,6 +2,27 @@
 
 本记录区分真实节点执行、命令模拟回归和静态检查。只有实际执行并验证结果的组合才标为通过；未执行、受阻和运行时不支持的组合分别记录，不计为通过。
 
+## 2026-09-21 本地 Agent 内穿隔离复验
+
+- 在独立 ARM64 面板/Agent Docker 网络中复用现有 Agent Provider，实例 `ocv-agent-docker-3` 内启动临时 HTTP 服务；通过 Agent 命令执行、容器私网地址读取和控制端 `controller` 映射创建，面板容器内访问映射端口取得随机测试标记，证明 Agent 命令链和主控内穿端口均可用。
+- 重启专用 Agent 容器后，Provider 状态恢复 `online`，再次执行普通 Agent 命令成功；映射保持可访问，未出现共享 WebSocket 被重连或单命令失败误关闭的现象。
+- 映射、实例、Provider、系统镜像及本轮专用面板/Agent 容器和网络均已删除；没有触碰其他本地面板、生产节点或既有实例。该结果是本地 Agent/控制端隔离验收，不替代 HZ 主控与生产节点实测。
+- 本轮本地门禁重新执行：Go 全量/race/vet、Rust Agent 58/58、fmt/clippy、前端 78/78 与生产构建、Python live discovery 57/57（完整 live 依赖，无 skip）、数据库双引擎和 firewall 双后端均通过。缺少真实节点或独立探针变量的 live Shell 入口统一返回环境码 75；配置完整后的失败仍返回非零。
+- 重新按 `tests/*.{sh,py}` 完整发现并执行相邻 Shell 仓库入口，避免遗漏 `test_ipv6_network.sh` 等非 `*_test.sh` 命名：Incus 24 项中 21 项通过、3 项环境码 75；LXD 24 项中 21 项通过、3 项环境码 75；Docker 4/4、Podman 5/5、Containerd 7/7、ECS 1/1 通过，0 个普通失败。全部 Shell 文件语法检查通过。
+
+## 2026-09-21 全量门禁复跑与环境前置分类
+
+- 当前源码重新执行严格静态审计：路由字面量覆盖 84.48%，高风险 jq、管道错误传播、工作流发现和重试卫生均为 0，超过 82% 门槛。
+- Python `scripts/tests/*_test.py` 在临时安装 `requirements-live.txt` 的隔离环境中为 57/57 通过、0 skip；所有主仓库 Shell 入口逐文件语法检查通过。
+- Go `test ./...`、`test -race ./...`、`vet ./...`，Rust Agent 58/58、fmt、clippy，前端 78/78 与生产构建，文档仓库 `npm run check`/`npm run build` 均通过。前端构建仅保留既有 chunk 体积提示。
+- 主仓库 `scripts/tests/*.sh` 重新完整执行 33 项：30 项通过、3 项标准环境码 75、0 项普通失败。发现并修复 no-db 配置生成辅助脚本被直接发现执行时将容器内 `/app/config.yaml.default` 错判为本机产品失败的问题；无参数直接运行现在明确返回环境码 75，镜像内显式传入配置路径仍严格校验，no-db 生命周期回归通过。
+- 相邻仓库按 `tests/*.{sh,py}` 完整执行：Incus 24 项中 21 项通过、3 项环境码 75；LXD 24 项中 21 项通过、3 项环境码 75；Docker 4/4、Podman 5/5、Containerd 7/7、ECS 1/1 通过，0 个普通失败。
+- HZ API 只读请求再次返回 HTTP 401；`142.132.227.3:22` 虽 TCP 可达，但当前 ED25519 主机指纹与本机受信记录不一致。未猜测 root 密码、未绕过 host key、未重装、未创建/删除服务器，因此本轮不能把 HZ 系统/运行时矩阵扩展为新的真实通过证据。
+- 本机现存的专用 OrbStack Agent 夹具 `ocv-orbstack-agent-live` 指向 HZ 主控 `142.132.227.3:8888`；重启后日志确认 WebSocket 重新连接并再次收到控制端命令，通过其 Docker socket 启动临时 Alpine 容器并取得随机标记。该证据证明 HZ 控制端到本地 Agent 的传输/重连和 Docker 执行链可用，但没有 HZ 管理 API 凭据，不能扩展为完整面板创建/删除/内穿验收。
+- 该 OrbStack 夹具未授予 `CAP_NET_ADMIN`，Agent 日志中的 nft base table/周期 GC 错误属于夹具权限前置；流量监控在真实 Linux Agent 上已有隔离回归，但本机 OrbStack 夹具不计流量监控通过，也未修改其他容器。
+- 在该 Agent 的 loopback API 上补做了监控生命周期边界：添加 `eth0` 监控记录、读取列表确认错误状态和缺失接口、再删除后列表归零；这证明失败时记录不会伪装健康且删除可收敛，但由于同一权限限制，不能替代 nft 计数增长验收。
+- 为 no-db 配置辅助脚本补充了回归断言：仓库级直接发现必须返回环境码 75 并说明缺少镜像内默认配置，显式传入配置路径的缺失仍返回普通失败；脚本语法、no-db 生命周期测试和同步副本校验均通过。
+
 ## 2026-09-19 全仓库复核补充
 
 - Go `go test ./...`、`go test -race ./...`、`go vet ./...` 通过；Rust Agent `cargo fmt --check`、`cargo test --all-targets`（57 项）、`cargo clippy --all-targets --all-features -- -D warnings` 以及 `aarch64/x86_64-unknown-linux-musl` 检查通过；前端 75/75 用例通过且无跳过，生产构建通过。
@@ -367,7 +388,7 @@ Windows Server 模板与 SystemRescue ISO 不作为这些 Linux 容器运行时�
 - 真机进一步发现原生包 Incus 的驱动缓存时序问题：daemon 在 Btrfs/LVM 工具安装前启动，工具和内核支持已可用时，/1.0 的 storage_supported_drivers 仍只有 dir；Btrfs/LVM 初始化失败，随后额外尝试 ZFS/Ceph 并最终回退 dir。安装器重启 daemon 后，同一接口才列出 btrfs/lvm。ZFS 因新装内核版本与当前运行内核不同而不可加载是正常后端回退，未把它与驱动缓存问题混为一谈。
 - Incus 新增受保护的驱动刷新：严格读取 daemon 能力列表，已有驱动不重启；缺失驱动且存储池确实为空时才 restart + waitready，并重新核验一次。已有存储池、无效响应、查询失败均禁止自动刷新；重启/等待失败不忽略。保留后端回退与已有环境复用，不删除/重建存储池。新增 22 个回归及原 18 个内核/软件包场景在本机与 Debian 12/jq 1.6 均通过，原初始化/面板/存储保留回归也重跑通过。新源码 SHA-256 `2bccfc8e6524d7904257538f4cb5dc4e1961cf92759c3c501913ec6751fbdfb5` 尚待再次干净首装验证，不能套用上一版本的现场结果。
 - dir 回退环境上的脚本容器两代 `ocvscriptzokhrptx1/2` 均通过：第一代无交互创建，第二代真实 PTY 回答全部 8 项；两代均完成公网 SSH、DNS/HTTP、独立 WebSSH、CLI 删除与端口释放/复用。独立来源分别为 `216.126.233.222 38436 10.153.101.17 22` 和 `216.126.233.222 49402 10.153.101.100 22`。驱动完整退出 0，原辅助文件恢复，`/opt/ocv-live-scripts.b9w9CC` fixture 清理；没有实际开设 VM。此轮没有面板创建或 Agent 测试，不能并入此项通过。
-- 后续驱动刷新补丁的中英文说明再次 check/build 通过；根目录 copy 脚本执行成功，逐个 cmp 核对 196 个现存修改/未跟踪交付文件与同步仓库一致。没有 API 定义新增，Swagger 沿用已生成版本。尚未提交或推送。
+- 后续驱动刷新补丁的中英文说明再次 check/build 通过；逐个 cmp 核对 196 个现存修改/未跟踪交付文件与同步仓库一致。没有 API 定义新增，Swagger 沿用已生成版本。尚未提交或推送。
 
 ### 第四次 SSH DD 与 Btrfs 首装专项（2026-09-17）
 
@@ -500,10 +521,27 @@ Windows Server 模板与 SystemRescue ISO 不作为这些 Linux 容器运行时�
 - openSUSE 16 在当前镜像的限定窗口内未恢复可认证 SSH（`NoValidConnectionsError`），因此没有执行任何安装器、容器创建、卸载或网络断言；该结果只记录为镜像访问前置阻塞，不判定源码或安装器不兼容。
 - 矩阵收尾前通过 Hetzner API 原地将项目内唯一服务器从 openSUSE 16 恢复为 Debian 12，并在新的隔离 host-key 文件下完成严格 root SSH 验证。Debian 12 的 systemd、全局 IPv6、默认路由及 `curl --noproxy '*' -6 https://ipv6.ip.sb` 均通过；最终 API 复核仍为 1 台 running 服务器，未创建或删除服务器。
 
+### Hetzner 主控到 OrbStack Agent 内穿实测（2026-09-21）
+
+- 只读核验 Hetzner 主控 API 后确认唯一 Provider 为本轮专用 `ocv-orbstack-agent-live`，Agent 版本 `0.4.0` 且在线；先确认两个旧失败实例均无同名 Docker 资源，再通过面板删除任务清理数据库记录。旧控制端仍使用 30 分钟辅助下载超时并假设 Bash，给 Alpine Agent 夹具补齐 Bash/curl 后，真实面板创建 `alpine:3.20` Docker 实例成功。该兼容补丁仅用于验证旧主控，当前源码已将辅助下载改为 POSIX `sh` 和独立短超时。
+- 创建后的容器取得 `192.168.215.6`，DNS 解析 GitHub 正常，IPv4 出口精确返回 OrbStack 宿主公网地址。通过面板分别创建 HTTP `30000 -> 18080` 与 SSH `30001 -> 22` 两条 `controller` 映射；本机从 HZ 主控公网地址取得随机 HTTP 标记，并以从 Agent 读取后固定的 guest SSH host key 完成密码认证，SSH 内再次验证 DNS 与公网 IPv4 出口。
+- 重启本地 Agent 后，Provider 先离线再以新的 `agentConnectedAt` 上线，原 HTTP 映射第一次探测即恢复。保持 HTTP/SSH 内穿时令普通 Agent 命令超时，控制端返回 502，5 次并发 HTTP 请求全部成功，既有 SSH 会话在超时前后均可继续执行，Agent 连接时间未变化。
+- 删除 HTTP 映射 A 后主控 `30000` 立即拒绝连接，但既有 SSH 映射 B/会话继续工作；再删除 B 和实例后，面板记录、Docker 容器以及两个主控监听端口均消失。本轮没有残留实例或映射。
+- OrbStack Agent 夹具没有 `CAP_NET_ADMIN`，不能创建 nft 流量表，因此本轮只证明 HZ 主控、Agent 命令、Docker 生命周期、控制端内穿、会话隔离、重连恢复和删除隔离；不把该夹具记作 Agent 流量监控通过。
+
 ### 尚未完成的验收（截至本轮）
 
+### 本轮追加实测（2026-09-22）
+
+- 使用当前源码构建的本地 amd64 all-in-one 面板，在现有 Hetzner Debian 12 节点上完成 `incus` Agent 模式 NATv4 现场验收。两代容器均完成面板 SSH、同节点两个 guest 的 WebSSH 会话隔离、命令 A 超时不影响命令 B、Agent 重连、双向流量计数、删除和端口释放；Rust Agent 版本为 `0.4.0`。本轮日志保存在 `/private/tmp/ocv-live-agent-nat-20260922.log`。
+- 同一节点上的 Incus 脚本仓库完成非交互 `buildct.sh` 与真实 PTY `add_more.sh` 两代实例测试，`nat_ipv4`、`nat_ipv4_ipv6`、`ipv6_only` 三种模式均通过 SSH、DNS、出网、CLI 删除和端口释放；双栈和纯 IPv6 由生产节点 `192.3.64.219:1777` 严格固定 host key 后完成公网 HTTP/SSH 与 guest IPv6 出网验证。对应日志为 `/private/tmp/ocv-live-script-incus-nat-noninteractive-20260922.log`、`/private/tmp/ocv-live-script-incus-dualstack-20260922.log`、`/private/tmp/ocv-live-script-incus-ipv6only-20260922.log`。
+- Hetzner 节点在 LXD 测试前仍保留既有 Docker/containerd 和运行中的面板容器；默认安装驱动因此正确拒绝跨运行时安装。本轮为保护既有测试资源，显式使用 `OCV_LIVE_ALLOW_EXISTING_RUNTIMES=yes` 完成 LXD 5.21.7 btrfs 初始化、三种脚本网络模式的交互/非交互容器矩阵以及完整非交互卸载。该结果证明混合环境兼容性，不计为干净 OS 首装；默认拒绝行为仍保留。日志为 `/private/tmp/ocv-live-install-lxd-mixed-20260922.log`、`/private/tmp/ocv-live-script-lxd-nat-20260922.log`、`/private/tmp/ocv-live-script-lxd-dualstack-20260922.log`、`/private/tmp/ocv-live-script-lxd-ipv6only-20260922.log`。
+- 反向拓扑复核了 Hetzner 主控到本地 OrbStack Agent 的当前实例：Docker guest 创建、Agent 命令、控制端 HTTP/SSH 内穿、重启后 `agentConnectedAt` 更新且既有映射恢复、固定 guest host key 的 SSH 登录均通过；本轮实例、映射和临时进程已清理。OrbStack 夹具仍没有 `CAP_NET_ADMIN`，流量监控不计通过。并发探针仅在重连瞬间出现过一次 503，稳定后连续 HTTP 请求全部返回容器标记；该瞬态属于重连窗口，不改变连接恢复结论。
+- 当前 Hetzner API token 复核返回 HTTP 401，本轮未执行新的原地 rebuild/reset，也未创建或删除服务器。生产节点凭据和严格 host key 仍可用；因此剩余 OS 的干净重置矩阵不能在本轮扩大声称范围。
+- 本地主控 Go 全量测试、Rust Agent `cargo test --all-targets`（62 passed）与 `cargo clippy --all-targets -- -D warnings`、前端 79 个 Node 单测、MySQL/MariaDB 兼容与重启集成测试、Docker/Podman/Containerd 全部 Shell 回归均通过。Incus/LXD 各 25 个 Shell 用例中实际断言均通过，3 个退出码 75 是 macOS 缺少 Linux `flock`/网络命名空间权限的环境跳过。
+
 - 干净首装已证明 Debian 12/LXD 无交互、Debian 12/Incus 纯交互 Btrfs 组合；相反首次安装模式及剩余受支持 OS/运行时组合仍需实际执行。后续重装按用户要求使用 SSH DD，不再走供应商网站。
-- 按最新要求不再把浏览器 UI 或第三方 WebSSH 当作本轮 IPv6 验收条件。最新源码的生产 Incus SSH Provider 面板 API 任务链已通过；尚未完成的是最新 Agent 连接模式在生产的完整面板矩阵，及非 Incus/LXD NAT 模式的真实实机组合。
+- 按最新要求不再把浏览器 UI 或第三方 WebSSH 当作本轮 IPv6 验收条件。最新源码的生产 Incus SSH Provider 面板 API 任务链已通过；HZ 主控到 OrbStack Agent 的 Docker 创建、HTTP/SSH 控制端内穿、重连恢复、超时隔离和删除闭环也已通过。尚未完成的是 Agent 流量监控的真实 Linux 权限环境验收、生产节点 Agent 完整矩阵，以及非 Incus/LXD NAT 模式的真实实机组合。
 - Incus/LXD NAT IPv6 已通过独立 Hetzner SSH/HTTP 与 guest 出网验收。纯独立 IPv6以及其他需要路由 `/128` 的 provider/模式仍需使用真实可分配前缀完成 guest 直连 SSH/HTTP，不能用本轮 ULA + proxy 结果代替。
 - 实际 daemon 下跨调用者同名替换、并发创建/删除与失败回滚；脚本 flock 不等于面板/外部 CLI 的条件删除原子保证。
 - 不同 OS/防火墙后端的宿主重启与持久化矩阵；已通过的 Linux namespace 数据包回归不能替代宿主实际安装。

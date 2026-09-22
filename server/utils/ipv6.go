@@ -73,6 +73,22 @@ func NetworkTypeHasIPv6(networkType string) bool {
 	}
 }
 
+// UsesManagedIPv6NAT distinguishes Incus/LXD host-public-IPv6 port mapping
+// from native guest allocation. Keep this decision centralized because the
+// controller allocator and both runtime backends must agree before any remote
+// mutation occurs. Empty legacy methods retain the historical device_proxy
+// behavior.
+func UsesManagedIPv6NAT(providerType, networkType, ipv6PortMappingMethod string) bool {
+	providerType = strings.ToLower(strings.TrimSpace(providerType))
+	networkType = strings.ToLower(strings.TrimSpace(networkType))
+	ipv6PortMappingMethod = strings.ToLower(strings.TrimSpace(ipv6PortMappingMethod))
+	if ipv6PortMappingMethod == "" {
+		ipv6PortMappingMethod = "device_proxy"
+	}
+	return (providerType == "incus" || providerType == "lxd") &&
+		networkType == "nat_ipv4_ipv6" && ipv6PortMappingMethod != "native"
+}
+
 // HostIPv6PrefixMustBeAssignable reports whether a provider must discover a
 // host prefix with spare addresses. Managed NAT-v6 only publishes the host's
 // own IPv6 through per-port proxies, so a valid host /128 is sufficient and

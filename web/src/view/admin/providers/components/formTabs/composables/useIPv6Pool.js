@@ -143,10 +143,10 @@ export function useIPv6Pool(props, onProviderUpdated = () => {}) {
     }
   }
 
-  watch(() => [props.modelValue.id, props.modelValue.type, props.modelValue.networkType],
-    ([id, providerType, networkType], previous = []) => {
+  watch(() => [props.modelValue.id, props.modelValue.type, props.modelValue.networkType, props.modelValue.ipv6PortMappingMethod],
+    ([id, providerType, networkType, ipv6PortMappingMethod], previous = []) => {
       if (id !== previous[0]) ipv6SyncResult.value = null
-      if (id && usesControllerIPv6Pool(providerType, networkType)) loadIPv6Pool()
+      if (id && usesControllerIPv6Pool(providerType, networkType, ipv6PortMappingMethod)) loadIPv6Pool()
     }, { immediate: true })
 
   return {

@@ -8,6 +8,8 @@ Requires OCV_LIVE_DISPOSABLE=yes, OCV_LIVE_HOST/PASSWORD and OCV_SCRIPT_REPO.
 Success restores replaced helper files. Failure retains named fixtures.
 """
 import hashlib
+import getpass
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -25,14 +27,36 @@ except ImportError:  # Optional dependency for explicitly requested live runs.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "action_tests/common"))
 from remote import _collect_output, keep_ssh_alive
 from webssh_external_probe import verify_webssh
+from live_external_ipv6 import ExternalIPv6Probe
 from live_node_shell import node_command
-from live_ssh import pinned_guest_client, strict_node_client
+from live_ssh import connect_strict_node, pinned_guest_client, strict_node_client
+
+
+def listed_device_names(output):
+    """Return local device names from Incus/LXD `config device show` YAML.
+
+    Incus 6.0 LTS does not support `config show --format json`. Device names in
+    this dedicated command are the unindented mapping keys, so parsing them
+    avoids a PyYAML dependency while remaining compatible with old LXD/Incus.
+    """
+    names = set()
+    for line in output.splitlines():
+        if line and not line[0].isspace() and line.rstrip().endswith(":"):
+            names.add(line.rstrip()[:-1])
+    return names
+
+
+def parse_global_ipv6_egress(output):
+    address = ipaddress.ip_address(output.strip())
+    if address.version != 6 or not address.is_global:
+        raise ValueError("IPv6 egress result is not a global IPv6 address")
+    return str(address)
 
 
 def main():
     if os.environ.get("OCV_LIVE_DISPOSABLE") != "yes":
         raise SystemExit("Require OCV_LIVE_DISPOSABLE=yes for an empty authorized node")
-    for name in ("OCV_LIVE_HOST", "OCV_LIVE_PASSWORD", "OCV_SCRIPT_REPO"):
+    for name in ("OCV_LIVE_HOST", "OCV_SCRIPT_REPO"):
         if not os.environ.get(name):
             raise SystemExit(f"Missing required live-test variable: {name}")
     if paramiko is None:
@@ -41,8 +65,13 @@ def main():
     if runtime not in ("incus", "lxd"):
         raise SystemExit("OCV_LIVE_RUNTIME must be incus or lxd")
     cli = "incus" if runtime == "incus" else "lxc"
+    network_type = os.environ.get("OCV_LIVE_NETWORK_TYPE", "nat_ipv4")
+    if network_type not in ("nat_ipv4", "nat_ipv4_ipv6", "ipv6_only"):
+        raise SystemExit("OCV_LIVE_NETWORK_TYPE must be nat_ipv4, nat_ipv4_ipv6, or ipv6_only")
+    has_ipv4 = network_type != "ipv6_only"
+    has_ipv6 = network_type != "nat_ipv4"
     repository = Path(os.environ["OCV_SCRIPT_REPO"]).resolve()
-    host, password = os.environ["OCV_LIVE_HOST"], os.environ["OCV_LIVE_PASSWORD"]
+    host, password = os.environ["OCV_LIVE_HOST"], os.environ.get("OCV_LIVE_PASSWORD", "")
     guest_system = os.environ.get("OCV_SCRIPT_SYSTEM", "debian13")
     if os.environ.get("OCV_WEBSSH_URL"):
         if not os.environ.get("OCV_WEBSSH_SOURCE_IP"):
@@ -62,12 +91,12 @@ def main():
         raise SystemExit("Need room for SSH plus 25 contiguous NAT ports")
     ports = range(first_port, first_port + 26)
     ssh = strict_node_client()
-    ssh.connect(host, username="root", password=password, timeout=15,
-                banner_timeout=15, auth_timeout=15, allow_agent=False, look_for_keys=False)
+    connect_strict_node(ssh, host, port=int(os.environ.get("OCV_LIVE_SSH_PORT", "22")))
     keep_ssh_alive(ssh)
     stage = ""
     success = False
     replacements = []
+    external_probe = None
 
     def remote(command, timeout=120):
         stdin, stdout, _ = ssh.exec_command(node_command(command), timeout=timeout)
@@ -76,7 +105,9 @@ def main():
         if status:
             # buildct prints a credential record; never forward its raw output.
             tail = re.sub(r"(" + re.escape(prefix) + r"\d+\s+\d+\s+)\S+", r"\1[redacted]", (out + err)[-6000:])
-            raise RuntimeError(f"remote exit {status}: " + tail.replace(password, "[redacted]"))
+            if password:
+                tail = tail.replace(password, "[redacted]")
+            raise RuntimeError(f"remote exit {status}: " + tail)
         return out.strip()
 
     def check_ports():
@@ -86,7 +117,75 @@ def main():
             if any(re.search(r"\b" + str(port) + r"\b", snapshot) for snapshot in snapshots):
                 raise RuntimeError(f"port {port} is occupied or retained firewall rules")
 
+    def ensure_guest_http_runtime(name):
+        """Ensure a real HTTP process can run in a disposable minimal guest.
+
+        Incus/LXD minimal images often omit Python. A shell still reports the
+        background PID when `python3` immediately fails, which used to turn a
+        missing test dependency into a false IPv6 product failure. Install the
+        ordinary distro package only when needed; the guest is deleted after
+        this generation.
+        """
+        install = r"""set -eu
+if command -v python3 >/dev/null 2>&1; then exit 0; fi
+if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y python3
+elif command -v dnf >/dev/null 2>&1; then
+    dnf -y install python3
+elif command -v yum >/dev/null 2>&1; then
+    yum -y install python3
+elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache python3
+elif command -v zypper >/dev/null 2>&1; then
+    zypper --non-interactive install python3
+else
+    echo 'no supported package manager for the IPv6 HTTP probe' >&2
+    exit 127
+fi
+command -v python3 >/dev/null 2>&1
+"""
+        remote(cli + " exec " + shlex.quote(name) + " -- sh -c " + shlex.quote(install), 600)
+
+    def wait_guest_ipv6_egress(name):
+        # systemd-resolved can briefly return EAI_NONAME immediately after the
+        # final container restart while link DNS scopes are being rebuilt.
+        # Retry the same read-only probe; never retry container creation.
+        deadline = time.monotonic() + 90
+        last_error = None
+        while time.monotonic() < deadline:
+            try:
+                output = remote(
+                    cli + " exec " + shlex.quote(name)
+                    + " -- sh -c " + shlex.quote(
+                        "curl --noproxy '*' -6 -fsS --connect-timeout 10 --max-time 20 https://ipv6.ip.sb"
+                    ), 45
+                )
+                return parse_global_ipv6_egress(output)
+            except (RuntimeError, ValueError) as error:
+                last_error = error
+                time.sleep(2)
+        raise RuntimeError("script-created guest IPv6 DNS/egress did not become ready") from last_error
+
     try:
+        if has_ipv6:
+            probe_host = os.environ.get("OCV_LIVE_EXTERNAL_PROBE_HOST", "")
+            probe_port = int(os.environ.get("OCV_LIVE_EXTERNAL_PROBE_PORT", "22"))
+            probe_user = os.environ.get("OCV_LIVE_EXTERNAL_PROBE_USER", "root")
+            probe_known_hosts = os.environ.get("OCV_LIVE_EXTERNAL_PROBE_KNOWN_HOSTS", "")
+            probe_password = os.environ.get("OCV_LIVE_EXTERNAL_PROBE_PASSWORD", "")
+            if not probe_password:
+                probe_password = getpass.getpass("External IPv6 probe root password: ")
+            if not probe_host or not probe_known_hosts:
+                raise RuntimeError(
+                    "IPv6 shell acceptance requires OCV_LIVE_EXTERNAL_PROBE_HOST and "
+                    "OCV_LIVE_EXTERNAL_PROBE_KNOWN_HOSTS"
+                )
+            external_probe = ExternalIPv6Probe(
+                probe_host, probe_port, probe_user, probe_password, probe_known_hosts
+            )
+            probe_egress = external_probe.connect()
+            print("Independent IPv6 probe connected; egress=" + probe_egress, flush=True)
         if remote(cli + " list --format csv -c n"):
             raise RuntimeError("This script requires an empty runtime; existing guests are protected")
         check_ports()
@@ -132,8 +231,12 @@ def main():
         for generation, name in enumerate(names):
             print("Starting real " + ("noninteractive buildct" if generation == 0 else "interactive add_more PTY"), flush=True)
             if generation == 0:
-                remote("cd /root && env -u NONINTERACTIVE -u INCUS_NONINTERACTIVE noninteractive=true WITHOUTCDN=true CN=false bash ./buildct.sh "
-                       + shlex.join([name, "1", "256", "3", str(first_port), str(first_port+1), str(first_port+25), "100", "100", "N", guest_system]) + " </dev/null", 1500)
+                ipv6_flag = "Y" if has_ipv6 else "N"
+                strict_ipv6 = "yes" if has_ipv6 else "no"
+                remote("cd /root && env -u NONINTERACTIVE -u INCUS_NONINTERACTIVE noninteractive=true WITHOUTCDN=true CN=false "
+                       + "OCV_NETWORK_TYPE=" + shlex.quote(network_type) + " OCV_REQUIRE_PUBLIC_IPV6=" + strict_ipv6
+                       + " bash ./buildct.sh "
+                       + shlex.join([name, "1", "256", "3", str(first_port), str(first_port+1), str(first_port+25), "100", "100", ipv6_flag, guest_system]) + " </dev/null", 1500)
                 record = remote("cat -- /root/" + shlex.quote(name))
             else:
                 # Seed the real existing-log interface so add_more chooses this
@@ -142,10 +245,15 @@ def main():
                     handle.write(f"{names[0]} {first_port-1} unused {first_port-25} {first_port}\n")
                 channel = ssh.get_transport().open_session(timeout=15)
                 channel.get_pty(term="xterm", width=140, height=40)
-                channel.exec_command(node_command("cd /root && env -u noninteractive -u NONINTERACTIVE -u INCUS_NONINTERACTIVE WITHOUTCDN=true CN=false bash ./add_more.sh"))
+                channel.exec_command(node_command(
+                    "cd /root && env -u noninteractive -u NONINTERACTIVE -u INCUS_NONINTERACTIVE "
+                    + "WITHOUTCDN=true CN=false OCV_NETWORK_TYPE=" + shlex.quote(network_type)
+                    + " OCV_REQUIRE_PUBLIC_IPV6=" + ("yes" if has_ipv6 else "no")
+                    + " bash ./add_more.sh"
+                ))
                 answers = [("输入新增几个容器", "1"), ("每个容器CPU核数", "1"), ("每个容器内存大小", "256"),
                            ("每个容器硬盘大小", "3"), ("若需要限制为300Mbit", "100"), ("若需要限制为300Mbit", "100"),
-                           ("不设置V6地址", "N"), ("ubuntu20、centos7", guest_system)]
+                           ("不设置V6地址", "Y" if has_ipv6 else "N"), ("ubuntu20、centos7", guest_system)]
                 buffer, index, errors = "", 0, ""
 
                 def script_output(stream, text):
@@ -181,27 +289,81 @@ def main():
                     "test -r \"$key\" && cat -- \"$key\"; done"
                 )
             )
-            guest = pinned_guest_client(host, first_port, guest_keys)
-            deadline = time.monotonic() + 90
-            while True:
+            if has_ipv4:
+                guest = pinned_guest_client(host, first_port, guest_keys)
+                deadline = time.monotonic() + 90
+                while True:
+                    try:
+                        guest.connect(host, port=first_port, username="root", password=fields[2], timeout=10,
+                                      auth_timeout=10, banner_timeout=10, allow_agent=False, look_for_keys=False)
+                        break
+                    except (OSError, paramiko.SSHException):
+                        guest.close()
+                        if time.monotonic() >= deadline:
+                            raise
+                        time.sleep(2)
                 try:
-                    guest.connect(host, port=first_port, username="root", password=fields[2], timeout=10,
-                                  auth_timeout=10, banner_timeout=10, allow_agent=False, look_for_keys=False)
-                    break
-                except (OSError, paramiko.SSHException):
+                    stdin, stdout, _ = guest.exec_command("set -eu; hostname; getent hosts deb.debian.org; curl -fsS -o /dev/null --max-time 15 http://deb.debian.org/debian/README", timeout=30)
+                    stdin.channel.shutdown_write()
+                    out, _, status = _collect_output(stdout.channel, 30)
+                    if status or not out.splitlines() or out.splitlines()[0] != name:
+                        raise RuntimeError("script-created guest IPv4 SSH/DNS/outbound access failed")
+                finally:
                     guest.close()
-                    if time.monotonic() >= deadline:
-                        raise
-                    time.sleep(2)
-            try:
-                stdin, stdout, _ = guest.exec_command("set -eu; hostname; getent hosts deb.debian.org; curl -fsS -o /dev/null --max-time 15 http://deb.debian.org/debian/README", timeout=30)
-                stdin.channel.shutdown_write()
-                out, _, status = _collect_output(stdout.channel, 30)
-                if status or not out.splitlines() or out.splitlines()[0] != name:
-                    raise RuntimeError("script-created guest SSH/DNS/outbound access failed")
-            finally:
-                guest.close()
-            if os.environ.get("OCV_WEBSSH_URL"):
+            else:
+                devices = listed_device_names(remote(cli + " config device show " + shlex.quote(name)))
+                for device in ("ssh-port", "nattcp-ports", "natudp-ports"):
+                    if device in devices:
+                        raise RuntimeError("ipv6_only unexpectedly exposed IPv4 device " + device)
+                guest_ipv4 = remote(
+                    cli + " exec " + shlex.quote(name)
+                    + " -- sh -c " + shlex.quote(
+                        "ip -o -4 addr show scope global; ip -4 route show default"
+                    )
+                )
+                if guest_ipv4.strip():
+                    raise RuntimeError(
+                        "ipv6_only guest retained a non-loopback IPv4 address or default route: "
+                        + guest_ipv4.replace("\n", " | ")
+                    )
+            if has_ipv6:
+                raw_v6 = remote("tail -n 1 /root/" + shlex.quote(name + "_v6"))
+                guest_v6 = ipaddress.ip_address(raw_v6.strip())
+                if guest_v6.version != 6 or not guest_v6.is_global:
+                    raise RuntimeError("script did not assign an independent global IPv6 address")
+                guest_egress = wait_guest_ipv6_egress(name)
+                nonce = secrets.token_hex(16)
+                directory = "/tmp/ocv-script-ipv6-" + nonce
+                ensure_guest_http_runtime(name)
+                pid = remote(
+                    cli + " exec " + shlex.quote(name) + " -- sh -c " + shlex.quote(
+                        "set -eu; mkdir -p " + directory + "; printf %s " + shlex.quote(nonce)
+                        + " >" + directory + "/identity; nohup python3 -u -m http.server 18080 --bind :: --directory "
+                        + directory + " >/tmp/ocv-script-ipv6-http.log 2>&1 </dev/null & echo $!"
+                    ), 45
+                ).splitlines()[-1]
+                if not pid.isdigit():
+                    raise RuntimeError("guest IPv6 HTTP service did not return a valid process id")
+                try:
+                    # Do not ask the independent host to race a background
+                    # process. Verify the random identity over IPv6 loopback;
+                    # this also catches immediate exec failures despite a PID.
+                    readiness = (
+                        "set -eu; i=0; while [ $i -lt 100 ]; do "
+                        "if kill -0 " + pid + " 2>/dev/null && "
+                        "test \"$(curl --noproxy '*' -g -6 -fsS --connect-timeout 1 --max-time 2 "
+                        "http://[::1]:18080/identity 2>/dev/null || true)\" = " + shlex.quote(nonce) + "; then "
+                        "exit 0; fi; i=$((i + 1)); sleep 0.1; done; "
+                        "cat /tmp/ocv-script-ipv6-http.log >&2 2>/dev/null || true; exit 1"
+                    )
+                    remote(cli + " exec " + shlex.quote(name) + " -- sh -c " + shlex.quote(readiness), 30)
+                    external_probe.http_identity(str(guest_v6), 18080, nonce)
+                    external_probe.ssh_identity(str(guest_v6), 22, guest_keys, "root", fields[2], name)
+                finally:
+                    remote(cli + " exec " + shlex.quote(name) + " -- sh -c "
+                           + shlex.quote("kill " + pid + " 2>/dev/null || true; rm -rf " + directory), 30)
+                print("PASS independent IPv6 SSH/HTTP and guest IPv6 egress: " + str(guest_v6), flush=True)
+            if has_ipv4 and os.environ.get("OCV_WEBSSH_URL"):
                 origin = verify_webssh(os.environ["OCV_WEBSSH_URL"], host, first_port, fields[2], name,
                                        os.environ["OCV_WEBSSH_SOURCE_IP"])
                 print("Independent WebSSH verified: " + origin, flush=True)
@@ -211,8 +373,9 @@ def main():
             if name in remote(cli + " list --format csv -c n").splitlines():
                 raise RuntimeError("deleted guest still present")
             check_ports()
-            remote("rm -f -- /root/" + shlex.quote(name))
-            print("PASS generation " + str(generation) + ": real creation / public SSH / DNS / outbound / CLI deletion / port release", flush=True)
+            remote("rm -f -- /root/" + shlex.quote(name) + " /root/" + shlex.quote(name + "_v6"))
+            print("PASS generation " + str(generation) + ": " + network_type
+                  + " creation / SSH / DNS / outbound / CLI deletion / port release", flush=True)
         for item in reversed(replacements):
             target = shlex.quote(item["target"])
             if item["backup"]:
@@ -225,6 +388,8 @@ def main():
         success = True
         print("PASS: both script modes verified; original helpers restored", flush=True)
     finally:
+        if external_probe:
+            external_probe.close()
         ssh.close()
         if not success:
             print("FAIL: retained fixtures " + ",".join(names) + " stage=" + stage, flush=True)

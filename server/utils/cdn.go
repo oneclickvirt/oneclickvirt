@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 
@@ -12,6 +13,17 @@ import (
 // SSHExecutor 定义SSH执行接口，用于CDN测试
 type SSHExecutor interface {
 	Execute(cmd string) (string, error)
+}
+
+type timeoutSSHExecutor interface {
+	ExecuteWithTimeout(cmd string, timeout time.Duration) (string, error)
+}
+
+func executeCDNProbe(sshClient SSHExecutor, command string, timeout time.Duration) (string, error) {
+	if executor, ok := sshClient.(timeoutSSHExecutor); ok {
+		return executor.ExecuteWithTimeout(command, timeout)
+	}
+	return sshClient.Execute(command)
 }
 
 // GetCDNURL 获取CDN URL - 测试CDN可用性
@@ -33,7 +45,7 @@ func GetCDNURL(sshClient SSHExecutor, originalURL, providerType string) string {
 		cdnTestURL := endpoint + testURL
 		// 测试CDN可用性 - 检查是否包含 "success" 字符串
 		testCmd := fmt.Sprintf("curl -sL -k --max-time 6 '%s' 2>/dev/null | grep -q 'success' && echo 'ok' || echo 'failed'", cdnTestURL)
-		result, err := sshClient.Execute(testCmd)
+		result, err := executeCDNProbe(sshClient, testCmd, 10*time.Second)
 		if err == nil && strings.TrimSpace(result) == "ok" {
 			cdnURL := endpoint + originalURL
 			global.APP_LOG.Debug(fmt.Sprintf("找到可用CDN，使用CDN下载%s镜像", providerType),
@@ -43,7 +55,7 @@ func GetCDNURL(sshClient SSHExecutor, originalURL, providerType string) string {
 			return cdnURL
 		}
 		// 短暂延迟避免过于频繁的请求
-		sshClient.Execute("sleep 0.5")
+		_, _ = executeCDNProbe(sshClient, "sleep 0.5", time.Second)
 	}
 
 	global.APP_LOG.Debug("未找到可用CDN，使用原始URL",

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -38,6 +39,12 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 			zap.Uint("instanceId", instance.ID),
 			zap.Error(err))
 		return
+	}
+	ipv6Only := !instanceRequiresIPv4(instance.NetworkType, dbProvider.NetworkType)
+	effectiveNetworkType := effectiveInstanceNetworkType(instance.NetworkType, dbProvider.NetworkType)
+	if ipv6Only {
+		instanceUpdates["private_ip"] = ""
+		instanceUpdates["pmacct_interface_v4"] = ""
 	}
 
 	// 设置公网IP
@@ -86,10 +93,10 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 	}
 
 	if actualInstance != nil {
-		if actualInstance.IP != "" {
+		if !ipv6Only && actualInstance.IP != "" {
 			instanceUpdates["private_ip"] = actualInstance.IP
 		}
-		if actualInstance.PrivateIP != "" {
+		if !ipv6Only && actualInstance.PrivateIP != "" {
 			instanceUpdates["private_ip"] = actualInstance.PrivateIP
 		}
 		if actualInstance.PublicIP != "" {
@@ -123,8 +130,10 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 			switch dbProvider.Type {
 			case "lxd":
 				if lxdProvider, ok := providerInstance.(*lxd.LXDProvider); ok {
-					if ipv4Address, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
-						instanceUpdates["private_ip"] = ipv4Address
+					if !ipv6Only {
+						if ipv4Address, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
+							instanceUpdates["private_ip"] = ipv4Address
+						}
 					}
 					if ipv6Address, err := lxdProvider.GetInstanceIPv6(instance.Name); err == nil && ipv6Address != "" {
 						instanceUpdates["ipv6_address"] = ipv6Address
@@ -133,14 +142,16 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 					if candidate, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil {
 						publicIPv6 = candidate
 					}
-					for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+					for key, value := range publicIPv6Update(dbProvider.Type, effectiveNetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
 						instanceUpdates[key] = value
 					}
 				}
 			case "incus":
 				if incusProvider, ok := providerInstance.(*incus.IncusProvider); ok {
-					if ipv4Address, err := incusProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
-						instanceUpdates["private_ip"] = ipv4Address
+					if !ipv6Only {
+						if ipv4Address, err := incusProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
+							instanceUpdates["private_ip"] = ipv4Address
+						}
 					}
 					if ipv6Address, err := incusProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
 						instanceUpdates["ipv6_address"] = ipv6Address
@@ -149,7 +160,7 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 					if candidate, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
 						publicIPv6 = candidate
 					}
-					for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+					for key, value := range publicIPv6Update(dbProvider.Type, effectiveNetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
 						instanceUpdates[key] = value
 					}
 				}
@@ -195,7 +206,7 @@ func (s *Service) gatherProxmoxNetworkInfo(ctx context.Context, providerInstance
 		if candidate, err := pxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
 			publicIPv6 = candidate
 		}
-		for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+		for key, value := range publicIPv6Update(dbProvider.Type, dbProvider.NetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
 			instanceUpdates[key] = value
 		}
 		return
@@ -467,6 +478,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", taskID), zap.Error(err))
 					}
 				}
+				go s.delayedDeleteFailedInstance(instanceID)
 				return
 			}
 
@@ -480,6 +492,18 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			s.updateTaskProgress(taskID, 84, "step.configuringPortMappings")
 			// 创建默认端口映射（对于非Docker或需要补充端口映射的情况）
 			portMappingService := &resources.PortMappingService{}
+			if err := portMappingService.ActivatePendingControllerPortMappings(taskCtx, instanceID, providerID); err != nil {
+				finalErr := fmt.Errorf("激活控制端端口映射失败: %w", err)
+				utils.AppendTaskError(taskID, 84, "step.createPostProcessFailed", finalErr)
+				_ = global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Update("status", "error").Error
+				stateManager := s.taskService.GetStateManager()
+				if stateManager != nil {
+					if err := stateManager.CompleteMainTask(taskID, false, finalErr.Error(), nil); err != nil {
+						global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", taskID), zap.Error(err))
+					}
+				}
+				return
+			}
 
 			// 检查是否已经有端口映射（Docker在创建前已分配）
 			existingPorts, _ := portMappingService.GetInstancePortMappings(instanceID)
@@ -555,24 +579,29 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					s.updateTaskProgress(taskID, 93, "step.verifyingSSHPassword")
 					var sshVerifyProvider providerModel.Provider
 					if err := global.APP_DB.First(&sshVerifyProvider, providerID).Error; err == nil {
-						verifyHost := sshVerifyProvider.PortIP
-						if verifyHost == "" {
-							verifyHost = sshVerifyProvider.Endpoint
+						var sshPortMapping providerModel.Port
+						mappingErr := global.APP_DB.Where(
+							"instance_id = ? AND is_ssh = ? AND status = ? AND protocol IN ?",
+							instanceID, true, "active", []string{"tcp", "both"},
+						).First(&sshPortMapping).Error
+						var mapping *providerModel.Port
+						mappingLookupOK := true
+						if mappingErr == nil {
+							mapping = &sshPortMapping
+						} else if !errors.Is(mappingErr, gorm.ErrRecordNotFound) {
+							mappingLookupOK = false
+							global.APP_LOG.Warn("查询SSH密码验证端点失败，跳过远程密码验证",
+								zap.Uint("instanceId", instanceID), zap.Error(mappingErr))
 						}
-						if colonIndex := strings.LastIndex(verifyHost, ":"); colonIndex > 0 {
-							if strings.Count(verifyHost, ":") == 1 || strings.HasPrefix(verifyHost, "[") {
-								verifyHost = verifyHost[:colonIndex]
+						if mappingLookupOK {
+							if verifyHost, verifyPort, ok := passwordVerificationEndpoint(currentInstance, sshVerifyProvider, mapping); ok {
+								s.verifySSHPasswordAuth(instanceID, verifyHost, verifyPort, currentInstance.Username, currentInstance.Password)
+							} else {
+								global.APP_LOG.Debug("实例没有无歧义的SSH密码验证端点，跳过远程验证",
+									zap.Uint("instanceId", instanceID),
+									zap.String("networkType", effectiveInstanceNetworkType(currentInstance.NetworkType, sshVerifyProvider.NetworkType)))
 							}
 						}
-						verifyPort := currentInstance.SSHPort
-						if verifyPort == 0 {
-							verifyPort = 22
-						}
-						var sshPortMapping providerModel.Port
-						if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).First(&sshPortMapping).Error; err == nil {
-							verifyPort = sshPortMapping.HostPort
-						}
-						s.verifySSHPasswordAuth(instanceID, verifyHost, verifyPort, currentInstance.Username, currentInstance.Password)
 					}
 				}
 			}

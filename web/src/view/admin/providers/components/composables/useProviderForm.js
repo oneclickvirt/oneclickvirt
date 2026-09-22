@@ -6,6 +6,7 @@ import { getCountriesByRegion, getCountryByName, getLocalizedRegion } from '@/ut
 import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI, getProviderDetail } from '@/api/admin'
 import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
 import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits } from '@/utils/levels'
+import { hasAgentMappedNetworking as agentHasMappedNetworking } from '@/utils/networkType'
 
 const REQUIRED_FIXED_PORT = 22
 
@@ -58,7 +59,7 @@ export function useProviderForm(props, emit) {
   const isAgentMode = computed(() => formData.value.connectionType === 'agent')
   const isLocalMode = computed(() => formData.value.connectionType === 'local')
 
-  const hasAgentMappedNetworking = computed(() => Boolean(formData.value.portIP))
+  const hasAgentMappedNetworking = computed(() => agentHasMappedNetworking(formData.value))
 
   // 国家列表数据 - 使用 computed 从 props 获取，如果没有则使用本地获取
   const groupedCountries = computed(() => {

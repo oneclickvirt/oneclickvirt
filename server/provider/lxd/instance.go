@@ -674,6 +674,9 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 				zap.String("scriptName", scriptName))
 		}
 	}
+	if err := l.restoreIPv6OnlyDNS(config); err != nil {
+		return err
+	}
 
 	// 清理历史记录 - 非阻塞式，如果失败不影响整体流程
 	_, err = l.sshClient.Execute(fmt.Sprintf("lxc exec %s -- bash -c 'history -c 2>/dev/null || true'", shellSingleQuote(config.Name)))

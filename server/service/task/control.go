@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
+
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/utils"
-	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -347,6 +349,31 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 		zap.String("taskType", task.TaskType),
 		zap.Bool("wasRunning", task.StartedAt != nil))
 
+	// A create task can already have an instance row when it is cancelled.
+	// Leaving that row in `creating` permanently blocks deletion and quota
+	// recovery. Keep the resource accounting until the normal delete task runs,
+	// but move only the still-owned provisioning row to `error`; a late provider
+	// completion must not overwrite a terminal state or make the instance appear
+	// successfully created.
+	if isCreateTaskType(task.TaskType) && task.InstanceID != nil {
+		result := global.APP_DB.Model(&providerModel.Instance{}).
+			Where("id = ? AND status = ?", *task.InstanceID, constant.InstanceStatusCreating).
+			Updates(map[string]interface{}{
+				"status":        constant.InstanceStatusError,
+				"desired_state": providerModel.InstanceDesiredStateStopped,
+			})
+		if result.Error != nil {
+			global.APP_LOG.Warn("恢复被取消创建实例状态失败",
+				zap.Uint("taskId", taskID),
+				zap.Uint("instanceId", *task.InstanceID),
+				zap.Error(result.Error))
+		} else if result.RowsAffected > 0 {
+			global.APP_LOG.Info("已将被取消创建实例标记为error，等待正常删除回收远端资源",
+				zap.Uint("taskId", taskID),
+				zap.Uint("instanceId", *task.InstanceID))
+		}
+	}
+
 	// 处理删除任务的清理
 	if task.TaskType == "delete" && task.InstanceID != nil {
 		global.APP_LOG.Debug("开始清理被取消的删除任务的资源",
@@ -464,6 +491,15 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 					zap.String("status", originalStatus))
 			}
 		}
+	}
+}
+
+func isCreateTaskType(taskType string) bool {
+	switch taskType {
+	case "create", "create_instance", "create_redemption_instance":
+		return true
+	default:
+		return false
 	}
 }
 

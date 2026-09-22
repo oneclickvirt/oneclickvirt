@@ -305,8 +305,16 @@ const props = defineProps({
 const emit = defineEmits(['provider-updated'])
 
 const hasIPv6FilePath = computed(() => Boolean(String(props.modelValue.ipv6AddressFilePath || '').trim()))
-const managedIPv6NAT = computed(() => usesManagedIPv6NAT(props.modelValue.type, props.modelValue.networkType))
-const usesStaticIPv6Pool = computed(() => usesControllerIPv6Pool(props.modelValue.type, props.modelValue.networkType))
+const managedIPv6NAT = computed(() => usesManagedIPv6NAT(
+  props.modelValue.type,
+  props.modelValue.networkType,
+  props.modelValue.ipv6PortMappingMethod
+))
+const usesStaticIPv6Pool = computed(() => usesControllerIPv6Pool(
+  props.modelValue.type,
+  props.modelValue.networkType,
+  props.modelValue.ipv6PortMappingMethod
+))
 const supportsStaticIPv6 = computed(() => supportsStaticIPv6Provider(props.modelValue.type))
 const requiresRoutedStaticIPv6 = computed(() => requiresRoutedStaticIPv6Provider(props.modelValue.type))
 const canManageStaticIPv6Pool = computed(() => supportsStaticIPv6.value && !requiresRoutedStaticIPv6.value)

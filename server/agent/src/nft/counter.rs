@@ -3,10 +3,10 @@ use serde_json::Value;
 use tracing::{debug, warn};
 
 use super::{
-    SCOPES, Scope, binding_config_tag, counter_name_in, counter_name_out, ensure_base_objects,
-    escape_quoted, exclude_v4, exclude_v6, expected_rule_count, find_rule_refs_by_counter,
-    interface_aliases, is_not_found, nft_set_literal, remove_rules_by_counter, run_nft,
-    run_nft_script,
+    SCOPES, Scope, binding_config_tag, counter_name_in, counter_name_out, device_counter,
+    ensure_base_objects, escape_quoted, exclude_v4, exclude_v6, expected_rule_count,
+    find_rule_refs_by_counter, interface_aliases, is_not_found, nft_set_literal,
+    remove_rules_by_counter, run_nft, run_nft_script,
 };
 
 fn query_counter_bytes(scope: Scope, counter: &str) -> Result<Option<u64>, ApiError> {
@@ -242,7 +242,7 @@ fn ensure_counter_in_scope(
     Ok(())
 }
 
-pub fn ensure_counter(
+fn ensure_legacy_counter(
     monitor_id: i64,
     interface: &str,
     addresses: &[String],
@@ -280,7 +280,7 @@ pub fn ensure_counter(
     }
 }
 
-pub fn remove_counter(monitor_id: i64, interface: &str) -> Result<(), ApiError> {
+fn remove_legacy_counter(monitor_id: i64, interface: &str) -> Result<(), ApiError> {
     for scope in SCOPES {
         let ci = counter_name_in(scope, monitor_id, interface);
         let co = counter_name_out(scope, monitor_id, interface);
@@ -290,7 +290,7 @@ pub fn remove_counter(monitor_id: i64, interface: &str) -> Result<(), ApiError> 
     Ok(())
 }
 
-pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64)> {
+fn read_legacy_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64)> {
     let mut total_in = 0u64;
     let mut total_out = 0u64;
     let mut has_any_counter = false;
@@ -357,4 +357,54 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64
     }
 
     None
+}
+
+pub fn ensure_counter(
+    monitor_id: i64,
+    interface: &str,
+    addresses: &[String],
+    families: &[String],
+) -> Result<(), ApiError> {
+    if !device_counter::supported(interface) {
+        return ensure_legacy_counter(monitor_id, interface, addresses, families);
+    }
+
+    let (seed_in, seed_out) = read_legacy_external_bytes(monitor_id, interface).unwrap_or((0, 0));
+    device_counter::ensure_counter(
+        monitor_id, interface, addresses, families, seed_in, seed_out,
+    )?;
+
+    // The device counters were initialized from the old values, so removing
+    // the compatibility counters cannot lose already accumulated traffic.
+    if let Err(err) = remove_legacy_counter(monitor_id, interface) {
+        warn!(
+            monitor_id,
+            interface,
+            error = %err.message,
+            "failed removing migrated forward-chain counters"
+        );
+    }
+    Ok(())
+}
+
+pub fn remove_counter(monitor_id: i64, interface: &str) -> Result<(), ApiError> {
+    let device_result = device_counter::remove_counter(monitor_id, interface);
+    let legacy_result = remove_legacy_counter(monitor_id, interface);
+    device_result.and(legacy_result)
+}
+
+pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64)> {
+    match device_counter::read_external_bytes(monitor_id, interface) {
+        Ok(Some(bytes)) => Some(bytes),
+        Ok(None) => read_legacy_external_bytes(monitor_id, interface),
+        Err(err) => {
+            warn!(
+                monitor_id,
+                interface,
+                error = %err.message,
+                "failed reading nft device counters; trying compatibility counters"
+            );
+            read_legacy_external_bytes(monitor_id, interface)
+        }
+    }
 }

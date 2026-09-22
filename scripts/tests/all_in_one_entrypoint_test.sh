@@ -81,6 +81,15 @@ test_dockerfile_defers_database_service_start() {
         || fail "Dockerfile does not defer database service startup during image build"
 }
 
+test_mysql_packaged_data_does_not_inherit_auth_socket() {
+    grep -Fq "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY" "${ENTRYPOINT}" \
+        || fail "MySQL root initialization may inherit the unloaded auth_socket plugin"
+    grep -Fq "CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH caching_sha2_password BY" "${ENTRYPOINT}" \
+        || fail "MySQL loopback root user does not select a usable password plugin"
+    grep -Fq "CREATE USER 'root'@'%' IDENTIFIED WITH caching_sha2_password BY" "${ENTRYPOINT}" \
+        || fail "MySQL remote root user does not select a usable password plugin"
+}
+
 test_dockerfile_preserves_agent_compatibility() {
     if grep -Fq 'CompatibleAgentVersion' "${DOCKERFILE}"; then
         fail "Dockerfile must not rewrite the Agent compatibility version with a build label"
@@ -196,6 +205,7 @@ test_existing_database_directory_is_preserved
 test_dockerfile_installs_runtime_entrypoint
 test_dockerfile_blocks_dotfiles
 test_dockerfile_defers_database_service_start
+test_mysql_packaged_data_does_not_inherit_auth_socket
 test_dockerfile_preserves_agent_compatibility
 test_runtime_overlay_is_available
 test_incomplete_data_is_not_deleted

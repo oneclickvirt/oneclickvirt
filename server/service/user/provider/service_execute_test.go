@@ -12,10 +12,13 @@ func TestUsesControllerIPv6PoolDistinguishesIncusLXDManagedNAT(t *testing.T) {
 	tests := []struct {
 		providerType string
 		networkType  string
+		method       string
 		want         bool
 	}{
-		{providerType: "incus", networkType: "nat_ipv4_ipv6", want: false},
-		{providerType: "LXD", networkType: " NAT_IPV4_IPV6 ", want: false},
+		{providerType: "incus", networkType: "nat_ipv4_ipv6", method: "device_proxy", want: false},
+		{providerType: "LXD", networkType: " NAT_IPV4_IPV6 ", method: " IPTABLES ", want: false},
+		{providerType: "incus", networkType: "nat_ipv4_ipv6", method: "native", want: true},
+		{providerType: "lxd", networkType: "nat_ipv4_ipv6", method: " NATIVE ", want: true},
 		{providerType: "incus", networkType: "dedicated_ipv4_ipv6", want: true},
 		{providerType: "lxd", networkType: "ipv6_only", want: true},
 		{providerType: "qemu", networkType: "nat_ipv4_ipv6", want: true},
@@ -23,8 +26,27 @@ func TestUsesControllerIPv6PoolDistinguishesIncusLXDManagedNAT(t *testing.T) {
 		{providerType: "incus", networkType: "nat_ipv4", want: false},
 	}
 	for _, test := range tests {
-		if got := usesControllerIPv6Pool(test.providerType, test.networkType); got != test.want {
-			t.Fatalf("usesControllerIPv6Pool(%q, %q) = %t, want %t", test.providerType, test.networkType, got, test.want)
+		if got := usesControllerIPv6Pool(test.providerType, test.networkType, test.method); got != test.want {
+			t.Fatalf("usesControllerIPv6Pool(%q, %q, %q) = %t, want %t", test.providerType, test.networkType, test.method, got, test.want)
+		}
+	}
+}
+
+func TestRequiresConfiguredIPv6PoolOnlyForIncusLXDNativeDualStack(t *testing.T) {
+	for _, test := range []struct {
+		providerType string
+		networkType  string
+		method       string
+		want         bool
+	}{
+		{providerType: "incus", networkType: "nat_ipv4_ipv6", method: "native", want: true},
+		{providerType: "LXD", networkType: " NAT_IPV4_IPV6 ", method: " NATIVE ", want: true},
+		{providerType: "incus", networkType: "nat_ipv4_ipv6", method: "device_proxy", want: false},
+		{providerType: "lxd", networkType: "ipv6_only", method: "native", want: false},
+		{providerType: "qemu", networkType: "nat_ipv4_ipv6", method: "native", want: false},
+	} {
+		if got := requiresConfiguredIPv6Pool(test.providerType, test.networkType, test.method); got != test.want {
+			t.Fatalf("requiresConfiguredIPv6Pool(%q, %q, %q) = %t, want %t", test.providerType, test.networkType, test.method, got, test.want)
 		}
 	}
 }
@@ -131,5 +153,17 @@ func TestApplyPreallocatedPortMappingsToConfigKubeVirtContainer(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.Ports, want) {
 		t.Fatalf("cfg.Ports = %#v, want %#v", cfg.Ports, want)
+	}
+}
+
+func TestBuildContainerRuntimePortsNeverPublishesControllerMappings(t *testing.T) {
+	ports := []providerModel.Port{
+		{HostPort: 20000, GuestPort: 22, Protocol: "tcp", MappingType: "controller", Status: "active"},
+		{HostPort: 20001, GuestPort: 80, Protocol: "tcp", MappingType: "node", Status: "active"},
+	}
+
+	want := []string{"0.0.0.0:20001:80/tcp"}
+	if got := buildContainerRuntimePorts(ports); !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildContainerRuntimePorts() = %#v, want %#v", got, want)
 	}
 }

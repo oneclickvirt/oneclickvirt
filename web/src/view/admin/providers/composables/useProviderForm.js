@@ -7,6 +7,7 @@ import { extractEndpointHost } from '@/utils/endpoint'
 import { useI18n } from 'vue-i18n'
 import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits, formatLevelLimitsForBackend as formatLevels, getLevelTagType } from '@/utils/levels'
 import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
+import { hasAgentMappedNetworking } from '@/utils/networkType'
 
 // 解析等级限制配置（后端 kebab-case → 前端 camelCase）
 export const parseLevelLimits = (levelLimitsStr) => {
@@ -154,8 +155,6 @@ const buildDefaultForm = () => ({
   agentExecLastSeen: null,
   levelLimits: normalizeLevelLimits(DEFAULT_LEVEL_LIMITS)
 })
-
-const hasAgentMappedNetworking = (formData) => Boolean(formData.portIP)
 
 export function useProviderForm(loadProviders) {
   const { t, locale } = useI18n()

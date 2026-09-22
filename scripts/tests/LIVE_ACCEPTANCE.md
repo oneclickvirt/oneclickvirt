@@ -29,14 +29,19 @@ Agent 模式部署本地构建的真实 Rust Agent，用仅监听节点 loopback
 | 环境变量 | 用途 |
 |---|---|
 | `OCV_LIVE_DISPOSABLE=yes` | 确认节点属于授权测试环境 |
-| `OCV_LIVE_HOST` / `OCV_LIVE_PASSWORD` | 节点公网 IPv4 与 root 密码 |
+| `OCV_LIVE_HOST` / `OCV_LIVE_PASSWORD` / `OCV_LIVE_SSH_KEY` | 节点公网 IPv4 与 root 认证；密码或显式私钥路径二选一，不会回退到 ssh-agent 或默认私钥 |
 | `OCV_LIVE_KNOWN_HOSTS` | 可选的严格 SSH `known_hosts` 文件；未设置时使用系统 `~/.ssh/known_hosts`，节点指纹未知或变化会直接失败 |
 | `OCV_LIVE_IMAGE` | 节点支持的镜像名或缓存 fingerprint |
 | `OCV_PANEL_IMAGE` | 当前源码构建的本地 all-in-one 镜像 |
 | `OCV_LIVE_RUNTIME` | `incus`（默认）或 `lxd` |
+| `OCV_LIVE_ALLOW_EXISTING_RUNTIMES=yes` | 仅用于明确标记的混合环境安装验收；保留节点上已有的 Docker/Podman/Containerd。默认不设置时，驱动严格要求这些运行时均不存在，不得将混合环境结果当作干净首装证据 |
 | `OCV_LIVE_CONNECTION` | `ssh`（默认）或 `agent` |
 | `OCV_LIVE_NETWORK_TYPE` | 面板网络模式：`nat_ipv4`、`ipv6_only`、`dedicated_ipv4_ipv6` 或 `nat_ipv4_ipv6`，默认 `nat_ipv4` |
+| `OCV_LIVE_IPV6_MAPPING_METHOD` | Incus/LXD IPv6 模式：`device_proxy`/`iptables` 使用宿主公网 IPv6 映射，`native` 为实例分配独立公网 IPv6；默认 `device_proxy` |
 | `OCV_LIVE_IPV6=yes` | 对 IPv6 网络模式启用严格公网 IPv6 SSH/HTTP 验收，默认 `no` |
+| `OCV_LIVE_EXTERNAL_PROBE_HOST` / `OCV_LIVE_EXTERNAL_PROBE_PORT` / `OCV_LIVE_EXTERNAL_PROBE_USER` | 不使用 WebSSH 时的独立 IPv6 外部探针 SSH 地址、端口和用户；探针必须与 Provider 不在同一节点 |
+| `OCV_LIVE_EXTERNAL_PROBE_PASSWORD` / `OCV_LIVE_EXTERNAL_PROBE_KNOWN_HOSTS` | 独立探针密码与严格主机密钥文件；密码未设置时仅通过无回显提示读取 |
+| `OCV_LIVE_IPV6_POOL_CIDR` / `OCV_LIVE_IPV6_POOL_ADDRESSES` | `ipv6_only`、`dedicated_ipv4_ipv6` 以及 `nat_ipv4_ipv6 + native` 的本轮临时公网 IPv6 池；必须是供应商确认可分配的前缀和未占用地址，验收驱动不会把宿主 `/128` 擅自扩成 `/64` |
 | `OCV_HETZNER_SERVER_ID` / `OCV_LIVE_IPV6_TARGET` | Hetzner 独立探针的唯一服务器 ID 与生产节点公网 IPv6；用于 `hetzner_ipv6_external_probe.py` |
 | `OCV_PRODUCTION_ACCEPTANCE=yes` / `OCV_PANEL_BASE` / `OCV_LIVE_PROVIDER_ID` | 显式授权生产 API 验收、面板基址和已有 Incus/LXD Provider ID；用于 `production_panel_ipv6_probe.py` |
 | `OCV_LIVE_GUEST_IPV4` / `OCV_LIVE_GUEST_IPV6` | 独立探针临时 Incus guest 的空闲静态地址；IPv6 可为受控 ULA，通过宿主公网 IPv6 proxy 验收 |
@@ -63,13 +68,17 @@ python3 -B scripts/tests/live_incus_panel_test.py
 unset OCV_LIVE_PASSWORD
 ```
 
+节点认证可使用 `OCV_LIVE_PASSWORD` 或 `OCV_LIVE_SSH_KEY`，两种方式都仍强制严格主机密钥校验。
+
 `webssh_external_probe.py` 使用网页表单和终端协议，核对 guest hostname 与 `$SSH_CONNECTION` 来源。它需要目标 guest 的凭据，不需要 WebSSH 服务宿主机的 SSH 凭据。HTTP 和 WebSocket 使用同一网络路径；HTTPS 验证系统 CA。
 
 设置 `OCV_LIVE_NETWORK_TYPE=ipv6_only`、`dedicated_ipv4_ipv6` 或 `nat_ipv4_ipv6` 且 `OCV_LIVE_IPV6=yes` 时，驱动不会把 IPv4 或 ULA 当作 IPv6 通过：容器内必须能请求 `ipv6.ip.sb`，两个独立公网 HTTP 探针必须返回本轮随机标记，并且 WebSSH（若启用）必须以公网 IPv6 目标和 `OCV_WEBSSH_SOURCE_IPV6` 实际完成 SSH 登录。缺少独立 IPv6 条件会失败，不会静默跳过。
 
+Incus/LXD 的 `nat_ipv4_ipv6` 有两种明确语义：`device_proxy`/`iptables` 保留宿主公网 IPv6 到 guest ULA 的同端口映射；`native` 要求地址池或节点地址文件，为每个 guest 分配独立公网 IPv6，IPv4 仍走 NAT 端口而 IPv6 SSH/HTTP 直接使用 22/18080。严格验收会据此选择不同目标和端口，不会把宿主 IPv6 映射冒充独立地址。
+
 IPv6 目标自动检查实际 SSH 连接的地址族、公共地址、目标地址和端口；也可显式传入 `require_ipv6=True`。此时 `expected_source_ip` 必须是 WebSSH 服务实际发起 SSH 的公网 IPv6，不能用网页的 IPv4 地址代替。ULA、IPv4 映射地址、错误端口及同地址的源/目标不能通过。每次终端校验使用随机标记、有限输出缓存和总接收时限。这些校验不替代独立公网 HTTP 验证。宿主公网 IPv6 映射到 ULA guest 的 NAT 验收使用 Hetzner 驱动，不依赖 WebSSH。
 
-`live_lxc_script_test.py` 使用同样的节点授权/凭据变量，另需 `OCV_SCRIPT_REPO` 指向当前 Incus 或 LXD 仓库，`OCV_SCRIPT_SYSTEM` 默认 `debian13`。它要求 runtime 没有已有容器，核对上传脚本的 SHA-256 后测试关闭 stdin 的 `buildct.sh` 和真实 PTY 的 `add_more.sh`，并验证公网 SSH、DNS、出网、原生 CLI 删除和端口复用。默认保留 `29800–29825`，可用 `OCV_LIVE_PORT` 调整；此脚本不需要面板镜像。替换的辅助脚本精确备份，成功恢复，失败保留归属目录供诊断。这不是环境安装/卸载或浏览器 UI 验收。
+`live_lxc_script_test.py` 使用同样的节点授权/凭据变量，另需 `OCV_SCRIPT_REPO` 指向当前 Incus 或 LXD 仓库，`OCV_SCRIPT_SYSTEM` 默认 `debian13`。它要求 runtime 没有已有容器，核对上传脚本的 SHA-256 后测试关闭 stdin 的 `buildct.sh` 和真实 PTY 的 `add_more.sh`，并验证公网 SSH、DNS、出网、原生 CLI 删除和端口复用。`OCV_LIVE_NETWORK_TYPE` 可为 `nat_ipv4`、`nat_ipv4_ipv6` 或 `ipv6_only`；后两者必须配置上表的独立外部 IPv6 探针，并强制实际公网 IPv6 SSH、HTTP 和 guest IPv6 出网均通过。`ipv6_only` 还会确认未生成 IPv4 SSH/NAT proxy；脚本回退到 NAT66 时直接失败，不会冒充独立 IPv6 通过。默认保留 `29800–29825`，可用 `OCV_LIVE_PORT` 调整；此脚本不需要面板镜像。替换的辅助脚本精确备份，成功恢复，失败保留归属目录供诊断。这不是环境安装/卸载或浏览器 UI 验收。
 
 `live_lxc_install_test.py` 使用 `OCV_SCRIPT_REPO` 和 `OCV_LIVE_RUNTIME` 选择当前安装器，`OCV_LIVE_MODE=noninteractive` 关闭 stdin。辅助脚本使用 SSH loopback 镜像读取本地源码，仅改写本仓库下载 URL，并记录原始/传输校验值；成功后将安装文件还原为原始 URL。系统包与镜像仍从真实来源下载。已执行的模式及边界以验收报告为准；此驱动不执行云平台 OS 重置。
 
@@ -109,7 +118,9 @@ Successful cleanup verifies the run label and deletes by immutable container ID,
 
 Set `OCV_LIVE_CONNECTION=agent` and provide a node-compatible Linux `OCV_AGENT_BINARY` to exercise the real Rust Agent. A temporary reverse SSH forward exposes the local panel only on node loopback. Additional checks cover command timeout isolation, concurrent WebSSH sessions, external traffic in both directions, Agent restart and monitor cleanup. Existing Agent installations and nonempty monitor tables are protected.
 
-`OCV_LIVE_HOST`, `OCV_LIVE_PASSWORD`, `OCV_LIVE_IMAGE`, `OCV_PANEL_IMAGE` and `OCV_LIVE_DISPOSABLE=yes` are mandatory. Runtime, connection, pool and first port default to `incus`, `ssh`, `default` and `29900`. Install the dependencies in a temporary virtual environment with `python3 -m venv /tmp/oneclickvirt-live-venv && /tmp/oneclickvirt-live-venv/bin/python -m pip install -r scripts/tests/requirements-live.txt`; Agent or WebSSH checks also require `websocket-client`. Node SSH uses strict host-key verification and never auto-accepts a changed key; set `OCV_LIVE_KNOWN_HOSTS` to an isolated trusted file when the system file is not appropriate. When that variable is set, the isolated file is authoritative and system `known_hosts` is not merged, which is required after rebuilding a disposable node at the same address. Run the Bash example after setting the nonsecret variables in the table.
+`OCV_LIVE_HOST`, `OCV_LIVE_IMAGE`, `OCV_PANEL_IMAGE`, `OCV_LIVE_DISPOSABLE=yes`, and either `OCV_LIVE_PASSWORD` or `OCV_LIVE_SSH_KEY` are mandatory. Build `OCV_PANEL_IMAGE` from the repository root with `docker build -t ocv-live-panel:current -f Dockerfile .`; `server/Dockerfile` is a backend-only image and is rejected by the live driver because it does not provide the all-in-one port 80 contract. Runtime, connection, pool and first port default to `incus`, `ssh`, `default` and `29900`. Explicit-key mode never falls back to ssh-agent or ambient identities. Install the dependencies in a temporary virtual environment with `python3 -m venv /tmp/oneclickvirt-live-venv && /tmp/oneclickvirt-live-venv/bin/python -m pip install -r scripts/tests/requirements-live.txt`; Agent or WebSSH checks also require `websocket-client`. Node SSH uses strict host-key verification and never auto-accepts a changed key; set `OCV_LIVE_KNOWN_HOSTS` to an isolated trusted file when the system file is not appropriate. When that variable is set, the isolated file is authoritative and system `known_hosts` is not merged, which is required after rebuilding a disposable node at the same address. Run the Bash example after setting the nonsecret variables in the table.
+
+For Incus/LXD `nat_ipv4_ipv6`, `OCV_LIVE_IPV6_MAPPING_METHOD=device_proxy|iptables` verifies host-public-IPv6 mapping to a guest ULA. `native` requires `OCV_LIVE_IPV6_POOL_CIDR` or `OCV_LIVE_IPV6_POOL_ADDRESSES`, keeps IPv4 on NAT ports, and verifies the guest's dedicated public IPv6 directly on SSH 22 and HTTP 18080.
 
 The optional WebSSH probe uses the target guest's credentials through the web form and terminal protocol. `OCV_WEBSSH_SOURCE_IP` verifies its independent source. SSH access to the WebSSH server itself is unnecessary.
 
@@ -119,7 +130,7 @@ The optional WebSSH probe uses the target guest's credentials through the web fo
 
 An IPv6 target automatically requires an actual public IPv6 SSH connection to the exact address and port; callers can also pass `require_ipv6=True`. The expected source must be the WebSSH service's actual public IPv6 SSH source, not its web endpoint's IPv4 address. ULA, IPv4-mapped addresses, wrong ports and identical source/destination addresses fail. Per-session random markers, bounded output retention and a receive deadline protect terminal verification. This does not replace the independent public HTTP check. Host-public-IPv6-to-ULA NAT acceptance uses the Hetzner driver and does not depend on WebSSH.
 
-`live_lxc_script_test.py` uses the same node authorization/credential variables plus `OCV_SCRIPT_REPO` pointing to the current Incus/LXD checkout. `OCV_SCRIPT_SYSTEM` defaults to `debian13`. It requires an empty runtime, verifies uploaded source hashes, runs unattended `buildct.sh` with closed stdin and answers real `add_more.sh` PTY prompts. It checks public SSH, DNS, outbound HTTP, native CLI deletion and port reuse. Its default port range is `29800–29825`; override the start with `OCV_LIVE_PORT`. It does not require a panel image. Replaced helpers are backed up and restored on success; failed fixtures remain for diagnosis. This does not cover environment installation/uninstallation or browser UI.
+`live_lxc_script_test.py` uses the same node authorization/credential variables plus `OCV_SCRIPT_REPO` pointing to the current Incus/LXD checkout. `OCV_SCRIPT_SYSTEM` defaults to `debian13`. It requires an empty runtime, verifies uploaded source hashes, runs unattended `buildct.sh` with closed stdin and answers real `add_more.sh` PTY prompts. Set `OCV_LIVE_NETWORK_TYPE` to `nat_ipv4`, `nat_ipv4_ipv6`, or `ipv6_only`. The IPv6 modes require the independent probe variables above and strictly verify public IPv6 SSH, HTTP identity and guest IPv6 egress; `ipv6_only` additionally rejects any IPv4 SSH/NAT proxy device. A NAT66 fallback is a failure, not independent-IPv6 acceptance. The driver also checks IPv4 SSH where applicable, DNS, outbound HTTP, native CLI deletion and port reuse. Its default port range is `29800–29825`; override the start with `OCV_LIVE_PORT`. It does not require a panel image. Replaced helpers are backed up and restored on success; failed fixtures remain for diagnosis. This does not cover environment installation/uninstallation or browser UI.
 
 `live_lxc_install_test.py` selects the current installer with `OCV_SCRIPT_REPO` and `OCV_LIVE_RUNTIME`. `OCV_LIVE_MODE=noninteractive` closes stdin. A mirror accessible only through SSH loopback serves the local helpers, replacing only this repository's download URLs and logging source/transport hashes. Successful runs restore original URLs in installed files. Packages and images use their real download sources. Consult the acceptance report for modes actually executed; this driver does not reset the cloud VM's OS.
 

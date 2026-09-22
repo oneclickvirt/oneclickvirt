@@ -44,10 +44,9 @@ func (d *DockerProvider) ResetInstancePassword(ctx context.Context, instanceID s
 func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID, password string) error {
 	// 确保SSH脚本文件可用
 	if err := d.ensureSSHScriptsAvailable(d.config.Country); err != nil {
-		global.APP_LOG.Error("确保SSH脚本可用失败",
+		global.APP_LOG.Warn("确保SSH脚本可用失败，继续使用容器内chpasswd",
 			zap.String("instanceID", instanceID),
 			zap.Error(err))
-		return fmt.Errorf("确保SSH脚本可用失败: %w", err)
 	}
 
 	// 验证容器是否存在且运行中，支持重试等待容器启动

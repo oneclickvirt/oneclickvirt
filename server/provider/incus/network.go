@@ -342,7 +342,12 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 // for these SSH creation paths; NAT proxies also support hotplug. The same ordering is used after the restart
 // fallback so a transient restart failure cannot silently lose IPv6 mappings.
 func (i *IncusProvider) configureIPv6AndPortMappings(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig, requestedIPv6 string, routed *provider.RoutedIPv6Config) error {
-	if networkConfig.NetworkType == "nat_ipv4_ipv6" && routed == nil {
+	ipv6Method := strings.ToLower(strings.TrimSpace(networkConfig.IPv6PortMappingMethod))
+	if ipv6Method == "" {
+		ipv6Method = "device_proxy"
+	}
+	managedNAT := routed == nil && utils.UsesManagedIPv6NAT("incus", networkConfig.NetworkType, ipv6Method)
+	if managedNAT {
 		guestIPv6, err := i.configureNATIPv6Network(ctx, config.Name, requestedIPv6)
 		if err != nil {
 			return err
@@ -358,6 +363,15 @@ func (i *IncusProvider) configureIPv6AndPortMappings(ctx context.Context, config
 			return err
 		}
 	}
+	// Native IPv6 is reachable directly on the guest's public /128. IPv4 still
+	// uses the NAT mapping configured earlier, but no host-side IPv6 proxy or
+	// firewall rule may be installed for the guest's native ports.
+	if ipv6Method == "native" {
+		if err := i.enforceIPv6OnlyNetwork(config.Name, networkConfig); err != nil {
+			return err
+		}
+		return nil
+	}
 	if networkConfig.NetworkType != "nat_ipv4_ipv6" && networkConfig.NetworkType != "ipv6_only" {
 		return nil
 	}
@@ -372,7 +386,7 @@ func (i *IncusProvider) configureIPv6AndPortMappings(ctx context.Context, config
 	if err := i.sshStartInstance(config.Name); err != nil {
 		return fmt.Errorf("启动实例完成IPv6端口映射失败: %w", err)
 	}
-	return nil
+	return i.enforceIPv6OnlyNetwork(config.Name, networkConfig)
 }
 
 func (i *IncusProvider) persistManagedNATIPv6Target(instanceName, guestIPv6 string) error {

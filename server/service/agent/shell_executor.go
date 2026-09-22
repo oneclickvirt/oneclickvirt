@@ -245,6 +245,7 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 		argStr += " " + shellEscapeArg(arg)
 	}
 
+	interpreter := utils.TempScriptInterpreter(scriptContent)
 	// Execute via nohup (detached from WebSocket) so long-running container/VM entry
 	// commands don't block or timeout the WebSocket connection.
 	// Start the script in its own process group when setsid is available. A
@@ -252,7 +253,8 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 	// children), not only the wrapper shell. The fallback remains compatible
 	// with minimal systems that do not ship setsid; the negative-PID kill below
 	// simply becomes a no-op when no dedicated group exists.
-	startCmd := fmt.Sprintf("if command -v setsid >/dev/null 2>&1; then nohup setsid bash %s%s > %s 2>&1 & else nohup bash %s%s > %s 2>&1 & fi; echo $!",
+	startCmd := fmt.Sprintf("if ! interpreter_path=$(command -v %s 2>/dev/null) || [ ! -x \"$interpreter_path\" ]; then printf 'TEMP_SCRIPT_FAILED\\n' > %s; printf 'required interpreter %s is unavailable\\n' > %s; echo MISSING_INTERPRETER; elif command -v setsid >/dev/null 2>&1; then nohup setsid \"$interpreter_path\" %s%s > %s 2>&1 & echo $!; else nohup \"$interpreter_path\" %s%s > %s 2>&1 & echo $!; fi",
+		utils.ShellSingleQuote(interpreter), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(interpreter), utils.ShellSingleQuote(logPath),
 		utils.ShellSingleQuote(tmpPath), argStr, utils.ShellSingleQuote(logPath),
 		utils.ShellSingleQuote(tmpPath), argStr, utils.ShellSingleQuote(logPath))
 	pidOutput, err := a.ExecuteRaw(startCmd, 15*time.Second)
@@ -260,6 +262,10 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 		// Cleanup even on start failure
 		a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
 		return "", fmt.Errorf("启动 temp 脚本失败: %w", err)
+	}
+	if strings.TrimSpace(pidOutput) == "MISSING_INTERPRETER" {
+		_, _ = a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
+		return "", fmt.Errorf("启动 temp 脚本失败：远程节点缺少解释器 %s", interpreter)
 	}
 	pid, err := parseAgentPID(pidOutput)
 	if err != nil {
@@ -295,7 +301,7 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 		}
 
 		// Check if the script process is still alive
-		aliveOutput, _ := a.ExecuteRaw(fmt.Sprintf("kill -0 %s 2>/dev/null && echo alive || echo dead", pid), 10*time.Second)
+		aliveOutput, _ := a.ExecuteRaw(tempScriptProcessStateCommand(pid), 10*time.Second)
 		alive := strings.TrimSpace(aliveOutput) == "alive"
 
 		// Read marker file
@@ -362,6 +368,15 @@ func (a *AgentShellExecutor) terminateTempScript(pid string) {
 	// setsid. Never interpolate raw Agent output here.
 	command := fmt.Sprintf("kill -TERM -- -%s 2>/dev/null || true; kill -TERM %s 2>/dev/null || true; sleep 1; kill -KILL -- -%s 2>/dev/null || true; kill -KILL %s 2>/dev/null || true", pid, pid, pid, pid)
 	_, _ = a.ExecuteRaw(command, 10*time.Second)
+}
+
+// tempScriptProcessStateCommand distinguishes a live process from a zombie.
+// kill -0 succeeds for zombies, which otherwise makes a completed script look
+// alive until the full caller timeout expires. The ps check is optional so the
+// command remains usable on minimal provider images.
+func tempScriptProcessStateCommand(pid string) string {
+	quotedPID := utils.ShellSingleQuote(pid)
+	return fmt.Sprintf("if ! kill -0 %s 2>/dev/null; then echo dead; else state=$(ps -o stat= -p %s 2>/dev/null || true); case \"$state\" in *Z*|*X*) echo dead ;; '') echo alive ;; *) echo alive ;; esac; fi", quotedPID, quotedPID)
 }
 
 // shellEscapeArg escapes a shell argument using single quotes.

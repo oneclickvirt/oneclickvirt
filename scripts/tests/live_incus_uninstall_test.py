@@ -16,7 +16,7 @@ try:
 except ImportError:  # Optional dependency for explicitly requested live runs.
     paramiko = None
 from live_node_shell import node_command
-from live_ssh import strict_node_client
+from live_ssh import connect_strict_node, strict_node_client
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "action_tests/common"))
 from remote import _collect_output, keep_ssh_alive
@@ -53,7 +53,7 @@ class UninstallPrompts:
 def main():
     if os.environ.get("OCV_LIVE_DISPOSABLE") != "yes":
         raise SystemExit("Require explicit OCV_LIVE_DISPOSABLE=yes")
-    for name in ("OCV_LIVE_HOST", "OCV_LIVE_PASSWORD", "OCV_SCRIPT_REPO"):
+    for name in ("OCV_LIVE_HOST", "OCV_SCRIPT_REPO"):
         if not os.environ.get(name):
             raise SystemExit(f"Missing required live-test variable: {name}")
     if paramiko is None:
@@ -69,8 +69,11 @@ def main():
     script = Path(os.environ["OCV_SCRIPT_REPO"]) / "scripts" / entry
     source = script.read_bytes()
     ssh = strict_node_client()
-    ssh.connect(os.environ["OCV_LIVE_HOST"], username="root", password=os.environ["OCV_LIVE_PASSWORD"],
-                timeout=15, auth_timeout=15, banner_timeout=15, allow_agent=False, look_for_keys=False)
+    connect_strict_node(
+        ssh,
+        os.environ["OCV_LIVE_HOST"],
+        port=int(os.environ.get("OCV_LIVE_SSH_PORT", "22")),
+    )
     keep_ssh_alive(ssh)
 
     def remote(command):
@@ -138,6 +141,12 @@ def main():
                 raise RuntimeError("Incus packages survived uninstall: " + state)
             remote("test -z \"$(findmnt -rn -o TARGET | grep '^/var/lib/incus/' || true)\"")
             remote("if ! command -v lxcfs >/dev/null 2>&1; then ! findmnt -rn -M /var/lib/lxcfs; fi")
+            remote(
+                "if command -v snap >/dev/null 2>&1 && "
+                "snap list 2>/dev/null | awk '$1 == \"lxd\" { found=1 } END { exit !found }'; then :; "
+                "else test ! -e /etc/cron.d/oneclickvirt-ipv6 && "
+                "test ! -L /etc/cron.d/oneclickvirt-ipv6; fi"
+            )
         else:
             # snapd and snapshots are shared/recovery facilities; their
             # existence alone does not mean the LXD runtime remains installed.
@@ -146,6 +155,11 @@ def main():
                 raise RuntimeError("LXD snap survived uninstall")
             remote("test ! -d /var/snap/lxd/common/lxd")
             remote("test -z \"$(findmnt -rn -o TARGET | grep -E '^(/var/snap/lxd/|/snap/lxd/)' || true)\"")
+            remote(
+                "if command -v incus >/dev/null 2>&1; then :; "
+                "else test ! -e /etc/cron.d/oneclickvirt-ipv6 && "
+                "test ! -L /etc/cron.d/oneclickvirt-ipv6; fi"
+            )
         remote(f"set -eu; test ! -f /etc/nftables.d/oneclickvirt-{runtime}.nft; test ! -f /usr/local/bin/{runtime}_storage_pool")
         owned_tables = {("inet", runtime), ("inet", runtime + "_block"),
                         ("inet", runtime + ("_masq" if runtime == "incus" else "_nat")),

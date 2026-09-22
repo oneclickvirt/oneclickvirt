@@ -360,7 +360,7 @@ func (i *IncusProvider) ensureSSHScriptsAvailable(providerCountry string) error 
 			zap.String("scriptPath", scriptPath))
 
 		// 下载脚本文件
-		if err := i.downloadFileToRemote(downloadURL, scriptPath); err != nil {
+		if err := i.downloadFileToRemoteWithTimeout(downloadURL, scriptPath, sshScriptDownloadTimeout); err != nil {
 			global.APP_LOG.Error("下载SSH脚本失败",
 				zap.String("script", script),
 				zap.Error(err))

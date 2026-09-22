@@ -15,6 +15,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// SSH helper scripts are optional preparation for SSH/password operations;
+// image downloads retain their longer deadline but helper refreshes must fail
+// quickly on nodes without outbound access.
+const sshScriptDownloadTimeout = 2 * time.Minute
+
 // downloadImageToRemote 在远程服务器上下载LXD镜像
 func (l *LXDProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture, instanceType string, useCDN bool) (string, error) {
 	// 根据实例类型确定远程下载目录
@@ -133,13 +138,17 @@ func (l *LXDProvider) removeRemoteFile(remotePath string) error {
 // downloadFileToRemote 在远程服务器上下载文件
 // downloadFileToRemote 在远程服务器上下载文件
 func (l *LXDProvider) downloadFileToRemote(url, remotePath string) error {
+	return l.downloadFileToRemoteWithTimeout(url, remotePath, 30*time.Minute)
+}
+
+func (l *LXDProvider) downloadFileToRemoteWithTimeout(url, remotePath string, timeout time.Duration) error {
 	tmpPath := remotePath + ".tmp"
 	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
 
 	global.APP_LOG.Debug("执行远程下载脚本",
 		zap.String("url", utils.TruncateString(url, 100)))
 
-	output, err := l.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
+	output, err := l.sshClient.ExecuteViaTempScript(script, nil, timeout)
 	if err != nil {
 		l.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 
@@ -203,7 +212,7 @@ func (l *LXDProvider) ensureSSHScriptsAvailable(providerCountry string) error {
 			zap.String("scriptPath", scriptPath))
 
 		// 下载脚本文件
-		if err := l.downloadFileToRemote(downloadURL, scriptPath); err != nil {
+		if err := l.downloadFileToRemoteWithTimeout(downloadURL, scriptPath, sshScriptDownloadTimeout); err != nil {
 			global.APP_LOG.Error("下载SSH脚本失败",
 				zap.String("script", script),
 				zap.Error(err))

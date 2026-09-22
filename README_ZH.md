@@ -73,6 +73,9 @@
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
@@ -87,6 +90,9 @@ docker run -d \
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
@@ -100,6 +106,9 @@ docker run -d \
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
@@ -118,6 +127,9 @@ docker run -d \
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -e FRONTEND_URL="https://your-domain.com" \
   -e DB_HOST="your-mysql-host" \
   -e DB_PORT="3306" \
@@ -136,6 +148,9 @@ docker run -d \
 - `DB_NAME`: 数据库名称
 - `DB_USER`: 数据库用户名
 - `DB_PASSWORD`: 数据库密码
+- `OCV_CONTROLLER_PORT_RANGE_START` / `OCV_CONTROLLER_PORT_RANGE_END`：Agent 控制端内穿使用的 TCP 端口范围。宿主机与容器必须发布完全相同的范围，文档默认值为 `10000-10099`。仅在预期并发内穿数量确实需要时扩大，因为 Docker 会把发布范围展开为逐端口绑定。
+
+控制端内穿监听实际运行在面板容器内部。Docker 的 `-p` 范围必须与两个 `OCV_CONTROLLER_PORT_RANGE_*` 环境变量完全一致；配置范围外的端口会被拒绝，不再出现数据库显示 active、但公网不可达的情况。源码或裸机部署不设置这两个变量时，继续保留原有的 `10000-65535` 分配范围。
 
 `no-db` 镜像会将运行时配置保存到 `oneclickvirt-storage` 卷内的 `/app/storage/config.yaml`。更新镜像或重建容器时必须继续挂载同一个存储卷；初始化页面写入的数据库配置和系统级配置会随该卷保留。非空的 `DB_*` 环境变量优先于配置文件，因此重建时也可继续传入同一组数据库环境变量。显式挂载 `/app/config.yaml` 的部署仍会优先使用该文件。
 
@@ -189,6 +204,8 @@ services:
     ports:
       - "你的端口:80"  # 例如 "80:80" 或 "8080:80"
 ```
+
+Agent 控制端内穿范围通过 `.env` 同时设置 `OCV_CONTROLLER_PORT_RANGE_START` 和 `OCV_CONTROLLER_PORT_RANGE_END`；Compose 会自动在 `api` 服务发布相同的 TCP 范围。范围应按实际容量设置，不要无条件发布全部端口。
 
 **停止服务：**
 
@@ -314,6 +331,9 @@ docker build -t oneclickvirt .
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
@@ -337,6 +357,9 @@ docker build -f Dockerfile.no-db -t oneclickvirt:no-db .
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -e FRONTEND_URL="https://your-domain.com" \
   -e DB_HOST="your-mysql-host" \
   -e DB_PORT="3306" \

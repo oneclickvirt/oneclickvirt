@@ -228,10 +228,11 @@ src/
 
 ### nft 模式（默认）
 
-使用 nftables 命名计数器追踪流量，在 inet 族的 `vm_traffic_monitor` 表的 `forward` 链中创建规则：
+使用 nftables 命名计数器追踪流量。支持 netdev egress hook 的内核会在 `vm_traffic_monitor_device` 表中为实例接口创建 ingress/egress 链，使计数位于 flowtable 快速转发路径的设备边界，避免卸载后的长连接数据包绕过 `forward` hook。旧内核会自动回退到 inet 族 `vm_traffic_monitor` 表的 `forward` 链：
 
 - 对每个被监控的网络接口，创建入站和出站的 IPv4/IPv6 流量计数规则
 - 排除私有和特殊用途地址段（RFC1918、RFC6598、环回、链路本地、组播等）
+- 从 forward 后端迁移到 netdev 后端时继承已有计数值，避免重启或升级造成流量归零/重复结算
 - 支持按实例内网 IP（`inner_ip`）进行精确的单 IP 流量过滤
 
 ### ipt 模式

@@ -31,6 +31,7 @@ type SSHClient struct {
 	lastHealthTime  time.Time          // 上次健康检查时间
 	keepaliveCancel context.CancelFunc // keepalive goroutine控制
 	keepaliveWg     *sync.WaitGroup    // keepalive goroutine同步（指针避免拷贝）
+	transportFailed <-chan struct{}    // keepalive reports failure without closing the shared transport
 	mu              sync.RWMutex       // 保护并发访问
 	reconnectMu     sync.Mutex
 	observed        *ssh.Client
@@ -38,6 +39,16 @@ type SSHClient struct {
 	closed          bool // 标记是否已关闭
 	activeUses      int
 	retiring        bool
+	retired         []retiredSSHTransport
+}
+
+// retiredSSHTransport is kept alive until operations using the previous
+// transport release their leases. Reconnect must not close a shared SSH
+// connection underneath an unrelated command or WebSSH session.
+type retiredSSHTransport struct {
+	client *ssh.Client
+	cancel context.CancelFunc
+	wg     *sync.WaitGroup
 }
 
 func (c *SSHClient) beginUse() (func(), error) {
@@ -47,7 +58,43 @@ func (c *SSHClient) beginUse() (func(), error) {
 		return nil, fmt.Errorf("SSH client is closed or retiring")
 	}
 	c.activeUses++
-	return func() { c.mu.Lock(); c.activeUses--; c.mu.Unlock() }, nil
+	return c.endUse, nil
+}
+
+func (c *SSHClient) endUse() {
+	c.mu.Lock()
+	if c.activeUses > 0 {
+		c.activeUses--
+	}
+	if c.activeUses != 0 || len(c.retired) == 0 {
+		c.mu.Unlock()
+		return
+	}
+	retired := c.retired
+	c.retired = nil
+	c.mu.Unlock()
+	for _, transport := range retired {
+		_ = closeSSHTransport(transport)
+	}
+}
+
+func closeSSHTransport(transport retiredSSHTransport) error {
+	if transport.cancel != nil {
+		transport.cancel()
+	}
+	var err error
+	if transport.client != nil {
+		err = transport.client.Close()
+	}
+	if transport.wg != nil {
+		done := make(chan struct{})
+		go func() { transport.wg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	}
+	return err
 }
 
 func (c *SSHClient) inUse() bool {
@@ -81,7 +128,7 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 		zap.Duration("connectTimeout", config.ConnectTimeout),
 		zap.Duration("executeTimeout", config.ExecuteTimeout))
 
-	client, keepaliveCancel, keepaliveWg, err := dialSSH(config)
+	client, keepaliveCancel, keepaliveWg, transportFailed, err := dialSSH(config)
 	if err != nil {
 		return nil, err
 	}
@@ -92,12 +139,13 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 		lastHealthTime:  time.Now(),
 		keepaliveCancel: keepaliveCancel,
 		keepaliveWg:     keepaliveWg,
+		transportFailed: transportFailed,
 		closed:          false,
 	}, nil
 }
 
 // dialSSH 建立SSH连接的内部方法
-func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup, error) {
+func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup, <-chan struct{}, error) {
 	// 构建认证方法：支持密钥和密码，SSH客户端会按顺序尝试
 	var authMethods []ssh.AuthMethod
 
@@ -124,7 +172,7 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 
 	// 如果既没有密钥也没有密码，返回错误
 	if len(authMethods) == 0 {
-		return nil, nil, nil, fmt.Errorf("no authentication method available: neither SSH key nor password provided")
+		return nil, nil, nil, nil, fmt.Errorf("no authentication method available: neither SSH key nor password provided")
 	}
 
 	sshConfig := &ssh.ClientConfig{
@@ -143,13 +191,13 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 	}
 	tcp, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to connect to SSH server: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
 	_ = tcp.SetDeadline(time.Now().Add(timeout))
 	conn, channels, requests, err := ssh.NewClientConn(tcp, addr, sshConfig)
 	if err != nil {
 		tcp.Close()
-		return nil, nil, nil, fmt.Errorf("SSH handshake failed: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("SSH handshake failed: %w", err)
 	}
 	_ = tcp.SetDeadline(time.Time{})
 	client := ssh.NewClient(conn, channels, requests)
@@ -157,6 +205,11 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 	// 启用 KeepAlive，保持连接活跃，使用context控制生命周期
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
+	transportFailed := make(chan struct{})
+	var transportFailedOnce sync.Once
+	markTransportFailed := func() {
+		transportFailedOnce.Do(func() { close(transportFailed) })
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -201,9 +254,15 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 					timer.Stop()
 					return
 				case <-timer.C:
-					// A transport request itself stalled; closing unblocks its waiter.
-					client.Close()
-					return
+					// A keepalive request is not an exclusive operation. Do not close
+					// the provider-wide transport while commands or WebSSH sessions
+					// may still be using it; report the failure to the owner instead.
+					failedCount++
+					if failedCount >= maxFailures {
+						markTransportFailed()
+						return
+					}
+					continue
 				}
 				timer.Stop()
 				if err := probeErr; err != nil {
@@ -217,6 +276,7 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 						global.APP_LOG.Warn("SSH keepalive连续失败，停止发送",
 							zap.String("host", config.Host),
 							zap.Int("failedCount", failedCount))
+						markTransportFailed()
 						return
 					}
 					continue
@@ -228,7 +288,7 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 		}
 	}()
 
-	return client, cancel, wg, nil
+	return client, cancel, wg, transportFailed, nil
 }
 
 // buildSSHAddress preserves explicitly configured host:port targets while
@@ -258,6 +318,13 @@ func (c *SSHClient) IsHealthy() bool {
 	defer c.mu.Unlock()
 	if c.closed || c.retiring || c.client == nil {
 		return false
+	}
+	if c.transportFailed != nil {
+		select {
+		case <-c.transportFailed:
+			return false
+		default:
+		}
 	}
 	if c.observed != c.client {
 		client := c.client
@@ -296,7 +363,9 @@ func (c *SSHClient) newSession() (*ssh.Session, error) {
 
 func (c *SSHClient) Dial(network, address string) (net.Conn, error) {
 	endUse, err := c.beginUse()
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	if !c.IsHealthy() {
 		if err := c.Reconnect(); err != nil {
 			endUse()
@@ -312,13 +381,16 @@ func (c *SSHClient) Dial(network, address string) (net.Conn, error) {
 		network = "tcp"
 	}
 	conn, err := client.Dial(network, address)
-	if err != nil { endUse(); return nil, err }
+	if err != nil {
+		endUse()
+		return nil, err
+	}
 	return &leasedSSHConn{Conn: conn, release: endUse}, nil
 }
 
 type leasedSSHConn struct {
 	net.Conn
-	once sync.Once
+	once    sync.Once
 	release func()
 }
 
@@ -337,22 +409,13 @@ func (c *SSHClient) Close() error {
 	}
 	c.closed = true
 	client, cancel, wg := c.client, c.keepaliveCancel, c.keepaliveWg
-	c.client, c.keepaliveCancel, c.keepaliveWg = nil, nil, nil
+	retired := c.retired
+	c.client, c.keepaliveCancel, c.keepaliveWg, c.transportFailed = nil, nil, nil, nil
+	c.retired = nil
 	c.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	var err error
-	if client != nil {
-		err = client.Close()
-	}
-	if wg != nil {
-		done := make(chan struct{})
-		go func() { wg.Wait(); close(done) }()
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-		}
+	err := closeSSHTransport(retiredSSHTransport{client: client, cancel: cancel, wg: wg})
+	for _, transport := range retired {
+		_ = closeSSHTransport(transport)
 	}
 	return err
 }
@@ -375,7 +438,20 @@ func (c *SSHClient) Reconnect() error {
 	if closed {
 		return fmt.Errorf("SSH client is closed")
 	}
-	client, cancel, wg, err := dialSSH(config)
+	var client *ssh.Client
+	var cancel context.CancelFunc
+	var wg *sync.WaitGroup
+	var transportFailed <-chan struct{}
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		client, cancel, wg, transportFailed, err = dialSSH(config)
+		if err == nil {
+			break
+		}
+		if attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("failed to reconnect SSH: %w", err)
 	}
@@ -387,15 +463,19 @@ func (c *SSHClient) Reconnect() error {
 		return fmt.Errorf("SSH client was closed or replaced during reconnect")
 	}
 	oldCancel := c.keepaliveCancel
-	c.client, c.keepaliveCancel, c.keepaliveWg = client, cancel, wg
+	oldWg := c.keepaliveWg
+	c.client, c.keepaliveCancel, c.keepaliveWg, c.transportFailed = client, cancel, wg, transportFailed
 	c.observed, c.transportDone = nil, nil
 	c.lastHealthTime = time.Now()
+	oldTransport := retiredSSHTransport{client: old, cancel: oldCancel, wg: oldWg}
+	if oldTransport.client != nil {
+		if c.activeUses == 0 {
+			c.mu.Unlock()
+			_ = closeSSHTransport(oldTransport)
+			return nil
+		}
+		c.retired = append(c.retired, oldTransport)
+	}
 	c.mu.Unlock()
-	if oldCancel != nil {
-		oldCancel()
-	}
-	if old != nil {
-		old.Close()
-	}
 	return nil
 }

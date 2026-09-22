@@ -247,5 +247,6 @@ func (i *IncusProvider) cleanupInstancePortMappings(ctx context.Context, provide
 			return fmt.Errorf("清理实例 %s 的端口 %d 失败: %w", instance.Name, port.HostPort, err)
 		}
 	}
+	i.removeHostFirewallPorts(ports)
 	return nil
 }

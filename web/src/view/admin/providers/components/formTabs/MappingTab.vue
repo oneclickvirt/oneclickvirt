@@ -426,6 +426,10 @@
           label="Iptables"
           value="iptables"
         />
+        <el-option
+          :label="$t('admin.providers.nativePortMapping')"
+          value="native"
+        />
       </el-select>
     </el-form-item>
     <div
@@ -599,7 +603,11 @@ const commonFixedPorts = [22, 80, 443, 8080, 8443, 3306, 5432, 6379, 27017]
 const supportsStaticIPv6 = computed(() => supportsStaticIPv6Provider(props.modelValue.type))
 const supportsIPv6Only = computed(() => supportsIPv6OnlyProvider(props.modelValue.type))
 const hasIPv6Network = computed(() => ['nat_ipv4_ipv6', 'dedicated_ipv4_ipv6', 'ipv6_only'].includes(props.modelValue.networkType))
-const managedIPv6NAT = computed(() => usesManagedIPv6NAT(props.modelValue.type, props.modelValue.networkType))
+const managedIPv6NAT = computed(() => usesManagedIPv6NAT(
+  props.modelValue.type,
+  props.modelValue.networkType,
+  props.modelValue.ipv6PortMappingMethod
+))
 
 const normalizeFixedPorts = (ports = []) => {
   const values = Array.isArray(ports) ? ports : []
@@ -691,7 +699,8 @@ watch(() => [props.modelValue.type, props.modelValue.networkType], ([type, netwo
       }
     }
   }
-  // LXD/Incus不需要额外处理，它们的IPv4和IPv6都是device_proxy或iptables
+  // LXD/Incus保留当前选择：device_proxy/iptables 为宿主IPv6映射，
+  // native 为直接分配给实例的独立公网IPv6。
   // Docker不需要额外处理，它们固定是native
 })
 </script>

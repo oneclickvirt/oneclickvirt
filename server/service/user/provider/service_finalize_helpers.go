@@ -21,21 +21,26 @@ import (
 )
 
 // storesGuestPublicIPv6 reports whether the instance itself owns a routable
-// IPv6 address.  nat_ipv4_ipv6 deliberately uses a ULA guest address and a
-// node-side IPv6 DNAT/proxy; persisting the node's shared IPv6 in
-// instances.public_ipv6 makes the UI and traffic binding claim that the guest
-// is directly reachable and can route traffic incorrectly.
-func storesGuestPublicIPv6(networkType string) bool {
+// IPv6 address. Incus/LXD nat_ipv4_ipv6 normally uses a ULA guest address and
+// a node-side IPv6 DNAT/proxy, but its explicit native mode assigns a routed
+// public /128 to the guest. Persisting the node's shared IPv6 in managed mode
+// is wrong; clearing a native allocation is equally wrong because it removes
+// the only public endpoint from the API immediately after creation.
+func storesGuestPublicIPv6(providerType, networkType, ipv6PortMappingMethod string) bool {
 	switch strings.ToLower(strings.TrimSpace(networkType)) {
 	case "dedicated_ipv4_ipv6", "ipv6_only":
 		return true
+	case "nat_ipv4_ipv6":
+		providerType = strings.ToLower(strings.TrimSpace(providerType))
+		return (providerType == "incus" || providerType == "lxd") &&
+			strings.EqualFold(strings.TrimSpace(ipv6PortMappingMethod), "native")
 	default:
 		return false
 	}
 }
 
-func publicIPv6Update(networkType, value string) map[string]interface{} {
-	if !storesGuestPublicIPv6(networkType) {
+func publicIPv6Update(providerType, networkType, ipv6PortMappingMethod, value string) map[string]interface{} {
+	if !storesGuestPublicIPv6(providerType, networkType, ipv6PortMappingMethod) {
 		// NAT modes must actively clear a stale host address, including when the
 		// current probe cannot find a guest public address.
 		return map[string]interface{}{"public_ipv6": ""}
@@ -47,6 +52,58 @@ func publicIPv6Update(networkType, value string) map[string]interface{} {
 	// known-good address and make the instance look unconfigured on a transient
 	// provider/API failure; the next successful reconciliation will refresh it.
 	return nil
+}
+
+func effectiveInstanceNetworkType(instanceNetworkType, providerNetworkType string) string {
+	if networkType := strings.ToLower(strings.TrimSpace(instanceNetworkType)); networkType != "" {
+		return networkType
+	}
+	return strings.ToLower(strings.TrimSpace(providerNetworkType))
+}
+
+func instanceRequiresIPv4(instanceNetworkType, providerNetworkType string) bool {
+	return effectiveInstanceNetworkType(instanceNetworkType, providerNetworkType) != "ipv6_only"
+}
+
+func passwordVerificationEndpoint(instance providerModel.Instance, dbProvider providerModel.Provider, mapping *providerModel.Port) (string, int, bool) {
+	switch effectiveInstanceNetworkType(instance.NetworkType, dbProvider.NetworkType) {
+	case "ipv6_only":
+		for _, candidate := range []string{instance.PublicIPv6, instance.IPv6Address} {
+			candidate = strings.TrimSpace(candidate)
+			if !utils.IsPublicIPv6(candidate) {
+				continue
+			}
+			host, err := utils.NormalizeIPv6Address(candidate)
+			if err == nil && host != "" {
+				return host, 22, true
+			}
+		}
+		return "", 0, false
+	case "dedicated_ipv4", "dedicated_ipv4_ipv6":
+		host := strings.TrimSpace(instance.PublicIP)
+		if host == "" {
+			host = strings.TrimSpace(instance.PrivateIP)
+		}
+		host = utils.ExtractHost(host)
+		return host, 22, host != ""
+	}
+
+	if mapping != nil {
+		if mapping.HostPort < 1 || mapping.HostPort > 65535 {
+			return "", 0, false
+		}
+		host := strings.TrimSpace(dbProvider.PortIP)
+		if host == "" {
+			host = strings.TrimSpace(dbProvider.Endpoint)
+		}
+		host = utils.ExtractHost(host)
+		return host, mapping.HostPort, host != ""
+	}
+
+	// Without an active mapping there is no unambiguous NAT guest endpoint.
+	// Never send a guest password to the provider host merely because its own
+	// SSH daemon is listening on port 22.
+	return "", 0, false
 }
 
 // The advertised SSH endpoint follows the active mapping for every provider.
@@ -267,7 +324,6 @@ func (s *Service) ensureInstanceRunnableAfterCreate(ctx context.Context, instanc
 	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
 		return fmt.Errorf("获取Provider信息失败: %w", err)
 	}
-
 	providerSvc := providerService.GetProviderService()
 	providerInstance, exists := providerSvc.GetProviderByID(providerID)
 	if !exists || providerInstance == nil || !providerInstance.IsConnected() {
@@ -346,6 +402,8 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
 		return fmt.Errorf("获取Provider信息失败: %w", err)
 	}
+	effectiveNetworkType := effectiveInstanceNetworkType(instance.NetworkType, dbProvider.NetworkType)
+	ipv6Only := !instanceRequiresIPv4(instance.NetworkType, dbProvider.NetworkType)
 
 	providerSvc := providerService.GetProviderService()
 	providerInstance, exists := providerSvc.GetProviderByID(providerID)
@@ -362,12 +420,18 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 		}
 
 		updates := map[string]interface{}{}
+		if ipv6Only {
+			updates["private_ip"] = ""
+			updates["pmacct_interface_v4"] = ""
+		}
 
 		switch dbProvider.Type {
 		case "lxd":
 			if lxdProvider, ok := providerInstance.(*lxd.LXDProvider); ok {
-				if ip, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ip != "" {
-					updates["private_ip"] = ip
+				if !ipv6Only {
+					if ip, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ip != "" {
+						updates["private_ip"] = ip
+					}
 				}
 				if ipv6, err := lxdProvider.GetInstanceIPv6(instance.Name); err == nil && ipv6 != "" {
 					updates["ipv6_address"] = ipv6
@@ -376,14 +440,16 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 				if candidate, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil {
 					publicIPv6 = candidate
 				}
-				for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+				for key, value := range publicIPv6Update(dbProvider.Type, effectiveNetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
 					updates[key] = value
 				}
 			}
 		case "incus":
 			if incusProvider, ok := providerInstance.(*incus.IncusProvider); ok {
-				if ip, err := incusProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ip != "" {
-					updates["private_ip"] = ip
+				if !ipv6Only {
+					if ip, err := incusProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ip != "" {
+						updates["private_ip"] = ip
+					}
 				}
 				if ipv6, err := incusProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6 != "" {
 					updates["ipv6_address"] = ipv6
@@ -392,7 +458,7 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 				if candidate, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
 					publicIPv6 = candidate
 				}
-				for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+				for key, value := range publicIPv6Update(dbProvider.Type, effectiveNetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
 					updates[key] = value
 				}
 			}
@@ -415,7 +481,7 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 				if candidate, err := proxmoxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
 					publicIPv6 = candidate
 				}
-				for key, value := range publicIPv6Update(dbProvider.NetworkType, publicIPv6) {
+				for key, value := range publicIPv6Update(dbProvider.Type, effectiveNetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
 					updates[key] = value
 				}
 			}
@@ -439,7 +505,14 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 			if err := global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
 				return fmt.Errorf("更新实例网络地址失败: %w", err)
 			}
-			if privateIP, ok := updates["private_ip"].(string); ok && privateIP != "" {
+			if ipv6Only {
+				if publicIPv6, ok := updates["public_ipv6"].(string); ok && strings.TrimSpace(publicIPv6) != "" {
+					return nil
+				}
+				if strings.TrimSpace(instance.PublicIPv6) != "" {
+					return nil
+				}
+			} else if privateIP, ok := updates["private_ip"].(string); ok && privateIP != "" {
 				return nil
 			}
 		}
@@ -454,6 +527,9 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 		}
 	}
 
+	if ipv6Only {
+		return fmt.Errorf("实例公网IPv6在重试窗口内仍未就绪")
+	}
 	return fmt.Errorf("实例内网IP在重试窗口内仍未就绪")
 }
 

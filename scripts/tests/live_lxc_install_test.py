@@ -22,7 +22,7 @@ except ImportError:  # Optional dependency for explicitly requested live runs.
     paramiko = None
 from live_agent_fixture import ReversePanelForwarder
 from live_node_shell import node_command
-from live_ssh import strict_node_client
+from live_ssh import connect_strict_node, strict_node_client
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "action_tests/common"))
 from remote import _collect_output, keep_ssh_alive
@@ -49,7 +49,7 @@ def verify_storage_pools(pools, expected_driver=""):
 def main():
     if os.environ.get("OCV_LIVE_DISPOSABLE") != "yes":
         raise SystemExit("Require OCV_LIVE_DISPOSABLE=yes")
-    for name in ("OCV_LIVE_HOST", "OCV_LIVE_PASSWORD", "OCV_SCRIPT_REPO"):
+    for name in ("OCV_LIVE_HOST", "OCV_SCRIPT_REPO"):
         if not os.environ.get(name):
             raise SystemExit(f"Missing required live-test variable: {name}")
     if paramiko is None:
@@ -71,8 +71,11 @@ def main():
     def connect():
         client = strict_node_client()
         try:
-            client.connect(os.environ["OCV_LIVE_HOST"], username="root", password=os.environ["OCV_LIVE_PASSWORD"],
-                           timeout=15, auth_timeout=15, banner_timeout=15, allow_agent=False, look_for_keys=False)
+            connect_strict_node(
+                client,
+                os.environ["OCV_LIVE_HOST"],
+                port=int(os.environ.get("OCV_LIVE_SSH_PORT", "22")),
+            )
             keep_ssh_alive(client)
         except BaseException:
             client.close()
@@ -141,9 +144,15 @@ def main():
                         handle.write(sources[path])
 
     try:
-        # Reinstallation on an empty runtime is allowed, but never cross-install
-        # over a different container environment on this dedicated node.
-        remote("set -eu; test ! -d /opt/oneclickvirt/agent; ! command -v docker; ! command -v podman; ! command -v containerd")
+        # Reinstallation on an empty runtime is the default contract.  A
+        # dedicated mixed-runtime probe may opt in explicitly when the node
+        # contains an unrelated Docker/Podman/containerd installation that
+        # must be preserved.  Never silently treat that probe as clean-OS
+        # evidence.
+        if os.environ.get("OCV_LIVE_ALLOW_EXISTING_RUNTIMES") != "yes":
+            remote("set -eu; test ! -d /opt/oneclickvirt/agent; ! command -v docker; ! command -v podman; ! command -v containerd")
+        else:
+            remote("set -eu; test ! -d /opt/oneclickvirt/agent")
         if runtime == "incus":
             remote("! command -v lxc")
         else:

@@ -24,6 +24,42 @@ type MonitorService struct {
 	clients  map[uint]*Client
 }
 
+// monitorInstanceLockRegistry serializes monitor lifecycle operations by the
+// controller-side instance ID.  MonitorService is intentionally short-lived
+// (lifecycle callbacks create one per event), so a mutex on MonitorService
+// would not protect concurrent callbacks for the same instance.
+type monitorInstanceLockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+var monitorInstanceLockRegistry = struct {
+	sync.Mutex
+	entries map[uint]*monitorInstanceLockEntry
+}{entries: make(map[uint]*monitorInstanceLockEntry)}
+
+func lockMonitorInstance(instanceID uint) func() {
+	monitorInstanceLockRegistry.Lock()
+	entry := monitorInstanceLockRegistry.entries[instanceID]
+	if entry == nil {
+		entry = &monitorInstanceLockEntry{}
+		monitorInstanceLockRegistry.entries[instanceID] = entry
+	}
+	entry.refs++
+	monitorInstanceLockRegistry.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		monitorInstanceLockRegistry.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(monitorInstanceLockRegistry.entries, instanceID)
+		}
+		monitorInstanceLockRegistry.Unlock()
+	}
+}
+
 // NewMonitorService creates a new monitor service.
 func NewMonitorService(ctx context.Context, db *gorm.DB) *MonitorService {
 	return &MonitorService{db: db, ctx: ctx, clients: make(map[uint]*Client)}
@@ -183,11 +219,31 @@ func (s *MonitorService) RegisterMonitor(
 	config *monitoringModel.MonitoringConfig,
 	vmidHint string,
 ) (*monitoringModel.AgentMonitor, error) {
+	unlock := lockMonitorInstance(instance.ID)
+	defer unlock()
+	return s.registerMonitorLocked(providerInstance, instance, config, vmidHint)
+}
+
+func (s *MonitorService) registerMonitorLocked(
+	providerInstance provider.Provider,
+	instance *providerModel.Instance,
+	config *monitoringModel.MonitoringConfig,
+	vmidHint string,
+) (*monitoringModel.AgentMonitor, error) {
 	// Check if already registered. If the agent-side record still exists, refresh
 	// local metadata only; otherwise delete the stale mapping and recreate it.
-	var existing monitoringModel.AgentMonitor
-	if err := s.db.Where("instance_id = ?", instance.ID).First(&existing).Error; err == nil {
+	var existingRows []monitoringModel.AgentMonitor
+	if err := s.db.Where("instance_id = ?", instance.ID).Order("id ASC").Find(&existingRows).Error; err != nil {
+		return nil, fmt.Errorf("find existing agent monitor: %w", err)
+	}
+	if len(existingRows) > 0 {
+		existing := existingRows[0]
 		client, clientErr := s.getAgentClient(instance.ProviderID, config)
+		if len(existingRows) > 1 {
+			if err := s.removeDuplicateMonitorMappings(instance.ID, existingRows[1:], client, existing.AgentMonitorID); err != nil {
+				return nil, err
+			}
+		}
 		if clientErr != nil {
 			return &existing, nil
 		}
@@ -209,14 +265,23 @@ func (s *MonitorService) RegisterMonitor(
 		if err := s.db.Unscoped().Delete(&existing).Error; err != nil {
 			return nil, fmt.Errorf("remove stale agent monitor mapping: %w", err)
 		}
-	} else if err != gorm.ErrRecordNotFound {
-		return nil, fmt.Errorf("find existing agent monitor: %w", err)
 	}
 
-	return s.registerMonitorForInstance(providerInstance, instance, config, vmidHint)
+	return s.registerMonitorForInstanceUnlocked(providerInstance, instance, config, vmidHint)
 }
 
 func (s *MonitorService) registerMonitorForInstance(
+	providerInstance provider.Provider,
+	instance *providerModel.Instance,
+	config *monitoringModel.MonitoringConfig,
+	vmidHint string,
+) (*monitoringModel.AgentMonitor, error) {
+	unlock := lockMonitorInstance(instance.ID)
+	defer unlock()
+	return s.registerMonitorForInstanceUnlocked(providerInstance, instance, config, vmidHint)
+}
+
+func (s *MonitorService) registerMonitorForInstanceUnlocked(
 	providerInstance provider.Provider,
 	instance *providerModel.Instance,
 	config *monitoringModel.MonitoringConfig,
@@ -286,8 +351,68 @@ func (s *MonitorService) registerMonitorForInstance(
 	return &monitor, nil
 }
 
+// removeDuplicateMonitorMappings keeps the oldest local mapping as the
+// canonical row and removes only confirmed duplicate Agent-side monitors.
+// Unknown Agent IDs are left untouched because they may belong to another
+// lifecycle operation; the local duplicate rows are still removed so a
+// broken database cannot keep returning multiple active mappings.
+func (s *MonitorService) removeDuplicateMonitorMappings(
+	instanceID uint,
+	duplicates []monitoringModel.AgentMonitor,
+	client *Client,
+	canonicalAgentMonitorID int64,
+) error {
+	if len(duplicates) == 0 {
+		return nil
+	}
+	if client != nil {
+		deleted := make(map[int64]struct{}, len(duplicates))
+		for _, duplicate := range duplicates {
+			if duplicate.AgentMonitorID == 0 {
+				continue
+			}
+			if duplicate.AgentMonitorID == canonicalAgentMonitorID {
+				continue
+			}
+			if _, seen := deleted[duplicate.AgentMonitorID]; seen {
+				continue
+			}
+			if _, infoErr := client.GetInfo(duplicate.AgentMonitorID); infoErr != nil {
+				continue
+			}
+			if _, deleteErr := client.DeleteMonitor(duplicate.AgentMonitorID); deleteErr != nil {
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("failed to remove duplicate agent monitor",
+						zap.Uint("instance_id", instanceID),
+						zap.Int64("agent_monitor_id", duplicate.AgentMonitorID),
+						zap.Error(deleteErr))
+				}
+				continue
+			}
+			deleted[duplicate.AgentMonitorID] = struct{}{}
+		}
+	}
+
+	ids := make([]uint, 0, len(duplicates))
+	for _, duplicate := range duplicates {
+		ids = append(ids, duplicate.ID)
+	}
+	if err := s.db.Unscoped().Where("id IN ?", ids).Delete(&monitoringModel.AgentMonitor{}).Error; err != nil {
+		return fmt.Errorf("remove duplicate agent monitor mappings for instance %d: %w", instanceID, err)
+	}
+	if global.APP_LOG != nil {
+		global.APP_LOG.Warn("removed duplicate agent monitor mappings",
+			zap.Uint("instance_id", instanceID),
+			zap.Int("count", len(ids)))
+	}
+	return nil
+}
+
 // DeregisterMonitor removes the monitor from both the agent and MySQL.
 func (s *MonitorService) DeregisterMonitor(instanceID uint, config *monitoringModel.MonitoringConfig) error {
+	unlock := lockMonitorInstance(instanceID)
+	defer unlock()
+
 	var monitors []monitoringModel.AgentMonitor
 	if err := s.db.Where("instance_id = ?", instanceID).Find(&monitors).Error; err != nil {
 		return fmt.Errorf("find monitors for instance %d: %w", instanceID, err)
@@ -333,11 +458,14 @@ func (s *MonitorService) UpdateMonitorInterfaces(
 	config *monitoringModel.MonitoringConfig,
 	vmidHint string,
 ) error {
+	unlock := lockMonitorInstance(instance.ID)
+	defer unlock()
+
 	var monitor monitoringModel.AgentMonitor
 	if err := s.db.Where("instance_id = ?", instance.ID).First(&monitor).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			// Not registered yet, register now
-			_, err := s.registerMonitorForInstance(providerInstance, instance, config, vmidHint)
+			_, err := s.registerMonitorForInstanceUnlocked(providerInstance, instance, config, vmidHint)
 			return err
 		}
 		return fmt.Errorf("find monitor: %w", err)

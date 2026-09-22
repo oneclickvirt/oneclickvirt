@@ -57,6 +57,36 @@ jobs:
           git rm -rf --ignore-unmatch .
           git checkout "${source_commit}" -- .
 
+          # The local mirror helper is deliberately outside the public
+          # repository.  Remove it from the exported snapshot even if a
+          # future source commit accidentally tracks it; the check below then
+          # makes the invariant explicit before anything is pushed.
+          git rm --cached --ignore-unmatch -- \
+            ':(glob)copy_project.sh' \
+            ':(glob)copyproject.sh' \
+            ':(glob)**/copy_project.sh' \
+            ':(glob)**/copyproject.sh'
+          find . -path './.git' -prune -o -type f \( \
+            -name 'copy_project.sh' -o \
+            -name 'copyproject.sh' \
+          \) -delete
+
+          # Do not publish the ignore rules that reveal the local-only helper
+          # either.  The private source checkout keeps those rules; the public
+          # snapshot does not need them.
+          for metadata in .gitignore .dockerignore; do
+            if [ -f "${metadata}" ]; then
+              sanitized_metadata=$(mktemp)
+              awk '
+                $0 == "# Private mirror/synchronization tooling must never enter the public repository." { next }
+                $0 ~ /^[[:space:]]*copy_project\.sh[[:space:]]*$/ { next }
+                $0 ~ /^[[:space:]]*copyproject\.sh[[:space:]]*$/ { next }
+                { print }
+              ' "${metadata}" > "${sanitized_metadata}"
+              mv -f "${sanitized_metadata}" "${metadata}"
+            fi
+          done
+
           forbidden_paths=$(git ls-files | grep -E '(^|/)(copy_project|copyproject)\.sh$' || true)
           if [ -n "${forbidden_paths}" ]; then
             echo "::error::Private mirror tooling must never be synchronized to CNB:"

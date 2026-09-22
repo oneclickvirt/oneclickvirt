@@ -8,19 +8,26 @@ export function resolveInstanceNetworkType(instance, providers = []) {
   return String(provider?.networkType || '').trim().toLowerCase()
 }
 
-// Incus/LXD dual-stack NAT keeps each guest on the managed bridge and exposes
-// it through the node's public IPv6. A controller pool is therefore not an
-// input for that one combination; other IPv6 modes still use routed/static
-// allocations where the provider supports them.
-export function usesControllerIPv6Pool(providerType, networkType) {
-  const provider = String(providerType || '').trim().toLowerCase()
-  const network = String(networkType || '').trim().toLowerCase()
-  if (!['nat_ipv4_ipv6', 'dedicated_ipv4_ipv6', 'ipv6_only'].includes(network)) return false
-  return network !== 'nat_ipv4_ipv6' || !['incus', 'lxd'].includes(provider)
+export function hasAgentMappedNetworking(formData = {}) {
+  if (String(formData.connectionType || '').trim().toLowerCase() !== 'agent') return false
+  const networkType = String(formData.networkType || '').trim().toLowerCase()
+  return networkType !== '' && networkType !== 'no_port_mapping'
 }
 
-export function usesManagedIPv6NAT(providerType, networkType) {
+// Incus/LXD retain two explicit dual-stack modes. device_proxy/iptables keep
+// the guest on the managed bridge and publish the node's IPv6, while native
+// consumes a controller allocation and attaches it directly to the guest.
+export function usesControllerIPv6Pool(providerType, networkType, ipv6PortMappingMethod = 'device_proxy') {
   const provider = String(providerType || '').trim().toLowerCase()
   const network = String(networkType || '').trim().toLowerCase()
-  return ['incus', 'lxd'].includes(provider) && network === 'nat_ipv4_ipv6'
+  const method = String(ipv6PortMappingMethod || 'device_proxy').trim().toLowerCase()
+  if (!['nat_ipv4_ipv6', 'dedicated_ipv4_ipv6', 'ipv6_only'].includes(network)) return false
+  return network !== 'nat_ipv4_ipv6' || !['incus', 'lxd'].includes(provider) || method === 'native'
+}
+
+export function usesManagedIPv6NAT(providerType, networkType, ipv6PortMappingMethod = 'device_proxy') {
+  const provider = String(providerType || '').trim().toLowerCase()
+  const network = String(networkType || '').trim().toLowerCase()
+  const method = String(ipv6PortMappingMethod || 'device_proxy').trim().toLowerCase()
+  return ['incus', 'lxd'].includes(provider) && network === 'nat_ipv4_ipv6' && method !== 'native'
 }

@@ -30,6 +30,10 @@ services:
       DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env before running docker compose}
       DB_NAME: oneclickvirt
       DB_TYPE: mariadb
+      OCV_CONTROLLER_PORT_RANGE_START: "${OCV_CONTROLLER_PORT_RANGE_START:-10000}"
+      OCV_CONTROLLER_PORT_RANGE_END: "${OCV_CONTROLLER_PORT_RANGE_END:-10099}"
+    ports:
+      - "${OCV_CONTROLLER_PORT_RANGE_START:-10000}-${OCV_CONTROLLER_PORT_RANGE_END:-10099}:${OCV_CONTROLLER_PORT_RANGE_START:-10000}-${OCV_CONTROLLER_PORT_RANGE_END:-10099}"
     volumes:
       - ./data/app/:/app/storage
       - ./server/config.yaml:/app/config.yaml:rw

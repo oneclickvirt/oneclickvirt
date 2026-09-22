@@ -6,8 +6,8 @@ use tracing::{debug, info, warn};
 
 use super::counter::{ensure_counter, read_external_bytes};
 use super::{
-    SCOPES, Scope, counter_name_in, counter_name_out, ensure_base_objects, is_not_found,
-    remove_counter_by_name, run_nft,
+    SCOPES, Scope, counter_name_in, counter_name_out, device_counter, ensure_base_objects,
+    is_not_found, remove_counter_by_name, run_nft,
 };
 
 fn list_existing_managed_counters(scope: Scope) -> Result<HashSet<String>, ApiError> {
@@ -93,6 +93,22 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
                 );
                 last_error = Some(err.message);
             }
+        }
+    }
+
+    match device_counter::garbage_collect_orphans(conn) {
+        Ok(removed) => {
+            success_scopes += 1;
+            total_removed += removed;
+        }
+        Err(err) => {
+            warn!(
+                family = "netdev",
+                table = "vm_traffic_monitor_device",
+                error = %err.message,
+                "orphan GC skipped for device counters due to error"
+            );
+            last_error = Some(err.message);
         }
     }
 

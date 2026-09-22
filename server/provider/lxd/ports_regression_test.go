@@ -113,6 +113,83 @@ func TestLXDProxyEndpointBracketsIPv6(t *testing.T) {
 	}
 }
 
+func TestLXDHostFirewallExpandsBothAndRemovesSymmetrically(t *testing.T) {
+	ports := []providerModel.Port{
+		{HostPort: 22000, Protocol: "both"},
+		{HostPort: 22001, Protocol: " TCP "},
+		{HostPort: 22002, Protocol: "udp"},
+		{HostPort: 23000, HostPortEnd: 23002, PortCount: 3, Protocol: "both"},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		apply      func(*LXDProvider, []providerModel.Port, bool) error
+		addWant    []string
+		removeWant []string
+	}{
+		{
+			name:  "ufw",
+			apply: (*LXDProvider).applyUfwPorts,
+			addWant: []string{
+				"ufw allow 22000/tcp", "ufw allow 22000/udp",
+				"ufw allow 22001/tcp", "ufw allow 22002/udp",
+				"ufw allow 23000:23002/tcp", "ufw allow 23000:23002/udp", "ufw reload",
+			},
+			removeWant: []string{
+				"ufw --force delete allow 22000/tcp", "ufw --force delete allow 22000/udp",
+				"ufw --force delete allow 22001/tcp", "ufw --force delete allow 22002/udp",
+				"ufw --force delete allow 23000:23002/tcp", "ufw --force delete allow 23000:23002/udp", "ufw reload",
+			},
+		},
+		{
+			name:  "firewalld",
+			apply: (*LXDProvider).applyFirewalldPorts,
+			addWant: []string{
+				"firewall-cmd --permanent --add-port=22000/tcp", "firewall-cmd --permanent --add-port=22000/udp",
+				"firewall-cmd --permanent --add-port=22001/tcp", "firewall-cmd --permanent --add-port=22002/udp",
+				"firewall-cmd --permanent --add-port=23000-23002/tcp", "firewall-cmd --permanent --add-port=23000-23002/udp", "firewall-cmd --reload",
+			},
+			removeWant: []string{
+				"firewall-cmd --permanent --remove-port=22000/tcp", "firewall-cmd --permanent --remove-port=22000/udp",
+				"firewall-cmd --permanent --remove-port=22001/tcp", "firewall-cmd --permanent --remove-port=22002/udp",
+				"firewall-cmd --permanent --remove-port=23000-23002/tcp", "firewall-cmd --permanent --remove-port=23000-23002/udp", "firewall-cmd --reload",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, action := range []struct {
+				remove bool
+				want   []string
+			}{{want: tc.addWant}, {remove: true, want: tc.removeWant}} {
+				executor := &failingLXDPortsExecutor{}
+				p := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+				if err := tc.apply(p, ports, action.remove); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(executor.commands, action.want) {
+					t.Fatalf("commands = %#v, want %#v", executor.commands, action.want)
+				}
+			}
+		})
+	}
+
+	for _, protocol := range []string{"", "sctp", "tcp; reboot"} {
+		if protocols, ok := lxdHostFirewallProtocols(protocol); ok || protocols != nil {
+			t.Fatalf("protocol %q unexpectedly accepted as %#v", protocol, protocols)
+		}
+	}
+	for _, port := range []providerModel.Port{
+		{HostPort: 0, PortCount: 1},
+		{HostPort: 65535, PortCount: 2},
+		{HostPort: 22000, HostPortEnd: 22002, PortCount: 2},
+		{HostPort: 22000, PortCount: 1501},
+	} {
+		if start, end, ok := lxdHostFirewallPortRange(port); ok || start != 0 || end != 0 {
+			t.Fatalf("invalid range %+v unexpectedly accepted as %d-%d", port, start, end)
+		}
+	}
+}
+
 func TestLXDPersistsManagedNATIPv6BeforeStoppedPortMapping(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s_%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"), time.Now().UnixNano())), &gorm.Config{})
 	if err != nil {

@@ -40,6 +40,47 @@ func familyLabel(ipv6 bool) string {
 	return "IPv4"
 }
 
+// incusHostFirewallProtocols converts the controller's "both" value into
+// concrete protocols and rejects malformed legacy database values before they
+// can reach a remote shell command.
+func incusHostFirewallProtocols(protocol string) ([]string, bool) {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "tcp":
+		return []string{"tcp"}, true
+	case "udp":
+		return []string{"udp"}, true
+	case "both":
+		return []string{"tcp", "udp"}, true
+	default:
+		return nil, false
+	}
+}
+
+func incusHostFirewallPortRange(port providerModel.Port) (int, int, bool) {
+	start := port.HostPort
+	if start < 1 || start > 65535 {
+		return 0, 0, false
+	}
+	count := port.PortCount
+	if count <= 0 {
+		count = 1
+	}
+	if count > 1500 || start+count-1 > 65535 {
+		return 0, 0, false
+	}
+	end := start + count - 1
+	if port.HostPortEnd > 0 {
+		if port.HostPortEnd < start || port.HostPortEnd > 65535 {
+			return 0, 0, false
+		}
+		if port.PortCount > 0 && port.HostPortEnd != end {
+			return 0, 0, false
+		}
+		end = port.HostPortEnd
+	}
+	return start, end, true
+}
+
 // configurePortMappings 配置端口映射
 func (i *IncusProvider) configurePortMappings(ctx context.Context, instanceName string, networkConfig NetworkConfig, instanceIP string) error {
 	return i.configurePortMappingsWithIP(ctx, instanceName, networkConfig, instanceIP)
@@ -251,19 +292,36 @@ func (i *IncusProvider) hasUfw() bool {
 
 // configureFirewalldPorts 配置firewalld端口
 func (i *IncusProvider) configureFirewalldPorts(portMappings []providerModel.Port) error {
+	return i.applyFirewalldPorts(portMappings, false)
+}
+
+func (i *IncusProvider) applyFirewalldPorts(portMappings []providerModel.Port, remove bool) error {
+	operation := "--add-port"
+	if remove {
+		operation = "--remove-port"
+	}
 	for _, port := range portMappings {
-		protocols := []string{port.Protocol}
-		if port.Protocol == "both" {
-			protocols = []string{"tcp", "udp"}
+		start, end, validRange := incusHostFirewallPortRange(port)
+		protocols, ok := incusHostFirewallProtocols(port.Protocol)
+		if !ok || !validRange {
+			global.APP_LOG.Warn("跳过无效的firewalld端口规则",
+				zap.Int("port", port.HostPort),
+				zap.String("protocol", port.Protocol))
+			continue
+		}
+		portSpec := fmt.Sprintf("%d", start)
+		if end > start {
+			portSpec = fmt.Sprintf("%d-%d", start, end)
 		}
 
 		for _, proto := range protocols {
-			cmd := fmt.Sprintf("firewall-cmd --permanent --add-port=%d/%s", port.HostPort, strings.ToLower(proto))
+			cmd := fmt.Sprintf("firewall-cmd --permanent %s=%s/%s", operation, portSpec, proto)
 			_, err := i.sshClient.Execute(cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置firewalld端口失败",
 					zap.Int("port", port.HostPort),
 					zap.String("protocol", proto),
+					zap.Bool("remove", remove),
 					zap.Error(err))
 			}
 		}
@@ -276,19 +334,35 @@ func (i *IncusProvider) configureFirewalldPorts(portMappings []providerModel.Por
 
 // configureUfwPorts 配置ufw端口
 func (i *IncusProvider) configureUfwPorts(portMappings []providerModel.Port) error {
+	return i.applyUfwPorts(portMappings, false)
+}
+
+func (i *IncusProvider) applyUfwPorts(portMappings []providerModel.Port, remove bool) error {
 	for _, port := range portMappings {
-		protocols := []string{port.Protocol}
-		if port.Protocol == "both" {
-			protocols = []string{"tcp", "udp"}
+		start, end, validRange := incusHostFirewallPortRange(port)
+		protocols, ok := incusHostFirewallProtocols(port.Protocol)
+		if !ok || !validRange {
+			global.APP_LOG.Warn("跳过无效的ufw端口规则",
+				zap.Int("port", port.HostPort),
+				zap.String("protocol", port.Protocol))
+			continue
+		}
+		portSpec := fmt.Sprintf("%d", start)
+		if end > start {
+			portSpec = fmt.Sprintf("%d:%d", start, end)
 		}
 
 		for _, proto := range protocols {
-			cmd := fmt.Sprintf("ufw allow %d/%s", port.HostPort, strings.ToLower(proto))
+			cmd := fmt.Sprintf("ufw allow %s/%s", portSpec, proto)
+			if remove {
+				cmd = fmt.Sprintf("ufw --force delete allow %s/%s", portSpec, proto)
+			}
 			_, err := i.sshClient.Execute(cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置ufw端口失败",
 					zap.Int("port", port.HostPort),
 					zap.String("protocol", proto),
+					zap.Bool("remove", remove),
 					zap.Error(err))
 			}
 		}
@@ -297,6 +371,24 @@ func (i *IncusProvider) configureUfwPorts(portMappings []providerModel.Port) err
 	// 重新加载ufw配置
 	_, err := i.sshClient.Execute("ufw reload")
 	return err
+}
+
+// removeHostFirewallPorts mirrors configureFirewallPorts when the whole Incus
+// instance is deleted. The rules are host-global and otherwise survive after
+// the proxy device and database rows are gone. Keep this best effort because
+// their original installation is deliberately non-blocking.
+func (i *IncusProvider) removeHostFirewallPorts(portMappings []providerModel.Port) {
+	if i.hasFirewalld() {
+		if err := i.applyFirewalldPorts(portMappings, true); err != nil {
+			global.APP_LOG.Warn("清理firewalld端口规则失败", zap.Error(err))
+		}
+		return
+	}
+	if i.hasUfw() {
+		if err := i.applyUfwPorts(portMappings, true); err != nil {
+			global.APP_LOG.Warn("清理ufw端口规则失败", zap.Error(err))
+		}
+	}
 }
 
 // setupPortMappingWithIP 使用指定的实例IP设置端口映射

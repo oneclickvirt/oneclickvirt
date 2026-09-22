@@ -110,3 +110,22 @@ func TestResolveUpdatedTrafficPolicyAllowsExplicitZeroSpeed(t *testing.T) {
 		t.Fatalf("traffic policy = %s/%d, want stop/0", action, speed)
 	}
 }
+
+func TestResolveUpdatedProviderPortIPDistinguishesOmittedAndCleared(t *testing.T) {
+	existing := providerModel.Provider{PortIP: "192.0.2.10"}
+
+	omitted := admin.UpdateProviderRequest{ProvidedFields: map[string]bool{"networkType": true}}
+	if got := resolveUpdatedProviderPortIP(existing, omitted); got != existing.PortIP {
+		t.Fatalf("omitted portIP = %q, want preserved %q", got, existing.PortIP)
+	}
+
+	cleared := admin.UpdateProviderRequest{ProvidedFields: map[string]bool{"portIP": true}, PortIP: "  "}
+	if got := resolveUpdatedProviderPortIP(existing, cleared); got != "" {
+		t.Fatalf("explicitly cleared portIP = %q, want empty", got)
+	}
+
+	changed := admin.UpdateProviderRequest{ProvidedFields: map[string]bool{"portIP": true}, PortIP: " 198.51.100.20 "}
+	if got := resolveUpdatedProviderPortIP(existing, changed); got != "198.51.100.20" {
+		t.Fatalf("updated portIP = %q, want trimmed address", got)
+	}
+}

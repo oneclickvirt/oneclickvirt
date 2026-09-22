@@ -221,11 +221,15 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	if mappingType == "controller" {
 		controllerPortAllocateMu.Lock()
 		defer controllerPortAllocateMu.Unlock()
+		controllerRange, err := utils.ResolveControllerPortRange()
+		if err != nil {
+			return 0, nil, fmt.Errorf("控制端端口范围配置无效: %w", err)
+		}
 
 		// 控制端转发模式：使用控制端端口，不受节点端口范围限制
 		if hostPort == 0 {
-			// 自动分配控制端端口（10000-65535 范围，避免与已有控制端端口冲突）
-			allocatedPort, err := s.allocateControllerPort(providerInfo.ID, 10000, 65535, portCount)
+			// 自动分配控制端端口，容器部署时严格使用已发布的范围。
+			allocatedPort, err := s.allocateControllerPort(providerInfo.ID, controllerRange.Start, controllerRange.End, portCount)
 			if err != nil {
 				return 0, nil, fmt.Errorf("控制端端口分配失败: %v", err)
 			}
@@ -238,6 +242,9 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 			hostPortEnd := hostPort + portCount - 1
 			if hostPortEnd > 65535 {
 				return 0, nil, fmt.Errorf("控制端端口段 %d-%d 超出有效范围", hostPort, hostPortEnd)
+			}
+			if controllerRange.Configured && !controllerRange.Contains(hostPort, portCount) {
+				return 0, nil, fmt.Errorf("控制端端口段 %d-%d 不在部署已发布的范围 %d-%d 内", hostPort, hostPortEnd, controllerRange.Start, controllerRange.End)
 			}
 			// 检查控制端端口是否已被占用。pending/deleting 期间监听器或恢复流程可能仍在运行，
 			// 不能把这些端口重新分配给其他控制端转发。
@@ -474,6 +481,13 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 	return s.createDefaultPortMappings(context.Background(), instanceID, providerID, "", "active")
 }
 
+// ReserveDefaultPortMappingsForCreate reserves controller-owned ports before a
+// guest exists. The guest address is resolved and listeners are started only
+// after the provider reports the created instance's private address.
+func (s *PortMappingService) ReserveDefaultPortMappingsForCreate(ctx context.Context, instanceID, providerID uint, networkType string) error {
+	return s.createDefaultPortMappings(ctx, instanceID, providerID, networkType, "pending")
+}
+
 // ReserveDefaultPortMappingsForReset records intent before remote creation;
 // the restore task alone promotes these reservations after verifying rules.
 func (s *PortMappingService) ReserveDefaultPortMappingsForReset(ctx context.Context, instanceID, providerID uint, networkType string) error {
@@ -497,6 +511,17 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 	}
 
 	useControllerMapping := providerInfo.ConnectionType == "agent" && providerInfo.PortIP == ""
+	controllerRange := utils.ControllerPortRange{
+		Start: utils.DefaultControllerPortRangeStart,
+		End:   utils.DefaultControllerPortRangeEnd,
+	}
+	if useControllerMapping {
+		var rangeErr error
+		controllerRange, rangeErr = utils.ResolveControllerPortRange()
+		if rangeErr != nil {
+			return fmt.Errorf("控制端端口范围配置无效: %w", rangeErr)
+		}
+	}
 
 	// 检查是否为独立IPv4模式、纯IPv6模式或无端口映射模式，如果是则跳过默认端口映射创建。
 	// "无端口映射"语义上表示不自动创建任何端口映射，无论 SSH 还是 Agent 模式均不例外。
@@ -548,8 +573,15 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 		}
 	}
 
+	// A direct post-create controller allocation is also persisted as pending
+	// first. Listener I/O is performed only after the short transaction commits.
+	recordStatus := initialStatus
+	if useControllerMapping && initialStatus == "active" {
+		recordStatus = "pending"
+	}
+
 	// 短事务仅负责锁定、二次数据库校验和批量写入，不执行远程操作。
-	return db.Transaction(func(tx *gorm.DB) error {
+	err = db.Transaction(func(tx *gorm.DB) error {
 		var createdPorts []provider.Port
 		var lockedProvider provider.Provider
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", providerID).First(&lockedProvider).Error; err != nil {
@@ -571,7 +603,7 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 		var allocatedPorts []int
 		var err error
 		if useControllerMapping {
-			startPort, err = s.allocateControllerPortInTx(tx, providerInfo.ID, 10000, 65535, defaultPortCount)
+			startPort, err = s.allocateControllerPortInTx(tx, providerInfo.ID, controllerRange.Start, controllerRange.End, defaultPortCount)
 			if err != nil {
 				return fmt.Errorf("分配控制端连续端口区间失败: %v", err)
 			}
@@ -598,8 +630,8 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 			if err := tx.Where("id = ?", instanceID).Select("private_ip").First(&instance).Error; err != nil {
 				return fmt.Errorf("查询控制端转发目标实例失败: %w", err)
 			}
-			internalHost = instance.PrivateIP
-			if internalHost == "" {
+			internalHost = strings.TrimSpace(instance.PrivateIP)
+			if internalHost == "" && initialStatus != "pending" {
 				return fmt.Errorf("控制端转发目标实例缺少内网IP")
 			}
 			mappingProtocol = "tcp"
@@ -625,7 +657,7 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 				GuestPort:     guestPort,
 				Protocol:      mappingProtocol,
 				Description:   description,
-				Status:        initialStatus,
+				Status:        recordStatus,
 				IsSSH:         guestPort == requiredFixedSSHPort,
 				IsAutomatic:   true,
 				PortType:      "range_mapped",
@@ -640,7 +672,7 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 		}
 
 		// 更新实例的SSH端口
-		if initialStatus == "active" {
+		if initialStatus == "active" && !useControllerMapping {
 			if err := tx.Model(&provider.Instance{}).Where("id = ?", instanceID).Update("ssh_port", sshHostPort).Error; err != nil {
 				return fmt.Errorf("更新实例SSH端口失败: %w", err)
 			}
@@ -671,7 +703,7 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 				GuestPort:     guestPort,
 				Protocol:      mappingProtocol,
 				Description:   fmt.Sprintf("端口%d", guestPort),
-				Status:        initialStatus,
+				Status:        recordStatus,
 				IsSSH:         false,
 				IsAutomatic:   true,
 				PortType:      "range_mapped",
@@ -711,6 +743,154 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if useControllerMapping && initialStatus == "active" {
+		return s.ActivatePendingControllerPortMappings(ctx, instanceID, providerID)
+	}
+	return nil
+}
+
+// ActivatePendingControllerPortMappings binds previously reserved controller
+// ports to the newly created guest. Database writes are batched and listener
+// startup stays outside transactions so a slow or unavailable Agent cannot
+// hold database locks.
+func (s *PortMappingService) ActivatePendingControllerPortMappings(ctx context.Context, instanceID, providerID uint) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if global.APP_DB == nil {
+		return gorm.ErrInvalidDB
+	}
+	db := global.APP_DB.WithContext(ctx)
+
+	var pending []provider.Port
+	if err := db.Where(
+		"instance_id = ? AND provider_id = ? AND mapping_type = ? AND status = ? AND is_automatic = ?",
+		instanceID, providerID, "controller", "pending", true,
+	).Order("id ASC").Find(&pending).Error; err != nil {
+		return fmt.Errorf("读取待激活控制端端口映射失败: %w", err)
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	var instance provider.Instance
+	if err := db.Select("id", "provider_id", "private_ip").
+		Where("id = ? AND provider_id = ?", instanceID, providerID).
+		First(&instance).Error; err != nil {
+		return fmt.Errorf("查询控制端转发目标实例失败: %w", err)
+	}
+	var providerInfo provider.Provider
+	if err := db.Select("id", "connection_type", "port_ip").Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
+		return fmt.Errorf("查询控制端转发Provider失败: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(providerInfo.ConnectionType), "agent") || strings.TrimSpace(providerInfo.PortIP) != "" {
+		return fmt.Errorf("Provider %d 已不再使用控制端转发，拒绝激活预留端口", providerID)
+	}
+
+	ids := make([]uint, 0, len(pending))
+	for _, port := range pending {
+		if port.ID == 0 || port.HostPort <= 0 || port.GuestPort <= 0 || port.Protocol != "tcp" || port.PortCount > 1 {
+			return fmt.Errorf("控制端端口映射 %d 元数据无效", port.ID)
+		}
+		ids = append(ids, port.ID)
+	}
+	targetHost := strings.TrimSpace(instance.PrivateIP)
+	if targetHost == "" {
+		_ = db.Model(&provider.Port{}).
+			Where("id IN ? AND instance_id = ? AND provider_id = ? AND status = ?", ids, instanceID, providerID, "pending").
+			Update("status", "failed").Error
+		return fmt.Errorf("控制端转发目标实例缺少内网IP")
+	}
+
+	prepared := db.Model(&provider.Port{}).
+		Where("id IN ? AND instance_id = ? AND provider_id = ? AND mapping_type = ? AND status = ?", ids, instanceID, providerID, "controller", "pending").
+		Updates(map[string]interface{}{"internal_host": targetHost, "mapping_method": "controller"})
+	if prepared.Error != nil {
+		return fmt.Errorf("写入控制端转发目标地址失败: %w", prepared.Error)
+	}
+	if prepared.RowsAffected != int64(len(pending)) {
+		return fmt.Errorf("控制端端口映射在激活期间发生变化")
+	}
+
+	succeeded := make([]uint, 0, len(pending))
+	failed := make([]uint, 0)
+	activationErrors := make([]error, 0)
+	for i := range pending {
+		port := pending[i]
+		port.InternalHost = targetHost
+		port.MappingMethod = "controller"
+		if err := ctx.Err(); err != nil {
+			failed = append(failed, port.ID)
+			activationErrors = append(activationErrors, fmt.Errorf("控制端端口 %d 激活取消: %w", port.ID, err))
+			continue
+		}
+		if ControllerPortForwardFunc == nil {
+			failed = append(failed, port.ID)
+			activationErrors = append(activationErrors, fmt.Errorf("控制端端口 %d 转发服务未初始化", port.ID))
+			continue
+		}
+		if err := ControllerPortForwardFunc(port.ID, providerID, port.HostPort, targetHost, port.GuestPort); err != nil {
+			failed = append(failed, port.ID)
+			activationErrors = append(activationErrors, fmt.Errorf("激活控制端端口 %d 失败: %w", port.ID, err))
+			continue
+		}
+		succeeded = append(succeeded, port.ID)
+	}
+
+	finalizeErr := db.Transaction(func(tx *gorm.DB) error {
+		if len(succeeded) > 0 {
+			result := tx.Model(&provider.Port{}).
+				Where("id IN ? AND instance_id = ? AND provider_id = ? AND mapping_type = ? AND status IN ?", succeeded, instanceID, providerID, "controller", []string{"pending", "active"}).
+				Updates(map[string]interface{}{"status": "active", "internal_host": targetHost, "mapping_method": "controller"})
+			if result.Error != nil {
+				return result.Error
+			}
+			var sshPort int
+			if err := tx.Model(&provider.Port{}).
+				Where("id IN ? AND instance_id = ? AND provider_id = ? AND is_ssh = ? AND status = ?", succeeded, instanceID, providerID, true, "active").
+				Pluck("host_port", &sshPort).Error; err != nil {
+				return err
+			}
+			if sshPort > 0 {
+				if err := tx.Model(&provider.Instance{}).
+					Where("id = ? AND provider_id = ?", instanceID, providerID).
+					Update("ssh_port", sshPort).Error; err != nil {
+					return err
+				}
+			}
+		}
+		if len(failed) > 0 {
+			if err := tx.Model(&provider.Port{}).
+				Where("id IN ? AND instance_id = ? AND provider_id = ? AND mapping_type = ?", failed, instanceID, providerID, "controller").
+				Update("status", "failed").Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if finalizeErr != nil {
+		for _, portID := range succeeded {
+			if StopControllerPortForwardFunc != nil {
+				StopControllerPortForwardFunc(portID)
+			}
+		}
+		_ = db.Model(&provider.Port{}).
+			Where("id IN ? AND instance_id = ? AND provider_id = ?", ids, instanceID, providerID).
+			Update("status", "failed").Error
+		return fmt.Errorf("提交控制端端口激活状态失败: %w", finalizeErr)
+	}
+	for _, portID := range failed {
+		if StopControllerPortForwardFunc != nil {
+			StopControllerPortForwardFunc(portID)
+		}
+	}
+	if len(activationErrors) > 0 {
+		return errors.Join(activationErrors...)
+	}
+	return nil
 }
 
 // GetInstancePortMappings 获取实例的端口映射

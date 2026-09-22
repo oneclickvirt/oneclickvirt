@@ -38,6 +38,131 @@ func lxdFamilyLabel(ipv6 bool) string {
 	return "IPv4"
 }
 
+// lxdHostFirewallProtocols converts the controller's "both" protocol into
+// the two protocols understood by firewalld and UFW. Keep this validation at
+// the command boundary too: old or manually edited database rows must never
+// become shell fragments.
+func lxdHostFirewallProtocols(protocol string) ([]string, bool) {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "tcp":
+		return []string{"tcp"}, true
+	case "udp":
+		return []string{"udp"}, true
+	case "both":
+		return []string{"tcp", "udp"}, true
+	default:
+		return nil, false
+	}
+}
+
+func lxdHostFirewallPortRange(port providerModel.Port) (int, int, bool) {
+	start := port.HostPort
+	if start < 1 || start > 65535 {
+		return 0, 0, false
+	}
+	count := port.PortCount
+	if count <= 0 {
+		count = 1
+	}
+	if count > 1500 || start+count-1 > 65535 {
+		return 0, 0, false
+	}
+	end := start + count - 1
+	if port.HostPortEnd > 0 {
+		if port.HostPortEnd < start || port.HostPortEnd > 65535 {
+			return 0, 0, false
+		}
+		if port.PortCount > 0 && port.HostPortEnd != end {
+			return 0, 0, false
+		}
+		end = port.HostPortEnd
+	}
+	return start, end, true
+}
+
+func (l *LXDProvider) applyFirewalldPorts(portMappings []providerModel.Port, remove bool) error {
+	operation := "--add-port"
+	if remove {
+		operation = "--remove-port"
+	}
+	for _, port := range portMappings {
+		start, end, validRange := lxdHostFirewallPortRange(port)
+		protocols, ok := lxdHostFirewallProtocols(port.Protocol)
+		if !ok || !validRange {
+			global.APP_LOG.Warn("跳过无效的firewalld端口规则",
+				zap.Int("port", port.HostPort),
+				zap.String("protocol", port.Protocol))
+			continue
+		}
+		portSpec := fmt.Sprintf("%d", start)
+		if end > start {
+			portSpec = fmt.Sprintf("%d-%d", start, end)
+		}
+		for _, protocol := range protocols {
+			if _, err := l.sshClient.Execute(fmt.Sprintf("firewall-cmd --permanent %s=%s/%s", operation, portSpec, protocol)); err != nil {
+				global.APP_LOG.Warn("配置firewalld端口失败",
+					zap.Int("port", port.HostPort),
+					zap.String("protocol", protocol),
+					zap.Bool("remove", remove),
+					zap.Error(err))
+			}
+		}
+	}
+	_, err := l.sshClient.Execute("firewall-cmd --reload")
+	return err
+}
+
+func (l *LXDProvider) applyUfwPorts(portMappings []providerModel.Port, remove bool) error {
+	for _, port := range portMappings {
+		start, end, validRange := lxdHostFirewallPortRange(port)
+		protocols, ok := lxdHostFirewallProtocols(port.Protocol)
+		if !ok || !validRange {
+			global.APP_LOG.Warn("跳过无效的ufw端口规则",
+				zap.Int("port", port.HostPort),
+				zap.String("protocol", port.Protocol))
+			continue
+		}
+		portSpec := fmt.Sprintf("%d", start)
+		if end > start {
+			portSpec = fmt.Sprintf("%d:%d", start, end)
+		}
+		for _, protocol := range protocols {
+			command := fmt.Sprintf("ufw allow %s/%s", portSpec, protocol)
+			if remove {
+				command = fmt.Sprintf("ufw --force delete allow %s/%s", portSpec, protocol)
+			}
+			if _, err := l.sshClient.Execute(command); err != nil {
+				global.APP_LOG.Warn("配置ufw端口失败",
+					zap.Int("port", port.HostPort),
+					zap.String("protocol", protocol),
+					zap.Bool("remove", remove),
+					zap.Error(err))
+			}
+		}
+	}
+	_, err := l.sshClient.Execute("ufw reload")
+	return err
+}
+
+// removeHostFirewallPorts mirrors configureFirewallPorts for whole-instance
+// deletion. Host access rules outlive LXD proxy devices, so leaving them behind
+// both grows the ruleset and can accidentally expose a later port reuse.
+// Configuration was historically best effort, therefore cleanup remains best
+// effort as well and must not make instance deletion impossible.
+func (l *LXDProvider) removeHostFirewallPorts(portMappings []providerModel.Port) {
+	if _, err := l.sshClient.Execute("command -v firewall-cmd"); err == nil {
+		if err := l.applyFirewalldPorts(portMappings, true); err != nil {
+			global.APP_LOG.Warn("清理firewalld端口规则失败", zap.Error(err))
+		}
+		return
+	}
+	if _, err := l.sshClient.Execute("command -v ufw"); err == nil {
+		if err := l.applyUfwPorts(portMappings, true); err != nil {
+			global.APP_LOG.Warn("清理ufw端口规则失败", zap.Error(err))
+		}
+	}
+}
+
 // configurePortMappings 配置端口映射
 func (l *LXDProvider) configurePortMappings(instanceName string, networkConfig NetworkConfig, instanceIP string) error {
 	return l.configurePortMappingsWithIP(instanceName, networkConfig, instanceIP)
@@ -929,20 +1054,7 @@ func (l *LXDProvider) configureFirewallPorts(instanceName string) error {
 	_, err := l.sshClient.Execute("command -v firewall-cmd")
 	if err == nil {
 		global.APP_LOG.Debug("使用firewall-cmd配置防火墙")
-
-		// 为每个端口映射配置防火墙规则
-		for _, port := range portMappings {
-			_, err = l.sshClient.Execute(fmt.Sprintf("firewall-cmd --permanent --add-port=%d/%s", port.HostPort, port.Protocol))
-			if err != nil {
-				global.APP_LOG.Warn("配置端口防火墙规则失败",
-					zap.Int("port", port.HostPort),
-					zap.String("protocol", port.Protocol),
-					zap.Error(err))
-			}
-		}
-
-		// 重新加载防火墙规则
-		_, err = l.sshClient.Execute("firewall-cmd --reload")
+		err = l.applyFirewalldPorts(portMappings, false)
 		if err != nil {
 			global.APP_LOG.Warn("重新加载防火墙规则失败", zap.Error(err))
 		}
@@ -954,20 +1066,7 @@ func (l *LXDProvider) configureFirewallPorts(instanceName string) error {
 	_, err = l.sshClient.Execute("command -v ufw")
 	if err == nil {
 		global.APP_LOG.Debug("使用ufw配置防火墙")
-
-		// 为每个端口映射配置ufw规则
-		for _, port := range portMappings {
-			_, err = l.sshClient.Execute(fmt.Sprintf("ufw allow %d/%s", port.HostPort, port.Protocol))
-			if err != nil {
-				global.APP_LOG.Warn("配置端口ufw规则失败",
-					zap.Int("port", port.HostPort),
-					zap.String("protocol", port.Protocol),
-					zap.Error(err))
-			}
-		}
-
-		// 重新加载ufw规则
-		_, err = l.sshClient.Execute("ufw reload")
+		err = l.applyUfwPorts(portMappings, false)
 		if err != nil {
 			global.APP_LOG.Warn("重新加载ufw规则失败", zap.Error(err))
 		}

@@ -74,8 +74,8 @@ func (e *LocalShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 	if err := os.Chmod(path, 0700); err != nil {
 		return "", err
 	}
-	quotedArgs := make([]string, 0, len(args)+1)
-	quotedArgs = append(quotedArgs, shellQuote(path))
+	quotedArgs := make([]string, 0, len(args)+2)
+	quotedArgs = append(quotedArgs, shellQuote(TempScriptInterpreter(scriptContent)), shellQuote(path))
 	for _, arg := range args {
 		quotedArgs = append(quotedArgs, shellQuote(arg))
 	}

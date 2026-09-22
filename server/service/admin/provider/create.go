@@ -159,6 +159,13 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	if isLocalConnection {
 		providerType = "qemu"
 	}
+	var mappingErr error
+	if req.IPv4PortMappingMethod, mappingErr = normalizeRequestedPortMappingMethod(req.IPv4PortMappingMethod, "IPv4"); mappingErr != nil {
+		return nil, mappingErr
+	}
+	if req.IPv6PortMappingMethod, mappingErr = normalizeRequestedPortMappingMethod(req.IPv6PortMappingMethod, "IPv6"); mappingErr != nil {
+		return nil, mappingErr
+	}
 	providerUsername := req.Username
 	if isLocalConnection && providerUsername == "" {
 		providerUsername = "root"
@@ -333,10 +340,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		provider.EnableTrafficControl = true
 		provider.EnableResourceMonitoring = true
 		provider.TrafficSyncMethod = "agent"
-		// Agent 模式不保存 SSH endpoint；端口映射能力由 portIP 明确控制。
-		if req.PortIP == "" || req.NetworkType == "" {
-			provider.NetworkType = "no_port_mapping"
-		}
+		provider.NetworkType = normalizeAgentNetworkType(req.NetworkType)
 	}
 	if provider.ConnectionType == "local" {
 		provider.Type = "qemu"

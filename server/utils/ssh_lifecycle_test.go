@@ -80,3 +80,23 @@ func TestSSHCloseIsTerminalAndRaceSafe(t *testing.T) {
 		t.Fatal("transport closed more than once")
 	}
 }
+
+func TestSSHRetiredTransportWaitsForAllActiveLeases(t *testing.T) {
+	transport := &lifecycleSSHTransport{done: make(chan struct{})}
+	client := &SSHClient{
+		client:     &ssh.Client{Conn: &lifecycleSSHTransport{done: make(chan struct{})}},
+		activeUses: 2,
+		retired: []retiredSSHTransport{{
+			client: &ssh.Client{Conn: transport},
+		}},
+	}
+
+	client.endUse()
+	if got := transport.closes.Load(); got != 0 {
+		t.Fatalf("retired transport closed while another lease was active: %d", got)
+	}
+	client.endUse()
+	if got := transport.closes.Load(); got != 1 {
+		t.Fatalf("retired transport close count = %d, want 1 after final lease", got)
+	}
+}

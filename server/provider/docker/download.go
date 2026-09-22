@@ -13,6 +13,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// SSH helper scripts are an optional preparation step for container creation.
+// They must not inherit the long image-download deadline: a node without
+// outbound access would otherwise hold the whole create task for 30 minutes
+// before the caller can continue (or report the non-fatal preparation error).
+const sshScriptDownloadTimeout = 2 * time.Minute
+
 // downloadImageToRemote 在远程服务器上下载镜像
 func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture string, useCDN bool) (string, error) {
 	// 根据provider类型确定远程下载目录
@@ -103,13 +109,17 @@ func (d *DockerProvider) removeRemoteFile(remotePath string) error {
 
 // downloadFileToRemote 在远程服务器上下载文件
 func (d *DockerProvider) downloadFileToRemote(url, remotePath string) error {
+	return d.downloadFileToRemoteWithTimeout(url, remotePath, 30*time.Minute)
+}
+
+func (d *DockerProvider) downloadFileToRemoteWithTimeout(url, remotePath string, timeout time.Duration) error {
 	tmpPath := remotePath + ".tmp"
 	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
 
 	global.APP_LOG.Debug("执行远程下载脚本",
 		zap.String("url", utils.TruncateString(url, 100)))
 
-	output, err := d.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
+	output, err := d.sshClient.ExecuteViaTempScript(script, nil, timeout)
 	if err != nil {
 		d.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 
@@ -173,7 +183,7 @@ func (d *DockerProvider) ensureSSHScriptsAvailable(providerCountry string) error
 			zap.String("scriptPath", scriptPath))
 
 		// 下载脚本文件
-		if err := d.downloadFileToRemote(downloadURL, scriptPath); err != nil {
+		if err := d.downloadFileToRemoteWithTimeout(downloadURL, scriptPath, sshScriptDownloadTimeout); err != nil {
 			global.APP_LOG.Error("下载SSH脚本失败",
 				zap.String("script", script),
 				zap.Error(err))

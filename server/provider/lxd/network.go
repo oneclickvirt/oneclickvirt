@@ -9,6 +9,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -189,7 +190,12 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 // attached. This SSH creation path retains its stop/configure/start sequence;
 // NAT proxy devices themselves also support hotplug.
 func (l *LXDProvider) configureIPv6AndPortMappings(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig, requestedIPv6 string, routed *provider.RoutedIPv6Config) error {
-	if networkConfig.NetworkType == "nat_ipv4_ipv6" && routed == nil {
+	ipv6Method := strings.ToLower(strings.TrimSpace(networkConfig.IPv6PortMappingMethod))
+	if ipv6Method == "" {
+		ipv6Method = "device_proxy"
+	}
+	managedNAT := routed == nil && utils.UsesManagedIPv6NAT("lxd", networkConfig.NetworkType, ipv6Method)
+	if managedNAT {
 		guestIPv6, err := l.configureNATIPv6Network(ctx, config.Name, requestedIPv6)
 		if err != nil {
 			return err
@@ -203,6 +209,14 @@ func (l *LXDProvider) configureIPv6AndPortMappings(ctx context.Context, config p
 		if err := l.configureIPv6Network(ctx, config.Name, true, networkConfig.IPv6PortMappingMethod, requestedIPv6, routed, config.InstanceType); err != nil {
 			return err
 		}
+	}
+	// The public /128 attached by native mode is the IPv6 endpoint. Keep the
+	// already-configured IPv4 NAT mappings, but do not create an IPv6 proxy.
+	if ipv6Method == "native" {
+		if err := l.enforceIPv6OnlyNetwork(ctx, config.Name, networkConfig); err != nil {
+			return err
+		}
+		return nil
 	}
 	if networkConfig.NetworkType != "nat_ipv4_ipv6" && networkConfig.NetworkType != "ipv6_only" {
 		return nil
@@ -222,7 +236,7 @@ func (l *LXDProvider) configureIPv6AndPortMappings(ctx context.Context, config p
 	if err := l.sshStartInstance(ctx, config.Name); err != nil {
 		return fmt.Errorf("启动实例完成IPv6端口映射失败: %w", err)
 	}
-	return nil
+	return l.enforceIPv6OnlyNetwork(ctx, config.Name, networkConfig)
 }
 
 func (l *LXDProvider) persistManagedNATIPv6Target(instanceName, guestIPv6 string) error {

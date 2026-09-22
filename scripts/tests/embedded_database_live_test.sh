@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Execute only inside a disposable database image with a fresh /var/lib/mysql.
 set -Eeuo pipefail
-[[ -f /.dockerenv && -d /ocv-test ]] || { echo 'Requires isolated test container' >&2; exit 1; }
+[[ -f /.dockerenv && -d /ocv-test ]] || {
+    echo 'Requires isolated test container (environment prerequisite; rerun via embedded_database_integration_test.sh)' >&2
+    exit 75
+}
 export MYSQL_CONFIG_FILE=/ocv-test/scripts/tests/fixtures/database-cross-engine.cnf
 export APP_DIR=/tmp/ocv-app
 export MYSQL_ROOT_PASSWORD=$' embedded:test@:/?\'"\\password '

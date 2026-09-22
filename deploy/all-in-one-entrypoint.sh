@@ -317,11 +317,15 @@ configure_database_credentials() {
         "${DB_CLIENT:-mysql}" --protocol=socket --socket="${MYSQL_SOCKET}" <<SQLEND
 FLUSH PRIVILEGES;
 SET SESSION sql_mode=CONCAT_WS(',', NULLIF(@@SESSION.sql_mode, ''), 'NO_BACKSLASH_ESCAPES');
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${escaped_password}';
+# Debian's MySQL package may initialize root with auth_socket during the image
+# build even though that optional plugin is not loaded by our standalone
+# runtime daemon. Select MySQL's built-in password plugin explicitly instead
+# of inheriting an unusable plugin from the packaged data directory.
+ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY '${escaped_password}';
 DROP USER IF EXISTS 'root'@'127.0.0.1';
 DROP USER IF EXISTS 'root'@'%';
-CREATE USER 'root'@'127.0.0.1' IDENTIFIED BY '${escaped_password}';
-CREATE USER 'root'@'%' IDENTIFIED BY '${escaped_password}';
+CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH caching_sha2_password BY '${escaped_password}';
+CREATE USER 'root'@'%' IDENTIFIED WITH caching_sha2_password BY '${escaped_password}';
 GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;
 GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
 GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;

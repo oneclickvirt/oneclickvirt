@@ -1,5 +1,6 @@
 mod block;
 mod counter;
+mod device_counter;
 mod gc;
 
 use crate::error::ApiError;
@@ -41,7 +42,12 @@ const DEFAULT_EXCLUDE_V6: &[&str] = &[
 static EXCLUDE_V4: OnceLock<Vec<String>> = OnceLock::new();
 static EXCLUDE_V6: OnceLock<Vec<String>> = OnceLock::new();
 static CONFIG_TAG: OnceLock<String> = OnceLock::new();
-const RULES_VERSION: &str = "v2";
+const RULES_VERSION: &str = "v4";
+// This is the compatibility backend for kernels without the netdev egress
+// hook. Running before a forward-chain `flow add` rule captures setup packets,
+// but flowtable-accelerated packets bypass forward entirely. Modern kernels use
+// per-device ingress/egress chains from device_counter instead.
+const TRAFFIC_CHAIN_PRIORITY: i64 = -2;
 
 #[derive(Copy, Clone)]
 struct Scope {
@@ -130,9 +136,9 @@ fn run_nft(args: &[&str]) -> Result<std::process::Output, ApiError> {
         .map_err(|e| ApiError::internal(format!("failed to run nft {:?}: {e}", args)))
 }
 
-fn run_nft_script(script: &str) -> Result<(), ApiError> {
+fn run_nft_script_with_args(args: &[&str], script: &str) -> Result<(), ApiError> {
     let mut child = Command::new("nft")
-        .args(["-f", "-"])
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -159,34 +165,125 @@ fn run_nft_script(script: &str) -> Result<(), ApiError> {
     )))
 }
 
+fn run_nft_script(script: &str) -> Result<(), ApiError> {
+    run_nft_script_with_args(&["-f", "-"], script)
+}
+
+fn check_nft_script(script: &str) -> Result<(), ApiError> {
+    run_nft_script_with_args(&["-c", "-f", "-"], script)
+}
+
 fn is_not_found(stderr: &str) -> bool {
     stderr.contains("No such file or directory") || stderr.contains("No such file")
 }
 
+fn add_base_chain_statement(scope: Scope) -> String {
+    format!(
+        "add chain {} {} {} {{ type filter hook {} priority {}; policy accept; }}\n",
+        scope.family, scope.table, scope.chain, scope.hook, TRAFFIC_CHAIN_PRIORITY
+    )
+}
+
+fn chain_definition_matches(scope: Scope, json: &serde_json::Value) -> bool {
+    json.get("nftables")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|items| {
+            items.iter().find_map(|item| {
+                let chain = item.get("chain")?;
+                (chain.get("family").and_then(serde_json::Value::as_str) == Some(scope.family)
+                    && chain.get("table").and_then(serde_json::Value::as_str) == Some(scope.table)
+                    && chain.get("name").and_then(serde_json::Value::as_str) == Some(scope.chain))
+                .then_some(chain)
+            })
+        })
+        .is_some_and(|chain| {
+            chain.get("type").and_then(serde_json::Value::as_str) == Some("filter")
+                && chain.get("hook").and_then(serde_json::Value::as_str) == Some(scope.hook)
+                && chain.get("prio").and_then(serde_json::Value::as_i64)
+                    == Some(TRAFFIC_CHAIN_PRIORITY)
+                && chain.get("policy").and_then(serde_json::Value::as_str) == Some("accept")
+        })
+}
+
 fn ensure_base_objects(scope: Scope) -> Result<(), ApiError> {
     let out = run_nft(&["list", "table", scope.family, scope.table])?;
-    if out.status.success() {
-        return Ok(());
-    }
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    if !is_not_found(&stderr) {
-        return Err(ApiError::internal(format!(
-            "failed listing nft table {} {}: {}",
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if !is_not_found(&stderr) {
+            return Err(ApiError::internal(format!(
+                "failed listing nft table {} {}: {}",
+                scope.family,
+                scope.table,
+                stderr.trim()
+            )));
+        }
+
+        let script = format!(
+            "add table {} {}\n{}",
             scope.family,
             scope.table,
-            stderr.trim()
-        )));
+            add_base_chain_statement(scope)
+        );
+        run_nft_script(&script)?;
+        info!(
+            family = scope.family,
+            table = scope.table,
+            priority = TRAFFIC_CHAIN_PRIORITY,
+            "created nft runtime table/chain"
+        );
+        return Ok(());
     }
 
+    let chain_out = run_nft(&[
+        "-j",
+        "list",
+        "chain",
+        scope.family,
+        scope.table,
+        scope.chain,
+    ])?;
+    if !chain_out.status.success() {
+        let stderr = String::from_utf8_lossy(&chain_out.stderr);
+        if !is_not_found(&stderr) {
+            return Err(ApiError::internal(format!(
+                "failed listing nft chain {} {} {}: {}",
+                scope.family,
+                scope.table,
+                scope.chain,
+                stderr.trim()
+            )));
+        }
+        run_nft_script(&add_base_chain_statement(scope))?;
+        return Ok(());
+    }
+
+    let chain_json: serde_json::Value = serde_json::from_slice(&chain_out.stdout)
+        .map_err(|e| ApiError::internal(format!("failed parsing nft chain json: {e}")))?;
+    if chain_definition_matches(scope, &chain_json) {
+        return Ok(());
+    }
+
+    // This table and chain are Agent-owned. Recreate only the base chain in
+    // one nft transaction so named counters (and their accumulated bytes)
+    // survive while stale rules are removed atomically. Bootstrap/reconcile
+    // restores rules from SQLite immediately after this call.
     let script = format!(
-        "add table {} {}\nadd chain {} {} {} {{ type filter hook {} priority 0; policy accept; }}\n",
-        scope.family, scope.table, scope.family, scope.table, scope.chain, scope.hook
+        "flush chain {} {} {}\ndelete chain {} {} {}\n{}",
+        scope.family,
+        scope.table,
+        scope.chain,
+        scope.family,
+        scope.table,
+        scope.chain,
+        add_base_chain_statement(scope)
     );
     run_nft_script(&script)?;
-    info!(
+    warn!(
         family = scope.family,
         table = scope.table,
-        "created nft runtime table/chain"
+        chain = scope.chain,
+        priority = TRAFFIC_CHAIN_PRIORITY,
+        "migrated nft fallback traffic chain"
     );
     Ok(())
 }
@@ -496,5 +593,41 @@ mod tests {
         ));
         assert!(!script.contains("tap102i0"));
         assert!(!script.contains(" ip daddr "));
+    }
+
+    #[test]
+    fn fallback_chain_runs_before_forward_flow_add_rule() {
+        let statement = add_base_chain_statement(SCOPE_INET);
+        assert!(statement.contains("hook forward priority -2"));
+
+        let matching = serde_json::json!({
+            "nftables": [{
+                "chain": {
+                    "family": "inet",
+                    "table": "vm_traffic_monitor",
+                    "name": "forward",
+                    "type": "filter",
+                    "hook": "forward",
+                    "prio": -2,
+                    "policy": "accept"
+                }
+            }]
+        });
+        assert!(chain_definition_matches(SCOPE_INET, &matching));
+
+        let bypassed = serde_json::json!({
+            "nftables": [{
+                "chain": {
+                    "family": "inet",
+                    "table": "vm_traffic_monitor",
+                    "name": "forward",
+                    "type": "filter",
+                    "hook": "forward",
+                    "prio": 0,
+                    "policy": "accept"
+                }
+            }]
+        });
+        assert!(!chain_definition_matches(SCOPE_INET, &bypassed));
     }
 }

@@ -368,6 +368,7 @@ GitHub Actions 会自动安装所需依赖。
 | `KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 KubeVirt installer 调试路径；未设置时自动探测同级 `kubevirt` 仓库 |
 | `ACTION_TEST_LIVE_IPV6_TUNNEL` | 默认 `false`；仅限专用可销毁工作节点的显式宿主机隧道生命周期检查 |
 | `OCV_LIVE_NETWORK_TYPE` | live 面板验收网络模式：`nat_ipv4`、`ipv6_only` 或 `nat_ipv4_ipv6` |
+| `OCV_LIVE_IPV6_MAPPING_METHOD` | Incus/LXD 的 `device_proxy`/`iptables` 为宿主 IPv6 映射，`native` 为地址池分配的独立公网 IPv6 |
 | `OCV_LIVE_IPV6` | 设为 `yes` 后对 IPv6 模式执行容器出网、独立公网 HTTP 与严格 SSH 验收；缺条件直接失败 |
 | `OCV_WEBSSH_SOURCE_IPV6` | WebSSH 通过 IPv6 登录时的实际 SSH 来源地址，不能填写网页服务 IPv4 |
 

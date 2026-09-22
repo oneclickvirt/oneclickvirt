@@ -80,12 +80,25 @@ func parseIPv6PoolToken(providerID uint, token, source string) (providerModel.Pr
 		if bits != 128 || ones < 0 || ones > 128 {
 			return providerModel.ProviderIPv6Pool{}, fmt.Errorf("无效的IPv6前缀长度")
 		}
+		if network.IP.IsUnspecified() {
+			return providerModel.ProviderIPv6Pool{}, fmt.Errorf("IPv6未指定前缀不可分配")
+		}
 		if ones == 128 {
+			if ip.IsUnspecified() {
+				return providerModel.ProviderIPv6Pool{}, fmt.Errorf("IPv6未指定地址不可分配")
+			}
 			return providerModel.ProviderIPv6Pool{ProviderID: providerID, Address: ip.String(), PrefixLength: 128, Source: source}, nil
 		}
-		// IPv6 has no broadcast address. The all-zero host value is therefore a
-		// valid member of an explicit pool, including both addresses in a /127.
-		rangeNext := network.IP.To16()
+		// The all-zero host value is the subnet-router anycast address for a
+		// routed prefix and is also treated as the unspecified address when the
+		// prefix is configured as a host route. It must not be handed to LXD or
+		// Incus as an instance address. Start at the first address after the
+		// network base; this leaves one usable address in a /127 and naturally
+		// exhausts a /128 through the explicit-address path above.
+		rangeNext, ok := incrementIPv6(network.IP.To16())
+		if !ok || !network.Contains(rangeNext) {
+			return providerModel.ProviderIPv6Pool{}, fmt.Errorf("IPv6地址范围没有可分配的主机地址")
+		}
 		return providerModel.ProviderIPv6Pool{
 			ProviderID: providerID, Address: network.String(), PrefixLength: ones,
 			IsRange: true, RangeNext: rangeNext.String(), Source: source,
@@ -94,6 +107,9 @@ func parseIPv6PoolToken(providerID uint, token, source string) (providerModel.Pr
 	ip := net.ParseIP(token)
 	if ip == nil || ip.To16() == nil || ip.To4() != nil {
 		return providerModel.ProviderIPv6Pool{}, fmt.Errorf("无效的IPv6地址")
+	}
+	if ip.IsUnspecified() {
+		return providerModel.ProviderIPv6Pool{}, fmt.Errorf("IPv6未指定地址不可分配")
 	}
 	return providerModel.ProviderIPv6Pool{ProviderID: providerID, Address: ip.To16().String(), PrefixLength: 128, Source: source}, nil
 }

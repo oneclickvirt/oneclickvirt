@@ -401,6 +401,9 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 				zap.String("scriptName", scriptName))
 		}
 	}
+	if err := i.restoreIPv6OnlyDNS(config); err != nil {
+		return err
+	}
 
 	// 清理历史记录 - 非阻塞式，如果失败不影响整体流程
 	_, err = i.sshClient.Execute(fmt.Sprintf("incus exec %s -- bash -c 'history -c 2>/dev/null || true'", shellSingleQuote(config.Name)))

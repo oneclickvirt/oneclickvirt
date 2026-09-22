@@ -144,11 +144,11 @@ func TestParseIPv6PoolPrefixBoundaries(t *testing.T) {
 		wantIsRange   bool
 		wantRangeNext string
 	}{
-		{input: "2001:db8:1:2:3::/80", wantAddress: "2001:db8:1:2:3::/80", wantPrefix: 80, wantIsRange: true, wantRangeNext: "2001:db8:1:2:3::"},
-		{input: "2001:db8:1:2:3:4::/96", wantAddress: "2001:db8:1:2:3:4::/96", wantPrefix: 96, wantIsRange: true, wantRangeNext: "2001:db8:1:2:3:4::"},
-		{input: "2001:db8:1:2:3:4:5::/112", wantAddress: "2001:db8:1:2:3:4:5:0/112", wantPrefix: 112, wantIsRange: true, wantRangeNext: "2001:db8:1:2:3:4:5:0"},
-		{input: "2001:db8::/126", wantAddress: "2001:db8::/126", wantPrefix: 126, wantIsRange: true, wantRangeNext: "2001:db8::"},
-		{input: "2001:db8::/127", wantAddress: "2001:db8::/127", wantPrefix: 127, wantIsRange: true, wantRangeNext: "2001:db8::"},
+		{input: "2001:db8:1:2:3::/80", wantAddress: "2001:db8:1:2:3::/80", wantPrefix: 80, wantIsRange: true, wantRangeNext: "2001:db8:1:2:3::1"},
+		{input: "2001:db8:1:2:3:4::/96", wantAddress: "2001:db8:1:2:3:4::/96", wantPrefix: 96, wantIsRange: true, wantRangeNext: "2001:db8:1:2:3:4:0:1"},
+		{input: "2001:db8:1:2:3:4:5::/112", wantAddress: "2001:db8:1:2:3:4:5:0/112", wantPrefix: 112, wantIsRange: true, wantRangeNext: "2001:db8:1:2:3:4:5:1"},
+		{input: "2001:db8::/126", wantAddress: "2001:db8::/126", wantPrefix: 126, wantIsRange: true, wantRangeNext: "2001:db8::1"},
+		{input: "2001:db8::/127", wantAddress: "2001:db8::/127", wantPrefix: 127, wantIsRange: true, wantRangeNext: "2001:db8::1"},
 		{input: "2001:db8::7/128", wantAddress: "2001:db8::7", wantPrefix: 128, wantIsRange: false},
 	}
 
@@ -171,6 +171,12 @@ func TestParseIPv6PoolPrefixBoundaries(t *testing.T) {
 	if _, _, err := parseIPv6PoolText(9, "2001:db8::/129", SourceManual); err == nil {
 		t.Fatal("expected invalid prefix to fail")
 	}
+	if _, _, err := parseIPv6PoolText(9, "::/64", SourceManual); err == nil {
+		t.Fatal("expected unspecified IPv6 prefix to fail")
+	}
+	if _, _, err := parseIPv6PoolText(9, "::", SourceManual); err == nil {
+		t.Fatal("expected unspecified IPv6 address to fail")
+	}
 }
 
 func TestIPv6RangeCandidateWindowIncludesEverySmallPrefixAddress(t *testing.T) {
@@ -178,8 +184,8 @@ func TestIPv6RangeCandidateWindowIncludesEverySmallPrefixAddress(t *testing.T) {
 		cidr string
 		want []string
 	}{
-		{cidr: "2001:db8::/126", want: []string{"2001:db8::", "2001:db8::1", "2001:db8::2", "2001:db8::3"}},
-		{cidr: "2001:db8:1::/127", want: []string{"2001:db8:1::", "2001:db8:1::1"}},
+		{cidr: "2001:db8::/126", want: []string{"2001:db8::1", "2001:db8::2", "2001:db8::3"}},
+		{cidr: "2001:db8:1::/127", want: []string{"2001:db8:1::1"}},
 	}
 
 	for _, test := range tests {

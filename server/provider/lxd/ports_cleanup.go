@@ -231,5 +231,6 @@ func (l *LXDProvider) cleanupInstancePortMappings(ctx context.Context, providerI
 			return fmt.Errorf("清理实例 %s 的端口 %d 失败: %w", instance.Name, port.HostPort, err)
 		}
 	}
+	l.removeHostFirewallPorts(ports)
 	return nil
 }

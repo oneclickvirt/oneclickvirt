@@ -43,7 +43,17 @@ replace_config_value() {
     mv "${temp_file}" "${TARGET_CONFIG}"
 }
 
-[[ -s "${SOURCE_CONFIG}" ]] || fail "source config is missing: ${SOURCE_CONFIG}"
+# This file is a helper consumed inside the no-db image.  The repository-wide
+# shell discovery also invokes every `tests/*.sh` entry directly; without the
+# image's baked-in default config that invocation is an environment prerequisite
+# failure, not a product failure.
+if [[ ! -s "${SOURCE_CONFIG}" ]]; then
+    if [[ "$#" -eq 0 ]]; then
+        echo "Requires the no-db image's /app/config.yaml.default (environment prerequisite)" >&2
+        exit 75
+    fi
+    fail "source config is missing: ${SOURCE_CONFIG}"
+fi
 [[ -n "${TEST_DB_PASSWORD}" ]] || fail "TEST_DB_PASSWORD must be non-empty"
 
 mkdir -p "$(dirname "${TARGET_CONFIG}")"

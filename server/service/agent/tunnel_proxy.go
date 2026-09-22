@@ -13,6 +13,7 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -166,6 +167,13 @@ func startControllerPortForwardWithKnownPort(port providerModel.Port, targetHost
 	if port.ID == 0 || port.ProviderID == 0 || port.HostPort <= 0 || port.GuestPort <= 0 ||
 		port.MappingType != "controller" || (port.Status != "active" && port.Status != "pending") {
 		return fmt.Errorf("controller port %d metadata mismatch or inactive", port.ID)
+	}
+	controllerRange, err := utils.ResolveControllerPortRange()
+	if err != nil {
+		return fmt.Errorf("invalid controller port range configuration: %w", err)
+	}
+	if controllerRange.Configured && !controllerRange.Contains(port.HostPort, 1) {
+		return fmt.Errorf("controller port %d is outside the published range %d-%d", port.HostPort, controllerRange.Start, controllerRange.End)
 	}
 	portID := port.ID
 	providerID := port.ProviderID

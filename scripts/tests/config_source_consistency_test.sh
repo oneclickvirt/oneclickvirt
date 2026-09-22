@@ -22,6 +22,9 @@ grep -Fqx 'COPY server/config.yaml /app/config.yaml' "${ROOT_DIR}/deploy/server.
 grep -Fq 'COPY --from=backend-builder /app/server/config.yaml ./config.yaml.default' "${ROOT_DIR}/Dockerfile"
 grep -Fq 'COPY --from=backend-builder /app/server/config.yaml ./config.yaml.default' "${ROOT_DIR}/Dockerfile.no-db"
 grep -Fq './server/config.yaml:/app/config.yaml:rw' "${ROOT_DIR}/docker-compose.yaml"
+grep -Fq 'OCV_CONTROLLER_PORT_RANGE_START: "${OCV_CONTROLLER_PORT_RANGE_START:-10000}"' "${ROOT_DIR}/docker-compose.yaml"
+grep -Fq 'OCV_CONTROLLER_PORT_RANGE_END: "${OCV_CONTROLLER_PORT_RANGE_END:-10099}"' "${ROOT_DIR}/docker-compose.yaml"
+grep -Fq -- '${OCV_CONTROLLER_PORT_RANGE_START:-10000}-${OCV_CONTROLLER_PORT_RANGE_END:-10099}:${OCV_CONTROLLER_PORT_RANGE_START:-10000}-${OCV_CONTROLLER_PORT_RANGE_END:-10099}' "${ROOT_DIR}/docker-compose.yaml"
 grep -Fqx 'agent/target/' "${ROOT_DIR}/server/.dockerignore"
 
 echo "config source consistency tests passed"

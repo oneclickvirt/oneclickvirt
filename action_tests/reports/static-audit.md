@@ -14,7 +14,7 @@
 | Pipe risk lines | 0 |
 | Workflow findings | 0 |
 | Retry hygiene findings | 0 |
-| Minimum route literal coverage | not enforced |
+| Minimum route literal coverage | 82.0% |
 
 ## HTTP Method Coverage
 

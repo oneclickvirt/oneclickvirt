@@ -33,6 +33,31 @@ def strict_node_client():
     return client
 
 
+def connect_strict_node(client, host, port=22, username="root"):
+    """Connect using only an explicitly supplied password and/or key."""
+    password = os.environ.get("OCV_LIVE_PASSWORD", "")
+    key_value = os.environ.get("OCV_LIVE_SSH_KEY", "").strip()
+    key_path = None
+    if key_value:
+        key_path = Path(key_value).expanduser()
+        if not key_path.is_file():
+            raise RuntimeError("OCV_LIVE_SSH_KEY must point to an existing private-key file")
+    if not password and key_path is None:
+        raise RuntimeError("set OCV_LIVE_PASSWORD or OCV_LIVE_SSH_KEY for live node authentication")
+    client.connect(
+        host,
+        port=port,
+        username=username,
+        password=password or None,
+        key_filename=str(key_path) if key_path is not None else None,
+        timeout=15,
+        auth_timeout=15,
+        banner_timeout=15,
+        allow_agent=False,
+        look_for_keys=False,
+    )
+
+
 def pinned_guest_client(host, port, public_key_text):
     """Return an SSH client pinned to public keys read from a new guest.
 
@@ -50,6 +75,13 @@ def pinned_guest_client(host, port, public_key_text):
     # non-default port.  Keep the default IPv4 form unchanged for known_hosts
     # compatibility.
     alias = f"[{host}]:{port}" if ":" in host or port != 22 else host
+    # Paramiko uses the raw hostname when a pre-opened `sock` is supplied,
+    # while OpenSSH known_hosts normally uses the bracketed host:port form.
+    # Register both exact aliases so strict checking remains valid for direct
+    # IPv6 channels and ordinary TCP connections.
+    aliases = [alias]
+    if ":" in host and host not in aliases:
+        aliases.append(host)
     parsed = 0
     for line in public_key_text.splitlines():
         fields = line.strip().split()
@@ -62,7 +94,8 @@ def pinned_guest_client(host, port, public_key_text):
             continue
         if key is None:
             continue
-        client.get_host_keys().add(alias, key.get_name(), key)
+        for key_alias in aliases:
+            client.get_host_keys().add(key_alias, key.get_name(), key)
         parsed += 1
     if not parsed:
         raise RuntimeError("guest did not expose a supported SSH host public key")

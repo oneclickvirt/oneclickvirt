@@ -1,6 +1,10 @@
 package agent
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,5 +96,28 @@ func TestExecuteWithTimeoutFailsWithinBoundWhenNoConn(t *testing.T) {
 	}
 	if elapsed > 12*time.Second {
 		t.Fatalf("ExecuteWithTimeout exceeded bounded timeout budget: %v", elapsed)
+	}
+}
+
+func TestTempScriptProcessStateCommandTreatsZombieAsDead(t *testing.T) {
+	bin := t.TempDir()
+	psPath := filepath.Join(bin, "ps")
+	if err := os.WriteFile(psPath, []byte("#!/bin/sh\nprintf '%s\\n' \"$OCV_FAKE_PS_STATE\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := func(state string) string {
+		cmd := exec.Command("sh", "-c", tempScriptProcessStateCommand(strconv.Itoa(os.Getpid())))
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OCV_FAKE_PS_STATE="+state)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("process state probe failed for %q: %v (%s)", state, err, output)
+		}
+		return strings.TrimSpace(string(output))
+	}
+	if got := run("Z"); got != "dead" {
+		t.Fatalf("zombie process state = %q, want dead", got)
+	}
+	if got := run("S"); got != "alive" {
+		t.Fatalf("sleeping process state = %q, want alive", got)
 	}
 }

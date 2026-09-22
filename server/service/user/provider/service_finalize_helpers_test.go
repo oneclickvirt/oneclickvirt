@@ -30,35 +30,90 @@ func finalizedSSHPortDB(t *testing.T) *gorm.DB {
 
 func TestPublicIPv6PersistenceDistinguishesNATFromRoutedGuest(t *testing.T) {
 	tests := []struct {
-		network string
-		value   string
-		want    string
+		name, providerType, network, method, value, want string
 	}{
-		{network: "nat_ipv4_ipv6", value: "2607:9d00:2000:45::35b0:f1cd", want: ""},
-		{network: "dedicated_ipv4_ipv6", value: "2001:db8::20", want: "2001:db8::20"},
-		{network: "ipv6_only", value: "2001:db8::21/128", want: "2001:db8::21/128"},
-		{network: "nat_ipv4", value: "2001:db8::22", want: ""},
+		{name: "Incus managed NAT", providerType: "incus", network: "nat_ipv4_ipv6", method: "device_proxy", value: "2607:9d00:2000:45::35b0:f1cd", want: ""},
+		{name: "LXD managed NAT", providerType: "lxd", network: "nat_ipv4_ipv6", method: "iptables", value: "2607:9d00:2000:45::35b0:f1cd", want: ""},
+		{name: "Incus native dual stack", providerType: "incus", network: "nat_ipv4_ipv6", method: "native", value: "2001:db8::19", want: "2001:db8::19"},
+		{name: "LXD native dual stack", providerType: "lxd", network: "nat_ipv4_ipv6", method: "NATIVE", value: "2001:db8::1a", want: "2001:db8::1a"},
+		{name: "dedicated dual stack", providerType: "incus", network: "dedicated_ipv4_ipv6", value: "2001:db8::20", want: "2001:db8::20"},
+		{name: "IPv6 only", providerType: "incus", network: "ipv6_only", value: "2001:db8::21/128", want: "2001:db8::21/128"},
+		{name: "IPv4 only", providerType: "incus", network: "nat_ipv4", value: "2001:db8::22", want: ""},
 	}
 	for _, test := range tests {
-		t.Run(test.network, func(t *testing.T) {
-			updates := publicIPv6Update(test.network, test.value)
+		t.Run(test.name, func(t *testing.T) {
+			updates := publicIPv6Update(test.providerType, test.network, test.method, test.value)
 			if got := updates["public_ipv6"]; got != test.want {
-				t.Fatalf("publicIPv6Update(%q, %q) = %#v, want %q", test.network, test.value, got, test.want)
+				t.Fatalf("publicIPv6Update(%q, %q, %q, %q) = %#v, want %q", test.providerType, test.network, test.method, test.value, got, test.want)
 			}
 		})
 	}
 }
 
 func TestPublicIPv6PersistenceClearsStaleNATValueOnFailedProbe(t *testing.T) {
-	updates := publicIPv6Update("nat_ipv4_ipv6", "")
+	updates := publicIPv6Update("incus", "nat_ipv4_ipv6", "device_proxy", "")
 	if got, ok := updates["public_ipv6"]; !ok || got != "" {
 		t.Fatalf("NAT update must clear stale public IPv6, got %#v", updates)
 	}
 }
 
 func TestPublicIPv6PersistenceKeepsRoutedAddressOnTransientProbeFailure(t *testing.T) {
-	if updates := publicIPv6Update("dedicated_ipv4_ipv6", ""); len(updates) != 0 {
+	if updates := publicIPv6Update("incus", "dedicated_ipv4_ipv6", "native", ""); len(updates) != 0 {
 		t.Fatalf("routed probe failure must not erase a known address, got %#v", updates)
+	}
+	if updates := publicIPv6Update("incus", "nat_ipv4_ipv6", "native", ""); len(updates) != 0 {
+		t.Fatalf("native dual-stack probe failure must not erase a known address, got %#v", updates)
+	}
+}
+
+func TestInstanceRequiresIPv4(t *testing.T) {
+	for _, test := range []struct {
+		name, instanceNetwork, providerNetwork string
+		want                                   bool
+	}{
+		{name: "instance IPv6 only", instanceNetwork: " IPv6_ONLY ", providerNetwork: "nat_ipv4", want: false},
+		{name: "provider IPv6 only fallback", providerNetwork: "ipv6_only", want: false},
+		{name: "NAT IPv4", instanceNetwork: "nat_ipv4", providerNetwork: "ipv6_only", want: true},
+		{name: "empty legacy value", want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := instanceRequiresIPv4(test.instanceNetwork, test.providerNetwork); got != test.want {
+				t.Fatalf("instanceRequiresIPv4(%q, %q) = %t, want %t", test.instanceNetwork, test.providerNetwork, got, test.want)
+			}
+		})
+	}
+}
+
+func TestPasswordVerificationEndpointNeverFallsBackToProviderSSH(t *testing.T) {
+	provider := providerModel.Provider{Endpoint: "192.0.2.10:2222", PortIP: "198.51.100.10"}
+	if host, port, ok := passwordVerificationEndpoint(
+		providerModel.Instance{NetworkType: "nat_ipv4", SSHPort: 22}, provider, nil,
+	); ok || host != "" || port != 0 {
+		t.Fatalf("unmapped NAT endpoint = %q:%d ok=%t, want unavailable", host, port, ok)
+	}
+}
+
+func TestPasswordVerificationEndpointUsesActiveNATMapping(t *testing.T) {
+	host, port, ok := passwordVerificationEndpoint(
+		providerModel.Instance{NetworkType: "nat_ipv4"},
+		providerModel.Provider{Endpoint: "192.0.2.10:2222", PortIP: "198.51.100.10"},
+		&providerModel.Port{HostPort: 29022},
+	)
+	if !ok || host != "198.51.100.10" || port != 29022 {
+		t.Fatalf("mapped NAT endpoint = %q:%d ok=%t", host, port, ok)
+	}
+}
+
+func TestPasswordVerificationEndpointUsesNativeIPv6DespiteMapping(t *testing.T) {
+	host, port, ok := passwordVerificationEndpoint(
+		providerModel.Instance{
+			NetworkType: "ipv6_only", PublicIPv6: "2606:4700:4700::1111/128", SSHPort: 29022,
+		},
+		providerModel.Provider{Endpoint: "192.0.2.10", PortIP: "198.51.100.10"},
+		&providerModel.Port{HostPort: 29022},
+	)
+	if !ok || host != "2606:4700:4700::1111" || port != 22 {
+		t.Fatalf("IPv6-only endpoint = %q:%d ok=%t", host, port, ok)
 	}
 }
 

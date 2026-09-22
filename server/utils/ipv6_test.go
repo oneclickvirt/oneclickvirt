@@ -61,6 +61,26 @@ func TestIsPublicIPv6RejectsNonRoutableAllocationSources(t *testing.T) {
 	}
 }
 
+func TestUsesManagedIPv6NATDistinguishesNativeGuestAllocation(t *testing.T) {
+	for _, test := range []struct {
+		providerType string
+		networkType  string
+		method       string
+		want         bool
+	}{
+		{providerType: "incus", networkType: "nat_ipv4_ipv6", method: "device_proxy", want: true},
+		{providerType: " LXD ", networkType: " NAT_IPV4_IPV6 ", method: " IPTABLES ", want: true},
+		{providerType: "incus", networkType: "nat_ipv4_ipv6", method: "", want: true},
+		{providerType: "incus", networkType: "nat_ipv4_ipv6", method: " NATIVE ", want: false},
+		{providerType: "lxd", networkType: "ipv6_only", method: "device_proxy", want: false},
+		{providerType: "qemu", networkType: "nat_ipv4_ipv6", method: "device_proxy", want: false},
+	} {
+		if got := UsesManagedIPv6NAT(test.providerType, test.networkType, test.method); got != test.want {
+			t.Fatalf("UsesManagedIPv6NAT(%q, %q, %q) = %t, want %t", test.providerType, test.networkType, test.method, got, test.want)
+		}
+	}
+}
+
 func TestSelectPublicIPv6InterfaceNetworkKeepsBridgeAndPrefixTogether(t *testing.T) {
 	output := "2: vmbr0    inet6 2a14:7c0:1002:10f8::1/128 scope global\n" +
 		"4: vmbr2    inet6 2a14:7c0:1002:10f8::1/38 scope global\n" +

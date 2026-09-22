@@ -15,6 +15,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// SSH helper scripts are optional preparation for SSH/password operations;
+// image downloads retain their longer deadline but helper refreshes must fail
+// quickly on nodes without outbound access.
+const sshScriptDownloadTimeout = 2 * time.Minute
+
 // isRemoteFileValid 检查远程文件是否存在
 func (i *IncusProvider) isRemoteFileValid(remotePath string) bool {
 	// 检查文件是否存在且大小大于 0
@@ -115,13 +120,17 @@ func (i *IncusProvider) removeRemoteFile(remotePath string) error {
 
 // downloadFileToRemote 在远程服务器上下载文件
 func (i *IncusProvider) downloadFileToRemote(url, remotePath string) error {
+	return i.downloadFileToRemoteWithTimeout(url, remotePath, 30*time.Minute)
+}
+
+func (i *IncusProvider) downloadFileToRemoteWithTimeout(url, remotePath string, timeout time.Duration) error {
 	tmpPath := remotePath + ".tmp"
 	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
 
 	global.APP_LOG.Debug("执行远程下载脚本",
 		zap.String("url", utils.TruncateString(url, 100)))
 
-	output, err := i.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
+	output, err := i.sshClient.ExecuteViaTempScript(script, nil, timeout)
 	if err != nil {
 		i.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 

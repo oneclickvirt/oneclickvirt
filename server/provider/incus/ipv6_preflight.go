@@ -48,7 +48,9 @@ func (i *IncusProvider) preflightIPv6Network(ctx context.Context, config provide
 	if config.Metadata != nil {
 		requested = strings.TrimSpace(config.Metadata["static_ipv6"])
 	}
-	if _, err := i.selectHostIPv6InterfaceNetwork(ctx, utils.HostIPv6PrefixMustBeAssignable(networkConfig.NetworkType, requested)); err != nil {
+	requireAssignable := utils.HostIPv6PrefixMustBeAssignable(networkConfig.NetworkType, requested) ||
+		(strings.EqualFold(strings.TrimSpace(networkConfig.IPv6PortMappingMethod), "native") && requested == "")
+	if _, err := i.selectHostIPv6InterfaceNetwork(ctx, requireAssignable); err != nil {
 		return fmt.Errorf("宿主机IPv6前缀不可用于实例分配: %w", err)
 	}
 	return nil

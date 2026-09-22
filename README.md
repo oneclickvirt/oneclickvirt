@@ -73,6 +73,9 @@ All images support both `linux/amd64` and `linux/arm64` architectures.
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
@@ -87,6 +90,9 @@ If you need to configure a domain, set the `FRONTEND_URL` environment variable:
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
@@ -100,6 +106,9 @@ Or using GitHub Container Registry:
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
@@ -118,6 +127,9 @@ Use external database for smaller image size and faster startup:
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -e FRONTEND_URL="https://your-domain.com" \
   -e DB_HOST="your-mysql-host" \
   -e DB_PORT="3306" \
@@ -136,6 +148,9 @@ docker run -d \
 - `DB_NAME`: Database name
 - `DB_USER`: Database username
 - `DB_PASSWORD`: Database password
+- `OCV_CONTROLLER_PORT_RANGE_START` / `OCV_CONTROLLER_PORT_RANGE_END`: TCP range used by controller-side Agent tunnels. Publish the identical host/container range; the documented default is `10000-10099`. Increase it only when the expected concurrent tunnel count requires more ports, because Docker expands published ranges into per-port bindings.
+
+Controller-side forwarding listens inside the panel container. The Docker `-p` range and both `OCV_CONTROLLER_PORT_RANGE_*` values must stay identical. Ports outside the configured range are rejected instead of being recorded as active but unreachable. Source or bare-metal deployments that omit both variables retain the historical `10000-65535` allocation range.
 
 The `no-db` image stores its runtime configuration at `/app/storage/config.yaml` in the `oneclickvirt-storage` volume. Reuse the same storage volume when updating the image or recreating the container; database settings entered on the initialization page and other system-level settings then survive replacement. Non-empty `DB_*` environment variables take precedence over the file, so recreations may also keep passing the same database environment. Deployments that explicitly mount `/app/config.yaml` continue to use that file first.
 
@@ -189,6 +204,8 @@ services:
     ports:
       - "your-port:80"  # e.g., "80:80" or "8080:80"
 ```
+
+For controller-side Agent tunnels, set both `OCV_CONTROLLER_PORT_RANGE_START` and `OCV_CONTROLLER_PORT_RANGE_END` in `.env`. Compose publishes the same TCP range on the `api` service automatically. Keep the range bounded to the capacity you actually need.
 
 **Stop Services:**
 
@@ -314,6 +331,9 @@ docker build -t oneclickvirt .
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
@@ -337,6 +357,9 @@ docker build -f Dockerfile.no-db -t oneclickvirt:no-db .
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -p 10000-10099:10000-10099 \
+  -e OCV_CONTROLLER_PORT_RANGE_START=10000 \
+  -e OCV_CONTROLLER_PORT_RANGE_END=10099 \
   -e FRONTEND_URL="https://your-domain.com" \
   -e DB_HOST="your-mysql-host" \
   -e DB_PORT="3306" \

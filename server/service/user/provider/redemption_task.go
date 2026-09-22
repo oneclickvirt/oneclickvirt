@@ -447,6 +447,20 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 
 		s.updateTaskProgress(taskID, 84, "step.configuringPortMappings")
 		portMappingService := &resources.PortMappingService{}
+		if err := portMappingService.ActivatePendingControllerPortMappings(taskCtx, instanceID, providerID); err != nil {
+			finalErr := fmt.Errorf("激活兑换码实例控制端端口映射失败: %w", err)
+			utils.AppendTaskError(taskID, 84, "step.createPostProcessFailed", finalErr)
+			_ = global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Update("status", "error").Error
+			if taskReq.RedemptionCodeID != 0 {
+				_ = global.APP_DB.Unscoped().Delete(&systemModel.RedemptionCode{}, taskReq.RedemptionCodeID).Error
+			}
+			go s.delayedDeleteFailedInstance(instanceID)
+			stateManager := s.taskService.GetStateManager()
+			if stateManager != nil {
+				_ = stateManager.CompleteMainTask(taskID, false, finalErr.Error(), nil)
+			}
+			return
+		}
 		existingPorts, _ := portMappingService.GetInstancePortMappings(instanceID)
 		if len(existingPorts) == 0 {
 			if err := portMappingService.CreateDefaultPortMappings(instanceID, providerID); err != nil {

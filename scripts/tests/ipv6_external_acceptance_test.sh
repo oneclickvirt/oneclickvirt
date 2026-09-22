@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Strict end-to-end IPv6 acceptance test for an Incus/LXD node.
 # Public IPv6, a default route, container reachability, and independent
-# external SSH/HTTP probes are mandatory. Missing prerequisites are failures.
+# external SSH/HTTP probes are mandatory. Missing test infrastructure returns
+# status 75; a configured but broken acceptance path remains a hard failure.
 set -Eeuo pipefail
 
 fail() { echo "IPv6 acceptance FAILED: $*" >&2; exit 1; }
-need() { command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"; }
+environment_missing() { echo "IPv6 acceptance prerequisite missing: $*" >&2; exit 75; }
+need() { command -v "$1" >/dev/null 2>&1 || environment_missing "required command not found: $1"; }
 need ssh
 need awk
 need sed
@@ -15,10 +17,10 @@ need curl
 need cut
 need base64
 
-: "${REMOTE_HOST:?set REMOTE_HOST to the node IPv4 or hostname}"
-: "${REMOTE_USER:?set REMOTE_USER for node SSH}"
-: "${EXTERNAL_PROBE_HOST:?set EXTERNAL_PROBE_HOST to an independent IPv4/IPv6 probe host}"
-: "${EXTERNAL_PROBE_USER:?set EXTERNAL_PROBE_USER for probe SSH}"
+[[ -n "${REMOTE_HOST:-}" ]] || environment_missing "set REMOTE_HOST to the node IPv4 or hostname"
+[[ -n "${REMOTE_USER:-}" ]] || environment_missing "set REMOTE_USER for node SSH"
+[[ -n "${EXTERNAL_PROBE_HOST:-}" ]] || environment_missing "set EXTERNAL_PROBE_HOST to an independent IPv4/IPv6 probe host"
+[[ -n "${EXTERNAL_PROBE_USER:-}" ]] || environment_missing "set EXTERNAL_PROBE_USER for probe SSH"
 REMOTE_PORT="${REMOTE_PORT:-22}"
 REMOTE_KEY_FILE="${REMOTE_KEY_FILE:-}"
 REMOTE_PASS="${REMOTE_PASS:-}"

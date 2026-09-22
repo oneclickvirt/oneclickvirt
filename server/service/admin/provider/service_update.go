@@ -82,6 +82,13 @@ func resolveUpdatedInstanceExpiryPolicy(provider providerModel.Provider, req adm
 	return provider.InstanceExpiryAction, provider.InstanceExpiryExtendDays
 }
 
+func resolveUpdatedProviderPortIP(provider providerModel.Provider, req admin.UpdateProviderRequest) string {
+	if updateProviderRequestHasField(req, "portIP") {
+		return strings.TrimSpace(req.PortIP)
+	}
+	return provider.PortIP
+}
+
 // UpdateProvider 更新Provider
 func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	global.APP_LOG.Debug("开始更新Provider", zap.Uint("providerID", req.ID))
@@ -94,6 +101,13 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			global.APP_LOG.Error("查询Provider失败", zap.Uint("providerID", req.ID), zap.Error(err))
 		}
 		return err
+	}
+	var mappingErr error
+	if req.IPv4PortMappingMethod, mappingErr = normalizeRequestedPortMappingMethod(req.IPv4PortMappingMethod, "IPv4"); mappingErr != nil {
+		return mappingErr
+	}
+	if req.IPv6PortMappingMethod, mappingErr = normalizeRequestedPortMappingMethod(req.IPv6PortMappingMethod, "IPv6"); mappingErr != nil {
+		return mappingErr
 	}
 	// 保存原始值，用于检测变更后清理缓存
 	originalConnectionType := provider.ConnectionType
@@ -193,9 +207,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if normalizedEndpoint != "" {
 		provider.Endpoint = normalizedEndpoint
 	}
-	if req.PortIP != "" {
-		provider.PortIP = req.PortIP
-	}
+	provider.PortIP = resolveUpdatedProviderPortIP(provider, req)
 	if normalizedSSHPort > 0 {
 		provider.SSHPort = normalizedSSHPort
 	}
@@ -672,10 +684,10 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		provider.EnableTrafficControl = true
 		provider.EnableResourceMonitoring = true
 		provider.TrafficSyncMethod = "agent"
-		// Agent模式下，若无公网IP（portIP为空），则强制使用无端口映射模式
-		if provider.PortIP == "" {
-			provider.NetworkType = "no_port_mapping"
-		}
+		// Agent + NAT + empty portIP deliberately uses controller-side
+		// forwarding. Only an omitted network choice falls back to the explicit
+		// no-port mode; clearing portIP must not silently disable mappings.
+		provider.NetworkType = normalizeAgentNetworkType(provider.NetworkType)
 	}
 	if provider.ConnectionType == "local" {
 		provider.Type = "qemu"

@@ -13,6 +13,8 @@ minimal base images that intentionally do not ship sshd (for example images:
 debian/12); it does not replace the panel's instance creation or networking.
 """
 import json
+import getpass
+import ipaddress
 import os
 import secrets
 import shlex
@@ -28,10 +30,11 @@ except ImportError:  # Optional dependency for explicitly requested live runs.
     paramiko = None
 from webssh_external_probe import verify_webssh
 from live_node_shell import node_command
-from live_ssh import pinned_guest_client, strict_node_client
+from live_ssh import connect_strict_node, pinned_guest_client, strict_node_client
 from live_panel_cleanup import remove_owned_panel
 from live_nested_docker import verify_nested_docker
 from live_ipv6_probe import verify_guest_ipv6
+from live_external_ipv6 import ExternalIPv6Probe
 from live_agent_fixture import (RealAgentFixture, read_monitor, verify_agent_commands,
                                 verify_agent_traffic, verify_panel_sessions, wait_agent)
 
@@ -43,10 +46,159 @@ def log(message):
     print(message, flush=True)
 
 
+def independent_ipv6_endpoint(detail, network_type, ipv6_mapping_method,
+                              host_ipv6, ports):
+    """Return the strict public IPv6 target and native/mapped test ports."""
+    managed_nat = network_type == "nat_ipv4_ipv6" and ipv6_mapping_method != "native"
+    target = host_ipv6 if managed_nat else detail.get("publicIPv6", "")
+    if not target:
+        raise RuntimeError("panel did not return a public IPv6 target for external acceptance")
+    target_address = ipaddress.ip_address(target)
+    if target_address.version != 6 or not target_address.is_global:
+        raise RuntimeError("external IPv6 target is not global: " + str(target))
+    if managed_nat:
+        ssh_port = int(detail.get("sshPort", 0))
+        if ssh_port not in ports:
+            raise RuntimeError("panel IPv6 NAT SSH port escaped the reserved range")
+        http_port = min(ports) + 1
+    else:
+        ssh_port = 22
+        http_port = 18080
+    return str(target_address), ssh_port, http_port
+
+
+def validate_ipv6_only_guest(detail, ipv4_addresses, ipv6_addresses):
+    """Require a pure public-IPv6 guest, not an IPv4/ULA management fallback."""
+    if detail.get("privateIP"):
+        raise RuntimeError("IPv6-only instance retained a panel private IPv4 address")
+    if ipv4_addresses.strip():
+        raise RuntimeError("IPv6-only guest retained a global-scope IPv4 address")
+    expected = ipaddress.ip_address(detail.get("publicIPv6", ""))
+    observed = []
+    for token in ipv6_addresses.split():
+        observed.append(ipaddress.ip_interface(token).ip)
+    if expected not in observed:
+        raise RuntimeError("IPv6-only guest is missing its assigned public IPv6 address")
+    unexpected = [str(address) for address in observed
+                  if address != expected or not address.is_global]
+    if unexpected:
+        raise RuntimeError("IPv6-only guest retained additional non-public addresses: "
+                           + ",".join(unexpected))
+
+
+def validate_ipv6_only_dns(contents):
+    """Require at least one resolver and reject every non-IPv6 nameserver."""
+    nameservers = []
+    for line in contents.splitlines():
+        fields = line.split()
+        if not fields or fields[0].startswith("#") or fields[0] != "nameserver":
+            continue
+        if len(fields) != 2:
+            raise RuntimeError("IPv6-only guest has a malformed nameserver entry: " + line)
+        try:
+            resolver = ipaddress.ip_address(fields[1])
+        except ValueError as error:
+            raise RuntimeError("IPv6-only guest has an invalid nameserver: " + fields[1]) from error
+        if resolver.version != 6:
+            raise RuntimeError("IPv6-only guest retained an IPv4 nameserver: " + fields[1])
+        nameservers.append(str(resolver))
+    if not nameservers:
+        raise RuntimeError("IPv6-only guest has no IPv6 nameserver")
+    return nameservers
+
+
+def validate_panel_image_contract(image_info):
+    """Reject backend-only images before allocating any remote guest resources."""
+    exposed = image_info.get("Config", {}).get("ExposedPorts") or {}
+    if "80/tcp" not in exposed:
+        raise RuntimeError(
+            "OCV_PANEL_IMAGE must be the root all-in-one image exposing 80/tcp; "
+            "the backend-only server/Dockerfile image is not a panel fixture"
+        )
+
+
+def verify_independent_ipv6(guest, collect, detail, name, network_type,
+                            ipv6_mapping_method, host_ipv6, ports, guest_keys,
+                            probe, log):
+    """Verify mapped/native IPv6 HTTP and SSH from a separate IPv6 host.
+
+    Managed NAT-v4+v6 uses the provider host's public IPv6 and panel-assigned
+    mapped ports. Native NAT-v4+v6, dedicated and IPv6-only modes use the
+    guest's public IPv6 and native ports. The HTTP identity is random and the
+    SSH key was read through the trusted provider connection first.
+    """
+    target, ssh_port, http_port = independent_ipv6_endpoint(
+        detail, network_type, ipv6_mapping_method, host_ipv6, ports)
+    nonce = secrets.token_hex(16)
+    guest_v6 = detail.get("ipv6Address", "")
+    if not guest_v6:
+        raise RuntimeError("panel did not return the guest IPv6 address")
+    managed_nat = network_type == "nat_ipv4_ipv6" and ipv6_mapping_method != "native"
+    expected_egress = host_ipv6 if managed_nat else guest_v6
+    egress_command = ("curl --noproxy '*' -6 --interface " + shlex.quote(guest_v6)
+                      + " -fsS --connect-timeout 10 --max-time 25 https://ipv6.ip.sb")
+    stdin, stdout, _ = guest.exec_command(egress_command, timeout=45)
+    stdin.channel.shutdown_write()
+    actual_egress, egress_error, egress_status = collect(stdout.channel, 45)
+    if egress_status or actual_egress.strip() != expected_egress:
+        raise RuntimeError("guest IPv6 egress source mismatch: " + egress_error[-800:])
+    log("PASS guest IPv6 egress: " + actual_egress.strip())
+    directory = "/tmp/ocv-ipv6-" + nonce
+    command = (
+        "set -eu; mkdir -p " + shlex.quote(directory) + "; printf %s " + shlex.quote(nonce)
+        + " > " + shlex.quote(directory + "/identity") + "; "
+        "nohup python3 -u -m http.server " + str(http_port) + " --bind :: --directory "
+        + shlex.quote(directory) + " >/tmp/ocv-ipv6-http.log 2>&1 </dev/null & echo $!"
+    )
+    stdin, stdout, _ = guest.exec_command(command, timeout=45)
+    stdin.channel.shutdown_write()
+    output, error, status = collect(stdout.channel, 45)
+    if status or not output.strip().isdigit():
+        raise RuntimeError("guest IPv6 HTTP service did not start: " + error[-800:])
+    pid = output.strip().splitlines()[-1]
+    try:
+        check = "curl --noproxy '*' -g -6 -fsS --connect-timeout 5 --max-time 15 http://[" \
+            + guest_v6 + "]:" + str(http_port) + "/identity"
+        # Starting a guest-side service through an SSH exec channel is
+        # asynchronous: the child can print its PID before bind(2) completes.
+        # Do a bounded readiness probe instead of turning that normal startup
+        # window into a false IPv6 failure.  The check still targets the
+        # guest's public /128, so it validates the routed path and listener,
+        # not merely localhost.
+        body = ""
+        error = ""
+        status = 1
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            stdin, stdout, _ = guest.exec_command(check, timeout=20)
+            stdin.channel.shutdown_write()
+            body, error, status = collect(stdout.channel, 20)
+            if status == 0 and body.strip() == nonce:
+                break
+            time.sleep(1)
+        if status or body.strip() != nonce:
+            raise RuntimeError("guest-local IPv6 HTTP identity check failed: " + error[-800:])
+        probe.http_identity(target, http_port, nonce)
+        log("PASS independent external IPv6 HTTP: " + target + ":" + str(http_port))
+        probe.ssh_identity(target, ssh_port, guest_keys, "root",
+                           detail["password"], name)
+        log("PASS independent external IPv6 SSH: " + target + ":" + str(ssh_port))
+    finally:
+        stdin, stdout, _ = guest.exec_command("kill " + shlex.quote(pid) + " 2>/dev/null || true; rm -rf "
+                                              + shlex.quote(directory), timeout=30)
+        stdin.channel.shutdown_write()
+        collect(stdout.channel, 30)
+        stdin, stdout, _ = guest.exec_command("ss -H -lnt 'sport = :" + str(http_port) + "'", timeout=30)
+        stdin.channel.shutdown_write()
+        lingering, _, _ = collect(stdout.channel, 30)
+        if lingering.strip():
+            raise RuntimeError("guest IPv6 HTTP service survived cleanup")
+
+
 def main():
     if os.environ.get("OCV_LIVE_DISPOSABLE") != "yes":
         raise SystemExit("Set OCV_LIVE_DISPOSABLE=yes only for an authorized disposable node")
-    for name in ("OCV_LIVE_HOST", "OCV_LIVE_PASSWORD", "OCV_LIVE_IMAGE", "OCV_PANEL_IMAGE"):
+    for name in ("OCV_LIVE_HOST", "OCV_LIVE_IMAGE", "OCV_PANEL_IMAGE"):
         if not os.environ.get(name):
             raise SystemExit(f"Missing required live-test variable: {name}")
     if paramiko is None:
@@ -64,6 +216,9 @@ def main():
     network_type = os.environ.get("OCV_LIVE_NETWORK_TYPE", "nat_ipv4")
     if network_type not in ("nat_ipv4", "nat_ipv4_ipv6", "dedicated_ipv4_ipv6", "ipv6_only"):
         raise SystemExit("OCV_LIVE_NETWORK_TYPE is not a supported live network type")
+    ipv6_mapping_method = os.environ.get("OCV_LIVE_IPV6_MAPPING_METHOD", "device_proxy").strip().lower()
+    if ipv6_mapping_method not in ("device_proxy", "iptables", "native"):
+        raise SystemExit("OCV_LIVE_IPV6_MAPPING_METHOD must be device_proxy, iptables, or native")
     ipv6_acceptance = os.environ.get("OCV_LIVE_IPV6", "no")
     if ipv6_acceptance not in ("yes", "no"):
         raise SystemExit("OCV_LIVE_IPV6 must be yes/no")
@@ -79,6 +234,9 @@ def main():
     if connection == "agent" and not os.path.isfile(agent_binary):
         raise SystemExit("OCV_AGENT_BINARY must be a locally built Linux node binary")
     base_port = int(os.environ.get("OCV_LIVE_PORT", "29900"))
+    node_ssh_port = int(os.environ.get("OCV_LIVE_SSH_PORT", "22"))
+    if not 1 <= node_ssh_port <= 65535:
+        raise SystemExit("OCV_LIVE_SSH_PORT must be in 1..65535")
     port_count = 8 if siblings == "yes" else 4
     if not 1024 <= base_port <= 65536 - port_count:
         raise SystemExit("OCV_LIVE_PORT must leave room for " + str(port_count) + " ports in 1024..65535")
@@ -86,7 +244,11 @@ def main():
     run_id = "ocv-panel-" + str(int(time.time())) + "-" + secrets.token_hex(3)
     container = run_id
     host = os.environ["OCV_LIVE_HOST"]
-    node_password = os.environ["OCV_LIVE_PASSWORD"]
+    node_password = os.environ.get("OCV_LIVE_PASSWORD", "")
+    node_ssh_key = ""
+    if os.environ.get("OCV_LIVE_SSH_KEY", "").strip():
+        with open(os.path.expanduser(os.environ["OCV_LIVE_SSH_KEY"]), encoding="utf-8") as handle:
+            node_ssh_key = handle.read()
     if os.environ.get("OCV_WEBSSH_URL") and not os.environ.get("OCV_WEBSSH_SOURCE_IP"):
         raise SystemExit("Set OCV_WEBSSH_SOURCE_IP before enabling the independent WebSSH probe")
     if connection == "agent" or os.environ.get("OCV_WEBSSH_URL"):
@@ -99,9 +261,11 @@ def main():
     provider_id = None
     instance_id = None
     agent_fixture = None
+    external_probe = None
+    host_ipv6 = ""
+    ipv6_pool_path = ""
     node = strict_node_client()
-    node.connect(host, username="root", password=node_password, timeout=15,
-                 auth_timeout=15, banner_timeout=15, allow_agent=False, look_for_keys=False)
+    connect_strict_node(node, host, port=int(os.environ.get("OCV_LIVE_SSH_PORT", "22")))
     keep_ssh_alive(node)
 
 
@@ -114,8 +278,43 @@ def main():
         return output.strip()
 
 
+    if ipv6_acceptance == "yes":
+        host_ipv6 = remote(
+            "ip -6 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 "
+            "| grep -Ev '^(fc|fd|fe80:)' | head -n1"
+        )
+        try:
+            host_address = ipaddress.ip_address(host_ipv6)
+        except ValueError as exc:
+            raise RuntimeError("provider node has no global IPv6 address") from exc
+        if host_address.version != 6 or not host_address.is_global:
+            raise RuntimeError("provider node IPv6 is not global: " + host_ipv6)
+        if not os.environ.get("OCV_WEBSSH_URL"):
+            probe_host = os.environ.get("OCV_LIVE_EXTERNAL_PROBE_HOST", "")
+            probe_port = int(os.environ.get("OCV_LIVE_EXTERNAL_PROBE_PORT", "22"))
+            probe_user = os.environ.get("OCV_LIVE_EXTERNAL_PROBE_USER", "root")
+            probe_known_hosts = os.environ.get("OCV_LIVE_EXTERNAL_PROBE_KNOWN_HOSTS", "")
+            probe_password = os.environ.get("OCV_LIVE_EXTERNAL_PROBE_PASSWORD", "")
+            if not probe_password:
+                probe_password = getpass.getpass("External IPv6 probe root password: ")
+            if not probe_host or not probe_known_hosts:
+                raise SystemExit(
+                    "IPv6 acceptance without WebSSH requires "
+                    "OCV_LIVE_EXTERNAL_PROBE_HOST and OCV_LIVE_EXTERNAL_PROBE_KNOWN_HOSTS"
+                )
+            external_probe = ExternalIPv6Probe(
+                probe_host, probe_port, probe_user, probe_password, probe_known_hosts
+            )
+            probe_egress = external_probe.connect()
+            log("Independent IPv6 probe connected; egress=" + probe_egress)
+
+
     def docker(*args):
         return subprocess.check_output(["docker", *args], text=True).strip()
+
+
+    panel_image_info = json.loads(docker("image", "inspect", panel_image))[0]
+    validate_panel_image_contract(panel_image_info)
 
 
     prepared_image = ""
@@ -227,7 +426,7 @@ fi
             result = json.load(error)
         if result.get("code") != 200 and not allow_error:
             message = str(result.get("msg", result.get("message"))) + ": " + str(result.get("details", ""))
-            for sensitive in (node_password, admin_password, db_password, token):
+            for sensitive in (node_password, node_ssh_key, admin_password, db_password, token):
                 if sensitive:
                     message = message.replace(sensitive, "[redacted]")
             raise RuntimeError(method + " " + path + ": " + message)
@@ -263,6 +462,30 @@ fi
             if existing:
                 raise RuntimeError("reserved live test port is occupied: " + str(port))
         guest_image = prepare_ssh_image()
+        pool_cidr = os.environ.get("OCV_LIVE_IPV6_POOL_CIDR", "").strip()
+        pool_addresses = os.environ.get("OCV_LIVE_IPV6_POOL_ADDRESSES", "").strip()
+        if pool_cidr and pool_addresses:
+            raise RuntimeError("set only one of OCV_LIVE_IPV6_POOL_CIDR and OCV_LIVE_IPV6_POOL_ADDRESSES")
+        pool_contents = pool_addresses
+        uses_static_ipv6_pool = network_type != "nat_ipv4_ipv6" or ipv6_mapping_method == "native"
+        if network_type == "nat_ipv4_ipv6" and ipv6_mapping_method == "native" and not (pool_cidr or pool_addresses):
+            raise RuntimeError(
+                "native NAT IPv4 + dedicated IPv6 requires OCV_LIVE_IPV6_POOL_CIDR "
+                "or OCV_LIVE_IPV6_POOL_ADDRESSES"
+            )
+        if pool_cidr and uses_static_ipv6_pool:
+            try:
+                pool_network = ipaddress.ip_network(pool_cidr, strict=False)
+            except ValueError as exc:
+                raise RuntimeError("OCV_LIVE_IPV6_POOL_CIDR is invalid") from exc
+            if pool_network.version != 6 or not pool_network.is_global:
+                raise RuntimeError("OCV_LIVE_IPV6_POOL_CIDR must be a global IPv6 network")
+            pool_contents = str(pool_network)
+        if pool_contents and uses_static_ipv6_pool:
+            ipv6_pool_path = "/tmp/" + run_id + "-ipv6-pool"
+            remote("printf '%s\\n' " + shlex.quote(pool_contents) + " > "
+                   + shlex.quote(ipv6_pool_path) + " && chmod 600 " + shlex.quote(ipv6_pool_path))
+            log("Prepared run-owned IPv6 pool file: " + ipv6_pool_path)
         docker("run", "-d", "--name", container, "--label", "ocv.live.run=" + run_id,
                "-p", "127.0.0.1::80", "-e", "MYSQL_ROOT_PASSWORD=" + db_password,
                panel_image)
@@ -301,13 +524,20 @@ fi
             "storagePool": os.environ.get("OCV_LIVE_STORAGE_POOL", "default"),
             "container_enabled": True, "vm_enabled": False, "totalQuota": 4,
             "portRangeStart": base_port, "portRangeEnd": base_port + port_count - 1, "defaultPortCount": 4,
-            "fixedPorts": [22], "ipv4PortMappingMethod": "device_proxy", "containerAllowNesting": True,
+            "fixedPorts": [22], "ipv4PortMappingMethod": "device_proxy",
+            "ipv6PortMappingMethod": ipv6_mapping_method, "containerAllowNesting": True,
             "containerPrivileged": False,
             "enableTrafficControl": connection == "agent", "enableResourceMonitoring": connection == "agent",
             "trafficSyncMethod": "agent",
             "discoverMode": False, "autoImport": False, "maxContainerInstances": 2}
+        if ipv6_pool_path:
+            provider_body["ipv6AddressFilePath"] = ipv6_pool_path
         if connection == "ssh":
-            provider_body.update(sshPort=22, username="root", password=node_password)
+            provider_body.update(sshPort=node_ssh_port, username="root")
+            if node_ssh_key:
+                provider_body["sshKey"] = node_ssh_key
+            else:
+                provider_body["password"] = node_password
         provider = api("POST", "/admin/providers", provider_body)
         provider_id = provider["id"]
         log(connection + " provider created: " + str(provider_id))
@@ -354,8 +584,11 @@ fi
             ssh_port = detail.get("sshPort", detail.get("ssh_port"))
             if not password or not ssh_port:
                 raise RuntimeError("panel did not return SSH connection details")
-            if int(ssh_port) not in ports:
-                raise RuntimeError("panel SSH endpoint escaped the reserved NAT port range")
+            if network_type in ("nat_ipv4", "nat_ipv4_ipv6"):
+                if int(ssh_port) not in ports:
+                    raise RuntimeError("panel SSH endpoint escaped the reserved NAT port range")
+            elif int(ssh_port) != 22:
+                raise RuntimeError("dedicated/IPv6-only SSH endpoint must use guest port 22")
             bootstrap_guest_ssh(name, password)
             guest_keys = remote(
                 cli + " exec " + shlex.quote(name)
@@ -364,17 +597,58 @@ fi
                     "test -r \"$key\" && cat -- \"$key\"; done"
                 )
             )
-            guest = pinned_guest_client(host, int(ssh_port), guest_keys)
+            guest_target = host
+            if network_type == "ipv6_only":
+                guest_target = detail.get("publicIPv6", "")
+                if not guest_target:
+                    raise RuntimeError("IPv6-only instance did not return a public IPv6 SSH target")
+            elif network_type == "dedicated_ipv4_ipv6":
+                guest_target = detail.get("publicIP", "")
+                if not guest_target or guest_target == host:
+                    raise RuntimeError("dedicated dual-stack instance did not return a distinct public IPv4")
+            guest = pinned_guest_client(guest_target, int(ssh_port), guest_keys)
             try:
-                guest.connect(host, port=int(ssh_port), username="root", password=password,
-                              timeout=20, auth_timeout=20, banner_timeout=20,
-                              allow_agent=False, look_for_keys=False)
+                guest_kwargs = {
+                    "port": int(ssh_port), "username": "root", "password": password,
+                    "timeout": 20, "auth_timeout": 20, "banner_timeout": 20,
+                    "allow_agent": False, "look_for_keys": False,
+                }
+                if network_type in ("ipv6_only", "dedicated_ipv4_ipv6"):
+                    # Route the local diagnostic through the already trusted
+                    # provider SSH transport; the independent probe below is
+                    # still the authoritative public-path check.
+                    channel = node.get_transport().open_channel(
+                        "direct-tcpip", (guest_target, int(ssh_port)), (host, 22), timeout=20)
+                    guest_kwargs["sock"] = channel
+                guest.connect(guest_target, **guest_kwargs)
                 keep_ssh_alive(guest)
                 _, stdout, _ = guest.exec_command("hostname; printf '%s\\n' \"$SSH_CONNECTION\"", timeout=30)
                 identity = stdout.read().decode().strip()
                 if identity.splitlines()[0] != name:
                     raise RuntimeError("SSH reached a stale or different guest")
                 log("Panel-created guest public NAT SSH verified: " + identity.replace("\n", " | "))
+                if network_type == "ipv6_only":
+                    stdin, stdout, _ = guest.exec_command(
+                        "ip -4 -o addr show scope global | awk '{print $4}'; "
+                        "printf '%s\\n' __OCV_V6__; "
+                        "ip -6 -o addr show scope global | awk '{print $4}'", timeout=30)
+                    stdin.channel.shutdown_write()
+                    network_output, network_error, network_status = _collect_output(stdout.channel, 30)
+                    if network_status:
+                        raise RuntimeError("IPv6-only guest address inspection failed: "
+                                           + network_error[-800:])
+                    ipv4_output, separator, ipv6_output = network_output.partition("__OCV_V6__")
+                    if not separator:
+                        raise RuntimeError("IPv6-only guest address inspection was incomplete")
+                    validate_ipv6_only_guest(detail, ipv4_output, ipv6_output)
+                    log("PASS IPv6-only guest has no IPv4 or ULA address")
+                    stdin, stdout, _ = guest.exec_command("cat /etc/resolv.conf", timeout=30)
+                    stdin.channel.shutdown_write()
+                    dns_output, dns_error, dns_status = _collect_output(stdout.channel, 30)
+                    if dns_status:
+                        raise RuntimeError("IPv6-only guest DNS inspection failed: " + dns_error[-800:])
+                    resolvers = validate_ipv6_only_dns(dns_output)
+                    log("PASS IPv6-only guest DNS uses only IPv6 nameservers: " + ",".join(resolvers))
                 if connection == "agent":
                     verify_panel_sessions(api, base, token, provider_id, instance_id, name)
                     log("Panel WebSSH session B survived session A close and concurrent Agent timeout")
@@ -459,10 +733,16 @@ fi
                     log(verify_nested_docker(guest, _collect_output))
                     log("Actual nested Docker hello-world and unprivileged-port sysctl passed")
                 if ipv6_acceptance == "yes":
-                    verify_guest_ipv6(
-                        guest, _collect_output, detail, name,
-                        os.environ.get("OCV_WEBSSH_URL", ""),
-                        os.environ.get("OCV_WEBSSH_SOURCE_IPV6", ""), log)
+                    if external_probe is not None:
+                        verify_independent_ipv6(
+                            guest, _collect_output, detail, name, network_type,
+                            ipv6_mapping_method, host_ipv6, ports, guest_keys,
+                            external_probe, log)
+                    else:
+                        verify_guest_ipv6(
+                            guest, _collect_output, detail, name,
+                            os.environ.get("OCV_WEBSSH_URL", ""),
+                            os.environ.get("OCV_WEBSSH_SOURCE_IPV6", ""), log)
             finally:
                 guest.close()
             if os.environ.get("OCV_WEBSSH_URL"):
@@ -498,8 +778,18 @@ fi
             agent_fixture.cleanup()
             agent_fixture = None
         cleanup_prepared_image()
+        if ipv6_pool_path:
+            remote("rm -f -- " + shlex.quote(ipv6_pool_path))
+            ipv6_pool_path = ""
         success = True
     finally:
+        if external_probe is not None:
+            external_probe.close()
+        if ipv6_pool_path:
+            try:
+                remote("rm -f -- " + shlex.quote(ipv6_pool_path))
+            except Exception as cleanup_error:
+                log("WARNING: IPv6 pool fixture cleanup failed: " + str(cleanup_error))
         if prepared_image:
             try:
                 cleanup_prepared_image()

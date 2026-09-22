@@ -38,3 +38,16 @@ func TestCancelledOperationRestoreAlsoRestoresDesiredState(t *testing.T) {
 		t.Fatal("delete should not restore an operation lifecycle state")
 	}
 }
+
+func TestIsCreateTaskType(t *testing.T) {
+	for _, taskType := range []string{"create", "create_instance", "create_redemption_instance"} {
+		if !isCreateTaskType(taskType) {
+			t.Fatalf("isCreateTaskType(%q) = false", taskType)
+		}
+	}
+	for _, taskType := range []string{"start", "delete", "reset", ""} {
+		if isCreateTaskType(taskType) {
+			t.Fatalf("isCreateTaskType(%q) = true", taskType)
+		}
+	}
+}

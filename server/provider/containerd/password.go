@@ -15,7 +15,9 @@ import (
 // sshSetInstancePassword 通过SSH设置容器密码
 func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanceID, password string) error {
 	if err := c.ensureSSHScriptsAvailable(c.config.Country); err != nil {
-		return fmt.Errorf("确保SSH脚本可用失败: %w", err)
+		global.APP_LOG.Warn("确保SSH脚本可用失败，继续使用容器内chpasswd",
+			zap.String("instanceID", instanceID),
+			zap.Error(err))
 	}
 
 	var containerStatus string

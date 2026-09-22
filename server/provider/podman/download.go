@@ -13,6 +13,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// SSH helper scripts are optional during container creation. Keep their
+// download deadline short so an unreachable mirror cannot block a task for
+// the full image-download timeout.
+const sshScriptDownloadTimeout = 2 * time.Minute
+
 // downloadImageToRemote 在远程服务器上下载镜像
 func (p *PodmanProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture string, useCDN bool) (string, error) {
 	downloadDir := imageDir
@@ -96,10 +101,14 @@ func (p *PodmanProvider) removeRemoteFile(remotePath string) error {
 
 // downloadFileToRemote 在远程服务器上下载文件
 func (p *PodmanProvider) downloadFileToRemote(url, remotePath string) error {
+	return p.downloadFileToRemoteWithTimeout(url, remotePath, 30*time.Minute)
+}
+
+func (p *PodmanProvider) downloadFileToRemoteWithTimeout(url, remotePath string, timeout time.Duration) error {
 	tmpPath := remotePath + ".tmp"
 	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
 
-	output, err := p.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
+	output, err := p.sshClient.ExecuteViaTempScript(script, nil, timeout)
 	if err != nil {
 		p.sshClient.Execute(fmt.Sprintf("rm -f %s", shellSingleQuote(tmpPath)))
 		global.APP_LOG.Error("远程下载失败",
@@ -117,7 +126,7 @@ func (p *PodmanProvider) refreshRemoteSSHScript(script, scriptPath, downloadURL 
 		zap.String("script", script),
 		zap.String("downloadURL", downloadURL))
 
-	if err := p.downloadFileToRemote(downloadURL, scriptPath); err != nil {
+	if err := p.downloadFileToRemoteWithTimeout(downloadURL, scriptPath, sshScriptDownloadTimeout); err != nil {
 		return fmt.Errorf("下载SSH脚本 %s 失败: %w", script, err)
 	}
 

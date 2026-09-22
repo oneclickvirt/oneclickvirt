@@ -83,7 +83,7 @@ class RealAgentFixture:
         self.unit = run_id + "-agent"
         self.directory = None
         self.forwarder = None
-        self.had_empty_table = False
+        self.had_empty_tables = set()
 
     def start(self, binary, local_port, secret, api_token):
         if not os.path.isfile(binary):
@@ -92,18 +92,31 @@ class RealAgentFixture:
         # with an existing Agent installation/table, even if its daemon is down.
         self.remote("set -eu; test ! -d /opt/oneclickvirt/agent; test -z \"$(ss -H -lnt 'sport = :23782')\"")
         tables = json.loads(self.remote("nft -j list tables"))["nftables"]
-        if any(item.get("table", {}).get("name") == "vm_traffic_monitor" for item in tables):
-            existing = json.loads(self.remote("nft -j list table inet vm_traffic_monitor"))["nftables"]
+        managed_tables = (("inet", "vm_traffic_monitor"),
+                          ("netdev", "vm_traffic_monitor_device"))
+        for family, table_name in managed_tables:
+            present = any(item.get("table", {}).get("family") == family
+                          and item.get("table", {}).get("name") == table_name
+                          for item in tables)
+            if not present:
+                continue
+            existing = json.loads(
+                self.remote(f"nft -j list table {family} {table_name}"))["nftables"]
             objects = [item for item in existing if "metainfo" not in item]
+            counters_or_rules = [item for item in objects if "counter" in item or "rule" in item]
             chains = [item["chain"] for item in objects if "chain" in item]
-            expected = {"family": "inet", "table": "vm_traffic_monitor", "name": "forward",
-                        "type": "filter", "hook": "forward", "prio": 0, "policy": "accept"}
-            if (len(objects) != 2 or len(chains) != 1
-                    or any(chains[0].get(key) != value for key, value in expected.items())):
-                raise RuntimeError("refusing to replace an existing Agent traffic table with managed state")
-            # An empty standard chain can remain after a previous uninstall.
-            # Reuse it without deleting it during this fixture's cleanup.
-            self.had_empty_table = True
+            if family == "inet":
+                expected = {"family": "inet", "table": "vm_traffic_monitor", "name": "forward",
+                            "type": "filter", "hook": "forward", "prio": -2, "policy": "accept"}
+                clean = (not counters_or_rules and len(chains) == 1
+                         and all(chains[0].get(key) == value for key, value in expected.items()))
+            else:
+                clean = not counters_or_rules and not chains
+            if not clean:
+                raise RuntimeError(
+                    f"refusing to replace existing Agent traffic table {family} {table_name}")
+            # Empty Agent-owned tables can remain after a previous uninstall.
+            self.had_empty_tables.add((family, table_name))
         self.forwarder = ReversePanelForwarder(self.ssh, local_port)
         self.directory = self.remote("mktemp -d /opt/ocv-live-agent.XXXXXX")
         if not self.directory.startswith("/opt/ocv-live-agent.") or "/" in self.directory[len("/opt/"):]:
@@ -150,11 +163,23 @@ class RealAgentFixture:
         self.remote("if [ \"$(systemctl show -p LoadState --value " + shlex.quote(self.unit)
                     + ")\" != not-found ]; then systemctl reset-failed " + shlex.quote(self.unit) + "; fi")
         # Instance deletion must have removed all monitor counters first.
-        table = json.loads(self.remote("nft -j list table inet vm_traffic_monitor"))["nftables"]
-        if any("counter" in item or "rule" in item for item in table):
-            raise RuntimeError("Agent retained monitor counters/rules; preserved table for diagnosis")
-        if not self.had_empty_table:
-            self.remote("nft delete table inet vm_traffic_monitor")
+        tables = json.loads(self.remote("nft -j list tables"))["nftables"]
+        for family, table_name in (("inet", "vm_traffic_monitor"),
+                                   ("netdev", "vm_traffic_monitor_device")):
+            present = any(item.get("table", {}).get("family") == family
+                          and item.get("table", {}).get("name") == table_name
+                          for item in tables)
+            if not present:
+                continue
+            table = json.loads(
+                self.remote(f"nft -j list table {family} {table_name}"))["nftables"]
+            if any("counter" in item or "rule" in item for item in table):
+                raise RuntimeError(
+                    f"Agent retained monitor objects in {family} {table_name}; preserved for diagnosis")
+            if family == "netdev" and any("chain" in item for item in table):
+                raise RuntimeError("Agent retained netdev monitor chains; preserved for diagnosis")
+            if (family, table_name) not in self.had_empty_tables:
+                self.remote(f"nft delete table {family} {table_name}")
         if self.forwarder:
             self.forwarder.close()
         with self.ssh.open_sftp() as sftp:
@@ -276,16 +301,61 @@ def read_monitor(api, provider_id, instance_id):
 def verify_agent_traffic(api, provider_id, instance_id, guest, collect_output):
     api("POST", f"/admin/traffic/sync/instance/{instance_id}", {})
     before = read_monitor(api, provider_id, instance_id)
-    size = 1024 * 1024
-    stdin, stdout, _ = guest.exec_command("head -c 1048576 /dev/zero", timeout=45)
+    raw_size = os.environ.get("OCV_LIVE_TRAFFIC_TEST_BYTES", str(1024 * 1024))
+    try:
+        size = int(raw_size)
+    except ValueError as exc:
+        raise RuntimeError("OCV_LIVE_TRAFFIC_TEST_BYTES must be an integer") from exc
+    if not 4096 <= size <= 16 * 1024 * 1024:
+        raise RuntimeError("OCV_LIVE_TRAFFIC_TEST_BYTES must be between 4096 and 16777216")
+    if size % 65536:
+        raise RuntimeError("OCV_LIVE_TRAFFIC_TEST_BYTES must be a multiple of 65536")
+    blocks = size // 65536
+    raw_timeout = os.environ.get("OCV_LIVE_TRAFFIC_TEST_TIMEOUT", "45")
+    try:
+        transfer_timeout = int(raw_timeout)
+    except ValueError as exc:
+        raise RuntimeError("OCV_LIVE_TRAFFIC_TEST_TIMEOUT must be an integer") from exc
+    if not 5 <= transfer_timeout <= 600:
+        raise RuntimeError("OCV_LIVE_TRAFFIC_TEST_TIMEOUT must be between 5 and 600")
+    # Do not use the generic `_collect_output` EOF loop for this binary probe.
+    # A few sshd/Paramiko combinations deliver the complete stdout window but
+    # delay channel.eof_received until the process reaps, which made a
+    # successful 1 MiB transfer look like a timeout. Read the exact payload
+    # first, then wait for the command's exit status with the same deadline.
+    stdin, stdout, _ = guest.exec_command(
+        f"dd if=/dev/zero bs=65536 count={blocks} status=none", timeout=transfer_timeout)
     stdin.channel.shutdown_write()
-    data, error, status = collect_output(stdout.channel, 45)
-    if status or len(data) != size:
+    channel = stdout.channel
+    channel.settimeout(transfer_timeout)
+    data = bytearray()
+    deadline = time.monotonic() + transfer_timeout
+    while len(data) < size:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("guest download did not deliver the expected payload")
+        channel.settimeout(remaining)
+        chunk = channel.recv(min(65536, size - len(data)))
+        if not chunk:
+            break
+        data.extend(chunk)
+    if len(data) != size:
         raise RuntimeError("guest download did not complete")
-    stdin, stdout, _ = guest.exec_command("dd of=/dev/null bs=65536 status=none", timeout=45)
+    if not channel.exit_status_ready():
+        while time.monotonic() < deadline and not channel.exit_status_ready():
+            time.sleep(0.01)
+    status = channel.recv_exit_status()
+    if status:
+        raise RuntimeError("guest download command failed")
+
+    stdin, stdout, _ = guest.exec_command(
+        f"dd of=/dev/null bs=65536 count={blocks} iflag=fullblock status=none",
+        timeout=transfer_timeout)
+    stdin.channel.settimeout(transfer_timeout)
     stdin.channel.sendall(b"x" * size)
     stdin.channel.shutdown_write()
-    _, error, status = collect_output(stdout.channel, 45)
+    stdout.channel.settimeout(transfer_timeout)
+    status = stdout.channel.recv_exit_status()
     if status:
         raise RuntimeError("guest upload did not complete")
     deadline = time.monotonic() + 60
