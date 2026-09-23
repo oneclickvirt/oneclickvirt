@@ -1,0 +1,478 @@
+<html><body><h1>Test Failed</h1><p>Exit code: 1</p><pre>[0;34m[INFO][0m 15:31:57 Container test size: 2C/2048MB/20G
+[0;34m[INFO][0m 15:31:57 VM test size: 2C/4096MB/20G
+
+[0;36m========== Environment Integration Test: containerd ==========[0m
+
+[0;34m[INFO][0m 15:31:57 Modules: all
+[0;34m[INFO][0m 15:31:57 Instance types: container (requested: container)
+[0;34m[INFO][0m 15:31:57 Execution rule: auto
+[0;34m[INFO][0m 15:31:57 Node hours: 8h
+[0;32m[PASS][0m 15:31:57 Platform resolution
+[0;34m[INFO][0m 15:31:57 Enabled platforms: alice lightnode
+[0;34m[INFO][0m 15:31:57 Active platform will be selected automatically with fallback
+[0;32m[PASS][0m 15:31:57 Required commands available: jq curl go
+[0;32m[PASS][0m 15:31:57 Required commands
+[0;34m[INFO][0m 15:31:57 Resource check skipped (SKIP_RESOURCE_CHECK=true)
+[0;32m[PASS][0m 15:31:57 Runner resources
+[0;32m[PASS][0m 15:31:57 Port 8888 is available
+[0;32m[PASS][0m 15:31:57 Master port availability
+[0;34m[INFO][0m 15:31:57 Waiting for authenticated MySQL/MariaDB TCP readiness...
+[0;32m[PASS][0m 15:31:57 MySQL/MariaDB ready after 0s
+[0;32m[PASS][0m 15:31:57 MySQL readiness
+
+[0;36m========== Phase 1: Deploy master on runner ==========[0m
+
+[0;34m[INFO][0m 15:31:57 Preparing isolated server workdir: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/35874569813-1-containerd/server-work-containerd-8888-12544
+
+[0;36m========== Deploying master locally on runner from source (port 8888) ==========[0m
+
+[0;34m[INFO][0m 15:31:57 Server directory: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/35874569813-1-containerd/server-work-containerd-8888-12544
+[0;34m[INFO][0m 15:31:57 Patching config.yaml for CI environment...
+[0;32m[PASS][0m 15:31:57 config.yaml patched
+Real AMD64 and ARM64 Agent assets verified
+[0;34m[INFO][0m 15:31:57 Building server binary...
+[0;32m[PASS][0m 15:32:15 Server binary built
+[0;34m[INFO][0m 15:32:15 Server process started (PID 13569), waiting for startup...
+[0;32m[PASS][0m 15:32:20 Server started and responding (PID 13569, elapsed 5s, HTTP 200)
+[0;32m[PASS][0m 15:32:20 Master deployed locally on runner (port 8888)
+
+[0;36m========== Phase 2: Create worker node ==========[0m
+
+[0;34m[INFO][0m 15:32:20 Creating test node: env=containerd hours=8
+[0;34m[INFO][0m 15:32:20 Enabled platforms (priority order): alice lightnode
+[0;34m[INFO][0m 15:32:20 === Trying platform: alice (attempt 1/2) ===
+[0;34m[INFO][0m 15:32:20 Initializing platform: alice
+[0;34m[INFO][0m 15:32:21 [alice] Platform initialized (API: https://app.alice.ws/cli/v1)
+[0;32m[PASS][0m 15:32:21 Platform 'alice' initialized
+[0;34m[INFO][0m 15:32:21 [alice] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 15:32:21 [alice] Creating new instance (env=containerd hours=8)...
+[0;34m[INFO][0m 15:32:21 [alice] Creating instance: env=containerd hours=8
+[DEBUG] 15:32:21 [alice] GET /evo/permissions HTTP 200
+[DEBUG] 15:32:21 [alice] GET /evo/plans/38/os-images HTTP 200
+[0;31m[FAIL][0m 15:32:22 [alice] Create failed (HTTP 400): {"code":400,"message":"you already have an EVO instance"}
+[0;31m[FAIL][0m 15:32:22 [alice] create_instance failed (exit=1). Raw output: <empty>
+[1;33m[WARN][0m 15:32:22 Platform 'alice' exhausted, trying next...
+[0;34m[INFO][0m 15:32:22 === Trying platform: lightnode (attempt 1/2) ===
+[0;34m[INFO][0m 15:32:22 Initializing platform: lightnode
+[0;34m[INFO][0m 15:32:22 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 15:32:23 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 15:32:24 [lightnode] Platform initialized
+[0;32m[PASS][0m 15:32:24 Platform 'lightnode' initialized
+[0;34m[INFO][0m 15:32:24 [lightnode] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 15:32:24 [lightnode] Creating new instance (env=containerd hours=8)...
+[0;34m[INFO][0m 15:32:24 [lightnode] Creating instance: env=containerd
+[0;34m[INFO][0m 15:32:25 [lightnode] Using package=intel-c2m4-bgp-b10-s50-d300 (required=2C/4096MB tier=3, strict=true)
+[0;32m[PASS][0m 15:32:34 [lightnode] Instance creation requested: ecs-ck0001lzh653
+[0;34m[INFO][0m 15:32:34 [lightnode] Waiting for async task ud0001lzh60r (max 1800s)...
+[DEBUG] 15:32:34 [lightnode] Task ud0001lzh60r: result=RETRY status=PROCESSING
+[DEBUG] 15:32:50 [lightnode] Task ud0001lzh60r: result=RETRY status=PROCESSING
+[DEBUG] 15:33:06 [lightnode] Task ud0001lzh60r: result=RETRY status=PROCESSING
+[DEBUG] 15:33:22 [lightnode] Task ud0001lzh60r: result=RETRY status=PROCESSING
+[DEBUG] 15:33:38 [lightnode] Task ud0001lzh60r: result=RETRY status=PROCESSING
+[DEBUG] 15:33:54 [lightnode] Task ud0001lzh60r: result=RETRY status=PROCESSING
+[DEBUG] 15:34:10 [lightnode] Task ud0001lzh60r: result=RETRY status=PROCESSING
+[DEBUG] 15:34:26 [lightnode] Task ud0001lzh60r: result=SUCCESS status=FINISHED
+[0;32m[PASS][0m 15:34:26 [lightnode] Task ud0001lzh60r completed
+[0;32m[PASS][0m 15:34:28 Instance created on 'lightnode': ID=ecs-ck0001lzh653 IP=38.60.176.252
+[0;34m[INFO][0m 15:34:28 Initializing platform: lightnode
+[0;34m[INFO][0m 15:34:28 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 15:34:28 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 15:34:29 [lightnode] Platform initialized
+[0;32m[PASS][0m 15:34:29 Platform 'lightnode' initialized
+[0;34m[INFO][0m 15:34:29 [lightnode] Waiting for SSH on 38.60.176.252 (max 600s)...
+[0;32m[PASS][0m 15:34:31 [lightnode] SSH ready on 38.60.176.252
+[0;34m[INFO][0m 15:34:31 Ensuring 2048MB swap on new lightnode worker...
+[DEBUG] 15:34:32 Swap setup output on new lightnode worker: Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+SWAP_OK total=2047MB
+[0;32m[PASS][0m 15:34:32 Swap ready on new lightnode worker
+[0;32m[PASS][0m 15:34:32 Node created on 'lightnode': ID=ecs-ck0001lzh653 IP=[MASKED]
+[0;34m[INFO][0m 15:34:32 Initializing platform: lightnode
+[0;34m[INFO][0m 15:34:32 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 15:34:33 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 15:34:33 [lightnode] Platform initialized
+[0;32m[PASS][0m 15:34:33 Platform 'lightnode' initialized
+[0;32m[PASS][0m 15:34:33 Worker node: ID=ecs-ck0001lzh653 IP=[MASKED] Platform=lightnode
+[0;34m[INFO][0m 15:34:33 Waiting for cloud-init on worker node (handled by wait_for_apt_lock)...
+
+[0;36m========== Phase 3: Install containerd on worker node ==========[0m
+
+
+[0;36m========== Installing containerd environment on worker node ==========[0m
+
+[0;34m[INFO][0m 15:34:33 Ensuring 2048MB swap on worker before containerd install...
+[DEBUG] 15:34:35 Swap setup output on worker before containerd install: Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+SWAP_OK total=2047MB
+[0;32m[PASS][0m 15:34:35 Swap ready on worker before containerd install
+[0;34m[INFO][0m 15:34:35 Waiting for apt/dpkg locks on 38.60.176.252 (min 120s, max 1800s)...
+[0;32m[PASS][0m 15:36:37 apt/dpkg locks free on 38.60.176.252 (after 120s)
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+Get:2 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+Get:3 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:4 http://deb.debian.org/debian bookworm/non-free Sources [78.0 kB]
+Get:5 http://deb.debian.org/debian bookworm/main Sources [9492 kB]
+Get:6 http://deb.debian.org/debian bookworm/contrib Sources [51.1 kB]
+Get:7 http://deb.debian.org/debian bookworm/non-free-firmware Sources [7152 B]
+Get:8 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+Get:9 http://deb.debian.org/debian bookworm/main Translation-en [6107 kB]
+Get:10 http://deb.debian.org/debian bookworm/contrib amd64 Packages [53.5 kB]
+Get:11 http://deb.debian.org/debian bookworm/contrib Translation-en [48.4 kB]
+Get:12 http://deb.debian.org/debian bookworm/non-free amd64 Packages [102 kB]
+Get:13 http://deb.debian.org/debian bookworm/non-free Translation-en [68.2 kB]
+Get:14 http://deb.debian.org/debian bookworm/non-free-firmware amd64 Packages [6368 B]
+Get:15 http://deb.debian.org/debian bookworm-updates/main Sources.diff/Index [21.8 kB]
+Ign:15 http://deb.debian.org/debian bookworm-updates/main Sources.diff/Index
+Get:16 http://deb.debian.org/debian bookworm-updates/main amd64 Packages.diff/Index [21.8 kB]
+Ign:16 http://deb.debian.org/debian bookworm-updates/main amd64 Packages.diff/Index
+Get:17 http://deb.debian.org/debian bookworm-updates/main Translation-en.diff/Index [20.7 kB]
+Ign:17 http://deb.debian.org/debian bookworm-updates/main Translation-en.diff/Index
+Get:18 http://deb.debian.org/debian-security bookworm-security/main Sources [252 kB]
+Get:19 http://deb.debian.org/debian-security bookworm-security/contrib Sources [1224 B]
+Get:20 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [341 kB]
+Get:21 http://deb.debian.org/debian-security bookworm-security/main Translation-en [214 kB]
+Get:22 http://deb.debian.org/debian-security bookworm-security/contrib amd64 Packages [1456 B]
+Get:23 http://deb.debian.org/debian-security bookworm-security/contrib Translation-en [1068 B]
+Get:24 http://deb.debian.org/debian-security bookworm-security/non-free amd64 Packages [6296 B]
+Get:25 http://deb.debian.org/debian-security bookworm-security/non-free Translation-en [5340 B]
+Get:26 http://deb.debian.org/debian bookworm-updates/main Sources [3288 B]
+Get:27 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+Get:28 http://deb.debian.org/debian bookworm-updates/main Translation-en [5448 B]
+Fetched 25.9 MB in 22s (1205 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+lsof is already the newest version (4.95.0-1).
+The following additional packages will be installed:
+  libcurl3-gnutls libcurl4 libjq1 libonig5
+The following NEW packages will be installed:
+  ipcalc jq libjq1 libonig5
+The following packages will be upgraded:
+  curl libcurl3-gnutls libcurl4 sudo wget
+5 upgraded, 4 newly installed, 0 to remove and 148 not upgraded.
+Need to get 4337 kB of archives.
+After this operation, 1168 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian bookworm/main amd64 sudo amd64 1.9.13p3-1+deb12u4 [1890 kB]
+Get:2 http://deb.debian.org/debian bookworm/main amd64 wget amd64 1.21.3-1+deb12u1 [937 kB]
+Get:3 http://deb.debian.org/debian bookworm/main amd64 curl amd64 7.88.1-10+deb12u15 [316 kB]
+Get:4 http://deb.debian.org/debian bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u15 [392 kB]
+Get:5 http://deb.debian.org/debian bookworm/main amd64 ipcalc all 0.42-2 [27.8 kB]
+Get:6 http://deb.debian.org/debian bookworm/main amd64 libonig5 amd64 6.9.8-1 [188 kB]
+Get:7 http://deb.debian.org/debian bookworm/main amd64 libjq1 amd64 1.6-2.1+deb12u2 [136 kB]
+Get:8 http://deb.debian.org/debian bookworm/main amd64 jq amd64 1.6-2.1+deb12u2 [64.0 kB]
+Get:9 http://deb.debian.org/debian bookworm/main amd64 libcurl3-gnutls amd64 7.88.1-10+deb12u15 [386 kB]
+apt-listchanges: Reading changelogs...
+Fetched 4337 kB in 4s (1211 kB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 31698 files and directories currently installed.)
+Preparing to unpack .../0-sudo_1.9.13p3-1+deb12u4_amd64.deb ...
+Unpacking sudo (1.9.13p3-1+deb12u4) over (1.9.13p3-1+deb12u1) ...
+Preparing to unpack .../1-wget_1.21.3-1+deb12u1_amd64.deb ...
+Unpacking wget (1.21.3-1+deb12u1) over (1.21.3-1+b2) ...
+Preparing to unpack .../2-curl_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking curl (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Preparing to unpack .../3-libcurl4_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking libcurl4:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Selecting previously unselected package ipcalc.
+Preparing to unpack .../4-ipcalc_0.42-2_all.deb ...
+Unpacking ipcalc (0.42-2) ...
+Selecting previously unselected package libonig5:amd64.
+Preparing to unpack .../5-libonig5_6.9.8-1_amd64.deb ...
+Unpacking libonig5:amd64 (6.9.8-1) ...
+Selecting previously unselected package libjq1:amd64.
+Preparing to unpack .../6-libjq1_1.6-2.1+deb12u2_amd64.deb ...
+Unpacking libjq1:amd64 (1.6-2.1+deb12u2) ...
+Selecting previously unselected package jq.
+Preparing to unpack .../7-jq_1.6-2.1+deb12u2_amd64.deb ...
+Unpacking jq (1.6-2.1+deb12u2) ...
+Preparing to unpack .../8-libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking libcurl3-gnutls:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Setting up wget (1.21.3-1+deb12u1) ...
+Setting up libcurl3-gnutls:amd64 (7.88.1-10+deb12u15) ...
+Setting up ipcalc (0.42-2) ...
+Setting up sudo (1.9.13p3-1+deb12u4) ...
+Setting up libcurl4:amd64 (7.88.1-10+deb12u15) ...
+Setting up curl (7.88.1-10+deb12u15) ...
+Setting up libonig5:amd64 (6.9.8-1) ...
+Setting up libjq1:amd64 (1.6-2.1+deb12u2) ...
+Setting up jq (1.6-2.1+deb12u2) ...
+Processing triggers for man-db (2.11.2-2) ...
+Processing triggers for libc-bin (2.36-9+deb12u1) ...
+[0;34m[INFO][0m 15:37:12 Verifying DNS on worker before containerd install...
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+DNS_OK
+[0;32m[PASS][0m 15:37:14 DNS verified on worker before containerd install
+[0;34m[INFO][0m 15:37:14 Using remote containerd installer: https://raw.githubusercontent.com/oneclickvirt/containerd/main/containerdinstall.sh
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+[36m[01mDetected system: Debian  arch: amd64[0m
+[33m[01mCDN available, using CDN: https://cdn0.spiritlhl.top/[0m
+[36m[01m======================================================[0m
+[36m[01m  Containerd 容器运行时一键安装脚本[0m
+[36m[01m  from https://github.com/oneclickvirt/containerd[0m
+[36m[01m  2026.08.26[0m
+[36m[01m======================================================[0m
+
+[33m[01m环境变量 NEED_DISK_LIMIT=n：不启用容器磁盘大小限制[0m
+[33m[01mnoninteractive=true：使用默认 containerd 存储路径 /var/lib/containerd[0m
+[32m[01m将安装标准 containerd，无容器磁盘大小限制功能[0m
+[32m[01mWill install standard containerd without container disk size limitation[0m
+[33m[01mInstalling base dependencies...[0m
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian-security bookworm-security InRelease
+Hit:3 http://deb.debian.org/debian bookworm-updates InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u15).
+wget is already the newest version (1.21.3-1+deb12u1).
+iproute2 is already the newest version (6.1.0-3).
+jq is already the newest version (1.6-2.1+deb12u2).
+python3 is already the newest version (3.11.2-1+b1).
+python3 set to manually installed.
+Suggested packages:
+  git-daemon-run | git-daemon-sysvinit git-doc git-email git-gui gitk gitweb
+  git-cvs git-mediawiki git-svn firewalld ed diffutils-doc ncompress
+  tar-scripts tar-doc zip
+The following NEW packages will be installed:
+  git git-man iptables liberror-perl libip6tc2 patch socat unzip
+The following packages will be upgraded:
+  ca-certificates libnftables1 nftables tar
+4 upgraded, 8 newly installed, 0 to remove and 144 not upgraded.
+Need to get 11.8 MB of archives.
+After this operation, 52.9 MB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian bookworm/main amd64 tar amd64 1.34+dfsg-1.2+deb12u1 [836 kB]
+Get:2 http://deb.debian.org/debian bookworm/main amd64 nftables amd64 1.0.6-2+deb12u2 [70.3 kB]
+Get:3 http://deb.debian.org/debian bookworm/main amd64 libnftables1 amd64 1.0.6-2+deb12u2 [299 kB]
+Get:4 http://deb.debian.org/debian-security bookworm-security/main amd64 ca-certificates all 20250419~deb12u1 [162 kB]
+Get:5 http://deb.debian.org/debian bookworm/main amd64 liberror-perl all 0.17029-2 [29.0 kB]
+Get:6 http://deb.debian.org/debian bookworm/main amd64 git-man all 1:2.39.5-0+deb12u3 [2053 kB]
+Get:7 http://deb.debian.org/debian bookworm/main amd64 git amd64 1:2.39.5-0+deb12u3 [7264 kB]
+Get:8 http://deb.debian.org/debian bookworm/main amd64 libip6tc2 amd64 1.8.9-2 [19.4 kB]
+Get:9 http://deb.debian.org/debian bookworm/main amd64 iptables amd64 1.8.9-2 [360 kB]
+Get:10 http://deb.debian.org/debian bookworm/main amd64 patch amd64 2.7.6-7 [128 kB]
+Get:11 http://deb.debian.org/debian bookworm/main amd64 socat amd64 1.7.4.4-2 [375 kB]
+Get:12 http://deb.debian.org/debian-security bookworm-security/main amd64 unzip amd64 6.0-28+deb12u1 [167 kB]
+apt-listchanges: Reading changelogs...
+Preconfiguring packages ...
+Fetched 11.8 MB in 10s (1215 kB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 31730 files and directories currently installed.)
+Preparing to unpack .../tar_1.34+dfsg-1.2+deb12u1_amd64.deb ...
+Unpacking tar (1.34+dfsg-1.2+deb12u1) over (1.34+dfsg-1.2) ...
+Setting up tar (1.34+dfsg-1.2+deb12u1) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 31730 files and directories currently installed.)
+Preparing to unpack .../00-nftables_1.0.6-2+deb12u2_amd64.deb ...
+Unpacking nftables (1.0.6-2+deb12u2) over (1.0.6-2+deb12u1) ...
+Preparing to unpack .../01-libnftables1_1.0.6-2+deb12u2_amd64.deb ...
+Unpacking libnftables1:amd64 (1.0.6-2+deb12u2) over (1.0.6-2+deb12u1) ...
+Preparing to unpack .../02-ca-certificates_20250419~deb12u1_all.deb ...
+Unpacking ca-certificates (20250419~deb12u1) over (20230311) ...
+Selecting previously unselected package liberror-perl.
+Preparing to unpack .../03-liberror-perl_0.17029-2_all.deb ...
+Unpacking liberror-perl (0.17029-2) ...
+Selecting previously unselected package git-man.
+Preparing to unpack .../04-git-man_1%3a2.39.5-0+deb12u3_all.deb ...
+Unpacking git-man (1:2.39.5-0+deb12u3) ...
+Selecting previously unselected package git.
+Preparing to unpack .../05-git_1%3a2.39.5-0+deb12u3_amd64.deb ...
+Unpacking git (1:2.39.5-0+deb12u3) ...
+Selecting previously unselected package libip6tc2:amd64.
+Preparing to unpack .../06-libip6tc2_1.8.9-2_amd64.deb ...
+Unpacking libip6tc2:amd64 (1.8.9-2) ...
+Selecting previously unselected package iptables.
+Preparing to unpack .../07-iptables_1.8.9-2_amd64.deb ...
+Unpacking iptables (1.8.9-2) ...
+Selecting previously unselected package patch.
+Preparing to unpack .../08-patch_2.7.6-7_amd64.deb ...
+Unpacking patch (2.7.6-7) ...
+Selecting previously unselected package socat.
+Preparing to unpack .../09-socat_1.7.4.4-2_amd64.deb ...
+Unpacking socat (1.7.4.4-2) ...
+Selecting previously unselected package unzip.
+Preparing to unpack .../10-unzip_6.0-28+deb12u1_amd64.deb ...
+Unpacking unzip (6.0-28+deb12u1) ...
+Setting up libnftables1:amd64 (1.0.6-2+deb12u2) ...
+Setting up nftables (1.0.6-2+deb12u2) ...
+Setting up libip6tc2:amd64 (1.8.9-2) ...
+Setting up unzip (6.0-28+deb12u1) ...
+Setting up liberror-perl (0.17029-2) ...
+Setting up ca-certificates (20250419~deb12u1) ...
+Updating certificates in /etc/ssl/certs...
+rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
+23 added, 13 removed; done.
+Setting up socat (1.7.4.4-2) ...
+Setting up patch (2.7.6-7) ...
+Setting up git-man (1:2.39.5-0+deb12u3) ...
+Setting up iptables (1.8.9-2) ...
+update-alternatives: using /usr/sbin/iptables-legacy to provide /usr/sbin/iptables (iptables) in auto mode
+update-alternatives: using /usr/sbin/ip6tables-legacy to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+update-alternatives: using /usr/sbin/iptables-nft to provide /usr/sbin/iptables (iptables) in auto mode
+update-alternatives: using /usr/sbin/ip6tables-nft to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+update-alternatives: using /usr/sbin/arptables-nft to provide /usr/sbin/arptables (arptables) in auto mode
+update-alternatives: using /usr/sbin/ebtables-nft to provide /usr/sbin/ebtables (ebtables) in auto mode
+Setting up git (1:2.39.5-0+deb12u3) ...
+Processing triggers for libc-bin (2.36-9+deb12u1) ...
+Processing triggers for man-db (2.11.2-2) ...
+Processing triggers for mailcap (3.70+nmu1) ...
+Processing triggers for ca-certificates (20250419~deb12u1) ...
+Updating certificates in /etc/ssl/certs...
+0 added, 0 removed; done.
+Running hooks in /etc/ca-certificates/update.d...
+done.
+[32m[01mBase dependencies installed[0m
+[36m[01mMain network interface: eth1[0m
+[33m[01mNo locally bound public IPv6 prefix found; independent IPv6 setup is disabled[0m
+[33m[01mUsing overlayfs snapshotter (standard installation, no disk size limitation).[0m
+[33m[01m使用 overlayfs 快照器（标准安装，无硬盘大小限制）。[0m
+[33m[01mInstalling containerd stack (nerdctl-full bundle)...[0m
+[36m[01mnerdctl version: 2.4.0[0m
+[33m[01mDownloading nerdctl-full (this may take a while)...[0m
+[33m[01mTrying CDN: https://cdn0.spiritlhl.top/https://github.com/containerd/nerdctl/releases/download/v2.4.0/nerdctl-full-2.4.0-linux-amd64.tar.gz[0m
+[32m[01mCDN download successful (293621324 bytes)[0m
+[32m[01mnerdctl-full extracted to /usr/local[0m
+[32m[01mcontainerd stack installed[0m
+[33m[01mConfiguring containerd...[0m
+[32m[01mcontainerd configured with overlayfs snapshotter (standard)[0m
+[33m[01mConfiguring CNI network...[0m
+[32m[01mCNI network configured[0m
+[36m[01mFirewall backend: nftables[0m
+[33m[01mSetting up firewall rules for containerd-net (172.20.0.0/16)...[0m
+[32m[01mnftables IPv4 NAT/FORWARD rules configured[0m
+[32m[01mnftables rules persisted[0m
+[33m[01mConfiguring kernel parameters...[0m
+[32m[01mKernel parameters configured[0m
+[33m[01mStarting containerd and buildkitd services...[0m
+[32m[01mcontainerd is running[0m
+[33m[01mSetting up DNS liveness check service...[0m
+[32m[01mDNS check service configured[0m
+[33m[01mIndependent IPv6 was not enabled; IPv4 container networking remains available[0m
+[33m[01mVerifying installation...[0m
+[32m[01m  ✓ containerd: containerd github.com/containerd/containerd/v2 v2.4.0 a7fe631d96c08fb14cf8eff0afdc280e99c30a94[0m
+[32m[01m  ✓ runc: runc version 1.5.1[0m
+[32m[01m  ✓ nerdctl: nerdctl version 2.4.0[0m
+[32m[01m  ✓ buildkitd available[0m
+[32m[01mAll components installed successfully[0m
+
+[32m[01m======================================================[0m
+[32m[01m  ✓ Containerd 安装完成！[0m
+[33m[01m  ✗ 硬盘大小限制：未启用（overlayfs 快照器）[0m
+[32m[01m======================================================[0m
+
+[36m[01m常用命令:[0m
+[33m[01m  查看容器:  nerdctl ps -a[0m
+[33m[01m  拉取镜像:  nerdctl pull ubuntu:22.04[0m
+[33m[01m  开设容器:  bash scripts/onecontainerd.sh <name> <cpu> <mem_mb> <passwd> <sshport> <startport> <endport>[0m
+[33m[01m  批量开设:  bash scripts/create_containerd.sh[0m
+[33m[01m  项目地址:  https://github.com/oneclickvirt/containerd[0m
+
+[0;34m[INFO][0m 15:42:09 Rebooting worker to apply network/kernel settings...
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+[0;34m[INFO][0m 15:42:10 Waiting for SSH after reboot (max 600s)...
+[0;34m[INFO][0m 15:42:10 [lightnode] Waiting for SSH on 38.60.176.252 (max 600s)...
+[0;32m[PASS][0m 15:42:40 [lightnode] SSH ready on 38.60.176.252
+[0;34m[INFO][0m 15:42:40 Ensuring 2048MB swap on worker after containerd reboot...
+[DEBUG] 15:42:41 Swap setup output on worker after containerd reboot: Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+SWAP_OK total=2047MB
+[0;32m[PASS][0m 15:42:41 Swap ready on worker after containerd reboot
+[0;34m[INFO][0m 15:42:41 Verifying DNS on worker after containerd reboot...
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+DNS_OK
+[0;32m[PASS][0m 15:42:42 DNS verified on worker after containerd reboot
+[0;34m[INFO][0m 15:42:42 Re-running containerd install to complete post-reboot setup...
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+[36m[01mDetected system: Debian  arch: amd64[0m
+[33m[01mCDN available, using CDN: https://cdn0.spiritlhl.top/[0m
+[36m[01m======================================================[0m
+[36m[01m  Containerd 容器运行时一键安装脚本[0m
+[36m[01m  from https://github.com/oneclickvirt/containerd[0m
+[36m[01m  2026.08.26[0m
+[36m[01m======================================================[0m
+
+[33m[01m环境变量 NEED_DISK_LIMIT=n：不启用容器磁盘大小限制[0m
+[33m[01mnoninteractive=true：使用默认 containerd 存储路径 /var/lib/containerd[0m
+[32m[01m将安装标准 containerd，无容器磁盘大小限制功能[0m
+[32m[01mWill install standard containerd without container disk size limitation[0m
+[33m[01mInstalling base dependencies...[0m
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian-security bookworm-security InRelease
+Hit:3 http://deb.debian.org/debian bookworm-updates InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u15).
+wget is already the newest version (1.21.3-1+deb12u1).
+ca-certificates is already the newest version (20250419~deb12u1).
+nftables is already the newest version (1.0.6-2+deb12u2).
+iptables is already the newest version (1.8.9-2).
+iproute2 is already the newest version (6.1.0-3).
+socat is already the newest version (1.7.4.4-2).
+unzip is already the newest version (6.0-28+deb12u1).
+tar is already the newest version (1.34+dfsg-1.2+deb12u1).
+jq is already the newest version (1.6-2.1+deb12u2).
+python3 is already the newest version (3.11.2-1+b1).
+git is already the newest version (1:2.39.5-0+deb12u3).
+0 upgraded, 0 newly installed, 0 to remove and 144 not upgraded.
+[32m[01mBase dependencies installed[0m
+[36m[01mMain network interface: eth1[0m
+[33m[01mNo locally bound public IPv6 prefix found; independent IPv6 setup is disabled[0m
+[33m[01mUsing overlayfs snapshotter (standard installation, no disk size limitation).[0m
+[33m[01m使用 overlayfs 快照器（标准安装，无硬盘大小限制）。[0m
+[33m[01mInstalling containerd stack (nerdctl-full bundle)...[0m
+[36m[01mnerdctl version: 2.4.0[0m
+[33m[01mDownloading nerdctl-full (this may take a while)...[0m
+[33m[01mTrying CDN: https://cdn0.spiritlhl.top/https://github.com/containerd/nerdctl/releases/download/v2.4.0/nerdctl-full-2.4.0-linux-amd64.tar.gz[0m
+[32m[01mCDN download successful (293621324 bytes)[0m
+[32m[01mnerdctl-full extracted to /usr/local[0m
+[32m[01mcontainerd stack installed[0m
+[33m[01mConfiguring containerd...[0m
+[32m[01mcontainerd configured with overlayfs snapshotter (standard)[0m
+[33m[01mConfiguring CNI network...[0m
+[32m[01mCNI network configured[0m
+[36m[01mFirewall backend: nftables[0m
+[33m[01mSetting up firewall rules for containerd-net (172.20.0.0/16)...[0m
+[32m[01mnftables IPv4 NAT/FORWARD rules configured[0m
+[32m[01mnftables rules persisted[0m
+[33m[01mConfiguring kernel parameters...[0m
+[32m[01mKernel parameters configured[0m
+[33m[01mStarting containerd and buildkitd services...[0m
+[32m[01mcontainerd is running[0m
+[33m[01mSetting up DNS liveness check service...[0m
+[32m[01mDNS check service configured[0m
+[33m[01mIndependent IPv6 was not enabled; IPv4 container networking remains available[0m
+[33m[01mVerifying installation...[0m
+[32m[01m  ✓ containerd: containerd github.com/containerd/containerd/v2 v2.4.0 a7fe631d96c08fb14cf8eff0afdc280e99c30a94[0m
+[32m[01m  ✓ runc: runc version 1.5.1[0m
+[32m[01m  ✓ nerdctl: nerdctl version 2.4.0[0m
+[32m[01m  ✓ buildkitd available[0m
+[32m[01mAll components installed successfully[0m
+
+[32m[01m======================================================[0m
+[32m[01m  ✓ Containerd 安装完成！[0m
+[33m[01m  ✗ 硬盘大小限制：未启用（overlayfs 快照器）[0m
+[32m[01m======================================================[0m
+
+[36m[01m常用命令:[0m
+[33m[01m  查看容器:  nerdctl ps -a[0m
+[33m[01m  拉取镜像:  nerdctl pull ubuntu:22.04[0m
+[33m[01m  开设容器:  bash scripts/onecontainerd.sh <name> <cpu> <mem_mb> <passwd> <sshport> <startport> <endport>[0m
+[33m[01m  批量开设:  bash scripts/create_containerd.sh[0m
+[33m[01m  项目地址:  https://github.com/oneclickvirt/containerd[0m
+
+[0;34m[INFO][0m 15:47:13 Verifying DNS on worker after containerd install...
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+DNS_OK
+[0;32m[PASS][0m 15:47:14 DNS verified on worker after containerd install
+[0;34m[INFO][0m 15:47:14 Verifying containerd runtime on worker...
+[1;33m[WARN][0m 15:47:39 containerd runtime verification failed or timed out
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+[1;33m[WARN][0m 15:47:16 Remote command failed on 38.60.176.252 (attempt 1/3, exit=1); retrying in 10s
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+[1;33m[WARN][0m 15:47:27 Remote command failed on 38.60.176.252 (attempt 2/3, exit=1); retrying in 10s
+Warning: Permanently added '38.60.176.252' (ED25519) to the list of known hosts.
+[0;31m[FAIL][0m 15:47:40 containerd runtime prerequisites are incomplete after installation
+[0;31m[FAIL][0m 15:47:40 Worker runtime verification (containerd) - expected ready, got not ready
+[0;31m[FAIL][0m 15:47:40 Worker runtime verification (containerd) - actual response body follows:
+Required runtime services or state are unavailable after installation
+[0;31m[FAIL][0m 15:47:40 Script exiting with code 1
+[0;34m[INFO][0m 15:47:40 Capturing service logs for debugging...
+[0;34m[INFO][0m 15:47:40 Cleaning up nodes: ecs-ck0001lzh653</pre></body></html>
