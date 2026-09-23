@@ -1,0 +1,101 @@
+<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>[0;34m[INFO][0m 14:35:30 Container test size: 1C/1024MB/20G
+[0;34m[INFO][0m 14:35:30 VM test size: 1C/1024MB/20G
+
+[0;36m========== Environment Integration Test: lxd ==========[0m
+
+[0;34m[INFO][0m 14:35:30 Modules: all
+[0;34m[INFO][0m 14:35:30 Instance types: both (requested: both)
+[0;34m[INFO][0m 14:35:30 Execution rule: auto
+[0;34m[INFO][0m 14:35:30 Node hours: 8h
+[0;32m[PASS][0m 14:35:30 Platform resolution
+[0;34m[INFO][0m 14:35:30 Enabled platforms: alice lightnode
+[0;34m[INFO][0m 14:35:30 Active platform will be selected automatically with fallback
+[0;32m[PASS][0m 14:35:30 Required commands available: jq curl go
+[0;32m[PASS][0m 14:35:30 Required commands
+[0;34m[INFO][0m 14:35:30 Resource check skipped (SKIP_RESOURCE_CHECK=true)
+[0;32m[PASS][0m 14:35:30 Runner resources
+[0;32m[PASS][0m 14:35:30 Port 8888 is available
+[0;32m[PASS][0m 14:35:30 Master port availability
+[0;34m[INFO][0m 14:35:30 Waiting for authenticated MySQL/MariaDB TCP readiness...
+[0;32m[PASS][0m 14:35:30 MySQL/MariaDB ready after 0s
+[0;32m[PASS][0m 14:35:30 MySQL readiness
+
+[0;36m========== Phase 1: Deploy master on runner ==========[0m
+
+[0;34m[INFO][0m 14:35:30 Preparing isolated server workdir: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/35874569813-1-lxd/server-work-lxd-8888-12272
+
+[0;36m========== Deploying master locally on runner from source (port 8888) ==========[0m
+
+[0;34m[INFO][0m 14:35:30 Server directory: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/35874569813-1-lxd/server-work-lxd-8888-12272
+[0;34m[INFO][0m 14:35:30 Patching config.yaml for CI environment...
+[0;32m[PASS][0m 14:35:30 config.yaml patched
+Real AMD64 and ARM64 Agent assets verified
+[0;34m[INFO][0m 14:35:30 Building server binary...
+[0;32m[PASS][0m 14:35:43 Server binary built
+[0;34m[INFO][0m 14:35:43 Server process started (PID 13286), waiting for startup...
+[0;32m[PASS][0m 14:35:48 Server started and responding (PID 13286, elapsed 5s, HTTP 200)
+[0;32m[PASS][0m 14:35:48 Master deployed locally on runner (port 8888)
+
+[0;36m========== Phase 2: Create worker node ==========[0m
+
+[0;34m[INFO][0m 14:35:48 Creating test node: env=lxd hours=8
+[0;34m[INFO][0m 14:35:48 Enabled platforms (priority order): alice lightnode
+[0;34m[INFO][0m 14:35:48 === Trying platform: alice (attempt 1/2) ===
+[0;34m[INFO][0m 14:35:48 Initializing platform: alice
+[0;34m[INFO][0m 14:35:48 [alice] Platform initialized (API: https://app.alice.ws/cli/v1)
+[0;32m[PASS][0m 14:35:48 Platform 'alice' initialized
+[0;34m[INFO][0m 14:35:48 [alice] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 14:35:48 [alice] Creating new instance (env=lxd hours=8)...
+[0;34m[INFO][0m 14:35:48 [alice] Creating instance: env=lxd hours=8
+[DEBUG] 14:35:49 [alice] GET /evo/permissions HTTP 200
+[DEBUG] 14:35:49 [alice] GET /evo/plans/38/os-images HTTP 200
+[0;32m[PASS][0m 14:35:50 [alice] Instance creation requested, ID: 23267
+[0;34m[INFO][0m 14:35:50 [alice] Waiting for instance 23267 to be ready (max 600s)...
+[DEBUG] 14:35:50 [alice] Instance 23267: status=complete state=stopped
+[DEBUG] 14:36:06 [alice] Instance 23267: status=buildFailed state=stopped
+[DEBUG] 14:36:21 [alice] Instance 23267: status=complete state=running
+[0;32m[PASS][0m 14:36:21 [alice] Instance 23267 is ready
+[0;32m[PASS][0m 14:36:21 [alice] Instance created: ID=23267 IP=31.22.111.90
+[0;32m[PASS][0m 14:36:21 Instance created on 'alice': ID=23267 IP=31.22.111.90
+[0;34m[INFO][0m 14:36:21 [alice] Waiting for SSH on 31.22.111.90 (max 600s)...
+[DEBUG] 14:36:25 [alice] SSH not ready on 31.22.111.90 (0/600s): ssh: connect to host 31.22.111.90 port 22: Connection refused
+[0;32m[PASS][0m 14:36:36 [alice] SSH ready on 31.22.111.90
+[0;34m[INFO][0m 14:36:36 Checking worker resources for lxd/both on alice (memory>=7680MB from 8192MB nominal, cpu>=4, disk>=41GB, /dev/kvm required)...
+Warning: Permanently added '31.22.111.90' (ED25519) to the list of known hosts.
+WORKER_RESOURCE_CHECK env=lxd platform=alice memory_mb=3888 cpu=2 disk_gb=56 kvm=present
+WORKER_RESOURCE_INSUFFICIENT: memory_mb=3888 required>=7680
+[1;33m[WARN][0m 14:36:37 Worker resources do not satisfy lxd requirements on alice
+[1;33m[WARN][0m 14:36:37 [alice] Instance 23267 does not meet lxd worker requirements; releasing it and trying next platform
+[0;34m[INFO][0m 14:36:37 === Trying platform: lightnode (attempt 1/2) ===
+[0;34m[INFO][0m 14:36:37 Initializing platform: lightnode
+[0;34m[INFO][0m 14:36:37 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 14:36:38 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 14:36:39 [lightnode] Platform initialized
+[0;32m[PASS][0m 14:36:39 Platform 'lightnode' initialized
+[0;34m[INFO][0m 14:36:39 [lightnode] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 14:36:39 [lightnode] Creating new instance (env=lxd hours=8)...
+[0;34m[INFO][0m 14:36:39 [lightnode] Creating instance: env=lxd
+[0;34m[INFO][0m 14:36:40 [lightnode] Raised package floor for lxd/both to 4C/8192MB
+[0;34m[INFO][0m 14:36:40 [lightnode] Using package=intel-c4m8-bgp-b10-s50-d100 (required=4C/8192MB tier=3, strict=true)
+[0;32m[PASS][0m 14:36:50 [lightnode] Instance creation requested: ecs-ck0001lza1ya
+[0;34m[INFO][0m 14:36:50 [lightnode] Waiting for async task xe0001lza1xf (max 1800s)...
+[DEBUG] 14:36:50 [lightnode] Task xe0001lza1xf: result=RETRY status=PROCESSING
+[DEBUG] 14:37:06 [lightnode] Task xe0001lza1xf: result=RETRY status=PROCESSING
+[DEBUG] 14:37:22 [lightnode] Task xe0001lza1xf: result=RETRY status=PROCESSING
+[DEBUG] 14:37:37 [lightnode] Task xe0001lza1xf: result=RETRY status=PROCESSING
+[DEBUG] 14:37:53 [lightnode] Task xe0001lza1xf: result=RETRY status=PROCESSING
+[DEBUG] 14:38:09 [lightnode] Task xe0001lza1xf: result=RETRY status=PROCESSING
+[DEBUG] 14:38:25 [lightnode] Task xe0001lza1xf: result=SUCCESS status=FINISHED
+[0;32m[PASS][0m 14:38:25 [lightnode] Task xe0001lza1xf completed
+[0;32m[PASS][0m 14:38:26 Instance created on 'lightnode': ID=ecs-ck0001lza1ya IP=38.60.176.48
+[0;34m[INFO][0m 14:38:26 [lightnode] Waiting for SSH on 38.60.176.48 (max 600s)...
+[0;31m[FAIL][0m 14:48:34 [lightnode] SSH timeout on 38.60.176.48 after 600s
+[0;31m[FAIL][0m 14:48:34 [lightnode] SSH never became available for resource validation
+[0;31m[FAIL][0m 14:49:24 All enabled platforms failed to create an instance (attempt 1/2)
+[0;31m[FAIL][0m 14:49:24 All enabled platforms failed to create an instance
+[0;31m[FAIL][0m 14:49:24 All platforms failed to create a test node
+[1;33m[WARN][0m 14:49:24 Worker node provisioning skipped due to an infrastructure failure (exit=1)
+[1;33m[SKIP][0m 14:49:24 Worker node provisioning: Worker node provisioning failed with exit 1
+[0;34m[INFO][0m 14:49:24 This is a transient infrastructure condition, not a test failure.
+[0;34m[INFO][0m 14:49:24 Re-run the workflow when resources are available, or add more cloud platform accounts.
+[1;33m[SKIP][0m 14:49:24 Harness skipped due to a transient infrastructure condition (exit 75)</pre></body></html>
