@@ -47,8 +47,17 @@ grep -Fq '::error::No module assertions were executed' "$WORKFLOW" ||
     fail "workflow still allows a harness-only run to pass"
 grep -Fq 'pip3 install --quiet paramiko websocket-client' "$WORKFLOW" ||
     fail "live Agent/WebSSH dependency installation is incomplete"
-grep -Fq 'python3 action_tests/static_audit.py --root . --output-dir action_tests/reports --strict --min-route-coverage 82' "$WORKFLOW" ||
+grep -Fq 'python3 action_tests/static_audit.py --root . --output-dir ${{ env.REPORT_DIR }} --strict --min-route-coverage 82' "$WORKFLOW" ||
     fail "integration workflow does not run strict static audit"
+grep -Fq 'REPORT_DIR: ${{ github.workspace }}/action_tests/reports/${{ github.run_id }}-${{ github.run_attempt }}-' "$WORKFLOW" ||
+    fail "integration reports are not isolated from tracked historical reports"
+grep -Fq 'current_results="${REPORT_DIR}/${{ matrix.environment }}-results.jsonl"' "$WORKFLOW" ||
+    fail "integration gate does not select the current environment result file"
+! grep -Fq 'result_files=(action_tests/reports/*.jsonl)' "$WORKFLOW" ||
+    fail "integration gate still includes stale reports"
+grep -Fq 'needs: [build-test-agent]' "$WORKFLOW" || fail "real Agent build is not required"
+grep -Fq 'python3 scripts/validate_agent_assets.py server/assets/agent' "$WORKFLOW" ||
+    fail "synthetic Agent artifacts are not rejected"
 grep -Fq '::error::Action test static audit found blocking findings' "$WORKFLOW" ||
     fail "static audit findings are not surfaced as blocking errors"
 grep -Fq 'exit "${audit_exit}"' "$WORKFLOW" ||

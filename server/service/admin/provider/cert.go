@@ -3,6 +3,7 @@ package provider
 import (
 	"fmt"
 	"oneclickvirt/global"
+	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	provider2 "oneclickvirt/service/provider"
 )
@@ -16,7 +17,7 @@ func (s *Service) GenerateProviderCert(providerID uint) (string, error) {
 
 	// 支持LXD、Incus和Proxmox（proxmoxve是proxmox的别名）
 	if provider.Type != "lxd" && provider.Type != "incus" && provider.Type != "proxmox" && provider.Type != "proxmoxve" {
-		return "", fmt.Errorf("只支持为LXD、Incus和Proxmox生成配置")
+		return "", common.NewError(common.CodeValidationError, "只支持为LXD、Incus和Proxmox生成配置")
 	}
 
 	certService := &provider2.CertService{}

@@ -20,6 +20,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-test-agent:
+    uses: ./.github/workflows/build-test-agent.yml
+    permissions:
+      contents: read
+
   arm-docker-lifecycle-test:
     name: "ARM64 Docker Install, Restart and Upgrade"
     runs-on: ubuntu-24.04-arm
@@ -94,6 +99,7 @@ jobs:
 
   arm-controller-test:
     name: "ARM64 Controller Tests"
+    needs: [build-test-agent]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     permissions:
@@ -102,6 +108,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+
+      - name: Download real Agent artifacts from this run
+        uses: actions/download-artifact@v8
+        with:
+          pattern: integration-agent-*
+          merge-multiple: true
+          path: server/assets/agent
+
+      - name: Verify real Agent assets
+        run: python3 scripts/validate_agent_assets.py server/assets/agent
 
       - name: Setup Go
         uses: actions/setup-go@v7
@@ -515,7 +531,7 @@ jobs:
           # Prune old reports: keep only the latest 7 runs
           KEEP=7
           if [[ -d "report-repo/reports/${ENV}" ]]; then
-            SORTED=$(ls -d "report-repo/reports/${ENV}/"/*/  2>/dev/null | sort -r)
+            SORTED=$(find "report-repo/reports/${ENV}" -mindepth 1 -maxdepth 1 -type d | sort -r)
             COUNT=0
             while IFS= read -r dir; do
               COUNT=$((COUNT + 1))

@@ -14,6 +14,18 @@
 set -uo pipefail
 export noninteractive=true
 
+# Handle CLI-only requests before sourcing providers or creating reports. In
+# particular, --help must never provision a worker or create --help-results.
+case "${1:-}" in
+    -h|--help)
+        printf 'Usage: bash run_env_test.sh <env_type> [modules] [instance_types]\n'
+        printf 'Environments: docker podman containerd lxd incus proxmoxve kubevirt qemu\n'
+        exit 0
+        ;;
+    ''|docker|podman|containerd|lxd|incus|proxmoxve|kubevirt|qemu) ;;
+    *) printf 'Unknown environment: %s\n' "$1" >&2; exit 2 ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMON_DIR="${SCRIPT_DIR}/common"
 REPORT_DIR="${REPORT_DIR:-${SCRIPT_DIR}/reports}"

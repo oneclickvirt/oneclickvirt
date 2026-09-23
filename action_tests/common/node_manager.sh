@@ -1355,7 +1355,17 @@ MASTER_SERVER_DIR=""
 
 ensure_ci_agent_assets() {
     local server_dir="$1"
-    [[ "${ACTION_TEST_GENERATE_STUB_AGENT:-true}" == "true" ]] || return 0
+    if [[ "${ACTION_TEST_GENERATE_STUB_AGENT:-false}" != "true" ]]; then
+        local repository_root
+        repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+        python3 "${repository_root}/scripts/validate_agent_assets.py" "${server_dir}/assets/agent"
+        return $?
+    fi
+    if [[ "${GITHUB_ACTIONS:-false}" == "true" ]]; then
+        log_error "GitHub integration tests require real Agent artifacts; stub Agent is only for explicit local harness tests"
+        return 1
+    fi
+    log_warning "Using an explicit local stub Agent; this does NOT validate real monitoring, traffic or tunnel behavior"
 
     local asset_dir="${server_dir}/assets/agent"
     mkdir -p "$asset_dir" || return 1
@@ -1380,17 +1390,20 @@ if command -v python3 >/dev/null 2>&1; then
   exec python3 - <<'PY'
 import json
 import os
+import shlex
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(os.environ.get("AGENT_PORT", "23782"))
-TOKEN = ""
+TOKEN = os.environ.get("API_TOKEN", "")
 ENV_PATH = "/opt/oneclickvirt/agent/.env"
 try:
     with open(ENV_PATH, "r", encoding="utf-8") as env_file:
         for line in env_file:
             if line.startswith("API_TOKEN="):
-                TOKEN = line.split("=", 1)[1].strip()
+                if not TOKEN:
+                    values = shlex.split(line.split("=", 1)[1].strip())
+                    TOKEN = values[0] if values else ""
                 break
 except OSError:
     pass

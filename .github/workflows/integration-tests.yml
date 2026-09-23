@@ -95,6 +95,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-test-agent:
+    uses: ./.github/workflows/build-test-agent.yml
+    permissions:
+      contents: read
+
   debian-runtime-readiness:
     name: Debian 12 jq 1.6 runtime readiness
     runs-on: ubuntu-latest
@@ -128,6 +133,9 @@ jobs:
 
   integration-test:
     name: "Test: ${{ matrix.environment }}"
+    needs: [build-test-agent]
+    env:
+      REPORT_DIR: ${{ github.workspace }}/action_tests/reports/${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.environment }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     permissions:
@@ -141,6 +149,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+
+      - name: Download real Agent artifacts from this run
+        uses: actions/download-artifact@v8
+        with:
+          pattern: integration-agent-*
+          merge-multiple: true
+          path: server/assets/agent
+
+      - name: Verify real Agent assets
+        run: python3 scripts/validate_agent_assets.py server/assets/agent
 
       - name: Setup Go
         uses: actions/setup-go@v7
@@ -186,6 +204,9 @@ jobs:
           bash scripts/tests/result_integrity_test.sh
           bash scripts/tests/module_runner_integrity_test.sh
           bash scripts/tests/workflow_result_gate_test.sh
+          bash scripts/tests/action_prerequisite_test.sh
+          bash scripts/tests/cnb_snapshot_test.sh
+          python3 scripts/tests/ci_agent_assets_test.py
 
       - name: Test real SSH output flow control and command deadlines
         run: |
@@ -244,16 +265,16 @@ jobs:
       - name: Run action test static audit
         run: |
           set -euo pipefail
-          mkdir -p action_tests/reports
+          mkdir -p ${{ env.REPORT_DIR }}
           audit_exit=0
-          python3 action_tests/static_audit.py --root . --output-dir action_tests/reports --strict --min-route-coverage 82 || audit_exit=$?
+          python3 action_tests/static_audit.py --root . --output-dir ${{ env.REPORT_DIR }} --strict --min-route-coverage 82 || audit_exit=$?
           if [[ "${audit_exit}" != "0" ]]; then
             echo "::error::Action test static audit found blocking findings (exit ${audit_exit}); integration tests cannot proceed."
           fi
           {
             echo "## Action Test Static Audit"
             echo ""
-            sed -n '1,40p' action_tests/reports/static-audit.md
+            sed -n '1,40p' ${{ env.REPORT_DIR }}/static-audit.md
           } >> "$GITHUB_STEP_SUMMARY"
           if [[ "${audit_exit}" != "0" ]]; then
             exit "${audit_exit}"
@@ -495,7 +516,7 @@ jobs:
           chmod -R +x action_tests/modules/ 2>/dev/null || true
           chmod -R +x action_tests/common/ 2>/dev/null || true
           chmod -R +x action_tests/report/ 2>/dev/null || true
-          mkdir -p action_tests/reports
+          mkdir -p ${{ env.REPORT_DIR }}
 
           RESOLVED_PLATFORMS="${{ steps.resolve-platforms.outputs.usable_platforms }}"
           if [[ -z "$RESOLVED_PLATFORMS" ]]; then
@@ -544,7 +565,7 @@ jobs:
           bash action_tests/run_env_test.sh \
             "${{ matrix.environment }}" \
             "${{ inputs.modules }}" \
-            "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee action_tests/reports/full-output.log
+            "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee ${{ env.REPORT_DIR }}/full-output.log
           PIPE_STATUSES=("${PIPESTATUS[@]}")
           TEST_EXIT=${PIPE_STATUSES[0]:-0}
           TEE_EXIT=${PIPE_STATUSES[1]:-0}
@@ -555,16 +576,16 @@ jobs:
           fi
 
           # Ensure tee didn't break the pipe
-          if [[ ! -s action_tests/reports/full-output.log ]]; then
-            echo "WARNING: Test produced no output. Check that required platform secrets are configured." > action_tests/reports/full-output.log
+          if [[ ! -s ${{ env.REPORT_DIR }}/full-output.log ]]; then
+            echo "WARNING: Test produced no output. Check that required platform secrets are configured." > ${{ env.REPORT_DIR }}/full-output.log
           fi
 
           # Ensure report directory has at least a fallback file
-          if ! ls action_tests/reports/*.html 1>/dev/null 2>&1; then
+          if ! ls ${{ env.REPORT_DIR }}/*.html 1>/dev/null 2>&1; then
             if [[ "${TEST_EXIT}" == "75" ]]; then
-              echo "<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>$(cat action_tests/reports/full-output.log)</pre></body></html>" > "action_tests/reports/${{ matrix.environment }}-report.html"
+              echo "<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>$(cat ${{ env.REPORT_DIR }}/full-output.log)</pre></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
             else
-              echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat action_tests/reports/full-output.log)</pre></body></html>" > "action_tests/reports/${{ matrix.environment }}-report.html"
+              echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat ${{ env.REPORT_DIR }}/full-output.log)</pre></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
             fi
           fi
 
@@ -587,7 +608,7 @@ jobs:
           # must never be produced without an authoritative harness status.
           if [[ -z "${TEST_EXIT:-}" ]]; then
             echo "::error::Test step did not produce an exit code — it was skipped or aborted before results were finalized."
-            [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
+            [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
             exit 1
           fi
 
@@ -603,7 +624,9 @@ jobs:
             echo "::warning::Integration harness exited non-zero: ${_skip_reason}. Aggregating any JSONL results that were produced."
           fi
 
-          result_files=(action_tests/reports/*.jsonl)
+          result_files=()
+          current_results="${REPORT_DIR}/${{ matrix.environment }}-results.jsonl"
+          [[ ! -f "$current_results" ]] || result_files=("$current_results")
           if [[ ${#result_files[@]} -eq 0 ]]; then
             if [[ "${HARNESS_NONZERO}" == "true" ]]; then
               echo "::error::Integration tests did not produce JSONL results after ${_skip_reason}."
@@ -616,11 +639,11 @@ jobs:
                 echo "| Harness Exit Code | ${TEST_EXIT} |"
                 echo "| Status | INCOMPLETE (${_skip_reason}; no JSONL results) |"
               } >> "$GITHUB_STEP_SUMMARY"
-              [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
+              [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
               exit 1
             fi
             echo "::error::Integration tests did not produce any JSONL result files."
-            [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
+            [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
             exit 1
           fi
 
@@ -695,7 +718,7 @@ jobs:
           if [[ "$total" -eq 0 ]]; then
             if [[ "${HARNESS_NONZERO}" == "true" ]]; then
               echo "::error::Integration tests produced an empty result set after ${_skip_reason}."
-              [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
+              [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
               exit 1
             fi
             echo "::error::Integration tests produced an empty result set."
@@ -717,6 +740,7 @@ jobs:
               echo "### Failed Assertions"
               echo ""
             } >> "$GITHUB_STEP_SUMMARY"
+            # shellcheck disable=SC2094 # jq --arg passes the JSONL path as annotation data; the input file is never written.
             for f in "${result_files[@]}"; do
               line_no=0
               while IFS= read -r line; do
@@ -784,7 +808,7 @@ jobs:
         if: failure()
         run: |
           echo "=== Integration Test Output (last 200 lines) ==="
-          tail -200 action_tests/reports/full-output.log || true
+          tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
 
       - name: Upload test reports
         if: always()
@@ -792,12 +816,12 @@ jobs:
         with:
           name: test-reports-${{ matrix.environment }}-${{ github.run_number }}
           path: |
-            action_tests/reports/*.html
-            action_tests/reports/*.md
-            action_tests/reports/*.log
-            action_tests/reports/*.txt
-            action_tests/reports/*.json
-            action_tests/reports/*.jsonl
+            ${{ env.REPORT_DIR }}/*.html
+            ${{ env.REPORT_DIR }}/*.md
+            ${{ env.REPORT_DIR }}/*.log
+            ${{ env.REPORT_DIR }}/*.txt
+            ${{ env.REPORT_DIR }}/*.json
+            ${{ env.REPORT_DIR }}/*.jsonl
           retention-days: 30
 
       - name: Publish to GitHub Pages
@@ -810,8 +834,8 @@ jobs:
           ENV="${{ matrix.environment }}"
           REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           PUBLISH_SRC=$(mktemp -d)
-          cp action_tests/reports/*.html "$PUBLISH_SRC/" 2>/dev/null || true
-          cp action_tests/reports/*.jsonl "$PUBLISH_SRC/" 2>/dev/null || true
+          cp ${{ env.REPORT_DIR }}/*.html "$PUBLISH_SRC/" 2>/dev/null || true
+          cp ${{ env.REPORT_DIR }}/*.jsonl "$PUBLISH_SRC/" 2>/dev/null || true
 
           # Matrix jobs may finish together. Re-clone and rebuild the index on each retry so
           # a concurrent gh-pages update cannot discard another environment's report.
@@ -830,7 +854,7 @@ jobs:
 
             KEEP=7
             if [[ -d "report-repo/reports/${ENV}" ]]; then
-              SORTED=$(ls -d "report-repo/reports/${ENV}/"*/ 2>/dev/null | sort -r)
+              SORTED=$(find "report-repo/reports/${ENV}" -mindepth 1 -maxdepth 1 -type d | sort -r)
               COUNT=0
               while IFS= read -r dir; do
                 COUNT=$((COUNT + 1))
@@ -861,26 +885,27 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | ${{ matrix.environment }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Platform | ${{ inputs.platform }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Resolved Cloud Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Modules | ${{ inputs.modules }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [[ -f "action_tests/reports/${{ matrix.environment }}-report.md" ]]; then
-            cat "action_tests/reports/${{ matrix.environment }}-report.md" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "No markdown report file found." >> $GITHUB_STEP_SUMMARY
-          fi
-          # Also show last 30 lines of output for quick debugging
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "<details><summary>Last 30 lines of test output</summary>" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -30 action_tests/reports/full-output.log >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No output log found"
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Integration Test Results"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---------|-------|"
+            echo "| Environment | ${{ matrix.environment }} |"
+            echo "| Platform | ${{ inputs.platform }} |"
+            echo "| Resolved Cloud Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
+            echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |"
+            echo "| Modules | ${{ inputs.modules }} |"
+            echo ""
+            if [[ -f "${REPORT_DIR}/${{ matrix.environment }}-report.md" ]]; then
+              cat "${REPORT_DIR}/${{ matrix.environment }}-report.md"
+            else
+              echo "No markdown report file found."
+            fi
+            echo ""
+            echo "<details><summary>Last 30 lines of test output</summary>"
+            echo ""
+            echo '```'
+            tail -30 "${REPORT_DIR}/full-output.log" 2>/dev/null || echo "No output log found"
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -45,9 +45,9 @@ var hardwareVendorMatchers = []struct {
 
 // pasteAPIResponse paste API 响应结构
 type pasteAPIResponse struct {
-	Code int    `json:"code"`
-	Data string `json:"data"`
-	Msg  string `json:"msg"`
+	Code int             `json:"code"`
+	Data json.RawMessage `json:"data"`
+	Msg  string          `json:"msg"`
 }
 
 // parsePasteFileName 从粘贴板URL中提取文件名
@@ -108,6 +108,13 @@ func fetchPasteContent(pasteURL string) (string, error) {
 		return "", fmt.Errorf("读取粘贴板响应失败: %w", err)
 	}
 
+	return parsePasteContent(body)
+}
+
+// The paste service used to return data as a string; newer versions return
+// an object containing content. Decode the business error before data, since
+// unsuccessful lookups may return an empty object.
+func parsePasteContent(body []byte) (string, error) {
 	var apiResp pasteAPIResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
 		return "", fmt.Errorf("解析粘贴板API响应失败: %w", err)
@@ -117,11 +124,21 @@ func fetchPasteContent(pasteURL string) (string, error) {
 		return "", fmt.Errorf("粘贴板API错误: %s", apiResp.Msg)
 	}
 
-	if strings.TrimSpace(apiResp.Data) == "" {
+	var content string
+	if err := json.Unmarshal(apiResp.Data, &content); err != nil {
+		var data struct {
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(apiResp.Data, &data); err != nil {
+			return "", fmt.Errorf("解析粘贴板内容失败: %w", err)
+		}
+		content = data.Content
+	}
+	if strings.TrimSpace(content) == "" {
 		return "", fmt.Errorf("粘贴板内容为空")
 	}
 
-	return apiResp.Data, nil
+	return content, nil
 }
 
 // SaveHardwareReport 保存硬件报告（通过粘贴板URL下载内容）

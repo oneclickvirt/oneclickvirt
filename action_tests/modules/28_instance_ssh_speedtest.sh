@@ -230,21 +230,21 @@ run_module_28() {
 
     # -- Prerequisites --
     if [[ -z "${PROVIDER_ID:-}" ]]; then
-        chain_break "$group" "PROVIDER_ID not set (need module 09)"
+        _m28_skip_optional "PROVIDER_ID not set (need module 09)"
         return 0
     fi
     if [[ -z "${TEST_INSTANCE_ID:-}" ]]; then
-        chain_break "$group" "TEST_INSTANCE_ID not set (need module 10)"
+        _m28_skip_optional "TEST_INSTANCE_ID not set (need module 10)"
         return 0
     fi
 
     local remote_py; remote_py=$(_get_remote_py 2>/dev/null) || true
     if [[ -z "$remote_py" || ! -f "$remote_py" ]]; then
-        chain_break "$group" "remote.py not found (expected at action_tests/common/remote.py)"
-        return 0
+        record_fail_result "SSH test helper" "HARNESS" "module-28" "remote.py" "missing" "Required repository helper is missing" "$group"
+        return 1
     fi
     local py; py=$(_ensure_python 2>/dev/null) || {
-        chain_break "$group" "python3 not available"
+        record_fail_result "SSH test runtime" "HARNESS" "module-28" "python3" "missing" "Required runtime is missing" "$group"
         return 1
     }
     _ensure_paramiko || {

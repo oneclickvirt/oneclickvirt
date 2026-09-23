@@ -39,6 +39,12 @@ grep -Fq '默认CI不调用隧道接口' "$SKIPS_FILE" || fail "default Action m
 
 : > "$CALLS_FILE"
 export ACTION_TEST_LIVE_IPV6_TUNNEL=true
+action_test_runner_has_ipv6() { return 1; }
+run_ipv6_tunnel_host_lifecycle_tests providers >/dev/null
+[[ ! -s "$CALLS_FILE" ]] || fail "IPv4-only runner invoked a host-facing IPv6 endpoint"
+grep -Fq 'runner无可用IPv6' "$SKIPS_FILE" || fail "missing explicit IPv4-only runner skip"
+
+action_test_runner_has_ipv6() { return 0; }
 run_ipv6_tunnel_host_lifecycle_tests providers >/dev/null
 grep -Fq '/api/v1/admin/providers/1/ipv6-tunnels' "$CALLS_FILE" || fail "explicit host lifecycle opt-in did not invoke tunnel endpoints"
 grep -Fq 'Delete disabled IPv6 tunnel' "$CALLS_FILE" || fail "explicit host lifecycle opt-in omitted cleanup coverage"

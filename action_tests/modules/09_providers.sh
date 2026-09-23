@@ -13,6 +13,13 @@ action_test_live_ipv6_tunnel_enabled() {
     [[ "${ACTION_TEST_LIVE_IPV6_TUNNEL:-false}" == "true" ]]
 }
 
+action_test_runner_has_ipv6() {
+    # Probe the runner, not a proxy that might supply IPv6 on its behalf. A
+    # failed capability probe is a SKIP, never proof that guest IPv6 works.
+    curl -6 --noproxy '*' --connect-timeout 5 --max-time 10 --fail --silent \
+        --output /dev/null https://api64.ipify.org
+}
+
 # The regular Action matrix has no disposable tunnel endpoint. Keep every
 # host-facing tunnel call behind an explicit opt-in, while Go contract tests
 # exercise the state machine using a fake remote executor.
@@ -21,6 +28,11 @@ run_ipv6_tunnel_host_lifecycle_tests() {
     if ! action_test_live_ipv6_tunnel_enabled; then
         record_skip_result "IPv6 tunnel host lifecycle" "SKIP" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels" \
             "默认CI不调用隧道接口或变更宿主机网络；由带假远端执行器的Go契约测试覆盖" "$group"
+        return 0
+    fi
+    if ! action_test_runner_has_ipv6; then
+        record_skip_result "IPv6 tunnel host lifecycle" "SKIP" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels" \
+            "runner无可用IPv6，跳过实际IPv6分配、隧道操作和连通性测试；保留离线契约测试" "$group"
         return 0
     fi
 
@@ -316,13 +328,14 @@ run_module_09() {
         sleep 5
 
         # -- Auto configure (task) --
-        local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "200|infra" \
+        local auto_config_task_required=false
+        local auto_config_expected="400"
+        case "$ENV_TYPE" in
+            lxd|incus|proxmox|proxmoxve) auto_config_task_required=true; auto_config_expected="200|infra" ;;
+        esac
+        local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "$auto_config_expected" \
             "{\"providerId\":${PROVIDER_ID}}" "$group")
         local ac_task; ac_task=$(echo "$ac" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
-        local auto_config_task_required=false
-        case "$ENV_TYPE" in
-            lxd|incus|proxmox|proxmoxve) auto_config_task_required=true ;;
-        esac
         if [[ -n "$ac_task" ]]; then
             local ac_result=""
             if ac_result=$(wait_configuration_task_complete_nonfatal "$ac_task" "$ADMIN_TOKEN" "$CONFIG_TASK_MAX_WAIT" 10); then
@@ -362,7 +375,7 @@ run_module_09() {
             record_skip_result "Generate certificate (sync)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "covered by auto-configure task for ${ENV_TYPE}" "$group"
             ;;
         *)
-            test_api "Generate certificate" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "200|infra" \
+            test_api "Generate certificate (unsupported provider)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "400" \
                 '{}' "$group"
             ;;
     esac
@@ -387,7 +400,7 @@ run_module_09() {
 
     test_api "Clear IPv4 pool" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv4-pool" "200" "" "$group"
 
-    # -- IPv6 pool: discrete addresses and tiny prefixes must not be expanded --
+    # -- Offline pool CRUD/capacity contract: no host/guest IPv6 assignment --
     test_api "Reset IPv6 pool before coverage" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "200" "" "$group"
     if action_test_requires_routed_ipv6 "$ENV_TYPE"; then
         test_api "Reject manual IPv6 pool on routed-only provider" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "400" \
@@ -401,7 +414,7 @@ run_module_09() {
             '.data.addedCount' "2" \
             '{"addresses":"2001:db8:ffff::100\n2001:db8:ffff:1::/127"}' "$group" >/dev/null
         test_api_json_value "IPv6 tiny-prefix capacity" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "200" \
-            '.data.stats.availableExact' "3" "" "$group" >/dev/null
+            '.data.stats.availableExact' "2" "" "$group" >/dev/null
 
         local ipv6_pool_resp; ipv6_pool_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" 2>/dev/null)
@@ -634,6 +647,12 @@ EOF
         '{"gpuEnabled":true,"gpuDeviceIds":"0"}' "$group"
     test_api "Update provider gpuEnabled off" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
         '{"gpuEnabled":false,"gpuDeviceIds":""}' "$group"
+    # Updates enqueue a runtime reload which disconnects the previous provider.
+    # Do not race GPU detection against that disconnect/reconnect task.
+    if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} GPU updates" "$ADMIN_TOKEN" 300 5; then
+        record_fail_result "Provider reload after GPU updates" "GET" "/api/v1/admin/tasks" \
+            "no active tasks" "timeout" "Provider reload task did not settle" "$group"
+    fi
 
     # -- detect-gpus is intentionally a negative capability check outside LXD/Incus.
     if [[ "$ENV_TYPE" == "lxd" || "$ENV_TYPE" == "incus" ]]; then

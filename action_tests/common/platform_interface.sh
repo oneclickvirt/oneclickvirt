@@ -104,7 +104,7 @@ worker_resource_requirements() {
     esac
     local container_cpu="${ACTION_TEST_CONTAINER_CPU:-2}"
     local container_memory="${ACTION_TEST_CONTAINER_MEMORY:-2048}"
-    local container_disk="${ACTION_TEST_CONTAINER_DISK:-20}"
+    local container_disk="${ACTION_TEST_CONTAINER_DISK:-5}"
     local vm_cpu="${ACTION_TEST_VM_CPU:-2}"
     local vm_memory="${ACTION_TEST_VM_MEMORY:-4096}"
     local vm_disk="${ACTION_TEST_VM_DISK:-20}"

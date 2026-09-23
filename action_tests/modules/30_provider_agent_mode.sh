@@ -244,18 +244,24 @@ run_module_30() {
         test_api "Detect GPUs (LXD/Incus)" "GET" \
             "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|infra" "" "$group"
 
-        # -- Get copyable source containers for copy mode source selection --
+    else
+        test_api "Detect GPUs (non-LXD: expect 400)" "GET" \
+            "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "400" "" "$group"
+    fi
+
+    # Copy sources are supported by container runtimes as well as LXD/Incus.
+    case "$ENV_TYPE" in
+        lxd|incus|docker|podman|containerd|orbstack)
         local stopped_resp; stopped_resp=$(test_api "Get copyable source containers" "GET" \
             "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|infra" "" "$group")
         local containers; containers=$(echo "$stopped_resp" | jq -r '.data.containers | length' 2>/dev/null)
         log_info "Source containers available for copy mode: ${containers:-0}"
-    else
-        # Non-LXD/Incus: endpoints should return graceful error
-        test_api "Detect GPUs (non-LXD: expect 400)" "GET" \
-            "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "400" "" "$group"
+        ;;
+        *)
         test_api "Source containers (unsupported provider: expect 400)" "GET" \
             "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "400" "" "$group"
-    fi
+        ;;
+    esac
 
     # =========================================================
     # Section E: exec Command

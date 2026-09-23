@@ -32,6 +32,13 @@ run_module_13() {
     fi
 
     local inst_for_pm="" pm_id="" ctrl_pm_id=""
+    local manual_mapping_type="node" node_mapping_expected="200"
+    case "$ENV_TYPE" in
+        docker|podman|containerd|orbstack)
+            manual_mapping_type="controller"
+            node_mapping_expected="400"
+            ;;
+    esac
     if require_test_instance "$instance_group" "Port mapping instance-dependent tests" "$ADMIN_TOKEN"; then
         inst_for_pm="$TEST_INSTANCE_ID"
 
@@ -40,10 +47,10 @@ run_module_13() {
         # skip: the instance and provider already passed their readiness
         # gates, so it must remain a recorded failure.
         test_api "Check port for manual mapping" "POST" "/api/v1/admin/ports/check" "200" \
-            "{\"providerId\":${PROVIDER_ID},\"hostPort\":25001,\"portCount\":1,\"protocol\":\"tcp\"}" "$instance_group" >/dev/null
+            "{\"providerId\":${PROVIDER_ID},\"hostPort\":25001,\"portCount\":1,\"protocol\":\"tcp\",\"mappingType\":\"${manual_mapping_type}\"}" "$instance_group" >/dev/null
         local pm="" pm_request_ok=true
         if pm=$(test_api "Create port mapping" "POST" "/api/v1/admin/port-mappings" "200" \
-            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$instance_group"); then
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001,\"mappingType\":\"${manual_mapping_type}\"}" "$instance_group"); then
             pm_request_ok=true
         else
             pm_request_ok=false
@@ -58,14 +65,14 @@ run_module_13() {
         test_api "Check port for explicit node mapping" "POST" "/api/v1/admin/ports/check" "200" \
             "{\"providerId\":${PROVIDER_ID},\"hostPort\":25080,\"portCount\":1,\"protocol\":\"tcp\"}" "$instance_group" >/dev/null
         local node_pm="" node_pm_request_ok=true node_pm_id=""
-        if node_pm=$(test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "200" \
+        if node_pm=$(test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "$node_mapping_expected" \
             "{\"instanceId\":${inst_for_pm},\"guestPort\":8080,\"protocol\":\"tcp\",\"hostPort\":25080,\"mappingType\":\"node\"}" "$instance_group"); then
             node_pm_request_ok=true
         else
             node_pm_request_ok=false
         fi
         node_pm_id=$(echo "$node_pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
-        if [[ "$node_pm_request_ok" == "true" && -z "$node_pm_id" ]]; then
+        if [[ "$node_mapping_expected" == "200" && "$node_pm_request_ok" == "true" && -z "$node_pm_id" ]]; then
             record_fail_result "Create port mapping (node type) result" "POST" \
                 "/api/v1/admin/port-mappings" "mapping id" "missing" "$node_pm" "$instance_group"
         fi
@@ -137,7 +144,7 @@ run_module_13() {
 
         # -- Create duplicate port --
         test_api "Create duplicate port" "POST" "/api/v1/admin/port-mappings" "400|409" \
-            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$instance_group"
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001,\"mappingType\":\"${manual_mapping_type}\"}" "$instance_group"
 
         # -- Create with invalid port --
         test_api "Create invalid port (0)" "POST" "/api/v1/admin/port-mappings" "400" \

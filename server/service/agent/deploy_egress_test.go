@@ -51,6 +51,15 @@ func TestBuildDeployScriptSanitizesVersionInTempPath(t *testing.T) {
 	}
 }
 
+func TestBuildDeployScriptUsesConfiguredTrafficMethodAndStagedAsset(t *testing.T) {
+	script := buildDeployScript(&AgentConfig{Token: "token", TrafficCollectMethod: "ipt"}, "v-test", "amd64", nil, "")
+	for _, want := range []string{"COLLECT_METHOD='ipt'", `cp "$OCV_AGENT_ARCHIVE" "$ARCHIVE_NAME"`, "source: staged controller asset"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("deployment script lacks %q", want)
+		}
+	}
+}
+
 func TestBuildDeployScriptInstallsFailClosedBootGuard(t *testing.T) {
 	script := buildDeployScript(
 		&AgentConfig{Token: "controller-token"},

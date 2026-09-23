@@ -15,6 +15,7 @@ import (
 type incusOperationCaptureTransport struct {
 	requests []string
 	hosts    []string
+	polls    int
 }
 
 type incusListResponseTransport struct {
@@ -232,7 +233,11 @@ func (t *incusOperationCaptureTransport) RoundTrip(req *http.Request) (*http.Res
 	case req.Method == http.MethodPut && req.URL.Path == "/1.0/instances/guest/state":
 		return response(http.StatusAccepted, `{"type":"async","status":"Operation created","status_code":100,"operation":"/1.0/operations/start-guest"}`)
 	case req.Method == http.MethodGet && req.URL.Path == "/1.0/operations/start-guest":
-		return response(http.StatusOK, `{"type":"async","status":"Success","status_code":200}`)
+		t.polls++
+		if t.polls == 1 {
+			return response(http.StatusOK, `{"type":"sync","status":"Success","status_code":200,"metadata":{"status":"Running","status_code":103}}`)
+		}
+		return response(http.StatusOK, `{"type":"sync","status":"Success","status_code":200,"metadata":{"status":"Success","status_code":200}}`)
 	default:
 		return response(http.StatusNotFound, `{"error":"unexpected request"}`)
 	}
@@ -253,6 +258,7 @@ func TestIncusAPIMutationWaitsForOperationAndBracketsIPv6Host(t *testing.T) {
 	}
 	wantRequests := []string{
 		"PUT /1.0/instances/guest/state",
+		"GET /1.0/operations/start-guest",
 		"GET /1.0/operations/start-guest",
 	}
 	if strings.Join(capture.requests, ",") != strings.Join(wantRequests, ",") {

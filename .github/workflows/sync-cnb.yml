@@ -23,10 +23,10 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Checkout full source history
+      - name: Checkout source
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Validate CNB credentials
@@ -45,59 +45,10 @@ jobs:
 
       - name: Build history-free public snapshot
         run: |
-          set -eu
-
-          # This repository may contain private/local-only files in old commits.
-          # Publishing HEAD directly would keep those objects reachable even when
-          # the files are absent from the current tree.  Export the current tree
-          # as a new root commit so a force-push also removes the old public
-          # history instead of merely deleting the working-tree entry.
-          source_commit=$(git rev-parse HEAD)
-          git switch --orphan cnb-public-snapshot
-          git rm -rf --ignore-unmatch .
-          git checkout "${source_commit}" -- .
-
-          # The local mirror helper is deliberately outside the public
-          # repository.  Remove it from the exported snapshot even if a
-          # future source commit accidentally tracks it; the check below then
-          # makes the invariant explicit before anything is pushed.
-          git rm --cached --ignore-unmatch -- \
-            ':(glob)copy_project.sh' \
-            ':(glob)copyproject.sh' \
-            ':(glob)**/copy_project.sh' \
-            ':(glob)**/copyproject.sh'
-          find . -path './.git' -prune -o \( -type f -o -type l \) \( \
-            -name 'copy_project.sh' -o \
-            -name 'copyproject.sh' \
-          \) -delete
-
-          # Do not publish the ignore rules that reveal the local-only helper
-          # either.  The private source checkout keeps those rules; the public
-          # snapshot does not need them.
-          for metadata in .gitignore .dockerignore; do
-            if [ -f "${metadata}" ]; then
-              sanitized_metadata=$(mktemp)
-              awk '
-                $0 == "# Private mirror/synchronization tooling must never enter the public repository." { next }
-                $0 ~ /^[[:space:]]*copy_project\.sh[[:space:]]*$/ { next }
-                $0 ~ /^[[:space:]]*copyproject\.sh[[:space:]]*$/ { next }
-                { print }
-              ' "${metadata}" > "${sanitized_metadata}"
-              mv -f "${sanitized_metadata}" "${metadata}"
-            fi
-          done
-
-          forbidden_paths=$(git ls-files | grep -E '(^|/)(copy_project|copyproject)\.sh$' || true)
-          if [ -n "${forbidden_paths}" ]; then
-            echo "::error::Private mirror tooling must never be synchronized to CNB:"
-            printf '%s\n' "${forbidden_paths}"
-            exit 1
-          fi
-
-          git -c user.name='oneclickvirt-sync' \
-            -c user.email='oneclickvirt-sync@users.noreply.github.com' \
-            commit -m "sync: public source snapshot ${source_commit}"
-          printf 'CNB_EXPORT_COMMIT=%s\n' "$(git rev-parse HEAD)" >> "${GITHUB_ENV}"
+          set -euo pipefail
+          bash scripts/tests/cnb_snapshot_test.sh
+          export_commit=$(bash scripts/build_cnb_snapshot.sh HEAD)
+          printf 'CNB_EXPORT_COMMIT=%s\n' "${export_commit}" >> "${GITHUB_ENV}"
 
       - name: Replace CNB public branches
         env:
@@ -107,6 +58,7 @@ jobs:
           GIT_TERMINAL_PROMPT: '0'
         run: |
           git remote add cnb "${CNB_REPOSITORY_URL}"
+          # shellcheck disable=SC2016 # Git expands the credential helper at invocation, not in this shell.
           git -c credential.helper='!f() { test "$1" = get || exit 0; printf "%s\n" "username=${CNB_PUSH_USERNAME}" "password=${CNB_PUSH_TOKEN}"; }; f' \
             push --force cnb \
               "${CNB_EXPORT_COMMIT}:refs/heads/main" \

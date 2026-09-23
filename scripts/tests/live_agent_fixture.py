@@ -140,11 +140,21 @@ class RealAgentFixture:
             with sftp.file(self.directory + "/.env", "w") as config:
                 config.chmod(0o600)
                 config.write("".join(key + "='" + value + "'\n" for key, value in environment.items()))
-        self.remote("systemd-run --quiet --unit=" + shlex.quote(self.unit)
+        self.remote("systemd-run --quiet --no-block --unit=" + shlex.quote(self.unit)
                     + " --property=WorkingDirectory=" + shlex.quote(self.directory)
                     + " --property=EnvironmentFile=" + shlex.quote(self.directory + "/.env")
                     + " " + shlex.quote(self.directory + "/oneclickvirt-agent"))
-        return self.remote(shlex.quote(self.directory + "/oneclickvirt-agent") + " --version")
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            state = self.remote("systemctl show -p ActiveState --value " + shlex.quote(self.unit))
+            if state == "active":
+                return self.remote(shlex.quote(self.directory + "/oneclickvirt-agent") + " --version")
+            if state in ("failed", "inactive"):
+                journal = self.remote("journalctl -u " + shlex.quote(self.unit) + " -n 80 --no-pager")
+                raise RuntimeError("Agent fixture unit is " + state + ":\n" + journal[-8000:])
+            time.sleep(0.5)
+        journal = self.remote("journalctl -u " + shlex.quote(self.unit) + " -n 80 --no-pager")
+        raise TimeoutError("Agent fixture did not become active:\n" + journal[-8000:])
 
     def restart(self):
         self.remote("systemctl restart " + shlex.quote(self.unit))
@@ -351,10 +361,30 @@ def verify_agent_traffic(api, provider_id, instance_id, guest, collect_output):
     stdin, stdout, _ = guest.exec_command(
         f"dd of=/dev/null bs=65536 count={blocks} iflag=fullblock status=none",
         timeout=transfer_timeout)
-    stdin.channel.settimeout(transfer_timeout)
-    stdin.channel.sendall(b"x" * size)
-    stdin.channel.shutdown_write()
-    stdout.channel.settimeout(transfer_timeout)
+    upload_channel = stdin.channel
+    upload_channel.settimeout(1)
+    upload_deadline = time.monotonic() + transfer_timeout
+    payload = b"x" * min(65536, size)
+    remaining = size
+    while remaining:
+        if time.monotonic() >= upload_deadline:
+            upload_channel.close()
+            raise TimeoutError("guest upload exceeded its bounded transfer deadline")
+        if not upload_channel.send_ready():
+            time.sleep(0.01)
+            continue
+        chunk = payload if remaining >= len(payload) else b"x" * remaining
+        try:
+            sent = upload_channel.send(chunk)
+        except (socket.timeout, OSError) as exc:
+            upload_channel.close()
+            raise TimeoutError("guest upload channel stalled before completion") from exc
+        if sent <= 0:
+            upload_channel.close()
+            raise RuntimeError("guest upload channel closed before completion")
+        remaining -= sent
+    upload_channel.shutdown_write()
+    stdout.channel.settimeout(max(1, transfer_timeout))
     status = stdout.channel.recv_exit_status()
     if status:
         raise RuntimeError("guest upload did not complete")

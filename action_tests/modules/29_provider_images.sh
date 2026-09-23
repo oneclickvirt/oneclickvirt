@@ -114,6 +114,7 @@ run_module_29() {
     local group="provider_images"
 
     if [[ -z "$PROVIDER_ID" ]]; then
+        record_skip_result "Provider image prerequisites" "HARNESS" "module-29" "No provider from prerequisite modules" "$group"
         chain_break "$group" "No provider, skipping image tests"
         return 0
     fi
@@ -148,6 +149,7 @@ run_module_29() {
         image_count=$(echo "$images_json" | jq 'length' 2>/dev/null)
 
         if [[ -z "$image_count" || "$image_count" == "0" || "$image_count" == "null" ]]; then
+            record_skip_result "Provider image prerequisites" "HARNESS" "module-29" "No images for ${ENV_TYPE}/${provider_arch}" "$group"
             log_warning "No images found for provider type ${ENV_TYPE} arch ${provider_arch}"
             chain_break "$group" "No images available for testing"
             return 0
@@ -156,12 +158,14 @@ run_module_29() {
 
     log_info "Found ${image_count} candidate images (arch=${provider_arch})"
     ensure_provider_health_ready "$PROVIDER_ID" "$ADMIN_TOKEN" || {
+        record_fail_result "Provider image health precheck" "HARNESS" "module-29" "healthy provider" "not ready" "Provider health check failed before image creation tests" "$group"
         chain_break "$group" "Provider health check failed before image creation tests"
         return 0
     }
 
     local selected_images_json
     if ! selected_images_json=$(_m29_select_candidates "$images_json" "$provider_arch"); then
+        record_fail_result "Provider image selection" "HARNESS" "module-29" "valid image selection" "invalid" "Failed to select representative provider images" "$group"
         chain_break "$group" "Failed to select representative provider images"
         return 0
     fi
@@ -171,6 +175,7 @@ run_module_29() {
     log_info "Selected ${selected_image_count}/${image_count} image(s) for execution (max per OS/type=${PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE}; 0 means exhaustive)"
 
     if [[ "$selected_image_count" -eq 0 ]]; then
+        record_skip_result "Provider image selection" "HARNESS" "module-29" "No images match ${TEST_IMAGES}/${INSTANCE_TYPES}/${provider_arch}" "$group"
         log_warning "No images matched TEST_IMAGES=${TEST_IMAGES}, INSTANCE_TYPES=${INSTANCE_TYPES}, arch=${provider_arch}"
         chain_break "$group" "No matching images available for testing"
         return 0

@@ -8,7 +8,9 @@
 
 报告支持中英双语切换、亮色/暗色主题切换，标题下方显示当前测试对应的主控版本、Agent 版本、Git ref/SHA、GitHub Actions run id 和 workflow 信息。
 
-专用节点的当前源码面板、真实 Rust Agent 和独立 WebSSH 验收入口见 [真实环境验收说明](../scripts/tests/LIVE_ACCEPTANCE.md)。这些入口与默认 CI 组件测试分别记录，缺少真实环境不计为通过。
+正式 Actions 会从当前提交构建 AMD64/ARM64 Rust Agent，并校验嵌入包为对应架构的 ELF，不能用模拟 Agent 代替真实监控验证。本地运行需先准备同样的真实包到 `server/assets/agent/`；仅调试测试编排器时可显式设置 `ACTION_TEST_GENERATE_STUB_AGENT=true`，该模式不代表真实 Agent 验收，且禁止用于 GitHub Actions。
+
+专用节点的当前源码面板、真实 Rust Agent 和独立 WebSSH 验收入口见 [真实环境验收说明](../scripts/tests/LIVE_ACCEPTANCE.md)。缺少真实环境不计为通过。Actions 报告写入按 run/attempt/environment 隔离的临时目录，结果门禁只读取当次环境的 JSONL，不再混入仓库中的历史报告。
 
 ## 架构设计
 
@@ -231,7 +233,7 @@ python3 action_tests/static_audit.py --root . --output-dir action_tests/reports 
 
 ### IPv6 隧道测试隔离
 
-常规 Action 默认不会调用 IPv6 隧道 API，也不会检查、创建、删除或修改工作节点的隧道配置。隧道状态机、地址池冻结和清理由 Go 契约测试通过假远端执行器覆盖，不依赖 Tunnelbroker 或其他外部隧道服务。只有在专用、可销毁工作节点上显式设置 `ACTION_TEST_LIVE_IPV6_TUNNEL=true`（GitHub Action 的 `live_ipv6_tunnel` 输入）时，才会运行宿主机侧的禁用隧道生命周期检查。
+常规 Action 默认不会调用 IPv6 隧道 API，也不会检查、创建、删除或修改工作节点的隧道配置。隧道状态机、地址池冻结和清理由 Go 契约测试通过假远端执行器覆盖，不依赖 Tunnelbroker 或其他外部隧道服务。只有在专用、可销毁工作节点上显式设置 `ACTION_TEST_LIVE_IPV6_TUNNEL=true`（GitHub Action 的 `live_ipv6_tunnel` 输入），且 runner 的直连 IPv6 探测成功时，才会运行宿主机侧的禁用隧道生命周期检查。无可用 IPv6 的 runner 明确记录 `SKIP`，不执行实际 IPv6 分配或连通性测试；地址池 CRUD、容量计算等不分配宿主/实例地址的离线契约检查仍执行。隔离容器中的防火墙规则测试仅使用文档地址验证规则，不要求公网 IPv6。
 
 ## 测试报告
 

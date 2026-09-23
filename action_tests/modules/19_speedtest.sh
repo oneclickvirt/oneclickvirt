@@ -8,10 +8,12 @@ run_module_19() {
 
     local speedtest_instance_id="${TEST_INSTANCE_ID:-}"
     if [[ -z "$speedtest_instance_id" || -z "$PROVIDER_ID" ]]; then
+        record_skip_result "Speedtest prerequisites" "HARNESS" "module-19" "No instance or provider from prerequisite modules" "$group"
         chain_break "$group" "No instance or provider"
         return 0
     fi
     if ! ensure_test_instance_available "$ADMIN_TOKEN" "$speedtest_instance_id" "speedtest instance"; then
+        record_skip_result "Speedtest prerequisites" "HARNESS" "module-19" "Test instance is no longer available" "$group"
         chain_break "$group" "Test instance is no longer available"
         return 0
     fi

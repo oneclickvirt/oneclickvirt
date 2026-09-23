@@ -31,7 +31,11 @@ export NO_PROXY no_proxy
 
 ACTION_TEST_CONTAINER_CPU="${ACTION_TEST_CONTAINER_CPU:-2}"
 ACTION_TEST_CONTAINER_MEMORY="${ACTION_TEST_CONTAINER_MEMORY:-2048}"
-ACTION_TEST_CONTAINER_DISK="${ACTION_TEST_CONTAINER_DISK:-20}"
+# Native container runners retain a shared guest plus an imported dirty-node
+# guest while module 26 creates a second guest. 20 GiB per guest exhausted a
+# 50 GiB worker; use a small real disk allocation, not disabled quota checks.
+# LXD/Incus and VM-based runtimes have their own sizes below.
+ACTION_TEST_CONTAINER_DISK="${ACTION_TEST_CONTAINER_DISK:-5}"
 ACTION_TEST_VM_CPU="${ACTION_TEST_VM_CPU:-2}"
 ACTION_TEST_VM_MEMORY="${ACTION_TEST_VM_MEMORY:-4096}"
 ACTION_TEST_VM_DISK="${ACTION_TEST_VM_DISK:-20}"

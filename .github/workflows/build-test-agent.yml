@@ -1,0 +1,60 @@
+name: Build real integration Agent
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: build-test-agent-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test Agent (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/agent/target
+          key: integration-agent-${{ matrix.target }}-${{ hashFiles('server/agent/Cargo.lock') }}
+      - name: Build and package the current Agent source
+        working-directory: server/agent
+        env:
+          AGENT_TARGET: ${{ matrix.target }}
+          AGENT_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "$AGENT_TARGET"
+          mkdir -p dist
+          cp "target/$AGENT_TARGET/release/oneclickvirt-agent" "dist/oneclickvirt-agent-linux-$AGENT_ARCH"
+          tar -czf "dist/oneclickvirt-agent-linux-$AGENT_ARCH.tar.gz" -C dist "oneclickvirt-agent-linux-$AGENT_ARCH"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: integration-agent-${{ matrix.arch }}
+          path: server/agent/dist/*.tar.gz
+          if-no-files-found: error

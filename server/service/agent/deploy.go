@@ -23,7 +23,7 @@ const (
 	agentEgressGuard = "/usr/local/bin/oneclickvirt-egress-boot-guard"
 	egressGuardUnit  = "oneclickvirt-egress-guard"
 
-	maxInlineAgentArchiveBytes = 512 * 1024
+	maxInlineAgentArchiveBytes = 32 * 1024
 )
 
 // AgentConfig holds the configuration parameters for the agent deployment.
@@ -148,6 +148,10 @@ func buildDeployScript(cfg *AgentConfig, version, arch string, downloadURLs []st
 	binaryName := fmt.Sprintf("%s-linux-%s", AgentBinaryName, arch)
 	archiveName := fmt.Sprintf("%s.tar.gz", binaryName)
 	envContent := buildEnvFile(cfg)
+	collectMethod := cfg.TrafficCollectMethod
+	if collectMethod == "" {
+		collectMethod = "nft"
+	}
 
 	serviceUnit := fmt.Sprintf(`[Unit]
 Description=OneclickVirt Monitoring Agent
@@ -310,14 +314,9 @@ fi
 echo "[OK] 0/6 native egress dependency probe complete"
 
 echo "[1/6] check and install traffic monitoring dependency..."
-# Read collect method from .env if already present, otherwise default to nft
-COLLECT_METHOD=""
-if [ -f "$INSTALL_DIR/.env" ]; then
-    COLLECT_METHOD=$(grep 'TRAFFIC_COLLECT_METHOD=' "$INSTALL_DIR/.env" 2>/dev/null | sed 's/TRAFFIC_COLLECT_METHOD=//' || true)
-fi
-# The new .env will be written below; parse the base64-encoded one for the intended method
-INTENDED_METHOD=$(printf '%%s' "%s" | base64 -d 2>/dev/null | grep 'TRAFFIC_COLLECT_METHOD=' | sed 's/TRAFFIC_COLLECT_METHOD=//' || echo "nft")
-COLLECT_METHOD="${INTENDED_METHOD:-nft}"
+# Use the configured method directly: systemd .env values are quoted, so
+# grep/sed would otherwise compare the literal '"ipt"' against 'ipt'.
+COLLECT_METHOD=%s
 
 if [ "$COLLECT_METHOD" = "ipt" ]; then
     echo "  Traffic collect method: iptables"
@@ -380,7 +379,13 @@ echo "[OK] 2/6 install directory created"
 echo "[3/6] download agent binary (version $VERSION)..."
 cd "$INSTALL_DIR"
 DOWNLOADED=0
-if [ -n "$EMBEDDED_ARCHIVE_B64" ]; then
+if [ -n "${OCV_AGENT_ARCHIVE:-}" ]; then
+    # Large controller-local assets are staged in bounded chunks over the
+    # existing authenticated transport, not embedded in a huge shell argv.
+    cp "$OCV_AGENT_ARCHIVE" "$ARCHIVE_NAME"
+    DOWNLOADED=1
+    echo "  source: staged controller asset"
+elif [ -n "$EMBEDDED_ARCHIVE_B64" ]; then
     if printf '%%s' "$EMBEDDED_ARCHIVE_B64" | base64 -d > "$ARCHIVE_NAME" 2>/dev/null && [ -s "$ARCHIVE_NAME" ]; then
         DOWNLOADED=1
         echo "  source: embedded controller asset"
@@ -448,7 +453,7 @@ echo "DEPLOY_SUCCESS"
 		embeddedArchiveB64,
 		AgentServiceName,
 		version,
-		envB64, // for dependency detection
+		utils.ShellSingleQuote(collectMethod),
 		envB64,
 		guardB64,
 		agentEgressGuard,
@@ -480,6 +485,16 @@ func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provid
 	archiveName := fmt.Sprintf("%s.tar.gz", binaryName)
 	downloadURLs := buildDownloadURLList(version, archiveName)
 	embeddedArchiveB64 := inlineAgentArchiveB64(archiveName)
+	deployCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
+	defer cancel()
+	stagedArchive := ""
+	if content, assetErr := assets.ReadAgentAsset(archiveName); assetErr == nil && len(content) > maxInlineAgentArchiveBytes {
+		stagedArchive, err = stageAgentArchive(deployCtx, providerInstance.ExecuteSSHCommand, content)
+		if err != nil {
+			return "", fmt.Errorf("stage controller Agent asset: %w", err)
+		}
+		defer removeStagedAgentArchive(providerInstance.ExecuteSSHCommand, stagedArchive)
+	}
 
 	providerName := providerInstance.GetName()
 
@@ -492,14 +507,11 @@ func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provid
 	if safeVersion == "" {
 		safeVersion = "unknown"
 	}
-	tmpScript := fmt.Sprintf("/tmp/ocv_agent_deploy_%s.sh", safeVersion)
+	tmpScript := fmt.Sprintf("/tmp/ocv_agent_deploy_%s_%s.sh", safeVersion, newAgentTransferID())
 	uploadAndRun := fmt.Sprintf(
-		`printf '%%s' '%s' | base64 -d > %s && chmod +x %s && %s; RC=$?; rm -f %s; exit $RC`,
-		scriptB64, utils.ShellSingleQuote(tmpScript), utils.ShellSingleQuote(tmpScript), utils.ShellSingleQuote(tmpScript), utils.ShellSingleQuote(tmpScript),
+		`umask 077; printf '%%s' '%s' | base64 -d > %s && chmod +x %s && OCV_AGENT_ARCHIVE=%s %s; RC=$?; rm -f %s; exit $RC`,
+		scriptB64, utils.ShellSingleQuote(tmpScript), utils.ShellSingleQuote(tmpScript), utils.ShellSingleQuote(stagedArchive), utils.ShellSingleQuote(tmpScript), utils.ShellSingleQuote(tmpScript),
 	)
-
-	deployCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
-	defer cancel()
 
 	out, execErr := providerInstance.ExecuteSSHCommand(deployCtx, uploadAndRun)
 	out = strings.TrimSpace(out)

@@ -125,6 +125,19 @@ func WaitForAsyncOperation(ctx context.Context, client *http.Client, operationUR
 			return fmt.Errorf("%s", message)
 		}
 		if asyncOperationSucceeded(status) {
+			// For exec operations, operation success means the process exited,
+			// not that its exit status was zero (e.g. a failed chpasswd).
+			if len(status.Metadata) > 0 && !bytes.Equal(bytes.TrimSpace(status.Metadata), []byte("null")) {
+				var result struct {
+					Return *int `json:"return"`
+				}
+				if err := json.Unmarshal(status.Metadata, &result); err != nil {
+					return fmt.Errorf("解析异步 API 操作结果失败: %w", err)
+				}
+				if result.Return != nil && *result.Return != 0 {
+					return fmt.Errorf("异步 API 命令执行失败: exit status %d", *result.Return)
+				}
+			}
 			return nil
 		}
 
@@ -162,6 +175,25 @@ func pollAsyncOperation(ctx context.Context, client *http.Client, endpoint strin
 	var status AsyncOperationResponse
 	if err := json.Unmarshal(bytes.TrimSpace(body), &status); err != nil {
 		return status, fmt.Errorf("解析异步 API 状态失败: %w", err)
+	}
+	// GET /operations/:id returns a synchronous *HTTP envelope*. Its 200
+	// only means the lookup succeeded; the operation may still be Running or
+	// may have failed. The operation itself lives in metadata.
+	if asyncOperationFailed(status) {
+		return status, nil
+	}
+	if strings.EqualFold(status.Type, "sync") {
+		var operation AsyncOperationResponse
+		if err := json.Unmarshal(status.Metadata, &operation); err != nil {
+			return status, fmt.Errorf("解析异步 API operation metadata 失败: %w", err)
+		}
+		if operation.StatusCode == 0 && strings.TrimSpace(operation.Status) == "" {
+			return status, fmt.Errorf("异步 API operation metadata 缺少状态")
+		}
+		status = operation
+	}
+	if status.StatusCode == 0 && strings.TrimSpace(status.Status) == "" {
+		return status, fmt.Errorf("异步 API operation 响应缺少状态")
 	}
 	return status, nil
 }
