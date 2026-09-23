@@ -1,0 +1,214 @@
+<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>[0;34m[INFO][0m 14:54:10 Container test size: 1C/1024MB/20G
+[0;34m[INFO][0m 14:54:10 VM test size: 1C/1024MB/20G
+
+[0;36m========== Environment Integration Test: incus ==========[0m
+
+[0;34m[INFO][0m 14:54:10 Modules: all
+[0;34m[INFO][0m 14:54:10 Instance types: both (requested: both)
+[0;34m[INFO][0m 14:54:10 Execution rule: auto
+[0;34m[INFO][0m 14:54:10 Node hours: 8h
+[0;32m[PASS][0m 14:54:10 Platform resolution
+[0;34m[INFO][0m 14:54:10 Enabled platforms: alice lightnode
+[0;34m[INFO][0m 14:54:10 Active platform will be selected automatically with fallback
+[0;32m[PASS][0m 14:54:10 Required commands available: jq curl go
+[0;32m[PASS][0m 14:54:10 Required commands
+[0;34m[INFO][0m 14:54:10 Resource check skipped (SKIP_RESOURCE_CHECK=true)
+[0;32m[PASS][0m 14:54:10 Runner resources
+[0;32m[PASS][0m 14:54:10 Port 8888 is available
+[0;32m[PASS][0m 14:54:10 Master port availability
+[0;34m[INFO][0m 14:54:10 Waiting for authenticated MySQL/MariaDB TCP readiness...
+[0;32m[PASS][0m 14:54:10 MySQL/MariaDB ready after 0s
+[0;32m[PASS][0m 14:54:10 MySQL readiness
+
+[0;36m========== Phase 1: Deploy master on runner ==========[0m
+
+[0;34m[INFO][0m 14:54:10 Preparing isolated server workdir: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/35874569813-1-incus/server-work-incus-8888-12552
+
+[0;36m========== Deploying master locally on runner from source (port 8888) ==========[0m
+
+[0;34m[INFO][0m 14:54:11 Server directory: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/35874569813-1-incus/server-work-incus-8888-12552
+[0;34m[INFO][0m 14:54:11 Patching config.yaml for CI environment...
+[0;32m[PASS][0m 14:54:11 config.yaml patched
+Real AMD64 and ARM64 Agent assets verified
+[0;34m[INFO][0m 14:54:11 Building server binary...
+[0;32m[PASS][0m 14:54:29 Server binary built
+[0;34m[INFO][0m 14:54:29 Server process started (PID 13568), waiting for startup...
+[0;32m[PASS][0m 14:54:34 Server started and responding (PID 13568, elapsed 5s, HTTP 200)
+[0;32m[PASS][0m 14:54:34 Master deployed locally on runner (port 8888)
+
+[0;36m========== Phase 2: Create worker node ==========[0m
+
+[0;34m[INFO][0m 14:54:34 Creating test node: env=incus hours=8
+[0;34m[INFO][0m 14:54:34 Enabled platforms (priority order): alice lightnode
+[0;34m[INFO][0m 14:54:34 === Trying platform: alice (attempt 1/2) ===
+[0;34m[INFO][0m 14:54:34 Initializing platform: alice
+[0;34m[INFO][0m 14:54:34 [alice] Platform initialized (API: https://app.alice.ws/cli/v1)
+[0;32m[PASS][0m 14:54:34 Platform 'alice' initialized
+[0;34m[INFO][0m 14:54:34 [alice] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 14:54:34 [alice] Creating new instance (env=incus hours=8)...
+[0;34m[INFO][0m 14:54:34 [alice] Creating instance: env=incus hours=8
+[DEBUG] 14:54:34 [alice] GET /evo/permissions HTTP 200
+[DEBUG] 14:54:35 [alice] GET /evo/plans/38/os-images HTTP 200
+[0;32m[PASS][0m 14:54:35 [alice] Instance creation requested, ID: 23268
+[0;34m[INFO][0m 14:54:35 [alice] Waiting for instance 23268 to be ready (max 600s)...
+[DEBUG] 14:54:36 [alice] Instance 23268: status=complete state=stopped
+[DEBUG] 14:54:51 [alice] Instance 23268: status=buildFailed state=stopped
+[DEBUG] 14:55:07 [alice] Instance 23268: status=complete state=running
+[0;32m[PASS][0m 14:55:07 [alice] Instance 23268 is ready
+[0;32m[PASS][0m 14:55:07 [alice] Instance created: ID=23268 IP=31.22.111.90
+[0;32m[PASS][0m 14:55:07 Instance created on 'alice': ID=23268 IP=31.22.111.90
+[0;34m[INFO][0m 14:55:07 [alice] Waiting for SSH on 31.22.111.90 (max 600s)...
+[DEBUG] 14:55:12 [alice] SSH not ready on 31.22.111.90 (0/600s): ssh: connect to host 31.22.111.90 port 22: Connection refused
+[0;32m[PASS][0m 14:55:23 [alice] SSH ready on 31.22.111.90
+[0;34m[INFO][0m 14:55:23 Checking worker resources for incus/both on alice (memory>=7680MB from 8192MB nominal, cpu>=4, disk>=41GB, /dev/kvm required)...
+Warning: Permanently added '31.22.111.90' (ED25519) to the list of known hosts.
+WORKER_RESOURCE_CHECK env=incus platform=alice memory_mb=3878 cpu=2 disk_gb=57 kvm=present
+WORKER_RESOURCE_INSUFFICIENT: memory_mb=3878 required>=7680
+[1;33m[WARN][0m 14:55:24 Worker resources do not satisfy incus requirements on alice
+[1;33m[WARN][0m 14:55:24 [alice] Instance 23268 does not meet incus worker requirements; releasing it and trying next platform
+[0;34m[INFO][0m 14:55:24 === Trying platform: lightnode (attempt 1/2) ===
+[0;34m[INFO][0m 14:55:24 Initializing platform: lightnode
+[0;34m[INFO][0m 14:55:24 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 14:55:25 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 14:55:26 [lightnode] Platform initialized
+[0;32m[PASS][0m 14:55:26 Platform 'lightnode' initialized
+[0;34m[INFO][0m 14:55:26 [lightnode] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 14:55:26 [lightnode] Creating new instance (env=incus hours=8)...
+[0;34m[INFO][0m 14:55:26 [lightnode] Creating instance: env=incus
+[0;34m[INFO][0m 14:55:27 [lightnode] Raised package floor for incus/both to 4C/8192MB
+[0;34m[INFO][0m 14:55:27 [lightnode] Using package=intel-c4m8-bgp-b10-s50-d100 (required=4C/8192MB tier=3, strict=true)
+[0;32m[PASS][0m 14:55:45 [lightnode] Instance creation requested: ecs-ck0001lzaen3
+[0;34m[INFO][0m 14:55:45 [lightnode] Waiting for async task  (max 1800s)...
+[DEBUG] 14:55:45 [lightnode] Task : result= status=
+[DEBUG] 14:56:01 [lightnode] Task : result= status=
+[DEBUG] 14:56:17 [lightnode] Task : result= status=
+[DEBUG] 14:56:32 [lightnode] Task : result= status=
+[DEBUG] 14:56:48 [lightnode] Task : result= status=
+[DEBUG] 14:57:04 [lightnode] Task : result= status=
+[DEBUG] 14:57:19 [lightnode] Task : result= status=
+[DEBUG] 14:57:35 [lightnode] Task : result= status=
+[DEBUG] 14:57:50 [lightnode] Task : result= status=
+[DEBUG] 14:58:06 [lightnode] Task : result= status=
+[DEBUG] 14:58:21 [lightnode] Task : result= status=
+[DEBUG] 14:58:38 [lightnode] Task : result= status=
+[DEBUG] 14:58:53 [lightnode] Task : result= status=
+[DEBUG] 14:59:09 [lightnode] Task : result= status=
+[DEBUG] 14:59:25 [lightnode] Task : result= status=
+[DEBUG] 14:59:40 [lightnode] Task : result= status=
+[DEBUG] 14:59:55 [lightnode] Task : result= status=
+[DEBUG] 15:00:11 [lightnode] Task : result= status=
+[DEBUG] 15:00:27 [lightnode] Task : result= status=
+[DEBUG] 15:00:42 [lightnode] Task : result= status=
+[DEBUG] 15:00:58 [lightnode] Task : result= status=
+[DEBUG] 15:01:13 [lightnode] Task : result= status=
+[DEBUG] 15:01:29 [lightnode] Task : result= status=
+[DEBUG] 15:01:44 [lightnode] Task : result= status=
+[DEBUG] 15:02:00 [lightnode] Task : result= status=
+[DEBUG] 15:02:16 [lightnode] Task : result= status=
+[DEBUG] 15:02:31 [lightnode] Task : result= status=
+[DEBUG] 15:02:46 [lightnode] Task : result= status=
+[DEBUG] 15:03:02 [lightnode] Task : result= status=
+[DEBUG] 15:03:18 [lightnode] Task : result= status=
+[DEBUG] 15:03:33 [lightnode] Task : result= status=
+[DEBUG] 15:03:49 [lightnode] Task : result= status=
+[DEBUG] 15:04:04 [lightnode] Task : result= status=
+[DEBUG] 15:04:20 [lightnode] Task : result= status=
+[DEBUG] 15:04:35 [lightnode] Task : result= status=
+[DEBUG] 15:04:51 [lightnode] Task : result= status=
+[DEBUG] 15:05:07 [lightnode] Task : result= status=
+[DEBUG] 15:05:22 [lightnode] Task : result= status=
+[DEBUG] 15:05:38 [lightnode] Task : result= status=
+[DEBUG] 15:05:53 [lightnode] Task : result= status=
+[DEBUG] 15:06:08 [lightnode] Task : result= status=
+[DEBUG] 15:06:24 [lightnode] Task : result= status=
+[DEBUG] 15:06:39 [lightnode] Task : result= status=
+[DEBUG] 15:06:55 [lightnode] Task : result= status=
+[DEBUG] 15:07:11 [lightnode] Task : result= status=
+[DEBUG] 15:07:26 [lightnode] Task : result= status=
+[DEBUG] 15:07:41 [lightnode] Task : result= status=
+[DEBUG] 15:07:57 [lightnode] Task : result= status=
+[DEBUG] 15:08:12 [lightnode] Task : result= status=
+[DEBUG] 15:08:28 [lightnode] Task : result= status=
+[DEBUG] 15:08:43 [lightnode] Task : result= status=
+[DEBUG] 15:08:59 [lightnode] Task : result= status=
+[DEBUG] 15:09:15 [lightnode] Task : result= status=
+[DEBUG] 15:09:30 [lightnode] Task : result= status=
+[DEBUG] 15:09:46 [lightnode] Task : result= status=
+[DEBUG] 15:10:01 [lightnode] Task : result= status=
+[DEBUG] 15:10:17 [lightnode] Task : result= status=
+[DEBUG] 15:10:33 [lightnode] Task : result= status=
+[DEBUG] 15:10:49 [lightnode] Task : result= status=
+[DEBUG] 15:11:04 [lightnode] Task : result= status=
+[DEBUG] 15:11:20 [lightnode] Task : result= status=
+[DEBUG] 15:11:35 [lightnode] Task : result= status=
+[DEBUG] 15:11:51 [lightnode] Task : result= status=
+[DEBUG] 15:12:07 [lightnode] Task : result= status=
+[DEBUG] 15:12:22 [lightnode] Task : result= status=
+[DEBUG] 15:12:38 [lightnode] Task : result= status=
+[DEBUG] 15:12:53 [lightnode] Task : result= status=
+[DEBUG] 15:13:08 [lightnode] Task : result= status=
+[DEBUG] 15:13:24 [lightnode] Task : result= status=
+[DEBUG] 15:13:39 [lightnode] Task : result= status=
+[DEBUG] 15:13:55 [lightnode] Task : result= status=
+[DEBUG] 15:14:11 [lightnode] Task : result= status=
+[DEBUG] 15:14:26 [lightnode] Task : result= status=
+[DEBUG] 15:14:42 [lightnode] Task : result= status=
+[DEBUG] 15:14:58 [lightnode] Task : result= status=
+[DEBUG] 15:15:13 [lightnode] Task : result= status=
+[DEBUG] 15:15:29 [lightnode] Task : result= status=
+[DEBUG] 15:15:45 [lightnode] Task : result= status=
+[DEBUG] 15:16:00 [lightnode] Task : result= status=
+[DEBUG] 15:16:17 [lightnode] Task : result= status=
+[DEBUG] 15:16:32 [lightnode] Task : result= status=
+[DEBUG] 15:16:48 [lightnode] Task : result= status=
+[DEBUG] 15:17:03 [lightnode] Task : result= status=
+[DEBUG] 15:17:19 [lightnode] Task : result= status=
+[DEBUG] 15:17:35 [lightnode] Task : result= status=
+[DEBUG] 15:17:50 [lightnode] Task : result= status=
+[DEBUG] 15:18:05 [lightnode] Task : result= status=
+[DEBUG] 15:18:21 [lightnode] Task : result= status=
+[DEBUG] 15:18:36 [lightnode] Task : result= status=
+[DEBUG] 15:18:52 [lightnode] Task : result= status=
+[DEBUG] 15:19:08 [lightnode] Task : result= status=
+[DEBUG] 15:19:24 [lightnode] Task : result= status=
+[DEBUG] 15:19:39 [lightnode] Task : result= status=
+[DEBUG] 15:19:54 [lightnode] Task : result= status=
+[DEBUG] 15:20:10 [lightnode] Task : result= status=
+[DEBUG] 15:20:26 [lightnode] Task : result= status=
+[DEBUG] 15:20:41 [lightnode] Task : result= status=
+[DEBUG] 15:20:57 [lightnode] Task : result= status=
+[DEBUG] 15:21:13 [lightnode] Task : result= status=
+[DEBUG] 15:21:28 [lightnode] Task : result= status=
+[DEBUG] 15:21:43 [lightnode] Task : result= status=
+[DEBUG] 15:21:59 [lightnode] Task : result= status=
+[DEBUG] 15:22:14 [lightnode] Task : result= status=
+[DEBUG] 15:22:30 [lightnode] Task : result= status=
+[DEBUG] 15:22:46 [lightnode] Task : result= status=
+[DEBUG] 15:23:01 [lightnode] Task : result= status=
+[DEBUG] 15:23:16 [lightnode] Task : result= status=
+[DEBUG] 15:23:32 [lightnode] Task : result= status=
+[DEBUG] 15:23:47 [lightnode] Task : result= status=
+[DEBUG] 15:24:03 [lightnode] Task : result= status=
+[DEBUG] 15:24:18 [lightnode] Task : result= status=
+[DEBUG] 15:24:34 [lightnode] Task : result= status=
+[DEBUG] 15:24:49 [lightnode] Task : result= status=
+[DEBUG] 15:25:05 [lightnode] Task : result= status=
+[DEBUG] 15:25:20 [lightnode] Task : result= status=
+[DEBUG] 15:25:36 [lightnode] Task : result= status=
+[DEBUG] 15:25:52 [lightnode] Task : result= status=
+[DEBUG] 15:26:07 [lightnode] Task : result= status=
+[DEBUG] 15:26:23 [lightnode] Task : result= status=
+[DEBUG] 15:26:39 [lightnode] Task : result= status=
+[0;31m[FAIL][0m 15:26:54 [lightnode] Task  timeout after 1800s; leaving provider task to reach a final state
+[1;33m[WARN][0m 15:26:54 [lightnode] Async provisioning failed for ecs-ck0001lzaen3; attempting to release stale instance...
+[0;34m[INFO][0m 15:26:55 [lightnode] Stale instance release returned HTTP 202
+[0;31m[FAIL][0m 15:26:55 [lightnode] create_instance failed (exit=1). Raw output: <empty>
+[1;33m[WARN][0m 15:26:55 Platform 'lightnode' exhausted, trying next...
+[0;31m[FAIL][0m 15:26:55 All enabled platforms failed to create an instance (attempt 1/2)
+[0;31m[FAIL][0m 15:26:55 All enabled platforms failed to create an instance
+[0;31m[FAIL][0m 15:26:55 All platforms failed to create a test node
+[1;33m[WARN][0m 15:26:55 Worker node provisioning skipped due to an infrastructure failure (exit=1)
+[1;33m[SKIP][0m 15:26:55 Worker node provisioning: Worker node provisioning failed with exit 1
+[0;34m[INFO][0m 15:26:55 This is a transient infrastructure condition, not a test failure.
+[0;34m[INFO][0m 15:26:55 Re-run the workflow when resources are available, or add more cloud platform accounts.
+[1;33m[SKIP][0m 15:26:55 Harness skipped due to a transient infrastructure condition (exit 75)</pre></body></html>
