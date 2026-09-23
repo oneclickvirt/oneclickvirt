@@ -1,0 +1,275 @@
+<html><body><h1>Test Failed</h1><p>Exit code: 1</p><pre>[0;34m[INFO][0m 13:38:34 Container test size: 1C/1024MB/8G
+[0;34m[INFO][0m 13:38:34 VM test size: 1C/1024MB/8G
+
+[0;36m========== Environment Integration Test: proxmoxve ==========[0m
+
+[0;34m[INFO][0m 13:38:34 Modules: all
+[0;34m[INFO][0m 13:38:34 Instance types: both (requested: both)
+[0;34m[INFO][0m 13:38:34 Execution rule: auto
+[0;34m[INFO][0m 13:38:34 Node hours: 8h
+[0;32m[PASS][0m 13:38:34 Platform resolution
+[0;34m[INFO][0m 13:38:34 Enabled platforms: lightnode
+[0;34m[INFO][0m 13:38:34 Active platform will be selected automatically with fallback
+[0;32m[PASS][0m 13:38:34 Required commands available: jq curl go
+[0;32m[PASS][0m 13:38:34 Required commands
+[0;34m[INFO][0m 13:38:34 Resource check skipped (SKIP_RESOURCE_CHECK=true)
+[0;32m[PASS][0m 13:38:34 Runner resources
+[0;32m[PASS][0m 13:38:34 Port 8888 is available
+[0;32m[PASS][0m 13:38:34 Master port availability
+[0;34m[INFO][0m 13:38:34 Waiting for authenticated MySQL/MariaDB TCP readiness...
+[0;32m[PASS][0m 13:38:35 MySQL/MariaDB ready after 0s
+[0;32m[PASS][0m 13:38:35 MySQL readiness
+
+[0;36m========== Phase 1: Deploy master on runner ==========[0m
+
+[0;34m[INFO][0m 13:38:35 Preparing isolated server workdir: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/server-work-proxmoxve-8888-12250
+
+[0;36m========== Deploying master locally on runner from source (port 8888) ==========[0m
+
+[0;34m[INFO][0m 13:38:35 Server directory: /home/runner/work/oneclickvirt/oneclickvirt/action_tests/reports/server-work-proxmoxve-8888-12250
+[0;34m[INFO][0m 13:38:35 Patching config.yaml for CI environment...
+[0;32m[PASS][0m 13:38:35 config.yaml patched
+[0;32m[PASS][0m 13:38:35 CI stub agent assets ready
+[0;34m[INFO][0m 13:38:35 Building server binary...
+[0;32m[PASS][0m 13:38:53 Server binary built
+[0;34m[INFO][0m 13:38:53 Server process started (PID 13286), waiting for startup...
+[0;32m[PASS][0m 13:38:58 Server started and responding (PID 13286, elapsed 5s, HTTP 200)
+[0;32m[PASS][0m 13:38:58 Master deployed locally on runner (port 8888)
+
+[0;36m========== Phase 2: Create worker node ==========[0m
+
+[0;34m[INFO][0m 13:38:58 Creating test node: env=proxmoxve hours=8
+[0;34m[INFO][0m 13:38:58 Enabled platforms (priority order): lightnode
+[0;34m[INFO][0m 13:38:58 === Trying platform: lightnode (attempt 1/2) ===
+[0;34m[INFO][0m 13:38:58 Initializing platform: lightnode
+[0;34m[INFO][0m 13:38:58 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 13:38:59 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 13:39:00 [lightnode] Platform initialized
+[0;32m[PASS][0m 13:39:00 Platform 'lightnode' initialized
+[0;34m[INFO][0m 13:39:00 [lightnode] Concurrent instance mode enabled; creating an isolated worker instance
+[0;34m[INFO][0m 13:39:00 [lightnode] Creating new instance (env=proxmoxve hours=8)...
+[0;34m[INFO][0m 13:39:00 [lightnode] Creating instance: env=proxmoxve
+[0;34m[INFO][0m 13:39:00 [lightnode] Raised package floor for proxmoxve/both to 4C/8192MB
+[0;34m[INFO][0m 13:39:00 [lightnode] Using package=intel-c4m8-bgp-b10-s50-d100 (required=4C/8192MB tier=3, strict=true)
+[0;32m[PASS][0m 13:39:08 [lightnode] Instance creation requested: ecs-ck0001lz2qaa
+[0;34m[INFO][0m 13:39:08 [lightnode] Waiting for async task ud0001lz2q9i (max 1800s)...
+[DEBUG] 13:39:09 [lightnode] Task ud0001lz2q9i: result=RETRY status=PROCESSING
+[DEBUG] 13:39:24 [lightnode] Task ud0001lz2q9i: result=RETRY status=PROCESSING
+[DEBUG] 13:39:40 [lightnode] Task ud0001lz2q9i: result=RETRY status=PROCESSING
+[DEBUG] 13:39:56 [lightnode] Task ud0001lz2q9i: result=RETRY status=PROCESSING
+[DEBUG] 13:40:11 [lightnode] Task ud0001lz2q9i: result=RETRY status=PROCESSING
+[DEBUG] 13:40:27 [lightnode] Task ud0001lz2q9i: result=RETRY status=PROCESSING
+[DEBUG] 13:40:42 [lightnode] Task ud0001lz2q9i: result=RETRY status=PROCESSING
+[DEBUG] 13:40:58 [lightnode] Task ud0001lz2q9i: result=RETRY status=PROCESSING
+[DEBUG] 13:41:14 [lightnode] Task ud0001lz2q9i: result=SUCCESS status=FINISHED
+[0;32m[PASS][0m 13:41:14 [lightnode] Task ud0001lz2q9i completed
+[0;32m[PASS][0m 13:41:15 Instance created on 'lightnode': ID=ecs-ck0001lz2qaa IP=38.60.136.224
+[0;34m[INFO][0m 13:41:15 [lightnode] Waiting for SSH on 38.60.136.224 (max 600s)...
+[0;32m[PASS][0m 13:41:17 [lightnode] SSH ready on 38.60.136.224
+[0;34m[INFO][0m 13:41:17 Checking worker resources for proxmoxve/both on lightnode (memory>=7680MB from 8192MB nominal, cpu>=4, disk>=20GB, /dev/kvm required)...
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+WORKER_RESOURCE_CHECK env=proxmoxve platform=lightnode memory_mb=7941 cpu=4 disk_gb=48 kvm=present
+[0;32m[PASS][0m 13:41:19 Worker resources satisfy proxmoxve requirements
+[0;34m[INFO][0m 13:41:19 Initializing platform: lightnode
+[0;34m[INFO][0m 13:41:19 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 13:41:20 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 13:41:21 [lightnode] Platform initialized
+[0;32m[PASS][0m 13:41:21 Platform 'lightnode' initialized
+[0;34m[INFO][0m 13:41:21 [lightnode] Waiting for SSH on 38.60.136.224 (max 600s)...
+[0;32m[PASS][0m 13:41:23 [lightnode] SSH ready on 38.60.136.224
+[0;34m[INFO][0m 13:41:23 Ensuring 2048MB swap on new lightnode worker...
+[DEBUG] 13:41:25 Swap setup output on new lightnode worker: Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+SWAP_OK total=2047MB
+[0;32m[PASS][0m 13:41:25 Swap ready on new lightnode worker
+[0;32m[PASS][0m 13:41:25 Node created on 'lightnode': ID=ecs-ck0001lz2qaa IP=[MASKED]
+[0;34m[INFO][0m 13:41:25 Initializing platform: lightnode
+[0;34m[INFO][0m 13:41:25 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 13:41:26 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 13:41:27 [lightnode] Platform initialized
+[0;32m[PASS][0m 13:41:27 Platform 'lightnode' initialized
+[0;32m[PASS][0m 13:41:27 Worker node: ID=ecs-ck0001lz2qaa IP=[MASKED] Platform=lightnode
+[0;34m[INFO][0m 13:41:27 Waiting for cloud-init on worker node (handled by wait_for_apt_lock)...
+
+[0;36m========== Phase 3: Install proxmoxve on worker node ==========[0m
+
+
+[0;36m========== Installing proxmoxve environment on worker node ==========[0m
+
+[0;34m[INFO][0m 13:41:27 Using remote proxmoxve installer: https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/install_pve.sh
+[0;34m[INFO][0m 13:41:27 Checking worker resources for proxmoxve/both on lightnode (memory>=7680MB from 8192MB nominal, cpu>=4, disk>=20GB, /dev/kvm required)...
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+WORKER_RESOURCE_CHECK env=proxmoxve platform=lightnode memory_mb=7941 cpu=4 disk_gb=46 kvm=present
+[0;32m[PASS][0m 13:41:29 Worker resources satisfy proxmoxve requirements
+[0;34m[INFO][0m 13:41:29 Ensuring 2048MB swap on worker before proxmoxve install...
+[DEBUG] 13:41:31 Swap setup output on worker before proxmoxve install: Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+SWAP_OK total=2047MB
+[0;32m[PASS][0m 13:41:31 Swap ready on worker before proxmoxve install
+[0;34m[INFO][0m 13:41:31 Waiting for apt/dpkg locks on 38.60.136.224 (min 120s, max 1800s)...
+[0;32m[PASS][0m 13:43:34 apt/dpkg locks free on 38.60.136.224 (after 120s)
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+Get:2 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+Get:3 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:4 http://deb.debian.org/debian bookworm/non-free Sources [78.0 kB]
+Get:5 http://deb.debian.org/debian bookworm/contrib Sources [51.1 kB]
+Get:6 http://deb.debian.org/debian bookworm/non-free-firmware Sources [7152 B]
+Get:7 http://deb.debian.org/debian bookworm/main Sources [9492 kB]
+Get:8 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+Get:9 http://deb.debian.org/debian bookworm/main Translation-en [6107 kB]
+Get:10 http://deb.debian.org/debian bookworm/contrib amd64 Packages [53.5 kB]
+Get:11 http://deb.debian.org/debian bookworm/contrib Translation-en [48.4 kB]
+Get:12 http://deb.debian.org/debian bookworm/non-free amd64 Packages [102 kB]
+Get:13 http://deb.debian.org/debian bookworm/non-free Translation-en [68.2 kB]
+Get:14 http://deb.debian.org/debian bookworm/non-free-firmware amd64 Packages [6368 B]
+Get:15 http://deb.debian.org/debian bookworm-updates/main Sources.diff/Index [21.8 kB]
+Ign:15 http://deb.debian.org/debian bookworm-updates/main Sources.diff/Index
+Get:16 http://deb.debian.org/debian bookworm-updates/main amd64 Packages.diff/Index [21.8 kB]
+Ign:16 http://deb.debian.org/debian bookworm-updates/main amd64 Packages.diff/Index
+Get:17 http://deb.debian.org/debian bookworm-updates/main Translation-en.diff/Index [20.7 kB]
+Ign:17 http://deb.debian.org/debian bookworm-updates/main Translation-en.diff/Index
+Get:18 http://deb.debian.org/debian-security bookworm-security/contrib Sources [1224 B]
+Get:19 http://deb.debian.org/debian-security bookworm-security/main Sources [252 kB]
+Get:20 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [341 kB]
+Get:21 http://deb.debian.org/debian-security bookworm-security/main Translation-en [214 kB]
+Get:22 http://deb.debian.org/debian-security bookworm-security/contrib amd64 Packages [1456 B]
+Get:23 http://deb.debian.org/debian-security bookworm-security/contrib Translation-en [1068 B]
+Get:24 http://deb.debian.org/debian-security bookworm-security/non-free amd64 Packages [6296 B]
+Get:25 http://deb.debian.org/debian-security bookworm-security/non-free Translation-en [5340 B]
+Get:26 http://deb.debian.org/debian bookworm-updates/main Sources [3288 B]
+Get:27 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+Get:28 http://deb.debian.org/debian bookworm-updates/main Translation-en [5448 B]
+Fetched 25.9 MB in 22s (1205 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+lsof is already the newest version (4.95.0-1).
+The following additional packages will be installed:
+  libcurl3-gnutls libcurl4 libjq1 libonig5
+The following NEW packages will be installed:
+  ipcalc jq libjq1 libonig5
+The following packages will be upgraded:
+  curl libcurl3-gnutls libcurl4 sudo wget
+5 upgraded, 4 newly installed, 0 to remove and 148 not upgraded.
+Need to get 4337 kB of archives.
+After this operation, 1168 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian bookworm/main amd64 sudo amd64 1.9.13p3-1+deb12u4 [1890 kB]
+Get:2 http://deb.debian.org/debian bookworm/main amd64 wget amd64 1.21.3-1+deb12u1 [937 kB]
+Get:3 http://deb.debian.org/debian bookworm/main amd64 curl amd64 7.88.1-10+deb12u15 [316 kB]
+Get:4 http://deb.debian.org/debian bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u15 [392 kB]
+Get:5 http://deb.debian.org/debian bookworm/main amd64 ipcalc all 0.42-2 [27.8 kB]
+Get:6 http://deb.debian.org/debian bookworm/main amd64 libonig5 amd64 6.9.8-1 [188 kB]
+Get:7 http://deb.debian.org/debian bookworm/main amd64 libjq1 amd64 1.6-2.1+deb12u2 [136 kB]
+Get:8 http://deb.debian.org/debian bookworm/main amd64 jq amd64 1.6-2.1+deb12u2 [64.0 kB]
+Get:9 http://deb.debian.org/debian bookworm/main amd64 libcurl3-gnutls amd64 7.88.1-10+deb12u15 [386 kB]
+apt-listchanges: Reading changelogs...
+Fetched 4337 kB in 4s (1197 kB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 31698 files and directories currently installed.)
+Preparing to unpack .../0-sudo_1.9.13p3-1+deb12u4_amd64.deb ...
+Unpacking sudo (1.9.13p3-1+deb12u4) over (1.9.13p3-1+deb12u1) ...
+Preparing to unpack .../1-wget_1.21.3-1+deb12u1_amd64.deb ...
+Unpacking wget (1.21.3-1+deb12u1) over (1.21.3-1+b2) ...
+Preparing to unpack .../2-curl_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking curl (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Preparing to unpack .../3-libcurl4_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking libcurl4:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Selecting previously unselected package ipcalc.
+Preparing to unpack .../4-ipcalc_0.42-2_all.deb ...
+Unpacking ipcalc (0.42-2) ...
+Selecting previously unselected package libonig5:amd64.
+Preparing to unpack .../5-libonig5_6.9.8-1_amd64.deb ...
+Unpacking libonig5:amd64 (6.9.8-1) ...
+Selecting previously unselected package libjq1:amd64.
+Preparing to unpack .../6-libjq1_1.6-2.1+deb12u2_amd64.deb ...
+Unpacking libjq1:amd64 (1.6-2.1+deb12u2) ...
+Selecting previously unselected package jq.
+Preparing to unpack .../7-jq_1.6-2.1+deb12u2_amd64.deb ...
+Unpacking jq (1.6-2.1+deb12u2) ...
+Preparing to unpack .../8-libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking libcurl3-gnutls:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Setting up wget (1.21.3-1+deb12u1) ...
+Setting up libcurl3-gnutls:amd64 (7.88.1-10+deb12u15) ...
+Setting up ipcalc (0.42-2) ...
+Setting up sudo (1.9.13p3-1+deb12u4) ...
+Setting up libcurl4:amd64 (7.88.1-10+deb12u15) ...
+Setting up curl (7.88.1-10+deb12u15) ...
+Setting up libonig5:amd64 (6.9.8-1) ...
+Setting up libjq1:amd64 (1.6-2.1+deb12u2) ...
+Setting up jq (1.6-2.1+deb12u2) ...
+Processing triggers for man-db (2.11.2-2) ...
+Processing triggers for libc-bin (2.36-9+deb12u1) ...
+[0;34m[INFO][0m 13:44:09 Verifying DNS on worker before proxmoxve install...
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+DNS_OK
+[0;32m[PASS][0m 13:44:11 DNS verified on worker before proxmoxve install
+[0;34m[INFO][0m 13:44:11 Using remote proxmoxve installer: https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/install_pve.sh
+[0;34m[INFO][0m 13:44:11 PVE install step 1/3: installing PVE kernel (reboot required)...
+[0;34m[INFO][0m 13:44:15 Starting detached PVE job 'PVE installer pre-reboot' (network may be unavailable while it runs)...
+[0;32m[PASS][0m 13:51:33 Detached PVE job 'PVE installer pre-reboot' completed
+[0;34m[INFO][0m 13:51:59 Rebooting worker to load PVE kernel...
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+[0;34m[INFO][0m 13:52:48 Ensuring 2048MB swap on worker after PVE reboot...
+[DEBUG] 13:52:50 Swap setup output on worker after PVE reboot: Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+SWAP_OK total=2047MB
+[0;32m[PASS][0m 13:52:50 Swap ready on worker after PVE reboot
+[0;34m[INFO][0m 13:52:50 Verifying DNS on worker after PVE reboot...
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+DNS_OK
+[0;32m[PASS][0m 13:52:52 DNS verified on worker after PVE reboot
+[0;34m[INFO][0m 13:52:54 Verifying DNS on worker after ifupdown2 bootstrap...
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+DNS_OK
+[0;32m[PASS][0m 13:52:56 DNS verified on worker after ifupdown2 bootstrap
+[0;34m[INFO][0m 13:52:56 PVE install step 2/3: completing PVE configuration after reboot...
+[0;34m[INFO][0m 13:52:56 Starting detached PVE job 'PVE installer post-reboot' (network may be unavailable while it runs)...
+[0;32m[PASS][0m 14:04:49 Detached PVE job 'PVE installer post-reboot' completed
+[0;34m[INFO][0m 14:04:49 PVE install step 3a/3: configuring backend bridge...
+[0;34m[INFO][0m 14:04:49 Starting detached PVE job 'PVE backend bridge' (network may be unavailable while it runs)...
+[0;32m[PASS][0m 14:05:27 Detached PVE job 'PVE backend bridge' completed
+[0;34m[INFO][0m 14:05:27 PVE install step 3b/3: building NAT IPv4 network...
+[0;34m[INFO][0m 14:05:27 Starting detached PVE job 'PVE NAT network' (network may be unavailable while it runs)...
+[0;32m[PASS][0m 14:06:33 Detached PVE job 'PVE NAT network' completed
+[0;34m[INFO][0m 14:06:33 Verifying DNS on worker after proxmoxve install...
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+DNS_OK
+[0;32m[PASS][0m 14:06:35 DNS verified on worker after proxmoxve install
+[0;34m[INFO][0m 14:06:35 Verifying proxmoxve runtime on worker...
+[0;34m[INFO][0m 14:06:40 Checking worker resources for proxmoxve/both on lightnode (memory>=7680MB from 8192MB nominal, cpu>=4, disk>=20GB, /dev/kvm required)...
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+WORKER_RESOURCE_CHECK env=proxmoxve platform=lightnode memory_mb=7940 cpu=4 disk_gb=43 kvm=present
+[0;32m[PASS][0m 14:06:42 Worker resources satisfy proxmoxve requirements
+[0;32m[PASS][0m 14:06:42 proxmoxve runtime verified on worker
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+[0;34m[INFO][0m 14:06:44 Worker architecture detected: amd64
+
+[0;36m========== Phase 4: Prepare worker with pre-existing instances ==========[0m
+
+
+[0;36m========== Preparing non-clean worker node for discovery tests ==========[0m
+
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+400 Parameter verification failed.
+startup: invalid format - unable to parse startup options
+
+pct create <vmid> <ostemplate> [OPTIONS]
+[1;33m[WARN][0m 14:06:57 Remote command failed on 38.60.136.224 (attempt 1/3, exit=255); retrying in 10s
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+400 Parameter verification failed.
+startup: invalid format - unable to parse startup options
+
+pct create <vmid> <ostemplate> [OPTIONS]
+[1;33m[WARN][0m 14:07:14 Remote command failed on 38.60.136.224 (attempt 2/3, exit=255); retrying in 10s
+Warning: Permanently added '38.60.136.224' (ED25519) to the list of known hosts.
+400 Parameter verification failed.
+startup: invalid format - unable to parse startup options
+
+pct create <vmid> <ostemplate> [OPTIONS]
+[1;33m[WARN][0m 14:07:31 Prepared only 1/2 dirty-node fixtures for proxmoxve
+[1;33m[WARN][0m 14:07:31 Dirty node preparation had issues, continuing...
+[0;31m[FAIL][0m 14:07:31 Partial dirty-node fixture preparation (proxmoxve) - expected all requested instance types have deterministic fixtures, got only a subset of requested fixtures is ready
+[0;31m[FAIL][0m 14:07:31 Partial dirty-node fixture preparation (proxmoxve) - actual response body follows:
+The requested discovery matrix is incomplete; module assertions were not run
+[0;31m[FAIL][0m 14:07:31 Script exiting with code 1
+[0;34m[INFO][0m 14:07:31 Capturing service logs for debugging...
+[0;34m[INFO][0m 14:07:31 Cleaning up nodes: ecs-ck0001lz2qaa</pre></body></html>
