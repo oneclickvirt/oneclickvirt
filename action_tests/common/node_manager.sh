@@ -993,7 +993,109 @@ verify_worker_runtime() {
             verify_cmd="command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1 && podman network inspect podman-net >/dev/null"
             ;;
         containerd)
-            verify_cmd="ctr version >/dev/null && nerdctl network inspect containerd-net >/dev/null && for plugin in bridge host-local loopback portmap firewall tuning; do test -x /opt/cni/bin/\$plugin || exit 1; done"
+            # nerdctl-full changed its bundled CNI directory in 2.4.0 from
+            # /opt/cni/bin to /usr/local/libexec/cni. The installer normally
+            # creates compatibility links, but runtime verification must also
+            # work with an already-installed worker or a package that did not
+            # create those links. Discover one directory containing the full
+            # plugin set. Runtime readiness is checked through ctr, nerdctl
+            # and the installed CNI files; it does not require a named
+            # nerdctl network to have been created yet.
+            verify_cmd=$(cat <<'VERIFY_CONTAINERD'
+containerd_check() {
+    local label="$1"
+    shift
+    local output
+    if output=$("$@" 2>&1); then
+        printf 'CONTAINERD_RUNTIME_PASS: %s\n' "$label"
+        return 0
+    fi
+    printf 'CONTAINERD_RUNTIME_FAIL: %s\n' "$label" >&2
+    [[ -z "$output" ]] || printf '%s\n' "$output" >&2
+    return 1
+}
+containerd_check 'ctr command' command -v ctr || exit 1
+containerd_check 'nerdctl command' command -v nerdctl || exit 1
+# `ctr version` talks to the containerd socket.  It is the authoritative
+# daemon check; `nerdctl info` is intentionally not used because nerdctl 2.4
+# can return a non-zero status while the daemon and CNI installation are
+# healthy (especially when a global --cni-path flag is unsupported).
+containerd_check 'containerd daemon (ctr version)' ctr version || exit 1
+containerd_check 'nerdctl CLI version' nerdctl version || exit 1
+cni_path=""
+# Only the local fixture supplies this filesystem prefix. The SSH wrapper
+# does not forward the runner's environment to real workers.
+containerd_verify_root="${CONTAINERD_VERIFY_ROOT:-}"
+cni_candidates=(/opt/cni/bin /usr/local/libexec/cni /usr/local/lib/cni /usr/lib/cni /usr/libexec/cni)
+cni_config="${containerd_verify_root}/etc/cni/net.d/10-containerd-net.conflist"
+missing_plugins=""
+for candidate in "${cni_candidates[@]}"; do
+    candidate="${containerd_verify_root}${candidate}"
+    complete=true
+    for plugin in bridge host-local loopback portmap firewall tuning; do
+        if [ ! -x "${candidate}/${plugin}" ]; then
+            missing_plugins+=" ${candidate}/${plugin}"
+            complete=false
+        fi
+    done
+    if [ "${complete}" = true ]; then
+        cni_path="${candidate}"
+        break
+    fi
+done
+if [ -z "${cni_path}" ]; then
+    echo "Required Containerd CNI plugins are missing:${missing_plugins}" >&2
+    exit 1
+fi
+echo "Using Containerd CNI plugin directory: ${cni_path}"
+printf 'CONTAINERD_RUNTIME_PASS: CNI plugin directory (%s)\n' "${cni_path}"
+# Some minimal workers do not expose systemd to the SSH session.  The ctr
+# check above already verifies the active socket. Consult systemd only when
+# it can positively report a loaded unit; a shell without a systemd bus must
+# not turn a healthy containerd socket into a false readiness failure.
+if command -v systemctl >/dev/null 2>&1; then
+    unit_state=$(systemctl show containerd.service --property=LoadState --value 2>/dev/null || true)
+    if [ "${unit_state}" = loaded ]; then
+        if ! active_state=$(systemctl show containerd.service --property=ActiveState --value 2>/dev/null) || [ -z "${active_state}" ]; then
+            printf 'CONTAINERD_RUNTIME_SKIP: systemd active state unavailable; ctr socket check is authoritative\n'
+        elif [ "${active_state}" != active ]; then
+            echo "containerd systemd service is not active (state=${active_state:-unknown})" >&2
+            systemctl --no-pager --full status containerd 2>&1 | tail -40 >&2 || true
+            exit 1
+        else
+            printf 'CONTAINERD_RUNTIME_PASS: containerd systemd service active\n'
+        fi
+    else
+        printf 'CONTAINERD_RUNTIME_SKIP: systemd containerd unit is unavailable; ctr socket check is authoritative\n'
+    fi
+else
+    printf 'CONTAINERD_RUNTIME_SKIP: systemd status is unavailable in this execution context; ctr socket check is authoritative\n'
+fi
+test -s "${cni_config}" || {
+    echo "Containerd CNI configuration is missing: ${cni_config}" >&2
+    exit 1
+}
+command -v jq >/dev/null 2>&1 || {
+    echo "jq is required to validate Containerd CNI configuration" >&2
+    exit 1
+}
+if ! jq -e '
+    .name == "containerd-net" and
+    (.plugins | type == "array") and
+    any(.plugins[]?; .type == "bridge" and .ipam.type == "host-local") and
+    ([.plugins[]?.type] | index("portmap")) != null and
+    ([.plugins[]?.type] | index("firewall")) != null and
+    ([.plugins[]?.type] | index("tuning")) != null
+ ' "${cni_config}" >/dev/null; then
+    echo "Containerd CNI configuration has an invalid containerd-net plugin chain" >&2
+    jq -c . "${cni_config}" >&2 || true
+    exit 1
+fi
+printf 'CONTAINERD_RUNTIME_PASS: CNI configuration containerd-net plugin chain\n'
+# `loopback` is required as an executable, not an entry in the conflist.
+printf 'CONTAINERD_RUNTIME_PASS: required CNI executables\n'
+VERIFY_CONTAINERD
+)
             ;;
         lxd)
             verify_cmd="$(declare -f verify_lxc_runtime)"$'\n'"verify_lxc_runtime lxc"

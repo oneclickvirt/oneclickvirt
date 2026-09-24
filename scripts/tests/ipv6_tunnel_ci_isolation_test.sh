@@ -43,7 +43,6 @@ action_test_runner_has_ipv6() { return 1; }
 run_ipv6_tunnel_host_lifecycle_tests providers >/dev/null
 [[ ! -s "$CALLS_FILE" ]] || fail "IPv4-only runner invoked a host-facing IPv6 endpoint"
 grep -Fq 'runner无可用IPv6' "$SKIPS_FILE" || fail "missing explicit IPv4-only runner skip"
-
 action_test_runner_has_ipv6() { return 0; }
 run_ipv6_tunnel_host_lifecycle_tests providers >/dev/null
 grep -Fq '/api/v1/admin/providers/1/ipv6-tunnels' "$CALLS_FILE" || fail "explicit host lifecycle opt-in did not invoke tunnel endpoints"
@@ -57,5 +56,24 @@ fi
 
 grep -Fq 'live_ipv6_tunnel:' "$WORKFLOW" || fail "workflow has no explicit tunnel lifecycle input"
 grep -Fq 'ACTION_TEST_LIVE_IPV6_TUNNEL:' "$WORKFLOW" || fail "workflow does not pass the tunnel lifecycle input to the harness"
+
+# Exercise the actual capability probe with an intercepted curl. A proxy must
+# never provide a false IPv6 capability on behalf of an IPv4-only runner.
+source "$MODULE"
+curl() {
+    [[ "$1" == -6 && "$2" == --noproxy && "$3" == '*' ]] || fail "IPv6 probe did not require direct IPv6"
+    [[ "$*" == *'--max-time 10'* ]] || fail "IPv6 capability probe is not bounded"
+    return 1
+}
+: > "$CALLS_FILE"
+run_ipv6_tunnel_host_lifecycle_tests providers >/dev/null
+[[ ! -s "$CALLS_FILE" ]] || fail "failed direct IPv6 probe still invoked tunnel APIs"
+
+# The ordinary instance matrix must stay IPv4-only. Pool CRUD uses documentation
+# addresses in the controller database, but must not turn later instance create
+# requests into real IPv6 allocations on a runner without IPv6.
+if grep -En 'nat_ipv4_ipv6|dedicated_ipv4_ipv6|ipv6_only' "$ROOT_DIR"/action_tests/modules/*.sh; then
+    fail "real IPv6 instance allocation was added to the default module matrix; it requires a separate capability-gated live test"
+fi
 
 echo "IPv6 tunnel CI isolation tests passed"

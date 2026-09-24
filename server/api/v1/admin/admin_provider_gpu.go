@@ -25,12 +25,27 @@ import (
 
 // gpuCacheEntry GPU/NPU 检测缓存条目
 type gpuCacheEntry struct {
-	gpus         []map[string]string
-	npus         []map[string]string
-	accelerators []map[string]string
-	rawInfo      string
-	cachedAt     time.Time
+	gpus               []map[string]string
+	npus               []map[string]string
+	accelerators       []map[string]string
+	rawInfo            string
+	detectionAvailable bool
+	detectionReason    string
+	cachedAt           time.Time
 }
+
+// acceleratorDetectionResult keeps device discovery separate from the
+// provider connection check. A connected node is allowed to have no GPU/NPU
+// tooling installed; that is a valid empty result and must not be reported as
+// an internal API failure.
+type acceleratorDetectionResult struct {
+	devices            []map[string]string
+	rawInfo            string
+	detectionAvailable bool
+	detectionReason    string
+}
+
+const unavailableGPUCommandMarker = "__ONECLICKVIRT_GPU_COMMAND_UNAVAILABLE__"
 
 // gpuDetectionCache GPU 检测结果缓存（5分钟有效期）
 var gpuDetectionCache sync.Map
@@ -82,11 +97,13 @@ func DetectGPUs(c *gin.Context) {
 					zap.Uint("providerID", uint(id)),
 					zap.Duration("age", time.Since(entry.cachedAt)))
 				common.ResponseSuccess(c, map[string]interface{}{
-					"gpus":         normalizedGPUs,
-					"npus":         normalizedNPUs,
-					"accelerators": normalizedAccelerators,
-					"rawInfo":      entry.rawInfo,
-					"cached":       true,
+					"gpus":               normalizedGPUs,
+					"npus":               normalizedNPUs,
+					"accelerators":       normalizedAccelerators,
+					"rawInfo":            entry.rawInfo,
+					"detectionAvailable": entry.detectionAvailable,
+					"detectionReason":    entry.detectionReason,
+					"cached":             true,
 				}, "GPU/NPU检测完成（缓存）")
 				return
 			}
@@ -106,11 +123,13 @@ func DetectGPUs(c *gin.Context) {
 				global.APP_LOG.Debug("GPU检测：命中DB持久化缓存",
 					zap.Uint("providerID", uint(id)))
 				common.ResponseSuccess(c, map[string]interface{}{
-					"gpus":         normalizedGpus,
-					"npus":         []map[string]string{},
-					"accelerators": normalizedGpus,
-					"rawInfo":      "",
-					"cached":       true,
+					"gpus":               normalizedGpus,
+					"npus":               []map[string]string{},
+					"accelerators":       normalizedGpus,
+					"rawInfo":            "",
+					"detectionAvailable": len(normalizedGpus) > 0,
+					"detectionReason":    "使用持久化检测缓存",
+					"cached":             true,
 				}, "GPU/NPU检测完成（持久化缓存）")
 				return
 			}
@@ -126,23 +145,25 @@ func DetectGPUs(c *gin.Context) {
 		return
 	}
 
-	accelerators, rawInfo, detectErr := detectAccelerators(execCtx, providerInstance, p.Type)
+	detection, detectErr := detectAccelerators(execCtx, providerInstance, p.Type)
 	if detectErr != nil {
 		global.APP_LOG.Warn("GPU/NPU检测失败", zap.Error(detectErr), zap.Uint("providerID", p.ID), zap.String("providerType", p.Type))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "设备检测失败: "+detectErr.Error()))
 		return
 	}
 
-	accelerators = normalizeDetectedAccelerators(accelerators)
+	accelerators := normalizeDetectedAccelerators(detection.devices)
 	gpus, npus := splitStringGPUsNPUs(accelerators)
 
 	// 写入内存缓存
 	gpuDetectionCache.Store(uint(id), gpuCacheEntry{
-		gpus:         gpus,
-		npus:         npus,
-		accelerators: accelerators,
-		rawInfo:      strings.TrimSpace(rawInfo),
-		cachedAt:     time.Now(),
+		gpus:               gpus,
+		npus:               npus,
+		accelerators:       accelerators,
+		rawInfo:            strings.TrimSpace(detection.rawInfo),
+		detectionAvailable: detection.detectionAvailable,
+		detectionReason:    detection.detectionReason,
+		cachedAt:           time.Now(),
 	})
 
 	// 持久化到 Provider 表，供用户端免检测直接展示 GPU 选项
@@ -152,11 +173,13 @@ func DetectGPUs(c *gin.Context) {
 		Update("gpu_info", string(gpuInfoBytes))
 
 	common.ResponseSuccess(c, map[string]interface{}{
-		"gpus":         gpus,
-		"npus":         npus,
-		"accelerators": accelerators,
-		"rawInfo":      strings.TrimSpace(rawInfo),
-		"cached":       false,
+		"gpus":               gpus,
+		"npus":               npus,
+		"accelerators":       accelerators,
+		"rawInfo":            strings.TrimSpace(detection.rawInfo),
+		"detectionAvailable": detection.detectionAvailable,
+		"detectionReason":    detection.detectionReason,
+		"cached":             false,
 	}, "GPU/NPU检测完成")
 }
 
@@ -218,11 +241,23 @@ func normalizeDetectedAccelerators(devices []map[string]string) []map[string]str
 	return merged
 }
 
-func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provider, providerType string) ([]map[string]string, string, error) {
-	devices := make([]map[string]string, 0)
+func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provider, providerType string) (acceleratorDetectionResult, error) {
+	if providerInstance == nil {
+		return acceleratorDetectionResult{}, fmt.Errorf("Provider检测执行器不可用")
+	}
+	return detectAcceleratorsWithExecutor(ctx, providerType, providerInstance.ExecuteSSHCommand)
+}
+
+func detectAcceleratorsWithExecutor(ctx context.Context, providerType string, execute func(context.Context, string) (string, error)) (acceleratorDetectionResult, error) {
+	result := acceleratorDetectionResult{devices: make([]map[string]string, 0)}
 	rawSections := make([]string, 0)
 	mergedIndex := make(map[string]int)
-	hadAnySource := false
+	commandAvailable := false
+	var firstExecutionErr error
+
+	if execute == nil {
+		return result, fmt.Errorf("Provider检测命令执行器不可用")
+	}
 
 	addDevice := func(kind, id, name, vendor, bus, source, card string) {
 		kind = strings.ToLower(strings.TrimSpace(kind))
@@ -257,12 +292,12 @@ func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provid
 
 		key := acceleratorMergeKey(d)
 		if idx, ok := mergedIndex[key]; ok {
-			mergeAcceleratorRecord(devices[idx], d)
+			mergeAcceleratorRecord(result.devices[idx], d)
 			return
 		}
 
-		devices = append(devices, d)
-		mergedIndex[key] = len(devices) - 1
+		result.devices = append(result.devices, d)
+		mergedIndex[key] = len(result.devices) - 1
 	}
 
 	appendRaw := func(title, output string) {
@@ -273,51 +308,97 @@ func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provid
 		rawSections = append(rawSections, title+"\n"+output)
 	}
 
+	resourceBinary := "lxc"
 	resourceCmd := "lxc info --resources 2>/dev/null | awk '/^GPU:/,/^[A-Z]/' | head -120"
 	if providerType == "incus" {
+		resourceBinary = "incus"
 		resourceCmd = "incus info --resources 2>/dev/null | awk '/^GPU:/,/^[A-Z]/' | head -120"
 	}
-	if output, err := providerInstance.ExecuteSSHCommand(ctx, resourceCmd); err == nil {
-		hadAnySource = true
-		appendRaw("[lxc/incus resources]", output)
-		for _, d := range parseLXDGPUInfo(output) {
-			addDevice("gpu", d["id"], d["name"], d["vendor"], d["device"], "lxc-resources", d["card"])
+	commands := []struct {
+		binary string
+		title  string
+		cmd    string
+		parse  func(string)
+	}{
+		{
+			binary: resourceBinary,
+			title:  "[lxc/incus resources]",
+			cmd:    resourceCmd,
+			parse: func(output string) {
+				for _, d := range parseLXDGPUInfo(output) {
+					addDevice("gpu", d["id"], d["name"], d["vendor"], d["device"], "lxc-resources", d["card"])
+				}
+			},
+		},
+		{
+			binary: "nvidia-smi",
+			title:  "[nvidia-smi]",
+			cmd:    "nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv,noheader 2>/dev/null || true",
+			parse: func(output string) {
+				for _, d := range parseNvidiaSMI(output) {
+					addDevice("gpu", d["id"], d["name"], "NVIDIA", d["bus"], "nvidia-smi", "")
+				}
+			},
+		},
+		{
+			binary: "lspci",
+			title:  "[lspci]",
+			cmd:    "lspci -Dnn 2>/dev/null || true",
+			parse: func(output string) {
+				for _, d := range parseLspciAccelerators(output) {
+					addDevice(d["kind"], d["id"], d["name"], d["vendor"], d["bus"], "lspci", "")
+				}
+			},
+		},
+		{
+			binary: "npu-smi",
+			title:  "[npu-smi]",
+			cmd:    "npu-smi info 2>/dev/null || true",
+			parse: func(output string) {
+				for _, d := range parseNPUSmiInfo(output) {
+					addDevice("npu", d["id"], d["name"], d["vendor"], d["bus"], "npu-smi", "")
+				}
+			},
+		},
+	}
+
+	for _, detectionCommand := range commands {
+		command := wrapOptionalGPUCommand(detectionCommand.binary, detectionCommand.cmd)
+		output, err := execute(ctx, command)
+		if err != nil {
+			if ctx != nil && ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			// Missing optional binaries are reported by the explicit marker.
+			// A transport error may also contain "not found" (e.g. a missing
+			// Agent connection or socket); it must not become empty GPU success.
+			if firstExecutionErr == nil {
+				firstExecutionErr = err
+			}
+			global.APP_LOG.Debug("GPU检测：检测命令执行失败",
+				zap.String("command", detectionCommand.binary), zap.Error(err))
+			continue
 		}
-	} else {
-		global.APP_LOG.Debug("GPU检测：lxc/incus资源命令执行失败", zap.Error(err))
-	}
 
-	if output, err := providerInstance.ExecuteSSHCommand(ctx, "nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv,noheader 2>/dev/null || true"); err == nil {
-		hadAnySource = true
-		appendRaw("[nvidia-smi]", output)
-		for _, d := range parseNvidiaSMI(output) {
-			addDevice("gpu", d["id"], d["name"], "NVIDIA", d["bus"], "nvidia-smi", "")
+		if strings.Contains(output, unavailableGPUCommandMarker) {
+			output = strings.ReplaceAll(output, unavailableGPUCommandMarker, "")
+		} else {
+			commandAvailable = true
+		}
+		output = strings.TrimSpace(output)
+		if output != "" {
+			appendRaw(detectionCommand.title, output)
+			detectionCommand.parse(output)
 		}
 	}
 
-	if output, err := providerInstance.ExecuteSSHCommand(ctx, "lspci -Dnn 2>/dev/null || true"); err == nil {
-		hadAnySource = true
-		appendRaw("[lspci]", output)
-		for _, d := range parseLspciAccelerators(output) {
-			addDevice(d["kind"], d["id"], d["name"], d["vendor"], d["bus"], "lspci", "")
-		}
+	if firstExecutionErr != nil && !commandAvailable {
+		return result, fmt.Errorf("未能执行任何检测命令，请检查节点连接状态与命令执行权限: %w", firstExecutionErr)
 	}
 
-	if output, err := providerInstance.ExecuteSSHCommand(ctx, "npu-smi info 2>/dev/null || true"); err == nil {
-		hadAnySource = true
-		appendRaw("[npu-smi]", output)
-		for _, d := range parseNPUSmiInfo(output) {
-			addDevice("npu", d["id"], d["name"], d["vendor"], d["bus"], "npu-smi", "")
-		}
-	}
-
-	if !hadAnySource {
-		return nil, strings.Join(rawSections, "\n\n"), fmt.Errorf("未能执行任何检测命令，请检查节点连接状态与命令执行权限")
-	}
-
-	sort.SliceStable(devices, func(i, j int) bool {
-		a := devices[i]
-		b := devices[j]
+	sort.SliceStable(result.devices, func(i, j int) bool {
+		a := result.devices[i]
+		b := result.devices[j]
 		if a["kind"] != b["kind"] {
 			return a["kind"] < b["kind"]
 		}
@@ -330,7 +411,20 @@ func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provid
 		return a["name"] < b["name"]
 	})
 
-	return devices, strings.Join(rawSections, "\n\n"), nil
+	result.rawInfo = strings.Join(rawSections, "\n\n")
+	result.detectionAvailable = commandAvailable
+	if len(result.devices) == 0 {
+		if commandAvailable {
+			result.detectionReason = "节点未检测到 GPU/NPU 设备"
+		} else {
+			result.detectionReason = "节点没有可用的 GPU/NPU 检测命令"
+		}
+	}
+	return result, nil
+}
+
+func wrapOptionalGPUCommand(binary, command string) string {
+	return fmt.Sprintf("if command -v %s >/dev/null 2>&1; then %s; else printf '%s\\n'; fi", binary, command, unavailableGPUCommandMarker)
 }
 
 func acceleratorMergeKey(device map[string]string) string {

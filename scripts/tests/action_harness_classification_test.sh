@@ -264,6 +264,20 @@ env_supports_vm || fail "clearing the VM runtime circuit breaker did not restore
 
 DISCOVERY_MODULE="${ROOT_DIR}/action_tests/modules/23_discovery.sh"
 NODE_MANAGER="${ROOT_DIR}/action_tests/common/node_manager.sh"
+grep -Fq '/usr/local/libexec/cni' "$NODE_MANAGER" ||
+    fail "containerd runtime verification does not search the nerdctl-full CNI location"
+grep -Fq "containerd_check 'containerd daemon (ctr version)' ctr version" "$NODE_MANAGER" ||
+    fail "containerd runtime verification does not use ctr version for the daemon"
+grep -Fq "containerd_check 'nerdctl CLI version' nerdctl version" "$NODE_MANAGER" ||
+    fail "containerd runtime verification does not validate the nerdctl CLI"
+grep -Fq 'CONTAINERD_VERIFY_ROOT' "$NODE_MANAGER" ||
+    fail "containerd runtime verifier cannot be exercised with an isolated fixture"
+grep -Fq 'systemctl show containerd.service --property=LoadState' "$NODE_MANAGER" ||
+    fail "containerd runtime verification does not distinguish loaded systemd units from unavailable systemd"
+! grep -Fq 'nerdctl --cni-path "${cni_path}" network inspect containerd-net' "$NODE_MANAGER" ||
+    fail "containerd runtime verification still relies on an unregistered nerdctl network"
+! grep -Fq 'for plugin in bridge host-local loopback portmap firewall tuning; do test -x /opt/cni/bin/\$plugin' "$NODE_MANAGER" ||
+    fail "containerd runtime verification still hardcodes /opt/cni/bin per plugin"
 ! grep -Fq 'any(.data.discoveredInstances' "$DISCOVERY_MODULE" ||
     fail "discovery module still accepts an arbitrary container or VM"
 grep -Fq 'Discover exact pre-existing container' "$DISCOVERY_MODULE" ||

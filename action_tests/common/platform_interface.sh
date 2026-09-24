@@ -111,7 +111,7 @@ worker_resource_requirements() {
 
     [[ "$container_cpu" =~ ^[0-9]+$ ]] || container_cpu=2
     [[ "$container_memory" =~ ^[0-9]+$ ]] || container_memory=2048
-    [[ "$container_disk" =~ ^[0-9]+$ ]] || container_disk=20
+    [[ "$container_disk" =~ ^[0-9]+$ ]] || container_disk=5
     [[ "$vm_cpu" =~ ^[0-9]+$ ]] || vm_cpu=2
     [[ "$vm_memory" =~ ^[0-9]+$ ]] || vm_memory=4096
     [[ "$vm_disk" =~ ^[0-9]+$ ]] || vm_disk=20

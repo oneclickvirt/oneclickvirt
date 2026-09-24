@@ -19,8 +19,8 @@ printf 'public source\n' > main.txt
 printf 'private helper\n' > copy_project.sh
 printf 'private helper\n' > 'nested dir/copyproject.sh'
 ln -s ../../main.txt 'nested dir/deeper/copy_project.sh'
-printf '# Private mirror/synchronization tooling must never enter the public repository.\ncopy_project.sh\n**/copyproject.sh\n*.log\n' > .gitignore
-printf '/copyproject.sh\n!important.txt\ncache/\n' > .dockerignore
+printf '# Private mirror/synchronization tooling must never enter the public repository.\ncopy_project.sh\nprivate/**/copy_project.sh\n**/copyproject.sh\n*.log\n' > .gitignore
+printf '/copyproject.sh\nnested/path/copyproject.sh\n!important.txt\ncache/\n' > .dockerignore
 printf 'copy_project.sh\nkeep/\n' > 'nested dir/.gitignore'
 git add -f .
 git commit -qm current
@@ -47,4 +47,14 @@ snapshot=$(bash "$ROOT_DIR/scripts/build_cnb_snapshot.sh" HEAD)
 if git ls-tree -r --name-only "$snapshot" | grep -E '(^|/)(copy_project|copyproject)\.sh$|history-only|untracked'; then
     fail "snapshot contains private paths"
 fi
+# Model the workflow push against a local bare destination. Both public branch
+# names must point at the root snapshot, without making any old source history
+# reachable from either ref.
+git init --bare -q "$fixture/destination.git"
+git push -q "$fixture/destination.git" "$source_commit:refs/heads/main" "$source_commit:refs/heads/master"
+git push -q --force "$fixture/destination.git" "$snapshot:refs/heads/main" "$snapshot:refs/heads/master"
+[[ "$(git --git-dir="$fixture/destination.git" rev-list --all --count)" == 1 ]] || fail "public branches retain source history"
+for branch in main master; do
+    [[ "$(git --git-dir="$fixture/destination.git" rev-parse "refs/heads/$branch")" == "$snapshot" ]] || fail "$branch was not replaced"
+done
 echo "CNB snapshot tests passed"

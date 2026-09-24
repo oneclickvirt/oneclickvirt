@@ -128,6 +128,10 @@ jobs:
         with:
           go-version: 'stable'
           cache-dependency-path: server/go.sum
+      - name: Test firewall runner prerequisites
+        run: bash scripts/tests/firewall_runner_prerequisite_test.sh
+      - name: Load host firewall kernel modules
+        run: sudo bash scripts/tests/prepare_firewall_kernel.sh
       - name: Test dual-stack cleanup and Incus/LXD port reuse
         run: bash scripts/tests/firewall_integration_test.sh
 
@@ -198,9 +202,11 @@ jobs:
       - name: Test action harness failure classification
         run: |
           bash scripts/tests/action_harness_classification_test.sh
+          bash scripts/tests/containerd_runtime_verifier_test.sh
           bash scripts/tests/http_status_contract_test.sh
           bash scripts/tests/instance_creation_result_gate_test.sh
           bash scripts/tests/port_mapping_result_gate_test.sh
+          bash scripts/tests/port_mapping_agent_readiness_test.sh
           bash scripts/tests/result_integrity_test.sh
           bash scripts/tests/module_runner_integrity_test.sh
           bash scripts/tests/workflow_result_gate_test.sh
@@ -227,6 +233,10 @@ jobs:
 
       - name: Test provider exec status contract
         run: bash scripts/tests/provider_exec_status_contract_test.sh
+
+      - name: Test LXD and Incus create resource contracts
+        working-directory: ./server
+        run: go test ./provider/lxd ./provider/incus -run 'APICreateResourceContract|VMSecurityDoesNotSetContainerLimits' -count=1
 
       - name: Test password rotation and token isolation
         run: |
@@ -425,7 +435,13 @@ jobs:
           ACTION_TEST_LIVE_IPV6_TUNNEL: ${{ inputs.live_ipv6_tunnel && 'true' || 'false' }}
           ACTION_TEST_CONTAINER_CPU: "2"
           ACTION_TEST_CONTAINER_MEMORY: "2048"
-          ACTION_TEST_CONTAINER_DISK: "20"
+          # Native container providers create several guests on the shared
+          # runner. Keep each test disk small enough for the runner's actual
+          # quota; the preflight still verifies the host has a 20 GiB budget.
+          ACTION_TEST_CONTAINER_DISK: "5"
+          # Controller mappings require a reverse WebSocket; standalone SSH
+          # monitoring is not an online control connection.
+          ACTION_TEST_AGENT_STATUS_MAX_WAIT: "240"
           ACTION_TEST_VM_CPU: "2"
           ACTION_TEST_VM_MEMORY: "4096"
           ACTION_TEST_VM_DISK: "20"
@@ -657,7 +673,7 @@ jobs:
           module_total=0 module_passed=0 module_failed=0 module_skipped=0
           for f in "${result_files[@]}"; do
             line_no=0
-            while IFS= read -r line; do
+            while IFS= read -r line || [[ -n "$line" ]]; do
               line_no=$((line_no + 1))
               [[ -z "$line" ]] && continue
               if ! status=$(echo "$line" | jq -er '.status // "UNKNOWN"' 2>/dev/null); then
@@ -743,7 +759,7 @@ jobs:
             # shellcheck disable=SC2094 # jq --arg passes the JSONL path as annotation data; the input file is never written.
             for f in "${result_files[@]}"; do
               line_no=0
-              while IFS= read -r line; do
+              while IFS= read -r line || [[ -n "$line" ]]; do
                 line_no=$((line_no + 1))
                 [[ -z "$line" ]] && continue
                 [[ "$(echo "$line" | jq -r '.status // empty' 2>/dev/null)" == "FAIL" ]] || continue
@@ -801,7 +817,9 @@ jobs:
           fi
 
           if [[ "${HARNESS_NONZERO}" == "true" ]]; then
-            echo "::warning::Integration harness exited with ${TEST_EXIT} after writing ${total} result(s): ${_skip_reason}. JSONL assertion status above remains authoritative."
+            echo "::error::Integration harness exited with ${TEST_EXIT} after writing ${total} result(s): ${_skip_reason}. Partial assertions cannot make an incomplete run pass."
+            echo "| Status | INCOMPLETE (${_skip_reason}) |" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
 
       - name: Show integration log on failure

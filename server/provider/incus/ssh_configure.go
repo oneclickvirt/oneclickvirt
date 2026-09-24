@@ -14,6 +14,11 @@ import (
 )
 
 func (i *IncusProvider) configureInstanceLimits(ctx context.Context, config provider.InstanceConfig) error {
+	// These cgroup, swap, process and block-I/O limits apply to containers only.
+	// VM CPU and memory limits were set by the instance creation command.
+	if config.InstanceType == "vm" {
+		return nil
+	}
 	var errors []string
 	swapValue := "true"
 	if config.MemorySwap != nil && !*config.MemorySwap {

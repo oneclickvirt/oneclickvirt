@@ -758,7 +758,7 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 		instanceConfig["config"].(map[string]interface{})["limits.cpu"] = config.CPU
 	}
 	if config.Memory != "" {
-		instanceConfigConfig["limits.memory"] = config.Memory
+		instanceConfigConfig["limits.memory"] = convertMemoryFormat(config.Memory)
 	}
 	// Keep the API creation path consistent with the SSH path. In particular,
 	// nesting must be part of the initial instance configuration so a container
@@ -770,14 +770,16 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 		}
 		instanceConfigConfig["security.nesting"] = nesting
 	}
-	if config.MemorySwap != nil {
+	// Swap and CPU scheduling priority are container-only LXC options. Sending
+	// either during VM creation makes the whole API request fail validation.
+	if config.InstanceType != "vm" && config.MemorySwap != nil {
 		if *config.MemorySwap {
 			instanceConfigConfig["limits.memory.swap"] = "true"
 		} else {
 			instanceConfigConfig["limits.memory.swap"] = "false"
 		}
 	}
-	if config.CPU != "" {
+	if config.InstanceType != "vm" && config.CPU != "" {
 		instanceConfigConfig["limits.cpu.priority"] = "0"
 	}
 	if config.Disk != "" {
@@ -789,7 +791,7 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 				"type": "disk",
 				"path": "/",
 				"pool": poolName,
-				"size": config.Disk,
+				"size": convertDiskFormat(config.Disk),
 			}
 		} else {
 			global.APP_LOG.Warn("未检测到可用Incus存储池，创建实例时跳过显式root磁盘设备，改用default profile",

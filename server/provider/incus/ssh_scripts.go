@@ -54,35 +54,6 @@ func (i *IncusProvider) configureInstanceSecurity(ctx context.Context, config pr
 		if err := i.setInstanceConfig(ctx, config.Name, "security.secureboot", "false"); err != nil {
 			global.APP_LOG.Warn("设置SecureBoot失败", zap.Error(err))
 		}
-
-		if err := i.setInstanceConfig(ctx, config.Name, "limits.cpu.priority", "0"); err != nil {
-			if isIncusConfigUnsupportedError(err) {
-				global.APP_LOG.Warn("设置CPU优先级失败，当前节点不支持该配置，已跳过", zap.Error(err))
-			} else {
-				global.APP_LOG.Warn("设置CPU优先级失败", zap.Error(err))
-			}
-		}
-
-		swapEnabled := true
-		if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap", swapValue); err != nil {
-			if isIncusConfigUnsupportedError(err) {
-				swapEnabled = false
-				global.APP_LOG.Warn("设置内存交换失败，当前节点不支持该配置，已跳过", zap.Error(err))
-			} else {
-				swapEnabled = false
-				global.APP_LOG.Warn("设置内存交换失败", zap.Error(err))
-			}
-		}
-
-		if swapEnabled && swapValue == "true" {
-			if err := i.setInstanceConfig(ctx, config.Name, "limits.memory.swap.priority", "1"); err != nil {
-				if isIncusConfigUnsupportedError(err) {
-					global.APP_LOG.Debug("当前节点不支持内存交换优先级，已跳过", zap.Error(err))
-				} else {
-					global.APP_LOG.Warn("设置内存交换优先级失败", zap.Error(err))
-				}
-			}
-		}
 	} else {
 		nestingValue := "true"
 		if config.AllowNesting != nil && !*config.AllowNesting {

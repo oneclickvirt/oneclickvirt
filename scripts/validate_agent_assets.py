@@ -11,7 +11,21 @@ def validate_assets(asset_dir):
         name = f"oneclickvirt-agent-linux-{arch}"
         archive = pathlib.Path(asset_dir) / f"{name}.tar.gz"
         with tarfile.open(archive, "r:gz") as tar:
-            member = tar.getmember(name)
+            # CI packages keep the architecture in the member name so an
+            # extracted archive is self-describing. Release and Docker
+            # workflows historically package the same binary as
+            # `oneclickvirt-agent`, which is also the name consumed by the
+            # deployment script. Accept both canonical layouts, but never
+            # accept a directory or a path outside the archive root.
+            member = next(
+                (tar.getmember(candidate) for candidate in (name, "oneclickvirt-agent")
+                 if candidate in tar.getnames()),
+                None,
+            )
+            if member is None:
+                raise ValueError(
+                    f"{archive}: missing Agent member (expected {name} or oneclickvirt-agent)"
+                )
             if not member.isfile():
                 raise ValueError(f"{archive}: Agent must be a regular ELF file")
             with tar.extractfile(member) as binary:

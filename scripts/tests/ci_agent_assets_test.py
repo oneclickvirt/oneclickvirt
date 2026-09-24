@@ -39,6 +39,19 @@ class AgentAssetsTest(unittest.TestCase):
             self.package(directory, "amd64", header)  # ARM ELF under AMD64 name
             with self.assertRaises(ValueError):
                 assets.validate_assets(directory)
+
+    def test_accepts_release_archive_member_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for arch, machine in (("amd64", 62), ("arm64", 183)):
+                header = bytearray(64)
+                header[:6] = b"\x7fELF\x02\x01"
+                struct.pack_into("<H", header, 18, machine)
+                name = f"oneclickvirt-agent-linux-{arch}"
+                with tarfile.open(pathlib.Path(directory) / f"{name}.tar.gz", "w:gz") as tar:
+                    info = tarfile.TarInfo("oneclickvirt-agent")
+                    info.size = len(header)
+                    tar.addfile(info, io.BytesIO(header))
+            assets.validate_assets(directory)
             self.package(directory, "amd64", b"#!/bin/sh\necho fake-agent\n")
             with self.assertRaises(ValueError):
                 assets.validate_assets(directory)

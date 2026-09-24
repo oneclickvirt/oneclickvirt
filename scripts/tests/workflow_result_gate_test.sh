@@ -6,6 +6,7 @@ WORKFLOW="${ROOT_DIR}/.github/workflows/integration-tests.yml"
 ARM_WORKFLOW="${ROOT_DIR}/.github/workflows/arm-controller-tests.yml"
 AGENT_WORKFLOW="${ROOT_DIR}/.github/workflows/agent-regressions.yml"
 DOCKER_WORKFLOW="${ROOT_DIR}/.github/workflows/build_docker.yml"
+TEST_AGENT_WORKFLOW="${ROOT_DIR}/.github/workflows/build-test-agent.yml"
 
 fail() {
     echo "workflow result gate test failed: $*" >&2
@@ -16,6 +17,14 @@ fail() {
 [[ -s "$ARM_WORKFLOW" ]] || fail "ARM controller workflow is missing"
 [[ -s "$AGENT_WORKFLOW" ]] || fail "Agent regression workflow is missing"
 [[ -s "$DOCKER_WORKFLOW" ]] || fail "Docker publish workflow is missing"
+[[ -s "$TEST_AGENT_WORKFLOW" ]] || fail "Reusable test Agent workflow is missing"
+
+# Callers deliberately isolate cancellation by environment/module. Reusing a
+# workflow/ref-only group inside the called workflow cancels unrelated runs.
+grep -Fq 'group: build-test-agent-${{ github.run_id }}-${{ github.run_attempt }}' "$TEST_AGENT_WORKFLOW" ||
+    fail "reusable Agent build concurrency is not isolated per caller run/attempt"
+! grep -Eq 'cancel-in-progress:[[:space:]]*true' "$TEST_AGENT_WORKFLOW" ||
+    fail "reusable Agent build must leave cancellation to its callers"
 
 # A registry login is part of the publish contract. If it is allowed to fail,
 # the matrix can finish without any digest and the merge job can appear green
@@ -98,4 +107,5 @@ grep -Fq 'go test -count=1 -race ./service/agent ./service/console ./api/v1/admi
 grep -Fq 'go vet ./service/agent ./service/console ./api/v1/admin' "$AGENT_WORKFLOW" ||
     fail "Agent workflow lacks controller package vetting"
 
+python3 "$ROOT_DIR/scripts/tests/workflow_result_gate_test.py"
 echo "Workflow result gate tests passed"

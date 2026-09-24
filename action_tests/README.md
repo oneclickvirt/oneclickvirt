@@ -235,6 +235,8 @@ python3 action_tests/static_audit.py --root . --output-dir action_tests/reports 
 
 常规 Action 默认不会调用 IPv6 隧道 API，也不会检查、创建、删除或修改工作节点的隧道配置。隧道状态机、地址池冻结和清理由 Go 契约测试通过假远端执行器覆盖，不依赖 Tunnelbroker 或其他外部隧道服务。只有在专用、可销毁工作节点上显式设置 `ACTION_TEST_LIVE_IPV6_TUNNEL=true`（GitHub Action 的 `live_ipv6_tunnel` 输入），且 runner 的直连 IPv6 探测成功时，才会运行宿主机侧的禁用隧道生命周期检查。无可用 IPv6 的 runner 明确记录 `SKIP`，不执行实际 IPv6 分配或连通性测试；地址池 CRUD、容量计算等不分配宿主/实例地址的离线契约检查仍执行。隔离容器中的防火墙规则测试仅使用文档地址验证规则，不要求公网 IPv6。
 
+防火墙回归的 Linux Docker 主机需要 nftables 和 legacy IPv4/IPv6 NAT 内核模块。CI 先执行 `sudo bash scripts/tests/prepare_firewall_kernel.sh` 预加载模块，再在仅授予 `NET_ADMIN`、无挂载且独立网络命名空间的临时容器内运行测试。脚本不清空主机规则，不分配 IPv6 地址。缺少 `ip6table_nat` 等模块会在前置检查中明确失败；不能仅通过容器内安装 `iptables`、开启特权模式或跳过整个 IPv6 规则组掩盖。
+
 ## 测试报告
 
 测试完成后生成以下报告：
@@ -369,6 +371,7 @@ GitHub Actions 会自动安装所需依赖。
 | `INCUS_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 Incus installer 调试路径；未设置时自动探测同级 `incus` 仓库 |
 | `KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 KubeVirt installer 调试路径；未设置时自动探测同级 `kubevirt` 仓库 |
 | `ACTION_TEST_LIVE_IPV6_TUNNEL` | 默认 `false`；仅限专用可销毁工作节点的显式宿主机隧道生命周期检查 |
+| `ACTION_TEST_AGENT_STATUS_MAX_WAIT` | 默认 `240` 秒；模块 13 等待 Agent 反向 WebSocket 在线的上限。SSH 监控进程运行不代表控制连接在线；无反向连接时明确 SKIP，不通过重装监控进程冒充控制端映射验收 |
 | `OCV_LIVE_NETWORK_TYPE` | live 面板验收网络模式：`nat_ipv4`、`ipv6_only` 或 `nat_ipv4_ipv6` |
 | `OCV_LIVE_IPV6_MAPPING_METHOD` | Incus/LXD 的 `device_proxy`/`iptables` 为宿主 IPv6 映射，`native` 为地址池分配的独立公网 IPv6 |
 | `OCV_LIVE_IPV6` | 设为 `yes` 后对 IPv6 模式执行容器出网、独立公网 HTTP 与严格 SSH 验收；缺条件直接失败 |
@@ -380,7 +383,7 @@ GitHub Actions 会自动安装所需依赖。
 |------|--------|
 | `ACTION_TEST_CONTAINER_CPU` | `2` |
 | `ACTION_TEST_CONTAINER_MEMORY` | `2048` |
-| `ACTION_TEST_CONTAINER_DISK` | `20` |
+| `ACTION_TEST_CONTAINER_DISK` | `5` |
 | `ACTION_TEST_VM_CPU` | `2` |
 | `ACTION_TEST_VM_MEMORY` | `4096` |
 | `ACTION_TEST_VM_DISK` | `20` |

@@ -24,8 +24,11 @@ while IFS= read -r -d '' path; do
             # Do not follow tracked symlinks or mutate the source worktree.
             [[ "$mode" == "100644" || "$mode" == "100755" ]] || continue
             git show "${source_commit}:${path}" | awk '
-                $0 == "# Private mirror/synchronization tooling must never enter the public repository." { next }
-                $0 ~ /^[[:space:]]*!?([*][*]\/|\/)?(copy_project|copyproject)\.sh[[:space:]]*$/ { next }
+                # Any ignore rule mentioning the private helper is private
+                # metadata, regardless of whether it uses a basename, a
+                # nested path, a glob, or a negated rule.
+                $0 == "# Private mirror/synchronization tooling must never enter the public repository." ||
+                    index($0, "copy_project.sh") > 0 || index($0, "copyproject.sh") > 0 { next }
                 { print }
             ' > "$snapshot_tmp/metadata"
             blob=$(git hash-object -w "$snapshot_tmp/metadata")

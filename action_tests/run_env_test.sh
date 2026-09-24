@@ -168,7 +168,7 @@ deploy_master_local "$MASTER_PORT" || {
     sleep 30
     deploy_master_local "$MASTER_PORT" || {
         log_error "Failed to deploy master on runner after retry"
-        # Treat as transient infrastructure failure so the Action doesn't hard-fail
+        # Report an infrastructure abort; the workflow must mark it incomplete.
         exit 75
     }
 }
@@ -191,7 +191,8 @@ WORKER_INFO=$(create_test_node "$ENV_TYPE" "$NODE_HOURS") || {
     fi
     log_info "This is a transient infrastructure condition, not a test failure."
     log_info "Re-run the workflow when resources are available, or add more cloud platform accounts."
-    # Exit 75 (EX_TEMPFAIL) for any cloud/infrastructure failure — keeps Action green
+    # Exit 75 distinguishes unavailable infrastructure from product failures.
+    # The workflow reports an incomplete run, not a green integration result.
     exit 75
 }
 if [[ -z "$WORKER_INFO" ]]; then

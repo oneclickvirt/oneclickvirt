@@ -539,6 +539,10 @@ INSTANCE_OPERATION_SETTLE_SECONDS="${INSTANCE_OPERATION_SETTLE_SECONDS:-3}"
 ACTION_TEST_API_TIMEOUT="${ACTION_TEST_API_TIMEOUT:-180}"
 VM_RUNTIME_INFRA_UNAVAILABLE_REASON="${VM_RUNTIME_INFRA_UNAVAILABLE_REASON:-}"
 
+# Controller mappings require the reverse WebSocket, not merely a running
+# standalone HTTP monitoring daemon. Always probe the current connection.
+ACTION_TEST_AGENT_READY_REASON="${ACTION_TEST_AGENT_READY_REASON:-}"
+
 # -- JSON result collector for HTML report --
 declare -a TEST_RESULTS_JSON=()
 
@@ -638,8 +642,12 @@ test_api_retry() {
         if [[ $i -lt $retries ]]; then
             # Undo the FAIL record written to RESULTS_FILE so it is not counted as a permanent failure
             if [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" && $_results_before -ge 0 ]]; then
-                head -c "$_results_before" "$RESULTS_FILE" > "${RESULTS_FILE}.retry_tmp" 2>/dev/null && \
-                    mv "${RESULTS_FILE}.retry_tmp" "$RESULTS_FILE" 2>/dev/null || true
+                if [[ "$_results_before" == "0" ]]; then
+                    : > "$RESULTS_FILE"
+                else
+                    head -c "$_results_before" "$RESULTS_FILE" > "${RESULTS_FILE}.retry_tmp" 2>/dev/null && \
+                        mv "${RESULTS_FILE}.retry_tmp" "$RESULTS_FILE" 2>/dev/null || true
+                fi
             fi
             while [[ ${#TEST_RESULTS_JSON[@]} -gt $_results_len ]]; do
                 local _last_idx=$((${#TEST_RESULTS_JSON[@]} - 1))
@@ -977,6 +985,73 @@ wait_task_complete() {
         jq -cn --arg id "$task_id" --arg status "timeout" --arg message "task wait timed out with no task detail response" \
             '{code:504,data:{id:$id,status:$status,errorMessage:$message},message:$message,msg:$message}'
     fi
+    return 1
+}
+
+
+# Ensure the reverse Agent is connected before opening a controller tunnel.
+# For SSH providers monitoring/status.is_running only checks systemd. Deploying
+# that standalone HTTP daemon cannot establish the reverse WebSocket needed by
+# controller mappings. Only the Agent-mode response carries a live hub status.
+ensure_action_test_agent_ready() {
+    local provider_id="${1:-${PROVIDER_ID:-}}"
+    local group="${2:-default}"
+    local token="${3:-${ADMIN_TOKEN:-}}"
+    local max_wait="${4:-${ACTION_TEST_AGENT_STATUS_MAX_WAIT:-240}}"
+    local interval="${5:-5}"
+    [[ "$max_wait" =~ ^[0-9]+$ && "$max_wait" -ge 5 ]] || max_wait=240
+    [[ "$interval" =~ ^[0-9]+$ && "$interval" -ge 1 ]] || interval=5
+    ACTION_TEST_AGENT_READY_REASON=""
+    if [[ -z "$provider_id" ]]; then
+        ACTION_TEST_AGENT_READY_REASON="provider id is empty"
+        return 1
+    fi
+    local deadline=$((SECONDS + max_wait)) remaining pause request_timeout
+    local status_resp status_code http_code status_shape is_running agent_status
+    local status_url="/api/v1/admin/providers/${provider_id}/monitoring/status"
+    while (( SECONDS < deadline )); do
+        remaining=$((deadline - SECONDS))
+        request_timeout=$remaining
+        (( request_timeout > 20 )) && request_timeout=20
+        status_resp=$(curl -s -w '\n%{http_code}' --max-time "$request_timeout" \
+            -H "Authorization: Bearer ${token}" "${SERVER_URL}${status_url}" 2>/dev/null) || true
+        http_code=$(printf '%s\n' "$status_resp" | tail -1)
+        status_resp=$(printf '%s\n' "$status_resp" | sed '$d')
+        status_code=$(safe_jq "$status_resp" '-r .code // empty' '')
+        if [[ "$http_code" != "200" || "$status_code" != "200" ]]; then
+            ACTION_TEST_AGENT_READY_REASON="Agent control status unavailable (HTTP ${http_code:-unknown})"
+            if [[ "$http_code" == "000" ]] || is_infrastructure_failure_detail "$status_resp"; then
+                return 1
+            fi
+            record_fail_result "Agent control status prerequisite" "GET" "$status_url" \
+                "HTTP 200 with valid status" "${http_code:-unknown}" "$status_resp" "$group"
+            return 1
+        fi
+        status_shape=$(safe_jq "$status_resp" '.data | type == "object" and (.is_running | type == "boolean") and ((has("status") | not) or .status == "online" or .status == "offline")' 'false') || true
+        if [[ "$status_shape" != "true" ]]; then
+            ACTION_TEST_AGENT_READY_REASON="Invalid Agent control status response"
+            record_fail_result "Agent control status prerequisite" "GET" "$status_url" \
+                "boolean is_running and optional online/offline status" "invalid response" "$status_resp" "$group"
+            return 1
+        fi
+        is_running=$(safe_jq "$status_resp" '-r .data.is_running' 'false')
+        agent_status=$(safe_jq "$status_resp" '-r .data.status // empty' '')
+        if [[ "$is_running" == "true" && "$agent_status" == "online" ]]; then
+            return 0
+        fi
+        if [[ -z "$agent_status" ]]; then
+            ACTION_TEST_AGENT_READY_REASON="当前为SSH监控Agent，未建立控制端转发所需的反向WebSocket；systemd运行状态不代表控制连接在线"
+            return 1
+        fi
+        # An Agent-mode provider can reconnect in the background. Keep polling
+        # an offline status until the deadline instead of skipping immediately.
+        remaining=$((deadline - SECONDS))
+        (( remaining > 0 )) || break
+        pause=$interval
+        (( pause > remaining )) && pause=$remaining
+        sleep "$pause"
+    done
+    ACTION_TEST_AGENT_READY_REASON="Agent反向WebSocket在${max_wait}s内未上线，跳过控制端转发测试"
     return 1
 }
 
