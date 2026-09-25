@@ -951,7 +951,22 @@ install_env() {
     elif [[ "$env" == "qemu" ]]; then
         # qemu needs libvirt + QEMU/KVM, single-pass install
         log_info "Installing QEMU/KVM environment..."
-        platform_exec_and_wait "${ip}" "${env_install_cmd}" "$install_wait" || return $?
+        # The upstream installer can return non-zero after successfully
+        # activating the default pool (a second `virsh pool-start` reports
+        # "already active"). Verify the actual runtime postcondition before
+        # failing, and do not rerun a mutating installer on the same worker.
+        local qemu_install_rc=0 qemu_verify_rc=0
+        PLATFORM_EXEC_RETRIES=1 platform_exec_and_wait "${ip}" "${env_install_cmd}" "$install_wait" || qemu_install_rc=$?
+        if [[ "$qemu_install_rc" -ne 0 ]]; then
+            verify_worker_runtime "$id" "$ip" qemu || qemu_verify_rc=$?
+            if [[ "$qemu_verify_rc" -eq 0 ]]; then
+                log_warning "QEMU installer returned ${qemu_install_rc}, but the libvirt pool and network are active; continuing"
+            elif [[ "$qemu_verify_rc" -eq 75 ]]; then
+                return 75
+            else
+                return "$qemu_install_rc"
+            fi
+        fi
     else
         # Most non-PVE installers are expected to finish in one pass.  A
         # storage-driver bootstrap may intentionally reboot the worker and
@@ -1374,7 +1389,7 @@ if [ -z "$template" ]; then
     template="$cache/oneclickvirt-ci.tar.gz"
 fi
 template_name="$(basename "$template")"
-pct create "$ctid" "local:vztmpl/$template_name" --hostname pre-existing-container --memory 256 --cores 1 --unprivileged 1 --ostype unmanaged --onboot 0 --startup 0 >/dev/null'
+pct create "$ctid" "local:vztmpl/$template_name" --hostname pre-existing-container --memory 256 --cores 1 --unprivileged 1 --ostype unmanaged --onboot 0 >/dev/null'
                 if platform_exec_and_wait "${ip}" "${pve_lxc_fixture_cmd}" 180; then
                     DIRTY_NODE_CONTAINER_READY=true
                     DIRTY_NODE_CONTAINER_NAME="pre-existing-container"

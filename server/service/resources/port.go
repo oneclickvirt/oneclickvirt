@@ -202,6 +202,12 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	if portCount < 1 || portCount > 1500 {
 		return 0, nil, fmt.Errorf("端口数量必须在1-1500之间")
 	}
+	// The guest listener is independent of the node's allocatable host-port
+	// pool. SSH (22) and application ports such as 8080 are valid targets even
+	// when the provider only allocates host ports in 20000-30000.
+	if err := utils.ValidatePortRange(req.GuestPort, portCount); err != nil {
+		return 0, nil, fmt.Errorf("%w: 内部端口段验证失败: %v", ErrPortRangeValidation, err)
+	}
 
 	// 确定映射类型
 	mappingType := req.MappingType
@@ -261,11 +267,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 			}
 		}
 	} else {
-		// 节点侧映射模式：验证内部端口段合法性
-		if err := s.ValidatePortRange(providerInfo.ID, req.GuestPort, portCount); err != nil {
-			return 0, nil, fmt.Errorf("内部端口段验证失败: %v", err)
-		}
-
+		// Node-side host ports must still stay inside the provider's pool.
 		if hostPort == 0 {
 			// 自动分配连续端口段
 			allocatedPort, err := s.allocateConsecutivePorts(providerInfo.ID, providerInfo.PortRangeStart, providerInfo.PortRangeEnd, portCount)

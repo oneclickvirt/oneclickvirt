@@ -473,8 +473,25 @@ func (i *IncusProvider) apiInstanceIPv6(state map[string]interface{}) string {
 	return fallback
 }
 
+func (i *IncusProvider) apiIPv4FromNetworkLeases(ctx context.Context, id string) (string, map[string]interface{}, error) {
+	metadata, err := i.apiGetInstanceResource(ctx, id, "")
+	if err != nil {
+		return "", nil, err
+	}
+	lookup := func(ctx context.Context, network string) ([]map[string]interface{}, error) {
+		return utils.FetchLXCNetworkLeases(ctx, i.apiClient, i.apiEndpoint("/1.0/networks/"+neturl.PathEscape(network)+"/leases"))
+	}
+	ip, state, err := utils.LXCIPv4FromNetworkLeases(ctx, metadata, lookup)
+	if err != nil || ip == "" {
+		return "", nil, err
+	}
+	metadata["_network_state"] = state
+	return ip, metadata, nil
+}
+
 func (i *IncusProvider) apiWaitForInstanceIPv4(ctx context.Context, id string) (string, map[string]interface{}, error) {
 	deadline := time.Now().Add(60 * time.Second)
+	var leaseErr error
 	for {
 		// Runtime network addresses are exposed by /state, not InstanceGet.
 		state, err := i.apiGetInstanceResource(ctx, id, "/state")
@@ -487,11 +504,19 @@ func (i *IncusProvider) apiWaitForInstanceIPv4(ctx context.Context, id string) (
 				return ip, metadata, err
 			}
 		}
+		if ip, metadata, candidateErr := i.apiIPv4FromNetworkLeases(ctx, id); candidateErr == nil && ip != "" {
+			return ip, metadata, nil
+		} else if candidateErr != nil {
+			leaseErr = candidateErr
+		}
 		if time.Now().After(deadline) {
 			if err != nil {
 				return "", nil, fmt.Errorf("等待实例IPv4地址失败: %w", err)
 			}
-			return "", nil, fmt.Errorf("等待实例IPv4地址超时")
+			if leaseErr != nil {
+				return "", nil, fmt.Errorf("等待实例IPv4地址超时，DHCP租约查询失败: %w", leaseErr)
+			}
+			return "", nil, fmt.Errorf("等待实例IPv4地址超时: /state无有效IPv4且桥接网卡无匹配DHCP租约")
 		}
 		select {
 		case <-ctx.Done():

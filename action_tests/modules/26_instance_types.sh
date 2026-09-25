@@ -70,7 +70,7 @@ run_module_26() {
         # from the asynchronous task detail below.
         local ct_resp="" ct_request_ok=true
         if ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201" \
-            "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-ct\",\"instance_type\":\"container\",\"image\":\"${ct_image}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000}" \
+            "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-ct\",\"instance_type\":\"container\",\"image\":\"${ct_image}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}" \
             "$group" "$ADMIN_TOKEN"); then
             ct_request_ok=true
         else
@@ -185,7 +185,7 @@ run_module_26() {
         # later identifies a classified infrastructure condition.
         local vm_resp="" vm_request_ok=true
         if vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201" \
-            "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-vm\",\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000}" \
+            "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-vm\",\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}" \
             "$group" "$ADMIN_TOKEN"); then
             vm_request_ok=true
         else

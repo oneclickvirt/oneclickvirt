@@ -91,26 +91,37 @@ func TestCreatePortMappingPersistsRequestedIPv6Flag(t *testing.T) {
 		t.Fatal(err)
 	}
 	requested := true
-	portID, taskData, err := (&PortMappingService{}).CreatePortMappingWithTask(adminModel.CreatePortMappingRequest{
-		InstanceID:  instance.ID,
-		GuestPort:   20080,
-		HostPort:    20000,
-		Protocol:    "tcp",
-		MappingType: "node",
-		IPv6Enabled: &requested,
-	})
-	if err != nil {
-		t.Fatal(err)
+	service := &PortMappingService{}
+	for _, tc := range []struct{ guest, host int }{{22, 20000}, {8080, 20001}} {
+		portID, taskData, err := service.CreatePortMappingWithTask(adminModel.CreatePortMappingRequest{
+			InstanceID:  instance.ID,
+			GuestPort:   tc.guest,
+			HostPort:    tc.host,
+			Protocol:    "tcp",
+			MappingType: "node",
+			IPv6Enabled: &requested,
+		})
+		if err != nil {
+			t.Fatalf("guest %d -> host %d: %v", tc.guest, tc.host, err)
+		}
+		if taskData == nil || portID == 0 {
+			t.Fatalf("manual node mapping returned port=%d task=%#v", portID, taskData)
+		}
+		var persisted providerModel.Port
+		if err := db.First(&persisted, portID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if persisted.GuestPort != tc.guest || persisted.HostPort != tc.host || !persisted.IPv6Enabled {
+			t.Fatalf("incorrect manual mapping: %#v", persisted)
+		}
 	}
-	if taskData == nil || portID == 0 {
-		t.Fatalf("manual node mapping returned port=%d task=%#v", portID, taskData)
-	}
-	var persisted providerModel.Port
-	if err := db.First(&persisted, portID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if !persisted.IPv6Enabled {
-		t.Fatalf("ipv6_enabled was not persisted: %#v", persisted)
+	for _, tc := range []struct{ guest, count, host int }{{0, 1, 20002}, {65535, 2, 20002}, {80, 1, 80}} {
+		if _, _, err := service.CreatePortMappingWithTask(adminModel.CreatePortMappingRequest{
+			InstanceID: instance.ID, GuestPort: tc.guest, PortCount: tc.count,
+			HostPort: tc.host, Protocol: "tcp", MappingType: "node",
+		}); err == nil {
+			t.Fatalf("invalid mapping guest=%d count=%d host=%d was accepted", tc.guest, tc.count, tc.host)
+		}
 	}
 }
 

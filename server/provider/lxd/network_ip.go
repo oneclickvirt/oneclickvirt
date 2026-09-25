@@ -285,12 +285,22 @@ func (l *LXDProvider) GetInstanceIPv4(ctx context.Context, instanceName string) 
 			return "", fmt.Errorf("API客户端不可用")
 		}
 		state, err := l.apiGetInstanceResource(ctx, instanceName, "/state")
-		if err != nil {
-			return "", err
+		ip := ""
+		if err == nil {
+			ip = l.apiInstanceIPv4(state)
 		}
-		ip := l.apiInstanceIPv4(state)
 		if ip == "" {
-			return "", fmt.Errorf("实例尚未获得IPv4地址")
+			leaseIP, _, leaseErr := l.apiIPv4FromNetworkLeases(ctx, instanceName)
+			if leaseErr != nil {
+				return "", leaseErr
+			}
+			if leaseIP == "" {
+				if err != nil {
+					return "", err
+				}
+				return "", fmt.Errorf("实例尚未获得IPv4地址")
+			}
+			ip = leaseIP
 		}
 		return ip, nil
 	}

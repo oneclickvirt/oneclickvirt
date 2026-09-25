@@ -28,11 +28,19 @@ platform_exec_and_wait() {
     fi
 }
 run_kubevirt_installer_with_retry() { platform_exec_and_wait "$1" "$2"; }
+mock_qemu_runtime_ready=false
+verify_worker_runtime() {
+    [[ "$3" == qemu ]] && $mock_qemu_runtime_ready
+}
 for runtime in incus lxd docker podman containerd qemu kubevirt; do
     rc=0 mock_installs=0
     install_env worker 192.0.2.1 "$runtime" || rc=$?
     [[ "$rc" == 37 ]] || fail "$runtime installer failure was swallowed: $rc"
 done
+mock_qemu_runtime_ready=true mock_installs=0
+install_env worker 192.0.2.1 qemu || fail 'ready QEMU runtime should be accepted after upstream already-active error'
+[[ "$mock_installs" == 1 ]] || fail 'QEMU installer was rerun after already-active error'
+mock_qemu_runtime_ready=false
 mock_first_only=true mock_installs=0
 mock_commands=()
 install_env worker 192.0.2.1 incus || fail 'post-reboot retry must still allow recovery'

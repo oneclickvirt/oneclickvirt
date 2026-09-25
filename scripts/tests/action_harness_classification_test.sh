@@ -80,6 +80,8 @@ prepare_dirty_node worker-id 192.0.2.10 proxmoxve both || fail "PVE both-fixture
     fail "PVE both run did not mark both fixtures ready"
 grep -Fq 'pct create "$ctid"' <(printf '%s\n' "${CAPTURED_COMMANDS[@]}") ||
     fail "PVE both run did not prepare an LXC fixture"
+! printf '%s\n' "${CAPTURED_COMMANDS[@]}" | grep -Fq -- '--startup 0' ||
+    fail "PVE LXC fixture still passes the invalid --startup 0 option"
 
 CAPTURED_COMMANDS=()
 prepare_dirty_node worker-id 192.0.2.10 proxmoxve container || fail "PVE container-only fixture preparation failed"

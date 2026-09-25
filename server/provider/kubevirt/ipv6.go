@@ -279,11 +279,7 @@ func (p *KubeVirtProvider) deleteRoutedKubeVirtNAD(plan routedKubeVirtIPv6Plan) 
 	if plan.NADName == "" {
 		return nil
 	}
-	output, err := p.sshClient.Execute(fmt.Sprintf("kubectl delete network-attachment-definition %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(plan.NADName), shellSingleQuote(Namespace)))
-	if err != nil && !kubeVirtNotFound(output, err) {
-		return fmt.Errorf("删除KubeVirt隧道网络 %s 失败: %w (output: %s)", plan.NADName, err, utils.TruncateString(strings.TrimSpace(output), 1000))
-	}
-	return nil
+	return p.deleteRoutedKubeVirtNADName(plan.NADName)
 }
 
 func (p *KubeVirtProvider) deleteRoutedKubeVirtNADByInstance(id string) error {
@@ -291,9 +287,23 @@ func (p *KubeVirtProvider) deleteRoutedKubeVirtNADByInstance(id string) error {
 	if name == "" {
 		return nil
 	}
-	output, err := p.sshClient.Execute(fmt.Sprintf("kubectl delete network-attachment-definition %s-v6 -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)))
+	return p.deleteRoutedKubeVirtNADName(name + "-v6")
+}
+
+func (p *KubeVirtProvider) deleteRoutedKubeVirtNADName(name string) error {
+	// A normal IPv4-only installation does not require Multus. kubectl's
+	// --ignore-not-found ignores a missing object, but not a missing resource
+	// type. Check the CRD itself before trying to delete an optional NAD.
+	output, err := p.sshClient.Execute("kubectl get crd network-attachment-definitions.k8s.cni.cncf.io -o name --ignore-not-found=true 2>&1")
+	if err != nil {
+		return fmt.Errorf("检查KubeVirt隧道网络CRD失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+	output, err = p.sshClient.Execute(fmt.Sprintf("kubectl delete network-attachment-definition %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)))
 	if err != nil && !kubeVirtNotFound(output, err) {
-		return fmt.Errorf("删除KubeVirt实例隧道网络 %s-v6 失败: %w (output: %s)", name, err, utils.TruncateString(strings.TrimSpace(output), 1000))
+		return fmt.Errorf("删除KubeVirt隧道网络 %s 失败: %w (output: %s)", name, err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}
 	return nil
 }
