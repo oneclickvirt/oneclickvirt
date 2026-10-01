@@ -23,6 +23,7 @@ impl Drop for ProcessOwner {
     }
 }
 
+#[cfg(test)]
 pub(super) async fn execute(command: &str) -> std::io::Result<Output> {
     execute_with_cancel(command, None, std::time::Duration::from_secs(300)).await
 }
@@ -74,7 +75,7 @@ pub(super) async fn execute_with_cancel(
         return Err(std::io::Error::new(kind, message));
     }
 
-    let status = if let Some(cancelled) = cancelled.as_deref_mut() {
+    let status = if let Some(cancelled) = cancelled {
         tokio::select! {
             status = owner.child.wait() => status?,
             _ = wait_cancelled(cancelled) => {
