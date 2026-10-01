@@ -26,6 +26,7 @@ log/
 *.log
 
 # Test artifacts
+action_tests/reports/
 action_tests/report/
 test-report.md
 

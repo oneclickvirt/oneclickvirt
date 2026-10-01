@@ -5,6 +5,7 @@
         v-if="!isReadOnly"
         type="primary"
         :loading="submitting"
+        :disabled="uploading || snapshotActionIds.size > 0"
         @click="openCreateDialog"
       >
         {{ t('user.instanceDetail.createSnapshot') }}
@@ -12,6 +13,7 @@
       <el-button
         v-if="!isReadOnly"
         :loading="uploading"
+        :disabled="submitting || snapshotActionIds.size > 0"
         @click="triggerUpload"
       >
         {{ t('user.instanceDetail.uploadSnapshot') }}
@@ -82,7 +84,8 @@
             v-if="!isReadOnly"
             size="small"
             type="warning"
-            :disabled="row.status !== 'available'"
+            :loading="snapshotActionIds.has(row.id)"
+            :disabled="row.status !== 'available' || snapshotActionIds.has(row.id)"
             @click="restoreSnapshot(row)"
           >
             {{ t('user.instanceDetail.restoreSnapshot') }}
@@ -98,6 +101,8 @@
             v-if="!isReadOnly"
             size="small"
             type="danger"
+            :loading="snapshotActionIds.has(row.id)"
+            :disabled="snapshotActionIds.has(row.id)"
             @click="deleteSnapshot(row)"
           >
             {{ t('user.instanceDetail.delete') }}
@@ -155,6 +160,7 @@
         <el-button
           type="primary"
           :loading="submitting"
+          :disabled="submitting"
           @click="createSnapshot"
         >
           {{ t('common.confirm') }}
@@ -168,6 +174,7 @@
   import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { createKeyedActionLock } from '@/utils/actionLock'
 import {
   createUserInstanceSnapshot,
   deleteUserSnapshot,
@@ -204,23 +211,31 @@ const createDialogVisible = ref(false)
 const createForm = reactive({ name: '', description: '' })
 const isReadOnly = computed(() => props.readonly || Boolean(props.shareToken))
 const uploadInput = ref(null)
+const snapshotActionLock = createKeyedActionLock()
+const snapshotActionIds = ref(new Set())
+let loadGeneration = 0
 
 const errorMessage = (error, fallback) => error?.details || error?.message || fallback
 
 const loadSnapshots = async () => {
   if (!props.instanceId) return
+  const generation = ++loadGeneration
+  const instanceId = props.instanceId
+  const shareToken = props.shareToken
   loading.value = true
   try {
     const params = { page: pagination.page, pageSize: pagination.pageSize }
-    const res = props.shareToken
-      ? await getSharedInstanceSnapshots(props.shareToken, params)
-      : await getUserInstanceSnapshots(props.instanceId, params)
-    snapshots.value = res.data?.list || []
-    pagination.total = res.data?.total || 0
+    const res = shareToken
+      ? await getSharedInstanceSnapshots(shareToken, params)
+      : await getUserInstanceSnapshots(instanceId, params)
+    if (generation === loadGeneration && props.instanceId === instanceId && props.shareToken === shareToken) {
+      snapshots.value = res.data?.list || []
+      pagination.total = res.data?.total || 0
+    }
   } catch (error) {
-    ElMessage.error(errorMessage(error, t('user.instanceDetail.loadSnapshotsFailed')))
+    if (generation === loadGeneration) ElMessage.error(errorMessage(error, t('user.instanceDetail.loadSnapshotsFailed')))
   } finally {
-    loading.value = false
+    if (generation === loadGeneration) loading.value = false
   }
 }
 
@@ -232,6 +247,7 @@ const openCreateDialog = () => {
 }
 
 const createSnapshot = async () => {
+  if (submitting.value || isReadOnly.value) return
   submitting.value = true
   try {
     await createUserInstanceSnapshot(props.instanceId, { ...createForm })
@@ -253,7 +269,7 @@ const triggerUpload = () => {
 const handleUpload = async (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
-  if (!file || isReadOnly.value) return
+  if (!file || isReadOnly.value || uploading.value) return
   uploading.value = true
   try {
     await uploadUserSnapshot(props.instanceId, file)
@@ -266,17 +282,31 @@ const handleUpload = async (event) => {
   }
 }
 
+const setSnapshotAction = (id, value) => {
+  const next = new Set(snapshotActionIds.value)
+  if (value) next.add(id)
+  else next.delete(id)
+  snapshotActionIds.value = next
+}
+
 const restoreSnapshot = async (row) => {
+  if (!row?.id || !snapshotActionLock.tryAcquire(row.id)) return
+  setSnapshotAction(row.id, true)
   try {
     await ElMessageBox.confirm(t('user.instanceDetail.restoreSnapshotConfirm', { name: row.name }), t('user.instanceDetail.confirmOperation'), { type: 'warning' })
     await restoreUserSnapshot(row.id)
     ElMessage.success(t('user.instanceDetail.restoreSnapshotSubmitted'))
   } catch (error) {
     if (error !== 'cancel') ElMessage.error(errorMessage(error, t('user.instanceDetail.restoreSnapshotFailed')))
+  } finally {
+    snapshotActionLock.release(row.id)
+    setSnapshotAction(row.id, false)
   }
 }
 
 const deleteSnapshot = async (row) => {
+  if (!row?.id || !snapshotActionLock.tryAcquire(row.id)) return
+  setSnapshotAction(row.id, true)
   try {
     await ElMessageBox.confirm(t('user.instanceDetail.deleteSnapshotConfirm', { name: row.name }), t('user.instanceDetail.confirmOperation'), { type: 'warning' })
     await deleteUserSnapshot(row.id)
@@ -284,6 +314,9 @@ const deleteSnapshot = async (row) => {
     await loadSnapshots()
   } catch (error) {
     if (error !== 'cancel') ElMessage.error(errorMessage(error, t('user.instanceDetail.deleteFailed')))
+  } finally {
+    snapshotActionLock.release(row.id)
+    setSnapshotAction(row.id, false)
   }
 }
 

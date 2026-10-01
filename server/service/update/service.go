@@ -2,6 +2,8 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,20 +19,27 @@ import (
 // local: a second request is rejected while an update/restart is in progress,
 // and the on-disk backup manifest remains the durable rollback source.
 type Service struct {
-	operationMu sync.Mutex
-	stateMu     sync.RWMutex
-	state       OperationState
-	clientMu    sync.Mutex
-	client      *http.Client
-	cacheMu     sync.Mutex
-	cache       releaseCache
-	now         func() time.Time
+	operationMu       sync.Mutex
+	stateMu           sync.RWMutex
+	state             OperationState
+	persistenceFailed bool
+	clientMu          sync.Mutex
+	client            *http.Client
+	cacheMu           sync.Mutex
+	cache             releaseCache
+	now               func() time.Time
 }
 
 type releaseCache struct {
 	repo      string
 	releases  []githubRelease
 	checkedAt time.Time
+}
+
+type persistedOperationState struct {
+	Operation          OperationState `json:"operation"`
+	IdempotencyKeyHash string         `json:"idempotencyKeyHash,omitempty"`
+	RequestFingerprint string         `json:"requestFingerprint,omitempty"`
 }
 
 const maxOperationAge = 25 * time.Minute
@@ -144,33 +153,82 @@ func (s *Service) Operation() OperationState {
 	return cloneOperation(s.state)
 }
 
-func (s *Service) beginOperation(action, target string) (OperationState, error) {
+func (s *Service) findIdempotentOperation(requestKey, fingerprint string) (OperationState, bool, error) {
+	keyHash := hashRequestKey(requestKey)
+	if keyHash == "" {
+		return OperationState{}, false, nil
+	}
 	s.operationMu.Lock()
 	defer s.operationMu.Unlock()
 	current := s.Operation()
-	if current.Status == OperationStaging || current.Status == OperationScheduled || current.Status == OperationApplying {
-		return current, fmt.Errorf("更新或重启操作正在进行中")
+	if current.idempotencyKeyHash != keyHash {
+		return OperationState{}, false, nil
 	}
-	state := OperationState{
-		ID:        fmt.Sprintf("ocv-%d", s.now().UnixNano()),
-		Action:    action,
-		Target:    target,
-		Status:    OperationScheduled,
-		StartedAt: s.now(),
+	if current.requestFingerprint != fingerprint {
+		return current, true, fmt.Errorf("幂等键已用于其他操作")
 	}
-	s.stateMu.Lock()
-	s.state = state
-	s.persistStateLocked()
-	s.stateMu.Unlock()
-	return cloneOperation(state), nil
+	return current, true, nil
 }
 
-func (s *Service) updateOperation(id, status, message string, operationErr error) {
+func (s *Service) beginOperation(action, target, backupID, requestKey, fingerprint string) (OperationState, bool, error) {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+	current := s.Operation()
+	keyHash := hashRequestKey(requestKey)
+	if keyHash != "" && current.idempotencyKeyHash == keyHash {
+		if current.requestFingerprint != fingerprint {
+			return current, false, fmt.Errorf("幂等键已用于其他操作")
+		}
+		return current, false, nil
+	}
+	if current.Status == OperationStaging || current.Status == OperationScheduled || current.Status == OperationApplying {
+		return current, false, fmt.Errorf("更新或重启操作正在进行中")
+	}
+	state := OperationState{
+		Revision:           1,
+		ID:                 fmt.Sprintf("ocv-%d", s.now().UnixNano()),
+		Action:             action,
+		Target:             target,
+		BackupID:           backupID,
+		Status:             OperationScheduled,
+		StartedAt:          s.now(),
+		idempotencyKeyHash: keyHash,
+		requestFingerprint: fingerprint,
+	}
+	s.stateMu.Lock()
+	// The detached worker must be able to read this exact operation before we
+	// acknowledge the request or launch it. A failed write must remain retryable.
+	if err := writeOperationState(loadRuntimeConfig(), state); err != nil {
+		s.stateMu.Unlock()
+		return cloneOperation(current), false, fmt.Errorf("无法保存升级任务，请检查安装目录权限和磁盘空间: %w", err)
+	}
+	s.state = state
+	s.persistenceFailed = false
+	s.stateMu.Unlock()
+	return cloneOperation(state), true, nil
+}
+
+func hashRequestKey(value string) string {
+	if value == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
+}
+
+func operationFingerprint(action, target, backupID string) string {
+	value, _ := json.Marshal([]string{action, target, backupID})
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
+}
+
+func (s *Service) updateOperation(id, status, message string, operationErr error) error {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	if s.state.ID != id {
-		return
+		return fmt.Errorf("升级任务已变更")
 	}
+	s.state.Revision++
 	s.state.Status = status
 	s.state.Message = message
 	s.state.Error = ""
@@ -181,7 +239,7 @@ func (s *Service) updateOperation(id, status, message string, operationErr error
 		finished := s.now()
 		s.state.FinishedAt = &finished
 	}
-	s.persistStateLocked()
+	return s.persistStateLocked()
 }
 
 func cloneOperation(value OperationState) OperationState {
@@ -289,6 +347,10 @@ func (s *Service) restoreState() {
 }
 
 func (s *Service) refreshStateFromDisk() {
+	// Serialize the read with local writers; a delayed read must never replace
+	// a state published while it was waiting for the mutex.
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 	cfg := loadRuntimeConfig()
 	updateDir, err := ensureUpdateDir(cfg)
 	if err != nil {
@@ -298,8 +360,18 @@ func (s *Service) refreshStateFromDisk() {
 	if err != nil {
 		return
 	}
-	var diskState OperationState
-	if json.Unmarshal(data, &diskState) != nil || diskState.ID == "" {
+	var persisted persistedOperationState
+	if json.Unmarshal(data, &persisted) != nil || persisted.Operation.ID == "" {
+		var legacyState OperationState
+		if json.Unmarshal(data, &legacyState) != nil || legacyState.ID == "" {
+			return
+		}
+		persisted.Operation = legacyState
+	}
+	diskState := persisted.Operation
+	diskState.idempotencyKeyHash = persisted.IdempotencyKeyHash
+	diskState.requestFingerprint = persisted.RequestFingerprint
+	if diskState.ID == "" {
 		return
 	}
 	if isActiveOperation(diskState) && (diskState.StartedAt.IsZero() || s.now().Sub(diskState.StartedAt) > maxOperationAge) {
@@ -307,25 +379,32 @@ func (s *Service) refreshStateFromDisk() {
 		diskState.Error = "更新工作进程超时或已中断，请检查服务日志和本地备份"
 		finished := s.now()
 		diskState.FinishedAt = &finished
-		_ = writeOperationState(cfg, diskState)
+		// Timeout is a reader-derived state. Do not overwrite a newer worker
+		// result (or a different operation) on disk from this stale snapshot.
 	}
 
-	s.stateMu.Lock()
-	if shouldAdoptPersistedOperation(s.state, diskState) {
+	if !(s.persistenceFailed && s.state.ID == diskState.ID && diskState.Revision <= s.state.Revision) && shouldAdoptPersistedOperation(s.state, diskState) {
 		s.state = diskState
 	}
-	s.stateMu.Unlock()
 }
 
-func (s *Service) persistState() {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	s.persistStateLocked()
+func (s *Service) persistState() error {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	return s.persistStateLocked()
 }
 
-func (s *Service) persistStateLocked() {
-	cfg := loadRuntimeConfig()
-	_ = writeOperationState(cfg, s.state)
+func (s *Service) persistStateLocked() error {
+	if err := writeOperationState(loadRuntimeConfig(), s.state); err != nil {
+		s.persistenceFailed = true
+		s.state.Status = OperationFailed
+		s.state.Error = fmt.Sprintf("无法保存升级状态，请检查安装目录权限、磁盘空间和服务日志: %v", err)
+		finished := s.now()
+		s.state.FinishedAt = &finished
+		return fmt.Errorf("%s", s.state.Error)
+	}
+	s.persistenceFailed = false
+	return nil
 }
 
 func writeOperationState(cfg runtimeConfig, state OperationState) error {
@@ -333,7 +412,26 @@ func writeOperationState(cfg runtimeConfig, state OperationState) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	unlock, err := lockOperationState(updateDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	var existing persistedOperationState
+	if previous, err := os.ReadFile(filepath.Join(updateDir, "state.json")); err == nil {
+		if json.Unmarshal(previous, &existing) == nil {
+			old := existing.Operation
+			if old.ID != state.ID && old.StartedAt.After(state.StartedAt) || old.ID == state.ID && (old.Revision > state.Revision || old.Revision > 0 && old.Revision == state.Revision && old.Status != state.Status) {
+				return fmt.Errorf("升级状态已被更新，拒绝写入旧状态")
+			}
+		}
+	}
+	persisted := persistedOperationState{
+		Operation:          state,
+		IdempotencyKeyHash: state.idempotencyKeyHash,
+		RequestFingerprint: state.requestFingerprint,
+	}
+	data, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -348,7 +446,16 @@ func shouldAdoptPersistedOperation(current, persisted OperationState) bool {
 	if persisted.ID == "" {
 		return false
 	}
-	if current.ID == "" || current.ID == persisted.ID || current.StartedAt.IsZero() {
+	if current.ID == persisted.ID {
+		if current.Revision > persisted.Revision {
+			return false
+		}
+		if !isActiveOperation(current) && isActiveOperation(persisted) {
+			return false
+		}
+		return true
+	}
+	if current.ID == "" || current.StartedAt.IsZero() {
 		return true
 	}
 	return persisted.StartedAt.After(current.StartedAt)
@@ -375,11 +482,9 @@ func (s *Service) RunWorker(operationID, action, target, backupID string) error 
 	if !isActiveOperation(operation) {
 		return fmt.Errorf("更新工作进程操作已结束")
 	}
-	s.stateMu.Lock()
-	s.state.Status = OperationApplying
-	s.state.Message = "更新工作进程已启动"
-	s.persistStateLocked()
-	s.stateMu.Unlock()
+	if err := s.updateOperation(operationID, OperationApplying, "更新工作进程已启动", nil); err != nil {
+		return err
+	}
 	if action == "restart" {
 		s.runRestartOperation(operationID)
 		return operationError(s.Operation())

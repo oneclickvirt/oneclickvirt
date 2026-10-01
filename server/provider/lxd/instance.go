@@ -463,7 +463,7 @@ func (l *LXDProvider) waitForInstanceReady(ctx context.Context, instanceName str
 		}
 
 		// 检查实例状态
-		cmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
+		cmd := lxdInstanceStatusCommand(instanceName)
 		output, err := l.sshClient.Execute(cmd)
 		if err != nil {
 			global.APP_LOG.Debug("获取实例状态失败",
@@ -622,7 +622,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 
 	// 使用统一的 LXD 密码设置流程：自动恢复 STOPPED/FROZEN 状态，等待 exec 就绪，
 	// 并在 sh/bash/历史 stdin 管道方式之间回退，避免初次开设后实例没有可用密码。
-	if err = l.setLXDInstancePasswordWithRetry(config.Name, password, "sh"); err != nil {
+	if err = l.setLXDInstancePasswordWithRetry(ctx, config.Name, password, "sh"); err != nil {
 		global.APP_LOG.Error("设置实例密码失败",
 			zap.String("instanceName", config.Name),
 			zap.Error(err))

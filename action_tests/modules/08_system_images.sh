@@ -38,7 +38,7 @@ run_module_08() {
             ubuntu_url="https://github.com/oneclickvirt/incus_images/releases/download/ubuntu/ubuntu_22.04_jammy_${lxd_arch}_cloud.zip"
             alpine_url="https://github.com/oneclickvirt/incus_images/releases/download/alpine/alpine_3.19_3.19_${lxd_arch}_cloud.zip"
             ;;
-        qemu)
+        proxmox|qemu)
             local qemu_lxc_repo="lxc_amd64_images"
             [[ "$test_arch" == "arm64" ]] && qemu_lxc_repo="lxc_arm_images"
             debian_url="https://github.com/oneclickvirt/${qemu_lxc_repo}/releases/download/debian/debian_12_bookworm_${lxd_arch}_cloud.tar.xz"
@@ -46,6 +46,13 @@ run_module_08() {
             alpine_url="https://github.com/oneclickvirt/${qemu_lxc_repo}/releases/download/alpine/alpine_3.19_3.19_${lxd_arch}_cloud.tar.xz"
             ;;
     esac
+    # PVE's own templates are a useful live-test override when a mirrored LXC
+    # archive was built without /etc/network.  PVE writes
+    # /etc/network/interfaces during post_create_hook even for cloud-init
+    # guests, so the test must use a template that satisfies that contract.
+    if [[ "${img_provider_type}" == "proxmox" && -n "${ACTION_TEST_PROXMOXVE_CONTAINER_IMAGE_URL:-}" ]]; then
+        debian_url="${ACTION_TEST_PROXMOXVE_CONTAINER_IMAGE_URL}"
+    fi
     # Normalize: providerType must match the DB/provider contract used by image lookup.
     log_info "System image tests: arch=${test_arch} env=${ENV_TYPE:-docker} repo=${img_repo}"
 
@@ -87,7 +94,7 @@ run_module_08() {
             vm_img_url="https://github.com/oneclickvirt/pve_kvm_images/releases/download/debian/debian12.qcow2"
             ;;
     esac
-    if [[ -n "$vm_img_url" ]]; then
+    if [[ -n "$vm_img_url" ]] && should_test_type "vm"; then
         test_api "Create VM image (${vm_img_provider_type})" "POST" "/api/v1/admin/system-images" "200|409|infra" \
             "{\"name\":\"ci-debian-12-${vm_img_provider_type}-vm\",\"providerType\":\"${vm_img_provider_type}\",\"instanceType\":\"vm\",\"architecture\":\"${test_arch}\",\"url\":\"${vm_img_url}\",\"description\":\"CI test ${vm_img_provider_type} VM image\",\"osType\":\"debian\",\"osVersion\":\"12\",\"minMemoryMB\":256,\"minDiskMB\":2048}" "$group"
     else
@@ -132,7 +139,7 @@ run_module_08() {
         incus)
             tmp_url="https://github.com/oneclickvirt/incus_images/releases/download/alpine/ci_temp_${unique_suffix}_${lxd_arch}_cloud.zip"
             ;;
-        qemu)
+        proxmox|qemu)
             tmp_url="https://github.com/oneclickvirt/${qemu_lxc_repo:-lxc_amd64_images}/releases/download/alpine/ci_temp_${unique_suffix}_${lxd_arch}_cloud.tar.xz"
             ;;
     esac
@@ -170,7 +177,7 @@ run_module_08() {
         incus)
             negative_url="https://github.com/oneclickvirt/incus_images/releases/download/alpine/neg_test_${unique_suffix}_${lxd_arch}_cloud.zip"
             ;;
-        qemu)
+        proxmox|qemu)
             negative_url="https://github.com/oneclickvirt/${qemu_lxc_repo:-lxc_amd64_images}/releases/download/alpine/neg_test_${unique_suffix}_${lxd_arch}_cloud.tar.xz"
             ;;
     esac

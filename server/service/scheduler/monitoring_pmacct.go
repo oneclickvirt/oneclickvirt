@@ -76,7 +76,7 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 
 			// 从数据库查询有效的provider ID并清理已删除的
 			var validProviderIDs []uint
-			if err := global.APP_DB.Model(&providerModel.Provider{}).
+			if err := global.APP_DB.WithContext(ctx).Model(&providerModel.Provider{}).
 				Pluck("id", &validProviderIDs).Error; err == nil {
 				s.providerStateManager.CleanupDeleted(validProviderIDs)
 			}
@@ -137,7 +137,8 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 				}
 
 				// 尝试获取采集锁
-				if !state.StartCollecting() {
+				collectCtx, started := state.StartCollectingContext(ctx, 5*time.Minute)
+				if !started {
 					continue // 其他goroutine已经开始采集
 				}
 
@@ -152,13 +153,12 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 
 				// 使用WaitGroup追踪异步采集goroutine
 				s.wg.Add(1)
-				go func(providerID uint, providerName string, roundID int64, batchSize int) {
+				go func(providerID uint, providerName string, roundID int64, batchSize int, state *ProviderState, collectCtx context.Context) {
 					// 多层 defer 确保状态一定会被释放
 					defer s.wg.Done()
 
 					// 第一层：确保状态解锁（最外层，一定会执行）
 					defer func() {
-						state := s.providerStateManager.GetOrCreate(providerID)
 						state.FinishCollecting()
 						global.APP_LOG.Debug("Provider采集完成，解锁状态",
 							zap.Uint("providerID", providerID),
@@ -177,35 +177,8 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 						}
 					}()
 
-					// 第三层：超时保护，并关联到服务生命周期
-					baseCtx, baseCancel := context.WithCancel(context.Background())
-					go func() {
-						select {
-						case <-s.stopChan:
-							baseCancel()
-						case <-baseCtx.Done():
-						}
-					}()
-					ctx, cancel := context.WithTimeout(baseCtx, 5*time.Minute)
-					defer func() { baseCancel(); cancel() }()
-
-					// 检查服务是否已停止
-					select {
-					case <-s.stopChan:
-						global.APP_LOG.Debug("服务已停止，取消采集",
-							zap.Uint("providerID", providerID),
-							zap.Int64("roundID", roundID))
-						return
-					case <-ctx.Done():
-						global.APP_LOG.Error("采集超时（启动阶段）",
-							zap.Uint("providerID", providerID),
-							zap.Int64("roundID", roundID))
-						return
-					default:
-					}
-
 					// 直接执行采集，不再嵌套goroutine
-					err := s.collectProviderTrafficInBatches(providerID, batchSize, roundID)
+					err := s.collectProviderTrafficInBatches(collectCtx, providerID, batchSize, roundID)
 					if err != nil {
 						global.APP_LOG.Error("Provider流量批量采集失败",
 							zap.Uint("providerID", providerID),
@@ -218,7 +191,7 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 							zap.String("providerName", providerName),
 							zap.Int64("轮次ID", roundID))
 					}
-				}(p.ID, p.Name, roundID, batchSize)
+				}(p.ID, p.Name, roundID, batchSize, state, collectCtx)
 			}
 		}
 	}
@@ -306,6 +279,9 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 		case <-s.stopChan:
 			timer.Stop()
 			return
+		case <-ctx.Done():
+			timer.Stop()
+			return
 		case <-timer.C:
 			timer.Stop()
 			continue
@@ -318,6 +294,8 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 	for {
 		select {
 		case <-s.stopChan:
+			return
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			now := time.Now()
@@ -368,7 +346,7 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 
 				// 获取该Provider下所有启用监控的实例
 				var monitors []monitoringModel.PmacctMonitor
-				if err := global.APP_DB.Where("provider_id = ? AND is_enabled = ?", p.ID, true).
+				if err := global.APP_DB.WithContext(ctx).Where("provider_id = ? AND is_enabled = ?", p.ID, true).
 					Find(&monitors).Error; err != nil {
 					global.APP_LOG.Error("查询Provider监控实例失败",
 						zap.Uint("providerID", p.ID),
@@ -390,7 +368,7 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 
 				// 逐个重置实例的pmacct守护进程
 				for _, monitor := range monitors {
-					if err := s.resetPmacctDaemonWithTimeout(monitor.InstanceID, 2*time.Minute); err != nil {
+					if err := s.resetPmacctDaemonWithTimeout(ctx, monitor.InstanceID, 2*time.Minute); err != nil {
 						global.APP_LOG.Error("重置pmacct守护进程失败",
 							zap.Uint("instanceID", monitor.InstanceID),
 							zap.Error(err))
@@ -404,6 +382,8 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 					// 每个实例之间间隔2秒，避免对provider造成压力
 					select {
 					case <-s.stopChan:
+						return
+					case <-ctx.Done():
 						return
 					case <-time.After(2 * time.Second):
 					}
@@ -498,36 +478,69 @@ func (s *MonitoringSchedulerService) cleanupDeletedInstanceResetTime() {
 	}
 }
 
-func (s *MonitoringSchedulerService) resetPmacctDaemonWithTimeout(instanceID uint, timeout time.Duration) error {
+func (s *MonitoringSchedulerService) resetPmacctDaemonWithTimeout(parent context.Context, instanceID uint, timeout time.Duration) error {
+	if parent == nil {
+		parent = context.Background()
+	}
+	resetCtx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	if cancellable, ok := s.pmacctService.(PmacctServiceContextInterface); ok {
+		return cancellable.ResetPmacctDaemonWithContext(resetCtx, instanceID)
+	}
+
+	// Keep compatibility with legacy implementations. Their operation is
+	// bounded by the provider's own timeouts, but cannot be force-cancelled by
+	// this scheduler; the buffered result prevents a blocked worker here.
 	done := make(chan error, 1)
 	go func() {
 		done <- s.pmacctService.ResetPmacctDaemon(instanceID)
 	}()
-
 	select {
 	case err := <-done:
 		return err
-	case <-s.stopChan:
-		return context.Canceled
-	case <-time.After(timeout):
-		return fmt.Errorf("reset pmacct daemon timeout after %s for instance %d", timeout, instanceID)
+	case <-resetCtx.Done():
+		if resetCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("reset pmacct daemon timeout after %s for instance %d", timeout, instanceID)
+		}
+		return resetCtx.Err()
 	}
 }
 
 // collectProviderTrafficInBatches 分批采集Provider的流量数据，确保一轮内不重复采集
-func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID uint, batchSize int, roundID int64) error {
+func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(ctx context.Context, providerID uint, batchSize int, roundID int64) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if batchSize <= 0 {
+		batchSize = 10
+	}
+	db := global.APP_DB.WithContext(ctx)
 	// 获取该Provider下所有启用的监控实例（只查询需要的字段，避免加载所有数据）
-	var totalCount int64
-	err := global.APP_DB.Model(&monitoringModel.PmacctMonitor{}).
+	var boundary struct {
+		Total int64
+		MaxID uint
+	}
+	err := db.Model(&monitoringModel.PmacctMonitor{}).
 		Where("provider_id = ? AND is_enabled = ?", providerID, true).
-		Count(&totalCount).Error
+		Select("COUNT(*) AS total, COALESCE(MAX(id), 0) AS max_id").Scan(&boundary).Error
 	if err != nil {
 		return fmt.Errorf("统计Provider监控数量失败: %w", err)
 	}
 
+	totalCount := boundary.Total
 	if totalCount == 0 {
 		global.APP_LOG.Debug("Provider无活跃监控", zap.Uint("providerID", providerID))
 		return nil
+	}
+	if s.pmacctService == nil {
+		return fmt.Errorf("pmacct service is unavailable")
+	}
+	collect := s.pmacctService.CollectTrafficFromSQLite
+	if factory, ok := s.pmacctService.(PmacctCollectionFactory); ok {
+		collect, err = factory.NewProviderCollector(ctx, providerID)
+		if err != nil {
+			return err
+		}
 	}
 
 	global.APP_LOG.Debug("开始分批采集pmacct数据",
@@ -538,23 +551,26 @@ func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID 
 
 	// 分批查询和处理，避免一次性加载所有数据导致内存暴增
 	processedCount := 0
-	for offset := 0; offset < int(totalCount); offset += batchSize {
+	var cursor uint
+	batchIndex := 0
+	for cursor < boundary.MaxID {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// 批量查询monitors
 		var monitors []monitoringModel.PmacctMonitor
-		if err := global.APP_DB.Where("provider_id = ? AND is_enabled = ?", providerID, true).
+		if err := db.Where("provider_id = ? AND is_enabled = ? AND id > ? AND id <= ?", providerID, true, cursor, boundary.MaxID).
+			Order("id ASC").
 			Limit(batchSize).
-			Offset(offset).
 			Find(&monitors).Error; err != nil {
-			global.APP_LOG.Error("查询监控实例失败",
-				zap.Uint("providerID", providerID),
-				zap.Int("offset", offset),
-				zap.Error(err))
-			continue
+			return fmt.Errorf("查询监控实例失败: %w", err)
 		}
 
 		if len(monitors) == 0 {
 			break
 		}
+		cursor = monitors[len(monitors)-1].ID
+		batchIndex++
 
 		// 批量预加载instances
 		instanceIDs := make([]uint, len(monitors))
@@ -563,11 +579,8 @@ func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID 
 		}
 
 		var instances []providerModel.Instance
-		if err := global.APP_DB.Where("id IN ?", instanceIDs).Find(&instances).Error; err != nil {
-			global.APP_LOG.Error("预加载实例数据失败",
-				zap.Uint("providerID", providerID),
-				zap.Error(err))
-			continue
+		if err := db.Where("id IN ? AND provider_id = ?", instanceIDs, providerID).Find(&instances).Error; err != nil {
+			return fmt.Errorf("预加载实例数据失败: %w", err)
 		}
 
 		// 构建instance映射
@@ -578,6 +591,9 @@ func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID 
 
 		// 为本批次的每个监控实例采集数据（从SQLite同步到MySQL）
 		for _, monitor := range monitors {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			instance := instanceMap[monitor.InstanceID]
 			if instance == nil {
 				global.APP_LOG.Warn("实例不存在",
@@ -587,7 +603,10 @@ func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID 
 
 			// 使用 CollectTrafficFromSQLite 从 Provider 的 SQLite 数据库采集数据
 			// 传入预加载的数据，避免函数内部重复查询
-			if err := s.pmacctService.CollectTrafficFromSQLite(instance, &monitor); err != nil {
+			if err := collect(instance, &monitor); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				global.APP_LOG.Error("从SQLite采集流量数据失败",
 					zap.Uint("monitorID", monitor.ID),
 					zap.Uint("instanceID", monitor.InstanceID),
@@ -603,21 +622,27 @@ func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID 
 		global.APP_LOG.Debug("完成批次采集",
 			zap.Uint("providerID", providerID),
 			zap.Int64("roundID", roundID),
-			zap.Int("batchIndex", offset/batchSize+1),
+			zap.Int("batchIndex", batchIndex),
 			zap.Int("batchSize", len(monitors)),
 			zap.Int("processedTotal", processedCount),
 			zap.Int64("total", totalCount))
 
 		// 批次间短暂延迟，避免过载
-		if offset+batchSize < int(totalCount) {
-			time.Sleep(2 * time.Second)
+		if cursor < boundary.MaxID {
+			timer := time.NewTimer(2 * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
 		}
 	}
 
 	// 从TrafficRecord同步Provider流量统计
 	year, month, _ := time.Now().Date()
 	var totalUsedFloat float64
-	err = global.APP_DB.Model(&monitoringModel.PmacctTrafficRecord{}).
+	err = db.Model(&monitoringModel.PmacctTrafficRecord{}).
 		Where("provider_id = ? AND year = ? AND month = ?", providerID, year, int(month)).
 		Select("COALESCE(SUM(total_bytes)/1048576, 0)").
 		Scan(&totalUsedFloat).Error

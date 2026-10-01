@@ -33,26 +33,35 @@ type TaskResult struct {
 
 // ProviderWorkerPool Provider工作池
 type ProviderWorkerPool struct {
-	ProviderID  uint
-	TaskQueue   chan TaskRequest   // 任务队列
-	WorkerCount int                // 工作者数量（并发数）
-	activeCount int64              // 当前正在执行的任务数
-	Ctx         context.Context    // 上下文
-	Cancel      context.CancelFunc // 取消函数
-	TaskService *TaskService       // 任务服务引用
+	submitMu       sync.Mutex // serializes enqueue and shutdown
+	closed         bool
+	retireWhenIdle bool  // Provider was removed; do not reopen this pool
+	submitting     int   // queue reservations while a database claim is in flight
+	ownedContexts  int64 // includes asynchronous post-processing
+	outstanding    int64 // queued + executing (including the dequeue boundary)
+	ProviderID     uint
+	TaskQueue      chan TaskRequest   // 任务队列
+	WorkerCount    int                // 工作者数量（并发数）
+	activeCount    int64              // 当前正在执行的任务数
+	liveWorkers    int64              // worker goroutines that have not exited
+	Ctx            context.Context    // 上下文
+	Cancel         context.CancelFunc // 取消函数
+	TaskService    *TaskService       // 任务服务引用
 }
 
 // TaskService 任务管理服务
 type TaskService struct {
-	dbService      *database.DatabaseService
-	contextManager *TaskContextManager  // 任务上下文管理器
-	poolManager    *ProviderPoolManager // Provider工作池管理器
-	repairSubmitMu sync.Mutex           // 端口映射修复提交互斥，避免同一Provider重复入队
-	shutdown       chan struct{}        // 系统关闭信号
-	shutdownOnce   sync.Once            // 保证并发Shutdown只关闭一次
-	wg             sync.WaitGroup       // 用于等待所有goroutine完成
-	ctx            context.Context      // 服务级别的context
-	cancel         context.CancelFunc   // 服务级别的cancel函数
+	queuedTasks         sync.Map // locally owned processing tasks; used for failed-write recovery
+	cancellationCleanup sync.Map // task IDs with an active cancellation cleanup attempt
+	dbService           *database.DatabaseService
+	contextManager      *TaskContextManager  // 任务上下文管理器
+	poolManager         *ProviderPoolManager // Provider工作池管理器
+	repairSubmitMu      sync.Mutex           // 端口映射修复提交互斥，避免同一Provider重复入队
+	shutdown            chan struct{}        // 系统关闭信号
+	shutdownOnce        sync.Once            // 保证并发Shutdown只关闭一次
+	wg                  sync.WaitGroup       // 用于等待所有goroutine完成
+	ctx                 context.Context      // 服务级别的context
+	cancel              context.CancelFunc   // 服务级别的cancel函数
 }
 
 const (
@@ -183,15 +192,51 @@ func (s *TaskService) cleanupIdleProviderPools() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			// 清理空闲的工作池
-			cleaned := s.poolManager.CleanupIdle(maxPoolIdleTime)
+			// Read active task ownership once for the whole cleanup pass. The
+			// previous implementation queried the task table again for every
+			// Provider pool, which became a timer-driven N+1 query pattern.
+			var busyProviders map[uint]struct{}
+			if global.APP_DB != nil {
+				parentCtx := s.ctx
+				if parentCtx == nil {
+					parentCtx = context.Background()
+				}
+				queryCtx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
+				var busyProviderIDs []uint
+				if err := global.APP_DB.WithContext(queryCtx).Model(&adminModel.Task{}).
+					Where("status IN ? AND provider_id IS NOT NULL", []string{mainTaskStatusProcessing, mainTaskStatusRunning, mainTaskStatusCancelling}).
+					Distinct("provider_id").Pluck("provider_id", &busyProviderIDs).Error; err != nil {
+					cancel()
+					global.APP_LOG.Warn("批量读取Provider活跃任务失败，跳过本轮空闲池清理", zap.Error(err))
+				} else {
+					cancel()
+					busyProviders = make(map[uint]struct{}, len(busyProviderIDs))
+					for _, providerID := range busyProviderIDs {
+						busyProviders[providerID] = struct{}{}
+					}
+				}
+			}
+			// 清理空闲的工作池。busyProviders 为 nil 表示批量查询失败；
+			// 这时保守地保留所有池，避免误停正在执行的任务。
+			cleaned := 0
+			if busyProviders != nil {
+				cleaned = s.poolManager.CleanupIdle(maxPoolIdleTime, busyProviders)
+			}
 
 			// 从数据库查询有效的provider ID并清理已删除的
 			if global.APP_DB != nil {
 				var validProviderIDs []uint
-				if err := global.APP_DB.Model(&providerModel.Provider{}).
+				parentCtx := s.ctx
+				if parentCtx == nil {
+					parentCtx = context.Background()
+				}
+				queryCtx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
+				if err := global.APP_DB.WithContext(queryCtx).Model(&providerModel.Provider{}).
 					Pluck("id", &validProviderIDs).Error; err == nil {
+					cancel()
 					s.poolManager.CleanupDeleted(validProviderIDs)
+				} else {
+					cancel()
 				}
 			}
 
@@ -206,43 +251,55 @@ func (s *TaskService) cleanupIdleProviderPools() {
 
 // Shutdown 优雅关闭任务服务，等待所有goroutine完成
 func (s *TaskService) Shutdown() {
-	global.APP_LOG.Info("开始关闭任务服务，等待所有后台任务完成...")
+	s.shutdownOnce.Do(func() {
+		global.APP_LOG.Info("开始关闭任务服务，等待所有后台任务完成...")
+		if s.shutdown != nil {
+			close(s.shutdown)
+		}
+		if s.cancel != nil {
+			s.cancel()
+		}
+		if s.contextManager != nil {
+			s.contextManager.CancelAll()
+		}
 
-	// 发送关闭信号
-	if s.cancel != nil {
-		s.cancel()
-	}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		workStopped := true
+		if s.poolManager != nil {
+			if err := s.poolManager.CancelAllAndWait(shutdownCtx); err != nil {
+				workStopped = false
+				global.APP_LOG.Warn("等待任务工作池退出超时", zap.Error(err))
+			}
+		}
+		if workStopped && !waitTaskServiceWork(shutdownCtx, &s.wg) {
+			workStopped = false
+			global.APP_LOG.Warn("等待任务后处理退出超时")
+		}
 
-	// 进程正在退出时，内存中的工作池不会在重启后保留。
-	// 立即把已进入执行阶段的任务落到终态，避免重启后页面仍显示"执行中"。
-	s.cleanupInterruptedTasks("服务关闭，任务被中断")
-	s.shutdownOnce.Do(func() { close(s.shutdown) })
+		if workStopped {
+			global.APP_LOG.Info("任务工作池和后处理已退出")
+		} else {
+			// Startup recovery owns any unfinished rows after the old process has
+			// exited. Do not terminalize them while a Provider call may still run.
+			global.APP_LOG.Warn("仍有任务执行未确认退出，保留状态供下次启动恢复")
+		}
+		global.APP_LOG.Info("TaskService关闭完成")
+	})
+}
 
-	// 取消所有任务上下文
-	s.contextManager.CancelAll()
-
-	// 取消所有工作池
-	s.poolManager.CancelAll()
-
-	// 等待所有goroutine完成
+func waitTaskServiceWork(ctx context.Context, wg *sync.WaitGroup) bool {
 	done := make(chan struct{})
 	go func() {
-		s.wg.Wait()
+		wg.Wait()
 		close(done)
 	}()
-
-	// 等待最多30秒
-	timer := time.NewTimer(30 * time.Second)
-	defer timer.Stop()
-
 	select {
 	case <-done:
-		global.APP_LOG.Info("所有后台任务已完成")
-	case <-timer.C:
-		global.APP_LOG.Warn("等待后台任务超时，强制退出")
+		return true
+	case <-ctx.Done():
+		return false
 	}
-
-	global.APP_LOG.Info("TaskService关闭完成")
 }
 
 // DeleteProviderPool 删除Provider工作池

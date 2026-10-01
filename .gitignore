@@ -47,3 +47,9 @@ test/.DS_Store*
 data
 .idea
 .ocv-*
+
+# Local integration-test output is published by Actions as an artifact. Keep
+# it out of source commits and private mirror snapshots.
+action_tests/reports/*
+test-report.md
+*.log

@@ -63,14 +63,14 @@ func (p *ProxmoxProvider) handleVMDeletion(ctx context.Context, vmid string, ipA
 
 	// 1. 解锁VM
 	global.APP_LOG.Debug("解锁VM", zap.String("vmid", vmid))
-	_, err := p.sshClient.Execute(fmt.Sprintf("qm unlock %s 2>/dev/null || true", vmid))
+	_, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("qm unlock %s 2>/dev/null || true", vmid))
 	if err != nil {
 		global.APP_LOG.Warn("解锁VM失败", zap.String("vmid", vmid), zap.Error(err))
 	}
 
 	// 2. 停止VM
 	global.APP_LOG.Debug("停止VM", zap.String("vmid", vmid))
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm stop %s 2>/dev/null || true", vmid))
+	_, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("qm stop %s 2>/dev/null || true", vmid))
 	if err != nil {
 		global.APP_LOG.Warn("停止VM失败", zap.String("vmid", vmid), zap.Error(err))
 	}
@@ -90,7 +90,7 @@ func (p *ProxmoxProvider) handleVMDeletion(ctx context.Context, vmid string, ipA
 
 	// 5. 删除VM
 	global.APP_LOG.Debug("销毁VM", zap.String("vmid", vmid))
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm destroy %s", vmid))
+	_, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("qm destroy %s", vmid))
 	if err != nil {
 		global.APP_LOG.Error("销毁VM失败", zap.String("vmid", vmid), zap.Error(err))
 		return fmt.Errorf("销毁VM失败 (VMID: %s): %w", vmid, err)
@@ -135,7 +135,7 @@ func (p *ProxmoxProvider) handleCTDeletion(ctx context.Context, ctid string, ipA
 
 	// 1. 停止容器
 	global.APP_LOG.Debug("停止CT", zap.String("ctid", ctid))
-	_, err := p.sshClient.Execute(fmt.Sprintf("pct stop %s 2>/dev/null || true", ctid))
+	_, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("pct stop %s 2>/dev/null || true", ctid))
 	if err != nil {
 		global.APP_LOG.Warn("停止CT失败", zap.String("ctid", ctid), zap.Error(err))
 	}
@@ -155,7 +155,7 @@ func (p *ProxmoxProvider) handleCTDeletion(ctx context.Context, ctid string, ipA
 
 	// 4. 删除容器
 	global.APP_LOG.Debug("销毁CT", zap.String("ctid", ctid))
-	_, err = p.sshClient.Execute(fmt.Sprintf("pct destroy %s", ctid))
+	_, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("pct destroy %s", ctid))
 	if err != nil {
 		global.APP_LOG.Error("销毁CT失败", zap.String("ctid", ctid), zap.Error(err))
 		return fmt.Errorf("销毁CT失败 (CTID: %s): %w", ctid, err)

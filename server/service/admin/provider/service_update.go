@@ -555,6 +555,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if updateProviderRequestHasField(req, "proxyEnableHttps") {
 		provider.ProxyEnableHTTPS = req.ProxyEnableHTTPS
 	}
+	if updateProviderRequestHasField(req, "proxyTrustCloudflareHeaders") {
+		provider.ProxyTrustCloudflareHeaders = req.ProxyTrustCloudflareHeaders
+	}
 	if !provider.ProxyEnableHTTP && !provider.ProxyEnableHTTPS {
 		provider.ProxyEnableHTTP = true
 	}

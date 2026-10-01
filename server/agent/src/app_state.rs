@@ -9,6 +9,8 @@ pub struct AppState {
     pub conn: Arc<Mutex<Connection>>,
     /// Serializes nftables/iptables mutations and counter snapshots without holding SQLite locks.
     pub traffic_operation_lock: Arc<Mutex<()>>,
+    /// Keeps domain SQLite, route-memory and certificate updates in one order.
+    pub domain_proxy_operation_lock: Arc<Mutex<()>>,
     pub api_token: String,
     /// Traffic collection interval in seconds (default: 5)
     pub traffic_collect_interval: u64,

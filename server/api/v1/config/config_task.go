@@ -80,11 +80,19 @@ func AutoConfigureProvider(c *gin.Context) {
 		CanProceed:   runningTask == nil || req.Force,
 		HistoryTasks: historyTasks,
 	}
+	if runningTask != nil && (runningTask.Status == adminModel.TaskStatusCancelled || runningTask.Status == adminModel.TaskStatusCancelling) {
+		response.CanProceed = false
+	}
 
-	// 如果有正在运行的任务且不强制执行
-	if runningTask != nil && !req.Force {
+	// 取消请求已经提交但旧协程尚未退出时，仍然占用Provider执行槽；
+	// 将其展示为停止中，避免用户误以为可以立即启动第二个配置任务。
+	if runningTask != nil && (runningTask.Status == adminModel.TaskStatusCancelled || runningTask.Status == adminModel.TaskStatusCancelling || !req.Force) {
 		response.Status = "running"
 		response.Message = fmt.Sprintf("Provider %s 正在执行配置任务", provider.Name)
+		if runningTask.Status == adminModel.TaskStatusCancelled || runningTask.Status == adminModel.TaskStatusCancelling {
+			response.Status = "cancelling"
+			response.Message = fmt.Sprintf("Provider %s 的旧配置任务正在停止，请稍后重新执行", provider.Name)
+		}
 		response.RunningTask = &adminModel.ConfigurationTaskResponse{
 			ID:           runningTask.ID,
 			ProviderID:   runningTask.ProviderID,
@@ -113,8 +121,20 @@ func AutoConfigureProvider(c *gin.Context) {
 
 	// 如果有正在运行的任务且强制执行，先取消原任务
 	if runningTask != nil && req.Force {
-		if err := configService.CancelTask(runningTask.ID); err != nil {
+		if err := configService.CancelTaskScoped(runningTask.ID, middleware.GetOwnerAdminID(c)); err != nil {
 			global.APP_LOG.Error("取消原任务失败", zap.Error(err))
+			common.ResponseWithError(c, common.ClassifyError(err))
+			return
+		}
+		// 取消会立即发出 context 信号，但旧配置协程可能仍在等待远端
+		// 调用返回。等待一个有界时间；超时就让用户稍后重试，绝不并发
+		// 启动第二个 Provider 配置。
+		if err := configService.WaitForTaskRelease(req.ProviderID, runningTask.ID, 10*time.Second); err != nil {
+			response.Status = "cancelling"
+			response.CanProceed = false
+			response.Message = fmt.Sprintf("Provider %s 的旧配置任务正在停止，请稍后重新执行", provider.Name)
+			common.ResponseSuccess(c, response)
+			return
 		}
 	}
 
@@ -282,26 +302,41 @@ func CancelConfigurationTask(c *gin.Context) {
 		return
 	}
 
-	common.ResponseSuccess(c, nil, "任务已取消")
+	common.ResponseSuccess(c, nil, "已请求停止任务")
 }
 
 // executeAutoConfiguration 执行自动配置（支持context取消）
 func executeAutoConfigurationWithContext(ctx context.Context, taskID uint, provider *provider.Provider) error {
 	configService := config.GetTaskService()
 
-	// 创建简单的日志缓冲区
 	var logBuffer strings.Builder
 	var success bool
 	var errorMessage string
-
-	// 简单的日志记录函数
+	lastFlush := time.Time{}
+	flushLog := func() {
+		if err := configService.UpdateTaskLog(taskID, logBuffer.String()); err != nil {
+			global.APP_LOG.Warn("保存配置任务日志失败", zap.Uint("taskId", taskID), zap.Error(err))
+		}
+		lastFlush = time.Now()
+	}
+	// One goroutine owns the buffer. Limit the retained tail and coalesce DB
+	// writes so verbose installers cannot create quadratic log storage traffic.
 	writeLog := func(format string, args ...interface{}) {
 		line := fmt.Sprintf(format, args...)
 		logBuffer.WriteString(line)
 		logBuffer.WriteString("\n")
-
-		// 实时更新到数据库
-		configService.UpdateTaskLog(taskID, logBuffer.String())
+		if logBuffer.Len() > 256*1024 {
+			tail := logBuffer.String()
+			tail = tail[len(tail)-128*1024:]
+			if newline := strings.IndexByte(tail, '\n'); newline >= 0 {
+				tail = tail[newline+1:]
+			}
+			logBuffer.Reset()
+			logBuffer.WriteString(strings.ToValidUTF8(tail, ""))
+		}
+		if time.Since(lastFlush) >= time.Second {
+			flushLog()
+		}
 	}
 
 	// 执行配置任务
@@ -333,62 +368,31 @@ func executeAutoConfigurationWithContext(ctx context.Context, taskID uint, provi
 		// 更新进度
 		configService.UpdateTaskProgress(taskID, 10)
 
-		// 创建一个简单的输出通道用于日志收集
-		logChan := make(chan string, 100)
-		configDone := make(chan error, 1)
-
-		// 启动日志收集协程
-		go func() {
-			for logLine := range logChan {
-				writeLog("%s", logLine)
-			}
-		}()
-
-		// 启动配置执行协程
-		go func() {
-			defer close(logChan)
-			// 执行实际的配置逻辑
-			certService := &provider2.CertService{}
-			configDone <- certService.AutoConfigureProviderWithStreamContext(ctx, provider, logChan)
-		}()
-
-		// 等待配置完成或context取消
-		select {
-		case err := <-configDone:
-			if err != nil {
-				success = false
-				errorMessage = err.Error()
-				writeLog("❌ 自动配置失败: %s", err.Error())
-				return
-			}
-			success = true
-
-			// 根据类型返回不同的成功消息
-			var message string
-			switch provider.Type {
-			case "proxmox", "proxmoxve":
-				message = "Proxmox VE API 自动配置成功，Token已创建并应用到系统"
-			case "lxd":
-				message = "LXD 自动配置成功，证书已安装并配置监听地址"
-			case "incus":
-				message = "Incus 自动配置成功，证书已安装并配置监听地址"
-			default:
-				message = "自动配置成功"
-			}
-			writeLog("✅ %s", message)
-
-		case <-ctx.Done():
-			success = false
+		certService := &provider2.CertService{}
+		err := runConfigurationWithLogs(func(logs chan string) error {
+			return certService.AutoConfigureProviderWithStreamContext(ctx, provider, logs)
+		}, func(line string) { writeLog("%s", line) })
+		// The producer has exited and every log line has been consumed before
+		// cancellation is finalized or a new configuration may reserve this slot.
+		if ctx.Err() != nil {
+			errorMessage = "任务已取消"
 			if ctx.Err() == context.DeadlineExceeded {
-				errorMessage = fmt.Sprintf("任务执行超时（超过%s）", autoConfigureTaskTimeout)
-				writeLog("❌ 任务执行超时（超过%s），自动终止", autoConfigureTaskTimeout)
-			} else {
-				errorMessage = "任务被取消"
-				writeLog("❌ 任务被手动取消")
+				errorMessage = "任务执行超时"
 			}
+			writeLog("❌ %s", errorMessage)
 			return
 		}
+		if err != nil {
+			errorMessage = err.Error()
+			writeLog("❌ 自动配置失败: %s", errorMessage)
+			return
+		}
+		success = true
+		writeLog("✅ 自动配置成功")
+
 	}()
+
+	flushLog()
 
 	// 最终更新进度
 	if success {
@@ -404,4 +408,26 @@ func executeAutoConfigurationWithContext(ctx context.Context, taskID uint, provi
 	}
 
 	return configService.FinishTask(taskID, success, errorMessage, resultData)
+}
+
+// runConfigurationWithLogs joins the producer even after cancellation; callers
+// retain provider ownership until it returns. Panics become normal failures.
+func runConfigurationWithLogs(run func(chan string) error, log func(string)) error {
+	logs := make(chan string, 100)
+	done := make(chan error, 1)
+	go func() {
+		var result error
+		defer func() {
+			if r := recover(); r != nil {
+				result = fmt.Errorf("配置过程中发生错误: %v", r)
+			}
+			close(logs)
+			done <- result
+		}()
+		result = run(logs)
+	}()
+	for line := range logs {
+		log(line)
+	}
+	return <-done
 }

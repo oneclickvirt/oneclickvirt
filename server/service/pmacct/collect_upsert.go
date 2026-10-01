@@ -27,6 +27,10 @@ type lastMaxTraffic struct {
 // fillGapRecords 填补连接异常恢复后的空白期数据
 func (s *Service) fillGapRecords(instanceID uint, instance *providerModel.Instance, monitor *monitoringModel.PmacctMonitor,
 	lastMax lastMaxTraffic, firstNewTimestamp time.Time, recordTimeStr string) {
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	if lastMax.LastTimestamp == nil || lastMax.LastTimestamp.IsZero() {
 		return
@@ -39,60 +43,47 @@ func (s *Service) fillGapRecords(instanceID uint, instance *providerModel.Instan
 		return
 	}
 
-	var fillRecords []monitoringModel.PmacctTrafficRecord
-	for current := fillStart; current.Before(firstNewTimestamp); current = current.Add(time.Minute) {
-		fillRecords = append(fillRecords, monitoringModel.PmacctTrafficRecord{
-			InstanceID:   instanceID,
-			UserID:       instance.UserID,
-			ProviderID:   instance.ProviderID,
-			ProviderType: instance.Provider,
-			MappedIP:     monitor.MappedIP,
-			RxBytes:      lastMax.MaxRxBytes,
-			TxBytes:      lastMax.MaxTxBytes,
-			TotalBytes:   lastMax.MaxTotalBytes,
-			Timestamp:    current,
-			Year:         current.Year(),
-			Month:        int(current.Month()),
-			Day:          current.Day(),
-			Hour:         current.Hour(),
-			Minute:       current.Minute(),
-		})
-	}
-
-	if len(fillRecords) == 0 {
-		return
-	}
-
-	sort.Slice(fillRecords, func(i, j int) bool {
-		return fillRecords[i].Timestamp.Before(fillRecords[j].Timestamp)
-	})
-
-	fillBatchSize := 20
-	for i := 0; i < len(fillRecords); i += fillBatchSize {
-		end := i + fillBatchSize
-		if end > len(fillRecords) {
-			end = len(fillRecords)
-		}
-		batch := fillRecords[i:end]
-
+	// Stream fixed-size batches so a long offline gap cannot allocate years of records.
+	fillRecords := make([]monitoringModel.PmacctTrafficRecord, 0, 20)
+	fillCount := 0
+	flush := func() bool {
 		err := s.retryDBOperation(func() error {
-			return global.APP_DB.Transaction(func(tx *gorm.DB) error {
-				return s.execBatchInsertIgnore(tx, batch, recordTimeStr)
+			return global.APP_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				return s.execBatchInsertIgnore(tx, fillRecords, recordTimeStr)
 			})
 		})
 		if err != nil {
+			if ctx.Err() != nil {
+				return false
+			}
 			global.APP_LOG.Warn("填补空白期数据失败（继续执行）",
-				zap.Uint("instanceID", instanceID),
-				zap.Int("count", len(batch)),
-				zap.Error(err))
+				zap.Uint("instanceID", instanceID), zap.Int("count", len(fillRecords)), zap.Error(err))
+		}
+		fillCount += len(fillRecords)
+		fillRecords = fillRecords[:0]
+		return true
+	}
+	for current := fillStart; current.Before(firstNewTimestamp); current = current.Add(time.Minute) {
+		if ctx.Err() != nil {
+			return
+		}
+		fillRecords = append(fillRecords, monitoringModel.PmacctTrafficRecord{
+			InstanceID: instanceID, UserID: instance.UserID, ProviderID: instance.ProviderID,
+			ProviderType: instance.Provider, MappedIP: monitor.MappedIP,
+			RxBytes: lastMax.MaxRxBytes, TxBytes: lastMax.MaxTxBytes, TotalBytes: lastMax.MaxTotalBytes,
+			Timestamp: current, Year: current.Year(), Month: int(current.Month()), Day: current.Day(),
+			Hour: current.Hour(), Minute: current.Minute(),
+		})
+		if len(fillRecords) == cap(fillRecords) && !flush() {
+			return
 		}
 	}
-
+	if len(fillRecords) > 0 && !flush() {
+		return
+	}
 	global.APP_LOG.Debug("已填补空白期数据",
-		zap.Uint("instanceID", instanceID),
-		zap.Int("fillCount", len(fillRecords)),
-		zap.Time("fillStart", fillStart),
-		zap.Time("fillEnd", fillEnd.Add(time.Minute)))
+		zap.Uint("instanceID", instanceID), zap.Int("fillCount", fillCount),
+		zap.Time("fillStart", fillStart), zap.Time("fillEnd", fillEnd.Add(time.Minute)))
 }
 
 // batchUpsertRecords 批量插入新采集的流量记录
@@ -111,7 +102,7 @@ func (s *Service) batchUpsertRecords(instanceID uint, records []monitoringModel.
 		batch := records[i:end]
 
 		err := s.retryDBOperation(func() error {
-			return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+			return global.APP_DB.WithContext(s.ctx).Transaction(func(tx *gorm.DB) error {
 				return s.execBatchUpsert(tx, batch, recordTimeStr)
 			})
 		})

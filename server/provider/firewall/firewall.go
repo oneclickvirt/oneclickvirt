@@ -327,6 +327,13 @@ func (m *Manager) AddSingleDNAT(instanceIP string, hostPort, guestPort int, prot
 	if m.backend == BackendNft {
 		return m.addSingleDNATNft(instanceIP, hostPort, guestPort, protocol, comment, false)
 	}
+	// Port repair and instance reset can retry the same mapping. Remove only
+	// the matching endpoint/protocol before appending legacy xtables rules;
+	// deleting every rule with this owner would remove its other ports or
+	// protocol family when callers expand "both" into separate operations.
+	if err := m.removeExistingSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment, false); err != nil {
+		return err
+	}
 	for _, proto := range protocols {
 		cmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d%s -j DNAT --to-destination %s:%d",
 			proto, hostPort, commentArgs, instanceIP, guestPort)
@@ -345,6 +352,17 @@ func (m *Manager) AddSingleDNAT(instanceIP string, hostPort, guestPort int, prot
 		if _, err := m.sshClient.Execute(masq); err != nil {
 			global.APP_LOG.Warn("iptables MASQUERADE failed", zap.Error(err))
 		}
+	}
+	return nil
+}
+
+func (m *Manager) removeExistingSingleDNAT(instanceIP string, hostPort, guestPort int, protocol, comment string, ipv6 bool) error {
+	// A comment identifies the owning instance, but an instance can own many
+	// host ports and both TCP/UDP rules. Replacing one endpoint must therefore
+	// use the same address/port/protocol selector as an explicit removal while
+	// retaining the owner comment as an additional identity check.
+	if err := m.RemoveSingleDNATForFamily(instanceIP, hostPort, guestPort, protocol, comment, ipv6); err != nil {
+		return fmt.Errorf("清理已有端口映射失败: %w", err)
 	}
 	return nil
 }
@@ -386,6 +404,9 @@ func (m *Manager) addSingleDNATIPv6(instanceIP string, hostPort, guestPort int, 
 	// dedicated ip6 nft table when that capability is absent.
 	if _, err := m.sshClient.Execute("command -v ip6tables >/dev/null 2>&1"); err != nil {
 		return m.addSingleDNATIPv6Nft(instanceIP, hostPort, guestPort, protocol, comment)
+	}
+	if err := m.removeExistingSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment, true); err != nil {
+		return err
 	}
 	commentArgs := ""
 	if strings.TrimSpace(comment) != "" {

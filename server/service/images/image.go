@@ -104,15 +104,18 @@ func (s *ImageService) getImageDownloadURL(systemImage system.SystemImage, archi
 	}
 
 	// 处理CDN加速
-	imageURL := systemImage.URL
-	if systemImage.UseCDN {
-		baseCDN := utils.GetBaseCDNEndpoint()
-		if baseCDN != "" {
-			imageURL = baseCDN + systemImage.URL
-		}
-	}
+	imageURL := imageURLWithCDN(systemImage.URL, systemImage.UseCDN, utils.GetBaseCDNEndpoint())
 
 	return imageURL
+}
+
+// The CDN proxy only serves HTTPS origins. Proxmox's official container
+// templates use HTTP, so wrapping them produces a 530 instead of a template.
+func imageURLWithCDN(origin string, enabled bool, endpoint string) string {
+	if enabled && endpoint != "" && strings.HasPrefix(strings.ToLower(origin), "https://") {
+		return endpoint + origin
+	}
+	return origin
 }
 
 // GetImageDownloadPath 获取镜像下载路径
@@ -256,17 +259,12 @@ func (s *ImageService) PrepareImageForInstance(req image.DownloadImageRequest) (
 	}
 
 	// 处理镜像URL，根据UseCDN字段决定是否使用CDN加速
-	imageURL := systemImage.URL
-	if systemImage.UseCDN {
-		// 如果启用CDN，添加CDN前缀
-		baseCDN := utils.GetBaseCDNEndpoint()
-		if baseCDN != "" {
-			imageURL = baseCDN + systemImage.URL
-			global.APP_LOG.Debug("使用CDN加速镜像下载",
-				zap.Uint("imageId", req.ImageID),
-				zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
-				zap.String("cdnURL", utils.TruncateString(imageURL, 100)))
-		}
+	imageURL := imageURLWithCDN(systemImage.URL, systemImage.UseCDN, utils.GetBaseCDNEndpoint())
+	if imageURL != systemImage.URL {
+		global.APP_LOG.Debug("使用CDN加速镜像下载",
+			zap.Uint("imageId", req.ImageID),
+			zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
+			zap.String("cdnURL", utils.TruncateString(imageURL, 100)))
 	}
 
 	global.APP_LOG.Debug("镜像信息准备完成",

@@ -108,7 +108,7 @@ func (i *IncusProvider) configureInstanceLimits(ctx context.Context, config prov
 // configureInstanceNetworkSettings 配置实例网络设置
 func (i *IncusProvider) configureInstanceNetworkSettings(ctx context.Context, config provider.InstanceConfig) error {
 	// 启动实例以配置网络
-	if err := i.sshStartInstance(config.Name); err != nil {
+	if err := i.sshStartInstance(ctx, config.Name); err != nil {
 		return fmt.Errorf("启动实例失败: %w", err)
 	}
 	// 解析网络配置
@@ -196,13 +196,13 @@ func incusResolveIOLimits(config provider.InstanceConfig) (string, string) {
 	return readLimit, writeLimit
 }
 
-func (i *IncusProvider) sshStartInstance(id string) error {
+func (i *IncusProvider) sshStartInstance(ctx context.Context, id string) error {
 	// 先检查实例状态，如果已经在运行则跳过启动
-	if i.sshInstanceRunning(id) {
+	if i.sshInstanceRunning(ctx, id) {
 		global.APP_LOG.Debug("Incus 实例已在运行，跳过启动", zap.String("id", id))
 		return nil
 	}
-	if err := i.ensureVMCloudInitTemplates(id); err != nil {
+	if err := i.ensureVMCloudInitTemplates(ctx, id); err != nil {
 		global.APP_LOG.Warn("Incus VM cloud-init模板预检查失败，将继续尝试启动",
 			zap.String("id", id),
 			zap.Error(err))
@@ -214,20 +214,20 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 	maxAttempts := 3
 	repairedCloudInitTemplates := false
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		startOutput, startErr = i.sshClient.Execute(startCmd)
+		startOutput, startErr = utils.ExecuteShellCommandContext(ctx, i.sshClient, startCmd)
 		if startErr == nil {
 			break
 		}
 
 		// 如果错误信息提示实例已在运行，则不视为错误
 		errMsg := startOutput + "\n" + startErr.Error()
-		if incusAlreadyRunningMessage(errMsg) || i.sshInstanceRunning(id) {
+		if incusAlreadyRunningMessage(errMsg) || i.sshInstanceRunning(ctx, id) {
 			global.APP_LOG.Debug("Incus 实例已在运行", zap.String("id", id))
 			return nil
 		}
 
 		if incusStartNeedsCloudInitTemplateRepair(errMsg) && !repairedCloudInitTemplates {
-			if repairErr := i.ensureVMCloudInitTemplates(id); repairErr != nil {
+			if repairErr := i.ensureVMCloudInitTemplates(ctx, id); repairErr != nil {
 				global.APP_LOG.Warn("Incus VM cloud-init模板自动修复失败",
 					zap.String("id", id),
 					zap.Error(repairErr))
@@ -246,16 +246,18 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 				zap.String("id", id),
 				zap.String("output", utils.TruncateString(startOutput, 500)),
 				zap.Error(startErr))
-			time.Sleep(time.Duration(attempt*3) * time.Second)
+			if err := utils.SleepContext(ctx, time.Duration(attempt*3)*time.Second); err != nil {
+				return err
+			}
 		}
 	}
 
 	if startErr != nil {
-		if i.sshInstanceRunning(id) {
+		if i.sshInstanceRunning(ctx, id) {
 			global.APP_LOG.Debug("Incus实例启动命令失败后状态已变为运行，继续流程", zap.String("id", id))
 			return nil
 		}
-		diagOutput, diagErr := i.collectStartDiagnostics(id)
+		diagOutput, diagErr := i.collectStartDiagnostics(ctx, id)
 		details := []string{}
 		if trimmed := strings.TrimSpace(startOutput); trimmed != "" {
 			details = append(details, "start output: "+utils.TruncateString(trimmed, 8000))
@@ -286,15 +288,19 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 		}
 
 		// 等待一段时间后再检查
-		time.Sleep(checkInterval)
+		if err := utils.SleepContext(ctx, checkInterval); err != nil {
+			return err
+		}
 
 		// 检查实例状态
-		statusOutput, err := i.sshClient.Execute(fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(id)))
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, incusInstanceStatusCommand(id))
 		if err == nil {
 			status := strings.TrimSpace(statusOutput)
 			if status == "RUNNING" || status == "Running" {
 				// 实例已经启动，再等待额外的时间确保系统完全就绪
-				time.Sleep(3 * time.Second)
+				if err := utils.SleepContext(ctx, 3*time.Second); err != nil {
+					return err
+				}
 				global.APP_LOG.Debug("Incus实例已成功启动并就绪",
 					zap.String("id", id),
 					zap.Duration("wait_time", time.Since(startTime)))
@@ -313,23 +319,23 @@ func incusAlreadyRunningMessage(text string) bool {
 	return strings.Contains(lower, "already running") || strings.Contains(lower, "instance is already running")
 }
 
-func (i *IncusProvider) sshInstanceRunning(id string) bool {
-	statusOutput, err := i.sshClient.Execute(fmt.Sprintf("incus info %s | awk -F': ' '/^Status:/{print $2; exit}'", shellSingleQuote(id)))
+func (i *IncusProvider) sshInstanceRunning(ctx context.Context, id string) bool {
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, incusInstanceStatusCommand(id))
 	if err != nil {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(statusOutput), "running")
 }
 
-func (i *IncusProvider) sshInstanceStopped(id string) bool {
-	statusOutput, err := i.sshClient.Execute(fmt.Sprintf("incus info %s | awk -F': ' '/^Status:/{print $2; exit}'", shellSingleQuote(id)))
+func (i *IncusProvider) sshInstanceStopped(ctx context.Context, id string) bool {
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, incusInstanceStatusCommand(id))
 	if err != nil {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(statusOutput), "stopped")
 }
 
-func (i *IncusProvider) collectStartDiagnostics(id string) (string, error) {
+func (i *IncusProvider) collectStartDiagnostics(ctx context.Context, id string) (string, error) {
 	commands := []struct {
 		name string
 		cmd  string
@@ -342,7 +348,7 @@ func (i *IncusProvider) collectStartDiagnostics(id string) (string, error) {
 	var parts []string
 	var errs []string
 	for _, command := range commands {
-		output, err := i.sshClient.Execute(command.cmd)
+		output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, command.cmd)
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			parts = append(parts, fmt.Sprintf("[%s]\n%s", command.name, trimmed))
 		}
@@ -356,10 +362,10 @@ func (i *IncusProvider) collectStartDiagnostics(id string) (string, error) {
 	return strings.Join(parts, "\n\n"), nil
 }
 
-func (i *IncusProvider) sshStopInstance(id string) error {
-	output, err := i.sshClient.Execute(fmt.Sprintf("incus stop %s", shellSingleQuote(id)))
+func (i *IncusProvider) sshStopInstance(ctx context.Context, id string) error {
+	output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, fmt.Sprintf("incus stop %s", shellSingleQuote(id)))
 	if err != nil {
-		if i.sshInstanceStopped(id) {
+		if i.sshInstanceStopped(ctx, id) {
 			return nil
 		}
 		return fmt.Errorf("failed to stop instance: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
@@ -369,8 +375,8 @@ func (i *IncusProvider) sshStopInstance(id string) error {
 	return nil
 }
 
-func (i *IncusProvider) sshRestartInstance(id string) error {
-	output, err := i.sshClient.Execute(fmt.Sprintf("incus restart %s", shellSingleQuote(id)))
+func (i *IncusProvider) sshRestartInstance(ctx context.Context, id string) error {
+	output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, fmt.Sprintf("incus restart %s", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to restart instance: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
@@ -378,10 +384,10 @@ func (i *IncusProvider) sshRestartInstance(id string) error {
 	return nil
 }
 
-func (i *IncusProvider) sshDeleteInstance(id string) error {
+func (i *IncusProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	// 获取节点hostname用于日志
 	hostname := "unknown"
-	if output, err := i.sshClient.Execute("hostname"); err == nil {
+	if output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, "hostname"); err == nil {
 		hostname = utils.CleanCommandOutput(output)
 	}
 
@@ -390,7 +396,7 @@ func (i *IncusProvider) sshDeleteInstance(id string) error {
 		zap.String("host", utils.TruncateString(i.config.Host, 32)),
 		zap.String("instance_id", id))
 
-	output, err := i.sshClient.Execute(fmt.Sprintf("incus delete %s --force", shellSingleQuote(id)))
+	output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, fmt.Sprintf("incus delete %s --force", shellSingleQuote(id)))
 	if err != nil {
 		// 检查是否是实例不存在的错误
 		if strings.Contains(output, "Instance not found") || strings.Contains(output, "not found") {

@@ -567,7 +567,7 @@ func (c *ContainerdProvider) ExecuteSSHCommand(ctx context.Context, command stri
 	if !c.connected || c.sshClient == nil {
 		return "", fmt.Errorf("Containerd provider not connected")
 	}
-	output, err := c.sshClient.Execute(command)
+	output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, command)
 	if err != nil {
 		return output, fmt.Errorf("SSH command execution failed: %w; output: %s", err, utils.TruncateString(output, 2000))
 	}

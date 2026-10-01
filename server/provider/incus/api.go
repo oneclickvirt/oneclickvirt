@@ -451,26 +451,7 @@ func (i *IncusProvider) apiInstanceIPv4(state map[string]interface{}) string {
 }
 
 func (i *IncusProvider) apiInstanceIPv6(state map[string]interface{}) string {
-	network, _ := state["network"].(map[string]interface{})
-	fallback := ""
-	for _, raw := range network {
-		iface, _ := raw.(map[string]interface{})
-		addresses, _ := iface["addresses"].([]interface{})
-		for _, rawAddr := range addresses {
-			addr, _ := rawAddr.(map[string]interface{})
-			if addr["family"] != "inet6" {
-				continue
-			}
-			ip := net.ParseIP(strings.Split(fmt.Sprint(addr["address"]), "/")[0])
-			if ip != nil && ip.To4() == nil && ip.IsGlobalUnicast() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
-				if scope, _ := addr["scope"].(string); scope == "global" || scope == "" {
-					return ip.String()
-				}
-				fallback = ip.String()
-			}
-		}
-	}
-	return fallback
+	return provider.InstanceIPv6FromRuntimeState(state)
 }
 
 func (i *IncusProvider) apiIPv4FromNetworkLeases(ctx context.Context, id string) (string, map[string]interface{}, error) {

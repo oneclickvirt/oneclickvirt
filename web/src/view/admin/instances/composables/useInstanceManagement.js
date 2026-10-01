@@ -1,4 +1,4 @@
-import { ref, nextTick } from 'vue'
+import { onBeforeUnmount, ref, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getAllInstances, getAdminInstance, adminInstanceAction, adminBatchInstanceAction, resetInstancePassword, getAdminInstanceNewPassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList, createAdminInstanceShare } from '@/api/admin'
@@ -6,6 +6,7 @@ import { adminTransferInstance } from '@/api/features'
 import { useSSHStore } from '@/pinia/modules/ssh'
 import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
 import { canOpenInstanceDetail, getInstanceBusyMessage, isInstanceBusy } from '@/utils/instance-status'
+import { createActionLock, createKeyedActionLock } from '@/utils/actionLock'
 
 export function useInstanceManagement() {
   const { t, locale } = useI18n()
@@ -25,6 +26,7 @@ export function useInstanceManagement() {
   const accessInstance = ref(null)
   const consoleInstance = ref(null)
   const actionLoading = ref(false)
+  const batchActionLoading = ref(false)
   const showPassword = ref(false)
   const selectedInstances = ref([])
   const transferDialogVisible = ref(false)
@@ -33,6 +35,35 @@ export function useInstanceManagement() {
   const searchingUsers = ref(false)
   const userOptions = ref([])
   const tableRef = ref(null)
+  const actionLock = createActionLock()
+  const batchActionLock = createActionLock()
+  const shareLinkLock = createKeyedActionLock()
+  const passwordPollLock = createKeyedActionLock()
+  const shareLinkLoadingIds = ref(new Set())
+  const passwordResetPendingIds = ref(new Set())
+  const pendingTimeouts = new Set()
+  let disposed = false
+  let loadGeneration = 0
+
+  const scheduleTimeout = (callback, delay) => {
+    let timeoutId
+    timeoutId = setTimeout(() => {
+      pendingTimeouts.delete(timeoutId)
+      if (!disposed) callback()
+    }, delay)
+    pendingTimeouts.add(timeoutId)
+    return timeoutId
+  }
+
+  onBeforeUnmount(() => {
+    disposed = true
+    pendingTimeouts.forEach(timeoutId => clearTimeout(timeoutId))
+    pendingTimeouts.clear()
+    passwordPollLock.clear()
+    actionLock.release()
+    batchActionLock.release()
+    shareLinkLock.clear()
+  })
 
   const filters = ref({
     instanceName: '',
@@ -66,6 +97,7 @@ export function useInstanceManagement() {
   }
 
   const loadInstances = async () => {
+    const generation = ++loadGeneration
     loading.value = true
     try {
       const params = {
@@ -81,13 +113,15 @@ export function useInstanceManagement() {
         if (params[key] === undefined) delete params[key]
       })
       const response = await getAllInstances(params)
-      instances.value = response.data.list || []
-      pagination.value.total = response.data.total || 0
+      if (generation === loadGeneration) {
+        instances.value = response.data.list || []
+        pagination.value.total = response.data.total || 0
+      }
     } catch (error) {
-      ElMessage.error(t('admin.instances.loadFailed'))
+      if (generation === loadGeneration) ElMessage.error(t('admin.instances.loadFailed'))
       console.error('Load instances error:', error)
     } finally {
-      loading.value = false
+      if (generation === loadGeneration) loading.value = false
     }
   }
 
@@ -108,6 +142,7 @@ export function useInstanceManagement() {
   }
 
   const showActionDialog = (instance) => {
+    if (actionLoading.value || batchActionLoading.value) return
     if (!warnInstanceBlocked(instance)) return
     actionInstance.value = instance
     actionDialogVisible.value = true
@@ -122,6 +157,7 @@ export function useInstanceManagement() {
 
   const showInstanceAccessDialog = async (instance) => {
     if (!warnInstanceBlocked(instance, true)) return
+    if (accessLoading.value) return
     accessLoading.value = true
     try {
       const response = await getAdminInstance(instance.id)
@@ -148,6 +184,8 @@ export function useInstanceManagement() {
   }
 
   const pollForAdminNewPassword = (instanceId, taskId) => {
+    const pollKey = `${instanceId}:${taskId}`
+    if (!passwordPollLock.tryAcquire(pollKey)) return
     let attempts = 0
     const maxAttempts = 20
 
@@ -155,48 +193,64 @@ export function useInstanceManagement() {
       attempts++
       try {
         const res = await getAdminInstanceNewPassword(instanceId, taskId)
+        if (disposed) {
+          passwordPollLock.release(pollKey)
+          passwordResetPendingIds.value = new Set([...passwordResetPendingIds.value].filter(id => id !== instanceId))
+          return
+        }
         if (res.code === 200 && res.data?.newPassword) {
           const pwd = res.data.newPassword
+          if (disposed) {
+            passwordPollLock.release(pollKey)
+            passwordResetPendingIds.value = new Set([...passwordResetPendingIds.value].filter(id => id !== instanceId))
+            return
+          }
           await ElMessageBox.alert(
             `<div style="word-break:break-all">${t('admin.instances.newPassword')}: <strong style="user-select:all;font-family:monospace">${pwd}</strong></div>`,
             t('admin.instances.resetPasswordTitle'),
             { dangerouslyUseHTMLString: true, confirmButtonText: t('common.confirm') }
           )
-          await loadInstances()
+          if (!disposed) await loadInstances()
+          passwordPollLock.release(pollKey)
+          passwordResetPendingIds.value = new Set([...passwordResetPendingIds.value].filter(id => id !== instanceId))
           return
         }
       } catch {
         // task not ready yet, continue polling
       }
       if (attempts < maxAttempts) {
-        setTimeout(attempt, 3000)
+        scheduleTimeout(attempt, 3000)
       } else {
         ElMessage.warning(t('admin.instances.taskCreated', { action: t('admin.instances.resetPassword') }))
+        passwordPollLock.release(pollKey)
+        passwordResetPendingIds.value = new Set([...passwordResetPendingIds.value].filter(id => id !== instanceId))
       }
     }
 
-    setTimeout(attempt, 3000)
+    scheduleTimeout(attempt, 3000)
   }
 
   const performAction = async (action) => {
-    if (!warnInstanceBlocked(actionInstance.value)) return
-    if (action === 'setExpiry') { actionDialogVisible.value = false; await handleSetInstanceExpiry(actionInstance.value); actionInstance.value = null; return }
-    if (action === 'freeze') { actionDialogVisible.value = false; await handleFreezeInstance(actionInstance.value); actionInstance.value = null; return }
-    if (action === 'unfreeze') { actionDialogVisible.value = false; await handleUnfreezeInstance(actionInstance.value); actionInstance.value = null; return }
-
+    if (actionLoading.value || batchActionLoading.value || !actionLock.tryAcquire()) return
     const actionText = {
       'start': t('common.start'), 'stop': t('common.stop'), 'restart': t('common.restart'),
       'reset': t('admin.instances.resetSystem'), 'resetPassword': t('admin.instances.resetPassword'), 'delete': t('common.delete')
     }[action]
-
+    actionLoading.value = true
     try {
+      const targetInstance = actionInstance.value
+      if (!warnInstanceBlocked(targetInstance)) return
+      if (action === 'resetPassword' && passwordResetPendingIds.value.has(targetInstance.id)) return
+      if (action === 'setExpiry') { actionDialogVisible.value = false; await handleSetInstanceExpiry(targetInstance); actionInstance.value = null; return }
+      if (action === 'freeze') { actionDialogVisible.value = false; await handleFreezeInstance(targetInstance); actionInstance.value = null; return }
+      if (action === 'unfreeze') { actionDialogVisible.value = false; await handleUnfreezeInstance(targetInstance); actionInstance.value = null; return }
+
       await ElMessageBox.confirm(
-        t('admin.instances.manageConfirm', { action: actionText, name: actionInstance.value.name }),
+        t('admin.instances.manageConfirm', { action: actionText, name: targetInstance.name }),
         t('admin.instances.manageTitle', { action: actionText }),
         { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
       )
-      actionLoading.value = true
-      const instanceId = actionInstance.value.id
+      const instanceId = targetInstance.id
       const instanceIndex = instances.value.findIndex(i => i.id === instanceId)
       if (instanceIndex !== -1) {
         const statusMap = { 'start': 'starting', 'stop': 'stopping', 'restart': 'restarting', 'reset': 'resetting', 'resetPassword': instances.value[instanceIndex].status, 'delete': 'deleting' }
@@ -209,6 +263,7 @@ export function useInstanceManagement() {
         actionDialogVisible.value = false
         actionInstance.value = null
         if (taskId) {
+          passwordResetPendingIds.value = new Set([...passwordResetPendingIds.value, instanceId])
           pollForAdminNewPassword(instanceId, taskId)
         }
       } else {
@@ -216,12 +271,13 @@ export function useInstanceManagement() {
         ElMessage.success(t('admin.instances.taskCreated', { action: actionText }))
         actionDialogVisible.value = false
         actionInstance.value = null
-        setTimeout(() => loadInstances(), action === 'delete' ? 1000 : 500)
+        scheduleTimeout(() => loadInstances(), action === 'delete' ? 1000 : 500)
       }
     } catch (error) {
       if (error !== 'cancel') { ElMessage.error(t('admin.instances.actionFailed', { action: actionText })); await loadInstances() }
     } finally {
       actionLoading.value = false
+      actionLock.release()
     }
   }
 
@@ -313,6 +369,8 @@ export function useInstanceManagement() {
   const runBatchInstanceAction = async (action, options) => {
     const rawSelected = [...selectedInstances.value]
     if (rawSelected.length === 0) { ElMessage.warning(t(options.emptyWarning)); return }
+    if (actionLoading.value || batchActionLoading.value || !batchActionLock.tryAcquire()) return
+    batchActionLoading.value = true
     const selected = rawSelected.filter(item => {
       if (isInstanceBusy(item) || !canOpenInstanceDetail(item)) return false
       if (action === 'start') return item.status === 'stopped' || item.status === 'error'
@@ -323,7 +381,12 @@ export function useInstanceManagement() {
     if (skipped > 0) {
       ElMessage.warning(`已跳过 ${skipped} 个状态不适合当前操作的实例`)
     }
-    if (selected.length === 0) { ElMessage.warning(t(options.emptyWarning)); return }
+    if (selected.length === 0) {
+      ElMessage.warning(t(options.emptyWarning))
+      batchActionLoading.value = false
+      batchActionLock.release()
+      return
+    }
     try {
       if (options.confirmMessage) {
         await ElMessageBox.confirm(
@@ -338,12 +401,15 @@ export function useInstanceManagement() {
       const data = response.data || {}
       showBatchActionResult(action, data.successCount || 0, data.failCount || 0)
       selectedInstances.value = []
-      setTimeout(() => loadInstances(), action === 'delete' ? 1000 : 500)
+      scheduleTimeout(() => loadInstances(), action === 'delete' ? 1000 : 500)
     } catch (error) {
       if (error !== 'cancel') {
         ElMessage.error(t(options.failedMessage))
         await loadInstances()
       }
+    } finally {
+      batchActionLoading.value = false
+      batchActionLock.release()
     }
   }
 
@@ -436,8 +502,9 @@ export function useInstanceManagement() {
   }
 
   const confirmTransfer = async () => {
+    if (transferLoading.value || !transferForm.value?.instanceId || !transferForm.value?.targetUserId) return
+    transferLoading.value = true
     try {
-      transferLoading.value = true
       const response = await adminTransferInstance({ instanceId: transferForm.value.instanceId, targetUserId: transferForm.value.targetUserId })
       if (response.code === 200) {
         ElMessage.success(t('admin.instances.transferSuccess'))
@@ -455,6 +522,10 @@ export function useInstanceManagement() {
       return
     }
     if (!warnInstanceBlocked(instance, true)) return
+    if (!shareLinkLock.tryAcquire(instance.id)) return
+    const activeShares = new Set(shareLinkLoadingIds.value)
+    activeShares.add(instance.id)
+    shareLinkLoadingIds.value = activeShares
     try {
       const { value } = await ElMessageBox.prompt(
         t('admin.instances.shareExpiryPrompt'),
@@ -480,12 +551,17 @@ export function useInstanceManagement() {
         console.error('创建分享链接失败:', error)
         ElMessage.error(t('admin.instances.shareLinkCreateFailed'))
       }
+    } finally {
+      shareLinkLock.release(instance.id)
+      const remainingShares = new Set(shareLinkLoadingIds.value)
+      remainingShares.delete(instance.id)
+      shareLinkLoadingIds.value = remainingShares
     }
   }
 
   return {
     instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible, accessDialogVisible, consoleDialogVisible, accessLoading,
-    selectedInstance, actionInstance, egressInstance, accessInstance, consoleInstance, actionLoading, showPassword,
+    selectedInstance, actionInstance, egressInstance, accessInstance, consoleInstance, actionLoading, batchActionLoading, shareLinkLoadingIds, passwordResetPendingIds, showPassword,
     selectedInstances, transferDialogVisible, transferLoading, transferForm, tableRef,
     filters, pagination,
     loadInstances, handleSearch, handleReset, handleSizeChange, handleCurrentChange,

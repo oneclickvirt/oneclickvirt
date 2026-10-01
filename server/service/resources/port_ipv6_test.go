@@ -114,6 +114,9 @@ func TestCreatePortMappingPersistsRequestedIPv6Flag(t *testing.T) {
 		if persisted.GuestPort != tc.guest || persisted.HostPort != tc.host || !persisted.IPv6Enabled {
 			t.Fatalf("incorrect manual mapping: %#v", persisted)
 		}
+		if persisted.IsAutomatic || persisted.PortType != "manual" {
+			t.Fatalf("manual mapping was persisted as automatic: %#v", persisted)
+		}
 	}
 	for _, tc := range []struct{ guest, count, host int }{{0, 1, 20002}, {65535, 2, 20002}, {80, 1, 80}} {
 		if _, _, err := service.CreatePortMappingWithTask(adminModel.CreatePortMappingRequest{

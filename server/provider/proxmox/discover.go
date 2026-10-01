@@ -749,7 +749,7 @@ func (p *ProxmoxProvider) parseResourcesJSON(jsonOutput string) ([]provider.Disc
 
 func parseProxmoxResourcesJSON(jsonOutput string) ([]proxmoxDiscoveredResource, error) {
 	var resources []proxmoxDiscoveredResource
-	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &resources); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimSpace(utils.StripTerminalCSI(jsonOutput))), &resources); err != nil {
 		return nil, err
 	}
 	return resources, nil

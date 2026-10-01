@@ -168,7 +168,10 @@ func (cs *CertService) autoConfigureProxmox(provider *provider.Provider) error {
 	return configService.SaveProviderConfig(provider, authConfig)
 }
 
-func (cs *CertService) autoConfigureLXDWithStream(provider *provider.Provider, outputChan chan<- string) error {
+func (cs *CertService) autoConfigureLXDWithStream(ctx context.Context, provider *provider.Provider, outputChan chan<- string) error {
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第1步: 生成客户端证书"
 	certInfo, err := cs.GenerateClientCert(provider.UUID, provider.Name)
 	if err != nil {
@@ -185,11 +188,17 @@ func (cs *CertService) autoConfigureLXDWithStream(provider *provider.Provider, o
 	}
 	outputChan <- "✅ 证书内容读取成功"
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第3步: 执行LXD配置脚本"
-	if err := cs.executeScriptViaSFTPWithStream(provider, cs.generateLXDScript(provider, certContent), "lxd_config.sh", outputChan); err != nil {
+	if err := cs.executeScriptViaSFTPWithStreamContext(ctx, provider, cs.generateLXDScript(provider, certContent), "lxd_config.sh", outputChan); err != nil {
 		return err
 	}
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第4步: 读取私钥内容"
 	keyContent, err := cs.GetCertificateContent(certInfo.KeyPath)
 	if err != nil {
@@ -198,6 +207,9 @@ func (cs *CertService) autoConfigureLXDWithStream(provider *provider.Provider, o
 	}
 	outputChan <- "✅ 私钥内容读取成功"
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第5步: 保存配置到数据库和文件"
 	endpoint := fmt.Sprintf("https://%s", net.JoinHostPort(utils.ExtractHost(provider.Endpoint), "8443"))
 	configService := &ProviderConfigService{}
@@ -209,6 +221,9 @@ func (cs *CertService) autoConfigureLXDWithStream(provider *provider.Provider, o
 		KeyContent:      keyContent,
 	}, endpoint)
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	if err := configService.SaveProviderConfig(provider, authConfig); err != nil {
 		outputChan <- fmt.Sprintf("❌ 保存配置失败: %s", err.Error())
 		return err
@@ -218,7 +233,10 @@ func (cs *CertService) autoConfigureLXDWithStream(provider *provider.Provider, o
 	return nil
 }
 
-func (cs *CertService) autoConfigureIncusWithStream(provider *provider.Provider, outputChan chan<- string) error {
+func (cs *CertService) autoConfigureIncusWithStream(ctx context.Context, provider *provider.Provider, outputChan chan<- string) error {
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第1步: 生成客户端证书"
 	certInfo, err := cs.GenerateClientCert(provider.UUID, provider.Name)
 	if err != nil {
@@ -235,11 +253,17 @@ func (cs *CertService) autoConfigureIncusWithStream(provider *provider.Provider,
 	}
 	outputChan <- "✅ 证书内容读取成功"
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第3步: 执行Incus配置脚本"
-	if err := cs.executeScriptViaSFTPWithStream(provider, cs.generateIncusScript(provider, certContent), "incus_config.sh", outputChan); err != nil {
+	if err := cs.executeScriptViaSFTPWithStreamContext(ctx, provider, cs.generateIncusScript(provider, certContent), "incus_config.sh", outputChan); err != nil {
 		return err
 	}
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第4步: 读取私钥内容"
 	keyContent, err := cs.GetCertificateContent(certInfo.KeyPath)
 	if err != nil {
@@ -248,6 +272,9 @@ func (cs *CertService) autoConfigureIncusWithStream(provider *provider.Provider,
 	}
 	outputChan <- "✅ 私钥内容读取成功"
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第5步: 保存配置到数据库和文件"
 	endpoint := fmt.Sprintf("https://%s", net.JoinHostPort(utils.ExtractHost(provider.Endpoint), "8443"))
 	configService := &ProviderConfigService{}
@@ -259,6 +286,9 @@ func (cs *CertService) autoConfigureIncusWithStream(provider *provider.Provider,
 		KeyContent:      keyContent,
 	}, endpoint)
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	if err := configService.SaveProviderConfig(provider, authConfig); err != nil {
 		outputChan <- fmt.Sprintf("❌ 保存配置失败: %s", err.Error())
 		return err
@@ -268,31 +298,46 @@ func (cs *CertService) autoConfigureIncusWithStream(provider *provider.Provider,
 	return nil
 }
 
-func (cs *CertService) autoConfigureProxmoxWithStream(provider *provider.Provider, outputChan chan<- string) error {
+func (cs *CertService) autoConfigureProxmoxWithStream(ctx context.Context, provider *provider.Provider, outputChan chan<- string) error {
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第1步: 准备Proxmox配置"
 	username := "oneclickvirt"
 	tokenId := fmt.Sprintf("oneclickvirt-token-%s", provider.UUID[:8])
 	outputChan <- fmt.Sprintf("用户名: %s", username)
 	outputChan <- fmt.Sprintf("Token ID: %s", tokenId)
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第2步: 执行Proxmox配置脚本"
-	if err := cs.executeScriptViaSFTPWithStream(provider, cs.generateProxmoxScript(provider.UUID, username, tokenId), "proxmox_config.sh", outputChan); err != nil {
+	if err := cs.executeScriptViaSFTPWithStreamContext(ctx, provider, cs.generateProxmoxScript(provider.UUID, username, tokenId), "proxmox_config.sh", outputChan); err != nil {
 		return err
 	}
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第3步: 获取生成的Token信息"
-	tokenInfo, err := cs.getProxmoxTokenFromRemote(provider, username, tokenId)
+	tokenInfo, err := cs.getProxmoxTokenFromRemoteContext(ctx, provider, username, tokenId)
 	if err != nil {
 		outputChan <- fmt.Sprintf("❌ 无法获取Token信息: %s", err.Error())
 		return fmt.Errorf("获取Proxmox Token信息失败: %w", err)
 	}
 	outputChan <- fmt.Sprintf("✅ Token信息获取成功: %s", tokenInfo.TokenID)
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "第4步: 保存配置到数据库和文件"
 	endpoint := fmt.Sprintf("https://%s", net.JoinHostPort(utils.ExtractHost(provider.Endpoint), "8006"))
 	configService := &ProviderConfigService{}
 	authConfig := configService.CreateAuthConfigFromTokenInfo(provider, tokenInfo, endpoint)
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	if err := configService.SaveProviderConfig(provider, authConfig); err != nil {
 		outputChan <- fmt.Sprintf("❌ 保存配置失败: %s", err.Error())
 		return err
@@ -341,6 +386,13 @@ func (cs *CertService) executeScriptViaSFTP(provider *provider.Provider, script,
 }
 
 func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provider, script, filename string, outputChan chan<- string) error {
+	return cs.executeScriptViaSFTPWithStreamContext(context.Background(), provider, script, filename, outputChan)
+}
+
+func (cs *CertService) executeScriptViaSFTPWithStreamContext(ctx context.Context, provider *provider.Provider, script, filename string, outputChan chan<- string) error {
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	host, port := utils.ParseEndpoint(provider.Endpoint, provider.SSHPort)
 	sshConfig := utils.SSHConfig{
 		Host:           host,
@@ -358,10 +410,15 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 		return fmt.Errorf("SSH连接失败: %w", err)
 	}
 	defer sshClient.Close()
+	stopClientWatcher := watchSSHClientCancellation(ctx, sshClient)
+	defer stopClientWatcher()
 
 	remotePath := fmt.Sprintf("/tmp/%s", filename)
 
 	outputChan <- "上传配置脚本..."
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	// 先尝试直接上传，如果权限被拒绝，则尝试上传到用户目录再移动
 	err = sshClient.UploadContent(script, remotePath, 0755)
 	if err != nil && strings.Contains(err.Error(), "permission denied") {
@@ -394,6 +451,9 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 	}
 	outputChan <- "✅ 脚本上传成功"
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "执行配置脚本..."
 	quotedRemotePath := utils.ShellSingleQuote(remotePath)
 	executeCommand := fmt.Sprintf("chmod +x %s && %s", quotedRemotePath, quotedRemotePath)
@@ -411,12 +471,22 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 		return fmt.Errorf("执行脚本失败: %w", err)
 	}
 
+	if err := checkConfigContext(ctx); err != nil {
+		return err
+	}
 	outputChan <- "✅ 配置脚本执行完成"
 	sshClient.Execute(fmt.Sprintf("rm -f %s", quotedRemotePath))
 	return nil
 }
 
 func (cs *CertService) getProxmoxTokenFromRemote(provider *provider.Provider, username, tokenId string) (*TokenInfo, error) {
+	return cs.getProxmoxTokenFromRemoteContext(context.Background(), provider, username, tokenId)
+}
+
+func (cs *CertService) getProxmoxTokenFromRemoteContext(ctx context.Context, provider *provider.Provider, username, tokenId string) (*TokenInfo, error) {
+	if err := checkConfigContext(ctx); err != nil {
+		return nil, err
+	}
 	host, port := utils.ParseEndpoint(provider.Endpoint, provider.SSHPort)
 	sshConfig := utils.SSHConfig{
 		Host:           host,
@@ -433,7 +503,12 @@ func (cs *CertService) getProxmoxTokenFromRemote(provider *provider.Provider, us
 		return nil, fmt.Errorf("SSH连接失败: %w", err)
 	}
 	defer sshClient.Close()
+	stopClientWatcher := watchSSHClientCancellation(ctx, sshClient)
+	defer stopClientWatcher()
 
+	if err := checkConfigContext(ctx); err != nil {
+		return nil, err
+	}
 	output, err := sshClient.Execute("if [ -f /tmp/oneclickvirt-proxmox-config ]; then cat /tmp/oneclickvirt-proxmox-config; rc=$?; rm -f /tmp/oneclickvirt-proxmox-config; exit $rc; else echo 'FILE_NOT_FOUND'; fi")
 	if err != nil || strings.Contains(output, "FILE_NOT_FOUND") {
 		return nil, fmt.Errorf("无法读取配置文件")

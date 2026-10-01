@@ -1,8 +1,9 @@
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUserTasks, cancelUserTask, getAvailableProviders } from '@/api/user'
+import { createKeyedActionLock } from '@/utils/actionLock'
 
 export function useUserTaskManagement() {
   const { t, locale } = useI18n()
@@ -13,11 +14,13 @@ export function useUserTaskManagement() {
   const providers = ref([])
   const total = ref(0)
   const expandedHistory = ref([])
+  const taskActionLock = createKeyedActionLock()
 
   const filterForm = reactive({ status: '', taskType: '', providerId: '', search: '' })
   const pagination = reactive({ page: 1, pageSize: 10 })
 
   let refreshTimer = null
+  let loadGeneration = 0
 
   const groupedTasks = computed(() => {
     const groups = new Map()
@@ -28,7 +31,7 @@ export function useUserTaskManagement() {
         groups.set(providerId, { providerId, providerName: task.providerName, currentTasks: [], pendingTasks: [], historyTasks: [] })
       }
       const group = groups.get(providerId)
-      if (task.status === 'running' || task.status === 'processing') group.currentTasks.push(task)
+      if (task.status === 'running' || task.status === 'processing' || task.status === 'cancelling') group.currentTasks.push(task)
       else if (task.status === 'pending') group.pendingTasks.push(task)
       else group.historyTasks.push(task)
     })
@@ -49,6 +52,7 @@ export function useUserTaskManagement() {
   })
 
   const loadTasks = async (showSuccessMsg = false) => {
+    const generation = ++loadGeneration
     try {
       loading.value = true
       const hasFilter = filterForm.providerId || filterForm.taskType || filterForm.status
@@ -60,6 +64,7 @@ export function useUserTaskManagement() {
       if (filterForm.taskType) params.taskType = filterForm.taskType
       if (filterForm.status) params.status = filterForm.status
       const response = await getUserTasks(params)
+      if (generation !== loadGeneration) return
       if (response.code === 200) {
         tasks.value = response.data.list || []; total.value = response.data.total || 0
         if (showSuccessMsg) {
@@ -70,10 +75,13 @@ export function useUserTaskManagement() {
         tasks.value = []; total.value = 0
         if (response.message) ElMessage.warning(response.message)
       }
-    } catch (error) {
+    } catch {
+      if (generation !== loadGeneration) return
       tasks.value = []; total.value = 0
       ElMessage.error(t('user.tasks.loadFailedNetwork'))
-    } finally { loading.value = false }
+    } finally {
+      if (generation === loadGeneration) loading.value = false
+    }
   }
 
   const loadProviders = async () => {
@@ -89,11 +97,19 @@ export function useUserTaskManagement() {
   }
 
   const cancelTask = async (task) => {
+    if (!task || !taskActionLock.tryAcquire(task.id)) return
     try {
-      await ElMessageBox.confirm(`${t('user.tasks.confirmCancel')} "${getTaskTypeText(task.taskType)}"?`, t('user.tasks.confirmCancel'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
+      await ElMessageBox.confirm(`${t('user.tasks.confirmCancel')} "${getTaskTypeText(task.taskType)}"?`, t('user.tasks.confirmCancel'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), closeOnClickModal: false, type: 'warning' })
       const response = await cancelUserTask(task.id)
-      if (response.code === 200) { ElMessage.success(t('user.tasks.taskCancelled')); loadTasks() }
-    } catch (error) { if (error !== 'cancel') ElMessage.error(t('user.tasks.cancelTaskFailed')) }
+      if (response.code === 200) {
+        ElMessage.success(t('user.tasks.taskCancelled'))
+        await loadTasks()
+      }
+    } catch (error) {
+      if (error !== 'cancel' && error?.action !== 'cancel' && error?.action !== 'close') ElMessage.error(t('user.tasks.cancelTaskFailed'))
+    } finally {
+      taskActionLock.release(task.id)
+    }
   }
 
   const getTaskTypeText = (type) => {
@@ -183,7 +199,12 @@ export function useUserTaskManagement() {
     return `${Math.floor(duration / 3600)}${t('user.tasks.hours')}${Math.floor((duration % 3600) / 60)}${t('user.tasks.minutes')}`
   }
 
-  const startAutoRefresh = () => { refreshTimer = setInterval(() => loadTasks(), 10000) }
+  const startAutoRefresh = () => {
+    stopAutoRefresh()
+    refreshTimer = setInterval(() => {
+      if (!loading.value) loadTasks()
+    }, 10000)
+  }
   const stopAutoRefresh = () => { if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null } }
 
   watch(() => route.path, (newPath, oldPath) => {
@@ -203,10 +224,17 @@ export function useUserTaskManagement() {
     }
   }
 
+  onUnmounted(() => {
+    stopAutoRefresh()
+    loadGeneration += 1
+    taskActionLock.clear()
+  })
+
   return {
     loading, tasks, providers, total, expandedHistory,
     filterForm, pagination, groupedTasks,
     loadTasks, loadProviders, resetFilter, cancelTask,
+    isTaskActionLocked: taskActionLock.isLocked,
     getTaskTypeText, formatDurationSeconds, getTaskStatusType,
     shouldShowInstanceConfig, getTaskStatusText, getDefaultStatusMessage,
     formatDate, getEstimatedTime, calculateDuration,

@@ -87,6 +87,9 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 		case <-s.stopChan:
 			timer.Stop()
 			return
+		case <-ctx.Done():
+			timer.Stop()
+			return
 		case <-timer.C:
 			timer.Stop()
 		}
@@ -101,6 +104,8 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 	for {
 		select {
 		case <-s.stopChan:
+			return
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			// Get all providers with agent mode monitoring
@@ -250,6 +255,9 @@ func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Co
 		case <-s.stopChan:
 			timer.Stop()
 			return
+		case <-ctx.Done():
+			timer.Stop()
+			return
 		case <-timer.C:
 			timer.Stop()
 		}
@@ -263,6 +271,8 @@ func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Co
 	for {
 		select {
 		case <-s.stopChan:
+			return
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			var configs []monitoringModel.MonitoringConfig

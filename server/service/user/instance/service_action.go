@@ -1,7 +1,6 @@
 package instance
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -15,7 +14,6 @@ import (
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	consoleService "oneclickvirt/service/console"
-	"oneclickvirt/service/database"
 	trafficService "oneclickvirt/service/traffic"
 
 	"gorm.io/gorm"
@@ -243,15 +241,9 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 		return errors.New("不支持的操作")
 	}
 
-	// 使用数据库抽象层保存
-	dbService := database.GetDatabaseService()
-	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&instance).Error
-	})
-	if err == nil {
-		consoleService.InvalidateInstanceConsoleCaches(instance.ID)
-	}
-	return err
+	// CreateTask reserves the instance and stores the task in one transaction.
+	consoleService.InvalidateInstanceConsoleCaches(instance.ID)
+	return nil
 }
 
 func (s *Service) BatchInstanceAction(userID uint, req userModel.BatchInstanceActionRequest) userModel.BatchInstanceActionResponse {

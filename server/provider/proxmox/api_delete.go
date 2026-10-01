@@ -84,6 +84,12 @@ func (p *ProxmoxProvider) apiDeleteVM(ctx context.Context, vmid string, ipAddres
 		// 继续执行删除，但记录警告
 	}
 
+	// API deletion must remove node-side DNAT rules before the guest disappears.
+	// Keep the same ordering and failure semantics as the SSH deletion path.
+	if err := p.cleanupInstancePortMappings(ctx, vmid, "vm"); err != nil {
+		return fmt.Errorf("删除VM前清理端口映射失败: %w", err)
+	}
+
 	// 4. 删除VM
 	global.APP_LOG.Debug("销毁VM", zap.String("vmid", vmid))
 	deleteURL, err := p.apiGuestEndpoint("vm", vmid, "")
@@ -119,6 +125,12 @@ func (p *ProxmoxProvider) apiDeleteContainer(ctx context.Context, ctid string, i
 	if err := p.checkVMCTStatus(ctx, ctid, "container"); err != nil {
 		global.APP_LOG.Warn("CT未完全停止", zap.String("ctid", ctid), zap.Error(err))
 		// 继续执行删除，但记录警告
+	}
+
+	// Keep API and SSH deletion paths consistent while the container name/IP can
+	// still be resolved.
+	if err := p.cleanupInstancePortMappings(ctx, ctid, "container"); err != nil {
+		return fmt.Errorf("删除CT前清理端口映射失败: %w", err)
 	}
 
 	// 3. 删除容器

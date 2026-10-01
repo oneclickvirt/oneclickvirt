@@ -1,4 +1,7 @@
 export default {
+  domainVerification: 'Verify domain',
+  getVerification: 'Get verification record',
+  verificationTip: 'Add a TXT record in your DNS settings using the name and value below. Wait for it to take effect, then submit the binding.',
   title: 'Domain Binding',
   addDomain: 'Add Domain',
   domainName: 'Domain',
@@ -15,6 +18,7 @@ export default {
   statusActive: 'Active',
   statusPending: 'Pending',
   statusError: 'Error',
+  statusDeleting: 'Waiting for cleanup',
   confirmDelete: 'Are you sure you want to delete this domain binding?',
   createSuccess: 'Domain binding created',
   createFailed: 'Failed to create domain binding',
@@ -37,9 +41,9 @@ export default {
   sslCertTip: 'Supports full certificate chain including intermediate certs',
   noCert: 'No Cert',
   dnsGuideTitle: 'How to bind your domain',
-  dnsStep1: 'Step 1: Select an instance and fill in the form. Nginx reverse proxy will be configured on the provider node automatically.',
-  dnsStep2: 'Step 2: Add an A record for your domain pointing to the node public IP shown below.',
-  dnsStep3: 'Step 3: Once DNS propagates (usually a few minutes to hours), your instance is accessible via the domain.',
-  nodeIpLabel: 'Node Public IP',
-  nodeIpTip: 'Point your domain A record at this IP. Traffic is proxied via Nginx on the node to your instance.'
+  dnsStep1: 'Step 1: Select an instance, add the TXT record shown here, then submit the binding.',
+  dnsStep2: 'Step 2: Point an A record to the node IPv4 address and/or an AAAA record to its IPv6 address. A hostname may have both records.',
+  dnsStep3: 'Step 3: Open the domain after DNS takes effect. For HTTPS or WSS, enable SSL and upload a valid certificate.',
+  nodeIpLabel: 'Node Public Address',
+  nodeIpTip: 'Point A or AAAA records to a reachable public address of the node. The node must use Agent mode.'
 }

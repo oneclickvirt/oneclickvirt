@@ -206,7 +206,7 @@ func (p *KubeVirtProvider) sshCreateK3sContainer(ctx context.Context, config pro
 	rolloutCmd := fmt.Sprintf("kubectl rollout status deploy/%s -n %s --timeout=180s 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace))
 	output, err = p.sshClient.Execute(rolloutCmd)
 	if err != nil {
-		diagnostics := p.collectK3sContainerDiagnostics(name)
+		diagnostics := p.collectK3sContainerDiagnostics(ctx, name)
 		_ = p.sshDeleteK3sContainer(context.Background(), name)
 		return fmt.Errorf("container %s did not become ready: %w (output: %s; diagnostics: %s)", name, err, utils.TruncateString(strings.TrimSpace(output), 1200), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 	}
@@ -491,7 +491,7 @@ spec:
 	return b.String()
 }
 
-func (p *KubeVirtProvider) collectK3sContainerDiagnostics(name string) string {
+func (p *KubeVirtProvider) collectK3sContainerDiagnostics(ctx context.Context, name string) string {
 	commands := []struct {
 		label string
 		cmd   string
@@ -506,7 +506,7 @@ func (p *KubeVirtProvider) collectK3sContainerDiagnostics(name string) string {
 	}
 	var parts []string
 	for _, command := range commands {
-		output, err := p.sshClient.Execute(command.cmd)
+		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, command.cmd)
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			parts = append(parts, fmt.Sprintf("[%s]\n%s", command.label, trimmed))
 		}
@@ -537,12 +537,12 @@ func k8sResourceName(name string) string {
 	return name
 }
 
-func (p *KubeVirtProvider) sshK3sContainerExists(id string) (bool, error) {
+func (p *KubeVirtProvider) sshK3sContainerExists(ctx context.Context, id string) (bool, error) {
 	name := k8sResourceName(id)
 	if name == "" {
 		return false, nil
 	}
-	output, err := p.sshClient.Execute(fmt.Sprintf(
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 		"kubectl get deploy %s -n %s -o name 2>/dev/null",
 		shellSingleQuote(name), shellSingleQuote(Namespace)))
 	if err != nil {
@@ -556,7 +556,7 @@ func (p *KubeVirtProvider) sshScaleK3sContainer(ctx context.Context, id string, 
 	if name == "" {
 		return fmt.Errorf("invalid container name: %s", id)
 	}
-	output, err := p.sshClient.Execute(fmt.Sprintf(
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 		"kubectl scale deploy/%s -n %s --replicas=%d 2>&1",
 		shellSingleQuote(name), shellSingleQuote(Namespace), replicas))
 	if err != nil {
@@ -566,7 +566,7 @@ func (p *KubeVirtProvider) sshScaleK3sContainer(ctx context.Context, id string, 
 		return nil
 	}
 	for i := 0; i < 60; i++ {
-		ready, err := p.sshClient.Execute(fmt.Sprintf(
+		ready, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 			"kubectl get deploy %s -n %s -o jsonpath='{.status.readyReplicas}' 2>/dev/null",
 			shellSingleQuote(name), shellSingleQuote(Namespace)))
 		if err == nil && strings.TrimSpace(ready) != "" && strings.TrimSpace(ready) != "0" {
@@ -576,7 +576,7 @@ func (p *KubeVirtProvider) sshScaleK3sContainer(ctx context.Context, id string, 
 			return fmt.Errorf("waiting for KubeVirt container '%s' to start cancelled: %w", id, err)
 		}
 	}
-	return fmt.Errorf("KubeVirt container '%s' did not become ready within timeout; diagnostics: %s", id, utils.TruncateString(strings.TrimSpace(p.collectK3sContainerDiagnostics(name)), 8000))
+	return fmt.Errorf("KubeVirt container '%s' did not become ready within timeout; diagnostics: %s", id, utils.TruncateString(strings.TrimSpace(p.collectK3sContainerDiagnostics(ctx, name)), 8000))
 }
 
 func (p *KubeVirtProvider) sshDeleteK3sContainer(ctx context.Context, id string) error {
@@ -585,19 +585,21 @@ func (p *KubeVirtProvider) sshDeleteK3sContainer(ctx context.Context, id string)
 		return fmt.Errorf("invalid container name: %s", id)
 	}
 	global.APP_LOG.Info("开始删除KubeVirt容器", zap.String("id", utils.TruncateString(id, 32)))
-	if err := p.deleteKubeVirtResource(fmt.Sprintf("kubectl delete deploy %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)), "删除KubeVirt容器Deployment"); err != nil {
+	if err := p.deleteKubeVirtResource(ctx, fmt.Sprintf("kubectl delete deploy %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)), "删除KubeVirt容器Deployment"); err != nil {
 		return err
 	}
-	if err := p.deleteKubeVirtResource(fmt.Sprintf("kubectl delete svc %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name+"-ports"), shellSingleQuote(Namespace)), "删除KubeVirt容器Service"); err != nil {
+	if err := p.deleteKubeVirtResource(ctx, fmt.Sprintf("kubectl delete svc %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name+"-ports"), shellSingleQuote(Namespace)), "删除KubeVirt容器Service"); err != nil {
 		return err
 	}
-	p.sshClient.Execute(fmt.Sprintf("grep -Fv %s /root/vmlog > /root/vmlog.tmp 2>/dev/null && mv /root/vmlog.tmp /root/vmlog || true", shellSingleQuote(name+" ")))
+	if _, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("grep -Fv %s /root/vmlog > /root/vmlog.tmp 2>/dev/null && mv /root/vmlog.tmp /root/vmlog || true", shellSingleQuote(name+" "))); err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err := sleepWithContext(ctx, 2*time.Second); err != nil {
 		return fmt.Errorf("waiting after deleting KubeVirt container cancelled: %w", err)
 	}
-	output, err := p.sshClient.Execute(fmt.Sprintf("kubectl get deploy %s -n %s 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)))
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("kubectl get deploy %s -n %s 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)))
 	if kubeVirtNotFound(output, err) {
-		if cleanupErr := p.deleteRoutedKubeVirtNADByInstance(name); cleanupErr != nil {
+		if cleanupErr := p.deleteRoutedKubeVirtNADByInstance(ctx, name); cleanupErr != nil {
 			return cleanupErr
 		}
 		global.APP_LOG.Info("KubeVirt容器删除成功", zap.String("id", utils.TruncateString(id, 32)))

@@ -98,18 +98,37 @@ func (r RoutedIPv6Config) AddressCIDR() string {
 // creation into a per-check SSH round trip.
 func (r RoutedIPv6Config) HostCheckCommand() string {
 	addressCIDR := r.Gateway + "/" + strconv.Itoa(r.Prefix)
+	guestAddress := utils.ShellSingleQuote(r.Address)
 	command := fmt.Sprintf(`set -eu
 	if [ "$(uname -s 2>/dev/null || true)" != Linux ]; then
 	  echo 'routed IPv6 guest networking requires a Linux node with a managed tunnel bridge; macOS/BSD NDP proxy mode cannot attach a guest interface' >&2
 	  exit 1
 	fi
 	command -v ip >/dev/null 2>&1 || { echo 'iproute2 is unavailable' >&2; exit 1; }
+	# Never let a routed guest claim an address already owned by the host.
+	# Use machine-oriented fields and strip CSI colour sequences so a PTY or
+	# localized ip(8) message cannot turn into a false negative.
+	if LC_ALL=C NO_COLOR=1 ip -o -6 addr show 2>/dev/null | awk -v wanted=%s '
+  { gsub(/\033\\[[0-?]*[ -\\/]*[@-~]/, "", $0); split($4, parts, "/"); if (parts[1] == wanted) found = 1 }
+  END { exit(found ? 0 : 1) }
+'; then
+	  echo 'routed IPv6 guest address is already bound on the host' >&2
+	  exit 1
+	fi
+	if LC_ALL=C NO_COLOR=1 ip -6 route show table all 2>/dev/null | awk -v wanted=%s '
+  { gsub(/\033\\[[0-?]*[ -\\/]*[@-~]/, "", $0); if ($1 == wanted "/128") found = 1 }
+  END { exit(found ? 0 : 1) }
+'; then
+	  echo 'routed IPv6 guest address already has a host /128 route' >&2
+	  exit 1
+	fi
 	ip link show dev %s >/dev/null 2>&1 || { echo 'routed IPv6 bridge is missing' >&2; exit 1; }
 ip -d link show dev %s 2>/dev/null | grep -F 'bridge' >/dev/null || { echo 'routed IPv6 parent is not a bridge' >&2; exit 1; }
-ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null || { echo 'routed IPv6 bridge gateway is missing' >&2; exit 1; }
-ip -6 route show %s | grep -F %s >/dev/null || { echo 'routed IPv6 bridge route is missing' >&2; exit 1; }
+LC_ALL=C NO_COLOR=1 ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null || { echo 'routed IPv6 bridge gateway is missing' >&2; exit 1; }
+LC_ALL=C NO_COLOR=1 ip -6 route show %s | grep -F %s >/dev/null || { echo 'routed IPv6 bridge route is missing' >&2; exit 1; }
 command -v sysctl >/dev/null 2>&1 || { echo 'sysctl is unavailable' >&2; exit 1; }
 `,
+		guestAddress, guestAddress,
 		utils.ShellSingleQuote(r.Bridge),
 		utils.ShellSingleQuote(r.Bridge),
 		utils.ShellSingleQuote(r.Bridge), utils.ShellSingleQuote(addressCIDR),
@@ -203,8 +222,8 @@ nsenter -t "$pid" -n ip -6 addr flush dev oc6v6 scope global
 nsenter -t "$pid" -n ip -6 addr add %s dev oc6v6
 nsenter -t "$pid" -n ip -6 route replace %s/128 dev oc6v6
 nsenter -t "$pid" -n ip -6 route replace default via %s dev oc6v6
-nsenter -t "$pid" -n ip -o -6 addr show dev oc6v6 | awk '{print $4}' | grep -Fx %s >/dev/null
-nsenter -t "$pid" -n ip -6 route show default | grep -F %s >/dev/null
+nsenter -t "$pid" -n env LC_ALL=C NO_COLOR=1 ip -o -6 addr show dev oc6v6 | awk '{print $4}' | grep -Fx %s >/dev/null
+nsenter -t "$pid" -n env LC_ALL=C NO_COLOR=1 ip -6 route show default | grep -F %s >/dev/null
 trap - EXIT
 printf 'routed IPv6 veth attached: %%s/%%s\n' %s %s`,
 		r.HostCheckCommand(), runtimeCLI, container,

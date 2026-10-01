@@ -77,6 +77,28 @@ func TestPortMappingRoundTripPreservesExplicitIPv6FlagWithoutAddress(t *testing.
 	}
 }
 
+func TestToDBModelClassifiesExplicitMappingsAsManual(t *testing.T) {
+	base := NewBaseProvider("incus", nil)
+	for _, tc := range []struct {
+		name      string
+		portCount int
+		wantType  string
+	}{
+		{name: "single", portCount: 1, wantType: "manual"},
+		{name: "range", portCount: 3, wantType: "batch"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := base.ToDBModel(&PortMappingResult{
+				InstanceID: "42", ProviderID: 3, HostPort: 20000, GuestPort: 8080,
+				PortCount: tc.portCount, IsAutomatic: false,
+			})
+			if model.IsAutomatic || model.PortType != tc.wantType {
+				t.Fatalf("explicit mapping classification = automatic=%t type=%q, want false/%q", model.IsAutomatic, model.PortType, tc.wantType)
+			}
+		})
+	}
+}
+
 func TestAllocatePortTreatsControllerMappingsAsOccupied(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:port_allocate_%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
 	if err != nil {

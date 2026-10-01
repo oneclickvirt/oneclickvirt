@@ -11,6 +11,7 @@ import (
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
+	taskService "oneclickvirt/service/task"
 	"time"
 
 	"go.uber.org/zap"
@@ -464,59 +465,5 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 
 // CancelUserTask 取消用户任务
 func (s *Service) CancelUserTask(userID, taskID uint) error {
-	taskService := getTaskService()
-	return taskService.CancelTask(taskID, userID)
-}
-
-// 获取任务服务的辅助函数
-func getTaskService() interface {
-	CancelTask(taskID uint, userID uint) error
-} {
-	return &realTaskService{}
-}
-
-type realTaskService struct{}
-
-func (ts *realTaskService) CancelTask(taskID uint, userID uint) error {
-	// 验证任务所有权
-	var task adminModel.Task
-	if err := global.APP_DB.Where("id = ? AND user_id = ?", taskID, userID).First(&task).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("任务不存在或无权限")
-		}
-		return fmt.Errorf("查询任务失败: %v", err)
-	}
-
-	// 检查任务是否可以取消
-	if task.Status == "completed" || task.Status == "failed" || task.Status == "cancelled" {
-		return fmt.Errorf("任务已结束，无法取消")
-	}
-
-	if !task.IsForceStoppable {
-		return fmt.Errorf("此任务不允许强制停止")
-	}
-
-	// 更新任务状态为取消
-	now := time.Now()
-	err := global.APP_DB.Model(&task).Updates(map[string]interface{}{
-		"status":        "cancelled",
-		"completed_at":  &now,
-		"error_message": "用户主动取消",
-	}).Error
-
-	if err != nil {
-		return fmt.Errorf("取消任务失败: %v", err)
-	}
-
-	// 释放并发控制锁
-	if global.APP_TASK_LOCK_RELEASER != nil {
-		global.APP_TASK_LOCK_RELEASER.ReleaseTaskLocks(taskID)
-	}
-
-	global.APP_LOG.Info("用户取消任务",
-		zap.Uint("taskId", taskID),
-		zap.Uint("userId", userID),
-		zap.String("taskType", task.TaskType))
-
-	return nil
+	return taskService.GetTaskService().CancelTask(taskID, userID)
 }

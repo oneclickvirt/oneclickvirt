@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -122,6 +123,72 @@ func (a *AgentShellExecutor) getConn(waitTimeout time.Duration) (*AgentConn, err
 	}
 }
 
+func (a *AgentShellExecutor) getConnContext(ctx context.Context, waitTimeout time.Duration) (*AgentConn, error) {
+	waitTimeout = normalizeConnWaitTimeout(waitTimeout)
+	deadline := time.NewTimer(waitTimeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		conn, ok := a.hub.GetConn(a.providerID)
+		if ok && conn != nil {
+			return conn, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			return nil, fmt.Errorf("agent not connected for provider %d", a.providerID)
+		case <-ticker.C:
+		}
+	}
+}
+
+func (a *AgentShellExecutor) ExecuteContext(ctx context.Context, command string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	select {
+	case a.execSem <- struct{}{}:
+		defer a.releaseExecSlot()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	conn, err := a.getConnContext(ctx, 300*time.Second)
+	if err != nil {
+		return "", err
+	}
+	return conn.ExecuteContext(ctx, wrapShellEnv(command))
+}
+
+// executeRawContext runs one raw Agent request with the caller's cancellation
+// boundary. It is used by temporary-script polling so cancellation can stop a
+// detached script without waiting for the normal request timeout.
+func (a *AgentShellExecutor) executeRawContext(ctx context.Context, command string, timeout time.Duration) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout <= 0 {
+		timeout = 300 * time.Second
+	}
+	select {
+	case a.execSem <- struct{}{}:
+		defer a.releaseExecSlot()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	conn, err := a.getConnContext(requestCtx, timeout)
+	if err != nil {
+		return "", err
+	}
+	return conn.ExecuteContext(requestCtx, command)
+}
+
 func wrapShellEnv(command string) string {
 	trimmed := strings.TrimSpace(command)
 	if trimmed == "" {
@@ -220,9 +287,24 @@ func (a *AgentShellExecutor) ExecuteRaw(command string, timeout time.Duration) (
 // for any command that enters a container or VM (e.g., lxc exec, incus exec,
 // docker exec, pct exec, qm guest exec).
 func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []string, timeout time.Duration) (string, error) {
+	return a.ExecuteViaTempScriptContext(context.Background(), scriptContent, args, timeout)
+}
+
+// ExecuteViaTempScriptContext is the cancellable Agent-mode implementation.
+// The script runs in its own process group; cancellation terminates that group
+// before the provider lock can be released.
+func (a *AgentShellExecutor) ExecuteViaTempScriptContext(ctx context.Context, scriptContent string, args []string, timeout time.Duration) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	// UUID paths avoid collisions when concurrent callers happen to observe the
 	// same clock tick. A collision would mix script, marker, and log files and
 	// could make one caller report another caller's result.
@@ -235,7 +317,7 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 	fullScript := fmt.Sprintf("MARKER_FILE=%q\nLOG_FILE=%q\n%s", markerPath, logPath, scriptContent)
 
 	// Upload the script to the agent node
-	if err := a.UploadContent(fullScript, tmpPath, 0755); err != nil {
+	if err := a.UploadContentContext(runCtx, fullScript, tmpPath, 0755); err != nil {
 		return "", fmt.Errorf("上传临时脚本失败: %w", err)
 	}
 
@@ -257,7 +339,7 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 		utils.ShellSingleQuote(interpreter), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(interpreter), utils.ShellSingleQuote(logPath),
 		utils.ShellSingleQuote(tmpPath), argStr, utils.ShellSingleQuote(logPath),
 		utils.ShellSingleQuote(tmpPath), argStr, utils.ShellSingleQuote(logPath))
-	pidOutput, err := a.ExecuteRaw(startCmd, 15*time.Second)
+	pidOutput, err := a.executeRawContext(runCtx, startCmd, 15*time.Second)
 	if err != nil {
 		// Cleanup even on start failure
 		a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
@@ -294,41 +376,54 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 			sleepFor = remaining
 		}
 		if sleepFor > 0 {
-			time.Sleep(sleepFor)
+			timer := time.NewTimer(sleepFor)
+			select {
+			case <-runCtx.Done():
+				timer.Stop()
+				a.terminateTempScript(pid)
+				a.cleanupTempScript(tmpPath, markerPath, logPath)
+				return "", runCtx.Err()
+			case <-timer.C:
+			}
 		}
 		if !time.Now().Before(deadline) {
 			break
 		}
 
 		// Check if the script process is still alive
-		aliveOutput, _ := a.ExecuteRaw(tempScriptProcessStateCommand(pid), 10*time.Second)
-		alive := strings.TrimSpace(aliveOutput) == "alive"
+		aliveOutput, aliveErr := a.executeRawContext(runCtx, tempScriptProcessStateCommand(pid), 10*time.Second)
+		processDead := tempScriptProcessIsDead(aliveOutput, aliveErr)
 
 		// Read marker file
-		markerOutput, markerErr := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(markerPath)), 10*time.Second)
+		markerOutput, markerErr := a.executeRawContext(runCtx, fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(markerPath)), 10*time.Second)
 		if markerErr == nil {
 			marker := strings.TrimSpace(markerOutput)
 			if marker == "PASSWORD_OK" || marker == "TEMP_SCRIPT_OK" {
 				// Success! Read the full log
-				logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
-				a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
+				logOutput, _ := a.executeRawContext(runCtx, fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
+				a.cleanupTempScript(tmpPath, markerPath, logPath)
 				return logOutput, nil
 			}
 			if marker == "TEMP_SCRIPT_FAILED" || marker == "PASSWORD_FAIL" {
-				logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
-				a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
+				logOutput, _ := a.executeRawContext(runCtx, fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
+				a.cleanupTempScript(tmpPath, markerPath, logPath)
 				return logOutput, fmt.Errorf("temp script reported failure")
 			}
 		}
+		if err := runCtx.Err(); err != nil {
+			a.terminateTempScript(pid)
+			a.cleanupTempScript(tmpPath, markerPath, logPath)
+			return "", err
+		}
 
 		// If process died without writing marker, it crashed
-		if !alive {
+		if processDead {
 			// The wrapper may have exited while a descendant still owns the
 			// operation. Best-effort group cleanup keeps a failed script from
 			// leaking a container/VM command into a later request.
 			a.terminateTempScript(pid)
-			logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
-			a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
+			logOutput, _ := a.executeRawContext(runCtx, fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
+			a.cleanupTempScript(tmpPath, markerPath, logPath)
 			if logOutput != "" {
 				return logOutput, fmt.Errorf("temp script exited unexpectedly (PID %s)", pid)
 			}
@@ -337,7 +432,7 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 
 		// Log progress for long-running scripts
 		if global.APP_LOG != nil && pollInterval >= 10*time.Second {
-			logOutput, _ := a.ExecuteRaw(fmt.Sprintf("wc -c < %s 2>/dev/null || echo 0", utils.ShellSingleQuote(logPath)), 10*time.Second)
+			logOutput, _ := a.executeRawContext(runCtx, fmt.Sprintf("wc -c < %s 2>/dev/null || echo 0", utils.ShellSingleQuote(logPath)), 10*time.Second)
 			logSize := 0
 			fmt.Sscanf(strings.TrimSpace(logOutput), "%d", &logSize)
 			if logSize > lastLogSize {
@@ -358,8 +453,15 @@ func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 	// Timeout - kill the script and read partial output
 	a.terminateTempScript(pid)
 	logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", utils.ShellSingleQuote(logPath)), 15*time.Second)
-	a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
+	a.cleanupTempScript(tmpPath, markerPath, logPath)
+	if err := runCtx.Err(); err != nil {
+		return logOutput, err
+	}
 	return logOutput, fmt.Errorf("temp script execution timeout after %v (PID %s)", timeout, pid)
+}
+
+func (a *AgentShellExecutor) cleanupTempScript(tmpPath, markerPath, logPath string) {
+	_, _ = a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", utils.ShellSingleQuote(tmpPath), utils.ShellSingleQuote(markerPath), utils.ShellSingleQuote(logPath)), 10*time.Second)
 }
 
 func (a *AgentShellExecutor) terminateTempScript(pid string) {
@@ -368,6 +470,10 @@ func (a *AgentShellExecutor) terminateTempScript(pid string) {
 	// setsid. Never interpolate raw Agent output here.
 	command := fmt.Sprintf("kill -TERM -- -%s 2>/dev/null || true; kill -TERM %s 2>/dev/null || true; sleep 1; kill -KILL -- -%s 2>/dev/null || true; kill -KILL %s 2>/dev/null || true", pid, pid, pid, pid)
 	_, _ = a.ExecuteRaw(command, 10*time.Second)
+}
+
+func tempScriptProcessIsDead(output string, err error) bool {
+	return err == nil && strings.TrimSpace(output) == "dead"
 }
 
 // tempScriptProcessStateCommand distinguishes a live process from a zombie.
@@ -399,13 +505,24 @@ func parseAgentPID(raw string) (string, error) {
 
 // UploadContent writes file content to the remote agent host using a base64 round-trip.
 func (a *AgentShellExecutor) UploadContent(content, remotePath string, perm os.FileMode) error {
+	return a.UploadContentContext(context.Background(), content, remotePath, perm)
+}
+
+// UploadContentContext ties the transfer to its owning operation so cancelling
+// a task cannot leave a long base64 upload occupying an Agent command slot.
+func (a *AgentShellExecutor) UploadContentContext(ctx context.Context, content, remotePath string, perm os.FileMode) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
 	directory := filepath.Dir(remotePath)
 	encodedContent := base64.StdEncoding.EncodeToString([]byte(content))
 	command := fmt.Sprintf(
 		"mkdir -p %s && base64 -d > %s <<'EOF'\n%s\nEOF\nchmod %o %s",
 		utils.ShellSingleQuote(directory), utils.ShellSingleQuote(remotePath), encodedContent, perm, utils.ShellSingleQuote(remotePath),
 	)
-	_, err := a.ExecuteWithTimeout(command, 300*time.Second)
+	_, err := a.ExecuteContext(ctx, command)
 	return err
 }
 
@@ -424,3 +541,6 @@ func (a *AgentShellExecutor) Reconnect() error {
 func (a *AgentShellExecutor) Close() error {
 	return nil
 }
+
+var _ utils.ShellExecutor = (*AgentShellExecutor)(nil)
+var _ utils.ContextTempScriptExecutor = (*AgentShellExecutor)(nil)

@@ -3,11 +3,151 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
+
+const systemConfigWriteBatchSize = 100
+
+type systemConfigIdentity struct {
+	category string
+	key      string
+}
+
+// persistSystemConfigBatch keeps legacy tables without a composite unique
+// index compatible while limiting database round trips to one read and a
+// bounded number of writes per chunk.
+func persistSystemConfigBatch(tx *gorm.DB, configs []SystemConfig, insertOnly bool) error {
+	for start := 0; start < len(configs); start += systemConfigWriteBatchSize {
+		end := start + systemConfigWriteBatchSize
+		if end > len(configs) {
+			end = len(configs)
+		}
+		chunk := configs[start:end]
+
+		keysByCategory := make(map[string]map[string]struct{})
+		configByIdentity := make(map[systemConfigIdentity]SystemConfig, len(chunk))
+		for _, config := range chunk {
+			identity := systemConfigIdentity{category: config.Category, key: config.Key}
+			configByIdentity[identity] = config
+			if keysByCategory[config.Category] == nil {
+				keysByCategory[config.Category] = make(map[string]struct{})
+			}
+			keysByCategory[config.Category][config.Key] = struct{}{}
+		}
+
+		categories := make([]string, 0, len(keysByCategory))
+		for category := range keysByCategory {
+			categories = append(categories, category)
+		}
+		sort.Strings(categories)
+
+		query := tx.Model(&SystemConfig{}).Select("id", "category", "key")
+		for index, category := range categories {
+			keys := make([]string, 0, len(keysByCategory[category]))
+			for key := range keysByCategory[category] {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			condition := "category = ? AND `key` IN ?"
+			if index == 0 {
+				query = query.Where(condition, category, keys)
+			} else {
+				query = query.Or(condition, category, keys)
+			}
+		}
+		var existing []SystemConfig
+		if err := query.Find(&existing).Error; err != nil {
+			return err
+		}
+
+		updates := make([]SystemConfig, 0, len(existing))
+		missing := make([]SystemConfig, 0, len(chunk))
+		found := make(map[systemConfigIdentity]bool, len(existing))
+		for _, row := range existing {
+			identity := systemConfigIdentity{category: row.Category, key: row.Key}
+			if _, ok := configByIdentity[identity]; !ok {
+				continue
+			}
+			found[identity] = true
+			updates = append(updates, row)
+		}
+		for _, config := range chunk {
+			identity := systemConfigIdentity{category: config.Category, key: config.Key}
+			if !found[identity] {
+				missing = append(missing, config)
+			}
+		}
+
+		if !insertOnly {
+			for start := 0; start < len(updates); start += systemConfigWriteBatchSize {
+				updateEnd := start + systemConfigWriteBatchSize
+				if updateEnd > len(updates) {
+					updateEnd = len(updates)
+				}
+				rows := updates[start:updateEnd]
+				valueCase := "CASE id "
+				publicCase := "CASE id "
+				valueArgs := make([]interface{}, 0, len(rows)*2)
+				publicArgs := make([]interface{}, 0, len(rows)*2)
+				ids := make([]uint, 0, len(rows))
+				for _, row := range rows {
+					config := configByIdentity[systemConfigIdentity{category: row.Category, key: row.Key}]
+					valueCase += "WHEN ? THEN ? "
+					valueArgs = append(valueArgs, row.ID, config.Value)
+					publicCase += "WHEN ? THEN ? "
+					publicArgs = append(publicArgs, row.ID, config.IsPublic)
+					ids = append(ids, row.ID)
+				}
+				valueCase += "ELSE value END"
+				publicCase += "ELSE is_public END"
+				if err := tx.Model(&SystemConfig{}).Where("id IN ?", ids).Updates(map[string]interface{}{
+					"value":     gorm.Expr(valueCase, valueArgs...),
+					"is_public": gorm.Expr(publicCase, publicArgs...),
+				}).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		if len(missing) > 0 {
+			if err := tx.CreateInBatches(&missing, systemConfigWriteBatchSize).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// Some upgraded databases have no category/key unique index. GORM's
+// ON CONFLICT silently inserts duplicates there, so use an explicit lookup.
+func upsertSystemConfig(tx *gorm.DB, config SystemConfig) error {
+	query := tx.Model(&SystemConfig{}).Where("category = ? AND `key` = ?", config.Category, config.Key)
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return tx.Create(&config).Error
+	}
+	return tx.Model(&SystemConfig{}).Where("category = ? AND `key` = ?", config.Category, config.Key).Updates(map[string]interface{}{
+		"value":     config.Value,
+		"is_public": config.IsPublic,
+	}).Error
+}
+
+func insertMissingSystemConfig(tx *gorm.DB, config SystemConfig) error {
+	var count int64
+	if err := tx.Model(&SystemConfig{}).Where("category = ? AND `key` = ?", config.Category, config.Key).Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return tx.Create(&config).Error
+	}
+	return nil
+}
 
 // saveConfigToDB 保存配置到数据库
 func (cm *ConfigManager) saveConfigToDB(key string, value interface{}) error {
@@ -16,6 +156,7 @@ func (cm *ConfigManager) saveConfigToDB(key string, value interface{}) error {
 
 // prepareConfigForDB 准备配置数据用于数据库保存（辅助方法）
 func (cm *ConfigManager) prepareConfigForDB(key string, value interface{}) (SystemConfig, error) {
+	value = normalizeConfigValue(value)
 	// 将value转换为字符串，处理nil值
 	var valueStr string
 	if value == nil {
@@ -169,15 +310,7 @@ func (cm *ConfigManager) batchSaveConfigsToDBOnly(flatConfigs map[string]interfa
 
 	// 使用事务批量保存
 	if err := cm.db.Transaction(func(tx *gorm.DB) error {
-		if len(configsToSaveList) > 0 {
-			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "category"}, {Name: "key"}},
-				DoUpdates: clause.AssignmentColumns([]string{"value", "is_public", "updated_at"}),
-			}).CreateInBatches(configsToSaveList, 50).Error; err != nil {
-				return fmt.Errorf("批量保存配置失败: %v", err)
-			}
-		}
-		return nil
+		return persistSystemConfigBatch(tx, configsToSaveList, false)
 	}); err != nil {
 		return err
 	}

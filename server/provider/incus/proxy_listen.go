@@ -28,9 +28,9 @@ func (i *IncusProvider) getNATProxyListenIP(ctx context.Context, ipv6 bool) (str
 	if client != nil && client.HasExecutor() && !strings.EqualFold(strings.TrimSpace(i.config.ExecutionRule), "api_only") {
 		// Do not reuse getHostIP here: it can return the same opposite-family
 		// PortIP that resolution already rejected, bypassing host discovery.
-		command := "ip -o -4 addr show scope global | awk '{print $4}'"
+		command := "LC_ALL=C NO_COLOR=1 ip -o -4 addr show scope global | awk '{print $4}'"
 		if ipv6 {
-			command = "ip -o -6 addr show scope global | awk '$0 !~ / tentative/ {print $4}'"
+			command = "LC_ALL=C NO_COLOR=1 ip -o -6 addr show scope global | awk '$0 !~ / tentative/ {print $4}'"
 		}
 		timeout := 10 * time.Second
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < timeout {
@@ -41,7 +41,7 @@ func (i *IncusProvider) getNATProxyListenIP(ctx context.Context, ipv6 bool) (str
 		}
 		output, err := client.ExecuteWithTimeout(command, timeout)
 		if err == nil {
-			candidates := strings.Fields(output)
+			candidates := strings.Fields(utils.StripTerminalCSI(output))
 			for index, candidate := range candidates {
 				candidates[index] = strings.SplitN(candidate, "/", 2)[0]
 			}

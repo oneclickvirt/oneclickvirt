@@ -3,6 +3,8 @@
     :model-value="visible"
     :title="$t('admin.providers.setHardwareReport')"
     width="500px"
+    :close-on-press-escape="!saving"
+    :before-close="handleBeforeClose"
     @update:model-value="$emit('update:visible', $event)"
   >
     <el-form @submit.prevent="handleSubmit">
@@ -20,13 +22,16 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="$emit('update:visible', false)">
+      <el-button
+        :disabled="saving"
+        @click="$emit('update:visible', false)"
+      >
         {{ $t('common.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="saving"
-        :disabled="!isValidPasteUrl"
+        :disabled="saving || !isValidPasteUrl"
         @click="handleSubmit"
       >
         {{ $t('common.confirm') }}
@@ -63,5 +68,9 @@ const isValidPasteUrl = computed(() => {
 const handleSubmit = () => {
   if (props.saving || !isValidPasteUrl.value) return
   emit('submit')
+}
+
+const handleBeforeClose = done => {
+  if (!props.saving) done()
 }
 </script>

@@ -4,15 +4,16 @@
 # Usage: bash run_env_test.sh <env_type> [modules] [instance_types]
 # Examples:
 #   bash run_env_test.sh docker all container
-#   bash run_env_test.sh lxd 01-10 both
-#   bash run_env_test.sh incus all vm
+#   bash run_env_test.sh lxd 01-10 container
+#   bash run_env_test.sh incus all container
 #
 # Platform instance type support (hardcoded):
 #   docker/podman/containerd        → container only
-#   lxd/incus/proxmoxve             → container + vm
-#   kubevirt/qemu                   → container + vm
+#   lxd/incus/proxmoxve             → container + vm (vm must be requested explicitly)
+#   kubevirt/qemu                   → container + vm (vm must be requested explicitly)
 set -uo pipefail
 export noninteractive=true
+export ACTION_TEST_IPV4_ONLY="${ACTION_TEST_IPV4_ONLY:-false}"
 
 # Handle CLI-only requests before sourcing providers or creating reports. In
 # particular, --help must never provision a worker or create --help-results.
@@ -33,10 +34,17 @@ mkdir -p "$REPORT_DIR"
 
 _ENV_TYPE_ARG="${1:-docker}"
 _MASTER_PORT_ARG="${MASTER_PORT:-8888}"
+_safe_env_arg=$(printf '%s' "$_ENV_TYPE_ARG" | tr -c 'A-Za-z0-9_' '_' | sed 's/_*$//')
+# A preserved runner database can contain instances from an earlier system
+# image of the same Worker. Their old runtime IDs and reused private IPs make
+# discovery/import appear to conflict with the newly rebuilt Worker. Give
+# every run its own database; execution-rule iterations still share it and
+# reset_master_server() may deliberately reset only that run's database.
+if [[ -z "${DB_NAME:-}" ]]; then
+    export DB_NAME="oneclickvirt_${_safe_env_arg}_${_MASTER_PORT_ARG}_$(date +%s)_$$"
+fi
 if [[ "${ACTION_TEST_PARALLEL_LOCAL:-${PLATFORM_ALLOW_CONCURRENT_INSTANCES:-false}}" == "true" ]]; then
     export PLATFORM_ALLOW_CONCURRENT_INSTANCES=true
-    _safe_env_arg=$(printf '%s' "$_ENV_TYPE_ARG" | tr -c 'A-Za-z0-9_' '_' | sed 's/_*$//')
-    export DB_NAME="${DB_NAME:-oneclickvirt_${_safe_env_arg}_${_MASTER_PORT_ARG}}"
     export SERVER_TMP_PREFIX="${SERVER_TMP_PREFIX:-/tmp/oneclickvirt-server-${_safe_env_arg}-${_MASTER_PORT_ARG}-$$}"
     export ACTION_TEST_SERVER_WORKDIR="${ACTION_TEST_SERVER_WORKDIR:-${REPORT_DIR}/server-work-${_safe_env_arg}-${_MASTER_PORT_ARG}-$$}"
 fi
@@ -49,7 +57,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export ENV_TYPE="${1:-docker}"
 MODULES="${2:-all}"
-RAW_INSTANCE_TYPES="${3:-both}"
+RAW_INSTANCE_TYPES="${3:-container}"
 NODE_HOURS="${NODE_HOURS:-8}"
 MASTER_PORT="${MASTER_PORT:-8888}"
 EXIT_CODE=0
@@ -223,6 +231,12 @@ if [[ -n "$WORKER_PLATFORM" ]]; then
     ACTIVE_INSTANCE_ID="${WORKER_ID_VAL}"
     ACTIVE_INSTANCE_IP="${WORKER_IP}"
 fi
+# The create_test_node command substitution cannot carry its SSH credentials
+# into this shell. Restore the password from its structured result before the
+# first installer, resource check, or cleanup command runs on the worker.
+if [[ -n "$NODE_PASSWORD" ]]; then
+    PLATFORM_SSH_PASSWORD="$NODE_PASSWORD"
+fi
 log_success "Worker node: ID=${WORKER_ID_VAL} IP=[MASKED] Platform=${WORKER_PLATFORM}"
 log_info "Waiting for cloud-init on worker node (handled by wait_for_apt_lock)..."
 
@@ -231,7 +245,15 @@ log_info "Waiting for cloud-init on worker node (handled by wait_for_apt_lock)..
 # =============================================================
 log_section "Phase 3: Install ${ENV_TYPE} on worker node"
 install_rc=0
-install_env "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || install_rc=$?
+if [[ "${ACTION_TEST_REUSE_INSTALLED_ENV:-false}" == "true" ]]; then
+    if [[ "${PLATFORM_REUSE_EXISTING_AS_IS:-false}" != "true" || -z "${PLATFORM_REUSE_INSTANCE_ID:-}" ]]; then
+        log_error "Reusing an installed environment requires explicit as-is worker reuse"
+        exit 1
+    fi
+    log_info "Using the existing ${ENV_TYPE} installation on worker ${WORKER_ID_VAL}"
+else
+    install_env "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || install_rc=$?
+fi
 if (( install_rc != 0 )); then
     if (( install_rc == 75 )); then
         record_harness_skip_and_exit "${ENV_TYPE} installation lost required worker connectivity or hit a transient infrastructure failure"
@@ -280,7 +302,17 @@ fi
 # =============================================================
 log_section "Phase 4: Prepare worker with pre-existing instances"
 dirty_node_rc=0
-prepare_dirty_node "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" "$INSTANCE_TYPES" || dirty_node_rc=$?
+# Discovery fixtures are only required by module 09; keep later lifecycle tests runnable when that setup is unavailable.
+if [[ "${ACTION_TEST_SKIP_DIRTY_NODE:-false}" == "true" ]]; then
+    export DIRTY_NODE_CONTAINER_READY=false DIRTY_NODE_VM_READY=false
+    export DIRTY_NODE_CONTAINER_EXPECTED=false DIRTY_NODE_VM_EXPECTED=false
+    export DIRTY_NODE_CONTAINER_NAME="" DIRTY_NODE_VM_NAME=""
+    export DIRTY_NODE_CONTAINER_PROVIDER_ID="" DIRTY_NODE_VM_PROVIDER_ID=""
+    record_skip_result "Dirty-node discovery fixtures" "HARNESS" "prepare_dirty_node" \
+        "Explicitly skipped; this run excludes module 09 discovery coverage" "HARNESS"
+else
+    prepare_dirty_node "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" "$INSTANCE_TYPES" || dirty_node_rc=$?
+fi
 if (( dirty_node_rc != 0 )); then
     log_warning "Dirty node preparation had issues, continuing..."
 fi

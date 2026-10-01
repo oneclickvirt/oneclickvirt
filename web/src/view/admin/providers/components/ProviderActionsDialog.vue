@@ -13,6 +13,7 @@
         v-if="row.type === 'lxd' || row.type === 'incus' || row.type === 'proxmox'"
         class="action-button"
         type="primary"
+        :disabled="busy"
         @click="$emit('action', 'auto-configure')"
       >
         {{ $t('admin.providers.autoConfigureAPI') }}
@@ -21,6 +22,7 @@
       <el-button
         class="action-button"
         type="success"
+        :disabled="busy"
         @click="$emit('action', 'traffic-monitor')"
       >
         {{ $t('admin.providers.monitoringManagement') }}
@@ -30,6 +32,7 @@
       <el-button
         class="action-button"
         type="primary"
+        :disabled="busy"
         @click="$emit('action', 'health-check')"
       >
         {{ $t('admin.providers.healthCheck') }}
@@ -39,6 +42,7 @@
         v-if="canSyncProviderInstances(row)"
         class="action-button"
         type="success"
+        :disabled="busy"
         @click="$emit('action', 'sync-instances')"
       >
         {{ $t('admin.providers.syncInstances') }}
@@ -47,6 +51,7 @@
       <el-button
         class="action-button"
         type="warning"
+        :disabled="busy"
         @click="$emit('action', 'force-recovery-sync')"
       >
         {{ $t('admin.providers.forceRecoverySync') }}
@@ -55,6 +60,7 @@
       <el-button
         class="action-button"
         type="info"
+        :disabled="busy"
         @click="$emit('action', 'set-expiry')"
       >
         {{ $t('admin.providers.setExpiry') }}
@@ -64,6 +70,7 @@
         v-if="row.isFrozen"
         class="action-button"
         type="success"
+        :disabled="busy"
         @click="$emit('action', 'unfreeze')"
       >
         {{ $t('admin.providers.unfreeze') }}
@@ -72,6 +79,7 @@
         v-else
         class="action-button"
         type="warning"
+        :disabled="busy"
         @click="$emit('action', 'freeze')"
       >
         {{ $t('admin.providers.freeze') }}
@@ -81,6 +89,7 @@
       <el-button
         class="action-button"
         type="primary"
+        :disabled="busy"
         @click="$emit('action', 'remote-connect')"
       >
         <el-icon><Monitor /></el-icon>
@@ -89,6 +98,7 @@
       <el-button
         class="action-button"
         type="warning"
+        :disabled="busy"
         @click="$emit('paste-url')"
       >
         {{ $t('admin.providers.setHardwareReport') }}
@@ -96,6 +106,7 @@
       <el-button
         class="action-button"
         type="info"
+        :disabled="busy"
         @click="$emit('view-hardware-report')"
       >
         {{ $t('admin.providers.viewHardwareReport') }}
@@ -105,6 +116,7 @@
       <el-button
         class="action-button"
         type="danger"
+        :disabled="busy"
         @click="$emit('action', 'cleanup-orphans')"
       >
         {{ $t('admin.providers.cleanupOrphans') }}
@@ -118,7 +130,8 @@ import { canSyncProviderInstances } from '@/utils/providerDiscovery'
 
 defineProps({
   visible: { type: Boolean, default: false },
-  row: { type: Object, default: null }
+  row: { type: Object, default: null },
+  busy: { type: Boolean, default: false }
 })
 
 defineEmits([

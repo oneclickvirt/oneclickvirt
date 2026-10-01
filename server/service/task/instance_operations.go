@@ -15,6 +15,7 @@ import (
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
+	"oneclickvirt/service/trafficfinal"
 	"oneclickvirt/utils"
 	"time"
 
@@ -25,19 +26,35 @@ import (
 
 var errLifecycleTaskCancelled = errors.New("任务已取消")
 
-// lockLifecycleTaskAndInstance establishes one deterministic linearization
-// point for a lifecycle operation's remote success. Cancellation updates the
-// same task row, so either cancellation wins and the cleanup restores the
-// transition state, or this transaction wins and the operation is committed.
-// This prevents a late provider response from writing desired_state=running
-// after a cancelled start/restart has already been rolled back.
+// lockLifecycleTaskAndInstance allows failure recovery only while the task is
+// still running. Successful provider results use lockLifecycleResultAndInstance
+// because a cancellation request cannot undo an operation already confirmed
+// by the provider.
 func lockLifecycleTaskAndInstance(tx *gorm.DB, taskID, instanceID uint, expectedStatuses ...string) (providerModel.Instance, error) {
+	return lockLifecycleTaskAndInstanceForStatuses(tx, taskID, instanceID, []string{mainTaskStatusRunning}, expectedStatuses...)
+}
+
+// A provider operation may finish after its task has entered cancelling. Keep
+// the confirmed runtime state in that case; cancellation cleanup only restores
+// an instance that is still in this task's transition state.
+func lockLifecycleResultAndInstance(tx *gorm.DB, taskID, instanceID uint, expectedStatuses ...string) (providerModel.Instance, error) {
+	return lockLifecycleTaskAndInstanceForStatuses(tx, taskID, instanceID, []string{mainTaskStatusRunning, mainTaskStatusCancelling}, expectedStatuses...)
+}
+
+func lockLifecycleTaskAndInstanceForStatuses(tx *gorm.DB, taskID, instanceID uint, allowedTaskStatuses []string, expectedStatuses ...string) (providerModel.Instance, error) {
 	var currentTask adminModel.Task
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Select("id", "status").Where("id = ?", taskID).First(&currentTask).Error; err != nil {
 		return providerModel.Instance{}, err
 	}
-	if currentTask.Status != mainTaskStatusRunning {
+	allowed := false
+	for _, status := range allowedTaskStatuses {
+		if currentTask.Status == status {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
 		return providerModel.Instance{}, errLifecycleTaskCancelled
 	}
 
@@ -52,6 +69,26 @@ func lockLifecycleTaskAndInstance(tx *gorm.DB, taskID, instanceID uint, expected
 		}
 	}
 	return providerModel.Instance{}, fmt.Errorf("实例状态已变化，当前状态：%s", currentInstance.Status)
+}
+
+func updateLifecycleResult(taskID, instanceID uint, updates map[string]interface{}, expectedStatuses ...string) error {
+	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		currentInstance, err := lockLifecycleResultAndInstance(tx, taskID, instanceID, expectedStatuses...)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&currentInstance).Updates(updates).Error
+	})
+}
+
+func updateLifecycleStateWhileRunning(taskID, instanceID uint, updates map[string]interface{}, expectedStatuses ...string) error {
+	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		currentInstance, err := lockLifecycleTaskAndInstance(tx, taskID, instanceID, expectedStatuses...)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&currentInstance).Updates(updates).Error
+	})
 }
 
 func markStartFailureIfTaskRunning(taskID, instanceID uint) error {
@@ -155,7 +192,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 
 	// 在事务中更新实例状态并确认配额（如果需要）
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		currentInstance, err := lockLifecycleTaskAndInstance(tx, task.ID, instance.ID, "starting", "creating")
+		currentInstance, err := lockLifecycleResultAndInstance(tx, task.ID, instance.ID, "starting", "creating")
 		if err != nil {
 			return fmt.Errorf("启动任务未获准写回实例状态: %w", err)
 		}
@@ -375,18 +412,12 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	// 更新进度 (35%)
 	s.updateTaskProgress(task.ID, 35, "step.syncTrafficData")
 
-	// 停止前同步流量数据（重要！）
-	syncTrigger := traffic.NewSyncTriggerService()
-	syncTrigger.TriggerInstanceTrafficSync(instance.ID, "实例停止前同步")
-
-	// 使用可取消的等待
-	timer := time.NewTimer(3 * time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-	case <-ctx.Done():
-		return fmt.Errorf("任务已取消")
+	if err := trafficfinal.Collect(ctx, instance.ID); err != nil {
+		// Stopping must remain possible when monitoring is unavailable.
+		global.APP_LOG.Warn("操作前流量采集失败，保留监控记录供后续同步", zap.Uint("instanceId", instance.ID), zap.Error(err))
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// 更新进度 (60%)
@@ -404,7 +435,11 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 			zap.Error(err))
 
 		// 更新实例状态为停止失败
-		global.APP_DB.Model(&instance).Update("status", "error")
+		if stateErr := updateLifecycleStateWhileRunning(task.ID, instance.ID, map[string]interface{}{"status": "error"}, "stopping"); stateErr != nil &&
+			!errors.Is(stateErr, errLifecycleTaskCancelled) {
+			global.APP_LOG.Debug("停止失败状态未写回，实例状态已变化",
+				zap.Uint("task_id", task.ID), zap.Uint("instance_id", instance.ID), zap.Error(stateErr))
+		}
 		return fmt.Errorf("停止实例失败: %v", err)
 	}
 
@@ -414,11 +449,7 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	// 更新进度 (90%)
 	s.updateTaskProgress(task.ID, 90, "step.updatingInstanceStatus")
 
-	// Traffic-limit tasks intentionally mark the row stopped before entering
-	// the worker, so keep this status write compatible with both user stop tasks
-	// (stopping) and those system-managed tasks. User intent is already persisted
-	// at request time; this operation must not overwrite it.
-	if err := global.APP_DB.Model(&instance).Update("status", "stopped").Error; err != nil {
+	if err := updateLifecycleResult(task.ID, instance.ID, map[string]interface{}{"status": "stopped"}, "stopping"); err != nil {
 		global.APP_LOG.Error("更新实例状态失败", zap.Error(err))
 		return fmt.Errorf("更新实例状态失败: %v", err)
 	}
@@ -486,18 +517,12 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	// 更新进度 (28%)
 	s.updateTaskProgress(task.ID, 28, "step.syncTrafficData")
 
-	// 重启前同步流量数据
-	syncTrigger := traffic.NewSyncTriggerService()
-	syncTrigger.TriggerInstanceTrafficSync(instance.ID, "实例重启前同步")
-
-	// 使用可取消的等待
-	timer := time.NewTimer(3 * time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-	case <-ctx.Done():
-		return fmt.Errorf("任务已取消")
+	if err := trafficfinal.Collect(ctx, instance.ID); err != nil {
+		// Stopping must remain possible when monitoring is unavailable.
+		global.APP_LOG.Warn("操作前流量采集失败，保留监控记录供后续同步", zap.Uint("instanceId", instance.ID), zap.Error(err))
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// 更新进度 (45%)
@@ -514,8 +539,11 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 			zap.String("provider", localProviderName),
 			zap.Error(err))
 
-		// 更新实例状态为重启失败
-		global.APP_DB.Model(&instance).Update("status", "running")
+		if stateErr := updateLifecycleStateWhileRunning(task.ID, instance.ID, map[string]interface{}{"status": "running"}, "restarting"); stateErr != nil &&
+			!errors.Is(stateErr, errLifecycleTaskCancelled) {
+			global.APP_LOG.Debug("重启失败状态未写回，实例状态已变化",
+				zap.Uint("task_id", task.ID), zap.Uint("instance_id", instance.ID), zap.Error(stateErr))
+		}
 		return fmt.Errorf("重启实例失败: %v", err)
 	}
 
@@ -527,7 +555,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 
 	// 在事务中更新实例状态并确认配额（如果需要）
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		currentInstance, err := lockLifecycleTaskAndInstance(tx, task.ID, instance.ID, "restarting")
+		currentInstance, err := lockLifecycleResultAndInstance(tx, task.ID, instance.ID, "restarting")
 		if err != nil {
 			return fmt.Errorf("重启任务未获准写回实例状态: %w", err)
 		}

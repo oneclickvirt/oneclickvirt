@@ -98,7 +98,7 @@ func UserSFTPList(c *gin.Context) {
 		return
 	}
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		global.APP_LOG.Warn("用户实例SFTP连接失败", zap.Uint("instanceID", instance.ID), zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
@@ -167,7 +167,7 @@ func UserSFTPDownload(c *gin.Context) {
 		return
 	}
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
 		return
@@ -274,7 +274,7 @@ func UserSFTPUpload(c *gin.Context) {
 	}
 	remote.RegisterSFTPChunkCleanupTarget(target, remoteDir)
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
 		return
@@ -380,7 +380,7 @@ func UserSFTPUploadStatus(c *gin.Context) {
 	}
 	remote.RegisterSFTPChunkCleanupTarget(target, path.Dir(remotePath))
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
 		return
@@ -460,7 +460,7 @@ func UserSFTPUploadAbort(c *gin.Context) {
 		return
 	}
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
 		return

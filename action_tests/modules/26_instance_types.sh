@@ -62,18 +62,21 @@ run_module_26() {
             fi
         fi
 
-        # Create container instance
-        # A type-specific create assertion must only accept a successful
-        # creation response.  Treating 400/409 as success hides validation,
-        # permission, and backend regressions and turns all dependent checks
-        # into misleading SKIPs.  Infrastructure-only skips are classified
-        # from the asynchronous task detail below.
+        # Create container instance.  A 4xx remains a failure unless the API
+        # explicitly reports provider capacity exhaustion; that condition is
+        # an infrastructure skip and must not be recorded as a product bug.
         local ct_resp="" ct_request_ok=true
-        if ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201" \
+        if ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201|infra" \
             "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-ct\",\"instance_type\":\"container\",\"image\":\"${ct_image}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}" \
             "$group" "$ADMIN_TOKEN"); then
             ct_request_ok=true
         else
+            ct_request_ok=false
+        fi
+        # `test_api` returns success for an infrastructure skip so callers can
+        # continue the module.  Keep its response body for parsing, but stop
+        # the missing-ID branch from turning the same skip into a failure.
+        if [[ "$ct_request_ok" == "true" ]] && is_infrastructure_failure_detail "$ct_resp"; then
             ct_request_ok=false
         fi
         local ct_task; ct_task=$(echo "$ct_resp" | jq -r '.data.task_id // .data.taskId // empty' 2>/dev/null)
@@ -127,11 +130,22 @@ run_module_26() {
                 record_fail_result "Type-test container running" "GET" "/api/v1/admin/instances/${ct_id}" "running" "$ct_status_actual" "$ct_status_resp" "$group"
             fi
 
-            # Cleanup
-            local ct_delete_resp; ct_delete_resp=$(test_api "Delete test container" "DELETE" "/api/v1/admin/instances/${ct_id}" "200" "" "$group" "$ADMIN_TOKEN") || ct_delete_resp=""
-            [[ -n "$ct_delete_resp" ]] && wait_instance_operation_settled "$ct_id" "$ct_delete_resp" "deleted" "delete type-test container ${ct_id}" "$ADMIN_TOKEN" || true
+            # Cleanup is opt-in for live runs.  The HZ worker is reused and
+            # successful guests remain available for inspection/retests.
+            if [[ "${ACTION_TEST_PRESERVE_INSTANCES:-true}" == "true" ]]; then
+                record_skip_result "Preserve type-test container" "DELETE" "/api/v1/admin/instances/${ct_id}" \
+                    "ACTION_TEST_PRESERVE_INSTANCES=true; leaving the created container for inspection" "$group"
+            else
+                local ct_delete_resp; ct_delete_resp=$(test_api "Delete test container" "DELETE" "/api/v1/admin/instances/${ct_id}" "200" "" "$group" "$ADMIN_TOKEN") || ct_delete_resp=""
+                [[ -n "$ct_delete_resp" ]] && wait_instance_operation_settled "$ct_id" "$ct_delete_resp" "deleted" "delete type-test container ${ct_id}" "$ADMIN_TOKEN" || true
+            fi
         elif [[ -n "$ct_id" ]]; then
-            delete_instance_safe "$ct_id" "$ADMIN_TOKEN" 180 || true
+            if [[ "${ACTION_TEST_PRESERVE_INSTANCES:-true}" == "true" ]]; then
+                record_skip_result "Preserve incomplete type-test container" "DELETE" "/api/v1/admin/instances/${ct_id}" \
+                    "ACTION_TEST_PRESERVE_INSTANCES=true; leaving the created container for inspection" "$group"
+            else
+                delete_instance_safe "$ct_id" "$ADMIN_TOKEN" 180 || true
+            fi
         else
             record_skip_result "Container-specific operations" "HARNESS" "create type-test container" \
                 "container creation did not yield a usable instance; dependent checks are skipped" "$group"
@@ -179,16 +193,18 @@ run_module_26() {
             fi
         fi
 
-        # Create VM instance
-        # As with containers, only 2xx responses prove that a VM was created.
-        # A 4xx response is a product/test failure unless an accepted task
-        # later identifies a classified infrastructure condition.
+        # Create VM instance.  As with containers, only 2xx responses prove
+        # creation; an explicit provider-capacity conflict is an infrastructure
+        # skip while all other 4xx responses remain product failures.
         local vm_resp="" vm_request_ok=true
-        if vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201" \
+        if vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201|infra" \
             "{\"provider_id\":${PROVIDER_ID},\"name\":\"type-test-vm\",\"instance_type\":\"vm\",\"image\":\"${vm_image}\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}" \
             "$group" "$ADMIN_TOKEN"); then
             vm_request_ok=true
         else
+            vm_request_ok=false
+        fi
+        if [[ "$vm_request_ok" == "true" ]] && is_infrastructure_failure_detail "$vm_resp"; then
             vm_request_ok=false
         fi
         local vm_task; vm_task=$(echo "$vm_resp" | jq -r '.data.task_id // .data.taskId // empty' 2>/dev/null)

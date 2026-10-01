@@ -51,7 +51,7 @@ func HealthCheck(c *gin.Context) {
 	uptimeSeconds := int64(time.Since(processStartedAt).Seconds())
 	healthStatus["system"] = map[string]interface{}{
 		"timestamp":      time.Now(),
-		"version":        constant.ServerVersion,
+		"version":        constant.DisplayVersion(),
 		"uptime":         uptimeSeconds,
 		"uptime_seconds": uptimeSeconds,
 	}

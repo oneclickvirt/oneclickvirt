@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"oneclickvirt/global"
@@ -18,6 +19,13 @@ import (
 	"oneclickvirt/provider"
 	"oneclickvirt/utils"
 )
+
+func TestMain(m *testing.M) {
+	if global.APP_LOG == nil {
+		global.APP_LOG = zap.NewNop()
+	}
+	os.Exit(m.Run())
+}
 
 func TestLXDProxyRemovalWithoutIPKeepsOtherFamily(t *testing.T) {
 	for _, ipv6 := range []bool{false, true} {
@@ -246,36 +254,42 @@ func lastLXDCommandContaining(commands []string, fragment string) string {
 	return ""
 }
 
-func TestLXDProxyBindsNICWithoutSSHHost(t *testing.T) {
-	for _, address := range []string{"192.0.2.10", "2001:db8::10"} {
-		for _, mapping := range []string{"single", "range", "nat-range"} {
-			t.Run(address+"/"+mapping, func(t *testing.T) {
-				executor := &recordingLXDIPv6Executor{}
-				listenIP := "198.51.100.10"
-				if strings.Contains(address, ":") {
-					listenIP = "2001:db8::1"
-				}
-				p := &LXDProvider{config: provider.NodeConfig{PortIP: listenIP}, sshClient: utils.NewSafeShellExecutor(executor)}
-				var err error
-				switch mapping {
-				case "single":
-					err = p.setupDeviceProxyMappingWithIP("guest", 22000, 22, "both", address)
-				case "range":
-					err = p.setupDeviceProxyRangeMapping("guest", 22000, 22009, "both", address)
-				case "nat-range":
-					err = p.setupNATPortRangeDeviceProxyWithIP("guest", 22000, 22009, address)
-				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				if !strings.Contains(executor.commands[0], "lxc query ") {
-					t.Fatalf("missing NIC binding before proxy: %v", executor.commands)
-				}
-				if mapping == "range" && strings.Contains(address, ":") && !strings.Contains(strings.Join(executor.commands, "\n"), "v6-tcp-range-") {
-					t.Fatalf("IPv6 mapping lost its family prefix: %v", executor.commands)
-				}
-			})
-		}
+func TestLXDProxyBindsNICWithoutSSHHostIPv4(t *testing.T) {
+	testLXDProxyBindsNICWithoutSSHHost(t, "192.0.2.10")
+}
+
+func TestLXDProxyBindsNICWithoutSSHHostIPv6(t *testing.T) {
+	testLXDProxyBindsNICWithoutSSHHost(t, "2001:db8::10")
+}
+
+func testLXDProxyBindsNICWithoutSSHHost(t *testing.T, address string) {
+	for _, mapping := range []string{"single", "range", "nat-range"} {
+		t.Run(mapping, func(t *testing.T) {
+			executor := &recordingLXDIPv6Executor{}
+			listenIP := "198.51.100.10"
+			if strings.Contains(address, ":") {
+				listenIP = "2001:db8::1"
+			}
+			p := &LXDProvider{config: provider.NodeConfig{PortIP: listenIP}, sshClient: utils.NewSafeShellExecutor(executor)}
+			var err error
+			switch mapping {
+			case "single":
+				err = p.setupDeviceProxyMappingWithIP("guest", 22000, 22, "both", address)
+			case "range":
+				err = p.setupDeviceProxyRangeMapping("guest", 22000, 22009, "both", address)
+			case "nat-range":
+				err = p.setupNATPortRangeDeviceProxyWithIP("guest", 22000, 22009, address)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(executor.commands[0], "lxc query ") {
+				t.Fatalf("missing NIC binding before proxy: %v", executor.commands)
+			}
+			if mapping == "range" && strings.Contains(address, ":") && !strings.Contains(strings.Join(executor.commands, "\n"), "v6-tcp-range-") {
+				t.Fatalf("IPv6 mapping lost its family prefix: %v", executor.commands)
+			}
+		})
 	}
 }
 

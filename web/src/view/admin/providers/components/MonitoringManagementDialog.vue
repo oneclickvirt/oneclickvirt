@@ -28,6 +28,7 @@
             :uninstall-loading="uninstallLoading"
             :status-loading="statusLoading"
             :sync-loading="syncLoading"
+            :mutation-busy="monitorMutationBusy"
             :clear-monitors-loading="clearMonitorsLoading"
             :save-config-loading="saveConfigLoading"
             :list-agent-loading="listAgentLoading"
@@ -70,10 +71,13 @@
             :running-task="runningTask"
             :history-tasks="historyTasks"
             :loading="loading"
+            :operation-submitting="operationSubmitting"
             :pagination="pagination"
             @refresh="$emit('refresh')"
+            @refresh-history="$emit('refreshHistory')"
             @view-task-log="$emit('viewTaskLog', $event)"
             @view-running-task="$emit('viewRunningTask')"
+            @show-history="$emit('showHistory')"
             @execute-operation="$emit('executeOperation', $event)"
             @page-change="$emit('pageChange', $event)"
             @page-size-change="$emit('pageSizeChange', $event)"
@@ -103,6 +107,7 @@ const props = defineProps({
   runningTask: { type: Object, default: null },
   historyTasks: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
+  operationSubmitting: { type: Boolean, default: false },
   pagination: {
     type: Object,
     default: () => ({ page: 1, pageSize: 10, total: 0 })
@@ -110,13 +115,13 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
-  'update:visible', 'close', 'refresh', 'viewTaskLog',
-  'viewRunningTask', 'executeOperation', 'pageChange', 'pageSizeChange'
+  'update:visible', 'close', 'refresh', 'refreshHistory', 'viewTaskLog',
+  'viewRunningTask', 'showHistory', 'executeOperation', 'pageChange', 'pageSizeChange'
 ])
 
 const {
   activeTab, showConfigEditor, configLoading, deployLoading, uninstallLoading,
-  statusLoading, saveConfigLoading, syncLoading, clearMonitorsLoading,
+  statusLoading, saveConfigLoading, syncLoading, clearMonitorsLoading, monitorMutationBusy,
   monitorsLoading, listAgentLoading, deployOutput, monitors,
   agentIsOnline, showToken, showAgentMonitors, agentMonitors,
   monitorsPagination, agentMonitorsPagination, config, editConfig,

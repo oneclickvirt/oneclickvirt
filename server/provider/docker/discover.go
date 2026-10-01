@@ -84,6 +84,9 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 	var discoveredInstances []provider.DiscoveredInstance
 
 	for _, container := range containers {
+		if provider.IsRuntimeInfrastructureContainer(container.Name) {
+			continue
+		}
 		discovered := provider.DiscoveredInstance{
 			UUID:               container.ID,
 			ProviderInstanceID: container.ID,

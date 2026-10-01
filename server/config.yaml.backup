@@ -6,10 +6,14 @@ auth:
     email-username: root
     email-smtp-host: ""
     qq-app-key: ""
-    email-smtp-port: "3306"
+    email-smtp-port: 587
     telegram-bot-token: ""
     qq-app-id: ""
     email-password: ""
+    enable-oauth2: false
+    enable-domain: false
+    enable-checkin: false
+    enable-kyc: false
 captcha:
     enabled: false
     expire-time: 5
@@ -24,7 +28,7 @@ cdn:
         - http://cdn1.spiritlhl.net/
         - http://cdn2.spiritlhl.net/
 cors:
-    mode: allow-all
+    mode: whitelist
     whitelist:
         - http://localhost:8080
         - http://127.0.0.1:8080
@@ -37,15 +41,15 @@ jwt:
     issuer: oneclickvirt
     signing-key: ""
 mysql:
-    auto-create: true
+    auto-create: "true"
     config: charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27
-    db-name: oneclickvirt
+    db-name: oneclickvirt_proxmoxve_8888_1790529480_28263
     engine: InnoDB
     log-mode: error
     log-zap: "false"
-    max-idle-conns: "10"
-    max-lifetime: "3600"
-    max-open-conns: "100"
+    max-idle-conns: 10
+    max-lifetime: 3600
+    max-open-conns: 100
     password: ""
     path: 127.0.0.1
     port: "3306"
@@ -56,14 +60,16 @@ quota:
     default-level: 1
     level-limits:
         "1":
-            max-instances: 6
+            expiry-days: 0
+            max-instances: 1
             max-resources:
                 bandwidth: 1000
-                cpu: 6
+                cpu: 1
                 disk: 66024
                 memory: 6350
-            max-traffic: 1.024e+06
+            max-traffic: 1024000
         "2":
+            expiry-days: 0
             max-instances: 3
             max-resources:
                 bandwidth: 200
@@ -71,7 +77,9 @@ quota:
                 disk: 20480
                 memory: 1024
             max-traffic: 204800
+            max-snapshots: 3
         "3":
+            expiry-days: 0
             max-instances: 5
             max-resources:
                 bandwidth: 500
@@ -79,7 +87,9 @@ quota:
                 disk: 40960
                 memory: 2048
             max-traffic: 307200
+            max-snapshots: 5
         "4":
+            expiry-days: 0
             max-instances: 10
             max-resources:
                 bandwidth: 1000
@@ -87,7 +97,9 @@ quota:
                 disk: 81920
                 memory: 4096
             max-traffic: 409600
+            max-snapshots: 10
         "5":
+            expiry-days: 0
             max-instances: 20
             max-resources:
                 bandwidth: 2000
@@ -95,6 +107,13 @@ quota:
                 disk: 163840
                 memory: 8192
             max-traffic: 512000
+    instance-type-permissions:
+        min-level-for-delete-container: 1
+        min-level-for-delete-vm: 1
+        min-level-for-reset-container: 1
+        min-level-for-reset-vm: 1
+        min-level-for-container: 1
+        min-level-for-vm: 1
 redis:
     addr: ""
     db: 0
@@ -102,22 +121,34 @@ redis:
 system:
     addr: 8888
     db-type: mysql
-    env: production
+    env: development
     frontend-url: ""
     iplimit-count: 100
     iplimit-time: 3600
     oauth2-state-token-minutes: 15
     oss-type: local
     provider-inactive-hours: 72
+    enable-instance-recovery: true
+    instance-recovery-interval: 3
+    instance-recovery-offline-minutes: 30
     use-multipoint: false
     use-redis: false
 task:
     delete-retry-count: 3
     delete-retry-delay: 2
+maintenance:
+    enable-data-cleanup: true
+    data-cleanup-interval-hours: 24
+    audit-log-retention-days: 30
+    traffic-history-retention-days: 180
+    cleanup-batch-size: 5000
+    optimize-after-cleanup: false
+    pmacct-raw-retention-days: 45
 other:
     default-language: en-US
     logo-url: ""
     site-name: ""
+    max-avatar-size: 2
 zap:
     director: storage/logs
     encode-level: LowercaseLevelEncoder
@@ -134,11 +165,30 @@ zap:
     show-line: true
     stacktrace-key: stacktrace
 default_language: ""
-signing_key_v1:
-    created_at: "2026-03-10T11:17:34.306136+08:00"
-    expires_at: "2026-03-11T11:17:34.306136+08:00"
-    is_active: false
-    key: 8302b20b276798de0cf5769a7a764c1a236393b88849a4bf1aa753f52d3dce41
-    version: 1
-active_version: 1
 max_avatar_size: 2
+kyc:
+    restrict-redeem-code: false
+    require-real-name: false
+    restrict-create-instance: false
+    alipay-app-id: ""
+    alipay-private-key: ""
+    alipay-public-key: ""
+    restrict-domain-bind: false
+    method: manual
+instance_type_config:
+    min_level_for_vm: 1
+    min_level_for_container: 1
+level_limits:
+    2:
+        max_instances: 5
+        max_cpu: 4
+        max_memory: 2048
+        max_disk: 50
+    1:
+        max_memory: 0
+        max_disk: 0
+        max_instances: 0
+        max_cpu: 0
+task_pool:
+    enabled: false
+    maintenance_message: CI test keeps task pool enabled

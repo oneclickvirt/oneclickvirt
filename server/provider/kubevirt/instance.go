@@ -374,7 +374,7 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 		}
 	}
 	if !vmStarted {
-		diagnostics := p.collectVMDiagnostics(config.Name)
+		diagnostics := p.collectVMDiagnostics(ctx, config.Name)
 		global.APP_LOG.Warn("KubeVirt虚拟机创建等待启动超时，开始清理远端资源",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)))
@@ -489,7 +489,7 @@ func (p *KubeVirtProvider) waitForDataVolumeImport(ctx context.Context, vmName, 
 			if phase == "Failed" {
 				msgOutput, _ := p.sshClient.Execute(fmt.Sprintf(
 					"kubectl get datavolume %s -n %s -o jsonpath='{.status.conditions[*].message}' 2>/dev/null", shellSingleQuote(dvName), shellSingleQuote(Namespace)))
-				diagnostics := p.collectVMDiagnostics(vmName)
+				diagnostics := p.collectVMDiagnostics(ctx, vmName)
 				return fmt.Errorf("DataVolume import failed: %s; diagnostics: %s", strings.TrimSpace(msgOutput), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 			}
 		}
@@ -518,7 +518,7 @@ func (p *KubeVirtProvider) waitForDataVolumeImport(ctx context.Context, vmName, 
 		}
 	}
 
-	diagnostics := p.collectVMDiagnostics(vmName)
+	diagnostics := p.collectVMDiagnostics(ctx, vmName)
 	return fmt.Errorf("DataVolume import timed out for '%s' (%s); diagnostics: %s", dvName, kubeVirtDataVolumeImportTimeout, utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 }
 

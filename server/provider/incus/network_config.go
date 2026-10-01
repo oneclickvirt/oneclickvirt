@@ -29,7 +29,7 @@ func (i *IncusProvider) stopInstanceForConfig(instanceName string) error {
 	maxWait := 30
 	waited := 0
 	for waited < maxWait {
-		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
+		cmd := incusInstanceStatusCommand(instanceName)
 		output, err := i.sshClient.Execute(cmd)
 		if err == nil && strings.TrimSpace(output) == "STOPPED" {
 			global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))

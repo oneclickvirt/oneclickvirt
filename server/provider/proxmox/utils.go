@@ -472,7 +472,9 @@ func (p *ProxmoxProvider) rebuildIPTablesRules(ctx context.Context) error {
 	global.APP_LOG.Debug("重建iptables规则")
 
 	// 应用规则文件
-	restoreCmd := fmt.Sprintf("cat %s | iptables-restore", shellSingleQuote(rulesFile))
+	// Older snapshots written through a PTY can contain CRLF. Strip CR while
+	// restoring so a legacy "*nat\r" header does not invalidate the table.
+	restoreCmd := fmt.Sprintf("tr -d '\\r' < %s | iptables-restore", shellSingleQuote(rulesFile))
 	_, err := p.sshClient.Execute(restoreCmd)
 	return err
 }

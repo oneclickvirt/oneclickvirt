@@ -35,7 +35,7 @@ func init() {
 
 // OnAgentConnected 是 Agent 成功连接并完成资源同步后的回调。
 // 由 service/admin/provider 包在初始化时注册，用于触发延迟的实例发现与导入。
-var OnAgentConnected func(providerID uint)
+var OnAgentConnected func(tx *gorm.DB, provider *providerModel.Provider) error
 
 type AgentReconnectHook func(providerID uint)
 

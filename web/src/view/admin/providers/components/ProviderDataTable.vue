@@ -493,6 +493,7 @@
             <el-button
               size="small"
               type="primary"
+              :disabled="busyProviderIds.has(scope.row.id)"
               @click="$emit('edit', scope.row)"
             >
               {{ $t('common.edit') }}
@@ -500,6 +501,7 @@
             <el-button
               size="small"
               type="primary"
+              :disabled="busyProviderIds.has(scope.row.id)"
               @click="$emit('show-actions', scope.row)"
             >
               {{ $t('common.actions') }}
@@ -507,6 +509,8 @@
             <el-button
               size="small"
               type="danger"
+              :loading="busyProviderIds.has(scope.row.id)"
+              :disabled="busyProviderIds.has(scope.row.id)"
               @click="$emit('delete', scope.row)"
             >
               {{ $t('common.delete') }}
@@ -558,7 +562,8 @@ defineProps({
   providers: { type: Array, default: () => [] },
   currentPage: { type: Number, default: 1 },
   pageSize: { type: Number, default: 10 },
-  total: { type: Number, default: 0 }
+  total: { type: Number, default: 0 },
+  busyProviderIds: { type: Set, default: () => new Set() }
 })
 
 defineEmits(['selection-change', 'edit', 'show-actions', 'delete', 'size-change', 'page-change'])

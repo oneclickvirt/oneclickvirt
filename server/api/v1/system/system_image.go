@@ -599,8 +599,8 @@ func validateImageURL(providerType, instanceType, url string) error {
 		if instanceType == "vm" && !hasAnyImageSuffix(cleanURL, ".qcow2", ".iso", ".iso.7z") {
 			return fmt.Errorf("ProxmoxVE虚拟机镜像地址必须是.qcow2、.iso或.iso.7z文件")
 		}
-		if instanceType == "container" && !strings.HasSuffix(cleanURL, ".tar.xz") {
-			return fmt.Errorf("ProxmoxVE LXC容器镜像地址必须是.tar.xz文件")
+		if instanceType == "container" && !hasAnyImageSuffix(cleanURL, ".tar.xz", ".tar.zst") {
+			return fmt.Errorf("ProxmoxVE LXC容器镜像地址必须是.tar.xz或.tar.zst文件")
 		}
 	case "lxd", "incus":
 		if instanceType == "vm" && hasAnyImageSuffix(cleanURL, ".iso") {
@@ -624,8 +624,8 @@ func validateImageURL(providerType, instanceType, url string) error {
 		if instanceType == "vm" && !strings.HasSuffix(cleanURL, ".qcow2") {
 			return fmt.Errorf("QEMU虚拟机镜像地址必须是.qcow2文件")
 		}
-		if instanceType == "container" && !strings.HasSuffix(cleanURL, ".tar.xz") {
-			return fmt.Errorf("QEMU/LXC容器镜像地址必须是.tar.xz文件")
+		if instanceType == "container" && !hasAnyImageSuffix(cleanURL, ".tar.xz", ".tar.zst") {
+			return fmt.Errorf("QEMU/LXC容器镜像地址必须是.tar.xz或.tar.zst文件")
 		}
 	case "kubevirt":
 		if instanceType == "vm" && !strings.HasSuffix(cleanURL, ".qcow2") {

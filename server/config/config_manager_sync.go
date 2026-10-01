@@ -198,7 +198,11 @@ func (cm *ConfigManager) ReloadFromYAML() error {
 	cm.mu.Lock()
 	cm.configCache = make(map[string]interface{})
 	for _, config := range configs {
-		parsedValue := parseConfigValue(config.Value)
+		parsedValue, valid := parsePersistedConfigValue(config.Key, config.Value)
+		if !valid {
+			cm.logger.Warn("跳过无效的结构化配置", zap.String("key", config.Key), zap.Uint("id", config.ID))
+			continue
+		}
 		cm.configCache[config.Key] = parsedValue
 	}
 	cm.mu.Unlock()

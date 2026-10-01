@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"context"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -38,6 +40,33 @@ func TestTempScriptInterpreterHonorsPortableShebangs(t *testing.T) {
 				t.Fatalf("TempScriptInterpreter() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestLocalShellExecutorStopsTheOwningCommandOnContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := NewLocalShellExecutor(time.Minute).ExecuteContext(ctx, "exec sleep 10")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ExecuteContext error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("ExecuteContext took %s to stop the command", elapsed)
+	}
+}
+
+func TestSleepContextReturnsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	started := time.Now()
+	done := make(chan error, 1)
+	go func() { done <- SleepContext(ctx, time.Minute) }()
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("SleepContext error = %v, want context cancellation", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("SleepContext took %s to return after cancellation", elapsed)
 	}
 }
 

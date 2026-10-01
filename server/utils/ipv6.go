@@ -32,6 +32,12 @@ const RoutedIPv6BridgeName = "oneclickvirt6"
 
 var terminalCSISequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
 
+// StripTerminalCSI removes ANSI color/control sequences from machine-readable
+// command output before JSON decoding.
+func StripTerminalCSI(output string) string {
+	return terminalCSISequence.ReplaceAllString(output, "")
+}
+
 // ContainerNetworkSelection is the resolved runtime network attachment for a
 // container. StaticIPv6 is canonical and is only populated for an IPv6
 // selection.
@@ -172,6 +178,10 @@ func ParseIPv6Network(value string, defaultPrefix int) (IPv6Network, error) {
 // output. It deliberately ignores non-address lines, so diagnostics printed
 // by a remote script cannot become part of a prefix or an interface setting.
 func ExtractIPv6Networks(output string, defaultPrefix int) []IPv6Network {
+	// A remote PTY may inject ANSI colour sequences even when callers request
+	// NO_COLOR. Strip them before tokenization so compatibility fallbacks keep
+	// the same locale/terminal guarantees as the JSON probes.
+	output = terminalCSISequence.ReplaceAllString(output, "")
 	seen := make(map[string]struct{})
 	result := make([]IPv6Network, 0)
 	for _, field := range splitIPv6Candidates(output) {
@@ -563,6 +573,7 @@ func ParseFirstNetworkInterfaceOutput(output string) (string, error) {
 // host address to its network base. This is useful for one-shot occupancy
 // snapshots such as `ip -6 addr`, neighbor tables and firewall rules.
 func ExtractIPv6Addresses(output string) []string {
+	output = terminalCSISequence.ReplaceAllString(output, "")
 	seen := make(map[string]struct{})
 	addresses := make([]string, 0)
 	for _, token := range splitIPv6Candidates(output) {

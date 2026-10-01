@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"path"
@@ -265,7 +266,7 @@ func buildSSHClientConfig(target *SSHAccessTarget, timeout time.Duration) (*ssh.
 	}, nil
 }
 
-func openSSHClientViaAgentTunnel(target *SSHAccessTarget, host string, port int, sshConfig *ssh.ClientConfig) (*ssh.Client, error) {
+func openSSHClientViaAgentTunnel(ctx context.Context, target *SSHAccessTarget, host string, port int, sshConfig *ssh.ClientConfig) (*ssh.Client, error) {
 	if strings.TrimSpace(host) == "" {
 		return nil, fmt.Errorf("agent 隧道目标为空")
 	}
@@ -278,6 +279,8 @@ func openSSHClientViaAgentTunnel(target *SSHAccessTarget, host string, port int,
 		return nil, fmt.Errorf("agent 隧道建立失败: %w", err)
 	}
 
+	stopCancel := context.AfterFunc(ctx, func() { _ = tunnelConn.Close() })
+	defer stopCancel()
 	handshakeTimeout := sshConfig.Timeout
 	if handshakeTimeout <= 0 {
 		handshakeTimeout = 20 * time.Second
@@ -293,6 +296,10 @@ func openSSHClientViaAgentTunnel(target *SSHAccessTarget, host string, port int,
 }
 
 func OpenSSHClient(target *SSHAccessTarget) (*ssh.Client, error) {
+	return OpenSSHClientContext(context.Background(), target)
+}
+
+func OpenSSHClientContext(ctx context.Context, target *SSHAccessTarget) (*ssh.Client, error) {
 	if target == nil {
 		return nil, fmt.Errorf("target is nil")
 	}
@@ -303,17 +310,20 @@ func OpenSSHClient(target *SSHAccessTarget) (*ssh.Client, error) {
 	}
 
 	if target.UseAgentTunnel {
-		return openSSHClientViaAgentTunnel(target, target.Host, target.Port, sshConfig)
+		return openSSHClientViaAgentTunnel(ctx, target, target.Host, target.Port, sshConfig)
 	}
 
 	address := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
-	client, err := ssh.Dial("tcp", address, sshConfig)
+	client, err := dialSSHContext(ctx, address, sshConfig)
 	if err == nil {
 		return client, nil
 	}
 
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if target.ProviderID > 0 && strings.TrimSpace(target.FallbackAgentTunnelHost) != "" {
-		client, tunnelErr := openSSHClientViaAgentTunnel(target, target.FallbackAgentTunnelHost, target.FallbackAgentTunnelPort, sshConfig)
+		client, tunnelErr := openSSHClientViaAgentTunnel(ctx, target, target.FallbackAgentTunnelHost, target.FallbackAgentTunnelPort, sshConfig)
 		if tunnelErr == nil {
 			if global.APP_LOG != nil {
 				global.APP_LOG.Info("直连SSH失败，已通过Agent隧道回退成功",
@@ -331,22 +341,58 @@ func OpenSSHClient(target *SSHAccessTarget) (*ssh.Client, error) {
 	return nil, fmt.Errorf("建立 SSH 连接失败: %w", err)
 }
 
-func OpenSFTPClient(target *SSHAccessTarget) (*sftp.Client, func(), error) {
-	sshClient, err := OpenSSHClient(target)
+func dialSSHContext(ctx context.Context, address string, config *ssh.ClientConfig) (*ssh.Client, error) {
+	dialer := net.Dialer{Timeout: config.Timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
+		return nil, err
+	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
+	// ssh.ClientConfig.Timeout only limits TCP dial; set a deadline for the
+	// banner/key exchange too, including peers that accept TCP then go silent.
+	_ = conn.SetDeadline(time.Now().Add(config.Timeout))
+	sshConn, channels, requests, err := ssh.NewClientConn(conn, address, config)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	_ = conn.SetDeadline(time.Time{})
+	return ssh.NewClient(sshConn, channels, requests), nil
+}
+
+func OpenSFTPClient(target *SSHAccessTarget) (*sftp.Client, func(), error) {
+	return OpenSFTPClientContext(context.Background(), target)
+}
+
+func OpenSFTPClientContext(ctx context.Context, target *SSHAccessTarget) (*sftp.Client, func(), error) {
+	operationCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	sshClient, err := OpenSSHClientContext(operationCtx, target)
+	if err != nil {
+		cancel()
 		return nil, nil, err
 	}
-
+	stopOperation := context.AfterFunc(operationCtx, func() { _ = sshClient.Close() })
+	negotiationCtx, negotiationCancel := context.WithTimeout(operationCtx, 20*time.Second)
+	stopNegotiation := context.AfterFunc(negotiationCtx, func() { _ = sshClient.Close() })
 	sftpClient, err := sftp.NewClient(sshClient)
+	stopNegotiation()
+	if err == nil {
+		err = negotiationCtx.Err()
+	}
+	negotiationCancel()
+	cleanup := func() {
+		stopOperation()
+		cancel()
+		// Closing SSH first also unblocks in-flight SFTP requests/Close.
+		_ = sshClient.Close()
+		if sftpClient != nil {
+			_ = sftpClient.Close()
+		}
+	}
 	if err != nil {
-		sshClient.Close()
+		cleanup()
 		return nil, nil, fmt.Errorf("创建 SFTP 客户端失败: %w", err)
 	}
-
-	cleanup := func() {
-		_ = sftpClient.Close()
-		_ = sshClient.Close()
-	}
-
 	return sftpClient, cleanup, nil
 }

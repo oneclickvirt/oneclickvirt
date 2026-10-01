@@ -58,9 +58,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `oneclickvirt/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `oneclickvirt/oneclickvirt:20260925` | All-in-one version with specific date | Fixed version requirement |
+| `oneclickvirt/oneclickvirt:20260728` | All-in-one version with specific date | Fixed version requirement |
 | `oneclickvirt/oneclickvirt:no-db` | Standalone database version | Without database |
-| `oneclickvirt/oneclickvirt:no-db-20260925` | Standalone database version with date | Without database |
+| `oneclickvirt/oneclickvirt:no-db-20260728` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -265,9 +265,12 @@ bash install_full.sh \
 Useful automation flags:
 
 ```bash
-bash install_full.sh --version v1.2.3 --db-wait-timeout 300
+bash install_full.sh --db-wait-timeout 300
 bash install_full.sh --db-type mysql --no-db-fallback
 ```
+
+`--version` is optional. When a fixed release is needed, use the OneClickVirt
+timestamp tag format, for example `--version v20260925-052714`.
 
 The installer requires at least 10 GB of free disk space and 2 GB of combined memory and swap by default. It writes the generated database password to the final installation summary; save it before closing the terminal.
 

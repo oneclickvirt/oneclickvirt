@@ -47,6 +47,33 @@ curl() {
                 printf '%s\n%s\n' "$status_body" "$http_status"
             fi
             ;;
+        */ports/check)
+            if [[ "$*" == *'%{http_code}'* ]]; then
+                printf '%s\n%s\n' '{"code":200,"data":{"available":true}}' 200
+            else
+                printf '%s\n' '{"code":200,"data":{"available":true}}'
+            fi
+            ;;
+        */admin/tasks/*)
+            if [[ "$*" == *'%{http_code}'* ]]; then
+                printf '%s\n%s\n' '{"code":200,"data":{"status":"completed"}}' 200
+            else
+                printf '%s\n' '{"code":200,"data":{"status":"completed"}}'
+            fi
+            ;;
+        */admin/port-mappings/[0-9]*)
+            if [[ "$*" == *'-X DELETE'* ]]; then
+                if [[ "$*" == *'%{http_code}'* ]]; then
+                    printf '%s\n%s\n' '{"code":200,"data":{"portId":3,"taskId":17}}' 200
+                else
+                    printf '%s\n' '{"code":200,"data":{"portId":3,"taskId":17}}'
+                fi
+            elif [[ "$*" == *'%{http_code}'* ]]; then
+                printf '%s\n%s\n' '{"code":404,"data":null}' 404
+            else
+                printf '%s\n' '{"code":404,"data":null}'
+            fi
+            ;;
         *)
             if [[ "$*" == *'%{http_code}'* ]]; then
                 printf '%s\n%s\n' "$fixture_api_body" "$fixture_api_status"
@@ -133,12 +160,20 @@ duplicate_code=409
 failure_body='{"code":500,"details":"unexpected database error"}'
 test_api() {
     printf '%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" >> "$fixture/assertions"
-    local fixture_api_status="${4%%|*}" fixture_api_body
+    local fixture_api_status="${4%%|*}" fixture_api_body=""
     case "$1" in
         'Create port mapping') fixture_api_status=$mapping_create_code ;;
         'Create duplicate port') fixture_api_status=$duplicate_code ;;
+        'Delete controller port mapping'|'Delete port mapping'|'Delete node port mapping')
+            fixture_api_status=200
+            fixture_api_body='{"code":200,"data":{"portId":3,"taskId":17}}'
+            ;;
+        'Batch delete mappings')
+            fixture_api_status=200
+            fixture_api_body='{"code":200,"data":{"taskIds":[18]}}'
+            ;;
     esac
-    fixture_api_body="{\"code\":${fixture_api_status},\"data\":{\"id\":3}}"
+    [[ -n "$fixture_api_body" ]] || fixture_api_body="{\"code\":${fixture_api_status},\"data\":{\"id\":3}}"
     [[ "$fixture_api_status" == 500 ]] && fixture_api_body="$failure_body"
     fixture_real_test_api "$@"
 }
@@ -155,7 +190,10 @@ assert_result() {
 }
 for status_body in '{"code":200,"data":{"is_running":true}}' '{"code":200,"data":{"is_running":false,"status":"offline"}}'; do
     run_case
-    [[ "$(jq -s '[.[] | select(.status == "SKIP")] | length' "$RESULTS_FILE")" == 4 ]] || fail "controller-dependent assertions were not all skipped"
+    # The controller-dependent checks plus the unsupported node-side batch
+    # fixture are explicit skips. Keep the count exact so a new unexpected
+    # skip cannot silently pass this readiness gate.
+    [[ "$(jq -s '[.[] | select(.status == "SKIP")] | length' "$RESULTS_FILE")" == 5 ]] || fail "controller-dependent assertions were not all skipped"
     ! grep -Eq '^(Create port mapping\||Create port mapping \(controller type\)|no_port_mapping allows controller mapping|Create duplicate port)' "$fixture/assertions" || fail "offline controller mapping reached the API"
     assert_result 'Create port mapping (node type)' PASS
 done

@@ -9,6 +9,7 @@ const (
 	mainTaskStatusFailed     = "failed"
 	mainTaskStatusCancelled  = "cancelled"
 	mainTaskStatusTimeout    = "timeout"
+	taskTimeoutCancelReason  = "任务执行超时 - 超过配置的执行时限"
 )
 
 var (
@@ -28,4 +29,13 @@ func isMainTaskActiveStatus(status string) bool {
 
 func isMainTaskRunningLikeStatus(status string) bool {
 	return status == mainTaskStatusRunning || status == mainTaskStatusProcessing
+}
+
+func isMainTaskTerminalStatus(status string) bool {
+	for _, terminal := range mainTaskTerminalStatuses {
+		if status == terminal {
+			return true
+		}
+	}
+	return false
 }

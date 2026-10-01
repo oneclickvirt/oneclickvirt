@@ -1,6 +1,7 @@
 package kubevirt
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -47,7 +48,7 @@ func (e *kubeVirtNADDeleteExecutor) ExecuteWithTimeout(command string, _ time.Du
 func TestKubeVirtNADCleanupSkipsMissingOptionalCRD(t *testing.T) {
 	executor := &kubeVirtNADDeleteExecutor{}
 	p := &KubeVirtProvider{sshClient: utils.NewSafeShellExecutor(executor)}
-	if err := p.deleteRoutedKubeVirtNADByInstance("guest"); err != nil {
+	if err := p.deleteRoutedKubeVirtNADByInstance(context.Background(), "guest"); err != nil {
 		t.Fatal(err)
 	}
 	if len(executor.commands) != 1 || !strings.Contains(executor.commands[0], "kubectl get crd") {
@@ -69,7 +70,7 @@ func TestKubeVirtNADCleanupDeletesWhenCRDExists(t *testing.T) {
 func TestKubeVirtNADCleanupDoesNotMaskAPIOutage(t *testing.T) {
 	executor := &kubeVirtNADDeleteExecutor{crdError: errKubeVirtDeleteTest}
 	p := &KubeVirtProvider{sshClient: utils.NewSafeShellExecutor(executor)}
-	if err := p.deleteRoutedKubeVirtNADByInstance("guest"); !errors.Is(err, errKubeVirtDeleteTest) {
+	if err := p.deleteRoutedKubeVirtNADByInstance(context.Background(), "guest"); !errors.Is(err, errKubeVirtDeleteTest) {
 		t.Fatalf("CRD lookup outage was masked: %v", err)
 	}
 	if len(executor.commands) != 1 {
@@ -79,7 +80,7 @@ func TestKubeVirtNADCleanupDoesNotMaskAPIOutage(t *testing.T) {
 
 func TestKubeVirtDeleteResourceDoesNotTreatConnectionFailureAsNotFound(t *testing.T) {
 	p := &KubeVirtProvider{sshClient: utils.NewSafeShellExecutor(kubeVirtDeleteExecutor{})}
-	err := p.deleteKubeVirtResource("kubectl delete vm guest --ignore-not-found=true", "delete VM")
+	err := p.deleteKubeVirtResource(context.Background(), "kubectl delete vm guest --ignore-not-found=true", "delete VM")
 	if err == nil || !strings.Contains(err.Error(), "delete VM失败") {
 		t.Fatalf("expected connection failure, got %v", err)
 	}

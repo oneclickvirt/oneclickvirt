@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -146,12 +147,14 @@ type InfoRequest struct {
 }
 
 type BatchInfoRequest struct {
-	IDs []int64 `json:"ids"`
+	IDs     []int64 `json:"ids"`
+	Refresh bool    `json:"refresh,omitempty"`
 }
 
 type BatchInfoResponse struct {
-	Monitors []InfoResponse `json:"monitors"`
-	Total    int            `json:"total"`
+	Refreshed bool           `json:"refreshed"`
+	Monitors  []InfoResponse `json:"monitors"`
+	Total     int            `json:"total"`
 }
 
 type InfoResponse struct {
@@ -237,43 +240,25 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 	requestTimeout := 35 * time.Second
 	if path == "/api/v1/egress/state" {
 		requestTimeout = 5 * time.Minute
+	} else if path == "/api/v1/domain-proxy" {
+		requestTimeout = 10 * time.Second
 	}
-	// New egress endpoints can carry private tunnel material. Agent-mode nodes
-	// must use the provider-bound typed WebSocket frame: HTTP-first could hit a
-	// different localhost Agent, while the legacy curl fallback exposes JSON in
-	// a shell process argument.
-	if c.isAgentMode && strings.HasPrefix(path, "/api/v1/egress/") {
-		conn, ok := GetHub().GetConn(c.providerID)
-		if !ok || conn == nil {
-			return fmt.Errorf("agent not connected for provider %d", c.providerID)
-		}
-		return conn.CallAPI(method, path, body, result, requestTimeout)
-	}
-
-	// Try HTTP first
-	err := c.doHTTPRequestWithTimeout(method, path, body, result, requestTimeout)
-	if err == nil {
-		return nil
-	}
-
-	// For agent-mode providers behind NAT, HTTP may fail.
-	// Fall back to WebSocket exec + curl to the agent's localhost API.
 	if c.isAgentMode {
-		if wsErr := c.doWSRequest(method, path, body, result); wsErr == nil {
-			return nil
-		} else {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("agent WS fallback failed, monitoring may not work",
-					zap.Uint("provider_id", c.providerID),
-					zap.String("path", path),
-					zap.String("http_err", err.Error()),
-					zap.String("ws_err", wsErr.Error()))
+		// Route through the provider-bound WebSocket immediately. A public
+		// endpoint may reach a different Agent, and waiting for that HTTP probe
+		// on every monitor call amplifies NAT timeouts into task failures.
+		// Certificate and egress material use typed frames so it never enters
+		// a shell process argument on the node.
+		if strings.HasPrefix(path, "/api/v1/egress/") || path == "/api/v1/domain-proxy" {
+			conn, ok := GetHub().GetConn(c.providerID)
+			if !ok || conn == nil {
+				return fmt.Errorf("agent not connected for provider %d", c.providerID)
 			}
-			return fmt.Errorf("agent API call failed (http: %v, ws: %v)", err, wsErr)
+			return conn.CallAPI(method, path, body, result, requestTimeout)
 		}
+		return c.doWSRequest(method, path, body, result)
 	}
-
-	return err
+	return c.doHTTPRequestWithTimeout(method, path, body, result, requestTimeout)
 }
 
 // doHTTPRequest performs the actual HTTP call.
@@ -282,6 +267,13 @@ func (c *Client) doHTTPRequest(method, path string, body interface{}, result int
 }
 
 func (c *Client) doHTTPRequestWithTimeout(method, path string, body interface{}, result interface{}, timeout time.Duration) error {
+	return c.doHTTPRequestContext(context.Background(), method, path, body, result, timeout)
+}
+
+func (c *Client) doHTTPRequestContext(ctx context.Context, method, path string, body interface{}, result interface{}, timeout time.Duration) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var reqBody io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -292,7 +284,7 @@ func (c *Client) doHTTPRequestWithTimeout(method, path string, body interface{},
 	}
 
 	url := c.baseURL + path
-	req, err := http.NewRequest(method, url, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -336,6 +328,13 @@ func (c *Client) doHTTPRequestWithTimeout(method, path string, body interface{},
 // This is used as a fallback for agent-mode providers where the agent's HTTP API
 // is behind NAT and only reachable via the WebSocket reverse connection.
 func (c *Client) doWSRequest(method, path string, body interface{}, result interface{}) error {
+	return c.doWSRequestContext(context.Background(), method, path, body, result)
+}
+
+func (c *Client) doWSRequestContext(ctx context.Context, method, path string, body interface{}, result interface{}) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	hub := GetHub()
 	conn, ok := hub.GetConn(c.providerID)
 	if !ok || conn == nil {
@@ -368,7 +367,9 @@ func (c *Client) doWSRequest(method, path string, body interface{}, result inter
 		curlCmd += fmt.Sprintf(" -d %s", shellEscapeArg(string(bodyJSON)))
 	}
 
-	output, err := conn.ExecuteWithTimeout(curlCmd, 30*time.Second)
+	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	output, err := conn.ExecuteContext(requestCtx, curlCmd)
 	if err != nil {
 		return fmt.Errorf("ws exec curl failed for %s: %w (output: %s)", path, err, output)
 	}
@@ -559,6 +560,13 @@ func (c *Client) ListMonitors() (*ListMonitorsResponse, error) {
 
 // BatchGetInfo fetches traffic info for multiple monitors in one agent request.
 func (c *Client) BatchGetInfo(ids []int64) (map[int64]*InfoResponse, error) {
+	return c.BatchGetInfoContext(context.Background(), ids, false)
+}
+
+func (c *Client) BatchGetInfoContext(ctx context.Context, ids []int64, refresh bool) (map[int64]*InfoResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	results := make(map[int64]*InfoResponse)
 	if len(ids) == 0 {
 		return results, nil
@@ -585,10 +593,41 @@ func (c *Client) BatchGetInfo(ids []int64) (map[int64]*InfoResponse, error) {
 		if end > len(uniqueIDs) {
 			end = len(uniqueIDs)
 		}
-		req := BatchInfoRequest{IDs: uniqueIDs[start:end]}
+		req := BatchInfoRequest{IDs: uniqueIDs[start:end], Refresh: refresh}
 		var resp BatchInfoResponse
-		if err := c.doRequest("POST", "/api/v1/batch-info", req, &resp); err != nil {
-			return nil, err
+		var baseline map[int64]int64
+		for attempt := 0; ; attempt++ {
+			resp = BatchInfoResponse{}
+			var err error
+			if c.isAgentMode {
+				err = c.doWSRequestContext(ctx, "POST", "/api/v1/batch-info", req, &resp)
+			} else {
+				err = c.doHTTPRequestContext(ctx, "POST", "/api/v1/batch-info", req, &resp, 30*time.Second)
+			}
+			if err != nil {
+				return nil, err
+			}
+			if !refresh || resp.Refreshed || batchInfoAdvanced(req.IDs, baseline, resp.Monitors) {
+				break
+			}
+			// Older compatible Agents ignore refresh. Wait for one real collector
+			// advance, using their own timestamps so host clock skew is harmless.
+			if attempt == 2 {
+				return nil, fmt.Errorf("节点流量计数未刷新，请检查 Agent 后重试")
+			}
+			if baseline == nil {
+				baseline = make(map[int64]int64)
+				for _, info := range resp.Monitors {
+					baseline[info.ID] = info.LastUpdateTime
+				}
+			}
+			timer := time.NewTimer(5 * time.Second)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			}
 		}
 		for i := range resp.Monitors {
 			info := resp.Monitors[i]
@@ -596,6 +635,24 @@ func (c *Client) BatchGetInfo(ids []int64) (map[int64]*InfoResponse, error) {
 		}
 	}
 	return results, nil
+}
+
+func batchInfoAdvanced(ids []int64, baseline map[int64]int64, infos []InfoResponse) bool {
+	if baseline == nil {
+		return false
+	}
+	advanced := make(map[int64]bool)
+	for _, info := range infos {
+		if previous, ok := baseline[info.ID]; ok && info.LastUpdateTime > previous {
+			advanced[info.ID] = true
+		}
+	}
+	for _, id := range ids {
+		if !advanced[id] {
+			return false
+		}
+	}
+	return true
 }
 
 // ---- Block Rules API ----
@@ -678,6 +735,7 @@ type DomainProxyItem struct {
 	EnableSSL    bool   `json:"enable_ssl"`
 	HasCert      bool   `json:"has_cert"`
 	CreatedAt    int64  `json:"created_at"`
+	ConfigHash   string `json:"config_hash"`
 }
 
 type ListDomainProxiesResponse struct {

@@ -70,7 +70,7 @@ func TestLXDProxyDiscoversMissingHostAddressFamily(t *testing.T) {
 		ipv6                       bool
 	}{
 		{"IPv6 port IP with IPv4 guest", "2001:db8::1", "192.0.2.1/24\n", "192.0.2.1", false},
-		{"IPv4 port IP with IPv6 guest", "192.0.2.1", "2001:db8::1/64\n", "2001:db8::1", true},
+		{"IPv4 port IP with IPv6 guest", "192.0.2.1", "\x1b[32m2001:db8::1/120\x1b[0m\n", "2001:db8::1", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			executor := &recordingLXDIPv6Executor{outputs: []string{tt.output}}
@@ -80,6 +80,9 @@ func TestLXDProxyDiscoversMissingHostAddressFamily(t *testing.T) {
 			got, err := p.getNATProxyListenIP(context.Background(), tt.ipv6)
 			if err != nil || got != tt.want || len(executor.commands) != 1 {
 				t.Fatalf("host discovery = %q, %v, commands %v", got, err, executor.commands)
+			}
+			if !strings.Contains(executor.commands[0], "LC_ALL=C NO_COLOR=1") {
+				t.Fatalf("host probe did not normalize locale and color: %v", executor.commands)
 			}
 		})
 	}

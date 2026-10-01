@@ -64,7 +64,7 @@ func TestFirewallIntegrationDualStackMixedBackendsAndDuplicates(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	assertOwnerCount(t, m, true, owner, 18)
+	assertOwnerCount(t, m, true, owner, 6)
 	assertOwnerCount(t, m, true, other, 6)
 	// The failed-create path has no saved guest IP.
 	if err := m.RemoveSingleDNATForFamily("", 22000, 22, "both", owner, true); err != nil {
@@ -81,6 +81,25 @@ func TestFirewallIntegrationDualStackMixedBackendsAndDuplicates(t *testing.T) {
 	}
 	assertOwnerCount(t, m, false, owner, 0)
 	assertOwnerCount(t, m, true, other, 6)
+}
+
+func TestFirewallIntegrationScopedReplacementKeepsOtherProtocol(t *testing.T) {
+	m, _ := integrationManager(t)
+	const owner = "pm:scoped:22000:22"
+	if err := m.AddSingleDNAT("192.0.2.10", 22000, 22, "tcp", owner); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.AddSingleDNAT("192.0.2.10", 22000, 22, "udp", owner); err != nil {
+		t.Fatal(err)
+	}
+	assertOwnerCount(t, m, false, owner, 2)
+
+	// Retrying one protocol must remove its duplicate while preserving the
+	// other protocol owned by the same instance and host port.
+	if err := m.AddSingleDNAT("192.0.2.10", 22000, 22, "tcp", owner); err != nil {
+		t.Fatal(err)
+	}
+	assertOwnerCount(t, m, false, owner, 2)
 }
 
 func TestFirewallIntegrationLegacySharedGuestService(t *testing.T) {
@@ -264,7 +283,7 @@ func TestFirewallIntegrationPersistenceRoundTripAndReadFailure(t *testing.T) {
 		e.MustExecute(t, "iptables-restore < /etc/iptables/rules.v4")
 		e.MustExecute(t, "ip6tables-restore < /etc/iptables/rules.v6")
 		assertOwnerCount(t, m, false, owner, 2)
-		assertOwnerCount(t, m, true, owner, 12)
+		assertOwnerCount(t, m, true, owner, 6)
 		e.MustExecute(t, "nft list table ip unrelated")
 	}
 	for _, failOn := range []string{"nft -j list tables", "nft list table ip6", "ip6tables-save"} {

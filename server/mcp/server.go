@@ -403,7 +403,7 @@ func (s *MCPServer) handleInitialize(req JSONRPCRequest) JSONRPCResponse {
 			},
 			ServerInfo: ServerInfo{
 				Name:    "OneClickVirt MCP",
-				Version: constant.ServerVersion,
+				Version: constant.DisplayVersion(),
 			},
 		},
 	}

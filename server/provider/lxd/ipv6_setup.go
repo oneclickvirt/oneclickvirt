@@ -54,6 +54,9 @@ if [ "$(lxc network get "$bridge" ipv6.nat 2>/dev/null || true)" != "true" ]; th
 	if err := l.sshStartInstance(ctx, containerName); err != nil {
 		return "", fmt.Errorf("启动NAT IPv6实例失败: %w", err)
 	}
+	if err := l.ensureContainerIPv6Lease(containerName); err != nil {
+		return "", fmt.Errorf("唤醒NAT IPv6实例DHCPv6失败: %w", err)
+	}
 	if err := l.waitForContainerNetworkReady(containerName); err != nil {
 		return "", fmt.Errorf("NAT IPv6实例网桥地址未就绪: %w", err)
 	}
@@ -106,13 +109,6 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		global.APP_LOG.Debug("本地IPv6网络", zap.String("interface", ipv6NetworkName), zap.String("network", network.CIDR()))
 	}
 
-	if err := l.configureIPv6Sysctls(ipv6NetworkName); err != nil {
-		return "", fmt.Errorf("配置IPv6 sysctl失败: %w", err)
-	}
-	if err := l.ensureBridgeNetfilter(); err != nil {
-		return "", fmt.Errorf("IPv6 bridge netfilter不可用: %w", err)
-	}
-
 	if requestedIPv6 == "" {
 		// 只使用经过解析的网络地址，不把远端命令的多行诊断文本拼进前缀。
 		randBitsCmd := "od -An -N2 -t x1 /dev/urandom | tr -d '[:space:]'"
@@ -128,6 +124,25 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		if err != nil {
 			return "", fmt.Errorf("生成容器IPv6地址失败: %w", err)
 		}
+	}
+	reserved, err := utils.ReadHostIPv6Reservations(l.sshClient)
+	if err != nil {
+		return "", fmt.Errorf("无法确认宿主机IPv6地址占用: %w", err)
+	}
+	if utils.HostIPv6AddressReserved(containerIPv6, reserved) {
+		if requestedIPv6 != "" {
+			return "", fmt.Errorf("静态IPv6地址与宿主机地址、网关或精确路由冲突")
+		}
+		containerIPv6, err = utils.FirstAvailableIPv6(network, reserved, 3, 65533)
+		if err != nil {
+			return "", fmt.Errorf("宿主机IPv6前缀没有可用的容器地址: %w", err)
+		}
+	}
+	if err := l.configureIPv6Sysctls(ipv6NetworkName); err != nil {
+		return "", fmt.Errorf("配置IPv6 sysctl失败: %w", err)
+	}
+	if err := l.ensureBridgeNetfilter(); err != nil {
+		return "", fmt.Errorf("IPv6 bridge netfilter不可用: %w", err)
 	}
 
 	global.APP_LOG.Debug("生成容器IPv6地址",
@@ -233,7 +248,7 @@ mv -f "$tmp" "$conf"`
 	return err
 }
 
-func (l *LXDProvider) setupRoutedNetworkDeviceIPv6(config IPv6Config) (string, error) {
+func (l *LXDProvider) setupRoutedNetworkDeviceIPv6(ctx context.Context, config IPv6Config) (string, error) {
 	routed, present, err := provider.ResolveRoutedIPv6(provider.InstanceConfig{Metadata: map[string]string{
 		"static_ipv6":                  config.ContainerIPv6,
 		"static_ipv6_cidr":             config.RoutedCIDR,
@@ -261,7 +276,7 @@ func (l *LXDProvider) setupRoutedNetworkDeviceIPv6(config IPv6Config) (string, e
 	name := shellSingleQuote(config.ContainerName)
 	bridge := shellSingleQuote(routed.Bridge)
 	addressArg := shellSingleQuote(routed.Address)
-	if err := l.sshStopInstance(context.Background(), config.ContainerName); err != nil {
+	if err := l.sshStopInstance(ctx, config.ContainerName); err != nil {
 		return "", fmt.Errorf("停止隧道路由IPv6实例失败: %w", err)
 	}
 	deviceCmd := fmt.Sprintf(`set -eu
@@ -302,36 +317,19 @@ fi`, name, name, name, name, name, bridge, addressArg, name, name, bridge, addre
 // start a routed NIC. The selected uplink is configured explicitly as well;
 // enabling only that interface makes the runtime reject the routed device.
 func (l *LXDProvider) configureIPv6Sysctls(interfaceName string) error {
-	if strings.TrimSpace(interfaceName) == "" || utils.SanitizeShellArg(interfaceName) != interfaceName {
-		return fmt.Errorf("无效的IPv6网络接口: %q", interfaceName)
+	routes, err := l.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 route show default")
+	if err != nil {
+		return fmt.Errorf("读取宿主机IPv6默认路由失败: %w", err)
 	}
-	command := fmt.Sprintf(`set -eu
-conf=/etc/sysctl.d/99-oneclickvirt-ipv6.conf
-mkdir -p /etc/sysctl.d
-tmp="${conf}.tmp.$$"
-{
-  if [ -e "/proc/sys/net/ipv6/conf/%s/accept_ra" ]; then
-    printf 'net.ipv6.conf.%%s.accept_ra=2\n' "%s"
-  fi
-	  printf 'net.ipv6.conf.all.forwarding=1\n'
-	  printf 'net.ipv6.conf.default.forwarding=1\n'
-  printf 'net.ipv6.conf.all.proxy_ndp=1\n'
-  if [ -e "/proc/sys/net/ipv6/conf/%s/proxy_ndp" ]; then
-    printf 'net.ipv6.conf.%%s.proxy_ndp=1\n' "%s"
-  fi
-} > "$tmp"
-chmod 0644 "$tmp"
-mv "$tmp" "$conf"
-if [ -e "/proc/sys/net/ipv6/conf/%s/accept_ra" ]; then
-  sysctl -w "net.ipv6.conf.%s.accept_ra=2" >/dev/null
-fi
-	sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
-	sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null
-sysctl -w net.ipv6.conf.all.proxy_ndp=1 >/dev/null
-if [ -e "/proc/sys/net/ipv6/conf/%s/proxy_ndp" ]; then
-  sysctl -w "net.ipv6.conf.%s.proxy_ndp=1" >/dev/null
-fi`, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName)
-	_, err := l.sshClient.Execute(command)
+	interfaces, err := utils.IPv6ForwardingInterfaces(routes, interfaceName)
+	if err != nil {
+		return err
+	}
+	command, err := utils.IPv6ForwardingSysctlCommand(interfaces)
+	if err != nil {
+		return err
+	}
+	_, err = l.sshClient.Execute(command)
 	return err
 }
 
@@ -415,7 +413,7 @@ func (l *LXDProvider) configureIPv6Network(ctx context.Context, containerName st
 			RoutedTunnelInterface: routed.TunnelInterface,
 			InstanceType:          instanceType,
 		}
-		containerIPv6, err := l.setupRoutedNetworkDeviceIPv6(routedConfig)
+		containerIPv6, err := l.setupRoutedNetworkDeviceIPv6(ctx, routedConfig)
 		if err != nil {
 			return err
 		}
@@ -520,6 +518,10 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 		zap.String("subnetPrefix", subnetPrefix),
 		zap.String("ipv6Length", ipv6Length),
 		zap.String("containerIPv6", containerIPv6))
+	reserved, err := utils.ReadHostIPv6Reservations(l.sshClient)
+	if err != nil {
+		return "", fmt.Errorf("无法确认宿主机IPv6地址占用: %w", err)
+	}
 
 	var mappedIPv6 string
 	if strings.TrimSpace(config.ContainerIPv6) != "" {
@@ -527,7 +529,9 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 		if err != nil {
 			return "", fmt.Errorf("静态IPv6地址无效: %w", err)
 		}
-		ipv6Length = "128"
+		if utils.HostIPv6AddressReserved(mappedIPv6, reserved) {
+			return "", fmt.Errorf("静态IPv6地址与宿主机地址、网关或精确路由冲突")
+		}
 	} else {
 		// One remote snapshot replaces the previous per-candidate addr/ping/rule
 		// probes. Selection is entirely local and bounded after this call.
@@ -537,6 +541,7 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 			return "", fmt.Errorf("读取IPv6占用快照失败: %w", snapshotErr)
 		}
 		occupied := utils.ExtractIPv6Addresses(snapshot)
+		occupied = append(occupied, reserved...)
 		occupied = append(occupied, containerIPv6)
 		mappedIPv6, err = utils.FirstAvailableIPv6(network, occupied, 3, 65533)
 		if err != nil {
@@ -548,8 +553,9 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 		return "", fmt.Errorf("无可用IPv6地址，不进行自动映射")
 	}
 
-	// IPv6地址到接口
-	addAddrCmd := fmt.Sprintf("ip -6 addr replace %s/%s dev %s", shellSingleQuote(mappedIPv6), ipv6Length, shellSingleQuote(interfaceName))
+	// Bind only the mapped host address. Reusing the delegated prefix here can
+	// create another connected route and disturb the host's existing IPv6 path.
+	addAddrCmd := fmt.Sprintf("ip -6 addr replace %s/128 dev %s", shellSingleQuote(mappedIPv6), shellSingleQuote(interfaceName))
 	_, err = l.sshClient.Execute(addAddrCmd)
 	if err != nil {
 		return "", fmt.Errorf("添加IPv6地址失败: %w", err)

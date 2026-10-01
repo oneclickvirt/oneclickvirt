@@ -38,11 +38,17 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 // callers: it exists solely so a scheduler-claimed, health-auto-frozen SSH/API
 // node can be probed once without making a manually frozen node operable.
 func (s *Service) discoverProviderInstances(ctx context.Context, providerID uint, allowAutoRecoveryFrozen bool) (*DiscoveryResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	global.APP_LOG.Debug("开始发现Provider实例", zap.Uint("providerId", providerID))
 
 	// 1. 获取Provider信息
 	var providerInfo providerModel.Provider
-	if err := global.APP_DB.First(&providerInfo, providerID).Error; err != nil {
+	if err := global.APP_DB.WithContext(ctx).First(&providerInfo, providerID).Error; err != nil {
 		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
@@ -61,6 +67,9 @@ func (s *Service) discoverProviderInstances(ctx context.Context, providerID uint
 	}
 	if err != nil {
 		return nil, fmt.Errorf("获取Provider实例失败: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	// 3. 调用DiscoverInstances接口
@@ -82,6 +91,9 @@ func (s *Service) discoverProviderInstances(ctx context.Context, providerID uint
 			Error:        err.Error(),
 		}, fmt.Errorf("发现实例失败: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Credentials and port allocations left by the supported shell projects are
 	// collected before a normal discovery result is returned or an import starts.
 	// Recovery already has the authoritative runtime list it needs (identity,
@@ -100,7 +112,7 @@ func (s *Service) discoverProviderInstances(ctx context.Context, providerID uint
 
 	// 获取当前数据库中该provider的所有实例
 	var existingInstances []providerModel.Instance
-	if err := global.APP_DB.Where("provider_id = ?", providerID).
+	if err := global.APP_DB.WithContext(ctx).Where("provider_id = ?", providerID).
 		Select("id", "uuid", "name", "provider_vm_id").
 		Find(&existingInstances).Error; err != nil {
 		global.APP_LOG.Warn("查询已有实例失败", zap.Error(err))
@@ -167,7 +179,7 @@ func (s *Service) GetOrphanedInstances(ctx context.Context, providerID uint) ([]
 
 	// 获取当前数据库中该provider的所有实例
 	var existingInstances []providerModel.Instance
-	if err := global.APP_DB.Where("provider_id = ?", providerID).
+	if err := global.APP_DB.WithContext(ctx).Where("provider_id = ?", providerID).
 		Select("uuid", "name", "provider_vm_id").
 		Find(&existingInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询已有实例失败: %w", err)
@@ -201,6 +213,12 @@ func (s *Service) CompareInstancesWithRemoteForRecovery(ctx context.Context, pro
 }
 
 func (s *Service) compareInstancesWithRemote(ctx context.Context, providerID uint, allowAutoRecoveryFrozen bool) (*InstanceSyncReport, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	global.APP_LOG.Debug("开始比较实例变化", zap.Uint("providerId", providerID))
 
 	// 1. 发现远程实例
@@ -208,10 +226,13 @@ func (s *Service) compareInstancesWithRemote(ctx context.Context, providerID uin
 	if err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// 2. 获取数据库中的实例
 	var dbInstances []providerModel.Instance
-	if err := global.APP_DB.Where("provider_id = ?", providerID).
+	if err := global.APP_DB.WithContext(ctx).Where("provider_id = ?", providerID).
 		Select("id", "uuid", "name", "provider_id", "status", "desired_state", "is_imported", "provider_vm_id", "user_id", "instance_type", "is_frozen", "expires_at", "traffic_limited", "traffic_stopped", "expiry_stopped").
 		Find(&dbInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询数据库实例失败: %w", err)
@@ -407,7 +428,7 @@ func (s *Service) CleanupOrphanInstances(ctx context.Context, providerID uint) (
 
 	// 1. 获取Provider信息
 	var providerInfo providerModel.Provider
-	if err := global.APP_DB.First(&providerInfo, providerID).Error; err != nil {
+	if err := global.APP_DB.WithContext(ctx).First(&providerInfo, providerID).Error; err != nil {
 		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
@@ -425,7 +446,7 @@ func (s *Service) CleanupOrphanInstances(ctx context.Context, providerID uint) (
 
 	// 4. 获取数据库中该Provider的所有实例
 	var dbInstances []providerModel.Instance
-	if err := global.APP_DB.Where("provider_id = ?", providerID).
+	if err := global.APP_DB.WithContext(ctx).Where("provider_id = ?", providerID).
 		Select("id", "uuid", "name", "instance_type", "status", "provider_vm_id").
 		Find(&dbInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询数据库实例失败: %w", err)

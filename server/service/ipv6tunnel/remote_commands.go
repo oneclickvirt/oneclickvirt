@@ -169,12 +169,12 @@ if [ "$validation_rc" -ne 0 ]; then
   echo "IPv6 tunnel validation failed after $validation_attempt attempt(s) starting $unit" >&2
   [ -z "$validation_output" ] || printf '%%s\n' "$validation_output" >&2
   echo 'current tunnel network diagnostics:' >&2
-  ip -d link show dev "$tunnel_interface" >&2 || true
-  ip -o -6 addr show dev "$tunnel_interface" >&2 || true
-  ip -6 route show dev "$tunnel_interface" >&2 || true
-  ip -d link show dev oneclickvirt6 >&2 || true
-  ip -o -6 addr show dev oneclickvirt6 >&2 || true
-  ip -6 route show dev oneclickvirt6 >&2 || true
+  LC_ALL=C NO_COLOR=1 ip -d link show dev "$tunnel_interface" >&2 || true
+  LC_ALL=C NO_COLOR=1 ip -o -6 addr show dev "$tunnel_interface" >&2 || true
+  LC_ALL=C NO_COLOR=1 ip -6 route show dev "$tunnel_interface" >&2 || true
+  LC_ALL=C NO_COLOR=1 ip -d link show dev oneclickvirt6 >&2 || true
+  LC_ALL=C NO_COLOR=1 ip -o -6 addr show dev oneclickvirt6 >&2 || true
+  LC_ALL=C NO_COLOR=1 ip -6 route show dev oneclickvirt6 >&2 || true
   command -v sysctl >/dev/null 2>&1 && sysctl -n net.ipv6.conf.all.forwarding >&2 || true
   command -v sysctl >/dev/null 2>&1 && sysctl -n net.ipv6.conf.default.forwarding >&2 || true
   command -v sysctl >/dev/null 2>&1 && sysctl -n "net.ipv6.conf.$tunnel_interface.forwarding" >&2 || true
@@ -205,7 +205,7 @@ func renderTunnelScript(tunnel providerModel.ProviderIPv6Tunnel) string {
   # though the configured tunnel default is already present. Verify the
   # tunnel-specific route directly instead of asking the kernel to select a
   # route for an unrelated external destination.
-  ip -6 route show default dev "$IFACE" 2>/dev/null | awk -v remote="$REMOTE6" '
+  LC_ALL=C NO_COLOR=1 ip -6 route show default dev "$IFACE" 2>/dev/null | awk -v remote="$REMOTE6" '
     $1 != "default" { next }
     {
       for (i = 1; i <= NF; i++) {
@@ -272,21 +272,45 @@ cleanup_pve_neighbors() {
   [ -x "$PVE_NEIGHBOR_SCRIPT" ] || return 0
   "$PVE_NEIGHBOR_SCRIPT" cleanup || true
 }
+host_default_route_interfaces() {
+  # iproute2 route keywords are stable under the C locale. A PTY can still
+  # inject CSI colour codes, so remove those before reading every dev token
+  # (including multipath nexthops). Reject an unparseable default route rather
+  # than enabling global forwarding without protecting its RA uplink.
+  route_output=$(LC_ALL=C NO_COLOR=1 ip -6 -o route show default) || return 1
+  printf '%%s\n' "$route_output" | awk '
+    {
+      gsub(/\033\[[0-9;]*[A-Za-z]/, "", $0)
+      if ($1 != "default") next
+      found = 0
+      for (i = 1; i < NF; i++) {
+        if ($i != "dev") continue
+        device = $(i + 1)
+        if (length(device) > 15 || device == "." || device == ".." ||
+            device ~ /^-/ || device !~ /^[A-Za-z0-9_.-]+$/) exit 1
+        if (!seen[device]++) print device
+        found = 1
+      }
+      if (!found) exit 1
+    }
+  '
+}
 ensure_routed_policy_route() {
   # Keep a routed guest prefix on its tunnel without replacing the host's
   # native IPv6 default route. The policy rule is installed only after its
   # dedicated table has a usable on-link default.
-  while ip -6 rule del pref "$POLICY_PRIORITY" from "$ROUTED_CIDR" table "$POLICY_TABLE" >/dev/null 2>&1; do :; done
-  ip -6 route replace table "$POLICY_TABLE" default via "$REMOTE6" dev "$IFACE" metric "$ROUTE_METRIC" onlink
-  ip -6 rule add pref "$POLICY_PRIORITY" from "$ROUTED_CIDR" table "$POLICY_TABLE"
+  while LC_ALL=C NO_COLOR=1 ip -6 rule del pref "$POLICY_PRIORITY" from "$ROUTED_CIDR" table "$POLICY_TABLE" >/dev/null 2>&1; do :; done
+  LC_ALL=C NO_COLOR=1 ip -6 route replace table "$POLICY_TABLE" default via "$REMOTE6" dev "$IFACE" metric "$ROUTE_METRIC" onlink
+  LC_ALL=C NO_COLOR=1 ip -6 rule add pref "$POLICY_PRIORITY" from "$ROUTED_CIDR" table "$POLICY_TABLE"
 }
 cleanup_routed_policy_route() {
   # Remove the source selector before its table route so disabling a tunnel
   # never leaves guest traffic pinned to a disappeared device.
-  while ip -6 rule del pref "$POLICY_PRIORITY" from "$ROUTED_CIDR" table "$POLICY_TABLE" >/dev/null 2>&1; do :; done
-  ip -6 route del table "$POLICY_TABLE" default via "$REMOTE6" dev "$IFACE" >/dev/null 2>&1 || true
+  while LC_ALL=C NO_COLOR=1 ip -6 rule del pref "$POLICY_PRIORITY" from "$ROUTED_CIDR" table "$POLICY_TABLE" >/dev/null 2>&1; do :; done
+  LC_ALL=C NO_COLOR=1 ip -6 route del table "$POLICY_TABLE" default via "$REMOTE6" dev "$IFACE" >/dev/null 2>&1 || true
 }
 ensure_routed_network() {
+  ra_interfaces=$(host_default_route_interfaces)
   ensure_routed_bridge_networkd_config
   if ! ip link show dev "$BRIDGE" >/dev/null 2>&1; then
     ip link add name "$BRIDGE" type bridge
@@ -302,7 +326,14 @@ ensure_routed_network() {
   # forwarding. Keep tunnel and bridge entries explicit because networkd can
   # reset them. Incus/LXD routed NIC validation requires the global proxy-NDP
   # switch even when the bridge is backed by a routed tunnel.
-  printf 'net.ipv6.conf.all.forwarding=1\\nnet.ipv6.conf.default.forwarding=1\\nnet.ipv6.conf.all.proxy_ndp=1\\nnet.ipv6.conf.%%s.forwarding=1\\nnet.ipv6.conf.%%s.proxy_ndp=1\\nnet.ipv6.conf.%%s.forwarding=1\\nnet.ipv6.conf.%%s.proxy_ndp=1\\n' "$IFACE" "$IFACE" "$BRIDGE" "$BRIDGE" > "$SYSCTL_PATH"
+  {
+    for uplink in $ra_interfaces; do
+      if [ -e "/proc/sys/net/ipv6/conf/$uplink/accept_ra" ]; then
+        printf 'net.ipv6.conf.%%s.accept_ra=2\\n' "$uplink"
+      fi
+    done
+    printf 'net.ipv6.conf.all.forwarding=1\\nnet.ipv6.conf.default.forwarding=1\\nnet.ipv6.conf.all.proxy_ndp=1\\nnet.ipv6.conf.%%s.forwarding=1\\nnet.ipv6.conf.%%s.proxy_ndp=1\\nnet.ipv6.conf.%%s.forwarding=1\\nnet.ipv6.conf.%%s.proxy_ndp=1\\n' "$IFACE" "$IFACE" "$BRIDGE" "$BRIDGE"
+  } > "$SYSCTL_PATH"
   if command -v sysctl >/dev/null 2>&1; then
     sysctl -p "$SYSCTL_PATH" >/dev/null
   fi
@@ -331,8 +362,8 @@ ensure_routed_network() {
 `
 		routedStatus = fmt.Sprintf(`check_routed_network() {
   ip link show dev %s >/dev/null 2>&1 || return 1
-  ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1 || return 1
-  route_line=" $(ip -6 route show %s 2>/dev/null || true) "
+  LC_ALL=C NO_COLOR=1 ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1 || return 1
+  route_line=" $(LC_ALL=C NO_COLOR=1 ip -6 route show %s 2>/dev/null || true) "
   printf '%%s\n' "$route_line" | grep -F " dev $BRIDGE " >/dev/null 2>&1 || return 1
 }
 check_routed_forwarding() {
@@ -346,7 +377,7 @@ check_routed_forwarding() {
   [ "$(sysctl -n "net.ipv6.conf.$BRIDGE.proxy_ndp" 2>/dev/null || echo 0)" = 1 ] || return 1
 }
 check_routed_policy_route() {
-  ip -6 rule show 2>/dev/null | awk -v priority="$POLICY_PRIORITY:" -v cidr="$ROUTED_CIDR" -v table="$POLICY_TABLE" '
+  LC_ALL=C NO_COLOR=1 ip -6 rule show 2>/dev/null | awk -v priority="$POLICY_PRIORITY:" -v cidr="$ROUTED_CIDR" -v table="$POLICY_TABLE" '
     $1 != priority { next }
     {
       source = 0
@@ -359,7 +390,7 @@ check_routed_policy_route() {
     }
     END { exit(found ? 0 : 1) }
   ' || return 1
-  ip -6 route show table "$POLICY_TABLE" 2>/dev/null | awk -v remote="$REMOTE6" -v iface="$IFACE" '
+  LC_ALL=C NO_COLOR=1 ip -6 route show table "$POLICY_TABLE" 2>/dev/null | awk -v remote="$REMOTE6" -v iface="$IFACE" '
     $1 != "default" { next }
     {
       peer = 0
@@ -372,7 +403,7 @@ check_routed_policy_route() {
     }
     END { exit(found ? 0 : 1) }
   ' || return 1
-  route_line=" $(ip -6 route get "$POLICY_PROBE" from "$ROUTED_GATEWAY" iif "$BRIDGE" 2>/dev/null || true) "
+  route_line=" $(LC_ALL=C NO_COLOR=1 ip -6 route get "$POLICY_PROBE" from "$ROUTED_GATEWAY" iif "$BRIDGE" 2>/dev/null || true) "
   printf '%%s\n' "$route_line" | grep -F " dev $IFACE " >/dev/null 2>&1
 }
 `,
@@ -417,9 +448,9 @@ check_routed_policy_route() {
       return 0
     }
     check_link() { ip link show dev "$IFACE" >/dev/null 2>&1; }
-    check_address() { ip -o -6 addr show dev "$IFACE" | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1; }
+    check_address() { LC_ALL=C NO_COLOR=1 ip -o -6 addr show dev "$IFACE" | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1; }
     check_peer_route() {
-      peer_route=" $(ip -6 route get "$REMOTE6" 2>/dev/null || true) "
+      peer_route=" $(LC_ALL=C NO_COLOR=1 ip -6 route get "$REMOTE6" 2>/dev/null || true) "
       printf '%%s\n' "$peer_route" | grep -F " dev $IFACE " >/dev/null 2>&1
     }
     check_ping() { command -v ping >/dev/null 2>&1; }
@@ -529,10 +560,10 @@ func buildCheckCommand(tunnels []providerModel.ProviderIPv6Tunnel) string {
 		fmt.Fprintf(&builder, "systemctl is-enabled --quiet %s >/dev/null 2>&1 && enabled=1 || true\n", unit)
 		fmt.Fprintf(&builder, "systemctl is-active --quiet %s >/dev/null 2>&1 && active=1 || true\n", unit)
 		fmt.Fprintf(&builder, "ip link show dev %s >/dev/null 2>&1 && link=1 || true\n", iface)
-		fmt.Fprintf(&builder, "if [ \"$link\" -eq 1 ]; then ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1 && address=1 || true; fi\n", iface, address)
+		fmt.Fprintf(&builder, "if [ \"$link\" -eq 1 ]; then LC_ALL=C NO_COLOR=1 ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1 && address=1 || true; fi\n", iface, address)
 		fmt.Fprintf(&builder, "[ -s %s ] && network=1 || true\n", utils.ShellSingleQuote(networkConfigPath(tunnel.ID)))
 		if tunnel.DefaultRoute {
-			fmt.Fprintf(&builder, `route=0; if ip -6 route show default dev %s 2>/dev/null | awk -v remote=%s '
+			fmt.Fprintf(&builder, `route=0; if LC_ALL=C NO_COLOR=1 ip -6 route show default dev %s 2>/dev/null | awk -v remote=%s '
   $1 != "default" { next }
   {
     for (i = 1; i <= NF; i++) {
@@ -550,12 +581,12 @@ func buildCheckCommand(tunnels []providerModel.ProviderIPv6Tunnel) string {
 		if strings.TrimSpace(tunnel.RoutedCIDR) != "" {
 			if cidr, gateway, _, prefix, err := ipv6poolService.RoutedPrefixDetails(tunnel.RoutedCIDR); err == nil {
 				bridge := utils.ShellSingleQuote(utils.RoutedIPv6BridgeName)
-				fmt.Fprintf(&builder, "routed=0; forwarding=0; if ip link show dev %s >/dev/null 2>&1 && ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1; then route_line=\" $(ip -6 route show %s 2>/dev/null || true) \"; printf '%%s\\n' \"$route_line\" | grep -F %s >/dev/null 2>&1 && routed=1 || true; fi\n", bridge, bridge, utils.ShellSingleQuote(gateway+fmt.Sprintf("/%d", prefix)), utils.ShellSingleQuote(cidr), utils.ShellSingleQuote(" dev "+utils.RoutedIPv6BridgeName+" "))
+				fmt.Fprintf(&builder, "routed=0; forwarding=0; if ip link show dev %s >/dev/null 2>&1 && LC_ALL=C NO_COLOR=1 ip -o -6 addr show dev %s | awk '{print $4}' | grep -Fx %s >/dev/null 2>&1; then route_line=\" $(LC_ALL=C NO_COLOR=1 ip -6 route show %s 2>/dev/null || true) \"; printf '%%s\\n' \"$route_line\" | grep -F %s >/dev/null 2>&1 && routed=1 || true; fi\n", bridge, bridge, utils.ShellSingleQuote(gateway+fmt.Sprintf("/%d", prefix)), utils.ShellSingleQuote(cidr), utils.ShellSingleQuote(" dev "+utils.RoutedIPv6BridgeName+" "))
 				fmt.Fprintf(&builder, "if command -v sysctl >/dev/null 2>&1 && [ \"$(sysctl -n net.ipv6.conf.all.forwarding 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n net.ipv6.conf.default.forwarding 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n net.ipv6.conf.all.proxy_ndp 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ] && [ \"$(sysctl -n %s 2>/dev/null || echo 0)\" = 1 ]; then forwarding=1; fi\n", utils.ShellSingleQuote("net.ipv6.conf."+tunnel.Interface+".forwarding"), utils.ShellSingleQuote("net.ipv6.conf."+tunnel.Interface+".proxy_ndp"), utils.ShellSingleQuote("net.ipv6.conf."+utils.RoutedIPv6BridgeName+".forwarding"), utils.ShellSingleQuote("net.ipv6.conf."+utils.RoutedIPv6BridgeName+".proxy_ndp"), utils.ShellSingleQuote("net.ipv6.conf.all.proxy_ndp"))
 				if policyTable, policyPriority, policyErr := tunnelPolicyRouteParameters(tunnel.ID); policyErr == nil {
 					fmt.Fprintf(&builder, `policy=0
 if [ "$link" -eq 1 ]; then
-  if ip -6 rule show 2>/dev/null | awk -v priority=%s -v cidr=%s -v table=%s '
+  if LC_ALL=C NO_COLOR=1 ip -6 rule show 2>/dev/null | awk -v priority=%s -v cidr=%s -v table=%s '
     $1 != priority { next }
     {
       source = 0
@@ -567,7 +598,7 @@ if [ "$link" -eq 1 ]; then
       if (source && selected_table) { found = 1; exit }
     }
     END { exit(found ? 0 : 1) }
-  ' && ip -6 route show table %d 2>/dev/null | awk -v remote=%s -v iface=%s '
+  ' && LC_ALL=C NO_COLOR=1 ip -6 route show table %d 2>/dev/null | awk -v remote=%s -v iface=%s '
     $1 != "default" { next }
     {
       peer = 0
@@ -580,7 +611,7 @@ if [ "$link" -eq 1 ]; then
     }
     END { exit(found ? 0 : 1) }
   '; then
-    policy_route=" $(ip -6 route get %s from %s iif %s 2>/dev/null || true) "
+    policy_route=" $(LC_ALL=C NO_COLOR=1 ip -6 route get %s from %s iif %s 2>/dev/null || true) "
     printf '%%s\n' "$policy_route" | grep -F %s >/dev/null 2>&1 && policy=1 || true
   fi
 fi

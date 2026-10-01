@@ -7,6 +7,8 @@
           <div class="header-actions">
             <el-button
               type="primary"
+              :loading="openingAddDialog"
+              :disabled="openingAddDialog || batchDeleteSubmitting || syncSubmitting || repairSubmitting"
               @click="openAddDialog"
             >
               {{ $t('admin.portMapping.addManualPort') }}
@@ -14,6 +16,8 @@
             <el-button
               v-if="selectedPortMappings.length > 0"
               type="danger"
+              :loading="batchDeleteSubmitting"
+              :disabled="syncPreviewLoading || syncSubmitting || repairPreviewLoading || repairSubmitting || selectedPortMappings.some(item => deletingPortIds.has(item.id))"
               @click="batchDeleteDirect"
             >
               {{ $t('admin.portMapping.batchDelete') }} ({{ selectedPortMappings.length }})
@@ -25,6 +29,7 @@
               <el-button
                 type="warning"
                 :loading="syncPreviewLoading"
+                :disabled="addLoading || deletingPortIds.size > 0 || batchDeleteSubmitting || syncSubmitting || repairPreviewLoading || repairSubmitting"
                 @click="handleSyncPortMappings"
               >
                 {{ $t('admin.portMapping.syncPortMappings') }}
@@ -39,6 +44,7 @@
                 plain
                 :icon="RefreshRight"
                 :loading="repairPreviewLoading"
+                :disabled="addLoading || deletingPortIds.size > 0 || batchDeleteSubmitting || syncPreviewLoading || syncSubmitting || repairSubmitting"
                 @click="handleRepairPortMappings"
               >
                 {{ $t('admin.portMapping.repairPortMappings') }}
@@ -342,6 +348,8 @@
               v-if="row.portType === 'manual' || row.portType === 'batch'"
               type="danger"
               size="small"
+              :loading="deletingPortIds.has(row.id)"
+              :disabled="batchDeleteSubmitting || syncPreviewLoading || syncSubmitting || repairPreviewLoading || repairSubmitting"
               @click="deletePortMappingHandler(row.id)"
             >
               {{ $t('common.delete') }}
@@ -478,7 +486,7 @@
           <el-button
             type="danger"
             :loading="syncSubmitting"
-            :disabled="selectedSyncPortIds.length === 0"
+            :disabled="selectedSyncPortIds.length === 0 || addLoading || deletingPortIds.size > 0 || batchDeleteSubmitting || syncSubmitting || repairSubmitting"
             @click="confirmSyncPortMappings"
           >
             {{ $t('admin.portMapping.syncExecuteSelected') }}
@@ -746,7 +754,7 @@
           <el-button
             type="danger"
             :loading="repairSubmitting"
-            :disabled="selectedRepairPortIds.length === 0"
+            :disabled="selectedRepairPortIds.length === 0 || addLoading || deletingPortIds.size > 0 || batchDeleteSubmitting || repairSubmitting || syncSubmitting"
             @click="confirmRepairPortMappings"
           >
             {{ $t('admin.portMapping.repairExecuteSelected') }}
@@ -1022,10 +1030,14 @@
       
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="handleAddDialogClose">{{ $t('common.cancel') }}</el-button>
+          <el-button
+            :disabled="addLoading"
+            @click="handleAddDialogClose"
+          >{{ $t('common.cancel') }}</el-button>
           <el-button
             type="primary"
             :loading="addLoading"
+            :disabled="addLoading || batchDeleteSubmitting || syncSubmitting || repairSubmitting"
             @click="submitAdd"
           >
             {{ $t('admin.portMapping.confirmAdd') }}
@@ -1045,15 +1057,15 @@ import { usePortMappingManagement } from './composables/usePortMappingManagement
 
 const {
   loading, portMappings, providers, instances, currentPage, pageSize, total,
-  selectedPortMappings, searchForm,
+  selectedPortMappings, searchForm, deletingPortIds, batchDeleteSubmitting,
   syncPreviewVisible, syncPreviewLoading, syncSubmitting,
   selectedSyncPortIds, syncCandidates, unhealthySyncProviders, allSyncSelected,
   repairPreviewVisible, repairPreviewLoading, repairSubmitting, repairPreview,
   selectedRepairPortIds, repairCandidates, repairSkipped, allRepairSelected,
-  addDialogVisible, addFormRef, addLoading, addForm, addRules,
+  addDialogVisible, addFormRef, addLoading, openingAddDialog, addForm, addRules,
   checkingPort, portCheckResult,
   supportedInstances, selectedInstanceProvider, portRangePreview, portMappingHint,
-  instanceFilterText, filteredInstances, filteredInstancesCount,
+  filteredInstances, filteredInstancesCount,
   getInstanceProviderType, getProviderTagType,
   loadPortMappings, loadProviders, loadInstances,
   searchPortMappings, resetSearch, isDeletablePort,
@@ -1090,6 +1102,7 @@ onUnmounted(() => {
 
 // 添加端口对话框关闭（带未保存更改警告）
 const handleAddDialogClose = (done) => {
+  if (addLoading.value) return
   const isFormDirty = !!(addForm.instanceId || addForm.guestPort || addForm.description)
   if (isFormDirty) {
     ElMessageBox.confirm(

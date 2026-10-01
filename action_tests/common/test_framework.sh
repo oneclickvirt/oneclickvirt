@@ -304,6 +304,12 @@ ensure_worker_ssh_reachable() {
         }
         ACTIVE_INSTANCE_IP="${WORKER_IP}"
     fi
+    # run_module.sh is a new process. The parent's platform password is not
+    # inherited as a shell variable, while the worker result is exported.
+    # Restore it before the provider-specific wait_for_ssh implementation.
+    if [[ -n "${WORKER_PASSWORD:-${NODE_PASSWORD:-}}" ]]; then
+        PLATFORM_SSH_PASSWORD="${WORKER_PASSWORD:-${NODE_PASSWORD:-}}"
+    fi
 
     log_info "Checking real SSH reachability for ${label} before provider operation..."
     if wait_for_ssh "${WORKER_IP}" "${max}" >/dev/null 2>&1; then
@@ -318,6 +324,13 @@ ensure_worker_ssh_reachable() {
 is_infrastructure_failure_detail() {
     local detail="$1"
     if is_vm_runtime_infrastructure_failure_detail "$detail"; then
+        return 0
+    fi
+    # Provider capacity conflicts are infrastructure skips only when the
+    # response explicitly identifies exhausted disk/resources.  Keep generic
+    # 409 validation and duplicate conflicts as product failures.
+    if printf '%s' "$detail" | grep -Eiq \
+        'Provider[^[:space:]]{0,40}资源[^[:space:]]{0,20}不足|磁盘资源不足|磁盘[^[:space:]]{0,20}(不足|不够).*(需要|可用)|provider.{0,40}(resource|capacity|disk|quota).{0,40}(insufficient|exhausted|unavailable|not[[:space:]]+enough|shortage)|insufficient[[:space:]_-]*(disk[[:space:]_-]*)?(resource|space)|not[[:space:]]+enough[[:space:]]+(disk[[:space:]]*)?(resource|space)'; then
         return 0
     fi
     printf '%s' "$detail" | grep -Eiq \
@@ -2024,7 +2037,12 @@ restore_base_state() {
                 log_debug "Preserving TEST_INSTANCE_ID=${id} for downstream modules"
                 continue
             fi
-            
+
+            if [[ "${ACTION_TEST_PRESERVE_INSTANCES:-true}" == "true" ]]; then
+                log_info "Preserving instance created during module: ${id} (ACTION_TEST_PRESERVE_INSTANCES=true)"
+                continue
+            fi
+
             log_info "Cleaning up instance created during module: ${id}"
             delete_instance_safe "$id" "$ADMIN_TOKEN" 30 || log_warning "Failed to delete instance ${id}"
         fi

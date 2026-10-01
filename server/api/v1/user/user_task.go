@@ -85,7 +85,7 @@ func CancelUserTask(c *gin.Context) {
 		return
 	}
 
-	common.ResponseSuccess(c, nil, "任务已取消")
+	common.ResponseSuccess(c, nil, "已请求取消任务")
 }
 
 // CreateUserInstance 创建实例

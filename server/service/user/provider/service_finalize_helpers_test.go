@@ -84,6 +84,23 @@ func TestInstanceRequiresIPv4(t *testing.T) {
 	}
 }
 
+func TestEffectiveInstanceNetworkTypeHonorsDirectOverride(t *testing.T) {
+	tests := []struct {
+		name, instanceNetwork, providerNetwork, want string
+	}{
+		{name: "direct dual stack override", instanceNetwork: " NAT_IPV4_IPV6 ", providerNetwork: "nat_ipv4", want: "nat_ipv4_ipv6"},
+		{name: "direct IPv6 only override", instanceNetwork: "ipv6_only", providerNetwork: "nat_ipv4", want: "ipv6_only"},
+		{name: "provider fallback", providerNetwork: "nat_ipv4", want: "nat_ipv4"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := effectiveInstanceNetworkType(test.instanceNetwork, test.providerNetwork); got != test.want {
+				t.Fatalf("effectiveInstanceNetworkType(%q, %q) = %q, want %q", test.instanceNetwork, test.providerNetwork, got, test.want)
+			}
+		})
+	}
+}
+
 func TestPasswordVerificationEndpointNeverFallsBackToProviderSSH(t *testing.T) {
 	provider := providerModel.Provider{Endpoint: "192.0.2.10:2222", PortIP: "198.51.100.10"}
 	if host, port, ok := passwordVerificationEndpoint(

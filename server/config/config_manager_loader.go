@@ -17,8 +17,8 @@ func (cm *ConfigManager) flattenConfig(config map[string]interface{}, prefix str
 			fullKey = prefix + "." + key
 		}
 
-		// 如果值是 map，递归展开
-		if valueMap, ok := value.(map[string]interface{}); ok {
+		// 如果值是 map，递归展开。YAML numeric-key maps are normalized first.
+		if valueMap, ok := normalizeConfigValue(value).(map[string]interface{}); ok {
 			// 检查是否是需要特殊处理的嵌套结构
 			// 只有 level-limits 作为整体保存（因为它的结构比较复杂，包含多层嵌套）
 			shouldKeepAsWhole := (key == "level-limits" || key == "levelLimits")
@@ -139,7 +139,12 @@ func (cm *ConfigManager) handleDatabaseFirst() error {
 	}
 	cm.mu.Lock()
 	for _, config := range configs {
-		cm.configCache[config.Key] = parseConfigValue(config.Value)
+		value, valid := parsePersistedConfigValue(config.Key, config.Value)
+		if !valid {
+			cm.logger.Warn("跳过无效的结构化配置", zap.String("key", config.Key), zap.Uint("id", config.ID))
+			continue
+		}
+		cm.configCache[config.Key] = value
 	}
 	cm.mu.Unlock()
 	cm.logger.Info("配置缓存已重新加载", zap.Int("configCount", len(configs)))

@@ -4,7 +4,9 @@ package agent
 // 包含 WebSocket 写操作、命令执行、Shell 会话管理、noise/WS-ping 循环。
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -214,6 +216,25 @@ func (a *AgentConn) ExecuteWithTimeout(cmd string, timeout time.Duration) (strin
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	output, err := a.ExecuteContext(ctx, cmd)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return output, fmt.Errorf("执行命令超时（%s）: %w", timeout, err)
+	}
+	return output, err
+}
+
+// ExecuteContext sends an explicit cancel request and waits for the Agent's
+// response before returning, so task cleanup does not race a still-running
+// command on the node.
+func (a *AgentConn) ExecuteContext(ctx context.Context, cmd string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	// 为 Agent 侧添加完整 PATH 环境，确保 snap 等非标准路径下的命令可被发现
 	cmd = agentEnvPrefix + cmd
 
@@ -253,10 +274,19 @@ func (a *AgentConn) ExecuteWithTimeout(cmd string, timeout time.Duration) (strin
 			return combined, fmt.Errorf("agent command execution failed: exit code %d", resp.ExitCode)
 		}
 		return combined, nil
-	case <-time.After(timeout):
-		cancel, _ := json.Marshal(wsMessage{Type: "exec_cancel", ID: reqID})
+	case <-ctx.Done():
+		cancel, _ := json.Marshal(wsMessage{Type: msgTypeExecCancel, ID: reqID})
 		_ = a.writeTextMessage(cancel, time.Second)
-		return "", fmt.Errorf("执行命令超时（%s）", timeout)
+		ackTimer := time.NewTimer(15 * time.Second)
+		defer ackTimer.Stop()
+		select {
+		case <-respCh:
+			return "", ctx.Err()
+		case <-a.doneCh:
+			return "", fmt.Errorf("%w: agent 连接已断开", ctx.Err())
+		case <-ackTimer.C:
+			return "", fmt.Errorf("%w: agent 未确认命令已停止", ctx.Err())
+		}
 	case <-a.doneCh:
 		return "", fmt.Errorf("agent 连接已断开")
 	}

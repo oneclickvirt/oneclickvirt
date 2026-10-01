@@ -39,6 +39,10 @@
                 :label="t('admin.domain.statusError')"
                 value="error"
               />
+              <el-option
+                :label="t('admin.domain.statusDeleting')"
+                value="deleting"
+              />
             </el-select>
             <el-select
               v-model="filters.providerId"
@@ -84,6 +88,7 @@
             </el-button>
             <el-button
               :loading="syncingProxies"
+              :disabled="loading || syncingProxies || savingDomain || deletingDomainIds.size > 0 || syncingDomainIds.size > 0"
               @click="handleSyncProxies"
             >
               <el-icon><Refresh /></el-icon>
@@ -207,6 +212,7 @@
               <template #default="{ row }">
                 <el-button
                   size="small"
+                  :disabled="savingDomain || syncingProxies || isDeletingDomain(row.id) || isSyncingDomain(row.id)"
                   @click="handleEditDomain(row)"
                 >
                   <el-icon><Edit /></el-icon>
@@ -214,7 +220,8 @@
                 </el-button>
                 <el-button
                   size="small"
-                  :loading="syncingDomainId === row.id"
+                  :loading="isSyncingDomain(row.id)"
+                  :disabled="savingDomain || syncingProxies || isDeletingDomain(row.id)"
                   @click="handleSyncDomain(row)"
                 >
                   <el-icon><Connection /></el-icon>
@@ -223,6 +230,8 @@
                 <el-button
                   size="small"
                   type="danger"
+                  :loading="isDeletingDomain(row.id)"
+                  :disabled="savingDomain || syncingProxies || isSyncingDomain(row.id)"
                   @click="handleDelete(row)"
                 >
                   <el-icon><Delete /></el-icon>
@@ -329,12 +338,15 @@
       :title="t('admin.domain.editDomain')"
       width="680px"
       destroy-on-close
+      :close-on-press-escape="!savingDomain"
+      :before-close="allowDomainClose"
       @closed="resetDomainForm"
     >
       <el-form
         ref="domainFormRef"
         :model="domainForm"
         :rules="domainRules"
+        :disabled="savingDomain"
         label-width="140px"
       >
         <el-form-item
@@ -429,12 +441,16 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showDomainDialog = false">
+        <el-button
+          :disabled="savingDomain"
+          @click="showDomainDialog = false"
+        >
           {{ t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
           :loading="savingDomain"
+          :disabled="savingDomain"
           @click="handleSaveDomain"
         >
           {{ t('common.save') }}
@@ -447,12 +463,21 @@
       :title="t('admin.domain.editConfig')"
       width="560px"
       destroy-on-close
+      :close-on-press-escape="!savingConfig"
+      :before-close="allowConfigClose"
     >
       <el-form
         ref="configFormRef"
         :model="configForm"
+        :disabled="savingConfig"
         label-width="150px"
       >
+        <el-alert
+          type="info"
+          :closable="false"
+          :title="t('admin.domain.agentProxyHint')"
+          style="margin-bottom: 16px"
+        />
         <el-form-item :label="t('admin.domain.enabled')">
           <el-switch v-model="configForm.enabled" />
         </el-form-item>
@@ -464,21 +489,6 @@
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item :label="t('admin.domain.dnsType')">
-          <el-select
-            v-model="configForm.dnsType"
-            style="width: 100%"
-          >
-            <el-option
-              label="Hosts"
-              value="hosts"
-            />
-            <el-option
-              label="Nginx"
-              value="nginx"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item :label="t('admin.domain.allowedSuffixes')">
           <el-input
             v-model="configForm.allowedSuffixes"
@@ -488,26 +498,18 @@
             {{ t('admin.domain.allowedSuffixesTip') }}
           </div>
         </el-form-item>
-        <el-form-item :label="t('admin.domain.nginxConfigPath')">
-          <el-input
-            v-model="configForm.nginxConfigPath"
-            placeholder="/etc/nginx/conf.d"
-          />
-        </el-form-item>
-        <el-form-item :label="t('admin.domain.nginxReloadCmd')">
-          <el-input
-            v-model="configForm.nginxReloadCmd"
-            placeholder="systemctl reload nginx"
-          />
-        </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showConfigDialog = false">
+        <el-button
+          :disabled="savingConfig"
+          @click="showConfigDialog = false"
+        >
           {{ t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
           :loading="savingConfig"
+          :disabled="savingConfig"
           @click="handleSaveConfig"
         >
           {{ t('common.save') }}
@@ -533,6 +535,7 @@ import {
 } from '@/api/features'
 import { getAllInstances, getProviderList } from '@/api/admin'
 import { formatEndpointHostPort } from '@/utils/endpoint'
+import { createActionLock, createKeyedActionLock } from '@/utils/actionLock'
 
 const { t, locale } = useI18n()
 
@@ -540,7 +543,7 @@ const activeTab = ref('domains')
 const domains = ref([])
 const loading = ref(false)
 const syncingProxies = ref(false)
-const syncingDomainId = ref(null)
+const syncingDomainIds = ref(new Set())
 const providers = ref([])
 const providerConfigs = ref({})
 const configLoading = ref(false)
@@ -553,6 +556,13 @@ const savingDomain = ref(false)
 const domainFormRef = ref(null)
 const instanceOptions = ref([])
 const instanceLoading = ref(false)
+const saveConfigLock = createActionLock()
+const saveDomainLock = createActionLock()
+const syncProxiesLock = createActionLock()
+const syncDomainLock = createKeyedActionLock()
+const deleteDomainLock = createKeyedActionLock()
+const deletingDomainIds = ref(new Set())
+let fetchGeneration = 0
 
 const filters = reactive({
   keyword: '',
@@ -616,16 +626,17 @@ function buildListParams() {
 }
 
 async function fetchData() {
+  const generation = ++fetchGeneration
   loading.value = true
   try {
     const res = await adminGetDomains(buildListParams())
-    if (res.code === 200) {
+    if (generation === fetchGeneration && res.code === 200) {
       const data = res.data || {}
       domains.value = Array.isArray(data) ? data : (data.list || [])
       pagination.total = data.total ?? domains.value.length
     }
   } finally {
-    loading.value = false
+    if (generation === fetchGeneration) loading.value = false
   }
 }
 
@@ -690,6 +701,7 @@ function handlePageSizeChange(size) {
 }
 
 function handleEditConfig(provider) {
+  if (savingConfig.value) return
   editingProviderId.value = provider.id
   const existing = getProviderConfig(provider.id)
   Object.assign(configForm, {
@@ -705,9 +717,12 @@ function handleEditConfig(provider) {
 }
 
 async function handleSaveConfig() {
+  if (!saveConfigLock.tryAcquire()) return
+  const providerId = editingProviderId.value
+  const payload = { ...configForm }
   savingConfig.value = true
   try {
-    await updateDomainConfig(editingProviderId.value, { ...configForm })
+    await updateDomainConfig(providerId, payload)
     ElMessage.success(t('admin.domain.configUpdated'))
     showConfigDialog.value = false
     await fetchProviders()
@@ -715,10 +730,15 @@ async function handleSaveConfig() {
     ElMessage.error(error?.message || t('admin.domain.saveFailed'))
   } finally {
     savingConfig.value = false
+    saveConfigLock.release()
   }
 }
 
+const allowDomainClose = done => { if (!savingDomain.value) done() }
+const allowConfigClose = done => { if (!savingConfig.value) done() }
+
 async function handleEditDomain(row) {
+  if (savingDomain.value || syncingProxies.value || isDeletingDomain(row?.id) || isSyncingDomain(row?.id)) return
   if (instanceOptions.value.length === 0) {
     await fetchInstances()
   }
@@ -757,12 +777,15 @@ function resetDomainForm() {
 }
 
 async function handleSaveDomain() {
+  if (!saveDomainLock.tryAcquire()) return
+  savingDomain.value = true
   try {
     await domainFormRef.value?.validate()
   } catch {
+    savingDomain.value = false
+    saveDomainLock.release()
     return
   }
-  savingDomain.value = true
   try {
     const payload = {
       domainName: domainForm.domainName,
@@ -787,24 +810,49 @@ async function handleSaveDomain() {
     }
   } finally {
     savingDomain.value = false
+    saveDomainLock.release()
   }
 }
 
+function setDeletingDomain(id, value) {
+  const next = new Set(deletingDomainIds.value)
+  if (value) next.add(id)
+  else next.delete(id)
+  deletingDomainIds.value = next
+}
+
+const isDeletingDomain = id => deletingDomainIds.value.has(id)
+
 async function handleDelete(row) {
+  if (!row?.id || savingDomain.value || syncingProxies.value || isSyncingDomain(row.id) || !deleteDomainLock.tryAcquire(row.id)) return
+  setDeletingDomain(row.id, true)
   try {
     await ElMessageBox.confirm(t('admin.domain.confirmDeleteDomain', { domain: row.domainName }))
     await adminDeleteDomain(row.id)
     ElMessage.success(t('admin.domain.deleteSuccess'))
-    fetchData()
+    await fetchData()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(error?.message || t('admin.domain.deleteFailed'))
     }
+  } finally {
+    deleteDomainLock.release(row.id)
+    setDeletingDomain(row.id, false)
   }
 }
 
+function setSyncingDomain(id, value) {
+  const next = new Set(syncingDomainIds.value)
+  if (value) next.add(id)
+  else next.delete(id)
+  syncingDomainIds.value = next
+}
+
+const isSyncingDomain = id => syncingDomainIds.value.has(id)
+
 async function handleSyncDomain(row) {
-  syncingDomainId.value = row.id
+  if (!row?.id || savingDomain.value || syncingProxies.value || isDeletingDomain(row.id) || !syncDomainLock.tryAcquire(row.id)) return
+  setSyncingDomain(row.id, true)
   try {
     await adminSyncDomainProxy(row.id)
     ElMessage.success(t('admin.domain.retrySyncSuccess'))
@@ -812,11 +860,13 @@ async function handleSyncDomain(row) {
   } catch (error) {
     ElMessage.error(error?.message || t('admin.domain.retrySyncFailed'))
   } finally {
-    syncingDomainId.value = null
+    syncDomainLock.release(row.id)
+    setSyncingDomain(row.id, false)
   }
 }
 
 async function handleSyncProxies() {
+  if (savingDomain.value || deletingDomainIds.value.size > 0 || syncingDomainIds.value.size > 0 || !syncProxiesLock.tryAcquire()) return
   syncingProxies.value = true
   try {
     const res = await adminSyncDomainProxies()
@@ -834,18 +884,21 @@ async function handleSyncProxies() {
     ElMessage.error(error?.message || t('admin.domain.syncProxiesFailed'))
   } finally {
     syncingProxies.value = false
+    syncProxiesLock.release()
   }
 }
 
 function getStatusTagType(status) {
   if (status === 'active') return 'success'
   if (status === 'error') return 'danger'
+  if (status === 'deleting') return 'danger'
   return 'warning'
 }
 
 function getStatusText(status) {
   if (status === 'active') return t('admin.domain.statusActive')
   if (status === 'error') return t('admin.domain.statusError')
+  if (status === 'deleting') return t('admin.domain.statusDeleting')
   return t('admin.domain.statusPending')
 }
 

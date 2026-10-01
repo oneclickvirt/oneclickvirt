@@ -166,6 +166,7 @@ type RotatingFileWriter struct {
 	size         int64
 	mu           sync.Mutex
 	currentDate  string // 当前文件所属的日期
+	currentFile  string // 当前日期下正在写入的文件
 	failCount    int    // 连续失败计数
 	lastFailTime time.Time
 }
@@ -214,6 +215,7 @@ func (w *RotatingFileWriter) Write(p []byte) (n int, err error) {
 		}
 		// 重置大小计数
 		w.size = 0
+		w.currentFile = ""
 	}
 
 	// 构建文件路径
@@ -237,6 +239,27 @@ func (w *RotatingFileWriter) Write(p []byte) (n int, err error) {
 		fmt.Fprintf(os.Stderr, "[ERROR] 打开日志文件失败 [%s] %s: %v\n", w.level, filename, err)
 		return len(p), nil
 	}
+	// Reload the size because writers are intentionally closed after every
+	// write and a process restart starts with no in-memory size counter.
+	if info, statErr := w.file.Stat(); statErr == nil {
+		w.size = info.Size()
+	}
+	// Rotate before appending when the configured maximum would be exceeded.
+	// A single record larger than MaxSize is still written as one record.
+	if w.config.MaxSize > 0 && w.size > 0 && w.size+int64(len(p)) > w.config.MaxSize {
+		_ = w.file.Close()
+		w.file = nil
+		filename = w.newRotatedFilename(filepath.Dir(filename), now)
+		w.file, err = os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			w.failCount++
+			w.lastFailTime = now
+			fmt.Fprintf(os.Stderr, "[ERROR] 打开轮转日志文件失败 [%s] %s: %v\n", w.level, filename, err)
+			return len(p), nil
+		}
+		w.size = 0
+	}
+	w.currentFile = filename
 
 	// 写入数据
 	n, err = w.file.Write(p)
@@ -265,7 +288,35 @@ func (w *RotatingFileWriter) getCurrentLogFilename() string {
 	// 创建按日期分组的目录结构：storage/logs/2006-01-02/level.log
 	dateStr := now.Format("2006-01-02")
 	dateDir := filepath.Join(w.config.BaseDir, dateStr)
-	return filepath.Join(dateDir, fmt.Sprintf("%s.log", w.level))
+	if w.currentFile != "" && filepath.Dir(w.currentFile) == dateDir {
+		return w.currentFile
+	}
+
+	baseLogFile := filepath.Join(dateDir, fmt.Sprintf("%s.log", w.level))
+	if w.config.MaxSize <= 0 {
+		return baseLogFile
+	}
+	if info, err := os.Stat(baseLogFile); err != nil || info.Size() < w.config.MaxSize {
+		return baseLogFile
+	}
+	return w.newRotatedFilename(dateDir, now)
+}
+
+func (w *RotatingFileWriter) newRotatedFilename(dateDir string, now time.Time) string {
+	timestamp := now.Format("20060102-150405.000000000")
+	for index := 0; index < 1000; index++ {
+		suffix := ""
+		if index > 0 {
+			suffix = fmt.Sprintf("-%d", index)
+		}
+		candidate := filepath.Join(dateDir, fmt.Sprintf("%s-%s%s.log", w.level, timestamp, suffix))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+	// Keep a deterministic fallback; the subsequent OpenFile error is handled
+	// by Write without blocking the application logger.
+	return filepath.Join(dateDir, fmt.Sprintf("%s-%s-999.log", w.level, timestamp))
 }
 
 // removeOldLogs 清理旧日志

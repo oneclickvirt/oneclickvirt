@@ -42,7 +42,7 @@ func (i *IncusProvider) SetInstancePassword(ctx context.Context, instanceID, pas
 	}
 
 	// SSH 方式
-	return i.sshSetInstancePassword(instanceID, password)
+	return i.sshSetInstancePassword(ctx, instanceID, password)
 }
 
 // ResetInstancePassword 重置实例密码
@@ -69,13 +69,16 @@ func (i *IncusProvider) generateRandomPassword() string {
 }
 
 // sshSetInstancePassword 通过SSH设置实例密码
-func (i *IncusProvider) sshSetInstancePassword(instanceID, password string) error {
+func (i *IncusProvider) sshSetInstancePassword(ctx context.Context, instanceID, password string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// 精确匹配实例名并读取状态，避免 grep 模式注入与误匹配
 	simpleCheckCmd := fmt.Sprintf(
 		"incus list --format csv -c n,s | awk -F, -v n=%s '$1==n {print $2}'",
 		shellSingleQuote(instanceID),
 	)
-	output, err := i.sshClient.Execute(simpleCheckCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, simpleCheckCmd)
 	if err != nil {
 		global.APP_LOG.Error("检查Incus实例状态失败",
 			zap.String("instanceID", instanceID),
@@ -96,7 +99,7 @@ func (i *IncusProvider) sshSetInstancePassword(instanceID, password string) erro
 		FallbackCmd:    buildIncusChpasswdCommand(instanceID, password),
 		TimeoutSeconds: 60,
 	})
-	_, err = i.sshClient.ExecuteViaTempScript(script, nil, 180*time.Second)
+	_, err = utils.ExecuteViaTempScriptContext(ctx, i.sshClient, script, nil, 180*time.Second)
 	if err != nil {
 		global.APP_LOG.Error("设置Incus实例密码失败",
 			zap.String("instanceID", instanceID),

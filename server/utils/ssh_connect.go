@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,19 @@ import (
 
 // UploadContent 上传内容到远程服务器指定路径
 func (c *SSHClient) UploadContent(content, remotePath string, perm os.FileMode) error {
+	return c.UploadContentContext(context.Background(), content, remotePath, perm)
+}
+
+// UploadContentContext uploads a file through a dedicated SSH session. A
+// cancelled transfer closes that session channel, leaving the shared SSH
+// transport and unrelated commands available.
+func (c *SSHClient) UploadContentContext(ctx context.Context, content, remotePath string, perm os.FileMode) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	endUse, useErr := c.beginUse()
 	if useErr != nil {
 		return useErr
@@ -24,9 +38,12 @@ func (c *SSHClient) UploadContent(content, remotePath string, perm os.FileMode) 
 	defer endUse()
 	// 检查连接健康状态，如果不健康则尝试重连
 	if !c.IsHealthy() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		global.APP_LOG.Warn("SSH连接不健康，尝试重连后上传",
 			zap.String("host", c.config.Host))
-		if err := c.Reconnect(); err != nil {
+		if err := c.ReconnectContext(ctx); err != nil {
 			return fmt.Errorf("failed to reconnect SSH before upload: %w", err)
 		}
 	}
@@ -36,8 +53,11 @@ func (c *SSHClient) UploadContent(content, remotePath string, perm os.FileMode) 
 	if client == nil {
 		return fmt.Errorf("SSH client is closed")
 	}
-	sftpClient, err := sftp.NewClient(client)
+	sftpClient, session, stderrDone, err := newSFTPClientContext(ctx, client)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if c.IsHealthy() {
 			return fmt.Errorf("failed to create SFTP session: %w", err)
 		}
@@ -45,53 +65,147 @@ func (c *SSHClient) UploadContent(content, remotePath string, perm os.FileMode) 
 		global.APP_LOG.Warn("SFTP客户端创建失败，尝试重连后重试",
 			zap.String("host", c.config.Host),
 			zap.Error(err))
-		if reconnErr := c.Reconnect(); reconnErr != nil {
+		if reconnErr := c.ReconnectContext(ctx); reconnErr != nil {
 			return fmt.Errorf("failed to reconnect SSH: %w (original error: %v)", reconnErr, err)
 		}
 		client = c.GetUnderlyingClient()
 		if client == nil {
 			return fmt.Errorf("SSH client is closed")
 		}
-		sftpClient, err = sftp.NewClient(client)
+		sftpClient, session, stderrDone, err = newSFTPClientContext(ctx, client)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			return fmt.Errorf("failed to create SFTP client after reconnection: %w", err)
 		}
 	}
-	defer sftpClient.Close()
+	defer func() {
+		_ = session.Close()
+		_ = sftpClient.Close()
+		<-stderrDone
+	}()
 
-	// 创建远程文件的目录（如果不存在）
+	uploadDone := make(chan error, 1)
+	go func() {
+		uploadDone <- uploadSFTPContent(sftpClient, content, remotePath, perm)
+	}()
+	select {
+	case err := <-uploadDone:
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		_ = session.Close()
+		_ = sftpClient.Close()
+		<-uploadDone
+		<-stderrDone
+		return ctx.Err()
+	}
+}
+
+func uploadSFTPContent(sftpClient *sftp.Client, content, remotePath string, perm os.FileMode) error {
 	remoteDir := remotePath
 	if lastSlash := strings.LastIndex(remotePath, "/"); lastSlash != -1 {
 		remoteDir = remotePath[:lastSlash]
 	}
-
 	if remoteDir != "" && remoteDir != remotePath {
-		err = sftpClient.MkdirAll(remoteDir)
-		if err != nil {
+		if err := sftpClient.MkdirAll(remoteDir); err != nil {
 			return fmt.Errorf("failed to create remote directory %s: %w", remoteDir, err)
 		}
 	}
-
-	// 创建远程文件
 	remoteFile, err := sftpClient.Create(remotePath)
 	if err != nil {
 		return fmt.Errorf("failed to create remote file %s: %w", remotePath, err)
 	}
 	defer remoteFile.Close()
-
-	// 写入内容
-	_, err = io.WriteString(remoteFile, content)
-	if err != nil {
+	if n, err := io.WriteString(remoteFile, content); err != nil {
 		return fmt.Errorf("failed to write content to remote file: %w", err)
+	} else if n != len(content) {
+		return fmt.Errorf("failed to write content to remote file: %w", io.ErrShortWrite)
 	}
-
-	// 设置文件权限
-	err = sftpClient.Chmod(remotePath, perm)
-	if err != nil {
+	if err := sftpClient.Chmod(remotePath, perm); err != nil {
 		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
-
 	return nil
+}
+
+func newSFTPClientContext(ctx context.Context, client *ssh.Client) (*sftp.Client, *ssh.Session, <-chan struct{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, nil, err
+	}
+	session, err := client.NewSession()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	closeSession := func() { _ = session.Close() }
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		closeSession()
+		return nil, nil, nil, err
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		closeSession()
+		return nil, nil, nil, err
+	}
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		closeSession()
+		return nil, nil, nil, err
+	}
+	stderrDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, stderr)
+		close(stderrDone)
+	}()
+
+	requestDone := make(chan error, 1)
+	go func() { requestDone <- session.RequestSubsystem("sftp") }()
+	select {
+	case err := <-requestDone:
+		if err != nil {
+			closeSession()
+			<-stderrDone
+			return nil, nil, nil, err
+		}
+	case <-ctx.Done():
+		closeSession()
+		<-requestDone
+		<-stderrDone
+		return nil, nil, nil, ctx.Err()
+	}
+
+	type sftpResult struct {
+		client *sftp.Client
+		err    error
+	}
+	clientDone := make(chan sftpResult, 1)
+	go func() {
+		sftpClient, err := sftp.NewClientPipe(stdout, stdin)
+		clientDone <- sftpResult{client: sftpClient, err: err}
+	}()
+	select {
+	case result := <-clientDone:
+		if result.err != nil {
+			closeSession()
+			<-stderrDone
+			return nil, nil, nil, result.err
+		}
+		return result.client, session, stderrDone, nil
+	case <-ctx.Done():
+		closeSession()
+		result := <-clientDone
+		if result.client != nil {
+			_ = result.client.Close()
+		}
+		<-stderrDone
+		return nil, nil, nil, ctx.Err()
+	}
 }
 
 // ResolveHostToIP 解析主机名到IP地址

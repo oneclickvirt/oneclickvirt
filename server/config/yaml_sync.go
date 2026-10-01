@@ -8,8 +8,8 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
+
 func (cm *ConfigManager) RestoreConfigFromDatabase() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -70,8 +70,11 @@ func (cm *ConfigManager) RestoreConfigFromDatabase() error {
 	// 使用Node API更新每个配置值（只更新非系统级配置）
 	restoredCount := 0
 	for _, config := range nonSystemConfigs {
-		// 尝试反序列化JSON值
-		value := parseConfigValue(config.Value)
+		value, valid := parsePersistedConfigValue(config.Key, config.Value)
+		if !valid {
+			cm.logger.Warn("跳过无效的结构化配置", zap.String("key", config.Key), zap.Uint("id", config.ID))
+			continue
+		}
 
 		if err := updateYAMLNode(&node, config.Key, value); err != nil {
 			// 只在debug级别记录配置键不存在的警告，避免日志噪音
@@ -102,7 +105,10 @@ func (cm *ConfigManager) RestoreConfigFromDatabase() error {
 
 	// 更新内存缓存 - 使用解析后的值，确保类型正确（只更新非系统级配置）
 	for _, config := range nonSystemConfigs {
-		parsedValue := parseConfigValue(config.Value)
+		parsedValue, valid := parsePersistedConfigValue(config.Key, config.Value)
+		if !valid {
+			continue
+		}
 		cm.configCache[config.Key] = parsedValue
 		cm.logger.Debug("更新配置缓存",
 			zap.String("key", config.Key),
@@ -174,15 +180,7 @@ func (cm *ConfigManager) syncYAMLConfigToDatabase() error {
 
 	// 使用短事务批量保存
 	if err := cm.db.Transaction(func(tx *gorm.DB) error {
-		if len(configsToSaveList) > 0 {
-			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "category"}, {Name: "key"}},
-				DoUpdates: clause.AssignmentColumns([]string{"value", "is_public", "updated_at"}),
-			}).CreateInBatches(configsToSaveList, 50).Error; err != nil {
-				return fmt.Errorf("批量保存配置失败: %v", err)
-			}
-		}
-		return nil
+		return persistSystemConfigBatch(tx, configsToSaveList, false)
 	}); err != nil {
 		return fmt.Errorf("批量保存配置到数据库失败: %v", err)
 	}
@@ -233,8 +231,9 @@ func (cm *ConfigManager) mergeYAMLDefaultsIntoDatabase() error {
 	}
 
 	// INSERT IGNORE：已存在的DB记录保持不变，只插入新增项
-	if err := cm.db.Clauses(clause.OnConflict{DoNothing: true}).
-		CreateInBatches(configsToInsert, 50).Error; err != nil {
+	if err := cm.db.Transaction(func(tx *gorm.DB) error {
+		return persistSystemConfigBatch(tx, configsToInsert, true)
+	}); err != nil {
 		cm.logger.Warn("YAML配置合并到数据库失败（可忽略）", zap.Error(err))
 		return nil
 	}

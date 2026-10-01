@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sync"
@@ -63,6 +64,16 @@ func (s *SafeShellExecutor) Execute(command string) (string, error) {
 	return exec.Execute(command)
 }
 
+func (s *SafeShellExecutor) ExecuteContext(ctx context.Context, command string) (string, error) {
+	s.mu.RLock()
+	exec := s.executor
+	s.mu.RUnlock()
+	if exec == nil {
+		return "", fmt.Errorf("SSH client not initialized: provider may be disconnected")
+	}
+	return ExecuteShellCommandContext(ctx, exec, command)
+}
+
 func (s *SafeShellExecutor) ExecuteWithTimeout(command string, timeout time.Duration) (string, error) {
 	s.mu.RLock()
 	exec := s.executor
@@ -94,13 +105,17 @@ func (s *SafeShellExecutor) ExecuteRaw(command string, timeout time.Duration) (s
 }
 
 func (s *SafeShellExecutor) ExecuteViaTempScript(scriptContent string, args []string, timeout time.Duration) (string, error) {
+	return s.ExecuteViaTempScriptContext(context.Background(), scriptContent, args, timeout)
+}
+
+func (s *SafeShellExecutor) ExecuteViaTempScriptContext(ctx context.Context, scriptContent string, args []string, timeout time.Duration) (string, error) {
 	s.mu.RLock()
 	exec := s.executor
 	s.mu.RUnlock()
 	if exec == nil {
 		return "", fmt.Errorf("SSH client not initialized: provider may be disconnected")
 	}
-	return exec.ExecuteViaTempScript(scriptContent, args, timeout)
+	return ExecuteViaTempScriptContext(ctx, exec, scriptContent, args, timeout)
 }
 
 func (s *SafeShellExecutor) UploadContent(content, remotePath string, perm os.FileMode) error {
@@ -146,3 +161,4 @@ func (s *SafeShellExecutor) Close() error {
 
 // Ensure SafeShellExecutor implements ShellExecutor
 var _ ShellExecutor = (*SafeShellExecutor)(nil)
+var _ ContextTempScriptExecutor = (*SafeShellExecutor)(nil)

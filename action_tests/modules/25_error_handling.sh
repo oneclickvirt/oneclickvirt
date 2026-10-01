@@ -153,7 +153,10 @@ run_module_25() {
         '{"title":"Concurrent Test","content":"test","type":"notice","status":"draft"}' "$group" "$ADMIN_TOKEN"
 
     # ---- Unicode in fields (may return 403 if registration disabled) ----
-    test_api "Unicode username" "POST" "/api/v1/auth/register" "200|400|403" \
+    # The fixture may already exist from an earlier module/run.  A precise
+    # duplicate response is an expected boundary result, just like the
+    # registration-disabled response.
+    test_api "Unicode username" "POST" "/api/v1/auth/register" "200|400|403|409" \
         '{"username":"用户测试","password":"Test123!@#"}' "$group" ""
     test_api "Emoji in announcement" "POST" "/api/v1/admin/announcements" "200|400" \
         '{"title":"🎉 Test","content":"emoji test","type":"notice","status":"draft"}' "$group" "$ADMIN_TOKEN"

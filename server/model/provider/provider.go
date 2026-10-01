@@ -298,16 +298,17 @@ type Provider struct {
 	VNCHost     string `json:"vncHost" gorm:"size:128;default:''"` // 可选VNC宿主地址，留空使用Provider Endpoint/PortIP
 
 	// 域名反向代理高级配置
-	ProxyHTTPPort    int        `json:"proxyHttpPort" gorm:"default:80"`       // HTTP反向代理监听端口(默认80)
-	ProxyHTTPSPort   int        `json:"proxyHttpsPort" gorm:"default:443"`     // HTTPS反向代理监听端口(默认443)
-	ProxyEnableHTTP  bool       `json:"proxyEnableHttp" gorm:"default:true"`   // 是否启用HTTP反向代理
-	ProxyEnableHTTPS bool       `json:"proxyEnableHttps" gorm:"default:false"` // 是否启用HTTPS反向代理
-	ProxyTLSCertPath string     `json:"proxyTlsCertPath" gorm:"size:512"`      // TLS证书文件路径(节点上的绝对路径)
-	ProxyTLSKeyPath  string     `json:"proxyTlsKeyPath" gorm:"size:512"`       // TLS私钥文件路径(节点上的绝对路径)
-	ProxyTLSCertData string     `json:"-" gorm:"type:text"`                    // TLS证书内容(Base64编码，不返回给前端)
-	ProxyTLSKeyData  string     `json:"-" gorm:"type:text"`                    // TLS私钥内容(Base64编码，不返回给前端)
-	ProxyAutoSync    bool       `json:"proxyAutoSync" gorm:"default:true"`     // 是否自动同步证书到节点
-	ProxySyncedAt    *time.Time `json:"proxySyncedAt"`                         // 证书最后同步时间
+	ProxyHTTPPort               int        `json:"proxyHttpPort" gorm:"default:80"`                  // HTTP反向代理监听端口(默认80)
+	ProxyHTTPSPort              int        `json:"proxyHttpsPort" gorm:"default:443"`                // HTTPS反向代理监听端口(默认443)
+	ProxyEnableHTTP             bool       `json:"proxyEnableHttp" gorm:"default:true"`              // 是否启用HTTP反向代理
+	ProxyEnableHTTPS            bool       `json:"proxyEnableHttps" gorm:"default:false"`            // 是否启用HTTPS反向代理
+	ProxyTrustCloudflareHeaders bool       `json:"proxyTrustCloudflareHeaders" gorm:"default:false"` // HTTP回源时信任Cloudflare的CF-Visitor
+	ProxyTLSCertPath            string     `json:"proxyTlsCertPath" gorm:"size:512"`                 // TLS证书文件路径(节点上的绝对路径)
+	ProxyTLSKeyPath             string     `json:"proxyTlsKeyPath" gorm:"size:512"`                  // TLS私钥文件路径(节点上的绝对路径)
+	ProxyTLSCertData            string     `json:"-" gorm:"type:text"`                               // TLS证书内容(Base64编码，不返回给前端)
+	ProxyTLSKeyData             string     `json:"-" gorm:"type:text"`                               // TLS私钥内容(Base64编码，不返回给前端)
+	ProxyAutoSync               bool       `json:"proxyAutoSync" gorm:"default:true"`                // 是否自动同步证书到节点
+	ProxySyncedAt               *time.Time `json:"proxySyncedAt"`                                    // 证书最后同步时间
 
 	// 签到续期开关（高级配置）
 	EnableCheckin bool `json:"enableCheckin" gorm:"default:false"` // 是否启用签到续期
@@ -602,8 +603,11 @@ type Port struct {
 	Status       string `json:"status" gorm:"default:active;size:16;index:idx_instance_status,priority:2"`                // 映射状态：active, inactive
 	Description  string `json:"description" gorm:"size:256"`                                                              // 端口用途描述（支持更长描述）
 	IsSSH        bool   `json:"isSsh" gorm:"default:false;index:idx_instance_ssh,priority:2"`                             // 是否为SSH端口
-	IsAutomatic  bool   `json:"isAutomatic" gorm:"default:true"`                                                          // 是否为自动分配的端口
-	PortType     string `json:"portType" gorm:"default:range_mapped;size:16"`                                             // 端口类型：range_mapped(区间映射), manual(手动添加), batch(批量添加)
+	// Manual mappings must be able to persist false. With default:true GORM
+	// treats false as an omitted zero value and the database silently turns a
+	// manual mapping into an automatic one during the next sync.
+	IsAutomatic bool   `json:"isAutomatic" gorm:"default:false"`             // 是否为自动分配的端口
+	PortType    string `json:"portType" gorm:"default:range_mapped;size:16"` // 端口类型：range_mapped(区间映射), manual(手动添加), batch(批量添加)
 
 	// IPv6支持
 	IPv6Enabled   bool   `json:"ipv6Enabled" gorm:"default:false"`            // 是否启用IPv6映射

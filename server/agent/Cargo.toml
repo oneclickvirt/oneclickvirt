@@ -36,6 +36,7 @@ rand = "0.8"
 socket2 = "0.5"
 libc = "0.2"
 base64 = "0.22"
+sha2 = "0.10"
 
 [profile.release]
 opt-level = "z"

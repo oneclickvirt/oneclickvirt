@@ -33,8 +33,22 @@ type trafficData struct {
 // 参数：预加载的instance和monitor数据
 // 策略：固定查询最近30分钟，MySQL自动去重累加
 func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, monitor *monitoringModel.PmacctMonitor) error {
+	worker := *s
+	if worker.ctx == nil {
+		worker.ctx = context.Background()
+	}
+	return worker.collectTrafficFromSQLite(instance, monitor)
+}
+
+func (s *Service) collectTrafficFromSQLite(instance *providerModel.Instance, monitor *monitoringModel.PmacctMonitor) error {
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
 	if instance == nil {
 		return fmt.Errorf("instance is nil")
+	}
+	if monitor == nil {
+		return fmt.Errorf("monitor is nil")
 	}
 	if err := validatePmacctInstanceName(instance.Name); err != nil {
 		return err
@@ -43,7 +57,12 @@ func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, mon
 
 	// 获取provider记录（用于验证和缓存刷新）
 	var providerRecord providerModel.Provider
-	if err := global.APP_DB.First(&providerRecord, instance.ProviderID).Error; err != nil {
+	if s.collectionProvider != nil {
+		if s.collectionProvider.ID != instance.ProviderID {
+			return fmt.Errorf("collection Provider does not match instance")
+		}
+		providerRecord = *s.collectionProvider
+	} else if err := global.APP_DB.WithContext(s.ctx).First(&providerRecord, instance.ProviderID).Error; err != nil {
 		return fmt.Errorf("failed to find provider: %w", err)
 	}
 
@@ -97,7 +116,10 @@ func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, mon
 	defer cancel1()
 
 	checkResult, err := providerInstance.ExecuteSSHCommand(ctx1, checkCmd)
-	if err != nil || strings.TrimSpace(checkResult) != "exists" {
+	if err != nil {
+		return fmt.Errorf("检查流量数据库失败: %w", err)
+	}
+	if strings.TrimSpace(checkResult) != "exists" {
 		global.APP_LOG.Warn("SQLite 文件不存在，跳过采集",
 			zap.Uint("instanceID", instanceID),
 			zap.String("dbPath", dbPath))
@@ -298,7 +320,7 @@ LIMIT 10000;
 		global.APP_LOG.Debug("解析后无有效流量数据",
 			zap.Uint("instanceID", instanceID),
 			zap.Int("totalLines", len(lines)))
-		return nil
+		return fmt.Errorf("流量采集返回的数据无法解析")
 	}
 
 	// 准备批量插入数据（直接使用ON DUPLICATE KEY UPDATE去重）
@@ -328,7 +350,7 @@ LIMIT 10000;
 
 	// 查询最近一次有数据的记录（rx_bytes > 0 OR tx_bytes > 0）
 	// 使用子查询确保兼容 MySQL 5.x/9.x 和 MariaDB 5.x/9.x
-	err = global.APP_DB.Raw(`
+	err = global.APP_DB.WithContext(s.ctx).Raw(`
 		SELECT 
 			COALESCE(MAX(rx_bytes), 0) as max_rx_bytes,
 			COALESCE(MAX(tx_bytes), 0) as max_tx_bytes,
@@ -364,7 +386,7 @@ LIMIT 10000;
 	}
 
 	// 更新最后同步时间
-	if err := global.APP_DB.Exec(
+	if err := global.APP_DB.WithContext(s.ctx).Exec(
 		"UPDATE pmacct_monitors SET last_sync = ? WHERE instance_id = ?",
 		providerCurrentTimeStr, instanceID).Error; err != nil {
 		global.APP_LOG.Error("更新同步时间失败",

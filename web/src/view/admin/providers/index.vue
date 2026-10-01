@@ -10,7 +10,8 @@
               <el-button
                 type="success"
                 :icon="CircleCheck"
-                :loading="batchHealthSubmitting"
+                :loading="batchHealthSubmitting || batchActionLoading"
+                :disabled="batchActionLoading || selectedProviders.some(provider => busyProviderIds.has(provider.id))"
                 @click="handleBatchHealthCheck"
               >
                 {{ $t('admin.providers.batchHealthCheck') }} ({{ selectedProviders.length }})
@@ -18,6 +19,8 @@
               <el-button
                 type="danger"
                 :icon="Delete"
+                :loading="batchActionLoading"
+                :disabled="batchActionLoading || selectedProviders.some(provider => busyProviderIds.has(provider.id))"
                 @click="handleBatchDelete"
               >
                 {{ $t('admin.providers.batchDelete') }} ({{ selectedProviders.length }})
@@ -25,6 +28,8 @@
               <el-button
                 type="warning"
                 :icon="Lock"
+                :loading="batchActionLoading"
+                :disabled="batchActionLoading || selectedProviders.some(provider => busyProviderIds.has(provider.id))"
                 @click="handleBatchFreeze"
               >
                 {{ $t('admin.providers.batchFreeze') }} ({{ selectedProviders.length }})
@@ -74,6 +79,7 @@
         :current-page="currentPage"
         :page-size="pageSize"
         :total="total"
+        :busy-provider-ids="busyProviderIds"
         @selection-change="handleSelectionChange"
         @edit="editProvider"
         @auto-configure="autoConfigureAPI"
@@ -104,7 +110,7 @@
       :provider-data="addProviderForm"
       :grouped-countries="groupedCountries"
       :loading="addProviderLoading"
-      @submit="handleProviderFormSubmit"
+      :submit-handler="handleProviderFormSubmit"
       @cancel="cancelAddServer"
       @reset-level-limits="resetLevelLimitsToDefault"
       @provider-updated="handleProviderUpdated"
@@ -118,10 +124,15 @@
       :running-task="configDialog.runningTask"
       :history-tasks="configDialog.historyTasks"
       :pagination="configDialog.pagination"
-      @close="configDialog.visible = false"
+      :submitting="configSubmitting"
+      :canceling="configCanceling"
+      :history-loading="configHistoryLoading"
+      @close="closeConfigurationDialog"
       @view-task-log="viewTaskLog"
       @view-running-task="viewRunningTask"
+      @cancel-running-task="cancelRunningConfiguration"
       @rerun-configuration="rerunConfiguration"
+      @refresh-configuration="refreshConfiguration"
       @page-change="handleConfigPageChange"
       @page-size-change="handleConfigPageSizeChange"
     />
@@ -132,7 +143,7 @@
       :loading="taskLogDialog.loading"
       :error="taskLogDialog.error"
       :task="taskLogDialog.task"
-      @close="taskLogDialog.visible = false"
+      @close="closeTaskLogDialog"
     />
 
     <!-- 监控管理对话框 -->
@@ -143,12 +154,15 @@
       :task="trafficMonitorDialog.task"
       :running-task="trafficMonitorDialog.runningTask"
       :history-tasks="trafficMonitorDialog.historyTasks"
-      :loading="trafficMonitorDialog.loading"
+      :loading="trafficMonitorLoading"
       :pagination="trafficMonitorDialog.pagination"
+      :operation-submitting="trafficOperationSubmitting"
       @close="resetTrafficMonitorDialog()"
       @refresh="refreshTrafficMonitorTask"
+      @refresh-history="loadTrafficMonitorHistory"
       @view-task-log="viewTrafficMonitorTaskLog"
       @view-running-task="viewRunningTrafficMonitorTask"
+      @show-history="showTrafficMonitorHistory"
       @execute-operation="executeTrafficMonitorOperation"
       @page-change="handleTrafficMonitorPageChange"
       @page-size-change="handleTrafficMonitorPageSizeChange"
@@ -158,12 +172,10 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { Search, Delete, Lock, Upload, Download, CircleCheck } from '@element-plus/icons-vue'
-import { useI18n } from 'vue-i18n'
+import { Delete, Lock, Upload, Download, CircleCheck } from '@element-plus/icons-vue'
 import SearchFilter from './components/SearchFilter.vue'
 import ConfigDialog from './components/ConfigDialog.vue'
 import TaskLogDialog from './components/TaskLogDialog.vue'
-import TrafficMonitorTaskDialog from './components/TrafficMonitorTaskDialog.vue'
 import MonitoringManagementDialog from './components/MonitoringManagementDialog.vue'
 import ProviderTable from './components/ProviderTable.vue'
 import ProviderFormDialog from './components/ProviderFormDialog.vue'
@@ -173,10 +185,8 @@ import { useProviderForm } from './composables/useProviderForm'
 import { useProviderDialogs } from './composables/useProviderDialogs'
 import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
 
-const { t } = useI18n()
-
 const {
-  providers, selectedProviders, loading, batchHealthSubmitting,
+  providers, selectedProviders, loading, batchHealthSubmitting, batchActionLoading, busyProviderIds,
   currentPage, pageSize, total, searchForm,
   loadProviders, handleSearch, handleReset,
   handleSizeChange, handleCurrentChange, handleSelectionChange,
@@ -201,7 +211,7 @@ const handleImportCsvFileChange = async (event) => {
 
 const {
   showAddDialog, addProviderLoading, isEditing, addProviderForm,
-  maxTrafficTB, groupedCountries, getLevelTagType,
+  groupedCountries,
   resetLevelLimitsToDefault, cancelAddServer,
   editProvider, submitAddServer
 } = useProviderForm(loadProviders)
@@ -245,14 +255,15 @@ const handleModeConfirm = (mode) => {
 }
 
 const {
-  configDialog, taskLogDialog, trafficMonitorDialog,
-  viewTaskLog, copyTaskLog, autoConfigureAPI,
-  startNewConfiguration, rerunConfiguration, viewRunningTask,
+  configDialog, taskLogDialog, closeTaskLogDialog, trafficMonitorDialog, configSubmitting, configCanceling, configHistoryLoading, closeConfigurationDialog,
+  trafficMonitorLoading, trafficOperationSubmitting,
+  viewTaskLog, autoConfigureAPI,
+  rerunConfiguration, refreshConfiguration, cancelRunningConfiguration, viewRunningTask,
   handleConfigPageChange, handleConfigPageSizeChange,
   handleEnableTrafficMonitor, loadTrafficMonitorHistory,
-  openTrafficMonitorDialog, handleTrafficMonitorPageChange,
+  handleTrafficMonitorPageChange,
   handleTrafficMonitorPageSizeChange, executeTrafficMonitorOperation,
-  viewTrafficMonitorTaskLog, viewRunningTrafficMonitorTask,
+  viewTrafficMonitorTaskLog, viewRunningTrafficMonitorTask, showTrafficMonitorHistory,
   refreshTrafficMonitorTask, resetTrafficMonitorDialog, debugAuthStatus
 } = useProviderDialogs(loadProviders)
 

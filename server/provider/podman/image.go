@@ -39,7 +39,7 @@ func parsePodmanImageList(output string) []provider.Image {
 		for i := range fields {
 			fields[i] = strings.TrimSpace(fields[i])
 		}
-		if fields[0] == "" || strings.EqualFold(fields[0], "repository") {
+		if fields[0] == "" || strings.EqualFold(fields[0], "repository") || provider.IsRuntimeInfrastructureImage(fields[0]) {
 			continue
 		}
 		images = append(images, provider.Image{

@@ -34,10 +34,14 @@ func (s *TaskService) cleanupInterruptedTasks(reason string) {
 	if len(interrupted) == 0 {
 		return
 	}
+	interruptedIDs := make([]uint, 0, len(interrupted))
+	for _, task := range interrupted {
+		interruptedIDs = append(interruptedIDs, task.ID)
+	}
 
 	now := time.Now()
 	runningResult := global.APP_DB.Model(&adminModel.Task{}).
-		Where("status IN ?", []string{mainTaskStatusProcessing, mainTaskStatusRunning}).
+		Where("id IN ? AND status IN ?", interruptedIDs, []string{mainTaskStatusProcessing, mainTaskStatusRunning}).
 		Updates(map[string]interface{}{
 			"status":        mainTaskStatusFailed,
 			"error_message": reason,
@@ -48,7 +52,7 @@ func (s *TaskService) cleanupInterruptedTasks(reason string) {
 	}
 
 	cancellingResult := global.APP_DB.Model(&adminModel.Task{}).
-		Where("status = ?", mainTaskStatusCancelling).
+		Where("id IN ? AND status = ?", interruptedIDs, mainTaskStatusCancelling).
 		Updates(map[string]interface{}{
 			"status":        mainTaskStatusCancelled,
 			"cancel_reason": reason,

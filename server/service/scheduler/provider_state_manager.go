@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,7 +16,10 @@ type ProviderState struct {
 	lastCollect      time.Time
 	createdAt        time.Time // 添加创建时间（用于强制过期）
 	currentRoundID   int64
-	isCollecting     atomic.Bool // 使用atomic避免锁
+	isCollecting     bool
+	retired          bool
+	collectCancel    context.CancelFunc
+	timeoutRequested bool
 	collectStartTime time.Time
 	lastAccess       time.Time
 	mu               sync.RWMutex
@@ -33,127 +37,87 @@ func NewProviderStateManager() *ProviderStateManager {
 	return &ProviderStateManager{}
 }
 
-// GetOrCreate 获取或创建Provider状态
+// GetOrCreate returns a current entry; retired references cannot start work.
 func (m *ProviderStateManager) GetOrCreate(providerID uint) *ProviderState {
-	// 快速路径：状态已存在
-	if value, ok := m.states.Load(providerID); ok {
-		state := value.(*ProviderState)
-		state.mu.Lock()
-		state.lastAccess = time.Now()
-		state.mu.Unlock()
-		return state
+	for {
+		if value, ok := m.states.Load(providerID); ok {
+			state := value.(*ProviderState)
+			state.mu.Lock()
+			retired := state.retired
+			if !retired {
+				state.lastAccess = time.Now()
+			}
+			state.mu.Unlock()
+			if !retired {
+				return state
+			}
+			continue
+		}
+		now := time.Now()
+		state := &ProviderState{createdAt: now, lastAccess: now}
+		if _, loaded := m.states.LoadOrStore(providerID, state); !loaded {
+			m.stateCount.Add(1)
+			return state
+		}
 	}
-
-	// 慢速路径：创建新状态
-	now := time.Now()
-	state := &ProviderState{
-		lastCollect:      time.Time{},
-		createdAt:        now, // 记录创建时间
-		currentRoundID:   0,
-		collectStartTime: time.Time{},
-		lastAccess:       now,
-	}
-	state.isCollecting.Store(false)
-
-	// LoadOrStore确保并发安全
-	actual, loaded := m.states.LoadOrStore(providerID, state)
-	if !loaded {
-		m.stateCount.Add(1)
-	}
-
-	return actual.(*ProviderState)
 }
 
-// Delete 删除Provider状态
+// Active work keeps its entry until exit, including after deletion or timeout.
 func (m *ProviderStateManager) Delete(providerID uint) {
-	if _, loaded := m.states.LoadAndDelete(providerID); loaded {
-		m.stateCount.Add(-1)
+	if value, loaded := m.states.Load(providerID); loaded {
+		state := value.(*ProviderState)
+		if !m.deleteIdleState(providerID, state, nil) {
+			state.mu.RLock()
+			cancel := state.collectCancel
+			state.mu.RUnlock()
+			if cancel != nil {
+				cancel()
+			}
+		}
 	}
 }
 
-// CleanupExpired 清理过期状态（支持强制过期）
+func (m *ProviderStateManager) deleteIdleState(providerID uint, state *ProviderState, eligible func(*ProviderState) bool) bool {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.retired || state.isCollecting || (eligible != nil && !eligible(state)) {
+		return false
+	}
+	state.retired = true
+	if !m.states.CompareAndDelete(providerID, state) {
+		return false
+	}
+	m.stateCount.Add(-1)
+	return true
+}
+
 func (m *ProviderStateManager) CleanupExpired(threshold time.Duration) int {
 	now := time.Now()
 	cleaned := 0
-	maxLifetime := 6 * time.Hour // 状态最大存活6小时（强制过期）
-
 	m.states.Range(func(key, value interface{}) bool {
-		providerID := key.(uint)
-		state := value.(*ProviderState)
-
-		state.mu.RLock()
-		isExpired := now.Sub(state.lastAccess) > threshold
-		isCollecting := state.isCollecting.Load()
-		lifetime := now.Sub(state.createdAt)
-		forcedExpire := lifetime > maxLifetime
-		state.mu.RUnlock()
-
-		shouldDelete := false
-		reason := ""
-
-		// 过期且未在采集中
-		if isExpired && !isCollecting {
-			shouldDelete = true
-			reason = "idle_timeout"
-		}
-
-		// 强制过期（防止长期活跃的状态永不释放）
-		if !shouldDelete && forcedExpire && !isCollecting {
-			shouldDelete = true
-			reason = "max_lifetime"
-		}
-
-		if shouldDelete {
-			m.Delete(providerID)
+		if m.deleteIdleState(key.(uint), value.(*ProviderState), func(state *ProviderState) bool {
+			return now.Sub(state.lastAccess) > threshold || now.Sub(state.createdAt) > 6*time.Hour
+		}) {
 			cleaned++
-			if global.APP_LOG != nil {
-				global.APP_LOG.Debug("清理Provider状态",
-					zap.Uint("providerID", providerID),
-					zap.String("reason", reason),
-					zap.Duration("lifetime", lifetime))
-			}
 		}
-
-		return true // 继续遍历
+		return true
 	})
-
-	if cleaned > 0 {
-		global.APP_LOG.Debug("清理过期provider状态",
-			zap.Int("cleaned", cleaned),
-			zap.Int64("remaining", m.stateCount.Load()))
-	}
-
 	return cleaned
 }
 
-// CleanupDeleted 清理已删除的Provider状态（需要validIDs列表）
 func (m *ProviderStateManager) CleanupDeleted(validIDs []uint) int {
-	// 构建有效ID集合
 	validSet := make(map[uint]bool, len(validIDs))
 	for _, id := range validIDs {
 		validSet[id] = true
 	}
-
 	cleaned := 0
 	m.states.Range(func(key, value interface{}) bool {
-		providerID := key.(uint)
-		if !validSet[providerID] {
-			state := value.(*ProviderState)
-			// 只删除未在采集中的状态
-			if !state.isCollecting.Load() {
-				m.Delete(providerID)
-				cleaned++
-			}
+		id := key.(uint)
+		if !validSet[id] && m.deleteIdleState(id, value.(*ProviderState), nil) {
+			cleaned++
 		}
 		return true
 	})
-
-	if cleaned > 0 {
-		global.APP_LOG.Debug("清理已删除provider的状态",
-			zap.Int("cleaned", cleaned),
-			zap.Int64("remaining", m.stateCount.Load()))
-	}
-
 	return cleaned
 }
 
@@ -162,57 +126,79 @@ func (m *ProviderStateManager) Count() int64 {
 	return m.stateCount.Load()
 }
 
-// ResetIfCollectingTooLong 重置长时间采集中的状态（防止死锁）
+// ResetIfCollectingTooLong requests cancellation once and retains ownership until exit.
 func (m *ProviderStateManager) ResetIfCollectingTooLong(timeout time.Duration) int {
 	now := time.Now()
-	reset := 0
-
+	requested := 0
 	m.states.Range(func(key, value interface{}) bool {
-		providerID := key.(uint)
 		state := value.(*ProviderState)
-
-		if state.isCollecting.Load() {
-			state.mu.RLock()
-			elapsed := now.Sub(state.collectStartTime)
-			roundID := state.currentRoundID
-			state.mu.RUnlock()
-
-			if elapsed > timeout {
-				state.isCollecting.Store(false)
-				global.APP_LOG.Error("Provider流量采集超时，强制解锁",
-					zap.Uint("providerID", providerID),
-					zap.Int64("roundID", roundID),
-					zap.Duration("elapsed", elapsed))
-				reset++
-			}
+		state.mu.Lock()
+		elapsed := now.Sub(state.collectStartTime)
+		roundID := state.currentRoundID
+		requestCancel := state.isCollecting && !state.timeoutRequested && elapsed > timeout
+		cancel := state.collectCancel
+		if requestCancel {
+			state.timeoutRequested = true
 		}
-
+		state.mu.Unlock()
+		if requestCancel {
+			if cancel != nil {
+				cancel()
+			}
+			if global.APP_LOG != nil {
+				global.APP_LOG.Error("Provider流量采集超时，已请求取消并等待退出",
+					zap.Uint("providerID", key.(uint)), zap.Int64("roundID", roundID), zap.Duration("elapsed", elapsed))
+			}
+			requested++
+		}
 		return true
 	})
-
-	return reset
+	return requested
 }
 
-// StartCollecting 开始采集（返回是否成功获取锁）
 func (s *ProviderState) StartCollecting() bool {
-	if !s.isCollecting.CompareAndSwap(false, true) {
-		return false
-	}
-	// Set collectStartTime immediately to prevent stale time in ResetIfCollectingTooLong
+	_, started := s.StartCollectingContext(context.Background(), 5*time.Minute)
+	return started
+}
+
+func (s *ProviderState) StartCollectingContext(parent context.Context, timeout time.Duration) (context.Context, bool) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.retired || s.isCollecting {
+		return nil, false
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	if parent.Err() != nil {
+		return nil, false
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	s.isCollecting = true
+	s.collectCancel = cancel
+	s.timeoutRequested = false
 	s.collectStartTime = time.Now()
-	s.mu.Unlock()
-	return true
+	return ctx, true
 }
 
-// FinishCollecting 完成采集
 func (s *ProviderState) FinishCollecting() {
-	s.isCollecting.Store(false)
+	s.mu.Lock()
+	cancel := s.collectCancel
+	s.collectCancel = nil
+	s.isCollecting = false
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
-// IsCollecting 检查是否正在采集
 func (s *ProviderState) IsCollecting() bool {
-	return s.isCollecting.Load()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isCollecting
 }
 
 // UpdateLastCollect 更新最后采集时间并返回新的roundID
@@ -222,7 +208,6 @@ func (s *ProviderState) UpdateLastCollect() int64 {
 
 	s.lastCollect = time.Now()
 	s.currentRoundID++
-	s.collectStartTime = time.Now()
 
 	return s.currentRoundID
 }

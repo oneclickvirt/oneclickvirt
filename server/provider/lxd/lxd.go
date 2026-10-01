@@ -703,7 +703,7 @@ func (l *LXDProvider) ExecuteSSHCommand(ctx context.Context, command string) (st
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.RedactSensitiveCommand(command, 200)))
 
-	output, err := l.sshClient.Execute(command)
+	output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.RedactSensitiveCommand(command, 200)),

@@ -421,6 +421,11 @@ func (s *MonitorService) DeregisterMonitor(instanceID uint, config *monitoringMo
 		return nil
 	}
 
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+	if err := NewSyncService(ctx, s.db).SyncInstanceTraffic(instanceID, config); err != nil {
+		return fmt.Errorf("final traffic collection failed; monitor retained: %w", err)
+	}
 	providerID := monitors[0].ProviderID
 	client, err := s.getAgentClient(providerID, config)
 	if err == nil {

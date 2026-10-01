@@ -71,7 +71,7 @@ export default {
   newInstance: "新实例",
   noTasksForProvider: "该服务器暂无任务",
   confirmCancel: "确认取消",
-  taskCancelled: "任务已取消",
+  taskCancelled: "已请求取消任务",
   cancelTaskFailed: "取消任务失败",
   unknown: "未知",
   request: "请求",

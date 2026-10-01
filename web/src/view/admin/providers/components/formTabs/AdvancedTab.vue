@@ -551,6 +551,26 @@
           </el-text>
         </div>
       </template>
+      <el-form-item
+        v-if="modelValue.proxyEnableHttp"
+        :label="$t('admin.providers.proxyTrustCloudflareHeaders')"
+        prop="proxyTrustCloudflareHeaders"
+      >
+        <el-switch
+          v-model="modelValue.proxyTrustCloudflareHeaders"
+          :active-text="$t('common.yes')"
+          :inactive-text="$t('common.no')"
+        />
+      </el-form-item>
+      <div
+        v-if="modelValue.proxyEnableHttp"
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text size="small" type="warning">
+          {{ $t('admin.providers.proxyTrustCloudflareHeadersTip') }}
+        </el-text>
+      </div>
     </template>
   </el-form>
 </template>

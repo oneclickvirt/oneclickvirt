@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/constant"
@@ -133,19 +134,20 @@ func (s *TaskService) executeAgentDeployTask(ctx context.Context, taskID uint, p
 	}
 
 	agentCfg := &agentService.AgentConfig{
-		Token:                   config.AgentToken,
-		TrafficCollectInterval:  config.CollectInterval,
-		ResourceCollectInterval: config.ResourceCollectInterval,
-		ExtraExcludeCIDRsV4:     config.ExtraExcludeCIDRsV4,
-		ExtraExcludeCIDRsV6:     config.ExtraExcludeCIDRsV6,
-		TrafficCollectMethod:    config.TrafficCollectMethod,
-		EnableReverseProxy:      dbProvider.EnableDomainBinding,
-		ProxyHTTPPort:           dbProvider.ProxyHTTPPort,
-		ProxyHTTPSPort:          dbProvider.ProxyHTTPSPort,
-		ProxyEnableHTTP:         dbProvider.ProxyEnableHTTP,
-		ProxyEnableHTTPS:        dbProvider.ProxyEnableHTTPS,
-		ProxyTLSCertPath:        dbProvider.ProxyTLSCertPath,
-		ProxyTLSKeyPath:         dbProvider.ProxyTLSKeyPath,
+		Token:                       config.AgentToken,
+		TrafficCollectInterval:      config.CollectInterval,
+		ResourceCollectInterval:     config.ResourceCollectInterval,
+		ExtraExcludeCIDRsV4:         config.ExtraExcludeCIDRsV4,
+		ExtraExcludeCIDRsV6:         config.ExtraExcludeCIDRsV6,
+		TrafficCollectMethod:        config.TrafficCollectMethod,
+		EnableReverseProxy:          dbProvider.EnableDomainBinding,
+		ProxyHTTPPort:               dbProvider.ProxyHTTPPort,
+		ProxyHTTPSPort:              dbProvider.ProxyHTTPSPort,
+		ProxyEnableHTTP:             dbProvider.ProxyEnableHTTP,
+		ProxyEnableHTTPS:            dbProvider.ProxyEnableHTTPS,
+		ProxyTrustCloudflareHeaders: dbProvider.ProxyTrustCloudflareHeaders,
+		ProxyTLSCertPath:            dbProvider.ProxyTLSCertPath,
+		ProxyTLSKeyPath:             dbProvider.ProxyTLSKeyPath,
 	}
 
 	utils.UpdateTaskProgress(taskID, 45, "agent.deployRemote")
@@ -161,8 +163,18 @@ func (s *TaskService) executeAgentDeployTask(ctx context.Context, taskID uint, p
 	}
 
 	utils.UpdateTaskProgress(taskID, 90, "agent.updateConfig")
+	// The deployment version identifies the controller release asset. The
+	// Agent's compatibility version comes from the installed binary itself.
+	// Read it after startup so the provider record does not store a timestamp
+	// controller tag where semver compatibility checks expect an Agent version.
+	installedAgentVersion := ""
+	statusCtx, statusCancel := context.WithTimeout(ctx, 30*time.Second)
+	if active, reportedVersion := agentService.CheckAgentStatus(statusCtx, providerInstance); active {
+		installedAgentVersion = strings.TrimSpace(reportedVersion)
+	}
+	statusCancel()
 	config.AgentInstalled = true
-	config.AgentVersion = version
+	config.AgentVersion = installedAgentVersion
 	config.MonitoringMode = "agent"
 	if err := global.APP_DB.Save(config).Error; err != nil {
 		return fmt.Errorf("保存Agent配置失败: %w", err)

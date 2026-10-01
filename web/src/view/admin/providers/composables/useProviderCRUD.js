@@ -15,6 +15,7 @@ import {
   cleanupOrphanInstances
 } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
+import { createActionLock, createKeyedActionLock } from '@/utils/actionLock'
 
 export function useProviderCRUD() {
   const { t } = useI18n()
@@ -23,6 +24,12 @@ export function useProviderCRUD() {
   const selectedProviders = ref([])
   const loading = ref(false)
   const batchHealthSubmitting = ref(false)
+  const batchActionLoading = ref(false)
+  const busyProviderIds = ref(new Set())
+  const providerActionLock = createKeyedActionLock()
+  const batchActionLock = createActionLock()
+  const importActionLock = createActionLock()
+  let loadGeneration = 0
   const currentPage = ref(1)
   const pageSize = ref(10)
   const total = ref(0)
@@ -34,6 +41,7 @@ export function useProviderCRUD() {
   })
 
   const loadProviders = async () => {
+    const generation = ++loadGeneration
     loading.value = true
     try {
       const params = { page: currentPage.value, pageSize: pageSize.value }
@@ -41,12 +49,14 @@ export function useProviderCRUD() {
       if (searchForm.type) params.type = searchForm.type
       if (searchForm.status) params.status = searchForm.status
       const response = await getProviderList(params)
-      providers.value = response.data.list || []
-      total.value = response.data.total || 0
-    } catch (error) {
-      ElMessage.error(t('admin.providers.loadProvidersFailed'))
+      if (generation === loadGeneration) {
+        providers.value = response.data.list || []
+        total.value = response.data.total || 0
+      }
+    } catch {
+      if (generation === loadGeneration) ElMessage.error(t('admin.providers.loadProvidersFailed'))
     } finally {
-      loading.value = false
+      if (generation === loadGeneration) loading.value = false
     }
   }
 
@@ -146,6 +156,7 @@ export function useProviderCRUD() {
       ElMessage.warning(t('admin.providers.selectCsvFile'))
       return
     }
+    if (!importActionLock.tryAcquire()) return
 
     const formData = new FormData()
     formData.append('file', file)
@@ -184,6 +195,59 @@ export function useProviderCRUD() {
         error?.message ||
         t('admin.providers.importCsvFailed')
       ElMessage.error(errorMsg)
+    } finally {
+      importActionLock.release()
+    }
+  }
+
+  const setProviderBusy = (id, value) => {
+    const next = new Set(busyProviderIds.value)
+    if (value) next.add(id)
+    else next.delete(id)
+    busyProviderIds.value = next
+  }
+
+  const guardProvider = (getId, operation) => async (...args) => {
+    const id = getId(...args)
+    if (!id || !providerActionLock.tryAcquire(id)) return
+    setProviderBusy(id, true)
+    try {
+      return await operation(...args)
+    } finally {
+      providerActionLock.release(id)
+      setProviderBusy(id, false)
+    }
+  }
+
+  const guardBatch = operation => async (...args) => {
+    if (!batchActionLock.tryAcquire()) return
+    const selected = selectedProviders.value.map(item => ({ ...item }))
+    if (selected.length === 0) {
+      batchActionLock.release()
+      ElMessage.warning(t('admin.providers.pleaseSelectProviders'))
+      return
+    }
+    const selectedIds = [...new Set(selected.map(item => item.id))]
+    const acquired = []
+    for (const id of selectedIds) {
+      if (!providerActionLock.tryAcquire(id)) {
+        acquired.forEach(acquiredId => providerActionLock.release(acquiredId))
+        batchActionLock.release()
+        return
+      }
+      acquired.push(id)
+    }
+    batchActionLoading.value = true
+    acquired.forEach(id => setProviderBusy(id, true))
+    try {
+      return await operation(selected, ...args)
+    } finally {
+      acquired.forEach(id => {
+        providerActionLock.release(id)
+        setProviderBusy(id, false)
+      })
+      batchActionLoading.value = false
+      batchActionLock.release()
     }
   }
 
@@ -325,23 +389,18 @@ export function useProviderCRUD() {
     }
   }
 
-  const handleBatchDelete = async () => {
-    if (selectedProviders.value.length === 0) {
-      ElMessage.warning(t('admin.providers.pleaseSelectProviders'))
-      return
-    }
-
-    const offlineCount = selectedProviders.value.filter(
+  const handleBatchDelete = async (selected) => {
+    const offlineCount = selected.filter(
       p =>
         p.status === 'inactive' ||
         (p.sshStatus === 'offline' && p.apiStatus === 'offline')
     ).length
-    const onlineCount = selectedProviders.value.length - offlineCount
+    const onlineCount = selected.length - offlineCount
 
     try {
       // Step 1: Show the two options
       let confirmMsg = t('admin.providers.batchDeleteConfirm', {
-        count: selectedProviders.value.length
+        count: selected.length
       })
       if (offlineCount > 0 && onlineCount > 0) {
         confirmMsg += `<br><br><span style='color: #F56C6C;'>${offlineCount} 个节点离线</span>，建议对这些节点使用强制删除；<span style='color: #67C23A;'>${onlineCount} 个节点在线</span>，建议使用级联删除。`
@@ -373,13 +432,13 @@ export function useProviderCRUD() {
       await requireTypedConfirmation({
         title: t('admin.providers.cascadeDeleteTitle'),
         message: t('admin.providers.batchCascadeDeleteConfirm', {
-          count: selectedProviders.value.length
+          count: selected.length
         }),
         expected: t('admin.providers.batchCascadeConfirmText'),
         confirmButtonText: t('admin.providers.deleteCascadeOption'),
         type: 'warning'
       })
-      await executeBatchDelete(selectedProviders.value, false)
+      await executeBatchDelete(selected, false)
     } catch (error) {
       if (error === 'cancel') {
         // Force delete all - show force delete confirmation first
@@ -387,13 +446,13 @@ export function useProviderCRUD() {
           await requireTypedConfirmation({
             title: t('admin.providers.forceDeleteTitle'),
             message: t('admin.providers.batchForceDeleteConfirm', {
-              count: selectedProviders.value.length
+              count: selected.length
             }),
             expected: t('admin.providers.batchForceConfirmText'),
             confirmButtonText: t('admin.providers.forceDeleteButton'),
             type: 'error'
           })
-          await executeBatchDelete(selectedProviders.value, true)
+          await executeBatchDelete(selected, true)
         } catch (cancelError) {
           if (cancelError !== 'cancel') {
             ElMessage.error(t('admin.providers.serverDeleteFailed'))
@@ -460,13 +519,9 @@ export function useProviderCRUD() {
     await loadProviders()
   }
 
-  const handleBatchFreeze = async () => {
-    if (selectedProviders.value.length === 0) {
-      ElMessage.warning(t('admin.providers.pleaseSelectProviders'))
-      return
-    }
-    const frozenProviders = selectedProviders.value.filter(p => p.isFrozen)
-    const activeProviders = selectedProviders.value.filter(p => !p.isFrozen)
+  const handleBatchFreeze = async (selected) => {
+    const frozenProviders = selected.filter(p => p.isFrozen)
+    const activeProviders = selected.filter(p => !p.isFrozen)
 
     if (frozenProviders.length > 0 && activeProviders.length === 0) {
       ElMessage.warning(t('admin.providers.allSelectedAlreadyFrozen'))
@@ -477,12 +532,12 @@ export function useProviderCRUD() {
       const message =
         frozenProviders.length > 0
           ? t('admin.providers.batchFreezeConfirmMixed', {
-              total: selectedProviders.value.length,
+              total: selected.length,
               frozen: frozenProviders.length,
               active: activeProviders.length
             })
           : t('admin.providers.batchFreezeConfirm', {
-              count: selectedProviders.value.length
+              count: selected.length
             })
 
       await ElMessageBox.confirm(message, t('admin.providers.confirmFreeze'), {
@@ -547,8 +602,7 @@ export function useProviderCRUD() {
     }
   }
 
-  const handleBatchHealthCheck = async () => {
-    const selected = [...selectedProviders.value]
+  const handleBatchHealthCheck = async (selected) => {
     if (selected.length === 0 || batchHealthSubmitting.value) return
 
     try {
@@ -757,6 +811,8 @@ export function useProviderCRUD() {
     selectedProviders,
     loading,
     batchHealthSubmitting,
+    batchActionLoading,
+    busyProviderIds,
     currentPage,
     pageSize,
     total,
@@ -767,18 +823,18 @@ export function useProviderCRUD() {
     handleSizeChange,
     handleCurrentChange,
     handleSelectionChange,
-    handleDeleteProvider,
-    handleBatchDelete,
-    handleBatchFreeze,
-    handleBatchHealthCheck,
-    handleSetProviderExpiry,
-    freezeServer,
-    unfreezeServer,
-    checkHealth,
-    syncInstances,
-    forceRecoverySync,
+    handleDeleteProvider: guardProvider(provider => provider?.id, handleDeleteProvider),
+    handleBatchDelete: guardBatch(handleBatchDelete),
+    handleBatchFreeze: guardBatch(handleBatchFreeze),
+    handleBatchHealthCheck: guardBatch(handleBatchHealthCheck),
+    handleSetProviderExpiry: guardProvider(provider => provider?.id, handleSetProviderExpiry),
+    freezeServer: guardProvider(id => id, freezeServer),
+    unfreezeServer: guardProvider(provider => provider?.id, unfreezeServer),
+    checkHealth: guardProvider(id => id, checkHealth),
+    syncInstances: guardProvider(provider => provider?.id, syncInstances),
+    forceRecoverySync: guardProvider(provider => provider?.id, forceRecoverySync),
     handleExportCSV,
     handleImportCSV,
-    cleanupOrphans
+    cleanupOrphans: guardProvider(provider => provider?.id, cleanupOrphans)
   }
 }

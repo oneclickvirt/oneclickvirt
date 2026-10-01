@@ -1,11 +1,12 @@
 // 自动配置对话框 + 流量监控对话框状态与逻辑
-import { reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
 import {
   autoConfigureProvider,
   getConfigurationTaskDetail,
   getConfigurationTasks,
+  cancelConfigurationTask,
   trafficMonitorOperation,
   getTrafficMonitorTasks,
   getTrafficMonitorTaskDetail
@@ -15,6 +16,20 @@ import { ElMessageBox } from 'element-plus'
 
 export function useProviderDialogs(loadProviders) {
   const { t } = useI18n()
+  const configSubmitting = ref(false)
+  const configCanceling = ref(false)
+  const configStatusLoading = ref(false)
+  const configPageLoading = ref(false)
+  const configHistoryLoading = computed(() => configStatusLoading.value || configPageLoading.value)
+  const trafficOperationSubmitting = ref(false)
+  const trafficHistoryLoading = ref(false)
+  const trafficDetailLoading = ref(false)
+  const trafficMonitorLoading = computed(() => trafficHistoryLoading.value || trafficDetailLoading.value)
+  let configViewGeneration = 0
+  let configPageGeneration = 0
+  let configTaskLogGeneration = 0
+  let trafficHistoryGeneration = 0
+  let trafficDetailGeneration = 0
 
   // 自动配置对话框状态
   const configDialog = reactive({
@@ -37,7 +52,6 @@ export function useProviderDialogs(loadProviders) {
   // 流量监控任务对话框状态
   const trafficMonitorDialog = reactive({
     visible: false,
-    loading: false,
     provider: null,
     task: null,
     showHistory: false,
@@ -49,23 +63,32 @@ export function useProviderDialogs(loadProviders) {
   // ── 自动配置 API ────────────────────────────────────
 
   const viewTaskLog = async (taskId) => {
+    const generation = ++configTaskLogGeneration
     taskLogDialog.visible = true
     taskLogDialog.loading = true
     taskLogDialog.error = null
     taskLogDialog.task = null
     try {
       const response = await getConfigurationTaskDetail(taskId)
+      if (generation !== configTaskLogGeneration || !taskLogDialog.visible) return
       if (response.code === 200) {
         taskLogDialog.task = response.data
       } else {
         taskLogDialog.error = response.msg || t('admin.providers.getTaskDetailsFailed')
       }
     } catch (error) {
+      if (generation !== configTaskLogGeneration || !taskLogDialog.visible) return
       console.error('Failed to get task logs:', error)
       taskLogDialog.error = t('admin.providers.getTaskLogsFailed') + ': ' + (error.message || t('common.unknownError'))
     } finally {
-      taskLogDialog.loading = false
+      if (generation === configTaskLogGeneration) taskLogDialog.loading = false
     }
+  }
+
+  const closeTaskLogDialog = () => {
+    ++configTaskLogGeneration
+    taskLogDialog.visible = false
+    taskLogDialog.loading = false
   }
 
   const copyTaskLog = async () => {
@@ -73,35 +96,51 @@ export function useProviderDialogs(loadProviders) {
     await copyToClipboardUtil(logOutput, t('admin.providers.logCopied'))
   }
 
-  const autoConfigureAPI = async (provider) => {
+  const autoConfigureAPI = async (provider, showRunningLog = true) => {
+    if (!provider?.id) return
+    const providerId = provider.id
+    const generation = ++configViewGeneration
+    ++configPageGeneration
+    const isRefresh = !showRunningLog
+    configStatusLoading.value = true
     try {
       const checkResponse = await autoConfigureProvider({
-        providerId: provider.id,
+        providerId,
         showHistory: true
       })
+      if (generation !== configViewGeneration ||
+          (isRefresh && (!configDialog.visible || configDialog.provider?.id !== providerId))) return
       const result = checkResponse.data
       configDialog.provider = provider
-      configDialog.runningTask = result.runningTask
+      configDialog.runningTask = result.runningTask || null
       configDialog.historyTasks = result.historyTasks || []
       configDialog.pagination.total = configDialog.historyTasks.length
-      configDialog.pagination.page = 1
+      if (!isRefresh) configDialog.pagination.page = 1
       configDialog.showHistory = true
       configDialog.visible = true
-      if (result.runningTask) {
+      await loadConfigHistory(provider)
+      if (generation !== configViewGeneration || !configDialog.visible) return
+      if (result.runningTask && showRunningLog) {
         ElMessage.info(t('admin.providers.showTaskLog'))
         await viewTaskLog(result.runningTask.id)
       }
     } catch (error) {
+      if (generation !== configViewGeneration || (isRefresh && !configDialog.visible)) return
       console.error('检查配置状态失败:', error)
       ElMessage.error(
         t('admin.providers.checkConfigFailed') +
           ': ' +
           (error.message || t('common.unknownError'))
       )
+    } finally {
+      if (generation === configViewGeneration) configStatusLoading.value = false
     }
   }
 
-  const startNewConfiguration = async (provider, force = false) => {
+  const startNewConfiguration = async (provider) => {
+    if (!provider?.id || configSubmitting.value || configHistoryLoading.value || configDialog.runningTask) return
+    const providerId = provider.id
+    configSubmitting.value = true
     const loadingMessage = ElMessage({
       message: t('admin.providers.validation.autoConfiguring'),
       type: 'info',
@@ -109,9 +148,15 @@ export function useProviderDialogs(loadProviders) {
       showClose: false
     })
     try {
-      const response = await autoConfigureProvider({ providerId: provider.id, force })
+      const response = await autoConfigureProvider({ providerId })
       const result = response.data
       loadingMessage.close()
+      if (configDialog.provider?.id !== providerId) return
+      if (result.status === 'running' || result.runningTask) {
+        configDialog.runningTask = result.runningTask || null
+        ElMessage.info(result.message || t('admin.providers.showTaskLog'))
+        return
+      }
       configDialog.visible = false
       if (result.taskId) {
         await viewTaskLog(result.taskId)
@@ -128,12 +173,55 @@ export function useProviderDialogs(loadProviders) {
           ': ' +
           (error.message || t('common.unknownError'))
       )
+    } finally {
+      configSubmitting.value = false
     }
   }
 
   const rerunConfiguration = () => {
+    return startNewConfiguration(configDialog.provider)
+  }
+
+  const refreshConfiguration = () => autoConfigureAPI(configDialog.provider, false)
+
+  const cancelRunningConfiguration = async () => {
+    const task = configDialog.runningTask
+    if (!task?.id || configCanceling.value) return
+    try {
+      await ElMessageBox.confirm(
+        t('admin.providers.cancelConfigTaskConfirm'),
+        t('admin.providers.cancelConfigTask'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
+      configCanceling.value = true
+      await cancelConfigurationTask(task.id)
+      ElMessage.success(t('admin.providers.cancelConfigTaskSubmitted'))
+      if (configDialog.provider) {
+        await autoConfigureAPI(configDialog.provider, false)
+      }
+    } catch (error) {
+      if (error !== 'cancel' && error?.action !== 'cancel' && error?.action !== 'close') {
+        console.error('取消配置任务失败:', error)
+        ElMessage.error(error?.message || t('admin.providers.cancelConfigTaskFailed'))
+      }
+    } finally {
+      configCanceling.value = false
+    }
+  }
+
+  const closeConfigurationDialog = () => {
+    ++configViewGeneration
+    ++configPageGeneration
     configDialog.visible = false
-    startNewConfiguration(configDialog.provider, true)
+    configDialog.provider = null
+    configDialog.runningTask = null
+    configStatusLoading.value = false
+    configPageLoading.value = false
+    configCanceling.value = false
   }
 
   const viewRunningTask = () => {
@@ -143,18 +231,29 @@ export function useProviderDialogs(loadProviders) {
   }
 
   const loadConfigHistory = async (provider, page, pageSize) => {
+    if (!provider?.id || !configDialog.visible) return
+    const providerId = provider.id
+    const viewGeneration = configViewGeneration
+    const requestGeneration = ++configPageGeneration
+    configPageLoading.value = true
     try {
       const res = await getConfigurationTasks({
-        providerId: provider.id,
+        providerId,
         page: page || configDialog.pagination.page,
         pageSize: pageSize || configDialog.pagination.pageSize
       })
+      if (viewGeneration !== configViewGeneration || requestGeneration !== configPageGeneration ||
+          !configDialog.visible || configDialog.provider?.id !== providerId) return
       if (res.code === 200) {
         configDialog.historyTasks = res.data?.list || res.data || []
         configDialog.pagination.total = res.data?.total || configDialog.historyTasks.length
       }
     } catch (e) {
-      console.error('加载配置历史失败:', e)
+      if (viewGeneration === configViewGeneration && requestGeneration === configPageGeneration) {
+        console.error('加载配置历史失败:', e)
+      }
+    } finally {
+      if (requestGeneration === configPageGeneration) configPageLoading.value = false
     }
   }
 
@@ -172,7 +271,11 @@ export function useProviderDialogs(loadProviders) {
   // ── 流量监控对话框 ────────────────────────────────────
 
   const resetTrafficMonitorDialog = (provider = null) => {
-    trafficMonitorDialog.loading = false
+    ++trafficHistoryGeneration
+    ++trafficDetailGeneration
+    trafficHistoryLoading.value = false
+    trafficDetailLoading.value = false
+    trafficMonitorDialog.visible = !!provider
     trafficMonitorDialog.provider = provider
     trafficMonitorDialog.task = null
     trafficMonitorDialog.showHistory = false
@@ -184,32 +287,49 @@ export function useProviderDialogs(loadProviders) {
   }
 
   const loadTrafficMonitorHistory = async () => {
-    if (!trafficMonitorDialog.provider) return
+    if (!trafficMonitorDialog.provider || !trafficMonitorDialog.visible) return
+    const providerId = trafficMonitorDialog.provider.id
+    const generation = ++trafficHistoryGeneration
+    const page = trafficMonitorDialog.pagination.page
+    const pageSize = trafficMonitorDialog.pagination.pageSize
+    trafficHistoryLoading.value = true
     try {
-      const historyResponse = await getTrafficMonitorTasks(
-        trafficMonitorDialog.provider.id,
-        {
-          page: trafficMonitorDialog.pagination.page,
-          pageSize: trafficMonitorDialog.pagination.pageSize
-        }
-      )
+      const [historyResponse, latestResponse] = await Promise.all([
+        getTrafficMonitorTasks(providerId, { page, pageSize }),
+        page === 1 ? Promise.resolve(null) : getTrafficMonitorTasks(providerId, { page: 1, pageSize: 1 })
+      ])
+      if (generation !== trafficHistoryGeneration || !trafficMonitorDialog.visible ||
+          trafficMonitorDialog.provider?.id !== providerId) return
       trafficMonitorDialog.historyTasks = historyResponse.data?.list || []
       trafficMonitorDialog.pagination.total = historyResponse.data?.total || 0
-      const runningTask = trafficMonitorDialog.historyTasks.find(
+      const newestTasks = latestResponse?.data?.list || trafficMonitorDialog.historyTasks
+      const runningTask = newestTasks.find(
         task => task.status === 'running' || task.status === 'pending'
       )
       trafficMonitorDialog.runningTask = runningTask || null
+      return true
     } catch (error) {
+      if (generation !== trafficHistoryGeneration || !trafficMonitorDialog.visible ||
+          trafficMonitorDialog.provider?.id !== providerId) return
       console.error('Failed to load traffic monitor tasks:', error)
       ElMessage.error(t('admin.providers.loadTasksFailed'))
+      return false
+    } finally {
+      if (generation === trafficHistoryGeneration) {
+        trafficHistoryLoading.value = false
+      }
     }
   }
 
   const openTrafficMonitorDialog = async (provider) => {
     resetTrafficMonitorDialog(provider)
-    await loadTrafficMonitorHistory()
-    trafficMonitorDialog.showHistory = true
-    trafficMonitorDialog.visible = true
+    const loading = loadTrafficMonitorHistory()
+    const generation = trafficHistoryGeneration
+    await loading
+    if (generation === trafficHistoryGeneration && trafficMonitorDialog.visible &&
+        trafficMonitorDialog.provider?.id === provider?.id) {
+      trafficMonitorDialog.showHistory = true
+    }
   }
 
   const handleEnableTrafficMonitor = async (provider) => {
@@ -228,7 +348,9 @@ export function useProviderDialogs(loadProviders) {
   }
 
   const executeTrafficMonitorOperation = async (operation) => {
-    if (!trafficMonitorDialog.provider) return
+    if (!trafficMonitorDialog.provider || trafficOperationSubmitting.value) return
+    const providerId = trafficMonitorDialog.provider.id
+    trafficOperationSubmitting.value = true
     const confirmMessages = {
       enable: t('admin.providers.enableTrafficMonitorConfirm'),
       disable: t('admin.providers.disableTrafficMonitorConfirm'),
@@ -245,15 +367,27 @@ export function useProviderDialogs(loadProviders) {
           type: confirmTypes[operation]
         }
       )
+      if (trafficMonitorDialog.provider?.id !== providerId || !trafficMonitorDialog.visible) return
+      trafficMonitorDialog.pagination.page = 1
+      const loaded = await loadTrafficMonitorHistory()
+      if (trafficMonitorDialog.provider?.id !== providerId || !trafficMonitorDialog.visible) return
+      if (!loaded) return
+      if (trafficMonitorDialog.runningTask) {
+        ElMessage.info(t('admin.providers.runningTrafficMonitorTask'))
+        return
+      }
       const response = await trafficMonitorOperation({
-        providerId: trafficMonitorDialog.provider.id,
+        providerId,
         operation
       })
+      if (trafficMonitorDialog.provider?.id !== providerId || !trafficMonitorDialog.visible) return
       if (response.code === 200) {
         ElMessage.success(t('admin.providers.trafficMonitorOperationSuccess'))
+        await loadTrafficMonitorHistory()
         if (response.data?.taskId) {
           try {
             const taskResponse = await getTrafficMonitorTaskDetail(response.data.taskId)
+            if (trafficMonitorDialog.provider?.id !== providerId || !trafficMonitorDialog.visible) return
             if (taskResponse.code === 200) {
               trafficMonitorDialog.showHistory = false
               trafficMonitorDialog.task = taskResponse.data
@@ -269,18 +403,25 @@ export function useProviderDialogs(loadProviders) {
         ElMessage.error(response.msg || t('admin.providers.trafficMonitorOperationFailed'))
       }
     } catch (error) {
-      if (error !== 'cancel') {
+      if (error !== 'cancel' && trafficMonitorDialog.visible && trafficMonitorDialog.provider?.id === providerId) {
         ElMessage.error(
           error?.response?.data?.msg || t('admin.providers.trafficMonitorOperationFailed')
         )
       }
+    } finally {
+      trafficOperationSubmitting.value = false
     }
   }
 
   const viewTrafficMonitorTaskLog = async (taskId) => {
+    if (!trafficMonitorDialog.visible || !trafficMonitorDialog.provider) return
+    const providerId = trafficMonitorDialog.provider.id
+    const generation = ++trafficDetailGeneration
+    trafficDetailLoading.value = true
     try {
-      trafficMonitorDialog.loading = true
       const response = await getTrafficMonitorTaskDetail(taskId)
+      if (generation !== trafficDetailGeneration || !trafficMonitorDialog.visible ||
+          trafficMonitorDialog.provider?.id !== providerId) return
       if (response.code === 200) {
         trafficMonitorDialog.showHistory = false
         trafficMonitorDialog.task = response.data
@@ -288,25 +429,41 @@ export function useProviderDialogs(loadProviders) {
         ElMessage.error(response.msg || t('admin.providers.loadTaskFailed'))
       }
     } catch (error) {
+      if (generation !== trafficDetailGeneration || !trafficMonitorDialog.visible ||
+          trafficMonitorDialog.provider?.id !== providerId) return
       console.error('Failed to load task detail:', error)
       ElMessage.error(t('admin.providers.loadTaskFailed'))
     } finally {
-      trafficMonitorDialog.loading = false
+      if (generation === trafficDetailGeneration) trafficDetailLoading.value = false
     }
   }
 
   const viewRunningTrafficMonitorTask = () => {
     if (trafficMonitorDialog.runningTask) {
+      ++trafficDetailGeneration
       trafficMonitorDialog.showHistory = false
       trafficMonitorDialog.task = trafficMonitorDialog.runningTask
     }
   }
 
+  const showTrafficMonitorHistory = async () => {
+    ++trafficDetailGeneration
+    trafficDetailLoading.value = false
+    trafficMonitorDialog.task = null
+    trafficMonitorDialog.showHistory = true
+    await loadTrafficMonitorHistory()
+  }
+
   const refreshTrafficMonitorTask = async () => {
-    if (!trafficMonitorDialog.task?.id) return
+    if (!trafficMonitorDialog.task?.id || !trafficMonitorDialog.visible || !trafficMonitorDialog.provider) return
+    const taskId = trafficMonitorDialog.task.id
+    const providerId = trafficMonitorDialog.provider.id
+    const generation = ++trafficDetailGeneration
+    trafficDetailLoading.value = true
     try {
-      trafficMonitorDialog.loading = true
-      const response = await getTrafficMonitorTaskDetail(trafficMonitorDialog.task.id)
+      const response = await getTrafficMonitorTaskDetail(taskId)
+      if (generation !== trafficDetailGeneration || !trafficMonitorDialog.visible ||
+          trafficMonitorDialog.provider?.id !== providerId || trafficMonitorDialog.task?.id !== taskId) return
       if (response.code === 200) {
         trafficMonitorDialog.task = response.data
         if (
@@ -317,9 +474,11 @@ export function useProviderDialogs(loadProviders) {
         }
       }
     } catch (error) {
-      console.error('Failed to refresh task:', error)
+      if (generation === trafficDetailGeneration && trafficMonitorDialog.visible) {
+        console.error('Failed to refresh task:', error)
+      }
     } finally {
-      trafficMonitorDialog.loading = false
+      if (generation === trafficDetailGeneration) trafficDetailLoading.value = false
     }
   }
 
@@ -332,13 +491,22 @@ export function useProviderDialogs(loadProviders) {
 
   return {
     configDialog,
+    configSubmitting,
+    configCanceling,
+    configHistoryLoading,
+    closeConfigurationDialog,
     taskLogDialog,
+    closeTaskLogDialog,
     trafficMonitorDialog,
+    trafficMonitorLoading,
+    trafficOperationSubmitting,
     viewTaskLog,
     copyTaskLog,
     autoConfigureAPI,
     startNewConfiguration,
     rerunConfiguration,
+    refreshConfiguration,
+    cancelRunningConfiguration,
     viewRunningTask,
     handleConfigPageChange,
     handleConfigPageSizeChange,
@@ -350,6 +518,7 @@ export function useProviderDialogs(loadProviders) {
     executeTrafficMonitorOperation,
     viewTrafficMonitorTaskLog,
     viewRunningTrafficMonitorTask,
+    showTrafficMonitorHistory,
     refreshTrafficMonitorTask,
     resetTrafficMonitorDialog,
     debugAuthStatus

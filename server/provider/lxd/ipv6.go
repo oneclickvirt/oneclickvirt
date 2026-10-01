@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
@@ -123,17 +124,37 @@ func (l *LXDProvider) disableIPv6(instanceName string) error {
 
 // GetInstanceIPv6 获取实例的内网IPv6地址
 func (l *LXDProvider) GetInstanceIPv6(instanceName string) (string, error) {
+	return l.GetInstanceIPv6Context(context.Background(), instanceName)
+}
+
+func (l *LXDProvider) GetInstanceIPv6Context(ctx context.Context, instanceName string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if strings.EqualFold(strings.TrimSpace(l.config.ExecutionRule), "api_only") {
+		if l.apiClient == nil {
+			return "", fmt.Errorf("API客户端不可用")
+		}
+		state, err := l.apiGetInstanceResource(ctx, instanceName, "/state")
+		if err != nil {
+			return "", err
+		}
+		if address := l.apiInstanceIPv6(state); address != "" {
+			return address, nil
+		}
+		return "", fmt.Errorf("实例未分配IPv6地址")
+	}
 	// The controller-owned allocation survives a stop and is the most reliable
 	// source while a proxy device is being added. It also covers routed eth1
 	// addresses before LXD publishes state.network again.
-	if output, err := l.sshClient.Execute(fmt.Sprintf("cat %s 2>/dev/null", shellSingleQuote(instanceName+"_v6"))); err == nil {
+	if output, err := l.sshClient.ExecuteContext(ctx, fmt.Sprintf("cat %s 2>/dev/null", shellSingleQuote(instanceName+"_v6"))); err == nil {
 		if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
 			return ipv6, nil
 		}
 	}
 	// 获取实例的内网IPv6地址
 	ipv6Cmd := fmt.Sprintf("lxc list %s --format=json | jq -r '.[0].state.network | to_entries[]?.value.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
-	ipv6Output, err := l.sshClient.Execute(ipv6Cmd)
+	ipv6Output, err := l.sshClient.ExecuteContext(ctx, ipv6Cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取IPv6地址失败: %w", err)
 	}
@@ -147,9 +168,29 @@ func (l *LXDProvider) GetInstanceIPv6(instanceName string) (string, error) {
 
 // GetInstancePublicIPv6 获取实例的公网IPv6地址
 func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error) {
+	return l.GetInstancePublicIPv6Context(context.Background(), instanceName)
+}
+
+func (l *LXDProvider) GetInstancePublicIPv6Context(ctx context.Context, instanceName string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if strings.EqualFold(strings.TrimSpace(l.config.ExecutionRule), "api_only") {
+		if l.apiClient == nil {
+			return "", fmt.Errorf("API客户端不可用")
+		}
+		state, err := l.apiGetInstanceResource(ctx, instanceName, "/state")
+		if err != nil {
+			return "", err
+		}
+		if address := l.apiInstanceIPv6(state); utils.IsPublicIPv6(address) {
+			return address, nil
+		}
+		return "", fmt.Errorf("实例未分配公网IPv6地址")
+	}
 	// 尝试从保存的IPv6文件中读取公网IPv6地址
 	publicIPv6Cmd := fmt.Sprintf("cat %s 2>/dev/null", shellSingleQuote(instanceName+"_v6"))
-	publicIPv6Output, err := l.sshClient.Execute(publicIPv6Cmd)
+	publicIPv6Output, err := l.sshClient.ExecuteContext(ctx, publicIPv6Cmd)
 	if err == nil {
 		publicIPv6, parseErr := utils.ParseFirstIPv6AddressOutput(publicIPv6Output)
 		if parseErr == nil && !l.isPrivateIPv6(publicIPv6) {
@@ -162,7 +203,7 @@ func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error)
 
 	// 如果文件中没有，尝试从eth1网络设备获取
 	eth1Cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth1.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", shellSingleQuote(instanceName))
-	eth1Output, err := l.sshClient.Execute(eth1Cmd)
+	eth1Output, err := l.sshClient.ExecuteContext(ctx, eth1Cmd)
 	if err == nil {
 		eth1IPv6, parseErr := utils.ParseFirstIPv6AddressOutput(eth1Output)
 		if parseErr == nil && !l.isPrivateIPv6(eth1IPv6) {
@@ -230,20 +271,18 @@ func (l *LXDProvider) isPrivateIPv6(address string) bool {
 // its owning interface. This matters on PVE-style hosts where vmbr0 owns an
 // IPv6 /128 default route while vmbr2 carries the delegated allocation prefix.
 func (l *LXDProvider) selectHostIPv6InterfaceNetwork(ctx context.Context, requireAssignable bool) (utils.IPv6InterfaceNetwork, error) {
-	preferredInterface := ""
-	defaultRouteCmd := `ip -6 route show default 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="dev" && i<NF) {print $(i+1); exit}}'`
-	if output, err := l.sshClient.Execute(defaultRouteCmd); err == nil {
-		preferredInterface, _ = utils.ParseFirstNetworkInterfaceOutput(output)
+	routeOutput, err := l.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 route show default")
+	if err != nil {
+		// A delegated prefix can be present before the default route is ready.
+		routeOutput = "[]"
 	}
-
-	addressCmd := "ip -o -6 addr show scope global 2>/dev/null"
-	output, err := l.sshClient.Execute(addressCmd)
+	addressOutput, err := l.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global")
 	if err != nil {
 		return utils.IPv6InterfaceNetwork{}, fmt.Errorf("获取本机IPv6接口地址失败: %w", err)
 	}
-	selected, err := utils.SelectPublicIPv6InterfaceNetwork(output, preferredInterface, requireAssignable)
+	selected, err := utils.SelectPublicIPv6InterfaceNetworkJSON(addressOutput, routeOutput, requireAssignable)
 	if err != nil {
-		return utils.IPv6InterfaceNetwork{}, fmt.Errorf("%w: output=%s", err, utils.SanitizeUserInput(strings.TrimSpace(output)))
+		return utils.IPv6InterfaceNetwork{}, fmt.Errorf("%w: output=%s", err, utils.SanitizeUserInput(strings.TrimSpace(addressOutput)))
 	}
 	return selected, nil
 }
@@ -253,14 +292,13 @@ func (l *LXDProvider) checkIPv6(ctx context.Context) (string, error) {
 	// A routed container prefix must be present on this host. An egress API can
 	// report an address owned by an upstream NAT or tunnel and is not valid input
 	// for local IPv6 allocation.
-	cmd := "ip -o -6 addr show scope global 2>/dev/null | awk '$0 !~ / tentative/ {print $4}'"
+	cmd := "LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global"
 	output, err := l.sshClient.Execute(cmd)
 	if err == nil {
-		for _, ipv6 := range utils.ExtractIPv6Addresses(output) {
-			if !l.isPrivateIPv6(ipv6) {
-				global.APP_LOG.Debug("从本地接口获取到IPv6地址", zap.String("ipv6", ipv6))
-				return ipv6, nil
-			}
+		if selected, parseErr := utils.SelectPublicIPv6InterfaceNetworkJSON(output, "[]", false); parseErr == nil {
+			ipv6 := selected.Network.Address.String()
+			global.APP_LOG.Debug("从本地接口获取到IPv6地址", zap.String("ipv6", ipv6))
+			return ipv6, nil
 		}
 	}
 	return "", fmt.Errorf("未检测到本机绑定的有效公网IPv6地址")
@@ -273,20 +311,34 @@ func (l *LXDProvider) getContainerIPv6(ctx context.Context, containerName string
 	// IPv6 port-mapping path fail after the device has already been created.
 	// Keep the query local to the instance and accept either interface.
 	cmd := fmt.Sprintf("lxc list %s --format=json | jq -r '.[0].state.network | to_entries[]?.value.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address'", shellSingleQuote(containerName))
-	output, err := l.sshClient.Execute(cmd)
-	if err != nil {
-		return "", fmt.Errorf("获取容器IPv6地址失败: %w", err)
+	var lastOutput string
+	var lastErr error
+	// DHCPv6/SLAAC leases can appear well after the runtime reports RUNNING,
+	// especially immediately after a rebuild. Keep the wait bounded while
+	// allowing the guest network a realistic convergence window.
+	for attempt := 1; attempt <= 10; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		output, err := l.sshClient.Execute(cmd)
+		lastOutput, lastErr = output, err
+		if err == nil {
+			if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
+				global.APP_LOG.Debug("获取到容器IPv6地址",
+					zap.String("container", containerName),
+					zap.String("ipv6", ipv6),
+					zap.Int("attempt", attempt))
+				return ipv6, nil
+			}
+		}
+		if attempt < 10 {
+			time.Sleep(3 * time.Second)
+		}
 	}
-
-	ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output)
-	if parseErr != nil {
-		return "", fmt.Errorf("容器无内网IPv6地址")
+	if lastErr != nil {
+		return "", fmt.Errorf("获取容器IPv6地址失败: %w", lastErr)
 	}
-
-	global.APP_LOG.Debug("获取到容器IPv6地址",
-		zap.String("container", containerName),
-		zap.String("ipv6", ipv6))
-	return ipv6, nil
+	return "", fmt.Errorf("容器无内网IPv6地址: output=%s", summarizeIPv6ProbeOutput(lastOutput))
 }
 
 // getHostIPv6Prefix 获取宿主机IPv6子网前缀
@@ -303,22 +355,18 @@ func (l *LXDProvider) getHostIPv6Prefix(ctx context.Context) (string, error) {
 
 // getIPv6GatewayInfo 获取IPv6网关信息
 func (l *LXDProvider) getIPv6GatewayInfo(ctx context.Context) (string, error) {
-	cmd := "ip -6 route show | awk '/default via/{print $3}'"
-	output, err := l.sshClient.Execute(cmd)
+	output, err := l.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 route show default")
 	if err != nil {
 		return "N", fmt.Errorf("获取IPv6网关信息失败: %w", err)
 	}
-
-	gateways := utils.ExtractIPv6Addresses(output)
-	if len(gateways) == 0 {
-		return "N", nil
+	linkLocal, err := utils.IPv6DefaultGatewayIsLinkLocalJSON(output)
+	if err != nil {
+		return "N", fmt.Errorf("解析IPv6网关信息失败: %w", err)
 	}
-	for _, gateway := range gateways {
-		if !strings.HasPrefix(gateway, "fe80:") {
-			return "N", nil
-		}
+	if linkLocal {
+		return "Y", nil
 	}
-	return "Y", nil
+	return "N", nil
 }
 
 // installSipcalc 安装sipcalc工具

@@ -145,6 +145,7 @@
       <el-pagination
         v-model:current-page="pagination.page"
         v-model:page-size="pagination.pageSize"
+        :disabled="loading"
         :page-sizes="[5, 10, 20, 50]"
         :small="false"
         :background="true"
@@ -166,19 +167,31 @@
         {{ $t('admin.providers.viewRunningTaskLog') }}
       </el-button>
       <el-button
+        v-if="runningTask"
+        :loading="loading"
+        :disabled="loading || operationSubmitting"
+        @click="$emit('refresh-history')"
+      >
+        {{ $t('common.refresh') }}
+      </el-button>
+      <el-button
         type="success"
+        :loading="operationSubmitting"
+        :disabled="loading || operationSubmitting || !!runningTask"
         @click="$emit('execute-operation', 'enable')"
       >
         {{ $t('admin.providers.enableTrafficMonitor') }}
       </el-button>
       <el-button
         type="warning"
+        :disabled="loading || operationSubmitting || !!runningTask"
         @click="$emit('execute-operation', 'disable')"
       >
         {{ $t('admin.providers.disableTrafficMonitor') }}
       </el-button>
       <el-button
         type="info"
+        :disabled="loading || operationSubmitting || !!runningTask"
         @click="$emit('execute-operation', 'detect')"
       >
         {{ $t('admin.providers.detectTrafficMonitor') }}
@@ -191,6 +204,13 @@
     v-else-if="task"
     class="task-container"
   >
+    <el-button
+      style="margin-bottom: 16px;"
+      :disabled="loading"
+      @click="$emit('show-history')"
+    >
+      {{ $t('admin.providers.trafficMonitorHistory') }}
+    </el-button>
     <el-descriptions
       :column="2"
       border
@@ -259,10 +279,11 @@ defineProps({
   runningTask: { type: Object, default: null },
   historyTasks: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
+  operationSubmitting: { type: Boolean, default: false },
   pagination: { type: Object, default: () => ({ page: 1, pageSize: 10, total: 0 }) }
 })
 
-defineEmits(['refresh', 'view-task-log', 'view-running-task', 'execute-operation', 'page-change', 'page-size-change'])
+defineEmits(['refresh', 'refresh-history', 'view-task-log', 'view-running-task', 'show-history', 'execute-operation', 'page-change', 'page-size-change'])
 
 function formatDateTime(dateStr) {
   if (!dateStr) return '-'
@@ -272,14 +293,17 @@ function formatDateTime(dateStr) {
 function getTaskTypeLabel(taskType) {
   const map = {
     enable: t('admin.providers.enableTrafficMonitor'),
+    enable_all: t('admin.providers.enableTrafficMonitor'),
     disable: t('admin.providers.disableTrafficMonitor'),
-    detect: t('admin.providers.detectTrafficMonitor')
+    disable_all: t('admin.providers.disableTrafficMonitor'),
+    detect: t('admin.providers.detectTrafficMonitor'),
+    detect_all: t('admin.providers.detectTrafficMonitor')
   }
   return map[taskType] || taskType
 }
 
 function getTaskTypeTagType(taskType) {
-  const map = { enable: 'success', disable: 'warning', detect: 'info' }
+  const map = { enable: 'success', enable_all: 'success', disable: 'warning', disable_all: 'warning', detect: 'info', detect_all: 'info' }
   return map[taskType] || ''
 }
 

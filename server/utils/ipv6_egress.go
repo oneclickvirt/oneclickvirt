@@ -37,9 +37,20 @@ func IPv6HostEgressCommand(options IPv6EgressOptions) string {
 	return fmt.Sprintf(`set -eu
 PROBE_URL=%s
 PERSIST_RA=%s
+command -v python3 >/dev/null 2>&1 || { echo "ipv6 egress probe requires python3" >&2; exit 40; }
 
 route_ready() {
-    ip -6 route show default 2>/dev/null | grep -Eq '(^|[[:space:]])default([[:space:]]|$)'
+    route_json="$(LC_ALL=C NO_COLOR=1 ip -j -6 route show default 2>/dev/null)" || return 1
+    printf '%%s' "$route_json" | python3 -c '
+import json, re, sys
+try:
+    routes = json.loads(re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", sys.stdin.buffer.read()))
+    ready = isinstance(routes, list) and any(
+        isinstance(route, dict) and route.get("dst", "default") == "default"
+        for route in routes)
+except (ValueError, TypeError):
+    ready = False
+raise SystemExit(0 if ready else 1)'
 }
 
 iface=""
@@ -59,7 +70,26 @@ trap 'status=$?; if [ "$status" -ne 0 ]; then restore_runtime; fi; exit "$status
 if ! route_ready; then
     # Pick a real, globally-scoped local address.  Do not use an address
     # returned by an external service or a tunnel allocation as the host NIC.
-    iface="$(ip -o -6 addr show scope global 2>/dev/null | awk '$0 !~ / tentative/ {split($4,a,"/"); if (a[1] !~ /^fe80:/) {print $2; exit}}')"
+    address_json="$(LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global 2>/dev/null)" || address_json=""
+    iface="$(printf '%%s' "$address_json" | python3 -c '
+import ipaddress, json, re, sys
+try:
+    interfaces = json.loads(re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", sys.stdin.buffer.read()))
+    if not isinstance(interfaces, list):
+        raise ValueError("invalid IPv6 interface data")
+    for interface in interfaces:
+        for address in interface.get("addr_info", []):
+            if address.get("family") != "inet6" or address.get("scope") != "global":
+                continue
+            if address.get("tentative") or address.get("dadfailed") or any(
+                    flag in ("tentative", "dadfailed") for flag in address.get("flags", [])):
+                continue
+            if ipaddress.IPv6Address(address["local"]).is_global:
+                print(interface["ifname"])
+                raise SystemExit(0)
+except (ValueError, KeyError, TypeError):
+    pass
+raise SystemExit(1)' 2>/dev/null || true)"
     case "$iface" in
         "") echo "ipv6 egress repair: no global IPv6 interface" >&2; exit 41 ;;
         *[!A-Za-z0-9_.:-]*) echo "ipv6 egress repair: invalid interface name" >&2; exit 42 ;;

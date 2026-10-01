@@ -184,6 +184,7 @@ const getTaskStatusType = (status) => {
   const statusMap = {
     'pending': 'info',
     'running': 'primary',
+    'cancelling': 'warning',
     'completed': 'success',
     'failed': 'danger',
     'cancelled': 'warning'
@@ -195,6 +196,7 @@ const getTaskStatusText = (status) => {
   const statusTextMap = {
     'pending': t('admin.providers.taskStatusPending'),
     'running': t('admin.providers.taskStatusRunning'),
+    'cancelling': t('admin.providers.taskStatusCancelling'),
     'completed': t('admin.providers.taskStatusCompleted'),
     'failed': t('admin.providers.taskStatusFailed'),
     'cancelled': t('admin.providers.taskStatusCancelled')

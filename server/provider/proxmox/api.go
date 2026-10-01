@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -64,113 +66,18 @@ func proxmoxAPICreateFallbackBlocked(err error) bool {
 	return proxmoxAPICreateMayHaveMutated(err)
 }
 
-// apiListInstances 通过API方式获取Proxmox实例列表
+// apiListInstances reads one cluster resource snapshot. Failed or malformed
+// API responses must reach ListInstances so auto mode can fall back to SSH.
 func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Instance, error) {
-	var instances []provider.Instance
-
-	// 获取虚拟机列表
-	vmURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/qemu", p.nodeName()))
-	vmReq, err := http.NewRequestWithContext(ctx, "GET", vmURL, nil)
+	response, err := p.makeAPIRequest(ctx, http.MethodGet, p.apiEndpoint("/api2/json/cluster/resources?type=vm"), nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("获取Proxmox实例列表失败: %w", err)
 	}
-
-	// 设置认证头
-	p.setAPIAuth(vmReq)
-
-	vmResp, err := p.apiClient.Do(vmReq)
+	resources, err := parseProxmoxResourceEnvelope(response)
 	if err != nil {
-		global.APP_LOG.Warn("获取虚拟机列表失败", zap.Error(err))
-	} else {
-		defer vmResp.Body.Close()
-
-		var vmResponse map[string]interface{}
-		if err := json.NewDecoder(vmResp.Body).Decode(&vmResponse); err == nil {
-			if data, ok := vmResponse["data"].([]interface{}); ok {
-				for _, item := range data {
-					if vmData, ok := item.(map[string]interface{}); ok {
-						status := "stopped"
-						if vmStatus, _ := vmData["status"].(string); vmStatus == "running" {
-							status = "running"
-						}
-
-						vmName, _ := vmData["name"].(string)
-						vmMem, _ := vmData["mem"].(float64)
-
-						instance := provider.Instance{
-							ID:     fmt.Sprintf("%v", vmData["vmid"]),
-							Name:   vmName,
-							Status: status,
-							Type:   "vm",
-							CPU:    fmt.Sprintf("%v", vmData["cpus"]),
-							Memory: fmt.Sprintf("%.0f MB", vmMem/1024/1024),
-						}
-
-						// 获取VM的IP地址
-						if ipAddress, err := p.getInstanceIPAddress(ctx, instance.ID, "vm"); err == nil && ipAddress != "" {
-							instance.IP = ipAddress
-							instance.PrivateIP = ipAddress
-						}
-						instances = append(instances, instance)
-					}
-				}
-			}
-		}
+		return nil, fmt.Errorf("解析Proxmox实例列表失败: %w", err)
 	}
-
-	// 获取容器列表
-	ctURL := p.apiEndpoint(fmt.Sprintf("/api2/json/nodes/%s/lxc", p.nodeName()))
-	ctReq, err := http.NewRequestWithContext(ctx, "GET", ctURL, nil)
-	if err != nil {
-		global.APP_LOG.Warn("创建容器请求失败", zap.Error(err))
-	} else {
-		// 设置认证头
-		p.setAPIAuth(ctReq)
-
-		ctResp, err := p.apiClient.Do(ctReq)
-		if err != nil {
-			global.APP_LOG.Warn("获取容器列表失败", zap.Error(err))
-		} else {
-			defer ctResp.Body.Close()
-
-			var ctResponse map[string]interface{}
-			if err := json.NewDecoder(ctResp.Body).Decode(&ctResponse); err == nil {
-				if data, ok := ctResponse["data"].([]interface{}); ok {
-					for _, item := range data {
-						if ctData, ok := item.(map[string]interface{}); ok {
-							status := "stopped"
-							if ctStatus, _ := ctData["status"].(string); ctStatus == "running" {
-								status = "running"
-							}
-
-							ctName, _ := ctData["name"].(string)
-							ctMem, _ := ctData["mem"].(float64)
-
-							instance := provider.Instance{
-								ID:     fmt.Sprintf("%v", ctData["vmid"]),
-								Name:   ctName,
-								Status: status,
-								Type:   "container",
-								CPU:    fmt.Sprintf("%v", ctData["cpus"]),
-								Memory: fmt.Sprintf("%.0f MB", ctMem/1024/1024),
-							}
-
-							// 获取容器的IP地址
-							if ipAddress, err := p.getInstanceIPAddress(ctx, instance.ID, "container"); err == nil && ipAddress != "" {
-								instance.IP = ipAddress
-								instance.PrivateIP = ipAddress
-							}
-							instances = append(instances, instance)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	global.APP_LOG.Info("通过API成功获取Proxmox实例列表",
-		zap.Int("totalCount", len(instances)))
-	return instances, nil
+	return p.listInstancesFromResources(ctx, resources)
 }
 
 // apiCreateInstance 通过API方式创建Proxmox实例
@@ -245,6 +152,16 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 	// 不能只记录告警后继续，否则调用方会收到“创建成功”但实例仍是 stopped。
 	if err := p.apiStartKnownInstance(ctx, fmt.Sprintf("%d", vmid), config.InstanceType); err != nil {
 		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("启动已创建实例失败: %w", err))
+	}
+
+	// API creation does not pass through create.go, where container SSH setup
+	// is normally performed. Run the same setup after the guest is running so
+	// cloud images with restrictive sshd defaults accept the password written
+	// below. API-only mode has no host executor and cannot use pct exec; its
+	// existing API capability boundary remains explicit.
+	if config.InstanceType == "container" && p.sshClient.HasExecutor() {
+		updateProgress(90, "配置容器SSH...")
+		p.configureContainerSSH(ctx, vmid)
 	}
 
 	// 虚拟机和容器的带宽限制已在创建时通过 rate 参数配置
@@ -449,7 +366,18 @@ func (p *ProxmoxProvider) apiGuestStatusAtNode(ctx context.Context, node, instan
 	if err != nil {
 		return "", err
 	}
-	data, err := p.submitProxmoxAPIRequest(ctx, http.MethodGet, endpoint, nil)
+	var data json.RawMessage
+	for attempt := 1; attempt <= 3; attempt++ {
+		data, err = p.submitProxmoxAPIRequest(ctx, http.MethodGet, endpoint, nil)
+		if err == nil || !retryableProxmoxStatusReadError(err) || attempt == 3 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(time.Duration(attempt) * proxmoxAPIStatusRetryDelay):
+		}
+	}
 	if err != nil {
 		return "", err
 	}
@@ -464,6 +392,21 @@ func (p *ProxmoxProvider) apiGuestStatusAtNode(ctx context.Context, node, instan
 		return "", fmt.Errorf("PVE实例状态响应缺少status")
 	}
 	return status.Status, nil
+}
+
+var proxmoxAPIStatusRetryDelay = time.Second
+
+func retryableProxmoxStatusReadError(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) {
+		return true
+	}
+	var responseError *proxmoxAPIResponseError
+	return errors.As(err, &responseError) && (responseError.StatusCode == http.StatusBadGateway ||
+		responseError.StatusCode == http.StatusServiceUnavailable || responseError.StatusCode == http.StatusGatewayTimeout)
 }
 
 func (p *ProxmoxProvider) waitForAPIGuestRunning(ctx context.Context, vmid, instanceType string) error {

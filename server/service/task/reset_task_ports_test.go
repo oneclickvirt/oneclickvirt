@@ -88,6 +88,38 @@ func TestResetPortMappingsPreserveDualStackRangesAndInstanceNetwork(t *testing.T
 	}
 }
 
+func TestResetProxmoxAliasesRestoreExistingNodeMapping(t *testing.T) {
+	resetPortTestLogger(t)
+	for _, providerType := range []string{"proxmox", "proxmoxve", "pve"} {
+		t.Run(providerType, func(t *testing.T) {
+			p := &resetPortProvider{ipv4: "172.16.1.2"}
+			resetCtx := &ResetTaskContext{
+				Provider: providerModel.Provider{Type: providerType, NetworkType: "nat_ipv4", IPv4PortMappingMethod: "device_proxy"},
+				Instance: providerModel.Instance{NetworkType: "nat_ipv4"}, OldInstanceName: "guest", NewProviderInstanceID: "100",
+				OldPortMappings: []providerModel.Port{{HostPort: 20000, GuestPort: 22, Protocol: "both", MappingType: "node", MappingMethod: "device_proxy"}},
+			}
+			if err := (&TaskService{}).configureProviderPortMappings(context.Background(), p, resetCtx); err != nil {
+				t.Fatal(err)
+			}
+			want := []resetPortCall{{"guest", "both", "iptables", "172.16.1.2", 20000, 22}}
+			if !reflect.DeepEqual(p.calls, want) || p.ipv4Reads != 1 || p.saves != 1 {
+				t.Fatalf("PVE mapping was not restored and persisted: calls=%+v reads=%d saves=%d", p.calls, p.ipv4Reads, p.saves)
+			}
+		})
+	}
+}
+
+func TestResetPortMappingOwnerUsesStableProxmoxName(t *testing.T) {
+	resetPortTestLogger(t)
+	ctx := &ResetTaskContext{
+		Provider:        providerModel.Provider{Type: "proxmoxve"},
+		OldInstanceName: "ci-switch-retry", NewProviderInstanceID: "100",
+	}
+	if got := resetPortMappingOwnerName(ctx); got != "ci-switch-retry" {
+		t.Fatalf("PVE mapping owner = %q, want stable instance name", got)
+	}
+}
+
 func TestResetIPv6OnlyAndNativeMappingsDoNotRequireIPv4(t *testing.T) {
 	resetPortTestLogger(t)
 	for _, method := range []string{"device_proxy", "native"} {
@@ -112,6 +144,23 @@ func TestResetIPv6OnlyAndNativeMappingsDoNotRequireIPv4(t *testing.T) {
 				t.Fatalf("IPv6-only mapping was lost: %+v", p.calls)
 			}
 		})
+	}
+}
+
+func TestResetPortMappingsReusePreviouslyDiscoveredIPv6(t *testing.T) {
+	resetPortTestLogger(t)
+	p := &resetPortProvider{ipv6: "2001:db8::30"}
+	resetCtx := &ResetTaskContext{
+		Provider:        providerModel.Provider{Type: "incus", IPv6PortMappingMethod: "device_proxy"},
+		Instance:        providerModel.Instance{NetworkType: "ipv6_only", IPv6Address: "2001:db8::20"},
+		OldInstanceName: "guest", NewProviderInstanceID: "rebuilt-guest", NewGuestIPv6: p.ipv6,
+		OldPortMappings: []providerModel.Port{{HostPort: 22443, GuestPort: 443, Protocol: "tcp", IPv6Enabled: true}},
+	}
+	if err := (&TaskService{}).configureProviderPortMappings(context.Background(), p, resetCtx); err != nil {
+		t.Fatal(err)
+	}
+	if p.ipv6Reads != 0 || len(p.calls) != 1 || p.calls[0].address != p.ipv6 {
+		t.Fatalf("reset did not reuse the discovered IPv6 address: reads=%d calls=%+v", p.ipv6Reads, p.calls)
 	}
 }
 

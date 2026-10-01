@@ -16,7 +16,6 @@ import (
 	"oneclickvirt/provider/lxd"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
-	ipv6PoolService "oneclickvirt/service/ipv6pool"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
@@ -243,18 +242,9 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 	global.APP_LOG.Debug("开始最终化实例创建", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
 
 	dbService := database.GetDatabaseService()
+	// Remote inspection follows the task lifetime. Only the short accounting
+	// transaction gets an independent deadline so errors can still be saved.
 	finalizeCtx := ctx
-	var finalizeCancel context.CancelFunc
-	if apiError == nil {
-		finalizeCtx, finalizeCancel = context.WithTimeout(context.Background(), 15*time.Minute)
-		defer finalizeCancel()
-		if err := ctx.Err(); err != nil {
-			global.APP_LOG.Warn("Provider创建成功后任务上下文已结束，使用独立上下文完成最终化",
-				zap.Uint("taskId", task.ID),
-				zap.Uint("instanceId", instance.ID),
-				zap.Error(err))
-		}
-	}
 
 	// 在事务外收集实例网络信息（避免长事务中进行远程API调用）
 	var instanceUpdates map[string]interface{}
@@ -263,95 +253,17 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		instanceUpdates, _ = s.gatherInstanceNetworkInfo(finalizeCtx, instance)
 	}
 
-	cancelledDuringFinalize := false
-
-	// 在事务中仅执行DB写入操作（短事务）
-	err := dbService.ExecuteTransaction(finalizeCtx, func(tx *gorm.DB) error {
-		var taskStatus string
-		if fetchErr := tx.Model(&adminModel.Task{}).Select("status").Where("id = ?", task.ID).Scan(&taskStatus).Error; fetchErr == nil && taskStatus == "cancelled" {
-			global.APP_LOG.Debug("实例创建任务已被取消，跳过最终化并安排实例清理",
-				zap.Uint("taskId", task.ID),
-				zap.Uint("instanceId", instance.ID))
-			cancelledDuringFinalize = true
-			go s.delayedDeleteFailedInstance(instance.ID)
-			return nil
+	dbCtx, dbCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer dbCancel()
+	err := dbService.ExecuteTransaction(dbCtx, func(tx *gorm.DB) error {
+		if err := lockRunningCreate(tx, task.ID); err != nil {
+			return err
 		}
-
 		if apiError != nil {
-			// Provider创建实例失败的处理
-			global.APP_LOG.Error("Provider创建实例失败，回滚实例创建", zap.Uint("taskId", task.ID), zap.Error(apiError))
-
-			// 更新实例状态为失败
-			if err := tx.Model(instance).Updates(map[string]interface{}{
-				"status": "failed",
-			}).Error; err != nil {
-				return fmt.Errorf("更新实例状态失败: %v", err)
-			}
-
-			// 保留端口映射到延迟远端删除完成后再硬删除。LXD/Incus 的
-			// 宿主防火墙规则需要 guest port 和实例 IP，过早删除数据库行会
-			// 让后续 Provider 删除无法定位旧规则，造成端口复用后的串流量。
-			if err := tx.Model(&providerModel.Port{}).
-				Where("instance_id = ?", instance.ID).
-				Update("status", "deleting").Error; err != nil {
-				global.APP_LOG.Warn("标记失败实例端口映射清理中失败",
-					zap.Uint("instanceId", instance.ID), zap.Error(err))
-			}
-
-			// 释放已分配的Provider资源
-			resourceService := &resources.ResourceService{}
-			if err := resourceService.ReleaseResourcesInTx(tx, instance.ProviderID, instance.InstanceType,
-				instance.CPU, instance.Memory, instance.Disk); err != nil {
-				global.APP_LOG.Warn("释放Provider资源失败", zap.Uint("instanceId", instance.ID), zap.Error(err))
-				// 不返回错误，因为这不是关键操作
-			} else {
-				global.APP_LOG.Debug("Provider资源释放成功", zap.Uint("instanceId", instance.ID))
-			}
-
-			if task.UserID > 0 {
-				quotaService := resources.NewQuotaService()
-				resourceUsage := resources.ResourceUsage{
-					CPU:       instance.CPU,
-					Memory:    instance.Memory,
-					Disk:      instance.Disk,
-					Bandwidth: instance.Bandwidth,
-				}
-				if err := quotaService.ReleasePendingQuota(tx, task.UserID, resourceUsage); err != nil {
-					global.APP_LOG.Warn("释放失败实例待确认配额失败",
-						zap.Uint("taskId", task.ID),
-						zap.Uint("instanceId", instance.ID),
-						zap.Uint("userId", task.UserID),
-						zap.Error(err))
-				}
-			}
-
-			// 资源预留已在创建时被原子化消费，无需额外释放
-			if err := tx.Model(&providerModel.ProviderIPv4Pool{}).
-				Where("instance_id = ?", instance.ID).
-				Updates(map[string]interface{}{"is_allocated": false, "instance_id": nil}).Error; err != nil {
-				global.APP_LOG.Warn("释放失败实例IPv4池地址失败",
-					zap.Uint("instanceId", instance.ID),
-					zap.Error(err))
-			}
-			if err := ipv6PoolService.NewService().ReleaseIPv6WithDB(tx, instance.ID); err != nil {
-				return fmt.Errorf("释放失败实例IPv6池地址失败: %w", err)
-			}
-
-			// 更新任务状态为失败；若管理员已强制取消，保留取消终态。
-			if err := tx.Model(&adminModel.Task{}).
-				Where("id = ? AND status NOT IN ?", task.ID, []string{"completed", "failed", "cancelled", "timeout"}).
-				Updates(map[string]interface{}{
-					"status":        "failed",
-					"completed_at":  time.Now(),
-					"error_message": apiError.Error(),
-				}).Error; err != nil {
-				return fmt.Errorf("更新任务状态失败: %v", err)
-			}
-
-			// 启动延迟删除任务，10秒后自动删除失败的实例
-			go s.delayedDeleteFailedInstance(instance.ID)
-
-			return nil
+			return quarantineFailedCreate(tx, instance)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 
 		// Provider创建实例成功，使用事务外预先收集的数据执行DB写入（短事务）
@@ -377,8 +289,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 		}
 		// 更新任务状态为处理中，等待后处理任务完成
-		if err := tx.Model(task).Updates(map[string]interface{}{
-			"status":   "running",
+		if err := tx.Model(&adminModel.Task{}).Where("id = ? AND status = ?", task.ID, "running").Updates(map[string]interface{}{
 			"progress": 70, // Provider创建实例成功，还需要后处理任务
 		}).Error; err != nil {
 			return fmt.Errorf("更新任务状态失败: %v", err)
@@ -390,26 +301,23 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		return err
 	}
 
-	if cancelledDuringFinalize {
-		s.taskService.ReleaseTaskLocks(task.ID)
-		return nil
-	}
-
-	// 如果任务在事务中已标记为失败，需要释放锁
 	if apiError != nil {
-		if global.APP_TASK_LOCK_RELEASER != nil {
-			global.APP_TASK_LOCK_RELEASER.ReleaseTaskLocks(task.ID)
-		}
+		go s.delayedDeleteFailedInstance(instance.ID)
+		return apiError
 	}
 
 	// 如果Provider创建实例成功，执行后处理任务（同步完成关键任务后再标记完成）
 	if apiError == nil {
 		go func(instanceID uint, providerID uint, taskID uint) {
-			taskCtx, taskCancel := context.WithTimeout(context.Background(), 45*time.Minute)
+			taskCtx, taskCancel := context.WithTimeout(ctx, 45*time.Minute)
+			defer s.taskService.ReleaseTaskLocks(taskID)
 			defer taskCancel()
 			defer func() {
-				s.taskService.ReleaseTaskLocks(taskID)
+				if taskCtx.Err() != nil {
+					_ = s.taskService.GetStateManager().CompleteMainTask(taskID, false, taskCtx.Err().Error(), nil)
+				}
 			}()
+
 			defer func() {
 				if r := recover(); r != nil {
 					global.APP_LOG.Error("实例创建后处理任务发生panic",
@@ -563,7 +471,11 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						if i < maxRetries-1 {
 							global.APP_LOG.Debug("等待10秒后重试设置SSH密码",
 								zap.Uint("instanceId", instanceID))
-							time.Sleep(10 * time.Second) // 重试间隔10秒
+							select {
+							case <-taskCtx.Done():
+								return
+							case <-time.After(10 * time.Second):
+							}
 						}
 					} else {
 						global.APP_LOG.Debug("实例SSH密码设置成功",

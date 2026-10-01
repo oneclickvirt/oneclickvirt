@@ -5,6 +5,11 @@ import (
 	"strings"
 )
 
+// repairSSHDropInsCommand fixes image-provided sshd drop-ins. Debian cloud
+// images commonly put PermitRootLogin without-password in a drop-in, which
+// takes precedence over the value written to the main sshd_config file.
+const repairSSHDropInsCommand = `sh -c 'if [ -d /etc/ssh/sshd_config.d ]; then for file in /etc/ssh/sshd_config.d/*; do [ -f "$file" ] || continue; sed -i "s|^[[:space:]]*PermitRootLogin[[:space:]]\+\(no\|prohibit-password\|without-password\).*|PermitRootLogin yes|g" "$file"; sed -i "s|^[[:space:]]*PasswordAuthentication[[:space:]]\+no.*|PasswordAuthentication yes|g" "$file"; done; fi'`
+
 func (p *ProxmoxProvider) configureAlpineSSH(vmid int) {
 	commands := []string{
 		// 更新包管理器
@@ -27,6 +32,7 @@ func (p *ProxmoxProvider) configureAlpineSSH(vmid int) {
 		"sed -i '/^#AddressFamily\\|AddressFamily/c AddressFamily any' /etc/ssh/sshd_config",
 		"sed -i 's/^#\\?\\(Port\\).*/\\1 22/' /etc/ssh/sshd_config",
 		"sed -i '/^#UsePAM\\|UsePAM/c #UsePAM no' /etc/ssh/sshd_config",
+		repairSSHDropInsCommand,
 		// 配置cloud-init
 		"sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' /etc/cloud/cloud.cfg 2>/dev/null || true",
 		"sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' /etc/cloud/cloud.cfg 2>/dev/null || true",
@@ -64,6 +70,7 @@ func (p *ProxmoxProvider) configureOpenWrtSSH(vmid int) {
 		"sed -i 's/#AddressFamily any/AddressFamily any/' /etc/ssh/sshd_config",
 		"sed -i 's/^#\\?PubkeyAuthentication.*/PubkeyAuthentication no/g' /etc/ssh/sshd_config",
 		"sed -i '/^AuthorizedKeysFile/s/^/#/' /etc/ssh/sshd_config",
+		repairSSHDropInsCommand,
 		// 锁定配置文件
 		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
 		// 启动SSH服务
@@ -96,6 +103,7 @@ func (p *ProxmoxProvider) configureArchSSH(vmid int) {
 		"sed -i 's/#AddressFamily any/AddressFamily any/' /etc/ssh/sshd_config",
 		"sed -i 's/^#\\?PubkeyAuthentication.*/PubkeyAuthentication no/g' /etc/ssh/sshd_config",
 		"sed -i '/^AuthorizedKeysFile/s/^/#/' /etc/ssh/sshd_config",
+		repairSSHDropInsCommand,
 		// 锁定配置文件
 		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
 		// 启动SSH服务
@@ -134,6 +142,7 @@ func (p *ProxmoxProvider) configureDebianBasedSSH(vmid int) {
 		"sed -i 's/^#[[:space:]]*KbdInteractiveAuthentication.*\\|^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config",
 		// 处理sshd_config.d目录中的配置文件
 		"sh -c \"if [ -d /etc/ssh/sshd_config.d ]; then for file in /etc/ssh/sshd_config.d/*; do if [ -f \\\"$file\\\" ] && grep -q 'PasswordAuthentication no' \\\"$file\\\"; then sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' \\\"$file\\\"; fi; done; fi\"",
+		repairSSHDropInsCommand,
 		// 锁定配置文件
 		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
 		// 启动SSH服务
@@ -186,6 +195,7 @@ func (p *ProxmoxProvider) configureRHELBasedSSH(vmid int) {
 		"sed -i 's/^#[[:space:]]*KbdInteractiveAuthentication.*\\|^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config",
 		// 处理sshd_config.d目录中的配置文件
 		"sh -c \"if [ -d /etc/ssh/sshd_config.d ]; then for file in /etc/ssh/sshd_config.d/*; do if [ -f \\\"$file\\\" ] && grep -q 'PasswordAuthentication no' \\\"$file\\\"; then sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' \\\"$file\\\"; fi; done; fi\"",
+		repairSSHDropInsCommand,
 		// 锁定配置文件
 		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
 		// 启动SSH服务
@@ -223,6 +233,7 @@ func (p *ProxmoxProvider) configureOpenSUSESSH(vmid int) {
 		"sed -i 's/^#[[:space:]]*KbdInteractiveAuthentication.*\\|^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config",
 		// 处理sshd_config.d目录中的配置文件
 		"sh -c \"if [ -d /etc/ssh/sshd_config.d ]; then for file in /etc/ssh/sshd_config.d/*; do if [ -f \\\"$file\\\" ] && grep -q 'PasswordAuthentication no' \\\"$file\\\"; then sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' \\\"$file\\\"; fi; done; fi\"",
+		repairSSHDropInsCommand,
 		// 锁定配置文件
 		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
 		// 启动SSH服务

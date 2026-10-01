@@ -531,7 +531,7 @@ func (i *IncusProvider) StartInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("执行规则不允许使用SSH")
 	}
 
-	return i.sshStartInstance(id)
+	return i.sshStartInstance(ctx, id)
 }
 
 func (i *IncusProvider) StopInstance(ctx context.Context, id string) error {
@@ -558,7 +558,7 @@ func (i *IncusProvider) StopInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("执行规则不允许使用SSH")
 	}
 
-	return i.sshStopInstance(id)
+	return i.sshStopInstance(ctx, id)
 }
 
 func (i *IncusProvider) RestartInstance(ctx context.Context, id string) error {
@@ -585,7 +585,7 @@ func (i *IncusProvider) RestartInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("执行规则不允许使用SSH")
 	}
 
-	return i.sshRestartInstance(id)
+	return i.sshRestartInstance(ctx, id)
 }
 
 func (i *IncusProvider) DeleteInstance(ctx context.Context, id string) error {
@@ -619,7 +619,7 @@ func (i *IncusProvider) DeleteInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("执行规则不允许使用SSH")
 	}
 
-	return i.sshDeleteInstance(id)
+	return i.sshDeleteInstance(ctx, id)
 }
 
 func (i *IncusProvider) GetInstance(ctx context.Context, id string) (*provider.Instance, error) {
@@ -692,7 +692,7 @@ func (i *IncusProvider) ExecuteSSHCommand(ctx context.Context, command string) (
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.RedactSensitiveCommand(command, 200)))
 
-	output, err := i.sshClient.Execute(command)
+	output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.RedactSensitiveCommand(command, 200)),

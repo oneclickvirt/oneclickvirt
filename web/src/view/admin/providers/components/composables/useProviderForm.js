@@ -154,6 +154,7 @@ export function useProviderForm(props, emit) {
     proxyEnableHttp: true,
     proxyHttpPort: 80,
     proxyEnableHttps: false,
+    proxyTrustCloudflareHeaders: false,
     proxyHttpsPort: 443,
     proxyTlsCertPath: '',
     proxyTlsKeyPath: '',
@@ -671,7 +672,11 @@ export function useProviderForm(props, emit) {
         }
       }
 
-      emit('submit', formData.value)
+      if (props.submitHandler) {
+        await props.submitHandler({ ...formData.value })
+      } else {
+        emit('submit', formData.value)
+      }
     } catch (error) {
       console.error('表单验证失败:', error)
       // 表单项会展示具体错误，避免额外泛化弹窗造成“成功后又报错”的误判。
@@ -682,6 +687,7 @@ export function useProviderForm(props, emit) {
 
   // 关闭对话框（带未保存更改警告）
   const handleBeforeClose = (done) => {
+    if (submitting.value || props.loading) return
     const isDirty = formSnapshot.value !== null && JSON.stringify(formData.value) !== formSnapshot.value
     if (isDirty) {
       ElMessageBox.confirm(
@@ -706,6 +712,7 @@ export function useProviderForm(props, emit) {
 
   // 关闭对话框
   const handleClose = () => {
+    if (submitting.value || props.loading) return
     emit('cancel')
   }
 
@@ -735,6 +742,7 @@ export function useProviderForm(props, emit) {
     agentConnectCmdGithub,
     execLoading,
     execResult,
+    submitting,
     handleTestConnection,
     handleApplyTimeout,
     handleAuthMethodChange,

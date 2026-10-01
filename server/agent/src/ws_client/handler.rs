@@ -322,27 +322,22 @@ where
                                     }
                                 };
 
-                                let output = tokio::time::timeout(
+                                let output = super::exec::execute_with_cancel(
+                                    &cmd,
+                                    Some(&mut cancelled),
                                     std::time::Duration::from_secs(300),
-                                    super::exec::execute(&cmd),
                                 )
                                 .await;
 
                                 let resp_payload = match output {
-                                    Ok(Ok(out)) => ExecRespPayload {
+                                    Ok(out) => ExecRespPayload {
                                         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
                                         stderr: String::from_utf8_lossy(&out.stderr).to_string(),
                                         exit_code: out.status.code().unwrap_or(-1),
                                     },
-                                    Ok(Err(e)) => ExecRespPayload {
+                                    Err(e) => ExecRespPayload {
                                         stdout: String::new(),
                                         stderr: e.to_string(),
-                                        exit_code: -1,
-                                    },
-                                    Err(_elapsed) => ExecRespPayload {
-                                        stdout: String::new(),
-                                        stderr: "command execution timed out (300s) on agent"
-                                            .to_string(),
                                         exit_code: -1,
                                     },
                                 };
@@ -365,13 +360,7 @@ where
                                     .await;
                                 }
                             };
-                            tokio::select! {
-                                biased;
-                                _ = async {
-                                    if !*cancelled.borrow_and_update() { let _ = cancelled.changed().await; }
-                                } => {}
-                                _ = work => {}
-                            }
+                            work.await;
                             tasks.lock().await.remove(&task_id);
                         });
                     }
@@ -774,6 +763,9 @@ fn allowed_api_request(method: &Method, path: &str) -> bool {
             | ("DELETE", "/api/v1/egress/bindings")
             | ("PUT", "/api/v1/egress/state")
             | ("POST", "/api/v1/egress/reconcile")
+            | ("GET", "/api/v1/domain-proxy")
+            | ("POST", "/api/v1/domain-proxy")
+            | ("DELETE", "/api/v1/domain-proxy")
     )
 }
 
@@ -842,6 +834,15 @@ async fn dispatch_api_request(
 mod lifecycle_tests {
     use super::*;
     use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
+
+    #[test]
+    fn domain_proxy_routes_use_typed_websocket_api() {
+        assert!(allowed_api_request(&Method::GET, "/api/v1/domain-proxy"));
+        assert!(allowed_api_request(&Method::POST, "/api/v1/domain-proxy"));
+        assert!(allowed_api_request(&Method::DELETE, "/api/v1/domain-proxy"));
+        assert!(!allowed_api_request(&Method::PUT, "/api/v1/domain-proxy"));
+        assert!(!allowed_api_request(&Method::POST, "/api/v1/shell"));
+    }
 
     #[test]
     fn admission_limits_are_owned_by_each_connection() {

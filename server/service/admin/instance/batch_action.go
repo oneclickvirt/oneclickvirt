@@ -79,7 +79,7 @@ func (s *Service) BatchInstanceAction(req adminModel.BatchInstanceActionRequest,
 
 		var instances []providerModel.Instance
 		if len(uniqueIDs) > 0 {
-			instanceQuery := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("instances.id IN ?", uniqueIDs)
+			instanceQuery := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("instances.id IN ?", uniqueIDs).Order("instances.id ASC")
 			if ownerAdminID > 0 {
 				providerIDs := tx.Model(&providerModel.Provider{}).Select("id").Where("owner_admin_id = ?", ownerAdminID)
 				instanceQuery = instanceQuery.Where("instances.provider_id IN (?)", providerIDs)
@@ -93,11 +93,10 @@ func (s *Service) BatchInstanceAction(req adminModel.BatchInstanceActionRequest,
 			instanceMap[instance.ID] = instance
 		}
 
-		activeTypes := []string{"create", "create_instance", "create_redemption_instance", "start", "stop", "restart", "reset", "rebuild", "delete", "reset-password"}
 		var activeTasks []adminModel.Task
 		if len(uniqueIDs) > 0 {
 			if err := tx.Select("instance_id, task_type").
-				Where("instance_id IN ? AND task_type IN ? AND status IN ?", uniqueIDs, activeTypes, []string{"pending", "processing", "running", "cancelling"}).
+				Where("instance_id IN ? AND status IN ?", uniqueIDs, []string{"pending", "processing", "running", "cancelling"}).
 				Order("id ASC").
 				Find(&activeTasks).Error; err != nil {
 				return err
@@ -151,7 +150,7 @@ func (s *Service) BatchInstanceAction(req adminModel.BatchInstanceActionRequest,
 				continue
 			}
 
-			taskData := map[string]interface{}{"instanceId": instance.ID, "providerId": instance.ProviderID}
+			taskData := map[string]interface{}{"instanceId": instance.ID, "providerId": instance.ProviderID, "originalStatus": instance.Status, "originalDesiredState": instance.DesiredState}
 			if req.Action == "reset" || req.Action == "rebuild" {
 				taskData["originalStatus"] = instance.Status
 			}

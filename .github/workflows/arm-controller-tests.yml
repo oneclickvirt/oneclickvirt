@@ -145,7 +145,7 @@ jobs:
       - name: Set server version
         run: |
           LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
-            | jq -r '.tag_name // "v0.0.0-dev"')
+            | jq -r '.tag_name // "ci-arm-lifecycle"')
           sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${LATEST_TAG}\"/" \
             server/constant/version.go
           echo "Server version set to: ${LATEST_TAG}"

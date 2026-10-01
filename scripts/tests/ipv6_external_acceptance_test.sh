@@ -16,6 +16,7 @@ need tr
 need curl
 need cut
 need base64
+need python3
 
 [[ -n "${REMOTE_HOST:-}" ]] || environment_missing "set REMOTE_HOST to the node IPv4 or hostname"
 [[ -n "${REMOTE_USER:-}" ]] || environment_missing "set REMOTE_USER for node SSH"
@@ -92,20 +93,9 @@ cleanup() {
         probe_known_hosts_quoted="$(shell_quote "$PROBE_KNOWN_HOSTS")"
         probe_exec "rm -f -- $probe_known_hosts_quoted" >/dev/null 2>&1 || true
     fi
-    [[ "$CONTAINER_CREATED" == true ]] || return 0
-    node_ssh "sh -s" <<EOF
-set -eu
-runtime=incus
-command -v "\$runtime" >/dev/null 2>&1 || runtime=lxc
-names=\$("\$runtime" list --format csv -c n)
-printf '%s\n' "\$names" | grep -Fx -- $(shell_quote "$CONTAINER_NAME") >/dev/null || exit 0
-owner=\$("\$runtime" config get $(shell_quote "$CONTAINER_NAME") user.ocv.ipv6-test 2>/dev/null)
-if [ "\$owner" != $(shell_quote "$TEST_RUN_ID") ]; then
-    echo 'Refusing to remove IPv6 test container: ownership changed' >&2
-    exit 1
-fi
-"\$runtime" delete -f $(shell_quote "$CONTAINER_NAME")
-EOF
+    if [[ "$CONTAINER_CREATED" == true ]]; then
+        echo "Preserving IPv6 acceptance container: $CONTAINER_NAME" >&2
+    fi
 }
 on_exit() {
     local status=$?
@@ -126,15 +116,49 @@ test_port_quoted="$(shell_quote "$TEST_PORT")"
 
 host_probe="$(node_ssh "sh -s" <<'EOF'
 set -eu
-addr=$(ip -6 -o addr show scope global | awk "{print \$4}" | cut -d/ -f1 | grep -Ev "^(fc|fd|fe80:)" | head -n1 || true)
-route=$(ip -6 route show default | head -n1 || true)
-printf "%s\n%s\n" "$addr" "$route"
+addresses=$(LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global)
+routes=$(LC_ALL=C NO_COLOR=1 ip -j -6 route show default)
+python3 - "$addresses" "$routes" <<'PY'
+import ipaddress
+import json
+import re
+import sys
+
+try:
+    addresses = json.loads(re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", sys.argv[1]))
+    routes = json.loads(re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", sys.argv[2]))
+    defaults = [route for route in routes if route.get("dst", "default") == "default"]
+    if not defaults:
+        raise ValueError("no IPv6 default route")
+    devices = []
+    for route in defaults:
+        if route.get("dev"):
+            devices.append(route["dev"])
+        for hop in route.get("nexthops", []) + route.get("multipath", []):
+            if hop.get("dev"):
+                devices.append(hop["dev"])
+    for row in addresses:
+        if devices and row.get("ifname") not in devices:
+            continue
+        for info in row.get("addr_info", []):
+            if info.get("family") != "inet6" or info.get("scope") != "global":
+                continue
+            if info.get("tentative") or info.get("dadfailed") or any(
+                    flag in ("tentative", "dadfailed") for flag in info.get("flags", [])):
+                continue
+            address = ipaddress.IPv6Address(info["local"])
+            if address.is_global:
+                print(str(address) + "|" + row.get("ifname", "") + "|1")
+                raise SystemExit(0)
+    raise ValueError("no global IPv6 address on a default-route interface")
+except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1)
+PY
 EOF
 )" || fail "cannot inspect node IPv6 state"
-host_ipv6="$(printf '%s\n' "$host_probe" | sed -n '1p')"
-host_route="$(printf '%s\n' "$host_probe" | sed -n '2p')"
+IFS='|' read -r host_ipv6 host_interface host_route_present <<< "$host_probe"
 [[ "$host_ipv6" =~ ^[0-9A-Fa-f:]+$ ]] || fail "node has no public global IPv6 address"
-[[ -n "$host_route" ]] || fail "node has no IPv6 default route"
+[[ -n "$host_interface" && "$host_route_present" == 1 ]] || fail "node has no IPv6 default route"
 
 node_ssh "CONTAINER_IMAGE=$container_image_quoted CONTAINER_NAME=$container_name_quoted TEST_RUN_ID=$test_run_id_quoted sh -s" <<'EOF' || fail "failed to create acceptance container"
 set -eu
@@ -227,6 +251,45 @@ ssh_probe_command="command -v sshpass >/dev/null 2>&1 && SSHPASS=$ssh_password_q
 ssh_identity="$(probe_exec "$ssh_probe_command")" || fail "external IPv6 SSH probe could not log in to [$container_ipv6]"
 [[ "$ssh_identity" == "$TEST_RUN_ID" ]] || fail "external SSH reached the wrong container"
 
-cleanup || fail "cleanup did not complete for $CONTAINER_NAME"
-CONTAINER_CREATED=false
+host_ipv6_quoted="$(shell_quote "$host_ipv6")"
+host_interface_quoted="$(shell_quote "$host_interface")"
+node_ssh "HOST_IPV6=$host_ipv6_quoted HOST_INTERFACE=$host_interface_quoted sh -s" <<'EOF' ||
+    fail "host IPv6 address or default route was lost after container configuration"
+set -eu
+python3 - <<'PY'
+import ipaddress
+import json
+import os
+import re
+import subprocess
+
+def ip_json(arguments):
+    output = subprocess.check_output(
+        ["env", "LC_ALL=C", "NO_COLOR=1", "ip", *arguments], text=True)
+    return json.loads(re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output))
+
+interfaces = ip_json(["-j", "-6", "addr", "show", "scope", "global"])
+routes = ip_json(["-j", "-6", "route", "show", "default"])
+expected = ipaddress.IPv6Address(os.environ["HOST_IPV6"])
+interface = os.environ["HOST_INTERFACE"]
+present = any(
+    row.get("ifname") == interface and any(
+        info.get("family") == "inet6" and
+        ipaddress.IPv6Address(info["local"]) == expected and
+        not info.get("tentative") and not info.get("dadfailed") and
+        not any(flag in ("tentative", "dadfailed") for flag in info.get("flags", []))
+        for info in row.get("addr_info", []))
+    for row in interfaces)
+has_default = any(route.get("dst", "default") == "default" for route in routes)
+raise SystemExit(0 if present and has_default else 1)
+PY
+EOF
+host_egress_after="$(node_ssh "curl --noproxy '*' -6 -fsS --connect-timeout 10 --max-time 20 https://ipv6.ip.sb" | tr -d '\r' | tail -1)" ||
+    fail "host IPv6 egress failed after container configuration"
+python3 - "$host_egress_after" <<'PY' || fail "host IPv6 egress returned a non-global address"
+import ipaddress
+import sys
+address = ipaddress.ip_address(sys.argv[1])
+raise SystemExit(0 if address.version == 6 and address.is_global else 1)
+PY
 echo "IPv6 acceptance passed: host=$host_ipv6 container=$container_ipv6 ssh=ok http=ok probe=$EXTERNAL_PROBE_HOST"

@@ -139,7 +139,7 @@ func parseGenericOneClickVirtImageURL(imageURL string) *ImageInfo {
 }
 
 func trimKnownImageExtension(filename string) string {
-	for _, ext := range []string{".tar.xz", ".tar.gz", ".qcow2", ".zip"} {
+	for _, ext := range []string{".tar.xz", ".tar.zst", ".tar.gz", ".qcow2", ".zip"} {
 		if strings.HasSuffix(strings.ToLower(filename), ext) {
 			return strings.TrimSuffix(filename, ext)
 		}

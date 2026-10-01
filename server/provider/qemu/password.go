@@ -40,17 +40,17 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	global.APP_LOG.Info("设置QEMU实例密码",
 		zap.String("instance", utils.TruncateString(instanceID, 32)))
 
-	if p.isLXCInstance(instanceID) {
+	if p.isLXCInstance(ctx, instanceID) {
 		rootfs := fmt.Sprintf("%s/%s/rootfs", LXCBaseDir, qemuSafeFileComponent(instanceID))
 		cmd := fmt.Sprintf("test -d %s && chroot %s /bin/sh -c %s", shellSingleQuote(rootfs), shellSingleQuote(rootfs), shellSingleQuote("echo root:"+password+" | chpasswd"))
-		if output, err := p.sshClient.Execute(cmd + " 2>&1"); err != nil {
+		if output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd+" 2>&1"); err != nil {
 			return fmt.Errorf("failed to set LXC password: %s, %w", utils.TruncateString(output, 200), err)
 		}
 		return nil
 	}
 
 	// 检查VM状态
-	statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh -c qemu:///system domstate %s 2>/dev/null", shellSingleQuote(instanceID)))
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh -c qemu:///system domstate %s 2>/dev/null", shellSingleQuote(instanceID)))
 	if err != nil {
 		return fmt.Errorf("failed to check VM status: %w", err)
 	}
@@ -59,7 +59,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 
 	// 方法1: 如果guest-agent可用，使用 virsh set-user-password
 	if strings.Contains(status, "running") {
-		output, err := p.sshClient.Execute(fmt.Sprintf(
+		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 			"virsh -c qemu:///system set-user-password %s root %s 2>&1",
 			shellSingleQuote(instanceID),
 			shellSingleQuote(password)))
@@ -76,7 +76,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	var lastErr error
 	vmIP := p.getVMIPAddress(ctx, instanceID)
 	if vmIP != "" {
-		if err := p.ensureSSHPassAvailable(); err != nil {
+		if err := p.ensureSSHPassAvailable(ctx); err != nil {
 			lastErr = err
 		} else {
 			remoteCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
@@ -86,7 +86,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 					shellSingleQuote(authPassword),
 					shellSingleQuote("root@"+vmIP),
 					shellSingleQuote(remoteCmd))
-				output, err := p.sshClient.Execute(chpasswdCmd)
+				output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, chpasswdCmd)
 				if err == nil {
 					global.APP_LOG.Info("通过SSH设置密码成功",
 						zap.String("instance", utils.TruncateString(instanceID, 32)))
@@ -100,7 +100,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	// 方法3: 使用 virt-customize (离线模式,需要VM关机)
 	if strings.Contains(status, "shut off") || strings.Contains(status, "shutoff") {
 		// 查找VM的磁盘文件
-		output, err := p.sshClient.Execute(fmt.Sprintf(
+		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 			"virsh -c qemu:///system domblklist %s 2>/dev/null | grep -E '\\.(qcow2|img|raw)' | awk '{print $2}'",
 			shellSingleQuote(instanceID)))
 		if err == nil {
@@ -108,7 +108,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 				return strings.HasPrefix(value, "/")
 			})
 			if parseErr == nil {
-				output, err := p.sshClient.Execute(fmt.Sprintf(
+				output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 					"virt-customize -a %s --root-password %s 2>&1",
 					shellSingleQuote(diskPath),
 					shellSingleQuote("password:"+password)))
@@ -133,7 +133,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 		if err := sleepWithContext(ctx, 5*time.Second); err != nil {
 			return fmt.Errorf("waiting before password retry cancelled: %w", err)
 		}
-		output, err := p.sshClient.Execute(fmt.Sprintf(
+		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 			"virsh -c qemu:///system set-user-password %s root %s 2>&1",
 			shellSingleQuote(instanceID),
 			shellSingleQuote(password)))
@@ -168,8 +168,8 @@ func qemuPasswordCandidates(password string) []string {
 	return candidates
 }
 
-func (p *QEMUProvider) ensureSSHPassAvailable() error {
-	output, err := p.sshClient.Execute(`if command -v sshpass >/dev/null 2>&1; then
+func (p *QEMUProvider) ensureSSHPassAvailable(ctx context.Context) error {
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, `if command -v sshpass >/dev/null 2>&1; then
   exit 0
 fi
 if command -v apt-get >/dev/null 2>&1; then

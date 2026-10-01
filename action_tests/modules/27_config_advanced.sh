@@ -23,6 +23,9 @@ run_module_27() {
     # ---- Configuration tasks ----
     test_api "List config tasks" "GET" "/api/v1/admin/configuration-tasks" "200" "" "$group" "$ADMIN_TOKEN"
     test_api "Get nonexistent task" "GET" "/api/v1/admin/configuration-tasks/99999" "404" "" "$group" "$ADMIN_TOKEN"
+    # Keep the cancellation route in the static/API contract matrix without
+    # touching a real configuration task during routine environment runs.
+    test_api "Cancel nonexistent config task" "POST" "/api/v1/admin/configuration-tasks/99999/cancel" "400|404" "" "$group" "$ADMIN_TOKEN"
 
     # ---- Auto-configure provider (creates a task) ----
     if [[ -n "$PROVIDER_ID" ]]; then

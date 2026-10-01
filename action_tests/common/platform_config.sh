@@ -6,14 +6,14 @@
 # Platform Enable/Disable (set to "true" to enable)
 # Each platform requires its own set of secrets to be configured in GitHub Actions.
 # ============================================================================
-PLATFORM_ALICE_ENABLED="${PLATFORM_ALICE_ENABLED:-true}"
-PLATFORM_LIGHTNODE_ENABLED="${PLATFORM_LIGHTNODE_ENABLED:-true}"
+PLATFORM_ALICE_ENABLED="${PLATFORM_ALICE_ENABLED:-false}"
+PLATFORM_LIGHTNODE_ENABLED="${PLATFORM_LIGHTNODE_ENABLED:-false}"
 PLATFORM_RACKDOG_ENABLED="${PLATFORM_RACKDOG_ENABLED:-false}"
 PLATFORM_SKRIME_ENABLED="${PLATFORM_SKRIME_ENABLED:-false}"
 PLATFORM_PREPAIDHOST_ENABLED="${PLATFORM_PREPAIDHOST_ENABLED:-false}"
 PLATFORM_CUBEPATH_ENABLED="${PLATFORM_CUBEPATH_ENABLED:-false}"
 PLATFORM_VULTR_ENABLED="${PLATFORM_VULTR_ENABLED:-false}"
-PLATFORM_HETZNER_ENABLED="${PLATFORM_HETZNER_ENABLED:-false}"
+PLATFORM_HETZNER_ENABLED="${PLATFORM_HETZNER_ENABLED:-true}"
 PLATFORM_LINODE_ENABLED="${PLATFORM_LINODE_ENABLED:-false}"
 PLATFORM_CLOUDSIGMA_ENABLED="${PLATFORM_CLOUDSIGMA_ENABLED:-false}"
 
@@ -21,17 +21,18 @@ PLATFORM_CLOUDSIGMA_ENABLED="${PLATFORM_CLOUDSIGMA_ENABLED:-false}"
 # Platform Priority Order (space-separated, first = highest priority)
 # Auto-fallback: if the first enabled platform fails, try the next one.
 # ============================================================================
-PLATFORM_PRIORITY_ORDER="${PLATFORM_PRIORITY_ORDER:-alice lightnode vultr hetzner linode rackdog cubepath skrime prepaidhost cloudsigma}"
+PLATFORM_PRIORITY_ORDER="${PLATFORM_PRIORITY_ORDER:-hetzner}"
 
 # ============================================================================
 # Instance Lifecycle Settings
 # ============================================================================
 # Whether to delete test instances after test completion.
-# When set to "true", instances are NEVER deleted regardless of platform billing type.
-# Instead, to achieve a clean state for the next run, the existing instance's OS
-# will be reinstalled (if the platform supports it).
-# Monthly/prepaid platforms (skrime, prepaidhost) also default to this behavior.
-SKIP_INSTANCE_DELETE="${SKIP_INSTANCE_DELETE:-false}"
+# The integration harness keeps instances by default. Set this to "false" only
+# for an explicitly disposable run. When set to "true", instances are NEVER
+# deleted regardless of platform billing type; a later run reuses the instance
+# and reinstalls its OS when the platform supports it.
+# Monthly/prepaid platforms (skrime, prepaidhost) always keep this behavior.
+SKIP_INSTANCE_DELETE="${SKIP_INSTANCE_DELETE:-true}"
 
 # ============================================================================
 # Platform Billing Types (hourly = safe to delete, monthly/prepaid = prefer reinstall)
@@ -102,7 +103,10 @@ declare -A PLATFORM_SUPPORTS_REINSTALL=(
 # Shared SSH settings - used by all platforms for SSH connections
 # ============================================================================
 PLATFORM_SSH_KEY_FILE=""
-PLATFORM_SSH_PASSWORD=""
+# Keep an explicitly supplied password available when the config is sourced in
+# a child shell.  The normal provider adapters still overwrite this value with
+# the password returned by their create/reinstall operation.
+PLATFORM_SSH_PASSWORD="${PLATFORM_SSH_PASSWORD:-}"
 
 # ============================================================================
 # Helper: get ordered list of enabled platforms

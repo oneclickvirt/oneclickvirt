@@ -4,6 +4,7 @@
     :title="isEditing ? $t('admin.providers.editServer') : $t('admin.providers.addServer')" 
     width="1000px"
     :close-on-click-modal="false"
+    :close-on-press-escape="!loading && !submitting"
     :before-close="handleBeforeClose"
   >
     <!-- 配置分类标签页 -->
@@ -140,10 +141,14 @@
     
     <template #footer>
       <span class="dialog-footer">
-        <el-button @click="handleClose">{{ $t('common.cancel') }}</el-button>
+        <el-button
+          :disabled="loading || submitting"
+          @click="handleClose"
+        >{{ $t('common.cancel') }}</el-button>
         <el-button
           type="primary"
-          :loading="loading"
+          :loading="loading || submitting"
+          :disabled="loading || submitting"
           @click="handleSubmit"
         >{{ $t('common.save') }}</el-button>
       </span>
@@ -185,6 +190,10 @@ const props = defineProps({
   loading: {
     type: Boolean,
     default: false
+  },
+  submitHandler: {
+    type: Function,
+    default: null
   }
 })
 
@@ -206,6 +215,7 @@ const {
   agentConnectCmdGithub,
   execLoading,
   execResult,
+  submitting,
   handleTestConnection,
   handleApplyTimeout,
   handleAuthMethodChange,

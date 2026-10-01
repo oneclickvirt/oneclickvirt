@@ -641,7 +641,7 @@ func (p *PodmanProvider) ExecuteSSHCommand(ctx context.Context, command string) 
 	if !p.connected || !p.sshClient.HasExecutor() {
 		return "", fmt.Errorf("Podman provider not connected")
 	}
-	output, err := p.sshClient.Execute(command)
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, command)
 	if err != nil {
 		return output, fmt.Errorf("SSH command execution failed: %w; output: %s", err, utils.TruncateString(output, 2000))
 	}

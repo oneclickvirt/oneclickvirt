@@ -256,6 +256,8 @@ func systemImageURLFamily(imageURL string) string {
 		return "qcow2"
 	case strings.HasSuffix(clean, ".tar.xz"):
 		return "tar.xz"
+	case strings.HasSuffix(clean, ".tar.zst"):
+		return "tar.zst"
 	case strings.HasSuffix(clean, ".tar.gz"):
 		return "tar.gz"
 	case strings.HasSuffix(clean, ".zip"):
@@ -369,7 +371,7 @@ func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
 		}
 
 		// QEMU Provider 同时支持 libvirt-lxc 容器，可复用 Proxmox LXC rootfs 模板。
-		if imageInfo.ProviderType == "proxmox" && imageInfo.InstanceType == "container" && strings.HasSuffix(imageInfo.URL, ".tar.xz") {
+		if imageInfo.ProviderType == "proxmox" && imageInfo.InstanceType == "container" && (strings.HasSuffix(imageInfo.URL, ".tar.xz") || strings.HasSuffix(imageInfo.URL, ".tar.zst")) {
 			extraImage := baseImage
 			extraImage.ProviderType = "qemu"
 			extraImage.InstanceType = "container"

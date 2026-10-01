@@ -14,6 +14,9 @@ func (m *Manager) addSingleDNATNft(address string, hostPort, guestPort int, prot
 	if ipv6 {
 		family, table = "ip6", m.ipv6NftTable()
 	}
+	if err := m.removeExistingSingleDNAT(address, hostPort, guestPort, protocol, comment, ipv6); err != nil {
+		return err
+	}
 	type object = map[string]interface{}
 	match := func(protocol, field string, value interface{}) object {
 		return object{"match": object{"op": "==", "left": object{"payload": object{"protocol": protocol, "field": field}}, "right": value}}

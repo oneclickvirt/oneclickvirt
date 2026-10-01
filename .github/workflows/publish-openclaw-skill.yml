@@ -33,6 +33,10 @@ jobs:
 
       - name: Check skill files are in sync with MCP source
         run: |
+          # First verify the committed development files against the MCP
+          # source. The source checkout intentionally carries the unreleased
+          # fallback version, while a published controller release gets its
+          # timestamp tag below.
           python3 scripts/generate_skills.py
           if ! git diff --quiet skills/SKILL.md skills/SKILL_ZH.md; then
             echo "ERROR: skills/SKILL.md and skills/SKILL_ZH.md are out of sync with server/mcp/server.go"
@@ -41,6 +45,11 @@ jobs:
             exit 1
           fi
           echo "Skill files are in sync with MCP source."
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            # Keep the packaged Skill's version aligned with the controller
+            # Release tag without changing the committed development files.
+            python3 scripts/generate_skills.py --version "${GITHUB_REF_NAME}"
+          fi
 
       - name: Validate skill files
         run: |

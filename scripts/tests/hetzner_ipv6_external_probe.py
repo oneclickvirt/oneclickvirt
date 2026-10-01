@@ -22,7 +22,7 @@ from live_ssh import strict_node_client
 API = "https://api.hetzner.cloud/v1"
 SERVER_ID = os.environ.get("OCV_HETZNER_SERVER_ID", "")
 PROD_HOST = os.environ.get("OCV_LIVE_HOST", "")
-PROD_PORT = int(os.environ.get("OCV_LIVE_SSH_PORT", "1777"))
+PROD_PORT = int(os.environ.get("OCV_LIVE_SSH_PORT", "22"))
 PROD_V6 = os.environ.get("OCV_LIVE_IPV6_TARGET", "")
 HTTP_PORT = int(os.environ.get("OCV_HETZNER_HTTP_PORT", "29990"))
 PROD_IMAGE = os.environ.get("OCV_LIVE_IMAGE", "")
@@ -30,6 +30,7 @@ GUEST_V4 = os.environ.get("OCV_LIVE_GUEST_IPV4", "10.101.179.241")
 GUEST_V6 = os.environ.get("OCV_LIVE_GUEST_IPV6", "")
 NAT_SSH_PORT = int(os.environ.get("OCV_LIVE_IPV6_SSH_PORT", "29987"))
 NAT_HTTP_PORT = int(os.environ.get("OCV_LIVE_IPV6_HTTP_PORT", "29988"))
+HOST_ONLY = os.environ.get("OCV_HZ_HOST_ONLY") == "yes"
 
 
 def read_channel(channel, timeout=45):
@@ -87,9 +88,11 @@ def wait_action(token, action_id):
 def main():
     if os.environ.get("OCV_LIVE_DISPOSABLE") != "yes":
         raise SystemExit("Set OCV_LIVE_DISPOSABLE=yes for the authorized live probe")
-    for key, value in (("OCV_HETZNER_SERVER_ID", SERVER_ID), ("OCV_LIVE_HOST", PROD_HOST),
-                       ("OCV_LIVE_IPV6_TARGET", PROD_V6), ("OCV_LIVE_IMAGE", PROD_IMAGE),
-                       ("OCV_LIVE_GUEST_IPV6", GUEST_V6)):
+    required = [("OCV_HETZNER_SERVER_ID", SERVER_ID), ("OCV_LIVE_HOST", PROD_HOST),
+                ("OCV_LIVE_IPV6_TARGET", PROD_V6)]
+    if not HOST_ONLY:
+        required.extend((("OCV_LIVE_IMAGE", PROD_IMAGE), ("OCV_LIVE_GUEST_IPV6", GUEST_V6)))
+    for key, value in required:
         if not value:
             raise SystemExit("Missing " + key)
     if not ipaddress.ip_address(PROD_V6).is_global:
@@ -123,7 +126,12 @@ def main():
     fixture_name = "ocv-hz-nat-" + os.urandom(4).hex()
     fixture_created = False
     fixture_devices = []
+    remote_known = ""
     try:
+        production_hostname = prod_run("hostname", timeout=15)
+        if not production_hostname:
+            raise RuntimeError("production node returned an empty hostname")
+
         reset = request(token, "POST", "/servers/" + server_id + "/actions/reset_password")
         root_password = reset["root_password"]
         action = reset["action"]
@@ -214,7 +222,7 @@ def main():
             # Authenticate in the reverse direction over production IPv6 using
             # an interactive OpenSSH client on Hetzner.  The host key is pinned
             # in a temporary file and never changes the operator's known_hosts.
-            remote_known = "/tmp/ocv-prod-known-hosts"
+            remote_known = "/tmp/ocv-prod-known-hosts-" + os.urandom(6).hex()
             stdin, stdout, _ = hetzner.exec_command(
                 "set -eu; ssh-keyscan -6 -T 5 -p " + str(PROD_PORT)
                 + " -t ed25519,ecdsa,rsa " + shlex.quote(PROD_V6)
@@ -223,7 +231,7 @@ def main():
             keyscan_output, status = read_channel(stdout.channel, 30)
             if status:
                 raise RuntimeError("Hetzner could not pin the production IPv6 SSH host key: " + keyscan_output[-800:])
-            command = ("ssh -tt -6 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=" + remote_known
+            command = ("LC_ALL=C ssh -tt -6 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=" + remote_known
                        + " -o PreferredAuthentications=password -o PubkeyAuthentication=no -p " + str(PROD_PORT)
                        + " root@" + PROD_V6 + " 'hostname'")
             channel = hetzner.get_transport().open_session(timeout=20)
@@ -243,10 +251,16 @@ def main():
                     time.sleep(0.1)
             data.extend(channel.recv(4096) if channel.recv_ready() else b"")
             result = bytes(data).decode(errors="replace")
-            if channel.exit_status_ready() and channel.recv_exit_status() == 0 and "localhost" in result:
+            normalized_result = result.replace("\r", "")
+            if channel.exit_status_ready() and channel.recv_exit_status() == 0 and any(
+                    line.strip() == production_hostname for line in normalized_result.splitlines()):
                 print("PASS Hetzner authenticated to the production node over public IPv6", flush=True)
             else:
                 raise RuntimeError("reverse IPv6 SSH authentication failed: " + result[-800:])
+
+            if HOST_ONLY:
+                print("PASS host-only mode completed without creating or deleting a production guest", flush=True)
+                return
 
             # End-to-end production Incus NAT-v6 acceptance.  The external TCP
             # connections originate on Hetzner; the guest host key is read via
@@ -341,6 +355,11 @@ def main():
             finally:
                 guest_client.close()
         finally:
+            if remote_known:
+                try:
+                    hetzner.exec_command("rm -f -- " + shlex.quote(remote_known), timeout=15)
+                except Exception:
+                    pass
             hetzner.close()
     finally:
         if fixture_created:

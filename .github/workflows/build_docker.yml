@@ -101,7 +101,7 @@ jobs:
             echo "Invalid Go version format in server/go.mod: ${GO_VERSION}"
             exit 1
           fi
-          echo "value=${GO_VERSION}" >> $GITHUB_OUTPUT
+          echo "value=${GO_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Resolved Go version: ${GO_VERSION}"
       
       - name: Get latest release tag
@@ -110,7 +110,7 @@ jobs:
           TAG=$(curl -fsSL "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" | \
             jq -r '.tag_name // "dev"')
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Latest release tag: ${TAG}"
 
       - name: Stage optional agent assets
@@ -246,7 +246,7 @@ jobs:
             echo "Invalid Go version format in server/go.mod: ${GO_VERSION}"
             exit 1
           fi
-          echo "value=${GO_VERSION}" >> $GITHUB_OUTPUT
+          echo "value=${GO_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Resolved Go version: ${GO_VERSION}"
       
       - name: Get latest release tag
@@ -255,7 +255,7 @@ jobs:
           TAG=$(curl -fsSL "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" | \
             jq -r '.tag_name // "dev"')
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Latest release tag: ${TAG}"
 
       - name: Stage optional agent assets
@@ -358,7 +358,7 @@ jobs:
       
       - name: Get current date
         id: date
-        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
       
       - name: Download Docker Hub digests
         id: download-dockerhub
@@ -383,13 +383,7 @@ jobs:
         if: steps.login-dockerhub.outcome == 'success' && steps.download-dockerhub.outcome == 'success'
         working-directory: /tmp/digests-dockerhub
         run: |
-          DIGEST_COUNT=$(ls -1 | wc -l)
-          if [ "$DIGEST_COUNT" -ne 2 ]; then
-            echo "Expected 2 platform digests (amd64 + arm64), found ${DIGEST_COUNT}. Failing to avoid publishing inconsistent tags."
-            exit 1
-          fi
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.DOCKER_IMAGE }}@sha256:%s ' *)
+          bash "$GITHUB_WORKSPACE/scripts/merge_image_digests.sh" "${{ env.DOCKER_IMAGE }}"
       
       - name: Inspect Docker Hub image
         if: steps.login-dockerhub.outcome == 'success' && steps.download-dockerhub.outcome == 'success'
@@ -432,7 +426,7 @@ jobs:
       
       - name: Get current date
         id: date
-        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
       
       - name: Download GHCR digests
         id: download-ghcr
@@ -457,13 +451,7 @@ jobs:
         if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
         working-directory: /tmp/digests-ghcr
         run: |
-          DIGEST_COUNT=$(ls -1 | wc -l)
-          if [ "$DIGEST_COUNT" -ne 2 ]; then
-            echo "Expected 2 platform digests (amd64 + arm64), found ${DIGEST_COUNT}. Failing to avoid publishing inconsistent tags."
-            exit 1
-          fi
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
+          bash "$GITHUB_WORKSPACE/scripts/merge_image_digests.sh" "${{ env.GHCR_IMAGE }}"
       
       - name: Inspect GHCR image
         if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
@@ -495,7 +483,7 @@ jobs:
       
       - name: Get current date
         id: date
-        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
       
       - name: Download Docker Hub digests
         id: download-dockerhub
@@ -520,13 +508,7 @@ jobs:
         if: steps.login-dockerhub.outcome == 'success' && steps.download-dockerhub.outcome == 'success'
         working-directory: /tmp/digests-dockerhub
         run: |
-          DIGEST_COUNT=$(ls -1 | wc -l)
-          if [ "$DIGEST_COUNT" -ne 2 ]; then
-            echo "Expected 2 platform digests (amd64 + arm64), found ${DIGEST_COUNT}. Failing to avoid publishing inconsistent tags."
-            exit 1
-          fi
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.DOCKER_IMAGE }}@sha256:%s ' *)
+          bash "$GITHUB_WORKSPACE/scripts/merge_image_digests.sh" "${{ env.DOCKER_IMAGE }}"
       
       - name: Inspect Docker Hub image
         if: steps.login-dockerhub.outcome == 'success' && steps.download-dockerhub.outcome == 'success'
@@ -559,7 +541,7 @@ jobs:
       
       - name: Get current date
         id: date
-        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
       
       - name: Download GHCR digests
         id: download-ghcr
@@ -584,13 +566,7 @@ jobs:
         if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
         working-directory: /tmp/digests-ghcr
         run: |
-          DIGEST_COUNT=$(ls -1 | wc -l)
-          if [ "$DIGEST_COUNT" -ne 2 ]; then
-            echo "Expected 2 platform digests (amd64 + arm64), found ${DIGEST_COUNT}. Failing to avoid publishing inconsistent tags."
-            exit 1
-          fi
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
+          bash "$GITHUB_WORKSPACE/scripts/merge_image_digests.sh" "${{ env.GHCR_IMAGE }}"
       
       - name: Inspect GHCR image
         if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
@@ -611,7 +587,7 @@ jobs:
       
       - name: Get current date
         id: date
-        run: echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+        run: echo "date=$(date +'%Y%m%d')" >> "$GITHUB_OUTPUT"
       
       - name: Update local README_ZH.md
         run: |

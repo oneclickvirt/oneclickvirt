@@ -47,14 +47,15 @@ type AgentRuntimeHealth struct {
 // ── 消息协议（文本帧 JSON） ─────────────────────────────────────────────────
 
 const (
-	msgTypeExecRequest  = "exec_req"   // 控制端 → Agent: 执行命令
-	msgTypeExecResponse = "exec_resp"  // Agent → 控制端: 命令结果
-	msgTypeAPIRequest   = "api_req"    // 控制端 → Agent: 受限的结构化本地 API 请求
-	msgTypeAPIResponse  = "api_resp"   // Agent → 控制端: 结构化本地 API 响应
-	msgTypeAPICancel    = "api_cancel" // 控制端 → Agent: 取消当前结构化 API 请求
-	msgTypePing         = "ping"       // 控制端 → Agent: 心跳
-	msgTypePong         = "pong"       // Agent → 控制端: 心跳应答
-	msgTypeInfo         = "info"       // Agent → 控制端: 上报自身信息
+	msgTypeExecRequest  = "exec_req"    // 控制端 → Agent: 执行命令
+	msgTypeExecResponse = "exec_resp"   // Agent → 控制端: 命令结果
+	msgTypeExecCancel   = "exec_cancel" // 控制端 → Agent: 取消执行中的命令
+	msgTypeAPIRequest   = "api_req"     // 控制端 → Agent: 受限的结构化本地 API 请求
+	msgTypeAPIResponse  = "api_resp"    // Agent → 控制端: 结构化本地 API 响应
+	msgTypeAPICancel    = "api_cancel"  // 控制端 → Agent: 取消当前结构化 API 请求
+	msgTypePing         = "ping"        // 控制端 → Agent: 心跳
+	msgTypePong         = "pong"        // Agent → 控制端: 心跳应答
+	msgTypeInfo         = "info"        // Agent → 控制端: 上报自身信息
 	msgTypeShellOpen    = "shell_open"
 	msgTypeShellExec    = "shell_exec"
 	msgTypeShellReady   = "shell_ready"

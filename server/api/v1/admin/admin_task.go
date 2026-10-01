@@ -136,7 +136,7 @@ func ForceStopTask(c *gin.Context) {
 		return
 	}
 
-	common.ResponseSuccess(c, nil, "任务已强制停止")
+	common.ResponseSuccess(c, nil, "已请求停止任务，正在等待当前操作结束")
 }
 
 // GetTaskStats 获取任务统计
@@ -188,7 +188,7 @@ func CancelUserTaskByAdmin(c *gin.Context) {
 		return
 	}
 
-	common.ResponseSuccess(c, nil, "任务已取消")
+	common.ResponseSuccess(c, nil, "已请求取消任务")
 }
 
 // GetTaskOverallStats 获取任务总体统计信息

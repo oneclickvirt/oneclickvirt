@@ -72,10 +72,20 @@ def read_file(path):
         return f.read()
 
 
-def parse_version(go_src):
+def parse_version(go_src, override=None):
     """Extract ServerVersion from constant/version.go."""
+    if override is not None:
+        override = override.strip()
+        if override.startswith("v"):
+            override = override[1:]
+        if override:
+            return override
     m = re.search(r'ServerVersion\s*=\s*"([^"]+)"', go_src)
-    return m.group(1) if m else "0.0.0"
+    if not m:
+        return "0.0.0"
+    # Release tags carry the controller's leading `v`; Skill metadata keeps
+    # the historical unprefixed value because archive examples add `v`.
+    return m.group(1).removeprefix("v")
 
 
 def parse_tools(go_src):
@@ -457,7 +467,13 @@ def main():
     server_src = read_file(server_go)
     version_src = read_file(version_go)
 
-    version = parse_version(version_src)
+    override = None
+    if len(sys.argv) > 1:
+        if len(sys.argv) != 3 or sys.argv[1] != "--version":
+            print("usage: generate_skills.py [--version VERSION]", file=sys.stderr)
+            sys.exit(2)
+        override = sys.argv[2]
+    version = parse_version(version_src, override)
     tools = parse_tools(server_src)
     resources = parse_resources(server_src)
     prompts = parse_prompts(server_src)

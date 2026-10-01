@@ -46,6 +46,22 @@ func GetUserDomains(c *gin.Context) {
 	common.ResponseSuccess(c, domains)
 }
 
+// GetDomainVerification returns the DNS record to add before binding a domain.
+// @Router /user/domains/verification [get]
+func GetDomainVerification(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
+		return
+	}
+	challenge, err := (&domainService.Service{}).GetDomainVerification(userID, c.Query("domainName"))
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	common.ResponseSuccess(c, challenge)
+}
+
 // CreateUserDomain 用户绑定域名
 
 // @Summary 创建用户 域名

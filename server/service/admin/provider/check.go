@@ -41,8 +41,11 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 		ctx = context.Background()
 	}
 	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
+	if err := global.APP_DB.WithContext(ctx).First(&provider, providerID).Error; err != nil {
 		return fmt.Errorf("Provider不存在")
+	}
+	if provider.Status == "deleting" {
+		return nil
 	}
 
 	// 复制副本避免共享状态，立即创建所有必要字段的本地副本
@@ -139,7 +142,7 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 		if agentVersion != "" {
 			updates["version"] = agentVersion
 		}
-		if dbErr := global.APP_DB.WithContext(ctx).Model(&providerModel.Provider{}).Where("id = ?", localProviderID).Updates(updates).Error; dbErr != nil {
+		if dbErr := global.APP_DB.WithContext(ctx).Model(&providerModel.Provider{}).Where("id = ? AND status <> ?", localProviderID, "deleting").Updates(updates).Error; dbErr != nil {
 			return fmt.Errorf("保存Agent Provider状态失败: %w", dbErr)
 		}
 		return nil
@@ -307,33 +310,7 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 		}
 	}
 
-	// 更新整体状态
-	switch {
-	case isLocal:
-		if err == nil {
-			provider.Status = "active"
-		} else {
-			provider.Status = "inactive"
-		}
-	case isAPIOnly:
-		if apiStatus == "online" {
-			provider.Status = "active"
-		} else {
-			provider.Status = "inactive"
-		}
-	case isSSHOnly:
-		if sshStatus == "online" {
-			provider.Status = "active"
-		} else {
-			provider.Status = "inactive"
-		}
-	case sshStatus == "online" && (apiStatus == "online" || apiStatus == "N/A" || apiStatus == "unknown"):
-		provider.Status = "active"
-	case sshStatus == "offline" && apiStatus == "offline":
-		provider.Status = "inactive"
-	default:
-		provider.Status = "partial" // 部分连接正常
-	}
+	provider.Status = providerHealthStatus(connectionType, executionRule, sshStatus, apiStatus, err)
 
 	// 先保存状态到数据库。这里只写健康检查负责的列，避免用健康检查开始时
 	// 读取的旧 provider 快照覆盖并发的管理员配置更新。
@@ -363,10 +340,16 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 	dbService := database.GetDatabaseService()
 	dbCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	var rowsAffected int64
 	if dbErr := dbService.ExecuteTransaction(dbCtx, func(tx *gorm.DB) error {
-		return tx.Model(&providerModel.Provider{}).Where("id = ?", provider.ID).Updates(updates).Error
+		result := tx.Model(&providerModel.Provider{}).Where("id = ? AND status <> ?", provider.ID, "deleting").Updates(updates)
+		rowsAffected = result.RowsAffected
+		return result.Error
 	}); dbErr != nil {
 		return fmt.Errorf("保存Provider状态失败: %w", dbErr)
+	}
+	if rowsAffected == 0 {
+		return nil
 	}
 
 	storageChanged := provider.StoragePool != originalStoragePool || provider.StoragePoolPath != originalStoragePoolPath
@@ -374,6 +357,28 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 
 	// 如果健康检查有错误，返回该错误（这样前端可以获取具体错误信息）
 	return err
+}
+
+func providerHealthStatus(connectionType, executionRule, sshStatus, apiStatus string, probeErr error) string {
+	switch {
+	case connectionType == "local":
+		if probeErr == nil {
+			return "active"
+		}
+	case executionRule == "api_only":
+		if apiStatus == "online" {
+			return "active"
+		}
+	case executionRule == "ssh_only":
+		if sshStatus == "online" {
+			return "active"
+		}
+	case sshStatus == "online" && (apiStatus == "online" || apiStatus == "N/A" || apiStatus == "unknown"):
+		return "active"
+	case sshStatus == "online" || apiStatus == "online":
+		return "partial"
+	}
+	return "inactive"
 }
 
 // refreshRuntimeProviderAfterHealthCheck keeps the in-memory ProviderService cache consistent

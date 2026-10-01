@@ -1,9 +1,10 @@
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getAdminTasks, forceStopTask, getTaskOverallStats, cancelUserTaskByAdmin, getAdminTaskDetail, getTaskPoolStatus, updateTaskPoolStatus } from '@/api/admin'
 import { getProviderList } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/pinia/modules/user'
+import { createActionLock, createKeyedActionLock } from '@/utils/actionLock'
 
 export function useTaskManagement() {
   const { t, te, locale } = useI18n()
@@ -69,14 +70,27 @@ export function useTaskManagement() {
   })
 
   const expandedLogTaskIds = ref(new Set())
+  const taskActionLock = createKeyedActionLock()
+  const poolActionLock = createActionLock()
+  let refreshTimer = null
+  let loadGeneration = 0
+  let statsGeneration = 0
+  let poolGeneration = 0
+  let detailGeneration = 0
+  let forceStopLockedTaskId = null
+  let disposed = false
 
   const loadTaskPoolStatus = async () => {
+    if (disposed) return
+    const generation = ++poolGeneration
     try {
       const response = await getTaskPoolStatus()
+      if (disposed || generation !== poolGeneration) return
       if (response.code === 200 && response.data) {
         Object.assign(poolStatus, response.data)
       }
     } catch (error) {
+      if (disposed || generation !== poolGeneration) return
       console.error('获取任务池状态失败:', error)
     }
   }
@@ -86,6 +100,7 @@ export function useTaskManagement() {
       ElMessage.warning(t('admin.tasks.superAdminOnly'))
       return
     }
+    if (!poolActionLock.tryAcquire()) return
 
     const confirmMessage = enabled
       ? t('admin.tasks.enableTaskPoolConfirm')
@@ -96,6 +111,7 @@ export function useTaskManagement() {
       await ElMessageBox.confirm(confirmMessage, confirmTitle, {
         confirmButtonText: t('common.confirm'),
         cancelButtonText: t('common.cancel'),
+        closeOnClickModal: false,
         type: enabled ? 'success' : 'warning'
       })
 
@@ -104,6 +120,8 @@ export function useTaskManagement() {
         enabled,
         message: t('admin.tasks.defaultMaintenanceMessage')
       })
+      if (disposed) return
+      ++poolGeneration
       if (response.code === 200 && response.data) {
         Object.assign(poolStatus, response.data)
       }
@@ -118,12 +136,15 @@ export function useTaskManagement() {
       }
     } finally {
       poolLoading.value = false
+      poolActionLock.release()
     }
   }
 
-  const loadTasks = async () => {
+  const loadTasks = async (options = {}) => {
+    if (disposed) return
+    const generation = ++loadGeneration
     try {
-      loading.value = true
+      if (!options?.silent) loading.value = true
       const params = {
         page: pagination.page,
         pageSize: pagination.pageSize,
@@ -131,23 +152,29 @@ export function useTaskManagement() {
       }
 
       const response = await getAdminTasks(params)
+      if (disposed || generation !== loadGeneration) return
       tasks.value = response.data.list || []
       total.value = response.data.total || 0
     } catch (error) {
+      if (disposed || generation !== loadGeneration) return
       console.error('获取任务列表失败:', error)
       ElMessage.error(error?.message || t('admin.tasks.loadFailed'))
     } finally {
-      loading.value = false
+      if (!disposed && generation === loadGeneration) loading.value = false
     }
   }
 
   const loadStats = async () => {
+    if (disposed) return
+    const generation = ++statsGeneration
     try {
       const response = await getTaskOverallStats()
+      if (disposed || generation !== statsGeneration) return
       if (response.code === 200) {
         Object.assign(stats, response.data)
       }
     } catch (error) {
+      if (disposed || generation !== statsGeneration) return
       console.error('获取统计信息失败:', error)
     }
   }
@@ -155,6 +182,7 @@ export function useTaskManagement() {
   const loadProviders = async () => {
     try {
       const response = await getProviderList({ page: 1, pageSize: 1000 })
+      if (disposed) return
       if (response.code === 200) {
         providers.value = response.data.list || []
       }
@@ -176,23 +204,26 @@ export function useTaskManagement() {
   }
 
   const showForceStopDialog = (task) => {
+    if (!task || disposed || forceStopDialog.visible || forceStopDialog.loading || forceStopLockedTaskId !== null || !taskActionLock.tryAcquire(task.id)) return
+    forceStopLockedTaskId = task.id
     forceStopDialog.task = task
     forceStopDialog.form.reason = ''
     forceStopDialog.visible = true
   }
 
   const confirmForceStop = async () => {
+    const task = forceStopDialog.task
+    if (!task || !taskActionLock.isLocked(task.id) || forceStopDialog.loading) return
     try {
       forceStopDialog.loading = true
-      const response = await forceStopTask({
-        taskId: forceStopDialog.task.id,
+      await forceStopTask({
+        taskId: task.id,
         reason: forceStopDialog.form.reason
       })
 
       ElMessage.success(t('admin.tasks.forceStopSuccess'))
       forceStopDialog.visible = false
-      loadTasks()
-      loadStats()
+      await Promise.all([loadTasks(), loadStats()])
     } catch (error) {
       console.error('强制停止任务失败:', error)
       ElMessage.error(error?.message || t('message.operationFailed'))
@@ -202,6 +233,7 @@ export function useTaskManagement() {
   }
 
   const cancelTask = async (task) => {
+    if (!task || !taskActionLock.tryAcquire(task.id)) return
     try {
       await ElMessageBox.confirm(
         t('admin.tasks.cancelTaskConfirm', { taskType: getTaskTypeText(task.taskType) }),
@@ -209,35 +241,45 @@ export function useTaskManagement() {
         {
           confirmButtonText: t('common.confirm'),
           cancelButtonText: t('common.cancel'),
+          closeOnClickModal: false,
           type: 'warning'
         }
       )
 
-      const response = await cancelUserTaskByAdmin(task.id)
+      await cancelUserTaskByAdmin(task.id)
       ElMessage.success(t('admin.tasks.cancelSuccess'))
-      loadTasks()
-      loadStats()
+      await Promise.all([loadTasks(), loadStats()])
     } catch (error) {
       if (error !== 'cancel' && error?.action !== 'cancel' && error?.action !== 'close') {
         console.error('取消任务失败:', error)
         ElMessage.error(error?.message || t('message.operationFailed'))
       }
+    } finally {
+      taskActionLock.release(task.id)
     }
   }
 
+  const releaseForceStopDialogLock = () => {
+    if (forceStopLockedTaskId !== null) taskActionLock.release(forceStopLockedTaskId)
+    forceStopLockedTaskId = null
+  }
+
   const viewTaskDetail = async (task) => {
+    const generation = ++detailGeneration
     detailDialog.task = { ...task }
     detailDialog.visible = true
     detailDialog.logsLoading = true
     try {
       const response = await getAdminTaskDetail(task.id)
+      if (disposed || generation !== detailGeneration || !detailDialog.visible || detailDialog.task?.id !== task.id) return
       if (response.code === 200 && response.data) {
         detailDialog.task = { ...detailDialog.task, ...response.data }
       }
     } catch (error) {
+      if (disposed || generation !== detailGeneration || !detailDialog.visible) return
       console.error('\u83b7\u53d6\u4efb\u52a1\u8be6\u60c5\u5931\u8d25:', error)
     } finally {
-      detailDialog.logsLoading = false
+      if (!disposed && generation === detailGeneration) detailDialog.logsLoading = false
     }
   }
 
@@ -375,12 +417,27 @@ export function useTaskManagement() {
     loadProviders()
     loadTaskPoolStatus()
 
-    setInterval(() => {
+    refreshTimer = setInterval(() => {
       if (!forceStopDialog.visible && !detailDialog.visible) {
+        if (!loading.value) loadTasks({ silent: true })
         loadStats()
         loadTaskPoolStatus()
       }
     }, 30000)
+  })
+
+  onUnmounted(() => {
+    disposed = true
+    ++loadGeneration
+    ++statsGeneration
+    ++poolGeneration
+    ++detailGeneration
+    if (refreshTimer) {
+      clearInterval(refreshTimer)
+      refreshTimer = null
+    }
+    taskActionLock.clear()
+    poolActionLock.release()
   })
 
   return {
@@ -389,7 +446,8 @@ export function useTaskManagement() {
     forceStopDialog, detailDialog, expandedLogTaskIds,
     loadTasks, resetFilter, loadTaskPoolStatus, toggleTaskPool,
     showForceStopDialog, confirmForceStop,
-    cancelTask, viewTaskDetail,
+    releaseForceStopDialogLock, cancelTask, viewTaskDetail,
+    isTaskActionLocked: taskActionLock.isLocked,
     parseProgressLogs, translateStepMsg, toggleProgressLogs,
     shouldShowPreallocatedConfig,
     getTaskTypeText, getTaskStatusType, getTaskStatusText,

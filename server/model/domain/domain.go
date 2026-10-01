@@ -14,11 +14,12 @@ type Domain struct {
 	InstanceID uint `json:"instanceId" gorm:"not null;index:idx_instance_id"`
 	ProviderID uint `json:"providerId" gorm:"not null;index:idx_provider_id"`
 	// 域名信息
-	DomainName   string `json:"domainName" gorm:"uniqueIndex;not null;size:255"`
-	Protocol     string `json:"protocol" gorm:"size:16;default:http"`
-	InternalIP   string `json:"internalIP" gorm:"size:64;not null"`
-	InternalPort int    `json:"internalPort" gorm:"not null"`
-	EnableSSL    bool   `json:"enableSSL" gorm:"default:false"`
+	OwnershipVerified bool   `json:"ownershipVerified" gorm:"default:false"`
+	DomainName        string `json:"domainName" gorm:"uniqueIndex;not null;size:255"`
+	Protocol          string `json:"protocol" gorm:"size:16;default:http"`
+	InternalIP        string `json:"internalIP" gorm:"size:64;not null"`
+	InternalPort      int    `json:"internalPort" gorm:"not null"`
+	EnableSSL         bool   `json:"enableSSL" gorm:"default:false"`
 	// SSL证书
 	SSLCertContent string `json:"-" gorm:"type:text"`           // PEM格式证书(不返回给前端)
 	SSLKeyContent  string `json:"-" gorm:"type:text"`           // PEM格式私钥(不返回给前端)
@@ -43,7 +44,8 @@ type DomainConfig struct {
 	// DNS配置
 	DNSType       string `json:"dnsType" gorm:"size:32;default:hosts"`
 	DNSConfigPath string `json:"dnsConfigPath" gorm:"size:512"`
-	// Nginx反代配置
+	// Legacy Nginx fields retained for database/API compatibility. The current
+	// domain proxy is provided by the Rust Agent and does not use these values.
 	NginxConfigPath string `json:"nginxConfigPath" gorm:"size:512"`
 	NginxReloadCmd  string `json:"nginxReloadCmd" gorm:"size:512;default:systemctl reload nginx"`
 	// 域名后缀限制

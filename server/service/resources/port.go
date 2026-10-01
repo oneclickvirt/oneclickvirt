@@ -437,6 +437,28 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 
 // UpdateProviderPortConfig 更新Provider端口配置
 func (s *PortMappingService) UpdateProviderPortConfig(providerID uint, req admin.ProviderPortConfigRequest) error {
+	var providerInfo provider.Provider
+	if err := global.APP_DB.Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
+		return fmt.Errorf("Provider不存在")
+	}
+
+	// This endpoint accepts partial updates even though it is exposed as PUT.
+	// Valid values are positive, so zero values identify omitted JSON fields;
+	// merge those fields with the persisted provider configuration before
+	// validating and saving the complete result.
+	if req.DefaultPortCount == 0 {
+		req.DefaultPortCount = providerInfo.DefaultPortCount
+	}
+	if req.PortRangeStart == 0 {
+		req.PortRangeStart = providerInfo.PortRangeStart
+	}
+	if req.PortRangeEnd == 0 {
+		req.PortRangeEnd = providerInfo.PortRangeEnd
+	}
+	if req.FixedPorts == nil {
+		req.FixedPorts = providerInfo.FixedPorts
+	}
+
 	// 验证端口范围
 	if req.PortRangeStart >= req.PortRangeEnd {
 		return fmt.Errorf("端口范围起始值必须小于结束值")
@@ -448,11 +470,6 @@ func (s *PortMappingService) UpdateProviderPortConfig(providerID uint, req admin
 	fixedPorts, err := NormalizeProviderFixedPorts(req.FixedPorts, req.DefaultPortCount)
 	if err != nil {
 		return err
-	}
-
-	var providerInfo provider.Provider
-	if err := global.APP_DB.Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
-		return fmt.Errorf("Provider不存在")
 	}
 
 	// 更新端口配置

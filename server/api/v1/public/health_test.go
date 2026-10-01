@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,9 @@ func TestHealthCheckReturnsServiceUnavailableWhenDatabaseIsMissing(t *testing.T)
 	var response struct {
 		Data struct {
 			Healthy bool `json:"healthy"`
+			System  struct {
+				Version string `json:"version"`
+			} `json:"system"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -42,5 +46,8 @@ func TestHealthCheckReturnsServiceUnavailableWhenDatabaseIsMissing(t *testing.T)
 	}
 	if response.Data.Healthy {
 		t.Fatal("health response unexpectedly reported healthy")
+	}
+	if response.Data.System.Version != constant.DisplayVersion() {
+		t.Fatalf("health version = %q, want displayed source version", response.Data.System.Version)
 	}
 }

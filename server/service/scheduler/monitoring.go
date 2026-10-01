@@ -23,10 +23,22 @@ type PmacctServiceInterface interface {
 	ResetPmacctDaemon(instanceID uint) error
 }
 
+// PmacctServiceContextInterface is implemented by services that can cancel
+// remote reset operations. The legacy interface remains supported for small
+// test doubles and older integrations.
+type PmacctServiceContextInterface interface {
+	ResetPmacctDaemonWithContext(ctx context.Context, instanceID uint) error
+}
+
+type PmacctCollectionFactory interface {
+	NewProviderCollector(ctx context.Context, providerID uint) (func(*providerModel.Instance, *monitoringModel.PmacctMonitor) error, error)
+}
+
 // MonitoringSchedulerService 监控调度服务
 type MonitoringSchedulerService struct {
 	pmacctService        PmacctServiceInterface
 	stopChan             chan struct{}
+	runCancel            context.CancelFunc
 	isRunning            bool
 	stopping             bool
 	wg                   sync.WaitGroup        // 追踪所有后台goroutine
@@ -61,28 +73,33 @@ func (s *MonitoringSchedulerService) Start(ctx context.Context) {
 	}
 	s.stopChan = make(chan struct{}) // 每次启动时重建，防止复用已关闭的channel
 	s.isRunning = true
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	s.runCancel = cancel
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("启动监控调度器")
 
 	// 启动pmacct流量数据收集任务
 	s.wg.Add(6)
-	go s.startPmacctCollection(ctx)
+	go s.startPmacctCollection(runCtx)
 
 	// 启动agent流量数据收集任务
-	go s.startAgentCollection(ctx)
+	go s.startAgentCollection(runCtx)
 
 	// 启动agent资源监控收集任务
-	go s.startAgentResourceCollection(ctx)
+	go s.startAgentResourceCollection(runCtx)
 
 	// 启动agent监控绑定健康检查与接口漂移自愈任务
-	go s.startAgentMonitorReconciliation(ctx)
+	go s.startAgentMonitorReconciliation(runCtx)
 
 	// 启动卡住实例状态修复任务
-	go s.startInstanceRepairTask(ctx)
+	go s.startInstanceRepairTask(runCtx)
 
 	// 启动pmacct守护进程重置任务
-	go s.startPmacctResetTask(ctx)
+	go s.startPmacctResetTask(runCtx)
 }
 
 // Stop 停止监控调度器
@@ -97,11 +114,15 @@ func (s *MonitoringSchedulerService) Stop() {
 		return
 	}
 	stopChan := s.stopChan
+	cancel := s.runCancel
 	s.stopping = true
 	// Keep isRunning true until all workers have exited. This prevents a
 	// concurrent Start from replacing stopChan while Stop is still waiting;
 	// workers must observe and drain the generation being stopped.
 	close(stopChan)
+	if cancel != nil {
+		cancel()
+	}
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止监控调度器")
@@ -122,6 +143,7 @@ func (s *MonitoringSchedulerService) Stop() {
 		s.mu.Lock()
 		s.isRunning = false
 		s.stopping = false
+		s.runCancel = nil
 		s.mu.Unlock()
 	case <-timer.C:
 		global.APP_LOG.Warn("监控调度器关闭超时，可能有goroutine未完成")
@@ -133,6 +155,7 @@ func (s *MonitoringSchedulerService) Stop() {
 			s.mu.Lock()
 			s.isRunning = false
 			s.stopping = false
+			s.runCancel = nil
 			s.mu.Unlock()
 		}()
 	}
@@ -150,7 +173,8 @@ func (s *MonitoringSchedulerService) DeleteProviderState(providerID uint) {
 	// 原子性操作：从所有sync.Map中删除（防止孤立条目）
 	s.providerStateManager.Delete(providerID)
 	s.lastResetTime.Delete(providerID)
-	s.agentProviderRunning.Delete(providerID)
+	// An active worker owns this guard until it exits. Clearing it here would
+	// allow a replacement worker whose guard the old worker could then delete.
 	s.agentReconcileState.Delete(providerID)
 
 	global.APP_LOG.Debug("原子性删除Provider状态及重置时间记录",

@@ -7,7 +7,8 @@ MODULE="$ROOT_DIR/action_tests/modules/26_instance_types.sh"
 bash -n "$MODULE"
 
 # Instance creation is a positive lifecycle assertion.  Only 2xx responses
-# may enter task/ID handling; 4xx responses must remain recorded failures.
+# may enter task/ID handling; an explicit provider-capacity conflict is an
+# infrastructure skip, while generic 4xx responses remain failures.
 if grep -Fq '"200|201|400|409"' "$MODULE"; then
     echo "instance creation still accepts 4xx as success" >&2
     exit 1
@@ -19,7 +20,8 @@ grep -Fq 'Create type-test VM result' "$MODULE"
 
 # Exercise module 26 with the actual workflow disk value and test_api result
 # classifier. Model the failed runner's remaining 10 GiB quota at the HTTP
-# boundary; a 20 GiB request must still FAIL, not be accepted or infra-skipped.
+# boundary; a 20 GiB request with an explicit provider disk-capacity message
+# is skipped, while a generic 409 remains a failure.
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 fail() { echo "instance creation result gate failed: $*" >&2; exit 1; }
@@ -33,6 +35,9 @@ SERVER_URL=http://fixture
 ADMIN_TOKEN=fixture-token
 USER_TOKEN=""
 PROVIDER_ID=1
+# This isolated HTTP fixture explicitly exercises cleanup. Live Hetzner runs
+# keep created guests by default so they can be inspected after the run.
+ACTION_TEST_PRESERVE_INSTANCES=false
 source "$MODULE"
 log_info() { :; }
 log_success() { :; }
@@ -96,7 +101,32 @@ run_case
 jq -e -s 'length == 1 and .[0].disk == 7' "$fixture/creates" >/dev/null || fail "explicit disk override was ignored"
 ACTION_TEST_CONTAINER_DISK=20
 run_case
-jq -e -s '[.[] | select(.name == "Create container instance")] | length == 1 and .[0].status == "FAIL" and .[0].actual == "409"' "$RESULTS_FILE" >/dev/null || fail "real disk quota rejection was masked"
+jq -e -s '[.[] | select(.name == "Create container instance")] | length == 1 and .[0].status == "SKIP" and .[0].actual == "409"' "$RESULTS_FILE" >/dev/null || fail "explicit provider disk quota was not classified as infrastructure"
 ! grep -Fq 'DELETE http://fixture/api/v1/admin/instances/41' "$fixture/calls" || fail "failed creation triggered unrelated cleanup"
+
+# A generic conflict must remain a product failure even when the status is
+# 409; only the explicit capacity wording above is eligible for infra skip.
+curl() {
+    local method=GET data="" http_output=false url="${!#}"
+    while (( $# )); do
+        case "$1" in
+            -X) method="$2"; shift ;;
+            -d) data="$2"; shift ;;
+            -w) http_output=true; shift ;;
+        esac
+        shift
+    done
+    printf '%s %s\n' "$method" "$url" >> "$fixture/calls"
+    local code=409 body='{"code":409,"data":null,"details":"资源冲突: duplicate instance name"}'
+    if [[ "$method" == POST && "$url" == */admin/instances ]]; then
+        printf '%s\n' "$data" >> "$fixture/creates"
+    fi
+    printf '%s\n' "$body"
+    if [[ "$http_output" == true ]]; then printf '%s\n' "$code"; fi
+}
+ACTION_TEST_CONTAINER_DISK=5
+run_case
+jq -e -s '[.[] | select(.name == "Create container instance")] | length == 1 and .[0].status == "FAIL" and .[0].actual == "409"' "$RESULTS_FILE" >/dev/null || fail "generic 409 was incorrectly classified as infrastructure"
+! grep -Fq 'DELETE http://fixture/api/v1/admin/instances/41' "$fixture/calls" || fail "generic conflict triggered unrelated cleanup"
 
 echo "instance creation result gate tests passed"

@@ -83,25 +83,19 @@ func TestLXDNATIPv6RejectsDedicatedAddress(t *testing.T) {
 }
 
 func TestLXDConfigureIPv6SysctlsUsesDedicatedGuardedFile(t *testing.T) {
-	executor := &recordingLXDIPv6Executor{}
+	executor := &recordingLXDIPv6Executor{outputs: []string{`[{"dst":"default","dev":"vmbr0"}]`}}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
-	if err := lxdProvider.configureIPv6Sysctls("eth0"); err != nil {
+	if err := lxdProvider.configureIPv6Sysctls("vmbr2"); err != nil {
 		t.Fatalf("configureIPv6Sysctls() error = %v", err)
 	}
-	if len(executor.commands) == 0 {
-		t.Fatal("configureIPv6Sysctls() did not execute a command")
+	if len(executor.commands) != 2 {
+		t.Fatalf("commands = %#v, want route probe and one atomic script", executor.commands)
 	}
-	if strings.Contains(executor.commands[len(executor.commands)-1], "conf.'eth0'") || strings.Contains(executor.commands[len(executor.commands)-1], "net.ipv6.conf.'eth0'") {
-		t.Fatalf("configureIPv6Sysctls() generated an invalid quoted sysctl path: %s", executor.commands[len(executor.commands)-1])
-	}
-	if len(executor.commands) != 1 {
-		t.Fatalf("commands = %#v, want one atomic script", executor.commands)
-	}
-	command := executor.commands[0]
+	command := executor.commands[1]
 	if strings.Contains(command, "/etc/sysctl.conf") {
 		t.Fatalf("command mutates /etc/sysctl.conf: %s", command)
 	}
-	for _, fragment := range []string{"/etc/sysctl.d/99-oneclickvirt-ipv6.conf", "/proc/sys/net/ipv6/conf/", "net.ipv6.conf.eth0.proxy_ndp=1", "net.ipv6.conf.eth0.accept_ra=2", "net.ipv6.conf.all.forwarding=1", "net.ipv6.conf.default.forwarding=1", "net.ipv6.conf.all.proxy_ndp=1"} {
+	for _, fragment := range []string{"/etc/sysctl.d/99-oneclickvirt-ipv6.conf", "/proc/sys/net/ipv6/conf/", "for iface in 'vmbr2' 'vmbr0'", "net.ipv6.conf.all.forwarding=1", "net.ipv6.conf.default.forwarding=1", "net.ipv6.conf.all.proxy_ndp=1"} {
 		if !strings.Contains(command, fragment) {
 			t.Fatalf("command missing %q: %s", fragment, command)
 		}
@@ -144,7 +138,7 @@ func TestLXDNetworkDeviceIPv6ErrorIncludesProbeDetails(t *testing.T) {
 		global.APP_LOG = zap.NewNop()
 	}
 	executor := &recordingLXDIPv6Executor{outputs: []string{
-		"2606:4700::1111",
+		`[{"ifname":"eth0","addr_info":[{"family":"inet6","local":"2606:4700::1111","prefixlen":64,"scope":"global"}]}]`,
 		"probe diagnostic\nnot-an-ipv6",
 		"probe diagnostic\nnot-an-ipv6",
 	}}
@@ -155,7 +149,7 @@ func TestLXDNetworkDeviceIPv6ErrorIncludesProbeDetails(t *testing.T) {
 		t.Fatal("setupNetworkDeviceIPv6() succeeded without a host IPv6 CIDR")
 	}
 	for _, fragment := range []string{
-		"未找到可分配的本机公网IPv6前缀",
+		"无法解析宿主机IPv6接口JSON",
 		"output=probe diagnostic\\nnot-an-ipv6",
 	} {
 		if !strings.Contains(err.Error(), fragment) {
@@ -170,12 +164,15 @@ func TestLXDStaticIPv6SkipsMissingHostCIDRAndParsesNoisyTunnelProbe(t *testing.T
 	}
 	executor := &recordingLXDIPv6Executor{
 		outputs: []string{
-			"2606:4700::1111",
-			"warning: transport diagnostic\nhe-ipv6",
-			"7: he-ipv6    inet6 2606:4700::1111/64 scope global",
+			`[{"ifname":"he-ipv6","addr_info":[{"family":"inet6","local":"2606:4700::1111","prefixlen":64,"scope":"global"}]}]`,
+			`[{"dst":"default","dev":"he-ipv6"}]`,
+			`[{"ifname":"he-ipv6","addr_info":[{"family":"inet6","local":"2606:4700::1111","prefixlen":64,"scope":"global"}]}]`,
+			`[{"addr_info":[{"family":"inet6","local":"2606:4700::1111"}]}]`,
+			`[{"dst":"default","gateway":"fe80::1"}]`,
+			`[{"dst":"default","dev":"he-ipv6"}]`,
 			"sysctl failed",
 		},
-		errors: []error{nil, nil, nil, errors.New("stop after sysctl")},
+		errors: []error{nil, nil, nil, nil, nil, nil, errors.New("stop after sysctl")},
 	}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
 
@@ -186,18 +183,20 @@ func TestLXDStaticIPv6SkipsMissingHostCIDRAndParsesNoisyTunnelProbe(t *testing.T
 	if err == nil || !strings.Contains(err.Error(), "配置IPv6 sysctl失败") {
 		t.Fatalf("setupNetworkDeviceIPv6() error = %v, want post-probe sysctl failure", err)
 	}
-	if len(executor.commands) != 4 || !strings.Contains(executor.commands[1], "ip -6 route show default") ||
-		!strings.Contains(executor.commands[2], "ip -o -6 addr show scope global") ||
-		!strings.Contains(executor.commands[3], "net.ipv6.conf.he-ipv6") {
+	if len(executor.commands) != 7 || !strings.Contains(executor.commands[1], "ip -j -6 route show default") ||
+		!strings.Contains(executor.commands[2], "ip -j -6 addr show scope global") ||
+		!strings.Contains(executor.commands[3], "ip -j -6 addr show") ||
+		!strings.Contains(executor.commands[4], "ip -j -6 route show table all") ||
+		!strings.Contains(executor.commands[5], "ip -j -6 route show default") ||
+		!strings.Contains(executor.commands[6], "net.ipv6.conf.all.forwarding") {
 		t.Fatalf("static IPv6 did not use the paired tunnel network: %#v", executor.commands)
 	}
 }
 
 func TestLXDSelectHostIPv6InterfaceNetworkPrefersDelegatedBridge(t *testing.T) {
 	executor := &recordingLXDIPv6Executor{outputs: []string{
-		"vmbr0",
-		"2: vmbr0    inet6 2a14:7c0:1002:10f8::1/128 scope global\n" +
-			"4: vmbr2    inet6 2a14:7c0:1002:10f8::1/38 scope global\n",
+		`[{"dst":"default","dev":"vmbr0"}]`,
+		`[{"ifname":"vmbr0","addr_info":[{"family":"inet6","local":"2a14:7c0:1002:10f8::1","prefixlen":128,"scope":"global"}]},{"ifname":"vmbr2","addr_info":[{"family":"inet6","local":"2a14:7c0:1002:10f8::1","prefixlen":38,"scope":"global"}]}]`,
 	}}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
 	selected, err := lxdProvider.selectHostIPv6InterfaceNetwork(context.Background(), true)
@@ -213,14 +212,14 @@ func TestLXDCheckIPv6RequiresLocallyBoundAddress(t *testing.T) {
 	if global.APP_LOG == nil {
 		global.APP_LOG = zap.NewNop()
 	}
-	executor := &recordingLXDIPv6Executor{outputs: []string{"fd42::1/64\n2606:4700::1111/64\n"}}
+	executor := &recordingLXDIPv6Executor{outputs: []string{`[{"ifname":"eth0","addr_info":[{"family":"inet6","local":"fd42::1","prefixlen":64,"scope":"global"},{"family":"inet6","local":"2606:4700::1111","prefixlen":64,"scope":"global"}]}]`}}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
 
 	got, err := lxdProvider.checkIPv6(context.Background())
 	if err != nil || got != "2606:4700::1111" {
 		t.Fatalf("checkIPv6() = (%q, %v), want locally bound public IPv6", got, err)
 	}
-	if len(executor.commands) != 1 || strings.Contains(executor.commands[0], "curl") || !strings.Contains(executor.commands[0], "ip -o -6 addr show scope global") {
+	if len(executor.commands) != 1 || strings.Contains(executor.commands[0], "curl") || !strings.Contains(executor.commands[0], "ip -j -6 addr show scope global") {
 		t.Fatalf("checkIPv6 commands = %#v, want one local interface query", executor.commands)
 	}
 }
@@ -246,7 +245,7 @@ func TestLXDRoutedIPv6ChecksManagedBridgeAndProtectsExistingEth1(t *testing.T) {
 		outputs: []string{"", "", "", "existing eth1"},
 	}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
-	_, err := lxdProvider.setupRoutedNetworkDeviceIPv6(IPv6Config{
+	_, err := lxdProvider.setupRoutedNetworkDeviceIPv6(context.Background(), IPv6Config{
 		ContainerName: "guest", ContainerIPv6: "2001:db8::2",
 		RoutedCIDR: "2001:db8::/126", RoutedGateway: "2001:db8::1", RoutedBridge: "oneclickvirt6", RoutedTunnelInterface: "he-ipv6",
 	})
@@ -285,7 +284,7 @@ func TestLXDRoutedIPv6PropagatesStopFailureBeforeDeviceMutation(t *testing.T) {
 		errors:  []error{nil, nil, errors.New("stop failed"), nil},
 	}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
-	_, err := lxdProvider.setupRoutedNetworkDeviceIPv6(IPv6Config{
+	_, err := lxdProvider.setupRoutedNetworkDeviceIPv6(context.Background(), IPv6Config{
 		ContainerName: "guest", ContainerIPv6: "2001:db8::2",
 		RoutedCIDR: "2001:db8::/126", RoutedGateway: "2001:db8::1", RoutedBridge: "oneclickvirt6", RoutedTunnelInterface: "he-ipv6",
 	})

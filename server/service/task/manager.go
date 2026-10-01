@@ -184,6 +184,9 @@ func (s *TaskService) CreateTask(userID uint, providerID *uint, instanceID *uint
 		if err := s.EnsureTaskPoolAcceptingInTx(tx); err != nil {
 			return err
 		}
+		if err := reserveInstanceOperationInTx(tx, task); err != nil {
+			return err
+		}
 		if err := s.reserveCreateTaskResourcesInTx(tx, task); err != nil {
 			return err
 		}
@@ -678,7 +681,8 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest, ownerAd
 			ProviderID:            &providerID,
 			InstanceID:            task.InstanceID,
 			InstanceIDSnake:       task.InstanceID,
-			CanForceStop:          (task.Status == "processing" || task.Status == "running" || task.Status == "cancelling"),
+			CanCancel:             task.IsForceStoppable && (task.Status == "pending" || task.Status == "processing"),
+			CanForceStop:          task.IsForceStoppable && (task.Status == "running" || task.Status == "cancelling"),
 			IsForceStoppable:      task.IsForceStoppable,
 			RemainingTime:         remainingTime,
 			PreallocatedCPU:       task.PreallocatedCPU,
@@ -866,7 +870,8 @@ func (s *TaskService) GetTaskDetail(taskID, ownerAdminID uint) (*adminModel.Admi
 			ProviderID:            task.ProviderID,
 			InstanceID:            task.InstanceID,
 			InstanceIDSnake:       task.InstanceID,
-			CanForceStop:          (task.Status == "processing" || task.Status == "running" || task.Status == "cancelling"),
+			CanCancel:             task.IsForceStoppable && (task.Status == "pending" || task.Status == "processing"),
+			CanForceStop:          task.IsForceStoppable && (task.Status == "running" || task.Status == "cancelling"),
 			IsForceStoppable:      task.IsForceStoppable,
 			RemainingTime:         remainingTime,
 			PreallocatedCPU:       task.PreallocatedCPU,

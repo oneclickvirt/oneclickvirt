@@ -3,7 +3,7 @@
 # OneClickVirt Full Installation Script (Bare Metal / VPS)
 # Installs: MySQL/MariaDB + Reverse Proxy (Caddy/Nginx/OpenResty) + App
 # Source: https://github.com/oneclickvirt/oneclickvirt
-# Version: 1.0.0
+# Controller release tags use vYYYYMMDD-HHMMSS; the installer resolves the latest tag at runtime.
 # ==============================================================================
 set -uo pipefail
 

@@ -1,6 +1,7 @@
 package lxd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 // lxc exec can run commands. LXD containers may be left FROZEN/STOPPED during
 // post-create or quota operations; password resets must recover those states
 // instead of failing with a generic temp-script exit status.
-func (l *LXDProvider) ensureLXDInstanceRunningForExec(instanceName string) error {
+func (l *LXDProvider) ensureLXDInstanceRunningForExec(ctx context.Context, instanceName string) error {
 	if l.sshClient == nil {
 		return fmt.Errorf("SSH客户端不可用")
 	}
@@ -28,7 +29,10 @@ func (l *LXDProvider) ensureLXDInstanceRunningForExec(instanceName string) error
 	var lastErr error
 
 	for attempt := 1; attempt <= 18; attempt++ {
-		output, err := l.sshClient.Execute(statusCmd)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, statusCmd)
 		if err != nil {
 			lastErr = err
 			global.APP_LOG.Warn("检查LXD实例状态失败，准备重试",
@@ -43,7 +47,7 @@ func (l *LXDProvider) ensureLXDInstanceRunningForExec(instanceName string) error
 
 			if strings.EqualFold(lastStatus, "RUNNING") {
 				readyCmd := fmt.Sprintf("lxc exec %s -- /bin/sh -c %s 2>/dev/null", shellSingleQuote(instanceName), shellSingleQuote("echo LXD_EXEC_READY"))
-				readyOutput, readyErr := l.sshClient.Execute(readyCmd)
+				readyOutput, readyErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, readyCmd)
 				if readyErr == nil && strings.Contains(readyOutput, "LXD_EXEC_READY") {
 					return nil
 				}
@@ -63,7 +67,7 @@ func (l *LXDProvider) ensureLXDInstanceRunningForExec(instanceName string) error
 				// recovery action across old/new LXD releases. restart is only used
 				// if start fails on later attempts.
 				startCmd := fmt.Sprintf("lxc start %s 2>/dev/null || true", shellSingleQuote(instanceName))
-				if _, startErr := l.sshClient.Execute(startCmd); startErr != nil {
+				if _, startErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, startCmd); startErr != nil {
 					lastErr = startErr
 				}
 			}
@@ -71,12 +75,14 @@ func (l *LXDProvider) ensureLXDInstanceRunningForExec(instanceName string) error
 
 		if attempt%6 == 0 {
 			restartCmd := fmt.Sprintf("lxc restart %s 2>/dev/null || lxc start %s 2>/dev/null || true", shellSingleQuote(instanceName), shellSingleQuote(instanceName))
-			if _, restartErr := l.sshClient.Execute(restartCmd); restartErr != nil {
+			if _, restartErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, restartCmd); restartErr != nil {
 				lastErr = restartErr
 			}
 		}
 
-		time.Sleep(5 * time.Second)
+		if err := utils.SleepContext(ctx, 5*time.Second); err != nil {
+			return err
+		}
 	}
 
 	if lastErr != nil {
@@ -121,13 +127,13 @@ func buildLXDPasswordCommandCandidates(instanceName, password, preferShell strin
 	return commands
 }
 
-func (l *LXDProvider) setLXDInstancePasswordWithRetry(instanceName, password, preferShell string) error {
+func (l *LXDProvider) setLXDInstancePasswordWithRetry(ctx context.Context, instanceName, password, preferShell string) error {
 	commands := buildLXDPasswordCommandCandidates(instanceName, password, preferShell)
 	var lastErr error
 	var lastOutput string
 
 	for attempt := 1; attempt <= 4; attempt++ {
-		if err := l.ensureLXDInstanceRunningForExec(instanceName); err != nil {
+		if err := l.ensureLXDInstanceRunningForExec(ctx, instanceName); err != nil {
 			lastErr = err
 			global.APP_LOG.Warn("LXD实例暂不可执行，等待后重试设置密码",
 				zap.String("instanceName", utils.TruncateString(instanceName, 32)),
@@ -141,7 +147,7 @@ func (l *LXDProvider) setLXDInstancePasswordWithRetry(instanceName, password, pr
 					TimeoutSeconds: 60,
 					SuccessMarker:  "PASSWORD_OK",
 				})
-				output, err := l.sshClient.ExecuteViaTempScript(script, nil, 180*time.Second)
+				output, err := utils.ExecuteViaTempScriptContext(ctx, l.sshClient, script, nil, 180*time.Second)
 				if err == nil {
 					global.APP_LOG.Info("LXD实例密码设置成功",
 						zap.String("instanceName", utils.TruncateString(instanceName, 32)),
@@ -161,7 +167,9 @@ func (l *LXDProvider) setLXDInstancePasswordWithRetry(instanceName, password, pr
 		}
 
 		if attempt < 4 {
-			time.Sleep(time.Duration(attempt*5) * time.Second)
+			if err := utils.SleepContext(ctx, time.Duration(attempt*5)*time.Second); err != nil {
+				return err
+			}
 		}
 	}
 

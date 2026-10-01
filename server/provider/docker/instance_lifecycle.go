@@ -7,15 +7,32 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/provider"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
 
+func (d *DockerProvider) rejectInfrastructureContainer(ctx context.Context, id string) error {
+	if provider.IsRuntimeInfrastructureContainer(id) {
+		return fmt.Errorf("refusing to manage runtime infrastructure container %s", id)
+	}
+	output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, fmt.Sprintf("%s inspect -f '{{.Name}}' %s 2>/dev/null", d.runtime.CLI, shellSingleQuote(id)))
+	if err != nil {
+		return nil
+	}
+	for _, name := range strings.Split(output, "\n") {
+		if provider.IsRuntimeInfrastructureContainer(name) {
+			return fmt.Errorf("refusing to manage runtime infrastructure container %s", id)
+		}
+	}
+	return nil
+}
+
 // sshStartInstance 启动实例
 func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error {
 	// 先检查容器状态，如果是Exited状态则使用restart命令
-	statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(id)))
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Error("检查容器状态失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -39,7 +56,7 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", startCmd))
 
-	output, err := d.sshClient.Execute(startCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, startCmd)
 	if err != nil {
 		global.APP_LOG.Error("Docker实例启动失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -61,19 +78,23 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 		}
 
 		// 等待一段时间后再检查
-		time.Sleep(checkInterval)
+		if err := utils.SleepContext(ctx, checkInterval); err != nil {
+			return fmt.Errorf("waiting for container '%s' to start cancelled: %w", id, err)
+		}
 
 		// 检查容器状态
-		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(id)))
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(id)))
 		if err == nil {
 			currentStatus := strings.ToLower(strings.TrimSpace(statusOutput))
 			if currentStatus == "running" {
 				// 容器已经启动，再等待额外的时间确保服务完全就绪
-				time.Sleep(2 * time.Second)
-					global.APP_LOG.Debug("容器已成功启动并就绪",
-						zap.String("id", utils.TruncateString(id, 32)),
-						zap.Duration("wait_time", time.Since(startTime)))
-					return d.restoreRoutedIPv6AfterStart(id)
+				if err := utils.SleepContext(ctx, 2*time.Second); err != nil {
+					return fmt.Errorf("waiting for container '%s' readiness cancelled: %w", id, err)
+				}
+				global.APP_LOG.Debug("容器已成功启动并就绪",
+					zap.String("id", utils.TruncateString(id, 32)),
+					zap.Duration("wait_time", time.Since(startTime)))
+				return d.restoreRoutedIPv6AfterStart(id)
 			}
 		}
 
@@ -85,11 +106,14 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 
 // sshStopInstance 停止实例
 func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
+	if err := d.rejectInfrastructureContainer(ctx, id); err != nil {
+		return err
+	}
 	stopCmd := fmt.Sprintf("%s stop %s", d.runtime.CLI, shellSingleQuote(id))
 	global.APP_LOG.Debug("开始停止Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", stopCmd))
-	output, err := d.sshClient.Execute(stopCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, stopCmd)
 	if err != nil {
 		global.APP_LOG.Error("Docker实例停止失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -103,13 +127,15 @@ func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
 	maxRetries := 10
 	retryInterval := 1 * time.Second
 	for i := 0; i < maxRetries; i++ {
-		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(id)))
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(id)))
 		if err != nil {
 			global.APP_LOG.Warn("检查容器停止状态失败",
 				zap.String("id", utils.TruncateString(id, 32)),
 				zap.Int("retry", i+1),
 				zap.Error(err))
-			time.Sleep(retryInterval)
+			if err := utils.SleepContext(ctx, retryInterval); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -125,7 +151,9 @@ func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("current_status", status),
 			zap.Int("retry", i+1))
-		time.Sleep(retryInterval)
+		if err := utils.SleepContext(ctx, retryInterval); err != nil {
+			return err
+		}
 	}
 
 	global.APP_LOG.Warn("Docker实例停止命令执行成功但状态验证超时",
@@ -140,7 +168,7 @@ func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) erro
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", restartCmd))
 
-	output, err := d.sshClient.Execute(restartCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, restartCmd)
 	if err != nil {
 		if isDockerIptablesChainError(output) {
 			global.APP_LOG.Warn("Docker重启遇到iptables chain缺失，尝试修复后重试",
@@ -149,10 +177,10 @@ func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) erro
 			if repairErr := d.repairIptablesChains(""); repairErr != nil {
 				return fmt.Errorf("failed to repair Docker iptables chains before restart retry: %w; original output: %s", repairErr, utils.TruncateString(strings.TrimSpace(output), 8000))
 			}
-				output, err = d.sshClient.Execute(restartCmd)
-				if err == nil {
-					global.APP_LOG.Info("Docker实例重启在iptables修复后成功", zap.String("id", utils.TruncateString(id, 32)))
-					return d.restoreRoutedIPv6AfterStart(id)
+			output, err = utils.ExecuteShellCommandContext(ctx, d.sshClient, restartCmd)
+			if err == nil {
+				global.APP_LOG.Info("Docker实例重启在iptables修复后成功", zap.String("id", utils.TruncateString(id, 32)))
+				return d.restoreRoutedIPv6AfterStart(id)
 			}
 		}
 		global.APP_LOG.Error("Docker实例重启失败",
@@ -177,6 +205,9 @@ func isDockerIptablesChainError(output string) bool {
 
 // sshDeleteInstance 删除实例 - 增强版，多重删除策略
 func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error {
+	if err := d.rejectInfrastructureContainer(ctx, id); err != nil {
+		return err
+	}
 	global.APP_LOG.Debug("开始删除Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)))
 
@@ -186,7 +217,7 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", cleanupCmd))
 
-	cleanupOutput, cleanupErr := d.sshClient.Execute(cleanupCmd)
+	cleanupOutput, cleanupErr := utils.ExecuteShellCommandContext(ctx, d.sshClient, cleanupCmd)
 	if cleanupErr != nil {
 		global.APP_LOG.Debug("清理已停止容器失败（可忽略）",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -263,7 +294,7 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 					zap.Int("cmdIndex", cmdIndex+1),
 					zap.String("command", cmd))
 
-				output, err := d.sshClient.Execute(cmd)
+				output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, cmd)
 				if err != nil {
 					// 某些错误是可以接受的
 					if d.isAcceptableError(err, output) {
@@ -344,7 +375,9 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 
 		// 在策略之间等待一下，让系统稳定
 		if strategyIndex < len(deleteStrategies)-1 {
-			time.Sleep(1 * time.Second)
+			if err := utils.SleepContext(ctx, time.Second); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -353,7 +386,7 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 		zap.String("id", utils.TruncateString(id, 32)))
 
 	finalCleanupCmd := fmt.Sprintf("%s ps -a --filter %s -q | xargs -r %s rm -f", d.runtime.CLI, containerNameFilter(id), d.runtime.CLI)
-	finalOutput, finalErr := d.sshClient.Execute(finalCleanupCmd)
+	finalOutput, finalErr := utils.ExecuteShellCommandContext(ctx, d.sshClient, finalCleanupCmd)
 	if finalErr != nil {
 		global.APP_LOG.Debug("最终清理失败（可忽略）",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -403,7 +436,7 @@ func (d *DockerProvider) isAcceptableError(err error, output string) bool {
 func (d *DockerProvider) verifyContainerDeleted(ctx context.Context, id string) bool {
 	// 方法1：检查运行中的容器
 	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(id))
-	output, err := d.sshClient.Execute(checkCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, checkCmd)
 
 	if err != nil {
 		// 如果命令失败，很可能是容器不存在了
@@ -432,7 +465,7 @@ func (d *DockerProvider) verifyContainerDeleted(ctx context.Context, id string) 
 	// 方法2：通过docker ps -a检查所有状态的容器（包括已停止的）
 	// 使用精确匹配的name filter
 	listByNameCmd := fmt.Sprintf("%s ps -a --filter %s --format '{{.Names}}:{{.Status}}'", d.runtime.CLI, containerNameFilter(id))
-	listByNameOutput, listByNameErr := d.sshClient.Execute(listByNameCmd)
+	listByNameOutput, listByNameErr := utils.ExecuteShellCommandContext(ctx, d.sshClient, listByNameCmd)
 
 	if listByNameErr == nil {
 		trimmedOutput := strings.TrimSpace(listByNameOutput)
@@ -447,7 +480,7 @@ func (d *DockerProvider) verifyContainerDeleted(ctx context.Context, id string) 
 
 	// 方法3：用ID进行filter检查
 	listCmd := fmt.Sprintf("%s ps -a --filter %s --format '{{.ID}}'", d.runtime.CLI, shellSingleQuote("id="+id))
-	listOutput, listErr := d.sshClient.Execute(listCmd)
+	listOutput, listErr := utils.ExecuteShellCommandContext(ctx, d.sshClient, listCmd)
 
 	if listErr == nil && strings.TrimSpace(listOutput) != "" {
 		// 通过ID找到了容器

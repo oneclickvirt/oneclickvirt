@@ -1,6 +1,7 @@
 package incus
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -80,29 +81,29 @@ func (i *IncusProvider) restoreIPv6OnlyDNS(config provider.InstanceConfig) error
 	return nil
 }
 
-func (i *IncusProvider) enforceIPv6OnlyNetwork(instanceName string, networkConfig NetworkConfig) error {
+func (i *IncusProvider) enforceIPv6OnlyNetwork(ctx context.Context, instanceName string, networkConfig NetworkConfig) error {
 	if networkConfig.NetworkType != "ipv6_only" {
 		return nil
 	}
 	if i.sshClient == nil {
 		return fmt.Errorf("IPv6-only isolation requires an SSH executor")
 	}
-	if err := i.sshStopInstance(instanceName); err != nil {
+	if err := i.sshStopInstance(ctx, instanceName); err != nil {
 		return fmt.Errorf("stop instance for IPv6-only isolation: %w", err)
 	}
-	output, err := i.sshClient.Execute(incusIPv6OnlyIsolationCommand(instanceName, networkConfig))
+	output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, incusIPv6OnlyIsolationCommand(instanceName, networkConfig))
 	if err != nil {
-		startErr := i.sshStartInstance(instanceName)
+		startErr := i.sshStartInstance(ctx, instanceName)
 		if startErr != nil {
 			return fmt.Errorf("apply IPv6-only isolation: output=%s: %w; recovery start failed: %v",
 				utils.TruncateString(output, 1200), err, startErr)
 		}
 		return fmt.Errorf("apply IPv6-only isolation: output=%s: %w", utils.TruncateString(output, 1200), err)
 	}
-	if err := i.sshStartInstance(instanceName); err != nil {
+	if err := i.sshStartInstance(ctx, instanceName); err != nil {
 		return fmt.Errorf("start IPv6-only instance: %w", err)
 	}
-	output, err = i.sshClient.Execute(incusIPv6OnlyDNSCommand(instanceName))
+	output, err = utils.ExecuteShellCommandContext(ctx, i.sshClient, incusIPv6OnlyDNSCommand(instanceName))
 	if err != nil {
 		return fmt.Errorf("configure IPv6-only guest DNS: output=%s: %w", utils.TruncateString(output, 1200), err)
 	}

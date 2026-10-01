@@ -43,7 +43,8 @@ func SetLXCAddressBinding(client ShellExecutor, runtime, instanceName, address s
 			return nil, fmt.Errorf("读取实例网络配置失败: %w", err)
 		}
 		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(CleanCommandOutput(output)), &result); err != nil {
+		cleanOutput := StripTerminalCSI(CleanCommandOutput(output))
+		if err := json.Unmarshal([]byte(cleanOutput), &result); err != nil {
 			return nil, fmt.Errorf("实例网络配置响应无效: %w", err)
 		}
 		if metadata, ok := result["metadata"].(map[string]interface{}); ok {
@@ -93,15 +94,27 @@ func SetLXCAddressBinding(client ShellExecutor, runtime, instanceName, address s
 		// stateful DHCP is disabled.  This is a recoverable host configuration
 		// problem, not a reason to leave a proxy target in a DHCP-only state:
 		// enable stateful DHCP on the matched managed bridge and retry the exact
-		// device mutation.  Only the explicit daemon validation diagnostic
-		// triggers this fallback; unrelated write failures remain fail-closed.
-		if err != nil && ipv6 && strings.Contains(strings.ToLower(output), "dhcp") && strings.Contains(strings.ToLower(output), "ipv6.address") {
+		// device mutation. The daemon's machine-readable setting is preferred;
+		// unrelated write failures remain fail-closed.
+		if err != nil && ipv6 {
 			device := lxcDeviceMap(devices[name])
 			network, _ := device["network"].(string)
 			if strings.TrimSpace(network) != "" && device["nictype"] != "routed" {
-				networkCommand := runtime + " network set " + ShellSingleQuote(network) + " ipv6.dhcp.stateful=true"
-				if _, networkErr := client.ExecuteWithTimeout(networkCommand, 30*time.Second); networkErr == nil {
-					output, err = client.ExecuteWithTimeout(command, 30*time.Second)
+				// Prefer a machine-readable network setting over matching a
+				// translated daemon diagnostic. Keep the text fallback for older
+				// daemons which do not expose ipv6.dhcp.stateful.
+				dhcpDisabled := strings.Contains(strings.ToLower(StripTerminalCSI(output)), "dhcp") && strings.Contains(strings.ToLower(StripTerminalCSI(output)), "ipv6.address")
+				if !dhcpDisabled {
+					stateCommand := runtime + " network get " + ShellSingleQuote(network) + " ipv6.dhcp.stateful"
+					stateOutput, stateErr := client.ExecuteWithTimeout(stateCommand, 15*time.Second)
+					state := strings.ToLower(strings.TrimSpace(StripTerminalCSI(stateOutput)))
+					dhcpDisabled = stateErr == nil && (state == "false" || state == "no" || state == "0" || state == "disabled" || state == "off")
+				}
+				if dhcpDisabled {
+					networkCommand := runtime + " network set " + ShellSingleQuote(network) + " ipv6.dhcp.stateful=true"
+					if _, networkErr := client.ExecuteWithTimeout(networkCommand, 30*time.Second); networkErr == nil {
+						output, err = client.ExecuteWithTimeout(command, 30*time.Second)
+					}
 				}
 			}
 		}
@@ -112,7 +125,7 @@ func SetLXCAddressBinding(client ShellExecutor, runtime, instanceName, address s
 			output, err = client.ExecuteWithTimeout(command, 30*time.Second)
 		}
 		if err != nil {
-			return fmt.Errorf("固定网卡 %s 的%s地址失败: %w: %s", name, family, err, CleanCommandOutput(output))
+			return fmt.Errorf("固定网卡 %s 的%s地址失败: %w: %s", name, family, err, StripTerminalCSI(CleanCommandOutput(output)))
 		}
 		verified, err := query("")
 		if err != nil {

@@ -1,6 +1,7 @@
 package kubevirt
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -282,26 +283,30 @@ func (p *KubeVirtProvider) deleteRoutedKubeVirtNAD(plan routedKubeVirtIPv6Plan) 
 	return p.deleteRoutedKubeVirtNADName(plan.NADName)
 }
 
-func (p *KubeVirtProvider) deleteRoutedKubeVirtNADByInstance(id string) error {
+func (p *KubeVirtProvider) deleteRoutedKubeVirtNADByInstance(ctx context.Context, id string) error {
 	name := k8sResourceName(id)
 	if name == "" {
 		return nil
 	}
-	return p.deleteRoutedKubeVirtNADName(name + "-v6")
+	return p.deleteRoutedKubeVirtNADNameContext(ctx, name+"-v6")
 }
 
 func (p *KubeVirtProvider) deleteRoutedKubeVirtNADName(name string) error {
+	return p.deleteRoutedKubeVirtNADNameContext(context.Background(), name)
+}
+
+func (p *KubeVirtProvider) deleteRoutedKubeVirtNADNameContext(ctx context.Context, name string) error {
 	// A normal IPv4-only installation does not require Multus. kubectl's
 	// --ignore-not-found ignores a missing object, but not a missing resource
 	// type. Check the CRD itself before trying to delete an optional NAD.
-	output, err := p.sshClient.Execute("kubectl get crd network-attachment-definitions.k8s.cni.cncf.io -o name --ignore-not-found=true 2>&1")
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, "kubectl get crd network-attachment-definitions.k8s.cni.cncf.io -o name --ignore-not-found=true 2>&1")
 	if err != nil {
 		return fmt.Errorf("检查KubeVirt隧道网络CRD失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}
 	if strings.TrimSpace(output) == "" {
 		return nil
 	}
-	output, err = p.sshClient.Execute(fmt.Sprintf("kubectl delete network-attachment-definition %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)))
+	output, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("kubectl delete network-attachment-definition %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(name), shellSingleQuote(Namespace)))
 	if err != nil && !kubeVirtNotFound(output, err) {
 		return fmt.Errorf("删除KubeVirt隧道网络 %s 失败: %w (output: %s)", name, err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}

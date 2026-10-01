@@ -10,19 +10,21 @@ action_test_requires_routed_ipv6() {
 }
 
 action_test_live_ipv6_tunnel_enabled() {
-    [[ "${ACTION_TEST_LIVE_IPV6_TUNNEL:-false}" == "true" ]]
+    [[ "${ACTION_TEST_IPV4_ONLY:-false}" != "true" && "${ACTION_TEST_LIVE_IPV6_TUNNEL:-false}" == "true" ]]
 }
 
 action_test_runner_has_ipv6() {
-    # Probe the runner, not a proxy that might supply IPv6 on its behalf. A
-    # failed capability probe is a SKIP, never proof that guest IPv6 works.
+    # Probe the runner directly. A proxy must not make an IPv4-only runner
+    # appear IPv6-capable, and a failed probe only skips host-facing tunnel
+    # work; it never claims that guest IPv6 is working.
     curl -6 --noproxy '*' --connect-timeout 5 --max-time 10 --fail --silent \
         --output /dev/null https://api64.ipify.org
 }
 
 # The regular Action matrix has no disposable tunnel endpoint. Keep every
-# host-facing tunnel call behind an explicit opt-in, while Go contract tests
-# exercise the state machine using a fake remote executor.
+# host-facing tunnel call behind an explicit opt-in. These disabled-tunnel
+# CRUD checks need no IPv6 route on the runner and do not claim guest IPv6
+# connectivity; actual traffic must be checked from an external IPv6 peer.
 run_ipv6_tunnel_host_lifecycle_tests() {
     local group="$1"
     if ! action_test_live_ipv6_tunnel_enabled; then
@@ -35,7 +37,6 @@ run_ipv6_tunnel_host_lifecycle_tests() {
             "runner无可用IPv6，跳过实际IPv6分配、隧道操作和连通性测试；保留离线契约测试" "$group"
         return 0
     fi
-
     local ipv6_tunnel_resp
     ipv6_tunnel_resp=$(test_api "Create disabled IPv6 tunnel" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-tunnels" "200" \
         '{"name":"CI disabled tunnel","mode":"sit","interfaceName":"ocv6ci0","localIpv4":"192.0.2.10","remoteIpv4":"198.51.100.1","localIpv6":"2001:db8:100::2/64","remoteIpv6":"2001:db8:100::1","routedCidr":"2001:db8:101::/64","mtu":1480,"ttl":255,"routeMetric":100,"defaultRoute":false,"enabled":false}' "$group")
@@ -71,6 +72,14 @@ run_module_09() {
     fi
     local provider_arch; provider_arch=$(current_test_arch "amd64")
     log_info "Provider test architecture: ${provider_arch}"
+    local provider_network_type="${ACTION_TEST_PROVIDER_NETWORK_TYPE:-nat_ipv4}"
+    case "$provider_network_type" in
+        nat_ipv4|nat_ipv4_ipv6|dedicated_ipv4|dedicated_ipv4_ipv6|ipv6_only) ;;
+        *)
+            chain_break "$group" "Invalid ACTION_TEST_PROVIDER_NETWORK_TYPE: ${provider_network_type}"
+            return 1
+            ;;
+    esac
 
     # -- Provider list --
     test_api "Provider list" "GET" "/api/v1/admin/providers?page=1&pageSize=10" "200" "" "$group"
@@ -133,10 +142,31 @@ run_module_09() {
         fi
     fi
 
+    # A previous module or an interrupted run may have left this provider in
+    # the local database. Resolve its exact identity before POSTing: a 409 is
+    # the expected API response for a duplicate, not a failed product test.
+    if [[ -z "$PROVIDER_ID" ]]; then
+        local existing_resp existing_ids existing_count
+        existing_resp=$(curl -fsS --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers?page=1&pageSize=100" 2>/dev/null) || existing_resp=""
+        existing_ids=$(jq -r --arg name "ci-${ENV_TYPE}-provider" --arg type "$ENV_TYPE" \
+            '.data.list[]? | select(.name == $name and .type == $type) | .id // .ID' \
+            <<<"$existing_resp" 2>/dev/null || true)
+        existing_count=$(printf '%s\n' "$existing_ids" | awk 'NF {count++} END {print count+0}')
+        if [[ "$existing_count" == 1 ]]; then
+            PROVIDER_ID="$existing_ids"
+            record_pass_result "Reuse existing provider" "GET" "/api/v1/admin/providers" \
+                "one exact provider" "$PROVIDER_ID" "Existing CI provider resolved by name and type" "$group"
+        elif [[ "$existing_count" -gt 1 ]]; then
+            chain_break "$group" "Multiple CI providers have the same name and type"
+            return 1
+        fi
+    fi
+
     if [[ -z "$PROVIDER_ID" ]]; then
         log_info "Creating provider with executionRule=${EXECUTION_RULE}"
         local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
-            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"discoverMode\":true,\"autoImport\":true,\"autoAdjustQuota\":true,\"importedInstanceOwner\":\"admin\",${auth_payload}}" "$group")
+            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"${provider_network_type}\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"discoverMode\":true,\"autoImport\":true,\"autoAdjustQuota\":true,\"importedInstanceOwner\":\"admin\",${auth_payload}}" "$group")
         
         # Debug: log the response
         log_debug "Provider creation response: ${pr}"
@@ -181,11 +211,11 @@ run_module_09() {
         esac
     fi
     test_api "Refresh provider SSH auth" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
-        "{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"container_enabled\":${provider_container_enabled},\"vm_enabled\":${provider_vm_enabled},${auth_payload}}" "$group"
+        "{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"networkType\":\"${provider_network_type}\",\"architecture\":\"${provider_arch}\",\"container_enabled\":${provider_container_enabled},\"vm_enabled\":${provider_vm_enabled},${auth_payload}}" "$group"
 
     # -- Create duplicate name --
     test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "409" \
-        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group"
+        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"${provider_network_type}\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group"
 
     # -- Edit provider --
     test_api "Edit provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
@@ -313,7 +343,7 @@ run_module_09() {
 
         # Test creating a proxmox provider with third_party type (validation should pass with required fields)
         local tp_create_resp; tp_create_resp=$(test_api "Create proxmox third_party provider" "POST" "/api/v1/admin/providers" "200|409" \
-            "{\"name\":\"ci-proxmox-thirdparty\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload},\"nodeInstallType\":\"third_party\",\"bridgeNAT\":\"vmbr1\",\"bridgeDedicatedV4\":\"vmbr0\",\"bridgeDedicatedV6\":\"\",\"natSubnet\":\"172.16.1.0/24\"}" "$group")
+            "{\"name\":\"ci-proxmox-thirdparty\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"${provider_network_type}\",\"architecture\":\"${provider_arch}\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload},\"nodeInstallType\":\"third_party\",\"bridgeNAT\":\"vmbr1\",\"bridgeDedicatedV4\":\"vmbr0\",\"bridgeDedicatedV6\":\"\",\"natSubnet\":\"172.16.1.0/24\"}" "$group")
         local tp_pid; tp_pid=$(echo "$tp_create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         if [[ -n "$tp_pid" ]]; then
             delete_provider_and_wait "$tp_pid" "third_party test provider" "$group" "$ADMIN_TOKEN" true
@@ -401,6 +431,10 @@ run_module_09() {
     test_api "Clear IPv4 pool" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv4-pool" "200" "" "$group"
 
     # -- Offline pool CRUD/capacity contract: no host/guest IPv6 assignment --
+    if [[ "${ACTION_TEST_IPV4_ONLY:-false}" == "true" ]]; then
+        record_skip_result "IPv6 provider pool and tunnel checks" "SKIP" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" \
+            "IPv4-only run requested" "$group"
+    else
     test_api "Reset IPv6 pool before coverage" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "200" "" "$group"
     if action_test_requires_routed_ipv6 "$ENV_TYPE"; then
         test_api "Reject manual IPv6 pool on routed-only provider" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "400" \
@@ -438,6 +472,7 @@ run_module_09() {
     test_api "Clear IPv6 pool" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/ipv6-pool" "200" "" "$group"
 
     run_ipv6_tunnel_host_lifecycle_tests "$group"
+    fi
 
     # -- Configuration tasks --
     test_api "Configuration tasks" "GET" "/api/v1/admin/configuration-tasks?page=1&pageSize=10" "200" "" "$group"

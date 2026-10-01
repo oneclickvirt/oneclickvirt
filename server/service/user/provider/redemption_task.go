@@ -14,7 +14,6 @@ import (
 	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
-	ipv6PoolService "oneclickvirt/service/ipv6pool"
 	"oneclickvirt/service/resources"
 	traffic "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
@@ -113,6 +112,9 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 	var instance providerModel.Instance
 
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		if err := lockRunningCreate(tx, task.ID); err != nil {
+			return err
+		}
 		// 验证镜像（复制模式跳过镜像验证，使用源容器名作为镜像标识）
 		var systemImage systemModel.SystemImage
 		imageName := "copy:" + taskReq.SourceContainer
@@ -192,9 +194,8 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		}
 
 		// 更新任务关联实例 ID
-		if err := tx.Model(task).Updates(map[string]interface{}{
+		if err := tx.Model(&adminModel.Task{}).Where("id = ? AND status = ?", task.ID, "running").Updates(map[string]interface{}{
 			"instance_id": instance.ID,
-			"status":      "processing",
 		}).Error; err != nil {
 			return fmt.Errorf("更新任务状态失败: %v", err)
 		}
@@ -246,80 +247,23 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		instanceUpdates, _ = s.gatherInstanceNetworkInfo(ctx, instance)
 	}
 	dbService := database.GetDatabaseService()
-	cancelledDuringFinalize := false
-
-	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-		// 检查任务是否已被管理员取消（防止竞争条件导致孤儿实例）
-		var taskStatus string
-		if fetchErr := tx.Model(&adminModel.Task{}).Select("status").Where("id = ?", task.ID).Scan(&taskStatus).Error; fetchErr == nil && taskStatus == "cancelled" {
-			global.APP_LOG.Debug("兑换码实例任务已被管理员取消，跳过最终化并清理实例",
-				zap.Uint("taskId", task.ID))
-			cancelledDuringFinalize = true
-			go s.delayedDeleteFailedInstance(instance.ID)
+	dbCtx, dbCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer dbCancel()
+	err := dbService.ExecuteTransaction(dbCtx, func(tx *gorm.DB) error {
+		if err := lockRunningCreate(tx, task.ID); err != nil {
+			return err
+		}
+		if apiError != nil {
+			if err := quarantineFailedCreate(tx, instance); err != nil {
+				return err
+			}
+			if taskReq.RedemptionCodeID != 0 {
+				return tx.Unscoped().Delete(&systemModel.RedemptionCode{}, taskReq.RedemptionCodeID).Error
+			}
 			return nil
 		}
-
-		if apiError != nil {
-			// ——— 失败处理 ———
-			global.APP_LOG.Error("Provider创建实例失败，回滚兑换码实例",
-				zap.Uint("taskId", task.ID), zap.Error(apiError))
-
-			// 更新实例状态为失败
-			if err := tx.Model(instance).Updates(map[string]interface{}{
-				"status": "failed",
-			}).Error; err != nil {
-				return fmt.Errorf("更新实例状态失败: %v", err)
-			}
-
-			// 保留端口映射到延迟远端删除完成后再硬删除。LXD/Incus 的
-			// 宿主防火墙清理依赖这些映射详情，过早删除会留下旧规则。
-			if err := tx.Model(&providerModel.Port{}).
-				Where("instance_id = ?", instance.ID).
-				Update("status", "deleting").Error; err != nil {
-				global.APP_LOG.Warn("标记失败兑换实例端口映射清理中失败",
-					zap.Uint("instanceId", instance.ID), zap.Error(err))
-			}
-
-			// 释放节点资源
-			resourceService := &resources.ResourceService{}
-			_ = resourceService.ReleaseResourcesInTx(tx, instance.ProviderID, instance.InstanceType,
-				instance.CPU, instance.Memory, instance.Disk)
-
-			if err := tx.Model(&providerModel.ProviderIPv4Pool{}).
-				Where("instance_id = ?", instance.ID).
-				Updates(map[string]interface{}{"is_allocated": false, "instance_id": nil}).Error; err != nil {
-				global.APP_LOG.Warn("释放失败兑换实例IPv4池地址失败",
-					zap.Uint("instanceId", instance.ID),
-					zap.Error(err))
-			}
-			if err := ipv6PoolService.NewService().ReleaseIPv6WithDB(tx, instance.ID); err != nil {
-				return fmt.Errorf("释放失败兑换实例IPv6池地址失败: %w", err)
-			}
-
-			// 更新任务为失败；若管理员已强制取消，保留取消终态。
-			if err := tx.Model(&adminModel.Task{}).
-				Where("id = ? AND status NOT IN ?", task.ID, []string{"completed", "failed", "cancelled", "timeout"}).
-				Updates(map[string]interface{}{
-					"status":        "failed",
-					"completed_at":  time.Now(),
-					"error_message": apiError.Error(),
-				}).Error; err != nil {
-				return fmt.Errorf("更新任务状态失败: %v", err)
-			}
-
-			// 硬删除兑换码记录（实例创建失败则兑换码无效）
-			if taskReq.RedemptionCodeID != 0 {
-				if err := tx.Unscoped().Delete(&systemModel.RedemptionCode{}, taskReq.RedemptionCodeID).Error; err != nil {
-					global.APP_LOG.Warn("删除失败兑换码记录失败",
-						zap.Uint("codeId", taskReq.RedemptionCodeID), zap.Error(err))
-					// 不阻断主流程
-				}
-			}
-
-			// 延迟异步删除失败实例
-			go s.delayedDeleteFailedInstance(instance.ID)
-
-			return nil
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 
 		// ——— 成功处理 ———
@@ -333,8 +277,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		}
 
 		// 更新任务状态为 running（等待后处理完成）
-		if err := tx.Model(task).Updates(map[string]interface{}{
-			"status":   "running",
+		if err := tx.Model(&adminModel.Task{}).Where("id = ? AND status = ?", task.ID, "running").Updates(map[string]interface{}{
 			"progress": 70,
 		}).Error; err != nil {
 			return fmt.Errorf("更新任务状态失败: %v", err)
@@ -352,13 +295,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 				return fmt.Errorf("更新兑换码状态失败: %v", result.Error)
 			}
 			if result.RowsAffected == 0 {
-				// 兑换码已被管理员提前删除（竞态窗口）：实例已创建但归属码已消失
-				// 触发异步清理，避免孤儿实例
-				global.APP_LOG.Warn("兑换码已不存在，清理孤儿实例",
-					zap.Uint("taskId", task.ID),
-					zap.Uint("codeId", taskReq.RedemptionCodeID),
-					zap.Uint("instanceId", instance.ID))
-				go s.delayedDeleteFailedInstance(instance.ID)
+				return fmt.Errorf("兑换码已被删除，实例保留供清理")
 			}
 		}
 
@@ -370,22 +307,20 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		return err
 	}
 
-	if cancelledDuringFinalize {
-		s.taskService.ReleaseTaskLocks(task.ID)
-		return nil
-	}
-
 	if apiError != nil {
-		if global.APP_TASK_LOCK_RELEASER != nil {
-			global.APP_TASK_LOCK_RELEASER.ReleaseTaskLocks(task.ID)
-		}
-		return nil
+		go s.delayedDeleteFailedInstance(instance.ID)
+		return apiError
 	}
 
 	// 成功后的异步后处理（端口映射配置 + SSH 就绪检测 + 任务完成标记）
 	go func(taskCtx context.Context, instanceID uint, providerID uint, taskID uint) {
 		defer func() {
 			s.taskService.ReleaseTaskLocks(taskID)
+		}()
+		defer func() {
+			if taskCtx.Err() != nil {
+				_ = s.taskService.GetStateManager().CompleteMainTask(taskID, false, taskCtx.Err().Error(), nil)
+			}
 		}()
 		defer func() {
 			if r := recover(); r != nil {

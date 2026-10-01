@@ -38,6 +38,7 @@ type AdminTaskResponse struct {
 	InstanceName     string     `json:"instanceName"`
 	InstanceType     string     `json:"instanceType"`
 	CanForceStop     bool       `json:"canForceStop"`
+	CanCancel        bool       `json:"canCancel"`
 	IsForceStoppable bool       `json:"isForceStoppable"`
 	RemainingTime    int        `json:"remainingTime"` // 剩余时间（秒）
 	// 预分配的实例配置信息

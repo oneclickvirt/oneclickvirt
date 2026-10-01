@@ -258,17 +258,26 @@ stabilize_worker_network_for_env() {
 
     case "$env" in
         lxd)
-            log_info "Refreshing LXD daemon DNS view on ${label}..."
+            log_info "Checking LXD daemon DNS view on ${label}..."
             platform_exec_and_wait "$ip" '
+command -v lxc >/dev/null 2>&1 || exit 1
+# The installer already restarts LXD. A second blocking systemctl restart can
+# strand snap.lxd.daemon in its stop job after reboot on Ubuntu 24.04.
+timeout 15 lxc info >/dev/null 2>&1 && exit 0
 if command -v systemctl >/dev/null 2>&1; then
-    systemctl restart snap.lxd.daemon >/dev/null 2>&1 || systemctl restart lxd >/dev/null 2>&1 || true
+    systemctl restart --no-block snap.lxd.daemon >/dev/null 2>&1 ||
+        systemctl restart --no-block lxd >/dev/null 2>&1 || true
+elif command -v snap >/dev/null 2>&1; then
+    timeout 30 snap restart lxd >/dev/null 2>&1 || true
 fi
-if command -v snap >/dev/null 2>&1; then
-    snap restart lxd >/dev/null 2>&1 || true
-fi
-sleep 3
-command -v lxc >/dev/null 2>&1 && lxc info >/dev/null 2>&1
-' 180 >/dev/null 2>&1 || log_warning "LXD daemon DNS refresh did not verify cleanly on ${label}"
+attempt=0
+while [ "$attempt" -lt 12 ]; do
+    timeout 10 lxc info >/dev/null 2>&1 && exit 0
+    attempt=$((attempt + 1))
+    sleep 2
+done
+exit 1
+' 180 >/dev/null 2>&1 || log_warning "LXD daemon readiness did not verify cleanly on ${label}"
             ;;
         incus)
             log_info "Refreshing Incus daemon DNS view on ${label}..."

@@ -12,7 +12,9 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
+	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	agentService "oneclickvirt/service/agent"
 	runtimeProvider "oneclickvirt/service/provider"
 	"oneclickvirt/service/task"
 	"oneclickvirt/utils"
@@ -158,38 +160,13 @@ func (s *Service) CreateTrafficMonitorToggleTask(providerID uint, enabled bool) 
 		return nil, err
 	}
 	operation := "disable"
-	taskType := "disable_all"
-	adminTaskType := "traffic-monitor-disable"
 	if enabled {
 		operation = "enable"
-		taskType = "enable_all"
-		adminTaskType = "traffic-monitor-enable"
 	}
-	var activeCount int64
-	if err := global.APP_DB.Model(&adminModel.Task{}).
-		Where("provider_id = ? AND task_type = ? AND status IN ?", providerID, adminTaskType,
-			[]string{"pending", "processing", "running", "cancelling"}).Count(&activeCount).Error; err != nil {
-		return nil, err
-	}
-	if activeCount > 0 {
-		return nil, common.NewError(common.CodeConflict, "该节点已有流量监控后台任务")
-	}
-	trafficTask := adminModel.TrafficMonitorTask{
-		ProviderID: providerID,
-		TaskType:   taskType,
-		Status:     "pending",
-		Progress:   0,
-		Message:    "任务已创建，等待执行",
-	}
-	if err := global.APP_DB.Create(&trafficTask).Error; err != nil {
-		return nil, err
-	}
-	created, err := task.CreateTrafficMonitorAdminTask(providerID, trafficTask.ID, operation, userID)
+	_, created, err := task.CreateTrafficMonitorTask(providerID, operation, userID)
 	if err != nil {
-		_ = global.APP_DB.Model(&trafficTask).Updates(map[string]interface{}{"status": "failed", "message": err.Error()}).Error
 		return nil, err
 	}
-	_ = global.APP_DB.Model(&trafficTask).Update("admin_task_id", created.ID).Error
 	return created, nil
 }
 
@@ -391,6 +368,29 @@ func executeProviderRuntimeReloadTask(ctx context.Context, adminTask *adminModel
 	utils.UpdateTaskProgress(adminTask.ID, 10, "开始刷新节点运行时连接")
 	if err := runtimeProvider.GetProviderService().ReloadProviderContext(ctx, providerID); err != nil {
 		return fmt.Errorf("刷新节点运行时连接失败: %w", err)
+	}
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.WithContext(ctx).First(&dbProvider, providerID).Error; err != nil {
+		return fmt.Errorf("读取节点 Agent 配置失败: %w", err)
+	}
+	if !dbProvider.IsReverseAgent() {
+		var monitoring monitoringModel.MonitoringConfig
+		err := global.APP_DB.WithContext(ctx).Where("provider_id = ?", providerID).First(&monitoring).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && (!monitoring.AgentInstalled || monitoring.MonitoringMode != "agent")) {
+			utils.UpdateTaskProgress(adminTask.ID, 100, "节点运行时连接已刷新")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("读取节点监控配置失败: %w", err)
+		}
+	}
+	utils.UpdateTaskProgress(adminTask.ID, 70, "同步节点 Agent 和域名代理监听配置")
+	providerInstance, err := runtimeProvider.EnsureProviderConnected(ctx, providerID)
+	if err != nil {
+		return fmt.Errorf("节点运行时已刷新，但 Agent 配置待同步: %w", err)
+	}
+	if err := agentService.SyncAgentConfigForProvider(ctx, providerInstance, providerID); err != nil {
+		return fmt.Errorf("节点运行时已刷新，但 Agent 配置同步失败: %w", err)
 	}
 	utils.UpdateTaskProgress(adminTask.ID, 100, "节点运行时连接已刷新")
 	return nil

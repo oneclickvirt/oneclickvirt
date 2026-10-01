@@ -17,6 +17,8 @@
       :instance="instance"
       :monitoring="monitoring"
       :action-loading="actionLoading"
+      :password-reset-pending="passwordResetPending"
+      :share-link-loading="shareLinkLoading"
       :instance-type-permissions="instanceTypePermissions"
       :share-mode="isShareMode"
       @perform-action="performAction"
@@ -155,7 +157,8 @@
         </el-button>
         <el-button
           type="primary"
-          :disabled="!selectedResetImage"
+          :loading="actionLoading"
+          :disabled="!selectedResetImage || actionLoading || loadingResetImages"
           @click="confirmResetWithImage"
         >
           {{ t('user.instanceDetail.confirmReset') }}
@@ -207,6 +210,8 @@ const currentInstanceId = computed(() => instance.value?.id || route.params.id |
 
 const {
   actionLoading,
+  passwordResetPending,
+  shareLinkLoading,
   showPassword,
   showTrafficDetail,
   showResetImageDialog,

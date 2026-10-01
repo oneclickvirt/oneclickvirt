@@ -96,14 +96,10 @@ func (s *Service) delayedDeleteFailedInstance(instanceID uint) {
 
 	// 模拟管理员删除实例的逻辑
 	if err := s.executeAdminDeleteInstance(instanceID, adminInstanceSvc.taskService); err != nil {
-		global.APP_LOG.Warn("延迟删除任务创建失败，改用直接清理兜底",
-			zap.Uint("instanceId", instanceID),
-			zap.Error(err))
-		if cleanupErr := s.cleanupFailedInstanceDirect(instanceID); cleanupErr != nil {
-			global.APP_LOG.Error("直接清理失败实例失败",
-				zap.Uint("instanceId", instanceID),
-				zap.Error(cleanupErr))
-		}
+		// The normal task path owns the instance reservation. Bypassing it on
+		// an enqueue conflict could delete a guest while another task uses it.
+		global.APP_LOG.Warn("延迟删除任务暂未创建，保留实例供重试",
+			zap.Uint("instanceId", instanceID), zap.Error(err))
 	} else {
 		global.APP_LOG.Debug("延迟删除失败实例成功",
 			zap.Uint("instanceId", instanceID))
@@ -122,16 +118,24 @@ func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
+	domainSvc := &domainService.Service{}
+	if err := domainSvc.SuspendInstanceDomains(instance.ID); err != nil {
+		return fmt.Errorf("暂停失败实例域名代理失败: %w", err)
+	}
 	providerApiService := &providerService.ProviderApiService{}
 	if err := providerApiService.DeleteInstanceByProviderID(cleanupCtx, instance.ProviderID, instance.ProviderInstanceIdentifier()); err != nil {
+		restoreErr := domainSvc.RestoreInstanceDomainsAfterDeleteFailure(instance.ID)
 		global.APP_LOG.Warn("直接清理失败实例时Provider删除失败，保留本地记录等待重试",
 			zap.Uint("instanceId", instance.ID),
 			zap.String("instanceName", instance.Name),
-			zap.Error(err))
+			zap.Error(errors.Join(err, restoreErr)))
 		// Do not remove the DB instance/port rows after an unconfirmed remote
 		// delete. They carry the guest IP and port details required to retry
 		// LXD/Incus firewall cleanup without risking a stale rule on a recycled
 		// host port.
+		if restoreErr != nil {
+			return fmt.Errorf("Provider删除失败，保留失败实例记录以便重试；恢复域名代理也失败: %w", errors.Join(err, restoreErr))
+		}
 		return fmt.Errorf("Provider删除失败，保留失败实例记录以便重试: %w", err)
 	}
 
@@ -154,7 +158,6 @@ func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
 		Bandwidth: instance.Bandwidth,
 	}
 	quotaService := resources.NewQuotaService()
-	domainSvc := &domainService.Service{}
 	instanceDomains, domainErr := domainSvc.GetInstanceDomains(instance.ID)
 	if domainErr != nil {
 		global.APP_LOG.Warn("直接清理失败实例时查询域名绑定失败，继续清理实例",
@@ -263,20 +266,20 @@ func (s *Service) executeAdminDeleteInstance(instanceID uint, taskService interf
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("实例不存在")
+			return nil
 		}
 		return fmt.Errorf("获取实例信息失败: %v", err)
 	}
 
 	// 检查实例状态，避免重复删除
 	if instance.Status == "deleting" {
-		return fmt.Errorf("实例正在删除中")
+		return nil
 	}
 
 	// 检查是否已有进行中的删除任务
 	var existingTask adminModel.Task
 	if err := global.APP_DB.Where("instance_id = ? AND task_type = 'delete' AND status IN ('pending', 'processing', 'running', 'cancelling')", instance.ID).First(&existingTask).Error; err == nil {
-		return fmt.Errorf("实例已有删除任务正在进行")
+		return nil
 	}
 
 	// 创建管理员删除任务数据
@@ -295,16 +298,6 @@ func (s *Service) executeAdminDeleteInstance(instanceID uint, taskService interf
 	task, err := taskService.CreateTask(instance.UserID, &instance.ProviderID, &instanceID, "delete", string(taskDataJSON), 0)
 	if err != nil {
 		return fmt.Errorf("创建删除任务失败: %v", err)
-	}
-
-	// 标记任务为管理员操作，不允许用户取消
-	if err := global.APP_DB.Model(task).Update("is_force_stoppable", false).Error; err != nil {
-		global.APP_LOG.Warn("更新任务可取消状态失败", zap.Uint("taskId", task.ID), zap.Error(err))
-	}
-
-	// 更新实例状态为删除中
-	if err := global.APP_DB.Model(&instance).Update("status", "deleting").Error; err != nil {
-		global.APP_LOG.Warn("更新实例状态失败", zap.Uint("instanceId", instanceID), zap.Error(err))
 	}
 
 	global.APP_LOG.Info("管理员创建删除任务成功",

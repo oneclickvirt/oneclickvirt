@@ -13,6 +13,25 @@ func providerInstanceIdentifier(instance providerModel.Instance) string {
 	return instance.Name
 }
 
+// resetPortMappingOwnerName returns the identity used in node-side mapping
+// comments. Proxmox uses a numeric ProviderVMID for API operations, while the
+// existing firewall owner comments use the stable controller instance name.
+// Keep those identities separate so a reset remains idempotent across VMID
+// reuse and can clean rules created by older versions.
+func resetPortMappingOwnerName(resetCtx *ResetTaskContext) string {
+	if resetCtx == nil {
+		return ""
+	}
+	providerType := strings.ToLower(strings.TrimSpace(resetCtx.Provider.Type))
+	if (providerType == "proxmox" || providerType == "proxmoxve" || providerType == "pve") && strings.TrimSpace(resetCtx.OldInstanceName) != "" {
+		return strings.TrimSpace(resetCtx.OldInstanceName)
+	}
+	if name := strings.TrimSpace(resetCtx.NewProviderInstanceID); name != "" {
+		return name
+	}
+	return strings.TrimSpace(resetCtx.OldInstanceName)
+}
+
 // 辅助函数：创建指针类型
 func boolPtr(b bool) *bool {
 	return &b

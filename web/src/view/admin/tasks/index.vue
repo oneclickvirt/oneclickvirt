@@ -505,14 +505,16 @@
                   v-if="row.canForceStop"
                   type="danger"
                   size="small"
+                  :disabled="isTaskActionLocked(row.id)"
                   @click="showForceStopDialog(row)"
                 >
                   {{ $t('admin.tasks.forceStop') }}
                 </el-button>
                 <el-button
-                  v-if="row.status === 'pending'"
+                  v-if="row.canCancel"
                   type="warning"
                   size="small"
+                  :disabled="isTaskActionLocked(row.id)"
                   @click="cancelTask(row)"
                 >
                   {{ $t('admin.tasks.cancelTask') }}
@@ -547,6 +549,10 @@
         v-model="forceStopDialog.visible"
         :title="$t('admin.tasks.forceStopTask')"
         width="500px"
+        :close-on-click-modal="false"
+        :close-on-press-escape="!forceStopDialog.loading"
+        :show-close="!forceStopDialog.loading"
+        @closed="releaseForceStopDialogLock"
       >
         <el-form
           :model="forceStopDialog.form"
@@ -573,7 +579,10 @@
         </el-form>
         <template #footer>
           <span class="dialog-footer">
-            <el-button @click="forceStopDialog.visible = false">
+            <el-button
+              :disabled="forceStopDialog.loading"
+              @click="forceStopDialog.visible = false"
+            >
               {{ $t('common.cancel') }}
             </el-button>
             <el-button
@@ -820,14 +829,14 @@ const {
   loading, poolLoading, tasks, providers, total, stats, poolStatus, isSuperAdmin,
   filterForm, pagination,
   forceStopDialog, detailDialog, expandedLogTaskIds,
-  loadTasks, resetFilter, loadTaskPoolStatus, toggleTaskPool,
+  loadTasks, resetFilter, toggleTaskPool,
   showForceStopDialog, confirmForceStop,
-  cancelTask, viewTaskDetail,
+  releaseForceStopDialogLock, cancelTask, viewTaskDetail,
+  isTaskActionLocked,
   parseProgressLogs, translateStepMsg, toggleProgressLogs,
   shouldShowPreallocatedConfig,
   getTaskTypeText, getTaskStatusType, getTaskStatusText,
-  formatDateTime, formatDuration,
-  t
+  formatDateTime, formatDuration
 } = useTaskManagement()
 </script>
 

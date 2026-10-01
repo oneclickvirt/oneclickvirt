@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ type stagedUpdate struct {
 
 var execCommand = exec.Command
 
-func (s *Service) StartUpdate(ctx context.Context, target string) (OperationState, error) {
+func (s *Service) StartUpdate(ctx context.Context, target, requestKey string) (OperationState, error) {
 	cfg := loadRuntimeConfig()
 	if !cfg.automaticAllowed() {
 		return s.Operation(), fmt.Errorf("当前部署模式不支持面板自动升级: %s", s.Capability().Reason)
@@ -33,12 +34,20 @@ func (s *Service) StartUpdate(ctx context.Context, target string) (OperationStat
 	if target != "" && !releaseTagPattern.MatchString(target) {
 		return s.Operation(), fmt.Errorf("版本号格式无效")
 	}
-	if target != "" && compareVersions(target, readInstalledVersion(cfg)) <= 0 {
-		return s.Operation(), fmt.Errorf("升级目标必须高于当前版本")
+	fingerprint := operationFingerprint("update", target, "")
+	if previous, found, err := s.findIdempotentOperation(requestKey, fingerprint); err != nil || found {
+		return previous, err
 	}
-	operation, err := s.beginOperation("update", target)
+	resolvedTarget, err := s.resolveReleaseTarget(ctx, cfg, target, false)
+	if err != nil {
+		return s.Operation(), err
+	}
+	operation, created, err := s.beginOperation("update", resolvedTarget, "", requestKey, fingerprint)
 	if err != nil {
 		return operation, err
+	}
+	if !created {
+		return operation, nil
 	}
 	if err := launchWorker(cfg, operation); err != nil {
 		s.updateOperation(operation.ID, OperationFailed, "无法启动更新工作进程", err)
@@ -47,13 +56,17 @@ func (s *Service) StartUpdate(ctx context.Context, target string) (OperationStat
 	return operation, nil
 }
 
-func (s *Service) StartRollback(ctx context.Context, target, backupID string) (OperationState, error) {
+func (s *Service) StartRollback(ctx context.Context, target, backupID, requestKey string) (OperationState, error) {
 	cfg := loadRuntimeConfig()
 	if !cfg.automaticAllowed() {
 		return s.Operation(), fmt.Errorf("当前部署模式不支持面板自动回退: %s", s.Capability().Reason)
 	}
 	target = strings.TrimSpace(target)
 	backupID = strings.TrimSpace(backupID)
+	fingerprint := operationFingerprint("rollback", target, backupID)
+	if previous, found, err := s.findIdempotentOperation(requestKey, fingerprint); err != nil || found {
+		return previous, err
+	}
 	if backupID != "" {
 		if !safeBackupID(backupID) {
 			return s.Operation(), fmt.Errorf("本地备份标识无效")
@@ -76,19 +89,19 @@ func (s *Service) StartRollback(ctx context.Context, target, backupID string) (O
 		if target == "" || !releaseTagPattern.MatchString(target) {
 			return s.Operation(), fmt.Errorf("必须指定有效的回退版本")
 		}
-		if compareVersions(target, readInstalledVersion(cfg)) >= 0 {
-			return s.Operation(), fmt.Errorf("回退目标必须低于当前版本")
+		resolvedTarget, err := s.resolveReleaseTarget(ctx, cfg, target, true)
+		if err != nil {
+			return s.Operation(), err
 		}
+		target = resolvedTarget
 	}
-	operation, err := s.beginOperation("rollback", target)
+	operation, created, err := s.beginOperation("rollback", target, backupID, requestKey, fingerprint)
 	if err != nil {
 		return operation, err
 	}
-	operation.BackupID = backupID
-	s.stateMu.Lock()
-	s.state.BackupID = backupID
-	s.persistStateLocked()
-	s.stateMu.Unlock()
+	if !created {
+		return operation, nil
+	}
 	if err := launchWorker(cfg, operation); err != nil {
 		s.updateOperation(operation.ID, OperationFailed, "无法启动回退工作进程", err)
 		return s.Operation(), err
@@ -96,14 +109,58 @@ func (s *Service) StartRollback(ctx context.Context, target, backupID string) (O
 	return operation, nil
 }
 
-func (s *Service) StartRestart(ctx context.Context) (OperationState, error) {
+// resolveReleaseTarget performs the same release and asset checks that the
+// detached worker will perform. Doing this before creating an operation makes
+// a click fail immediately when the selected version is unavailable, has no
+// compatible asset, or is not on the correct side of the current version.
+// The check is detached from the HTTP request so a browser disconnect cannot
+// leave a partially validated operation behind.
+func (s *Service) resolveReleaseTarget(ctx context.Context, cfg runtimeConfig, target string, rollback bool) (string, error) {
+	return s.resolveReleaseTargetForPlatform(ctx, cfg, target, rollback, runtime.GOOS, runtime.GOARCH)
+}
+
+func (s *Service) resolveReleaseTargetForPlatform(ctx context.Context, cfg runtimeConfig, target string, rollback bool, goos, arch string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+	defer cancel()
+	releases, err := s.fetchReleases(checkCtx, cfg)
+	if err != nil {
+		return "", err
+	}
+	current := readInstalledVersion(cfg)
+	release, ok := selectRelease(releases, target, rollback, current)
+	if !ok {
+		if rollback {
+			return "", fmt.Errorf("回退目标不存在、没有兼容资产或不低于当前版本")
+		}
+		return "", fmt.Errorf("当前已是最新版本，或升级目标没有兼容资产")
+	}
+	if !rollback && compareVersions(release.TagName, current) <= 0 {
+		return "", fmt.Errorf("升级目标必须高于当前版本")
+	}
+	if _, err := requiredAssetsFor(release, cfg, goos, arch); err != nil {
+		return "", fmt.Errorf("目标版本不可用: %w", err)
+	}
+	return release.TagName, nil
+}
+
+func (s *Service) StartRestart(ctx context.Context, requestKey string) (OperationState, error) {
 	cfg := loadRuntimeConfig()
 	if !cfg.automaticAllowed() {
 		return s.Operation(), fmt.Errorf("当前部署模式不支持面板重启: %s", s.Capability().Reason)
 	}
-	operation, err := s.beginOperation("restart", "")
+	fingerprint := operationFingerprint("restart", "", "")
+	if previous, found, err := s.findIdempotentOperation(requestKey, fingerprint); err != nil || found {
+		return previous, err
+	}
+	operation, created, err := s.beginOperation("restart", "", "", requestKey, fingerprint)
 	if err != nil {
 		return operation, err
+	}
+	if !created {
+		return operation, nil
 	}
 	if err := launchWorker(cfg, operation); err != nil {
 		s.updateOperation(operation.ID, OperationFailed, "无法启动重启工作进程", err)
@@ -115,7 +172,9 @@ func (s *Service) StartRestart(ctx context.Context) (OperationState, error) {
 func (s *Service) runReleaseOperation(operationID, target string, rollback bool) {
 	cfg := loadRuntimeConfig()
 	backupID := s.Operation().BackupID
-	s.updateOperation(operationID, OperationStaging, "正在获取并校验发布资产", nil)
+	if err := s.updateOperation(operationID, OperationStaging, "正在获取并校验发布资产", nil); err != nil {
+		return
+	}
 	if rollback && backupID != "" {
 		if err := s.applyBackup(cfg, operationID, backupID); err != nil {
 			s.updateOperation(operationID, OperationFailed, "本地备份回退失败", err)
@@ -139,7 +198,9 @@ func (s *Service) runReleaseOperation(operationID, target string, rollback bool)
 	}
 	if target == "" {
 		target = release.TagName
-		s.updateOperationTarget(operationID, target)
+		if err := s.updateOperationTarget(operationID, target); err != nil {
+			return
+		}
 	}
 
 	staged, err := s.stageRelease(ctx, cfg, release)
@@ -148,8 +209,10 @@ func (s *Service) runReleaseOperation(operationID, target string, rollback bool)
 		return
 	}
 	defer os.RemoveAll(staged.Directory)
-	s.updateOperation(operationID, OperationScheduled, "发布资产已校验，准备切换并重启", nil)
-	if err := s.applyStaged(cfg, staged); err != nil {
+	if err := s.updateOperation(operationID, OperationScheduled, "发布资产已校验，准备切换并重启", nil); err != nil {
+		return
+	}
+	if err := s.applyStaged(cfg, staged, operationID); err != nil {
 		s.updateOperation(operationID, OperationFailed, "切换或健康检查失败，已尝试恢复原版本", err)
 		return
 	}
@@ -158,7 +221,9 @@ func (s *Service) runReleaseOperation(operationID, target string, rollback bool)
 
 func (s *Service) runRestartOperation(operationID string) {
 	cfg := loadRuntimeConfig()
-	s.updateOperation(operationID, OperationApplying, "正在重启主控服务", nil)
+	if err := s.updateOperation(operationID, OperationApplying, "正在重启主控服务", nil); err != nil {
+		return
+	}
 	if err := restartServices(cfg); err != nil {
 		s.updateOperation(operationID, OperationFailed, "服务重启失败", err)
 		return
@@ -345,7 +410,7 @@ func selectRelease(releases []githubRelease, target string, rollback bool, curre
 	return githubRelease{}, false
 }
 
-func (s *Service) applyStaged(cfg runtimeConfig, staged stagedUpdate) error {
+func (s *Service) applyStaged(cfg runtimeConfig, staged stagedUpdate, operationID string) error {
 	if err := cfg.validateForWorker(); err != nil {
 		return err
 	}
@@ -367,7 +432,9 @@ func (s *Service) applyStaged(cfg runtimeConfig, staged stagedUpdate) error {
 	if err != nil {
 		return err
 	}
-	s.updateOperationByMessage("正在停止服务并原子切换文件")
+	if err := s.updateOperationByMessage(operationID, "正在停止服务并原子切换文件"); err != nil {
+		return err
+	}
 	if err := stopServices(cfg); err != nil {
 		return err
 	}
@@ -445,7 +512,16 @@ func (s *Service) applyStaged(cfg runtimeConfig, staged stagedUpdate) error {
 	}
 	previousVersion := readInstalledVersion(cfg)
 	if err := writeInstalledVersion(cfg, staged.Version); err != nil {
-		logUpdate("warn", "写入版本标记失败", zap.Error(err))
+		// The VERSION marker drives the panel's comparison and rollback choices.
+		// Treat a failed write as an update failure so the controller cannot run
+		// new assets while reporting the old release and repeatedly offering the
+		// same upgrade. The files have already been swapped, so restore them before
+		// returning and leave the durable operation state failed.
+		restoreErr := restore()
+		if restoreErr != nil {
+			return fmt.Errorf("写入版本标记失败: %w；恢复失败: %v", err, restoreErr)
+		}
+		return fmt.Errorf("写入版本标记失败: %w", err)
 	}
 	if err := restartServices(cfg); err != nil {
 		versionErr := writeInstalledVersion(cfg, previousVersion)
@@ -496,7 +572,7 @@ func (s *Service) applyBackup(cfg runtimeConfig, operationID, backupID string) e
 		}
 	}
 	staged := stagedUpdate{Directory: stageDir, Server: filepath.Join(stageDir, "server"), Web: webPath, Version: backup.Version}
-	if err := s.applyStaged(cfg, staged); err != nil {
+	if err := s.applyStaged(cfg, staged, operationID); err != nil {
 		return fmt.Errorf("备份 %s: %w", backupID, err)
 	}
 	_ = operationID
@@ -518,23 +594,35 @@ func createUpdateTempDir(cfg runtimeConfig, prefix string) (string, error) {
 	return stageDir, nil
 }
 
-func (s *Service) updateOperationTarget(id, target string) {
+func (s *Service) updateOperationTarget(id, target string) error {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	if s.state.ID == id {
+		if !isActiveOperation(s.state) {
+			return fmt.Errorf("升级任务已结束")
+		}
+		s.state.Revision++
 		s.state.Target = target
-		s.persistStateLocked()
+		return s.persistStateLocked()
 	}
+	return fmt.Errorf("升级任务已变更")
 }
 
-func (s *Service) updateOperationByMessage(message string) {
+func (s *Service) updateOperationByMessage(operationID, message string) error {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
+	if s.state.ID != operationID {
+		return fmt.Errorf("升级任务已变更")
+	}
+	if !isActiveOperation(s.state) {
+		return fmt.Errorf("升级任务已结束")
+	}
+	s.state.Revision++
 	if s.state.Status == OperationScheduled {
 		s.state.Status = OperationApplying
 	}
 	s.state.Message = message
-	s.persistStateLocked()
+	return s.persistStateLocked()
 }
 
 func stopServices(cfg runtimeConfig) error {
@@ -583,16 +671,25 @@ func waitForHealth(cfg runtimeConfig, timeout time.Duration) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port))
-		if err == nil {
-			response.Body.Close()
-			if response.StatusCode >= 200 && response.StatusCode < 300 {
-				return nil
+		for _, endpoint := range healthCheckEndpoints(port) {
+			response, err := client.Get(endpoint)
+			if err == nil {
+				response.Body.Close()
+				if response.StatusCode >= 200 && response.StatusCode < 300 {
+					return nil
+				}
 			}
 		}
 		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("等待主控健康检查超时")
+}
+
+func healthCheckEndpoints(port int) []string {
+	return []string{
+		fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port),
+		fmt.Sprintf("http://[::1]:%d/api/v1/health", port),
+	}
 }
 
 func writeInstalledVersion(cfg runtimeConfig, version string) error {

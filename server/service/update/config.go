@@ -151,7 +151,7 @@ func (cfg runtimeConfig) automaticAllowed() bool {
 	if !serviceFileMatches(cfg.ServiceFile, cfg.ServerPath) {
 		return false
 	}
-	if !isWithin(cfg.ServerPath, cfg.InstallRoot) || (cfg.UpdateWeb && !isWithin(cfg.WebPath, cfg.InstallRoot)) {
+	if !isStrictlyWithin(cfg.ServerPath, cfg.InstallRoot) || (cfg.UpdateWeb && !isStrictlyWithin(cfg.WebPath, cfg.InstallRoot)) {
 		return false
 	}
 	return noSymlinkWithin(cfg.InstallRoot, cfg.ServerPath) && (!cfg.UpdateWeb || noSymlinkWithin(cfg.InstallRoot, cfg.WebPath))
@@ -268,6 +268,12 @@ func isWithin(path, root string) bool {
 	return strings.HasPrefix(path, root+string(os.PathSeparator))
 }
 
+func isStrictlyWithin(path, root string) bool {
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	return path != root && isWithin(path, root)
+}
+
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
@@ -370,7 +376,7 @@ func validHTTPSURLs(values []string) []string {
 }
 
 func (cfg runtimeConfig) validateTargetPath(path string) error {
-	if !safeAbsolutePath(path) || !isWithin(path, cfg.InstallRoot) {
+	if !safeAbsolutePath(path) || !isStrictlyWithin(path, cfg.InstallRoot) {
 		return errors.New("更新路径必须位于受控安装目录内")
 	}
 	return nil
@@ -380,10 +386,10 @@ func (cfg runtimeConfig) validateForWorker() error {
 	if !cfg.automaticAllowed() {
 		return errors.New("更新计划不是受控 systemd 安装")
 	}
-	if !safeAbsolutePath(cfg.InstallRoot) || !safeAbsolutePath(cfg.ServerPath) || !isWithin(cfg.ServerPath, cfg.InstallRoot) {
+	if !safeAbsolutePath(cfg.InstallRoot) || !safeAbsolutePath(cfg.ServerPath) || !isStrictlyWithin(cfg.ServerPath, cfg.InstallRoot) {
 		return errors.New("更新计划包含不安全的主控路径")
 	}
-	if cfg.UpdateWeb && (!safeAbsolutePath(cfg.WebPath) || !isWithin(cfg.WebPath, cfg.InstallRoot)) {
+	if cfg.UpdateWeb && (!safeAbsolutePath(cfg.WebPath) || !isStrictlyWithin(cfg.WebPath, cfg.InstallRoot)) {
 		return errors.New("更新计划包含不安全的 Web 路径")
 	}
 	if cfg.HealthPort <= 0 || cfg.HealthPort > 65535 {
@@ -440,5 +446,5 @@ func shellQuote(value string) string {
 }
 
 func currentVersion() string {
-	return constant.ServerVersion
+	return constant.DisplayVersion()
 }

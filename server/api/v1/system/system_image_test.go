@@ -6,6 +6,9 @@ func TestValidateImageURLQEMUContainerRootfs(t *testing.T) {
 	if err := validateImageURL("qemu", "container", "https://example.com/rootfs.tar.xz"); err != nil {
 		t.Fatalf("qemu container rootfs tar.xz should be accepted: %v", err)
 	}
+	if err := validateImageURL("proxmox", "container", "https://download.proxmox.com/images/system/debian-12-standard_12.12-1_amd64.tar.zst"); err != nil {
+		t.Fatalf("proxmox official tar.zst container template should be accepted: %v", err)
+	}
 	if err := validateImageURL("qemu", "container", "https://example.com/docker.tar.gz"); err == nil {
 		t.Fatalf("qemu container docker tar.gz should be rejected")
 	}

@@ -92,7 +92,7 @@ export default function useProviderTableActions(emit) {
   let pasteUrlProviderId = null
 
   const showPasteUrlDialog = () => {
-    if (!currentRow.value) return
+    if (!currentRow.value || pasteUrlSaving.value) return
     pasteUrlProviderId = currentRow.value.id
     pasteUrlInput.value = ''
     pasteUrlDialogVisible.value = true
@@ -100,18 +100,21 @@ export default function useProviderTableActions(emit) {
   }
 
   const submitPasteUrl = async () => {
-    if (!pasteUrlProviderId) return
+    if (!pasteUrlProviderId || pasteUrlSaving.value) return
     if (!isValidPasteUrl(pasteUrlInput.value)) {
       ElMessage.error(t('admin.providers.pasteUrlInvalid'))
       return
     }
+    const providerId = pasteUrlProviderId
+    const pasteUrl = pasteUrlInput.value
     pasteUrlSaving.value = true
     try {
-      await saveHardwareReport(pasteUrlProviderId, pasteUrlInput.value)
+      await saveHardwareReport(providerId, pasteUrl)
       ElMessage.success(t('admin.providers.reportSaved'))
-      pasteUrlDialogVisible.value = false
+      if (pasteUrlProviderId === providerId) pasteUrlDialogVisible.value = false
     } catch (error) {
       console.error('Save hardware report failed:', error)
+      ElMessage.error(error?.response?.data?.msg || error?.message || t('common.saveFailed'))
     } finally {
       pasteUrlSaving.value = false
     }

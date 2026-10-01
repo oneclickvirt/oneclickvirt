@@ -1,7 +1,7 @@
 #!/bin/bash
 # Module 29: Provider Image Individual Testing
 # Dependencies: 01_init (ADMIN_TOKEN), 09_providers (PROVIDER_ID)
-# Tests each available provider image: create instance → verify running → delete → verify deleted
+# Tests each available provider image and preserves created instances by default.
 
 _m29_record_skip() {
     local name="$1" method="$2" endpoint="$3" reason="$4" expected="${5:-provider image test}" actual="${6:-skipped}"
@@ -11,6 +11,18 @@ _m29_record_skip() {
     log_skip "${name} - ${reason}"
     report_add_skip "$name" "$method" "$endpoint" "$reason"
     _record_result "$name" "$method" "$endpoint" "SKIP" "$expected" "$actual" "$reason" "$group"
+}
+
+_m29_delete_or_preserve_instance() {
+    local instance_id="$1" token="$2" timeout="$3" label="$4" group="$5"
+    if [[ "${ACTION_TEST_PRESERVE_INSTANCES:-true}" != "false" ]]; then
+        log_info "Preserving image-test instance ${instance_id} (ACTION_TEST_PRESERVE_INSTANCES=true)"
+        _m29_record_skip "Preserve ${label}" "DELETE" "/api/v1/admin/instances/${instance_id}" \
+            "ACTION_TEST_PRESERVE_INSTANCES=true; leaving the created image-test instance" \
+            "deletion explicitly skipped" "preserved"
+        return 2
+    fi
+    delete_instance_safe "$instance_id" "$token" "$timeout"
 }
 
 _m29_create_instance_nonfatal() {
@@ -194,7 +206,6 @@ run_module_29() {
         fi
 
         local selected_entry; selected_entry=$(echo "$selected_images_json" | jq -c ".[$idx]" 2>/dev/null)
-        local img_entry; img_entry=$(echo "$selected_entry" | jq -c '.entry' 2>/dev/null)
         local img_name; img_name=$(echo "$selected_entry" | jq -r '.name // empty' 2>/dev/null)
         local img_type; img_type=$(echo "$selected_entry" | jq -r '.type // empty' 2>/dev/null)
         local img_arch; img_arch=$(echo "$selected_entry" | jq -r '.arch // empty' 2>/dev/null)
@@ -260,7 +271,8 @@ run_module_29() {
                 if [[ "$img_type" == "vm" ]] && is_vm_runtime_infrastructure_failure_detail "$task_result"; then
                     mark_vm_runtime_infrastructure_unavailable "${task_error:-VM runtime prerequisite unavailable}"
                 fi
-                [[ -n "$inst_id" ]] && delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 2>/dev/null || true
+                [[ -n "$inst_id" ]] && _m29_delete_or_preserve_instance "$inst_id" "$ADMIN_TOKEN" \
+                    "$PROVIDER_IMAGE_TASK_MAX_WAIT" "$test_label" "$group" >/dev/null 2>&1 || true
                 _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
                     "provider creation task ended with status=${task_status:-failed}; ${task_error:-skipping this image}" \
                     "completed task with instance id" "task=${task_id}"
@@ -294,7 +306,8 @@ run_module_29() {
             _m29_record_skip "Run ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
                 "instance did not reach running state; provider/image combination is unavailable in this run" \
                 "running" "not-running"
-            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 2>/dev/null || true
+            _m29_delete_or_preserve_instance "$inst_id" "$ADMIN_TOKEN" \
+                "$PROVIDER_IMAGE_TASK_MAX_WAIT" "$test_label" "$group" >/dev/null 2>&1 || true
             consecutive_fails=$((consecutive_fails + 1))
             continue
         fi
@@ -315,15 +328,21 @@ run_module_29() {
         else
             _m29_record_skip "Verify ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
                 "created image-test instance could not be read back" "200" "${verify_code:-empty}"
-            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 2>/dev/null || true
+            _m29_delete_or_preserve_instance "$inst_id" "$ADMIN_TOKEN" \
+                "$PROVIDER_IMAGE_TASK_MAX_WAIT" "$test_label" "$group" >/dev/null 2>&1 || true
             continue
         fi
 
-        # -- Delete instance --
-        log_info "Deleting instance ${inst_id}..."
-        if delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT"; then
+        # -- Delete only when preservation is explicitly disabled --
+        log_info "Requesting image-test instance cleanup: ${inst_id}..."
+        local delete_status=0
+        _m29_delete_or_preserve_instance "$inst_id" "$ADMIN_TOKEN" \
+            "$PROVIDER_IMAGE_TASK_MAX_WAIT" "$test_label" "$group" || delete_status=$?
+        if [[ "$delete_status" -eq 0 ]]; then
             log_success "Deleted instance ${inst_id} (image: ${img_name})"
             _record_result "Delete ${test_label}" "DELETE" "/api/v1/admin/instances/${inst_id}" "PASS" "200" "200" "" "$group"
+        elif [[ "$delete_status" -eq 2 ]]; then
+            continue
         else
             _m29_record_skip "Delete ${test_label}" "DELETE" "/api/v1/admin/instances/${inst_id}" \
                 "delete operation did not settle; cleanup was requested but provider did not confirm deletion" \
@@ -343,8 +362,9 @@ run_module_29() {
             _m29_record_skip "Verify deleted ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
                 "instance still exists after delete verification; another cleanup attempt was issued" \
                 "404" "200"
-            # Force cleanup to prevent disk full
-            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 2>/dev/null || true
+            # Retry cleanup only when preservation was explicitly disabled.
+            _m29_delete_or_preserve_instance "$inst_id" "$ADMIN_TOKEN" \
+                "$PROVIDER_IMAGE_TASK_MAX_WAIT" "$test_label" "$group" >/dev/null 2>&1 || true
         fi
     done
 

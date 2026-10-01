@@ -108,6 +108,8 @@ action_tests/
 
 ### 模块间状态管理
 
+每次本地环境运行默认使用独立的 MySQL 测试数据库，避免 Worker 重装后旧实例记录与新容器复用的私网地址冲突。需要复用指定数据库时可显式设置 `DB_NAME`；该数据库必须是专用测试库。
+
 每个测试模块执行前会保存系统基准状态（系统配置、实例列表、Provider ID、测试实例 ID），模块执行后自动恢复：
 - 删除测试过程中新增的实例
 - 重新登录所有测试用户，刷新 Token
@@ -122,7 +124,7 @@ action_tests/
 
 LXD/Incus 等环境在 CI 中依赖远程镜像站、DNS 和 Worker 出网能力。测试框架会把 `Temporary failure resolving`、`curl: (6)`、`lookup images.lxd.canonical.com ... [::1]:53`、远程镜像下载失败、Worker SSH 不可达等明确的基础设施问题记录为 `SKIP`，并继续清理已创建的半成品实例；接口返回格式错误、权限错误、业务状态错误仍会记录为 `FAIL`。
 
-正向 API 断言可以把期望状态写成 `200|infra`（或 `200|201|infra`）。其中 `infra` 不是任意 4xx/5xx 的别名：只有响应正文明确匹配远端连接、DNS、镜像下载或节点不可达等基础设施诊断时才记录 `SKIP`；普通参数、权限和业务错误仍然记录 `FAIL`，不会被当作测试通过。
+正向 API 断言可以把期望状态写成 `200|infra`（或 `200|201|infra`）。其中 `infra` 不是任意 4xx/5xx 的别名：只有响应正文明确匹配远端连接、DNS、镜像下载、节点不可达或 Provider 明确资源/磁盘容量不足等基础设施诊断时才记录 `SKIP`；普通参数、权限、重复项和业务错误仍然记录 `FAIL`，不会被当作测试通过。
 
 `26_instance_types.sh` 在创建 container/VM 类型实例前会等待同一 Provider 的活跃任务队列清空；创建任务默认最多等待 `INSTANCE_TYPE_TASK_MAX_WAIT=1800` 秒（不会低于 `INSTANCE_TASK_MAX_WAIT`）。如果任务在超时后仍处于 `pending`、`running`、`processing`、`queued` 或 `cancelling`，测试会先调用管理员取消接口并记录为可恢复的 `SKIP`，避免在创建任务仍运行时删除实例导致后续 `record not found`。
 
@@ -157,8 +159,8 @@ LXD/Incus 等环境在 CI 中依赖远程镜像站、DNS 和 Worker 出网能力
 | `instance_types` | 测试的实例类型（会根据平台自动纠正） | `container` |
 | `modules` | 运行的模块（`all`/`01-10`/`01,03,05`） | `all` |
 | `node_hours` | 节点存续时间（小时） | `8` |
-| `skip_instance_delete` | 测试后保留实例不销毁（月付/预付平台建议开启） | `false` |
-| `max_parallel` | 选择 `all` 时的最大环境并发数 | `2` |
+| `skip_instance_delete` | 测试后保留实例不销毁；需要干净环境时重装系统 | `true` |
+| `max_parallel` | 选择 `all` 时的最大环境并发数；Hetzner 逐个环境重装复用同一台服务器 | `1` |
 
 ### 本地运行
 
@@ -185,8 +187,11 @@ export LIGHTNODE_PACKAGE_TIER=3
 export LIGHTNODE_TARGET_CPU=2
 export LIGHTNODE_TARGET_MEMORY_MB=4096
 export LIGHTNODE_STRICT_RECOMMENDED_SPEC=true
-# 本地并发运行时，每个进程创建并只清理自己的 LightNode 实例。
-export ACTION_TEST_PARALLEL_LOCAL=true
+# IPv4 + IPv6 容器功能；切换环境前重装并复用同一台 Hetzner 服务器。
+export ACTION_TEST_IPV4_ONLY=false
+export ACTION_TEST_LIVE_IPV6_TUNNEL=true
+export PLATFORM_ALLOW_CONCURRENT_INSTANCES=false
+export SKIP_INSTANCE_DELETE=true
 # 本地联调安装脚本改动时可覆盖远端 main 版本
 export INCUS_INSTALL_SCRIPT_LOCAL_PATH="/Volumes/Additional/个人数据/GitHub/incus/scripts/incus_install.sh"
 export PVE_INSTALL_SCRIPT_LOCAL_PATH="/Volumes/Additional/个人数据/GitHub/pve/scripts/install_pve.sh"
@@ -233,7 +238,7 @@ python3 action_tests/static_audit.py --root . --output-dir action_tests/reports 
 
 ### IPv6 隧道测试隔离
 
-常规 Action 默认不会调用 IPv6 隧道 API，也不会检查、创建、删除或修改工作节点的隧道配置。隧道状态机、地址池冻结和清理由 Go 契约测试通过假远端执行器覆盖，不依赖 Tunnelbroker 或其他外部隧道服务。只有在专用、可销毁工作节点上显式设置 `ACTION_TEST_LIVE_IPV6_TUNNEL=true`（GitHub Action 的 `live_ipv6_tunnel` 输入），且 runner 的直连 IPv6 探测成功时，才会运行宿主机侧的禁用隧道生命周期检查。无可用 IPv6 的 runner 明确记录 `SKIP`，不执行实际 IPv6 分配或连通性测试；地址池 CRUD、容量计算等不分配宿主/实例地址的离线契约检查仍执行。隔离容器中的防火墙规则测试仅使用文档地址验证规则，不要求公网 IPv6。
+常规 Action 默认不会调用 IPv6 隧道 API，也不会检查、创建、删除或修改工作节点的隧道配置。隧道状态机、地址池冻结和清理由 Go 契约测试通过假远端执行器覆盖，不依赖 Tunnelbroker 或其他外部隧道服务。只有在专用测试工作节点上显式设置 `ACTION_TEST_LIVE_IPV6_TUNNEL=true`（GitHub Action 的 `live_ipv6_tunnel` 输入），才会运行禁用隧道的创建、查询、更新、检查和删除。此流程不启用隧道，也不验证实例 IPv6 连通性；实际连通性须从独立的 IPv6 节点探测。地址池 CRUD、容量计算等不分配宿主/实例地址的离线契约检查仍执行。隔离容器中的防火墙规则测试仅使用文档地址验证规则，不要求公网 IPv6。
 
 防火墙回归的 Linux Docker 主机需要 nftables 和 legacy IPv4/IPv6 NAT 内核模块。CI 先执行 `sudo bash scripts/tests/prepare_firewall_kernel.sh` 预加载模块，再在仅授予 `NET_ADMIN`、无挂载且独立网络命名空间的临时容器内运行测试。脚本不清空主机规则，不分配 IPv6 地址。缺少 `ip6table_nat` 等模块会在前置检查中明确失败；不能仅通过容器内安装 `iptables`、开启特权模式或跳过整个 IPv6 规则组掩盖。
 
@@ -329,7 +334,7 @@ GitHub Actions 会自动安装所需依赖。
 
 在仓库 Settings > Secrets and variables > Actions 中配置。各平台默认不启用，配置对应密钥后通过工作流参数 `platform` 或环境变量启用。
 
-> **关于 `SKIP_INSTANCE_DELETE`**：启用后，无论平台计费类型如何，实例**永远不会被删除**。下次运行时若需要干净环境，框架会对已有实例执行重装系统（OS Reinstall）操作，而非新建实例。月付/预付平台（Skrime、PrepaidHost）默认也是此行为。
+> **关于 `SKIP_INSTANCE_DELETE`**：启用后，无论平台计费类型如何，实例**永远不会被删除**。下次运行时若需要干净环境，框架会对已有实例执行重装系统（OS Reinstall）操作，而非新建实例；重装或资源校验失败时保留该实例并停止替换。月付/预付平台（Skrime、PrepaidHost）默认也是此行为。账户中有多台实例时，设置 `PLATFORM_REUSE_INSTANCE_ID` 指定要重装的实例；框架不会删除其余实例。
 
 **通用**
 
@@ -371,6 +376,7 @@ GitHub Actions 会自动安装所需依赖。
 | `INCUS_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 Incus installer 调试路径；未设置时自动探测同级 `incus` 仓库 |
 | `KUBEVIRT_INSTALL_SCRIPT_LOCAL_PATH` | 可选，本地 KubeVirt installer 调试路径；未设置时自动探测同级 `kubevirt` 仓库 |
 | `ACTION_TEST_LIVE_IPV6_TUNNEL` | 默认 `false`；仅限专用可销毁工作节点的显式宿主机隧道生命周期检查 |
+| `ACTION_TEST_SKIP_DIRTY_NODE` | 默认 `false`；仅在排除模块 09 时跳过远端 discovery 夹具，可继续运行后续生命周期模块 |
 | `ACTION_TEST_AGENT_STATUS_MAX_WAIT` | 默认 `240` 秒；模块 13 等待 Agent 反向 WebSocket 在线的上限。SSH 监控进程运行不代表控制连接在线；无反向连接时明确 SKIP，不通过重装监控进程冒充控制端映射验收 |
 | `OCV_LIVE_NETWORK_TYPE` | live 面板验收网络模式：`nat_ipv4`、`ipv6_only` 或 `nat_ipv4_ipv6` |
 | `OCV_LIVE_IPV6_MAPPING_METHOD` | Incus/LXD 的 `device_proxy`/`iptables` 为宿主 IPv6 映射，`native` 为地址池分配的独立公网 IPv6 |

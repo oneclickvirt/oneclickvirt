@@ -232,7 +232,7 @@ func extractSizeFromError(output, prefix string) int64 {
 // waitForInstanceState 等待实例达到指定状态
 func (i *IncusProvider) waitForInstanceState(name, expectedState string, timeoutSeconds int) error {
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 3 {
-		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(name))
+		cmd := incusInstanceStatusCommand(name)
 		output, err := i.sshClient.Execute(cmd)
 		if err != nil {
 			global.APP_LOG.Debug("获取实例状态失败",

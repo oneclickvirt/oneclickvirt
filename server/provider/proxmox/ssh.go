@@ -15,102 +15,21 @@ import (
 )
 
 func (p *ProxmoxProvider) sshListInstances(ctx context.Context) ([]provider.Instance, error) {
-	var instances []provider.Instance
-
-	// 获取虚拟机列表
-	vmOutput, err := p.sshClient.Execute("qm list")
-	if err != nil {
-		global.APP_LOG.Warn("获取虚拟机列表失败", zap.Error(err))
-	} else {
-		vmLines := strings.Split(strings.TrimSpace(vmOutput), "\n")
-		if len(vmLines) > 1 {
-			for _, line := range vmLines[1:] {
-				fields := strings.Fields(line)
-				if len(fields) < 3 {
-					continue
-				}
-
-				status := "stopped"
-				if len(fields) > 2 && fields[2] == "running" {
-					status = "running"
-				}
-
-				instance := provider.Instance{
-					ID:     fields[0],
-					Name:   fields[1],
-					Status: status,
-					Type:   "vm",
-				}
-
-				// 获取VM的IP地址
-				if ipAddress, err := p.getInstanceIPAddress(ctx, fields[0], "vm"); err == nil && ipAddress != "" {
-					instance.IP = ipAddress
-					instance.PrivateIP = ipAddress
-				}
-
-				// 获取VM的IPv6地址
-				if ipv6Address, err := p.getInstanceIPv6ByVMID(ctx, fields[0], "vm"); err == nil && ipv6Address != "" {
-					instance.IPv6Address = ipv6Address
-				}
-				instances = append(instances, instance)
-			}
-		}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-
-	// 获取容器列表
-	ctOutput, err := p.sshClient.Execute("pct list")
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, "LC_ALL=C NO_COLOR=1 pvesh get /cluster/resources --type vm --output-format json")
 	if err != nil {
-		global.APP_LOG.Warn("获取容器列表失败", zap.Error(err))
-	} else {
-		ctLines := strings.Split(strings.TrimSpace(ctOutput), "\n")
-		if len(ctLines) > 1 {
-			for _, line := range ctLines[1:] {
-				fields := strings.Fields(line)
-				if len(fields) < 2 {
-					continue
-				}
-
-				status := "stopped"
-				name := ""
-
-				// pct list 格式: VMID Status [Lock] [Name]
-				if len(fields) >= 2 {
-					if fields[1] == "running" {
-						status = "running"
-					}
-				}
-
-				// Name字段可能在不同位置，取最后一个非空字段作为名称
-				if len(fields) >= 4 {
-					name = fields[3] // 通常Name在第4列
-				} else if len(fields) >= 3 && fields[2] != "" {
-					name = fields[2] // 有时候Lock为空，Name在第3列
-				} else {
-					name = fields[0] // 默认使用VMID作为名称
-				}
-
-				instance := provider.Instance{
-					ID:     fields[0],
-					Name:   name,
-					Status: status,
-					Type:   "container",
-				}
-
-				// 获取容器的IP地址
-				if ipAddress, err := p.getInstanceIPAddress(ctx, fields[0], "container"); err == nil && ipAddress != "" {
-					instance.IP = ipAddress
-					instance.PrivateIP = ipAddress
-				}
-
-				// 获取容器的IPv6地址
-				if ipv6Address, err := p.getInstanceIPv6ByVMID(ctx, fields[0], "container"); err == nil && ipv6Address != "" {
-					instance.IPv6Address = ipv6Address
-				}
-				instances = append(instances, instance)
-			}
-		}
+		return nil, fmt.Errorf("SSH获取Proxmox实例列表失败: %w", err)
 	}
-
+	resources, err := parseProxmoxResourcesJSON(output)
+	if err != nil {
+		return nil, fmt.Errorf("SSH解析Proxmox实例列表失败: %w", err)
+	}
+	instances, err := p.listInstancesFromResources(ctx, resources)
+	if err != nil {
+		return nil, err
+	}
 	global.APP_LOG.Info("通过SSH成功获取Proxmox实例列表",
 		zap.Int("totalCount", len(instances)),
 		zap.Int("vmCount", len(instances)-countContainers(instances)),
@@ -119,10 +38,8 @@ func (p *ProxmoxProvider) sshListInstances(ctx context.Context) ([]provider.Inst
 }
 
 func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(3 * time.Second):
+	if err := utils.SleepContext(ctx, 3*time.Second); err != nil {
+		return err
 	}
 
 	// 先查找实例的VMID和类型
@@ -161,10 +78,12 @@ func (p *ProxmoxProvider) sshStartKnownInstance(ctx context.Context, vmid, insta
 		return fmt.Errorf("unknown instance type: %s", instanceType)
 	}
 
-	statusOutput, err := p.sshClient.Execute(statusCommand)
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, statusCommand)
 	if err == nil && strings.Contains(statusOutput, "status: running") {
 		// 实例已经在运行，等待3秒认为启动成功
-		time.Sleep(3 * time.Second)
+		if err := utils.SleepContext(ctx, 3*time.Second); err != nil {
+			return err
+		}
 		global.APP_LOG.Debug("Proxmox实例已经在运行",
 			zap.String("id", vmid),
 			zap.String("vmid", vmid),
@@ -173,9 +92,9 @@ func (p *ProxmoxProvider) sshStartKnownInstance(ctx context.Context, vmid, insta
 	}
 
 	// 执行启动命令
-	startOutput, err := p.sshClient.Execute(startCommand)
+	startOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, startCommand)
 	if err != nil {
-		statusAfter, statusErr := p.sshClient.Execute(statusCommand)
+		statusAfter, statusErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, statusCommand)
 		if statusErr == nil && strings.Contains(statusAfter, "status: running") {
 			global.APP_LOG.Debug("Proxmox启动命令失败后状态已变为运行，继续流程",
 				zap.String("id", vmid),
@@ -203,20 +122,18 @@ func (p *ProxmoxProvider) sshStartKnownInstance(ctx context.Context, vmid, insta
 
 	for {
 		// 等待一段时间后再检查
-		select {
-		case <-waitCtx.Done():
+		if err := utils.SleepContext(waitCtx, checkInterval); err != nil {
 			if lastStatus == "" {
 				lastStatus = "unknown"
 			}
 			if lastStatusErr != nil {
-				return fmt.Errorf("等待%s %s启动超时（最后状态: %s，最后查询错误: %v）: %w", instanceType, vmid, lastStatus, lastStatusErr, waitCtx.Err())
+				return fmt.Errorf("等待%s %s启动超时（最后状态: %s，最后查询错误: %v）: %w", instanceType, vmid, lastStatus, lastStatusErr, err)
 			}
-			return fmt.Errorf("等待%s %s启动超时（最后状态: %s）: %w", instanceType, vmid, lastStatus, waitCtx.Err())
-		case <-time.After(checkInterval):
+			return fmt.Errorf("等待%s %s启动超时（最后状态: %s）: %w", instanceType, vmid, lastStatus, err)
 		}
 
 		// 检查实例状态
-		statusOutput, err := p.sshClient.Execute(statusCommand)
+		statusOutput, err := utils.ExecuteShellCommandContext(waitCtx, p.sshClient, statusCommand)
 		lastStatus = strings.TrimSpace(statusOutput)
 		lastStatusErr = err
 		if err == nil && strings.Contains(statusOutput, "status: running") {
@@ -233,14 +150,16 @@ func (p *ProxmoxProvider) sshStartKnownInstance(ctx context.Context, vmid, insta
 				agentSupported := false
 				for i := 0; i < 2; i++ {
 					agentCmd := fmt.Sprintf("qm agent %s ping 2>/dev/null", vmid)
-					_, err := p.sshClient.Execute(agentCmd)
+					_, err := utils.ExecuteShellCommandContext(waitCtx, p.sshClient, agentCmd)
 					if err == nil {
 						agentSupported = true
 						global.APP_LOG.Debug("QEMU Guest Agent已就绪",
 							zap.String("vmid", vmid))
 						break
 					}
-					time.Sleep(2 * time.Second)
+					if err := utils.SleepContext(waitCtx, 2*time.Second); err != nil {
+						return err
+					}
 				}
 
 				// 如果未检测到，进行短时等待
@@ -249,20 +168,24 @@ func (p *ProxmoxProvider) sshStartKnownInstance(ctx context.Context, vmid, insta
 					agentStartTime := time.Now()
 					for time.Since(agentStartTime) < agentWaitTime {
 						agentCmd := fmt.Sprintf("qm agent %s ping 2>/dev/null", vmid)
-						_, err := p.sshClient.Execute(agentCmd)
+						_, err := utils.ExecuteShellCommandContext(waitCtx, p.sshClient, agentCmd)
 						if err == nil {
 							global.APP_LOG.Debug("QEMU Guest Agent已就绪",
 								zap.String("vmid", vmid),
 								zap.Duration("elapsed", time.Since(agentStartTime)))
 							break
 						}
-						time.Sleep(3 * time.Second)
+						if err := utils.SleepContext(waitCtx, 3*time.Second); err != nil {
+							return err
+						}
 					}
 				}
 			}
 
 			// 额外等待确保系统稳定
-			time.Sleep(3 * time.Second)
+			if err := utils.SleepContext(waitCtx, 3*time.Second); err != nil {
+				return err
+			}
 			return nil
 		}
 
@@ -298,13 +221,13 @@ func (p *ProxmoxProvider) sshStopInstance(ctx context.Context, id string) error 
 	}
 
 	// 执行停止命令
-	stopOutput, err := p.sshClient.Execute(command)
+	stopOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, command)
 	if err != nil {
 		statusCommand := fmt.Sprintf("pct status %s", vmid)
 		if instanceType == "vm" {
 			statusCommand = fmt.Sprintf("qm status %s", vmid)
 		}
-		statusAfter, statusErr := p.sshClient.Execute(statusCommand)
+		statusAfter, statusErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, statusCommand)
 		if statusErr == nil && strings.Contains(statusAfter, "status: stopped") {
 			return nil
 		}
@@ -340,7 +263,7 @@ func (p *ProxmoxProvider) sshRestartInstance(ctx context.Context, id string) err
 	}
 
 	// 首先尝试优雅重启
-	rebootOutput, err := p.sshClient.Execute(command)
+	rebootOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, command)
 	if err != nil {
 		global.APP_LOG.Warn("优雅重启失败，尝试强制重启",
 			zap.String("id", utils.TruncateString(id, 50)),
@@ -350,10 +273,12 @@ func (p *ProxmoxProvider) sshRestartInstance(ctx context.Context, id string) err
 			zap.Error(err))
 
 		// 等待2秒后尝试强制重启
-		time.Sleep(2 * time.Second)
+		if err := utils.SleepContext(ctx, 2*time.Second); err != nil {
+			return err
+		}
 
 		// 尝试强制重启
-		resetOutput, resetErr := p.sshClient.Execute(resetCommand)
+		resetOutput, resetErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, resetCommand)
 		if resetErr != nil {
 			return fmt.Errorf("failed to restart %s %s (both reboot and reset failed): reboot error: %w, reboot output: %s, reset error: %v, reset output: %s", instanceType, vmid, err, utils.TruncateString(strings.TrimSpace(rebootOutput), 8000), resetErr, utils.TruncateString(strings.TrimSpace(resetOutput), 8000))
 		}
@@ -370,7 +295,9 @@ func (p *ProxmoxProvider) sshRestartInstance(ctx context.Context, id string) err
 	}
 
 	// 等待3秒让实例完成重启
-	time.Sleep(3 * time.Second)
+	if err := utils.SleepContext(ctx, 3*time.Second); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -380,7 +307,7 @@ func (p *ProxmoxProvider) findVMIDByNameOrID(ctx context.Context, identifier str
 		zap.String("identifier", identifier))
 
 	// 首先尝试从容器列表中查找
-	output, err := p.sshClient.Execute("pct list")
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, "pct list")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(output), "\n")
 		for _, line := range lines[1:] { // 跳过标题行
@@ -419,7 +346,7 @@ func (p *ProxmoxProvider) findVMIDByNameOrID(ctx context.Context, identifier str
 				vmid := fields[0]
 				// 检查容器的hostname配置
 				configCmd := fmt.Sprintf("pct config %s | grep hostname", vmid)
-				configOutput, configErr := p.sshClient.Execute(configCmd)
+				configOutput, configErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, configCmd)
 				if configErr == nil && strings.Contains(configOutput, identifier) {
 					global.APP_LOG.Debug("通过hostname在容器列表中找到匹配项",
 						zap.String("identifier", identifier),
@@ -432,7 +359,7 @@ func (p *ProxmoxProvider) findVMIDByNameOrID(ctx context.Context, identifier str
 	}
 
 	// 然后尝试从虚拟机列表中查找
-	output, err = p.sshClient.Execute("qm list")
+	output, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, "qm list")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(output), "\n")
 		for _, line := range lines[1:] { // 跳过标题行
@@ -460,7 +387,7 @@ func (p *ProxmoxProvider) findVMIDByNameOrID(ctx context.Context, identifier str
 				vmid := fields[0]
 				// 检查虚拟机的配置中的name属性
 				configCmd := fmt.Sprintf("qm config %s | grep -E '^name:' || true", vmid)
-				configOutput, configErr := p.sshClient.Execute(configCmd)
+				configOutput, configErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, configCmd)
 				if configErr == nil && strings.Contains(configOutput, identifier) {
 					global.APP_LOG.Debug("通过配置名称在虚拟机列表中找到匹配项",
 						zap.String("identifier", identifier),
@@ -482,7 +409,7 @@ func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string,
 	if instanceType == "container" {
 		// 对于容器，首先尝试从配置中获取静态IP
 		cmd = fmt.Sprintf("pct config %s | grep -oP 'ip=\\K[0-9.]+' || true", vmid)
-		output, err := p.sshClient.Execute(cmd)
+		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd)
 		if err == nil && utils.CleanCommandOutput(output) != "" {
 			return utils.CleanCommandOutput(output), nil
 		}
@@ -492,14 +419,14 @@ func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string,
 	} else {
 		// 对于虚拟机，首先尝试从配置中获取静态IP
 		cmd = fmt.Sprintf("qm config %s | grep -oP 'ip=\\K[0-9.]+' || true", vmid)
-		output, err := p.sshClient.Execute(cmd)
+		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd)
 		if err == nil && utils.CleanCommandOutput(output) != "" {
 			return utils.CleanCommandOutput(output), nil
 		}
 
 		// 如果没有静态IP配置，尝试通过guest agent获取IP
 		cmd = fmt.Sprintf("qm guest cmd %s network-get-interfaces 2>/dev/null | grep -oP '\"ip-address\":\\s*\"\\K[^\"]+' | grep -E '^(172\\.|192\\.|10\\.)' | head -1 || true", vmid)
-		output, err = p.sshClient.Execute(cmd)
+		output, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd)
 		if err == nil && utils.CleanCommandOutput(output) != "" {
 			return utils.CleanCommandOutput(output), nil
 		}
@@ -511,14 +438,14 @@ func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string,
 			inferredIP := p.vmidToInternalIP(vmidInt)
 			// 验证这个IP是否能ping通
 			pingCmd := fmt.Sprintf("ping -c 1 -W 2 %s >/dev/null 2>&1 && echo 'reachable' || echo 'unreachable'", inferredIP)
-			pingOutput, pingErr := p.sshClient.Execute(pingCmd)
+			pingOutput, pingErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, pingCmd)
 			if pingErr == nil && strings.Contains(pingOutput, "reachable") {
 				return inferredIP, nil
 			}
 		}
 	}
 
-	output, err := p.sshClient.Execute(cmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd)
 	if err != nil {
 		return "", err
 	}

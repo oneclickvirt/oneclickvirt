@@ -31,7 +31,7 @@ func (l *LXDProvider) stopInstanceForConfig(instanceName string) error {
 	maxWait := 30
 	waited := 0
 	for waited < maxWait {
-		cmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
+		cmd := lxdInstanceStatusCommand(instanceName)
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil && strings.TrimSpace(output) == "STOPPED" {
 			global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))
@@ -219,7 +219,7 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(ctx context.Context, config pr
 		zap.String("instanceName", config.Name))
 
 	// 检查实例是否仍在运行
-	statusCmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(config.Name))
+	statusCmd := lxdInstanceStatusCommand(config.Name)
 	output, err := l.sshClient.Execute(statusCmd)
 	if err != nil {
 		return fmt.Errorf("检查实例状态失败: %w", err)

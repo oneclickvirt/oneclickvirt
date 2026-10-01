@@ -74,6 +74,9 @@ func (c *ContainerdProvider) sshDiscoverInstances(ctx context.Context) ([]provid
 	var discoveredInstances []provider.DiscoveredInstance
 
 	for _, container := range containers {
+		if provider.IsRuntimeInfrastructureContainer(container.Name) {
+			continue
+		}
 		discovered := provider.DiscoveredInstance{
 			UUID:               container.ID,
 			ProviderInstanceID: container.ID,

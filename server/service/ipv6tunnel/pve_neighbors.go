@@ -46,7 +46,7 @@ remove_state_entries() {
     # Never evict an active dynamic neighbour. The state file contains only
     # entries installed by this script, and we remove one only while it remains
     # a permanent entry on the managed bridge.
-    if ip -6 neigh show to "$address" dev "$BRIDGE" nud permanent 2>/dev/null | grep -F "$address" >/dev/null 2>&1; then
+    if LC_ALL=C NO_COLOR=1 ip -6 neigh show to "$address" dev "$BRIDGE" nud permanent 2>/dev/null | grep -F "$address" >/dev/null 2>&1; then
       ip -6 neigh del "$address" dev "$BRIDGE" >/dev/null 2>&1 || true
     fi
   done < "$STATE_PATH"
@@ -138,7 +138,7 @@ PY
     while IFS=' ' read -r old_address old_mac; do
       [ -n "$old_address" ] || continue
       if ! grep -Fqx -- "$old_address $old_mac" "$desired"; then
-        if ip -6 neigh show to "$old_address" dev "$BRIDGE" nud permanent 2>/dev/null | grep -F "$old_address" >/dev/null 2>&1; then
+        if LC_ALL=C NO_COLOR=1 ip -6 neigh show to "$old_address" dev "$BRIDGE" nud permanent 2>/dev/null | grep -F "$old_address" >/dev/null 2>&1; then
           ip -6 neigh del "$old_address" dev "$BRIDGE" >/dev/null 2>&1 || true
         fi
       fi

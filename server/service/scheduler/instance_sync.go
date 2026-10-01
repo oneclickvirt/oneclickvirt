@@ -37,8 +37,12 @@ const (
 type InstanceSyncSchedulerService struct {
 	providerService *adminProviderService.Service
 	stopChan        chan struct{}
+	runCancel       context.CancelFunc
 	mu              sync.RWMutex
 	isRunning       bool
+	stopping        bool
+	wg              sync.WaitGroup
+	doneChan        chan struct{}
 	maxConcurrency  int
 	semaphore       chan struct{}
 	syncMu          sync.Mutex // 防止整轮Provider实例同步重叠
@@ -70,36 +74,91 @@ func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 	}
 
 	s.mu.Lock()
-	if s.isRunning {
+	if s.isRunning || s.stopping {
 		s.mu.Unlock()
 		global.APP_LOG.Warn("Provider实例同步调度器已在运行中")
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
 	s.stopChan = make(chan struct{})
 	stopChan := s.stopChan
+	s.runCancel = cancel
+	s.doneChan = make(chan struct{})
 	s.isRunning = true
+	s.wg.Add(1)
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("启动Provider实例同步调度器",
 		zap.Int("syncInterval", global.GetAppConfig().System.InstanceSyncInterval),
 		zap.Int("requiredConfirmations", requiredConfirmations))
 
-	go s.startSyncTask(ctx, stopChan)
+	go s.startSyncTask(runCtx, stopChan)
 }
 
 // Stop 停止实例同步调度器
 func (s *InstanceSyncSchedulerService) Stop() {
 	s.mu.Lock()
 	if !s.isRunning {
+		done := s.doneChan
 		s.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(30 * time.Second):
+				global.APP_LOG.Warn("Provider实例同步调度器后台任务仍未结束")
+			}
+		}
 		return
 	}
 	s.isRunning = false
+	s.stopping = true
 	stopChan := s.stopChan
+	cancel := s.runCancel
+	done := s.doneChan
+	close(stopChan)
+	if cancel != nil {
+		cancel()
+	}
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止Provider实例同步调度器")
-	close(stopChan)
+	waitDone := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+		if done != nil {
+			<-done
+		}
+		s.finishStop(stopChan)
+	case <-time.After(30 * time.Second):
+		global.APP_LOG.Warn("Provider实例同步调度器关闭超时，等待后台操作结束后再允许重启")
+		go func() {
+			<-waitDone
+			if done != nil {
+				<-done
+			}
+			s.finishStop(stopChan)
+		}()
+	}
+}
+
+func (s *InstanceSyncSchedulerService) finishStop(stopChan <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopChan == stopChan {
+		if s.runCancel != nil {
+			s.runCancel()
+		}
+		s.stopping = false
+		s.runCancel = nil
+		s.doneChan = nil
+	}
 }
 
 // IsRunning 检查调度器是否正在运行
@@ -117,14 +176,46 @@ func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context, stopCh
 				zap.Any("panic", r),
 				zap.Stack("stack"))
 		}
+		s.mu.Lock()
+		externalExit := false
+		var done chan struct{}
+		if s.stopChan == stopChan {
+			s.isRunning = false
+			if !s.stopping {
+				s.stopping = true
+				externalExit = true
+			}
+			done = s.doneChan
+		}
+		s.mu.Unlock()
 		global.APP_LOG.Info("Provider实例同步任务已停止")
+		if done != nil {
+			close(done)
+		}
+		s.wg.Done()
+		if externalExit {
+			// Parent cancellation also has to drain the separately tracked
+			// interface refresh before a new generation can start.
+			go func() {
+				s.wg.Wait()
+				s.finishStop(stopChan)
+			}()
+		}
 	}()
 
 	// 延迟启动，等待系统初始化完成
-	time.Sleep(2 * time.Minute)
+	startupTimer := time.NewTimer(2 * time.Minute)
+	defer startupTimer.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-stopChan:
+		return
+	case <-startupTimer.C:
+	}
 
 	// 首次执行
-	s.syncAllProvidersInstances()
+	s.syncAllProvidersInstances(ctx)
 
 	syncInterval := global.GetAppConfig().System.InstanceSyncInterval
 	if syncInterval <= 0 {
@@ -144,13 +235,19 @@ func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context, stopCh
 			if global.APP_DB == nil {
 				continue
 			}
-			s.syncAllProvidersInstances()
+			s.syncAllProvidersInstances(ctx)
 		}
 	}
 }
 
 // syncAllProvidersInstances 同步所有Provider的实例
-func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
+func (s *InstanceSyncSchedulerService) syncAllProvidersInstances(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil || global.APP_DB == nil {
+		return
+	}
 	if !s.syncMu.TryLock() {
 		global.APP_LOG.Debug("Provider实例同步仍在运行中，跳过本轮触发")
 		return
@@ -162,7 +259,7 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 
 	var providers []providerModel.Provider
 	now := time.Now()
-	if err := global.APP_DB.Where("status = ? AND is_frozen = ? AND (expires_at IS NULL OR expires_at > ?)",
+	if err := global.APP_DB.WithContext(ctx).Where("status = ? AND is_frozen = ? AND (expires_at IS NULL OR expires_at > ?)",
 		"active", false, now).
 		Where("recovery_lease_expires_at IS NULL OR recovery_lease_expires_at <= ?", now).
 		Select("id", "name", "type").
@@ -185,9 +282,15 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 	appliedCount := 0
 	var mu sync.Mutex
 
+launchLoop:
 	for _, prov := range providers {
 		wg.Add(1)
-		s.semaphore <- struct{}{}
+		select {
+		case s.semaphore <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			break launchLoop
+		}
 
 		go func(provider providerModel.Provider) {
 			defer func() {
@@ -201,7 +304,7 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 				wg.Done()
 			}()
 
-			report, err := s.providerService.CompareInstancesWithRemote(context.Background(), provider.ID)
+			report, err := s.providerService.CompareInstancesWithRemote(ctx, provider.ID)
 			if err != nil {
 				global.APP_LOG.Warn("Provider实例同步失败",
 					zap.Uint("providerId", provider.ID),
@@ -210,6 +313,9 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 				mu.Lock()
 				failedCount++
 				mu.Unlock()
+				return
+			}
+			if ctx.Err() != nil {
 				return
 			}
 
@@ -243,9 +349,15 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 	// Cleanup expired mismatch records
 	s.cleanupExpiredMismatchRecords()
 
-	// Refresh network interfaces for running instances that have not been recorded yet.
-	// Run in a goroutine so it does not block the next sync cycle.
-	go s.refreshMissingInterfaces()
+	// Refresh network interfaces in a tracked goroutine. It remains independent
+	// from provider comparison, but Stop can cancel and await it.
+	if ctx.Err() == nil {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.refreshMissingInterfaces(ctx)
+		}()
+	}
 
 	duration := time.Since(startTime)
 	global.APP_LOG.Debug("Provider实例同步检查完成",
@@ -418,7 +530,13 @@ func (s *InstanceSyncSchedulerService) cleanupExpiredMismatchRecords() {
 // refreshMissingInterfaces detects and persists pmacct_interface_v4/v6 for running
 // instances that have not yet had their host-side network interface recorded.
 // It groups instances by provider to reuse SSH connections and avoids N+1 DB queries.
-func (s *InstanceSyncSchedulerService) refreshMissingInterfaces() {
+func (s *InstanceSyncSchedulerService) refreshMissingInterfaces(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil || global.APP_DB == nil {
+		return
+	}
 	if !s.refreshMu.TryLock() {
 		global.APP_LOG.Debug("refreshMissingInterfaces 已在运行中，跳过重叠触发")
 		return
@@ -431,7 +549,7 @@ func (s *InstanceSyncSchedulerService) refreshMissingInterfaces() {
 	//    (V6==V4 indicates old buggy data where V6 was never separately detected)
 	ipv6Types := []string{"nat_ipv4_ipv6", "dedicated_ipv4_ipv6", "ipv6_only"}
 	var instances []providerModel.Instance
-	if err := global.APP_DB.
+	if err := global.APP_DB.WithContext(ctx).
 		Where(
 			"status = ? AND ("+
 				"pmacct_interface_v4 = '' OR pmacct_interface_v4 IS NULL "+
@@ -459,6 +577,9 @@ func (s *InstanceSyncSchedulerService) refreshMissingInterfaces() {
 	}
 
 	for providerID, provInstances := range byProvider {
+		if ctx.Err() != nil {
+			return
+		}
 		prov, err := providerService.GetProviderInstanceByID(providerID)
 		if err != nil {
 			global.APP_LOG.Debug("refreshMissingInterfaces: 跳过未连接的provider",
@@ -467,8 +588,11 @@ func (s *InstanceSyncSchedulerService) refreshMissingInterfaces() {
 		}
 
 		for _, inst := range provInstances {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := agentService.DetectAndSaveInstanceInterfaces(ctx, global.APP_DB, prov, inst, ""); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			detectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if err := agentService.DetectAndSaveInstanceInterfaces(detectCtx, global.APP_DB, prov, inst, ""); err != nil {
 				global.APP_LOG.Debug("refreshMissingInterfaces: 接口检测失败",
 					zap.Uint("instanceId", inst.ID),
 					zap.String("instanceName", inst.Name),

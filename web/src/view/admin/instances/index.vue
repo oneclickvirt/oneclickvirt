@@ -8,6 +8,8 @@
             <el-button
               v-if="selectedInstances.length > 0"
               type="success"
+              :loading="batchActionLoading"
+              :disabled="batchActionLoading || actionLoading"
               @click="batchStartInstances"
             >
               {{ $t('admin.instances.batchStart') }} ({{ selectedInstances.length }})
@@ -15,6 +17,8 @@
             <el-button
               v-if="selectedInstances.length > 0"
               type="warning"
+              :loading="batchActionLoading"
+              :disabled="batchActionLoading || actionLoading"
               @click="batchStopInstances"
             >
               {{ $t('admin.instances.batchStop') }} ({{ selectedInstances.length }})
@@ -22,6 +26,8 @@
             <el-button
               v-if="selectedInstances.length > 0"
               type="danger"
+              :loading="batchActionLoading"
+              :disabled="batchActionLoading || actionLoading"
               @click="batchDeleteInstances"
             >
               {{ $t('admin.instances.batchDelete') }} ({{ selectedInstances.length }})
@@ -356,7 +362,8 @@
               <el-button
                 size="small"
                 type="success"
-                :disabled="!canOpenInstanceDetail(scope.row)"
+                :loading="shareLinkLoadingIds.has(scope.row.id)"
+                :disabled="!canOpenInstanceDetail(scope.row) || shareLinkLoadingIds.has(scope.row.id)"
                 @click="createShareLink(scope.row)"
               >
                 <el-icon><Link /></el-icon>
@@ -574,6 +581,8 @@
       v-model="actionDialogVisible"
       :title="$t('admin.instances.instanceActions')"
       width="400px"
+      :close-on-click-modal="!actionLoading"
+      :close-on-press-escape="!actionLoading"
     >
       <div
         v-if="actionInstance"
@@ -581,7 +590,7 @@
       >
         <el-button
           type="success"
-          :disabled="isInstanceBusy(actionInstance) || actionInstance.status === 'running' || actionInstance.status === 'starting'"
+          :disabled="actionLoading || isInstanceBusy(actionInstance) || actionInstance.status === 'running' || actionInstance.status === 'starting'"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('start')"
@@ -591,7 +600,7 @@
         </el-button>
         <el-button
           type="warning"
-          :disabled="isInstanceBusy(actionInstance) || actionInstance.status === 'stopped' || actionInstance.status === 'stopping'"
+          :disabled="actionLoading || isInstanceBusy(actionInstance) || actionInstance.status === 'stopped' || actionInstance.status === 'stopping'"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('stop')"
@@ -601,7 +610,7 @@
         </el-button>
         <el-button
           type="primary"
-          :disabled="isInstanceBusy(actionInstance) || actionInstance.status !== 'running'"
+          :disabled="actionLoading || isInstanceBusy(actionInstance) || actionInstance.status !== 'running'"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('restart')"
@@ -611,7 +620,7 @@
         </el-button>
         <el-button
           type="info"
-          :disabled="isInstanceBusy(actionInstance) || actionInstance.status !== 'running'"
+          :disabled="actionLoading || isInstanceBusy(actionInstance) || actionInstance.status !== 'running' || passwordResetPendingIds.has(actionInstance.id)"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('resetPassword')"
@@ -621,7 +630,7 @@
         </el-button>
         <el-button
           type="warning"
-          :disabled="isInstanceBusy(actionInstance) || actionInstance.status !== 'running'"
+          :disabled="actionLoading || isInstanceBusy(actionInstance) || actionInstance.status !== 'running'"
           :loading="actionLoading"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('reset')"
@@ -631,7 +640,7 @@
         </el-button>
         <el-button
           type="primary"
-          :disabled="isInstanceBusy(actionInstance)"
+          :disabled="actionLoading || isInstanceBusy(actionInstance)"
           style="width: 100%; margin-bottom: 10px;"
           @click="showEgressDialog(actionInstance)"
         >
@@ -641,7 +650,7 @@
         <el-divider />
         <el-button
           type="info"
-          :disabled="isInstanceBusy(actionInstance)"
+          :disabled="actionLoading || isInstanceBusy(actionInstance)"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('setExpiry')"
         >
@@ -650,7 +659,7 @@
         <el-button
           v-if="!actionInstance.isFrozen"
           type="warning"
-          :disabled="isInstanceBusy(actionInstance)"
+          :disabled="actionLoading || isInstanceBusy(actionInstance)"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('freeze')"
         >
@@ -659,7 +668,7 @@
         <el-button
           v-else
           type="success"
-          :disabled="isInstanceBusy(actionInstance)"
+          :disabled="actionLoading || isInstanceBusy(actionInstance)"
           style="width: 100%; margin-bottom: 10px;"
           @click="performAction('unfreeze')"
         >
@@ -669,6 +678,7 @@
         <el-button
           type="danger"
           :loading="actionLoading"
+          :disabled="actionLoading || isInstanceBusy(actionInstance)"
           style="width: 100%;"
           @click="performAction('delete')"
         >
@@ -767,7 +777,7 @@ import VNCDialog from '@/components/VNCDialog.vue'
 
 const {
   instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible, accessDialogVisible, consoleDialogVisible, accessLoading,
-  selectedInstance, actionInstance, egressInstance, accessInstance, consoleInstance, actionLoading, showPassword,
+  selectedInstance, actionInstance, egressInstance, accessInstance, consoleInstance, actionLoading, batchActionLoading, shareLinkLoadingIds, passwordResetPendingIds, showPassword,
   selectedInstances, transferDialogVisible, transferLoading, transferForm, tableRef,
   filters, pagination,
   loadInstances, handleSearch, handleReset, handleSizeChange, handleCurrentChange,

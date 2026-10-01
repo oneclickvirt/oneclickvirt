@@ -91,10 +91,7 @@ func (s *TaskService) restoreReservedPortMappings(ctx context.Context, prov prov
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, s.persistResetPortResults(ctx, resetCtx, ports, nil, err))
 	}
-	name := resetCtx.NewProviderInstanceID
-	if name == "" {
-		name = resetCtx.OldInstanceName
-	}
+	name := resetPortMappingOwnerName(resetCtx)
 	// Only look up IPv4 when it is actually needed; IPv6-only/native mappings
 	// must not wait for a lease they will never receive.
 	needIPv4 := false
@@ -379,8 +376,10 @@ func (s *TaskService) configureProviderPortMappingsDetailed(ctx context.Context,
 	if resetCtx == nil {
 		return nil, fmt.Errorf("重建上下文为空")
 	}
-	switch utils.NormalizeProviderType(resetCtx.Provider.Type) {
-	case "incus", "lxd", "proxmox":
+	providerType := utils.NormalizeProviderType(resetCtx.Provider.Type)
+	isProxmox := providerType == "proxmox" || providerType == "proxmoxve" || providerType == "pve"
+	switch providerType {
+	case "incus", "lxd", "proxmox", "proxmoxve", "pve":
 	default:
 		// These runtimes bind ports during creation, not in this restoration step.
 		return nil, nil
@@ -399,9 +398,11 @@ func (s *TaskService) configureProviderPortMappingsDetailed(ctx context.Context,
 			}
 			if mapping.MappingMethod == "" {
 				mapping.MappingMethod = "device_proxy"
-				if utils.NormalizeProviderType(resetCtx.Provider.Type) == "proxmox" {
-					mapping.MappingMethod = "iptables"
-				}
+			}
+			// PVE implements node mappings through its firewall even when an
+			// older database row still says device_proxy.
+			if isProxmox {
+				mapping.MappingMethod = "iptables"
 			}
 			if _, err := expandPortEndpoints(mapping); err != nil {
 				return nil, fmt.Errorf("重建端口 %d 配置无效: %w", mapping.HostPort, err)
@@ -419,10 +420,7 @@ func (s *TaskService) configureProviderPortMappingsDetailed(ctx context.Context,
 	if len(mappings) == 0 {
 		return nil, nil
 	}
-	instanceName := resetCtx.NewProviderInstanceID
-	if strings.TrimSpace(instanceName) == "" {
-		instanceName = resetCtx.OldInstanceName
-	}
+	instanceName := resetPortMappingOwnerName(resetCtx)
 	if strings.EqualFold(strings.TrimSpace(resetCtx.Provider.ExecutionRule), "api_only") && (resetCtx.Provider.Type == "incus" || resetCtx.Provider.Type == "lxd") {
 		batch, ok := prov.(interface {
 			ConfigurePortMappingsAPI(context.Context, string, []providerModel.Port) error
@@ -445,8 +443,8 @@ func (s *TaskService) configureProviderPortMappingsDetailed(ctx context.Context,
 	}
 	// Cache both success and failure once per family. Never fall back to the old
 	// guest IP or use IPv6 for a missing IPv4 lease after the guest was replaced.
-	ipv4, ipv6 := strings.TrimSpace(resetCtx.NewPrivateIP), ""
-	ipv4Read, ipv6Read := ipv4 != "", false
+	ipv4, ipv6 := strings.TrimSpace(resetCtx.NewPrivateIP), strings.TrimSpace(resetCtx.NewGuestIPv6)
+	ipv4Read, ipv6Read := ipv4 != "", ipv6 != ""
 	var failures []error
 	failedPorts := make(map[uint]error)
 	failPort := func(id uint, err error) {
@@ -464,7 +462,7 @@ func (s *TaskService) configureProviderPortMappingsDetailed(ctx context.Context,
 		if isIPv6 {
 			if target == "" || target == strings.TrimSpace(resetCtx.Instance.IPv6Address) {
 				if !ipv6Read {
-					ipv6 = getResetInstanceIPv6(ctx, prov, instanceName)
+					ipv6 = getResetInstanceIPv6(ctx, prov, resetCtx.Provider.Type, instanceName)
 					ipv6Read = true
 					resetCtx.NewGuestIPv6 = ipv6
 				}
@@ -513,18 +511,79 @@ func (s *TaskService) configureProviderPortMappingsDetailed(ctx context.Context,
 
 // LXD has a legacy context-free IPv6 getter; Incus and other providers use
 // context-aware getters. Neither path may reuse the deleted guest's address.
-func getResetInstanceIPv6(ctx context.Context, prov interface{}, name string) string {
+func getResetInstanceIPv6(ctx context.Context, prov interface{}, providerType, name string) string {
+	if err := ctx.Err(); err != nil {
+		return ""
+	}
+	if getter, ok := prov.(interface {
+		GetInstanceIPv6Context(context.Context, string) (string, error)
+	}); ok {
+		address, err := getter.GetInstanceIPv6Context(ctx, name)
+		if err == nil {
+			return canonicalResetIPv6(address)
+		}
+		return ""
+	}
+	switch utils.NormalizeProviderType(providerType) {
+	case "docker", "podman", "containerd", "orbstack", "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
+		if getter, ok := prov.(interface {
+			GetInstance(context.Context, string) (*providerModel.ProviderInstance, error)
+		}); ok {
+			if instance, err := getter.GetInstance(ctx, name); err == nil && instance != nil {
+				if ip := canonicalResetIPv6(instance.IPv6Address); ip != "" {
+					return ip
+				}
+			}
+		}
+	}
 	if getter, ok := prov.(interface {
 		GetInstanceIPv6(context.Context, string) (string, error)
 	}); ok {
 		address, err := getter.GetInstanceIPv6(ctx, name)
 		if err == nil {
-			return strings.TrimSpace(address)
+			if ip := canonicalResetIPv6(address); ip != "" {
+				return ip
+			}
 		}
 	} else if getter, ok := prov.(interface{ GetInstanceIPv6(string) (string, error) }); ok {
 		address, err := getter.GetInstanceIPv6(name)
 		if err == nil {
-			return strings.TrimSpace(address)
+			if ip := canonicalResetIPv6(address); ip != "" {
+				return ip
+			}
+		}
+	}
+	return ""
+}
+
+func getResetInstancePublicIPv6(ctx context.Context, prov interface{}, name string) string {
+	if err := ctx.Err(); err != nil {
+		return ""
+	}
+	if getter, ok := prov.(interface {
+		GetInstancePublicIPv6Context(context.Context, string) (string, error)
+	}); ok {
+		address, err := getter.GetInstancePublicIPv6Context(ctx, name)
+		if err == nil {
+			return canonicalResetIPv6(address)
+		}
+		return ""
+	}
+	if getter, ok := prov.(interface {
+		GetInstancePublicIPv6(context.Context, string) (string, error)
+	}); ok {
+		address, err := getter.GetInstancePublicIPv6(ctx, name)
+		if err == nil {
+			if ip := canonicalResetIPv6(address); ip != "" {
+				return ip
+			}
+		}
+	} else if getter, ok := prov.(interface{ GetInstancePublicIPv6(string) (string, error) }); ok {
+		address, err := getter.GetInstancePublicIPv6(name)
+		if err == nil {
+			if ip := canonicalResetIPv6(address); ip != "" {
+				return ip
+			}
 		}
 	}
 	return ""
@@ -549,7 +608,7 @@ func getInstancePrivateIP(ctx context.Context, prov interface{}, providerType, i
 				return ip
 			}
 		}
-	case "proxmox":
+	case "proxmox", "proxmoxve", "pve":
 		if p, ok := prov.(interface {
 			GetInstanceIPv4(context.Context, string) (string, error)
 		}); ok {

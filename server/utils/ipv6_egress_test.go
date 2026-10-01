@@ -46,7 +46,8 @@ func TestIPv6HostEgressCommandRepairsOnlyProviderManagedPaths(t *testing.T) {
 		t.Fatalf("IPv6HostEgressCommand() is not valid shell: %v: %s", err, stderr.String())
 	}
 	for _, fragment := range []string{
-		"ip -6 route show default",
+		"ip -j -6 route show default",
+		"ip -j -6 addr show scope global",
 		"accept_ra",
 		"networkctl reconfigure",
 		"rdisc6 -1",
@@ -111,7 +112,7 @@ func TestIPv6HostEgressCommandRunsWithVerifiedRouteAndProbe(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeExecutable("ip", "#!/bin/sh\ncase \"$*\" in *'route show default'*) printf '%s\\n' 'default via fe80::1 dev eth0' ;; *) exit 1 ;; esac\n")
+	writeExecutable("ip", "#!/bin/sh\ncase \"$*\" in *'route show default'*) printf '\\033[32m%s\\033[0m\\n' '[{\"dst\":\"default\",\"gateway\":\"fe80::1\",\"dev\":\"eth0\"}]' ;; *) exit 1 ;; esac\n")
 	writeExecutable("curl", "#!/bin/sh\nprintf '%s\\n' '2606:4700::1111'\n")
 	cmd := exec.Command("sh", "-c", IPv6HostEgressCommand(IPv6EgressOptions{ProbeURL: "https://probe.invalid"}))
 	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))

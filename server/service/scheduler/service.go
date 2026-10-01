@@ -17,20 +17,21 @@ import (
 	"oneclickvirt/service/traffic"
 
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 // SchedulerService 全局任务调度器
 type SchedulerService struct {
-	taskService    TaskServiceInterface
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	running        bool
-	mu             sync.RWMutex
-	triggerChan    chan struct{} // 用于立即触发任务处理
-	trafficCheckMu sync.Mutex    // 防止并发流量限制检查
-	dataCleanupMu  sync.Mutex    // 防止数据库保留策略清理并发执行
+	pendingTaskCursor        uint // bounded rotating scan so a full provider cannot starve later IDs
+	pendingTaskHighWatermark uint // fixes the current scan boundary while new tasks arrive
+	taskService              TaskServiceInterface
+	ctx                      context.Context
+	cancel                   context.CancelFunc
+	wg                       sync.WaitGroup
+	running                  bool
+	mu                       sync.RWMutex
+	triggerChan              chan struct{} // 用于立即触发任务处理
+	trafficCheckMu           sync.Mutex    // 防止并发流量限制检查
+	dataCleanupMu            sync.Mutex    // 防止数据库保留策略清理并发执行
 }
 
 // TaskServiceInterface 任务服务接口
@@ -38,6 +39,13 @@ type TaskServiceInterface interface {
 	StartTask(taskID uint) error
 	CancelTaskByAdmin(taskID uint, reason string) error
 	CleanupTimeoutTasksWithLockRelease(timeoutThreshold time.Time) (int64, int64)
+}
+
+// providerAwareTaskStarter lets the scheduler pass the Provider row it
+// already loaded for this batch. Test doubles and older adapters can keep the
+// original StartTask method; the type assertion is intentionally optional.
+type providerAwareTaskStarter interface {
+	StartTaskWithProvider(task adminModel.Task, provider provider.Provider) error
 }
 
 // NewSchedulerService 创建新的调度器服务
@@ -155,8 +163,18 @@ func (s *SchedulerService) runTaskScheduler() {
 
 	// 启动时立即执行一次过期检查
 	s.checkExpiredResources()
-	go s.checkAndEnforceTrafficLimits()
-	go s.scheduleInitialRetentionDataCleanup()
+	// These startup jobs use the scheduler context and must be part of the
+	// lifecycle wait.  Otherwise Stop can return while a cleanup or traffic
+	// enforcement pass is still writing to the database.
+	s.wg.Add(2)
+	go func() {
+		defer s.wg.Done()
+		s.checkAndEnforceTrafficLimits()
+	}()
+	go func() {
+		defer s.wg.Done()
+		s.scheduleInitialRetentionDataCleanup()
+	}()
 
 	for {
 		select {
@@ -208,12 +226,30 @@ func (s *SchedulerService) processPendingTasks() {
 		global.APP_LOG.Debug("数据库未初始化，跳过任务处理")
 		return
 	}
+	scanCtx, cancel := boundedSchedulerContext(s.ctx, 15*time.Second)
+	defer cancel()
 
-	// 获取所有待处理任务，按创建时间排序
-	// 优化：添加LIMIT限制，避免一次性加载过多任务，减少内存和数据库压力
+	// Keep each scan bounded. A high-water mark prevents a steady stream of
+	// newer tasks from keeping the cursor ahead of older tasks forever.
+	if s.pendingTaskHighWatermark == 0 {
+		var maxPendingID uint
+		if err := global.APP_DB.WithContext(scanCtx).
+			Model(&adminModel.Task{}).
+			Where("status = ?", "pending").
+			Select("COALESCE(MAX(id), 0)").Scan(&maxPendingID).Error; err != nil {
+			global.APP_LOG.Error("Failed to find pending task scan boundary", zap.Error(err))
+			return
+		}
+		if maxPendingID <= s.pendingTaskCursor {
+			s.pendingTaskCursor = 0
+		}
+		s.pendingTaskHighWatermark = maxPendingID
+	}
+
 	var pendingTasks []adminModel.Task
-	err := global.APP_DB.Where("status = ?", "pending").
-		Order("created_at ASC").
+	err := global.APP_DB.WithContext(scanCtx).
+		Where("status = ? AND id > ? AND id <= ?", "pending", s.pendingTaskCursor, s.pendingTaskHighWatermark).
+		Order("id ASC").
 		Limit(50).
 		Find(&pendingTasks).Error
 
@@ -223,7 +259,34 @@ func (s *SchedulerService) processPendingTasks() {
 	}
 
 	if len(pendingTasks) == 0 {
+		s.pendingTaskCursor = 0
+		s.pendingTaskHighWatermark = 0
 		return
+	}
+
+	providerIDs := make([]uint, 0, len(pendingTasks))
+	seenProviderIDs := make(map[uint]struct{}, len(pendingTasks))
+	for _, task := range pendingTasks {
+		if task.ProviderID == nil {
+			continue
+		}
+		providerID := *task.ProviderID
+		if _, seen := seenProviderIDs[providerID]; seen {
+			continue
+		}
+		seenProviderIDs[providerID] = struct{}{}
+		providerIDs = append(providerIDs, providerID)
+	}
+	providersByID := make(map[uint]provider.Provider, len(providerIDs))
+	if len(providerIDs) > 0 {
+		var providers []provider.Provider
+		if err := global.APP_DB.WithContext(scanCtx).Where("id IN ?", providerIDs).Find(&providers).Error; err != nil {
+			global.APP_LOG.Error("Failed to fetch providers for pending tasks", zap.Error(err))
+			return
+		}
+		for _, currentProvider := range providers {
+			providersByID[currentProvider.ID] = currentProvider
+		}
 	}
 
 	// 只在有任务需要处理时记录一次日志
@@ -231,17 +294,29 @@ func (s *SchedulerService) processPendingTasks() {
 
 	// 按顺序处理每个任务
 	for _, task := range pendingTasks {
+		s.pendingTaskCursor = task.ID
 		select {
 		case <-s.ctx.Done():
 			return
 		default:
-			s.tryStartTask(task)
+			var currentProvider *provider.Provider
+			if task.ProviderID != nil {
+				loaded, exists := providersByID[*task.ProviderID]
+				if exists {
+					currentProvider = &loaded
+				}
+			}
+			s.tryStartTask(task, currentProvider)
 		}
+	}
+	if s.pendingTaskCursor >= s.pendingTaskHighWatermark {
+		s.pendingTaskCursor = 0
+		s.pendingTaskHighWatermark = 0
 	}
 }
 
 // tryStartTask 尝试启动任务
-func (s *SchedulerService) tryStartTask(task adminModel.Task) {
+func (s *SchedulerService) tryStartTask(task adminModel.Task, loadedProvider *provider.Provider) {
 	// 检查数据库是否已初始化
 	if global.APP_DB == nil {
 		global.APP_LOG.Debug("数据库未初始化，跳过任务启动")
@@ -255,41 +330,33 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 		return
 	}
 
-	// 检查Provider是否可用（基础检查）
-	var provider provider.Provider
-	err := global.APP_DB.Where("id = ?", *task.ProviderID).
-		First(&provider).Error
-
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// Provider不存在，取消任务
-			s.taskService.CancelTaskByAdmin(task.ID, "Provider not found")
-		} else {
-			global.APP_LOG.Error("Failed to fetch provider",
-				zap.Uint("provider_id", *task.ProviderID),
-				zap.Error(err))
-		}
+	// The batch query is authoritative for this scheduler pass. A missing row
+	// means the Provider was deleted or became unavailable before startup.
+	if loadedProvider == nil {
+		// Provider不存在，取消任务
+		s.taskService.CancelTaskByAdmin(task.ID, "Provider not found")
 		return
 	}
+	currentProvider := *loadedProvider
 
 	// 检查Provider的实际状态，而不仅仅是allow_claim标志
 	// allow_claim可能因临时健康检查失败而被误设为false
 	// 但如果Provider实际上是active状态且未冻结，应该允许任务继续执行
 	// 删除、停止及管理员维护任务即使Provider不可用也要允许尝试连接和修复。
 	providerUnavailableAllowed := taskAllowedWhenProviderUnavailable(task.TaskType)
-	if provider.Status == "deleting" && !taskAllowedWhenProviderDeleting(task.TaskType) {
+	if currentProvider.Status == "deleting" && !taskAllowedWhenProviderDeleting(task.TaskType) {
 		global.APP_LOG.Warn("Provider deletion is pending, cancelling non-delete task",
 			zap.Uint("provider_id", *task.ProviderID),
-			zap.String("provider_name", provider.Name),
+			zap.String("provider_name", currentProvider.Name),
 			zap.String("task_type", task.TaskType),
 			zap.Uint("task_id", task.ID))
 		s.taskService.CancelTaskByAdmin(task.ID, "Provider deletion is pending")
 		return
 	}
-	if provider.IsFrozen && !providerUnavailableAllowed {
+	if currentProvider.IsFrozen && !providerUnavailableAllowed {
 		global.APP_LOG.Warn("Provider is frozen, cancelling task",
 			zap.Uint("provider_id", *task.ProviderID),
-			zap.String("provider_name", provider.Name),
+			zap.String("provider_name", currentProvider.Name),
 			zap.String("task_type", task.TaskType),
 			zap.Uint("task_id", task.ID))
 		s.taskService.CancelTaskByAdmin(task.ID, "Provider is frozen")
@@ -297,28 +364,28 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 	}
 
 	// 允许受控维护任务在冻结节点上执行。
-	if provider.IsFrozen && providerUnavailableAllowed {
+	if currentProvider.IsFrozen && providerUnavailableAllowed {
 		global.APP_LOG.Debug("Provider is frozen but allowing maintenance task to proceed",
 			zap.Uint("provider_id", *task.ProviderID),
-			zap.String("provider_name", provider.Name),
+			zap.String("provider_name", currentProvider.Name),
 			zap.String("task_type", task.TaskType),
 			zap.Uint("task_id", task.ID))
 	}
 
 	// 检查Provider是否过期
-	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
+	if currentProvider.ExpiresAt != nil && currentProvider.ExpiresAt.Before(time.Now()) {
 		// 受控维护任务在节点过期后仍允许执行。
 		if providerUnavailableAllowed {
 			global.APP_LOG.Debug("Provider has expired but allowing maintenance task to proceed",
 				zap.Uint("provider_id", *task.ProviderID),
-				zap.String("provider_name", provider.Name),
+				zap.String("provider_name", currentProvider.Name),
 				zap.String("task_type", task.TaskType),
 				zap.Uint("task_id", task.ID))
 		} else {
 			// 其他任务类型，取消执行
 			global.APP_LOG.Warn("Provider has expired, cancelling task",
 				zap.Uint("provider_id", *task.ProviderID),
-				zap.String("provider_name", provider.Name),
+				zap.String("provider_name", currentProvider.Name),
 				zap.String("task_type", task.TaskType),
 				zap.Uint("task_id", task.ID))
 			s.taskService.CancelTaskByAdmin(task.ID, "Provider has expired")
@@ -327,12 +394,12 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 	}
 
 	// 受控维护任务允许在inactive节点上尝试重新连接，其他任务仍需检查状态。
-	if provider.Status == "inactive" && !providerUnavailableAllowed {
+	if currentProvider.Status == "inactive" && !providerUnavailableAllowed {
 		global.APP_LOG.Warn("Provider is inactive, cancelling task",
 			zap.Uint("provider_id", *task.ProviderID),
-			zap.String("provider_name", provider.Name),
-			zap.String("ssh_status", provider.SSHStatus),
-			zap.String("api_status", provider.APIStatus),
+			zap.String("provider_name", currentProvider.Name),
+			zap.String("ssh_status", currentProvider.SSHStatus),
+			zap.String("api_status", currentProvider.APIStatus),
 			zap.String("task_type", task.TaskType),
 			zap.Uint("task_id", task.ID))
 		s.taskService.CancelTaskByAdmin(task.ID, "Provider is inactive")
@@ -340,25 +407,30 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 	}
 
 	// GetProviderByID会为受控维护任务尝试重新连接。
-	if provider.Status == "inactive" && providerUnavailableAllowed {
+	if currentProvider.Status == "inactive" && providerUnavailableAllowed {
 		global.APP_LOG.Debug("Provider is inactive but allowing maintenance task to proceed, will attempt reconnection",
 			zap.Uint("provider_id", *task.ProviderID),
-			zap.String("provider_name", provider.Name),
+			zap.String("provider_name", currentProvider.Name),
 			zap.String("task_type", task.TaskType),
 			zap.Uint("task_id", task.ID))
 	}
 
 	// 记录当前allow_claim状态，但不阻止任务执行
-	if !provider.AllowClaim {
+	if !currentProvider.AllowClaim {
 		global.APP_LOG.Debug("Provider allow_claim is false, but provider is active, allowing task to proceed",
 			zap.Uint("provider_id", *task.ProviderID),
-			zap.String("provider_name", provider.Name),
-			zap.String("status", provider.Status),
+			zap.String("provider_name", currentProvider.Name),
+			zap.String("status", currentProvider.Status),
 			zap.Uint("task_id", task.ID))
 	}
 
 	// 尝试启动任务 - 让TaskService处理所有并发控制逻辑
-	err = s.taskService.StartTask(task.ID)
+	var err error
+	if starter, ok := s.taskService.(providerAwareTaskStarter); ok {
+		err = starter.StartTaskWithProvider(task, currentProvider)
+	} else {
+		err = s.taskService.StartTask(task.ID)
+	}
 	if err != nil {
 		// 如果启动失败，记录日志但不做其他处理
 		// TaskService会处理所有的错误情况
@@ -396,7 +468,9 @@ func (s *SchedulerService) GetSchedulerStats() map[string]interface{} {
 	// 统计各状态任务数量
 	var statusCounts []dashboardModel.TaskStatusCount
 
-	global.APP_DB.Model(&adminModel.Task{}).
+	ctx, cancel := boundedSchedulerContext(s.ctx, 5*time.Second)
+	defer cancel()
+	global.APP_DB.WithContext(ctx).Model(&adminModel.Task{}).
 		Select("status, count(*) as count").
 		Group("status").
 		Find(&statusCounts)
@@ -544,10 +618,12 @@ func (s *SchedulerService) checkAgentVersions() {
 	}
 
 	minVersion := constant.CompatibleAgentVersion
+	ctx, cancel := boundedSchedulerContext(s.ctx, 10*time.Second)
+	defer cancel()
 
 	// 查询所有 agent 模式的 provider
 	var providers []provider.Provider
-	if err := global.APP_DB.Where("connection_type = ? AND agent_status = ?", "agent", "online").
+	if err := global.APP_DB.WithContext(ctx).Where("connection_type = ? AND agent_status = ?", "agent", "online").
 		Select("id, name, agent_version").
 		Find(&providers).Error; err != nil {
 		global.APP_LOG.Warn("检查Agent版本时查询Provider失败", zap.Error(err))

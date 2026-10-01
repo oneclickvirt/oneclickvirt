@@ -59,6 +59,18 @@ func TestVersionOrderingAndStableSelection(t *testing.T) {
 	if compareVersions("v20260822-120000", "v20260821-235959") <= 0 {
 		t.Fatal("date-style release versions were not ordered")
 	}
+	if compareVersions("v20260822-120001", "v20260822-120000") <= 0 {
+		t.Fatal("date-style releases made on the same day were not ordered by time")
+	}
+	if compareVersions("v20260822-115959", "v20260822-120000") >= 0 {
+		t.Fatal("date-style release time ordering is reversed")
+	}
+	if compareVersions("v20260925-052714", "v0.3.0") <= 0 {
+		t.Fatal("timestamp release was not newer than the legacy source marker")
+	}
+	if compareVersions("v0.3.0", "v20260925-052714") >= 0 {
+		t.Fatal("legacy source marker was ordered after a timestamp release")
+	}
 	if compareVersions("v1.10.0", "v1.9.9") <= 0 {
 		t.Fatal("semantic versions were not ordered")
 	}

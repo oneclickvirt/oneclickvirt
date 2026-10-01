@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -33,7 +34,11 @@ func (cm *ConfigManager) handleYAMLFirst() error {
 	// 3. 加锁更新内存缓存
 	cm.mu.Lock()
 	for _, config := range configs {
-		parsedValue := parseConfigValue(config.Value)
+		parsedValue, valid := parsePersistedConfigValue(config.Key, config.Value)
+		if !valid {
+			cm.logger.Warn("跳过无效的结构化配置", zap.String("key", config.Key), zap.Uint("id", config.ID))
+			continue
+		}
 		cm.configCache[config.Key] = parsedValue
 		// 调试输出
 		if config.Key == "auth.enable-oauth2" {
@@ -497,4 +502,68 @@ func parseConfigValue(valueStr string) interface{} {
 
 	// 如果不是有效的JSON，返回原始字符串
 	return valueStr
+}
+
+// Older databases can contain fmt.Sprint(map) values alongside valid JSON
+// rows for quota.level-limits. Never write those strings into YAML: they make
+// the next startup fail to decode the entire configuration.
+func parsePersistedConfigValue(key, raw string) (interface{}, bool) {
+	value := parseConfigValue(raw)
+	if key == "quota.level-limits" {
+		_, valid := value.(map[string]interface{})
+		return value, valid
+	}
+	return value, true
+}
+
+// normalizeConfigValue converts yaml.v3's map[interface{}]interface{} values
+// (common when a mapping uses numeric keys) into JSON-safe maps. Persisting the
+// Go formatting of those maps would produce values such as "map[1:map[...]]",
+// which cannot be restored into the runtime config after a restart.
+func normalizeConfigValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+	if typed, ok := value.(map[string]interface{}); ok {
+		result := make(map[string]interface{}, len(typed))
+		for key, item := range typed {
+			result[key] = normalizeConfigValue(item)
+		}
+		return result
+	}
+	if typed, ok := value.(map[interface{}]interface{}); ok {
+		result := make(map[string]interface{}, len(typed))
+		for key, item := range typed {
+			result[fmt.Sprint(key)] = normalizeConfigValue(item)
+		}
+		return result
+	}
+	if typed, ok := value.([]interface{}); ok {
+		result := make([]interface{}, len(typed))
+		for index, item := range typed {
+			result[index] = normalizeConfigValue(item)
+		}
+		return result
+	}
+
+	// Handle named map/slice types without changing scalar values. This keeps
+	// the helper safe for callers that pass typed configuration collections.
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Map:
+		result := make(map[string]interface{}, rv.Len())
+		iter := rv.MapRange()
+		for iter.Next() {
+			result[fmt.Sprint(iter.Key().Interface())] = normalizeConfigValue(iter.Value().Interface())
+		}
+		return result
+	case reflect.Slice, reflect.Array:
+		result := make([]interface{}, rv.Len())
+		for index := 0; index < rv.Len(); index++ {
+			result[index] = normalizeConfigValue(rv.Index(index).Interface())
+		}
+		return result
+	default:
+		return value
+	}
 }

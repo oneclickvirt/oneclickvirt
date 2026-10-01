@@ -72,7 +72,7 @@ export default {
   nextToExecute: "Next to execute",
   noTasksForProvider: "No tasks for this provider",
   confirmCancel: "Confirm Cancel",
-  taskCancelled: "Task cancelled",
+  taskCancelled: "Cancellation requested",
   cancelTaskFailed: "Failed to cancel task",
   unknown: "Unknown",
   request: "Request",

@@ -66,11 +66,11 @@ platform_init() {
 # ============================================================================
 # Create instance with auto-fallback across enabled platforms
 # Tries each enabled platform in priority order until one succeeds.
-# By default, enforces a hard max of 1 running instance per platform:
-#   - Extra instances (beyond the first) are always deleted immediately.
-#   - If the single kept instance can be reinstalled, reinstall it.
-#   - If reinstall fails (or platform doesn't support it), delete it and
-#     create a brand-new instance so we always start clean.
+# With disposable cleanup enabled (SKIP_INSTANCE_DELETE=false), enforce a hard
+# max of 1 running instance per platform and replace an unusable worker. With
+# the default preserving cleanup, existing instances are never deleted: a
+# single instance is reinstalled, while multiple instances require an explicit
+# PLATFORM_REUSE_INSTANCE_ID before any one is reused.
 # Set PLATFORM_ALLOW_CONCURRENT_INSTANCES=true (or ACTION_TEST_PARALLEL_LOCAL=true)
 # for local matrix runs where each process owns and cleans up its own instance ID.
 #
@@ -186,7 +186,10 @@ platform_validate_worker_resources() {
         (( lightnode_cpu > min_cpu )) && min_cpu="$lightnode_cpu"
         (( lightnode_memory > nominal_mem_mb )) && nominal_mem_mb="$lightnode_memory"
     fi
-    min_mem_mb=$((nominal_mem_mb - nominal_mem_mb / 16))
+    # Cloud plans advertised as 4 GiB can expose about 3819 MiB of MemTotal
+    # after the provider's firmware/kernel reservation. Allow 1/14 (~7.1%)
+    # while retaining the full nominal budget for guest and host sizing.
+    min_mem_mb=$((nominal_mem_mb - nominal_mem_mb / 14))
     local check_cmd
     check_cmd=$(cat <<RESOURCE_CHECK
 set -u
@@ -261,7 +264,7 @@ try_create_with_fallback() {
         local result="" exit_code
 
         local keep_id=""
-        if [[ "${PLATFORM_ALLOW_CONCURRENT_INSTANCES:-${ACTION_TEST_PARALLEL_LOCAL:-false}}" == "true" ]]; then
+        if [[ "$platform" != "hetzner" && "${PLATFORM_ALLOW_CONCURRENT_INSTANCES:-${ACTION_TEST_PARALLEL_LOCAL:-false}}" == "true" && -z "${PLATFORM_REUSE_INSTANCE_ID:-}" ]]; then
             log_info "[${platform}] Concurrent instance mode enabled; creating an isolated worker instance"
         else
             # --- Enforce max-1 invariant ---
@@ -276,7 +279,25 @@ try_create_with_fallback() {
             local all_ids=()
             mapfile -t all_ids < <(echo "$existing" | jq -r '.[].instance_id // empty' 2>/dev/null)
             local inst_count=${#all_ids[@]}
-            if [[ $inst_count -gt 1 ]]; then
+            if [[ -n "${PLATFORM_REUSE_INSTANCE_ID:-}" ]]; then
+                local candidate_id
+                for candidate_id in "${all_ids[@]}"; do
+                    if [[ "$candidate_id" == "$PLATFORM_REUSE_INSTANCE_ID" ]]; then
+                        keep_id="$candidate_id"
+                        break
+                    fi
+                done
+                if [[ -z "$keep_id" ]]; then
+                    log_error "[${platform}] Requested reuse instance is not present in the complete account inventory"
+                    all_resource_exhausted=false
+                    continue
+                fi
+            elif [[ $inst_count -gt 1 ]]; then
+                if should_skip_delete "$platform"; then
+                    log_error "[${platform}] Found ${inst_count} existing instances; set PLATFORM_REUSE_INSTANCE_ID to select one without deleting the others"
+                    all_resource_exhausted=false
+                    continue
+                fi
                 log_warning "[${platform}] Found ${inst_count} instances — enforcing max-1, deleting $((inst_count - 1)) extra(s)..."
                 local cleanup_failed=false
                 for (( _i=1; _i<inst_count; _i++ )); do
@@ -291,19 +312,58 @@ try_create_with_fallback() {
                     continue
                 fi
             fi
-            [[ $inst_count -ge 1 ]] && keep_id="${all_ids[0]}"
+            if [[ -z "$keep_id" && $inst_count -ge 1 ]]; then
+                keep_id="${all_ids[0]}"
+            fi
         fi
 
         # --- Reuse or discard the kept instance ---
         if [[ -n "$keep_id" ]]; then
+            # A follow-up test of the same installed runtime can reuse the
+            # preserved worker without an unnecessary OS rebuild. Require an
+            # explicit ID and password so this path cannot select a stranger's
+            # machine or silently fall through to creation.
+            if [[ "$platform" == "hetzner" && "${PLATFORM_REUSE_EXISTING_AS_IS:-false}" == "true" ]]; then
+                if [[ -z "${PLATFORM_REUSE_INSTANCE_ID:-}" || -z "${PLATFORM_REUSE_INSTANCE_PASSWORD:-}" ]]; then
+                    log_error "[hetzner] As-is reuse requires an explicit instance ID and SSH password"
+                    all_resource_exhausted=false
+                    continue
+                fi
+                local reuse_ip
+                reuse_ip=$(jq -er --arg id "$keep_id" '.[] | select(.instance_id == $id) | .ipv4' <<< "$existing" 2>/dev/null) || {
+                    log_error "[hetzner] As-is reuse could not resolve the selected worker IP"
+                    all_resource_exhausted=false
+                    continue
+                }
+                PLATFORM_SSH_PASSWORD="$PLATFORM_REUSE_INSTANCE_PASSWORD"
+                ACTIVE_PLATFORM="$platform"
+                ACTIVE_INSTANCE_ID="$keep_id"
+                ACTIVE_INSTANCE_IP="$reuse_ip"
+                if ! wait_for_ssh "$reuse_ip" 120; then
+                    log_error "[hetzner] As-is worker SSH is unavailable"
+                    all_resource_exhausted=false
+                    continue
+                fi
+                log_success "[hetzner] Reusing existing installed worker ${keep_id}"
+                jq -cn --arg id "$keep_id" --arg ip "$reuse_ip" --arg password "$PLATFORM_REUSE_INSTANCE_PASSWORD" \
+                    '{instance_id:$id,ipv4:$ip,password:$password,platform:"hetzner"}'
+                return 0
+            fi
             if should_reinstall "$platform"; then
                 log_info "[${platform}] Reinstalling existing instance ${keep_id}..."
-                result=$(platform_dispatch "$platform" "reinstall_instance" "$keep_id" "debian")
+                local reinstall_os="debian"
+                [[ "$env_type" == "lxd" ]] && reinstall_os="ubuntu"
+                result=$(platform_dispatch "$platform" "reinstall_instance" "$keep_id" "$reinstall_os")
                 exit_code=$?
                 if [[ $exit_code -eq 0 && -n "$result" ]]; then
-                    local rip
+                    local rip result_password
                     rip=$(echo "$result" | jq -r '.ipv4 // empty' 2>/dev/null)
                     if [[ -n "$rip" ]]; then
+                        # The adapter ran inside $(), so its password variable
+                        # was lost. Restore it before nested-runtime resource
+                        # checks attempt SSH on the rebuilt worker.
+                        result_password=$(jq -r '.password // empty' <<< "$result" 2>/dev/null)
+                        [[ -n "$result_password" ]] && PLATFORM_SSH_PASSWORD="$result_password"
                         log_success "Reinstalled existing instance on '${platform}': ID=${keep_id} IP=${rip}"
                         ACTIVE_PLATFORM="$platform"
                         ACTIVE_INSTANCE_ID="$keep_id"
@@ -312,12 +372,21 @@ try_create_with_fallback() {
                             if ! wait_for_ssh "$rip" 600; then
                                 log_error "[${platform}] SSH never became available for resource validation"
                                 all_resource_exhausted=false
-                                platform_dispatch "$platform" "delete_instance" "$keep_id" 2>/dev/null || true
+                                if should_skip_delete "$platform"; then
+                                    log_warning "[${platform}] Preserving unavailable instance ${keep_id}"
+                                else
+                                    platform_dispatch "$platform" "delete_instance" "$keep_id" 2>/dev/null || true
+                                fi
                                 continue
                             fi
                             if ! platform_validate_worker_resources "$env_type" "$rip" "$platform"; then
-                                log_warning "[${platform}] Reinstalled instance ${keep_id} does not meet ${env_type} worker requirements; releasing it and trying next platform"
-                                platform_dispatch "$platform" "delete_instance" "$keep_id" 2>/dev/null || true
+                                log_warning "[${platform}] Reinstalled instance ${keep_id} does not meet ${env_type} worker requirements"
+                                if should_skip_delete "$platform"; then
+                                    log_warning "[${platform}] Preserving undersized instance ${keep_id}"
+                                    all_resource_exhausted=false
+                                else
+                                    platform_dispatch "$platform" "delete_instance" "$keep_id" 2>/dev/null || true
+                                fi
                                 keep_id=""
                                 PLATFORM_LAST_ERROR="resource_exhausted"
                                 continue
@@ -332,8 +401,18 @@ try_create_with_fallback() {
                 else
                     log_error "[${platform}] Reinstall failed (exit=${exit_code}). Raw output: ${result:-<empty>}"
                 fi
+                if should_skip_delete "$platform"; then
+                    log_warning "[${platform}] Preserving instance ${keep_id} after reinstall failure; refusing to replace it"
+                    all_resource_exhausted=false
+                    continue
+                fi
                 log_warning "[${platform}] Reinstall failed — deleting ${keep_id} and creating fresh instance..."
             else
+                if should_skip_delete "$platform"; then
+                    log_error "[${platform}] Existing instance ${keep_id} cannot be reinstalled; preservation prevents replacement"
+                    all_resource_exhausted=false
+                    continue
+                fi
                 log_info "[${platform}] Platform does not support reinstall — deleting instance ${keep_id}..."
             fi
             # Delete the kept instance before creating a fresh one
@@ -353,10 +432,12 @@ try_create_with_fallback() {
         result=$(platform_dispatch "$platform" "create_instance" "$env_type" "$capped_hours")
         exit_code=$?
         if [[ $exit_code -eq 0 && -n "$result" ]]; then
-            local cip cid
+            local cip cid result_password
             cip=$(echo "$result" | jq -r '.ipv4 // empty' 2>/dev/null)
             cid=$(echo "$result" | jq -r '.instance_id // empty' 2>/dev/null)
             if [[ -n "$cip" ]]; then
+                result_password=$(jq -r '.password // empty' <<< "$result" 2>/dev/null)
+                [[ -n "$result_password" ]] && PLATFORM_SSH_PASSWORD="$result_password"
                 log_success "Instance created on '${platform}': ID=${cid} IP=${cip}"
                 ACTIVE_PLATFORM="$platform"
                 ACTIVE_INSTANCE_ID="$cid"
@@ -365,12 +446,21 @@ try_create_with_fallback() {
                     if ! wait_for_ssh "$cip" 600; then
                         log_error "[${platform}] SSH never became available for resource validation"
                         all_resource_exhausted=false
-                        platform_dispatch "$platform" "delete_instance" "$cid" 2>/dev/null || true
+                        if should_skip_delete "$platform"; then
+                            log_warning "[${platform}] Preserving newly created instance ${cid}"
+                        else
+                            platform_dispatch "$platform" "delete_instance" "$cid" 2>/dev/null || true
+                        fi
                         continue
                     fi
                     if ! platform_validate_worker_resources "$env_type" "$cip" "$platform"; then
-                        log_warning "[${platform}] Instance ${cid} does not meet ${env_type} worker requirements; releasing it and trying next platform"
-                        platform_dispatch "$platform" "delete_instance" "$cid" 2>/dev/null || true
+                        log_warning "[${platform}] Instance ${cid} does not meet ${env_type} worker requirements"
+                        if should_skip_delete "$platform"; then
+                            log_warning "[${platform}] Preserving undersized instance ${cid}"
+                            all_resource_exhausted=false
+                        else
+                            platform_dispatch "$platform" "delete_instance" "$cid" 2>/dev/null || true
+                        fi
                         PLATFORM_LAST_ERROR="resource_exhausted"
                         continue
                     fi

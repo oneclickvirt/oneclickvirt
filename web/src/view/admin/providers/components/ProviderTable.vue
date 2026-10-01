@@ -6,6 +6,7 @@
       :current-page="currentPage"
       :page-size="pageSize"
       :total="total"
+      :busy-provider-ids="busyProviderIds"
       @selection-change="handleSelectionChange"
       @edit="$emit('edit', $event)"
       @show-actions="showActionsDialog"
@@ -17,6 +18,7 @@
     <ProviderActionsDialog
       :visible="actionsDialogVisible"
       :row="currentRow"
+      :busy="busyProviderIds.has(currentRow?.id)"
       @update:visible="actionsDialogVisible = $event"
       @action="handleAction"
       @paste-url="showPasteUrlDialog"
@@ -68,6 +70,10 @@ defineProps({
   total: {
     type: Number,
     default: 0
+  },
+  busyProviderIds: {
+    type: Set,
+    default: () => new Set()
   }
 })
 

@@ -53,6 +53,8 @@ pub struct InfoRequest {
 #[derive(Deserialize, ToSchema)]
 pub struct BatchInfoRequest {
     pub ids: Vec<i64>,
+    #[serde(default)]
+    pub refresh: bool,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -133,6 +135,7 @@ pub struct InfoResponse {
 
 #[derive(Serialize, ToSchema)]
 pub struct BatchInfoResponse {
+    pub refreshed: bool,
     pub monitors: Vec<InfoResponse>,
     pub total: usize,
 }
@@ -267,6 +270,9 @@ pub struct DomainProxyItem {
     pub enable_ssl: bool,
     pub has_cert: bool,
     pub created_at: i64,
+    /// SHA-256 of the complete route configuration, including certificate data.
+    /// Allows the controller to detect certificate changes without exposing a key.
+    pub config_hash: String,
 }
 
 #[derive(Serialize, ToSchema)]

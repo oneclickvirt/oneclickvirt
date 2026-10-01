@@ -145,6 +145,7 @@ func ClassifyError(err error) *AppError {
 	// Conflict patterns
 	if strings.Contains(msg, "已存在") || strings.Contains(msg, "重复") ||
 		strings.Contains(msg, "已被绑定") || strings.Contains(msg, "已通过") ||
+		strings.Contains(msg, "已占用") || strings.Contains(msg, "被占用") || strings.Contains(msg, "占用") ||
 		strings.Contains(msg, "正在进行") || strings.Contains(msg, "正在创建") ||
 		strings.Contains(msg, "正在删除") || strings.Contains(msg, "正在操作") ||
 		strings.Contains(msg, "操作进行中") || strings.Contains(msg, "资源不足") ||

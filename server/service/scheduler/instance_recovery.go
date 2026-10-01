@@ -39,8 +39,12 @@ var recoveryActiveTaskStatuses = []string{"pending", "processing", "running", "c
 type InstanceRecoverySchedulerService struct {
 	providerService *adminProviderService.Service
 	stopChan        chan struct{}
+	runCancel       context.CancelFunc
 	mu              sync.RWMutex
 	isRunning       bool
+	stopping        bool
+	wg              sync.WaitGroup
+	doneChan        chan struct{}
 	recoveryMu      sync.Mutex
 	semaphore       chan struct{}
 }
@@ -60,32 +64,84 @@ func (s *InstanceRecoverySchedulerService) Start(ctx context.Context) {
 		return
 	}
 	s.mu.Lock()
-	if s.isRunning {
+	if s.isRunning || s.stopping {
 		s.mu.Unlock()
 		return
 	}
 	s.stopChan = make(chan struct{})
 	stopChan := s.stopChan
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	s.runCancel = cancel
+	s.doneChan = make(chan struct{})
 	s.isRunning = true
+	s.wg.Add(1)
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("启动实例恢复调度器",
 		zap.Duration("interval", settings.Interval),
 		zap.Duration("offline_threshold", settings.OfflineThreshold),
 		zap.Int("provider_batch_size", instanceRecoveryProviderBatchSize))
-	go s.run(ctx, stopChan)
+	go s.run(runCtx, stopChan)
 }
 
 func (s *InstanceRecoverySchedulerService) Stop() {
 	s.mu.Lock()
 	if !s.isRunning {
+		done := s.doneChan
 		s.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(30 * time.Second):
+				global.APP_LOG.Warn("实例恢复调度器后台任务仍未结束")
+			}
+		}
 		return
 	}
 	s.isRunning = false
+	s.stopping = true
 	stopChan := s.stopChan
+	cancel := s.runCancel
+	done := s.doneChan
 	s.mu.Unlock()
 	close(stopChan)
+	if cancel != nil {
+		cancel()
+	}
+	waitDone := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+		if done != nil {
+			<-done
+		}
+		s.finishStop(stopChan)
+	case <-time.After(30 * time.Second):
+		global.APP_LOG.Warn("实例恢复调度器关闭超时，等待后台任务结束后再允许重启")
+		go func() {
+			<-waitDone
+			if done != nil {
+				<-done
+			}
+			s.finishStop(stopChan)
+		}()
+	}
+}
+
+func (s *InstanceRecoverySchedulerService) finishStop(stopChan chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopChan == stopChan {
+		s.stopping = false
+		s.runCancel = nil
+		s.doneChan = nil
+	}
 }
 
 func (s *InstanceRecoverySchedulerService) IsRunning() bool {
@@ -95,6 +151,33 @@ func (s *InstanceRecoverySchedulerService) IsRunning() bool {
 }
 
 func (s *InstanceRecoverySchedulerService) run(ctx context.Context, stopChan <-chan struct{}) {
+	defer func() {
+		s.mu.Lock()
+		externalExit := false
+		var done chan struct{}
+		if s.stopChan == stopChan {
+			s.isRunning = false
+			if !s.stopping {
+				s.stopping = true
+				externalExit = true
+			}
+			done = s.doneChan
+		}
+		s.mu.Unlock()
+		if done != nil {
+			close(done)
+		}
+		s.wg.Done()
+		if externalExit {
+			s.mu.Lock()
+			if s.stopChan == stopChan {
+				s.stopping = false
+				s.runCancel = nil
+				s.doneChan = nil
+			}
+			s.mu.Unlock()
+		}
+	}()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			global.APP_LOG.Error("实例恢复调度器 panic", zap.Any("panic", recovered), zap.Stack("stack"))

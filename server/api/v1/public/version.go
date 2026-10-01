@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"oneclickvirt/constant"
 	"oneclickvirt/model/common"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,6 +51,8 @@ var (
 )
 
 const versionCacheTTL = 30 * time.Minute
+
+var dateReleaseVersionPattern = regexp.MustCompile(`^([0-9]{8})-([0-9]{6})(?:[-+._].*)?$`)
 
 // GetVersion returns the current server version and the compatible agent version.
 func GetVersion(c *gin.Context) {
@@ -141,31 +144,62 @@ func isVersionNewer(latest, current string) bool {
 	if latest == "" || current == "" || latest == current {
 		return false
 	}
+	latestDateParts, latestIsDate := parseDateReleaseVersion(latest)
+	currentDateParts, currentIsDate := parseDateReleaseVersion(current)
+	if latestIsDate && currentIsDate {
+		return compareVersionParts(latestDateParts, currentDateParts) > 0
+	}
+	if latestIsDate != currentIsDate {
+		// A timestamp release is newer than a legacy semver source marker.
+		return latestIsDate
+	}
+	// Keep numeric parsing only as a compatibility fallback for legacy/custom
+	// tags; official controller releases are always timestamp tags.
 	latestParts := parseNumericVersion(latest)
 	currentParts := parseNumericVersion(current)
 	if len(latestParts) == 0 || len(currentParts) == 0 {
 		return latest != current
 	}
-	maxLen := len(latestParts)
-	if len(currentParts) > maxLen {
-		maxLen = len(currentParts)
+	return compareVersionParts(latestParts, currentParts) > 0
+}
+
+func parseDateReleaseVersion(value string) ([]int, bool) {
+	matches := dateReleaseVersionPattern.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return nil, false
+	}
+	parts := make([]int, 0, 6)
+	for _, part := range []string{matches[1][0:4], matches[1][4:6], matches[1][6:8], matches[2][0:2], matches[2][2:4], matches[2][4:6]} {
+		number, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, false
+		}
+		parts = append(parts, number)
+	}
+	return parts, true
+}
+
+func compareVersionParts(latest, current []int) int {
+	maxLen := len(latest)
+	if len(current) > maxLen {
+		maxLen = len(current)
 	}
 	for i := 0; i < maxLen; i++ {
 		var l, c int
-		if i < len(latestParts) {
-			l = latestParts[i]
+		if i < len(latest) {
+			l = latest[i]
 		}
-		if i < len(currentParts) {
-			c = currentParts[i]
+		if i < len(current) {
+			c = current[i]
 		}
 		if l > c {
-			return true
+			return 1
 		}
 		if l < c {
-			return false
+			return -1
 		}
 	}
-	return false
+	return 0
 }
 
 func normalizeVersionTag(value string) string {

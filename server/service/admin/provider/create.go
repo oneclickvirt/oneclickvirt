@@ -12,6 +12,7 @@ import (
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/ipv6pool"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/taskgate"
 	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
 	"strings"
@@ -22,43 +23,48 @@ import (
 )
 
 func init() {
-	// 注册 Agent 连接回调：当 Agent 模式节点上线后，将延迟同步持久化到管理员任务池。
-	agentService.OnAgentConnected = func(providerID uint) {
-		svc := &Service{}
-		// 从 DB 读取发现参数（已在 triggerPendingDiscovery 中清除了 pending_discovery 标记）。
-		var p providerModel.Provider
-		if err := global.APP_DB.Select("instance_discovery_enabled, discovery_owner_user_id, discovery_auto_import, discovery_auto_adjust, owner_admin_id").
-			Where("id = ?", providerID).First(&p).Error; err != nil {
-			global.APP_LOG.Warn("OnAgentConnected: 查询 Provider 发现参数失败",
-				zap.Uint("providerID", providerID), zap.Error(err))
-			return
-		}
-		ownerUserID := p.DiscoveryOwnerUserID
-		if ownerUserID == 0 {
-			var err error
-			ownerUserID, err = resolveProviderTaskUserID(0)
-			if err != nil {
-				global.APP_LOG.Error("Agent连接后无法确定实例同步管理员", zap.Uint("providerID", providerID), zap.Error(err))
-				return
-			}
-		}
-		if !p.InstanceDiscoveryEnabled {
-			return
-		}
-		taskUserID, err := resolveProviderTaskUserID(p.OwnerAdminID)
-		if err != nil {
-			global.APP_LOG.Error("Agent连接后无法确定实例同步任务管理员", zap.Uint("providerID", providerID), zap.Error(err))
-			return
-		}
-		if _, err := svc.CreateInstanceSyncTask(providerID, taskUserID, InstanceSyncTaskOptions{
-			AutoImport:      p.DiscoveryAutoImport,
-			AutoAdjustQuota: p.DiscoveryAutoAdjust,
-			AdminUserID:     ownerUserID,
-		}); err != nil {
-			global.APP_LOG.Error("Agent连接后创建实例同步任务失败",
-				zap.Uint("providerID", providerID), zap.Error(err))
-		}
+	agentService.OnAgentConnected = enqueueInitialDiscovery
+}
+
+func enqueueInitialDiscovery(tx *gorm.DB, p *providerModel.Provider) error {
+	if !p.InstanceDiscoveryEnabled {
+		return nil
 	}
+	if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+		return err
+	}
+	resolve := func(preferred uint) (uint, error) {
+		if preferred > 0 {
+			return preferred, nil
+		}
+		var user struct{ ID uint }
+		if err := tx.Table("users").Select("id").Where("user_type IN ?", []string{"admin", "super_admin"}).Order("id ASC").First(&user).Error; err != nil {
+			return 0, err
+		}
+		return user.ID, nil
+	}
+	owner, err := resolve(p.DiscoveryOwnerUserID)
+	if err != nil {
+		return err
+	}
+	requestedBy, err := resolve(p.OwnerAdminID)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(providerTaskPayload{InstanceSyncTaskOptions: InstanceSyncTaskOptions{AutoImport: p.DiscoveryAutoImport, AutoAdjustQuota: p.DiscoveryAutoAdjust, AdminUserID: owner}})
+	if err != nil {
+		return err
+	}
+	// Reuse only a durable matching request. An unrelated manual sync must not
+	// consume a first-import request with different ownership/import options.
+	var count int64
+	if err := tx.Model(&admin.Task{}).Where("provider_id = ? AND task_type = ? AND task_data = ? AND status IN ?", p.ID, taskTypeProviderInstanceSync, string(data), []string{"pending", "processing", "running"}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	return tx.Create(&admin.Task{UserID: requestedBy, ProviderID: &p.ID, TaskType: taskTypeProviderInstanceSync, Status: "pending", TaskData: string(data), TimeoutDuration: 1800, EstimatedDuration: 300, IsForceStoppable: true}).Error
 }
 
 // maskAuthMethod 掩码认证方法，用于日志输出，避免暴露敏感信息
@@ -256,17 +262,18 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		BridgeDedicatedV6: req.BridgeDedicatedV6,
 		NATSubnet:         req.NATSubnet,
 		// 域名反向代理配置
-		EnableDomainBinding: req.EnableDomainBinding,
-		ProxyHTTPPort:       req.ProxyHTTPPort,
-		ProxyHTTPSPort:      req.ProxyHTTPSPort,
-		ProxyEnableHTTP:     req.ProxyEnableHTTP,
-		ProxyEnableHTTPS:    req.ProxyEnableHTTPS,
-		ProxyTLSCertPath:    req.ProxyTLSCertPath,
-		ProxyTLSKeyPath:     req.ProxyTLSKeyPath,
-		ProxyAutoSync:       req.ProxyAutoSync,
-		EnableVNC:           req.EnableVNC,
-		VNCBasePort:         req.VNCBasePort,
-		VNCHost:             req.VNCHost,
+		EnableDomainBinding:         req.EnableDomainBinding,
+		ProxyHTTPPort:               req.ProxyHTTPPort,
+		ProxyHTTPSPort:              req.ProxyHTTPSPort,
+		ProxyEnableHTTP:             req.ProxyEnableHTTP,
+		ProxyEnableHTTPS:            req.ProxyEnableHTTPS,
+		ProxyTrustCloudflareHeaders: req.ProxyTrustCloudflareHeaders,
+		ProxyTLSCertPath:            req.ProxyTLSCertPath,
+		ProxyTLSKeyPath:             req.ProxyTLSKeyPath,
+		ProxyAutoSync:               req.ProxyAutoSync,
+		EnableVNC:                   req.EnableVNC,
+		VNCBasePort:                 req.VNCBasePort,
+		VNCHost:                     req.VNCHost,
 		// 端口映射配置
 		DefaultPortCount:    req.DefaultPortCount,
 		PortRangeStart:      req.PortRangeStart,

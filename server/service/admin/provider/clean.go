@@ -217,9 +217,25 @@ func (s *Service) deleteProviderWithTaskContext(ctx context.Context, providerID 
 		global.APP_LOG.Warn("查询Provider域名绑定失败",
 			zap.Uint("providerID", providerID),
 			zap.Error(err))
+		if !forceDelete {
+			return fmt.Errorf("查询Provider域名绑定失败: %w", err)
+		}
 	}
 	if len(providerDomains) > 0 {
-		(&domainService.Service{}).RemoveDomainProxies(providerDomains)
+		if forceDelete {
+			(&domainService.Service{}).RemoveDomainProxies(providerDomains)
+		} else if err := (&domainService.Service{}).RemoveDomainProxiesStrict(providerDomains); err != nil {
+			return fmt.Errorf("清理Provider域名代理失败: %w。请恢复Agent后重试，或使用强制删除", err)
+		}
+	}
+	if !forceDelete {
+		// Also reconcile routes that no longer have a controller row. This closes
+		// the orphan cleanup gap after an earlier database-only cleanup.
+		if result, err := (&domainService.Service{}).SyncProviderDomainProxies(providerID); err != nil {
+			return fmt.Errorf("同步Provider域名代理失败: %w。请恢复Agent后重试，或使用强制删除", err)
+		} else if result.Failed > 0 {
+			return fmt.Errorf("清理Provider孤儿域名代理失败，请恢复Agent后重试，或使用强制删除")
+		}
 	}
 
 	dbService := database.GetDatabaseService()

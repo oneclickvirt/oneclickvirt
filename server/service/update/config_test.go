@@ -59,6 +59,16 @@ func TestEnsureUpdateDirSkipsUnmanagedWebPath(t *testing.T) {
 	}
 }
 
+func TestValidateTargetPathRejectsInstallRoot(t *testing.T) {
+	cfg := runtimeConfig{InstallRoot: "/opt/oneclickvirt"}
+	if err := cfg.validateTargetPath(cfg.InstallRoot); err == nil {
+		t.Fatal("install root was accepted as an update target")
+	}
+	if err := cfg.validateTargetPath("/opt/oneclickvirt/server/oneclickvirt-server"); err != nil {
+		t.Fatalf("managed child path was rejected: %v", err)
+	}
+}
+
 func TestCreateUpdateTempDirCreatesMissingRoot(t *testing.T) {
 	root := t.TempDir()
 	cfg := runtimeConfig{
@@ -129,6 +139,22 @@ func TestWorkerEnvironmentPinsValidatedSettings(t *testing.T) {
 	} {
 		if !strings.Contains(joined, "\n"+expected+"\n") {
 			t.Fatalf("worker environment missing %q: %q", expected, values)
+		}
+	}
+}
+
+func TestHealthCheckEndpointsIncludeBothLoopbackFamilies(t *testing.T) {
+	endpoints := healthCheckEndpoints(9443)
+	if len(endpoints) != 2 {
+		t.Fatalf("health endpoint count = %d, want 2", len(endpoints))
+	}
+	joined := strings.Join(endpoints, "\n")
+	for _, expected := range []string{
+		"http://127.0.0.1:9443/api/v1/health",
+		"http://[::1]:9443/api/v1/health",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("health endpoints missing %q: %v", expected, endpoints)
 		}
 	}
 }

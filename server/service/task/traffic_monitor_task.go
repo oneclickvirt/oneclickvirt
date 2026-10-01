@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
+	"oneclickvirt/model/common"
 	trafficMonitorService "oneclickvirt/service/admin/traffic_monitor"
+	"oneclickvirt/service/taskgate"
 	"oneclickvirt/utils"
 )
 
@@ -18,10 +21,65 @@ type trafficMonitorAdminTaskData struct {
 	Operation            string `json:"operation"`
 }
 
-func CreateTrafficMonitorAdminTask(providerID uint, trafficTaskID uint, operation string, userID uint) (*adminModel.Task, error) {
-	if err := GetTaskService().EnsureTaskPoolAccepting(); err != nil {
-		return nil, err
+var trafficMonitorCreateMu sync.Mutex
+
+// CreateTrafficMonitorTask rejects overlapping enable/disable/detect operations
+// for a provider before creating either task row. The database check also
+// catches unfinished tasks retained across controller restarts.
+func CreateTrafficMonitorTask(providerID uint, operation string, userID uint) (*adminModel.TrafficMonitorTask, *adminModel.Task, error) {
+	if err := taskgate.EnsureAccepting(); err != nil {
+		return nil, nil, err
 	}
+	trafficMonitorCreateMu.Lock()
+	defer trafficMonitorCreateMu.Unlock()
+
+	if providerID == 0 {
+		return nil, nil, common.NewError(common.CodeValidationError, "Provider ID无效")
+	}
+	var trafficTaskType string
+	switch operation {
+	case "enable":
+		trafficTaskType = "enable_all"
+	case "disable":
+		trafficTaskType = "disable_all"
+	case "detect":
+		trafficTaskType = "detect_all"
+	default:
+		return nil, nil, common.NewError(common.CodeValidationError, "不支持的流量监控操作")
+	}
+
+	var activeCount int64
+	if err := global.APP_DB.Model(&adminModel.Task{}).
+		Where("provider_id = ? AND task_type IN ? AND status IN ?", providerID,
+			[]string{"traffic-monitor-enable", "traffic-monitor-disable", "traffic-monitor-detect"},
+			[]string{"pending", "processing", "running", "cancelling"}).
+		Count(&activeCount).Error; err != nil {
+		return nil, nil, fmt.Errorf("检查流量监控后台任务失败: %w", err)
+	}
+	if activeCount > 0 {
+		return nil, nil, common.NewError(common.CodeConflict, "该节点已有流量监控后台任务，请在任务列表查看进度")
+	}
+
+	trafficTask := &adminModel.TrafficMonitorTask{
+		ProviderID: providerID,
+		TaskType:   trafficTaskType,
+		Status:     "pending",
+		Progress:   0,
+		Message:    "任务已创建，等待执行",
+	}
+	if err := global.APP_DB.Create(trafficTask).Error; err != nil {
+		return nil, nil, err
+	}
+	created, err := createTrafficMonitorAdminTask(providerID, trafficTask.ID, operation, userID)
+	if err != nil {
+		_ = global.APP_DB.Model(trafficTask).Updates(map[string]interface{}{"status": "failed", "message": err.Error()}).Error
+		return nil, nil, err
+	}
+	_ = global.APP_DB.Model(trafficTask).Update("admin_task_id", created.ID).Error
+	return trafficTask, created, nil
+}
+
+func createTrafficMonitorAdminTask(providerID uint, trafficTaskID uint, operation string, userID uint) (*adminModel.Task, error) {
 
 	taskType := "traffic-monitor-" + operation
 	data, _ := json.Marshal(trafficMonitorAdminTaskData{

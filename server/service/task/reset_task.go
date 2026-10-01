@@ -5,20 +5,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
+	domainModel "oneclickvirt/model/domain"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
+	domainService "oneclickvirt/service/domain"
 	ipv6PoolService "oneclickvirt/service/ipv6pool"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/trafficfinal"
 	"oneclickvirt/utils"
 
 	"github.com/google/uuid"
@@ -61,6 +65,9 @@ type ResetTaskContext struct {
 	NewPassword            string
 	NewPrivateIP           string
 	NewGuestIPv6           string
+	NewPublicIPv6          string
+	OldIPv4BindingID       uint
+	OldAllocatedIPv4       string
 	OldAllocatedIPv6       string
 	NewAllocatedIPv6       string
 	NewIPv6Metadata        ipv6PoolService.IPv6AllocationMetadata
@@ -108,6 +115,13 @@ func validateResetRoutedIPv6(providerType, networkType, allocatedIPv6 string, al
 }
 
 func resetReplacementInstance(resetCtx *ResetTaskContext) providerModel.Instance {
+	publicIPv4 := strings.TrimSpace(resetCtx.Instance.PublicIP)
+	if strings.TrimSpace(resetCtx.OldAllocatedIPv4) != "" {
+		publicIPv4 = strings.TrimSpace(resetCtx.OldAllocatedIPv4)
+	}
+	if publicIPv4 == "" {
+		publicIPv4 = resetCtx.Provider.Endpoint
+	}
 	return providerModel.Instance{
 		UUID:            resetCtx.Instance.UUID,
 		Name:            resetCtx.OldInstanceName,
@@ -126,11 +140,32 @@ func resetReplacementInstance(resetCtx *ResetTaskContext) providerModel.Instance
 		NetworkType:     resetCtx.Instance.NetworkType,
 		ExpiresAt:       resetCtx.OriginalExpiresAt,
 		IsManualExpiry:  resetCtx.OriginalIsManualExpiry,
-		PublicIP:        resetCtx.Provider.Endpoint,
+		PublicIP:        publicIPv4,
 		MaxTraffic:      int64(resetCtx.OriginalMaxTraffic),
 		ProviderVMID:    resetCtx.OldInstanceName,
 		EgressProfileID: resetCtx.Instance.EgressProfileID,
 	}
+}
+
+func resetNeedsIPv6Addresses(resetCtx *ResetTaskContext) bool {
+	if resetCtx == nil {
+		return false
+	}
+	if strings.TrimSpace(resetCtx.Instance.IPv6Address) != "" || strings.TrimSpace(resetCtx.Instance.PublicIPv6) != "" ||
+		utils.NetworkTypeHasIPv6(resetCtx.Instance.NetworkType) {
+		return true
+	}
+	for _, port := range resetCtx.OldPortMappings {
+		if port.IPv6Enabled || strings.TrimSpace(port.IPv6Address) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func isDedicatedIPv4Network(networkType string) bool {
+	return strings.EqualFold(strings.TrimSpace(networkType), "dedicated_ipv4") ||
+		strings.EqualFold(strings.TrimSpace(networkType), "dedicated_ipv4_ipv6")
 }
 
 func transferResetEgressBindingInTx(tx *gorm.DB, bindingID, providerID, oldInstanceID, newInstanceID uint) error {
@@ -172,35 +207,11 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 		// Creation or cancellation can exit before restoration. Keep the
 		// allocation, but make unfinished rows visible to the repair workflow.
 		if err := global.APP_DB.WithContext(cleanupCtx).Model(&providerModel.Port{}).
-			Where("instance_id = ? AND provider_id = ? AND status = ?", resetCtx.NewInstanceID, resetCtx.Provider.ID, "restoring").Update("status", "failed").Error; err != nil {
+			Where("instance_id = ? AND provider_id = ? AND status = ?", resetCtx.NewInstanceID, resetCtx.Provider.ID, "restoring").Update("status", constant.InstanceStatusError).Error; err != nil {
 			global.APP_LOG.Error("重建未完成端口状态清理失败", zap.Error(err))
 		}
 	}()
 
-	// 当任务context被取消时（超时/强制停止），确保新实例不会卡在creating状态
-	// 使用独立的background context执行清理，避免被取消的ctx影响
-	defer func() {
-		if ctx.Err() != nil && resetCtx.NewInstanceID != 0 {
-			bgCtx := context.Background()
-			result := global.APP_DB.WithContext(bgCtx).
-				Model(&providerModel.Instance{}).
-				Where("id = ? AND status = ?", resetCtx.NewInstanceID, "creating").
-				Updates(map[string]interface{}{
-					"status":     "stopped",
-					"updated_at": time.Now(),
-				})
-			if result.Error != nil {
-				global.APP_LOG.Error("重置任务context取消后清理新实例状态失败",
-					zap.Uint("taskId", task.ID),
-					zap.Uint("newInstanceId", resetCtx.NewInstanceID),
-					zap.Error(result.Error))
-			} else if result.RowsAffected > 0 {
-				global.APP_LOG.Warn("重置任务因context取消而中断，已将新实例状态从creating恢复为stopped",
-					zap.Uint("taskId", task.ID),
-					zap.Uint("newInstanceId", resetCtx.NewInstanceID))
-			}
-		}
-	}()
 	// 阶段1: 准备阶段 - 收集必要信息
 	if err := s.resetTask_Prepare(ctx, task, &taskReq, &resetCtx); err != nil {
 		return err
@@ -222,7 +233,8 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 	}
 
 	// 阶段5: 设置密码
-	if err := s.resetTask_SetPassword(ctx, task, &resetCtx); err != nil {
+	passwordErr := s.resetTask_SetPassword(ctx, task, &resetCtx)
+	if err := passwordErr; err != nil {
 		// 密码设置失败不影响重置流程，但不能记录固定默认口令。
 		global.APP_LOG.Warn("重置系统：密码设置失败，未记录新密码", zap.Error(err))
 	}
@@ -249,6 +261,12 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 		return fmt.Errorf("实例已重建，但端口映射恢复失败（保留实例及端口占用供修复）: %w", portRestoreErr)
 	}
 
+	if err := (&domainService.Service{}).RestoreInstanceDomains(resetCtx.NewInstanceID); err != nil {
+		return err
+	}
+	if passwordErr != nil {
+		return fmt.Errorf("实例已重建，但密码设置失败，请重新设置密码: %w", passwordErr)
+	}
 	s.updateTaskProgress(task.ID, 100, "step.resetCompleted")
 
 	global.APP_LOG.Info("用户实例重置成功",
@@ -299,6 +317,40 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 		// 2. 查询Provider
 		if err := global.APP_DB.First(&resetCtx.Provider, resetCtx.Instance.ProviderID).Error; err != nil {
 			return fmt.Errorf("获取Provider配置失败: %v", err)
+		}
+		if strings.TrimSpace(resetCtx.Instance.NetworkType) == "" {
+			resetCtx.Instance.NetworkType = strings.TrimSpace(resetCtx.Provider.NetworkType)
+		}
+
+		if isDedicatedIPv4Network(resetCtx.Instance.NetworkType) {
+			var ipv4Binding providerModel.ProviderIPv4Pool
+			result := global.APP_DB.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND deleted_at IS NULL",
+				resetCtx.Provider.ID, resetCtx.Instance.ID, true).First(&ipv4Binding)
+			if result.Error == nil {
+				ip := net.ParseIP(strings.TrimSpace(ipv4Binding.Address))
+				if ip == nil || ip.To4() == nil {
+					return fmt.Errorf("实例专用IPv4地址池绑定无效，无法安全重建")
+				}
+				resetCtx.OldIPv4BindingID = ipv4Binding.ID
+				resetCtx.OldAllocatedIPv4 = ip.String()
+			} else if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("获取实例IPv4地址池绑定失败: %w", result.Error)
+			} else {
+				candidate := net.ParseIP(utils.ExtractHost(resetCtx.Instance.PublicIP))
+				endpointIP := net.ParseIP(utils.ExtractHost(resetCtx.Provider.Endpoint))
+				if candidate == nil || candidate.To4() == nil || (endpointIP != nil && candidate.Equal(endpointIP)) {
+					return fmt.Errorf("专用IPv4地址池绑定缺失，无法安全重建")
+				}
+				var addressEntry providerModel.ProviderIPv4Pool
+				addressResult := global.APP_DB.Select("id").Where("address = ? AND deleted_at IS NULL", candidate.String()).First(&addressEntry)
+				if addressResult.Error == nil {
+					return fmt.Errorf("专用IPv4地址池记录未归属于此实例，无法安全重建")
+				}
+				if !errors.Is(addressResult.Error, gorm.ErrRecordNotFound) {
+					return fmt.Errorf("核对专用IPv4地址池失败: %w", addressResult.Error)
+				}
+				resetCtx.OldAllocatedIPv4 = candidate.String()
+			}
 		}
 
 		var ipv6Binding providerModel.ProviderIPv6Pool
@@ -421,6 +473,18 @@ func (s *TaskService) resetTask_DeleteOldInstance(ctx context.Context, task *adm
 
 	providerApiService := &provider2.ProviderApiService{}
 
+	if err := trafficfinal.Collect(ctx, resetCtx.OldInstanceID); err != nil {
+		return err
+	}
+	if err := s.recordLifecyclePhase(ctx, task.ID, "delete_started"); err != nil {
+		return err
+	}
+
+	domainSvc := &domainService.Service{}
+	if err := domainSvc.SuspendInstanceDomains(resetCtx.OldInstanceID); err != nil {
+		return err
+	}
+
 	// 直接调用Provider删除API
 	if err := providerApiService.DeleteInstanceByProviderID(ctx, resetCtx.Provider.ID, resetCtx.OldProviderInstanceID); err != nil {
 		// 如果实例不存在，继续流程
@@ -429,12 +493,19 @@ func (s *TaskService) resetTask_DeleteOldInstance(ctx context.Context, task *adm
 			global.APP_LOG.Info("实例已不存在，继续重置流程",
 				zap.String("instanceName", resetCtx.OldInstanceName))
 		} else {
+			if restoreErr := domainSvc.RestoreInstanceDomainsAfterDeleteFailure(resetCtx.OldInstanceID); restoreErr != nil {
+				return fmt.Errorf("删除旧实例失败，恢复域名代理也失败: %w", errors.Join(err, restoreErr))
+			}
 			return fmt.Errorf("删除旧实例失败: %v", err)
 		}
 	}
 
-	// 等待删除完成
-	time.Sleep(10 * time.Second)
+	if err := s.recordLifecyclePhase(ctx, task.ID, "old_deleted"); err != nil {
+		return err
+	}
+	if err := waitTaskContext(ctx, 10*time.Second); err != nil {
+		return err
+	}
 
 	global.APP_LOG.Info("旧实例删除完成",
 		zap.String("instanceName", resetCtx.OldInstanceName))
@@ -528,11 +599,41 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			return fmt.Errorf("删除旧实例记录失败: %v", err)
 		}
 
+		var lockedTask adminModel.Task
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&lockedTask, task.ID).Error; err != nil {
+			return err
+		}
+		if lockedTask.Status != mainTaskStatusRunning {
+			return fmt.Errorf("重置任务已停止")
+		}
 		// 创建新实例记录
 		newInstance = resetReplacementInstance(resetCtx)
 
 		if err := tx.Create(&newInstance).Error; err != nil {
 			return fmt.Errorf("创建新实例记录失败: %v", err)
+		}
+		if resetCtx.OldIPv4BindingID != 0 {
+			if err := transferResetIPv4BindingInTx(tx, resetCtx.Provider.ID, resetCtx.OldInstanceID,
+				newInstance.ID, resetCtx.OldIPv4BindingID, resetCtx.OldAllocatedIPv4); err != nil {
+				return err
+			}
+		}
+		var taskData map[string]interface{}
+		if err := json.Unmarshal([]byte(lockedTask.TaskData), &taskData); err != nil {
+			return err
+		}
+		taskData["lifecyclePhase"] = "replacement_created"
+		taskData["instanceId"] = newInstance.ID
+		taskData["resetOldInstanceId"] = resetCtx.OldInstanceID
+		encoded, err := json.Marshal(taskData)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&lockedTask).Updates(map[string]interface{}{"instance_id": newInstance.ID, "task_data": string(encoded)}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&domainModel.Domain{}).Where("instance_id = ?", resetCtx.OldInstanceID).Update("instance_id", newInstance.ID).Error; err != nil {
+			return err
 		}
 		if err := transferResetPortMappingsInTx(tx, resetCtx, newInstance.ID); err != nil {
 			return err
@@ -595,6 +696,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	if err != nil {
 		return err
 	}
+	task.InstanceID = &newInstance.ID
 	resetCtx.NewInstanceID = newInstance.ID
 	resetCtx.NewProviderInstanceID = newInstance.ProviderVMID
 	resetCtx.NewAllocatedIPv6 = allocatedIPv6
@@ -652,6 +754,9 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			},
 		},
 		SystemImageID: resetCtx.SystemImage.ID,
+	}
+	if isDedicatedIPv4Network(resetCtx.Instance.NetworkType) && resetCtx.OldAllocatedIPv4 != "" {
+		createReq.InstanceConfig.Metadata["static_ipv4"] = resetCtx.OldAllocatedIPv4
 	}
 	applyIPv6AllocationMetadata(createReq.InstanceConfig.Metadata, resetCtx.NewIPv6Metadata)
 	if utils.SupportsLXDContainerOptions(resetCtx.Provider.Type, resetCtx.Instance.InstanceType) {
@@ -732,7 +837,9 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	case "proxmox":
 		instanceStartWait = 60 * time.Second
 	}
-	time.Sleep(instanceStartWait)
+	if err := waitTaskContext(ctx, instanceStartWait); err != nil {
+		return err
+	}
 
 	// 确保实例运行
 	if prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID); err == nil {
@@ -744,7 +851,9 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 				if err := prov.StartInstance(ctx, resetCtx.NewProviderInstanceID); err != nil {
 					global.APP_LOG.Warn("启动实例失败", zap.Error(err))
 				} else {
-					time.Sleep(10 * time.Second)
+					if err := waitTaskContext(ctx, 10*time.Second); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -771,6 +880,17 @@ func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminMode
 	prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID)
 	if err == nil {
 		resetCtx.NewPrivateIP = getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, resetCtx.NewProviderInstanceID)
+		if resetNeedsIPv6Addresses(resetCtx) {
+			resetCtx.NewGuestIPv6 = getResetInstanceIPv6(ctx, prov, resetCtx.Provider.Type, resetCtx.NewProviderInstanceID)
+			if strings.TrimSpace(resetCtx.Instance.PublicIPv6) != "" {
+				if resetCtx.Instance.PublicIPv6 == resetCtx.OldAllocatedIPv6 {
+					resetCtx.NewPublicIPv6 = strings.TrimSpace(resetCtx.NewAllocatedIPv6)
+				}
+				if resetCtx.NewPublicIPv6 == "" {
+					resetCtx.NewPublicIPv6 = getResetInstancePublicIPv6(ctx, prov, resetCtx.NewProviderInstanceID)
+				}
+			}
+		}
 	}
 
 	// 设置密码（带重试）
@@ -780,7 +900,9 @@ func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminMode
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if attempt > 1 {
-			time.Sleep(time.Duration(attempt*3) * time.Second)
+			if err := waitTaskContext(ctx, time.Duration(attempt*3)*time.Second); err != nil {
+				return err
+			}
 		}
 
 		err := providerService.SetInstancePassword(ctx, resetCtx.Provider.ID, resetCtx.NewProviderInstanceID, resetCtx.NewPassword)
@@ -823,10 +945,21 @@ func (s *TaskService) resetTask_UpdateInstanceInfo(ctx context.Context, task *ad
 		if resetCtx.NewPrivateIP != "" {
 			updates["private_ip"] = resetCtx.NewPrivateIP
 		}
+		if resetCtx.NewGuestIPv6 != "" {
+			updates["ipv6_address"] = resetCtx.NewGuestIPv6
+		}
+		if resetCtx.NewPublicIPv6 != "" {
+			updates["public_ipv6"] = resetCtx.NewPublicIPv6
+		}
 
 		if err := tx.Model(&providerModel.Instance{}).Where("id = ?", resetCtx.NewInstanceID).
 			Updates(updates).Error; err != nil {
 			return fmt.Errorf("更新实例信息失败: %v", err)
+		}
+
+		if err := migrateResetDomainTargets(tx, resetCtx.NewInstanceID, resetCtx.Instance,
+			resetCtx.NewPrivateIP, resetCtx.OldAllocatedIPv4, resetCtx.NewGuestIPv6, resetCtx.NewPublicIPv6); err != nil {
+			return err
 		}
 
 		// 确认待确认配额（将 pending_quota 转为 used_quota）

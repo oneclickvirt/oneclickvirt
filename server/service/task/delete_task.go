@@ -18,7 +18,7 @@ import (
 	ipv6PoolService "oneclickvirt/service/ipv6pool"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
-	"oneclickvirt/service/traffic"
+	"oneclickvirt/service/trafficfinal"
 	"time"
 
 	"go.uber.org/zap"
@@ -77,18 +77,8 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	// 更新进度 (20%)
 	s.updateTaskProgress(task.ID, 20, "step.syncTrafficData")
 
-	// 删除前进行最后一次流量同步
-	syncTrigger := traffic.NewSyncTriggerService()
-	syncTrigger.TriggerInstanceTrafficSync(instance.ID, "实例删除前最终同步")
-
-	// 使用可取消的等待
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-	case <-ctx.Done():
-		return fmt.Errorf("任务已取消")
+	if err := trafficfinal.Collect(ctx, instance.ID); err != nil {
+		return err
 	}
 
 	// 更新进度 (25%)
@@ -106,6 +96,13 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	}
 	var lastErr error
 
+	if err := s.recordLifecyclePhase(ctx, task.ID, "delete_started"); err != nil {
+		return err
+	}
+	domainSvc := &domainService.Service{}
+	if err := domainSvc.SuspendInstanceDomains(instance.ID); err != nil {
+		return err
+	}
 	providerDeleteSuccess := false
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if attempt > 1 {
@@ -134,6 +131,9 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 				select {
 				case <-ctx.Done():
 					timer.Stop()
+					if restoreErr := domainSvc.RestoreInstanceDomainsAfterDeleteFailure(instance.ID); restoreErr != nil {
+						return fmt.Errorf("Provider删除取消，恢复域名代理也失败: %w", errors.Join(ctx.Err(), restoreErr))
+					}
 					return ctx.Err()
 				case <-timer.C:
 				}
@@ -164,6 +164,9 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		// and can be retried with the original provider/port metadata.
 		if lastErr == nil {
 			lastErr = fmt.Errorf("provider deletion failed without an error")
+		}
+		if restoreErr := domainSvc.RestoreInstanceDomainsAfterDeleteFailure(instance.ID); restoreErr != nil {
+			return fmt.Errorf("Provider删除实例失败，保留实例及端口记录以便重试；恢复域名代理也失败: %w", errors.Join(lastErr, restoreErr))
 		}
 		return fmt.Errorf("Provider删除实例失败，保留实例及端口记录以便重试: %w", lastErr)
 	}
@@ -205,7 +208,6 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	instanceProviderID := instance.ProviderID
 	instanceType := instance.InstanceType
 	instanceUserID := instance.UserID
-	domainSvc := &domainService.Service{}
 	instanceDomains, domainErr := domainSvc.GetInstanceDomains(instanceID)
 	if domainErr != nil {
 		global.APP_LOG.Warn("查询实例域名绑定失败，继续删除实例",
@@ -337,10 +339,10 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			zap.Uint("instanceId", instanceID),
 			zap.Error(err))
 
-		// 恢复实例状态为stopped，避免卡在deleting状态
+		// 远端已经删除，保留元数据供重试清理，不能声称实例仍然存在。
 		if recoverErr := global.APP_DB.Model(&providerModel.Instance{}).
 			Where("id = ?", instanceID).
-			Update("status", "stopped").Error; recoverErr != nil {
+			Updates(map[string]interface{}{"status": constant.InstanceStatusError, "desired_state": providerModel.InstanceDesiredStateStopped}).Error; recoverErr != nil {
 			global.APP_LOG.Error("恢复实例状态失败",
 				zap.Uint("instanceId", instanceID),
 				zap.Error(recoverErr))

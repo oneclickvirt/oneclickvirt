@@ -7,14 +7,31 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/provider"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
 
+func (c *ContainerdProvider) rejectInfrastructureContainer(ctx context.Context, id string) error {
+	if provider.IsRuntimeInfrastructureContainer(id) {
+		return fmt.Errorf("refusing to manage runtime infrastructure container %s", id)
+	}
+	output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, fmt.Sprintf("%s inspect -f '{{.Name}}' %s 2>/dev/null", cliName, shellSingleQuote(id)))
+	if err != nil {
+		return nil
+	}
+	for _, name := range strings.Split(output, "\n") {
+		if provider.IsRuntimeInfrastructureContainer(name) {
+			return fmt.Errorf("refusing to manage runtime infrastructure container %s", id)
+		}
+	}
+	return nil
+}
+
 // sshStartInstance 启动实例
 func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) error {
-	statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to check container status: %w", err)
 	}
@@ -25,7 +42,7 @@ func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) er
 	}
 
 	startCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(id))
-	output, err := c.sshClient.Execute(startCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, startCmd)
 	if err != nil {
 		global.APP_LOG.Error("Containerd实例启动失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -42,12 +59,16 @@ func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) er
 		if time.Since(startTime) > maxWaitTime {
 			return fmt.Errorf("等待容器启动超时 (30秒)")
 		}
-		time.Sleep(checkInterval)
-		statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
+		if err := utils.SleepContext(ctx, checkInterval); err != nil {
+			return fmt.Errorf("waiting for container '%s' to start cancelled: %w", id, err)
+		}
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
 		if err == nil {
 			currentStatus := strings.ToLower(strings.TrimSpace(statusOutput))
 			if currentStatus == "running" {
-				time.Sleep(2 * time.Second)
+				if err := utils.SleepContext(ctx, 2*time.Second); err != nil {
+					return fmt.Errorf("waiting for container '%s' readiness cancelled: %w", id, err)
+				}
 				return c.restoreRoutedIPv6AfterStart(id)
 			}
 		}
@@ -56,8 +77,11 @@ func (c *ContainerdProvider) sshStartInstance(ctx context.Context, id string) er
 
 // sshStopInstance 停止实例
 func (c *ContainerdProvider) sshStopInstance(ctx context.Context, id string) error {
+	if err := c.rejectInfrastructureContainer(ctx, id); err != nil {
+		return err
+	}
 	stopCmd := fmt.Sprintf("%s stop %s", cliName, shellSingleQuote(id))
-	output, err := c.sshClient.Execute(stopCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, stopCmd)
 	if err != nil {
 		global.APP_LOG.Error("Containerd实例停止失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -69,16 +93,20 @@ func (c *ContainerdProvider) sshStopInstance(ctx context.Context, id string) err
 	maxRetries := 10
 	retryInterval := 1 * time.Second
 	for i := 0; i < maxRetries; i++ {
-		statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
 		if err != nil {
-			time.Sleep(retryInterval)
+			if err := utils.SleepContext(ctx, retryInterval); err != nil {
+				return err
+			}
 			continue
 		}
 		status := strings.ToLower(strings.TrimSpace(statusOutput))
 		if strings.Contains(status, "exited") {
 			return nil
 		}
-		time.Sleep(retryInterval)
+		if err := utils.SleepContext(ctx, retryInterval); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -86,7 +114,7 @@ func (c *ContainerdProvider) sshStopInstance(ctx context.Context, id string) err
 // sshRestartInstance 重启实例
 func (c *ContainerdProvider) sshRestartInstance(ctx context.Context, id string) error {
 	restartCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(id))
-	output, err := c.sshClient.Execute(restartCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, restartCmd)
 	if err != nil {
 		global.APP_LOG.Error("Containerd实例重启失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -100,10 +128,15 @@ func (c *ContainerdProvider) sshRestartInstance(ctx context.Context, id string) 
 
 // sshDeleteInstance 删除实例 - 多重删除策略
 func (c *ContainerdProvider) sshDeleteInstance(ctx context.Context, id string) error {
+	if err := c.rejectInfrastructureContainer(ctx, id); err != nil {
+		return err
+	}
 	global.APP_LOG.Debug("开始删除Containerd实例", zap.String("id", utils.TruncateString(id, 32)))
 
 	cleanupCmd := fmt.Sprintf("%s ps -a --filter %s --filter status=exited -q | xargs -r %s rm -f", cliName, containerNameFilter(id), cliName)
-	c.sshClient.Execute(cleanupCmd)
+	if _, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, cleanupCmd); err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	deleteStrategies := []struct {
 		name     string
@@ -139,7 +172,7 @@ func (c *ContainerdProvider) sshDeleteInstance(ctx context.Context, id string) e
 			success := true
 
 			for _, cmd := range strategy.commands {
-				output, err := c.sshClient.Execute(cmd)
+				output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, cmd)
 				if err != nil {
 					if c.isAcceptableError(err, output) {
 						continue
@@ -171,12 +204,16 @@ func (c *ContainerdProvider) sshDeleteInstance(ctx context.Context, id string) e
 		}
 
 		if strategyIndex < len(deleteStrategies)-1 {
-			time.Sleep(1 * time.Second)
+			if err := utils.SleepContext(ctx, time.Second); err != nil {
+				return err
+			}
 		}
 	}
 
 	finalCleanupCmd := fmt.Sprintf("%s ps -a --filter %s -q | xargs -r %s rm -f", cliName, containerNameFilter(id), cliName)
-	c.sshClient.Execute(finalCleanupCmd)
+	if _, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, finalCleanupCmd); err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	if c.verifyContainerDeleted(ctx, id) {
 		return nil
@@ -205,7 +242,7 @@ func (c *ContainerdProvider) isAcceptableError(err error, output string) bool {
 // verifyContainerDeleted 验证容器是否真的被删除
 func (c *ContainerdProvider) verifyContainerDeleted(ctx context.Context, id string) bool {
 	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id))
-	output, err := c.sshClient.Execute(checkCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, checkCmd)
 	if err != nil {
 		outputStr := strings.ToLower(output)
 		if strings.Contains(outputStr, "no such object") ||
@@ -220,13 +257,13 @@ func (c *ContainerdProvider) verifyContainerDeleted(ctx context.Context, id stri
 	}
 
 	listByNameCmd := fmt.Sprintf("%s ps -a --filter %s --format '{{.Names}}:{{.Status}}'", cliName, containerNameFilter(id))
-	listByNameOutput, listByNameErr := c.sshClient.Execute(listByNameCmd)
+	listByNameOutput, listByNameErr := utils.ExecuteShellCommandContext(ctx, c.sshClient, listByNameCmd)
 	if listByNameErr == nil && strings.TrimSpace(listByNameOutput) != "" {
 		return false
 	}
 
 	listCmd := fmt.Sprintf("%s ps -a --filter %s --format '{{.ID}}'", cliName, shellSingleQuote("id="+id))
-	listOutput, listErr := c.sshClient.Execute(listCmd)
+	listOutput, listErr := utils.ExecuteShellCommandContext(ctx, c.sshClient, listCmd)
 	if listErr == nil && strings.TrimSpace(listOutput) != "" {
 		return false
 	}

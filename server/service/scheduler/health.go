@@ -22,8 +22,12 @@ const autoFreezeThreshold = 20
 type ProviderHealthSchedulerService struct {
 	providerService     *adminProviderService.Service
 	stopChan            chan struct{}
+	runCancel           context.CancelFunc
 	mu                  sync.RWMutex
 	isRunning           bool
+	stopping            bool
+	wg                  sync.WaitGroup
+	doneChan            chan struct{}
 	maxConcurrency      int // 最大并发数
 	consecutiveFailures map[uint]int
 	failureMu           sync.Mutex
@@ -44,35 +48,87 @@ func NewProviderHealthSchedulerService() *ProviderHealthSchedulerService {
 // Start 启动健康检查调度器
 func (s *ProviderHealthSchedulerService) Start(ctx context.Context) {
 	s.mu.Lock()
-	if s.isRunning {
+	if s.isRunning || s.stopping {
 		s.mu.Unlock()
 		global.APP_LOG.Warn("Provider健康检查调度器已在运行中")
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
 	s.stopChan = make(chan struct{}) // 每次启动时重建，防止复用已关闭的channel
 	stopChan := s.stopChan
+	s.runCancel = cancel
+	s.doneChan = make(chan struct{})
 	s.isRunning = true
+	s.wg.Add(1)
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("启动Provider健康检查调度器")
 
 	// 启动定期健康检查任务
-	go s.startHealthCheckTask(ctx, stopChan)
+	go s.startHealthCheckTask(runCtx, stopChan)
 }
 
 // Stop 停止健康检查调度器
 func (s *ProviderHealthSchedulerService) Stop() {
 	s.mu.Lock()
 	if !s.isRunning {
+		done := s.doneChan
 		s.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(30 * time.Second):
+				global.APP_LOG.Warn("Provider健康检查后台任务仍未结束")
+			}
+		}
 		return
 	}
 	s.isRunning = false
+	s.stopping = true
 	stopChan := s.stopChan
+	cancel := s.runCancel
+	done := s.doneChan
+	close(stopChan)
+	if cancel != nil {
+		cancel()
+	}
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止Provider健康检查调度器")
-	close(stopChan)
+	waitDone := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+		if done != nil {
+			<-done
+		}
+		s.finishStop(stopChan)
+	case <-time.After(30 * time.Second):
+		global.APP_LOG.Warn("Provider健康检查调度器关闭超时，等待后台检查结束后再允许重启")
+		go func() {
+			<-waitDone
+			if done != nil {
+				<-done
+			}
+			s.finishStop(stopChan)
+		}()
+	}
+}
+
+func (s *ProviderHealthSchedulerService) finishStop(stopChan chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopChan == stopChan {
+		s.stopping = false
+		s.runCancel = nil
+		s.doneChan = nil
+	}
 }
 
 // IsRunning 检查调度器是否正在运行
@@ -91,7 +147,32 @@ func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Contex
 				zap.Any("panic", r),
 				zap.Stack("stack"))
 		}
+		s.mu.Lock()
+		externalExit := false
+		var done chan struct{}
+		if s.stopChan == stopChan {
+			s.isRunning = false
+			if !s.stopping {
+				s.stopping = true
+				externalExit = true
+			}
+			done = s.doneChan
+		}
+		s.mu.Unlock()
 		global.APP_LOG.Info("Provider健康检查任务已停止")
+		if done != nil {
+			close(done)
+		}
+		s.wg.Done()
+		if externalExit {
+			s.mu.Lock()
+			if s.stopChan == stopChan {
+				s.stopping = false
+				s.runCancel = nil
+				s.doneChan = nil
+			}
+			s.mu.Unlock()
+		}
 	}()
 
 	// 启动后先等待短暂缓冲，给 Agent 反向连接重建窗口，避免主控重启后瞬时全掉线。
@@ -124,7 +205,7 @@ func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Contex
 			}
 
 			var providerCount int64
-			global.APP_DB.Model(&providerModel.Provider{}).
+			global.APP_DB.WithContext(ctx).Model(&providerModel.Provider{}).
 				Where("is_frozen = ? AND (expires_at IS NULL OR expires_at > ?)", false, time.Now()).
 				Count(&providerCount)
 

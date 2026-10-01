@@ -76,15 +76,18 @@ type Backup struct {
 }
 
 type OperationState struct {
-	ID         string     `json:"id"`
-	Action     string     `json:"action"`
-	Target     string     `json:"target,omitempty"`
-	BackupID   string     `json:"backupId,omitempty"`
-	Status     string     `json:"status"`
-	Message    string     `json:"message,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	StartedAt  time.Time  `json:"startedAt,omitempty"`
-	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	Revision           uint64     `json:"revision,omitempty"`
+	ID                 string     `json:"id"`
+	Action             string     `json:"action"`
+	Target             string     `json:"target,omitempty"`
+	BackupID           string     `json:"backupId,omitempty"`
+	Status             string     `json:"status"`
+	Message            string     `json:"message,omitempty"`
+	Error              string     `json:"error,omitempty"`
+	StartedAt          time.Time  `json:"startedAt,omitempty"`
+	FinishedAt         *time.Time `json:"finishedAt,omitempty"`
+	idempotencyKeyHash string
+	requestFingerprint string
 }
 
 const (

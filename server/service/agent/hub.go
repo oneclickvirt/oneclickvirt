@@ -5,8 +5,10 @@ package agent
 // 状态/健康/资源同步 → status.go ｜ 初始化/鉴权/工具 → init.go
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -17,6 +19,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ── AgentHub — 全局单例，管理所有 Agent 连接 ────────────────────────────────
@@ -192,17 +196,37 @@ func (h *AgentHub) Register(ac *AgentConn) {
 		h.withCurrent(ac, func() { EnsureControllerPortForwardsByProvider(ac.ProviderID) })
 	}()
 
-	// Agent 重连后的跨模块配置重放（例如域名反代）。这些 hook 必须幂等，
-	// 用于覆盖 agent 重启、本地 sqlite 丢失、主控重启后重新上线等恢复场景。
+	// Apply the latest Provider settings before replaying domain routes. A
+	// config change may restart this Agent once; its new connection owns the
+	// replay, so the old connection cannot race a listener restart.
 	go func() {
-		if !waitForAgentShutdown(5 * time.Second) {
+		if !waitForAgentShutdown(3 * time.Second) {
+			return
+		}
+		if current, ok := h.GetConn(ac.ProviderID); !ok || current != ac {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		providerInstance, err := providerService.EnsureProviderConnected(ctx, ac.ProviderID)
+		if err == nil {
+			err = SyncAgentConfigForProvider(ctx, providerInstance, ac.ProviderID)
+		}
+		if err != nil {
+			global.APP_LOG.Warn("Agent 重连后配置同步失败，继续尝试已有监听器的域名路由重放",
+				zap.Uint("providerID", ac.ProviderID), zap.Error(err))
+		}
+		if !waitForAgentShutdown(2 * time.Second) {
+			return
+		}
+		if current, ok := h.GetConn(ac.ProviderID); !ok || current != ac {
 			return
 		}
 		runAgentReconnectHooks(ac.ProviderID)
 	}()
 
 	// 触发延迟实例发现与导入（Agent 模式节点在创建时标记了 PendingDiscovery）
-	go h.triggerPendingDiscovery(ac.ProviderID)
+	go h.triggerPendingDiscovery(ac)
 
 	// 异步确保 Provider 在 ProviderService 中已加载（解决主控重启后 Provider 内存缓存为空，
 	// Agent 重连后 ProviderService.providers 中仍然缺失该 Provider，导致后续操作
@@ -224,42 +248,50 @@ func (h *AgentHub) Register(ac *AgentConn) {
 }
 
 // triggerPendingDiscovery 检查 Provider 是否有待处理的实例发现任务，如有则触发。
-func (h *AgentHub) triggerPendingDiscovery(providerID uint) {
-	// 等待资源同步和 WebSocket 连接稳定
-	if !waitForAgentShutdown(5 * time.Second) {
+func (h *AgentHub) triggerPendingDiscovery(ac *AgentConn) {
+	if ac == nil {
 		return
 	}
-
-	// 检查是否有待处理的发现任务
-	var provider providerModel.Provider
-	if err := global.APP_DB.Select("pending_discovery, discovery_owner_user_id, discovery_auto_adjust").
-		Where("id = ?", providerID).First(&provider).Error; err != nil {
-		global.APP_LOG.Warn("triggerPendingDiscovery: 查询 Provider 失败",
-			zap.Uint("providerID", providerID), zap.Error(err))
-		return
+	for _, delay := range []time.Duration{5 * time.Second, 15 * time.Second, 30 * time.Second} {
+		if !waitForAgentShutdown(delay) {
+			return
+		}
+		if current, ok := h.GetConn(ac.ProviderID); !ok || current != ac {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := completePendingDiscovery(global.APP_DB.WithContext(ctx), ac.ProviderID, OnAgentConnected)
+		cancel()
+		if err == nil {
+			if global.APP_SCHEDULER != nil {
+				global.APP_SCHEDULER.TriggerTaskProcessing()
+			}
+			return
+		}
+		global.APP_LOG.Warn("首次实例发现入队失败，保留待发现标记", zap.Uint("providerID", ac.ProviderID), zap.Error(err))
 	}
+}
 
-	if !provider.PendingDiscovery {
-		return
-	}
-
-	// 清除 PendingDiscovery 标记（无论成功与否，避免重复触发）
-	if err := global.APP_DB.Model(&providerModel.Provider{}).
-		Where("id = ?", providerID).
-		Update("pending_discovery", false).Error; err != nil {
-		global.APP_LOG.Warn("triggerPendingDiscovery: 清除 PendingDiscovery 标记失败",
-			zap.Uint("providerID", providerID), zap.Error(err))
-	}
-
-	global.APP_LOG.Info("Agent 连接后触发延迟实例发现",
-		zap.Uint("providerID", providerID),
-		zap.Uint("ownerUserID", provider.DiscoveryOwnerUserID),
-		zap.Bool("autoAdjust", provider.DiscoveryAutoAdjust))
-
-	// 调用注册的回调执行实例发现与导入
-	if OnAgentConnected != nil {
-		OnAgentConnected(providerID)
-	}
+// Task insertion and acknowledgement share a transaction: rollback leaves the
+// durable marker for the next bounded retry/reconnect. A reconnect cannot
+// consume the marker without a registered handler.
+func completePendingDiscovery(db *gorm.DB, providerID uint, enqueue func(*gorm.DB, *providerModel.Provider) error) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var provider providerModel.Provider
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, providerID).Error; err != nil {
+			return err
+		}
+		if !provider.PendingDiscovery {
+			return nil
+		}
+		if enqueue == nil {
+			return fmt.Errorf("实例发现处理器尚未就绪")
+		}
+		if err := enqueue(tx, &provider); err != nil {
+			return err
+		}
+		return tx.Model(&provider).Update("pending_discovery", false).Error
+	})
 }
 
 // GetConn 返回指定 Provider 的 AgentConn（如果在线）。

@@ -1,6 +1,7 @@
 package incus
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -16,7 +17,7 @@ func incusStartNeedsCloudInitTemplateRepair(text string) bool {
 		strings.Contains(lower, "templates")
 }
 
-func (i *IncusProvider) ensureVMCloudInitTemplates(instanceName string) error {
+func (i *IncusProvider) ensureVMCloudInitTemplates(ctx context.Context, instanceName string) error {
 	script := fmt.Sprintf(`set -eu
 name=%s
 itype="$(incus info "$name" 2>/dev/null | awk -F': ' '/^Type:/{print tolower($2); exit}' || true)"
@@ -39,7 +40,7 @@ for base in /var/lib/incus /var/snap/incus/common/incus; do
 done
 `, shellSingleQuote(instanceName))
 
-	output, err := i.sshClient.Execute(script)
+	output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, script)
 	if err != nil {
 		return fmt.Errorf("修复Incus VM cloud-init模板失败: %w; output: %s", err, strings.TrimSpace(output))
 	}

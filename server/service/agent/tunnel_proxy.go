@@ -147,7 +147,7 @@ func ResolveControllerPortTarget(internalHost, privateIP string) (string, bool) 
 // StartControllerPortForward 为一条 Port 记录启动控制端 TCP 监听转发。
 func StartControllerPortForward(portID uint, providerID uint, listenPort int, targetHost string, targetPort int) error {
 	var port providerModel.Port
-	if err := global.APP_DB.Select("id", "provider_id", "host_port", "guest_port", "mapping_type", "status").
+	if err := global.APP_DB.Select("id", "provider_id", "host_port", "guest_port", "mapping_type", "mapping_method", "status").
 		Where("id = ?", portID).
 		First(&port).Error; err != nil {
 		return fmt.Errorf("load controller port %d: %w", portID, err)
@@ -825,11 +825,24 @@ var (
 
 const maxRepairFailCount = 5 // 连续失败超过此次数后标记端口为 error 状态
 
+func recordControllerPortRepairFailure(portID uint) int {
+	portRepairFailMu.Lock()
+	defer portRepairFailMu.Unlock()
+	portRepairFailCount[portID]++
+	return portRepairFailCount[portID]
+}
+
 // CheckAndRepairControllerPortForwards 定期检查并确认控制器端口转发。
 // 发现已标记为 active 但未监听中的端口映射，自动恢复。
 // 连续失败超过阈值的端口会被标记为 error 状态，避免无限重试。
 // 返回 (total, repaired)。
 func CheckAndRepairControllerPortForwards() (int, int) {
+	// Reconnect recovery, explicit rebuilds and periodic health checks all
+	// touch the same listener pool.  A health tick must not interpret an
+	// intentional rebuild gap as a failed listener and start a second rebind.
+	recoveryMu.Lock()
+	defer recoveryMu.Unlock()
+
 	var ports []providerModel.Port
 	if err := global.APP_DB.Where("mapping_type = ? AND status IN ?",
 		"controller", controllerPortRecoverStatuses).Find(&ports).Error; err != nil {
@@ -841,6 +854,13 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 	for _, port := range ports {
 		desired[port.ID] = struct{}{}
 	}
+	portRepairFailMu.Lock()
+	for portID := range portRepairFailCount {
+		if _, ok := desired[portID]; !ok {
+			delete(portRepairFailCount, portID)
+		}
+	}
+	portRepairFailMu.Unlock()
 	var orphanListeners []uint
 	ctrlListenerMu.RLock()
 	for portID := range ctrlListeners {
@@ -911,7 +931,8 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 		targetHost := resolveTargetHost(&port)
 		if targetHost == "" {
 			global.APP_LOG.Warn("控制器端口转发确认失败：无目标地址",
-				zap.Uint("portID", port.ID))
+				zap.Uint("portID", port.ID),
+				zap.Int("failCount", recordControllerPortRepairFailure(port.ID)))
 			continue
 		}
 
@@ -922,9 +943,7 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 			global.APP_LOG.Debug("确认控制器端口转发失败",
 				zap.Uint("portID", port.ID), zap.Error(err))
 			// 记录失败次数
-			portRepairFailMu.Lock()
-			portRepairFailCount[port.ID] = failCount + 1
-			portRepairFailMu.Unlock()
+			recordControllerPortRepairFailure(port.ID)
 		} else {
 			repaired++
 			// 确认成功，重置失败计数

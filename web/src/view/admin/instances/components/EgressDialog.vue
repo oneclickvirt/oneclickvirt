@@ -4,6 +4,8 @@
     :title="$t('admin.instances.egressTitle')"
     width="min(840px, 94vw)"
     destroy-on-close
+    :close-on-press-escape="!egressBusy"
+    :before-close="handleDialogBeforeClose"
     @update:model-value="$emit('update:modelValue', $event)"
   >
     <div
@@ -48,6 +50,7 @@
           <el-button
             text
             :loading="loading"
+            :disabled="egressBusy"
             @click="loadStatus"
           >
             <el-icon><Refresh /></el-icon>
@@ -159,6 +162,7 @@
         </div>
         <el-form
           :model="form"
+          :disabled="egressBusy"
           label-width="145px"
           label-position="right"
         >
@@ -400,6 +404,7 @@
           <el-button
             v-if="status && !status.agent_installed"
             :loading="deploying"
+            :disabled="egressBusy"
             @click="handleDeployAgent"
           >
             <el-icon><Tools /></el-icon>
@@ -407,8 +412,8 @@
           </el-button>
           <el-button
             v-if="status?.capabilities?.missing_dependencies?.length"
-            :disabled="!status?.capabilities?.auto_install_enabled"
             :loading="installingDependencies"
+            :disabled="egressBusy || !status?.capabilities?.auto_install_enabled"
             @click="handleEnsureDependencies"
           >
             <el-icon><Tools /></el-icon>
@@ -417,6 +422,7 @@
           <el-button
             v-if="status?.binding"
             :loading="reconciling"
+            :disabled="egressBusy"
             @click="handleReconcile"
           >
             <el-icon><Refresh /></el-icon>
@@ -427,6 +433,7 @@
             type="danger"
             plain
             :loading="unbinding"
+            :disabled="egressBusy"
             @click="handleUnbind"
           >
             <el-icon><Delete /></el-icon>
@@ -434,13 +441,16 @@
           </el-button>
         </div>
         <div class="footer-actions">
-          <el-button @click="$emit('update:modelValue', false)">
+          <el-button
+            :disabled="egressBusy"
+            @click="$emit('update:modelValue', false)"
+          >
             {{ $t('common.cancel') }}
           </el-button>
           <el-button
             type="primary"
             :loading="saving"
-            :disabled="!canSave"
+            :disabled="egressBusy || !canSave"
             @click="handleSave"
           >
             <el-icon><Connection /></el-icon>
@@ -457,6 +467,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection, Delete, Refresh, Tools } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
+import { createActionLock } from '@/utils/actionLock'
 import {
   bindInstanceEgress,
   deployAgent,
@@ -480,6 +491,9 @@ const unbinding = ref(false)
 const reconciling = ref(false)
 const deploying = ref(false)
 const installingDependencies = ref(false)
+const egressBusy = ref(false)
+const egressMutationLock = createActionLock()
+let statusGeneration = 0
 const status = ref(null)
 const selectedProfileId = ref('')
 const MIN_AUTO_ROUTE_TABLE = 256
@@ -668,17 +682,22 @@ const applyStatusToForm = () => {
 }
 
 const loadStatus = async () => {
-  if (!props.instance?.id) return
+  if (!props.modelValue || !props.instance?.id) return
+  const generation = ++statusGeneration
+  const instanceId = props.instance.id
   loading.value = true
   try {
-    const response = await getInstanceEgress(props.instance.id)
+    const response = await getInstanceEgress(instanceId)
+    if (generation !== statusGeneration || props.instance?.id !== instanceId) return
     status.value = response.data || null
     applyStatusToForm()
   } catch (error) {
-    status.value = null
-    ElMessage.error(apiErrorMessage(error))
+    if (generation === statusGeneration && props.instance?.id === instanceId && props.modelValue) {
+      status.value = null
+      ElMessage.error(apiErrorMessage(error))
+    }
   } finally {
-    loading.value = false
+    if (generation === statusGeneration) loading.value = false
   }
 }
 
@@ -727,33 +746,43 @@ const bindPayload = () => {
 }
 
 const handleEnsureDependencies = async () => {
-  if (!props.instance?.id) return
+  if (!props.instance?.id || !egressMutationLock.tryAcquire()) return
+  const instanceId = props.instance.id
+  egressBusy.value = true
   installingDependencies.value = true
   try {
     const packageSet = form.tunnelType === 'wireguard' ? 'wireguard' : 'native'
-    const response = await ensureInstanceEgressDependencies(props.instance.id, packageSet)
+    const response = await ensureInstanceEgressDependencies(instanceId, packageSet)
+    if (!props.modelValue || props.instance?.id !== instanceId) return
     ElMessage.success(response.msg || t('admin.instances.egressDependenciesReady'))
     await loadStatus()
   } catch (error) {
     ElMessage.error(apiErrorMessage(error))
   } finally {
     installingDependencies.value = false
+    egressBusy.value = false
+    egressMutationLock.release()
   }
 }
 
 const handleSave = async () => {
-  if (!props.instance?.id) return
+  if (!props.instance?.id || !egressMutationLock.tryAcquire()) return
+  const instanceId = props.instance.id
+  egressBusy.value = true
   saving.value = true
   try {
+    const payload = bindPayload()
     const capabilities = status.value?.capabilities
     if (capabilities?.missing_dependencies?.length) {
       if (!capabilities.auto_install_enabled) {
         throw new Error(t('admin.instances.egressAutoInstallDisabled'))
       }
       const packageSet = form.tunnelType === 'wireguard' ? 'wireguard' : 'native'
-      await ensureInstanceEgressDependencies(props.instance.id, packageSet)
+      await ensureInstanceEgressDependencies(instanceId, packageSet)
     }
-    const response = await bindInstanceEgress(props.instance.id, bindPayload())
+    if (!props.modelValue || props.instance?.id !== instanceId) return
+    const response = await bindInstanceEgress(instanceId, payload)
+    if (!props.modelValue || props.instance?.id !== instanceId) return
     const reconcile = response.data?.reconcile
     if (reconcile?.applied) {
       ElMessage.success(response.msg || t('admin.instances.egressApplied'))
@@ -770,18 +799,25 @@ const handleSave = async () => {
     ElMessage.error(apiErrorMessage(error))
   } finally {
     saving.value = false
+    egressBusy.value = false
+    egressMutationLock.release()
   }
 }
 
 const handleUnbind = async () => {
+  if (!props.instance?.id || !egressMutationLock.tryAcquire()) return
+  const instanceId = props.instance.id
+  egressBusy.value = true
+  unbinding.value = true
   try {
     await ElMessageBox.confirm(
       t('admin.instances.egressUnbindConfirm'),
       t('admin.instances.egressUnbind'),
       { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
     )
-    unbinding.value = true
-    const response = await unbindInstanceEgress(props.instance.id, true)
+    if (!props.modelValue || props.instance?.id !== instanceId) return
+    const response = await unbindInstanceEgress(instanceId, true)
+    if (!props.modelValue || props.instance?.id !== instanceId) return
     ElMessage.success(response.msg || t('admin.instances.egressUnbindSuccess'))
     resetForm()
     await loadStatus()
@@ -790,13 +826,19 @@ const handleUnbind = async () => {
     if (error !== 'cancel') ElMessage.error(apiErrorMessage(error))
   } finally {
     unbinding.value = false
+    egressBusy.value = false
+    egressMutationLock.release()
   }
 }
 
 const handleReconcile = async () => {
+  if (!props.instance?.id || !egressMutationLock.tryAcquire()) return
+  const instanceId = props.instance.id
+  egressBusy.value = true
   reconciling.value = true
   try {
-    const response = await reconcileInstanceEgress(props.instance.id, true)
+    const response = await reconcileInstanceEgress(instanceId, true)
+    if (!props.modelValue || props.instance?.id !== instanceId) return
     if (response.data?.reconcile?.applied) {
       ElMessage.success(response.msg || t('admin.instances.egressApplied'))
     } else {
@@ -807,23 +849,33 @@ const handleReconcile = async () => {
     ElMessage.error(apiErrorMessage(error))
   } finally {
     reconciling.value = false
+    egressBusy.value = false
+    egressMutationLock.release()
   }
 }
 
 const handleDeployAgent = async () => {
+  if (!props.instance?.id || !egressMutationLock.tryAcquire()) return
+  const instanceId = props.instance.id
+  const providerId = props.instance.providerId
+  egressBusy.value = true
+  deploying.value = true
   try {
     await ElMessageBox.confirm(
       t('admin.instances.egressInstallAgentConfirm'),
       t('admin.instances.egressInstallAgent'),
       { type: 'info', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
     )
-    deploying.value = true
-    const response = await deployAgent(props.instance.providerId)
+    if (!props.modelValue || props.instance?.id !== instanceId) return
+    const response = await deployAgent(providerId)
+    if (!props.modelValue || props.instance?.id !== instanceId) return
     ElMessage.success(response.msg || t('admin.instances.egressAgentTaskCreated'))
   } catch (error) {
     if (error !== 'cancel') ElMessage.error(apiErrorMessage(error))
   } finally {
     deploying.value = false
+    egressBusy.value = false
+    egressMutationLock.release()
   }
 }
 
@@ -848,10 +900,18 @@ const stateTagType = state => {
   return 'warning'
 }
 
+const handleDialogBeforeClose = done => {
+  if (!egressBusy.value) done()
+}
+
 watch(
-  () => props.modelValue,
-  visible => {
-    if (!visible) return
+  () => [props.modelValue, props.instance?.id],
+  ([visible]) => {
+    statusGeneration += 1
+    if (!visible) {
+      loading.value = false
+      return
+    }
     resetForm()
     loadStatus()
   }

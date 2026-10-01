@@ -24,7 +24,10 @@ use axum::{
     extract::{Query, State},
 };
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+};
 use tracing::{debug, info, warn};
 
 #[derive(serde::Deserialize)]
@@ -825,6 +828,7 @@ pub async fn batch_info_monitor(
 
     if ids.is_empty() {
         return Ok(Json(BatchInfoResponse {
+            refreshed: payload.refresh,
             monitors: Vec::new(),
             total: 0,
         }));
@@ -835,6 +839,9 @@ pub async fn batch_info_monitor(
         ));
     }
 
+    if payload.refresh {
+        crate::collector::refresh_monitor_traffic(&state, &ids).await?;
+    }
     let placeholders = std::iter::repeat_n("?", ids.len())
         .collect::<Vec<_>>()
         .join(",");
@@ -870,7 +877,11 @@ pub async fn batch_info_monitor(
     }
 
     let total = monitors.len();
-    Ok(Json(BatchInfoResponse { monitors, total }))
+    Ok(Json(BatchInfoResponse {
+        monitors,
+        total,
+        refreshed: payload.refresh,
+    }))
 }
 
 #[utoipa::path(
@@ -1288,6 +1299,73 @@ fn validate_domain(domain: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+fn normalize_internal_ip(raw: &str) -> Result<String, ApiError> {
+    let value = raw.trim();
+    let value = value
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(value);
+    let parsed = value
+        .parse::<IpAddr>()
+        .map_err(|_| ApiError::bad_request("invalid internal IP address"))?;
+    let parsed = match parsed {
+        IpAddr::V6(ip) => ip
+            .to_ipv4_mapped()
+            .map(IpAddr::V4)
+            .unwrap_or(IpAddr::V6(ip)),
+        ip => ip,
+    };
+    let special = match parsed {
+        IpAddr::V4(ip) => {
+            ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || ip.is_broadcast()
+        }
+        IpAddr::V6(ip) => {
+            ip.is_loopback()
+                || ip.is_unicast_link_local()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+        }
+    };
+    if special {
+        return Err(ApiError::bad_request(
+            "internal IP must be an instance address",
+        ));
+    }
+    Ok(parsed.to_string())
+}
+
+fn domain_proxy_config_hash(
+    domain: &str,
+    internal_ip: &str,
+    internal_port: u16,
+    protocol: &str,
+    enable_ssl: bool,
+    ssl_cert: &str,
+    ssl_key: &str,
+) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    let port = internal_port.to_string();
+    for part in [
+        domain,
+        internal_ip,
+        port.as_str(),
+        protocol,
+        if enable_ssl { "1" } else { "0" },
+        ssl_cert,
+        ssl_key,
+    ] {
+        hasher.update(part.as_bytes());
+        hasher.update([0]);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/domain-proxy",
@@ -1308,7 +1386,7 @@ pub async fn add_domain_proxy(
     Json(mut req): Json<AddDomainProxyRequest>,
 ) -> Result<Json<AddDomainProxyResponse>, ApiError> {
     req.domain = req.domain.trim().to_lowercase();
-    req.internal_ip = req.internal_ip.trim().to_string();
+    req.internal_ip = normalize_internal_ip(&req.internal_ip)?;
     validate_domain(&req.domain)?;
 
     let protocol = req
@@ -1354,12 +1432,71 @@ pub async fn add_domain_proxy(
         ssl_key.clear();
     }
 
-    // Save to DB
+    let _operation_guard = state.domain_proxy_operation_lock.lock().await;
+
+    // Save to DB.  Reconciliation calls this endpoint after reconnects and
+    // after controller restarts, so an unchanged route must not be deleted and
+    // reinserted on every pass.  Besides producing noisy timestamps/logs,
+    // INSERT OR REPLACE briefly removed the row and could make a concurrent
+    // list/reconcile observe a false orphan.  Keep the existing row when the
+    // complete desired state is already present; otherwise update it atomically
+    // while preserving the original row identity.
     let conn = state.conn.lock().await;
-    conn.execute(
-        "INSERT OR REPLACE INTO domain_proxies (domain, internal_ip, internal_port, protocol, enable_ssl, ssl_cert, ssl_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        rusqlite::params![req.domain, req.internal_ip, req.internal_port, protocol.as_str(), enable_ssl as i32, ssl_cert, ssl_key, now_ts()],
-    ).map_err(|e| ApiError::internal(format!("save domain proxy error: {e}")))?;
+    let existing = conn
+        .query_row(
+            "SELECT internal_ip, internal_port, protocol, enable_ssl, ssl_cert, ssl_key
+             FROM domain_proxies WHERE domain = ?1",
+            rusqlite::params![req.domain],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, u16>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i32>(3)? != 0,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| ApiError::internal(format!("query existing domain proxy error: {e}")))?;
+    let unchanged =
+        existing
+            .as_ref()
+            .is_some_and(|(ip, port, old_protocol, old_ssl, old_cert, old_key)| {
+                ip == &req.internal_ip
+                    && *port == req.internal_port
+                    && old_protocol == &protocol
+                    && *old_ssl == enable_ssl
+                    && old_cert == &ssl_cert
+                    && old_key == &ssl_key
+            });
+    if !unchanged {
+        conn.execute(
+            "INSERT INTO domain_proxies
+                (domain, internal_ip, internal_port, protocol, enable_ssl, ssl_cert, ssl_key, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(domain) DO UPDATE SET
+                internal_ip = excluded.internal_ip,
+                internal_port = excluded.internal_port,
+                protocol = excluded.protocol,
+                enable_ssl = excluded.enable_ssl,
+                ssl_cert = excluded.ssl_cert,
+                ssl_key = excluded.ssl_key,
+                created_at = excluded.created_at",
+            rusqlite::params![
+                req.domain,
+                req.internal_ip,
+                req.internal_port,
+                protocol.as_str(),
+                enable_ssl as i32,
+                ssl_cert,
+                ssl_key,
+                now_ts()
+            ],
+        )
+        .map_err(|e| ApiError::internal(format!("save domain proxy error: {e}")))?;
+    }
     drop(conn);
 
     // Add to in-memory proxy routes
@@ -1379,7 +1516,11 @@ pub async fn add_domain_proxy(
         }
     }
 
-    info!(domain = %req.domain, ip = %req.internal_ip, port = req.internal_port, "domain proxy added");
+    if unchanged {
+        debug!(domain = %req.domain, "domain proxy already matched desired state");
+    } else {
+        info!(domain = %req.domain, ip = %req.internal_ip, port = req.internal_port, "domain proxy added or updated");
+    }
     Ok(Json(AddDomainProxyResponse {
         domain: req.domain,
         status: "active".into(),
@@ -1405,6 +1546,7 @@ pub async fn remove_domain_proxy(
     Json(mut req): Json<RemoveDomainProxyRequest>,
 ) -> Result<Json<RemoveDomainProxyResponse>, ApiError> {
     req.domain = req.domain.trim().to_lowercase();
+    let _operation_guard = state.domain_proxy_operation_lock.lock().await;
     // Remove from DB first
     let conn = state.conn.lock().await;
     let deleted = conn
@@ -1423,7 +1565,11 @@ pub async fn remove_domain_proxy(
         store.remove(&req.domain);
     }
 
-    info!(domain = %req.domain, "domain proxy removed");
+    if deleted > 0 || removed {
+        info!(domain = %req.domain, "domain proxy removed");
+    } else {
+        debug!(domain = %req.domain, "domain proxy was already absent");
+    }
     Ok(Json(RemoveDomainProxyResponse {
         domain: req.domain,
         removed: deleted > 0 || removed,
@@ -1432,8 +1578,26 @@ pub async fn remove_domain_proxy(
 
 #[cfg(test)]
 mod tests {
-    use super::{CounterSnapshot, counter_health, counter_snapshot_from_read};
-    use crate::models::TrafficBinding;
+    use super::{
+        CounterSnapshot, add_domain_proxy, batch_info_monitor, counter_health,
+        counter_snapshot_from_read, domain_proxy_config_hash, list_domain_proxies,
+        normalize_internal_ip, remove_domain_proxy,
+    };
+    use crate::{
+        app_state::AppState,
+        db::init_db,
+        models::{
+            AddDomainProxyRequest, BatchInfoRequest, RemoveDomainProxyRequest, TrafficBinding,
+        },
+        proxy::{ProxyRoutes, get_route},
+    };
+    use axum::{Json, extract::State};
+    use rusqlite::Connection;
+    use std::{
+        collections::HashMap,
+        sync::{Arc, RwLock},
+    };
+    use tokio::sync::Mutex;
 
     #[test]
     fn counter_health_reports_missing_binding() {
@@ -1470,6 +1634,170 @@ mod tests {
         assert_eq!(snapshot.interface, "veth6");
         assert_eq!((snapshot.base_in, snapshot.base_out), (12, 34));
     }
+
+    #[test]
+    fn normalizes_and_validates_domain_proxy_internal_addresses() {
+        assert_eq!(
+            normalize_internal_ip("  [2001:db8::3] ").unwrap(),
+            "2001:db8::3"
+        );
+        assert_eq!(normalize_internal_ip("192.0.2.3").unwrap(), "192.0.2.3");
+        assert!(normalize_internal_ip("not-an-ip").is_err());
+    }
+
+    #[test]
+    fn domain_proxy_rejects_local_and_metadata_targets() {
+        for address in [
+            "127.0.0.1",
+            "::1",
+            "::ffff:127.0.0.1",
+            "169.254.169.254",
+            "fe80::1",
+            "0.0.0.0",
+            "::",
+            "ff02::1",
+        ] {
+            assert!(normalize_internal_ip(address).is_err(), "{address}");
+        }
+        assert_eq!(
+            normalize_internal_ip("::ffff:10.0.0.2").unwrap(),
+            "10.0.0.2"
+        );
+    }
+
+    #[test]
+    fn domain_proxy_digest_matches_controller_format() {
+        assert_eq!(
+            domain_proxy_config_hash(
+                "app.example.test",
+                "2001:db8::3",
+                8080,
+                "http",
+                true,
+                "cert-pem",
+                "key-pem",
+            ),
+            "49c37ba6116177519daeae7a4e7e0defefe64999f4968dd4a62f3a95a7b58257"
+        );
+    }
+
+    #[tokio::test]
+    async fn final_traffic_refresh_never_acknowledges_missing_counters() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        let routes: ProxyRoutes = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+        let state = AppState {
+            conn: Arc::new(Mutex::new(conn)),
+            traffic_operation_lock: Arc::new(Mutex::new(())),
+            domain_proxy_operation_lock: Arc::new(Mutex::new(())),
+            api_token: "test".into(),
+            traffic_collect_interval: 5,
+            traffic_collect_batch_size: 16,
+            traffic_reconcile_interval: 60,
+            traffic_reconcile_batch_size: 16,
+            resource_collect_interval: 30,
+            resource_collect_batch_size: 16,
+            traffic_collect_method: "nft".into(),
+            proxy_routes: routes.clone(),
+            cert_store: Arc::new(RwLock::new(HashMap::new())),
+        };
+        let result = batch_info_monitor(
+            State(state.clone()),
+            Json(BatchInfoRequest {
+                ids: vec![123],
+                refresh: true,
+            }),
+        )
+        .await;
+        assert!(result.is_err());
+        let empty = batch_info_monitor(
+            State(state),
+            Json(BatchInfoRequest {
+                ids: vec![],
+                refresh: true,
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(empty.0.refreshed);
+        assert_eq!(empty.0.total, 0);
+    }
+
+    #[tokio::test]
+    async fn domain_proxy_add_list_remove_round_trip() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        let routes: ProxyRoutes = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+        let state = AppState {
+            conn: Arc::new(Mutex::new(conn)),
+            traffic_operation_lock: Arc::new(Mutex::new(())),
+            domain_proxy_operation_lock: Arc::new(Mutex::new(())),
+            api_token: "test".into(),
+            traffic_collect_interval: 5,
+            traffic_collect_batch_size: 16,
+            traffic_reconcile_interval: 60,
+            traffic_reconcile_batch_size: 16,
+            resource_collect_interval: 30,
+            resource_collect_batch_size: 16,
+            traffic_collect_method: "nft".into(),
+            proxy_routes: routes.clone(),
+            cert_store: Arc::new(RwLock::new(HashMap::new())),
+        };
+
+        let added = add_domain_proxy(
+            State(state.clone()),
+            Json(AddDomainProxyRequest {
+                domain: "Example.Test".into(),
+                internal_ip: "[2001:db8::3]".into(),
+                internal_port: 8080,
+                protocol: Some("http".into()),
+                enable_ssl: Some(false),
+                ssl_cert: None,
+                ssl_key: None,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.0.domain, "example.test");
+        assert!(get_route(&routes, "example.test").await.is_some());
+
+        let listed = list_domain_proxies(State(state.clone())).await.unwrap();
+        assert_eq!(listed.0.total, 1);
+        assert_eq!(listed.0.proxies[0].internal_ip, "2001:db8::3");
+        let first_created_at = listed.0.proxies[0].created_at;
+
+        // Replaying the same desired state is a no-op: it must not replace the
+        // SQLite row and reset its creation timestamp.
+        let repeated = add_domain_proxy(
+            State(state.clone()),
+            Json(AddDomainProxyRequest {
+                domain: "example.test".into(),
+                internal_ip: "2001:db8::3".into(),
+                internal_port: 8080,
+                protocol: Some("HTTP".into()),
+                enable_ssl: Some(false),
+                ssl_cert: None,
+                ssl_key: None,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(repeated.0.domain, "example.test");
+        let repeated_list = list_domain_proxies(State(state.clone())).await.unwrap();
+        assert_eq!(repeated_list.0.total, 1);
+        assert_eq!(repeated_list.0.proxies[0].created_at, first_created_at);
+
+        let removed = remove_domain_proxy(
+            State(state),
+            Json(RemoveDomainProxyRequest {
+                domain: "EXAMPLE.TEST".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(removed.0.removed);
+        assert!(get_route(&routes, "example.test").await.is_none());
+    }
 }
 
 #[utoipa::path(
@@ -1488,22 +1816,38 @@ mod tests {
 pub async fn list_domain_proxies(
     State(state): State<AppState>,
 ) -> Result<Json<ListDomainProxiesResponse>, ApiError> {
+    let _operation_guard = state.domain_proxy_operation_lock.lock().await;
     let conn = state.conn.lock().await;
     let mut stmt = conn
-        .prepare("SELECT domain, internal_ip, internal_port, protocol, enable_ssl, ssl_cert, created_at FROM domain_proxies ORDER BY created_at")
+        .prepare("SELECT domain, internal_ip, internal_port, protocol, enable_ssl, ssl_cert, ssl_key, created_at FROM domain_proxies ORDER BY created_at")
         .map_err(|e| ApiError::internal(format!("prepare domain proxy query: {e}")))?;
 
     let rows = stmt
         .query_map([], |row| {
             let ssl_cert: String = row.get(5)?;
+            let ssl_key: String = row.get(6)?;
+            let domain: String = row.get(0)?;
+            let internal_ip: String = row.get(1)?;
+            let internal_port: u16 = row.get(2)?;
+            let protocol: String = row.get(3)?;
+            let enable_ssl = row.get::<_, i32>(4)? != 0;
             Ok(DomainProxyItem {
-                domain: row.get(0)?,
-                internal_ip: row.get(1)?,
-                internal_port: row.get(2)?,
-                protocol: row.get(3)?,
-                enable_ssl: row.get::<_, i32>(4)? != 0,
+                config_hash: domain_proxy_config_hash(
+                    &domain,
+                    &internal_ip,
+                    internal_port,
+                    &protocol,
+                    enable_ssl,
+                    &ssl_cert,
+                    &ssl_key,
+                ),
+                domain,
+                internal_ip,
+                internal_port,
+                protocol,
+                enable_ssl,
                 has_cert: !ssl_cert.is_empty(),
-                created_at: row.get(6)?,
+                created_at: row.get(7)?,
             })
         })
         .map_err(|e| ApiError::internal(format!("domain proxy query: {e}")))?;

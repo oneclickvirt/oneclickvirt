@@ -1444,7 +1444,7 @@ Environment variables:
     noninteractive=true         Non-interactive mode / 非交互模式
     FORCE_INSTALL=true          Skip resource checks (disk & memory) / 跳过资源检查
     WEB_PATH=/path              Custom web install path / 自定义 Web 安装路径
-    INSTALL_VERSION=v1.0.0      Install a specific version / 指定安装版本
+    INSTALL_VERSION=v20260925-052714 Install a specific version / 指定安装版本
     FORCE_REINSTALL=true        Allow reinstall over an existing install / 允许覆盖已有安装
     CONFIRM_REINSTALL=REINSTALL Required with FORCE_REINSTALL in non-interactive mode / 非交互强制重装确认
 
@@ -1461,8 +1461,8 @@ Examples / 示例:
     noninteractive=true bash install.sh                  # Non-interactive / 非交互
     FORCE_INSTALL=true bash install.sh                   # Skip resource check / 跳过资源检查
     WEB_PATH=/var/www/html bash install.sh               # Custom web path / 自定义 Web 路径
-    INSTALL_VERSION=v1.0.0 bash install.sh               # Specific version / 指定版本
-    INSTALL_VERSION=v1.0.0 bash install.sh upgrade       # Upgrade to version / 升级到指定版本
+    INSTALL_VERSION=v20260925-052714 bash install.sh          # Specific version / 指定版本
+    INSTALL_VERSION=v20260925-052714 bash install.sh upgrade  # Upgrade to version / 升级到指定版本
 EOF
 }
 

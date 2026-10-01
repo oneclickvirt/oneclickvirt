@@ -13,6 +13,18 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	taskCleanupBatchSize  = 500
+	taskCleanupMaxBatches = 10
+)
+
+func boundedSchedulerContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	return context.WithTimeout(parent, timeout)
+}
+
 // cleanupTimeoutTasks 清理超时任务
 func (s *SchedulerService) cleanupTimeoutTasks() {
 	timeoutThreshold := time.Now().Add(-30 * time.Minute)
@@ -90,13 +102,16 @@ func (s *SchedulerService) cleanupExpiredProviders() {
 	inactiveThreshold := time.Now().Add(-time.Duration(inactiveHours) * time.Hour)
 
 	// 使用带重试的批量更新操作，避免长时间锁表
-	err := utils.RetryableDBOperation(context.Background(), func() error {
+	ctx, cancel := boundedSchedulerContext(s.ctx, 30*time.Second)
+	defer cancel()
+	err := utils.RetryableDBOperation(ctx, func() error {
 		// 分批处理，每次最多处理100条记录
 		var providers []provider.Provider
 
 		// 首先查找需要更新的Provider（使用较短的锁超时）
-		if err := global.APP_DB.
+		if err := global.APP_DB.WithContext(ctx).
 			Where("allow_claim = ? AND updated_at < ?", true, inactiveThreshold).
+			Order("updated_at ASC, id ASC").
 			Limit(100).
 			Find(&providers).Error; err != nil {
 			return err
@@ -113,9 +128,9 @@ func (s *SchedulerService) cleanupExpiredProviders() {
 		}
 
 		// 批量更新，使用IN查询减少锁定时间
-		result := global.APP_DB.
+		result := global.APP_DB.WithContext(ctx).
 			Model(&provider.Provider{}).
-			Where("id IN ?", providerIDs).
+			Where("id IN ? AND allow_claim = ? AND updated_at < ?", providerIDs, true, inactiveThreshold).
 			Update("allow_claim", false)
 
 		if result.Error != nil {
@@ -147,14 +162,39 @@ func (s *SchedulerService) cleanupOldTasks() {
 	// 清理30天前的已完成任务（使用Unscoped进行硬删除，避免表无限增长）
 	oldThreshold := time.Now().Add(-30 * 24 * time.Hour)
 
-	result := global.APP_DB.Unscoped().Where("status IN ? AND updated_at < ?",
-		[]string{"completed", "failed", "cancelled"}, oldThreshold).
-		Delete(&adminModel.Task{})
+	ctx, cancel := boundedSchedulerContext(s.ctx, 30*time.Second)
+	defer cancel()
+	terminalStatuses := []string{"completed", "failed", "cancelled", "timeout"}
+	var deleted int64
+	for batch := 0; batch < taskCleanupMaxBatches; batch++ {
+		var ids []uint
+		if err := global.APP_DB.WithContext(ctx).Unscoped().Model(&adminModel.Task{}).
+			Where("status IN ? AND updated_at < ?", terminalStatuses, oldThreshold).
+			Order("updated_at ASC, id ASC").
+			Limit(taskCleanupBatchSize).
+			Pluck("id", &ids).Error; err != nil {
+			global.APP_LOG.Warn("Failed to select old task cleanup batch", zap.Error(err))
+			return
+		}
+		if len(ids) == 0 {
+			break
+		}
+		result := global.APP_DB.WithContext(ctx).Unscoped().
+			Where("id IN ? AND status IN ? AND updated_at < ?", ids, terminalStatuses, oldThreshold).
+			Delete(&adminModel.Task{})
+		if result.Error != nil {
+			global.APP_LOG.Warn("Failed to cleanup old task batch", zap.Error(result.Error))
+			return
+		}
+		deleted += result.RowsAffected
+		if err := ctx.Err(); err != nil {
+			global.APP_LOG.Warn("Old task cleanup reached its deadline", zap.Error(err))
+			break
+		}
+	}
 
-	if result.Error != nil {
-		global.APP_LOG.Warn("Failed to cleanup old tasks", zap.Error(result.Error))
-	} else if result.RowsAffected > 0 {
+	if deleted > 0 {
 		global.APP_LOG.Info("Cleaned up old tasks",
-			zap.Int64("count", result.RowsAffected))
+			zap.Int64("count", deleted))
 	}
 }

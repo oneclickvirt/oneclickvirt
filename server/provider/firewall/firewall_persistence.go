@@ -12,6 +12,14 @@ import (
 )
 
 var managedTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+var firewallTerminalCSI = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
+
+// Remote PTYs can add CRLF and colour to command output. Persist only the
+// machine-readable rules, or a later iptables-restore will parse "nat\r" as a
+// different table name.
+func normalizeFirewallOutput(output string) string {
+	return strings.ReplaceAll(firewallTerminalCSI.ReplaceAllString(output, ""), "\r", "")
+}
 
 type persistenceLayout struct {
 	nftConfig, ipv4, ipv6 string
@@ -50,7 +58,7 @@ func (m *Manager) persistenceLayout() (persistenceLayout, error) {
 	if err != nil {
 		return persistenceLayout{}, fmt.Errorf("检测防火墙持久化发行版失败: %w", err)
 	}
-	lines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(output, "\r\n", "\n"), "\n"), "\n")
+	lines := strings.Split(strings.TrimSuffix(normalizeFirewallOutput(output), "\n"), "\n")
 	if len(lines) != 3 || lines[2] != "complete" {
 		return persistenceLayout{}, fmt.Errorf("防火墙持久化发行版响应不完整")
 	}
@@ -88,7 +96,7 @@ func (m *Manager) SaveRules() error {
 				Table *struct{ Family, Name string }
 			}
 		}
-		if err := json.Unmarshal([]byte(output), &tables); err != nil || tables.Nftables == nil {
+		if err := json.Unmarshal([]byte(normalizeFirewallOutput(output)), &tables); err != nil || tables.Nftables == nil {
 			return fmt.Errorf("无法解析nft表清单: %v", err)
 		}
 		content := "# VM port forwarding - managed by oneclickvirt\n"
@@ -104,7 +112,7 @@ func (m *Manager) SaveRules() error {
 			}
 			// Declare before deleting so restore works on both empty and live
 			// rulesets without duplicating rules or flushing unrelated tables.
-			content += fmt.Sprintf("table %s %s\ndelete table %s %s\n%s\n", table.Family, table.Name, table.Family, table.Name, rules)
+			content += fmt.Sprintf("table %s %s\ndelete table %s %s\n%s\n", table.Family, table.Name, table.Family, table.Name, normalizeFirewallOutput(rules))
 		}
 		snapshots = append(snapshots, snapshot{"/etc/nftables.d/" + m.tableName + ".nft", content})
 	}
@@ -116,7 +124,7 @@ func (m *Manager) SaveRules() error {
 		if err != nil {
 			return fmt.Errorf("读取%s持久化规则失败: %w", family.tool, err)
 		}
-		snapshots = append(snapshots, snapshot{family.path, content})
+		snapshots = append(snapshots, snapshot{family.path, normalizeFirewallOutput(content)})
 	}
 	// Gather every snapshot first. A failed IPv6 read must not truncate an
 	// existing IPv4 file (or vice versa).
@@ -167,6 +175,7 @@ fi`
 }
 
 func (m *Manager) persistRulesFile(path, content string) error {
+	content = normalizeFirewallOutput(content)
 	command := "set -e\numask 077\nocv_rule_path=" + shellQuote(path) + `
 if [ -L "$ocv_rule_path" ]; then
     ocv_rule_path=$(readlink -f -- "$ocv_rule_path")
@@ -197,7 +206,7 @@ printf '%s\n' complete`, 20*time.Second)
 		return nil, fmt.Errorf("检测防火墙工具失败: %w", err)
 	}
 	available := make(map[string]bool)
-	for _, name := range strings.Fields(output) {
+	for _, name := range strings.Fields(normalizeFirewallOutput(output)) {
 		available[name] = true
 	}
 	if !available["complete"] {

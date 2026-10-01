@@ -665,6 +665,41 @@ OCVEOF
   log_success "Helper command 'ocv' installed to /usr/local/bin/ocv" "辅助命令 'ocv' 已安装到 /usr/local/bin/ocv"
 }
 
+# Reinstalling the reverse Agent must retain controller-managed listener and
+# collection settings. Credentials and install-source options come from the
+# new invocation; all other environment entries keep their last prior value.
+write_agent_env() {
+  ENV_FILE="${INSTALL_DIR}/env"
+  AGENT_ENV_TMP=$(mktemp "${INSTALL_DIR}/.agent-env.tmp.XXXXXX") || return 1
+  chmod 600 "$AGENT_ENV_TMP" || return 1
+  {
+    printf '%s\n' '# OneClickVirt Agent environment (permissions: 0600)'
+    printf 'WS_URL=%s\n' "$WS_URL"
+    printf 'AGENT_SECRET=%s\n' "$SECRET"
+    printf 'API_TOKEN=%s\n' "$SECRET"
+    printf 'AGENT_SOURCE=%s\n' "$AGENT_SOURCE"
+    printf 'CONTROLLER_BASE_URL=%s\n' "$CONTROLLER_BASE_URL"
+    printf '%s\n' 'ONECLICKVIRT_EGRESS_AUTO_INSTALL=true' 'ONECLICKVIRT_EGRESS_APPLY=true'
+    if [ -f "$ENV_FILE" ]; then
+      awk -F= '
+        /^[A-Za-z_][A-Za-z0-9_]*=/ {
+          key=$1
+          if (key == "WS_URL" || key == "AGENT_SECRET" || key == "API_TOKEN" ||
+              key == "AGENT_SOURCE" || key == "CONTROLLER_BASE_URL" ||
+              key == "ONECLICKVIRT_EGRESS_AUTO_INSTALL" || key == "ONECLICKVIRT_EGRESS_APPLY") next
+          if (!(key in seen)) order[++count]=key
+          seen[key]=1
+          line[key]=$0
+        }
+        END { for (i=1; i<=count; i++) print line[order[i]] }
+      ' "$ENV_FILE"
+    fi
+  } > "$AGENT_ENV_TMP" || { rm -f "$AGENT_ENV_TMP"; return 1; }
+  mv -f "$AGENT_ENV_TMP" "$ENV_FILE" || return 1
+  chmod 600 "$ENV_FILE" || return 1
+  chown root:root "$ENV_FILE" 2>/dev/null || true
+}
+
 # Detect init system and install appropriate service
 install_service() {
   create_egress_boot_guard
@@ -676,18 +711,7 @@ install_service() {
 
     # Write secret to a separate env file with restricted permissions (0600)
     # so it does NOT appear in `systemctl cat` or `ps aux` output.
-    ENV_FILE="${INSTALL_DIR}/env"
-    cat > "$ENV_FILE" << EOF
-# OneClickVirt Agent environment (permissions: 0600)
-WS_URL=${WS_URL}
-AGENT_SECRET=${SECRET}
-AGENT_SOURCE=${AGENT_SOURCE}
-CONTROLLER_BASE_URL=${CONTROLLER_BASE_URL}
-ONECLICKVIRT_EGRESS_AUTO_INSTALL=true
-ONECLICKVIRT_EGRESS_APPLY=true
-EOF
-    chmod 600 "$ENV_FILE"
-    chown root:root "$ENV_FILE" 2>/dev/null || true
+    write_agent_env || return 1
     log_info "Agent environment file created at ${ENV_FILE} with 0600 permissions." "Agent 环境文件已创建: ${ENV_FILE}（权限 0600）。"
 
     cat > /etc/systemd/system/oneclickvirt-egress-guard.service << EOF
@@ -767,18 +791,7 @@ EOF
     log_info "Detected SysV init; installing the init.d script..." "检测到 SysV init，正在安装 init.d 脚本..."
 
     # Write secret to a separate env file with restricted permissions (0600)
-    ENV_FILE="${INSTALL_DIR}/env"
-    cat > "$ENV_FILE" << EOF
-# OneClickVirt Agent environment (permissions: 0600)
-WS_URL=${WS_URL}
-AGENT_SECRET=${SECRET}
-AGENT_SOURCE=${AGENT_SOURCE}
-CONTROLLER_BASE_URL=${CONTROLLER_BASE_URL}
-ONECLICKVIRT_EGRESS_AUTO_INSTALL=true
-ONECLICKVIRT_EGRESS_APPLY=true
-EOF
-    chmod 600 "$ENV_FILE"
-    chown root:root "$ENV_FILE" 2>/dev/null || true
+    write_agent_env || return 1
 
     cat > "/etc/init.d/${SERVICE_NAME}" << EOF
 #!/bin/sh
@@ -862,18 +875,7 @@ EOF
     log_info "Detected OpenRC; installing the init script..." "检测到 OpenRC，正在安装 init 脚本..."
 
     # Write secret to a separate env file with restricted permissions (0600)
-    ENV_FILE="${INSTALL_DIR}/env"
-    cat > "$ENV_FILE" << EOF
-# OneClickVirt Agent environment (permissions: 0600)
-WS_URL=${WS_URL}
-AGENT_SECRET=${SECRET}
-AGENT_SOURCE=${AGENT_SOURCE}
-CONTROLLER_BASE_URL=${CONTROLLER_BASE_URL}
-ONECLICKVIRT_EGRESS_AUTO_INSTALL=true
-ONECLICKVIRT_EGRESS_APPLY=true
-EOF
-    chmod 600 "$ENV_FILE"
-    chown root:root "$ENV_FILE" 2>/dev/null || true
+    write_agent_env || return 1
 
     cat > "/etc/init.d/${SERVICE_NAME}" << EOF
 #!/sbin/openrc-run
@@ -920,18 +922,7 @@ EOF
   log_warning "No supported init system was found (systemd/SysV/OpenRC); starting as a foreground process." "未找到受支持的 init 系统（systemd/SysV/OpenRC），将以前台进程方式启动。"
 
   # Create env file with restricted permissions
-  ENV_FILE="${INSTALL_DIR}/env"
-  cat > "$ENV_FILE" << EOF
-# OneClickVirt Agent environment (permissions: 0600)
-WS_URL=${WS_URL}
-AGENT_SECRET=${SECRET}
-AGENT_SOURCE=${AGENT_SOURCE}
-CONTROLLER_BASE_URL=${CONTROLLER_BASE_URL}
-ONECLICKVIRT_EGRESS_AUTO_INSTALL=true
-ONECLICKVIRT_EGRESS_APPLY=true
-EOF
-  chmod 600 "$ENV_FILE"
-  chown root:root "$ENV_FILE" 2>/dev/null || true
+  write_agent_env || return 1
 
   # Source env file to set WS_URL/AGENT_SECRET in environment,
   # then exec the agent binary WITHOUT CLI args so secret does NOT

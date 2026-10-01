@@ -33,6 +33,9 @@ func (p *PodmanProvider) sshListInstances(ctx context.Context) ([]provider.Insta
 		if len(fields) < 4 {
 			continue
 		}
+		if provider.IsRuntimeInfrastructureContainer(fields[0]) {
+			continue
+		}
 
 		status := "unknown"
 		statusField := strings.ToLower(fields[1])
@@ -65,14 +68,9 @@ func (p *PodmanProvider) enrichInstancesWithNetworkInfo(instances *[]provider.In
 			continue
 		}
 
-		cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", cliName, shellSingleQuote(instance.Name))
-		output, err := p.sshClient.Execute(cmd)
-		if err == nil {
-			ipAddress := utils.CleanCommandOutput(output)
-			if ipAddress != "" && ipAddress != "<no value>" {
-				instance.PrivateIP = ipAddress
-				instance.IP = ipAddress
-			}
+		if ipAddress, err := p.getContainerPrivateIP(instance.Name); err == nil {
+			instance.PrivateIP = ipAddress
+			instance.IP = ipAddress
 		}
 
 		vethCmd := fmt.Sprintf(`
@@ -101,23 +99,11 @@ fi
 			}
 		}
 
-		if instance.PrivateIP == "" {
-			fallbackCmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, shellSingleQuote(instance.Name))
-			fallbackOutput, fallbackErr := p.sshClient.Execute(fallbackCmd)
-			if fallbackErr == nil {
-				ipAddress, parseErr := utils.ParseFirstIPv4AddressOutput(fallbackOutput)
-				if parseErr == nil {
-					instance.PrivateIP = ipAddress
-					instance.IP = ipAddress
-				}
-			}
-		}
-
 		checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", cliName, shellSingleQuote(instance.Name))
 		networksOutput, err := p.sshClient.Execute(checkIPv6Cmd)
 		if err == nil && strings.Contains(networksOutput, ipv6Network) {
-			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", cliName, shellSingleQuote(instance.Name))
-			output, err = p.sshClient.Execute(cmd)
+			cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", cliName, shellSingleQuote(instance.Name))
+			output, err := p.sshClient.Execute(cmd)
 			if err == nil {
 				ipv6Address, parseErr := utils.ParseFirstIPv6AddressOutput(output)
 				if parseErr == nil {

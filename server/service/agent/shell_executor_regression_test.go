@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -125,6 +127,73 @@ func sendAgentFrame(t *testing.T, peer *websocket.Conn, msg wsMessage) {
 	}
 }
 
+func TestTempScriptProcessStateRequiresDefinitiveDeadResponse(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		output string
+		err    error
+		dead   bool
+	}{
+		{name: "dead", output: "dead", dead: true},
+		{name: "alive", output: "alive"},
+		{name: "probe failed", err: errors.New("agent timeout")},
+		{name: "unknown response", output: ""},
+		{name: "non canonical response", output: "not alive"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := tempScriptProcessIsDead(test.output, test.err); got != test.dead {
+				t.Fatalf("tempScriptProcessIsDead(%q, %v) = %v, want %v", test.output, test.err, got, test.dead)
+			}
+		})
+	}
+}
+
+func TestUploadContentContextSendsRequestScopedCancel(t *testing.T) {
+	control, peer, cleanup := newAgentWebSocketPair(t)
+	defer cleanup()
+	ac := newAgentConn(43, control, "test")
+	executor := NewAgentShellExecutor(43, &AgentHub{conns: map[uint]*AgentConn{43: ac}})
+	startControlRouter(t, control, ac)
+	requests := make(chan wsMessage, 1)
+	cancels := make(chan wsMessage, 1)
+	startAgentSimulator(t, peer, func(msg wsMessage) {
+		switch msg.Type {
+		case msgTypeExecRequest:
+			requests <- msg
+		case msgTypeExecCancel:
+			cancels <- msg
+		}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- executor.UploadContentContext(ctx, "payload", "/tmp/test-script", 0755) }()
+	var request wsMessage
+	select {
+	case request = <-requests:
+	case <-time.After(time.Second):
+		t.Fatal("upload request was not sent")
+	}
+	cancel()
+	select {
+	case frame := <-cancels:
+		if frame.ID != request.ID {
+			t.Fatalf("cancel ID = %q, want %q", frame.ID, request.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled upload did not send an Agent cancel frame")
+	}
+	sendAgentFrame(t, peer, execResponseFrame(t, request.ID, "stopped"))
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("upload error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled upload did not return after the Agent acknowledgement")
+	}
+}
+
 func TestCallAPITimeoutSendsRequestScopedCancel(t *testing.T) {
 	control, peer, cleanup := newAgentWebSocketPair(t)
 	defer cleanup()
@@ -188,7 +257,12 @@ func TestAgentCommandTimeoutDoesNotCloseSharedConnection(t *testing.T) {
 	startControlRouter(t, control, ac)
 	slowRequestID := make(chan string, 1)
 	fastRequestID := make(chan string, 1)
+	cancelRequestID := make(chan string, 1)
 	startAgentSimulator(t, peer, func(msg wsMessage) {
+		if msg.Type == msgTypeExecCancel {
+			cancelRequestID <- msg.ID
+			return
+		}
 		if msg.Type != msgTypeExecRequest {
 			return
 		}
@@ -214,7 +288,17 @@ func TestAgentCommandTimeoutDoesNotCloseSharedConnection(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("slow command was not sent")
 	}
+	select {
+	case cancelledID := <-cancelRequestID:
+		if cancelledID != slowID {
+			t.Fatalf("cancel request id = %q, want %q", cancelledID, slowID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed-out command did not send an explicit cancel request")
+	}
+	sendAgentFrame(t, peer, execResponseFrame(t, slowID, "stopped"))
 	if err := <-resultCh; err == nil || !strings.Contains(err.Error(), "执行命令超时") {
+		// ExecuteWithTimeout waits for the Agent to acknowledge command cleanup.
 		t.Fatalf("slow command error = %v", err)
 	}
 	ac.mu.Lock()
@@ -256,6 +340,40 @@ func TestAgentCommandTimeoutDoesNotCloseSharedConnection(t *testing.T) {
 	}
 	if result.output != "fast-result" {
 		t.Fatalf("command B output = %q", result.output)
+	}
+}
+
+func TestAgentExecuteContextWaitsForCancelAcknowledgement(t *testing.T) {
+	control, peer, cleanup := newAgentWebSocketPair(t)
+	defer cleanup()
+	ac := newAgentConn(704, control, "test")
+	startControlRouter(t, control, ac)
+	frames := make(chan wsMessage, 2)
+	startAgentSimulator(t, peer, func(msg wsMessage) { frames <- msg })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := ac.ExecuteContext(ctx, "slow-command")
+		result <- err
+	}()
+	request := <-frames
+	if request.Type != msgTypeExecRequest {
+		t.Fatalf("first frame = %#v, want exec request", request)
+	}
+	cancel()
+	cancelRequest := <-frames
+	if cancelRequest.Type != msgTypeExecCancel || cancelRequest.ID != request.ID {
+		t.Fatalf("cancel frame = %#v, want exec_cancel for %q", cancelRequest, request.ID)
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("ExecuteContext returned before remote cancellation acknowledgement: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	sendAgentFrame(t, peer, execResponseFrame(t, request.ID, "stopped"))
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExecuteContext error = %v, want context cancellation", err)
 	}
 }
 

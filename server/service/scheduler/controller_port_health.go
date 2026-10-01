@@ -16,8 +16,12 @@ import (
 // 解决主控重启或 Agent 重连后端口转发丢失的问题。
 type ControllerPortHealthSchedulerService struct {
 	stopChan  chan struct{}
+	runCancel context.CancelFunc
 	mu        sync.RWMutex
 	isRunning bool
+	stopping  bool
+	wg        sync.WaitGroup
+	doneChan  chan struct{}
 }
 
 // NewControllerPortHealthSchedulerService 创建控制端端口转发健康检查调度服务。
@@ -32,34 +36,86 @@ func NewControllerPortHealthSchedulerService() *ControllerPortHealthSchedulerSer
 // 自动确认监听器未运行的情况。
 func (s *ControllerPortHealthSchedulerService) Start(ctx context.Context) {
 	s.mu.Lock()
-	if s.isRunning {
+	if s.isRunning || s.stopping {
 		s.mu.Unlock()
 		global.APP_LOG.Warn("控制端端口转发健康检查调度器已在运行中")
 		return
 	}
 	s.stopChan = make(chan struct{})
 	stopChan := s.stopChan
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	s.runCancel = cancel
+	s.doneChan = make(chan struct{})
 	s.isRunning = true
+	s.wg.Add(1)
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("启动控制端端口转发健康检查调度器")
 
-	go s.run(ctx, stopChan)
+	go s.run(runCtx, stopChan)
 }
 
 // Stop 停止控制端端口转发健康检查调度器。
 func (s *ControllerPortHealthSchedulerService) Stop() {
 	s.mu.Lock()
 	if !s.isRunning {
+		done := s.doneChan
 		s.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(30 * time.Second):
+				global.APP_LOG.Warn("控制端端口转发健康检查后台任务仍未结束")
+			}
+		}
 		return
 	}
 	s.isRunning = false
+	s.stopping = true
 	stopChan := s.stopChan
+	cancel := s.runCancel
+	done := s.doneChan
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止控制端端口转发健康检查调度器")
 	close(stopChan)
+	if cancel != nil {
+		cancel()
+	}
+	waitDone := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+		if done != nil {
+			<-done
+		}
+		s.finishStop(stopChan)
+	case <-time.After(30 * time.Second):
+		global.APP_LOG.Warn("控制端端口转发健康检查关闭超时，等待后台任务结束后再允许重启")
+		go func() {
+			<-waitDone
+			if done != nil {
+				<-done
+			}
+			s.finishStop(stopChan)
+		}()
+	}
+}
+
+func (s *ControllerPortHealthSchedulerService) finishStop(stopChan chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopChan == stopChan {
+		s.stopping = false
+		s.runCancel = nil
+		s.doneChan = nil
+	}
 }
 
 // IsRunning 检查调度器是否正在运行。
@@ -78,6 +134,31 @@ func (s *ControllerPortHealthSchedulerService) run(ctx context.Context, stopChan
 				zap.Stack("stack"))
 		}
 		global.APP_LOG.Info("控制端端口转发健康检查任务已停止")
+		s.mu.Lock()
+		externalExit := false
+		var done chan struct{}
+		if s.stopChan == stopChan {
+			s.isRunning = false
+			if !s.stopping {
+				s.stopping = true
+				externalExit = true
+			}
+			done = s.doneChan
+		}
+		s.mu.Unlock()
+		if done != nil {
+			close(done)
+		}
+		s.wg.Done()
+		if externalExit {
+			s.mu.Lock()
+			if s.stopChan == stopChan {
+				s.stopping = false
+				s.runCancel = nil
+				s.doneChan = nil
+			}
+			s.mu.Unlock()
+		}
 	}()
 
 	// 启动后等待 90 秒，给 Agent 连接和启动恢复留出时间窗口

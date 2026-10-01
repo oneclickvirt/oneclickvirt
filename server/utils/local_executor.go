@@ -27,6 +27,20 @@ func (e *LocalShellExecutor) Execute(command string) (string, error) {
 	return e.ExecuteWithTimeout(command, e.defaultTimeout)
 }
 
+func (e *LocalShellExecutor) ExecuteContext(parent context.Context, command string) (string, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, e.defaultTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-lc", command)
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return string(output), ctx.Err()
+	}
+	return string(output), err
+}
+
 func (e *LocalShellExecutor) ExecuteWithTimeout(command string, timeout time.Duration) (string, error) {
 	if timeout <= 0 {
 		timeout = e.defaultTimeout
@@ -54,6 +68,20 @@ func (e *LocalShellExecutor) ExecuteRaw(command string, timeout time.Duration) (
 }
 
 func (e *LocalShellExecutor) ExecuteViaTempScript(scriptContent string, args []string, timeout time.Duration) (string, error) {
+	return e.ExecuteViaTempScriptContext(context.Background(), scriptContent, args, timeout)
+}
+
+// ExecuteViaTempScriptContext runs a temporary script and stops it when the
+// owning task is cancelled.
+func (e *LocalShellExecutor) ExecuteViaTempScriptContext(parent context.Context, scriptContent string, args []string, timeout time.Duration) (string, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if timeout <= 0 {
+		timeout = e.defaultTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
 	tmp, err := os.CreateTemp("", "oneclickvirt-local-*.sh")
 	if err != nil {
 		return "", err
@@ -79,7 +107,7 @@ func (e *LocalShellExecutor) ExecuteViaTempScript(scriptContent string, args []s
 	for _, arg := range args {
 		quotedArgs = append(quotedArgs, shellQuote(arg))
 	}
-	output, execErr := e.ExecuteWithTimeout(strings.Join(quotedArgs, " "), timeout)
+	output, execErr := e.ExecuteContext(ctx, strings.Join(quotedArgs, " "))
 	if logOutput, readErr := os.ReadFile(path + ".log"); readErr == nil && len(logOutput) > 0 {
 		output = string(logOutput)
 	}
@@ -102,3 +130,4 @@ func shellQuote(s string) string {
 }
 
 var _ ShellExecutor = (*LocalShellExecutor)(nil)
+var _ ContextTempScriptExecutor = (*LocalShellExecutor)(nil)

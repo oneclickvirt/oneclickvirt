@@ -52,8 +52,11 @@ if [ "$(incus network get "$bridge" ipv6.nat 2>/dev/null || true)" != "true" ]; 
 	if output, execErr := i.sshClient.Execute(bridgeCmd); execErr != nil {
 		return "", fmt.Errorf("初始化Incus NAT IPv6网桥失败: output=%s: %w", summarizeIPv6ProbeOutput(output), execErr)
 	}
-	if err := i.sshStartInstance(containerName); err != nil {
+	if err := i.sshStartInstance(ctx, containerName); err != nil {
 		return "", fmt.Errorf("启动NAT IPv6实例失败: %w", err)
+	}
+	if err := i.ensureContainerIPv6Lease(containerName); err != nil {
+		return "", fmt.Errorf("唤醒NAT IPv6实例DHCPv6失败: %w", err)
 	}
 	if err := i.waitForContainerNetworkReady(containerName); err != nil {
 		return "", fmt.Errorf("NAT IPv6实例网桥地址未就绪: %w", err)
@@ -108,17 +111,6 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 		global.APP_LOG.Debug("本地IPv6网络", zap.String("interface", ipv6NetworkName), zap.String("network", network.CIDR()))
 	}
 
-	if err := i.configureIPv6Sysctls(ipv6NetworkName); err != nil {
-		return "", fmt.Errorf("配置IPv6 sysctl失败: %w", err)
-	}
-	// Incus' NAT proxy path for an IPv6 bridge depends on bridge netfilter.
-	// Some minimal VPS kernels ship the module but do not load it by default;
-	// without this guard the proxy device is accepted and nftables rules are
-	// created, yet every packet is dropped before it reaches the guest.
-	if err := i.ensureBridgeNetfilter(); err != nil {
-		return "", fmt.Errorf("IPv6 bridge netfilter不可用: %w", err)
-	}
-
 	if requestedIPv6 == "" {
 		// 只使用经过解析的网络地址，不把远端命令的多行诊断文本拼进前缀。
 		randBitsCmd := "od -An -N2 -t x1 /dev/urandom | tr -d '[:space:]'"
@@ -135,6 +127,29 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 			return "", fmt.Errorf("生成容器IPv6地址失败: %w", err)
 		}
 	}
+	reserved, err := utils.ReadHostIPv6Reservations(i.sshClient)
+	if err != nil {
+		return "", fmt.Errorf("无法确认宿主机IPv6地址占用: %w", err)
+	}
+	if utils.HostIPv6AddressReserved(containerIPv6, reserved) {
+		if requestedIPv6 != "" {
+			return "", fmt.Errorf("静态IPv6地址与宿主机地址、网关或精确路由冲突")
+		}
+		containerIPv6, err = utils.FirstAvailableIPv6(network, reserved, 3, 65533)
+		if err != nil {
+			return "", fmt.Errorf("宿主机IPv6前缀没有可用的容器地址: %w", err)
+		}
+	}
+	if err := i.configureIPv6Sysctls(ipv6NetworkName); err != nil {
+		return "", fmt.Errorf("配置IPv6 sysctl失败: %w", err)
+	}
+	// Incus' NAT proxy path for an IPv6 bridge depends on bridge netfilter.
+	// Some minimal VPS kernels ship the module but do not load it by default;
+	// without this guard the proxy device is accepted and nftables rules are
+	// created, yet every packet is dropped before it reaches the guest.
+	if err := i.ensureBridgeNetfilter(); err != nil {
+		return "", fmt.Errorf("IPv6 bridge netfilter不可用: %w", err)
+	}
 
 	global.APP_LOG.Debug("生成容器IPv6地址",
 		zap.String("container", config.ContainerName),
@@ -144,10 +159,12 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	// leave a running instance untouched while the device mutation continues,
 	// producing a half-applied network configuration.  The helper tolerates an
 	// already stopped instance but propagates transport and runtime failures.
-	if err := i.sshStopInstance(config.ContainerName); err != nil {
+	if err := i.sshStopInstance(ctx, config.ContainerName); err != nil {
 		return "", fmt.Errorf("停止容器进行IPv6配置失败: %w", err)
 	}
-	time.Sleep(3 * time.Second)
+	if err := utils.SleepContext(ctx, 3*time.Second); err != nil {
+		return "", err
+	}
 
 	instanceArg := shellSingleQuote(config.ContainerName)
 	parentArg := shellSingleQuote(ipv6NetworkName)
@@ -238,7 +255,7 @@ mv -f "$tmp" "$conf"`
 	return err
 }
 
-func (i *IncusProvider) setupRoutedNetworkDeviceIPv6(config IPv6Config) (string, error) {
+func (i *IncusProvider) setupRoutedNetworkDeviceIPv6(ctx context.Context, config IPv6Config) (string, error) {
 	routed, present, err := provider.ResolveRoutedIPv6(provider.InstanceConfig{Metadata: map[string]string{
 		"static_ipv6":                  config.ContainerIPv6,
 		"static_ipv6_cidr":             config.RoutedCIDR,
@@ -266,7 +283,7 @@ func (i *IncusProvider) setupRoutedNetworkDeviceIPv6(config IPv6Config) (string,
 	name := shellSingleQuote(config.ContainerName)
 	bridge := shellSingleQuote(routed.Bridge)
 	addressArg := shellSingleQuote(routed.Address)
-	if err := i.sshStopInstance(config.ContainerName); err != nil {
+	if err := i.sshStopInstance(ctx, config.ContainerName); err != nil {
 		return "", fmt.Errorf("停止隧道路由IPv6实例失败: %w", err)
 	}
 	deviceCmd := fmt.Sprintf(`set -eu
@@ -285,10 +302,10 @@ if incus config device get %s eth1 type >/dev/null 2>&1; then
 else
 	  incus config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s ipv6.gateway=auto
 fi`, name, name, name, name, name, bridge, addressArg, name, name, bridge, addressArg, name, bridge, addressArg)
-	if output, deviceErr := i.sshClient.Execute(deviceCmd); deviceErr != nil {
+	if output, deviceErr := utils.ExecuteShellCommandContext(ctx, i.sshClient, deviceCmd); deviceErr != nil {
 		return "", fmt.Errorf("添加隧道路由IPv6网络设备失败: output=%s: %w", summarizeIPv6ProbeOutput(output), deviceErr)
 	}
-	startOutput, startErr := i.sshClient.Execute(fmt.Sprintf("incus start %s", shellSingleQuote(config.ContainerName)))
+	startOutput, startErr := utils.ExecuteShellCommandContext(ctx, i.sshClient, fmt.Sprintf("incus start %s", shellSingleQuote(config.ContainerName)))
 	if startErr != nil {
 		return "", fmt.Errorf("启动隧道路由IPv6实例失败: output=%s: %w", summarizeIPv6ProbeOutput(startOutput), startErr)
 	}
@@ -308,36 +325,19 @@ fi`, name, name, name, name, name, bridge, addressArg, name, name, bridge, addre
 // the global switch Incus rejects the device even when the uplink itself has
 // proxy_ndp enabled.
 func (i *IncusProvider) configureIPv6Sysctls(interfaceName string) error {
-	if strings.TrimSpace(interfaceName) == "" || utils.SanitizeShellArg(interfaceName) != interfaceName {
-		return fmt.Errorf("无效的IPv6网络接口: %q", interfaceName)
+	routes, err := i.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 route show default")
+	if err != nil {
+		return fmt.Errorf("读取宿主机IPv6默认路由失败: %w", err)
 	}
-	command := fmt.Sprintf(`set -eu
-conf=/etc/sysctl.d/99-oneclickvirt-ipv6.conf
-mkdir -p /etc/sysctl.d
-tmp="${conf}.tmp.$$"
-{
-  if [ -e "/proc/sys/net/ipv6/conf/%s/accept_ra" ]; then
-    printf 'net.ipv6.conf.%%s.accept_ra=2\n' "%s"
-  fi
-	  printf 'net.ipv6.conf.all.forwarding=1\n'
-	  printf 'net.ipv6.conf.default.forwarding=1\n'
-  printf 'net.ipv6.conf.all.proxy_ndp=1\n'
-  if [ -e "/proc/sys/net/ipv6/conf/%s/proxy_ndp" ]; then
-    printf 'net.ipv6.conf.%%s.proxy_ndp=1\n' "%s"
-  fi
-} > "$tmp"
-chmod 0644 "$tmp"
-mv "$tmp" "$conf"
-if [ -e "/proc/sys/net/ipv6/conf/%s/accept_ra" ]; then
-  sysctl -w "net.ipv6.conf.%s.accept_ra=2" >/dev/null
-fi
-	sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
-	sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null
-sysctl -w net.ipv6.conf.all.proxy_ndp=1 >/dev/null
-if [ -e "/proc/sys/net/ipv6/conf/%s/proxy_ndp" ]; then
-  sysctl -w "net.ipv6.conf.%s.proxy_ndp=1" >/dev/null
-fi`, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName, interfaceName)
-	_, err := i.sshClient.Execute(command)
+	interfaces, err := utils.IPv6ForwardingInterfaces(routes, interfaceName)
+	if err != nil {
+		return err
+	}
+	command, err := utils.IPv6ForwardingSysctlCommand(interfaces)
+	if err != nil {
+		return err
+	}
+	_, err = i.sshClient.Execute(command)
 	return err
 }
 
@@ -417,7 +417,7 @@ func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName 
 			RoutedTunnelInterface: routed.TunnelInterface,
 			InstanceType:          instanceType,
 		}
-		containerIPv6, err := i.setupRoutedNetworkDeviceIPv6(routedConfig)
+		containerIPv6, err := i.setupRoutedNetworkDeviceIPv6(ctx, routedConfig)
 		if err != nil {
 			return err
 		}
@@ -543,6 +543,10 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		zap.String("subnetPrefix", subnetPrefix),
 		zap.String("ipv6Length", ipv6Length),
 		zap.String("containerIPv6", containerIPv6))
+	reserved, err := utils.ReadHostIPv6Reservations(i.sshClient)
+	if err != nil {
+		return "", fmt.Errorf("无法确认宿主机IPv6地址占用: %w", err)
+	}
 
 	var mappedIPv6 string
 	if strings.TrimSpace(config.ContainerIPv6) != "" {
@@ -550,7 +554,9 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		if err != nil {
 			return "", fmt.Errorf("静态IPv6地址无效: %w", err)
 		}
-		ipv6Length = "128"
+		if utils.HostIPv6AddressReserved(mappedIPv6, reserved) {
+			return "", fmt.Errorf("静态IPv6地址与宿主机地址、网关或精确路由冲突")
+		}
 	} else {
 		snapshotCmd := fmt.Sprintf("{ ip -6 addr show dev %s; ip -6 neigh show dev %s; ip6tables -t nat -S PREROUTING; } 2>/dev/null || true", shellSingleQuote(interfaceName), shellSingleQuote(interfaceName))
 		snapshot, snapshotErr := i.sshClient.Execute(snapshotCmd)
@@ -558,6 +564,7 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 			return "", fmt.Errorf("读取IPv6占用快照失败: %w", snapshotErr)
 		}
 		occupied := utils.ExtractIPv6Addresses(snapshot)
+		occupied = append(occupied, reserved...)
 		occupied = append(occupied, containerIPv6)
 		mappedIPv6, err = utils.FirstAvailableIPv6(network, occupied, 3, 65533)
 		if err != nil {
@@ -569,8 +576,9 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		return "", fmt.Errorf("无可用IPv6地址，不进行自动映射")
 	}
 
-	// IPv6地址到接口
-	addAddrCmd := fmt.Sprintf("ip -6 addr replace %s/%s dev %s", shellSingleQuote(mappedIPv6), ipv6Length, shellSingleQuote(interfaceName))
+	// Bind only the mapped host address. Reusing the delegated prefix here can
+	// create another connected route and disturb the host's existing IPv6 path.
+	addAddrCmd := fmt.Sprintf("ip -6 addr replace %s/128 dev %s", shellSingleQuote(mappedIPv6), shellSingleQuote(interfaceName))
 	_, err = i.sshClient.Execute(addAddrCmd)
 	if err != nil {
 		return "", fmt.Errorf("添加IPv6地址失败: %w", err)

@@ -263,7 +263,8 @@
             <el-button
               size="small"
               type="success"
-              :disabled="!canOpenInstanceDetail(instance) || instance.trafficOperationLocked"
+              :loading="shareLinkLoadingIds.has(instance.id)"
+              :disabled="!canOpenInstanceDetail(instance) || instance.trafficOperationLocked || shareLinkLoadingIds.has(instance.id)"
               :title="instance.trafficOperationLockMessage || ''"
               @click="createShareLink(instance)"
             >
@@ -337,6 +338,7 @@ const {
   loading,
   instances,
   total,
+  shareLinkLoadingIds,
   showTrafficDialog,
   selectedInstanceForTraffic,
   filterForm,

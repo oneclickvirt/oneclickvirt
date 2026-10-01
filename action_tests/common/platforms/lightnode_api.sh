@@ -295,12 +295,15 @@ lightnode_platform_create_instance() {
     [[ -z "$ecs_uuid" ]] && { log_error "[lightnode] No ecsResourceUUID in response"; return 1; }
     log_success "[lightnode] Instance creation requested: ${ecs_uuid}"
     if ! _lightnode_wait_async_task "${task_uuid}" "$LIGHTNODE_CREATE_TASK_MAX_WAIT"; then
-        # Async provisioning task failed — attempt to release the partially-created instance
-        # so it does not pollute list_instances on the next run
-        log_warning "[lightnode] Async provisioning failed for ${ecs_uuid}; attempting to release stale instance..."
-        local rel_resp; rel_resp=$(lightnode_request "POST" "/instance/release" "{\"ecsResourceUUID\":\"${ecs_uuid}\"}" 2>/dev/null) || true
-        local rel_code; rel_code=$(lightnode_parse_code "${rel_resp:-}" 2>/dev/null) || true
-        log_info "[lightnode] Stale instance release returned HTTP ${rel_code:-unknown}"
+        if should_skip_delete lightnode; then
+            log_warning "[lightnode] Async provisioning failed for ${ecs_uuid}; preserving the instance for inspection"
+        else
+            # Async provisioning may leave a chargeable partial resource.
+            log_warning "[lightnode] Async provisioning failed for ${ecs_uuid}; attempting to release stale instance..."
+            local rel_resp; rel_resp=$(lightnode_request "POST" "/instance/release" "{\"ecsResourceUUID\":\"${ecs_uuid}\"}" 2>/dev/null) || true
+            local rel_code; rel_code=$(lightnode_parse_code "${rel_resp:-}" 2>/dev/null) || true
+            log_info "[lightnode] Stale instance release returned HTTP ${rel_code:-unknown}"
+        fi
         export PLATFORM_LAST_ERROR="resource_exhausted"
         return 1
     fi

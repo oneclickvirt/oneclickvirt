@@ -20,7 +20,7 @@ func TestResetReplacementInstancePreservesLogicalNetworkIdentity(t *testing.T) {
 		Instance: providerModel.Instance{
 			UUID: "logical-instance-uuid", Image: "debian", InstanceType: "container",
 			CPU: 2, Memory: 2048, Disk: 10240, Bandwidth: 100,
-			OSType: "linux", NetworkType: "dedicated_ipv4_ipv6", EgressProfileID: "exit-a",
+			OSType: "linux", NetworkType: "dedicated_ipv4_ipv6", PublicIP: "198.51.100.10", EgressProfileID: "exit-a",
 		},
 		Provider:               providerModel.Provider{ID: 7, Name: "node-a", Endpoint: "203.0.113.7"},
 		OldInstanceName:        "instance-a",
@@ -36,6 +36,9 @@ func TestResetReplacementInstancePreservesLogicalNetworkIdentity(t *testing.T) {
 	}
 	if replacement.NetworkType != "dedicated_ipv4_ipv6" || replacement.ProviderID != 7 || replacement.Name != "instance-a" {
 		t.Fatalf("network/provider identity was not preserved: %#v", replacement)
+	}
+	if replacement.PublicIP != resetCtx.Instance.PublicIP {
+		t.Fatalf("dedicated instance address was not preserved: got %q want %q", replacement.PublicIP, resetCtx.Instance.PublicIP)
 	}
 	if replacement.Status != "creating" || replacement.ExpiresAt == nil || !replacement.ExpiresAt.Equal(expiresAt) {
 		t.Fatalf("replacement lifecycle fields = %#v", replacement)

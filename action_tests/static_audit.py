@@ -150,7 +150,10 @@ def audit_shell(root: Path) -> tuple[list[Finding], list[Finding]]:
                 pipe_findings.append(Finding(rel(path, root), idx, "cat-head-tail-pipe", stripped))
             if "| tee " in line and "PIPESTATUS" not in line and "set +e" not in line:
                 pipe_findings.append(Finding(rel(path, root), idx, "tee-pipe", stripped))
-            if re.search(r"\bset\s+-[A-Za-z]*e[A-Za-z]*(?:\s|$)", line):
+            if (
+                re.search(r"\bset\s+-[A-Za-z]*e[A-Za-z]*(?:\s|$)", line)
+                and not re.search(r"\bpipefail\b", line)
+            ):
                 pipe_findings.append(Finding(rel(path, root), idx, "set-e", stripped))
     return jq_findings, pipe_findings
 

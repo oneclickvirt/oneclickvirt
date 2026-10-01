@@ -40,6 +40,23 @@ func TestClassifyErrorTreatsCapacityRejectionsAsConflict(t *testing.T) {
 	}
 }
 
+func TestClassifyErrorTreatsOccupiedPortsAsConflict(t *testing.T) {
+	for _, message := range []string{
+		"端口段 25001-25001 中存在已占用端口",
+		"端口段中有端口已被并发占用: [25001]",
+	} {
+		t.Run(message, func(t *testing.T) {
+			err := ClassifyError(errors.New(message))
+			if err.Code != CodeConflict {
+				t.Fatalf("ClassifyError(%q) code = %d, want %d", message, err.Code, CodeConflict)
+			}
+			if err.Details != message {
+				t.Fatalf("ClassifyError(%q) details = %q", message, err.Details)
+			}
+		})
+	}
+}
+
 func TestClassifyErrorTreatsUnavailableSelectedImageAsBadRequest(t *testing.T) {
 	err := ClassifyError(errors.New("所选镜像不可用"))
 	if err.Code != CodeBadRequest {

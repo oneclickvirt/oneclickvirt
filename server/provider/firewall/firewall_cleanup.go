@@ -442,3 +442,41 @@ func (m *Manager) DeleteRulesByCommentForFamily(comment string, ipv6 bool) error
 	}
 	return m.removeSelectedRules(ipv6, func(rule cleanupRule) bool { return rule.comment == comment }, rules)
 }
+
+// DeleteRulesByCommentPrefixForFamily removes all rules whose owner comment
+// starts with prefix in one address family. Port-mapping comments include the
+// guest port after the host port (for example pm:guest:22000:22), so a caller
+// that only knows the host port must use this explicit prefix operation rather
+// than passing a prefix to the exact-match API above.
+func (m *Manager) DeleteRulesByCommentPrefixForFamily(prefix string, ipv6 bool) error {
+	if strings.TrimSpace(prefix) == "" {
+		return fmt.Errorf("拒绝按空注释前缀删除防火墙规则")
+	}
+	rules, err := m.readCleanupRules(ipv6)
+	if err != nil {
+		return err
+	}
+	return m.removeSelectedRules(ipv6, func(rule cleanupRule) bool {
+		return strings.HasPrefix(rule.comment, prefix)
+	}, rules)
+}
+
+// DeleteRulesByCommentPrefix removes a comment prefix in both address
+// families, including rules left by a previous firewall backend.
+func (m *Manager) DeleteRulesByCommentPrefix(prefix string) error {
+	if err := m.DeleteRulesByCommentPrefixForFamily(prefix, false); err != nil {
+		return err
+	}
+	output, err := m.sshClient.Execute("if command -v nft >/dev/null 2>&1 || command -v ip6tables >/dev/null 2>&1; then echo present; else echo absent; fi")
+	if err != nil {
+		return fmt.Errorf("检测IPv6防火墙工具失败: %w", err)
+	}
+	switch strings.TrimSpace(output) {
+	case "absent":
+		return nil
+	case "present":
+		return m.DeleteRulesByCommentPrefixForFamily(prefix, true)
+	default:
+		return fmt.Errorf("无效的IPv6防火墙工具检测响应")
+	}
+}

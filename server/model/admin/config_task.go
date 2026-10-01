@@ -53,11 +53,12 @@ func (ConfigurationTask) TableName() string {
 
 // 任务状态常量
 const (
-	TaskStatusPending   = "pending"
-	TaskStatusRunning   = "running"
-	TaskStatusCompleted = "completed"
-	TaskStatusFailed    = "failed"
-	TaskStatusCancelled = "cancelled"
+	TaskStatusPending    = "pending"
+	TaskStatusRunning    = "running"
+	TaskStatusCancelling = "cancelling"
+	TaskStatusCompleted  = "completed"
+	TaskStatusFailed     = "failed"
+	TaskStatusCancelled  = "cancelled"
 )
 
 // 任务类型常量
@@ -97,5 +98,5 @@ func (t *ConfigurationTask) BeforeUpdate(tx *gorm.DB) error {
 
 // IsRunning 检查任务是否正在运行
 func (t *ConfigurationTask) IsRunning() bool {
-	return t.Status == TaskStatusRunning || t.Status == TaskStatusPending
+	return t.Status == TaskStatusRunning || t.Status == TaskStatusPending || t.Status == TaskStatusCancelling
 }

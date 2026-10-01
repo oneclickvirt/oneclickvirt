@@ -411,7 +411,7 @@ func (p *VMwareProvider) ExecuteSSHCommand(ctx context.Context, command string) 
 	if exec == nil {
 		return "", fmt.Errorf("VMware provider not connected")
 	}
-	return exec.Execute(command)
+	return utils.ExecuteShellCommandContext(ctx, exec, command)
 }
 
 func (p *VMwareProvider) DiscoverInstances(ctx context.Context) ([]provider.DiscoveredInstance, error) {

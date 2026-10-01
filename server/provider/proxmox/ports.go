@@ -301,6 +301,12 @@ func (p *ProxmoxProvider) setupPortMappingWithIP(ctx context.Context, instanceNa
 	if protocol == "both" {
 		protocols = []string{"tcp", "udp"}
 	}
+	// Older reset tasks used the numeric PVE VMID as the firewall owner. Clean
+	// that alias once per mapping before expanding "both"; doing this inside
+	// the protocol loop would remove the TCP rule immediately before adding UDP.
+	if err := p.cleanupLegacyPortMappingOwner(instanceName, hostPort); err != nil {
+		return fmt.Errorf("清理旧端口映射归属失败: %w", err)
+	}
 
 	for _, proto := range protocols {
 		if err := p.setupSinglePortMapping(ctx, instanceName, hostPort, guestPort, proto, method, instanceIP); err != nil {
@@ -309,6 +315,32 @@ func (p *ProxmoxProvider) setupPortMappingWithIP(ctx context.Context, instanceNa
 	}
 
 	return nil
+}
+
+func (p *ProxmoxProvider) cleanupLegacyPortMappingOwner(instanceName string, hostPort int) error {
+	providerID := p.providerID
+	if providerID == 0 {
+		providerID = p.config.ID
+	}
+	if providerID == 0 || global.APP_DB == nil || strings.TrimSpace(instanceName) == "" {
+		return nil
+	}
+	var instance providerModel.Instance
+	if err := global.APP_DB.Where("provider_id = ? AND name = ?", providerID, instanceName).First(&instance).Error; err != nil {
+		// Mapping setup can also be used while importing a runtime before the
+		// controller row is visible. The normal owner cleanup still runs below.
+		return nil
+	}
+	legacyOwner := strings.TrimSpace(instance.ProviderVMID)
+	if legacyOwner == "" || legacyOwner == strings.TrimSpace(instanceName) {
+		return nil
+	}
+	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
+	if _, err := fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend"); err != nil {
+		return err
+	}
+	prefix := fmt.Sprintf("pm:%s:%d:", legacyOwner, hostPort)
+	return fwMgr.DeleteRulesByCommentPrefix(prefix)
 }
 
 // setupSinglePortMapping 设置单个协议的端口映射
@@ -390,16 +422,25 @@ func (p *ProxmoxProvider) removeIptablesMapping(ctx context.Context, instanceNam
 	}
 
 	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
-	fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend")
+	if _, err := fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend"); err != nil {
+		return fmt.Errorf("检测防火墙后端失败: %w", err)
+	}
 
-	// 尝试先按注释删除（新规则），再按IP+端口删除（旧规则）
+	// Port comments include the guest port, which this public method does not
+	// receive. Remove the exact host-port prefix for all protocols/guest ports;
+	// the prefix API is intentional and avoids silently passing a non-exact
+	// string to DeleteRulesByComment.
 	comment := fmt.Sprintf("pm:%s:%d:", instanceName, hostPort)
-	backend := fwMgr.GetBackend()
-	if backend == firewall.BackendNft {
-		fwMgr.DeleteRulesByComment(comment)
-	} else {
-		// iptables: 精确删除3条规则
-		fwMgr.RemoveSingleDNAT(cleanInstanceIP, hostPort, 0, protocol, "")
+	if err := fwMgr.DeleteRulesByCommentPrefix(comment); err != nil {
+		return fmt.Errorf("按端口映射归属清理规则失败: %w", err)
+	}
+	// Also remove untagged legacy rules when the guest address is known. New
+	// tagged rules were handled above; this fallback preserves compatibility
+	// with mappings created before owner comments were introduced.
+	if cleanInstanceIP != "" {
+		if err := fwMgr.RemoveSingleDNAT(cleanInstanceIP, hostPort, 0, protocol, ""); err != nil {
+			return fmt.Errorf("清理未标记端口映射失败: %w", err)
+		}
 	}
 
 	global.APP_LOG.Debug("防火墙端口映射移除成功",

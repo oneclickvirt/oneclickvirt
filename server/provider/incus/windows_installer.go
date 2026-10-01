@@ -102,7 +102,7 @@ func (i *IncusProvider) createWindowsInstallerVM(ctx context.Context, config pro
 	}
 
 	updateProgress(68, "启动Windows安装型虚拟机...")
-	if err := i.sshStartInstance(config.Name); err != nil {
+	if err := i.sshStartInstance(ctx, config.Name); err != nil {
 		return fmt.Errorf("启动Windows安装型虚拟机失败: %w", err)
 	}
 	if err := i.waitForInstanceState(config.Name, "RUNNING", 60); err != nil {

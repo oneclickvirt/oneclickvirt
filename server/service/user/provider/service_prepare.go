@@ -95,6 +95,9 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 
 	// 在单个事务中完成所有数据库操作（不需要预留资源消费）
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		if err := lockRunningCreate(tx, task.ID); err != nil {
+			return err
+		}
 		// 重新验证镜像和服务器（防止状态变化）
 		imageName := taskReq.Image
 		instanceType := taskReq.InstanceType
@@ -179,13 +182,11 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		}
 
 		// 更新任务关联的实例ID和状态
-		if err := tx.Model(task).Updates(map[string]interface{}{
+		if err := tx.Model(&adminModel.Task{}).Where("id = ? AND status = ?", task.ID, "running").Updates(map[string]interface{}{
 			"instance_id": instance.ID,
-			"status":      "processing",
 		}).Error; err != nil {
 			return fmt.Errorf("更新任务状态失败: %v", err)
 		}
-		task.InstanceID = &instance.ID
 
 		// 分配Provider资源（使用悲观锁）
 		resourceService := &resources.ResourceService{}

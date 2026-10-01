@@ -58,9 +58,9 @@
 | 镜像标签 | 说明 | 适用场景 |
 |---------|------|---------|
 | `oneclickvirt/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
-| `oneclickvirt/oneclickvirt:20260925` | 一体化版本特定日期版本 | 需要固定版本 |
+| `oneclickvirt/oneclickvirt:20260728` | 一体化版本特定日期版本 | 需要固定版本 |
 | `oneclickvirt/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
-| `oneclickvirt/oneclickvirt:no-db-20260925` | 独立数据库版本特定日期 | 不内置数据库 |
+| `oneclickvirt/oneclickvirt:no-db-20260728` | 独立数据库版本特定日期 | 不内置数据库 |
 
 所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
 
@@ -265,9 +265,11 @@ bash install_full.sh \
 常用自动化参数：
 
 ```bash
-bash install_full.sh --version v1.2.3 --db-wait-timeout 300
+bash install_full.sh --db-wait-timeout 300
 bash install_full.sh --db-type mysql --no-db-fallback
 ```
+
+`--version` 可选。需要固定版本时，请使用 OneClickVirt 的时间戳 Release 标签，例如 `--version v20260925-052714`。
 
 安装脚本默认要求至少 10 GB 可用磁盘和 2 GB 内存（内存与 Swap 合计）。生成的数据库密码会在安装摘要中输出，请在关闭终端前保存。
 

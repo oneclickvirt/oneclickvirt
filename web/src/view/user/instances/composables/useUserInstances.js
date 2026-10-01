@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUserInstances, createUserInstanceShare } from '@/api/user'
 import { normalizeShareURL, showShareLinkDialog } from '@/utils/share-link'
 import { canOpenInstanceDetail, getInstanceBusyMessage, isInstanceBusy } from '@/utils/instance-status'
+import { createKeyedActionLock } from '@/utils/actionLock'
 
 export function useUserInstances() {
   const { t, locale } = useI18n()
@@ -14,6 +15,9 @@ export function useUserInstances() {
   const loading = ref(false)
   const instances = ref([])
   const total = ref(0)
+  const shareLinkLoadingIds = ref(new Set())
+  const shareLinkLock = createKeyedActionLock()
+  let loadGeneration = 0
 
   // 流量详情对话框
   const showTrafficDialog = ref(false)
@@ -39,6 +43,7 @@ export function useUserInstances() {
 
   // 获取实例列表
   const loadInstances = async (showSuccessMsg = false) => {
+    const generation = ++loadGeneration
     try {
       loading.value = true
       const params = {
@@ -48,6 +53,7 @@ export function useUserInstances() {
       }
 
       const response = await getUserInstances(params)
+      if (generation !== loadGeneration) return
       instances.value = response.data.list || []
       total.value = response.data.total || 0
       // 只有在明确刷新时才显示成功提示
@@ -55,12 +61,13 @@ export function useUserInstances() {
         ElMessage.success(t('user.instances.refreshSuccess', { count: total.value }))
       }
     } catch (error) {
+      if (generation !== loadGeneration) return
       console.error('获取实例列表失败:', error)
       instances.value = []
       total.value = 0
       ElMessage.error(error?.message || t('user.instances.loadFailed'))
     } finally {
-      loading.value = false
+      if (generation === loadGeneration) loading.value = false
     }
   }
 
@@ -207,6 +214,10 @@ export function useUserInstances() {
       ElMessage.error(instance.trafficOperationLockMessage || t('user.instanceDetail.trafficLimitStartBlocked'))
       return
     }
+    if (!shareLinkLock.tryAcquire(instance.id)) return
+    const active = new Set(shareLinkLoadingIds.value)
+    active.add(instance.id)
+    shareLinkLoadingIds.value = active
     try {
       const { value } = await ElMessageBox.prompt(
         t('user.instances.shareExpiryPrompt'),
@@ -232,6 +243,11 @@ export function useUserInstances() {
         console.error('创建分享链接失败:', error)
         ElMessage.error(error?.fullMessage || error?.userMessage || error?.message || t('user.instances.shareLinkCreateFailed'))
       }
+    } finally {
+      shareLinkLock.release(instance.id)
+      const remaining = new Set(shareLinkLoadingIds.value)
+      remaining.delete(instance.id)
+      shareLinkLoadingIds.value = remaining
     }
   }
 
@@ -252,44 +268,21 @@ export function useUserInstances() {
   // 处理强制刷新事件
   const handleForceRefresh = async (event) => {
     if (event.detail && event.detail.path === '/user/instances') {
-      loading.value = true
-      try {
-        await loadInstances()
-      } catch (error) {
-        console.error('获取实例列表失败:', error)
-      } finally {
-        loading.value = false
-      }
+      await loadInstances()
     }
   }
 
-  onMounted(async () => {
+  onMounted(() => {
     // 自定义导航事件监听器
     window.addEventListener('router-navigation', handleRouterNavigation)
     // 强制页面刷新监听器
     window.addEventListener('force-page-refresh', handleForceRefresh)
 
-    loading.value = true
-    try {
-      await loadInstances()
-    } catch (error) {
-      console.error('获取实例列表失败:', error)
-    } finally {
-      loading.value = false
-    }
+    loadInstances()
   })
 
   // 使用 onActivated 确保每次页面激活时都重新加载数据
-  onActivated(async () => {
-    loading.value = true
-    try {
-      await loadInstances()
-    } catch (error) {
-      console.error('获取实例列表失败:', error)
-    } finally {
-      loading.value = false
-    }
-  })
+  onActivated(() => { loadInstances() })
 
   onUnmounted(() => {
     // 移除事件监听器
@@ -301,6 +294,7 @@ export function useUserInstances() {
     loading,
     instances,
     total,
+    shareLinkLoadingIds,
     showTrafficDialog,
     selectedInstanceForTraffic,
     filterForm,

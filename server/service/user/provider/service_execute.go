@@ -102,7 +102,12 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	localProviderExpiresAt := dbProvider.ExpiresAt
 	localProviderIPv4PortMappingMethod := dbProvider.IPv4PortMappingMethod
 	localProviderIPv6PortMappingMethod := dbProvider.IPv6PortMappingMethod
-	localProviderNetworkType := dbProvider.NetworkType
+	// Direct admin creation may explicitly override the provider default for
+	// this instance (for example, request nat_ipv4_ipv6 on a provider whose
+	// default is nat_ipv4).  The preparation phase stores that override on the
+	// instance so resets and finalization can use the same effective network.
+	// Keep the provider default only when the instance has no explicit value.
+	localProviderNetworkType := effectiveInstanceNetworkType(instance.NetworkType, dbProvider.NetworkType)
 	if err := validateProviderIPv6Network(localProviderType, localProviderNetworkType); err != nil {
 		return err
 	}

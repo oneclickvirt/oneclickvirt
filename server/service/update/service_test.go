@@ -63,6 +63,80 @@ func TestSelectReleaseWillNotDowngradeImplicitLatest(t *testing.T) {
 	}
 }
 
+func TestBeginOperationReusesSameIdempotencyKeyWithoutStartingAgain(t *testing.T) {
+	updateStateTestConfig(t)
+	now := time.Date(2026, time.August, 22, 0, 0, 0, 0, time.UTC)
+	service := &Service{state: OperationState{Status: OperationIdle}, now: func() time.Time { return now }}
+
+	fingerprint := operationFingerprint("restart", "", "")
+	first, created, err := service.beginOperation("restart", "", "", "system-retry-key", fingerprint)
+	if err != nil || !created {
+		t.Fatalf("first operation = %#v created=%t err=%v", first, created, err)
+	}
+	second, created, err := service.beginOperation("restart", "", "", "system-retry-key", fingerprint)
+	if err != nil || created || second.ID != first.ID {
+		t.Fatalf("same-key retry = %#v created=%t err=%v", second, created, err)
+	}
+	if _, _, err := service.beginOperation("restart", "", "", "different-key", fingerprint); err == nil {
+		t.Fatal("different idempotency key was allowed while operation was active")
+	}
+}
+
+func TestUpdateOperationByMessageUsesOperationIdentityAndRevision(t *testing.T) {
+	updateStateTestConfig(t)
+	now := time.Date(2026, time.August, 22, 0, 0, 0, 0, time.UTC)
+	service := &Service{state: OperationState{
+		ID:        "ocv-message",
+		Action:    "update",
+		Status:    OperationScheduled,
+		Revision:  3,
+		StartedAt: now,
+	}, now: func() time.Time { return now }}
+	if err := writeOperationState(loadRuntimeConfig(), service.state); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.updateOperationByMessage("ocv-message", "正在停止服务并原子切换文件"); err != nil {
+		t.Fatalf("update operation message: %v", err)
+	}
+	if service.state.Status != OperationApplying || service.state.Revision != 4 || service.state.Message == "" {
+		t.Fatalf("message transition = %#v", service.state)
+	}
+
+	before := cloneOperation(service.state)
+	if err := service.updateOperationByMessage("ocv-stale", "late worker"); err == nil {
+		t.Fatal("stale worker was allowed to update operation")
+	}
+	if got := service.Operation(); got.ID != before.ID || got.Revision != before.Revision || got.Message != before.Message {
+		t.Fatalf("stale worker changed operation = %#v, before %#v", got, before)
+	}
+}
+
+func TestUpdateOperationTargetAdvancesRevisionAndRejectsTerminalState(t *testing.T) {
+	updateStateTestConfig(t)
+	now := time.Date(2026, time.August, 22, 0, 0, 0, 0, time.UTC)
+	service := &Service{state: OperationState{
+		ID:        "ocv-target",
+		Action:    "update",
+		Status:    OperationStaging,
+		Revision:  1,
+		StartedAt: now,
+	}, now: func() time.Time { return now }}
+	if err := writeOperationState(loadRuntimeConfig(), service.state); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.updateOperationTarget("ocv-target", "v20260822-120000"); err != nil {
+		t.Fatalf("update operation target: %v", err)
+	}
+	if service.state.Target != "v20260822-120000" || service.state.Revision != 2 {
+		t.Fatalf("target transition = %#v", service.state)
+	}
+	service.state.Status = OperationSucceeded
+	if err := service.updateOperationTarget("ocv-target", "v20260822-130000"); err == nil {
+		t.Fatal("terminal operation accepted a target update")
+	}
+}
+
 func TestReadInstalledVersionIgnoresUnknownMarker(t *testing.T) {
 	cfg := updateStateTestConfig(t)
 	if err := os.WriteFile(currentVersionFile(cfg), []byte("unknown\n"), 0640); err != nil {

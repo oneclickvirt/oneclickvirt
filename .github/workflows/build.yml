@@ -138,7 +138,7 @@ jobs:
 
     - name: Get current date
       id: date
-      run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+      run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
 
     - name: Create build directory
       run: mkdir -p build
@@ -302,7 +302,7 @@ jobs:
       id: get_previous_tag
       run: |
         PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-        echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+        echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
         echo "Previous release tag: $PREVIOUS_TAG"
     
     - name: Create Release with Auto-generated Notes

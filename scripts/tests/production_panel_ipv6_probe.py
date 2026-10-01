@@ -33,7 +33,7 @@ from live_ssh import pinned_guest_client, strict_node_client
 PANEL_BASE = os.environ.get("OCV_PANEL_BASE", "").rstrip("/")
 PROVIDER_ID = int(os.environ.get("OCV_LIVE_PROVIDER_ID", "0"))
 PROD_HOST = os.environ.get("OCV_LIVE_HOST", "")
-PROD_PORT = int(os.environ.get("OCV_LIVE_SSH_PORT", "1777"))
+PROD_PORT = int(os.environ.get("OCV_LIVE_SSH_PORT", "22"))
 PROD_V6 = os.environ.get("OCV_LIVE_IPV6_TARGET", "")
 SERVER_ID = os.environ.get("OCV_HETZNER_SERVER_ID", "")
 IMAGE = os.environ.get("OCV_LIVE_IMAGE", "debian-12-cloud")

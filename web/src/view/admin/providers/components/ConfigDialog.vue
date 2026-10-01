@@ -126,6 +126,7 @@
             v-if="pagination.total > 0"
             v-model:current-page="pagination.page"
             v-model:page-size="pagination.pageSize"
+            :disabled="historyLoading"
             :page-sizes="[5, 10, 20, 50]"
             :small="false"
             :background="true"
@@ -139,15 +140,36 @@
 
         <!-- 操作按钮 -->
         <div class="action-buttons">
-          <el-button 
+          <el-button
             v-if="runningTask"
             type="primary"
             @click="handleViewRunningTask"
           >
             {{ $t('admin.providers.viewRunningTaskLog') }}
           </el-button>
-          <el-button 
+          <el-button
+            v-if="runningTask && runningTask.status !== 'cancelling' && runningTask.status !== 'cancelled'"
             type="warning"
+            :loading="canceling"
+            :disabled="submitting || historyLoading || canceling"
+            @click="handleCancelRunningTask"
+          >
+            {{ $t('admin.providers.cancelConfigTask') }}
+          </el-button>
+          <el-button
+            v-if="runningTask"
+            type="primary"
+            :loading="historyLoading"
+            :disabled="submitting || historyLoading"
+            @click="$emit('refreshConfiguration')"
+          >
+            {{ $t('common.refresh') }}
+          </el-button>
+          <el-button
+            v-else
+            type="warning"
+            :loading="submitting"
+            :disabled="submitting || historyLoading"
             @click="handleRerunConfiguration"
           >
             {{ historyTasks.length > 0 ? $t('admin.providers.rerunConfig') : $t('admin.providers.startConfig') }}
@@ -191,10 +213,22 @@ const props = defineProps({
   pagination: {
     type: Object,
     default: () => ({ page: 1, pageSize: 10, total: 0 })
+  },
+  submitting: {
+    type: Boolean,
+    default: false
+  },
+  historyLoading: {
+    type: Boolean,
+    default: false
+  },
+  canceling: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits(['update:visible', 'close', 'viewTaskLog', 'viewRunningTask', 'rerunConfiguration', 'pageChange', 'pageSizeChange'])
+const emit = defineEmits(['update:visible', 'close', 'viewTaskLog', 'viewRunningTask', 'cancelRunningTask', 'rerunConfiguration', 'refreshConfiguration', 'pageChange', 'pageSizeChange'])
 
 const dialogVisible = computed({
   get: () => props.visible,
@@ -213,6 +247,10 @@ const handleViewRunningTask = () => {
   emit('viewRunningTask')
 }
 
+const handleCancelRunningTask = () => {
+  emit('cancelRunningTask')
+}
+
 const handleRerunConfiguration = () => {
   emit('rerunConfiguration')
 }
@@ -221,6 +259,7 @@ const getTaskStatusType = (status) => {
   const statusMap = {
     'pending': 'info',
     'running': 'primary',
+    'cancelling': 'warning',
     'completed': 'success',
     'failed': 'danger',
     'cancelled': 'warning'
@@ -232,6 +271,7 @@ const getTaskStatusText = (status) => {
   const statusTextMap = {
     'pending': t('admin.providers.taskStatusPending'),
     'running': t('admin.providers.taskStatusRunning'),
+    'cancelling': t('admin.providers.taskStatusCancelling'),
     'completed': t('admin.providers.taskStatusCompleted'),
     'failed': t('admin.providers.taskStatusFailed'),
     'cancelled': t('admin.providers.taskStatusCancelled')

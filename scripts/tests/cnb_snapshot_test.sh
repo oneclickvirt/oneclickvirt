@@ -10,8 +10,10 @@ cd "$fixture"
 git config user.name fixture
 git config user.email fixture@example.invalid
 git config commit.gpgsign false
-mkdir -p 'nested dir' 'nested dir/deeper'
+mkdir -p 'nested dir' 'nested dir/deeper' action_tests/reports/current
 printf 'never publish this history\n' > history-only.txt
+printf 'private report\n' > action_tests/reports/current/results.jsonl
+printf 'private root report\n' > test-report.md
 git add .
 git commit -qm old
 git rm -q history-only.txt
@@ -19,6 +21,7 @@ printf 'public source\n' > main.txt
 printf 'private helper\n' > copy_project.sh
 printf 'private helper\n' > 'nested dir/copyproject.sh'
 ln -s ../../main.txt 'nested dir/deeper/copy_project.sh'
+printf 'local test log\n' > local.log
 printf '# Private mirror/synchronization tooling must never enter the public repository.\ncopy_project.sh\nprivate/**/copy_project.sh\n**/copyproject.sh\n*.log\n' > .gitignore
 printf '/copyproject.sh\nnested/path/copyproject.sh\n!important.txt\ncache/\n' > .dockerignore
 printf 'copy_project.sh\nkeep/\n' > 'nested dir/.gitignore'
@@ -44,7 +47,7 @@ snapshot=$(bash "$ROOT_DIR/scripts/build_cnb_snapshot.sh" HEAD)
 [[ "$(git show "$snapshot:.gitignore")" == '*.log' ]] || fail "sanitized .gitignore was not committed"
 [[ "$(git show "$snapshot:.dockerignore")" == $'!important.txt\ncache/' ]] || fail "sanitized .dockerignore was not committed"
 [[ "$(git show "$snapshot:nested dir/.gitignore")" == 'keep/' ]] || fail "nested ignore rules leaked"
-if git ls-tree -r --name-only "$snapshot" | grep -E '(^|/)(copy_project|copyproject)\.sh$|history-only|untracked'; then
+if git ls-tree -r --name-only "$snapshot" | grep -E '(^|/)(copy_project|copyproject)\.sh$|(^|/)local\.log$|(^|/)action_tests/reports/|(^|/)test-report\.md$|history-only|untracked'; then
     fail "snapshot contains private paths"
 fi
 # Model the workflow push against a local bare destination. Both public branch

@@ -524,7 +524,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 	// cloud-init ISO 仅首次启动时需要。virt-install 使用 virtio 时目标盘符可能是 vdb，
 	// 因此按 libvirt 实际块设备列表查找 target，再从持久配置中分离。
-	if err := p.detachCloudInitISO("qemu:///system", config.Name, ciISO); err != nil {
+	if err := p.detachCloudInitISO(ctx, "qemu:///system", config.Name, ciISO); err != nil {
 		global.APP_LOG.Warn("QEMU cloud-init ISO分离失败，保留ISO避免后续启动失败",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("iso", ciISO),

@@ -37,53 +37,11 @@ func TrafficMonitorOperation(c *gin.Context) {
 		return
 	}
 
-	// 确定任务类型
-	var taskType string
-	switch req.Operation {
-	case "enable":
-		taskType = "enable_all"
-	case "disable":
-		taskType = "disable_all"
-	case "detect":
-		taskType = "detect_all"
-	default:
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "不支持的操作类型"))
-		return
-	}
-
-	if err := taskService.GetTaskService().EnsureTaskPoolAccepting(); err != nil {
-		common.ResponseWithError(c, common.ClassifyError(err))
-		return
-	}
-
-	// 创建任务记录
-	task := adminModel.TrafficMonitorTask{
-		ProviderID: req.ProviderID,
-		TaskType:   taskType,
-		Status:     "pending",
-		Progress:   0,
-		Message:    "任务已创建，等待执行",
-	}
-
-	if err := global.APP_DB.Create(&task).Error; err != nil {
-		global.APP_LOG.Error("创建流量监控任务失败",
-			zap.Uint("providerID", req.ProviderID),
-			zap.String("operation", req.Operation),
-			zap.Error(err))
-		common.ResponseWithError(c, common.ClassifyError(err))
-		return
-	}
-
-	adminTask, err := taskService.CreateTrafficMonitorAdminTask(req.ProviderID, task.ID, req.Operation, middleware.GetOwnerAdminID(c))
+	task, adminTask, err := taskService.CreateTrafficMonitorTask(req.ProviderID, req.Operation, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		_ = global.APP_DB.Model(&task).Updates(map[string]interface{}{
-			"status":  "failed",
-			"message": err.Error(),
-		}).Error
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
-	_ = global.APP_DB.Model(&task).Update("admin_task_id", adminTask.ID).Error
 
 	common.ResponseSuccess(c, map[string]interface{}{
 		"taskId":      task.ID,

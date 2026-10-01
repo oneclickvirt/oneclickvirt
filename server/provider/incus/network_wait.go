@@ -27,7 +27,7 @@ func (i *IncusProvider) waitForVMNetworkReady(instanceName string) error {
 		time.Sleep(time.Duration(delay) * time.Second)
 
 		// 检查虚拟机状态
-		statusCmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
+		statusCmd := incusInstanceStatusCommand(instanceName)
 		output, err := i.sshClient.Execute(statusCmd)
 		if err != nil {
 			global.APP_LOG.Warn("检查虚拟机状态失败",
@@ -106,6 +106,47 @@ ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | head -1
 	return nil
 }
 
+// ensureContainerIPv6Lease explicitly asks the guest DHCPv6 client for a
+// lease.  Incus enables DHCPv6 on the managed bridge, but cloud images often
+// bring up only IPv4 during boot and leave eth0 with a link-local address.
+// Without this bounded wake-up the controller can never discover the ULA
+// needed for an IPv6 NAT proxy, even though the bridge is healthy.
+func (i *IncusProvider) ensureContainerIPv6Lease(instanceName string) error {
+	script := `
+set -u
+run_with_timeout() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 30 "$@"
+  else
+    "$@"
+  fi
+}
+iface=eth0
+ip link show "$iface" >/dev/null 2>&1 || exit 0
+ip link set "$iface" up >/dev/null 2>&1 || true
+if LC_ALL=C NO_COLOR=1 ip -6 -o addr show dev "$iface" scope global 2>/dev/null | grep -q ' inet6 '; then
+  exit 0
+fi
+if command -v dhclient >/dev/null 2>&1; then
+  run_with_timeout dhclient -6 -1 "$iface" >/dev/null 2>&1 || true
+elif command -v dhcpcd >/dev/null 2>&1; then
+  run_with_timeout dhcpcd -6 -1 "$iface" >/dev/null 2>&1 || true
+elif command -v udhcpc >/dev/null 2>&1; then
+  run_with_timeout udhcpc -6 -q -i "$iface" >/dev/null 2>&1 || true
+fi
+LC_ALL=C NO_COLOR=1 ip -6 -o addr show dev "$iface" scope global 2>/dev/null | head -1
+`
+	cmd := fmt.Sprintf("incus exec %s -- sh -c %s", shellSingleQuote(instanceName), shellSingleQuote(script))
+	output, err := i.sshClient.ExecuteWithTimeout(cmd, 45*time.Second)
+	if err != nil {
+		return fmt.Errorf("唤醒容器DHCPv6失败: %w", err)
+	}
+	global.APP_LOG.Debug("容器DHCPv6唤醒结果",
+		zap.String("instanceName", instanceName),
+		zap.String("output", strings.TrimSpace(output)))
+	return nil
+}
+
 // waitForContainerNetworkReady 等待容器网络就绪
 func (i *IncusProvider) waitForContainerNetworkReady(instanceName string) error {
 	global.APP_LOG.Debug("等待容器网络就绪", zap.String("instanceName", instanceName))
@@ -123,7 +164,7 @@ func (i *IncusProvider) waitForContainerNetworkReady(instanceName string) error 
 		time.Sleep(time.Duration(delay) * time.Second)
 
 		// 检查容器状态
-		statusCmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
+		statusCmd := incusInstanceStatusCommand(instanceName)
 		output, err := i.sshClient.Execute(statusCmd)
 		if err != nil {
 			global.APP_LOG.Warn("检查容器状态失败",

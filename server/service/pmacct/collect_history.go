@@ -37,7 +37,7 @@ func (s *Service) syncInstanceHourlyHistory(instanceID uint, instance *providerM
 		TotalUsed  float64
 	}
 
-	err := global.APP_DB.Table("pmacct_traffic_records").
+	err := global.APP_DB.WithContext(s.ctx).Table("pmacct_traffic_records").
 		Select("instance_id, provider_id, user_id, MAX(rx_bytes) DIV 1048576 as traffic_in, MAX(tx_bytes) DIV 1048576 as traffic_out, (MAX(rx_bytes) + MAX(tx_bytes)) DIV 1048576 as total_used").
 		Where("instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL", instanceID, year, month, day, hour).
 		Group("instance_id, provider_id, user_id, year, month, day, hour").
@@ -48,7 +48,7 @@ func (s *Service) syncInstanceHourlyHistory(instanceID uint, instance *providerM
 	}
 
 	var existing monitoringModel.InstanceTrafficHistory
-	err = global.APP_DB.Where(
+	err = global.APP_DB.WithContext(s.ctx).Where(
 		"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
 		instanceID, year, month, day, hour,
 	).First(&existing).Error
@@ -60,7 +60,7 @@ func (s *Service) syncInstanceHourlyHistory(instanceID uint, instance *providerM
 		existing.TrafficOut = hourlyData.TrafficOut
 		existing.TotalUsed = hourlyData.TotalUsed
 		existing.RecordTime = now
-		if err := global.APP_DB.Save(&existing).Error; err != nil {
+		if err := global.APP_DB.WithContext(s.ctx).Save(&existing).Error; err != nil {
 			global.APP_LOG.Warn("更新实例流量历史失败",
 				zap.Uint("instanceID", instanceID),
 				zap.Error(err))
@@ -79,7 +79,7 @@ func (s *Service) syncInstanceHourlyHistory(instanceID uint, instance *providerM
 			Hour:       hour,
 			RecordTime: now,
 		}
-		if err := global.APP_DB.Create(&newRecord).Error; err != nil {
+		if err := global.APP_DB.WithContext(s.ctx).Create(&newRecord).Error; err != nil {
 			global.APP_LOG.Warn("插入实例流量历史失败",
 				zap.Uint("instanceID", instanceID),
 				zap.Error(err))
@@ -98,7 +98,7 @@ func (s *Service) syncInstanceMonthlyHistory(instanceID uint, instance *provider
 		TotalUsed  float64
 	}
 
-	err := global.APP_DB.Raw(`
+	err := global.APP_DB.WithContext(s.ctx).Raw(`
 		SELECT 
 			instance_id,
 			provider_id,
@@ -155,7 +155,7 @@ func (s *Service) syncInstanceMonthlyHistory(instanceID uint, instance *provider
 	}
 
 	var existing monitoringModel.InstanceTrafficHistory
-	err = global.APP_DB.Where(
+	err = global.APP_DB.WithContext(s.ctx).Where(
 		"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
 		instanceID, year, month, 0, 0,
 	).First(&existing).Error
@@ -167,7 +167,7 @@ func (s *Service) syncInstanceMonthlyHistory(instanceID uint, instance *provider
 		existing.TrafficOut = monthlyData.TrafficOut
 		existing.TotalUsed = monthlyData.TotalUsed
 		existing.RecordTime = now
-		if err := global.APP_DB.Save(&existing).Error; err != nil {
+		if err := global.APP_DB.WithContext(s.ctx).Save(&existing).Error; err != nil {
 			global.APP_LOG.Warn("更新实例月度汇总失败",
 				zap.Uint("instanceID", instanceID),
 				zap.Error(err))
@@ -186,7 +186,7 @@ func (s *Service) syncInstanceMonthlyHistory(instanceID uint, instance *provider
 			Hour:       0,
 			RecordTime: now,
 		}
-		if err := global.APP_DB.Create(&newRecord).Error; err != nil {
+		if err := global.APP_DB.WithContext(s.ctx).Create(&newRecord).Error; err != nil {
 			global.APP_LOG.Warn("插入实例月度汇总失败",
 				zap.Uint("instanceID", instanceID),
 				zap.Error(err))
@@ -196,7 +196,7 @@ func (s *Service) syncInstanceMonthlyHistory(instanceID uint, instance *provider
 
 // syncProviderHourlyHistory 更新Provider流量历史表（小时级）
 func (s *Service) syncProviderHourlyHistory(instance *providerModel.Instance, year, month, day, hour int, now time.Time) {
-	if err := dbcompat.Exec(global.APP_DB,
+	if err := dbcompat.Exec(global.APP_DB.WithContext(s.ctx),
 		`INSERT INTO provider_traffic_histories 
 			(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
 		SELECT 
@@ -249,7 +249,7 @@ func (s *Service) syncProviderHourlyHistory(instance *providerModel.Instance, ye
 
 // syncProviderMonthlyHistory 更新Provider月度汇总（day=0, hour=0）
 func (s *Service) syncProviderMonthlyHistory(instance *providerModel.Instance, year, month int, now time.Time) {
-	if err := dbcompat.Exec(global.APP_DB,
+	if err := dbcompat.Exec(global.APP_DB.WithContext(s.ctx),
 		`INSERT INTO provider_traffic_histories 
 			(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
 		SELECT 
@@ -302,7 +302,7 @@ func (s *Service) syncProviderMonthlyHistory(instance *providerModel.Instance, y
 
 // syncUserHourlyHistory 更新用户流量历史表（小时级）
 func (s *Service) syncUserHourlyHistory(instance *providerModel.Instance, year, month, day, hour int, now time.Time) {
-	if err := dbcompat.Exec(global.APP_DB,
+	if err := dbcompat.Exec(global.APP_DB.WithContext(s.ctx),
 		`INSERT INTO user_traffic_histories 
 			(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
 		SELECT 
@@ -355,7 +355,7 @@ func (s *Service) syncUserHourlyHistory(instance *providerModel.Instance, year, 
 
 // syncUserMonthlyHistory 更新用户月度汇总（day=0, hour=0）
 func (s *Service) syncUserMonthlyHistory(instance *providerModel.Instance, year, month int, now time.Time) {
-	if err := dbcompat.Exec(global.APP_DB,
+	if err := dbcompat.Exec(global.APP_DB.WithContext(s.ctx),
 		`INSERT INTO user_traffic_histories 
 			(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
 		SELECT 

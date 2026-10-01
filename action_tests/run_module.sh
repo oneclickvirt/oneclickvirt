@@ -20,6 +20,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 COMMON_DIR="${SCRIPT_DIR}/common"
 
+# A focused follow-up run may reuse a provider created by an earlier module
+# run. Keep this opt-in so ordinary runs still require module 09 to establish
+# their own fixture, and reject malformed IDs before any API request is made.
+if [[ -n "${ACTION_TEST_EXISTING_PROVIDER_ID:-}" ]]; then
+    if [[ ! "${ACTION_TEST_EXISTING_PROVIDER_ID}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: ACTION_TEST_EXISTING_PROVIDER_ID must be a positive integer" >&2
+        exit 2
+    fi
+    PROVIDER_ID="${ACTION_TEST_EXISTING_PROVIDER_ID}"
+fi
+
 MODULE_INPUT="${1:-}"
 SERVER_URL="${2:-${SERVER_URL:-}}"
 
@@ -138,6 +149,34 @@ curl -s --max-time 30 \
     -X POST \
     -d "{\"username\":\"${NORMAL_ADMIN_USER}\",\"password\":\"${NORMAL_ADMIN_PASS}\",\"email\":\"test_admin@ci.local\",\"level\":5,\"userType\":\"normal_admin\"}" \
     "${SERVER_URL}/api/v1/admin/users" > /dev/null 2>&1 || true
+
+# An existing CI fixture may have a password left by an earlier run.  The
+# admin reset endpoint generates its own password and ignores a supplied one;
+# read that generated value and use it for this run.  Only reset a named
+# fixture when its current password no longer works.
+ci_fixture_password() {
+    local username="$1" password="$2" users uid response new_password
+    if [[ -n "$(do_login "$SERVER_URL" "$username" "$password" 2>/dev/null)" ]]; then
+        printf '%s\n' "$password"
+        return 0
+    fi
+    users=$(curl -fsS --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/users?page=1&pageSize=100" 2>/dev/null) || return 1
+    uid=$(printf '%s' "$users" | jq -r --arg username "$username" \
+        '[.data.list[]? | select(.username == $username) | .id] | first // empty' 2>/dev/null) || return 1
+    [[ "$uid" =~ ^[0-9]+$ ]] || return 1
+    response=$(curl -fsS --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        -H "Content-Type: application/json" -X PUT -d '{}' \
+        "${SERVER_URL}/api/v1/admin/users/${uid}/reset-password" 2>/dev/null) || return 1
+    [[ $(printf '%s' "$response" | jq -r '.code // empty' 2>/dev/null) == 200 ]] || return 1
+    new_password=$(printf '%s' "$response" | jq -r '.data.newPassword // empty' 2>/dev/null) || return 1
+    [[ -n "$new_password" ]] || return 1
+    [[ -n "$(do_login "$SERVER_URL" "$username" "$new_password" 2>/dev/null)" ]] || return 1
+    printf '%s\n' "$new_password"
+}
+TEST_USER_PASS=$(ci_fixture_password "$TEST_USER" "$TEST_USER_PASS") || { log_error "Unable to authenticate CI test user"; exit 1; }
+TEST_USER2_PASS=$(ci_fixture_password "$TEST_USER2" "$TEST_USER2_PASS") || { log_error "Unable to authenticate second CI test user"; exit 1; }
+NORMAL_ADMIN_PASS=$(ci_fixture_password "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_PASS") || { log_error "Unable to authenticate CI normal admin"; exit 1; }
 
 USER_TOKEN=$(do_login "$SERVER_URL" "$TEST_USER" "$TEST_USER_PASS") || USER_TOKEN=""
 USER_TOKEN2=$(do_login "$SERVER_URL" "$TEST_USER2" "$TEST_USER2_PASS") || USER_TOKEN2=""

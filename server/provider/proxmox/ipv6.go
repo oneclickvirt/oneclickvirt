@@ -35,6 +35,7 @@ type proxmoxIPv6Mode struct {
 	Info          *IPv6Info
 	BridgeName    string
 	UseNATMapping bool
+	UseNAT66      bool
 	NAT           *proxmoxNATIPv6Config
 	Routed        bool
 	RoutedConfig  *provider.RoutedIPv6Config
@@ -160,7 +161,10 @@ func (p *ProxmoxProvider) getProxmoxNATIPv6Config(ctx context.Context, bridgeNam
 	if bridgeName == "" {
 		return proxmoxNATIPv6Config{}, fmt.Errorf("PVE NAT IPv6网桥未配置")
 	}
-	bridgeCommand := fmt.Sprintf("ip -o -6 addr show dev %s scope global 2>/dev/null || true", utils.ShellSingleQuote(bridgeName))
+	// Force the iproute2 output into its locale-independent, no-colour form.
+	// The fallback parser is deliberately token based, but a PTY may still add
+	// ANSI sequences and localized diagnostics around the address list.
+	bridgeCommand := fmt.Sprintf("LC_ALL=C NO_COLOR=1 ip -o -6 addr show dev %s scope global 2>/dev/null || true", utils.ShellSingleQuote(bridgeName))
 	output, err := p.sshClient.Execute(bridgeCommand)
 	if err != nil {
 		return proxmoxNATIPv6Config{}, fmt.Errorf("读取PVE NAT IPv6网桥失败: %w", err)
@@ -247,13 +251,70 @@ func (p *ProxmoxProvider) resolveProxmoxIPv6ModeForConfig(ctx context.Context, c
 		return mode, nil
 	}
 	mode, err = p.resolveProxmoxIPv6ModeForCreate(ctx)
+	if err == nil && !mode.UseNATMapping && requestedProxmoxIPv6(config) == "" && !canAutoAllocateProxmoxIPv6(mode.Info) {
+		err = fmt.Errorf("直连IPv6前缀 /%d 不足以为VMID范围自动分配地址", mode.Info.Network.PrefixLen)
+	}
+	if err == nil {
+		return mode, nil
+	}
+	// A host-only address or a narrow prefix such as /120 cannot safely serve
+	// the full VMID range. A dual-stack NAT guest can share the host's public
+	// egress through NAT66 without claiming any address from that prefix.
+	if p.parseNetworkConfigFromInstanceConfig(config).NetworkType != "nat_ipv4_ipv6" || requestedProxmoxIPv6(config) != "" {
+		return nil, err
+	}
+	sharedMode, natErr := p.resolveProxmoxSharedNAT66Mode(ctx)
+	if natErr != nil {
+		return nil, fmt.Errorf("独立IPv6不可用: %v；共享NAT66也不可用: %w", err, natErr)
+	}
+	return sharedMode, nil
+}
+
+// resolveProxmoxSharedNAT66Mode requires a working public uplink and the
+// installed NAT66 dataplane before giving a guest an IPv6 address. A /128 host
+// address is sufficient because guests never take an address from its prefix.
+func (p *ProxmoxProvider) resolveProxmoxSharedNAT66Mode(ctx context.Context) (*proxmoxIPv6Mode, error) {
+	bridge := p.getBridgeName("nat")
+	if bridge == "" {
+		return nil, fmt.Errorf("NAT网桥未配置")
+	}
+	nat, err := p.getProxmoxNATIPv6Config(ctx, bridge)
 	if err != nil {
 		return nil, err
 	}
-	if !mode.UseNATMapping && requestedProxmoxIPv6(config) == "" && !canAutoAllocateProxmoxIPv6(mode.Info) {
-		return nil, fmt.Errorf("直连IPv6前缀 /%d 不足以为VMID范围自动分配地址", mode.Info.Network.PrefixLen)
+	addresses, err := p.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global")
+	if err != nil {
+		return nil, fmt.Errorf("读取宿主机公网IPv6失败: %w", err)
 	}
-	return mode, nil
+	routes, err := p.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 route show default")
+	if err != nil {
+		return nil, fmt.Errorf("读取宿主机IPv6默认路由失败: %w", err)
+	}
+	uplink, err := utils.SelectPublicIPv6InterfaceNetworkJSON(addresses, routes, false)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.sshClient.Execute("test \"$(sysctl -n net.ipv6.conf.all.forwarding)\" = 1"); err != nil {
+		return nil, fmt.Errorf("宿主机IPv6转发未启用: %w", err)
+	}
+	nftRule := fmt.Sprintf("ip6 saddr %s oifname \"%s\" masquerade", nat.Network.CIDR(), uplink.Interface)
+	nftCheck := fmt.Sprintf("LC_ALL=C NO_COLOR=1 nft list chain ip6 nat postrouting 2>/dev/null | grep -Fq -- %s", utils.ShellSingleQuote(nftRule))
+	if _, err := p.sshClient.Execute(nftCheck); err != nil {
+		iptablesCheck := fmt.Sprintf("ip6tables -t nat -C POSTROUTING -s %s -o %s -j MASQUERADE", utils.ShellSingleQuote(nat.Network.CIDR()), utils.ShellSingleQuote(uplink.Interface))
+		if _, iptablesErr := p.sshClient.Execute(iptablesCheck); iptablesErr != nil {
+			return nil, fmt.Errorf("宿主机缺少已持久化的IPv6 NAT66出口规则")
+		}
+	}
+	return &proxmoxIPv6Mode{
+		Info: &IPv6Info{
+			HostIPv6Address: uplink.Network.Address.String(),
+			Network:         uplink.Network,
+		},
+		BridgeName:    bridge,
+		UseNATMapping: true,
+		UseNAT66:      true,
+		NAT:           &nat,
+	}, nil
 }
 
 // preflightIPv6Create checks every IPv6 mode that is required by the
@@ -268,21 +329,19 @@ func (p *ProxmoxProvider) preflightIPv6Create(ctx context.Context, config provid
 		}
 		return nil
 	}
-	_, routedMetadata, metadataErr := provider.ResolveRoutedIPv6(config)
+	_, _, metadataErr := provider.ResolveRoutedIPv6(config)
 	if metadataErr != nil {
 		return metadataErr
 	}
 	if _, err := p.resolveProxmoxIPv6ModeForConfig(ctx, config); err != nil {
 		// IPv6-only, a controller-selected address, and any routed metadata are
 		// explicit requirements. They must fail closed before creating the guest.
-		if networkType == "ipv6_only" || requested != "" || routedMetadata {
-			return fmt.Errorf("创建实例前IPv6环境检查失败: %w", err)
-		}
+		return fmt.Errorf("创建实例前IPv6环境检查失败: %w", err)
 	}
 	return nil
 }
 
-func proxmoxIPv6AddressSettings(config provider.InstanceConfig, address, fallbackGateway string) (string, string, error) {
+func proxmoxIPv6AddressSettings(config provider.InstanceConfig, address, fallbackGateway string, discoveredPrefix int) (string, string, error) {
 	address, err := utils.NormalizeIPv6Address(address)
 	if err != nil {
 		return "", "", fmt.Errorf("静态IPv6地址无效: %w", err)
@@ -291,7 +350,10 @@ func proxmoxIPv6AddressSettings(config provider.InstanceConfig, address, fallbac
 	if err != nil {
 		return "", "", fmt.Errorf("IPv6网关无效: %w", err)
 	}
-	prefix := 128
+	prefix := discoveredPrefix
+	if prefix < 0 || prefix > 128 {
+		prefix = 128
+	}
 	if config.Metadata != nil && strings.TrimSpace(config.Metadata["static_ipv6_cidr"]) != "" {
 		_, subnet, parseErr := net.ParseCIDR(strings.TrimSpace(config.Metadata["static_ipv6_cidr"]))
 		if parseErr != nil || subnet == nil || subnet.IP.To4() != nil {
@@ -337,6 +399,17 @@ func (p *ProxmoxProvider) addressForVMID(info *IPv6Info, vmid int) (string, erro
 	// The host's low bits can legitimately equal a VMID. Suffix 1000 is outside
 	// the valid VMID range and remains representable for every allowed prefix.
 	return utils.IPv6AddressWithSuffix(info.Network, uint64(MaxVMID+1))
+}
+
+func (p *ProxmoxProvider) ensureGuestIPv6DoesNotOwnHostAddress(address string) error {
+	reserved, err := utils.ReadHostIPv6Reservations(p.sshClient)
+	if err != nil {
+		return fmt.Errorf("无法确认宿主机IPv6地址占用，不分配实例IPv6: %w", err)
+	}
+	if utils.HostIPv6AddressReserved(address, reserved) {
+		return fmt.Errorf("实例IPv6地址与宿主机地址、网关或精确路由冲突，不分配该地址")
+	}
+	return nil
 }
 
 func (p *ProxmoxProvider) resolveProxmoxIPv6Mode(ctx context.Context) (*proxmoxIPv6Mode, error) {
@@ -411,11 +484,7 @@ func (p *ProxmoxProvider) configureInstanceIPv6(ctx context.Context, vmid int, c
 	// therefore must not depend on pve_appended_content.txt or a native uplink.
 	ipv6Mode, err := p.resolveProxmoxIPv6ModeForConfig(ctx, config)
 	if err != nil {
-		if networkConfig.NetworkType == "ipv6_only" || requestedProxmoxIPv6(config) != "" {
-			return fmt.Errorf("获取IPv6信息失败（静态或ipv6_only模式要求IPv6环境）: %w", err)
-		}
-		global.APP_LOG.Warn("获取IPv6信息失败，跳过IPv6配置", zap.Error(err))
-		return nil
+		return fmt.Errorf("获取IPv6信息失败: %w", err)
 	}
 
 	// 根据网络类型配置IPv6
@@ -469,18 +538,23 @@ func (p *ProxmoxProvider) checkIPv6Environment(ctx context.Context) error {
 // checkBasicIPv6Environment 检查基础IPv6环境
 func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
 	// 首先检查宿主机是否有公网IPv6地址
-	checkHostIPv6Cmd := "ip -6 addr show | grep 'inet6.*global' | head -n 1"
+	checkHostIPv6Cmd := "LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global"
 	output, err := p.sshClient.Execute(checkHostIPv6Cmd)
-	if err != nil || strings.TrimSpace(output) == "" {
+	if err != nil {
 		global.APP_LOG.Warn("宿主机没有公网IPv6地址",
 			zap.String("provider", p.config.Name),
 			zap.Error(err))
 		return fmt.Errorf("宿主机没有公网IPv6地址，无法开设带IPv6的服务")
 	}
+	selected, parseErr := utils.SelectPublicIPv6InterfaceNetworkJSON(output, "[]", false)
+	if parseErr != nil {
+		return fmt.Errorf("宿主机没有可验证的公网IPv6地址，无法开设带IPv6的服务: %w", parseErr)
+	}
 
 	global.APP_LOG.Debug("宿主机IPv6地址检查通过",
 		zap.String("provider", p.config.Name),
-		zap.String("ipv6Info", strings.TrimSpace(output)))
+		zap.String("ipv6Address", selected.Network.Address.String()),
+		zap.String("interface", selected.Interface))
 
 	// 检查IPv6地址文件是否存在
 	checkIPv6Cmd := "[ -f /usr/local/bin/pve_check_ipv6 ]"
@@ -501,9 +575,9 @@ func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
 	}
 
 	// 检查ndpresponder服务状态
-	checkServiceCmd := "systemctl is-active ndpresponder.service"
-	output, err = p.sshClient.Execute(checkServiceCmd)
-	if err != nil || strings.TrimSpace(output) != "active" {
+	checkServiceCmd := "systemctl is-active --quiet ndpresponder.service"
+	_, err = p.sshClient.Execute(checkServiceCmd)
+	if err != nil {
 		return fmt.Errorf("ndpresponder服务状态异常，无法开设带独立IPv6地址的服务")
 	}
 
@@ -514,6 +588,7 @@ func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
 // getIPv6Info 获取IPv6配置信息
 func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	info := &IPv6Info{}
+	jsonNetworkFound := false
 
 	// 检查是否存在额外的IPv6地址
 	appendedFile := "/usr/local/bin/pve_appended_content.txt"
@@ -521,16 +596,37 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	_, err := p.sshClient.Execute(checkCmd)
 	info.HasAppendedAddresses = (err == nil)
 
+	// Prefer iproute2's machine-readable address metadata over persisted
+	// installer files.  The prefix on a host is not necessarily /64 (it may be
+	// a /38, /56, /120, or a host-only /128), and human-readable ip output is
+	// affected by locale and terminal colour settings.  The selected network is
+	// kept paired with the interface that owns the address.
+	addressJSON, addressErr := p.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global")
+	routeJSON, routeErr := p.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 route show default")
+	if addressErr == nil && routeErr == nil {
+		if selected, selectErr := utils.SelectPublicIPv6InterfaceNetworkJSON(addressJSON, routeJSON, false); selectErr == nil {
+			info.Network = selected.Network
+			info.HostIPv6Address = selected.Network.Address.String()
+			info.IPv6AddressPrefix = selected.Network.NetworkAddress().String()
+			info.IPv6PrefixLen = strconv.Itoa(selected.Network.PrefixLen)
+			jsonNetworkFound = true
+		}
+	}
+
 	// 获取主机IPv6地址
 	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_check_ipv6 ]"); err == nil {
 		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_check_ipv6")
 		if err == nil {
-			info.HostIPv6Address = cleanIPv6Value(output)
-			if network, parseErr := utils.ParseFirstIPv6NetworkOutput(output, 64); parseErr == nil {
-				info.Network = network
-				info.HostIPv6Address = network.Address.String()
-				info.IPv6AddressPrefix = network.NetworkAddress().String()
-				info.IPv6PrefixLen = strconv.Itoa(network.PrefixLen)
+			if !jsonNetworkFound {
+				info.HostIPv6Address = cleanIPv6Value(output)
+			}
+			if !jsonNetworkFound {
+				if network, parseErr := utils.ParseFirstIPv6NetworkOutput(output, 128); parseErr == nil {
+					info.Network = network
+					info.HostIPv6Address = network.Address.String()
+					info.IPv6AddressPrefix = network.NetworkAddress().String()
+					info.IPv6PrefixLen = strconv.Itoa(network.PrefixLen)
+				}
 			}
 		}
 	}
@@ -540,7 +636,7 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_prefixlen")
 		if err == nil {
 			parsed, parseErr := utils.ParseFirstIPv6PrefixLengthOutput(output)
-			if parseErr == nil {
+			if parseErr == nil && !jsonNetworkFound {
 				info.IPv6PrefixLen = strconv.Itoa(parsed)
 				if info.HostIPv6Address != "" {
 					if network, networkErr := utils.ParseIPv6Network(info.HostIPv6Address+"/"+info.IPv6PrefixLen, 64); networkErr == nil {
@@ -589,9 +685,9 @@ func (p *ProxmoxProvider) configureIPv6Network(ctx context.Context, vmid int, co
 		zap.Bool("ipv6Only", ipv6Only))
 
 	if instanceType == "vm" {
-		return p.configureVMIPv6(ctx, vmid, config, bridgeName, useNATMapping, ipv6Info, ipv6Mode.NAT, ipv6Only)
+		return p.configureVMIPv6(ctx, vmid, config, bridgeName, useNATMapping, ipv6Mode.UseNAT66, ipv6Info, ipv6Mode.NAT, ipv6Only)
 	} else {
-		return p.configureContainerIPv6(ctx, vmid, config, bridgeName, useNATMapping, ipv6Info, ipv6Mode.NAT, ipv6Only)
+		return p.configureContainerIPv6(ctx, vmid, config, bridgeName, useNATMapping, ipv6Mode.UseNAT66, ipv6Info, ipv6Mode.NAT, ipv6Only)
 	}
 }
 
@@ -652,7 +748,7 @@ func (p *ProxmoxProvider) ensureVMIPv6Interface(vmid int, bridgeName string) err
 }
 
 // configureVMIPv6 配置虚拟机IPv6
-func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, bridgeName string, useNATMapping bool, ipv6Info *IPv6Info, natConfig *proxmoxNATIPv6Config, ipv6Only bool) error {
+func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, bridgeName string, useNATMapping, useNAT66 bool, ipv6Info *IPv6Info, natConfig *proxmoxNATIPv6Config, ipv6Only bool) error {
 	// 获取网络配置以应用带宽限制
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 	var err error
@@ -705,6 +801,9 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 		}
 
 		// 使用控制面预分配的地址时，不再从硬编码的 vmbr1 文件轮转。
+		if useNAT66 {
+			return nil
+		}
 		hostExternalIPv6 := requestedProxmoxIPv6(config)
 		if hostExternalIPv6 != "" {
 			hostExternalIPv6, err = utils.NormalizeIPv6Address(hostExternalIPv6)
@@ -734,7 +833,10 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 				return fmt.Errorf("根据IPv6前缀生成实例地址失败: %w", err)
 			}
 		}
-		vmIPv6CIDR, gateway, err := proxmoxIPv6AddressSettings(config, vmExternalIPv6, ipv6Info.HostIPv6Address)
+		if err := p.ensureGuestIPv6DoesNotOwnHostAddress(vmExternalIPv6); err != nil {
+			return err
+		}
+		vmIPv6CIDR, gateway, err := proxmoxIPv6AddressSettings(config, vmExternalIPv6, ipv6Info.HostIPv6Address, ipv6Info.Network.PrefixLen)
 		if err != nil {
 			return err
 		}
@@ -783,7 +885,7 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 }
 
 // configureContainerIPv6 配置容器IPv6
-func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, bridgeName string, useNATMapping bool, ipv6Info *IPv6Info, natConfig *proxmoxNATIPv6Config, ipv6Only bool) error {
+func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, bridgeName string, useNATMapping, useNAT66 bool, ipv6Info *IPv6Info, natConfig *proxmoxNATIPv6Config, ipv6Only bool) error {
 	// 获取网络配置以应用带宽限制
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 	var err error
@@ -856,6 +958,9 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			return err
 		}
 
+		if useNAT66 {
+			return nil
+		}
 		hostExternalIPv6 := requestedProxmoxIPv6(config)
 		if hostExternalIPv6 != "" {
 			hostExternalIPv6, err = utils.NormalizeIPv6Address(hostExternalIPv6)
@@ -885,7 +990,10 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 				return fmt.Errorf("根据IPv6前缀生成实例地址失败: %w", err)
 			}
 		}
-		vmIPv6CIDR, gateway, err := proxmoxIPv6AddressSettings(config, vmExternalIPv6, ipv6Info.HostIPv6Address)
+		if err := p.ensureGuestIPv6DoesNotOwnHostAddress(vmExternalIPv6); err != nil {
+			return err
+		}
+		vmIPv6CIDR, gateway, err := proxmoxIPv6AddressSettings(config, vmExternalIPv6, ipv6Info.HostIPv6Address, ipv6Info.Network.PrefixLen)
 		if err != nil {
 			return err
 		}
@@ -988,11 +1096,15 @@ func (p *ProxmoxProvider) getAvailableVmbr1IPv6(ctx context.Context) (string, er
 			usedIPs[network.Address.String()] = true
 		}
 	}
+	reserved, err := utils.ReadHostIPv6Reservations(p.sshClient)
+	if err != nil {
+		return "", fmt.Errorf("无法确认宿主机IPv6地址占用，不分配映射地址: %w", err)
+	}
 
 	// 查找第一个可用的IPv6地址
 	for _, network := range availableNetworks {
 		ip := network.Address.String()
-		if !usedIPs[ip] {
+		if !usedIPs[ip] && !utils.HostIPv6AddressReserved(ip, reserved) {
 			// 标记为已使用
 			_, err := p.sshClient.Execute(fmt.Sprintf("printf '%%s\\n' %s >> %s", utils.ShellSingleQuote(ip), utils.ShellSingleQuote(usedIPsFile)))
 			if err != nil {
@@ -1015,6 +1127,13 @@ func (p *ProxmoxProvider) setupNATMapping(ctx context.Context, vmInternalIPv6, h
 	hostExternalIPv6, err = utils.NormalizeIPv6Address(hostExternalIPv6)
 	if err != nil {
 		return fmt.Errorf("外部IPv6地址无效: %w", err)
+	}
+	reserved, err := utils.ReadHostIPv6Reservations(p.sshClient)
+	if err != nil {
+		return fmt.Errorf("无法确认宿主机IPv6地址占用，不添加NAT映射: %w", err)
+	}
+	if utils.HostIPv6AddressReserved(hostExternalIPv6, reserved) {
+		return fmt.Errorf("外部IPv6地址与宿主机地址、网关或精确路由冲突，不添加NAT映射")
 	}
 
 	// 确保规则文件存在
@@ -1112,7 +1231,7 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		}
 
 		// 如果没有静态IPv6，尝试从容器内部获取
-		cmd = fmt.Sprintf("pct exec %s -- ip -6 addr show | grep 'inet6.*global' | awk '{print $2}' | cut -d'/' -f1 | head -1 || true", vmid)
+		cmd = fmt.Sprintf("pct exec %s -- env LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global", vmid)
 	} else {
 		// 对于虚拟机，尝试从配置中获取IPv6地址
 		// 支持 ipconfig0, ipconfig1 等多个网络接口的IPv6配置
@@ -1142,7 +1261,13 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		return "", err
 	}
 
-	ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output)
+	var ipv6 string
+	var parseErr error
+	if instanceType == "container" {
+		ipv6, parseErr = utils.ParseFirstGlobalIPv6AddressJSON(output)
+	} else {
+		ipv6, parseErr = utils.ParseFirstIPv6AddressOutput(output)
+	}
 	if parseErr != nil {
 		return "", fmt.Errorf("no valid IPv6 address found for %s %s: %w", instanceType, vmid, parseErr)
 	}

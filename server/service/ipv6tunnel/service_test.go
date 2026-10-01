@@ -225,6 +225,72 @@ func TestRoutedTunnelScriptsEnableDynamicGuestForwardingForSupportedModes(t *tes
 	}
 }
 
+func TestRoutedTunnelPreservesHostRouterAdvertisements(t *testing.T) {
+	config := validTunnelConfig()
+	normalized, err := normalizeConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tunnel := normalized.toModel(1)
+	tunnel.ID = 42
+	script := renderTunnelScript(tunnel)
+	start := strings.Index(script, "host_default_route_interfaces() {")
+	if start < 0 {
+		t.Fatal("routed tunnel does not discover host default-route interfaces")
+	}
+	end := strings.Index(script[start:], "\n}\n")
+	if end < 0 {
+		t.Fatal("host route discovery function is incomplete")
+	}
+	function := script[start : start+end+3]
+	if strings.Index(script, "accept_ra=2") < 0 || strings.Index(script, "accept_ra=2") > strings.Index(script, "all.forwarding=1") {
+		t.Fatal("host RA setting must precede global IPv6 forwarding")
+	}
+	for _, test := range []struct {
+		name   string
+		routes string
+		want   string
+		ok     bool
+	}{
+		{name: "colored multipath and localized diagnostics", routes: "Warnung: verfügbar\n\x1b[32mdefault\x1b[0m via fe80::1 dev vmbr0 proto ra\ndefault nexthop via fe80::2 dev eth0 weight 1 nexthop via fe80::3 dev vmbr0 weight 1\nAvertissement: route présente\n默认路由正常\n", want: "vmbr0\neth0\n", ok: true},
+		{name: "unsafe device", routes: "default via fe80::1 dev eth0;reboot\n", ok: false},
+		{name: "missing device", routes: "default via fe80::1\n", ok: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := "ip() { [ \"$LC_ALL\" = C ] && [ \"$NO_COLOR\" = 1 ] || return 3; printf '%s' \"$MOCK_ROUTE_OUTPUT\"; }\n" + function + "\nhost_default_route_interfaces\n"
+			cmd := exec.Command("sh", "-c", command)
+			cmd.Env = append(os.Environ(), "MOCK_ROUTE_OUTPUT="+test.routes)
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != test.ok || (test.ok && string(output) != test.want) {
+				t.Fatalf("route discovery output = %q, err = %v, want %q, ok = %t", output, err, test.want, test.ok)
+			}
+		})
+	}
+}
+
+func TestRoutedIPv6OperationalCommandsUseStableMachineOutput(t *testing.T) {
+	config, err := normalizeConfig(validTunnelConfig())
+	if err != nil {
+		t.Fatalf("normalizeConfig() error = %v", err)
+	}
+	tunnel := config.toModel(1)
+	tunnel.ID = 42
+	script := renderTunnelScript(tunnel)
+	check := buildCheckCommand([]providerModel.ProviderIPv6Tunnel{tunnel})
+	for name, output := range map[string]string{"tunnel script": script, "batched check": check} {
+		for _, fragment := range []string{
+			"LC_ALL=C NO_COLOR=1 ip -o -6 addr show",
+			"LC_ALL=C NO_COLOR=1 ip -6 route show",
+			"LC_ALL=C NO_COLOR=1 ip -6 route get",
+			"LC_ALL=C NO_COLOR=1 ip -6 rule show",
+		} {
+			if !strings.Contains(output, fragment) {
+				t.Errorf("%s missing stable-output command %q", name, fragment)
+			}
+		}
+	}
+}
+
 func TestDefaultRouteCheckAcceptsPVERouteOutputWithoutRepeatedDevice(t *testing.T) {
 	config, err := normalizeConfig(validTunnelConfig())
 	if err != nil {
@@ -302,6 +368,7 @@ ipconfig1: ip6=2001:db8:1234:5678::3/80,gw6=2001:db8:1234:5678::1
 	if err := os.WriteFile(ipPath, []byte(`#!/bin/sh
 printf '%s\n' "$*" >> "$OCV_IP_LOG"
 if [ "${1:-}" = '-6' ] && [ "${2:-}" = 'neigh' ] && [ "${3:-}" = 'show' ]; then
+  [ "${LC_ALL:-}" = C ] && [ "${NO_COLOR:-}" = 1 ] || exit 9
   printf '%s dev oneclickvirt6 lladdr 00:00:00:00:00:00 PERMANENT\n' "${5:-}"
 fi
 exit 0

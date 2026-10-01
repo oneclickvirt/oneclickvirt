@@ -300,7 +300,7 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 	}
 
 	// 启动实例 - 在配置完端口映射后启动，让 proxy 设备正确初始化
-	if err := i.sshStartInstance(config.Name); err != nil {
+	if err := i.sshStartInstance(ctx, config.Name); err != nil {
 		return fmt.Errorf("启动实例失败: %w", err)
 	}
 
@@ -367,7 +367,7 @@ func (i *IncusProvider) configureIPv6AndPortMappings(ctx context.Context, config
 	// uses the NAT mapping configured earlier, but no host-side IPv6 proxy or
 	// firewall rule may be installed for the guest's native ports.
 	if ipv6Method == "native" {
-		if err := i.enforceIPv6OnlyNetwork(config.Name, networkConfig); err != nil {
+		if err := i.enforceIPv6OnlyNetwork(ctx, config.Name, networkConfig); err != nil {
 			return err
 		}
 		return nil
@@ -383,10 +383,10 @@ func (i *IncusProvider) configureIPv6AndPortMappings(ctx context.Context, config
 	if err := i.configurePortMappingFamiliesWithIP(ctx, config.Name, ipv6Config, "", false, true); err != nil {
 		return fmt.Errorf("配置IPv6端口映射失败: %w", err)
 	}
-	if err := i.sshStartInstance(config.Name); err != nil {
+	if err := i.sshStartInstance(ctx, config.Name); err != nil {
 		return fmt.Errorf("启动实例完成IPv6端口映射失败: %w", err)
 	}
-	return i.enforceIPv6OnlyNetwork(config.Name, networkConfig)
+	return i.enforceIPv6OnlyNetwork(ctx, config.Name, networkConfig)
 }
 
 func (i *IncusProvider) persistManagedNATIPv6Target(instanceName, guestIPv6 string) error {
@@ -411,7 +411,7 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 		zap.String("instanceName", config.Name))
 
 	// 检查实例是否仍在运行
-	statusCmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(config.Name))
+	statusCmd := incusInstanceStatusCommand(config.Name)
 	output, err := i.sshClient.Execute(statusCmd)
 	if err != nil {
 		return fmt.Errorf("检查实例状态失败: %w", err)
@@ -512,7 +512,7 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 		}
 
 		// 重新启动实例
-		if err := i.sshStartInstance(config.Name); err != nil {
+		if err := i.sshStartInstance(ctx, config.Name); err != nil {
 			return fmt.Errorf("重新启动实例失败: %w", err)
 		}
 	}

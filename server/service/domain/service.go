@@ -1,24 +1,113 @@
 package domain
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	domainModel "oneclickvirt/model/domain"
-	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/agent"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 )
 
 // Service 域名绑定服务
 type Service struct{}
+
+// Domain proxy replay can be requested by an Agent reconnect hook, an admin
+// sync button, and a provider recovery pass at nearly the same time.  Keep one
+// in-flight reconciliation per provider so those edges cannot repeatedly
+// rewrite the same Agent routes or race orphan cleanup.
+var domainProxySyncFlights singleflight.Group
+
+// Serialize domain mutations per Provider. A single global lock used to wrap
+// Agent RPCs, so one slow or disconnected Agent blocked every other domain
+// operation. Provider-local locks preserve ordering for one Agent while
+// allowing independent Providers to proceed concurrently. References include
+// waiters so an entry cannot be removed while another goroutine is about to
+// acquire its mutex.
+type domainProxyProviderLockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+var domainProxyProviderLocks = struct {
+	sync.Mutex
+	entries map[uint]*domainProxyProviderLockEntry
+}{entries: make(map[uint]*domainProxyProviderLockEntry)}
+
+func acquireDomainProxyProviderLock(providerID uint) *domainProxyProviderLockEntry {
+	domainProxyProviderLocks.Lock()
+	entry := domainProxyProviderLocks.entries[providerID]
+	if entry == nil {
+		entry = &domainProxyProviderLockEntry{}
+		domainProxyProviderLocks.entries[providerID] = entry
+	}
+	entry.refs++
+	domainProxyProviderLocks.Unlock()
+
+	entry.mu.Lock()
+	return entry
+}
+
+func releaseDomainProxyProviderLock(providerID uint, entry *domainProxyProviderLockEntry) {
+	entry.mu.Unlock()
+
+	domainProxyProviderLocks.Lock()
+	entry.refs--
+	if entry.refs == 0 && domainProxyProviderLocks.entries[providerID] == entry {
+		delete(domainProxyProviderLocks.entries, providerID)
+	}
+	domainProxyProviderLocks.Unlock()
+}
+
+// lockDomainProxyProviders acquires provider locks in a stable order. This is
+// needed by operations that move or remove several bindings and prevents
+// lock-order inversion when two requests touch overlapping Providers.
+func lockDomainProxyProviders(providerIDs ...uint) func() {
+	ids := make([]uint, 0, len(providerIDs))
+	seen := make(map[uint]struct{}, len(providerIDs))
+	for _, id := range providerIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	type heldLock struct {
+		providerID uint
+		entry      *domainProxyProviderLockEntry
+	}
+	locks := make([]heldLock, 0, len(ids))
+	for _, id := range ids {
+		locks = append(locks, heldLock{
+			providerID: id,
+			entry:      acquireDomainProxyProviderLock(id),
+		})
+	}
+	return func() {
+		for i := len(locks) - 1; i >= 0; i-- {
+			releaseDomainProxyProviderLock(locks[i].providerID, locks[i].entry)
+		}
+	}
+}
 
 type AdminDomainListRequest struct {
 	Page       int
@@ -55,6 +144,8 @@ type AdminDomainListItem struct {
 
 var domainRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
 
+const domainStatusDeleting = "deleting"
+
 func init() {
 	agent.RegisterAgentReconnectHook(func(providerID uint) {
 		svc := &Service{}
@@ -65,27 +156,40 @@ func init() {
 				zap.Error(err))
 			return
 		}
-		if result.Total > 0 {
+		if result.Success > 0 || result.Failed > 0 || result.Removed > 0 {
 			global.APP_LOG.Info("Agent 重连后域名代理同步完成",
 				zap.Uint("providerID", providerID),
 				zap.Int("total", result.Total),
 				zap.Int("success", result.Success),
 				zap.Int("failed", result.Failed),
 				zap.Int("skipped", result.Skipped))
+		} else if result.Total > 0 {
+			global.APP_LOG.Debug("Agent 重连后域名代理配置无变化",
+				zap.Uint("providerID", providerID), zap.Int("total", result.Total))
 		}
 	})
 }
 
 // getAgentClient returns an agent client for the given provider, or nil if agent is not configured.
-// For agent-mode providers behind NAT, the HTTP API is not directly reachable;
-// the WS fallback in Client.doRequest handles connectivity via WebSocket.
+// Reverse Agent domain routes use the authenticated WebSocket API directly.
 func getAgentClient(providerID uint) *agent.Client {
 	var p providerModel.Provider
 	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
 		return nil
 	}
-	var config monitoringModel.MonitoringConfig
-	if err := global.APP_DB.Where("provider_id = ?", providerID).First(&config).Error; err != nil {
+	return getAgentClientForProvider(p)
+}
+
+func getAgentClientForProvider(p providerModel.Provider) *agent.Client {
+	providerID := p.ID
+	if !p.IsReverseAgent() {
+		return nil
+	}
+	if p.AgentSecret == "" {
+		return nil
+	}
+	config, err := agent.GetMonitoringConfig(global.APP_DB, providerID)
+	if err != nil {
 		return nil
 	}
 	if config.AgentToken == "" {
@@ -103,7 +207,21 @@ func getAgentClient(providerID uint) *agent.Client {
 	if port == 0 {
 		port = agent.AgentPort
 	}
-	return agent.GetClientWithMode(providerID, host, port, config.AgentToken, p.ConnectionType == "agent")
+	return agent.GetClientWithMode(providerID, host, port, config.AgentToken, p.IsReverseAgent())
+}
+
+// ensureDomainProxyProvider prevents records from being created for connection
+// modes that cannot receive the Agent reverse-proxy API.  SSH/local providers
+// may still manage containers, but they do not expose the listener used for
+// domain and WebSocket proxy traffic.
+func ensureDomainProxyProvider(provider *providerModel.Provider) error {
+	if provider == nil || !provider.IsReverseAgent() {
+		return fmt.Errorf("域名绑定仅支持 Agent 模式节点")
+	}
+	if getAgentClient(provider.ID) == nil {
+		return fmt.Errorf("节点 Agent 未配置或不可用")
+	}
+	return nil
 }
 
 func normalizeDomainName(domain string) string {
@@ -172,10 +290,23 @@ func domainMatchesAllowedSuffix(domainName, allowedSuffixes string) bool {
 }
 
 func applyDomainProxy(domain *domainModel.Domain) error {
+	if err := validateDomainTarget(domain); err != nil {
+		if errors.Is(err, errDomainInstanceBusy) || errors.Is(err, errDomainTargetUnavailable) {
+			return err
+		}
+		return rejectDomainProxy(domain, err)
+	}
+	if !domain.OwnershipVerified {
+		return rejectDomainProxy(domain, fmt.Errorf("请编辑域名并完成 TXT 验证，或请管理员确认绑定"))
+	}
 	client := getAgentClient(domain.ProviderID)
 	if client == nil {
-		return nil
+		return fmt.Errorf("节点 Agent 未配置或不可用")
 	}
+	return applyValidatedDomainProxy(domain, client)
+}
+
+func applyValidatedDomainProxy(domain *domainModel.Domain, client *agent.Client) error {
 	protocol, err := normalizeProtocol(domain.Protocol)
 	if err != nil {
 		return err
@@ -190,9 +321,11 @@ func applyDomainProxy(domain *domainModel.Domain) error {
 		domain.SSLKeyContent,
 	)
 	if err != nil {
+		domain.Status = "error"
+		domain.ErrorMsg = fmt.Sprintf("agent proxy error: %v", err)
 		updateErr := global.APP_DB.Model(domain).Updates(map[string]interface{}{
 			"status":    "error",
-			"error_msg": fmt.Sprintf("agent proxy error: %v", err),
+			"error_msg": domain.ErrorMsg,
 		}).Error
 		if updateErr != nil {
 			global.APP_LOG.Warn("更新域名代理错误状态失败",
@@ -201,6 +334,8 @@ func applyDomainProxy(domain *domainModel.Domain) error {
 		}
 		return err
 	}
+	domain.Status = "active"
+	domain.ErrorMsg = ""
 	updateErr := global.APP_DB.Model(domain).Updates(map[string]interface{}{
 		"status":    "active",
 		"error_msg": "",
@@ -214,11 +349,40 @@ func applyDomainProxy(domain *domainModel.Domain) error {
 }
 
 func removeDomainProxy(domain *domainModel.Domain) error {
+	if domain == nil {
+		return fmt.Errorf("域名代理记录为空")
+	}
 	client := getAgentClient(domain.ProviderID)
 	if client == nil {
-		return nil
+		var provider providerModel.Provider
+		if err := global.APP_DB.Select("connection_type", "execution_rule").First(&provider, domain.ProviderID).Error; err == nil && !provider.IsReverseAgent() {
+			// Legacy records created before Agent-only domain binding have no
+			// controller-side route to remove. They can be deleted safely.
+			return nil
+		}
+		return fmt.Errorf("节点 Agent 未配置或不可用")
 	}
 	return client.RemoveDomainProxy(domain.DomainName)
+}
+
+func markDomainProxyDeletionPending(domain *domainModel.Domain, cause error) error {
+	if domain == nil {
+		return cause
+	}
+	message := "等待 Agent 清理"
+	if cause != nil {
+		message = fmt.Sprintf("%s: %v", message, cause)
+	}
+	if err := global.APP_DB.Model(domain).Updates(map[string]interface{}{
+		"status":    domainStatusDeleting,
+		"error_msg": message,
+	}).Error; err != nil {
+		global.APP_LOG.Warn("保存域名代理待清理状态失败",
+			zap.Uint("domainID", domain.ID),
+			zap.String("domain", domain.DomainName),
+			zap.Error(err))
+	}
+	return cause
 }
 
 // GetUserDomains 获取用户域名列表
@@ -230,6 +394,9 @@ func (s *Service) GetUserDomains(userID uint) ([]domainModel.Domain, error) {
 
 // CreateDomain 用户创建域名绑定
 func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainModel.Domain, error) {
+	if req == nil {
+		return nil, fmt.Errorf("创建参数不能为空")
+	}
 	req.DomainName = normalizeDomainName(req.DomainName)
 	req.InternalIP = strings.TrimSpace(req.InternalIP)
 	protocol, err := normalizeProtocol(req.Protocol)
@@ -263,8 +430,14 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 	if err := global.APP_DB.First(&provider, instance.ProviderID).Error; err != nil {
 		return nil, fmt.Errorf("节点不存在")
 	}
+	if err := ensureDomainProxyProvider(&provider); err != nil {
+		return nil, err
+	}
 	if !provider.EnableDomainBinding {
 		return nil, fmt.Errorf("该节点未启用域名绑定功能")
+	}
+	if err := validateInstanceTarget(instance, provider, req.InternalIP); err != nil {
+		return nil, err
 	}
 	// 检查域名配置。没有显式配置时使用节点开关派生的默认配置。
 	domainConfig, err := s.GetDomainConfig(provider.ID)
@@ -277,9 +450,14 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 	if !domainMatchesAllowedSuffix(req.DomainName, domainConfig.AllowedSuffixes) {
 		return nil, fmt.Errorf("不允许绑定此后缀的域名")
 	}
+	if err := verifyDomainOwnership(context.Background(), userID, req.DomainName, net.DefaultResolver.LookupTXT); err != nil {
+		return nil, err
+	}
+	unlockProvider := lockDomainProxyProviders(provider.ID)
+	defer unlockProvider()
 	// 检查配额 + 唯一性 + 创建在同一事务中，避免 TOCTOU 竞争
 	domain := &domainModel.Domain{
-		UserID:         userID,
+		OwnershipVerified: true, UserID: userID,
 		InstanceID:     req.InstanceID,
 		ProviderID:     provider.ID,
 		DomainName:     req.DomainName,
@@ -319,6 +497,7 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 		global.APP_LOG.Error("域名代理应用到Agent失败",
 			zap.String("domain", req.DomainName),
 			zap.Error(err))
+		return domain, fmt.Errorf("域名绑定已保存，但代理下发失败: %w", err)
 	}
 
 	global.APP_LOG.Info("用户域名绑定成功",
@@ -335,15 +514,29 @@ func (s *Service) DeleteDomain(userID, domainID uint) error {
 	if err := global.APP_DB.Where("id = ? AND user_id = ?", domainID, userID).First(&domain).Error; err != nil {
 		return fmt.Errorf("域名绑定不存在或无权限")
 	}
+	unlockProvider := lockDomainProxyProviders(domain.ProviderID)
+	defer unlockProvider()
+	if err := reloadLockedDomain(&domain); err != nil {
+		return err
+	}
+	if domain.UserID != userID {
+		return fmt.Errorf("域名绑定不存在或无权限")
+	}
 
 	if err := removeDomainProxy(&domain); err != nil {
 		global.APP_LOG.Warn("从Agent移除域名代理失败",
 			zap.String("domain", domain.DomainName),
 			zap.Error(err))
+		markDomainProxyDeletionPending(&domain, err)
+		return fmt.Errorf("域名代理尚未清理，已保留记录供重试: %w", err)
 	}
 
 	// 硬删除：確保域名可被重新注册
-	return global.APP_DB.Delete(&domain).Error
+	if err := global.APP_DB.Delete(&domain).Error; err != nil {
+		markDomainProxyDeletionPending(&domain, err)
+		return err
+	}
+	return nil
 }
 
 func (s *Service) GetInstanceDomains(instanceID uint) ([]domainModel.Domain, error) {
@@ -353,10 +546,26 @@ func (s *Service) GetInstanceDomains(instanceID uint) ([]domainModel.Domain, err
 }
 
 func (s *Service) DeleteInstanceDomainsInTx(tx *gorm.DB, instanceID uint) error {
-	return tx.Where("instance_id = ?", instanceID).Delete(&domainModel.Domain{}).Error
+	// Keep a deletion tombstone until the remote Agent confirms route removal.
+	// Deleting the row inside the transaction would make an unreachable Agent
+	// route impossible to reconcile after the instance metadata disappears.
+	return tx.Model(&domainModel.Domain{}).
+		Where("instance_id = ?", instanceID).
+		Updates(map[string]interface{}{
+			"status":    domainStatusDeleting,
+			"error_msg": "等待 Agent 清理",
+		}).Error
 }
 
-func (s *Service) RemoveDomainProxies(domains []domainModel.Domain) {
+func (s *Service) removeDomainProxies(domains []domainModel.Domain, strict bool) error {
+	providerIDs := make([]uint, 0, len(domains))
+	for _, domain := range domains {
+		providerIDs = append(providerIDs, domain.ProviderID)
+	}
+	unlockProviders := lockDomainProxyProviders(providerIDs...)
+	defer unlockProviders()
+	var firstErr error
+	removed := make([]*domainModel.Domain, 0, len(domains))
 	for i := range domains {
 		domain := &domains[i]
 		if err := removeDomainProxy(domain); err != nil {
@@ -365,15 +574,92 @@ func (s *Service) RemoveDomainProxies(domains []domainModel.Domain) {
 				zap.Uint("domainID", domain.ID),
 				zap.String("domain", domain.DomainName),
 				zap.Error(err))
+			_ = markDomainProxyDeletionPending(domain, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			if strict {
+				for _, removedDomain := range removed {
+					_ = markDomainProxyDeletionPending(removedDomain, nil)
+				}
+				return err
+			}
+			continue
+		}
+		if strict {
+			removed = append(removed, domain)
+			continue
+		}
+		if domain.ID == 0 {
+			continue
+		}
+		if err := global.APP_DB.Where("id = ?", domain.ID).Delete(&domainModel.Domain{}).Error; err != nil {
+			_ = markDomainProxyDeletionPending(domain, err)
+			global.APP_LOG.Warn("删除已清理域名记录失败",
+				zap.Uint("domainID", domain.ID),
+				zap.String("domain", domain.DomainName),
+				zap.Error(err))
+			if firstErr == nil {
+				firstErr = err
+			}
+			if strict {
+				return err
+			}
 		}
 	}
+	if strict {
+		for _, domain := range removed {
+			if domain.ID == 0 {
+				continue
+			}
+			if err := global.APP_DB.Where("id = ?", domain.ID).Delete(&domainModel.Domain{}).Error; err != nil {
+				_ = markDomainProxyDeletionPending(domain, err)
+				return err
+			}
+		}
+	}
+	return firstErr
+}
+
+// RemoveDomainProxies removes routes on a best-effort cleanup path. Failed
+// rows remain as deletion tombstones for Agent reconnect reconciliation.
+func (s *Service) RemoveDomainProxies(domains []domainModel.Domain) {
+	_ = s.removeDomainProxies(domains, false)
+}
+
+// RemoveDomainProxiesStrict is used by normal Provider deletion. It refuses to
+// remove the Provider from the controller until every known Agent route has
+// been acknowledged as removed.
+func (s *Service) RemoveDomainProxiesStrict(domains []domainModel.Domain) error {
+	return s.removeDomainProxies(domains, true)
 }
 
 // UpdateDomain 用户更新域名绑定
 func (s *Service) UpdateDomain(userID, domainID uint, req *UpdateDomainRequest) error {
+	if req == nil {
+		return fmt.Errorf("更新参数不能为空")
+	}
 	var domain domainModel.Domain
 	if err := global.APP_DB.Where("id = ? AND user_id = ?", domainID, userID).First(&domain).Error; err != nil {
 		return fmt.Errorf("域名绑定不存在或无权限")
+	}
+	unlockProvider := lockDomainProxyProviders(domain.ProviderID)
+	defer unlockProvider()
+	if err := reloadLockedDomain(&domain); err != nil {
+		return err
+	}
+	if domain.UserID != userID {
+		return fmt.Errorf("域名绑定不存在或无权限")
+	}
+	if domain.Status == domainStatusDeleting {
+		return fmt.Errorf("域名代理正在清理，请等待清理完成")
+	}
+	var provider providerModel.Provider
+	if err := global.APP_DB.First(&provider, domain.ProviderID).Error; err != nil {
+		return fmt.Errorf("节点不存在")
+	}
+	if err := ensureDomainProxyProvider(&provider); err != nil {
+		return err
 	}
 
 	updates := map[string]interface{}{}
@@ -397,13 +683,29 @@ func (s *Service) UpdateDomain(userID, domainID uint, req *UpdateDomainRequest) 
 		}
 		updates["protocol"] = protocol
 	}
-	updates["enable_ssl"] = req.EnableSSL
+	if req.EnableSSL != nil {
+		updates["enable_ssl"] = *req.EnableSSL
+	}
 
 	// Handle cert content
 	if req.SSLCertContent != "" && req.SSLKeyContent != "" {
 		updates["ssl_cert_content"] = req.SSLCertContent
 		updates["ssl_key_content"] = req.SSLKeyContent
 		updates["has_cert"] = true
+	}
+
+	candidate := domain
+	if ip, ok := updates["internal_ip"].(string); ok {
+		candidate.InternalIP = ip
+	}
+	if err := validateDomainTarget(&candidate); err != nil {
+		return err
+	}
+	if !domain.OwnershipVerified {
+		if err := verifyDomainOwnership(context.Background(), userID, domain.DomainName, net.DefaultResolver.LookupTXT); err != nil {
+			return err
+		}
+		updates["ownership_verified"] = true
 	}
 
 	if err := global.APP_DB.Model(&domain).Updates(updates).Error; err != nil {
@@ -417,6 +719,7 @@ func (s *Service) UpdateDomain(userID, domainID uint, req *UpdateDomainRequest) 
 		global.APP_LOG.Warn("域名代理更新Agent失败",
 			zap.String("domain", domain.DomainName),
 			zap.Error(err))
+		return fmt.Errorf("域名绑定已更新，但代理下发失败: %w", err)
 	}
 
 	return nil
@@ -535,19 +838,44 @@ func (s *Service) AdminDeleteDomain(domainID, ownerAdminID uint) error {
 	if err := global.APP_DB.First(&domain, domainID).Error; err != nil {
 		return fmt.Errorf("域名不存在")
 	}
+	unlockProvider := lockDomainProxyProviders(domain.ProviderID)
+	defer unlockProvider()
+	if err := reloadLockedDomain(&domain); err != nil {
+		return err
+	}
 	if err := s.ensureAdminCanAccessDomain(&domain, ownerAdminID); err != nil {
 		return err
+	}
+	if domain.Status == domainStatusDeleting {
+		if err := removeDomainProxy(&domain); err != nil {
+			markDomainProxyDeletionPending(&domain, err)
+			return fmt.Errorf("域名代理尚未清理，已保留记录供重试: %w", err)
+		}
+		if err := global.APP_DB.Delete(&domain).Error; err != nil {
+			markDomainProxyDeletionPending(&domain, err)
+			return err
+		}
+		return nil
 	}
 	if err := removeDomainProxy(&domain); err != nil {
 		global.APP_LOG.Warn("管理员从Agent移除域名代理失败",
 			zap.String("domain", domain.DomainName),
 			zap.Error(err))
+		markDomainProxyDeletionPending(&domain, err)
+		return fmt.Errorf("域名代理尚未清理，已保留记录供重试: %w", err)
 	}
 	// 硬删除：确保域名可被重新注册
-	return global.APP_DB.Delete(&domain).Error
+	if err := global.APP_DB.Delete(&domain).Error; err != nil {
+		markDomainProxyDeletionPending(&domain, err)
+		return err
+	}
+	return nil
 }
 
 func (s *Service) AdminUpdateDomain(domainID, ownerAdminID uint, req *AdminUpdateDomainRequest) error {
+	if req == nil {
+		return fmt.Errorf("更新参数不能为空")
+	}
 	var domain domainModel.Domain
 	if err := global.APP_DB.First(&domain, domainID).Error; err != nil {
 		return fmt.Errorf("域名不存在")
@@ -555,11 +883,38 @@ func (s *Service) AdminUpdateDomain(domainID, ownerAdminID uint, req *AdminUpdat
 	if err := s.ensureAdminCanAccessDomain(&domain, ownerAdminID); err != nil {
 		return err
 	}
+	// Determine a possible destination Provider before taking locks so a move
+	// can acquire both sides in the same stable order.
+	targetProviderID := domain.ProviderID
+	if req.InstanceID > 0 && req.InstanceID != domain.InstanceID {
+		var targetInstance providerModel.Instance
+		if err := global.APP_DB.Select("provider_id").First(&targetInstance, req.InstanceID).Error; err != nil {
+			return fmt.Errorf("实例不存在")
+		}
+		targetProviderID = targetInstance.ProviderID
+	}
+	unlockProviders := lockDomainProxyProviders(domain.ProviderID, targetProviderID)
+	defer unlockProviders()
+	if err := reloadLockedDomain(&domain); err != nil {
+		return err
+	}
+	if err := s.ensureAdminCanAccessDomain(&domain, ownerAdminID); err != nil {
+		return err
+	}
+	if domain.Status == domainStatusDeleting {
+		return fmt.Errorf("域名代理正在清理，请先完成清理")
+	}
 
 	oldDomain := domain
 	updates := map[string]interface{}{}
-	targetProviderID := domain.ProviderID
 	providerChanged := false
+	var targetProvider providerModel.Provider
+	if err := global.APP_DB.First(&targetProvider, targetProviderID).Error; err != nil {
+		return fmt.Errorf("节点不存在")
+	}
+	if err := ensureDomainProxyProvider(&targetProvider); err != nil {
+		return err
+	}
 
 	if req.InstanceID > 0 && req.InstanceID != domain.InstanceID {
 		var instance providerModel.Instance
@@ -577,8 +932,16 @@ func (s *Service) AdminUpdateDomain(domainID, ownerAdminID uint, req *AdminUpdat
 				return fmt.Errorf("无权绑定到该实例")
 			}
 		}
-		targetProviderID = instance.ProviderID
+		if targetProviderID != instance.ProviderID {
+			return fmt.Errorf("实例归属已改变，请刷新后重试")
+		}
 		providerChanged = targetProviderID != domain.ProviderID
+		if err := global.APP_DB.First(&targetProvider, targetProviderID).Error; err != nil {
+			return fmt.Errorf("节点不存在")
+		}
+		if err := ensureDomainProxyProvider(&targetProvider); err != nil {
+			return err
+		}
 		config, err := s.GetDomainConfig(targetProviderID)
 		if err != nil {
 			return fmt.Errorf("读取节点域名配置失败: %w", err)
@@ -671,22 +1034,63 @@ func (s *Service) AdminUpdateDomain(domainID, ownerAdminID uint, req *AdminUpdat
 		updates["has_cert"] = true
 	}
 
-	if len(updates) == 0 {
-		return nil
+	candidate := domain
+	if id, ok := updates["instance_id"].(uint); ok {
+		candidate.InstanceID = id
 	}
+	if id, ok := updates["provider_id"].(uint); ok {
+		candidate.ProviderID = id
+	}
+	if id, ok := updates["user_id"].(uint); ok {
+		candidate.UserID = id
+	}
+	if ip, ok := updates["internal_ip"].(string); ok {
+		candidate.InternalIP = ip
+	}
+	if name, ok := updates["domain_name"].(string); ok {
+		candidate.DomainName = name
+	}
+	if err := validateDomainTarget(&candidate); err != nil {
+		return err
+	}
+	// An explicit administrator edit also approves an existing domain claim.
+	updates["ownership_verified"] = true
 
-	if err := global.APP_DB.Model(&domain).Updates(updates).Error; err != nil {
-		return err
+	newDomainName := oldDomain.DomainName
+	if name, ok := updates["domain_name"].(string); ok {
+		newDomainName = name
 	}
-	if err := global.APP_DB.First(&domain, domain.ID).Error; err != nil {
-		return err
+	newProviderID := oldDomain.ProviderID
+	if providerID, ok := updates["provider_id"].(uint); ok {
+		newProviderID = providerID
 	}
-	if oldDomain.DomainName != domain.DomainName || oldDomain.ProviderID != domain.ProviderID {
+	routeChanged := oldDomain.DomainName != newDomainName || oldDomain.ProviderID != newProviderID
+	var oldClient *agent.Client
+	if routeChanged {
+		// Remove the old route before changing the durable row. If cleanup fails,
+		// leave the row untouched so a retry can still address the old route and
+		// never report success while an orphan route remains on the old Agent.
+		oldClient = getAgentClient(oldDomain.ProviderID)
 		if err := removeDomainProxy(&oldDomain); err != nil {
 			global.APP_LOG.Warn("管理员更新域名时移除旧代理失败",
 				zap.String("domain", oldDomain.DomainName),
 				zap.Error(err))
+			return fmt.Errorf("旧域名代理尚未清理，更新未应用: %w", err)
 		}
+	}
+
+	if err := global.APP_DB.Model(&domain).Updates(updates).Error; err != nil {
+		if routeChanged && oldClient != nil {
+			if restoreErr := applyValidatedDomainProxy(&oldDomain, oldClient); restoreErr != nil {
+				global.APP_LOG.Warn("管理员更新域名回滚旧代理失败",
+					zap.String("domain", oldDomain.DomainName),
+					zap.Error(restoreErr))
+			}
+		}
+		return err
+	}
+	if err := global.APP_DB.First(&domain, domain.ID).Error; err != nil {
+		return err
 	}
 	if err := applyDomainProxy(&domain); err != nil {
 		return err
@@ -700,8 +1104,16 @@ func (s *Service) AdminSyncDomainProxy(domainID, ownerAdminID uint) error {
 	if err := global.APP_DB.First(&domain, domainID).Error; err != nil {
 		return fmt.Errorf("域名不存在")
 	}
+	unlockProvider := lockDomainProxyProviders(domain.ProviderID)
+	defer unlockProvider()
+	if err := reloadLockedDomain(&domain); err != nil {
+		return err
+	}
 	if err := s.ensureAdminCanAccessDomain(&domain, ownerAdminID); err != nil {
 		return err
+	}
+	if domain.Status == domainStatusDeleting {
+		return fmt.Errorf("域名代理正在清理")
 	}
 	if getAgentClient(domain.ProviderID) == nil {
 		return fmt.Errorf("节点Agent未配置或不可用")
@@ -715,7 +1127,10 @@ func (s *Service) GetDomainConfig(providerID uint) (*domainModel.DomainConfig, e
 	err := global.APP_DB.Where("provider_id = ?", providerID).First(&config).Error
 	if err == gorm.ErrRecordNotFound {
 		var provider providerModel.Provider
-		if dbErr := global.APP_DB.Select("enable_domain_binding").First(&provider, providerID).Error; dbErr != nil && dbErr != gorm.ErrRecordNotFound {
+		if dbErr := global.APP_DB.Select("enable_domain_binding").First(&provider, providerID).Error; dbErr != nil {
+			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("节点不存在")
+			}
 			return nil, dbErr
 		}
 		// 返回默认配置
@@ -731,6 +1146,9 @@ func (s *Service) GetDomainConfig(providerID uint) (*domainModel.DomainConfig, e
 
 // UpdateDomainConfig 更新节点域名配置
 func (s *Service) UpdateDomainConfig(providerID uint, req *UpdateDomainConfigRequest) error {
+	if req == nil {
+		return fmt.Errorf("更新参数不能为空")
+	}
 	if req.MaxDomainsPerUser <= 0 {
 		return fmt.Errorf("每用户最大域名数必须大于0")
 	}
@@ -811,11 +1229,11 @@ func (s *Service) AdminSyncDomainProxies(ownerAdminID uint) (*SyncDomainProxiesR
 	}
 	result := &SyncDomainProxiesResult{}
 	for _, providerID := range providerIDs {
-		domains, err := s.getProviderDomains(providerID)
+		providerResult, err := s.SyncProviderDomainProxies(providerID)
 		if err != nil {
 			return nil, err
 		}
-		result.merge(s.syncProviderDomainProxyRows(providerID, domains))
+		result.merge(providerResult)
 	}
 	return result, nil
 }
@@ -824,11 +1242,23 @@ func (s *Service) AdminSyncDomainProxies(ownerAdminID uint) (*SyncDomainProxiesR
 // It is used as an agent reconnect hook so the controller database remains the
 // authoritative source if the agent restarts, is reinstalled, or loses its local sqlite DB.
 func (s *Service) SyncProviderDomainProxies(providerID uint) (*SyncDomainProxiesResult, error) {
-	domains, err := s.getProviderDomains(providerID)
+	value, err, _ := domainProxySyncFlights.Do(fmt.Sprintf("provider:%d", providerID), func() (interface{}, error) {
+		unlockProvider := lockDomainProxyProviders(providerID)
+		defer unlockProvider()
+		domains, err := s.getProviderDomains(providerID)
+		if err != nil {
+			return nil, err
+		}
+		return s.syncProviderDomainProxyRows(providerID, domains), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	return s.syncProviderDomainProxyRows(providerID, domains), nil
+	result, ok := value.(*SyncDomainProxiesResult)
+	if !ok || result == nil {
+		return nil, fmt.Errorf("域名代理同步返回结果无效")
+	}
+	return result, nil
 }
 
 func (s *Service) getVisibleDomainProviderIDs(ownerAdminID uint) ([]uint, error) {
@@ -864,21 +1294,62 @@ func (r *SyncDomainProxiesResult) merge(other *SyncDomainProxiesResult) {
 
 func (s *Service) syncProviderDomainProxyRows(providerID uint, domains []domainModel.Domain) *SyncDomainProxiesResult {
 	result := &SyncDomainProxiesResult{Total: len(domains)}
-	client := getAgentClient(providerID)
+	provider, instances, loadErr := loadDomainTargets(providerID)
+	if loadErr != nil {
+		result.Failed = len(domains)
+		global.APP_LOG.Warn("读取域名同步快照失败，保留现有代理", zap.Uint("providerID", providerID), zap.Error(loadErr))
+		return result
+	}
+	client := getAgentClientForProvider(provider)
 	if client == nil {
 		result.Skipped += len(domains)
 		return result
 	}
 
 	desiredDomains := make(map[string]struct{}, len(domains))
+	existing, err := client.ListDomainProxies()
+	if err != nil {
+		result.Failed++
+		global.APP_LOG.Warn("列出Agent域名代理失败，本轮停止写入以避免重复超时；检查 Agent 版本与连接",
+			zap.Uint("providerID", providerID),
+			zap.Error(err))
+		return result
+	}
+	existingByDomain := make(map[string]agent.DomainProxyItem)
+	if existing != nil {
+		for _, proxy := range existing.Proxies {
+			existingByDomain[normalizeDomainName(proxy.Domain)] = proxy
+		}
+	}
 	for i := range domains {
 		domain := &domains[i]
 		if domain.Status != "" && domain.Status != "active" && domain.Status != "error" {
 			result.Skipped++
 			continue
 		}
-		desiredDomains[domain.DomainName] = struct{}{}
-		if err := applyDomainProxy(domain); err != nil {
+		if err := validateDomainTargetRow(domain, instances[domain.InstanceID], provider); err != nil {
+			if err == errDomainInstanceBusy {
+				desiredDomains[normalizeDomainName(domain.DomainName)] = struct{}{}
+				result.Skipped++
+				continue
+			}
+			_ = rejectDomainProxyWithClient(domain, err, client)
+			result.Failed++
+			continue
+		}
+		if !domain.OwnershipVerified {
+			_ = rejectDomainProxyWithClient(domain, fmt.Errorf("请编辑域名并完成 TXT 验证，或请管理员确认绑定"), client)
+			result.Failed++
+			continue
+		}
+		domainName := normalizeDomainName(domain.DomainName)
+		desiredDomains[domainName] = struct{}{}
+		if proxy, ok := existingByDomain[domainName]; ok && domainProxyMatches(domain, proxy) {
+			markDomainProxyActive(domain)
+			result.Skipped++
+			continue
+		}
+		if err := applyValidatedDomainProxy(domain, client); err != nil {
 			result.Failed++
 			global.APP_LOG.Warn("同步域名代理失败",
 				zap.Uint("domainID", domain.ID),
@@ -889,16 +1360,42 @@ func (s *Service) syncProviderDomainProxyRows(providerID uint, domains []domainM
 		result.Success++
 	}
 
-	existing, err := client.ListDomainProxies()
-	if err != nil {
-		result.Failed++
-		global.APP_LOG.Warn("列出Agent域名代理失败，无法对账删除孤儿代理",
-			zap.Uint("providerID", providerID),
-			zap.Error(err))
+	pendingRemoval := make(map[string]struct{})
+	for i := range domains {
+		domain := &domains[i]
+		if domain.Status != domainStatusDeleting {
+			continue
+		}
+		domainName := normalizeDomainName(domain.DomainName)
+		pendingRemoval[domainName] = struct{}{}
+		if err := client.RemoveDomainProxy(domain.DomainName); err != nil {
+			result.Failed++
+			_ = markDomainProxyDeletionPending(domain, err)
+			global.APP_LOG.Warn("同步删除待清理域名代理失败",
+				zap.Uint("domainID", domain.ID),
+				zap.String("domain", domain.DomainName),
+				zap.Error(err))
+			continue
+		}
+		if err := global.APP_DB.Delete(domain).Error; err != nil {
+			result.Failed++
+			_ = markDomainProxyDeletionPending(domain, err)
+			global.APP_LOG.Warn("删除已清理域名记录失败",
+				zap.Uint("domainID", domain.ID),
+				zap.String("domain", domain.DomainName),
+				zap.Error(err))
+			continue
+		}
+		result.Removed++
+	}
+	if existing == nil {
 		return result
 	}
 	for _, proxy := range existing.Proxies {
-		if _, ok := desiredDomains[proxy.Domain]; ok {
+		if _, pending := pendingRemoval[normalizeDomainName(proxy.Domain)]; pending {
+			continue
+		}
+		if _, ok := desiredDomains[normalizeDomainName(proxy.Domain)]; ok {
 			continue
 		}
 		if err := client.RemoveDomainProxy(proxy.Domain); err != nil {
@@ -912,6 +1409,93 @@ func (s *Service) syncProviderDomainProxyRows(providerID uint, domains []domainM
 		result.Removed++
 	}
 	return result
+}
+
+func normalizeDomainProxyIP(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "[")
+	raw = strings.TrimSuffix(raw, "]")
+	if parsed := net.ParseIP(raw); parsed != nil {
+		return parsed.String()
+	}
+	return strings.ToLower(raw)
+}
+
+// domainProxyMatches compares the desired controller row with the Agent's
+// persisted route.  The Agent's created_at is advanced whenever a route really
+// changes; using it as a revision lets us detect certificate content changes
+// without ever returning certificate material from the list API.
+func domainProxyMatches(domain *domainModel.Domain, proxy agent.DomainProxyItem) bool {
+	if domain == nil {
+		return false
+	}
+	protocol, err := normalizeProtocol(domain.Protocol)
+	if err != nil {
+		return false
+	}
+	if normalizeDomainName(domain.DomainName) != normalizeDomainName(proxy.Domain) ||
+		normalizeDomainProxyIP(domain.InternalIP) != normalizeDomainProxyIP(proxy.InternalIP) ||
+		domain.InternalPort != proxy.InternalPort ||
+		protocol != strings.ToLower(strings.TrimSpace(proxy.Protocol)) ||
+		domain.EnableSSL != proxy.EnableSSL ||
+		(domain.EnableSSL && domain.SSLCertContent != "" && domain.SSLKeyContent != "") != proxy.HasCert {
+		return false
+	}
+	// Older Agents omit this field and must receive a replay after upgrade.
+	// The digest includes certificate material while the API response does not,
+	// so a same-second certificate rotation cannot be silently skipped.
+	return proxy.ConfigHash != "" && proxy.ConfigHash == domainProxyConfigHash(domain)
+}
+
+func domainProxyConfigHash(domain *domainModel.Domain) string {
+	if domain == nil {
+		return ""
+	}
+	protocol, err := normalizeProtocol(domain.Protocol)
+	if err != nil {
+		return ""
+	}
+	cert, key := "", ""
+	if domain.EnableSSL {
+		cert, key = domain.SSLCertContent, domain.SSLKeyContent
+	}
+	fields := []string{
+		normalizeDomainName(domain.DomainName),
+		normalizeDomainProxyIP(domain.InternalIP),
+		fmt.Sprintf("%d", domain.InternalPort),
+		protocol,
+		"0",
+		cert,
+		key,
+	}
+	if domain.EnableSSL {
+		fields[4] = "1"
+	}
+	h := sha256.New()
+	for _, field := range fields {
+		_, _ = h.Write([]byte(field))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func markDomainProxyActive(domain *domainModel.Domain) {
+	if domain == nil {
+		return
+	}
+	needsUpdate := domain.Status != "active" || domain.ErrorMsg != ""
+	domain.Status = "active"
+	if !needsUpdate {
+		return
+	}
+	domain.ErrorMsg = ""
+	if err := global.APP_DB.Model(domain).Updates(map[string]interface{}{
+		"status":    "active",
+		"error_msg": "",
+	}).Error; err != nil {
+		global.APP_LOG.Warn("更新幂等域名代理成功状态失败",
+			zap.String("domain", domain.DomainName), zap.Error(err))
+	}
 }
 
 // Request/Response types
@@ -931,7 +1515,7 @@ type UpdateDomainRequest struct {
 	InternalIP     string `json:"internalIP"`
 	InternalPort   int    `json:"internalPort"`
 	Protocol       string `json:"protocol"`
-	EnableSSL      bool   `json:"enableSSL"`
+	EnableSSL      *bool  `json:"enableSSL"`
 	SSLCertContent string `json:"sslCertContent"`
 	SSLKeyContent  string `json:"sslKeyContent"`
 }
@@ -956,4 +1540,212 @@ type UpdateDomainConfigRequest struct {
 	NginxConfigPath   string `json:"nginxConfigPath"`
 	NginxReloadCmd    string `json:"nginxReloadCmd"`
 	AllowedSuffixes   string `json:"allowedSuffixes"`
+}
+
+// Invalid historical routes are removed as well as rejected on new writes.
+func rejectDomainProxy(domain *domainModel.Domain, cause error) error {
+	return rejectDomainProxyWithClient(domain, cause, nil)
+}
+
+func rejectDomainProxyWithClient(domain *domainModel.Domain, cause error, client *agent.Client) error {
+	domain.Status, domain.ErrorMsg = "error", cause.Error()
+	if err := global.APP_DB.Model(domain).Updates(map[string]interface{}{"status": "error", "error_msg": cause.Error()}).Error; err != nil {
+		return fmt.Errorf("%v: %w", cause, err)
+	}
+	var err error
+	if client != nil {
+		err = client.RemoveDomainProxy(domain.DomainName)
+	} else {
+		err = removeDomainProxy(domain)
+	}
+	if err != nil {
+		return fmt.Errorf("%v; 移除旧代理失败: %w", cause, err)
+	}
+	return cause
+}
+
+// SuspendInstanceDomains removes routes before a guest address can be released
+// and assigned to another tenant. The desired rows remain available for reset.
+func (s *Service) SuspendInstanceDomains(instanceID uint) error {
+	var providerIDs []uint
+	if err := global.APP_DB.Model(&domainModel.Domain{}).
+		Where("instance_id = ?", instanceID).
+		Distinct("provider_id").Pluck("provider_id", &providerIDs).Error; err != nil {
+		return err
+	}
+	unlockProviders := lockDomainProxyProviders(providerIDs...)
+	defer unlockProviders()
+	var domains []domainModel.Domain
+	if err := global.APP_DB.Where("instance_id = ?", instanceID).Find(&domains).Error; err != nil {
+		return err
+	}
+	lockedProviders := make(map[uint]struct{}, len(providerIDs))
+	for _, providerID := range providerIDs {
+		lockedProviders[providerID] = struct{}{}
+	}
+	activeDomains := make([]domainModel.Domain, 0, len(domains))
+	for i := range domains {
+		domain := &domains[i]
+		if _, ok := lockedProviders[domain.ProviderID]; !ok {
+			return fmt.Errorf("域名所属节点已改变，请重试")
+		}
+		if domain.Status == domainStatusDeleting {
+			continue
+		}
+		if domain.Status == "active" || domain.Status == "error" {
+			activeDomains = append(activeDomains, *domain)
+		}
+	}
+	restoreActiveRoutes := func(cause error) error {
+		restoreErr := s.restoreDomainProxyRows(activeDomains, true)
+		if restoreErr != nil {
+			return errors.Join(cause, restoreErr)
+		}
+		return cause
+	}
+	for i := range domains {
+		domain := &domains[i]
+		if domain.Status == domainStatusDeleting {
+			if err := removeDomainProxy(domain); err != nil {
+				restoreErr := restoreActiveRoutes(err)
+				return fmt.Errorf("移除待删除域名代理失败: %w", restoreErr)
+			}
+			continue
+		}
+		if err := removeDomainProxy(domain); err != nil {
+			return fmt.Errorf("移除旧实例域名代理失败: %w", restoreActiveRoutes(err))
+		}
+	}
+	if len(activeDomains) > 0 {
+		ids := make([]uint, 0, len(activeDomains))
+		for _, domain := range activeDomains {
+			ids = append(ids, domain.ID)
+		}
+		if err := global.APP_DB.Model(&domainModel.Domain{}).
+			Where("id IN ? AND instance_id = ? AND status IN ?", ids, instanceID, []string{"active", "error"}).
+			Update("status", "pending").Error; err != nil {
+			return fmt.Errorf("保存域名暂停状态失败: %w", restoreActiveRoutes(err))
+		}
+	}
+	return nil
+}
+
+func (s *Service) RestoreInstanceDomains(instanceID uint) error {
+	return s.restoreInstanceDomains(instanceID, false)
+}
+
+// RestoreInstanceDomainsAfterDeleteFailure restores routes when a destructive
+// provider call failed before the guest was removed. The instance row is still
+// in its reserved deleting/resetting state until task reconciliation runs.
+func (s *Service) RestoreInstanceDomainsAfterDeleteFailure(instanceID uint) error {
+	return s.restoreInstanceDomains(instanceID, true)
+}
+
+func (s *Service) restoreInstanceDomains(instanceID uint, allowBusy bool) error {
+	var providerIDs []uint
+	if err := global.APP_DB.Model(&domainModel.Domain{}).
+		Where("instance_id = ?", instanceID).
+		Distinct("provider_id").Pluck("provider_id", &providerIDs).Error; err != nil {
+		return err
+	}
+	unlockProviders := lockDomainProxyProviders(providerIDs...)
+	defer unlockProviders()
+	var domains []domainModel.Domain
+	if err := global.APP_DB.Where("instance_id = ?", instanceID).Find(&domains).Error; err != nil {
+		return err
+	}
+	lockedProviders := make(map[uint]struct{}, len(providerIDs))
+	for _, providerID := range providerIDs {
+		lockedProviders[providerID] = struct{}{}
+	}
+	for i := range domains {
+		if _, ok := lockedProviders[domains[i].ProviderID]; !ok {
+			return fmt.Errorf("域名所属节点已改变，请重试")
+		}
+	}
+	return s.restoreDomainProxyRows(domains, allowBusy)
+}
+
+func (s *Service) restoreDomainProxyRows(domains []domainModel.Domain, allowBusy bool) error {
+	type providerTargets struct {
+		provider  providerModel.Provider
+		instances map[uint]providerModel.Instance
+		client    *agent.Client
+		err       error
+	}
+	targets := make(map[uint]providerTargets)
+	for _, domain := range domains {
+		if _, loaded := targets[domain.ProviderID]; loaded {
+			continue
+		}
+		provider, instances, err := loadDomainTargets(domain.ProviderID)
+		loaded := providerTargets{provider: provider, instances: instances, err: err}
+		if err == nil {
+			loaded.client = getAgentClientForProvider(provider)
+			if loaded.client == nil {
+				loaded.err = fmt.Errorf("节点 Agent 未配置或不可用")
+			}
+		}
+		targets[domain.ProviderID] = loaded
+	}
+
+	var restoreErrors []error
+	for i := range domains {
+		domain := &domains[i]
+		if domain.Status == domainStatusDeleting {
+			continue
+		}
+		target := targets[domain.ProviderID]
+		if target.err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("域名 %s: %w", domain.DomainName, target.err))
+			continue
+		}
+		instance, ok := target.instances[domain.InstanceID]
+		if !ok {
+			err := fmt.Errorf("实例不存在或归属已改变")
+			_ = rejectDomainProxyWithClient(domain, err, target.client)
+			restoreErrors = append(restoreErrors, fmt.Errorf("域名 %s: %w", domain.DomainName, err))
+			continue
+		}
+		if err := validateDomainRestoreTarget(domain, instance, target.provider, allowBusy); err != nil {
+			_ = rejectDomainProxyWithClient(domain, err, target.client)
+			restoreErrors = append(restoreErrors, fmt.Errorf("域名 %s: %w", domain.DomainName, err))
+			continue
+		}
+		if !domain.OwnershipVerified {
+			err := fmt.Errorf("请编辑域名并完成 TXT 验证，或请管理员确认绑定")
+			_ = rejectDomainProxyWithClient(domain, err, target.client)
+			restoreErrors = append(restoreErrors, fmt.Errorf("域名 %s: %w", domain.DomainName, err))
+			continue
+		}
+		if err := applyValidatedDomainProxy(domain, target.client); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("域名 %s: %w", domain.DomainName, err))
+		}
+	}
+	return errors.Join(restoreErrors...)
+}
+
+func validateDomainRestoreTarget(domain *domainModel.Domain, instance providerModel.Instance, provider providerModel.Provider, allowBusy bool) error {
+	err := validateDomainTargetRow(domain, instance, provider)
+	if err == nil || !allowBusy || (!errors.Is(err, errDomainInstanceBusy) && instance.Status != constant.InstanceStatusError) {
+		return err
+	}
+	if instance.ID != domain.InstanceID || instance.UserID != domain.UserID || instance.ProviderID != domain.ProviderID {
+		return fmt.Errorf("实例不存在或归属已改变")
+	}
+	return validateInstanceTarget(instance, provider, domain.InternalIP)
+}
+
+// The row may have moved or been deleted while this operation waited for its
+// provider lock. Never act on the stale copy, especially for route deletion.
+func reloadLockedDomain(domain *domainModel.Domain) error {
+	var current domainModel.Domain
+	if err := global.APP_DB.First(&current, domain.ID).Error; err != nil {
+		return err
+	}
+	if current.ProviderID != domain.ProviderID {
+		return fmt.Errorf("域名所属节点已改变，请刷新后重试")
+	}
+	*domain = current
+	return nil
 }

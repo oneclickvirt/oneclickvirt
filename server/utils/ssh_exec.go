@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -47,6 +49,68 @@ func (c *SSHClient) Execute(command string) (string, error) {
 	}
 
 	return output, err
+}
+
+// ExecuteContext runs a command and requests termination of the SSH session
+// when the owning task is cancelled. The caller waits for the session to close
+// before it can release task-level resource locks.
+func (c *SSHClient) ExecuteContext(ctx context.Context, command string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	endUse, useErr := c.beginUse()
+	if useErr != nil {
+		return "", useErr
+	}
+	defer endUse()
+	if !c.IsHealthy() {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if err := c.ReconnectContext(ctx); err != nil {
+			return "", fmt.Errorf("failed to reconnect SSH before execution: %w", err)
+		}
+	}
+	return c.executeCommandContext(ctx, command)
+}
+
+func (c *SSHClient) executeCommandContext(ctx context.Context, command string) (string, error) {
+	session, err := c.newSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+	if err := session.RequestPty("xterm", 80, 40, ssh.TerminalModes{ssh.ECHO: 0, ssh.TTY_OP_ISPEED: 14400, ssh.TTY_OP_OSPEED: 14400}); err != nil {
+		return "", fmt.Errorf("failed to request PTY: %w", err)
+	}
+	var stdout, stderr bytes.Buffer
+	session.Stdout = &stdout
+	session.Stderr = &stderr
+	if err := session.Start(buildSSHEnvCommand(command)); err != nil {
+		return "", fmt.Errorf("failed to start SSH command: %w", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- session.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		output := stdout.String() + stderr.String()
+		if err != nil {
+			return output, fmt.Errorf("command execution failed: %w; output: %s", err, TruncateString(output, 2000))
+		}
+		return output, nil
+	case <-ctx.Done():
+		_ = session.Signal(ssh.SIGKILL)
+		_ = session.Close()
+		<-done
+		return stdout.String() + stderr.String(), ctx.Err()
+	}
 }
 
 // ExecuteWithTimeout 执行SSH命令，使用自定义超时时间（用于长时间运行的命令如镜像下载）
@@ -469,18 +533,36 @@ func (c *SSHClient) executeCommandRaw(command string, timeout time.Duration) (st
 // ExecuteViaTempScript 通过临时脚本执行命令。
 // 对于 SSH 模式，直接上传脚本并同步执行（SSH 本身有超时机制）。
 func (c *SSHClient) ExecuteViaTempScript(scriptContent string, args []string, timeout time.Duration) (string, error) {
-	endUse, useErr := c.beginUse()
-	if useErr != nil {
-		return "", useErr
+	ctx := context.Background()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
-	defer endUse()
+	return c.ExecuteViaTempScriptContext(ctx, scriptContent, args, timeout)
+}
+
+// ExecuteViaTempScriptContext uploads and runs a temporary script while
+// allowing the owning task to terminate the SSH session promptly.
+func (c *SSHClient) ExecuteViaTempScriptContext(ctx context.Context, scriptContent string, args []string, timeout time.Duration) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	// 生成唯一的临时文件路径
 	// UUID paths keep concurrent temporary scripts, marker files and logs
 	// isolated even when calls start within the same clock tick.
 	tmpPath := fmt.Sprintf("/tmp/oneclickvirt_exec_%s.sh", uuid.NewString())
 
 	// 上传脚本
-	if err := c.UploadContent(scriptContent, tmpPath, 0755); err != nil {
+	if err := c.UploadContentContext(ctx, scriptContent, tmpPath, 0755); err != nil {
 		return "", fmt.Errorf("上传临时脚本失败: %w", err)
 	}
 
@@ -493,16 +575,26 @@ func (c *SSHClient) ExecuteViaTempScript(scriptContent string, args []string, ti
 	execCmd := fmt.Sprintf("%s %s%s", shellEscape(interpreter), shellEscape(tmpPath), argStr)
 
 	// 执行脚本
-	output, execErr := c.ExecuteRaw(execCmd, timeout)
+	output, execErr := c.ExecuteContext(ctx, execCmd)
+	if ctx.Err() != nil {
+		return output, fmt.Errorf("temp script execution failed: %w", ctx.Err())
+	}
 	// BuildTempScript redirects diagnostics to SCRIPT_PATH.log. Read it before
 	// cleanup so callers can classify capability errors and report the actual
 	// guest failure instead of only "Process exited with status 1".
-	if logOutput, logErr := c.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", shellEscape(tmpPath+".log")), 10*time.Second); logErr == nil && logOutput != "" {
-		output = logOutput
+	if c.IsHealthy() {
+		logCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		if logOutput, logErr := c.ExecuteContext(logCtx, fmt.Sprintf("cat %s 2>/dev/null", shellEscape(tmpPath+".log"))); logErr == nil && logOutput != "" {
+			output = logOutput
+		}
+		cancel()
 	}
 
-	// 清理临时文件（非阻塞）
-	c.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", shellEscape(tmpPath), shellEscape(tmpPath+".marker"), shellEscape(tmpPath+".log")), 10*time.Second)
+	if c.IsHealthy() && ctx.Err() == nil {
+		cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_, _ = c.ExecuteContext(cleanupCtx, fmt.Sprintf("rm -f %s %s %s 2>/dev/null", shellEscape(tmpPath), shellEscape(tmpPath+".marker"), shellEscape(tmpPath+".log")))
+		cancel()
+	}
 
 	if execErr != nil {
 		return output, fmt.Errorf("temp script execution failed: %w", execErr)

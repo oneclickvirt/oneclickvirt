@@ -1,4 +1,7 @@
 export default {
+  domainVerification: '域名验证',
+  getVerification: '获取验证记录',
+  verificationTip: '在域名管理处添加 TXT 记录：主机名和记录值如下。保存后等待生效，再提交绑定。',
   title: '域名绑定',
   addDomain: '添加域名',
   domainName: '域名',
@@ -15,6 +18,7 @@ export default {
   statusActive: '活跃',
   statusPending: '待配置',
   statusError: '配置错误',
+  statusDeleting: '等待清理',
   confirmDelete: '确定删除该域名绑定？',
   createSuccess: '域名绑定创建成功',
   createFailed: '域名绑定创建失败',
@@ -28,7 +32,7 @@ export default {
   internalIPRequired: '请输入内部IP地址',
   selectInstance: '请选择实例',
   portRequired: '请输入端口',
-  internalIpTip: '容器/虚拟机内网IP，选择实例后自动填充',
+  internalIpTip: '请选择此实例的内部 IPv4 或 IPv6 地址',
   enableSslTip: '启用后需上传SSL证书和私钥，用于HTTPS加密',
   sslCert: 'SSL证书',
   sslKey: 'SSL私钥',
@@ -37,9 +41,9 @@ export default {
   sslCertTip: '支持完整证书链，包含中间证书',
   noCert: '未上传证书',
   dnsGuideTitle: '域名绑定流程说明',
-  dnsStep1: '第一步：选择实例并填写下方表单，提交后系统将在宿主机节点上通过 Nginx 自动配置反向代理。',
-  dnsStep2: '第二步：将域名 A 记录解析到下方显示的宿主机节点公网IP。',
-  dnsStep3: '第三步：DNS 解析生效后（通常数分钟至数小时），即可通过域名访问实例。',
-  nodeIpLabel: '节点公网IP',
-  nodeIpTip: '将域名 A 记录解析到此IP，流量将通过节点 Nginx 反代至实例内网'
+  dnsStep1: '第一步：选择实例，添加页面提供的 TXT 验证记录，然后提交绑定。',
+  dnsStep2: '第二步：将域名的 A 记录解析到节点 IPv4，或将 AAAA 记录解析到节点 IPv6；同一域名也可以同时配置 A 和 AAAA。',
+  dnsStep3: '第三步：等待 DNS 生效后访问域名。使用 HTTPS 或 WSS 时，请启用 SSL 并上传有效证书。',
+  nodeIpLabel: '节点公网地址',
+  nodeIpTip: '将 A 或 AAAA 记录指向节点的可用公网地址；节点需使用 Agent 模式。'
 }

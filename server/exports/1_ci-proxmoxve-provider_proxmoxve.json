@@ -1,0 +1,26 @@
+{
+  "providerId": 1,
+  "providerUuid": "96bbec26-5177-490d-9321-dd9661ca5933",
+  "providerName": "ci-proxmoxve-provider",
+  "providerType": "proxmoxve",
+  "authConfig": {
+    "type": "proxmoxve",
+    "endpoint": "https://142.132.227.3:8006",
+    "ssh": {
+      "host": "142.132.227.3",
+      "port": 22,
+      "username": "root",
+      "password": "PmUXfwtM9EFW"
+    },
+    "token": {
+      "tokenId": "oneclickvirt@pve!oneclickvirt-token-96bbec26\r",
+      "tokenSecret": "a6a2aec3-91a1-49f6-907e-58d82cd35d95\r",
+      "username": "oneclickvirt"
+    }
+  },
+  "status": "active",
+  "lastUpdated": "2026-09-28T01:21:18.091+08:00",
+  "configVersion": 2,
+  "createdAt": "2026-09-28T01:20:38.955+08:00",
+  "updatedAt": "2026-09-28T01:22:03.945+08:00"
+}

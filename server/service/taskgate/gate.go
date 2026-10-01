@@ -183,10 +183,14 @@ func GetStatus() (*adminModel.TaskPoolStatusResponse, error) {
 
 	activeTasks := pendingTasks + runningTasks + configPendingTasks + configRunningTasks
 	state := "enabled"
-	if !enabled && activeTasks > 0 {
-		state = "draining"
-	} else if !enabled {
-		state = "maintenance_ready"
+	if !enabled {
+		if activeTasks > 0 {
+			state = "draining"
+		} else {
+			state = "maintenance_ready"
+		}
+	} else {
+		message = ""
 	}
 
 	return &adminModel.TaskPoolStatusResponse{

@@ -35,6 +35,11 @@ while IFS= read -r -d '' path; do
             git update-index --add --cacheinfo "$mode" "$blob" "$path"
             ;;
     esac
+    case "$path" in
+		action_tests/reports/*|test-report.md|*.log)
+            git update-index --force-remove -- "$path"
+            ;;
+    esac
 done < "$snapshot_tmp/paths"
 
 git ls-files -z > "$snapshot_tmp/paths"

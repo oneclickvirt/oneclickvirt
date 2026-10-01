@@ -12,6 +12,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/interfaces"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -49,24 +50,15 @@ func (pool *ProviderWorkerPool) worker(workerID int) {
 	for {
 		select {
 		case <-pool.Ctx.Done():
-			// 排空队列，对已入队但尚未执行的任务发送失败响应，防止调用方永久阻塞
-			for {
-				select {
-				case taskReq := <-pool.TaskQueue:
-					select {
-					case taskReq.ResponseCh <- TaskResult{
-						Success: false,
-						Error:   fmt.Errorf("工作池已关闭，任务被取消"),
-						Data:    make(map[string]interface{}),
-					}:
-					default:
-					}
-				default:
-					return
-				}
-			}
+			pool.drainQueuedTasks()
+			return
 		case taskReq := <-pool.TaskQueue:
+			if pool.Ctx.Err() != nil {
+				pool.releaseQueuedTask(taskReq)
+				continue
+			}
 			pool.executeTask(taskReq)
+			atomic.AddInt64(&pool.outstanding, -1)
 		}
 	}
 }
@@ -85,21 +77,31 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 	asyncCompletion := false
 
 	// 创建任务上下文
-	taskCtx, taskCancel := context.WithTimeout(pool.Ctx, time.Duration(task.TimeoutDuration)*time.Second)
+	taskCtx, taskCancel := context.WithTimeout(pool.Ctx, time.Duration(taskTimeoutSeconds(task))*time.Second)
 
 	// 注册任务上下文
-	if err := pool.TaskService.contextManager.Add(task.ID, taskCtx, taskCancel); err != nil {
+	atomic.AddInt64(&pool.ownedContexts, 1)
+	if err := pool.TaskService.contextManager.addWithRelease(task.ID, taskCtx, taskCancel, func() { atomic.AddInt64(&pool.ownedContexts, -1) }); err != nil {
+		atomic.AddInt64(&pool.ownedContexts, -1)
 		taskCancel()
 		global.APP_LOG.Error("注册任务上下文失败",
 			zap.Uint("taskID", task.ID),
 			zap.Error(err))
 
+		pool.TaskService.queuedTasks.Delete(task.ID)
 		result.Success = false
 		result.Error = err
-		pool.TaskService.CompleteTask(task.ID, false, err.Error(), result.Data)
-		taskReq.ResponseCh <- result
+		if !errors.Is(err, ErrTaskContextExists) {
+			pool.TaskService.CompleteTask(task.ID, false, err.Error(), result.Data)
+		}
+		select {
+		case taskReq.ResponseCh <- result:
+		default:
+		}
 		return
 	}
+
+	pool.TaskService.queuedTasks.Delete(task.ID)
 
 	// Panic recovery机制必须在最外层，确保任何panic都会清理资源
 	defer func() {
@@ -169,11 +171,18 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 	})
 
 	if updateErr != nil {
+		pool.TaskService.requeueUnstartedTask(task.ID)
 		result.Error = fmt.Errorf("更新任务状态失败: %v", updateErr)
 		global.APP_LOG.Warn("任务状态更新失败，可能被其他worker处理",
 			zap.Uint("taskId", task.ID),
 			zap.Error(updateErr))
-		// 如果状态更新失败，不发送结果，让调度器自然忽略
+		// StartTaskWithPool starts a response waiter before enqueueing the task.
+		// Always signal that waiter on a lost claim (most commonly a user
+		// cancelled a processing task) so it does not remain blocked for an hour.
+		select {
+		case taskReq.ResponseCh <- result:
+		default:
+		}
 		return
 	}
 
@@ -197,27 +206,22 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 		pool.TaskService.CompleteTask(task.ID, true, "", result.Data)
 	}
 
-	// 非阻塞发送结果，防止goroutine泄漏
-	// 使用timer代替time.After避免内存泄漏
-	timeout := time.NewTimer(5 * time.Second)
-	defer timeout.Stop()
-
+	// ResponseCh is buffered and only consumed for task-completion logging.
+	// Cancellation must not win a select and strand the response waiter until
+	// its one-hour timeout after the worker has already finished.
 	select {
 	case taskReq.ResponseCh <- result:
-		// 成功发送
-	case <-taskCtx.Done():
-		// 上下文已取消，放弃发送
-		global.APP_LOG.Debug("任务上下文已取消，放弃发送结果",
-			zap.Uint("taskId", task.ID))
-	case <-timeout.C:
-		// 5秒超时，防止永久阻塞
-		global.APP_LOG.Warn("发送任务结果超时",
+	default:
+		global.APP_LOG.Warn("任务结果通道已满，跳过重复通知",
 			zap.Uint("taskId", task.ID))
 	}
 }
 
 // StartTaskWithPool 使用工作池启动任务（新的简化版本）
 func (s *TaskService) StartTaskWithPool(taskID uint) error {
+	if s.ctx != nil && s.ctx.Err() != nil {
+		return s.ctx.Err()
+	}
 	// 查询任务信息
 	var task adminModel.Task
 	err := s.dbService.ExecuteQuery(context.Background(), func() error {
@@ -242,91 +246,144 @@ func (s *TaskService) StartTaskWithPool(taskID uint) error {
 		return fmt.Errorf("查询Provider失败: %v", err)
 	}
 
-	claimResult := global.APP_DB.Model(&adminModel.Task{}).
+	return s.StartTaskWithProvider(task, provider)
+}
+
+// StartTaskWithProvider submits a task using a Provider row already loaded by
+// the scheduler. This keeps the common scheduler path from querying the same
+// task and Provider a second time while preserving the CAS in trySubmit.
+func (s *TaskService) StartTaskWithProvider(task adminModel.Task, provider providerModel.Provider) error {
+	if s.ctx != nil && s.ctx.Err() != nil {
+		return s.ctx.Err()
+	}
+	if task.ProviderID == nil {
+		return fmt.Errorf("任务没有关联Provider")
+	}
+	if *task.ProviderID != provider.ID {
+		return fmt.Errorf("任务与Provider不匹配")
+	}
+	pool := s.getOrCreateProviderPool(provider.ID, getProviderTaskConcurrency(provider))
+	if pool == nil {
+		return fmt.Errorf("任务服务正在关闭")
+	}
+	return pool.trySubmit(task)
+}
+
+// trySubmit never waits for queue space. Pending work remains durable for the
+// next scheduler pass; one busy provider cannot block all other maintenance.
+func (pool *ProviderWorkerPool) trySubmit(task adminModel.Task) error {
+	pool.submitMu.Lock()
+	if pool.closed || pool.Ctx.Err() != nil {
+		pool.submitMu.Unlock()
+		return fmt.Errorf("工作池已关闭")
+	}
+	if len(pool.TaskQueue)+pool.submitting >= cap(pool.TaskQueue) {
+		pool.submitMu.Unlock()
+		return fmt.Errorf("任务队列已满，等待下次调度")
+	}
+	if _, loaded := pool.TaskService.queuedTasks.LoadOrStore(task.ID, struct{}{}); loaded {
+		pool.submitMu.Unlock()
+		return fmt.Errorf("任务已在队列中")
+	}
+	pool.submitting++
+	atomic.AddInt64(&pool.outstanding, 1)
+	pool.submitMu.Unlock()
+
+	// Never hold a pool mutex across database I/O: the manager also needs it
+	// when cancelling/resizing, and must remain available to other providers.
+	ctx, cancel := context.WithTimeout(pool.Ctx, 5*time.Second)
+	claim := global.APP_DB.WithContext(ctx).Model(&adminModel.Task{}).
 		Where("id = ? AND status = ?", task.ID, mainTaskStatusPending).
 		Update("status", mainTaskStatusProcessing)
-	if claimResult.Error != nil {
-		return fmt.Errorf("标记任务入队失败: %v", claimResult.Error)
-	}
-	if claimResult.RowsAffected == 0 {
-		return fmt.Errorf("任务已被其他调度器处理或状态已变化")
+	cancel()
+	pool.submitMu.Lock()
+	if claim.Error != nil || claim.RowsAffected == 0 || pool.closed || pool.Ctx.Err() != nil {
+		pool.submitMu.Unlock()
+		// A cancelled database write may have committed before its reply was
+		// interrupted. CAS the durable processing state back in both cases.
+		if claim.Error != nil || claim.RowsAffected > 0 {
+			pool.TaskService.requeueUnstartedTask(task.ID)
+		} else {
+			pool.TaskService.queuedTasks.Delete(task.ID)
+		}
+		atomic.AddInt64(&pool.outstanding, -1)
+		pool.submitMu.Lock()
+		pool.submitting--
+		pool.submitMu.Unlock()
+		if claim.Error != nil {
+			return claim.Error
+		}
+		return fmt.Errorf("任务状态或工作池已变化")
 	}
 	task.Status = mainTaskStatusProcessing
-
-	// 确定并发数。这里再做一次上限保护，防止历史脏数据或绕过接口的写入放大工作池。
-	concurrency := getProviderTaskConcurrency(provider)
-
-	// 获取或创建工作池
-	pool := s.getOrCreateProviderPool(*task.ProviderID, concurrency)
-
-	// 创建任务请求，使用带缓冲的channel防止阻塞
-	taskReq := TaskRequest{
-		Task:       task,
-		ResponseCh: make(chan TaskResult, 1),
-	}
-
-	// 启动goroutine等待响应或超时，防止channel泄漏
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				global.APP_LOG.Error("任务响应处理goroutine panic",
-					zap.Uint("taskId", taskID),
-					zap.Any("panic", r))
-			}
-		}()
-
-		// 等待响应或超时（最长等待1小时）
-		timeout := time.NewTimer(1 * time.Hour)
-		defer timeout.Stop()
-
-		select {
-		case result := <-taskReq.ResponseCh:
-			// 处理结果（日志记录）
-			if result.Success {
-				global.APP_LOG.Debug("任务执行成功",
-					zap.Uint("taskId", taskID))
-			} else {
-				global.APP_LOG.Debug("任务执行失败",
-					zap.Uint("taskId", taskID),
-					zap.Error(result.Error))
-			}
-			// channel会自动被GC
-		case <-timeout.C:
-			global.APP_LOG.Warn("任务响应超时，关闭ResponseCh",
-				zap.Uint("taskId", taskID))
-			// 尝试drain channel
-			select {
-			case <-taskReq.ResponseCh:
-			default:
-			}
-		}
-	}()
-
-	// 发送任务到工作池（阻塞直到有空闲worker或队列有空间）
-	timer := time.NewTimer(30 * time.Second)
-	defer timer.Stop()
-
-	select {
-	case pool.TaskQueue <- taskReq:
-		global.APP_LOG.Debug("任务已发送到工作池",
-			zap.Uint("taskId", taskID),
-			zap.Uint("providerId", *task.ProviderID),
-			zap.Int("queueLength", len(pool.TaskQueue)))
-	case <-pool.Ctx.Done():
-		// 工作池已关闭，立即拒绝任务提交
-		close(taskReq.ResponseCh)
-		global.APP_DB.Model(&adminModel.Task{}).
-			Where("id = ? AND status = ?", task.ID, mainTaskStatusProcessing).
-			Update("status", mainTaskStatusPending)
-		return fmt.Errorf("工作池已关闭，任务提交被拒绝")
-	case <-timer.C:
-		// 发送失败，关闭ResponseCh防止泄漏
-		close(taskReq.ResponseCh)
-		global.APP_DB.Model(&adminModel.Task{}).
-			Where("id = ? AND status = ?", task.ID, mainTaskStatusProcessing).
-			Update("status", mainTaskStatusPending)
-		return fmt.Errorf("任务队列已满，发送超时")
-	}
-
+	pool.TaskQueue <- TaskRequest{Task: task, ResponseCh: make(chan TaskResult, 1)}
+	pool.submitting--
+	pool.submitMu.Unlock()
 	return nil
+}
+
+func (s *TaskService) requeueUnstartedTask(taskID uint) {
+	defer s.queuedTasks.Delete(taskID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := global.APP_DB.WithContext(ctx).Model(&adminModel.Task{}).
+		Where("id = ? AND status = ?", taskID, mainTaskStatusProcessing).
+		Update("status", mainTaskStatusPending).Error; err != nil {
+		global.APP_LOG.Error("退回未执行任务失败，将由维护任务恢复", zap.Uint("taskId", taskID), zap.Error(err))
+	}
+}
+
+func (pool *ProviderWorkerPool) releaseQueuedTask(req TaskRequest) {
+	pool.releaseQueuedTasks([]TaskRequest{req})
+}
+
+func (pool *ProviderWorkerPool) drainQueuedTasks() {
+	pool.submitMu.Lock()
+	pool.closed = true
+	var queued []TaskRequest
+collect:
+	for {
+		select {
+		case req := <-pool.TaskQueue:
+			queued = append(queued, req)
+		default:
+			break collect
+		}
+	}
+	pool.submitMu.Unlock()
+	pool.releaseQueuedTasks(queued)
+}
+
+func (pool *ProviderWorkerPool) releaseQueuedTasks(requests []TaskRequest) {
+	if len(requests) == 0 {
+		return
+	}
+	ids := make([]uint, 0, len(requests))
+	for _, req := range requests {
+		ids = append(ids, req.Task.ID)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if global.APP_DB == nil {
+		global.APP_LOG.Warn("数据库连接不存在，无法批量退回排队任务", zap.Int("count", len(ids)))
+	} else if err := global.APP_DB.WithContext(ctx).Model(&adminModel.Task{}).
+		Where("id IN ? AND status = ?", ids, mainTaskStatusProcessing).
+		Update("status", mainTaskStatusPending).Error; err != nil {
+		global.APP_LOG.Error("批量退回未执行任务失败，将由维护任务恢复", zap.Int("count", len(ids)), zap.Error(err))
+	}
+	for _, req := range requests {
+		pool.TaskService.queuedTasks.Delete(req.Task.ID)
+		atomic.AddInt64(&pool.outstanding, -1)
+		select {
+		case req.ResponseCh <- TaskResult{Error: fmt.Errorf("工作池已关闭，任务已退回队列")}:
+		default:
+		}
+	}
+}
+
+func taskTimeoutSeconds(task adminModel.Task) int {
+	if task.TimeoutDuration > 0 {
+		return task.TimeoutDuration
+	}
+	return utils.GetDefaultTaskTimeout(task.TaskType)
 }

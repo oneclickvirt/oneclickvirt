@@ -101,6 +101,7 @@ func InitUserRouter(Router *gin.RouterGroup) {
 
 		// 域名绑定
 		UserGroup.GET("/user/domains", user.GetUserDomains)
+		UserGroup.GET("/user/domains/verification", user.GetDomainVerification)
 		UserGroup.POST("/user/domains", middleware.RequireKYCFor("domain-bind"), user.CreateUserDomain)
 		UserGroup.PUT("/user/domains/:id", user.UpdateUserDomain)
 		UserGroup.DELETE("/user/domains/:id", user.DeleteUserDomain)

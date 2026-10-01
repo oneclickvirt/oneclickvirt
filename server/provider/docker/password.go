@@ -53,15 +53,20 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 	var containerStatus string
 	maxRetries := 3
 	for i := 0; i < maxRetries; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(instanceID))
-		output, err := d.sshClient.Execute(checkCmd)
+		output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, checkCmd)
 		if err != nil {
 			global.APP_LOG.Warn("检查容器状态失败",
 				zap.String("instanceID", instanceID),
 				zap.Int("attempt", i+1),
 				zap.Error(err))
 			if i < maxRetries-1 {
-				time.Sleep(5 * time.Second) // 统一等待时间为5秒
+				if err := utils.SleepContext(ctx, 5*time.Second); err != nil {
+					return err
+				} // 统一等待时间为5秒
 				continue
 			}
 			return fmt.Errorf("检查容器状态失败: %w", err)
@@ -73,7 +78,9 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 			global.APP_LOG.Debug("容器已启动，等待内部服务完全初始化",
 				zap.String("instanceID", utils.TruncateString(instanceID, 12)),
 				zap.Int("waitSeconds", 10))
-			time.Sleep(10 * time.Second)
+			if err := utils.SleepContext(ctx, 10*time.Second); err != nil {
+				return err
+			}
 			break
 		}
 
@@ -87,7 +94,9 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 			global.APP_LOG.Debug("等待容器启动",
 				zap.String("instanceID", instanceID),
 				zap.Int("waitSeconds", waitSeconds))
-			time.Sleep(time.Duration(waitSeconds) * time.Second)
+			if err := utils.SleepContext(ctx, time.Duration(waitSeconds)*time.Second); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -100,15 +109,17 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 
 	// 额外检查容器是否真正可用（测试基础命令）
 	healthCheckCmd := fmt.Sprintf("%s exec %s echo 'container_ready' 2>/dev/null", d.runtime.CLI, shellSingleQuote(instanceID))
-	healthOutput, err := d.sshClient.Execute(healthCheckCmd)
+	healthOutput, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, healthCheckCmd)
 	if err != nil || !strings.Contains(healthOutput, "container_ready") {
 		global.APP_LOG.Warn("容器健康检查失败，再等待一段时间",
 			zap.String("instanceID", utils.TruncateString(instanceID, 12)),
 			zap.Error(err))
-		time.Sleep(15 * time.Second)
+		if err := utils.SleepContext(ctx, 15*time.Second); err != nil {
+			return err
+		}
 
 		// 重新尝试健康检查
-		healthOutput, err = d.sshClient.Execute(healthCheckCmd)
+		healthOutput, err = utils.ExecuteShellCommandContext(ctx, d.sshClient, healthCheckCmd)
 		if err != nil || !strings.Contains(healthOutput, "container_ready") {
 			global.APP_LOG.Error("容器健康检查仍然失败",
 				zap.String("instanceID", instanceID),
@@ -120,7 +131,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 
 	// 检查SSH相关进程和服务是否可用（更具体的就绪检查）
 	sshReadinessCmd := fmt.Sprintf("%s exec %s sh -c %s 2>/dev/null", d.runtime.CLI, shellSingleQuote(instanceID), shellSingleQuote("command -v passwd >/dev/null 2>&1 && echo ssh_ready"))
-	sshOutput, err := d.sshClient.Execute(sshReadinessCmd)
+	sshOutput, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, sshReadinessCmd)
 	if err != nil || !strings.Contains(sshOutput, "ssh_ready") {
 		global.APP_LOG.Warn("SSH服务未就绪，等待初始化",
 			zap.String("instanceID", utils.TruncateString(instanceID, 12)),
@@ -129,8 +140,10 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 		// 等待SSH服务就绪，最多重试5次
 		maxSSHRetries := 5
 		for i := 0; i < maxSSHRetries; i++ {
-			time.Sleep(10 * time.Second)
-			sshOutput, err = d.sshClient.Execute(sshReadinessCmd)
+			if err := utils.SleepContext(ctx, 10*time.Second); err != nil {
+				return err
+			}
+			sshOutput, err = utils.ExecuteShellCommandContext(ctx, d.sshClient, sshReadinessCmd)
 			if err == nil && strings.Contains(sshOutput, "ssh_ready") {
 				global.APP_LOG.Debug("SSH服务已就绪",
 					zap.String("instanceID", utils.TruncateString(instanceID, 12)),
@@ -158,7 +171,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 
 	// 检测容器操作系统类型
 	osCmd := fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep -E '^ID=' | cut -d '=' -f 2 | tr -d '\"'", d.runtime.CLI, shellSingleQuote(instanceID))
-	osOutput, err := d.sshClient.Execute(osCmd)
+	osOutput, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, osCmd)
 	osType := utils.CleanCommandOutput(osOutput)
 	if err != nil || osType == "" {
 		// 如果无法检测，默认为非Alpine系统
@@ -185,12 +198,12 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 	// 检查宿主机上的SSH脚本是否存在（非硬性要求，不存在时跳过脚本配置）
 	hostScriptPath := fmt.Sprintf("/usr/local/bin/%s", scriptName)
 	checkHostScriptCmd := fmt.Sprintf("test -f %s && test -x %s", shellSingleQuote(hostScriptPath), shellSingleQuote(hostScriptPath))
-	_, hostScriptErr := d.sshClient.Execute(checkHostScriptCmd)
+	_, hostScriptErr := utils.ExecuteShellCommandContext(ctx, d.sshClient, checkHostScriptCmd)
 
 	if hostScriptErr == nil {
 		// 检查容器内是否已存在SSH脚本
 		checkScriptCmd := fmt.Sprintf("%s exec %s %s -c %s", d.runtime.CLI, shellSingleQuote(instanceID), shellSingleQuote(shellType), shellSingleQuote("[ -f /"+scriptName+" ]"))
-		_, err = d.sshClient.Execute(checkScriptCmd)
+		_, err = utils.ExecuteShellCommandContext(ctx, d.sshClient, checkScriptCmd)
 
 		if err != nil {
 			// 脚本不存在，需要复制
@@ -200,7 +213,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 
 			// 复制脚本到容器内
 			copyCmd := fmt.Sprintf("%s cp %s %s", d.runtime.CLI, shellSingleQuote(hostScriptPath), shellSingleQuote(instanceID+":/"+scriptName))
-			_, err = d.sshClient.Execute(copyCmd)
+			_, err = utils.ExecuteShellCommandContext(ctx, d.sshClient, copyCmd)
 			if err != nil {
 				global.APP_LOG.Warn("复制SSH脚本到容器失败，将跳过脚本配置直接设置密码",
 					zap.String("instanceID", instanceID),
@@ -209,7 +222,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 			} else {
 				// 给脚本添加执行权限
 				chmodCmd := fmt.Sprintf("%s exec %s %s -c %s", d.runtime.CLI, shellSingleQuote(instanceID), shellSingleQuote(shellType), shellSingleQuote("chmod +x /"+scriptName))
-				d.sshClient.Execute(chmodCmd)
+				_, _ = utils.ExecuteShellCommandContext(ctx, d.sshClient, chmodCmd)
 
 				global.APP_LOG.Debug("SSH脚本复制到容器成功",
 					zap.String("instanceID", utils.TruncateString(instanceID, 12)),
@@ -229,7 +242,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 				d.runtime.CLI, shellSingleQuote(instanceID), shellSingleQuote(shellType), shellSingleQuote(sshInnerCmd)),
 			TimeoutSeconds: 60,
 		})
-		scriptOutput, scriptErr := d.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
+		scriptOutput, scriptErr := utils.ExecuteViaTempScriptContext(ctx, d.sshClient, sshExecScript, nil, 180*time.Second)
 		if scriptErr != nil {
 			global.APP_LOG.Warn("执行SSH配置脚本失败，将直接用chpasswd设置密码",
 				zap.String("instanceID", instanceID),
@@ -237,7 +250,9 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 				zap.String("output", utils.TruncateString(scriptOutput, 500)),
 				zap.Error(scriptErr))
 			// OOM/exit 137 后等待容器稳定
-			time.Sleep(5 * time.Second)
+			if err := utils.SleepContext(ctx, 5*time.Second); err != nil {
+				return err
+			}
 		}
 	} else {
 		global.APP_LOG.Warn("宿主机上SSH脚本不存在或无执行权限，跳过脚本配置，直接设置密码",
@@ -246,7 +261,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 	}
 
 	// 使用 chpasswd 设置密码（多 shell 回退 + 重试，处理 exit 255 等短暂错误）
-	if err := d.setContainerPasswordWithRetry(instanceID, password, shellType); err != nil {
+	if err := d.setContainerPasswordWithRetry(ctx, instanceID, password, shellType); err != nil {
 		global.APP_LOG.Error("使用chpasswd设置密码失败",
 			zap.String("instanceID", instanceID),
 			zap.Error(err))

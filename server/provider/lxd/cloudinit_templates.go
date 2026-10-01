@@ -1,6 +1,7 @@
 package lxd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -16,7 +17,7 @@ func lxdStartNeedsCloudInitTemplateRepair(text string) bool {
 		strings.Contains(lower, "templates")
 }
 
-func (l *LXDProvider) ensureVMCloudInitTemplates(instanceName string) error {
+func (l *LXDProvider) ensureVMCloudInitTemplates(ctx context.Context, instanceName string) error {
 	script := fmt.Sprintf(`set -eu
 name=%s
 itype="$(lxc info "$name" 2>/dev/null | awk -F': ' '/^Type:/{print tolower($2); exit}' || true)"
@@ -39,7 +40,7 @@ for base in /var/snap/lxd/common/lxd /var/lib/lxd; do
 done
 `, shellSingleQuote(instanceName))
 
-	output, err := l.sshClient.Execute(script)
+	output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, script)
 	if err != nil {
 		return fmt.Errorf("修复LXD VM cloud-init模板失败: %w; output: %s", err, strings.TrimSpace(output))
 	}

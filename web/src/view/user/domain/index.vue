@@ -63,10 +63,10 @@
         >
           <template #default="{ row }">
             <el-tag
-              :type="row.status === 'active' ? 'success' : row.status === 'error' ? 'danger' : 'warning'"
+              :type="row.status === 'active' ? 'success' : row.status === 'error' || row.status === 'deleting' ? 'danger' : 'warning'"
               size="small"
             >
-              {{ row.status === 'active' ? t('user.domain.statusActive') : row.status === 'error' ? t('user.domain.statusError') : t('user.domain.statusPending') }}
+              {{ row.status === 'active' ? t('user.domain.statusActive') : row.status === 'error' ? t('user.domain.statusError') : row.status === 'deleting' ? t('user.domain.statusDeleting') : t('user.domain.statusPending') }}
             </el-tag>
           </template>
         </el-table-column>
@@ -79,6 +79,7 @@
             <el-button
               link
               type="primary"
+              :disabled="submitting || isDeleting(row.id) || row.status === 'deleting'"
               @click="handleEdit(row)"
             >
               <el-icon><Edit /></el-icon>
@@ -86,6 +87,8 @@
             <el-button
               link
               type="danger"
+              :loading="isDeleting(row.id)"
+              :disabled="submitting || row.status === 'deleting'"
               @click="handleDelete(row)"
             >
               <el-icon><Delete /></el-icon>
@@ -106,6 +109,8 @@
       :title="isEdit ? t('user.domain.edit') : t('user.domain.addDomain')"
       width="560px"
       destroy-on-close
+      :close-on-press-escape="!submitting"
+      :before-close="allowFormClose"
     >
       <!-- DNS 绑定说明 -->
       <el-alert
@@ -128,6 +133,7 @@
         ref="formRef"
         :model="form"
         :rules="formRules"
+        :disabled="submitting"
         label-width="130px"
       >
         <el-form-item
@@ -139,6 +145,16 @@
             placeholder="app.example.com"
             :disabled="isEdit"
           />
+        </el-form-item>
+        <el-form-item :label="t('user.domain.domainVerification')">
+          <el-button :loading="verificationLoading" :disabled="!form.domainName" @click="loadVerification">
+            {{ t('user.domain.getVerification') }}
+          </el-button>
+          <div v-if="verification" class="verification-record">
+            <div class="form-tip">{{ t('user.domain.verificationTip') }}</div>
+            <el-input :model-value="verification.name" readonly />
+            <el-input :model-value="verification.value" readonly />
+          </div>
         </el-form-item>
         <el-form-item
           v-if="!isEdit"
@@ -243,12 +259,16 @@
         </template>
       </el-form>
       <template #footer>
-        <el-button @click="showDialog = false">
+        <el-button
+          :disabled="submitting"
+          @click="showDialog = false"
+        >
           {{ t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
           :loading="submitting"
+          :disabled="submitting"
           @click="handleSubmit"
         >
           {{ t('common.confirm') }}
@@ -259,12 +279,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit, Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { getUserDomains, createUserDomain, updateUserDomain, deleteUserDomain } from '@/api/features'
+import { getUserDomains, createUserDomain, updateUserDomain, deleteUserDomain, getDomainVerification } from '@/api/features'
 import { getUserInstances } from '@/api/user'
+import { createActionLock, createKeyedActionLock } from '@/utils/actionLock'
 
 const { t } = useI18n()
 
@@ -276,6 +297,10 @@ const isEdit = ref(false)
 const editId = ref(null)
 const formRef = ref(null)
 const userInstances = ref([])
+const formActionLock = createActionLock()
+const deleteActionLock = createKeyedActionLock()
+const deletingIds = ref(new Set())
+let fetchGeneration = 0
 
 const form = reactive({
   domainName: '',
@@ -287,6 +312,27 @@ const form = reactive({
   sslCertContent: '',
   sslKeyContent: ''
 })
+
+const verification = ref(null)
+const verificationLoading = ref(false)
+let verificationGeneration = 0
+watch(() => [form.domainName, showDialog.value], () => {
+  verificationGeneration += 1
+  verification.value = null
+  verificationLoading.value = false
+})
+async function loadVerification() {
+  const generation = ++verificationGeneration
+  verificationLoading.value = true
+  try {
+    const response = await getDomainVerification(form.domainName)
+    if (generation === verificationGeneration) verification.value = response.data
+  } catch (error) {
+    if (generation === verificationGeneration) ElMessage.error(error?.message || t('user.domain.createFailed'))
+  } finally {
+    if (generation === verificationGeneration) verificationLoading.value = false
+  }
+}
 
 const formRules = {
   domainName: [{ required: true, message: () => t('user.domain.domainRequired'), trigger: 'blur' }],
@@ -305,15 +351,21 @@ function toArray(payload) {
 const selectedInstancePublicIP = computed(() => {
   if (!form.instanceId) return ''
   const inst = userInstances.value.find(i => i.id === form.instanceId)
-  return inst?.publicIP || inst?.publicIp || ''
+  if (!inst) return ''
+  return [...new Set([
+    inst.publicIP,
+    inst.publicIp,
+    inst.publicIPv6,
+    inst.publicIpv6,
+    inst.ipv6Address,
+    inst.IPv6Address
+  ].map(value => String(value || '').trim()).filter(Boolean))].join(', ')
 })
 
 function onInstanceChange(instanceId) {
   const inst = userInstances.value.find(i => i.id === instanceId)
   if (inst) {
-    if (inst.privateIP || inst.privateIp) {
-      form.internalIP = inst.privateIP || inst.privateIp
-    }
+    form.internalIP = inst.privateIP || inst.privateIp || inst.ipv6Address || inst.publicIPv6 || ''
   }
 }
 
@@ -321,24 +373,26 @@ async function fetchInstances() {
   try {
     const res = await getUserInstances({ page: 1, pageSize: 999 })
     userInstances.value = res.data?.list || res.data?.data || res.data || []
-  } catch (_) {
+  } catch {
     // ignore
   }
 }
 
 async function fetchData() {
+  const generation = ++fetchGeneration
   loading.value = true
   try {
     const res = await getUserDomains()
-    if (res.code === 200) {
+    if (generation === fetchGeneration && res.code === 200) {
       domains.value = toArray(res.data)
     }
   } finally {
-    loading.value = false
+    if (generation === fetchGeneration) loading.value = false
   }
 }
 
 function handleCreate() {
+  if (submitting.value) return
   isEdit.value = false
   editId.value = null
   Object.assign(form, { domainName: '', instanceId: null, protocol: 'http', internalIP: '', internalPort: 80, enableSSL: false, sslCertContent: '', sslKeyContent: '' })
@@ -346,6 +400,7 @@ function handleCreate() {
 }
 
 function handleEdit(row) {
+  if (submitting.value || isDeleting(row?.id)) return
   isEdit.value = true
   editId.value = row.id
   Object.assign(form, {
@@ -361,13 +416,18 @@ function handleEdit(row) {
   showDialog.value = true
 }
 
+const allowFormClose = done => { if (!submitting.value) done() }
+
 async function handleSubmit() {
+  if (!formActionLock.tryAcquire()) return
+  submitting.value = true
   try {
     await formRef.value.validate()
-  } catch (_) {
+  } catch {
+    formActionLock.release()
+    submitting.value = false
     return
   }
-  submitting.value = true
   try {
     if (isEdit.value) {
       await updateUserDomain(editId.value, {
@@ -397,14 +457,28 @@ async function handleSubmit() {
   } catch (error) {
     ElMessage.error(error?.message || (isEdit.value ? t('user.domain.updateFailed') : t('user.domain.createFailed')))
   } finally {
+    formActionLock.release()
     submitting.value = false
   }
 }
 
+function setDeleting(id, value) {
+  const next = new Set(deletingIds.value)
+  if (value) next.add(id)
+  else next.delete(id)
+  deletingIds.value = next
+}
+
+const isDeleting = id => deletingIds.value.has(id)
+
 async function handleDelete(row) {
+  if (!row?.id || submitting.value || !deleteActionLock.tryAcquire(row.id)) return
+  setDeleting(row.id, true)
   try {
     await ElMessageBox.confirm(t('user.domain.confirmDelete'))
-  } catch (_) {
+  } catch {
+    deleteActionLock.release(row.id)
+    setDeleting(row.id, false)
     return
   }
   try {
@@ -413,6 +487,9 @@ async function handleDelete(row) {
     fetchData()
   } catch (error) {
     ElMessage.error(error?.message || t('user.domain.deleteFailed'))
+  } finally {
+    deleteActionLock.release(row.id)
+    setDeleting(row.id, false)
   }
 }
 

@@ -69,11 +69,12 @@ curl() {
 run_ipv6_tunnel_host_lifecycle_tests providers >/dev/null
 [[ ! -s "$CALLS_FILE" ]] || fail "failed direct IPv6 probe still invoked tunnel APIs"
 
-# The ordinary instance matrix must stay IPv4-only. Pool CRUD uses documentation
-# addresses in the controller database, but must not turn later instance create
-# requests into real IPv6 allocations on a runner without IPv6.
-if grep -En 'nat_ipv4_ipv6|dedicated_ipv4_ipv6|ipv6_only' "$ROOT_DIR"/action_tests/modules/*.sh; then
-    fail "real IPv6 instance allocation was added to the default module matrix; it requires a separate capability-gated live test"
-fi
+# The ordinary instance matrix defaults to IPv4. IPv6 instance allocation is
+# allowed only through the explicit, capability-gated network-type override;
+# merely mentioning the supported values in the module is expected.
+grep -Fq 'ACTION_TEST_CONTAINER_NETWORK_TYPE:-nat_ipv4' "$ROOT_DIR/action_tests/modules/10_instances.sh" ||
+    fail "instance matrix no longer defaults to nat_ipv4"
+grep -Fq 'ACTION_TEST_CONTAINER_NETWORK_TYPE' "$ROOT_DIR/action_tests/modules/10_instances.sh" ||
+    fail "instance matrix has no explicit IPv6 opt-in"
 
 echo "IPv6 tunnel CI isolation tests passed"

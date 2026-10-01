@@ -2,8 +2,8 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -13,6 +13,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // TaskStateManager 统一的任务状态管理器
@@ -20,8 +21,6 @@ type TaskStateManager struct {
 	// 使用channel池架构，无需锁管理
 	taskService *TaskService // 引用主任务服务
 
-	// 状态管理
-	mutex sync.RWMutex
 }
 
 // 编译时接口检查
@@ -58,29 +57,72 @@ func (tsm *TaskStateManager) CompleteConfigTask(taskID uint, success bool, error
 		zap.Uint("taskId", taskID),
 		zap.Bool("success", success))
 
-	// 获取配置任务信息
-	var task adminModel.ConfigurationTask
-	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
-		return fmt.Errorf("获取配置任务信息失败: %w", err)
-	}
-
-	// 更新配置任务状态
-	now := time.Now()
-	task.CompletedAt = &now
-	task.Success = success
-	task.Progress = 100
-
+	// Complete callbacks can race with CancelConfigTask. Update only an active
+	// row so a late provider response cannot resurrect a cancelled task.
+	status := adminModel.TaskStatusFailed
 	if success {
-		task.Status = adminModel.TaskStatusCompleted
-	} else {
-		task.Status = adminModel.TaskStatusFailed
-		task.ErrorMessage = errorMessage
+		status = adminModel.TaskStatusCompleted
 	}
-
-	// 使用事务保存
+	now := time.Now()
+	resultJSON := ""
+	if resultData != nil {
+		encoded, err := json.Marshal(resultData)
+		if err != nil {
+			return fmt.Errorf("序列化配置任务结果失败: %w", err)
+		}
+		resultJSON = string(encoded)
+	}
 	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&task).Error
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		var current adminModel.ConfigurationTask
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("status", "progress").First(&current, taskID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("配置任务 %d 不存在", taskID)
+			}
+			return fmt.Errorf("获取配置任务状态失败: %w", err)
+		}
+		if current.Status == adminModel.TaskStatusCompleted || current.Status == adminModel.TaskStatusFailed || current.Status == adminModel.TaskStatusCancelled {
+			return nil
+		}
+		if current.Status != adminModel.TaskStatusPending && current.Status != adminModel.TaskStatusRunning && current.Status != adminModel.TaskStatusCancelling {
+			return fmt.Errorf("配置任务 %d 状态 %s 不允许完成", taskID, current.Status)
+		}
+		updates := map[string]interface{}{
+			"status":       status,
+			"completed_at": &now,
+			"success":      success,
+			"progress":     100,
+		}
+		if !success && errorMessage != "" {
+			updates["error_message"] = errorMessage
+		}
+		if resultJSON != "" {
+			updates["result_data"] = resultJSON
+		}
+		if current.Status == adminModel.TaskStatusCancelling {
+			updates["status"] = adminModel.TaskStatusCancelled
+			updates["success"] = false
+			updates["progress"] = current.Progress
+			if errorMessage != "" {
+				updates["error_message"] = errorMessage
+			}
+		}
+		result := tx.Model(&adminModel.ConfigurationTask{}).
+			Where("id = ? AND status = ?", taskID, current.Status).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected > 0 {
+			return nil
+		}
+
+		// A late callback for a terminal task is harmless and should remain
+		// idempotent. Cancellation is handled by the CAS above and cannot be
+		// overwritten by this callback.
+		return fmt.Errorf("配置任务 %d 状态更新失败", taskID)
 	})
 }
 
@@ -90,18 +132,11 @@ func (tsm *TaskStateManager) CancelMainTask(taskID uint, reason string) error {
 		zap.Uint("taskId", taskID),
 		zap.String("reason", reason))
 
-	var task adminModel.Task
-	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
-		return fmt.Errorf("获取任务信息失败: %w", err)
-	}
-
-	// 只有活跃状态的任务可以取消
-	if !isMainTaskActiveStatus(task.Status) {
-		return fmt.Errorf("任务状态 %s 不允许取消", task.Status)
-	}
-
-	// channel池架构自动处理并发控制，直接更新状态
-	return tsm.taskService.CompleteTask(taskID, false, reason, nil)
+	// CompleteTask is a completion callback, not a cancellation transition:
+	// using it here used to turn an active task into `failed` and did not
+	// propagate cancellation to the worker context. Reuse the authoritative
+	// cancellation path so state, cleanup, and context handling stay aligned.
+	return tsm.taskService.CancelTaskByAdmin(taskID, reason)
 }
 
 // CancelConfigTask 取消配置任务
@@ -115,28 +150,71 @@ func (tsm *TaskStateManager) CancelConfigTask(taskID uint, reason string) error 
 		return fmt.Errorf("获取配置任务信息失败: %w", err)
 	}
 
-	// 只有pending和running状态的任务可以取消
+	// Repeated cancellation is idempotent. Other terminal states cannot be
+	// changed after completion.
+	if task.Status == adminModel.TaskStatusCancelled || task.Status == adminModel.TaskStatusCancelling {
+		return nil
+	}
 	if task.Status != adminModel.TaskStatusPending && task.Status != adminModel.TaskStatusRunning {
 		return fmt.Errorf("任务状态 %s 不允许取消", task.Status)
 	}
 
-	// 更新任务状态
+	// Cancel atomically claims only active rows. A completion callback that won
+	// the race first remains terminal; repeated cancel requests are idempotent
+	// for an already-cancelled task.
 	now := time.Now()
-	task.Status = adminModel.TaskStatusCancelled
-	task.CompletedAt = &now
-	task.ErrorMessage = reason
-
-	// 使用事务保存
 	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&task).Error
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		var current adminModel.ConfigurationTask
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("status").First(&current, taskID).Error; err != nil {
+			return fmt.Errorf("获取配置任务状态失败: %w", err)
+		}
+		if current.Status == adminModel.TaskStatusCancelled || current.Status == adminModel.TaskStatusCancelling {
+			return nil
+		}
+		if current.Status != adminModel.TaskStatusPending && current.Status != adminModel.TaskStatusRunning {
+			return fmt.Errorf("任务状态 %s 不允许取消", current.Status)
+		}
+		status := adminModel.TaskStatusCancelling
+		if current.Status == adminModel.TaskStatusPending {
+			status = adminModel.TaskStatusCancelled
+		}
+		result := tx.Model(&adminModel.ConfigurationTask{}).
+			Where("id = ? AND status = ?", taskID, current.Status).
+			Updates(map[string]interface{}{
+				"status":        status,
+				"error_message": reason,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected > 0 {
+			if status == adminModel.TaskStatusCancelled {
+				return tx.Model(&adminModel.ConfigurationTask{}).Where("id = ?", taskID).Update("completed_at", &now).Error
+			}
+			return nil
+		}
+		var latest adminModel.ConfigurationTask
+		if err := tx.Select("status").First(&latest, taskID).Error; err != nil {
+			return fmt.Errorf("获取配置任务状态失败: %w", err)
+		}
+		if latest.Status == adminModel.TaskStatusCancelled || latest.Status == adminModel.TaskStatusCancelling {
+			return nil
+		}
+		return fmt.Errorf("任务状态 %s 不允许取消", latest.Status)
 	})
 }
 
 // UpdateTaskProgress 统一的任务进度更新
 func (tsm *TaskStateManager) UpdateTaskProgress(taskID uint, tableType string, progress int, message string) error {
-	tsm.mutex.Lock()
-	defer tsm.mutex.Unlock()
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 100 {
+		progress = 100
+	}
 
 	switch tableType {
 	case "tasks":
@@ -144,7 +222,8 @@ func (tsm *TaskStateManager) UpdateTaskProgress(taskID uint, tableType string, p
 		return nil
 	case "configuration_tasks":
 		return global.APP_DB.Model(&adminModel.ConfigurationTask{}).
-			Where("id = ?", taskID).
+			Where("id = ? AND status IN ? AND progress <= ?", taskID,
+				[]string{adminModel.TaskStatusPending, adminModel.TaskStatusRunning}, progress).
 			Updates(map[string]interface{}{
 				"progress": progress,
 			}).Error
@@ -193,26 +272,32 @@ func (tsm *TaskStateManager) StartConfigTask(taskID uint) error {
 	global.APP_LOG.Debug("统一任务状态管理器：启动配置任务",
 		zap.Uint("taskId", taskID))
 
-	// 获取配置任务信息
-	var task adminModel.ConfigurationTask
-	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
-		return fmt.Errorf("获取配置任务信息失败: %w", err)
-	}
-
-	// 只有pending状态的任务可以启动
-	if task.Status != adminModel.TaskStatusPending {
-		return fmt.Errorf("任务状态 %s 不允许启动", task.Status)
-	}
-
-	// 更新任务状态
 	now := time.Now()
-	task.Status = adminModel.TaskStatusRunning
-	task.StartedAt = &now
-
-	// 使用事务保存
 	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&task).Error
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		result := tx.Model(&adminModel.ConfigurationTask{}).
+			Where("id = ? AND status = ?", taskID, adminModel.TaskStatusPending).
+			Updates(map[string]interface{}{
+				"status":     adminModel.TaskStatusRunning,
+				"started_at": &now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected > 0 {
+			return nil
+		}
+
+		var current adminModel.ConfigurationTask
+		if err := tx.Select("status").First(&current, taskID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("配置任务 %d 不存在", taskID)
+			}
+			return fmt.Errorf("获取配置任务状态失败: %w", err)
+		}
+		return fmt.Errorf("任务状态 %s 不允许启动", current.Status)
 	})
 }
 

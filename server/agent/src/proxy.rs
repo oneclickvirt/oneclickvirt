@@ -1,12 +1,15 @@
 use axum::{
     body::Body,
     extract::{Host, Request, State},
-    http::{HeaderValue, StatusCode, Uri},
+    http::{HeaderValue, StatusCode, Uri, Version},
     response::{IntoResponse, Response},
 };
-use hyper_util::{client::legacy::Client, rt::TokioExecutor};
+use hyper_util::{
+    client::legacy::Client,
+    rt::{TokioExecutor, TokioIo},
+};
 use std::sync::RwLock as StdRwLock;
-use std::{collections::HashMap, io::BufReader, sync::Arc};
+use std::{collections::HashMap, env, io::BufReader, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
@@ -20,7 +23,7 @@ use tokio_rustls::rustls::{
     sign::CertifiedKey,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProxyTarget {
     pub internal_ip: String,
     pub internal_port: u16,
@@ -183,6 +186,9 @@ pub async fn load_routes_from_db(state: &AppState) -> Result<HashMap<String, Pro
 pub async fn add_route(routes: &ProxyRoutes, domain: String, target: ProxyTarget) {
     let mut map = routes.write().await;
     let domain = domain.to_lowercase();
+    if map.get(&domain) == Some(&target) {
+        return;
+    }
     map.insert(domain.clone(), target);
     info!(domain = %domain, "proxy route added to memory");
 }
@@ -273,6 +279,14 @@ async fn proxy_handler_with_scheme(
 
     debug!(upstream = %upstream_uri, "forwarding request");
 
+    let websocket_upgrade = is_websocket_upgrade(&req);
+    // The origin connection is independent of the browser connection.  In
+    // particular, an HTTP/2 request accepted by our TLS listener may target a
+    // plain HTTP/1.1 container.  Hyper rejects that version/origin pairing
+    // with UserUnsupportedVersion instead of negotiating it.  Use HTTP/1.1
+    // upstream for ordinary requests as well as WebSocket upgrades.
+    *req.version_mut() = Version::HTTP_11;
+
     // Update request URI
     *req.uri_mut() = upstream_uri.clone();
 
@@ -280,6 +294,14 @@ async fn proxy_handler_with_scheme(
     if let Ok(authority) = upstream_authority(&target.internal_ip, target.internal_port).parse() {
         req.headers_mut().insert(hyper::header::HOST, authority);
     }
+
+    // A direct client can forge X-Forwarded-Proto, so the listener scheme is
+    // authoritative by default.  When this Agent is explicitly placed behind
+    // Cloudflare, CF-Visitor is the only additional signal we accept.  This is
+    // opt-in because trusting it on a directly exposed listener would let a
+    // client manufacture an HTTPS scheme and trigger redirect/cookie changes.
+    let forwarded_proto =
+        effective_forwarded_proto(&req, forwarded_proto, cloudflare_headers_enabled());
 
     // Add X-Forwarded headers
     let headers = req.headers_mut();
@@ -297,12 +319,41 @@ async fn proxy_handler_with_scheme(
         .with_webpki_roots()
         .https_or_http()
         .enable_http1()
-        .enable_http2()
         .build();
     let client: Client<_, Body> = Client::builder(TokioExecutor::new()).build(connector);
 
     // Forward the request
+    let client_upgrade = websocket_upgrade.then(|| hyper::upgrade::on(&mut req));
     match client.request(req).await {
+        Ok(mut response)
+            if websocket_upgrade && response.status() == StatusCode::SWITCHING_PROTOCOLS =>
+        {
+            let upstream_upgrade = hyper::upgrade::on(&mut response);
+            let (parts, _body) = response.into_parts();
+            if let Some(client_upgrade) = client_upgrade {
+                tokio::spawn(async move {
+                    match (client_upgrade.await, upstream_upgrade.await) {
+                        (Ok(client_io), Ok(upstream_io)) => {
+                            let mut client_io = TokioIo::new(client_io);
+                            let mut upstream_io = TokioIo::new(upstream_io);
+                            if let Err(error) =
+                                tokio::io::copy_bidirectional(&mut client_io, &mut upstream_io)
+                                    .await
+                            {
+                                debug!(%error, "websocket proxy tunnel closed with an I/O error");
+                            }
+                        }
+                        (Err(error), _) => {
+                            debug!(%error, "client websocket upgrade failed");
+                        }
+                        (_, Err(error)) => {
+                            debug!(%error, "upstream websocket upgrade failed");
+                        }
+                    }
+                });
+            }
+            Response::from_parts(parts, Body::empty())
+        }
         Ok(response) => {
             debug!(status = %response.status(), "upstream responded");
             response.into_response()
@@ -318,10 +369,103 @@ async fn proxy_handler_with_scheme(
     }
 }
 
+/// Return the scheme that the upstream application should see.
+///
+/// Cloudflare Flexible SSL terminates HTTPS at the edge and uses HTTP for the
+/// origin hop. In that one configuration the origin listener is HTTP while the
+/// browser scheme is still HTTPS; trusting a valid CF-Visitor header avoids a
+/// redirect loop. Full/Full (strict) use an HTTPS origin listener and therefore
+/// remain authoritative even when this option is enabled.
+fn effective_forwarded_proto(
+    req: &Request,
+    listener_proto: &'static str,
+    trust_cloudflare_headers: bool,
+) -> &'static str {
+    if listener_proto.eq_ignore_ascii_case("https") {
+        return "https";
+    }
+    if trust_cloudflare_headers
+        && req
+            .headers()
+            .get("cf-visitor")
+            .and_then(cloudflare_visitor_scheme)
+            == Some("https")
+    {
+        return "https";
+    }
+    "http"
+}
+
+fn cloudflare_visitor_scheme(value: &HeaderValue) -> Option<&'static str> {
+    let raw = value.to_str().ok()?.trim();
+    let parsed: serde_json::Value = serde_json::from_str(raw).ok()?;
+    match parsed
+        .get("scheme")?
+        .as_str()?
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "https" => Some("https"),
+        "http" => Some("http"),
+        _ => None,
+    }
+}
+
+fn cloudflare_headers_enabled() -> bool {
+    env::var("PROXY_TRUST_CLOUDFLARE_HEADERS")
+        .or_else(|_| env::var("TRUST_CLOUDFLARE_HEADERS"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn header_contains_token(value: Option<&HeaderValue>, token: &str) -> bool {
+    value
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case(token))
+        })
+        .unwrap_or(false)
+}
+
+fn is_websocket_upgrade(req: &Request) -> bool {
+    header_contains_token(req.headers().get(hyper::header::CONNECTION), "upgrade")
+        && req
+            .headers()
+            .get(hyper::header::UPGRADE)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.trim().eq_ignore_ascii_case("websocket"))
+            .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::upstream_authority;
+    use super::{
+        ProxyRoutes, ProxyTarget, effective_forwarded_proto, is_websocket_upgrade,
+        upstream_authority,
+    };
+    use axum::{
+        Router,
+        body::Body,
+        extract::{Host, State},
+        http::{HeaderMap, Request, Version, header},
+        routing::any,
+    };
+    use futures_util::{SinkExt, StreamExt};
+    use http_body_util::BodyExt;
     use hyper::Uri;
+    use std::{collections::HashMap, sync::Arc, time::Duration};
+    use tokio::sync::RwLock;
+    use tokio_tungstenite::{
+        accept_async, connect_async,
+        tungstenite::{Message, client::IntoClientRequest},
+    };
 
     #[test]
     fn formats_ipv4_hostname_and_ipv6_authorities() {
@@ -343,5 +487,195 @@ mod tests {
             .expect("IPv6 upstream authority must produce a valid URI");
         assert_eq!(uri.host(), Some("[2001:db8::10]"));
         assert_eq!(uri.port_u16(), Some(8080));
+    }
+
+    #[test]
+    fn detects_case_insensitive_websocket_upgrade_tokens() {
+        let request = Request::builder()
+            .header(header::CONNECTION, "keep-alive, Upgrade")
+            .header(header::UPGRADE, "WebSocket")
+            .body(Body::empty())
+            .unwrap();
+        assert!(is_websocket_upgrade(&request));
+
+        let request = Request::builder()
+            .header(header::CONNECTION, "keep-alive")
+            .header(header::UPGRADE, "websocket")
+            .body(Body::empty())
+            .unwrap();
+        assert!(!is_websocket_upgrade(&request));
+    }
+
+    #[test]
+    fn cloudflare_scheme_is_opt_in_and_listener_https_wins() {
+        let request = Request::builder()
+            .header("CF-Visitor", r#"{"scheme":"https"}"#)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(effective_forwarded_proto(&request, "http", false), "http");
+        assert_eq!(effective_forwarded_proto(&request, "http", true), "https");
+        assert_eq!(effective_forwarded_proto(&request, "https", false), "https");
+    }
+
+    #[test]
+    fn invalid_or_http_cloudflare_headers_do_not_upgrade_origin_scheme() {
+        let request = Request::builder()
+            .header("CF-Visitor", r#"{"scheme":"http"}"#)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(effective_forwarded_proto(&request, "http", true), "http");
+
+        let malformed = Request::builder()
+            .header("CF-Visitor", "not-json")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(effective_forwarded_proto(&malformed, "http", true), "http");
+    }
+
+    #[tokio::test]
+    async fn https_listener_handler_forwards_https_scheme() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let upstream_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let upstream_addr = upstream_listener.local_addr().unwrap();
+        let upstream_task = tokio::spawn(async move {
+            axum::serve(
+                upstream_listener,
+                Router::new().fallback(any(|headers: HeaderMap| async move {
+                    headers
+                        .get("x-forwarded-proto")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or("missing")
+                        .to_string()
+                })),
+            )
+            .await
+            .unwrap();
+        });
+        let routes: ProxyRoutes = Arc::new(RwLock::new(HashMap::from([(
+            "proxy.test".to_string(),
+            ProxyTarget {
+                internal_ip: "127.0.0.1".to_string(),
+                internal_port: upstream_addr.port(),
+                protocol: "http".to_string(),
+            },
+        )])));
+        let request = Request::builder()
+            .uri("/scheme")
+            .body(Body::empty())
+            .unwrap();
+        let response =
+            super::proxy_https_handler(Host("proxy.test".to_string()), State(routes), request)
+                .await;
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(body.as_ref(), b"https");
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn forwards_http2_client_request_to_http1_origin() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let upstream_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let upstream_addr = upstream_listener.local_addr().unwrap();
+        let upstream_task = tokio::spawn(async move {
+            axum::serve(
+                upstream_listener,
+                Router::new().fallback(any(|req: Request<Body>| async move {
+                    format!("{:?}", req.version())
+                })),
+            )
+            .await
+            .unwrap();
+        });
+        let routes: ProxyRoutes = Arc::new(RwLock::new(HashMap::from([(
+            "proxy.test".to_string(),
+            ProxyTarget {
+                internal_ip: "127.0.0.1".to_string(),
+                internal_port: upstream_addr.port(),
+                protocol: "http".to_string(),
+            },
+        )])));
+        let request = Request::builder()
+            .version(Version::HTTP_2)
+            .uri("/from-http2")
+            .body(Body::empty())
+            .unwrap();
+        let response =
+            super::proxy_https_handler(Host("proxy.test".to_string()), State(routes), request)
+                .await;
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(body.as_ref(), b"HTTP/1.1");
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn proxies_websocket_upgrade_and_bidirectional_frames() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let upstream_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let upstream_addr = upstream_listener.local_addr().unwrap();
+        let upstream_task = tokio::spawn(async move {
+            let (stream, _) = upstream_listener.accept().await.unwrap();
+            let mut websocket = accept_async(stream).await.unwrap();
+            while let Some(message) = websocket.next().await {
+                let message = message.unwrap();
+                let close = message.is_close();
+                websocket.send(message).await.unwrap();
+                if close {
+                    break;
+                }
+            }
+        });
+
+        let routes: ProxyRoutes = Arc::new(RwLock::new(HashMap::from([(
+            "proxy.test".to_string(),
+            ProxyTarget {
+                internal_ip: "127.0.0.1".to_string(),
+                internal_port: upstream_addr.port(),
+                protocol: "http".to_string(),
+            },
+        )])));
+        let proxy_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let proxy_addr = proxy_listener.local_addr().unwrap();
+        let proxy_task = tokio::spawn(async move {
+            axum::serve(
+                proxy_listener,
+                Router::new()
+                    .fallback(any(super::proxy_handler))
+                    .with_state(routes),
+            )
+            .await
+            .unwrap();
+        });
+
+        let mut request = format!("ws://127.0.0.1:{}/echo", proxy_addr.port())
+            .into_client_request()
+            .unwrap();
+        request
+            .headers_mut()
+            .insert(header::HOST, "proxy.test".parse().unwrap());
+        let (mut websocket, _) =
+            tokio::time::timeout(Duration::from_secs(5), connect_async(request))
+                .await
+                .expect("proxy websocket handshake timed out")
+                .expect("proxy websocket handshake failed");
+
+        websocket.send(Message::Text("hello".into())).await.unwrap();
+        assert_eq!(
+            websocket.next().await.unwrap().unwrap(),
+            Message::Text("hello".into())
+        );
+        websocket.close(None).await.unwrap();
+
+        proxy_task.abort();
+        upstream_task.abort();
     }
 }

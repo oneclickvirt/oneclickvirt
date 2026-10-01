@@ -410,6 +410,8 @@ func (p *ProxmoxProvider) generateRemoteFileName(imageName, imageURL, architectu
 		return fmt.Sprintf("%s_%s.iso", safeName, md5Hash[:8])
 	} else if strings.Contains(imageURL, ".tar.xz") {
 		return fmt.Sprintf("%s_%s.tar.xz", safeName, md5Hash[:8])
+	} else if strings.Contains(imageURL, ".tar.zst") {
+		return fmt.Sprintf("%s_%s.tar.zst", safeName, md5Hash[:8])
 	} else if strings.Contains(imageURL, ".zip") {
 		return fmt.Sprintf("%s_%s.zip", safeName, md5Hash[:8])
 	} else {

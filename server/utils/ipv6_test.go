@@ -219,6 +219,19 @@ func TestExtractIPv6AddressesPreservesHostBits(t *testing.T) {
 	}
 }
 
+func TestExtractIPv6FallbacksStripANSIColour(t *testing.T) {
+	coloredNetwork := "\x1b[31m2001:db8:1::42/80\x1b[0m"
+	coloredAddress := "\x1b[32minet6 2001:db8:1::99/128 scope global\x1b[0m"
+	networks := ExtractIPv6Networks(coloredNetwork, 64)
+	if len(networks) != 1 || networks[0].PrefixLen != 80 {
+		t.Fatalf("ExtractIPv6Networks() = %#v, want one /80 network", networks)
+	}
+	addresses := ExtractIPv6Addresses(coloredAddress)
+	if len(addresses) != 1 || addresses[0] != "2001:db8:1::99" {
+		t.Fatalf("ExtractIPv6Addresses() = %#v, want the coloured address", addresses)
+	}
+}
+
 func TestIPv6AddressWithSuffixHonorsPrefixLength(t *testing.T) {
 	tests := []struct {
 		name string

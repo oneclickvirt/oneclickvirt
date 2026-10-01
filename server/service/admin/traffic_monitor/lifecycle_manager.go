@@ -106,7 +106,7 @@ func (m *LifecycleManager) DetachMonitor(ctx context.Context, instanceID uint) e
 		pmacctService.SetProviderID(instance.ProviderID)
 	}
 
-	if err := pmacctService.CleanupPmacctData(instanceID); err != nil {
+	if err := pmacctService.CleanupPmacctDataWithContext(ctx, instanceID); err != nil {
 		return fmt.Errorf("清理pmacct监控失败: %w", err)
 	}
 

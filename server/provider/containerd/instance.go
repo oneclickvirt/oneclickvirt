@@ -33,6 +33,9 @@ func (c *ContainerdProvider) sshListInstances(ctx context.Context) ([]provider.I
 		if len(fields) < 4 {
 			continue
 		}
+		if provider.IsRuntimeInfrastructureContainer(fields[0]) {
+			continue
+		}
 
 		status := "unknown"
 		statusField := strings.ToLower(fields[1])
@@ -464,6 +467,10 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		output, err = c.sshClient.Execute(effectiveCmd)
 	}
 	if err != nil {
+		// nerdctl can create the container before a post-create validation
+		// fails. Remove the requested name before collecting diagnostics so a
+		// retry cannot inherit a half-created container.
+		c.cleanupFailedCreateContainer(config.Name)
 		diagnostics := c.collectCreateDiagnostics(config.Name)
 		global.APP_LOG.Error("Containerd创建容器失败",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
@@ -538,6 +545,23 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	updateProgress(100, "Containerd实例创建完成")
 	global.APP_LOG.Info("Containerd容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+// cleanupFailedCreateContainer removes only the name requested by the failed
+// create operation. The preflight cleanup already removed stale containers
+// with this name, so this is safe for retries and cannot affect unrelated
+// workloads on the node.
+func (c *ContainerdProvider) cleanupFailedCreateContainer(name string) {
+	if !utils.IsValidContainerRuntimeName(name) {
+		return
+	}
+	command := fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name))
+	if output, err := c.sshClient.Execute(command); err != nil {
+		global.APP_LOG.Warn("清理失败的Containerd容器失败",
+			zap.String("name", utils.TruncateString(name, 32)),
+			zap.String("output", utils.TruncateString(strings.TrimSpace(output), 300)),
+			zap.Error(err))
+	}
 }
 
 func appendContainerdNetworkOptions(command string, selection utils.ContainerNetworkSelection) string {

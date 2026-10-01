@@ -84,6 +84,9 @@ func (p *PodmanProvider) sshDiscoverInstances(ctx context.Context) ([]provider.D
 	}
 
 	for _, container := range containers {
+		if provider.IsRuntimeInfrastructureContainer(container.Name) {
+			continue
+		}
 		discovered := provider.DiscoveredInstance{
 			UUID:               container.ID,
 			ProviderInstanceID: container.ID,

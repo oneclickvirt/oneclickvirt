@@ -127,12 +127,16 @@ func runSFTPChunkCleanupLoop(ctx context.Context, interval time.Duration, ttl ti
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runSFTPChunkCleanupOnce(ttl)
+			runSFTPChunkCleanupOnceContext(ctx, ttl)
 		}
 	}
 }
 
 func runSFTPChunkCleanupOnce(ttl time.Duration) {
+	runSFTPChunkCleanupOnceContext(context.Background(), ttl)
+}
+
+func runSFTPChunkCleanupOnceContext(ctx context.Context, ttl time.Duration) {
 	type cleanupSnapshot struct {
 		target SSHAccessTarget
 		dirs   []string
@@ -163,8 +167,13 @@ func runSFTPChunkCleanupOnce(ttl time.Duration) {
 	sftpCleanupRegistryMu.Unlock()
 
 	for _, item := range snapshots {
-		sftpClient, cleanup, err := OpenSFTPClient(&item.target)
+		if ctx.Err() != nil {
+			return
+		}
+		itemCtx, itemCancel := context.WithTimeout(ctx, 2*time.Minute)
+		sftpClient, cleanup, err := OpenSFTPClientContext(itemCtx, &item.target)
 		if err != nil {
+			itemCancel()
 			if global.APP_LOG != nil {
 				global.APP_LOG.Debug("SFTP分片后台清理连接失败",
 					zap.String("target", item.key),
@@ -191,6 +200,7 @@ func runSFTPChunkCleanupOnce(ttl time.Duration) {
 		}
 
 		cleanup()
+		itemCancel()
 
 		if totalCleaned > 0 && global.APP_LOG != nil {
 			global.APP_LOG.Info("SFTP分片后台清理完成",

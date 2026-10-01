@@ -2,6 +2,7 @@ package system
 
 import (
 	"net/http"
+	"strings"
 
 	"oneclickvirt/model/common"
 	updateService "oneclickvirt/service/update"
@@ -61,7 +62,12 @@ func StartUpdate(c *gin.Context) {
 			return
 		}
 	}
-	state, err := updateService.GetService().StartUpdate(c.Request.Context(), request.Version)
+	requestKey, err := updateRequestKey(c)
+	if err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
+	state, err := updateService.GetService().StartUpdate(c.Request.Context(), request.Version, requestKey)
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -89,7 +95,12 @@ func StartRollback(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeBadRequest, "请提供有效的回退版本"))
 		return
 	}
-	state, err := updateService.GetService().StartRollback(c.Request.Context(), request.Version, request.BackupID)
+	requestKey, err := updateRequestKey(c)
+	if err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
+	state, err := updateService.GetService().StartRollback(c.Request.Context(), request.Version, request.BackupID, requestKey)
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -106,7 +117,12 @@ func StartRollback(c *gin.Context) {
 // @Success 200 {object} common.Response
 // @Router /admin/system/restart [post]
 func StartRestart(c *gin.Context) {
-	state, err := updateService.GetService().StartRestart(c.Request.Context())
+	requestKey, err := updateRequestKey(c)
+	if err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
+	state, err := updateService.GetService().StartRestart(c.Request.Context(), requestKey)
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
@@ -123,4 +139,12 @@ func StartRestart(c *gin.Context) {
 // @Router /admin/system/update-status [get]
 func GetUpdateStatus(c *gin.Context) {
 	common.ResponseSuccess(c, updateService.GetService().Operation(), "获取更新任务状态成功")
+}
+
+func updateRequestKey(c *gin.Context) (string, error) {
+	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if len(key) > 128 || strings.ContainsAny(key, "\x00\r\n") {
+		return "", common.NewError(common.CodeBadRequest, "幂等键格式无效")
+	}
+	return key, nil
 }

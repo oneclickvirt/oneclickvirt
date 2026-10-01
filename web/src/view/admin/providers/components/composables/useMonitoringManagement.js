@@ -43,6 +43,19 @@ export function useMonitoringManagement(props, emit) {
   const agentMonitorsPagination = reactive({ page: 1, pageSize: 10, total: 0 })
   const syncTask = ref(null)
   let syncPollTimer = null
+  let syncPollGeneration = 0
+  let viewGeneration = 0
+  let configRequestGeneration = 0
+  let monitorsRequestGeneration = 0
+  let statusRequestGeneration = 0
+  let agentMonitorsRequestGeneration = 0
+  const MAX_SYNC_POLL_ATTEMPTS = 60
+  const isCurrentView = (generation, providerId) =>
+    props.visible && generation === viewGeneration && props.provider?.id === providerId
+  const monitorMutationBusy = computed(() =>
+    deployLoading.value || uninstallLoading.value || syncLoading.value ||
+    clearMonitorsLoading.value || saveConfigLoading.value
+  )
 
   const config = reactive({
     monitoring_mode: 'agent',
@@ -90,12 +103,18 @@ export function useMonitoringManagement(props, emit) {
   })
 
   const resetViewState = (resetLoadedData = true) => {
+    syncPollGeneration += 1
+    viewGeneration += 1
     if (syncPollTimer) {
       clearTimeout(syncPollTimer)
       syncPollTimer = null
     }
     activeTab.value = 'agent'
     syncLoading.value = false
+    configLoading.value = false
+    monitorsLoading.value = false
+    statusLoading.value = false
+    listAgentLoading.value = false
     syncTask.value = null
     showConfigEditor.value = false
     deployOutput.value = ''
@@ -138,12 +157,18 @@ export function useMonitoringManagement(props, emit) {
 
   const loadDialogData = async () => {
     if (!props.provider) return
+    const generation = viewGeneration
+    const providerId = props.provider.id
     configLoading.value = true
     try {
       await loadConfig()
+      if (!isCurrentView(generation, providerId)) return
       await loadMonitors()
+      if (!isCurrentView(generation, providerId)) return
       if (config.agent_installed) handleCheckStatus()
-    } finally { configLoading.value = false }
+    } finally {
+      if (isCurrentView(generation, providerId)) configLoading.value = false
+    }
   }
 
   watch(() => props.visible, async (val) => {
@@ -163,8 +188,12 @@ export function useMonitoringManagement(props, emit) {
 
   const loadConfig = async () => {
     if (!props.provider) return
+    const generation = viewGeneration
+    const providerId = props.provider.id
+    const requestGeneration = ++configRequestGeneration
     try {
-      const res = await getMonitoringConfig(props.provider.id)
+      const res = await getMonitoringConfig(providerId)
+      if (!isCurrentView(generation, providerId) || requestGeneration !== configRequestGeneration) return
       if (res.code === 200) {
         const data = res.data || {}
         Object.assign(config, {
@@ -194,16 +223,22 @@ export function useMonitoringManagement(props, emit) {
 
   const loadMonitors = async () => {
     if (!props.provider) return
+    const generation = viewGeneration
+    const providerId = props.provider.id
+    const requestGeneration = ++monitorsRequestGeneration
     monitorsLoading.value = true
     try {
-      const res = await getProviderMonitors(props.provider.id, { page: monitorsPagination.page, pageSize: monitorsPagination.pageSize })
+      const res = await getProviderMonitors(providerId, { page: monitorsPagination.page, pageSize: monitorsPagination.pageSize })
+      if (!isCurrentView(generation, providerId) || requestGeneration !== monitorsRequestGeneration) return
       if (res.code === 200) {
         const data = res.data || {}
         monitors.value = data.list || []
         monitorsPagination.total = data.total || 0
       }
-    } catch (e) { console.error('Failed to load monitors:', e) }
-    finally { monitorsLoading.value = false }
+    } catch (e) { if (isCurrentView(generation, providerId)) console.error('Failed to load monitors:', e) }
+    finally {
+      if (requestGeneration === monitorsRequestGeneration) monitorsLoading.value = false
+    }
   }
 
   const handleCopyToken = async () => {
@@ -215,26 +250,32 @@ export function useMonitoringManagement(props, emit) {
   }
 
   const handleDeployAgent = async () => {
-    if (!props.provider) return
+    if (!props.provider || monitorMutationBusy.value) return
     if (isAgentProvider.value) {
       ElMessage.warning(t('admin.providers.agentNodeAlreadyManaged'))
       return
     }
+    const generation = viewGeneration
+    const providerId = props.provider.id
+    deployLoading.value = true
     try {
       await ElMessageBox.confirm(t('admin.providers.deployAgentConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'info' })
-      deployLoading.value = true; deployOutput.value = ''
-      const res = await deployAgent(props.provider.id)
+      if (!isCurrentView(generation, providerId)) return
+      deployOutput.value = ''
+      const res = await deployAgent(providerId)
+      if (!isCurrentView(generation, providerId)) return
       if (res.code === 200) {
         ElMessage.success(res.msg || t('admin.providers.deployAgentSuccess'))
         const taskId = res.data?.taskId || res.data?.task_id
         deployOutput.value = taskId ? `Task ID: ${taskId}` : ''
-        await loadConfig(); await loadMonitors()
+        await loadConfig()
+        if (isCurrentView(generation, providerId)) await loadMonitors()
       } else {
         ElMessage.error(res.msg || t('admin.providers.deployAgentFailed'))
         deployOutput.value = res.data?.output || res.msg || ''
       }
     } catch (e) {
-      if (e !== 'cancel') {
+      if (e !== 'cancel' && isCurrentView(generation, providerId)) {
         ElMessage.error(e?.response?.data?.msg || t('admin.providers.deployAgentFailed'))
         deployOutput.value = e?.response?.data?.data?.output || e?.response?.data?.msg || e.message || ''
       }
@@ -242,29 +283,37 @@ export function useMonitoringManagement(props, emit) {
   }
 
   const handleUninstallAgent = async () => {
-    if (!props.provider) return
+    if (!props.provider || monitorMutationBusy.value) return
     if (isAgentProvider.value) {
       ElMessage.warning(t('admin.providers.agentNodeUninstallBlocked'))
       return
     }
+    const generation = viewGeneration
+    const providerId = props.provider.id
+    uninstallLoading.value = true
     try {
       await ElMessageBox.confirm(t('admin.providers.uninstallAgentConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
-      uninstallLoading.value = true
-      const res = await uninstallAgent(props.provider.id)
+      if (!isCurrentView(generation, providerId)) return
+      const res = await uninstallAgent(providerId)
+      if (!isCurrentView(generation, providerId)) return
       if (res.code === 200) {
         ElMessage.success(res.msg || t('admin.providers.uninstallAgentSuccess'))
         const taskId = res.data?.taskId || res.data?.task_id
         deployOutput.value = taskId ? `Task ID: ${taskId}` : ''
       } else { ElMessage.error(res.msg || t('admin.providers.uninstallAgentFailed')) }
-    } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.uninstallAgentFailed')) }
+    } catch (e) { if (e !== 'cancel' && isCurrentView(generation, providerId)) ElMessage.error(e?.response?.data?.msg || t('admin.providers.uninstallAgentFailed')) }
     finally { uninstallLoading.value = false }
   }
 
   const handleCheckStatus = async () => {
-    if (!props.provider) return
+    if (!props.provider || statusLoading.value) return
+    const generation = viewGeneration
+    const providerId = props.provider.id
+    const requestGeneration = ++statusRequestGeneration
     statusLoading.value = true
     try {
-      const res = await getAgentStatus(props.provider.id)
+      const res = await getAgentStatus(providerId)
+      if (!isCurrentView(generation, providerId) || requestGeneration !== statusRequestGeneration) return
       if (res.code === 200) {
         const data = res.data
         agentOnlineChecked.value = true; agentIsOnline.value = !!data.is_running
@@ -285,9 +334,13 @@ export function useMonitoringManagement(props, emit) {
           })
         }
       }
-    } catch (e) {
-      agentOnlineChecked.value = true; agentIsOnline.value = false; ElMessage.error(t('admin.providers.checkStatusFailed'))
-    } finally { statusLoading.value = false }
+    } catch {
+      if (isCurrentView(generation, providerId) && requestGeneration === statusRequestGeneration) {
+        agentOnlineChecked.value = true; agentIsOnline.value = false; ElMessage.error(t('admin.providers.checkStatusFailed'))
+      }
+    } finally {
+      if (requestGeneration === statusRequestGeneration) statusLoading.value = false
+    }
   }
 
   const renderSyncSummaryMessage = (task) => {
@@ -313,10 +366,11 @@ export function useMonitoringManagement(props, emit) {
     if (showAgentMonitors.value) await handleListAgentMonitors()
   }
 
-  const pollSyncTask = async (taskId) => {
-    if (!props.provider || !taskId) return
+  const pollSyncTask = async (taskId, generation, attempt = 1) => {
+    if (!props.provider || !taskId || generation !== syncPollGeneration || !props.visible) return
     try {
       const res = await getProviderMonitorSyncTask(props.provider.id, taskId)
+      if (generation !== syncPollGeneration || !props.visible) return
       if (res.code === 200 && res.data) {
         syncTask.value = res.data
         if (isMonitorSyncTerminal(res.data.status)) {
@@ -325,39 +379,59 @@ export function useMonitoringManagement(props, emit) {
         }
       }
     } catch (e) {
-      console.error('Failed to poll monitor sync task:', e)
+      if (attempt === 1 || attempt % 10 === 0) console.error('Failed to poll monitor sync task:', e)
     }
-    syncPollTimer = setTimeout(() => pollSyncTask(taskId), 2000)
+    if (generation !== syncPollGeneration || !props.visible) return
+    if (attempt >= MAX_SYNC_POLL_ATTEMPTS) {
+      syncLoading.value = false
+      ElMessage.warning(t('admin.providers.syncMonitorsPollingStopped', { taskId }))
+      return
+    }
+    syncPollTimer = setTimeout(() => pollSyncTask(taskId, generation, attempt + 1), 2000)
   }
 
   const handleSyncMonitors = async () => {
-    if (!props.provider) return
+    if (!props.provider || monitorMutationBusy.value) return
+    if (isMonitorSyncActive(syncTask.value?.status)) {
+      if (syncTask.value?.task_id) {
+        syncLoading.value = true
+        pollSyncTask(syncTask.value.task_id, syncPollGeneration)
+      }
+      return
+    }
+    const providerId = props.provider.id
+    const generation = syncPollGeneration
+    syncLoading.value = true
     try {
       await ElMessageBox.confirm(t('admin.providers.syncMonitorsConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'info' })
-      syncLoading.value = true
-      const res = await syncProviderMonitors(props.provider.id)
+      if (generation !== syncPollGeneration || props.provider?.id !== providerId || !props.visible) return
+      const res = await syncProviderMonitors(providerId)
+      if (generation !== syncPollGeneration || props.provider?.id !== providerId || !props.visible) return
       if (res.code === 200) {
         const task = res.data || {}
         syncTask.value = task
         if (task.task_id && isMonitorSyncActive(task.status)) {
           ElMessage.info(t('admin.providers.syncMonitorsSuccess'))
-          pollSyncTask(task.task_id)
+          pollSyncTask(task.task_id, syncPollGeneration)
           return
         }
         await finishSyncTask(task, isMonitorSyncFailed(task.status))
       } else { ElMessage.error(res.msg || t('admin.providers.syncMonitorsFailed')) }
     } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.syncMonitorsFailed')) }
     finally {
-      if (!syncTask.value?.task_id || !isMonitorSyncActive(syncTask.value.status)) {
+      if (generation === syncPollGeneration && (!syncTask.value?.task_id || !isMonitorSyncActive(syncTask.value.status))) {
         syncLoading.value = false
       }
     }
   }
 
   const handleClearMonitors = async () => {
-    if (!props.provider) return
+    if (!props.provider || monitorMutationBusy.value) return
+    const generation = viewGeneration
+    const providerId = props.provider.id
+    const expected = props.provider.name || String(providerId)
+    clearMonitorsLoading.value = true
     try {
-      const expected = props.provider.name || String(props.provider.id)
       await ElMessageBox.prompt(
         `${t('admin.providers.clearMonitorsConfirm')}<br><br>${t('admin.providers.typeToConfirm', { expected })}`,
         t('common.confirm'),
@@ -372,8 +446,9 @@ export function useMonitoringManagement(props, emit) {
           dangerouslyUseHTMLString: true
         }
       )
-      clearMonitorsLoading.value = true
-      const res = await clearProviderMonitors(props.provider.id)
+      if (!isCurrentView(generation, providerId)) return
+      const res = await clearProviderMonitors(providerId)
+      if (!isCurrentView(generation, providerId)) return
       if (res.code === 200) {
         ElMessage.success(t('admin.providers.clearMonitorsSuccess'))
         monitors.value = []
@@ -383,30 +458,43 @@ export function useMonitoringManagement(props, emit) {
         showAgentMonitors.value = false
         await loadMonitors()
       } else { ElMessage.error(res.msg || t('admin.providers.clearMonitorsFailed')) }
-    } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.clearMonitorsFailed')) }
+    } catch (e) { if (e !== 'cancel' && isCurrentView(generation, providerId)) ElMessage.error(e?.response?.data?.msg || t('admin.providers.clearMonitorsFailed')) }
     finally { clearMonitorsLoading.value = false }
   }
 
   const handleListAgentMonitors = async () => {
     if (!props.provider) return
+    const generation = viewGeneration
+    const providerId = props.provider.id
+    const requestGeneration = ++agentMonitorsRequestGeneration
     listAgentLoading.value = true
     try {
-      const res = await listAgentMonitors(props.provider.id, { page: agentMonitorsPagination.page, pageSize: agentMonitorsPagination.pageSize })
+      const res = await listAgentMonitors(providerId, { page: agentMonitorsPagination.page, pageSize: agentMonitorsPagination.pageSize })
+      if (!isCurrentView(generation, providerId) || requestGeneration !== agentMonitorsRequestGeneration) return
       if (res.code === 200) {
         const data = res.data || {}; agentMonitors.value = data.monitors || []; agentMonitorsPagination.total = data.total || 0; showAgentMonitors.value = true
       } else { ElMessage.error(res.msg || t('common.failed')) }
-    } catch (e) { ElMessage.error(e?.response?.data?.msg || t('common.failed')) }
-    finally { listAgentLoading.value = false }
+    } catch (e) { if (isCurrentView(generation, providerId)) ElMessage.error(e?.response?.data?.msg || t('common.failed')) }
+    finally {
+      if (requestGeneration === agentMonitorsRequestGeneration) listAgentLoading.value = false
+    }
   }
 
   const handleSaveConfig = async () => {
-    if (!props.provider) return
+    if (!props.provider || monitorMutationBusy.value) return
+    const generation = viewGeneration
+    const providerId = props.provider.id
     saveConfigLoading.value = true
     try {
-      const res = await updateMonitoringConfig(props.provider.id, editConfig)
-      if (res.code === 200) { ElMessage.success(t('common.saveSuccess')); await loadConfig(); showConfigEditor.value = false }
+      const res = await updateMonitoringConfig(providerId, { ...editConfig })
+      if (!isCurrentView(generation, providerId)) return
+      if (res.code === 200) {
+        ElMessage.success(t('common.saveSuccess'))
+        await loadConfig()
+        if (isCurrentView(generation, providerId)) showConfigEditor.value = false
+      }
       else { ElMessage.error(res.msg || t('common.saveFailed')) }
-    } catch (e) { ElMessage.error(e?.response?.data?.msg || t('common.saveFailed')) }
+    } catch (e) { if (isCurrentView(generation, providerId)) ElMessage.error(e?.response?.data?.msg || t('common.saveFailed')) }
     finally { saveConfigLoading.value = false }
   }
 
@@ -450,7 +538,7 @@ export function useMonitoringManagement(props, emit) {
   }
 
   return {
-    activeTab, showConfigEditor, configLoading, deployLoading, uninstallLoading,
+    activeTab, showConfigEditor, configLoading, deployLoading, uninstallLoading, monitorMutationBusy,
     statusLoading, saveConfigLoading, syncLoading, clearMonitorsLoading,
     monitorsLoading, listAgentLoading, deployOutput, monitors,
     agentOnlineChecked, agentIsOnline, showToken, showAgentMonitors, agentMonitors, syncTask,

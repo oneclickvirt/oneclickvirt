@@ -174,6 +174,63 @@ async fn collect_traffic_batch(
     }
 
     let next_cursor = snapshots.last().map(|row| row.row_id).unwrap_or(0);
+    settle_traffic_snapshots(state, use_ipt, snapshots, false).await?;
+    Ok(next_cursor)
+}
+
+pub async fn refresh_monitor_traffic(state: &AppState, ids: &[i64]) -> Result<(), ApiError> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let _guard = state.traffic_operation_lock.lock().await;
+    let snapshots = {
+        let conn = state.conn.lock().await;
+        let placeholders = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT rowid, monitor_id, interface, last_counter_in, last_counter_out FROM interface_states WHERE monitor_id IN ({placeholders})"
+        );
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+        let rows = stmt
+            .query_map(params_from_iter(ids.iter()), |row| {
+                Ok(TrafficStateSnapshot {
+                    row_id: row.get(0)?,
+                    monitor_id: row.get(1)?,
+                    interface: row.get(2)?,
+                    last_counter_in: row.get(3)?,
+                    last_counter_out: row.get(4)?,
+                })
+            })
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| ApiError::internal(e.to_string()))?
+    };
+    if ids
+        .iter()
+        .any(|id| !snapshots.iter().any(|row| row.monitor_id == *id))
+    {
+        return Err(ApiError::internal(
+            "final traffic counter is unavailable; keep the monitor for retry",
+        ));
+    }
+    settle_traffic_snapshots(
+        state,
+        state.traffic_collect_method == "ipt",
+        snapshots,
+        true,
+    )
+    .await
+}
+
+async fn settle_traffic_snapshots(
+    state: &AppState,
+    use_ipt: bool,
+    snapshots: Vec<TrafficStateSnapshot>,
+    strict: bool,
+) -> Result<(), ApiError> {
     let mut readings = Vec::with_capacity(snapshots.len());
     for snapshot in snapshots {
         let current = if use_ipt {
@@ -187,10 +244,15 @@ async fn collect_traffic_batch(
                 current_in,
                 current_out,
             });
+        } else if strict {
+            return Err(ApiError::internal(format!(
+                "cannot collect final counter for monitor {} on {}",
+                snapshot.monitor_id, snapshot.interface
+            )));
         }
     }
     if readings.is_empty() {
-        return Ok(next_cursor);
+        return Ok(());
     }
 
     let now = now_ts();
@@ -258,7 +320,7 @@ async fn collect_traffic_batch(
     }
     tx.commit()
         .map_err(|e| ApiError::internal(format!("commit traffic collection error: {e}")))?;
-    Ok(next_cursor)
+    Ok(())
 }
 
 fn load_resource_batch(

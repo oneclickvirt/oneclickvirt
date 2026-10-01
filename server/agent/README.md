@@ -53,8 +53,8 @@
   - 基于 Host 头的动态域名路由
   - HTTP 和 HTTPS 双协议支持
   - TLS/SSL 终端（支持自签名和 CA 签名证书）
-  - HTTP/1.1 和 HTTP/2 自动协商
-  - WebSocket 透明支持
+  - 普通请求支持 HTTP/1.1 和 HTTP/2 自动协商，WebSocket 升级固定使用 HTTP/1.1
+  - WebSocket/WSS 透明升级与双向转发
   - 实时路由热更新（无需重启）
   - **可选启用**：默认关闭，避免端口冲突
   - **完全无需依赖 Nginx**
@@ -84,11 +84,12 @@ Agent 模式下，控制端会在 Provider 删除、重载或连接参数变化�
 
 ## 配置说明
 
-通过环境变量或工作目录下的 `.env` 文件进行配置。
+通过环境变量或工作目录下的 `.env` 文件进行配置。使用安装脚本接入的 Agent 和主控通过 SSH 部署的 Agent 使用不同的配置文件，正常情况下由主控页面自动同步。保存没有变化的设置不会重启 Agent；重装 Agent 会保留已有代理和采集设置。
 
 | 变量名 | 必填 | 说明 |
 |---|---|---|
-| `API_TOKEN` | 是 | 认证令牌。所有 API 请求必须在 `x-token` 请求头中包含此值。 |
+| `API_TOKEN` | 直连模式必填 | 本地 API 认证令牌。反向 Agent 安装器会将它设为连接密钥；手动启动反向 Agent 时，未显式设置则沿用 `AGENT_SECRET`。 |
+| `AGENT_API_ADDR` | 否 | 反向 Agent 模式下本地 API 监听地址，只允许 loopback，默认 `127.0.0.1:23782`。 |
 | `TRAFFIC_COLLECT_METHOD` | 否 | 流量采集方式：`nft`（默认，使用 nftables）或 `ipt`（使用 iptables）。 |
 | `TRAFFIC_COLLECT_INTERVAL` | 否 | 流量采集间隔，单位秒（默认：`5`）。 |
 | `TRAFFIC_COLLECT_BATCH_SIZE` | 否 | 每轮最多读取的活动接口计数器数（默认：`512`），用于限制大节点采集压力。 |
@@ -99,12 +100,15 @@ Agent 模式下，控制端会在 Provider 删除、重载或连接参数变化�
 | `RESOURCE_COLLECT_BATCH_SIZE` | 否 | 每轮最多探测的资源监控器数（默认：`16`）。 |
 | `ENABLE_REVERSE_PROXY` | 否 | 是否启用反向代理功能（默认：`false`）。设为 `true` 才会启动反向代理服务器。 |
 | `PROXY_HTTP_ADDR` | 否 | HTTP 反向代理监听地址（如：`0.0.0.0:80`）。仅当 `ENABLE_REVERSE_PROXY=true` 时生效。 |
-| `PROXY_HTTPS_ADDR` | 否 | HTTPS 反向代理监听地址（如：`0.0.0.0:443`）。需同时配置证书。 |
-| `PROXY_TLS_CERT` | 否 | TLS 证书文件路径（启用 HTTPS 时必填）。支持 PEM 格式。 |
-| `PROXY_TLS_KEY` | 否 | TLS 私钥文件路径（启用 HTTPS 时必填）。支持 PEM 格式的 PKCS#8 私钥。 |
+| `PROXY_HTTPS_ADDR` | 否 | HTTPS 反向代理监听地址（如：`0.0.0.0:443`）。可使用下面的默认证书，或由域名绑定提供各域名证书。 |
+| `PROXY_TLS_CERT` | 否 | 可选的默认 TLS 证书文件路径，支持 PEM 格式。未设置时仅使用域名绑定的 SNI 证书。 |
+| `PROXY_TLS_KEY` | 否 | 与默认证书配对的私钥路径，支持 PEM 格式的 PKCS#8 私钥。 |
+| `PROXY_TRUST_CLOUDFLARE_HEADERS` | 否 | 仅在 HTTP 监听器位于 Cloudflare 后方时设为 `true`，信任合法的 `CF-Visitor: {"scheme":"https"}` 并向上游传递 HTTPS。默认 `false`，直连节点不要开启。 |
 | `EXTRA_EXCLUDE_CIDRS_V4` | 否 | 逗号分隔的额外排除 IPv4 CIDR 列表（不计入流量统计）。 |
 | `EXTRA_EXCLUDE_CIDRS_V6` | 否 | 逗号分隔的额外排除 IPv6 CIDR 列表（不计入流量统计）。 |
 | `RUST_LOG` | 否 | 日志级别过滤器（默认：`info`）。示例：`debug`、`warn`、`oneclickvirt_agent=debug`。 |
+
+只配置 HTTPS 监听时不会额外打开 HTTP 80；显式填写了无效的监听地址时会记录错误，也不会悄悄回退到 80。两个监听地址都未设置且已启用代理时，默认使用 HTTP 80。
 
 ## 编译构建
 
@@ -165,6 +169,24 @@ ENABLE_REVERSE_PROXY=true \
   - 反向代理服务器接收用户的域名访问请求
 
 Swagger UI 可通过 `http://<host>:23782/swagger-ui/` 访问（Swagger UI 端点无需认证）。
+
+<details>
+<summary>域名代理排障</summary>
+
+先检查 Agent 是否在运行以及监听端口是否存在：
+
+```bash
+systemctl status oneclickvirt-agent
+ss -lntp | grep -E ':(80|443|23782)\\b'
+curl -H "x-token: $API_TOKEN" http://127.0.0.1:23782/api/v1/domain-proxy
+journalctl -u oneclickvirt-agent -e
+```
+
+域名代理路由保存在 Agent 的 SQLite 数据库中，重启后会自动恢复。`404` 表示 Host 没有匹配路由，`502` 表示容器地址或端口不可达，证书解析失败会在添加接口直接返回 `400`；WebSocket 升级失败会同时记录客户端和上游升级错误。
+
+节点页面保存代理监听配置后，等待“运行时连接刷新”任务完成。离线节点会在重新连接后自动同步一次，不要反复保存或重启。
+
+</details>
 
 ## 技术栈
 
@@ -447,6 +469,16 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
 ```
 
 **注意**：绑定 80 和 443 端口需要 root 权限或 `CAP_NET_BIND_SERVICE` 能力。
+
+<details>
+<summary>Cloudflare CDN 与无 CDN 访问</summary>
+
+- **无 CDN**：A/AAAA 直接指向 Agent 节点。HTTP/WS 访问 HTTP 监听器；HTTPS/WSS 访问 HTTPS 监听器，并由 Agent 证书完成 TLS。Agent 默认只相信实际监听器协议，不采信客户端自带的 `X-Forwarded-Proto`。
+- **Cloudflare Full / Full (strict)**：建议回源 HTTPS 443。此时 HTTPS 监听器会自然传递 `X-Forwarded-Proto: https`，WSS 也可正常升级；Full (strict) 还要求源站证书有效且与域名匹配。
+- **Cloudflare Flexible**：Cloudflare 以 HTTPS 接收浏览器请求、再用 HTTP 回源。若源站或容器强制 HTTPS，未处理时会形成重定向循环。只有在节点 HTTP 监听器确实只允许 Cloudflare 回源时，才设置 `PROXY_TRUST_CLOUDFLARE_HEADERS=true`；Agent 会验证 `CF-Visitor` 的 JSON `scheme=https` 并向上游传递 HTTPS。直连暴露或没有 CDN 时保持默认 `false`，避免任意客户端伪造 HTTPS 头。
+- Cloudflare 控制台必须启用 WebSockets；WSS 使用 HTTPS 回源或 Flexible + 上述显式信任配置。不要同时让 Cloudflare 和容器互相强制跳转 HTTP/HTTPS。
+
+</details>
 
 ## API 参考
 
@@ -751,7 +783,7 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
 | `internal_ip` | string | 是 | 容器/虚拟机内网 IP |
 | `internal_port` | integer | 是 | 容器/虚拟机内部端口（1-65535） |
 | `protocol` | string | 否 | `http`（默认）或 `https`，指定上游协议 |
-| `enable_ssl` | boolean | 否 | 保留字段（向后兼容），默认 `false` |
+| `enable_ssl` | boolean | 否 | 为该域名加载 `ssl_cert` 和 `ssl_key` 到 SNI 证书库，默认 `false` |
 
 **响应：**
 ```json
@@ -761,7 +793,7 @@ PROXY_HTTPS_ADDR=0.0.0.0:8443
 }
 ```
 
-> **说明**：反向代理支持 HTTP 和 HTTPS。是否启用 HTTPS 由环境变量 `PROXY_HTTPS_ADDR` 和证书配置决定，与此 API 的 `enable_ssl` 字段无关。`protocol` 字段仅影响转发给上游服务时使用的协议。
+> **说明**：HTTPS 监听仍需 `PROXY_HTTPS_ADDR`。`enable_ssl=true` 会校验证书和私钥并用于该域名的 TLS/SNI；`enable_ssl=false` 时使用节点默认 TLS 证书（如果有）。`protocol` 只决定 Agent 到容器上游使用 HTTP 还是 HTTPS，与浏览器到 Agent 的协议分开。
 
 ### DELETE /api/v1/domain-proxy
 

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -28,6 +29,110 @@ type ShellExecutor interface {
 	IsHealthy() bool
 	Reconnect() error
 	Close() error
+}
+
+// ContextShellExecutor is implemented by command transports that can interrupt
+// an in-flight remote command when its owning task is cancelled.
+type ContextShellExecutor interface {
+	ExecuteContext(context.Context, string) (string, error)
+}
+
+// ExecuteViaTempScriptContext runs a temporary script while preserving the
+// task's cancellation boundary.  Transports that can terminate a detached
+// script may implement ContextTempScriptExecutor; legacy transports are
+// allowed to finish their in-flight script before this helper returns, which
+// keeps provider locks held and prevents a cancelled operation from racing a
+// replacement task.
+type ContextTempScriptExecutor interface {
+	ExecuteViaTempScriptContext(context.Context, string, []string, time.Duration) (string, error)
+}
+
+func ExecuteViaTempScriptContext(ctx context.Context, executor ShellExecutor, script string, args []string, timeout time.Duration) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if contextual, ok := executor.(ContextTempScriptExecutor); ok {
+		return contextual.ExecuteViaTempScriptContext(ctx, script, args, timeout)
+	}
+
+	type result struct {
+		output string
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		output, err := executor.ExecuteViaTempScript(script, args, timeout)
+		done <- result{output: output, err: err}
+	}()
+	select {
+	case completed := <-done:
+		if err := ctx.Err(); err != nil {
+			return completed.output, err
+		}
+		return completed.output, completed.err
+	case <-ctx.Done():
+		// Wait for the transport call to finish.  Returning immediately would
+		// release the task's instance/provider lock while the remote command was
+		// still mutating the guest.
+		completed := <-done
+		return completed.output, ctx.Err()
+	}
+}
+
+// ExecuteShellCommandContext preserves serialization for legacy executors that
+// cannot interrupt commands, while context-aware transports stop promptly.
+func ExecuteShellCommandContext(ctx context.Context, executor ShellExecutor, command string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if contextual, ok := executor.(ContextShellExecutor); ok {
+		return contextual.ExecuteContext(ctx, command)
+	}
+
+	type result struct {
+		output string
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		output, err := executor.Execute(command)
+		done <- result{output: output, err: err}
+	}()
+	select {
+	case completed := <-done:
+		if err := ctx.Err(); err != nil {
+			return completed.output, err
+		}
+		return completed.output, completed.err
+	case <-ctx.Done():
+		completed := <-done
+		return completed.output, ctx.Err()
+	}
+}
+
+// SleepContext waits for the duration or returns as soon as the operation is
+// cancelled.
+func SleepContext(ctx context.Context, duration time.Duration) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

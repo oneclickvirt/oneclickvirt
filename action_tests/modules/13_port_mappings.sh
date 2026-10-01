@@ -2,6 +2,32 @@
 # Module 13: Port Mapping Management
 # Dependencies: 09_providers (PROVIDER_ID)
 
+wait_for_port_mapping_delete() {
+    local label="$1" port_id="$2" task_id="$3" group="${4:-port_mappings}"
+    local task_resp=""
+    if [[ ! "$task_id" =~ ^[1-9][0-9]*$ ]]; then
+        record_fail_result "${label} task id" "DELETE" "/api/v1/admin/port-mappings/${port_id}" \
+            "task id" "missing" "Delete response did not include a task id" "$group"
+        return 1
+    fi
+
+    if task_resp=$(wait_task_complete "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" \
+        "${PORT_MAPPING_TASK_MAX_WAIT:-600}" 5); then
+        # wait_task_complete establishes the terminal state; retain a normal
+        # API assertion for the task endpoint and then verify the mapping is
+        # actually gone from the database.
+        test_api "${label} task completed" "GET" "/api/v1/admin/tasks/${task_id}" \
+            "200" "" "$group" >/dev/null
+        test_api "${label} absent after task" "GET" \
+            "/api/v1/admin/port-mappings/${port_id}" "400|404" "" "$group" >/dev/null
+        return 0
+    fi
+
+    record_task_terminal_result "${label} task" "GET" "/api/v1/admin/tasks/${task_id}" \
+        "$task_resp" "$group" || true
+    return 1
+}
+
 run_module_13() {
     report_add_section "13 - Port Mappings"
     local group="port_mappings"
@@ -76,11 +102,36 @@ run_module_13() {
         fi
 
         # -- Create port mapping with mappingType=node (explicit) --
-        test_api "Check port for explicit node mapping" "POST" "/api/v1/admin/ports/check" "200" \
-            "{\"providerId\":${PROVIDER_ID},\"hostPort\":25080,\"portCount\":1,\"protocol\":\"tcp\"}" "$instance_group" >/dev/null
+        # Do not use a fixed port here. A preserved instance from an earlier
+        # run may legitimately own 25080, which would turn a setup collision
+        # into a false negative for the mapping lifecycle itself. Probe a small
+        # bounded range through the same availability API and reserve the
+        # first free candidate for this run.
+        local node_host_port=25080 node_port_available=false node_probe=""
+        local node_port_attempt
+        for ((node_port_attempt=0; node_port_attempt<24; node_port_attempt++)); do
+            local node_candidate=$((node_host_port + node_port_attempt))
+            node_probe=$(curl -s --max-time 15 \
+                -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" \
+                -X POST -d "{\"providerId\":${PROVIDER_ID},\"hostPort\":${node_candidate},\"portCount\":1,\"protocol\":\"tcp\",\"mappingType\":\"node\"}" \
+                "${SERVER_URL}/api/v1/admin/ports/check" 2>/dev/null) || node_probe=""
+            if [[ "$(echo "$node_probe" | jq -r '.code // empty' 2>/dev/null)" == "200" && \
+                  "$(echo "$node_probe" | jq -r '.data.available // false' 2>/dev/null)" == "true" ]]; then
+                node_host_port=$node_candidate
+                node_port_available=true
+                break
+            fi
+        done
+        if [[ "$node_port_available" != "true" ]]; then
+            record_fail_result "Check port for explicit node mapping" "POST" "/api/v1/admin/ports/check" \
+                "available port" "none" "No free node mapping port found in bounded probe range" "$instance_group"
+        else
+            test_api "Check port for explicit node mapping" "POST" "/api/v1/admin/ports/check" "200" \
+                "{\"providerId\":${PROVIDER_ID},\"hostPort\":${node_host_port},\"portCount\":1,\"protocol\":\"tcp\"}" "$instance_group" >/dev/null
+        fi
         local node_pm="" node_pm_request_ok=true node_pm_id=""
-        if node_pm=$(test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "$node_mapping_expected" \
-            "{\"instanceId\":${inst_for_pm},\"guestPort\":8080,\"protocol\":\"tcp\",\"hostPort\":25080,\"mappingType\":\"node\"}" "$instance_group"); then
+        if [[ "$node_port_available" == "true" ]] && node_pm=$(test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "$node_mapping_expected" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":8080,\"protocol\":\"tcp\",\"hostPort\":${node_host_port},\"mappingType\":\"node\"}" "$instance_group"); then
             node_pm_request_ok=true
         else
             node_pm_request_ok=false
@@ -230,27 +281,77 @@ run_module_13() {
 
     # -- Delete controller port mapping if created --
     if [[ -n "$ctrl_pm_id" ]]; then
-        test_api "Delete controller port mapping" "DELETE" "/api/v1/admin/port-mappings/${ctrl_pm_id}" "200" "" "$instance_group"
+        local ctrl_delete_resp="" ctrl_delete_task_id=""
+        ctrl_delete_resp=$(test_api "Delete controller port mapping" "DELETE" \
+            "/api/v1/admin/port-mappings/${ctrl_pm_id}" "200" "" "$instance_group") || true
+        ctrl_delete_task_id=$(echo "$ctrl_delete_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
+        wait_for_port_mapping_delete "Delete controller port mapping" "$ctrl_pm_id" \
+            "$ctrl_delete_task_id" "$instance_group" || true
     fi
 
     # -- Delete single --
     if [[ -n "$pm_id" ]]; then
-        test_api "Delete port mapping" "DELETE" "/api/v1/admin/port-mappings/${pm_id}" "200" "" "$instance_group"
+        local delete_resp="" delete_task_id=""
+        delete_resp=$(test_api "Delete port mapping" "DELETE" \
+            "/api/v1/admin/port-mappings/${pm_id}" "200" "" "$instance_group") || true
+        delete_task_id=$(echo "$delete_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
+        wait_for_port_mapping_delete "Delete port mapping" "$pm_id" "$delete_task_id" \
+            "$instance_group" || true
     fi
     if [[ -n "${node_pm_id:-}" ]]; then
-        test_api "Delete node port mapping" "DELETE" "/api/v1/admin/port-mappings/${node_pm_id}" "200" "" "$instance_group"
+        local node_delete_resp="" node_delete_task_id=""
+        node_delete_resp=$(test_api "Delete node port mapping" "DELETE" \
+            "/api/v1/admin/port-mappings/${node_pm_id}" "200" "" "$instance_group") || true
+        node_delete_task_id=$(echo "$node_delete_resp" | jq -r '.data.taskId // .data.task_id // empty' 2>/dev/null)
+        wait_for_port_mapping_delete "Delete node port mapping" "$node_pm_id" \
+            "$node_delete_task_id" "$instance_group" || true
     fi
 
     # -- Delete nonexistent --
     test_api "Delete nonexistent mapping" "DELETE" "/api/v1/admin/port-mappings/99999" "404|400" "" "$group"
 
     # -- Batch delete --
-    local batch_ids; batch_ids=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-        "${SERVER_URL}/api/v1/admin/port-mappings?page=1&pageSize=50" 2>/dev/null | \
-        jq -c '[.data.list[]? | select((.isAutomatic == false) and ((.portType == "manual") or (.portType == "batch"))) | (.id // .ID)] | map(select(. != null))' 2>/dev/null)
-    if [[ -n "$batch_ids" && "$batch_ids" != "[]" && "$batch_ids" != "null" ]]; then
-        test_api "Batch delete mappings" "POST" "/api/v1/admin/port-mappings/batch-delete" "200" \
-            "{\"ids\":${batch_ids}}" "$group"
+    # Only exercise batch deletion with a temporary mapping on the running
+    # fixture. Older preserved runs can contain manual mappings on failed or
+    # deleted instances; sending those IDs together would make the service
+    # correctly reject the whole request and obscure this test.
+    local batch_ids="" batch_created_id="" batch_host_port=""
+    if [[ -n "$inst_for_pm" && "${node_mapping_expected:-400}" == "200" && \
+          "${node_port_available:-false}" == "true" ]]; then
+        batch_host_port=$((node_host_port + 1))
+        local batch_pm=""
+        if batch_pm=$(test_api "Create batch-delete mapping" "POST" "/api/v1/admin/port-mappings" "200" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":8081,\"protocol\":\"tcp\",\"hostPort\":${batch_host_port},\"mappingType\":\"node\"}" "$group"); then
+            batch_created_id=$(echo "$batch_pm" | jq -r '.data.portId // .data.id // .data.ID // empty' 2>/dev/null)
+        fi
+        if [[ "$batch_created_id" =~ ^[0-9]+$ ]]; then
+            batch_ids=$(printf '%s\n' "$batch_created_id")
+        fi
+    fi
+    if [[ -n "$batch_ids" ]]; then
+        local batch_delete_resp="" batch_task_id=""
+        batch_delete_resp=$(test_api "Batch delete mappings" "POST" \
+            "/api/v1/admin/port-mappings/batch-delete" "200" \
+            "{\"ids\":[${batch_ids}]}" "$group") || true
+        while IFS= read -r batch_task_id; do
+            [[ -n "$batch_task_id" ]] || continue
+            local batch_task_resp=""
+            if batch_task_resp=$(wait_task_complete "$SERVER_URL" "$batch_task_id" "$ADMIN_TOKEN" \
+                "${PORT_MAPPING_TASK_MAX_WAIT:-600}" 5); then
+                test_api "Batch delete task ${batch_task_id} completed" "GET" \
+                    "/api/v1/admin/tasks/${batch_task_id}" "200" "" "$group" >/dev/null
+            else
+                record_task_terminal_result "Batch delete task ${batch_task_id}" "GET" \
+                    "/api/v1/admin/tasks/${batch_task_id}" "$batch_task_resp" "$group" || true
+            fi
+        done < <(echo "$batch_delete_resp" | jq -r '.data.taskIds[]? // .data.tasks[]?.id // .data.tasks[]?.ID // empty' 2>/dev/null)
+        if [[ "$batch_created_id" =~ ^[1-9][0-9]*$ ]]; then
+            test_api "Batch deleted mapping absent after task" "GET" \
+                "/api/v1/admin/port-mappings/${batch_created_id}" "400|404" "" "$group" >/dev/null
+        fi
+    else
+        record_skip_result "Batch delete mappings" "POST" "/api/v1/admin/port-mappings/batch-delete" \
+            "temporary mapping was not created on the running fixture" "$group"
     fi
 
     # -- Negative: Check port with invalid protocol --

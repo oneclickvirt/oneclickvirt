@@ -98,14 +98,14 @@
           <div class="action-row">
             <el-button
               type="primary"
-              :disabled="!info.capability?.canUpdate || !selectedUpdateRelease?.canUpdate"
+              :disabled="isOperationActive || actionLoading || !info.capability?.canUpdate || !selectedUpdateRelease?.canUpdate"
               :loading="actionLoading"
               @click="submitUpdate"
             >
               {{ t('home.footer.updateNow') }}
             </el-button>
             <el-button
-              :disabled="!info.capability?.canRestart"
+              :disabled="isOperationActive || actionLoading || !info.capability?.canRestart"
               :loading="actionLoading"
               @click="submitRestart"
             >
@@ -150,7 +150,7 @@
           <div class="action-row">
             <el-button
               type="warning"
-              :disabled="!info.capability?.canRollback || !selectedRollback?.canApply"
+              :disabled="isOperationActive || actionLoading || !info.capability?.canRollback || !selectedRollback?.canApply"
               :loading="actionLoading"
               @click="submitRollback"
             >
@@ -264,6 +264,8 @@ import {
   startSystemRollback,
   startSystemUpdate
 } from '@/api/admin'
+import { createActionLock } from '@/utils/actionLock'
+import { createRequestGeneration } from '@/utils/requestGeneration'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false }
@@ -285,6 +287,10 @@ const selectedUpdateVersion = ref('')
 const selectedRollback = ref(null)
 const operation = ref(null)
 const reconnecting = ref(false)
+const actionLock = createActionLock()
+const infoGeneration = createRequestGeneration()
+const pollGeneration = createRequestGeneration()
+const dialogGeneration = createRequestGeneration()
 let pollTimer = null
 
 const updateReleases = computed(() => (info.value.releases || []).filter(release => release.tag))
@@ -316,6 +322,13 @@ const rollbackOptions = computed(() => {
 const isOperationActive = computed(() => ['scheduled', 'staging', 'applying'].includes(operation.value?.status))
 const selectedUpdateRelease = computed(() => updateReleases.value.find(release => release.tag === selectedUpdateVersion.value))
 
+const canStartOperation = () => !isOperationActive.value && actionLock.tryAcquire()
+
+const createIdempotencyKey = () => {
+  if (globalThis.crypto?.randomUUID) return `system-${globalThis.crypto.randomUUID()}`
+  return `system-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 const resolvedCommand = (command) => {
   const version = command.key === 'script-rollback'
     ? selectedRollback.value?.version
@@ -325,9 +338,12 @@ const resolvedCommand = (command) => {
 }
 
 const loadInfo = async () => {
+  const generation = infoGeneration.next()
+  const isCurrent = () => visible.value && infoGeneration.isCurrent(generation)
   loading.value = true
   try {
     const response = await getUpdateInfo()
+    if (!isCurrent()) return
     if (response?.data) {
       info.value = response.data
       operation.value = response.data.operation || operation.value
@@ -337,6 +353,7 @@ const loadInfo = async () => {
       selectedUpdateVersion.value = latest?.tag || ''
     }
     const rollbackResponse = await getRollbackVersions()
+    if (!isCurrent()) return
     if (rollbackResponse?.data) {
       rollbackReleases.value = rollbackResponse.data.releases || []
       info.value = {
@@ -347,9 +364,9 @@ const loadInfo = async () => {
     }
     if (visible.value && isOperationActive.value) startPolling()
   } catch (error) {
-    ElMessage.error(error?.userMessage || error?.message || t('home.footer.updateLoadFailed'))
+    if (isCurrent()) ElMessage.error(error?.userMessage || error?.message || t('home.footer.updateLoadFailed'))
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -367,57 +384,97 @@ const requireConfirmation = async (message) => {
 }
 
 const submitUpdate = async () => {
-  if (!selectedUpdateRelease.value?.canUpdate) return
-  if (!await requireConfirmation(t('home.footer.updateConfirm', { version: selectedUpdateVersion.value }))) return
+  if (!selectedUpdateRelease.value?.canUpdate || !canStartOperation()) return
+  const generation = dialogGeneration.current()
+  const isCurrent = () => visible.value && dialogGeneration.isCurrent(generation)
   actionLoading.value = true
   try {
-    const response = await startSystemUpdate(selectedUpdateVersion.value)
+    if (!await requireConfirmation(t('home.footer.updateConfirm', { version: selectedUpdateVersion.value }))) return
+    if (!isCurrent()) return
+    infoGeneration.next()
+    loading.value = false
+    stopPolling()
+    const response = await startSystemUpdate(selectedUpdateVersion.value, createIdempotencyKey())
+    if (!isCurrent()) return
     operation.value = response?.data || null
     ElMessage.success(t('home.footer.operationSubmitted'))
     startPolling()
   } catch (error) {
-    ElMessage.error(error?.userMessage || error?.message || t('home.footer.operationFailed'))
+    if (isCurrent()) ElMessage.error(error?.userMessage || error?.message || t('home.footer.operationFailed'))
   } finally {
     actionLoading.value = false
+    actionLock.release()
   }
 }
 
 const submitRollback = async () => {
-  if (!selectedRollback.value?.canApply) return
-  if (!await requireConfirmation(t('home.footer.rollbackConfirm', { version: selectedRollback.value.version }))) return
+  if (!selectedRollback.value?.canApply || !canStartOperation()) return
+  const generation = dialogGeneration.current()
+  const isCurrent = () => visible.value && dialogGeneration.isCurrent(generation)
   actionLoading.value = true
   try {
-    const response = await startSystemRollback(selectedRollback.value.version, selectedRollback.value.backupId)
+    if (!await requireConfirmation(t('home.footer.rollbackConfirm', { version: selectedRollback.value.version }))) return
+    if (!isCurrent()) return
+    infoGeneration.next()
+    loading.value = false
+    stopPolling()
+    const response = await startSystemRollback(selectedRollback.value.version, selectedRollback.value.backupId, createIdempotencyKey())
+    if (!isCurrent()) return
     operation.value = response?.data || null
     ElMessage.success(t('home.footer.operationSubmitted'))
     startPolling()
   } catch (error) {
-    ElMessage.error(error?.userMessage || error?.message || t('home.footer.operationFailed'))
+    if (isCurrent()) ElMessage.error(error?.userMessage || error?.message || t('home.footer.operationFailed'))
   } finally {
     actionLoading.value = false
+    actionLock.release()
   }
 }
 
 const submitRestart = async () => {
-  if (!await requireConfirmation(t('home.footer.restartConfirm'))) return
+  if (!canStartOperation()) return
+  const generation = dialogGeneration.current()
+  const isCurrent = () => visible.value && dialogGeneration.isCurrent(generation)
   actionLoading.value = true
   try {
-    const response = await restartSystem()
+    if (!await requireConfirmation(t('home.footer.restartConfirm'))) return
+    if (!isCurrent()) return
+    infoGeneration.next()
+    loading.value = false
+    stopPolling()
+    const response = await restartSystem(createIdempotencyKey())
+    if (!isCurrent()) return
     operation.value = response?.data || null
     ElMessage.success(t('home.footer.operationSubmitted'))
     startPolling()
   } catch (error) {
-    ElMessage.error(error?.userMessage || error?.message || t('home.footer.operationFailed'))
+    if (isCurrent()) ElMessage.error(error?.userMessage || error?.message || t('home.footer.operationFailed'))
   } finally {
     actionLoading.value = false
+    actionLock.release()
   }
 }
 
 const startPolling = () => {
   stopPolling()
-  pollTimer = window.setInterval(async () => {
+  if (!visible.value) return
+  const generation = pollGeneration.current()
+  const operationId = operation.value?.id
+  let inFlight = false
+  const isCurrent = () => visible.value && pollGeneration.isCurrent(generation) && operation.value?.id === operationId
+  const poll = async () => {
+    if (inFlight || !isCurrent()) return
+    inFlight = true
     try {
       const response = await getSystemUpdateStatus()
+      if (!isCurrent()) return
+      if (response?.data && response.data.id !== operationId) {
+        // A different admin may have started the next operation. Refresh from
+        // the authoritative info endpoint under a new generation.
+        stopPolling()
+        await loadInfo()
+        return
+      }
       if (response?.data) operation.value = response.data
       reconnecting.value = false
       if (!isOperationActive.value) {
@@ -425,16 +482,27 @@ const startPolling = () => {
         if (operation.value?.status === 'succeeded') await loadInfo()
       }
     } catch {
-      reconnecting.value = true
+      if (isCurrent()) reconnecting.value = true
+    } finally {
+      inFlight = false
     }
-  }, 2000)
+  }
+  pollTimer = window.setInterval(poll, 2000)
 }
 
 const stopPolling = () => {
+  pollGeneration.next()
   if (pollTimer) {
     window.clearInterval(pollTimer)
     pollTimer = null
   }
+}
+
+const invalidateDialog = () => {
+  dialogGeneration.next()
+  infoGeneration.next()
+  loading.value = false
+  stopPolling()
 }
 
 const copyCommand = async (command) => {
@@ -458,11 +526,11 @@ const copyCommand = async (command) => {
 }
 
 watch(() => props.modelValue, value => {
+  invalidateDialog()
   if (value) loadInfo()
-  else stopPolling()
-})
+}, { immediate: true })
 
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(invalidateDialog)
 </script>
 
 <style scoped>

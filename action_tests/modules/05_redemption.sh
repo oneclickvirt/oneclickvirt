@@ -27,8 +27,10 @@ run_module_05() {
         "{\"count\":2,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI container test\",\"creationMode\":\"standard\"}" "$group"
 
     # ---- VM redemption codes (standard mode) ----
-    test_api "Batch create codes (VM, standard)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
-        "{\"count\":2,\"providerId\":${provider_for_redeem},\"instanceType\":\"vm\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI VM test\",\"creationMode\":\"standard\"}" "$group"
+    if should_test_type "vm"; then
+        test_api "Batch create codes (VM, standard)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
+            "{\"count\":2,\"providerId\":${provider_for_redeem},\"instanceType\":\"vm\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI VM test\",\"creationMode\":\"standard\"}" "$group"
+    fi
 
     # ---- Copy mode (LXD/Incus and Docker-family providers) ----
     if [[ "$is_copy_capable" == "true" ]]; then

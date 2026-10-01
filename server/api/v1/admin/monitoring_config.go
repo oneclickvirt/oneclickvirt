@@ -8,7 +8,6 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
-	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
 	providerService "oneclickvirt/service/provider"
 
@@ -147,39 +146,17 @@ func UpdateMonitoringConfig(c *gin.Context) {
 	// If agent is installed, sync the config to the remote agent
 	syncMsg := ""
 	if config.AgentInstalled && config.MonitoringMode == "agent" {
-		// Get provider model from database for proxy config
-		var dbProvider providerModel.Provider
-		if err := global.APP_DB.First(&dbProvider, uint(providerID)).Error; err == nil {
-			providerInstance, provErr := providerService.GetProviderInstanceByID(uint(providerID))
-			if provErr == nil {
-				agentCfg := &agentService.AgentConfig{
-					Token:                   config.AgentToken,
-					TrafficCollectInterval:  config.CollectInterval,
-					ResourceCollectInterval: config.ResourceCollectInterval,
-					TrafficCollectMethod:    config.TrafficCollectMethod,
-					ExtraExcludeCIDRsV4:     config.ExtraExcludeCIDRsV4,
-					ExtraExcludeCIDRsV6:     config.ExtraExcludeCIDRsV6,
-					// Reverse proxy config from provider database model
-					EnableReverseProxy: dbProvider.EnableDomainBinding,
-					ProxyHTTPPort:      dbProvider.ProxyHTTPPort,
-					ProxyHTTPSPort:     dbProvider.ProxyHTTPSPort,
-					ProxyEnableHTTP:    dbProvider.ProxyEnableHTTP,
-					ProxyEnableHTTPS:   dbProvider.ProxyEnableHTTPS,
-					ProxyTLSCertPath:   dbProvider.ProxyTLSCertPath,
-					ProxyTLSKeyPath:    dbProvider.ProxyTLSKeyPath,
-				}
-				ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-				defer cancel()
-				if syncErr := agentService.SyncAgentConfig(ctx, providerInstance, agentCfg); syncErr != nil {
-					syncMsg = "配置已保存，但同步到Agent失败: " + syncErr.Error()
-				} else {
-					syncMsg = "配置已保存并同步到Agent"
-				}
+		providerInstance, provErr := providerService.GetProviderInstanceByID(uint(providerID))
+		if provErr == nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+			defer cancel()
+			if syncErr := agentService.SyncAgentConfigForProvider(ctx, providerInstance, uint(providerID)); syncErr != nil {
+				syncMsg = "配置已保存，但同步到Agent失败: " + syncErr.Error()
 			} else {
-				syncMsg = "配置已保存，但Provider未连接无法同步到Agent"
+				syncMsg = "配置已保存并同步到Agent"
 			}
 		} else {
-			syncMsg = "配置已保存，但获取Provider信息失败"
+			syncMsg = "配置已保存，但Provider未连接无法同步到Agent: " + provErr.Error()
 		}
 	}
 

@@ -22,18 +22,31 @@ if [[ ! -f "$RESULTS_FILE" ]]; then
     exit 1
 fi
 
-# ── History management: keep only latest 3 reports ──
+# ── History management: keep the current artifact plus the 2 newest siblings ──
 OUTPUT_DIR=$(dirname "$OUTPUT_HTML")
+prune_history() {
+    local pattern="$1" current="$2" entries rank=0 mtime artifact
+    entries=$(mktemp "${TMPDIR:-/tmp}/ocv-report-history.XXXXXX") || return 0
+    while IFS= read -r -d '' artifact; do
+        [[ "$artifact" == "$current" ]] && continue
+        mtime=$(date -r "$artifact" +%s 2>/dev/null || printf '0')
+        printf '%s\t%s\n' "$mtime" "$artifact" >> "$entries"
+    done < <(find "$OUTPUT_DIR" -maxdepth 1 -name "$pattern" -type f -print0 2>/dev/null)
+
+    while IFS=$'\t' read -r mtime artifact; do
+        [[ -n "$artifact" ]] || continue
+        rank=$((rank + 1))
+        if [[ "$rank" -gt 2 ]]; then
+            rm -f -- "$artifact" 2>/dev/null || true
+        fi
+    done < <(sort -rn -k1,1 "$entries")
+    rm -f "$entries"
+}
+
 if [[ -d "$OUTPUT_DIR" ]]; then
-    # Find old reports matching the pattern and keep only the 3 newest (including current)
-    old_reports=$(find "$OUTPUT_DIR" -maxdepth 1 -name "*-report.html" -type f 2>/dev/null | sort -r | tail -n +3)
-    for old in $old_reports; do
-        rm -f "$old" 2>/dev/null || true
-    done
-    old_jsonl=$(find "$OUTPUT_DIR" -maxdepth 1 -name "*-results.jsonl" -type f 2>/dev/null | sort -r | tail -n +3)
-    for old in $old_jsonl; do
-        rm -f "$old" 2>/dev/null || true
-    done
+    prune_history "*-report.html" "$OUTPUT_HTML"
+    # The active JSONL is the authoritative test result and must survive report generation.
+    prune_history "*-results.jsonl" "$RESULTS_FILE"
 fi
 
 # Count results

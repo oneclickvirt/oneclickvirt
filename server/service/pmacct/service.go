@@ -18,9 +18,10 @@ import (
 
 // Service pmacct服务
 type Service struct {
-	ctx        context.Context
-	providerID uint
-	sshPool    *utils.SSHConnectionPool // SSH连接池
+	ctx                context.Context
+	providerID         uint
+	sshPool            *utils.SSHConnectionPool // SSH连接池
+	collectionProvider *providerModel.Provider
 }
 
 var (
@@ -30,18 +31,30 @@ var (
 
 // NewService 创建pmacct服务实例（使用全局SSH连接池）
 func NewService() *Service {
-	return &Service{
-		ctx:     global.APP_SHUTDOWN_CONTEXT,
-		sshPool: utils.GetGlobalSSHPool(),
-	}
+	return NewServiceWithContext(global.APP_SHUTDOWN_CONTEXT)
 }
 
 // NewServiceWithContext 使用指定context创建pmacct服务实例（使用全局SSH连接池）
 func NewServiceWithContext(ctx context.Context) *Service {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &Service{
 		ctx:     ctx,
 		sshPool: utils.GetGlobalSSHPool(),
 	}
+}
+
+// Each collection round gets its own mutable service and one Provider snapshot.
+func (s *Service) NewProviderCollector(ctx context.Context, providerID uint) (func(*providerModel.Instance, *monitoringModel.PmacctMonitor) error, error) {
+	worker := NewServiceWithContext(ctx)
+	var record providerModel.Provider
+	if err := global.APP_DB.WithContext(worker.ctx).First(&record, providerID).Error; err != nil {
+		return nil, err
+	}
+	worker.collectionProvider = &record
+	worker.providerID = providerID
+	return worker.CollectTrafficFromSQLite, nil
 }
 
 // SetProviderID 设置当前操作的ProviderID

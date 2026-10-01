@@ -225,3 +225,7 @@ export function getBuildInfo() {
     method: 'get'
   })
 }
+
+export function getDomainVerification(domainName) {
+  return request({ url: '/v1/user/domains/verification', method: 'get', params: { domainName } })
+}

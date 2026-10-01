@@ -14,6 +14,7 @@ import {
 } from '@/api/admin'
 import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
 import { resolveInstanceNetworkType } from '@/utils/networkType'
+import { createActionLock, createKeyedActionLock } from '@/utils/actionLock'
 
 export function usePortMappingManagement() {
   const { t } = useI18n()
@@ -40,6 +41,13 @@ export function usePortMappingManagement() {
   const repairSubmitting = ref(false)
   const repairPreview = ref({ providers: [], candidateCount: 0, skippedCount: 0 })
   const selectedRepairPortIds = ref([])
+  const deletePortLock = createKeyedActionLock()
+  const batchDeleteLock = createActionLock()
+  const syncPreviewLock = createActionLock()
+  const repairPreviewLock = createActionLock()
+  const deletingPortIds = ref(new Set())
+  const batchDeleteSubmitting = ref(false)
+  let loadGeneration = 0
 
   const syncCandidates = computed(() => {
     const providersPreview = syncPreview.value.providers || []
@@ -72,6 +80,7 @@ export function usePortMappingManagement() {
   const addDialogVisible = ref(false)
   const addFormRef = ref()
   const addLoading = ref(false)
+  const openingAddDialog = ref(false)
   const addForm = reactive({ instanceId: '', guestPort: null, hostPort: 0, portCount: 1, protocol: 'both', description: '', mappingType: 'node', internalHost: '' })
 
   watch(() => addForm.mappingType, (mappingType) => {
@@ -85,6 +94,13 @@ export function usePortMappingManagement() {
   const checkingPort = ref(false)
   const portCheckResult = ref(null)
   let checkPortTimeout = null
+  let portCheckGeneration = 0
+
+  watch(() => [addForm.instanceId, addForm.hostPort, addForm.portCount, addForm.protocol, addForm.mappingType], () => {
+    portCheckGeneration += 1
+    portCheckResult.value = null
+    checkingPort.value = false
+  })
 
   const addRules = {
     instanceId: [{ required: true, message: t('admin.portMapping.pleaseSelectInstance'), trigger: 'change' }],
@@ -172,15 +188,19 @@ export function usePortMappingManagement() {
   }
 
   const checkPortAvailabilityFn = async () => {
+    const generation = ++portCheckGeneration
     if (!addForm.hostPort || addForm.hostPort === 0) { portCheckResult.value = null; return }
     if (!addForm.instanceId) { ElMessage.warning(t('admin.portMapping.pleaseSelectInstanceFirst')); return }
     const selectedInstance = supportedInstances.value.find(inst => inst.id === addForm.instanceId)
     if (!selectedInstance || !selectedInstance.providerId) { ElMessage.error(t('admin.portMapping.cannotGetProviderInfo')); return }
     const portCount = addForm.portCount || 1
+    const requestKey = `${addForm.instanceId}:${selectedInstance.providerId}:${addForm.hostPort}:${addForm.protocol}:${portCount}:${addForm.mappingType}`
     checkingPort.value = true
     portCheckResult.value = null
     try {
       const response = await checkPortAvailable({ providerId: selectedInstance.providerId, hostPort: addForm.hostPort, protocol: addForm.protocol, portCount, mappingType: addForm.mappingType || 'node' })
+      const currentKey = `${addForm.instanceId}:${selectedInstance.providerId}:${addForm.hostPort}:${addForm.protocol}:${addForm.portCount || 1}:${addForm.mappingType}`
+      if (generation !== portCheckGeneration || requestKey !== currentKey) return
       if ((response.code === 200) && response.data) {
         const data = response.data
         portCheckResult.value = {
@@ -191,9 +211,11 @@ export function usePortMappingManagement() {
           suggestion: data.suggestion || ''
         }
       } else { throw new Error(response.message || 'Check failed') }
-    } catch (error) {
-      portCheckResult.value = { available: false, message: t('admin.portMapping.portCheckFailed'), suggestion: '' }
-    } finally { checkingPort.value = false }
+    } catch {
+      if (generation === portCheckGeneration) portCheckResult.value = { available: false, message: t('admin.portMapping.portCheckFailed'), suggestion: '' }
+    } finally {
+      if (generation === portCheckGeneration) checkingPort.value = false
+    }
   }
 
   const instanceFilterText = ref('')
@@ -225,16 +247,21 @@ export function usePortMappingManagement() {
   }
 
   const loadPortMappings = async () => {
+    const generation = ++loadGeneration
     loading.value = true
     try {
       const params = { page: currentPage.value, pageSize: pageSize.value, ...searchForm }
       const response = await getPortMappings(params)
-      portMappings.value = response.data?.list || []
-      total.value = response.data?.total || 0
-      checkAndStartAutoRefresh()
-    } catch (error) {
-      ElMessage.error(t('admin.portMapping.loadListFailed'))
-    } finally { loading.value = false }
+      if (generation === loadGeneration) {
+        portMappings.value = response.data?.list || []
+        total.value = response.data?.total || 0
+        checkAndStartAutoRefresh()
+      }
+    } catch {
+      if (generation === loadGeneration) ElMessage.error(t('admin.portMapping.loadListFailed'))
+    } finally {
+      if (generation === loadGeneration) loading.value = false
+    }
   }
 
   const checkAndStartAutoRefresh = () => {
@@ -248,12 +275,12 @@ export function usePortMappingManagement() {
 
   const loadProviders = async () => {
     try { const response = await getProviderList({ page: 1, pageSize: 1000 }); providers.value = response.data.list || [] }
-    catch (error) { ElMessage.error(t('admin.portMapping.loadProvidersFailed')) }
+    catch { ElMessage.error(t('admin.portMapping.loadProvidersFailed')) }
   }
 
   const loadInstances = async () => {
     try { const response = await getAllInstances({ page: 1, pageSize: 1000 }); instances.value = response.data.list || [] }
-    catch (error) { ElMessage.error(t('admin.portMapping.loadInstancesFailed')) }
+    catch { ElMessage.error(t('admin.portMapping.loadInstancesFailed')) }
   }
 
   const searchPortMappings = () => { currentPage.value = 1; loadPortMappings() }
@@ -265,20 +292,42 @@ export function usePortMappingManagement() {
   const formatTime = (time) => { if (!time) return ''; return new Date(time).toLocaleString() }
 
   const deletePortMappingHandler = async (id) => {
+    if (!id || batchDeleteSubmitting.value || syncPreviewLoading.value || syncSubmitting.value || repairPreviewLoading.value || repairSubmitting.value || !deletePortLock.tryAcquire(id)) return
+    const activeIds = new Set(deletingPortIds.value)
+    activeIds.add(id)
+    deletingPortIds.value = activeIds
     try {
       await ElMessageBox.confirm(t('admin.portMapping.deleteConfirm'), t('common.warning'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       await deletePortMapping(id)
       ElMessage.success(t('admin.portMapping.deletePortTaskCreated'))
-      loadPortMappings()
+      await loadPortMappings()
     } catch (error) { if (error !== 'cancel') ElMessage.error(error.message || t('admin.portMapping.deletePortFailed')) }
+    finally {
+      deletePortLock.release(id)
+      const remainingIds = new Set(deletingPortIds.value)
+      remainingIds.delete(id)
+      deletingPortIds.value = remainingIds
+    }
   }
 
   const batchDeleteDirect = async () => {
+    if (syncPreviewLoading.value || syncSubmitting.value || repairPreviewLoading.value || repairSubmitting.value) return
     if (selectedPortMappings.value.length === 0) { ElMessage.warning(t('admin.portMapping.selectPortsToDelete')); return }
     if (selectedPortMappings.value.some(item => item.portType !== 'manual' && item.portType !== 'batch')) { ElMessage.warning(t('admin.portMapping.onlyManualPortsCanDelete')); return }
+    if (!batchDeleteLock.tryAcquire()) return
+    const ids = [...new Set(selectedPortMappings.value.map(item => item.id))]
+    const acquired = []
+    for (const id of ids) {
+      if (!deletePortLock.tryAcquire(id)) {
+        acquired.forEach(acquiredId => deletePortLock.release(acquiredId))
+        batchDeleteLock.release()
+        return
+      }
+      acquired.push(id)
+    }
+    batchDeleteSubmitting.value = true
     try {
-      await ElMessageBox.confirm(t('admin.portMapping.batchDeleteConfirm', { count: selectedPortMappings.value.length }), t('admin.portMapping.batchDeleteTitle'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
-      const ids = selectedPortMappings.value.map(item => item.id)
+      await ElMessageBox.confirm(t('admin.portMapping.batchDeleteConfirm', { count: ids.length }), t('admin.portMapping.batchDeleteTitle'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       const response = await batchDeletePortMappings(ids)
       const data = response.data || {}
       const taskIds = data.taskIds || []
@@ -286,17 +335,29 @@ export function usePortMappingManagement() {
       if (failedPorts.length > 0) ElMessage.warning(t('admin.portMapping.batchDeletePartialSuccess', { success: taskIds.length, failed: failedPorts.length }))
       else ElMessage.success(t('admin.portMapping.batchDeleteTasksCreated', { count: taskIds.length }))
       selectedPortMappings.value = []
-      loadPortMappings()
+      await loadPortMappings()
     } catch (error) { if (error !== 'cancel') ElMessage.error(error.message || t('admin.portMapping.batchDeleteFailed')) }
+    finally {
+      acquired.forEach(id => deletePortLock.release(id))
+      batchDeleteSubmitting.value = false
+      batchDeleteLock.release()
+    }
   }
 
   const openAddDialog = async () => {
+    if (openingAddDialog.value || addDialogVisible.value) return
+    openingAddDialog.value = true
+    portCheckGeneration += 1
     Object.assign(addForm, { instanceId: '', guestPort: null, hostPort: 0, portCount: 1, protocol: 'both', description: '', mappingType: 'node', internalHost: '' })
     portCheckResult.value = null
     checkingPort.value = false
-    if (instances.value.length === 0) await loadInstances()
-    if (supportedInstances.value.length === 0) ElMessage.warning(t('admin.portMapping.noSupportedInstances'))
-    addDialogVisible.value = true
+    try {
+      if (instances.value.length === 0) await loadInstances()
+      if (supportedInstances.value.length === 0) ElMessage.warning(t('admin.portMapping.noSupportedInstances'))
+      addDialogVisible.value = true
+    } finally {
+      openingAddDialog.value = false
+    }
   }
 
   const onInstanceChange = () => {
@@ -315,7 +376,8 @@ export function usePortMappingManagement() {
   }
 
   const submitAdd = async () => {
-    if (!addFormRef.value) return
+    if (!addFormRef.value || addLoading.value || batchDeleteSubmitting.value || syncSubmitting.value || repairSubmitting.value) return
+    addLoading.value = true
     try {
       await addFormRef.value.validate()
       const instance = instances.value.find(i => i.id === addForm.instanceId)
@@ -334,7 +396,6 @@ export function usePortMappingManagement() {
       }
       // 验证支持的 Provider 类型
       if (!PORT_MAPPING_PROVIDER_TYPES.includes(providerType)) { ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported')); return }
-      addLoading.value = true
       const data = {
         instanceId: addForm.instanceId,
         guestPort: addForm.guestPort,
@@ -358,6 +419,7 @@ export function usePortMappingManagement() {
   }
 
   const handleSyncPortMappings = async () => {
+    if (addLoading.value || deletingPortIds.value.size > 0 || batchDeleteSubmitting.value || syncPreviewLoading.value || syncSubmitting.value || repairPreviewLoading.value || repairSubmitting.value || !syncPreviewLock.tryAcquire()) return
     syncPreviewLoading.value = true
     try {
       const response = await syncPortMappings({ dryRun: true })
@@ -372,7 +434,10 @@ export function usePortMappingManagement() {
       }
       syncPreviewVisible.value = true
     } catch (error) { if (error !== 'cancel') ElMessage.error(error.message || t('admin.portMapping.syncFailed')) }
-    finally { syncPreviewLoading.value = false }
+    finally {
+      syncPreviewLoading.value = false
+      syncPreviewLock.release()
+    }
   }
 
   const toggleAllSyncCandidates = () => {
@@ -381,22 +446,25 @@ export function usePortMappingManagement() {
   }
 
   const confirmSyncPortMappings = async () => {
+    if (addLoading.value || deletingPortIds.value.size > 0 || batchDeleteSubmitting.value || syncSubmitting.value || repairSubmitting.value) return
     if (selectedSyncPortIds.value.length === 0) {
       ElMessage.warning(t('admin.portMapping.syncSelectAtLeastOne'))
       return
     }
+    const selectedIds = [...selectedSyncPortIds.value]
+    const candidates = [...syncCandidates.value]
     syncSubmitting.value = true
     try {
       await ElMessageBox.confirm(
-        t('admin.portMapping.syncExecuteConfirm', { count: selectedSyncPortIds.value.length }),
+        t('admin.portMapping.syncExecuteConfirm', { count: selectedIds.length }),
         t('admin.portMapping.syncConfirmTitle'),
         { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
       )
-      const selectedSet = new Set(selectedSyncPortIds.value)
-      const selectedCandidates = syncCandidates.value.filter(item => selectedSet.has(item.portId))
-      const excludedPortIds = syncCandidates.value.filter(item => !selectedSet.has(item.portId)).map(item => item.portId)
+      const selectedSet = new Set(selectedIds)
+      const selectedCandidates = candidates.filter(item => selectedSet.has(item.portId))
+      const excludedPortIds = candidates.filter(item => !selectedSet.has(item.portId)).map(item => item.portId)
       const providerIds = [...new Set(selectedCandidates.map(item => item.providerId).filter(Boolean))]
-      await syncPortMappings({ providerIds, includedPortIds: selectedSyncPortIds.value, excludedPortIds })
+      await syncPortMappings({ providerIds, includedPortIds: selectedIds, excludedPortIds })
       ElMessage.success(t('admin.portMapping.syncTaskCreated'))
       syncPreviewVisible.value = false
       setTimeout(() => loadPortMappings(), 1000)
@@ -414,6 +482,7 @@ export function usePortMappingManagement() {
   }
 
   const handleRepairPortMappings = async () => {
+    if (addLoading.value || deletingPortIds.value.size > 0 || batchDeleteSubmitting.value || repairPreviewLoading.value || repairSubmitting.value || syncPreviewLoading.value || syncSubmitting.value || !repairPreviewLock.tryAcquire()) return
     repairPreviewLoading.value = true
     try {
       const response = await repairPortMappings({ dryRun: true })
@@ -428,6 +497,7 @@ export function usePortMappingManagement() {
       if (error !== 'cancel') ElMessage.error(error.message || t('admin.portMapping.repairFailed'))
     } finally {
       repairPreviewLoading.value = false
+      repairPreviewLock.release()
     }
   }
 
@@ -437,18 +507,21 @@ export function usePortMappingManagement() {
   }
 
   const confirmRepairPortMappings = async () => {
+    if (addLoading.value || deletingPortIds.value.size > 0 || batchDeleteSubmitting.value || repairSubmitting.value || syncSubmitting.value) return
     if (selectedRepairPortIds.value.length === 0) {
       ElMessage.warning(t('admin.portMapping.repairSelectAtLeastOne'))
       return
     }
+    const selectedIds = [...selectedRepairPortIds.value]
+    const candidates = [...repairCandidates.value]
     repairSubmitting.value = true
     try {
-      const selectedSet = new Set(selectedRepairPortIds.value)
-      const selected = repairCandidates.value.filter(item => selectedSet.has(item.portId))
+      const selectedSet = new Set(selectedIds)
+      const selected = candidates.filter(item => selectedSet.has(item.portId))
       const restartCount = new Set(selected.filter(item => item.requiresInstanceRestart).map(item => item.instanceId)).size
       await ElMessageBox.confirm(
         t('admin.portMapping.repairFirstConfirm', {
-          count: selectedRepairPortIds.value.length,
+          count: selectedIds.length,
           restarts: restartCount
         }),
         t('admin.portMapping.repairConfirmTitle'),
@@ -469,7 +542,7 @@ export function usePortMappingManagement() {
       const providerIds = [...new Set(selected.map(item => item.providerId).filter(Boolean))]
       const response = await repairPortMappings({
         providerIds,
-        portIds: selectedRepairPortIds.value,
+        portIds: selectedIds,
         confirmation: 'REBUILD'
       })
       const failedCount = response.data?.failedCount || 0
@@ -515,12 +588,12 @@ export function usePortMappingManagement() {
 
   return {
     loading, portMappings, providers, instances, currentPage, pageSize, total,
-    selectedPortMappings, searchForm,
+    selectedPortMappings, searchForm, deletingPortIds, batchDeleteSubmitting,
     syncPreviewVisible, syncPreviewLoading, syncSubmitting, syncPreview,
     selectedSyncPortIds, syncCandidates, unhealthySyncProviders, allSyncSelected,
     repairPreviewVisible, repairPreviewLoading, repairSubmitting, repairPreview,
     selectedRepairPortIds, repairCandidates, repairSkipped, allRepairSelected,
-    addDialogVisible, addFormRef, addLoading, addForm, addRules,
+    addDialogVisible, addFormRef, addLoading, openingAddDialog, addForm, addRules,
     checkingPort, portCheckResult,
     supportedInstances, selectedInstanceProvider, portRangePreview, portMappingHint,
     instanceFilterText, filteredInstances, filteredInstancesCount,

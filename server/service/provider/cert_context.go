@@ -4,9 +4,39 @@ import (
 	"context"
 
 	"oneclickvirt/model/provider"
+	"oneclickvirt/utils"
 )
 
-// 这个文件包含支持context的wrapper方法
+// checkConfigContext keeps cancellation checks at every boundary between local
+// work and a remote provider call. The remote call itself is interrupted by
+// watchSSHClientCancellation below.
+func checkConfigContext(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+// watchSSHClientCancellation closes the short-lived SSH client used by a
+// configuration task when its context is cancelled. Closing this private
+// client interrupts SFTP and SSH command sessions without touching the
+// provider-wide SSH pool.
+func watchSSHClientCancellation(ctx context.Context, client *utils.SSHClient) func() {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = client.Close()
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
+}
 
 // autoConfigureLXDWithStreamContext LXD自动配置的context版本
 func (cs *CertService) autoConfigureLXDWithStreamContext(ctx context.Context, prov *provider.Provider, outputChan chan<- string) error {
@@ -17,8 +47,7 @@ func (cs *CertService) autoConfigureLXDWithStreamContext(ctx context.Context, pr
 	default:
 	}
 
-	// 调用原始方法（原始方法内部应该检查长时间操作）
-	return cs.autoConfigureLXDWithStream(prov, outputChan)
+	return cs.autoConfigureLXDWithStream(ctx, prov, outputChan)
 }
 
 // autoConfigureIncusWithStreamContext Incus自动配置的context版本
@@ -30,8 +59,7 @@ func (cs *CertService) autoConfigureIncusWithStreamContext(ctx context.Context, 
 	default:
 	}
 
-	// 调用原始方法
-	return cs.autoConfigureIncusWithStream(prov, outputChan)
+	return cs.autoConfigureIncusWithStream(ctx, prov, outputChan)
 }
 
 // autoConfigureProxmoxWithStreamContext Proxmox自动配置的context版本
@@ -43,6 +71,5 @@ func (cs *CertService) autoConfigureProxmoxWithStreamContext(ctx context.Context
 	default:
 	}
 
-	// 调用原始方法
-	return cs.autoConfigureProxmoxWithStream(prov, outputChan)
+	return cs.autoConfigureProxmoxWithStream(ctx, prov, outputChan)
 }

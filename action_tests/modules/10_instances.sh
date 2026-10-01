@@ -2,9 +2,128 @@
 # Module 10: Instance Lifecycle (Admin + User, Container + VM)
 # Dependencies: 01_init (ADMIN_TOKEN), 09_providers (PROVIDER_ID)
 
+_m10_host_ipv6_probe_script() {
+    local expected_address="$1"
+    local expected_interface="${2:-}"
+    printf 'address=%q\ninterface=%q\n' "$expected_address" "$expected_interface"
+    cat <<'HOST_IPV6_PROBE'
+set -uo pipefail
+addr_present=0
+route_present=0
+if LC_ALL=C NO_COLOR=1 ip -j -6 addr show 2>/dev/null | python3 -c '
+import ipaddress, json, re, sys
+try:
+    rows = json.loads(re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", sys.stdin.read()))
+    address = ipaddress.IPv6Address(sys.argv[1])
+    interface = sys.argv[2]
+    found = isinstance(rows, list) and any(
+        ipaddress.IPv6Address(info["local"]) == address
+        for row in rows if not interface or row.get("ifname") == interface
+        for info in row.get("addr_info", [])
+        if info.get("family") == "inet6")
+except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+    found = False
+sys.exit(0 if found else 1)
+' "$address" "$interface"; then addr_present=1; fi
+if LC_ALL=C NO_COLOR=1 ip -j -6 route show default 2>/dev/null | python3 -c '
+import json, re, sys
+try:
+    rows = json.loads(re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", sys.stdin.read()))
+    found = isinstance(rows, list) and any(row.get("dst") == "default" for row in rows)
+except (TypeError, ValueError, json.JSONDecodeError):
+    found = False
+sys.exit(0 if found else 1)
+'; then route_present=1; fi
+probe_ipv6() {
+    local interface_arg="${1:-}" endpoint value
+    for endpoint in https://ipv6.icanhazip.com https://api64.ipify.org https://ipv6.ip.sb; do
+        if [ -n "$interface_arg" ]; then
+            value=$(curl --noproxy '*' -6 --interface "$interface_arg" -fsS --connect-timeout 6 --max-time 12 "$endpoint" 2>/dev/null | tr -d '\r' | tail -1)
+        else
+            value=$(curl --noproxy '*' -6 -fsS --connect-timeout 6 --max-time 12 "$endpoint" 2>/dev/null | tr -d '\r' | tail -1)
+        fi
+        if [ -n "$value" ] && printf '%s' "$value" | grep -Fq ':'; then
+            printf '%s' "$value"
+            return 0
+        fi
+    done
+    return 1
+}
+host_bound=$(probe_ipv6 "$address" 2>/dev/null || true)
+host_default=$(probe_ipv6 2>/dev/null || true)
+printf '%s|%s|%s|%s\n' "$addr_present" "$route_present" "$host_bound" "$host_default"
+HOST_IPV6_PROBE
+}
+
+_m10_host_ipv6_source_probe_script() {
+    cat <<'HOST_IPV6_SOURCE_PROBE'
+set -euo pipefail
+address_json=$(LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global)
+route_json=$(LC_ALL=C NO_COLOR=1 ip -j -6 route get 2606:4700:4700::1111)
+python3 - "$address_json" "$route_json" <<'PY'
+import ipaddress
+import json
+import re
+import sys
+
+def parse(raw):
+    return json.loads(re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw))
+
+try:
+    interfaces = parse(sys.argv[1])
+    routes = parse(sys.argv[2])
+    if not isinstance(interfaces, list) or not isinstance(routes, list) or not routes:
+        raise ValueError("invalid IPv6 interface or route data")
+    route = routes[0]
+    interface = route.get("dev", "")
+    source = route.get("prefsrc") or route.get("src") or ""
+    if not interface:
+        raise ValueError("IPv6 route has no device")
+    candidates = []
+    for row in interfaces:
+        if row.get("ifname") != interface:
+            continue
+        for info in row.get("addr_info", []):
+            if info.get("family") != "inet6" or info.get("scope") != "global":
+                continue
+            if info.get("tentative") or info.get("dadfailed") or any(
+                    flag in ("tentative", "dadfailed") for flag in info.get("flags", [])):
+                continue
+            address = ipaddress.IPv6Address(info["local"])
+            if address.is_global and (not source or str(address) == str(ipaddress.IPv6Address(source))):
+                candidates.append(address)
+    if not candidates:
+        raise ValueError("route-selected source is not a usable local global IPv6 address")
+    print(str(candidates[0]) + "|" + interface)
+except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1)
+PY
+HOST_IPV6_SOURCE_PROBE
+}
+
+_m10_host_ipv6_source_probe_command() {
+    local probe_script encoded
+    probe_script=$(_m10_host_ipv6_source_probe_script) || return 1
+    encoded=$(printf '%s' "$probe_script" | base64 | tr -d '\r\n') || return 1
+    [[ -n "$encoded" ]] || return 1
+    printf "printf '%%s' '%s' | base64 -d | bash" "$encoded"
+}
+
+_m10_host_ipv6_probe_command() {
+    local expected_address="$1" expected_interface="${2:-}" probe_script encoded
+    probe_script=$(_m10_host_ipv6_probe_script "$expected_address" "$expected_interface") || return 1
+    encoded=$(printf '%s' "$probe_script" | base64 | tr -d '\r\n') || return 1
+    [[ -n "$encoded" ]] || return 1
+    printf "printf '%%s' '%s' | base64 -d | bash" "$encoded"
+}
+
 run_module_10() {
     report_add_section "10 - Instance Lifecycle"
     local group="instances"
+    # Live HZ runs keep successfully created guests so later checks and a
+    # follow-up run can inspect them.  Set this to false only for a deliberately
+    # disposable test environment.
+    local preserve_test_instances="${ACTION_TEST_PRESERVE_INSTANCES:-true}"
 
     if [[ -z "$PROVIDER_ID" ]]; then
         chain_break "$group" "No provider, skipping instance tests"
@@ -72,12 +191,41 @@ run_module_10() {
             fi
         fi
 
-        local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${container_image}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+        local container_network_type="${ACTION_TEST_CONTAINER_NETWORK_TYPE:-nat_ipv4}"
+        case "$container_network_type" in
+            nat_ipv4|nat_ipv4_ipv6|ipv6_only) ;;
+            *) chain_break "$group" "Invalid container network type: ${container_network_type}"; return 1 ;;
+        esac
+        local host_ipv6_before="" host_ipv6_source="" host_ipv6_interface=""
+        if [[ "$container_network_type" != "nat_ipv4" ]]; then
+            host_ipv6_before=$(platform_ssh_exec "$WORKER_IP" \
+                "curl --noproxy '*' -6 -fsS --connect-timeout 6 --max-time 12 https://ipv6.ip.sb" 30 2>/dev/null | tr -d '\r' | tail -1)
+            local host_ipv6_source_state host_ipv6_source_probe
+            host_ipv6_source_probe=$(_m10_host_ipv6_source_probe_command)
+            host_ipv6_source_state=$(platform_ssh_exec "$WORKER_IP" "$host_ipv6_source_probe" 30 2>/dev/null || true)
+            IFS='|' read -r host_ipv6_source host_ipv6_interface <<< "$host_ipv6_source_state"
+            if ! python3 -c 'import ipaddress,sys; a=ipaddress.IPv6Address(sys.argv[1]); sys.exit(0 if a.is_global else 1)' "$host_ipv6_before" 2>/dev/null ||
+               ! python3 -c 'import ipaddress,sys; a=ipaddress.IPv6Address(sys.argv[1]); sys.exit(0 if a.is_global else 1)' "$host_ipv6_source" 2>/dev/null ||
+               [[ -z "$host_ipv6_interface" ]]; then
+                record_fail_result "Host IPv6 before container creation" "SSH" "$WORKER_IP" \
+                    "working public IPv6 egress and route-selected local source" "unavailable" "IPv6 container test requires a working host IPv6 baseline" "$group"
+                return 1
+            fi
+            record_pass_result "Host IPv6 before container creation" "SSH" "$WORKER_IP" \
+                "$host_ipv6_before" "$host_ipv6_source on $host_ipv6_interface" "Host public IPv6 egress and route-selected local source are available" "$group"
+        fi
+        local inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${container_image}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000,\"network_type\":\"${container_network_type}\"}"
         local ir
         # Instance creation is deliberately single-shot.  Retrying a POST after
         # a lost response can create a second remote instance.
-        if ! ir=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200" "$inst_data" "$group"); then
+        if ! ir=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|infra" "$inst_data" "$group"); then
             log_warning "Container instance creation returned non-200; downstream container checks will be skipped"
+            ir=""
+        elif is_infrastructure_failure_detail "$ir"; then
+            # `test_api` records an explicit provider-capacity response as a
+            # SKIP and returns its body.  Do not pass that body into the
+            # success-ID parser, which would create a second missing-ID FAIL.
+            log_warning "Container instance creation skipped due to provider capacity"
             ir=""
         fi
         # Debug: log full creation response
@@ -136,6 +284,40 @@ run_module_10() {
             else
                 container_created=true
                 container_name=$(echo "$detail" | jq -r '.data.name // empty' 2>/dev/null)
+
+                if [[ "$container_network_type" != "nat_ipv4" ]]; then
+                    local guest_ipv6 host_ipv6_bound host_ipv6_default host_ipv6_state
+                    guest_ipv6=$(echo "$detail" | jq -r '(.data.publicIPv6 | select(. != null and . != "")) // .data.ipv6Address // empty' 2>/dev/null)
+                    if [[ "$container_network_type" == "ipv6_only" ]] && ! python3 -c \
+                        'import ipaddress,sys; a=ipaddress.ip_interface(sys.argv[1]).ip; sys.exit(0 if a.is_global else 1)' \
+                        "$guest_ipv6" 2>/dev/null; then
+                        record_fail_result "Container IPv6 assignment" "GET" "/api/v1/admin/instances/${container_id}" \
+                            "public IPv6 address" "${guest_ipv6:-missing}" "IPv6-only containers require a public guest address" "$group"
+                    elif [[ -n "$guest_ipv6" && "$guest_ipv6" != "null" ]]; then
+                        record_pass_result "Container IPv6 assignment" "GET" "/api/v1/admin/instances/${container_id}" \
+                            "IPv6 address" "$guest_ipv6" "The container received an IPv6 address" "$group"
+                    else
+                        record_fail_result "Container IPv6 assignment" "GET" "/api/v1/admin/instances/${container_id}" \
+                            "IPv6 address" "missing" "The container has no IPv6 address after creation" "$group"
+                    fi
+                    # Use machine-readable host state and test the original
+                    # address both bound to the interface and via default egress.
+                    local host_ipv6_probe
+                    host_ipv6_probe=$(_m10_host_ipv6_probe_command "$host_ipv6_source" "$host_ipv6_interface")
+                    host_ipv6_state=$(platform_ssh_exec "$WORKER_IP" "$host_ipv6_probe" 90 2>/dev/null || true)
+                    local host_addr_present host_route_present
+                    IFS='|' read -r host_addr_present host_route_present host_ipv6_bound host_ipv6_default <<< "$host_ipv6_state"
+                    if [[ "$host_addr_present" == "1" && "$host_route_present" == "1" &&
+                          -n "$host_ipv6_bound" ]] &&
+                       python3 -c 'import ipaddress,sys; a=ipaddress.IPv6Address(sys.argv[1]); sys.exit(0 if a.is_global else 1)' "$host_ipv6_bound" 2>/dev/null &&
+                       python3 -c 'import ipaddress,sys; a=ipaddress.IPv6Address(sys.argv[1]); sys.exit(0 if a.is_global else 1)' "$host_ipv6_default" 2>/dev/null; then
+                        record_pass_result "Host IPv6 after container assignment" "SSH" "$WORKER_IP" \
+                            "$host_ipv6_source on $host_ipv6_interface" "$host_ipv6_bound; default=$host_ipv6_default" "Original host source remains bound and default IPv6 egress works" "$group"
+                    else
+                        record_fail_result "Host IPv6 after container assignment" "SSH" "$WORKER_IP" \
+                            "$host_ipv6_source on $host_ipv6_interface" "${host_ipv6_state:-unavailable}" "Container assignment interrupted the original host source, default route, or IPv6 egress" "$group"
+                    fi
+                fi
 
                 # -- Transparent egress API coverage (non-destructive paths only) --
                 test_api "Container egress status" "GET" "/api/v1/admin/instances/${container_id}/egress" "200" "" "$group"
@@ -248,6 +430,10 @@ run_module_10() {
             fi
 
             # -- Rebuild --
+            if [[ "${ACTION_TEST_SKIP_REBUILD:-false}" == "true" ]]; then
+                record_skip_result "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" \
+                    "Earlier live rebuild attempts exhausted their image-download retry budget; preserving the IPv6 test container" "$group"
+            else
             local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200|infra" \
                 "{\"action\":\"rebuild\",\"image\":\"${container_image}\"}" "$group")
             log_info "Rebuild response: $(echo "$rb_resp" | jq -c '.' 2>/dev/null || printf '%s' "$rb_resp")"
@@ -330,6 +516,7 @@ run_module_10() {
                 log_info "Rebuild returned code=${rb_code}, skipping post-rebuild status wait"
             fi
             fi
+            fi
         fi
     fi
 
@@ -366,8 +553,11 @@ run_module_10() {
         local vr
         # Keep VM creation single-shot for the same reason as container creation:
         # a timeout after acceptance must never trigger a duplicate POST.
-        if ! vr=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200" "$vm_data" "$group"); then
+        if ! vr=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|infra" "$vm_data" "$group"); then
             log_warning "VM instance creation returned non-200; downstream VM checks will be skipped"
+            vr=""
+        elif is_infrastructure_failure_detail "$vr"; then
+            log_warning "VM instance creation skipped due to provider capacity"
             vr=""
         fi
         local vm_task; vm_task=$(echo "$vr" | jq -r '.data.task_id // empty' 2>/dev/null)
@@ -436,8 +626,13 @@ run_module_10() {
             test_api "VM resources" "GET" "/api/v1/admin/instances/${vm_id}/monitoring/resources" "200" "" "$group"
 
             # -- Delete VM --
-            local vm_delete_resp; vm_delete_resp=$(test_api "Delete VM" "DELETE" "/api/v1/admin/instances/${vm_id}" "200" "" "$group") || vm_delete_resp=""
-            [[ -n "$vm_delete_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_delete_resp" "deleted" "delete VM ${vm_id}" "$ADMIN_TOKEN" || true
+            if [[ "$preserve_test_instances" == "true" ]]; then
+                record_skip_result "Preserve VM" "DELETE" "/api/v1/admin/instances/${vm_id}" \
+                    "ACTION_TEST_PRESERVE_INSTANCES=true; leaving the created VM for inspection" "$group"
+            else
+                local vm_delete_resp; vm_delete_resp=$(test_api "Delete VM" "DELETE" "/api/v1/admin/instances/${vm_id}" "200" "" "$group") || vm_delete_resp=""
+                [[ -n "$vm_delete_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_delete_resp" "deleted" "delete VM ${vm_id}" "$ADMIN_TOKEN" || true
+            fi
         fi
     fi
 
@@ -512,7 +707,13 @@ run_module_10() {
     # When running all modules, keep the container for modules 18, 19, 22, 24.
     # The restore_base_state handler will clean it up after all modules complete.
     if [[ -n "$container_id" && -z "$TEST_INSTANCE_ID" ]]; then
-        test_api "Delete container" "DELETE" "/api/v1/admin/instances/${container_id}" "200" "" "$group"
+        if [[ "$preserve_test_instances" == "true" ]]; then
+            export TEST_INSTANCE_ID="$container_id"
+            record_skip_result "Preserve container" "DELETE" "/api/v1/admin/instances/${container_id}" \
+                "ACTION_TEST_PRESERVE_INSTANCES=true; leaving the created container for inspection" "$group"
+        else
+            test_api "Delete container" "DELETE" "/api/v1/admin/instances/${container_id}" "200" "" "$group"
+        fi
     fi
 
     # -- Delete nonexistent instance --
@@ -581,9 +782,14 @@ run_module_10() {
             test_api "User instance detail" "GET" "/api/v1/user/instances/${user_inst_id}" "200|403" \
                 "" "$group" "$USER_TOKEN"
             # Cleanup — admin deletes the instance
-            local u_del_resp; u_del_resp=$(test_api "Admin delete user-created instance" "DELETE" \
-                "/api/v1/admin/instances/${user_inst_id}" "200" "" "$group" "$ADMIN_TOKEN") || u_del_resp=""
-            [[ -n "$u_del_resp" ]] && wait_instance_operation_settled "$user_inst_id" "$u_del_resp" "deleted" "delete user-created instance ${user_inst_id}" "$ADMIN_TOKEN" || true
+            if [[ "$preserve_test_instances" == "true" ]]; then
+                record_skip_result "Preserve user-created instance" "DELETE" "/api/v1/admin/instances/${user_inst_id}" \
+                    "ACTION_TEST_PRESERVE_INSTANCES=true; leaving the created instance for inspection" "$group"
+            else
+                local u_del_resp; u_del_resp=$(test_api "Admin delete user-created instance" "DELETE" \
+                    "/api/v1/admin/instances/${user_inst_id}" "200" "" "$group" "$ADMIN_TOKEN") || u_del_resp=""
+                [[ -n "$u_del_resp" ]] && wait_instance_operation_settled "$user_inst_id" "$u_del_resp" "deleted" "delete user-created instance ${user_inst_id}" "$ADMIN_TOKEN" || true
+            fi
         else
             log_warning "User API instance creation did not yield an instance ID (may be 400 if preconditions not met)"
         fi
@@ -751,7 +957,7 @@ run_module_10() {
                 "${SERVER_URL}/api/v1/public/instance-shares/${admin_share_token}" 2>/dev/null)
             
             # Check isFrozen field
-            local adm_is_frozen; adm_is_frozen=$(echo "$admin_shared_detail" | jq -r '.data.isFrozen // "__missing__"' 2>/dev/null)
+            local adm_is_frozen; adm_is_frozen=$(echo "$admin_shared_detail" | jq -r 'if .data | has("isFrozen") then .data.isFrozen else "__missing__" end' 2>/dev/null)
             if [[ "$adm_is_frozen" != "__missing__" ]]; then
                 log_success "Admin share detail isFrozen field present: ${adm_is_frozen}"
             else

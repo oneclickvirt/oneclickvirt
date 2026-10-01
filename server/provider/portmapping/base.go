@@ -172,6 +172,13 @@ func (bp *BaseProvider) ToDBModel(result *PortMappingResult) *provider.Port {
 	if portCount <= 0 {
 		portCount = 1
 	}
+	portType := "range_mapped"
+	if !result.IsAutomatic {
+		portType = "manual"
+		if portCount > 1 {
+			portType = "batch"
+		}
+	}
 
 	port := &provider.Port{
 		ID:            result.ID,
@@ -187,6 +194,7 @@ func (bp *BaseProvider) ToDBModel(result *PortMappingResult) *provider.Port {
 		Description:   result.Description,
 		IsSSH:         result.IsSSH,
 		IsAutomatic:   result.IsAutomatic,
+		PortType:      portType,
 		IPv6Enabled:   result.IPv6Enabled || result.IPv6Address != "",
 		IPv6Address:   result.IPv6Address,
 		MappingMethod: result.MappingMethod,

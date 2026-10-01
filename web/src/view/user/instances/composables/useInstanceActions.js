@@ -1,5 +1,5 @@
 // 实例详情页 - 操作与剪贴板工具
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -19,6 +19,7 @@ import {
   getSharedFilteredImages
 } from '@/api/user'
 import { useSSHStore } from '@/pinia/modules/ssh'
+import { createActionLock, createKeyedActionLock } from '@/utils/actionLock'
 
 export function useInstanceActions(instance, monitoring, loadInstanceDetail, shareToken = '') {
   const router = useRouter()
@@ -31,6 +32,32 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   }
 
   const actionLoading = ref(false)
+  const actionLock = createActionLock()
+  const shareLinkLock = createActionLock()
+  const passwordPollLock = createKeyedActionLock()
+  const shareLinkLoading = ref(false)
+  const passwordResetPending = ref(false)
+  const pendingTimeouts = new Set()
+  let disposed = false
+
+  const scheduleTimeout = (callback, delay) => {
+    let timeoutId
+    timeoutId = setTimeout(() => {
+      pendingTimeouts.delete(timeoutId)
+      if (!disposed) callback()
+    }, delay)
+    pendingTimeouts.add(timeoutId)
+    return timeoutId
+  }
+
+  onBeforeUnmount(() => {
+    disposed = true
+    pendingTimeouts.forEach(timeoutId => clearTimeout(timeoutId))
+    pendingTimeouts.clear()
+    passwordPollLock.clear()
+    actionLock.release()
+    shareLinkLock.release()
+  })
   const showPassword = ref(false)
   const showTrafficDetail = ref(false)
 
@@ -66,6 +93,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
 
   // Reset image selection state
   const showResetImageDialog = ref(false)
+  const resetTargetId = ref(null)
   const resetImages = ref([])
   const selectedResetImage = ref('')
   const loadingResetImages = ref(false)
@@ -101,6 +129,12 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   }
 
   const confirmResetWithImage = async () => {
+    if (actionLoading.value) return
+    if (!selectedResetImage.value) return
+    if (instance.value?.id !== resetTargetId.value) {
+      showResetImageDialog.value = false
+      return
+    }
     showResetImageDialog.value = false
     await executeReset(selectedResetImage.value)
   }
@@ -108,11 +142,13 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   const executeReset = async (image) => {
     if (!ensureInstanceOperationAllowed()) return
     if (!ensureTrafficOperationAllowed()) return
+    if (actionLoading.value || !actionLock.tryAcquire()) return
     actionLoading.value = true
+    const targetId = instance.value.id
     const token = getShareToken()
     try {
       const payload = {
-        instanceId: instance.value.id,
+        instanceId: targetId,
         action: 'reset',
         image: image || undefined
       }
@@ -136,17 +172,19 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       }
     } finally {
       actionLoading.value = false
+      actionLock.release()
     }
   }
 
   const performAction = async (action) => {
-    if (actionLoading.value) {
+    if (showResetImageDialog.value || actionLoading.value || !actionLock.tryAcquire()) {
       ElMessage.warning(t('user.instanceDetail.operationInProgress'))
       return
     }
-    if (!ensureInstanceOperationAllowed()) {
-      return
-    }
+    actionLoading.value = true
+    if (!ensureInstanceOperationAllowed()) { actionLoading.value = false; actionLock.release(); return }
+    const targetId = instance.value.id
+    const targetName = instance.value.name
 
     const actionText = {
       'start': t('user.instanceDetail.actionStart'),
@@ -157,12 +195,10 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
     }[action]
 
     const confirmText = action === 'delete'
-      ? `${t('user.instanceDetail.confirm')}${t('user.instanceDetail.delete')}${t('user.instances.title')} "${instance.value.name}" ${t('common.questionMark')}${t('user.profile.deleteConfirmNote')}`
-      : `${t('user.instanceDetail.confirm')}${actionText}${t('user.instances.title')} "${instance.value.name}" ${t('common.questionMark')}`
+      ? `${t('user.instanceDetail.confirm')}${t('user.instanceDetail.delete')}${t('user.instances.title')} "${targetName}" ${t('common.questionMark')}${t('user.profile.deleteConfirmNote')}`
+      : `${t('user.instanceDetail.confirm')}${actionText}${t('user.instances.title')} "${targetName}" ${t('common.questionMark')}`
 
-    if (!ensureTrafficOperationAllowed()) {
-      return
-    }
+    if (!ensureTrafficOperationAllowed()) { actionLoading.value = false; actionLock.release(); return }
 
     // For reset action, show image selection dialog
     if (action === 'reset') {
@@ -176,13 +212,20 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
             type: 'warning'
           }
         )
-        await loadResetImages()
-        showResetImageDialog.value = true
+        if (instance.value?.id === targetId) {
+          await loadResetImages()
+          if (instance.value?.id === targetId) {
+            resetTargetId.value = targetId
+            showResetImageDialog.value = true
+          }
+        }
       } catch (error) {
         if (error !== 'cancel') {
           console.error('重置操作出错:', error)
         }
       }
+      actionLoading.value = false
+      actionLock.release()
       return
     }
 
@@ -196,12 +239,15 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
           type: action === 'delete' ? 'error' : 'warning'
         }
       )
-
-      actionLoading.value = true
+      if (instance.value?.id !== targetId) {
+        actionLoading.value = false
+        actionLock.release()
+        return
+      }
 
       const token = getShareToken()
       const payload = {
-        instanceId: instance.value.id,
+        instanceId: targetId,
         action
       }
       const response = token
@@ -225,13 +271,24 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
             router.push('/user/instances')
           }
         } else {
-          setTimeout(async () => {
-            await loadInstanceDetail()
-            actionLoading.value = false
+          scheduleTimeout(async () => {
+            try {
+              await loadInstanceDetail()
+            } catch (error) {
+              ElMessage.error(getErrorMessage(error, t('user.instances.loadFailed')))
+            } finally {
+              actionLoading.value = false
+              actionLock.release()
+            }
           }, 3000)
         }
       } else {
         actionLoading.value = false
+        actionLock.release()
+      }
+      if (response.code === 200 && (action === 'delete' || action === 'reset')) {
+        actionLoading.value = false
+        actionLock.release()
       }
     } catch (error) {
       if (error !== 'cancel') {
@@ -239,6 +296,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
         ElMessage.error(getErrorMessage(error, `${actionText}${t('user.instances.title')}${t('common.failed')}`))
       }
       actionLoading.value = false
+      actionLock.release()
     }
   }
 
@@ -294,6 +352,8 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
   }
 
   const pollForNewPassword = (instanceId, taskId) => {
+    const pollKey = `${instanceId}:${taskId}`
+    if (!passwordPollLock.tryAcquire(pollKey)) return
     const token = getShareToken()
     let attempts = 0
     const maxAttempts = 20 // up to ~60 seconds (3s intervals)
@@ -304,36 +364,54 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
         const res = token
           ? await getSharedInstanceNewPassword(token, taskId)
           : await getInstanceNewPassword(instanceId, taskId)
+        if (disposed) {
+          passwordPollLock.release(pollKey)
+          passwordResetPending.value = false
+          return
+        }
         if (res.code === 200 && res.data?.newPassword) {
           const pwd = res.data.newPassword
+          if (disposed) {
+            passwordPollLock.release(pollKey)
+            passwordResetPending.value = false
+            return
+          }
           await ElMessageBox.alert(
             `<div style="word-break:break-all">${t('user.instanceDetail.newPassword')}: <strong style="user-select:all;font-family:monospace">${pwd}</strong></div>`,
             t('user.instanceDetail.resetPasswordTitle'),
             { dangerouslyUseHTMLString: true, confirmButtonText: t('user.instanceDetail.confirm') }
           )
-          await loadInstanceDetail()
+          if (!disposed) await loadInstanceDetail()
+          passwordPollLock.release(pollKey)
+          passwordResetPending.value = false
           return
         }
       } catch {
         // task not ready yet or error, continue polling
       }
       if (attempts < maxAttempts) {
-        setTimeout(attempt, 3000)
+        scheduleTimeout(attempt, 3000)
       } else {
         ElMessage.warning(`${t('user.tasks.taskID')}: ${taskId} — ${t('user.tasks.checkProgress') || ''}${t('user.tasks.taskList') || '任务列表'}`)
+        passwordPollLock.release(pollKey)
+        passwordResetPending.value = false
       }
     }
 
-    setTimeout(attempt, 3000)
+    scheduleTimeout(attempt, 3000)
   }
 
   const showResetPasswordDialog = async () => {
-    if (actionLoading.value) {
+    if (showResetImageDialog.value || passwordResetPending.value || actionLoading.value || !actionLock.tryAcquire()) {
       ElMessage.warning(t('user.instanceDetail.operationInProgress'))
       return
     }
-    if (!ensureInstanceOperationAllowed()) return
-    if (!ensureTrafficOperationAllowed()) return
+    actionLoading.value = true
+    if (!ensureInstanceOperationAllowed() || !ensureTrafficOperationAllowed()) {
+      actionLoading.value = false
+      actionLock.release()
+      return
+    }
 
     try {
       await ElMessageBox.confirm(
@@ -346,8 +424,6 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
         }
       )
 
-      actionLoading.value = true
-
       try {
         const token = getShareToken()
         const response = token
@@ -357,7 +433,10 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
           const taskId = response.data.taskId
           ElMessage.info(`${t('user.instanceDetail.resetPassword')}${t('user.tasks.taskCreated')}${t('common.leftParen')}${t('user.tasks.taskID')}: ${taskId}${t('common.rightParen')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
           actionLoading.value = false
-          pollForNewPassword(instance.value.id, taskId)
+          if (taskId) {
+            passwordResetPending.value = true
+            pollForNewPassword(instance.value.id, taskId)
+          }
         } else {
           ElMessage.error(response.message || t('user.instanceDetail.resetPasswordFailed'))
           actionLoading.value = false
@@ -369,6 +448,9 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
       }
     } catch {
       // 用户取消
+    } finally {
+      actionLoading.value = false
+      actionLock.release()
     }
   }
 
@@ -379,6 +461,8 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
     }
     if (!ensureInstanceOperationAllowed()) return
     if (!ensureTrafficOperationAllowed()) return
+    if (!shareLinkLock.tryAcquire()) return
+    shareLinkLoading.value = true
     try {
       const { value } = await ElMessageBox.prompt(
         t('user.instances.shareExpiryPrompt'),
@@ -405,6 +489,9 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
         console.error('创建分享链接失败:', error)
         ElMessage.error(getErrorMessage(error, t('user.instances.shareLinkCreateFailed')))
       }
+    } finally {
+      shareLinkLoading.value = false
+      shareLinkLock.release()
     }
   }
 
@@ -441,6 +528,8 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail, sha
 
   return {
     actionLoading,
+    passwordResetPending,
+    shareLinkLoading,
     showPassword,
     showTrafficDetail,
     showResetImageDialog,

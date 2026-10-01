@@ -83,9 +83,9 @@ func (p *PodmanProvider) checkLXCFS() (bool, []string, string, error) {
 }
 
 // ensureContainerRunning 确保容器处于运行状态
-func (p *PodmanProvider) ensureContainerRunning(containerName string) error {
+func (p *PodmanProvider) ensureContainerRunning(ctx context.Context, containerName string) error {
 	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(containerName))
-	output, err := p.sshClient.Execute(checkCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, checkCmd)
 	if err != nil {
 		return fmt.Errorf("检查容器状态失败: %w", err)
 	}
@@ -97,12 +97,14 @@ func (p *PodmanProvider) ensureContainerRunning(containerName string) error {
 		zap.String("containerName", containerName),
 		zap.String("status", status))
 	restartCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(containerName))
-	if _, restartErr := p.sshClient.Execute(restartCmd); restartErr != nil {
+	if _, restartErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, restartCmd); restartErr != nil {
 		return fmt.Errorf("重启容器失败: %w", restartErr)
 	}
 	for i := 0; i < 15; i++ {
-		time.Sleep(2 * time.Second)
-		out, err2 := p.sshClient.Execute(checkCmd)
+		if err := utils.SleepContext(ctx, 2*time.Second); err != nil {
+			return err
+		}
+		out, err2 := utils.ExecuteShellCommandContext(ctx, p.sshClient, checkCmd)
 		if err2 == nil && strings.ToLower(strings.TrimSpace(out)) == "running" {
 			return nil
 		}
@@ -111,7 +113,7 @@ func (p *PodmanProvider) ensureContainerRunning(containerName string) error {
 }
 
 // setContainerPasswordWithRetry 使用多种 shell 回退方式设置容器 root 密码
-func (p *PodmanProvider) setContainerPasswordWithRetry(containerName, password, preferShell string) error {
+func (p *PodmanProvider) setContainerPasswordWithRetry(ctx context.Context, containerName, password, preferShell string) error {
 	shells := []string{preferShell}
 	if preferShell != "sh" {
 		shells = append(shells, "sh")
@@ -131,7 +133,7 @@ func (p *PodmanProvider) setContainerPasswordWithRetry(containerName, password, 
 					shellSingleQuote(password), cliName, shellSingleQuote(containerName), shellSingleQuote(shell), shellSingleQuote(fallbackInnerCmd)),
 				TimeoutSeconds: 60,
 			})
-			_, err := p.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)
+			_, err := utils.ExecuteViaTempScriptContext(ctx, p.sshClient, script, nil, 120*time.Second)
 			if err == nil {
 				return nil
 			}
@@ -142,8 +144,10 @@ func (p *PodmanProvider) setContainerPasswordWithRetry(containerName, password, 
 				zap.Error(err))
 		}
 		if attempt < maxRetries {
-			time.Sleep(5 * time.Second)
-			p.ensureContainerRunning(containerName)
+			if err := utils.SleepContext(ctx, 5*time.Second); err != nil {
+				return err
+			}
+			_ = p.ensureContainerRunning(ctx, containerName)
 		}
 	}
 	return fmt.Errorf("所有 shell 方式均无法设置容器密码: %s", containerName)
@@ -155,7 +159,7 @@ func (p *PodmanProvider) configureInstanceSSHPassword(ctx context.Context, confi
 
 	shellType := "bash"
 	scriptName := "ssh_bash.sh"
-	output, err := p.sshClient.Execute(fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", cliName, shellSingleQuote(config.Name)))
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", cliName, shellSingleQuote(config.Name)))
 	if err == nil {
 		osType := utils.CleanCommandOutput(strings.ToLower(output))
 		if osType == "alpine" || osType == "openwrt" {
@@ -166,11 +170,13 @@ func (p *PodmanProvider) configureInstanceSSHPassword(ctx context.Context, confi
 
 	scriptPath := filepath.Join("/usr/local/bin", scriptName)
 	if p.isRemoteFileValid(scriptPath) {
-		time.Sleep(3 * time.Second)
+		if err := utils.SleepContext(ctx, 3*time.Second); err != nil {
+			return err
+		}
 		copyCmd := fmt.Sprintf("%s cp %s %s", cliName, shellSingleQuote(scriptPath), shellSingleQuote(config.Name+":/root/"))
-		_, copyErr := p.sshClient.Execute(copyCmd)
+		_, copyErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, copyCmd)
 		if copyErr == nil {
-			p.sshClient.Execute(fmt.Sprintf("%s exec %s %s -c %s", cliName, shellSingleQuote(config.Name), shellSingleQuote(shellType), shellSingleQuote("chmod +x /root/"+scriptName)))
+			_, _ = utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s exec %s %s -c %s", cliName, shellSingleQuote(config.Name), shellSingleQuote(shellType), shellSingleQuote("chmod +x /root/"+scriptName)))
 			// 使用临时脚本方式执行 SSH 配置脚本，避免 agent 模式下 WebSocket 超时
 			sshInnerCmd := fmt.Sprintf("interactionless=true %s /root/%s %s", shellType, scriptName, shellSingleQuote(password))
 			sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
@@ -178,21 +184,23 @@ func (p *PodmanProvider) configureInstanceSSHPassword(ctx context.Context, confi
 					cliName, shellSingleQuote(config.Name), shellSingleQuote(shellType), shellSingleQuote(sshInnerCmd)),
 				TimeoutSeconds: 60,
 			})
-			_, execErr := p.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
+			_, execErr := utils.ExecuteViaTempScriptContext(ctx, p.sshClient, sshExecScript, nil, 180*time.Second)
 			if execErr != nil {
 				global.APP_LOG.Warn("执行SSH配置脚本失败，将使用直接设置密码",
 					zap.String("instanceName", config.Name),
 					zap.Error(execErr))
 			}
-			time.Sleep(5 * time.Second)
+			if err := utils.SleepContext(ctx, 5*time.Second); err != nil {
+				return err
+			}
 		}
 	}
 
-	if ensureErr := p.ensureContainerRunning(config.Name); ensureErr != nil {
+	if ensureErr := p.ensureContainerRunning(ctx, config.Name); ensureErr != nil {
 		return fmt.Errorf("配置SSH密码前确认容器运行状态失败: %w", ensureErr)
 	}
 
-	if err := p.setContainerPasswordWithRetry(config.Name, password, shellType); err != nil {
+	if err := p.setContainerPasswordWithRetry(ctx, config.Name, password, shellType); err != nil {
 		return fmt.Errorf("设置容器密码失败: %w", err)
 	}
 
@@ -212,35 +220,34 @@ func (p *PodmanProvider) configureInstanceSSHPassword(ctx context.Context, confi
 
 // getContainerPrivateIP 获取容器的内网IP地址
 func (p *PodmanProvider) getContainerPrivateIP(containerName string) (string, error) {
-	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", cliName, shellSingleQuote(containerName))
-	output, err := p.sshClient.Execute(cmd)
-	if err == nil {
-		ipAddress := utils.CleanCommandOutput(output)
-		if ipAddress != "" && ipAddress != "<no value>" {
-			return ipAddress, nil
-		}
+	formats := []string{
+		fmt.Sprintf("{{with index .NetworkSettings.Networks %q}}{{.IPAddress}}{{end}}", ipv4Network),
+		"{{range $net, $config := .NetworkSettings.Networks}}{{if $config.IPAddress}}{{$config.IPAddress}}{{println}}{{end}}{{end}}",
+		"{{.NetworkSettings.IPAddress}}",
 	}
-
-	cmd = fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, shellSingleQuote(containerName))
-	output, err = p.sshClient.Execute(cmd)
-	if err == nil {
-		ipAddress := utils.CleanCommandOutput(output)
-		if ipAddress != "" && ipAddress != "<no value>" {
+	var lastErr error
+	for _, format := range formats {
+		cmd := fmt.Sprintf("%s inspect %s --format %s", cliName, shellSingleQuote(containerName), shellSingleQuote(format))
+		output, err := p.sshClient.Execute(cmd)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if ipAddress, parseErr := utils.ParseFirstIPv4AddressOutput(output); parseErr == nil {
 			return ipAddress, nil
 		}
 	}
 
 	hostCmd := fmt.Sprintf("%s exec %s hostname -I 2>/dev/null", cliName, shellSingleQuote(containerName))
-	hostOutput, hostErr := p.sshClient.Execute(hostCmd)
-	if hostErr == nil {
-		ips := strings.Fields(strings.TrimSpace(hostOutput))
-		if len(ips) > 0 && ips[0] != "" {
-			return ips[0], nil
+	if hostOutput, err := p.sshClient.Execute(hostCmd); err == nil {
+		if ipAddress, parseErr := utils.ParseFirstIPv4AddressOutput(hostOutput); parseErr == nil {
+			return ipAddress, nil
 		}
+	} else {
+		lastErr = err
 	}
-
-	if err != nil {
-		return "", fmt.Errorf("failed to get container IP: %w", err)
+	if lastErr != nil {
+		return "", fmt.Errorf("failed to get container IP: %w", lastErr)
 	}
 	return "", fmt.Errorf("container IP is empty")
 }

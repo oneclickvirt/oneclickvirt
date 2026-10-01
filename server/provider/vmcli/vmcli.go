@@ -351,7 +351,7 @@ func (p *Provider) ExecuteSSHCommand(ctx context.Context, command string) (strin
 	if exec == nil {
 		return "", fmt.Errorf("%s provider not connected", p.spec.DisplayName)
 	}
-	return exec.Execute(command)
+	return utils.ExecuteShellCommandContext(ctx, exec, command)
 }
 
 func (p *Provider) DiscoverInstances(ctx context.Context) ([]rootProvider.DiscoveredInstance, error) {

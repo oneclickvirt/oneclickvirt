@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -54,7 +55,7 @@ func TestResolveRoutedIPv6AcceptsPointToPoint127(t *testing.T) {
 	if routed.Prefix != 127 || routed.AddressCIDR() != "2001:db8::1/127" {
 		t.Fatalf("unexpected /127 routed config: %#v", routed)
 	}
-	if command := routed.HostCheckCommand(); !strings.Contains(command, "2001:db8::/127") || !strings.Contains(command, "oneclickvirt6") || !strings.Contains(command, "$(uname -s") || !strings.Contains(command, "requires a Linux node") || !strings.Contains(command, "net.ipv6.conf.all.forwarding") || !strings.Contains(command, "net.ipv6.conf.default.forwarding") || strings.Contains(command, "proxy_ndp") {
+	if command := routed.HostCheckCommand(); !strings.Contains(command, "2001:db8::/127") || !strings.Contains(command, "oneclickvirt6") || !strings.Contains(command, "$(uname -s") || !strings.Contains(command, "requires a Linux node") || !strings.Contains(command, "net.ipv6.conf.all.forwarding") || !strings.Contains(command, "net.ipv6.conf.default.forwarding") || !strings.Contains(command, "LC_ALL=C NO_COLOR=1 ip -o -6 addr show") || !strings.Contains(command, "LC_ALL=C NO_COLOR=1 ip -6 route show") || strings.Contains(command, "proxy_ndp") {
 		t.Fatalf("HostCheckCommand() missing routed details: %q", command)
 	}
 	reversed, reversedPresent, reversedErr := ResolveRoutedIPv6(InstanceConfig{Metadata: map[string]string{
@@ -109,12 +110,32 @@ func TestRoutedIPv6VethCommandIsBoundedAndUsesNamespacePeer(t *testing.T) {
 			t.Fatalf("command missing %q: %s", fragment, command)
 		}
 	}
+	for _, fragment := range []string{
+		"routed IPv6 guest address is already bound on the host",
+		"routed IPv6 guest address already has a host /128 route",
+	} {
+		if !strings.Contains(command, fragment) {
+			t.Fatalf("command missing host reservation guard %q: %s", fragment, command)
+		}
+	}
 	if strings.Contains(command, "macvlan") || strings.Contains(command, "network create") {
 		t.Fatalf("routed veth command unexpectedly creates a runtime network: %s", command)
 	}
 	host, peer := RoutedIPv6VethNames("docker", "instance-a", 17)
 	if len(host) > 15 || len(peer) > 15 || host == peer {
 		t.Fatalf("invalid interface names: %q %q", host, peer)
+	}
+}
+
+func TestRoutedIPv6HostCheckCommandIsValidShell(t *testing.T) {
+	routed := RoutedIPv6Config{
+		Address: "2001:db8::2", CIDR: "2001:db8::/126", Gateway: "2001:db8::1",
+		Bridge: "oneclickvirt6", Prefix: 126, TunnelInterface: "he-ipv6",
+	}
+	command := exec.Command("sh", "-n")
+	command.Stdin = strings.NewReader(routed.HostCheckCommand())
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("HostCheckCommand() generated invalid shell: %v: %s", err, output)
 	}
 }
 

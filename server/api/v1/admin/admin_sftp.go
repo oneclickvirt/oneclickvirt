@@ -141,7 +141,7 @@ func AdminInstanceSFTPList(c *gin.Context) {
 		return
 	}
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		global.APP_LOG.Warn("管理员实例SFTP连接失败", zap.Uint("instanceID", instance.ID), zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
@@ -191,7 +191,7 @@ func AdminInstanceSFTPDownload(c *gin.Context) {
 		return
 	}
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
 		return
@@ -271,7 +271,7 @@ func AdminProviderSFTPList(c *gin.Context) {
 		return
 	}
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		global.APP_LOG.Warn("管理员节点SFTP连接失败", zap.Uint("providerID", provider.ID), zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
@@ -321,7 +321,7 @@ func AdminProviderSFTPDownload(c *gin.Context) {
 		return
 	}
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
 		return
@@ -506,7 +506,7 @@ func handleAdminSFTPUploadStatus(c *gin.Context, target *remote.SSHAccessTarget)
 		return
 	}
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
 		return
@@ -556,7 +556,7 @@ func handleAdminSFTPUploadAbort(c *gin.Context, target *remote.SSHAccessTarget) 
 	}
 	remotePath := adminResolveUploadTargetPath(rawTargetPath, targetDir, filename)
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
 		return
@@ -624,7 +624,7 @@ func handleAdminSFTPUpload(c *gin.Context, target *remote.SSHAccessTarget) {
 		return
 	}
 
-	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
+	sftpClient, cleanup, err := remote.OpenSFTPClientContext(c.Request.Context(), target)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SFTP连接失败"))
 		return

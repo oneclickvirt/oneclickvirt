@@ -28,6 +28,204 @@ type ipv6CommandExecutor struct {
 	output   func(string) string
 }
 
+func TestDirectIPv6AllocationPreservesEveryHostAddress(t *testing.T) {
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.sshClient.SetExecutor(&ipv6CommandExecutor{output: func(command string) string {
+		if strings.Contains(command, "ip -j -6 addr show") {
+			return "\x1b[32m" + `[{"ifname":"vmbr0","addr_info":[{"family":"inet6","local":"2a01:4f8:c014:1a63::1"},{"family":"inet6","local":"2a01:4f8:c014:1a63::100"}]}]` + "\x1b[0m"
+		}
+		if strings.Contains(command, "ip -j -6 route show table all") {
+			return `[{"dst":"default","gateway":"fe80::1"},{"dst":"2a01:4f8:c014:1a63::99/128"}]`
+		}
+		return ""
+	}})
+	for _, address := range []string{"2a01:4f8:c014:1a63::1", "2a01:4f8:c014:1a63::100", "2a01:4f8:c014:1a63::99", "fe80::1"} {
+		if err := p.ensureGuestIPv6DoesNotOwnHostAddress(address); err == nil {
+			t.Fatalf("allowed host IPv6 address %s to be assigned", address)
+		}
+	}
+	if err := p.ensureGuestIPv6DoesNotOwnHostAddress("2a01:4f8:c014:1a63::101"); err != nil {
+		t.Fatalf("rejected unused IPv6 address: %v", err)
+	}
+}
+
+func TestAppendedIPv6PoolSkipsHostOwnedAddressBeforeReservation(t *testing.T) {
+	executor := &ipv6CommandExecutor{output: func(command string) string {
+		switch {
+		case strings.Contains(command, "cat '/usr/local/bin/pve_appended_content.txt'"):
+			return "2a01:4f8:c014:1a63::1\n2a01:4f8:c014:1a63::10\n"
+		case strings.Contains(command, "ip -j -6 addr show"):
+			return "\x1b[32m" + `[{"ifname":"vmbr0","addr_info":[{"family":"inet6","local":"2a01:4f8:c014:1a63::1","prefixlen":120}]}]` + "\x1b[0m"
+		case strings.Contains(command, "ip -j -6 route show table all"):
+			return `[{"dst":"default","gateway":"fe80::1"}]`
+		default:
+			return ""
+		}
+	}}
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.sshClient.SetExecutor(executor)
+	address, err := p.getAvailableVmbr1IPv6(context.Background())
+	if err != nil || address != "2a01:4f8:c014:1a63::10" {
+		t.Fatalf("appended IPv6 allocation = %q, %v", address, err)
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, " >> ") && strings.Contains(command, "2a01:4f8:c014:1a63::1'") {
+			t.Fatalf("reserved host address was marked used: %s", command)
+		}
+	}
+}
+
+func TestGetIPv6InfoUsesColoredJSONPrefixInsteadOf64Fallback(t *testing.T) {
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.sshClient.SetExecutor(&ipv6CommandExecutor{
+		fail: func(command string) error {
+			if strings.HasPrefix(command, "[ -s") || strings.HasPrefix(command, "[ -f") {
+				return errors.New("missing persisted PVE IPv6 state")
+			}
+			return nil
+		},
+		output: func(command string) string {
+			if strings.Contains(command, "ip -j -6 addr show scope global") {
+				return "\x1b[32m" + `[{"ifname":"vmbr2","addr_info":[{"family":"inet6","local":"2a14:7c0:1002:10f8::1","prefixlen":38,"scope":"global"}]}]` + "\x1b[0m"
+			}
+			if strings.Contains(command, "ip -j -6 route show default") {
+				return `[{"dst":"default","gateway":"fe80::1","dev":"vmbr2"}]`
+			}
+			return ""
+		},
+	})
+
+	info, err := p.getIPv6Info(context.Background())
+	if err != nil {
+		t.Fatalf("getIPv6Info() error = %v", err)
+	}
+	if info.HostIPv6Address != "2a14:7c0:1002:10f8::1" || info.Network.PrefixLen != 38 || info.IPv6PrefixLen != "38" {
+		t.Fatalf("getIPv6Info() = %#v, want the JSON /38 network", info)
+	}
+}
+
+func TestProxmoxSharedNAT66AcceptsHostOnlyIPv6WithoutReassigningIt(t *testing.T) {
+	setupProxmoxIPv6CommandTestDB(t)
+	executor := &ipv6CommandExecutor{
+		fail: func(command string) error {
+			if strings.HasPrefix(command, "[ -s") || strings.HasPrefix(command, "[ -f") {
+				return errors.New("no delegated public IPv6 bridge")
+			}
+			return nil
+		},
+		output: func(command string) string {
+			switch {
+			case strings.Contains(command, pveNATIPv6SubnetFile):
+				return "fd42:5339:296f:1f00::/64\tfd42:5339:296f:1f00::1\n"
+			case strings.Contains(command, "ip -j -6 addr show scope global"):
+				return "\x1b[32m" + `[{"ifname":"vmbr0","addr_info":[{"family":"inet6","local":"2a01:4f8:c014:1a63::1","prefixlen":128,"scope":"global"}]}]` + "\x1b[0m"
+			case strings.Contains(command, "ip -j -6 route show default"):
+				return `[{"dst":"default","gateway":"fe80::1","dev":"vmbr0"}]`
+			default:
+				return ""
+			}
+		},
+	}
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.config.ID = 1
+	p.bridgeNAT = "vmbr1"
+	p.sshClient.SetExecutor(executor)
+	config := coreprovider.InstanceConfig{Metadata: map[string]string{"network_type": "nat_ipv4_ipv6"}}
+	mode, err := p.resolveProxmoxIPv6ModeForConfig(context.Background(), config)
+	if err != nil || !mode.UseNAT66 || !mode.UseNATMapping || mode.NAT == nil {
+		t.Fatalf("shared NAT66 mode = %#v, %v", mode, err)
+	}
+	if mode.Info.HostIPv6Address != "2a01:4f8:c014:1a63::1" || mode.Info.Network.PrefixLen != 128 {
+		t.Fatalf("host IPv6 changed or prefix was assumed /64: %#v", mode.Info)
+	}
+	joined := strings.Join(executor.commands, "\n")
+	if !strings.Contains(joined, "nft list chain ip6 nat postrouting") || strings.Contains(joined, "ip -6 addr add") || strings.Contains(joined, "ip -6 addr del") {
+		t.Fatalf("unexpected host mutation or missing NAT66 check:\n%s", joined)
+	}
+
+	executor.commands = nil
+	if err := p.configureContainerIPv6(context.Background(), 101, config, "vmbr1", true, true, mode.Info, mode.NAT, false); err != nil {
+		t.Fatalf("configure shared NAT66 container: %v", err)
+	}
+	joined = strings.Join(executor.commands, "\n")
+	if !strings.Contains(joined, "ip6=fd42:5339:296f:1f00::65/64") || strings.Contains(joined, "ipv6_nat_rules.sh") || strings.Contains(joined, "DNAT") {
+		t.Fatalf("shared NAT66 container attempted a public-address mapping:\n%s", joined)
+	}
+}
+
+func TestProxmoxNarrowDirectPrefixFallsBackToNAT66ForDualStackGuest(t *testing.T) {
+	setupProxmoxIPv6CommandTestDB(t)
+	executor := &ipv6CommandExecutor{
+		fail: func(command string) error {
+			if strings.HasPrefix(command, "[ -s '/usr/local/bin/pve_appended_content.txt' ]") {
+				return errors.New("no appended address pool")
+			}
+			return nil
+		},
+		output: func(command string) string {
+			switch {
+			case strings.Contains(command, pveNATIPv6SubnetFile):
+				return "fd42:5339:296f:1f00::/64\tfd42:5339:296f:1f00::1\n"
+			case strings.Contains(command, "ip -j -6 addr show scope global"):
+				return "\x1b[32m" + `[{"ifname":"vmbr0","addr_info":[{"family":"inet6","local":"2a01:4f8:c014:1a63::1","prefixlen":120,"scope":"global"}]}]` + "\x1b[0m"
+			case strings.Contains(command, "ip -j -6 route show default"):
+				return `[{"dst":"default","gateway":"fe80::1","dev":"vmbr0"}]`
+			case strings.Contains(command, "cat /usr/local/bin/pve_check_ipv6"):
+				return "2a01:4f8:c014:1a63::1/120"
+			default:
+				return ""
+			}
+		},
+	}
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.bridgeNAT = "vmbr1"
+	p.bridgeDedicatedV6 = "vmbr2"
+	p.sshClient.SetExecutor(executor)
+	config := coreprovider.InstanceConfig{Metadata: map[string]string{"network_type": "nat_ipv4_ipv6"}}
+	mode, err := p.resolveProxmoxIPv6ModeForConfig(context.Background(), config)
+	if err != nil || !mode.UseNAT66 || mode.Info.Network.PrefixLen != 120 {
+		t.Fatalf("narrow-prefix mode = %#v, %v; want shared NAT66 with /120 host", mode, err)
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "ip -6 addr add") || strings.Contains(command, "ip -6 addr del") {
+			t.Fatalf("NAT66 fallback changed a host IPv6 address: %s", command)
+		}
+	}
+	config.Metadata["network_type"] = "ipv6_only"
+	if _, err := p.resolveProxmoxIPv6ModeForConfig(context.Background(), config); err == nil {
+		t.Fatal("IPv6-only guest accepted shared NAT66 in place of a dedicated address")
+	}
+}
+
+func TestProxmoxSharedNAT66FailsBeforeGuestCreationWithoutEgressRule(t *testing.T) {
+	executor := &ipv6CommandExecutor{
+		fail: func(command string) error {
+			if strings.Contains(command, "nft list chain ip6 nat postrouting") || strings.Contains(command, "ip6tables -t nat -C") {
+				return errors.New("NAT66 rule absent")
+			}
+			return nil
+		},
+		output: func(command string) string {
+			switch {
+			case strings.Contains(command, pveNATIPv6SubnetFile):
+				return "fd42:5339:296f:1f00::/64\tfd42:5339:296f:1f00::1\n"
+			case strings.Contains(command, "ip -j -6 addr show scope global"):
+				return `[{"ifname":"vmbr0","addr_info":[{"family":"inet6","local":"2a01:4f8:c014:1a63::1","prefixlen":120,"scope":"global"}]}]`
+			case strings.Contains(command, "ip -j -6 route show default"):
+				return `[{"dst":"default","gateway":"fe80::1","dev":"vmbr0"}]`
+			default:
+				return ""
+			}
+		},
+	}
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.bridgeNAT = "vmbr1"
+	p.sshClient.SetExecutor(executor)
+	if _, err := p.resolveProxmoxSharedNAT66Mode(context.Background()); err == nil || !strings.Contains(err.Error(), "NAT66") {
+		t.Fatalf("missing egress rule error = %v", err)
+	}
+}
+
 func (e *ipv6CommandExecutor) Execute(command string) (string, error) {
 	e.commands = append(e.commands, command)
 	output := ""
@@ -80,6 +278,28 @@ func setupProxmoxIPv6CommandTestDB(t *testing.T) {
 		global.APP_DB = oldDB
 		global.APP_LOG = oldLog
 	})
+}
+
+func TestProxmoxIPv6AddressSettingsUsesDiscoveredPrefixWhenNoStaticCIDR(t *testing.T) {
+	config := coreprovider.InstanceConfig{Metadata: map[string]string{}}
+	for _, prefix := range []int{38, 56, 64, 120} {
+		cidr, gateway, err := proxmoxIPv6AddressSettings(config, "2a01:4f8:c014:1a63::101", "2a01:4f8:c014:1a63::1", prefix)
+		if err != nil {
+			t.Fatalf("prefix /%d: %v", prefix, err)
+		}
+		if cidr != fmt.Sprintf("2a01:4f8:c014:1a63::101/%d", prefix) || gateway != "2a01:4f8:c014:1a63::1" {
+			t.Fatalf("prefix /%d: cidr=%q gateway=%q", prefix, cidr, gateway)
+		}
+	}
+
+	static := coreprovider.InstanceConfig{Metadata: map[string]string{
+		"static_ipv6_cidr":    "2001:db8::/126",
+		"static_ipv6_gateway": "2001:db8::1",
+	}}
+	cidr, gateway, err := proxmoxIPv6AddressSettings(static, "2001:db8::2", "2001:db8::1", 38)
+	if err != nil || cidr != "2001:db8::2/126" || gateway != "2001:db8::1" {
+		t.Fatalf("static routed prefix did not override discovery: cidr=%q gateway=%q err=%v", cidr, gateway, err)
+	}
 }
 
 func TestExecuteIPv6NetworkCommandFallsBackWithoutRate(t *testing.T) {
@@ -294,7 +514,12 @@ func TestProxmoxVMUsesIPv6SecondNICOnlyForDualStack(t *testing.T) {
 }
 
 func TestSetupNATMappingUsesIdempotentRulesAndPersistence(t *testing.T) {
-	executor := &ipv6CommandExecutor{}
+	executor := &ipv6CommandExecutor{output: func(command string) string {
+		if strings.Contains(command, "ip -j -6 addr show") || strings.Contains(command, "ip -j -6 route show") {
+			return "[]"
+		}
+		return ""
+	}}
 	provider := NewProxmoxProvider().(*ProxmoxProvider)
 	provider.sshClient.SetExecutor(executor)
 
@@ -324,7 +549,12 @@ func TestSetupNATMappingUsesIdempotentRulesAndPersistence(t *testing.T) {
 }
 
 func TestSetupNATMappingPropagatesRuleFailure(t *testing.T) {
-	executor := &ipv6CommandExecutor{fail: func(command string) error {
+	executor := &ipv6CommandExecutor{output: func(command string) string {
+		if strings.Contains(command, "ip -j -6 addr show") || strings.Contains(command, "ip -j -6 route show") {
+			return "[]"
+		}
+		return ""
+	}, fail: func(command string) error {
 		if strings.Contains(command, "-C PREROUTING") {
 			return errors.New("ip6tables unavailable")
 		}
@@ -340,6 +570,28 @@ func TestSetupNATMappingPropagatesRuleFailure(t *testing.T) {
 	for _, command := range executor.commands {
 		if strings.Contains(command, "POSTROUTING") || strings.Contains(command, "grep -Fqx") {
 			t.Fatalf("continued after DNAT failure: %#v", executor.commands)
+		}
+	}
+}
+
+func TestSetupNATMappingPreservesHostIPv6(t *testing.T) {
+	executor := &ipv6CommandExecutor{output: func(command string) string {
+		if strings.Contains(command, "ip -j -6 addr show") {
+			return "\x1b[32m" + `[{"ifname":"vmbr0","addr_info":[{"family":"inet6","local":"2a01:4f8:c014:1a63::1","prefixlen":64}]}]` + "\x1b[0m"
+		}
+		if strings.Contains(command, "ip -j -6 route show") {
+			return `[{"dst":"default","gateway":"fe80::1","dev":"vmbr0"}]`
+		}
+		return ""
+	}}
+	provider := NewProxmoxProvider().(*ProxmoxProvider)
+	provider.sshClient.SetExecutor(executor)
+	if err := provider.setupNATMapping(context.Background(), "fd42:5339:296f:1f00::64", "2a01:4f8:c014:1a63::1"); err == nil || !strings.Contains(err.Error(), "宿主机") {
+		t.Fatalf("setupNATMapping() error = %v, want host-address conflict", err)
+	}
+	for _, command := range executor.commands {
+		if strings.Contains(command, "ip6tables") || strings.Contains(command, "ipv6_nat_rules.sh") {
+			t.Fatalf("host-address conflict changed NAT rules: %#v", executor.commands)
 		}
 	}
 }
@@ -458,7 +710,12 @@ func TestProxmoxDirectIPv6AutomaticAllocationRejectsNarrowPrefix(t *testing.T) {
 
 func TestConfigureProxmoxVMNATIPv6UsesPersistedULA(t *testing.T) {
 	setupProxmoxIPv6CommandTestDB(t)
-	executor := &ipv6CommandExecutor{}
+	executor := &ipv6CommandExecutor{output: func(command string) string {
+		if strings.Contains(command, "ip -j -6 addr show") || strings.Contains(command, "ip -j -6 route show") {
+			return "[]"
+		}
+		return ""
+	}}
 	p := NewProxmoxProvider().(*ProxmoxProvider)
 	p.config.ID = 1
 	p.sshClient.SetExecutor(executor)
@@ -470,7 +727,7 @@ func TestConfigureProxmoxVMNATIPv6UsesPersistedULA(t *testing.T) {
 		"network_type": "ipv6_only",
 		"static_ipv6":  "2605:52c0:2:14b::101",
 	}}
-	if err := p.configureVMIPv6(context.Background(), 101, config, "vmbr1", true, &IPv6Info{}, &natConfig, true); err != nil {
+	if err := p.configureVMIPv6(context.Background(), 101, config, "vmbr1", true, false, &IPv6Info{}, &natConfig, true); err != nil {
 		t.Fatalf("configureVMIPv6() error = %v", err)
 	}
 	joined := strings.Join(executor.commands, "\n")
@@ -481,7 +738,12 @@ func TestConfigureProxmoxVMNATIPv6UsesPersistedULA(t *testing.T) {
 
 func TestConfigureProxmoxContainerNATIPv6UsesPersistedULA(t *testing.T) {
 	setupProxmoxIPv6CommandTestDB(t)
-	executor := &ipv6CommandExecutor{}
+	executor := &ipv6CommandExecutor{output: func(command string) string {
+		if strings.Contains(command, "ip -j -6 addr show") || strings.Contains(command, "ip -j -6 route show") {
+			return "[]"
+		}
+		return ""
+	}}
 	p := NewProxmoxProvider().(*ProxmoxProvider)
 	p.config.ID = 1
 	p.sshClient.SetExecutor(executor)
@@ -494,7 +756,7 @@ func TestConfigureProxmoxContainerNATIPv6UsesPersistedULA(t *testing.T) {
 		"network_type": "ipv6_only",
 		"static_ipv6":  "2605:52c0:2:14b::101",
 	}}
-	if err := p.configureContainerIPv6(context.Background(), 101, config, "vmbr1", true, &IPv6Info{}, &natConfig, true); err != nil {
+	if err := p.configureContainerIPv6(context.Background(), 101, config, "vmbr1", true, false, &IPv6Info{}, &natConfig, true); err != nil {
 		t.Fatalf("configureContainerIPv6() error = %v", err)
 	}
 	joined := strings.Join(executor.commands, "\n")

@@ -186,8 +186,15 @@ platform_ssh_exec() {
 }
 platform_validate_worker_resources qemu 192.0.2.10 lightnode >/dev/null 2>&1 || fail "valid qemu/both worker check was rejected"
 grep -Fq 'required>=4' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not enforce the 4 CPU peak budget"
-grep -Fq 'required>=7680' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not allow only nominal-memory virtualization overhead"
+grep -Fq 'required>=7607' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not allow measured 8 GiB cloud overhead"
 grep -Fq '/dev/kvm missing' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not enforce nested virtualization"
+configure_action_test_resources_for_env incus
+INSTANCE_TYPES=container
+platform_validate_worker_resources incus 192.0.2.10 hetzner >/dev/null 2>&1 || fail "valid 4 GiB Incus worker check was rejected"
+grep -Fq 'required>=3804' "$RESOURCE_COMMAND_FILE" || fail "4 GiB cloud worker with 3819 MiB MemTotal would be falsely rejected"
+ENV_TYPE=qemu
+INSTANCE_TYPES=both
+configure_action_test_resources_for_env "$ENV_TYPE"
 MOCK_RESOURCE_CHECK_RESULT=1
 resource_check_rc=0
 platform_validate_worker_resources qemu 192.0.2.10 lightnode >/dev/null 2>&1 || resource_check_rc=$?

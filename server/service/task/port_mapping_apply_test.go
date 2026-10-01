@@ -65,6 +65,18 @@ func TestNormalizePortMappingMethod(t *testing.T) {
 	}
 }
 
+func TestPortMappingProviderIdentifierUsesPVEInstanceName(t *testing.T) {
+	instance := &providerModel.Instance{Name: "ci-switch-retry", ProviderVMID: "100"}
+	for _, providerType := range []string{"proxmox", "proxmoxve", "pve"} {
+		if got := portMappingProviderIdentifier(instance, providerType); got != instance.Name {
+			t.Fatalf("provider type %s owner = %q, want %q", providerType, got, instance.Name)
+		}
+	}
+	if got := portMappingProviderIdentifier(instance, "incus"); got != "100" {
+		t.Fatalf("non-PVE provider identifier = %q, want ProviderVMID", got)
+	}
+}
+
 func TestRepairPortMappingSkipReason(t *testing.T) {
 	running := &providerModel.Instance{ID: 1, Status: constant.InstanceStatusRunning, PrivateIP: "10.0.0.2"}
 	stopped := &providerModel.Instance{ID: 1, Status: constant.InstanceStatusStopped, PrivateIP: "10.0.0.2"}

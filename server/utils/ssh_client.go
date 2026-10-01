@@ -33,7 +33,7 @@ type SSHClient struct {
 	keepaliveWg     *sync.WaitGroup    // keepalive goroutine同步（指针避免拷贝）
 	transportFailed <-chan struct{}    // keepalive reports failure without closing the shared transport
 	mu              sync.RWMutex       // 保护并发访问
-	reconnectMu     sync.Mutex
+	reconnectGate   chan struct{}
 	observed        *ssh.Client
 	transportDone   <-chan struct{}
 	closed          bool // 标记是否已关闭
@@ -103,6 +103,25 @@ func (c *SSHClient) inUse() bool {
 	return c.activeUses > 0
 }
 
+func (c *SSHClient) acquireReconnect(ctx context.Context) (func(), error) {
+	c.mu.Lock()
+	if c.reconnectGate == nil {
+		c.reconnectGate = make(chan struct{}, 1)
+	}
+	gate := c.reconnectGate
+	c.mu.Unlock()
+	select {
+	case gate <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-gate
+			return nil, err
+		}
+		return func() { <-gate }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 // Atomically refuse new users only if no operation currently owns this client.
 func (c *SSHClient) retireIfIdle() bool {
 	c.mu.Lock()
@@ -146,6 +165,16 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 
 // dialSSH 建立SSH连接的内部方法
 func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup, <-chan struct{}, error) {
+	return dialSSHContext(context.Background(), config)
+}
+
+func dialSSHContext(ctx context.Context, config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup, <-chan struct{}, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, nil, nil, err
+	}
 	// 构建认证方法：支持密钥和密码，SSH客户端会按顺序尝试
 	var authMethods []ssh.AuthMethod
 
@@ -189,15 +218,28 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	tcp, err := net.DialTimeout("tcp", addr, timeout)
+	dialer := net.Dialer{Timeout: timeout}
+	tcp, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
 	_ = tcp.SetDeadline(time.Now().Add(timeout))
+	stopCloseOnCancel := context.AfterFunc(ctx, func() { _ = tcp.Close() })
 	conn, channels, requests, err := ssh.NewClientConn(tcp, addr, sshConfig)
+	closeCallbackStopped := stopCloseOnCancel()
 	if err != nil {
 		tcp.Close()
+		if ctx.Err() != nil {
+			return nil, nil, nil, nil, ctx.Err()
+		}
 		return nil, nil, nil, nil, fmt.Errorf("SSH handshake failed: %w", err)
+	}
+	if !closeCallbackStopped || ctx.Err() != nil {
+		_ = tcp.Close()
+		if err := ctx.Err(); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		return nil, nil, nil, nil, fmt.Errorf("SSH connection cancelled during handshake")
 	}
 	_ = tcp.SetDeadline(time.Time{})
 	client := ssh.NewClient(conn, channels, requests)
@@ -423,11 +465,27 @@ func (c *SSHClient) Close() error {
 // Reconnect coalesces concurrent recovery and never retires a healthy shared
 // transport because one command could not open a channel.
 func (c *SSHClient) Reconnect() error {
+	return c.ReconnectContext(context.Background())
+}
+
+// ReconnectContext establishes a replacement transport without letting a
+// cancelled task wait through the full retry window. Existing sessions remain
+// attached to the retired transport until their leases are released.
+func (c *SSHClient) ReconnectContext(ctx context.Context) error {
 	if c == nil {
 		return fmt.Errorf("SSH client is nil")
 	}
-	c.reconnectMu.Lock()
-	defer c.reconnectMu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	releaseReconnect, err := c.acquireReconnect(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseReconnect()
 	if c.IsHealthy() {
 		return nil
 	}
@@ -442,18 +500,26 @@ func (c *SSHClient) Reconnect() error {
 	var cancel context.CancelFunc
 	var wg *sync.WaitGroup
 	var transportFailed <-chan struct{}
-	var err error
 	for attempt := 0; attempt < 3; attempt++ {
-		client, cancel, wg, transportFailed, err = dialSSH(config)
+		client, cancel, wg, transportFailed, err = dialSSHContext(ctx, config)
 		if err == nil {
 			break
 		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if attempt < 2 {
-			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+			if sleepErr := SleepContext(ctx, time.Duration(attempt+1)*500*time.Millisecond); sleepErr != nil {
+				return sleepErr
+			}
 		}
 	}
 	if err != nil {
 		return fmt.Errorf("failed to reconnect SSH: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = closeSSHTransport(retiredSSHTransport{client: client, cancel: cancel, wg: wg})
+		return err
 	}
 	c.mu.Lock()
 	if c.closed || c.client != old {

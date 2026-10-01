@@ -155,14 +155,23 @@
         <el-form-item>
           <el-button
             type="primary"
+            :loading="loading"
+            :disabled="loading"
             @click="() => loadTasks(true)"
           >
             {{ t('user.tasks.filter') }}
           </el-button>
-          <el-button @click="resetFilter">
+          <el-button
+            :disabled="loading"
+            @click="resetFilter"
+          >
             {{ t('user.tasks.reset') }}
           </el-button>
-          <el-button @click="() => loadTasks(true)">
+          <el-button
+            :loading="loading"
+            :disabled="loading"
+            @click="() => loadTasks(true)"
+          >
             <el-icon><Refresh /></el-icon>
             {{ t('user.tasks.refresh') }}
           </el-button>
@@ -271,6 +280,19 @@
                 :task-status="currentTask.status"
                 class="task-steps"
               />
+              <div class="task-actions">
+                <el-button
+                  v-if="currentTask.canCancel"
+                  size="small"
+                  type="danger"
+                  text
+                  :disabled="isTaskActionLocked(currentTask.id)"
+                  :loading="isTaskActionLocked(currentTask.id)"
+                  @click="cancelTask(currentTask)"
+                >
+                  {{ t('user.tasks.cancel') }}
+                </el-button>
+              </div>
             </el-card>
           </div>
         </div>
@@ -344,11 +366,12 @@
                 </div>
               </div>
               <div class="task-actions">
-                <el-button 
-                  size="small" 
-                  type="danger" 
+                <el-button
+                  size="small"
+                  type="danger"
                   text
-                  :disabled="!task.canCancel"
+                  :disabled="!task.canCancel || isTaskActionLocked(task.id)"
+                  :loading="isTaskActionLocked(task.id)"
                   @click="cancelTask(task)"
                 >
                   {{ t('user.tasks.cancel') }}
@@ -539,9 +562,10 @@ import TaskStepsPanel from '@/components/TaskStepsPanel.vue'
 const { t: t18n, te } = useI18n()
 
 const {
-  loading, tasks, providers, total, expandedHistory,
+  loading, providers, total, expandedHistory,
   filterForm, pagination, groupedTasks,
   loadTasks, loadProviders, resetFilter, cancelTask,
+  isTaskActionLocked,
   getTaskTypeText, formatDurationSeconds, getTaskStatusType,
   shouldShowInstanceConfig, getTaskStatusText, getDefaultStatusMessage,
   formatDate, getEstimatedTime, calculateDuration,

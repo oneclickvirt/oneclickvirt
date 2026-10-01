@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"oneclickvirt/assets"
 	"strings"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
+	monitoringModel "oneclickvirt/model/monitoring"
+	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 	"oneclickvirt/utils"
 
@@ -26,6 +29,8 @@ const (
 	maxInlineAgentArchiveBytes = 32 * 1024
 )
 
+var agentConfigSyncLocks sync.Map // provider ID -> *sync.Mutex
+
 // AgentConfig holds the configuration parameters for the agent deployment.
 type AgentConfig struct {
 	Token                   string
@@ -36,13 +41,35 @@ type AgentConfig struct {
 	TrafficCollectMethod    string // "nft" (default) or "ipt"
 
 	// Reverse proxy configuration
-	EnableReverseProxy bool   // Enable reverse proxy feature
-	ProxyHTTPPort      int    // HTTP port (default 80)
-	ProxyHTTPSPort     int    // HTTPS port (default 443)
-	ProxyEnableHTTP    bool   // Enable HTTP proxy
-	ProxyEnableHTTPS   bool   // Enable HTTPS proxy
-	ProxyTLSCertPath   string // TLS cert file path on node
-	ProxyTLSKeyPath    string // TLS key file path on node
+	EnableReverseProxy          bool   // Enable reverse proxy feature
+	ProxyHTTPPort               int    // HTTP port (default 80)
+	ProxyHTTPSPort              int    // HTTPS port (default 443)
+	ProxyEnableHTTP             bool   // Enable HTTP proxy
+	ProxyEnableHTTPS            bool   // Enable HTTPS proxy
+	ProxyTrustCloudflareHeaders bool   // Trust CF-Visitor on the HTTP listener
+	ProxyTLSCertPath            string // TLS cert file path on node
+	ProxyTLSKeyPath             string // TLS key file path on node
+}
+
+// ConfigForProvider is the single source for monitoring and proxy settings
+// applied by both the monitoring page and the provider reload task.
+func ConfigForProvider(p *providerModel.Provider, monitoring *monitoringModel.MonitoringConfig) *AgentConfig {
+	return &AgentConfig{
+		Token:                       monitoring.AgentToken,
+		TrafficCollectInterval:      monitoring.CollectInterval,
+		ResourceCollectInterval:     monitoring.ResourceCollectInterval,
+		ExtraExcludeCIDRsV4:         monitoring.ExtraExcludeCIDRsV4,
+		ExtraExcludeCIDRsV6:         monitoring.ExtraExcludeCIDRsV6,
+		TrafficCollectMethod:        monitoring.TrafficCollectMethod,
+		EnableReverseProxy:          p.EnableDomainBinding,
+		ProxyHTTPPort:               p.ProxyHTTPPort,
+		ProxyHTTPSPort:              p.ProxyHTTPSPort,
+		ProxyEnableHTTP:             p.ProxyEnableHTTP,
+		ProxyEnableHTTPS:            p.ProxyEnableHTTPS,
+		ProxyTrustCloudflareHeaders: p.ProxyTrustCloudflareHeaders,
+		ProxyTLSCertPath:            p.ProxyTLSCertPath,
+		ProxyTLSKeyPath:             p.ProxyTLSKeyPath,
+	}
 }
 
 func (c *AgentConfig) trafficInterval() int {
@@ -88,6 +115,9 @@ func buildEnvFile(cfg *AgentConfig) string {
 	// Reverse proxy configuration
 	sb.WriteString(fmt.Sprintf("ENABLE_REVERSE_PROXY=%t\n", cfg.EnableReverseProxy))
 	if cfg.EnableReverseProxy {
+		if cfg.ProxyTrustCloudflareHeaders {
+			sb.WriteString("PROXY_TRUST_CLOUDFLARE_HEADERS=true\n")
+		}
 		if cfg.ProxyEnableHTTP {
 			httpPort := cfg.ProxyHTTPPort
 			if httpPort == 0 {
@@ -730,27 +760,183 @@ func buildDownloadURLList(version, archiveName string) []string {
 	return urls
 }
 
-// SyncAgentConfig updates the agent .env file and restarts the service to apply new config.
-func SyncAgentConfig(ctx context.Context, providerInstance provider.Provider, cfg *AgentConfig) error {
-	envContent := buildEnvFile(cfg)
-	envB64 := base64.StdEncoding.EncodeToString([]byte(envContent))
+// buildSyncAgentConfigCommandFor preserves installer credentials and unknown
+// operator settings. Unchanged managed settings must not trigger a restart.
+func buildSyncAgentConfigCommandFor(cfg *AgentConfig, agentDir, serviceName string, reverseAgent bool, systemdRuntimeDir string) string {
+	envB64 := base64.StdEncoding.EncodeToString([]byte(buildEnvFile(cfg)))
+	envName, mode := ".env", "forward"
+	if reverseAgent {
+		envName, mode = "env", "reverse"
+	}
+	return fmt.Sprintf(`set -eu
+agent_dir=%s
+agent_env="$agent_dir/%s"
+restart_mode=%s
+restart_marker="$agent_dir/.agent-config-restart-pending"
+agent_tmp=$(mktemp "$agent_dir/.agent-env.tmp.XXXXXX")
+trap 'rm -f "$agent_tmp"' EXIT HUP INT TERM
+schedule_reverse_restart() {
+    now=$(date +%%s)
+    pending_at=0
+    attempts=0
+    if [ -f "$restart_marker" ]; then
+        read -r pending_at attempts < "$restart_marker" || true
+        case "$pending_at" in ''|*[!0-9]*) pending_at=0 ;; esac
+        case "$attempts" in ''|*[!0-9]*) attempts=0 ;; esac
+    fi
+    if [ "$pending_at" -gt 0 ] && [ "$((now - pending_at))" -lt 15 ]; then
+        printf 'restart-pending\n'
+        return 0
+    fi
+    if [ "$attempts" -ge 3 ]; then
+        printf 'Agent config restart failed after 3 attempts; inspect systemctl status %s and journalctl -u %s, then change the configuration to retry\n' >&2
+        return 1
+    fi
+    attempts=$((attempts + 1))
+    printf '%%s %%s\n' "$now" "$attempts" > "$restart_marker"
+    if command -v systemd-run >/dev/null 2>&1 && [ -d %s ]; then
+        if ! systemd-run --quiet --on-active=2s "$(command -v sh)" -c 'systemctl restart "$1" && rm -f "$2"' sh %s "$restart_marker"; then
+            printf 'unable to schedule Agent restart attempt %%s\n' "$attempts" >&2
+            return 1
+        fi
+    elif [ -x /usr/local/bin/ocv ]; then
+        nohup sh -c 'sleep 2; /usr/local/bin/ocv restart && rm -f "$1"' sh "$restart_marker" </dev/null >/dev/null 2>&1 &
+    else
+        printf 'Agent config written, but no detached restart mechanism is available; run ocv restart manually\n' >&2
+        return 1
+    fi
+    printf 'restart-scheduled\n'
+}
+printf '%%s' '%s' | base64 -d > "$agent_tmp"
+if [ "$restart_mode" = reverse ]; then
+    if [ ! -f "$agent_env" ] || ! grep -Eq '^WS_URL=.+$' "$agent_env" || ! grep -Eq '^AGENT_SECRET=.+$' "$agent_env"; then
+        printf 'reverse Agent credentials missing from %%s; reinstall with ocv installer before syncing\n' "$agent_env" >&2
+        exit 1
+    fi
+fi
+if [ -f "$agent_env" ]; then
+    awk -F= '
+        /^[A-Za-z_][A-Za-z0-9_]*=/ {
+            key=$1
+            if (key == "API_TOKEN" || key == "TRAFFIC_COLLECT_INTERVAL" ||
+                key == "RESOURCE_COLLECT_INTERVAL" || key == "TRAFFIC_COLLECT_METHOD" ||
+                key == "EXTRA_EXCLUDE_CIDRS_V4" || key == "EXTRA_EXCLUDE_CIDRS_V6" ||
+                key == "RUST_LOG" || key == "ONECLICKVIRT_EGRESS_AUTO_INSTALL" ||
+                key == "ONECLICKVIRT_EGRESS_APPLY" || key == "ENABLE_REVERSE_PROXY" ||
+                key ~ /^PROXY_/) next
+            if (!(key in seen)) order[++count]=key
+            seen[key]=1
+            line[key]=$0
+        }
+        END { for (i=1; i<=count; i++) print line[order[i]] }
+    ' "$agent_env" >> "$agent_tmp"
+fi
+chmod 600 "$agent_tmp"
+if [ -f "$agent_env" ] && cmp -s "$agent_tmp" "$agent_env"; then
+    if [ "$restart_mode" = reverse ]; then
+        if [ -f "$restart_marker" ]; then
+            schedule_reverse_restart
+        else
+            printf 'unchanged\n'
+        fi
+    elif ! systemctl is-active --quiet %s; then
+        systemctl restart %s
+        printf 'restarted-inactive\n'
+    else
+        printf 'unchanged\n'
+    fi
+else
+    mv -f "$agent_tmp" "$agent_env"
+    if [ "$restart_mode" = reverse ]; then
+        if [ -f "$restart_marker" ]; then
+            read -r pending_at _ < "$restart_marker" || true
+            case "$pending_at" in ''|*[!0-9]*) pending_at=0 ;; esac
+            now=$(date +%%s)
+            if [ "$pending_at" -eq 0 ] || [ "$((now - pending_at))" -ge 15 ]; then
+                # A changed desired configuration starts a fresh bounded
+                # attempt sequence; a pending restart already reads this file.
+                rm -f "$restart_marker"
+            fi
+        fi
+        schedule_reverse_restart
+    else
+        systemctl restart %s
+        printf 'updated-and-restarted\n'
+    fi
+fi`, utils.ShellSingleQuote(agentDir), envName, mode, serviceName, serviceName, utils.ShellSingleQuote(systemdRuntimeDir), serviceName, envB64, serviceName, serviceName, serviceName)
+}
 
-	// Write .env via base64 to avoid heredoc quoting issues, then restart.
-	cmd := fmt.Sprintf(
-		`printf '%%s' '%s' | base64 -d > %s/.env && systemctl restart %s`,
-		envB64, AgentInstallDir, AgentServiceName,
-	)
+// SyncAgentConfigForProvider rereads the committed desired state under one
+// provider-scoped lock. Concurrent provider edits, monitoring edits and Agent
+// reconnects therefore cannot overwrite each other with stale snapshots.
+func SyncAgentConfigForProvider(ctx context.Context, providerInstance provider.Provider, providerID uint) error {
+	lockValue, _ := agentConfigSyncLocks.LoadOrStore(providerID, &sync.Mutex{})
+	lock := lockValue.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.WithContext(ctx).First(&dbProvider, providerID).Error; err != nil {
+		return fmt.Errorf("读取节点配置失败: %w", err)
+	}
+	if dbProvider.IsReverseAgent() && dbProvider.AgentSecret == "" {
+		return fmt.Errorf("反向 Agent 节点未生成连接密钥，请先在节点页面生成安装命令")
+	}
+	monitoring, err := GetMonitoringConfig(global.APP_DB.WithContext(ctx), providerID)
+	if err != nil {
+		return fmt.Errorf("读取 Agent 监控配置失败: %w", err)
+	}
+	return syncAgentConfig(ctx, providerInstance, ConfigForProvider(&dbProvider, monitoring), &dbProvider)
+}
 
-	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+// syncAgentConfig updates the environment file actually read by this mode.
+func syncAgentConfig(ctx context.Context, providerInstance provider.Provider, cfg *AgentConfig, dbProvider *providerModel.Provider) error {
+	reverseAgent := dbProvider != nil && dbProvider.IsReverseAgent()
+	cmd := buildSyncAgentConfigCommandFor(cfg, AgentInstallDir, AgentServiceName, reverseAgent, "/run/systemd/system")
+	var previousConn *AgentConn
+	if reverseAgent {
+		previousConn, _ = GetHub().GetConn(dbProvider.ID)
+	}
+
+	syncCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	_, err := providerInstance.ExecuteSSHCommand(syncCtx, cmd)
+	var output string
+	var err error
+	if reverseAgent {
+		if previousConn == nil {
+			return fmt.Errorf("反向 Agent 未连接，无法下发配置")
+		}
+		// Provider.ExecuteSSHCommand does not apply its context to the Agent
+		// executor. Use the bound connection's deadline so an overloaded node
+		// cannot hold this provider lock for the executor's 300 second default.
+		output, err = previousConn.ExecuteWithTimeout(cmd, 20*time.Second)
+	} else {
+		output, err = providerInstance.ExecuteSSHCommand(syncCtx, cmd)
+	}
 	if err != nil {
 		return fmt.Errorf("sync agent config failed: %w", err)
 	}
+	if reverseAgent && (strings.Contains(output, "restart-scheduled") || strings.Contains(output, "restart-pending")) {
+		if previousConn == nil {
+			return fmt.Errorf("Agent 配置已写入并安排重启，但无法确认原连接；请检查节点 Agent 状态")
+		}
+		poll := time.NewTicker(250 * time.Millisecond)
+		defer poll.Stop()
+		for {
+			if current, ok := GetHub().GetConn(dbProvider.ID); ok && current != previousConn {
+				break
+			}
+			select {
+			case <-syncCtx.Done():
+				return fmt.Errorf("Agent 配置已写入并安排重启，但未在规定时限内确认重连；检查 systemctl status %s 和 journalctl -u %s: %w", AgentServiceName, AgentServiceName, syncCtx.Err())
+			case <-poll.C:
+			}
+		}
+	}
 
 	if global.APP_LOG != nil {
-		global.APP_LOG.Info("agent config synced and restarted",
-			zap.String("provider", providerInstance.GetName()))
+		global.APP_LOG.Info("agent config synchronized",
+			zap.String("provider", providerInstance.GetName()),
+			zap.String("result", strings.TrimSpace(output)))
 	}
 	return nil
 }

@@ -141,7 +141,7 @@ mv "$tmp" "$dst"
 
 func (l *LXDProvider) waitForWindowsInstallerState(name, expectedState string, timeoutSeconds int) error {
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 3 {
-		cmd := fmt.Sprintf("lxc info %s | awk -F': ' '/^Status:/{print $2; exit}'", shellSingleQuote(name))
+		cmd := lxdInstanceStatusCommand(name)
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil && strings.EqualFold(strings.TrimSpace(output), expectedState) {
 			return nil

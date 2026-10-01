@@ -150,8 +150,8 @@
             v-if="instance.status === 'running'"
             type="primary"
             size="small"
-            :loading="actionLoading"
-            :disabled="operationLocked"
+            :loading="actionLoading || passwordResetPending"
+            :disabled="operationLocked || passwordResetPending"
             :title="operationLockMessage"
             @click="$emit('reset-password')"
           >
@@ -184,8 +184,8 @@
             v-if="!shareMode"
             type="success"
             size="small"
-            :loading="actionLoading"
-            :disabled="operationLocked"
+            :loading="shareLinkLoading"
+            :disabled="operationLocked || shareLinkLoading"
             :title="operationLockMessage"
             @click="$emit('create-share')"
           >
@@ -247,6 +247,8 @@ const props = defineProps({
   instance: { type: Object, required: true },
   monitoring: { type: Object, required: true },
   actionLoading: { type: Boolean, default: false },
+  shareLinkLoading: { type: Boolean, default: false },
+  passwordResetPending: { type: Boolean, default: false },
   instanceTypePermissions: { type: Object, required: true },
   shareMode: { type: Boolean, default: false }
 })

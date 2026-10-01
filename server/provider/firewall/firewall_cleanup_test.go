@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +97,58 @@ func TestCleanupNftReadAndDeleteFailuresAreNotSuccess(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCleanupCommentPrefixRemovesAllMatchingRules(t *testing.T) {
+	deleted := map[uint64]bool{}
+	snapshot := func() string {
+		rules := make([]string, 0, 3)
+		for _, rule := range []struct {
+			handle  uint64
+			comment string
+		}{
+			{11, "pm:guest:22000:22"},
+			{12, "pm:guest:22000:8080"},
+			{13, "pm:guest:22001:22"},
+		} {
+			if deleted[rule.handle] {
+				continue
+			}
+			rules = append(rules, fmt.Sprintf(`{"rule":{"family":"ip","table":"incus","chain":"prerouting","handle":%d,"comment":%q,"expr":[{"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":22000}},{"dnat":{"addr":"192.0.2.10","port":22}}]}}`, rule.handle, rule.comment))
+		}
+		return `{"nftables":[` + strings.Join(rules, ",") + `]}`
+	}
+	e := &cleanupExecutor{run: func(command string) (string, error) {
+		switch {
+		case strings.HasPrefix(command, "command -v nft"):
+			return "", nil
+		case strings.HasPrefix(command, "command -v iptables"):
+			return "", errors.New("not installed")
+		case command == "nft -j -a list ruleset":
+			return snapshot(), nil
+		case strings.HasPrefix(command, "nft delete rule"):
+			fields := strings.Fields(command)
+			handle, err := strconv.ParseUint(fields[len(fields)-1], 10, 64)
+			if err != nil {
+				return "", err
+			}
+			deleted[handle] = true
+			return "", nil
+		default:
+			return "", fmt.Errorf("unexpected command %s", command)
+		}
+	}}
+	m := NewManager(e, "incus", "")
+	m.backend = BackendNft
+	if err := m.DeleteRulesByCommentPrefixForFamily("pm:guest:22000:", false); err != nil {
+		t.Fatal(err)
+	}
+	if !deleted[11] || !deleted[12] || deleted[13] {
+		t.Fatalf("prefix cleanup deleted handles %v", deleted)
+	}
+	if err := m.DeleteRulesByCommentPrefixForFamily("pm:guest:22000:", false); err != nil {
+		t.Fatalf("idempotent prefix cleanup: %v", err)
 	}
 }
 

@@ -139,6 +139,7 @@ const buildDefaultForm = () => ({
   proxyEnableHttp: true,
   proxyHttpPort: 80,
   proxyEnableHttps: false,
+  proxyTrustCloudflareHeaders: false,
   proxyHttpsPort: 443,
   proxyTlsCertPath: '',
   proxyTlsKeyPath: '',
@@ -285,6 +286,7 @@ export function useProviderForm(loadProviders) {
     addProviderForm.proxyEnableHttp = provider.proxyEnableHttp !== undefined ? provider.proxyEnableHttp : true
     addProviderForm.proxyHttpPort = provider.proxyHttpPort || 80
     addProviderForm.proxyEnableHttps = provider.proxyEnableHttps !== undefined ? provider.proxyEnableHttps : false
+    addProviderForm.proxyTrustCloudflareHeaders = provider.proxyTrustCloudflareHeaders === true
     addProviderForm.proxyHttpsPort = provider.proxyHttpsPort || 443
     addProviderForm.proxyTlsCertPath = provider.proxyTlsCertPath || ''
     addProviderForm.proxyTlsKeyPath = provider.proxyTlsKeyPath || ''
@@ -373,6 +375,7 @@ export function useProviderForm(loadProviders) {
   }
 
   const submitAddServer = async (formData) => {
+    if (addProviderLoading.value) return null
     try {
       if (!formData.containerEnabled && !formData.vmEnabled) {
         ElMessage.warning(t('admin.providers.selectVirtualizationType'))
@@ -473,6 +476,7 @@ export function useProviderForm(loadProviders) {
         proxyEnableHttp: formData.proxyEnableHttp !== undefined ? formData.proxyEnableHttp : true,
         proxyHttpPort: formData.proxyHttpPort || 80,
         proxyEnableHttps: formData.proxyEnableHttps !== undefined ? formData.proxyEnableHttps : false,
+        proxyTrustCloudflareHeaders: formData.proxyTrustCloudflareHeaders === true,
         proxyHttpsPort: formData.proxyHttpsPort || 443,
         proxyTlsCertPath: formData.proxyTlsCertPath || '',
         proxyTlsKeyPath: formData.proxyTlsKeyPath || '',

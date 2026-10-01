@@ -33,6 +33,9 @@ func (d *DockerProvider) sshListInstances(ctx context.Context) ([]provider.Insta
 		if len(fields) < 4 {
 			continue
 		}
+		if provider.IsRuntimeInfrastructureContainer(fields[0]) {
+			continue
+		}
 
 		status := "unknown"
 		statusField := strings.ToLower(fields[1])

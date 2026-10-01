@@ -135,7 +135,7 @@ func (i *IncusProvider) waitForInstanceReady(instanceName string) error {
 	waited := 0
 
 	for waited < maxWait {
-		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(instanceName))
+		cmd := incusInstanceStatusCommand(instanceName)
 		output, err := i.sshClient.Execute(cmd)
 		if err == nil && strings.TrimSpace(output) == "RUNNING" {
 			// 额外等待网络配置就绪

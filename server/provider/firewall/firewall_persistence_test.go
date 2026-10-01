@@ -74,6 +74,40 @@ func TestSaveRulesDistributionLayouts(t *testing.T) {
 	}
 }
 
+func TestSaveRulesNormalizesPTYOutputBeforeWritingSnapshots(t *testing.T) {
+	var writes []string
+	e := &cleanupExecutor{run: func(command string) (string, error) {
+		switch {
+		case command == persistenceDistributionCommand:
+			return "\x1b[32mdebian\x1b[0m\r\n\r\ncomplete\r\n", nil
+		case strings.HasPrefix(command, "for tool in"):
+			return "\x1b[32mnft\x1b[0m\r\niptables\r\nip6tables\r\ncomplete\r\n", nil
+		case command == "nft -j list tables":
+			return "\x1b[33m" + `{"nftables":[{"table":{"family":"ip","name":"ocvtest"}}]}` + "\x1b[0m\r\n", nil
+		case strings.HasPrefix(command, "nft list table"):
+			return "\x1b[36mtable ip ocvtest {}\x1b[0m\r\n", nil
+		case command == "iptables-save", command == "ip6tables-save":
+			return "\x1b[34m*nat\x1b[0m\r\nCOMMIT\r\n", nil
+		case strings.HasPrefix(command, "set -e\numask 077"):
+			writes = append(writes, command)
+		}
+		return "", nil
+	}}
+	m := NewManager(e, "ocvtest", "")
+	m.backend, m.detected = BackendNft, true
+	if err := m.SaveRules(); err != nil {
+		t.Fatal(err)
+	}
+	if len(writes) != 3 {
+		t.Fatalf("wrote %d snapshots, want 3", len(writes))
+	}
+	for _, command := range writes {
+		if strings.ContainsAny(command, "\r\x1b") {
+			t.Fatalf("persisted terminal control characters: %q", command)
+		}
+	}
+}
+
 func TestPersistenceDistributionFailureDoesNotWrite(t *testing.T) {
 	for _, output := range []string{"", "debian\n", "debian\n\n", "debian\n\ncomplete\ntrailing"} {
 		t.Run(strings.ReplaceAll(output, "\n", "_"), func(t *testing.T) {

@@ -146,6 +146,7 @@ func TestProxmoxLifecycleMutationsUseCorrectGuestResourceAndWait(t *testing.T) {
 type proxmoxKnownStartTransport struct {
 	requests           []string
 	currentStatus      []string
+	statusFailures     int
 	startResponseCodes []int
 	startContentTypes  []string
 	startBodies        []string
@@ -163,6 +164,10 @@ func (t *proxmoxKnownStartTransport) RoundTrip(req *http.Request) (*http.Respons
 	}
 	switch {
 	case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/status/current"):
+		if t.statusFailures > 0 {
+			t.statusFailures--
+			return nil, io.EOF
+		}
 		status := "running"
 		if len(t.currentStatus) > 0 {
 			status = t.currentStatus[0]
@@ -238,6 +243,32 @@ func TestProxmoxKnownLXCStartDoesNotRediscoverNewGuest(t *testing.T) {
 	}
 	if len(transport.startBodies) != 1 || transport.startBodies[0] != "" {
 		t.Fatalf("start body = %q, want an empty body", transport.startBodies)
+	}
+}
+
+func TestProxmoxKnownLXCStartRetriesTransientStatusEOF(t *testing.T) {
+	oldLog := global.APP_LOG
+	global.APP_LOG = zap.NewNop()
+	t.Cleanup(func() { global.APP_LOG = oldLog })
+	oldPoll, oldDelay := proxmoxAPITaskPollInterval, proxmoxAPIStatusRetryDelay
+	proxmoxAPITaskPollInterval = 0
+	proxmoxAPIStatusRetryDelay = 0
+	t.Cleanup(func() {
+		proxmoxAPITaskPollInterval = oldPoll
+		proxmoxAPIStatusRetryDelay = oldDelay
+	})
+
+	p := NewProxmoxProvider().(*ProxmoxProvider)
+	p.config = providerNodeConfigForEndpointTest("pve.test")
+	p.node = "pve-node"
+	transport := &proxmoxKnownStartTransport{statusFailures: 1, currentStatus: []string{"stopped", "running"}}
+	p.apiClient = &http.Client{Transport: transport}
+	if err := p.apiStartKnownInstance(context.Background(), "102", "container"); err != nil {
+		t.Fatalf("apiStartKnownInstance() after transient status EOF: %v", err)
+	}
+	if len(transport.requests) != 5 || transport.requests[0] != transport.requests[1] ||
+		transport.requests[2] != "POST /api2/json/nodes/pve-node/lxc/102/status/start" {
+		t.Fatalf("unexpected status retry and start sequence: %v", transport.requests)
 	}
 }
 

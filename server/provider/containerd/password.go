@@ -23,11 +23,16 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 	var containerStatus string
 	maxRetries := 3
 	for i := 0; i < maxRetries; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(instanceID))
-		output, err := c.sshClient.Execute(checkCmd)
+		output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, checkCmd)
 		if err != nil {
 			if i < maxRetries-1 {
-				time.Sleep(5 * time.Second)
+				if err := utils.SleepContext(ctx, 5*time.Second); err != nil {
+					return err
+				}
 				continue
 			}
 			return fmt.Errorf("检查容器状态失败: %w", err)
@@ -35,12 +40,16 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 
 		containerStatus = strings.TrimSpace(output)
 		if containerStatus == "running" {
-			time.Sleep(10 * time.Second)
+			if err := utils.SleepContext(ctx, 10*time.Second); err != nil {
+				return err
+			}
 			break
 		}
 
 		if i < maxRetries-1 {
-			time.Sleep(10 * time.Second)
+			if err := utils.SleepContext(ctx, 10*time.Second); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -50,10 +59,12 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 
 	// 健康检查
 	healthCheckCmd := fmt.Sprintf("%s exec %s echo 'container_ready' 2>/dev/null", cliName, shellSingleQuote(instanceID))
-	healthOutput, err := c.sshClient.Execute(healthCheckCmd)
+	healthOutput, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, healthCheckCmd)
 	if err != nil || !strings.Contains(healthOutput, "container_ready") {
-		time.Sleep(15 * time.Second)
-		healthOutput, err = c.sshClient.Execute(healthCheckCmd)
+		if err := utils.SleepContext(ctx, 15*time.Second); err != nil {
+			return err
+		}
+		healthOutput, err = utils.ExecuteShellCommandContext(ctx, c.sshClient, healthCheckCmd)
 		if err != nil || !strings.Contains(healthOutput, "container_ready") {
 			return fmt.Errorf("容器 %s 未准备就绪，无法执行操作", instanceID)
 		}
@@ -61,12 +72,14 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 
 	// SSH就绪检查
 	sshReadinessCmd := fmt.Sprintf("%s exec %s sh -c %s 2>/dev/null", cliName, shellSingleQuote(instanceID), shellSingleQuote("command -v passwd >/dev/null 2>&1 && echo ssh_ready"))
-	sshOutput, err := c.sshClient.Execute(sshReadinessCmd)
+	sshOutput, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, sshReadinessCmd)
 	if err != nil || !strings.Contains(sshOutput, "ssh_ready") {
 		maxSSHRetries := 5
 		for i := 0; i < maxSSHRetries; i++ {
-			time.Sleep(10 * time.Second)
-			sshOutput, err = c.sshClient.Execute(sshReadinessCmd)
+			if err := utils.SleepContext(ctx, 10*time.Second); err != nil {
+				return err
+			}
+			sshOutput, err = utils.ExecuteShellCommandContext(ctx, c.sshClient, sshReadinessCmd)
 			if err == nil && strings.Contains(sshOutput, "ssh_ready") {
 				break
 			}
@@ -78,7 +91,7 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 
 	// 检测OS类型
 	osCmd := fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep -E '^ID=' | cut -d '=' -f 2 | tr -d '\"'", cliName, shellSingleQuote(instanceID))
-	osOutput, err := c.sshClient.Execute(osCmd)
+	osOutput, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, osCmd)
 	osType := utils.CleanCommandOutput(osOutput)
 	if err != nil || osType == "" {
 		osType = "debian"
@@ -95,17 +108,17 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 
 	hostScriptPath := fmt.Sprintf("/usr/local/bin/%s", scriptName)
 	checkHostScriptCmd := fmt.Sprintf("test -f %s && test -x %s", shellSingleQuote(hostScriptPath), shellSingleQuote(hostScriptPath))
-	_, hostScriptErr := c.sshClient.Execute(checkHostScriptCmd)
+	_, hostScriptErr := utils.ExecuteShellCommandContext(ctx, c.sshClient, checkHostScriptCmd)
 
 	if hostScriptErr == nil {
 		checkScriptCmd := fmt.Sprintf("%s exec %s %s -c %s", cliName, shellSingleQuote(instanceID), shellSingleQuote(shellType), shellSingleQuote("[ -f /"+scriptName+" ]"))
-		_, err = c.sshClient.Execute(checkScriptCmd)
+		_, err = utils.ExecuteShellCommandContext(ctx, c.sshClient, checkScriptCmd)
 		if err != nil {
 			copyCmd := fmt.Sprintf("%s cp %s %s", cliName, shellSingleQuote(hostScriptPath), shellSingleQuote(instanceID+":/"+scriptName))
-			_, err = c.sshClient.Execute(copyCmd)
+			_, err = utils.ExecuteShellCommandContext(ctx, c.sshClient, copyCmd)
 			if err == nil {
 				chmodCmd := fmt.Sprintf("%s exec %s %s -c %s", cliName, shellSingleQuote(instanceID), shellSingleQuote(shellType), shellSingleQuote("chmod +x /"+scriptName))
-				c.sshClient.Execute(chmodCmd)
+				_, _ = utils.ExecuteShellCommandContext(ctx, c.sshClient, chmodCmd)
 			}
 		}
 
@@ -116,17 +129,19 @@ func (c *ContainerdProvider) sshSetInstancePassword(ctx context.Context, instanc
 				cliName, shellSingleQuote(instanceID), shellSingleQuote(shellType), shellSingleQuote(sshInnerCmd)),
 			TimeoutSeconds: 60,
 		})
-		scriptOutput, scriptErr := c.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
+		scriptOutput, scriptErr := utils.ExecuteViaTempScriptContext(ctx, c.sshClient, sshExecScript, nil, 180*time.Second)
 		if scriptErr != nil {
 			global.APP_LOG.Warn("执行SSH配置脚本失败，将直接用chpasswd设置密码",
 				zap.String("instanceID", instanceID),
 				zap.String("output", utils.TruncateString(scriptOutput, 500)),
 				zap.Error(scriptErr))
-			time.Sleep(5 * time.Second)
+			if err := utils.SleepContext(ctx, 5*time.Second); err != nil {
+				return err
+			}
 		}
 	}
 
-	if err := c.setContainerPasswordWithRetry(instanceID, password, shellType); err != nil {
+	if err := c.setContainerPasswordWithRetry(ctx, instanceID, password, shellType); err != nil {
 		return fmt.Errorf("使用chpasswd设置密码失败: %w", err)
 	}
 

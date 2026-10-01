@@ -2,6 +2,7 @@ package pmacct
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"oneclickvirt/global"
 	monitoringModel "oneclickvirt/model/monitoring"
@@ -27,20 +28,30 @@ func (s *Service) CleanupPmacctData(instanceID uint) error {
 func (s *Service) CleanupPmacctDataWithContext(ctx context.Context, instanceID uint) error {
 	// 第一步：从数据库获取实例和监控信息
 	var instance providerModel.Instance
-	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
-		global.APP_LOG.Warn("获取实例信息失败，跳过宿主机清理",
-			zap.Uint("instanceID", instanceID),
-			zap.Error(err))
-		// 即使获取实例失败，仍然清理数据库记录
-	} else {
+	instanceErr := global.APP_DB.Unscoped().First(&instance, instanceID).Error
+	if instanceErr == nil {
+		collector := NewServiceWithContext(ctx)
+		if err := collector.CollectInstanceTraffic(instanceID); err != nil {
+			return fmt.Errorf("最终流量采集失败，保留监控数据等待重试: %w", err)
+		}
 		// 第二步：清理宿主机上的 pmacct 服务和配置文件
 		if cleanupErr := s.cleanupPmacctOnHostWithContext(ctx, instanceID, instance.ProviderID); cleanupErr != nil {
 			global.APP_LOG.Warn("清理宿主机pmacct服务失败（不影响数据库清理）",
 				zap.Uint("instanceID", instanceID),
 				zap.Uint("providerID", instance.ProviderID),
 				zap.Error(cleanupErr))
-			// 不返回错误，继续清理数据库
 		}
+	} else if !errors.Is(instanceErr, gorm.ErrRecordNotFound) {
+		global.APP_LOG.Warn("获取实例信息失败，跳过宿主机清理",
+			zap.Uint("instanceID", instanceID),
+			zap.Error(instanceErr))
+		return fmt.Errorf("获取实例信息失败: %w", instanceErr)
+	} else {
+		// The instance may already have been deleted by a retry or repair job.
+		// Traffic and monitor rows are still safe to remove, but there is no host
+		// identity left from which to construct the old pmacct service path.
+		global.APP_LOG.Info("实例记录已不存在，跳过最终流量采集和宿主机清理",
+			zap.Uint("instanceID", instanceID))
 	}
 
 	// 第三步：清理数据库记录
@@ -95,7 +106,7 @@ func (s *Service) cleanupPmacctOnHostWithContext(ctx context.Context, instanceID
 
 	// 获取实例信息（用于构建路径）
 	var instance providerModel.Instance
-	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
+	if err := global.APP_DB.Unscoped().First(&instance, instanceID).Error; err != nil {
 		global.APP_LOG.Warn("未找到实例记录，跳过宿主机清理",
 			zap.Uint("instanceID", instanceID),
 			zap.Error(err))
@@ -344,6 +355,22 @@ echo "=== pmacct 资源清理完成: %s ==="
 // 5. 重启pmacct守护进程
 // 重置期间的数据丢失是可接受的，因为这是定期维护操作
 func (s *Service) ResetPmacctDaemon(instanceID uint) error {
+	return s.ResetPmacctDaemonWithContext(s.ctx, instanceID)
+}
+
+// ResetPmacctDaemonWithContext is the cancellable form used by scheduler
+// shutdown and timeout paths. A copy of the service carries the request
+// context without mutating the shared service instance.
+func (s *Service) ResetPmacctDaemonWithContext(ctx context.Context, instanceID uint) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	operation := *s
+	operation.ctx = ctx
+	return operation.resetPmacctDaemon(instanceID)
+}
+
+func (s *Service) resetPmacctDaemon(instanceID uint) error {
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		return fmt.Errorf("failed to find instance: %w", err)

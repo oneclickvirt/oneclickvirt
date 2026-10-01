@@ -48,6 +48,9 @@ func normalizeTaskLogField(s string, maxLen int) string {
 
 func currentTaskProgress(taskID uint, fallback int) int {
 	fallback = normalizeTaskLogProgress(fallback)
+	if global.APP_DB == nil {
+		return fallback
+	}
 	var task adminModel.Task
 	if err := global.APP_DB.Select("progress").Where("id = ?", taskID).First(&task).Error; err == nil {
 		return normalizeTaskLogProgress(task.Progress)
@@ -55,9 +58,31 @@ func currentTaskProgress(taskID uint, fallback int) int {
 	return fallback
 }
 
+func taskLogAppendSQL(db *gorm.DB) string {
+	if db != nil && strings.EqualFold(db.Dialector.Name(), "sqlite") {
+		return `CASE
+			WHEN progress_logs IS NULL OR TRIM(progress_logs) = '' THEN '[' || ? || ']'
+			WHEN json_valid(TRIM(progress_logs)) = 0 THEN '[' || ? || ']'
+			WHEN json_type(TRIM(progress_logs)) <> 'array' THEN '[' || ? || ']'
+			WHEN json_array_length(TRIM(progress_logs)) = 0 THEN '[' || ? || ']'
+			ELSE substr(TRIM(progress_logs), 1, length(TRIM(progress_logs)) - 1) || ',' || ? || ']'
+		END`
+	}
+	return `CASE
+		WHEN progress_logs IS NULL OR TRIM(progress_logs) = '' THEN CONCAT('[', ?, ']')
+		WHEN JSON_VALID(TRIM(progress_logs)) = 0 THEN CONCAT('[', ?, ']')
+		WHEN JSON_TYPE(TRIM(progress_logs)) <> 'ARRAY' THEN CONCAT('[', ?, ']')
+		WHEN JSON_LENGTH(TRIM(progress_logs)) = 0 THEN CONCAT('[', ?, ']')
+		ELSE CONCAT(LEFT(TRIM(progress_logs), CHAR_LENGTH(TRIM(progress_logs)) - 1), ',', ?, ']')
+	END`
+}
+
 // appendProgressLogEntry 使用 SQL CONCAT 原子追加进度日志条目，避免并发读写问题。
 func appendProgressLogEntry(taskID uint, entry progressLogEntry) {
 	if entry.M == "" && entry.Command == "" && entry.Output == "" && entry.Error == "" {
+		return
+	}
+	if global.APP_DB == nil {
 		return
 	}
 	entry.P = normalizeTaskLogProgress(entry.P)
@@ -75,10 +100,9 @@ func appendProgressLogEntry(taskID uint, entry progressLogEntry) {
 
 	// 使用参数化 SQL 原子追加日志（避免单引号/反斜杠注入问题）：
 	// 若已有日志则追加 ",<entry>" ，否则初始化为 "[<entry>]"。
-	appendExpr := gorm.Expr(`CASE
-		WHEN (progress_logs IS NULL OR progress_logs = '') THEN CONCAT('[', ?, ']')
-		ELSE CONCAT(LEFT(progress_logs, CHAR_LENGTH(progress_logs)-1), ',', ?, ']')
-	END`, string(entryJSON), string(entryJSON))
+	entryText := string(entryJSON)
+	appendExpr := gorm.Expr(taskLogAppendSQL(global.APP_DB),
+		entryText, entryText, entryText, entryText, entryText)
 
 	if err := global.APP_DB.Model(&adminModel.Task{}).
 		Where("id = ?", taskID).
@@ -160,7 +184,12 @@ func UpdateTaskProgress(taskID uint, progress int, message string) {
 		updates["status_message"] = message
 	}
 
-	result := global.APP_DB.Model(&adminModel.Task{}).Where("id = ? AND progress <= ?", taskID, progress).Updates(updates)
+	// Progress callbacks can arrive after cancellation or completion. Restrict
+	// writes to active states so a late provider response cannot resurrect the
+	// visible progress or status message of a terminal task.
+	result := global.APP_DB.Model(&adminModel.Task{}).
+		Where("id = ? AND status IN ? AND progress <= ?", taskID, []string{"pending", "processing", "running"}, progress).
+		Updates(updates)
 	if result.Error != nil {
 		global.APP_LOG.Error("更新任务进度失败",
 			zap.Uint("taskId", taskID),
@@ -226,12 +255,19 @@ func MarkTaskCompleted(taskID uint, message string) {
 // MarkTaskFailed 标记任务失败（全局统一函数）
 func MarkTaskFailed(taskID uint, errorMessage string) {
 	progress := currentTaskProgress(taskID, 0)
-	if err := global.APP_DB.Model(&adminModel.Task{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+	result := global.APP_DB.Model(&adminModel.Task{}).Where("id = ? AND status IN ?", taskID,
+		[]string{"pending", "processing", "running"}).Updates(map[string]interface{}{
 		"status":        "failed",
 		"completed_at":  time.Now(),
 		"error_message": errorMessage,
-	}).Error; err != nil {
-		global.APP_LOG.Error("标记任务失败时出错", zap.Uint("taskId", taskID), zap.Error(err))
+	})
+	if result.Error != nil {
+		global.APP_LOG.Error("标记任务失败时出错", zap.Uint("taskId", taskID), zap.Error(result.Error))
+		return
+	}
+	if result.RowsAffected == 0 {
+		global.APP_LOG.Debug("任务已处于终态或取消中，跳过标记失败", zap.Uint("taskId", taskID))
+		return
 	}
 	AppendTaskLog(taskID, progress, "error", "step.taskFailed")
 	if errorMessage != "" {

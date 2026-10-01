@@ -153,17 +153,18 @@ type CreateProviderRequest struct {
 	// 内网穿透连接模式
 	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent / local
 	// 域名反向代理配置
-	EnableDomainBinding bool   `json:"enableDomainBinding"` // 是否启用域名绑定
-	ProxyHTTPPort       int    `json:"proxyHttpPort"`       // HTTP反向代理监听端口
-	ProxyHTTPSPort      int    `json:"proxyHttpsPort"`      // HTTPS反向代理监听端口
-	ProxyEnableHTTP     bool   `json:"proxyEnableHttp"`     // 是否启用HTTP反向代理
-	ProxyEnableHTTPS    bool   `json:"proxyEnableHttps"`    // 是否启用HTTPS反向代理
-	ProxyTLSCertPath    string `json:"proxyTlsCertPath"`    // TLS证书路径
-	ProxyTLSKeyPath     string `json:"proxyTlsKeyPath"`     // TLS私钥路径
-	ProxyAutoSync       bool   `json:"proxyAutoSync"`       // 是否自动同步代理配置
-	EnableVNC           bool   `json:"enableVNC"`           // 是否启用WebVNC
-	VNCBasePort         int    `json:"vncBasePort"`         // VNC端口基准
-	VNCHost             string `json:"vncHost"`             // VNC宿主地址
+	EnableDomainBinding         bool   `json:"enableDomainBinding"`         // 是否启用域名绑定
+	ProxyHTTPPort               int    `json:"proxyHttpPort"`               // HTTP反向代理监听端口
+	ProxyHTTPSPort              int    `json:"proxyHttpsPort"`              // HTTPS反向代理监听端口
+	ProxyEnableHTTP             bool   `json:"proxyEnableHttp"`             // 是否启用HTTP反向代理
+	ProxyEnableHTTPS            bool   `json:"proxyEnableHttps"`            // 是否启用HTTPS反向代理
+	ProxyTrustCloudflareHeaders bool   `json:"proxyTrustCloudflareHeaders"` // 是否信任Cloudflare回源协议头
+	ProxyTLSCertPath            string `json:"proxyTlsCertPath"`            // TLS证书路径
+	ProxyTLSKeyPath             string `json:"proxyTlsKeyPath"`             // TLS私钥路径
+	ProxyAutoSync               bool   `json:"proxyAutoSync"`               // 是否自动同步代理配置
+	EnableVNC                   bool   `json:"enableVNC"`                   // 是否启用WebVNC
+	VNCBasePort                 int    `json:"vncBasePort"`                 // VNC端口基准
+	VNCHost                     string `json:"vncHost"`                     // VNC宿主地址
 
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源
@@ -282,17 +283,18 @@ type UpdateProviderRequest struct {
 	// 内网穿透连接模式
 	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent / local
 	// 域名反向代理配置
-	EnableDomainBinding bool   `json:"enableDomainBinding"` // 是否启用域名绑定
-	ProxyHTTPPort       int    `json:"proxyHttpPort"`       // HTTP反向代理监听端口
-	ProxyHTTPSPort      int    `json:"proxyHttpsPort"`      // HTTPS反向代理监听端口
-	ProxyEnableHTTP     bool   `json:"proxyEnableHttp"`     // 是否启用HTTP反向代理
-	ProxyEnableHTTPS    bool   `json:"proxyEnableHttps"`    // 是否启用HTTPS反向代理
-	ProxyTLSCertPath    string `json:"proxyTlsCertPath"`    // TLS证书路径
-	ProxyTLSKeyPath     string `json:"proxyTlsKeyPath"`     // TLS私钥路径
-	ProxyAutoSync       bool   `json:"proxyAutoSync"`       // 是否自动同步代理配置
-	EnableVNC           bool   `json:"enableVNC"`           // 是否启用WebVNC
-	VNCBasePort         int    `json:"vncBasePort"`         // VNC端口基准
-	VNCHost             string `json:"vncHost"`             // VNC宿主地址
+	EnableDomainBinding         bool   `json:"enableDomainBinding"`         // 是否启用域名绑定
+	ProxyHTTPPort               int    `json:"proxyHttpPort"`               // HTTP反向代理监听端口
+	ProxyHTTPSPort              int    `json:"proxyHttpsPort"`              // HTTPS反向代理监听端口
+	ProxyEnableHTTP             bool   `json:"proxyEnableHttp"`             // 是否启用HTTP反向代理
+	ProxyEnableHTTPS            bool   `json:"proxyEnableHttps"`            // 是否启用HTTPS反向代理
+	ProxyTrustCloudflareHeaders bool   `json:"proxyTrustCloudflareHeaders"` // 是否信任Cloudflare回源协议头
+	ProxyTLSCertPath            string `json:"proxyTlsCertPath"`            // TLS证书路径
+	ProxyTLSKeyPath             string `json:"proxyTlsKeyPath"`             // TLS私钥路径
+	ProxyAutoSync               bool   `json:"proxyAutoSync"`               // 是否自动同步代理配置
+	EnableVNC                   bool   `json:"enableVNC"`                   // 是否启用WebVNC
+	VNCBasePort                 int    `json:"vncBasePort"`                 // VNC端口基准
+	VNCHost                     string `json:"vncHost"`                     // VNC宿主地址
 
 	// 实例发现与导入配置（用于更新时的发现设置）
 	DiscoverMode          *bool   `json:"discoverMode,omitempty"`          // 是否启用实例发现模式（发现并导入已有实例），指针区分未提供
@@ -583,11 +585,15 @@ type BatchDeletePortMappingRequest struct {
 
 // ProviderPortConfigRequest Provider端口配置请求
 type ProviderPortConfigRequest struct {
-	DefaultPortCount int    `json:"defaultPortCount" binding:"min=1,max=1500"`                                                                       // 每个实例默认映射端口数量
-	PortRangeStart   int    `json:"portRangeStart" binding:"min=1024,max=65535"`                                                                     // 端口映射范围起始
-	PortRangeEnd     int    `json:"portRangeEnd" binding:"min=1024,max=65535"`                                                                       // 端口映射范围结束
-	FixedPorts       []int  `json:"fixedPorts"`                                                                                                      // 固定实例内端口，22强制保留
-	NetworkType      string `json:"networkType" binding:"oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"` // 网络配置类型
+	// All fields are optional so callers can update one setting (for example
+	// networkType) without having to repeat the provider's complete port pool.
+	// The service layer merges omitted values with the persisted configuration
+	// and still validates the resulting complete configuration.
+	DefaultPortCount int    `json:"defaultPortCount" binding:"omitempty,min=1,max=1500"`                                                                       // 每个实例默认映射端口数量
+	PortRangeStart   int    `json:"portRangeStart" binding:"omitempty,min=1024,max=65535"`                                                                     // 端口映射范围起始
+	PortRangeEnd     int    `json:"portRangeEnd" binding:"omitempty,min=1024,max=65535"`                                                                       // 端口映射范围结束
+	FixedPorts       []int  `json:"fixedPorts"`                                                                                                                // 固定实例内端口，22强制保留
+	NetworkType      string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"` // 网络配置类型
 }
 
 // CreateInstanceTaskRequest 创建实例任务数据结构

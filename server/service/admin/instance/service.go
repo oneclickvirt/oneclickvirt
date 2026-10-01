@@ -629,17 +629,7 @@ func (s *Service) DeleteInstance(instanceID uint, ownerAdminID ...uint) error {
 		return fmt.Errorf("创建删除任务失败: %v", err)
 	}
 
-	// 标记任务为管理员操作，不允许用户取消
-	if err := global.APP_DB.Model(task).Update("is_force_stoppable", false).Error; err != nil {
-		global.APP_LOG.Warn("更新任务可取消状态失败", zap.Uint("taskId", task.ID), zap.Error(err))
-	}
-
-	// 更新实例状态为删除中
-	if err := global.APP_DB.Model(&instance).Update("status", "deleting").Error; err != nil {
-		global.APP_LOG.Warn("更新实例状态失败", zap.Uint("instanceId", instanceID), zap.Error(err))
-	} else {
-		consoleService.InvalidateInstanceConsoleCaches(instance.ID)
-	}
+	consoleService.InvalidateInstanceConsoleCaches(instance.ID)
 
 	global.APP_LOG.Info("管理员创建删除任务成功",
 		zap.Uint("instanceId", instanceID),
@@ -701,26 +691,8 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 	if req.Action == "delete" {
 		timeout = 0
 	}
-	task, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instance.ID, req.Action, string(taskDataJSON), timeout)
-	if err != nil {
+	if _, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instance.ID, req.Action, string(taskDataJSON), timeout); err != nil {
 		return fmt.Errorf("创建任务失败: %v", err)
-	}
-	if req.Action == "delete" {
-		if err := global.APP_DB.Model(task).Update("is_force_stoppable", false).Error; err != nil {
-			return fmt.Errorf("更新任务权限失败: %v", err)
-		}
-	}
-
-	instance.Status = nextAdminInstanceStatus(req.Action)
-	updates := map[string]interface{}{"status": instance.Status}
-	switch req.Action {
-	case "start", "restart":
-		updates["desired_state"] = providerModel.InstanceDesiredStateRunning
-	case "stop":
-		updates["desired_state"] = providerModel.InstanceDesiredStateStopped
-	}
-	if err := global.APP_DB.Model(&instance).Updates(updates).Error; err != nil {
-		return fmt.Errorf("更新实例状态失败: %v", err)
 	}
 
 	cacheService := cache.GetUserCacheService()

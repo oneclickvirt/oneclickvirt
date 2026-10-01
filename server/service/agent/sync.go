@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/utils"
 	"oneclickvirt/utils/dbcompat"
 
@@ -34,13 +36,17 @@ type trafficUserIDBackfill struct {
 
 // SyncService synchronizes traffic data from the agent into MySQL history tables.
 type SyncService struct {
-	db  *gorm.DB
-	ctx context.Context
+	db              *gorm.DB
+	ctx             context.Context
+	finalInstanceID uint
 }
 
 // NewSyncService creates a new traffic sync service.
 func NewSyncService(ctx context.Context, db *gorm.DB) *SyncService {
-	return &SyncService{db: db, ctx: ctx}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &SyncService{db: db.WithContext(ctx), ctx: ctx}
 }
 
 // SyncProviderTraffic collects traffic from the agent for all monitors under a provider.
@@ -64,21 +70,105 @@ func (s *SyncService) syncProviderTraffic(p *providerModel.Provider, config *mon
 	if config == nil {
 		return fmt.Errorf("missing monitoring config for provider %d", p.ID)
 	}
-	_, err, _ := providerTrafficSyncFlights.Do(fmt.Sprintf("provider:%d", p.ID), func() (interface{}, error) {
-		return nil, s.syncProviderTrafficOnce(p, config)
-	})
-	return err
+	key := fmt.Sprintf("provider:%d", p.ID)
+	if s.finalInstanceID != 0 {
+		return s.withTrafficSyncLock(p, config)
+	}
+	ch := providerTrafficSyncFlights.DoChan(key, func() (interface{}, error) { return nil, s.withTrafficSyncLock(p, config) })
+	select {
+	case result := <-ch:
+		return result.Err
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
+}
+
+type trafficSyncLockEntry struct {
+	semaphore chan struct{}
+	refs      int
+}
+
+var trafficSyncLocks = struct {
+	sync.Mutex
+	entries map[uint]*trafficSyncLockEntry
+}{entries: make(map[uint]*trafficSyncLockEntry)}
+
+func acquireTrafficSyncLock(ctx context.Context, providerID uint) (func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	trafficSyncLocks.Lock()
+	entry := trafficSyncLocks.entries[providerID]
+	if entry == nil {
+		entry = &trafficSyncLockEntry{semaphore: make(chan struct{}, 1)}
+		trafficSyncLocks.entries[providerID] = entry
+	}
+	entry.refs++
+	trafficSyncLocks.Unlock()
+
+	select {
+	case entry.semaphore <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-entry.semaphore
+			releaseTrafficSyncLockReference(providerID, entry)
+			return nil, err
+		}
+		return func() {
+			<-entry.semaphore
+			releaseTrafficSyncLockReference(providerID, entry)
+		}, nil
+	case <-ctx.Done():
+		releaseTrafficSyncLockReference(providerID, entry)
+		return nil, ctx.Err()
+	}
+}
+
+func releaseTrafficSyncLockReference(providerID uint, entry *trafficSyncLockEntry) {
+	trafficSyncLocks.Lock()
+	entry.refs--
+	if entry.refs == 0 && trafficSyncLocks.entries[providerID] == entry {
+		delete(trafficSyncLocks.entries, providerID)
+	}
+	trafficSyncLocks.Unlock()
+}
+
+func (s *SyncService) withTrafficSyncLock(p *providerModel.Provider, config *monitoringModel.MonitoringConfig) error {
+	release, err := acquireTrafficSyncLock(s.ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return s.syncProviderTrafficOnce(p, config)
+}
+
+// SyncInstanceTraffic awaits a fresh counter sample and its database commit.
+func (s *SyncService) SyncInstanceTraffic(instanceID uint, config *monitoringModel.MonitoringConfig) error {
+	var instance providerModel.Instance
+	if err := s.db.Unscoped().First(&instance, instanceID).Error; err != nil {
+		return err
+	}
+	copy := *s
+	copy.finalInstanceID = instanceID
+	return copy.SyncProviderTraffic(instance.ProviderID, config)
 }
 
 func (s *SyncService) syncProviderTrafficOnce(p *providerModel.Provider, config *monitoringModel.MonitoringConfig) error {
 	providerID := p.ID
 
-	if !p.EnableTrafficControl {
+	if !p.EnableTrafficControl && s.finalInstanceID == 0 {
 		return nil
 	}
 
 	var monitors []monitoringModel.AgentMonitor
-	if err := s.db.Where("provider_id = ? AND is_enabled = ?", providerID, true).Find(&monitors).Error; err != nil {
+	query := s.db.Where("provider_id = ? AND is_enabled = ?", providerID, true)
+	if s.finalInstanceID != 0 {
+		query = query.Where("instance_id = ?", s.finalInstanceID)
+	}
+	if err := query.Find(&monitors).Error; err != nil {
 		return fmt.Errorf("list monitors: %w", err)
 	}
 	if len(monitors) == 0 {
@@ -111,9 +201,12 @@ func (s *SyncService) syncProviderTrafficOnce(p *providerModel.Provider, config 
 	client := GetClientWithMode(providerID, host, port, config.AgentToken, p.ConnectionType == "agent")
 
 	// Batch fetch traffic info
-	infoMap, err := client.BatchGetInfo(agentIDs)
+	infoMap, err := client.BatchGetInfoContext(s.ctx, agentIDs, s.finalInstanceID != 0)
 	if err != nil {
 		return fmt.Errorf("batch get info: %w", err)
+	}
+	if s.finalInstanceID != 0 && len(infoMap) != len(agentIDs) {
+		return fmt.Errorf("最终流量采集缺少监控计数，已保留监控记录")
 	}
 	if len(infoMap) == 0 {
 		return nil
@@ -283,7 +376,41 @@ func (s *SyncService) syncProviderTrafficOnce(p *providerModel.Provider, config 
 		}
 	}
 
+	// Traffic history and monitor tracking are updated by the sync above, so
+	// invalidate read caches before returning. Without this, dashboards and
+	// instance detail endpoints can keep serving a stale snapshot for their
+	// full TTL after a successful Agent refresh. Include the previous owner
+	// when an ownership backfill moved history to a new user.
+	trafficCache := cache.GetUserCacheService()
+	invalidateTrafficSyncCaches(trafficCache, affectedUsers, backfills, syncItems)
+
 	return firstErr
+}
+
+func invalidateTrafficSyncCaches(
+	trafficCache *cache.UserCacheService,
+	affectedUsers map[uint]bool,
+	backfills []trafficUserIDBackfill,
+	items []trafficSyncItem,
+) {
+	if trafficCache == nil {
+		return
+	}
+	for userID := range affectedUsers {
+		if userID > 0 {
+			trafficCache.InvalidateUserCache(userID)
+		}
+	}
+	for _, change := range backfills {
+		if change.oldUserID > 0 {
+			trafficCache.InvalidateUserCache(change.oldUserID)
+		}
+	}
+	for _, item := range items {
+		if item.monitor.InstanceID > 0 {
+			trafficCache.InvalidateInstanceCache(item.monitor.InstanceID)
+		}
+	}
 }
 
 func (s *SyncService) retryDB(operation func() error) error {
@@ -878,13 +1005,20 @@ func GetMonitoringConfig(db *gorm.DB, providerID uint) (*monitoringModel.Monitor
 	if err == gorm.ErrRecordNotFound {
 		var provider providerModel.Provider
 		agentInstalled := false
-		if providerErr := db.Select("connection_type").Where("id = ?", providerID).First(&provider).Error; providerErr == nil {
-			agentInstalled = provider.ConnectionType == "agent"
+		token := GenerateAgentToken()
+		if providerErr := db.Select("connection_type", "execution_rule", "agent_secret").Where("id = ?", providerID).First(&provider).Error; providerErr == nil {
+			agentInstalled = provider.IsReverseAgent()
+			if agentInstalled && provider.AgentSecret != "" {
+				// The reverse installer uses this secret for its localhost API as
+				// well as the WebSocket. A second generated token cannot be known
+				// by that installer and breaks domain/traffic synchronization.
+				token = provider.AgentSecret
+			}
 		}
 		config = monitoringModel.MonitoringConfig{
 			ProviderID:              providerID,
 			MonitoringMode:          "agent",
-			AgentToken:              GenerateAgentToken(),
+			AgentToken:              token,
 			AgentPort:               AgentPort,
 			AgentInstalled:          agentInstalled,
 			CollectInterval:         5,
@@ -897,13 +1031,17 @@ func GetMonitoringConfig(db *gorm.DB, providerID uint) (*monitoringModel.Monitor
 	}
 	if err == nil {
 		var provider providerModel.Provider
-		if providerErr := db.Select("connection_type").Where("id = ?", providerID).First(&provider).Error; providerErr == nil && provider.ConnectionType == "agent" {
-			if !config.AgentInstalled || config.MonitoringMode != "agent" {
+		if providerErr := db.Select("connection_type", "execution_rule", "agent_secret").Where("id = ?", providerID).First(&provider).Error; providerErr == nil && provider.IsReverseAgent() {
+			if !config.AgentInstalled || config.MonitoringMode != "agent" || (provider.AgentSecret != "" && config.AgentToken != provider.AgentSecret) {
 				config.AgentInstalled = true
 				config.MonitoringMode = "agent"
+				if provider.AgentSecret != "" {
+					config.AgentToken = provider.AgentSecret
+				}
 				if saveErr := db.Model(&config).Updates(map[string]interface{}{
 					"agent_installed": true,
 					"monitoring_mode": "agent",
+					"agent_token":     config.AgentToken,
 				}).Error; saveErr != nil {
 					return nil, saveErr
 				}

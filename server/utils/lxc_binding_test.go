@@ -21,6 +21,9 @@ type bindingCLIExecutor struct {
 	noPersist         bool
 	writes            int
 	dhcpStaticFailure bool
+	localizedDHCP     bool
+	dhcpStateful      string
+	coloredJSON       bool
 	networkSet        bool
 }
 
@@ -40,7 +43,16 @@ func (e *bindingCLIExecutor) ExecuteWithTimeout(command string, timeout time.Dur
 			value = map[string]interface{}{"metadata": e.state}
 		}
 		body, err := json.Marshal(value)
+		if e.coloredJSON {
+			return "\x1b[32m" + string(body) + "\x1b[0m", err
+		}
 		return string(body), err
+	}
+	if strings.Contains(command, " network get ") {
+		if e.dhcpStateful == "" {
+			return "true", nil
+		}
+		return e.dhcpStateful, nil
 	}
 	if strings.Contains(command, " network set ") {
 		e.networkSet = true
@@ -51,6 +63,9 @@ func (e *bindingCLIExecutor) ExecuteWithTimeout(command string, timeout time.Dur
 	}
 	e.writes++
 	if e.dhcpStaticFailure && !e.networkSet && strings.Contains(command, "ipv6.address") {
+		if e.localizedDHCP {
+			return "\x1b[31mAdresse IPv6 invalide: DHCP désactivé / adresse IPv6 non autorisée\x1b[0m", errors.New("device validation failed")
+		}
 		return "Cannot specify ipv6.address when DHCP is disabled", errors.New("device validation failed")
 	}
 	if e.failWrite || (e.legacy && (strings.Contains(command, "ipv4.address=") || strings.Contains(command, "ipv6.address="))) {
@@ -86,6 +101,32 @@ func TestLXCBindingEnablesStatefulDHCPForStaticIPv6(t *testing.T) {
 	}
 	if !executor.networkSet || executor.writes != 2 {
 		t.Fatalf("stateful DHCP fallback commands/writes = %v/%d, want network set and two device writes: %v", executor.networkSet, executor.writes, executor.commands)
+	}
+}
+
+func TestLXCBindingUsesMachineReadableDHCPStateForLocalizedDiagnostic(t *testing.T) {
+	metadata, devices := proxyNICFixture()
+	delete(devices, "ssh")
+	metadata["devices"] = devices
+	executor := &bindingCLIExecutor{
+		t: t, metadata: metadata, state: metadata["_network_state"].(map[string]interface{}),
+		dhcpStaticFailure: true, localizedDHCP: true, dhcpStateful: "false",
+	}
+	if err := SetLXCAddressBinding(executor, "incus", "guest", "2001:db8::10", true); err != nil {
+		t.Fatalf("SetLXCAddressBinding() error = %v", err)
+	}
+	if !executor.networkSet || executor.writes != 2 {
+		t.Fatalf("localized DHCP fallback commands/writes = %v/%d, want network set and two device writes: %v", executor.networkSet, executor.writes, executor.commands)
+	}
+}
+
+func TestLXCBindingStripsTerminalColorsFromJSON(t *testing.T) {
+	metadata, devices := proxyNICFixture()
+	delete(devices, "ssh")
+	metadata["devices"] = devices
+	executor := &bindingCLIExecutor{t: t, metadata: metadata, state: metadata["_network_state"].(map[string]interface{}), coloredJSON: true}
+	if err := SetLXCIPv4Binding(executor, "incus", "guest", "192.0.2.10"); err != nil {
+		t.Fatalf("SetLXCIPv4Binding() rejected colored JSON: %v", err)
 	}
 }
 

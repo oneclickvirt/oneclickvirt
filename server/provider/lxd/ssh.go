@@ -256,11 +256,11 @@ func (l *LXDProvider) validateCopyModeSource(config provider.InstanceConfig) err
 }
 
 func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
-	if l.sshInstanceRunning(id) {
+	if l.sshInstanceRunning(ctx, id) {
 		global.APP_LOG.Debug("LXD实例已在运行，跳过启动", zap.String("id", id))
 		return nil
 	}
-	if err := l.ensureVMCloudInitTemplates(id); err != nil {
+	if err := l.ensureVMCloudInitTemplates(ctx, id); err != nil {
 		global.APP_LOG.Warn("LXD VM cloud-init模板预检查失败，将继续尝试启动",
 			zap.String("id", id),
 			zap.Error(err))
@@ -272,20 +272,20 @@ func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 	maxAttempts := 3
 	repairedCloudInitTemplates := false
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		output, startErr = l.sshClient.Execute(startCmd)
+		output, startErr = utils.ExecuteShellCommandContext(ctx, l.sshClient, startCmd)
 		if startErr == nil {
 			break
 		}
 
 		// 如果错误提示实例已在运行，不视为错误
 		errMsg := output + "\n" + startErr.Error()
-		if lxdAlreadyRunningMessage(errMsg) || l.sshInstanceRunning(id) {
+		if lxdAlreadyRunningMessage(errMsg) || l.sshInstanceRunning(ctx, id) {
 			global.APP_LOG.Debug("LXD实例已在运行", zap.String("id", id))
 			return nil
 		}
 
 		if lxdStartNeedsCloudInitTemplateRepair(errMsg) && !repairedCloudInitTemplates {
-			if repairErr := l.ensureVMCloudInitTemplates(id); repairErr != nil {
+			if repairErr := l.ensureVMCloudInitTemplates(ctx, id); repairErr != nil {
 				global.APP_LOG.Warn("LXD VM cloud-init模板自动修复失败",
 					zap.String("id", id),
 					zap.Error(repairErr))
@@ -304,16 +304,18 @@ func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 				zap.String("id", id),
 				zap.String("output", utils.TruncateString(output, 500)),
 				zap.Error(startErr))
-			time.Sleep(time.Duration(attempt*3) * time.Second)
+			if err := utils.SleepContext(ctx, time.Duration(attempt*3)*time.Second); err != nil {
+				return err
+			}
 		}
 	}
 
 	if startErr != nil {
-		if l.sshInstanceRunning(id) {
+		if l.sshInstanceRunning(ctx, id) {
 			global.APP_LOG.Debug("LXD实例启动命令失败后状态已变为运行，继续流程", zap.String("id", id))
 			return nil
 		}
-		diagOutput, diagErr := l.collectStartDiagnostics(id)
+		diagOutput, diagErr := l.collectStartDiagnostics(ctx, id)
 		details := []string{}
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			details = append(details, "start output: "+utils.TruncateString(trimmed, 8000))
@@ -344,15 +346,19 @@ func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 		}
 
 		// 等待一段时间后再检查
-		time.Sleep(checkInterval)
+		if err := utils.SleepContext(ctx, checkInterval); err != nil {
+			return err
+		}
 
 		// 检查实例状态
-		statusOutput, err := l.sshClient.Execute(fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", shellSingleQuote(id)))
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, lxdInstanceStatusCommand(id))
 		if err == nil {
 			status := strings.TrimSpace(statusOutput)
 			if status == "RUNNING" || status == "Running" {
 				// 实例已经启动，再等待额外的时间确保系统完全就绪
-				time.Sleep(3 * time.Second)
+				if err := utils.SleepContext(ctx, 3*time.Second); err != nil {
+					return err
+				}
 				global.APP_LOG.Info("LXD实例已成功启动并就绪",
 					zap.String("id", utils.TruncateString(id, 50)),
 					zap.Duration("wait_time", time.Since(startTime)))
@@ -371,23 +377,23 @@ func lxdAlreadyRunningMessage(text string) bool {
 	return strings.Contains(lower, "already running") || strings.Contains(lower, "instance is already running")
 }
 
-func (l *LXDProvider) sshInstanceRunning(id string) bool {
-	statusOutput, err := l.sshClient.Execute(fmt.Sprintf("lxc info %s | awk -F': ' '/^Status:/{print $2; exit}'", shellSingleQuote(id)))
+func (l *LXDProvider) sshInstanceRunning(ctx context.Context, id string) bool {
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, lxdInstanceStatusCommand(id))
 	if err != nil {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(statusOutput), "running")
 }
 
-func (l *LXDProvider) sshInstanceStopped(id string) bool {
-	statusOutput, err := l.sshClient.Execute(fmt.Sprintf("lxc info %s | awk -F': ' '/^Status:/{print $2; exit}'", shellSingleQuote(id)))
+func (l *LXDProvider) sshInstanceStopped(ctx context.Context, id string) bool {
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, lxdInstanceStatusCommand(id))
 	if err != nil {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(statusOutput), "stopped")
 }
 
-func (l *LXDProvider) collectStartDiagnostics(id string) (string, error) {
+func (l *LXDProvider) collectStartDiagnostics(ctx context.Context, id string) (string, error) {
 	commands := []struct {
 		name string
 		cmd  string
@@ -400,7 +406,7 @@ func (l *LXDProvider) collectStartDiagnostics(id string) (string, error) {
 	var parts []string
 	var errs []string
 	for _, command := range commands {
-		output, err := l.sshClient.Execute(command.cmd)
+		output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, command.cmd)
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			parts = append(parts, fmt.Sprintf("[%s]\n%s", command.name, trimmed))
 		}
@@ -415,9 +421,9 @@ func (l *LXDProvider) collectStartDiagnostics(id string) (string, error) {
 }
 
 func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc stop %s", shellSingleQuote(id)))
+	output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, fmt.Sprintf("lxc stop %s", shellSingleQuote(id)))
 	if err != nil {
-		if l.sshInstanceStopped(id) {
+		if l.sshInstanceStopped(ctx, id) {
 			return nil
 		}
 		return fmt.Errorf("failed to stop instance: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
@@ -428,7 +434,7 @@ func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {
 }
 
 func (l *LXDProvider) sshRestartInstance(ctx context.Context, id string) error {
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc restart %s", shellSingleQuote(id)))
+	output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, fmt.Sprintf("lxc restart %s", shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to restart instance: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
@@ -438,7 +444,7 @@ func (l *LXDProvider) sshRestartInstance(ctx context.Context, id string) error {
 }
 
 func (l *LXDProvider) sshDeleteInstance(ctx context.Context, id string) error {
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc delete %s --force", shellSingleQuote(id)))
+	output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, fmt.Sprintf("lxc delete %s --force", shellSingleQuote(id)))
 	if err != nil {
 		// 检查是否是实例不存在的错误
 		if strings.Contains(output, "Instance not found") || strings.Contains(output, "not found") {
@@ -505,7 +511,7 @@ func (l *LXDProvider) sshDeleteImage(ctx context.Context, id string) error {
 
 // sshSetInstancePassword 通过SSH设置实例密码
 func (l *LXDProvider) sshSetInstancePassword(ctx context.Context, instanceID, password string) error {
-	if err := l.setLXDInstancePasswordWithRetry(instanceID, password, "sh"); err != nil {
+	if err := l.setLXDInstancePasswordWithRetry(ctx, instanceID, password, "sh"); err != nil {
 		global.APP_LOG.Error("设置LXD实例密码失败",
 			zap.String("instanceID", instanceID),
 			zap.Error(err))

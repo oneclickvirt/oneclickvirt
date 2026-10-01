@@ -129,6 +129,7 @@
         v-if="!isAgentProvider"
         type="success"
         :loading="deployLoading"
+        :disabled="mutationBusy"
         @click="$emit('deploy-agent')"
       >
         {{ config.agent_installed ? $t('admin.providers.redeployAgent') : $t('admin.providers.deployAgent') }}
@@ -137,7 +138,7 @@
         v-if="!isAgentProvider"
         type="danger"
         :loading="uninstallLoading"
-        :disabled="!config.agent_installed"
+        :disabled="mutationBusy || !config.agent_installed"
         @click="$emit('uninstall-agent')"
       >
         {{ $t('admin.providers.uninstallAgent') }}
@@ -145,6 +146,7 @@
       <el-button
         type="primary"
         :loading="statusLoading"
+        :disabled="statusLoading"
         @click="$emit('check-status')"
       >
         {{ $t('admin.providers.checkAgentStatus') }}
@@ -152,7 +154,7 @@
       <el-button
         type="warning"
         :loading="syncLoading"
-        :disabled="!config.agent_installed"
+        :disabled="mutationBusy || !config.agent_installed"
         @click="$emit('sync-monitors')"
       >
         {{ $t('admin.providers.syncMonitors') }}
@@ -160,12 +162,13 @@
       <el-button
         type="danger"
         :loading="clearMonitorsLoading"
-        :disabled="!config.agent_installed"
+        :disabled="mutationBusy || !config.agent_installed"
         @click="$emit('clear-monitors')"
       >
         {{ $t('admin.providers.clearMonitors') }}
       </el-button>
       <el-button
+        :disabled="mutationBusy"
         @click="$emit('toggle-config-editor')"
       >
         {{ $t('admin.providers.editConfig') }}
@@ -183,6 +186,7 @@
       </template>
       <el-form
         :model="editConfig"
+        :disabled="mutationBusy"
         label-width="180px"
         size="small"
       >
@@ -280,6 +284,7 @@
           <el-button
             type="primary"
             :loading="saveConfigLoading"
+            :disabled="mutationBusy"
             @click="$emit('save-config')"
           >
             {{ $t('common.save') }}
@@ -556,6 +561,7 @@ const props = defineProps({
   uninstallLoading: { type: Boolean, default: false },
   statusLoading: { type: Boolean, default: false },
   syncLoading: { type: Boolean, default: false },
+  mutationBusy: { type: Boolean, default: false },
   clearMonitorsLoading: { type: Boolean, default: false },
   saveConfigLoading: { type: Boolean, default: false },
   listAgentLoading: { type: Boolean, default: false },

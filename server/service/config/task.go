@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -28,6 +29,13 @@ type TaskContext struct {
 	Task       *admin.ConfigurationTask
 	Context    context.Context
 	CancelFunc context.CancelFunc
+	// Done closes only after the terminal state is persisted and the Provider
+	// reservation is released. Forced reruns wait on this signal instead of
+	// polling the database while a remote call unwinds.
+	Done       chan struct{}
+	finishMu   sync.Mutex
+	completion *configCompletion
+	retrying   bool
 }
 
 var taskService *TaskService
@@ -82,40 +90,24 @@ func (s *TaskService) cleanupUnfinishedTasks() {
 		return
 	}
 
-	var tasks []admin.ConfigurationTask
-	if err := global.APP_DB.Where("status IN ?", []string{
-		admin.TaskStatusPending,
-		admin.TaskStatusRunning,
-	}).Find(&tasks).Error; err != nil {
-		global.APP_LOG.Warn("查询未完成配置任务失败", zap.Error(err))
+	// This method runs when the process-local service is first created. No
+	// worker from a previous process can still call FinishTask, so leaving these
+	// rows in "cancelling" would permanently block the Provider queue.
+	now := time.Now()
+	result := global.APP_DB.Model(&admin.ConfigurationTask{}).
+		Where("status IN ?", []string{admin.TaskStatusPending, admin.TaskStatusRunning, admin.TaskStatusCancelling}).
+		Updates(map[string]interface{}{
+			"status":        admin.TaskStatusCancelled,
+			"success":       false,
+			"error_message": "服务重启，任务已取消",
+			"completed_at":  &now,
+		})
+	if result.Error != nil {
+		global.APP_LOG.Warn("清理未完成配置任务失败", zap.Error(result.Error))
 		return
 	}
-	if len(tasks) == 0 {
-		return
-	}
-
-	stateManager := taskManager.GetTaskStateManager()
-	if stateManager == nil {
-		now := time.Now()
-		result := global.APP_DB.Model(&admin.ConfigurationTask{}).
-			Where("status IN ?", []string{admin.TaskStatusPending, admin.TaskStatusRunning}).
-			Updates(map[string]interface{}{
-				"status":        admin.TaskStatusCancelled,
-				"error_message": "服务重启，任务已取消",
-				"completed_at":  &now,
-			})
-		if result.Error != nil {
-			global.APP_LOG.Warn("清理未完成配置任务失败", zap.Error(result.Error))
-		}
-		return
-	}
-
-	for _, task := range tasks {
-		global.APP_LOG.Debug("清理未完成配置任务", zap.Uint("taskId", task.ID), zap.Uint("providerId", task.ProviderID), zap.String("taskType", task.TaskType))
-
-		if err := stateManager.CancelConfigTask(task.ID, "服务重启，任务已取消"); err != nil {
-			global.APP_LOG.Warn("清理配置任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
-		}
+	if result.RowsAffected > 0 {
+		global.APP_LOG.Info("已清理服务重启前未完成的配置任务", zap.Int64("count", result.RowsAffected))
 	}
 }
 
@@ -125,7 +117,10 @@ func (s *TaskService) GetRunningTask(providerID uint) *admin.ConfigurationTask {
 	defer s.mutex.RUnlock()
 
 	if ctx, exists := s.runningTasks[providerID]; exists {
-		return ctx.Task
+		// Do not expose the mutable ownership record to API callers; cancellation
+		// updates its status while holding the service mutex.
+		taskCopy := *ctx.Task
+		return &taskCopy
 	}
 	return nil
 }
@@ -133,14 +128,86 @@ func (s *TaskService) GetRunningTask(providerID uint) *admin.ConfigurationTask {
 // GetTaskContext 返回可由取消操作终止的任务Context。
 func (s *TaskService) GetTaskContext(taskID uint) context.Context {
 	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
 	for _, taskCtx := range s.runningTasks {
 		if taskCtx.Task.ID == taskID {
+			s.mutex.RUnlock()
 			return taskCtx.Context
 		}
 	}
+	s.mutex.RUnlock()
+
+	// If a cancelled task has no in-memory entry (for example after a restart),
+	// return an already-cancelled context instead of silently falling back to the
+	// process context and continuing the work.
+	if global.APP_DB != nil {
+		var task admin.ConfigurationTask
+		if err := global.APP_DB.Select("status").First(&task, taskID).Error; err == nil && (task.Status == admin.TaskStatusCancelled || task.Status == admin.TaskStatusCancelling) {
+			cancelled, cancel := context.WithCancel(context.Background())
+			cancel()
+			return cancelled
+		}
+	}
 	return nil
+}
+
+// WaitForTaskRelease waits until a cancelled task has finished unwinding and
+// released its Provider slot. Forced reruns use this barrier so a second
+// configuration operation cannot overlap a still-running provider call.
+func (s *TaskService) WaitForTaskRelease(providerID, taskID uint, timeout time.Duration) error {
+	s.retryFinishedTask(providerID)
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), timeout)
+	defer waitCancel()
+
+	// The normal path is process-local: FinishTask closes Done after the
+	// terminal database transition. This avoids a tight database polling loop
+	// while an SSH/API request is unwinding.
+	s.mutex.RLock()
+	taskCtx, owned := s.runningTasks[providerID]
+	owned = owned && taskCtx.Task.ID == taskID
+	var released <-chan struct{}
+	if owned {
+		released = taskCtx.Done
+	}
+	s.mutex.RUnlock()
+	if owned && released != nil {
+		select {
+		case <-released:
+			return nil
+		case <-waitCtx.Done():
+			return fmt.Errorf("上一个配置任务仍在取消，请稍后重试")
+		}
+	}
+
+	// A missing in-memory owner can only happen after a process restart or when
+	// a legacy caller created a service without a release channel. Check the
+	// durable state once, then use a low-frequency fallback for that recovery
+	// case instead of turning every forced rerun into dozens of queries.
+	if global.APP_DB == nil {
+		return fmt.Errorf("数据库连接不可用，无法确认配置任务是否已停止")
+	}
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var active admin.ConfigurationTask
+		activeQuery := global.APP_DB.WithContext(waitCtx).Model(&admin.ConfigurationTask{}).
+			Select("id").
+			Where("id = ? AND provider_id = ? AND status IN ?", taskID, providerID, []string{admin.TaskStatusRunning, admin.TaskStatusCancelling}).
+			Limit(1).Find(&active)
+		if activeQuery.Error != nil {
+			return fmt.Errorf("查询配置任务状态失败: %w", activeQuery.Error)
+		}
+		if activeQuery.RowsAffected == 0 {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("上一个配置任务仍在取消，请稍后重试")
+		case <-ticker.C:
+		}
+	}
 }
 
 // GetProviderHistory 获取Provider的历史任务
@@ -233,8 +300,9 @@ func (s *TaskService) CancelTaskScoped(taskID, ownerAdminID uint) error {
 		return fmt.Errorf("任务不存在或无权限: %w", err)
 	}
 
-	// 如果任务已经被取消，直接返回成功
-	if task.Status == admin.TaskStatusCancelled {
+	// 重复取消保持幂等，同时再次通知仍在退出的执行协程。
+	if task.Status == admin.TaskStatusCancelled || task.Status == admin.TaskStatusCancelling {
+		s.cancelRunningTaskContext(task.ProviderID, task.ID)
 		return nil
 	}
 
@@ -254,14 +322,23 @@ func (s *TaskService) CancelTaskScoped(taskID, ownerAdminID uint) error {
 		return err
 	}
 
-	// 只能取消与请求ID一致的运行任务，避免pending任务误停同Provider的活动任务。
+	// 保留 runningTasks 项，直到 FinishTask 真正收到完成回调。立即删除会让
+	// 强制重跑绕过 Provider 级互斥，在旧远端操作尚未返回时启动第二个操作。
+	s.cancelRunningTaskContext(task.ProviderID, task.ID)
+	return nil
+}
+
+// cancelRunningTaskContext signals a matching execution context without
+// removing its ownership entry. FinishTask removes the entry after the worker
+// has returned, keeping forced reruns serialized per Provider.
+func (s *TaskService) cancelRunningTaskContext(providerID, taskID uint) {
 	s.mutex.Lock()
-	if taskCtx, exists := s.runningTasks[task.ProviderID]; exists && taskCtx.Task.ID == task.ID {
+	taskCtx, exists := s.runningTasks[providerID]
+	if exists && taskCtx.Task.ID == taskID && taskCtx.CancelFunc != nil {
+		taskCtx.Task.Status = admin.TaskStatusCancelling
 		taskCtx.CancelFunc()
-		delete(s.runningTasks, task.ProviderID)
 	}
 	s.mutex.Unlock()
-	return nil
 }
 
 // CreateTask 创建任务
@@ -322,25 +399,34 @@ func (s *TaskService) StartTask(taskID uint) error {
 		return fmt.Errorf("任务状态不允许启动: %s", task.Status)
 	}
 
-	// 检查是否有正在运行的任务
-	s.mutex.Lock()
-	if ctx, exists := s.runningTasks[task.ProviderID]; exists {
-		s.mutex.Unlock()
+	s.retryFinishedTask(task.ProviderID)
+
+	// The ownership map is process-local. Check it without holding the mutex
+	// across any database operation; a slow state transition must not block
+	// cancellation or status reads for every other Provider.
+	var existing admin.ConfigurationTask
+	if err := global.APP_DB.Where(
+		"provider_id = ? AND id <> ? AND (status IN ? OR (status = ? AND id < ?))",
+		task.ProviderID,
+		task.ID,
+		[]string{admin.TaskStatusRunning, admin.TaskStatusCancelling},
+		admin.TaskStatusPending,
+		task.ID,
+	).Order("id ASC").First(&existing).Error; err == nil {
 		global.APP_LOG.Error("Provider已有正在运行的任务",
 			zap.Uint("providerID", task.ProviderID),
-			zap.Uint("existingTaskID", ctx.Task.ID),
+			zap.Uint("existingTaskID", existing.ID),
 			zap.Uint("newTaskID", taskID))
-		return fmt.Errorf("Provider %d 已有正在运行的任务 %d", task.ProviderID, ctx.Task.ID)
+		return fmt.Errorf("Provider %d 已有配置任务 %d", task.ProviderID, existing.ID)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("检查Provider配置任务失败: %w", err)
 	}
 
-	// 启动配置任务
 	stateManager := taskManager.GetTaskStateManager()
-	if err := stateManager.StartConfigTask(task.ID); err != nil {
-		s.mutex.Unlock()
-		return fmt.Errorf("启动配置任务失败: %w", err)
+	if stateManager == nil {
+		return fmt.Errorf("统一任务状态管理器未初始化")
 	}
 
-	// 创建任务上下文
 	baseContext := global.APP_SHUTDOWN_CONTEXT
 	if baseContext == nil {
 		baseContext = context.Background()
@@ -350,11 +436,66 @@ func (s *TaskService) StartTask(taskID uint) error {
 		Task:       &task,
 		Context:    runContext,
 		CancelFunc: cancel,
+		Done:       make(chan struct{}),
+	}
+
+	// Reserve the Provider slot before the database transition. Cancellation
+	// may race this transition; keeping this ownership record in place prevents
+	// a forced rerun from overlapping the remote operation while the CAS settles.
+	s.mutex.Lock()
+	if ctx, exists := s.runningTasks[task.ProviderID]; exists {
+		s.mutex.Unlock()
+		cancel()
+		global.APP_LOG.Error("Provider已有正在运行的任务",
+			zap.Uint("providerID", task.ProviderID),
+			zap.Uint("existingTaskID", ctx.Task.ID),
+			zap.Uint("newTaskID", taskID))
+		return fmt.Errorf("Provider %d 已有正在运行的任务 %d", task.ProviderID, ctx.Task.ID)
 	}
 	s.runningTasks[task.ProviderID] = taskCtx
 	s.mutex.Unlock()
 
+	// Perform the database transition outside the process-wide mutex. If it
+	// loses a cancellation or completion race, remove only this reservation.
+	if err := stateManager.StartConfigTask(task.ID); err != nil {
+		s.removeRunningTask(task.ProviderID, task.ID, taskCtx)
+		cancel()
+		return fmt.Errorf("启动配置任务失败: %w", err)
+	}
+
+	s.mutex.Lock()
+	current, exists := s.runningTasks[task.ProviderID]
+	if !exists || current != taskCtx {
+		s.mutex.Unlock()
+		cancel()
+		return fmt.Errorf("配置任务启动状态已被其他流程接管")
+	}
+	// Keep the in-memory ownership record in sync with the atomic DB transition.
+	if taskCtx.Context.Err() == nil {
+		taskCtx.Task.Status = admin.TaskStatusRunning
+	}
+	now := time.Now()
+	taskCtx.Task.StartedAt = &now
+	s.mutex.Unlock()
+
 	return nil
+}
+
+// removeRunningTask releases a reservation only when it still belongs to the
+// task that created it. A later task for the same Provider must never be
+// removed by an earlier failed start or completion callback.
+func (s *TaskService) removeRunningTask(providerID, taskID uint, expected *TaskContext) context.CancelFunc {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	current, exists := s.runningTasks[providerID]
+	if !exists || current.Task.ID != taskID || (expected != nil && current != expected) {
+		return nil
+	}
+	delete(s.runningTasks, providerID)
+	if current.Done != nil {
+		close(current.Done)
+	}
+	return current.CancelFunc
 }
 
 // GetTaskList 获取任务列表
@@ -426,41 +567,106 @@ func (s *TaskService) GetTaskDetail(taskID, ownerAdminID uint) (*admin.Configura
 
 // UpdateTaskLog 更新任务日志
 func (s *TaskService) UpdateTaskLog(taskID uint, logMessage string) error {
-	return global.APP_DB.Model(&admin.ConfigurationTask{}).
-		Where("id = ?", taskID).
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return global.APP_DB.WithContext(ctx).Model(&admin.ConfigurationTask{}).
+		Where("id = ? AND status IN ?", taskID, []string{admin.TaskStatusPending, admin.TaskStatusRunning, admin.TaskStatusCancelling}).
 		Update("log_output", logMessage).Error
 }
 
 // UpdateTaskProgress 更新任务进度
 func (s *TaskService) UpdateTaskProgress(taskID uint, progress int) error {
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 100 {
+		progress = 100
+	}
 	return global.APP_DB.Model(&admin.ConfigurationTask{}).
-		Where("id = ?", taskID).
+		Where("id = ? AND status IN ? AND progress <= ?", taskID,
+			[]string{admin.TaskStatusPending, admin.TaskStatusRunning}, progress).
 		Update("progress", progress).Error
 }
 
 // FinishTask 完成任务
+type configCompletion struct {
+	success      bool
+	errorMessage string
+	resultData   map[string]interface{}
+}
+
 func (s *TaskService) FinishTask(taskID uint, success bool, errorMessage string, resultData map[string]interface{}) error {
+	completion := &configCompletion{success, errorMessage, resultData}
+	var owner *TaskContext
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	var task admin.ConfigurationTask
-	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
-		return fmt.Errorf("任务不存在: %w", err)
+	for _, candidate := range s.runningTasks {
+		if candidate.Task.ID == taskID {
+			owner = candidate
+			// Keep the original result if an HTTP retry races the first callback.
+			if owner.completion == nil {
+				owner.completion = completion
+			}
+			completion = owner.completion
+			break
+		}
 	}
-
-	// 旧任务完成时不能删除同Provider上已经启动的新任务。
-	if taskCtx, exists := s.runningTasks[task.ProviderID]; exists && taskCtx.Task.ID == task.ID {
-		delete(s.runningTasks, task.ProviderID)
+	s.mutex.Unlock()
+	if owner == nil {
+		return taskManager.GetTaskStateManager().CompleteConfigTask(taskID, success, errorMessage, resultData)
 	}
+	if err := s.persistCompletion(owner, completion); err != nil {
+		s.retryFinishedTask(owner.Task.ProviderID)
+		return err
+	}
+	return nil
+}
 
-	// 使用统一任务状态管理器更新状态
+func (s *TaskService) persistCompletion(owner *TaskContext, result *configCompletion) error {
+	owner.finishMu.Lock()
+	defer owner.finishMu.Unlock()
+	s.mutex.RLock()
+	current := s.runningTasks[owner.Task.ProviderID]
+	s.mutex.RUnlock()
+	if current != owner {
+		return nil
+	}
 	stateManager := taskManager.GetTaskStateManager()
 	if stateManager == nil {
 		return fmt.Errorf("统一任务状态管理器未初始化")
 	}
+	if err := stateManager.CompleteConfigTask(owner.Task.ID, result.success, result.errorMessage, result.resultData); err != nil {
+		return err
+	}
+	if cancel := s.removeRunningTask(owner.Task.ProviderID, owner.Task.ID, owner); cancel != nil {
+		cancel()
+	}
+	return nil
+}
 
-	global.APP_LOG.Info("使用统一管理器完成配置任务", zap.Uint("taskId", task.ID))
-	return stateManager.CompleteConfigTask(task.ID, success, errorMessage, resultData)
+// Only retry persistence, never rerun the provider operation. Retries are
+// bounded; a later start/forced rerun can try again after the DB recovers.
+func (s *TaskService) retryFinishedTask(providerID uint) {
+	s.mutex.Lock()
+	owner := s.runningTasks[providerID]
+	if owner == nil || owner.completion == nil || owner.retrying {
+		s.mutex.Unlock()
+		return
+	}
+	owner.retrying = true
+	result := owner.completion
+	s.mutex.Unlock()
+	go func() {
+		defer func() { s.mutex.Lock(); owner.retrying = false; s.mutex.Unlock() }()
+		for attempt := 0; attempt < 3; attempt++ {
+			if attempt > 0 {
+				time.Sleep(time.Duration(attempt) * time.Second)
+			}
+			if err := s.persistCompletion(owner, result); err == nil {
+				return
+			}
+		}
+		global.APP_LOG.Error("配置任务结果暂未保存，保留完成结果供重试", zap.Uint("taskId", owner.Task.ID))
+	}()
 }
 
 // convertToResponse 转换为响应格式

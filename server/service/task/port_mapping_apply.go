@@ -154,6 +154,18 @@ type portMappingApplier struct {
 	providerFirewallChanged bool
 }
 
+func portMappingProviderIdentifier(instance *providerModel.Instance, providerType string) string {
+	if instance == nil {
+		return ""
+	}
+	if normalized := utils.NormalizeProviderType(providerType); normalized == "proxmox" || normalized == "proxmoxve" || normalized == "pve" {
+		if name := strings.TrimSpace(instance.Name); name != "" {
+			return name
+		}
+	}
+	return instance.ProviderInstanceIdentifier()
+}
+
 func newPortMappingApplier(ctx context.Context, providerInstance providerCore.Provider, providerInfo *providerModel.Provider) *portMappingApplier {
 	return &portMappingApplier{ctx: ctx, providerInstance: providerInstance, providerInfo: providerInfo}
 }
@@ -291,7 +303,7 @@ func (a *portMappingApplier) removeNodeMapping(instance *providerModel.Instance,
 }
 
 func (a *portMappingApplier) removeEndpoint(instance *providerModel.Instance, port *providerModel.Port, endpoint portEndpoint, method, targetAddress string, ipv6 bool) error {
-	providerInstanceID := instance.ProviderInstanceIdentifier()
+	providerInstanceID := portMappingProviderIdentifier(instance, a.providerInfo.Type)
 	switch providerInstance := a.providerInstance.(type) {
 	case *lxdProvider.LXDProvider:
 		return providerInstance.RemovePortMappingForFamily(providerInstanceID, endpoint.host, endpoint.guest, endpoint.host, endpoint.guest, 1, port.Protocol, method, targetAddress, ipv6)
@@ -315,7 +327,7 @@ func (a *portMappingApplier) applyEndpoint(instance *providerModel.Instance, por
 			return err
 		}
 	}
-	providerInstanceID := instance.ProviderInstanceIdentifier()
+	providerInstanceID := portMappingProviderIdentifier(instance, a.providerInfo.Type)
 	switch providerInstance := a.providerInstance.(type) {
 	case *lxdProvider.LXDProvider:
 		a.providerFirewallChanged = a.providerFirewallChanged || method == "iptables"
