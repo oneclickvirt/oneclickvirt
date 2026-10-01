@@ -6,70 +6,70 @@ TEST_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEST_DIR"' EXIT
 export TEST_EVENTS="$TEST_DIR/events"
 
-# Execute the real cleanup shell against an isolated runtime double. This
-# checks deletion ownership and remote failure propagation without a live VPS.
+# Execute the real cleanup shell with local SSH doubles. Acceptance containers
+# stay available for inspection; only temporary probe host-key files are removed.
 # shellcheck disable=SC1090
-source <(sed -n '/^shell_quote() {/,/^on_exit() {/ { /^on_exit() {/d; p; }' \
+source <(sed -n '/^probe_exec() {/,/^trap on_exit EXIT/ { /^trap on_exit EXIT/d; p; }' \
     "$ROOT_DIR/scripts/tests/ipv6_external_acceptance_test.sh")
-node_ssh() { bash -s; }
-incus() {
-    case "$1 $2" in
-        'list --format')
-            [[ "${FAIL_LIST:-false}" != true ]] || return 17
-            printf '%s\n' "${LIST_NAMES:-}"
-            ;;
-        'config get') printf '%s\n' "$OWNER" ;;
-        'delete -f')
-            printf '%s\n' "$3" >> "$TEST_EVENTS"
-            [[ "${FAIL_DELETE:-false}" != true ]] || return 23
-            ;;
-        *) return 99 ;;
-    esac
+node_ssh() {
+    printf '%s\n' node >> "$TEST_EVENTS"
+    return 99
 }
-export -f incus
-export OWNER="run-'quoted'" LIST_NAMES='ocv-ipv6-test'
-TEST_RUN_ID="$OWNER"
+probe_ssh() {
+    printf '%s\n' probe >> "$TEST_EVENTS"
+    [[ "${FAIL_PROBE:-false}" != true ]] || return 17
+    bash -c "$1"
+}
+
 CONTAINER_NAME=ocv-ipv6-test
 CONTAINER_CREATED=false
-cleanup
-[[ ! -e "$TEST_EVENTS" ]]
-echo 'PASS: no deletion before confirmed creation'
+PROBE_KNOWN_HOSTS=""
+: > "$TEST_EVENTS"
+output="$(cleanup 2>&1)"
+[[ ! -s "$TEST_EVENTS" && -z "$output" ]]
+echo 'PASS: no node access before confirmed creation'
 
 # Read by cleanup, which is extracted from the acceptance script above.
 # shellcheck disable=SC2034
 CONTAINER_CREATED=true
-cleanup
-[[ "$(<"$TEST_EVENTS")" == "$CONTAINER_NAME" ]]
-rm "$TEST_EVENTS"
-echo 'PASS: matching owner, including shell punctuation, is removed'
+output="$(cleanup 2>&1)"
+[[ ! -s "$TEST_EVENTS" && "$output" == "Preserving IPv6 acceptance container: $CONTAINER_NAME" ]]
+echo 'PASS: confirmed container is preserved without node access'
 
-export OWNER=another-run
-if cleanup >/dev/null 2>&1; then
-    echo 'FAIL: replaced container accepted for cleanup' >&2
+CONTAINER_CREATED=false
+PROBE_KNOWN_HOSTS="$TEST_DIR/probe hosts-'quoted'"
+printf '%s\n' key > "$PROBE_KNOWN_HOSTS"
+: > "$TEST_EVENTS"
+output="$(cleanup 2>&1)"
+[[ ! -e "$PROBE_KNOWN_HOSTS" && "$(<"$TEST_EVENTS")" == probe && -z "$output" ]]
+echo 'PASS: temporary probe file with spaces and quotes is removed'
+
+# Read by the sourced cleanup function.
+# shellcheck disable=SC2034
+CONTAINER_CREATED=true
+: > "$TEST_EVENTS"
+output="$(cleanup 2>&1)"
+[[ ! -e "$PROBE_KNOWN_HOSTS" && "$(<"$TEST_EVENTS")" == probe ]]
+[[ "$output" == "Preserving IPv6 acceptance container: $CONTAINER_NAME" ]]
+echo 'PASS: missing probe file is idempotent and container stays preserved'
+
+FAIL_PROBE=true
+printf '%s\n' key > "$PROBE_KNOWN_HOSTS"
+: > "$TEST_EVENTS"
+output="$(cleanup 2>&1)"
+[[ -e "$PROBE_KNOWN_HOSTS" && "$(<"$TEST_EVENTS")" == probe ]]
+[[ "$output" == "Preserving IPv6 acceptance container: $CONTAINER_NAME" ]]
+echo 'PASS: unavailable probe never causes node access or container deletion'
+
+: > "$TEST_EVENTS"
+if (trap on_exit EXIT; exit 42) > "$TEST_DIR/exit-output" 2>&1; then
+    echo 'FAIL: failed acceptance became successful during cleanup' >&2
     exit 1
+else
+    status=$?
 fi
-[[ ! -e "$TEST_EVENTS" ]]
-echo 'PASS: replacement owner is preserved and reported'
-
-export LIST_NAMES='ocv-ipv6-test-other'
-cleanup
-[[ ! -e "$TEST_EVENTS" ]]
-echo 'PASS: missing instance is idempotent; similar name is preserved'
-
-export FAIL_LIST=true
-if cleanup >/dev/null 2>&1; then
-    echo 'FAIL: unavailable runtime treated as successful cleanup' >&2
-    exit 1
-fi
-[[ ! -e "$TEST_EVENTS" ]]
-echo 'PASS: runtime query failure is reported without deletion'
-
-export FAIL_LIST=false FAIL_DELETE=true LIST_NAMES="$CONTAINER_NAME" OWNER="$TEST_RUN_ID"
-if cleanup >/dev/null 2>&1; then
-    echo 'FAIL: deletion failure ignored' >&2
-    exit 1
-fi
-[[ "$(<"$TEST_EVENTS")" == "$CONTAINER_NAME" ]]
-echo 'PASS: deletion failure is reported'
+[[ "$status" == 42 && -e "$PROBE_KNOWN_HOSTS" && "$(<"$TEST_EVENTS")" == probe ]]
+[[ "$(<"$TEST_DIR/exit-output")" == "Preserving IPv6 acceptance container: $CONTAINER_NAME" ]]
+echo 'PASS: acceptance failure status survives unavailable probe cleanup'
 
 echo 'IPv6 acceptance cleanup tests passed: 6'
