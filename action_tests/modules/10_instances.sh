@@ -444,7 +444,14 @@ run_module_10() {
             if [[ "$rb_code" == "200" ]]; then
                 local rb_task; rb_task=$(echo "$rb_resp" | jq -r '.data.task_id // .data.taskId // .data.id // empty' 2>/dev/null)
                 local rb_task_resp="" rebuild_task_ok=true
-                if [[ -n "$rb_task" ]]; then
+                # Older controllers omit the task ID. Resolve it before waiting:
+                # rebuild can transfer the task away from the old instance ID.
+                if [[ -z "$rb_task" ]]; then
+                    if rb_task_resp=$(get_latest_instance_task_response "$container_id" "rebuild" "$ADMIN_TOKEN"); then
+                        rb_task=$(safe_jq "$rb_task_resp" '-r .data.id // .data.ID // empty' '')
+                    fi
+                fi
+                if [[ "$rb_task" =~ ^[0-9]+$ && "$rb_task" != "0" ]]; then
                     log_info "Waiting for rebuild task ${rb_task}..."
                     if ! rb_task_resp=$(wait_task_complete "$SERVER_URL" "$rb_task" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10); then
                         log_warning "Rebuild task ${rb_task} did not complete within timeout"
@@ -453,16 +460,8 @@ run_module_10() {
                         rebuild_task_ok=false
                     fi
                 else
-                    wait_instance_active_tasks_idle "$container_id" "rebuild container ${container_id}" "$ADMIN_TOKEN" "$INSTANCE_TASK_MAX_WAIT" 10 || true
-                    if rb_task_resp=$(get_latest_instance_task_response "$container_id" "rebuild" "$ADMIN_TOKEN"); then
-                        local rb_lookup_id; rb_lookup_id=$(safe_jq "$rb_task_resp" '-r .data.id // .data.ID // empty' '')
-                        if ! record_task_terminal_result "Rebuild container task" "GET" "/api/v1/admin/tasks/${rb_lookup_id:-latest}" "$rb_task_resp" "$group"; then
-                            rebuild_task_ok=false
-                        fi
-                    else
-                        record_fail_result "Rebuild container task lookup" "GET" "/api/v1/admin/tasks?page=1&pageSize=100" "latest rebuild task" "missing" "$rb_resp" "$group"
-                        rebuild_task_ok=false
-                    fi
+                    record_fail_result "Rebuild container task lookup" "GET" "/api/v1/admin/tasks?page=1&pageSize=100" "latest rebuild task" "missing" "$rb_resp" "$group"
+                    rebuild_task_ok=false
                 fi
                 if [[ "$rebuild_task_ok" == "true" ]]; then
                     local rebuilt_container_id=""

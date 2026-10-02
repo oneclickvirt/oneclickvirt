@@ -16160,11 +16160,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/user/domains/verification": {
-            "get": {
-                "responses": {}
-            }
-        },
         "/user/domains/{id}": {
             "put": {
                 "security": [
@@ -19680,9 +19675,6 @@ const docTemplate = `{
         "admin.AdminTaskDetailResponse": {
             "type": "object",
             "properties": {
-                "canCancel": {
-                    "type": "boolean"
-                },
                 "canForceStop": {
                     "type": "boolean"
                 },
@@ -19804,9 +19796,6 @@ const docTemplate = `{
         "admin.AdminTaskResponse": {
             "type": "object",
             "properties": {
-                "canCancel": {
-                    "type": "boolean"
-                },
                 "canForceStop": {
                     "type": "boolean"
                 },
@@ -20679,7 +20668,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "defaultPortCount": {
-                    "description": "All fields are optional so callers can update one setting (for example\nnetworkType) without having to repeat the provider's complete port pool.\nThe service layer merges omitted values with the persisted configuration\nand still validates the resulting complete configuration.",
+                    "description": "每个实例默认映射端口数量",
                     "type": "integer",
                     "maximum": 1500,
                     "minimum": 1
@@ -23084,10 +23073,6 @@ const docTemplate = `{
                 "proxyTlsKeyPath": {
                     "description": "TLS私钥文件路径(节点上的绝对路径)",
                     "type": "string"
-                },
-                "proxyTrustCloudflareHeaders": {
-                    "description": "HTTP回源时信任Cloudflare的CF-Visitor",
-                    "type": "boolean"
                 },
                 "pveKvmAvailable": {
                     "description": "Proxmox节点是否支持KVM硬件加速（nil=未知，true=支持，false=不支持/仅QEMU软件模拟）",

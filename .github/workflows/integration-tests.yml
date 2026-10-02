@@ -240,6 +240,9 @@ jobs:
       - name: Test provider exec status contract
         run: bash scripts/tests/provider_exec_status_contract_test.sh
 
+      - name: Test instance task lookup across rebuild
+        run: bash scripts/tests/instance_task_lookup_test.sh
+
       - name: Test LXD and Incus create resource contracts
         working-directory: ./server
         run: go test ./provider/lxd ./provider/incus -run 'APICreateResourceContract|VMSecurityDoesNotSetContainerLimits' -count=1

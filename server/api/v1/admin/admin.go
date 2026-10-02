@@ -381,7 +381,7 @@ func AdminInstanceAction(c *gin.Context) {
 		zap.String("admin_ip", c.ClientIP()))
 
 	instanceService := instance.NewService(task.GetTaskService())
-	err = instanceService.InstanceAction(uint(instanceID), req, middleware.GetOwnerAdminID(c))
+	taskID, err := instanceService.InstanceActionWithTask(uint(instanceID), req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("管理员实例操作失败",
 			zap.Uint64("instanceId", instanceID),
@@ -395,7 +395,7 @@ func AdminInstanceAction(c *gin.Context) {
 		zap.Uint64("instanceId", instanceID),
 		zap.String("action", req.Action))
 
-	common.ResponseSuccess(c, nil, "操作已提交")
+	common.ResponseSuccess(c, gin.H{"taskId": taskID}, "操作已提交")
 }
 
 // AdminBatchInstanceAction 管理员批量执行实例操作

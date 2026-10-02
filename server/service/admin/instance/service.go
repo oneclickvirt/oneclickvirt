@@ -641,6 +641,13 @@ func (s *Service) DeleteInstance(instanceID uint, ownerAdminID ...uint) error {
 
 // InstanceAction 管理员执行实例操作
 func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionRequest, ownerAdminID uint) error {
+	_, err := s.InstanceActionWithTask(instanceID, req, ownerAdminID)
+	return err
+}
+
+// InstanceActionWithTask returns the submitted task ID, which stays stable when
+// a reset replaces the instance and transfers the task to the replacement.
+func (s *Service) InstanceActionWithTask(instanceID uint, req admin.InstanceActionRequest, ownerAdminID uint) (uint, error) {
 	lk := getAdminInstanceActionLock(instanceID)
 	lk.mu.Lock()
 	defer func() {
@@ -651,21 +658,21 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("实例不存在")
+			return 0, errors.New("实例不存在")
 		}
-		return fmt.Errorf("获取实例信息失败: %v", err)
+		return 0, fmt.Errorf("获取实例信息失败: %v", err)
 	}
 	if err := s.checkInstanceOwnerAdmin(&instance, ownerAdminID); err != nil {
-		return err
+		return 0, err
 	}
 	if constant.IsBusyStatus(instance.Status) {
-		return fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
+		return 0, fmt.Errorf("实例正在操作进行中（当前状态：%s），请等待当前任务完成", instance.Status)
 	}
 	if err := validateAdminInstanceAction(instance.Status, req.Action); err != nil {
-		return err
+		return 0, err
 	}
 	if err := s.ensureNoActiveInstanceTask(instance.ID); err != nil {
-		return err
+		return 0, err
 	}
 
 	taskData := map[string]interface{}{
@@ -684,22 +691,23 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 
 	taskDataJSON, err := json.Marshal(taskData)
 	if err != nil {
-		return fmt.Errorf("序列化任务数据失败: %v", err)
+		return 0, fmt.Errorf("序列化任务数据失败: %v", err)
 	}
 
 	timeout := 1800
 	if req.Action == "delete" {
 		timeout = 0
 	}
-	if _, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instance.ID, req.Action, string(taskDataJSON), timeout); err != nil {
-		return fmt.Errorf("创建任务失败: %v", err)
+	createdTask, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instance.ID, req.Action, string(taskDataJSON), timeout)
+	if err != nil {
+		return 0, fmt.Errorf("创建任务失败: %v", err)
 	}
 
 	cacheService := cache.GetUserCacheService()
 	cacheService.InvalidateUserCache(instance.UserID)
 	cacheService.InvalidateInstanceCache(instance.ID)
 	consoleService.InvalidateInstanceConsoleCaches(instance.ID)
-	return nil
+	return createdTask.ID, nil
 }
 
 func (s *Service) checkInstanceOwnerAdmin(instance *providerModel.Instance, ownerAdminID uint) error {
