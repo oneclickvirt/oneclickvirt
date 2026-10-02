@@ -1458,13 +1458,11 @@ get_latest_instance_task_response() {
         "${SERVER_URL}/api/v1/admin/tasks?page=1&pageSize=${page_size}" 2>/dev/null); then
         return 1
     fi
-    if ! printf '%s' "$resp" | jq -e '.code == 200 and (.data.list | type == "array")' >/dev/null 2>&1; then
+    if ! printf '%s' "$resp" | jq -e '.code == 200 and (.data.list | type == "array")' >/dev/null 2>/dev/null; then
         return 1
     fi
 
-    local task_json
-    task_json=$(printf '%s' "$resp" | jq -c --arg id "$instance_id" --arg type "$task_type" \
-        'def reset_origin:
+    local task_filter='def reset_origin:
             (.taskData // .task_data // {})
             | (if type == "string" then try fromjson catch {} else . end)
             | if type == "object" then .resetOldInstanceId // .reset_old_instance_id // 0 else 0 end;
@@ -1472,7 +1470,10 @@ get_latest_instance_task_response() {
             ((.taskType // .task_type // "") == $type) and
             ((((.instanceId // .instance_id // 0) | tostring) == $id) or
              (($type == "reset" or $type == "rebuild") and ((reset_origin | tostring) == $id))))]
-         | sort_by(.id // .ID // 0) | last // empty' 2>/dev/null) || task_json=""
+         | sort_by(.id // .ID // 0) | last // empty'
+    local task_json
+    task_json=$(printf '%s' "$resp" | jq -c --arg id "$instance_id" --arg type "$task_type" \
+        "$task_filter" 2>/dev/null) || return 1
     [[ -n "$task_json" && "$task_json" != "null" ]] || return 1
 
     jq -cn --argjson task "$task_json" '{code:200,data:$task,message:"success",msg:"success"}'
