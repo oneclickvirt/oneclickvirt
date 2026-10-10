@@ -1,10 +1,10 @@
 package incus
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -14,37 +14,48 @@ import (
 	"go.uber.org/zap"
 )
 
-// stopInstanceForConfig 停止实例进行配置
-func (i *IncusProvider) stopInstanceForConfig(instanceName string) error {
+// stopInstanceForConfig stops an instance idempotently before changing
+// network devices.  Agent transports can return a non-zero exit code when a
+// guest is already stopped or does not respond to a graceful shutdown, so the
+// state is checked before and after a bounded force-stop fallback.
+func (i *IncusProvider) stopInstanceForConfig(ctx context.Context, instanceName string) error {
 	global.APP_LOG.Debug("停止实例进行配置", zap.String("instanceName", instanceName))
 
-	// 等待一段时间确保实例已经获取到IP
-	time.Sleep(6 * time.Second)
-	_, err := i.sshClient.Execute(fmt.Sprintf("incus stop %s --timeout=30", shellSingleQuote(instanceName)))
-	if err != nil {
-		return fmt.Errorf("停止实例失败: %w", err)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	statusCmd := incusInstanceStatusCommand(instanceName)
+	statusOutput, statusErr := utils.ExecuteShellCommandContext(ctx, i.sshClient, statusCmd)
+	if statusErr == nil && strings.EqualFold(strings.TrimSpace(statusOutput), "stopped") {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
-	// 等待实例完全停止
-	maxWait := 30
-	waited := 0
-	for waited < maxWait {
-		cmd := incusInstanceStatusCommand(instanceName)
-		output, err := i.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) == "STOPPED" {
-			global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))
+	stopCmd := fmt.Sprintf("incus stop %s --timeout=30", shellSingleQuote(instanceName))
+	output, stopErr := utils.ExecuteShellCommandContext(ctx, i.sshClient, stopCmd)
+	if stopErr != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		statusOutput, statusErr = utils.ExecuteShellCommandContext(ctx, i.sshClient, statusCmd)
+		if statusErr == nil && strings.EqualFold(strings.TrimSpace(statusOutput), "stopped") {
 			return nil
 		}
-
-		time.Sleep(2 * time.Second)
-		waited += 2
-		global.APP_LOG.Debug("等待实例停止",
-			zap.String("instanceName", instanceName),
-			zap.Int("waited", waited),
-			zap.Int("maxWait", maxWait))
+		forceCmd := fmt.Sprintf("incus stop %s --force --timeout=30", shellSingleQuote(instanceName))
+		forceOutput, forceErr := utils.ExecuteShellCommandContext(ctx, i.sshClient, forceCmd)
+		if forceErr != nil {
+			statusAfter, statusAfterErr := utils.ExecuteShellCommandContext(ctx, i.sshClient, statusCmd)
+			if statusAfterErr == nil && strings.EqualFold(strings.TrimSpace(statusAfter), "stopped") {
+				return nil
+			}
+			return fmt.Errorf("停止实例失败: graceful=%v output=%q; force=%v output=%q; status=%v output=%q", stopErr, utils.TruncateString(strings.TrimSpace(output), 1200), forceErr, utils.TruncateString(strings.TrimSpace(forceOutput), 1200), statusAfterErr, utils.TruncateString(strings.TrimSpace(statusAfter), 500))
+		}
+		global.APP_LOG.Debug("实例已通过强制停止完成", zap.String("instanceName", instanceName))
+		return nil
 	}
-	time.Sleep(6 * time.Second)
-	global.APP_LOG.Warn("实例停止超时，但继续配置流程", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))
 	return nil
 }
 

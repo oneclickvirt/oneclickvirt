@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -16,37 +15,52 @@ import (
 	"go.uber.org/zap"
 )
 
-// stopInstanceForConfig 停止实例进行配置
-func (l *LXDProvider) stopInstanceForConfig(instanceName string) error {
+// stopInstanceForConfig stops an instance idempotently before changing
+// network devices.  Agent transports can return a non-zero exit code when a
+// guest is already stopped or does not respond to a graceful shutdown, so the
+// state is checked before and after a bounded force-stop fallback.
+func (l *LXDProvider) stopInstanceForConfig(ctx context.Context, instanceName string) error {
 	global.APP_LOG.Debug("安全停止实例进行配置", zap.String("instanceName", instanceName))
 
-	// 停止实例
-	time.Sleep(6 * time.Second)
-	_, err := l.sshClient.Execute(fmt.Sprintf("lxc stop %s --timeout=30", shellSingleQuote(instanceName)))
-	if err != nil {
-		return fmt.Errorf("停止实例失败: %w", err)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	statusCmd := lxdInstanceStatusCommand(instanceName)
+	statusOutput, statusErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, statusCmd)
+	if statusErr == nil && strings.EqualFold(strings.TrimSpace(statusOutput), "stopped") {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
-	// 等待实例完全停止
-	maxWait := 30
-	waited := 0
-	for waited < maxWait {
-		cmd := lxdInstanceStatusCommand(instanceName)
-		output, err := l.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) == "STOPPED" {
-			global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))
+	stopCmd := fmt.Sprintf("lxc stop %s --timeout=30", shellSingleQuote(instanceName))
+	output, stopErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, stopCmd)
+	if stopErr != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// A graceful stop may fail for a copied guest whose init process does
+		// not handle the shutdown signal.  Confirm that it is still running,
+		// then use the bounded force variant instead of reporting a false task
+		// failure for an already-stopped guest.
+		statusOutput, statusErr = utils.ExecuteShellCommandContext(ctx, l.sshClient, statusCmd)
+		if statusErr == nil && strings.EqualFold(strings.TrimSpace(statusOutput), "stopped") {
 			return nil
 		}
-
-		time.Sleep(2 * time.Second)
-		waited += 2
-		global.APP_LOG.Debug("等待实例停止",
-			zap.String("instanceName", instanceName),
-			zap.Int("waited", waited),
-			zap.Int("maxWait", maxWait))
+		forceCmd := fmt.Sprintf("lxc stop %s --force --timeout=30", shellSingleQuote(instanceName))
+		forceOutput, forceErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, forceCmd)
+		if forceErr != nil {
+			statusAfter, statusAfterErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, statusCmd)
+			if statusAfterErr == nil && strings.EqualFold(strings.TrimSpace(statusAfter), "stopped") {
+				return nil
+			}
+			return fmt.Errorf("停止实例失败: graceful=%v output=%q; force=%v output=%q; status=%v output=%q", stopErr, utils.TruncateString(strings.TrimSpace(output), 1200), forceErr, utils.TruncateString(strings.TrimSpace(forceOutput), 1200), statusAfterErr, utils.TruncateString(strings.TrimSpace(statusAfter), 500))
+		}
+		global.APP_LOG.Debug("实例已通过强制停止完成", zap.String("instanceName", instanceName))
+		return nil
 	}
-	time.Sleep(6 * time.Second)
-	global.APP_LOG.Warn("实例停止超时，但继续配置流程", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))
 	return nil
 }
 
@@ -307,7 +321,7 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(ctx context.Context, config pr
 			global.APP_LOG.Warn("设置IP地址绑定失败", zap.Error(err))
 		}
 	}
-	if err := l.stopInstanceForConfig(config.Name); err != nil {
+	if err := l.stopInstanceForConfig(ctx, config.Name); err != nil {
 		return fmt.Errorf("停止实例以配置端口映射失败: %w", err)
 	} else {
 		// IPv6-only 的目标地址要在 configureIPv6Network 创建 eth1 后才

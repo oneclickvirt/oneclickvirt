@@ -197,6 +197,12 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 
 // configureInstanceNetwork 配置实例网络
 func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only"
 	var routedIPv6 *provider.RoutedIPv6Config
 	if routed, present, err := provider.ResolveRoutedIPv6(config); err != nil {
@@ -210,6 +216,9 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 	}
 	if strings.TrimSpace(requestedIPv6) != "" && !hasIPv6 {
 		return fmt.Errorf("已分配静态IPv6，但实例网络类型 %s 未启用IPv6", networkConfig.NetworkType)
+	}
+	if networkConfig.NetworkType == "no_port_mapping" {
+		return i.configureUnmappedInstanceNetwork(ctx, config, networkConfig)
 	}
 
 	// 对于独立IPv4模式，预先检查并确保该IPv4地址已绑定到宿主机网络接口
@@ -286,7 +295,7 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 		}
 	}
 	// 停止实例进行网络配置
-	if err := i.stopInstanceForConfig(config.Name); err != nil {
+	if err := i.stopInstanceForConfig(ctx, config.Name); err != nil {
 		return fmt.Errorf("停止实例进行配置失败: %w", err)
 	}
 
@@ -375,7 +384,7 @@ func (i *IncusProvider) configureIPv6AndPortMappings(ctx context.Context, config
 	if networkConfig.NetworkType != "nat_ipv4_ipv6" && networkConfig.NetworkType != "ipv6_only" {
 		return nil
 	}
-	if err := i.stopInstanceForConfig(config.Name); err != nil {
+	if err := i.stopInstanceForConfig(ctx, config.Name); err != nil {
 		return fmt.Errorf("停止实例配置IPv6端口映射失败: %w", err)
 	}
 	ipv6Config := networkConfig
@@ -499,7 +508,7 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 			global.APP_LOG.Warn("设置IP地址绑定失败", zap.Error(err))
 		}
 	}
-	if err := i.stopInstanceForConfig(config.Name); err != nil {
+	if err := i.stopInstanceForConfig(ctx, config.Name); err != nil {
 		return fmt.Errorf("停止实例以配置端口映射失败: %w", err)
 	} else {
 		// IPv6-only 的目标地址要在 configureIPv6Network 创建 eth1 后才
