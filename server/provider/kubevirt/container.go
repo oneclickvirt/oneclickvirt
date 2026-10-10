@@ -543,12 +543,19 @@ func (p *KubeVirtProvider) sshK3sContainerExists(ctx context.Context, id string)
 		return false, nil
 	}
 	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
-		"kubectl get deploy %s -n %s -o name 2>/dev/null",
+		"kubectl get deploy %s -n %s --ignore-not-found=true -o name 2>&1",
 		shellSingleQuote(name), shellSingleQuote(Namespace)))
 	if err != nil {
 		return false, err
 	}
-	return strings.TrimSpace(output) != "", nil
+	found := strings.TrimSpace(utils.StripTerminalCSI(output))
+	if found == "" {
+		return false, nil
+	}
+	if found != "deployment.apps/"+name {
+		return false, fmt.Errorf("unexpected backend discovery output: %q", utils.TruncateString(found, 300))
+	}
+	return true, nil
 }
 
 func (p *KubeVirtProvider) sshScaleK3sContainer(ctx context.Context, id string, replicas int) error {
@@ -563,7 +570,33 @@ func (p *KubeVirtProvider) sshScaleK3sContainer(ctx context.Context, id string, 
 		return fmt.Errorf("failed to scale KubeVirt container %s: %w (output: %s)", id, err, utils.TruncateString(output, 300))
 	}
 	if replicas <= 0 {
-		return nil
+		// Scale is asynchronous. Wait until terminating pods have disappeared
+		// before a subsequent start can create overlapping workloads.
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		deployment, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("kubectl get deploy %s -n %s -o json", shellSingleQuote(name), shellSingleQuote(Namespace)))
+		if err != nil {
+			return fmt.Errorf("read deployment selector: %w", err)
+		}
+		selector, err := deploymentPodSelector(deployment)
+		if err != nil {
+			return fmt.Errorf("read deployment selector: %w", err)
+		}
+		waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		for {
+			pods, err := utils.ExecuteShellCommandContext(waitCtx, p.sshClient, fmt.Sprintf("kubectl get pods -n %s -l %s -o name", shellSingleQuote(Namespace), shellSingleQuote(selector)))
+			if err != nil {
+				return fmt.Errorf("verify container stop: %w", err)
+			}
+			if strings.TrimSpace(pods) == "" {
+				return nil
+			}
+			if err := utils.SleepContext(waitCtx, time.Second); err != nil {
+				return fmt.Errorf("container pods still terminating: %w", err)
+			}
+		}
 	}
 	for i := 0; i < 60; i++ {
 		ready, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(

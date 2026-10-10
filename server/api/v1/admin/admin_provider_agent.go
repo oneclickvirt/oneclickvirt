@@ -95,11 +95,10 @@ func GenerateAgentSecret(c *gin.Context) {
 	}
 	host = formatControllerURLHost(host, normalizeForwardedPort(c.GetHeader("X-Forwarded-Port")), global.GetAppConfig().System.Addr)
 	wsURL := fmt.Sprintf("%s://%s/api/v1/ws/agent", scheme, host)
-	httpScheme := "https"
-	if c.Request.TLS == nil {
-		if forwardedProto == "http" || forwardedProto == "" {
-			httpScheme = "http"
-		}
+	wsURL = selectAgentWebSocketURL(c.Request.Context(), wsURL, nil)
+	httpScheme := "http"
+	if strings.HasPrefix(wsURL, "wss://") {
+		httpScheme = "https"
 	}
 	controllerAPIBase := fmt.Sprintf("%s://%s/api/v1/public/agent", httpScheme, host)
 

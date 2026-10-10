@@ -1,6 +1,7 @@
 package podman
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -39,46 +40,63 @@ func (p *PodmanProvider) routedNetworkSelection(config provider.InstanceConfig, 
 
 // restoreRoutedIPv6AfterStart recreates the host-managed veth after Podman
 // starts a fresh network namespace for a routed IPv6 container.
-func (p *PodmanProvider) restoreRoutedIPv6AfterStart(name string) error {
+func (p *PodmanProvider) restoreRoutedIPv6AfterStart(name string, contexts ...context.Context) error {
+	ctx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	inspectCommand, err := provider.RoutedIPv6RuntimeLabelInspectCommand(cliName, name)
 	if err != nil {
 		return err
 	}
-	output, err := p.sshClient.Execute(inspectCommand)
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, inspectCommand)
 	if err != nil {
-		return p.failRoutedIPv6Restore(name, "读取", output, err)
+		return p.failRoutedIPv6Restore(ctx, name, "读取", output, err)
 	}
 	routed, present, err := provider.RoutedIPv6ConfigFromRuntimeLabelOutput(output)
 	if err != nil {
-		return p.failRoutedIPv6Restore(name, "解析", output, err)
+		return p.failRoutedIPv6Restore(ctx, name, "解析", output, err)
 	}
 	if !present {
 		return nil
 	}
 	attachCommand, err := routed.RoutedIPv6VethCommand(cliName, name)
 	if err != nil {
-		return p.failRoutedIPv6Restore(name, "构造", "", err)
+		return p.failRoutedIPv6Restore(ctx, name, "构造", "", err)
 	}
-	output, err = p.sshClient.Execute(attachCommand)
+	output, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, attachCommand)
 	if err != nil {
-		return p.failRoutedIPv6Restore(name, "附加", output, err)
+		return p.failRoutedIPv6Restore(ctx, name, "附加", output, err)
 	}
 	return nil
 }
 
-func (p *PodmanProvider) restoreIPv6AfterStart(name string) error {
-	if _, err := p.sshClient.Execute(fmt.Sprintf("test -x %s && test -f %s && awk -v name=%s '$1 == name {found=1} END {exit found ? 0 : 1}' %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(ipv6AllocationFile), shellSingleQuote(name), shellSingleQuote(ipv6AllocationFile))); err == nil {
+func (p *PodmanProvider) restoreIPv6AfterStart(name string, contexts ...context.Context) error {
+	ctx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("test -x %s && test -f %s && awk -v name=%s '$1 == name {found=1} END {exit found ? 0 : 1}' %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(ipv6AllocationFile), shellSingleQuote(name), shellSingleQuote(ipv6AllocationFile))); err == nil {
 		var output string
 		var attachErr error
-		output, attachErr = p.sshClient.Execute(fmt.Sprintf("%s %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(name)))
+		output, attachErr = utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(name)))
 		if attachErr != nil {
 			return fmt.Errorf("恢复手工路由IPv6失败: output=%s: %w", utils.TruncateString(strings.TrimSpace(output), 2000), attachErr)
 		}
 	}
-	return p.restoreRoutedIPv6AfterStart(name)
+	return p.restoreRoutedIPv6AfterStart(name, ctx)
 }
 
-func (p *PodmanProvider) failRoutedIPv6Restore(name, phase, output string, err error) error {
-	_, _ = p.sshClient.Execute(fmt.Sprintf("%s stop %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
-	return fmt.Errorf("%s隧道路由IPv6失败，已停止实例以避免IPv6配置缺失: output=%s: %w", phase, utils.TruncateString(strings.TrimSpace(output), 4000), err)
+func (p *PodmanProvider) failRoutedIPv6Restore(ctx context.Context, name, phase, output string, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	_, _ = utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s stop %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+	return fmt.Errorf("%s隧道路由IPv6失败，已尝试停止实例以避免IPv6配置缺失: output=%s: %w", phase, utils.TruncateString(strings.TrimSpace(output), 4000), err)
 }

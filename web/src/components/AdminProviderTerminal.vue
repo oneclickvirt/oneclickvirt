@@ -247,10 +247,12 @@ const pasteFromClipboard = async () => {
     ElMessage.warning(t('common.connectionClosed'))
     return false
   }
+  const pasteSocket = websocket
   const text = await readFromClipboard(t('common.pasteFailed'))
+  if (websocket !== pasteSocket) return false
   if (text === null) return false
   if (websocket && websocket.readyState === WebSocket.OPEN) {
-    websocket.send(text)
+    terminal.paste(text)
     return true
   }
   ElMessage.warning(t('common.connectionClosed'))
@@ -299,6 +301,7 @@ const initTerminal = () => {
 
   // ── 键盘快捷键：复制/粘贴 ──────────────────────────────────────────
   terminal.attachCustomKeyEventHandler((event) => {
+    if (event.type !== 'keydown') return true
     const hasSelection = terminal.hasSelection()
     const ctrlOrCmd = isMac.value ? event.metaKey : event.ctrlKey
     const shift = event.shiftKey
@@ -316,12 +319,10 @@ const initTerminal = () => {
       return false
     }
     if (event.shiftKey && event.code === 'Insert') {
-      pasteFromClipboard()
-      return false
+      return true
     }
     if (ctrlOrCmd && shift && event.code === 'KeyV') {
-      pasteFromClipboard()
-      return false
+      return true
     }
     return true
   })

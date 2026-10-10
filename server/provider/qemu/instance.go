@@ -117,7 +117,7 @@ func (p *QEMUProvider) getInstanceInfo(ctx context.Context, name string, instanc
 	if instanceType == "container" {
 		uri = "lxc:///"
 	}
-	output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c %s dominfo %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(name)))
+	output, err := p.sshClient.Execute(fmt.Sprintf("LC_ALL=C NO_COLOR=1 virsh -c %s dominfo %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(name)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get libvirt domain info: %w", err)
 	}
@@ -487,8 +487,8 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	}
 	var vmStarted bool
 	for i := 0; i < startWaitSeconds/2; i++ {
-		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("virsh domstate %s 2>/dev/null", shellSingleQuote(config.Name)))
-		if err == nil && strings.Contains(strings.TrimSpace(statusOutput), "running") {
+		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("LC_ALL=C NO_COLOR=1 virsh domstate %s 2>/dev/null", shellSingleQuote(config.Name)))
+		if err == nil && mapVirshStatus(statusOutput) == "running" {
 			vmStarted = true
 			break
 		}
@@ -828,17 +828,17 @@ func yamlDoubleQuote(s string) string {
 
 // mapVirshStatus 将virsh状态映射到统一状态
 func mapVirshStatus(status string) string {
-	status = strings.ToLower(strings.TrimSpace(status))
-	switch {
-	case strings.Contains(status, "running"):
+	status = strings.ToLower(strings.TrimSpace(utils.StripTerminalCSI(status)))
+	switch status {
+	case "running", "idle", "blocked":
 		return "running"
-	case strings.Contains(status, "shut off"), strings.Contains(status, "shutoff"):
+	case "shut off", "shutoff":
 		return "stopped"
-	case strings.Contains(status, "paused"):
+	case "paused", "pmsuspended":
 		return "paused"
-	case strings.Contains(status, "crashed"):
+	case "crashed":
 		return "error"
-	case strings.Contains(status, "in shutdown"):
+	case "in shutdown":
 		return "stopping"
 	default:
 		return "unknown"

@@ -50,15 +50,15 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	}
 
 	// 检查VM状态
-	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh -c qemu:///system domstate %s 2>/dev/null", shellSingleQuote(instanceID)))
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("LC_ALL=C NO_COLOR=1 virsh -c qemu:///system domstate %s 2>/dev/null", shellSingleQuote(instanceID)))
 	if err != nil {
 		return fmt.Errorf("failed to check VM status: %w", err)
 	}
 
-	status := strings.ToLower(strings.TrimSpace(statusOutput))
+	status := mapVirshStatus(statusOutput)
 
 	// 方法1: 如果guest-agent可用，使用 virsh set-user-password
-	if strings.Contains(status, "running") {
+	if status == "running" {
 		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 			"virsh -c qemu:///system set-user-password %s root %s 2>&1",
 			shellSingleQuote(instanceID),
@@ -98,7 +98,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 	}
 
 	// 方法3: 使用 virt-customize (离线模式,需要VM关机)
-	if strings.Contains(status, "shut off") || strings.Contains(status, "shutoff") {
+	if status == "stopped" {
 		// 查找VM的磁盘文件
 		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 			"virsh -c qemu:///system domblklist %s 2>/dev/null | grep -E '\\.(qcow2|img|raw)' | awk '{print $2}'",
@@ -128,7 +128,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 
 	// 方法4: 等待VM上线后通过 guestfish/virt-cat 修改shadow文件
 	// 这是最后的回退方案
-	if strings.Contains(status, "running") {
+	if status == "running" {
 		// 等待一段时间再次尝试guest-agent
 		if err := sleepWithContext(ctx, 5*time.Second); err != nil {
 			return fmt.Errorf("waiting before password retry cancelled: %w", err)

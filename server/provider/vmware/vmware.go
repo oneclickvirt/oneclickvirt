@@ -229,8 +229,8 @@ func (p *VMwareProvider) CreateInstanceWithProgress(ctx context.Context, config 
 	if exec == nil {
 		return fmt.Errorf("VMware provider not connected")
 	}
-	if strings.TrimSpace(config.Name) == "" {
-		return fmt.Errorf("instance name is required")
+	if !utils.IsValidContainerRuntimeName(config.Name) {
+		return fmt.Errorf("invalid instance name")
 	}
 	ipv6Plan, err := provider.ResolveRoutedIPv6VMPlan(config, "vmware")
 	if err != nil {
@@ -250,19 +250,12 @@ func (p *VMwareProvider) CreateInstanceWithProgress(ctx context.Context, config 
 
 	dstDir := path.Join(p.libraryPath(), "instances", config.Name)
 	dst := path.Join(dstDir, config.Name+".vmx")
-	cloneCmd := fmt.Sprintf("mkdir -p %s && vmrun clone %s %s full -cloneName=%s",
-		shellQuote(dstDir), shellQuote(src), shellQuote(dst), shellQuote(config.Name))
+	cloneCmd := vmwareCloneCommand(src, dstDir, dst, config.Name)
 	updateProgress(progress, 35, "cloning VMware template")
-	if out, err := exec.ExecuteWithTimeout(cloneCmd, 20*time.Minute); err != nil {
-		global.APP_LOG.Warn("vmrun clone failed, falling back to directory copy",
-			zap.String("output", utils.TruncateString(out, 500)),
-			zap.Error(err))
-		copyCmd := fmt.Sprintf("rm -rf %s && mkdir -p %s && cp -a %s/. %s/ && old=$(find %s -maxdepth 1 -type f -name '*.vmx' | head -1) && test -n \"$old\" && mv \"$old\" %s",
-			shellQuote(dstDir), shellQuote(dstDir), shellQuote(path.Dir(src)), shellQuote(dstDir), shellQuote(dstDir), shellQuote(dst))
-		if copyOut, copyErr := exec.ExecuteWithTimeout(copyCmd, 20*time.Minute); copyErr != nil {
-			return fmt.Errorf("failed to clone VMware template: %w; fallback failed: %v; output: %s", err, copyErr, utils.TruncateString(copyOut, 500))
-		}
+	if out, err := utils.ExecuteShellCommandTimeoutContext(ctx, exec, cloneCmd, 20*time.Minute); err != nil {
+		return fmt.Errorf("failed to clone VMware template: %w; output: %s", err, utils.TruncateString(out, 1200))
 	}
+
 	if ipv6Plan.Routed != nil {
 		if err := p.configureRoutedIPv6(exec, dst, config, ipv6Plan); err != nil {
 			if cleanupErr := p.cleanupRoutedIPv6VM(exec, dst, config.Name); cleanupErr != nil {
@@ -273,7 +266,7 @@ func (p *VMwareProvider) CreateInstanceWithProgress(ctx context.Context, config 
 	}
 
 	updateProgress(progress, 65, "applying VMware resource settings")
-	if err := p.applyResourceSettings(exec, dst, config); err != nil {
+	if err := p.applyResourceSettings(exec, dst, config, ctx); err != nil {
 		global.APP_LOG.Warn("VMware resource settings partially failed", zap.Error(err))
 	}
 
@@ -291,12 +284,15 @@ func (p *VMwareProvider) CreateInstanceWithProgress(ctx context.Context, config 
 }
 
 func (p *VMwareProvider) StartInstance(ctx context.Context, id string) error {
-	return p.vmrunAction(id, "start", "nogui")
+	return p.vmrunAction(ctx, id, "start", "nogui")
 }
 
 func (p *VMwareProvider) StopInstance(ctx context.Context, id string) error {
-	if err := p.vmrunAction(id, "stop", "soft"); err != nil {
-		return p.vmrunAction(id, "stop", "hard")
+	if err := p.vmrunAction(ctx, id, "stop", "soft"); err != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return p.vmrunAction(ctx, id, "stop", "hard")
 	}
 	return nil
 }
@@ -305,7 +301,9 @@ func (p *VMwareProvider) RestartInstance(ctx context.Context, id string) error {
 	if err := p.StopInstance(ctx, id); err != nil {
 		return err
 	}
-	time.Sleep(2 * time.Second)
+	if err := utils.SleepContext(ctx, 2*time.Second); err != nil {
+		return err
+	}
 	return p.StartInstance(ctx, id)
 }
 
@@ -314,7 +312,7 @@ func (p *VMwareProvider) DeleteInstance(ctx context.Context, id string) error {
 	if exec == nil {
 		return fmt.Errorf("VMware provider not connected")
 	}
-	vmx, err := p.resolveVMX(id)
+	vmx, err := p.resolveVMX(id, ctx)
 	if err != nil {
 		return err
 	}
@@ -326,7 +324,7 @@ vmrun deleteVM %s 2>/dev/null || rm -rf %s
 case "$seed" in
   %s/.oneclickvirt-ipv6-seeds/*) rm -f -- "$seed" ;;
 esac`, shellQuote(vmx), shellQuote(vmx), shellQuote(path.Dir(vmx)), shellQuote(p.libraryPath()))
-	output, err := exec.ExecuteWithTimeout(cmd, 5*time.Minute)
+	output, err := utils.ExecuteShellCommandTimeoutContext(ctx, exec, cmd, 5*time.Minute)
 	if err != nil {
 		return fmt.Errorf("删除VMware实例失败: %s: %w", utils.TruncateString(strings.TrimSpace(output), 1200), err)
 	}
@@ -338,7 +336,7 @@ esac`, shellQuote(vmx), shellQuote(vmx), shellQuote(path.Dir(vmx)), shellQuote(p
 }
 
 func (p *VMwareProvider) GetInstance(ctx context.Context, id string) (*provider.Instance, error) {
-	vmx, err := p.resolveVMX(id)
+	vmx, err := p.resolveVMX(id, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +467,14 @@ func (p *VMwareProvider) resolveTemplatePath(config provider.InstanceConfig) str
 	return path.Join(base, name, name+".vmx")
 }
 
-func (p *VMwareProvider) resolveVMX(id string) (string, error) {
+func (p *VMwareProvider) resolveVMX(id string, contexts ...context.Context) (string, error) {
+	ctx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
 	exec := p.getExecutor()
 	if exec == nil {
 		return "", fmt.Errorf("VMware provider not connected")
@@ -481,7 +486,7 @@ func (p *VMwareProvider) resolveVMX(id string) (string, error) {
 	library := p.libraryPath()
 	cmd := fmt.Sprintf("find %s -type f -name '*.vmx' 2>/dev/null | awk -v n=%s 'BEGIN{found=\"\"} {base=$0; sub(/^.*\\//,\"\",base); sub(/\\.vmx$/,\"\",base); dir=$0; sub(/\\/[^\\/]*$/,\"\",dir); dbase=dir; sub(/^.*\\//,\"\",dbase); if (base==n || dbase==n) {found=$0; print; exit}}'",
 		shellQuote(library), shellQuote(id))
-	out, err := exec.ExecuteWithTimeout(cmd, 30*time.Second)
+	out, err := utils.ExecuteShellCommandTimeoutContext(ctx, exec, cmd, 30*time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -492,17 +497,17 @@ func (p *VMwareProvider) resolveVMX(id string) (string, error) {
 	return vmx, nil
 }
 
-func (p *VMwareProvider) vmrunAction(id, action, mode string) error {
+func (p *VMwareProvider) vmrunAction(ctx context.Context, id, action, mode string) error {
 	exec := p.getExecutor()
 	if exec == nil {
 		return fmt.Errorf("VMware provider not connected")
 	}
-	vmx, err := p.resolveVMX(id)
+	vmx, err := p.resolveVMX(id, ctx)
 	if err != nil {
 		return err
 	}
 	cmd := fmt.Sprintf("vmrun %s %s %s", action, shellQuote(vmx), shellQuote(mode))
-	_, err = exec.ExecuteWithTimeout(cmd, 5*time.Minute)
+	_, err = utils.ExecuteShellCommandTimeoutContext(ctx, exec, cmd, 5*time.Minute)
 	return err
 }
 
@@ -526,7 +531,11 @@ func (p *VMwareProvider) instanceFromVMX(vmx string, runningSet map[string]struc
 	}
 }
 
-func (p *VMwareProvider) applyResourceSettings(exec utils.ShellExecutor, vmx string, config provider.InstanceConfig) error {
+func (p *VMwareProvider) applyResourceSettings(exec utils.ShellExecutor, vmx string, config provider.InstanceConfig, contexts ...context.Context) error {
+	ctx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
 	cpu := parseFirstInt(config.CPU)
 	memoryMB := parseFirstInt(config.Memory)
 	updates := make([]string, 0)
@@ -549,7 +558,7 @@ cp "$vmx" "$tmp"
 				key, key, shellEscapeForSed(line), shellQuote(line))
 		}
 		script += `mv "$tmp" "$vmx"` + "\n"
-		if _, err := exec.ExecuteWithTimeout(script, 30*time.Second); err != nil {
+		if _, err := utils.ExecuteShellCommandTimeoutContext(ctx, exec, script, 30*time.Second); err != nil {
 			return err
 		}
 	}
@@ -561,7 +570,7 @@ cp "$vmx" "$tmp"
 		}
 		cmd := fmt.Sprintf("set -eu; command -v vmware-vdiskmanager >/dev/null 2>&1 || { echo 'vmware-vdiskmanager is required to apply the requested disk size' >&2; exit 1; }; disk=$(find %s -maxdepth 1 -type f -name '*.vmdk' | head -1); test -n \"$disk\" || { echo 'no VMware virtual disk found' >&2; exit 1; }; vmware-vdiskmanager -x %dGB \"$disk\"",
 			shellQuote(path.Dir(vmx)), diskGB)
-		if output, err := exec.ExecuteWithTimeout(cmd, 5*time.Minute); err != nil {
+		if output, err := utils.ExecuteShellCommandTimeoutContext(ctx, exec, cmd, 5*time.Minute); err != nil {
 			return fmt.Errorf("扩容VMware磁盘失败: %s: %w", utils.TruncateString(strings.TrimSpace(output), 1000), err)
 		}
 	}

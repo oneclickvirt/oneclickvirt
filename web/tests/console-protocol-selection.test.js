@@ -65,7 +65,9 @@ test('serial terminals suppress xterm cursor-position replies before forwarding 
   assert.match(terminal, /createSerialConsoleInputFilter/)
   assert.match(terminal, /filterSerialInput\(data\)/)
   assert.match(terminal, /function sendTerminalInput\(data\)/)
-  assert.match(terminal, /if \(text !== null\) sendTerminalInput\(text\)/)
+  // Menu paste must enter xterm's input path, whose onData handler applies
+  // the same serial reply filter as typed and native pasted input.
+  assert.match(terminal, /if \(text !== null\) terminal\.paste\(text\)/)
   assert.match(terminal, /terminal\.onData\(data => \{\s*sendTerminalInput\(data\)/)
   assert.match(terminal, /terminal\.parser\.registerCsiHandler\(\{ final: 'n' \}/)
   assert.match(terminal, /status === 5 \|\| status === 6/)

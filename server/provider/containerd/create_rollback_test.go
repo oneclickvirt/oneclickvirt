@@ -1,25 +1,30 @@
 package containerd
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
 
 func TestCleanupFailedCreateContainerTargetsOnlyRequestedName(t *testing.T) {
-	executor := &routedContainerdExecutor{}
+	executor := &routedContainerdExecutor{outputs: []string{"immutable-id\tinstance-a\n", "owner-token"}}
 	provider := NewContainerdProvider().(*ContainerdProvider)
 	provider.sshClient.SetExecutor(executor)
 
-	provider.cleanupFailedCreateContainer("instance-a")
-	if len(executor.commands) != 1 {
-		t.Fatalf("cleanup commands = %#v, want one command", executor.commands)
+	if err := provider.cleanupFailedCreateContainer(context.Background(), "instance-a", "owner-token"); err != nil {
+		t.Fatal(err)
 	}
-	if want := "nerdctl rm -f 'instance-a'"; !strings.Contains(executor.commands[0], want) {
-		t.Fatalf("cleanup command = %q, want %q", executor.commands[0], want)
+	if len(executor.commands) != 3 {
+		t.Fatalf("cleanup commands = %#v, want inventory, ownership check, and removal", executor.commands)
+	}
+	if want := "nerdctl rm -f 'immutable-id'"; !strings.Contains(executor.commands[2], want) {
+		t.Fatalf("cleanup command = %q, want %q", executor.commands[2], want)
 	}
 
 	executor.commands = nil
-	provider.cleanupFailedCreateContainer("instance-a; rm -rf /")
+	if err := provider.cleanupFailedCreateContainer(context.Background(), "instance-a; rm -rf /", "owner-token"); err == nil {
+		t.Fatal("unsafe name accepted")
+	}
 	if len(executor.commands) != 0 {
 		t.Fatalf("unsafe container name was sent to nerdctl: %#v", executor.commands)
 	}

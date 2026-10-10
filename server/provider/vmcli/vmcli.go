@@ -240,8 +240,8 @@ func (p *Provider) CreateInstanceWithProgress(ctx context.Context, config rootPr
 		return fmt.Errorf("%s provider not connected", p.spec.DisplayName)
 	}
 	name := strings.TrimSpace(config.Name)
-	if name == "" {
-		return fmt.Errorf("instance name is required")
+	if !utils.IsValidContainerRuntimeName(name) {
+		return fmt.Errorf("invalid instance name")
 	}
 	ipv6Plan, err := rootProvider.ResolveRoutedIPv6VMPlan(config, p.spec.Type)
 	if err != nil {
@@ -258,7 +258,7 @@ func (p *Provider) CreateInstanceWithProgress(ctx context.Context, config rootPr
 		return err
 	}
 	updateProgress(progress, 35, "creating "+p.spec.DisplayName+" instance")
-	if out, err := exec.ExecuteWithTimeout(script, timeout); err != nil {
+	if out, err := utils.ExecuteShellCommandTimeoutContext(ctx, exec, script, timeout); err != nil {
 		return fmt.Errorf("%s create failed: %w; output: %s", p.spec.DisplayName, err, utils.TruncateString(out, 600))
 	}
 	updateProgress(progress, 100, p.spec.DisplayName+" instance created")
@@ -266,23 +266,25 @@ func (p *Provider) CreateInstanceWithProgress(ctx context.Context, config rootPr
 }
 
 func (p *Provider) StartInstance(ctx context.Context, id string) error {
-	return p.lifecycle(id, "start")
+	return p.lifecycle(ctx, id, "start")
 }
 
 func (p *Provider) StopInstance(ctx context.Context, id string) error {
-	return p.lifecycle(id, "stop")
+	return p.lifecycle(ctx, id, "stop")
 }
 
 func (p *Provider) RestartInstance(ctx context.Context, id string) error {
 	if err := p.StopInstance(ctx, id); err != nil {
 		return err
 	}
-	time.Sleep(2 * time.Second)
+	if err := utils.SleepContext(ctx, 2*time.Second); err != nil {
+		return err
+	}
 	return p.StartInstance(ctx, id)
 }
 
 func (p *Provider) DeleteInstance(ctx context.Context, id string) error {
-	return p.lifecycle(id, "delete")
+	return p.lifecycle(ctx, id, "delete")
 }
 
 func (p *Provider) GetInstance(ctx context.Context, id string) (*rootProvider.Instance, error) {
@@ -514,13 +516,13 @@ func (p *Provider) createScript(config rootProvider.InstanceConfig, ipv6Plan roo
 	}
 }
 
-func (p *Provider) lifecycle(id, action string) error {
+func (p *Provider) lifecycle(ctx context.Context, id, action string) error {
 	exec := p.getExecutor()
 	if exec == nil {
 		return fmt.Errorf("%s provider not connected", p.spec.DisplayName)
 	}
 	script := p.lifecycleScript(id, action)
-	if out, err := exec.ExecuteWithTimeout(script, 15*time.Minute); err != nil {
+	if out, err := utils.ExecuteShellCommandTimeoutContext(ctx, exec, script, 15*time.Minute); err != nil {
 		return fmt.Errorf("%s %s failed: %w; output: %s", p.spec.DisplayName, action, err, utils.TruncateString(out, 500))
 	}
 	return nil

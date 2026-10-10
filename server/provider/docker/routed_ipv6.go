@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -55,34 +56,44 @@ fi
 // restoreRoutedIPv6AfterStart recreates the host-managed veth after a runtime
 // stop/start. Docker can replace a container network namespace during restart,
 // so this must not rely on the attachment made during initial creation.
-func (d *DockerProvider) restoreRoutedIPv6AfterStart(name string) error {
+func (d *DockerProvider) restoreRoutedIPv6AfterStart(name string, contexts ...context.Context) error {
+	ctx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	inspectCommand, err := provider.RoutedIPv6RuntimeLabelInspectCommand(d.runtime.CLI, name)
 	if err != nil {
 		return err
 	}
-	output, err := d.sshClient.Execute(inspectCommand)
+	output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, inspectCommand)
 	if err != nil {
-		return d.failRoutedIPv6Restore(name, "读取", output, err)
+		return d.failRoutedIPv6Restore(ctx, name, "读取", output, err)
 	}
 	routed, present, err := provider.RoutedIPv6ConfigFromRuntimeLabelOutput(output)
 	if err != nil {
-		return d.failRoutedIPv6Restore(name, "解析", output, err)
+		return d.failRoutedIPv6Restore(ctx, name, "解析", output, err)
 	}
 	if !present {
 		return nil
 	}
 	attachCommand, err := routed.RoutedIPv6VethCommand(d.runtime.CLI, name)
 	if err != nil {
-		return d.failRoutedIPv6Restore(name, "构造", "", err)
+		return d.failRoutedIPv6Restore(ctx, name, "构造", "", err)
 	}
-	output, err = d.sshClient.Execute(attachCommand)
+	output, err = utils.ExecuteShellCommandContext(ctx, d.sshClient, attachCommand)
 	if err != nil {
-		return d.failRoutedIPv6Restore(name, "附加", output, err)
+		return d.failRoutedIPv6Restore(ctx, name, "附加", output, err)
 	}
 	return nil
 }
 
-func (d *DockerProvider) failRoutedIPv6Restore(name, phase, output string, err error) error {
-	_, _ = d.sshClient.Execute(fmt.Sprintf("%s stop %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(name)))
-	return fmt.Errorf("%s隧道路由IPv6失败，已停止实例以避免IPv6配置缺失: output=%s: %w", phase, utils.TruncateString(strings.TrimSpace(output), 4000), err)
+func (d *DockerProvider) failRoutedIPv6Restore(ctx context.Context, name, phase, output string, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	_, _ = utils.ExecuteShellCommandContext(ctx, d.sshClient, fmt.Sprintf("%s stop %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(name)))
+	return fmt.Errorf("%s隧道路由IPv6失败，已尝试停止实例以避免IPv6配置缺失: output=%s: %w", phase, utils.TruncateString(strings.TrimSpace(output), 4000), err)
 }

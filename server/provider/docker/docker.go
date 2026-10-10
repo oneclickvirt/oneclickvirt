@@ -515,12 +515,12 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 	}
 
 	status := "unknown"
-	statusField := strings.ToLower(record.Status)
-	if strings.Contains(statusField, "running") {
+	statusField := strings.ToLower(strings.TrimSpace(record.Status))
+	if statusField == "running" {
 		status = "running"
-	} else if strings.Contains(statusField, "exited") {
+	} else if statusField == "exited" || statusField == "stopped" {
 		status = "stopped"
-	} else if strings.Contains(statusField, "paused") {
+	} else if statusField == "paused" {
 		status = "paused"
 	}
 

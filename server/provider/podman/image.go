@@ -70,9 +70,9 @@ func (p *PodmanProvider) sshPullImage(ctx context.Context, image string) error {
 
 // sshDeleteImage 删除镜像
 func (p *PodmanProvider) sshDeleteImage(ctx context.Context, id string) error {
-	_, err := p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(id)))
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s rmi %s", cliName, shellSingleQuote(id)))
 	if err != nil {
-		return fmt.Errorf("failed to delete image: %w", err)
+		return fmt.Errorf("failed to delete image (containers using it are preserved): %w; output: %s", err, utils.TruncateString(output, 1000))
 	}
 	global.APP_LOG.Info("Podman镜像删除成功", zap.String("id", utils.TruncateString(id, 32)))
 	return nil
@@ -123,10 +123,10 @@ func (p *PodmanProvider) loadImageToPodman(imagePath, targetImageName string) er
 // cleanupPodmanImage 清理Podman镜像
 func (p *PodmanProvider) cleanupPodmanImage(imageName string) {
 	normalized := normalizePodmanImageName(imageName)
-	p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(normalized)))
+	p.sshClient.Execute(fmt.Sprintf("%s rmi %s", cliName, shellSingleQuote(normalized)))
 	// 也清理不带前缀的名称
 	if normalized != imageName {
-		p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", cliName, shellSingleQuote(imageName)))
+		p.sshClient.Execute(fmt.Sprintf("%s rmi %s", cliName, shellSingleQuote(imageName)))
 	}
 	p.sshClient.Execute(fmt.Sprintf("%s image prune -f", cliName))
 }

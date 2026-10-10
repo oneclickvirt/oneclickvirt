@@ -12,6 +12,7 @@ import (
 	"oneclickvirt/provider"
 	"oneclickvirt/utils"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -138,6 +139,17 @@ func (c *ContainerdProvider) sshCreateInstance(ctx context.Context, config provi
 
 // sshCreateInstanceWithProgress 创建实例并报告进度
 func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if config.CopyMode && config.CopySourceName == config.Name {
+		return fmt.Errorf("复制源与目标不能相同")
+	}
+	if err := utils.RequireRuntimeContainerAbsent(ctx, c.sshClient, cliName, config.Name); err != nil {
+		return err
+	}
+	createOwner := uuid.NewString()
+
 	updateProgress := func(percentage int, message string) {
 		if progressCallback != nil {
 			progressCallback(percentage, message)
@@ -151,7 +163,7 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	updateProgress(10, "开始创建Containerd实例...")
 
 	// 预检：确保 Containerd CLI 可用，避免后续命令以 127 失败且错误不明确
-	if _, err := c.sshClient.Execute(fmt.Sprintf("command -v %s >/dev/null 2>&1", cliName)); err != nil {
+	if _, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, fmt.Sprintf("command -v %s >/dev/null 2>&1", cliName)); err != nil {
 		return fmt.Errorf("%s 命令不可用，请确认 provider 节点已安装并在 PATH 中: %w", cliName, err)
 	}
 
@@ -174,16 +186,20 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 			return fmt.Errorf("源容器名称格式无效: %s", config.CopySourceName)
 		}
 		updateProgress(25, "从源容器创建临时镜像...")
-		if _, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s >/dev/null 2>&1", cliName, shellSingleQuote(config.CopySourceName))); err != nil {
+		if _, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, fmt.Sprintf("%s inspect %s >/dev/null 2>&1", cliName, shellSingleQuote(config.CopySourceName))); err != nil {
 			return fmt.Errorf("源容器 %s 不存在或不可访问: %w", config.CopySourceName, err)
 		}
-		copyImageName := "oneclickvirt_copy_" + strings.ToLower(strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(config.Name))
+		copyImageName := strings.ReplaceAll(createOwner, "-", "") + "_oneclickvirt_copy_" + strings.ToLower(strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(config.Name))
 		commitCmd := fmt.Sprintf("%s commit %s %s", cliName, shellSingleQuote(config.CopySourceName), shellSingleQuote(copyImageName))
-		if out, err := c.sshClient.ExecuteWithTimeout(commitCmd, 10*time.Minute); err != nil {
+		defer func() {
+			if err := utils.RemoveUnusedRuntimeImage(c.sshClient, cliName, copyImageName); err != nil {
+				global.APP_LOG.Debug("复制镜像清理未完成，保留供使用或排障", zap.String("image", copyImageName), zap.Error(err))
+			}
+		}()
+		if out, err := utils.ExecuteShellCommandTimeoutContext(ctx, c.sshClient, commitCmd, 10*time.Minute); err != nil {
 			return fmt.Errorf("从源容器创建临时镜像失败: %w; output: %s", err, utils.TruncateString(out, 300))
 		}
 		imageNameWithPrefix = copyImageName
-		defer c.sshClient.Execute(fmt.Sprintf("%s rmi -f %s >/dev/null 2>&1 || true", cliName, shellSingleQuote(copyImageName)))
 	} else {
 		imageExistsResult := c.imageExists(imageNameWithPrefix)
 		if !imageExistsResult {
@@ -246,7 +262,7 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 				}
 
 				tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(config.Image), shellSingleQuote(containerdRuntimeImageRef(imageNameWithPrefix)))
-				if out, tagErr := c.sshClient.Execute(tagCmd); tagErr != nil {
+				if out, tagErr := utils.ExecuteShellCommandContext(ctx, c.sshClient, tagCmd); tagErr != nil {
 					global.APP_LOG.Error("Containerd镜像打标失败",
 						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
 						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
@@ -266,12 +282,9 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		return fmt.Errorf("Containerd镜像运行引用不可用: %w", err)
 	}
 
-	updateProgress(70, "清理同名残留容器...")
-	cleanupCmd := fmt.Sprintf("%s ps -a --filter %s -q | xargs -r %s rm -f", cliName, containerNameFilter(config.Name), cliName)
-	c.sshClient.Execute(cleanupCmd)
-
 	updateProgress(72, "构建nerdctl run命令...")
 	cmd := fmt.Sprintf("%s run -d --name %s", cliName, shellSingleQuote(config.Name))
+	cmd += " --label " + shellSingleQuote("oneclickvirt.create-token="+createOwner)
 
 	networkType := c.config.NetworkType
 	if config.Metadata != nil {
@@ -456,21 +469,30 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		zap.String("name", utils.TruncateString(config.Name, 32)))
 
 	effectiveCmd := cmd
-	output, err := c.sshClient.Execute(effectiveCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, effectiveCmd)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil && gpuOptStr != "" {
 		global.APP_LOG.Warn("Containerd GPU参数创建失败，自动回退为无GPU创建",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("output", utils.TruncateString(output, 300)),
 			zap.Error(err))
-		_, _ = c.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(config.Name)))
+		if cleanupErr := utils.RemoveOwnedRuntimeContainer(ctx, c.sshClient, cliName, config.Name, createOwner); cleanupErr != nil {
+			return fmt.Errorf("创建回退前清理失败: %w", cleanupErr)
+		}
 		effectiveCmd = strings.Replace(cmd, gpuOptStr, "", 1)
-		output, err = c.sshClient.Execute(effectiveCmd)
+		output, err = utils.ExecuteShellCommandContext(ctx, c.sshClient, effectiveCmd)
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if err != nil {
 		// nerdctl can create the container before a post-create validation
-		// fails. Remove the requested name before collecting diagnostics so a
-		// retry cannot inherit a half-created container.
-		c.cleanupFailedCreateContainer(config.Name)
+		// fails. Remove only this attempt's verified container before diagnostics.
+		if cleanupErr := c.cleanupFailedCreateContainer(ctx, config.Name, createOwner); cleanupErr != nil {
+			return fmt.Errorf("create failed: %w; cleanup: %v", err, cleanupErr)
+		}
 		diagnostics := c.collectCreateDiagnostics(config.Name)
 		global.APP_LOG.Error("Containerd创建容器失败",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
@@ -489,79 +511,61 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		}
 		return fmt.Errorf("failed to create container: %w; %s", err, strings.Join(details, "; "))
 	}
-	if err := c.connectContainerdAdditionalNetworks(config.Name, networkSelection); err != nil {
+	if err := c.connectContainerdAdditionalNetworks(config.Name, networkSelection, ctx); err != nil {
+		if cleanupErr := utils.RemoveOwnedRuntimeContainer(ctx, c.sshClient, cliName, config.Name, createOwner); cleanupErr != nil {
+			return fmt.Errorf("%w; cleanup: %v", err, cleanupErr)
+		}
 		return err
 	}
 
 	updateProgress(96, "等待容器完全启动...")
-	maxWaitTime := 30 * time.Second
-	checkInterval := 6 * time.Second
-	startTime := time.Now()
-	isRunning := false
-
-	for {
-		if time.Since(startTime) > maxWaitTime {
-			global.APP_LOG.Warn("等待容器启动超时，但继续执行",
-				zap.String("name", utils.TruncateString(config.Name, 32)))
-			break
-		}
-		time.Sleep(checkInterval)
-		statusOutput, err := c.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(config.Name)))
-		if err == nil {
-			status := strings.ToLower(strings.TrimSpace(statusOutput))
-			if status == "running" {
-				isRunning = true
-				break
-			}
-		}
+	if err := c.ensureContainerRunning(ctx, config.Name); err != nil {
+		return fmt.Errorf("新建容器未就绪: %w", err)
 	}
 
-	if !isRunning {
-		global.APP_LOG.Warn("无法确认容器运行状态，继续执行后续操作",
-			zap.String("name", utils.TruncateString(config.Name, 32)))
-	}
-
-	// 确保iptables路由规则存在
 	c.ensureContainerNetworkRouting()
 
 	updateProgress(97, "配置SSH密码...")
 	if err := c.configureInstanceSSHPassword(ctx, config); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		global.APP_LOG.Warn("配置SSH密码失败", zap.Error(err))
 	}
 
 	updateProgress(97, "获取实例内网IP...")
 	if privateIP, err := c.getContainerPrivateIP(config.Name); err == nil && privateIP != "" {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		var instance providerModel.Instance
 		if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, c.config.ID).First(&instance).Error; err == nil {
 			global.APP_DB.Model(&instance).Update("private_ip", privateIP)
 		}
 	}
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	updateProgress(98, "初始化流量监控...")
 	if err := c.initializePmacctMonitoring(ctx, config); err != nil {
 		global.APP_LOG.Warn("初始化流量监控失败", zap.Error(err))
 	}
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	updateProgress(100, "Containerd实例创建完成")
 	global.APP_LOG.Info("Containerd容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
 }
 
-// cleanupFailedCreateContainer removes only the name requested by the failed
-// create operation. The preflight cleanup already removed stale containers
-// with this name, so this is safe for retries and cannot affect unrelated
-// workloads on the node.
-func (c *ContainerdProvider) cleanupFailedCreateContainer(name string) {
+// cleanupFailedCreateContainer preserves resources from all other attempts.
+func (c *ContainerdProvider) cleanupFailedCreateContainer(ctx context.Context, name, owner string) error {
 	if !utils.IsValidContainerRuntimeName(name) {
-		return
+		return fmt.Errorf("invalid container name")
 	}
-	command := fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name))
-	if output, err := c.sshClient.Execute(command); err != nil {
-		global.APP_LOG.Warn("清理失败的Containerd容器失败",
-			zap.String("name", utils.TruncateString(name, 32)),
-			zap.String("output", utils.TruncateString(strings.TrimSpace(output), 300)),
-			zap.Error(err))
-	}
+	return utils.RemoveOwnedRuntimeContainer(ctx, c.sshClient, cliName, name, owner)
 }
 
 func appendContainerdNetworkOptions(command string, selection utils.ContainerNetworkSelection) string {
@@ -574,19 +578,25 @@ func appendContainerdNetworkOptions(command string, selection utils.ContainerNet
 	return command
 }
 
-func (c *ContainerdProvider) connectContainerdAdditionalNetworks(name string, selection utils.ContainerNetworkSelection) error {
+func (c *ContainerdProvider) connectContainerdAdditionalNetworks(name string, selection utils.ContainerNetworkSelection, contexts ...context.Context) error {
+	ctx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
 	if selection.RoutedVeth {
 		command, err := provider.RoutedIPv6VethAttachCommand(cliName, name, selection)
 		if err != nil {
 			return fmt.Errorf("构造隧道路由IPv6 veth命令失败: %w", err)
 		}
-		output, execErr := c.sshClient.Execute(command)
+		output, execErr := utils.ExecuteShellCommandContext(ctx, c.sshClient, command)
 		if execErr == nil {
 			return nil
 		}
-		_, _ = c.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		diagnostics := c.collectCreateDiagnostics(name)
-		return fmt.Errorf("附加隧道路由IPv6 veth失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+		return fmt.Errorf("附加隧道路由IPv6 veth失败，保留容器供排障: %w; output: %s; diagnostics: %s",
 			execErr, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
 	}
 	for _, network := range selection.AdditionalNetworks {
@@ -598,13 +608,15 @@ func (c *ContainerdProvider) connectContainerdAdditionalNetworks(name string, se
 			command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
 		}
 		command += fmt.Sprintf(" %s %s", shellSingleQuote(network), shellSingleQuote(name))
-		output, err := c.sshClient.Execute(command)
+		output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, command)
 		if err == nil {
 			continue
 		}
-		_, _ = c.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		diagnostics := c.collectCreateDiagnostics(name)
-		return fmt.Errorf("附加隧道路由IPv6网络失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+		return fmt.Errorf("附加隧道路由IPv6网络失败，保留容器供排障: %w; output: %s; diagnostics: %s",
 			err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
 	}
 	return nil

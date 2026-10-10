@@ -84,32 +84,7 @@ func (p *PodmanProvider) checkLXCFS() (bool, []string, string, error) {
 
 // ensureContainerRunning 确保容器处于运行状态
 func (p *PodmanProvider) ensureContainerRunning(ctx context.Context, containerName string) error {
-	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(containerName))
-	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, checkCmd)
-	if err != nil {
-		return fmt.Errorf("检查容器状态失败: %w", err)
-	}
-	status := strings.ToLower(strings.TrimSpace(output))
-	if status == "running" {
-		return nil
-	}
-	global.APP_LOG.Warn("容器未处于运行状态，尝试重启",
-		zap.String("containerName", containerName),
-		zap.String("status", status))
-	restartCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(containerName))
-	if _, restartErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, restartCmd); restartErr != nil {
-		return fmt.Errorf("重启容器失败: %w", restartErr)
-	}
-	for i := 0; i < 15; i++ {
-		if err := utils.SleepContext(ctx, 2*time.Second); err != nil {
-			return err
-		}
-		out, err2 := utils.ExecuteShellCommandContext(ctx, p.sshClient, checkCmd)
-		if err2 == nil && strings.ToLower(strings.TrimSpace(out)) == "running" {
-			return nil
-		}
-	}
-	return fmt.Errorf("等待容器重启超时")
+	return p.sshStartInstance(ctx, containerName)
 }
 
 // setContainerPasswordWithRetry 使用多种 shell 回退方式设置容器 root 密码

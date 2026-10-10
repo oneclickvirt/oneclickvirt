@@ -45,7 +45,11 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 	global.APP_LOG.Info("设置KubeVirt实例密码",
 		zap.String("instance", utils.TruncateString(instanceID, 32)))
 
-	if exists, _ := p.sshK3sContainerExists(ctx, instanceID); exists {
+	exists, discoveryErr := p.sshK3sContainerExists(ctx, instanceID)
+	if discoveryErr != nil {
+		return fmt.Errorf("detect instance backend: %w", discoveryErr)
+	}
+	if exists {
 		if err := p.sshSetK3sContainerPassword(ctx, instanceID, password); err == nil {
 			global.APP_LOG.Info("通过kubectl exec设置KubeVirt容器密码成功", zap.String("instance", utils.TruncateString(instanceID, 32)))
 			return nil

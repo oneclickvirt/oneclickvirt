@@ -187,19 +187,19 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 	var statusCmd string
 	switch instanceType {
 	case "container":
-		statusCmd = fmt.Sprintf("pct status %s", vmid)
+		statusCmd = fmt.Sprintf("LC_ALL=C NO_COLOR=1 pct status %s", vmid)
 	case "vm":
-		statusCmd = fmt.Sprintf("qm status %s", vmid)
+		statusCmd = fmt.Sprintf("LC_ALL=C NO_COLOR=1 qm status %s", vmid)
 	default:
 		return fmt.Errorf("unknown instance type: %s", instanceType)
 	}
 
-	statusOutput, err := p.sshClient.Execute(statusCmd)
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, statusCmd)
 	if err != nil {
 		return fmt.Errorf("检查实例状态失败: %w", err)
 	}
 
-	if !strings.Contains(statusOutput, "status: running") {
+	if parsePVEStatusOutput(statusOutput) != "running" {
 		return fmt.Errorf("实例 %s (VMID: %s) 未运行，无法设置密码", instanceID, vmid)
 	}
 
@@ -240,12 +240,12 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 		}
 
 		// 检查虚拟机状态，如果已启动则重启以应用密码更改
-		statusCmd := fmt.Sprintf("qm status %s", vmid)
-		statusOutput, statusErr := p.sshClient.Execute(statusCmd)
-		if statusErr == nil && strings.Contains(statusOutput, "status: running") {
+		statusCmd := fmt.Sprintf("LC_ALL=C NO_COLOR=1 qm status %s", vmid)
+		statusOutput, statusErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, statusCmd)
+		if statusErr == nil && parsePVEStatusOutput(statusOutput) == "running" {
 			// 虚拟机正在运行，尝试重启以应用密码更改
 			restartCmd := fmt.Sprintf("qm reboot %s", vmid)
-			_, err = p.sshClient.Execute(restartCmd)
+			_, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, restartCmd)
 			rebootTriggered := false
 			if err != nil {
 				// exit status 255 表示 SSH channel 在重启过程中被断开，
@@ -274,12 +274,16 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 				global.APP_LOG.Debug("等待虚拟机重启完成",
 					zap.String("instanceID", instanceID),
 					zap.String("vmid", vmid))
-				time.Sleep(p.waitScale(10 * time.Second))
+				if err := utils.SleepContext(ctx, p.waitScale(10*time.Second)); err != nil {
+					return err
+				}
 				waitStatusCmd := fmt.Sprintf("qm status %s", vmid)
 				for i := 0; i < 22; i++ {
-					time.Sleep(p.waitScale(5 * time.Second))
-					out, e := p.sshClient.Execute(waitStatusCmd)
-					if e == nil && strings.Contains(out, "status: running") {
+					if err := utils.SleepContext(ctx, p.waitScale(5*time.Second)); err != nil {
+						return err
+					}
+					out, e := utils.ExecuteShellCommandContext(ctx, p.sshClient, "LC_ALL=C NO_COLOR=1 "+waitStatusCmd)
+					if e == nil && parsePVEStatusOutput(out) == "running" {
 						global.APP_LOG.Debug("虚拟机重启完成，已恢复运行",
 							zap.String("instanceID", instanceID),
 							zap.String("vmid", vmid))
@@ -329,9 +333,9 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 	// 确定实例类型
 	var statusCmd string
 	if config.InstanceType == "container" {
-		statusCmd = fmt.Sprintf("pct status %s", vmidStr)
+		statusCmd = fmt.Sprintf("LC_ALL=C NO_COLOR=1 pct status %s", vmidStr)
 	} else {
-		statusCmd = fmt.Sprintf("qm status %s", vmidStr)
+		statusCmd = fmt.Sprintf("LC_ALL=C NO_COLOR=1 qm status %s", vmidStr)
 	}
 
 	// 循环检查实例状态
@@ -341,8 +345,8 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 			return fmt.Errorf("等待实例启动超时，无法设置密码")
 		}
 
-		statusOutput, err := p.sshClient.Execute(statusCmd)
-		if err == nil && strings.Contains(statusOutput, "status: running") {
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, statusCmd)
+		if err == nil && parsePVEStatusOutput(statusOutput) == "running" {
 			isRunning = true
 			global.APP_LOG.Debug("实例已确认运行，准备设置密码",
 				zap.String("instanceName", config.Name),
@@ -355,12 +359,16 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 			zap.Int("vmid", vmid),
 			zap.Duration("elapsed", time.Since(startTime)))
 
-		time.Sleep(checkInterval)
+		if err := utils.SleepContext(ctx, checkInterval); err != nil {
+			return err
+		}
 	}
 
 	// 如果是容器，额外等待一些时间确保SSH服务就绪
 	if config.InstanceType == "container" && isRunning {
-		time.Sleep(p.waitScale(3 * time.Second))
+		if err := utils.SleepContext(ctx, p.waitScale(3*time.Second)); err != nil {
+			return err
+		}
 	}
 
 	// 设置SSH密码，使用vmid而不是名称

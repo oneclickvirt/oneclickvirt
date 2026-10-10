@@ -29,86 +29,20 @@ func (p *PodmanProvider) rejectInfrastructureContainer(ctx context.Context, id s
 	return nil
 }
 
-// sshStartInstance 启动实例
+// sshStartInstance starts without restarting a running guest.
 func (p *PodmanProvider) sshStartInstance(ctx context.Context, id string) error {
-	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
-	if err != nil {
-		return fmt.Errorf("failed to check container status: %w", err)
+	if err := utils.EnsureRuntimeContainerRunning(ctx, p.sshClient, cliName, id); err != nil {
+		return err
 	}
-
-	status := strings.ToLower(strings.TrimSpace(statusOutput))
-	if strings.Contains(status, "running") {
-		return p.restoreIPv6AfterStart(id)
-	}
-
-	startCmd := fmt.Sprintf("%s restart %s", cliName, shellSingleQuote(id))
-	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, startCmd)
-	if err != nil {
-		global.APP_LOG.Error("Podman实例启动失败",
-			zap.String("id", utils.TruncateString(id, 32)),
-			zap.String("output", utils.TruncateString(output, 500)),
-			zap.Error(err))
-		return fmt.Errorf("failed to start container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
-	}
-
-	maxWaitTime := 30 * time.Second
-	checkInterval := 2 * time.Second
-	startTime := time.Now()
-
-	for {
-		if time.Since(startTime) > maxWaitTime {
-			return fmt.Errorf("等待容器启动超时 (30秒)")
-		}
-		if err := utils.SleepContext(ctx, checkInterval); err != nil {
-			return fmt.Errorf("waiting for container '%s' to start cancelled: %w", id, err)
-		}
-		statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
-		if err == nil {
-			currentStatus := strings.ToLower(strings.TrimSpace(statusOutput))
-			if currentStatus == "running" {
-				if err := utils.SleepContext(ctx, 2*time.Second); err != nil {
-					return fmt.Errorf("waiting for container '%s' readiness cancelled: %w", id, err)
-				}
-				return p.restoreIPv6AfterStart(id)
-			}
-		}
-	}
+	return p.restoreIPv6AfterStart(id, ctx)
 }
 
-// sshStopInstance 停止实例
+// sshStopInstance confirms stopped state before returning success.
 func (p *PodmanProvider) sshStopInstance(ctx context.Context, id string) error {
 	if err := p.rejectInfrastructureContainer(ctx, id); err != nil {
 		return err
 	}
-	stopCmd := fmt.Sprintf("%s stop %s", cliName, shellSingleQuote(id))
-	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, stopCmd)
-	if err != nil {
-		global.APP_LOG.Error("Podman实例停止失败",
-			zap.String("id", utils.TruncateString(id, 32)),
-			zap.String("output", utils.TruncateString(output, 500)),
-			zap.Error(err))
-		return fmt.Errorf("failed to stop container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
-	}
-
-	maxRetries := 10
-	retryInterval := 1 * time.Second
-	for i := 0; i < maxRetries; i++ {
-		statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(id)))
-		if err != nil {
-			if err := utils.SleepContext(ctx, retryInterval); err != nil {
-				return err
-			}
-			continue
-		}
-		status := strings.ToLower(strings.TrimSpace(statusOutput))
-		if strings.Contains(status, "exited") {
-			return nil
-		}
-		if err := utils.SleepContext(ctx, retryInterval); err != nil {
-			return err
-		}
-	}
-	return nil
+	return utils.StopRuntimeContainer(ctx, p.sshClient, cliName, id)
 }
 
 // sshRestartInstance 重启实例
@@ -123,7 +57,7 @@ func (p *PodmanProvider) sshRestartInstance(ctx context.Context, id string) erro
 		return fmt.Errorf("failed to restart container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 	global.APP_LOG.Info("Podman实例重启成功", zap.String("id", utils.TruncateString(id, 32)))
-	return p.restoreIPv6AfterStart(id)
+	return p.restoreIPv6AfterStart(id, ctx)
 }
 
 // sshDeleteInstance 删除实例 - 多重删除策略

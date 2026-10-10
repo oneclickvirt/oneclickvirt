@@ -27,17 +27,23 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 	}
 
 	uri, kind := p.libvirtURIForInstance(ctx, id)
-	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("LC_ALL=C NO_COLOR=1 virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to check %s status: %w", kind, err)
 	}
 
-	status := strings.ToLower(strings.TrimSpace(statusOutput))
-	if strings.Contains(status, "running") {
+	status := mapVirshStatus(statusOutput)
+	if status == "running" {
 		return nil
 	}
 
+	if status == "unknown" {
+		return fmt.Errorf("unrecognized domain state: %q", utils.TruncateString(statusOutput, 300))
+	}
 	startCmd := fmt.Sprintf("virsh -c %s start %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id))
+	if status == "paused" {
+		startCmd = fmt.Sprintf("virsh -c %s resume %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id))
+	}
 	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, startCmd)
 	if err != nil && qemuCloudInitMissingStartError(output, err) {
 		global.APP_LOG.Warn("QEMU虚拟机启动时检测到缺失的cloud-init ISO，尝试从domain配置中移除",
@@ -61,8 +67,8 @@ func (p *QEMUProvider) StartInstance(ctx context.Context, id string) error {
 	}
 
 	for i := 0; i < 15; i++ {
-		statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
-		if err == nil && strings.Contains(strings.TrimSpace(statusOutput), "running") {
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("LC_ALL=C NO_COLOR=1 virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
+		if err == nil && mapVirshStatus(statusOutput) == "running" {
 			return nil
 		}
 		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
@@ -110,6 +116,16 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 	}
 
 	uri, kind := p.libvirtURIForInstance(ctx, id)
+	statusOutput, statusErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("LC_ALL=C NO_COLOR=1 virsh -c %s domstate %s", shellSingleQuote(uri), shellSingleQuote(id)))
+	if statusErr != nil {
+		return fmt.Errorf("read domain state before stopping: %w", statusErr)
+	}
+	if mapVirshStatus(statusOutput) == "stopped" {
+		return nil
+	}
+	if mapVirshStatus(statusOutput) == "unknown" {
+		return fmt.Errorf("unrecognized domain state: %q", utils.TruncateString(statusOutput, 300))
+	}
 	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh -c %s shutdown %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id)))
 	if err != nil {
 		global.APP_LOG.Warn("QEMU虚拟机优雅关机失败，尝试强制关闭",
@@ -119,11 +135,14 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 	}
 
 	for i := 0; i < 15; i++ {
-		statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("LC_ALL=C NO_COLOR=1 virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
 		if err == nil {
-			status := strings.ToLower(strings.TrimSpace(statusOutput))
-			if strings.Contains(status, "shut off") || strings.Contains(status, "shutoff") {
+			state := mapVirshStatus(statusOutput)
+			if state == "stopped" {
 				return nil
+			}
+			if state == "unknown" {
+				return fmt.Errorf("unrecognized domain state while stopping: %q", utils.TruncateString(statusOutput, 300))
 			}
 		}
 		if err := sleepWithContext(ctx, 2*time.Second); err != nil {
@@ -140,6 +159,10 @@ func (p *QEMUProvider) StopInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to stop %s: %w; output: %s", kind, err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 
+	statusOutput, statusErr = utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("LC_ALL=C NO_COLOR=1 virsh -c %s domstate %s", shellSingleQuote(uri), shellSingleQuote(id)))
+	if statusErr != nil || mapVirshStatus(statusOutput) != "stopped" {
+		return fmt.Errorf("force-stop could not be confirmed: state=%q, error=%v", utils.TruncateString(statusOutput, 300), statusErr)
+	}
 	return nil
 }
 
@@ -150,14 +173,18 @@ func (p *QEMUProvider) RestartInstance(ctx context.Context, id string) error {
 	}
 
 	uri, kind := p.libvirtURIForInstance(ctx, id)
-	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
+	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("LC_ALL=C NO_COLOR=1 virsh -c %s domstate %s 2>/dev/null", shellSingleQuote(uri), shellSingleQuote(id)))
 	if err != nil {
 		return fmt.Errorf("failed to check %s status: %w", kind, err)
 	}
 
-	status := strings.ToLower(strings.TrimSpace(statusOutput))
-	if strings.Contains(status, "shut off") || strings.Contains(status, "shutoff") {
+	status := mapVirshStatus(statusOutput)
+	if status == "stopped" {
 		return p.StartInstance(ctx, id)
+	}
+
+	if status == "unknown" {
+		return fmt.Errorf("unrecognized domain state: %q", utils.TruncateString(statusOutput, 300))
 	}
 
 	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh -c %s reboot %s 2>&1", shellSingleQuote(uri), shellSingleQuote(id)))

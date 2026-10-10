@@ -526,19 +526,19 @@ func (p *KubeVirtProvider) waitForDataVolumeImport(ctx context.Context, vmName, 
 func mapKubeVirtStatus(status string) string {
 	status = strings.ToLower(strings.TrimSpace(status))
 	switch {
-	case strings.Contains(status, "running"):
+	case status == "running":
 		return "running"
-	case strings.Contains(status, "stopped"):
+	case status == "stopped" || status == "off":
 		return "stopped"
-	case strings.Contains(status, "starting"):
+	case status == "starting":
 		return "starting"
-	case strings.Contains(status, "provisioning"):
+	case status == "provisioning":
 		return "creating"
-	case strings.Contains(status, "terminating"):
+	case status == "terminating":
 		return "stopping"
-	case strings.Contains(status, "error"), strings.Contains(status, "crash"):
+	case status == "error" || status == "crashloopbackoff":
 		return "error"
-	case strings.Contains(status, "paused"):
+	case status == "paused":
 		return "paused"
 	default:
 		return "unknown"

@@ -1,6 +1,7 @@
 package containerd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -42,34 +43,44 @@ func (c *ContainerdProvider) routedNetworkSelection(config provider.InstanceConf
 
 // restoreRoutedIPv6AfterStart recreates the host-managed veth after nerdctl
 // starts a fresh network namespace for a routed IPv6 container.
-func (c *ContainerdProvider) restoreRoutedIPv6AfterStart(name string) error {
+func (c *ContainerdProvider) restoreRoutedIPv6AfterStart(name string, contexts ...context.Context) error {
+	ctx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	inspectCommand, err := provider.RoutedIPv6RuntimeLabelInspectCommand(cliName, name)
 	if err != nil {
 		return err
 	}
-	output, err := c.sshClient.Execute(inspectCommand)
+	output, err := utils.ExecuteShellCommandContext(ctx, c.sshClient, inspectCommand)
 	if err != nil {
-		return c.failRoutedIPv6Restore(name, "读取", output, err)
+		return c.failRoutedIPv6Restore(ctx, name, "读取", output, err)
 	}
 	routed, present, err := provider.RoutedIPv6ConfigFromRuntimeLabelOutput(output)
 	if err != nil {
-		return c.failRoutedIPv6Restore(name, "解析", output, err)
+		return c.failRoutedIPv6Restore(ctx, name, "解析", output, err)
 	}
 	if !present {
 		return nil
 	}
 	attachCommand, err := routed.RoutedIPv6VethCommand(cliName, name)
 	if err != nil {
-		return c.failRoutedIPv6Restore(name, "构造", "", err)
+		return c.failRoutedIPv6Restore(ctx, name, "构造", "", err)
 	}
-	output, err = c.sshClient.Execute(attachCommand)
+	output, err = utils.ExecuteShellCommandContext(ctx, c.sshClient, attachCommand)
 	if err != nil {
-		return c.failRoutedIPv6Restore(name, "附加", output, err)
+		return c.failRoutedIPv6Restore(ctx, name, "附加", output, err)
 	}
 	return nil
 }
 
-func (c *ContainerdProvider) failRoutedIPv6Restore(name, phase, output string, err error) error {
-	_, _ = c.sshClient.Execute(fmt.Sprintf("%s stop %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
-	return fmt.Errorf("%s隧道路由IPv6失败，已停止实例以避免IPv6配置缺失: output=%s: %w", phase, utils.TruncateString(strings.TrimSpace(output), 4000), err)
+func (c *ContainerdProvider) failRoutedIPv6Restore(ctx context.Context, name, phase, output string, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	_, _ = utils.ExecuteShellCommandContext(ctx, c.sshClient, fmt.Sprintf("%s stop %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+	return fmt.Errorf("%s隧道路由IPv6失败，已尝试停止实例以避免IPv6配置缺失: output=%s: %w", phase, utils.TruncateString(strings.TrimSpace(output), 4000), err)
 }

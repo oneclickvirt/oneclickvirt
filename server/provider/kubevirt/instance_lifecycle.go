@@ -19,7 +19,11 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	if exists, _ := p.sshK3sContainerExists(ctx, id); exists {
+	exists, discoveryErr := p.sshK3sContainerExists(ctx, id)
+	if discoveryErr != nil {
+		return fmt.Errorf("detect instance backend: %w", discoveryErr)
+	}
+	if exists {
 		return p.sshScaleK3sContainer(ctx, id, 1)
 	}
 
@@ -29,8 +33,8 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to check VM status: %w", err)
 	}
 
-	status := strings.ToLower(strings.TrimSpace(statusOutput))
-	if strings.Contains(status, "running") {
+	status := strings.ToLower(strings.TrimSpace(utils.StripTerminalCSI(statusOutput)))
+	if status == "running" {
 		return nil
 	}
 
@@ -65,7 +69,11 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	if exists, _ := p.sshK3sContainerExists(ctx, id); exists {
+	exists, discoveryErr := p.sshK3sContainerExists(ctx, id)
+	if discoveryErr != nil {
+		return fmt.Errorf("detect instance backend: %w", discoveryErr)
+	}
+	if exists {
 		return p.sshScaleK3sContainer(ctx, id, 0)
 	}
 
@@ -83,7 +91,7 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 	for i := 0; i < 20; i++ {
 		statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
 			"kubectl get vm %s -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
-		if err == nil && strings.Contains(strings.ToLower(strings.TrimSpace(statusOutput)), "stopped") {
+		if err == nil && strings.ToLower(strings.TrimSpace(utils.StripTerminalCSI(statusOutput))) == "stopped" {
 			return nil
 		}
 		if err := sleepWithContext(ctx, 3*time.Second); err != nil {
@@ -100,7 +108,11 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 		return fmt.Errorf("not connected")
 	}
 
-	if exists, _ := p.sshK3sContainerExists(ctx, id); exists {
+	exists, discoveryErr := p.sshK3sContainerExists(ctx, id)
+	if discoveryErr != nil {
+		return fmt.Errorf("detect instance backend: %w", discoveryErr)
+	}
+	if exists {
 		if err := p.sshScaleK3sContainer(ctx, id, 0); err != nil {
 			return err
 		}
@@ -116,8 +128,8 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 		return fmt.Errorf("failed to check VM status: %w", err)
 	}
 
-	status := strings.ToLower(strings.TrimSpace(statusOutput))
-	if strings.Contains(status, "stopped") {
+	status := strings.ToLower(strings.TrimSpace(utils.StripTerminalCSI(statusOutput)))
+	if status == "stopped" {
 		return p.StartInstance(ctx, id)
 	}
 
@@ -204,7 +216,11 @@ func (p *KubeVirtProvider) DeleteInstance(ctx context.Context, id string) error 
 
 // sshDeleteInstance 通过SSH删除KubeVirt虚拟机（不依赖外部shell脚本）
 func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) error {
-	if exists, _ := p.sshK3sContainerExists(ctx, id); exists {
+	exists, discoveryErr := p.sshK3sContainerExists(ctx, id)
+	if discoveryErr != nil {
+		return fmt.Errorf("detect instance backend: %w", discoveryErr)
+	}
+	if exists {
 		return p.sshDeleteK3sContainer(ctx, id)
 	}
 

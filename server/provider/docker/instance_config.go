@@ -119,36 +119,7 @@ func (d *DockerProvider) checkLXCFS() (bool, []string, string, error) {
 
 // ensureContainerRunning 确保容器处于运行状态；若已退出则重启并等待
 func (d *DockerProvider) ensureContainerRunning(ctx context.Context, containerName string) error {
-	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(containerName))
-	output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, checkCmd)
-	if err != nil {
-		return fmt.Errorf("检查容器状态失败: %w", err)
-	}
-	status := strings.ToLower(strings.TrimSpace(output))
-	if status == "running" {
-		return nil
-	}
-	// 容器可能因 OOM 等原因退出，尝试重启
-	global.APP_LOG.Warn("容器未处于运行状态，尝试重启",
-		zap.String("containerName", containerName),
-		zap.String("status", status))
-	restartCmd := fmt.Sprintf("%s restart %s", d.runtime.CLI, shellSingleQuote(containerName))
-	if _, restartErr := utils.ExecuteShellCommandContext(ctx, d.sshClient, restartCmd); restartErr != nil {
-		return fmt.Errorf("重启容器失败: %w", restartErr)
-	}
-	// 等待容器重新运行，最多 30 秒
-	for i := 0; i < 15; i++ {
-		if err := utils.SleepContext(ctx, 2*time.Second); err != nil {
-			return err
-		}
-		out, err2 := utils.ExecuteShellCommandContext(ctx, d.sshClient, checkCmd)
-		if err2 == nil && strings.ToLower(strings.TrimSpace(out)) == "running" {
-			global.APP_LOG.Debug("容器重启后已恢复运行",
-				zap.String("containerName", containerName))
-			return nil
-		}
-	}
-	return fmt.Errorf("等待容器重启超时")
+	return d.sshStartInstance(ctx, containerName)
 }
 
 // setContainerPasswordWithRetry 使用多种 shell 回退方式设置容器 root 密码，带重试

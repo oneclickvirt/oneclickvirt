@@ -12,6 +12,7 @@ import (
 	"oneclickvirt/provider"
 	"oneclickvirt/utils"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -131,6 +132,17 @@ func (p *PodmanProvider) sshCreateInstance(ctx context.Context, config provider.
 
 // sshCreateInstanceWithProgress 创建实例并报告进度
 func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if config.CopyMode && config.CopySourceName == config.Name {
+		return fmt.Errorf("复制源与目标不能相同")
+	}
+	if err := utils.RequireRuntimeContainerAbsent(ctx, p.sshClient, cliName, config.Name); err != nil {
+		return err
+	}
+	createOwner := uuid.NewString()
+
 	updateProgress := func(percentage int, message string) {
 		if progressCallback != nil {
 			progressCallback(percentage, message)
@@ -144,7 +156,7 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(10, "开始创建Podman实例...")
 
 	// 预检：确保 Podman CLI 可用，避免后续命令以 127 失败且错误不明确
-	if _, err := p.sshClient.Execute(fmt.Sprintf("command -v %s >/dev/null 2>&1", cliName)); err != nil {
+	if _, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("command -v %s >/dev/null 2>&1", cliName)); err != nil {
 		return fmt.Errorf("%s 命令不可用，请确认 provider 节点已安装并在 PATH 中: %w", cliName, err)
 	}
 
@@ -168,16 +180,20 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			return fmt.Errorf("源容器名称格式无效: %s", config.CopySourceName)
 		}
 		updateProgress(25, "从源容器创建临时镜像...")
-		if _, err := p.sshClient.Execute(fmt.Sprintf("%s inspect %s >/dev/null 2>&1", cliName, shellSingleQuote(config.CopySourceName))); err != nil {
+		if _, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s inspect %s >/dev/null 2>&1", cliName, shellSingleQuote(config.CopySourceName))); err != nil {
 			return fmt.Errorf("源容器 %s 不存在或不可访问: %w", config.CopySourceName, err)
 		}
-		copyImageName := normalizePodmanImageName("oneclickvirt_copy_" + strings.ToLower(strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(config.Name)))
+		copyImageName := normalizePodmanImageName(strings.ReplaceAll(createOwner, "-", "") + "_oneclickvirt_copy_" + strings.ToLower(strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(config.Name)))
 		commitCmd := fmt.Sprintf("%s commit %s %s", cliName, shellSingleQuote(config.CopySourceName), shellSingleQuote(copyImageName))
-		if out, err := p.sshClient.ExecuteWithTimeout(commitCmd, 10*time.Minute); err != nil {
+		defer func() {
+			if err := utils.RemoveUnusedRuntimeImage(p.sshClient, cliName, copyImageName); err != nil {
+				global.APP_LOG.Debug("复制镜像清理未完成，保留供使用或排障", zap.String("image", copyImageName), zap.Error(err))
+			}
+		}()
+		if out, err := utils.ExecuteShellCommandTimeoutContext(ctx, p.sshClient, commitCmd, 10*time.Minute); err != nil {
 			return fmt.Errorf("从源容器创建临时镜像失败: %w; output: %s", err, utils.TruncateString(out, 300))
 		}
 		imageNameWithPrefix = copyImageName
-		defer p.sshClient.Execute(fmt.Sprintf("%s rmi -f %s >/dev/null 2>&1 || true", cliName, shellSingleQuote(copyImageName)))
 	} else {
 		imageExistsResult := p.imageExists(imageNameWithPrefix)
 		if !imageExistsResult {
@@ -240,7 +256,7 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 				}
 
 				tagCmd := fmt.Sprintf("%s tag %s %s", cliName, shellSingleQuote(config.Image), shellSingleQuote(imageNameWithPrefix))
-				if tagOutput, tagErr := p.sshClient.Execute(tagCmd); tagErr != nil {
+				if tagOutput, tagErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, tagCmd); tagErr != nil {
 					global.APP_LOG.Warn("Podman镜像打标失败",
 						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
 						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
@@ -256,15 +272,11 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		}
 	}
 
-	updateProgress(70, "清理同名残留容器...")
-	cleanupCmd := fmt.Sprintf("%s ps -a --filter %s -q | xargs -r %s rm -f", cliName, containerNameFilter(config.Name), cliName)
-	p.sshClient.Execute(cleanupCmd)
-
-	// 确认 registries.conf 配置异常导致 podman 无法启动容器的问题
 	p.ensureRegistriesConf()
 
 	updateProgress(72, "构建podman run命令...")
 	cmd := fmt.Sprintf("%s run -d --name %s", cliName, shellSingleQuote(config.Name))
+	cmd += " --label " + shellSingleQuote("oneclickvirt.create-token="+createOwner)
 
 	networkType := p.config.NetworkType
 	if config.Metadata != nil {
@@ -446,17 +458,25 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		zap.String("name", utils.TruncateString(config.Name, 32)))
 
 	effectiveCmd := cmd
-	output, err := p.sshClient.Execute(effectiveCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, effectiveCmd)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil {
 		if gpuOptStr != "" {
 			global.APP_LOG.Warn("Podman GPU参数创建失败，自动回退为无GPU创建",
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.String("output", utils.TruncateString(output, 300)),
 				zap.Error(err))
-			_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(config.Name)))
+			if cleanupErr := utils.RemoveOwnedRuntimeContainer(ctx, p.sshClient, cliName, config.Name, createOwner); cleanupErr != nil {
+				return fmt.Errorf("创建回退前清理失败: %w", cleanupErr)
+			}
 			effectiveCmd = strings.Replace(cmd, gpuOptStr, "", 1)
-			output, err = p.sshClient.Execute(effectiveCmd)
+			output, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, effectiveCmd)
 		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if err != nil {
 		// If storage-opt was added and Podman rejects it, retry without it and invalidate cache
@@ -465,12 +485,17 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.String("output", utils.TruncateString(output, 200)))
 			// Clean up any partial container state
-			_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(config.Name)))
+			if cleanupErr := utils.RemoveOwnedRuntimeContainer(ctx, p.sshClient, cliName, config.Name, createOwner); cleanupErr != nil {
+				return fmt.Errorf("创建回退前清理失败: %w", cleanupErr)
+			}
 			// Invalidate stale storage driver cache
-			_, _ = p.sshClient.Execute(fmt.Sprintf("echo 'overlay' > %s", storageDriverFile))
+			_, _ = utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("echo 'overlay' > %s", storageDriverFile))
 			// Retry without storage-opt
 			cmdRetry := strings.Replace(effectiveCmd, storageOptStr, "", 1)
-			output, err = p.sshClient.Execute(cmdRetry)
+			output, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, cmdRetry)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if err != nil {
 				diagnostics := p.collectCreateDiagnostics(config.Name)
 				global.APP_LOG.Error("Podman创建容器失败(重试后)",
@@ -490,59 +515,50 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			return fmt.Errorf("failed to create container: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 		}
 	}
-	if err := p.connectPodmanAdditionalNetworks(config.Name, networkSelection); err != nil {
+	if err := p.connectPodmanAdditionalNetworks(config.Name, networkSelection, ctx); err != nil {
+		if cleanupErr := utils.RemoveOwnedRuntimeContainer(ctx, p.sshClient, cliName, config.Name, createOwner); cleanupErr != nil {
+			return fmt.Errorf("%w; cleanup: %v", err, cleanupErr)
+		}
 		return err
 	}
 
 	updateProgress(96, "等待容器完全启动...")
-	maxWaitTime := 30 * time.Second
-	checkInterval := 6 * time.Second
-	startTime := time.Now()
-	isRunning := false
-
-	for {
-		if time.Since(startTime) > maxWaitTime {
-			global.APP_LOG.Warn("等待容器启动超时，但继续执行",
-				zap.String("name", utils.TruncateString(config.Name, 32)))
-			break
-		}
-		time.Sleep(checkInterval)
-		statusOutput, err := p.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", cliName, shellSingleQuote(config.Name)))
-		if err == nil {
-			status := strings.ToLower(strings.TrimSpace(statusOutput))
-			if status == "running" {
-				isRunning = true
-				break
-			}
-		}
+	if err := p.ensureContainerRunning(ctx, config.Name); err != nil {
+		return fmt.Errorf("新建容器未就绪: %w", err)
 	}
 
-	if !isRunning {
-		global.APP_LOG.Warn("无法确认容器运行状态，继续执行后续操作",
-			zap.String("name", utils.TruncateString(config.Name, 32)))
-	}
-
-	// 确保iptables路由规则存在
 	p.ensureContainerNetworkRouting()
 
 	updateProgress(97, "配置SSH密码...")
 	if err := p.configureInstanceSSHPassword(ctx, config); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		global.APP_LOG.Warn("配置SSH密码失败", zap.Error(err))
 	}
 
 	updateProgress(97, "获取实例内网IP...")
 	if privateIP, err := p.getContainerPrivateIP(config.Name); err == nil && privateIP != "" {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		var instance providerModel.Instance
 		if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, p.config.ID).First(&instance).Error; err == nil {
 			global.APP_DB.Model(&instance).Update("private_ip", privateIP)
 		}
 	}
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	updateProgress(98, "初始化流量监控...")
 	if err := p.initializePmacctMonitoring(ctx, config); err != nil {
 		global.APP_LOG.Warn("初始化流量监控失败", zap.Error(err))
 	}
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	updateProgress(100, "Podman实例创建完成")
 	global.APP_LOG.Info("Podman容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
@@ -583,19 +599,25 @@ func appendPodmanNetworkOptions(command string, selection utils.ContainerNetwork
 	return command
 }
 
-func (p *PodmanProvider) connectPodmanAdditionalNetworks(name string, selection utils.ContainerNetworkSelection) error {
+func (p *PodmanProvider) connectPodmanAdditionalNetworks(name string, selection utils.ContainerNetworkSelection, contexts ...context.Context) error {
+	ctx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
 	if selection.RoutedVeth {
 		command, err := provider.RoutedIPv6VethAttachCommand(cliName, name, selection)
 		if err != nil {
 			return fmt.Errorf("构造隧道路由IPv6 veth命令失败: %w", err)
 		}
-		output, execErr := p.sshClient.Execute(command)
+		output, execErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, command)
 		if execErr == nil {
 			return nil
 		}
-		_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		diagnostics := p.collectCreateDiagnostics(name)
-		return fmt.Errorf("附加隧道路由IPv6 veth失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+		return fmt.Errorf("附加隧道路由IPv6 veth失败，保留容器供排障: %w; output: %s; diagnostics: %s",
 			execErr, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
 	}
 	for _, network := range selection.AdditionalNetworks {
@@ -607,13 +629,15 @@ func (p *PodmanProvider) connectPodmanAdditionalNetworks(name string, selection 
 			command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
 		}
 		command += fmt.Sprintf(" %s %s", shellSingleQuote(network), shellSingleQuote(name))
-		output, err := p.sshClient.Execute(command)
+		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, command)
 		if err == nil {
 			continue
 		}
-		_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		diagnostics := p.collectCreateDiagnostics(name)
-		return fmt.Errorf("附加隧道路由IPv6网络失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+		return fmt.Errorf("附加隧道路由IPv6网络失败，保留容器供排障: %w; output: %s; diagnostics: %s",
 			err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
 	}
 	if selection.ManualIPv6 {
@@ -621,11 +645,13 @@ func (p *PodmanProvider) connectPodmanAdditionalNetworks(name string, selection 
 		if selection.StaticIPv6 != "" {
 			helpCommand += fmt.Sprintf(" %s", shellSingleQuote(selection.StaticIPv6))
 		}
-		output, err := p.sshClient.Execute(helpCommand)
+		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, helpCommand)
 		if err != nil {
-			_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, shellSingleQuote(name)))
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			diagnostics := p.collectCreateDiagnostics(name)
-			return fmt.Errorf("附加手工路由IPv6失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+			return fmt.Errorf("附加手工路由IPv6失败，保留容器供排障: %w; output: %s; diagnostics: %s",
 				err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
 		}
 	}
