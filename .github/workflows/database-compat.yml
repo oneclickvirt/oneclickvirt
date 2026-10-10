@@ -26,7 +26,7 @@ jobs:
       matrix:
         image: ['mysql:8.0', 'mysql:8.4', 'mysql:9', 'mariadb:10.11', 'mariadb:11.4']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
